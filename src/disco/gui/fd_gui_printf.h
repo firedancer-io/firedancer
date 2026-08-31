@@ -8,6 +8,7 @@
    to a specific WebSocket client, or broadcast out to all clients. */
 
 void fd_gui_printf_version( fd_gui_t * gui );
+void fd_gui_printf_is_alpenglow( fd_gui_t * gui );
 void fd_gui_printf_cluster( fd_gui_t * gui );
 void fd_gui_printf_commit_hash( fd_gui_t * gui );
 void fd_gui_printf_identity_key( fd_gui_t * gui );
@@ -22,6 +23,7 @@ void fd_gui_printf_slot_caught_up( fd_gui_t * gui );
 void fd_gui_printf_skipped_history( fd_gui_t * gui, ulong epoch );
 void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui, ulong epoch );
 void fd_gui_printf_late_votes_history( fd_gui_t * gui );
+void fd_gui_printf_missed_vote_history( fd_gui_t * gui, ulong epoch );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_boot_progress( fd_gui_t * gui );
 void fd_gui_printf_snapshot_transfers( fd_gui_t * gui );
@@ -33,12 +35,15 @@ void fd_gui_printf_vote_balance( fd_gui_t * gui );
 void fd_gui_printf_vote_commission( fd_gui_t * gui );
 void fd_gui_printf_estimated_slot_duration_nanos( fd_gui_t * gui );
 void fd_gui_printf_root_slot( fd_gui_t * gui );
+void fd_gui_printf_finalized_slot( fd_gui_t * gui );
+void fd_gui_printf_notarized_slot( fd_gui_t * gui );
 void fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui );
 void fd_gui_printf_completed_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_tps( fd_gui_t * gui );
 void fd_gui_printf_shred_updates( fd_gui_t * gui, long after_ns, long before_ns );
 void fd_gui_printf_catch_up_history( fd_gui_t * gui );
+void fd_gui_printf_vote_slot( fd_gui_t * gui );
 void fd_gui_peers_printf_vote_slot( fd_gui_peers_ctx_t * peers );
 void fd_gui_printf_reset_slot( fd_gui_t * gui );
 void fd_gui_printf_storage_slot( fd_gui_t * gui );

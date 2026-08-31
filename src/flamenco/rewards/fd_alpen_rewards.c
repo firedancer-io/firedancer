@@ -6,9 +6,6 @@
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
-/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor-messages/src/reward_certificate.rs#L20 */
-#define NUM_SLOTS_FOR_REWARD (8UL)
-
 #define RANK_SET_WORDS ((AG_VAT_MAX+63UL)/64UL)
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL,             epoch_credits_bound );

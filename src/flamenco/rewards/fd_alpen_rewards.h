@@ -18,6 +18,9 @@
 #include "../runtime/fd_bank.h"
 #include "../../choreo/votor/ag_cert.h"
 
+/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor-messages/src/reward_certificate.rs#L20 */
+#define NUM_SLOTS_FOR_REWARD (8UL)
+
 struct fd_footer_certs {
   ag_cert_fast_final_t const * fast_final_cert;   /* fast BlockFinalizationCert */
   ag_cert_final_t const *      final_cert;        /* slow BlockFinalizationCert */

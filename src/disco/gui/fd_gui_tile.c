@@ -34,6 +34,7 @@
 #include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../discof/votor/fd_votor_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 
@@ -56,6 +57,7 @@
 #define IN_KIND_SNAPIN_MANIF  (18UL) /* firedancer only */
 #define IN_KIND_SNAPSV_OUT    (19UL) /* firedancer only */
 #define IN_KIND_DIAG          (20UL) /* firedancer only */
+#define IN_KIND_VOTOR_OUT     (21UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -126,6 +128,8 @@ typedef struct {
       fd_snapsv_msg_t snapsv_out;
       int             snapsv_eom;
     };
+
+    fd_votor_msg_t votor_out;
   } parsed;
 
   fd_http_server_t * gui_server;
@@ -169,7 +173,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  http_fp );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),    fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),        fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -188,7 +192,7 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_gui_set_identity( ctx->gui, ctx->keyswitch->bytes );
-    fd_gui_peers_handle_identity_change( ctx->peers );
+    if( FD_LIKELY( !ctx->gui->summary.is_alpenglow ) ) fd_gui_peers_handle_identity_change( ctx->peers );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
@@ -357,6 +361,11 @@ during_frag( fd_gui_ctx_t * ctx,
       ctx->parsed.snapsv_eom = fd_frag_meta_ctl_eom( ctl );
       break;
     }
+    case IN_KIND_VOTOR_OUT: {
+      if( FD_UNLIKELY( sz!=sizeof(fd_votor_msg_t) ) ) break;
+      fd_memcpy( &ctx->parsed.votor_out, src, sz );
+      break;
+    }
   }
 
   ctx->chunk = chunk;
@@ -391,7 +400,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         int txn_succeeded = msg->txn_exec->is_committable && !msg->txn_exec->is_fees_only && !msg->txn_exec->txn_err;
         if( FD_UNLIKELY( msg->txn_exec->vote.slot!=ULONG_MAX && txn_succeeded ) ) {
           int vote_acct_is_us = !ctx->gui->summary.has_vote_key || !memcmp( ctx->gui->summary.vote_key->uc, msg->txn_exec->vote.vote_acct->uc, sizeof(fd_pubkey_t) );
-          int is_us = vote_acct_is_us && !memcmp( ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) );
+          int is_us = !ctx->gui->summary.is_alpenglow && vote_acct_is_us && !memcmp( ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) );
           fd_gui_peers_handle_vote( ctx->peers,
                                     msg->txn_exec->vote.vote_acct,
                                     msg->txn_exec->vote.slot,
@@ -406,11 +415,27 @@ after_frag( fd_gui_ctx_t *      ctx,
 
       break;
     }
+    case IN_KIND_VOTOR_OUT: {
+      if( FD_UNLIKELY( sz!=sizeof(fd_votor_msg_t) ) ) return;
+
+      fd_votor_msg_t const * msg = &ctx->parsed.votor_out;
+
+      switch( sig ) {
+        case FD_VOTOR_SIG_NOTAR:          fd_gui_handle_ag_notarized( ctx->gui, msg->notar.slot,          &msg->notar.block_id,          FD_GUI_AG_NOTAR_REGULAR  ); break;
+        case FD_VOTOR_SIG_NOTAR_FALLBACK: fd_gui_handle_ag_notarized( ctx->gui, msg->notar_fallback.slot, &msg->notar_fallback.block_id, FD_GUI_AG_NOTAR_FALLBACK ); break;
+        case FD_VOTOR_SIG_SKIP:           fd_gui_handle_ag_skip_cert( ctx->gui, msg->skip.slot );                                     break;
+        case FD_VOTOR_SIG_FAST_FINAL:     fd_gui_handle_ag_finalized( ctx->gui, msg->fast_final.slot,     &msg->fast_final.block_id,     FD_GUI_AG_FINAL_FAST     ); break;
+        case FD_VOTOR_SIG_FINAL:          fd_gui_handle_ag_finalized( ctx->gui, msg->final.slot,          &msg->final.block_id,          FD_GUI_AG_FINAL_SLOW     ); break;
+        case FD_VOTOR_SIG_LEADER:         fd_gui_handle_ag_leader( ctx->gui, msg->leader.parent_slot );                                break;
+        default:                                                                                                                      break;
+      }
+      break;
+    }
     case IN_KIND_REPLAY_OUT: {
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
         fd_replay_slot_completed_t const * slot_completed =  (fd_replay_slot_completed_t const *)src;
 
-        fd_gui_peers_update_delinquency( ctx->peers, fd_clock_tile_now( ctx->clock ) );
+        if( FD_LIKELY( !ctx->gui->summary.is_alpenglow ) ) fd_gui_peers_update_delinquency( ctx->peers, fd_clock_tile_now( ctx->clock ) );
 
         fd_gui_handle_replay_update( ctx->gui, slot_completed, ctx->peers->slot_voted, fd_clock_tile_now( ctx->clock ) );
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
@@ -773,7 +798,7 @@ privileged_init( fd_topo_t const *      topo,
   http_param.treap_seed = ctx->seed;
   fd_http_server_t * _gui = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( http_param ) );
                      FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
-                     FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt )                     );
+                     FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots ) );
   void * _db       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
 
   fd_http_server_callbacks_t gui_callbacks = {
@@ -825,7 +850,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t )                                    );
                        FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( http_param )                    );
   void * _peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt) );
-  void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt )                     );
+  void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots ) );
                        FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
 
@@ -895,10 +920,7 @@ unprivileged_init( fd_topo_t const *      topo,
     off += sz;
   }
 
-  /* The backtest topology has no repair tile (the backt tile stands in
-     for repair and tower), but it is still the full Firedancer client. */
-  ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "repair", 0UL ) ||
-                        ULONG_MAX!=fd_topo_find_tile( topo, "backt",  0UL );
+  ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "replay", 0UL );
   ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snapct", 0UL );
 
   fd_clock_tile_init( ctx->clock );
@@ -917,7 +939,7 @@ unprivileged_init( fd_topo_t const *      topo,
     accdb_shmem = fd_accdb_shmem_join( accdb_shmem_raw );
     FD_TEST( accdb_shmem );
   }
-  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
+  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, tile->gui.is_alpenglow, tile->gui.max_live_slots, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
   FD_TEST( ctx->db );
 
@@ -960,6 +982,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "execrp_replay" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else if( FD_LIKELY( !strcmp( link->name, "diag_gui"       ) ) ) ctx->in_kind[ i ] = IN_KIND_DIAG;
+    else if( FD_LIKELY( !strcmp( link->name, "votor_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR_OUT;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "execle_poh" ) ) ) {

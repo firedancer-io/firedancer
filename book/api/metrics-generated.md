@@ -1017,6 +1017,7 @@
 | <span class="metrics-name">replay_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Our active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Total cluster active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;epoch_&#8203;credits</span> | gauge | Our vote account epoch credits at the optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;vote_&#8203;slot_&#8203;last_&#8203;rewarded</span> | gauge | Latest slot for which this validator's vote appears in a reward certificate. ULONG_MAX if no participation has been observed, and always ULONG_MAX under Tower |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;acquired</span> | counter | Store slock acquires for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;released</span> | counter | Store slock releases for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;wait_&#8203;seconds</span> | histogram | Time spent waiting to acquire the slock for query |

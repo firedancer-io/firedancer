@@ -22,11 +22,14 @@ fd_gui_align( void ) {
 }
 
 ulong
-fd_gui_footprint( ulong tile_cnt ) {
+fd_gui_footprint( ulong tile_cnt,
+                  ulong max_live_slots ) {
   FD_TEST( tile_cnt && tile_cnt <=FD_DIAG_SYSTEM_TILE_MAX );
+  FD_TEST( max_live_slots && max_live_slots<=ULONG_MAX/sizeof(fd_gui_ag_slot_t) );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),            sizeof(fd_gui_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_ag_slot_t), max_live_slots*sizeof(fd_gui_ag_slot_t) );
   l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(), fd_gui_rate_deque_footprint() ); /* ingress_maxq */
   l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(), fd_gui_rate_deque_footprint() ); /* egress_maxq  */
   l = FD_LAYOUT_APPEND( l, fd_gui_hist_align(),       fd_gui_hist_footprint() );
@@ -59,7 +62,7 @@ fd_gui_build_tile_order( fd_gui_t * gui ) {
 
   char const * const tile_display_order[] = {
     "gossvf", "gossip", "snapct", "snapld", "snapdc", "snapin", "snapwr",
-    "net", "shred", "repair", "replay", "execrp", "tower", "txsend", "sign",
+    "net", "shred", "repair", "rotor", "replay", "execrp", "tower", "votor", "txsend", "sign",
     "quic", "verify", "dedup", "pack", "execle", "poh"
   };
 
@@ -89,6 +92,8 @@ fd_gui_new( void *                   shmem,
             int                      has_vote_key,
             uchar const *            vote_key,
             int                      is_full_client,
+            int                      is_alpenglow,
+            ulong                    max_live_slots,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,
@@ -120,6 +125,7 @@ fd_gui_new( void *                   shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_gui_t * gui              = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),            sizeof(fd_gui_t) );
+  void *     ag_slot_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_ag_slot_t), max_live_slots*sizeof(fd_gui_ag_slot_t) );
   void *     ingress_maxq_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(), fd_gui_rate_deque_footprint() );
   void *     egress_maxq_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(), fd_gui_rate_deque_footprint() );
   void *     hist_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_hist_align(),       fd_gui_hist_footprint() );
@@ -181,6 +187,7 @@ fd_gui_new( void *                   shmem,
   }
 
   gui->summary.is_full_client                = is_full_client;
+  gui->summary.is_alpenglow                  = is_alpenglow;
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
   fd_cstr_ncpy( gui->summary.accounts_database_path, accounts_database_path, sizeof(gui->summary.accounts_database_path) );
@@ -238,6 +245,8 @@ fd_gui_new( void *                   shmem,
   fd_gui_build_tile_order( gui );
 
   gui->summary.slot_rooted                   = ULONG_MAX;
+  gui->summary.slot_finalized                = ULONG_MAX;
+  gui->summary.slot_notarized                = ULONG_MAX;
   gui->summary.slot_optimistically_confirmed = ULONG_MAX;
   gui->summary.slot_estimated                = ULONG_MAX;
   gui->summary.slot_caught_up                = ULONG_MAX;
@@ -245,7 +254,16 @@ fd_gui_new( void *                   shmem,
   gui->summary.slot_turbine                  = ULONG_MAX;
   gui->summary.slot_reset                    = ULONG_MAX;
   gui->summary.slot_storage                  = ULONG_MAX;
+  gui->summary.slot_voted                    = ULONG_MAX;
   gui->summary.active_fork_cnt               = 1UL;
+
+  gui->ag.slot_cnt = max_live_slots;
+  gui->ag.slot     = (fd_gui_ag_slot_t *)ag_slot_mem;
+  memset( gui->ag.slot, 0, max_live_slots*sizeof(fd_gui_ag_slot_t) );
+  for( ulong i=0UL; i<gui->ag.slot_cnt; i++ ) {
+    gui->ag.slot[ i ].slot     = ULONG_MAX;
+    gui->ag.slot[ i ].bank_seq = ULONG_MAX;
+  }
 
   memset( gui->summary.skip_rate, 0, sizeof(gui->summary.skip_rate) );
   gui->summary.skip_rate[ 0 ].epoch = ULONG_MAX;
@@ -395,6 +413,7 @@ fd_gui_new( void *                   shmem,
   gui->epoch.stored_epoch_cnt   = 0UL;
 
   gui->shreds.leader_shred_cnt        = 0UL;
+  gui->shreds.leader_shred_slot       = ULONG_MAX;
   gui->shreds.broadcast_watermark_ns  = now;
   gui->summary.catch_up_repair_sz     = 0UL;
   gui->summary.catch_up_turbine_sz    = 0UL;
@@ -420,13 +439,21 @@ fd_gui_set_identity( fd_gui_t *    gui,
   if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
   gui->landed_vote_cnt = 0UL;
 
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) gui->summary.slot_voted = ULONG_MAX;
+
   fd_gui_printf_identity_key( gui );
   fd_http_server_ws_broadcast( gui->http );
-  fd_gui_printf_vote_distance( gui );
-  fd_http_server_ws_broadcast( gui->http );
+  if( FD_LIKELY( !gui->summary.is_alpenglow ) ) {
+    fd_gui_printf_vote_distance( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  } else {
+    fd_gui_printf_vote_slot( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
   fd_gui_printf_vote_state( gui );
   fd_http_server_ws_broadcast( gui->http );
-  fd_gui_printf_late_votes_history( gui );
+  if( FD_LIKELY( !gui->summary.is_alpenglow ) ) fd_gui_printf_late_votes_history ( gui );
+  else                                          fd_gui_printf_missed_vote_history( gui, gui->epoch.current_epoch );
   fd_http_server_ws_broadcast( gui->http );
 }
 
@@ -473,6 +500,9 @@ void
 fd_gui_ws_open( fd_gui_t * gui,
                 ulong      ws_conn_id,
                 long now ) {
+  fd_gui_printf_is_alpenglow( gui );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+
   void (* printers[] )( fd_gui_t * gui ) = {
     fd_gui_printf_boot_progress,
     fd_gui_printf_version,
@@ -510,7 +540,17 @@ fd_gui_ws_open( fd_gui_t * gui,
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
   for( ulong i=0UL; i<printers_len; i++ ) {
+    if( FD_UNLIKELY( gui->summary.is_alpenglow && (printers[ i ]==fd_gui_printf_vote_distance || printers[ i ]==fd_gui_printf_optimistically_confirmed_slot || printers[ i ]==fd_gui_printf_late_votes_history ) ) ) continue;
     printers[ i ]( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
+
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
+    fd_gui_printf_finalized_slot( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    fd_gui_printf_notarized_slot( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    fd_gui_printf_vote_slot( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
@@ -548,6 +588,11 @@ fd_gui_ws_open( fd_gui_t * gui,
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     fd_gui_printf_skipped_history_cluster( gui, gui->epoch.current_epoch );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+
+    if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
+      fd_gui_printf_missed_vote_history( gui, gui->epoch.current_epoch );
+      FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    }
   }
 
   /* rebroadcast 10s of historical shred data */
@@ -720,6 +765,7 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
 static void
 fd_gui_network_stats_snap_egress( fd_topo_t const *        topo,
                                   char const *             tile_name,
+                                  int                      is_alpenglow,
                                   fd_gui_network_stats_t * cur ) {
   ulong tile_cnt = fd_topo_tile_name_cnt( topo, tile_name );
   for( ulong i=0UL; i<tile_cnt; i++ ) {
@@ -733,6 +779,7 @@ fd_gui_network_stats_snap_egress( fd_topo_t const *        topo,
       if( FD_UNLIKELY( !strcmp( link_name, "repair_net" ) ) ) cur->out.repair  += bytes;
       if( FD_UNLIKELY( !strcmp( link_name, "rserve_net" ) ) ) cur->out.rserve  += bytes;
       if( FD_UNLIKELY( !strcmp( link_name, "txsend_net" ) ) ) cur->out.tpu     += bytes;
+      if( FD_UNLIKELY( is_alpenglow && !strcmp( link_name, "votor_net" ) ) ) cur->out.votor += bytes;
     }
   }
 }
@@ -754,11 +801,23 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
   cur->out.repair  = 0UL;
   cur->out.rserve  = 0UL;
   cur->out.tpu     = 0UL;
-  fd_gui_network_stats_snap_egress( topo, "net",  cur );
-  fd_gui_network_stats_snap_egress( topo, "mlx5", cur );
+  cur->out.votor   = 0UL;
+  cur->in.votor    = 0UL;
+  fd_gui_network_stats_snap_egress( topo, "net",  gui->summary.is_alpenglow, cur );
+  fd_gui_network_stats_snap_egress( topo, "mlx5", gui->summary.is_alpenglow, cur );
+
+  ulong votor_tile_idx = fd_topo_find_tile( topo, "votor", 0UL );
+  if( FD_UNLIKELY( gui->summary.is_alpenglow && votor_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * votor = &topo->tiles[ votor_tile_idx ];
+    for( ulong i=0UL; i<votor->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !strcmp( topo->links[ votor->in_link_id[ i ] ].name, "net_votor" ) ) ) {
+          cur->in.votor += fd_metrics_link_in( votor->metrics, i )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
+      }
+    }
+  }
 
   cur->in.repair = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_REPAIR_RX_BYTES ) );
-  ulong repair_tile_idx = fd_topo_find_tile( topo, "repair", 0UL );
+  ulong repair_tile_idx = fd_topo_find_tile( topo, gui->summary.is_alpenglow ? "rotor" : "repair", 0UL );
   if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
     fd_topo_tile_t const * repair = &topo->tiles[ repair_tile_idx ];
 
@@ -830,6 +889,7 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
   d_in[ 3 ] = fd_ulong_sat_sub( cur->in.repair,  prev->in.repair  );
   d_in[ 4 ] = fd_ulong_sat_sub( cur->in.rserve,  prev->in.rserve  );
   d_in[ 5 ] = fd_ulong_sat_sub( cur->in.metric,  prev->in.metric  );
+  d_in[ 6 ] = fd_ulong_sat_sub( cur->in.votor,   prev->in.votor   ); /* 0 if !gui->summary.is_alpenglow */
 
   ulong d_out[ FD_GUI_NET_PROTO_CNT ];
   d_out[ 0 ] = fd_ulong_sat_sub( cur->out.turbine, prev->out.turbine );
@@ -838,6 +898,7 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
   d_out[ 3 ] = fd_ulong_sat_sub( cur->out.repair,  prev->out.repair  );
   d_out[ 4 ] = fd_ulong_sat_sub( cur->out.rserve,  prev->out.rserve  );
   d_out[ 5 ] = fd_ulong_sat_sub( cur->out.metric,  prev->out.metric  );
+  d_out[ 6 ] = fd_ulong_sat_sub( cur->out.votor,   prev->out.votor   );  /* 0 if !gui->summary.is_alpenglow */
 
   /* Compute per-protocol instantaneous bytes/sec rate and feed the EMA. */
   long dt_ns = now - gui->summary.net_rate_prev_ts;
@@ -1721,6 +1782,27 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now ) {
   }
 }
 
+static void
+fd_gui_sample_repair_slot( fd_gui_t * gui, long now ) {
+  ulong slot;
+
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
+    ulong rotor_tile_idx = fd_topo_find_tile( gui->topo, "rotor", 0UL );
+    if( FD_UNLIKELY( rotor_tile_idx==ULONG_MAX ) ) return;
+    fd_topo_tile_t const * rotor = &gui->topo->tiles[ rotor_tile_idx ];
+    volatile ulong const * rotor_metrics = fd_metrics_tile( rotor->metrics );
+    slot = rotor_metrics[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_REPAIRED ) ];
+  } else {
+    ulong repair_tile_idx = fd_topo_find_tile( gui->topo, "repair", 0UL );
+    if( FD_UNLIKELY( repair_tile_idx==ULONG_MAX ) ) return;
+    fd_topo_tile_t const * repair = &gui->topo->tiles[ repair_tile_idx ];
+    volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
+    slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
+  }
+
+  fd_gui_handle_repair_slot( gui, slot, now );
+}
+
 void
 fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long now ) {
   fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, now, now, &(fd_gui_slot_history_shred_event_t){ .slot = (uint)slot, .timestamp = now, .shred_idx = (ushort)shred_idx, .event = FD_GUI_SLOT_SHRED_REPAIR_REQUEST } );
@@ -1863,16 +1945,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
        catchup progress bar look complete while also keeping the
        overview slots vis correct.  TODO: do this properly using frags
        sent over a link */
-    if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
-      /* Backtest topologies have no repair tile. */
-      ulong repair_tile_idx = fd_topo_find_tile( gui->topo, "repair", 0UL );
-      if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
-        fd_topo_tile_t const * repair = &gui->topo->tiles[ repair_tile_idx ];
-        volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
-        ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
-        fd_gui_handle_repair_slot( gui, slot, now );
-      }
-    }
+    if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) fd_gui_sample_repair_slot( gui, now );
 
     if( FD_UNLIKELY( gui->snapsv.pending_cnt ) ) {
       fd_gui_printf_snapshot_transfers( gui );
@@ -1926,7 +1999,8 @@ fd_gui_request_slot( fd_gui_t *    gui,
 
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = fd_gui_slot_get_canon_safe( gui, _slot );
-  if( FD_UNLIKELY( !slot || slot->skip==FD_GUI_SKIP_STATUS_UNKNOWN ) ) {
+  int known = slot && ( slot->skip!=FD_GUI_SKIP_STATUS_UNKNOWN || fd_gui_ag_slot_is_skip_notarized( gui, _slot ) );
+  if( FD_UNLIKELY( !known ) ) {
     fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
@@ -1968,7 +2042,8 @@ fd_gui_request_slot_detailed( fd_gui_t *    gui,
 
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = fd_gui_slot_get_canon_safe( gui, _slot );
-  if( FD_UNLIKELY( !slot || slot->skip==FD_GUI_SKIP_STATUS_UNKNOWN ) ) {
+  int known = slot && ( slot->skip!=FD_GUI_SKIP_STATUS_UNKNOWN || fd_gui_ag_slot_is_skip_notarized( gui, _slot ) );
+  if( FD_UNLIKELY( !known ) ) {
     fd_gui_printf_null_query_response( gui->http, "slot", "query_detailed", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
@@ -1981,10 +2056,10 @@ fd_gui_request_slot_detailed( fd_gui_t *    gui,
 
 static inline ulong
 fd_gui_slot_duration( fd_gui_t * gui, fd_gui_slot_t const * cur ) {
-  if( FD_UNLIKELY( cur->skip==FD_GUI_SKIP_STATUS_SKIPPED || cur->completed_time==LONG_MAX ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( cur->skip==FD_GUI_SKIP_STATUS_FINALIZED || cur->completed_time==LONG_MAX ) ) return ULONG_MAX;
   fd_gui_slot_t const * prev = fd_gui_slot_get_any( gui, cur->slot-1UL );
   long parent_completed_time = LONG_MAX;
-  if( FD_LIKELY( prev && prev->skip!=FD_GUI_SKIP_STATUS_SKIPPED ) ) parent_completed_time = prev->completed_time;
+  if( FD_LIKELY( prev && prev->skip!=FD_GUI_SKIP_STATUS_FINALIZED ) ) parent_completed_time = prev->completed_time;
   if( FD_UNLIKELY( parent_completed_time==LONG_MAX ) ) return ULONG_MAX;
 
   return (ulong)(cur->completed_time - parent_completed_time);
@@ -2013,7 +2088,7 @@ fd_gui_try_insert_ranking( fd_gui_t               * gui,
     fd_gui_slot_ranking_sort_insert( rankings->FD_CONCAT2(smallest_, ranking_name), FD_GUI_SLOT_RANKINGS_SZ+1UL ); \
   } while (0)
 
-    if( slot->skip==FD_GUI_SKIP_STATUS_SKIPPED ) {
+    if( slot->skip==FD_GUI_SKIP_STATUS_FINALIZED ) {
       TRY_INSERT_SLOT( skipped, slot->slot, slot->slot );
       return;
     }
@@ -2243,7 +2318,7 @@ slot_get_skip_status( fd_gui_t * gui, ulong _slot ) {
     ulong parent_bank_seq = cmeta->parent_bank_seq;
     if( FD_UNLIKELY( parent_slot==ULONG_MAX ) ) return FD_GUI_SKIP_STATUS_UNKNOWN; /* Couldn't find _slot */
     if( FD_LIKELY( parent_slot==_slot ) ) return FD_GUI_SKIP_STATUS_NOT_SKIPPED;   /* _slot is on this lineage */
-    if( FD_LIKELY( parent_slot< _slot ) ) return FD_GUI_SKIP_STATUS_SKIPPED;       /* lineage steps over _slot: skipped */
+    if( FD_LIKELY( parent_slot< _slot ) ) return FD_GUI_SKIP_STATUS_FINALIZED;     /* lineage steps over _slot: skipped */
     cur_slot     = parent_slot;
     cur_bank_seq = parent_bank_seq;
   }
@@ -2279,12 +2354,14 @@ fd_gui_slot_get_canon_safe( fd_gui_t * gui, ulong _slot ) {
       .tips             = ULONG_MAX,
       .shred_cnt        = UINT_MAX,
       .vote_latency_exact = FD_GUI_VOTE_LATENCY_NOT_VOTED,
-      .is_voter         = 0,
+      .is_voter         = FD_GUI_IS_VOTER_UNKNOWN,
+      .vote_rewarded    = fd_gui_slot_vote_rewarded_state( gui, _slot ),
       .vote_success     = UINT_MAX,
       .vote_failed      = UINT_MAX,
       .nonvote_success  = UINT_MAX,
       .nonvote_failed   = UINT_MAX,
     };
+    fd_gui_slot_set_voter_state( gui->skipped_scratch, fd_gui_slot_voter_state( gui, _slot ) );
     return gui->skipped_scratch;
   }
 }
@@ -2330,8 +2407,11 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
     memset( epoch->rankings,    (int)(UINT_MAX), sizeof(epoch->rankings)    );
     memset( epoch->my_rankings, (int)(UINT_MAX), sizeof(epoch->my_rankings) );
     memset( epoch->latency_exact, (int)FD_GUI_VOTE_LATENCY_NOT_VOTED, sizeof(epoch->latency_exact) );
-    memset( epoch->is_voter,      0,                                 sizeof(epoch->is_voter)      );
+    uchar is_voter_default = FD_GUI_IS_VOTER_NO;
+    if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) is_voter_default = FD_GUI_IS_VOTER_UNKNOWN;
+    memset( epoch->is_voter,      is_voter_default,                  sizeof(epoch->is_voter)      );
     memset( epoch->skipped,       0,                                 sizeof(epoch->skipped)       );
+    memset( epoch->vote_rewarded, FD_GUI_VOTE_REWARDED_UNKNOWN,      sizeof(epoch->vote_rewarded) );
     epoch->epoch_schedule = epoch_info->epoch_schedule;
     epoch->pub_cnt        = lsched->pub_cnt;
     epoch->stakes_cnt     = epoch_info->staked_vote_cnt;
@@ -2352,7 +2432,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
   for( ulong i=0UL; i<fd_ulong_min( fd_ulong_sat_sub( epoch_info->start_slot, 1UL ), MAX_SLOTS_PER_EPOCH ); i++ ) {
     fd_gui_slot_t const * slot = fd_gui_slot_get_any( gui, epoch_info->start_slot-i );
     if( FD_UNLIKELY( !slot ) ) break;
-    else if( FD_UNLIKELY( slot->skip==FD_GUI_SKIP_STATUS_SKIPPED ) ) continue;
+    else if( FD_UNLIKELY( slot->skip==FD_GUI_SKIP_STATUS_FINALIZED ) ) continue;
     epoch->start_time = slot->parent_completed_time;
     break;
   }
@@ -2417,6 +2497,12 @@ fd_gui_handle_leader_fec( fd_gui_t * gui,
                           int        is_end_of_slot,
                           long       tsorig,
                           long       now ) {
+  /* Abandoned block detected */
+  if( FD_UNLIKELY( gui->summary.is_alpenglow && gui->shreds.leader_shred_slot!=slot ) ) {
+    gui->shreds.leader_shred_cnt  = 0UL;
+    gui->shreds.leader_shred_slot = slot;
+  }
+
   for( ulong i=gui->shreds.leader_shred_cnt; i<gui->shreds.leader_shred_cnt+fec_shred_cnt; i++ ) {
     fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, now, tsorig, &(fd_gui_slot_history_shred_event_t){ .slot = (uint)slot, .timestamp = tsorig, .shred_idx = (ushort)i, .event = FD_GUI_SLOT_SHRED_SHRED_PUBLISHED } );
   }
@@ -2523,6 +2609,10 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
 
     c->level = FD_GUI_SLOT_LEVEL_ROOTED;
 
+    if( FD_UNLIKELY( gui->summary.is_alpenglow && c->finalization_kind==FD_GUI_AG_FINAL_NONE ) ) {
+      c->finalization_kind = FD_GUI_AG_FINAL_IMPLICIT;
+    }
+
     fd_gui_printf_slot( gui, cslot, c );
     fd_http_server_ws_broadcast( gui->http );
 
@@ -2548,6 +2638,8 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
     if( FD_LIKELY( epoch ) ) {
       ulong cidx = cslot - epoch->start_slot;
       if( FD_LIKELY( cidx<epoch->slot_cnt ) ) {
+        if( FD_UNLIKELY( gui->summary.is_alpenglow && epoch->is_voter[ cidx ]!=FD_GUI_IS_VOTER_UNKNOWN ) )
+          fd_gui_slot_set_voter_state( c, epoch->is_voter[ cidx ] );
         epoch->is_voter[ cidx ] = c->is_voter;
 
         /* This slot is on the rooted fork, so it was not skipped. */
@@ -2571,7 +2663,7 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
       if( FD_UNLIKELY( prev_rooted==ULONG_MAX ) ) continue;
 
       fd_gui_slot_t const * skipped = fd_gui_slot_get_canon_safe( gui, s );
-      if( FD_UNLIKELY( skipped->skip!=FD_GUI_SKIP_STATUS_SKIPPED ) ) continue;
+      if( FD_UNLIKELY( skipped->skip!=FD_GUI_SKIP_STATUS_FINALIZED ) ) continue;
       fd_gui_printf_slot( gui, s, skipped );
       fd_http_server_ws_broadcast( gui->http );
     }
@@ -2588,12 +2680,221 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
   gui->landed_vote_cnt = w;
 }
 
+static fd_gui_ag_slot_t *
+fd_gui_ag_slot_entry( fd_gui_t * gui,
+                      ulong      slot ) {
+  /* TODO: correctly handle equivocating slots */
+  fd_gui_ag_slot_t * ent = &gui->ag.slot[ slot % gui->ag.slot_cnt ];
+  if( FD_UNLIKELY( ent->slot!=slot ) ) {
+    ent->slot              = slot;
+    memset( ent->block_id.uc, 0, sizeof(fd_hash_t) );
+    ent->bank_seq          = ULONG_MAX;
+    ent->notarization_kind = FD_GUI_AG_NOTAR_NONE;
+    ent->finalization_kind = FD_GUI_AG_FINAL_NONE;
+    ent->skip              = FD_GUI_SKIP_STATUS_UNKNOWN;
+  }
+  return ent;
+}
+
+static int
+fd_gui_ag_slot_has_proof( fd_gui_ag_slot_t const * ent ) {
+  return ent->notarization_kind!=FD_GUI_AG_NOTAR_NONE || ent->finalization_kind!=FD_GUI_AG_FINAL_NONE;
+}
+
+static fd_gui_ag_slot_t *
+fd_gui_ag_slot_for_certificate( fd_gui_t *        gui,
+                                ulong             slot,
+                                fd_hash_t const * block_id ) {
+  fd_gui_ag_slot_t * ent = fd_gui_ag_slot_entry( gui, slot );
+  if( FD_UNLIKELY( !fd_hash_eq( &ent->block_id, block_id ) ) ) {
+    ent->block_id          = *block_id;
+    ent->bank_seq          = ULONG_MAX;
+    ent->notarization_kind = FD_GUI_AG_NOTAR_NONE;
+    ent->finalization_kind = FD_GUI_AG_FINAL_NONE;
+  }
+  return ent;
+}
+
+static void
+fd_gui_ag_slot_publish( fd_gui_t *               gui,
+                        fd_gui_ag_slot_t const * ent ) {
+  if( FD_UNLIKELY( ent->bank_seq==ULONG_MAX ) ) return; /* not replayed yet, applied when it is */
+
+  fd_gui_slot_t * slot = fd_gui_slot_get( gui, ent->slot, ent->bank_seq );
+  if( FD_UNLIKELY( !slot ) ) return;
+
+  uchar notar = fd_uchar_if( ent->notarization_kind>slot->notarization_kind, ent->notarization_kind, slot->notarization_kind );
+  uchar final = fd_uchar_if( ent->finalization_kind>slot->finalization_kind, ent->finalization_kind, slot->finalization_kind );
+  uchar level = slot->level;
+
+  /* Increase confirmation, but don't root yet since that's handled by
+     fd_gui_handle_root_advanced. */
+  if( FD_LIKELY( notar!=FD_GUI_AG_NOTAR_NONE || final!=FD_GUI_AG_FINAL_NONE ) ) {
+    level = fd_uchar_if( level<FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED, FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED, level );
+  }
+
+  if( FD_LIKELY( notar==slot->notarization_kind && final==slot->finalization_kind && level==slot->level ) ) return;
+
+  slot->notarization_kind = notar;
+  slot->finalization_kind = final;
+  slot->level             = level;
+
+  fd_gui_slot_t * canon = fd_gui_slot_get_canon( gui, ent->slot );
+  fd_gui_printf_slot( gui, ent->slot, fd_ptr_if( !!canon, canon, slot ) );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+static void
+fd_gui_ag_update_notarized_slot( fd_gui_t * gui,
+                                 ulong      slot ) {
+  if( FD_LIKELY( gui->summary.slot_notarized!=ULONG_MAX && slot<=gui->summary.slot_notarized ) ) return;
+
+  gui->summary.slot_notarized = slot;
+  fd_gui_printf_notarized_slot( gui );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+void
+fd_gui_ag_register_block( fd_gui_t *        gui,
+                          ulong             slot,
+                          fd_hash_t const * block_id,
+                          ulong             bank_seq ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow || !block_id ) ) return;
+
+  fd_gui_ag_slot_t * ent = fd_gui_ag_slot_entry( gui, slot );
+  if( FD_UNLIKELY( fd_gui_ag_slot_has_proof( ent ) && !fd_hash_eq( &ent->block_id, block_id ) ) ) return;
+
+  ent->block_id = *block_id;
+  ent->bank_seq = bank_seq;
+  fd_gui_ag_slot_publish( gui, ent );
+}
+
+void
+fd_gui_handle_ag_notarized( fd_gui_t *        gui,
+                            ulong             slot,
+                            fd_hash_t const * block_id,
+                            uchar             notarization_kind ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow || !block_id ) ) return;
+
+  fd_gui_ag_slot_t * ent = fd_gui_ag_slot_for_certificate( gui, slot, block_id );
+  ent->notarization_kind = fd_uchar_if( notarization_kind>ent->notarization_kind, notarization_kind, ent->notarization_kind );
+  fd_gui_ag_slot_publish( gui, ent );
+  fd_gui_ag_update_notarized_slot( gui, slot );
+}
+
+void
+fd_gui_handle_ag_finalized( fd_gui_t *        gui,
+                            ulong             slot,
+                            fd_hash_t const * block_id,
+                            uchar             finalization_kind ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow || !block_id ) ) return;
+
+  fd_gui_ag_slot_t * ent = fd_gui_ag_slot_for_certificate( gui, slot, block_id );
+  ent->finalization_kind = fd_uchar_if( finalization_kind>ent->finalization_kind, finalization_kind, ent->finalization_kind );
+
+  /* Finalization implies regular notarization. */
+  ent->notarization_kind = FD_GUI_AG_NOTAR_REGULAR;
+
+  fd_gui_ag_slot_publish( gui, ent );
+  fd_gui_ag_update_notarized_slot( gui, slot );
+
+  if( FD_LIKELY( gui->summary.slot_finalized==ULONG_MAX || slot>gui->summary.slot_finalized ) ) {
+    gui->summary.slot_finalized = slot;
+    fd_gui_printf_finalized_slot( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+}
+
+void
+fd_gui_handle_ag_skip_cert( fd_gui_t * gui,
+                            ulong      slot ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
+
+  fd_gui_ag_slot_t * ent = fd_gui_ag_slot_entry( gui, slot );
+  if( FD_LIKELY( ent->skip>=FD_GUI_SKIP_STATUS_NOTARIZED ) ) return;
+  ent->skip = FD_GUI_SKIP_STATUS_NOTARIZED;
+
+  fd_gui_printf_slot( gui, slot, fd_gui_slot_get_canon_safe( gui, slot ) );
+  fd_http_server_ws_broadcast( gui->http );
+  fd_gui_ag_update_notarized_slot( gui, slot );
+}
+
+void
+fd_gui_handle_ag_leader( fd_gui_t * gui,
+                         ulong      parent_slot ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
+  if( FD_UNLIKELY( gui->summary.slot_reset==parent_slot ) ) return;
+
+  gui->summary.slot_reset = parent_slot;
+  fd_gui_printf_reset_slot( gui );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+int
+fd_gui_ag_slot_is_skip_notarized( fd_gui_t const * gui,
+                                  ulong            slot ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow || slot==ULONG_MAX ) ) return 0;
+
+  fd_gui_ag_slot_t const * ent = &gui->ag.slot[ slot % gui->ag.slot_cnt ];
+  return ent->slot==slot && ent->skip>=FD_GUI_SKIP_STATUS_NOTARIZED;
+}
+
+static void
+fd_gui_handle_ag_reward( fd_gui_t * gui,
+                         ulong      slot,
+                         int        voted,
+                         ushort     voted_rank ) {
+  if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
+
+  uchar vote_rewarded = fd_uchar_if( !!voted, FD_GUI_VOTE_REWARDED_YES, FD_GUI_VOTE_REWARDED_NO );
+  uchar is_voter = fd_uchar_if( voted_rank!=USHORT_MAX, FD_GUI_IS_VOTER_YES, FD_GUI_IS_VOTER_NO );
+
+  int epoch_changed = 0;
+  fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+  if( FD_LIKELY( epoch ) ) {
+    ulong idx = slot - epoch->start_slot;
+    if( FD_LIKELY( idx<epoch->slot_cnt && ( epoch->vote_rewarded[ idx ]!=vote_rewarded || epoch->is_voter[ idx ]!=is_voter ) ) ) {
+      int was_missed = epoch->vote_rewarded[ idx ]==FD_GUI_VOTE_REWARDED_NO && epoch->is_voter[ idx ]==FD_GUI_IS_VOTER_YES;
+      epoch_changed = 1;
+      epoch->vote_rewarded[ idx ] = vote_rewarded;
+      epoch->is_voter[ idx ]      = is_voter;
+      int is_missed = vote_rewarded==FD_GUI_VOTE_REWARDED_NO && is_voter==FD_GUI_IS_VOTER_YES;
+
+      if( FD_UNLIKELY( was_missed!=is_missed ) ) {
+        fd_gui_printf_missed_vote_history( gui, epoch->epoch );
+        fd_http_server_ws_broadcast( gui->http );
+      }
+    }
+  }
+
+  fd_gui_slot_t * rec = fd_gui_slot_get_canon( gui, slot );
+  if( FD_UNLIKELY( !rec ) ) {
+    if( FD_UNLIKELY( epoch_changed ) ) {
+      fd_gui_slot_t const * skipped = fd_gui_slot_get_canon_safe( gui, slot );
+      if( FD_LIKELY( skipped->skip==FD_GUI_SKIP_STATUS_FINALIZED || fd_gui_ag_slot_is_skip_notarized( gui, slot ) ) ) {
+        fd_gui_printf_slot( gui, slot, skipped );
+        fd_http_server_ws_broadcast( gui->http );
+      }
+    }
+    return;
+  }
+
+  int changed = rec->vote_rewarded!=vote_rewarded || rec->is_voter!=is_voter || epoch_changed;
+  rec->vote_rewarded = vote_rewarded;
+  fd_gui_slot_set_voter_state( rec, is_voter );
+  if( FD_UNLIKELY( !changed ) ) return;
+  fd_gui_printf_slot( gui, slot, rec );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
 void
 fd_gui_handle_oc_advanced( fd_gui_t * gui,
                            ulong      _slot,
                            ulong      bank_seq,
                            long       now ) {
   (void)now;
+
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) return;
 
   fd_gui_slot_t * live_slot = fd_gui_slot_get( gui, _slot, bank_seq );
   if( FD_UNLIKELY( !live_slot ) ) return;
@@ -2631,7 +2932,7 @@ fd_gui_handle_oc_advanced( fd_gui_t * gui,
         if( FD_UNLIKELY( prev_oc!=ULONG_MAX && s<=prev_oc ) ) continue; /* already OC'd earlier */
         if( FD_UNLIKELY( gui->summary.slot_rooted!=ULONG_MAX && s<gui->summary.slot_rooted ) ) continue; /* already rooted: handled by root advance */
         fd_gui_slot_t const * skipped = fd_gui_slot_get_canon_safe( gui, s );
-        if( FD_UNLIKELY( skipped->skip!=FD_GUI_SKIP_STATUS_SKIPPED ) ) continue;
+        if( FD_UNLIKELY( skipped->skip!=FD_GUI_SKIP_STATUS_FINALIZED ) ) continue;
         fd_gui_printf_slot( gui, s, skipped );
         fd_http_server_ws_broadcast( gui->http );
       }
@@ -2749,30 +3050,45 @@ fd_gui_broadcast_skip_rate( fd_gui_t * gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
-static void
+/* Returns 1 if the frontier was updated, and 0 otherwise. */
+
+static int
 handle_tower_slot( fd_gui_t * gui, ulong reset_slot, ulong reset_bank_seq, long now FD_PARAM_UNUSED ) {
   FD_TEST( reset_slot!=ULONG_MAX );
 
   ulong prev_reset_slot     = gui->summary.slot_tower;
   ulong prev_reset_bank_seq = gui->summary.slot_tower_bank_seq;
-  gui->summary.slot_tower   = reset_slot;
-  gui->summary.slot_tower_bank_seq = reset_bank_seq;
 
   /* reset_slot is guaranteed present (returnable_frag deferred this
      update until replay recorded it). */
-  FD_TEST( fd_gui_slot_get( gui, gui->summary.slot_tower, gui->summary.slot_tower_bank_seq ) );
+  if( FD_UNLIKELY( !fd_gui_slot_get( gui, reset_slot, reset_bank_seq ) ) ) {
+    /* Alpenglow drives this from replay completion rather than a
+       consensus-derived reset slot, so the record is not guaranteed. */
+    if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) return 0;
+    FD_LOG_ERR(( "fd_gui_slot_get( gui, slot_tower %lu, slot_tower_bank_seq %lu ) missing",
+                 reset_slot, reset_bank_seq ));
+  }
 
   /* reset_slot has not changed */
-  if( FD_UNLIKELY( prev_reset_slot!=ULONG_MAX && reset_slot==prev_reset_slot && reset_bank_seq!=ULONG_MAX && reset_bank_seq==prev_reset_bank_seq ) ) return;
+  if( FD_UNLIKELY( prev_reset_slot!=ULONG_MAX && reset_slot==prev_reset_slot && reset_bank_seq==prev_reset_bank_seq ) ) return 0;
+
+  /* slot complete received out of order on the same fork?  Check
+     against the old frontier before replacing it. */
+  if( FD_UNLIKELY( prev_reset_slot!=ULONG_MAX && fd_gui_slot_is_ancestor( gui, reset_slot, reset_bank_seq, prev_reset_slot, prev_reset_bank_seq ) ) ) {
+    /* Alpenglow can complete a descendant before one of its ancestors.
+       Keep advertising the highest completed block on that fork. */
+    if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) return 0;
+    FD_LOG_ERR(( "slot complete received out of order on the same fork (prev_reset_slot %lu, slot_tower %lu)", prev_reset_slot, reset_slot ));
+  }
+
+  gui->summary.slot_tower          = reset_slot;
+  gui->summary.slot_tower_bank_seq = reset_bank_seq;
 
   fd_gui_printf_completed_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
 
   /* ensure a history exists */
-  if( FD_UNLIKELY( prev_reset_slot==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX ) ) return;
-
-  /* slot complete received out of order on the same fork? */
-  FD_TEST( fd_gui_slot_is_ancestor( gui, prev_reset_slot, gui->summary.slot_tower ) || !fd_gui_slot_is_ancestor( gui, gui->summary.slot_tower, prev_reset_slot ) );
+  if( FD_UNLIKELY( prev_reset_slot==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX ) ) return 1;
 
   /* Switch forks. */
   for( ulong slot=fd_ulong_max( gui->summary.slot_tower, prev_reset_slot ); slot>gui->summary.slot_rooted; slot-- ) {
@@ -2797,11 +3113,12 @@ handle_tower_slot( fd_gui_t * gui, ulong reset_slot, ulong reset_bank_seq, long 
     ulong canon_bank_seq = canon ? canon->bank_seq : ULONG_MAX; /* canon, if any, IS slot */
     fd_gui_hist_kv_slot_iter_t it[ 1 ];
     for( fd_gui_hist_kv_iter_begin( gui, it, FD_GUI_HIST_SLOT, slot ); it->rec; fd_gui_hist_kv_iter_next( it ) ) {
-      ((fd_gui_slot_t *)it->rec)->skip = fd_uchar_if( it->bank_seq==canon_bank_seq, FD_GUI_SKIP_STATUS_NOT_SKIPPED, FD_GUI_SKIP_STATUS_SKIPPED );
+      ((fd_gui_slot_t *)it->rec)->skip = fd_uchar_if( it->bank_seq==canon_bank_seq, FD_GUI_SKIP_STATUS_NOT_SKIPPED, FD_GUI_SKIP_STATUS_FINALIZED );
     }
   }
 
   for( ulong e=gui->epoch.current_epoch; e<=gui->epoch.current_epoch+1UL; e++ ) fd_gui_broadcast_skip_rate( gui, e );
+  return 1;
 }
 
 static inline void
@@ -2876,7 +3193,8 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
 
   fd_gui_slot_t * replay_slot = fd_gui_slot_get( gui, tower->replay_slot, tower->replay_bank_seq );
   FD_TEST( replay_slot );
-  replay_slot->is_voter = (uchar)(!!tower->is_voting);
+  if( FD_LIKELY( tower->is_voting ) ) replay_slot->is_voter = FD_GUI_IS_VOTER_YES;
+  else                                replay_slot->is_voter = FD_GUI_IS_VOTER_NO;
 
   /* Handle already-rooted edge case. */
   if( FD_UNLIKELY( replay_slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) {
@@ -2999,6 +3317,14 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   fd_gui_slot_t const * parent = fd_gui_slot_parent_get( gui, slot );
   slot->parent_completed_time = parent ? parent->completed_time : LONG_MAX;
 
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
+    if( FD_UNLIKELY( slot_completed->voted && slot_completed->slot>=NUM_SLOTS_FOR_REWARD ) ) {
+      vote_slot = slot_completed->slot-NUM_SLOTS_FOR_REWARD;
+    } else {
+      vote_slot = gui->summary.slot_voted; /* TODO: inherit from parent so it's fork-correct. Requires tracking identity changes to be correct. */
+    }
+  }
+
   if( FD_LIKELY( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
     /* Typically a slot goes from INCOMPLETE to COMPLETED but it can
        happen that it starts higher.  One such case is when we
@@ -3045,16 +3371,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   slot->skip = fd_uchar_if( canon && canon->bank_seq==slot_completed->bank_seq, FD_GUI_SKIP_STATUS_NOT_SKIPPED, FD_GUI_SKIP_STATUS_UNKNOWN );
 
   /* fixes race if we just sample right after replay's SLOT_COMPLETE */
-  if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
-    /* Backtest topologies have no repair tile. */
-    ulong repair_tile_idx = fd_topo_find_tile( gui->topo, "repair", 0UL );
-    if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
-      fd_topo_tile_t const * repair = &gui->topo->tiles[ repair_tile_idx ];
-      volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
-      ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
-      fd_gui_handle_repair_slot( gui, slot, now );
-    }
-  }
+  if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) fd_gui_sample_repair_slot( gui, now );
 
   /* Update slot_turbine when we are leader. */
   if( FD_UNLIKELY( gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && slot_completed->slot > gui->summary.slots_max_turbine[ 0 ].slot ) ) {
@@ -3067,6 +3384,47 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
 
     fd_gui_printf_slot_caught_up( gui );
     fd_http_server_ws_broadcast( gui->http );
+  }
+
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
+    if( FD_UNLIKELY( slot_completed->voted && slot_completed->slot>=NUM_SLOTS_FOR_REWARD && ( gui->summary.slot_voted==ULONG_MAX || vote_slot>gui->summary.slot_voted ) ) ) {
+      gui->summary.slot_voted = vote_slot;
+      fd_gui_printf_vote_slot( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+
+    /* Bind this bank only to certificates for the same block. */
+    fd_gui_ag_register_block( gui, slot_completed->slot, &slot_completed->block_id, slot_completed->bank_seq );
+
+    if( FD_UNLIKELY( slot_completed->vote_balance!=ULONG_MAX && gui->summary.vote_account_balance!=slot_completed->vote_balance ) ) {
+      gui->summary.vote_account_balance = slot_completed->vote_balance;
+      fd_gui_printf_vote_balance( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+    if( FD_UNLIKELY( slot_completed->vote_commission!=USHORT_MAX && gui->summary.vote_commission!=slot_completed->vote_commission ) ) {
+      gui->summary.vote_commission = slot_completed->vote_commission;
+      fd_gui_printf_vote_commission( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+
+    if( FD_LIKELY( slot_completed->slot>=NUM_SLOTS_FOR_REWARD ) ) {
+      fd_gui_handle_ag_reward( gui, slot_completed->slot-NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank );
+    }
+
+    int frontier_updated = handle_tower_slot( gui, slot_completed->slot, slot_completed->bank_seq, now );
+
+    if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {
+      ulong s         = gui->summary.slot_tower;
+      ulong voted     = gui->summary.slot_voted;
+      int   current   = voted!=ULONG_MAX && fd_int_if( s>=128UL, voted+128UL>s, voted>0UL );
+      set_vote_state( gui, fd_int_if( current, FD_GUI_VOTE_STATE_VOTING, FD_GUI_VOTE_STATE_DELINQUENT ) );
+    }
+
+    if( FD_UNLIKELY( frontier_updated && gui->summary.slot_estimated!=slot_completed->slot ) ) {
+      gui->summary.slot_estimated = slot_completed->slot;
+      fd_gui_printf_estimated_slot( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
   }
 }
 
