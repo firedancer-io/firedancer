@@ -226,21 +226,24 @@ unit-test: $(OBJDIR)/unit-test/automatic.txt
 define _run-unit-test
 RUN_UNIT_TEST+=$(OBJDIR)/unit-test/$(1)
 endef
-$(OBJDIR)/unit-test/automatic.txt: $(LOCAL_MKS)
-	$(MKDIR) "$(OBJDIR)/unit-test"
-	$(RM) $@
-	@$(foreach test,$(RUN_UNIT_TEST),echo $(test)>>$@;)
+# Rewritten every parse (a deleted Local.mk never bumps an mtime);
+# cmp keeps the mtime stable when the list is unchanged
+.PHONY: FORCE
+FORCE:
+$(OBJDIR)/unit-test/automatic.txt: FORCE
+	@$(MKDIR) "$(OBJDIR)/unit-test" && \
+$(if $(RUN_UNIT_TEST),printf '%s\n' $(RUN_UNIT_TEST),:) > $@.tmp && \
+{ cmp -s $@.tmp $@ || mv -f $@.tmp $@; } && $(RM) $@.tmp
 
 # Generate list of automatic integration tests from $(call run-integration-test,...)
 integration-test: $(OBJDIR)/integration-test/automatic.txt
 define _run-integration-test
 RUN_INTEGRATION_TEST+=$(OBJDIR)/integration-test/$(1)
 endef
-$(OBJDIR)/integration-test/automatic.txt: $(LOCAL_MKS)
-	@$(MKDIR) "$(OBJDIR)/integration-test"
-	@$(RM) $@
-	@$(foreach test,$(RUN_INTEGRATION_TEST),echo $(test)>>$@;)
-	@$(TOUCH) "$@"
+$(OBJDIR)/integration-test/automatic.txt: FORCE
+	@$(MKDIR) "$(OBJDIR)/integration-test" && \
+$(if $(RUN_INTEGRATION_TEST),printf '%s\n' $(RUN_INTEGRATION_TEST),:) > $@.tmp && \
+{ cmp -s $@.tmp $@ || mv -f $@.tmp $@; } && $(RM) $@.tmp
 
 ifndef FD_HAS_FUZZ
 FUZZ_EXTRA:=$(OBJDIR)/lib/libfd_fuzz_stub.a
