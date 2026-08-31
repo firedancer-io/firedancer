@@ -28,7 +28,7 @@ typedef struct fd_exec_test_elf_loader_ctx {
 typedef struct fd_exec_test_elf_loader_effects {
     /* Loader error code (0 = success). */
     uint32_t err_code;
-    /* 8-byte XXH3 hash of the .rodata section. */
+    /* 8-byte XXH64 hash (seed 0) of the .rodata section. */
     uint64_t rodata_hash;
     /* Number of valid text-section instructions. */
     uint64_t text_cnt;
@@ -36,7 +36,7 @@ typedef struct fd_exec_test_elf_loader_effects {
     uint64_t text_off;
     /* Entry-point program counter. */
     uint64_t entry_pc;
-    /* 8-byte XXH3 hash of the validated call destinations bitmap. */
+    /* 8-byte XXH64 hash (seed 0) of the validated call destinations bitmap. */
     uint64_t calldests_hash;
 } fd_exec_test_elf_loader_effects_t;
 

@@ -115,8 +115,6 @@ typedef struct fd_exec_test_txn_result {
     uint32_t instruction_error_index;
     /* Custom error, if any */
     uint32_t custom_error;
-    /* The return data from this transaction, if any */
-    pb_bytes_array_t *return_data;
     /* Number of executed compute units */
     uint64_t executed_units;
     /* The collected fees in this transaction */
@@ -128,6 +126,8 @@ typedef struct fd_exec_test_txn_result {
     struct fd_exec_test_acct_state *modified_accounts;
     pb_size_t rollback_accounts_count;
     struct fd_exec_test_acct_state *rollback_accounts;
+    /* 8-byte XXH64 hash (seed 0) of the transaction return data, or 0 if empty. */
+    uint64_t return_data_hash;
 } fd_exec_test_txn_result_t;
 
 /* Txn fixtures */
@@ -156,7 +156,7 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_BANK_INIT_DEFAULT       {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, NULL, false, FD_EXEC_TEST_TXN_BANK_INIT_DEFAULT}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, 0, 0, 0, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT, 0, 0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT    {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT}
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
@@ -166,7 +166,7 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_BANK_INIT_ZERO          {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, NULL, false, FD_EXEC_TEST_TXN_BANK_INIT_ZERO}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO, 0, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, 0, 0, 0, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO, 0, 0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO       {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_TXN_RESULT_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -203,12 +203,12 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_RESULT_INSTRUCTION_ERROR_TAG 7
 #define FD_EXEC_TEST_TXN_RESULT_INSTRUCTION_ERROR_INDEX_TAG 8
 #define FD_EXEC_TEST_TXN_RESULT_CUSTOM_ERROR_TAG 9
-#define FD_EXEC_TEST_TXN_RESULT_RETURN_DATA_TAG  10
 #define FD_EXEC_TEST_TXN_RESULT_EXECUTED_UNITS_TAG 11
 #define FD_EXEC_TEST_TXN_RESULT_FEE_DETAILS_TAG  12
 #define FD_EXEC_TEST_TXN_RESULT_LOADED_ACCOUNTS_DATA_SIZE_TAG 13
 #define FD_EXEC_TEST_TXN_RESULT_MODIFIED_ACCOUNTS_TAG 14
 #define FD_EXEC_TEST_TXN_RESULT_ROLLBACK_ACCOUNTS_TAG 15
+#define FD_EXEC_TEST_TXN_RESULT_RETURN_DATA_HASH_TAG 16
 #define FD_EXEC_TEST_TXN_FIXTURE_METADATA_TAG    1
 #define FD_EXEC_TEST_TXN_FIXTURE_INPUT_TAG       2
 #define FD_EXEC_TEST_TXN_FIXTURE_OUTPUT_TAG      3
@@ -290,12 +290,12 @@ X(a, STATIC,   SINGULAR, UINT32,   txn_error,         6) \
 X(a, STATIC,   SINGULAR, UINT32,   instruction_error,   7) \
 X(a, STATIC,   SINGULAR, UINT32,   instruction_error_index,   8) \
 X(a, STATIC,   SINGULAR, UINT32,   custom_error,      9) \
-X(a, POINTER,  SINGULAR, BYTES,    return_data,      10) \
 X(a, STATIC,   SINGULAR, UINT64,   executed_units,   11) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  fee_details,      12) \
 X(a, STATIC,   SINGULAR, UINT64,   loaded_accounts_data_size,  13) \
 X(a, POINTER,  REPEATED, MESSAGE,  modified_accounts,  14) \
-X(a, POINTER,  REPEATED, MESSAGE,  rollback_accounts,  15)
+X(a, POINTER,  REPEATED, MESSAGE,  rollback_accounts,  15) \
+X(a, STATIC,   SINGULAR, FIXED64,  return_data_hash,  16)
 #define FD_EXEC_TEST_TXN_RESULT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_RESULT_DEFAULT NULL
 #define fd_exec_test_txn_result_t_fee_details_MSGTYPE fd_exec_test_fee_details_t

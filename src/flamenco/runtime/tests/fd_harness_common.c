@@ -38,8 +38,9 @@ fd_solfuzz_pb_get_slot( fd_exec_test_acct_state_t const * acct_states,
                         ulong                             acct_states_cnt ) {
   for( ulong i=0UL; i<acct_states_cnt; i++ ) {
     if( !memcmp( &acct_states[i].address, &fd_sysvar_clock_id, sizeof(fd_pubkey_t) ) ) {
-      FD_TEST( acct_states[i].data->size==sizeof(fd_sol_sysvar_clock_t) );
-      return FD_LOAD( ulong, acct_states[i].data->bytes );
+      pb_bytes_array_t const * data = fd_solfuzz_acct_data( &acct_states[i] );
+      FD_TEST( data && data->size==sizeof(fd_sol_sysvar_clock_t) );
+      return FD_LOAD( ulong, data->bytes );
     }
   }
   FD_LOG_ERR(( "invariant violation: clock sysvar account not found in acct states" ));
@@ -54,8 +55,8 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
   (void)runtime; (void)acc_idx;
   if( state->lamports==0UL ) return 0;
 
-  ulong size = 0UL;
-  if( state->data ) size = state->data->size;
+  pb_bytes_array_t const * state_data = fd_solfuzz_acct_data( state );
+  ulong size = state_data ? state_data->size : 0UL;
 
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
@@ -65,8 +66,8 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
   }
 
   fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, pubkey->key );
-  if( state->data && size ) {
-    fd_memcpy( acc.data, state->data->bytes, size );
+  if( size ) {
+    fd_memcpy( acc.data, state_data->bytes, size );
   }
   acc.data_len   = size;
   acc.lamports   = state->lamports;
@@ -105,7 +106,7 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
       && cu_avail == 0UL
       && has_err ) {
     for( pb_size_t i=0; i<accounts_cnt; i++ ) {
-      accounts[i].data = NULL;
+      fd_solfuzz_acct_set_data_hash( &accounts[i], NULL, 0UL );
     }
   }
 }
