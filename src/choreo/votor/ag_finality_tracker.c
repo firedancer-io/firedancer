@@ -522,7 +522,7 @@ ag_finality_tracker_status( ag_finality_tracker_t const * self,
   if( FD_UNLIKELY( !e ) ) return -1;
   if( out_hash ) {
     uchar const * hash = status_hash( &e->status );
-    if( hash ) fd_memcpy( out_hash, hash, sizeof(ag_block_hash_t) );
+    if( hash ) memcpy( out_hash, hash, sizeof(ag_block_hash_t) );
     else       fd_memset( out_hash, 0,    sizeof(ag_block_hash_t) );
   }
   return e->status.kind;

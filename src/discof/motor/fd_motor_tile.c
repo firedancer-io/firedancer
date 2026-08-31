@@ -138,7 +138,7 @@ publish_batch( fd_motor_tile_t *   ctx,
   /* The shred tile chains the block off this, but only for the first
      frag of the slot. */
   meta->parent_block_id_valid = 1;
-  fd_memcpy( meta->parent_block_id, ctx->parent_cmr.uc, sizeof(fd_hash_t) );
+  memcpy( meta->parent_block_id, ctx->parent_cmr.uc, sizeof(fd_hash_t) );
 
   ulong sz    = sizeof(fd_entry_batch_meta_t)+payload_sz;
   ulong sig   = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
@@ -164,14 +164,14 @@ publish_entry( fd_motor_tile_t *   ctx,
   if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
 
   uchar data[ 64 ];
-  fd_memcpy( data,      ctx->poh_hash.uc, sizeof(fd_hash_t) );
-  fd_memcpy( data+32UL, mixin,        sizeof(fd_hash_t) );
+  memcpy( data,      ctx->poh_hash.uc, sizeof(fd_hash_t) );
+  memcpy( data+32UL, mixin,        sizeof(fd_hash_t) );
   fd_sha256_hash( data, sizeof(data), ctx->poh_hash.uc );
 
   fd_entry_batch_header_t * entry = (fd_entry_batch_header_t *)batch_payload( ctx );
   entry->hashcnt_delta = 1UL; /* every Alpenglow entry has num_hashes==1 */
   entry->txn_cnt       = executed_txn_cnt;
-  fd_memcpy( entry->hash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
+  memcpy( entry->hash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
 
   uchar * payload    = (uchar *)(entry+1UL);
   ulong   payload_sz = 0UL;
@@ -239,7 +239,7 @@ end_leader_slot( fd_motor_tile_t *         ctx,
   dst->completed        = completed;
   dst->slot             = ctx->slot;
   dst->timing_table_idx = ULONG_MAX;
-  fd_memcpy( dst->blockhash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
+  memcpy( dst->blockhash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
 
   dst->microblock_count = done_packing->microblocks_in_slot;
   dst->pack_block_cost  = done_packing->limits_usage->block_cost;
@@ -278,7 +278,7 @@ complete_leader_slot( fd_motor_tile_t *                 ctx,
   fd_entry_batch_header_t * entry = (fd_entry_batch_header_t *)batch_payload( ctx );
   entry->hashcnt_delta            = 1UL;
   entry->txn_cnt                  = 0UL;
-  fd_memcpy( entry->hash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
+  memcpy( entry->hash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
   publish_batch( ctx, stem, sizeof(fd_entry_batch_header_t), 1 );
 
   /* mark done */
@@ -360,9 +360,9 @@ returnable_frag( fd_motor_tile_t *   ctx,
         FD_TEST( ctx->slot==ULONG_MAX ); /* currently do not support mid-block resets in Alpenglow */
         fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         ctx->parent_slot = reset->completed_slot;
-        fd_memcpy( ctx->parent_cmr.uc,       reset->completed_cmr,       sizeof(fd_hash_t) );
-        fd_memcpy( ctx->parent_dmr.uc,       reset->completed_dmr,       sizeof(fd_hash_t) );
-        fd_memcpy( ctx->parent_alpentick.uc, reset->completed_blockhash, sizeof(fd_hash_t) );
+        memcpy( ctx->parent_cmr.uc,       reset->completed_cmr,       sizeof(fd_hash_t) );
+        memcpy( ctx->parent_dmr.uc,       reset->completed_dmr,       sizeof(fd_hash_t) );
+        memcpy( ctx->parent_alpentick.uc, reset->completed_blockhash, sizeof(fd_hash_t) );
       }
       break;
     }

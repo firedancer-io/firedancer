@@ -3,11 +3,18 @@
 
 #include "ag_vote.h"
 
-#define AG_VOTE_DE_SUCCESS           ( 0)
-#define AG_VOTE_DE_ERR_TRUNCATED     (-1)
-#define AG_VOTE_DE_ERR_MALFORMED     (-2)
-#define AG_VOTE_DE_ERR_UNSUPPORTED   (-3)
-#define AG_VOTE_DE_ERR_SHRED_VERSION (-4)
+/* Grouped from the wincode ReadError variants (agave error.rs) that are
+   reachable for these fixed layout binary messages; the library's finer
+   split is generic-serializer bookkeeping we cannot act on differently.
+   Variants that cannot arise here are omitted: InvalidUtf8Encoding,
+   InvalidUtf8Code, InvalidCharLead (no strings or chars),
+   InvalidBoolEncoding (no bools), PointerSizedReadError,
+   UnalignedPointerRead (no zero copy reads), TagEncodingOverflow (write side). */
+
+#define AG_VOTE_DE_SUCCESS           (  0)
+#define AG_VOTE_DE_ERR_SZ            ( -1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */
+#define AG_VOTE_DE_ERR_INVAL         ( -2) /* InvalidTagEncoding, InvalidValue                                                 */
+#define AG_VOTE_DE_ERR_SHRED_VERSION ( -3) /* Custom("shred version mismatch")                                                 */
 
 struct __attribute__((packed)) ag_vote_signature_serde {
   ag_bls_sig_t signature;     /* WireVoteSignature::signature          (BLSSignature) */
@@ -33,19 +40,19 @@ typedef struct ag_vote_serde ag_vote_serde_t;
 
 FD_PROTOTYPES_BEGIN
 
-int
+/* buf must hold at least AG_VOTE_SER_MAX bytes; returns the number of
+   bytes written. */
+
+ulong
 ag_vote_ser( ag_vote_t const * self,
              ushort            shred_version,
-             uchar *           buf,
-             ulong             buf_max,
-             ulong *           buf_sz );
+             uchar             buf[ static AG_VOTE_SER_MAX ] );
 
 int
 ag_vote_de( ag_vote_t *   self,
             ushort        shred_version,
             uchar const * buf,
-            ulong         buf_max,
-            ulong *       buf_sz );
+            ulong         buf_sz );
 
 FD_PROTOTYPES_END
 

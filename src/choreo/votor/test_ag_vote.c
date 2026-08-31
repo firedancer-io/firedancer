@@ -78,9 +78,9 @@ test_payload_distinct( void ) {
 
 static void
 check_wire( ag_vote_t const * v, ag_bls_pub_t const pk ) {
-  uchar out[ AG_VOTE_SERIALIZED_MAX ];
+  uchar out[ AG_VOTE_SER_MAX ];
   ulong n;
-  FD_TEST( ag_vote_ser( v, TEST_SHRED_VERSION, out, sizeof(out), &n )==0 );
+  n = ag_vote_ser( v, TEST_SHRED_VERSION, out );
   FD_TEST( n>0UL );
 
   uchar const * h       = block_hash( v );
@@ -96,9 +96,8 @@ check_wire( ag_vote_t const * v, ag_bls_pub_t const pk ) {
   FD_TEST( FD_LOAD( ushort, out+off )==TEST_SHRED_VERSION  ); off += 2UL;
   FD_TEST( off==n );
 
-  ag_vote_t rt; ulong consumed;
-  FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n, &consumed )==AG_VOTE_DE_SUCCESS );
-  FD_TEST( consumed==n );
+  ag_vote_t rt;
+  FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n )==AG_VOTE_DE_SUCCESS );
   FD_TEST( rt.kind==v->kind );
   FD_TEST( ag_vote_slot  ( &rt )==ag_vote_slot  ( v ) );
   FD_TEST( ag_vote_rank( &rt )==USHORT_MAX ); /* rank is not on the wire */
@@ -106,14 +105,15 @@ check_wire( ag_vote_t const * v, ag_bls_pub_t const pk ) {
   FD_TEST( !rt_h==!h );
   if( h ) FD_TEST( !memcmp( rt_h, h, sizeof(ag_block_hash_t) ) );
   FD_TEST( ag_vote_verify( &rt, pk, TEST_SHRED_VERSION ) );
-  FD_TEST( ag_vote_de( &rt, (ushort)(TEST_SHRED_VERSION+1), out, n, NULL )==AG_VOTE_DE_ERR_SHRED_VERSION );
-  FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n-1UL, NULL )==AG_VOTE_DE_ERR_TRUNCATED );
+  FD_TEST( ag_vote_de( &rt, (ushort)(TEST_SHRED_VERSION+1), out, n )==AG_VOTE_DE_ERR_SHRED_VERSION );
+  FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n-1UL )==AG_VOTE_DE_ERR_SZ ); /* too few  */
+  FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n+1UL )==AG_VOTE_DE_ERR_SZ ); /* trailing */
 
   FD_TEST( ag_vote_verify( v, pk, TEST_SHRED_VERSION ) );
 
   uchar        payload[ AG_VOTE_PAYLOAD_MAX ];
   ulong        payload_sz = ag_vote_payload_bytes_to_sign( payload, v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION );
-  ag_bls_sig_t sig; fd_memcpy( sig, wire_sig, AG_BLS_SIG_SZ );
+  ag_bls_sig_t sig; memcpy( sig, wire_sig, AG_BLS_SIG_SZ );
   FD_TEST( ag_bls_sig_verify( sig, pk, payload, payload_sz ) );
 
   payload[ 1 ] ^= 0xFFu;
@@ -133,9 +133,6 @@ test_serialize( void ) {
   v = ag_vote_construct_skip( 42UL, sk, 3UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
   v = ag_vote_construct_skip_fallback( 42UL, sk, 3UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
   v = ag_vote_construct_final( 7UL, sk, 1UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
-
-  uchar small[ 8 ];
-  FD_TEST( ag_vote_ser( &v, TEST_SHRED_VERSION, small, sizeof(small), NULL )==-1 );
 
   FD_LOG_NOTICE(( "vote serialize round trip pass" ));
 }

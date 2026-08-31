@@ -268,7 +268,7 @@ void
 ag_votor_set_bls_key( ag_votor_t *       self,
                       ag_bls_sec_t const bls_key ) {
   FD_TEST( bls_key );
-  fd_memcpy( self->bls_sec, bls_key, AG_BLS_SEC_SZ );
+  memcpy( self->bls_sec, bls_key, AG_BLS_SEC_SZ );
 }
 
 void

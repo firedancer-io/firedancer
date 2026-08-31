@@ -61,7 +61,7 @@ typedef struct ag_vote ag_vote_t;
 
 #define AG_VOTE_PAYLOAD_MAX (43UL)
 
-#define AG_VOTE_SERIALIZED_MAX (2UL + sizeof(ag_vote_notar_t) + 2UL)
+#define AG_VOTE_SER_MAX (2UL + sizeof(ag_vote_notar_t) + 2UL)
 
 FD_PROTOTYPES_BEGIN
 

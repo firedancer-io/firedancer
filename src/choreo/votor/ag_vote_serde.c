@@ -25,15 +25,12 @@ block_hash( ag_vote_t const * self ) {
   }
 }
 
-int
+ulong
 ag_vote_ser( ag_vote_t const * self,
              ushort            shred_version,
-             uchar *           buf,
-             ulong             buf_max,
-             ulong *           buf_sz ) {
+             uchar             buf[ static AG_VOTE_SER_MAX ] ) {
   uchar const * block_id = block_hash( self );
   ulong         sz       = sizeof(ag_vote_serde_t) - ( block_id ? 0UL : sizeof(ag_block_hash_t) );
-  if( FD_UNLIKELY( buf_max<sz ) ) return -1;
 
   ag_vote_serde_t *           out       = (ag_vote_serde_t *)buf;
   ag_vote_signature_serde_t * signature = block_id ? &out->block_vote.signature : &out->slot_vote.signature;
@@ -42,23 +39,21 @@ ag_vote_ser( ag_vote_t const * self,
   out->kind    = (uchar)( self->kind+1U );
   out->slot    = ag_vote_slot( self );
   if( block_id ) memcpy( out->block_vote.block_id, block_id, sizeof(ag_block_hash_t) );
-  fd_memcpy( signature->signature, sig( self ), AG_BLS_SIG_SZ );
+  memcpy( signature->signature, sig( self ), AG_BLS_SIG_SZ );
   signature->shred_version = shred_version;
 
-  if( buf_sz ) *buf_sz = sz;
-  return 0;
+  return sz;
 }
 
 int
 ag_vote_de( ag_vote_t *   self,
             ushort        shred_version,
             uchar const * buf,
-            ulong         buf_max,
-            ulong *       buf_sz ) {
-  if( FD_UNLIKELY( buf_max<2UL ) ) return AG_VOTE_DE_ERR_TRUNCATED;
+            ulong         buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<2UL ) ) return AG_VOTE_DE_ERR_SZ;
 
   ag_vote_serde_t const * vote = (ag_vote_serde_t const *)buf;
-  if( FD_UNLIKELY( vote->version!=1 ) ) return AG_VOTE_DE_ERR_UNSUPPORTED;
+  if( FD_UNLIKELY( vote->version!=1 ) ) return AG_VOTE_DE_ERR_INVAL;
 
   uint kind;
   switch( vote->kind ) {
@@ -67,13 +62,12 @@ ag_vote_de( ag_vote_t *   self,
   case 3: kind = AG_VOTE_KIND_SKIP;           break;
   case 4: kind = AG_VOTE_KIND_NOTAR_FALLBACK; break;
   case 5: kind = AG_VOTE_KIND_SKIP_FALLBACK;  break;
-  case 6: return AG_VOTE_DE_ERR_UNSUPPORTED;
-  default: return AG_VOTE_DE_ERR_MALFORMED;
+  default: return AG_VOTE_DE_ERR_INVAL; /* including 6, the genesis vote we do not handle */
   }
 
   int   has_block_id = kind==AG_VOTE_KIND_NOTAR || kind==AG_VOTE_KIND_NOTAR_FALLBACK;
   ulong sz           = sizeof(ag_vote_serde_t) - ( has_block_id ? 0UL : sizeof(ag_block_hash_t) );
-  if( FD_UNLIKELY( buf_max<sz ) ) return AG_VOTE_DE_ERR_TRUNCATED;
+  if( FD_UNLIKELY( buf_sz!=sz ) ) return AG_VOTE_DE_ERR_SZ; /* too few, or trailing bytes */
 
   ag_vote_signature_serde_t const * signature = has_block_id ? &vote->block_vote.signature : &vote->slot_vote.signature;
   if( FD_UNLIKELY( signature->shred_version!=shred_version ) ) return AG_VOTE_DE_ERR_SHRED_VERSION;
@@ -87,27 +81,26 @@ ag_vote_de( ag_vote_t *   self,
   case AG_VOTE_KIND_NOTAR:
     self->notar.slot = vote->slot;
     memcpy( self->notar.block_hash, vote->block_vote.block_id, sizeof(ag_block_hash_t) );
-    fd_memcpy( self->notar.sig, signature->signature, AG_BLS_SIG_SZ );
+    memcpy( self->notar.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   case AG_VOTE_KIND_NOTAR_FALLBACK:
     self->notar_fallback.slot = vote->slot;
     memcpy( self->notar_fallback.block_hash, vote->block_vote.block_id, sizeof(ag_block_hash_t) );
-    fd_memcpy( self->notar_fallback.sig, signature->signature, AG_BLS_SIG_SZ );
+    memcpy( self->notar_fallback.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   case AG_VOTE_KIND_SKIP:
     self->skip.slot = vote->slot;
-    fd_memcpy( self->skip.sig, signature->signature, AG_BLS_SIG_SZ );
+    memcpy( self->skip.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   case AG_VOTE_KIND_SKIP_FALLBACK:
     self->skip_fallback.slot = vote->slot;
-    fd_memcpy( self->skip_fallback.sig, signature->signature, AG_BLS_SIG_SZ );
+    memcpy( self->skip_fallback.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   default:
     self->final.slot = vote->slot;
-    fd_memcpy( self->final.sig, signature->signature, AG_BLS_SIG_SZ );
+    memcpy( self->final.sig, signature->signature, AG_BLS_SIG_SZ );
     break;
   }
 
-  if( buf_sz ) *buf_sz = sz;
   return AG_VOTE_DE_SUCCESS;
 }

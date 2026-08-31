@@ -21,7 +21,7 @@ pick_pub( ag_bls_pub_t * dst,
           ag_bls_pub_t * src,
           ulong const *  sel,
           ulong          cnt ) {
-  for( ulong i=0UL; i<cnt; i++ ) fd_memcpy( dst[i], src[ sel[i] ], AG_BLS_PUB_SZ );
+  for( ulong i=0UL; i<cnt; i++ ) memcpy( dst[i], src[ sel[i] ], AG_BLS_PUB_SZ );
 }
 
 static void
@@ -29,7 +29,7 @@ pick_sig( ag_bls_sig_t * dst,
           ag_bls_sig_t * src,
           ulong const *  sel,
           ulong          cnt ) {
-  for( ulong i=0UL; i<cnt; i++ ) fd_memcpy( dst[i], src[ sel[i] ], AG_BLS_SIG_SZ );
+  for( ulong i=0UL; i<cnt; i++ ) memcpy( dst[i], src[ sel[i] ], AG_BLS_SIG_SZ );
 }
 
 /* src/crypto/aggsig.rs::signers */
@@ -104,24 +104,24 @@ test_serde( void ) {
   ulong want[5] = { 0UL, 63UL, 64UL, 130UL, 199UL };
   for( ulong i=0UL; i<5UL; i++ ) ag_bls_agg_add( agg, want[i], s );
 
-  uchar buf[ AG_BLS_SERIALIZED_MAX ];
+  uchar buf[ AG_BLS_SER_MAX ];
   ulong sz;
-  FD_TEST( ag_bls_ser( agg, buf, sizeof(buf), &sz )==0 );
-  FD_TEST( sz==AG_BLS_SERIALIZED_SZ( bits ) );
+  sz = ag_bls_ser( agg, buf );
+  FD_TEST( sz==AG_BLS_SER_SZ( bits ) );
 
   ag_bls_agg_t back[1];
-  ulong        consumed = ag_bls_de( back, buf, sz );
-  FD_TEST( consumed==sz );
+  FD_TEST( ag_bls_de( back, buf, sz )==AG_BLS_DE_SUCCESS );
   FD_TEST( !memcmp( back->sig, agg->sig, AG_BLS_SIG_SZ ) );
   for( ulong i=0UL; i<bits; i++ ) FD_TEST( ag_bls_agg_is_signer( back, i )==ag_bls_agg_is_signer( agg, i ) );
   FD_TEST( ag_bls_agg_signer_cnt( back )==5UL );
 
-  FD_TEST( ag_bls_de( back, buf, sz-1UL )==0UL );
+  FD_TEST( ag_bls_de( back, buf, sz-1UL )==AG_BLS_DE_ERR_SZ ); /* too few  */
+    FD_TEST( ag_bls_de( back, buf, sz+1UL )==AG_BLS_DE_ERR_SZ ); /* trailing */
 
-  uchar bad[ AG_BLS_SERIALIZED_MAX ];
+  uchar bad[ AG_BLS_SER_MAX ];
   fd_memcpy( bad, buf, sz );
   FD_STORE( ulong, bad+AG_BLS_SIG_SZ+8UL, 1000UL );
-  FD_TEST( ag_bls_de( back, bad, sz )==0UL );
+  FD_TEST( ag_bls_de( back, bad, sz )==AG_BLS_DE_ERR_SZ );
 }
 
 /* src/crypto/aggsig.rs::basic, ::aggregate */

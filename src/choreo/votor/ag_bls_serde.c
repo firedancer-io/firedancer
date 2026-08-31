@@ -2,19 +2,16 @@
 
 FD_STATIC_ASSERT( sizeof(ag_bls_serde_t)==AG_BLS_SIG_SZ+16UL, ag_bls_serde );
 
-int
+ulong
 ag_bls_ser( ag_bls_agg_t const * agg,
-            uchar *              buf,
-            ulong                buf_max,
-            ulong *              buf_sz ) {
+            uchar                buf[ static AG_BLS_SER_MAX ] ) {
   ulong bits     = fd_ulong_min( AG_BLS_SIGNERS_MAX, signer_set_last( agg->bitmask )+1UL );
   ulong word_cnt = AG_BLS_WORDS_FOR_BITS( bits );
-  ulong sz       = AG_BLS_SERIALIZED_SZ( bits );
-  if( FD_UNLIKELY( buf_max<sz ) ) return -1;
+  ulong sz       = AG_BLS_SER_SZ( bits );
 
   ag_bls_serde_t * out = (ag_bls_serde_t *)buf;
 
-  fd_memcpy( out->signature, agg->sig, AG_BLS_SIG_SZ );
+  memcpy( out->signature, agg->sig, AG_BLS_SIG_SZ );
   out->bit_cnt  = bits;
   out->word_cnt = word_cnt;
 
@@ -23,26 +20,25 @@ ag_bls_ser( ag_bls_agg_t const * agg,
     FD_STORE( ulong, p, (ulong)agg->bitmask[w] ); p += 8UL;
   }
 
-  if( buf_sz ) *buf_sz = sz;
-  return 0;
+  return sz;
 }
 
-ulong
+int
 ag_bls_de( ag_bls_agg_t * agg,
            uchar const *  buf,
-           ulong          buf_max ) {
-  if( FD_UNLIKELY( buf_max<sizeof(ag_bls_serde_t) ) ) return 0UL;
+           ulong          buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<sizeof(ag_bls_serde_t) ) ) return AG_BLS_DE_ERR_SZ;
 
   ag_bls_serde_t const * serde    = (ag_bls_serde_t const *)buf;
   ulong                  bit_cnt  = serde->bit_cnt;
   ulong                  word_cnt = serde->word_cnt;
 
-  if( FD_UNLIKELY( word_cnt>signer_set_word_cnt                 ) ) return 0UL;
-  if( FD_UNLIKELY( bit_cnt >AG_BLS_SIGNERS_MAX                  ) ) return 0UL;
-  if( FD_UNLIKELY( bit_cnt >word_cnt*64UL                       ) ) return 0UL;
-  if( FD_UNLIKELY( buf_max <sizeof(ag_bls_serde_t)+word_cnt*8UL ) ) return 0UL;
+  if( FD_UNLIKELY( word_cnt>signer_set_word_cnt                 ) ) return AG_BLS_DE_ERR_SZ;
+  if( FD_UNLIKELY( bit_cnt >AG_BLS_SIGNERS_MAX                  ) ) return AG_BLS_DE_ERR_SZ;
+  if( FD_UNLIKELY( bit_cnt >word_cnt*64UL                       ) ) return AG_BLS_DE_ERR_SZ;
+  if( FD_UNLIKELY( buf_sz  !=sizeof(ag_bls_serde_t)+word_cnt*8UL ) ) return AG_BLS_DE_ERR_SZ; /* too few, or trailing bytes */
 
-  fd_memcpy( agg->sig, serde->signature, AG_BLS_SIG_SZ );
+  memcpy( agg->sig, serde->signature, AG_BLS_SIG_SZ );
   signer_set_null( agg->bitmask );
 
   uchar const * p = (uchar const *)( serde+1 );
@@ -58,5 +54,5 @@ ag_bls_de( ag_bls_agg_t * agg,
   if( tail ) agg->bitmask[ last ] &= (signer_set_t)( (1UL<<tail)-1UL );
   for( ulong w=(tail ? last+1UL : last); w<word_cnt; w++ ) agg->bitmask[ w ] = (signer_set_t)0UL;
 
-  return sizeof(ag_bls_serde_t) + word_cnt*8UL;
+  return AG_BLS_DE_SUCCESS;
 }
