@@ -104,20 +104,23 @@ static ulong ts_ms( long wallclock ) {
   return (ulong)wallclock / (ulong)1e6;
 }
 
-static int
-passes_throttle_threshold( fd_policy_t * policy, fd_forest_blk_t * ele ) {
-  if( FD_UNLIKELY( ele->slot < policy->turbine_slot0 ) ) return 1;
-  /* Essentially is checking if current duration of block ( from the
-     first shred received until now ) is greater than the highest tick
-     received + 200ms. */
+/* throttle_remaining_ns returns how long until the block passes the
+   eager repair threshold, 0 if it already passes.  Essentially is
+   checking if current duration of block ( from the first shred
+   received until now ) is greater than the highest tick received +
+   200ms. */
+
+static long
+throttle_remaining_ns( fd_policy_t * policy, fd_forest_blk_t * ele ) {
+  if( FD_UNLIKELY( ele->slot < policy->turbine_slot0 ) ) return 0L;
   double current_duration = (double)(fd_tickcount() - ele->first_shred_ts) / fd_tempo_tick_per_ns(NULL);
   double tick_plus_buffer = (ele->est_buffered_tick_recv * MS_PER_TICK + DEFER_REPAIR_MS) * 1e6;
 
   if( current_duration >= tick_plus_buffer ){
     FD_MCNT_INC( REPAIR, EAGER_THRESHOLD_EXCEEDED, 1 );
-    return 1;
+    return 0L;
   }
-  return 0;
+  return (long)(tick_plus_buffer - current_duration);
 }
 
 static inline fd_policy_peer_dlist_iter_t
@@ -233,7 +236,21 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
   }
 
   fd_forest_blk_t * ele = fd_forest_pool_ele( pool, iter->ele_idx );
-  if( FD_UNLIKELY( ele->slot==highest_known_slot && !passes_throttle_threshold( policy, ele ) ) ) {
+
+  /* The next request this call would produce.  If it was recently
+     declined and nothing about it changed, skip the turn. */
+  uint cand_idx = iter->shred_idx==UINT_MAX ? ele->buffered_idx+1U : iter->shred_idx;
+  if( FD_UNLIKELY( ( policy->skip.throttled || iter->shred_idx==UINT_MAX ) &&
+                   ele->slot==highest_known_slot &&
+                   policy->skip.slot==ele->slot &&
+                   policy->skip.idx==cand_idx &&
+                   now<policy->skip.until ) ) {
+    iter->shred_idx = UINT_MAX;
+    return NULL;
+  }
+
+  long throttle_ns = ele->slot==highest_known_slot ? throttle_remaining_ns( policy, ele ) : 0L;
+  if( FD_UNLIKELY( throttle_ns ) ) {
     /* When we are at the head of the turbine, we should give turbine the
        chance to complete the shreds.  Agave waits 200ms from the
        estimated "correct time" of the highest shred received to repair.
@@ -255,6 +272,12 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
        added back to the requests deque is if we set the shred_idx to
        UINT_MAX, but maybe there should be an explicit API for it. */
 
+    policy->skip.slot      = ele->slot;
+    policy->skip.idx       = cand_idx;
+    policy->skip.throttled = 1;
+    /* Cap at 1ms: the deadline is derived from tick estimates that can
+       move as more shreds land without changing the candidate. */
+    policy->skip.until     = now + fd_long_min( throttle_ns, (long)1e6 );
     return NULL;
   }
 
@@ -267,6 +290,15 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
       out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, 0 );
       ele->req_highest_cnt++;
     } else if( FD_LIKELY( ele->slot == highest_known_slot ) ) {
+      ulong key = fd_reqlim_key( FD_REPAIR_KIND_SHRED, ele->slot, cand_idx );
+      if( FD_UNLIKELY( fd_reqlim_query( dedup, key, now ) ) ) {
+        policy->skip.slot      = ele->slot;
+        policy->skip.idx       = cand_idx;
+        policy->skip.throttled = 0;
+        policy->skip.until     = fd_reqlim_next_due( dedup, key, now );
+        *charge_busy = 0;
+        return NULL;
+      }
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, ele->buffered_idx + 1, now );
       out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, ele->buffered_idx + 1 );
       ele->req_window_cnt++;
