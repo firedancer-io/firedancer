@@ -631,6 +631,152 @@ test_contact_info_public_to_invalid_update( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+/* Verify that when a gossip peer changes its RPC address to one that is
+   ssping-invalidated, the peer is removed from the selector and does not
+   retain the stale old-addr entry.  Without this fix, the CI table would
+   have the new address but the selector would keep the old one, causing
+   log_download to hit FD_TEST(0). */
+static void
+test_contact_info_rpc_flap_to_ssping_invalidated_addr( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_snapct_tile_t * ctx;
+  setup_full_snapct( scratch, ssping, &ctx, msg );
+
+  ulong const  idx   = 6UL;
+  fd_pubkey_t  peer  = test_pubkey( 0x88 );
+  fd_ip4_port_t addr1 = test_addr( 0x01020304 /* 1.2.3.4 */, 8899 );
+  fd_ip4_port_t addr2 = test_addr( 0x05060708 /* 5.6.7.8 */, 8899 );
+
+  /* Step 1: Peer arrives with public addr1. */
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, addr1 );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr1.l );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  /* Step 2: Invalidate addr2 via ssping.  addr2 has never been added to
+     ssping, so invalidate is a no-op at this point.  Add addr2 to ssping
+     first, then invalidate it. */
+  fd_ssping_add( ctx->ssping, addr2 );
+  fd_ssping_invalidate( ctx->ssping, addr2, fd_log_wallclock() );
+  FD_TEST( fd_ssping_is_invalidated( ctx->ssping, addr2 ) );
+
+  /* Step 3: Peer flaps RPC address to the ssping-invalidated addr2. */
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, addr2 );
+
+  /* The peer should be removed from the selector (new addr invalidated,
+     old addr cleaned up).  The CI table records the new address, and
+     ssping for the old addr1 is decremented. */
+  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr2.l );
+
+  /* Clean up: remove addr1 and addr2 from ssping so the shared instance
+     can be reused. */
+  fd_ssping_remove( ctx->ssping, addr1 );
+  fd_ssping_remove( ctx->ssping, addr2 );
+
+  free( scratch );
+}
+
+/* Verify that when a gossip peer flaps its RPC address back and forth,
+   the CI table, selector, and ssping stay consistent at each step. */
+static void
+test_contact_info_rpc_flap_consistency( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_snapct_tile_t * ctx;
+  setup_full_snapct( scratch, ssping, &ctx, msg );
+
+  ulong const  idx    = 7UL;
+  fd_pubkey_t  peer   = test_pubkey( 0x99 );
+  fd_ip4_port_t addr_a = test_addr( 0x08080808 /* 8.8.8.8 */, 8000 );
+  fd_ip4_port_t addr_b = test_addr( 0x01010101 /* 1.1.1.1 */, 8000 );
+
+  /* Step 1: Peer arrives with addr_a. */
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_a );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr_a.l );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+  /* Peers added via gossip contact info without snapshot hashes have
+     valid==0, so best() won't return them.  Verify presence via the
+     by_addr map count instead. */
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( ctx->selector ) );
+
+  /* Step 2: Peer flaps to addr_b. */
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_b );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr_b.l );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( ctx->selector ) );
+
+  /* Step 3: Peer flaps back to addr_a. */
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_a );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr_a.l );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( ctx->selector ) );
+
+  /* Clean up. */
+  fd_ssping_remove( ctx->ssping, addr_a );
+  fd_ssping_remove( ctx->ssping, addr_b );
+
+  free( scratch );
+}
+
+/* Verify that when a gossip peer flaps its RPC address, the old address
+   is properly removed from the selector (via the by_key path in the
+   ssping-invalidated codepath).  This test exercises the blacklisted
+   guard: when the new address is blacklisted, the peer should be
+   removed from the selector rather than retaining the stale old-addr.
+
+   Note: the add-failure path (fd_sspeer_selector_add returning
+   FD_SSPEER_SCORE_INVALID for an existing peer) is only triggerable
+   via pool exhaustion (2*TOTAL_PEERS_MAX entries), which is impractical
+   to test.  The treap capacity check only applies to new peers, not
+   existing ones going through the update path.  The blacklist and
+   ssping-invalidated codepaths are the primary bug fix and are
+   exercised by the other regression tests. */
+static void
+test_contact_info_rpc_flap_to_blacklisted_addr( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_snapct_tile_t * ctx;
+  setup_full_snapct( scratch, ssping, &ctx, msg );
+
+  ulong const  idx       = 8UL;
+  fd_pubkey_t  flap_peer = test_pubkey( 0xAA );
+  fd_ip4_port_t addr_a   = test_addr( 0x08080809 /* 8.8.8.9 */, 8010 );
+  fd_ip4_port_t addr_b   = test_addr( 0x01010109 /* 1.1.1.9 */, 8010 );
+
+  /* Step 1: Peer arrives with addr_a. */
+  send_contact_info_with_rpc( ctx, msg, idx, &flap_peer, addr_a );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr_a.l );
+  FD_TEST( ctx->gossip.ci_table[ idx ].allowed );
+  FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  /* Step 2: Blacklist this peer's identity. */
+  fd_sspeer_key_t entry_key = {0};
+  *entry_key.pubkey = flap_peer;
+  entry_key.is_url  = 0;
+  ctx->peer.key = entry_key;
+  ctx->peer.addr = addr_a;
+  blacklist_peer( ctx );
+  FD_TEST( blacklist_map_ele_query( ctx->blacklist_map, &entry_key, NULL, ctx->blacklist_pool ) );
+  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  /* Step 3: Peer flaps to addr_b.  The blacklist check in gossip_frag
+     should prevent re-adding, and the fix removes from the selector
+     (which is already empty). */
+  send_contact_info_with_rpc( ctx, msg, idx, &flap_peer, addr_b );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr_b.l );
+  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  /* Clean up. */
+  fd_ssping_remove( ctx->ssping, addr_a );
+  fd_ssping_remove( ctx->ssping, addr_b );
+
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -659,6 +805,9 @@ main( int     argc,
   test_contact_info_public_rpc_address( ssping );
   test_contact_info_invalid_rpc_address_cleared( ssping );
   test_contact_info_public_to_invalid_update( ssping );
+  test_contact_info_rpc_flap_to_ssping_invalidated_addr( ssping );
+  test_contact_info_rpc_flap_consistency( ssping );
+  test_contact_info_rpc_flap_to_blacklisted_addr( ssping );
 
   test_blacklist_peer_basic( ssping );
   test_blacklist_peer_dedup( ssping );

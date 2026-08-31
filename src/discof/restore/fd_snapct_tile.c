@@ -1466,7 +1466,13 @@ gossip_frag( fd_snapct_tile_t *  ctx,
                                                                             FD_SSPEER_LATENCY_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN,
                                                                             FD_SSPEER_SLOT_UNKNOWN, NULL, NULL ) ) ) {
               fd_ssping_add( ctx->ssping, new_addr );
+            } else {
+              /* selector add failed (e.g. pool exhaustion) */
+              fd_sspeer_selector_remove( ctx->selector, &entry_key );
             }
+          } else {
+            /* address is blacklisted or ssping-invalidated */
+            fd_sspeer_selector_remove( ctx->selector, &entry_key );
           }
         } else {
           if( FD_UNLIKELY( !!unfiltered_addr ) ) {
