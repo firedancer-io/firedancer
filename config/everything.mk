@@ -227,8 +227,8 @@ define _run-unit-test
 RUN_UNIT_TEST+=$(OBJDIR)/unit-test/$(1)
 endef
 $(OBJDIR)/unit-test/automatic.txt: $(LOCAL_MKS)
-	$(MKDIR) "$(OBJDIR)/unit-test"
-	$(RM) $@
+	$(Q)$(MKDIR) "$(OBJDIR)/unit-test"
+	$(Q)$(RM) $@
 	@$(foreach test,$(RUN_UNIT_TEST),echo $(test)>>$@;)
 
 # Generate list of automatic integration tests from $(call run-integration-test,...)
@@ -237,8 +237,8 @@ define _run-integration-test
 RUN_INTEGRATION_TEST+=$(OBJDIR)/integration-test/$(1)
 endef
 $(OBJDIR)/integration-test/automatic.txt: $(LOCAL_MKS)
-	@$(MKDIR) "$(OBJDIR)/integration-test"
-	@$(RM) $@
+	$(Q)$(MKDIR) "$(OBJDIR)/integration-test"
+	$(Q)$(RM) $@
 	@$(foreach test,$(RUN_INTEGRATION_TEST),echo $(test)>>$@;)
 	@$(TOUCH) "$@"
 
@@ -300,7 +300,8 @@ make-proof = $(eval $(call _make-proof,$(1),$(2)))
 ## GENERIC RULES
 
 $(OBJDIR)/info :
-	$(MKDIR) $(dir $@) && \
+	@echo -e "INFO\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
 echo -e \
 "# date     `date +'%Y-%m-%d %H:%M:%S %z'`\n"\
 "# source   `whoami`@`hostname`:`pwd`\n"\

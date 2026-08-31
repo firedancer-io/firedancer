@@ -68,9 +68,6 @@ Important files
 
   README.md
 
-  # Prepare external dependencies
-  deps.sh
-
   # Test launchers
   contrib/test/run_unit_tests.sh
   contrib/test/run_script_tests.sh

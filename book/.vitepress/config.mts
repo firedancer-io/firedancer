@@ -42,6 +42,7 @@ export default defineConfig({
             { text: 'Initializing', link: 'initializing' },
             { text: 'Glossary', link: 'glossary' },
             { text: 'DNS Client', link: 'dns-client' },
+            { text: 'HTTPS Client', link: 'https-client' },
           ]
         },
         {

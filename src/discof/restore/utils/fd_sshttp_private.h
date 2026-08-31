@@ -3,9 +3,10 @@
 
 #include "fd_sshttp.h"
 
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h>
-#endif
+#include "../../../waltz/tls/fd_tls.h"
+#include "../../../waltz/tlsrec/fd_tlsrec.h"
+#include "../../../ballet/x509/fd_x509_ca_store.h"
+#include "../../../ballet/x509/fd_x509_verify.h"
 
 #define FD_SSHTTP_MAGIC (0xF17EDA2CE5811900) /* FIREDANCE HTTP V0 */
 
@@ -19,6 +20,13 @@
 #define FD_SSHTTP_STATE_DONE          (7) /* done */
 
 #define FD_SSHTTP_DEADLINE_NANOS (1L*1000L*1000L*1000L) /* 1 second  */
+
+/* FD_SSHTTP_TLS_BUF_SZ is the size of the ciphertext buffers used when
+   shuttling data between the socket and fd_tlsrec.  Must be large
+   enough to hold a full TLS record (up to 16384 bytes of payload per
+   RFC 8446 Section 5.1, plus header and AEAD overhead). */
+#define FD_SSHTTP_TLS_BUF_SZ (16384UL+256UL)
+#define FD_SSHTTP_TLS_APP_BUF_SZ (FD_TLSREC_CAP+FD_SSHTTP_TLS_BUF_SZ)
 
 struct fd_sshttp_private {
   int   state;
@@ -47,10 +55,19 @@ struct fd_sshttp_private {
   ulong resolved_slot;       /* effective slot from redirect filename */
   uchar resolved_hash[ 32 ]; /* binary hash from redirect filename */
 
-#if FD_HAS_OPENSSL
-  SSL_CTX * ssl_ctx;
-  SSL *     ssl;
-#endif
+  fd_tls_t          tls;
+  fd_tlsrec_conn_t  tls_conn;
+
+  fd_x509_ca_store_t ca_store;
+  int                ca_store_loaded;
+
+  uchar tls_app_buf[ FD_SSHTTP_TLS_APP_BUF_SZ ];
+  ulong tls_app_buf_off;
+  ulong tls_app_buf_sz;
+
+  uchar tls_tx_buf[ FD_SSHTTP_TLS_BUF_SZ ];
+  ulong tls_tx_buf_off;
+  ulong tls_tx_buf_sz;
 
   ulong content_len;
   ulong content_read;

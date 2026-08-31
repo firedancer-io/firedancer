@@ -34,8 +34,6 @@ jobs:
     - name: Checkout current commit
       uses: actions/checkout@v7
 
-    - uses: ./.github/actions/deps
-
     - uses: ./.github/actions/hugepages
       with:
         count_gigantic: 398

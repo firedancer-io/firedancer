@@ -43,8 +43,6 @@ The bundle protocol uses gRPC over HTTP/2.
 
 The bundle tile uses regular TCP sockets (does not use Firedancer XDP).
 
-HTTPS (TLS 1.3) is supported using OpenSSL.
-
 ### TLS CA certificates
 
 When using to secure gRPC (HTTPS), the bundle tile verifies the server

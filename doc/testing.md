@@ -136,8 +136,6 @@ extras like `make EXTRAS="fuzz asan"`)
 linguistic U.B.
 
 **[MemorySanitizer]** detects reads of uninitialized memory.
-MSan is special because it requires all dependencies to be recompiled.
-This is done by running `deps.sh +msan`.
 
   [AddressSanitizer](https://github.com/google/sanitizers/wiki/AddressSanitizer)
   [UndefinedBehaviorSanitizer](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html)

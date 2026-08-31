@@ -16,6 +16,9 @@ main( int     argc,
 #include "fd_grpc_client_private.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
+#include <sys/socket.h>
+#include <unistd.h>
+
 typedef struct {
   uchar unused;
 } test_empty_msg_t;
@@ -32,7 +35,6 @@ static fd_grpc_client_t * client;
 
 static void
 test_grpc_client_mock_conn( fd_grpc_client_t * client ) {
-  client->ssl_hs_done = 1;
   client->h2_hs_done  = 1;
   client->conn->flags = 0;
 }
@@ -417,12 +419,46 @@ FD_UNIT_TEST( grpc_stream_error_releases_h2_quota ) {
   FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_INTERNAL );
 }
 
+FD_UNIT_TEST( tls_socket_eof_disconnects ) {
+  fd_grpc_client_reset( client );
+
+  int sock[2];
+  FD_TEST( !socketpair( AF_UNIX, SOCK_STREAM, 0, sock ) );
+  FD_TEST( !close( sock[1] ) );
+
+  int charge_busy = 0;
+  FD_TEST( fd_grpc_client_rxtx_tls( client, NULL, sock[0], &charge_busy )==-1 );
+  FD_TEST( !close( sock[0] ) );
+}
+
+FD_UNIT_TEST( tls_record_error_disconnects_during_handshake ) {
+  fd_grpc_client_reset( client );
+
+  fd_tls_t tls = {0};
+  fd_tlsrec_conn_t tls_conn[1];
+  fd_tlsrec_conn_init( tls_conn, &tls, 0 );
+  tls_conn->hs.base.state = FD_TLS_HS_WAIT_SH;
+  FD_TEST( !fd_tlsrec_conn_is_ready( tls_conn ) );
+  FD_TEST( !fd_tlsrec_conn_is_failed( tls_conn ) );
+
+  int sock[2];
+  FD_TEST( !socketpair( AF_UNIX, SOCK_STREAM, 0, sock ) );
+
+  uchar const bad_record[] = { FD_TLS_REC_APPLICATION_DATA, 0x03, 0x03, 0x00, 0x00 };
+  FD_TEST( write( sock[1], bad_record, sizeof(bad_record) )==(long)sizeof(bad_record) );
+
+  int charge_busy = 0;
+  FD_TEST( fd_grpc_client_rxtx_tls( client, tls_conn, sock[0], &charge_busy )==-1 );
+  FD_TEST( !close( sock[0] ) );
+  FD_TEST( !close( sock[1] ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  static uchar client_mem[ 131072 ] __attribute__((aligned(128)));
+  static uchar client_mem[ 262144 ] __attribute__((aligned(128)));
   ulong const buf_max = 4096UL;
   FD_TEST( fd_grpc_client_footprint( buf_max )<=sizeof(client_mem) );
 

@@ -67,7 +67,8 @@ sendto: (and (not (or (eq (arg 0) 2)
                       (eq (arg 0) etc_resolv_conf)
                       (eq (arg 0) etc_hosts_fd)
                       (eq (arg 0) logfile_fd)))
-             (eq (arg 3) "MSG_NOSIGNAL"))
+             (or (eq (arg 3) "MSG_NOSIGNAL|MSG_DONTWAIT")
+                 (eq (arg 3) "MSG_NOSIGNAL")))
 
 # client: we need to be able to receive response data from the server.
 #
@@ -77,7 +78,8 @@ recvfrom: (and (not (or (eq (arg 0) 2)
                         (eq (arg 0) etc_resolv_conf)
                         (eq (arg 0) etc_hosts_fd)
                         (eq (arg 0) logfile_fd)))
-               (eq (arg 3) "MSG_NOSIGNAL"))
+               (or (eq (arg 3) "MSG_NOSIGNAL|MSG_DONTWAIT")
+                   (eq (arg 3) "MSG_NOSIGNAL")))
 
 # resolv: Read DNS config
 lseek: (and (or (eq (arg 0) etc_resolv_conf)
@@ -86,7 +88,6 @@ lseek: (and (or (eq (arg 0) etc_resolv_conf)
             (eq (arg 2) "SEEK_SET"))
 
 # resolv: Read DNS config
-# openssl: Read from TCP socket during TLS handshake
 read
 
 # client: TCP_NODELAY for low-latency connection to event server
@@ -103,8 +104,5 @@ setsockopt: (or (and (eq (arg 1) SOL_TCP)
                 (eq (arg 1) SOL_IP)
                 (eq (arg 1) IPPROTO_IPV6))
 
-# openssl: RAND_bytes requires getpid
-getpid
-
-# openssl: RAND_bytes requires getrandom
+# HTTPS client: secure random bytes for TLS handshake
 getrandom

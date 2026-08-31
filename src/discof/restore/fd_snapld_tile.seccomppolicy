@@ -16,8 +16,7 @@ write: (or (eq (arg 0) 2)
 fsync: (eq (arg 0) logfile_fd)
 
 # snapshot: need to be able to read from an open file for snapshot
-# loading and from the socket file descriptor.  OpenSSL calls read to
-# receive bytes from an https connection.
+# loading and from the socket file descriptor.
 #
 # arg 0 is the file descriptor that we want to read from
 read: (or (eq (arg 0) in_full_fd)
@@ -58,8 +57,6 @@ close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) in_incr_fd)))
 
 # snapshot: send HTTP requests to endpoints for snapshot downloading.
-# OpenSSL also uses sendto to write to the socket during the lifetime
-# of an HTTPS connection.
 #
 # arg 0 is the file descriptor that we would like to send a request to.
 # We will restrict this being called on any of the snapshot file
@@ -88,18 +85,7 @@ ppoll: (eq (arg 1) 1)
 # snapshot: yield to scheduler during idle pipeline to save power
 clock_nanosleep
 
-# openssl: RAND_bytes requires getpid
-#
-# The OpenSSL implementation calls getpid() as an implementation detail,
-# they save the PID in a global and reseed the RNG if the PID ever
-# changes (the process was forked).  We don't need this logic since our
-# process can't fork.
-getpid
-
-# openssl: RAND_bytes requires getrandom
-#
-# The OpenSSL implementation calls getrandom internally for periodically
-# reseeding the RNG.
+# TLS: regenerate X25519 keys for each HTTPS connection
 getrandom
 
 # shutdown: exit is called on shutdown

@@ -3,10 +3,8 @@
 
 #include "../../../flamenco/fd_flamenco_base.h"
 #include "../../../util/net/fd_net_headers.h"
-
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h>
-#endif
+#include "../../../waltz/tls/fd_tls.h"
+#include "../../../ballet/x509/fd_x509_ca_store.h"
 
 #define FD_SSRESOLVE_MAGIC (0xF17EDA2CE55E510) /* FIREDANCER HTTP RESOLVE V0 */
 #define FD_SSRESOLVE_ALIGN (8UL)
@@ -19,11 +17,6 @@ struct fd_ssresolve_result {
 
 typedef struct fd_ssresolve_result fd_ssresolve_result_t;
 
-/* fd_ssresolve is responsible for resolving snapshots from a given
-   peer by sending http requests and parsing http redirect responses.
-
-   It is used by fd_http_resolver_t to resolve snapshots slots for each
-   peer. */
 struct fd_ssresolve_private;
 typedef struct fd_ssresolve_private fd_ssresolve_t;
 
@@ -48,35 +41,27 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    int              full,
                    char const *     hostname );
 
-#if FD_HAS_OPENSSL
 void
-fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
-                         fd_ip4_port_t    addr,
-                         int              sockfd,
-                         int              full,
-                         char const *     hostname,
-                         SSL_CTX *        ssl_ctx );
-#endif
+fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
+                         fd_ip4_port_t              addr,
+                         int                        sockfd,
+                         int                        full,
+                         char const *               hostname,
+                         fd_tls_t const *           tls,
+                         fd_x509_ca_store_t const * ca_store );
 
 #define FD_SSRESOLVE_ADVANCE_ERROR   (-1) /* fatal error */
 #define FD_SSRESOLVE_ADVANCE_AGAIN   ( 0) /* try again */
 #define FD_SSRESOLVE_ADVANCE_SUCCESS ( 1) /* successful advance */
 #define FD_SSRESOLVE_ADVANCE_RESULT  ( 2) /* successful advance with valid resolve result */
 
-/* fd_ssresolve_advance_poll_out advances the ssresolve state machine
-   when its socket file descriptor is ready for sending data. */
 int
 fd_ssresolve_advance_poll_out( fd_ssresolve_t * ssresolve );
 
-/* fd_ssresolve_advance_poll_in advances the ssresolve state machine
-   when its socket file descriptor is ready for receiving data. */
 int
 fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
                               fd_ssresolve_result_t * result );
 
-/* fd_ssresolve_is_done returns whether the ssresolve state machine
-   is completed.  Once the state machine is completed, it must be
-   reinitialized by fd_ssresolve_init. */
 int
 fd_ssresolve_is_done( fd_ssresolve_t * ssresolve );
 

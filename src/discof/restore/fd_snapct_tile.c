@@ -12,7 +12,6 @@
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../waltz/openssl/fd_openssl_tile.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/resolv/fd_adns.h"
 #include "../../util/fd_hash32.h"
@@ -231,8 +230,7 @@ download_enabled( fd_topo_tile_t const * tile ) {
 FD_FN_CONST static inline ulong
 loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  /* Leftover space for OpenSSL allocations */
-  return 1<<26UL; /* 64 MiB */
+  return 0UL;
 }
 
 #define ADNS_REQS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX+FD_TOPO_GOSSIP_ENTRYPOINTS_MAX)
@@ -285,9 +283,6 @@ metrics_write( fd_snapct_tile_t * ctx ) {
 
   FD_MGAUGE_SET( SNAPCT, PREDICTED_SLOT,                ctx->predicted_incremental.slot );
 
-#if FD_HAS_OPENSSL
-  FD_MCNT_SET(   SNAPCT, SSL_ALLOC_FAILED,                fd_ossl_alloc_errors );
-#endif
 
   FD_MGAUGE_SET( SNAPCT, STATE, (ulong)ctx->state );
 }
@@ -1939,15 +1934,19 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->selector_seed,  sizeof(ctx->selector_seed)  ) );
   FD_TEST( fd_rng_secure( &ctx->blacklist_seed, sizeof(ctx->blacklist_seed) ) );
 
-#if FD_HAS_OPENSSL
-  void * _alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), tile->kind_id );
-  fd_ossl_tile_init( alloc );
-#endif
+  /* The resolver only needs a trust store if some server is https. */
+  int any_https = 0;
+  for( ulong i=0UL; i<tile->snapct.sources.servers_cnt; i++ ) {
+    char   hostname[ FD_FQDN_BUF_MAX ];
+    ushort port;
+    int    is_https;
+    fd_dns_peer_parse( tile->snapct.sources.servers[ i ], "snapshots.sources.servers", hostname, &port, &is_https );
+    any_https |= is_https;
+  }
 
   ctx->ssping = NULL;
   if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, ctx->ssping_seed, on_ping, ctx ) );
-  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, on_resolve, ctx ) );
+  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, any_https, on_resolve, ctx ) );
   else                                                ctx->ssresolver = NULL;
 
   ctx->netdb_fds->etc_hosts       = -1;
