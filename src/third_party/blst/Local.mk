@@ -11,12 +11,12 @@ ifdef FD_HAS_X86
 BLST_CFLAGS_NOWARN+=-D__BLST_PORTABLE__ -mno-avx
 endif
 
-$(OBJDIR)/obj/third_party/blst/server.o : src/third_party/blst/src/server.c
+$(OBJDIR)/obj/third_party/blst/server.o : src/third_party/blst/src/server.c $(OBJDIR)/.flags
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(BLST_CFLAGS_NOWARN) -c $< -o $@
 
-$(OBJDIR)/obj/third_party/blst/assembly.o : src/third_party/blst/build/assembly.S
+$(OBJDIR)/obj/third_party/blst/assembly.o : src/third_party/blst/build/assembly.S $(OBJDIR)/.flags
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(BLST_CFLAGS_NOWARN) -c $< -o $@

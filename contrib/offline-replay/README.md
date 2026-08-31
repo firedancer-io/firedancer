@@ -35,7 +35,6 @@ webhook URLs filled in) exports the environment below and runs
 | `SLACK_DEBUG_WEBHOOK_URL` | debug notifications |
 | `LOG_DIR` (optional) | log directory, default `/data/offline-replay/logs` |
 | `AGAVE_TAG` (optional) | fallback tag if a ledger's `version.txt` is unreadable |
-| `OBJDIR` (optional) | Firedancer build dir, default `build/native/gcc` |
 
 The blockstore helper tools require RocksDB development headers/libs:
 `rocksdb-devel` on dnf systems or `librocksdb-dev` on apt systems.

@@ -4,7 +4,7 @@
       "type": "lldb-dap",
       "request": "launch",
       "name": "testnet",
-      "program": "${workspaceRoot}/build/native/gcc/bin/firedancer-dev",
+      "program": "${workspaceRoot}/build/firedancer-dev",
       "args": [],
       "env": [],
       "cwd": "${workspaceRoot}",

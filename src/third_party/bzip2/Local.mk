@@ -3,7 +3,7 @@ $(OBJDIR)/lib/libfd_ballet.a: $(patsubst %,$(OBJDIR)/obj/third_party/bzip2/%.o,$
 
 BZIP2_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS)))
 
-$(OBJDIR)/obj/third_party/bzip2/%.o : src/third_party/bzip2/%.c
+$(OBJDIR)/obj/third_party/bzip2/%.o : src/third_party/bzip2/%.c $(OBJDIR)/.flags
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(BZIP2_CFLAGS_NOWARN) -c $< -o $@

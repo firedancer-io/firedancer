@@ -5,7 +5,7 @@ Firedancer source tree
   ├── book/            https://docs.firedancer.io/
   │
   ├── build/                   Build artifacts
-  │   └── native/gcc           Build profile
+  │   └── native/gcc/<cc-ver>  Build profile
   │       ├── bin/             Main programs and scripts
   │       ├── cov/             Coverage report
   │       ├── include/         Exported include headers

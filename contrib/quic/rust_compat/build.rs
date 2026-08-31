@@ -9,10 +9,58 @@ fn main() {
         .expect("failed to locate Firedancer root")
         .to_path_buf();
 
-    let mut build_path = firedancer_path.clone();
-    build_path.push("build");
-    build_path.push("native");
-    build_path.push("gcc");
+    // build dir is compiler-keyed: take OBJDIR from the env or ask make;
+    // every input to the key (env, compiler binary, make config) must
+    // re-run this script
+    for v in [
+        "OBJDIR",
+        "MACHINE",
+        "CC",
+        "PATH",
+        "EXTRAS",
+        "BASEDIR",
+        "BUILDDIR",
+        "BUILDDIR1",
+    ] {
+        println!("cargo:rerun-if-env-changed={}", v);
+    }
+    let root = firedancer_path.to_str().unwrap();
+    println!("cargo:rerun-if-changed={}/Makefile", root);
+    println!("cargo:rerun-if-changed={}/config", root);
+    let out = std::process::Command::new("make")
+        .args(["--silent", "--no-print-directory", "-C", root, "env"])
+        .output()
+        .expect("failed to run make env");
+    assert!(
+        out.status.success(),
+        "make env failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let mk_env = String::from_utf8(out.stdout).unwrap();
+    let mk_var = |k: &str| {
+        mk_env
+            .lines()
+            .find_map(|l| l.strip_prefix(k).and_then(|v| v.strip_prefix('=')))
+            .map(|v| v.trim_matches('\'').to_string())
+            .expect(k)
+    };
+    if let Ok(out) = std::process::Command::new("sh")
+        .args([
+            "-c",
+            &format!(
+                "command -v {}",
+                mk_var("CC").split_whitespace().next().unwrap_or("cc")
+            ),
+        ])
+        .output()
+    {
+        let cc = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if let Ok(cc) = std::fs::canonicalize(&cc) {
+            println!("cargo:rerun-if-changed={}", cc.display());
+        }
+    }
+    let objdir = env::var("OBJDIR").unwrap_or_else(|_| mk_var("OBJDIR"));
+    let build_path = firedancer_path.join(&objdir);
 
     let mut lib_path = build_path.clone();
     lib_path.push("lib");

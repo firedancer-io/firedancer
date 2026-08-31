@@ -71,6 +71,8 @@ ifndef MACHINE
 MACHINE=native
 endif
 
+override EXTRAS:=$(sort $(EXTRAS))
+
 # Default target
 all:
 

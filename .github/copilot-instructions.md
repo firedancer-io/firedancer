@@ -71,10 +71,10 @@ make BUILDDIR=clang-fuzz CC=clang EXTRAS=fuzz
 make BUILDDIR=clang-fuzz-asan CC=clang EXTRAS="fuzz asan"
 
 # Run unit tests
-build/native/gcc/unit-test/<test_name>
+$(make --silent objdir)/unit-test/<test_name>
 
-# Run binaries directly
-build/native/gcc/bin/<bin_name>
+# Run binaries directly (hardlinked from the keyed build dir)
+build/<bin_name>
 ```
 
 ## Development
@@ -102,7 +102,7 @@ build/native/gcc/bin/<bin_name>
 - To add new test vectors:
   1. PR to test-vectors repository with fixtures
   2. Update `contrib/test/test-vectors-fixtures/test-vectors-commit-sha.txt` with commit SHA
-- Run unit tests: `build/native/gcc/unit-test/<test_name>`
+- Run unit tests: `$(make --silent objdir)/unit-test/<test_name>`
 
 ## Documentation
 

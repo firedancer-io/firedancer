@@ -12,7 +12,7 @@
 # unquoted globs that must expand at use sites, so quoting is deliberately
 # loose in those places.
 
-OBJDIR=${OBJDIR:-build/native/gcc}   # relative to FIREDANCER_REPO
+OBJDIR=
 LOG_DIR=${LOG_DIR:-/data/offline-replay/logs}
 
 # All harness output (builds, downloads, git operations, step markers) is
@@ -314,6 +314,9 @@ build_firedancer() {
     git submodule update --init --recursive --force
     echo "y" | FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh
     EXTRAS=offline-replay make -j
+
+    OBJDIR=$(EXTRAS=offline-replay make --silent --no-print-directory objdir 2>/dev/null || true)
+    : "${OBJDIR:?cannot determine OBJDIR (make objdir failed)}"
 }
 
 # Convert the downloaded rocksdb into a shredcap capture covering the replay
@@ -321,7 +324,7 @@ build_firedancer() {
 # rocksdb directory is kept for agave-ledger-tool and blockstore_minify during
 # minimization. Skipped if the capture already exists. Expects
 # build_firedancer to have run (needs blockstore2shredcap) and cwd =
-# FIREDANCER_REPO (OBJDIR is relative).
+# FIREDANCER_REPO.
 convert_rocksdb_to_shredcap() {
     SHREDCAP_FILE=$LEDGER_DIR/shreds.pcapng.zst
     if [ -e "$SHREDCAP_FILE" ]; then

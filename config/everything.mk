@@ -1,12 +1,28 @@
 .PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps proof
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
-.PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-clean
+.PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-clean env objdir
+
+# Key default build dirs on CC version+EXTRAS so flavors never share an
+# OBJDIR; explicit BUILDDIR overrides rely on the flavor stamps alone.
+empty:=
+space:=$(empty) $(empty)
+CC_VERSION:=$(or $(shell $(CC) -dumpfullversion -dumpversion 2>/dev/null | head -1),unknown)
+# name + resolved binary + inline args: same-version toolchains at
+# different installs, or CC='gcc -mX' variants, must not share objects
+CC_ID:=$(notdir $(firstword $(CC))) $(realpath $(shell command -v $(firstword $(CC)) 2>/dev/null)) $(wordlist 2,$(words $(CC)),$(CC))
+LD_ID:=$(notdir $(firstword $(LD))) $(realpath $(shell command -v $(firstword $(LD)) 2>/dev/null)) $(wordlist 2,$(words $(LD)),$(LD))
+CLEANDIR:=$(BASEDIR)/$(BUILDDIR)
+ifeq ($(BUILDDIR1)$(filter-out file,$(origin BUILDDIR)),)
+BUILDDIR:=$(BUILDDIR)/$(CC_VERSION)$(if $(EXTRAS),-$(subst $(space),-,$(sort $(EXTRAS))))
+endif
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
 # A failed recipe must not leave a fresh-mtime partial target that later
 # builds accept as up to date
 .DELETE_ON_ERROR:
+
+LDFLAGS+=$(foreach l,$(VENDOR_LINK_LIBS),$(OBJDIR)/lib/lib$(l).a)
 
 # Grab all the Local.mk files in the source tree, save to a variable so that
 # other rules can depend on this list. We will include these files later on.
@@ -32,7 +48,7 @@ endif
 endif
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend frontend-clean env
+AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend frontend-clean env objdir
 
 # Dry rules that should set up dependency targets, but not generate them
 DRY_RULES:=check show-deps proof
@@ -105,11 +121,12 @@ help:
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make run-integration-test" runs all integration-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
-	# "make clean" removes editor temp files and the current platform build
+	# "make clean" removes editor temp files, the current platform build and its build/<name> links
 	# "make distclean" removes editor temp files and all platform builds
 	# "make asm" makes all source files into assembly language files
 	# "make ppp" run all source files through the preprocessor
 	# "make show-deps" shows all the dependencies
+	# "make objdir" prints the build directory for the current configuration
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 	# Fuzzing (requires fuzzing profile):
 	#   "make fuzz-test" makes all fuzz-tests for the current platform
@@ -120,7 +137,8 @@ help:
 info: $(OBJDIR)/info
 
 clean: frontend-clean
-	$(RMDIR) $(OBJDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
+	$(RMDIR) $(CLEANDIR) && { [ ! -d $(BASEDIR) ] || $(FIND) $(BASEDIR)/ -maxdepth 1 -type f -perm -u+x -links 1 -delete; } && \
+$(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 distclean:
@@ -230,7 +248,7 @@ DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR
 .PHONY: $(1)
 $(1): $(OBJDIR)/$(5)/$(1)
 
-$(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
+$(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a) $(OBJDIR)/.ldflags $(OBJDIR)/.ldflags.d/$(5)_$(1)@$(subst /,_,$(subst $(space),_,$(strip $(subst $(OPT)/,,$(subst $(OBJDIR)/,,$(subst $(CURDIR)/,,$(6)))))))
 	@echo -e "LD\t$$(notdir $$@) ($(5))"
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $(if $(filter bin,$(5)),{ echo 'char const fd_bin_build_info[] ='; echo "  \"# date     $$$$(date +'%Y-%m-%d %H:%M:%S %z')\\n\""; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $$@.buildinfo.c && $$(CC) -c -o $$@.buildinfo.o $$@.buildinfo.c && ) \
@@ -294,8 +312,22 @@ run-fuzz-test: $(1)_unit
 
 endef
 
-make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin,$(4) $(LDFLAGS_EXE)))
-make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin,$(4) $(LDFLAGS_EXE)))
+# build/<name> tracks the last-built flavor: hardlink, copy if impossible
+# $(call publish,src,dst): hardlink dst to src, copy when impossible
+publish = { [ $(1) -ef $(2) ] || cmp -s $(1) $(2) || ln -f $(1) $(2) 2>/dev/null || { cp -f $(1) $(2).tmp && mv -f $(2).tmp $(2); }; }
+
+define _publish-bin
+
+.PHONY: publish-$(1)
+publish-$(1): $(OBJDIR)/bin/$(1)
+	$(Q)$(call publish,$(OBJDIR)/bin/$(1),$(BASEDIR)/$(1))
+$(1): publish-$(1)
+$(2): publish-$(1)
+
+endef
+
+make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin,$(4) $(LDFLAGS_EXE)))$(eval $(call _publish-bin,$(1),bin))
+make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin,$(4) $(LDFLAGS_EXE)))$(eval $(call _publish-bin,$(1),rust))
 make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,$(4) $(LDFLAGS_SO)))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test,$(4) $(LDFLAGS_EXE)))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
@@ -332,6 +364,7 @@ echo -e \
 mv -f $@.tmp $@
 
 $(OBJDIR)/obj/util/log/fd_log.o: $(OBJDIR)/info
+$(OBJDIR)/info: $(OBJDIR)/.flags
 
 # Depfiles are written to a tmp and published by $(DEPFIX): the compiler
 # truncates the .d in place near the end of the compile, so a killed/failed
@@ -342,23 +375,23 @@ $(OBJDIR)/obj/util/log/fd_log.o: $(OBJDIR)/info
 DEPFLAGS=-MD -MP -MF $@.dtmp -MT "$(basename $@).o" -MT "$(basename $@).S" -MT "$(basename $@).i" -MT "$(basename $@).d"
 DEPFIX=mv -f $@.dtmp $(basename $@).d
 
-$(OBJDIR)/obj/%.o : src/%.c
+$(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/.flags
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
-$(OBJDIR)/obj/%.o : src/%.S
+$(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/.flags
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.S : src/%.c
+$(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/.flags
 	$(MKDIR) $(dir $@) && \
 $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp && $(DEPFIX)
 
-$(OBJDIR)/obj/%.i : src/%.c
+$(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/.flags
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@ && $(DEPFIX)
 
@@ -392,6 +425,39 @@ endef
 
 # Include all of the Local.mk files we found earlier
 $(foreach mk,$(LOCAL_MKS),$(eval $(call _include-mk,$(mk))))
+
+# Flavor stamps: objects depend on $(OBJDIR)/.flags (compiler+flags),
+# links on $(OBJDIR)/.ldflags (linker+global link flags) plus a per-target
+# $(OBJDIR)/.ldflags.d/<target>@<arg 6> stamp (constant path prefixes
+# dropped from the name), so a link-flag change relinks only that target;
+# its previous stamp is dropped, so flipping back relinks too.
+# Written after the fragments (any of them may extend the flags).  Dry
+# runs (-n/-q/-t) must not write; their letters only count in a bare
+# leading short-flag cluster (both 4.3 and 4.4.x encode them there).
+FD_MF1:=$(firstword $(MAKEFLAGS))
+FD_MF1:=$(if $(findstring =,$(FD_MF1))$(filter -%,$(FD_MF1)),,$(FD_MF1))
+FD_DRYRUN:=$(findstring n,$(FD_MF1))$(findstring q,$(FD_MF1))$(findstring t,$(FD_MF1))
+FLAVOR:=$(MACHINE) | $(sort $(EXTRAS)) | $(CC_ID) $(CC_VERSION) | $(CPPFLAGS) | $(CFLAGS)
+LINK_FLAVOR:=$(LD_ID) | $(LDFLAGS) | $(LDFLAGS_EXE) | $(LDFLAGS_SO) | $(LDFLAGS_FUZZ)
+ifeq ($(filter $(DRY_RULES),$(MAKECMDGOALS))$(FD_DRYRUN),)
+$(shell mkdir -p $(OBJDIR))
+$(file >$(OBJDIR)/.flags.tmp,$(strip $(FLAVOR)))
+$(file >$(OBJDIR)/.ldflags.tmp,$(strip $(LINK_FLAVOR)))
+$(shell for f in .flags .ldflags; do cmp -s $(OBJDIR)/$$f.tmp $(OBJDIR)/$$f || mv -f $(OBJDIR)/$$f.tmp $(OBJDIR)/$$f 2>/dev/null; rm -f $(OBJDIR)/$$f.tmp; done)
+endif
+# strip both sides: make 4.3's $(file <) does not reliably drop the
+# trailing newline
+ifneq ($(FD_DRYRUN),)
+ifneq ($(strip $(file <$(OBJDIR)/.flags)),$(strip $(FLAVOR)))
+.PHONY: $(OBJDIR)/.flags
+endif
+ifneq ($(strip $(file <$(OBJDIR)/.ldflags)),$(strip $(LINK_FLAVOR)))
+.PHONY: $(OBJDIR)/.ldflags
+endif
+endif
+$(OBJDIR)/.flags $(OBJDIR)/.ldflags: ;@:
+$(OBJDIR)/.ldflags.d/%:
+	@$(MKDIR) $(dir $@) && $(RM) "$(dir $@)$(firstword $(subst @, ,$(notdir $@)))@"* && $(TOUCH) $@
 
 # Include all the dependencies.  Must be after the make fragments
 # include so that DEPFILES is fully populated (similarly for the
@@ -526,7 +592,7 @@ $(BASEDIR)/cov/cov.lcov: $(shell $(FIND) $(BASEDIR) -name 'cov.lcov' -print)
 cov-report: $(OBJDIR)/cov/html/index.html
 	$(LCOV) --summary $(OBJDIR)/cov/cov.lcov
 
-# `make dist-cov-report OBJDIRS="build/native/gcc build/native/clang ..."`
+# `make dist-cov-report OBJDIRS="build/native/gcc/<ver> build/native/clang/<ver> ..."`
 # produces a coverage report from multiple build profiles
 dist-cov-report: $(BASEDIR)/cov/html/index.html
 	$(LCOV) --summary $(BASEDIR)/cov/cov.lcov
@@ -591,6 +657,9 @@ frontend: frontend-clean
 frontend-clean:
 	rm -rf src/discoh/guih/dist_cmp
 	rm -rf src/disco/gui/dist_cmp
+
+objdir:
+	@echo $(OBJDIR)
 
 env:
 	@echo BUILDDIR=\'$(BUILDDIR)\'

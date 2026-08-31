@@ -4,7 +4,8 @@ set -eou pipefail
 source contrib/test/ledger_common.sh
 
 DUMP=${DUMP:="./dump"}
-OBJDIR=${OBJDIR:-build/native/gcc}
+OBJDIR=${OBJDIR:-$(make --silent --no-print-directory objdir 2>/dev/null || true)}
+: "${OBJDIR:?cannot determine OBJDIR (make objdir failed)}"
 SKIP_INGEST=${SKIP_INGEST:-0}
 
 LEDGER="mainnet-424669000-solcap-v4.2.0-beta.1-vat"

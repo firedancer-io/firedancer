@@ -10,8 +10,8 @@ $ make solana
     Finished release-with-debug [optimized + debuginfo] target(s) in 0.44s
 ```
 
-Similar to `fdctl`, the compiled binary will be placed in
-`./build/native/gcc/bin` by default.
+Similar to `fdctl`, the compiled binary is hardlinked at
+`./build/solana` by default.
 
 ::: tip NOTE
 

@@ -43,7 +43,6 @@ jobs:
     - uses: ./.github/actions/cpusonline
     - uses: actions/setup-node@v7
     - run: make -j
-    - run: echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
     - name: Checkout main for baseline
       uses: actions/checkout@v7
@@ -51,7 +50,9 @@ jobs:
         ref: main
         clean: false
 
+    # OBJDIR is resolved per checkout: the two trees may key it differently
     - run: make -j
+    - run: echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
     - name: Run baseline benchmarks
       run: |
@@ -82,6 +83,7 @@ jobs:
         clean: false
 
     - run: make -j
+    - run: echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
     - name: Run new benchmarks
       run: |

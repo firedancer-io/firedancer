@@ -1,7 +1,9 @@
 package main
 
-// #cgo CFLAGS: -I../../../build/native/gcc/include
-// #cgo LDFLAGS: -L../../../build/native/gcc/lib
+// Build dir is compiler-keyed; from this directory (cgo needs absolute paths):
+//   O=$(cd ../../.. && pwd)/$(make --silent --no-print-directory -C ../../.. objdir)
+//   CGO_CFLAGS=-I$O/include CGO_LDFLAGS=-L$O/lib go build
+
 // #cgo LDFLAGS: -lfd_quic
 // #cgo LDFLAGS: -lfd_waltz
 // #cgo LDFLAGS: -lfd_tls

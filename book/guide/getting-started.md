@@ -137,7 +137,8 @@ $ MACHINE=linux_gcc_x86_64 make -j fdctl solana
 ```
 
 The default target is `native`, and compiled binaries will be placed in
-`./build/native/gcc/bin`.
+`./build/native/gcc/<compiler-version>/bin`, with a hardlink to each at
+`./build/<name>`.
 
 ## Updating
 If you checked out Firedancer using Git, run through these steps to
@@ -274,7 +275,7 @@ The initialization steps are described [in detail](/guide/initializing.md)
 later. But plowing ahead at the moment:
 
 ```sh [bash]
-$ sudo ./build/native/gcc/bin/fdctl configure init all --config ~/config.toml
+$ sudo ./build/fdctl configure init all --config ~/config.toml
 ```
 
 You will be told what steps are performed:
@@ -289,7 +290,7 @@ boots, and it needs to be run each time the system is rebooted.
 Finally, we can run Firedancer:
 
 ```sh [bash]
-$ sudo ./build/native/gcc/bin/fdctl run --config ~/config.toml
+$ sudo ./build/fdctl run --config ~/config.toml
 ```
 
 Firedancer logs selected output to `stderr` and a more detailed log to a
@@ -299,7 +300,7 @@ security isolation, so you will see a complete process tree get launched.
 ```sh [bash]
 $ pstree 1741904 -as
 systemd --switched-root --system --deserialize 17
-  └─sudo ./build/native/gcc/bin/fdctl run --config ~/config.toml
+  └─sudo ./build/fdctl run --config ~/config.toml
       └─fdctl run --config ~/config.toml
           └─fdctl run --config ~/config.toml
               ├─fdctl run-agave --config-fd 0

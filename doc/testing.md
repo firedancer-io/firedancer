@@ -113,7 +113,7 @@ If no fuzzing engine is provided, the fuzz tests are still built with a
 stub engine.  The stub engine cannot find any new inputs, but can still
 regression test against old inputs like so:
 ```
-$ build/native/gcc/fuzz-test/fuzz_bla/fuzz_bla <input1> <input2> ...
+$ $(make --silent objdir)/fuzz-test/fuzz_bla <input1> <input2> ...
 ```
 
 ### Sanitizers
