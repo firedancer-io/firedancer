@@ -196,6 +196,22 @@ application level ping/pong and not a WebSocket control frame.
 
 The current version of the running validator.
 
+#### `summary.is_alpenglow`
+| frequency | type      | example |
+|-----------|-----------|---------|
+| *Once*    | `boolean` | `true`  |
+
+Whether the validator is running Alpenglow consensus.
+
+The API supports both Tower BFT and Alpenglow validators.  Messages
+whose shape or meaning depends on the consensus implementation are
+documented below with separate **Tower** and **Alpenglow** labels.
+
+Clients must use this message to determine the running consensus
+implementation.  A server which does not publish `summary.is_alpenglow`
+must be treated as a Tower server.  The consensus mode does not change
+during the lifetime of a validator process.
+
 #### `summary.cluster`
 | frequency       | type     | example        |
 |-----------------|----------|----------------|
@@ -246,9 +262,18 @@ counting for blocks published by this validator instance.
 | *Once* + *Live* | `string` | `voting` |
 
 One of `voting`, `non-voting`, or `delinquent`, indicating the current
-vote status of the validator. The validator considers itself delinquent
-if the last vote it has landed on its own currently chosen fork is 150
-or more slots behind that fork.
+vote status of the validator.
+
+Under Tower, the validator considers itself delinquent if the last vote 
+it has landed on its own currently chosen fork is more than 150 slots
+behind that fork.
+
+Under Alpenglow, `vote_slot` is the latest slot for which this
+validator's vote was included in a reward certificate.  See
+`summary.vote_slot` for more
+details. Given the current processed slot `s`, a voting validator is
+current when `vote_slot > s - 128` for `s >= 128`, or when
+`vote_slot > 0` for `s < 128`, otherwise they are `delinquent`.
 
 #### `summary.vote_distance`
 | frequency       | type     | example |
@@ -261,6 +286,10 @@ validators fork choice. This value excludes skipped slots, unless the
 distance is larger than 2 epochs worth of slots (NOTE: skipped slots are
 not excluded on Frankendancer). A distance of more than 150 means the
 validator is considered delinquent.
+
+This message is Tower-only and is not published by an Alpenglow
+validator. Alpenglow clients can compare `summary.completed_slot` and
+`summary.vote_slot` when a raw slot distance is useful.
 
 #### `summary.turbine_slot`
 | frequency       | type           | example |
@@ -291,7 +320,9 @@ Frankendancer client will always publish `null` for this message
 |-----------------|----------------|---------|
 | *Once* + *Live* | `number\|null` | `100`   |
 
-The largest slot for which the validator sent out a repair request.
+The largest slot which the validator has fully retrieved and
+reconstructed by repair. In Alpenglow mode this is reported by the rotor
+tile rather than the repair tile; the field name is unchanged.
 This slot has the same problem as `summary.turbine_slot` (it might
 sporadically become unboundedly large) and provides the same guarantees.
 
@@ -300,9 +331,19 @@ sporadically become unboundedly large) and provides the same guarantees.
 |-----------------|----------------|---------|
 | *Once* + *Live* | `number\|null` | `100`   |
 
-The most recent slot this node has landed a vote for. Will typically be
-one slot behind the current slot on the leader schedule. This is reset
-to `null` when the validator identity changes.
+Under Tower, this is the most recent slot this node has landed a vote
+for and will typically be one slot behind the current slot on the leader
+schedule.
+
+Under Alpenglow, this is the latest slot for which this validator's
+ordinary notarize or skip vote was included in a reward certificate. It
+is the slot being voted on, not the later slot whose block carries the
+certificate. Participation in a fallback or finalization certificate
+does not advance it, because only reward certificates are consequential
+for the validator's on-chain rewards.
+
+This is reset to `null` when the validator identity changes, and may also be
+`null` before the vote account has recorded any participation.
 
 #### `summary.caught_up_slot`
 | frequency       | type           | example |
@@ -666,14 +707,25 @@ gossip messages arriving from the network.
 - shred: Parses, verifies, and reconstructs untrusted shred payloads
 from the network.
 - repair: Consumes parsed shreds from shred tile, issues repair requests
-for any missing shreds, and reconstructs the block.
-- replay: Consumes block shreds from repair and schedules execution and
-validation of block transactions.
+for any missing shreds, and reconstructs the block. This tile is present
+only in Tower mode.
+- rotor: The Alpenglow counterpart of the repair tile. Consumes block
+data relayed to us over Rotor, issues repair requests for anything still
+missing, and reconstructs the block. This tile is present only in
+Alpenglow mode. Note that the `summary.repair_slot` field and the
+`repair` network traffic category keep their names in both modes and
+report on whichever of the two tiles the topology has.
+- replay: Consumes block shreds from repair or rotor and schedules
+execution and validation of block transactions.
 - exec: Executes replay transactions.
-- tower: Maintains consensus-related data structures and helps replay
-vote.
-- send: Sends vote transactions originating from this validator into our
-own TPU as well as to other leaders' TPU.
+- tower: Runs Tower BFT consensus and communicates Tower fork-choice and
+root decisions to replay. This tile is present only in Tower mode.
+- votor: Runs Alpenglow consensus, exchanges BLS votes and certificates,
+and communicates parent and root decisions to replay. This tile is
+present only in Alpenglow mode.
+- send: Sends Tower vote transactions originating from this validator
+into our own TPU as well as to other leaders' TPU. This tile is not used
+for Alpenglow consensus votes (which are not transactions).
 - quic: Implements QUIC network protocol for receiving transactions.
 - verify: Verifies transaction signatures and performs preliminary
 deduplication.
@@ -760,11 +812,19 @@ is `null` when the vote account is not found.
 |-----------------|----------|-------------|
 | *Once* + *Live* | `number` | `275138349` |
 
-The last slot that was rooted. Rooted slots are fully confirmed and
-irreversible, and the rooted slot will never decrease as switching fork
-cannot unroot the slot. The number will not always increase by one, as
-skipped slots do not update the root slot. For example, if the root slot
-goes from `1001` to `1003` it means slot `1002` was skipped.
+Under Tower, this is the last slot rooted by Tower. Rooted slots are
+fully confirmed and irreversible, and the rooted slot never decreases as
+switching fork cannot unroot the slot. The number will not always
+increase by one, as skipped slots do not update the root slot. For
+example, if the root slot goes from `1001` to `1003` it means slot
+`1002` was skipped.
+
+Under Alpenglow, this is the highest block which is both finalized by
+the cluster and successfully replayed locally. Equivalently, for each
+known consensus fork take the minimum of its highest finalized slot and
+highest replayed slot, then publish the maximum of those per-fork values.
+This can lag `summary.finalized_slot` while the validator downloads or
+replays a finalized block, and never decreases.
 
 #### `summary.optimistically_confirmed_slot`
 | frequency       | type     | example     |
@@ -778,6 +838,29 @@ validators switch vote) to not become rooted.
 
 Although rare, the `optimistically_confirmed_slot` could decrease if a
 validator switches to another fork that does not have this slot.
+
+This message is Tower-only and is not published by an Alpenglow validator.
+
+#### `summary.finalized_slot`
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
+
+The highest slot known to have been finalized by Alpenglow cluster
+votes. It never decreases, and it can be greater than
+`summary.root_slot` or `summary.completed_slot` while the validator is
+still acquiring or replaying the finalized fork. It is derived only from
+ the finalization certificates Votor's own certificate pool produces.
+
+#### `summary.notarized_slot`
+| frequency       | type     | example     |
+|-----------------|----------|-------------|
+| *Once* + *Live* | `number` | `275138349` |
+
+The largest slot for which the validator has observed either a
+notarization certificate or a skip certificate. It never decreases.
+
+This message is Alpenglow-only and is not published by a Tower validator.
 
 #### `summary.completed_slot`
 | frequency       | type     | example     |
@@ -805,10 +888,14 @@ slot is likely to be `1003`.
 |-----------------|----------|-------------|
 | *Once* + *Live* | `number` | `275138349` |
 
-The slot corresponding to the head of the fork we've most recently
-chosen to vote for.  A fork choice is triggered by the completion of a
-replay slot, so the publish interval for this message is approximately
-one slot duration.
+Under Tower, this is the slot corresponding to the head of the fork the
+validator most recently chose to vote for. A fork choice is triggered by
+the completion of a replay slot, so the publish interval is
+approximately one slot duration.
+
+Under Alpenglow, this should be the latest reset parent selected by
+Votor's state machine for replay and leader production, which advances
+in leader-window sized steps.
 
 #### `summary.storage_slot`
 | frequency       | type     | example     |
@@ -858,33 +945,42 @@ start incorporating skips for the new identity key.
 #### `summary.tps_history`
 | frequency | type         | example |
 |-----------|--------------|---------|
-| *Once*    | `number[][]` | `[[5492.2,4578.841,914.24,0],[6134.44419,5149.23,985,0]]` |
+| *Once*    | `number[][]` | below   |
 
 A list of the last 300 TPS samples taken by the validator. Currently the
 spacing between samples is poorly defined, but it's roughly one sample
 per slot. Each sample is a moving average from the prior 10 seconds.
 Each element in the outer array represents a sample, and the outer array
-will have up to 300 samples. Each sample will have 4 elements, which are
-`total_tps`, `vote_tps`, `nonvote_success_tps`, and `nonvote_failed_tps`
-as defined below. Samples are listed from oldest first.
+will have up to 300 samples. Samples are listed from oldest first.
+
+Under Tower, each sample is
+`[total_tps, vote_tps, nonvote_success_tps, nonvote_failed_tps]`:
+
+```json
+[[5492.2, 4578.841, 914.24, 0], [6134.44419, 5149.23, 985, 0]]
+```
+
+Under Alpenglow, votes are not transactions. Each sample is
+`[success_tps, failed_tps]` and includes all on-chain transactions:
+
+```json
+[[914.24, 0], [985, 0]]
+```
 
 #### `summary.estimated_tps`
-| frequency       | type     | example     |
-|-----------------|----------|-------------|
-| *Once* + *Live* | `number` | below |
+| frequency       | type     | example |
+|-----------------|----------|---------|
+| *Once* + *Live* | `object` | below   |
 
 The estimated number of transactions per second the network is running
-at. This includes total, vote, non-vote successful, and non-vote failed
-transactions. This is a moving average from the prior 10 seconds. For a
-more precise view of transactions per second, the client can calculate
-it from the stream of new slot data.
+at. This is a moving average from the prior 10 seconds. For a more precise
+view of transactions per second, the client can calculate it from the stream
+of new slot data.
 
-The sum of the non-vote successful and the non-vote failed transactions
-represent the number of non-vote transactions. The sum of the estimated
-vote and non-vote transactions will be equal to the estimated total
-transactions per second.
+Under Tower, the object contains total, vote, successful non-vote, and
+failed non-vote rates:
 
-::: details Example
+::: details Tower example
 
 ```json
 {
@@ -895,6 +991,24 @@ transactions per second.
         "vote": 6875,
         "nonvote_success": 1473,
         "nonvote_failed": 0
+    }
+}
+```
+
+:::
+
+Under Alpenglow, the object contains only successful and failed on-chain
+transaction rates.
+
+::: details Alpenglow example
+
+```json
+{
+    "topic": "summary",
+    "key": "estimated_tps",
+    "value": {
+        "success": 1473,
+        "failed": 0
     }
 }
 ```
@@ -919,7 +1033,8 @@ uses to communicate with the internet.
     "tpu",
     "repair",
     "rserve",
-    "metrics"
+    "metrics",
+    "votor"
 ]
 ```
 
@@ -931,24 +1046,30 @@ IP addresses used to help nodes find each other on the network
 in a client used to consume and forward incoming Solana transactions for
 their next leader slot.
 - repair: a client subsystem which requests any missing block data
-needed by the replay pipeline which may have been lost over the network
+needed by the replay pipeline which may have been lost over the network.
+In Alpenglow mode this category reports the rotor tile, which serves the
+same role; the category name is unchanged
 - rserve: "repair serve", a client subsystem which serves repair
 requests from other nodes, responding with any block data they are
 missing
 - metrics: refers to the Firedancer metrics tile, which serves an http
 Prometheus metrics endpoint
+- votor: Alpenglow BLS vote and certificate traffic. New servers append
+this entry to preserve the indices of existing protocols; its counters
+are zero in Tower mode. Older servers may publish only the first six
+array elements.
 
 ```json
 {
     "topic": "summary",
     "key": "live_network_metrics",
     "value": {
-        "ingress": [12345432, 5431234, 92345, 43210, 8765, ...],
-        "egress": [12345432, 5431234, 92345, 43210, 8765, ...],
-        "ingress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, ...],
-        "egress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, ...],
+        "ingress": [12345432, 5431234, 92345, 43210, 8765, 123, 765432],
+        "egress": [12345432, 5431234, 92345, 43210, 8765, 456, 654321],
+        "ingress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, 12.00, 76543.00],
+        "egress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, 45.00, 65432.00],
         "ingress_max_5m": 15000000,
-        "egress_max_5m": 14500000,
+        "egress_max_5m": 14500000
     }
 }
 ```
@@ -968,7 +1089,7 @@ Prometheus metrics endpoint
 |------------------|--------------------|---------|
 | *Once* + *100ms* | `LiveTxnWaterfall` | below   |
 
-::: details Example
+::: details Alpenglow example
 
 ```json
 {
@@ -983,7 +1104,8 @@ Prometheus metrics endpoint
                 "resolv_retained": 13,
                 "quic": 66767,
                 "udp": 1054,
-                "gossip": 517
+                "gossip": 0,
+                "block_engine": 13
             },
             "out": {
                 "net_overrun": 1,
@@ -1026,12 +1148,12 @@ Prometheus metrics endpoint
 
 A transaction waterfall describes the transactions that are received
 before and during a leader slot, and what happened to them. A typical
-waterfall is that we acquire transactions from QUIC or gossip in the
-lead up to (before) our leader slot, drop a few of them that fail to
-verify, drop a few duplicates, drop some low priority ones that won't
-fit into our block, and then successfully place some transactions into
-a block. Transactions can also be received and dropped during the leader
-slot, but it's important to note: the waterfall shows statistics for all
+waterfall is that we acquire transactions from QUIC in the lead up to
+(before) our leader slot, drop a few of them that fail to verify, drop a
+few duplicates, drop some low priority ones that won't fit into our
+block, and then successfully place some transactions into a block.
+Transactions can also be received and dropped during the leader slot,
+but it's important to note: the waterfall shows statistics for all
 transactions since the end of our last leader slot. These are
 transactions that are now eligible for placement into the next one.
 
@@ -1457,10 +1579,10 @@ are subsystem-specific and described below.
 **`vote`** states:
 | State          | Description |
 |----------------|-------------|
-| `disabled`     | The validator is non-voting, or the tower tile is not present in the topology |
-| `not_started`  | The tower tile exists but is not yet running, or the validator has not yet produced a vote (vote slot unset or replay slot is zero) |
-| `delinquent`   | The validator is voting but the vote distance exceeds 150 slots behind the replay slot, or the vote slot has not advanced in over 60 seconds |
-| `voting`       | The validator is voting and the vote distance is within threshold |
+| `disabled`     | The validator is non-voting, or the active consensus tile (`tower` for Tower or `votor` for Alpenglow) is not present in the topology |
+| `not_started`  | The active consensus tile exists but is not yet running, or the validator has not yet recorded a vote |
+| `delinquent`   | Under Tower, the vote distance exceeds 150 slots or the vote slot has not advanced for over 60 seconds. Under Alpenglow, the validator is delinquent according to the exact 128-slot on-chain vote-account lookback in `summary.vote_state` |
+| `voting`       | The validator is voting and is not `delinquent` |
 
 **`bundle`** states:
 | State          | Description |
@@ -2749,43 +2871,61 @@ be empty.
 :::
 
 ### slot
-Slots are opportunities for a leader to produce a block. A slot can be
-in one of five levels, and in typical operation a slot moves through
-them in normal order, starting as `incomplete` and finishing as
-`finalized`.
+Slots are opportunities for a leader to produce a block. Their level contract
+depends on the consensus mode.
 
-**`SlotLevel`**
+**Tower `SlotLevel`**
 | level        | description |
 |--------------|-------------|
 | `incomplete` | The slot does not exist, either because the chain has not yet reached the slot or because it is still in the process of being replayed by our validator |
 | `completed`  | The slot has been fully received and successfully replayed by our validator |
 | `optimistically_confirmed` | The slot has been finished and successfully replayed by our validator, and more than two-thirds of stake have voted to confirm the slot |
 | `rooted`     | Our validator has rooted the slot and considers the slot final. This occurs when 32 subsequent slots have been built on top of it |
-| `finalized`  | Our validator has rooted the slot, and more than two-thirds of stake has rooted the slot, the network considers it final |
+| `finalized`  | Our validator has rooted the slot, and more than two-thirds of stake has rooted the slot; the network considers it final |
 
-Slots are `incomplete` by default as most slots exist far in the future,
-and the `incomplete` level update is not typically published. A slot
-will only be explicitly marked as `incomplete` if it exists on the
-currently active fork, and we switch to a fork that is slower, which has
-not yet reached the slot so it no longer exists.
+Tower also publishes a separate `skipped` boolean. Before a slot becomes
+`rooted` or `finalized`, its level and skipped state can regress or
+change when the validator switches forks. Rooted and finalized states
+are permanent.
 
-A slot that has become `rooted` or `finalized` cannot go backwards, and
-will not become `incomplete`, `completed`, or `optimistically_confirmed`
-(nor will a `finalized` slot become `rooted`), but otherwise all
-transitions are valid. An `optimistically_confirmed` slot, for example,
-could become `incomplete` if the validator switches to a fork where the
-slot has not yet been received, although it should be exceedingly rare.
-Switching from `completed` to `incomplete` is more common. Levels can
-also be skipped, for example going from `incomplete` straight to
-`optimistically_confirmed` (if we switched from a fork that was running
-behind, to the cluster majority fork including the slot).
+**Alpenglow `SlotLevel`**
+| level             | description |
+|-------------------|-------------|
+| `incomplete`      | No block for this slot has completed replay on the currently selected fork |
+| `completed`       | A block for this slot has completed replay locally, but no stronger applicable certificate state is being reported |
+| `notarized`       | The selected block has completed replay and has a regular or fallback notarization certificate, distinguished by `notarization_kind` |
+| `skip_notarized`  | A skip certificate has been observed for this slot, but a later finalization has not yet made the skip irreversible |
+| `rooted`          | The selected block has completed replay locally and is directly or implicitly finalized |
+| `skipped`         | Alpenglow finality establishes that the canonical branch contains no block at this slot |
 
-In addition to a level, a slot can also be either skipped or included.
-All levels can be in either the skipped or included state, for example
-a skipped slot that is `rooted` means that the slot is skipped and
-cannot be changed. A slot in the future could be skipped, because we
-know it does not build on top of the fork we have currently selected,
-in which case it would be both `incomplete` and `skipped`.
+Alpenglow does not publish a separate `skipped` boolean; the two skip
+states are part of `level`. `rooted` and `skipped` are permanent. Before
+then, a fork change can cause a level to regress or switch branches.
+Levels can also jump when a certificate is learned before local replay
+or when finalizing a descendant implicitly finalizes its ancestors and
+skips gaps in the branch.
+
+The normal block progression is `incomplete` → `completed` →
+`notarized` → `rooted`; the skip progression is `incomplete` →
+`skip_notarized` → `skipped`. Intermediate updates may be omitted, but
+`notarized` and `rooted` always imply local replay completed, while
+`skipped` always implies cluster finality.
+
+Alpenglow uses the following certificate and finalization definitions:
+
+- A regular notarization certificate contains ordinary notarize votes
+  from at least 60% of stake.
+- A notar-fallback certificate contains a combination of ordinary
+  notarize and notarize-fallback votes from at least 60% of stake. It
+  makes the block eligible as a parent but does not finalize it.
+- A skip certificate contains skip or skip-fallback votes from at least
+  60% of stake.
+- Fast finalization directly finalizes a block with ordinary notarize
+  votes from at least 80% of stake.
+- Slow finalization directly finalizes a regularly notarized block with
+  a finalize certificate from at least 60% of stake.
+- Finalizing a block implicitly finalizes its ancestors and implicitly
+  skips slots absent from that branch.
 
 Slots are either `mine` (created by this validator), or not, in which
 case we are replaying a block from another validator. Slots that are
@@ -2800,39 +2940,53 @@ block has our key.
 
 Some information is only known for blocks that have been replayed
 successfully (reached the `completed` state), for example the number of
-transactions in the block. This number can still be known even if we are
-on a fork which skips that slot. It's possible that we are on a fork
-where the slot does not yet exist, a slot could be both `skipped`, and
-have a status of `incomplete`, and yet we still know a valid number of
-`transactions` in the slot. Once we know information like `transactions`
-it does not typically change, although can in extremely rare cases where
-a leader publishes two different blocks for their leader slot, and we
-initially replay one but the cluster votes on the other one.
+transactions in the block. Replay-derived information can remain
+available after the validator selects a fork which skips that slot
+because the validator may previously have replayed a block on another
+fork. Under Tower this can produce `skipped: true` together with a
+non-terminal level. Under Alpenglow the level itself becomes `skipped`
+once the skip is final. Once known, block information does not typically
+change, except in rare cases where a leader publishes multiple blocks
+and the validator changes which block it associates with the slot.
 
-**`SlotPublish`**
+**Common `SlotPublish` fields**
 | Field                        | Type           | Description |
 |------------------------------|----------------|-------------|
 | slot                         | `number`       | Identity of the slot, counting up from zero for the first slot in the chain |
 | mine                         | `boolean`      | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
 | start_timestamp_nanos        | `string`       | A UNIX timestamp, in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
 | target_end_timestamp_nanos   | `string`       | A UNIX timestamp, in nanoseconds, representing the target time in nanoseconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
-| skipped                      | `boolean`      | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
 | duration_nanos               | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
 | completed_time_nanos         | `string\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
-| level                        | `string`       | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimistically confirmed or rooted), or also because the validator switched forks |
-| success_nonvote_transaction_cnt | `number\|null` | Total number of successfully executed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
-| failed_nonvote_transaction_cnt  | `number\|null` | Total number of failed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
-| success_vote_transaction_cnt    | `number\|null` | Total number of successfully executed vote transactions in the block |
-| failed_vote_transaction_cnt     | `number\|null` | Total number of failed vote transactions in the block.  This should be near-zero in a healthy cluster |
+| level                        | `string`       | The mode-specific `SlotLevel` described above |
 | max_compute_units            | `number\|null` | The maximum number of compute units that can be packed into the slot.  This limit is one of many consensus-critical limits defined by the solana protocol, and helps keeps blocks small enough for validators consume them quickly.  It may grow occasionally via on-chain feature activations |
 | compute_units                | `number\|null` | Total number of compute units used by the slot.  Compute units are a synthetic metric that attempt to capture, based on the content of the block, the various costs that go into processing that block (i.e. cpu, memory, and disk utilization).  They are based on certain transaction features, like the number of included signatures, the number of included signature verification programs, the number of included writeable accounts, the size of the instruction data, the size of the on-chain loaded account data, and the number of computation steps.  NOTE: "compute units" is an overloaded term that is often used in misleading contexts to refer to only a single part of the whole consensus-critical cost formula. For example, the getBlock RPC call includes a "computeUnitsConsumed" which actually only refers only the execution compute units associated with a transaction, but excludes other costs like signature costs, data costs, etc.  This API will always use compute units in a way that includes ALL consensus-relevant costs, unless otherwise specified |
 | shreds                       | `number\|null` | Total number of shreds in the successfully replayed block. Note value is only available in the Firedancer client and will be 0 or null in the Frankendancer client |
 | transaction_fee              | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
-| vote_slot                    | `number\|null` | The most recent slot for which this validator had landed a vote as of the time that this slot was replayed.  This is equivalent to the largest voted-for slot in this validator's on-chain vote account after the execution of `slot`. `vote_slot` will typically be one less than `slot`, though `vote_slot` may be arbitrarily small if the last successfully landed vote from this validator was long before `slot`. May be `null` if the vote account for this node does not exist |
-| vote_latency_exact           | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot, discounting slots that were skipped on the fork our vote landed on.  `null` when we have not landed a vote for this slot |
-| is_voter                     | `boolean` | True if this validator was structurally a voter (held the authorized voter key with a matching identity) at the time this slot was replayed.  This reflects the historical voting configuration and is unaffected by later runtime identity switches |
+| is_voter                     | `boolean` | True if this validator had the mode-appropriate voting credentials and identity at the time this slot was replayed. Under Alpenglow this includes the BLS voting configuration. This historical value is unaffected by later runtime identity switches |
+
+**Tower-only `SlotPublish` fields**
+| Field                           | Type           | Description |
+|---------------------------------|----------------|-------------|
+| skipped                         | `boolean`      | True if the slot is skipped on the validator's currently active fork |
+| success_nonvote_transaction_cnt | `number\|null` | Total number of successfully executed non-vote transactions in the block |
+| failed_nonvote_transaction_cnt  | `number\|null` | Total number of failed non-vote transactions in the block |
+| success_vote_transaction_cnt    | `number\|null` | Total number of successfully executed vote transactions in the block |
+| failed_vote_transaction_cnt     | `number\|null` | Total number of failed vote transactions in the block |
+| vote_slot                       | `number\|null` | The most recent slot for which this validator had landed a vote as of the time this slot was replayed |
+| vote_latency_exact              | `number\|null` | The skip-discounted distance between this slot and the slot containing this validator's vote for it, or `null` if the vote has not landed |
+
+**Alpenglow-only `SlotPublish` fields**
+| Field                   | Type            | Description |
+|-------------------------|-----------------|-------------|
+| success_transaction_cnt | `number\|null`  | Total number of successfully executed on-chain transactions in the block |
+| failed_transaction_cnt  | `number\|null`  | Total number of failed on-chain transactions in the block |
+| notarization_kind       | `string\|null`  | Strongest notarization proof known for the selected block: `regular`, `fallback`, or `null`. `regular` supersedes `fallback` and is also implied by direct fast or slow finalization. The value is retained after the block becomes rooted |
+| finalization_kind       | `string\|null`  | Strongest finality proof known for this slot: `fast`, `slow`, `implicit`, or `null`. `fast` supersedes `slow`, and either direct proof supersedes `implicit`. A terminal `rooted` or `skipped` level always has a non-null value; `skipped` uses `implicit` |
+| vote_slot               | `number\|null`  | Latest slot for which this validator's vote was included in a reward certificate, as of this slot's replay. It is the slot voted on, not the slot which carried the certificate. It is `null` when this validator has no recorded reward-certificate participation yet |
+| vote_rewarded           | `boolean\|null` | Whether this validator's ordinary notarize or skip vote for this slot was included in the reward certificate carried by `slot + 8`. It is `null` until the reward outcome is known, or when `is_voter` is false. Once resolved, the server republishes this slot with `true` or `false`. Fallback and finalization votes are not rewarded. A block whose footer carries no reward certificate at all resolves the slot as `false` rather than leaving it `null`; this is rare and only reachable within `8` slots of the Alpenglow migration |
 
 #### `slot.skipped_history`
 | frequency | type       | example |
@@ -2843,20 +2997,22 @@ A list of leader slot of the validator from the current epoch which were
 skipped.
 
 The skipped slots include only rooted slots of ours which are skipped on
-the currently active fork.
+the currently active fork under Tower. Under Alpenglow, they include only
+our slots which have reached the terminal `skipped` level.
 
 #### `slot.skipped_history_cluster`
 | frequency | type       | example |
 |-----------|------------|---------|
 | *Once*     | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
 
-A list of all of the leader slots which were skipped and rooted in the
-current epoch.
+A list of all leader slots in the current epoch which are skipped and rooted
+under Tower, or which have reached the terminal `skipped` level under
+Alpenglow.
 
 #### `slot.late_votes_history`
-| frequency | type       | example |
-|-----------|------------|---------|
-| *Once*    | `number[]` | below   |
+| frequency | type               | example |
+|-----------|--------------------|---------|
+| *Once*    | `LateVotesHistory` | below   |
 
 A collection of slots from this epoch for which this validator voted
 late or not at all. Specifically, the following slots are included
@@ -2870,6 +3026,8 @@ affected slots.  Each run shares the same `latency_exact` value.
 The `latency_exact` array holds one entry per run, so its length is
 exactly half the length of the `slot`. It is the skip-discounted vote
 latency (`null` for missing vote).
+
+This message is Tower-only and is not published by an Alpenglow validator.
 
 :::details Example
 
@@ -2885,6 +3043,42 @@ latency (`null` for missing vote).
 ```
 
 :::
+
+#### `slot.missed_vote_history`
+| frequency | type                | example |
+|-----------|---------------------|---------|
+| *Once*    | `MissedVoteHistory` | below   |
+
+An Alpenglow-only collection of resolved slots from the current epoch
+for which this validator was a voter but was not included in either
+reward certificate (skip or notarize) carried for the slot. Fallback and
+finalization votes are not rewarded and do not affect this result.
+
+A reward certificate for slot `s` is carried by slot `s + 8`. Slots
+whose reward outcome is not yet known, including the most recent eight
+slots, are omitted rather than reported as missed.
+
+The `slot` array is run-length encoded as inclusive
+`[run_start, run_end]` pairs.
+
+:::details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "missed_vote_history",
+    "value": {
+        "slot": [286576808, 286576810, 286625025, 286625025]
+    }
+}
+```
+
+:::
+
+**`MissedVoteHistory`**
+| Field | Type       | Description |
+|-------|------------|-------------|
+| slot  | `number[]` | An even-length array of inclusive `[run_start, run_end]` pairs for missed reward slots |
 
 #### `slot.live_shreds`
 | frequency   | type          | example |
@@ -3029,7 +3223,7 @@ explicitly mentioned, skipped slots are not included.
 |-------|----------|-------------|
 | slot  | `number` | The slot to query for information about |
 
-::: details Example
+::: details Alpenglow example
 
 ```json
 {
@@ -3053,21 +3247,22 @@ explicitly mentioned, skipped slots are not included.
             "mine": true,
             "start_timestamp_nanos": null,
             "target_end_timestamp_nanos": null,
-            "skipped": false,
             "duration_nanos": 400000000,
             "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "success_nonvote_transaction_cnt": 6821,
-            "failed_nonvote_transaction_cnt": 6746,
-            "success_vote_transaction_cnt": 3703,
-            "failed_vote_transaction_cnt": 0,
+            "notarization_kind": "regular",
+            "finalization_kind": "fast",
+            "success_transaction_cnt": 10524,
+            "failed_transaction_cnt": 6746,
             "max_compute_units": 48000000,
             "compute_units": 0,
             "shreds": 123,
-            "transaction_fee": 12345,
-            "priority_fee": 123456,
-            "tips": 0,
-            "vote_slot": 289245043
+            "transaction_fee": "12345",
+            "priority_fee": "123456",
+            "tips": "0",
+            "is_voter": true,
+            "vote_slot": 289245043,
+            "vote_rewarded": true
         }
     }
 }
@@ -3084,7 +3279,7 @@ explicitly mentioned, skipped slots are not included.
 |-------|----------|-------------|
 | slot  | `number` | The slot to query for information about |
 
-::: details Example
+::: details Alpenglow example
 
 ```json
 {
@@ -3108,21 +3303,22 @@ explicitly mentioned, skipped slots are not included.
             "mine": true,
             "start_timestamp_nanos": null,
             "target_end_timestamp_nanos": null,
-            "skipped": false,
             "duration_nanos": 400000000,
             "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "success_nonvote_transaction_cnt": 6821,
-            "failed_nonvote_transaction_cnt": 6746,
-            "success_vote_transaction_cnt": 3703,
-            "failed_vote_transaction_cnt": 0,
+            "notarization_kind": "regular",
+            "finalization_kind": "fast",
+            "success_transaction_cnt": 10524,
+            "failed_transaction_cnt": 6746,
             "max_compute_units": 48000000,
             "compute_units": 0,
             "shreds": 123,
-            "transaction_fee": 12345,
-            "priority_fee": 123456,
-            "tips": 0,
-            "vote_slot": 289245043
+            "transaction_fee": "12345",
+            "priority_fee": "123456",
+            "tips": "0",
+            "is_voter": true,
+            "vote_slot": 289245043,
+            "vote_rewarded": true
         },
         "waterfall": {
             "in": {
@@ -3131,7 +3327,7 @@ explicitly mentioned, skipped slots are not included.
                 "resolv_retained": 0,
                 "quic": 28159,
                 "udp": 14323,
-                "gossip": 4646,
+                "gossip": 0,
                 "block_engine": 13
             },
             "out": {
@@ -3220,15 +3416,15 @@ explicitly mentioned, skipped slots are not included.
         "scheduler_counts": [
             {
                 "timestamp_nanos": "1739657041688242791",
-                "regular": 123,
-                "votes": 123,
+                "regular": 246,
+                "votes": 0,
                 "conflicting": 123,
                 "bundles": 123
             },
             {
                 "timestamp_nanos": "1739657041688342791",
-                "regular": 124,
-                "votes": 120,
+                "regular": 244,
+                "votes": 0,
                 "conflicting": 123,
                 "bundles": 123
             }
@@ -3237,6 +3433,8 @@ explicitly mentioned, skipped slots are not included.
     }
 }
 ```
+
+:::
 
 #### `slot.query_transactions`
 | frequency   | type           | example |
@@ -3247,7 +3445,7 @@ explicitly mentioned, skipped slots are not included.
 |-------|----------|-------------|
 | slot  | `number` | The slot to query for information about |
 
-::: details Example
+::: details Alpenglow example
 
 ```json
 {
@@ -3271,30 +3469,31 @@ explicitly mentioned, skipped slots are not included.
             "mine": true,
             "start_timestamp_nanos": "1739657041688346791",
             "target_end_timestamp_nanos": "1739657042088346880",
-            "skipped": false,
             "duration_nanos": 400000000,
             "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "success_nonvote_transaction_cnt": 6821,
-            "failed_nonvote_transaction_cnt": 6746,
-            "success_vote_transaction_cnt": 3703,
-            "failed_vote_transaction_cnt": 0,
+            "notarization_kind": "regular",
+            "finalization_kind": "fast",
+            "success_transaction_cnt": 10524,
+            "failed_transaction_cnt": 6746,
             "max_compute_units": 48000000,
             "compute_units": 0,
             "shreds": 123,
-            "transaction_fee": 12345,
-            "priority_fee": 123456,
-            "tips": 0,
-            "vote_slot": 289245043
+            "transaction_fee": "12345",
+            "priority_fee": "123456",
+            "tips": "0",
+            "is_voter": true,
+            "vote_slot": 289245043,
+            "vote_rewarded": true
         },
         "limits": {
             "used_total_block_cost": 10000000,
-            "used_total_vote_cost": 5000000,
+            "used_total_vote_cost": 0,
             "used_account_write_costs": 1000000,
             "used_total_bytes": 123456,
             "used_total_microblocks": 12345,
             "max_total_block_cost": 100000000,
-            "max_total_vote_cost": 12000000,
+            "max_total_vote_cost": 0,
             "max_account_write_cost": 40000000,
             "max_total_bytes": 987654321,
             "max_total_microblocks": 32768
@@ -3306,8 +3505,8 @@ explicitly mentioned, skipped slots are not included.
             "end_slot_schedule_counts": [0, 10, 0, 0, 0, 0, 0],
             "pending_smallest_cost": 3000,
             "pending_smallest_bytes": 1232,
-            "pending_vote_smallest_cost": 3000,
-            "pending_vote_smallest_bytes": 1232
+            "pending_vote_smallest_cost": null,
+            "pending_vote_smallest_bytes": null
         },
         "transactions": {
             "start_timestamp_nanos": "1739657041688346791",
@@ -3322,7 +3521,6 @@ explicitly mentioned, skipped slots are not included.
             "txn_error_code": [0],
             "txn_execute_start_timestamps_nanos": ["1754409729594455631"],
             "txn_from_bundle": [false],
-            "txn_is_simple_vote": [true],
             "txn_landed": [true],
             "txn_load_start_timestamps_nanos": ["1754409729594451074"],
             "txn_mb_end_timestamps_nanos": ["1754409729594625003"],
@@ -3333,7 +3531,7 @@ explicitly mentioned, skipped slots are not included.
             "txn_transaction_fee": [0],
             "txn_tips": ["0"],
             "txn_source_ipv4": ["123.123.123.123"],
-            "txn_source_tpu": ["gossip"],
+            "txn_source_tpu": ["quic"]
         }
     }
 }
@@ -3372,7 +3570,7 @@ explicitly mentioned, skipped slots are not included.
 | resolv_retained | `number` | Transactions were received during or prior to an earlier leader slot, but weren't executed because we did not know the blockhash they referenced. They were instead kept in a holding area in case we learn the blockhash later |
 | quic            | `number` | A QUIC transaction was received. The stream does not have to successfully complete |
 | udp             | `number` | A non-QUIC UDP transaction was received |
-| gossip          | `number` | A gossipped vote transaction was received from a gossip peer |
+| gossip          | `number` | Under Tower, a gossipped vote transaction was received from a gossip peer. This fixed-shape field is deprecated and always `0` under Alpenglow |
 | block_engine    | `number` | A transaction received from a block engine, for example Jito. The transaction might or might not have been part of a bundle |
 
 **`TxnWaterfallOut`**
@@ -3408,8 +3606,8 @@ explicitly mentioned, skipped slots are not included.
 | Field           | Type     | Description |
 |-----------------|----------|-------------|
 | timestamp_nanos | `string` | A UNIX nanosecond timestamp representing the time when these counts were sampled by the gui tile. |
-| regular         | `number` | The number of transactions stored in the "regular" treap (i.e. the primary buffer) at `timestamp_nanos` |
-| votes           | `number` | The number of transactions stored in the "votes" treap (i.e. the buffer dedicated for vote transactions) at `timestamp_nanos` |
+| regular         | `number` | The number of transactions stored in the "regular" treap (i.e. the primary buffer) at `timestamp_nanos`. Under Alpenglow this includes transactions which would have been classified as vote transactions under Tower |
+| votes           | `number` | Under Tower, the number of transactions stored in the "votes" treap (i.e. the buffer dedicated to vote transactions) at `timestamp_nanos`. This fixed-shape field is deprecated and always `0` under Alpenglow |
 | conflicting     | `number` | The number of transactions stored in the "conflicting" treap (i.e. the buffer for transactions with perceived account write conflicts, which receive slightly less priority) at `timestamp_nanos` |
 | bundles         | `number` | The number of transactions stored in the "bundles" treap (i.e. the buffer dedicated for bundle transactions) at `timestamp_nanos` |
 
@@ -3429,12 +3627,12 @@ explicitly mentioned, skipped slots are not included.
 | Field                        | Type              | Description |
 |------------------------------|-------------------|-------------|
 | used_total_block_cost        | `number`          | The total block cost in compute units |
-| used_total_vote_cost         | `number`          | The compute units from vote transactions consumed for this block |
+| used_total_vote_cost         | `number`          | Under Tower, the compute units from vote transactions consumed for this block. This fixed-shape field is deprecated and always `0` under Alpenglow |
 | used_account_write_costs     | `WriteAcctCost[]` | The top 5 writeable account costs for this block |
 | used_total_bytes             | `number`          | The number of bytes from transaction payloads and microblock headers consumed in total for this block |
 | used_total_microblocks       | `number`          | The total number of microblocks included in this block |
 | max_total_block_cost         | `number`          | The maximum possible value for `used_total_block_cost` |
-| max_total_vote_cost          | `number`          | The maximum possible value for `used_total_vote_cost` |
+| max_total_vote_cost          | `number`          | Under Tower, the maximum possible value for `used_total_vote_cost`. This fixed-shape field is deprecated and always `0` under Alpenglow |
 | max_account_write_cost       | `number`          | The maximum possible value for `used_account_write_cost` |
 | max_total_bytes              | `number`          | The maximum possible value for `used_total_bytes` |
 | max_total_microblocks        | `number`          | The maximum possible value for `used_total_microblocks` |
@@ -3446,10 +3644,10 @@ explicitly mentioned, skipped slots are not included.
 | end_slot_reason              | `string`          | The reason pack ended packing for this leader slot. One of `"timeout"`, `"microblock_limit"`, or `"leader_switch"` |
 | slot_schedule_counts         | `number[]`        | `slot_schedule_counts[i]` is the number of transactions across the leader slot that had `["success", "fail_cu_limit", "fail_fast_path", "fail_byte_limit", "fail_alloc_limit", "fail_write_cost", "fail_slow_path", "fail_defer_skip"][i]` as the outcome after being scheduled. "success" means the transaction was successfully scheduled to a bank. "fail_cu_limit" means Pack skipped the transaction because it would have exceeded the block CU limit. "fail_fast_path" means Pack skipped the transaction because of account conflicts using the fast bitvector check. "fail_byte_limit" means Pack skipped the transaction because it would have exceeded the block data size limit. "fail_alloc_limit" means Pack skipped the transaction because it would have exceeded the block account allocation limit. "fail_write_cost" means Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit. "fail_slow_path" means Pack skipped the transaction because of account conflicts using the full slow check. "fail_defer_skip" means Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times |
 | end_slot_schedule_counts     | `number[]`        | `end_slot_schedule_counts` has the same meaning as `slot_schedule_counts` except only transactions that occur after the last successfully scheduled transaction in the slot are counted |
-| pending_smallest_cost        | `number`          | The cost in compute units of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
-| pending_smallest_bytes       | `number`          | The size in bytes of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
-| pending_vote_smallest_cost   | `number`          | The cost in compute units of the smallest eligible vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
-| pending_vote_smallest_bytes  | `number`          | The size in bytes of the smallest eligible vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
+| pending_smallest_cost        | `number\|null`    | The cost in compute units of the smallest eligible non-vote transaction under Tower, or any eligible transaction under Alpenglow, in pack's transaction buffer at the end of the slot. If the buffer is empty, this is `null` |
+| pending_smallest_bytes       | `number\|null`    | The size in bytes of the smallest eligible non-vote transaction under Tower, or any eligible transaction under Alpenglow, in pack's transaction buffer at the end of the slot. If the buffer is empty, this is `null` |
+| pending_vote_smallest_cost   | `number\|null`    | Under Tower, the cost in compute units of the smallest eligible vote transaction in pack's transaction buffer at the end of the slot, or `null` if the buffer is empty. This fixed-shape field is deprecated and always `null` under Alpenglow |
+| pending_vote_smallest_bytes  | `number\|null`    | Under Tower, the size in bytes of the smallest eligible vote transaction in pack's transaction buffer at the end of the slot, or `null` if the buffer is empty. This fixed-shape field is deprecated and always `null` under Alpenglow |
 
 
 **`Transactions`**
@@ -3472,7 +3670,7 @@ explicitly mentioned, skipped slots are not included.
 | txn_tips                           | `string[]`          | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
 | txn_error_code                     | `number[]`          | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
 | txn_from_bundle                    | `boolean[]`         | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
-| txn_is_simple_vote                 | `boolean[]`         | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise |
+| txn_is_simple_vote                 | `boolean[]`         | Tower-only. `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise. This field is omitted under Alpenglow |
 | txn_landed                         | `boolean[]`         | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
 | txn_bank_idx                       | `number[]`          | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
 | txn_microblock_id                  | `string[]`          | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
@@ -3486,9 +3684,9 @@ The source tpu for a transaction can be one of the following
 |--------|-------------|
 | quic   | the primary ingress tpu for user transactions.  Utilizes the quic protocol to receive packets |
 | udp    | ingress transactions received as simple UDP packets |
-| gossip | vote transactions received from the gossip network |
+| gossip | Tower-only vote transactions received from the gossip network; this value is not emitted under Alpenglow |
 | bundle | bundle transactions received by the bundle tile from a block builder.  Utilizes a grpc connection to receive packets |
-| send   | vote transactions produced by this validator received from the send tile. These transactions are meant for the active cluster leader |
+| send   | Tower-only vote transactions produced by this validator and received from the send tile; this value is not emitted under Alpenglow |
 
 These are the possible error codes that might be included in `txn_error_code` and their meanings.
 
@@ -3523,7 +3721,7 @@ These are the possible error codes that might be included in `txn_error_code` an
 | InvalidAddressLookupTableData         | 26   | Loads an address table account with invalid data |
 | InvalidAddressLookupTableIndex        | 27   | Address table lookup uses an invalid index |
 | InvalidRentPayingAccount              | 28   | Deprecated |
-| WouldExceedMaxVoteCostLimit           | 29   | Exceeded the maximum vote compute unit cost allowed for this slot |
+| WouldExceedMaxVoteCostLimit           | 29   | Tower-only. Exceeded the maximum vote compute unit cost allowed for this slot; this code is not emitted under Alpenglow |
 | WouldExceedAccountDataTotalLimit      | 30   | Deprecated |
 | DuplicateInstruction                  | 31   | Contains duplicate instructions |
 | InsufficientFundsForRent              | 32   | Deprecated |
