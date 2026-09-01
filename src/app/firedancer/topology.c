@@ -1468,6 +1468,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
+    fd_memcpy( tile->snapin.snapshots_path, config->paths.snapshots, PATH_MAX );
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );

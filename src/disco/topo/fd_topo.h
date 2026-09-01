@@ -700,6 +700,7 @@ struct fd_topo_tile {
     } snapld;
 
     struct {
+      char  snapshots_path[ PATH_MAX ];
       ulong max_live_slots;
       ulong accdb_obj_id;
       ulong txncache_obj_id;

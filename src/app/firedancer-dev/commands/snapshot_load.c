@@ -181,6 +181,7 @@ snapshot_load_topo( config_t * config ) {
   snapin_tile->snapin.accdb_obj_id    = accdb_obj->id;
   snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
   snapin_tile->snapin.banks_obj_id    = banks_obj->id;
+  fd_memcpy( snapin_tile->snapin.snapshots_path, config->paths.snapshots, PATH_MAX );
   snapin_tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

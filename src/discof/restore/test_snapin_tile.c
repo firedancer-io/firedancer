@@ -62,6 +62,9 @@ test_stem_publish( fd_stem_context_t * stem,
 
 #include <stdlib.h>
 
+void
+fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser );
+
 int
 mock_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                  fd_accdb_fork_id_t  fork_id,
@@ -857,6 +860,65 @@ test_txncache_staging_entry_size( void ) {
   FD_TEST( sizeof(ctx->txncache_entries[ 0 ])==20UL );
 }
 
+static void
+test_prepare_recent_blockhashes( void ) {
+  static fd_snapshot_manifest_t manifest[ 1 ];
+  manifest->blockhashes_len = 200UL;
+  for( ulong i=0UL; i<manifest->blockhashes_len; i++ ) {
+    manifest->blockhashes[ i ].hash_index = i;
+    fd_memset( manifest->blockhashes[ i ].hash, (int)i, sizeof(fd_hash_t) );
+  }
+
+  fd_snapin_tile_t ctx[ 1 ] = {0};
+  FD_TEST( !prepare_recent_blockhashes( ctx, manifest ) );
+  FD_TEST( ctx->recent_blockhashes_len==FD_TXNCACHE_MAX_SLOT_DELTAS );
+  FD_TEST(  is_recent_blockhash( ctx, manifest->blockhashes[  49UL ].hash ) );
+  FD_TEST(  is_recent_blockhash( ctx, manifest->blockhashes[ 199UL ].hash ) );
+  FD_TEST( !is_recent_blockhash( ctx, manifest->blockhashes[  48UL ].hash ) );
+
+  manifest->blockhashes[ 199UL ].hash_index = 201UL;
+  FD_TEST( prepare_recent_blockhashes( ctx, manifest ) );
+}
+
+static void
+test_status_cache_filters_old_blockhashes( void ) {
+  uchar input[ 121UL ];
+  uchar * p = input;
+
+  FD_STORE( ulong, p, 1UL ); p += sizeof(ulong); /* slot count */
+  FD_STORE( ulong, p, 1000UL ); p += sizeof(ulong);
+  *p++ = 1U; /* rooted */
+  FD_STORE( ulong, p, 2UL ); p += sizeof(ulong); /* group count */
+
+  fd_memset( p, 1, sizeof(fd_hash_t) ); p += sizeof(fd_hash_t);
+  FD_STORE( ulong, p, 3UL ); p += sizeof(ulong);
+  FD_STORE( ulong, p, 0UL ); p += sizeof(ulong); /* entry count */
+
+  fd_memset( p, 2, sizeof(fd_hash_t) ); p += sizeof(fd_hash_t);
+  FD_STORE( ulong, p, 4UL ); p += sizeof(ulong);
+  FD_STORE( ulong, p, 0UL ); p += sizeof(ulong); /* entry count */
+  FD_TEST( p==input+sizeof(input) );
+
+  uchar parser_mem[ fd_slot_delta_parser_footprint()+fd_slot_delta_parser_align()-1UL ];
+  void * parser_shmem = (void *)fd_ulong_align_up( (ulong)parser_mem, fd_slot_delta_parser_align() );
+  fd_snapin_tile_t ctx[ 1 ] = {0};
+  blockhash_group_t groups[ 1UL ];
+  ctx->slot_delta_parser      = fd_slot_delta_parser_join( fd_slot_delta_parser_new( parser_shmem ) );
+  ctx->blockhash_groups       = groups;
+  ctx->recent_blockhashes_len = 1UL;
+  ctx->recent_blockhashes_ready = 1;
+  fd_memset( ctx->recent_blockhashes[ 0UL ].uc, 2, sizeof(fd_hash_t) );
+  fd_slot_delta_parser_init( ctx->slot_delta_parser );
+
+  FD_TEST( !process_status_cache( ctx, input, sizeof(input), 1 ) );
+  FD_TEST( ctx->flags.status_cache_done );
+  FD_TEST( ctx->blockhash_groups_len==1UL );
+  FD_TEST( !memcmp( ctx->blockhash_groups[ 0UL ].blockhash,
+                    ctx->recent_blockhashes[ 0UL ].uc,
+                    sizeof(fd_hash_t) ) );
+  FD_TEST( ctx->blockhash_groups[ 0UL ].txnhash_offset==4UL );
+}
+
 static ulong
 test_txncache_staging_slot_prepare( fd_snapin_tile_t * ctx,
                                     ulong               slot ) {
@@ -1008,6 +1070,8 @@ main( int     argc,
   test_batch_stake_delegation();
   test_streaming_stake_delegation();
   test_txncache_staging_entry_size();
+  test_prepare_recent_blockhashes();
+  test_status_cache_filters_old_blockhashes();
   test_txncache_staging_evicts_oldest_slot();
   test_txncache_staging_fits_one_gigantic_page();
   test_txncache_staging_validates_stale_group_offsets();

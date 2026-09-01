@@ -5,7 +5,7 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd
+uint logfile_fd, uint accounts_fd, uint status_cache_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -16,6 +16,10 @@ uint logfile_fd, uint accounts_fd
 # that descriptor 2 is always STDERR.
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
+
+# deferred status cache: replay status cache after the manifest is parsed
+pread64:  (eq (arg 0) status_cache_fd)
+pwrite64: (eq (arg 0) status_cache_fd)
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
