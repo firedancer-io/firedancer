@@ -249,6 +249,19 @@ test_crank_cnt( void ) {
   uchar _txn[ FD_TXN_MAX_SZ ];
   fd_txn_t * txn = (fd_txn_t *)_txn;
 
+  fd_acct_addr_t old_tip_receiver  = *tip_payment_config->tip_receiver;
+  fd_acct_addr_t old_block_builder = *tip_payment_config->block_builder;
+
+  memset( tip_payment_config->tip_receiver, 0, sizeof(fd_acct_addr_t) );
+  FD_TEST( ULONG_MAX==crank_generate_and_test( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+      _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, 740UL, 5UL, payload, txn ) );
+  *tip_payment_config->tip_receiver = old_tip_receiver;
+
+  memset( tip_payment_config->block_builder, 0, sizeof(fd_acct_addr_t) );
+  FD_TEST( ULONG_MAX==crank_generate_and_test( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+      _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, 740UL, 5UL, payload, txn ) );
+  *tip_payment_config->block_builder = old_block_builder;
+
   fd_acct_addr_t uncreated[1] = {{{ 0 }}};
   FD_TEST( sizeof(fd_bundle_crank_3_t)==crank_generate_and_test( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
       _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, uncreated, 740UL, 5UL, payload, txn ) );
