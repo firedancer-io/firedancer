@@ -8,10 +8,12 @@
    2. Compile for each target backend, this will create a unit-test called fd_curve25519_tables
       $ MACHINE=linux_gcc_icelake make -j
       $ MACHINE=linux_gcc_noarch64 make -j
+      $ MACHINE=linux_gcc_neoverse_n2 make -j
 
    3. Run the scripts:
       $ ./build/linux/gcc/icelake/unit-test/fd_curve25519_tables
       $ ./build/linux/gcc/noarch64/unit-test/fd_curve25519_tables
+      $ ./build/linux/gcc/neoverse_n2/unit-test/fd_curve25519_tables
 
    4. Commit the changes. */
 
@@ -41,8 +43,8 @@ field_constant( FILE * file, char const * name, fd_f25519_t * value ) {
   }
   fprintf( file, "0x0, 0x0, ");
 #else
-  for( int i=0; i<5; i++ ) {
-    fprintf( file, "0x%016lx, ", value->el[i]);
+  for( int i=0; i<FD_F25519_LIMB_CNT; i++ ) {
+    fprintf( file, "0x%016lx, ", (ulong)value->el[i] );
   }
 #endif
 
@@ -145,23 +147,23 @@ point_const( FILE * file, fd_ed25519_point_t const * value ) {
       fprintf( file, "},\n");
 #else
       fprintf( file, "    {{{ ");
-      for( int i=0; i<5; i++ ) {
-        fprintf( file, "0x%016lx, ", value->X->el[i]);
+      for( int i=0; i<FD_F25519_LIMB_CNT; i++ ) {
+        fprintf( file, "0x%016lx, ", (ulong)value->X->el[i] );
       }
       fprintf( file, "}}},\n");
       fprintf( file, "    {{{ ");
-      for( int i=0; i<5; i++ ) {
-        fprintf( file, "0x%016lx, ", value->Y->el[i]);
+      for( int i=0; i<FD_F25519_LIMB_CNT; i++ ) {
+        fprintf( file, "0x%016lx, ", (ulong)value->Y->el[i] );
       }
       fprintf( file, "}}},\n");
       fprintf( file, "    {{{ ");
-      for( int i=0; i<5; i++ ) {
-        fprintf( file, "0x%016lx, ", value->T->el[i]);
+      for( int i=0; i<FD_F25519_LIMB_CNT; i++ ) {
+        fprintf( file, "0x%016lx, ", (ulong)value->T->el[i] );
       }
       fprintf( file, "}}},\n");
       fprintf( file, "    {{{ ");
-      for( int i=0; i<5; i++ ) {
-        fprintf( file, "0x%016lx, ", value->Z->el[i]);
+      for( int i=0; i<FD_F25519_LIMB_CNT; i++ ) {
+        fprintf( file, "0x%016lx, ", (ulong)value->Z->el[i] );
       }
       fprintf( file, "}}},\n");
 #endif
@@ -900,6 +902,8 @@ main( int     argc,
 
 #if FD_HAS_AVX512
   char const * path_suffix = "avx512";
+#elif FD_HAS_ARM && FD_HAS_S2NBIGNUM
+  char const * path_suffix = "arm";
 #else
   char const * path_suffix = "ref";
 #endif

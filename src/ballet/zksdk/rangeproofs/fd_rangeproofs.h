@@ -5,6 +5,8 @@
 
 #if FD_HAS_AVX512
 #include "./fd_rangeproofs_table_avx512.c"
+#elif FD_HAS_ARM && FD_HAS_S2NBIGNUM
+#include "./fd_rangeproofs_table_arm.c"
 #else
 #include "./fd_rangeproofs_table_ref.c"
 #endif

@@ -32,7 +32,11 @@ typedef struct fd_curve25519_edwards fd_curve25519_edwards_t;
 typedef fd_curve25519_edwards_t fd_ed25519_point_t;
 typedef fd_curve25519_edwards_t fd_ristretto255_point_t;
 
+#if FD_HAS_ARM && FD_HAS_S2NBIGNUM
+#include "../table/fd_curve25519_table_arm.c"
+#else
 #include "../table/fd_curve25519_table_ref.c"
+#endif
 
 FD_PROTOTYPES_BEGIN
 

@@ -20,6 +20,8 @@
 
 #if FD_HAS_AVX512
 #include "avx512/fd_f25519.h"
+#elif FD_HAS_ARM && FD_HAS_S2NBIGNUM
+#include "arm/fd_f25519.h"
 #else
 #include "ref/fd_f25519.h"
 #endif

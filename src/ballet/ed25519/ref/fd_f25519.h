@@ -6,8 +6,10 @@
 
 #define USE_FIAT_32 0
 #if USE_FIAT_32
+#define FD_F25519_LIMB_CNT 10
 #include "../../../third_party/fiat-crypto/curve25519_32.c"
 #else
+#define FD_F25519_LIMB_CNT 5
 #include "../../../third_party/fiat-crypto/curve25519_64.c"
 #endif
 
