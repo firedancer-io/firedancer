@@ -146,7 +146,7 @@ test_rx_routes( void ) {
   FD_TEST( fd_topob_new( topo, "test_mlx5_rx_routes" ) );
   fd_topob_wksp( topo, "net_umem" );
 
-  fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "mlx5", "net_umem", "net_umem", 0UL, 0, 0, 0 );
+  fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "mlx5", "net_umem", "net_umem", 0UL, 0, 0, 0, 0 );
   fd_topo_obj_t * umem_obj = fd_topob_obj( topo, "dcache", "net_umem" );
   fd_pod_insert_cstr( topo->props, "net.provider", "mlx5" );
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", 0UL );
@@ -157,7 +157,7 @@ test_rx_routes( void ) {
   topo_tile->mlx5.net.repair_serve_listen_port  = 8003U;
   topo_tile->mlx5.net.txsend_src_port           = 8004U;
 
-  fd_topo_tile_t * topo_tile1 = fd_topob_tile( topo, "mlx5", "net_umem", "net_umem", 1UL, 0, 0, 0 );
+  fd_topo_tile_t * topo_tile1 = fd_topob_tile( topo, "mlx5", "net_umem", "net_umem", 1UL, 0, 0, 0, 0 );
   fd_topo_obj_t *  umem_obj1  = fd_topob_obj( topo, "dcache", "net_umem" );
   fd_pod_insertf_ulong( topo->props, umem_obj1->id, "net.%lu.umem", 1UL );
   topo_tile1->mlx5.batch_size = 8U;
@@ -518,7 +518,7 @@ main( int     argc,
   FD_TEST( fd_topob_new( topo, "test_mlx5_tile" ) );
   fd_topo_wksp_t * topo_wksp = fd_topob_wksp( topo, "wksp" );
   topo_wksp->wksp = wksp;
-  fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "mlx5", "wksp", "wksp", cpu_idx, 0, 0, 0 );
+  fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "mlx5", "wksp", "wksp", cpu_idx, 0, 0, 0, 0 );
   topo_tile->mlx5.rx_queue_size = (uint)rxq_depth;
   topo_tile->mlx5.tx_queue_size = (uint)txq_depth;
   topo_tile->mlx5.batch_size    = batch_size;

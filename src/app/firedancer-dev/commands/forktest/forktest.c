@@ -216,35 +216,35 @@ forktest_topo( config_t * config ) {
   fd_topob_link( topo, "net_shred", "net_shred", config->net.ingress_buffer_size, FD_NET_MTU, 1UL );
 
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch */
-  /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
+  /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0,                 1 );
 
   fd_topo_tile_t * snapin_tile = NULL;
   if( FD_LIKELY( snapshots_enabled ) ) {
-    /**/               fd_topob_tile( topo, "snapct", "snapct", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0 )->allow_shutdown = 1;
-    /**/               fd_topob_tile( topo, "snapld", "snapld", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0 )->allow_shutdown = 1;
-    /**/               fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "snapct", "snapct", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 0 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "snapld", "snapld", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 0 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 0 )->allow_shutdown = 1;
                        snapin_tile =
-    /**/               fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0 );
+    /**/               fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 0 );
                        snapin_tile->allow_shutdown = 1;
-    /**/               fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 0 )->allow_shutdown = 1;
   }
 
   if( FD_UNLIKELY( !snapshots_enabled ) ) {
-    /**/               fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0,                 0 )->allow_shutdown = 1;
   }
 
-  FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
+  FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0,                 0 );
   fd_topo_tile_t * replay_tile =
-  /**/                 fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
-  FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp",  "execrp",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
-  /**/                 fd_topob_tile( topo, "tower",   "tower",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 1 );
+  /**/                 fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0,                 0 );
+  FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp",  "execrp",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0,                 0 );
+  /**/                 fd_topob_tile( topo, "tower",   "tower",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 1,                 0 );
 
-  FOR(sign_tile_cnt)   fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,               1 );
+  FOR(sign_tile_cnt)   fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,               1,               0 );
 
-  fd_topob_tile( topo, "forkt", "forkt", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  fd_topob_tile( topo, "forkt", "forkt", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
 
   fd_topob_wksp( topo, "accdb" )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_FULL;
-  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
 
   fd_topob_wksp( topo, "accdb_data" );
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
@@ -427,6 +427,7 @@ forktest_topo( config_t * config ) {
     fd_topo_configure_tile( &topo->tiles[ i ], config );
   }
 
+  fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
 }
 

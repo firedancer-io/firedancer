@@ -6,6 +6,7 @@
 #include "../../../util/net/fd_ip4.h"
 
 #include <unistd.h>
+#include <sys/resource.h> /* RLIMIT_NOFILE */
 
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
@@ -24,6 +25,7 @@ load_cmd_perm( args_t *         args FD_PARAM_UNUSED,
   }
   configure_args.configure.stages[ 2 ] = NULL;
   configure_cmd_perm( &configure_args, chk, config );
+  fd_cap_chk_raise_rlimit( chk, "load", RLIMIT_NOFILE, CONFIGURE_NR_OPEN_FILES, "call `rlimit(2)` to increase `RLIMIT_NOFILE` for the fixed waker/accdb fd range" );
 }
 
 void

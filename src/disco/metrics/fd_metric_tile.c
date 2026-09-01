@@ -1,10 +1,12 @@
 #include "fd_prometheus.h"
 #include "fd_metrics.h"
+#include "../waker/fd_waker.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <sys/types.h>
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
+#include <time.h> /* CLOCK_REALTIME for seccomp filter */
 #include <unistd.h>
 #include <string.h>
 
@@ -27,6 +29,9 @@ typedef struct {
   fd_topo_t const * topo;
 
   fd_http_server_t * metrics_server;
+
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
 
   long boot_ts;
 } fd_metric_ctx_t;
@@ -51,7 +56,14 @@ before_credit( fd_metric_ctx_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
-  *charge_busy = fd_http_server_poll( ctx->metrics_server, 1, ULONG_MAX ); /* 1ms */
+
+  if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+    fd_fseq_update( ctx->waker_fseq, 0UL );
+    *charge_busy = fd_http_server_epoll_poll( ctx->metrics_server, ULONG_MAX );
+    fd_waker_client_rearm( ctx->waker_client_idx );
+  } else {
+    fd_log_sleep( (long)1e6 );
+  }
 }
 
 static fd_http_server_response_t
@@ -109,7 +121,10 @@ privileged_init( fd_topo_t const *      topo,
     .request = metrics_http_request,
   };
   ctx->metrics_server = fd_http_server_join( fd_http_server_new( _metrics, METRICS_PARAMS, metrics_callbacks, ctx ) );
-  fd_http_server_listen( ctx->metrics_server, tile->metric.prometheus_listen_addr, tile->metric.prometheus_listen_port );
+
+  ctx->waker_client_idx = tile->waker_client_idx;
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  fd_http_server_listen( ctx->metrics_server, FD_WAKER_INNER_FD( ctx->waker_client_idx ), tile->metric.prometheus_listen_addr, tile->metric.prometheus_listen_port );
 }
 
 static void
@@ -122,6 +137,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->topo = topo;
   ctx->boot_ts = fd_log_wallclock();
+
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+  FD_TEST( ctx->waker_fseq );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -139,7 +158,10 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
-  populate_sock_filter_policy_fd_metric_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->metrics_server ) );
+  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+
+  populate_sock_filter_policy_fd_metric_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->metrics_server ), epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_metric_tile_instr_cnt;
 }
 
@@ -152,13 +174,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = fd_http_server_fd( ctx->metrics_server ); /* metrics listen socket */
+  out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD; /* waker outer epoll fd (rearm) */
+  out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
   return out_cnt;
 }
 

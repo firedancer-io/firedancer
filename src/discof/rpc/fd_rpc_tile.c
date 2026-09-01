@@ -10,6 +10,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/waker/fd_waker.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
@@ -286,9 +287,11 @@ struct fd_rpc_tile {
   fd_alloc_t * bz2_alloc;
 
   fd_clock_tile_t clock[1];
-  long  next_poll_nanos;
   ulong in_cnt;
   ulong idle_cnt;
+
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
 
   fd_keyswitch_t * keyswitch;
   uchar identity_pubkey[ 32UL ];
@@ -517,11 +520,13 @@ before_credit( fd_rpc_tile_t *     ctx,
   if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
   ctx->idle_cnt = 0UL;
 
-  long now = fd_clock_tile_now( ctx->clock );
   int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
-  if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_nanos ) ) {
-    *charge_busy = fd_http_server_poll( ctx->http, 0, 1UL );
-    ctx->next_poll_nanos = fd_clock_tile_now( ctx->clock ) + 128L*1000L;
+  if( FD_UNLIKELY( ctx->delay_startup && !replay_ready ) ) return;
+
+  if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+    fd_fseq_update( ctx->waker_fseq, 0UL );
+    *charge_busy = fd_http_server_epoll_poll( ctx->http, 1UL );
+    fd_waker_client_rearm( ctx->waker_client_idx );
   }
 }
 
@@ -2454,7 +2459,9 @@ privileged_init( fd_topo_t const *      topo,
         "http://%s:%u", tile->rpc.snapshot_server_host,
         tile->rpc.snapshot_server_port ) );
   }
-  fd_http_server_listen6( ctx->http, &tile->rpc.listen_addr, tile->rpc.listen_port );
+  ctx->waker_client_idx = tile->waker_client_idx;
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  fd_http_server_listen6( ctx->http, FD_WAKER_INNER_FD( ctx->waker_client_idx ), &tile->rpc.listen_addr, tile->rpc.listen_port );
   char listen_addr_cstr[ FD_IP6_ADDR_CSTR_MAX ]; fd_ip6_addr_cstr( listen_addr_cstr, &tile->rpc.listen_addr );
   FD_LOG_NOTICE(( "rpc server listening at %shttp://%s:%u%s", fd_log_style_bold(), listen_addr_cstr, tile->rpc.listen_port, fd_log_style_normal() ));
 }
@@ -2532,9 +2539,12 @@ unprivileged_init( fd_topo_t const *      topo,
 # endif
 
   fd_clock_tile_init( ctx->clock );
-  ctx->next_poll_nanos = fd_clock_tile_now( ctx->clock );
   ctx->in_cnt          = tile->in_cnt;
   ctx->idle_cnt        = 0UL;
+
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+  FD_TEST( ctx->waker_fseq );
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
   ctx->genesis_max_message_size = tile->rpc.genesis_max_message_size;
@@ -2601,7 +2611,10 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t ) );
 
-  populate_sock_filter_policy_fd_rpc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->http ), (uint)FD_ACCDB_FD_RO );
+  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+
+  populate_sock_filter_policy_fd_rpc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->http ), (uint)FD_ACCDB_FD_RO, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_rpc_tile_instr_cnt;
 }
 
@@ -2614,7 +2627,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -2622,6 +2635,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = fd_http_server_fd( ctx->http ); /* rpc listen socket */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO; /* accounts db readonly fd */
+  out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;
+  out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx );
 
   return out_cnt;
 }

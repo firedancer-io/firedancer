@@ -7,6 +7,7 @@
 #include "proto/block_engine.pb.h"
 #include "proto/bundle.pb.h"
 #include "proto/packet.pb.h"
+#include "../waker/fd_waker.h"
 #include "../fd_txn_m.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
@@ -19,6 +20,7 @@
 #include <errno.h>
 #include <unistd.h> /* close */
 #include <poll.h> /* poll */
+#include <sys/epoll.h>
 #include <sys/socket.h> /* socket */
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -40,6 +42,8 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
     }
     ctx->tcp_sock = -1;
     ctx->tcp_sock_connected = 0;
+    ctx->sock_in_epoll = 0;
+    ctx->epoll_out_armed = 0;
   }
   ctx->defer_reset = 0;
 
@@ -116,6 +120,13 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   ctx->tcp_sock = tcp_sock;
+
+  struct epoll_event ev = { .events = EPOLLIN|EPOLLOUT, .data.fd = tcp_sock };
+  if( FD_UNLIKELY( -1==epoll_ctl( FD_WAKER_INNER_FD( ctx->waker_client_idx ), EPOLL_CTL_ADD, tcp_sock, &ev ) ) ) {
+    FD_LOG_ERR(( "epoll_ctl(ADD,tcp_sock) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  ctx->sock_in_epoll   = 1;
+  ctx->epoll_out_armed = 1;
 
   if( FD_UNLIKELY( 0!=setsockopt( tcp_sock, SOL_SOCKET, SO_RCVBUF, &ctx->so_rcvbuf, sizeof(int) ) ) ) {
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", ctx->so_rcvbuf, errno, fd_io_strerror( errno ) ));
@@ -282,6 +293,44 @@ fd_bundle_client_send_ping( fd_bundle_tile_t * ctx ) {
   }
 }
 
+static void
+fd_bundle_client_epoll_out( fd_bundle_tile_t * ctx,
+                            int                want ) {
+  if( FD_UNLIKELY( !ctx->sock_in_epoll ) ) return;
+  if( FD_LIKELY( want==(int)ctx->epoll_out_armed ) ) return;
+  struct epoll_event ev = { .events = EPOLLIN | (want ? EPOLLOUT : 0U), .data.fd = ctx->tcp_sock };
+  if( FD_UNLIKELY( -1==epoll_ctl( FD_WAKER_INNER_FD( ctx->waker_client_idx ), EPOLL_CTL_MOD, ctx->tcp_sock, &ev ) ) )
+    FD_LOG_ERR(( "epoll_ctl(MOD,tcp_sock) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ctx->epoll_out_armed = !!want;
+}
+
+long
+fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
+                                long                     now ) {
+  /* Connecting: completion/failure arrives as an EPOLLOUT/EPOLLERR
+     event, nothing is time-driven yet. */
+  if( FD_UNLIKELY( ctx->tcp_sock>=0 && !ctx->tcp_sock_connected ) ) return LONG_MAX;
+
+  /* Disconnected: next action is the reconnect attempt. */
+  if( FD_UNLIKELY( ctx->tcp_sock<0 ) ) return fd_long_max( ctx->backoff_until, now );
+
+# if FD_HAS_OPENSSL
+  /* Decrypted TLS bytes buffered inside OpenSSL do not make the fd
+     readable: drain now or they wait for the next unrelated event. */
+  if( FD_UNLIKELY( ctx->is_ssl && ctx->ssl && SSL_has_pending( ctx->ssl ) ) ) return now;
+# endif
+
+  long deadline = fd_grpc_client_next_deadline( ctx->grpc_client );
+  if( FD_LIKELY( ctx->keepalive->interval ) )
+    deadline = fd_long_min( deadline, ctx->keepalive->inflight ? ctx->keepalive->ts_deadline
+                                                               : ctx->keepalive->ts_next_tx );
+  if( FD_LIKELY( ctx->builder_info_avail & !ctx->builder_info_wait ) )
+    deadline = fd_long_min( deadline, ctx->builder_info_valid_until );
+  if( FD_UNLIKELY( ctx->backoff_until>now ) )
+    deadline = fd_long_min( deadline, ctx->backoff_until );
+  return deadline;
+}
+
 int
 fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
                                  long               now ) {
@@ -349,17 +398,15 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
       *charge_busy = 1;
       return;
     }
-    if( pfds[0].revents & POLLOUT ) {
-      connect_result = fd_bundle_client_get_connect_result( ctx );
-      if( FD_UNLIKELY( connect_result!=0 ) ) {
-        goto connect_failed;
-      }
-      FD_LOG_DEBUG(( "Bundle TCP socket connected" ));
-      ctx->tcp_sock_connected = 1;
-      *charge_busy = 1;
-      return;
+    if( FD_UNLIKELY( !(pfds[0].revents & POLLOUT) ) ) return;
+    connect_result = fd_bundle_client_get_connect_result( ctx );
+    if( FD_UNLIKELY( connect_result!=0 ) ) {
+      goto connect_failed;
     }
-    return;
+    FD_LOG_DEBUG(( "Bundle TCP socket connected" ));
+    ctx->tcp_sock_connected = 1;
+    fd_bundle_client_epoll_out( ctx, 0 );
+    *charge_busy = 1;
   }
 
   /* gRPC conn died? */
@@ -428,6 +475,30 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
   /* Edge-trigger logging with rate limiting */
   fd_bundle_client_step1( ctx, charge_busy );
   fd_bundle_client_log_status( ctx );
+
+  if( FD_UNLIKELY( ctx->tcp_sock_connected && fd_grpc_client_tx_pending( ctx->grpc_client ) ) ) {
+#   if FD_HAS_OPENSSL
+    if( ctx->is_ssl ) fd_grpc_client_tx_flush_ossl( ctx->grpc_client, ctx->ssl );
+    else
+#   endif
+    if( FD_UNLIKELY( -1==fd_grpc_client_tx_flush_socket( ctx->grpc_client, ctx->tcp_sock ) ) ) {
+      fd_bundle_client_reset( ctx );
+      ctx->metrics.transport_fail_cnt++;
+      *charge_busy = 1;
+      return;
+    }
+  }
+
+  /* Arm EPOLLOUT only on write demand: unsent HTTP/2 bytes, or a TLS
+     handshake blocked on write (a permanently armed idle-writable
+     socket would keep the epoll set ready forever). */
+  if( FD_LIKELY( ctx->tcp_sock_connected && ctx->grpc_client ) ) {
+    int want = fd_grpc_client_tx_pending( ctx->grpc_client );
+#   if FD_HAS_OPENSSL
+    want |= ctx->is_ssl && ctx->ssl && SSL_want_write( ctx->ssl );
+#   endif
+    fd_bundle_client_epoll_out( ctx, want );
+  }
 }
 
 void

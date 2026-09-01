@@ -1,14 +1,15 @@
 #include "fd_topob.h"
+#include "../waker/fd_waker.h"
 
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/tile/fd_tile_private.h" /* fd_tile_private_sibling_idx */
 #include "fd_cpu_topo.h"
 
+#include <ctype.h>
+
 #define SET_NAME cpu_bv
 #define SET_MAX  FD_TILE_MAX
 #include "../../util/tmpl/fd_set.c"
-
-#include <ctype.h>
 
 fd_topo_t *
 fd_topob_new( void * mem,
@@ -156,7 +157,8 @@ fd_topob_tile( fd_topo_t *    topo,
                ulong          cpu_idx,
                int            is_agave,
                int            uses_id_keyswitch,
-               int            uses_av_keyswitch ) {
+               int            uses_av_keyswitch,
+               int            is_waker_client ) {
 
   if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( tile_name )>=sizeof(topo->tiles[ topo->tile_cnt ].name ) ) ) FD_LOG_ERR(( "tile name too long: %s", tile_name ));
@@ -177,6 +179,9 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->out_cnt             = 0UL;
   tile->event_link_id       = ULONG_MAX;
   tile->uses_obj_cnt        = 0UL;
+  tile->is_waker_client     = is_waker_client;
+  tile->waker_client_idx    = ULONG_MAX;
+  tile->waker_fseq_obj_id   = ULONG_MAX;
 
   fd_topo_obj_t * tile_obj = fd_topob_obj( topo, "tile", tile_wksp );
   tile->tile_obj_id = tile_obj->id;
@@ -204,6 +209,28 @@ fd_topob_tile( fd_topo_t *    topo,
 
   topo->tile_cnt++;
   return tile;
+}
+
+void
+fd_topob_waker( fd_topo_t * topo ) {
+  ulong waker_client_cnt = 0UL;
+  fd_topo_tile_t * waker_tile = NULL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * client = &topo->tiles[ i ];
+    if( FD_LIKELY( !client->is_waker_client ) ) continue;
+    if( FD_UNLIKELY( !waker_tile ) ) {
+      char const * metrics_wksp = topo->workspaces[ topo->objs[ client->metrics_obj_id ].wksp_id ].name;
+      fd_topob_wksp( topo, "waker"       );
+      fd_topob_wksp( topo, "waker_ready" );
+      waker_tile = fd_topob_tile( topo, "waker", "waker", metrics_wksp, ULONG_MAX, 0, 0, 0, 0 );
+    }
+    fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "waker_ready" );
+    fd_topob_tile_uses( topo, client,     fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, waker_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    client->waker_client_idx  = waker_client_cnt++;
+    client->waker_fseq_obj_id = fseq_obj->id;
+  }
+  FD_TEST( waker_client_cnt<=FD_WAKER_CLIENT_MAX );
 }
 
 void
@@ -336,6 +363,13 @@ validate( fd_topo_t const * topo ) {
     }
   }
 
+  /* Waker clients are wired */
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( FD_UNLIKELY( tile->is_waker_client && tile->waker_client_idx==ULONG_MAX ) )
+      FD_LOG_ERR(( "tile %s:%lu is a waker client but fd_topob_waker was not called", tile->name, tile->kind_id ));
+  }
+
   /* Workspace names are unique */
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     for( ulong j=0UL; j<topo->wksp_cnt; j++ ) {
@@ -377,6 +411,7 @@ static char const * FLOATING[] = {
   "netlnk",
   "metric",
   "diag",
+  "waker",
   "bencho",
   "genesi", /* FIREDANCER ONLY */
   "ipecho", /* FIREDANCER ONLY */

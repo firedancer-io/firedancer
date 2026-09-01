@@ -9,6 +9,8 @@
 #include <poll.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
 
 #define POOL_NAME  ws_conn_pool
 #define POOL_T     struct fd_http_server_ws_connection
@@ -23,11 +25,13 @@ test_ws_conn_open( fd_http_server_t * http,
                    ulong              ws_conn_id ) {
   FD_TEST( ws_conn_id==ws_conn_pool_idx_acquire( http->ws_conns ) );
 
-  int ws_fd = open( "/dev/null", O_RDONLY );
+  int ws_fd = eventfd( 0, 0 );
   FD_TEST( ws_fd!=-1 );
   FD_TEST( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 );
   http->pollfds[ http->max_conns+ws_conn_id ].fd     = ws_fd;
   http->pollfds[ http->max_conns+ws_conn_id ].events = POLLIN;
+  struct epoll_event ev = { .events = EPOLLIN, .data.u64 = http->max_conns+ws_conn_id };
+  FD_TEST( -1!=epoll_ctl( http->epoll_fd, EPOLL_CTL_ADD, ws_fd, &ev ) );
   http->metrics.ws_connection_cnt++;
 }
 
@@ -347,7 +351,7 @@ main( int     argc,
   (void)link_rpc_replay;
   fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_out", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
 
-  fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0 );
+  fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0, 1 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
   strcpy( tile->name, "rpc" );
   tile->rpc.max_live_slots            = max_live_slots;
@@ -362,6 +366,15 @@ main( int     argc,
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
+
+  void * waker_fseq_mem = fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL );
+  FD_TEST( waker_fseq_mem );
+  FD_TEST( fd_fseq_new( waker_fseq_mem, 0UL ) );
+  fd_topo_obj_t * waker_fseq_obj = fd_topob_obj( topo, "fseq", "wksp" );
+  waker_fseq_obj->wksp_id = topo_wksp->id;
+  waker_fseq_obj->offset  = fd_wksp_gaddr_fast( wksp, waker_fseq_mem );
+  tile->waker_client_idx  = 0UL;
+  tile->waker_fseq_obj_id = waker_fseq_obj->id;
 
   void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
   fd_http_server_params_t http_params = derive_http_params( tile );
@@ -379,6 +392,8 @@ main( int     argc,
   ctx->http = fd_http_server_join( fd_http_server_new( http_mem, http_params, callbacks, ctx ) );
   FD_TEST( ctx->http );
   FD_TEST( ctx->http->oring_sz );
+  ctx->http->epoll_fd = epoll_create1( 0 );
+  FD_TEST( -1!=ctx->http->epoll_fd );
   unprivileged_init( topo, tile );
 
   test_genesis_static_body( ctx );
@@ -642,6 +657,8 @@ main( int     argc,
      the WebSocket closed, so run it last. */
   ctx->http = fd_http_server_join( fd_http_server_new( http_mem, http_params, callbacks, ctx ) );
   FD_TEST( ctx->http );
+  ctx->http->epoll_fd = epoll_create1( 0 );
+  FD_TEST( -1!=ctx->http->epoll_fd );
   test_ws_evicted_while_building_response( ctx );
 
   /* Don't bother with cleanup since all resources are reclaimed by the

@@ -1,6 +1,10 @@
 #include "fd_event_client.c"
 #include "../../util/tmpl/fd_unit_test.c"
 
+#include <sys/epoll.h>
+
+static int g_epoll_fd;
+
 #if FD_HAS_OPENSSL
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
@@ -135,6 +139,7 @@ FD_UNIT_TEST( conn_ssl_lifecycle ) {
       NULL,
       rng,
       circq,
+      g_epoll_fd,
       1<<20,
       "https://localhost:1",
       identity_pubkey,
@@ -219,6 +224,7 @@ FD_UNIT_TEST( stream_heartbeat ) {
       NULL,
       rng,
       circq,
+      g_epoll_fd,
       1<<20,
       "http://localhost:1",
       identity_pubkey,
@@ -282,6 +288,9 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  g_epoll_fd = epoll_create1( 0 );
+  FD_TEST( -1!=g_epoll_fd );
   fd_unit_tests( argc, argv );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

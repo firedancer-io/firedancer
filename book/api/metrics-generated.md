@@ -1916,6 +1916,17 @@
 
 </div>
 
+## Waker Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">waker_&#8203;epoll_&#8203;wait_&#8203;dispatched</span> | counter | epoll_wait syscalls dispatched on the outer epoll set |
+| <span class="metrics-name">waker_&#8203;wake_&#8203;delivered</span> | counter | Client wakes delivered (readiness fseq raised) |
+
+</div>
+
 ## Snapmk Tile
 
 <div class="metrics">

@@ -5,6 +5,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../topo/fd_topo.h"
 #include "../keyguard/fd_keyload.h"
+#include "../waker/fd_waker.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../waltz/openssl/fd_openssl_tile.h"
 
@@ -81,6 +82,7 @@ fd_bundle_tile_maybe_sleep( fd_bundle_tile_t * ctx, long now_ns ) {
   if( ctx->sleep_mode ) {
     if( slots_until_leader <= FD_BUNDLE_WAKE_THRESHOLD_SLOTS ) {
       ctx->sleep_mode = 0;
+      ctx->next_step_deadline = 0L;
       ctx->last_bundle_status_log_nanos = now_ns;
       FD_LOG_INFO(( "Bundle tile waking up: next leader slot %lu (~%lu slots away)", next_leader_slot, slots_until_leader ));
     }
@@ -155,9 +157,10 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-    ctx->defer_reset    = 1;
-    ctx->sleep_check_ns = 0;
-    ctx->halt_signing   = 0;
+    ctx->defer_reset        = 1;
+    ctx->sleep_check_ns     = 0;
+    ctx->halt_signing       = 0;
+    ctx->next_step_deadline = 0L; /* the socket was closed outside a step: step now */
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
@@ -259,7 +262,18 @@ before_credit( fd_bundle_tile_t *  ctx,
   }
 
   if( pending_txn_empty( ctx->pending_txns ) ) {
-    fd_bundle_client_step( ctx, charge_busy );
+    int  fired = fd_fseq_query( ctx->waker_fseq )==1UL;
+    long now   = fd_bundle_now( ctx );
+    if( FD_UNLIKELY( fired || now>=ctx->next_step_deadline ) ) {
+      if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
+      int busy = 0;
+      fd_bundle_client_step( ctx, &busy );
+      if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
+      *charge_busy = busy;
+      /* A step that made progress may have more buffered work: re-step
+         immediately. */
+      ctx->next_step_deadline = busy ? 0L : fd_bundle_client_next_deadline( ctx, fd_bundle_now( ctx ) );
+    }
   }
 }
 
@@ -435,10 +449,11 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   memset( ctx, 0, sizeof(fd_bundle_tile_t) );
-  ctx->grpc_client_mem = grpc_mem;
-  ctx->grpc_buf_max    = tile->bundle.buf_sz;
-  ctx->tcp_sock        = -1;
-  ctx->pending_txns    = pending_txn_join( pending_txn_new( deque_mem, pending_max ) );
+  ctx->grpc_client_mem  = grpc_mem;
+  ctx->grpc_buf_max     = tile->bundle.buf_sz;
+  ctx->tcp_sock         = -1;
+  ctx->waker_client_idx = tile->waker_client_idx;
+  ctx->pending_txns     = pending_txn_join( pending_txn_new( deque_mem, pending_max ) );
 
   fd_bundle_auther_init( &ctx->auther );
   uchar const * public_key = fd_keyload_load( tile->bundle.identity_key_path, 1 /* public key only */ );
@@ -527,6 +542,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+  FD_TEST( ctx->waker_fseq );
+
   ulong verify_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_verif", tile->kind_id );
   if( FD_UNLIKELY( verify_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "Missing bundle_verif link" ));
   ctx->verify_out = bundle_out_link( topo, &topo->links[ tile->out_link_id[ verify_out_idx ] ], verify_out_idx );
@@ -597,12 +616,17 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+
   populate_sock_filter_policy_fd_bundle_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
       (uint)ctx->keylog_fd,
       (uint)ctx->netdb_fds->etc_hosts,
-      (uint)ctx->netdb_fds->etc_resolv_conf
+      (uint)ctx->netdb_fds->etc_resolv_conf,
+      epoll_inner_fd,
+      epoll_outer_fd
   );
   return sock_filter_policy_fd_bundle_tile_instr_cnt;
 }
@@ -614,7 +638,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -625,6 +649,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_resolv_conf;
   if( FD_UNLIKELY( ctx->keylog_fd>=0 ) )
     out_fds[ out_cnt++ ] = ctx->keylog_fd;
+  out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;
+  out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx );
   return out_cnt;
 }
 

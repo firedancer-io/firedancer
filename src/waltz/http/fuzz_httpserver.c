@@ -11,6 +11,7 @@
 #include <pthread.h>
 #include <poll.h>
 #include <errno.h>
+#include <sys/epoll.h>
 
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
@@ -525,7 +526,7 @@ void* stem_thread(void* arg) {
             random_api_call(&poll_rng);
         }
 
-        fd_http_server_poll(http_server, 0, ULONG_MAX);
+        fd_http_server_epoll_poll(http_server, ULONG_MAX);
 
         for (uint i = 0; i < xorshift_next(&poll_rng) % 3; ++i) {
             random_api_call(&poll_rng);
@@ -659,7 +660,9 @@ LLVMFuzzerTestOneInput( uchar const * data,
     };
 
     http_server = fd_http_server_join( fd_http_server_new( shmem, PARAMS, gui_callbacks, NULL ) );
-    http_server = fd_http_server_listen( http_server, ip_as_int, 0 );
+    int epoll_fd = epoll_create1( 0 );
+    assert( -1!=epoll_fd );
+    http_server = fd_http_server_listen( http_server, epoll_fd, ip_as_int, 0 );
 
     union sockaddr_pun {
         struct sockaddr_in addr_in;
@@ -696,6 +699,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
     close_reset_clients_fd(http_server);
     close(fd_http_server_fd(http_server));
+    close(epoll_fd);
     fd_http_server_delete(fd_http_server_leave(http_server));
     free( shmem );
   }

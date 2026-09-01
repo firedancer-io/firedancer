@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <sys/epoll.h>
 
 static volatile int stop = 0;
 
@@ -141,7 +142,9 @@ main( int     argc,
                                                         callbacks,
                                                         &state ) );
 
-  FD_TEST( fd_http_server_listen( state.http, 0, 4321U ) );
+  int epoll_fd = epoll_create1( 0 );
+  FD_TEST( -1!=epoll_fd );
+  FD_TEST( fd_http_server_listen( state.http, epoll_fd, 0, 4321U ) );
   FD_LOG_NOTICE(( "try running\npython3 test_http_server.py" ));
 
   install_signal_handler();
@@ -150,7 +153,7 @@ main( int     argc,
   while( !stop ) {
     long current = fd_log_wallclock();
 
-    fd_http_server_poll( state.http, 0, ULONG_MAX );
+    if( FD_LIKELY( !fd_http_server_epoll_poll( state.http, ULONG_MAX ) ) ) fd_log_sleep( (long)1e6 );
 
     if( FD_UNLIKELY( current-now>1000L*1000L*1000L ) ) {
       ws_send_all( state.http );

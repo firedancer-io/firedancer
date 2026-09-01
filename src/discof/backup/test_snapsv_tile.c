@@ -297,7 +297,7 @@ snapsv_env_create( void ) {
   out_link->dcache          = fd_dcache_join( fd_dcache_new( out_dcache_mem, out_dcache_data_sz, 0UL ) ); FD_TEST( out_link->dcache );
   out_dcache_obj->offset    = fd_wksp_gaddr_fast( wksp, out_dcache_mem );
 
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "snapsv", "snapsv", "snapsv", 0UL, 0, 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "snapsv", "snapsv", "snapsv", 0UL, 0, 0, 0, 0 );
   fd_topob_tile_in( topo, "snapsv", 0UL, "snapsv", "snapmk_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapsv", 0UL, "snapsv_out", 0UL );
   tile->snapsv.snap_max             = SNAP_MAX;

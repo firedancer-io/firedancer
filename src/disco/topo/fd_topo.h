@@ -133,10 +133,15 @@ struct fd_topo_tile {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
   char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
+
+  int   is_waker_client;        /* Tile has file descriptors which must be serviced by the external waker tile. */
   int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
+
+  ulong waker_client_idx;       /* Client slot in the fixed inherited fd range (inner epoll fd FD_WAKER_INNER_FD( idx )), or ULONG_MAX if not a waker client */
+  ulong waker_fseq_obj_id;      /* fseq object holding the tile's waker readiness word or ULONG_MAX */
 
   ulong in_cnt;                 /* The number of links that this tile reads from. */
   ulong in_link_id[ FD_TOPO_MAX_TILE_IN_LINKS ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
