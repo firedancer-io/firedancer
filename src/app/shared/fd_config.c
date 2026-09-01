@@ -636,7 +636,7 @@ fd_config_validate( fd_config_t const * config ) {
 
   if( config->is_firedancer ) {
     CFG_HAS_POW2( tiles.repair.slot_max );
-    CFG_HAS_POW2( tiles.rotor.slot_max );
+    CFG_HAS_NON_ZERO( tiles.rotor.slot_max );
   }
 
   if( FD_UNLIKELY( config->tiles.bundle.keepalive_interval_millis <    3000 ||
