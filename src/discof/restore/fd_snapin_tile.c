@@ -350,20 +350,18 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     }
   }
 
-  /* The most recent slots (up to the number of slots in the txncache)
-     in the SlotHistory should be present in the txncache. */
-  if( FD_LIKELY( slot_set.ele_cnt ) ) {
-    ulong oldest = newest_slot - slot_set.ele_cnt;
-    for( ulong i=newest_slot; i>oldest; i-- ) {
-      if( FD_LIKELY( fd_sysvar_slot_history_find_slot( view, i )==FD_SLOT_HISTORY_SLOT_FOUND ) ) {
-        if( FD_UNLIKELY( slot_set_ele_query( slot_set.map, &i, NULL, slot_set.pool )==NULL ) ) {
-          /* VerifySlotDeltasError::SlotNotFoundInDeltas
-             https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L147
-             https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L609 */
-          FD_LOG_WARNING(( "slot %lu missing from slot deltas but present in SlotHistory", i ));
-          return -1;
-        }
-      }
+  ulong scan_cnt  = fd_ulong_min( view->next_slot, FD_SLOT_HISTORY_MAX_ENTRIES );
+  ulong found_cnt = 0UL;
+  for( ulong i=0UL; i<scan_cnt && found_cnt<FD_SLOT_DELTA_MAX_ENTRIES; i++ ) {
+    ulong slot = newest_slot - i;
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( view, slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) continue;
+    found_cnt++;
+    if( FD_UNLIKELY( slot_set_ele_query( slot_set.map, &slot, NULL, slot_set.pool )==NULL ) ) {
+      /* VerifySlotDeltasError::SlotNotFoundInDeltas
+         https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L147
+         https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L609 */
+      FD_LOG_WARNING(( "slot %lu missing from slot deltas but present in SlotHistory", slot ));
+      return -1;
     }
   }
 
