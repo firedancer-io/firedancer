@@ -1,7 +1,7 @@
 #include "fd_tower.c"
 
 FD_STATIC_ASSERT( sizeof(lockout_interval_key_t)==8UL,  lockout_interval_key_compact );
-FD_STATIC_ASSERT( sizeof(lockout_interval_t    )==24UL, lockout_interval_compact     );
+FD_STATIC_ASSERT( sizeof(lockout_interval_t    )==16UL, lockout_interval_compact     );
 FD_STATIC_ASSERT( alignof(lockout_interval_t)==4UL, lockout_interval_align );
 FD_STATIC_ASSERT( sizeof(lockout_slot_t)==12UL,      lockout_slot_compact );
 
@@ -36,14 +36,34 @@ representative_cnt( fd_tower_t * tower,
   lockout_slot_t const * lockout_slot = lockout_slot_map_ele_query_const( tower->lck_slot_map, &slot, NULL, tower->lck_slot_pool );
   if( !lockout_slot ) return 0UL;
 
-  ulong cnt = 0UL;
+  ulong slot_idx = lockout_slot_pool_idx( tower->lck_slot_pool, lockout_slot );
+  ulong cnt      = 0UL;
   for( lockout_interval_t const * representative = lockout_interval_pool_ele_const( tower->lck_pool, lockout_slot->end_head );
                                          representative;
                                          representative = lockout_interval_pool_ele_const( tower->lck_pool, representative->end_next ) ) {
-    FD_TEST( representative->key.fork_slot==slot );
+    FD_TEST( lockout_interval_key_slot_idx( &representative->key )==slot_idx );
     FD_TEST( ++cnt<=lockout_interval_pool_used( tower->lck_pool ) );
   }
   return cnt;
+}
+
+static void
+test_lockout_interval_encoding( void ) {
+  for( uint conf=1U; conf<=31U; conf++ ) {
+    uint start = 0xf0000000U + conf;
+    uint end   = start + (1U << conf);
+    lockout_interval_key_t key = lockout_interval_key( 8191UL, end, conf, 16383UL );
+    lockout_interval_t interval = { .key = key };
+    FD_TEST( lockout_interval_key_slot_idx  ( &key )==8191U  );
+    FD_TEST( lockout_interval_key_conf      ( &key )==conf    );
+    FD_TEST( lockout_interval_key_pubkey_idx( &key )==16383U );
+    FD_TEST( lockout_interval_start         ( &interval )==start );
+  }
+
+  lockout_interval_key_t key1  = lockout_interval_key( 7UL, 100U, 1U,  1UL     );
+  lockout_interval_key_t key31 = lockout_interval_key( 7UL, 100U, 31U, 16383UL );
+  FD_TEST( lockout_interval_map_key_eq  ( &key1, &key31 ) );
+  FD_TEST( lockout_interval_map_key_hash( &key1, 0UL )==lockout_interval_map_key_hash( &key31, 0UL ) );
 }
 
 void
@@ -67,9 +87,12 @@ test_lockos( fd_wksp_t * wksp ) {
   fd_tower_vote_t * mock_votes = fd_tower_vote_join( fd_tower_vote_new( mock_votes_mem ) );
 
   fd_tower_vtr_t acct;
+  fd_hash_t vote_acc = { .ul = { 1 } };
+  fd_tower_lockos_insert( tower, 0UL, &vote_acc, mock_votes );
+  FD_TEST( !lockout_slot_pool_used( lck_slot_pool ) );
+
   ulong fork_slot = 1;
   ulong end_intervals[31];
-  fd_hash_t vote_acc = { .ul = { 1 } };
   for( ulong i = 1; i < 32; i++ ) {
     ulong vote_slot = 50 - (i - 1);
     mock_vote_acc( &vote_acc, 100, vote_slot, (uint)i, &acct, mock_votes );
@@ -77,22 +100,24 @@ test_lockos( fd_wksp_t * wksp ) {
     end_intervals[i - 1] = vote_slot + (1UL << (uint)i);
   }
 
+  uint fork_slot_key = (uint)fork_slot;
+  lockout_slot_t const * lockout_slot = lockout_slot_map_ele_query_const( lck_slot_map, &fork_slot_key, NULL, lck_slot_pool );
+  FD_TEST( lockout_slot );
+  ulong slot_idx = lockout_slot_pool_idx( lck_slot_pool, lockout_slot );
+
   for( ulong i = 0; i < 31; i++ ) {
-    lockout_interval_key_t key = lockout_interval_key( fork_slot, end_intervals[i] );
+    lockout_interval_key_t key = lockout_interval_key( slot_idx, end_intervals[i], 0U, 0UL );
     FD_TEST( lockout_interval_map_ele_query( lck_map, &key, NULL, lck_pool ) );
   }
 
   /* Verify the per-slot list contains every unique interval end. */
 
-  uint fork_slot_key = (uint)fork_slot;
-  lockout_slot_t const * lockout_slot = lockout_slot_map_ele_query_const( lck_slot_map, &fork_slot_key, NULL, lck_slot_pool );
-  FD_TEST( lockout_slot );
   ulong num_keys = 0;
   for( lockout_interval_t const * representative = lockout_interval_pool_ele_const( lck_pool, lockout_slot->end_head );
                                            representative;
                                            representative = lockout_interval_pool_ele_const( lck_pool, representative->end_next ) ) {
     ulong                  interval_end = representative->key.interval_end;
-    lockout_interval_key_t key          = lockout_interval_key( fork_slot, interval_end );
+    lockout_interval_key_t key          = lockout_interval_key( slot_idx, interval_end, 0U, 0UL );
     num_keys++;
 
     /* Intervals are keyed by the end of the interval. */
@@ -101,7 +126,7 @@ test_lockos( fd_wksp_t * wksp ) {
     for( lockout_interval_t const * interval = lockout_interval_map_ele_query_const( lck_map, &key, NULL, lck_pool );
                                                 interval;
                                                 interval = lockout_interval_map_ele_next_const( interval, NULL, lck_pool ) ) {
-      lockout_pubkey_ref_t const * ref = lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, interval->pubkey_idx );
+      lockout_pubkey_ref_t const * ref = lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, lockout_interval_key_pubkey_idx( &interval->key ) );
       fd_pubkey_t const * resolved = &ref->addr;
       FD_TEST( memcmp( resolved, &acct.vote_acc, sizeof(fd_hash_t) ) == 0 );
       num_pubkeys++;
@@ -123,7 +148,7 @@ test_lockos( fd_wksp_t * wksp ) {
 
   fd_tower_lockos_remove( tower, fork_slot );
   for( ulong i = 0; i < 31; i++ ) {
-    lockout_interval_key_t key = lockout_interval_key( fork_slot, end_intervals[i] );
+    lockout_interval_key_t key = lockout_interval_key( slot_idx, end_intervals[i], 0U, 0UL );
     FD_TEST( !lockout_interval_map_ele_query( lck_map, &key, NULL, lck_pool ) );
   }
   FD_TEST( !lockout_slot_map_ele_query( lck_slot_map, &fork_slot_key, NULL, lck_slot_pool ) );
@@ -164,19 +189,20 @@ test_lockos_pubkey_pool( fd_wksp_t * wksp ) {
   FD_TEST( ref_a->ref_cnt==2U );
   uint reused_idx = (uint)lockout_pubkey_pool_idx( tower->lck_pubkey_pool, ref_a );
 
-  lockout_interval_key_t key1 = lockout_interval_key( 1, 10 + (1UL << 1) );
-  lockout_interval_key_t key2 = lockout_interval_key( 2, 10 + (1UL << 1) );
-  lockout_interval_t * iv1 = lockout_interval_map_ele_query( tower->lck_map, &key1, NULL, tower->lck_pool );
-  lockout_interval_t * iv2 = lockout_interval_map_ele_query( tower->lck_map, &key2, NULL, tower->lck_pool );
-  FD_TEST( iv1 && iv2 );
-  FD_TEST( iv1->pubkey_idx==reused_idx );
-  FD_TEST( iv2->pubkey_idx==reused_idx );
   uint slot_key1 = 1U;
   uint slot_key2 = 2U;
   lockout_slot_t const * slot1 = lockout_slot_map_ele_query_const( tower->lck_slot_map, &slot_key1, NULL, tower->lck_slot_pool );
-  FD_TEST( slot1 );
+  lockout_slot_t const * slot2 = lockout_slot_map_ele_query_const( tower->lck_slot_map, &slot_key2, NULL, tower->lck_slot_pool );
+  FD_TEST( slot1 && slot2 );
+  lockout_interval_key_t key1 = lockout_interval_key( lockout_slot_pool_idx( tower->lck_slot_pool, slot1 ), 10 + (1UL << 1), 0U, 0UL );
+  lockout_interval_key_t key2 = lockout_interval_key( lockout_slot_pool_idx( tower->lck_slot_pool, slot2 ), 10 + (1UL << 1), 0U, 0UL );
+  lockout_interval_t * iv1 = lockout_interval_map_ele_query( tower->lck_map, &key1, NULL, tower->lck_pool );
+  lockout_interval_t * iv2 = lockout_interval_map_ele_query( tower->lck_map, &key2, NULL, tower->lck_pool );
+  FD_TEST( iv1 && iv2 );
+  FD_TEST( lockout_interval_key_pubkey_idx( &iv1->key )==reused_idx );
+  FD_TEST( lockout_interval_key_pubkey_idx( &iv2->key )==reused_idx );
   uint slot1_representative_idx = slot1->end_head;
-  FD_TEST( lockout_interval_pool_ele_const( tower->lck_pool, slot1_representative_idx )->pubkey_idx==reused_idx );
+  FD_TEST( lockout_interval_key_pubkey_idx( &lockout_interval_pool_ele_const( tower->lck_pool, slot1_representative_idx )->key )==reused_idx );
 
   /* Distinct pubkey gets a distinct pool entry. */
   fd_tower_lockos_insert( tower, 1, &acct_b.vote_acc, acct_b.votes );
@@ -220,6 +246,12 @@ test_lockos_pubkey_pool( fd_wksp_t * wksp ) {
   FD_TEST( ref_a->ref_cnt==1U );
   FD_TEST( (uint)lockout_pubkey_pool_idx( tower->lck_pubkey_pool, ref_a )==reused_idx );
   FD_TEST( !memcmp( &ref_a->addr, &pk_a, sizeof(fd_pubkey_t) ) );
+  uint slot_key3 = 3U;
+  lockout_slot_t const * slot3 = lockout_slot_map_ele_query_const( tower->lck_slot_map, &slot_key3, NULL, tower->lck_slot_pool );
+  FD_TEST( slot3 );
+  lockout_interval_key_t key3 = lockout_interval_key( lockout_slot_pool_idx( tower->lck_slot_pool, slot3 ), 20 + (1UL << 1), 0U, 0UL );
+  lockout_interval_t const * iv3 = lockout_interval_map_ele_query_const( tower->lck_map, &key3, NULL, tower->lck_pool );
+  FD_TEST( iv3 && lockout_interval_key_pubkey_idx( &iv3->key )==reused_idx );
 
   fd_tower_lockos_remove( tower, 3 );
   FD_TEST( !pubkey_ref_query( tower, &pk_a ) );
@@ -271,6 +303,8 @@ test_lockos_representative_teardown( fd_wksp_t * wksp ) {
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_lockout_interval_encoding();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                      );

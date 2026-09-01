@@ -13,7 +13,11 @@ test_compact_indices( void ) {
   FD_TEST( !fd_tower_footprint( 1UL<<32, 0UL        ) );
   FD_TEST( !fd_tower_footprint( 1UL,     1UL<<32   ) );
   FD_TEST( !fd_tower_footprint( 1UL<<20, 1UL<<20   ) );
-  FD_TEST( fd_tower_footprint( 2048UL, 2000UL )==3555999360UL );
+  FD_TEST(  fd_tower_footprint( 8192UL, 1UL         ) );
+  FD_TEST( !fd_tower_footprint( 8193UL, 1UL         ) );
+  FD_TEST(  fd_tower_footprint( 1UL,     1UL<<13   ) );
+  FD_TEST( !fd_tower_footprint( 1UL,     (1UL<<13)+1UL ) );
+  FD_TEST( fd_tower_footprint( 2048UL, 2000UL )==2540191360UL );
 }
 
 static void
