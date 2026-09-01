@@ -161,3 +161,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-poison -m 10000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate -m 2000000 -e 840
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate_snapshot -m 2000000 -e 840
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_fee_payer_constraint -m 2000000 -e 400
+
+# Alpenglow
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs --alpenglow -m 2000000 -e 126

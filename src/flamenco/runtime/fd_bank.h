@@ -339,6 +339,7 @@ struct fd_bank {
     fd_slot_params_t       slot_params; /* parameters that need to change with the reduce_slot_time feature gates */
     fd_slot_params_t       slot_params_default; /* slot params this cluster uses when no reduce_slot_time gate is active */
     fd_hash_t              block_id;
+    ulong                  alpenglow_migration_slot;
   } f;
 
 };

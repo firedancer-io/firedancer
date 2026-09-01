@@ -736,7 +736,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *          bank,
 
   fd_runtime_new_fee_rate_governor_derived( bank, bank->f.parent_signature_cnt );
 
-  if( fd_alpenglow_migration_slot( bank, accdb )!=ULONG_MAX ) {
+  if( bank->f.alpenglow_migration_slot!=ULONG_MAX ) {
     fd_sysvar_clock_update_slot_alpenglow( bank, accdb, capture_ctx );
   } else {
     fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
@@ -821,6 +821,10 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_runtime_stack_t * runtime_stack,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
+  /* Cache the Alpenglow migration slot inside the bank so that we can
+     read it inside transaction execution. */
+  bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( bank, accdb );
+
   if( FD_LIKELY( bank->f.slot ) ) {
     fd_bank_t * parent = fd_banks_bank_query( banks, bank->parent_idx );
     FD_TEST( parent );

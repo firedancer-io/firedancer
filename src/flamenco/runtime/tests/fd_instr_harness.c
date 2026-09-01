@@ -6,6 +6,7 @@
 #include "../program/fd_precompiles.h"
 #include "../fd_system_ids.h"
 #include "../../progcache/fd_progcache_admin.h"
+#include "../../rewards/fd_alpen_rewards.h"
 #include "../../log_collector/fd_log_collector.h"
 
 void
@@ -294,6 +295,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_rent_t * rent = fd_sysvar_cache_rent_read( ctx->sysvar_cache, rent_ );
   FD_TEST( rent );
   runner->bank->f.rent = *rent;
+  runner->bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( runner->bank, runner->accdb );
 
   if( !fd_sysvar_cache_recent_hashes_is_empty( sysvar_cache ) ) {
     uchar const * rbh_data  = sysvar_cache->bin_recent_hashes;
