@@ -339,6 +339,14 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( bid_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
 
+  void * dmr_map_mem = fd_wksp_alloc_laddr( wksp, dmr_map_align(), dmr_map_footprint( chain_cnt ), 1UL );
+  FD_TEST( dmr_map_mem );
+  ctx->dmr_map = dmr_map_join( dmr_map_new( dmr_map_mem, chain_cnt, ctx->block_id_map_seed ) );
+  FD_TEST( ctx->dmr_map );
+
+  ctx->dmr_tree_arr = fd_wksp_alloc_laddr( wksp, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) * bid_cnt, 1UL );
+  FD_TEST( ctx->dmr_tree_arr );
+
   ctx->reception_stats_cnt = bid_cnt;
   ctx->reception_stats = fd_wksp_alloc_laddr( wksp, alignof(fd_reception_stats_t), sizeof(fd_reception_stats_t)*bid_cnt, 1UL );
   FD_TEST( ctx->reception_stats );
@@ -429,7 +437,9 @@ init_root_fec( fd_replay_tile_t * ctx,
   block_id_ele->bank_seq       = root_bank->bank_seq;
   block_id_ele->latest_fec_idx = 0U;
   block_id_ele->latest_mr      = *mr_root;
+  block_id_ele->dmr            = *mr_root;
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+  FD_TEST( dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
 
   ctx->reset_cmr = *mr_root;
   return f_root;
@@ -890,6 +900,10 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( map_mem );
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( map_mem, chain_cnt, 44UL ) );
   FD_TEST( ctx->block_id_map );
+  void * dmr_map_mem = fd_wksp_alloc_laddr( wksp, dmr_map_align(), dmr_map_footprint( chain_cnt ), 1UL );
+  FD_TEST( dmr_map_mem );
+  ctx->dmr_map = dmr_map_join( dmr_map_new( dmr_map_mem, chain_cnt, 44UL ) );
+  FD_TEST( ctx->dmr_map );
   ctx->block_id_len   = bank_cnt;
   ctx->max_live_slots = bank_cnt;
 
