@@ -28,6 +28,9 @@ static uchar const oid_ecdsa_sha384[] = { 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x
 /* subjectAltName: 2.5.29.17 */
 static uchar const oid_san[] = { 0x06, 0x03, 0x55, 0x1d, 0x11 };
 
+/* nameConstraints: 2.5.29.30 */
+static uchar const oid_name_constraints[] = { 0x06, 0x03, 0x55, 0x1d, 0x1e };
+
 /* basicConstraints: 2.5.29.19 */
 static uchar const oid_basic_constraints[] = { 0x06, 0x03, 0x55, 0x1d, 0x13 };
 
@@ -190,6 +193,48 @@ fd_x509_general_name_valid( int           tag,
   }
 }
 
+/* Validate GeneralSubtrees.  Only dNSName and iPAddress bases are
+   enforced by the verifier; other name forms pass through unchecked.
+   (Real CA/B Forum intermediates permit a dNSName and exclude
+   iPAddress 0.0.0.0/0 and ::/0 in the same extension.)  minimum and
+   maximum are unsupported; minimum's DEFAULT is zero and omitted in
+   DER. */
+
+static int
+fd_x509_subtrees_valid( uchar const * p,
+                        ulong         len ) {
+  fd_der_cursor_t trees = { .p=p, .end=p+len };
+  if( FD_UNLIKELY( !len ) ) return -1;
+
+  while( FD_DER_HAS_MORE( trees ) ) {
+    uchar const * tree_ptr; ulong tree_len;
+    FD_DER_READ( trees, FD_DER_TAG_SEQUENCE, tree_ptr, tree_len );
+    fd_der_cursor_t tree = { .p=tree_ptr, .end=tree_ptr+tree_len };
+
+    int tag; ulong base_len;
+    if( FD_UNLIKELY( fd_der_read_tl( &tree, &tag, &base_len ) ) ) return -1;
+    uchar const * base = tree.p;
+    tree.p += base_len;
+    if( FD_UNLIKELY( FD_DER_HAS_MORE( tree ) ) ) return -1;
+
+    switch( tag ) {
+    case FD_DER_TAG_CONTEXT_PRIM(2): { /* dNSName */
+      if( FD_UNLIKELY( !base_len ) ) return -1;
+      ulong off = base[0]=='.';
+      if( FD_UNLIKELY( !fd_x509_dns_name_valid( (char const *)base+off, base_len-off ) ) ) return -1;
+      break;
+    }
+    case FD_DER_TAG_CONTEXT_PRIM(7): /* iPAddress: address || mask */
+      if( FD_UNLIKELY( base_len!=8UL && base_len!=32UL ) ) return -1;
+      break;
+    default:
+      if( FD_UNLIKELY( !fd_x509_general_name_valid( tag, base, base_len ) ) ) return -1;
+      break;
+    }
+  }
+  return 0;
+}
+
 static int
 fd_x509_parse_extensions( fd_der_cursor_t *     c,
                           fd_x509_cert_info_t * out ) {
@@ -349,6 +394,38 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
           return -1;
         san.p += gn_len;
       }
+      continue;
+    }
+
+    /* nameConstraints (2.5.29.30), restricted to dNSName subtrees. */
+    if( fd_der_oid_match( oid_raw, oid_raw_len,
+                          oid_name_constraints, sizeof(oid_name_constraints) ) ) {
+      if( FD_UNLIKELY( out->has_name_constraints ) ) return -1;
+
+      fd_der_cursor_t val = { .p=val_ptr, .end=val_ptr+val_len };
+      FD_DER_ENTER( val, FD_DER_TAG_SEQUENCE );
+        int last_tag = -1;
+        while( FD_DER_HAS_MORE( val ) ) {
+          int tag; ulong subtrees_len;
+          if( FD_UNLIKELY( fd_der_read_tl( &val, &tag, &subtrees_len ) ) ) return -1;
+          if( FD_UNLIKELY( (tag!=(int)FD_DER_TAG_CONTEXT(0) &&
+                            tag!=(int)FD_DER_TAG_CONTEXT(1)) || tag<=last_tag ) ) return -1;
+          uchar const * subtrees = val.p;
+          val.p += subtrees_len;
+          if( FD_UNLIKELY( fd_x509_subtrees_valid( subtrees, subtrees_len ) ) ) return -1;
+          if( tag==(int)FD_DER_TAG_CONTEXT(0) ) {
+            out->name_constraints_permitted     = subtrees;
+            out->name_constraints_permitted_len = subtrees_len;
+          } else {
+            out->name_constraints_excluded     = subtrees;
+            out->name_constraints_excluded_len = subtrees_len;
+          }
+          last_tag = tag;
+        }
+        if( FD_UNLIKELY( last_tag<0 ) ) return -1;
+      FD_DER_LEAVE( val );
+      if( FD_UNLIKELY( FD_DER_HAS_MORE( val ) ) ) return -1;
+      out->has_name_constraints = 1;
       continue;
     }
 
@@ -772,12 +849,10 @@ fd_x509_extract_pubkey( uchar const *  cert,
 
 /* Hostname matching (RFC 6125 Section 6.4.3) */
 
-/* dns_eq_ci compares two DNS names of equal length, folding ASCII case. */
-
-static int
-dns_eq_ci( char const * a,
-           char const * b,
-           ulong        len ) {
+int
+fd_x509_dns_eq_ci( char const * a,
+                   char const * b,
+                   ulong        len ) {
   for( ulong i=0UL; i<len; i++ ) {
     char x = a[i]; if( x>='A' && x<='Z' ) x = (char)( x + ('a'-'A') );
     char y = b[i]; if( y>='A' && y<='Z' ) y = (char)( y + ('a'-'A') );
@@ -786,13 +861,9 @@ dns_eq_ci( char const * a,
   return 1;
 }
 
-/* dns_name_valid returns 1 if [name,name+len) is a syntactically valid
-   DNS hostname (RFC 1123 preferred syntax, plus '_').  Rejects empty
-   labels, so a leading dot, a trailing dot, and ".." are all invalid. */
-
-static int
-dns_name_valid( char const * name,
-                ulong        len ) {
+int
+fd_x509_dns_name_valid( char const * name,
+                        ulong        len ) {
   if( len<1UL || len>253UL ) return 0;
 
   ulong label_len = 0UL;
@@ -832,7 +903,7 @@ dns_pattern_matches( char const * pattern,
     char const * pattern_tail     = pattern + 2;
     ulong        pattern_tail_len = pattern_len - 2UL;
 
-    if( !dns_name_valid( pattern_tail, pattern_tail_len ) ) return 0;
+    if( !fd_x509_dns_name_valid( pattern_tail, pattern_tail_len ) ) return 0;
     if( !memchr( pattern_tail, '.', pattern_tail_len ) ) return 0;
 
     ulong dot_pos = 0UL;
@@ -848,14 +919,14 @@ dns_pattern_matches( char const * pattern,
     ulong        host_tail_len = hostname_len - dot_pos - 1UL;
 
     return host_tail_len==pattern_tail_len &&
-           dns_eq_ci( pattern_tail, host_tail, pattern_tail_len );
+           fd_x509_dns_eq_ci( pattern_tail, host_tail, pattern_tail_len );
   }
 
   /* Exact match (case-insensitive) */
 
   return pattern_len==hostname_len &&
-         dns_name_valid( pattern, pattern_len ) &&
-         dns_eq_ci( pattern, hostname, pattern_len );
+         fd_x509_dns_name_valid( pattern, pattern_len ) &&
+         fd_x509_dns_eq_ci( pattern, hostname, pattern_len );
 }
 
 int
@@ -870,7 +941,7 @@ fd_x509_san_matches( fd_x509_cert_info_t const * info,
 
   if( hostname_len && hostname[ hostname_len-1UL ]=='.' ) hostname_len--;
 
-  if( FD_UNLIKELY( !dns_name_valid( hostname, hostname_len ) ) ) return 0;
+  if( FD_UNLIKELY( !fd_x509_dns_name_valid( hostname, hostname_len ) ) ) return 0;
   if( hostname_len<=15UL ) {
     char ip4[ 16 ];
     memcpy( ip4, hostname, hostname_len );

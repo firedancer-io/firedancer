@@ -99,6 +99,15 @@ struct fd_x509_cert_info {
   uchar const * san_general_names;
   ulong         san_general_names_len;
   uchar         has_subject_alt_name;
+
+  /* Name Constraints (RFC 5280 Section 4.2.1.10).  Each pointer is the
+     content of an IMPLICIT GeneralSubtrees field.  Only dNSName and
+     iPAddress subtrees are enforced by the verifier. */
+  uchar const * name_constraints_permitted;
+  ulong         name_constraints_permitted_len;
+  uchar const * name_constraints_excluded;
+  ulong         name_constraints_excluded_len;
+  uchar         has_name_constraints;
 };
 
 typedef struct fd_x509_cert_info fd_x509_cert_info_t;
@@ -178,6 +187,21 @@ long
 fd_x509_time_parse( uchar         tag,
                     uchar const * s,
                     ulong         s_len );
+
+/* fd_x509_dns_name_valid returns 1 if [name,name+len) is a
+   syntactically valid DNS hostname (RFC 1123 preferred syntax, plus
+   '_').  Rejects empty labels, so a leading dot, a trailing dot, and
+   ".." are all invalid.  fd_x509_dns_eq_ci compares two DNS names of
+   equal length, folding ASCII case. */
+
+FD_FN_PURE int
+fd_x509_dns_name_valid( char const * name,
+                        ulong        len );
+
+FD_FN_PURE int
+fd_x509_dns_eq_ci( char const * a,
+                   char const * b,
+                   ulong        len );
 
 /* fd_x509_san_matches tests hostname against every dNSName in info's
    subjectAltName extension.  Matching folds ASCII case and permits a
