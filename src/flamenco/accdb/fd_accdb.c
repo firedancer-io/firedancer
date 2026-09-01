@@ -1299,17 +1299,19 @@ purge_inner( fd_accdb_t *              accdb,
     while( txn!=UINT_MAX ) {
       fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
 
-      uint acc_idx = txne->acc_pool_idx;
+      uint acc_idx     = txne->acc_pool_idx;
+      uint acc_map_idx = (uint)(fd_hash32( accdb->acc_pool[ acc_idx ].key.pubkey, accdb->shmem->seed ) &
+                                (accdb->shmem->chain_cnt-1UL));
 
       uint prev = UINT_MAX;
-      uint cur = FD_VOLATILE_CONST( accdb->acc_map[ txne->acc_map_idx ] );
+      uint cur = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
       while( cur!=acc_idx ) {
         prev = cur;
         cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next );
       }
 
       fd_racesan_hook( "accdb_purge:pre_unlink" );
-      acc_unlink( accdb, txne->acc_map_idx, prev, acc_idx );
+      acc_unlink( accdb, acc_map_idx, prev, acc_idx );
       deferred_acc_append( accdb, acc_idx );
 
       txn_tail = txne;
@@ -1377,13 +1379,15 @@ background_advance_root( fd_accdb_t *       accdb,
       fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
 
       fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
+      uint acc_map_idx = (uint)(fd_hash32( new_acc->key.pubkey, accdb->shmem->seed ) &
+                                (accdb->shmem->chain_cnt-1UL));
 
       delta_insert( accdb, new_acc->key.pubkey );
 
       uint prev          = UINT_MAX;
       uint new_acc_prev  = UINT_MAX; /* prev of new_acc on the chain when we encounter it (UINT_MAX if head or never seen) */
       int  new_acc_seen  = 0;
-      uint acc = FD_VOLATILE_CONST( accdb->acc_map[ txne->acc_map_idx ] );
+      uint acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
       FD_TEST( acc!=UINT_MAX );
       while( acc!=UINT_MAX ) {
         fd_accdb_accmeta_t const * cur_acc = &accdb->acc_pool[ acc ];
@@ -1400,7 +1404,7 @@ background_advance_root( fd_accdb_t *       accdb,
         if( FD_LIKELY( (cur_acc->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(cur_acc) ) ) && !memcmp( new_acc->key.pubkey, cur_acc->key.pubkey, 32UL ) ) ) {
           uint next = cur_next;
           fd_racesan_hook( "accdb_advance:pre_unlink" );
-          acc_unlink( accdb, txne->acc_map_idx, prev, acc );
+          acc_unlink( accdb, acc_map_idx, prev, acc );
           deferred_acc_append( accdb, acc );
           acc = next;
         } else {
@@ -1420,7 +1424,7 @@ background_advance_root( fd_accdb_t *       accdb,
          and we skip, since the freelist cleanup is already done. */
       if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
         uint new_acc_idx = (uint)txne->acc_pool_idx;
-        acc_unlink( accdb, txne->acc_map_idx, new_acc_prev, new_acc_idx );
+        acc_unlink( accdb, acc_map_idx, new_acc_prev, new_acc_idx );
         deferred_acc_append( accdb, new_acc_idx );
       }
 
@@ -3394,7 +3398,6 @@ release_inner( fd_accdb_t * accdb,
 
       fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
       FD_TEST( txn ); /* Sized so it always succeeds */
-      txn->acc_map_idx  = (uint)accs[ i ]._acc_map_idx;
       txn->acc_pool_idx = (uint)acc_idx;
       uint txn_idx = (uint)txn_pool_idx( accdb->txn_pool, txn );
       for(;;) {
@@ -4023,7 +4026,6 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
     if( FD_UNLIKELY( incremental ) ) {
       fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
       if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-      txn->acc_map_idx  = (uint)hash;
       txn->acc_pool_idx = acc_idx;
       uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
       txn->fork.next          = fork->shmem->txn_head;
@@ -4210,7 +4212,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       if( FD_UNLIKELY( incremental ) ) {
         fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
         if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-        txn->acc_map_idx  = (uint)hashes[ i ];
         txn->acc_pool_idx = acc_idx;
         uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
         txn->fork.next          = fork->shmem->txn_head;
