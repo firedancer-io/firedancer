@@ -196,6 +196,10 @@ read_conn( fd_genesis_client_t * client,
     close_one( client, conn_idx );
     return 1;
   }
+  if( FD_UNLIKELY( !read ) ) {
+    close_one( client, conn_idx );
+    return 1;
+  }
 
   peer->response_bytes_read += (ulong)read;
 
