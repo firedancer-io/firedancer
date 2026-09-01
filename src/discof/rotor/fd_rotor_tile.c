@@ -975,7 +975,7 @@ after_frag( ctx_t *             ctx,
              turbine shred we receive. */
 
           FD_LOG_ERR(( "Catchup slot distance exceeds the repair buffer: target %lu - snapshot slot %lu > %lu. "
-                       "Restart with a more recent snapshot or increase config repair.slot_max", ctx->turbine_slot0, ctx->chainer->root, fd_slotv_pool_max( ctx->chainer->slotv_pool ) ));
+                       "Restart with a more recent snapshot or increase config rotor.slot_max", ctx->turbine_slot0, ctx->chainer->root, fd_slotv_pool_max( ctx->chainer->slotv_pool ) ));
           return;
         }
         fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );

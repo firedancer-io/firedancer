@@ -1479,7 +1479,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapwr.partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
-    /* rotor (alpenglow) reuses the repair tile config */
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
     tile->repair.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->repair.slot_max                  = config->tiles.repair.slot_max;
@@ -1494,8 +1493,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
-    /* TODO: separate rotor.slot_max  */
-    tile->rotor.slot_max = config->tiles.repair.slot_max;
+    tile->rotor.slot_max = config->tiles.rotor.slot_max;
     tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
 
     for( ulong i=0; i<tile->in_cnt; i++ ) {
