@@ -571,8 +571,9 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
   int probe_res = fd_neigh4_probe_rate_limited( ctx->prober, ele, ip4_addr, now );
   if( probe_res==0 ) {
     ctx->metrics.neigh_solicits_sent++;
-  } else if( probe_res>0 ) {
-    ctx->metrics.neigh_solicits_fails++;
+  } else {
+    fd_neigh4_hmap_remove( ctx->neigh4, ele );
+    if( probe_res>0 ) ctx->metrics.neigh_solicits_fails++;
   }
 
 }
