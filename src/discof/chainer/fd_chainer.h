@@ -47,6 +47,15 @@
    re-requesting the shreds.  This case should be rare enough that the
    redundancy is worth the simplicity.
 
+   When that happens the turbine version is ABANDONED: arriving shreds
+   are still accepted and fill the FECs, but it never delivers to
+   replay, never finalizes a block_id, and is dropped from the repair
+   worklists.  Were it to keep delivering, and its block_id to finalize
+   to the same block a votor version is repairing, replay would
+   materialize two banks for the same {slot, block_id} (see
+   fd_rotor_tile.h).  An abandoned slotv is pruned with its slot at
+   publish.
+
    *Parent Discovery*
 
    The trickiness with chaining is that there's 3 different sources of
@@ -63,6 +72,7 @@
 
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/shred/fd_fec_set.h"
+#include "../../disco/store/fd_store.h"
 
 #define FD_CHAINER_MAGIC (0xf17eda2ce7c4a112UL) /* firedancer chainer v1 */
 
@@ -88,6 +98,7 @@ struct fd_chainer_fec {
                               contiguous-FEC prefix gate on this. */
   uchar     slot_complete;
   uchar     data_complete;
+  uchar     is_leader;
 };
 typedef struct fd_chainer_fec fd_chainer_fec_t;
 
@@ -110,7 +121,13 @@ struct fd_chainer_slotv {
   ulong           next; /* reserved by pool and map_chain */
   ulong           prev; /* reserved by map_chain */
 
-  uchar           turbine; /* 1 for the slotv created through turbine */
+  uchar           turbine;   /* 1 for the slotv created through turbine */
+  uchar           abandoned; /* 1 once a votor-driven version of the slot was
+                                created while this (turbine) version's block_id
+                                was still unknown: keeps accepting shred/FEC
+                                bookkeeping but never delivers, never finalizes
+                                a block_id, and stays off the repair worklists.
+                                See the header comment above. */
   fd_hash_t       block_id;
   uint            fec[FD_FEC_BLK_MAX]; /* fec[k] = fd_fec_pool idx of the FEC this
                                           version owns. TODO assert pool_idx < UINT_MAX */
@@ -343,6 +360,7 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
                          uint           fec_set_idx,
                          int            slot_complete,
                          int            data_complete,
+                         int            is_leader,
                          fd_hash_t    * mr );
 
 /* Clears out the received shreds for a given FEC set, and also updates
@@ -430,12 +448,15 @@ fd_chainer_slotv_shred_cnt( fd_chainer_t *             chainer,
 /* fd_chainer_publish advances the root to slot.  block_id identifies
    which version of slot is being rooted; every other version of it is
    pruned along with the slots below.  Pass NULL (or a block_id no
-   version matches) to keep all versions of slot. */
+   version matches) to keep all versions of slot.  If store is non-NULL,
+   each pruned FEC set is removed from it (rotor is the store
+   publisher). */
 
 void
 fd_chainer_publish( fd_chainer_t *    chainer,
                     ulong             slot,
-                    fd_hash_t const * block_id );
+                    fd_hash_t const * block_id,
+                    fd_store_t *      store );
 
 static inline fd_chainer_slotv_t *
 fd_chainer_slot_version_query( fd_chainer_t *    chainer,

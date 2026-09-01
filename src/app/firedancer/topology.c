@@ -1156,6 +1156,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt, store_fec_data_max );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( alpenglow_enabled ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, repair, 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* rotor */
   if( rserve_enabled ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rserve", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
@@ -1480,7 +1481,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapwr.partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
-    /* rotor (alpenglow) reuses the repair tile config */
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
     tile->repair.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->repair.slot_max                  = config->tiles.repair.slot_max;
@@ -1495,7 +1495,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
-    tile->rotor.slot_max = config->firedancer.runtime.max_live_slots;
+    tile->rotor.slot_max = config->tiles.rotor.slot_max;
     tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
 
     for( ulong i=0; i<tile->in_cnt; i++ ) {

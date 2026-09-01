@@ -584,18 +584,20 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * ag_req_mem     = fd_wksp_alloc_laddr( wksp, ag_req_queue_align(),      ag_req_queue_footprint(),                1UL );
   void * repair_mem     = fd_wksp_alloc_laddr( wksp, fd_repair_align(),         fd_repair_footprint(),                   1UL );
   void * metrics_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_metrics_align(), fd_repair_metrics_footprint(),           1UL );
-  FD_TEST( chainer_mem && policy_mem && dedup_mem && inflights_mem && signs_map_mem && pong_queue_mem && ag_req_mem && repair_mem && metrics_mem );
+  void * deliver_q_mem  = fd_wksp_alloc_laddr( wksp, out_queue_align(),         out_queue_footprint( (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ), 1UL );
+  FD_TEST( chainer_mem && policy_mem && dedup_mem && inflights_mem && signs_map_mem && pong_queue_mem && ag_req_mem && repair_mem && metrics_mem && deliver_q_mem );
 
-  ctx->chainer      = fd_chainer_join       ( fd_chainer_new       ( chainer_mem,    TEST_SLOT_MAX, ctx->repair_seed                       ) );
-  ctx->policy       = fd_policy_join        ( fd_policy_new        ( policy_mem,     TEST_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
-  ctx->dedup        = fd_reqlim_join        ( fd_reqlim_new        ( dedup_mem,      TEST_DEDUP_MAX, ctx->repair_seed                      ) );
-  ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( inflights_mem,  ctx->repair_seed+1234UL                               ) );
-  ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( signs_map_mem,  lg_sign_depth, 0UL                                    ) );
-  ctx->pong_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( pong_queue_mem                                                        ) );
-  ctx->ag_req_queue = ag_req_queue_join     ( ag_req_queue_new     ( ag_req_mem                                                            ) );
-  ctx->protocol     = fd_repair_join        ( fd_repair_new        ( repair_mem,     &ctx->identity_public_key                             ) );
-  ctx->slot_metrics = fd_repair_metrics_join( fd_repair_metrics_new( metrics_mem                                                           ) );
-  FD_TEST( ctx->chainer && ctx->policy && ctx->dedup && ctx->inflights && ctx->signs_map && ctx->pong_queue && ctx->ag_req_queue && ctx->protocol && ctx->slot_metrics );
+  ctx->chainer       = fd_chainer_join       ( fd_chainer_new       ( chainer_mem,    TEST_SLOT_MAX, ctx->repair_seed                       ) );
+  ctx->policy        = fd_policy_join        ( fd_policy_new        ( policy_mem,     TEST_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
+  ctx->dedup         = fd_reqlim_join        ( fd_reqlim_new        ( dedup_mem,      TEST_DEDUP_MAX, ctx->repair_seed                      ) );
+  ctx->inflights     = fd_inflights_join     ( fd_inflights_new     ( inflights_mem,  ctx->repair_seed+1234UL                               ) );
+  ctx->signs_map     = fd_signs_map_join     ( fd_signs_map_new     ( signs_map_mem,  lg_sign_depth, 0UL                                    ) );
+  ctx->pong_queue    = fd_signs_queue_join   ( fd_signs_queue_new   ( pong_queue_mem                                                        ) );
+  ctx->ag_req_queue  = ag_req_queue_join     ( ag_req_queue_new     ( ag_req_mem                                                            ) );
+  ctx->protocol      = fd_repair_join        ( fd_repair_new        ( repair_mem,     &ctx->identity_public_key                             ) );
+  ctx->slot_metrics  = fd_repair_metrics_join( fd_repair_metrics_new( metrics_mem                                                           ) );
+  ctx->deliver_queue = out_queue_join        ( out_queue_new        ( deliver_q_mem, (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ) );
+  FD_TEST( ctx->chainer && ctx->policy && ctx->dedup && ctx->inflights && ctx->signs_map && ctx->pong_queue && ctx->ag_req_queue && ctx->protocol && ctx->slot_metrics && ctx->deliver_queue );
 
   /* Out links.  fd_chunk_to_laddr( mem, 0 )==mem, so chunk0=0 with mem
      pointing at a flat buffer works like a compact dcache.  wmark leaves
@@ -1409,6 +1411,133 @@ test_fec_rekey_merge( fd_wksp_t * wksp ) {
 }
 
 /* =====================================================================
+   Test 2c: notar-fallback for the same block still in flight from
+   turbine (the race described in fd_rotor_tile.h).
+
+   Turbine delivers FEC sets 0 and 1 of a 3-set block unverified
+   ({verified=0, block_id=null}), then a notar-fallback cert arrives for
+   the very same block.  The turbine block_id is not computable yet, so
+   we cannot tell it is the same block: the turbine version is abandoned
+   and the cert version re-delivers the prefix verified.  The remaining
+   shreds then arrive through turbine: they fill the shared FEC, and the
+   final set is delivered exactly once, verified, under the cert
+   version.  The turbine version must never deliver its slot-complete
+   FEC: replay would re-key its {slot, 0} bank onto the {slot, block_id}
+   the cert version's bank already occupies. */
+
+static void
+test_notar_fallback_same_block( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  ulong slot = SNAP_SLOT+1UL;
+  blk_t blk[1] = {{ .slot = slot, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 3U }};
+  blk->fec_root[ 0 ] = mkhash( 0xEE0UL );
+  blk->fec_root[ 1 ] = mkhash( 0xEE1UL );
+  blk->fec_root[ 2 ] = mkhash( 0xEE2UL );
+  blk_build( blk );
+
+  /* Turbine delivers sets 0 and 1; set 2 has not arrived (*blip*). */
+
+  for( uint k=0U; k<2U; k++ ) {
+    for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
+      uint  idx   = k*FD_FEC_SHRED_CNT+i;
+      uchar flags = (uchar)( i==FD_FEC_SHRED_CNT-1U ? blk_fec_flags( blk, k ) : 0 );
+      deliver_shred( ctx, slot, idx, flags, &blk->fec_root[ k ], 0U, SHRED_SIG_SRC_TURBINE,
+                     blk->parent_slot, &blk->parent_block_id );
+    }
+    deliver_fec_complete( ctx, slot, k*FD_FEC_SHRED_CNT, blk_fec_flags( blk, k ), &blk->fec_root[ k ] );
+  }
+  pump( ctx );
+  FD_TEST( rep_cnt==2UL );
+  rep_expect( 0UL, slot, 0U,               &blk->fec_root[ 0 ], NULL, 0 );
+  rep_expect( 1UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], NULL, 0 );
+  FD_TEST( !rep_log[ 0 ].known_id && !rep_log[ 1 ].known_id );
+
+  /* Notar-fallback cert for the same block abandons the in-flight
+     turbine version. */
+
+  ulong mark = req_cnt;
+  deliver_votor( ctx, FD_VOTOR_SIG_REPAIR, slot, &blk->block_id );
+  fd_hash_t zero = {0};
+  fd_chainer_slotv_t * vT = fd_chainer_slot_version_query( ctx->chainer, slot, &zero );
+  FD_TEST( vT && vT->turbine && vT->abandoned );
+  fd_chainer_slotv_t * vC = fd_chainer_slot_version_query( ctx->chainer, slot, &blk->block_id );
+  FD_TEST( vC && vC!=vT && !vC->turbine );
+
+  /* Metadata teaches the cert version its shape and ancestry. */
+
+  pump( ctx );
+  req_t * meta_req = req_find( mark, AG_REPAIR_KIND_PARENT_FEC_COUNT, slot, UINT_MAX, &blk->block_id );
+  FD_TEST( meta_req );
+  respond_parent_fec_count( ctx, blk, meta_req->nonce, 0 );
+  FD_TEST( vC->complete_idx==3U*FD_FEC_SHRED_CNT-1U );
+  FD_TEST( vC->connected );
+
+  /* Root responses: the shared sets 0 and 1 complete immediately from
+     local data and are re-delivered verified under the cert version;
+     set 2's sentinel awaits shreds. */
+
+  pump( ctx );
+  ulong rep_mark = rep_cnt;
+  for( uint k=0U; k<3U; k++ ) {
+    req_t * root_req = req_find( mark, AG_REPAIR_KIND_FEC_ROOT, slot, k*FD_FEC_SHRED_CNT, &blk->block_id );
+    FD_TEST( root_req );
+    respond_fec_root( ctx, blk, k*FD_FEC_SHRED_CNT, root_req->nonce, 0 );
+  }
+  pump( ctx );
+  FD_TEST( rep_cnt==rep_mark+2UL );
+  rep_expect( rep_mark,     slot, 0U,               &blk->fec_root[ 0 ], &blk->block_id, 0 );
+  rep_expect( rep_mark+1UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 0 );
+  FD_TEST( rep_log[ rep_mark ].known_id && rep_log[ rep_mark+1UL ].known_id );
+
+  /* The remaining set arrives through turbine (not repair): its shreds
+     fill the cert version's sentinel (same root), and the slot-complete
+     FEC is delivered exactly once -- verified, under the cert version.
+     The abandoned turbine version never delivers it and never finalizes
+     a block id. */
+
+  rep_mark = rep_cnt;
+  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
+    uint  idx   = 2U*FD_FEC_SHRED_CNT+i;
+    uchar flags = (uchar)( i==FD_FEC_SHRED_CNT-1U ? blk_fec_flags( blk, 2U ) : 0 );
+    deliver_shred( ctx, slot, idx, flags, &blk->fec_root[ 2 ], 0U, SHRED_SIG_SRC_TURBINE,
+                   blk->parent_slot, &blk->parent_block_id );
+  }
+  deliver_fec_complete( ctx, slot, 2U*FD_FEC_SHRED_CNT, blk_fec_flags( blk, 2U ), &blk->fec_root[ 2 ] );
+  pump( ctx );
+
+  FD_TEST( rep_cnt==rep_mark+1UL );
+  rep_expect( rep_mark, slot, 2U*FD_FEC_SHRED_CNT, &blk->fec_root[ 2 ], &blk->block_id, 1 );
+  FD_TEST( rep_log[ rep_mark ].known_id );
+  FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==slot );
+  FD_TEST( fd_hash_check_zero( &vT->block_id ) );        /* never finalized */
+  FD_TEST( slot_version_cnt( ctx->chainer, slot )==2UL ); /* cert version + abandoned anchor */
+
+  /* Exactly one slot-complete delivery across the whole run, and
+     everything delivered after the cert arrived is verified: replay's
+     turbine bank (keyed {slot, 0}) never re-keys, so it can never
+     collide with the cert bank keyed {slot, block_id}. */
+
+  ulong sc_cnt = 0UL;
+  for( ulong i=0UL; i<rep_cnt; i++ ) {
+    if( rep_log[ i ].slot==slot && rep_log[ i ].slot_complete ) sc_cnt++;
+    if( i>=2UL ) FD_TEST( rep_log[ i ].known_id );
+  }
+  FD_TEST( sc_cnt==1UL );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  /* Rooting the block prunes the abandoned anchor. */
+
+  deliver_votor( ctx, FD_VOTOR_SIG_ROOTED, slot, &blk->block_id );
+  FD_TEST( ctx->chainer->root==slot );
+  FD_TEST( slot_version_cnt( ctx->chainer, slot )==1UL );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  FD_LOG_NOTICE(( "pass: test_notar_fallback_same_block" ));
+}
+
+/* =====================================================================
    Test 3: block-id-only repair (catchup mode).
 
    With ctx->block_id_repair_only set, every legacy positional emission
@@ -1478,24 +1607,22 @@ test_block_id_repair_only( fd_wksp_t * wksp ) {
   serve_shred_requests( ctx, mark, blk, UINT_MAX, NULL, served );
   pump( ctx );
 
-  /* Repair shreds create turbine-side bookkeeping, so the block is
-     tracked -- and delivered -- under both the lazily created turbine
-     version (whose block id stays zero until it finalizes to the cert
-     block id at slot completion) and the cert version; replay dedups
-     the redelivery.  Every FEC set reached replay in order under both
-     versions, and the slot-complete deliveries carry the cert block
-     id. */
+  /* Repair shreds still land on turbine-side bookkeeping, but the
+     turbine version of the slot was created abandoned (the cert version
+     predates it), so it only anchors the roots and shred bitmaps: it
+     never delivers and never finalizes a block id.  Every FEC is
+     delivered exactly once, under the cert version, verified and
+     carrying the cert block id. */
 
   FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==slot );
-  FD_TEST( rep_cnt==4UL );
-  rep_expect( 0UL, slot, 0U,               &blk->fec_root[ 0 ], NULL,           0 ); /* turbine version, pre-finalize */
-  rep_expect( 1UL, slot, 0U,               &blk->fec_root[ 0 ], &blk->block_id, 0 ); /* cert version */
-  rep_expect( 2UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 ); /* turbine version, finalized */
-  rep_expect( 3UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 ); /* cert version */
+  FD_TEST( rep_cnt==2UL );
+  rep_expect( 0UL, slot, 0U,               &blk->fec_root[ 0 ], &blk->block_id, 0 );
+  rep_expect( 1UL, slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 );
+  FD_TEST( rep_log[ 0 ].known_id );
+  FD_TEST( rep_log[ 1 ].known_id );
 
-  /* Both versions coexist -- the turbine version finalized to the same
-     block id as the cert -- until rooting prunes all but the canonical
-     one. */
+  /* Both versions are tracked (the abandoned turbine anchor plus the
+     cert version); rooting below prunes down to the canonical one. */
 
   FD_TEST( slot_version_cnt( ctx->chainer, slot )==2UL );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
@@ -1632,6 +1759,405 @@ test_inflight_popped( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_inflight_popped" ));
 }
 
+/* ---------------------------------------------------------------------
+   deliver_from_root: a one-shot flag that makes the next chainer
+   delivery re-publish the entire ancestry path of FECs from the chainer
+   root down to (and including) that FEC, root-first, drained one FEC per
+   after_credit. */
+
+static void
+test_deliver_from_root( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  /* Three-slot fork chained off the snapshot root (SNAP_SLOT):
+       101 (2 FEC sets) <- 102 (2 FEC sets) <- 103 (1 FEC set).
+     Chain each block's parent_block_id to its parent's computed id. */
+
+  blk_t blk1[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk1->fec_root[ 0 ] = mkhash( 0xD100UL );
+  blk1->fec_root[ 1 ] = mkhash( 0xD101UL );
+  blk_build( blk1 );
+
+  blk_t blk2[1] = {{ .slot = SNAP_SLOT+2UL, .parent_slot = SNAP_SLOT+1UL, .parent_block_id = blk1->block_id, .fec_cnt = 2U }};
+  blk2->fec_root[ 0 ] = mkhash( 0xD200UL );
+  blk2->fec_root[ 1 ] = mkhash( 0xD201UL );
+  blk_build( blk2 );
+
+  blk_t blk3[1] = {{ .slot = SNAP_SLOT+3UL, .parent_slot = SNAP_SLOT+2UL, .parent_block_id = blk2->block_id, .fec_cnt = 1U }};
+  blk3->fec_root[ 0 ] = mkhash( 0xD300UL );
+  blk_build( blk3 );
+
+  /* Deliver 101 and 102 normally (deliver_from_root off): each FEC set
+     is published once, in arrival order, and the chainer out_queue is
+     fully drained. */
+
+  deliver_turbine_block( ctx, blk1 );
+  pump( ctx );
+  deliver_turbine_block( ctx, blk2 );
+  pump( ctx );
+
+  FD_TEST( rep_cnt==4UL );                                    /* 2 + 2 FEC sets */
+  FD_TEST( out_queue_empty( ctx->chainer->out_queue ) );
+  FD_TEST( out_queue_empty( ctx->deliver_queue ) );
+  ulong base = rep_cnt;
+
+  /* Arm the one-shot flag and deliver 103.  Its single (slot-complete)
+     FEC lands on the chainer out_queue but nothing is published until
+     after_credit runs. */
+
+  ctx->deliver_from_root = 1;
+  deliver_turbine_block( ctx, blk3 );
+  FD_TEST( rep_cnt==base );
+
+  /* First after_credit consumes the chainer delivery and, because the
+     flag is set, queues the whole root->103 path onto deliver_queue
+     instead of publishing.  The flag is cleared and nothing is published
+     this iteration. */
+
+  tick( ctx );
+  FD_TEST( rep_cnt==base );                                   /* enqueue only, no publish */
+  FD_TEST( ctx->deliver_from_root==0 );                       /* one-shot */
+  FD_TEST( !out_queue_empty( ctx->deliver_queue ) );
+
+  /* The path drains one FEC per after_credit, root-first: 101's FEC sets
+     (0, then 32), 102's (0, 32), then the 103 target FEC (0). */
+
+  ulong exp_slot[ 5 ] = { SNAP_SLOT+1UL, SNAP_SLOT+1UL, SNAP_SLOT+2UL, SNAP_SLOT+2UL, SNAP_SLOT+3UL };
+  uint  exp_fec [ 5 ] = { 0U, FD_FEC_SHRED_CNT, 0U, FD_FEC_SHRED_CNT, 0U };
+  for( ulong j=0UL; j<5UL; j++ ) {
+    ulong before = rep_cnt;
+    tick( ctx );
+    FD_TEST( rep_cnt==before+1UL );                           /* exactly one FEC per call */
+    FD_TEST( rep_log[ before ].slot==exp_slot[ j ] );
+    FD_TEST( rep_log[ before ].fec_set_idx==exp_fec[ j ] );
+  }
+
+  FD_TEST( rep_cnt==base+5UL );                               /* whole path re-delivered */
+  FD_TEST( out_queue_empty( ctx->deliver_queue ) );
+
+  /* Each FEC carries the fields publish_fec would set.  In the
+     deliver_from_root path the block_id is ALWAYS populated with the
+     version's finalized block id -- including mid-slot FECs, which the
+     normal turbine publish path leaves zero until the slot-complete FEC
+     (see test_deliver_from_root_populates_block_id).  Only the last FEC
+     set of each block is slot-complete. */
+  rep_expect( base+0UL, SNAP_SLOT+1UL, 0U,               &blk1->fec_root[ 0 ], &blk1->block_id, 0 );
+  rep_expect( base+1UL, SNAP_SLOT+1UL, FD_FEC_SHRED_CNT, &blk1->fec_root[ 1 ], &blk1->block_id, 1 );
+  rep_expect( base+2UL, SNAP_SLOT+2UL, 0U,               &blk2->fec_root[ 0 ], &blk2->block_id, 0 );
+  rep_expect( base+3UL, SNAP_SLOT+2UL, FD_FEC_SHRED_CNT, &blk2->fec_root[ 1 ], &blk2->block_id, 1 );
+  rep_expect( base+4UL, SNAP_SLOT+3UL, 0U,               &blk3->fec_root[ 0 ], &blk3->block_id, 1 );
+
+  /* Draining is complete: nothing further is published, and the flag
+     stays clear (subsequent deliveries publish normally). */
+  ulong after = rep_cnt;
+  tick( ctx );
+  FD_TEST( rep_cnt==after );
+  FD_TEST( ctx->deliver_from_root==0 );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  FD_LOG_NOTICE(( "pass: test_deliver_from_root" ));
+}
+
+/* ---------------------------------------------------------------------
+   test_deliver_from_root_arming: deliver_from_root is armed ONLY by
+   REPLAY_SIG_MISSING_FEC on the replay in-link.  before_frag filters
+   every other sig on that link, so after_frag (which sets the flag
+   unconditionally for IN_KIND_REPLAY) is only ever reached for the
+   MISSING_FEC signal.  This is the entry point of the whole recovery
+   round-trip: replay drops a FEC, publishes MISSING_FEC, rotor arms. */
+
+static void
+test_deliver_from_root_arming( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  ulong RIDX = 5UL; /* a spare in-link index; NET/SHRED/VOTOR/SIGN use 0..3 */
+  ctx->in_kind[ RIDX ] = IN_KIND_REPLAY;
+
+  /* before_frag: only REPLAY_SIG_MISSING_FEC passes (returns 0). */
+  FD_TEST(  before_frag( ctx, RIDX, 0UL, REPLAY_SIG_SLOT_COMPLETED )!=0 );
+  FD_TEST(  before_frag( ctx, RIDX, 0UL, REPLAY_SIG_ROOT_ADVANCED  )!=0 );
+  FD_TEST(  before_frag( ctx, RIDX, 0UL, REPLAY_SIG_DROP_BANK_REF  )!=0 );
+  FD_TEST( !before_frag( ctx, RIDX, 0UL, REPLAY_SIG_MISSING_FEC    )    );
+
+  /* after_frag for the MISSING_FEC frag arms the one-shot.  The frag is
+     zero-length (see notify_rotor_fec), so during_frag reads nothing. */
+  FD_TEST( ctx->deliver_from_root==0 );
+  during_frag( ctx, RIDX, 0UL, REPLAY_SIG_MISSING_FEC, 0UL /*chunk*/, 0UL /*sz*/, 0UL /*ctl*/ );
+  FD_TEST( !ctx->skip_frag );
+  after_frag( ctx, RIDX, 0UL, REPLAY_SIG_MISSING_FEC, 0UL, 0UL, 0UL, NULL );
+  FD_TEST( ctx->deliver_from_root==1 );
+
+  FD_LOG_NOTICE(( "pass: test_deliver_from_root_arming" ));
+}
+
+/* ---------------------------------------------------------------------
+   test_deliver_from_root_degenerate: the base case of the ancestry walk
+   in full_fec_path_queue -- the target FEC's block is a DIRECT child of
+   the chainer root, so the walk terminates immediately at the root and
+   the queued path is exactly the target block's own FECs [0, target].
+   Exercises the loop boundary (slotv->slot > chainer->root). */
+
+static void
+test_deliver_from_root_degenerate( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  /* A single 2-FEC block chained directly off the snapshot root. */
+  blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk->fec_root[ 0 ] = mkhash( 0xC100UL );
+  blk->fec_root[ 1 ] = mkhash( 0xC101UL );
+  blk_build( blk );
+
+  /* Arm the one-shot BEFORE the block is delivered, so the block itself
+     is the re-delivery target (not a buffered ancestor).  Its two FEC
+     completions land on the chainer out_queue; nothing publishes yet. */
+  ctx->deliver_from_root = 1;
+  deliver_turbine_block( ctx, blk );
+  FD_TEST( rep_cnt==0UL );
+  FD_TEST( !out_queue_empty( ctx->chainer->out_queue ) );
+
+  /* First after_credit consumes the first delivered FEC (fec 0) and,
+     because the flag is set, queues the root->target path.  The walk
+     starts at the target (slot SNAP_SLOT+1) whose parent is the root
+     (slot SNAP_SLOT): the loop runs exactly once and stops, so the path
+     is just the target FEC 0 (target caps at the delivered FEC). */
+  tick( ctx );
+  FD_TEST( rep_cnt==0UL );                       /* enqueue only */
+  FD_TEST( ctx->deliver_from_root==0 );          /* one-shot cleared */
+  FD_TEST( !out_queue_empty( ctx->deliver_queue ) );
+
+  /* Drain: FEC 0 from the queued path, then FEC 32 from the chainer
+     out_queue's second (still-pending) delivery -- one per after_credit. */
+  tick( ctx );
+  FD_TEST( rep_cnt==1UL );
+  rep_expect( 0UL, blk->slot, 0U, &blk->fec_root[ 0 ], &blk->block_id, 0 ); /* deliver path populates block_id */
+  FD_TEST( out_queue_empty( ctx->deliver_queue ) );
+
+  tick( ctx );
+  FD_TEST( rep_cnt==2UL );
+  rep_expect( 1UL, blk->slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 );
+
+  /* Nothing else re-delivered; flag stays clear. */
+  tick( ctx );
+  FD_TEST( rep_cnt==2UL );
+  FD_TEST( ctx->deliver_from_root==0 );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  FD_LOG_NOTICE(( "pass: test_deliver_from_root_degenerate" ));
+}
+
+/* ---------------------------------------------------------------------
+   test_deliver_queue_priority: after_credit drains the deliver_queue
+   (the re-delivered root->target path) FULLY -- one FEC per call --
+   before consuming any fresh chainer delivery.  This is the ordering
+   guarantee the recovery relies on: replay must see the missing
+   ancestry rebuilt in order before newer FECs resume. */
+
+static void
+test_deliver_queue_priority( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  /* root <- blk1 (2 FECs) <- blk2 (1 FEC) <- blk3 (1 FEC). */
+  blk_t blk1[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk1->fec_root[ 0 ] = mkhash( 0xE100UL );
+  blk1->fec_root[ 1 ] = mkhash( 0xE101UL );
+  blk_build( blk1 );
+
+  blk_t blk2[1] = {{ .slot = SNAP_SLOT+2UL, .parent_slot = SNAP_SLOT+1UL, .parent_block_id = blk1->block_id, .fec_cnt = 1U }};
+  blk2->fec_root[ 0 ] = mkhash( 0xE200UL );
+  blk_build( blk2 );
+
+  blk_t blk3[1] = {{ .slot = SNAP_SLOT+3UL, .parent_slot = SNAP_SLOT+2UL, .parent_block_id = blk2->block_id, .fec_cnt = 1U }};
+  blk3->fec_root[ 0 ] = mkhash( 0xE300UL );
+  blk_build( blk3 );
+
+  /* blk1 delivered normally (published, drained). */
+  deliver_turbine_block( ctx, blk1 );
+  pump( ctx );
+  FD_TEST( rep_cnt==2UL );
+  FD_TEST( out_queue_empty( ctx->chainer->out_queue ) );
+  ulong base = rep_cnt;
+
+  /* Arm the one-shot, then deliver blk2 AND blk3 without running
+     after_credit.  Both land on the chainer out_queue (blk2_0, blk3_0)
+     while deliver_from_root is still set. */
+  ctx->deliver_from_root = 1;
+  deliver_turbine_block( ctx, blk2 );
+  deliver_turbine_block( ctx, blk3 );
+  FD_TEST( rep_cnt==base );
+
+  /* tick 1: pop blk2_0; flag set -> queue the root->blk2 path
+     [blk1_0, blk1_32, blk2_0] onto deliver_queue; blk2_0 consumed, not
+     published.  blk3_0 remains on the chainer out_queue untouched. */
+  tick( ctx );
+  FD_TEST( rep_cnt==base );
+  FD_TEST( ctx->deliver_from_root==0 );
+  FD_TEST( !out_queue_empty( ctx->deliver_queue ) );
+  FD_TEST( !out_queue_empty( ctx->chainer->out_queue ) ); /* blk3 still pending */
+
+  /* ticks 2..4: the deliver_queue drains root-first, one FEC per call.
+     blk3 (the fresh chainer delivery) must NOT be published while the
+     deliver_queue is non-empty. */
+  ulong exp_slot[ 3 ] = { SNAP_SLOT+1UL, SNAP_SLOT+1UL, SNAP_SLOT+2UL };
+  uint  exp_fec [ 3 ] = { 0U, FD_FEC_SHRED_CNT, 0U };
+  for( ulong j=0UL; j<3UL; j++ ) {
+    ulong before = rep_cnt;
+    tick( ctx );
+    FD_TEST( rep_cnt==before+1UL );                       /* exactly one per call */
+    FD_TEST( rep_log[ before ].slot==exp_slot[ j ] );
+    FD_TEST( rep_log[ before ].fec_set_idx==exp_fec[ j ] );
+    FD_TEST( rep_log[ before ].slot!=blk3->slot );        /* fresh delivery held back */
+  }
+  FD_TEST( out_queue_empty( ctx->deliver_queue ) );
+
+  /* tick 5: only now, with deliver_queue empty, does the fresh chainer
+     delivery (blk3) publish. */
+  tick( ctx );
+  FD_TEST( rep_cnt==base+4UL );
+  rep_expect( base+3UL, blk3->slot, 0U, &blk3->fec_root[ 0 ], &blk3->block_id, 1 );
+
+  /* Field-level check of the re-delivered path.  The deliver_from_root
+     path populates block_id on every FEC, including the mid-slot one. */
+  rep_expect( base+0UL, blk1->slot, 0U,               &blk1->fec_root[ 0 ], &blk1->block_id, 0 );
+  rep_expect( base+1UL, blk1->slot, FD_FEC_SHRED_CNT, &blk1->fec_root[ 1 ], &blk1->block_id, 1 );
+  rep_expect( base+2UL, blk2->slot, 0U,               &blk2->fec_root[ 0 ], &blk2->block_id, 1 );
+
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+  FD_LOG_NOTICE(( "pass: test_deliver_queue_priority" ));
+}
+
+/* ---------------------------------------------------------------------
+   test_deliver_from_root_liveness: two liveness properties of the
+   one-shot, and the fallacies they guard against.
+
+   (1) Recovery is DELIVERY-triggered, not self-triggered.  Arming
+       deliver_from_root does nothing on its own: full_fec_path_queue
+       only runs when the chainer next delivers a FEC (out_queue
+       non-empty).  With an empty out_queue, after_credit publishes
+       nothing and the flag persists.  FALLACY SURFACED: if a fork goes
+       quiescent immediately after an eviction (no new FECs delivered),
+       the re-delivery never fires and replay stays drained until the
+       next FEC arrives.  Recovery piggybacks on the next delivery.
+
+   (2) A voided (equivocation-deduped) delivery -- a sentinel out_queue
+       entry with slotv_idx==UINT_MAX, which the chainer pushes when it
+       merges an equivocating version (see fd_chainer.c) -- is consumed
+       by publish_fec_replay WITHOUT consuming the one-shot.  So the flag
+       correctly waits for a REAL delivery: the round trip cannot be
+       silently defeated by a multi-version slot voiding the delivery
+       that happened to be next in line. */
+
+static void
+test_deliver_from_root_liveness( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  /* (1) Armed but no chainer delivery: inert. */
+  FD_TEST( out_queue_empty( ctx->chainer->out_queue ) );
+  ctx->deliver_from_root = 1;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    ulong before = pub_cnt;
+    tick( ctx );
+    FD_TEST( pub_cnt==before );                 /* nothing published */
+  }
+  FD_TEST( ctx->deliver_from_root==1 );          /* flag persists, un-consumed */
+  FD_TEST( rep_cnt==0UL );
+  FD_TEST( out_queue_empty( ctx->deliver_queue ) );
+
+  /* (2) A sentinel delivery (voided by equivocation dedup) must NOT
+     consume the one-shot. */
+  out_queue_push_tail( ctx->chainer->out_queue, (out_ele_t){ .slotv_idx = UINT_MAX, .fec_idx = 0U } );
+  tick( ctx );
+  FD_TEST( rep_cnt==0UL );                       /* sentinel publishes nothing */
+  FD_TEST( ctx->deliver_from_root==1 );          /* one-shot survives the sentinel */
+  FD_TEST( out_queue_empty( ctx->chainer->out_queue ) );
+  FD_TEST( out_queue_empty( ctx->deliver_queue ) );
+
+  /* A subsequent REAL delivery then triggers the path, proving the flag
+     was still live after the sentinel.  Deliver a block off the root. */
+  blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 1U }};
+  blk->fec_root[ 0 ] = mkhash( 0xF100UL );
+  blk_build( blk );
+  deliver_turbine_block( ctx, blk );
+  FD_TEST( rep_cnt==0UL );
+
+  tick( ctx );                                   /* consumes fec 0, queues path */
+  FD_TEST( ctx->deliver_from_root==0 );          /* NOW consumed */
+  FD_TEST( !out_queue_empty( ctx->deliver_queue ) );
+
+  tick( ctx );                                   /* drains the single path FEC */
+  FD_TEST( rep_cnt==1UL );
+  rep_expect( 0UL, blk->slot, 0U, &blk->fec_root[ 0 ], &blk->block_id, 1 );
+
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+  FD_LOG_NOTICE(( "pass: test_deliver_from_root_liveness" ));
+}
+
+/* ---------------------------------------------------------------------
+   test_deliver_from_root_populates_block_id: in the deliver_from_root
+   (recovery redelivery) path, every re-published FEC must carry a
+   NON-ZERO block_id -- including mid-slot FEC sets, which the normal
+   turbine publish path leaves zero until the slot-complete FEC (see
+   test_deliver_from_root, base+0/base+2 asserted NULL there).
+
+   Replay depends on this: on recovery it dedups redelivered FECs by
+   (slot, block_id) so it can SKIP blocks it has already replayed.  A
+   zero block_id on an already-replayed ancestor FEC would defeat the
+   skip, so the redelivery must name the block explicitly. */
+
+static void
+test_deliver_from_root_populates_block_id( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  /* blk1 (2 FEC sets) <- blk2 (1 FEC set), both off the snapshot root. */
+  blk_t blk1[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk1->fec_root[ 0 ] = mkhash( 0xE100UL );
+  blk1->fec_root[ 1 ] = mkhash( 0xE101UL );
+  blk_build( blk1 );
+
+  blk_t blk2[1] = {{ .slot = SNAP_SLOT+2UL, .parent_slot = SNAP_SLOT+1UL, .parent_block_id = blk1->block_id, .fec_cnt = 1U }};
+  blk2->fec_root[ 0 ] = mkhash( 0xE200UL );
+  blk_build( blk2 );
+
+  /* Deliver blk1 normally so it is complete & buffered in the chainer. */
+  deliver_turbine_block( ctx, blk1 );
+  pump( ctx );
+  FD_TEST( rep_cnt==2UL );
+  ulong base = rep_cnt;
+
+  /* Arm the one-shot and deliver blk2, then drain the whole redelivered
+     root->blk2 path. */
+  ctx->deliver_from_root = 1;
+  deliver_turbine_block( ctx, blk2 );
+  tick( ctx );                                  /* enqueue path, publishes nothing */
+  FD_TEST( rep_cnt==base );
+  FD_TEST( ctx->deliver_from_root==0 );
+
+  while( !out_queue_empty( ctx->deliver_queue ) ) tick( ctx );
+
+  /* Path: blk1 fec 0 (mid-slot, NOT slot-complete), blk1 fec 1
+     (slot-complete), blk2 fec 0 (slot-complete). */
+  FD_TEST( rep_cnt==base+3UL );
+
+  /* THE CONTRACT: every redelivered FEC carries a non-zero block_id,
+     equal to its block's finalized block_id -- even the mid-slot FEC
+     that the normal publish path would leave zero. */
+  fd_hash_t zero = {0};
+  for( ulong i=base; i<rep_cnt; i++ ) FD_TEST( !fd_hash_eq( &rep_log[ i ].block_id, &zero ) );
+
+  FD_TEST( rep_log[ base+0UL ].slot==blk1->slot && rep_log[ base+0UL ].fec_set_idx==0U && rep_log[ base+0UL ].slot_complete==0 );
+  FD_TEST( fd_hash_eq( &rep_log[ base+0UL ].block_id, &blk1->block_id ) );  /* zero in normal publish */
+  FD_TEST( fd_hash_eq( &rep_log[ base+1UL ].block_id, &blk1->block_id ) );
+  FD_TEST( fd_hash_eq( &rep_log[ base+2UL ].block_id, &blk2->block_id ) );
+
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+  FD_LOG_NOTICE(( "pass: test_deliver_from_root_populates_block_id" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1651,10 +2177,31 @@ main( int argc, char ** argv ) {
   test_fec_rekey_merge( wksp );
 
   fd_wksp_reset( wksp, 1U );
+  test_notar_fallback_same_block( wksp );
+
+  fd_wksp_reset( wksp, 1U );
   test_block_id_repair_only( wksp );
 
   fd_wksp_reset( wksp, 1U );
   test_inflight_popped( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_deliver_from_root( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_deliver_from_root_arming( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_deliver_from_root_degenerate( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_deliver_queue_priority( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_deliver_from_root_liveness( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_deliver_from_root_populates_block_id( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

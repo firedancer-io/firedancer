@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22964136UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22964144UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -611,6 +611,9 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "repair" );
       jw_ulong( &w, "repair_client_listen_port", config->tiles.repair.repair_client_listen_port );
       jw_ulong( &w, "slot_max",                  config->tiles.repair.slot_max );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "rotor" );
+      jw_ulong( &w, "slot_max",                  config->tiles.rotor.slot_max );
     jw_obj_close( &w );
     jw_obj_open( &w, "rserve" );
       jw_bool ( &w, "enabled",                   config->tiles.rserve.enabled );

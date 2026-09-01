@@ -1685,6 +1685,18 @@ telemetry = true
         # Must be power of 2
         slot_max = 4096
 
+    # The rotor tile replaces the repair tile when alpenglow is enabled.
+    # It watches incoming shreds and sends repair requests to other
+    # validators when it notices we are missing data needed to replay
+    # the chain.
+    [tiles.rotor]
+        # Slot max is the maximum number of slots that the rotor tile
+        # can maintain at once.  This should be sized to protocol limits
+        # of how many slots we maintain in standstill before a root
+        # occurs.
+        # Must be power of 2
+        slot_max = 4096
+
     [tiles.rserve]
         # If the repair server is enabled.
         enabled = true

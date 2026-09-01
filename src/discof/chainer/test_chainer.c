@@ -93,7 +93,7 @@ feed_fec( fd_chainer_t *    chainer,
     FD_TEST( !fd_chainer_verify( chainer ) );
   }
   fd_hash_t mr_ = *mr;
-  int rc = fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, &mr_ );
+  int rc = fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, 0, &mr_ );
   FD_TEST( !fd_chainer_verify( chainer ) );
   return rc;
 }
@@ -200,7 +200,7 @@ test_basic( fd_wksp_t * wksp ) {
   /* FEC completion for set 0 */
 
   fd_hash_t mr = r0;
-  FD_TEST( !fd_chainer_fec_complete( chainer, 11UL, 0U, 0, 0, &mr ) );
+  FD_TEST( !fd_chainer_fec_complete( chainer, 11UL, 0U, 0, 0, 0, &mr ) );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   fd_chainer_fec_t * f0 = fec_at( chainer, 11UL, 0U, 0UL );
@@ -375,7 +375,10 @@ test_shared_prefix( fd_wksp_t * wksp ) {
 /* (c) A notar-fallback cert for a block that is still in flight from
    turbine.  We cannot compute the in-flight block's id yet, so we cannot
    tell the cert names the same block: a redundant slotv is created by
-   design.  The structure must stay consistent. */
+   design, and the turbine version is abandoned -- it may be the same
+   block the cert version is repairing, and delivering both would hand
+   replay two banks for the same {slot, block_id}.  The structure must
+   stay consistent. */
 
 static void
 test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
@@ -414,10 +417,13 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v1 )==0UL );
   FD_TEST( !fec_at( chainer, 31UL, 0U, 1UL ) );
 
-  /* version 0 is untouched */
+  /* version 0 keeps its data but is abandoned: off the worklists, and
+     it will never deliver or finalize a block_id */
 
   FD_TEST( v0->buffered_idx==31U && v0->buffered_fec_idx==31U );
   FD_TEST( fec_at( chainer, 31UL, 0U, 0UL ) );
+  FD_TEST( v0->abandoned );
+  FD_TEST( !fd_chainer_in_repair( chainer, v0 ) && !fd_chainer_in_orphan( chainer, v0 ) );
 
   /* a repeat of the same cert is a no-op -- no third version */
 
@@ -494,8 +500,17 @@ test_sentinel_before_turbine( fd_wksp_t * wksp ) {
   for( uint i=32U; i<64U; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v0, i  ) );
   FD_TEST( v0->complete_idx    ==63U );
   FD_TEST( v0->buffered_idx    ==63U );
-  FD_TEST( v0->buffered_fec_idx==63U );
-  FD_TEST( !fd_hash_check_zero( &v0->block_id ) ); /* turbine block is whole */
+
+  /* The cert abandoned version 0, so even though the turbine block is
+     whole its FEC prefix is not extended, its block_id never finalizes,
+     and its slot-complete FEC is not delivered.  Only set 0 -- queued
+     before the cert arrived -- ever reached replay. */
+
+  FD_TEST( v0->abandoned );
+  FD_TEST( v0->buffered_fec_idx==31U );
+  FD_TEST( fd_hash_check_zero( &v0->block_id ) );
+  out_rec_t exp[] = { { 41UL, 0U, r0 } };
+  expect_out( chainer, exp, 1UL );
 
   FD_TEST( !fd_chainer_verify( chainer ) );
   teardown( chainer );
@@ -536,7 +551,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
     FD_TEST( !fd_chainer_verify( chainer ) );
   }
   fd_hash_t mr = r1;
-  int rc = fd_chainer_fec_complete( chainer, 51UL, 32U, 1, 1, &mr );
+  int rc = fd_chainer_fec_complete( chainer, 51UL, 32U, 1, 1, 0, &mr );
 
   /* The honest block's shreds are still accepted.  The old guard dropped
      any shred whose root no version held as soon as a second version
@@ -547,8 +562,18 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   for( uint i=32U; i<64U; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v0, i  ) );
   FD_TEST( v0->complete_idx    ==63U );
   FD_TEST( v0->buffered_idx    ==63U );
-  FD_TEST( v0->buffered_fec_idx==63U );
-  FD_TEST( !fd_hash_check_zero( &v0->block_id ) ); /* turbine block is whole */
+
+  /* But the cert abandoned version 0: the FEC prefix is not extended,
+     the block_id never finalizes, and the whole block -- possibly the
+     very one the cert version is repairing -- is not delivered under
+     the turbine version.  Only set 0, queued before the cert arrived,
+     ever reached replay. */
+
+  FD_TEST( v0->abandoned );
+  FD_TEST( v0->buffered_fec_idx==31U );
+  FD_TEST( fd_hash_check_zero( &v0->block_id ) );
+  out_rec_t exp[] = { { 51UL, 0U, r0 } };
+  expect_out( chainer, exp, 1UL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   teardown( chainer );
@@ -595,7 +620,7 @@ test_publish( fd_wksp_t * wksp ) {
   out_ele_t * out_queue = chainer->out_queue;
   while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
 
-  fd_chainer_publish( chainer, 62UL, NULL );
+  fd_chainer_publish( chainer, 62UL, NULL, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( chainer->root==62UL );
@@ -660,7 +685,7 @@ test_publish_large_block( fd_wksp_t * wksp ) {
   /* drain the out queue */
   out_ele_t * out_queue = chainer->out_queue;
   while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
-  fd_chainer_publish( chainer, 72UL, NULL );
+  fd_chainer_publish( chainer, 72UL, NULL, NULL );
 
   FD_TEST( chainer->root==72UL );
   FD_TEST( !slotv_at( chainer, 70UL, 0UL ) );
@@ -719,7 +744,7 @@ test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
 
   out_ele_t * out_queue = chainer->out_queue;
   while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
-  fd_chainer_publish( chainer, 61UL, &bidX );
+  fd_chainer_publish( chainer, 61UL, &bidX, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) ); /* a root without a version 0 is legal */
 
   FD_TEST( chainer->root==61UL );
@@ -740,7 +765,7 @@ test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
   FD_TEST( slotv_at( chainer, 62UL, 0UL )->connected );
 
   while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
-  fd_chainer_publish( chainer, 62UL, NULL );
+  fd_chainer_publish( chainer, 62UL, NULL, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( chainer->root==62UL );
