@@ -244,6 +244,10 @@ fd_main_init( int *                      pargc,
      log file is setup, so the logging of this info must be done separately. */
   if( !boot_silent ) FD_LOG_INFO(( "%s", config->auto_config_log ));
 
+#if !FD_HAS_SSE
+  if( !boot_silent ) FD_LOG_WARNING(( "this CPU architecture is unsupported, expect bugs" ));
+#endif
+
   return config_fd<0;
 }
 

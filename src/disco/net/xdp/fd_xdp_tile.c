@@ -504,8 +504,9 @@ static void
 net_rx_wakeup( fd_net_ctx_t * ctx,
                fd_xsk_t *     xsk,
                int *          charge_busy ) {
-  FD_VOLATILE( *xsk->ring_rx.cons ) = xsk->ring_rx.cached_cons; /* write-back local copies to fseqs */
-  FD_VOLATILE( *xsk->ring_fr.prod ) = xsk->ring_fr.cached_prod;
+  /* write-back local copies to fseqs */
+  __atomic_store_n( xsk->ring_rx.cons, xsk->ring_rx.cached_cons, __ATOMIC_RELEASE );
+  __atomic_store_n( xsk->ring_fr.prod, xsk->ring_fr.cached_prod, __ATOMIC_RELEASE );
   if( !fd_xsk_rx_need_wakeup( xsk ) ) return;
   *charge_busy = 1;
   struct msghdr _ignored[ 1 ] = { 0 };
@@ -532,8 +533,9 @@ static void
 net_tx_wakeup( fd_net_ctx_t * ctx,
                fd_xsk_t *     xsk,
                int *          charge_busy ) {
-  FD_VOLATILE( *xsk->ring_tx.prod ) = xsk->ring_tx.cached_prod; /* write-back local copies to fseqs */
-  FD_VOLATILE( *xsk->ring_cr.cons ) = xsk->ring_cr.cached_cons;
+  /* write-back local copies to fseqs */
+  __atomic_store_n( xsk->ring_tx.prod, xsk->ring_tx.cached_prod, __ATOMIC_RELEASE );
+  __atomic_store_n( xsk->ring_cr.cons, xsk->ring_cr.cached_cons, __ATOMIC_RELEASE );
   if( !fd_xsk_tx_need_wakeup( xsk ) ) return;
   *charge_busy = 1;
   if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
@@ -583,16 +585,16 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
     fd_xsk_t * xsk = &ctx->xsk[ j ];
     FD_COMPILER_MFENCE();
     /* Write back local copies to fseqs that we own */
-    FD_VOLATILE( *xsk->ring_fr.prod ) = xsk->ring_fr.cached_prod;
-    FD_VOLATILE( *xsk->ring_rx.cons ) = xsk->ring_rx.cached_cons;
-    FD_VOLATILE( *xsk->ring_tx.prod ) = xsk->ring_tx.cached_prod;
-    FD_VOLATILE( *xsk->ring_cr.cons ) = xsk->ring_cr.cached_cons;
+    __atomic_store_n( xsk->ring_fr.prod, xsk->ring_fr.cached_prod, __ATOMIC_RELEASE );
+    __atomic_store_n( xsk->ring_rx.cons, xsk->ring_rx.cached_cons, __ATOMIC_RELEASE );
+    __atomic_store_n( xsk->ring_tx.prod, xsk->ring_tx.cached_prod, __ATOMIC_RELEASE );
+    __atomic_store_n( xsk->ring_cr.cons, xsk->ring_cr.cached_cons, __ATOMIC_RELEASE );
 
     /* Refresh kernel-owned seq numbers for accurate stats */
-    xsk->ring_fr.cached_cons = FD_VOLATILE_CONST( *xsk->ring_fr.cons );
-    xsk->ring_rx.cached_prod = FD_VOLATILE_CONST( *xsk->ring_rx.prod );
-    xsk->ring_tx.cached_cons = FD_VOLATILE_CONST( *xsk->ring_tx.cons );
-    xsk->ring_cr.cached_prod = FD_VOLATILE_CONST( *xsk->ring_cr.prod );
+    xsk->ring_fr.cached_cons = __atomic_load_n( xsk->ring_fr.cons, __ATOMIC_ACQUIRE );
+    xsk->ring_rx.cached_prod = __atomic_load_n( xsk->ring_rx.prod, __ATOMIC_ACQUIRE );
+    xsk->ring_tx.cached_cons = __atomic_load_n( xsk->ring_tx.cons, __ATOMIC_ACQUIRE );
+    xsk->ring_cr.cached_prod = __atomic_load_n( xsk->ring_cr.prod, __ATOMIC_ACQUIRE );
 
     FD_COMPILER_MFENCE();
     ctx->metrics.rx_busy_cnt += (long)(int)( xsk->ring_rx.cached_prod - xsk->ring_rx.cached_cons );
@@ -1165,6 +1167,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ulong tspub            = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
 # if FD_HAS_AVX
   fd_mcache_publish_avx( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, 0, tspub );
+# elif FD_HAS_ARM
+  fd_mcache_publish_arm( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, 0, tspub );
 # else
   fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, 0, tspub );
 # endif
@@ -1316,10 +1320,11 @@ before_credit_prefbusy( fd_net_ctx_t *      ctx,
     /* NAPI needs to be polled to process new TX from
        Firedancer's net tile and process new RX from the NIC. */
 
-    FD_VOLATILE( *rr_xsk->ring_tx.prod ) = rr_xsk->ring_tx.cached_prod; /* write-back local copies to fseqs */
-    FD_VOLATILE( *rr_xsk->ring_cr.cons ) = rr_xsk->ring_cr.cached_cons;
-    FD_VOLATILE( *rr_xsk->ring_rx.cons ) = rr_xsk->ring_rx.cached_cons;
-    FD_VOLATILE( *rr_xsk->ring_fr.prod ) = rr_xsk->ring_fr.cached_prod;
+    /* write-back local copies to fseqs */
+    __atomic_store_n( rr_xsk->ring_tx.prod, rr_xsk->ring_tx.cached_prod, __ATOMIC_RELEASE );
+    __atomic_store_n( rr_xsk->ring_cr.cons, rr_xsk->ring_cr.cached_cons, __ATOMIC_RELEASE );
+    __atomic_store_n( rr_xsk->ring_rx.cons, rr_xsk->ring_rx.cached_cons, __ATOMIC_RELEASE );
+    __atomic_store_n( rr_xsk->ring_fr.prod, rr_xsk->ring_fr.cached_prod, __ATOMIC_RELEASE );
 
     if( FD_UNLIKELY( -1==sendto( rr_xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
       if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
@@ -1407,7 +1412,8 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
     fill->frame_ring[ j ] = frame_off;
     frame_off += frame_sz;
   }
-  FD_VOLATILE( *fill->prod ) = fill->cached_prod = fill_prod + (uint)fr_depth;
+  fill->cached_prod = fill_prod + (uint)fr_depth;
+  __atomic_store_n( fill->prod, fill->cached_prod, __ATOMIC_RELEASE );
 
   return frame_off;
 }

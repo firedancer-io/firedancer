@@ -166,12 +166,12 @@ fd_xdp_ring_empty( fd_xdp_ring_t * ring, uint role ) {
     /* If potentially stale cached_cons says everything consumed,
        it's definitely empty. Else, refresh cached seq. */
     if( FD_UNLIKELY( ring->cached_prod == ring->cached_cons ) ) return 1;
-    ring->cached_cons = FD_VOLATILE_CONST( *ring->cons );
+    ring->cached_cons = __atomic_load_n( ring->cons, __ATOMIC_ACQUIRE );
   } else {
     /* If potentially stale cached_prod says we have more to read,
        it's definitely non-empty. Else, refresh cached seq. */
     if( FD_LIKELY( ring->cached_cons < ring->cached_prod ) ) return 0;
-    ring->cached_prod = FD_VOLATILE_CONST( *ring->prod );
+    ring->cached_prod = __atomic_load_n( ring->prod, __ATOMIC_ACQUIRE );
   }
   return ring->cached_prod == ring->cached_cons;
 }
@@ -183,7 +183,7 @@ fd_xdp_ring_full( fd_xdp_ring_t * ring ) {
   /* If potentially stale cached_cons says we have more space,
       it's definitely not full. Else, refresh cached seq. */
   if( FD_LIKELY( ring->cached_prod - ring->cached_cons < ring->depth ) ) return 0;
-  ring->cached_cons = FD_VOLATILE_CONST( *ring->cons );
+  ring->cached_cons = __atomic_load_n( ring->cons, __ATOMIC_ACQUIRE );
   return ring->cached_prod - ring->cached_cons >= ring->depth;
 }
 

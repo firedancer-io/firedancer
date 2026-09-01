@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <sys/resource.h>
 #include <linux/capability.h>
+#include <stdlib.h>
 
 void
 monitor_gossip_cmd_args( int *    pargc,

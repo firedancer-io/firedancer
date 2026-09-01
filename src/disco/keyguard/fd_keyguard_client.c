@@ -3,6 +3,19 @@
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
 
+static inline void
+fd_keyguard_client_publish( fd_keyguard_client_t * client,
+                            ulong                  sig,
+                            ulong                  sign_data_len ) {
+#if FD_HAS_AVX
+  fd_mcache_publish_avx( client->request, client->request_depth, client->request_seq, sig, client->request_chunk, sign_data_len, 0UL, 0UL, 0UL );
+#elif FD_HAS_ARM
+  fd_mcache_publish_arm( client->request, client->request_depth, client->request_seq, sig, client->request_chunk, sign_data_len, 0UL, 0UL, 0UL );
+#else
+  fd_mcache_publish( client->request, client->request_depth, client->request_seq, sig, client->request_chunk, sign_data_len, 0UL, 0UL, 0UL );
+#endif
+}
+
 void *
 fd_keyguard_client_new( void *           shmem,
                         fd_frag_meta_t * request_mcache,
@@ -43,7 +56,7 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
   fd_memcpy( dst, sign_data, sign_data_len );
 
   ulong sig = (ulong)(uint)sign_type;
-  fd_mcache_publish( client->request, client->request_depth, client->request_seq, sig, client->request_chunk, sign_data_len, 0UL, 0UL, 0UL );
+  fd_keyguard_client_publish( client, sig, sign_data_len );
   client->request_seq   = fd_seq_inc( client->request_seq, 1UL );
   client->request_chunk = fd_dcache_compact_next( client->request_chunk, sign_data_len, client->request_chunk0, client->request_wmark );
 
@@ -55,6 +68,7 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
   FD_MCACHE_WAIT( &meta, mline, seq_found, seq_diff, poll_max, client->response, client->response_depth, client->response_seq );
   if( FD_UNLIKELY( !poll_max ) ) FD_LOG_ERR(( "sign request timed out while polling" ));
   if( FD_UNLIKELY( seq_diff ) ) FD_LOG_ERR(( "sign request was overrun while polling" ));
+  FD_HW_MFENCE_LD();
 
   /* Chunk is in shared memory and might be be written to by an
      attacking tile after we validate it, so load once. */
@@ -64,6 +78,7 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
   uchar * src = fd_chunk_to_laddr( client->response_mem, chunk );
   fd_memcpy( signature, src, 64UL );
 
+  FD_HW_MFENCE_LD();
   seq_found = fd_frag_meta_seq_query( mline );
   if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));
   client->response_seq = fd_seq_inc( client->response_seq, 1UL );
@@ -93,7 +108,7 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
   if( authority_idx!=ULONG_MAX ) sig |= (1UL << 32) | (authority_idx << 33);
   memcpy( dst, sign_data, sign_data_len );
 
-  fd_mcache_publish( client->request, client->request_depth, client->request_seq, sig, client->request_chunk, sign_data_len, 0UL, 0UL, 0UL );
+  fd_keyguard_client_publish( client, sig, sign_data_len );
   client->request_seq   = fd_seq_inc( client->request_seq, 1UL );
   client->request_chunk = fd_dcache_compact_next( client->request_chunk, sign_data_len, client->request_chunk0, client->request_wmark );
 
@@ -105,6 +120,7 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
   FD_MCACHE_WAIT( &meta, mline, seq_found, seq_diff, poll_max, client->response, client->response_depth, client->response_seq );
   if( FD_UNLIKELY( !poll_max ) ) FD_LOG_ERR(( "sign request timed out while polling" ));
   if( FD_UNLIKELY( seq_diff ) ) FD_LOG_ERR(( "sign request was overrun while polling" ));
+  FD_HW_MFENCE_LD();
 
   /* Chunk is in shared memory and might be be written to by an
       attacking tile after we validate it, so load once. */
@@ -115,6 +131,7 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
   memcpy( signatures, src, 64UL );
   if( authority_idx!=ULONG_MAX ) memcpy( signatures+64UL, src+64UL, 64UL );
 
+  FD_HW_MFENCE_LD();
   seq_found = fd_frag_meta_seq_query( mline );
   if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));
   client->response_seq = fd_seq_inc( client->response_seq, 1UL );

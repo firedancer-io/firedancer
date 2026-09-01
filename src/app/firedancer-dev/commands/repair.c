@@ -33,6 +33,7 @@
 #include <unistd.h> /* pause */
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <termios.h>
 #include <errno.h>
 

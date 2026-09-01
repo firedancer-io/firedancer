@@ -50,3 +50,7 @@ endif
 ifdef FD_IS_X86_64
 include config/extra/with-x86-64.mk
 endif
+
+ifdef FD_IS_ARM
+include config/extra/with-arm.mk
+endif

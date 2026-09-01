@@ -632,9 +632,7 @@ STEM_(run1)( ulong                        in_cnt,
     ulong sig       = fd_frag_meta_sse0_sig( seq_sig );
 #elif FD_HAS_ARM
     ulong seq_found = __atomic_load_n( &this_in_mline->seq, __ATOMIC_ACQUIRE );
-    ulong sig       = FD_VOLATILE_CONST( this_in_mline->sig );
-    ulong ul2, ul3;
-    fd_arm_ldp16( this_in_mline->ul+2, ul2, ul3 );
+    ulong sig;
 #else
     /* Without 128-bit atomic load, seq and sig might be read from
        different frags (due to overrun), which results in a before_frag
@@ -643,8 +641,6 @@ STEM_(run1)( ulong                        in_cnt,
     ulong seq_found = FD_VOLATILE_CONST( this_in_mline->seq );
     ulong sig       = FD_VOLATILE_CONST( this_in_mline->sig );
 #endif
-    (void)sig;
-
     long diff = fd_seq_diff( this_in_seq, seq_found );
     if( FD_UNLIKELY( diff ) ) { /* Caught up or overrun, optimize for new frag case */
       ulong * housekeeping_regime = &metric_regime_ticks[0];
@@ -671,6 +667,21 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
       continue;
     }
+
+#if FD_HAS_ARM
+    /* arm requires a double take to avoid 'dmb ishld' on every frag */
+    sig = __atomic_load_n( &this_in_mline->sig, __ATOMIC_ACQUIRE );
+    ulong seq_confirm = __atomic_load_n( &this_in_mline->seq, __ATOMIC_ACQUIRE );
+    if( FD_UNLIKELY( fd_seq_ne( seq_confirm, seq_found ) ) ) {
+      metric_regime_ticks[1] += housekeeping_ticks;
+      metric_regime_ticks[4] += prefrag_ticks;
+      long next = fd_tickcount();
+      metric_regime_ticks[7] += (ulong)(next - now);
+      now = next;
+      continue;
+    }
+#endif
+    (void)sig;
 
 #ifdef STEM_CALLBACK_BEFORE_FRAG
     int filter = STEM_CALLBACK_BEFORE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig );
@@ -711,6 +722,8 @@ STEM_(run1)( ulong                        in_cnt,
     ulong tsorig   = fd_frag_meta_avx_tsorig( yline ); (void)tsorig;
     ulong tspub    = fd_frag_meta_avx_tspub ( yline ); (void)tspub;
 #elif FD_HAS_ARM
+    ulong ul2, ul3;
+    fd_arm_ldp16( this_in_mline->ul+2, ul2, ul3 );
     ulong chunk    = fd_frag_meta_ul2_chunk ( ul2 ); (void)chunk;
     ulong sz       = fd_frag_meta_ul2_sz    ( ul2 ); (void)sz;
     ulong ctl      = fd_frag_meta_ul2_ctl   ( ul2 ); (void)ctl;
