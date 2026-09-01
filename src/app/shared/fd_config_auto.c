@@ -24,8 +24,9 @@ struct fd_auto_info {
 
   /* Networking */
   char driver[ NAME_SZ ];
-  int  is_virtual_if;
-  int  is_bonded_if;
+  uint is_virtual_if:1;
+  uint is_bonded_if:1;
+  uint is_lacp_if:1;
   uint bonded_if_slave_count;
   int  is_using_gre;
   int  has_mlx5_rdma_port;
@@ -172,6 +173,7 @@ static int
 xdp_native_bond_check( fd_config_t    const * config,
                        fd_auto_info_t const * info ) {
   if( !info->is_bonded_if ) return 0;
+  if( !info->is_lacp_if ) return 0;
 
   if( 0==info->bonded_if_slave_count || info->bonded_if_slave_count>FD_NET_BOND_SLAVE_MAX ) return 0;
 
@@ -432,8 +434,11 @@ scrape_networking( fd_auto_info_t * info,
   info->is_virtual_if = ( -1==access( path, F_OK ) );
 
   /* Check for bond */
-  info->is_bonded_if = fd_bonding_is_master( if_name );
-  if( info->is_bonded_if ) info->bonded_if_slave_count = (uint)fd_bonding_slave_cnt( if_name );
+  info->is_bonded_if = !!fd_bonding_is_master( if_name );
+  if( info->is_bonded_if ) {
+    info->bonded_if_slave_count = (uint)fd_bonding_slave_cnt( if_name );
+    info->is_lacp_if            = !!fd_bonding_is_lacp( if_name );
+  }
 
   /* Get driver name.  A bond master reports "n/a" so no driver specific
      config is applied. If all slaves share a driver name then reports
@@ -533,7 +538,7 @@ fd_config_auto( fd_config_t * config ) {
   fd_auto_net( config, &info );
 
   fd_cstr_printf( config->auto_config_log, sizeof(config->auto_config_log), NULL,
-      "network auto configure system info: provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d listen_gre=%d rss_queue_mode=%s (driver=%s kernel=%lu.%lu gre=%d virtual_if=%d bonded_if=%d slaves=%u, net_tile_cnt=%u)",
+      "network auto configure system info: provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d listen_gre=%d rss_queue_mode=%s (driver=%s kernel=%lu.%lu gre=%d virtual_if=%d bonded_if=%d lacp_if=%d slaves=%u, net_tile_cnt=%u)",
       config->net.provider,
       config->net.xdp.xdp_mode,
       config->net.xdp.poll_mode,
@@ -546,6 +551,7 @@ fd_config_auto( fd_config_t * config ) {
       info.is_using_gre,
       info.is_virtual_if,
       info.is_bonded_if,
+      info.is_lacp_if,
       info.bonded_if_slave_count,
       config->layout.net_tile_count );
 }
