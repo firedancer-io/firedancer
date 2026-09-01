@@ -308,6 +308,12 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
     return ULONG_MAX;
   }
 
+  if( FD_UNLIKELY( pidx_map_key_inval( *old_tip_payment_config->tip_receiver ) ||
+                   pidx_map_key_inval( *old_tip_payment_config->block_builder ) ) ) {
+    FD_LOG_WARNING(( "Found null pubkey in tip payment config account.  Refusing to crank bundles." ));
+    return ULONG_MAX;
+  }
+
   int swap3 = !fd_memeq( tip_receiver_owner, gen->crank3->tip_distribution_program, sizeof(fd_acct_addr_t) );
 
   if( FD_LIKELY( fd_memeq( old_tip_payment_config->tip_receiver,  gen->crank3->new_tip_receiver, 32UL ) &&
