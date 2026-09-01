@@ -62,6 +62,18 @@ main( int     argc,
   result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
   FD_TEST( result_sz );
 
+  /* Reject account tables that overflow arithmetic or scratch memory. */
+
+  fd_log_level_logfile_set( fd_int_max( log_level, 4 ) );
+  options->fund_initial_accounts = 64UL;
+  FD_TEST( !fd_genesis_create( result_mem, sizeof(result_mem), options ) );
+  options->fund_initial_accounts = ULONG_MAX/2UL;
+  FD_TEST( !fd_genesis_create( result_mem, sizeof(result_mem), options ) );
+  options->fund_initial_accounts = ULONG_MAX;
+  FD_TEST( !fd_genesis_create( result_mem, sizeof(result_mem), options ) );
+  options->fund_initial_accounts = 16UL;
+  fd_log_level_logfile_set( log_level );
+
   /* Round-trip: parse the blob back and verify the resulting genesis
      config matches the options we used to create it. */
 
