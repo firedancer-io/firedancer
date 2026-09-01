@@ -92,6 +92,14 @@ fd_bls12_381_g2_decompress_syscall( uchar       r[ 96*2 ], /* G2 point */
                                     uchar const a[ 48*2 ], /* Compressed G2 point */
                                     int         big_endian );
 
+/* fd_bls12_381_g2_compress compresses a G2 point `a` into `r`.
+   This functions performs a subgroup and curve membership check,
+   but allows identity points. */
+int
+fd_bls12_381_g2_compress( uchar       r[ 48*2 ], /* Compressed G2 point */
+                          uchar const a[ 96*2 ], /* G2 point */
+                          int         big_endian );
+
 /* fd_bls12_381_g2_validate_syscall validates the G2 point `a`.
    Input is expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
