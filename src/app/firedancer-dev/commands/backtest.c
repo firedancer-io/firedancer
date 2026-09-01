@@ -31,6 +31,7 @@
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../discof/tower/fd_tower_tile.h"
+#include "../../../discof/votor/fd_votor_tile.h"
 #include "../../../discof/replay/fd_execrp.h"
 #include "../../../disco/shred/fd_shred_tile.h"
 #include "../../../discof/repair/fd_repair_tile.h"
@@ -268,6 +269,13 @@ backtest_topo( config_t * config ) {
   fd_topob_link( topo, "tower_out", "tower_out", 1024UL, sizeof(fd_tower_slot_done_t), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "tower_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "backt", 0UL, "tower_out", 0UL );
+
+  if( FD_UNLIKELY( config->firedancer.development.alpenglow ) ) {
+    fd_topob_wksp( topo, "votor_out" );
+    fd_topob_link( topo, "votor_out", "votor_out", 1024UL, sizeof(fd_votor_msg_t), 2UL );
+    fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "votor_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_out( topo, "backt", 0UL, "votor_out", 0UL );
+  }
 
   /**********************************************************************/
   /* Setup replay->stake/send/poh links in topo w/o consumers         */

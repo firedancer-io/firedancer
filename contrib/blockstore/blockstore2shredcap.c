@@ -814,13 +814,81 @@ rocksdb_src_slot_info( struct rocksdb_src * src,
 static void
 maybe_write_bank_hash( struct pcap_writer * pcap,
                        struct rocksdb_src * src,
-                       uint64_t               slot,
-                       uint64_t               shred_cnt ) {
+                       uint64_t             slot,
+                       uint64_t             shred_cnt,
+                       uint8_t const *      footer_bank_hash ) {
   struct slot_info info;
   rocksdb_src_slot_info( src, &info, slot );
-  if( !info.bank_hash_set ) return;
-  write_bank_hash( pcap, slot, shred_cnt, info.bank_hash );
+  /* Tower ledgers contain the bank hash in the rocksdb column */
+  if     ( info.bank_hash_set  ) write_bank_hash( pcap, slot, shred_cnt, info.bank_hash );
+  /* Alpenglow ledgers have the bank hash in the block footers */
+  else if( footer_bank_hash    ) write_bank_hash( pcap, slot, shred_cnt, footer_bank_hash );
   if( info.rooted ) write_rooted_slot( pcap, slot );
+}
+
+/* In Alpenglow, the bank hashes are stored in the block footers. We
+   therefore extract the bank hashes from the shreds to store in the
+   shredcap metadata. See fd_block_marker.h. */
+
+#define SHRED_DATA_FLAG_DATA_COMPLETE ((uint8_t)0x40)
+#define FOOTER_BATCH_MAX              (8192UL)
+#define BLOCK_MARKER_PREAMBLE_SZ      (13UL)
+#define BLOCK_MARKER_VARIANT_FOOTER   (0)
+
+struct footer_scan {
+  uint8_t  batch[FOOTER_BATCH_MAX];
+  uint64_t batch_sz;
+  int      batch_invalid;
+  uint32_t next_idx;
+  uint8_t  hash_buf[32];
+  uint8_t const * footer_bank_hash;
+};
+
+static void
+footer_scan_reset( struct footer_scan * fs ) {
+  fs->batch_sz         = 0UL;
+  fs->batch_invalid    = 0;
+  fs->next_idx         = 0U;
+  fs->footer_bank_hash = NULL;
+}
+
+static void
+footer_scan_shred( struct footer_scan * fs,
+                   struct shred const * shred,
+                   uint8_t const *      raw,
+                   uint64_t             raw_sz ) {
+  if( shred_type( shred->variant ) & SHRED_TYPEMASK_CODE ) return;
+
+  /* Skip invalid batches */
+  if( shred->idx!=fs->next_idx                                            ) fs->batch_invalid = 1;
+  if( shred->data.size<SHRED_DATA_HEADER_SZ || shred->data.size>raw_sz    ) fs->batch_invalid = 1;
+  fs->next_idx = shred->idx+1U;
+
+  if( !fs->batch_invalid ) {
+    uint64_t payload_sz = shred->data.size-SHRED_DATA_HEADER_SZ;
+    if( fs->batch_sz+payload_sz>FOOTER_BATCH_MAX ) {
+      fs->batch_invalid = 1;
+    } else {
+      memcpy( fs->batch+fs->batch_sz, raw+SHRED_DATA_HEADER_SZ, payload_sz );
+      fs->batch_sz += payload_sz;
+      if( fs->batch_sz>=8UL && load_uint64( fs->batch )!=0UL ) fs->batch_invalid = 1;
+    }
+  }
+
+  /* If we are at the end of the batch, and it was a footer marker,
+     extract the bank hash from the footer. */
+  if( shred->data.flags & SHRED_DATA_FLAG_DATA_COMPLETE ) {
+    if( !fs->batch_invalid &&
+        fs->batch_sz>=BLOCK_MARKER_PREAMBLE_SZ+1UL+32UL &&
+        fs->batch[8]==1 && fs->batch[9]==0 &&
+        fs->batch[10]==BLOCK_MARKER_VARIANT_FOOTER &&
+        fs->batch[13]==1 ) {
+      memcpy( fs->hash_buf, fs->batch+BLOCK_MARKER_PREAMBLE_SZ+1UL, 32UL );
+      fs->footer_bank_hash = fs->hash_buf;
+    }
+    fs->batch_sz      = 0UL;
+    fs->batch_invalid = 0;
+  }
 }
 
 static int
@@ -931,6 +999,10 @@ main( int     argc,
   uint64_t buf_cnt  = 0UL;
   uint8_t raw[SHRED_MAX_SZ];
 
+  struct footer_scan   fs_[1];
+  struct footer_scan * fs = fs_;
+  footer_scan_reset( fs );
+
   for(;;) {
     uint64_t sz = rocksdb_src_shred( src, raw, sizeof(raw) );
     if( sz==UINT64_MAX ) break;
@@ -945,22 +1017,24 @@ main( int     argc,
     uint64_t slot = shred->slot;
     if( slot!=cur_slot ) {
       if( cur_slot!=UINT64_MAX && cur_slot>=start_slot && cur_slot<=end_slot && buf_cnt>0UL ) {
-        maybe_write_bank_hash( &writer, src, cur_slot, buf_cnt );
+        maybe_write_bank_hash( &writer, src, cur_slot, buf_cnt, fs->footer_bank_hash );
         slot_cnt++;
       }
       cur_slot = slot;
       buf_cnt = 0UL;
+      footer_scan_reset( fs );
     }
 
     if( slot>end_slot ) break;
     if( slot<start_slot ) continue;
 
+    footer_scan_shred( fs, shred, raw, sz );
     write_shred( &writer, raw, shred_sz( shred ) );
     buf_cnt++;
   }
 
   if( cur_slot!=UINT64_MAX && cur_slot>=start_slot && cur_slot<=end_slot && buf_cnt>0UL ) {
-    maybe_write_bank_hash( &writer, src, cur_slot, buf_cnt );
+    maybe_write_bank_hash( &writer, src, cur_slot, buf_cnt, fs->footer_bank_hash );
     slot_cnt++;
   }
 
