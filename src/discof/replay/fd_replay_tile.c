@@ -2374,7 +2374,6 @@ can_process_fec( fd_replay_tile_t * ctx,
      - banks has capacity.  Evict if we don't (see below) */
 
   if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
-    FD_TEST( !fd_sched_is_drained( ctx->sched ) );
     ctx->metrics.sched_full++;
     return 0;
   }
