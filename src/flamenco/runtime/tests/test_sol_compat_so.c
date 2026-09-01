@@ -68,7 +68,7 @@ main( int     argc,
   __typeof__(&sol_compat_init) init_fn = dlsym( so, "sol_compat_init" );
   if( FD_UNLIKELY( !init_fn ) ) FD_LOG_ERR(( "dlsym failed: %s", dlerror() ));
   __typeof__(&sol_compat_fini) fini_fn = dlsym( so, "sol_compat_fini" );
-  if( FD_UNLIKELY( !init_fn ) ) FD_LOG_ERR(( "dlsym failed: %s", dlerror() ));
+  if( FD_UNLIKELY( !fini_fn ) ) FD_LOG_ERR(( "dlsym failed: %s", dlerror() ));
 
   char const * fn_name = NULL;
   if(      0==strcmp( type, "instr"       ) ) fn_name = "sol_compat_instr_execute_v1";
