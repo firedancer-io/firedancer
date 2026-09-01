@@ -357,8 +357,10 @@ genesis_create( void *                       buf,
   /* Read enabled features */
 
   ulong         feature_cnt = 0UL;
+  ulong const   features_sz = FD_FEATURE_ID_CNT * sizeof(fd_pubkey_t);
+  REQUIRE( fd_scratch_alloc_is_safe( alignof(fd_pubkey_t), features_sz ) );
   fd_pubkey_t * features =
-      fd_scratch_alloc( alignof(fd_pubkey_t), FD_FEATURE_ID_CNT * sizeof(fd_pubkey_t) );
+      fd_scratch_alloc( alignof(fd_pubkey_t), features_sz );
 
   if( options->features ) {
     for( fd_feature_id_t const * id = fd_feature_iter_init();
@@ -373,12 +375,18 @@ genesis_create( void *                       buf,
 
   ulong default_funded_cnt = options->fund_initial_accounts;
 
-  ulong default_funded_idx = genesis->accounts_len;      genesis->accounts_len += default_funded_cnt;
-  ulong feature_gate_idx   = genesis->accounts_len;      genesis->accounts_len += feature_cnt;
+  ulong default_funded_idx = genesis->accounts_len;
+  REQUIRE( !__builtin_add_overflow( genesis->accounts_len, default_funded_cnt, &genesis->accounts_len ) );
+  ulong feature_gate_idx = genesis->accounts_len;
+  REQUIRE( !__builtin_add_overflow( genesis->accounts_len, feature_cnt, &genesis->accounts_len ) );
+
+  ulong accounts_sz;
+  REQUIRE( !__builtin_mul_overflow( genesis->accounts_len, sizeof(fd_genesis_account_pair_t), &accounts_sz ) );
+  REQUIRE( fd_scratch_alloc_is_safe( alignof(fd_genesis_account_pair_t), accounts_sz ) );
 
   genesis->accounts = fd_scratch_alloc( alignof(fd_genesis_account_pair_t),
-                                        genesis->accounts_len * sizeof(fd_genesis_account_pair_t) );
-  fd_memset( genesis->accounts, 0,      genesis->accounts_len * sizeof(fd_genesis_account_pair_t) );
+                                        accounts_sz );
+  fd_memset( genesis->accounts, 0,      accounts_sz );
 
   genesis->accounts[ faucet_account_index ] = faucet_account;
   genesis->accounts[ identity_account_index ] = identity_account;
