@@ -40,7 +40,7 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
 
   int err = fd_executor_compute_budget_program_execute_instructions( runner->bank, &txn_in, txn_out );
   if( FD_LIKELY( !err ) ) err = fd_sanitize_compute_unit_limits( txn_out );
-  if( FD_UNLIKELY( err ) ) return 0UL;
+  if( FD_UNLIKELY( err && input->mode==FD_EXEC_TEST_TXN_COST_MODE_ACTUAL ) ) return 0UL;
 
   if( input->mode==FD_EXEC_TEST_TXN_COST_MODE_ACTUAL ) {
     ulong actual_cost = (ulong)input->actual_programs_execution_cost;
@@ -48,12 +48,18 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
     txn_out->details.compute_budget.compute_meter = fd_ulong_sat_sub( limit, fd_ulong_min( actual_cost, limit ) );
     txn_out->details.loaded_accounts_data_size = (ulong)input->actual_loaded_accounts_data_size_bytes;
   } else {
-    /* In ESTIMATE mode, programs_execution_cost = compute_unit_limit (see
-       agave cost_model.rs:get_estimated_execution_cost). fd_cost_tracker
-       computes programs_execution_cost as (limit - compute_meter), so zero
-       the meter here to yield the full limit. */
+    /* In ESTIMATE mode, a compute-budget processing failure still produces a
+       cost with zero execution and loaded-accounts-data costs.  Otherwise,
+       programs_execution_cost = compute_unit_limit (see agave
+       cost_model.rs:get_estimated_execution_cost). fd_cost_tracker computes
+       programs_execution_cost as (limit - compute_meter). */
+    if( FD_UNLIKELY( err ) ) {
+      txn_out->details.compute_budget.compute_unit_limit = 0UL;
+      txn_out->details.loaded_accounts_data_size          = 0UL;
+    } else {
+      txn_out->details.loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
+    }
     txn_out->details.compute_budget.compute_meter = 0UL;
-    txn_out->details.loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
   }
 
   fd_cost_tracker_calculate_cost( runner->bank, &txn_in, txn_out );
