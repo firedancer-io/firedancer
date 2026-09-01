@@ -447,6 +447,9 @@ struct fd_replay_tile {
   ulong            identity_idx;
   int              identity_dirty;
 
+  int              has_vote_account;
+  fd_pubkey_t      vote_account[ 1 ];
+
   fd_node_info_box_t * node_info; /* shared */
 
   fd_keyswitch_t * keyswitch;
@@ -516,6 +519,8 @@ struct fd_replay_tile {
     ulong leader_bid_wait;
     ulong banks_full;
     ulong storage_root_behind;
+
+    ulong voted_slot; /* monotone, ULONG_MAX if none */
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];

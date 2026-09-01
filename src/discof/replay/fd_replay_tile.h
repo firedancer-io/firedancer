@@ -151,9 +151,10 @@ struct fd_replay_slot_completed {
   ulong tips;
   ulong shred_cnt;
 
-  int    voted;
-  ulong  voted_slot;/* ignore if voted = 0 */
-  ushort voted_rank; /* ignore if voted = 0 */
+  int    voted;           /* our vote was in the reward cert this block carried */
+  ushort voted_rank;      /* our rank in the reward slot's epoch, USHORT_MAX if we are not a voter */
+  ulong  vote_balance;    /* ULONG_MAX if not sampled */
+  ushort vote_commission; /* USHORT_MAX if not sampled */
 
   struct {
     ulong block_cost;

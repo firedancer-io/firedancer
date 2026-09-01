@@ -1072,6 +1072,8 @@ fd_topo_initialize( config_t * config ) {
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     if( !alpenglow_enabled ) {
       /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    } else {
+      /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1765,6 +1767,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
     tile->gui.listen_port = config->tiles.gui.gui_listen_port;
     tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
+    tile->gui.is_alpenglow = config->firedancer.development.alpenglow;
     fd_cstr_ncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
     fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
     fd_cstr_ncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
@@ -1777,6 +1780,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.db_size_gib               = config->tiles.gui.db_size_gib;
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     tile->gui.websocket_compression     = 1;
+    tile->gui.max_live_slots            = config->firedancer.runtime.max_live_slots;
     fd_cstr_ncpy( tile->gui.wfs_bank_hash, config->firedancer.consensus.wait_for_supermajority_with_bank_hash, sizeof(tile->gui.wfs_bank_hash) );
     tile->gui.expected_shred_version = config->consensus.expected_shred_version;
     tile->gui.cache_size_gib         = config->firedancer.accounts.cache_size_gib;

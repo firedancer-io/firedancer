@@ -416,6 +416,7 @@ struct fd_topo_tile {
       ushort listen_port;
 
       int    is_voting;
+      int    is_alpenglow;
 
       char   cluster[ 32 ];
       char   identity_key_path[ PATH_MAX ];
@@ -432,6 +433,7 @@ struct fd_topo_tile {
 
       int websocket_compression;
       ulong tile_cnt;
+      ulong max_live_slots;
 
       char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
       ushort expected_shred_version;

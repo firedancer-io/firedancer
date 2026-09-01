@@ -525,9 +525,9 @@ static void
 store_open( test_store_t * s, ulong map_bytes, int instance ) {
   fd_cstr_printf_check( s->path, sizeof(s->path), NULL, "/tmp/fd_gui_hist_evict_test.%i.%i", (int)getpid(), instance );
 
-  s->gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL ) );
+  s->gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL ) );
   FD_TEST( s->gui );
-  memset( s->gui, 0, fd_gui_footprint( 1UL ) );
+  memset( s->gui, 0, fd_gui_footprint( 1UL, 1UL ) );
 
   s->db_mem = aligned_alloc( fd_gui_store_align(),
                              fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( map_bytes ) ), fd_gui_store_align() ) );
