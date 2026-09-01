@@ -110,7 +110,15 @@ fd_topob_tile( fd_topo_t *    topo,
                ulong          cpu_idx,
                int            is_agave,
                int            uses_id_keyswitch,
-               int            uses_av_keyswitch );
+               int            uses_av_keyswitch,
+               int            is_waker_client );
+
+/* fd_topob_waker adds the waker tile and wires every tile marked
+   is_waker_client to it.  Call once after all tiles are added, in any
+   topology containing a waker client. */
+
+void
+fd_topob_waker( fd_topo_t * topo );
 
 /* Add an input link to the tile.  If the tile is created with fd_stem,
    it will automatically poll the in link and forward fragments to the

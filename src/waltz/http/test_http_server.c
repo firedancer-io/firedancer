@@ -10,7 +10,28 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/epoll.h>
 #include <unistd.h>
+
+static int
+new_epoll( void ) {
+  int fd = epoll_create1( 0 );
+  FD_TEST( -1!=fd );
+  return fd;
+}
+
+static int
+poll_1ms( fd_http_server_t * http ) {
+  int busy = fd_http_server_epoll_poll( http, ULONG_MAX );
+  if( FD_LIKELY( !busy ) ) fd_log_sleep( (long)1e6 );
+  return busy;
+}
+
+static int
+wait_work( fd_http_server_t * http ) {
+  for( ulong i=0UL; i<200UL; i++ ) if( poll_1ms( http ) ) return 1;
+  return 0;
+}
 
 struct overflow_close_state {
   ulong close_cnt;
@@ -265,7 +286,7 @@ test_content_length_overflow_close( void ) {
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   struct sockaddr_in server_addr = {0};
   socklen_t server_addr_sz = sizeof( server_addr );
@@ -293,7 +314,7 @@ test_content_length_overflow_close( void ) {
   send_all( client_fd, req, strlen( req ) );
 
   for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
   }
 
   FD_TEST( state.close_cnt==1UL );
@@ -324,7 +345,7 @@ test_poll_conn_max( void ) {
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
   FD_TEST( http );
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   struct sockaddr_in server_addr = {0};
   socklen_t server_addr_sz = sizeof( server_addr );
@@ -345,13 +366,11 @@ test_poll_conn_max( void ) {
   }
 
   request_cnt = 0UL;
-  FD_TEST( fd_http_server_poll( http, 1, 1UL ) ); /* Accept both clients. */
+  FD_TEST( wait_work( http ) ); /* Accept both clients. */
   FD_TEST( http->metrics.connection_cnt==2UL );
   FD_TEST( request_cnt==0UL );
 
-  FD_TEST( fd_http_server_poll( http, 1, 1UL ) );
-  FD_TEST( request_cnt==1UL );
-  FD_TEST( fd_http_server_poll( http, 1, 1UL ) );
+  FD_TEST( wait_work( http ) ); /* Both ready connections serviced in one drain. */
   FD_TEST( request_cnt==2UL );
 
   for( ulong i=0UL; i<2UL; i++ ) FD_TEST( !close( client_fds[ i ] ) );
@@ -373,7 +392,7 @@ test_location_raw_path( void ) {
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
   FD_TEST( http );
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   struct sockaddr_in server_addr = {0};
   socklen_t server_addr_sz = sizeof( server_addr );
@@ -395,7 +414,7 @@ test_location_raw_path( void ) {
   ulong response_sz = 0UL;
   char const expected[] = "Location: http://127.0.0.1:8902/snapshot-123-hash.tar.zst\r\n";
   for( ulong i=0UL; i<200UL; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
     long received = recv( client_fd, response+response_sz, sizeof(response)-1UL-response_sz, MSG_DONTWAIT );
     if( FD_UNLIKELY( received<0L && errno!=EAGAIN && errno!=EWOULDBLOCK ) )
       FD_LOG_ERR(( "recv failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -430,7 +449,7 @@ test_close_reason( char const * req,
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   struct sockaddr_in server_addr = {0};
   socklen_t server_addr_sz = sizeof( server_addr );
@@ -451,7 +470,7 @@ test_close_reason( char const * req,
   send_all( client_fd, req, strlen( req ) );
 
   for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
   }
 
   FD_TEST( state.close_cnt==1UL );
@@ -508,7 +527,7 @@ test_poll_interest( void ) {
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
   FD_TEST( http );
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   struct sockaddr_in server_addr = {0};
   socklen_t server_addr_sz = sizeof(server_addr);
@@ -523,10 +542,10 @@ test_poll_interest( void ) {
   FD_TEST( client_fd>=0 );
   FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof(connect_addr) ) );
 
-  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( wait_work( http ) );
   FD_TEST( http->metrics.connection_cnt==1UL );
   FD_TEST( http->pollfds[ 0 ].events==POLLIN );
-  FD_TEST( !fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( !fd_http_server_epoll_poll( http, ULONG_MAX ) );
 
   /* accepted sockets inherit the listener's TCP_NODELAY and SO_SNDBUF
      (the kernel reports SO_SNDBUF doubled) */
@@ -548,25 +567,23 @@ test_poll_interest( void ) {
       "Sec-WebSocket-Version: 13\r\n"
       "\r\n";
   send_all( client_fd, upgrade, sizeof(upgrade)-1UL );
-  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
-  FD_TEST( http->pollfds[ 0 ].events==(POLLIN|POLLOUT) );
-  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( wait_work( http ) );
   FD_TEST( http->metrics.ws_connection_cnt==1UL );
   FD_TEST( http->pollfds[ http->max_conns ].events==POLLIN );
-  FD_TEST( !fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( !fd_http_server_epoll_poll( http, ULONG_MAX ) );
 
   fd_http_server_printf( http, "test" );
   FD_TEST( !fd_http_server_ws_send( http, 0UL ) );
   FD_TEST( http->pollfds[ http->max_conns ].events==(POLLIN|POLLOUT) );
-  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( wait_work( http ) );
   FD_TEST( http->pollfds[ http->max_conns ].events==POLLIN );
-  FD_TEST( !fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( !fd_http_server_epoll_poll( http, ULONG_MAX ) );
 
   uchar ping[] = { 0x89U, 0x80U, 0U, 0U, 0U, 0U };
   FD_TEST( send( client_fd, ping, sizeof(ping), 0 )==(long)sizeof(ping) );
-  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( wait_work( http ) );
   FD_TEST( http->pollfds[ http->max_conns ].events==(POLLIN|POLLOUT) );
-  FD_TEST( fd_http_server_poll( http, 1, ULONG_MAX ) );
+  FD_TEST( wait_work( http ) );
   FD_TEST( http->pollfds[ http->max_conns ].events==POLLIN );
 
   FD_TEST( !close( client_fd ) );
@@ -703,7 +720,7 @@ ws_connect( fd_http_server_t * http,
       "\r\n";
   send_all( client_fd, req, strlen( req ) );
 
-  for( ulong i=0UL; i<200UL && !state->open; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  for( ulong i=0UL; i<200UL && !state->open; i++ ) poll_1ms( http );
   FD_TEST( state->open );
 
   recv_until_header_end( client_fd );
@@ -743,7 +760,7 @@ ws_test_server_new( uchar **         out_scratch,
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, state ) );
   FD_TEST( http );
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   struct sockaddr_in server_addr = {0};
   socklen_t server_addr_sz = sizeof( server_addr );
@@ -833,7 +850,7 @@ test_ws_fragmented_coalesced( void ) {
   ws_frame( buf, &off, 0x0, 1, (uchar const *)"world!",      6UL );
   send_all( client_fd, (char const *)buf, off );
 
-  for( ulong i=0UL; i<200UL && !state.msg_cnt; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  for( ulong i=0UL; i<200UL && !state.msg_cnt; i++ ) poll_1ms( http );
 
   char const * expected = "Hello, fragmented world!";
   FD_TEST( state.msg_cnt==1UL );
@@ -867,10 +884,10 @@ test_ws_fragmented_split( void ) {
      handle every possible partial-frame boundary. */
   for( ulong i=0UL; i<total; i++ ) {
     send_all( client_fd, (char const *)( frames+i ), 1UL );
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
   }
 
-  for( ulong i=0UL; i<200UL && !state.msg_cnt; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  for( ulong i=0UL; i<200UL && !state.msg_cnt; i++ ) poll_1ms( http );
 
   char const * expected = "abcdefghi";
   FD_TEST( state.msg_cnt==1UL );
@@ -906,7 +923,7 @@ test_ws_fragmented_interleaved_control( void ) {
   ws_frame( buf, &off, 0x0, 1, (uchar const *)"three",  5UL );
   send_all( client_fd, (char const *)buf, off );
 
-  for( ulong i=0UL; i<200UL && !state.msg_cnt; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  for( ulong i=0UL; i<200UL && !state.msg_cnt; i++ ) poll_1ms( http );
 
   char const * expected = "one two three";
   FD_TEST( state.msg_cnt==1UL );
@@ -941,7 +958,7 @@ keep_alive_recv( fd_http_server_t * http,
                  ulong              buf_sz ) {
   ulong len = 0UL;
   for( ulong i=0UL; i<400UL; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
     long n = recv( client_fd, buf+len, buf_sz-len-1UL, MSG_DONTWAIT );
     if( n>0L ) {
       len += (ulong)n;
@@ -956,7 +973,7 @@ static void
 keep_alive_wait_close( fd_http_server_t *       http,
                        overflow_close_state_t * state,
                        ulong                    close_cnt ) {
-  for( ulong i=0UL; i<400UL && state->close_cnt<close_cnt; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  for( ulong i=0UL; i<400UL && state->close_cnt<close_cnt; i++ ) poll_1ms( http );
   FD_TEST( state->close_cnt==close_cnt );
 }
 
@@ -993,7 +1010,7 @@ test_keep_alive( void ) {
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );
   keep_alive_http = http;
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   char buf[ 1024 ];
 
@@ -1042,7 +1059,7 @@ test_keep_alive( void ) {
   send_all( client_fd, get_two, strlen( get_two ) );
   ulong len = 0UL;
   for( ulong i=0UL; i<400UL; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
     long n = recv( client_fd, buf+len, sizeof( buf )-len-1UL, MSG_DONTWAIT );
     if( n>0L ) { len += (ulong)n; buf[ len ] = '\0'; }
     char * second = len ? strstr( buf, "\r\n\r\nok" ) : NULL;
@@ -1063,7 +1080,7 @@ test_keep_alive( void ) {
   ulong ok_cnt = 0UL;
   char  tail[ 8 ] = {0};
   for( ulong i=0UL; i<4000UL && ok_cnt<35UL; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
     char chunk[ 256 ];
     long n = recv( client_fd, chunk, sizeof( chunk )-1UL, MSG_DONTWAIT );
     if( n>0L ) {
@@ -1090,7 +1107,7 @@ test_keep_alive( void ) {
   char const * get_body = "GET / HTTP/1.1\r\nContent-Length: 5\r\n\r\n";
   send_all( client_fd, get_body, strlen( get_body ) );
   for( ulong i=0UL; i<50UL; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
     char c;
     FD_TEST( recv( client_fd, &c, 1UL, MSG_DONTWAIT )<0L ); /* no response until the body arrives */
   }
@@ -1143,7 +1160,7 @@ test_zero_length_status_body( void ) {
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );
   keep_alive_http = http;
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   int client_fd = keep_alive_connect( http );
   char const * get = "GET / HTTP/1.1\r\nHost: test\r\n\r\n";
@@ -1152,7 +1169,7 @@ test_zero_length_status_body( void ) {
   send_all( client_fd, get, strlen( get ) );
   send_all( client_fd, get, strlen( get ) );
   for( ulong i=0UL; i<400UL; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
     long n = recv( client_fd, buf+len, sizeof( buf )-len-1UL, MSG_DONTWAIT );
     if( n>0L ) { len += (ulong)n; buf[ len ] = '\0'; }
     char * second = len ? strstr( buf, "302 Found" ) : NULL;
@@ -1211,7 +1228,7 @@ test_close_in_pipelined_callback( void ) {
   FD_TEST( http );
   keep_alive_http        = http;
   pipeline_close_req_cnt = 0UL;
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   char buf[ 1024 ];
 
@@ -1274,12 +1291,12 @@ etag_roundtrip( fd_http_server_t *       http,
   ulong close_cnt = state->close_cnt;
   ulong len = 0UL;
   for( ulong i=0UL; i<400UL && state->close_cnt==close_cnt; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
     long n = recv( client_fd, buf+len, buf_sz-len-1UL, MSG_DONTWAIT );
     if( n>0L ) len += (ulong)n;
   }
   for( ulong i=0UL; i<50UL; i++ ) { /* drain the tail */
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
     long n = recv( client_fd, buf+len, buf_sz-len-1UL, MSG_DONTWAIT );
     if( n>0L ) len += (ulong)n;
     else if( !n ) break;
@@ -1324,7 +1341,7 @@ test_etag_304( void ) {
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );
   etag_http = http;
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   char buf[ 2048 ];
 
@@ -1358,7 +1375,7 @@ test_etag_304( void ) {
   buf[ 0 ] = '\0';
   ulong len = 0UL;
   for( ulong i=0UL; i<400UL; i++ ) {
-    fd_http_server_poll( http, 1, ULONG_MAX );
+    poll_1ms( http );
     long n = recv( client_fd, buf+len, sizeof( buf )-len-1UL, MSG_DONTWAIT );
     if( n>0L ) { len += (ulong)n; buf[ len ] = '\0'; }
     char * first = strstr( buf, "304 Not Modified" );
@@ -1370,7 +1387,7 @@ test_etag_304( void ) {
   FD_TEST( !strstr( buf, "junk" ) );
   ulong close_cnt = state.close_cnt;
   close( client_fd );
-  for( ulong i=0UL; i<400UL && state.close_cnt==close_cnt; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  for( ulong i=0UL; i<400UL && state.close_cnt==close_cnt; i++ ) poll_1ms( http );
   FD_TEST( state.close_cnt==close_cnt+1UL );
 
   /* repeated field lines combine into one list */
@@ -1427,7 +1444,7 @@ test_close_in_request_callback( void ) {
   FD_TEST( http );
   close_self_http         = http;
   close_self_request_cnt  = 0UL;
-  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
 
   struct sockaddr_in server_addr = {0};
   socklen_t server_addr_sz = sizeof( server_addr );
@@ -1444,7 +1461,7 @@ test_close_in_request_callback( void ) {
   FD_TEST( client_fd>=0 );
   FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
   send_all( client_fd, get, strlen( get ) );
-  for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) poll_1ms( http );
   FD_TEST( state.close_cnt==1UL );
   FD_TEST( state.last_reason==FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
   FD_TEST( close_self_request_cnt==1UL );
@@ -1455,10 +1472,10 @@ test_close_in_request_callback( void ) {
   FD_TEST( client_fd>=0 );
   FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
   send_all( client_fd, get, strlen( get ) );
-  for( ulong i=0UL; i<200UL && close_self_request_cnt<2UL; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  for( ulong i=0UL; i<200UL && close_self_request_cnt<2UL; i++ ) poll_1ms( http );
   FD_TEST( close_self_request_cnt==2UL );
   close( client_fd );
-  for( ulong i=0UL; i<200UL && state.close_cnt<2UL; i++ ) fd_http_server_poll( http, 1, ULONG_MAX );
+  for( ulong i=0UL; i<200UL && state.close_cnt<2UL; i++ ) poll_1ms( http );
   FD_TEST( state.close_cnt==2UL );
 
   close( fd_http_server_fd( http ) );

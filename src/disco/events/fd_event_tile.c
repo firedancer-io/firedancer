@@ -12,6 +12,7 @@
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../topo/fd_topo.h"
+#include "../waker/fd_waker.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../ballet/pb/fd_pb_encode.h"
@@ -103,6 +104,10 @@ struct fd_event_tile {
   fd_keyswitch_t * keyswitch;
 
   ulong idle_cnt;
+
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
+  long    next_poll_deadline;
 
   ulong boot_id;
   ulong machine_id;
@@ -208,7 +213,16 @@ before_credit( fd_event_tile_t *   ctx,
   if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
   ctx->idle_cnt = 0UL;
 
-  fd_event_client_poll( ctx->client, charge_busy );
+  int  fired = fd_fseq_query( ctx->waker_fseq )==1UL;
+  long now   = fd_log_wallclock();
+  if( FD_UNLIKELY( fired | ( now>=ctx->next_poll_deadline ) ) ) {
+    if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
+    int busy = 0;
+    fd_event_client_poll( ctx->client, &busy );
+    if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
+    *charge_busy = busy;
+    ctx->next_poll_deadline = busy ? 0L : fd_event_client_next_deadline( ctx->client, fd_log_wallclock() );
+  }
 }
 
 static void
@@ -385,6 +399,8 @@ after_frag( fd_event_tile_t *   ctx,
     default:
       FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
+
+  ctx->next_poll_deadline = 0L;
 }
 
 static void
@@ -527,10 +543,16 @@ unprivileged_init( fd_topo_t const *      topo,
   ssl_ctx_ptr = ctx->ssl_ctx;
 # endif
 
+  ctx->waker_client_idx = tile->waker_client_idx;
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+  FD_TEST( ctx->waker_fseq );
+
   ctx->client = fd_event_client_join( fd_event_client_new( _event_client,
                                                            ctx->keyguard_client,
                                                            ctx->rng,
                                                            ctx->circq,
+                                                           FD_WAKER_INNER_FD( ctx->waker_client_idx ),
                                                            2*(1UL<<20UL) /* 2 MiB */,
                                                            tile->event.url,
                                                            ctx->identity_pubkey,
@@ -544,6 +566,7 @@ unprivileged_init( fd_topo_t const *      topo,
                                                            ctx->use_tls,
                                                            ssl_ctx_ptr ) );
   FD_TEST( ctx->client );
+  ctx->next_poll_deadline = 0L;
 
   ctx->topo = topo;
   fd_memset( ctx->tile_shutdown_rendered, 0, sizeof(ctx->tile_shutdown_rendered) );
@@ -613,11 +636,16 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_event_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+
   populate_sock_filter_policy_fd_event_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
       (uint)ctx->netdb_fds->etc_hosts,
-      (uint)ctx->netdb_fds->etc_resolv_conf );
+      (uint)ctx->netdb_fds->etc_resolv_conf,
+      epoll_inner_fd,
+      epoll_outer_fd );
   return sock_filter_policy_fd_event_tile_instr_cnt;
 }
 
@@ -628,7 +656,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   fd_event_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -637,6 +665,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( ctx->netdb_fds->etc_hosts >= 0 ) )
     out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_hosts;
   out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_resolv_conf;
+  out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+  out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
   return out_cnt;
 }
 
@@ -650,6 +680,7 @@ during_housekeeping( fd_event_tile_t * ctx ) {
     FD_LOG_DEBUG(( "keyswitch: switching identity" ));
     memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
     fd_event_client_set_identity( ctx->client, ctx->identity_pubkey );
+    ctx->next_poll_deadline = 0L;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }

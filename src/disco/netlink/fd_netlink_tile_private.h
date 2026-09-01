@@ -59,7 +59,11 @@ struct fd_netlink_tile_ctx {
   /* Neighbor table */
   fd_neigh4_hmap_t neigh4[1];   /* join to global map */
   uint             neigh4_ifidx;
-  long             idle_cnt;
+
+  long idle_cnt;
+
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
 
   /* Neighbor table prober */
   fd_neigh4_prober_t prober[1];

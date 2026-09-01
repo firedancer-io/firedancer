@@ -46,6 +46,7 @@ fd_event_client_new( void *                 shmem,
                      fd_keyguard_client_t * keyguard_client,
                      fd_rng_t *             rng,
                      fd_circq_t *           circq,
+                     int                    epoll_fd,
                      int                    so_sndbuf,
                      char const *           endpoint,
                      uchar const *          identity_pubkey,
@@ -86,6 +87,17 @@ fd_event_client_set_identity( fd_event_client_t * client,
 void
 fd_event_client_poll( fd_event_client_t * client,
                       int *               charge_busy );
+
+/* fd_event_client_next_deadline returns when fd_event_client_poll
+   next needs to run absent any fd event: the earliest pending
+   timeout (reconnect, connect, auth, response, heartbeat, gRPC
+   deadlines).  Returns now if TLS bytes are buffered inside OpenSSL
+   (no fd event will announce them), LONG_MAX while awaiting the
+   genesis/shred version frags. */
+
+long
+fd_event_client_next_deadline( fd_event_client_t const * client,
+                               long                      now );
 
 FD_PROTOTYPES_END
 

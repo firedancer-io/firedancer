@@ -22,6 +22,7 @@
 #include <netinet/tcp.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -95,6 +96,11 @@ struct fd_event_client {
   int so_sndbuf;
   int sockfd;
 
+  int epoll_fd;
+  int epoll_out_armed;
+
+  double tick_per_ns;
+
   int    use_tls;
 #if FD_HAS_OPENSSL
   SSL_CTX * ssl_ctx;
@@ -143,6 +149,7 @@ fd_event_client_new( void *                 shmem,
                      fd_keyguard_client_t * keyguard_client,
                      fd_rng_t *             rng,
                      fd_circq_t *           circq,
+                     int                    epoll_fd,
                      int                    so_sndbuf,
                      char const *           _url,
                      uchar const *          identity_pubkey,
@@ -202,6 +209,8 @@ fd_event_client_new( void *                 shmem,
 
   client->so_sndbuf = so_sndbuf;
   client->sockfd = -1;
+  FD_TEST( -1!=epoll_fd );
+  client->epoll_fd = epoll_fd;
   client->use_tls = use_tls;
 #if FD_HAS_OPENSSL
   client->ssl_ctx = (SSL_CTX *)ssl_ctx;
@@ -221,7 +230,8 @@ fd_event_client_new( void *                 shmem,
   client->defer_disconnect = INT_MAX;
   client->consecutive_failure_count = 7UL; /* Start high, so if server is down we don't keep retrying on boot */
   client->last_stream_send_ticks = 0L;
-  client->heartbeat_ticks        = (long)(fd_tempo_tick_per_ns( NULL )*(double)FD_EVENT_CLIENT_HEARTBEAT_NANOS);
+  client->tick_per_ns            = fd_tempo_tick_per_ns( NULL );
+  client->heartbeat_ticks        = (long)(client->tick_per_ns*(double)FD_EVENT_CLIENT_HEARTBEAT_NANOS);
   client->response_timeout_ticks = (long)(fd_tempo_tick_per_ns( NULL )*(double)FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS);
 
   client->circq = circq;
@@ -313,6 +323,7 @@ disconnect( fd_event_client_t * client,
   if( FD_LIKELY( -1!=client->sockfd ) ) {
     if( FD_UNLIKELY( -1==close( client->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     client->sockfd = -1;
+    client->epoll_out_armed = 0;
     client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
     fd_circq_reset_cursor( client->circq );
   }
@@ -415,6 +426,10 @@ reconnect( fd_event_client_t * client,
 
   client->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==client->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+
+  struct epoll_event ev = { .events = EPOLLIN|EPOLLOUT, .data.fd = client->sockfd };
+  if( FD_UNLIKELY( -1==epoll_ctl( client->epoll_fd, EPOLL_CTL_ADD, client->sockfd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(ADD,sockfd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  client->epoll_out_armed = 1;
 
   struct sockaddr_in addr;
   fd_memset( &addr, 0, sizeof( addr ) );
@@ -807,9 +822,55 @@ tx( fd_event_client_t * client,
   *charge_busy = 1;
 }
 
-void
-fd_event_client_poll( fd_event_client_t * client,
-                      int *               charge_busy ) {
+static void
+epoll_out( fd_event_client_t * client,
+           int                 want ) {
+  if( FD_UNLIKELY( client->sockfd<0 ) ) return;
+  if( FD_LIKELY( want==client->epoll_out_armed ) ) return;
+  struct epoll_event ev = { .events = EPOLLIN | (want ? EPOLLOUT : 0U), .data.fd = client->sockfd };
+  if( FD_UNLIKELY( -1==epoll_ctl( client->epoll_fd, EPOLL_CTL_MOD, client->sockfd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(MOD,sockfd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  client->epoll_out_armed = want;
+}
+
+long
+fd_event_client_next_deadline( fd_event_client_t const * client,
+                               long                      now ) {
+  if( FD_UNLIKELY( !client->has_genesis_hash || !client->has_shred_version ) ) return LONG_MAX; /* frag-driven */
+
+  switch( client->state ) {
+  case FD_EVENT_CLIENT_STATE_DISCONNECTED:
+    return fd_long_max( client->disconnected.reconnect_deadline, now );
+  case FD_EVENT_CLIENT_STATE_CONNECTING:
+    /* Completion/failure arrives as an EPOLLOUT/EPOLLERR event. */
+    return client->connecting.connect_deadline;
+  default: break;
+  }
+
+# if FD_HAS_OPENSSL
+  /* Decrypted TLS bytes buffered inside OpenSSL do not make the fd
+     readable: drain now or they wait for the next unrelated event. */
+  if( FD_UNLIKELY( client->use_tls && client->ssl && SSL_has_pending( client->ssl ) ) ) return now;
+# endif
+
+  long deadline = fd_grpc_client_next_deadline( client->grpc_client );
+  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING ) ) {
+    deadline = fd_long_min( deadline, client->auth_deadline );
+    if( FD_UNLIKELY( client->auth_send_pending ) ) deadline = now;
+  }
+  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED && client->consecutive_failure_count ) ) {
+    deadline = fd_long_min( deadline, client->connected.connected_timestamp+10L*(long)1e9 );
+  }
+  if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED && client->event_stream ) ) {
+    long ticks_left = fd_long_min( client->last_response_ticks   +client->response_timeout_ticks,
+                                   client->last_stream_send_ticks+client->heartbeat_ticks        )-fd_tickcount();
+    deadline = fd_long_min( deadline, now + (long)( (double)fd_long_max( ticks_left, 0L )/client->tick_per_ns ) );
+  }
+  return deadline;
+}
+
+static void
+poll1( fd_event_client_t * client,
+       int *               charge_busy ) {
   if( FD_UNLIKELY( !client->has_genesis_hash || !client->has_shred_version ) ) return;
 
   long now = fd_log_wallclock();
@@ -864,6 +925,37 @@ fd_event_client_poll( fd_event_client_t * client,
     if( FD_UNLIKELY( client->consecutive_failure_count && (now-client->connected.connected_timestamp>10L*(long)1e9 ) ) ) client->consecutive_failure_count = 0UL;
     tx( client, charge_busy );
   }
+}
+
+void
+fd_event_client_poll( fd_event_client_t * client,
+                      int *               charge_busy ) {
+  poll1( client, charge_busy );
+
+  /* poll1 flushes before tx() enqueues: flush once more so bytes queued
+     this poll go out now instead of arming EPOLLOUT on a writable
+     socket (a spurious waker roundtrip per message). */
+  if( FD_UNLIKELY( client->state!=FD_EVENT_CLIENT_STATE_DISCONNECTED && fd_grpc_client_tx_pending( client->grpc_client ) ) ) {
+#   if FD_HAS_OPENSSL
+    if( client->use_tls ) fd_grpc_client_tx_flush_ossl( client->grpc_client, client->ssl );
+    else
+#   endif
+    if( FD_UNLIKELY( -1==fd_grpc_client_tx_flush_socket( client->grpc_client, client->sockfd ) ) ) {
+      disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
+      return;
+    }
+  }
+
+  /* Arm EPOLLOUT only on write demand: unsent HTTP/2 bytes, or a TLS
+     handshake blocked on write (which is also what an in-progress
+     TCP connect looks like: the handshake write EAGAINed, and connect
+     completion is the writability event).  Anything else leaves an
+     idle-writable socket keeping the epoll set ready. */
+  int want = fd_grpc_client_tx_pending( client->grpc_client );
+# if FD_HAS_OPENSSL
+  want |= client->use_tls && client->ssl && SSL_want_write( client->ssl );
+# endif
+  epoll_out( client, want );
 }
 
 fd_grpc_client_callbacks_t fd_event_client_grpc_callbacks = {

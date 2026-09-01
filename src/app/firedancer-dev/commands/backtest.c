@@ -76,20 +76,20 @@ backtest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
-  fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
 
   fd_topob_wksp( topo, "backt" );
-  fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", cpu_idx++, 0, 0, 0 );
+  fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", cpu_idx++, 0, 0, 0, 0 );
 
   fd_topob_wksp( topo, "replay" );
-  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 1, 0 );
+  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 1, 0, 0 );
 
   fd_topo_obj_t * node_info_obj = fd_topob_obj( topo, "node_info", "replay" );
   fd_topob_tile_uses( topo, replay_tile, node_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, node_info_obj->id, "node_info" ) );
 
   fd_topob_wksp( topo, "accdb" )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_FULL;
-  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", cpu_idx++, 0, 0, 0 );
+  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", cpu_idx++, 0, 0, 0, 0 );
 
   fd_topob_wksp( topo, "progcache" );
   setup_topo_progcache( topo, "progcache",
@@ -118,18 +118,18 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "execrp" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
-  FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp", "execrp", "metric_in", cpu_idx++, 0, 0, 0 );
+  FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp", "execrp", "metric_in", cpu_idx++, 0, 0, 0, 0 );
 
   /**********************************************************************/
   /* Add the capture tile to topo                                       */
   /**********************************************************************/
   if( solcap_enabled ) {
     fd_topob_wksp( topo, "solcap" );
-    fd_topob_tile( topo, "solcap", "solcap", "metric_in", cpu_idx++, 0, 0, 0 );
+    fd_topob_tile( topo, "solcap", "solcap", "metric_in", cpu_idx++, 0, 0, 0, 0 );
   }
 
   fd_topob_wksp( topo, "diag" );
-  fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
 
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
@@ -142,11 +142,11 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapin" );
     fd_topob_wksp( topo, "snapwr" );
 
-    fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct",  "snapct",  "metric_in",  cpu_idx++, 0, 0, 0 );
-    fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld",  "snapld",  "metric_in",  cpu_idx++, 0, 0, 0 );
-    fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0, 0 );
-                     snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0, 0 );
-    fd_topo_tile_t * snapwr_tile = fd_topob_tile( topo, "snapwr",  "snapwr",  "metric_in",  cpu_idx++, 0, 0, 0 );
+    fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct",  "snapct",  "metric_in",  cpu_idx++, 0, 0, 0, 0 );
+    fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld",  "snapld",  "metric_in",  cpu_idx++, 0, 0, 0, 0 );
+    fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0, 0, 0 );
+                     snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0, 0, 0 );
+    fd_topo_tile_t * snapwr_tile = fd_topob_tile( topo, "snapwr",  "snapwr",  "metric_in",  cpu_idx++, 0, 0, 0, 0 );
 
     snapct_tile->allow_shutdown = 1;
     snapld_tile->allow_shutdown = 1;
@@ -155,7 +155,7 @@ backtest_topo( config_t * config ) {
     snapwr_tile->allow_shutdown = 1;
   } else {
     fd_topob_wksp( topo, "genesi" );
-    fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  cpu_idx++, 0, 0, 0 )->allow_shutdown = 1;
+    fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  cpu_idx++, 0, 0, 0, 0 )->allow_shutdown = 1;
   }
 
   /**********************************************************************/
@@ -167,8 +167,8 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "event_sign" );
     fd_topob_wksp( topo, "sign_event" );
 
-    fd_topob_tile( topo, "sign",  "sign",  "metric_in", cpu_idx++, 0, 1, 1 );
-    fd_topo_tile_t * event_tile = fd_topob_tile( topo, "event", "event", "metric_in", cpu_idx++, 0, 1, 0 );
+    fd_topob_tile( topo, "sign",  "sign",  "metric_in", cpu_idx++, 0, 1, 1, 0 );
+    fd_topo_tile_t * event_tile = fd_topob_tile( topo, "event", "event", "metric_in", cpu_idx++, 0, 1, 0, 1 );
 
     ushort shred_version = 0;
     uchar  genesis_hash[ 32 ] = {0};
@@ -333,7 +333,7 @@ backtest_topo( config_t * config ) {
      requires the snapshot tiles. */
   if( FD_UNLIKELY( config->tiles.gui.enabled && !disable_snap_loader ) ) {
     fd_topob_wksp( topo, "gui" );
-    fd_topo_tile_t * gui_tile = fd_topob_tile( topo, "gui", "gui", "metric_in", cpu_idx++, 0, 1, 0 );
+    fd_topo_tile_t * gui_tile = fd_topob_tile( topo, "gui", "gui", "metric_in", cpu_idx++, 0, 1, 0, 1 );
 
     fd_topob_wksp( topo, "diag_gui" );
     fd_topob_link( topo, "diag_gui", "diag_gui", 4UL, sizeof(fd_diag_system_resources_t), 1UL );
@@ -432,6 +432,7 @@ backtest_topo( config_t * config ) {
   if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
 
   // fd_topob_auto_layout( topo, 0 );
+  fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
 }
 

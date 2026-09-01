@@ -50,10 +50,10 @@ udpecho_topo( config_t * config ) {
   fd_topob_wksp( topo, "metric_in" );
   fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, 0, tile_to_cpu );
   char const * net_tile_name = fd_net_tile_name( config->net.provider );
-  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 1 );
 
   fd_topob_wksp( topo, "l4swap" );
-  fd_topob_tile( topo, "l4swap", "l4swap", "l4swap", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  fd_topob_tile( topo, "l4swap", "l4swap", "l4swap", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
 
   fd_topob_link( topo, "quic_net", "l4swap", 2048UL, FD_NET_MTU, 1UL );
   fd_topob_tile_out( topo, "l4swap", 0UL, "quic_net", 0UL );
@@ -65,6 +65,7 @@ udpecho_topo( config_t * config ) {
   fd_topos_net_tile_finish( topo, 0UL );
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
   topo->agave_affinity_cnt = 0;
+  fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
   fd_topo_print_log( /* stdout */ 1, topo );
 }

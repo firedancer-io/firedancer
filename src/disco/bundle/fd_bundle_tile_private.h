@@ -125,7 +125,13 @@ struct fd_bundle_tile {
   int  so_rcvbuf;
   uint tcp_sock_connected : 1;
   uint defer_reset : 1;
+  uint sock_in_epoll : 1;
+  uint epoll_out_armed : 1;
   long cached_ts;
+
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
+  long    next_step_deadline;
 
   /* Keepalive via HTTP/2 PINGs (randomized) */
   long              keepalive_interval;
@@ -238,6 +244,17 @@ fd_bundle_client_step( fd_bundle_tile_t * bundle,
 int
 fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
                                  long               now );
+
+/* fd_bundle_client_next_deadline returns when
+   fd_bundle_client_step next needs to run absent any fd event: the
+   earliest pending timeout (keepalive, gRPC deadlines, builder info
+   expiry, reconnect backoff).  Returns now if TLS bytes are buffered
+   inside OpenSSL (no fd event will announce them), LONG_MAX while
+   connecting (completion is an EPOLLOUT event). */
+
+long
+fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
+                                long                     now );
 
 /* fd_bundle_tile_backoff is called whenever an error occurs.  Stalls
    forward progress for a randomized amount of time to prevent error

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_topo.h"
 
+#include "../waker/fd_waker.h"
 #include "../metrics/fd_metrics.h"
 #include "../events/fd_event_report.h"
 #include "../../util/tile/fd_tile_private.h"
@@ -329,6 +330,15 @@ fd_topo_run_single_process( fd_topo_t *       topo,
                             uint              gid,
                             fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ) ) {
   join_isolation_cgroup( topo->app_name );
+
+  if( FD_LIKELY( agave!=1 ) ) {
+    ulong waker_client_cnt = 0UL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      ulong idx = topo->tiles[ i ].waker_client_idx;
+      if( FD_UNLIKELY( idx!=ULONG_MAX ) ) waker_client_cnt = fd_ulong_max( waker_client_cnt, idx+1UL );
+    }
+    fd_waker_install( waker_client_cnt );
+  }
 
   /* Save the current affinity, it will be restored after creating any child tiles */
   FD_CPUSET_DECL( floating_cpu_set );

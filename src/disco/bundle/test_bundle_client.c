@@ -4,6 +4,8 @@
 #include "../../third_party/nanopb/pb_encode.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
+#include <sys/socket.h>
+
 FD_IMPORT_BINARY( test_bundle_response, "src/disco/bundle/test_bundle_response.binpb" );
 
 static long g_clock = 1L;
@@ -18,6 +20,23 @@ static fd_wksp_t * wksp;
 
 /* Test that packets and bundles get forwarded correctly to Firedancer
    components. */
+
+/* fd_bundle_client_step flushes frame_tx to the socket in the same
+   step; read the transmitted bytes back from the mock peer. */
+
+static fd_h2_rbuf_t *
+wire_rx( test_bundle_env_t * env ) {
+  static uchar        wire_buf[ 65536 ];
+  static fd_h2_rbuf_t wire[1];
+  fd_h2_rbuf_init( wire, wire_buf, sizeof(wire_buf) );
+  uchar tmp[ 4096 ];
+  for(;;) {
+    long n = recv( env->server_sock, tmp, sizeof(tmp), MSG_DONTWAIT );
+    if( n<=0L ) break;
+    fd_h2_rbuf_push( wire, tmp, (ulong)n );
+  }
+  return wire;
+}
 
 FD_UNIT_TEST( bundle_rx ) {
   test_bundle_env_t env[1]; test_bundle_env_create( env, wksp );
@@ -324,9 +343,11 @@ FD_UNIT_TEST( bundle_ping ) {
   FD_TEST( fd_keepalive_should_tx ( state->keepalive, ts_ping_tx2 )==0 );
   FD_TEST( state->keepalive->inflight==1 );
   FD_TEST( charge_busy==1 );
-  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )==sizeof(fd_h2_ping_t) );
+  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )==0 ); /* flushed in-step */
+  fd_h2_rbuf_t * wire = wire_rx( env );
+  FD_TEST( fd_h2_rbuf_used_sz( wire )==sizeof(fd_h2_ping_t) );
   fd_h2_ping_t ping;
-  fd_h2_rbuf_pop_copy( grpc_client->frame_tx, &ping, sizeof(fd_h2_ping_t) );
+  fd_h2_rbuf_pop_copy( wire, &ping, sizeof(fd_h2_ping_t) );
   FD_TEST( ping.hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING, 8UL ) );
   FD_TEST( ping.hdr.flags==0 );
   FD_TEST( state->keepalive->inflight==1 );
@@ -624,19 +645,20 @@ FD_UNIT_TEST( bundle_client_request_builder_fee_info ) {
     "user-agent",   "grpc-firedancer/0.0.0",
     NULL
   };
-  expect_h2_hdr( grpc_client->frame_tx, stream_id, hdrs );
+  fd_h2_rbuf_t * wire = wire_rx( env );
+  expect_h2_hdr( wire, stream_id, hdrs );
 
   /* Request body */
   fd_h2_frame_hdr_t frame_hdr;
-  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )>=sizeof(fd_h2_frame_hdr_t) );
-  fd_h2_rbuf_pop_copy( grpc_client->frame_tx, &frame_hdr, sizeof(fd_h2_frame_hdr_t) );
+  FD_TEST( fd_h2_rbuf_used_sz( wire )>=sizeof(fd_h2_frame_hdr_t) );
+  fd_h2_rbuf_pop_copy( wire, &frame_hdr, sizeof(fd_h2_frame_hdr_t) );
   FD_TEST( fd_h2_frame_type( frame_hdr.typlen )==FD_H2_FRAME_TYPE_DATA );
   FD_TEST( fd_h2_frame_length( frame_hdr.typlen )==5UL );
   FD_TEST( fd_uint_bswap( frame_hdr.r_stream_id )==stream_id );
   FD_TEST( frame_hdr.flags==FD_H2_FLAG_END_STREAM );
   fd_grpc_hdr_t grpc_hdr;
-  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )>=sizeof(fd_grpc_hdr_t) );
-  fd_h2_rbuf_pop_copy( grpc_client->frame_tx, &grpc_hdr, sizeof(fd_grpc_hdr_t) );
+  FD_TEST( fd_h2_rbuf_used_sz( wire )>=sizeof(fd_grpc_hdr_t) );
+  fd_h2_rbuf_pop_copy( wire, &grpc_hdr, sizeof(fd_grpc_hdr_t) );
   FD_TEST( grpc_hdr.compressed==0 );
   FD_TEST( grpc_hdr.msg_sz==0 );
 
@@ -753,19 +775,20 @@ FD_UNIT_TEST( bundle_client_subscribe_packets ) {
     "user-agent",   "grpc-firedancer/0.0.0",
     NULL
   };
-  expect_h2_hdr( grpc_client->frame_tx, stream_id, hdrs );
+  fd_h2_rbuf_t * wire = wire_rx( env );
+  expect_h2_hdr( wire, stream_id, hdrs );
 
   /* Request body */
   fd_h2_frame_hdr_t frame_hdr;
-  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )>=sizeof(fd_h2_frame_hdr_t) );
-  fd_h2_rbuf_pop_copy( grpc_client->frame_tx, &frame_hdr, sizeof(fd_h2_frame_hdr_t) );
+  FD_TEST( fd_h2_rbuf_used_sz( wire )>=sizeof(fd_h2_frame_hdr_t) );
+  fd_h2_rbuf_pop_copy( wire, &frame_hdr, sizeof(fd_h2_frame_hdr_t) );
   FD_TEST( fd_h2_frame_type( frame_hdr.typlen )==FD_H2_FRAME_TYPE_DATA );
   FD_TEST( fd_h2_frame_length( frame_hdr.typlen )==5UL );
   FD_TEST( fd_uint_bswap( frame_hdr.r_stream_id )==stream_id );
   FD_TEST( frame_hdr.flags==FD_H2_FLAG_END_STREAM );
   fd_grpc_hdr_t grpc_hdr;
-  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )>=sizeof(fd_grpc_hdr_t) );
-  fd_h2_rbuf_pop_copy( grpc_client->frame_tx, &grpc_hdr, sizeof(fd_grpc_hdr_t) );
+  FD_TEST( fd_h2_rbuf_used_sz( wire )>=sizeof(fd_grpc_hdr_t) );
+  fd_h2_rbuf_pop_copy( wire, &grpc_hdr, sizeof(fd_grpc_hdr_t) );
   FD_TEST( grpc_hdr.compressed==0 );
   FD_TEST( grpc_hdr.msg_sz==0 );
 
@@ -821,19 +844,20 @@ FD_UNIT_TEST( bundle_client_subscribe_bundles ) {
     "user-agent",   "grpc-firedancer/0.0.0",
     NULL
   };
-  expect_h2_hdr( grpc_client->frame_tx, stream_id, hdrs );
+  fd_h2_rbuf_t * wire = wire_rx( env );
+  expect_h2_hdr( wire, stream_id, hdrs );
 
   /* Request body */
   fd_h2_frame_hdr_t frame_hdr;
-  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )>=sizeof(fd_h2_frame_hdr_t) );
-  fd_h2_rbuf_pop_copy( grpc_client->frame_tx, &frame_hdr, sizeof(fd_h2_frame_hdr_t) );
+  FD_TEST( fd_h2_rbuf_used_sz( wire )>=sizeof(fd_h2_frame_hdr_t) );
+  fd_h2_rbuf_pop_copy( wire, &frame_hdr, sizeof(fd_h2_frame_hdr_t) );
   FD_TEST( fd_h2_frame_type( frame_hdr.typlen )==FD_H2_FRAME_TYPE_DATA );
   FD_TEST( fd_h2_frame_length( frame_hdr.typlen )==5UL );
   FD_TEST( fd_uint_bswap( frame_hdr.r_stream_id )==stream_id );
   FD_TEST( frame_hdr.flags==FD_H2_FLAG_END_STREAM );
   fd_grpc_hdr_t grpc_hdr;
-  FD_TEST( fd_h2_rbuf_used_sz( grpc_client->frame_tx )>=sizeof(fd_grpc_hdr_t) );
-  fd_h2_rbuf_pop_copy( grpc_client->frame_tx, &grpc_hdr, sizeof(fd_grpc_hdr_t) );
+  FD_TEST( fd_h2_rbuf_used_sz( wire )>=sizeof(fd_grpc_hdr_t) );
+  fd_h2_rbuf_pop_copy( wire, &grpc_hdr, sizeof(fd_grpc_hdr_t) );
   FD_TEST( grpc_hdr.compressed==0 );
   FD_TEST( grpc_hdr.msg_sz==0 );
 

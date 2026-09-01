@@ -19,6 +19,8 @@ up the entire gossip subtopo.
 */
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h" /* initialize_workspaces */
+
+#include <sys/resource.h> /* RLIMIT_NOFILE */
 #include "../../../shared/fd_config.h" /* config_t */
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus_t */
@@ -83,7 +85,7 @@ send_test_topo( config_t * config ) {
 
   /* Add send tile */
   fd_topob_wksp( topo, "txsend" );
-  fd_topob_tile( topo, "txsend", "txsend", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  fd_topob_tile( topo, "txsend", "txsend", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
 
   /* wksps for send links */
   fd_topob_wksp( topo, "txsend_net" );
@@ -146,6 +148,7 @@ send_test_topo( config_t * config ) {
 
   /* Finish topology setup */
   if( FD_UNLIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) fd_topob_auto_layout( topo, 0 );
+  fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
 }
 
@@ -290,6 +293,7 @@ send_test_cmd_perm( args_t *         args FD_PARAM_UNUSED,
   configure_stage_perm( &fd_cfg_stage_ethtool_channels, chk, config );
   configure_stage_perm( &fd_cfg_stage_ethtool_offloads, chk, config );
   configure_stage_perm( &fd_cfg_stage_ethtool_loopback, chk, config );
+  fd_cap_chk_raise_rlimit( chk, "send_test", RLIMIT_NOFILE, CONFIGURE_NR_OPEN_FILES, "call `rlimit(2)` to increase `RLIMIT_NOFILE` for the fixed waker fd range" );
 }
 
 action_t fd_action_send_test = {

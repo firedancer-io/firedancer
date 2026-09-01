@@ -7,6 +7,7 @@
 #endif
 
 #include <stdlib.h>
+#include <sys/epoll.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -38,7 +39,9 @@ LLVMFuzzerInitialize( int  *   argc,
   server = fd_ipecho_server_join( fd_ipecho_server_new( server_mem, MAX_CONN_CNT ) );
   FD_TEST( server );
 
-  fd_ipecho_server_init( server, loopback_addr, 0, 42 );
+  int epoll_fd = epoll_create1( 0 );
+  FD_TEST( -1!=epoll_fd );
+  fd_ipecho_server_init( server, epoll_fd, loopback_addr, 0, 42 );
 
   int server_fd = fd_ipecho_server_sockfd( server );
   struct sockaddr_in bound_addr;
@@ -183,7 +186,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
       case ACTION_POLL: {
         int charge_busy = 0;
-        fd_ipecho_server_poll( server, &charge_busy, 0 );
+        while( fd_ipecho_server_epoll_poll( server, &charge_busy ) ) {}
         break;
       }
 

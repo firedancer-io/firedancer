@@ -272,6 +272,22 @@ fd_grpc_client_send_timeout( fd_h2_rbuf_t *        rbuf_tx,
   fd_grpc_client_stream_release( client, stream );
 }
 
+long
+fd_grpc_client_next_deadline( fd_grpc_client_t const * client ) {
+  long deadline = LONG_MAX;
+  for( ulong i=0UL; i<(client->stream_cnt); i++ ) {
+    fd_grpc_h2_stream_t const * stream = client->streams[ i ];
+    if( stream->has_header_deadline ) deadline = fd_long_min( deadline, stream->header_deadline_nanos );
+    if( stream->has_rx_end_deadline ) deadline = fd_long_min( deadline, stream->rx_end_deadline_nanos );
+  }
+  return deadline;
+}
+
+int
+fd_grpc_client_tx_pending( fd_grpc_client_t const * client ) {
+  return !!fd_h2_rbuf_used_sz( client->frame_tx );
+}
+
 void
 fd_grpc_client_service_streams( fd_grpc_client_t * client,
                                 long               ts_nanos ) {
@@ -367,6 +383,13 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
   return 0;
 }
 
+void
+fd_grpc_client_tx_flush_ossl( fd_grpc_client_t * client,
+                              SSL *              ssl ) {
+  if( FD_UNLIKELY( !client->ssl_hs_done ) ) return;
+  client->metrics->stream_chunks_tx_bytes += fd_h2_rbuf_ssl_write( client->frame_tx, ssl );
+}
+
 #endif /* FD_HAS_OPENSSL */
 
 #if FD_H2_HAS_SOCKETS
@@ -417,6 +440,20 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
   }
 
   return tx_err==EAGAIN ? 1 : 0;
+}
+
+int
+fd_grpc_client_tx_flush_socket( fd_grpc_client_t * client,
+                                int                sock_fd ) {
+  ulong const lo_0 = client->frame_tx->lo_off;
+  int tx_err = fd_h2_rbuf_sendmsg( client->frame_tx, sock_fd, MSG_NOSIGNAL|MSG_DONTWAIT );
+  if( FD_UNLIKELY( tx_err && tx_err!=EAGAIN ) ) {
+    FD_LOG_WARNING(( "fd_h2_rbuf_sendmsg failed (%i-%s)", tx_err, fd_io_strerror( tx_err ) ));
+    errno = tx_err;
+    return -1;
+  }
+  client->metrics->stream_chunks_tx_bytes += client->frame_tx->lo_off - lo_0;
+  return 0;
 }
 
 #endif /* FD_H2_HAS_SOCKETS */

@@ -2,6 +2,7 @@
 #include "../topo/fd_topo.h"
 #include "../topo/fd_topob.h"
 #include "../metrics/fd_metrics.h"
+#include "../waker/fd_waker.h"
 #include "../../waltz/ip/fd_fib4_netlink.h"
 #include "../../waltz/mib/fd_netdev_netlink.h"
 #include "../../waltz/neigh/fd_neigh4_netlink.h"
@@ -12,9 +13,11 @@
 #include <errno.h>
 #include <net/if.h>
 #include <netinet/in.h> /* MSG_DONTWAIT */
+#include <sys/epoll.h>
 #include <sys/socket.h> /* SOL_{...} */
 #include <sys/random.h> /* getrandom */
 #include <sys/time.h> /* struct timeval */
+#include <time.h> /* CLOCK_REALTIME for seccomp filter */
 #include <linux/rtnetlink.h> /* RTM_{...} */
 
 #define FD_SOCKADDR_IN_SZ sizeof(struct sockaddr_in)
@@ -82,7 +85,10 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_netlink_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
-  populate_sock_filter_policy_netlink( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->nl_monitor->fd, (uint)ctx->nl_req->fd, (uint)ctx->prober->sock_fd );
+  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+
+  populate_sock_filter_policy_netlink( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->nl_monitor->fd, (uint)ctx->nl_req->fd, (uint)ctx->prober->sock_fd, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_netlink_instr_cnt;
 }
 
@@ -94,7 +100,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   fd_netlink_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt too low (%lu)", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt too low (%lu)", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -103,6 +109,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = ctx->nl_monitor->fd;
   out_fds[ out_cnt++ ] = ctx->nl_req->fd;
   out_fds[ out_cnt++ ] = ctx->prober->sock_fd;
+  out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD; /* waker outer epoll fd (rearm) */
+  out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
   return out_cnt;
 }
 
@@ -150,6 +158,13 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( 0!=setsockopt( ctx->nl_monitor->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval) ) ) ) {
     FD_LOG_ERR(( "setsockopt(sock,SOL_SOCKET,SO_RCVTIMEO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+
+  ctx->waker_client_idx = tile->waker_client_idx;
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+
+  struct epoll_event ev = { .events = EPOLLIN, .data.fd = ctx->nl_monitor->fd };
+  if( FD_UNLIKELY( -1==epoll_ctl( FD_WAKER_INNER_FD( ctx->waker_client_idx ), EPOLL_CTL_ADD, ctx->nl_monitor->fd, &ev ) ) )
+    FD_LOG_ERR(( "epoll_ctl(ADD,nl_monitor) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -158,6 +173,10 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_netlink_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netlink_tile_ctx_t), sizeof(fd_netlink_tile_ctx_t) );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
+
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+  FD_TEST( ctx->waker_fseq );
 
   FD_TEST( tile->netlink.netdev_tbl_obj_id );
   FD_TEST( tile->netlink.neigh4_obj_id     );
@@ -476,34 +495,30 @@ after_credit( fd_netlink_tile_ctx_t * ctx,
   }
 
   int published = 0;
-  for(;;) {
-    int read_res = netlink_monitor_read( ctx, stem, MSG_DONTWAIT );
-    if( !read_res ) break;
-    *charge_busy = 1;
-    if( read_res==2 ) {
-      published = 1;
-      break;
+  if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+    fd_fseq_update( ctx->waker_fseq, 0UL );
+    for(;;) {
+      int read_res = netlink_monitor_read( ctx, stem, MSG_DONTWAIT );
+      if( !read_res ) break;
+      *charge_busy = 1;
+      if( read_res==2 ) {
+        published = 1;
+        break;
+      }
     }
+    fd_waker_client_rearm( ctx->waker_client_idx );
+    ctx->idle_cnt = -1L;
   }
 
   ctx->idle_cnt++;
-  if( FD_UNLIKELY( !published && ctx->idle_cnt>=128L ) ) {
-    /* Blocking read (yield to scheduler) */
-    *charge_busy = 0;
-    int read_res = netlink_monitor_read( ctx, stem, 0 );
-    if( read_res ) {
-      *charge_busy = 1;
-      published = read_res==2;
-    }
-  }
+  if( FD_UNLIKELY( !published && ctx->idle_cnt>=128L ) )
+    fd_log_sleep( (long)1e6 );
 
   if( FD_UNLIKELY( published ) ) *opt_poll_in = 0;
 }
 
 /* after_poll_overrun is called when fd_stem.c was overrun while
-   checking for new fragments.  This typically happens when
-   after_credit takes too long (e.g. we were in a blocking netlink
-   read) */
+   checking for new fragments: producers are hot, stay hot. */
 
 static void
 after_poll_overrun( fd_netlink_tile_ctx_t * ctx ) {
@@ -523,8 +538,8 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
             fd_stem_context_t *     stem ) {
   (void)in_idx; (void)seq; (void)tsorig; (void)tspub; (void)stem;
 
-  long now = fd_tickcount();
   ctx->idle_cnt = -1L;
+  long now = fd_tickcount();
 
   /* Parse request (fully contained in sig field) */
 
@@ -585,9 +600,9 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_netlink_tile_ctx_t)
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_POLL_OVERRUN  after_poll_overrun
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
-#define STEM_CALLBACK_AFTER_POLL_OVERRUN  after_poll_overrun
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../stem/fd_stem.c"

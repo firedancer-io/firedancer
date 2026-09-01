@@ -6,9 +6,11 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/waker/fd_waker.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <time.h> /* CLOCK_REALTIME for seccomp filter */
 #include <poll.h>
 
 #include "generated/fd_ipecho_tile_seccomp.h"
@@ -20,6 +22,9 @@ struct fd_ipecho_tile_ctx {
 
   fd_ipecho_server_t * server;
   fd_ipecho_client_t * client;
+
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
 
   uint   bind_address;
   ushort bind_port;
@@ -98,14 +103,18 @@ after_credit( fd_ipecho_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   (void)opt_poll_in;
 
-  /* 1ms timeout is sufficient here. Large timeouts (e.g. 10ms) can
-     cause housekeeping tasks to run very infrequently (> 0.05Hz) since
-     they incur a prolonged context switch every single iteration of the
-     STEM loop. */
-  int timeout = ctx->retrieving ? 0 : 1;
+  if( FD_UNLIKELY( ctx->retrieving ) ) {
+    poll_client( ctx, stem, charge_busy );
+    return;
+  }
 
-  if( FD_UNLIKELY( ctx->retrieving ) ) poll_client( ctx, stem, charge_busy );
-  else                                 fd_ipecho_server_poll( ctx->server, charge_busy, timeout );
+  if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+    fd_fseq_update( ctx->waker_fseq, 0UL );
+    fd_ipecho_server_epoll_poll( ctx->server, charge_busy ); /* one batch; the rearm re-fires leftovers */
+    fd_waker_client_rearm( ctx->waker_client_idx );
+  } else {
+    fd_log_sleep( (long)1e6 );
+  }
 }
 
 static inline int
@@ -164,7 +173,9 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->server = fd_ipecho_server_join( fd_ipecho_server_new( _server, FD_IPECHO_MAX_CONNECTION_CNT ) );
   FD_TEST( ctx->server );
-  fd_ipecho_server_init( ctx->server, ctx->bind_address, ctx->bind_port, ctx->expected_shred_version );
+  ctx->waker_client_idx = tile->waker_client_idx;
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  fd_ipecho_server_init( ctx->server, FD_WAKER_INNER_FD( ctx->waker_client_idx ), ctx->bind_address, ctx->bind_port, ctx->expected_shred_version );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -180,6 +191,10 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_ipecho_tile_ctx_t ), sizeof( fd_ipecho_tile_ctx_t )       );
 
   FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, tile->ipecho.expected_shred_version );
+
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+  FD_TEST( ctx->waker_fseq );
 
   /* In some topologies (e.g. firedancer-dev gossip), the ipecho tile
      has no input links. Guard against dereferencing a missing
@@ -214,9 +229,11 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   (void)topo;
-  (void)tile;
 
-  populate_sock_filter_policy_fd_ipecho_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+
+  populate_sock_filter_policy_fd_ipecho_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_ipecho_tile_instr_cnt;
 }
 
@@ -230,7 +247,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ipecho_tile_ctx_t), sizeof(fd_ipecho_tile_ctx_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL+tile->ipecho.entrypoints_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL+tile->ipecho.entrypoints_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -245,11 +262,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
   /* The server's socket. */
   out_fds[ out_cnt++ ] = fd_ipecho_server_sockfd( ctx->server );
+
+  out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+  out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
   return out_cnt;
 }
 
 #define STEM_BURST (2UL)
-#define STEM_LAZY  (50UL)
+#define STEM_LAZY  ((long)10e6) /* 10ms */
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_ipecho_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_ipecho_tile_ctx_t)

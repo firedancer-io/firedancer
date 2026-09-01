@@ -24,10 +24,10 @@
      (2) Send the staged data to clients with fd_http_server_send and
          fd_http_server_oring_broadcast.
 
-   The server is designed to be used in a single threaded event loop and
-   run within a tile.  The caller should call fd_http_server_poll as
-   frequently as possible to service connections and make forward
-   progress. */
+   The server is designed to be used in a single threaded event loop
+   and run within a tile.  Server fds live in the epoll set provided
+   at listen time; the caller calls fd_http_server_epoll_poll when the
+   set is ready to service connections and make forward progress. */
 
 #include "../../util/fd_util_base.h"
 #include "../../util/net/fd_ip6.h"
@@ -302,10 +302,15 @@ int
 fd_http_server_fd( fd_http_server_t * http );
 
 /* fd_http_server_listen binds and listens on the given IPv4 address
-   and port.  Logs an error and exits the process on failure. */
+   and port.  All server fds (listen socket and connections, present
+   and future) are registered in the provided epoll set,
+   level-triggered, with EPOLLOUT armed only while a connection has
+   pending output.  The server does not take ownership of epoll_fd.
+   Logs an error and exits the process on failure. */
 
 fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
+                       int                epoll_fd,
                        uint               address,
                        ushort             port );
 
@@ -318,6 +323,7 @@ fd_http_server_listen( fd_http_server_t * http,
 
 fd_http_server_t *
 fd_http_server_listen6( fd_http_server_t *    http,
+                        int                   epoll_fd,
                         fd_ip6_addr_t const * address,
                         ushort                port );
 
@@ -477,17 +483,17 @@ fd_http_server_ws_send( fd_http_server_t * http,
 int
 fd_http_server_ws_broadcast( fd_http_server_t * http );
 
-/* fd_http_server_poll needs to be continuously called in a spin loop to
-   drive the HTTP server forward.  Setting poll_timeout==0 makes it a
-   non-blocking socket ppoll(2).  conn_max limits the number of existing
-   HTTP or WebSocket connections serviced, or ULONG_MAX for no limit.
-   Pending listener connections may additionally be accepted.  Returns 1
-   if there was any work to do on the HTTP server, or 0 otherwise. */
+/* fd_http_server_epoll_poll drives the server forward: a non-blocking
+   epoll_wait on the registered set, servicing only ready connections.
+   conn_max limits the number of fds serviced per call (clamped to
+   [1,64]); leftover readiness stays pending in the kernel and is
+   picked up by the next call.  Returns 1 if there was any work to do
+   on the HTTP server, or 0 otherwise.  Call repeatedly until it
+   returns 0 to drain the set. */
 
 int
-fd_http_server_poll( fd_http_server_t * http,
-                     int                poll_timeout,
-                     ulong              conn_max );
+fd_http_server_epoll_poll( fd_http_server_t * http,
+                           ulong              conn_max );
 
 FD_PROTOTYPES_END
 

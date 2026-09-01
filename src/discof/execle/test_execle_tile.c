@@ -110,7 +110,7 @@ test_env_create( void ) {
   fd_topob_new( topo, "execle" );
   fd_topo_wksp_t * topo_wksp = fd_topob_wksp( topo, "execle" );
   topo_wksp->wksp = env->mini->wksp;
-  fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "execle", "execle", "execle", 0UL, 0, 0, 0 );
+  fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "execle", "execle", "execle", 0UL, 0, 0, 0, 0 );
   topo_tile->execle.max_live_slots = MAX_LIVE_SLOTS;
 
   void * tile_mem = fd_wksp_alloc_laddr( env->mini->wksp, scratch_align(), scratch_footprint( topo_tile ), TOPO_TAG );

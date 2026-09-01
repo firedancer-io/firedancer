@@ -41,6 +41,8 @@ SYSCALL_ARGS = {
     "close":           (  "int",   None,    None,   None,   None,    None  ),
     "connect":         (  "int", "long",   "int",   None,   None,    None  ),
     "copy_file_range": (  "int", "long",   "int", "long", "long",   "int"  ),
+    "epoll_ctl":       (  "int",  "int",   "int", "long",   None,    None  ),
+    "epoll_pwait":     (  "int", "long",   "int",  "int", "long",  "long"  ),
     "exit_group":      (  "int",   None,    None,   None,   None,    None  ),
     "exit":            (  "int",   None,    None,   None,   None,    None  ),
     "fallocate":       (  "int",  "int",  "long", "long",   None,    None  ),

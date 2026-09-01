@@ -1794,6 +1794,11 @@ EXAMPLES
 <tile name="admin">
 </tile>
 
+<tile name="waker">
+    <counter name="EpollWaitDispatched" summary="epoll_wait syscalls dispatched on the outer epoll set" />
+    <counter name="WakeDelivered" summary="Client wakes delivered (readiness fseq raised)" />
+</tile>
+
 <enum name="ConnCloseResult">
     <int value="0" name="Ok" label="Closed normally" />
     <int value="1" name="Error" label="Closed abnormally" />

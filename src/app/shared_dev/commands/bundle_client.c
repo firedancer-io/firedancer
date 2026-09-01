@@ -1,5 +1,8 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/commands/run/run.h"
+#include "../../shared/commands/configure/configure.h" /* CONFIGURE_NR_OPEN_FILES */
+
+#include <sys/resource.h> /* RLIMIT_NOFILE */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/fd_txn_m.h"
 
@@ -21,13 +24,13 @@ bundle_client_topo( config_t *   config ) {
   /* Tiles */
 
   fd_topob_wksp( topo, "bundle" );
-  fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle", "bundle", "metric_in", ULONG_MAX, 0, 1, 0 );
+  fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle", "bundle", "metric_in", ULONG_MAX, 0, 1, 0, 1 );
 
   fd_topob_wksp( topo, "sign" );
-  fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 0, 1, 0 );
+  fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 0, 1, 0, 0 );
 
   fd_topob_wksp( topo, "metric" );
-  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
 
   /* Links */
 
@@ -64,6 +67,7 @@ bundle_client_topo( config_t *   config ) {
 
   /* Wrap up */
 
+  fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
   fd_topo_print_log( /* stdout */ 1, topo );
 }
@@ -90,11 +94,18 @@ bundle_client_cmd_fn( args_t *   args,
   for(;;) pause();
 }
 
+static void
+bundle_client_cmd_perm( args_t *         args FD_PARAM_UNUSED,
+                        fd_cap_chk_t *   chk,
+                        config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_raise_rlimit( chk, "bundle-client", RLIMIT_NOFILE, CONFIGURE_NR_OPEN_FILES, "call `rlimit(2)` to increase `RLIMIT_NOFILE` for the fixed waker fd range" );
+}
+
 action_t fd_action_bundle_client = {
   .name          = "bundle-client",
   .args          = bundle_client_cmd_args,
   .fn            = bundle_client_cmd_fn,
-  .perm          = NULL,
+  .perm          = bundle_client_cmd_perm,
   .description   = "Run bundle tile in isolation",
   .is_diagnostic = 1 /* allow running against live clusters */
 };

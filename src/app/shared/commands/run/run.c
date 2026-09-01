@@ -18,6 +18,7 @@
 #include "../../../../discof/backup/fd_backup.h"
 #include "../../../../discof/backup/fd_snap_pool.h"
 #include "../../../../discof/restore/utils/fd_ssarchive.h"
+#include "../../../../disco/waker/fd_waker.h"
 
 #include "../configure/configure.h"
 
@@ -378,6 +379,13 @@ main_pid_namespace( void * _args ) {
     snapshot_dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
   }
 
+  ulong waker_client_cnt = 0UL;
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    ulong idx = config->topo.tiles[ i ].waker_client_idx;
+    if( FD_UNLIKELY( idx!=ULONG_MAX ) ) waker_client_cnt = fd_ulong_max( waker_client_cnt, idx+1UL );
+  }
+  fd_waker_install( waker_client_cnt );
+
   struct spawn_cgroup spawn_cg = {0};
 
   for( ulong pass=0UL; pass<2UL; pass++ ) {
@@ -463,6 +471,14 @@ main_pid_namespace( void * _args ) {
         }
       }
 
+      int is_waker = !strcmp( tile->name, "waker" );
+      int outer_entitled = is_waker || tile->waker_client_idx!=ULONG_MAX;
+      if( FD_UNLIKELY( -1==fcntl( FD_WAKER_OUTER_FD, F_SETFD, outer_entitled ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      for( ulong j=0UL; j<waker_client_cnt; j++ ) {
+        int inner_entitled = is_waker || tile->waker_client_idx==j;
+        if( FD_UNLIKELY( -1==fcntl( FD_WAKER_INNER_FD( j ), F_SETFD, inner_entitled ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+
       int pipefd[ 2 ];
       if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
@@ -504,6 +520,11 @@ main_pid_namespace( void * _args ) {
       if( snapshot_upload_enabled )
         if( FD_UNLIKELY( -1==close( FD_SNAP_RO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
+  }
+
+  if( FD_UNLIKELY( -1==close( FD_WAKER_OUTER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  for( ulong j=0UL; j<waker_client_cnt; j++ ) {
+    if( FD_UNLIKELY( -1==close( FD_WAKER_INNER_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   int allow_fds[ 6+FD_TOPO_MAX_TILES ];
