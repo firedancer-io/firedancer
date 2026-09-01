@@ -33,8 +33,9 @@
    change. */
 
 /* 300 root slots in the slot deltas array, and each one references all
-   151 prior blockhashes that it's able to. */
-#define FD_SNAPIN_MAX_SLOT_DELTA_GROUPS (300UL*151UL)
+   151 prior blockhashes that it's able to.  Multiply by 2 to allow for
+   referenced nonce blockhashes */
+#define FD_SNAPIN_MAX_SLOT_DELTA_GROUPS (300UL*151UL*2UL)
 
 struct fd_blockhash_entry {
   fd_hash_t blockhash;
