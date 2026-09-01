@@ -92,6 +92,19 @@ fd_bls12_381_g2_decompress_syscall( uchar       r[ 96*2 ], /* G2 point */
                                     uchar const a[ 48*2 ], /* Compressed G2 point */
                                     int         big_endian );
 
+/* fd_bls12_381_g2_compress is the inverse of
+   fd_bls12_381_g2_decompress_syscall: it compresses the G2 point `a`
+   into `r`.  It is not a syscall, it exists because the Alpenglow block
+   footer carries compressed aggregate signatures while the wire
+   framing carries uncompressed ones.
+   Input and output are expected to be big endian if big_endian==1,
+   or little endian if big_endian==0.
+   The function returns 0 on success, -1 if `a` is not a G2 point. */
+int
+fd_bls12_381_g2_compress( uchar       r[ 48*2 ], /* Compressed G2 point */
+                          uchar const a[ 96*2 ], /* G2 point */
+                          int         big_endian );
+
 /* fd_bls12_381_g2_validate_syscall validates the G2 point `a`.
    Input is expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
