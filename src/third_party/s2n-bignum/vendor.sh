@@ -105,8 +105,21 @@ readonly -a S2N_FILES=(
   x86/secp256k1/bignum_triple_p256k1.S
   x86/secp256k1/bignum_triple_p256k1_alt.S
   x86/sha3/sha3_keccak_f1600.S
+  arm/curve25519/bignum_add_p25519.S
+  arm/curve25519/bignum_cmul_p25519.S
+  arm/curve25519/bignum_mod_p25519_4.S
+  arm/curve25519/bignum_mul_p25519_alt.S
+  arm/curve25519/bignum_neg_p25519.S
+  arm/curve25519/bignum_sqr_p25519_alt.S
+  arm/curve25519/bignum_sub_p25519.S
   arm/curve25519/curve25519_x25519_byte_alt.S
   arm/curve25519/curve25519_x25519base_byte_alt.S
+  arm/curve25519/edwards25519_decode_alt.S
+  arm/curve25519/edwards25519_epadd_alt.S
+  arm/curve25519/edwards25519_epdouble_alt.S
+  arm/curve25519/edwards25519_pdouble_alt.S
+  arm/curve25519/edwards25519_pepadd_alt.S
+  arm/curve25519/edwards25519_scalarmulbase_alt.S
   arm/fastmul/bignum_mul_4_8_alt.S
   arm/fastmul/bignum_mul_6_12_alt.S
   arm/generic/bignum_demont.S
