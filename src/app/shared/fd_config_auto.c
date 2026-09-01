@@ -328,10 +328,7 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
         .name              = "Zero Copy",
         .supported_drivers = {
           { "mlx5_core", 6,  1, 0,  0 },
-          { "i40e",      5, 19, 0,  0 },
-          { "ice",       5, 15, 5, 18 },
-          { "ice",       6,  1, 6,  1 },
-          { "ice",       6,  3, 0,  0 }
+          { "i40e",      5, 19, 0,  0 }
         },
         .is_feat_auto      = is_xdp_zc_auto,
         .check             = xdp_zc_check,
