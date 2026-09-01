@@ -53,35 +53,51 @@
    a max_vote_accounts, we can pool the interval objects to be
    31*max_vote_accounts entries PER bank / executed slot.  A compact
    per-bank list of unique interval ends lets switch checks and pruning
-   enumerate the corresponding map keys. */
+   enumerate the corresponding map keys.  Keys use the per-bank slot
+   header pool index instead of repeating the full fork slot. */
 
 struct lockout_interval_key {
-  uint fork_slot;
   uint interval_end;
+  uint slot_conf_pubkey;
 };
 typedef struct lockout_interval_key lockout_interval_key_t;
 
 struct lockout_interval {
   lockout_interval_key_t key;
-  uint                   pubkey_idx; /* pool idx of vote account pubkey */
   uint                   next;       /* reserved for fd_map_chain and fd_pool */
   uint                   end_next;   /* next unique-end interval for this fork slot */
-  uint                   start;      /* start of interval (vote slot) */
 };
 typedef struct lockout_interval lockout_interval_t;
 
 FD_STATIC_ASSERT( sizeof(lockout_interval_key_t)==8UL,  lockout_interval_key );
-FD_STATIC_ASSERT( sizeof(lockout_interval_t    )==24UL, lockout_interval     );
+FD_STATIC_ASSERT( sizeof(lockout_interval_t    )==16UL, lockout_interval     );
 
-#define MAP_NAME    lockout_interval_map
-#define MAP_ELE_T   lockout_interval_t
-#define MAP_KEY_T   lockout_interval_key_t
-#define MAP_KEY_EQ(k0,k1) (((k0)->fork_slot==(k1)->fork_slot) & ((k0)->interval_end==(k1)->interval_end))
-#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( ((((ulong)(key)->fork_slot)<<32) | (ulong)(key)->interval_end) ^ (seed) ))
-#define MAP_MULTI   1
-#define MAP_KEY     key
-#define MAP_NEXT    next
-#define MAP_IDX_T   uint
+#define LOCKOUT_INTERVAL_SLOT_IDX_BITS   (13U)
+#define LOCKOUT_INTERVAL_CONF_BITS       (5U)
+#define LOCKOUT_INTERVAL_PUBKEY_IDX_BITS (14U)
+#define LOCKOUT_INTERVAL_SLOT_IDX_MASK   ((1U<<LOCKOUT_INTERVAL_SLOT_IDX_BITS)-1U)
+#define LOCKOUT_INTERVAL_CONF_MASK       ((1U<<LOCKOUT_INTERVAL_CONF_BITS)-1U)
+#define LOCKOUT_INTERVAL_CONF_SHIFT      (LOCKOUT_INTERVAL_SLOT_IDX_BITS)
+#define LOCKOUT_INTERVAL_PUBKEY_IDX_SHIFT (LOCKOUT_INTERVAL_CONF_SHIFT+LOCKOUT_INTERVAL_CONF_BITS)
+
+FD_STATIC_ASSERT( LOCKOUT_INTERVAL_SLOT_IDX_BITS+
+                  LOCKOUT_INTERVAL_CONF_BITS+
+                  LOCKOUT_INTERVAL_PUBKEY_IDX_BITS==32U, lockout_interval_encoding );
+
+FD_FN_PURE static inline uint
+lockout_interval_key_slot_idx( lockout_interval_key_t const * key ) {
+  return key->slot_conf_pubkey & LOCKOUT_INTERVAL_SLOT_IDX_MASK;
+}
+
+#define MAP_NAME               lockout_interval_map
+#define MAP_ELE_T              lockout_interval_t
+#define MAP_KEY_T              lockout_interval_key_t
+#define MAP_KEY_EQ(k0,k1)      ((lockout_interval_key_slot_idx( (k0) )==lockout_interval_key_slot_idx( (k1) )) & ((k0)->interval_end==(k1)->interval_end))
+#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( ((((ulong)lockout_interval_key_slot_idx( (key) ))<<32) | (ulong)(key)->interval_end) ^ (seed) ))
+#define MAP_MULTI              1
+#define MAP_KEY                key
+#define MAP_NEXT               next
+#define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME  lockout_interval_pool
@@ -152,12 +168,31 @@ FD_STATIC_ASSERT( sizeof(lockout_pubkey_ref_t)==40UL, lockout_pubkey_ref );
 #include "../../util/tmpl/fd_map_chain.c"
 
 FD_FN_CONST static inline lockout_interval_key_t
-lockout_interval_key( ulong fork_slot,
-                      ulong interval_end ) {
+lockout_interval_key( ulong slot_idx,
+                      ulong interval_end,
+                      uint  conf,
+                      ulong pubkey_idx ) {
   return (lockout_interval_key_t) {
-    .fork_slot    = (uint)fork_slot,
-    .interval_end = (uint)interval_end,
+    .interval_end     = (uint)interval_end,
+    .slot_conf_pubkey = (uint)slot_idx |
+                        (conf << LOCKOUT_INTERVAL_CONF_SHIFT) |
+                        ((uint)pubkey_idx << LOCKOUT_INTERVAL_PUBKEY_IDX_SHIFT),
   };
+}
+
+FD_FN_PURE static inline uint
+lockout_interval_key_conf( lockout_interval_key_t const * key ) {
+  return (key->slot_conf_pubkey >> LOCKOUT_INTERVAL_CONF_SHIFT) & LOCKOUT_INTERVAL_CONF_MASK;
+}
+
+FD_FN_PURE static inline uint
+lockout_interval_key_pubkey_idx( lockout_interval_key_t const * key ) {
+  return key->slot_conf_pubkey >> LOCKOUT_INTERVAL_PUBKEY_IDX_SHIFT;
+}
+
+FD_FN_PURE static inline uint
+lockout_interval_start( lockout_interval_t const * interval ) {
+  return interval->key.interval_end - (1U << lockout_interval_key_conf( &interval->key ));
 }
 
 #define THRESHOLD_DEPTH (8)
@@ -172,7 +207,8 @@ fd_tower_align( void ) {
 static int
 fd_tower_max_valid( ulong blk_max,
                     ulong vtr_max ) {
-  if( FD_UNLIKELY( blk_max>UINT_MAX || vtr_max>UINT_MAX/2UL ) ) return 0;
+  /* Lockout intervals use 13-bit slot-header and 14-bit pubkey pool indices. */
+  if( FD_UNLIKELY( blk_max>(1UL<<LOCKOUT_INTERVAL_SLOT_IDX_BITS) || vtr_max>(1UL<<(LOCKOUT_INTERVAL_PUBKEY_IDX_BITS-1U)) ) ) return 0;
   if( FD_UNLIKELY( blk_max && vtr_max>UINT_MAX/blk_max ) ) return 0;
 
   ulong pair_max = blk_max * vtr_max;
@@ -641,12 +677,13 @@ switch_check( fd_tower_t * tower,
       uint candidate_slot_key = (uint)candidate_slot;
       lockout_slot_t const * lockout_slot = lockout_slot_map_ele_query_const( lck_slot_map, &candidate_slot_key, NULL, lck_slot_pool );
       if( FD_UNLIKELY( !lockout_slot ) ) continue;
+      ulong slot_idx = lockout_slot_pool_idx( lck_slot_pool, lockout_slot );
 
       for( lockout_interval_t const * lockout = lockout_interval_pool_ele_const( lck_pool, lockout_slot->end_head );
                                     !!lockout;
                                       lockout = lockout_interval_pool_ele_const( lck_pool, lockout->end_next ) ) {
         uint                   interval_end = lockout->key.interval_end;
-        lockout_interval_key_t key          = lockout_interval_key( candidate_slot, interval_end );
+        lockout_interval_key_t key          = lockout_interval_key( slot_idx, interval_end, 0U, 0UL );
 
         /* Intervals are keyed by the end of the interval. If the end of
            the interval is < the last vote slot, then these vote
@@ -662,9 +699,10 @@ switch_check( fd_tower_t * tower,
         for( lockout_interval_t const * interval = lockout_interval_map_ele_query_const( lck_map, &key, NULL, lck_pool );
                                         interval;
                                         interval = lockout_interval_map_ele_next_const( interval, NULL, lck_pool ) ) {
-          fd_hash_t const * vote_acc = &lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, interval->pubkey_idx )->addr;
+          fd_hash_t const * vote_acc = &lockout_pubkey_pool_ele_const( tower->lck_pubkey_pool, lockout_interval_key_pubkey_idx( &interval->key ) )->addr;
 
-          if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, interval->start, vote_slot ) && interval->start > root_slot ) ) {
+          uint interval_start = lockout_interval_start( interval );
+          if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, interval_start, vote_slot ) && interval_start > root_slot ) ) {
             fd_tower_stakes_vtr_xid_t     key         = { .addr = *vote_acc, .slot = switch_slot };
             fd_tower_stakes_vtr_t const * voter_stake = fd_tower_stakes_vtr_map_ele_query_const( tower->stk_vtr_map, &key, NULL, tower->stk_vtr_pool );
 
@@ -1668,23 +1706,23 @@ fd_tower_lockos_insert( fd_tower_t *      tower,
 
     ref->ref_cnt += (uint)vote_cnt;
     pubkey_idx    = (uint)lockout_pubkey_pool_idx( tower->lck_pubkey_pool, ref );
+    FD_TEST( pubkey_idx<(1U<<LOCKOUT_INTERVAL_PUBKEY_IDX_BITS) );
   }
 
+  ulong slot_idx = vote_cnt ? lockout_slot_pool_idx( lck_slot_pool, lockout_slot ) : ULONG_MAX;
   for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init( votes );
                                   !fd_tower_vote_iter_done( votes, iter );
                             iter = fd_tower_vote_iter_next( votes, iter ) ) {
     fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( votes, iter );
-    uint                   interval_start = (uint)vote->slot;
+    FD_TEST( vote->conf<=31U );
     uint                   interval_end   = (uint)(vote->slot + (1UL << vote->conf));
-    lockout_interval_key_t key            = lockout_interval_key( slot, interval_end );
+    lockout_interval_key_t key            = lockout_interval_key( slot_idx, interval_end, (uint)vote->conf, pubkey_idx );
 
     int is_unique_end = !lockout_interval_map_ele_query( lck_map, &key, NULL, lck_pool );
     FD_TEST( lockout_interval_pool_free( lck_pool ) );
     lockout_interval_t * interval = lockout_interval_pool_ele_acquire( lck_pool );
-    interval->key        = key;
-    interval->pubkey_idx = pubkey_idx;
-    interval->end_next   = (uint)lockout_interval_pool_idx_null( lck_pool );
-    interval->start      = interval_start;
+    interval->key      = key;
+    interval->end_next = (uint)lockout_interval_pool_idx_null( lck_pool );
     FD_TEST( lockout_interval_map_ele_insert( lck_map, interval, lck_pool ) );
     if( is_unique_end ) {
       interval->end_next     = lockout_slot->end_head;
@@ -1709,17 +1747,18 @@ fd_tower_lockos_remove( fd_tower_t * tower,
 
   /* Iterate through unique end interval and for each of those, release
      every interval sharing that same end slot. */
-  uint end_idx = lockout_slot->end_head;
+  uint  end_idx  = lockout_slot->end_head;
+  ulong slot_idx = lockout_slot_pool_idx( lck_slot_pool, lockout_slot );
   while( end_idx!=lockout_interval_pool_idx_null( lck_pool ) ) {
     lockout_interval_t * unique_end   = lockout_interval_pool_ele( lck_pool, end_idx );
     uint                 next_end_idx = unique_end->end_next;
     uint                 interval_end = unique_end->key.interval_end;
 
-    lockout_interval_key_t key = lockout_interval_key( slot, interval_end );
+    lockout_interval_key_t key = lockout_interval_key( slot_idx, interval_end, 0U, 0UL );
     for( lockout_interval_t * itrvl = lockout_interval_map_ele_remove( lck_map, &key, NULL, lck_pool );
                             !!itrvl;
                               itrvl = lockout_interval_map_ele_remove( lck_map, &key, NULL, lck_pool ) ) {
-      lockout_pubkey_ref_t * ref = lockout_pubkey_pool_ele( tower->lck_pubkey_pool, itrvl->pubkey_idx );
+      lockout_pubkey_ref_t * ref = lockout_pubkey_pool_ele( tower->lck_pubkey_pool, lockout_interval_key_pubkey_idx( &itrvl->key ) );
       if( FD_LIKELY( !--ref->ref_cnt ) ) {
         FD_CHECK_CRIT( lockout_pubkey_map_ele_remove( tower->lck_pubkey_map, &ref->addr, NULL, tower->lck_pubkey_pool ), "unable to remove tower lockout pubkey" );
         lockout_pubkey_pool_ele_release( tower->lck_pubkey_pool, ref );
