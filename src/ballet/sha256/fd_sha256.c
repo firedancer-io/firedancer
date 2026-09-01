@@ -1,6 +1,10 @@
 #include "fd_sha256.h"
 #include "fd_sha256_constants.h"
 
+#if FD_HAS_ARM_SHA256
+#include <arm_neon.h>
+#endif
+
 #if FD_HAS_SHANI
 /* For the optimized repeated hash */
 #include "../../util/simd/fd_sse.h"
@@ -103,7 +107,9 @@ fd_sha256_delete( void * shsha ) {
 }
 
 #ifndef FD_SHA256_CORE_IMPL
-#if FD_HAS_SHANI
+#if FD_HAS_ARM_SHA256
+#define FD_SHA256_CORE_IMPL 2
+#elif FD_HAS_SHANI
 #define FD_SHA256_CORE_IMPL 1
 #else
 #define FD_SHA256_CORE_IMPL 0
@@ -352,6 +358,90 @@ fd_sha256_core_shaext( uint *        state,       /* 64-byte aligned, 8 entries 
 
 #define fd_sha256_core fd_sha256_core_shaext
 
+#elif FD_SHA256_CORE_IMPL==2
+
+/* SHA-256 using ARMv8 FEAT_SHA256 Crypto Extensions. */
+
+static void
+fd_sha256_core_arm( uint *        state,
+                    uchar const * block,
+                    ulong         block_cnt ) {
+
+#define SHA256_ROUNDS( MSG, KIDX ) do {                                    \
+    uint32x4_t wk = vaddq_u32( (MSG), vld1q_u32( fd_sha256_K + (KIDX) ) ); \
+    uint32x4_t abcd_prev = abcd;                                           \
+    abcd = vsha256hq_u32(  abcd, efgh, wk );                               \
+    efgh = vsha256h2q_u32( efgh, abcd_prev, wk );                          \
+  } while( 0 )
+
+  do {
+    uint32x4_t abcd      = vld1q_u32( state   );
+    uint32x4_t efgh      = vld1q_u32( state+4 );
+    uint32x4_t abcd_init = abcd;
+    uint32x4_t efgh_init = efgh;
+
+    uint32x4_t msg0 = vreinterpretq_u32_u8( vrev32q_u8( vld1q_u8( block    ) ) );
+    uint32x4_t msg1 = vreinterpretq_u32_u8( vrev32q_u8( vld1q_u8( block+16 ) ) );
+    uint32x4_t msg2 = vreinterpretq_u32_u8( vrev32q_u8( vld1q_u8( block+32 ) ) );
+    uint32x4_t msg3 = vreinterpretq_u32_u8( vrev32q_u8( vld1q_u8( block+48 ) ) );
+
+    SHA256_ROUNDS( msg0,  0 );
+    msg0 = vsha256su0q_u32( msg0, msg1 );
+    SHA256_ROUNDS( msg1,  4 );
+    msg1 = vsha256su0q_u32( msg1, msg2 );
+    msg0 = vsha256su1q_u32( msg0, msg2, msg3 );
+    SHA256_ROUNDS( msg2,  8 );
+    msg2 = vsha256su0q_u32( msg2, msg3 );
+    msg1 = vsha256su1q_u32( msg1, msg3, msg0 );
+    SHA256_ROUNDS( msg3, 12 );
+    msg3 = vsha256su0q_u32( msg3, msg0 );
+    msg2 = vsha256su1q_u32( msg2, msg0, msg1 );
+
+    SHA256_ROUNDS( msg0, 16 );
+    msg0 = vsha256su0q_u32( msg0, msg1 );
+    msg3 = vsha256su1q_u32( msg3, msg1, msg2 );
+    SHA256_ROUNDS( msg1, 20 );
+    msg1 = vsha256su0q_u32( msg1, msg2 );
+    msg0 = vsha256su1q_u32( msg0, msg2, msg3 );
+    SHA256_ROUNDS( msg2, 24 );
+    msg2 = vsha256su0q_u32( msg2, msg3 );
+    msg1 = vsha256su1q_u32( msg1, msg3, msg0 );
+    SHA256_ROUNDS( msg3, 28 );
+    msg3 = vsha256su0q_u32( msg3, msg0 );
+    msg2 = vsha256su1q_u32( msg2, msg0, msg1 );
+
+    SHA256_ROUNDS( msg0, 32 );
+    msg0 = vsha256su0q_u32( msg0, msg1 );
+    msg3 = vsha256su1q_u32( msg3, msg1, msg2 );
+    SHA256_ROUNDS( msg1, 36 );
+    msg1 = vsha256su0q_u32( msg1, msg2 );
+    msg0 = vsha256su1q_u32( msg0, msg2, msg3 );
+    SHA256_ROUNDS( msg2, 40 );
+    msg2 = vsha256su0q_u32( msg2, msg3 );
+    msg1 = vsha256su1q_u32( msg1, msg3, msg0 );
+    SHA256_ROUNDS( msg3, 44 );
+    msg3 = vsha256su0q_u32( msg3, msg0 );
+    msg2 = vsha256su1q_u32( msg2, msg0, msg1 );
+
+    SHA256_ROUNDS( msg0, 48 );
+    msg0 = vsha256su0q_u32( msg0, msg1 );
+    msg3 = vsha256su1q_u32( msg3, msg1, msg2 );
+    SHA256_ROUNDS( msg1, 52 );
+    msg1 = vsha256su0q_u32( msg1, msg2 );
+    msg0 = vsha256su1q_u32( msg0, msg2, msg3 );
+    SHA256_ROUNDS( msg2, 56 );
+    SHA256_ROUNDS( msg3, 60 );
+
+    vst1q_u32( state,   vaddq_u32( abcd, abcd_init ) );
+    vst1q_u32( state+4, vaddq_u32( efgh, efgh_init ) );
+    block += FD_SHA256_BLOCK_SZ;
+  } while( --block_cnt );
+
+#undef SHA256_ROUNDS
+}
+
+#define fd_sha256_core fd_sha256_core_arm
+
 #else
 #error "Unsupported FD_SHA256_CORE_IMPL"
 #endif
@@ -543,7 +633,60 @@ fd_sha256_hash_32_repeated( void const * _data,
                             ulong        cnt ) {
   uchar const * data = (uchar const *)_data;
   uchar       * hash = (uchar       *)_hash;
-#if FD_HAS_SHANI
+#if FD_HAS_ARM_SHA256
+  uint32x4_t msg0 = vreinterpretq_u32_u8( vrev32q_u8( vld1q_u8( data      ) ) );
+  uint32x4_t msg1 = vreinterpretq_u32_u8( vrev32q_u8( vld1q_u8( data+16UL ) ) );
+  uint32x4_t const pad0 = { 0x80000000U, 0U, 0U,   0U };
+  uint32x4_t const pad1 = {          0U, 0U, 0U, 256U };
+  uint32x4_t const initialABCD = { FD_SHA256_INITIAL_A, FD_SHA256_INITIAL_B,
+                                   FD_SHA256_INITIAL_C, FD_SHA256_INITIAL_D };
+  uint32x4_t const initialEFGH = { FD_SHA256_INITIAL_E, FD_SHA256_INITIAL_F,
+                                   FD_SHA256_INITIAL_G, FD_SHA256_INITIAL_H };
+
+#define SHA256_REPEATED_ROUNDS( MSG, KIDX ) do {                            \
+    uint32x4_t wk = vaddq_u32( (MSG), vld1q_u32( fd_sha256_K + (KIDX) ) ); \
+    uint32x4_t abcd_prev = abcd;                                           \
+    abcd = vsha256hq_u32(  abcd, efgh, wk );                               \
+    efgh = vsha256h2q_u32( efgh, abcd_prev, wk );                          \
+  } while( 0 )
+
+  for( ulong iter=0UL; iter<cnt; iter++ ) {
+    uint32x4_t abcd = initialABCD;
+    uint32x4_t efgh = initialEFGH;
+    uint32x4_t w0 = msg0;
+    uint32x4_t w1 = msg1;
+    uint32x4_t w2 = pad0;
+    uint32x4_t w3 = pad1;
+
+    SHA256_REPEATED_ROUNDS( w0,  0 ); w0 = vsha256su0q_u32( w0, w1 );
+    SHA256_REPEATED_ROUNDS( w1,  4 ); w1 = vsha256su0q_u32( w1, w2 ); w0 = vsha256su1q_u32( w0, w2, w3 );
+    SHA256_REPEATED_ROUNDS( w2,  8 ); w2 = vsha256su0q_u32( w2, w3 ); w1 = vsha256su1q_u32( w1, w3, w0 );
+    SHA256_REPEATED_ROUNDS( w3, 12 ); w3 = vsha256su0q_u32( w3, w0 ); w2 = vsha256su1q_u32( w2, w0, w1 );
+
+    SHA256_REPEATED_ROUNDS( w0, 16 ); w0 = vsha256su0q_u32( w0, w1 ); w3 = vsha256su1q_u32( w3, w1, w2 );
+    SHA256_REPEATED_ROUNDS( w1, 20 ); w1 = vsha256su0q_u32( w1, w2 ); w0 = vsha256su1q_u32( w0, w2, w3 );
+    SHA256_REPEATED_ROUNDS( w2, 24 ); w2 = vsha256su0q_u32( w2, w3 ); w1 = vsha256su1q_u32( w1, w3, w0 );
+    SHA256_REPEATED_ROUNDS( w3, 28 ); w3 = vsha256su0q_u32( w3, w0 ); w2 = vsha256su1q_u32( w2, w0, w1 );
+
+    SHA256_REPEATED_ROUNDS( w0, 32 ); w0 = vsha256su0q_u32( w0, w1 ); w3 = vsha256su1q_u32( w3, w1, w2 );
+    SHA256_REPEATED_ROUNDS( w1, 36 ); w1 = vsha256su0q_u32( w1, w2 ); w0 = vsha256su1q_u32( w0, w2, w3 );
+    SHA256_REPEATED_ROUNDS( w2, 40 ); w2 = vsha256su0q_u32( w2, w3 ); w1 = vsha256su1q_u32( w1, w3, w0 );
+    SHA256_REPEATED_ROUNDS( w3, 44 ); w3 = vsha256su0q_u32( w3, w0 ); w2 = vsha256su1q_u32( w2, w0, w1 );
+
+    SHA256_REPEATED_ROUNDS( w0, 48 ); w0 = vsha256su0q_u32( w0, w1 ); w3 = vsha256su1q_u32( w3, w1, w2 );
+    SHA256_REPEATED_ROUNDS( w1, 52 ); w1 = vsha256su0q_u32( w1, w2 ); w0 = vsha256su1q_u32( w0, w2, w3 );
+    SHA256_REPEATED_ROUNDS( w2, 56 );
+    SHA256_REPEATED_ROUNDS( w3, 60 );
+
+    msg0 = vaddq_u32( abcd, initialABCD );
+    msg1 = vaddq_u32( efgh, initialEFGH );
+  }
+  vst1q_u8( hash,      vrev32q_u8( vreinterpretq_u8_u32( msg0 ) ) );
+  vst1q_u8( hash+16UL, vrev32q_u8( vreinterpretq_u8_u32( msg1 ) ) );
+
+#undef SHA256_REPEATED_ROUNDS
+
+#elif FD_HAS_SHANI
   vu_t       w0003 = vu_bswap( vu_ldu( data      ) );
   vu_t       w0407 = vu_bswap( vu_ldu( data+16UL ) );
   vb_t const w080b = vb( 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00,
