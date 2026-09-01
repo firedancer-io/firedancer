@@ -1494,7 +1494,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
-    tile->rotor.slot_max = config->firedancer.runtime.max_live_slots;
+    /* TODO: separate rotor.slot_max  */
+    tile->rotor.slot_max = config->tiles.repair.slot_max;
     tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
 
     for( ulong i=0; i<tile->in_cnt; i++ ) {

@@ -648,7 +648,7 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
   fec->complete = 1; /* set is now reconstructable -> deliverable */
   if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
   if( FD_UNLIKELY( data_complete ) ) fec->data_complete = 1;
-  if( FD_UNLIKELY( is_leader ) )     fec->is_leader = 1;
+  if( FD_UNLIKELY( is_leader ) )     fec->is_leader     = 1;
 
   /* Process the turbine version first.  It is the only version whose
      block_id may finalize here.  An abandoned turbine version is
@@ -1012,7 +1012,7 @@ fd_chainer_print( fd_chainer_t * chainer ) {
 
     /* buffered_idx / complete_idx are UINT_MAX when unknown; +1 wraps
        those to 0 (same convention as fd_forest_print) */
-    FD_BASE58_ENCODE_32_BYTES( o->block_id.uc, out)
+    FD_BASE58_ENCODE_32_BYTES( o->block_id.uc, out )
     if( FD_UNLIKELY( o->parent_slot==AG_UNKNOWN_SLOT ) ) printf( "%lu <- ??? (%u/%u) turbine: %d block_id: %s \n", slot, o->buffered_idx+1U, o->complete_idx+1U, o->turbine, out );
     else                                                 printf( "%lu (%u/%u) -> %lu turbine: %d block_id: %s connected: %d\n ", slot, o->buffered_idx+1U, o->complete_idx+1U, o->parent_slot, o->turbine, out, o->connected );
     cnt++;

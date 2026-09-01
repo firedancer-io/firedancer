@@ -63,7 +63,38 @@
    Snapshot production is either periodically scheduled (driven by
    replay tile) or externally requested (through admin tile).  The
    replay tile stops compaction (via snapshot_sync) and rooting until
-   the snapshot is created. */
+   the snapshot is created.
+
+   ALPENGLOW
+
+   Under alpenglow, the replay tile doesn't use the reasm, but rather
+   relies on rotor to deliver FECs. Similar to reasm, rotor delivers
+   FECs in replayable order, with no restrictions on interleaving
+   between forks. Every delivered FEC is already in store. Alpenglow
+   also introduces the double merkle root, which uniquely identifies
+   each FEC set as part of one slot version. For equivocating slots, the
+   block_id is known before delivery, and so replay can identify how to
+   allocate banks in the equivocation case.
+
+   Replay can rely on the fact that any new version of the slot
+   (equivocations or not) is delivered from FEC 0 — blocks are never
+   delivered starting mid-block. There is also at most one live delivery
+   stream per logical block.  When the turbine version is being streamed
+   in, the block_id is still unknown, but if a votor-driven version of
+   the block arrives before the turbine copy is complete, the turbine
+   copy is abandoned, and will never finish delivering to replay.
+
+   Alpenglow simplifies eviction logic by removing the notion of reasm
+   evictions.  Rotor is sized to protocol limits and will not have
+   evictions; and thus can be relied on to always have all data since
+   the root. Banks can still evict.  On an eviction, some context in the
+   replayable chain of FECs is lost, and newer incoming FECs may be
+   unlinked.  When this happens, replay sends a signal to rotor to send
+   the next FEC with the full replayable path from root. Replay will
+   need to drain the rotor dcache until it receives a FEC that is
+   connected, and then resume normal replay.  It may need to drop FECs
+   that have already been replayed, or send multiple signals to rotor to
+   re-deliver. */
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"

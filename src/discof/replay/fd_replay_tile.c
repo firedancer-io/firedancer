@@ -116,8 +116,8 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
 
 static inline fd_block_id_ele_t *
 fd_block_id_ele_query( fd_replay_tile_t * ctx,
-                       fd_hash_t const * block_id,
-                       ulong slot ) {
+                       fd_hash_t const *  block_id,
+                       ulong              slot ) {
   if( !ctx->alpenglow ) {
     return fd_block_id_map_ele_query( ctx->block_id_map, block_id, NULL, ctx->block_id_arr );
   } else {
@@ -146,7 +146,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),                 fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                    fd_accdb_footprint( tile->replay.max_live_slots ) );
   if( !tile->replay.alpenglow ) {
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),                    fd_reasm_footprint( tile->replay.fec_max ) );
+    l = FD_LAYOUT_APPEND( l, fd_reasm_align(),                    fd_reasm_footprint( tile->replay.fec_max ) );
   }
   l = FD_LAYOUT_APPEND( l, alignof(fd_reception_stats_t),       sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
@@ -526,7 +526,7 @@ block_completed_event_fill_bank( fd_replay_tile_t *           ctx,
   if(      FD_LIKELY( prepared )                ) ev->epoch = bank->f.epoch;
   else if( FD_LIKELY( ctx->notified_root_bank ) ) ev->epoch = fd_slot_to_epoch( &ctx->notified_root_bank->f.epoch_schedule, slot, NULL );
   fd_block_id_ele_t const * ele = &ctx->block_id_arr[ bank->idx ];
-  fd_memcpy( ev->block_id, ctx->alpenglow ? ele->dmr.uc : ele->latest_mr.uc, sizeof(ev->block_id) );
+  fd_memcpy( ev->block_id, ctx->alpenglow && ele->block_id_seen ? ele->dmr.uc : ele->latest_mr.uc, sizeof(ev->block_id) );
   if( FD_LIKELY( bank->block_completed_nanos ) ) fd_memcpy( ev->bank_hash, bank->f.bank_hash.uc, sizeof(ev->bank_hash) );
 
   ev->first_fec_set_received_time      = bank->is_leader ? 0UL : (ulong)bank->first_fec_set_received_nanos;
@@ -997,6 +997,12 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
     fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
+    if( FD_UNLIKELY( !footer_bank_hash ) ) {
+      /* Can't validate the bank hash; mark dead rather than dereference NULL. */
+      FD_LOG_WARNING(( "slot %lu: no footer present at finalize; marking dead", bank->f.slot ));
+      mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+      return;
+    }
     if( FD_UNLIKELY( memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
       FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
@@ -1084,6 +1090,8 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   block_id_ele->slot           = slot;
   block_id_ele->bank_seq       = ctx->leader_bank->bank_seq;
   block_id_ele->latest_fec_idx = 0U;
+  memset( &block_id_ele->latest_mr,  0, sizeof(fd_hash_t) );
+  memset( &block_id_ele->dmr,        0, sizeof(fd_hash_t) );
 
   ctx->leader_bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   ctx->leader_bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
@@ -2101,7 +2109,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_root_advanced( ctx, stem, bank );
 
     if( ctx->reasm ) {
-    fd_reasm_fec_t * fec = fd_reasm_init( ctx->reasm, &manifest_block_id, snapshot_slot );
+      fd_reasm_fec_t * fec = fd_reasm_init( ctx->reasm, &manifest_block_id, snapshot_slot );
       fec->bank_idx        = (uint)bank->idx;
       fec->bank_seq        = bank->bank_seq;
     }
@@ -2256,15 +2264,16 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
   for( ulong i=0UL; i<dead_idxs_cnt; i++ ) {
     fd_block_id_ele_t * ele = &ctx->block_id_arr[ dead_idxs[ i ] ];
 
-    fd_reasm_fec_t *    fec = !ctx->alpenglow ? fd_reasm_query( ctx->reasm, &ele->latest_mr ) : NULL;
-    if( !ctx->alpenglow && FD_LIKELY( fec ) ) { fec->bank_dead = (uchar)(abandoned ? 2U : 1U); fec->dead_reported = 1; }
+    fd_reasm_fec_t * fec = !ctx->alpenglow ? fd_reasm_query( ctx->reasm, &ele->latest_mr ) : NULL;
+    if( !ctx->alpenglow && fec ) { fec->bank_dead = (uchar)(abandoned ? 2U : 1U); fec->dead_reported = 1; }
 
     timing_slot_release( ctx, dead_idxs[ i ] );
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, dead_idxs[ i ] );
     int dr = abandoned                 ? FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD
            : dead_idxs[ i ]==bank_idx  ? dead_reason
            :                             FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_PARENT_DEAD;
-    report_block_incomplete( ctx, ele->slot, ctx->alpenglow && ele->block_id_seen ? &ele->dmr : &ele->latest_mr, bank, dr, abandoned_reason );
+    fd_hash_t * block_id = ctx->alpenglow && ele->block_id_seen ? &ele->dmr : &ele->latest_mr;
+    report_block_incomplete( ctx, ele->slot, block_id, bank, dr, abandoned_reason );
   }
 }
 
@@ -2423,8 +2432,24 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
     return PROCESS_FEC_WAIT;
   }
 
-  ulong parent_bank_idx = UINT_MAX;
-  fd_block_id_ele_t * parent = NULL;
+  /* Recovery redelivery re-publishes the entire ancestry path from the
+     chainer root, but most of those blocks are already replayed.  Skip
+     any FEC (slot, block_id) names a block we have already fully
+     replayed */
+  if( FD_UNLIKELY( fec->known_id ) ) {
+    ag_block_id_t       self_key = ag_block_id( fec->slot, fec->block_id.uc );
+    fd_block_id_ele_t * self     = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &self_key, NULL, ctx->block_id_arr );
+    if( FD_UNLIKELY( self ) ) {
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, self ) );
+      if( bank && bank->bank_seq==self->bank_seq && bank->state!=FD_BANK_STATE_PRUNABLE &&
+          ( self->block_id_seen || self->latest_fec_idx>=fec->fec_set_idx ) ) {
+        return PROCESS_FEC_SKIP;
+      }
+    }
+  }
+
+  ulong               parent_bank_idx = UINT_MAX;
+  fd_block_id_ele_t * parent          = NULL;
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
     ag_block_id_t parent_key = ag_block_id( fec->parent_slot, fec->parent_block_id.uc );
     parent = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &parent_key, NULL, ctx->block_id_arr );
@@ -2436,19 +2461,15 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   } else {
     ag_block_id_t key = { .slot = fec->slot };
-    if( FD_LIKELY( fec->verified ) ) key = ag_block_id( fec->slot, fec->block_id.uc );
+    if( FD_LIKELY( fec->known_id ) ) key = ag_block_id( fec->slot, fec->block_id.uc );
 
     parent = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key, NULL, ctx->block_id_arr );
     if( FD_UNLIKELY( !parent ) ) {
       FD_BASE58_ENCODE_32_BYTES( fec->block_id.uc, block_id_b58 );
       FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u slot_bid %s. parent slot %lu", fec->slot, fec->fec_set_idx, block_id_b58, fec->parent_slot ));
       return PROCESS_FEC_DROP; // either pruned or bank evicted
-    } else if( FD_UNLIKELY( parent->latest_fec_idx!=fec->fec_set_idx - FD_FEC_SHRED_CNT ) ) {
-      FD_LOG_INFO(( "stale fec for slot %lu fec set idx %u, parent slot %lu. bank_idx %lu, latest_fec_idx %u", fec->slot, fec->fec_set_idx, fec->parent_slot, fd_block_id_ele_get_idx( ctx->block_id_arr, parent ), parent->latest_fec_idx ));
-      return PROCESS_FEC_SKIP; // context for slot exists, but this is an earlier FEC. Safe to skip.
-    } else {
-      parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
     }
+    parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   }
 
   ctx->metrics.reasm_latest_slot    = fec->slot;
@@ -2511,6 +2532,13 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
   if( FD_UNLIKELY( invalid_parent ) ) {
     FD_LOG_INFO(( "parent bank evicted for slot %lu fec set idx %u, parent slot %lu", fec->slot, fec->fec_set_idx, fec->parent_slot ));
     return PROCESS_FEC_DROP;
+  } else if( FD_UNLIKELY( fec->fec_set_idx!=0U && parent->latest_fec_idx!=fec->fec_set_idx - FD_FEC_SHRED_CNT ) ) {
+    /* Similar to the very first condition in can_process_rotor_fec,
+       but this would hit if we were halfway through replaying a slot
+       and then requested redelivery from rotor. Then we can skip
+       replaying the first half of the slot. */
+    FD_LOG_INFO(( "fec redelivered for slot %lu fec set idx %u, parent slot %lu. bank_idx %lu, latest_fec_idx %u", fec->slot, fec->fec_set_idx, fec->parent_slot, fd_block_id_ele_get_idx( ctx->block_id_arr, parent ), parent->latest_fec_idx ));
+    return PROCESS_FEC_SKIP; // context for slot exists, but this is an earlier or non-contiguous FEC. Safe to skip.
   }
 
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
@@ -2808,7 +2836,7 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ctx->notified_root_slot==ctx->consensus_root_slot &&
                  fd_hash_eq( &ctx->notified_root, &ctx->consensus_root ) ) ) return 0;
 
- fd_block_id_ele_t * block_id_ele = fd_block_id_ele_query( ctx, &ctx->consensus_root, ctx->consensus_root_slot );
+  fd_block_id_ele_t * block_id_ele = fd_block_id_ele_query( ctx, &ctx->consensus_root, ctx->consensus_root_slot );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
@@ -3529,11 +3557,10 @@ process_fec_complete( fd_replay_tile_t *         ctx,
 }
 
 /* Essentially an inlined version of try_process_fec that reads off the
-   dcache directly, instead of the reasm out_queue.  TODO bank eviction
-   state machine.
+   dcache directly, instead of the reasm out_queue.
    All FECs processed by this function must be safe to be forever
    removed from the dcache. */
-static int
+static void
 process_rotor_fec( fd_replay_tile_t      * ctx,
                    fd_stem_context_t     * stem,
                    fd_rotor_replay_fec_t * fec ) {
@@ -3544,7 +3571,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
 
   /* A leader FEC arriving after its slot was aborted (or after a later
      leadership began) has no bank to bind to; drop it. */
-  if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return 1;
+  if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return;
 
   ulong parent_bank_idx = ULONG_MAX;
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
@@ -3561,7 +3588,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
        this FEC on a bank keyed with the computed DMR - if it doesn't
        exist, it must belong to the original turbine version. */
     ag_block_id_t key = { .slot = fec->slot };
-    if( FD_LIKELY( fec->verified )) {
+    if( FD_LIKELY( fec->known_id ) ) {
       key = ag_block_id( fec->slot, fec->block_id.uc );
     }
 
@@ -3573,9 +3600,9 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
   FD_TEST( parent_bank );
 
-  if( FD_UNLIKELY( parent_bank->state == FD_BANK_STATE_DEAD ) ) {
+  if( FD_UNLIKELY( parent_bank->state==FD_BANK_STATE_DEAD ) ) {
     FD_LOG_WARNING(( "parent bank is dead for slot %lu, fec set idx %u, parent slot %lu, dropping", fec->slot, fec->fec_set_idx, fec->parent_slot ));
-    return 1;
+    return;
   }
 
   // insert_fec_set equivalent
@@ -3588,17 +3615,22 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
 
   fd_store_fec_t * store_fec = fd_store_query( ctx->store, &fec->mr );
   ctx->metrics.store_query_cnt++;
-  if( FD_UNLIKELY( !store_fec && !fec->is_leader ) ) {
+  /* A missing store entry is expected: rotor (the store publisher)
+     removes FEC sets on publish, so a FEC delivered for a slice that has
+     since been pruned/rooted is no longer in the store.  Abandon the
+     slice rather than dereference a NULL store_fec below (fd_store_fec_data
+     and the sched copy would fault on it). */
+  if( FD_UNLIKELY( !store_fec ) ) {
     ctx->metrics.store_query_missing_cnt++;
     ctx->metrics.store_query_missing_mr = fec->mr.ul[0];
     FD_BASE58_ENCODE_32_BYTES( fec->mr.key, key_b58 );
-    FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
-    return 1;
+    FD_LOG_INFO(( "store fec for slot: %lu not present (pruned by publish); abandoning slice. root: %lu. merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
+    return;
   }
 
   long now = fd_log_wallclock();
   fd_block_id_ele_t * block_id_ele;
-  fd_bank_t * bank;
+  fd_bank_t *         bank;
   if( FD_UNLIKELY( fec->fec_set_idx==0U ) ) {
     bank = fec->is_leader ? ctx->leader_bank : fd_banks_new_bank( ctx->banks, parent_bank_idx, now, 0 );
     if( FD_UNLIKELY( fec->is_leader && ctx->leader_stats.slot==fec->slot ) ) {
@@ -3617,10 +3649,14 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->block_info     = ag_block_id( fec->slot, fec->block_id.uc );
 
+    /* If this fec 0 is rebuilding an evicted block (recovery redelivery),
+       the evicted bank's stale map entry may still hold this key at a
+       DIFFERENT idx. */
+    fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ); // evicted / stale entry
     FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, block_id_ele, ctx->block_id_arr ) );
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele.
-      The block stays keyed by {slot, 0} in the compound map. */
+       The block stays keyed by {slot, 0} in the compound map. */
     block_id_ele = &ctx->block_id_arr[ parent_bank_idx ];
     block_id_ele->latest_fec_idx = fec->fec_set_idx;
     bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
@@ -3638,15 +3674,20 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
        delivery stream per block (a turbine copy of a slot with a
        votor-driven version is abandoned in the chainer, see
        fd_rotor_tile.h), so {slot, block_id} can never already be
-       occupied by another bank. */
+       occupied by another LIVE bank.  It can however be occupied by a
+       STALE entry: a previously-completed copy of this block whose bank
+       was evicted (eviction does not remove map entries), now being
+       rebuilt through recovery redelivery.  Evict the stale entry before
+       inserting. */
     FD_TEST( fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele );
-    block_id_ele->block_info = ag_block_id( fec->slot, fec->block_id.uc );
-    FD_TEST( !fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ) );
+    ag_block_id_t key = ag_block_id( fec->slot, fec->block_id.uc );
+    block_id_ele->block_info = key;
+    fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &key, NULL, ctx->block_id_arr ); // evicted / stale entry
     FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */
-  if( FD_UNLIKELY( fec->is_leader ) ) return 1;
+  if( FD_UNLIKELY( fec->is_leader ) ) return;
 
   /* Forks form a partial ordering over FEC sets. The Rotor tile
      delivers FEC sets in-order per fork, but FEC set ordering across
@@ -3677,19 +3718,14 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     int ar = dr==FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD ? FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED
                                                                : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
     mark_bank_dead( ctx, stem, sched_fec->bank_idx, dr, ar );
-    return 1;
+    return;
   }
   } FD_STORE_SLOCK_END;
 
   ctx->metrics.store_query_release++;
   fd_histf_sample( ctx->metrics.store_query_work, (ulong)fd_log_wallclock() - work );
   ctx->execrp_idle_cnt = 0UL;
-  return 1;
-}
-
-static int
-notify_rotor_fec( fd_replay_tile_t * ctx FD_PARAM_UNUSED, fd_stem_context_t * stem FD_PARAM_UNUSED, fd_rotor_replay_fec_t * fec FD_PARAM_UNUSED ) {
-  return 0;
+  return;
 }
 
 static void
@@ -4144,18 +4180,37 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
       int evict_banks = 0;
       int res = can_process_rotor_fec( ctx, fec, &evict_banks );
+
+      /* drain_rotor_fecs: a bank eviction broke the replayable chain of
+         FECs delivered from rotor (we lost a parent we needed to
+         replay off of).  While draining, ignore DROP/SKIP FECs until
+         one is replayable again (PROCESS_FEC_OK, i.e. its parent
+         context is present), then resume normal processing.  WAIT must
+         fall through to the retry/eviction logic below: WAIT's contract
+         is keep-and-retry, and the redelivered FEC that rebuilds the
+         evicted block can itself return WAIT+evict_banks (banks full) --
+         swallowing it would consume the frag, never queue the eviction,
+         and wedge recovery. */
+      if( FD_UNLIKELY( ctx->drain_rotor_fecs ) ) {
+        if( FD_LIKELY( res==PROCESS_FEC_OK ) ) {
+          ctx->drain_rotor_fecs = 0; /* chain re-established, resume */
+        }
+        else if( res!=PROCESS_FEC_WAIT ) return 0; /* swallow DROPs/SKIPs, do evict_banks if needed */
+      }
+
       switch( res ) {
         case PROCESS_FEC_OK: {
           process_rotor_fec( ctx, stem, fec );
           return 0;
         }
         case PROCESS_FEC_DROP: {
-          notify_rotor_fec( ctx, stem, fec );
+          /* enter drain state */
+          ctx->drain_rotor_fecs = 1;
+          fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_MISSING_FEC, ctx->replay_out->chunk, 0, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+          ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, 0, ctx->replay_out->chunk0, ctx->replay_out->wmark );
           return 0;
         }
-        case PROCESS_FEC_SKIP: {
-          return 0;
-        }
+        case PROCESS_FEC_SKIP: { return 0; }
         case PROCESS_FEC_WAIT: {
           /* queue an eviction, then retry the frag. */
           if( FD_UNLIKELY( evict_banks ) ) {
@@ -4172,12 +4227,12 @@ returnable_frag( fd_replay_tile_t *  ctx,
             if( FD_UNLIKELY( fd_sched_block_is_discarded( ctx->sched, evictable_bank_idx ) ) ) {
               fd_block_id_ele_t * ele = &ctx->block_id_arr[ evictable_bank_idx ];
               report_block_incomplete( ctx, ele->slot, ctx->alpenglow && ele->block_id_seen ? &ele->dmr : &ele->latest_mr, fd_banks_bank_query( ctx->banks, evictable_bank_idx ),
-                                        FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED );
+                                       FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED );
             }
 
             /* Send a notification to other tiles to drop a reference to the
-                evictable bank.  The RPC tile is the only tile which holds onto
-                non-rooted banks, non-transiently. */
+               evictable bank.  The RPC tile is the only tile which holds onto
+               non-rooted banks, non-transiently. */
             fd_replay_drop_bank_ref_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
             fd_sched_block_abandon( ctx->sched, evictable_bank_idx, FD_SCHED_ABANDON_DISCARDED );
             msg->bank_idx = evictable_bank_idx;
@@ -4295,21 +4350,21 @@ privileged_init( fd_topo_t const *      topo,
     }
   }
 
-  FD_TEST( fd_rng_secure( &ctx->rng_seed,           sizeof(ctx->rng_seed) ) );
-  FD_TEST( fd_rng_secure( &ctx->blockhash_seed,     sizeof(ulong) )         );
-  FD_TEST( fd_rng_secure( &ctx->reasm_seed,         sizeof(ulong) )         );
-  FD_TEST( fd_rng_secure( &ctx->vote_tracker_seed,  sizeof(ulong) )         );
-  FD_TEST( fd_rng_secure( &ctx->block_id_map_seed,  sizeof(ulong) )         );
-  FD_TEST( fd_rng_secure( &ctx->ag_block_id_map_seed, sizeof(ulong) )       );
-  FD_TEST( fd_rng_secure( &ctx->initial_block_id,   sizeof(fd_hash_t) )     );
-  FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed, sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->rng_seed,             sizeof(ctx->rng_seed) ) );
+  FD_TEST( fd_rng_secure( &ctx->blockhash_seed,       sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->reasm_seed,           sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->vote_tracker_seed,    sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->block_id_map_seed,    sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->ag_block_id_map_seed, sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->initial_block_id,     sizeof(fd_hash_t) )     );
+  FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed,   sizeof(ulong) )         );
 }
 
 static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  void * reasm_mem = NULL;
+  void * reasm_mem        = NULL;
   void * block_id_map_mem = NULL;
   ulong chain_cnt = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
 
@@ -4497,6 +4552,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->mleaders );
 
   ctx->is_leader             = 0;
+  ctx->drain_rotor_fecs      = 0;
   ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
   ctx->snapmk.active                        = 0;
   ctx->snapmk.supported                     = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;

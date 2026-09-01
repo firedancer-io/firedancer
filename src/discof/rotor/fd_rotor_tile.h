@@ -96,7 +96,7 @@ struct fd_rotor_replay_fec {
       If rotor is asked to redeliver a full chain of FECs from root down
       to a slot, every re-delivered FEC should also have known_id set to 1,
       because logically we know the block_id. */
-   int       verified;
+   int       known_id;
    fd_hash_t block_id; /* only populated if slot_complete is 1, or if verified is 1 */
 };
 typedef struct fd_rotor_replay_fec fd_rotor_replay_fec_t;
