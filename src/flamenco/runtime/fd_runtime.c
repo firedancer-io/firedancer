@@ -23,6 +23,7 @@
 #include "sysvar/fd_sysvar_slot_history.h"
 
 #include "../stakes/fd_stakes.h"
+#include "../stakes/fd_epoch_stakes_digest.h"
 #include "../rewards/fd_rewards.h"
 #include "../features/fd_feature_snoop.h"
 
@@ -685,6 +686,22 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
 
   fd_runtime_update_leaders( bank, runtime_stack );
 
+  /* Commit to the three live epoch stakes sets.  This is the only
+     point at which they change, and every one of them is final here:
+     t-1 was just rebuilt by fd_refresh_vote_accounts, t-2 was written
+     by the first fork to cross this boundary (fd_vote_stakes_new_fork,
+     back in fd_runtime_block_execute_prepare), and t-3 is the other
+     parity slot, untouched for the whole epoch.  The digests are then
+     inherited by every descendant bank and folded into each of their
+     bank hashes.
+
+     bank->f.epoch is already the new epoch T here (bumped in
+     fd_stakes_activate_epoch), so the tiers map onto epochs T-1, T-2
+     and T-3.  Those are keyed T+1, T and T-1 in an Agave manifest;
+     fd_epoch_stakes_digest binds the epoch the set represents. */
+
+  fd_runtime_update_epoch_stakes_digests( bank, runtime_stack->epoch_stakes_digest_scratch );
+
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(( "starting epoch %s%lu%s at slot %lu %s(took %.6f seconds)%s", fd_log_style_bold(), bank->f.epoch, fd_log_style_normal(), bank->f.slot, fd_log_style_dim(), (double)(end - start) / 1e9, fd_log_style_normal() ));
 }
@@ -845,6 +862,30 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
   FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
 }
 
+void
+fd_runtime_update_epoch_stakes_digests( fd_bank_t *              bank,
+                                        fd_vote_stake_weight_t * scratch ) {
+  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong                    fork_id     = bank->vote_stakes_fork_id;
+  ulong                    epoch       = bank->f.epoch;
+
+  /* Each tier is keyed by the leader schedule epoch it determines.  At
+     epoch 0 there is no t-3 set; the saturating subtraction keeps the
+     key well defined and the tier digests as the empty set. */
+
+  fd_epoch_stakes_digest_tier( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3,
+                               fd_ulong_sat_sub( epoch, 1UL ),
+                               scratch, &bank->f.epoch_stakes_digests[ 0 ] );
+
+  fd_epoch_stakes_digest_tier( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2,
+                               epoch,
+                               scratch, &bank->f.epoch_stakes_digests[ 1 ] );
+
+  fd_epoch_stakes_digest_tier( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1,
+                               epoch+1UL,
+                               scratch, &bank->f.epoch_stakes_digests[ 2 ] );
+}
+
 static void
 fd_runtime_update_bank_hash( fd_bank_t *        bank,
                              fd_capture_ctx_t * capture_ctx ) {
@@ -857,6 +898,16 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
       (fd_hash_t *)bank->f.poh.hash,
       bank->f.signature_count,
       new_bank_hash );
+
+  /* Commit to the epoch stakes this bank is executing against.  The
+     digests only change at the epoch boundary but are mixed in on
+     every slot: a snapshot taken mid-epoch carries only its own bank
+     hash as a trust anchor, with no chain back to the boundary where
+     the commitment would otherwise have been made.  The loader mirrors
+     this in verify_bank_hash. */
+  if( FD_FEATURE_ACTIVE_BANK( bank, epoch_stakes_bank_hash ) ) {
+    fd_hashes_apply_epoch_stakes( new_bank_hash, bank->f.epoch_stakes_digests );
+  }
 
   /* Update the bank hash */
   bank->f.bank_hash = *new_bank_hash;
@@ -1650,6 +1701,13 @@ fd_runtime_process_genesis_block( fd_bank_t *          bank,
 
   fd_hash_t * bank_hash = &bank->f.bank_hash;
   fd_hashes_hash_bank( lthash, prev_bank_hash, (fd_hash_t *)bank->f.poh.hash, 0UL, bank_hash );
+
+  /* Mirrors fd_runtime_update_bank_hash for a genesis booted chain.
+     The digests are still zero here: epoch 0 has no boundary behind it,
+     so fd_runtime_process_new_epoch has not run yet. */
+  if( FD_FEATURE_ACTIVE_BANK( bank, epoch_stakes_bank_hash ) ) {
+    fd_hashes_apply_epoch_stakes( bank_hash, bank->f.epoch_stakes_digests );
+  }
 
   fd_bank_lthash_end_locking_query( bank );
 

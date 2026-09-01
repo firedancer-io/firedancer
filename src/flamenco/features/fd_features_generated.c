@@ -2013,6 +2013,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "relax_fee_payer_constraint",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, epoch_stakes_bank_hash)>>3,
+    .id                        = {"\x3e\x7e\x01\x52\xb2\xed\xb9\x10\xf1\x59\x94\x13\x6e\x36\x68\xe7\x84\x86\x40\x01\x7a\x16\xce\x0e\x71\x04\x9f\xf1\x4d\x3a\x74\x89"},
+                                 /* 5CwiaZ51XKjDDo1NsJD7nBVvbW61VQG3gHXc6QsYPHiY */
+    .name                      = "epoch_stakes_bank_hash",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2323,6 +2329,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_291 0x8ea2469cb4e5a93cUL, .val = &ids[291]
 #define MAP_PERFECT_292 0xb2513619e40fef85UL, .val = &ids[292]
 #define MAP_PERFECT_293 0x1e7f253e967667d3UL, .val = &ids[293]
+#define MAP_PERFECT_294 0x10b9edb252017e3eUL, .val = &ids[294]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2627,4 +2634,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enable_tx_v1                         
 FD_STATIC_ASSERT( offsetof( fd_features_t, double_disinflation_rate                                )>>3==291UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, alpenglow                                               )>>3==292UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, relax_fee_payer_constraint                              )>>3==293UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, epoch_stakes_bank_hash                                  )>>3==294UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

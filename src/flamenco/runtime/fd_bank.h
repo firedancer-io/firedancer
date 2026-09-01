@@ -324,6 +324,8 @@ struct fd_bank {
     fd_hard_fork_t         hard_forks[ FD_HARD_FORKS_MAX ]; /* never changes at runtime, required for snapshot creation */
     fd_hash_t              bank_hash;
     fd_hash_t              prev_bank_hash;
+
+    fd_hash_t              epoch_stakes_digests[ 3UL ];
     fd_epoch_schedule_t    epoch_schedule;
     fd_rent_t              rent;
     fd_sysvar_cache_t      sysvar_cache;

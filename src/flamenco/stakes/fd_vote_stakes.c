@@ -814,6 +814,19 @@ fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
 }
 
 ulong
+fd_vote_stakes_cnt_t_3( fd_vote_stakes_t const * vote_stakes,
+                        ulong                    fork_id ) {
+  ulong epoch = (ulong)fork_id_epoch( fork_id );
+  if( FD_UNLIKELY( !epoch ) ) return 0UL;
+
+  ulong t_3_epoch = epoch - 1UL;
+  ulong t_3_idx   = t_3_epoch & 1UL;
+  if( FD_UNLIKELY( vote_stakes->t_2_epoch[ t_3_idx ]!=t_3_epoch ) ) return 0UL;
+
+  return vacc_pool_used( t_2_vacc_pool( vote_stakes, t_3_idx ) );
+}
+
+ulong
 fd_vote_stakes_total_stake( fd_vote_stakes_t const * vote_stakes,
                             ulong                    epoch ) {
   ulong idx = epoch & 1UL;

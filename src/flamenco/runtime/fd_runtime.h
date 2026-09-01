@@ -333,6 +333,32 @@ typedef struct fd_txn_out fd_txn_out_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_runtime_update_epoch_stakes_digests recomputes
+   bank->f.epoch_stakes_digests from the bank's three resident epoch
+   stakes tiers.
+
+   Each tier is keyed by the leader schedule epoch it determines, which
+   is how Agave keys its versioned_epoch_stakes map, so that a digest
+   taken here and a digest taken over a snapshot manifest agree without
+   either side having to rederive the mapping:
+
+     digests[0] <- t-3, keyed bank->f.epoch-1
+     digests[1] <- t-2, keyed bank->f.epoch
+     digests[2] <- t-1, keyed bank->f.epoch+1
+
+   Call at the epoch boundary once the tiers are final, and on snapshot
+   load once they have been populated.  scratch must hold at least
+   FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS entries and is clobbered.
+
+   Not gated: computing a digest has no effect on its own, and the
+   snapshot load path runs before bank->f.features is restored.  The
+   epoch_stakes_bank_hash gate is applied where the digests are mixed
+   into the bank hash instead. */
+
+void
+fd_runtime_update_epoch_stakes_digests( fd_bank_t *              bank,
+                                        fd_vote_stake_weight_t * scratch );
+
 /* fd_runtime_block_execute_prepare kicks off the execution of a block.
    After this function is called, transactions can be executed and
    committed against the block.  This function handles epoch boundary

@@ -685,6 +685,52 @@ test_fd_hashes_update_lthash( void ) {
   FD_LOG_NOTICE(( "test_fd_hashes_update_lthash passed" ));
 }
 
+static void
+test_fd_hashes_apply_epoch_stakes( void ) {
+  FD_LOG_NOTICE(( "Testing fd_hashes_apply_epoch_stakes" ));
+
+  fd_hash_t base;
+  memset( &base, 0x11, sizeof(fd_hash_t) );
+
+  fd_hash_t digests[ 3 ];
+  memset( &digests[0], 0xA0, sizeof(fd_hash_t) );
+  memset( &digests[1], 0xB0, sizeof(fd_hash_t) );
+  memset( &digests[2], 0xC0, sizeof(fd_hash_t) );
+
+  /* The mix-in must actually change the hash, otherwise the epoch
+     stakes would not be committed to at all. */
+  fd_hash_t got = base;
+  fd_hashes_apply_epoch_stakes( &got, digests );
+  FD_TEST( !fd_hash_equal( &got, &base ) );
+
+  /* Deterministic. */
+  fd_hash_t again = base;
+  fd_hashes_apply_epoch_stakes( &again, digests );
+  FD_TEST( fd_hash_equal( &got, &again ) );
+
+  /* Each of the three tiers must be bound independently: swapping any
+     two must change the result, or a tier could be substituted for
+     another. */
+  for( ulong i=0UL; i<3UL; i++ ) {
+    for( ulong j=i+1UL; j<3UL; j++ ) {
+      fd_hash_t swapped[ 3 ] = { digests[0], digests[1], digests[2] };
+      fd_hash_t tmp = swapped[i]; swapped[i] = swapped[j]; swapped[j] = tmp;
+      fd_hash_t out = base;
+      fd_hashes_apply_epoch_stakes( &out, swapped );
+      FD_TEST( !fd_hash_equal( &out, &got ) );
+    }
+  }
+
+  /* And the base hash must still matter. */
+  fd_hash_t other_base;
+  memset( &other_base, 0x22, sizeof(fd_hash_t) );
+  fd_hash_t out = other_base;
+  fd_hashes_apply_epoch_stakes( &out, digests );
+  FD_TEST( !fd_hash_equal( &out, &got ) );
+
+  FD_LOG_NOTICE(( "test_fd_hashes_apply_epoch_stakes passed" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -693,6 +739,7 @@ main( int     argc,
   test_fd_hashes_account_lthash();
   test_fd_hashes_hash_bank();
   test_fd_hashes_apply_hard_forks();
+  test_fd_hashes_apply_epoch_stakes();
   test_fd_hashes_update_lthash();
 
   FD_LOG_NOTICE(( "pass" ));

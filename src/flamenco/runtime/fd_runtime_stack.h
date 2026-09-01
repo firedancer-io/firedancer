@@ -144,6 +144,14 @@ struct fd_runtime_stack {
     fd_stake_weight_t      next_id_weights[ MAX_STAKE_WEIGHTS ];
     ulong                  next_id_weights_cnt;
   } epoch_weights;
+
+  /* Staging memory for gathering and sorting one epoch stakes set into
+     canonical order before digesting it.  Kept separate from the
+     leader schedule staging above so that the two cannot alias: both
+     are used at the epoch boundary.  MAX_STAKE_WEIGHTS is asserted
+     equal to FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, which is the bound
+     fd_epoch_stakes_digest_tier requires. */
+  fd_vote_stake_weight_t epoch_stakes_digest_scratch[ MAX_STAKE_WEIGHTS ];
 };
 typedef struct fd_runtime_stack fd_runtime_stack_t;
 

@@ -987,6 +987,17 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
       FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
       FD_LOG_WARNING(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+      if( FD_FEATURE_ACTIVE_BANK( bank, epoch_stakes_bank_hash ) ) {
+        /* The epoch stakes commitment is folded into the bank hash but
+           is not otherwise visible anywhere, so a divergence caused by
+           a bad epoch stakes set would be indistinguishable from any
+           other bank hash mismatch.  Print the three digests so it can
+           be told apart from an lthash or PoH divergence. */
+        FD_BASE58_ENCODE_32_BYTES( bank->f.epoch_stakes_digests[ 0 ].uc, es_t3_b58 );
+        FD_BASE58_ENCODE_32_BYTES( bank->f.epoch_stakes_digests[ 1 ].uc, es_t2_b58 );
+        FD_BASE58_ENCODE_32_BYTES( bank->f.epoch_stakes_digests[ 2 ].uc, es_t1_b58 );
+        FD_LOG_WARNING(( "slot %lu: epoch stakes digests t-3 %s t-2 %s t-1 %s", bank->f.slot, es_t3_b58, es_t2_b58, es_t1_b58 ));
+      }
       mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
       return;
     } else {
@@ -2099,7 +2110,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                                           ctx->banks,
                                           fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ ),
-                                          ctx->blockhash_seed ) ) ) {
+                                          ctx->blockhash_seed,
+                                          ctx->runtime_stack->epoch_stakes_digest_scratch ) ) ) {
         FD_LOG_ERR(( "Snapshot manifest recovery failed, aborting." ));
       }
 

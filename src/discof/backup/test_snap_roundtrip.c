@@ -331,21 +331,26 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
     }
     FD_TEST( seen_t2_vote1 && seen_t2_vote0 );
 
+    FD_TEST( t3->vote_stakes_len==VALIDATOR_CNT );
     for( ulong i=0UL; i<t3->vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * vs = &t3->vote_stakes[i];
       FD_TEST( !memcmp( vs->commission_inflation, zero32, 32UL ) );
       FD_TEST( !memcmp( vs->commission_block,     zero32, 32UL ) );
       FD_TEST( !vs->epoch_credits_history_len );
 
-      int found = 0;
-      for( ulong j=0UL; j<*fd_bank_epoch_credits_len( bank ); j++ ) {
-        fd_epoch_credits_t const * ec = &fd_bank_epoch_credits( bank )[ j ];
-        if( memcmp( vs->vote, ec->pubkey, 32UL ) ) continue;
-        FD_TEST( vs->commission==ec->commission );
-        found = 1;
-        break;
-      }
-      FD_TEST( found );
+      FD_TEST( vs->stake );
+      FD_TEST( memcmp( vs->identity, zero32, 32UL ) );
+
+      ulong  t3_stake      = 0UL;
+      ushort t3_commission = 0;
+      fd_pubkey_t t3_identity;
+      FD_TEST( fd_vote_stakes_query_t_3( fd_bank_vote_stakes( bank ),
+                                         bank->vote_stakes_fork_id,
+                                         (fd_pubkey_t const *)vs->vote,
+                                         &t3_identity, &t3_stake, &t3_commission ) );
+      FD_TEST( vs->stake==t3_stake );
+      FD_TEST( vs->commission==t3_commission );
+      FD_TEST( !memcmp( vs->identity, &t3_identity, 32UL ) );
     }
   }
 
