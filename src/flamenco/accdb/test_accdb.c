@@ -1747,6 +1747,20 @@ test_sentinel_index_wrap( void ) {
   FD_TEST( fp ); /* 0 would mean partition_cnt==8192 was rejected */
 }
 
+static void
+test_txn_footprint_growth( void ) {
+  ulong fp_64 = fd_accdb_shmem_footprint( 1024UL, 1UL, 64UL, 64UL,
+                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+  ulong fp_96 = fd_accdb_shmem_footprint( 1024UL, 1UL, 96UL, 64UL,
+                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+  FD_TEST( fp_64 );
+  FD_TEST( fp_96 );
+
+  /* Each additional transaction needs an 8-byte fork-list entry and a
+     4-byte deferred-free index.  Both counts increase by 32 here. */
+  FD_TEST( fp_96-fp_64==32UL*(8UL+4UL) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1805,6 +1819,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_mainnet_footprint ..." ));
   test_mainnet_footprint();
+
+  FD_LOG_NOTICE(( "test_txn_footprint_growth ..." ));
+  test_txn_footprint_growth();
 
   FD_LOG_NOTICE(( "test_acquire_b_refund_accounting ..." ));
   test_acquire_b_refund_accounting();
