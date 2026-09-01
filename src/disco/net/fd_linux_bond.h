@@ -22,6 +22,15 @@ fd_bonding_is_master( char const * device );
 uint
 fd_bonding_slave_cnt( char const * device );
 
+/* fd_bonding_is_lacp returns 1 if the given bond master is in 802.3ad
+   (LACP link aggregation) mode.  Returns 0 if it is in any other mode,
+   or if the bonding mode could not be determined (in which case a
+   warning is logged).  device is assumed to be a bond master (see
+   fd_bonding_is_master). */
+
+int
+fd_bonding_is_lacp( char const * device );
+
 /* fd_bonding_slave_iter provides an API to iterate over the slave
    devices of a network bond. */
 
