@@ -2180,6 +2180,10 @@ verify_ticks_eager( fd_sched_block_t * block ) {
     FD_LOG_INFO(( "bad block: TOO_MANY_TICKS, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
     return FD_SCHED_DEAD_REASON_TOO_MANY_TICKS;
   }
+  if( FD_UNLIKELY( block->mblk_tick_cnt+block->tick_height==block->max_tick_height && !block->fec_eos ) ) {
+    FD_LOG_INFO(( "bad block: INVALID_LAST_TICK, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
+    return FD_SCHED_DEAD_REASON_INVALID_LAST_TICK;
+  }
   if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->zero_hash_tick ) ) {
     FD_LOG_INFO(( "bad block: ZERO_HASH_TICK, slot %lu, parent slot %lu, has at least one zero hash tick", block->slot, block->parent_slot ));
     return FD_SCHED_DEAD_REASON_ZERO_HASH_TICK;
