@@ -11,11 +11,18 @@
      trust anchor
    - Where a presented cert is the issuer, its subject matches and it
      has basicConstraints cA=TRUE
-   - The path terminates at a trust anchor in the CA store
+   - The path terminates at a trust anchor in the CA store (one whose
+     extKeyUsage, if any, permits serverAuth; the store loader drops
+     the rest)
    - Hostname: the leaf cert's SAN must match the expected hostname
    - Every cert on the path is within its validity period
    - Leaf/issuer key usage restrictions met
-   - Intermediate CA path length constraints are respected
+   - Intermediate CA and trust anchor path length constraints are
+     respected
+   - dNSName, iPAddress and directoryName nameConstraints on
+     intermediate CAs and on the trust anchor are respected; a
+     constraint of any other name form rejects certs that carry a SAN of
+     that form, and a CA constraining rfc822Name does not parse at all
 
    We do NOT check:
    - Certificate revocation (CRL / OCSP) */
@@ -48,6 +55,7 @@
 #define FD_X509_VERIFY_ERR_EXT_KEY_USAGE  (13)  /* extKeyUsage lacks serverAuth */
 #define FD_X509_VERIFY_ERR_PATH_LEN       (14)  /* basicConstraints path length exceeded */
 #define FD_X509_VERIFY_ERR_CERT_TOO_LARGE (15)  /* cert exceeds FD_X509_CERT_SZ_MAX */
+#define FD_X509_VERIFY_ERR_NAME_CONSTRAINT (16) /* CA nameConstraints rejected a name */
 
 FD_PROTOTYPES_BEGIN
 
