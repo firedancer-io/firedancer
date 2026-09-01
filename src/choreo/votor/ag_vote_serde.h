@@ -3,56 +3,70 @@
 
 #include "ag_vote.h"
 
-/* Grouped from the wincode ReadError variants (agave error.rs) that are
-   reachable for these fixed layout binary messages; the library's finer
-   split is generic-serializer bookkeeping we cannot act on differently.
-   Variants that cannot arise here are omitted: InvalidUtf8Encoding,
-   InvalidUtf8Code, InvalidCharLead (no strings or chars),
-   InvalidBoolEncoding (no bools), PointerSizedReadError,
-   UnalignedPointerRead (no zero copy reads), TagEncodingOverflow (write side). */
-
 #define AG_VOTE_DE_SUCCESS           (  0)
 #define AG_VOTE_DE_ERR_SZ            ( -1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */
 #define AG_VOTE_DE_ERR_INVAL         ( -2) /* InvalidTagEncoding, InvalidValue                                                 */
 #define AG_VOTE_DE_ERR_SHRED_VERSION ( -3) /* Custom("shred version mismatch")                                                 */
 
-struct __attribute__((packed)) ag_vote_signature_serde {
-  ag_bls_sig_t signature;     /* WireVoteSignature::signature          (BLSSignature) */
-  ushort       shred_version; /* WireConsensusMessageV1::shred_version (u16)          */
-};
-typedef struct ag_vote_signature_serde ag_vote_signature_serde_t;
+/* WireConsensusMessageKind: https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor-messages/src/wire.rs#L164-L176 */
 
-struct __attribute__((packed)) ag_vote_serde {
-  uchar version;                             /* VersionedWireConsensusMessage::V1 (u8 tag)            */
-  uchar kind;                                /* WireConsensusMessageKind          (u8 tag)            */
-  ulong slot;                                /* WireSlotVoteMessage::slot         (Slot)              */
-  union __attribute__((packed)) {
-    struct __attribute__((packed)) {
-      ag_vote_signature_serde_t signature;   /* WireSlotVoteMessage::signature    (WireVoteSignature) */
-    } slot_vote;
-    struct __attribute__((packed)) {
-      ag_block_hash_t           block_id;    /* Block::block_id                   (Hash)              */
-      ag_vote_signature_serde_t signature;   /* WireBlockVoteMessage::signature   (WireVoteSignature) */
-    } block_vote;
-  };
+#define AG_VOTE_SERDE_TAG_NOTAR          (1)  /* WireConsensusMessageKind::NotarVote          #[wincode(tag = 1)] */
+#define AG_VOTE_SERDE_TAG_FINAL          (2)  /* WireConsensusMessageKind::FinalizeVote       #[wincode(tag = 2)] */
+#define AG_VOTE_SERDE_TAG_SKIP           (3)  /* WireConsensusMessageKind::SkipVote           #[wincode(tag = 3)] */
+#define AG_VOTE_SERDE_TAG_NOTAR_FALLBACK (4)  /* WireConsensusMessageKind::NotarFallbackVote  #[wincode(tag = 4)] */
+#define AG_VOTE_SERDE_TAG_SKIP_FALLBACK  (5)  /* WireConsensusMessageKind::SkipFallbackVote   #[wincode(tag = 5)] */
+#define AG_VOTE_SERDE_TAG_GENESIS        (6)  /* WireConsensusMessageKind::GenesisVote        #[wincode(tag = 6)] */
+
+FD_STATIC_ASSERT( AG_VOTE_KIND_NOTAR         +1==AG_VOTE_SERDE_TAG_NOTAR,          ag_vote_serde );
+FD_STATIC_ASSERT( AG_VOTE_KIND_FINAL         +1==AG_VOTE_SERDE_TAG_FINAL,          ag_vote_serde );
+FD_STATIC_ASSERT( AG_VOTE_KIND_SKIP          +1==AG_VOTE_SERDE_TAG_SKIP,           ag_vote_serde );
+FD_STATIC_ASSERT( AG_VOTE_KIND_NOTAR_FALLBACK+1==AG_VOTE_SERDE_TAG_NOTAR_FALLBACK, ag_vote_serde );
+FD_STATIC_ASSERT( AG_VOTE_KIND_SKIP_FALLBACK +1==AG_VOTE_SERDE_TAG_SKIP_FALLBACK,  ag_vote_serde );
+
+struct ag_vote_serde {
+  uchar         version;       /* VersionedWireConsensusMessage::V1     (u8 tag)       */
+  uchar         tag;           /* WireConsensusMessageKind              (u8 tag)       */
+  ulong         slot;          /* WireSlotVoteMessage::slot             (Slot)         */
+  uchar const * block_id;      /* Block::block_id                       (Hash)         */
+  uchar const * signature;     /* WireVoteSignature::signature          (BLSSignature) */
+  ushort        shred_version; /* WireConsensusMessageV1::shred_version (u16)          */
 };
 typedef struct ag_vote_serde ag_vote_serde_t;
 
-FD_PROTOTYPES_BEGIN
+/* the serialized size of a vote, which the kind fixes: only a notar and
+   a notar fallback vote carry a block id, so a vote is one of exactly
+   two sizes and nothing between them is valid. */
 
-/* buf must hold at least AG_VOTE_SER_MAX bytes; returns the number of
-   bytes written. */
+#define AG_VOTE_SER_SZ( has_block_id ) ( sizeof(uchar)                              /* version       */ + \
+                                         sizeof(uchar)                              /* kind          */ + \
+                                         sizeof(ulong)                              /* slot          */ + \
+                                         ( (has_block_id) ? sizeof(ag_block_hash_t) /* block_id      */   \
+                                                          : 0UL )                                       + \
+                                         AG_BLS_SIG_SZ                              /* signature     */ + \
+                                         sizeof(ushort)                             /* shred_version */ )
+
+#define AG_VOTE_SIGNING_SER_MAX ( sizeof(uchar)           /* kind          */ + \
+                                  sizeof(ulong)           /* slot          */ + \
+                                  sizeof(ag_block_hash_t) /* block_id      */ + \
+                                  sizeof(ushort)          /* shred_version */ )
+
+FD_PROTOTYPES_BEGIN
 
 ulong
 ag_vote_ser( ag_vote_t const * self,
              ushort            shred_version,
-             uchar             buf[ static AG_VOTE_SER_MAX ] );
+             uchar             buf[ static AG_VOTE_SER_SZ( 1 ) ] );
 
 int
 ag_vote_de( ag_vote_t *   self,
             ushort        shred_version,
             uchar const * buf,
             ulong         buf_sz );
+
+ulong
+ag_vote_signing_ser( ag_vote_t const * self,
+                     ushort            shred_version,
+                     uchar             buf[ static AG_VOTE_SIGNING_SER_MAX ] );
 
 FD_PROTOTYPES_END
 

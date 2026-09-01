@@ -10,7 +10,7 @@
 #define AG_VOTE_KIND_NOTAR_FALLBACK  (3U)
 #define AG_VOTE_KIND_SKIP_FALLBACK   (4U)
 
-struct __attribute__((packed)) ag_vote_notar {
+struct ag_vote_notar {
   ulong           slot;
   ag_block_hash_t block_hash;
   ag_bls_sig_t    sig;
@@ -18,7 +18,7 @@ struct __attribute__((packed)) ag_vote_notar {
 };
 typedef struct ag_vote_notar ag_vote_notar_t;
 
-struct __attribute__((packed)) ag_vote_notar_fallback {
+struct ag_vote_notar_fallback {
   ulong           slot;
   ag_block_hash_t block_hash;
   ag_bls_sig_t    sig;
@@ -26,28 +26,28 @@ struct __attribute__((packed)) ag_vote_notar_fallback {
 };
 typedef struct ag_vote_notar_fallback ag_vote_notar_fallback_t;
 
-struct __attribute__((packed)) ag_vote_skip {
+struct ag_vote_skip {
   ulong        slot;
   ag_bls_sig_t sig;
   ushort       rank;
 };
 typedef struct ag_vote_skip ag_vote_skip_t;
 
-struct __attribute__((packed)) ag_vote_skip_fallback {
+struct ag_vote_skip_fallback {
   ulong        slot;
   ag_bls_sig_t sig;
   ushort       rank;
 };
 typedef struct ag_vote_skip_fallback ag_vote_skip_fallback_t;
 
-struct __attribute__((packed)) ag_vote_final {
+struct ag_vote_final {
   ulong        slot;
   ag_bls_sig_t sig;
   ushort       rank;
 };
 typedef struct ag_vote_final ag_vote_final_t;
 
-struct __attribute__((packed)) ag_vote {
+struct ag_vote {
   uint kind;
   union {
     ag_vote_notar_t          notar;
@@ -59,18 +59,8 @@ struct __attribute__((packed)) ag_vote {
 };
 typedef struct ag_vote ag_vote_t;
 
-#define AG_VOTE_PAYLOAD_MAX (43UL)
-
-#define AG_VOTE_SER_MAX (2UL + sizeof(ag_vote_notar_t) + 2UL)
-
 FD_PROTOTYPES_BEGIN
 
-ulong
-ag_vote_payload_bytes_to_sign( uchar *               out,
-                               uint                  kind,
-                               ulong                 slot,
-                               ag_block_hash_t const hash,
-                               ushort                shred_version );
 
 ag_vote_t
 ag_vote_construct_notar( ulong                 slot,

@@ -52,33 +52,57 @@ test_basic( void ) {
   FD_TEST( ag_vote_slot( &v )==4UL );
 }
 
+/* the bytes a voter of the given kind over slot, and hash for the
+   notarizing kinds, would have signed.  A cert aggregates the voters'
+   signatures, so checking one means rebuilding their payload rather
+   than serializing a vote we hold. */
+
+static ulong
+voter_signing_ser( uint          kind,
+                   ulong         slot,
+                   uchar const * hash,
+                   ushort        shred_version,
+                   uchar         buf[ static AG_VOTE_SIGNING_SER_MAX ] ) {
+  ag_vote_t vote[1]; fd_memset( vote, 0, sizeof(ag_vote_t) );
+  vote->kind = kind;
+  switch( kind ) {
+  case AG_VOTE_KIND_NOTAR:          vote->notar.slot          = slot; memcpy( vote->notar.block_hash,          hash, sizeof(ag_block_hash_t) ); break;
+  case AG_VOTE_KIND_FINAL:          vote->final.slot          = slot;                                                                           break;
+  case AG_VOTE_KIND_SKIP:           vote->skip.slot           = slot;                                                                           break;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: vote->notar_fallback.slot = slot; memcpy( vote->notar_fallback.block_hash, hash, sizeof(ag_block_hash_t) ); break;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  vote->skip_fallback.slot  = slot;                                                                           break;
+  default:                          __builtin_unreachable();
+  }
+  return ag_vote_signing_ser( vote, shred_version, buf );
+}
+
 static void
 test_payload_distinct( void ) {
   ag_block_hash_t h; memset( h, 0x11, sizeof(ag_block_hash_t) );
-  uchar a[ AG_VOTE_PAYLOAD_MAX ], b[ AG_VOTE_PAYLOAD_MAX ];
+  uchar a[ AG_VOTE_SIGNING_SER_MAX ], b[ AG_VOTE_SIGNING_SER_MAX ];
 
-  ulong sa = ag_vote_payload_bytes_to_sign( a, AG_VOTE_KIND_NOTAR,          7UL, h, TEST_SHRED_VERSION );
-  ulong sb = ag_vote_payload_bytes_to_sign( b, AG_VOTE_KIND_NOTAR_FALLBACK, 7UL, h, TEST_SHRED_VERSION );
+  ulong sa = voter_signing_ser( AG_VOTE_KIND_NOTAR,          7UL, h, TEST_SHRED_VERSION, a );
+  ulong sb = voter_signing_ser( AG_VOTE_KIND_NOTAR_FALLBACK, 7UL, h, TEST_SHRED_VERSION, b );
   FD_TEST( sa==sb );
   FD_TEST( memcmp( a, b, sa )!=0 );
 
-  ulong sn = ag_vote_payload_bytes_to_sign( a, AG_VOTE_KIND_NOTAR, 7UL, h, TEST_SHRED_VERSION );
-  ulong sk = ag_vote_payload_bytes_to_sign( b, AG_VOTE_KIND_SKIP,  7UL, NULL, TEST_SHRED_VERSION );
+  ulong sn = voter_signing_ser( AG_VOTE_KIND_NOTAR, 7UL, h, TEST_SHRED_VERSION, a );
+  ulong sk = voter_signing_ser( AG_VOTE_KIND_SKIP,  7UL, NULL, TEST_SHRED_VERSION, b );
   FD_TEST( sn==1UL+8UL+sizeof(ag_block_hash_t)+2UL );
   FD_TEST( sk==1UL+8UL+2UL );
   FD_TEST( a[0]==(uchar)(AG_VOTE_KIND_NOTAR+1U) );
   FD_TEST( b[0]==(uchar)(AG_VOTE_KIND_SKIP+1U)  );
   FD_TEST( FD_LOAD( ushort, a+sn-2UL )==TEST_SHRED_VERSION );
 
-  ulong s0 = ag_vote_payload_bytes_to_sign( a, AG_VOTE_KIND_SKIP, 7UL, NULL, TEST_SHRED_VERSION );
-  ulong s1 = ag_vote_payload_bytes_to_sign( b, AG_VOTE_KIND_SKIP, 8UL, NULL, TEST_SHRED_VERSION );
+  ulong s0 = voter_signing_ser( AG_VOTE_KIND_SKIP, 7UL, NULL, TEST_SHRED_VERSION, a );
+  ulong s1 = voter_signing_ser( AG_VOTE_KIND_SKIP, 8UL, NULL, TEST_SHRED_VERSION, b );
   FD_TEST( s0==s1 );
   FD_TEST( memcmp( a, b, s0 )!=0 );
 }
 
 static void
 check_wire( ag_vote_t const * v, ag_bls_pub_t const pk ) {
-  uchar out[ AG_VOTE_SER_MAX ];
+  uchar out[ AG_VOTE_SER_SZ( 1 ) ];
   ulong n;
   n = ag_vote_ser( v, TEST_SHRED_VERSION, out );
   FD_TEST( n>0UL );
@@ -111,8 +135,8 @@ check_wire( ag_vote_t const * v, ag_bls_pub_t const pk ) {
 
   FD_TEST( ag_vote_verify( v, pk, TEST_SHRED_VERSION ) );
 
-  uchar        payload[ AG_VOTE_PAYLOAD_MAX ];
-  ulong        payload_sz = ag_vote_payload_bytes_to_sign( payload, v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION );
+  uchar        payload[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong        payload_sz = ag_vote_signing_ser( v, TEST_SHRED_VERSION, payload );
   ag_bls_sig_t sig; memcpy( sig, wire_sig, AG_BLS_SIG_SZ );
   FD_TEST( ag_bls_sig_verify( sig, pk, payload, payload_sz ) );
 
