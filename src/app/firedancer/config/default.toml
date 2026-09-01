@@ -1694,8 +1694,9 @@ telemetry = true
         # can maintain at once.  This should be sized to protocol limits
         # of how many slots we maintain in standstill before a root
         # occurs.
-        # Must be power of 2
-        slot_max = 4096
+        # Currently is sized to Agave's 30k bound of how far into the
+        # future it can track certs.
+        slot_max = 30000
 
     [tiles.rserve]
         # If the repair server is enabled.
