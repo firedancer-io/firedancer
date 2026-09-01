@@ -139,6 +139,12 @@ fd_dev_main( int                        argc,
     exit( 1 );
   }
 
+#if !FD_HAS_X86
+  if( FD_UNLIKELY( is_firedancer && strcmp( action_name, "run1" ) ) ) {
+    fprintf( stderr, "WARNING: firedancer-dev is running on a non-x86 architecture; this target is experimental and unsupported.\n" );
+  }
+#endif
+
   int help_argc = argc; char ** help_argv = argv;
   if( FD_UNLIKELY( fd_env_strip_cmdline_contains( &help_argc, &help_argv, "--help" ) ||
                     fd_env_strip_cmdline_contains( &help_argc, &help_argv, "-h"     ) ) ) {

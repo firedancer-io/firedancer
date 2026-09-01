@@ -189,6 +189,26 @@
 #define FD_HAS_ARM 0
 #endif
 
+#ifndef FD_HAS_NEON
+#define FD_HAS_NEON 0
+#endif
+
+#ifndef FD_HAS_ARM_CRYPTO
+#define FD_HAS_ARM_CRYPTO 0
+#endif
+
+#ifndef FD_HAS_ARM_SHA256
+#define FD_HAS_ARM_SHA256 0
+#endif
+
+#ifndef FD_HAS_ARM_SHA512
+#define FD_HAS_ARM_SHA512 0
+#endif
+
+#ifndef FD_HAS_ARM_AES
+#define FD_HAS_ARM_AES 0
+#endif
+
 /* FD_HAS_LZ4 indicates that the target supports LZ4 compression.
    Roughly, does "#include <lz4.h>" and the APIs therein work? */
 
@@ -1371,12 +1391,14 @@ fd_arm_stp16( ulong * p,
       : "memory"                   \
   )
 
-/* fd_arm_ldp16_acq_pc is like fd_arm_ldp16, but with Load-AcquirePC
-   semantics.  Requires RCPC3. */
+/* Load seq with acquire semantics, then sig.  Unlike RCPC3 LDIAPP this
+   is not pair-atomic, so callers must recheck seq after reading the
+   fragment.  This fallback avoids a DMB in every empty poll. */
 
 #define fd_arm_ldp16_acq_pc(p_,a_,b_) \
   __asm__(                            \
-      "ldiapp %x[a], %x[b], [%[p]]"   \
+      "ldar %x[a], [%[p]]\n\t"        \
+      "ldr  %x[b], [%[p], #8]"        \
       : [a] "=r"(a_), [b] "=r"(b_)    \
       : [p] "r"(p_)                   \
       : "memory"                      \

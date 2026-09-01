@@ -51,6 +51,8 @@ typedef struct fd_location_info fd_location_info_t;
 #define MAP_MEMOIZE 0
 #include "../../../util/tmpl/fd_map.c"
 
+#include <stdlib.h>
+
 uchar __attribute__((aligned(alignof(fd_location_info_t)))) location_table_mem[ sizeof(fd_location_info_t) * (1 << 16 ) ];
 
 static struct termios termios_backup;

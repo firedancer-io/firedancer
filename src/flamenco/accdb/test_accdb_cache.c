@@ -78,6 +78,13 @@ main( int     argc,
                      100.0*(double)total/(double)footprint ));
   }
 
+  /* Small-memory, bundles-disabled validators must not spend nearly the
+     whole cache on mostly-idle 1-10 MiB account slots. */
+  FD_TEST( fd_accdb_cache_class_cnt( 6UL*(1UL<<30), fd_accdb_cache_min_reserved( 0 ), class_cnt ) );
+  FD_TEST( class_cnt[3]>=32768UL );
+  FD_TEST( class_cnt[6]<=512UL   );
+  FD_TEST( class_cnt[7]<=256UL   );
+
   /* Edge case: budget too small for the per-class minimums.  Should
      return failure and zero all class counts. */
 

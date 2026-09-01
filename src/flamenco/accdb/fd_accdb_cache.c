@@ -67,8 +67,8 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
      3072UL,  /* class 3: p99  ~2.0K, was undersized at 1.3K */
      1800UL,  /* class 4: p99  ~1.0K, needs headroom for pre-evict to keep up */
       512UL,  /* class 5: p99    ~66, was wastefully sized at 1.3K */
-      704UL,  /* class 6: p99   ~212 */
-      544UL,  /* class 7: p99   ~179; staging covered by MIN_RESERVED */
+      256UL,  /* class 6: p99   ~212; retain modest headroom */
+      192UL,  /* class 7: p99   ~179; MIN_RESERVED already covers it */
   };
 
   ulong slot_sz_sum = ( fd_accdb_cache_slot_sz[ 0UL ] +

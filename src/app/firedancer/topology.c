@@ -1332,7 +1332,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
     tile->net.gossip_listen_port               = config->gossip.port;
     tile->net.repair_client_listen_port        = config->tiles.repair.repair_client_listen_port;
-    tile->net.repair_serve_listen_port         = config->tiles.rserve.repair_serve_listen_port;
+    tile->net.repair_serve_listen_port         = config->tiles.rserve.enabled ? config->tiles.rserve.repair_serve_listen_port : 0U;
     tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {

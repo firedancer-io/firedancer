@@ -48,6 +48,7 @@ printf '\n' | "$@" -march=native -E -dM - | awk '
     emit_feature( "FD_HAS_AVX",     "__AVX2__" )
     emit_feature( "FD_HAS_GFNI",    "__GFNI__" )
     emit_feature( "FD_IS_X86_64",   "__x86_64__" )
+    emit_feature( "FD_IS_ARM",      "__aarch64__" )
     emit_feature( "FD_HAS_AESNI",   "__AES__" )
 
     # Older versions of GCC (<10) do not fully support AVX512.

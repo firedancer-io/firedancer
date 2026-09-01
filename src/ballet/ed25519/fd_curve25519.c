@@ -13,7 +13,26 @@
 #endif
 
 #define WNAF_BIT_SZ 4
-#define WNAF_TBL_SZ (2*WNAF_BIT_SZ)
+#define WNAF_TBL_SZ 8
+
+#if defined(FD_F25519_ARM)
+FD_25519_INLINE void
+fd_ed25519_arm_pepadd( ulong                       acc[16],
+                       ulong                       out[16],
+                       fd_ed25519_point_t const *  p,
+                       int                         negate ) {
+  ulong pre[12];
+  if( negate ) {
+    memcpy( pre,     p->Y->el, 32UL );
+    memcpy( pre + 4, p->X->el, 32UL );
+    bignum_neg_p25519( pre + 8, p->T->el );
+  } else {
+    memcpy( pre, p->X->el, 96UL );
+  }
+  edwards25519_pepadd_alt( out, acc, pre );
+}
+
+#endif
 
 /*
  * Ser/de
@@ -34,6 +53,16 @@
 fd_ed25519_point_t *
 fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
                             uchar const          buf[ 32 ] ) {
+#if defined(FD_F25519_ARM)
+  ulong xy[8];
+  if( FD_LIKELY( !edwards25519_decode_alt( xy, buf ) ) ) {
+    memcpy( r->X->el, xy,     32UL );
+    memcpy( r->Y->el, xy + 4, 32UL );
+    fd_f25519_set( r->Z, fd_f25519_one );
+    fd_f25519_mul( r->T, r->X, r->Y );
+    return r;
+  }
+#endif
   fd_f25519_t x[1], y[1], t[1];
   fd_f25519_frombytes( y, buf );
   uchar expected_x_sign = buf[31] >> 7;
@@ -68,6 +97,10 @@ fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
 uchar *
 fd_ed25519_point_tobytes( uchar                      out[ 32 ],
                           fd_ed25519_point_t const * a ) {
+#if defined(FD_F25519_ARM)
+  if( FD_LIKELY( fd_f25519_eq( a->Z, fd_f25519_one ) ) )
+    return fd_ed25519_affine_tobytes( out, a );
+#endif
   fd_f25519_t x[1], y[1], z[1], t[1];
   fd_ed25519_point_to( x, y, z, t, a );
   fd_f25519_inv( t, z );
@@ -132,11 +165,31 @@ fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
   short n1slide[256]; fd_curve25519_scalar_wnaf( n1slide, n1, WNAF_BIT_SZ );
   short n2slide[256]; fd_curve25519_scalar_wnaf( n2slide, n2, 8 );
 
+#if defined(FD_F25519_ARM)
+  ulong ai[WNAF_TBL_SZ][16];
+  ulong ai_neg[WNAF_TBL_SZ][16];
+  ulong a2[16];
+#else
   fd_ed25519_point_t ai[WNAF_TBL_SZ]; /* A,3A,5A,7A,9A,11A,13A,15A */
   fd_ed25519_point_t a2[1];           /* 2A (temp) */
   fd_ed25519_point_t t[1];
+#endif
 
   /* pre-computed table */
+#if defined(FD_F25519_ARM)
+  memcpy( ai[0],      a->X->el, 32UL );
+  memcpy( ai[0] + 4,  a->Y->el, 32UL );
+  memcpy( ai[0] + 8,  a->Z->el, 32UL );
+  memcpy( ai[0] + 12, a->T->el, 32UL );
+  edwards25519_epdouble_alt( a2, ai[0] );
+  for( int i=1; i<WNAF_TBL_SZ; i++ )
+    edwards25519_epadd_alt( ai[i], a2, ai[i-1] );
+  for( int i=0; i<WNAF_TBL_SZ; i++ ) {
+    bignum_neg_p25519( ai_neg[i],      ai[i]      );
+    memcpy(             ai_neg[i] + 4,  ai[i] + 4, 64UL );
+    bignum_neg_p25519( ai_neg[i] + 12, ai[i] + 12 );
+  }
+#else
   fd_ed25519_point_set( &ai[0], a );
   fd_ed25519_point_dbln( a2, a, 1 ); // note: a is affine, we could save 1mul
   fd_curve25519_into_precomputed( &ai[0] );
@@ -146,8 +199,43 @@ fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
     /* pre-compute kT, to save 1mul during the loop */
     fd_curve25519_into_precomputed( &ai[i] );
   }
+#endif
 
   /* main dbl-and-add loop */
+#if defined(FD_F25519_ARM)
+  ulong acc0[16] = { 0UL };
+  ulong acc1[16];
+  ulong * acc = acc0;
+  ulong * out = acc1;
+  acc[4] = 1UL;
+  acc[8] = 1UL;
+
+  int i;
+  for( i=255; i>=0; i-- ) { if( n1slide[i] || n2slide[i] ) break; }
+  for( ; i>=0; i-- ) {
+    if( FD_LIKELY( i && !(n1slide[i] | n2slide[i]) ) )
+      edwards25519_pdouble_alt( out, acc );
+    else
+      edwards25519_epdouble_alt( out, acc );
+    ulong * swap = acc; acc = out; out = swap;
+
+    if( n1slide[i] ) {
+      uint idx = fd_int_abs( n1slide[i] ) / 2U;
+      edwards25519_epadd_alt( out, acc, n1slide[i]<0 ? ai_neg[idx] : ai[idx] );
+      ulong * swap = acc; acc = out; out = swap;
+    }
+    if( n2slide[i] ) {
+      fd_ed25519_arm_pepadd( acc, out, &fd_ed25519_base_point_wnaf_table[fd_int_abs( n2slide[i] ) / 2], n2slide[i]<0 );
+      ulong * swap = acc; acc = out; out = swap;
+    }
+  }
+
+  memcpy( r->X->el, acc,      32UL );
+  memcpy( r->Y->el, acc + 4,  32UL );
+  memcpy( r->Z->el, acc + 8,  32UL );
+  memcpy( r->T->el, acc + 12, 32UL );
+  return r;
+#else
   fd_ed25519_point_set_zero( r );
 
   int i;
@@ -167,6 +255,7 @@ fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
     }
   }
   return r;
+#endif
 }
 
 
