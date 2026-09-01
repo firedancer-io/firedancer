@@ -678,9 +678,9 @@ fd_tower_to_vote_txn( fd_tower_t    const * tower,
                       fd_txn_p_t          * vote_txn );
 
 /* fd_tower_verify checks tower is in a valid state. Valid iff:
-   - cnt < FD_TOWER_VOTE_MAX
-   - vote slots and confirmation counts in the tower are monotonically
-     increasing */
+   - cnt <= FD_TOWER_VOTE_MAX
+   - from head to tail, vote slots are strictly increasing and
+     confirmation counts are strictly decreasing */
 
 int
 fd_tower_verify( fd_tower_t const * tower );
