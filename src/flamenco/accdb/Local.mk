@@ -14,6 +14,7 @@ $(call run-unit-test,test_accdb_cache)
 $(call make-unit-test,bench_accdb,bench_accdb,fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,bench_accdb_hotread,bench_accdb_hotread,fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,bench_accdb_txn,bench_accdb_txn,fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,bench_accdb_cleanup,bench_accdb_cleanup,fd_flamenco fd_ballet fd_util)
 
 ifdef FD_HAS_RACESAN
 $(call make-unit-test,test_accdb_racesan,test_accdb_racesan,fd_flamenco fd_ballet fd_util)
