@@ -49,6 +49,8 @@ printf '\n' | "$@" -march=native -E -dM - | awk '
     emit_feature( "FD_HAS_GFNI",    "__GFNI__" )
     emit_feature( "FD_IS_X86_64",   "__x86_64__" )
     emit_feature( "FD_HAS_AESNI",   "__AES__" )
+    emit_feature( "FD_IS_ARM",         "__aarch64__" )
+    emit_feature( "FD_HAS_NEON",       "__ARM_NEON" )
 
     # Older versions of GCC (<10) do not fully support AVX512.
     if( !( "__GNUC__" in define && !( "__clang__" in define ) && define["__GNUC__"]<10 ) )

@@ -1,5 +1,4 @@
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_SSE
 $(call add-hdrs,fd_snapct_tile.h)
 $(call add-objs,fd_snapct_tile,fd_discof)
 $(call make-unit-test,test_snapct_tile,test_snapct_tile,fd_discof fd_disco fd_waltz fd_flamenco fd_ballet fd_tango fd_util,$(OPENSSL_LIBS))
@@ -16,7 +15,6 @@ $(call run-unit-test,test_snapin_tile)
 $(call add-objs,fd_snapwr_tile,fd_discof)
 $(call make-unit-test,test_snapwr_tile,test_snapwr_tile,fd_discof fd_disco fd_flamenco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_snapwr_tile)
-endif # FD_HAS_SSE
 ifdef FD_HAS_ZSTD
 $(call add-objs,utils/fd_zstd_frame,fd_discof)
 $(call make-unit-test,test_zstd_frame,utils/test_zstd_frame,fd_discof fd_ballet fd_util)

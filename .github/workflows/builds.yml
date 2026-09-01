@@ -260,8 +260,6 @@ jobs:
       - uses: ./.github/actions/submodule-init
 
       - name: Run build
-        env:
-          MACHINE: linux_gcc_neoverse_n2
         run: |
           if [ "${{ matrix.gcc_version }}" != "8" ]; then
             source /opt/rh/gcc-toolset-${{ matrix.gcc_version }}/enable

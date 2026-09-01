@@ -307,6 +307,18 @@ fd_mcache_publish( fd_frag_meta_t * mcache,   /* Assumed a current local join */
                    ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
                    ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
   fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+#if FD_HAS_ARM
+  __atomic_store_n( &meta->seq, fd_seq_dec( seq, 1UL ), __ATOMIC_RELAXED );
+  FD_HW_MFENCE_ST();
+  meta->sig    =         sig;
+  meta->chunk  = (uint  )chunk;
+  meta->sz     = (ushort)sz;
+  meta->ctl    = (ushort)ctl;
+  meta->tsorig = (uint  )tsorig;
+  meta->tspub  = (uint  )tspub;
+  __atomic_store_n( &meta->seq, seq, __ATOMIC_RELEASE );
+  FD_HW_MFENCE_ST();
+#else
   FD_COMPILER_MFENCE();
   meta->seq    = fd_seq_dec( seq, 1UL );
   FD_COMPILER_MFENCE();
@@ -319,6 +331,7 @@ fd_mcache_publish( fd_frag_meta_t * mcache,   /* Assumed a current local join */
   FD_COMPILER_MFENCE();
   meta->seq    = seq;
   FD_COMPILER_MFENCE();
+#endif
 }
 
 #if FD_HAS_SSE
@@ -391,16 +404,20 @@ fd_mcache_publish_arm( fd_frag_meta_t * mcache,   /* Assumed a current local joi
                        ulong            ctl,      /* Assumed in [0,USHORT_MAX] */
                        ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
                        ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
-  /* stp   seq-1, sig, [meta]
+  /* str   seq-1,      [meta]
+     dmb   ishst
+     str   sig,        [meta, #8]
      stp   ul2,   ul3, [meta, #16]
      stlr  seq,        [meta] */
   fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
   ulong ul2 = fd_frag_meta_ul2( chunk, sz, ctl );
   ulong ul3 = fd_frag_meta_ul3( tsorig, tspub );
-  fd_arm_stp16( meta->ul, fd_seq_dec( seq, 1UL ), sig );
+  __atomic_store_n( &meta->seq, fd_seq_dec( seq, 1UL ), __ATOMIC_RELAXED );
   FD_HW_MFENCE_ST();
+  meta->sig = sig;
   fd_arm_stp16( meta->ul+2, ul2, ul3 );
   __atomic_store_n( &meta->seq, seq, __ATOMIC_RELEASE );
+  FD_HW_MFENCE_ST();
 }
 
 #endif
@@ -608,13 +625,10 @@ fd_mcache_publish_arm( fd_frag_meta_t * mcache,   /* Assumed a current local joi
     long                   _fd_mcache_wait_seq_diff;                                                                      \
     ulong                  _fd_mcache_wait_poll_max     = (poll_max);                                                     \
     for(;;) {                                                                                                             \
-      FD_COMPILER_MFENCE();                                                                                               \
-      _fd_mcache_wait_seq_found = _fd_mcache_wait_mline->seq; /* atomic */                                                \
-      FD_COMPILER_MFENCE();                                                                                               \
+      _fd_mcache_wait_seq_found = __atomic_load_n( &_fd_mcache_wait_mline->seq, __ATOMIC_ACQUIRE );                      \
       *_fd_mcache_wait_meta = *_fd_mcache_wait_mline; /* probably non-atomic, typically fast L1 cache hit */              \
-      FD_COMPILER_MFENCE();                                                                                               \
-      ulong _fd_mcache_wait_seq_test = _fd_mcache_wait_mline->seq; /* atomic, typically fast L1 cache hit */              \
-      FD_COMPILER_MFENCE();                                                                                               \
+      FD_HW_MFENCE_LD();                                                                                                  \
+      ulong _fd_mcache_wait_seq_test = __atomic_load_n( &_fd_mcache_wait_mline->seq, __ATOMIC_RELAXED );                  \
       _fd_mcache_wait_seq_diff = fd_seq_diff( _fd_mcache_wait_seq_found, _fd_mcache_wait_seq_expected );                  \
       int _fd_mcache_wait_done = ((_fd_mcache_wait_seq_found==_fd_mcache_wait_seq_test) & (_fd_mcache_wait_seq_diff>=0L)) \
                                | (!--_fd_mcache_wait_poll_max);                                                           \
@@ -646,18 +660,15 @@ fd_mcache_publish_arm( fd_frag_meta_t * mcache,   /* Assumed a current local joi
     ulong                  _fd_mcache_wait_seq_found;                                                                     \
     long                   _fd_mcache_wait_seq_diff;                                                                      \
     for(;;) {                                                                                                             \
-      FD_COMPILER_MFENCE();                                                                                               \
-      _fd_mcache_wait_seq_found = _fd_mcache_wait_mline->seq; /* atomic */                                                \
-      FD_COMPILER_MFENCE();                                                                                               \
+      _fd_mcache_wait_seq_found = __atomic_load_n( &_fd_mcache_wait_mline->seq, __ATOMIC_ACQUIRE );                      \
       _fd_mcache_wait_sig       =        _fd_mcache_wait_mline->sig;                                                      \
       _fd_mcache_wait_chunk     = (ulong)_fd_mcache_wait_mline->chunk;                                                    \
       _fd_mcache_wait_sz        = (ulong)_fd_mcache_wait_mline->sz;                                                       \
       _fd_mcache_wait_ctl       = (ulong)_fd_mcache_wait_mline->ctl;                                                      \
       _fd_mcache_wait_tsorig    = (ulong)_fd_mcache_wait_mline->tsorig;                                                   \
       _fd_mcache_wait_tspub     = (ulong)_fd_mcache_wait_mline->tspub;                                                    \
-      FD_COMPILER_MFENCE();                                                                                               \
-      ulong _fd_mcache_wait_seq_test = _fd_mcache_wait_mline->seq; /* atomic, typically fast L1 cache hit */              \
-      FD_COMPILER_MFENCE();                                                                                               \
+      FD_HW_MFENCE_LD();                                                                                                  \
+      ulong _fd_mcache_wait_seq_test = __atomic_load_n( &_fd_mcache_wait_mline->seq, __ATOMIC_RELAXED );                  \
       _fd_mcache_wait_seq_diff = fd_seq_diff( _fd_mcache_wait_seq_found, _fd_mcache_wait_seq_expected );                  \
       int _fd_mcache_wait_done = ((_fd_mcache_wait_seq_found==_fd_mcache_wait_seq_test) & (_fd_mcache_wait_seq_diff>=0L)) \
                                | (!--_fd_mcache_wait_poll_max);                                                           \
@@ -776,4 +787,3 @@ fd_mcache_query( fd_frag_meta_t const * mcache,
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_mcache_fd_mcache_h */
-
