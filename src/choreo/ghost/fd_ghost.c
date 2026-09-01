@@ -610,7 +610,8 @@ fd_ghost_publish( fd_ghost_t     * ghost,
     blk_pool_ele_release( blk_pool( ghost ), head );                       /* free prune queue head */
     head = next;                                                           /* move prune queue head forward */
   }
-  newr->parent = null;                                    /* unlink old root */
+  newr->parent  = null;                                   /* unlink old root */
+  newr->sibling = null;                                   /* root has no siblings */
   ghost->root  = blk_pool_idx( blk_pool( ghost ), newr ); /* replace with new root */
 }
 

@@ -126,6 +126,7 @@ test_publish_left( fd_wksp_t * wksp ) {
 
   fd_ghost_blk_t * root = fd_ghost_root( ghost );
   FD_TEST( root==fd_ghost_query( ghost, &block_ids[2] ) );
+  FD_TEST( !fd_ghost_blk_sibling( ghost, root ) );
   FD_TEST( blk_pool_ele( blk_pool( ghost ), root->child )->slot == 4 );
   FD_TEST( fd_ghost_best   ( ghost, root )==fd_ghost_query( ghost, &block_ids[4] ) );
   FD_TEST( fd_ghost_deepest( ghost, root )==fd_ghost_query( ghost, &block_ids[4] ) );
