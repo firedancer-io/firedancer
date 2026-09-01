@@ -449,7 +449,6 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_PREV              map_prev
-#define MAP_KEY_NULL          null_addr
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #define MAP_KEY_EQ(k0,k1)     (!memcmp((k0)->b,(k1)->b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key)->b ))
