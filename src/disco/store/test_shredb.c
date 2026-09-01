@@ -347,6 +347,38 @@ test_many_wraps( void ) {
 }
 
 static void
+test_sparse_slots_exhaust_slot_map( void ) {
+  FD_LOG_NOTICE(( "TEST sparse slots exhaust slot map" ));
+
+  void * mem;
+  fd_shredb_t * store = setup_store( &mem, 1UL );
+
+  ulong slot_max = fd_shredb_slot_map_key_max( store->slot_map );
+  FD_TEST( slot_max<store->max_shreds );
+
+  for( ulong slot=0UL; slot<slot_max; slot++ )
+    insert_shred( store, slot, 0U, NULL, 0UL );
+
+  FD_TEST( store->cnt==slot_max );
+  FD_TEST( fd_shredb_slot_map_key_cnt( store->slot_map )==slot_max );
+
+  /* A new slot cannot be indexed.  It must be dropped without modifying
+     the shred ring or aborting. */
+  insert_shred( store, slot_max, 0U, NULL, 0UL );
+  FD_TEST( store->cnt==slot_max );
+
+  uchar out[ FD_SHRED_MAX_SZ ];
+  FD_TEST( fd_shredb_query( store, slot_max, 0U, out )==-1 );
+
+  /* Shreds for already-indexed slots remain admissible. */
+  insert_shred( store, 0UL, 1U, NULL, 0UL );
+  FD_TEST( store->cnt==slot_max+1UL );
+  FD_TEST( fd_shredb_query( store, 0UL, 1U, out )>0 );
+
+  teardown_store( store, mem );
+}
+
+static void
 bench_insert( void ) {
   void * mem;
   fd_shredb_t * store = setup_store( &mem, 1UL );
@@ -461,6 +493,7 @@ main( int argc, char ** argv ) {
   test_query_highest();
   test_collision_eviction();
   test_many_wraps();
+  test_sparse_slots_exhaust_slot_map();
 
   bench_insert();
   bench_query_hit();

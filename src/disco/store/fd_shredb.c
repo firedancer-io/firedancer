@@ -216,6 +216,9 @@ fd_shredb_insert( fd_shredb_t      * store,
   ulong key = fd_shredb_key_pack( slot, shred_idx );
   if( fd_shredb_shred_map_query( store, key )!=ULONG_MAX ) return;
 
+  if( FD_UNLIKELY( fd_shredb_slot_map_key_cnt( store->slot_map )>=fd_shredb_slot_map_key_max( store->slot_map ) &&
+                   !fd_shredb_slot_map_query( store->slot_map, slot, NULL ) ) ) return;
+
   /* Grow the backing file if the write head has reached the current
      file capacity.  Double the file size each time (superlinear growth)
      until we hit max_shreds, after which the ring simply evicts. */
