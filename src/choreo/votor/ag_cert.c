@@ -1,5 +1,7 @@
 #include "ag_cert.h"
 
+#include "ag_vote_serde.h" /* ag_vote_signing_ser */
+
 static int
 is_signer( ag_cert_t const * self,
            ulong             rank ) {
@@ -24,6 +26,30 @@ check_threshold( ag_cert_t const *       self,
                     ag_epoch_info_is_quorum( epoch_info, stake ) );
 }
 
+/* the bytes a voter of the given kind over slot, and hash for the
+   notarizing kinds, would have signed.  A cert aggregates the voters'
+   signatures, so checking one means rebuilding their payload rather
+   than serializing a vote we hold. */
+
+static ulong
+voter_signing_ser( uint          kind,
+                   ulong         slot,
+                   uchar const * hash,
+                   ushort        shred_version,
+                   uchar         buf[ static AG_VOTE_SIGNING_SER_MAX ] ) {
+  ag_vote_t vote[1]; fd_memset( vote, 0, sizeof(ag_vote_t) );
+  vote->kind = kind;
+  switch( kind ) {
+  case AG_VOTE_KIND_NOTAR:          vote->notar.slot          = slot; memcpy( vote->notar.block_hash,          hash, sizeof(ag_block_hash_t) ); break;
+  case AG_VOTE_KIND_FINAL:          vote->final.slot          = slot;                                                                           break;
+  case AG_VOTE_KIND_SKIP:           vote->skip.slot           = slot;                                                                           break;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: vote->notar_fallback.slot = slot; memcpy( vote->notar_fallback.block_hash, hash, sizeof(ag_block_hash_t) ); break;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  vote->skip_fallback.slot  = slot;                                                                           break;
+  default:                          __builtin_unreachable();
+  }
+  return ag_vote_signing_ser( vote, shred_version, buf );
+}
+
 static int
 check_sig( ag_cert_t const *       self,
            ag_epoch_info_t const * epoch_info,
@@ -32,31 +58,31 @@ check_sig( ag_cert_t const *       self,
   uchar const *               pk0           = validators->bls_key;
   ulong                       pk_stride     = sizeof(ag_validator_info_t);
   ulong                       validator_cnt = epoch_info->validator_cnt;
-  uchar buf[ AG_VOTE_PAYLOAD_MAX ]; ulong sz;
+  uchar buf[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz;
   switch( self->kind ) {
   case AG_CERT_KIND_NOTAR:
-    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_KIND_NOTAR, self->notar.slot, self->notar.block_hash, shred_version );
+    sz = voter_signing_ser( AG_VOTE_KIND_NOTAR, self->notar.slot, self->notar.block_hash, shred_version, buf );
     return ag_bls_agg_verify( &self->notar.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_KIND_FAST_FINAL:
-    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_KIND_NOTAR, self->fast_final.slot, self->fast_final.block_hash, shred_version );
+    sz = voter_signing_ser( AG_VOTE_KIND_NOTAR, self->fast_final.slot, self->fast_final.block_hash, shred_version, buf );
     return ag_bls_agg_verify( &self->fast_final.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_KIND_FINAL:
-    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_KIND_FINAL, self->final.slot, NULL, shred_version );
+    sz = voter_signing_ser( AG_VOTE_KIND_FINAL, self->final.slot, NULL, shred_version, buf );
     return ag_bls_agg_verify( &self->final.agg_sig, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_cert_notar_fallback_t const * notar_fallback = &self->notar_fallback;
-    uchar buf_fallback[ AG_VOTE_PAYLOAD_MAX ]; ulong sz_fallback;
-    sz          = ag_vote_payload_bytes_to_sign( buf,          AG_VOTE_KIND_NOTAR,          notar_fallback->slot, notar_fallback->block_hash, shred_version );
-    sz_fallback = ag_vote_payload_bytes_to_sign( buf_fallback, AG_VOTE_KIND_NOTAR_FALLBACK, notar_fallback->slot, notar_fallback->block_hash, shred_version );
+    uchar buf_fallback[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz_fallback;
+    sz          = voter_signing_ser( AG_VOTE_KIND_NOTAR,          notar_fallback->slot, notar_fallback->block_hash, shred_version, buf );
+    sz_fallback = voter_signing_ser( AG_VOTE_KIND_NOTAR_FALLBACK, notar_fallback->slot, notar_fallback->block_hash, shred_version, buf_fallback );
     return ag_bls_agg_verify_merged( &notar_fallback->agg_sig_notar,          buf,          sz,
                                      &notar_fallback->agg_sig_notar_fallback, buf_fallback, sz_fallback,
                                      pk0, pk_stride, validator_cnt );
   }
   case AG_CERT_KIND_SKIP: {
     ag_cert_skip_t const * skip = &self->skip;
-    uchar buf_fallback[ AG_VOTE_PAYLOAD_MAX ]; ulong sz_fallback;
-    sz          = ag_vote_payload_bytes_to_sign( buf,          AG_VOTE_KIND_SKIP,          skip->slot, NULL, shred_version );
-    sz_fallback = ag_vote_payload_bytes_to_sign( buf_fallback, AG_VOTE_KIND_SKIP_FALLBACK, skip->slot, NULL, shred_version );
+    uchar buf_fallback[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz_fallback;
+    sz          = voter_signing_ser( AG_VOTE_KIND_SKIP,          skip->slot, NULL, shred_version, buf );
+    sz_fallback = voter_signing_ser( AG_VOTE_KIND_SKIP_FALLBACK, skip->slot, NULL, shred_version, buf_fallback );
     return ag_bls_agg_verify_merged( &skip->agg_sig_skip,          buf,          sz,
                                      &skip->agg_sig_skip_fallback, buf_fallback, sz_fallback,
                                      pk0, pk_stride, validator_cnt );

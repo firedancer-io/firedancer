@@ -24,10 +24,6 @@ struct ag_bls_agg {
 };
 typedef struct ag_bls_agg ag_bls_agg_t;
 
-#define AG_BLS_WORDS_FOR_BITS(bit_cnt) (((bit_cnt)+63UL)/64UL)
-#define AG_BLS_SER_SZ(bit_cnt)         (AG_BLS_SIG_SZ + 8UL + 8UL + 8UL*AG_BLS_WORDS_FOR_BITS(bit_cnt))
-#define AG_BLS_SER_MAX                 (AG_BLS_SER_SZ(AG_BLS_SIGNERS_MAX))
-
 typedef void
 (* ag_bls_sign_fn)( void *        ctx,
                     ag_bls_sig_t  sig,

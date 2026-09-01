@@ -32,32 +32,6 @@
 #define CLOSE_CODE_INVALID_IDENTITY (2U)
 #define CLOSE_CODE_NOT_ADMITTED     (3U)
 
-#define DATAGRAM_KIND_NOTAR_VOTE          ( 1)
-#define DATAGRAM_KIND_FINALIZE_VOTE       ( 2)
-#define DATAGRAM_KIND_SKIP_VOTE           ( 3)
-#define DATAGRAM_KIND_NOTAR_FALLBACK_VOTE ( 4)
-#define DATAGRAM_KIND_SKIP_FALLBACK_VOTE  ( 5)
-#define DATAGRAM_KIND_GENESIS_VOTE        ( 6)
-#define DATAGRAM_KIND_FINALIZE_CERT       ( 7)
-#define DATAGRAM_KIND_FAST_FINALIZE_CERT  ( 8)
-#define DATAGRAM_KIND_NOTAR_CERT          ( 9)
-#define DATAGRAM_KIND_NOTAR_FALLBACK_CERT (10)
-#define DATAGRAM_KIND_SKIP_CERT           (11)
-#define DATAGRAM_KIND_GENESIS_CERT        (12)
-
-FD_STATIC_ASSERT( AG_VOTE_KIND_NOTAR          +1==DATAGRAM_KIND_NOTAR_VOTE,          vote_kind );
-FD_STATIC_ASSERT( AG_VOTE_KIND_FINAL          +1==DATAGRAM_KIND_FINALIZE_VOTE,       vote_kind );
-FD_STATIC_ASSERT( AG_VOTE_KIND_SKIP           +1==DATAGRAM_KIND_SKIP_VOTE,           vote_kind );
-FD_STATIC_ASSERT( AG_VOTE_KIND_NOTAR_FALLBACK +1==DATAGRAM_KIND_NOTAR_FALLBACK_VOTE, vote_kind );
-FD_STATIC_ASSERT( AG_VOTE_KIND_SKIP_FALLBACK  +1==DATAGRAM_KIND_SKIP_FALLBACK_VOTE,  vote_kind );
-
-FD_STATIC_ASSERT( AG_CERT_KIND_FINAL         +7==DATAGRAM_KIND_FINALIZE_CERT,       cert_kind );
-FD_STATIC_ASSERT( AG_CERT_KIND_FAST_FINAL    +7==DATAGRAM_KIND_FAST_FINALIZE_CERT,  cert_kind );
-FD_STATIC_ASSERT( AG_CERT_KIND_NOTAR         +7==DATAGRAM_KIND_NOTAR_CERT,          cert_kind );
-FD_STATIC_ASSERT( AG_CERT_KIND_NOTAR_FALLBACK+7==DATAGRAM_KIND_NOTAR_FALLBACK_CERT, cert_kind );
-FD_STATIC_ASSERT( AG_CERT_KIND_SKIP          +7==DATAGRAM_KIND_SKIP_CERT,           cert_kind );
-FD_STATIC_ASSERT( AG_CERT_KIND_GENESIS       +7==DATAGRAM_KIND_GENESIS_CERT,        cert_kind );
-
 static fd_quic_limits_t quic_client_limits = {
   .conn_cnt                    = AG_VAT_MAX,
   .handshake_cnt               = 1024UL,
@@ -238,7 +212,7 @@ struct fd_votor_tile {
     ag_epoch_info_t curr_epoch_info;
     ag_epoch_info_t next_epoch_info;
 
-    uchar ser[ AG_VOTE_SER_MAX > AG_CERT_SER_MAX ? AG_VOTE_SER_MAX : AG_CERT_SER_MAX ];
+    uchar ser[ AG_VOTE_SER_SZ( 1 ) > AG_CERT_SER_MAX ? AG_VOTE_SER_SZ( 1 ) : AG_CERT_SER_MAX ];
   } scratch;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
@@ -374,12 +348,12 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
   uchar kind = data[ 1 ];
 
   switch( kind ) {
-  case DATAGRAM_KIND_NOTAR_VOTE:
-  case DATAGRAM_KIND_FINALIZE_VOTE:
-  case DATAGRAM_KIND_SKIP_VOTE:
-  case DATAGRAM_KIND_NOTAR_FALLBACK_VOTE:
-  case DATAGRAM_KIND_SKIP_FALLBACK_VOTE:
-  case DATAGRAM_KIND_GENESIS_VOTE: {
+  case AG_VOTE_SERDE_TAG_NOTAR:
+  case AG_VOTE_SERDE_TAG_FINAL:
+  case AG_VOTE_SERDE_TAG_SKIP:
+  case AG_VOTE_SERDE_TAG_NOTAR_FALLBACK:
+  case AG_VOTE_SERDE_TAG_SKIP_FALLBACK:
+  case AG_VOTE_SERDE_TAG_GENESIS: {
     if( FD_UNLIKELY( ag_vote_de( &ctx->scratch.vote, ctx->shred_version, data, data_sz ) ) ) return;
 
     fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
@@ -395,12 +369,12 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
     return;
   }
-  case DATAGRAM_KIND_FINALIZE_CERT:
-  case DATAGRAM_KIND_FAST_FINALIZE_CERT:
-  case DATAGRAM_KIND_NOTAR_CERT:
-  case DATAGRAM_KIND_NOTAR_FALLBACK_CERT:
-  case DATAGRAM_KIND_SKIP_CERT:
-  case DATAGRAM_KIND_GENESIS_CERT: {
+  case AG_CERT_SERDE_TAG_FINAL:
+  case AG_CERT_SERDE_TAG_FAST_FINAL:
+  case AG_CERT_SERDE_TAG_NOTAR:
+  case AG_CERT_SERDE_TAG_NOTAR_FALLBACK:
+  case AG_CERT_SERDE_TAG_SKIP:
+  case AG_CERT_SERDE_TAG_GENESIS: {
     if( FD_UNLIKELY( ag_cert_de( &ctx->scratch.cert, ctx->shred_version, data, data_sz ) ) ) return;
 
     fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );

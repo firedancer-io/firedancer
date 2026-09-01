@@ -96,7 +96,7 @@ votes_aggregate_de( ag_bls_agg_t * agg,
   ushort bm_cnt = aggregate->bitmap_cnt;
   if( FD_UNLIKELY( bm_cnt>buf_max-sz ) ) return AG_CERT_DE_ERR_SZ;
 
-  int err = ag_cert_base2_bitmap_de( agg, buf+sz, bm_cnt );  if( FD_UNLIKELY( err ) ) return err;
+  int err = ag_bls_agg_de( agg, buf+sz, bm_cnt );  if( FD_UNLIKELY( err ) ) return err;
   memcpy( agg->sig, aggregate->signature, AG_BLS_SIG_COMPRESSED_SZ );
   *buf_sz = sz + bm_cnt;
   return AG_CERT_DE_SUCCESS;
