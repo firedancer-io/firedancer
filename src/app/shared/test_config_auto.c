@@ -123,7 +123,8 @@ main( int     argc,
 
   reset_auto( 4U );
   fd_auto_info_t info3 = { .linux_major=1, .linux_minor=0, .driver="mlx5_core",
-                           .is_virtual_if=1, .is_bonded_if=1, .bonded_if_slave_count=2U };
+                           .is_virtual_if=1, .is_bonded_if=1, .is_lacp_if=1,
+                           .bonded_if_slave_count=2U };
   fd_auto_net( config, &info3 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "skb"     ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "softirq" ) );
@@ -144,6 +145,16 @@ main( int     argc,
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
   FD_TEST( config->net.xdp.xdp_zero_copy==1 );
   FD_TEST( config->net.xdp.listen_gre==0 );
+
+  /* A bond that is not in 802.3ad mode (e.g. active-backup) does not
+     enable native bond, and therefore stays in skb mode */
+
+  reset_auto( 4U );
+  fd_auto_info_t info5 = info4;
+  info5.is_lacp_if = 0;
+  fd_auto_net( config, &info5 );
+  FD_TEST( config->net.xdp.native_bond==0 );
+  FD_TEST( 0==strcmp( config->net.xdp.xdp_mode, "skb" ) );
 
   /* Non XDP provider still collapses "auto" fields to defaults */
 

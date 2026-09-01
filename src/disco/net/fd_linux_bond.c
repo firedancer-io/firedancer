@@ -66,6 +66,34 @@ fd_bonding_slave_iter_ele(
   return iter->tok;
 }
 
+int
+fd_bonding_is_lacp( char const * device ) {
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding/mode", device ) );
+
+  FILE * fp = fopen( path, "r" );
+  if( FD_UNLIKELY( !fp ) ) {
+    FD_LOG_WARNING(( "failed to detect bonding mode of device `%s`, fopen(%s) failed (%i-%s)",
+                     device, path, errno, fd_io_strerror( errno ) ));
+    return 0;
+  }
+
+  /* The mode node holds the mode name followed by its numeric ID,
+     e.g. "802.3ad 4" */
+  char line[ 64 ];
+  errno = 0;
+  char * res = fgets( line, sizeof(line), fp );
+  int    err = errno;
+  fclose( fp );
+  if( FD_UNLIKELY( !res ) ) {
+    FD_LOG_WARNING(( "failed to detect bonding mode of device `%s`, fgets(%s) failed (%i-%s)",
+                     device, path, err, fd_io_strerror( err ) ));
+    return 0;
+  }
+
+  return 0==strncmp( line, "802.3ad ", 8UL );
+}
+
 uint
 fd_bonding_slave_cnt( char const * device ) {
   fd_bonding_slave_iter_t iter_[1];

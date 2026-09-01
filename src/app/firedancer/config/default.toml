@@ -1279,6 +1279,9 @@ telemetry = true
         # devices.  This causes outgoing traffic to be load balanced with
         # an arbitrary/opaque hash policy.  Supports up to 16 slave devices.
         #
+        # Only 802.3ad (LACP) bonds are supported.  In "auto" mode,
+        # native bonding is only enabled for bonds in 802.3ad mode.
+        #
         # Assumes that bond memberships don't change, i.e. running `ip
         # link set dev eth1 master bond0` will crash Firedancer.
         # However, it is fine to bring individual bonded devices down,
