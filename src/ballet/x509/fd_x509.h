@@ -99,6 +99,16 @@ struct fd_x509_cert_info {
   uchar const * san_general_names;
   ulong         san_general_names_len;
   uchar         has_subject_alt_name;
+
+  /* Name Constraints (RFC 5280 Section 4.2.1.10).  Each pointer is the
+     content of an IMPLICIT GeneralSubtrees field.  The verifier
+     enforces dNSName, iPAddress and directoryName subtrees; a subtree
+     of any other form rejects certs carrying a SAN of that form. */
+  uchar const * name_constraints_permitted;
+  ulong         name_constraints_permitted_len;
+  uchar const * name_constraints_excluded;
+  ulong         name_constraints_excluded_len;
+  uchar         has_name_constraints;
 };
 
 typedef struct fd_x509_cert_info fd_x509_cert_info_t;
@@ -166,6 +176,19 @@ fd_x509_name_equal( uchar const * a,
                     uchar const * b,
                     ulong         b_len );
 
+/* fd_x509_name_prefix returns 1 if the RDNs of the DER-encoded Name
+   prefix, compared with the same rules as fd_x509_name_equal, form a
+   leading subsequence of the RDNs of name (RFC 5280 Section 4.2.1.10
+   directoryName subtree matching).  An empty prefix matches every
+   name.  Returns 0 otherwise, including on malformed input; Names
+   taken from fd_x509_cert_parse output are never malformed. */
+
+int
+fd_x509_name_prefix( uchar const * prefix,
+                     ulong         prefix_len,
+                     uchar const * name,
+                     ulong         name_len );
+
 /* fd_x509_time_parse converts an ASN.1 time value to seconds since the
    Unix epoch.  tag is FD_DER_TAG_UTC_TIME (YYMMDDHHMMSSZ, 13 bytes) or
    FD_DER_TAG_GENERALIZED_TIME (YYYYMMDDHHMMSSZ, 15 bytes).  [s,s+s_len)
@@ -178,6 +201,21 @@ long
 fd_x509_time_parse( uchar         tag,
                     uchar const * s,
                     ulong         s_len );
+
+/* fd_x509_dns_name_valid returns 1 if [name,name+len) is a
+   syntactically valid DNS hostname (RFC 1123 preferred syntax, plus
+   '_').  Rejects empty labels, so a leading dot, a trailing dot, and
+   ".." are all invalid.  fd_x509_dns_eq_ci compares two DNS names of
+   equal length, folding ASCII case. */
+
+FD_FN_PURE int
+fd_x509_dns_name_valid( char const * name,
+                        ulong        len );
+
+FD_FN_PURE int
+fd_x509_dns_eq_ci( char const * a,
+                   char const * b,
+                   ulong        len );
 
 /* fd_x509_san_matches tests hostname against every dNSName in info's
    subjectAltName extension.  Matching folds ASCII case and permits a

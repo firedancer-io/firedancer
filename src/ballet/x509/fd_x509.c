@@ -5,6 +5,28 @@
 #include "../secp384r1/fd_secp384r1.h"
 #include <string.h>
 
+/* Bounds on distinguished names this parser accepts: attributes per
+   RDN, and characters per string-typed attribute value. */
+
+#define FD_X509_RDN_ATV_MAX  (16UL)
+#define FD_X509_DN_VALUE_MAX (512UL)
+
+/* fd_x509_dn_string_width returns the code unit width of a string type
+   the name comparator normalizes, or 0 for any other tag. */
+
+static ulong
+fd_x509_dn_string_width( int tag ) {
+  switch( tag ) {
+  case FD_DER_TAG_UTF8_STRING:
+  case FD_DER_TAG_PRINTABLE_STR:
+  case FD_DER_TAG_TELETEX_STRING:
+  case FD_DER_TAG_IA5_STRING:       return 1UL;
+  case FD_DER_TAG_BMP_STRING:       return 2UL;
+  case FD_DER_TAG_UNIVERSAL_STRING: return 4UL;
+  default:                          return 0UL;
+  }
+}
+
 /* OID for algorithm IDs. */
 
 /* Ed25519: 1.3.101.112 */
@@ -27,6 +49,9 @@ static uchar const oid_ecdsa_sha384[] = { 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x
 
 /* subjectAltName: 2.5.29.17 */
 static uchar const oid_san[] = { 0x06, 0x03, 0x55, 0x1d, 0x11 };
+
+/* nameConstraints: 2.5.29.30 */
+static uchar const oid_name_constraints[] = { 0x06, 0x03, 0x55, 0x1d, 0x1e };
 
 /* basicConstraints: 2.5.29.19 */
 static uchar const oid_basic_constraints[] = { 0x06, 0x03, 0x55, 0x1d, 0x13 };
@@ -164,6 +189,51 @@ fd_x509_unique_id_valid( uchar const * p,
   return !( p[len-1UL] & (uchar)( (1U<<p[0])-1U ) );
 }
 
+/* fd_x509_name_valid checks that [p,p+len) is one Name TLV in the shape
+   fd_x509_name_equal and fd_x509_name_prefix compare: a SEQUENCE of
+   non-empty SETs of SEQUENCE { OID, value }, at most FD_X509_RDN_ATV_MAX
+   attributes per SET, string values whole in their code unit and at
+   most FD_X509_DN_VALUE_MAX characters.  Parsing rejects any other Name
+   so that a comparison can only fail because two names differ, never
+   because one could not be read: an excluded-subtree check that fails
+   to compare would otherwise pass the name. */
+
+static int
+fd_x509_name_valid( uchar const * p,
+                    ulong         len ) {
+  fd_der_cursor_t c = { .p=p, .end=p+len };
+  int tag; ulong seq_len;
+  if( FD_UNLIKELY( fd_der_read_tl( &c, &tag, &seq_len ) ||
+                   tag!=(int)FD_DER_TAG_SEQUENCE || c.p+seq_len!=c.end ) ) return 0;
+  while( FD_DER_HAS_MORE( c ) ) {
+    ulong set_len;
+    if( FD_UNLIKELY( fd_der_read_tl( &c, &tag, &set_len ) ||
+                     tag!=(int)FD_DER_TAG_SET || !set_len ) ) return 0;
+    fd_der_cursor_t set = { .p=c.p, .end=c.p+set_len };
+    c.p += set_len;
+    ulong atv_cnt = 0UL;
+    while( FD_DER_HAS_MORE( set ) ) {
+      if( FD_UNLIKELY( ++atv_cnt>FD_X509_RDN_ATV_MAX ) ) return 0;
+      ulong atv_len;
+      if( FD_UNLIKELY( fd_der_read_tl( &set, &tag, &atv_len ) ||
+                       tag!=(int)FD_DER_TAG_SEQUENCE ) ) return 0;
+      fd_der_cursor_t atv = { .p=set.p, .end=set.p+atv_len };
+      set.p += atv_len;
+      ulong oid_len;
+      if( FD_UNLIKELY( fd_der_read_tl( &atv, &tag, &oid_len ) ||
+                       tag!=(int)FD_DER_TAG_OID || !fd_der_oid_valid( atv.p, oid_len ) ) ) return 0;
+      atv.p += oid_len;
+      ulong val_len;
+      if( FD_UNLIKELY( fd_der_read_tl( &atv, &tag, &val_len ) ) ) return 0;
+      ulong width = fd_x509_dn_string_width( tag );
+      if( width && FD_UNLIKELY( val_len%width || val_len/width>FD_X509_DN_VALUE_MAX ) ) return 0;
+      atv.p += val_len;
+      if( FD_UNLIKELY( atv.p!=atv.end ) ) return 0;
+    }
+  }
+  return 1;
+}
+
 static int
 fd_x509_general_name_valid( int           tag,
                             uchar const * p,
@@ -171,10 +241,11 @@ fd_x509_general_name_valid( int           tag,
   switch( tag ) {
   case FD_DER_TAG_CONTEXT(0): /* otherName */
   case FD_DER_TAG_CONTEXT(3): /* x400Address */
-  case FD_DER_TAG_CONTEXT(4): /* directoryName */
   case FD_DER_TAG_CONTEXT(5): /* ediPartyName */
     /* not worth validating, we don't look at these */
     return !!len;
+  case FD_DER_TAG_CONTEXT(4): /* directoryName: a Name SEQUENCE */
+    return fd_x509_name_valid( p, len );
   case FD_DER_TAG_CONTEXT_PRIM(1): /* rfc822Name */
   case FD_DER_TAG_CONTEXT_PRIM(2): /* dNSName */
   case FD_DER_TAG_CONTEXT_PRIM(6): /* uniformResourceIdentifier */
@@ -188,6 +259,55 @@ fd_x509_general_name_valid( int           tag,
   default:
     return 0;
   }
+}
+
+/* Validate GeneralSubtrees.  The verifier enforces dNSName, iPAddress
+   and directoryName bases.  Other name forms are accepted here since a
+   CA may constrain forms a cert never uses (real CA/B Forum
+   intermediates permit a dNSName and exclude iPAddress 0.0.0.0/0 and
+   ::/0 in the same extension); the verifier rejects any cert carrying
+   a SAN of such a constrained form.  rfc822Name is the exception: RFC
+   5280 Section 4.2.1.10 also applies it to subject emailAddress
+   attributes, which this verifier does not match, so a CA constraining
+   mail addresses is rejected outright rather than half-enforced.  Web
+   PKI issuing CAs do not carry such constraints.  minimum and maximum
+   are unsupported; minimum's DEFAULT is zero and omitted in DER. */
+
+static int
+fd_x509_subtrees_valid( uchar const * p,
+                        ulong         len ) {
+  fd_der_cursor_t trees = { .p=p, .end=p+len };
+  if( FD_UNLIKELY( !len ) ) return -1;
+
+  while( FD_DER_HAS_MORE( trees ) ) {
+    uchar const * tree_ptr; ulong tree_len;
+    FD_DER_READ( trees, FD_DER_TAG_SEQUENCE, tree_ptr, tree_len );
+    fd_der_cursor_t tree = { .p=tree_ptr, .end=tree_ptr+tree_len };
+
+    int tag; ulong base_len;
+    if( FD_UNLIKELY( fd_der_read_tl( &tree, &tag, &base_len ) ) ) return -1;
+    uchar const * base = tree.p;
+    tree.p += base_len;
+    if( FD_UNLIKELY( FD_DER_HAS_MORE( tree ) ) ) return -1;
+
+    switch( tag ) {
+    case FD_DER_TAG_CONTEXT_PRIM(2): { /* dNSName */
+      if( FD_UNLIKELY( !base_len ) ) return -1;
+      ulong off = base[0]=='.';
+      if( FD_UNLIKELY( !fd_x509_dns_name_valid( (char const *)base+off, base_len-off ) ) ) return -1;
+      break;
+    }
+    case FD_DER_TAG_CONTEXT_PRIM(7): /* iPAddress: address || mask */
+      if( FD_UNLIKELY( base_len!=8UL && base_len!=32UL ) ) return -1;
+      break;
+    case FD_DER_TAG_CONTEXT_PRIM(1): /* rfc822Name */
+      return -1;
+    default:
+      if( FD_UNLIKELY( !fd_x509_general_name_valid( tag, base, base_len ) ) ) return -1;
+      break;
+    }
+  }
+  return 0;
 }
 
 static int
@@ -352,6 +472,38 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
       continue;
     }
 
+    /* nameConstraints (2.5.29.30) */
+    if( fd_der_oid_match( oid_raw, oid_raw_len,
+                          oid_name_constraints, sizeof(oid_name_constraints) ) ) {
+      if( FD_UNLIKELY( out->has_name_constraints ) ) return -1;
+
+      fd_der_cursor_t val = { .p=val_ptr, .end=val_ptr+val_len };
+      FD_DER_ENTER( val, FD_DER_TAG_SEQUENCE );
+        int last_tag = -1;
+        while( FD_DER_HAS_MORE( val ) ) {
+          int tag; ulong subtrees_len;
+          if( FD_UNLIKELY( fd_der_read_tl( &val, &tag, &subtrees_len ) ) ) return -1;
+          if( FD_UNLIKELY( (tag!=(int)FD_DER_TAG_CONTEXT(0) &&
+                            tag!=(int)FD_DER_TAG_CONTEXT(1)) || tag<=last_tag ) ) return -1;
+          uchar const * subtrees = val.p;
+          val.p += subtrees_len;
+          if( FD_UNLIKELY( fd_x509_subtrees_valid( subtrees, subtrees_len ) ) ) return -1;
+          if( tag==(int)FD_DER_TAG_CONTEXT(0) ) {
+            out->name_constraints_permitted     = subtrees;
+            out->name_constraints_permitted_len = subtrees_len;
+          } else {
+            out->name_constraints_excluded     = subtrees;
+            out->name_constraints_excluded_len = subtrees_len;
+          }
+          last_tag = tag;
+        }
+        if( FD_UNLIKELY( last_tag<0 ) ) return -1;
+      FD_DER_LEAVE( val );
+      if( FD_UNLIKELY( FD_DER_HAS_MORE( val ) ) ) return -1;
+      out->has_name_constraints = 1;
+      continue;
+    }
+
     /* Unknown extension */
     if( FD_UNLIKELY( critical ) ) return -1;
   }
@@ -479,6 +631,7 @@ fd_x509_cert_parse( uchar const *         cert,
 
       /* issuer Name SEQUENCE */
       FD_DER_READ_RAW( tbs, FD_DER_TAG_SEQUENCE, out->issuer, out->issuer_len );
+      if( FD_UNLIKELY( !fd_x509_name_valid( out->issuer, out->issuer_len ) ) ) return -1;
 
       /* validity SEQUENCE { notBefore, notAfter } */
       FD_DER_ENTER( tbs, FD_DER_TAG_SEQUENCE );
@@ -490,6 +643,7 @@ fd_x509_cert_parse( uchar const *         cert,
 
       /* subject Name SEQUENCE */
       FD_DER_READ_RAW( tbs, FD_DER_TAG_SEQUENCE, out->subject, out->subject_len );
+      if( FD_UNLIKELY( !fd_x509_name_valid( out->subject, out->subject_len ) ) ) return -1;
 
       /* subjectPublicKeyInfo SEQUENCE */
       FD_DER_ENTER( tbs, FD_DER_TAG_SEQUENCE );
@@ -571,15 +725,6 @@ fd_x509_der_read( fd_der_cursor_t * c,
 }
 
 static int
-fd_x509_dn_string_tag( int tag ) {
-  return tag==(int)FD_DER_TAG_UTF8_STRING ||
-         tag==(int)FD_DER_TAG_PRINTABLE_STR ||
-         tag==(int)FD_DER_TAG_TELETEX_STRING ||
-         tag==(int)FD_DER_TAG_UNIVERSAL_STRING ||
-         tag==(int)FD_DER_TAG_BMP_STRING;
-}
-
-static int
 fd_x509_dn_case_ignore_oid( uchar const * oid,
                             ulong         oid_len ) {
   if( oid_len==3UL && oid[0]==0x55U && oid[1]==0x04U ) { /* 2.5.4 */
@@ -616,15 +761,23 @@ fd_x509_dn_case_ignore_oid( uchar const * oid,
     }
   }
 
-  /* userId, 0.9.2342.19200300.100.1.1 */
+  /* userId 0.9.2342.19200300.100.1.1 and domainComponent ...100.1.25,
+     both IA5String (RFC 4519: caseIgnoreIA5Match) */
   static uchar const oid_user_id[] = { 0x09,0x92,0x26,0x89,0x93,0xf2,0x2c,0x64,0x01,0x01 };
-  return oid_len==sizeof(oid_user_id) && !memcmp( oid, oid_user_id, sizeof(oid_user_id) );
+  static uchar const oid_dc[]      = { 0x09,0x92,0x26,0x89,0x93,0xf2,0x2c,0x64,0x01,0x19 };
+  return oid_len==sizeof(oid_user_id) &&
+         ( !memcmp( oid, oid_user_id, sizeof(oid_user_id) ) || !memcmp( oid, oid_dc, sizeof(oid_dc) ) );
 }
 
-#define FD_X509_DN_VALUE_MAX (512UL)
+/* Normalize a string value to UTF-8 with ASCII case folded, leading and
+   trailing spaces trimmed, and internal runs of spaces collapsed (the
+   RFC 5280 Section 7.1 profile of caseIgnoreMatch, as OpenSSL does it).
+   UTF8String bytes pass through; BMPString and UniversalString code
+   points are re-encoded, and TeletexString is read as Latin-1.  out
+   must hold FD_X509_DN_NORM_MAX bytes.  Fails only on a value
+   fd_x509_name_valid would have rejected. */
 
-/* Normalize the ASCII subset of DirectoryString values: fold case, trim
-   leading/trailing spaces, and collapse internal runs of spaces. */
+#define FD_X509_DN_NORM_MAX (4UL*FD_X509_DN_VALUE_MAX)
 
 static int
 fd_x509_dn_string_normalize( int           tag,
@@ -632,26 +785,39 @@ fd_x509_dn_string_normalize( int           tag,
                              ulong         len,
                              uchar *       out,
                              ulong *       out_len ) {
-  ulong width = tag==(int)FD_DER_TAG_BMP_STRING       ? 2UL :
-                tag==(int)FD_DER_TAG_UNIVERSAL_STRING ? 4UL : 1UL;
-  if( FD_UNLIKELY( len%width ) ) return -1;
-  if( FD_UNLIKELY( len/width>FD_X509_DN_VALUE_MAX ) ) return -1;
+  ulong width = fd_x509_dn_string_width( tag );
+  if( FD_UNLIKELY( !width || len%width || len/width>FD_X509_DN_VALUE_MAX ) ) return -1;
+  int utf8_in = tag==(int)FD_DER_TAG_UTF8_STRING;
 
   ulong j = 0UL;
   int pending_space = 0;
   for( ulong i=0UL; i<len; i+=width ) {
     uint c = 0U;
     for( ulong k=0UL; k<width; k++ ) c = (c<<8) | (uint)p[i+k];
-    if( FD_UNLIKELY( c>0x7fU ) ) return -1;
     if( c==' ' ) {
       if( j ) pending_space = 1;
       continue;
     }
-    if( FD_UNLIKELY( j+(ulong)pending_space>=FD_X509_DN_VALUE_MAX ) ) return -1;
     if( pending_space ) out[j++] = ' ';
     pending_space = 0;
     if( c>='A' && c<='Z' ) c += (uint)('a'-'A');
-    out[j++] = (uchar)c;
+    if( utf8_in || c<0x80U ) {
+      out[j++] = (uchar)c;
+    } else if( c<0x800U ) {
+      out[j++] = (uchar)( 0xC0U | (c>>6) );
+      out[j++] = (uchar)( 0x80U | (c & 0x3FU) );
+    } else if( c<0x10000U ) {
+      out[j++] = (uchar)( 0xE0U | (c>>12) );
+      out[j++] = (uchar)( 0x80U | ((c>>6) & 0x3FU) );
+      out[j++] = (uchar)( 0x80U | (c & 0x3FU) );
+    } else if( c<0x110000U ) {
+      out[j++] = (uchar)( 0xF0U | (c>>18) );
+      out[j++] = (uchar)( 0x80U | ((c>>12) & 0x3FU) );
+      out[j++] = (uchar)( 0x80U | ((c>>6) & 0x3FU) );
+      out[j++] = (uchar)( 0x80U | (c & 0x3FU) );
+    } else {
+      return -1;
+    }
   }
   *out_len = j;
   return 0;
@@ -678,9 +844,9 @@ fd_x509_atv_equal( fd_x509_der_slice_t a,
   if( FD_UNLIKELY( ac.p!=ac.end || bc.p!=bc.end ) ) return 0;
 
   if( fd_x509_dn_case_ignore_oid( aoid, aoid_len ) &&
-      fd_x509_dn_string_tag( atag ) && fd_x509_dn_string_tag( btag ) ) {
-    uchar anorm[ FD_X509_DN_VALUE_MAX ]; ulong anorm_len;
-    uchar bnorm[ FD_X509_DN_VALUE_MAX ]; ulong bnorm_len;
+      fd_x509_dn_string_width( atag ) && fd_x509_dn_string_width( btag ) ) {
+    uchar anorm[ FD_X509_DN_NORM_MAX ]; ulong anorm_len;
+    uchar bnorm[ FD_X509_DN_NORM_MAX ]; ulong bnorm_len;
     if( !fd_x509_dn_string_normalize( atag, aval, aval_len, anorm, &anorm_len ) &&
         !fd_x509_dn_string_normalize( btag, bval, bval_len, bnorm, &bnorm_len ) )
       return anorm_len==bnorm_len && !memcmp( anorm, bnorm, anorm_len );
@@ -688,8 +854,6 @@ fd_x509_atv_equal( fd_x509_der_slice_t a,
 
   return atag==btag && aval_len==bval_len && !memcmp( aval, bval, aval_len );
 }
-
-#define FD_X509_RDN_ATV_MAX (16UL)
 
 static int
 fd_x509_rdn_equal( uchar const * a,
@@ -726,11 +890,16 @@ fd_x509_rdn_equal( uchar const * a,
   return 1;
 }
 
-int
-fd_x509_name_equal( uchar const * a,
-                    ulong         a_len,
-                    uchar const * b,
-                    ulong         b_len ) {
+/* fd_x509_name_cmp_rdns walks both Names RDN by RDN.  Returns 1 if a
+   is exhausted (a's RDNs are a prefix of b's; with full=1 b must be
+   exhausted as well), 0 on a mismatch or malformed input. */
+
+static int
+fd_x509_name_cmp_rdns( uchar const * a,
+                       ulong         a_len,
+                       uchar const * b,
+                       ulong         b_len,
+                       int           full ) {
   if( FD_UNLIKELY( (!a && a_len) || (!b && b_len) ) ) return 0;
 
   FD_DER_CURSOR_FROM_BUF( ac, a, a_len );
@@ -751,7 +920,23 @@ fd_x509_name_equal( uchar const * a,
                      fd_x509_der_read( &bc, FD_DER_TAG_SET, &brdn, &brdn_len ) ||
                      !fd_x509_rdn_equal( ardn, ardn_len, brdn, brdn_len ) ) ) return 0;
   }
-  return ac.p==ac.end && bc.p==bc.end;
+  return ac.p==ac.end && ( !full || bc.p==bc.end );
+}
+
+int
+fd_x509_name_equal( uchar const * a,
+                    ulong         a_len,
+                    uchar const * b,
+                    ulong         b_len ) {
+  return fd_x509_name_cmp_rdns( a, a_len, b, b_len, 1 );
+}
+
+int
+fd_x509_name_prefix( uchar const * prefix,
+                     ulong         prefix_len,
+                     uchar const * name,
+                     ulong         name_len ) {
+  return fd_x509_name_cmp_rdns( prefix, prefix_len, name, name_len, 0 );
 }
 
 int
@@ -772,12 +957,10 @@ fd_x509_extract_pubkey( uchar const *  cert,
 
 /* Hostname matching (RFC 6125 Section 6.4.3) */
 
-/* dns_eq_ci compares two DNS names of equal length, folding ASCII case. */
-
-static int
-dns_eq_ci( char const * a,
-           char const * b,
-           ulong        len ) {
+int
+fd_x509_dns_eq_ci( char const * a,
+                   char const * b,
+                   ulong        len ) {
   for( ulong i=0UL; i<len; i++ ) {
     char x = a[i]; if( x>='A' && x<='Z' ) x = (char)( x + ('a'-'A') );
     char y = b[i]; if( y>='A' && y<='Z' ) y = (char)( y + ('a'-'A') );
@@ -786,13 +969,9 @@ dns_eq_ci( char const * a,
   return 1;
 }
 
-/* dns_name_valid returns 1 if [name,name+len) is a syntactically valid
-   DNS hostname (RFC 1123 preferred syntax, plus '_').  Rejects empty
-   labels, so a leading dot, a trailing dot, and ".." are all invalid. */
-
-static int
-dns_name_valid( char const * name,
-                ulong        len ) {
+int
+fd_x509_dns_name_valid( char const * name,
+                        ulong        len ) {
   if( len<1UL || len>253UL ) return 0;
 
   ulong label_len = 0UL;
@@ -832,7 +1011,7 @@ dns_pattern_matches( char const * pattern,
     char const * pattern_tail     = pattern + 2;
     ulong        pattern_tail_len = pattern_len - 2UL;
 
-    if( !dns_name_valid( pattern_tail, pattern_tail_len ) ) return 0;
+    if( !fd_x509_dns_name_valid( pattern_tail, pattern_tail_len ) ) return 0;
     if( !memchr( pattern_tail, '.', pattern_tail_len ) ) return 0;
 
     ulong dot_pos = 0UL;
@@ -848,14 +1027,14 @@ dns_pattern_matches( char const * pattern,
     ulong        host_tail_len = hostname_len - dot_pos - 1UL;
 
     return host_tail_len==pattern_tail_len &&
-           dns_eq_ci( pattern_tail, host_tail, pattern_tail_len );
+           fd_x509_dns_eq_ci( pattern_tail, host_tail, pattern_tail_len );
   }
 
   /* Exact match (case-insensitive) */
 
   return pattern_len==hostname_len &&
-         dns_name_valid( pattern, pattern_len ) &&
-         dns_eq_ci( pattern, hostname, pattern_len );
+         fd_x509_dns_name_valid( pattern, pattern_len ) &&
+         fd_x509_dns_eq_ci( pattern, hostname, pattern_len );
 }
 
 int
@@ -870,7 +1049,7 @@ fd_x509_san_matches( fd_x509_cert_info_t const * info,
 
   if( hostname_len && hostname[ hostname_len-1UL ]=='.' ) hostname_len--;
 
-  if( FD_UNLIKELY( !dns_name_valid( hostname, hostname_len ) ) ) return 0;
+  if( FD_UNLIKELY( !fd_x509_dns_name_valid( hostname, hostname_len ) ) ) return 0;
   if( hostname_len<=15UL ) {
     char ip4[ 16 ];
     memcpy( ip4, hostname, hostname_len );

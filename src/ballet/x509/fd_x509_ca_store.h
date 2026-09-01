@@ -8,6 +8,7 @@
 
 #define FD_X509_CA_STORE_MAX (512UL)
 #define FD_X509_CA_SUBJECT_MAX (512UL)
+#define FD_X509_CA_NAME_CONSTRAINTS_MAX (1024UL)
 
 struct fd_x509_ca_entry {
   uchar subject[ FD_X509_CA_SUBJECT_MAX ];
@@ -16,6 +17,19 @@ struct fd_x509_ca_entry {
   uchar pubkey[ 97 ];   /* {32,65,97} for {Ed25519,P256,P384} */
   ulong pubkey_len;
   uchar key_type;        /* FD_X509_KEY_{...} */
+
+  /* basicConstraints pathLenConstraint of the anchor cert, if any.
+     RFC 5280 Section 6.2 leaves enforcing trust anchor constraints to
+     the implementation; OpenSSL does, so fd_x509 does too. */
+  ulong path_len_constraint;
+  uchar has_path_len_constraint;
+
+  /* GeneralSubtrees contents: permittedSubtrees at [0,permitted_len),
+     excludedSubtrees at [permitted_len,permitted_len+excluded_len) */
+  uchar name_constraints[ FD_X509_CA_NAME_CONSTRAINTS_MAX ];
+  ulong name_constraints_permitted_len;
+  ulong name_constraints_excluded_len;
+  uchar has_name_constraints;
 };
 
 typedef struct fd_x509_ca_entry fd_x509_ca_entry_t;
