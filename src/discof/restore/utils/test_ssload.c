@@ -7,6 +7,12 @@
 #include "../../../ballet/hex/fd_hex.h"
 #include <limits.h>
 
+/* Staging for the epoch stakes digests fd_ssload_recover_apply
+   computes.  Static rather than automatic: at the VAT bound this is
+   ~140 KiB. */
+
+static fd_vote_stake_weight_t digest_scratch[ FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ];
+
 /* Shorthand for the common validate call pattern using the production
    capacity limits.  fd_ssload_manifest_validate rejects calls where
    the limits differ from FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS and
@@ -630,7 +636,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   /* First apply: simulate initial full snapshot load. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed, digest_scratch )==0 );
   FD_TEST( bank->accdb_fork_id.val==37U );
   FD_TEST( bank->parent_accdb_fork_id.val==37U );
   FD_TEST( bank->txncache_fork_id.val==38U );
@@ -665,7 +671,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   /* A second manifest apply must also leave snapin's cache untouched. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed, digest_scratch )==0 );
   FD_TEST( bank->accdb_fork_id.val==39U );
   FD_TEST( bank->parent_accdb_fork_id.val==39U );
   FD_TEST( bank->txncache_fork_id.val==40U );
@@ -721,7 +727,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   manifest->epoch_stakes[0].total_stake                     = 3000UL;
 
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed, digest_scratch )==0 );
 
   fd_pubkey_t node_out;
   ushort      commission_out;

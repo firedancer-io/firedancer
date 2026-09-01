@@ -216,8 +216,9 @@ fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
                           ulong *                  stake_out_opt,
                           ushort *                 commission_out_opt );
 
-/* fd_vote_stakes_cnt_t_{1,2} returns the number of vote accounts in the
-   t-1 and t-2 sets respectively. */
+/* fd_vote_stakes_cnt_t_{1,2,3} returns the number of vote accounts in
+   the t-1, t-2 and t-3 sets respectively.  cnt_t_3 returns 0 if the
+   t-3 set is not resident. */
 
 ulong
 fd_vote_stakes_cnt_t_1( fd_vote_stakes_t const * vote_stakes,
@@ -225,6 +226,10 @@ fd_vote_stakes_cnt_t_1( fd_vote_stakes_t const * vote_stakes,
 
 ulong
 fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
+                        ulong                    fork_id );
+
+ulong
+fd_vote_stakes_cnt_t_3( fd_vote_stakes_t const * vote_stakes,
                         ulong                    fork_id );
 
 /* fd_vote_stakes_total_stake returns the total stake of the epoch

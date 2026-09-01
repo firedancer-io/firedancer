@@ -387,6 +387,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
     uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0}; /* zeroed means no key is registered */
     fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls );
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls );
+    fd_vote_stakes_snap_insert_t_3( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls );
     fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_key, 0UL, 0L, 1 );
 
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ i ];
@@ -478,6 +479,19 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   if( params->clock ) {
     bank->f.slot  = params->clock->slot;
     bank->f.epoch = params->clock->epoch;
+  }
+
+  /* fd_banks_init_bank always seeds the vote stakes fork at epoch 0.
+     If the bank was placed in a later epoch, re-seed it so that
+     fd_vote_stakes_fork_epoch agrees with bank->f.epoch -- callers that
+     mix the two (the snapshot manifest encoder keys entries off
+     bank->f.epoch but iterates tiers off the fork id) otherwise see a
+     tier mapping that cannot resolve, and the t-3 set in particular is
+     unreachable. */
+  if( FD_UNLIKELY( bank->f.epoch!=fd_vote_stakes_fork_epoch( bank->vote_stakes_fork_id ) ) ) {
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    fd_vote_stakes_reset( vote_stakes );
+    bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
   }
 
   if( params->epoch_schedule ) {

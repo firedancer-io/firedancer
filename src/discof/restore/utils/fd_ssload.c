@@ -1,6 +1,7 @@
 #include "fd_ssload.h"
 
 #include "../../../disco/genesis/fd_genesis_cluster.h"
+#include "../../../flamenco/runtime/fd_runtime.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_ssmsg.h"
@@ -319,7 +320,8 @@ fd_ssload_recover_validate( fd_snapshot_manifest_t const * manifest,
 int
 fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
                          fd_bank_t *              bank,
-                         ulong                    blockhash_seed ) {
+                         ulong                    blockhash_seed,
+                         fd_vote_stake_weight_t * digest_scratch ) {
 
   /* Slot */
 
@@ -572,6 +574,24 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   }
   if( FD_LIKELY( epoch ) ) fd_vote_stakes_finalize( vote_stakes, epoch-1UL );
 
+  /* All three tiers are now populated, so the bank can carry the same
+     epoch stakes commitment it would have computed had it replayed
+     through the boundary.  Without this the first slot replayed after
+     boot would hash against zeroed digests and diverge.
+
+     snapin already checked these digests against the manifest as part
+     of verifying the bank hash (see verify_bank_hash), so recomputing
+     them from the tiers here also cross checks that the load did not
+     lose anything on the way in.
+
+     Computed unconditionally rather than behind the feature gate:
+     bank->f.features is not restored until the first
+     fd_runtime_block_execute_prepare, and a zeroed features struct
+     reads as "activated at slot 0" for every gate.  Computing the
+     digests has no effect on its own; only mixing them into the bank
+     hash does, and that is gated. */
+  fd_runtime_update_epoch_stakes_digests( bank, digest_scratch );
+
   bank->accdb_fork_id        = (fd_accdb_fork_id_t){ .val = manifest->accdb_fork_id };
   bank->parent_accdb_fork_id = bank->accdb_fork_id;
   bank->txncache_fork_id     = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
@@ -583,12 +603,13 @@ int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
-                   ulong                    blockhash_seed ) {
+                   ulong                    blockhash_seed,
+                   fd_vote_stake_weight_t * digest_scratch ) {
 
   if( FD_UNLIKELY( fd_ssload_recover_validate( manifest, banks ) ) ) {
     FD_LOG_WARNING(( "snapshot manifest validation failed" ));
     return -1;
   }
 
-  return fd_ssload_recover_apply( manifest, bank, blockhash_seed );
+  return fd_ssload_recover_apply( manifest, bank, blockhash_seed, digest_scratch );
 }

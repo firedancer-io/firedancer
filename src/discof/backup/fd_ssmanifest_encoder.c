@@ -176,7 +176,8 @@ ENCODE_FN {
       vote_cnt = (uint)fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
       fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, enc->vote_stakes_iter_mem );
     } else {
-      vote_cnt = (uint)*fd_bank_epoch_credits_len( enc->bank );
+      vote_cnt = (uint)fd_vote_stakes_cnt_t_3( vote_stakes, fork_id );
+      fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, enc->vote_stakes_iter_mem );
     }
     enc->vote_cnt    = vote_cnt;
     enc->vote_idx    = 0;
@@ -223,18 +224,21 @@ ENCODE_FN {
                                NULL, NULL, &commission, NULL, NULL, bls_key );
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
-      /* The bank epoch credits will have the resolved commission for
-         the vote account.  This means that the commission stored will
-         be the t-3 commission if it existed or the t-2/t-1 commission
-         otherwise as the fallback (see delay_commission_update feature
-         for more details).  This means that the serialized commission
-         for the epoch may be inaccurate but the commission produced
-         will still produce a correct commission for the purposes of
-         rewards.  That is to say that the commission for each vote
-         account will be accurate. */
-      ec = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
-      fd_memcpy( &pubkey, ec->pubkey, 32UL );
-      commission = ec->commission;
+      /* The t-3 set carries its own commission, which is what
+         fd_vote_stakes_query_t_3 resolves against on the load side
+         (t-3 preferred, else t-2/t-1 as the fallback -- see the
+         delay_commission_updates feature).  Emitting the tier
+         verbatim is what an Agave-produced manifest carries, so a
+         validator booting from our snapshot resolves commission the
+         same way it would booting from theirs.
+
+         Epoch credits are deliberately not emitted here: the load
+         side only builds its epoch credits store from the t-1 entry
+         (see fd_ssload_recover_apply). */
+      fd_vote_stakes_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
+      FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter ) );
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter, &pubkey, &node_account, &stake,
+                               NULL, NULL, &commission, NULL, NULL, bls_key );
     }
 
     /* SIMD-0232 collectors: defaults unless overridden. */
@@ -305,6 +309,8 @@ ENCODE_FN {
       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, fd_type_pun( enc->vote_stakes_iter_mem ) );
     } else if( entry_type==1U ) {
       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, fd_type_pun( enc->vote_stakes_iter_mem ) );
+    } else {
+      fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, fd_type_pun( enc->vote_stakes_iter_mem ) );
     }
     if( enc->vote_idx >= enc->vote_cnt ) enc->state = STATE_EPOCH_STAKES_EPOCH;
     break;

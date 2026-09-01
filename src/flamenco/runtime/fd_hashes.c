@@ -103,6 +103,16 @@ fd_hashes_capture_account( uchar const        pubkey[ static FD_HASH_FOOTPRINT ]
 }
 
 void
+fd_hashes_apply_epoch_stakes( fd_hash_t *       hash,
+                              fd_hash_t const * digests ) {
+  fd_sha256_t sha;
+  fd_sha256_init( &sha );
+  fd_sha256_append( &sha, hash->hash, sizeof(fd_hash_t) );
+  fd_sha256_append( &sha, digests, 3UL*sizeof(fd_hash_t) );
+  fd_sha256_fini( &sha, hash->hash );
+}
+
+void
 fd_hashes_apply_hard_forks( fd_hash_t *            hash,
                             ulong                  slot,
                             ulong                  parent_slot,

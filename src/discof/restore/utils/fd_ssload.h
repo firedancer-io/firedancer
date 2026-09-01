@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_restore_utils_fd_ssload_h
 
 #include "fd_ssmsg.h"
+#include "../../../flamenco/stakes/fd_stake_weight.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -42,11 +43,15 @@ fd_ssload_recover_validate( fd_snapshot_manifest_t const * manifest,
    unconditionally reset before repopulation.  Returns 0 on success,
    -1 on failure.  On failure, bank and associated structures may be
    left partially mutated; caller must treat this as unrecoverable.
-   blockhash_seed seeds the internal blockhash hash map. */
+   blockhash_seed seeds the internal blockhash hash map.
+   digest_scratch must hold at least FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS
+   entries and is clobbered; it stages the epoch stakes digests that
+   the first replayed slot after boot commits to its bank hash. */
 int
 fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
                          fd_bank_t *              bank,
-                         ulong                    blockhash_seed );
+                         ulong                    blockhash_seed,
+                         fd_vote_stake_weight_t * digest_scratch );
 
 /* fd_ssload_recover validates the manifest and applies it to bank.
    Equivalent to fd_ssload_recover_validate followed by
@@ -60,7 +65,8 @@ int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
-                   ulong                    blockhash_seed );
+                   ulong                    blockhash_seed,
+                   fd_vote_stake_weight_t * digest_scratch );
 
 FD_PROTOTYPES_END
 

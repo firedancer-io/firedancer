@@ -132,6 +132,25 @@ fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
                      ulong                     signature_count,
                      fd_hash_t *               hash_out );
 
+/* fd_hashes_apply_epoch_stakes mixes the epoch stakes commitment into
+   an existing bank hash in place:
+
+     hash = sha256( hash || digests[0] || digests[1] || digests[2] )
+
+   digests are the canonical digests of the three live epoch stakes
+   sets, ordered t-3, t-2, t-1 (see fd_epoch_stakes_digest.h).  They are
+   recomputed only at the epoch boundary but are mixed into every
+   slot's bank hash, because a snapshot taken mid-epoch carries only
+   that slot's bank hash as a trust anchor and no hash chain back to
+   the boundary.
+
+   Callers must gate this on the epoch_stakes_bank_hash feature.  hash
+   is mutated in place. */
+
+void
+fd_hashes_apply_epoch_stakes( fd_hash_t *       hash,
+                              fd_hash_t const * digests );
+
 /* fd_hashes_apply_hard_forks mixes hard-fork data into an existing bank
    hash in place, matching Agave's bank hash computation.
 

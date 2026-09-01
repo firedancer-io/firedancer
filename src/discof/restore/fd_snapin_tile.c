@@ -19,6 +19,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/features/fd_feature_snoop.h"
 #include "../../flamenco/stakes/fd_stake_types.h"
+#include "../../flamenco/stakes/fd_epoch_stakes_digest.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../disco/events/generated/fd_event_gen.h"
@@ -230,6 +231,27 @@ struct fd_snapin_tile {
     ulong write_pos; /* bytes written into buf during the current streaming capture */
     uchar buf[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
   } slot_history;
+
+  /* Staging for gathering one epoch stakes set out of the manifest into
+     canonical order before digesting it.  snapin cannot reuse the
+     replay side's walker: it holds no fd_bank_t and no
+     fd_vote_stakes_t, only the parsed manifest. */
+  fd_vote_stake_weight_t epoch_stakes_digest_scratch[ FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ];
+
+  /* Whether the epoch stakes commitment is part of the bank hash
+     depends on a feature gate, and features are only known once the
+     account stream has been snooped to the end
+     (fd_feature_snoop_finalize) -- long after the manifest is
+     processed.  verify_bank_hash therefore accepts a manifest that is
+     self consistent under either rule and records what it needs here,
+     so that the exact, gated comparison can run at the end of load.
+     See verify_bank_hash_epoch_stakes. */
+  struct {
+    int       recorded;
+    fd_hash_t base;               /* bank hash without the mix-in, hard forks applied */
+    fd_hash_t manifest_bank_hash;
+    fd_hash_t digests[ 3 ];
+  } epoch_stakes_check;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -370,6 +392,65 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
   return 0;
 }
 
+/* manifest_epoch_stakes_digests computes the same three epoch stakes
+   digests that fd_runtime_update_epoch_stakes_digests computes on the
+   replay side, but from the manifest, because this tile holds no
+   fd_bank_t and no fd_vote_stakes_t -- only the parsed manifest.  The
+   two walkers share fd_epoch_stakes_digest so that only the gather
+   differs, never the serialization.
+
+   Entries are keyed by the leader schedule epoch they determine, which
+   is exactly how the manifest keys them:
+
+     digests[0] <- key epoch-1 (t-3)
+     digests[1] <- key epoch   (t-2)
+     digests[2] <- key epoch+1 (t-1)
+
+   A key with no matching manifest entry digests as the empty set,
+   matching what the replay side produces for a tier that is not
+   resident.  At epoch 0 there is no t-3 set at all, and keys epoch-1
+   and epoch would otherwise collide on 0, so slot 0 is forced empty.
+
+   Must run after fd_ssload_manifest_validate, which is what bounds
+   vote_stakes_len by FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS. */
+
+static void
+manifest_epoch_stakes_digests( fd_snapshot_manifest_t const * manifest,
+                               ulong                          epoch,
+                               fd_vote_stake_weight_t *       scratch,
+                               fd_hash_t                      digests_out[ static 3 ] ) {
+  for( ulong tier=0UL; tier<3UL; tier++ ) {
+    ulong key = epoch + tier - 1UL; /* epoch-1, epoch, epoch+1 */
+
+    fd_snapshot_manifest_epoch_stakes_t const * es = NULL;
+    if( FD_LIKELY( !( !epoch && tier==0UL ) ) ) {
+      for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+        if( manifest->epoch_stakes[ i ].epoch==key ) { es = &manifest->epoch_stakes[ i ]; break; }
+      }
+    } else {
+      key = 0UL;
+    }
+
+    ulong cnt = 0UL;
+    if( FD_LIKELY( es ) ) {
+      FD_TEST( es->vote_stakes_len<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+      for( ulong i=0UL; i<es->vote_stakes_len; i++ ) {
+        fd_snapshot_manifest_vote_stakes_t const * vs = &es->vote_stakes[ i ];
+        /* The replay side's tiers never hold a zero stake entry:
+           fd_vote_stakes_snap_insert_t_* drop them on the way in.
+           Drop them here too so the two gathers see the same set. */
+        if( FD_UNLIKELY( !vs->stake ) ) continue;
+        fd_vote_stake_weight_t * ele = &scratch[ cnt++ ];
+        fd_memcpy( ele->vote_key.uc, vs->vote,     32UL );
+        fd_memcpy( ele->id_key.uc,   vs->identity, 32UL );
+        ele->stake = vs->stake;
+      }
+    }
+
+    fd_epoch_stakes_digest( scratch, cnt, key, &digests_out[ tier ] );
+  }
+}
+
 /* verification of epoch stakes from manifest
    https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
 static int
@@ -424,7 +505,7 @@ verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
 }
 
 static int
-verify_bank_hash( fd_snapin_tile_t const *       ctx,
+verify_bank_hash( fd_snapin_tile_t *             ctx,
                   fd_snapshot_manifest_t const * manifest ) {
   if( FD_UNLIKELY( manifest->blockhashes_len==0UL ) ) {
     FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu has no blockhashes",
@@ -465,12 +546,63 @@ verify_bank_hash( fd_snapin_tile_t const *       ctx,
       manifest->hard_forks,
       manifest->hard_fork_cnt );
 
-  if( FD_UNLIKELY( memcmp( computed_bank_hash, manifest->bank_hash, FD_HASH_FOOTPRINT ) ) ) {
+  /* Record what the end-of-load check needs, since the feature gate
+     that decides whether the epoch stakes commitment is part of the
+     bank hash is not known yet.  The last manifest processed wins,
+     which is the incremental one when there is one -- the same
+     manifest whose bank hash is authoritative. */
+  ctx->epoch_stakes_check.recorded = 1;
+  ctx->epoch_stakes_check.base     = *computed_bank_hash;
+  fd_memcpy( &ctx->epoch_stakes_check.manifest_bank_hash, manifest->bank_hash, FD_HASH_FOOTPRINT );
+  manifest_epoch_stakes_digests( manifest,
+                                 fd_slot_to_epoch( &ctx->epoch_schedule, manifest->slot, NULL ),
+                                 ctx->epoch_stakes_digest_scratch,
+                                 ctx->epoch_stakes_check.digests );
+
+  /* Accept the manifest if it is self consistent under either rule.
+     Whichever one actually applies is pinned at the end of load by
+     verify_bank_hash_epoch_stakes; checking loosely here keeps a
+     corrupt manifest from being detected only after the whole
+     snapshot has been read. */
+  fd_hash_t with_epoch_stakes[ 1UL ] = { *computed_bank_hash };
+  fd_hashes_apply_epoch_stakes( with_epoch_stakes, ctx->epoch_stakes_check.digests );
+
+  if( FD_UNLIKELY( memcmp( computed_bank_hash, manifest->bank_hash, FD_HASH_FOOTPRINT ) &&
+                   memcmp( with_epoch_stakes,  manifest->bank_hash, FD_HASH_FOOTPRINT ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( computed_bank_hash->hash, computed_bank_hash_enc );
     FD_BASE58_ENCODE_32_BYTES( manifest->bank_hash, manifest_bank_hash_enc );
     FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu bank hash verification failed: computed %s does not match manifest %s",
                      ctx->full?"full":"incr", ctx->epoch, manifest->slot,
                      computed_bank_hash_enc, manifest_bank_hash_enc ));
+    return -1;
+  }
+
+  return 0;
+}
+
+/* verify_bank_hash_epoch_stakes pins which of the two rules verify_bank_hash
+   accepted, now that fd_feature_snoop_finalize has established whether
+   epoch_stakes_bank_hash is active at this slot.
+
+   A failure here means the manifest's epoch stakes do not match the
+   ones the rest of the network committed to for this slot, i.e. the
+   snapshot would have booted us with a leader schedule and stake
+   weights of someone else's choosing. */
+
+static int
+verify_bank_hash_epoch_stakes( fd_snapin_tile_t const * ctx ) {
+  if( FD_UNLIKELY( !ctx->epoch_stakes_check.recorded ) ) return 0;
+
+  fd_hash_t expected[ 1UL ] = { ctx->epoch_stakes_check.base };
+  if( FD_FEATURE_ACTIVE_BANK( ctx->bank, epoch_stakes_bank_hash ) ) {
+    fd_hashes_apply_epoch_stakes( expected, ctx->epoch_stakes_check.digests );
+  }
+
+  if( FD_UNLIKELY( memcmp( expected, &ctx->epoch_stakes_check.manifest_bank_hash, FD_HASH_FOOTPRINT ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( expected->hash, expected_enc );
+    FD_BASE58_ENCODE_32_BYTES( ctx->epoch_stakes_check.manifest_bank_hash.hash, manifest_enc );
+    FD_LOG_WARNING(( "epoch stakes verification failed for slot %lu: bank hash %s does not match manifest %s",
+                     ctx->bank_slot, expected_enc, manifest_enc ));
     return -1;
   }
 
@@ -1503,6 +1635,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_accdb_snapshot_load_end( ctx->accdb );
 
       fd_feature_snoop_finalize( &ctx->bank->f.features, ctx->bank_slot, &ctx->epoch_schedule, ctx->feature_snoop );
+
+      /* Features are only settled here, so this is the first point at
+         which the epoch stakes commitment can be checked exactly. */
+      if( FD_UNLIKELY( verify_bank_hash_epoch_stakes( ctx ) ) ) {
+        transition_malformed( ctx, stem );
+        break;
+      }
 
       /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
