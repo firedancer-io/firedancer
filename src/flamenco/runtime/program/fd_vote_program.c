@@ -12,7 +12,6 @@
 #include "vote/fd_vote_codec.h"
 #include "vote/fd_vote_state_versioned.h"
 #include "vote/fd_vote_state_v4.h"
-#include "../../rewards/fd_alpen_rewards.h"
 #include "../../../ballet/bls/fd_bls12_381.h"
 
 #include <limits.h>
@@ -1613,7 +1612,7 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
 static inline int
 should_reject_legacy_vote_instructions( fd_exec_instr_ctx_t const * ctx ) {
   return FD_FEATURE_ACTIVE_BANK( ctx->bank, deprecate_legacy_vote_ixs ) ||
-         fd_alpenglow_migration_slot( ctx->bank, ctx->runtime->accdb )!=ULONG_MAX;
+         ctx->bank->f.alpenglow_migration_slot!=ULONG_MAX;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L21-L51 */
@@ -2149,7 +2148,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   case fd_vote_instruction_enum_tower_sync:
   case fd_vote_instruction_enum_tower_sync_switch: {
     /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/programs/vote/src/vote_processor.rs#L277-L279 */
-    if( FD_UNLIKELY( fd_alpenglow_migration_slot( ctx->bank, ctx->runtime->accdb )!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( ctx->bank->f.alpenglow_migration_slot!=ULONG_MAX ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 

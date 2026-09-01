@@ -6,6 +6,7 @@
 #include "../fd_cost_tracker.h"
 #include "../fd_slot_params.h"
 #include "../fd_runtime.h"
+#include "../../rewards/fd_alpen_rewards.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../progcache/fd_progcache_admin.h"
@@ -83,6 +84,8 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
 
   FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
+
+  runner->bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( runner->bank, accdb );
 
   /* Initialize cost tracker */
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( runner->bank );

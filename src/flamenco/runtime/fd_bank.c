@@ -583,6 +583,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->sibling_idx = null_idx;
 
   fd_memset( &bank->f, 0, sizeof(bank->f) );
+  bank->f.alpenglow_migration_slot        = ULONG_MAX;
   bank->stake_rewards_fork_id             = UCHAR_MAX;
   bank->epoch_credits_fork_id             = 0;
   fd_banks_epoch_credits_acquire( banks, bank->epoch_credits_fork_id );
@@ -1307,6 +1308,7 @@ fd_banks_clear_bank( fd_banks_t * banks,
                      fd_bank_t *  bank ) {
 
   fd_memset( &bank->f, 0, sizeof(bank->f) );
+  bank->f.alpenglow_migration_slot = ULONG_MAX;
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   fd_banks_vote_stakes_evict_bank_fork( banks, bank );
