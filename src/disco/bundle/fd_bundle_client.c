@@ -661,8 +661,10 @@ fd_bundle_client_handle_bundle_batch(
     fd_bundle_tile_t * ctx,
     pb_istream_t *     istream
 ) {
-  if( FD_UNLIKELY( !ctx->builder_info_avail ) ) {
-    ctx->metrics.missing_builder_info_fail_cnt++; /* unreachable */
+  long const now = fd_bundle_now( ctx );
+  int const builder_info_expired = ( ctx->builder_info_valid_until - now )<0;
+  if( FD_UNLIKELY( ( !ctx->builder_info_avail ) | builder_info_expired ) ) {
+    ctx->metrics.missing_builder_info_fail_cnt++;
     return;
   }
 
