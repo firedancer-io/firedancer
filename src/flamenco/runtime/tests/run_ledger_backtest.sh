@@ -24,6 +24,7 @@ EXECRP_TILE_COUNT="10"
 INGEST_DEAD_SLOTS="false"
 ROOT_DISTANCE="2"
 MAX_LIVE_SLOTS="32"
+ALPENGLOW="false"
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
 if [[ -n "$CI" ]]; then
@@ -111,6 +112,10 @@ while [[ $# -gt 0 ]]; do
     --max-live-slots)
         MAX_LIVE_SLOTS="$2"
         shift
+        shift
+        ;;
+    --alpenglow)
+        ALPENGLOW="true"
         shift
         ;;
     -*|--*)
@@ -262,6 +267,7 @@ cat <<EOF > ${CONFIG_FILE}
     genesis = "$DUMP/$LEDGER/genesis.bin"
 [development]
     fixed_fec_sets = false
+    alpenglow = $ALPENGLOW
     [development.genesis]
         validate_genesis_hash = false
     [development.ledger_input]

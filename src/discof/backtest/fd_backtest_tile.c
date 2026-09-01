@@ -7,6 +7,7 @@
 #include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
+#include "../../discof/votor/fd_votor_rooted.h"
 #include "../../util/pod/fd_pod.h"
 
 #include <stdlib.h> /* exit(2) */
@@ -53,6 +54,7 @@ struct fd_backt_tile {
   int initialized;
   int genesis;
   int snapshot_done;
+  int alpenglow;
   uint first_fec_complete : 1;
   uint reasm_ready        : 1; /* reasm root is set, so we can start publishing FECs to replay */
   uint source_exhausted   : 1;
@@ -87,6 +89,7 @@ struct fd_backt_tile {
 
   fd_backt_out_t repair_out[ 1 ];
   fd_backt_out_t tower_out[ 1 ];
+  fd_backt_out_t votor_out[ 1 ];
 
   ulong shreds_idx;
   ulong shreds_cnt;
@@ -338,6 +341,12 @@ returnable_frag( fd_backt_tile_t *   ctx,
     case IN_KIND_REPLAY: {
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
         fd_replay_slot_dead_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        /* In Alpenglow, dead blocks should never be in the ledger, so
+           if Firedancer's replay marked a block as dead this should be
+           fatal. */
+        if( FD_UNLIKELY( ctx->alpenglow ) ) {
+          FD_LOG_ERR(( "replay marked slot=%lu as dead", msg->slot ));
+        }
         FD_LOG_NOTICE(( "replay marked slot=%lu as dead", msg->slot ));
         return 0;
       }
@@ -348,10 +357,11 @@ returnable_frag( fd_backt_tile_t *   ctx,
       fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       ctx->rooted_slots_block_id[ msg->slot%BANK_HASH_BUFFER_LEN ] = msg->block_id;
       if( FD_UNLIKELY( msg->slot==ctx->start_slot ) ) {
+        ctx->prev_root             = msg->slot;
+        if( FD_UNLIKELY( ctx->alpenglow ) ) return 0;
         /* Even though this is the first slot, we need to simulate tower
            publishing the slot done message to replay so replay can
            release the bank reference count on it. */
-        ctx->prev_root             = msg->slot;
         fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
         /* Zero the fields this mock does not explicitly populate below
            (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
@@ -379,6 +389,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       long prior_completion_timestamp = ctx->prior_completion_timestamp ? ctx->prior_completion_timestamp : msg->preparation_begin_nanos;
 
       fd_backt_slot_info_t slot_info;
+      memset( &slot_info, 0, sizeof(slot_info) );
       FD_BASE58_ENCODE_32_BYTES( msg->bank_hash.uc, bh_got_b58 );
       if( FD_UNLIKELY( !fd_backtest_src_slot_info( ctx->src, &slot_info, msg->slot ) || !slot_info.bank_hash_set ) ) {
         FD_LOG_ERR(( "No bank hash available for slot %lu", msg->slot ));
@@ -445,7 +456,22 @@ returnable_frag( fd_backt_tile_t *   ctx,
         exit(0);
       }
 
-      ctx->prev_root             = root_slot;
+      int root_advanced = root_slot!=ctx->prev_root;
+      ctx->prev_root    = root_slot;
+
+      /* If we are in Alpenglow mode, send votor rooted frags to
+         advance replay. */
+      if( ctx->alpenglow ) {
+        if( FD_LIKELY( root_advanced ) ) {
+          fd_votor_rooted_t * rooted = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
+          rooted->slot     = root_slot;
+          rooted->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
+          fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_ROOTED, ctx->votor_out->chunk, sizeof(fd_votor_rooted_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+          ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_rooted_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
+        }
+        break;
+      }
+
       fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
       /* Zero the fields this mock does not explicitly populate below
          (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
@@ -553,6 +579,7 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( ctx->fec_set_idxs, 0UL, sizeof(ctx->fec_set_idxs) );
 
   ctx->root_distance = tile->backtest.root_distance;
+  ctx->alpenglow     = tile->backtest.alpenglow;
 
   fd_backtest_src_opts_t opts = {
     .format      = tile->backtest.ledger_format,
@@ -588,6 +615,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   *ctx->repair_out = out1( topo, tile, "repair_out" );
   *ctx->tower_out  = out1( topo, tile, "tower_out" );
+  if( ctx->alpenglow ) *ctx->votor_out = out1( topo, tile, "votor_out" );
 
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "store", ULONG_MAX ) ) );
 
