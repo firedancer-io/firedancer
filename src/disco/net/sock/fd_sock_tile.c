@@ -301,6 +301,8 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "repair intake socket configured but no net_repair out link was found" ));
   }
 
+  FD_CHECK_ERR( tile->in_cnt<=MAX_NET_INS, "too many input links" );
+
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     if( !strstr( topo->links[ tile->in_link_id[ i ] ].name, "_net" ) ) {
       FD_LOG_ERR(( "in link %lu is not a net TX link", i ));

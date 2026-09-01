@@ -102,6 +102,7 @@
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
+#define IN_LINK_MAX     32UL
 
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL,      poh_shred_mtu   );
 FD_STATIC_ASSERT( sizeof(fd_fec_set_t)==FD_SHRED_STORE_MTU, shred_store_mtu );
@@ -201,8 +202,8 @@ typedef struct {
   ulong resolver_seed;
   ulong shred_dest_seed;
 
-  fd_shred_in_ctx_t in[ 32 ];
-  int               in_kind[ 32 ];
+  fd_shred_in_ctx_t in[ IN_LINK_MAX ];
+  int               in_kind[ IN_LINK_MAX ];
 
   fd_wksp_t * net_out_mem;
   ulong       net_out_chunk0;
@@ -1397,6 +1398,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
+
+  FD_CHECK_ERR( tile->in_cnt<=IN_LINK_MAX, "too many input links" );
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_id  = tile->kind_id;

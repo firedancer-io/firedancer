@@ -581,6 +581,7 @@ unprivileged_init( fd_topo_t      const * topo,
   }
 
   FD_TEST( tile->in_cnt>=1UL );
+  FD_CHECK_ERR( tile->in_cnt<=MAX_IN_LINKS, "too many input links" );
   for( ulong in_idx=0UL; in_idx<tile->in_cnt; in_idx++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ in_idx ] ];
     if( 0==strcmp( link->name, "net_rserve" ) ) {
