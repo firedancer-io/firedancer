@@ -7,6 +7,14 @@
 #include "../../choreo/votor/ag_votor_base.h" /* AG_VAT_MAX */
 #include "../../choreo/votor/ag_bls.h" /* AG_BLS_SIG_COMPRESSED_SZ */
 
+/* FD_NUM_SLOTS_FOR_REWARD is how far back the reward certs in a block
+   footer reach: the footer of block s attests slot
+   s-FD_NUM_SLOTS_FOR_REWARD, and the runtime rejects a footer whose
+   reward certs name any other slot.
+
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor-messages/src/reward_certificate.rs#L20 */
+#define FD_NUM_SLOTS_FOR_REWARD (8UL)
+
 /* FD_REWARD_CERT_SET_WORDS is the word count of a reward cert signer
    rank set (bit r set <=> the validator with rank r in the reward
    epoch's ranked Alpenglow validator set signed). */
@@ -26,5 +34,21 @@ struct fd_reward_cert {
   ulong     signer_set[ FD_REWARD_CERT_SET_WORDS ]; /* decoded base2 signer bitmap */
 };
 typedef struct fd_reward_cert fd_reward_cert_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_reward_cert_from_agg fills cert for slot out of the aggregate agg,
+   with block_hash naming the notarized block, or NULL for a skip reward
+   cert, which carries none on the wire.  Returns 1 on success, and 0 if
+   agg names no signer, names a rank the footer cannot encode, or has a
+   signature that does not compress. */
+
+int
+fd_reward_cert_from_agg( fd_reward_cert_t *   cert,
+                         ulong                slot,
+                         uchar const *        block_hash,
+                         ag_bls_agg_t const * agg );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_rewards_fd_reward_cert_h */

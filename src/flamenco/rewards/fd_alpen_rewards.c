@@ -6,9 +6,6 @@
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
-/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor-messages/src/reward_certificate.rs#L20 */
-#define NUM_SLOTS_FOR_REWARD (8UL)
-
 #define RANK_SET_WORDS ((AG_VAT_MAX+63UL)/64UL)
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL,             epoch_credits_bound );
@@ -254,7 +251,7 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
     }
     migration_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, migration_slot, NULL );
 
-    if( FD_UNLIKELY( fd_ulong_sat_add( reward_slot, NUM_SLOTS_FOR_REWARD )!=bank_slot || reward_slot<=migration_slot ) ) {
+    if( FD_UNLIKELY( fd_ulong_sat_add( reward_slot, FD_NUM_SLOTS_FOR_REWARD )!=bank_slot || reward_slot<=migration_slot ) ) {
       FD_LOG_WARNING(( "slot %lu: invalid reward cert slot %lu (migration slot %lu)", bank_slot, reward_slot, migration_slot ));
       return -1;
     }

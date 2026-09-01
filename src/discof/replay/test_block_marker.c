@@ -1,9 +1,11 @@
 #include "fd_block_marker.h"
 
+#include "../../ballet/bls/fd_bls12_381.h"
+
 /* Test vectors are hand-encoded per the wincode wire format in Agave
    entry/src/block_component.rs (all integers little endian). */
 
-static uchar g_buf[ 2048UL ];
+static uchar g_buf[ 4096UL ];
 static ulong g_sz;
 
 static void
@@ -70,21 +72,49 @@ emit_preamble( uchar  variant,
   emit_u16( length    );
 }
 
+/* emit_base2_bitmap emits a solana_signer_store base2 bitmap over nbits
+   ranks, the low 64 of which come from mask and the rest of which are
+   zero. */
+
+static void
+emit_base2_bitmap( ulong nbits,
+                   ulong mask ) {
+  ulong payload = (nbits+7UL)/8UL;
+  emit_u8 ( 0 );                             /* base2 bitmap */
+  emit_u16( (ushort)nbits );                 /* bit count */
+  for( ulong b=0UL; b<payload; b++ ) emit_u8( (uchar)( b<8UL ? (mask>>(8UL*b))&0xffUL : 0UL ) );
+}
+
 /* emit_votes_aggregate emits a VotesAggregate whose signature is the
-   compressed G2 point at infinity (so it decompresses) and whose base2
-   bitmap sets signer ranks [0,signer_cnt) out of nbits. */
+   compressed G2 point at infinity (so it decompresses, and compresses
+   back to the same bytes) and whose base2 bitmap, under a u16 byte
+   count, names the ranks set in mask.  The serializer always emits a
+   bitmap one bit past the highest signing rank, so only an nbits of
+   exactly that re-encodes to these bytes. */
 
 static void
 emit_votes_aggregate( ulong nbits,
-                      ulong signer_cnt ) {
+                      ulong mask ) {
   emit_u8 ( 0xc0 ); emit_rep( 0x00, 95UL );  /* compressed signature: infinity */
-  ulong payload = (nbits+7UL)/8UL;
-  emit_u16( (ushort)(3UL+payload) );         /* bitmap byte count */
-  emit_u8 ( 0 );                             /* base2 bitmap */
-  emit_u16( (ushort)nbits );                 /* bit count */
-  ulong off = g_sz;
-  emit_rep( 0x00, payload );
-  for( ulong i=0UL; i<signer_cnt; i++ ) g_buf[ off+(i>>3) ] = (uchar)( g_buf[ off+(i>>3) ] | (1U<<(i&7U)) );
+  emit_u16( (ushort)(3UL+(nbits+7UL)/8UL) ); /* bitmap byte count */
+  emit_base2_bitmap( nbits, mask );
+}
+
+/* emit_reward_cert emits a SkipRewardCertificate (block_id NULL) or a
+   NotarRewardCertificate.  Its bitmap byte count is a ShortU16, not the
+   aggregate's u16, and its signature stays compressed. */
+
+static void
+emit_reward_cert( ulong             slot,
+                  fd_hash_t const * block_id,
+                  uchar             sig_fill,
+                  ulong             nbits,
+                  ulong             mask ) {
+  emit_u64( slot );
+  if( block_id ) emit( block_id->uc, sizeof(fd_hash_t) );
+  emit_rep( sig_fill, 96UL );
+  emit_cu16( (ushort)(3UL+(nbits+7UL)/8UL) );
+  emit_base2_bitmap( nbits, mask );
 }
 
 static void
@@ -178,9 +208,9 @@ test_footer_with_certs( int has_notar_aggregate ) {
   emit_u8( 1 );                             /* block_final_cert: Some */
   emit_u64( 777UL );                        /* BlockFinalizationCert::slot */
   emit( block_id.uc, sizeof(fd_hash_t) );   /* BlockFinalizationCert::block_id */
-  emit_votes_aggregate( 13UL, 7UL );        /* final_aggregate, signer ranks 0-6 */
+  emit_votes_aggregate( 13UL, 0x7fUL );     /* final_aggregate, signer ranks 0-6 */
   emit_u8( (uchar)!!has_notar_aggregate );  /* notar_aggregate tag */
-  if( has_notar_aggregate ) emit_votes_aggregate( 13UL, 5UL ); /* signer ranks 0-4 */
+  if( has_notar_aggregate ) emit_votes_aggregate( 13UL, 0x1fUL ); /* signer ranks 0-4 */
 
   emit_u8( 1 );                             /* skip_reward_cert: Some */
   emit_u64( 775UL );                        /* SkipRewardCertificate::slot */
@@ -339,9 +369,9 @@ test_final_cert_de( void ) {
   emit_reset();
   emit_u64( 7UL );                              /* BlockFinalizationCert::slot */
   emit( block_id.uc, sizeof(fd_hash_t) );       /* BlockFinalizationCert::block_id */
-  emit_votes_aggregate( n, 7UL );               /* final_aggregate, signer ranks 0-6 */
+  emit_votes_aggregate( n, 0x7fUL );            /* final_aggregate, signer ranks 0-6 */
   emit_u8 ( 1 );                                /* notar_aggregate: Some */
-  emit_votes_aggregate( n, 7UL );               /* notar_aggregate, signer ranks 0-6 */
+  emit_votes_aggregate( n, 0x7fUL );            /* notar_aggregate, signer ranks 0-6 */
   ulong off = g_sz;
 
   ag_cert_fast_final_t fast_final;
@@ -368,7 +398,7 @@ test_final_cert_de( void ) {
 
   /* fast finalization: the notar aggregate is absent */
   g_sz = 8UL+sizeof(fd_hash_t);
-  emit_votes_aggregate( n, 9UL );               /* final_aggregate, signer ranks 0-8 */
+  emit_votes_aggregate( n, 0x1ffUL );           /* final_aggregate, signer ranks 0-8 */
   emit_u8 ( 0 );                                /* notar_aggregate: None */
   ulong off2 = g_sz;
 
@@ -434,7 +464,7 @@ test_errors( void ) {
 
 static void
 roundtrip( ulong marker_sz ) {
-  static uchar out[ 512 ];
+  static uchar out[ FD_BLOCK_FOOTER_SER_MAX ];
 
   fd_block_marker_t marker[1];
   FD_TEST( fd_block_marker_de( marker, g_buf, marker_sz, NULL )==FD_BLOCK_MARKER_DE_SUCCESS );
@@ -451,7 +481,7 @@ roundtrip( ulong marker_sz ) {
 
 static void
 test_ser( void ) {
-  static uchar out[ 512 ];
+  static uchar out[ FD_BLOCK_FOOTER_SER_MAX ];
   fd_hash_t parent_id = hash_of( 0x11 );
 
   /* header round trips */
@@ -482,11 +512,12 @@ test_ser( void ) {
   emit_u8 ( 0 ); emit_u8( 0 ); emit_u8( 0 );
   roundtrip( g_sz );
 
-  /* a footer carrying a cert is not emitted */
+  /* the variants we never produce are refused */
   fd_block_marker_t marker[1];
   fd_memset( marker, 0, sizeof(fd_block_marker_t) );
-  marker->variant                    = FOOTER;
-  marker->footer.has_fast_final_cert = 1;
+  marker->variant = UPDATE_PARENT;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
+  marker->variant = GENESIS_CERTIFICATE;
   FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
 
   /* nor is an over-long user agent */
@@ -495,21 +526,234 @@ test_ser( void ) {
   marker->footer.user_agent_len = FD_BLOCK_FOOTER_USER_AGENT_MAX+1UL;
   FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
 
-  /* nor are the variants we never produce */
+  /* nor is a footer that claims both finalization shapes */
   fd_memset( marker, 0, sizeof(fd_block_marker_t) );
-  marker->variant = UPDATE_PARENT;
-  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
-  marker->variant = GENESIS_CERTIFICATE;
-  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
+  marker->variant                    = FOOTER;
+  marker->footer.has_fast_final_cert = 1;
+  marker->footer.has_final_cert      = 1;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_MALFORMED );
 
-  /* the widest footer we emit fits the bound */
+  /* nor a slow finalization whose two certs name different slots */
   fd_memset( marker, 0, sizeof(fd_block_marker_t) );
-  marker->variant               = FOOTER;
-  marker->footer.user_agent_len = FD_BLOCK_FOOTER_USER_AGENT_MAX;
+  marker->variant                = FOOTER;
+  marker->footer.has_final_cert  = 1;
+  marker->footer.final_cert.slot = 7UL;
+  marker->footer.notar_cert.slot = 8UL;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_MALFORMED );
+}
+
+/* emit_cert_footer lays out a footer marker carrying whichever of the
+   three certificates is asked for, in the wincode order the Agave
+   BlockFooterV1 declares: each Option is a tag immediately followed by
+   its own body, not three tags and then three bodies.  All bitmaps are
+   canonical (one bit past the highest signing rank) so that the encoding
+   is exactly what the serializer produces. */
+
+#define CERT_NONE       (0)
+#define CERT_FAST_FINAL (1)
+#define CERT_SLOW_FINAL (2)
+
+static void
+emit_cert_footer( int final_kind,
+                  int skip_reward,
+                  int notar_reward ) {
+  fd_hash_t bank_hash = hash_of( 0x44 );
+  fd_hash_t block_id  = hash_of( 0x55 );
+
+  emit_reset();
+  emit_preamble( FOOTER, (ushort)0 ); /* length patched below */
+  ulong payload_off = g_sz;
+  emit_u8 ( 1 );                            /* VersionedBlockFooter::V1  */
+  emit( bank_hash.uc, sizeof(fd_hash_t) );  /* bank_hash                 */
+  emit_u64( 42UL );                         /* block_producer_time_nanos */
+  emit_u8 ( 3 ); emit( "fd/", 3UL );        /* block_user_agent          */
+
+  emit_u8( final_kind!=CERT_NONE );         /* block_final_cert */
+  if( final_kind!=CERT_NONE ) {
+    emit_u64( 777UL );
+    emit( block_id.uc, sizeof(fd_hash_t) );
+    emit_votes_aggregate( 13UL, 0x1a05UL ); /* final_aggregate, ranks 0, 2, 10, 11, 12 */
+    emit_u8( final_kind==CERT_SLOW_FINAL );
+    if( final_kind==CERT_SLOW_FINAL ) emit_votes_aggregate( 9UL, 0x101UL ); /* notar_aggregate, ranks 0, 8 */
+  }
+
+  emit_u8( !!skip_reward );                 /* skip_reward_cert */
+  if( skip_reward ) emit_reward_cert( 769UL, NULL, 0xf3, 13UL, 0x14a5UL );
+
+  emit_u8( !!notar_reward );                /* notar_reward_cert */
+  if( notar_reward ) emit_reward_cert( 769UL, &block_id, 0xf4, 1576UL, 0UL );
+
+  FD_STORE( ushort, g_buf+FD_BLOCK_MARKER_PREAMBLE_SZ-2UL, (ushort)(g_sz-payload_off) );
+}
+
+/* test_ser_certs asserts the serializer reproduces a hand encoded
+   footer byte for byte, for every combination of the three optional
+   certificates.  Round tripping alone would not catch a serializer and
+   deserializer that drifted together. */
+
+static void
+test_ser_certs( void ) {
+  for( int final_kind=CERT_NONE; final_kind<=CERT_SLOW_FINAL; final_kind++ ) {
+    for( int skip_reward=0; skip_reward<2; skip_reward++ ) {
+      for( int notar_reward=0; notar_reward<2; notar_reward++ ) {
+        emit_cert_footer( final_kind, skip_reward, notar_reward );
+        roundtrip( g_sz );
+      }
+    }
+  }
+
+  /* the interleaving is load bearing: a footer that carries only the
+     notar reward cert must put two zero tags in front of it, and the
+     one that carries only the finalization cert must put its two zero
+     tags behind the cert body, not in front. */
+  emit_cert_footer( CERT_NONE, 0, 1 );
+  ulong ua_end = FD_BLOCK_MARKER_PREAMBLE_SZ+1UL+32UL+8UL+1UL+3UL;
+  FD_TEST( g_buf[ ua_end     ]==0 ); /* block_final_cert:  None */
+  FD_TEST( g_buf[ ua_end+1UL ]==0 ); /* skip_reward_cert:  None */
+  FD_TEST( g_buf[ ua_end+2UL ]==1 ); /* notar_reward_cert: Some */
+
+  emit_cert_footer( CERT_FAST_FINAL, 0, 0 );
+  FD_TEST( g_buf[ ua_end ]==1 );     /* block_final_cert: Some */
+  FD_TEST( g_buf[ g_sz-2UL ]==0 );   /* skip_reward_cert:  None */
+  FD_TEST( g_buf[ g_sz-1UL ]==0 );   /* notar_reward_cert: None */
+}
+
+/* fill_max_cert_footer builds the widest footer we can emit: a slow
+   finalization, both reward certs, every one of AG_VAT_MAX ranks
+   signing, and a full length user agent. */
+
+static void
+fill_max_cert_footer( fd_block_marker_t * marker ) {
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  marker->variant = FOOTER;
+
+  fd_block_footer_t * footer = &marker->footer;
+  fd_memset( footer->bank_hash.uc, 0x5a, sizeof(fd_hash_t) );
+  footer->block_producer_time_nanos = ULONG_MAX;
+  footer->user_agent_len            = FD_BLOCK_FOOTER_USER_AGENT_MAX;
+  fd_memset( footer->user_agent, 'u', FD_BLOCK_FOOTER_USER_AGENT_MAX );
+
+  /* the compressed G2 point at infinity is the only signature this test
+     can name without a keypair, and it decompresses */
+  uchar csig[ 96 ];
+  fd_memset( csig, 0, sizeof(csig) ); csig[ 0 ] = 0xc0;
+
+  footer->has_final_cert  = 1;
+  footer->final_cert.slot = 777UL;
+  footer->notar_cert.slot = 777UL;
+  fd_memset( footer->notar_cert.block_hash, 0x55, sizeof(ag_block_hash_t) );
+  FD_TEST( !fd_bls12_381_g2_decompress_syscall( footer->final_cert.agg_sig.sig, csig, 1 ) );
+  FD_TEST( !fd_bls12_381_g2_decompress_syscall( footer->notar_cert.agg_sig.sig, csig, 1 ) );
+  for( ulong r=0UL; r<AG_VAT_MAX; r++ ) {
+    signer_set_insert( footer->final_cert.agg_sig.bitmask, r );
+    signer_set_insert( footer->notar_cert.agg_sig.bitmask, r );
+  }
+
+  footer->has_skip_reward_cert   = 1;
+  footer->skip_reward_cert.slot  = 769UL;
+  footer->skip_reward_cert.nbits = (ushort)AG_VAT_MAX;
+  fd_memset( footer->skip_reward_cert.sig,        0xf3, AG_BLS_SIG_COMPRESSED_SZ );
+  fd_memset( footer->skip_reward_cert.signer_set, 0xff, sizeof(footer->skip_reward_cert.signer_set) );
+
+  footer->has_notar_reward_cert   = 1;
+  footer->notar_reward_cert.slot  = 769UL;
+  footer->notar_reward_cert.nbits = (ushort)AG_VAT_MAX;
+  fd_memset( footer->notar_reward_cert.block_id.uc, 0x55, sizeof(fd_hash_t) );
+  fd_memset( footer->notar_reward_cert.sig,         0xf4, AG_BLS_SIG_COMPRESSED_SZ );
+  fd_memset( footer->notar_reward_cert.signer_set,  0xff, sizeof(footer->notar_reward_cert.signer_set) );
+}
+
+/* test_ser_max asserts FD_BLOCK_FOOTER_SER_MAX really bounds the widest
+   footer we emit, which is what sizes the leader footer frag. */
+
+static void
+test_ser_max( void ) {
+  static uchar out[ FD_BLOCK_FOOTER_SER_MAX ];
+
+  fd_block_marker_t marker[1];
+  fill_max_cert_footer( marker );
+
   ulong out_sz = 0UL;
   FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), &out_sz )==FD_BLOCK_MARKER_SER_SUCCESS );
-  FD_TEST( out_sz<=sizeof(out) );
-  FD_TEST( fd_block_marker_de( marker, out, out_sz, NULL )==FD_BLOCK_MARKER_DE_SUCCESS );
+  FD_LOG_NOTICE(( "widest footer is %lu bytes, bound is %lu", out_sz, FD_BLOCK_FOOTER_SER_MAX ));
+  FD_TEST( out_sz<=FD_BLOCK_FOOTER_SER_MAX );
+
+  /* the marker length prefix is a u16 */
+  FD_TEST( out_sz-FD_BLOCK_MARKER_PREAMBLE_SZ<=(ulong)USHORT_MAX );
+
+  /* and it reads back */
+  ulong consumed = 0UL;
+  FD_TEST( fd_block_marker_de( marker, out, out_sz, &consumed )==FD_BLOCK_MARKER_DE_SUCCESS );
+  FD_TEST( consumed==out_sz );
+  FD_TEST( marker->footer.user_agent_len==FD_BLOCK_FOOTER_USER_AGENT_MAX );
+  FD_TEST( marker->footer.has_final_cert && !marker->footer.has_fast_final_cert );
+  FD_TEST( marker->footer.skip_reward_cert.nbits ==(ushort)AG_VAT_MAX );
+  FD_TEST( marker->footer.notar_reward_cert.nbits==(ushort)AG_VAT_MAX );
+  for( ulong r=0UL; r<AG_VAT_MAX; r++ ) {
+    FD_TEST( ag_bls_agg_is_signer( &marker->footer.final_cert.agg_sig, r ) );
+    FD_TEST( ag_bls_agg_is_signer( &marker->footer.notar_cert.agg_sig, r ) );
+    FD_TEST( marker->footer.skip_reward_cert.signer_set [ r>>6 ] & (1UL<<(r&63UL)) );
+    FD_TEST( marker->footer.notar_reward_cert.signer_set[ r>>6 ] & (1UL<<(r&63UL)) );
+  }
+
+  /* one byte short of the bound is not enough */
+  fill_max_cert_footer( marker );
+  FD_TEST( fd_block_marker_ser( marker, out, out_sz-1UL, NULL )==FD_BLOCK_MARKER_SER_ERR_NOSPACE );
+
+  /* a rank the footer bound does not cover is refused rather than
+     silently overrunning it */
+  fill_max_cert_footer( marker );
+  signer_set_insert( marker->footer.final_cert.agg_sig.bitmask, AG_VAT_MAX );
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
+
+  fill_max_cert_footer( marker );
+  marker->footer.skip_reward_cert.nbits = (ushort)(AG_VAT_MAX+1UL);
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
+}
+
+/* test_ser_signature exercises the aggregate signature path on a real
+   BLS point rather than the point at infinity: what a cert holds is the
+   decompressed signature, and the footer has to compress it back to the
+   96 bytes it came from. */
+
+static void
+test_ser_signature( void ) {
+  static uchar out[ FD_BLOCK_FOOTER_SER_MAX ];
+
+  ag_bls_sec_t sec;
+  ag_bls_sig_t sig;
+  ag_bls_sec_derive( sec, (uchar const *)"fd_block_marker footer serializer seed", 38UL );
+  ag_bls_sec_sign( sec, sig, (uchar const *)"footer", 6UL );
+
+  fd_block_marker_t marker[1];
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  marker->variant                        = FOOTER;
+  marker->footer.has_fast_final_cert     = 1;
+  marker->footer.fast_final_cert.slot    = 99UL;
+  ag_bls_agg_zero( &marker->footer.fast_final_cert.agg_sig );
+  ag_bls_agg_add( &marker->footer.fast_final_cert.agg_sig, 4UL, sig );
+
+  ulong out_sz = 0UL;
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), &out_sz )==FD_BLOCK_MARKER_SER_SUCCESS );
+
+  /* the emitted signature decompresses back to the aggregate's */
+  ulong sig_off = FD_BLOCK_MARKER_PREAMBLE_SZ+1UL+32UL+8UL+1UL+1UL+8UL+32UL;
+  uchar decompressed[ 192 ];
+  FD_TEST( !fd_bls12_381_g2_decompress_syscall( decompressed, out+sig_off, 1 ) );
+  FD_TEST( !memcmp( decompressed, marker->footer.fast_final_cert.agg_sig.sig, sizeof(decompressed) ) );
+
+  /* and the whole marker reads back to the same aggregate */
+  fd_block_marker_t rt[1];
+  FD_TEST( fd_block_marker_de( rt, out, out_sz, NULL )==FD_BLOCK_MARKER_DE_SUCCESS );
+  FD_TEST( rt->footer.has_fast_final_cert );
+  FD_TEST( rt->footer.fast_final_cert.slot==99UL );
+  FD_TEST( ag_bls_agg_is_signer( &rt->footer.fast_final_cert.agg_sig, 4UL ) );
+  FD_TEST( ag_bls_agg_signer_cnt( &rt->footer.fast_final_cert.agg_sig )==1UL );
+  FD_TEST( !memcmp( rt->footer.fast_final_cert.agg_sig.sig, marker->footer.fast_final_cert.agg_sig.sig, sizeof(ag_bls_sig_t) ) );
+
+  /* a signature that is not a G2 point cannot be emitted */
+  fd_memset( marker->footer.fast_final_cert.agg_sig.sig, 0x11, sizeof(ag_bls_sig_t) );
+  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_MALFORMED );
 }
 
 int
@@ -527,6 +771,9 @@ main( int     argc,
   test_final_cert_de();
   test_errors();
   test_ser();
+  test_ser_certs();
+  test_ser_max();
+  test_ser_signature();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

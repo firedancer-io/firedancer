@@ -12,6 +12,7 @@
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/replay/fd_sched.h"
+#include "../../discof/votor/fd_votor_tile.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
@@ -405,6 +406,8 @@ struct fd_replay_tile {
 
   ulong       leader_execution_fees; /* ALPENGLOW-ONLY */
   ulong       leader_priority_fees;  /* ALPENGLOW-ONLY */
+
+  fd_votor_leader_t votor_leader[ 1 ]; /* ALPENGLOW-ONLY */
 
   ulong       next_leader_slot;
   long        next_leader_tickcount;

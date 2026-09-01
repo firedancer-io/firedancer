@@ -1,6 +1,7 @@
 #include "fd_votor_tile.h"
 #include "generated/fd_votor_tile_seccomp.h"
 
+#include "../../ballet/bls/fd_bls12_381.h"
 #include "../../choreo/votor/ag_cert_serde.h"
 #include "../../choreo/votor/ag_pool.h"
 #include "../../choreo/votor/ag_vote_serde.h"
@@ -69,6 +70,37 @@ typedef struct replayed replayed_t;
 #define MAP_KEY_HASH(key,seed) ((uint)fd_hash( (seed), &(key), sizeof(ag_block_id_t) ))
 #define MAP_MEMOIZE            0
 #include "../../util/tmpl/fd_map_dynamic.c"
+
+/* The footer of a block we produce declares the highest finalization
+   cert we hold, and the notarization and skip votes that earned rewards
+   FD_NUM_SLOTS_FOR_REWARD slots back.  ag_pool will not hand a cert
+   back after the fact, so the tile keeps what a footer needs as certs
+   go past.
+
+   reward_slot caches, per slot, the widest notarization and skip
+   aggregate seen for it.  Only the plain notar and skip aggregates are
+   eligible: a reward cert is one compressed signature over one base2
+   bitmap, and the fallback aggregates of a skip or notar-fallback cert
+   sign a different vote message, so they cannot be folded in.
+
+   Publishing a leader window reads the reward slots of the whole window
+   while skip certs for the window itself can already be arriving, so
+   the live span is
+   [ W-FD_NUM_SLOTS_FOR_REWARD, W+AG_SLOTS_PER_WINDOW-1 ], and one more
+   keeps the next slot from aliasing onto the oldest. */
+
+#define REWARD_SLOT_MAX (64UL) /* >= FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1 = 13 */
+FD_STATIC_ASSERT( REWARD_SLOT_MAX>FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW, reward_slot_max );
+
+struct reward_slot {
+  ulong           slot; /* ULONG_MAX when the entry holds no slot */
+  int             has_notar;
+  ag_block_hash_t notar_block_hash;
+  ag_bls_agg_t    notar_agg;
+  int             has_skip;
+  ag_bls_agg_t    skip_agg;
+};
+typedef struct reward_slot reward_slot_t;
 
 struct publish {
   ulong          sig;
@@ -160,6 +192,15 @@ struct fd_votor_tile {
   fd_multi_epoch_leaders_t * mleaders;
   ulong                      next_leader_slot;
 
+  /* Certs */
+
+  int                  has_fast_final_cert;
+  int                  has_final_cert;
+  ag_cert_fast_final_t fast_final_cert;
+  ag_cert_final_t      final_cert;
+  ag_cert_notar_t      notar_cert;
+  reward_slot_t        reward_slots[ REWARD_SLOT_MAX ];
+
   /* Networking */
 
   fd_pubkey_t        client_peer_id_keys[ QUIC_CONN_MAX ];
@@ -218,39 +259,55 @@ struct fd_votor_tile {
 typedef struct fd_votor_tile fd_votor_tile_t;
 
 static void
-broadcast( fd_votor_tile_t * ctx,
-           uchar const *     buf,
-           ulong             buf_sz ) {
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
-    peer_t const * peer = &ctx->peers[ slot ];
-    if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
-    if( FD_UNLIKELY( !peer->conn || peer->conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
+record_final_cert( fd_votor_tile_t * ctx,
+                   ag_cert_t const * cert ) {
+  ulong                 slot       = ag_cert_slot( cert );
+  reward_slot_t const * rs         = &ctx->reward_slots[ slot%REWARD_SLOT_MAX ];
+  int                   have_notar = rs->slot==slot && rs->has_notar;
 
-    fd_quic_conn_t * conn      = peer->conn;
-    uchar *          packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-    uchar *          payload   = packet_l2 + sizeof(fd_ip4_udp_hdrs_t);
+  int   have_final = ctx->has_fast_final_cert || ctx->has_final_cert;
+  ulong final_slot = ctx->has_fast_final_cert ? ctx->fast_final_cert.slot : ctx->final_cert.slot;
 
-    ulong pkt_sz = fd_quic_conn_tx_dgram( conn, payload, FD_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz );
-    if( FD_UNLIKELY( !pkt_sz ) ) continue;
+  if( cert->kind==AG_CERT_KIND_FAST_FINAL ) {
+    if( !have_final || slot>final_slot || ( slot==final_slot && ctx->has_final_cert ) ) {
+      ctx->has_fast_final_cert = 1;
+      ctx->has_final_cert      = 0;
+      ctx->fast_final_cert     = cert->fast_final;
+    }
+  } else if( cert->kind==AG_CERT_KIND_FINAL ) {
+    if( ( !have_final || slot>final_slot ) && have_notar ) {
+      ctx->has_fast_final_cert = 0;
+      ctx->has_final_cert      = 1;
+      ctx->final_cert          = cert->final;
+      fd_memset( &ctx->notar_cert, 0, sizeof(ag_cert_notar_t) );
+      ctx->notar_cert.slot     = slot;
+      ctx->notar_cert.agg_sig  = rs->notar_agg;
+      memcpy( ctx->notar_cert.block_hash, rs->notar_block_hash, sizeof(ag_block_hash_t) );
+    }
+  }
+}
 
-    fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)fd_type_pun( packet_l2 );
-    *hdr = *ctx->hdr;
+static void
+record_reward_cert( fd_votor_tile_t * ctx,
+                    ag_cert_t const * cert ) {
+  /* TODO naively implemented to just pass along certs */
 
-    hdr->ip4->daddr       = conn->peer[ 0 ].ip_addr;
-    hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)( pkt_sz+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) );
-    hdr->ip4->net_id      = fd_ushort_bswap( ctx->net_id++ );
-    hdr->ip4->check       = 0;
-    hdr->ip4->check       = fd_ip4_hdr_check_fast( hdr->ip4 );
+  ulong           slot = ag_cert_slot( cert );
+  reward_slot_t * rs   = &ctx->reward_slots[ slot%REWARD_SLOT_MAX ];
 
-    hdr->udp->net_dport = fd_ushort_bswap( conn->peer[ 0 ].udp_port );
-    hdr->udp->net_len   = fd_ushort_bswap( (ushort)( pkt_sz+sizeof(fd_udp_hdr_t) ) );
-    hdr->udp->check     = (ushort)0;
+  if( FD_UNLIKELY( rs->slot!=slot ) ) {
+    rs->slot      = slot;
+    rs->has_notar = 0;
+    rs->has_skip  = 0;
+  }
 
-    uint  ip_dst = hdr->ip4->daddr;
-    ulong sig    = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
-    ulong sz_l2  = sizeof(fd_ip4_udp_hdrs_t) + pkt_sz;
-    fd_stem_publish( ctx->stem, OUT_IDX_NET, sig, ctx->net_out_chunk, sz_l2, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
-    ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+  if( cert->kind==AG_CERT_KIND_NOTAR && ( !rs->has_notar || ag_bls_agg_signer_cnt( &cert->notar.agg_sig )>ag_bls_agg_signer_cnt( &rs->notar_agg ) ) ) {
+    rs->has_notar = 1;
+    rs->notar_agg = cert->notar.agg_sig;
+    memcpy( rs->notar_block_hash, cert->notar.block_hash, sizeof(ag_block_hash_t) );
+  } else if( cert->kind==AG_CERT_KIND_SKIP && ( !rs->has_skip || ag_bls_agg_signer_cnt( &cert->skip.agg_sig_skip )>ag_bls_agg_signer_cnt( &rs->skip_agg ) ) ) {
+    rs->has_skip = 1;
+    rs->skip_agg = cert->skip.agg_sig_skip;
   }
 }
 
@@ -289,14 +346,13 @@ quic_aio_tx( void *                    _ctx,
 }
 
 static void
-quic_sign( void *      signer_ctx,
-           uchar       signature[ static 64 ],
-           uchar const payload[ static 130 ] ) {
-  fd_votor_tile_t * ctx = signer_ctx;
-
-  fd_sha512_t * sha = fd_sha512_join( ctx->sha512 );
-  fd_ed25519_sign( signature, payload, 130UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha ); /* TODO keyguard */
-  fd_sha512_leave( sha );
+quic_client_conn_final( fd_quic_conn_t * conn,
+                        void *           _ctx ) {
+  fd_votor_tile_t *   ctx    = _ctx;
+  fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
+  if( FD_UNLIKELY( !id_key ) ) return;
+  peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
+  if( FD_LIKELY( peer ) ) peer->conn = NULL;
 }
 
 static void
@@ -312,13 +368,34 @@ quic_client_conn_hs_complete( fd_quic_conn_t * conn,
 }
 
 static void
-quic_client_conn_final( fd_quic_conn_t * conn,
-                        void *           _ctx ) {
-  fd_votor_tile_t *   ctx    = _ctx;
-  fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
-  if( FD_UNLIKELY( !id_key ) ) return;
-  peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
-  if( FD_LIKELY( peer ) ) peer->conn = NULL;
+quic_client_datagram_tx( fd_votor_tile_t * ctx,
+                         fd_quic_conn_t *  conn,
+                         uchar const *     buf,
+                         ulong             buf_sz ) {
+  uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+  uchar * payload   = packet_l2 + sizeof(fd_ip4_udp_hdrs_t);
+
+  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, payload, FD_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz );
+  if( FD_UNLIKELY( !pkt_sz ) ) return;
+
+  fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)fd_type_pun( packet_l2 );
+  *hdr = *ctx->hdr;
+
+  hdr->ip4->daddr       = conn->peer[ 0 ].ip_addr;
+  hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)( pkt_sz+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) );
+  hdr->ip4->net_id      = fd_ushort_bswap( ctx->net_id++ );
+  hdr->ip4->check       = 0;
+  hdr->ip4->check       = fd_ip4_hdr_check_fast( hdr->ip4 );
+
+  hdr->udp->net_dport = fd_ushort_bswap( conn->peer[ 0 ].udp_port );
+  hdr->udp->net_len   = fd_ushort_bswap( (ushort)( pkt_sz+sizeof(fd_udp_hdr_t) ) );
+  hdr->udp->check     = (ushort)0;
+
+  uint  ip_dst = hdr->ip4->daddr;
+  ulong sig    = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong sz_l2  = sizeof(fd_ip4_udp_hdrs_t) + pkt_sz;
+  fd_stem_publish( ctx->stem, OUT_IDX_NET, sig, ctx->net_out_chunk, sz_l2, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
+  ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
 static void
@@ -393,6 +470,17 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
   default:
     return;
   }
+}
+
+static void
+quic_sign( void *      signer_ctx,
+           uchar       signature[ static 64 ],
+           uchar const payload[ static 130 ] ) {
+  fd_votor_tile_t * ctx = signer_ctx;
+
+  fd_sha512_t * sha = fd_sha512_join( ctx->sha512 );
+  fd_ed25519_sign( signature, payload, 130UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha ); /* TODO keyguard */
+  fd_sha512_leave( sha );
 }
 
 static void
@@ -698,16 +786,30 @@ after_credit( fd_votor_tile_t *   ctx,
     if( FD_LIKELY( vote_slot>=ctx->curr_epoch_slot && epoch_info && rank<epoch_info->validator_cnt ) ) {
       ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote );
 
-      ulong buf_sz = ag_vote_ser( &ctx->scratch.vote_event.vote, ctx->shred_version, ctx->scratch.ser );
-      broadcast( ctx, ctx->scratch.ser, buf_sz );
+      ulong ser_sz = ag_vote_ser( &ctx->scratch.vote_event.vote, ctx->shred_version, ctx->scratch.ser );
+      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+        peer_t const * peer = &ctx->peers[ slot ];
+        if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->conn || peer->conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
+        quic_client_datagram_tx( ctx, peer->conn, ctx->scratch.ser, ser_sz );
+      }
+
       *charge_busy = 1;
     }
   }
 
   if( FD_UNLIKELY( ag_votor_poll_cert_event( ctx->votor, &ctx->scratch.cert_event ) ) ) { /* a cert the pool accepted, or a standstill re-broadcast */
     ag_pool_add_cert( ctx->pool, &ctx->scratch.cert_event.cert );
-    ulong buf_sz = ag_cert_ser( &ctx->scratch.cert_event.cert, ctx->shred_version, ctx->scratch.ser );
-    broadcast( ctx, ctx->scratch.ser, buf_sz );
+
+    ulong ser_sz = ag_cert_ser( &ctx->scratch.cert_event.cert, ctx->shred_version, ctx->scratch.ser );
+    for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      peer_t const * peer = &ctx->peers[ slot ];
+      if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->conn || peer->conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
+      quic_client_datagram_tx( ctx, peer->conn, ctx->scratch.ser, ser_sz );
+    }
+
+    record_reward_cert( ctx, &ctx->scratch.cert_event.cert );
+    record_final_cert ( ctx, &ctx->scratch.cert_event.cert );
+
     uint            kind           = ctx->scratch.cert_event.cert.kind;
     ulong           finalized_slot = ag_pool_finalized_slot( ctx->pool );
     ag_block_hash_t finalized_hash;
@@ -758,6 +860,44 @@ after_credit( fd_votor_tile_t *   ctx,
   pub.msg.leader.start_slot  = ctx->next_leader_slot;
   pub.msg.leader.parent_slot = parent.slot;
   memcpy( pub.msg.leader.parent_block_id.uc, parent.hash, sizeof(fd_hash_t) );
+
+  /* The footer compresses every aggregate it carries and cannot encode a
+     rank past AG_VAT_MAX, so a cert failing either is dropped instead of
+     being allowed to make our block unencodable.  A slow finalization
+     carries the notarization aggregate too, so both are checked. */
+
+  ag_bls_agg_t const * agg[ 2 ] = {
+    fd_ptr_if( ctx->has_fast_final_cert, &ctx->fast_final_cert.agg_sig,
+    fd_ptr_if( ctx->has_final_cert,      &ctx->final_cert.agg_sig, NULL ) ),
+    fd_ptr_if( ctx->has_final_cert,      &ctx->notar_cert.agg_sig, NULL )
+  };
+
+  int final_ready = !!agg[ 0 ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( !agg[ i ] ) continue;
+    uchar csig[ AG_BLS_SIG_COMPRESSED_SZ ];
+    ulong last = signer_set_last( agg[ i ]->bitmask );
+    if( FD_UNLIKELY( ( last<AG_BLS_SIGNERS_MAX && last>=AG_VAT_MAX ) ||
+                     fd_bls12_381_g2_compress( csig, agg[ i ]->sig, 1 ) ) ) final_ready = 0;
+  }
+  pub.msg.leader.has_fast_final_cert = ctx->has_fast_final_cert && final_ready;
+  pub.msg.leader.has_final_cert      = ctx->has_final_cert      && final_ready;
+  pub.msg.leader.fast_final_cert     = ctx->fast_final_cert;
+  pub.msg.leader.final_cert          = ctx->final_cert;
+  pub.msg.leader.notar_cert          = ctx->notar_cert;
+
+  /* One reward cert pair per slot of the window: the runtime only
+     accepts the slot FD_NUM_SLOTS_FOR_REWARD before the block. */
+  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) {
+    ulong leader_slot = ctx->next_leader_slot+i;
+    if( FD_UNLIKELY( leader_slot<FD_NUM_SLOTS_FOR_REWARD ) ) continue;
+    ulong                 reward_slot = leader_slot-FD_NUM_SLOTS_FOR_REWARD;
+    reward_slot_t const * rs          = &ctx->reward_slots[ reward_slot%REWARD_SLOT_MAX ];
+    if( FD_UNLIKELY( rs->slot!=reward_slot ) ) continue;
+    if( rs->has_skip  ) pub.msg.leader.has_skip_reward_cert [ i ] = fd_reward_cert_from_agg( &pub.msg.leader.skip_reward_cert [ i ], reward_slot, NULL,                 &rs->skip_agg  );
+    if( rs->has_notar ) pub.msg.leader.has_notar_reward_cert[ i ] = fd_reward_cert_from_agg( &pub.msg.leader.notar_reward_cert[ i ], reward_slot, rs->notar_block_hash, &rs->notar_agg );
+  }
+
   FD_TEST( !publishes_full( ctx->publishes ) );
   publishes_push( ctx->publishes, pub );
 
@@ -981,8 +1121,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
   FD_TEST( ctx->mleaders );
 
-  ctx->init             = 0;
-  ctx->next_leader_slot = ULONG_MAX;
+  ctx->init                = 0;
+  ctx->next_leader_slot    = ULONG_MAX;
+  ctx->has_fast_final_cert = 0;
+  ctx->has_final_cert      = 0;
+  fd_memset( &ctx->fast_final_cert, 0, sizeof(ag_cert_fast_final_t) );
+  fd_memset( &ctx->final_cert,      0, sizeof(ag_cert_final_t)      );
+  fd_memset( &ctx->notar_cert,      0, sizeof(ag_cert_notar_t)      );
+  for( ulong i=0UL; i<REWARD_SLOT_MAX; i++ ) ctx->reward_slots[ i ].slot = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
