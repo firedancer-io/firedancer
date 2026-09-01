@@ -631,8 +631,8 @@ STEM_(run1)( ulong                        in_cnt,
     ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
     ulong sig       = fd_frag_meta_sse0_sig( seq_sig );
 #elif FD_HAS_ARM
-    ulong seq_found, sig;
-    fd_arm_ldp16_acq_pc( this_in_mline->ul, seq_found, sig );
+    ulong seq_found = __atomic_load_n( &this_in_mline->seq, __ATOMIC_ACQUIRE );
+    ulong sig       = FD_VOLATILE_CONST( this_in_mline->sig );
     ulong ul2, ul3;
     fd_arm_ldp16( this_in_mline->ul+2, ul2, ul3 );
 #else

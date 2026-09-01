@@ -11,7 +11,7 @@ include config/extra/with-debug.mk
 include config/extra/with-security.mk
 include config/extra/with-threads.mk
 
-CPPFLAGS+=-mcpu=neoverse-n2+lse+rcpc3
+CPPFLAGS+=-mcpu=neoverse-n2+lse
 CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1
 
 FD_HAS_INT128:=1

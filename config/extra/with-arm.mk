@@ -1,5 +1,5 @@
 # Experimental Arm support.
-# Requires at least Armv8.4-a (LSE2 and RCPC3)
+# Requires armv8 with LSE.
 
 ifneq ($(filter-out aarch64 arm64,$(shell uname -m)),)
 # uname -m is not empty and is neither aarch64 nor arm64

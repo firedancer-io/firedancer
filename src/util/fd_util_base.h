@@ -1371,17 +1371,6 @@ fd_arm_stp16( ulong * p,
       : "memory"                   \
   )
 
-/* fd_arm_ldp16_acq_pc is like fd_arm_ldp16, but with Load-AcquirePC
-   semantics.  Requires RCPC3. */
-
-#define fd_arm_ldp16_acq_pc(p_,a_,b_) \
-  __asm__(                            \
-      "ldiapp %x[a], %x[b], [%[p]]"   \
-      : [a] "=r"(a_), [b] "=r"(b_)    \
-      : [p] "r"(p_)                   \
-      : "memory"                      \
-  )
-
 #endif /* FD_HAS_ARM */
 
 FD_PROTOTYPES_END
