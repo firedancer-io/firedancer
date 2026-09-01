@@ -430,6 +430,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->in_cnt   = tile->in_cnt;
   ctx->idle_cnt = 0UL;
 
+  FD_CHECK_ERR( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]), "too many input links" );
+
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];

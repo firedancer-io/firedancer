@@ -198,6 +198,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tcache_ring    = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache_map     = fd_tcache_map_laddr   ( tcache );
 
+  FD_CHECK_ERR( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]), "too many input links" );
+
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
