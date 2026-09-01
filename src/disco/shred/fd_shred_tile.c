@@ -236,7 +236,6 @@ typedef struct {
     fd_histf_t add_shred_timing[ 1 ];
     ulong shred_processing_result[ FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ];
     ulong invalid_block_id_cnt;
-    ulong shred_rejected_unchained_cnt;
     ulong repair_rcv_cnt;
     ulong repair_rcv_bytes;
     ulong turbine_rcv_cnt;
@@ -374,7 +373,6 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MCNT_SET  ( SHRED, NONCE_INVALID,              ctx->metrics->bad_nonce                    );
 
   FD_MCNT_SET  ( SHRED, BLOCK_ID_INVALID,           ctx->metrics->invalid_block_id_cnt         );
-  FD_MCNT_SET  ( SHRED, SHRED_UNCHAINED_REJECTED,   ctx->metrics->shred_rejected_unchained_cnt );
 
   FD_MCNT_ENUM_COPY( SHRED, SHRED_PROCESSED, ctx->metrics->shred_processing_result             );
 }
@@ -872,14 +870,6 @@ alpenglow_marker:
       ctx->metrics->turbine_rcv_cnt++;
       ctx->metrics->turbine_rcv_bytes += sz;
     }
-
-    /* Drop unchained merkle shreds */
-    int is_unchained = !fd_shred_is_chained( fd_shred_type( shred->variant ) );
-    if( FD_UNLIKELY( is_unchained ) ) {
-      ctx->metrics->shred_rejected_unchained_cnt++;
-      ctx->skip_frag = 1;
-      return;
-    };
 
     /* all shreds in the same FEC set will have the same signature
        so we can round-robin shreds between the shred tiles based on
@@ -1631,7 +1621,6 @@ unprivileged_init( fd_topo_t const *      topo,
                                                                    FD_MHIST_SECONDS_MAX( SHRED, ADD_SHRED_DURATION_SECONDS ) ) );
   memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
   ctx->metrics->invalid_block_id_cnt         = 0UL;
-  ctx->metrics->shred_rejected_unchained_cnt = 0UL;
   ctx->metrics->repair_rcv_cnt               = 0UL;
   ctx->metrics->repair_rcv_bytes             = 0UL;
   ctx->metrics->turbine_rcv_cnt              = 0UL;

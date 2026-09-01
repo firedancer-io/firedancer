@@ -198,7 +198,7 @@ test_shred_dest_conformance( void ) {
   fd_shred_t shred[1];
   shred->slot = EXPECTED_BROADCAST_SLOT;
   shred->variant = fd_shred_variant(
-    EXPECTED_BROADCAST_IS_DATA ? FD_SHRED_TYPE_MERKLE_DATA : FD_SHRED_TYPE_MERKLE_CODE, 2 );
+    EXPECTED_BROADCAST_IS_DATA ? FD_SHRED_TYPE_MERKLE_DATA_CHAINED : FD_SHRED_TYPE_MERKLE_CODE_CHAINED, 2 );
   shred->idx = EXPECTED_BROADCAST_IDX;
 
   fd_shred_t const * shred_ptr[1] = { shred };

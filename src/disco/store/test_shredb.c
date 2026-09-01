@@ -15,7 +15,7 @@ make_shred( uchar buf[ FD_SHRED_MAX_SZ ],
             ulong         payload_sz ) {
   memset( buf, 0, FD_SHRED_MAX_SZ );
   fd_shred_t * shred = (fd_shred_t *)buf;
-  shred->variant   = fd_shred_variant( FD_SHRED_TYPE_LEGACY_DATA, 0 );
+  shred->variant   = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 0 );
   shred->slot      = slot;
   shred->idx       = idx;
   shred->data.size = (ushort)(FD_SHRED_DATA_HEADER_SZ + payload_sz);
@@ -201,7 +201,7 @@ test_multiple_shreds_same_slot( void ) {
     fill_payload( payload, payload_sz, slot, i );
     int ret = fd_shredb_query( store, slot, i, out );
     FD_TEST( ret>0 );
-    FD_TEST( (ulong)ret==(payload_sz + FD_SHRED_DATA_HEADER_SZ) );
+    FD_TEST( (ulong)ret==FD_SHRED_MIN_SZ );
     FD_TEST( memcmp( out + FD_SHRED_DATA_HEADER_SZ, payload, payload_sz )==0 );
   }
 

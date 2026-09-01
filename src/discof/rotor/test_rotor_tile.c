@@ -430,7 +430,7 @@ deliver_shred( ctx_t * ctx, ulong slot, uint idx, uchar flags, fd_hash_t const *
   base->rnonce      = rnonce;
 
   fd_shred_t * shred = &base->shred;
-  shred->variant     = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred->variant     = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
   shred->slot        = slot;
   shred->idx         = idx;
   shred->fec_set_idx = idx & ~( (uint)FD_FEC_SHRED_CNT-1U );
@@ -453,7 +453,7 @@ deliver_fec_complete( ctx_t * ctx, ulong slot, uint fec_set_idx, uchar flags, fd
   memset( &msg, 0, sizeof(msg) );
   msg.merkle_root = *mr;
   fd_shred_t * shred = &msg.last_shred_hdr;
-  shred->variant     = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred->variant     = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
   shred->slot        = slot;
   shred->idx         = fec_set_idx+FD_FEC_SHRED_CNT-1U;
   shred->fec_set_idx = fec_set_idx;
@@ -761,13 +761,13 @@ test_turbine_shreds( fd_wksp_t * wksp ) {
     static fd_shred_base_t base[1];
     memset( base, 0, sizeof(fd_shred_base_t) );
     base->merkle_root = evil;
-    base->shred.variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_CODE, 5 );
+    base->shred.variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_CODE_CHAINED, 5 );
     base->shred.slot    = blk->slot;
     base->shred.idx     = 7U;
     deliver_frag( ctx, IN_IDX_SHRED, (ulong)SHRED_SIG_SRC_TURBINE, base, sizeof(fd_shred_base_t) );
     FD_TEST( fd_chainer_slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
 
-    base->shred.variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+    base->shred.variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
     base->shred.data.size = FD_SHRED_DATA_HEADER_SZ;
     ulong eqvoc_sig = ( (ulong)(uint)SHRED_SIG_RESULT_EQVOC<<32 ) | (ulong)SHRED_SIG_SRC_TURBINE;
     deliver_frag( ctx, IN_IDX_SHRED, eqvoc_sig, base, sizeof(fd_shred_base_t) );

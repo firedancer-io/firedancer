@@ -57,10 +57,8 @@
 
    ### Merkle Inclusion Proofs
 
-   Data and coding shreds come in two variants respectively: legacy and merkle.
-   Merkle shreds extend legacy shreds by adding FEC set inclusion proofs.
-
-   It allows the block producer to commit to the vector of shreds that make up an FEC set.
+   Merkle shreds contain FEC set inclusion proofs.  This allows the block
+   producer to commit to the vector of shreds that make up an FEC set.
    The inclusion proof is used to verify whether a shred is part of the FEC set commitment.
 
    The length of the inclusion proof is indicated by the variant field.
@@ -102,14 +100,6 @@
 /* FD_SHRED_TYPE_* identifies the type of a shred.
    It is located at the four high bits of byte 0x40 (64) of the shred header
    and can be extracted using the fd_shred_type() function. */
-/* FD_SHRED_TYPE_LEGACY_DATA: A shred carrying raw binary data. */
-#define FD_SHRED_TYPE_LEGACY_DATA ((uchar)0xA0)
-/* FD_SHRED_TYPE_LEGACY_CODE: A shred carrying Reed-Solomon ECC. */
-#define FD_SHRED_TYPE_LEGACY_CODE ((uchar)0x50)
-/* FD_SHRED_TYPE_MERKLE_DATA: A shred carrying raw binary data and a merkle inclusion proof. */
-#define FD_SHRED_TYPE_MERKLE_DATA ((uchar)0x80)
-/* FD_SHRED_TYPE_MERKLE_CODE: A shred carrying Reed-Solomon ECC and a merkle inclusion proof. */
-#define FD_SHRED_TYPE_MERKLE_CODE ((uchar)0x40)
 /* FD_SHRED_TYPE_MERKLE_DATA_CHAINED: A shred carrying raw binary data and a chained merkle inclusion proof. */
 #define FD_SHRED_TYPE_MERKLE_DATA_CHAINED ((uchar)0x90)
 /* FD_SHRED_TYPE_MERKLE_CODE_CHAINED: A shred carrying Reed-Solomon ECC and a chained merkle inclusion proof. */
@@ -121,9 +111,9 @@
 #define FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED ((uchar)0x70)
 
 /* FD_SHRED_TYPEMASK_DATA: bitwise AND with type matches data shred */
-#define FD_SHRED_TYPEMASK_DATA FD_SHRED_TYPE_MERKLE_DATA
+#define FD_SHRED_TYPEMASK_DATA ((uchar)0x80)
 /* FD_SHRED_TYPEMASK_CODE: bitwise AND with type matches code shred */
-#define FD_SHRED_TYPEMASK_CODE FD_SHRED_TYPE_MERKLE_CODE
+#define FD_SHRED_TYPEMASK_CODE ((uchar)0x40)
 
 /* FD_SHRED_MERKLE_ROOT_SZ: the size of a merkle tree root in bytes. */
 #define FD_SHRED_MERKLE_ROOT_SZ (32UL)
@@ -178,25 +168,19 @@ FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing th
 struct __attribute__((packed)) fd_shred {
   /* Ed25519 signature over the shred
 
-     For legacy type shreds, signs over content of the shred structure past this signature field.
-     For merkle type shreds, signs over the first node of the inclusion proof (merkle root). */
+     Signs over the first node of the inclusion proof (merkle root). */
   /* 0x00 */ fd_ed25519_sig_t signature;
 
   /* Shred variant specifier
      Consists of two four bit fields. (Deliberately not using bit fields here)
 
      The high four bits indicate the shred type:
-     - 0101: legacy code
-     - 1010: legacy data
-     - 0100: merkle code
      - 0110: merkle code (chained)
      - 0111: merkle code (chained resigned)
-     - 1000: merkle data
      - 1001: merkle data (chained)
      - 1011: merkle data (chained resigned)
 
-     For legacy type shreds, the low four bits are set to static patterns.
-     For merkle type shreds, the low four bits are set to the number of non-root nodes in the inclusion proof.
+     The low four bits are set to the number of non-root nodes in the inclusion proof.
      For merkle code type shreds, the 3rd highest bit represents if the merkle tree is chained.
      For merkle data type shreds, the 4th highest bit represents if the merkle tree is chained.
      For merkle code type shreds, the 4th highest bit represents if the shred is resigned.
@@ -280,10 +264,6 @@ fd_shred_type( uchar variant ) {
 FD_FN_CONST static inline uchar
 fd_shred_variant( uchar type,
                   uchar merkle_cnt ) {
-  if( FD_LIKELY( type==FD_SHRED_TYPE_LEGACY_DATA ) )
-    merkle_cnt = 0x05;
-  if( FD_LIKELY( type==FD_SHRED_TYPE_LEGACY_CODE ) )
-    merkle_cnt = 0x0a;
   return (uchar)(type | merkle_cnt);
 }
 
@@ -293,8 +273,8 @@ fd_shred_sz( fd_shred_t const * shred ) {
   return fd_ulong_if(
     type & FD_SHRED_TYPEMASK_CODE,
     FD_SHRED_MAX_SZ,
-    fd_ulong_if( type==FD_SHRED_TYPE_LEGACY_DATA, shred->data.size, FD_SHRED_MIN_SZ)
-  ); /* Legacy data */
+    FD_SHRED_MIN_SZ
+  );
 }
 
 /* fd_shred_header_sz: Returns the header size of a shred.
@@ -312,13 +292,9 @@ fd_shred_header_sz( uchar variant ) {
 }
 
 /* fd_shred_merkle_cnt: Returns number of nodes in the merkle inclusion
-   proof.  Note that this excludes the root.  Returns zero if the given
-   shred is not a merkle variant. */
+   proof.  Note that this excludes the root. */
 FD_FN_CONST static inline uint
 fd_shred_merkle_cnt( uchar variant ) {
-  uchar type = fd_shred_type( variant );
-  if( FD_UNLIKELY( ( type == FD_SHRED_TYPE_LEGACY_DATA ) | ( type == FD_SHRED_TYPE_LEGACY_CODE ) ) )
-    return 0;
   return (variant&0xfU);
 }
 
@@ -357,9 +333,8 @@ FD_FN_CONST static inline uchar fd_shred_is_data( ulong type ) { return (type & 
 FD_FN_CONST static inline uchar fd_shred_is_code( ulong type ) { return (type & 0xC0UL)==0x40UL; }
 
 /* fd_shred_swap_type: changes data into code or vice versa without
-   affecting legacy, merkle, chained, or resigned status.  For example,
-   fd_shred_swap_type( chained resigned data ) == chained resigned code.
-   fd_shred_swap_type( merkle code ) == merkle data. */
+   affecting resigned status.  For example,
+   fd_shred_swap_type( chained resigned data ) == chained resigned code. */
 FD_FN_CONST static inline uchar
 fd_shred_swap_type( ulong type ) {
   /* Swap bits 4 and 5. Swap bits 6 and 7. */

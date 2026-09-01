@@ -445,7 +445,7 @@ perf_test( void ) {
   for( ulong iter=0UL; iter<iterations; iter++ ) {
     fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 0UL, meta );
 
-    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ, FD_SHRED_TYPE_MERKLE_DATA );
+    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ, 0 );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
       fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
     }
@@ -485,7 +485,7 @@ perf_test2( void ) {
   for( ulong iter=0UL; iter<iterations; iter++ ) {
     fd_shredder_init_batch( shredder, entry_batch, PERF_TEST2_SZ, 0UL, meta );
 
-    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST2_SZ, FD_SHRED_TYPE_MERKLE_DATA );
+    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST2_SZ, 0 );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
       fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
       bytes_produced += FD_FEC_SHRED_CNT * FD_SHRED_MIN_SZ + FD_FEC_SHRED_CNT * FD_SHRED_MAX_SZ;

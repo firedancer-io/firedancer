@@ -12,7 +12,6 @@
    - Legacy transaction messages
    - Version 0 transaction messages
    - Version 1 transaction messages
-   - Legacy shred signed payloads
    - Merkle shred roots
    - TLS CertificateVerify challenges
    - Gossip message signed payloads (CrdsData)
@@ -290,8 +289,6 @@ fd_keyguard_payload_matches_shred( uchar const * data,
                                    ulong         sz,
                                    int           sign_type ) {
   (void)data;
-
-  /* Note: Legacy shreds no longer relevant (drop_legacy_shreds) */
 
   /* FIXME: Sign Merkle shreds using SIGN_TYPE_SHA256_ED25519 (!!!) */
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;

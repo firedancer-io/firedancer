@@ -49,7 +49,7 @@ test_compute_first_matches_agave( void ) {
     if( FD_LIKELY( memcmp( fd_epoch_leaders_get( lsched, slot ), src_key, 32UL ) ) ) continue;
     shred->slot = slot;
     for( int type=0; type<2; type++ ) {
-      shred->variant = fd_shred_variant( type==0 ? FD_SHRED_TYPE_MERKLE_DATA : FD_SHRED_TYPE_MERKLE_CODE, 2 );
+      shred->variant = fd_shred_variant( type==0 ? FD_SHRED_TYPE_MERKLE_DATA_CHAINED : FD_SHRED_TYPE_MERKLE_CODE_CHAINED, 2 );
       for( ulong idx=(ulong)(type+1); idx<67UL; idx += 3UL ) {
         shred->idx = (uint)idx;
         FD_TEST( fd_shred_dest_compute_first( sdest, shred_ptr, 1UL, result ) );
@@ -101,7 +101,7 @@ test_compute_children_matches_agave( void ) {
   for( ulong slot=1UL; slot<2000UL; slot += 97UL ) {
     shred->slot = slot;
     for( int type=0; type<2; type++ ) {
-      shred->variant = fd_shred_variant( type==0 ? FD_SHRED_TYPE_MERKLE_DATA : FD_SHRED_TYPE_MERKLE_CODE, 2 );
+      shred->variant = fd_shred_variant( type==0 ? FD_SHRED_TYPE_MERKLE_DATA_CHAINED : FD_SHRED_TYPE_MERKLE_CODE_CHAINED, 2 );
       for( ulong idx=(ulong)(type+1); idx<67UL; idx += 3UL ) {
         shred->idx = (uint)idx;
         ulong max_dest_cnt[1] = { 0UL };
@@ -138,7 +138,7 @@ test_distribution_is_tree( fd_shred_dest_weighted_t const * info, ulong cnt, fd_
 
 
   shred->slot = slot;
-  shred->variant = fd_shred_variant( is_data ? FD_SHRED_TYPE_MERKLE_DATA : FD_SHRED_TYPE_MERKLE_CODE, 2 );
+  shred->variant = fd_shred_variant( is_data ? FD_SHRED_TYPE_MERKLE_DATA_CHAINED : FD_SHRED_TYPE_MERKLE_CODE_CHAINED, 2 );
   shred->idx = (uint)idx;
 
   fd_pubkey_t const * leader = fd_epoch_leaders_get( lsched, slot );
@@ -208,7 +208,7 @@ test_batching( void ) {
       for( ulong j=0UL; j<BATCH_CNT; j++ ) {
         shred[j].slot = slot;
         shred[j].idx = fd_rng_uint_roll( r, 100UL );
-        shred[j].variant = fd_shred_variant( fd_rng_int_roll( r, 2 ) ? FD_SHRED_TYPE_MERKLE_DATA : FD_SHRED_TYPE_MERKLE_CODE, 2 );
+        shred[j].variant = fd_shred_variant( fd_rng_int_roll( r, 2 ) ? FD_SHRED_TYPE_MERKLE_DATA_CHAINED : FD_SHRED_TYPE_MERKLE_CODE_CHAINED, 2 );
       }
       if( FD_LIKELY( memcmp( fd_epoch_leaders_get( lsched, slot ), src_key, 32UL ) ) ) {
         /* Not leader */
@@ -372,7 +372,7 @@ test_performance( void ) {
     shred_ptr[j] = shred+j;
 
     shred[j].slot = 1UL;
-    shred[j].variant = j<8UL ? FD_SHRED_TYPE_MERKLE_DATA : FD_SHRED_TYPE_MERKLE_CODE;
+    shred[j].variant = j<8UL ? FD_SHRED_TYPE_MERKLE_DATA_CHAINED : FD_SHRED_TYPE_MERKLE_CODE_CHAINED;
   }
 
   dt = -fd_log_wallclock();

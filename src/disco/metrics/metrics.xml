@@ -1150,7 +1150,6 @@ EXAMPLES
     <counter name="ShredProcessed" enum="ShredProcessingResult" summary="Result of processing a shred from the network" />
     <counter name="FecSpilled" summary="FEC sets spilled because they didn't complete in time and we needed space" />
     <counter name="ShredInitialRejected" summary="Shreds rejected before any resources were allocated for the FEC set" />
-    <counter name="ShredUnchainedRejected" summary="Shreds rejected because they're not chained merkle shreds" />
     <counter name="FecFatalRejected" summary="FEC sets rejected for reasons that cause the whole FEC set to become invalid" />
     <counter name="NonceInvalid" summary="Shreds received that seemed to be repair responses but had an incorrect nonce" />
     <counter name="ShredRepairRx" summary="Repair shreds received" />

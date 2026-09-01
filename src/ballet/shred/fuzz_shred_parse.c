@@ -51,48 +51,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   switch( type ) {
 
-  case FD_SHRED_TYPE_LEGACY_CODE:
-    FD_FUZZ_MUST_BE_COVERED;
-    assert(  fd_shred_is_code    ( type    ) );
-    assert( !fd_shred_is_data    ( type    ) );
-    assert( !fd_shred_merkle_cnt ( variant ) );
-    assert( !fd_shred_is_chained ( type    ) );
-    assert( !fd_shred_is_resigned( type    ) );
-    BOUNDS_CHECK( fd_shred_code_payload( shred ), fd_shred_payload_sz( shred ) );
-    break;
-
-  case FD_SHRED_TYPE_LEGACY_DATA:
-    FD_FUZZ_MUST_BE_COVERED;
-    assert( !fd_shred_is_code    ( type    ) );
-    assert(  fd_shred_is_data    ( type    ) );
-    assert( !fd_shred_merkle_cnt ( variant ) );
-    assert( !fd_shred_is_chained ( type    ) );
-    assert( !fd_shred_is_resigned( type    ) );
-    BOUNDS_CHECK( fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
-    break;
-
-  case FD_SHRED_TYPE_MERKLE_CODE:
-    FD_FUZZ_MUST_BE_COVERED;
-    assert(  fd_shred_is_code    ( type    ) );
-    assert( !fd_shred_is_data    ( type    ) );
-    //assert(  fd_shred_merkle_cnt ( variant ) );
-    assert( !fd_shred_is_chained ( type    ) );
-    assert( !fd_shred_is_resigned( type    ) );
-    BOUNDS_CHECK( fd_shred_code_payload( shred ), fd_shred_payload_sz( shred ) );
-    BOUNDS_CHECK( fd_shred_merkle_nodes( shred ), fd_shred_merkle_sz( variant ) );
-    break;
-
-  case FD_SHRED_TYPE_MERKLE_DATA:
-    FD_FUZZ_MUST_BE_COVERED;
-    assert( !fd_shred_is_code    ( type    ) );
-    assert(  fd_shred_is_data    ( type    ) );
-    //assert(  fd_shred_merkle_cnt ( variant ) );
-    assert( !fd_shred_is_chained ( type    ) );
-    assert( !fd_shred_is_resigned( type    ) );
-    BOUNDS_CHECK( fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
-    BOUNDS_CHECK( fd_shred_merkle_nodes( shred ), fd_shred_merkle_sz( variant ) );
-    break;
-
   case FD_SHRED_TYPE_MERKLE_CODE_CHAINED:
     FD_FUZZ_MUST_BE_COVERED;
     assert(  fd_shred_is_code    ( type    ) );

@@ -729,7 +729,7 @@ test_after_fec_dup_confirm_larger_slot( fd_wksp_t * wksp ) {
 
   fd_shred_t shred_hdr[1];
   memset( shred_hdr, 0, sizeof(fd_shred_t) );
-  shred_hdr->variant     = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->variant     = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
   shred_hdr->slot        = 3;
   shred_hdr->idx         = 63;
   shred_hdr->fec_set_idx = 32;
@@ -796,7 +796,7 @@ test_parent_edge_mismatch_with_verified_fec0( fd_wksp_t * wksp ) {
 
    fd_shred_t shred_hdr[1];
    memset( shred_hdr, 0, sizeof(fd_shred_t) );
-   shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+   shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
    shred_hdr->slot            = 8;
    shred_hdr->idx             = FD_FEC_SHRED_CNT - 1U;
    shred_hdr->fec_set_idx     = 0;
@@ -813,7 +813,7 @@ test_parent_edge_mismatch_with_verified_fec0( fd_wksp_t * wksp ) {
    FD_TEST( !slot8->chain_confirmed );
 
    memset( shred_hdr, 0, sizeof(fd_shred_t) );
-   shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+   shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
    shred_hdr->slot            = 10;
    shred_hdr->idx             = 0;
    shred_hdr->fec_set_idx     = 0;
@@ -828,7 +828,7 @@ test_parent_edge_mismatch_with_verified_fec0( fd_wksp_t * wksp ) {
    FD_TEST( slot10->complete_idx == UINT_MAX );
 
    memset( shred_hdr, 0, sizeof(fd_shred_t) );
-   shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+   shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
    shred_hdr->slot            = 10;
    shred_hdr->idx             = FD_FEC_SHRED_CNT - 1U;
    shred_hdr->fec_set_idx     = 0;
@@ -884,7 +884,7 @@ test_after_fec0_parent_update_unconfirmed_stale_parent( fd_wksp_t * wksp ) {
   fd_shred_t shred_hdr[1];
   /* Complete slot 41 on top of the root without confirming it. */
   memset( shred_hdr, 0, sizeof(fd_shred_t) );
-  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
   shred_hdr->slot            = real_parent_slot;
   shred_hdr->idx             = FD_FEC_SHRED_CNT - 1U;
   shred_hdr->fec_set_idx     = 0;
@@ -894,7 +894,7 @@ test_after_fec0_parent_update_unconfirmed_stale_parent( fd_wksp_t * wksp ) {
 
   /* Complete slot 42 as an unconfirmed local branch. */
   memset( shred_hdr, 0, sizeof(fd_shred_t) );
-  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
   shred_hdr->slot            = stale_parent_slot;
   shred_hdr->idx             = FD_FEC_SHRED_CNT - 1U;
   shred_hdr->fec_set_idx     = 0;
@@ -911,7 +911,7 @@ test_after_fec0_parent_update_unconfirmed_stale_parent( fd_wksp_t * wksp ) {
 
   /* Link slot 43 under slot 42 using a later-FEC shred. */
   memset( shred_hdr, 0, sizeof(fd_shred_t) );
-  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
   shred_hdr->slot            = child_slot;
   shred_hdr->idx             = FD_FEC_SHRED_CNT;
   shred_hdr->fec_set_idx     = FD_FEC_SHRED_CNT;
@@ -926,7 +926,7 @@ test_after_fec0_parent_update_unconfirmed_stale_parent( fd_wksp_t * wksp ) {
 
   /* Complete slot 43 FEC 0 with slot 41 as its actual parent. */
   memset( shred_hdr, 0, sizeof(fd_shred_t) );
-  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, 5 );
   shred_hdr->slot            = child_slot;
   shred_hdr->idx             = FD_FEC_SHRED_CNT - 1U;
   shred_hdr->fec_set_idx     = 0;
