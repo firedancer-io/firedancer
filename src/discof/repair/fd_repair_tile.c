@@ -773,6 +773,8 @@ after_shred( ctx_t      * ctx,
              fd_hash_t *  cmr,
              long         rx_tick ) {
 
+  int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
+
   /* we don't want to add a slot to the forest that chains to a slot
      older than root, to avoid filling forest up with junk.
      Especially if we are close to full and we are having trouble
@@ -780,14 +782,13 @@ after_shred( ctx_t      * ctx,
      subtrees. TODO: do the same with reasm/store/shred? */
 
   if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ||
-                   shred->slot - shred->data.parent_off < fd_forest_root_slot( ctx->forest ) ) ) {
+                   ( !is_code && shred->slot - shred->data.parent_off < fd_forest_root_slot( ctx->forest ) ) ) ) {
     ctx->metrics->old_shred++;
     return;
   }
 
   /* Insert the shred sig (shared by all shred members in the FEC set)
       into the map. */
-  int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
   int src     = shred_src( sig );
 
   if( FD_LIKELY( !is_code ) ) {
