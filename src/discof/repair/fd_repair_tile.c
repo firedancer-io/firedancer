@@ -891,7 +891,8 @@ after_fec( ctx_t      * ctx,
   ulong evicted  = ULONG_MAX;
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
   if( FD_UNLIKELY( !blk_insert_check( ctx, ele, shred->slot, evicted ) ) ) return 0;
-  if( FD_UNLIKELY( !fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr, rx_tick ) ) ) return 1;
+  ele = fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr, rx_tick );
+  if( FD_UNLIKELY( !ele ) ) return 1;
 
   /* metrics for completed slots */
   if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {
