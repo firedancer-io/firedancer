@@ -2908,7 +2908,6 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return PROCESS_FEC_SKIP;
 
   if( FD_UNLIKELY( !fec->is_leader && fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
-    FD_TEST( !fd_sched_is_drained( ctx->sched ) );
     ctx->metrics.sched_full++;
     return PROCESS_FEC_WAIT;
   }
