@@ -127,6 +127,48 @@ test_vote( void ) {
   FD_TEST( expected_vote_root.conf == actual_vote_root->conf );
 }
 
+static void
+test_verify( void ) {
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch, 2UL, 2UL, 0UL ) );
+  FD_TEST( tower );
+
+  /* Full towers and gaps in confirmation counts are valid. */
+
+  for( ulong i=0UL; i<FD_TOWER_VOTE_MAX; i++ )
+    fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=i, .conf=FD_TOWER_VOTE_MAX-i } );
+  FD_TEST( !fd_tower_verify( tower ) );
+
+  fd_tower_vote_remove_all( tower->votes );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=1UL, .conf=5UL } );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=2UL, .conf=3UL } );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=3UL, .conf=1UL } );
+  FD_TEST( !fd_tower_verify( tower ) );
+
+  /* Slots must strictly increase. */
+
+  fd_tower_vote_remove_all( tower->votes );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=2UL, .conf=2UL } );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=2UL, .conf=1UL } );
+  FD_TEST( fd_tower_verify( tower )==-1 );
+
+  fd_tower_vote_remove_all( tower->votes );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=2UL, .conf=2UL } );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=1UL, .conf=1UL } );
+  FD_TEST( fd_tower_verify( tower )==-1 );
+
+  /* Confirmation counts must strictly decrease. */
+
+  fd_tower_vote_remove_all( tower->votes );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=1UL, .conf=2UL } );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=2UL, .conf=2UL } );
+  FD_TEST( fd_tower_verify( tower )==-1 );
+
+  fd_tower_vote_remove_all( tower->votes );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=1UL, .conf=1UL } );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=2UL, .conf=2UL } );
+  FD_TEST( fd_tower_verify( tower )==-1 );
+}
+
 
 void
 test_tower_from_vote_acc_data_v1_14_11( void ) {
@@ -1235,6 +1277,7 @@ main( int argc, char ** argv ) {
   test_compact_indices();
   test_compact_stake_indices();
   test_vote();
+  test_verify();
   test_tower_from_vote_acc_data_v1_14_11();
   test_tower_from_vote_acc_data_current();
   test_to_vote_txn( wksp );
