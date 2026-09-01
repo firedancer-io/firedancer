@@ -161,10 +161,10 @@
    fail. The ctx is a user-provided context object from when the stem tile
    was initialized.  stem should only be used for calling fd_stem_publish
    to publish a fragment to downstream consumers.  seq is the sequence
-   number of the fragment that was read from the input mcache. sig,
-   chunk, sz, tsorig, and tspub are the respective fields from the
-   mcache fragment that was received.  If the producer is not respecting
-   flow control, these may be corrupt or torn and should not be trusted.
+   number of the fragment that was read from the input mcache. sig, sz,
+   tsorig, and tspub are the respective fields from the mcache fragment
+   that was received.  If the producer is not respecting flow control,
+   these may be corrupt or torn and should not be trusted.
 
       AFTER_POLL_OVERRUN
    Is called when an overrun is detected while polling for new frags.
