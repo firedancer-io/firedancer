@@ -1,4 +1,5 @@
 #include "fd_x509_verify.h"
+#include "fd_der.h"
 #include "../ed25519/fd_ed25519.h"
 #include "../secp256r1/fd_secp256r1.h"
 #include "../secp384r1/fd_secp384r1.h"
@@ -106,6 +107,146 @@ fd_x509_check_leaf_usage( fd_x509_cert_info_t const * leaf ) {
   return fd_x509_check_eku( leaf );
 }
 
+static int
+fd_x509_dns_equal_ci( uchar const * a,
+                      uchar const * b,
+                      ulong         len ) {
+  for( ulong i=0UL; i<len; i++ ) {
+    uchar x = a[i]; if( x>='A' && x<='Z' ) x = (uchar)(x+('a'-'A'));
+    uchar y = b[i]; if( y>='A' && y<='Z' ) y = (uchar)(y+('a'-'A'));
+    if( x!=y ) return 0;
+  }
+  return 1;
+}
+
+static int
+fd_x509_dns_name_valid( uchar const * name,
+                        ulong         name_len ) {
+  if( !name_len || name_len>253UL ) return 0;
+  ulong label_len = 0UL;
+  for( ulong i=0UL; i<name_len; i++ ) {
+    uchar c = name[i];
+    if( c=='.' ) {
+      if( !label_len || label_len>63UL || name[i-1UL]=='-' ) return 0;
+      label_len = 0UL;
+      continue;
+    }
+    int alnum = (c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='0' && c<='9');
+    if( !(alnum || c=='-' || c=='_') || (c=='-' && !label_len) ) return 0;
+    label_len++;
+  }
+  return label_len && label_len<=63UL && name[name_len-1UL]!='-';
+}
+
+static int
+fd_x509_dns_constraint_matches( uchar const * constraint,
+                                ulong         constraint_len,
+                                uchar const * name,
+                                ulong         name_len ) {
+  int subdomains_only = constraint[0]=='.';
+  if( subdomains_only ) {
+    if( name_len<=constraint_len ) return 0;
+    return fd_x509_dns_equal_ci( name+name_len-constraint_len, constraint, constraint_len );
+  }
+
+  if( name_len<constraint_len ) return 0;
+  if( !fd_x509_dns_equal_ci( name+name_len-constraint_len, constraint, constraint_len ) ) return 0;
+  return name_len==constraint_len || name[name_len-constraint_len-1UL]=='.';
+}
+
+static int
+fd_x509_dns_subtrees_match( uchar const * trees,
+                            ulong         trees_len,
+                            uchar const * name,
+                            ulong         name_len ) {
+  fd_der_cursor_t c = { .p=trees, .end=trees+trees_len };
+  while( FD_DER_HAS_MORE( c ) ) {
+    uchar const * tree; ulong tree_len;
+    FD_DER_READ( c, FD_DER_TAG_SEQUENCE, tree, tree_len );
+    fd_der_cursor_t t = { .p=tree, .end=tree+tree_len };
+    uchar const * base; ulong base_len;
+    FD_DER_READ( t, FD_DER_TAG_CONTEXT_PRIM(2), base, base_len );
+    if( fd_x509_dns_constraint_matches( base, base_len, name, name_len ) ) return 1;
+  }
+  return 0;
+}
+
+/* fd_x509_check_name_constraints checks every dNSName SAN of cert
+   against a CA's permittedSubtrees and excludedSubtrees (GeneralSubtrees
+   contents).  has_name_constraints is 0 if the CA carries no
+   nameConstraints extension. */
+
+static int
+fd_x509_check_name_constraints( int                         has_name_constraints,
+                                uchar const *               permitted,
+                                ulong                       permitted_len,
+                                uchar const *               excluded,
+                                ulong                       excluded_len,
+                                fd_x509_cert_info_t const * cert ) {
+  if( !has_name_constraints || !cert->has_subject_alt_name ) return FD_X509_VERIFY_OK;
+
+  fd_der_cursor_t san = { .p=cert->san_general_names,
+                          .end=cert->san_general_names+cert->san_general_names_len };
+  while( FD_DER_HAS_MORE( san ) ) {
+    int tag; ulong name_len;
+    if( FD_UNLIKELY( fd_der_read_tl( &san, &tag, &name_len ) ) )
+      return FD_X509_VERIFY_ERR_NAME_CONSTRAINT;
+    uchar const * name = san.p;
+    san.p += name_len;
+    if( tag!=(int)FD_DER_TAG_CONTEXT_PRIM(2) ) continue;
+
+    int wildcard = name_len>2UL && name[0]=='*' && name[1]=='.';
+    if( FD_UNLIKELY( wildcard ? !fd_x509_dns_name_valid( name+2, name_len-2UL )
+                             : !fd_x509_dns_name_valid( name,   name_len     ) ) )
+      return FD_X509_VERIFY_ERR_NAME_CONSTRAINT;
+
+    if( excluded_len &&
+        fd_x509_dns_subtrees_match( excluded, excluded_len, name, name_len ) )
+      return FD_X509_VERIFY_ERR_NAME_CONSTRAINT;
+    if( permitted_len &&
+        !fd_x509_dns_subtrees_match( permitted, permitted_len, name, name_len ) )
+      return FD_X509_VERIFY_ERR_NAME_CONSTRAINT;
+  }
+  return FD_X509_VERIFY_OK;
+}
+
+/* fd_x509_check_path_name_constraints applies a CA's name constraints
+   to every cert in certs[0,cnt).  Name constraints do not apply to
+   non-final self-issued certs (RFC 5280 Section 6.1.4 (a)). */
+
+static int
+fd_x509_check_path_name_constraints( int                         has_name_constraints,
+                                     uchar const *               permitted,
+                                     ulong                       permitted_len,
+                                     uchar const *               excluded,
+                                     ulong                       excluded_len,
+                                     fd_x509_cert_info_t const * certs,
+                                     ulong                       cnt ) {
+  for( ulong j=0UL; j<cnt; j++ ) {
+    if( j && fd_x509_name_equal( certs[j].issuer, certs[j].issuer_len,
+                                 certs[j].subject, certs[j].subject_len ) ) continue;
+    int nc_err = fd_x509_check_name_constraints( has_name_constraints,
+                                                 permitted, permitted_len,
+                                                 excluded,  excluded_len, &certs[j] );
+    if( FD_UNLIKELY( nc_err ) ) return nc_err;
+  }
+  return FD_X509_VERIFY_OK;
+}
+
+/* fd_x509_check_anchor applies the trust anchor's name constraints to
+   the path certs[0,cnt) that it terminates. */
+
+static int
+fd_x509_check_anchor( fd_x509_ca_entry_t const *  ca,
+                      fd_x509_cert_info_t const * certs,
+                      ulong                       cnt ) {
+  return fd_x509_check_path_name_constraints(
+      ca->has_name_constraints,
+      ca->name_constraints,                                   ca->name_constraints_permitted_len,
+      ca->name_constraints+ca->name_constraints_permitted_len, ca->name_constraints_excluded_len,
+      certs, cnt );
+}
+
 /* Implemented as specified by RFC 5280 Section 6.1.3. */
 int
 fd_x509_verify_chain( uchar const * const *        chain_der,
@@ -140,6 +281,7 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
   }
 
   ulong non_self_issued_ca_cnt = 0UL;
+  int   anchor_err             = FD_X509_VERIFY_OK;
   for( ulong i = 0; i < chain_cnt; i++ ) {
 
     /* A trust anchor for this cert's issuer completes the path.  Peers
@@ -159,14 +301,19 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
 
       int sig_rc = fd_x509_verify_sig( &certs[i], ca->pubkey, ca->pubkey_len, ca->key_type );
       if( FD_UNLIKELY( sig_rc > 0 ) ) return FD_X509_VERIFY_ERR_UNSUPPORTED;
-      if( !sig_rc )                   return FD_X509_VERIFY_OK;
+      if( sig_rc )                    continue;
+
+      anchor_err = fd_x509_check_anchor( ca, certs, i+1UL );
+      if( !anchor_err ) return FD_X509_VERIFY_OK;
     }
 
     /* Not anchored here, so the next cert in the chain must be the
        issuer. */
 
-    if( FD_UNLIKELY( i + 1 >= chain_cnt ) )
+    if( FD_UNLIKELY( i + 1 >= chain_cnt ) ) {
+      if( anchor_err ) return anchor_err;
       return anchored ? FD_X509_VERIFY_ERR_SIG : FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR;
+    }
 
     if( FD_UNLIKELY( fd_x509_cert_parse( chain_der[i+1], chain_der_sz[i+1], &certs[i+1] ) ) )
       return FD_X509_VERIFY_ERR_PARSE;
@@ -193,6 +340,13 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
 
     usage_err = fd_x509_check_eku( &certs[i+1] );
     if( FD_UNLIKELY( usage_err ) ) return usage_err;
+
+    int nc_err = fd_x509_check_path_name_constraints(
+        certs[i+1].has_name_constraints,
+        certs[i+1].name_constraints_permitted, certs[i+1].name_constraints_permitted_len,
+        certs[i+1].name_constraints_excluded,  certs[i+1].name_constraints_excluded_len,
+        certs, i+1UL );
+    if( FD_UNLIKELY( nc_err ) ) return nc_err;
 
     int sig_rc = fd_x509_verify_sig( &certs[i], certs[i+1].pubkey, certs[i+1].pubkey_len, certs[i+1].key_type );
     if( sig_rc < 0 )

@@ -308,6 +308,7 @@ static uchar const oid_san_tlv[] = { 0x06, 0x03, 0x55, 0x1d, 0x11 };
 static uchar const oid_bc_tlv [] = { 0x06, 0x03, 0x55, 0x1d, 0x13 };
 static uchar const oid_ku_tlv [] = { 0x06, 0x03, 0x55, 0x1d, 0x0f };
 static uchar const oid_eku_tlv[] = { 0x06, 0x03, 0x55, 0x1d, 0x25 };
+static uchar const oid_nc_tlv [] = { 0x06, 0x03, 0x55, 0x1d, 0x1e };
 
 static ulong
 mk_san( uchar *       out,
@@ -316,6 +317,23 @@ mk_san( uchar *       out,
   uchar buf[ 512 ];
   ulong n = der_tlv( buf, FD_DER_TAG_SEQUENCE, gn, gn_len );
   return mk_ext( out, oid_san_tlv, sizeof(oid_san_tlv), buf, n );
+}
+
+static ulong
+mk_name_constraints( uchar *      out,
+                     char const * permitted,
+                     char const * excluded ) {
+  uchar body[ 256 ]; ulong n = 0UL;
+  char const * names[ 2 ] = { permitted, excluded };
+  for( uint i=0U; i<2U; i++ ) {
+    if( !names[i] ) continue;
+    uchar base[ 128 ]; ulong base_len = der_tlv( base, FD_DER_TAG_CONTEXT_PRIM(2),
+                                                 (uchar const *)names[i], strlen( names[i] ) );
+    uchar tree[ 160 ]; ulong tree_len = der_tlv( tree, FD_DER_TAG_SEQUENCE, base, base_len );
+    n += der_tlv( body+n, FD_DER_TAG_CONTEXT(i), tree, tree_len );
+  }
+  uchar val[ 300 ]; ulong val_len = der_tlv( val, FD_DER_TAG_SEQUENCE, body, n );
+  return mk_ext_critical( out, oid_nc_tlv, sizeof(oid_nc_tlv), 0xFF, val, val_len );
 }
 
 static ulong
@@ -1312,8 +1330,7 @@ main( int     argc,
     FD_LOG_INFO(( "OK: cA=TRUE with malformed extension tail fails parse" ));
   }
 
-  /* Test 21a: Unknown critical extensions must fail certificate parsing.
-     nameConstraints is intentionally unsupported by this parser. */
+  /* Test 21a: Empty nameConstraints and non-canonical critical flags fail. */
   {
     static uchar const oid_name_constraints[] = { 0x06, 0x03, 0x55, 0x1d, 0x1e };
     static uchar const empty_sequence[]       = { 0x30, 0x00 };
@@ -1322,11 +1339,11 @@ main( int     argc,
     uchar cert[ 1024 ];
     fd_x509_cert_info_t info;
 
-    /* An unknown non-critical extension may be ignored. */
+    /* NameConstraints must contain permittedSubtrees or excludedSubtrees. */
     ulong exts_len = mk_ext( exts, oid_name_constraints, sizeof(oid_name_constraints),
                              empty_sequence, sizeof(empty_sequence) );
     ulong cert_len = mk_cert( cert, exts, exts_len );
-    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
 
     /* Explicit FALSE is forbidden because critical DEFAULTs to FALSE. */
     exts_len = mk_ext_critical( exts, oid_name_constraints, sizeof(oid_name_constraints),
@@ -1334,7 +1351,7 @@ main( int     argc,
     cert_len = mk_cert( cert, exts, exts_len );
     FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
 
-    /* A critical unsupported nameConstraints extension must be rejected. */
+    /* Critical empty nameConstraints is also malformed. */
     exts_len = mk_ext_critical( exts, oid_name_constraints, sizeof(oid_name_constraints),
                                 0xFF, empty_sequence, sizeof(empty_sequence) );
     cert_len = mk_cert( cert, exts, exts_len );
@@ -2050,6 +2067,72 @@ main( int     argc,
                                    &store, NULL, 0UL, TEST_NOW )==FD_X509_VERIFY_ERR_PATH_LEN );
 
     FD_LOG_INFO(( "OK: basicConstraints path length policy" ));
+  }
+
+  /* DNS nameConstraints on an intermediate restrict every dNSName SAN
+     below it.  A leading dot excludes the domain itself. */
+  {
+    uchar root_name [ 64 ]; ulong root_name_len  = mk_name( root_name,  "NC Root"  );
+    uchar inter_name[ 64 ]; ulong inter_name_len = mk_name( inter_name, "NC Inter" );
+    uchar leaf_name [ 64 ]; ulong leaf_name_len  = mk_name( leaf_name,  "NC Leaf"  );
+
+    uchar prv_root [ 32 ]; memset( prv_root,  0x61, sizeof(prv_root)  );
+    uchar prv_inter[ 32 ]; memset( prv_inter, 0x72, sizeof(prv_inter) );
+    uchar leaf_pub [ 32 ]; memset( leaf_pub,  0x83, sizeof(leaf_pub)  );
+    fd_sha512_t sha[1];
+    uchar pub_root [ 32 ]; fd_ed25519_public_from_private( pub_root,  prv_root,  sha );
+    uchar pub_inter[ 32 ]; fd_ed25519_public_from_private( pub_inter, prv_inter, sha );
+
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    store.cnt = 1;
+    memcpy( store.entries[0].subject, root_name, root_name_len );
+    store.entries[0].subject_len = root_name_len;
+    memcpy( store.entries[0].pubkey, pub_root, 32UL );
+    store.entries[0].pubkey_len = 32UL;
+    store.entries[0].key_type   = FD_X509_KEY_ED25519;
+
+    static struct {
+      char const * permitted;
+      char const * excluded;
+      char const * dns;
+      int          expected;
+    } const cases[] = {
+      { "example.com",  NULL,          "www.example.com", FD_X509_VERIFY_OK                  },
+      { "example.com",  NULL,          "evil.test",       FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
+      { NULL,           "example.com",  "www.example.com", FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
+      { ".example.com", NULL,          "example.com",     FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
+      { ".example.com", NULL,          "www.example.com", FD_X509_VERIFY_OK                  },
+      { ".example.com", NULL,          "*.example.com",   FD_X509_VERIFY_OK                  },
+    };
+
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      uchar inter_exts[ 512 ];
+      ulong inter_exts_len = mk_ext_critical( inter_exts, oid_bc_tlv, sizeof(oid_bc_tlv),
+                                              0xFF, bc_ca_true_val, sizeof(bc_ca_true_val) );
+      inter_exts_len += mk_name_constraints( inter_exts+inter_exts_len,
+                                             cases[i].permitted, cases[i].excluded );
+
+      uchar inter[ 1024 ];
+      ulong inter_len = mk_cert_signed( inter, root_name, root_name_len,
+                                        inter_name, inter_name_len,
+                                        pub_inter, prv_root, inter_exts, inter_exts_len );
+
+      uchar gn[ 128 ]; ulong gn_len = der_tlv( gn, FD_DER_TAG_CONTEXT_PRIM(2),
+                                               (uchar const *)cases[i].dns, strlen( cases[i].dns ) );
+      uchar leaf_exts[ 256 ]; ulong leaf_exts_len = mk_san( leaf_exts, gn, gn_len );
+      uchar leaf[ 1024 ];
+      ulong leaf_len = mk_cert_signed( leaf, inter_name, inter_name_len,
+                                       leaf_name, leaf_name_len,
+                                       leaf_pub, prv_inter, leaf_exts, leaf_exts_len );
+
+      uchar const * chain_der   [ 2 ] = { leaf, inter };
+      ulong         chain_der_sz[ 2 ] = { leaf_len, inter_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL,
+                                     &store, NULL, 0UL, TEST_NOW )==cases[i].expected );
+    }
+
+    FD_LOG_INFO(( "OK: DNS name constraints" ));
   }
 
   /* A real P-256 leaf exercises DER signature decoding, point

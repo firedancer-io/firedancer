@@ -14,6 +14,8 @@
    - Every cert on the path is within its validity period
    - Leaf/issuer key usage restrictions met
    - Intermediate CA path length constraints are respected
+   - DNS nameConstraints on intermediate CAs and on the trust anchor are
+     respected
 
    We do NOT check:
    - Certificate revocation (CRL / OCSP) */
@@ -46,6 +48,7 @@
 #define FD_X509_VERIFY_ERR_EXT_KEY_USAGE  (13)  /* extKeyUsage lacks serverAuth */
 #define FD_X509_VERIFY_ERR_PATH_LEN       (14)  /* basicConstraints path length exceeded */
 #define FD_X509_VERIFY_ERR_CERT_TOO_LARGE (15)  /* cert exceeds FD_X509_CERT_SZ_MAX */
+#define FD_X509_VERIFY_ERR_NAME_CONSTRAINT (16) /* CA nameConstraints rejected a name */
 
 FD_PROTOTYPES_BEGIN
 

@@ -28,6 +28,9 @@ static uchar const oid_ecdsa_sha384[] = { 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x
 /* subjectAltName: 2.5.29.17 */
 static uchar const oid_san[] = { 0x06, 0x03, 0x55, 0x1d, 0x11 };
 
+/* nameConstraints: 2.5.29.30 */
+static uchar const oid_name_constraints[] = { 0x06, 0x03, 0x55, 0x1d, 0x1e };
+
 /* basicConstraints: 2.5.29.19 */
 static uchar const oid_basic_constraints[] = { 0x06, 0x03, 0x55, 0x1d, 0x13 };
 
@@ -186,6 +189,32 @@ fd_x509_general_name_valid( int           tag,
   }
 }
 
+static int dns_name_valid( char const * name, ulong len );
+
+/* Validate DNS-only GeneralSubtrees.  minimum and maximum are deliberately
+   unsupported; minimum's DEFAULT value is zero and therefore omitted in DER. */
+
+static int
+fd_x509_dns_subtrees_valid( uchar const * p,
+                            ulong         len ) {
+  fd_der_cursor_t trees = { .p=p, .end=p+len };
+  if( FD_UNLIKELY( !len ) ) return -1;
+
+  while( FD_DER_HAS_MORE( trees ) ) {
+    uchar const * tree_ptr; ulong tree_len;
+    FD_DER_READ( trees, FD_DER_TAG_SEQUENCE, tree_ptr, tree_len );
+    fd_der_cursor_t tree = { .p=tree_ptr, .end=tree_ptr+tree_len };
+
+    uchar const * base; ulong base_len;
+    FD_DER_READ( tree, FD_DER_TAG_CONTEXT_PRIM(2), base, base_len );
+    if( FD_UNLIKELY( !base_len || FD_DER_HAS_MORE( tree ) ) ) return -1;
+
+    ulong off = base[0]=='.';
+    if( FD_UNLIKELY( !dns_name_valid( (char const *)base+off, base_len-off ) ) ) return -1;
+  }
+  return 0;
+}
+
 static int
 fd_x509_parse_extensions( fd_der_cursor_t *     c,
                           fd_x509_cert_info_t * out ) {
@@ -335,6 +364,38 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
           return -1;
         san.p += gn_len;
       }
+      continue;
+    }
+
+    /* nameConstraints (2.5.29.30), restricted to dNSName subtrees. */
+    if( fd_der_oid_match( oid_raw, oid_raw_len,
+                          oid_name_constraints, sizeof(oid_name_constraints) ) ) {
+      if( FD_UNLIKELY( out->has_name_constraints ) ) return -1;
+
+      fd_der_cursor_t val = { .p=val_ptr, .end=val_ptr+val_len };
+      FD_DER_ENTER( val, FD_DER_TAG_SEQUENCE );
+        int last_tag = -1;
+        while( FD_DER_HAS_MORE( val ) ) {
+          int tag; ulong subtrees_len;
+          if( FD_UNLIKELY( fd_der_read_tl( &val, &tag, &subtrees_len ) ) ) return -1;
+          if( FD_UNLIKELY( (tag!=(int)FD_DER_TAG_CONTEXT(0) &&
+                            tag!=(int)FD_DER_TAG_CONTEXT(1)) || tag<=last_tag ) ) return -1;
+          uchar const * subtrees = val.p;
+          val.p += subtrees_len;
+          if( FD_UNLIKELY( fd_x509_dns_subtrees_valid( subtrees, subtrees_len ) ) ) return -1;
+          if( tag==(int)FD_DER_TAG_CONTEXT(0) ) {
+            out->name_constraints_permitted     = subtrees;
+            out->name_constraints_permitted_len = subtrees_len;
+          } else {
+            out->name_constraints_excluded     = subtrees;
+            out->name_constraints_excluded_len = subtrees_len;
+          }
+          last_tag = tag;
+        }
+        if( FD_UNLIKELY( last_tag<0 ) ) return -1;
+      FD_DER_LEAVE( val );
+      if( FD_UNLIKELY( FD_DER_HAS_MORE( val ) ) ) return -1;
+      out->has_name_constraints = 1;
       continue;
     }
 

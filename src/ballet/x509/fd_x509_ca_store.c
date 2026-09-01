@@ -115,6 +115,9 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
     if( !info.is_ca )                                        continue;
     if( info.has_key_usage &&
         !( info.key_usage & FD_X509_KU_KEY_CERT_SIGN ) )     continue;
+    if( info.name_constraints_permitted_len+
+        info.name_constraints_excluded_len >
+        FD_X509_CA_NAME_CONSTRAINTS_MAX )                    continue;
 
     if( FD_UNLIKELY( store->cnt >= FD_X509_CA_STORE_MAX ) ) {
       FD_LOG_WARNING(( "CA bundle %s holds more than %lu trust anchors; the rest were dropped",
@@ -128,6 +131,13 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
     fd_memcpy( e->pubkey, info.pubkey, info.pubkey_len );
     e->pubkey_len = info.pubkey_len;
     e->key_type   = info.key_type;
+    fd_memcpy( e->name_constraints,
+               info.name_constraints_permitted, info.name_constraints_permitted_len );
+    fd_memcpy( e->name_constraints+info.name_constraints_permitted_len,
+               info.name_constraints_excluded,  info.name_constraints_excluded_len );
+    e->name_constraints_permitted_len = info.name_constraints_permitted_len;
+    e->name_constraints_excluded_len  = info.name_constraints_excluded_len;
+    e->has_name_constraints           = info.has_name_constraints;
     loaded++;
   }
 

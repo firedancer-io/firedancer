@@ -99,6 +99,14 @@ struct fd_x509_cert_info {
   uchar const * san_general_names;
   ulong         san_general_names_len;
   uchar         has_subject_alt_name;
+
+  /* DNS-only Name Constraints (RFC 5280 Section 4.2.1.10).  Each pointer
+     is the content of an IMPLICIT GeneralSubtrees field. */
+  uchar const * name_constraints_permitted;
+  ulong         name_constraints_permitted_len;
+  uchar const * name_constraints_excluded;
+  ulong         name_constraints_excluded_len;
+  uchar         has_name_constraints;
 };
 
 typedef struct fd_x509_cert_info fd_x509_cert_info_t;
