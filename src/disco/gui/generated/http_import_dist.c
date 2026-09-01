@@ -4,9 +4,9 @@
 FD_IMPORT_BINARY( file_0, "src/disco/gui/dist/LICENSE_DEPENDENCIES" );
 FD_IMPORT_BINARY( file_0_zstd, "src/disco/gui/dist_cmp/LICENSE_DEPENDENCIES.zst" );
 FD_IMPORT_BINARY( file_0_gzip, "src/disco/gui/dist_cmp/LICENSE_DEPENDENCIES.gz" );
-FD_IMPORT_BINARY( file_1, "src/disco/gui/dist/assets/Chart-CHDmeTTI.js" );
-FD_IMPORT_BINARY( file_1_zstd, "src/disco/gui/dist_cmp/assets/Chart-CHDmeTTI.js.zst" );
-FD_IMPORT_BINARY( file_1_gzip, "src/disco/gui/dist_cmp/assets/Chart-CHDmeTTI.js.gz" );
+FD_IMPORT_BINARY( file_1, "src/disco/gui/dist/assets/Chart-DA61kvjz.js" );
+FD_IMPORT_BINARY( file_1_zstd, "src/disco/gui/dist_cmp/assets/Chart-DA61kvjz.js.zst" );
+FD_IMPORT_BINARY( file_1_gzip, "src/disco/gui/dist_cmp/assets/Chart-DA61kvjz.js.gz" );
 FD_IMPORT_BINARY( file_2, "src/disco/gui/dist/assets/NotoFlagsOnly.woff2" );
 FD_IMPORT_BINARY( file_2_zstd, "src/disco/gui/dist_cmp/assets/NotoFlagsOnly.woff2.zst" );
 FD_IMPORT_BINARY( file_2_gzip, "src/disco/gui/dist_cmp/assets/NotoFlagsOnly.woff2.gz" );
@@ -37,12 +37,12 @@ FD_IMPORT_BINARY( file_10_gzip, "src/disco/gui/dist_cmp/assets/frankendancer_har
 FD_IMPORT_BINARY( file_11, "src/disco/gui/dist/assets/frankendancer_logo-CHyfJ772.svg" );
 FD_IMPORT_BINARY( file_11_zstd, "src/disco/gui/dist_cmp/assets/frankendancer_logo-CHyfJ772.svg.zst" );
 FD_IMPORT_BINARY( file_11_gzip, "src/disco/gui/dist_cmp/assets/frankendancer_logo-CHyfJ772.svg.gz" );
-FD_IMPORT_BINARY( file_12, "src/disco/gui/dist/assets/index-CKoRMN3Z.js" );
-FD_IMPORT_BINARY( file_12_zstd, "src/disco/gui/dist_cmp/assets/index-CKoRMN3Z.js.zst" );
-FD_IMPORT_BINARY( file_12_gzip, "src/disco/gui/dist_cmp/assets/index-CKoRMN3Z.js.gz" );
-FD_IMPORT_BINARY( file_13, "src/disco/gui/dist/assets/index-p1UuvR4T.css" );
-FD_IMPORT_BINARY( file_13_zstd, "src/disco/gui/dist_cmp/assets/index-p1UuvR4T.css.zst" );
-FD_IMPORT_BINARY( file_13_gzip, "src/disco/gui/dist_cmp/assets/index-p1UuvR4T.css.gz" );
+FD_IMPORT_BINARY( file_12, "src/disco/gui/dist/assets/index-Csl44Zj6.js" );
+FD_IMPORT_BINARY( file_12_zstd, "src/disco/gui/dist_cmp/assets/index-Csl44Zj6.js.zst" );
+FD_IMPORT_BINARY( file_12_gzip, "src/disco/gui/dist_cmp/assets/index-Csl44Zj6.js.gz" );
+FD_IMPORT_BINARY( file_13, "src/disco/gui/dist/assets/index-DUZVCM52.css" );
+FD_IMPORT_BINARY( file_13_zstd, "src/disco/gui/dist_cmp/assets/index-DUZVCM52.css.zst" );
+FD_IMPORT_BINARY( file_13_gzip, "src/disco/gui/dist_cmp/assets/index-DUZVCM52.css.gz" );
 FD_IMPORT_BINARY( file_14, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-BLrFJfvD.woff" );
 FD_IMPORT_BINARY( file_14_zstd, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.zst" );
 FD_IMPORT_BINARY( file_14_gzip, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.gz" );
@@ -58,9 +58,9 @@ FD_IMPORT_BINARY( file_17_gzip, "src/disco/gui/dist_cmp/assets/roboto-mono-latin
 FD_IMPORT_BINARY( file_18, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-GekRknry.woff2" );
 FD_IMPORT_BINARY( file_18_zstd, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.zst" );
 FD_IMPORT_BINARY( file_18_gzip, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.gz" );
-FD_IMPORT_BINARY( file_19, "src/disco/gui/dist/assets/wsWorker-BkxONIP1.js" );
-FD_IMPORT_BINARY( file_19_zstd, "src/disco/gui/dist_cmp/assets/wsWorker-BkxONIP1.js.zst" );
-FD_IMPORT_BINARY( file_19_gzip, "src/disco/gui/dist_cmp/assets/wsWorker-BkxONIP1.js.gz" );
+FD_IMPORT_BINARY( file_19, "src/disco/gui/dist/assets/wsWorker-CrFyKQMK.js" );
+FD_IMPORT_BINARY( file_19_zstd, "src/disco/gui/dist_cmp/assets/wsWorker-CrFyKQMK.js.zst" );
+FD_IMPORT_BINARY( file_19_gzip, "src/disco/gui/dist_cmp/assets/wsWorker-CrFyKQMK.js.gz" );
 FD_IMPORT_BINARY( file_20, "src/disco/gui/dist/index.html" );
 FD_IMPORT_BINARY( file_20_zstd, "src/disco/gui/dist_cmp/index.html.zst" );
 FD_IMPORT_BINARY( file_20_gzip, "src/disco/gui/dist_cmp/index.html.gz" );
@@ -79,7 +79,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_0_gzip_sz,
 	},
 	{
-		.name = "/assets/Chart-CHDmeTTI.js",
+		.name = "/assets/Chart-DA61kvjz.js",
 		.data = file_1,
 		.data_len = &file_1_sz,
 		.zstd_data = file_1_zstd,
@@ -178,7 +178,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_11_gzip_sz,
 	},
 	{
-		.name = "/assets/index-CKoRMN3Z.js",
+		.name = "/assets/index-Csl44Zj6.js",
 		.data = file_12,
 		.data_len = &file_12_sz,
 		.zstd_data = file_12_zstd,
@@ -187,7 +187,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_12_gzip_sz,
 	},
 	{
-		.name = "/assets/index-p1UuvR4T.css",
+		.name = "/assets/index-DUZVCM52.css",
 		.data = file_13,
 		.data_len = &file_13_sz,
 		.zstd_data = file_13_zstd,
@@ -241,7 +241,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_18_gzip_sz,
 	},
 	{
-		.name = "/assets/wsWorker-BkxONIP1.js",
+		.name = "/assets/wsWorker-CrFyKQMK.js",
 		.data = file_19,
 		.data_len = &file_19_sz,
 		.zstd_data = file_19_zstd,
