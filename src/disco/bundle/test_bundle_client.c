@@ -46,7 +46,7 @@ FD_UNIT_TEST( bundle_rx ) {
   FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
   FD_TEST( pending_txn_peek_head( state->pending_txns )->sig==0UL );
 
-  state->builder_info_avail = 1;
+  test_bundle_env_mock_builder_info( state );
 
   fd_bundle_client_grpc_rx_msg(
       state,
@@ -102,7 +102,7 @@ FD_UNIT_TEST( bundle_rx_too_many_txns ) {
     0x28, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00
   };
 
-  state->builder_info_avail = 1;
+  test_bundle_env_mock_builder_info( state );
   fd_bundle_client_grpc_rx_msg(
       state,
       subscribe_bundles_msg_x5, sizeof(subscribe_bundles_msg_x5),
@@ -128,7 +128,7 @@ FD_UNIT_TEST( bundle_rx_too_many_txns ) {
     0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00
   };
 
-  state->builder_info_avail = 1;
+  test_bundle_env_mock_builder_info( state );
   fd_bundle_client_grpc_rx_msg(
       state,
       subscribe_bundles_msg_x6, sizeof(subscribe_bundles_msg_x6),
@@ -170,6 +170,40 @@ FD_UNIT_TEST( bundle_no_builder_fee_info ) {
   );
   FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
   FD_TEST( state->metrics.bundle_received_cnt          ==0UL );
+  FD_TEST( state->metrics.missing_builder_info_fail_cnt==1UL );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Ensure forwarding of bundles stops once builder fee info expires. */
+
+FD_UNIT_TEST( bundle_expired_builder_fee_info ) {
+  test_bundle_env_t env[1]; test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail = 1;
+
+  /* The validity deadline itself remains valid. */
+  state->builder_info_valid_until = g_clock;
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      test_bundle_response, test_bundle_response_sz,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+  ulong const pending_txn_cnt_before = pending_txn_cnt( state->pending_txns );
+  ulong const bundle_received_cnt_before = state->metrics.bundle_received_cnt;
+  FD_TEST( pending_txn_cnt_before>0UL );
+  FD_TEST( bundle_received_cnt_before>0UL );
+  FD_TEST( state->metrics.missing_builder_info_fail_cnt==0UL );
+
+  /* Past the deadline, stale commission and pubkey must not be stamped. */
+  state->builder_info_valid_until = g_clock-1L;
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      test_bundle_response, test_bundle_response_sz,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==pending_txn_cnt_before );
+  FD_TEST( state->metrics.bundle_received_cnt==bundle_received_cnt_before );
   FD_TEST( state->metrics.missing_builder_info_fail_cnt==1UL );
 
   test_bundle_env_destroy( env );
@@ -1106,7 +1140,7 @@ FD_UNIT_TEST( packet_publish_after_credit_atomic ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail  = 1;
+  test_bundle_env_mock_builder_info( state );
   state->builder_commission  = 7U;
   uchar builder_pubkey[ 32 ];
   for( ulong i=0UL; i<32UL; i++ ) builder_pubkey[ i ] = (uchar)( i + 1U );
@@ -1165,7 +1199,7 @@ FD_UNIT_TEST( bundle_publish_all_or_nothing ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail = 1;
+  test_bundle_env_mock_builder_info( state );
 
   uchar const b0[] = { 0x10 };
   uchar const b1[] = { 0x11 };
@@ -1228,7 +1262,7 @@ FD_UNIT_TEST( mixed_queue_boundary_behavior ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail = 1;
+  test_bundle_env_mock_builder_info( state );
 
   uchar const p0[] = { 0x20 };
   uchar const p1[] = { 0x21 };
@@ -1296,7 +1330,7 @@ FD_UNIT_TEST( no_publish_before_after_credit ) {
   test_bundle_env_t env[1];
   test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;
-  state->builder_info_avail = 1;
+  test_bundle_env_mock_builder_info( state );
 
   uchar const packet_payload[] = { 0x55 };
   uchar const bundle_payload0[] = { 0x66 };
