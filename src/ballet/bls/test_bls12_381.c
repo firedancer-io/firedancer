@@ -1,4 +1,5 @@
 #include "../fd_ballet.h"
+#include "../bigint/fd_uint256.h"
 #include "fd_bls12_381.h"
 #include "../hex/fd_hex.h"
 
@@ -636,6 +637,87 @@ test_g2_dec( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
+test_g2_comp( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar FD_ALIGNED point_be[ 96*2 ];
+  uchar FD_ALIGNED point_le[ 96*2 ];
+  uchar FD_ALIGNED expected_be[ 48*2 ];
+  uchar FD_ALIGNED expected_le[ 48*2 ];
+  uchar            actual[ 48*2 ];
+
+  /* Known-answer vector, also used by test_g2_dec in the opposite
+     direction. */
+  fd_hex_decode(
+      point_be,
+      "0f6a12dc289804e48b236892b34acdac92890b6a4a2a878935f940fbade830d17dde0dd179eeb9b36f6947df2730c368"
+      "1718aa3b6f6aa733e7bae0b6ac490f12d38f3b0273bec4a36f0b24855660bc871025d8af47b6de1fcf9b10ff704ef26f"
+      "0bd9f453c96fb6a8abcdb776c755829d5f459f7e7a1b5c54fd9360b04a390de4b26ff69d4a78aeff925c20d6a438ce9"
+      "00d3b6ffbaa559fdb6cbb1f0f6ab040bf384dd95790c494150cab63798078bbe0c06b68b24bcd7640eaa8d60b7d993705",
+      sizeof(point_be) );
+  fd_hex_decode(
+      expected_be,
+      "8f6a12dc289804e48b236892b34acdac92890b6a4a2a878935f940fbade830d17dde0dd179eeb9b36f6947df2730c368"
+      "1718aa3b6f6aa733e7bae0b6ac490f12d38f3b0273bec4a36f0b24855660bc871025d8af47b6de1fcf9b10ff704ef26f",
+      sizeof(expected_be) );
+
+  FD_TEST( fd_bls12_381_g2_compress( actual, point_be, 1 /*BE*/ )==0 );
+  FD_TEST( fd_memeq( actual, expected_be, sizeof(actual) ) );
+
+  fd_memcpy( point_le, point_be, sizeof(point_le) );
+  fd_ulong_n_bswap( fd_type_pun( point_le      ), 12UL );
+  fd_ulong_n_bswap( fd_type_pun( point_le+96UL ), 12UL );
+  fd_memcpy( expected_le, expected_be, sizeof(expected_le) );
+  fd_ulong_n_bswap( fd_type_pun( expected_le ), 12UL );
+  FD_TEST( fd_bls12_381_g2_compress( actual, point_le, 0 /*LE*/ )==0 );
+  FD_TEST( fd_memeq( actual, expected_le, sizeof(actual) ) );
+
+  /* Identity is in G2 and is deliberately accepted. */
+  fd_memset( point_be,    0, sizeof(point_be)    );
+  fd_memset( expected_be, 0, sizeof(expected_be) );
+  point_be[    0 ] = 0x40;
+  expected_be[ 0 ] = 0xc0;
+  FD_TEST( fd_bls12_381_g2_compress( actual, point_be, 1 /*BE*/ )==0 );
+  FD_TEST( fd_memeq( actual, expected_be, sizeof(actual) ) );
+
+  fd_memcpy( point_le, point_be, sizeof(point_le) );
+  fd_ulong_n_bswap( fd_type_pun( point_le      ), 12UL );
+  fd_ulong_n_bswap( fd_type_pun( point_le+96UL ), 12UL );
+  fd_memcpy( expected_le, expected_be, sizeof(expected_le) );
+  fd_ulong_n_bswap( fd_type_pun( expected_le ), 12UL );
+  FD_TEST( fd_bls12_381_g2_compress( actual, point_le, 0 /*LE*/ )==0 );
+  FD_TEST( fd_memeq( actual, expected_le, sizeof(actual) ) );
+
+  /* A canonical encoding whose coordinates are not on the curve is
+     rejected. */
+  fd_hex_decode(
+      point_be,
+      "0f6a12dc289804e48b236892b34acdac92890b6a4a2a878935f940fbade830d17dde0dd179eeb9b36f6947df2730c368"
+      "1718aa3b6f6aa733e7bae0b6ac490f12d38f3b0273bec4a36f0b24855660bc871025d8af47b6de1fcf9b10ff704ef26f"
+      "0ad9f453c96fb6a8abcdb776c755829d5f459f7e7a1b5c54fd9360b04a390de4b26ff69d4a78aeff925c20d6a438ce9"
+      "00d3b6ffbaa559fdb6cbb1f0f6ab040bf384dd95790c494150cab63798078bbe0c06b68b24bcd7640eaa8d60b7d993705",
+      sizeof(point_be) );
+  FD_TEST( fd_bls12_381_g2_compress( actual, point_be, 1 /*BE*/ )==-1 );
+  fd_memcpy( point_le, point_be, sizeof(point_le) );
+  fd_ulong_n_bswap( fd_type_pun( point_le      ), 12UL );
+  fd_ulong_n_bswap( fd_type_pun( point_le+96UL ), 12UL );
+  FD_TEST( fd_bls12_381_g2_compress( actual, point_le, 0 /*LE*/ )==-1 );
+
+  /* This point is on the curve but has a nontrivial torsion component,
+     so it is outside the prime-order G2 subgroup. */
+  fd_hex_decode(
+      point_be,
+      "0158b0083c00046272a9b63583963fff07e147f3f9e6e24174328ad8bc2aa150298f3189a9cf6ed626f461e944bbd3d1"
+      "17762a3b9108c4a74a151b732a6075bf2199bc19c48c393d4ceb92d0a76057be02f08540770fabd60262cea73ea1906c"
+      "1699ee577c61b694beb88137cf34f3e73940a2dbb914b529618bd2ac3271ac42c1e985d6d898d9f4aaed3985b6dcb9c7"
+      "1660f93434588f8d3ccfb97b924dcea868cad19430706b4d43939b11997b194355d42edc1dc46ba091fb0b225ecf103b",
+      sizeof(point_be) );
+  FD_TEST( fd_bls12_381_g2_compress( actual, point_be, 1 /*BE*/ )==-1 );
+  fd_memcpy( point_le, point_be, sizeof(point_le) );
+  fd_ulong_n_bswap( fd_type_pun( point_le      ), 12UL );
+  fd_ulong_n_bswap( fd_type_pun( point_le+96UL ), 12UL );
+  FD_TEST( fd_bls12_381_g2_compress( actual, point_le, 0 /*LE*/ )==-1 );
+}
+
+static void
 test_g2_add( FD_FN_UNUSED fd_rng_t * rng ) {
   // test correctness
   //
@@ -1235,6 +1317,7 @@ main( int     argc,
 
   test_g2_val( rng );
   test_g2_dec( rng );
+  test_g2_comp( rng );
   test_g2_add( rng );
   test_g2_sub( rng );
   test_g2_mul( rng );

@@ -298,6 +298,27 @@ fd_bls12_381_g2_decompress_syscall( uchar       _r[ 96*2 ],
 }
 
 int
+fd_bls12_381_g2_compress( uchar       _r[ 48*2 ],
+                          uchar const _a[ 96*2 ],
+                          int         big_endian ) {
+  fd_bls12_381_g2aff_t a[1];
+  if( FD_UNLIKELY( fd_bls12_381_g2_frombytes( a, _a, big_endian )==NULL ) ) {
+    return -1;
+  }
+
+  blst_p2_affine_compress( _r, a );
+
+  /* blst output is big endian. if we want little endian, bswap. */
+  if( !big_endian ) {
+    ulong le[ 48*2/sizeof(ulong) ];
+    memcpy( le, _r, 48*2 );
+    fd_ulong_n_bswap( le, 6*2 );
+    memcpy( _r, le, 48*2 );
+  }
+  return 0;
+}
+
+int
 fd_bls12_381_g2_validate_syscall( uchar const _a[ 96*2 ],
                                   int         big_endian ) {
   fd_bls12_381_g2aff_t a[1];
