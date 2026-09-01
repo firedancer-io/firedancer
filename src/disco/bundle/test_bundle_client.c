@@ -1503,6 +1503,33 @@ FD_UNIT_TEST( request_failed_clears_wait ) {
   test_bundle_env_destroy( env );
 }
 
+FD_UNIT_TEST( http_auth_failure_restarts_auth ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * state = env->state;
+
+  fd_grpc_resp_hdrs_t hdrs = {
+    .h2_status   = 401,
+    .grpc_status = FD_GRPC_STATUS_OK
+  };
+
+  state->auther.state      = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  state->auther.needs_poll = 0;
+  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, &hdrs );
+  FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+  FD_TEST( state->auther.needs_poll );
+
+  state->auther.state      = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  state->auther.needs_poll = 0;
+  hdrs.h2_status           = 403;
+  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, &hdrs );
+  FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+  FD_TEST( state->auther.needs_poll );
+
+  test_bundle_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
