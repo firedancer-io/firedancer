@@ -2305,16 +2305,17 @@ test_drain_rotor_fecs( fd_wksp_t * wksp ) {
    exit (a second eviction must publish a fresh MISSING_FEC).  Together
    with test_drain_rotor_fecs this pins down the full drain gate:
 
-     enter (DROP, notify once) -> ignore (SKIP/WAIT/DROP, no re-notify)
-       -> exit (OK, process) -> re-enter (DROP, notify again).
+     enter (DROP, notify once) -> ignore (SKIP/DROP, consumed, no
+       re-notify) -> retry (WAIT, frag kept, no re-notify) -> exit (OK,
+       process) -> re-enter (DROP, notify again).
 
-   Liveness note: while draining, every non-OK result returns 0 (frag
-   consumed, no re-notify).  Recovery therefore hinges entirely on the
-   re-delivered path eventually presenting a FEC whose parent is live,
-   i.e. PROCESS_FEC_OK.  Rotor guarantees this by re-delivering from the
-   chainer root down; the root bank is the (non-evictable) published
-   root, so its direct child's FEC 0 is always OK -- which is what the
-   OK step below demonstrates. */
+   Liveness note: while draining, SKIP and DROP return 0 (frag consumed,
+   no re-notify) but WAIT keeps its keep-and-retry contract.  Recovery
+   therefore hinges on the re-delivered path eventually presenting a FEC
+   whose parent is live, i.e. PROCESS_FEC_OK.  Rotor guarantees this by
+   re-delivering from the chainer root down; the root bank is the
+   (non-evictable) published root, so its direct child's FEC 0 is always
+   OK -- which is what the OK step below demonstrates. */
 static void
 test_drain_rotor_fecs_skip_wait_reentry( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
@@ -2370,14 +2371,14 @@ test_drain_rotor_fecs_skip_wait_reentry( fd_wksp_t * wksp ) {
   FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );   /* no re-notify */
 
   /* Step 3: a WAIT while draining (parent bank present but PRUNABLE)
-     must NOT exit drain and must NOT crash.  Key the root ele by
-     {0, parent_bid} so the FEC's parent resolves to the root bank. */
+     must NOT exit drain and must NOT crash.  Unlike SKIP/DROP it is
+     not swallowed. */
   fd_block_id_ele_t * root_ele = &ctx->block_id_arr[ root_bank->idx ];
   root_ele->block_info = ag_block_id( 0UL, parent_bid.uc );
   FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, root_ele, ctx->block_id_arr ) );
   root_bank->state = FD_BANK_STATE_PRUNABLE;
   fd_hash_t mr3 = { .ul = { 203 } };
-  FD_TEST( deliver_rotor_fec( ctx, 8UL, 0U, 0UL, &parent_bid, &mr3, 0, 0 )==0 );
+  FD_TEST( deliver_rotor_fec( ctx, 8UL, 0U, 0UL, &parent_bid, &mr3, 0, 0 )==1 ); /* kept for retry */
   FD_TEST( ctx->drain_rotor_fecs==1 );              /* still draining */
   FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );   /* no re-notify */
   root_bank->state = FD_BANK_STATE_FROZEN;          /* parent now replayable */
