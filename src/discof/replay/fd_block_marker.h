@@ -16,6 +16,7 @@
 #define FD_BLOCK_MARKER_SER_SUCCESS         ( 0)
 #define FD_BLOCK_MARKER_SER_ERR_NOSPACE     (-1) /* output buffer too small */
 #define FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED (-2) /* a variant or field we don't emit */
+#define FD_BLOCK_MARKER_SER_ERR_MALFORMED   (-3) /* the marker itself does not describe an encodable value */
 
 /* Size of the fixed marker preamble: marker_flag (8) + version (2) +
    variant (1) + length (2). */
@@ -204,7 +205,11 @@ fd_block_marker_de( fd_block_marker_t * marker,
 
 /* fd_block_marker_ser serializes a whole block marker, with buf pointing
    at the marker flag (the start of the entry batch).  Only HEADER and
-   FOOTER are emitted, and a footer must have all certificates absent.
+   FOOTER are emitted.  A footer carries whichever of its three optional
+   certificates are present; at most one of has_fast_final_cert and
+   has_final_cert may be set, a slow finalization must name the same
+   slot in final_cert and notar_cert, and no bitmap may reach past
+   AG_VAT_MAX, which is what FD_BLOCK_FOOTER_SER_MAX is sized for.
    buf_sz is set to FD_BLOCK_MARKER_PREAMBLE_SZ + length on success.
    Returns FD_BLOCK_MARKER_SER_SUCCESS or FD_BLOCK_MARKER_SER_ERR_* on
    failure; a failed call may have written a prefix. */

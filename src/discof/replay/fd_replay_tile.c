@@ -1135,21 +1135,67 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   fd_vote_tracker_reset( ctx->vote_tracker );
 }
 
+/* leader_footer_certs copies the certificates votor sent for
+   leader_slot out of votor_leader into footer, and points certs at
+   them.  The runtime applies exactly the certs the footer declares, so
+   both consumers must be handed the same set or the bank hash we
+   compute will not be the one the block we shred claims.
+
+   The finalization cert is the same for the whole window, but each
+   block's reward certs attest its own slot minus
+   FD_NUM_SLOTS_FOR_REWARD, so they are indexed by the offset into the
+   window.  A slot outside the leader window gets no certificates, and
+   nor does one whose reward slot predates the alpenglow migration: the
+   runtime kills a block whose reward certs reach that far back, the
+   same way agave withholds them for the first FD_NUM_SLOTS_FOR_REWARD
+   slots of alpenglow. */
+
+static void
+leader_footer_certs( fd_replay_tile_t const * ctx,
+                     ulong                    leader_slot,
+                     ulong                    migration_slot,
+                     fd_block_footer_t *      footer,
+                     fd_footer_certs_t *      certs ) {
+  fd_votor_leader_t const * votor_msg = ctx->votor_leader;
+  if( FD_UNLIKELY( leader_slot<votor_msg->start_slot   ) ) return;
+  ulong window_off = leader_slot-votor_msg->start_slot;
+  if( FD_UNLIKELY( window_off>=AG_SLOTS_PER_WINDOW ) ) return;
+
+  footer->has_fast_final_cert = votor_msg->has_fast_final_cert;
+  footer->has_final_cert      = votor_msg->has_final_cert;
+  footer->fast_final_cert     = votor_msg->fast_final_cert;
+  footer->final_cert          = votor_msg->final_cert;
+  footer->notar_cert          = votor_msg->notar_cert;
+
+  int reward_ok = migration_slot!=ULONG_MAX &&
+                  leader_slot>=migration_slot+FD_NUM_SLOTS_FOR_REWARD+1UL;
+  if( FD_LIKELY( reward_ok ) ) {
+    footer->has_skip_reward_cert  = votor_msg->has_skip_reward_cert [ window_off ];
+    footer->skip_reward_cert      = votor_msg->skip_reward_cert     [ window_off ];
+    footer->has_notar_reward_cert = votor_msg->has_notar_reward_cert[ window_off ];
+    footer->notar_reward_cert     = votor_msg->notar_reward_cert    [ window_off ];
+  }
+
+  if( footer->has_fast_final_cert ) certs->fast_final_cert = &footer->fast_final_cert;
+  if( footer->has_final_cert      ) {
+    certs->final_cert       = &footer->final_cert;
+    certs->final_notar_cert = &footer->notar_cert;
+  }
+  if( footer->has_skip_reward_cert  ) certs->skip_reward_cert  = &footer->skip_reward_cert;
+  if( footer->has_notar_reward_cert ) certs->notar_reward_cert = &footer->notar_reward_cert;
+}
+
 static void
 publish_leader_footer( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
+                       fd_block_marker_t * marker,
                        fd_bank_t const *   bank,
                        ulong               producer_time_nanos ) {
   fd_replay_leader_footer_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot = bank->f.slot;
 
-  fd_block_marker_t marker[1];
-  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
-  marker->variant                          = FOOTER;
   marker->footer.bank_hash                 = bank->f.bank_hash;
   marker->footer.block_producer_time_nanos = producer_time_nanos;
-
-  /* TODO add the certs */
 
   FD_TEST( !fd_block_marker_ser( marker, msg->footer, sizeof(msg->footer), &msg->sz ) );
 
@@ -1814,11 +1860,22 @@ process_poh_message( fd_replay_tile_t *                 ctx,
 
     ulong producer_time_nanos = enforce_nanosecond_clock_bounds( ctx, ctx->leader_bank, (ulong)fd_clock_tile_now( ctx->clock ) );
 
-    fd_footer_certs_t certs[1]; /* TODO */
-    fd_memset( certs, 0, sizeof(fd_footer_certs_t) );
-    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, certs, producer_time_nanos );
+    fd_block_marker_t marker[1];
+    fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+    marker->variant = FOOTER;
 
-    publish_leader_footer( ctx, stem, ctx->leader_bank, producer_time_nanos );
+    fd_footer_certs_t certs[1];
+    fd_memset( certs, 0, sizeof(fd_footer_certs_t) );
+    ulong migration_slot = fd_alpenglow_migration_slot( ctx->leader_bank, ctx->accdb );
+    leader_footer_certs( ctx, ctx->leader_bank->f.slot, migration_slot, &marker->footer, certs );
+
+    /* The block goes out regardless: the certs are already committed to
+       the bank hash, so there is nothing left to fall back to. */
+    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, certs, producer_time_nanos ) ) ) {
+      FD_LOG_WARNING(( "slot %lu: our own block footer certs did not apply; the block we produce will be dead to the cluster", ctx->leader_bank->f.slot ));
+    }
+
+    publish_leader_footer( ctx, stem, marker, ctx->leader_bank, producer_time_nanos );
   }
 }
 
@@ -3872,7 +3929,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
         ctx->consensus_root_slot = msg->slot;
         ctx->consensus_root      = msg->block_id;
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
-        try_become_leader_ag( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        *ctx->votor_leader = *leader; /* every footer of this window declares the certs it carries */
+        try_become_leader_ag( ctx, stem, leader );
       }
       break;
     }
@@ -4197,6 +4256,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
+
+  fd_memset( ctx->votor_leader, 0, sizeof(fd_votor_leader_t) );
+  ctx->votor_leader->start_slot = ULONG_MAX; /* no window yet */
 
   ctx->caught_up                = 0;
   ctx->catch_up_max_fec_slot    = ULONG_MAX;

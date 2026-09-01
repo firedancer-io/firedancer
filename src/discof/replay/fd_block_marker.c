@@ -318,21 +318,173 @@ block_header_ser( fd_block_header_t const * header,
   return FD_BLOCK_MARKER_SER_SUCCESS;
 }
 
+/* base2_bitmap_ser writes the solana_signer_store base2 bitmap naming
+   the ranks in [0,bit_cnt) that are set in words: a version byte, the
+   bit count, and ceil(bit_cnt/8) payload bytes.  Returns the number of
+   bytes written, which the caller must have reserved.
+
+   TODO fold into ag_bls_agg_ser once the encoder ag_cert_serde.c keeps
+   private moves to ag_bls_serde. */
+
+static ulong
+base2_bitmap_ser( uchar *       buf,
+                  ulong const * words,
+                  ulong         bit_cnt ) {
+  ulong payload_sz = (bit_cnt+7UL)/8UL;
+  buf[ 0 ] = 0; /* base2 */
+  FD_STORE( ushort, buf+1UL, (ushort)bit_cnt );
+  fd_memset( buf+3UL, 0, payload_sz );
+  for( ulong r=0UL; r<bit_cnt; r++ ) {
+    if( words[ r>>6 ] & (1UL<<(r&63UL)) ) buf[ 3UL+(r>>3) ] |= (uchar)( 1U<<(r&7U) );
+  }
+  return 3UL+payload_sz;
+}
+
+/* agg_bit_cnt is the bitmap width Agave emits for an aggregate: one
+   past the highest signing rank, or zero when nobody signed. */
+
+static ulong
+agg_bit_cnt( ag_bls_agg_t const * agg ) {
+  ulong last = signer_set_last( agg->bitmask );
+  return fd_ulong_if( last>=AG_BLS_SIGNERS_MAX, 0UL, last+1UL );
+}
+
+/* votes_aggregate_ser mirrors votes_aggregate_de: a compressed BLS
+   signature followed by a base2 bitmap under a u16 byte count.  The
+   aggregate carries the decompressed signature, so it is compressed
+   back here. */
+
+static int
+votes_aggregate_ser( ag_bls_agg_t const * agg,
+                     uchar **             _buf,
+                     ulong *              _rem ) {
+  uchar * buf = *_buf;
+  ulong   rem = *_rem;
+
+  ulong bit_cnt = agg_bit_cnt( agg );
+  if( FD_UNLIKELY( bit_cnt>AG_VAT_MAX ) ) return FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED; /* would breach FD_BLOCK_FOOTER_SER_MAX */
+  ulong bitmap_sz = 3UL+(bit_cnt+7UL)/8UL;
+
+  CHECK_SPACE( sizeof(fd_block_votes_aggregate_serde_t)+bitmap_sz );
+  fd_block_votes_aggregate_serde_t * out = (fd_block_votes_aggregate_serde_t *)buf;
+  if( FD_UNLIKELY( fd_bls12_381_g2_compress( out->signature, agg->sig, 1 ) ) ) return FD_BLOCK_MARKER_SER_ERR_MALFORMED;
+  out->bitmap_cnt = (ushort)bitmap_sz;
+  base2_bitmap_ser( buf+sizeof(fd_block_votes_aggregate_serde_t), agg->bitmask, bit_cnt );
+  ADVANCE( sizeof(fd_block_votes_aggregate_serde_t)+bitmap_sz );
+
+  *_buf = buf; *_rem = rem;
+  return FD_BLOCK_MARKER_SER_SUCCESS;
+}
+
+/* block_final_cert_ser mirrors fd_block_final_cert_de.  A fast
+   finalization writes one aggregate and a zero has_notar_aggregate
+   byte; a slow one writes the final aggregate, a one byte, and the
+   notar aggregate.  Only one block_id goes on the wire and in the slow
+   case it is the notar cert's, so the two certs must name one slot. */
+
+static int
+block_final_cert_ser( fd_block_footer_t const * footer,
+                      uchar **                  _buf,
+                      ulong *                   _rem ) {
+  uchar * buf = *_buf;
+  ulong   rem = *_rem;
+  int     err;
+
+  int           is_fast  = footer->has_fast_final_cert;
+  ulong         slot     = is_fast ? footer->fast_final_cert.slot       : footer->final_cert.slot;
+  uchar const * block_id = is_fast ? footer->fast_final_cert.block_hash : footer->notar_cert.block_hash;
+
+  if( FD_UNLIKELY( !is_fast && footer->final_cert.slot!=footer->notar_cert.slot ) ) return FD_BLOCK_MARKER_SER_ERR_MALFORMED;
+
+  CHECK_SPACE( sizeof(fd_block_final_cert_serde_t) );
+  fd_block_final_cert_serde_t * out = (fd_block_final_cert_serde_t *)buf;
+  out->slot = slot;
+  memcpy( out->block_id, block_id, sizeof(ag_block_hash_t) );
+  ADVANCE( sizeof(fd_block_final_cert_serde_t) );
+
+  ag_bls_agg_t const * final_agg = is_fast ? &footer->fast_final_cert.agg_sig : &footer->final_cert.agg_sig;
+  if( FD_UNLIKELY( (err=votes_aggregate_ser( final_agg, &buf, &rem )) ) ) return err;
+
+  CHECK_SPACE( 1UL );
+  buf[ 0 ] = (uchar)!is_fast; /* notar_aggregate */
+  ADVANCE( 1UL );
+
+  if( !is_fast ) {
+    if( FD_UNLIKELY( (err=votes_aggregate_ser( &footer->notar_cert.agg_sig, &buf, &rem )) ) ) return err;
+  }
+
+  *_buf = buf; *_rem = rem;
+  return FD_BLOCK_MARKER_SER_SUCCESS;
+}
+
+/* reward_cert_ser mirrors reward_cert_de.  The signature is already
+   compressed and the bitmap byte count is a ShortU16 rather than the
+   aggregate's u16.  nbits goes out as given so that a cert that came
+   off the wire re-encodes to the same bytes; ranks at or above it are
+   dropped. */
+
+static int
+reward_cert_ser( fd_reward_cert_t const * cert,
+                 int                      has_block_id,
+                 uchar **                 _buf,
+                 ulong *                  _rem ) {
+  uchar * buf = *_buf;
+  ulong   rem = *_rem;
+
+  ulong bit_cnt = (ulong)cert->nbits;
+  if( FD_UNLIKELY( bit_cnt>AG_VAT_MAX ) ) return FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED; /* would breach FD_BLOCK_FOOTER_SER_MAX */
+  ulong block_id_sz = has_block_id ? sizeof(fd_hash_t) : 0UL;
+  ulong bitmap_sz   = 3UL+(bit_cnt+7UL)/8UL;
+
+  CHECK_SPACE( 8UL+block_id_sz+AG_BLS_SIG_COMPRESSED_SZ );
+  FD_STORE( ulong, buf, cert->slot );
+  if( has_block_id ) fd_memcpy( buf+8UL, cert->block_id.uc, sizeof(fd_hash_t) );
+  memcpy( buf+8UL+block_id_sz, cert->sig, AG_BLS_SIG_COMPRESSED_SZ );
+  ADVANCE( 8UL+block_id_sz+AG_BLS_SIG_COMPRESSED_SZ );
+
+  uchar cu16[ 3 ];
+  ulong cu16_sz = (ulong)fd_cu16_enc( (ushort)bitmap_sz, cu16 );
+  CHECK_SPACE( cu16_sz+bitmap_sz );
+  fd_memcpy( buf, cu16, cu16_sz );
+  ADVANCE( cu16_sz );
+  base2_bitmap_ser( buf, cert->signer_set, bit_cnt );
+  ADVANCE( bitmap_sz );
+
+  *_buf = buf; *_rem = rem;
+  return FD_BLOCK_MARKER_SER_SUCCESS;
+}
+
+/* option_ser writes an Option tag.  The three footer options interleave
+   tag and body, so a present cert's body follows its own tag rather
+   than all three tags. */
+
+static int
+option_ser( int      present,
+            uchar ** _buf,
+            ulong *  _rem ) {
+  uchar * buf = *_buf;
+  ulong   rem = *_rem;
+
+  CHECK_SPACE( 1UL );
+  buf[ 0 ] = (uchar)!!present;
+  ADVANCE( 1UL );
+
+  *_buf = buf; *_rem = rem;
+  return FD_BLOCK_MARKER_SER_SUCCESS;
+}
+
 static int
 block_footer_ser( fd_block_footer_t const * footer,
                   uchar **                  _buf,
                   ulong *                   _rem ) {
   uchar * buf = *_buf;
   ulong   rem = *_rem;
+  int     err;
 
-  /* Certificates are not emitted yet.  All three are absent. */
-  if( FD_UNLIKELY( footer->has_fast_final_cert   ||
-                   footer->has_final_cert        ||
-                   footer->has_skip_reward_cert  ||
-                   footer->has_notar_reward_cert ) ) return FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED;
+  if( FD_UNLIKELY( footer->has_fast_final_cert && footer->has_final_cert ) ) return FD_BLOCK_MARKER_SER_ERR_MALFORMED;
   if( FD_UNLIKELY( footer->user_agent_len>FD_BLOCK_FOOTER_USER_AGENT_MAX ) ) return FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED;
 
-  CHECK_SPACE( sizeof(fd_block_footer_serde_t)+footer->user_agent_len+3UL );
+  CHECK_SPACE( sizeof(fd_block_footer_serde_t)+footer->user_agent_len );
   fd_block_footer_serde_t * out = (fd_block_footer_serde_t *)buf;
   out->version                   = (uchar)1;
   out->block_producer_time_nanos = footer->block_producer_time_nanos;
@@ -343,10 +495,21 @@ block_footer_ser( fd_block_footer_t const * footer,
   fd_memcpy( buf, footer->user_agent, footer->user_agent_len );
   ADVANCE( footer->user_agent_len );
 
-  buf[ 0 ] = 0; /* block_final_cert  absent */
-  buf[ 1 ] = 0; /* skip_reward_cert  absent */
-  buf[ 2 ] = 0; /* notar_reward_cert absent */
-  ADVANCE( 3UL );
+  int has_block_final_cert = footer->has_fast_final_cert || footer->has_final_cert;
+  if( FD_UNLIKELY( (err=option_ser( has_block_final_cert, &buf, &rem )) ) ) return err;
+  if( has_block_final_cert ) {
+    if( FD_UNLIKELY( (err=block_final_cert_ser( footer, &buf, &rem )) ) ) return err;
+  }
+
+  if( FD_UNLIKELY( (err=option_ser( footer->has_skip_reward_cert, &buf, &rem )) ) ) return err;
+  if( footer->has_skip_reward_cert ) {
+    if( FD_UNLIKELY( (err=reward_cert_ser( &footer->skip_reward_cert, 0, &buf, &rem )) ) ) return err;
+  }
+
+  if( FD_UNLIKELY( (err=option_ser( footer->has_notar_reward_cert, &buf, &rem )) ) ) return err;
+  if( footer->has_notar_reward_cert ) {
+    if( FD_UNLIKELY( (err=reward_cert_ser( &footer->notar_reward_cert, 1, &buf, &rem )) ) ) return err;
+  }
 
   *_buf = buf; *_rem = rem;
   return FD_BLOCK_MARKER_SER_SUCCESS;
