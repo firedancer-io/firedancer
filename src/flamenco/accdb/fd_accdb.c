@@ -156,8 +156,9 @@ fd_accdb_partition_read_bump( fd_accdb_t * accdb,
      joiner-local fd_accdb_metrics_t bytes_read/read_ops. */
   if( FD_UNLIKELY( !accdb->partition_pool ) ) return;
   ulong partition_idx = file_offset / accdb->shmem->partition_sz;
+  ulong partition_cnt = partition_pool_max( accdb->partition_pool );
+  FD_CHECK_CRIT( partition_idx<partition_cnt, "read partition index out of range" );
   fd_accdb_partition_t * p = partition_pool_ele( accdb->partition_pool, partition_idx );
-  if( FD_UNLIKELY( !p ) ) return;
   FD_ATOMIC_FETCH_AND_ADD( &p->bytes_read, bytes );
   FD_ATOMIC_FETCH_AND_ADD( &p->read_ops,   1UL   );
 }
@@ -170,8 +171,9 @@ fd_accdb_partition_write_bump( fd_accdb_t * accdb,
                                ulong        bytes,
                                ulong        num_ops ) {
   if( FD_UNLIKELY( !bytes ) ) return;
+  ulong partition_cnt = partition_pool_max( accdb->partition_pool );
+  FD_CHECK_CRIT( partition_idx<partition_cnt, "write partition index out of range" );
   fd_accdb_partition_t * p = partition_pool_ele( accdb->partition_pool, partition_idx );
-  if( FD_UNLIKELY( !p ) ) return;
   FD_ATOMIC_FETCH_AND_ADD( &p->bytes_written, bytes   );
   FD_ATOMIC_FETCH_AND_ADD( &p->write_ops,     num_ops );
 }
