@@ -12,6 +12,8 @@ endif
 
 $(call make-unit-test,test_blake3,test_blake3,fd_ballet fd_util)
 $(call run-unit-test,test_blake3)
+$(call make-unit-test,test_blake3_xof2048,test_blake3_xof2048,fd_ballet fd_util)
+$(call run-unit-test,test_blake3_xof2048)
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_blake3,fuzz_blake3,fd_ballet fd_util)
 endif
