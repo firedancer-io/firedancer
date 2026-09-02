@@ -1414,12 +1414,13 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
 }
 
 /* publish_fec builds and publishes a single ROTOR_SIG_FEC_REPLAY
-   message to replay for the FEC fec owned by version slotv.  When
-   from_root is set (the deliver_from_root recovery redelivery), the
-   block_id is always populated with the version's finalized block_id
-   -- even for mid-slot turbine FECs that the normal path leaves zero --
-   so replay can dedup the redelivered path by (slot, block_id) and skip
-   blocks it has already replayed. */
+   message to replay for the FEC fec owned by version slotv.
+   When from_root is set (the deliver_from_root recovery redelivery),
+   the block_id is populated on every FEC whose version has a known
+   block_id -- even turbine FECs that the normal path leaves zero -- so
+   replay can dedup the redelivered path by (slot, block_id) and skip
+   blocks it has already replayed.  known_id is unaffected by
+   redelivery, see below. */
 static void
 publish_fec( ctx_t *              ctx,
              fd_stem_context_t *  stem,
@@ -1437,10 +1438,19 @@ publish_fec( ctx_t *              ctx,
   msg->slot_complete   = fec->slot_complete;
   msg->data_complete   = fec->data_complete;
   msg->is_leader       = fec->is_leader;
-  /* Redelivered (from_root) FECs carry the finalized DMR in block_id so
-     mark them known (replay needs to lookup on the DMR and SKIP). */
-  msg->known_id        = !slotv->turbine || from_root;
-  msg->block_id        = ( slotv->turbine && !fec->slot_complete && !from_root ) ? null_hash : slotv->block_id;
+
+  /* TODO rename? Unfortunately known_id flag is tightly coupled with
+     replay behavior, so worth revisiting. known_id marks the
+     votor-driven (cert) versions.  A turbine version is never marked
+     known, not even when redelivered from root, because a redelivered
+     copy must key the same way as the live turbine FECs of the same
+     block.  block_id is still populated whenever the chainer knows it
+     (the slot-complete FEC, or any redelivered FEC) so replay can dedup
+     a redelivered block it already fully replayed by {slot, block_id}.
+     */
+  int block_id_known   = !fd_hash_check_zero( &slotv->block_id );
+  msg->known_id        = !slotv->turbine;
+  msg->block_id        = ( block_id_known && ( msg->known_id || from_root || fec->slot_complete ) ) ? slotv->block_id : null_hash;
 
   if( FD_UNLIKELY( fec->slot_complete ) ) {
     FD_BASE58_ENCODE_32_BYTES( slotv->block_id.uc, block_id );
