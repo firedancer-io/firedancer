@@ -41,3 +41,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-poison -m 10000
 
 # Alpenglow
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs --alpenglow -m 2000000 -e 126
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-deactivated-stake --alpenglow -m 2000000 -e 810
