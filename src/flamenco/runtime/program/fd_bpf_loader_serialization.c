@@ -433,6 +433,9 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
   new_input_mem_region( input_mem_regions, input_mem_regions_cnt, curr_serialized_params_start,
                         region_sz, region_sz, 1U, ULONG_MAX );
 
+  /* Overflowing this frame corrupts the next one. */
+  FD_TEST( (ulong)(serialized_params - serialized_params_start) <= BPF_LOADER_SERIALIZATION_FOOTPRINT );
+
   *serialized_bytes_written = (ulong)(serialized_params - serialized_params_start);
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -686,6 +689,10 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
 
   FD_STORE( fd_pubkey_t, serialized_params, ctx->txn_out->accounts.keys[ctx->instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
+
+  /* Same invariant as the ABI-v1 serializer above: the same constant sizes both
+     frames, so a term omitted from it overflows whichever one runs. */
+  FD_TEST( (ulong)(serialized_params - serialized_params_start) <= BPF_LOADER_SERIALIZATION_FOOTPRINT );
 
   *serialized_bytes_written = (ulong)(serialized_params - serialized_params_start);
 
