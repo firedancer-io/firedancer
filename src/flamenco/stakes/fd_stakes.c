@@ -457,16 +457,8 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
 ulong
 fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
                           ulong                    fork_id,
-                          int                      use_t_1,
+                          int                      iter_kind,
                           fd_vote_stake_weight_t * weights ) {
-  return fd_stake_weights_by_node_iter( vote_stakes, fork_id, use_t_1 ? FD_VOTE_STAKES_ITER_T_1 : FD_VOTE_STAKES_ITER_T_2, weights );
-}
-
-ulong
-fd_stake_weights_by_node_iter( fd_vote_stakes_t const * vote_stakes,
-                               ulong                    fork_id,
-                               int                      iter_kind,
-                               fd_vote_stake_weight_t * weights ) {
 
   /* We don't care if an account is invalid, we just want to get the
      stake weights: they are calculated from an older snapshot of

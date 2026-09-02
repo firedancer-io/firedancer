@@ -1811,7 +1811,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
     ulong epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
     if( FD_LIKELY( epoch ) ) {
       fd_vote_stake_weight_t * weights     = ctx->runtime_stack->stakes.stake_weights;
-      ulong                    weights_cnt = fd_stake_weights_by_node_iter( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, weights );
+      ulong                    weights_cnt = fd_stake_weights_by_node( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, weights );
       update_ag_epoch_info( ctx, epoch-1UL, weights, weights_cnt );
     }
   }

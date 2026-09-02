@@ -73,6 +73,9 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
    acc, active stake) tuples) to an ordered list of (stake, vote pubkey, node
    identity) sorted by (stake descending, vote pubkey descending).
 
+   iter_kind selects the vote stakes set: FD_VOTE_STAKES_ITER_T_1 (next
+   epoch), T_2 (current epoch) or T_3 (previous epoch).
+
    weights points to an array suitable to hold ...
 
      fd_vote_accounts_pair_t_map_size( accs->vote_accounts_pool,
@@ -85,18 +88,8 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
 ulong
 fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
                           ulong                    fork_id,
-                          int                      use_t_1,
+                          int                      iter_kind,
                           fd_vote_stake_weight_t * weights );
-
-/* fd_stake_weights_by_node_iter is fd_stake_weights_by_node over an
-   explicit vote stakes set: FD_VOTE_STAKES_ITER_T_1 (next epoch), T_2
-   (current epoch) or T_3 (previous epoch). */
-
-ulong
-fd_stake_weights_by_node_iter( fd_vote_stakes_t const * vote_stakes,
-                               ulong                    fork_id,
-                               int                      iter_kind,
-                               fd_vote_stake_weight_t * weights );
 
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
