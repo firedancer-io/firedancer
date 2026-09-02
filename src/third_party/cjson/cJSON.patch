@@ -1,0 +1,204 @@
+diff --git a/cJSON.c b/cJSON.c
+index 6e4fb0d..f5deaf5 100644
+--- a/cJSON.c
++++ b/cJSON.c
+@@ -20,6 +20,13 @@
+   THE SOFTWARE.
+ */
+ 
++#pragma GCC diagnostic ignored "-Wstrict-aliasing"
++
++/* Known bug: cJSON uses NaN/infinity but we use -ffast-math */
++#pragma GCC diagnostic ignored "-Wpragmas"
++#pragma GCC diagnostic ignored "-Wunknown-warning-option"
++#pragma GCC diagnostic ignored "-Wnan-infinity-disabled"
++
+ /* cJSON */
+ /* JSON parser in C. */
+ 
+@@ -42,6 +49,7 @@
+ #include <math.h>
+ #include <stdlib.h>
+ #include <limits.h>
++#include <errno.h>
+ #include <ctype.h>
+ #include <float.h>
+ 
+@@ -313,6 +321,7 @@ static cJSON_bool parse_number(cJSON * const item, parse_buffer * const input_bu
+     size_t i = 0;
+     size_t number_string_length = 0;
+     cJSON_bool has_decimal_point = false;
++    cJSON_bool is_integer = true;
+ 
+     if ((input_buffer == NULL) || (input_buffer->content == NULL))
+     {
+@@ -338,14 +347,19 @@ static cJSON_bool parse_number(cJSON * const item, parse_buffer * const input_bu
+             case '9':
+             case '+':
+             case '-':
++                number_string_length++;
++                break;
++
+             case 'e':
+             case 'E':
+                 number_string_length++;
++                is_integer = false;
+                 break;
+ 
+             case '.':
+                 number_string_length++;
+                 has_decimal_point = true;
++                is_integer = false;
+                 break;
+ 
+             default:
+@@ -399,7 +413,17 @@ loop_end:
+         item->valueint = (int)number;
+     }
+ 
+-    item->type = cJSON_Number;
++    char *integer_end = NULL;
++    errno = 0;
++    item->valueulong = strtoul((const char*)number_c_string, &integer_end, 10);
++    if (is_integer && (number_c_string[0] == '-'))
++    {
++        errno = 0;
++        (void)strtol((const char*)number_c_string, &integer_end, 10);
++    }
++    is_integer = is_integer && (errno != ERANGE) && (*integer_end == '\0');
++
++    item->type = cJSON_Number | (is_integer ? cJSON_NumberIsInteger : 0);
+ 
+     input_buffer->offset += (size_t)(after_end - number_c_string);
+     /* free the temporary buffer */
+@@ -410,6 +434,8 @@ loop_end:
+ /* don't ask me, but the original cJSON_SetNumberValue returns an integer or double */
+ CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
+ {
++    cJSON_bool is_integer;
++
+     if (number >= INT_MAX)
+     {
+         object->valueint = INT_MAX;
+@@ -423,9 +449,30 @@ CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
+         object->valueint = (int)number;
+     }
+ 
++    is_integer = (number >= (double)LONG_MIN) &&
++        ((DBL_MANT_DIG < (int)(sizeof(unsigned long) * CHAR_BIT)) ?
++            (number < (double)ULONG_MAX) : (number <= (double)ULONG_MAX)) &&
++        (floor(number) == number);
++    if (is_integer)
++    {
++        object->valueulong = (number < 0) ? (unsigned long)(long)number : (unsigned long)number;
++        object->type |= cJSON_NumberIsInteger;
++    }
++    else
++    {
++        object->valueulong = ULONG_MAX;
++        object->type &= ~cJSON_NumberIsInteger;
++    }
++
+     return object->valuedouble = number;
+ }
+ 
++CJSON_PUBLIC(int) cJSON_SetIntValueHelper(cJSON *object, double number)
++{
++    (void)cJSON_SetNumberHelper(object, number);
++    return object->valueint;
++}
++
+ /* Note: when passing a NULL valuestring, cJSON_SetValuestring treats this as an error and return NULL */
+ CJSON_PUBLIC(char*) cJSON_SetValuestring(cJSON *object, const char *valuestring)
+ {
+@@ -2493,21 +2540,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateNumber(double num)
+     if(item)
+     {
+         item->type = cJSON_Number;
+-        item->valuedouble = num;
+-
+-        /* use saturation in case of overflow */
+-        if (num >= INT_MAX)
+-        {
+-            item->valueint = INT_MAX;
+-        }
+-        else if (num <= (double)INT_MIN)
+-        {
+-            item->valueint = INT_MIN;
+-        }
+-        else
+-        {
+-            item->valueint = (int)num;
+-        }
++        (void)cJSON_SetNumberHelper(item, num);
+     }
+ 
+     return item;
+@@ -2793,6 +2826,7 @@ cJSON * cJSON_Duplicate_rec(const cJSON *item, size_t depth, cJSON_bool recurse)
+     newitem->type = item->type & (~cJSON_IsReference);
+     newitem->valueint = item->valueint;
+     newitem->valuedouble = item->valuedouble;
++    newitem->valueulong = item->valueulong;
+     if (item->valuestring)
+     {
+         newitem->valuestring = (char*)cJSON_strdup((unsigned char*)item->valuestring, &global_hooks);
+@@ -3014,6 +3048,11 @@ CJSON_PUBLIC(cJSON_bool) cJSON_IsNumber(const cJSON * const item)
+     return (item->type & 0xFF) == cJSON_Number;
+ }
+ 
++CJSON_PUBLIC(cJSON_bool) cJSON_IsInteger(const cJSON * const item)
++{
++    return cJSON_IsNumber(item) && ((item->type & cJSON_NumberIsInteger) != 0);
++}
++
+ CJSON_PUBLIC(cJSON_bool) cJSON_IsString(const cJSON * const item)
+ {
+     if (item == NULL)
+diff --git a/cJSON.h b/cJSON.h
+index cab5feb..4d31f08 100644
+--- a/cJSON.h
++++ b/cJSON.h
+@@ -98,6 +98,7 @@ then using the CJSON_API_VISIBILITY flag to "export" the same symbols the way CJ
+ 
+ #define cJSON_IsReference 256
+ #define cJSON_StringIsConst 512
++#define cJSON_NumberIsInteger 1024
+ 
+ /* The cJSON structure: */
+ typedef struct cJSON
+@@ -118,6 +119,8 @@ typedef struct cJSON
+     /* The item's number, if type==cJSON_Number */
+     double valuedouble;
+ 
++    unsigned long valueulong;
++
+     /* The item's name string, if this item is the child of, or is in the list of subitems of an object. */
+     char *string;
+ } cJSON;
+@@ -192,6 +195,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_IsTrue(const cJSON * const item);
+ CJSON_PUBLIC(cJSON_bool) cJSON_IsBool(const cJSON * const item);
+ CJSON_PUBLIC(cJSON_bool) cJSON_IsNull(const cJSON * const item);
+ CJSON_PUBLIC(cJSON_bool) cJSON_IsNumber(const cJSON * const item);
++CJSON_PUBLIC(cJSON_bool) cJSON_IsInteger(const cJSON * const item);
+ CJSON_PUBLIC(cJSON_bool) cJSON_IsString(const cJSON * const item);
+ CJSON_PUBLIC(cJSON_bool) cJSON_IsArray(const cJSON * const item);
+ CJSON_PUBLIC(cJSON_bool) cJSON_IsObject(const cJSON * const item);
+@@ -261,7 +265,7 @@ CJSON_PUBLIC(cJSON *) cJSON_Duplicate(const cJSON *item, cJSON_bool recurse);
+ CJSON_PUBLIC(cJSON_bool) cJSON_Compare(const cJSON * const a, const cJSON * const b, const cJSON_bool case_sensitive);
+ 
+ /* Minify a strings, remove blank characters(such as ' ', '\t', '\r', '\n') from strings.
+- * The input pointer json cannot point to a read-only address area, such as a string constant, 
++ * The input pointer json cannot point to a read-only address area, such as a string constant,
+  * but should point to a readable and writable address area. */
+ CJSON_PUBLIC(void) cJSON_Minify(char *json);
+ 
+@@ -278,7 +282,8 @@ CJSON_PUBLIC(cJSON*) cJSON_AddObjectToObject(cJSON * const object, const char *
+ CJSON_PUBLIC(cJSON*) cJSON_AddArrayToObject(cJSON * const object, const char * const name);
+ 
+ /* When assigning an integer value, it needs to be propagated to valuedouble too. */
+-#define cJSON_SetIntValue(object, number) ((object) ? (object)->valueint = (object)->valuedouble = (number) : (number))
++CJSON_PUBLIC(int) cJSON_SetIntValueHelper(cJSON *object, double number);
++#define cJSON_SetIntValue(object, number) (((object) != NULL) ? cJSON_SetIntValueHelper((object), (double)(number)) : (number))
+ /* helper for the cJSON_SetNumberValue macro */
+ CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number);
+ #define cJSON_SetNumberValue(object, number) ((object != NULL) ? cJSON_SetNumberHelper(object, (double)number) : (number))

@@ -349,8 +349,8 @@ SOFTWARE.
 =======================================================================
 
 'src/third_party/cjson' is a copy of the cJSON library at
-https://github.com/DaveGamble/cJSON (imported ca 2023-Dec). Commit
-hash cb8693b058ba302f4829ec6d03f609ac6f848546
+https://github.com/DaveGamble/cJSON. Version 1.7.19, tag v1.7.19,
+commit c859b25da02955fef659d658b8f324b5cde87be3
 
 Copyright (c) 2009-2017 Dave Gamble and cJSON contributors
 

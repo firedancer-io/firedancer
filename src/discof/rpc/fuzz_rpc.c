@@ -18,8 +18,6 @@
 
 #include "../../util/fd_util.h"
 #include "../../disco/topo/fd_topob.h"
-#include "../../util/pod/fd_pod.h"
-#include "../../util/pod/fd_pod_format.h"
 #include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../util/sanitize/fd_fuzz.h"
 #include "../../flamenco/accdb/fd_accdb.h"
@@ -78,8 +76,8 @@ setup_accdb( void ) {
   ulong max_account_writes_per_slot = 64UL;
   ulong partition_cnt               = 4UL;
   ulong partition_sz                = 16UL<<20; /* 16 MiB; must fit worst-case account write */
-  ulong cache_footprint             = 16UL<<30; /* matches per-class minimums in test_accdb */
-  ulong cache_min_reserved          = 640UL;
+  ulong cache_footprint             = 100UL<<20; /* 100 MiB */
+  ulong cache_min_reserved          = 8UL;
   ulong joiner_cnt                  = 1UL;
 
   int fd = memfd_create( "fuzz_rpc_accdb", 0 );
@@ -147,6 +145,33 @@ LLVMFuzzerInitialize( int  *   argc,
   return 0;
 }
 
+static void
+seed_mleaders( fd_rpc_tile_t * ctx,
+               ulong           base_slot ) {
+  ulong epoch_len  = 32UL;
+  ulong start_slot = ( base_slot / epoch_len ) * epoch_len;
+  ulong epoch      = start_slot / epoch_len;
+
+  uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+  fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_msg_buf );
+  memset( emsg, 0, sizeof(epoch_msg_buf) );
+  emsg->epoch           = epoch;
+  emsg->start_slot      = start_slot;
+  emsg->slot_cnt        = epoch_len;
+  emsg->staked_vote_cnt = 1UL;
+  emsg->staked_id_cnt   = 1UL;
+  FD_TEST( fd_epoch_schedule_derive( &emsg->epoch_schedule, epoch_len, 0UL, 0 ) );
+
+  fd_vote_stake_weight_t * w = fd_epoch_info_msg_stake_weights( emsg );
+  memset( w[0].vote_key.uc, 0x88, 32UL );
+  memset( w[0].id_key.uc,   0x77, 32UL );
+  w[0].stake = 1000000UL;
+
+  ctx->epoch_schedule     = emsg->epoch_schedule;
+  ctx->has_epoch_schedule = 1;
+  fd_rpc_mleaders_ingest( ctx->mleaders, emsg );
+}
+
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
@@ -182,6 +207,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
     ctx->banks[ j ].bank_idx = j;
   }
   ctx->has_genesis_hash = FETCH_TYPE( uchar ) % 2;
+
+  fd_rpc_mleaders_init( ctx->mleaders );
 
   fd_http_server_request_t req[ 1 ];
   req->ctx = ctx;
@@ -239,7 +266,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
       case 20: { CHECKED_APPEND( cstr, "getInflationReward"                ); } break;
       case 21: { CHECKED_APPEND( cstr, "getLargestAccounts"                ); } break;
       case 22: { CHECKED_APPEND( cstr, "getLatestBlockhash"                ); } break;
-      case 23: { CHECKED_APPEND( cstr, "getLeaderSchedule"                 ); } break;
+      case 23: { CHECKED_APPEND( cstr, "getLeaderSchedule"                 ); seed_mleaders( ctx, ctx->banks[0].slot ); } break;
       case 24: { CHECKED_APPEND( cstr, "getMaxRetransmitSlot"              ); } break;
       case 25: { CHECKED_APPEND( cstr, "getMaxShredInsertSlot"             ); } break;
       case 26: { CHECKED_APPEND( cstr, "getMinimumBalanceForRentExemption" ); } break;
@@ -250,8 +277,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
       case 31: { CHECKED_APPEND( cstr, "getSignaturesForAddress"           ); } break;
       case 32: { CHECKED_APPEND( cstr, "getSignatureStatuses"              ); } break;
       case 33: { CHECKED_APPEND( cstr, "getSlot"                           ); } break;
-      case 34: { CHECKED_APPEND( cstr, "getSlotLeader"                     ); } break;
-      case 35: { CHECKED_APPEND( cstr, "getSlotLeaders"                    ); } break;
+      case 34: { CHECKED_APPEND( cstr, "getSlotLeader"                     ); seed_mleaders( ctx, ctx->banks[0].slot ); } break;
+      case 35: { CHECKED_APPEND( cstr, "getSlotLeaders"                    ); seed_mleaders( ctx, ctx->banks[0].slot ); } break;
       case 36: { CHECKED_APPEND( cstr, "getStakeMinimumDelegation"         ); } break;
       case 37: { CHECKED_APPEND( cstr, "getSupply"                         ); } break;
       case 38: { CHECKED_APPEND( cstr, "getTokenAccountBalance"            ); } break;

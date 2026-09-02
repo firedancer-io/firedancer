@@ -1741,6 +1741,9 @@ EXAMPLES
     <int value="13" name="getTransactionCount" label="getTransactionCount" />
     <int value="14" name="getVersion" label="getVersion" />
     <int value="15" name="getMaxRetransmitSlot" label="getMaxRetransmitSlot" />
+    <int value="16" name="getSlotLeader" label="getSlotLeader" />
+    <int value="17" name="getSlotLeaders" label="getSlotLeaders" />
+    <int value="18" name="getLeaderSchedule" label="getLeaderSchedule" />
 </enum>
 
 <enum name="RpcEventType">
