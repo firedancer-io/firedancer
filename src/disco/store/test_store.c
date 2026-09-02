@@ -642,26 +642,32 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
   ulong const slot_a = 17UL;
   ulong const slot_b = slot_a + stride;
   ulong const slot_c = slot_b + stride;
-  FD_TEST( stride>8UL && !(slot_c>>48) );
-  FD_TEST( slot_a%stride==slot_b%stride && slot_b%stride==slot_c%stride );
+  ulong const slot_d = slot_c + stride;
+  FD_TEST( stride>8UL && !(slot_d>>48) );
+  FD_TEST( slot_a%stride==slot_b%stride && slot_b%stride==slot_c%stride && slot_c%stride==slot_d%stride );
 
   uchar buf[ FD_SHRED_MAX_SZ ];
   uchar out[ FD_SHRED_MAX_SZ ];
 
-  /* A lower-index colliding slot cannot lower or steal the bucket
-     watermark.  Its exact shred remains independently readable. */
+  /* A newer slot that wraps onto this bucket replaces the stale owner
+     even when its shred index is lower. */
   FD_TEST( fd_store_disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_a, 10U, 0xa1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_b, 5U, 0xb1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query( store, disk_fd, slot_b, 5U, out )>0 );
   FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xb1U );
-  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_b, 0U, out )==FD_STORE_DISK_QUERY_BUSY );
-  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_a, 0U, out )>0 );
-  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xa1U );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_b, 0U, out )>0 );
+  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xb1U );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_a, 0U, out )==FD_STORE_DISK_QUERY_BUSY );
 
-  /* A higher index may claim the bucket, but that only makes the old
-     owner conservative-BUSY; it does not affect exact reads. */
+  /* Monotonicity still applies within one slot. */
+  FD_TEST( fd_store_disk_insert( store, disk_fd,
+                                 disk_make_shred( buf, slot_b, 3U, 0xb2U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_b, 0U, out )>0 );
+  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xb1U );
+
+  /* The next modulo generation can take ownership in the same way. */
   FD_TEST( fd_store_disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_c, 11U, 0xc1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_c, 0U, out )>0 );
@@ -685,6 +691,13 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_c, 0U, out )==FD_STORE_DISK_QUERY_SCAN_LIMIT );
   FD_TEST( fd_store_disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_c, FD_SHRED_BLK_MAX, 0xc3U ) )==FD_STORE_DISK_INSERT_ERR );
+
+  /* A fresh modulo generation must be serviceable from shred zero; it
+     must not wait to exceed slot_c's stale index 11 watermark. */
+  FD_TEST( fd_store_disk_insert( store, disk_fd,
+                                 disk_make_shred( buf, slot_d, 0U, 0xe0U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_d, 0U, out )>0 );
+  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xe0U );
 
   close( disk_fd );
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
