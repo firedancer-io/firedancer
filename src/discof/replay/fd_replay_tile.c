@@ -1002,7 +1002,7 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
                 int                 dead_reason,
                 int                 abandoned_reason );
 
-static void
+static int
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
@@ -1035,7 +1035,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Do hashing and other end-of-block processing. */
   if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, certs_opt, footer_time_nanos ) ) ) {
     mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
-    return;
+    return 1;
   }
 
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
@@ -1044,14 +1044,14 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
       /* Can't validate the bank hash; mark dead rather than dereference NULL. */
       FD_LOG_WARNING(( "slot %lu: no footer present at finalize; marking dead", bank->f.slot ));
       mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
-      return;
+      return 1;
     }
     if( FD_UNLIKELY( memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
       FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
       FD_LOG_WARNING(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
       mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
-      return;
+      return 1;
     } else {
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58 );
       FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
@@ -1091,6 +1091,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->dump_proto_ctx, ctx->runtime_stack );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
+  return 0;
 }
 
 /**********************************************************************/
@@ -2391,7 +2392,9 @@ try_replay( fd_replay_tile_t *  ctx,
     }
     case FD_SCHED_TT_BLOCK_END: {
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
-      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) replay_block_finalize( ctx, stem, bank );
+      int dead = 0;
+      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) dead = replay_block_finalize( ctx, stem, bank );
+      if( FD_UNLIKELY( dead ) ) fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
       break;
     }
@@ -2510,6 +2513,19 @@ can_process_fec( fd_replay_tile_t * ctx,
 #define PROCESS_FEC_DROP 2  /* Drop FEC set and notify rotor to start redelivery */
 #define PROCESS_FEC_SKIP 3  /* Good to skip this FEC set, drop from dcache */
 
+/* live_block_id_ele returns ele if it is backed by a live bank (same
+   bank_seq, not PRUNABLE), else NULL.  Map entries outlive their banks
+   through eviction.  TODO if we remove block_id_eles with banks, we
+   can get rid of this */
+static fd_block_id_ele_t *
+live_block_id_ele( fd_replay_tile_t *  ctx,
+                   fd_block_id_ele_t * ele ) {
+  if( FD_UNLIKELY( !ele ) ) return NULL;
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, ele ) );
+  if( FD_UNLIKELY( !bank || bank->bank_seq!=ele->bank_seq || bank->state==FD_BANK_STATE_PRUNABLE ) ) return NULL;
+  return ele;
+}
+
 static int
 can_process_rotor_fec( fd_replay_tile_t      * ctx,
                        fd_rotor_replay_fec_t * fec,
@@ -2525,19 +2541,22 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
   }
 
   /* Recovery redelivery re-publishes the entire ancestry path from the
-     chainer root, but most of those blocks are already replayed.  Skip
-     any FEC (slot, block_id) names a block we have already fully
-     replayed */
-  if( FD_UNLIKELY( fec->known_id ) ) {
-    ag_block_id_t       self_key = ag_block_id( fec->slot, fec->block_id.uc );
-    fd_block_id_ele_t * self     = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &self_key, NULL, ctx->block_id_arr );
-    if( FD_UNLIKELY( self ) ) {
-      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, self ) );
-      if( bank && bank->bank_seq==self->bank_seq && bank->state!=FD_BANK_STATE_PRUNABLE &&
-          ( self->block_id_seen || self->latest_fec_idx>=fec->fec_set_idx ) ) {
-        return PROCESS_FEC_SKIP;
-      }
+     chainer root, but most of those blocks are already replayed.  A
+     fully replayed block is always keyed by {slot, block_id_real}; a
+     turbine block still in flight is keyed by {slot, 0}.  Rotor fills
+     in block_id on redelivered FECs whenever it knows it, so try the id
+     key first and fall back to the slot key for a turbine version. */
+  {
+    fd_block_id_ele_t * self = NULL;
+    if( FD_LIKELY( !fd_hash_check_zero( &fec->block_id ) ) ) {
+      ag_block_id_t self_key = ag_block_id( fec->slot, fec->block_id.uc );
+      self = live_block_id_ele( ctx, fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &self_key, NULL, ctx->block_id_arr ) );
     }
+    if( FD_LIKELY( !self && !fec->known_id ) ) {
+      ag_block_id_t self_key = { .slot = fec->slot };
+      self = live_block_id_ele( ctx, fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &self_key, NULL, ctx->block_id_arr ) );
+    }
+    if( FD_UNLIKELY( self && ( self->block_id_seen || self->latest_fec_idx>=fec->fec_set_idx ) ) ) return PROCESS_FEC_SKIP;
   }
 
   ulong               parent_bank_idx = UINT_MAX;
@@ -3673,7 +3692,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
     ag_block_id_t parent_key = ag_block_id( fec->parent_slot, fec->parent_block_id.uc );
     fd_block_id_ele_t * parent = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &parent_key, NULL, ctx->block_id_arr );
-    FD_TEST( parent ); // guaranteed by can_process_rotor_fec
+    FD_TEST( parent );
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   } else {
     /* mid-slot FEC: rotor tile promises to populate block_id
@@ -3737,7 +3756,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     block_id_ele->bank_seq       = bank->bank_seq;
     block_id_ele->slot           = fec->slot;
     block_id_ele->latest_fec_idx = 0U;
-    block_id_ele->block_info     = ag_block_id( fec->slot, fec->block_id.uc );
+    block_id_ele->block_info     = fec->known_id ? ag_block_id( fec->slot, fec->block_id.uc ) : (ag_block_id_t){ .slot = fec->slot };
 
     /* If this fec 0 is rebuilding an evicted block (recovery redelivery),
        the evicted bank's stale map entry may still hold this key at a
