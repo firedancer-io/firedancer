@@ -179,6 +179,9 @@
             "description": "Distinct program pubkeys invoked at the top level of this transaction",
             "max_len": 64,
             "element": { "type": "Pubkey", "description": "Top-level program pubkey" }
-        }
+        },
+        "perf_cpu_cycles":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "CPU cycles spent executing this transaction; zero when AMD PMU profiling is unavailable" },
+        "perf_instructions":    { "type": "UInt64", "compression": "T64, ZSTD", "description": "Instructions retired while executing this transaction; zero when AMD PMU profiling is unavailable" },
+        "perf_demand_llc_miss": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Demand-data fills sourced beyond the local LLC while executing this transaction; zero when AMD PMU profiling is unavailable" }
     }
 }

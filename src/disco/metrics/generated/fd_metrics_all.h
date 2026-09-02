@@ -239,6 +239,7 @@ enum {
 extern const fd_metrics_meta_t FD_METRICS_ALL[FD_METRICS_ALL_TOTAL];
 
 #define FD_METRICS_ALL_LINK_IN_TOTAL (9UL)
+#define FD_METRICS_ALL_LINK_IN_FOOTPRINT (9UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL];
 
 #define FD_METRICS_TOTAL_SZ (8UL*266UL)

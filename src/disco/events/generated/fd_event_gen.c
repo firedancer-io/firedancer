@@ -319,6 +319,9 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
   for( ulong k=0UL; k<msg->program_ids_cnt; k++ ) {
     ok &= !!fd_pb_push_bytes ( encoder, 41U, msg->program_ids[ k ], 32UL );
   }
+  if( msg->perf_cpu_cycles ) ok &= !!fd_pb_push_uint64( encoder, 42U, (ulong)msg->perf_cpu_cycles );
+  if( msg->perf_instructions ) ok &= !!fd_pb_push_uint64( encoder, 43U, (ulong)msg->perf_instructions );
+  if( msg->perf_demand_llc_miss ) ok &= !!fd_pb_push_uint64( encoder, 44U, (ulong)msg->perf_demand_llc_miss );
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );

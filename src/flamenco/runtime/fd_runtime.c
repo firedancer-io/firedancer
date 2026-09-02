@@ -1301,6 +1301,8 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   }
   txn_out->details.is_simple_vote  = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );
 
+  fd_memset( &txn_out->details.pmc, 0, sizeof(txn_out->details.pmc) );
+
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
   memcpy( txn_out->details.blockhash.uc, blockhash->hash, sizeof(fd_hash_t) );
 

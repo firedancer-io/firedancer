@@ -102,6 +102,12 @@ struct fd_execrp_txn_exec_done_msg {
   ulong priority_fee;
   ulong tips;
 
+  /* Hardware performance counter deltas for transaction execution.
+     Zero when profiling is unavailable. */
+  ulong perf_cpu_cycles;
+  ulong perf_instructions;
+  ulong perf_demand_llc_miss;
+
   /* used by monitoring tools */
   ulong  slot;
   ulong  bank_seq;

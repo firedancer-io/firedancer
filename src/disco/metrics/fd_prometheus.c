@@ -12,6 +12,12 @@ struct fd_prom_render {
 
 typedef struct fd_prom_render fd_prom_render_t;
 
+static inline int
+metric_is_available( fd_metrics_meta_t const * metric,
+                     volatile ulong const *    values ) {
+  return !metric->availability_mask || (values[ metric->availability_offset ] & metric->availability_mask);
+}
+
 fd_prom_render_t
 fd_prom_render_create( fd_http_server_t * http ) {
   return (fd_prom_render_t) {
@@ -161,7 +167,12 @@ render_links_in( fd_prom_render_t *        r,
       for( ulong k=0UL; k<tile->in_cnt; k++ ) {
         if( FD_UNLIKELY( !tile->in_link_poll[ k ] ) ) continue;
         fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ k ] ];
-        ulong value = *(fd_metrics_link_in( tile->metrics, polled_in_idx ) + metric->offset );
+        volatile ulong const * values = fd_metrics_link_in( tile->metrics, polled_in_idx );
+        if( FD_UNLIKELY( !metric_is_available( metric, values ) ) ) {
+          polled_in_idx++;
+          continue;
+        }
+        ulong value = values[ metric->offset ];
         render_link( r, metric, tile, link, value );
         polled_in_idx++;
       }
@@ -173,6 +184,7 @@ static void
 render_tile_metric( fd_prom_render_t *        r,
                     fd_topo_tile_t const *    tile,
                     fd_metrics_meta_t const * metric ) {
+  if( FD_UNLIKELY( !metric_is_available( metric, fd_metrics_tile( tile->metrics ) ) ) ) return;
   if( FD_LIKELY( metric->type==FD_METRICS_TYPE_COUNTER || metric->type==FD_METRICS_TYPE_GAUGE ) ) {
     render_counter( r, metric, tile );
   } else if( FD_LIKELY( metric->type==FD_METRICS_TYPE_HISTOGRAM ) ) {

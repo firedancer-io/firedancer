@@ -377,8 +377,8 @@ test_execrp_run( test_env_t * env,
 }
 
 FD_UNIT_TEST( execrp_seccomp ) {
-  int   out_fds[3];
-  ulong nfds = populate_allowed_fds( NULL, NULL, 3UL, out_fds );
+  int   out_fds[6];
+  ulong nfds = populate_allowed_fds( NULL, NULL, 6UL, out_fds );
   FD_TEST( nfds>=2 && nfds<=3 );
   FD_TEST( out_fds[0]==STDERR_FILENO );
   /* logfile fd is optional; the accounts db fd is always last */

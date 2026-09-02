@@ -3,6 +3,11 @@ This file describes all possible metrics that could potentially be
 collected and reported by Firedancer.  Metrics are grouped into
 categories.
 
+Counters and gauges marked optional="true" are omitted from Prometheus
+output until their producer calls FD_METRIC_SET_AVAILABLE.  Availability
+flags are bit-packed; enum variants share one flag.  Histograms cannot
+be optional.
+
 These metrics must be backwards compatible and you should not change
 existing metric names.  Instead they should be deprecated and a new
 metric introduced.
@@ -1818,6 +1823,10 @@ EXAMPLES
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
     <counter name="VmRegimeDurationNanos" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds" />
+
+    <counter name="TxnCpuCycles" optional="true" summary="CPU cycles spent executing transactions when AMD PMU profiling is available" />
+    <counter name="TxnInstructions" optional="true" summary="Instructions retired while executing transactions when AMD PMU profiling is available" />
+    <counter name="TxnDemandLlcMiss" optional="true" summary="Demand-data fills sourced beyond the local LLC while executing transactions when AMD PMU profiling is available" />
 
     <counter name="CuExecuted" summary="Estimated compute units executed since tile start" />
 
