@@ -3722,18 +3722,23 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
 
   ulong work = (ulong)fd_log_wallclock();
 
+  fd_store_fec_data_view_t data_view[1];
+  fd_rwlock_read( &ctx->store->fec_lock );
   fd_store_fec_t * store_fec = fd_store_query( ctx->map_join, &fec->mr );
   ctx->metrics.store_query_cnt++;
+  int view_err = store_fec ? fd_store_fec_data_view( ctx->store, ctx->store_disk_fd, store_fec, data_view ) : -1;
+  fd_rwlock_unread( &ctx->store->fec_lock );
+
   /* A missing store entry is expected: rotor (the store publisher)
      removes FEC sets on publish, so a FEC delivered for a slice that has
-     since been pruned/rooted is no longer in the store.  Abandon the
-     slice rather than dereference a NULL store_fec below (fd_store_fec_data
-     and the sched copy would fault on it). */
-  if( FD_UNLIKELY( !store_fec ) ) {
+     since been pruned/rooted is no longer in the store.  The lookup and
+     payload pin are one lifetime transaction under fec_lock: remove may
+     unlink the key only after the view has pinned the pool element. */
+  if( FD_UNLIKELY( !store_fec || view_err ) ) {
     ctx->metrics.store_query_missing_cnt++;
     ctx->metrics.store_query_missing_mr = fec->mr.ul[0];
     FD_BASE58_ENCODE_32_BYTES( fec->mr.key, key_b58 );
-    FD_LOG_INFO(( "store fec for slot: %lu not present (pruned by publish); abandoning slice. root: %lu. merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
+    FD_LOG_INFO(( "store fec for slot: %lu unavailable (pruned by publish); abandoning slice. root: %lu. merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
     return;
   }
 
@@ -3796,7 +3801,10 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */
-  if( FD_UNLIKELY( fec->is_leader ) ) return;
+  if( FD_UNLIKELY( fec->is_leader ) ) {
+    fd_store_fec_data_view_release( ctx->store, data_view );
+    return;
+  }
 
   /* Forks form a partial ordering over FEC sets. The Rotor tile
      delivers FEC sets in-order per fork, but FEC set ordering across
@@ -3811,8 +3819,6 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   sched_fec->parent_slot       = fec->parent_slot;
   sched_fec->is_first_in_block = fec->fec_set_idx==0U;
   sched_fec->fec               = store_fec;
-  fd_store_fec_data_view_t data_view[1];
-  FD_TEST( !fd_store_fec_data_view( ctx->store, ctx->store_disk_fd, store_fec, data_view ) );
   sched_fec->data              = data_view->data;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
