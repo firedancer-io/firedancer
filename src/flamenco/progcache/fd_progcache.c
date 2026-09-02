@@ -84,7 +84,7 @@ fd_progcache_setup_slots( ulong   txn_max,
   /* Share of the surplus per data class, from the mainnet size distribution.
      Class 0 is not distributed by share: it takes the remainder, so its entry
      below is nominal and it also absorbs every other class's rounding slack. */
-  static const uint pct[ FD_PROGCACHE_CACHE_DATA_CLASS_CNT ] = {
+  static const uint pct[ FD_PROGCACHE_CACHE_CLASS_CNT ] = {
      4U,   /* class 0: 128 KiB */
     29U,   /* class 1: 512 KiB */
     25U,   /* class 2:   1 MiB */
@@ -104,7 +104,7 @@ fd_progcache_setup_slots( ulong   txn_max,
   /* Distribute the surplus by percentage, rounding down. */
   ulong surplus  = progcache_sz - min_sz;
   ulong leftover = surplus;
-  for( ulong c=1UL; c<FD_PROGCACHE_CACHE_DATA_CLASS_CNT; c++ ) {
+  for( ulong c=1UL; c<FD_PROGCACHE_CACHE_CLASS_CNT; c++ ) {
     ulong want = ((surplus/100UL)*(ulong)pct[ c ]) / fd_progcache_slot_cost( c );
     slot_cnt[ c ] += want;
     leftover      -= want*fd_progcache_slot_cost( c );
