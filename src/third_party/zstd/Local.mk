@@ -42,7 +42,9 @@ $(CC) $(ZSTD_CFLAGS_NOWARN) -fno-tree-vectorize -c $< -o $@
 $(OBJDIR)/obj/third_party/zstd/lib/decompress/huf_decompress_amd64.o : src/third_party/zstd/lib/decompress/huf_decompress_amd64.S $(OBJDIR)/.flags
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(ZSTD_CFLAGS_NOWARN) -c $< -o $@
+$(CC) $(ZSTD_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
+
+ASM_DEPFILES+=$(OBJDIR)/obj/third_party/zstd/lib/decompress/huf_decompress_amd64.d
 
 $(OBJDIR)/lib/libfd_zstd.a: $(patsubst %,$(OBJDIR)/obj/third_party/zstd/lib/%.o,$(ZSTD_OBJS)) $(OBJDIR)/obj/third_party/zstd/lib/decompress/huf_decompress_amd64.o
 

@@ -180,6 +180,9 @@ add-objs = $(eval $(call _add-objs,$(1),$(2)))
 
 define _add-asms
 
+# separate from DEPFILES: asm objects have no .S/.i/.check-from-.c targets
+ASM_DEPFILES+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
+
 $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
 
 endef
@@ -383,7 +386,7 @@ $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 $(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/.flags
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 $(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/.flags
 	$(MKDIR) $(dir $@) && \
@@ -464,7 +467,7 @@ $(OBJDIR)/.ldflags.d/%:
 # show-deps target).
 
 show-deps:
-	@for d in $(DEPFILES); do echo $$d; done
+	@for d in $(DEPFILES) $(ASM_DEPFILES); do echo $$d; done
 
 # Define the check target.  Must be after the make fragments include so that
 # DEPFILES is fully populated
@@ -476,6 +479,7 @@ ifeq ($(filter $(AUX_RULES) $(DRY_RULES),$(MAKECMDGOALS)),)
 # The leading dash avoids the old up-front dependency generation pass on clean
 # trees, which kept make busy before it could start compiling objects.
 -include $(DEPFILES)
+-include $(ASM_DEPFILES)
 endif
 
 # Define the asm target.  Must be after the make fragments include so that

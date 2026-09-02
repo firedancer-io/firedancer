@@ -19,7 +19,9 @@ $(CC) $(BLST_CFLAGS_NOWARN) -c $< -o $@
 $(OBJDIR)/obj/third_party/blst/assembly.o : src/third_party/blst/build/assembly.S $(OBJDIR)/.flags
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(BLST_CFLAGS_NOWARN) -c $< -o $@
+$(CC) $(BLST_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
+
+ASM_DEPFILES+=$(OBJDIR)/obj/third_party/blst/assembly.d
 
 $(OBJDIR)/lib/libfd_blst.a: $(OBJDIR)/obj/third_party/blst/server.o $(OBJDIR)/obj/third_party/blst/assembly.o
 
