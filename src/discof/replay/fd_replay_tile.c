@@ -40,10 +40,8 @@
 #include "../repair/fd_repair_tile.h"
 #include "../rotor/fd_rotor_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/stakes/fd_stakes.h"
-#include "../../choreo/votor/ag_vote_serde.h"
-#include "../../ballet/bls/fd_bls12_381.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
+#include "../../flamenco/stakes/fd_vote_stakes.h"
 
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
@@ -161,9 +159,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t) );
   l = FD_LAYOUT_APPEND( l, fd_timing_slot_pool_align(),         fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                      tile->replay.max_live_slots*sizeof(ulong) );
-  if( tile->replay.alpenglow ) {
-    l = FD_LAYOUT_APPEND( l, alignof(ag_epoch_info_t),          FD_REPLAY_AG_EPOCH_INFO_CNT*sizeof(ag_epoch_info_t) );
-  }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -315,30 +310,6 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
 }
 
 static void
-update_ag_epoch_info( fd_replay_tile_t *             ctx,
-                      ulong                          epoch,
-                      fd_vote_stake_weight_t const * stake_weights,
-                      ulong                          stake_weights_cnt ) {
-  ulong i = epoch % FD_REPLAY_AG_EPOCH_INFO_CNT;
-  ctx->epoch_info[ i ].epoch = ULONG_MAX;
-  if( FD_UNLIKELY( !ag_epoch_info_rank( ctx->epoch_info[ i ].epoch_info, stake_weights, stake_weights_cnt ) ) ) {
-    FD_LOG_WARNING(( "no ranked validators for epoch %lu, footer certs for it cannot be verified", epoch ));
-    return;
-  }
-  ctx->epoch_info[ i ].epoch = epoch;
-}
-
-/* ag_epoch_info_query returns the ranked epoch info for epoch, or NULL
-   if replay does not hold it. */
-
-static ag_epoch_info_t const *
-ag_epoch_info_query( fd_replay_tile_t const * ctx,
-                     ulong                    epoch ) {
-  ulong i = epoch % FD_REPLAY_AG_EPOCH_INFO_CNT;
-  return ctx->epoch_info[ i ].epoch==epoch ? ctx->epoch_info[ i ].epoch_info : NULL;
-}
-
-static void
 publish_epoch_info( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
                     fd_bank_t *         bank,
@@ -376,8 +347,6 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
-
-  if( FD_UNLIKELY( ctx->alpenglow ) ) update_ag_epoch_info( ctx, epoch, stake_weights, epoch_info_msg->staked_vote_cnt );
 }
 
 /**********************************************************************/
@@ -1034,139 +1003,6 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
                 int                 dead_reason,
                 int                 abandoned_reason );
 
-/* verify_footer_cert checks one footer certificate's stake threshold
-   and aggregate BLS signature against the epoch info for its slot.
-   Returns 1 if the cert verifies.  Returns 0 if it does not, or if it
-   cannot be checked (no epoch info covers the slot, or the shred
-   version is not yet known): a cert we cannot check must not be
-   applied, since the runtime credits its signers. */
-
-static int
-verify_footer_cert( fd_replay_tile_t const * ctx,
-                    fd_bank_t const *        bank,
-                    ag_cert_t const *        cert,
-                    ushort                   shred_version ) {
-  ulong bank_slot  = bank->f.slot;
-  ulong cert_slot  = ag_cert_slot( cert );
-  ulong cert_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, cert_slot, NULL );
-  ag_epoch_info_t const * epoch_info = ag_epoch_info_query( ctx, cert_epoch );
-  if( FD_UNLIKELY( !epoch_info ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu (epoch %lu) has no epoch info to verify against (held epochs %lu, %lu, %lu)",
-                     bank_slot, ag_cert_str( cert ), cert_slot, cert_epoch, ctx->epoch_info[ 0 ].epoch, ctx->epoch_info[ 1 ].epoch, ctx->epoch_info[ 2 ].epoch ));
-    return 0;
-  }
-  if( FD_UNLIKELY( !shred_version ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu cannot be verified, shred version unknown", bank_slot, ag_cert_str( cert ), cert_slot ));
-    return 0;
-  }
-  if( FD_UNLIKELY( !ag_cert_verify( cert, epoch_info, shred_version ) ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed verification", bank_slot, ag_cert_str( cert ), cert_slot ));
-    return 0;
-  }
-  return 1;
-}
-
-/* verify_reward_cert checks a footer reward certificate's aggregate BLS
-   signature against the epoch info for its slot, mirroring Agave's
-   ValidatedRewardCert::try_new: the skip reward cert aggregates plain
-   skip votes over the reward slot, the notar reward cert plain
-   notarization votes over the reward slot and the cert's block_id.
-   There is no stake threshold; the cert only needs a valid aggregate
-   signature by the ranks its bitmap names, and the bitmap may not reach
-   past the ranked validator set.  Returns 1 if the cert verifies, 0 if
-   it does not or cannot be checked (see verify_footer_cert). */
-
-FD_STATIC_ASSERT( FD_REWARD_CERT_SET_WORDS==signer_set_word_cnt, reward_cert_set_words );
-
-static int
-verify_reward_cert( fd_replay_tile_t const * ctx,
-                    fd_bank_t const *        bank,
-                    fd_reward_cert_t const * cert,
-                    int                      is_notar,
-                    ushort                   shred_version ) {
-  char const * name       = is_notar ? "NotarReward" : "SkipReward";
-  ulong        bank_slot  = bank->f.slot;
-  ulong        cert_slot  = cert->slot;
-  ulong        cert_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, cert_slot, NULL );
-  ag_epoch_info_t const * epoch_info = ag_epoch_info_query( ctx, cert_epoch );
-  if( FD_UNLIKELY( !epoch_info ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu (epoch %lu) has no epoch info to verify against (held epochs %lu, %lu, %lu)",
-                     bank_slot, name, cert_slot, cert_epoch, ctx->epoch_info[ 0 ].epoch, ctx->epoch_info[ 1 ].epoch, ctx->epoch_info[ 2 ].epoch ));
-    return 0;
-  }
-  if( FD_UNLIKELY( !shred_version ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu cannot be verified, shred version unknown", bank_slot, name, cert_slot ));
-    return 0;
-  }
-  if( FD_UNLIKELY( cert->nbits>epoch_info->validator_cnt ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu names %u ranks but epoch %lu has %lu validators",
-                     bank_slot, name, cert_slot, cert->nbits, cert_epoch, epoch_info->validator_cnt ));
-    return 0;
-  }
-
-  ag_bls_agg_t agg[1];
-  if( FD_UNLIKELY( fd_bls12_381_g2_decompress_syscall( agg->sig, cert->sig, 1 ) ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu has a malformed signature", bank_slot, name, cert_slot ));
-    return 0;
-  }
-  memcpy( agg->bitmask, cert->signer_set, sizeof(agg->bitmask) );
-
-  ag_vote_t vote[1]; memset( vote, 0, sizeof(ag_vote_t) );
-  if( is_notar ) {
-    vote->kind       = AG_VOTE_KIND_NOTAR;
-    vote->notar.slot = cert_slot;
-    memcpy( vote->notar.block_hash, cert->block_id.uc, sizeof(ag_block_hash_t) );
-  } else {
-    vote->kind      = AG_VOTE_KIND_SKIP;
-    vote->skip.slot = cert_slot;
-  }
-  uchar payload[ AG_VOTE_SIGNING_SER_MAX ];
-  ulong payload_sz = ag_vote_signing_ser( vote, shred_version, payload );
-
-  ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
-  if( FD_UNLIKELY( !ag_bls_agg_verify( agg, payload, payload_sz, validators->bls_key, sizeof(ag_validator_info_t), epoch_info->validator_cnt ) ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed verification", bank_slot, name, cert_slot ));
-    return 0;
-  }
-  return 1;
-}
-
-/* verify_footer_certs verifies every certificate a block footer
-   declares before the runtime applies them: the finalization certs
-   (fast final, or final plus its notar aggregate) and the skip and
-   notar reward certs.  Returns 0 on success, -1 if any cert fails or
-   cannot be verified. */
-
-static int
-verify_footer_certs( fd_replay_tile_t const *  ctx,
-                     fd_bank_t const *         bank,
-                     fd_footer_certs_t const * certs ) {
-  ushort shred_version = ctx->ipecho_shred_version ? ctx->ipecho_shred_version : ctx->expected_shred_version;
-  ag_cert_t cert[1];
-  if( certs->fast_final_cert ) {
-    cert->kind       = AG_CERT_KIND_FAST_FINAL;
-    cert->fast_final = *certs->fast_final_cert;
-    if( FD_UNLIKELY( !verify_footer_cert( ctx, bank, cert, shred_version ) ) ) return -1;
-  }
-  if( certs->final_cert ) {
-    cert->kind  = AG_CERT_KIND_FINAL;
-    cert->final = *certs->final_cert;
-    if( FD_UNLIKELY( !verify_footer_cert( ctx, bank, cert, shred_version ) ) ) return -1;
-  }
-  if( certs->final_notar_cert ) {
-    cert->kind  = AG_CERT_KIND_NOTAR;
-    cert->notar = *certs->final_notar_cert;
-    if( FD_UNLIKELY( !verify_footer_cert( ctx, bank, cert, shred_version ) ) ) return -1;
-  }
-  if( certs->skip_reward_cert ) {
-    if( FD_UNLIKELY( !verify_reward_cert( ctx, bank, certs->skip_reward_cert,  0, shred_version ) ) ) return -1;
-  }
-  if( certs->notar_reward_cert ) {
-    if( FD_UNLIKELY( !verify_reward_cert( ctx, bank, certs->notar_reward_cert, 1, shred_version ) ) ) return -1;
-  }
-  return 0;
-}
-
 static int
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
@@ -1194,19 +1030,13 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
     certs_opt        = certs;
     footer_time_nanos = fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx );
-
-    /* The runtime credits the cert signers, so the certs must verify
-       before they are applied.  The slot rules on the certs (reward
-       slot = bank slot - 8, past the migration slot, consistent between
-       the two reward certs) are checked by fd_alpen_rewards_apply. */
-    if( FD_UNLIKELY( verify_footer_certs( ctx, bank, certs ) ) ) {
-      mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
-      return 1;
-    }
   }
 
-  /* Do hashing and other end-of-block processing. */
-  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, certs_opt, footer_time_nanos ) ) ) {
+  /* Do hashing and other end-of-block processing.  The runtime verifies
+     the footer certs against the shred version before it credits their
+     signers, so a block whose certs fail (or cannot be checked) is
+     dead here. */
+  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, certs_opt, footer_time_nanos, ctx->shred_version ) ) ) {
     mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
     return 1;
   }
@@ -1657,7 +1487,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
     priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
 
-    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL );
+    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL, (ushort)0 );
   }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1801,20 +1631,6 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      (which is needed for voting on the next epoch). */
   publish_epoch_info( ctx, stem, bank, 0 );
   publish_epoch_info( ctx, stem, bank, 1 );
-
-  /* Footer certs in the first blocks of an epoch attest slots in the
-     previous epoch, so cert verification also needs the previous
-     epoch's validator set.  Votor never needs it (it only votes
-     forward), so it is ranked here directly from the t-3 stakes rather
-     than published. */
-  if( FD_UNLIKELY( ctx->alpenglow ) ) {
-    ulong epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
-    if( FD_LIKELY( epoch ) ) {
-      fd_vote_stake_weight_t * weights     = ctx->runtime_stack->stakes.stake_weights;
-      ulong                    weights_cnt = fd_stake_weights_by_node( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, weights );
-      update_ag_epoch_info( ctx, epoch-1UL, weights, weights_cnt );
-    }
-  }
 
   fd_progcache_reset( ctx->progcache );
   bank->progcache_fork_id = fd_progcache_fork_id_initial();
@@ -2125,9 +1941,11 @@ process_poh_message( fd_replay_tile_t *                 ctx,
     ulong migration_slot = fd_alpenglow_migration_slot( ctx->leader_bank, ctx->accdb );
     leader_footer_certs( ctx, ctx->leader_bank->f.slot, migration_slot, &marker->footer, certs );
 
-    /* The block goes out regardless: the certs are already committed to
-       the bank hash, so there is nothing left to fall back to. */
-    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, certs, producer_time_nanos ) ) ) {
+    /* The runtime applies a leader bank's certs unverified: votor
+       verified them before it handed them to us.  The block goes out
+       regardless: the certs are already committed to the bank hash, so
+       there is nothing left to fall back to. */
+    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, certs, producer_time_nanos, ctx->shred_version ) ) ) {
       FD_LOG_WARNING(( "slot %lu: our own block footer certs did not apply; the block we produce will be dead to the cluster", ctx->leader_bank->f.slot ));
     }
 
@@ -2155,6 +1973,10 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->identity_vote_rooted = 1;
 
   ctx->caught_up = 1;
+
+  /* Genesis carries no hard forks; the shred version is that of the
+     bare genesis hash (see maybe_verify_shred_version). */
+  ctx->hard_fork_cnt = 0UL;
 
   uchar const * genesis_blob = (uchar const *)( meta+1 );
   FD_TEST( meta->bootstrap && meta->has_lthash );
@@ -4057,6 +3879,10 @@ process_vote_txn_sent( fd_replay_tile_t *  ctx,
 
 static inline void
 maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
+  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX ) ) {
+    ctx->shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+  }
+
   if( FD_LIKELY( ctx->expected_shred_version && ctx->ipecho_shred_version ) ) {
     if( FD_UNLIKELY( ctx->expected_shred_version!=ctx->ipecho_shred_version ) ) {
       FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from ipecho", ctx->expected_shred_version, ctx->ipecho_shred_version ) );
@@ -4068,10 +3894,9 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
      snapshot's hard fork list until wait-for-supermajority completes. */
   if( FD_UNLIKELY( ctx->wfs_enabled && !ctx->wfs_complete && ctx->expected_shred_version ) ) return;
 
-  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
+  if( FD_LIKELY( ctx->shred_version && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
     ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
-
-    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+    ushort actual_shred_version   = ctx->shred_version;
 
     if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
@@ -4711,10 +4536,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void * block_completed_ev = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t) );
   void * timing_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_timing_slot_pool_align(),  fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
   void * timing_of_bank_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),               tile->replay.max_live_slots*sizeof(ulong) );
-  ag_epoch_info_t * epoch_info_mem = NULL;
-  if( tile->replay.alpenglow ) {
-    epoch_info_mem          = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_epoch_info_t),     FD_REPLAY_AG_EPOCH_INFO_CNT*sizeof(ag_epoch_info_t) );
-  }
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -4760,6 +4581,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->expected_shred_version = tile->replay.expected_shred_version;
   ctx->ipecho_shred_version = 0;
+  ctx->shred_version        = 0;
   fd_memcpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
   ctx->has_genesis_hash = 0;
   ctx->has_cluster_type = 0;
@@ -4856,10 +4678,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->leader_stats.slot = ULONG_MAX;
   ctx->alpenglow         = tile->replay.alpenglow;
-  for( ulong i=0UL; i<FD_REPLAY_AG_EPOCH_INFO_CNT; i++ ) {
-    ctx->epoch_info[ i ].epoch_info = epoch_info_mem ? epoch_info_mem+i : NULL;
-    ctx->epoch_info[ i ].epoch      = ULONG_MAX;
-  }
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ), ctx->alpenglow ) );
   FD_TEST( ctx->sched );
   FD_TEST( ctx->alpenglow || ctx->reasm );

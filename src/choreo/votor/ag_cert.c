@@ -16,14 +16,15 @@ is_signer( ag_cert_t const * self,
 }
 
 static int
-check_threshold( ag_cert_t const *       self,
-                 ag_epoch_info_t const * epoch_info ) {
-  ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
-  ulong                       stake      = 0UL;
-  for( ulong i=0UL; i<epoch_info->validator_cnt; i++ ) if( is_signer( self, validators[i].id ) ) stake += validators[i].stake;
+check_threshold( ag_cert_t const * self,
+                 ulong const *     stakes,
+                 ulong             validator_cnt,
+                 ulong             total_stake ) {
+  ulong stake = 0UL;
+  for( ulong i=0UL; i<validator_cnt; i++ ) if( is_signer( self, i ) ) stake += stakes[i];
   return fd_int_if( self->kind == AG_CERT_KIND_FAST_FINAL,
-                    ag_epoch_info_is_strong_quorum( epoch_info, stake ),
-                    ag_epoch_info_is_quorum( epoch_info, stake ) );
+                    ag_stake_is_strong_quorum( stake, total_stake ),
+                    ag_stake_is_quorum( stake, total_stake ) );
 }
 
 /* the bytes a voter of the given kind over slot, and hash for the
@@ -51,13 +52,12 @@ voter_signing_ser( uint          kind,
 }
 
 static int
-check_sig( ag_cert_t const *       self,
-           ag_epoch_info_t const * epoch_info,
-           ushort                  shred_version ) {
-  ag_validator_info_t const * validators    = ag_epoch_info_validators( epoch_info );
-  uchar const *               pk0           = validators->bls_key;
-  ulong                       pk_stride     = sizeof(ag_validator_info_t);
-  ulong                       validator_cnt = epoch_info->validator_cnt;
+check_sig( ag_cert_t const * self,
+           uchar const *     bls_keys,
+           ulong             validator_cnt,
+           ushort            shred_version ) {
+  uchar const * pk0       = bls_keys;
+  ulong         pk_stride = sizeof(ag_bls_pub_t);
   uchar buf[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz;
   switch( self->kind ) {
   case AG_CERT_KIND_NOTAR:
@@ -93,10 +93,13 @@ check_sig( ag_cert_t const *       self,
 }
 
 int
-ag_cert_verify( ag_cert_t const *       self,
-                ag_epoch_info_t const * epoch_info,
-                ushort                  shred_version ) {
-  return check_threshold( self, epoch_info ) && check_sig( self, epoch_info, shred_version );
+ag_cert_verify( ag_cert_t const * self,
+                uchar const *     bls_keys,
+                ulong const *     stakes,
+                ulong             validator_cnt,
+                ulong             total_stake,
+                ushort            shred_version ) {
+  return check_threshold( self, stakes, validator_cnt, total_stake ) && check_sig( self, bls_keys, validator_cnt, shred_version );
 }
 
 static ag_cert_notar_t

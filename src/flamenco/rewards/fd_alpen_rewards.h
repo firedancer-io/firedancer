@@ -59,7 +59,9 @@ fd_alpenglow_migration_slot( fd_bank_t *  bank,
 /* fd_alpen_rewards_apply applies the cert side effects to the bank's
    accounts.  certs fields are NULL when the footer did not carry the
    respective cert.  footer_time_nanos is the footer's producer
-   timestamp.
+   timestamp.  The certs are trusted: the caller verifies them first
+   (see apply_footer in fd_runtime.c) unless they are known good (a
+   block we produced, whose certs votor already verified).
    Returns 0 on success and -1 if processing of the bank should fail */
 
 int

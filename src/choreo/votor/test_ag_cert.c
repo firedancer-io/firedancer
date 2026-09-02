@@ -118,7 +118,14 @@ cert_is_signer( ag_cert_t const * c,
 static int
 cert_verify( ag_cert_t const *       c,
              ag_epoch_info_t const * epoch_info ) {
-  return ag_cert_verify( c, epoch_info, TEST_SHRED_VERSION );
+  static ag_bls_pub_t keys  [ AG_VAT_MAX ];
+  static ulong        stakes[ AG_VAT_MAX ];
+  ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
+  for( ulong i=0UL; i<epoch_info->validator_cnt; i++ ) {
+    memcpy( keys[ i ], validators[ i ].bls_key, sizeof(ag_bls_pub_t) );
+    stakes[ i ] = validators[ i ].stake;
+  }
+  return ag_cert_verify( c, (uchar const *)keys, stakes, epoch_info->validator_cnt, epoch_info->total_stake, TEST_SHRED_VERSION );
 }
 
 static void

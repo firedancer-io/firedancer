@@ -684,7 +684,7 @@ fd_svm_mini_freeze( fd_svm_mini_t * mini,
   /* Derive a mock POH hash so each frozen slot registers a unique
      blockhash.  (Real POH is computed by the PoH tile.) */
   fd_sha256_hash( bank->f.poh.hash, 32UL, bank->f.poh.hash );
-  fd_runtime_block_execute_finalize( bank, mini->runtime->accdb, NULL, NULL, 0UL );
+  fd_runtime_block_execute_finalize( bank, mini->runtime->accdb, NULL, NULL, 0UL, (ushort)0 );
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   FD_TEST( block_hash );
   fd_txncache_finalize_fork( mini->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );

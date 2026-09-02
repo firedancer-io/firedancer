@@ -95,10 +95,19 @@ ag_cert_construct_skip( ag_vote_skip_t const *          votes,
                         ulong                           fallback_vote_cnt,
                         ag_epoch_info_t const *         epoch_info );
 
+/* ag_cert_verify checks self's stake threshold and aggregate BLS
+   signature against the validator set of its epoch: bls_keys is
+   validator_cnt contiguous uncompressed ag_bls_pub_t and stakes
+   validator_cnt stakes, both indexed by rank; total_stake is the
+   epoch's total.  Returns 1 if the cert verifies, 0 otherwise. */
+
 int
-ag_cert_verify( ag_cert_t const *       self,
-                ag_epoch_info_t const * epoch_info,
-                ushort                  shred_version );
+ag_cert_verify( ag_cert_t const * self,
+                uchar const *     bls_keys,
+                ulong const *     stakes,
+                ulong             validator_cnt,
+                ulong             total_stake,
+                ushort            shred_version );
 
 FD_FN_PURE static inline ulong
 ag_cert_slot( ag_cert_t const * self ) {
