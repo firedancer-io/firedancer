@@ -68,6 +68,42 @@ find_visible_stake_delegation( fd_stake_delegations_t const * stake_delegations,
   return NULL;
 }
 
+static fd_stake_delegations_t *
+test_stake_delegations_frontier_mark( fd_banks_t * banks,
+                                      fd_bank_t *  bank ) {
+  ushort fork_ids[ banks->max_total_banks ];
+  ulong  fork_id_cnt = fd_banks_stake_delegations_fork_ids( banks, bank, fork_ids );
+  fd_stake_history_t   stake_history_[1];
+  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
+  fd_stake_delegations_mark_fork_deltas( stake_delegations,
+                                         bank->f.epoch,
+                                         stake_history,
+                                         &bank->f.warmup_cooldown_rate_epoch,
+                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                         fork_ids,
+                                         fork_id_cnt );
+  return stake_delegations;
+}
+
+static void
+test_stake_delegations_frontier_unmark( fd_banks_t * banks,
+                                        fd_bank_t *  bank ) {
+  ushort fork_ids[ banks->max_total_banks ];
+  ulong  fork_id_cnt = fd_banks_stake_delegations_fork_ids( banks, bank, fork_ids );
+  fd_stake_history_t   stake_history_[1];
+  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+
+  fd_stake_delegations_unmark_fork_deltas( fd_bank_stake_delegations_modify( bank ),
+                                           bank->f.epoch-1UL,
+                                           stake_history,
+                                           &bank->f.warmup_cooldown_rate_epoch,
+                                           FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                           fork_ids,
+                                           fork_id_cnt );
+}
+
 static void
 setup_env( test_env_t * env, fd_svm_mini_t * mini ) {
   fd_memset( env, 0, sizeof(test_env_t) );
@@ -712,9 +748,9 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
                                       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 
     {
-      fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+      fd_stake_delegations_t * frontier = test_stake_delegations_frontier_mark( env->mini->banks, env->bank );
       FD_TEST( find_visible_stake_delegation( frontier, &stake_account ) );
-      fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+      test_stake_delegations_frontier_unmark( env->mini->banks, env->bank );
     }
 
     fd_pubkey_t stake_keys[2] = { pubkey1, stake_account };
@@ -755,9 +791,9 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_fini_bundle( env->runtime );
 
     {
-      fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+      fd_stake_delegations_t * frontier = test_stake_delegations_frontier_mark( env->mini->banks, env->bank );
       FD_TEST( !find_visible_stake_delegation( frontier, &stake_account ) );
-      fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+      test_stake_delegations_frontier_unmark( env->mini->banks, env->bank );
     }
 
     FD_LOG_NOTICE(( "test bundle stake-cache carry-forward... ok" ));
@@ -1169,9 +1205,9 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
     fd_runtime_fini_bundle( env->runtime );
 
-    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    fd_stake_delegations_t * frontier = test_stake_delegations_frontier_mark( env->mini->banks, env->bank );
     FD_TEST( !find_visible_stake_delegation( frontier, &stake_acct ) ); /* removed exactly once */
-    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+    test_stake_delegations_frontier_unmark( env->mini->banks, env->bank );
   }
 
   FD_LOG_NOTICE(( "test bundle non-owner stake_update carry... ok" ));
@@ -1212,12 +1248,12 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
     fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
 
-    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    fd_stake_delegations_t * frontier = test_stake_delegations_frontier_mark( env->mini->banks, env->bank );
     fd_stake_delegation_t const * updated_delegation = find_visible_stake_delegation( frontier, &stake_acct );
     FD_TEST( updated_delegation );
     FD_TEST( updated_delegation!=root_delegation );
     FD_TEST( updated_delegation->lamports==2000000001UL );
-    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+    test_stake_delegations_frontier_unmark( env->mini->banks, env->bank );
   }
 
   FD_LOG_NOTICE(( "test lamport-only stake change creates delta... ok" ));
@@ -1259,11 +1295,11 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
     fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
 
-    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    fd_stake_delegations_t * frontier = test_stake_delegations_frontier_mark( env->mini->banks, env->bank );
     fd_stake_delegation_t const * updated_delegation = find_visible_stake_delegation( frontier, &stake_acct );
     FD_TEST( updated_delegation );
     FD_TEST( updated_delegation!=root_delegation );
-    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+    test_stake_delegations_frontier_unmark( env->mini->banks, env->bank );
   }
 
   FD_LOG_NOTICE(( "test stake metadata change creates delta... ok" ));
@@ -1291,10 +1327,10 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
     fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
 
-    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    fd_stake_delegations_t * frontier = test_stake_delegations_frontier_mark( env->mini->banks, env->bank );
     FD_TEST( frontier );
     FD_TEST( !fd_stake_delegation_root_query( root, &stake_acct ) );
-    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+    test_stake_delegations_frontier_unmark( env->mini->banks, env->bank );
   }
 
   FD_LOG_NOTICE(( "test nondelegated stake close skips tombstone... ok" ));
@@ -1372,9 +1408,9 @@ test_inactive_stake_update( fd_svm_mini_t * mini ) {
     fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
 
     fd_stake_delegations_t * frontier =
-        fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+        test_stake_delegations_frontier_mark( env->mini->banks, env->bank );
     FD_TEST( !!find_visible_stake_delegation( frontier, &stake_acct )==cases[i].retained );
-    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+    test_stake_delegations_frontier_unmark( env->mini->banks, env->bank );
   }
 
   FD_LOG_NOTICE(( "test inactive stake update... ok" ));

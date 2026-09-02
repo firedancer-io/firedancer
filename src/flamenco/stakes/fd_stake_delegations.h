@@ -518,37 +518,41 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
                                        fd_stake_delegations_t *   stake_delegations,
                                        ushort                     fork_idx );
 
-/* fd_stake_delegations_{mark,unmark}_delta are used to temporarily
-   tag delta elements from a given fork in the base/root stake
-   delegation map/pool.  This allows the caller to then iterator over
-   the stake delegations for a given bank using just the deltas and the
-   root without creating a copy.  Each delta that is marked, must be
-   unmarked after the caller is done iterating over the stake
-   delegations.
+/* fd_stake_delegations_{mark,unmark}_fork_deltas temporarily tag delta
+   elements from the provided forks in the base/root stake delegation
+   map/pool.  This allows the caller to iterate over the delegations for
+   a bank using the root and its deltas without creating a copy.
 
    Under the hood, it reuses internal pointers for elements in the root
    map to point to the corresponding delta element.  If the element is
    removed by a delta another field will be reused to ignore it during
    iteration.  If an element is inserted by a delta, it will be
-   temporarily added to the root, but will be removed with a call to
-   unmark_delta.  These functions are also used to temporarily update
-   (and then unwind) the stake totals for the current root. */
+   temporarily added to the root, then removed by unmark_fork_deltas.
+   These functions also temporarily update and unwind the stake totals
+   for the current root.
+
+   mark_fork_deltas takes the stake delegations write lock and marks
+   each fork delta in the provided order.  The caller must pair it with
+   unmark_fork_deltas, which unmarks the same fork IDs in the provided
+   order and releases the lock. */
 
 void
-fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
-                                 ulong                      epoch,
-                                 fd_stake_history_t const * stake_history,
-                                 ulong *                    warmup_cooldown_rate_epoch,
-                                 int                        use_fixed_point_stake_math,
-                                 ushort                     fork_idx );
+fd_stake_delegations_mark_fork_deltas( fd_stake_delegations_t *   stake_delegations,
+                                       ulong                      epoch,
+                                       fd_stake_history_t const * stake_history,
+                                       ulong *                    warmup_cooldown_rate_epoch,
+                                       int                        use_fixed_point_stake_math,
+                                       ushort const *             fork_ids,
+                                       ulong                      fork_id_cnt );
 
 void
-fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
-                                   ulong                      epoch,
-                                   fd_stake_history_t const * stake_history,
-                                   ulong *                    warmup_cooldown_rate_epoch,
-                                   int                        use_fixed_point_stake_math,
-                                   ushort                     fork_idx );
+fd_stake_delegations_unmark_fork_deltas( fd_stake_delegations_t *   stake_delegations,
+                                         ulong                      epoch,
+                                         fd_stake_history_t const * stake_history,
+                                         ulong *                    warmup_cooldown_rate_epoch,
+                                         int                        use_fixed_point_stake_math,
+                                         ushort const *             fork_ids,
+                                         ulong                      fork_id_cnt );
 
 /* Iterator API for stake delegations.  The iterator is initialized with
    a call to fd_stake_delegations_iter_init.  The caller is responsible
