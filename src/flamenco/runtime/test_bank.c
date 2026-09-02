@@ -39,13 +39,13 @@ test_bank_stake_delegations_frontier_mark( fd_banks_t * banks,
   fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-  fd_stake_delegations_mark_fork_deltas( stake_delegations,
-                                         bank->f.epoch,
-                                         stake_history,
-                                         &bank->f.warmup_cooldown_rate_epoch,
-                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                         fork_ids,
-                                         fork_id_cnt );
+  fd_stake_delegations_frontier_begin( stake_delegations,
+                                       bank->f.epoch,
+                                       stake_history,
+                                       &bank->f.warmup_cooldown_rate_epoch,
+                                       FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                       fork_ids,
+                                       fork_id_cnt );
   return stake_delegations;
 }
 
@@ -57,13 +57,13 @@ test_bank_stake_delegations_frontier_unmark( fd_banks_t * banks,
   fd_stake_history_t   stake_history_[1];
   fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
 
-  fd_stake_delegations_unmark_fork_deltas( fd_bank_stake_delegations_modify( bank ),
-                                           bank->f.epoch-1UL,
-                                           stake_history,
-                                           &bank->f.warmup_cooldown_rate_epoch,
-                                           FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                           fork_ids,
-                                           fork_id_cnt );
+  fd_stake_delegations_frontier_end( fd_bank_stake_delegations_modify( bank ),
+                                     bank->f.epoch-1UL,
+                                     stake_history,
+                                     &bank->f.warmup_cooldown_rate_epoch,
+                                     FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                     fork_ids,
+                                     fork_id_cnt );
 }
 
 static void
@@ -729,8 +729,8 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   ulong const max_stake_small       = 32UL;
   ulong const max_stake_large       = 2048UL;
   ulong const max_fallback_stake    = 32768UL;
-  ulong const stake_footprint_small = fd_stake_delegations_footprint( max_stake_small, max_fallback_stake, max_stake_small, max_total_banks );
-  ulong const stake_footprint_large = fd_stake_delegations_footprint( max_stake_large, max_fallback_stake, max_stake_large, max_total_banks );
+  ulong const stake_footprint_small = fd_stake_delegations_footprint( max_stake_small, max_stake_small, max_total_banks );
+  ulong const stake_footprint_large = fd_stake_delegations_footprint( max_stake_large, max_stake_large, max_total_banks );
   ulong const vote_footprint        = fd_vote_stakes_footprint( max_total_banks, max_fork_width );
 
   fd_banks_t * banks_small = fd_banks_join( fd_banks_new( mem, max_total_banks, max_fork_width, max_stake_small, max_fallback_stake, max_vote_accounts, 0, 9991UL ) );
@@ -966,16 +966,29 @@ test_bank_epoch_credits_singleton( void * mem ) {
 static void
 test_bank_max_fork_width_limit( fd_wksp_t * wksp ) {
   ulong   width = FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH;
-  ulong   fp    = fd_banks_footprint( 16UL, width, 2048UL, 32768UL, 2048UL );
+  ulong   max_pubkeys = (width+2UL)*2048UL;
+  ulong   fp    = fd_banks_footprint( 16UL, width, 2048UL, max_pubkeys, 2048UL );
   uchar * mem   = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fp, 1UL );
   FD_TEST( mem );
 
-  FD_TEST( !fd_banks_new( mem, 16UL, width+1UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  FD_TEST( !fd_banks_new( mem, 16UL, width+1UL, 2048UL, max_pubkeys, 2048UL, 0, 8888UL ) );
 
-  void * banks_mem = fd_banks_new( mem, 16UL, width, 2048UL, 32768UL, 2048UL, 0, 8888UL );
+  void * banks_mem = fd_banks_new( mem, 16UL, width, 2048UL, max_pubkeys, 2048UL, 0, 8888UL );
   FD_TEST( banks_mem );
   fd_banks_t * banks = fd_banks_join( banks_mem );
   FD_TEST( banks );
+  fd_wksp_free_laddr( mem );
+
+  ulong const stake_max       = 8UL;
+  ulong const fork_width      = 4UL;
+  ulong const pubkey_capacity = (fork_width+2UL)*stake_max;
+  fp  = fd_banks_footprint( 16UL, fork_width, stake_max, pubkey_capacity, 8UL );
+  mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fp, 1UL );
+  FD_TEST( mem );
+
+  fd_banks_t * resized_banks = fd_banks_join( fd_banks_new( mem, 16UL, fork_width, stake_max, pubkey_capacity, 8UL, 0, 8888UL ) );
+  FD_TEST( resized_banks );
+  FD_TEST( resized_banks->max_fallback_stake_accounts==pubkey_capacity+1UL );
   fd_wksp_free_laddr( mem );
 }
 

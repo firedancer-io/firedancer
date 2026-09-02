@@ -738,10 +738,10 @@ test_nonempty_raw_data( void ) {
 
 static fd_banks_t *
 new_banks( void ** mem_out ) {
-  ulong footprint = fd_banks_footprint( 16UL, 4UL, 16UL, 64UL, 16UL );
+  ulong footprint = fd_banks_footprint( 16UL, 4UL, 16UL, 96UL, 16UL );
   void * mem = aligned_alloc( fd_banks_align(), fd_ulong_align_up( footprint, fd_banks_align() ) );
   FD_TEST( mem );
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 16UL, 64UL, 16UL, 0, 42UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 16UL, 96UL, 16UL, 0, 42UL ) );
   FD_TEST( banks );
   *mem_out = mem;
   return banks;

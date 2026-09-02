@@ -7,10 +7,15 @@ endif
 $(call add-hdrs,fd_vote_stakes.h)
 $(call add-objs,fd_vote_stakes,fd_flamenco)
 
+$(call add-hdrs,fd_stake_pubkeys.h)
+$(call add-objs,fd_stake_pubkeys,fd_flamenco)
+
 $(call add-hdrs,fd_stake_delegations.h)
 $(call add-objs,fd_stake_delegations,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
+$(call make-unit-test,test_stake_pubkeys,test_stake_pubkeys,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_stake_pubkeys)
 $(call make-unit-test,test_stake_delegations,test_stake_delegations,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_stake_delegations)
 ifdef FD_HAS_DOUBLE

@@ -376,9 +376,10 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
 
   /* Real banks — initialize root bank. */
 
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( TEST_BANKS_MAX, max_fork_width, 2048UL, 32768UL, 2048UL ), 1UL );
+  ulong max_fallback_stake_accounts = fd_ulong_max( 32768UL, (max_fork_width+2UL)*2048UL );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( TEST_BANKS_MAX, max_fork_width, 2048UL, max_fallback_stake_accounts, 2048UL ), 1UL );
   FD_TEST( banks_mem );
-  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, TEST_BANKS_MAX, max_fork_width, 2048UL, 32768UL, 2048UL, 0, 42UL ) );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, TEST_BANKS_MAX, max_fork_width, 2048UL, max_fallback_stake_accounts, 2048UL, 0, 42UL ) );
   FD_TEST( ctx->banks );
   fd_bank_t * root_bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( root_bank );

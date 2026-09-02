@@ -18,7 +18,7 @@
 
 FD_PROTOTYPES_BEGIN
 
-#define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2451) /* FIREDANCER BANKS V1 */
+#define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
 #define FD_BANKS_MAX_BANKS (4096UL)
 #define FD_BANKS_ALIGN     (128UL)
 
@@ -433,6 +433,7 @@ struct fd_banks {
   ulong epoch_leaders_offset;
   ulong epoch_leaders_footprint;
 
+  ulong stake_pubkeys_offset;
   ulong stake_delegations_offset;
   ulong vote_stakes_offset;
 };
@@ -555,7 +556,11 @@ fd_banks_align( void );
    These structs are read-only afterwards.  This
    means if we also bound the max number of forks that can execute
    through the epoch boundary, we can bound the memory footprint of
-   the banks. */
+   the banks.
+
+   The pubkey pool is sized to the greater of
+   max_fallback_stake_accounts and
+   (max_fork_width+2)*max_stake_accounts+1. */
 
 ulong
 fd_banks_footprint( ulong max_total_banks,

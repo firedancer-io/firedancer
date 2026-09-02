@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_rewards_fd_stake_rewards_h
 
 #include "../fd_flamenco_base.h"
+#include "../stakes/fd_stake_pubkeys.h"
 
 /* fd_stake_rewards is a fork aware structure that stores and keeps
    track of pending stake rewards for the purposes of partitioned epoch
@@ -68,12 +69,14 @@ ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
                             ulong max_fork_width );
 
-/* fd_stake_rewards_new creates a new stake rewards structure. */
+/* fd_stake_rewards_new creates a new stake rewards structure linked to
+   stake_pubkeys. */
 
 void *
-fd_stake_rewards_new( void * shmem,
-                      ulong  max_stake_accounts,
-                      ulong  max_fork_width );
+fd_stake_rewards_new( void *               shmem,
+                      ulong                max_stake_accounts,
+                      ulong                max_fork_width,
+                      fd_stake_pubkeys_t * stake_pubkeys );
 
 /* fd_stake_rewards_join joins the caller to the stake rewards
    structure. */
@@ -82,22 +85,16 @@ fd_stake_rewards_t *
 fd_stake_rewards_join( void * shmem );
 
 /* fd_stake_rewards_clear resets the stake rewards structure to a
-   post-new state. */
+   post-new state.  It acquires the linked stake pubkey write lock. */
 
 void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards );
 
-/* fd_stake_rewards_purge frees all per-fork state for a given fork,
-   regardless of how many references it has. */
-
-void
-fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
-                        uchar                fork_idx );
-
 /* Each stake rewards fork idx must be refcnt'd since they are shared
    across banks.  fd_stake_rewards_acquire increments the reference
    count and fd_stake_rewards_release decrements it.  Once the count
-   reaches zero, the fork is purged via a call to _release(). */
+   reaches zero, the fork is purged.  fd_stake_rewards_release acquires
+   the linked stake pubkey write lock. */
 
 void
 fd_stake_rewards_acquire( fd_stake_rewards_t * stake_rewards,
@@ -131,25 +128,36 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        uint                 partitions_cnt,
                        ulong                max_rewards_cnt );
 
-/* fd_stake_rewards_window_advance removes all of the entries associated
-   with the current window of a specific fork and shifts the starting
-   window to be win_lo.  The caller is expected to insert stake rewards
-   in the same way it does when computing rewards.  parent_blockhash
-   must match the one that was supplied to fd_stake_rewards_init for
-   the initial rewards computation.
-
-   A fork's window is only ever positioned before its entries are
-   computed: a bank that needs a window other than the one it holds
-   acquires a fork of its own, because the fork it holds is shared with
-   the banks that branched off it.  When the window is advance, it must
-   belong to a new fork_idx. */
+/* Lock-held operations for callers inside a stake delegation frontier
+   session.  The linked stake pubkey write lock must already be held. */
 
 void
-fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
-                                 uchar                fork_idx,
-                                 fd_hash_t const *    parent_blockhash,
-                                 uint                 win_lo,
-                                 ulong                max_rewards_cnt );
+fd_stake_rewards_release_locked( fd_stake_rewards_t * stake_rewards,
+                                 uchar                fork_idx );
+
+/* Removes the current window and repositions it at win_lo.
+   parent_blockhash must match the hash supplied at initialization.
+
+   A fork's window is only repositioned before its entries are computed.
+   fork_idx must therefore identify a freshly acquired fork that is not
+   shared with any branched-off bank. */
+
+void
+fd_stake_rewards_window_advance_locked( fd_stake_rewards_t * stake_rewards,
+                                        uchar                fork_idx,
+                                        fd_hash_t const *    parent_blockhash,
+                                        uint                 win_lo,
+                                        ulong                max_rewards_cnt );
+
+/* Hashes and stores a reward when its partition lies in the current
+   window.  pubkey_idx must reference a live stake pubkey entry. */
+
+void
+fd_stake_rewards_insert_locked( fd_stake_rewards_t * stake_rewards,
+                                uchar                fork_idx,
+                                uint                 pubkey_idx,
+                                ulong                lamports,
+                                ulong                credits_observed );
 
 /* fd_stake_rewards_window_{lo,hi} return the inclusive range of
    partition indices that a stake rewards fork currently holds.  If the
@@ -163,18 +171,6 @@ fd_stake_rewards_window_lo( fd_stake_rewards_t const * stake_rewards,
 uint
 fd_stake_rewards_window_hi( fd_stake_rewards_t const * stake_rewards,
                             uchar                      fork_idx );
-
-/* fd_stake_rewards_insert inserts a new stake reward for a given fork.
-   It hashes the reward into the appropriate partition.  The reward is
-   only stored if its partition falls inside the fork's window, but it
-   always counts towards fd_stake_rewards_total_rewards. */
-
-void
-fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
-                         uchar                fork_idx,
-                         fd_pubkey_t const *  pubkey,
-                         ulong                lamports,
-                         ulong                credits_observed );
 
 /* Iterator for iterating over the stake rewards for a given fork and
    partition.  partition_idx must lie inside the fork's window.  The
