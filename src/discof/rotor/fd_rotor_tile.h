@@ -93,11 +93,14 @@ struct fd_rotor_replay_fec {
       through turbine, until the last FEC is received, which should
       complete knowledge of the block_id.
 
-      If rotor is asked to redeliver a full chain of FECs from root down
-      to a slot, every re-delivered FEC should also have known_id set to 1,
-      because logically we know the block_id. */
+      In other words, known_id is a keying instruction, not a statement about whether the block id is known:
+      - known_id set: Replay keys the block by {slot, block_id} starting at FEC 0 and looks up its parent element by that key for every later FEC.
+      - known_id clear: the block is a turbine version. Replay keys it by {slot, 0} until it processes the slot-complete FEC, then re-keys it to {slot, dmr}.
+                        This holds for every FEC of the block, including redelivered copies, so all FECs of one block always resolve to the same element.
+
+      Redelivery from root never changes known_id. It only affects block_id */
    int       known_id;
-   fd_hash_t block_id; /* only populated if slot_complete is 1, or if verified is 1 */
+   fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
 };
 typedef struct fd_rotor_replay_fec fd_rotor_replay_fec_t;
 
