@@ -5,6 +5,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../discof/repair/fd_repair_tile.h"
+#include "../../discof/rotor/fd_rotor_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../discof/votor/fd_votor_rooted.h"
@@ -251,6 +252,38 @@ after_credit( fd_backt_tile_t *   ctx,
   ctx->prev_fec_set_idx = shred->fec_set_idx;
 
   if( FD_LIKELY( !completes_fec_set ) ) return;
+
+  /* If Alpenglow is enabled, simulate the rotor tile instead of the
+     repair tile. */
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    ulong parent_slot = shred->slot - shred->data.parent_off;
+
+    fd_rotor_replay_fec_t * rotor_fec = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
+    memset( rotor_fec, 0, sizeof(fd_rotor_replay_fec_t) );
+    rotor_fec->slot          = shred->slot;
+    rotor_fec->fec_set_idx   = (uint)ctx->out_fec_set_idx;
+    rotor_fec->mr            = mr;
+    rotor_fec->parent_slot   = parent_slot;
+    rotor_fec->data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
+    rotor_fec->slot_complete = completes_slot;
+    if( FD_UNLIKELY( ctx->out_fec_set_idx==0UL ) ) {
+      if( FD_UNLIKELY( parent_slot==ctx->start_slot ) ) {
+        rotor_fec->parent_block_id = ctx->rooted_slots_block_id[ parent_slot % BANK_HASH_BUFFER_LEN ];
+      } else {
+        rotor_fec->parent_block_id.ul[ 0 ] = parent_slot;
+        rotor_fec->parent_block_id.ul[ 1 ] = ctx->fec_set_idxs[ parent_slot % OUT_FECS_BUFFER_LEN ];
+      }
+    }
+    if( FD_UNLIKELY( completes_slot ) ) rotor_fec->block_id = mr;
+
+    ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
+
+    fd_stem_publish( stem, ctx->repair_out->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_rotor_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_rotor_replay_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+
+    if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
+    return;
+  }
 
   fd_hash_t cmr = {0};
   if( FD_UNLIKELY( !ctx->first_fec_complete ) ) {
