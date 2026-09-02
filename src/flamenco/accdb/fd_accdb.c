@@ -1740,12 +1740,19 @@ change_partition( fd_accdb_t *           accdb,
 /* Reserve sz bytes in the layer-0 write head and set
    out_partition_idx to where they landed.  Bumps no counters. */
 
-static inline ulong
-reserve_next_write( fd_accdb_t * accdb,
-                    ulong        sz,
-                    ulong *      out_partition_idx ) {
+/* Cold half of reserve_next_write: the reservation did not fit in the
+   current partition.  Entered with an offset that has ALREADY been
+   taken from the write head, so the first fetch-and-add is not
+   repeated.  noinline keeps the spin lock, the wait loop and
+   change_partition out of all nine call sites, so the fast path below
+   stays a handful of instructions with no frame. */
+
+__attribute__((noinline)) static ulong
+reserve_next_write_slow( fd_accdb_t *   accdb,
+                         ulong          sz,
+                         ulong *        out_partition_idx,
+                         accdb_offset_t offset ) {
   for(;;) {
-    accdb_offset_t offset = { .val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ 0 ].val, sz ) };
     if( FD_LIKELY( packed_partition_offset( &offset )+sz<=accdb->shmem->partition_sz ) ) {
       *out_partition_idx = packed_partition_idx( &offset );
       return packed_partition_file_offset( &offset, accdb->shmem->partition_sz );
@@ -1770,19 +1777,38 @@ reserve_next_write( fd_accdb_t * accdb,
         if( packed_partition_offset( &cur )<=accdb->shmem->partition_sz ) break;
         FD_SPIN_PAUSE();
       }
-      continue;
+    } else {
+      spin_lock_acquire( &accdb->shmem->partition_lock );
+      change_partition( accdb, &offset, &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
+      spin_lock_release( &accdb->shmem->partition_lock );
     }
 
-    spin_lock_acquire( &accdb->shmem->partition_lock );
-    change_partition( accdb, &offset, &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
-    spin_lock_release( &accdb->shmem->partition_lock );
+    /* Same as the original loop's `continue`: take a fresh reservation
+       and re-test it. */
+    offset.val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ 0 ].val, sz );
   }
+}
+
+/* Hot half.  One fetch-and-add and one in-bounds test: during a
+   snapshot load this is taken on every account and the slow path is
+   reached a handful of times per partition. */
+
+__attribute__((always_inline)) static inline ulong
+reserve_next_write( fd_accdb_t * accdb,
+                    ulong        sz,
+                    ulong *      out_partition_idx ) {
+  accdb_offset_t offset = { .val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ 0 ].val, sz ) };
+  if( FD_LIKELY( packed_partition_offset( &offset )+sz<=accdb->shmem->partition_sz ) ) {
+    *out_partition_idx = packed_partition_idx( &offset );
+    return packed_partition_file_offset( &offset, accdb->shmem->partition_sz );
+  }
+  return reserve_next_write_slow( accdb, sz, out_partition_idx, offset );
 }
 
 /* Reserve sz bytes.  Layer-0 write metrics are deferred until
    explicitly flushed. */
 
-static inline ulong
+__attribute__((always_inline)) static inline ulong
 allocate_next_write( fd_accdb_t * accdb,
                      ulong        sz ) {
   ulong partition_idx;
