@@ -62,11 +62,13 @@ struct __attribute__((aligned(64))) fd_progcache_rec {
   uint calldests_off;  /* offset to sbpf_calldests map */
   uint rodata_off;     /* offset to rodata segment */
 
-  uint free_next; /* next record in the class's free list */
-
   ushort      sbpf_version : 8; /* SBPF version, SIMD-0161 */
   ushort      exists       : 1; /* if ==0, record is dead, no longer in map, and awaiting cleanup */
   ushort      size_class   : 3; /* the class the record's slot belongs to, set at acquire */
+
+  /* Last on purpose: a stale free-list popper may read it concurrently, so
+     rec_init_inflight's second span ends here rather than rewriting it. */
+  uint free_next; /* next record in the class's free list */
 };
 
 FD_STATIC_ASSERT( sizeof(fd_progcache_rec_t)==128, layout );
@@ -74,6 +76,11 @@ FD_STATIC_ASSERT( sizeof(fd_progcache_rec_t)==128, layout );
 /* rec_init_inflight resets the record in two spans, skipping the gap between
    map_next and txn_idx: lock and state must be the only fields in it. */
 FD_STATIC_ASSERT( offsetof(fd_progcache_rec_t,txn_idx)-offsetof(fd_progcache_rec_t,lock)==4UL, layout );
+
+/* ... and free_next, which a stale free-list popper may read concurrently, is
+   the last field (only tail padding behind it) so the second span stops short
+   of it. */
+FD_STATIC_ASSERT( offsetof(fd_progcache_rec_t,free_next)+sizeof(uint)+8UL>sizeof(fd_progcache_rec_t), layout );
 
 FD_PROTOTYPES_BEGIN
 

@@ -18,11 +18,13 @@ rec_init_inflight( fd_progcache_join_t * join,
   fd_progcache_shmem_t * pc  = join->shmem;
   fd_progcache_rec_t *   rec = join->rec.ele + idx;
 
-  /* Two spans so the lock is skipped: the record is write-locked, and a stale
-     speculative reader must never see that clear.  state is skipped with it and
-     cleared below. */
+  /* Spans skip the lock (the record is write-locked, and a stale speculative
+     reader must never see that clear; state is skipped with it and cleared
+     below) and free_next (a stale popper may still be reading it -- its pop
+     fails on the versioned head, but the read must not race a plain write).
+     free_next is only meaningful on the free list and free_push rewrites it. */
   memset( rec, 0, offsetof(fd_progcache_rec_t, lock) );
-  memset( &rec->txn_idx, 0, sizeof(fd_progcache_rec_t)-offsetof(fd_progcache_rec_t, txn_idx) );
+  memset( &rec->txn_idx, 0, offsetof(fd_progcache_rec_t, free_next)-offsetof(fd_progcache_rec_t, txn_idx) );
   rec->exists       = 1;
   rec->size_class   = c & 0x7UL; /* c<FD_PROGCACHE_CACHE_CLASS_CNT, checked by callers */
   rec->txn_idx      = UINT_MAX;
@@ -50,10 +52,10 @@ free_push( fd_progcache_join_t * join,
   fd_progcache_shmem_t * pc  = join->shmem;
   fd_progcache_rec_t *   rec = join->rec.ele + idx;
   for(;;) {
-    ulong old_vt  = FD_VOLATILE_CONST( pc->cache.free_top[ c ].ver_top );
+    ulong old_vt  = __atomic_load_n( &pc->cache.free_top[ c ].ver_top, __ATOMIC_RELAXED );
     uint  old_top = (uint)( old_vt & (ulong)UINT_MAX );
     uint  old_ver = (uint)( old_vt >> 32 );
-    rec->free_next = old_top;
+    __atomic_store_n( &rec->free_next, old_top, __ATOMIC_RELAXED );
     FD_COMPILER_MFENCE();
     ulong new_vt = ( (ulong)(uint)( old_ver+1U ) << 32 ) | (ulong)(uint)idx;
     if( FD_LIKELY( __atomic_compare_exchange_n( &pc->cache.free_top[ c ].ver_top, &old_vt, new_vt,
@@ -71,11 +73,11 @@ free_pop( fd_progcache_join_t * join,
           ulong                 c ) {
   fd_progcache_shmem_t * pc = join->shmem;
   for(;;) {
-    ulong old_vt  = FD_VOLATILE_CONST( pc->cache.free_top[ c ].ver_top );
+    ulong old_vt  = __atomic_load_n( &pc->cache.free_top[ c ].ver_top, __ATOMIC_RELAXED );
     uint  old_top = (uint)( old_vt & (ulong)UINT_MAX );
     if( FD_UNLIKELY( old_top==UINT_MAX ) ) return UINT_MAX; /* class full */
     uint  old_ver = (uint)( old_vt >> 32 );
-    uint  next    = FD_VOLATILE_CONST( join->rec.ele[ old_top ].free_next );
+    uint  next    = __atomic_load_n( &join->rec.ele[ old_top ].free_next, __ATOMIC_RELAXED );
     ulong new_vt  = ( (ulong)(uint)( old_ver+1U ) << 32 ) | (ulong)next;
     if( FD_LIKELY( __atomic_compare_exchange_n( &pc->cache.free_top[ c ].ver_top, &old_vt, new_vt,
                                                 0, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED ) ) ) {

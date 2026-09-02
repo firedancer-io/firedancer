@@ -53,7 +53,7 @@ test_env_create_ex( fd_wksp_t * wksp,
 
 static test_env_t *
 test_env_create( fd_wksp_t * wksp ) {
-  return test_env_create_ex( wksp, 16UL, 256UL<<20 );
+  return test_env_create_ex( wksp, 16UL, fd_progcache_shmem_min_sz( 16UL ) );
 }
 
 /* test_env_destroy frees all test env objects. */
@@ -488,6 +488,8 @@ FD_UNIT_TEST( publish_trivial ) {
   fd_progcache_advance_root( env->progcache->join, fork_368528500 );
 
   /* FIXME more operations here ... */
+
+  test_env_destroy( env );
 }
 
 /* test_root_nonroot_prio: non-rooted record should take priority over
@@ -843,16 +845,16 @@ FD_UNIT_TEST( preevict_zombie ) {
 }
 
 FD_UNIT_TEST( join_null_scratch ) {
-  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 256UL<<20 ), 1UL );
-  FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 256UL<<20 ) );
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 512UL<<20 ), 1UL );
+  FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 512UL<<20 ) );
   fd_progcache_t cache[1];
   FD_TEST( !fd_progcache_join( cache, mem, NULL, 4096UL ) );
   fd_wksp_free_laddr( fd_progcache_shmem_delete( mem ) );
 }
 
 FD_UNIT_TEST( join_misaligned_scratch ) {
-  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 256UL<<20 ), 1UL );
-  FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 256UL<<20 ) );
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 512UL<<20 ), 1UL );
+  FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 512UL<<20 ) );
   uchar scratch_buf[ FD_PROGCACHE_SCRATCH_ALIGN ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
   fd_progcache_t cache[1];
   FD_TEST( !fd_progcache_join( cache, mem, scratch_buf+1, sizeof(scratch_buf)-1 ) );
@@ -860,14 +862,14 @@ FD_UNIT_TEST( join_misaligned_scratch ) {
 }
 
 FD_UNIT_TEST( shmem_new_zero_txn_max ) {
-  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 256UL<<20 ), 1UL );
-  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 0UL, 256UL<<20 ) );
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 512UL<<20 ), 1UL );
+  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 0UL, 512UL<<20 ) );
   fd_wksp_free_laddr( mem );
 }
 
 FD_UNIT_TEST( shmem_new_oversized_txn_max ) {
-  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 256UL<<20 ), 1UL );
-  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, (ulong)UINT_MAX+1UL, 256UL<<20 ) );
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 512UL<<20 ), 1UL );
+  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, (ulong)UINT_MAX+1UL, 512UL<<20 ) );
   fd_wksp_free_laddr( mem );
 }
 
@@ -902,7 +904,7 @@ check_provision( ulong txn_max,
   ulong used = 0UL;
   ulong tot  = 0UL;
   for( ulong c=0UL; c<FD_PROGCACHE_CACHE_CLASS_CNT; c++ ) {
-    if( c<FD_PROGCACHE_CACHE_DATA_CLASS_CNT ) FD_TEST( sc[c]>=fd_progcache_cache_class_min( c ) );
+    if( c<FD_PROGCACHE_CACHE_CLASS_CNT ) FD_TEST( sc[c]>=fd_progcache_cache_class_min( c ) );
     used += sc[c]*fd_progcache_cache_slot_sz[c];
     tot  += sc[c];
   }
@@ -917,7 +919,7 @@ FD_UNIT_TEST( cache_provision ) {
   ulong txn_max = 64UL;
   check_provision( txn_max, 1792UL<<20 ); /* production default */
   check_provision( txn_max,  768UL<<20 );
-  check_provision( txn_max,  256UL<<20 );
+  check_provision( txn_max,  512UL<<20 );
 
   /* The structural minimum provisions with every class at its guaranteed
      minimum; one byte less is rejected. */
@@ -938,7 +940,7 @@ FD_UNIT_TEST( cache_provision ) {
 
 FD_UNIT_TEST( shmem_dirty_memory ) {
   ulong txn_max = 16UL;
-  ulong heap    = 256UL<<20;
+  ulong heap    = 512UL<<20;
   ulong fp      = fd_progcache_shmem_footprint( txn_max, heap );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fp, 1UL );
   FD_TEST( mem );
@@ -971,10 +973,10 @@ FD_UNIT_TEST( shmem_dirty_memory ) {
 FD_UNIT_TEST( provision_boundary ) {
   ulong txn_max = 16UL;
   ulong sz;
-  for( sz=64UL<<20; sz<=256UL<<20; sz += 1UL<<20 ) {
+  for( sz=64UL<<20; sz<=512UL<<20; sz += 1UL<<20 ) {
     if( fd_progcache_shmem_footprint( txn_max, sz ) ) break;
   }
-  FD_TEST( sz<=256UL<<20 );                                          /* boundary found */
+  FD_TEST( sz<=512UL<<20 );                                          /* boundary found */
   FD_TEST( !fd_progcache_shmem_footprint( txn_max, sz-(1UL<<20) ) ); /* below: rejected */
 
   ulong fp = fd_progcache_shmem_footprint( txn_max, sz );
@@ -987,7 +989,7 @@ FD_UNIT_TEST( provision_boundary ) {
 
 FD_UNIT_TEST( shmem_new_small_heap ) {
   /* a budget too small for every class is rejected */
-  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 256UL<<20 ), 1UL );
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 512UL<<20 ), 1UL );
   FD_TEST( !fd_progcache_shmem_footprint( 16UL, 16UL<<20 ) );
   FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 16UL<<20 ) );
   fd_wksp_free_laddr( mem );
@@ -1050,8 +1052,8 @@ FD_UNIT_TEST( shmem_delete_fast ) {
   ulong txn_max  = 16UL;
   ulong wksp_tag =  2UL;
 
-  fd_progcache_shmem_t * progcache_mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, 256UL<<20 ), wksp_tag );
-  FD_TEST( fd_progcache_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, 256UL<<20 ) );
+  fd_progcache_shmem_t * progcache_mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, 512UL<<20 ), wksp_tag );
+  FD_TEST( fd_progcache_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, 512UL<<20 ) );
 
   uchar scratch[ 65536 ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
   fd_progcache_t cache[1];
@@ -1909,7 +1911,7 @@ FD_UNIT_TEST( nx_class ) {
    (non-executable result), and nothing may be left mapped. */
 
 FD_UNIT_TEST( nx_spill ) {
-  test_env_t *           env   = test_env_create_ex( wksp, 16UL, 256UL<<20 );
+  test_env_t *           env   = test_env_create_ex( wksp, 16UL, 512UL<<20 );
   fd_progcache_t *       pc    = env->progcache;
   fd_progcache_shmem_t * shmem = pc->join->shmem;
   fd_progcache_fork_id_t xid   = fd_progcache_attach_child( pc->join, fd_progcache_fork_id_initial() );
@@ -2226,7 +2228,10 @@ conc_worker( void * arg ) {
 FD_UNIT_TEST( cancel_concurrent_readers ) {
   ulong wksp_tag  = 1UL;
   ulong txn_max   = 64UL;
-  ulong progcache_sz = fd_progcache_shmem_min_sz( 64UL );
+  /* Headroom past the floor: the workers' records are attached (their fork is
+     never rooted), so at the bare minimum every worker miss would serialize
+     through the spill lock instead of contending the classes. */
+  ulong progcache_sz = fd_progcache_shmem_min_sz( 64UL ) + (17UL<<20);
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_sz ), wksp_tag );
   FD_TEST( mem );
@@ -2267,6 +2272,17 @@ FD_UNIT_TEST( cancel_concurrent_readers ) {
     FD_TEST( 0==pthread_create( &th[i], NULL, conc_worker, &ctx[i] ) );
   }
 
+  /* Wait for every reader to complete at least one iteration, so the churn
+     genuinely runs against active readers and the progress assertion cannot
+     depend on scheduling. */
+  long deadline = fd_log_wallclock() + (long)60e9;
+  for( ulong i=0UL; i<CONC_NTHREAD; i++ ) {
+    while( !atomic_load_explicit( &ctx[i].progress, memory_order_relaxed ) ) {
+      FD_SPIN_PAUSE();
+      FD_TEST( fd_log_wallclock()<deadline );
+    }
+  }
+
   /* Churn sibling forks: fill each with records, then cancel it. */
   test_account_t * cacc = fd_wksp_alloc_laddr( wksp, alignof(test_account_t), sizeof(test_account_t), wksp_tag );
   FD_TEST( cacc );
@@ -2290,7 +2306,7 @@ FD_UNIT_TEST( cancel_concurrent_readers ) {
     FD_TEST( 0==pthread_join( th[i], NULL ) );
     iters += atomic_load_explicit( &ctx[i].progress, memory_order_relaxed );
   }
-  FD_TEST( iters>0UL );                            /* readers made progress throughout */
+  FD_TEST( iters>=CONC_NTHREAD );                  /* every reader made progress */
 
   fd_prog_reclaim_work( admin->join );
   FD_TEST( !fd_progcache_verify( admin->join ) );  /* structural integrity after the churn */

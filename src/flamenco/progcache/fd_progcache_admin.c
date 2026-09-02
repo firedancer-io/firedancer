@@ -225,11 +225,18 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   /* Phase 3: Detach records */
 
   ulong rec_max = cache->rec.max;
-  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; idx = cache->rec.ele[ idx ].next_idx ) {
+  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; ) {
     if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (publish_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
+    /* The detach store makes the record claimable by eviction, which
+       reinitializes the link, so the link is read first. */
+    uint next_idx = cache->rec.ele[ idx ].next_idx;
+    if( FD_UNLIKELY( next_idx!=UINT_MAX && (ulong)next_idx >= rec_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (publish_one next_idx=%u rec_max=%lu)", next_idx, rec_max ));
     atomic_store_explicit( &cache->rec.ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
+    fd_racesan_hook( "prog_publish_one:post_detach" );
     fd_progcache_admin_metrics_g.root_cnt++;
+    idx = next_idx;
   }
 
   txn->rec_head_idx = UINT_MAX;

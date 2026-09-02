@@ -127,8 +127,7 @@ fd_prog_preevict( fd_progcache_join_t * join,
    size class (round robin) toward 2 free slots via fd_prog_preevict, at most
    one slot per tick.  A zombie drawn by the sweep is handed over as-is (no
    second chance), so dead slots return to service without a separate
-   collection pass.  Safe from any thread concurrently with everything.
-   Unused: candidate replay housekeeping hook. */
+   collection pass.  Safe from any thread concurrently with everything. */
 
 void
 fd_progcache_housekeeping( fd_progcache_join_t * join );

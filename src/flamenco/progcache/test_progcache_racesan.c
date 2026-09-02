@@ -229,8 +229,8 @@ test_progcache_shmem_new( void ) {
   ulong txn_max  = 16UL;
   ulong wksp_tag =  1UL;
 
-  fd_progcache_shmem_t * shmem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, 256UL<<20 ), wksp_tag );
-  FD_TEST( fd_progcache_shmem_new( shmem, wksp_tag, 1UL, txn_max, 256UL<<20 ) );
+  fd_progcache_shmem_t * shmem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, 512UL<<20 ), wksp_tag );
+  FD_TEST( fd_progcache_shmem_new( shmem, wksp_tag, 1UL, txn_max, 512UL<<20 ) );
   return shmem;
 }
 
@@ -1339,6 +1339,75 @@ FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
 
   fd_progcache_cancel_fork( admin, xid1 );
   FD_TEST( !fd_progcache_verify( admin ) );
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
+/* test_publish_evict_reuse_walk: eviction claims a just-detached record while
+   advance_root is still walking the fork's record list.  The claim
+   reinitializes the record's link, so the walk must have read it first. */
+
+FD_UNIT_TEST( publish_evict_reuse_walk ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  fd_pubkey_t key2 = test_key( 2UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc1, acc2;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc2, &key2, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  fd_progcache_rec_t * rec1;
+  fd_progcache_rec_t * rec2;
+  {
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    rec1 = fd_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
+    FD_TEST( rec1 );
+    fd_progcache_rec_close( tmp, rec1 );
+    rec2 = fd_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
+    FD_TEST( rec2 );
+    fd_progcache_rec_close( tmp, rec2 );
+    fd_progcache_leave( tmp, NULL );
+  }
+  ulong rec1_idx = (ulong)( rec1 - admin->rec.ele );
+  FD_TEST( rec1->next_idx==(uint)( rec2 - admin->rec.ele ) );
+
+  /* Pause the publish right after it detached rec1, mid-walk. */
+  fd_racesan_async_t * p = fiber_advance_root( &g_fiber[ 0 ], shmem, xid1 );
+  FD_TEST( fd_racesan_async_step_until( p, "prog_publish_one:post_detach", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Evict the detached record: the claim reinitializes its link. */
+  __atomic_fetch_and( &admin->rec.ele[ rec1_idx ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
+  ulong cls = fd_progcache_rec_class( shmem, rec1_idx );
+  shmem->cache.clock_hand[ cls ].val = rec1_idx - shmem->cache.rec_base[ cls ];
+  fd_racesan_async_t * e = fiber_evict( &g_fiber[ 1 ], shmem, valid_program_data_sz );
+  int done = 0;
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    int ret = fd_racesan_async_step( e );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) { done = 1; break; }
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  FD_TEST( done );
+  fiber_delete( &g_fiber[ 1 ] );
+  FD_TEST( rec1->next_idx==0U ); /* the reuse really did clobber the link */
+
+  /* The walk must still reach and detach rec2. */
+  done = 0;
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    int ret = fd_racesan_async_step( p );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) { done = 1; break; }
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  FD_TEST( done );
+  fiber_delete( &g_fiber[ 0 ] );
+  FD_TEST( atomic_load_explicit( &rec2->txn_idx, memory_order_relaxed )==UINT_MAX );
+  FD_TEST( !fd_progcache_verify( admin ) );
+
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
 }
