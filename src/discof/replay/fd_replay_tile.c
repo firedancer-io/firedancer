@@ -2146,7 +2146,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->reset_cmr             = manifest_block_id;
     ctx->reset_dmr             = manifest_block_id;
     ctx->reset_timestamp_nanos = fd_clock_tile_now( ctx->clock );
-    ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
 
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, snapshot_slot );
     FD_TEST( bank->idx==0UL );
@@ -2171,6 +2170,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        slot_bank needed in blockstore_init. */
     init_after_snapshot( ctx, stem );
 
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, snapshot_slot+1UL, ctx->identity_pubkey );
     if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
       double slot_duration_ticks = (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
       ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
