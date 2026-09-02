@@ -606,7 +606,7 @@ main( int     argc,
   FD_TEST( !treap_verify( treap, pool ) );
 
      /* test handholding */
-   #if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+   #if FD_HAS_HOSTED && FD_DCHECK_STYLE==1
    #define FD_EXPECT_LOG_CRIT( CALL ) do {                            \
        FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
        pid_t pid = fork();                                            \
@@ -639,7 +639,7 @@ main( int     argc,
      }
      FD_EXPECT_LOG_CRIT( treap_idx_insert( treap, 2, pool ) );
    #else
-     FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+     FD_LOG_WARNING(( "skip: testing handholding, requires hosted and FD_DCHECK_STYLE==1" ));
    #endif
 
   /* Test leave */

@@ -281,9 +281,7 @@
 #define MAP_QUERY_OPT 0
 #endif
 
-#if FD_TMPL_USE_HANDHOLDING
 #include "../log/fd_log.h"
-#endif
 
 /* Implementation *****************************************************/
 
@@ -339,10 +337,8 @@ static inline void *
 MAP_(new)( void *  shmem,
            int     lg_slot_cnt,
            ulong   seed ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, MAP_(align)() ) ) ) FD_LOG_CRIT(( "unaligned shmem" ));
-  if( FD_UNLIKELY( (lg_slot_cnt<0) | (lg_slot_cnt>63)                  ) ) FD_LOG_CRIT(( "invalid lg_slot_cnt" ));
-# endif
+  FD_DCHECK_CRIT( fd_ulong_is_aligned( (ulong)shmem, MAP_(align)() ), "unaligned shmem"     );
+  FD_DCHECK_CRIT( (lg_slot_cnt>=0) & (lg_slot_cnt<=63),               "invalid lg_slot_cnt" );
   ulong slot_cnt  = 1UL<<lg_slot_cnt;
   ulong slot_mask = slot_cnt - 1UL;
   MAP_(private_t) * map = (MAP_(private_t) *)shmem;
@@ -378,9 +374,7 @@ FD_FN_PURE static inline ulong MAP_(seed)       ( MAP_T const * slot ) { return 
 
 FD_FN_CONST static inline ulong
 MAP_(slot_idx)( MAP_T const * map, MAP_T const * entry ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( ((ulong)(entry-map)>=MAP_(slot_cnt)( map )) | (map>entry) ) ) FD_LOG_CRIT(( "index out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( ((ulong)(entry-map)<MAP_(slot_cnt)( map )) & (map<=entry), "index out of bounds" );
   return (ulong)(entry-map);
 }
 
@@ -402,9 +396,7 @@ MAP_(key_hash)( MAP_KEY_T key,
 FD_FN_UNUSED static MAP_T * /* Work around -Winline */
 MAP_(insert)( MAP_T *   map,
               MAP_KEY_T key ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( MAP_(key_inval)( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
-# endif
+  FD_DCHECK_CRIT( !MAP_(key_inval)( key ), "invalid key" );
   MAP_(private_t) * hdr = MAP_(private_from_slot)( map );
 
   ulong key_cnt   = hdr->key_cnt;
@@ -438,23 +430,21 @@ MAP_(remove)( MAP_T * map,
               MAP_T * entry ) {
   MAP_(private_t) * hdr = MAP_(private_from_slot)( map );
 
-# if FD_TMPL_USE_HANDHOLDING
   /* Note: this walks the probe chain a second time (the remove logic
      below walks it again).  Acceptable for a debug-only check. */
-  if( FD_UNLIKELY( !hdr->key_cnt                     ) ) FD_LOG_CRIT(( "map is empty" ));
-  if( FD_UNLIKELY( MAP_(key_inval)( entry->MAP_KEY ) ) ) FD_LOG_CRIT(( "entry is not valid" ));
+  FD_DCHECK_CRIT( !!hdr->key_cnt,                         "map is empty"       );
+  FD_DCHECK_CRIT( !MAP_(key_inval)( entry->MAP_KEY ),     "entry is not valid" );
   {
     ulong      _slot_mask = hdr->slot_mask;
     MAP_KEY_T  _key       = entry->MAP_KEY;
     MAP_HASH_T _hash      = MAP_(key_hash)( _key, hdr->seed );
     ulong      _slot      = MAP_(private_start)( _hash, _slot_mask );
     for(;;) {
-      if( FD_UNLIKELY( MAP_(key_inval)( map[_slot].MAP_KEY ) ) ) FD_LOG_CRIT(( "entry is not in the map" ));
+      FD_DCHECK_CRIT( !MAP_(key_inval)( map[_slot].MAP_KEY ), "entry is not in the map" );
       if( FD_LIKELY( &map[_slot]==entry ) ) break;
       _slot = MAP_(private_next)( _slot, _slot_mask );
     }
   }
-# endif
   hdr->key_cnt--;
 
   ulong slot_mask = hdr->slot_mask;
@@ -515,9 +505,7 @@ FD_FN_PURE FD_FN_UNUSED static MAP_T * /* Work around -Winline */
 MAP_(query)( MAP_T *   map,
              MAP_KEY_T key,
              MAP_T *   null ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( MAP_KEY_INVAL( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
-# endif
+  FD_DCHECK_CRIT( !MAP_KEY_INVAL( key ), "invalid key" );
   MAP_(private_t) * hdr = MAP_(private_from_slot)( map );
   ulong      slot_mask = hdr->slot_mask;
   MAP_HASH_T hash      = MAP_(key_hash)( key, hdr->seed );
