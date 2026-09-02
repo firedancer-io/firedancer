@@ -38,3 +38,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_696-
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6960-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-closeslot -m 10000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-poison -m 10000 -e 562
+
+# Alpenglow
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs --alpenglow -m 2000000 -e 126
