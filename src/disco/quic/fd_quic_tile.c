@@ -4,6 +4,7 @@
 #include "../topo/fd_topo.h"
 #include "fd_tpu.h"
 #include "../../waltz/quic/fd_quic_private.h"
+#include <linux/futex.h>
 #include "generated/quic_seccomp.h"
 #include "../../util/io/fd_io.h"
 #include "../../util/net/fd_eth.h"

@@ -108,3 +108,22 @@ recvfrom: (and (not (or (eq (arg 0) logfile_fd)
 # in arg 0
 renameat2: (and (eq (arg 0) out_dir_fd)
                 (eq (arg 2) out_dir_fd))
+
+# power saving: sleep when there is no work to do
+#
+# In the efficient scheduler mode, an idle tile parks on its sleep word
+# with futex_wait until a producer has work for it or its next deadline
+# passes.
+#
+# arg 1 is the futex op, always FUTEX_WAIT_BITSET so the timeout is an
+# absolute deadline.  arg 2 is the expected value of the word, always 0
+# (parked).
+futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
+            (eq (arg 2) 0))
+
+# power saving: resume an interrupted sleep
+#
+# A signal delivered to a parked tile interrupts its futex_wait, and the
+# kernel resumes the wait with the remaining timeout via restart_syscall
+# when the tile next runs.
+restart_syscall

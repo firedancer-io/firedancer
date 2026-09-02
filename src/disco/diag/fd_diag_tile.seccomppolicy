@@ -50,3 +50,21 @@ fstatfs: (not (eq (arg 0) 2))
 clock_nanosleep: (and (eq (arg 0) CLOCK_REALTIME)
                       (eq (arg 1) 0)
                       (eq (arg 3) 0))
+
+# power saving: sleep until the next report is due
+#
+# The diag tile only has periodic work, so it parks on its sleep word
+# with futex_wait until its next deadline in both scheduler modes.
+#
+# arg 1 is the futex op, always FUTEX_WAIT_BITSET so the timeout is an
+# absolute deadline.  arg 2 is the expected value of the word, always 0
+# (parked).
+futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
+            (eq (arg 2) 0))
+
+# power saving: resume an interrupted sleep
+#
+# A signal delivered to a parked tile interrupts its futex_wait, and the
+# kernel resumes the wait with the remaining timeout via restart_syscall
+# when the tile next runs.
+restart_syscall

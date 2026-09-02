@@ -22,6 +22,7 @@
 #include "../../disco/topo/fd_topo.h"
 
 #include <time.h> /* CLOCK_REALTIME */
+#include <linux/futex.h>
 #include "generated/fd_snapzp_tile_seccomp.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include <fcntl.h>

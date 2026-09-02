@@ -12,6 +12,7 @@
 #include "../../ballet/siphash13/fd_siphash13.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../disco/net/fd_net_tile.h"
+#include <linux/futex.h>
 #include "generated/fd_gossvf_tile_seccomp.h"
 
 #define DEBUG_PEERS (0)

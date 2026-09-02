@@ -1,5 +1,6 @@
 #include "fd_gossip_tile.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include <linux/futex.h>
 #include "generated/fd_gossip_tile_seccomp.h"
 
 #include "../../choreo/eqvoc/fd_eqvoc.h"

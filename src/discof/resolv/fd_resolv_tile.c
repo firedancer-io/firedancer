@@ -15,6 +15,7 @@
 #include "../../util/fd_hash32.h"
 
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_resolv_tile_seccomp.h"
 
 #if FD_HAS_AVX

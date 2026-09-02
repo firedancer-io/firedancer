@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "../tiles.h"
 
+#include <linux/futex.h>
 #include "generated/fd_sign_tile_seccomp.h"
 
 #include "../keyguard/fd_keyguard.h"

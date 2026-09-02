@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <linux/futex.h>
 #include "generated/fd_shred_tile_seccomp.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "fd_shredder.h"

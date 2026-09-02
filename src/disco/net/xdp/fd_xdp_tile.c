@@ -34,6 +34,7 @@
 #include <sys/ioctl.h>
 #include <linux/if_arp.h>
 #include <linux/rtnetlink.h>
+#include <linux/futex.h>
 
 #include "generated/fd_xdp_tile_seccomp.h"
 

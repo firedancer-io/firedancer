@@ -33,6 +33,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
+#include <linux/futex.h>
 #include "generated/fd_event_tile_seccomp.h"
 
 #define GRPC_BUF_MAX (12UL<<20UL) /* 12 MiB */

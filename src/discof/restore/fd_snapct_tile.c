@@ -25,6 +25,7 @@
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
+#include <linux/futex.h>
 #include "generated/fd_snapct_tile_seccomp.h"
 
 #define NAME "snapct"

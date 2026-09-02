@@ -3,6 +3,7 @@
 #include "../../discof/fd_startup.h"
 
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_accdb_tile_seccomp.h"
 
 #include "../../disco/metrics/fd_metrics.h"

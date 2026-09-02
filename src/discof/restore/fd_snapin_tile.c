@@ -23,6 +23,7 @@
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 
+#include <linux/futex.h>
 #include "generated/fd_snapin_tile_seccomp.h"
 
 #define NAME "snapin"

@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <string.h>
 
+#include <linux/futex.h>
 #include "generated/fd_metric_tile_seccomp.h"
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS          128

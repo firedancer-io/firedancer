@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <stdatomic.h>
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_snaprd_tile_seccomp.h"
 
 #define SNAPRD_STATE_IDLE    0

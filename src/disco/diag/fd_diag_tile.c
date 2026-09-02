@@ -16,6 +16,7 @@
 #include <sys/types.h> /* SEEK_SET */
 #include <sys/stat.h>
 #include <sys/vfs.h>
+#include <linux/futex.h>
 #include <time.h>
 #include <unistd.h>
 

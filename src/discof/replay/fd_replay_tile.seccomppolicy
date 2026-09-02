@@ -48,8 +48,23 @@ fallocate: (and (eq (arg 0) accounts_fd)
 #
 # The snapmk tile usually sleeps to save power.  A futex is used to wake
 # it back up to start producing a snapshot.
-futex: (and (eq (arg 1) FUTEX_WAKE)
-            (eq (arg 2) 1))
+#
+# In the efficient scheduler mode the tile also parks on its own sleep
+# word with FUTEX_WAIT_BITSET when idle.
+#
+# arg 1 is the futex op.  For the wake, arg 2 is the wake count.  For
+# the park, arg 2 is the expected value of the word, always 0 (parked).
+futex: (or (and (eq (arg 1) FUTEX_WAKE)
+                (eq (arg 2) 1))
+           (and (eq (arg 1) FUTEX_WAIT_BITSET)
+                (eq (arg 2) 0)))
+
+# power saving: resume an interrupted sleep
+#
+# A signal delivered to a parked tile interrupts its futex_wait, and the
+# kernel resumes the wait with the remaining timeout via restart_syscall
+# when the tile next runs.
+restart_syscall
 
 # store disk layer: rare reads of spilled FEC payloads
 pread64: (eq (arg 0) store_fd)

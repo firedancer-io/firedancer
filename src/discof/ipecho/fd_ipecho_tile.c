@@ -13,6 +13,7 @@
 #include <time.h> /* CLOCK_REALTIME for seccomp filter */
 #include <poll.h>
 
+#include <linux/futex.h>
 #include "generated/fd_ipecho_tile_seccomp.h"
 
 #define FD_IPECHO_MAX_CONNECTION_CNT (1024UL)

@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
+#include <linux/futex.h>
 #include "generated/fd_snapld_tile_seccomp.h"
 
 #define NAME "snapld"

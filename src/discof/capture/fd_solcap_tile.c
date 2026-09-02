@@ -13,6 +13,7 @@
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_solcap_tile_seccomp.h"
 
 

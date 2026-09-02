@@ -120,6 +120,7 @@
 #include "../genesis/fd_genesi_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_clock_tile.h"
+#include <linux/futex.h>
 #include "generated/fd_repair_tile_seccomp.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard.h"

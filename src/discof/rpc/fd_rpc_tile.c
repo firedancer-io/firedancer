@@ -41,6 +41,7 @@
 #include "../../util/archive/fd_tar.h"
 #include "../../third_party/bzip2/bzlib.h"
 
+#include <linux/futex.h>
 #include "generated/fd_rpc_tile_seccomp.h"
 
 #define FD_RPC_AGAVE_API_VERSION "4.2.0-rc.0"

@@ -7,6 +7,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 
+#include <linux/futex.h>
 #include "generated/fd_snapwr_tile_seccomp.h"
 
 #include <errno.h>

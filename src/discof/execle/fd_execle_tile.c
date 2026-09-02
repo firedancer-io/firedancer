@@ -16,6 +16,7 @@
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_execle_tile_seccomp.h"
 
 #define REBATE_BATCH_IDLE_LOOPS      (128UL)

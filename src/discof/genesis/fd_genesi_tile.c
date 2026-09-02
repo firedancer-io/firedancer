@@ -22,6 +22,7 @@
 #include <linux/fs.h>
 
 #include <sys/socket.h>
+#include <linux/futex.h>
 #include "generated/fd_genesi_tile_seccomp.h"
 
 static void *
