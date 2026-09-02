@@ -1359,6 +1359,7 @@ action_t fd_action_run1 = {
   .args        = run1_cmd_args,
   .fn          = run1_cmd_fn,
   .perm        = NULL,
+  .is_multi_process = 1,
   .description = "Start up a single Firedancer tile",
   .detail      = "Runs one tile of the validator topology in the current process.  A tile is a\n"
                  "single thread pinned to a CPU core that performs one part of the validator's\n"
@@ -1374,6 +1375,7 @@ action_t fd_action_run = {
   .fn             = run_cmd_fn,
   .require_config = 1,
   .perm           = run_cmd_perm,
+  .is_multi_process = 1,
   .description    = "Start up a Firedancer validator",
   .detail         = "Boots and runs the full validator described by the configuration file.  This\n"
                     "is the main command operators use to run Firedancer.  It must be started with\n"

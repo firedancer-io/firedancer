@@ -132,6 +132,14 @@ init( config_t const * config ) {
 
   char cgroup[ PATH_MAX ]; cgroup_path( cgroup, config, NULL );
 
+  /* cgroups are process-wide, so not compatible with --no-clone,
+     as fixed and floating tiles need different CPU masks */
+  if( FD_UNLIKELY( config->development.no_clone ) ) {
+    FD_LOG_INFO(( "[development.no_clone] is enabled; not creating `%s` as floating tiles "
+                  "cannot be isolated from fixed tiles within a single process", cgroup ));
+    return;
+  }
+
   if( FD_UNLIKELY( !fd_cpuset_cnt( part_cpus ) ) ) {
     FD_LOG_WARNING(( "no fixed tile CPUs in topology; not creating `%s`", cgroup ));
     return;
@@ -212,11 +220,18 @@ check( config_t const * config,
        int              check_type ) {
   (void)check_type;
 
+  char cgroup[ PATH_MAX ]; cgroup_path( cgroup, config, NULL );
+
+  if( FD_UNLIKELY( config->development.no_clone ) ) {
+    if( FD_UNLIKELY( !access( cgroup, F_OK ) ) )
+      PARTIALLY_CONFIGURED( "`%s` exists but [development.no_clone] is enabled", cgroup );
+    CONFIGURE_OK();
+  }
+
   FD_CPUSET_DECL( part_cpus );
   fd_cpu_isolation_partition_cpus( part_cpus, &config->topo );
   if( FD_UNLIKELY( !fd_cpuset_cnt( part_cpus ) ) ) CONFIGURE_OK();
 
-  char cgroup[ PATH_MAX ]; cgroup_path( cgroup, config, NULL );
   if( FD_UNLIKELY( access( cgroup, F_OK ) ) )
     NOT_CONFIGURED( "`%s` does not exist", cgroup );
 
