@@ -1,119 +1,137 @@
 #ifndef HEADER_fd_src_flamenco_progcache_fd_progcache_clock_h
 #define HEADER_fd_src_flamenco_progcache_fd_progcache_clock_h
 
-/* fd_progcache_clock.h provides the cache eviction policy for the
-   program cache (CLOCK).
+/* fd_progcache_clock.h provides the cache eviction policy (CLOCK).
 
-   CLOCK is a cache replacement algorithm:
-   Entries get evicted when the cache is full.
+   A record is evicted when its size class is full: slots are drawn from that
+   class's range, clearing the visited flag of any record that has it and
+   evicting one that does not.  Access sets the flag.
 
-   There are two "cache is full" conditions:
-   - No more progcache_rec descriptors available
-   - Insufficient heap space to allocate a val
+   rec->state holds the flag, one byte per record including free ones:
 
-   The CLOCK algorithm works as follows:
-   - There exists a "visited" bit for each progcache_rec
-   - Whenever a user accesses a record, the visited bit is set
-   - When cache replacement kicks in, the bit set is scanned
-     (low-to-high cyclic).  For each record:
-     - If the "visited" bit is set, unset it
-     - Else ("visited" bit unset), evict the record
+     0                    free, or acquired and not yet published
+     LOADING|MAPPED       published, program not yet loaded
+     LIVE|MAPPED          holds a value and is reachable
+     LIVE|VISITED|MAPPED  as above, recently accessed (CLOCK second chance)
+     LOADING              unmapped mid-load; becomes a zombie when the load ends
+     LIVE, LIVE|VISITED   zombie: unmapped; once detached and unheld, the next
+                          eviction sweep hands its slot over (or a teardown
+                          sweep frees it)
 
-   Some implementation details:
-   - The "visited" bits are stored in a dense bit array ("cbits")
-     (Optimize for fast scans)
-   - This bit array shadows the progcache_rec pool (including free
-     entries)
-   - An additional "exists" bit is interleaved with the "visited" bit,
-     to disambiguate an existing idle entry from a free entry */
+   It is the single source of truth for "is this record scannable" (rec->exists
+   serves the different purpose of use-after-free detection on close). */
 
-#include "../../util/bits/fd_bits.h"
 #include "fd_progcache_base.h"
+#include "fd_progcache_rec.h"
 
-#include <stdatomic.h>
+#define FD_PROGCACHE_REC_LIVE    ((uchar)1)
+#define FD_PROGCACHE_REC_VISITED ((uchar)2)
+
+/* LOADING marks a record that is in the map but whose program is not loaded yet.  It
+   serializes loaders: two tiles that miss on the same key do not both run
+   fd_sbpf_program_load.  The first publishes the record LOADING and loads it; the rest
+   find it in the map and wait.  It is not LIVE, so the CLOCK sweep steps over a record
+   under load without a test of its own. */
+
+#define FD_PROGCACHE_REC_LOADING ((uchar)4)
+
+/* MAPPED marks a record reachable through the record map.  It is the only way to
+   tell a rooted record, which stays mapped, from one a cancel or drain unmapped:
+   both have txn_idx==UINT_MAX. */
+
+#define FD_PROGCACHE_REC_MAPPED  ((uchar)8)
 
 FD_PROTOTYPES_BEGIN
 
-/* Helper APIs for the CLOCK bit array */
+/* The visited flag is a relaxed hint: CLOCK is approximate and a lost update is
+   benign.  The load sentinel is not -- setting and clearing it are release stores,
+   paired with the acquire in fd_prog_state_is_loading. */
 
-/* fd_prog_cbits_slot returns the 64-bit slot that contains the bit pair
-   for the record with pool index rec_idx. */
-
-FD_FN_CONST static inline atomic_ulong *
-fd_prog_cbits_slot( atomic_ulong * bits,
-                    ulong          rec_idx ) {
-  return &bits[ rec_idx>>5 ];
-}
-
-/* fd_prog_{visited,exists}_bit return the bit index of the {visited,
-   exists} flag for a record within its slot (see fd_prog_cbits_slot).
-
-   Full example:
-
-     slot_p = fd_prog_cbits_slot( bits, idx )
-     slot = atomic_load_explicit( slot, memory_order_relaxed )
-     rec_exists = fd_ulong_extract_bit( slot, fd_prog_visited_bit( idx ) ) */
-
-FD_FN_CONST static inline int
-fd_prog_visited_bit( ulong rec_idx ) {
-  return 2*(rec_idx & 31UL);
-}
-
-FD_FN_CONST static inline int
-fd_prog_exists_bit( ulong rec_idx ) {
-  return fd_prog_visited_bit( rec_idx )+1;
-}
-
-/* fd_prog_cbits_{align,footprint} return the alignment/size requirement
-   for the cbits array. */
-
-static inline ulong
-fd_prog_cbits_align( void ) {
-  return 64UL;
-}
-
-static inline ulong
-fd_prog_cbits_footprint( ulong rec_max ) {
-  return fd_ulong_align_up( rec_max*2, 512UL ) / 8UL;
-}
-
-/* fd_prog_clock_init initializes CLOCK cache replacement algo state. */
-
-void
-fd_prog_clock_init( atomic_ulong * cbits,
-                    ulong          rec_max );
-
-/* fd_prog_clock_touch marks the record at the given index as recently
-   touched which makes it less likely to get evicted. */
+/* fd_prog_state_load_begin publishes the record at the given index as loading:
+   reachable through the map, but not yet LIVE.  Ended by fd_prog_state_touch. */
 
 static inline void
-fd_prog_clock_touch( atomic_ulong * cbits,
-                     ulong          rec_idx ) {
-  atomic_ulong * slot_p = fd_prog_cbits_slot( cbits, rec_idx );
-  /* Set the "exists" and "visited" bits */
-  ulong mask = 3UL<<(fd_prog_visited_bit( rec_idx ));
-  atomic_fetch_or_explicit( slot_p, mask, memory_order_relaxed );
+fd_prog_state_load_begin( fd_progcache_rec_t * ele,
+                          ulong                rec_idx ) {
+  __atomic_store_n( &ele[ rec_idx ].state,
+                    (uchar)( FD_PROGCACHE_REC_LOADING|FD_PROGCACHE_REC_MAPPED ), __ATOMIC_RELEASE );
 }
 
-/* fd_prog_clock_remove indicates that the record at the given index is
-   about to be deleted.  Should be run before a deletion, not after. */
+/* fd_prog_state_touch marks the record at the given index as recently
+   accessed, which makes it less likely to get evicted.  It also ends a load: the
+   record becomes LIVE and the sentinel goes away in a single release store, so a
+   waiter never observes both clear, and the loaded program is visible to anyone
+   who sees LIVE. */
 
 static inline void
-fd_prog_clock_remove( atomic_ulong * cbits,
-                      ulong          rec_idx ) {
-  atomic_ulong * slot_p = fd_prog_cbits_slot( cbits, rec_idx );
-  /* Clear the "exists" and "visited" bits */
-  ulong mask = ~( (3UL<<fd_prog_visited_bit( rec_idx )) );
-  atomic_fetch_and_explicit( slot_p, mask, memory_order_relaxed );
+fd_prog_state_touch( fd_progcache_rec_t * ele,
+                     ulong                rec_idx ) {
+  uchar cur = __atomic_load_n( &ele[ rec_idx ].state, __ATOMIC_RELAXED );
+  if( FD_UNLIKELY( cur & FD_PROGCACHE_REC_LOADING ) ) {
+    /* LOADING is set and LIVE|VISITED clear here, so one xor performs the whole
+       transition: a waiter never sees both LOADING and LIVE clear, and a
+       concurrent unmap's MAPPED clear is not resurrected. */
+    __atomic_fetch_xor( &ele[ rec_idx ].state,
+                        (uchar)( FD_PROGCACHE_REC_LOADING|FD_PROGCACHE_REC_LIVE|FD_PROGCACHE_REC_VISITED ),
+                        __ATOMIC_RELEASE );
+    return;
+  }
+  __atomic_fetch_or( &ele[ rec_idx ].state, (uchar)( FD_PROGCACHE_REC_LIVE|FD_PROGCACHE_REC_VISITED ), __ATOMIC_RELAXED );
 }
 
-/* fd_prog_clock_evict evicts records until at least rec_min records
-   and heap_min bytes of heap space are queued for reclamation. */
+/* fd_prog_state_is_loading returns 1 if a peer is still loading rec's program.  The
+   acquire pairs with the release store in fd_prog_state_touch, so a caller that sees
+   0 also sees the loaded program.  Deliberately not FD_FN_PURE: the value changes
+   between calls, so a spin loop's calls must not be collapsed into one. */
+
+static inline int
+fd_prog_state_is_loading( fd_progcache_rec_t const * rec ) {
+  return !!( __atomic_load_n( &rec->state, __ATOMIC_ACQUIRE ) & FD_PROGCACHE_REC_LOADING );
+}
+
+/* fd_prog_state_clear marks the record at the given index as free / removed, run
+   when the record's value is released.  The release keeps the preceding teardown
+   ordered before the record reads as free. */
+
+static inline void
+fd_prog_state_clear( fd_progcache_rec_t * ele,
+                     ulong                rec_idx ) {
+  __atomic_store_n( &ele[ rec_idx ].state, (uchar)0, __ATOMIC_RELEASE );
+}
+
+/* fd_prog_evict frees a record from the size class that fits sz
+   and returns it read-locked and in-flight, as fd_progcache_rec_acquire does.
+   Scans only that class's range, giving second chances and stepping over held
+   records.  Returns NULL when the draws run out, the caller's cue to spill; that
+   does not imply every record was held.  Release the return value with
+   fd_progcache_rec_abandon. */
+
+__attribute__((warn_unused_result))
+fd_progcache_rec_t *
+fd_prog_evict( fd_progcache_t * progcache,
+               ulong            sz );
+
+/* fd_prog_preevict tops up class class_idx's free list toward free_target: if
+   the list is shorter, it runs one eviction sweep -- the fd_prog_evict scan in
+   its admin variant, which bumps no metrics -- and releases the claimed
+   victim's slot to the free list.  Returns the number of slots freed (0 or 1).
+   Safe from any thread concurrently with everything; bounded by the sweep's
+   2*class_max draw budget. */
+
+ulong
+fd_prog_preevict( fd_progcache_join_t * join,
+                  ulong                 class_idx,
+                  ulong                 free_target );
+
+/* fd_progcache_housekeeping is one background maintenance tick: tops the next
+   size class (round robin) toward 2 free slots via fd_prog_preevict, at most
+   one slot per tick.  A zombie drawn by the sweep is handed over as-is (no
+   second chance), so dead slots return to service without a separate
+   collection pass.  Safe from any thread concurrently with everything.
+   Unused: candidate replay housekeeping hook. */
 
 void
-fd_prog_clock_evict( fd_progcache_t * progcache,
-                     ulong            rec_min,
-                     ulong            heap_min );
+fd_progcache_housekeeping( fd_progcache_join_t * join );
 
 FD_PROTOTYPES_END
 

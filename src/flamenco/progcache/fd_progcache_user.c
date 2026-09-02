@@ -3,6 +3,22 @@
 #include "fd_progcache_reclaim.h"
 #include "fd_progcache_clock.h"
 #include "../../util/racesan/fd_racesan_target.h"
+#include "../../disco/metrics/generated/fd_metrics_enums.h"
+
+/* FD_PROGCACHE_METRICS_WRITE copies CLASS_CNT-sized arrays through the metrics
+   enum, so a class added without regenerating the enum would read past them. */
+
+FD_STATIC_ASSERT( FD_METRICS_ENUM_PROGCACHE_CLASS_CNT==FD_PROGCACHE_CACHE_CLASS_CNT,
+                  progcache_metrics_class_cnt );
+
+/* Counts sz's size class in a per-class metrics array.
+   An oversized value classes out of range and goes uncounted. */
+
+static inline void
+progcache_metric_per_class( ulong * per_class,
+                            ulong   c ) {
+  if( FD_LIKELY( c<FD_PROGCACHE_CACHE_CLASS_CNT ) ) per_class[ c ]++;
+}
 
 FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 
@@ -43,25 +59,22 @@ fd_progcache_leave( fd_progcache_t *        cache,
     return NULL;
   }
 
-  while( cache->join->rec.reclaim_head!=UINT_MAX ) {
-    fd_prog_reclaim_work( cache->join );
-    FD_SPIN_PAUSE();
-  }
-
+  fd_prog_reclaim_work( cache->join );
   if( FD_UNLIKELY( !fd_progcache_shmem_leave( cache->join, opt_shmem ) ) ) return NULL;
   cache->scratch    = NULL;
   cache->scratch_sz = 0UL;
   return cache;
 }
 
-/* fd_progcache_load_fork pivots the progcache object to the selected
-   fork (identified by tip XID).
+/* fd_progcache_load_fork pivots the progcache object to the selected fork
+   (identified by tip XID): populates cache->lineage with the fork's XIDs,
+   newest to oldest.  Cache lookups only respect records on that lineage.
 
-   Populates cache->fork, which is a array-backed list of XIDs sorted
-   newest to oldest.  Cache lookups only respect records with an XID
-   present in that list. */
+   load_fork_slow and fd_progcache_query below are internal but not static:
+   the test suite composes them into a lookup that does not fill (see
+   test_progcache_common.c).  They are absent from fd_progcache_user.h. */
 
-static void
+void
 fd_progcache_load_fork_slow( fd_progcache_t *       cache,
                              fd_progcache_fork_id_t fork_id ) {
   fd_progcache_lineage_t *    lineage = cache->lineage;
@@ -85,8 +98,7 @@ fd_progcache_load_fork_slow( fd_progcache_t *       cache,
 
     uint parent_idx = candidate->parent_idx;
     FD_TEST( parent_idx!=next_idx );
-    lineage->fork   [ i ] = fork_id;
-    lineage->txn_idx[ i ] = next_idx;
+    lineage->fork[ i ] = fork_id;
     if( FD_LIKELY( !i ) ) lineage->tip_txn_idx = next_idx;
     if( parent_idx==UINT_MAX ) {
       i++;
@@ -113,6 +125,22 @@ fd_progcache_load_fork( fd_progcache_t *       cache,
   fd_progcache_load_fork_slow( cache, fork_id ); /* switch fork */
 }
 
+/* fd_prog_wait_if_loading waits out a peer's in-flight load of rec, so the caller
+   only ever sees a record whose program is in.  Returns rec. */
+
+static inline fd_progcache_rec_t *
+fd_prog_wait_if_loading( fd_progcache_t *     cache,
+                         fd_progcache_rec_t * rec ) {
+  if( FD_UNLIKELY( fd_prog_state_is_loading( rec ) ) ) {
+    cache->metrics->hit_loading_cnt++;
+    while( fd_prog_state_is_loading( rec ) ) {
+      fd_racesan_hook( "prog_wait_if_loading:spin" );
+      FD_SPIN_PAUSE();
+    }
+  }
+  return rec;
+}
+
 /* fd_progcache_query searches for a program cache entry on the current
    fork.  Stops short of an epoch boundary. */
 
@@ -130,8 +158,8 @@ fd_progcache_search_chain( fd_progcache_t const * cache,
   fd_prog_recm_shmem_t *                     shmap     = ljoin->rec.map->map;
   fd_prog_recm_shmem_private_chain_t const * chain_tbl = fd_prog_recm_shmem_private_chain_const( shmap, 0UL );
   fd_prog_recm_shmem_private_chain_t const * chain     = chain_tbl + chain_idx;
-  fd_progcache_rec_t *                       rec_tbl   = ljoin->rec.pool->ele;
-  ulong                                      rec_max   = fd_prog_recp_ele_max( ljoin->rec.pool );
+  fd_progcache_rec_t *                       rec_tbl   = ljoin->rec.ele;
+  ulong                                      rec_max   = ljoin->rec.max;
   ulong                                      ver_cnt   = FD_VOLATILE_CONST( chain->ver_cnt );
 
   /* Start a speculative transaction for the chain containing revisions
@@ -180,7 +208,7 @@ fd_progcache_search_chain( fd_progcache_t const * cache,
   return FD_MAP_SUCCESS;
 }
 
-static fd_progcache_rec_t * /* read locked */
+fd_progcache_rec_t * /* read locked */
 fd_progcache_query( fd_progcache_t *    cache,
                     fd_pubkey_t const * key,
                     ulong               feature_slot,
@@ -199,21 +227,9 @@ fd_progcache_query( fd_progcache_t *    cache,
     FD_SPIN_PAUSE();
     /* FIXME backoff */
   }
+  if( FD_LIKELY( !rec ) ) return NULL; /* Program not found, need an insert */
 
-  return rec;
-}
-
-fd_progcache_rec_t * /* read locked */
-fd_progcache_peek( fd_progcache_t *       cache,
-                   fd_progcache_fork_id_t fork_id,
-                   fd_pubkey_t const *    prog_addr,
-                   ulong                  feature_slot,
-                   ulong                  deploy_slot ) {
-  if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
-  fd_progcache_load_fork( cache, fork_id );
-  fd_progcache_rec_t * rec = fd_progcache_query( cache, prog_addr, feature_slot, deploy_slot );
-  if( FD_UNLIKELY( !rec ) ) return NULL;
-  return rec;
+  return fd_prog_wait_if_loading( cache, rec );
 }
 
 static void
@@ -241,12 +257,18 @@ fd_progcache_rec_push_tail( fd_progcache_rec_t * rec_pool,
   *rec_tail_idx = rec_idx;
 }
 
+/* Publishes rec (complete, read-locked) under the txn.  Returns the record now
+   serving this key: rec, or the winner's read-locked record if another tile won
+   the race, or NULL if a mapped record has this key with different
+   feature/deploy slots. */
+
 __attribute__((warn_unused_result))
-static int
+static fd_progcache_rec_t *
 fd_progcache_push( fd_progcache_join_t * cache,
                    fd_progcache_txn_t *  txn, /* write locked */
                    fd_progcache_rec_t *  rec,
                    void const *          prog_addr ) {
+  FD_TEST( fd_prog_state_is_loading( rec ) );
 
   /* Determine record's xid-key pair */
 
@@ -275,25 +297,27 @@ fd_progcache_push( fd_progcache_join_t * cache,
   fd_prog_recm_query_t query[1];
   int query_err = fd_prog_recm_txn_query( cache->rec.map, &rec->pair, NULL, query, 0 );
   if( FD_UNLIKELY( query_err==FD_MAP_SUCCESS ) ) {
+    /* Duplicate: adopt the winner.  Requires that a mapped record is never
+       write-locked. */
+    fd_progcache_rec_t * winner = query->ele;
+    int match = ( winner->feature_slot==rec->feature_slot ) & ( winner->deploy_slot==rec->deploy_slot );
+    if( FD_LIKELY( match ) ) fd_rwlock_read( &winner->lock );
     fd_prog_recm_txn_test( map_txn );
     fd_prog_recm_txn_fini( map_txn );
-    return 0;
+    return match ? winner : NULL;
   } else if( FD_UNLIKELY( query_err!=FD_MAP_ERR_KEY ) ) {
     FD_LOG_CRIT(( "fd_prog_recm_txn_query failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
   }
 
-  /* Phase 4: Insert new record */
+  ulong rec_max = cache->rec.max;
 
-  int insert_err = fd_prog_recm_txn_insert( cache->rec.map, rec );
-  if( FD_UNLIKELY( insert_err!=FD_MAP_SUCCESS ) ) {
-    FD_LOG_CRIT(( "fd_prog_recm_txn_insert failed: %i-%s", insert_err, fd_map_strerror( insert_err ) ));
-  }
-  fd_racesan_hook( "prog_push:post_map_insert" );
+  /* Insert new record */
 
-  /* Phase 5: Insert rec into rec_map */
+  /* Link record into the transaction's record list.  Ownership is established
+     before the record becomes findable, so a mapped record has an owner unless
+     rooting deliberately detached it. */
 
-  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
-  fd_progcache_rec_push_tail( cache->rec.pool->ele,
+  fd_progcache_rec_push_tail( cache->rec.ele,
       rec,
       &txn->rec_head_idx,
       &txn->rec_tail_idx,
@@ -304,20 +328,19 @@ fd_progcache_push( fd_progcache_join_t * cache,
     FD_LOG_CRIT(( "progcache: corruption detected (push txn_idx=%u txn_max=%lu)", txn_idx_computed, txn_max ));
   atomic_store_explicit( &rec->txn_idx, txn_idx_computed, memory_order_release );
 
-  /* Phase 6: Finish rec_map transaction */
+  int insert_err = fd_prog_recm_txn_insert( cache->rec.map, rec );
+  if( FD_UNLIKELY( insert_err!=FD_MAP_SUCCESS ) ) {
+    FD_LOG_CRIT(( "fd_prog_recm_txn_insert failed: %i-%s", insert_err, fd_map_strerror( insert_err ) ));
+  }
+  fd_racesan_hook( "prog_push:post_map_insert" );
+
+  /* Finish rec_map transaction */
 
   int test_err = fd_prog_recm_txn_test( map_txn );
   if( FD_UNLIKELY( test_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_txn_test failed: %i-%s", test_err, fd_map_strerror( test_err ) ));
   fd_prog_recm_txn_fini( map_txn );
 
-  /* Phase 7: Mark record as recently accessed */
-
-  ulong rec_clock_idx = (ulong)( rec - cache->rec.pool->ele );
-  if( FD_UNLIKELY( rec_clock_idx >= rec_max ) )
-    FD_LOG_CRIT(( "progcache: corruption detected (push rec_idx=%lu rec_max=%lu)", rec_clock_idx, rec_max ));
-  fd_prog_clock_touch( cache->clock.bits, rec_clock_idx );
-
-  return 1;
+  return rec;
 }
 
 /* insert_params captures all environment parameters required to load a
@@ -353,7 +376,7 @@ insert_params( insert_params_t *          p,
 
   fd_features_t const * features = env->features;
   fd_prog_versions_t versions = fd_prog_versions( features, env->feature_slot );
-  fd_sbpf_elf_info_t elf_info;
+  fd_sbpf_elf_info_t elf_info = {0};
   fd_sbpf_loader_config_t config = {
     .sbpf_min_version = versions.min_sbpf_version,
     .sbpf_max_version = versions.max_sbpf_version,
@@ -374,18 +397,15 @@ insert_params( insert_params_t *          p,
   return p;
 }
 
-/* fd_progcache_spill_open loads a program into the cache spill buffer.
-   The spill area is an "emergency" area for temporary program loads in
-   case the record pool/heap are too contended. */
+/* fd_progcache_spill_acquire takes the next spill frame: an unloaded record with
+   its spad slot reserved.  Requires the spill write lock. */
 
 static fd_progcache_rec_t * /* read locked */
-fd_progcache_spill_open( fd_progcache_t *        cache,
-                         insert_params_t const * params ) {
+fd_progcache_spill_acquire( fd_progcache_t *        cache,
+                            insert_params_t const * params ) {
   fd_progcache_join_t *  join  = cache->join;
   fd_progcache_shmem_t * shmem = join->shmem;
-  if( !cache->spill_active ) fd_rwlock_write( &shmem->spill.lock );
-  else                       FD_TEST( FD_VOLATILE_CONST( shmem->spill.lock.value )==FD_RWLOCK_WRITE_LOCK );
-
+  FD_TEST( FD_VOLATILE_CONST( shmem->spill.lock.value )==FD_RWLOCK_WRITE_LOCK );
   /* Allocate record */
 
   if( FD_UNLIKELY( shmem->spill.rec_used >= FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
@@ -396,146 +416,154 @@ fd_progcache_spill_open( fd_progcache_t *        cache,
   shmem->spill.spad_off[ rec_idx ] = shmem->spill.spad_used;
   fd_progcache_rec_t * rec = &shmem->spill.rec[ rec_idx ];
   memset( rec, 0, sizeof(fd_progcache_rec_t) );
-  rec->lock.value   = 1; /* read lock; no concurrency, don't need CAS */
-  rec->exists       = 1;
-  rec->feature_slot = params->feature_slot;
-  rec->deploy_slot  = params->deploy_slot;
+  rec->lock.value    = 1; /* read lock; no concurrency, don't need CAS */
+  rec->exists        = 1;
+  rec->feature_slot  = params->feature_slot;
+  rec->deploy_slot   = params->deploy_slot;
+  rec->calldests_off = UINT_MAX; /* non-executable until a load says otherwise */
 
-  /* Load program */
-
-  if( !params->peek_err ) {
+  if( params->peek_err==FD_SBPF_ELF_SUCCESS ) {
     ulong off0 = fd_ulong_align_up( shmem->spill.spad_used, fd_progcache_val_align() );
     ulong off1 = off0 + fd_progcache_val_footprint( &params->elf_info );
     if( FD_UNLIKELY( off1 > FD_PROGCACHE_SPAD_MAX ) ) {
       FD_LOG_CRIT(( "spill buffer overflow: spad_used=%u val_sz=%lu spad_max=%lu", shmem->spill.spad_used, off1-off0, FD_PROGCACHE_SPAD_MAX ));
     }
-    rec->data_gaddr = fd_wksp_gaddr_fast( join->data_base, shmem->spill.spad + off0 );
-    rec->data_max   = (uint)( off1 - off0 );
-
-    long dt = -fd_tickcount();
-    if( FD_LIKELY( fd_progcache_rec_load( rec, join->data_base, &params->elf_info, &params->config, params->feature_slot, params->features, params->bin, params->bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
-      /* Valid program, allocate data */
-      shmem->spill.spad_used = (uint)off1;
-    } else {
-      fd_progcache_rec_nx( rec );
-    }
-    dt += fd_tickcount();
-    cache->metrics->cum_load_ticks += (ulong)dt;
-
-  } else {
-    rec->data_gaddr = 0UL;
-    rec->data_max   = 0U;
+    rec->data_gaddr        = fd_wksp_gaddr_fast( join->data_base, shmem->spill.spad + off0 );
+    rec->data_max          = (uint)( off1 - off0 );
+    shmem->spill.spad_used = (uint)off1;
   }
 
-  cache->metrics->spill_cnt++;
-  cache->metrics->spill_tot_sz += rec->rodata_sz;
-
-  FD_TEST( rec->exists );
   return rec;
 }
-
-/* fd_progcache_insert allocates a cache entry, loads a program into it,
-   and publishes the cache entry to the global index (recm).  If an OOM
-   condition is detected, attempts to run the cache eviction algo, and
-   finally falls back to using the spill buffer.  Returns NULL if the
-   insertion raced with another thread (frees any previously allocated
-   resource in that case). */
 
 static fd_progcache_rec_t * /* read locked */
 fd_progcache_insert( fd_progcache_t *        cache,
                      insert_params_t const * params ) {
-  fd_progcache_join_t *           ljoin         = cache->join;
-  fd_pubkey_t const *             prog_addr     = &params->prog_addr;
-  int                             peek_err      = params->peek_err;
-  fd_sbpf_elf_info_t const *      elf_info      = &params->elf_info;
-  fd_sbpf_loader_config_t const * config        = &params->config;
-  ulong                           feature_slot  = params->feature_slot;
-  fd_features_t const *           features      = params->features;
-  uchar const *                   bin           = params->bin;
-  ulong                           bin_sz        = params->bin_sz;
+  fd_progcache_join_t *  ljoin = cache->join;
+  fd_progcache_shmem_t * shmem = ljoin->shmem;
 
-  /* Allocate record and heap space */
+  ulong val_footprint = ( params->peek_err==FD_SBPF_ELF_SUCCESS ) ? fd_progcache_val_footprint( &params->elf_info ) : 0UL;
+  ulong size_class = fd_progcache_cache_class( val_footprint );
 
-  fd_progcache_rec_t * rec = fd_prog_recp_acquire( ljoin->rec.pool );
-  if( FD_UNLIKELY( !rec ) ) {
-    cache->metrics->oom_desc_cnt++;
-    fd_prog_clock_evict( cache, 4UL, 0UL );
-    rec = fd_prog_recp_acquire( ljoin->rec.pool );
-    if( FD_UNLIKELY( !rec ) ) {
-      /* Out of memory (record table) */
-      return fd_progcache_spill_open( cache, params );
-    }
-  }
-  memset( rec, 0, sizeof(fd_progcache_rec_t) );
-  rec->exists       = 1;
-  rec->feature_slot = feature_slot;
-  rec->deploy_slot  = params->deploy_slot;
-  rec->txn_idx      = UINT_MAX;
-  rec->reclaim_next = UINT_MAX;
+  fd_progcache_rec_t * rec        = NULL;
+  int                  from_spill = 0;
 
-  if( FD_LIKELY( peek_err==FD_SBPF_ELF_SUCCESS ) ) {
-    ulong val_align     = fd_progcache_val_align();
-    ulong val_footprint = fd_progcache_val_footprint( elf_info );
-    if( FD_UNLIKELY( !fd_progcache_val_alloc( rec, ljoin, val_align, val_footprint ) ) ) {
-      cache->metrics->oom_heap_cnt++;
-      fd_prog_clock_evict( cache, 0UL, 16UL<<20 );
-      if( FD_UNLIKELY( !fd_progcache_val_alloc( rec, ljoin, val_align, val_footprint ) ) ) {
-        /* Out of memory (heap) */
-        rec->exists = 0;
-        fd_prog_recp_release( ljoin->rec.pool, rec );
-        return fd_progcache_spill_open( cache, params );
-      }
-    }
+  if( FD_UNLIKELY( cache->spill_active ) ) {
+    rec        = fd_progcache_spill_acquire( cache, params );
+    from_spill = 1;
   } else {
-    fd_progcache_rec_nx( rec );
+    /* first acquire attempt (outside loop to increase metrics) */
+    rec = fd_progcache_rec_acquire( ljoin, val_footprint );
+    if( FD_UNLIKELY( !rec ) ) cache->metrics->class_full_cnt++;
   }
 
-  /* Publish cache entry to index */
+  /* spin loop: evict, try spill, acquire (in case another thread freed a slot) */
+  while( !rec ) {
+    rec = fd_prog_evict( cache, val_footprint );
+    if( FD_LIKELY( rec ) ) break;
 
-  /* Acquires rec->lock before txn.rwlock (inverse of the documented
-     lock order).  Safe because the record was just allocated and is not
-     yet visible to other threads. */
-  fd_rwlock_write( &rec->lock );
-  fd_racesan_hook( "prog_insert:pre_push" );
-  fd_rwlock_read( &ljoin->shmem->txn.rwlock );
-  ulong txn_idx = cache->lineage->tip_txn_idx;
-  if( FD_UNLIKELY( txn_idx==ULONG_MAX ) ) FD_LOG_CRIT(( "progcache insert requires a non-root transaction" ));
-  fd_progcache_txn_t * txn = &ljoin->txn.pool[ txn_idx ];
-  fd_rwlock_write( &txn->lock );
-  int push_ok = fd_progcache_push( ljoin, txn, rec, prog_addr );
-  fd_rwlock_unwrite( &txn->lock );
-  if( FD_UNLIKELY( !push_ok ) ) {
-    fd_rwlock_unread( &ljoin->shmem->txn.rwlock );
-    fd_rwlock_unwrite( &rec->lock );
-    fd_progcache_val_free( rec, ljoin );
-    fd_prog_recp_release( ljoin->rec.pool, rec );
-    return NULL;
+    if( fd_rwlock_trywrite( &shmem->spill.lock ) ) {
+      rec = fd_progcache_spill_acquire( cache, params );
+      from_spill = 1;
+      break;
+    }
+
+    FD_SPIN_PAUSE();
+    rec = fd_progcache_rec_acquire( ljoin, val_footprint );
   }
-  fd_rwlock_unread( &ljoin->shmem->txn.rwlock );
-  fd_racesan_hook( "prog_insert:pre_load" );
 
-  /* Load program
-     (The write lock was acquired before loading such that another
-     thread trying to load the same record instead waits for us to
-     complete) */
+  /* Claim the key before loading it.  A peer that wants this program finds the
+     record LOADING and waits, so only one tile runs fd_sbpf_program_load for a
+     given revision.  A spill record is never published. */
 
-  if( FD_LIKELY( peek_err==FD_SBPF_ELF_SUCCESS ) ) {
+  rec->feature_slot = params->feature_slot;
+  rec->deploy_slot  = params->deploy_slot;
+
+  if( FD_LIKELY( !from_spill ) ) {
+    /* Under the loading sentinel: not LIVE, so the sweep steps over it, and once
+       push makes it findable a peer waits rather than loading it again. */
+    fd_prog_state_load_begin( ljoin->rec.ele, (ulong)( rec - ljoin->rec.ele ) );
+
+    fd_racesan_hook( "prog_insert:pre_push" );
+    fd_rwlock_read( &shmem->txn.rwlock );
+    ulong txn_idx = cache->lineage->tip_txn_idx;
+    if( FD_UNLIKELY( txn_idx==ULONG_MAX ) ) FD_LOG_CRIT(( "progcache insert requires a non-root transaction" ));
+    /* tip_txn_idx may be stale, so revalidate it against the map under the read
+       lock.  A mismatch means execution was dispatched on a dead fork. */
+    uint live_idx = (uint)fd_prog_txnm_idx_query_const( ljoin->txn.map, &cache->lineage->fork[ 0 ], UINT_MAX, ljoin->txn.pool );
+    if( FD_UNLIKELY( (ulong)live_idx!=txn_idx ) )
+      FD_LOG_CRIT(( "progcache insert on a published/canceled fork (fork_id=%lu txn_idx=%lu live_idx=%u)",
+                    (ulong)cache->lineage->fork[ 0 ], txn_idx, live_idx ));
+    fd_progcache_txn_t * txn = &ljoin->txn.pool[ txn_idx ];
+    fd_rwlock_write( &txn->lock );
+    fd_progcache_rec_t * mapped = fd_progcache_push( ljoin, txn, rec, &params->prog_addr );
+    fd_rwlock_unwrite( &txn->lock );
+    fd_rwlock_unread( &shmem->txn.rwlock );
+
+    /* fd_progcache_push inserts the rec except 2 failure cases:
+       1. mapped==NULL - this is impossible today because of delayed visibility,
+          therefore the current impl simply spills.
+          note that if we ever remove delayed visibility, a tx invoking an upgraded
+          program in the same slot will always spill, which is not ideal (but also not
+          incorrect). the fix/improvement is to tell progcache that a program is
+          upgraded and delete the old version (so that the new version can be cached)
+       2. mapped!=rec - another thread insert the same rec in parallel, in
+          which case we need to wait it to finish loading. */
+    if( FD_UNLIKELY( !mapped ) ) {
+      /* Same key, different program revision (see fd_progcache_push).
+         This can never happen so, for simplicity, just spill. */
+      fd_progcache_rec_abandon( ljoin, rec );
+      for( ;; ) {
+        if( fd_rwlock_trywrite( &shmem->spill.lock ) ) {
+          rec = fd_progcache_spill_acquire( cache, params );
+          from_spill = 1;
+          break;
+        }
+        FD_SPIN_PAUSE();
+      }
+
+    } else if( FD_UNLIKELY( mapped!=rec ) ) {
+      /* Another thread published this revision first, and may still be loading */
+      fd_progcache_rec_abandon( ljoin, rec );
+      return fd_prog_wait_if_loading( cache, mapped );
+
+    } else {
+      fd_racesan_hook( "prog_insert:post_claim" );
+    }
+  }
+
+  /* Load program */
+
+  if( FD_LIKELY( params->peek_err==FD_SBPF_ELF_SUCCESS ) ) {
+    cache->metrics->load_cnt++;
     long dt = -fd_tickcount();
-    if( FD_UNLIKELY( !fd_progcache_rec_load( rec, ljoin->data_base, elf_info, config, feature_slot, features, bin, bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
+    if( FD_UNLIKELY( !fd_progcache_rec_load( rec, ljoin->data_base, &params->elf_info, &params->config, params->feature_slot,
+                                             params->features, params->bin, params->bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
       /* Not a valid program (mark cache entry as non-executable) */
-      fd_progcache_val_free( rec, ljoin );
       fd_progcache_rec_nx( rec );
     }
     dt += fd_tickcount();
     cache->metrics->cum_load_ticks += (ulong)dt;
+  } else {
+    fd_progcache_rec_nx( rec );
   }
 
-  fd_rwlock_demote( &rec->lock );
+  if( FD_UNLIKELY( from_spill ) ) {
+    cache->metrics->spill_cnt++;
+    cache->metrics->spill_tot_sz += rec->rodata_sz;
+    progcache_metric_per_class( cache->metrics->spill_per_class, size_class );
 
-  cache->metrics->fill_cnt++;
-  cache->metrics->fill_tot_sz += rec->rodata_sz;
+  } else {
+    /* LOADING -> LIVE, releasing the program to waiters */
+    fd_prog_state_touch( ljoin->rec.ele, (ulong)( rec - ljoin->rec.ele ) );
+
+    cache->metrics->fill_cnt++;
+    cache->metrics->fill_tot_sz += rec->rodata_sz;
+    progcache_metric_per_class( cache->metrics->fill_per_class, size_class );
+  }
+
   FD_TEST( rec->exists );
-  return rec;
+  return rec; /* read locked since acquire */
 }
 
 fd_progcache_rec_t * /* read locked */
@@ -552,28 +580,17 @@ fd_progcache_pull( fd_progcache_t *           cache,
   fd_prog_info_t info[1];
   if( FD_UNLIKELY( !fd_prog_info( info, prog_ro ) ) ) return NULL;
 
-  insert_params_t insert[1];
-  fd_progcache_rec_t * found_rec = NULL;
-  for( int attempt=0;; attempt++ ) {
-    found_rec = fd_progcache_peek( cache, fork_id, prog_addr, env->feature_slot, info->deploy_slot );
-    if( FD_LIKELY( found_rec ) ) {
-      cache->metrics->hit_cnt++;
-      /* Mark the record as recently accessed for CLOCK replacement */
-      fd_prog_clock_touch( cache->join->clock.bits,
-                           (ulong)( found_rec - cache->join->rec.pool->ele ) );
-      break;
-    }
-    if( attempt==0 ) insert_params( insert, prog_addr, env, prog_ro, info );
-    found_rec = fd_progcache_insert( cache, insert );
-    if( FD_LIKELY( found_rec ) ) {
-      cache->metrics->miss_cnt++;
-      break;
-    }
-    if( FD_UNLIKELY( attempt>=4 ) ) {
-      /* Extremely unlikely case: four separate attempts resulted in
-         contention */
-      return fd_progcache_spill_open( cache, insert );
-    }
+  fd_progcache_rec_t * found_rec =
+      fd_progcache_query( cache, prog_addr, env->feature_slot, info->deploy_slot );
+  if( FD_LIKELY( found_rec ) ) {
+    cache->metrics->hit_cnt++;
+    /* Mark the record as recently accessed for CLOCK replacement */
+    fd_prog_state_touch( cache->join->rec.ele, (ulong)( found_rec - cache->join->rec.ele ) );
+    progcache_metric_per_class( cache->metrics->hit_per_class, found_rec->size_class );
+  } else {
+    cache->metrics->miss_cnt++;
+    insert_params_t insert[1];
+    found_rec = fd_progcache_insert( cache, insert_params( insert, prog_addr, env, prog_ro, info ) );
   }
 
   dt += fd_tickcount();
@@ -598,7 +615,7 @@ fd_progcache_spill_close( fd_progcache_t * cache ) {
 
   if( cache->spill_active==0 ) {
     fd_rwlock_t * spill_lock = &shmem->spill.lock;
-    FD_TEST( spill_lock->value==0xFFFF );
+    FD_TEST( spill_lock->value==FD_RWLOCK_WRITE_LOCK );
     FD_TEST( shmem->spill.rec_used==0 );
     FD_TEST( shmem->spill.spad_used==0 );
     fd_rwlock_unwrite( spill_lock );
@@ -617,5 +634,4 @@ fd_progcache_rec_close( fd_progcache_t *     cache,
       rec <  shmem->spill.rec + FD_MAX_INSTRUCTION_STACK_DEPTH ) {
     rec->exists = 0;
     fd_progcache_spill_close( cache );
-  }
-}
+  }}
