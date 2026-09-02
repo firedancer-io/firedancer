@@ -101,8 +101,8 @@
          calculations and prepare operations to advance them;
      (2) Schedulers, which accumulate batches of operations from state
          machines, then send them to hash backends;
-     (3) Hash backends (SSE, AVX2, AVX512) which work off a static size
-         vector of independent hash operations.
+     (3) Hash backends (SSE, AVX2, AVX512, SVE2) which work off a static
+         size vector of independent hash operations.
 
    The goal is to maximize throughput.  The fastest backend usually is
    the widest, creating a scheduling problem.  The scheduler should be
@@ -172,6 +172,9 @@
 #if FD_HAS_AVX512
 #define FD_BLAKE3_COL_LG_CNT ( 5UL)
 #define FD_BLAKE3_COL_CNT    (32UL)
+#elif FD_HAS_SVE2
+#define FD_BLAKE3_COL_LG_CNT ( 3UL)
+#define FD_BLAKE3_COL_CNT    ( 8UL)
 #else
 #define FD_BLAKE3_COL_LG_CNT ( 4UL)
 #define FD_BLAKE3_COL_CNT    (16UL)
@@ -267,6 +270,8 @@ typedef union fd_blake3_buf fd_blake3_buf_t;
 #define FD_BLAKE3_PARA_LG_MAX (4UL)
 #elif FD_HAS_AVX
 #define FD_BLAKE3_PARA_LG_MAX (3UL)
+#elif FD_HAS_SVE2
+#define FD_BLAKE3_PARA_LG_MAX (2UL)
 #else
 #define FD_BLAKE3_PARA_LG_MAX (0UL)
 #endif
