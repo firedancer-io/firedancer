@@ -26,6 +26,9 @@ initialize_stacks( config_t const * config );
 void
 initialize_accdb_fd( config_t const * config );
 
+void
+initialize_store_fds( config_t const * config );
+
 /* initialize_snapshot_fds opens the snapshot file pool at
    [FD_SNAP_FD(0)..FD_SNAP_FD(n-1)], and FD_SNAP_DIO_FD(*) if a snapzp
    tile is present.  Returns n, the number of snap files (including

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "run.h"
 #include "../../../../flamenco/accdb/fd_accdb.h"
+#include "../../../../disco/store/fd_store.h"
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
@@ -19,6 +20,7 @@
 #include "../../../../discof/backup/fd_snap_pool.h"
 #include "../../../../discof/restore/utils/fd_ssarchive.h"
 #include "../../../../disco/waker/fd_waker.h"
+#include "../../../../util/pod/fd_pod_format.h"
 
 #include "../configure/configure.h"
 
@@ -370,6 +372,9 @@ main_pid_namespace( void * _args ) {
   }
 
   initialize_accdb_fd( config );
+  initialize_store_fds( config );
+  ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
+  int   has_store     = store_obj_id!=ULONG_MAX;
   ulong snap_max                = 0UL;
   int   snapshot_upload_enabled = 0;
   int   snapshot_dio_enabled    = 0;
@@ -453,6 +458,17 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
+        if( FD_LIKELY( has_store ) ) {
+          int tile_uses_store = 0;
+          for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) tile_uses_store |= tile->uses_obj_id[ i ]==store_obj_id;
+          int tile_uses_store_rw = tile_uses_store && (!strcmp( tile->name, "shred" ) || !strcmp( tile->name, "backt" ));
+          int tile_uses_store_ro = tile_uses_store && (!strcmp( tile->name, "replay" ) || !strcmp( tile->name, "rserve" ));
+          if( FD_UNLIKELY( fcntl( FD_STORE_FD_RW, F_SETFD, tile_uses_store_rw ? 0 : FD_CLOEXEC )<0 ) )
+            FD_LOG_ERR(( "fcntl(FD_STORE_FD_RW,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( fcntl( FD_STORE_FD_RO, F_SETFD, tile_uses_store_ro ? 0 : FD_CLOEXEC )<0 ) )
+            FD_LOG_ERR(( "fcntl(FD_STORE_FD_RO,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+
         int tile_uses_snap_fd     = !strcmp( tile->name, "snapct" ) ||
                                     !strcmp( tile->name, "snapmk" );
         int tile_uses_snap_dio_fd = !strcmp( tile->name, "snapzp" );
@@ -513,6 +529,10 @@ main_pid_namespace( void * _args ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( has_store ) ) {
+      if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
     for( ulong j=0UL; j<snap_max; j++ ) {
       if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( snapshot_dio_enabled )
@@ -1021,6 +1041,45 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==accounts_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts.db read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( accounts_ro_fd, FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+void
+initialize_store_fds( config_t const * config ) {
+  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
+
+  fd_topo_t const * topo = &config->topo;
+  ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
+  if( FD_UNLIKELY( store_obj_id==ULONG_MAX ) ) return;
+
+  char const * path = fd_pod_queryf_cstr( topo->props, NULL, "obj.%lu.disk_path", store_obj_id );
+  ulong fec_max = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.fec_max", store_obj_id );
+  ulong fec_data_max = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.fec_data_max", store_obj_id );
+  ulong shred_storage_gib = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.shred_storage_gib", store_obj_id );
+  ulong payload_slot_sz = fd_store_payload_slot_sz( fec_data_max );
+  ulong wire_off;
+  if( FD_UNLIKELY( !path || !fec_max || !payload_slot_sz || shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ||
+                   __builtin_umull_overflow( fec_max, payload_slot_sz, &wire_off ) ) )
+    FD_LOG_ERR(( "invalid Store backing-file configuration" ));
+
+  int store_fd = fd_store_file_create( path, wire_off, fd_shredb_max_shreds( shred_storage_gib ) );
+  if( FD_UNLIKELY( store_fd<0 ) )
+    FD_LOG_ERR(( "failed to create Store backing file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( store_fd!=FD_STORE_FD_RW ) ) {
+    if( FD_UNLIKELY( dup2( store_fd, FD_STORE_FD_RW )<0 ) ) FD_LOG_ERR(( "dup2(Store RW) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( store_fd ) ) ) FD_LOG_ERR(( "close(Store RW source) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  /* Reopen through procfs so the read-only descriptor is guaranteed to
+     name the same inode even if the configured path is replaced. */
+  char proc_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( proc_path, sizeof(proc_path), NULL, "/proc/self/fd/%d", FD_STORE_FD_RW ) );
+  int store_ro_fd = open( proc_path, O_RDONLY|O_NOATIME );
+  if( FD_UNLIKELY( store_ro_fd<0 ) )
+    FD_LOG_ERR(( "failed to open Store backing file read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( store_ro_fd!=FD_STORE_FD_RO ) ) {
+    if( FD_UNLIKELY( dup2( store_ro_fd, FD_STORE_FD_RO )<0 ) ) FD_LOG_ERR(( "dup2(Store RO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( store_ro_fd ) ) ) FD_LOG_ERR(( "close(Store RO source) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 /* Snapshot production prep

@@ -146,13 +146,12 @@ store_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 store_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  char const * db_path   = fd_pod_queryf_cstr( topo->props, NULL, "obj.%lu.disk_path", obj->id );
   ulong        disk_seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed",      obj->id );
   FD_TEST( fd_store_new( fd_topo_obj_laddr( topo, obj->id ),
                          VAL("fec_max"), VAL("fec_data_max"),
                          VAL("shred_storage_gib"), VAL("shred_cache_bytes"),
                          VAL("fec_set_cnt"),
-                         db_path, disk_seed ) );
+                         disk_seed ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_store = {

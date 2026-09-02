@@ -5,30 +5,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <linux/falloc.h>
-#include <sys/mman.h>
 
 #define FD_STORE_FEC_DATA_VIEW_SPILL (1U)
-
-enum {
-  FD_STORE_FILE_UNINITIALIZED = 0,
-  FD_STORE_FILE_INITIALIZING  = 1,
-  FD_STORE_FILE_READY         = 2,
-  FD_STORE_FILE_FAILED        = 3
-};
-
-static int
-store_file_wait( fd_store_t const * store,
-                 int                state ) {
-  while( state==FD_STORE_FILE_UNINITIALIZED || state==FD_STORE_FILE_INITIALIZING ) {
-    FD_SPIN_PAUSE();
-    state = atomic_load_explicit( &store->file_init_state, memory_order_acquire );
-  }
-  if( FD_UNLIKELY( state!=FD_STORE_FILE_READY ) ) {
-    errno = store->file_init_errno ? store->file_init_errno : EIO;
-    return -1;
-  }
-  return 0;
-}
 
 static int
 store_pwrite_all( int          fd,
@@ -334,13 +312,10 @@ fd_store_new( void       * shmem,
               ulong        shred_storage_gib,
               ulong        shred_cache_bytes,
               ulong        fec_set_cnt,
-              char const * db_path,
               ulong        seed ) {
 
   if( FD_UNLIKELY( !shmem ) ) { FD_LOG_WARNING(( "NULL shmem" )); return NULL; }
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_store_align() ) ) ) { FD_LOG_WARNING(( "misaligned shmem" )); return NULL; }
-  if( FD_UNLIKELY( !db_path || !db_path[0] ) ) { FD_LOG_WARNING(( "NULL db_path" )); return NULL; }
-  if( FD_UNLIKELY( fd_cstr_nlen( db_path, PATH_MAX )>=PATH_MAX ) ) { FD_LOG_WARNING(( "db_path too long" )); return NULL; }
   if( FD_UNLIKELY( !fec_max ) ) { FD_LOG_WARNING(( "fec_max must be non-zero" )); return NULL; }
   if( FD_UNLIKELY( fec_max>UINT_MAX ) ) { FD_LOG_WARNING(( "fec_max must fit in uint" )); return NULL; }
   if( FD_UNLIKELY( !fec_data_max ) ) { FD_LOG_WARNING(( "fec_data_max must be non-zero" )); return NULL; }
@@ -434,9 +409,6 @@ fd_store_new( void       * shmem,
   atomic_init( &store->fec_spill_bytes, 0UL );
   atomic_init( &store->fec_spill_read_cnt, 0UL );
   atomic_init( &store->fec_spill_read_bytes, 0UL );
-  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( store->db_path ), db_path, PATH_MAX-1UL ) );
-  atomic_init( &store->file_init_state, 0 );
-  store->file_init_errno = 0;
 
   void * shmap = fd_store_map_new( map, chain_cnt, seed );
   if( FD_UNLIKELY( !shmap ) ) { FD_LOG_WARNING(( "fd_store_map_new failed" )); return NULL; }
@@ -506,52 +478,35 @@ fd_store_join( void * shstore ) {
 }
 
 int
-fd_store_file_init( fd_store_t * store ) {
-  if( FD_UNLIKELY( !store || store->magic!=FD_STORE_MAGIC ) ) {
+fd_store_file_create( char const * path,
+                      ulong        wire_off,
+                      ulong        disk_max_shreds ) {
+  if( FD_UNLIKELY( !path ) ) {
     errno = EINVAL;
     return -1;
   }
 
-  int state = atomic_load_explicit( &store->file_init_state, memory_order_acquire );
-  if( state==FD_STORE_FILE_UNINITIALIZED ) {
-    int expected = FD_STORE_FILE_UNINITIALIZED;
-    if( atomic_compare_exchange_strong_explicit( &store->file_init_state, &expected, FD_STORE_FILE_INITIALIZING,
-                                                 memory_order_acq_rel, memory_order_acquire ) ) {
-      int fd = open( store->db_path, O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600 );
-      int err = fd<0 ? errno : 0;
-      if( FD_LIKELY( fd>=0 ) ) {
-        ulong wire_sz = store->disk_max_shreds*sizeof(fd_shredb_entry_t);
-        ulong file_sz = store->wire_off + wire_sz;
-        if( FD_UNLIKELY( ftruncate( fd, (off_t)file_sz ) ) ) err = errno;
-        else if( FD_UNLIKELY( wire_sz && fallocate( fd, 0, (off_t)store->wire_off, (off_t)wire_sz ) ) ) err = errno;
-        close( fd );
-      }
-      store->file_init_errno = err;
-      state = err ? FD_STORE_FILE_FAILED : FD_STORE_FILE_READY;
-      atomic_store_explicit( &store->file_init_state, state, memory_order_release );
-    } else {
-      state = expected;
-    }
-  }
-
-  return store_file_wait( store, state );
-}
-
-int
-fd_store_file_open( fd_store_t * store,
-                    int          flags ) {
-  if( FD_UNLIKELY( !store || store->magic!=FD_STORE_MAGIC ) ) {
-    errno = EINVAL;
-    return -1;
-  }
-  if( FD_UNLIKELY( flags & (O_CREAT | O_EXCL | O_TRUNC) ) ) {
-    errno = EINVAL;
+  ulong wire_sz;
+  ulong file_sz;
+  if( FD_UNLIKELY( __builtin_umull_overflow( disk_max_shreds, sizeof(fd_shredb_entry_t), &wire_sz ) ||
+                   __builtin_uaddl_overflow( wire_off, wire_sz, &file_sz ) ||
+                   file_sz>(ulong)LONG_MAX ) ) {
+    errno = EOVERFLOW;
     return -1;
   }
 
-  int state = atomic_load_explicit( &store->file_init_state, memory_order_acquire );
-  if( FD_UNLIKELY( store_file_wait( store, state ) ) ) return -1;
-  return open( store->db_path, flags, (mode_t)0600 );
+  int fd = open( path, O_RDWR|O_CREAT|O_TRUNC, (mode_t)0600 );
+  if( FD_UNLIKELY( fd<0 ) ) return -1;
+
+  int err = 0;
+  if( FD_UNLIKELY( ftruncate( fd, (off_t)file_sz ) ) ) err = errno;
+  else if( FD_UNLIKELY( wire_sz && fallocate( fd, 0, (off_t)wire_off, (off_t)wire_sz ) ) ) err = errno;
+  if( FD_UNLIKELY( err ) ) {
+    if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_WARNING(( "close(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    errno = err;
+    return -1;
+  }
+  return fd;
 }
 
 void *

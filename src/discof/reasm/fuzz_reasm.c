@@ -494,7 +494,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( fuzz_reasm_mem, FUZZ_FEC_MAX, fuzz_bounded( &cur, 1024UL ) ) );
   FD_TEST( reasm );
   fuzz_store = fd_store_join( fd_store_new( fuzz_store_mem, FUZZ_STORE_FEC_MAX, 1UL, 0UL, 1UL, 0UL,
-                                            "/tmp/fuzz_reasm.store", fuzz_bounded( &cur, 1024UL ) ) );
+                                            fuzz_bounded( &cur, 1024UL ) ) );
   FD_TEST( fuzz_store );
   FD_TEST( fd_store_map_ljoin( fuzz_store, fuzz_store_map ) );
   FD_TEST( fd_reasm_init( reasm, root_key, 0UL ) );

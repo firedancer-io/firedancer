@@ -123,6 +123,7 @@ run_firedancer_threaded( config_t * config,
   }
 
   initialize_accdb_fd( config );
+  initialize_store_fds( config );
   if( FD_LIKELY( config->is_firedancer ) ) {
     initialize_snapshot_fds( config );
   }

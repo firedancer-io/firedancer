@@ -12,6 +12,12 @@
 
 #define FD_STORE_ALIGN (128UL)
 
+/* The launcher creates the Store backing file before starting any tile
+   and passes these descriptors through exec.  Keep them adjacent to the
+   accdb descriptor range, but distinct from it. */
+#define FD_STORE_FD_RW (123459)
+#define FD_STORE_FD_RO (123458)
+
 /* Spill and cache slots are page aligned. */
 #define FD_STORE_PAYLOAD_PAGE_SZ (FD_SHMEM_NORMAL_PAGE_SZ)
 
@@ -21,7 +27,7 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
   if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702e7UL) /* firedancer store version 7 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702e8UL) /* firedancer store version 8 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -129,9 +135,6 @@ struct fd_store {
   ulong payload_slot_sz;
   ulong payload_sz;                          /* logical spill region size: payload_slot_sz*fec_max */
   ulong wire_off;                            /* byte offset where the rserve wire region begins */
-  char  db_path[ PATH_MAX ];
-  atomic_int file_init_state;
-  int        file_init_errno;
 
   /* RAM FEC payload cache.  cache_slot_cnt is usually much smaller than
      fec_max.  cache_free is a stack of slot indices protected by
@@ -277,19 +280,17 @@ fd_store_new( void       * shmem,
               ulong        shred_storage_gib,
               ulong        shred_cache_bytes,
               ulong        fec_set_cnt,
-              char const * db_path,
               ulong        seed );
 
 fd_store_t * fd_store_join ( void * shstore );
 void *       fd_store_leave( fd_store_t const * store );
 void *       fd_store_delete( void * shstore );
 
-/* file_init creates the sparse backing file once.  file_open waits for
-   initialization and rejects O_CREAT, O_EXCL, and O_TRUNC.  Both return
-   -1 with errno set on failure. */
+/* Creates, truncates, sizes, and allocates the Store backing file. */
 
-int fd_store_file_init( fd_store_t * store );
-int fd_store_file_open( fd_store_t * store, int flags );
+int fd_store_file_create( char const * path,
+                          ulong        wire_off,
+                          ulong        disk_max_shreds );
 
 /* Reclaims one spill slot.  Returns non-zero if there was work. */
 
