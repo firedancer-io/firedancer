@@ -447,6 +447,7 @@ forktest_fn( args_t *   args,
   initialize_workspaces( config );
   initialize_stacks( config );
   initialize_accdb_fd( config );
+  initialize_store_fds( config );
   initialize_snapshot_fds( config );
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
