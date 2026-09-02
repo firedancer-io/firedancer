@@ -49,7 +49,7 @@ typedef struct {
   ushort    num_data_shreds;
   ushort    num_coding_shreds;
   uint      shred_cnt;
-  uint      shred_offs[ FD_FEC_SHRED_CNT ];
+  ushort    shred_sz[ FD_FEC_SHRED_CNT ];
   int       data_complete;
   int       slot_complete;
   ulong     payload_sz;
@@ -100,7 +100,8 @@ capture_completed_fec( fd_spad_t *                spad,
       memcpy( payload + payload_sz, fd_shred_data_payload( shred ), shred_payload_sz );
       payload_sz += shred_payload_sz;
     }
-    out->shred_offs[ i ] = (uint)payload_sz;
+    FD_TEST( shred_payload_sz<=USHORT_MAX );
+    out->shred_sz[ i ] = (ushort)shred_payload_sz;
   }
 
   fd_shred_t const * last = fd_shred_parse( set->data_shreds[ data_cnt-1U ].b, FD_SHRED_MIN_SZ, FD_SHRED_BLK_MAX );
@@ -392,8 +393,9 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
 
       fd_store_fec_t store_fec[1] = {0};
       store_fec->key = popped_rec->mr;
-      store_fec->data_sz         = popped_rec->payload_sz;
-      memcpy( store_fec->shred_offs, popped_rec->shred_offs, sizeof(store_fec->shred_offs) );
+      FD_TEST( popped_rec->payload_sz<=UINT_MAX );
+      store_fec->data_sz = (uint)popped_rec->payload_sz;
+      memcpy( store_fec->shred_sz, popped_rec->shred_sz, sizeof(store_fec->shred_sz) );
 
       fd_sched_fec_t sched_fec = {
         .bank_idx          = bank_idx,

@@ -157,8 +157,9 @@ run_interleaved_fec_residual_case( void ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-    store_fec->data_sz         = split_off[ i ];
-    store_fec->shred_offs[ 0 ] = (uint)split_off[ i ];
+    FD_TEST( split_off[ i ]<=USHORT_MAX );
+    store_fec->data_sz       = (uint)split_off[ i ];
+    store_fec->shred_sz[ 0 ] = (ushort)split_off[ i ];
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx          = 2UL+i,
       .parent_bank_idx   = 1UL,
@@ -177,14 +178,18 @@ run_interleaved_fec_residual_case( void ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-    store_fec->data_sz         = encoded_sz[ i ]-split_off[ i ];
+    store_fec->data_sz = (uint)(encoded_sz[ i ]-split_off[ i ]);
     ulong txn_rem = txn_sz-txn_sz/2UL;
     if( !i ) {
-      store_fec->shred_offs[ 0 ] = (uint)(txn_rem/2UL);
-      store_fec->shred_offs[ 1 ] = (uint)txn_rem;
-      store_fec->shred_offs[ 2 ] = (uint)store_fec->data_sz;
+      FD_TEST( txn_rem<=USHORT_MAX );
+      FD_TEST( store_fec->data_sz>=txn_rem );
+      FD_TEST( store_fec->data_sz-(uint)txn_rem<=USHORT_MAX );
+      store_fec->shred_sz[ 0 ] = (ushort)(txn_rem/2UL);
+      store_fec->shred_sz[ 1 ] = (ushort)(txn_rem-txn_rem/2UL);
+      store_fec->shred_sz[ 2 ] = (ushort)(store_fec->data_sz-(uint)txn_rem);
     } else {
-      store_fec->shred_offs[ 0 ] = (uint)store_fec->data_sz;
+      FD_TEST( store_fec->data_sz<=USHORT_MAX );
+      store_fec->shred_sz[ 0 ] = (ushort)store_fec->data_sz;
     }
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx         = 2UL+i,
@@ -278,8 +283,9 @@ run_bad_tick_case( fd_hash_t const * start_poh,
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-  store_fec->data_sz       = encoded_sz;
-  store_fec->shred_offs[0] = (uint)encoded_sz;
+  FD_TEST( encoded_sz<=USHORT_MAX );
+  store_fec->data_sz       = (uint)encoded_sz;
+  store_fec->shred_sz[ 0 ] = (ushort)encoded_sz;
 
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = 2UL,
@@ -387,8 +393,9 @@ run_poh_spread_case( ulong tick_cnt,
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-  store_fec->data_sz       = encoded_sz;
-  store_fec->shred_offs[0] = (uint)encoded_sz;
+  FD_TEST( encoded_sz<=USHORT_MAX );
+  store_fec->data_sz       = (uint)encoded_sz;
+  store_fec->shred_sz[ 0 ] = (ushort)encoded_sz;
 
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = 2UL,
@@ -832,8 +839,8 @@ run_zero_hashcnt_mblk_case( void ) {
 
   fd_store_fec_t store_fec0[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec0, 0, sizeof(fd_store_fec_t) );
-  store_fec0->data_sz         = fec0_sz;
-  store_fec0->shred_offs[ 0 ] = (uint)fec0_sz;
+  store_fec0->data_sz         = (uint)fec0_sz;
+  store_fec0->shred_sz[ 0 ]   = (ushort)fec0_sz;
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = 2UL,
     .parent_bank_idx   = 1UL,
@@ -895,8 +902,8 @@ run_zero_hashcnt_mblk_case( void ) {
 
   fd_store_fec_t store_fec1[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec1, 0, sizeof(fd_store_fec_t) );
-  store_fec1->data_sz         = fec1_sz;
-  store_fec1->shred_offs[ 0 ] = (uint)fec1_sz;
+  store_fec1->data_sz         = (uint)fec1_sz;
+  store_fec1->shred_sz[ 0 ]   = (ushort)fec1_sz;
   fec->fec               = store_fec1;
   fec->data              = fec1;
   fec->is_first_in_block = 0U;
@@ -929,8 +936,8 @@ run_zero_hashcnt_mblk_case( void ) {
 
   fd_store_fec_t store_fec2[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec2, 0, sizeof(fd_store_fec_t) );
-  store_fec2->data_sz         = fec2_sz;
-  store_fec2->shred_offs[ 0 ] = (uint)fec2_sz;
+  store_fec2->data_sz         = (uint)fec2_sz;
+  store_fec2->shred_sz[ 0 ]   = (ushort)fec2_sz;
   fec->fec  = store_fec2;
   fec->data = fec2;
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
@@ -1006,8 +1013,9 @@ run_runtime_limit_case( void ) {
 
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-    store_fec->data_sz         = sizeof(encoded);
-    store_fec->shred_offs[ 0 ] = (uint)sizeof(encoded);
+    FD_TEST( sizeof(encoded)<=USHORT_MAX );
+    store_fec->data_sz       = (uint)sizeof(encoded);
+    store_fec->shred_sz[ 0 ] = (ushort)sizeof(encoded);
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx          = 2UL,
       .parent_bank_idx   = 1UL,
