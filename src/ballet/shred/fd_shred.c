@@ -14,14 +14,10 @@ fd_shred_parse( uchar const * const buf,
      Safe to access because `variant` ends at 0x41, which is <= 0x58 */
   uchar variant = shred->variant;
   uchar type = fd_shred_type( variant );
-  if( FD_UNLIKELY( (type!=FD_SHRED_TYPE_MERKLE_DATA) &
-                   (type!=FD_SHRED_TYPE_MERKLE_CODE) &
-                   (type!=FD_SHRED_TYPE_MERKLE_DATA_CHAINED) &
+  if( FD_UNLIKELY( (type!=FD_SHRED_TYPE_MERKLE_DATA_CHAINED) &
                    (type!=FD_SHRED_TYPE_MERKLE_CODE_CHAINED) &
                    (type!=FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED) &
-                   (type!=FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED) &
-                   (variant!=0xa5 /*FD_SHRED_TYPE_LEGACY_DATA*/ ) &
-                   (variant!=0x5a /*FD_SHRED_TYPE_LEGACY_CODE*/ ) ) )
+                   (type!=FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED) ) )
     return NULL;
 
   /* There are six sections of a shred that can contribute to the size:
@@ -40,21 +36,12 @@ fd_shred_parse( uchar const * const buf,
   if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) ) {
     if( FD_UNLIKELY( shred->data.size<header_sz ) ) return NULL;
     payload_sz = (ulong)shred->data.size - header_sz; /* between 0 and USHORT_MAX */
-    if( FD_UNLIKELY( (type!=FD_SHRED_TYPE_LEGACY_DATA) & (sz<FD_SHRED_MIN_SZ) ) ) return NULL;
+    if( FD_UNLIKELY( sz<FD_SHRED_MIN_SZ ) ) return NULL;
 
-    /* legacy data shreds might be shorter than the normal
-       FD_SHRED_MIN_SZ, but they don't have Merkle proofs, so everything
-       after the payload is zero-padding/ignored.  On the other hand,
-       Merkle data shreds might have some zero-padding, but anything
-       between [FD_SHRED_MIN_SZ, sz) is extra bytes after the shred
-       (which we don't care about the contents of but also tolerate).
-       The Merkle proof is not in bytes [sz-merkle_proof_sz, sz) but in
-       [FD_SHRED_MIN_SZ-merkle_proof_sz, FD_SHRED_MIN_SZ).  From above,
-       we know sz >= FD_SHRED_MIN_SZ in this case. */
-    uchar is_legacy_data_shred = type==FD_SHRED_TYPE_LEGACY_DATA;
-    ulong effective_sz = fd_ulong_if( is_legacy_data_shred, sz, FD_SHRED_MIN_SZ );
-    if( FD_UNLIKELY( effective_sz < header_sz+payload_sz+trailer_sz ) ) return NULL;
-    zero_padding_sz = effective_sz - header_sz - payload_sz - trailer_sz;
+    /* Bytes in [FD_SHRED_MIN_SZ, sz) are trailing data.  Merkle proof
+       remains immediately before FD_SHRED_MIN_SZ. */
+    if( FD_UNLIKELY( FD_SHRED_MIN_SZ < header_sz+payload_sz+trailer_sz ) ) return NULL;
+    zero_padding_sz = FD_SHRED_MIN_SZ - header_sz - payload_sz - trailer_sz;
   }
   else if( FD_LIKELY( type & FD_SHRED_TYPEMASK_CODE ) ) {
     zero_padding_sz = 0UL;

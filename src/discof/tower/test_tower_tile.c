@@ -816,10 +816,10 @@ test_eqvoc_erc_diff( fd_wksp_t * wksp ) {
     memset( s2, 0, sizeof(s2) );
     fd_shred_t * shred1 = (fd_shred_t *)s1;
     fd_shred_t * shred2 = (fd_shred_t *)s2;
-    shred1->variant     = FD_SHRED_TYPE_MERKLE_DATA;
+    shred1->variant     = FD_SHRED_TYPE_MERKLE_DATA_CHAINED;
     shred1->slot        = slot;
     shred1->fec_set_idx = 0;
-    shred2->variant     = FD_SHRED_TYPE_MERKLE_DATA;
+    shred2->variant     = FD_SHRED_TYPE_MERKLE_DATA_CHAINED;
     shred2->slot        = slot;
     shred2->fec_set_idx = 0;
     fd_gossip_duplicate_shred_t proof_chunks[FD_EQVOC_CHUNK_CNT];

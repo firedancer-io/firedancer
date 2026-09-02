@@ -61,8 +61,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_shred_t const * shred;
-
   /* Test shred parsing rules. */
   for( uint i = 0; i < 0x100U; i++ ) {
     /* Create fake shred */
@@ -74,15 +72,13 @@ main( int     argc,
                       "buffer must be large enough to fit shred with 15 merkle nodes" );
 
     /* Test type detection */
-    int is_legacy  =  i      ==0x5a ||  i      ==0xa5;
-    int is_merkle  = (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA
-      || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED
+    int is_merkle  = (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED
       || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED;
-    int is_data    =  i      ==0xa5 || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA  || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED;
-    int is_code    =  i      ==0x5a || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE  || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED;
+    int is_data    = (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED;
+    int is_code    = (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED;
     int is_resigned = ((i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED );
     int is_chained = ((i&0xf0)==FD_SHRED_TYPE_MERKLE_DATA_CHAINED || (i&0xf0)==FD_SHRED_TYPE_MERKLE_CODE_CHAINED ) || is_resigned;
-    int is_valid   = ((is_legacy^is_merkle) && (is_data^is_code) && (!is_chained || is_merkle)) || (is_resigned && is_chained && !is_legacy);
+    int is_valid   = is_merkle && (is_data^is_code);
 
     /* Find sizes for shred type */
     ulong header_sz = 0;
@@ -134,52 +130,12 @@ main( int     argc,
 
 # define PARSE(x) fd_shred_parse( x, sizeof(x), FD_SHRED_BLK_MAX )
 
-  /* Parse legacy data shred. */
-  shred = PARSE( fixture_legacy_data_shred );
-  FD_TEST( shred != NULL );
-  FD_TEST( !memcmp( shred->signature, fixture_legacy_data_shred, sizeof(shred->signature) ) );
-  FD_TEST( fd_shred_type      ( shred->variant )==FD_SHRED_TYPE_LEGACY_DATA );
-  FD_TEST( fd_shred_merkle_cnt( shred->variant )==0 );
-  FD_TEST( shred->slot           ==141939602 );
-  FD_TEST( shred->idx            ==    28685 );
-  FD_TEST( shred->version        ==    45189 );
-  FD_TEST( shred->fec_set_idx    ==    28657 );
-  FD_TEST( shred->data.parent_off==    36390 );
-  FD_TEST( shred->data.flags     ==     0xe5 );
-
-  /* Parse empty legacy data shred. */
-  shred = PARSE( fixture_legacy_data_shred_empty );
-  FD_TEST( shred != NULL );
-  FD_TEST( !memcmp( shred->signature, fixture_legacy_data_shred_empty, sizeof(shred->signature) ) );
-  FD_TEST( fd_shred_type      ( shred->variant )==FD_SHRED_TYPE_LEGACY_DATA );
-  FD_TEST( fd_shred_merkle_cnt( shred->variant )==0 );
-  FD_TEST( shred->slot           ==142076266 );
-  FD_TEST( shred->idx            ==    21443 );
-  FD_TEST( shred->version        ==    59445 );
-  FD_TEST( shred->fec_set_idx    ==    21414 );
-  FD_TEST( shred->data.parent_off==    51279 );
-  FD_TEST( shred->data.flags     ==     0x71 );
-  FD_TEST( shred->data.size      ==     0x58 );
-
-  /* Parse legacy coding shred. */
-  shred = PARSE( fixture_legacy_coding_shred );
-  FD_TEST( shred != NULL );
-  FD_TEST( !memcmp( shred->signature, fixture_legacy_coding_shred, sizeof(shred->signature) ) );
-  FD_TEST( fd_shred_type      ( shred->variant )==FD_SHRED_TYPE_LEGACY_CODE );
-  FD_TEST( fd_shred_merkle_cnt( shred->variant )==0 );
-  FD_TEST( shred->slot         == 141945197 );
-  FD_TEST( shred->idx          ==     23418 );
-  FD_TEST( shred->version      ==     47298 );
-  FD_TEST( shred->fec_set_idx  ==     21259 );
-  FD_TEST( shred->code.data_cnt==        32 );
-  FD_TEST( shred->code.code_cnt==        58 );
-  FD_TEST( shred->code.idx     ==        43 );
+  /* Agave rejects both legacy shred variants. */
+  FD_TEST( !PARSE( fixture_legacy_data_shred       ) );
+  FD_TEST( !PARSE( fixture_legacy_data_shred_empty ) );
+  FD_TEST( !PARSE( fixture_legacy_coding_shred     ) );
 
 # undef PARSE
-  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_LEGACY_DATA                  )==FD_SHRED_TYPE_LEGACY_CODE                  );
-  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_LEGACY_CODE                  )==FD_SHRED_TYPE_LEGACY_DATA                  );
-  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_DATA                  )==FD_SHRED_TYPE_MERKLE_CODE                  );
-  FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_CODE                  )==FD_SHRED_TYPE_MERKLE_DATA                  );
   FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_DATA_CHAINED          )==FD_SHRED_TYPE_MERKLE_CODE_CHAINED          );
   FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_CODE_CHAINED          )==FD_SHRED_TYPE_MERKLE_DATA_CHAINED          );
   FD_TEST( fd_shred_swap_type( FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED )==FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED );

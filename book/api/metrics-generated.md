@@ -705,7 +705,6 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">completes</span>"} | counter | Result of processing a shred from the network (Shred accepted and resulted in a valid, complete FEC set) |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;spilled</span> | counter | FEC sets spilled because they didn't complete in time and we needed space |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;initial_&#8203;rejected</span> | counter | Shreds rejected before any resources were allocated for the FEC set |
-| <span class="metrics-name">shred_&#8203;shred_&#8203;unchained_&#8203;rejected</span> | counter | Shreds rejected because they're not chained merkle shreds |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;fatal_&#8203;rejected</span> | counter | FEC sets rejected for reasons that cause the whole FEC set to become invalid |
 | <span class="metrics-name">shred_&#8203;nonce_&#8203;invalid</span> | counter | Shreds received that seemed to be repair responses but had an incorrect nonce |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rx</span> | counter | Repair shreds received |

@@ -543,12 +543,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     }
   }
 
-  if( FD_UNLIKELY( (shred_type==FD_SHRED_TYPE_LEGACY_DATA) | (shred_type==FD_SHRED_TYPE_LEGACY_CODE) ) ) {
-    /* Reject any legacy shreds */
-    return FD_FEC_RESOLVER_SHRED_REJECTED;
-  }
-
-
   wrapped_sig_t const * w_sig = (wrapped_sig_t const *)shred->signature;
 
   /* Is this FEC set in progress? */
