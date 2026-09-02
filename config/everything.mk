@@ -68,6 +68,29 @@ $(error dry goals [$(filter $(DRY_RULES),$(MAKECMDGOALS))] cannot be mixed with 
 endif
 endif
 
+define newline
+
+
+endef
+
+# Dry runs (-n/-q/-t) must not write stamps; their letters only count in
+# a bare leading short-flag cluster
+FD_MF1:=$(firstword $(MAKEFLAGS))
+FD_MF1:=$(if $(findstring =,$(FD_MF1))$(filter -%,$(FD_MF1)),,$(FD_MF1))
+FD_DRYRUN:=$(findstring n,$(FD_MF1))$(findstring q,$(FD_MF1))$(findstring t,$(FD_MF1))
+# Member-list stamps and manifests are written while the fragments parse:
+# $(call stamp,file,content) stages a rewrite only when content changed;
+# staged files are published atomically after the includes.  Dry runs
+# instead mark a changed stamp phony so -n/-q report the pending work.
+# A LOCAL_MKS subset parse sees partial member lists: no stamps then.
+ifeq ($(filter $(AUX_RULES) $(DRY_RULES),$(MAKECMDGOALS))$(FD_DRYRUN)$(filter-out file,$(origin LOCAL_MKS)),)
+FD_STAMPS:=1
+$(shell mkdir -p $(addprefix $(OBJDIR)/,bin lib unit-test integration-test fuzz-test))
+endif
+stamp = $(if $(subst |$(strip $(file <$(1))),,|$(strip $(2))),$(if $(FD_STAMPS),$(file >$(1).tmp,$(2))$(eval STAMPED+=$(1)),$(if $(FD_DRYRUN),$(eval .PHONY: $(1)))))
+# per-target link-flag stamp name (see the .ldflags.d rule)
+ldstamp = $(OBJDIR)/.ldflags.d/$(1)_$(2)@$(subst /,_,$(subst $(space),_,$(strip $(subst $(OPT)/,,$(subst $(OBJDIR)/,,$(subst $(CURDIR)/,,$(3)))))))
+
 # Quiet/verbose build switch
 Q=@
 ifeq ($(VERBOSE),1)
@@ -127,6 +150,7 @@ help:
 	# "make ppp" run all source files through the preprocessor
 	# "make show-deps" shows all the dependencies
 	# "make objdir" prints the build directory for the current configuration
+	# "make prune" removes build outputs whose registration vanished
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 	# Fuzzing (requires fuzzing profile):
 	#   "make fuzz-test" makes all fuzz-tests for the current platform
@@ -156,6 +180,8 @@ run-integration-test:
 
 define _make-lib
 
+# registered here too, so a lib whose last member is dropped still re-archives
+LIB_NAMES+=$(1)
 lib: $(OBJDIR)/lib/lib$(1).a
 
 endef
@@ -168,6 +194,9 @@ make-lib = $(eval $(call _make-lib,$(1)))
 define _add-objs
 
 DEPFILES+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
+
+LIB_NAMES+=$(2)
+LIB_OBJS_$(2)+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
 
 $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
 
@@ -183,6 +212,9 @@ define _add-asms
 # separate from DEPFILES: asm objects have no .S/.i/.check-from-.c targets
 ASM_DEPFILES+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
+LIB_NAMES+=$(2)
+LIB_OBJS_$(2)+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
+
 $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
 
 endef
@@ -193,6 +225,8 @@ add-asms = $(eval $(call _add-asms,$(1),$(2)))
 # Usage: $(call add-hdrs,hdrs)
 
 define _add-hdrs
+
+HDR_EXPORTS+=$(foreach hdr,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/include/firedancer/%,$(OBJDIR)/$(MKPATH)$(hdr)))
 
 include: $(foreach hdr,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/include/firedancer/%,$(OBJDIR)/$(MKPATH)$(hdr)))
 
@@ -207,6 +241,8 @@ add-hdrs = $(eval $(call _add-hdrs,$(1)))
 # Note: This doesn't mirror the directory hierarchy so can't use generic rule
 
 define _add-script
+
+ALL_EXES+=$(OBJDIR)/$(1)/$(2)
 
 $(OBJDIR)/$(1)/$(2): $(MKPATH)$(2)
 	$(Q)$(MKDIR) $$(dir $$@) && \
@@ -248,10 +284,15 @@ define _make-exe
 
 DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
+ALL_EXES+=$(OBJDIR)/$(5)/$(1)
+# member list: resolved objs + libs (arg 6 has its own .ldflags.d stamp)
+$(call stamp,$(OBJDIR)/$(5)/$(1).mlist,$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(3))
+EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)),$(OBJDIR)/$(5)/$(1).buildinfo.c $(OBJDIR)/$(5)/$(1).buildinfo.o $(BASEDIR)/$(1))
+
 .PHONY: $(1)
 $(1): $(OBJDIR)/$(5)/$(1)
 
-$(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a) $(OBJDIR)/.ldflags $(OBJDIR)/.ldflags.d/$(5)_$(1)@$(subst /,_,$(subst $(space),_,$(strip $(subst $(OPT)/,,$(subst $(OBJDIR)/,,$(subst $(CURDIR)/,,$(6)))))))
+$(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a) $(OBJDIR)/.ldflags $(call ldstamp,$(5),$(1),$(6)) $(OBJDIR)/$(5)/$(1).mlist
 	@echo -e "LD\t$$(notdir $$@) ($(5))"
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $(if $(filter bin,$(5)),{ echo 'char const fd_bin_build_info[] ='; echo "  \"# date     $$$$(date +'%Y-%m-%d %H:%M:%S %z')\\n\""; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $$@.buildinfo.c && $$(CC) -c -o $$@.buildinfo.o $$@.buildinfo.c && ) \
@@ -407,8 +448,9 @@ $(OBJDIR)/obj/%.check : src/%.S
 $(OBJDIR)/lib/%.a :
 	@echo -e "AR\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
-$(RM) $@ && \
-$(AR) $(ARFLAGS) $@ $^
+$(RM) $@.tmp && \
+$(AR) $(ARFLAGS) $@.tmp $(filter %.o,$^) && \
+mv -f $@.tmp $@
 
 $(OBJDIR)/include/firedancer/% : src/%
 	$(Q)$(MKDIR) $(dir $@) && \
@@ -434,12 +476,7 @@ $(foreach mk,$(LOCAL_MKS),$(eval $(call _include-mk,$(mk))))
 # $(OBJDIR)/.ldflags.d/<target>@<arg 6> stamp (constant path prefixes
 # dropped from the name), so a link-flag change relinks only that target;
 # its previous stamp is dropped, so flipping back relinks too.
-# Written after the fragments (any of them may extend the flags).  Dry
-# runs (-n/-q/-t) must not write; their letters only count in a bare
-# leading short-flag cluster (both 4.3 and 4.4.x encode them there).
-FD_MF1:=$(firstword $(MAKEFLAGS))
-FD_MF1:=$(if $(findstring =,$(FD_MF1))$(filter -%,$(FD_MF1)),,$(FD_MF1))
-FD_DRYRUN:=$(findstring n,$(FD_MF1))$(findstring q,$(FD_MF1))$(findstring t,$(FD_MF1))
+# Written after the fragments (any of them may extend the flags).
 FLAVOR:=$(MACHINE) | $(sort $(EXTRAS)) | $(CC_ID) $(CC_VERSION) | $(CPPFLAGS) | $(CFLAGS)
 LINK_FLAVOR:=$(LD_ID) | $(LDFLAGS) | $(LDFLAGS_EXE) | $(LDFLAGS_SO) | $(LDFLAGS_FUZZ)
 ifeq ($(filter $(DRY_RULES),$(MAKECMDGOALS))$(FD_DRYRUN),)
@@ -462,12 +499,46 @@ $(OBJDIR)/.flags $(OBJDIR)/.ldflags: ;@:
 $(OBJDIR)/.ldflags.d/%:
 	@$(MKDIR) $(dir $@) && $(RM) "$(dir $@)$(firstword $(subst @, ,$(notdir $@)))@"* && $(TOUCH) $@
 
+# Member-list stamps: an archive/exe whose registered member set changed
+# (delete/rename/move) must re-archive/relink even when no member is newer
+$(foreach l,$(sort $(LIB_NAMES)),$(call stamp,$(OBJDIR)/lib/lib$(l).a.mlist,$(sort $(LIB_OBJS_$(l))))$(eval $(OBJDIR)/lib/lib$(l).a: $(OBJDIR)/lib/lib$(l).a.mlist))
+ifdef FD_STAMPS
+ALL_OBJS:=$(sort $(DEPFILES:.d=.o) $(ASM_DEPFILES:.d=.o) $(THIRDPARTY_DEPFILES:.d=.o))
+$(call stamp,$(OBJDIR)/obj.manifest,$(subst $(space),$(newline),$(ALL_OBJS)))
+$(call stamp,$(OBJDIR)/exe.manifest,$(subst $(space),$(newline),$(sort $(ALL_EXES))))
+$(if $(STAMPED),$(shell for f in $(STAMPED); do mv -f $$f.tmp $$f 2>/dev/null; done))
+endif
+
+# Parse-time code above owns the stamps; never remake them as targets
+$(OBJDIR)/%.mlist $(OBJDIR)/%.manifest: ;@:
+
+# Remove build outputs whose registration vanished (deleted/renamed sources,
+# dropped tests): stale leftovers otherwise satisfy links, get executed by
+# name-addressed scripts (incl. build/<name>), and pollute object scanners.
+# CI: make prune && make -j.  Deletes by manifest sweep; never run it beside
+# concurrent goals
+ifneq ($(filter prune,$(MAKECMDGOALS)),)
+ifneq ($(filter-out prune,$(MAKECMDGOALS)),)
+$(error prune cannot be mixed with other goals; run 'make prune && make ...')
+endif
+ifneq ($(filter-out file,$(origin LOCAL_MKS)),)
+$(error prune needs the full fragment set; unset LOCAL_MKS)
+endif
+# everything a registered rule produces in the dirs prune sweeps
+$(file >$(OBJDIR)/prune.keep,$(subst $(space),$(newline),$(sort $(ALL_OBJS) $(ALL_OBJS:.o=.d) $(DEPFILES:.d=.S) $(DEPFILES:.d=.i) $(ALL_EXES) $(ALL_EXES:=.mlist) $(EXE_KEEP) $(foreach l,$(LIB_NAMES),$(OBJDIR)/lib/lib$(l).a $(OBJDIR)/lib/lib$(l).a.mlist) $(HDR_EXPORTS) $(OBJDIR)/unit-test/automatic.txt $(OBJDIR)/integration-test/automatic.txt $(PRUNE_KEEP))))
+endif
+.PHONY: prune
+prune:
+	$(Q){ $(FIND) $(addprefix $(OBJDIR)/,obj include .ldflags.d) -type f; \
+$(FIND) $(addprefix $(OBJDIR)/,bin unit-test integration-test fuzz-test lib) -maxdepth 1 -type f; \
+$(FIND) $(BASEDIR)/ -maxdepth 1 -type f -perm -u+x; } 2>/dev/null | LC_ALL=C sort | LC_ALL=C comm -23 - $(OBJDIR)/prune.keep | xargs $(RM)
+
 # Include all the dependencies.  Must be after the make fragments
 # include so that DEPFILES is fully populated (similarly for the
 # show-deps target).
 
 show-deps:
-	@for d in $(DEPFILES) $(ASM_DEPFILES); do echo $$d; done
+	@for d in $(DEPFILES) $(ASM_DEPFILES) $(THIRDPARTY_DEPFILES); do echo $$d; done
 
 # Define the check target.  Must be after the make fragments include so that
 # DEPFILES is fully populated
@@ -480,6 +551,8 @@ ifeq ($(filter $(AUX_RULES) $(DRY_RULES),$(MAKECMDGOALS)),)
 # trees, which kept make busy before it could start compiling objects.
 -include $(DEPFILES)
 -include $(ASM_DEPFILES)
+# vendored third_party TUs track deps separately (kept out of make check)
+-include $(THIRDPARTY_DEPFILES)
 endif
 
 # Define the asm target.  Must be after the make fragments include so that

@@ -115,6 +115,9 @@ endif
 
 # Phony prereq reruns the copy every build; cp only on content change
 # so dependents relink exactly when the cargo output changed.
+# not make-exe/make-lib registered; keep from make prune
+PRUNE_KEEP+=$(OBJDIR)/lib/libagave_validator.a $(OBJDIR)/bin/solana $(OBJDIR)/bin/agave-ledger-tool $(BASEDIR)/solana $(BASEDIR)/agave-ledger-tool
+
 $(OBJDIR)/lib/libagave_validator.a: cargo-validator
 	$(MKDIR) $(dir $@) && { cmp -s agave/target/$(RUST_PROFILE)/libagave_validator.a $@ || cp agave/target/$(RUST_PROFILE)/libagave_validator.a $@; }
 
