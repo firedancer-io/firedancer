@@ -1,4 +1,5 @@
 #include "fd_runtime.h"
+#include "fd_bank.h"
 #include "../events/fd_event_runtime.h"
 
 #include "../types/fd_cast.h"
@@ -624,10 +625,22 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
-  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
+  ushort stake_delegations_fork_ids[ banks->max_total_banks ];
+  ulong  stake_delegations_fork_id_cnt = fd_banks_stake_delegations_fork_ids( banks, bank, stake_delegations_fork_ids );
+  fd_stake_history_t   stake_delegations_history_[1];
+  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_delegations_history_ );
+
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "stake_delegations is NULL" ));
   }
+  fd_stake_delegations_mark_fork_deltas( stake_delegations,
+                                         bank->f.epoch,
+                                         stake_delegations_history,
+                                         &bank->f.warmup_cooldown_rate_epoch,
+                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                         stake_delegations_fork_ids,
+                                         stake_delegations_fork_id_cnt );
 
   /* Wipe WARMED tags awarded under the old floating point math when the
      fixed point math activates.  This will force all the effective
@@ -668,7 +681,13 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
      reward partitions have been calculated. */
   fd_stake_history_ensure_rent_exempt( bank, accdb, capture_ctx );
 
-  fd_bank_stake_delegations_end_frontier_query( banks, bank );
+  fd_stake_delegations_unmark_fork_deltas( stake_delegations,
+                                           bank->f.epoch-1UL,
+                                           stake_delegations_history,
+                                           &bank->f.warmup_cooldown_rate_epoch,
+                                           FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                           stake_delegations_fork_ids,
+                                           stake_delegations_fork_id_cnt );
 
   /* The Agave client handles updating their stakes cache with a call to
      update_epoch_stakes() which keys stakes by the leader schedule

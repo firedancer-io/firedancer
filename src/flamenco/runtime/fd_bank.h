@@ -494,33 +494,15 @@ fd_bank_lthash_locking_modify( fd_bank_t * bank );
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 
-/* fd_bank_stake_delegations_frontier_query() will return a pointer to
-   the full stake delegations for the current frontier.  It takes the
-   stake delegations write lock, excluding mutators in other tiles until
-   fd_bank_stake_delegations_end_frontier_query() releases it.
+/* fd_banks_stake_delegations_fork_ids writes the stake delegation fork
+   IDs in bank's ancestry to fork_ids in root-to-bank order, skipping
+   banks without a fork ID, and returns the number written.  fork_ids
+   must have room for banks->max_total_banks elements. */
 
-   Under the hood, the function applies all of the stake delegation
-   deltas from all banks starting from the root down to the current bank
-   to the rooted version of the stake delegations.  This is done in a
-   reversible way and is unwound with a call to
-   fd_bank_stake_delegations_end_frontier_query(). */
-
-fd_stake_delegations_t *
-fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
-                                          fd_bank_t *  bank );
-
-/* fd_bank_stake_delegations_end_frontier_query() will finish the
-   reversible operation started by
-   fd_bank_stake_delegations_frontier_query().  It is unsafe to call
-   fd_bank_stake_delegations_frontier_query multiple times without
-   calling this function in between.
-
-   Under the hood, it undoes any references to the stake delegation
-   deltas that were applied. */
-
-void
-fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
-                                              fd_bank_t *  bank );
+ulong
+fd_banks_stake_delegations_fork_ids( fd_banks_t *      banks,
+                                     fd_bank_t const * bank,
+                                     ushort *          fork_ids );
 
 /* fd_banks_stake_delegations_root_query() will return a pointer to the
    full stake delegations for the current root. This function should

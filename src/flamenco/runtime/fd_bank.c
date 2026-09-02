@@ -671,6 +671,30 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   return child_bank;
 }
 
+ulong
+fd_banks_stake_delegations_fork_ids( fd_banks_t *      banks,
+                                     fd_bank_t const * bank,
+                                     ushort *          fork_ids ) {
+  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
+
+  ulong fork_id_cnt = 0UL;
+  fd_bank_t const * curr_bank = fd_banks_pool_ele( bank_pool, bank->idx );
+  while( !!curr_bank ) {
+    if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
+      fork_ids[ fork_id_cnt++ ] = curr_bank->stake_delegations_fork_id;
+    }
+    curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
+  }
+
+  for( ulong i=0UL; i<fork_id_cnt/2UL; i++ ) {
+    ushort tmp                    = fork_ids[ i ];
+    fork_ids[ i ]                 = fork_ids[ fork_id_cnt-1UL-i ];
+    fork_ids[ fork_id_cnt-1UL-i ] = tmp;
+  }
+
+  return fork_id_cnt;
+}
+
 /* fd_bank_stake_delegation_apply_deltas applies all of the stake
    delegations for the entire direct ancestry from the bank to the
    root into a full fd_stake_delegations_t object. */
@@ -693,112 +717,20 @@ fd_bank_apply_deltas( fd_banks_t * banks,
   /* Naively what we want to do is iterate from the old root to the new
      root and apply the delta to the full state iteratively. */
 
-  /* First, gather all of the pool indices that we want to apply deltas
-     for in reverse order starting from the new root. We want to exclude
-     the old root since its delta has been applied previously. */
+  /* Gather all fork IDs from the old root to the new root.  The old
+     root has no fork ID because its delta was applied previously. */
   ushort pool_indices[ banks->max_total_banks ];
-  ulong  pool_indices_len = 0UL;
-
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-
-  fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, bank->idx );
-  while( !!curr_bank ) {
-    FD_LOG_DEBUG(( "applying bank delta (bank_idx=%lu, sd_fork_idx=%u)", curr_bank->idx, curr_bank->stake_delegations_fork_id ));
-    if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
-      pool_indices[pool_indices_len++] = curr_bank->stake_delegations_fork_id;
-    }
-    curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
-  }
-
-  /* We have populated all of the indices that we need to apply deltas
-     from in reverse order. */
+  ulong  pool_indices_len = fd_banks_stake_delegations_fork_ids( banks, bank, pool_indices );
 
   fd_stake_history_t stake_history_[1];
   fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
   /* stake_history may be NULL */
-  for( ulong i=pool_indices_len; i>0; i-- ) {
-    ushort idx = pool_indices[i-1UL];
+  for( ulong i=0UL; i<pool_indices_len; i++ ) {
+    ushort idx = pool_indices[ i ];
+    FD_LOG_DEBUG(( "applying stake delegation delta (sd_fork_idx=%u)", idx ));
     fd_stake_delegations_apply_fork_delta( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), stake_delegations, idx );
   }
 }
-
-static inline void
-fd_bank_stake_delegation_mark_deltas( fd_banks_t *             banks,
-                                      fd_bank_t *              bank,
-                                      fd_stake_delegations_t * stake_delegations ) {
-  /* TODO: mark_deltas and unmark_deltas should be refactored to live
-     inside of the stake delegations struct. */
-
-  fd_rwlock_write( &stake_delegations->lock );
-
-  ushort pool_indices[ banks->max_total_banks ];
-  ulong  pool_indices_len = 0UL;
-
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-
-  fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, bank->idx );
-  while( !!curr_bank ) {
-    if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
-      pool_indices[pool_indices_len++] = curr_bank->stake_delegations_fork_id;
-    }
-    curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
-  }
-
-  fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
-
-  for( ulong i=pool_indices_len; i>0; i-- ) {
-    ushort idx = pool_indices[i-1UL];
-    fd_stake_delegations_mark_delta( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), idx );
-  }
-}
-
-static inline void
-fd_bank_stake_delegation_unmark_deltas( fd_banks_t *             banks,
-                                        fd_bank_t *              bank,
-                                        fd_stake_delegations_t * stake_delegations ) {
-
-  ushort pool_indices[ banks->max_total_banks ];
-  ulong  pool_indices_len = 0UL;
-
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-
-  fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, bank->idx );
-  while( !!curr_bank ) {
-    if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
-      pool_indices[pool_indices_len++] = curr_bank->stake_delegations_fork_id;
-    }
-    curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
-  }
-
-  fd_stake_history_t stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
-
-  for( ulong i=pool_indices_len; i>0; i-- ) {
-    ushort idx = pool_indices[i-1UL];
-    fd_stake_delegations_unmark_delta( stake_delegations, bank->f.epoch-1UL, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), idx );
-  }
-
-  fd_rwlock_unwrite( &stake_delegations->lock );
-}
-
-
-fd_stake_delegations_t *
-fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
-                                          fd_bank_t *  bank ) {
-  fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
-  fd_bank_stake_delegation_mark_deltas( banks, bank, stake_delegations );
-
-  return stake_delegations;
-}
-
-void
-fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
-                                              fd_bank_t *  bank ) {
-  fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
-  fd_bank_stake_delegation_unmark_deltas( banks, bank, stake_delegations );
-}
-
 
 fd_stake_delegations_t *
 fd_banks_stake_delegations_root_query( fd_banks_t * banks ) {

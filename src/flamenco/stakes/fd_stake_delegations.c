@@ -926,7 +926,7 @@ fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
   return iter;
 }
 
-void
+static void
 fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
                                  ulong                      epoch,
                                  fd_stake_history_t const * stake_history,
@@ -990,7 +990,7 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
   }
 }
 
-void
+static void
 fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
                                    ulong                      epoch,
                                    fd_stake_history_t const * stake_history,
@@ -1042,6 +1042,44 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
       stake_delegations->deactivating_stake += acc.deactivating;
     }
   }
+}
+
+void
+fd_stake_delegations_mark_fork_deltas( fd_stake_delegations_t *   stake_delegations,
+                                       ulong                      epoch,
+                                       fd_stake_history_t const * stake_history,
+                                       ulong *                    warmup_cooldown_rate_epoch,
+                                       int                        use_fixed_point_stake_math,
+                                       ushort const *             fork_ids,
+                                       ulong                      fork_id_cnt ) {
+  fd_rwlock_write( &stake_delegations->lock );
+  for( ulong i=0UL; i<fork_id_cnt; i++ ) {
+    fd_stake_delegations_mark_delta( stake_delegations,
+                                     epoch,
+                                     stake_history,
+                                     warmup_cooldown_rate_epoch,
+                                     use_fixed_point_stake_math,
+                                     fork_ids[ i ] );
+  }
+}
+
+void
+fd_stake_delegations_unmark_fork_deltas( fd_stake_delegations_t *   stake_delegations,
+                                         ulong                      epoch,
+                                         fd_stake_history_t const * stake_history,
+                                         ulong *                    warmup_cooldown_rate_epoch,
+                                         int                        use_fixed_point_stake_math,
+                                         ushort const *             fork_ids,
+                                         ulong                      fork_id_cnt ) {
+  for( ulong i=0UL; i<fork_id_cnt; i++ ) {
+    fd_stake_delegations_unmark_delta( stake_delegations,
+                                       epoch,
+                                       stake_history,
+                                       warmup_cooldown_rate_epoch,
+                                       use_fixed_point_stake_math,
+                                       fork_ids[ i ] );
+  }
+  fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
 void
