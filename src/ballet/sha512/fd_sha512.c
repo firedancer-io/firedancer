@@ -1,5 +1,9 @@
 #include "fd_sha512.h"
 
+#if FD_HAS_ARM_SHA512
+#include <arm_neon.h>
+#endif
+
 ulong
 fd_sha512_align( void ) {
   return FD_SHA512_ALIGN;
@@ -97,7 +101,9 @@ fd_sha512_delete( void * shsha ) {
 }
 
 #ifndef FD_SHA512_CORE_IMPL
-#if FD_HAS_AVX
+#if FD_HAS_ARM_SHA512
+#define FD_SHA512_CORE_IMPL 2
+#elif FD_HAS_AVX
 #define FD_SHA512_CORE_IMPL 1
 #else
 #define FD_SHA512_CORE_IMPL 0
@@ -239,6 +245,132 @@ fd_sha512_core_avx2( ulong *       state,       /* 64-byte aligned, 8 entries */
                      ulong         block_cnt ); /* positive */
 
 #define fd_sha512_core fd_sha512_core_avx2
+
+#elif FD_SHA512_CORE_IMPL==2
+
+static void
+fd_sha512_core_arm( ulong *       state,
+                    uchar const * block,
+                    ulong         block_cnt ) {
+
+  static ulong const K[80] = {
+    0x428a2f98d728ae22UL, 0x7137449123ef65cdUL, 0xb5c0fbcfec4d3b2fUL, 0xe9b5dba58189dbbcUL,
+    0x3956c25bf348b538UL, 0x59f111f1b605d019UL, 0x923f82a4af194f9bUL, 0xab1c5ed5da6d8118UL,
+    0xd807aa98a3030242UL, 0x12835b0145706fbeUL, 0x243185be4ee4b28cUL, 0x550c7dc3d5ffb4e2UL,
+    0x72be5d74f27b896fUL, 0x80deb1fe3b1696b1UL, 0x9bdc06a725c71235UL, 0xc19bf174cf692694UL,
+    0xe49b69c19ef14ad2UL, 0xefbe4786384f25e3UL, 0x0fc19dc68b8cd5b5UL, 0x240ca1cc77ac9c65UL,
+    0x2de92c6f592b0275UL, 0x4a7484aa6ea6e483UL, 0x5cb0a9dcbd41fbd4UL, 0x76f988da831153b5UL,
+    0x983e5152ee66dfabUL, 0xa831c66d2db43210UL, 0xb00327c898fb213fUL, 0xbf597fc7beef0ee4UL,
+    0xc6e00bf33da88fc2UL, 0xd5a79147930aa725UL, 0x06ca6351e003826fUL, 0x142929670a0e6e70UL,
+    0x27b70a8546d22ffcUL, 0x2e1b21385c26c926UL, 0x4d2c6dfc5ac42aedUL, 0x53380d139d95b3dfUL,
+    0x650a73548baf63deUL, 0x766a0abb3c77b2a8UL, 0x81c2c92e47edaee6UL, 0x92722c851482353bUL,
+    0xa2bfe8a14cf10364UL, 0xa81a664bbc423001UL, 0xc24b8b70d0f89791UL, 0xc76c51a30654be30UL,
+    0xd192e819d6ef5218UL, 0xd69906245565a910UL, 0xf40e35855771202aUL, 0x106aa07032bbd1b8UL,
+    0x19a4c116b8d2d0c8UL, 0x1e376c085141ab53UL, 0x2748774cdf8eeb99UL, 0x34b0bcb5e19b48a8UL,
+    0x391c0cb3c5c95a63UL, 0x4ed8aa4ae3418acbUL, 0x5b9cca4f7763e373UL, 0x682e6ff3d6b2b8a3UL,
+    0x748f82ee5defb2fcUL, 0x78a5636f43172f60UL, 0x84c87814a1f0ab72UL, 0x8cc702081a6439ecUL,
+    0x90befffa23631e28UL, 0xa4506cebde82bde9UL, 0xbef9a3f7b2c67915UL, 0xc67178f2e372532bUL,
+    0xca273eceea26619cUL, 0xd186b8c721c0c207UL, 0xeada7dd6cde0eb1eUL, 0xf57d4f7fee6ed178UL,
+    0x06f067aa72176fbaUL, 0x0a637dc5a2c898a6UL, 0x113f9804bef90daeUL, 0x1b710b35131c471bUL,
+    0x28db77f523047d84UL, 0x32caab7b40c72493UL, 0x3c9ebe0a15c9bebcUL, 0x431d67c49c100d4cUL,
+    0x4cc5d4becb3e42b6UL, 0x597f299cfc657e2aUL, 0x5fcb6fab3ad6faecUL, 0x6c44198c4a475817UL
+  };
+
+#define SHA512_ROUNDS( MSG, KIDX ) do {                                    \
+    uint64x2_t ab_prev = ab;                                               \
+    uint64x2_t ef_prev = ef;                                               \
+    uint64x2_t wk = vaddq_u64( (MSG), vld1q_u64( K + (KIDX) ) );           \
+    wk = vextq_u64( wk, wk, 1 );                                           \
+    uint64x2_t fg = vextq_u64( ef, gh, 1 );                                \
+    uint64x2_t de = vextq_u64( cd, ef, 1 );                                \
+    gh = vaddq_u64( gh, wk );                                              \
+    gh = vsha512hq_u64( gh, fg, de );                                      \
+    uint64x2_t new_ef = vaddq_u64( cd, gh );                               \
+    gh = vsha512h2q_u64( gh, cd, ab );                                     \
+    ab = gh;                                                               \
+    cd = ab_prev;                                                          \
+    ef = new_ef;                                                           \
+    gh = ef_prev;                                                          \
+  } while( 0 )
+
+#define SHA512_SCHEDULE( MSG0, MSG1, MSG4, MSG5, MSG7 ) do {               \
+    (MSG0) = vsha512su0q_u64( (MSG0), (MSG1) );                            \
+    uint64x2_t w9_10 = vextq_u64( (MSG4), (MSG5), 1 );                     \
+    (MSG0) = vsha512su1q_u64( (MSG0), (MSG7), w9_10 );                     \
+  } while( 0 )
+
+  do {
+    uint64x2_t ab = vld1q_u64( state   );
+    uint64x2_t cd = vld1q_u64( state+2 );
+    uint64x2_t ef = vld1q_u64( state+4 );
+    uint64x2_t gh = vld1q_u64( state+6 );
+    uint64x2_t ab_init = ab;
+    uint64x2_t cd_init = cd;
+    uint64x2_t ef_init = ef;
+    uint64x2_t gh_init = gh;
+
+    uint64x2_t msg0 = vreinterpretq_u64_u8( vrev64q_u8( vld1q_u8( block      ) ) );
+    uint64x2_t msg1 = vreinterpretq_u64_u8( vrev64q_u8( vld1q_u8( block+ 16UL ) ) );
+    uint64x2_t msg2 = vreinterpretq_u64_u8( vrev64q_u8( vld1q_u8( block+ 32UL ) ) );
+    uint64x2_t msg3 = vreinterpretq_u64_u8( vrev64q_u8( vld1q_u8( block+ 48UL ) ) );
+    uint64x2_t msg4 = vreinterpretq_u64_u8( vrev64q_u8( vld1q_u8( block+ 64UL ) ) );
+    uint64x2_t msg5 = vreinterpretq_u64_u8( vrev64q_u8( vld1q_u8( block+ 80UL ) ) );
+    uint64x2_t msg6 = vreinterpretq_u64_u8( vrev64q_u8( vld1q_u8( block+ 96UL ) ) );
+    uint64x2_t msg7 = vreinterpretq_u64_u8( vrev64q_u8( vld1q_u8( block+112UL ) ) );
+
+    SHA512_ROUNDS( msg0,  0 ); SHA512_SCHEDULE( msg0, msg1, msg4, msg5, msg7 );
+    SHA512_ROUNDS( msg1,  2 ); SHA512_SCHEDULE( msg1, msg2, msg5, msg6, msg0 );
+    SHA512_ROUNDS( msg2,  4 ); SHA512_SCHEDULE( msg2, msg3, msg6, msg7, msg1 );
+    SHA512_ROUNDS( msg3,  6 ); SHA512_SCHEDULE( msg3, msg4, msg7, msg0, msg2 );
+    SHA512_ROUNDS( msg4,  8 ); SHA512_SCHEDULE( msg4, msg5, msg0, msg1, msg3 );
+    SHA512_ROUNDS( msg5, 10 ); SHA512_SCHEDULE( msg5, msg6, msg1, msg2, msg4 );
+    SHA512_ROUNDS( msg6, 12 ); SHA512_SCHEDULE( msg6, msg7, msg2, msg3, msg5 );
+    SHA512_ROUNDS( msg7, 14 ); SHA512_SCHEDULE( msg7, msg0, msg3, msg4, msg6 );
+    SHA512_ROUNDS( msg0, 16 ); SHA512_SCHEDULE( msg0, msg1, msg4, msg5, msg7 );
+    SHA512_ROUNDS( msg1, 18 ); SHA512_SCHEDULE( msg1, msg2, msg5, msg6, msg0 );
+    SHA512_ROUNDS( msg2, 20 ); SHA512_SCHEDULE( msg2, msg3, msg6, msg7, msg1 );
+    SHA512_ROUNDS( msg3, 22 ); SHA512_SCHEDULE( msg3, msg4, msg7, msg0, msg2 );
+    SHA512_ROUNDS( msg4, 24 ); SHA512_SCHEDULE( msg4, msg5, msg0, msg1, msg3 );
+    SHA512_ROUNDS( msg5, 26 ); SHA512_SCHEDULE( msg5, msg6, msg1, msg2, msg4 );
+    SHA512_ROUNDS( msg6, 28 ); SHA512_SCHEDULE( msg6, msg7, msg2, msg3, msg5 );
+    SHA512_ROUNDS( msg7, 30 ); SHA512_SCHEDULE( msg7, msg0, msg3, msg4, msg6 );
+    SHA512_ROUNDS( msg0, 32 ); SHA512_SCHEDULE( msg0, msg1, msg4, msg5, msg7 );
+    SHA512_ROUNDS( msg1, 34 ); SHA512_SCHEDULE( msg1, msg2, msg5, msg6, msg0 );
+    SHA512_ROUNDS( msg2, 36 ); SHA512_SCHEDULE( msg2, msg3, msg6, msg7, msg1 );
+    SHA512_ROUNDS( msg3, 38 ); SHA512_SCHEDULE( msg3, msg4, msg7, msg0, msg2 );
+    SHA512_ROUNDS( msg4, 40 ); SHA512_SCHEDULE( msg4, msg5, msg0, msg1, msg3 );
+    SHA512_ROUNDS( msg5, 42 ); SHA512_SCHEDULE( msg5, msg6, msg1, msg2, msg4 );
+    SHA512_ROUNDS( msg6, 44 ); SHA512_SCHEDULE( msg6, msg7, msg2, msg3, msg5 );
+    SHA512_ROUNDS( msg7, 46 ); SHA512_SCHEDULE( msg7, msg0, msg3, msg4, msg6 );
+    SHA512_ROUNDS( msg0, 48 ); SHA512_SCHEDULE( msg0, msg1, msg4, msg5, msg7 );
+    SHA512_ROUNDS( msg1, 50 ); SHA512_SCHEDULE( msg1, msg2, msg5, msg6, msg0 );
+    SHA512_ROUNDS( msg2, 52 ); SHA512_SCHEDULE( msg2, msg3, msg6, msg7, msg1 );
+    SHA512_ROUNDS( msg3, 54 ); SHA512_SCHEDULE( msg3, msg4, msg7, msg0, msg2 );
+    SHA512_ROUNDS( msg4, 56 ); SHA512_SCHEDULE( msg4, msg5, msg0, msg1, msg3 );
+    SHA512_ROUNDS( msg5, 58 ); SHA512_SCHEDULE( msg5, msg6, msg1, msg2, msg4 );
+    SHA512_ROUNDS( msg6, 60 ); SHA512_SCHEDULE( msg6, msg7, msg2, msg3, msg5 );
+    SHA512_ROUNDS( msg7, 62 ); SHA512_SCHEDULE( msg7, msg0, msg3, msg4, msg6 );
+    SHA512_ROUNDS( msg0, 64 );
+    SHA512_ROUNDS( msg1, 66 );
+    SHA512_ROUNDS( msg2, 68 );
+    SHA512_ROUNDS( msg3, 70 );
+    SHA512_ROUNDS( msg4, 72 );
+    SHA512_ROUNDS( msg5, 74 );
+    SHA512_ROUNDS( msg6, 76 );
+    SHA512_ROUNDS( msg7, 78 );
+
+    vst1q_u64( state,   vaddq_u64( ab, ab_init ) );
+    vst1q_u64( state+2, vaddq_u64( cd, cd_init ) );
+    vst1q_u64( state+4, vaddq_u64( ef, ef_init ) );
+    vst1q_u64( state+6, vaddq_u64( gh, gh_init ) );
+    block += FD_SHA512_BLOCK_SZ;
+  } while( --block_cnt );
+
+#undef SHA512_SCHEDULE
+#undef SHA512_ROUNDS
+}
+
+#define fd_sha512_core fd_sha512_core_arm
 
 #else
 #error "Unsupported FD_SHA512_CORE_IMPL"
@@ -514,4 +646,3 @@ fd_sha384_hash( void const * _data,
 }
 
 #undef fd_sha512_core
-
