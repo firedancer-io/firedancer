@@ -4053,6 +4053,17 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
   return ( replace || cross_fork ) ? 2 : 1;
 }
 
+void
+fd_accdb_snapshot_prefetch_batch( fd_accdb_t *        accdb,
+                                  ulong               cnt,
+                                  uchar const * const pubkeys[] ) {
+  ulong seed      = accdb->shmem->seed;
+  ulong chain_msk = accdb->shmem->chain_cnt - 1UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    __builtin_prefetch( &accdb->acc_map[ fd_accdb_hash( pubkeys[ i ], seed ) & chain_msk ], 1, 1 );
+  }
+}
+
 int
 fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                fd_accdb_fork_id_t  fork_id,
