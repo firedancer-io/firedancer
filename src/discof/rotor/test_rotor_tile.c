@@ -492,6 +492,22 @@ deliver_turbine_block( ctx_t * ctx, blk_t const * b ) {
   }
 }
 
+/* deliver_turbine_fec_set feeds only FEC set k of block b through the
+   turbine path (all its shreds plus the completion message), so a block
+   can be left incomplete in the chainer. */
+
+static void
+deliver_turbine_fec_set( ctx_t * ctx, blk_t const * b, uint k ) {
+  FD_TEST( k<b->fec_cnt );
+  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
+    uint  idx   = k*FD_FEC_SHRED_CNT+i;
+    uchar flags = (uchar)( i==FD_FEC_SHRED_CNT-1U ? blk_fec_flags( b, k ) : 0 );
+    deliver_shred( ctx, b->slot, idx, flags, &b->fec_root[ k ], 0U, SHRED_SIG_SRC_TURBINE,
+                   b->parent_slot, &b->parent_block_id );
+  }
+  deliver_fec_complete( ctx, b->slot, k*FD_FEC_SHRED_CNT, blk_fec_flags( b, k ), &b->fec_root[ k ] );
+}
+
 /* serve_shred_request answers one ShredForBlockId request for block b
    with a repair shred whose merkle root is mr (normally the fec set's
    real root; passing a different root simulates a wrong-version
@@ -2154,8 +2170,119 @@ test_deliver_from_root_populates_block_id( fd_wksp_t * wksp ) {
   FD_TEST( fd_hash_eq( &rep_log[ base+1UL ].block_id, &blk1->block_id ) );
   FD_TEST( fd_hash_eq( &rep_log[ base+2UL ].block_id, &blk2->block_id ) );
 
+  /* ... but redelivery never marks a turbine version known: replay keys
+     it by {slot, 0} until the slot-complete FEC, like the live copy. */
+  for( ulong i=base; i<rep_cnt; i++ ) FD_TEST( !rep_log[ i ].known_id );
+
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
   FD_LOG_NOTICE(( "pass: test_deliver_from_root_populates_block_id" ));
+}
+
+/* ---------------------------------------------------------------------
+   test_deliver_from_root_known_id: the known_id contract.  known_id is
+   set iff the version is votor-driven (a cert version, see
+   test_block_id_repair_only).  A turbine version is NEVER marked known,
+   not even when redelivered from root, because replay keys a turbine
+   block by {slot, 0} until it has processed the slot-complete FEC and a
+   redelivered copy must key the same way as the live turbine FECs of
+   the same block.  block_id is populated whenever the chainer knows it:
+   on the slot-complete FEC in the normal path, and on every redelivered
+   FEC of a version whose id is known.  An INCOMPLETE turbine version
+   has no id yet, so its redelivered FECs carry a zero block_id.
+
+   The bug this pins down: a redelivered FEC 0 of an incomplete turbine
+   block marked known made replay key the block by id, so the live
+   turbine FECs 32/64 (looking up {slot, 0}) dropped and the child's
+   FEC 0 attached in sched before its parent finished delivering. */
+
+static void
+test_deliver_from_root_known_id( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+  fd_hash_t zero = {0};
+
+  /* blk1 (2 FEC sets) <- blk2 (3 FEC sets, delivered piecemeal) <- blk3 (1 FEC set) */
+  blk_t blk1[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk1->fec_root[ 0 ] = mkhash( 0xA100UL );
+  blk1->fec_root[ 1 ] = mkhash( 0xA101UL );
+  blk_build( blk1 );
+
+  blk_t blk2[1] = {{ .slot = SNAP_SLOT+2UL, .parent_slot = SNAP_SLOT+1UL, .parent_block_id = blk1->block_id, .fec_cnt = 3U }};
+  blk2->fec_root[ 0 ] = mkhash( 0xA200UL );
+  blk2->fec_root[ 1 ] = mkhash( 0xA201UL );
+  blk2->fec_root[ 2 ] = mkhash( 0xA202UL );
+  blk_build( blk2 );
+
+  blk_t blk3[1] = {{ .slot = SNAP_SLOT+3UL, .parent_slot = SNAP_SLOT+2UL, .parent_block_id = blk2->block_id, .fec_cnt = 1U }};
+  blk3->fec_root[ 0 ] = mkhash( 0xA300UL );
+  blk_build( blk3 );
+
+  /* Normal turbine delivery of a complete block: never known, block_id
+     only on the slot-complete FEC. */
+  deliver_turbine_block( ctx, blk1 );
+  pump( ctx );
+  FD_TEST( rep_cnt==2UL );
+  rep_expect( 0UL, blk1->slot, 0U,               &blk1->fec_root[ 0 ], NULL,            0 );
+  rep_expect( 1UL, blk1->slot, FD_FEC_SHRED_CNT, &blk1->fec_root[ 1 ], &blk1->block_id, 1 );
+  FD_TEST( !rep_log[ 0 ].known_id && !rep_log[ 1 ].known_id );
+
+  /* blk2's first FEC set only: the block is incomplete in the chainer. */
+  deliver_turbine_fec_set( ctx, blk2, 0U );
+  pump( ctx );
+  FD_TEST( rep_cnt==3UL );
+  rep_expect( 2UL, blk2->slot, 0U, &blk2->fec_root[ 0 ], NULL, 0 );
+  FD_TEST( !rep_log[ 2 ].known_id );
+
+  /* Redelivery from root with the INCOMPLETE blk2 as the target: arm,
+     then deliver blk2's second FEC set (still not slot-complete).  The
+     path is blk1 fec 0, blk1 fec 32, blk2 fec 0, blk2 fec 32. */
+  ctx->deliver_from_root = 1;
+  deliver_turbine_fec_set( ctx, blk2, 1U );
+  tick( ctx );                                  /* enqueue path, publishes nothing */
+  FD_TEST( ctx->deliver_from_root==0 );
+  FD_TEST( rep_cnt==3UL );
+  while( !out_queue_empty( ctx->deliver_queue ) ) tick( ctx );
+  FD_TEST( rep_cnt==7UL );
+
+  /* Complete ancestor: id populated on every FEC, still not known. */
+  rep_expect( 3UL, blk1->slot, 0U,               &blk1->fec_root[ 0 ], &blk1->block_id, 0 );
+  rep_expect( 4UL, blk1->slot, FD_FEC_SHRED_CNT, &blk1->fec_root[ 1 ], &blk1->block_id, 1 );
+  FD_TEST( !rep_log[ 3 ].known_id && !rep_log[ 4 ].known_id );
+
+  /* Incomplete target: id unknown so block_id stays zero, and known_id
+     is clear, so replay keys it {slot, 0} exactly like the live turbine
+     FECs it already received for this block. */
+  rep_expect( 5UL, blk2->slot, 0U,               &blk2->fec_root[ 0 ], NULL, 0 );
+  rep_expect( 6UL, blk2->slot, FD_FEC_SHRED_CNT, &blk2->fec_root[ 1 ], NULL, 0 );
+  FD_TEST( !rep_log[ 5 ].known_id && !rep_log[ 6 ].known_id );
+
+  /* Completing blk2 normally publishes the slot-complete FEC with the
+     id, still not known. */
+  deliver_turbine_fec_set( ctx, blk2, 2U );
+  pump( ctx );
+  FD_TEST( rep_cnt==8UL );
+  rep_expect( 7UL, blk2->slot, 2U*FD_FEC_SHRED_CNT, &blk2->fec_root[ 2 ], &blk2->block_id, 1 );
+  FD_TEST( !rep_log[ 7 ].known_id );
+
+  /* Redelivery with the now COMPLETE blk2 on the path (target blk3):
+     every FEC carries its block's id, none is marked known. */
+  ctx->deliver_from_root = 1;
+  deliver_turbine_block( ctx, blk3 );
+  tick( ctx );
+  FD_TEST( ctx->deliver_from_root==0 );
+  while( !out_queue_empty( ctx->deliver_queue ) ) tick( ctx );
+  FD_TEST( rep_cnt==14UL );                     /* blk1 x2, blk2 x3, blk3 x1 */
+  for( ulong i=8UL; i<rep_cnt; i++ ) {
+    FD_TEST( !rep_log[ i ].known_id );
+    FD_TEST( !fd_hash_eq( &rep_log[ i ].block_id, &zero ) );
+  }
+  rep_expect( 10UL, blk2->slot, 0U,                  &blk2->fec_root[ 0 ], &blk2->block_id, 0 );
+  rep_expect( 11UL, blk2->slot, FD_FEC_SHRED_CNT,    &blk2->fec_root[ 1 ], &blk2->block_id, 0 );
+  rep_expect( 12UL, blk2->slot, 2U*FD_FEC_SHRED_CNT, &blk2->fec_root[ 2 ], &blk2->block_id, 1 );
+  rep_expect( 13UL, blk3->slot, 0U,                  &blk3->fec_root[ 0 ], &blk3->block_id, 1 );
+
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+  FD_LOG_NOTICE(( "pass: test_deliver_from_root_known_id" ));
 }
 
 int
@@ -2202,6 +2329,9 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_deliver_from_root_populates_block_id( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_deliver_from_root_known_id( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
