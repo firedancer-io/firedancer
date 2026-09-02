@@ -37,7 +37,7 @@ with open(out_dir + 'avx2_constants.bin', 'wb') as bin_file:
 
 # Write out the generic constant tables
 # We want to be able to do multiplication with just 3 loads and one add,
-# covering all the special cases: 
+# covering all the special cases:
 # 1. multiplication by 0 should automatically give 0, so we map log[0] =
 #    -256, then invlog[x] = 0 for x in [-512, 0).
 # 2. When the sum of the logs is greater than 255, we don't want to do
@@ -57,3 +57,10 @@ with open(out_dir + 'generic_constants.bin', 'wb') as bin_file:
     bin_file.write(struct.pack('<256h', *logtbl))
     bin_file.write(struct.pack('<1024B', *invlogtbl))
     bin_file.write(bytes(full_matrix.flatten()))
+
+# Write out the NEON constant table
+shuffle_idx = np.arange(0, 16, dtype=np.int32).reshape((1,16))
+encoded = GF(np.reshape(np.arange(0, 256, dtype=np.int32), (256,1))) @ GF(shuffle_idx)
+with open(out_dir + 'neon_constants.bin', 'wb') as bin_file:
+    bin_file.write(encoded.tobytes())
+    bin_file.write((GF(16) * encoded).tobytes())

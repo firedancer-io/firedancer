@@ -209,7 +209,7 @@ test_linearity( linear_func_t to_test,
       to_test( inputs2, outputs2 );
 
       for( ulong j=0UL; j<output_cnt; j++ )
-        for( ulong col=0UL; col<chunk_sz; col++ ) FD_TEST( outputs[ j ][ col ] == outputs2[ j ][ (col+shift)%32UL ] );
+        for( ulong col=0UL; col<chunk_sz; col++ ) FD_TEST( outputs[ j ][ col ] == outputs2[ j ][ (col+shift)%chunk_sz ] );
     }
   }
 

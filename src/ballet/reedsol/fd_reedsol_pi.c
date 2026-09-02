@@ -43,7 +43,7 @@
    Fast Walsh-Hadamard transform in Appendix A that the code in this
    implementation also uses. */
 
-#if FD_REEDSOL_ARITH_IMPL>0
+#if FD_REEDSOL_ARITH_IMPL>=1 && FD_REEDSOL_ARITH_IMPL<=3
 
 /* When using AVX, the representation used for internal computation can
    be done with unsigned chars or with shorts.  They give the same
@@ -328,7 +328,7 @@ exp_2( wb_t x ) {
   return with3;
 }
 
-#endif /* FD_REEDSOL_ARITH_IMPL>0 */
+#endif /* FD_REEDSOL_ARITH_IMPL>=1 && FD_REEDSOL_ARITH_IMPL<=3 */
 
 /* l_twiddle_{N} stores the size N FWHT of what the paper calls L~, i.e.
          ( 0, Log(1), Log(2), Log(3), ... Log(N-1) )
@@ -380,6 +380,10 @@ static const short fwht_l_twiddle_256[ 256 ] = {0x00,0xfc,0xfb,0x15,0x2d,0xfa,0x
                                                 0xec,0x7e,0x0e,0x41,0x33,0xcd,0x3b,0x57,0x67,0x24,0x36,0x50,0x98,0x9c,0xa5,0x4d,
                                                 0xc4,0x48,0x04,0x6d,0xdf,0x95,0xa1,0x73,0xed,0x0f,0xce,0x58,0x25,0x51,0x99,0xa6,
                                                 0x49,0x6e,0xe0,0xa2,0xee,0xcf,0x52,0xa7,0x4a,0xe1,0xd0,0xa8,0xe2,0xa9,0xe3,0xe4};
+
+#if FD_REEDSOL_ARITH_IMPL==4
+#include "fd_reedsol_pi_arm.c"
+#else
 
 #if FD_REEDSOL_ARITH_IMPL==0
 static void
@@ -1187,3 +1191,5 @@ fd_reedsol_private_gen_pi_256( uchar const * is_erased,
 
 #endif
 }
+
+#endif

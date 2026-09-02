@@ -13,7 +13,8 @@
      0 - unaccelerated
      1 - AVX accelerated
      2 - GFNI accelerated with AVX2
-     3 - GFNI accelerated with AVX512 */
+     3 - GFNI accelerated with AVX512
+     4 - NEON accelerated (AArch64, 128-bit vectors) */
 
 #ifndef FD_REEDSOL_ARITH_IMPL
 #if FD_HAS_GFNI && FD_HAS_AVX512
@@ -22,6 +23,8 @@
 #define FD_REEDSOL_ARITH_IMPL 2
 #elif FD_HAS_AVX
 #define FD_REEDSOL_ARITH_IMPL 1
+#elif FD_HAS_NEON
+#define FD_REEDSOL_ARITH_IMPL 4
 #else
 #define FD_REEDSOL_ARITH_IMPL 0
 #endif
@@ -33,6 +36,8 @@
 #include "fd_reedsol_arith_avx2.h"
 #elif FD_REEDSOL_ARITH_IMPL==2 || FD_REEDSOL_ARITH_IMPL==3
 #include "fd_reedsol_arith_gfni.h"
+#elif FD_REEDSOL_ARITH_IMPL==4
+#include "fd_reedsol_arith_neon.h"
 #else
 #error "Unsupported FD_REEDSOL_ARITH_IMPL"
 #endif

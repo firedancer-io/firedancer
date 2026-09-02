@@ -7,6 +7,8 @@
 FD_IMPORT_BINARY( fd_reedsol_arith_consts_generic_mul, "src/ballet/reedsol/constants/generic_constants.bin" );
 #elif FD_REEDSOL_ARITH_IMPL==1
 FD_IMPORT_BINARY( fd_reedsol_arith_consts_avx_mul, "src/ballet/reedsol/constants/avx2_constants.bin" );
+#elif FD_REEDSOL_ARITH_IMPL==4
+FD_IMPORT_BINARY( fd_reedsol_arith_consts_neon_mul, "src/ballet/reedsol/constants/neon_constants.bin" );
 #else
 FD_IMPORT_BINARY( fd_reedsol_arith_consts_gfni_mul, "src/ballet/reedsol/constants/gfni_constants.bin" );
 #endif
