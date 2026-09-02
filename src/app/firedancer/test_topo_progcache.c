@@ -85,7 +85,7 @@ main( int     argc,
   check_exact_fit( max_live_slots, 4UL<<30 );
 
   /* Non-multiples round up to the page size and no further. */
-  check_exact_fit( max_live_slots,  143UL<<20 );
+  check_exact_fit( max_live_slots, fd_progcache_shmem_min_sz( max_live_slots )+(3UL<<20) );
   check_exact_fit( max_live_slots,  256UL<<20 );
   check_exact_fit( max_live_slots, 1792UL<<20 );
 
