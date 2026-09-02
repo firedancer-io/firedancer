@@ -400,6 +400,50 @@ test_spill( fd_wksp_t * wksp ) {
 }
 
 void
+test_preevict( fd_wksp_t * wksp ) {
+  ulong fec_max      = 4UL;
+  ulong fec_data_max = 64UL;
+  ulong cache_bytes  = 2UL * fd_store_payload_slot_sz( fec_data_max );
+
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, fec_data_max, 0UL, cache_bytes, 0UL ), 1UL );
+  fd_store_t * st = fd_store_join( fd_store_new( mem, fec_max, fec_data_max, 0UL, cache_bytes, 0UL, 0UL ) );
+  FD_TEST( st );
+  int fd = store_file_open( st, O_RDWR );
+  FD_TEST( fd>=0 );
+
+  fd_store_map_t map[1];
+  FD_TEST( fd_store_map_ljoin( st, map ) );
+  fd_hash_t mr0 = { { 0 } };
+  fd_hash_t mr1 = { { 1 } };
+  fd_hash_t mr2 = { { 2 } };
+  fd_hash_t mr3 = { { 3 } };
+  fd_store_fec_t * fec0 = insert_payload( st, map, fd, &mr0, 0xA0, fec_data_max );
+  insert_payload( st, map, fd, &mr1, 0xB0, fec_data_max );
+
+  fd_store_fec_cache_stats_t stats[1];
+  fd_store_fec_cache_stats_query( st, stats );
+  FD_TEST( !stats->free_cnt && stats->target==1UL && stats->low_water==1UL );
+
+  fd_store_fec_spill_stats_t spill[1];
+  FD_TEST( fd_store_fec_data_preevict( st, fd, spill ) );
+  FD_TEST( spill->write_cnt==1UL && spill->write_bytes==fec_data_max );
+  FD_TEST( fec0->data_state==FD_STORE_FEC_DATA_DISK );
+
+  fd_store_fec_t * fec2 = insert( st, map, &mr2 );
+  FD_TEST( fd_store_fec_data_acquire_ex( st, fd, fec2, spill ) );
+  FD_TEST( !spill->write_cnt );
+  fec2->data_sz = fec_data_max;
+  fd_store_fec_data_publish( st, fec2 );
+
+  fd_store_fec_t * fec3 = insert( st, map, &mr3 );
+  FD_TEST( fd_store_fec_data_acquire_ex( st, fd, fec3, spill ) );
+  FD_TEST( spill->write_cnt==1UL );
+
+  close( fd );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( st ) ) );
+}
+
+void
 test_pinned_spill( fd_wksp_t * wksp ) {
   ulong fec_max      = 4UL;
   ulong fec_data_max = 64UL;
@@ -912,6 +956,7 @@ main( int argc, char ** argv ) {
   test_fec_data_max( wksp );
   test_fec_sets_arena( wksp );
   test_spill       ( wksp );
+  test_preevict    ( wksp );
   test_pinned_spill( wksp );
   test_disk_query_highest( wksp );
   test_disk_collision_eviction( wksp );

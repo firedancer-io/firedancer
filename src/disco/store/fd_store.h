@@ -27,7 +27,7 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
   if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702e8UL) /* firedancer store version 8 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702e9UL) /* firedancer store version 9 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -143,6 +143,9 @@ struct fd_store {
   ulong        cache_data_gaddr;
   ulong        cache_free_gaddr;
   ulong        cache_free_cnt;
+  ulong        cache_free_target;
+  ulong        cache_free_low_water;
+  uint         cache_preevict_active;
   uint         cache_lru_head;
   uint         cache_lru_tail;
   ulong        cache_pinned_cnt;
@@ -189,24 +192,24 @@ typedef struct fd_store fd_store_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* Store contains a Merkle-root keyed FEC map, a payload cache, and a 
-   persistent shred ring.
-   
+/* Store contains a Merkle-root keyed FEC map, a payload cache, and an
+   on-disk shred ring.
+
    Shred inserts a FEC, fills its payload, publishes it, and then notifies
-   Replay.  The correspending reassembly node owns the FEC until removal.
+   Replay.  The corresponding reassembly node owns the FEC until removal.
    Removal waits for payload users, then returns the payload and metadata
-   syncrhonously.  fec_max therefore coverts reassembly plus complete-FEC
+   synchronously.  fec_max therefore covers reassembly and complete-FEC
    messages in flight.
-   
+
    Payloads enter the RAM cache and spill by LRU to page-sized file slots.
    Freed slots are immediately eligible for reuse.  The file layout is:
-    
+
     [ sparse spill slots (payload_slot_sz*fec_max) ][ shred ring ]
-  
+
     wire_off is the fixed start of the shred ring.  Unused spill slots
     do not consume disk blocks.
 
-    shred writers reserve ring cells and mark only the target cell WRITING
+    Shred-ring writers reserve cells and mark only the target cell WRITING
     while its pwrite is in progress. */
 
 FD_FN_CONST static inline ulong
@@ -286,7 +289,7 @@ fd_store_t * fd_store_join ( void * shstore );
 void *       fd_store_leave( fd_store_t const * store );
 void *       fd_store_delete( void * shstore );
 
-/* Creates, truncates, sizes, and allocates the Store backing file. */
+/* Creates, truncates, and sizes the Store backing file. */
 
 int fd_store_file_create( char const * path,
                           ulong        wire_off,
@@ -336,18 +339,49 @@ struct fd_store_fec_data_view {
 };
 typedef struct fd_store_fec_data_view fd_store_fec_data_view_t;
 
-/* Reserves a payload for a newly inserted FEC.  Fill the returned buffer,
-   data_sz, and shred_offs, then call data_publish.  Returns NULL if no
-   payload is available. */
+struct fd_store_fec_spill_stats {
+  ulong write_cnt;
+  ulong write_bytes;
+  ulong write_ticks;
+};
+typedef struct fd_store_fec_spill_stats fd_store_fec_spill_stats_t;
+
+struct fd_store_fec_cache_stats {
+  ulong free_cnt;
+  ulong max;
+  ulong target;
+  ulong low_water;
+};
+typedef struct fd_store_fec_cache_stats fd_store_fec_cache_stats_t;
+
+/* Reserves a payload.  Fill it, data_sz, and shred_offs, then publish.
+   The _ex form also reports synchronous fallback spills. */
 
 uchar *
 fd_store_fec_data_acquire( fd_store_t     * store,
                            int              disk_fd,
                            fd_store_fec_t * fec );
 
+uchar *
+fd_store_fec_data_acquire_ex( fd_store_t                  * store,
+                              int                           disk_fd,
+                              fd_store_fec_t              * fec,
+                              fd_store_fec_spill_stats_t * spill );
+
 void
 fd_store_fec_data_publish( fd_store_t     * store,
                            fd_store_fec_t * fec );
+
+/* Spills at most one LRU payload while refilling the free reserve. */
+
+int
+fd_store_fec_data_preevict( fd_store_t                  * store,
+                            int                           disk_fd,
+                            fd_store_fec_spill_stats_t * spill );
+
+void
+fd_store_fec_cache_stats_query( fd_store_t                 * store,
+                                fd_store_fec_cache_stats_t * stats );
 
 /* Pins a published payload.  Returns 0 on success and -1 with an empty
    view on failure.  The store has one spill-read buffer, so a second

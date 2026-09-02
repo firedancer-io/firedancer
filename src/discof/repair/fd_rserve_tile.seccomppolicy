@@ -1,9 +1,7 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-# shredb_fd:  The repair server reads shred entries from the store's
-#             disk layer using pread64.  Writing is done by the shred
-#             tile.
-uint logfile_fd, uint shredb_fd
+# store_fd: Store backing file.
+uint logfile_fd, uint store_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -15,8 +13,10 @@ uint logfile_fd, uint shredb_fd
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
-# store disk layer: reads shred entries from the backing file
-pread64: (eq (arg 0) shredb_fd)
+pread64: (eq (arg 0) store_fd)
+pwrite64: (eq (arg 0) store_fd)
+fallocate: (and (eq (arg 0) store_fd)
+                (eq (arg 1) 3))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #

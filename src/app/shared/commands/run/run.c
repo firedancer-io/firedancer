@@ -461,8 +461,11 @@ main_pid_namespace( void * _args ) {
         if( FD_LIKELY( has_store ) ) {
           int tile_uses_store = 0;
           for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) tile_uses_store |= tile->uses_obj_id[ i ]==store_obj_id;
-          int tile_uses_store_rw = tile_uses_store && (!strcmp( tile->name, "shred" ) || !strcmp( tile->name, "backt" ));
-          int tile_uses_store_ro = tile_uses_store && (!strcmp( tile->name, "replay" ) || !strcmp( tile->name, "rserve" ));
+          int tile_uses_store_rw = tile_uses_store &&
+                                   (!strcmp( tile->name, "shred" ) ||
+                                    !strcmp( tile->name, "backt" ) ||
+                                    !strcmp( tile->name, "rserve" ));
+          int tile_uses_store_ro = tile_uses_store && !strcmp( tile->name, "replay" );
           if( FD_UNLIKELY( fcntl( FD_STORE_FD_RW, F_SETFD, tile_uses_store_rw ? 0 : FD_CLOEXEC )<0 ) )
             FD_LOG_ERR(( "fcntl(FD_STORE_FD_RW,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           if( FD_UNLIKELY( fcntl( FD_STORE_FD_RO, F_SETFD, tile_uses_store_ro ? 0 : FD_CLOEXEC )<0 ) )
