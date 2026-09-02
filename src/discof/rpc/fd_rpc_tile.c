@@ -1,6 +1,7 @@
 #include "../replay/fd_replay_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../genesis/fd_genesi_tile.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 
 #include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../ballet/base64/fd_base64.h"
@@ -49,6 +50,7 @@
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
 #define IN_KIND_TOWER       (3)
+#define IN_KIND_EPOCH       (4)
 
 /* From bzip2 docs:
       To guarantee that the compressed data will fit in its buffer,
@@ -275,6 +277,9 @@ struct fd_rpc_tile {
 
   int has_genesis_hash;
   fd_hash_t genesis_hash[ 1 ];
+
+  int has_epoch_schedule;
+  fd_epoch_schedule_t epoch_schedule[ 1 ]; /* from replay_epoch, fixed at genesis */
 
   ulong genesis_tar_bz_sz;
   ulong genesis_max_message_size;
@@ -814,6 +819,10 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         else                                                      ctx->cluster_confirmed_slot = fd_ulong_max( ctx->cluster_confirmed_slot, msg->slot );
       }
     }
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) {
+    fd_epoch_info_msg_t const * epoch_info = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    *ctx->epoch_schedule    = epoch_info->epoch_schedule;
+    ctx->has_epoch_schedule = 1;
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
     fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -1618,7 +1627,25 @@ getEpochInfo( fd_rpc_tile_t * ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}\n", ctx->banks[ bank_idx ].slot, ctx->banks[ bank_idx ].block_height, ctx->banks[ bank_idx ].epoch, ctx->banks[ bank_idx ].slot_in_epoch, ctx->banks[ bank_idx ].slots_per_epoch, ctx->banks[ bank_idx ].transaction_count, id_cstr );
 }
 
-UNIMPLEMENTED(getEpochSchedule)
+static fd_http_server_response_t
+getEpochSchedule( fd_rpc_tile_t * ctx,
+                  cJSON const *   id,
+                  cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_EPOCH_SCHEDULE, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
+
+  CSTR_JSON( id, id_cstr );
+  if( FD_UNLIKELY( !ctx->has_epoch_schedule ) ) {
+    /* Arrives on the first replay_epoch frag; until then, as getGenesisHash */
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Firedancer Error: No epoch schedule\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SNAPSHOT, id_cstr );
+  }
+
+  fd_epoch_schedule_t const * schedule = ctx->epoch_schedule;
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"slotsPerEpoch\":%lu,\"leaderScheduleSlotOffset\":%lu,\"warmup\":%s,\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu},\"id\":%s}\n",
+                      schedule->slots_per_epoch, schedule->leader_schedule_slot_offset, schedule->warmup ? "true" : "false", schedule->first_normal_epoch, schedule->first_normal_slot, id_cstr );
+}
 UNIMPLEMENTED(getFeeForMessage)
 UNIMPLEMENTED(getFirstAvailableBlock) // TODO: Used by solana-exporter
 
@@ -2563,10 +2590,11 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
 
-    if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
+    if     ( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 

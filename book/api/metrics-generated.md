@@ -1838,6 +1838,7 @@
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getSlot</span>"} | counter | Number of RPC requests served (getSlot) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getTransactionCount</span>"} | counter | Number of RPC requests served (getTransactionCount) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getVersion</span>"} | counter | Number of RPC requests served (getVersion) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getEpochSchedule</span>"} | counter | Number of RPC requests served (getEpochSchedule) |
 | <span class="metrics-name">rpc_&#8203;conn_&#8203;active</span> | gauge | The number of active HTTP connections to the RPC service |
 | <span class="metrics-name">rpc_&#8203;websocket_&#8203;conn_&#8203;active</span> | gauge | The number of active WebSocket connections to the RPC service |
 | <span class="metrics-name">rpc_&#8203;websocket_&#8203;subscription_&#8203;active</span><br/>{rpc_&#8203;event_&#8203;type="<span class="metrics-enum">vote</span>"} | gauge | The number of active WebSocket subscriptions to the RPC service, broken down by subscription type (vote) |
