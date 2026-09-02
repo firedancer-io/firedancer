@@ -7,6 +7,12 @@
 #include "sysvar/fd_sysvar_rent.h"
 #include "program/fd_program_util.h"
 
+#if FD_HAS_AVX512
+#include "../../util/simd/fd_avx512.h"
+#elif FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
+
 #define MAX_PERMITTED_DATA_LENGTH                 (FD_RUNTIME_ACC_SZ_MAX) /* 10MiB */
 #define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10L<<21)  /* 20MiB */
 
@@ -352,13 +358,43 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
-  /* TODO: optimize this */
-  uchar const * data = borrowed_acct->acc->data;
-  for( ulong i=0UL; i<borrowed_acct->acc->data_len; i++ ) {
-    if( data[i] != 0 ) {
-      return 0;
-    }
+  uchar const * data    = borrowed_acct->acc->data;
+  ulong         data_sz = borrowed_acct->acc->data_len;
+
+  /* Peel the loop to avoid unaligned accesses. */
+  while( data_sz && ( (ulong)data & 0x3fUL ) ) {
+    if( FD_UNLIKELY( *data ) ) return 0;
+    data++;
+    data_sz--;
   }
+
+#if FD_HAS_AVX512
+  while( data_sz>=512UL ) {
+    wwv_t x0 = wwv_or( wwv_ldu( data       ), wwv_ldu( data+ 64UL ) );
+    wwv_t x1 = wwv_or( wwv_ldu( data+128UL ), wwv_ldu( data+192UL ) );
+    wwv_t x2 = wwv_or( wwv_ldu( data+256UL ), wwv_ldu( data+320UL ) );
+    wwv_t x3 = wwv_or( wwv_ldu( data+384UL ), wwv_ldu( data+448UL ) );
+    wwv_t x  = wwv_or( wwv_or( x0, x1 ), wwv_or( x2, x3 ) );
+    if( FD_UNLIKELY( _mm512_test_epi64_mask( x, x ) ) ) return 0;
+    data    += 512UL;
+    data_sz -= 512UL;
+  }
+#elif FD_HAS_AVX
+  while( data_sz>=256UL ) {
+    wv_t x0 = wv_or( wv_ldu( data       ), wv_ldu( data+ 32UL ) );
+    wv_t x1 = wv_or( wv_ldu( data+ 64UL ), wv_ldu( data+ 96UL ) );
+    wv_t x2 = wv_or( wv_ldu( data+128UL ), wv_ldu( data+160UL ) );
+    wv_t x3 = wv_or( wv_ldu( data+192UL ), wv_ldu( data+224UL ) );
+    wv_t x  = wv_or( wv_or( x0, x1 ), wv_or( x2, x3 ) );
+    if( FD_UNLIKELY( !_mm256_testz_si256( x, x ) ) ) return 0;
+    data    += 256UL;
+    data_sz -= 256UL;
+  }
+#endif
+
+  for( ulong i=0UL; i<data_sz; i++ )
+    if( FD_UNLIKELY( data[i] ) ) return 0;
+
   return 1;
 }
 
