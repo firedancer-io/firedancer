@@ -11,19 +11,24 @@ ifdef FD_HAS_X86
 BLST_CFLAGS_NOWARN+=-D__BLST_PORTABLE__ -mno-avx
 endif
 
-$(OBJDIR)/obj/third_party/blst/server.o : src/third_party/blst/src/server.c $(OBJDIR)/.flags
+$(OBJDIR)/obj/third_party/blst/server.o : src/third_party/blst/src/server.c $(OBJDIR)/.flags src/third_party/blst/Local.mk
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(BLST_CFLAGS_NOWARN) -c $< -o $@
+$(CC) $(BLST_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
-$(OBJDIR)/obj/third_party/blst/assembly.o : src/third_party/blst/build/assembly.S $(OBJDIR)/.flags
+$(OBJDIR)/obj/third_party/blst/assembly.o : src/third_party/blst/build/assembly.S $(OBJDIR)/.flags src/third_party/blst/Local.mk
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(BLST_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 ASM_DEPFILES+=$(OBJDIR)/obj/third_party/blst/assembly.d
 
+THIRDPARTY_DEPFILES+=$(OBJDIR)/obj/third_party/blst/server.d
+
+LIB_NAMES+=fd_blst
+LIB_OBJS_fd_blst+=$(OBJDIR)/obj/third_party/blst/server.o $(OBJDIR)/obj/third_party/blst/assembly.o
 $(OBJDIR)/lib/libfd_blst.a: $(OBJDIR)/obj/third_party/blst/server.o $(OBJDIR)/obj/third_party/blst/assembly.o
+$(OBJDIR)/lib/libfd_blst.a: $(OBJDIR)/lib/libfd_blst.a.mlist
 
 lib: $(OBJDIR)/lib/libfd_blst.a
 
@@ -33,3 +38,4 @@ lib: $(OBJDIR)/lib/libfd_blst.a
 $(OBJDIR)/lib/libfd_util.a: | $(OBJDIR)/lib/libfd_blst.a
 
 endif
+
