@@ -1,8 +1,5 @@
 #include "ag_finality_tracker.h"
 
-/* Private to this translation unit: nothing below is part of the
-   ag_finality_tracker API. */
-
               struct finalization_notarized            { ag_block_hash_t hash; };
 __extension__ struct finalization_final_pending_notar  {                       };
               struct finalization_finalized            { ag_block_hash_t hash; };
@@ -94,28 +91,10 @@ status_hash( finalization_status_t const * status ) {
   case AG_FINALIZATION_STATUS_NOTARIZED:            return status->notarized.hash;
   case AG_FINALIZATION_STATUS_FINALIZED:            return status->finalized.hash;
   case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED: return status->implicitly_finalized.hash;
-  default:                                          return NULL;
+  case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:  return NULL;
+  case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:   return NULL;
+  default:                                          __builtin_unreachable();
   }
-}
-
-
-static int
-status_insert( ag_finality_tracker_t *          self,
-               ulong                            slot,
-               finalization_status_t const * status,
-               finalization_status_t *       old ) {
-  status_ele_t * ele = status_map_ele_query( self->status.map, &slot, NULL, self->status.pool );
-  if( FD_LIKELY( ele ) ) {
-    if( old ) *old = ele->status;
-    ele->status = *status;
-    return 1;
-  }
-  status_ele_t * pool = self->status.pool;
-  ele                 = status_pool_ele_acquire( pool );
-  ele->slot           = slot;
-  ele->status         = *status;
-  status_map_ele_insert( self->status.map, ele, pool );
-  return 0;
 }
 
 static parent_ele_t *
@@ -172,11 +151,9 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
     if( FD_UNLIKELY( implicitly_finalized->slot<self->first_unpruned_slot ) ) return;
 
     for( ulong slot=implicitly_finalized->slot+1UL; slot<source_slot; slot++ ) {
-      finalization_status_t skipped = { .kind = AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED };
-      finalization_status_t status;
-      int old = status_insert( self, slot, &skipped, &status );
-      if( FD_UNLIKELY( old ) ) {
-        switch( status.kind ) {
+      status_ele_t * ele = status_map_ele_query( self->status.map, &slot, NULL, self->status.pool );
+      if( FD_UNLIKELY( ele ) ) {
+        switch( ele->status.kind ) {
           case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
             return;
           case AG_FINALIZATION_STATUS_NOTARIZED:
@@ -189,25 +166,31 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
             __builtin_unreachable();
         }
       }
+      if( FD_UNLIKELY( !ele ) ) {
+        ele       = status_pool_ele_acquire( self->status.pool );
+        ele->slot = slot;
+        status_map_ele_insert( self->status.map, ele, self->status.pool );
+      }
+      ele->status.kind = AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED;
       event->implicitly_skipped[ event->implicitly_skipped_cnt++ ] = slot;
     }
 
-    finalization_status_t implicit = { .kind = AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED };
-    memcpy( implicit.implicitly_finalized.hash, implicitly_finalized->hash, sizeof(ag_block_hash_t) );
-    finalization_status_t status;
-
     ulong         slot       = implicitly_finalized->slot;
     uchar const * block_hash = implicitly_finalized->hash;
-    int old = status_insert( self, slot, &implicit, &status );
-    if( FD_LIKELY( old ) ) {
-      switch( status.kind ) {
+
+    status_ele_t * ele = status_map_ele_query( self->status.map, &slot, NULL, self->status.pool );
+    if( FD_UNLIKELY( !ele ) ) {
+      ele       = status_pool_ele_acquire( self->status.pool );
+      ele->slot = slot;
+      status_map_ele_insert( self->status.map, ele, self->status.pool );
+    } else {
+      switch( ele->status.kind ) {
         case AG_FINALIZATION_STATUS_FINALIZED:
         case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-          FD_CHECK_CRIT( 0==memcmp( status_hash( &status ), block_hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
-          status_insert( self, slot, &status, NULL );
+          FD_CHECK_CRIT( 0==memcmp( status_hash( &ele->status ), block_hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
           return;
         case AG_FINALIZATION_STATUS_NOTARIZED:
-          FD_CHECK_CRIT( 0==memcmp( status_hash( &status ), block_hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
+          FD_CHECK_CRIT( 0==memcmp( status_hash( &ele->status ), block_hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
           break;
         case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:
           break;
@@ -217,6 +200,8 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
           __builtin_unreachable();
       }
     }
+    ele->status.kind = AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED;
+    memcpy( ele->status.implicitly_finalized.hash, block_hash, sizeof(ag_block_hash_t) );
     event->implicitly_finalized[ event->implicitly_finalized_cnt++ ] = *implicitly_finalized;
 
     parent_ele_t * parent_ele = parent_map_ele_query( self->parents.map, implicitly_finalized, NULL, self->parents.pool );
@@ -416,18 +401,20 @@ ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t *   self,
                                          ag_finalization_event_t * event ) {
   if( FD_UNLIKELY( block->slot<self->first_unpruned_slot ) ) return;
 
-  finalization_status_t finalized = { .kind = AG_FINALIZATION_STATUS_FINALIZED };
-  memcpy( finalized.finalized.hash, block->hash, sizeof(ag_block_hash_t) );
-  finalization_status_t status;
-  int old = status_insert( self, block->slot, &finalized, &status );
-  if( FD_LIKELY( old ) ) {
-    switch( status.kind ) {
+  ulong          slot = block->slot;
+  status_ele_t * ele  = status_map_ele_query( self->status.map, &slot, NULL, self->status.pool );
+  if( FD_UNLIKELY( !ele ) ) {
+    ele       = status_pool_ele_acquire( self->status.pool );
+    ele->slot = slot;
+    status_map_ele_insert( self->status.map, ele, self->status.pool );
+  } else {
+    switch( ele->status.kind ) {
       case AG_FINALIZATION_STATUS_FINALIZED:
       case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-        FD_CHECK_CRIT( 0==memcmp( status_hash( &status ), block->hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
+        FD_CHECK_CRIT( 0==memcmp( status_hash( &ele->status ), block->hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
         return;
       case AG_FINALIZATION_STATUS_NOTARIZED:
-        FD_CHECK_CRIT( 0==memcmp( status_hash( &status ), block->hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
+        FD_CHECK_CRIT( 0==memcmp( status_hash( &ele->status ), block->hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
         break;
       case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:
         break;
@@ -437,6 +424,8 @@ ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t *   self,
         __builtin_unreachable();
     }
   }
+  ele->status.kind = AG_FINALIZATION_STATUS_FINALIZED;
+  memcpy( ele->status.finalized.hash, block->hash, sizeof(ag_block_hash_t) );
 
   handle_finalized_block( self, block, event );
 }
@@ -447,24 +436,28 @@ ag_finality_tracker_mark_notarized( ag_finality_tracker_t *   self,
                                     ag_finalization_event_t * event ) {
   if( FD_UNLIKELY( block->slot<self->first_unpruned_slot ) ) return;
 
-  finalization_status_t notarized = { .kind = AG_FINALIZATION_STATUS_NOTARIZED };
-  memcpy( notarized.notarized.hash, block->hash, sizeof(ag_block_hash_t) );
-  finalization_status_t status;
-  int old = status_insert( self, block->slot, &notarized, &status );
-  if( FD_UNLIKELY( !old ) ) return;
+  ulong          slot = block->slot;
+  status_ele_t * ele  = status_map_ele_query( self->status.map, &slot, NULL, self->status.pool );
+  if( FD_UNLIKELY( !ele ) ) {
+    ele              = status_pool_ele_acquire( self->status.pool );
+    ele->slot        = slot;
+    ele->status.kind = AG_FINALIZATION_STATUS_NOTARIZED;
+    memcpy( ele->status.notarized.hash, block->hash, sizeof(ag_block_hash_t) );
+    status_map_ele_insert( self->status.map, ele, self->status.pool );
+    return;
+  }
 
-  switch( status.kind ) {
+  switch( ele->status.kind ) {
     case AG_FINALIZATION_STATUS_NOTARIZED:
     case AG_FINALIZATION_STATUS_FINALIZED:
     case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-      FD_CHECK_CRIT( 0==memcmp( status_hash( &status ), block->hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
+      FD_CHECK_CRIT( 0==memcmp( status_hash( &ele->status ), block->hash, sizeof(ag_block_hash_t) ), "consensus safety violation" );
       return;
     case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
       return;
     case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR: {
-      finalization_status_t finalized = { .kind = AG_FINALIZATION_STATUS_FINALIZED };
-      memcpy( finalized.finalized.hash, block->hash, sizeof(ag_block_hash_t) );
-      status_insert( self, block->slot, &finalized, NULL );
+      ele->status.kind = AG_FINALIZATION_STATUS_FINALIZED;
+      memcpy( ele->status.finalized.hash, block->hash, sizeof(ag_block_hash_t) );
       handle_finalized_block( self, block, event );
       return;
     }
@@ -479,21 +472,24 @@ ag_finality_tracker_mark_finalized( ag_finality_tracker_t *   self,
                                     ag_finalization_event_t * event ) {
   if( FD_UNLIKELY( slot<self->first_unpruned_slot ) ) return;
 
-  finalization_status_t pending = { .kind = AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR };
-  finalization_status_t status;
-  int old = status_insert( self, slot, &pending, &status );
-  if( FD_UNLIKELY( !old ) ) return;
+  status_ele_t * ele = status_map_ele_query( self->status.map, &slot, NULL, self->status.pool );
+  if( FD_UNLIKELY( !ele ) ) {
+    ele              = status_pool_ele_acquire( self->status.pool );
+    ele->slot        = slot;
+    ele->status.kind = AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR;
+    status_map_ele_insert( self->status.map, ele, self->status.pool );
+    return;
+  }
 
-  switch( status.kind ) {
+  switch( ele->status.kind ) {
     case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:
     case AG_FINALIZATION_STATUS_FINALIZED:
     case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
       return;
     case AG_FINALIZATION_STATUS_NOTARIZED: {
-      finalization_status_t finalized = { .kind = AG_FINALIZATION_STATUS_FINALIZED };
-      memcpy( finalized.finalized.hash, status.notarized.hash, sizeof(ag_block_hash_t) );
-      status_insert( self, slot, &finalized, NULL );
-      ag_block_id_t block = ag_block_id( slot, status.notarized.hash );
+      ag_block_id_t block = ag_block_id( slot, ele->status.notarized.hash );
+      ele->status.kind    = AG_FINALIZATION_STATUS_FINALIZED;
+      memcpy( ele->status.finalized.hash, block.hash, sizeof(ag_block_hash_t) );
       handle_finalized_block( self, &block, event );
       return;
     }

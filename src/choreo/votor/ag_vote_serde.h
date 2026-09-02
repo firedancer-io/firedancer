@@ -33,10 +33,6 @@ struct ag_vote_serde {
 };
 typedef struct ag_vote_serde ag_vote_serde_t;
 
-/* the serialized size of a vote, which the kind fixes: only a notar and
-   a notar fallback vote carry a block id, so a vote is one of exactly
-   two sizes and nothing between them is valid. */
-
 #define AG_VOTE_SER_SZ( has_block_id ) ( sizeof(uchar)                              /* version       */ + \
                                          sizeof(uchar)                              /* kind          */ + \
                                          sizeof(ulong)                              /* slot          */ + \
