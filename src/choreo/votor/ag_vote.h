@@ -133,12 +133,6 @@ ag_vote_set_rank( ag_vote_t * self,
   }
 }
 
-/* Only a notar and a notar fallback vote carry a block hash, so the
-   accessor takes the vote that owns the 32 bytes rather than the union:
-   the type states which kinds have a hash, and neither accessor has a
-   NULL return for the caller to handle.  A caller holding an ag_vote_t
-   has already discriminated the kind wherever it wants a hash. */
-
 FD_FN_PURE static inline uchar const *
 ag_vote_notar_block_hash( ag_vote_notar_t const * self ) {
   return self->block_hash;

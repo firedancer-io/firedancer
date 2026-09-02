@@ -299,6 +299,84 @@ test_no_reemit_when_parent_pruned_late( void ) {
   teardown_tracker( t );
 }
 
+/* Firedancer-only tests.  status_insert overwrites the entry before it
+   reports the old status, so an arm that keeps the old status has to
+   write it back.  Leaving a weaker status behind stalls prune, which
+   only walks the watermark through FINALIZED, IMPLICITLY_FINALIZED and
+   IMPLICITLY_SKIPPED.
+
+   Both tests reuse the unresolved gap of test_prune_keeps_unresolved_gap
+   so the downgraded slot sits above the watermark: prune resumes at
+   first_unpruned_slot+1, so a slot weakened below the watermark is never
+   read again and the stall would not be observable. */
+
+static void
+test_notarize_after_finalize_keeps_watermark( void ) {
+  ag_finality_tracker_t * t = setup_tracker();
+  ag_finalization_event_t event;
+
+  ag_block_id_t b1 = random_block_id( 1UL );
+  ag_block_id_t b2 = random_block_id( 2UL );
+
+  /* slot 1 is finalized but unnotarized, so the watermark cannot move */
+  event = event_default();
+  ag_finality_tracker_mark_finalized( t, b1.slot, &event );
+  assert_event_default( &event );
+
+  /* slot 2 finalizes fully, above the watermark */
+  event = event_default(); ag_finality_tracker_mark_notarized( t, &b2, &event );
+  event = event_default(); ag_finality_tracker_mark_finalized( t, b2.slot, &event );
+  assert_finalized( &event, &b2 );
+  FD_TEST( ag_finality_tracker_first_unpruned_slot( t )==0UL );
+
+  /* a duplicate notarization cert for slot 2, as a standstill rebroadcast
+     would deliver, must not weaken it back to NOTARIZED */
+  event = event_default();
+  ag_finality_tracker_mark_notarized( t, &b2, &event );
+  assert_event_default( &event );
+
+  /* resolving slot 1 makes prune walk through slot 2 */
+  ag_block_id_t gen = genesis_block_id();
+  event = event_default(); ag_finality_tracker_add_parent( t, &b1, &gen, &event );
+  event = event_default(); ag_finality_tracker_mark_notarized( t, &b1, &event );
+  assert_finalized( &event, &b1 );
+  FD_TEST( ag_finality_tracker_first_unpruned_slot( t )==b2.slot );
+
+  teardown_tracker( t );
+}
+
+static void
+test_finalize_after_finalize_keeps_watermark( void ) {
+  ag_finality_tracker_t * t = setup_tracker();
+  ag_finalization_event_t event;
+
+  ag_block_id_t b1 = random_block_id( 1UL );
+  ag_block_id_t b2 = random_block_id( 2UL );
+
+  event = event_default();
+  ag_finality_tracker_mark_finalized( t, b1.slot, &event );
+  assert_event_default( &event );
+
+  event = event_default(); ag_finality_tracker_mark_notarized( t, &b2, &event );
+  event = event_default(); ag_finality_tracker_mark_finalized( t, b2.slot, &event );
+  assert_finalized( &event, &b2 );
+  FD_TEST( ag_finality_tracker_first_unpruned_slot( t )==0UL );
+
+  /* a replayed finality cert for slot 2 must not weaken it back to
+     FINAL_PENDING_NOTAR */
+  event = event_default();
+  ag_finality_tracker_mark_finalized( t, b2.slot, &event );
+  assert_event_default( &event );
+
+  ag_block_id_t gen = genesis_block_id();
+  event = event_default(); ag_finality_tracker_add_parent( t, &b1, &gen, &event );
+  event = event_default(); ag_finality_tracker_mark_notarized( t, &b1, &event );
+  assert_finalized( &event, &b1 );
+  FD_TEST( ag_finality_tracker_first_unpruned_slot( t )==b2.slot );
+
+  teardown_tracker( t );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -310,6 +388,9 @@ main( int     argc,
   test_prune_keeps_unresolved_gap();
   test_ignores_add_parent_below_watermark();
   test_no_reemit_when_parent_pruned_late();
+
+  test_notarize_after_finalize_keeps_watermark();
+  test_finalize_after_finalize_keeps_watermark();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
