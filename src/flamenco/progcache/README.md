@@ -103,7 +103,8 @@ asynchronously: consensus, then system, then progcache.
   new root slot.  Logical ACK occurs when a tile understands that no
   more operations on conflicting forks are possible.  This is almost
   always instantaneous, except when a long fork is invalidated.
-- progcache root: advances when all root-related reclamations are done
+- progcache root: advances when the fork graph update (publish and
+  sibling cancellation) completes
 
 ### Revisions
 
@@ -142,6 +143,8 @@ Records have the following states:
 - loading: in the map under a loading sentinel, program not yet loaded
 - published: owned by a fork, visible to users
 - rooted: finalized by consensus (not owned by a fork), visible
+- zombie: removed from the map, invisible to lookups; its slot awaits
+  recovery by an eviction sweep
 
 A record is published into the map before its program is loaded, marked
 with a loading sentinel.  A thread that wants the same program finds it
@@ -157,21 +160,21 @@ feature_slot and deploy_slot.
 
 ### Record deletion
 
-Records to be deleted are immediately removed from the record map.  If
-the record is still read-locked, it is pushed onto a deferred-reclaim
-list shared across all threads; whichever thread next runs reclaim
-(after eviction, rooting, cancellation) frees it once its readers have
-released.  Reclamation returns the record to its class free list.
+Records to be deleted are immediately removed from the record map,
+which makes them invisible to new lookups; active readers keep their
+read locks.  The record then remains in place as a zombie until an
+eviction happens (with no pending read locks).
 
 ### Cache replacement policy
 
 Progcache uses the CLOCK cache replacement policy, independently per
 size class.  Any thread that inserts records also runs cache replacement.
 
-Eviction runs concurrently with rooting and fork cancellation.  A record
-with active readers is never taken: the sweep steps over it, and a record
-removed from the map while still read-locked goes on the deferred-reclaim
-list rather than being freed under its readers.
+Eviction runs concurrently with rooting and fork cancellation.
+Only records detached from the fork graph (rooted) are taken.
+A record with active readers is never taken either: the sweep steps over it.
+A zombie encountered by the sweep is handed over directly as its content is
+already dead, so no live record needs to die for that slot.
 
 ## Details
 
@@ -206,7 +209,7 @@ Its memory is divided in size classes, one per program size range up to
 the largest program that can be deployed, and each class has a fixed
 number of slots.  A record and its value slot are the same object, so
 reserving one reserves the other.  Programs that fail verification are
-cached too, in a class that holds no program data.
+cached too.
 
 The allocator handles insertions, evictions and spills.
 
@@ -215,8 +218,8 @@ allocator reserves a slot in the smallest class that fits the program
 size.
 
 If all slots are taken, the allocator attempts an eviction, i.e. finds
-an older slot, not currently read-locked, frees it and assigns it to the
-new program.
+a rooted record that is not read-locked and not recently used, removes
+it from the map, and hands its slot to the new program.
 
 In the (rare) event in which all slots are read-locked and eviction
 can't happen, the process spins until it can either reclaim a slot

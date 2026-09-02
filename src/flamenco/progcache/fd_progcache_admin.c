@@ -10,25 +10,6 @@
 /* FIXME get rid of this thread-local */
 FD_TL fd_progcache_admin_metrics_t fd_progcache_admin_metrics_g;
 
-/* Algorithm to estimate size of cache metadata structures (rec_pool
-   object pool and rec_map hashchain table).
-
-   FIXME Carefully balance this */
-
-static ulong
-fd_progcache_est_rec_max1( ulong wksp_footprint,
-                           ulong mean_cache_entry_size ) {
-  return wksp_footprint / mean_cache_entry_size;
-}
-
-ulong
-fd_progcache_est_rec_max( ulong wksp_footprint,
-                          ulong mean_cache_entry_size ) {
-  ulong est = fd_progcache_est_rec_max1( wksp_footprint, mean_cache_entry_size );
-  if( FD_UNLIKELY( est>(1UL<<31) ) ) FD_LOG_ERR(( "fd_progcache_est_rec_max(wksp_footprint=%lu,mean_cache_entry_size=%lu) failed: invalid parameters", wksp_footprint, mean_cache_entry_size ));
-  return fd_ulong_max( est, 2048UL );
-}
-
 /* Begin transaction-level operations.  It is assumed that txn data
    structures are not concurrently modified.  This includes txn_pool and
    txn_map. */
@@ -105,7 +86,7 @@ fd_progcache_attach_child( fd_progcache_join_t *  cache,
 static void
 fd_progcache_cancel_one( fd_progcache_join_t * cache,
                          fd_progcache_txn_t *  txn ) {
-  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
+  ulong rec_max = cache->rec.max;
   ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
 
   fd_rwlock_write( &txn->lock );
@@ -121,7 +102,7 @@ fd_progcache_cancel_one( fd_progcache_join_t * cache,
   for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; ) {
     if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (cancel_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
-    fd_progcache_rec_t * rec = &cache->rec.pool->ele[ idx ];
+    fd_progcache_rec_t * rec = &cache->rec.ele[ idx ];
     uint next_idx = rec->next_idx;
     if( FD_UNLIKELY( next_idx!=UINT_MAX && (ulong)next_idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (cancel_one next_idx=%u rec_max=%lu)", next_idx, rec_max ));
@@ -243,11 +224,11 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
 
   /* Phase 3: Detach records */
 
-  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
-  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; idx = cache->rec.pool->ele[ idx ].next_idx ) {
+  ulong rec_max = cache->rec.max;
+  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; idx = cache->rec.ele[ idx ].next_idx ) {
     if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (publish_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
-    atomic_store_explicit( &cache->rec.pool->ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
+    atomic_store_explicit( &cache->rec.ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
     fd_progcache_admin_metrics_g.root_cnt++;
   }
 
@@ -292,7 +273,6 @@ fd_progcache_advance_root( fd_progcache_join_t *  cache,
   /* Detach records from txns without acquiring record locks */
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
-  fd_rwlock_write( &cache->shmem->clock.lock );
 
   ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
   uint txn_idx = (uint)fd_prog_txnm_idx_query( cache->txn.map, &fork_id, UINT_MAX, cache->txn.pool );
@@ -316,10 +296,7 @@ fd_progcache_advance_root( fd_progcache_join_t *  cache,
 
   fd_progcache_txn_publish_one( cache, txn );
 
-  fd_rwlock_unwrite( &cache->shmem->clock.lock );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
-
-  fd_prog_reclaim_work( cache );
 }
 
 void
@@ -330,7 +307,6 @@ fd_progcache_cancel_fork( fd_progcache_join_t *  cache,
   }
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
-  fd_rwlock_write( &cache->shmem->clock.lock );
 
   fd_progcache_txn_t * txn = fd_prog_txnm_ele_query( cache->txn.map, &fork_id, NULL, cache->txn.pool );
   if( FD_UNLIKELY( !txn ) ) {
@@ -338,16 +314,13 @@ fd_progcache_cancel_fork( fd_progcache_join_t *  cache,
   }
   fd_progcache_cancel_tree( cache, txn );
 
-  fd_rwlock_unwrite( &cache->shmem->clock.lock );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
-  fd_prog_reclaim_work( cache );
 }
 
 /* reset_rec_map frees all records in a progcache instance. */
 
 static void
 reset_rec_map( fd_progcache_join_t * cache ) {
-  fd_progcache_rec_t * rec0 = cache->rec.pool->ele;
   ulong chain_cnt = fd_prog_recm_chain_cnt( cache->rec.map );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
     for(
@@ -357,16 +330,13 @@ reset_rec_map( fd_progcache_join_t * cache ) {
       fd_progcache_rec_t * rec = fd_prog_recm_iter_ele( iter );
       ulong next = fd_prog_recm_private_idx( rec->map_next );
 
-      if( rec->exists ) {
-        fd_prog_recm_query_t rec_query[1];
-        int err = fd_prog_recm_remove( cache->rec.map, &rec->pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
-        if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
-        fd_progcache_val_free( rec, cache );
-      }
+      fd_prog_recm_query_t rec_query[1];
+      int err = fd_prog_recm_remove( cache->rec.map, &rec->pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
+      if( FD_UNLIKELY( !fd_rwlock_trywrite( &rec->lock ) ) )
+        FD_LOG_CRIT(( "fd_progcache_reset requires quiescence: record still read-locked" ));
+      fd_progcache_rec_release( cache, rec );
 
-      rec->exists = 0;
-      fd_prog_clock_remove( cache->clock.bits, (ulong)( rec-rec0 ) );
-      fd_prog_recp_release( cache->rec.pool, rec );
       iter.ele_idx = next;
     }
   }
@@ -401,6 +371,16 @@ clear_txn_list( fd_progcache_join_t * join,
 
 void
 fd_progcache_reset( fd_progcache_join_t * cache ) {
+  /* Zombies are not in the map, so reset_rec_map cannot see them.  Collect
+     them first; one that survives the sweep is held by an active reader. */
+  fd_prog_reclaim_work( cache );
+  for( ulong i=0UL; i<cache->rec.max; i++ ) {
+    uchar st = __atomic_load_n( &cache->rec.ele[ i ].state, __ATOMIC_RELAXED );
+    if( FD_UNLIKELY( ( st & ( FD_PROGCACHE_REC_LIVE|FD_PROGCACHE_REC_MAPPED ) )==FD_PROGCACHE_REC_LIVE ) )
+      FD_LOG_CRIT(( "fd_progcache_reset requires quiescence: record %lu awaits collection (active readers?)", i ));
+  }
+  if( FD_UNLIKELY( cache->shmem->spill.lock.value || cache->shmem->spill.rec_used || cache->shmem->spill.spad_used ) )
+    FD_LOG_CRIT(( "fd_progcache_reset requires quiescence: spill in use" ));
   clear_txn_list( cache, cache->shmem->txn.child_head_idx );
   cache->shmem->txn.child_head_idx = UINT_MAX;
   cache->shmem->txn.child_tail_idx = UINT_MAX;
@@ -462,11 +442,10 @@ fd_progcache_verify( fd_progcache_join_t * join ) {
   TEST( shmem->magic==FD_PROGCACHE_SHMEM_MAGIC );
   TEST( shmem->wksp_tag );
 
-  TEST( !fd_prog_recp_verify( join->rec.pool ) );
   TEST( !fd_prog_recm_verify( join->rec.map ) );
 
-  ulong rec_max = fd_prog_recp_ele_max( join->rec.pool );
-  fd_progcache_rec_t * rec0 = join->rec.pool->ele;
+  ulong rec_max = join->rec.max;
+  fd_progcache_rec_t * rec0 = join->rec.ele;
 
   ulong txn_max = fd_prog_txnp_max( join->txn.pool );
   TEST( !fd_prog_txnm_verify( join->txn.map, txn_max, join->txn.pool ) );
@@ -509,6 +488,10 @@ fd_progcache_verify( fd_progcache_join_t * join ) {
     TEST( prev==txn->rec_tail_idx );
   }
 
+  /* A record is mapped, a zombie, free, or in flight -- never two. */
+  ulong mapped_cnt = 0UL;
+  ulong free_cnt   = 0UL;
+
   ulong chain_cnt = fd_prog_recm_chain_cnt( join->rec.map );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
     for(
@@ -519,24 +502,45 @@ fd_progcache_verify( fd_progcache_join_t * join ) {
       fd_progcache_rec_t * rec = fd_prog_recm_iter_ele( iter );
       TEST( rec->exists );
 
-      /* Verify clock exists bit is set for mapped records */
+      /* Verify state is LIVE for mapped records */
       ulong rec_idx = (ulong)( rec - rec0 );
       TEST( rec_idx<rec_max );
-      atomic_ulong * slot_p = fd_prog_cbits_slot( join->clock.bits, rec_idx );
-      ulong slot_val = atomic_load_explicit( slot_p, memory_order_relaxed );
-      TEST( fd_ulong_extract_bit( slot_val, fd_prog_exists_bit( rec_idx ) ) );
+      uchar st = __atomic_load_n( &rec->state, __ATOMIC_RELAXED );
+      /* Mapped means LIVE, or LOADING while its publisher finishes. */
+      TEST( st & ( FD_PROGCACHE_REC_LIVE | FD_PROGCACHE_REC_LOADING ) );
+      /* Detached means rooted, so the load is over. */
+      if( atomic_load_explicit( &rec->txn_idx, memory_order_acquire )==UINT_MAX )
+        TEST( st & FD_PROGCACHE_REC_LIVE );
+      TEST( st & FD_PROGCACHE_REC_MAPPED );
+      TEST( (ulong)rec->size_class==fd_progcache_rec_class( shmem, rec_idx ) );
+      mapped_cnt++;
+      TEST( rec->lock.value!=FD_RWLOCK_WRITE_LOCK ); /* push relies on this */
     }
   }
 
-  {
-    ulong reclaim_cnt = 0UL;
-    for( uint idx = join->rec.reclaim_head; idx!=UINT_MAX; ) {
-      TEST( idx<rec_max );
-      TEST( reclaim_cnt<rec_max ); /* cycle detection */
-      idx = rec0[ idx ].reclaim_next;
-      reclaim_cnt++;
+  /* A free record is write-locked, dead, and in its own class's list. */
+  for( ulong c=0UL; c<FD_PROGCACHE_CACHE_CLASS_CNT; c++ ) {
+    ulong base      = shmem->cache.rec_base [ c ];
+    ulong class_max = shmem->cache.class_max[ c ];
+
+    ulong cnt = 0UL;
+    uint  idx = (uint)( shmem->cache.free_top[ c ].ver_top & (ulong)UINT_MAX );
+    while( idx!=UINT_MAX ) {
+      TEST( (ulong)idx>=base && (ulong)idx<base+class_max );
+      fd_progcache_rec_t * rec = &rec0[ idx ];
+      TEST( !rec->exists );
+      TEST( rec->lock.value==FD_RWLOCK_WRITE_LOCK );
+      TEST( !__atomic_load_n( &rec->state, __ATOMIC_RELAXED ) );
+      TEST( cnt<class_max ); /* cycle detection */
+      cnt++;
+      idx = rec->free_next;
     }
+    TEST( cnt<=class_max );
+    TEST( cnt==shmem->cache.free_cnt[ c ].val );
+    free_cnt += cnt;
   }
+
+  TEST( mapped_cnt+free_cnt<=rec_max );
 
 # undef TEST
 

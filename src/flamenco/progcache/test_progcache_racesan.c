@@ -10,9 +10,9 @@
 #include "../../util/racesan/fd_racesan_weave.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
-FD_IMPORT_BINARY( valid_program_data, "src/ballet/sbpf/fixtures/hello_solana_program.so" );
+FD_IMPORT_BINARY( valid_program_data,   "src/ballet/sbpf/fixtures/hello_solana_program.so" );
+FD_IMPORT_BINARY( invalid_program_data, "src/ballet/sbpf/fixtures/malformed_bytecode.so"   );
 
-int const fd_progcache_use_malloc = 1;
 
 static fd_wksp_t *   wksp;
 static fd_features_t g_features[1];
@@ -42,6 +42,8 @@ struct fiber {
       fd_pubkey_t            prog_addr;
       fd_prog_load_env_t     load_env;
       fd_acc_t const *        prog_ro;
+      fd_progcache_rec_t *   res;
+      ulong                  res_data_gaddr;
     } pull;
 
     struct {
@@ -54,8 +56,7 @@ struct fiber {
 
     struct {
       fd_progcache_t * cache;
-      ulong            rec_min;
-      ulong            heap_min;
+      ulong            sz;
     } evict;
 
     struct {
@@ -92,7 +93,10 @@ fiber_pull_exec( void * _ctx ) {
   fiber_t * f = _ctx;
   fd_progcache_rec_t * res = fd_progcache_pull(
       f->pull.cache, f->pull.fork_id, &f->pull.prog_addr, &f->pull.load_env, f->pull.prog_ro );
-  if( res ) fd_progcache_rec_close( f->pull.cache, res );
+  FD_TEST( res ); /* the program is deployed, so pull must produce it */
+  f->pull.res            = res;
+  f->pull.res_data_gaddr = res->data_gaddr;
+  fd_progcache_rec_close( f->pull.cache, res );
 }
 
 static fd_racesan_async_t *
@@ -139,18 +143,17 @@ fiber_peek( fiber_t *              fiber,
 static void
 fiber_evict_exec( void * _ctx ) {
   fiber_t * f = _ctx;
-  fd_prog_clock_evict( f->evict.cache, f->evict.rec_min, f->evict.heap_min );
+  fd_progcache_rec_t * rec = fd_prog_evict( f->evict.cache, f->evict.sz );
+  if( rec ) fd_progcache_rec_abandon( f->evict.cache->join, rec );
 }
 
 static fd_racesan_async_t *
 fiber_evict( fiber_t * fiber,
              void *    shmem,
-             ulong     rec_min,
-             ulong     heap_min ) {
+             ulong     sz ) {
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
-  fiber->evict.cache    = fiber->cache;
-  fiber->evict.rec_min  = rec_min;
-  fiber->evict.heap_min = heap_min;
+  fiber->evict.cache = fiber->cache;
+  fiber->evict.sz    = sz;
   fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_evict_exec, fiber );
   return fiber->async;
 }
@@ -217,19 +220,17 @@ metrics_reset( void ) {
 
 static void
 metrics_check_no_oom( void ) {
-  FD_TEST( fd_progcache_metrics_default.oom_heap_cnt==0UL );
-  FD_TEST( fd_progcache_metrics_default.oom_desc_cnt==0UL );
+  FD_TEST( fd_progcache_metrics_default.class_full_cnt==0UL );
 }
 
 static fd_progcache_shmem_t *
 test_progcache_shmem_new( void ) {
   fd_wksp_reset( wksp, 1UL );
-  ulong txn_max           = 16UL;
-  ulong progcache_rec_max = 32UL;
-  ulong wksp_tag          =  1UL;
+  ulong txn_max  = 16UL;
+  ulong wksp_tag =  1UL;
 
-  fd_progcache_shmem_t * shmem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_rec_max ), wksp_tag );
-  FD_TEST( fd_progcache_shmem_new( shmem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
+  fd_progcache_shmem_t * shmem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, 256UL<<20 ), wksp_tag );
+  FD_TEST( fd_progcache_shmem_new( shmem, wksp_tag, 1UL, txn_max, 256UL<<20 ) );
   return shmem;
 }
 
@@ -258,7 +259,10 @@ query_rec_exact( fd_progcache_join_t *  join,
 
 /* TESTS **************************************************************/
 
-/* test_pull_pull races two loads for the same program */
+/* test_pull_pull races two pulls of the same program.  Only one of them may run
+   fd_sbpf_program_load: the first to publish claims the key under the loading
+   sentinel and the other waits for it, rather than loading a second copy and
+   throwing it away. */
 
 FD_UNIT_TEST( pull_pull ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
@@ -284,8 +288,13 @@ FD_UNIT_TEST( pull_pull ) {
     FD_TEST( !w->rem_cnt );
     FD_TEST( fd_progcache_metrics_default.lookup_cnt==2UL );
     FD_TEST( fd_progcache_metrics_default.fill_cnt  ==1UL );
-    FD_TEST( fd_progcache_metrics_default.hit_cnt   >=1UL );
-    FD_TEST( fd_progcache_metrics_default.miss_cnt  <=1UL );
+    FD_TEST( fd_progcache_metrics_default.hit_cnt+fd_progcache_metrics_default.miss_cnt==2UL );
+    FD_TEST( fd_progcache_metrics_default.miss_cnt  >=1UL ); /* the fill was a miss */
+    /* single flight: one load for one revision, whatever the interleaving.  Both
+       fibers get that record, and only the one that does not load can wait. */
+    FD_TEST( g_fiber[ 0 ].pull.res==g_fiber[ 1 ].pull.res );
+    FD_TEST( fd_progcache_metrics_default.load_cnt  ==1UL );
+    FD_TEST( fd_progcache_metrics_default.hit_loading_cnt<=1UL );
     metrics_check_no_oom();
 
     fd_racesan_weave_delete( w );
@@ -335,6 +344,220 @@ FD_UNIT_TEST( pull_peek ) {
     test_progcache_reset( admin );
   }
 
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
+/* test_pull_root roots a fork while a pull holds the key under the loading
+   sentinel.  Rooting detaches the record but leaves it mapped, so the publisher
+   must finish the publish rather than bail: a bail leaves a LOADING entry that no
+   lookup can resolve.  Deterministic, not woven -- an interleaving that roots
+   before the publish is a caller executing on a rooted fork, which insert
+   rejects by design. */
+
+FD_UNIT_TEST( pull_root ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t        key = test_key( 42UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  /* Run the pull up to the point where it owns the load and the record is in the
+     map under the sentinel. */
+  fd_racesan_async_t * a = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
+  FD_TEST( fd_racesan_async_step_until( a, "prog_insert:post_claim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  fd_progcache_advance_root( admin, xid );
+
+  /* Bounded: a publisher that bailed leaves its own retry loop spinning on the
+     record it stranded, so an unbounded resume would hang instead of report. */
+  int exited = 0;
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    int ret = fd_racesan_async_step( a );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) { exited = 1; break; }
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  FD_TEST( exited );
+  fiber_delete( &g_fiber[ 0 ] );
+
+  /* Catches the strand: a mapped, detached record must be LIVE. */
+  FD_TEST( !fd_progcache_verify( admin ) );
+
+  /* And it must be usable.  Pre-fix this pull never returns. */
+  {
+    fd_progcache_fork_id_t child = fd_progcache_attach_child( admin, xid );
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    fd_progcache_rec_t * rec = fd_progcache_pull( tmp, child, &key, &load_env, acc.entry );
+    FD_TEST( rec );
+    fd_progcache_rec_close( tmp, rec );
+    fd_progcache_leave( tmp, NULL );
+  }
+
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
+/* test_pull_cancel cancels a fork while a pull holds the key under the loading
+   sentinel.  Cancel unmaps the record, so the publisher cannot cache it -- but the
+   program is loaded and read-locked, so pull still returns it and the close
+   leaves a zombie for the next sweep.  Deterministic for the same reason as
+   pull_root. */
+
+FD_UNIT_TEST( pull_cancel ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t        key = test_key( 42UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  fd_racesan_async_t * a = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
+  FD_TEST( fd_racesan_async_step_until( a, "prog_insert:post_claim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  fd_progcache_cancel_fork( admin, xid );
+
+  int exited = 0;
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    int ret = fd_racesan_async_step( a );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) { exited = 1; break; }
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  FD_TEST( exited ); /* fiber_pull asserts the record it got is non-NULL */
+  fiber_delete( &g_fiber[ 0 ] );
+
+  FD_TEST( !fd_progcache_verify( admin ) );
+
+  /* Nothing was cached: the fork is gone, so a fresh fork reloads rather than
+     inheriting a record from the cancelled one. */
+  {
+    fd_progcache_fork_id_t xid2 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    metrics_reset();
+    fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid2, &key, &load_env, acc.entry );
+    FD_TEST( rec );
+    FD_TEST( fd_progcache_metrics_default.fill_cnt==1UL ); /* a fill, not a stale hit */
+    fd_progcache_rec_close( tmp, rec );
+    fd_progcache_leave( tmp, NULL );
+  }
+
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
+/* test_lost_race_failed_load: B loses the publish race and parks in insert's wait
+   on A's record.  A's load is then rejected, so A unmaps that record -- B must not
+   be handed the failed load's slot as if it were a program. */
+
+FD_UNIT_TEST( lost_race_failed_load ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t        key = test_key( 7UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, invalid_program_data, invalid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  /* Both miss in query and hold their own record, neither published yet. */
+  fd_racesan_async_t * a = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
+  FD_TEST( fd_racesan_async_step_until( a, "prog_insert:pre_push", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  fd_racesan_async_t * b = fiber_pull( &g_fiber[ 1 ], shmem, xid, &key, &load_env, acc.entry );
+  FD_TEST( fd_racesan_async_step_until( b, "prog_insert:pre_push", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* A wins the key and owns the load. */
+  FD_TEST( fd_racesan_async_step_until( a, "prog_insert:post_claim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* B loses and parks on A's record. */
+  FD_TEST( fd_racesan_async_step_until( b, "prog_wait_if_loading:spin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* A's load is rejected: it unmaps the record B is waiting on. */
+  for(;;) {
+    int ret = fd_racesan_async_step( a );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  for(;;) {
+    int ret = fd_racesan_async_step( b );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* Neither caller may be handed program data for a program that did not load. */
+  FD_TEST( !g_fiber[ 0 ].pull.res_data_gaddr );
+  FD_TEST( !g_fiber[ 1 ].pull.res_data_gaddr );
+
+  fiber_delete( &g_fiber[ 0 ] );
+  fiber_delete( &g_fiber[ 1 ] );
+  FD_TEST( !fd_progcache_verify( admin ) );
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
+/* test_peek_failed_load waits on a record whose load then fails verification.
+   The record is marked non-executable in place and stays mapped, so the waiter
+   wakes on the same record and gets the non-executable answer. */
+
+FD_UNIT_TEST( peek_failed_load ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t        key = test_key( 42UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, invalid_program_data, invalid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  /* A owns the load, with the record published under the sentinel. */
+  fd_racesan_async_t * a = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
+  FD_TEST( fd_racesan_async_step_until( a, "prog_insert:post_claim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* B finds it and parks in the wait, holding a read lock on A's record.  A pull,
+     not a peek: it derives the same revision fields A did. */
+  fd_racesan_async_t * b = fiber_pull( &g_fiber[ 1 ], shmem, xid, &key, &load_env, acc.entry );
+  FD_TEST( fd_racesan_async_step_until( b, "prog_wait_if_loading:spin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* A fails verification: it deletes the record B holds, then publishes nx. */
+  int a_done = 0;
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    int ret = fd_racesan_async_step( a );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) { a_done = 1; break; }
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  FD_TEST( a_done );
+
+  /* B must notice the record never became LIVE and re-find the nx record. */
+  int b_done = 0;
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    int ret = fd_racesan_async_step( b );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) { b_done = 1; break; }
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  FD_TEST( b_done );
+
+  /* Both got the same record, and it reads back non-executable. */
+  FD_TEST( g_fiber[ 0 ].pull.res && !g_fiber[ 0 ].pull.res_data_gaddr );
+  FD_TEST( g_fiber[ 1 ].pull.res==g_fiber[ 0 ].pull.res );
+  FD_TEST( !g_fiber[ 1 ].pull.res_data_gaddr );
+
+  fiber_delete( &g_fiber[ 0 ] );
+  fiber_delete( &g_fiber[ 1 ] );
+  FD_TEST( !fd_progcache_verify( admin ) );
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
 }
@@ -390,6 +613,56 @@ FD_UNIT_TEST( cancel_peek ) {
   test_progcache_shmem_delete( shmem );
 }
 
+/* test_cancel_evict races fork cancellation against clock eviction competing to
+   remove the same record: cancel_one orphans it and unmaps it while the sweep
+   is unmapping and claiming it for a caller that needs the slot. */
+
+FD_UNIT_TEST( cancel_evict ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t key = test_key( 42UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+    {
+      fd_progcache_t tmp[1];
+      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
+      FD_TEST( rec );
+      fd_progcache_rec_close( tmp, rec );
+      /* Drop the second chance so the sweep targets this record immediately. */
+      ulong rec_idx = (ulong)( rec - tmp->join->rec.ele );
+      __atomic_fetch_and( &tmp->join->rec.ele[ rec_idx ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
+      fd_progcache_leave( tmp, NULL );
+    }
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_cancel( &g_fiber[ 0 ], shmem, xid1 ) );
+    fd_racesan_weave_add( w, fiber_evict ( &g_fiber[ 1 ], shmem, valid_program_data_sz ) );
+
+    metrics_reset();
+    fd_racesan_weave_exec_rand( w, i, STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+
+    fd_racesan_weave_delete( w );
+    fiber_delete( &g_fiber[ 0 ] );
+    fiber_delete( &g_fiber[ 1 ] );
+    FD_TEST( !fd_progcache_verify( admin ) );
+    test_progcache_reset( admin );
+  }
+
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
 /* test_publish_evict races advance_root against clock eviction */
 
 FD_UNIT_TEST( publish_evict ) {
@@ -419,7 +692,7 @@ FD_UNIT_TEST( publish_evict ) {
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
     fd_racesan_weave_add( w, fiber_advance_root( &g_fiber[ 0 ], shmem, xid1 ) );
-    fd_racesan_weave_add( w, fiber_evict(        &g_fiber[ 1 ], shmem, 1UL, 0UL ) );
+    fd_racesan_weave_add( w, fiber_evict(        &g_fiber[ 1 ], shmem, valid_program_data_sz ) );
 
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
@@ -745,7 +1018,7 @@ FD_UNIT_TEST( publish_reclaim_evicted ) {
 
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
-    fd_racesan_weave_add( w, fiber_evict(        &g_fiber[ 0 ], shmem, 1UL, 0UL ) );
+    fd_racesan_weave_add( w, fiber_evict(        &g_fiber[ 0 ], shmem, valid_program_data_sz ) );
     fd_racesan_weave_add( w, fiber_advance_root( &g_fiber[ 1 ], shmem, xid1 ) );
 
     metrics_reset();
@@ -798,7 +1071,7 @@ FD_UNIT_TEST( root_evict_two ) {
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
     fd_racesan_weave_add( w, fiber_advance_root( &g_fiber[ 0 ], shmem, xid1 ) );
-    fd_racesan_weave_add( w, fiber_evict(        &g_fiber[ 1 ], shmem, 1UL, 0UL ) );
+    fd_racesan_weave_add( w, fiber_evict(        &g_fiber[ 1 ], shmem, valid_program_data_sz ) );
 
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
@@ -868,7 +1141,7 @@ FD_UNIT_TEST( publish_evict_stale ) {
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
     fd_racesan_weave_add( w, fiber_advance_root( &g_fiber[ 0 ], shmem, xid1 ) );
-    fd_racesan_weave_add( w, fiber_evict(        &g_fiber[ 1 ], shmem, 2UL, 0UL ) );
+    fd_racesan_weave_add( w, fiber_evict(        &g_fiber[ 1 ], shmem, valid_program_data_sz ) );
 
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
@@ -910,26 +1183,28 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
     fd_progcache_rec_close( tmp, rec_old );
     fd_progcache_leave( tmp, NULL );
   }
-  ulong rec_idx = (ulong)( rec_old - admin->rec.pool->ele );
+  ulong rec_idx = (ulong)( rec_old - admin->rec.ele );
 
-  /* Clear the visited bit so the CLOCK hand picks this slot */
-  atomic_ulong * slot_p = fd_prog_cbits_slot( admin->clock.bits, rec_idx );
-  atomic_fetch_and_explicit( slot_p, ~( 1UL<<fd_prog_visited_bit( rec_idx ) ), memory_order_relaxed );
+  /* Only rooted records are evictable, and a rooted record stays visible to the
+     fresh child used for the pulls below. */
+  fd_progcache_advance_root( admin, xid1 );
+  xid1 = fd_progcache_attach_child( admin, xid1 );
 
-  /* Remove the record from the map (as fork cancellation would),
-     deferring reclamation to admin's local reclaim list */
+  /* Clear the visited flag so the CLOCK hand picks this record */
+  __atomic_fetch_and( &admin->rec.ele[ rec_idx ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
+
+  /* Aim the next ticket at this record: the scan examines
+     rec_base[c] + (ticket % class_max[c]). */
+  ulong hand_cls = fd_progcache_rec_class( shmem, rec_idx );
+  shmem->cache.clock_hand[ hand_cls ].val = rec_idx - shmem->cache.rec_base[ hand_cls ];
+
+  /* Start an eviction scan; pause it with the victim chosen and its key
+     snapshotted, right before the claim. */
+  fd_racesan_async_t * e = fiber_evict( &g_fiber[ 0 ], shmem, valid_program_data_sz );
+  FD_TEST( fd_racesan_async_step_until( e, "prog_clock_evict:pre_delete", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Retire the record behind the paused scan's back and release its slot. */
   FD_TEST( fd_prog_delete_rec( admin, rec_old )>=0L );
-
-  shmem->clock.head = rec_idx;
-
-  /* Start an eviction scan; pause it right after it observed the stale
-     "exists" bit and its delete attempt failed, but before it writes
-     back to the cbits */
-  fd_racesan_async_t * e = fiber_evict( &g_fiber[ 0 ], shmem, 1UL, 0UL );
-  FD_TEST( fd_racesan_async_step_until( e, "prog_clock_evict:post_load_bits", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
-  FD_TEST( fd_racesan_async_step_until( e, "prog_clock_evict:post_delete",    STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
-
-  /* Reclaim the old record, releasing its pool slot */
   FD_TEST( fd_prog_reclaim_work( admin )==1UL );
 
   /* Reuse the slot for a different program */
@@ -944,8 +1219,9 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
   }
   FD_TEST( rec_new==rec_old ); /* pool slot was reused */
 
-  /* Run the eviction scan to completion.  It must leave the new
-     record's cbits alone. */
+  /* Run the eviction scan to completion.  Its claim was decided under key1,
+     which is no longer mapped here, so it must fail rather than take the new
+     record. */
   for(;;) {
     int ret = fd_racesan_async_step( e );
     if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
@@ -954,11 +1230,44 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
   fiber_delete( &g_fiber[ 0 ] );
 
   /* The new record must still be marked existing (evictable) */
-  ulong slot_val = atomic_load_explicit( slot_p, memory_order_relaxed );
-  FD_TEST( fd_ulong_extract_bit( slot_val, fd_prog_exists_bit( rec_idx ) ) );
+  FD_TEST( __atomic_load_n( &admin->rec.ele[ rec_idx ].state, __ATOMIC_RELAXED ) & FD_PROGCACHE_REC_LIVE );
   FD_TEST( !fd_progcache_verify( admin ) );
 
   fd_progcache_cancel_fork( admin, xid1 );
+  FD_TEST( !fd_progcache_verify( admin ) );
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
+/* A record is reachable from the map the instant the chain is released, so its
+   state must already be LIVE by then -- fd_progcache_verify asserts it. */
+
+FD_UNIT_TEST( publish_verify_live ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t key = test_key( 42UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  /* Pause the pull with the record inserted and the chain still held. */
+  fd_racesan_async_t * p = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
+  FD_TEST( fd_racesan_async_step_until( p, "prog_push:post_map_insert", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  FD_TEST( !fd_progcache_verify( admin ) ); /* mapped => LIVE, mid-publish */
+
+  for(;;) {
+    int ret = fd_racesan_async_step( p );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  fiber_delete( &g_fiber[ 0 ] );
+
+  FD_TEST( !fd_progcache_verify( admin ) );
+  fd_progcache_cancel_fork( admin, xid );
   FD_TEST( !fd_progcache_verify( admin ) );
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
@@ -988,6 +1297,11 @@ FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
     fd_progcache_rec_close( tmp, rec_old );
     fd_progcache_leave( tmp, NULL );
   }
+
+  /* Only a detached (rooted) zombie is collectable, and a rooted record stays
+     visible to the fresh child used for the pulls below. */
+  fd_progcache_advance_root( admin, xid1 );
+  xid1 = fd_progcache_attach_child( admin, xid1 );
 
   fd_racesan_async_t * d = fiber_delete_rec( &g_fiber[ 0 ], shmem, rec_old );
   FD_TEST( fd_racesan_async_step_until( d, "prog_delete_rec:post_txn_add", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
@@ -1058,7 +1372,7 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
     fd_progcache_leave( tmp, NULL );
   }
 
-  uint rec2_idx = (uint)( rec2 - admin->rec.pool->ele );
+  uint rec2_idx = (uint)( rec2 - admin->rec.ele );
   FD_TEST( rec2_idx!=0U );
   FD_TEST( rec1->next_idx==rec2_idx );
 
@@ -1069,12 +1383,8 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
 
   FD_TEST( fd_prog_reclaim_work( admin )==1UL );
 
-  fd_progcache_rec_t * rec_reuse = fd_prog_recp_acquire( admin->rec.pool );
+  fd_progcache_rec_t * rec_reuse = fd_progcache_rec_acquire( admin, 4096UL ); /* class 0: LIFO free list returns rec1 */
   FD_TEST( rec_reuse==rec1 );
-  memset( rec_reuse, 0, sizeof(fd_progcache_rec_t) );
-  rec_reuse->exists       = 1;
-  rec_reuse->txn_idx      = UINT_MAX;
-  rec_reuse->reclaim_next = UINT_MAX;
   FD_TEST( rec_reuse->next_idx==0U );
 
   int done = 0;
@@ -1089,8 +1399,7 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
   FD_TEST( done );
   fiber_delete( &g_fiber[ 0 ] );
 
-  rec_reuse->exists = 0;
-  fd_prog_recp_release( admin->rec.pool, rec_reuse );
+  fd_progcache_rec_abandon( admin, rec_reuse );
 
   FD_TEST( !query_rec_exact( admin, xid1, &key1 ) );
   FD_TEST( !query_rec_exact( admin, xid1, &key2 ) );
