@@ -19,17 +19,9 @@ enum {
 static int
 store_file_wait( fd_store_t const * store,
                  int                state ) {
-  long  deadline = fd_log_wallclock() + (long)1.2e9;
-  ulong spin_cnt = 0UL;
   while( state==FD_STORE_FILE_UNINITIALIZED || state==FD_STORE_FILE_INITIALIZING ) {
     FD_SPIN_PAUSE();
     state = atomic_load_explicit( &store->file_init_state, memory_order_acquire );
-    if( FD_LIKELY( state!=FD_STORE_FILE_UNINITIALIZED && state!=FD_STORE_FILE_INITIALIZING ) ) break;
-    if( FD_LIKELY( (++spin_cnt & 65535UL) ) ) continue;
-    if( FD_UNLIKELY( fd_log_wallclock()>=deadline ) ) {
-      errno = ETIMEDOUT;
-      return -1;
-    }
   }
   if( FD_UNLIKELY( state!=FD_STORE_FILE_READY ) ) {
     errno = store->file_init_errno ? store->file_init_errno : EIO;
