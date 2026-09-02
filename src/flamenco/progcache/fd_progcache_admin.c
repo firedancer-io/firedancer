@@ -357,6 +357,11 @@ reset_rec_map( fd_progcache_join_t * cache ) {
       fd_progcache_rec_t * rec = fd_prog_recm_iter_ele( iter );
       ulong next = fd_prog_recm_private_idx( rec->map_next );
 
+      /* Free pool records are write locked.  reset does not support
+         concurrent use, so this acquisition cannot block on a live
+         user. */
+      fd_rwlock_write( &rec->lock );
+
       if( rec->exists ) {
         fd_prog_recm_query_t rec_query[1];
         int err = fd_prog_recm_remove( cache->rec.map, &rec->pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
