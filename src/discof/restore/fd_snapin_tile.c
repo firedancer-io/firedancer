@@ -32,11 +32,6 @@
    for loading accounts into an in-memory database, though this may
    change. */
 
-/* 300 root slots in the slot deltas array, and each one references all
-   151 prior blockhashes that it's able to.  Multiply by 2 to allow for
-   referenced nonce blockhashes */
-#define FD_SNAPIN_MAX_SLOT_DELTA_GROUPS (300UL*151UL*2UL)
-
 struct fd_blockhash_entry {
   fd_hash_t blockhash;
 
@@ -67,19 +62,49 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 
 FD_STATIC_ASSERT( FD_TXNCACHE_MAX_SLOT_DELTAS<=FD_SLOT_DELTA_MAX_ENTRIES, txncache_staging_slot_cnt );
 
+/* A blockhash group is one (slot, blockhash) pair in the status cache,
+   holding the txnhash offset for that blockhash and the entries of the
+   transactions executed in that slot which referenced the blockhash.
+   Agave inserts every processed transaction into the status cache twice
+   (once with message hash and once with signature), both times under
+   the same blockhash and slot.  Groups can reference any blockhash,
+   including durable nonces that are not in the recent blockhash queue.
+   So an honest slot has at most FD_MAX_TXN_PER_SLOT groups.  Snapshots
+   exceeding this are rejected as malformed. */
+#define FD_SNAPIN_MAX_GROUPS_PER_SLOT (FD_MAX_TXN_PER_SLOT)
+#define FD_SNAPIN_MAX_STAGED_GROUPS   (FD_TXNCACHE_MAX_SLOT_DELTAS*FD_SNAPIN_MAX_GROUPS_PER_SLOT)
+
+FD_STATIC_ASSERT( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT==2UL*FD_SNAPIN_MAX_GROUPS_PER_SLOT, txncache_staging_groups_per_slot );
+
 struct blockhash_group {
   uchar blockhash[ 32UL ];
-  ulong slot;
+  uint  txnhash_offset;
+  uint  txncache_entry_cnt;
+};
+
+typedef struct blockhash_group blockhash_group_t;
+
+FD_STATIC_ASSERT( sizeof(blockhash_group_t)==40UL, blockhash_group );
+
+/* After filtering with the recent blockhash queue, there is at most one
+   group per retained (slot, recent blockhash) pair.  Filtering can only
+   happen after we receive the manifest, hence we still need
+   FD_SNAPIN_MAX_STAGED_GROUPS to buffer up worst case slot deltas. */
+#define FD_SNAPIN_MAX_RECENT_GROUPS (FD_TXNCACHE_MAX_SLOT_DELTAS*FD_TXNCACHE_MAX_SLOT_DELTAS)
+
+struct recent_blockhash_group {
+  ulong chain_idx; /* 0 is the root */
   ulong txnhash_offset;
   ulong txncache_entry_idx;
   ulong txncache_entry_cnt;
 };
 
-typedef struct blockhash_group blockhash_group_t;
+typedef struct recent_blockhash_group recent_blockhash_group_t;
 
 struct txncache_staging_slot {
   ulong slot;
   ulong entry_cnt;
+  ulong group_cnt;
 };
 
 typedef struct txncache_staging_slot txncache_staging_slot_t;
@@ -161,8 +186,10 @@ struct fd_snapin_tile {
     fd_feature_snoop_t           feature_snoop;
   } recovery; /* stores state from the last full snapshot for incremental revert */
 
-  ulong               blockhash_groups_len;
-  blockhash_group_t * blockhash_groups;
+  blockhash_group_t *        blockhash_groups;
+  ulong                      blockhash_groups_cnt; /* every group parsed, including those from dropped slots */
+  recent_blockhash_group_t * recent_groups;
+  ulong                      recent_groups_len;
 
   int alpenglow;
 
@@ -171,6 +198,7 @@ struct fd_snapin_tile {
   ulong                   txncache_slots_len;
   ulong                   txncache_current_slot_idx;
   ulong                   txncache_current_slot_entry_cnt;
+  ulong                   txncache_current_slot_group_cnt;
 
   fd_accdb_fork_id_t accdb_root_fork_id;
   fd_accdb_fork_id_t accdb_incr_fork_id; /* child fork for incremental writes (purge on failure) */
@@ -265,13 +293,13 @@ scratch_align( void ) {
 static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),     sizeof(fd_snapin_tile_t)                                    );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots )        );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),              fd_accdb_footprint( tile->snapin.max_live_slots )           );
-  l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                            );
-  l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
-  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),         sizeof(fd_snapin_tile_t)                                     );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),               fd_txncache_footprint( tile->snapin.max_live_slots )         );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->snapin.max_live_slots )            );
+  l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),      fd_ssmanifest_parser_footprint()                             );
+  l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),      fd_slot_delta_parser_footprint()                             );
+  l = FD_LAYOUT_APPEND( l, alignof(recent_blockhash_group_t), sizeof(recent_blockhash_group_t)*FD_SNAPIN_MAX_RECENT_GROUPS );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_hash_t),     sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -490,6 +518,137 @@ transition_malformed( fd_snapin_tile_t *  ctx,
   fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
+static blockhash_group_t *
+txncache_staging_groups_join( void * scratch,
+                              ulong  scratch_sz ) {
+  ulong start = fd_ulong_align_up( (ulong)scratch, alignof(blockhash_group_t) );
+  ulong pad   = start-(ulong)scratch;
+  if( FD_UNLIKELY( pad>scratch_sz ) ) return NULL;
+  if( FD_UNLIKELY( scratch_sz-pad<FD_SNAPIN_MAX_STAGED_GROUPS*sizeof(blockhash_group_t) ) ) return NULL;
+  return (blockhash_group_t *)start;
+}
+
+static blockhash_group_t *
+txncache_staging_scratch( fd_snapin_tile_t * ctx ) {
+  ulong  scratch_sz;
+  void * scratch = fd_txncache_snapin_scratch( ctx->txncache, &scratch_sz );
+  blockhash_group_t * groups = txncache_staging_groups_join( scratch, scratch_sz );
+  if( FD_UNLIKELY( !groups ) ) FD_LOG_ERR(( "txncache scratch (%lu bytes) too small to stage %lu blockhash groups (%lu bytes)", scratch_sz, FD_SNAPIN_MAX_STAGED_GROUPS, FD_SNAPIN_MAX_STAGED_GROUPS*sizeof(blockhash_group_t) ));
+  return groups;
+}
+
+static void
+txncache_staging_reset( fd_snapin_tile_t * ctx ) {
+  ctx->blockhash_groups_cnt            = 0UL;
+  ctx->recent_groups_len               = 0UL;
+  ctx->txncache_slots_len              = 0UL;
+  ctx->txncache_current_slot_idx       = ULONG_MAX;
+  ctx->txncache_current_slot_entry_cnt = 0UL;
+  ctx->txncache_current_slot_group_cnt = 0UL;
+}
+
+static ulong
+txncache_staging_slot_begin( fd_snapin_tile_t * ctx,
+                             ulong              slot ) {
+  ulong candidate_idx;
+  if( FD_LIKELY( ctx->txncache_slots_len<FD_TXNCACHE_MAX_SLOT_DELTAS ) ) {
+    candidate_idx = ctx->txncache_slots_len++;
+  } else {
+    candidate_idx = 0UL;
+    for( ulong i=1UL; i<FD_TXNCACHE_MAX_SLOT_DELTAS; i++ ) {
+      if( ctx->txncache_slots[ i ].slot<ctx->txncache_slots[ candidate_idx ].slot ) candidate_idx = i;
+    }
+    if( FD_UNLIKELY( slot<ctx->txncache_slots[ candidate_idx ].slot ) ) candidate_idx = ULONG_MAX;
+  }
+
+  if( FD_LIKELY( candidate_idx!=ULONG_MAX ) ) {
+    ctx->txncache_slots[ candidate_idx ].slot      = slot;
+    ctx->txncache_slots[ candidate_idx ].entry_cnt = 0UL;
+    ctx->txncache_slots[ candidate_idx ].group_cnt = 0UL;
+  }
+  ctx->txncache_current_slot_idx       = candidate_idx;
+  ctx->txncache_current_slot_entry_cnt = 0UL;
+  ctx->txncache_current_slot_group_cnt = 0UL;
+  return candidate_idx;
+}
+
+static int
+txncache_staging_group_begin( fd_snapin_tile_t * ctx,
+                              uchar const *      blockhash,
+                              ulong              txnhash_offset ) {
+  if( FD_UNLIKELY( ctx->txncache_current_slot_group_cnt>=FD_SNAPIN_MAX_GROUPS_PER_SLOT ) ) return -1;
+  ctx->txncache_current_slot_group_cnt++;
+  ctx->blockhash_groups_cnt++;
+
+  ulong slot_idx = ctx->txncache_current_slot_idx;
+  if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) return 0;
+
+  FD_TEST( slot_idx<ctx->txncache_slots_len );
+  txncache_staging_slot_t * staging_slot = &ctx->txncache_slots[ slot_idx ];
+  FD_TEST( staging_slot->group_cnt<FD_SNAPIN_MAX_GROUPS_PER_SLOT );
+  blockhash_group_t * group = &ctx->blockhash_groups[ slot_idx*FD_SNAPIN_MAX_GROUPS_PER_SLOT+staging_slot->group_cnt ];
+  memcpy( group->blockhash, blockhash, 32UL );
+  group->txnhash_offset     = (uint)txnhash_offset;
+  group->txncache_entry_cnt = 0U;
+  staging_slot->group_cnt++;
+  return 0;
+}
+
+static int
+txncache_staging_entry_add( fd_snapin_tile_t * ctx,
+                            ulong              slot,
+                            uchar const *      txnhash ) {
+  if( FD_UNLIKELY( ctx->txncache_current_slot_entry_cnt>=FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) ) return -1;
+  ctx->txncache_current_slot_entry_cnt++;
+
+  ulong slot_idx = ctx->txncache_current_slot_idx;
+  if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) return 0;
+
+  FD_TEST( slot_idx<ctx->txncache_slots_len );
+  txncache_staging_slot_t * staging_slot = &ctx->txncache_slots[ slot_idx ];
+  FD_TEST( staging_slot->slot==slot );
+  FD_TEST( staging_slot->group_cnt );
+  FD_TEST( staging_slot->entry_cnt<FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
+  blockhash_group_t * group = &ctx->blockhash_groups[ slot_idx*FD_SNAPIN_MAX_GROUPS_PER_SLOT+staging_slot->group_cnt-1UL ];
+  memcpy( ctx->txncache_entries[ slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT+staging_slot->entry_cnt ].txnhash, txnhash, sizeof(fd_sstxncache_hash_t) );
+  staging_slot->entry_cnt++;
+  group->txncache_entry_cnt++;
+  return 0;
+}
+
+static int
+filter_staged_groups( fd_snapin_tile_t *           ctx,
+                      blockhash_map_t const *      blockhash_map,
+                      fd_blockhash_entry_t const * blockhash_pool ) {
+  ctx->recent_groups_len = 0UL;
+  for( ulong slot_idx=0UL; slot_idx<ctx->txncache_slots_len; slot_idx++ ) {
+    txncache_staging_slot_t const * staging_slot = &ctx->txncache_slots[ slot_idx ];
+    blockhash_group_t const *       groups       = &ctx->blockhash_groups[ slot_idx*FD_SNAPIN_MAX_GROUPS_PER_SLOT ];
+    ulong                           entry_idx    = slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
+
+    for( ulong i=0UL; i<staging_slot->group_cnt; i++ ) {
+      blockhash_group_t const * group = &groups[ i ];
+      fd_hash_t key;
+      fd_memcpy( key.uc, group->blockhash, 32UL );
+      fd_blockhash_entry_t const * entry = blockhash_map_ele_query_const( blockhash_map, &key, NULL, blockhash_pool );
+      if( FD_LIKELY( entry ) ) {
+        if( FD_UNLIKELY( ctx->recent_groups_len>=FD_SNAPIN_MAX_RECENT_GROUPS ) ) {
+          FD_LOG_WARNING(( "corrupt snapshot: more than %lu blockhash groups reference recent blockhashes", FD_SNAPIN_MAX_RECENT_GROUPS ));
+          return -1;
+        }
+        recent_blockhash_group_t * recent = &ctx->recent_groups[ ctx->recent_groups_len++ ];
+        recent->chain_idx          = (ulong)(entry-blockhash_pool);
+        recent->txnhash_offset     = group->txnhash_offset;
+        recent->txncache_entry_idx = entry_idx;
+        recent->txncache_entry_cnt = group->txncache_entry_cnt;
+      }
+      entry_idx += group->txncache_entry_cnt;
+    }
+    FD_TEST( entry_idx==slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT+staging_slot->entry_cnt );
+  }
+  return 0;
+}
+
 static int
 populate_txncache( fd_snapin_tile_t *                     ctx,
                    fd_snapshot_manifest_blockhash_t const blockhashes[ static FD_BLOCKHASHES_MAX ],
@@ -648,8 +807,12 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     blockhash_map_ele_insert( blockhash_map, &blockhash_pool[ i ], blockhash_pool );
   }
 
+  /* blockhash_groups aliases txncache memory, so filtering must finish
+     before the first txncache insert. */
+  if( FD_UNLIKELY( filter_staged_groups( ctx, blockhash_map, blockhash_pool ) ) ) return 1;
+
   /* Now load the blockhash offsets for these blockhashes ... */
-  if( FD_UNLIKELY( !ctx->blockhash_groups_len ) ) {
+  if( FD_UNLIKELY( !ctx->blockhash_groups_cnt ) ) {
     fd_slot_delta_slot_set_t ss = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
     /* No offsets AND no rooted slots is corruption in either mode.  No
        offsets WITH rooted slots only happens under Alpenglow. */
@@ -660,17 +823,13 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     FD_LOG_WARNING(( "status cache has no blockhash offsets (rooted_slots=%lu); proceeding with empty txncache offsets",
                      ss.ele_cnt ));
   }
-  for( ulong i=0UL; i<ctx->blockhash_groups_len; i++ ) {
-    blockhash_group_t const * group = &ctx->blockhash_groups[ i ];
-    fd_hash_t key;
-    fd_memcpy( key.uc, group->blockhash, 32UL );
-    fd_blockhash_entry_t * entry = blockhash_map_ele_query( blockhash_map, &key, NULL, blockhash_pool );
-    if( FD_UNLIKELY( !entry ) ) continue; /* Not in the most recent 151 blockhashes */
-
-    ulong chain_idx = (ulong)(entry - blockhash_pool);
+  for( ulong i=0UL; i<ctx->recent_groups_len; i++ ) {
+    recent_blockhash_group_t const * group = &ctx->recent_groups[ i ];
+    ulong chain_idx = group->chain_idx;
+    FD_TEST( chain_idx<chain_len );
 
     if( FD_UNLIKELY( banks[ chain_idx ].txnhash_offset!=ULONG_MAX && banks[ chain_idx ].txnhash_offset!=group->txnhash_offset ) ) {
-      FD_BASE58_ENCODE_32_BYTES( entry->blockhash.uc, blockhash_b58 );
+      FD_BASE58_ENCODE_32_BYTES( banks[ chain_idx ].blockhash, blockhash_b58 );
       FD_LOG_WARNING(( "corrupt snapshot: conflicting txnhash offsets for blockhash %s", blockhash_b58 ));
       return 1;
     }
@@ -687,29 +846,11 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   /* Now insert all transactions as if they executed at the current
      root, per above. */
 
-  for( ulong i=0UL; i<ctx->blockhash_groups_len; i++ ) {
-    blockhash_group_t const * group = &ctx->blockhash_groups[ i ];
-    /* Skip if there are no transaction in this group or if the slot is
-       too old. */
-    if( FD_UNLIKELY( group->txncache_entry_idx==ULONG_MAX || !group->txncache_entry_cnt ) ) continue;
-
-    ulong slot_idx = group->txncache_entry_idx/FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
-    FD_TEST( slot_idx<ctx->txncache_slots_len );
-    /* Skip groups whose entries correspond to a different slot.  This
-       happens when an older slot is evicted and its storage is reused. */
-    if( FD_UNLIKELY( ctx->txncache_slots[ slot_idx ].slot!=group->slot ) ) continue;
-    ulong slot_entry_idx = group->txncache_entry_idx-slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
-    FD_TEST( slot_entry_idx<=ctx->txncache_slots[ slot_idx ].entry_cnt );
-    FD_TEST( group->txncache_entry_cnt<=ctx->txncache_slots[ slot_idx ].entry_cnt-slot_entry_idx );
-    fd_sstxncache_hash_t const * entries = &ctx->txncache_entries[ group->txncache_entry_idx ];
-
-    fd_hash_t key;
-    fd_memcpy( key.uc, group->blockhash, 32UL );
-    if( FD_UNLIKELY( !blockhash_map_ele_query_const( blockhash_map, &key, NULL, blockhash_pool ) ) ) continue;
-
+  for( ulong i=0UL; i<ctx->recent_groups_len; i++ ) {
+    recent_blockhash_group_t const * group   = &ctx->recent_groups[ i ];
+    fd_sstxncache_hash_t const *     entries = &ctx->txncache_entries[ group->txncache_entry_idx ];
     for( ulong j=0UL; j<group->txncache_entry_cnt; j++ ) {
-      fd_sstxncache_hash_t const * entry = &entries[ j ];
-      fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, group->blockhash, entry->txnhash );
+      fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, banks[ group->chain_idx ].blockhash, entries[ j ].txnhash );
     }
   }
 
@@ -1135,74 +1276,18 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
             transition_malformed( ctx, stem );
             return 0;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_SLOT ) ) {
-            /* If we're parsing a new slot, add th new slot if we
-               haven't parsed 151 slots yet.  Otherwise ignore or evict
-               slots that are too old.  */
-            ulong candidate_idx;
-            if( FD_LIKELY( ctx->txncache_slots_len<FD_TXNCACHE_MAX_SLOT_DELTAS ) ) {
-              candidate_idx = ctx->txncache_slots_len++;
-            } else {
-              candidate_idx = 0UL;
-              for( ulong i=1UL; i<FD_TXNCACHE_MAX_SLOT_DELTAS; i++ ) {
-                if( ctx->txncache_slots[ i ].slot<ctx->txncache_slots[ candidate_idx ].slot ) candidate_idx = i;
-              }
-              if( FD_UNLIKELY( sd_result->slot<ctx->txncache_slots[ candidate_idx ].slot ) ) candidate_idx = ULONG_MAX;
-            }
-
-            if( FD_LIKELY( candidate_idx!=ULONG_MAX ) ) {
-              ctx->txncache_slots[ candidate_idx ].slot      = sd_result->slot;
-              ctx->txncache_slots[ candidate_idx ].entry_cnt = 0UL;
-            }
-            ctx->txncache_current_slot_idx       = candidate_idx;
-            ctx->txncache_current_slot_entry_cnt = 0UL;
+            txncache_staging_slot_begin( ctx, sd_result->slot );
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
-            if( FD_UNLIKELY( ctx->blockhash_groups_len>=FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ) ) {
-              FD_LOG_WARNING(( "blockhash groups overflow, max is %lu", FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ));
+            if( FD_UNLIKELY( txncache_staging_group_begin( ctx, sd_result->group.blockhash, sd_result->group.txnhash_offset ) ) ) {
+              FD_LOG_WARNING(( "blockhash groups overflow for slot %lu, max is %lu", sd_result->group.slot, FD_SNAPIN_MAX_GROUPS_PER_SLOT ));
               transition_malformed( ctx, stem );
               return 0;
-            }
-
-            blockhash_group_t * group = &ctx->blockhash_groups[ ctx->blockhash_groups_len++ ];
-            memcpy( group->blockhash, sd_result->group.blockhash, 32UL );
-            group->slot               = sd_result->group.slot;
-            group->txnhash_offset     = sd_result->group.txnhash_offset;
-            group->txncache_entry_cnt = 0UL;
-
-            /* Ignore the group if its corresponding slot is too old.
-               Otherwise record which entry to start looking at. */
-            ulong slot_idx = ctx->txncache_current_slot_idx;
-            if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) {
-              group->txncache_entry_idx = ULONG_MAX;
-            } else {
-              FD_TEST( slot_idx<ctx->txncache_slots_len );
-              FD_TEST( ctx->txncache_slots[ slot_idx ].slot==group->slot );
-              group->txncache_entry_idx = slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT+ctx->txncache_slots[ slot_idx ].entry_cnt;
             }
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) ) {
-            FD_TEST( ctx->blockhash_groups_len );
-            blockhash_group_t * group = &ctx->blockhash_groups[ ctx->blockhash_groups_len-1UL ];
-            FD_TEST( group->slot==sd_result->entry->slot );
-
-            if( FD_UNLIKELY( ctx->txncache_current_slot_entry_cnt>=FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) ) {
-              FD_LOG_WARNING(( "txncache entries overflow for slot %lu, max is %lu",
-                               group->slot, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ));
+            if( FD_UNLIKELY( txncache_staging_entry_add( ctx, sd_result->entry->slot, sd_result->entry->txnhash ) ) ) {
+              FD_LOG_WARNING(( "txncache entries overflow for slot %lu, max is %lu", sd_result->entry->slot, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ));
               transition_malformed( ctx, stem );
               return 0;
-            }
-            ctx->txncache_current_slot_entry_cnt++;
-
-            /* Record the entry iff it corresponds to a valid slot. */
-            ulong slot_idx = ctx->txncache_current_slot_idx;
-            if( FD_LIKELY( slot_idx!=ULONG_MAX ) ) {
-              FD_TEST( slot_idx<ctx->txncache_slots_len );
-              txncache_staging_slot_t * staging_slot = &ctx->txncache_slots[ slot_idx ];
-              FD_TEST( staging_slot->slot==group->slot );
-              FD_TEST( staging_slot->entry_cnt<FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
-              ulong entry_idx = slot_idx*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT+staging_slot->entry_cnt;
-              FD_TEST( entry_idx==group->txncache_entry_idx+group->txncache_entry_cnt );
-              memcpy( ctx->txncache_entries[ entry_idx ].txnhash, sd_result->entry->txnhash, sizeof(fd_sstxncache_hash_t) );
-              staging_slot->entry_cnt++;
-              group->txncache_entry_cnt++;
             }
           }
 
@@ -1341,12 +1426,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
         ctx->in[ i ].pos = 0UL;
       }
-      ctx->blockhash_groups_len    = 0UL;
       ctx->manifest_capitalization = 0UL;
 
-      ctx->txncache_slots_len = 0UL;
-
       fd_txncache_reset( ctx->txncache );
+      txncache_staging_reset( ctx );
+      ctx->blockhash_groups = txncache_staging_scratch( ctx );
       fd_ssparse_init( ctx->ssparse );
       fd_ssparse_batch_enable( ctx->ssparse, 1 );
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
@@ -1727,13 +1811,13 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),     sizeof(fd_snapin_tile_t)                                    );
-  void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots )        );
-  void * _accdb           = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),              fd_accdb_footprint( tile->snapin.max_live_slots )           );
-  void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                            );
-  void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                            );
-  ctx->blockhash_groups   = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),    sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS   );
-  ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_hash_t), sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),         sizeof(fd_snapin_tile_t)                                     );
+  void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),               fd_txncache_footprint( tile->snapin.max_live_slots )         );
+  void * _accdb           = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->snapin.max_live_slots )            );
+  void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),      fd_ssmanifest_parser_footprint()                             );
+  void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),      fd_slot_delta_parser_footprint()                             );
+  ctx->recent_groups      = FD_SCRATCH_ALLOC_APPEND( l, alignof(recent_blockhash_group_t), sizeof(recent_blockhash_group_t)*FD_SNAPIN_MAX_RECENT_GROUPS );
+  ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_hash_t),     sizeof(fd_sstxncache_hash_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES  );
 
   ctx->full            = 1;
   ctx->init_completed  = 0;
@@ -1754,6 +1838,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( ctx->txncache );
 
+  ctx->blockhash_groups = NULL;
+  txncache_staging_reset( ctx );
+
   ctx->alpenglow = tile->snapin.alpenglow;
 
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->snapin.banks_obj_id ) );
@@ -1761,8 +1848,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( ctx->bank );
   FD_TEST( ctx->bank->idx==0UL );
-
-  ctx->blockhash_groups_len = 0UL;
 
   ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
   FD_TEST( ctx->manifest_parser );

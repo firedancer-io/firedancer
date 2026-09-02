@@ -84,6 +84,55 @@ test_new_join( uchar * scratch0 ) {
   FD_TEST( fd_txncache_join( scratch0 ) );
 }
 
+static void
+test_scratch( uchar * scratch0,
+              uchar * scratch1 ) {
+  FD_LOG_NOTICE(( "TEST SCRATCH" ));
+
+  ulong const max_live_slots   = 4UL;
+  ulong const max_txn_per_slot = FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
+
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, max_live_slots, max_txn_per_slot, 0, 0UL ) );
+  FD_TEST( shtc );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  FD_TEST( tc );
+
+  ulong sz = 0UL;
+  uchar * scratch = fd_txncache_snapin_scratch( tc, &sz );
+  FD_TEST( scratch );
+  FD_TEST( sz );
+
+  ulong footprint = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot, 0 );
+  FD_TEST( scratch>=scratch0 );
+  FD_TEST( scratch+sz<=scratch0+footprint );
+
+  FD_TEST( sz>=FD_TXNCACHE_MAX_SLOT_DELTAS*max_txn_per_slot*sizeof(fd_txncache_single_txn_t) );
+
+  fd_txncache_reset( tc );
+  fd_memset( scratch, 0xFF, sz );
+
+  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
+
+  fd_txncache_fork_id_t slot1 = fd_txncache_attach_child( tc, root );
+  fd_txncache_insert( tc, slot1, BLOCKHASH(1UL), TXNHASH(1UL) );
+  fd_txncache_insert( tc, slot1, BLOCKHASH(1UL), TXNHASH(5UL) );
+  fd_txncache_finalize_fork( tc, slot1, 0UL, BLOCKHASH(3UL) );
+
+  FD_TEST(  fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(1UL) ) );
+  FD_TEST( !fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(2UL) ) );
+  FD_TEST(  fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(5UL) ) );
+
+  fd_txncache_reset( tc );
+  fd_memset( scratch, 0xA5, 4096UL );
+  fd_txncache_reset( tc );
+  for( ulong i=0UL; i<4096UL; i++ ) FD_TEST( scratch[ i ]==0xA5 );
+
+  ulong sz2 = 0UL;
+  FD_TEST( fd_txncache_snapin_scratch( tc, &sz2 )==scratch );
+  FD_TEST( sz2==sz );
+}
+
 void
 test_advance_root( uchar * scratch0,
                    uchar * scratch1 ) {
@@ -524,6 +573,7 @@ main( int     argc,
 
   test0( scratch0, scratch1 );
   test_new_join( scratch0 );
+  test_scratch( scratch0, scratch1 );
   test_advance_root( scratch0, scratch1 );
   test_purge_stale( scratch0, scratch1, 4UL,   1000000UL ); /* Single page per blockhash.  */
   test_purge_stale( scratch0, scratch1, 256UL, 2000000UL ); /* Several pages per blockhash. */
