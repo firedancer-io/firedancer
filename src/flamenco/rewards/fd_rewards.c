@@ -658,6 +658,15 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
   }
   if( stake_points_result->points.ud==0 || (!alpenglow_enabled && total_points==0) ) {
     if( alpenglow_enabled && stake_points_result->new_credits_observed!=stake->credits_observed ) {
+      /* Don't update credits_observed if the delegation is inactive.
+
+         TODO: remove this after remove_inactive_stakes is active
+         everywhere.
+
+         https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/inflation_rewards/mod.rs#L255-L258 */
+      if( FD_LIKELY( stake_points_result->inactive ) ) {
+        return 1;
+      }
       result->staker_rewards       = 0UL;
       result->voter_rewards        = 0UL;
       result->new_credits_observed = stake_points_result->new_credits_observed;
@@ -789,6 +798,7 @@ calculate_stake_points_fast( fd_epoch_credits_t *           epoch_credits,
                              int                            use_fixed_point_stake_math,
                              ulong                          rewarded_epoch,
                              fd_calculated_stake_points_t * result ) {
+  result->inactive = 0; /* only read in Alpenglow path */
   if( FD_UNLIKELY( !stake_epochs_are_normal( stake ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( stake->stake_account.uc, stake_account_str );
     FD_BASE58_ENCODE_32_BYTES( stake->vote_account.uc,  vote_account_str  );
@@ -873,6 +883,7 @@ calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
   result->points.ud                                = 0;
   result->new_credits_observed                     = credits_in_stake;
   result->force_credits_update_with_skipped_reward = 0;
+  result->inactive                                 = 0;
 
   if( FD_UNLIKELY( credits_in_vote<credits_in_stake ) ) {
     result->new_credits_observed                     = credits_in_vote;
@@ -892,15 +903,17 @@ calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
     earned_credits = credits_in_vote-credits_in_stake;
   }
   result->new_credits_observed = credits_in_vote;
-  if( FD_UNLIKELY( !earned_credits ) ) return;
 
-  ulong effective_stake = fd_stake_delegation_activation_status(
+  fd_stake_history_entry_t status = fd_stake_delegation_activation_status(
       stake,
       rewarded_epoch,
       stake_history,
       new_rate_activation_epoch,
-      use_fixed_point_stake_math ).effective;
-  if( FD_UNLIKELY( !effective_stake ) ) return;
+      use_fixed_point_stake_math );
+  result->inactive = (uchar)( !status.effective && !status.activating );
+
+  if( FD_UNLIKELY( !earned_credits ) ) return;
+  if( FD_UNLIKELY( !status.effective ) ) return;
 
   if( FD_UNLIKELY( !validator_reward_epoch_stake ) ) {
     result->force_credits_update_with_skipped_reward = 1;
@@ -908,7 +921,7 @@ calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
   }
 
   result->points.ud = (uint128)earned_credits *
-                      (uint128)effective_stake /
+                      (uint128)status.effective /
                       (uint128)validator_reward_epoch_stake;
 }
 
