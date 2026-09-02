@@ -97,6 +97,10 @@ main( int     argc,
   REFILL_TEST( fd_chacha8_rng_refill_avx,      8*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
   REFILL_TEST( fd_chacha20_rng_refill_avx,     8*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
 # endif
+# if FD_HAS_SVE2
+  REFILL_TEST( fd_chacha8_rng_refill_sve2,     4*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
+  REFILL_TEST( fd_chacha20_rng_refill_sve2,    4*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
+# endif
   REFILL_TEST( fd_chacha8_rng_refill_seq,      1*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
   REFILL_TEST( fd_chacha20_rng_refill_seq,     1*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
@@ -158,6 +162,14 @@ main( int     argc,
     FD_TEST( !memcmp( rng->buf, ref_block, 64 ) );
 #   endif
 
+#   if FD_HAS_SVE2
+    FD_TEST( fd_chacha_rng_init( rng, key_ref, FD_CHACHA_RNG_ALGO_CHACHA20 ) );
+    rng->buf_off  = pos;
+    rng->buf_fill = pos;
+    fd_chacha20_rng_refill_sve2( rng );
+    FD_TEST( !memcmp( rng->buf, ref_block, 64 ) );
+#   endif
+
     FD_LOG_NOTICE(( "OK: 64-bit counter" ));
   }
 
@@ -172,4 +184,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

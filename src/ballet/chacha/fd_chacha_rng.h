@@ -33,6 +33,8 @@
 #define FD_CHACHA_RNG_BUFSZ (16*FD_CHACHA_BLOCK_SZ)
 #elif FD_HAS_AVX
 #define FD_CHACHA_RNG_BUFSZ (8*FD_CHACHA_BLOCK_SZ)
+#elif FD_HAS_SVE2
+#define FD_CHACHA_RNG_BUFSZ (4*FD_CHACHA_BLOCK_SZ)
 #else
 #define FD_CHACHA_RNG_BUFSZ (256UL)
 #endif
@@ -139,6 +141,11 @@ void fd_chacha8_rng_refill_avx ( fd_chacha_rng_t * rng );
 void fd_chacha20_rng_refill_avx( fd_chacha_rng_t * rng );
 #endif
 
+#if FD_HAS_SVE2
+void fd_chacha8_rng_refill_sve2 ( fd_chacha_rng_t * rng );
+void fd_chacha20_rng_refill_sve2( fd_chacha_rng_t * rng );
+#endif
+
 void fd_chacha8_rng_refill_seq ( fd_chacha_rng_t * rng );
 void fd_chacha20_rng_refill_seq( fd_chacha_rng_t * rng );
 
@@ -148,6 +155,9 @@ void fd_chacha20_rng_refill_seq( fd_chacha_rng_t * rng );
 #elif FD_HAS_AVX
 #define fd_chacha8_rng_private_refill  fd_chacha8_rng_refill_avx
 #define fd_chacha20_rng_private_refill fd_chacha20_rng_refill_avx
+#elif FD_HAS_SVE2
+#define fd_chacha8_rng_private_refill  fd_chacha8_rng_refill_sve2
+#define fd_chacha20_rng_private_refill fd_chacha20_rng_refill_sve2
 #else
 #define fd_chacha8_rng_private_refill  fd_chacha8_rng_refill_seq
 #define fd_chacha20_rng_private_refill fd_chacha20_rng_refill_seq
