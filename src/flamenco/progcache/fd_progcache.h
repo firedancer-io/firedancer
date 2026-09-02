@@ -186,8 +186,11 @@ fd_progcache_cache_class_occupancy( fd_progcache_join_t * join,
   fd_progcache_shmem_t * pc = join->shmem;
   for( ulong c=0UL; c<FD_PROGCACHE_CACHE_CLASS_CNT; c++ ) {
     ulong n = pc->cache.class_max[ c ];
+    /* free_cnt is maintained separately from the free-list head, so a
+       concurrent pop can transiently overshoot it; clamp before deriving. */
+    ulong free_cnt = fd_progcache_class_free_cnt( pc, c );
     max [ c ] = n;
-    used[ c ] = n - fd_progcache_class_free_cnt( pc, c );
+    used[ c ] = n - fd_ulong_min( free_cnt, n );
   }
 }
 

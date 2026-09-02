@@ -52,7 +52,7 @@ check_exact_fit( ulong txn_max,
 
   /* The progcache wksp must hold nothing but the cache, so the tile that
      claims it lives elsewhere. */
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "replay", "tile", "tile", 0UL, 0, 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "replay", "tile", "tile", 0UL, 0, 0, 0, 0 );
   ulong obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX );
   FD_TEST( obj_id!=ULONG_MAX );
   fd_topob_tile_uses( topo, tile, &topo->objs[ obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
