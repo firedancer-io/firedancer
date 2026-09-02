@@ -333,9 +333,9 @@ test_avx512_compress16_xof2048_seq( void ) {
 
 #endif /* FD_HAS_AVX512 */
 
-  /* Run through random preimage tests */
+/* Run through random preimage tests */
 
-  static const struct { ulong sz; uchar hash[32]; } test_fixtures[] = {
+static const struct { ulong sz; uchar hash[32]; } test_fixtures[] = {
     {     64, {0x8e,0x78,0x6e,0x0a,0x39,0x5b,0xff,0x26,0x43,0x11,0x5e,0x32,0x12,0xc0,0xb3,0x01,0xa9,0xf8,0xd7,0x82,0x9c,0xe5,0x55,0x7b,0x12,0x53,0x63,0x48,0x11,0xb3,0x07,0x0a} },
     {    128, {0x16,0xbb,0x9d,0x92,0x1f,0xf7,0x75,0x0b,0xd6,0xe1,0xf3,0x60,0xa2,0x7b,0x2f,0x5f,0xe7,0x85,0x38,0xb3,0xbf,0xfe,0xcb,0x4d,0x21,0x25,0xd9,0x4f,0x8a,0xc7,0xfb,0x99} },
     {    256, {0x69,0x33,0x78,0x3f,0xc6,0x50,0x4e,0x8c,0x19,0x06,0x96,0x1f,0x96,0xda,0xa6,0xcb,0xe3,0x30,0xa9,0x08,0xe4,0x4f,0x22,0x50,0x73,0x62,0x4e,0x2a,0xc7,0xf0,0xf4,0xc2} },
@@ -377,7 +377,52 @@ test_avx512_compress16_xof2048_seq( void ) {
     { 524288, {0xd3,0xb4,0x34,0xce,0x23,0x3d,0x85,0xa5,0xeb,0x07,0xe7,0x33,0x1d,0x9f,0xc1,0xcf,0x51,0xa6,0x3f,0x36,0x1d,0xa2,0x23,0xfb,0x35,0xea,0x6b,0x2f,0x84,0xaf,0x95,0xce} },
     { 524289, {0x9f,0x05,0x67,0xce,0xbe,0xce,0x9c,0xdf,0x80,0xb1,0x45,0x7f,0xd8,0x3a,0x45,0xaf,0x0b,0xfc,0xa2,0x51,0x23,0xd6,0xf8,0x57,0x62,0xc2,0xad,0x67,0xeb,0xad,0x73,0x8c} },
     {0}
-  };
+};
+
+#if FD_HAS_SVE2
+
+static void
+test_sve2_compress4( void ) {
+  void const * data[4] = { rand_buf+17, rand_buf+211, rand_buf+4099, rand_buf+8197 };
+  uint         sz  [4] = { 0U, 63U, 64U, 1024U };
+  ulong        ctr [4] = { 3UL, 7UL, (1UL<<32)-1UL, (1UL<<32)+2UL };
+  uint         flags[4] = { FD_BLAKE3_FLAG_ROOT, 0U, FD_BLAKE3_FLAG_ROOT, 0U };
+  uchar        out[4][64] __attribute__((aligned(64)));
+  void *       out_ptr[4] = { out[0], out[1], out[2], out[3] };
+
+  for( ulong batch_cnt=1UL; batch_cnt<=4UL; batch_cnt++ ) {
+    fd_blake3_sve2_compress4( batch_cnt, data, sz, ctr, flags, out_ptr, 32U, NULL );
+    for( ulong lane=0UL; lane<batch_cnt; lane++ ) {
+      uchar ref[32];
+      fd_blake3_ref_compress1( ref, data[lane], sz[lane], ctr[lane], flags[lane], NULL, NULL );
+      FD_TEST( !memcmp( ref, out[lane], 32UL ) );
+    }
+  }
+
+  uchar const * cv[4] = { rand_buf+101, rand_buf+205, rand_buf+309, rand_buf+413 };
+  uint xof_flags[4];
+  for( ulong lane=0UL; lane<4UL; lane++ ) {
+    sz[lane]        = 64U;
+    flags[lane]     = FD_BLAKE3_FLAG_ROOT | FD_BLAKE3_FLAG_CHUNK_END;
+    xof_flags[lane] = flags[lane];
+  }
+  fd_blake3_sve2_compress4( 4UL, data, sz, ctr, xof_flags, out_ptr, 64U, cv );
+  for( ulong lane=0UL; lane<4UL; lane++ ) {
+    uchar ref[64];
+    fd_blake3_ref_compress1( ref, data[lane], sz[lane], ctr[lane], xof_flags[lane], NULL, cv[lane] );
+    FD_TEST( !memcmp( ref, out[lane], 64UL ) );
+  }
+
+  uchar fast[4][32] __attribute__((aligned(64)));
+  fd_blake3_sve2_compress4_fast( rand_buf, fast[0], 0UL, 0U );
+  for( ulong lane=0UL; lane<4UL; lane++ ) {
+    uchar ref[32];
+    fd_blake3_ref_compress1( ref, rand_buf+lane*1024UL, 1024U, lane, 0U, NULL, NULL );
+    FD_TEST( !memcmp( ref, fast[lane], 32UL ) );
+  }
+}
+
+#endif
 
 static void
 test_rand_fixtures( void ) {
@@ -837,6 +882,9 @@ static struct test_fn const tests[] = {
 #if FD_HAS_SSE
   { "bench sse_compress1",          bench_sse_compress1 },
 #endif
+#if FD_HAS_SVE2
+  { "test sve2_compress4", test_sve2_compress4 },
+#endif
   { "bench ref_compress1",          bench_ref_compress1 },
 
   {0}
@@ -867,4 +915,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

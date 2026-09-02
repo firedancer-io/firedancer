@@ -102,6 +102,26 @@ fd_blake3_sse_compress1( uchar * restrict       out, /* align==1 len==32 */
 
 #endif /* FD_HAS_SSE */
 
+#if FD_HAS_SVE2
+
+void
+fd_blake3_sve2_compress4( ulong                   batch_cnt,
+                          void const   * restrict batch_data,
+                          uint const   * restrict batch_sz,
+                          ulong const  * restrict ctr_vec,
+                          uint const   * restrict batch_flags,
+                          void * const * restrict batch_hash,
+                          uint                    out_sz,
+                          void const   * restrict batch_cv );
+
+void
+fd_blake3_sve2_compress4_fast( uchar const * restrict batch_data,
+                               uchar       * restrict batch_hash,
+                               ulong                  counter,
+                               uchar                  flags );
+
+#endif /* FD_HAS_SVE2 */
+
 #if FD_HAS_AVX
 
 /* BLAKE3 AVX cores

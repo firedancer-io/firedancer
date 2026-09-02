@@ -25,8 +25,11 @@
 
 #define FD_LTHASH_ADDER_PARA_MAX 16
 
-/* Number of parallel BLAKE3 hashes used for batching (1, 8, or 16). */
+#if FD_HAS_AVX512 || FD_HAS_AVX
 #define FD_LTHASH_ADDER_PARA_CNT (FD_BLAKE3_PARA_MAX)
+#else
+#define FD_LTHASH_ADDER_PARA_CNT (1)
+#endif
 
 struct __attribute__((aligned(FD_LTHASH_ADDER_ALIGN))) fd_lthash_adder {
 

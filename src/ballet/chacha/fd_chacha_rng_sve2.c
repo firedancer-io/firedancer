@@ -36,15 +36,13 @@
     svuint64_t cd1 = svreinterpret_u64_u32( svtrn2_u32( (c), (d) ) );                   \
                                                                                         \
     svst1_u32( (pg4), (out0),                                                           \
-               svreinterpret_u32_u64( svzip1_u64( ab0, cd0 ) ) );                       \
+               svreinterpret_u32_u64( svtrn1_u64( ab0, cd0 ) ) );                       \
     svst1_u32( (pg4), (out1),                                                           \
-               svreinterpret_u32_u64( svzip1_u64( ab1, cd1 ) ) );                       \
+               svreinterpret_u32_u64( svtrn1_u64( ab1, cd1 ) ) );                       \
     svst1_u32( (pg4), (out2),                                                           \
-               svreinterpret_u32_u64( svzip1_u64( svext_u64( ab0, ab0, 1 ),             \
-                                                  svext_u64( cd0, cd0, 1 ) ) ) );       \
+               svreinterpret_u32_u64( svtrn2_u64( ab0, cd0 ) ) );                       \
     svst1_u32( (pg4), (out3),                                                           \
-               svreinterpret_u32_u64( svzip1_u64( svext_u64( ab1, ab1, 1 ),             \
-                                                  svext_u64( cd1, cd1, 1 ) ) ) );       \
+               svreinterpret_u32_u64( svtrn2_u64( ab1, cd1 ) ) );                       \
   } while(0)
 
 static void

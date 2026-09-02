@@ -316,6 +316,8 @@ fd_blake3_batch_hash( fd_blake3_op_t const * ops,
   fd_blake3_avx512_compress16( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
 #elif FD_HAS_AVX
   fd_blake3_avx_compress8    ( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
+#elif FD_HAS_SVE2
+  fd_blake3_sve2_compress4   ( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), 32U, NULL );
 #else
   #error "FIXME missing para support"
 #endif
@@ -447,6 +449,8 @@ fd_blake3_append_blocks( fd_blake3_pos_t * s,
       fd_blake3_avx512_compress16_fast( op->msg, op->out, op->counter, op->flags );
 #elif FD_HAS_AVX
       fd_blake3_avx_compress8_fast( op->msg, op->out, op->counter, op->flags );
+#elif FD_HAS_SVE2
+      fd_blake3_sve2_compress4_fast( op->msg, op->out, op->counter, op->flags );
 #else
       #error "missing para support"
 #endif
@@ -746,6 +750,14 @@ fd_blake3_fini_2048( fd_blake3_t * sha,
     void * batch_hash [ 8 ]; for( ulong j=0; j<8; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
     void * batch_cv   [ 8 ]; for( ulong j=0; j<8; j++ ) batch_cv   [ j ] = root_cv_pre;
     fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
+#elif FD_HAS_SVE2
+    ulong  batch_data [ 4 ]; for( ulong j=0; j<4; j++ ) batch_data [ j ] = (ulong)root_msg;
+    uint   batch_sz   [ 4 ]; for( ulong j=0; j<4; j++ ) batch_sz   [ j ] = last_block_sz;
+    ulong  batch_ctr  [ 4 ]; for( ulong j=0; j<4; j++ ) batch_ctr  [ j ] = ctr0+i+j;
+    uint   batch_flags[ 4 ]; for( ulong j=0; j<4; j++ ) batch_flags[ j ] = last_block_flags;
+    void * batch_hash [ 4 ]; for( ulong j=0; j<4; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
+    void * batch_cv   [ 4 ]; for( ulong j=0; j<4; j++ ) batch_cv   [ j ] = root_cv_pre;
+    fd_blake3_sve2_compress4( 4UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, 64U, batch_cv );
 #elif FD_HAS_SSE
     fd_blake3_sse_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
 #else
@@ -775,6 +787,8 @@ fd_blake3_hash( void const * data,
     fd_blake3_avx512_compress16_fast( op->msg, op->out, op->counter, op->flags );
 #elif FD_HAS_AVX
     fd_blake3_avx_compress8_fast( op->msg, op->out, op->counter, op->flags );
+#elif FD_HAS_SVE2
+    fd_blake3_sve2_compress4_fast( op->msg, op->out, op->counter, op->flags );
 #else
     #error "missing para support"
 #endif
