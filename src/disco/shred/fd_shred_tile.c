@@ -1273,8 +1273,11 @@ after_frag( fd_shred_ctx_t *    ctx,
             FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, ctx->store->fec_data_max ));
           }
           fd_memcpy( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
-          fec->data_sz += payload_sz;
-          if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (uint)payload_sz +  (i==0UL ? 0U : fec->shred_offs[ i-1UL ]);
+          fec->data_sz += (uint)payload_sz;
+          if( FD_LIKELY( i<FD_FEC_SHRED_CNT ) ) {
+            FD_TEST( payload_sz<=USHORT_MAX );
+            fec->shred_sz[ i ] = (ushort)payload_sz;
+          }
         }
         fd_store_fec_data_publish( ctx->store, fec );
       }

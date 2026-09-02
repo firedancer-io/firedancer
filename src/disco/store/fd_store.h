@@ -90,23 +90,24 @@ fd_shredb_max_slots( ulong gib ) {
 
 struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
   fd_hash_t key;
-  ulong     next;                            /* managed by fd_pool / fd_map_chain_para */
-  uint      shred_offs[ FD_FEC_SHRED_CNT ];  /* shred_offs[i] = cumulative size of data shreds [0..i] */
-  ulong     data_sz;                         /* sz of the FEC set payload, <= fec_data_max */
-  ulong     data_off;                        /* RAM cache offset when RAM_*, spill-file offset when DISK */
-  uint      cache_prev;                      /* RAM_READY LRU links, UINT_MAX when unlinked */
+  ulong     data_off;                       /* RAM cache offset when RAM_*, spill-file offset when DISK */
+  uint      next;                           /* managed by fd_pool / fd_map_chain_para */
+  uint      data_sz;                        /* sz of the FEC set payload, <= fec_data_max */
+  uint      cache_prev;                     /* RAM_READY LRU links, UINT_MAX when unlinked */
   uint      cache_next;
-  uint      data_pin_cnt;                    /* active payload views */
-  uint      data_state;                      /* FD_STORE_FEC_DATA_* */
-  uint      data_consume_pending;
+  uint      data_pin_cnt;                   /* active payload views */
+  uchar     data_state;                     /* FD_STORE_FEC_DATA_* */
+  uchar     data_consume_pending;
+  ushort    shred_sz[ FD_FEC_SHRED_CNT ];   /* payload size of each data shred */
 };
 typedef struct fd_store_fec fd_store_fec_t;
 
+FD_STATIC_ASSERT( sizeof(fd_store_fec_t)==FD_STORE_ALIGN, fd_store_fec_footprint );
 
 #define POOL_NAME  fd_store_pool
 #define POOL_ELE_T fd_store_fec_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool_para.c"
-
 
 #define MAP_NAME               fd_store_map
 #define MAP_ELE_T              fd_store_fec_t
@@ -114,8 +115,8 @@ typedef struct fd_store_fec fd_store_fec_t;
 #define MAP_KEY                key
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) fd_hash32( (key)->uc, (seed) )
+#define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain_para.c"
-
 
 struct fd_store {
   ulong magic;
@@ -234,7 +235,8 @@ fd_store_footprint( ulong fec_max,
                     ulong shred_storage_gib,
                     ulong shred_cache_bytes,
                     ulong fec_set_cnt ) {
-  if( FD_UNLIKELY( !fec_max || !fec_data_max || fec_max>UINT_MAX || shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ) ) return 0UL;
+  if( FD_UNLIKELY( !fec_max || !fec_data_max || fec_max>UINT_MAX || fec_data_max>UINT_MAX ||
+                   shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ) ) return 0UL;
   ulong chain_cnt = fd_store_map_chain_cnt_est( fec_max );
   ulong payload_slot_sz = fd_store_payload_slot_sz( fec_data_max );
   if( FD_UNLIKELY( !payload_slot_sz ) ) return 0UL;
@@ -336,7 +338,7 @@ struct fd_store_fec_data_view {
 typedef struct fd_store_fec_data_view fd_store_fec_data_view_t;
 
 /* Reserves a payload for a newly inserted FEC.  Fill the returned buffer,
-   data_sz, and shred_offs, then call data_publish.  Returns NULL if no
+   data_sz, and shred_sz, then call data_publish.  Returns NULL if no
    payload is available. */
 
 uchar *

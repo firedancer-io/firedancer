@@ -677,8 +677,9 @@ prepare_fec( block_t const *  block,
   ulong seg_sz    = seg_end - seg_start;
 
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
-  store_fec->data_sz       = seg_sz;
-  store_fec->shred_offs[0] = (uint)seg_sz;
+  FD_TEST( seg_sz<=USHORT_MAX );
+  store_fec->data_sz       = (uint)seg_sz;
+  store_fec->shred_sz[ 0 ] = (ushort)seg_sz;
 
   *fec = (fd_sched_fec_t) {
     .bank_idx           = block->bank_idx,

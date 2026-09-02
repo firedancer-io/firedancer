@@ -859,7 +859,7 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
     print_metrics( sched );
     print_sched( sched );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
+    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %u, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
   }
 
   ulong fec_buf_sz = 0UL;
@@ -908,7 +908,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     sched->print_buf_sz = 0UL;
     print_all( sched, block );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
+    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %u, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
   }
 
   sched->metrics->fec_cnt++;
@@ -1090,7 +1090,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
        the buffer is sized to always fit the residual plus a single FEC
        set.  Otherwise, it's a bad block.  Instead of crashing, we
        should refuse to replay down the fork. */
-    FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, fec_buf_sz %u, fec->data_sz %lu, slot %lu, parent slot %lu", block->fec_buf_sz, fec->fec->data_sz, fec->slot, fec->parent_slot ));
+    FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, fec_buf_sz %u, fec->data_sz %u, slot %lu, parent slot %lu", block->fec_buf_sz, fec->fec->data_sz, fec->slot, fec->parent_slot ));
     handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT );
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
     return 0;
@@ -1104,19 +1104,25 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   block->fec_eob = fec->is_last_in_batch;
   block->fec_eos = fec->is_last_in_block;
 
+  ulong tracked_shred_cnt = fd_ulong_min( fec->shred_cnt, FD_FEC_SHRED_CNT );
+  uint  tracked_data_sz   = 0U;
+  for( ulong i=0UL; i<tracked_shred_cnt; i++ ) tracked_data_sz += fec->fec->shred_sz[ i ];
+  if( FD_LIKELY( fec->shred_cnt<=FD_FEC_SHRED_CNT ) ) FD_TEST( tracked_data_sz==fec->fec->data_sz );
+  else                                                FD_TEST( tracked_data_sz<=fec->fec->data_sz );
+
   uint prev_shred_off = 0U;
   for( ulong i=0; i<fec->shred_cnt; i++ ) {
     FD_TEST( block->shred_cnt<FD_SHRED_BLK_MAX );
     uint shred_off;
-    if( FD_LIKELY( i<32UL ) ) {
-      shred_off = fec->fec->shred_offs[ i ];
+    if( FD_LIKELY( i<FD_FEC_SHRED_CNT ) ) {
+      shred_off = prev_shred_off + fec->fec->shred_sz[ i ];
     } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
       /* We don't track shred boundaries after 32 shreds, assume they're
          sized uniformly */
-      ulong num_overflow_shreds = fec->shred_cnt-32UL;
-      ulong overflow_idx        = i-32UL;
-      ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->shred_offs[ 31 ];
-      shred_off = fec->fec->shred_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
+      ulong num_overflow_shreds = fec->shred_cnt-FD_FEC_SHRED_CNT;
+      ulong overflow_idx        = i-FD_FEC_SHRED_CNT;
+      ulong overflow_data_sz    = (ulong)fec->fec->data_sz-tracked_data_sz;
+      shred_off = tracked_data_sz + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
     } else {
       shred_off = (uint)fec->fec->data_sz;
     }
