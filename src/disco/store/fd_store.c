@@ -798,7 +798,7 @@ disk_slot_hint_publish( fd_store_t * store,
   for(;;) {
     if( FD_LIKELY( current & FD_SHREDB_HINT_VALID ) ) {
       uint current_idx = fd_shredb_key_shred_idx( current & ~FD_SHREDB_HINT_VALID );
-      if( current_idx>=shred_idx ) return;
+      if( FD_LIKELY( fd_shredb_key_slot( current )==slot ) && current_idx>=shred_idx ) return;
     }
     if( atomic_compare_exchange_strong_explicit( hint, &current, desired,
                                                  memory_order_release, memory_order_acquire ) ) return;
