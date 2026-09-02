@@ -1740,6 +1740,7 @@ EXAMPLES
     <int value="12" name="getSlot" label="getSlot" />
     <int value="13" name="getTransactionCount" label="getTransactionCount" />
     <int value="14" name="getVersion" label="getVersion" />
+    <int value="15" name="getMaxRetransmitSlot" label="getMaxRetransmitSlot" />
 </enum>
 
 <enum name="RpcEventType">
