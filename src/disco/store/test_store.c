@@ -119,6 +119,7 @@ test_file_create( fd_wksp_t * wksp ) {
   struct stat st[1];
   FD_TEST( !fstat( fd, st ) );
   FD_TEST( (ulong)st->st_size==store->wire_off + store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
+  FD_TEST( (ulong)st->st_blocks*512UL<store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
 
   uchar value = 0xa5U;
   FD_TEST( pwrite( fd, &value, 1UL, 0 )==1L );
@@ -493,7 +494,7 @@ test_disk_query_highest( fd_wksp_t * wksp ) {
   struct stat file_stat[1];
   FD_TEST( !fstat( disk_fd, file_stat ) );
   FD_TEST( (ulong)file_stat->st_size==store->wire_off + store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
-  FD_TEST( (ulong)file_stat->st_blocks*512UL>=store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
+  FD_TEST( (ulong)file_stat->st_blocks*512UL<store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
   FD_TEST( (ulong)file_stat->st_blocks*512UL<(ulong)file_stat->st_size );
 
   uchar buf[ FD_SHRED_MAX_SZ ];
@@ -514,7 +515,7 @@ test_disk_query_highest( fd_wksp_t * wksp ) {
   FD_TEST( !fd_store_disk_stats_query( store, stats ) );
   FD_TEST( stats->shred_cnt==1UL );
   FD_TEST( stats->current_bytes==sizeof(fd_shredb_entry_t) );
-  FD_TEST( stats->allocated_bytes==store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
+  FD_TEST( stats->allocated_bytes==sizeof(fd_shredb_entry_t) );
   FD_TEST( stats->insert_cnt==1UL );
   FD_TEST( stats->write_bytes==sizeof(fd_shredb_entry_t) );
 
