@@ -14,6 +14,7 @@ struct fd_calculated_stake_points {
                            vote account is not in the rewards map.  Not populated during
                            recalculation due to lack of the points phase. */
   uchar       force_credits_update_with_skipped_reward;
+  uchar       inactive;
 };
 typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
 
