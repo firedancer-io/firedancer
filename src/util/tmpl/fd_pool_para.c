@@ -805,7 +805,16 @@ POOL_(acquire_nolock)( POOL_(t) * join ) {
   ulong ver     = POOL_(private_vidx_ver)( ver_top );
   ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
 
-  if( FD_UNLIKELY( POOL_(idx_is_null)( ele_idx ) ) ) {
+  /* No branch hint, for layout rather than prediction.  FD_UNLIKELY drives
+     block placement: it moves this branch's body -- a call to
+     acquire_lazy_nolock -- into a cold section away from the hot path.  During
+     a bulk snapshot load the pool is reset empty and the load only adds, so
+     this branch is taken on essentially every acquire, and the hot path was
+     jumping out to cold code roughly 1.1 billion times per load.
+     Measured: removing the hint is worth 1.78 s; keeping it but neutralising
+     its direction with __builtin_expect_with_probability(...,0.5) recovers
+     1.72 s of that, so the cost is the placement, not the prediction. */
+  if( POOL_(idx_is_null)( ele_idx ) ) {
 #   if POOL_LAZY
     return POOL_(acquire_lazy_nolock)( join );
 #   endif
