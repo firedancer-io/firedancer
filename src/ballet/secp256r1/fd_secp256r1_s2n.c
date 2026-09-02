@@ -138,6 +138,26 @@ fd_secp256r1_fp_sqrt( fd_secp256r1_fp_t *       r,
 
 /* Points */
 
+static inline int
+fd_secp256r1_point_validate_uncompressed( uchar const in[ 65 ] ) {
+  if( FD_UNLIKELY( in[ 0 ]!=0x04U ) ) return FD_SECP256R1_FAILURE;
+
+  fd_secp256r1_fp_t x[1], y[1], lhs[1], rhs[1];
+  if( FD_UNLIKELY( !fd_secp256r1_fp_frombytes( x, in+1  ) ) ) return FD_SECP256R1_FAILURE;
+  if( FD_UNLIKELY( !fd_secp256r1_fp_frombytes( y, in+33 ) ) ) return FD_SECP256R1_FAILURE;
+
+  bignum_tomont_p256( x->limbs, x->limbs );
+  bignum_tomont_p256( y->limbs, y->limbs );
+
+  /* Validate y^2 = x^3 + ax + b. */
+  bignum_montsqr_p256( lhs->limbs, y->limbs );
+  bignum_montsqr_p256( rhs->limbs, x->limbs );
+  bignum_add_p256    ( rhs->limbs, rhs->limbs, (ulong *)fd_secp256r1_const_a_mont[0].limbs );
+  bignum_montmul_p256( rhs->limbs, rhs->limbs, x->limbs );
+  bignum_add_p256    ( rhs->limbs, rhs->limbs, (ulong *)fd_secp256r1_const_b_mont[0].limbs );
+  return fd_uint256_eq( lhs, rhs );
+}
+
 static inline fd_secp256r1_point_t *
 fd_secp256r1_point_frombytes( fd_secp256r1_point_t * r,
                               uchar const            in[ 33 ] ) {
