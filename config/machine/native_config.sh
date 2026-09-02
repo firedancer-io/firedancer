@@ -53,6 +53,7 @@ printf '\n' | "$@" -march=native -E -dM - | awk '
     emit_feature( "FD_HAS_NEON",       "__ARM_NEON" )
     emit_feature( "FD_HAS_SVE2",       "__ARM_FEATURE_SVE2" )
     emit_feature( "FD_HAS_ARM_SHA256", "__ARM_FEATURE_SHA2" )
+    emit_feature( "FD_HAS_ARM_SHA512", "__ARM_FEATURE_SHA512" )
 
     # Older versions of GCC (<10) do not fully support AVX512.
     if( !( "__GNUC__" in define && !( "__clang__" in define ) && define["__GNUC__"]<10 ) )
