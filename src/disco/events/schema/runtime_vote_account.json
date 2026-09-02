@@ -1,0 +1,22 @@
+{
+    "name": "runtime_vote_account",
+    "id": 18,
+    "description": "One row per vote account per epoch boundary: the per-account vote-cache snapshot taken as the boundary is crossed",
+    "fields": {
+        "bank_seq":              { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
+        "slot":                  { "type": "UInt64", "compression": "Delta, ZSTD", "description": "First replayed slot of the new epoch" },
+        "epoch":                 { "type": "UInt64",                               "description": "The new epoch being entered; the snapshot captures this account's stake as of the end of epoch - 1" },
+        "pubkey":                { "type": "Pubkey",                               "description": "Vote account" },
+        "node_account":          { "type": "Pubkey",                               "description": "Validator identity pubkey" },
+        "stake":                 { "type": "UInt64",                               "description": "Effective stake delegated to this vote account at this boundary" },
+        "commission_bps":        { "type": "UInt32", "compression": "T64, ZSTD",   "description": "Commission read from the vote account at this boundary (basis points)" },
+        "has_commission_t_2":    { "type": "Bool",                                 "description": "True if the account existed in the snapshot taken one boundary earlier" },
+        "commission_t_2_bps":    { "type": "UInt32", "compression": "T64, ZSTD",   "description": "Commission recorded one boundary earlier (0 unless has_commission_t_2)" },
+        "has_commission_t_3":    { "type": "Bool",                                 "description": "True if the account existed in the snapshot taken two boundaries earlier" },
+        "commission_t_3_bps":    { "type": "UInt32", "compression": "T64, ZSTD",   "description": "Commission recorded two boundaries earlier (0 unless has_commission_t_3)" },
+        "reward_commission_bps": { "type": "UInt32", "compression": "T64, ZSTD",   "description": "Commission the reward calculation will actually use for this epoch's vote rewards: the oldest available of t-3 / t-2 / current when delay_commission_updates is active, current otherwise" },
+        "credits":               { "type": "UInt64",                               "description": "Cumulative vote credits at this boundary" },
+        "prev_credits":          { "type": "UInt64",                               "description": "Cumulative vote credits at the start of the latest epoch-credits ladder entry" },
+        "epoch_credits_cnt":     { "type": "UInt64", "compression": "T64, ZSTD",   "description": "Entries in the vote account's epoch-credits ladder at this boundary" }
+    }
+}

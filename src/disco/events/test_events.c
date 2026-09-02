@@ -82,7 +82,7 @@ main( int     argc,
      fd_event_client_id_reserve, a plain counter. */
   static fd_event_client_t client[1];
 
-  static uchar ev_buf[ FD_EVENT_GEN_STRUCT_MAX ] __attribute__((aligned(8UL)));
+  static uchar ev_buf[ FD_EVENT_GEN_STRUCT_MAX ] __attribute__((aligned(FD_EVENT_GEN_STRUCT_ALIGN)));
 
   int have_admin_command = 0;
 

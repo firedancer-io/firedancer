@@ -1,0 +1,18 @@
+{
+    "name": "runtime_rooted",
+    "id": 16,
+    "description": "One row per root advance with the post-apply cache invariants",
+    "fields": {
+        "bank_seq":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
+        "slot":                      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Slot of the newly rooted block" },
+        "epoch":                     { "type": "UInt64",                                     "description": "Epoch the rooted slot belongs to" },
+        "prev_root_slot":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Slot of the previous root" },
+        "stake_delegations_upserts": { "type": "UInt64",                                     "description": "Number of stake-delegations delta entries (non-tombstone) applied into the root map by this root advance. The advance covers every bank on (prev_root_slot, slot]. Each bank keeps at most one delta entry per stake account (last update wins), so this can be lower than the count of runtime_stake_delegation rows with kind upsert or reward whose slot is in that range when one account is mutated multiple times in a block." },
+        "stake_delegations_removes": { "type": "UInt64",                                     "description": "Number of stake-delegations tombstone delta entries applied by this root advance, counted per account per bank (tombstones for accounts absent from the root map still count); matches the count of runtime_stake_delegation rows with kind remove whose slot is in (prev_root_slot, slot] except when one account is removed more than once in a block." },
+        "stake_delegations_cnt":     { "type": "UInt64",                                     "description": "Total entries in the root stake-delegations cache after this advance" },
+        "effective_stake":           { "type": "UInt64",                                     "description": "Root stake-delegations effective-stake total after this advance" },
+        "activating_stake":          { "type": "UInt64",                                     "description": "Root stake-delegations activating-stake total after this advance" },
+        "deactivating_stake":        { "type": "UInt64",                                     "description": "Root stake-delegations deactivating-stake total after this advance" },
+        "block_id":                  { "type": "Hash",                                       "description": "Block id (final FEC merkle root) of the newly rooted block" }
+    }
+}

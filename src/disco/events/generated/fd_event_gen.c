@@ -561,6 +561,372 @@ fd_event_admin_command_serialize( fd_circq_t *                     circq,
 }
 
 void
+fd_event_runtime_block_serialize( fd_circq_t *                     circq,
+                                  fd_event_client_t *              client,
+                                  long                             timestamp_nanos,
+                                  ulong                            link_seq,
+                                  fd_event_runtime_block_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_RUNTIME_BLOCK_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_RUNTIME_BLOCK_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_RUNTIME_BLOCK_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  FD_TEST( msg->recent_blockhashes_cnt<=151UL );
+  FD_TEST( msg->recent_blockhashes_sysvar_cnt<=150UL );
+  FD_TEST( msg->sysvar_diffs_cnt<=16UL );
+  FD_TEST( msg->other_diffs_cnt<=32UL );
+  FD_TEST( msg->fec_merkle_roots_cnt<=1024UL );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 13U ); /* RuntimeBlock */
+  if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  ok &= !!fd_pb_push_bytes ( encoder, 3U, msg->block_id, 32UL );
+  if( msg->parent_slot ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->parent_slot );
+  ok &= !!fd_pb_push_bytes ( encoder, 5U, msg->parent_block_id, 32UL );
+  if( msg->epoch ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->epoch );
+  if( msg->block_height ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->block_height );
+  ok &= !!fd_pb_push_bytes ( encoder, 8U, msg->leader, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 9U, msg->bank_hash, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 10U, msg->prev_bank_hash, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 11U, msg->accounts_lt_hash_checksum, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 12U, msg->poh_hash, 32UL );
+  ok &= !!fd_pb_submsg_open( encoder, 13U );
+  if( msg->clock_sysvar.slot ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->clock_sysvar.slot );
+  if( msg->clock_sysvar.epoch_start_timestamp ) ok &= !!fd_pb_push_sint64( encoder, 2U, msg->clock_sysvar.epoch_start_timestamp );
+  if( msg->clock_sysvar.epoch ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->clock_sysvar.epoch );
+  if( msg->clock_sysvar.leader_schedule_epoch ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->clock_sysvar.leader_schedule_epoch );
+  if( msg->clock_sysvar.unix_timestamp ) ok &= !!fd_pb_push_sint64( encoder, 5U, msg->clock_sysvar.unix_timestamp );
+  ok &= !!fd_pb_submsg_close( encoder );
+  for( ulong k=0UL; k<msg->recent_blockhashes_cnt; k++ ) {
+    ok &= !!fd_pb_push_bytes ( encoder, 14U, msg->recent_blockhashes[ k ], 32UL );
+  }
+  for( ulong k=0UL; k<msg->recent_blockhashes_sysvar_cnt; k++ ) {
+    ok &= !!fd_pb_submsg_open( encoder, 15U );
+    ok &= !!fd_pb_push_bytes ( encoder, 1U, msg->recent_blockhashes_sysvar[ k ].blockhash, 32UL );
+    if( msg->recent_blockhashes_sysvar[ k ].lamports_per_signature ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->recent_blockhashes_sysvar[ k ].lamports_per_signature );
+    ok &= !!fd_pb_submsg_close( encoder );
+  }
+  if( msg->last_restart_slot_sysvar ) ok &= !!fd_pb_push_uint64( encoder, 16U, (ulong)msg->last_restart_slot_sysvar );
+  if( msg->num_transactions ) ok &= !!fd_pb_push_uint64( encoder, 17U, (ulong)msg->num_transactions );
+  if( msg->num_failed_txns ) ok &= !!fd_pb_push_uint64( encoder, 18U, (ulong)msg->num_failed_txns );
+  if( msg->num_nonvote_txns ) ok &= !!fd_pb_push_uint64( encoder, 19U, (ulong)msg->num_nonvote_txns );
+  if( msg->num_nonvote_failed_txns ) ok &= !!fd_pb_push_uint64( encoder, 20U, (ulong)msg->num_nonvote_failed_txns );
+  if( msg->num_signatures ) ok &= !!fd_pb_push_uint64( encoder, 21U, (ulong)msg->num_signatures );
+  if( msg->num_shreds ) ok &= !!fd_pb_push_uint64( encoder, 22U, (ulong)msg->num_shreds );
+  if( msg->tick_height ) ok &= !!fd_pb_push_uint64( encoder, 23U, (ulong)msg->tick_height );
+  if( msg->execution_fees ) ok &= !!fd_pb_push_uint64( encoder, 24U, (ulong)msg->execution_fees );
+  if( msg->priority_fees ) ok &= !!fd_pb_push_uint64( encoder, 25U, (ulong)msg->priority_fees );
+  if( msg->tips ) ok &= !!fd_pb_push_uint64( encoder, 26U, (ulong)msg->tips );
+  if( msg->fees_burned ) ok &= !!fd_pb_push_uint64( encoder, 27U, (ulong)msg->fees_burned );
+  if( msg->leader_fee_reward ) ok &= !!fd_pb_push_uint64( encoder, 28U, (ulong)msg->leader_fee_reward );
+  if( msg->capitalization ) ok &= !!fd_pb_push_uint64( encoder, 29U, (ulong)msg->capitalization );
+  if( msg->total_effective_stake ) ok &= !!fd_pb_push_uint64( encoder, 30U, (ulong)msg->total_effective_stake );
+  if( msg->total_activating_stake ) ok &= !!fd_pb_push_uint64( encoder, 31U, (ulong)msg->total_activating_stake );
+  if( msg->total_deactivating_stake ) ok &= !!fd_pb_push_uint64( encoder, 32U, (ulong)msg->total_deactivating_stake );
+  if( msg->total_epoch_stake ) ok &= !!fd_pb_push_uint64( encoder, 33U, (ulong)msg->total_epoch_stake );
+  for( ulong k=0UL; k<msg->sysvar_diffs_cnt; k++ ) {
+    ok &= !!fd_pb_submsg_open( encoder, 34U );
+    ok &= !!fd_pb_push_bytes ( encoder, 1U, msg->sysvar_diffs[ k ].pubkey, 32UL );
+    ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->sysvar_diffs[ k ].owner, 32UL );
+    ok &= !!fd_pb_push_bytes ( encoder, 3U, msg->sysvar_diffs[ k ].prev_owner, 32UL );
+    if( msg->sysvar_diffs[ k ].lamports ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->sysvar_diffs[ k ].lamports );
+    if( msg->sysvar_diffs[ k ].prev_lamports ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)msg->sysvar_diffs[ k ].prev_lamports );
+    if( msg->sysvar_diffs[ k ].data_sz ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->sysvar_diffs[ k ].data_sz );
+    if( msg->sysvar_diffs[ k ].prev_data_sz ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->sysvar_diffs[ k ].prev_data_sz );
+    if( msg->sysvar_diffs[ k ].is_executable ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->sysvar_diffs[ k ].is_executable );
+    ok &= !!fd_pb_submsg_close( encoder );
+  }
+  for( ulong k=0UL; k<msg->other_diffs_cnt; k++ ) {
+    ok &= !!fd_pb_submsg_open( encoder, 35U );
+    ok &= !!fd_pb_push_bytes ( encoder, 1U, msg->other_diffs[ k ].pubkey, 32UL );
+    ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->other_diffs[ k ].owner, 32UL );
+    ok &= !!fd_pb_push_bytes ( encoder, 3U, msg->other_diffs[ k ].prev_owner, 32UL );
+    if( msg->other_diffs[ k ].lamports ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->other_diffs[ k ].lamports );
+    if( msg->other_diffs[ k ].prev_lamports ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)msg->other_diffs[ k ].prev_lamports );
+    if( msg->other_diffs[ k ].data_sz ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->other_diffs[ k ].data_sz );
+    if( msg->other_diffs[ k ].prev_data_sz ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->other_diffs[ k ].prev_data_sz );
+    if( msg->other_diffs[ k ].is_executable ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->other_diffs[ k ].is_executable );
+    ok &= !!fd_pb_submsg_close( encoder );
+  }
+  if( msg->fec_count ) ok &= !!fd_pb_push_uint64( encoder, 36U, (ulong)msg->fec_count );
+  for( ulong k=0UL; k<msg->fec_merkle_roots_cnt; k++ ) {
+    ok &= !!fd_pb_push_bytes ( encoder, 37U, msg->fec_merkle_roots[ k ], 32UL );
+  }
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
+fd_event_runtime_reward_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_runtime_reward_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_RUNTIME_REWARD_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_RUNTIME_REWARD_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_RUNTIME_REWARD_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 14U ); /* RuntimeReward */
+  if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  if( msg->epoch ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->epoch );
+  if( msg->kind ) ok &= !!fd_pb_push_int32 ( encoder, 4U, msg->kind );
+  ok &= !!fd_pb_push_bytes ( encoder, 5U, msg->pubkey, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 6U, msg->owner, 32UL );
+  if( msg->prev_lamports ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->prev_lamports );
+  if( msg->lamports ) ok &= !!fd_pb_push_uint64( encoder, 8U, (ulong)msg->lamports );
+  if( msg->partition_idx ) ok &= !!fd_pb_push_uint64( encoder, 9U, (ulong)msg->partition_idx );
+  if( msg->credits_observed ) ok &= !!fd_pb_push_uint64( encoder, 10U, (ulong)msg->credits_observed );
+  if( msg->stake ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->stake );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
+fd_event_runtime_stake_delegation_serialize( fd_circq_t *                                circq,
+                                             fd_event_client_t *                         client,
+                                             long                                        timestamp_nanos,
+                                             ulong                                       link_seq,
+                                             fd_event_runtime_stake_delegation_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_RUNTIME_STAKE_DELEGATION_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_RUNTIME_STAKE_DELEGATION_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_RUNTIME_STAKE_DELEGATION_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 15U ); /* RuntimeStakeDelegation */
+  if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  if( msg->epoch ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->epoch );
+  if( msg->index_in_slot ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->index_in_slot );
+  ok &= !!fd_pb_push_bytes ( encoder, 5U, msg->signature, 64UL );
+  if( msg->kind ) ok &= !!fd_pb_push_int32 ( encoder, 6U, msg->kind );
+  ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->stake_account, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 8U, msg->vote_account, 32UL );
+  if( msg->stake ) ok &= !!fd_pb_push_uint64( encoder, 9U, (ulong)msg->stake );
+  if( msg->activation_epoch ) ok &= !!fd_pb_push_uint64( encoder, 10U, (ulong)msg->activation_epoch );
+  if( msg->deactivation_epoch ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->deactivation_epoch );
+  if( msg->credits_observed ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->credits_observed );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
+fd_event_runtime_rooted_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_runtime_rooted_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_RUNTIME_ROOTED_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_RUNTIME_ROOTED_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_RUNTIME_ROOTED_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 16U ); /* RuntimeRooted */
+  if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  if( msg->epoch ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->epoch );
+  if( msg->prev_root_slot ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->prev_root_slot );
+  if( msg->stake_delegations_upserts ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)msg->stake_delegations_upserts );
+  if( msg->stake_delegations_removes ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->stake_delegations_removes );
+  if( msg->stake_delegations_cnt ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->stake_delegations_cnt );
+  if( msg->effective_stake ) ok &= !!fd_pb_push_uint64( encoder, 8U, (ulong)msg->effective_stake );
+  if( msg->activating_stake ) ok &= !!fd_pb_push_uint64( encoder, 9U, (ulong)msg->activating_stake );
+  if( msg->deactivating_stake ) ok &= !!fd_pb_push_uint64( encoder, 10U, (ulong)msg->deactivating_stake );
+  ok &= !!fd_pb_push_bytes ( encoder, 11U, msg->block_id, 32UL );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
+fd_event_runtime_epoch_serialize( fd_circq_t *                     circq,
+                                  fd_event_client_t *              client,
+                                  long                             timestamp_nanos,
+                                  ulong                            link_seq,
+                                  fd_event_runtime_epoch_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_RUNTIME_EPOCH_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_RUNTIME_EPOCH_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_RUNTIME_EPOCH_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  FD_TEST( msg->feature_activations_cnt<=16UL );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 17U ); /* RuntimeEpoch */
+  if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  if( msg->parent_slot ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->parent_slot );
+  if( msg->epoch ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->epoch );
+  if( msg->total_effective_stake ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)msg->total_effective_stake );
+  if( msg->total_activating_stake ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->total_activating_stake );
+  if( msg->total_deactivating_stake ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->total_deactivating_stake );
+  if( msg->total_epoch_stake ) ok &= !!fd_pb_push_uint64( encoder, 8U, (ulong)msg->total_epoch_stake );
+  if( msg->num_staked_vote_accounts ) ok &= !!fd_pb_push_uint64( encoder, 9U, (ulong)msg->num_staked_vote_accounts );
+  if( msg->num_vote_accounts ) ok &= !!fd_pb_push_uint64( encoder, 10U, (ulong)msg->num_vote_accounts );
+  if( msg->num_top_votes_eligible ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->num_top_votes_eligible );
+  if( msg->top_votes_min_stake ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->top_votes_min_stake );
+  ok &= !!fd_pb_submsg_open( encoder, 13U );
+  if( msg->stake_history_sysvar.epoch ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->stake_history_sysvar.epoch );
+  if( msg->stake_history_sysvar.effective ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->stake_history_sysvar.effective );
+  if( msg->stake_history_sysvar.activating ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->stake_history_sysvar.activating );
+  if( msg->stake_history_sysvar.deactivating ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->stake_history_sysvar.deactivating );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_open( encoder, 14U );
+  if( msg->epoch_schedule_sysvar.slots_per_epoch ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->epoch_schedule_sysvar.slots_per_epoch );
+  if( msg->epoch_schedule_sysvar.leader_schedule_slot_offset ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->epoch_schedule_sysvar.leader_schedule_slot_offset );
+  if( msg->epoch_schedule_sysvar.warmup ) ok &= !!fd_pb_push_bool  ( encoder, 3U, msg->epoch_schedule_sysvar.warmup );
+  if( msg->epoch_schedule_sysvar.first_normal_epoch ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->epoch_schedule_sysvar.first_normal_epoch );
+  if( msg->epoch_schedule_sysvar.first_normal_slot ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)msg->epoch_schedule_sysvar.first_normal_slot );
+  ok &= !!fd_pb_submsg_close( encoder );
+  for( ulong k=0UL; k<msg->feature_activations_cnt; k++ ) {
+    ok &= !!fd_pb_push_bytes ( encoder, 15U, msg->feature_activations[ k ], 32UL );
+  }
+  ok &= !!fd_pb_submsg_open( encoder, 16U );
+  if( msg->epoch_rewards_sysvar.total_rewards ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->epoch_rewards_sysvar.total_rewards );
+  if( msg->epoch_rewards_sysvar.distributed ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->epoch_rewards_sysvar.distributed );
+  if( msg->epoch_rewards_sysvar.distribution_starting_block_height ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->epoch_rewards_sysvar.distribution_starting_block_height );
+  if( msg->epoch_rewards_sysvar.num_partitions ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->epoch_rewards_sysvar.num_partitions );
+  if( msg->epoch_rewards_sysvar.total_points ) ok &= !!fd_pb_push_bytes ( encoder, 5U, (uchar const *)&msg->epoch_rewards_sysvar.total_points, 16UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 6U, msg->epoch_rewards_sysvar.parent_blockhash, 32UL );
+  ok &= !!fd_pb_submsg_close( encoder );
+  if( msg->vat_burn_per_vote_account ) ok &= !!fd_pb_push_uint64( encoder, 17U, (ulong)msg->vat_burn_per_vote_account );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
+fd_event_runtime_vote_account_serialize( fd_circq_t *                            circq,
+                                         fd_event_client_t *                     client,
+                                         long                                    timestamp_nanos,
+                                         ulong                                   link_seq,
+                                         fd_event_runtime_vote_account_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_RUNTIME_VOTE_ACCOUNT_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_RUNTIME_VOTE_ACCOUNT_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_RUNTIME_VOTE_ACCOUNT_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 18U ); /* RuntimeVoteAccount */
+  if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  if( msg->epoch ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->epoch );
+  ok &= !!fd_pb_push_bytes ( encoder, 4U, msg->pubkey, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 5U, msg->node_account, 32UL );
+  if( msg->stake ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->stake );
+  if( msg->commission_bps ) ok &= !!fd_pb_push_uint32( encoder, 7U, (uint)msg->commission_bps );
+  if( msg->has_commission_t_2 ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->has_commission_t_2 );
+  if( msg->commission_t_2_bps ) ok &= !!fd_pb_push_uint32( encoder, 9U, (uint)msg->commission_t_2_bps );
+  if( msg->has_commission_t_3 ) ok &= !!fd_pb_push_bool  ( encoder, 10U, msg->has_commission_t_3 );
+  if( msg->commission_t_3_bps ) ok &= !!fd_pb_push_uint32( encoder, 11U, (uint)msg->commission_t_3_bps );
+  if( msg->reward_commission_bps ) ok &= !!fd_pb_push_uint32( encoder, 12U, (uint)msg->reward_commission_bps );
+  if( msg->credits ) ok &= !!fd_pb_push_uint64( encoder, 13U, (ulong)msg->credits );
+  if( msg->prev_credits ) ok &= !!fd_pb_push_uint64( encoder, 14U, (ulong)msg->prev_credits );
+  if( msg->epoch_credits_cnt ) ok &= !!fd_pb_push_uint64( encoder, 15U, (ulong)msg->epoch_credits_cnt );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -608,6 +974,30 @@ fd_event_serialize_by_type( ulong               type,
   case 12UL:
     FD_TEST( ev_sz==sizeof(fd_event_admin_command_t) );
     fd_event_admin_command_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_admin_command_t const *)ev );
+    break;
+  case 13UL:
+    FD_TEST( ev_sz==sizeof(fd_event_runtime_block_t) );
+    fd_event_runtime_block_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_block_t const *)ev );
+    break;
+  case 14UL:
+    FD_TEST( ev_sz==sizeof(fd_event_runtime_reward_t) );
+    fd_event_runtime_reward_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_reward_t const *)ev );
+    break;
+  case 15UL:
+    FD_TEST( ev_sz==sizeof(fd_event_runtime_stake_delegation_t) );
+    fd_event_runtime_stake_delegation_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_stake_delegation_t const *)ev );
+    break;
+  case 16UL:
+    FD_TEST( ev_sz==sizeof(fd_event_runtime_rooted_t) );
+    fd_event_runtime_rooted_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_rooted_t const *)ev );
+    break;
+  case 17UL:
+    FD_TEST( ev_sz==sizeof(fd_event_runtime_epoch_t) );
+    fd_event_runtime_epoch_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_epoch_t const *)ev );
+    break;
+  case 18UL:
+    FD_TEST( ev_sz==sizeof(fd_event_runtime_vote_account_t) );
+    fd_event_runtime_vote_account_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_vote_account_t const *)ev );
     break;
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }

@@ -531,9 +531,257 @@ typedef struct fd_event_admin_command fd_event_admin_command_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_ADMIN_COMMAND_BUF_MAX (538UL)
 
+/* Decoded Clock sysvar for this slot */
+struct fd_event_runtime_block_clock_sysvar {
+  ulong slot;                  /* Clock sysvar slot (same as this row's slot) */
+  long  epoch_start_timestamp; /* Unix timestamp of the first slot of this epoch */
+  ulong epoch;                 /* Clock sysvar epoch */
+  ulong leader_schedule_epoch; /* Epoch whose leader schedule is currently being computed */
+  long  unix_timestamp;        /* Stake-weighted cluster unix timestamp estimate for this slot */
+};
+typedef struct fd_event_runtime_block_clock_sysvar fd_event_runtime_block_clock_sysvar_t;
+
+/* RecentBlockhashes sysvar entry */
+struct fd_event_runtime_block_recent_blockhashes_sysvar {
+  uchar blockhash[ 32UL ];      /* Blockhash */
+  ulong lamports_per_signature; /* Fee calculator (lamports per signature) in effect when this blockhash was registered */
+};
+typedef struct fd_event_runtime_block_recent_blockhashes_sysvar fd_event_runtime_block_recent_blockhashes_sysvar_t;
+
+/* Post-state of an updated sysvar account */
+struct fd_event_runtime_block_sysvar_diffs {
+  uchar pubkey[ 32UL ];     /* Sysvar account pubkey */
+  uchar owner[ 32UL ];      /* Post-state owner pubkey */
+  uchar prev_owner[ 32UL ]; /* Pre-state owner pubkey */
+  ulong lamports;           /* Post-state lamports */
+  ulong prev_lamports;      /* Pre-state lamports */
+  ulong data_sz;            /* Post-state data size in bytes */
+  ulong prev_data_sz;       /* Pre-state data size in bytes */
+  int   is_executable;      /* True if the post-state account is executable */
+};
+typedef struct fd_event_runtime_block_sysvar_diffs fd_event_runtime_block_sysvar_diffs_t;
+
+/* Post-state of an updated account */
+struct fd_event_runtime_block_other_diffs {
+  uchar pubkey[ 32UL ];     /* Account pubkey */
+  uchar owner[ 32UL ];      /* Post-state owner pubkey */
+  uchar prev_owner[ 32UL ]; /* Pre-state owner pubkey */
+  ulong lamports;           /* Post-state lamports */
+  ulong prev_lamports;      /* Pre-state lamports */
+  ulong data_sz;            /* Post-state data size in bytes */
+  ulong prev_data_sz;       /* Pre-state data size in bytes */
+  int   is_executable;      /* True if the post-state account is executable */
+};
+typedef struct fd_event_runtime_block_other_diffs fd_event_runtime_block_other_diffs_t;
+
+/* One row per block emitted with all the block-level diffs and results */
+struct fd_event_runtime_block {
+  ulong                                              bank_seq;                            /* Monotonic sequence number identifying this block within the current run; the join key from runtime_txn / slot_confirmed / block_equivocated. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong                                              slot;                                /* Block slot number */
+  uchar                                              block_id[ 32UL ];                    /* Block id of slot (merkle root of the last FEC set) */
+  ulong                                              parent_slot;                         /* Slot of the parent block */
+  uchar                                              parent_block_id[ 32UL ];             /* Parent slot's block id */
+  ulong                                              epoch;                               /* Epoch this block belongs to */
+  ulong                                              block_height;                        /* Block height (count of ancestor blocks) of this block in the chain */
+  uchar                                              leader[ 32UL ];                      /* Scheduled leader identity pubkey for this block */
+  uchar                                              bank_hash[ 32UL ];                   /* Bank hash of this slot */
+  uchar                                              prev_bank_hash[ 32UL ];              /* Bank hash of the parent slot */
+  uchar                                              accounts_lt_hash_checksum[ 32UL ];   /* Accounts lattice hash after this slot */
+  uchar                                              poh_hash[ 32UL ];                    /* Proof-of-history hash at the end of the slot (same as blockhash) */
+  fd_event_runtime_block_clock_sysvar_t              clock_sysvar;                        /* Decoded Clock sysvar for this slot */
+  uchar                                              recent_blockhashes[ 151UL ][ 32UL ]; /* Newest 151 entries of the blockhash queue at the end of this slot, newest first: exactly the blockhashes a transaction in a child block may reference (age <= 150 inclusive, matching the agave off-by-one in the transaction age check). The first entry is this block's blockhash. */
+  ulong                                              recent_blockhashes_cnt;              /* Number of recent_blockhashes entries (<= 151) */
+  fd_event_runtime_block_recent_blockhashes_sysvar_t recent_blockhashes_sysvar[ 150UL ];  /* Decoded RecentBlockhashes sysvar account content at the end of this slot, newest first (the newest 150 blockhash queue entries with their fee calculators) */
+  ulong                                              recent_blockhashes_sysvar_cnt;       /* Number of recent_blockhashes_sysvar entries (<= 150) */
+  ulong                                              last_restart_slot_sysvar;            /* Highest hard fork slot less than or equal to bank slot */
+  ulong                                              num_transactions;                    /* Total number of transactions committed in this block */
+  ulong                                              num_failed_txns;                     /* Number of transactions that committed with an error */
+  ulong                                              num_nonvote_txns;                    /* Number of non-vote transactions committed in this block */
+  ulong                                              num_nonvote_failed_txns;             /* Number of non-vote transactions that committed with an error */
+  ulong                                              num_signatures;                      /* Total number of signatures processed in the block */
+  ulong                                              num_shreds;                          /* Number of data shreds making up this block */
+  ulong                                              tick_height;                         /* Cumulative tick height at the end of this block */
+  ulong                                              execution_fees;                      /* Total execution (base) fees collected in this block, pre-burn */
+  ulong                                              priority_fees;                       /* Total priority fees collected in this block (priority fees are not burned) */
+  ulong                                              tips;                                /* Total gross tips credited to tip accounts in this block, before block-level tip commission */
+  ulong                                              fees_burned;                         /* Lamports burned at fee settlement per the fee schedule (50% of execution fees). If the resolved fee collector fails validation the reward portion is also burned; that case shows up as leader_fee_reward with no matching other_diffs credit. */
+  ulong                                              leader_fee_reward;                   /* Lamports owed for block production at fee settlement per the fee schedule (priority fees plus unburned execution fees). The actual credit is an other_diffs entry for the resolved fee collector: the leader identity, or the leader vote account's block-revenue collector when custom_commission_collector is active. If the collector fails validation this amount is burned instead and the collector's other_diffs entry shows no balance change. */
+  ulong                                              capitalization;                      /* Total lamport supply */
+  ulong                                              total_effective_stake;               /* Effective stake from stake delegations */
+  ulong                                              total_activating_stake;              /* Stake activating during this slot's epoch */
+  ulong                                              total_deactivating_stake;            /* Stake deactivating during this slot's epoch */
+  ulong                                              total_epoch_stake;                   /* Total stake delegated to active vote accounts this epoch */
+  fd_event_runtime_block_sysvar_diffs_t              sysvar_diffs[ 16UL ];                /* Final per-account diff of every sysvar account written this block; repeated writes to the same sysvar (e.g. the stake history update then its rent-exemption top-up at an epoch boundary) are coalesced into one entry keeping the first pre-state and last post-state. Ordinary slots carry ~4 entries (Clock, SlotHashes, RecentBlockhashes, SlotHistory; LastRestartSlot only when it changes), boundary/PER slots 5-6. Overflow past the 16-account bound drops the entry with a validator log warning */
+  ulong                                              sysvar_diffs_cnt;                    /* Number of sysvar_diffs entries (<= 16) */
+  fd_event_runtime_block_other_diffs_t               other_diffs[ 32UL ];                 /* Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites. Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning */
+  ulong                                              other_diffs_cnt;                     /* Number of other_diffs entries (<= 32) */
+  ulong                                              fec_count;                           /* Number of FEC sets observed while assembling this block */
+  uchar                                              fec_merkle_roots[ 1024UL ][ 32UL ];  /* Merkle chain of FEC sets observed while assembling this block */
+  ulong                                              fec_merkle_roots_cnt;                /* Number of fec_merkle_roots entries (<= 1024) */
+};
+typedef struct fd_event_runtime_block fd_event_runtime_block_t;
+
+/* Worst-case encoded size of a runtime_block event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_BLOCK_BUF_MAX (69947UL)
+
+/* Type of reward credit */
+#define FD_EVENT_RUNTIME_REWARD_KIND_VOTE  (1) /* Vote commission credit at slot 0 of the new epoch, paid to the vote account itself or, with custom_commission_collector active, to its inflation collector (possibly system-owned; one row per collector, rewards aggregated across the vote accounts routing to it) */
+#define FD_EVENT_RUNTIME_REWARD_KIND_STAKE (2) /* Stake-account credit during the partitioned-epoch-rewards window */
+
+/* One row per epoch-reward credit to an account    */
+struct fd_event_runtime_reward {
+  ulong bank_seq;         /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong slot;             /* Slot in which the credit was applied */
+  ulong epoch;            /* Epoch the slot belongs to */
+  int   kind;             /* Type of reward credit */
+  uchar pubkey[ 32UL ];   /* Credited account pubkey: the stake account, the vote account, or the vote account's inflation collector (see kind) */
+  uchar owner[ 32UL ];    /* Owner program of the credited account */
+  ulong prev_lamports;    /* Lamports before the credit */
+  ulong lamports;         /* Lamports after the credit */
+  ulong partition_idx;    /* Partitioned-rewards partition index this credit belongs to (0 for vote rewards) */
+  ulong credits_observed; /* New credits_observed stored on the stake account (0 for vote rewards) */
+  ulong stake;            /* Post-payout delegated stake written to the stake-delegations cache (0 for vote rewards) */
+};
+typedef struct fd_event_runtime_reward fd_event_runtime_reward_t;
+
+/* Worst-case encoded size of a runtime_reward event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_REWARD_BUF_MAX (326UL)
+
+/* Type of the cache entry mutation */
+#define FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_UPSERT (1) /* Entry fully rewritten from the post-txn account state */
+#define FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_REMOVE (2) /* Entry removed */
+#define FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_BOOTUP (3) /* Baseline entry loaded into the cache at boot: streamed from the snapshot accounts by snapin, or loaded from genesis */
+#define FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_REWARD (4) /* Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window */
+
+/* The complete history of the stake-delegations cache, one row per mutation: the baseline entries loaded at boot (kind = bootup, one row per delegation streamed from the snapshot accounts or loaded from genesis), the entry rewrites applied by epoch-reward payouts (kind = reward), and the transaction-driven mutations emitted as the cache is updated at txn commit (kind = upsert / remove). */
+struct fd_event_runtime_stake_delegation {
+  ulong bank_seq;              /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong slot;                  /* Slot in which the mutating transaction was committed (the snapshot slot for bootup baseline entries; 0 for genesis-boot baselines) */
+  ulong epoch;                 /* Epoch the slot belongs to */
+  ulong index_in_slot;         /* 0-indexed position of the mutating transaction within its block. UInt64 max for the non-transaction rows (bootup or reward kind) */
+  uchar signature[ 64UL ];     /* First signature of the mutating transaction (64 bytes; zero for the non-transaction rows, bootup or reward kind) */
+  int   kind;                  /* Type of the cache entry mutation */
+  uchar stake_account[ 32UL ]; /* Stake account pubkey */
+  uchar vote_account[ 32UL ];  /* Vote account pubkey */
+  ulong stake;                 /* Delegated lamports written to the cache */
+  ulong activation_epoch;      /* Delegation activation epoch written to the cache */
+  ulong deactivation_epoch;    /* Delegation deactivation epoch written to the cache */
+  ulong credits_observed;      /* Vote credits_observed written to the cache */
+};
+typedef struct fd_event_runtime_stake_delegation fd_event_runtime_stake_delegation_t;
+
+/* Worst-case encoded size of a runtime_stake_delegation event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_STAKE_DELEGATION_BUF_MAX (400UL)
+
+/* One row per root advance with the post-apply cache invariants */
+struct fd_event_runtime_rooted {
+  ulong bank_seq;                  /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong slot;                      /* Slot of the newly rooted block */
+  ulong epoch;                     /* Epoch the rooted slot belongs to */
+  ulong prev_root_slot;            /* Slot of the previous root */
+  ulong stake_delegations_upserts; /* Number of stake-delegations delta entries (non-tombstone) applied into the root map by this root advance. The advance covers every bank on (prev_root_slot, slot]. Each bank keeps at most one delta entry per stake account (last update wins), so this can be lower than the count of runtime_stake_delegation rows with kind upsert or reward whose slot is in that range when one account is mutated multiple times in a block. */
+  ulong stake_delegations_removes; /* Number of stake-delegations tombstone delta entries applied by this root advance, counted per account per bank (tombstones for accounts absent from the root map still count); matches the count of runtime_stake_delegation rows with kind remove whose slot is in (prev_root_slot, slot] except when one account is removed more than once in a block. */
+  ulong stake_delegations_cnt;     /* Total entries in the root stake-delegations cache after this advance */
+  ulong effective_stake;           /* Root stake-delegations effective-stake total after this advance */
+  ulong activating_stake;          /* Root stake-delegations activating-stake total after this advance */
+  ulong deactivating_stake;        /* Root stake-delegations deactivating-stake total after this advance */
+  uchar block_id[ 32UL ];          /* Block id (final FEC merkle root) of the newly rooted block */
+};
+typedef struct fd_event_runtime_rooted fd_event_runtime_rooted_t;
+
+/* Worst-case encoded size of a runtime_rooted event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_ROOTED_BUF_MAX (304UL)
+
+/* Decoded StakeHistory sysvar entry appended at this boundary */
+struct fd_event_runtime_epoch_stake_history_sysvar {
+  ulong epoch;        /* Epoch that just completed */
+  ulong effective;    /* Effective stake recorded for the completed epoch */
+  ulong activating;   /* Activating stake recorded for the completed epoch */
+  ulong deactivating; /* Deactivating stake recorded for the completed epoch */
+};
+typedef struct fd_event_runtime_epoch_stake_history_sysvar fd_event_runtime_epoch_stake_history_sysvar_t;
+
+/* Decoded EpochSchedule sysvar */
+struct fd_event_runtime_epoch_epoch_schedule_sysvar {
+  ulong slots_per_epoch;             /* Slots per epoch */
+  ulong leader_schedule_slot_offset; /* Slots before an epoch's start at which its leader schedule is computed */
+  int   warmup;                      /* True if epochs ramp up from a shorter initial length, false otherwise */
+  ulong first_normal_epoch;          /* First epoch of full slots per epoch length */
+  ulong first_normal_slot;           /* First slot of first normal epoch */
+};
+typedef struct fd_event_runtime_epoch_epoch_schedule_sysvar fd_event_runtime_epoch_epoch_schedule_sysvar_t;
+
+/* Decoded EpochRewards sysvar as initialized at this boundary */
+struct fd_event_runtime_epoch_epoch_rewards_sysvar {
+  ulong   total_rewards;                      /* Total lamports minted for this epoch's rewards (vote + stake) */
+  ulong   distributed;                        /* Lamports already distributed when the sysvar was initialized */
+  ulong   distribution_starting_block_height; /* Block height at which the stake rewards distribution starts */
+  ulong   num_partitions;                     /* Number of stake reward partitions */
+  uint128 total_points;                       /* Total reward points (sum of credits earned times stake across all delegations) */
+  uchar   parent_blockhash[ 32UL ];           /* Parent blockhash seeding the partition hasher */
+};
+typedef struct fd_event_runtime_epoch_epoch_rewards_sysvar fd_event_runtime_epoch_epoch_rewards_sysvar_t;
+
+/* One row per epoch boundary with all the epoch-level diffs and results */
+struct fd_event_runtime_epoch {
+  ulong                                          bank_seq;                            /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong                                          slot;                                /* First slot of the new epoch */
+  ulong                                          parent_slot;                         /* Parent slot on this fork (the last replayed slot of the previous epoch) */
+  ulong                                          epoch;                               /* The new epoch being entered; the boundary snapshot captures stakes as of the end of epoch - 1 */
+  ulong                                          total_effective_stake;               /* Effective stake across all delegations, recomputed with warmup/cooldown math at this boundary */
+  ulong                                          total_activating_stake;              /* Stake activating during the new epoch, recomputed at this boundary */
+  ulong                                          total_deactivating_stake;            /* Stake deactivating during the new epoch, recomputed at this boundary */
+  ulong                                          total_epoch_stake;                   /* Total stake delegated to the valid vote accounts snapshotted at this boundary */
+  ulong                                          num_staked_vote_accounts;            /* Vote accounts seen while accumulating delegations at this boundary */
+  ulong                                          num_vote_accounts;                   /* Vote accounts in the final boundary snapshot */
+  ulong                                          num_top_votes_eligible;              /* Vote accounts that passed the validator-admission-ticket filters and were offered to the top-votes set */
+  ulong                                          top_votes_min_stake;                 /* Smallest stake in the final boundary snapshot - the effective admission threshold */
+  fd_event_runtime_epoch_stake_history_sysvar_t  stake_history_sysvar;                /* Decoded StakeHistory sysvar entry appended at this boundary */
+  fd_event_runtime_epoch_epoch_schedule_sysvar_t epoch_schedule_sysvar;               /* Decoded EpochSchedule sysvar */
+  uchar                                          feature_activations[ 16UL ][ 32UL ]; /* Feature ids newly activated at this boundary. The 16-entry bound is operational, not protocol-derived (no boundary on a real cluster has come close); overflow drops the entry with a validator log warning */
+  ulong                                          feature_activations_cnt;             /* Number of feature_activations entries (<= 16) */
+  fd_event_runtime_epoch_epoch_rewards_sysvar_t  epoch_rewards_sysvar;                /* Decoded EpochRewards sysvar as initialized at this boundary */
+  ulong                                          vat_burn_per_vote_account;           /* Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0 */
+};
+typedef struct fd_event_runtime_epoch fd_event_runtime_epoch_t;
+
+/* Worst-case encoded size of a runtime_epoch event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_EPOCH_BUF_MAX (1263UL)
+
+/* One row per vote account per epoch boundary: the per-account vote-cache snapshot taken as the boundary is crossed */
+struct fd_event_runtime_vote_account {
+  ulong bank_seq;              /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong slot;                  /* First replayed slot of the new epoch */
+  ulong epoch;                 /* The new epoch being entered; the snapshot captures this account's stake as of the end of epoch - 1 */
+  uchar pubkey[ 32UL ];        /* Vote account */
+  uchar node_account[ 32UL ];  /* Validator identity pubkey */
+  ulong stake;                 /* Effective stake delegated to this vote account at this boundary */
+  uint  commission_bps;        /* Commission read from the vote account at this boundary (basis points) */
+  int   has_commission_t_2;    /* True if the account existed in the snapshot taken one boundary earlier */
+  uint  commission_t_2_bps;    /* Commission recorded one boundary earlier (0 unless has_commission_t_2) */
+  int   has_commission_t_3;    /* True if the account existed in the snapshot taken two boundaries earlier */
+  uint  commission_t_3_bps;    /* Commission recorded two boundaries earlier (0 unless has_commission_t_3) */
+  uint  reward_commission_bps; /* Commission the reward calculation will actually use for this epoch's vote rewards: the oldest available of t-3 / t-2 / current when delay_commission_updates is active, current otherwise */
+  ulong credits;               /* Cumulative vote credits at this boundary */
+  ulong prev_credits;          /* Cumulative vote credits at the start of the latest epoch-credits ladder entry */
+  ulong epoch_credits_cnt;     /* Entries in the vote account's epoch-credits ladder at this boundary */
+};
+typedef struct fd_event_runtime_vote_account fd_event_runtime_vote_account_t;
+
+/* Worst-case encoded size of a runtime_vote_account event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_VOTE_ACCOUNT_BUF_MAX (353UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
-   event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; }))
+   event in a buffer of this size, aligned to
+   FD_EVENT_GEN_STRUCT_ALIGN. */
+#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; }))
+#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -627,6 +875,66 @@ fd_event_admin_command_serialize( fd_circq_t *                     circq,
                                   ulong                            link_seq,
                                   fd_event_admin_command_t const * msg );
 
+/* Serialize a runtime_block event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_block_serialize( fd_circq_t *                     circq,
+                                  fd_event_client_t *              client,
+                                  long                             timestamp_nanos,
+                                  ulong                            link_seq,
+                                  fd_event_runtime_block_t const * msg );
+
+/* Serialize a runtime_reward event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_reward_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_runtime_reward_t const * msg );
+
+/* Serialize a runtime_stake_delegation event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_stake_delegation_serialize( fd_circq_t *                                circq,
+                                             fd_event_client_t *                         client,
+                                             long                                        timestamp_nanos,
+                                             ulong                                       link_seq,
+                                             fd_event_runtime_stake_delegation_t const * msg );
+
+/* Serialize a runtime_rooted event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_rooted_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_runtime_rooted_t const * msg );
+
+/* Serialize a runtime_epoch event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_epoch_serialize( fd_circq_t *                     circq,
+                                  fd_event_client_t *              client,
+                                  long                             timestamp_nanos,
+                                  ulong                            link_seq,
+                                  fd_event_runtime_epoch_t const * msg );
+
+/* Serialize a runtime_vote_account event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_vote_account_serialize( fd_circq_t *                            circq,
+                                         fd_event_client_t *                     client,
+                                         long                                    timestamp_nanos,
+                                         ulong                                   link_seq,
+                                         fd_event_runtime_vote_account_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -706,6 +1014,48 @@ fd_event_report_snapshot_created( fd_event_snapshot_created_t const * msg ) {
 static inline void
 fd_event_report_admin_command( fd_event_admin_command_t const * msg ) {
   fd_event_report_( 12UL, msg, sizeof(fd_event_admin_command_t) );
+}
+
+/* Report a runtime_block event (RuntimeBlock, id 13) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_block( fd_event_runtime_block_t const * msg ) {
+  fd_event_report_( 13UL, msg, sizeof(fd_event_runtime_block_t) );
+}
+
+/* Report a runtime_reward event (RuntimeReward, id 14) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_reward( fd_event_runtime_reward_t const * msg ) {
+  fd_event_report_( 14UL, msg, sizeof(fd_event_runtime_reward_t) );
+}
+
+/* Report a runtime_stake_delegation event (RuntimeStakeDelegation, id 15) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_stake_delegation( fd_event_runtime_stake_delegation_t const * msg ) {
+  fd_event_report_( 15UL, msg, sizeof(fd_event_runtime_stake_delegation_t) );
+}
+
+/* Report a runtime_rooted event (RuntimeRooted, id 16) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_rooted( fd_event_runtime_rooted_t const * msg ) {
+  fd_event_report_( 16UL, msg, sizeof(fd_event_runtime_rooted_t) );
+}
+
+/* Report a runtime_epoch event (RuntimeEpoch, id 17) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_epoch( fd_event_runtime_epoch_t const * msg ) {
+  fd_event_report_( 17UL, msg, sizeof(fd_event_runtime_epoch_t) );
+}
+
+/* Report a runtime_vote_account event (RuntimeVoteAccount, id 18) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_vote_account( fd_event_runtime_vote_account_t const * msg ) {
+  fd_event_report_( 18UL, msg, sizeof(fd_event_runtime_vote_account_t) );
 }
 
 FD_PROTOTYPES_END

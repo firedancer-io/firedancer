@@ -22,6 +22,7 @@
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../disco/events/generated/fd_event_gen.h"
+#include "../../flamenco/events/fd_event_runtime.h"
 
 #include "generated/fd_snapin_tile_seccomp.h"
 
@@ -131,6 +132,12 @@ struct fd_snapin_tile {
 
   ulong seed;
   long boot_timestamp;
+
+  /* If non-zero, emit one runtime_stake_delegation bootup event per
+     stake delegation streamed into the cache. */
+  int   report_runtime_diffs;
+  ulong manifest_slot;  /* snapshot slot of the last manifest seen (0 until then) */
+  ulong manifest_epoch; /* epoch of manifest_slot */
 
   fd_accdb_t *    accdb;
   fd_txncache_t * txncache;
@@ -977,6 +984,9 @@ process_manifest( fd_snapin_tile_t *  ctx,
   manifest->accdb_fork_id    = fd_ushort_if( ctx->full, ctx->accdb_root_fork_id.val, ctx->accdb_incr_fork_id.val );
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
+  ctx->manifest_slot  = manifest->slot;
+  ctx->manifest_epoch = ctx->epoch;
+
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
   fd_stem_publish( stem, ctx->manifest_out.idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
@@ -1011,6 +1021,17 @@ snoop_stake_delegation( fd_snapin_tile_t *  ctx,
       (uint)data_len,
       /* fd_stake_delegations_refresh recomputes this after load. */
       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+
+  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
+    fd_event_runtime_stake_delegation_bootup_emit( ctx->manifest_slot,
+                                                   ctx->manifest_epoch,
+                                                   stake_account->uc,
+                                                   delegation->voter_pubkey.uc,
+                                                   delegation->stake,
+                                                   delegation->activation_epoch,
+                                                   delegation->deactivation_epoch,
+                                                   stake_state->stake.stake.credits_observed );
+  }
 }
 
 static int
@@ -1843,6 +1864,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->alpenglow = tile->snapin.alpenglow;
 
+  ctx->report_runtime_diffs = tile->snapin.report_runtime_diffs;
+  ctx->manifest_slot        = 0UL;
+  ctx->manifest_epoch       = 0UL;
+
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->snapin.banks_obj_id ) );
   FD_TEST( ctx->banks );
   ctx->bank = fd_banks_init_bank( ctx->banks );
@@ -1926,8 +1951,12 @@ unprivileged_init( fd_topo_t const *      topo,
 #include "../../disco/stem/fd_stem.c"
 
 static ulong
-max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return sizeof(fd_event_accdb_partition_added_t);
+max_event_sz( fd_topo_tile_t const * tile ) {
+  /* snapin emits accdb_partition_added, plus runtime_stake_delegation
+     bootup baselines when runtime diffs are on. */
+  ulong sz = sizeof(fd_event_accdb_partition_added_t);
+  if( tile->snapin.report_runtime_diffs && sizeof(fd_event_runtime_stake_delegation_t)>sz ) sz = sizeof(fd_event_runtime_stake_delegation_t);
+  return sz;
 }
 
 fd_topo_run_tile_t fd_tile_snapin = {

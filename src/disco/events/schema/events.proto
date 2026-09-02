@@ -397,6 +397,22 @@ enum AdminCommandResult {
   ADMIN_COMMAND_RESULT_CUSTOM = 6;  // The command returned a command-specific result described by custom_result.
 }
 
+// Type of reward credit
+enum RuntimeRewardKind {
+  RUNTIME_REWARD_KIND_UNSPECIFIED = 0;
+  RUNTIME_REWARD_KIND_VOTE = 1;  // Vote commission credit at slot 0 of the new epoch, paid to the vote account itself or, with custom_commission_collector active, to its inflation collector (possibly system-owned; one row per collector, rewards aggregated across the vote accounts routing to it)
+  RUNTIME_REWARD_KIND_STAKE = 2;  // Stake-account credit during the partitioned-epoch-rewards window
+}
+
+// Type of the cache entry mutation
+enum RuntimeStakeDelegationKind {
+  RUNTIME_STAKE_DELEGATION_KIND_UNSPECIFIED = 0;
+  RUNTIME_STAKE_DELEGATION_KIND_UPSERT = 1;  // Entry fully rewritten from the post-txn account state
+  RUNTIME_STAKE_DELEGATION_KIND_REMOVE = 2;  // Entry removed
+  RUNTIME_STAKE_DELEGATION_KIND_BOOTUP = 3;  // Baseline entry loaded into the cache at boot: streamed from the snapshot accounts by snapin, or loaded from genesis
+  RUNTIME_STAKE_DELEGATION_KIND_REWARD = 4;  // Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -593,6 +609,110 @@ message BootDmiDimms {
   bytes manufacturer = 5;
   // Module part number: the exact vendor SKU including speed grade and revision.
   bytes part_number = 6;
+}
+
+// Post-state of an updated account
+message RuntimeBlockOtherDiffs {
+  // Account pubkey
+  bytes pubkey = 1;
+  // Post-state owner pubkey
+  bytes owner = 2;
+  // Pre-state owner pubkey
+  bytes prev_owner = 3;
+  // Post-state lamports
+  uint64 lamports = 4;
+  // Pre-state lamports
+  uint64 prev_lamports = 5;
+  // Post-state data size in bytes
+  uint64 data_sz = 6;
+  // Pre-state data size in bytes
+  uint64 prev_data_sz = 7;
+  // True if the post-state account is executable
+  bool is_executable = 8;
+}
+
+// Post-state of an updated sysvar account
+message RuntimeBlockSysvarDiffs {
+  // Sysvar account pubkey
+  bytes pubkey = 1;
+  // Post-state owner pubkey
+  bytes owner = 2;
+  // Pre-state owner pubkey
+  bytes prev_owner = 3;
+  // Post-state lamports
+  uint64 lamports = 4;
+  // Pre-state lamports
+  uint64 prev_lamports = 5;
+  // Post-state data size in bytes
+  uint64 data_sz = 6;
+  // Pre-state data size in bytes
+  uint64 prev_data_sz = 7;
+  // True if the post-state account is executable
+  bool is_executable = 8;
+}
+
+// RecentBlockhashes sysvar entry
+message RuntimeBlockRecentBlockhashesSysvar {
+  // Blockhash
+  bytes blockhash = 1;
+  // Fee calculator (lamports per signature) in effect when this blockhash was registered
+  uint64 lamports_per_signature = 2;
+}
+
+// Decoded Clock sysvar for this slot
+message RuntimeBlockClockSysvar {
+  // Clock sysvar slot (same as this row's slot)
+  uint64 slot = 1;
+  // Unix timestamp of the first slot of this epoch
+  sint64 epoch_start_timestamp = 2;
+  // Clock sysvar epoch
+  uint64 epoch = 3;
+  // Epoch whose leader schedule is currently being computed
+  uint64 leader_schedule_epoch = 4;
+  // Stake-weighted cluster unix timestamp estimate for this slot
+  sint64 unix_timestamp = 5;
+}
+
+// Decoded EpochRewards sysvar as initialized at this boundary
+message RuntimeEpochEpochRewardsSysvar {
+  // Total lamports minted for this epoch's rewards (vote + stake)
+  uint64 total_rewards = 1;
+  // Lamports already distributed when the sysvar was initialized
+  uint64 distributed = 2;
+  // Block height at which the stake rewards distribution starts
+  uint64 distribution_starting_block_height = 3;
+  // Number of stake reward partitions
+  uint64 num_partitions = 4;
+  // Total reward points (sum of credits earned times stake across all delegations)
+  bytes total_points = 5;
+  // Parent blockhash seeding the partition hasher
+  bytes parent_blockhash = 6;
+}
+
+// Decoded EpochSchedule sysvar
+message RuntimeEpochEpochScheduleSysvar {
+  // Slots per epoch
+  uint64 slots_per_epoch = 1;
+  // Slots before an epoch's start at which its leader schedule is computed
+  uint64 leader_schedule_slot_offset = 2;
+  // True if epochs ramp up from a shorter initial length, false otherwise
+  bool warmup = 3;
+  // First epoch of full slots per epoch length
+  uint64 first_normal_epoch = 4;
+  // First slot of first normal epoch
+  uint64 first_normal_slot = 5;
+}
+
+// Decoded StakeHistory sysvar entry appended at this boundary
+message RuntimeEpochStakeHistorySysvar {
+  // Epoch that just completed
+  uint64 epoch = 1;
+  // Effective stake recorded for the completed epoch
+  uint64 effective = 2;
+  // Activating stake recorded for the completed epoch
+  uint64 activating = 3;
+  // Deactivating stake recorded for the completed epoch
+  uint64 deactivating = 4;
 }
 
 // The validator received a verified, deduplicated transaction
@@ -1225,6 +1345,236 @@ message AdminCommand {
   bytes args_json = 9;
 }
 
+// One row per block emitted with all the block-level diffs and results
+message RuntimeBlock {
+  // Monotonic sequence number identifying this block within the current run; the join key from runtime_txn / slot_confirmed / block_equivocated. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  uint64 bank_seq = 1;
+  // Block slot number
+  uint64 slot = 2;
+  // Block id of slot (merkle root of the last FEC set)
+  bytes block_id = 3;
+  // Slot of the parent block
+  uint64 parent_slot = 4;
+  // Parent slot's block id
+  bytes parent_block_id = 5;
+  // Epoch this block belongs to
+  uint64 epoch = 6;
+  // Block height (count of ancestor blocks) of this block in the chain
+  uint64 block_height = 7;
+  // Scheduled leader identity pubkey for this block
+  bytes leader = 8;
+  // Bank hash of this slot
+  bytes bank_hash = 9;
+  // Bank hash of the parent slot
+  bytes prev_bank_hash = 10;
+  // Accounts lattice hash after this slot
+  bytes accounts_lt_hash_checksum = 11;
+  // Proof-of-history hash at the end of the slot (same as blockhash)
+  bytes poh_hash = 12;
+  // Decoded Clock sysvar for this slot
+  RuntimeBlockClockSysvar clock_sysvar = 13;
+  // Newest 151 entries of the blockhash queue at the end of this slot, newest first: exactly the blockhashes a transaction in a child block may reference (age <= 150 inclusive, matching the agave off-by-one in the transaction age check). The first entry is this block's blockhash.
+  repeated bytes recent_blockhashes = 14;
+  // Decoded RecentBlockhashes sysvar account content at the end of this slot, newest first (the newest 150 blockhash queue entries with their fee calculators)
+  repeated RuntimeBlockRecentBlockhashesSysvar recent_blockhashes_sysvar = 15;
+  // Highest hard fork slot less than or equal to bank slot
+  uint64 last_restart_slot_sysvar = 16;
+  // Total number of transactions committed in this block
+  uint64 num_transactions = 17;
+  // Number of transactions that committed with an error
+  uint64 num_failed_txns = 18;
+  // Number of non-vote transactions committed in this block
+  uint64 num_nonvote_txns = 19;
+  // Number of non-vote transactions that committed with an error
+  uint64 num_nonvote_failed_txns = 20;
+  // Total number of signatures processed in the block
+  uint64 num_signatures = 21;
+  // Number of data shreds making up this block
+  uint64 num_shreds = 22;
+  // Cumulative tick height at the end of this block
+  uint64 tick_height = 23;
+  // Total execution (base) fees collected in this block, pre-burn
+  uint64 execution_fees = 24;
+  // Total priority fees collected in this block (priority fees are not burned)
+  uint64 priority_fees = 25;
+  // Total gross tips credited to tip accounts in this block, before block-level tip commission
+  uint64 tips = 26;
+  // Lamports burned at fee settlement per the fee schedule (50% of execution fees). If the resolved fee collector fails validation the reward portion is also burned; that case shows up as leader_fee_reward with no matching other_diffs credit.
+  uint64 fees_burned = 27;
+  // Lamports owed for block production at fee settlement per the fee schedule (priority fees plus unburned execution fees). The actual credit is an other_diffs entry for the resolved fee collector: the leader identity, or the leader vote account's block-revenue collector when custom_commission_collector is active. If the collector fails validation this amount is burned instead and the collector's other_diffs entry shows no balance change.
+  uint64 leader_fee_reward = 28;
+  // Total lamport supply
+  uint64 capitalization = 29;
+  // Effective stake from stake delegations
+  uint64 total_effective_stake = 30;
+  // Stake activating during this slot's epoch
+  uint64 total_activating_stake = 31;
+  // Stake deactivating during this slot's epoch
+  uint64 total_deactivating_stake = 32;
+  // Total stake delegated to active vote accounts this epoch
+  uint64 total_epoch_stake = 33;
+  // Final per-account diff of every sysvar account written this block; repeated writes to the same sysvar (e.g. the stake history update then its rent-exemption top-up at an epoch boundary) are coalesced into one entry keeping the first pre-state and last post-state. Ordinary slots carry ~4 entries (Clock, SlotHashes, RecentBlockhashes, SlotHistory; LastRestartSlot only when it changes), boundary/PER slots 5-6. Overflow past the 16-account bound drops the entry with a validator log warning
+  repeated RuntimeBlockSysvarDiffs sysvar_diffs = 34;
+  // Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites. Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning
+  repeated RuntimeBlockOtherDiffs other_diffs = 35;
+  // Number of FEC sets observed while assembling this block
+  uint64 fec_count = 36;
+  // Merkle chain of FEC sets observed while assembling this block
+  repeated bytes fec_merkle_roots = 37;
+}
+
+// One row per epoch-reward credit to an account   
+message RuntimeReward {
+  // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  uint64 bank_seq = 1;
+  // Slot in which the credit was applied
+  uint64 slot = 2;
+  // Epoch the slot belongs to
+  uint64 epoch = 3;
+  // Type of reward credit
+  RuntimeRewardKind kind = 4;
+  // Credited account pubkey: the stake account, the vote account, or the vote account's inflation collector (see kind)
+  bytes pubkey = 5;
+  // Owner program of the credited account
+  bytes owner = 6;
+  // Lamports before the credit
+  uint64 prev_lamports = 7;
+  // Lamports after the credit
+  uint64 lamports = 8;
+  // Partitioned-rewards partition index this credit belongs to (0 for vote rewards)
+  uint64 partition_idx = 9;
+  // New credits_observed stored on the stake account (0 for vote rewards)
+  uint64 credits_observed = 10;
+  // Post-payout delegated stake written to the stake-delegations cache (0 for vote rewards)
+  uint64 stake = 11;
+}
+
+// The complete history of the stake-delegations cache, one row per mutation: the baseline entries loaded at boot (kind = bootup, one row per delegation streamed from the snapshot accounts or loaded from genesis), the entry rewrites applied by epoch-reward payouts (kind = reward), and the transaction-driven mutations emitted as the cache is updated at txn commit (kind = upsert / remove).
+message RuntimeStakeDelegation {
+  // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  uint64 bank_seq = 1;
+  // Slot in which the mutating transaction was committed (the snapshot slot for bootup baseline entries; 0 for genesis-boot baselines)
+  uint64 slot = 2;
+  // Epoch the slot belongs to
+  uint64 epoch = 3;
+  // 0-indexed position of the mutating transaction within its block. UInt64 max for the non-transaction rows (bootup or reward kind)
+  uint64 index_in_slot = 4;
+  // First signature of the mutating transaction (64 bytes; zero for the non-transaction rows, bootup or reward kind)
+  bytes signature = 5;
+  // Type of the cache entry mutation
+  RuntimeStakeDelegationKind kind = 6;
+  // Stake account pubkey
+  bytes stake_account = 7;
+  // Vote account pubkey
+  bytes vote_account = 8;
+  // Delegated lamports written to the cache
+  uint64 stake = 9;
+  // Delegation activation epoch written to the cache
+  uint64 activation_epoch = 10;
+  // Delegation deactivation epoch written to the cache
+  uint64 deactivation_epoch = 11;
+  // Vote credits_observed written to the cache
+  uint64 credits_observed = 12;
+}
+
+// One row per root advance with the post-apply cache invariants
+message RuntimeRooted {
+  // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  uint64 bank_seq = 1;
+  // Slot of the newly rooted block
+  uint64 slot = 2;
+  // Epoch the rooted slot belongs to
+  uint64 epoch = 3;
+  // Slot of the previous root
+  uint64 prev_root_slot = 4;
+  // Number of stake-delegations delta entries (non-tombstone) applied into the root map by this root advance. The advance covers every bank on (prev_root_slot, slot]. Each bank keeps at most one delta entry per stake account (last update wins), so this can be lower than the count of runtime_stake_delegation rows with kind upsert or reward whose slot is in that range when one account is mutated multiple times in a block.
+  uint64 stake_delegations_upserts = 5;
+  // Number of stake-delegations tombstone delta entries applied by this root advance, counted per account per bank (tombstones for accounts absent from the root map still count); matches the count of runtime_stake_delegation rows with kind remove whose slot is in (prev_root_slot, slot] except when one account is removed more than once in a block.
+  uint64 stake_delegations_removes = 6;
+  // Total entries in the root stake-delegations cache after this advance
+  uint64 stake_delegations_cnt = 7;
+  // Root stake-delegations effective-stake total after this advance
+  uint64 effective_stake = 8;
+  // Root stake-delegations activating-stake total after this advance
+  uint64 activating_stake = 9;
+  // Root stake-delegations deactivating-stake total after this advance
+  uint64 deactivating_stake = 10;
+  // Block id (final FEC merkle root) of the newly rooted block
+  bytes block_id = 11;
+}
+
+// One row per epoch boundary with all the epoch-level diffs and results
+message RuntimeEpoch {
+  // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  uint64 bank_seq = 1;
+  // First slot of the new epoch
+  uint64 slot = 2;
+  // Parent slot on this fork (the last replayed slot of the previous epoch)
+  uint64 parent_slot = 3;
+  // The new epoch being entered; the boundary snapshot captures stakes as of the end of epoch - 1
+  uint64 epoch = 4;
+  // Effective stake across all delegations, recomputed with warmup/cooldown math at this boundary
+  uint64 total_effective_stake = 5;
+  // Stake activating during the new epoch, recomputed at this boundary
+  uint64 total_activating_stake = 6;
+  // Stake deactivating during the new epoch, recomputed at this boundary
+  uint64 total_deactivating_stake = 7;
+  // Total stake delegated to the valid vote accounts snapshotted at this boundary
+  uint64 total_epoch_stake = 8;
+  // Vote accounts seen while accumulating delegations at this boundary
+  uint64 num_staked_vote_accounts = 9;
+  // Vote accounts in the final boundary snapshot
+  uint64 num_vote_accounts = 10;
+  // Vote accounts that passed the validator-admission-ticket filters and were offered to the top-votes set
+  uint64 num_top_votes_eligible = 11;
+  // Smallest stake in the final boundary snapshot - the effective admission threshold
+  uint64 top_votes_min_stake = 12;
+  // Decoded StakeHistory sysvar entry appended at this boundary
+  RuntimeEpochStakeHistorySysvar stake_history_sysvar = 13;
+  // Decoded EpochSchedule sysvar
+  RuntimeEpochEpochScheduleSysvar epoch_schedule_sysvar = 14;
+  // Feature ids newly activated at this boundary. The 16-entry bound is operational, not protocol-derived (no boundary on a real cluster has come close); overflow drops the entry with a validator log warning
+  repeated bytes feature_activations = 15;
+  // Decoded EpochRewards sysvar as initialized at this boundary
+  RuntimeEpochEpochRewardsSysvar epoch_rewards_sysvar = 16;
+  // Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0
+  uint64 vat_burn_per_vote_account = 17;
+}
+
+// One row per vote account per epoch boundary: the per-account vote-cache snapshot taken as the boundary is crossed
+message RuntimeVoteAccount {
+  // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  uint64 bank_seq = 1;
+  // First replayed slot of the new epoch
+  uint64 slot = 2;
+  // The new epoch being entered; the snapshot captures this account's stake as of the end of epoch - 1
+  uint64 epoch = 3;
+  // Vote account
+  bytes pubkey = 4;
+  // Validator identity pubkey
+  bytes node_account = 5;
+  // Effective stake delegated to this vote account at this boundary
+  uint64 stake = 6;
+  // Commission read from the vote account at this boundary (basis points)
+  uint32 commission_bps = 7;
+  // True if the account existed in the snapshot taken one boundary earlier
+  bool has_commission_t_2 = 8;
+  // Commission recorded one boundary earlier (0 unless has_commission_t_2)
+  uint32 commission_t_2_bps = 9;
+  // True if the account existed in the snapshot taken two boundaries earlier
+  bool has_commission_t_3 = 10;
+  // Commission recorded two boundaries earlier (0 unless has_commission_t_3)
+  uint32 commission_t_3_bps = 11;
+  // Commission the reward calculation will actually use for this epoch's vote rewards: the oldest available of t-3 / t-2 / current when delay_commission_updates is active, current otherwise
+  uint32 reward_commission_bps = 12;
+  // Cumulative vote credits at this boundary
+  uint64 credits = 13;
+  // Cumulative vote credits at the start of the latest epoch-credits ladder entry
+  uint64 prev_credits = 14;
+  // Entries in the vote account's epoch-credits ladder at this boundary
+  uint64 epoch_credits_cnt = 15;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -1240,5 +1590,11 @@ message Event {
     Boot boot = 10;
     SnapshotCreated snapshot_created = 11;
     AdminCommand admin_command = 12;
+    RuntimeBlock runtime_block = 13;
+    RuntimeReward runtime_reward = 14;
+    RuntimeStakeDelegation runtime_stake_delegation = 15;
+    RuntimeRooted runtime_rooted = 16;
+    RuntimeEpoch runtime_epoch = 17;
+    RuntimeVoteAccount runtime_vote_account = 18;
   }
 }
