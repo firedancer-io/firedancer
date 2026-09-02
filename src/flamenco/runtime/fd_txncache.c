@@ -159,6 +159,14 @@ fd_txncache_reset( fd_txncache_t * tc ) {
   fd_rwlock_unwrite( tc->shmem->lock );
 }
 
+void *
+fd_txncache_snapin_scratch( fd_txncache_t * tc,
+                            ulong *         out_sz ) {
+  FD_TEST_ERR( tc->shmem->txnpages_free_cnt==tc->shmem->max_txnpages );
+  *out_sz = (ulong)tc->shmem->max_txnpages*sizeof(fd_txncache_txnpage_t);
+  return tc->txnpages;
+}
+
 FD_FN_PURE static inline ulong
 fd_txncache_bucket( fd_txncache_t const * tc,
                     uchar const *         txnhash ) {

@@ -51,6 +51,7 @@ declare -A TEST_GIGANTIC_PAGES=(
   [test_quic_bw]=2
   [test_progcache]=2
   [test_groove_volume]=2
+  [test_snapin_tile]=3
 )
 
 # Read command-line args
