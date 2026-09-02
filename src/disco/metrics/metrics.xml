@@ -1477,7 +1477,7 @@ EXAMPLES
     <gauge   name="ShredsCurrent" summary="The number of shreds currently in the shreds database" />
     <gauge   name="ShredsMax" summary="Total capacity of shreds that can be stored in the shreds database" />
     <gauge   name="DiskCurrentBytes" summary="Logical bytes occupied by live wire shreds and spilled FEC payloads" />
-    <gauge   name="DiskAllocatedBytes" summary="Physical bytes reserved for the wire ring and allocated spill pages" />
+    <gauge   name="DiskAllocatedBytes" summary="Logical wire-ring high-water plus allocated spill pages" />
 
     <counter name="PingCacheEntries" summary="How many active entries do we have in the ping cache" />
     <counter name="PingCacheEvictions" summary="How many entries we've evicted from the ping cache" />

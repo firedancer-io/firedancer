@@ -167,7 +167,7 @@ enum {
 
 #define FD_METRICS_GAUGE_RSERVE_DISK_ALLOCATED_BYTES_NAME "rserve_disk_allocated_bytes"
 #define FD_METRICS_GAUGE_RSERVE_DISK_ALLOCATED_BYTES_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_RSERVE_DISK_ALLOCATED_BYTES_DESC "Physical bytes reserved for the wire ring and allocated spill pages"
+#define FD_METRICS_GAUGE_RSERVE_DISK_ALLOCATED_BYTES_DESC "Logical wire-ring high-water plus allocated spill pages"
 #define FD_METRICS_GAUGE_RSERVE_DISK_ALLOCATED_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_RSERVE_PING_CACHE_ENTRIES_NAME "rserve_ping_cache_entries"

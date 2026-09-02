@@ -500,7 +500,6 @@ fd_store_file_create( char const * path,
 
   int err = 0;
   if( FD_UNLIKELY( ftruncate( fd, (off_t)file_sz ) ) ) err = errno;
-  else if( FD_UNLIKELY( wire_sz && fallocate( fd, 0, (off_t)wire_off, (off_t)wire_sz ) ) ) err = errno;
   if( FD_UNLIKELY( err ) ) {
     if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_WARNING(( "close(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     errno = err;
@@ -1046,7 +1045,8 @@ fd_store_disk_stats_query( fd_store_t const *      store,
   stats->shred_cnt       = atomic_load_explicit( &store->disk_cnt, memory_order_relaxed );
   stats->current_bytes   = stats->shred_cnt*sizeof(fd_shredb_entry_t)
                          + atomic_load_explicit( &store->spill_live_cnt, memory_order_relaxed )*store->payload_slot_sz;
-  stats->allocated_bytes = store->disk_max_shreds*sizeof(fd_shredb_entry_t)
+  stats->allocated_bytes = fd_ulong_min( atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed ),
+                                        store->disk_max_shreds )*sizeof(fd_shredb_entry_t)
                          + atomic_load_explicit( &store->spill_allocated_cnt, memory_order_relaxed )*store->payload_slot_sz;
   stats->insert_cnt      = atomic_load_explicit( &store->disk_insert_cnt, memory_order_relaxed );
   stats->write_bytes     = atomic_load_explicit( &store->disk_write_bytes, memory_order_relaxed );
