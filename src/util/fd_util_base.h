@@ -1321,7 +1321,6 @@ fd_tickcount( void ) {
   /* consider using 'isb' */
   ulong value;
   __asm__ __volatile__ (
-    "isb\n"
     "mrs %0, cntvct_el0\n"
     "nop"
     : "=r" (value) );
