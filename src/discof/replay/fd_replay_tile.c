@@ -1229,8 +1229,8 @@ leader_footer_certs( fd_replay_tile_t const * ctx,
   ulong window_off = leader_slot-votor_msg->start_slot;
   if( FD_UNLIKELY( window_off>=AG_SLOTS_PER_WINDOW ) ) return;
 
-  footer->has_fast_final_cert = votor_msg->has_fast_final_cert;
-  footer->has_final_cert      = votor_msg->has_final_cert;
+  footer->has_fast_final_cert = votor_msg->fast_final_cert.slot!=ULONG_MAX;
+  footer->has_final_cert      = votor_msg->final_cert.slot!=ULONG_MAX;
   footer->fast_final_cert     = votor_msg->fast_final_cert;
   footer->final_cert          = votor_msg->final_cert;
   footer->notar_cert          = votor_msg->notar_cert;
@@ -1238,10 +1238,10 @@ leader_footer_certs( fd_replay_tile_t const * ctx,
   int reward_ok = migration_slot!=ULONG_MAX &&
                   leader_slot>=migration_slot+FD_NUM_SLOTS_FOR_REWARD+1UL;
   if( FD_LIKELY( reward_ok ) ) {
-    footer->has_skip_reward_cert  = votor_msg->has_skip_reward_cert [ window_off ];
-    footer->skip_reward_cert      = votor_msg->skip_reward_cert     [ window_off ];
-    footer->has_notar_reward_cert = votor_msg->has_notar_reward_cert[ window_off ];
-    footer->notar_reward_cert     = votor_msg->notar_reward_cert    [ window_off ];
+    footer->has_skip_reward_cert  = votor_msg->skip_reward_cert [ window_off ].slot!=ULONG_MAX;
+    footer->skip_reward_cert      = votor_msg->skip_reward_cert [ window_off ];
+    footer->has_notar_reward_cert = votor_msg->notar_reward_cert[ window_off ].slot!=ULONG_MAX;
+    footer->notar_reward_cert     = votor_msg->notar_reward_cert[ window_off ];
   }
 
   if( footer->has_fast_final_cert ) certs->fast_final_cert = &footer->fast_final_cert;
@@ -4710,6 +4710,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->highwater_leader_slot = ULONG_MAX;
 
   fd_memset( ctx->votor_leader, 0, sizeof(fd_votor_leader_t) );
+  ctx->votor_leader->fast_final_cert.slot = ULONG_MAX;
+  ctx->votor_leader->final_cert.slot      = ULONG_MAX;
+  ctx->votor_leader->notar_cert.slot      = ULONG_MAX;
+  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) {
+    ctx->votor_leader->skip_reward_cert [ i ].slot = ULONG_MAX;
+    ctx->votor_leader->notar_reward_cert[ i ].slot = ULONG_MAX;
+  }
   ctx->votor_leader->start_slot = ULONG_MAX; /* no window yet */
 
   ctx->caught_up                = 0;

@@ -138,9 +138,9 @@ fd_block_final_cert_de( ag_cert_fast_final_t * fast_final,
   if( !has_notar_aggregate ) {
     fd_memset( fast_final, 0, sizeof(ag_cert_fast_final_t) );
     fast_final->slot    = block_final->slot;
-    fast_final->agg_sig = *final_agg;
+    fast_final->agg = *final_agg;
     memcpy( fast_final->block_hash, block_final->block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( decompress( &fast_final->agg_sig ) ) ) return -1;
+    if( FD_UNLIKELY( decompress( &fast_final->agg ) ) ) return -1;
     if( buf_sz ) *buf_sz = buf_max - remaining;
     return 1;
   }
@@ -152,12 +152,12 @@ fd_block_final_cert_de( ag_cert_fast_final_t * fast_final,
   fd_memset( final, 0, sizeof(ag_cert_final_t) );
   fd_memset( notar, 0, sizeof(ag_cert_notar_t) );
   final->slot    = block_final->slot;
-  final->agg_sig = *final_agg;
+  final->agg = *final_agg;
   notar->slot    = block_final->slot;
-  notar->agg_sig = *notar_agg;
+  notar->agg = *notar_agg;
   memcpy( notar->block_hash, block_final->block_id, sizeof(ag_block_hash_t) );
-  if( FD_UNLIKELY( decompress( &final->agg_sig ) ) ) return -1;
-  if( FD_UNLIKELY( decompress( &notar->agg_sig ) ) ) return -1;
+  if( FD_UNLIKELY( decompress( &final->agg ) ) ) return -1;
+  if( FD_UNLIKELY( decompress( &notar->agg ) ) ) return -1;
   if( buf_sz ) *buf_sz = buf_max - remaining;
   return 0;
 }
@@ -402,7 +402,7 @@ block_final_cert_ser( fd_block_footer_t const * footer,
   memcpy( out->block_id, block_id, sizeof(ag_block_hash_t) );
   ADVANCE( sizeof(fd_block_final_cert_serde_t) );
 
-  ag_bls_agg_t const * final_agg = is_fast ? &footer->fast_final_cert.agg_sig : &footer->final_cert.agg_sig;
+  ag_bls_agg_t const * final_agg = is_fast ? &footer->fast_final_cert.agg : &footer->final_cert.agg;
   if( FD_UNLIKELY( (err=votes_aggregate_ser( final_agg, &buf, &rem )) ) ) return err;
 
   CHECK_SPACE( 1UL );
@@ -410,7 +410,7 @@ block_final_cert_ser( fd_block_footer_t const * footer,
   ADVANCE( 1UL );
 
   if( !is_fast ) {
-    if( FD_UNLIKELY( (err=votes_aggregate_ser( &footer->notar_cert.agg_sig, &buf, &rem )) ) ) return err;
+    if( FD_UNLIKELY( (err=votes_aggregate_ser( &footer->notar_cert.agg, &buf, &rem )) ) ) return err;
   }
 
   *_buf = buf; *_rem = rem;
