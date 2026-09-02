@@ -88,6 +88,16 @@ fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
                           int                      use_t_1,
                           fd_vote_stake_weight_t * weights );
 
+/* fd_stake_weights_by_node_iter is fd_stake_weights_by_node over an
+   explicit vote stakes set: FD_VOTE_STAKES_ITER_T_1 (next epoch), T_2
+   (current epoch) or T_3 (previous epoch). */
+
+ulong
+fd_stake_weights_by_node_iter( fd_vote_stakes_t const * vote_stakes,
+                               ulong                    fork_id,
+                               int                      iter_kind,
+                               fd_vote_stake_weight_t * weights );
+
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,

@@ -13,6 +13,9 @@
 #include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/votor/fd_votor_tile.h"
+#include "../../choreo/votor/ag_epoch_info.h"
+
+#define FD_REPLAY_AG_EPOCH_INFO_CNT (3UL)
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
@@ -212,6 +215,19 @@ struct fd_replay_tile {
 
   ushort expected_shred_version;
   ushort ipecho_shred_version;
+
+  /* Alpenglow epoch info used to verify the BLS certificates carried in
+     block footers. Banks also has the canonical ranking of the VAT
+     voters, but we need the uncompressed sorted list for efficient
+     verification.  Indexed by epoch%FD_REPLAY_AG_EPOCH_INFO_CNT.
+     Three epochs are held because a block's footer can attest slots
+     in the previous epoch (the first blocks after a boundary do), and
+     the root crossing into epoch E publishes E+1, so E-1, E and E+1
+     must all stay resident. */
+  struct {
+   ag_epoch_info_t * epoch_info;
+   ulong             epoch;
+  } epoch_info[ FD_REPLAY_AG_EPOCH_INFO_CNT ];
 
   ulong enable_features_cnt;
   char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
