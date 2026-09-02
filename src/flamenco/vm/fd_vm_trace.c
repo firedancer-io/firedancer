@@ -203,7 +203,7 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
 
     /* Read the event info */
 
-    if( FD_UNLIKELY( rem<7UL ) ) {
+    if( FD_UNLIKELY( rem<sizeof(ulong) ) ) {
       FD_LOG_WARNING(( "truncated event (info)" ));
       return FD_VM_ERR_IO;
     }
