@@ -1010,7 +1010,7 @@
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;current</span> | gauge | The number of shreds currently in the shreds database |
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;max</span> | gauge | Total capacity of shreds that can be stored in the shreds database |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;current_&#8203;bytes</span> | gauge | Logical bytes occupied by live wire shreds and spilled FEC payloads |
-| <span class="metrics-name">rserve_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Physical bytes reserved for the wire ring and allocated spill pages |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Logical wire-ring high-water plus allocated spill pages |
 | <span class="metrics-name">rserve_&#8203;ping_&#8203;cache_&#8203;entries</span> | counter | How many active entries do we have in the ping cache |
 | <span class="metrics-name">rserve_&#8203;ping_&#8203;cache_&#8203;evictions</span> | counter | How many entries we've evicted from the ping cache |
 
