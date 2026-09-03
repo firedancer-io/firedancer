@@ -40,6 +40,8 @@ $(call add-objs,fd_compute_budget_details,fd_flamenco)
 
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
+$(call make-unit-test,test_borrowed_account,test_borrowed_account,fd_flamenco fd_util)
+$(call run-unit-test,test_borrowed_account)
 
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_HOSTED
