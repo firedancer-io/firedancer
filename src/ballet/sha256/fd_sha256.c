@@ -639,6 +639,14 @@ fd_sha256_hash_32_repeated( void const * _data,
 
 #undef fd_sha256_core
 
+#if FD_HAS_AVX512
+void
+fd_sha256_hash_32_repeated_batch_avx512( uchar const * hash_in,
+                                         uchar *       hash_out,
+                                         ulong const * cnt,
+                                         ulong         batch_cnt );
+#endif
+
 void
 fd_sha256_hash_32_repeated_batch( void const *  _hash_in,
                                   void *        _hash_out,
@@ -648,6 +656,9 @@ fd_sha256_hash_32_repeated_batch( void const *  _hash_in,
   uchar       * hash_out = (uchar       *)_hash_out;
 #if FD_HAS_ARM_SHA256
   fd_sha256_hash_32_repeated_batch_arm( hash_in, hash_out, cnt, batch_cnt );
+  return;
+#elif FD_HAS_AVX512
+  fd_sha256_hash_32_repeated_batch_avx512( hash_in, hash_out, cnt, batch_cnt );
   return;
 #endif
   for( ulong i=0UL; i<batch_cnt; i++ ) {

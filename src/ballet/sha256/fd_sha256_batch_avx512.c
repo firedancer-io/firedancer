@@ -308,3 +308,201 @@ fd_sha256_private_batch_avx512( ulong          batch_cnt,
   default: break;
   }
 }
+
+#define MIN_ACTIVE (6)
+
+void
+fd_sha256_hash_32_repeated_batch_avx512( uchar const * hash_in,
+                                         uchar *       hash_out,
+                                         ulong const * cnt,
+                                         ulong         batch_cnt ) {
+
+  uchar scratch[ 16UL*32UL ] __attribute__((aligned(64)));
+  ulong slot   [ 16UL      ];
+  ulong rem    [ 16UL      ];
+  ulong live = 0UL;
+  ulong next = 0UL;
+  memset( scratch, 0, sizeof(scratch) );
+
+  wwu_t s0 = wwu_zero(); wwu_t s1 = wwu_zero(); wwu_t s2 = wwu_zero(); wwu_t s3 = wwu_zero();
+  wwu_t s4 = wwu_zero(); wwu_t s5 = wwu_zero(); wwu_t s6 = wwu_zero(); wwu_t s7 = wwu_zero();
+
+  wwu_t const iv0 = wwu_bcast( FD_SHA256_INITIAL_A );
+  wwu_t const iv1 = wwu_bcast( FD_SHA256_INITIAL_B );
+  wwu_t const iv2 = wwu_bcast( FD_SHA256_INITIAL_C );
+  wwu_t const iv3 = wwu_bcast( FD_SHA256_INITIAL_D );
+  wwu_t const iv4 = wwu_bcast( FD_SHA256_INITIAL_E );
+  wwu_t const iv5 = wwu_bcast( FD_SHA256_INITIAL_F );
+  wwu_t const iv6 = wwu_bcast( FD_SHA256_INITIAL_G );
+  wwu_t const iv7 = wwu_bcast( FD_SHA256_INITIAL_H );
+
+# define SCALAR_ROTR(x,n) ( ((x)>>(n)) | ((x)<<(32-(n))) )
+# define SCALAR_sigma0(x) ( SCALAR_ROTR((x), 7) ^ SCALAR_ROTR((x),18) ^ ((x)>> 3) )
+# define SCALAR_sigma1(x) ( SCALAR_ROTR((x),17) ^ SCALAR_ROTR((x),19) ^ ((x)>>10) )
+  uint const PAD8 = 0x80000000U;
+  uint const PADF = 256U;
+
+# define LOAD_PAIR( i ) _mm512_inserti64x4( _mm512_castsi256_si512( wu_ld( (uint const *)(scratch+32UL*(i)) ) ), \
+                                            wu_ld( (uint const *)(scratch+32UL*((i)+8UL)) ), 1 )
+# define STORE_PAIR( i, s ) do {                                                                     \
+    wu_st( (uint *)(scratch+32UL*(i)),       _mm512_extracti32x8_epi32( (s), 0 ) );                  \
+    wu_st( (uint *)(scratch+32UL*((i)+8UL)), _mm512_extracti32x8_epi32( (s), 1 ) );                  \
+  } while(0)
+
+# define Sigma0(x)  _mm512_ternarylogic_epi32( wwu_rol(x,30), wwu_rol(x,19), wwu_rol(x,10), 0x96 )
+# define Sigma1(x)  _mm512_ternarylogic_epi32( wwu_rol(x,26), wwu_rol(x,21), wwu_rol(x, 7), 0x96 )
+# define sigma0(x)  _mm512_ternarylogic_epi32( wwu_rol(x,25), wwu_rol(x,14), wwu_shr(x, 3), 0x96 )
+# define sigma1(x)  _mm512_ternarylogic_epi32( wwu_rol(x,15), wwu_rol(x,13), wwu_shr(x,10), 0x96 )
+# define Ch(x,y,z)  _mm512_ternarylogic_epi32( (x), (y), (z), 0xCA )
+# define Maj(x,y,z) _mm512_ternarylogic_epi32( (x), (y), (z), 0xE8 )
+
+# define SHA_CORE(wk)                                                       \
+  T1 = wwu_add( (wk), wwu_add( wwu_add( h, Sigma1(e) ), Ch(e, f, g) ) );   \
+  T2 = wwu_add( Sigma0(a), Maj(a, b, c) );                                  \
+  h = g;                                                                    \
+  g = f;                                                                    \
+  f = e;                                                                    \
+  e = wwu_add( d, T1 );                                                     \
+  d = c;                                                                    \
+  c = b;                                                                    \
+  b = a;                                                                    \
+  a = wwu_add( T1, T2 )
+
+# define ROUND(xi,ki)  SHA_CORE( wwu_add( xi, wwu_bcast( fd_sha256_K[ki] ) ) )
+
+# define EXPAND_ROUNDS(i)                                                                            \
+  x0 = wwu_add( wwu_add( x0, sigma0(x1) ), wwu_add( sigma1(xe), x9 ) ); ROUND( x0, (i)      );        \
+  x1 = wwu_add( wwu_add( x1, sigma0(x2) ), wwu_add( sigma1(xf), xa ) ); ROUND( x1, (i)+ 1UL );        \
+  x2 = wwu_add( wwu_add( x2, sigma0(x3) ), wwu_add( sigma1(x0), xb ) ); ROUND( x2, (i)+ 2UL );        \
+  x3 = wwu_add( wwu_add( x3, sigma0(x4) ), wwu_add( sigma1(x1), xc ) ); ROUND( x3, (i)+ 3UL );        \
+  x4 = wwu_add( wwu_add( x4, sigma0(x5) ), wwu_add( sigma1(x2), xd ) ); ROUND( x4, (i)+ 4UL );        \
+  x5 = wwu_add( wwu_add( x5, sigma0(x6) ), wwu_add( sigma1(x3), xe ) ); ROUND( x5, (i)+ 5UL );        \
+  x6 = wwu_add( wwu_add( x6, sigma0(x7) ), wwu_add( sigma1(x4), xf ) ); ROUND( x6, (i)+ 6UL );        \
+  x7 = wwu_add( wwu_add( x7, sigma0(x8) ), wwu_add( sigma1(x5), x0 ) ); ROUND( x7, (i)+ 7UL );        \
+  x8 = wwu_add( wwu_add( x8, sigma0(x9) ), wwu_add( sigma1(x6), x1 ) ); ROUND( x8, (i)+ 8UL );        \
+  x9 = wwu_add( wwu_add( x9, sigma0(xa) ), wwu_add( sigma1(x7), x2 ) ); ROUND( x9, (i)+ 9UL );        \
+  xa = wwu_add( wwu_add( xa, sigma0(xb) ), wwu_add( sigma1(x8), x3 ) ); ROUND( xa, (i)+10UL );        \
+  xb = wwu_add( wwu_add( xb, sigma0(xc) ), wwu_add( sigma1(x9), x4 ) ); ROUND( xb, (i)+11UL );        \
+  xc = wwu_add( wwu_add( xc, sigma0(xd) ), wwu_add( sigma1(xa), x5 ) ); ROUND( xc, (i)+12UL );        \
+  xd = wwu_add( wwu_add( xd, sigma0(xe) ), wwu_add( sigma1(xb), x6 ) ); ROUND( xd, (i)+13UL );        \
+  xe = wwu_add( wwu_add( xe, sigma0(xf) ), wwu_add( sigma1(xc), x7 ) ); ROUND( xe, (i)+14UL );        \
+  xf = wwu_add( wwu_add( xf, sigma0(x0) ), wwu_add( sigma1(xd), x8 ) ); ROUND( xf, (i)+15UL )
+
+  for(;;) {
+
+    int refilled = 0;
+    for( ulong l=0UL; l<16UL; l++ ) {
+      if( live & (1UL<<l) ) continue;
+      while( next<batch_cnt ) {
+        ulong e = next++;
+        if( FD_UNLIKELY( !cnt[ e ] ) ) {
+          memcpy( hash_out+32UL*e, hash_in+32UL*e, 32UL );
+          continue;
+        }
+        memcpy( scratch+32UL*l, hash_in+32UL*e, 32UL );
+        slot[ l ] = e;
+        rem [ l ] = cnt[ e ];
+        live |= 1UL<<l;
+        refilled = 1;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !live ) ) break;
+
+    if( FD_UNLIKELY( fd_ulong_popcnt( live )<MIN_ACTIVE ) ) {
+      for( ulong l=0UL; l<16UL; l++ ) {
+        if( live & (1UL<<l) ) fd_sha256_hash_32_repeated( scratch+32UL*l, hash_out+32UL*slot[ l ], rem[ l ] );
+      }
+      break;
+    }
+
+    if( refilled ) {
+      wwu_transpose_2x8x8( wwu_bswap( LOAD_PAIR( 0 ) ), wwu_bswap( LOAD_PAIR( 1 ) ),
+                           wwu_bswap( LOAD_PAIR( 2 ) ), wwu_bswap( LOAD_PAIR( 3 ) ),
+                           wwu_bswap( LOAD_PAIR( 4 ) ), wwu_bswap( LOAD_PAIR( 5 ) ),
+                           wwu_bswap( LOAD_PAIR( 6 ) ), wwu_bswap( LOAD_PAIR( 7 ) ),
+                           s0, s1, s2, s3, s4, s5, s6, s7 );
+    }
+
+    ulong step = ULONG_MAX;
+    for( ulong l=0UL; l<16UL; l++ ) if( live & (1UL<<l) ) step = fd_ulong_min( step, rem[ l ] );
+
+    for( ulong iter=0UL; iter<step; iter++ ) {
+      wwu_t a = iv0; wwu_t b = iv1; wwu_t c = iv2; wwu_t d = iv3; wwu_t e = iv4; wwu_t f = iv5; wwu_t g = iv6; wwu_t h = iv7;
+      wwu_t T1;
+      wwu_t T2;
+
+      wwu_t x0 = s0; wwu_t x1 = s1; wwu_t x2 = s2; wwu_t x3 = s3; wwu_t x4 = s4; wwu_t x5 = s5; wwu_t x6 = s6; wwu_t x7 = s7;
+      wwu_t x8; wwu_t x9; wwu_t xa; wwu_t xb; wwu_t xc; wwu_t xd; wwu_t xe; wwu_t xf;
+
+      ROUND( x0, 0 ); ROUND( x1, 1 ); ROUND( x2, 2 ); ROUND( x3, 3 );
+      ROUND( x4, 4 ); ROUND( x5, 5 ); ROUND( x6, 6 ); ROUND( x7, 7 );
+      SHA_CORE( wwu_bcast( fd_sha256_K[ 8] + PAD8 ) );
+      SHA_CORE( wwu_bcast( fd_sha256_K[ 9]        ) );
+      SHA_CORE( wwu_bcast( fd_sha256_K[10]        ) );
+      SHA_CORE( wwu_bcast( fd_sha256_K[11]        ) );
+      SHA_CORE( wwu_bcast( fd_sha256_K[12]        ) );
+      SHA_CORE( wwu_bcast( fd_sha256_K[13]        ) );
+      SHA_CORE( wwu_bcast( fd_sha256_K[14]        ) );
+      SHA_CORE( wwu_bcast( fd_sha256_K[15] + PADF ) );
+
+      /* x8=PAD8, x9..xe=0, xf=PADF folded in as constants */
+
+      x0 = wwu_add( x0, sigma0(x1) );                                                    ROUND( x0, 16 );
+      x1 = wwu_add( wwu_add( x1, sigma0(x2) ), wwu_bcast( SCALAR_sigma1(PADF) ) );       ROUND( x1, 17 );
+      x2 = wwu_add( wwu_add( x2, sigma0(x3) ), sigma1(x0) );                             ROUND( x2, 18 );
+      x3 = wwu_add( wwu_add( x3, sigma0(x4) ), sigma1(x1) );                             ROUND( x3, 19 );
+      x4 = wwu_add( wwu_add( x4, sigma0(x5) ), sigma1(x2) );                             ROUND( x4, 20 );
+      x5 = wwu_add( wwu_add( x5, sigma0(x6) ), sigma1(x3) );                             ROUND( x5, 21 );
+      x6 = wwu_add( wwu_add( x6, sigma0(x7) ), wwu_add( sigma1(x4), wwu_bcast( PADF ) ) ); ROUND( x6, 22 );
+      x7 = wwu_add( wwu_add( x7, wwu_bcast( SCALAR_sigma0(PAD8) ) ), wwu_add( sigma1(x5), x0 ) ); ROUND( x7, 23 );
+      x8 = wwu_add( wwu_bcast( PAD8 ), wwu_add( sigma1(x6), x1 ) );                      ROUND( x8, 24 );
+      x9 = wwu_add( sigma1(x7), x2 );                                                    ROUND( x9, 25 );
+      xa = wwu_add( sigma1(x8), x3 );                                                    ROUND( xa, 26 );
+      xb = wwu_add( sigma1(x9), x4 );                                                    ROUND( xb, 27 );
+      xc = wwu_add( sigma1(xa), x5 );                                                    ROUND( xc, 28 );
+      xd = wwu_add( sigma1(xb), x6 );                                                    ROUND( xd, 29 );
+      xe = wwu_add( wwu_bcast( SCALAR_sigma0(PADF) ), wwu_add( sigma1(xc), x7 ) );       ROUND( xe, 30 );
+      xf = wwu_add( wwu_add( wwu_bcast( PADF ), sigma0(x0) ), wwu_add( sigma1(xd), x8 ) ); ROUND( xf, 31 );
+
+      EXPAND_ROUNDS( 32 );
+      EXPAND_ROUNDS( 48 );
+
+      s0 = wwu_add( a, iv0 ); s1 = wwu_add( b, iv1 ); s2 = wwu_add( c, iv2 ); s3 = wwu_add( d, iv3 );
+      s4 = wwu_add( e, iv4 ); s5 = wwu_add( f, iv5 ); s6 = wwu_add( g, iv6 ); s7 = wwu_add( h, iv7 );
+    }
+
+    wwu_t t0; wwu_t t1; wwu_t t2; wwu_t t3; wwu_t t4; wwu_t t5; wwu_t t6; wwu_t t7;
+    wwu_transpose_2x8x8( wwu_bswap(s0), wwu_bswap(s1), wwu_bswap(s2), wwu_bswap(s3),
+                         wwu_bswap(s4), wwu_bswap(s5), wwu_bswap(s6), wwu_bswap(s7), t0,t1,t2,t3,t4,t5,t6,t7 );
+    STORE_PAIR( 0, t0 ); STORE_PAIR( 1, t1 ); STORE_PAIR( 2, t2 ); STORE_PAIR( 3, t3 );
+    STORE_PAIR( 4, t4 ); STORE_PAIR( 5, t5 ); STORE_PAIR( 6, t6 ); STORE_PAIR( 7, t7 );
+
+    for( ulong l=0UL; l<16UL; l++ ) {
+      if( !(live & (1UL<<l)) ) continue;
+      rem[ l ] -= step;
+      if( !rem[ l ] ) {
+        memcpy( hash_out+32UL*slot[ l ], scratch+32UL*l, 32UL );
+        live &= ~(1UL<<l);
+      }
+    }
+  }
+
+# undef EXPAND_ROUNDS
+# undef ROUND
+# undef SHA_CORE
+# undef Maj
+# undef Ch
+# undef sigma1
+# undef sigma0
+# undef Sigma1
+# undef Sigma0
+# undef SCALAR_sigma1
+# undef SCALAR_sigma0
+# undef SCALAR_ROTR
+# undef STORE_PAIR
+# undef LOAD_PAIR
+}
+
+#undef MIN_ACTIVE

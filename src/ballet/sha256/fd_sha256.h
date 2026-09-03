@@ -168,7 +168,8 @@ fd_sha256_hash_32_repeated( void const * data,
                             ulong        cnt );
 
 /* fd_sha256_hash_32_repeated_batch is a SIMD-parallel version of the
-   above.  Currently faster on armv8 with NEON and FEAT_SHA2. */
+   above.  Currently faster on armv8 with NEON and FEAT_SHA2, and on
+   x86 with AVX-512.). */
 
 void
 fd_sha256_hash_32_repeated_batch( void const *  hashes_in,  /* 32 byte stride */

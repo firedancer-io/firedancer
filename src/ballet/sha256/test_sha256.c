@@ -151,7 +151,7 @@ main( int     argc,
   }
 
   /* test fd_sha256_hash_32_repeated_batch */
-# define REPEATED_BATCH_MAX 16UL
+# define REPEATED_BATCH_MAX 32UL
   for( ulong trial=0UL; trial<1000UL; trial++ ) {
     ulong batch_cnt = 1UL+fd_rng_ulong_roll( rng, REPEATED_BATCH_MAX );
 
@@ -206,7 +206,7 @@ main( int     argc,
 
       for( ulong b=0UL; b<REPEATED_BATCH_MAX*32UL; b++ ) batch_in[ b ] = fd_rng_uchar( rng );
 
-      for( ulong batch_cnt=1UL; batch_cnt<=2UL; batch_cnt++ ) {
+      for( ulong batch_cnt=1UL; batch_cnt<=REPEATED_BATCH_MAX; batch_cnt<<=1 ) {
         for( ulong i=0UL; i<batch_cnt; i++ ) batch_iter[ i ] = 10UL;
         fd_sha256_hash_32_repeated_batch( batch_in, batch_out, batch_iter, batch_cnt );
 
