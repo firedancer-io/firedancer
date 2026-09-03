@@ -176,7 +176,7 @@ fd_chainer_shred_test( fd_chainer_t *     chainer,
                        uint               shred_idx ) {
   fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U ) );
   if( FD_UNLIKELY( !fec ) ) return 0;
-  return !!fd_fec_idxs_test( fec->data_idxs, shred_idx & ( (uint)FD_FEC_SHRED_CNT - 1U ) );
+  return !!( fec->data_idxs & ( 1U << ( shred_idx & ( (uint)FD_FEC_SHRED_CNT - 1U ) ) ) );
 }
 
 ulong
@@ -187,7 +187,7 @@ fd_chainer_slotv_shred_cnt( fd_chainer_t *     chainer,
   for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) {
     uint idx = slotv->fec[ k ];
     if( idx==UINT_MAX ) continue;
-    cnt += fd_fec_idxs_cnt( fd_fec_pool_ele( fec_pool, (ulong)idx )->data_idxs );
+    cnt += (ulong)fd_uint_popcnt( fd_fec_pool_ele( fec_pool, (ulong)idx )->data_idxs );
   }
   return cnt;
 }
@@ -220,16 +220,19 @@ fec_join( fd_chainer_t    * chainer,
           uint              fec_set_idx,
           fd_chainer_slotv_t      * slotv,
           fd_hash_t const * mr ) {
+  if( FD_UNLIKELY( slot>(ulong)UINT_MAX ) ) FD_LOG_CRIT(( "slot %lu exceeds uint range", slot ));
+
   fd_fec_map_t     * fec_map  = chainer->fec_map;
   fd_chainer_fec_t * fec_pool = chainer->fec_pool;
   fd_chainer_fec_t * fec = fd_fec_map_ele_query( fec_map, mr, NULL, fec_pool );
   if( FD_UNLIKELY( !fec ) ) {
     if( FD_UNLIKELY( !fd_fec_pool_free( fec_pool ) ) ) FD_LOG_CRIT(( "fec_pool is full" ));
+    FD_TEST( fec_set_idx < (1U<<28) );
     fec = fd_fec_pool_ele_acquire( fec_pool );
     fec->merkle_root   = *mr;
-    fec->slot          = slot;
-    fec->fec_set_idx   = fec_set_idx;
-    fd_fec_idxs_null( fec->data_idxs );
+    fec->slot          = (uint)slot;
+    fec->fec_set_idx   = fec_set_idx & ((1U<<28)-1U);
+    fec->data_idxs     = 0U;
     fec->complete      = 0;
     fec->slot_complete = 0;
     fec->data_complete = 0;
@@ -507,7 +510,7 @@ fd_chainer_shred_insert( fd_chainer_t    * chainer,
   }
 
   /* Record the shred on theFEC bitmap and note slot completion. */
-  fd_fec_idxs_insert( fec->data_idxs, shred_idx - fec_set_idx );
+  fec->data_idxs |= 1U << ( shred_idx - fec_set_idx );
   if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
 
   /* Update every version that owns this FEC root at this position. */
@@ -709,7 +712,7 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
      repairing it; it is getting evicted only because fec_resolver is
      under pressure. */
 
-  fd_fec_idxs_null( fec->data_idxs );
+  fec->data_idxs = 0U;
   uint fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
   uint k = fec_set_idx / FD_FEC_SHRED_CNT;
 

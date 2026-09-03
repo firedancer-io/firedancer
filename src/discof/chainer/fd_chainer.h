@@ -78,36 +78,31 @@
 
 #define FD_CHAINER_SLOT_VER_MAX 7 /* see Corollary 50 */
 
-#define SET_NAME fd_fec_idxs
-#define SET_MAX  FD_FEC_SHRED_CNT
-#include "../../util/tmpl/fd_set.c"
+FD_STATIC_ASSERT( FD_FEC_SHRED_CNT==32UL, fd_chainer_fec_bitmap );
 
 struct fd_chainer_fec {
   fd_hash_t merkle_root; /* key */
-  ulong     next;        /* reserved by pool and map_chain */
-  ulong     prev;        /* reserved by map_chain (doubly-linked chains) */
-
-  ulong     slot;        /* slot this FEC belongs to */
-  uint      fec_set_idx; /* position within the slot (multiple of FD_FEC_SHRED_CNT) */
-  fd_fec_idxs_t data_idxs[fd_fec_idxs_word_cnt];
-  uchar     complete;      /* 1 once fd_chainer_fec_complete has run for this
-                              FEC, i.e. the set is reconstructable and may
-                              be delivered.  A FEC created on first shred
-                              (or from a getSliceHash cert, awaiting shreds)
-                              is complete==0 until then; delivery and the
-                              contiguous-FEC prefix gate on this. */
-  uchar     slot_complete;
-  uchar     data_complete;
-  uchar     is_leader;
+  uint      slot;        /* slot this FEC belongs to */
+  uint      data_idxs;   /* received data shreds in this FEC */
+  uint      next;        /* reserved by pool and map_chain */
+  uint      prev;        /* reserved by map_chain (doubly-linked chains) */
+  uint      fec_set_idx  : 28; /* position within the slot (multiple of FD_FEC_SHRED_CNT) */
+  uint      complete     : 1;  /* set is reconstructable and may be delivered */
+  uint      slot_complete: 1;
+  uint      data_complete: 1;
+  uint      is_leader    : 1;
 };
 typedef struct fd_chainer_fec fd_chainer_fec_t;
+FD_STATIC_ASSERT( sizeof(fd_chainer_fec_t)==52UL, fd_chainer_fec );
 
 #define POOL_NAME fd_fec_pool
 #define POOL_T    fd_chainer_fec_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME  fd_fec_map
 #define MAP_ELE_T fd_chainer_fec_t
+#define MAP_IDX_T uint
 #define MAP_KEY   merkle_root
 #define MAP_KEY_T fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0)->uc, (k1)->uc, sizeof(fd_hash_t) ))
