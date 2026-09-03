@@ -167,6 +167,15 @@ fd_sha256_hash_32_repeated( void const * data,
                             void *       hash,
                             ulong        cnt );
 
+/* fd_sha256_hash_32_repeated_batch is a SIMD-parallel version of the
+   above.  Currently faster on armv8 with NEON and FEAT_SHA2. */
+
+void
+fd_sha256_hash_32_repeated_batch( void const *  hashes_in,  /* 32 byte stride */
+                                  void *        hashes_out, /* 32 byte stride */
+                                  ulong const * cnt,
+                                  ulong         batch_cnt );
+
 FD_PROTOTYPES_END
 
 #if 0 /* SHA256 batch API details */
