@@ -167,6 +167,43 @@ fd_sha256_hash_32_repeated( void const * data,
                             void *       hash,
                             ulong        cnt );
 
+/* fd_sha256_hash_32_repeated_batch is a SIMD-parallel version of the
+   above.  Currently faster on armv8 with NEON and FEAT_SHA2.
+   The latency of any individual computation is worse
+   than fd_sha256_hash_32_repeated, possibly by ~8x depending on arch.
+   But this version has higher throughput at batch widths of
+   fd_sha256_simd_lane_min and higher (assuming no pipeline bubbles in
+   cnt).  lane_cnt must be in [0,simd_lane_max], otherwise the process
+   is aborted.  */
+
+void
+fd_sha256_hash_32_repeated_batch( void const * hashes_in,  /* 32 byte stride */
+                                  void *       hashes_out, /* 32 byte stride */
+                                  ulong        hash_cnt,   /* iterations to run across all lanes */
+                                  ulong        lane_cnt ); /* number of hashes/lanes */
+
+/* fd_sha256_simd_lane_min returns the threshold at which SIMD
+   parallelism gains higher throughput than the scalar path, or
+   ULONG_MAX if there is no fast SIMD option. */
+
+FD_FN_CONST ulong
+fd_sha256_simd_lane_min( void );
+
+/* fd_sha256_simd_lane_max returns the max number of hash calculations
+   that can be done in parallel using SIMD. */
+
+FD_FN_CONST ulong
+fd_sha256_simd_lane_max( void );
+
+/* fd_sha256_simd_iter_cost_q8 returns the cost of one iteration of
+   fd_sha256_hash_32_repeated_batch in units of one iteration of
+   fd_sha256_hash_32_repeated, as a fixed point number with 8 fractional
+   bits (256 is 1.0x).  Lets a caller size a batched call to a wall
+   clock budget.  Returns 256 if there is no fast SIMD option. */
+
+FD_FN_CONST ulong
+fd_sha256_simd_iter_cost_q8( void );
+
 FD_PROTOTYPES_END
 
 #if 0 /* SHA256 batch API details */
