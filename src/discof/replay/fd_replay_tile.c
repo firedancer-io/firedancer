@@ -1032,10 +1032,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     footer_time_nanos = fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx );
   }
 
-  /* Do hashing and other end-of-block processing.  The runtime verifies
-     the footer certs against the shred version before it credits their
-     signers, so a block whose certs fail (or cannot be checked) is
-     dead here. */
+  /* Do hashing and other end-of-block processing. */
   if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, certs_opt, footer_time_nanos, ctx->shred_version ) ) ) {
     mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
     return 1;
@@ -1043,7 +1040,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
     fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
-    if( FD_UNLIKELY( !footer_bank_hash ) ) {
+    if( FD_UNLIKELY( !footer_bank_hash ) )
       /* Can't validate the bank hash; mark dead rather than dereference NULL. */
       FD_LOG_WARNING(( "slot %lu: no footer present at finalize; marking dead", bank->f.slot ));
       mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
@@ -1487,7 +1484,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
     priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
 
-    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL, (ushort)0 );
+    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL, ctx->shred_version );
   }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1941,10 +1938,8 @@ process_poh_message( fd_replay_tile_t *                 ctx,
     ulong migration_slot = fd_alpenglow_migration_slot( ctx->leader_bank, ctx->accdb );
     leader_footer_certs( ctx, ctx->leader_bank->f.slot, migration_slot, &marker->footer, certs );
 
-    /* The runtime applies a leader bank's certs unverified: votor
-       verified them before it handed them to us.  The block goes out
-       regardless: the certs are already committed to the bank hash, so
-       there is nothing left to fall back to. */
+    /* The block goes out regardless: the certs are already committed to
+       the bank hash, so there is nothing left to fall back to. */
     if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, certs, producer_time_nanos, ctx->shred_version ) ) ) {
       FD_LOG_WARNING(( "slot %lu: our own block footer certs did not apply; the block we produce will be dead to the cluster", ctx->leader_bank->f.slot ));
     }

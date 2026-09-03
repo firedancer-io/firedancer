@@ -555,7 +555,7 @@ fd_vote_stakes_finalize( fd_vote_stakes_t * vote_stakes,
 #if FD_HAS_BLST
     if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( vacc->bls_key_uncompressed, vacc->bls_key, 1 ) ) ) continue;
 #else
-    memcpy( vacc->bls_key_uncompressed, vacc->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
+    memset( vacc->bls_key_uncompressed, 0, FD_BLS_PUBKEY_UNCOMPRESSED_SZ );
 #endif
     FD_TEST( rank_cnt<FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
     rank[ rank_cnt++ ] = (vacc_rank_t){ .vacc=vacc, .drop=0UL };

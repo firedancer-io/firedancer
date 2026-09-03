@@ -2,8 +2,6 @@
 #define HEADER_fd_src_flamenco_rewards_fd_reward_cert_h
 
 #include "../fd_flamenco_base.h"
-/* TODO: layering violation, flamenco must not depend on choreo.  Sink
-   the Alpenglow base constants into flamenco. */
 #include "../../choreo/votor/ag_votor_base.h" /* AG_VAT_MAX */
 #include "../../choreo/votor/ag_bls.h" /* AG_BLS_SIG_COMPRESSED_SZ */
 
