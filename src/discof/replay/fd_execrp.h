@@ -39,11 +39,13 @@ struct fd_execrp_txn_sigverify_msg {
 };
 typedef struct fd_execrp_txn_sigverify_msg fd_execrp_txn_sigverify_msg_t;
 
+#define FD_EXECRP_POH_PARA 16
 struct fd_execrp_poh_hash_msg {
   ulong     bank_idx;
-  ulong     mblk_idx;
-  ulong     hashcnt;
-  fd_hash_t hash[ 1 ];
+  ulong     cnt; /* In [1,FD_EXECRP_POH_PARA] */
+  ulong     mblk_idx[ FD_EXECRP_POH_PARA ];
+  ulong     hashcnt [ FD_EXECRP_POH_PARA ];
+  fd_hash_t hash    [ FD_EXECRP_POH_PARA ];
 };
 typedef struct fd_execrp_poh_hash_msg fd_execrp_poh_hash_msg_t;
 
@@ -126,9 +128,10 @@ struct fd_execrp_txn_sigverify_done_msg {
 typedef struct fd_execrp_txn_sigverify_done_msg fd_execrp_txn_sigverify_done_msg_t;
 
 struct fd_execrp_poh_hash_done_msg {
-  ulong     mblk_idx;
-  ulong     hashcnt;
-  fd_hash_t hash[ 1 ];
+  ulong     cnt;
+  ulong     mblk_idx[ FD_EXECRP_POH_PARA ];
+  ulong     hashcnt [ FD_EXECRP_POH_PARA ];
+  fd_hash_t hash    [ FD_EXECRP_POH_PARA ];
 };
 typedef struct fd_execrp_poh_hash_done_msg fd_execrp_poh_hash_done_msg_t;
 

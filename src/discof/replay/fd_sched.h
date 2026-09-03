@@ -166,12 +166,14 @@ struct fd_sched_txn_sigverify {
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
+#define FD_SCHED_POH_PARA 16
 struct fd_sched_poh_hash {
   ulong     bank_idx;
-  ulong     mblk_idx;
   ulong     exec_idx;
-  ulong     hashcnt;
-  fd_hash_t hash[ 1 ];
+  ulong     cnt; /* In [1,FD_SCHED_POH_PARA] */
+  ulong     mblk_idx[ FD_SCHED_POH_PARA ];
+  ulong     hashcnt [ FD_SCHED_POH_PARA ];
+  fd_hash_t hash    [ FD_SCHED_POH_PARA ];
 };
 typedef struct fd_sched_poh_hash fd_sched_poh_hash_t;
 
