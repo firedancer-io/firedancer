@@ -29,6 +29,7 @@
 #define OUT_IDX_NET   (1UL)
 
 #define QUIC_CONN_MAX (AG_VAT_MAX * 2)
+#define BLS_KEY_MAX   (17UL) /* identity plus up to 16 configured authorized voters */
 
 #define CLOSE_CODE_INVALID_IDENTITY (2U)
 #define CLOSE_CODE_NOT_ADMITTED     (3U)
@@ -159,15 +160,23 @@ typedef struct peer peer_t;
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 
+struct derived_bls_key {
+  ag_bls_sec_t sec;
+  ag_bls_pub_t pub;
+};
+typedef struct derived_bls_key derived_bls_key_t;
+FD_STATIC_ASSERT( sizeof(derived_bls_key_t)*BLS_KEY_MAX<=4096UL, derived_bls_keys_fit_protected_page );
+
 struct fd_votor_tile {
 
   /* Metadata */
 
-  uchar const * identity_keypair; /* FIXME keyguard */
-  fd_pubkey_t   id_key;
-  ag_bls_sec_t  bls_key;
-  uchar         sha512[ FD_SHA512_FOOTPRINT ] __attribute__((aligned(FD_SHA512_ALIGN)));
-  ushort        shred_version;
+  uchar const *             identity_keypair; /* FIXME keyguard */
+  fd_pubkey_t               id_key;
+  derived_bls_key_t const * bls_keys;
+  ulong                     bls_key_cnt;
+  uchar                     sha512[ FD_SHA512_FOOTPRINT ] __attribute__((aligned(FD_SHA512_ALIGN)));
+  ushort                    shred_version;
 
   /* Data */
 
@@ -595,6 +604,21 @@ handle_epoch( fd_votor_tile_t *           ctx,
   ushort epoch_rank = fd_ushort_if( !!ctx->next_epoch_info, ctx->next_epoch_rank, ctx->curr_epoch_rank );
   ag_pool_advance_epoch( ctx->pool, epoch_info, epoch_rank, msg->start_slot );
   ag_votor_advance_epoch( ctx->votor, epoch_rank, msg->start_slot );
+
+  if( FD_LIKELY( epoch_rank!=USHORT_MAX ) ) {
+    uchar const * registered_key = epoch_info->validators[ epoch_rank ].bls_key;
+    ulong         key_idx        = 0UL;
+    for( ; key_idx<ctx->bls_key_cnt; key_idx++ ) {
+      if( FD_LIKELY( !memcmp( ctx->bls_keys[ key_idx ].pub, registered_key, AG_BLS_PUB_SZ ) ) ) {
+        ag_votor_set_bls_key( ctx->votor, ctx->bls_keys[ key_idx ].sec );
+        break;
+      }
+    }
+    if( FD_UNLIKELY( key_idx==ctx->bls_key_cnt ) ) {
+      FD_LOG_WARNING(( "votor epoch %lu: no configured authorized voter derives the BLS key registered for our identity; voting is disabled for this epoch",
+                       msg->epoch ));
+    }
+  }
 
   /* update our leader schedule.  msg only points into the epoch dcache
      for this callback, so it must be consumed here. */
@@ -1031,14 +1055,24 @@ privileged_init( fd_topo_t const *      topo,
   ctx->identity_keypair = fd_keyload_load( tile->votor.identity_key_path, 0 );
   memcpy( ctx->id_key.uc, ctx->identity_keypair+32UL, sizeof(fd_pubkey_t) );
 
-  char const derive_msg[] = "bls-key-derive-alpenglow";
-  uchar         ikm[ 64 ];
-  fd_sha512_t   _sha[ 1 ];
-  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
-  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha );
+  FD_TEST( tile->votor.authorized_voter_paths_cnt+1UL<=BLS_KEY_MAX );
+  ctx->bls_key_cnt = tile->votor.authorized_voter_paths_cnt+1UL;
+  derived_bls_key_t * bls_keys = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+
+  static char const derive_msg[] = "bls-key-derive-alpenglow";
+  uchar             ikm[ 64 ];
+  fd_sha512_t       _sha[ 1 ];
+  fd_sha512_t *     sha = fd_sha512_join( fd_sha512_new( _sha ) );
+  for( ulong i=0UL; i<ctx->bls_key_cnt; i++ ) {
+    uchar const * keypair = i ? fd_keyload_load( tile->votor.authorized_voter_paths[ i-1UL ], 0 ) : ctx->identity_keypair;
+    fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, keypair+32UL, keypair, sha );
+    ag_bls_sec_derive( bls_keys[ i ].sec, ikm, sizeof(ikm) );
+    ag_bls_sec_to_pub( bls_keys[ i ].sec, bls_keys[ i ].pub );
+    fd_memzero_explicit( ikm, sizeof(ikm) );
+    if( FD_LIKELY( i ) ) fd_keyload_unload( keypair, 0 );
+  }
   fd_sha512_leave( sha );
-  ag_bls_sec_derive( ctx->bls_key, ikm, sizeof(ikm) );
-  fd_memzero_explicit( ikm, sizeof(ikm) );
+  ctx->bls_keys = (derived_bls_key_t const *)fd_keyload_mprotect_ro( (uchar *)bls_keys, 0 );
 
   fd_log_wallclock();
 }
@@ -1078,7 +1112,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
-  ag_votor_set_bls_key( ctx->votor, ctx->bls_key );
 
   ctx->curr_epoch_info = NULL;
   ctx->curr_epoch_slot = ULONG_MAX;

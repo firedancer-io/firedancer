@@ -341,6 +341,53 @@ test_safe_to_skip( void ) {
   teardown_votor( votor );
 }
 
+static void
+test_bls_key_rotates_with_epoch( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  ag_votor_advance_epoch( votor, 0UL, 2UL );
+  ag_votor_set_bls_key  ( votor, g_sk[1] );
+
+  ag_block_id_t parent = genesis_block_id();
+  ag_vote_t current_vote = send_block_and_expect_notar( votor, 1UL, &parent );
+  FD_TEST(  ag_vote_verify( &current_vote, g_info[0].bls_key, TEST_SHRED_VERSION ) );
+  FD_TEST( !ag_vote_verify( &current_vote, g_info[1].bls_key, TEST_SHRED_VERSION ) );
+
+  parent.slot = 1UL;
+  memcpy( parent.hash, ag_vote_notar_block_hash( &current_vote.notar ), sizeof(ag_block_hash_t) );
+  ag_vote_t next_vote = send_block_and_expect_notar( votor, 2UL, &parent );
+  FD_TEST( !ag_vote_verify( &next_vote, g_info[0].bls_key, TEST_SHRED_VERSION ) );
+  FD_TEST(  ag_vote_verify( &next_vote, g_info[1].bls_key, TEST_SHRED_VERSION ) );
+
+  teardown_votor( votor );
+}
+
+static void
+test_missing_bls_key_disables_voting( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  ag_votor_advance_epoch( votor, 0UL, 2UL );
+
+  ag_block_id_t parent = genesis_block_id();
+  ag_vote_t current_vote = send_block_and_expect_notar( votor, 1UL, &parent );
+
+  parent.slot = 1UL;
+  memcpy( parent.hash, ag_vote_notar_block_hash( &current_vote.notar ), sizeof(ag_block_hash_t) );
+
+  ag_event_block_t first_shred = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = 2UL };
+  ag_votor_handle_block_event( votor, &first_shred );
+
+  ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
+  block.slot              = 2UL;
+  block.block_info.parent = parent;
+  random_hash( block.block_info.hash );
+  ag_votor_handle_replay_event( votor, &block );
+
+  FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
 /* src/consensus/votor.rs::prunes_to_finalized_window */
 
 static void
@@ -395,6 +442,8 @@ main( int     argc,
   test_pending_block_not_notarized_after_skip();
   test_safe_to_notar();
   test_safe_to_skip();
+  test_bls_key_rotates_with_epoch();
+  test_missing_bls_key_disables_voting();
   test_prunes_to_finalized_window();
 
   FD_LOG_NOTICE(( "pass" ));
