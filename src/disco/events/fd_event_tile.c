@@ -199,6 +199,7 @@ metrics_write( fd_event_tile_t * ctx ) {
   FD_MCNT_SET( EVENT, INVALID_MESSAGE,     metrics->invalid_msg_cnt );
   FD_MCNT_SET( EVENT, CONN_ATTEMPT,        metrics->connect_attempt_cnt );
   FD_MCNT_SET( EVENT, HANDSHAKE_TIMEOUT,   metrics->handshake_timeout_cnt );
+  FD_MCNT_SET( EVENT, CREDIT_STALL,        metrics->credit_stall_cnt );
 
   FD_MGAUGE_SET( EVENT, CONN_STATE,        fd_event_client_state( ctx->client ) );
 }
@@ -214,14 +215,14 @@ before_credit( fd_event_tile_t *   ctx,
   ctx->idle_cnt = 0UL;
 
   int  fired = fd_fseq_query( ctx->waker_fseq )==1UL;
-  long now   = fd_log_wallclock();
+  long now   = fd_clock_tile_now( ctx->clock );
   if( FD_UNLIKELY( fired | ( now>=ctx->next_poll_deadline ) ) ) {
     if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
     int busy = 0;
-    fd_event_client_poll( ctx->client, &busy );
+    fd_event_client_poll( ctx->client, now, &busy );
     if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
     *charge_busy = busy;
-    ctx->next_poll_deadline = busy ? 0L : fd_event_client_next_deadline( ctx->client, fd_log_wallclock() );
+    ctx->next_poll_deadline = busy ? 0L : fd_event_client_next_deadline( ctx->client, now );
   }
 }
 
