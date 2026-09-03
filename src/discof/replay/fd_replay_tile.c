@@ -2394,8 +2394,8 @@ try_replay( fd_replay_tile_t *  ctx,
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
       int dead = 0;
       if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) dead = replay_block_finalize( ctx, stem, bank );
-      if( FD_UNLIKELY( dead ) ) fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
+      if( FD_UNLIKELY( dead ) ) fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       break;
     }
     case FD_SCHED_TT_TXN_EXEC:
