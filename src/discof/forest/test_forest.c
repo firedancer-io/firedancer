@@ -2153,6 +2153,71 @@ test_sentinel_parent_update_orphreqs_leak( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
+static void
+test_publish_reseed_stranded_gap( fd_wksp_t * wksp ) {
+  /* Publishing to slot 2 drops slot 1 from the requests list, leaving
+     slot 5's gap with nothing above it to walk down from. conslist is
+     still non-empty here, which is what used to skip the reseed. */
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  fd_forest_blk_t      * pool     = fd_forest_pool( forest );
+  fd_forest_requests_t * requests = fd_forest_requests( forest );
+  fd_forest_ref_t      * reqspool = fd_forest_reqspool( forest );
+
+  /* Slot 1: shreds 0 and 2, so slot complete with a gap at 1. */
+  fd_forest_blk_data_shred_insert( forest, 1, 0, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 1, 0, 2, 0, 1, 1 );
+
+  /* Slots 2, 3 and 4 are fully received. */
+  for( ulong slot=2UL; slot<=4UL; slot++ ) {
+    fd_forest_blk_data_shred_insert( forest, slot, slot-1UL, 0, 0, 0, 0 );
+    fd_forest_blk_data_shred_insert( forest, slot, slot-1UL, 1, 0, 0, 0 );
+    fd_forest_blk_data_shred_insert( forest, slot, slot-1UL, 2, 0, 1, 1 );
+  }
+
+  /* Slot 5 is 4's sibling under 3, and keeps a gap at shred 1. */
+  fd_forest_blk_data_shred_insert( forest, 5, 3, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 5, 3, 2, 0, 1, 1 );
+
+  /* Only slot 1 is on the requests list - it covers 2 through 5, which
+     the iterator has not pushed yet. */
+  ulong idx1 = slot_idx( forest, 1 );
+  FD_TEST( fd_forest_requests_ele_query( requests, &idx1, NULL, reqspool ) );
+
+  /* Fill slot 1's gap, which walks the consumed frontier down to 4 and 5. */
+  fd_forest_blk_data_shred_insert( forest, 1, 0, 1, 0, 0, 0 );
+  FD_TEST( fd_forest_query( forest, 1 )->buffered_idx == 2 );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* conslist is not empty here, that is what used to skip the reseed. */
+  FD_TEST( !fd_forest_conslist_is_empty( fd_forest_conslist( forest ), fd_forest_conspool( forest ) ) );
+
+  /* Advance the root to 2, pruning 0 and 1 out of requests. */
+  FD_TEST( fd_forest_publish( forest, 2 ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* Slot 5 still needs shreds, so it or an ancestor has to be on the
+     requests list for repair to reach it. */
+  int covered = 0;
+  for( fd_forest_blk_t * anc = fd_forest_query( forest, 5 ); anc; anc = fd_forest_pool_ele( pool, anc->parent ) ) {
+    ulong anc_idx = fd_forest_pool_idx( pool, anc );
+    if( fd_forest_requests_ele_query( requests, &anc_idx, NULL, reqspool ) ) { covered = 1; break; }
+  }
+  FD_TEST( covered );
+
+  /* One iterator step walks past the complete 2, 3, 4 to slot 5's gap. */
+  fd_forest_iter_next( &forest->iter, forest );
+  FD_TEST( !fd_forest_iter_done( &forest->iter, forest ) );
+  FD_TEST( idx_slot( forest, forest->iter.ele_idx ) == 5 );
+  FD_TEST( forest->iter.shred_idx == 1 );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -2195,6 +2260,7 @@ main( int argc, char ** argv ) {
   test_fec_insert_reject_oob_after_verify( wksp );
   test_fec_insert_dup_confirm_larger_complete_idx( wksp );
   test_sentinel_parent_update_orphreqs_leak( wksp );
+  test_publish_reseed_stranded_gap( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
