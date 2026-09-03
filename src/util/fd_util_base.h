@@ -1094,7 +1094,10 @@ typedef long (*fd_clock_func_t)( void const * args );
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_memcpy(d,s,sz):  On modern x86 in some circumstances, rep mov will
+/* fd_memcpy(d,s,sz):  If sz is zero, d and s may be NULL.  No memory is
+   accessed and d is returned.
+
+   On modern x86 in some circumstances, rep mov will
    be faster than memcpy under the hood (basically due to RFO /
    read-for-ownership optimizations in the cache protocol under the hood
    that aren't easily done from the ISA ... see Intel docs on enhanced
@@ -1130,6 +1133,7 @@ static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
+  if( FD_UNLIKELY( !sz ) ) return d;
   return __msan_memcpy( d, s, sz );
 }
 
@@ -1139,9 +1143,7 @@ static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
-#if defined(CBMC) || FD_HAS_ASAN
-  if( FD_UNLIKELY( !sz ) ) return d; /* Standard says sz 0 is UB, uncomment if target is insane and doesn't treat sz 0 as a nop */
-#endif
+  if( FD_UNLIKELY( !sz ) ) return d;
   return memcpy( d, s, sz );
 }
 
