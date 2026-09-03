@@ -196,7 +196,12 @@ fd_quic_crypto_encrypt(
   /* first byte needed in a couple of places */
   uchar first = out[0];
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
-  uchar const * pkt_number_ptr = out + hdr_sz - pkt_number_sz;
+  ulong sample_off = hdr_sz - pkt_number_sz + 4UL;
+  if( FD_UNLIKELY( sample_off + FD_QUIC_HP_SAMPLE_SZ >
+                   hdr_sz + pkt_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
+    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_encrypt: not enough bytes for a sample" )) );
+    return FD_QUIC_FAILED;
+  }
 
   uchar nonce[FD_QUIC_NONCE_SZ] = {0};
   fd_quic_get_nonce( nonce, pkt_keys->iv, pkt_number );
@@ -219,7 +224,7 @@ fd_quic_crypto_encrypt(
 
   /* sample start is defined as 4 bytes after the start of the packet number
      so shorter packet numbers means sample starts later in the cipher text */
-  uchar const * sample = pkt_number_ptr + 4;
+  uchar const * sample = out + sample_off;
 
   fd_aes_key_t ecb[1];
   fd_aes_set_encrypt_key( hp_keys->hp_key, 128, ecb );
