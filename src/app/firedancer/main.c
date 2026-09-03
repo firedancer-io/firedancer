@@ -26,6 +26,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
 extern fd_topo_obj_callbacks_t fd_obj_cb_adminctl;
+extern fd_topo_obj_callbacks_t fd_obj_cb_sleep;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
@@ -47,6 +48,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_progcache,
   &fd_obj_cb_rnonce_ss,
   &fd_obj_cb_adminctl,
+  &fd_obj_cb_sleep,
   NULL,
 };
 
@@ -90,6 +92,7 @@ extern fd_topo_run_tile_t fd_tile_metric;
 extern fd_topo_run_tile_t fd_tile_event;
 extern fd_topo_run_tile_t fd_tile_diag;
 extern fd_topo_run_tile_t fd_tile_waker;
+extern fd_topo_run_tile_t fd_tile_mwaitx;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_rpc;
 extern fd_topo_run_tile_t fd_tile_bundle;
@@ -137,6 +140,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_event,
   &fd_tile_diag,
   &fd_tile_waker,
+  &fd_tile_mwaitx,
   &fd_tile_gui,
   &fd_tile_rpc,
   &fd_tile_bundle,

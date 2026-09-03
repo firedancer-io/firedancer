@@ -522,12 +522,20 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( sign_in_idx!=ULONG_MAX );
   fd_topo_link_t const * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
   fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+  fd_sleep_t * sleep = NULL;
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    sleep = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+    FD_TEST( sleep );
+  }
+
   if( FD_UNLIKELY( !fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
           sign_out->mcache,
           sign_out->dcache,
           sign_in->mcache,
           sign_in->dcache,
-          sign_out->mtu ) ) ) ) {
+          sign_out->mtu,
+          sleep,
+          fd_topo_find_link_consumer( topo, sign_out ) ) ) ) ) {
     FD_LOG_ERR(( "failed to construct keyguard" ));
   }
 
@@ -691,6 +699,7 @@ during_housekeeping( fd_event_tile_t * ctx ) {
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_event_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_event_tile_t)
+
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit

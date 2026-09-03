@@ -529,13 +529,21 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( sign_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "Missing bundle_sign link" ));
   fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
 
+  fd_sleep_t * sleep = NULL;
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    sleep = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+    FD_TEST( sleep );
+  }
+
   if( FD_UNLIKELY( !fd_keyguard_client_join( fd_keyguard_client_new(
       ctx->keyguard_client,
       sign_out->mcache,
       sign_out->dcache,
       sign_in->mcache,
       sign_in->dcache,
-      sign_out->mtu
+      sign_out->mtu,
+      sleep,
+      fd_topo_find_link_consumer( topo, sign_out )
   ) ) ) ) {
     FD_LOG_ERR(( "fd_keyguard_client_join failed" )); /* unreachable */
   }
@@ -659,6 +667,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_bundle_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bundle_tile_t)
+
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING fd_bundle_tile_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write

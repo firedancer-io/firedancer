@@ -100,6 +100,16 @@ fd_clock_tile_tickcount_to_wallclock( fd_clock_tile_t const * clock,
   return fd_clock_epoch_y( clock->epoch, tickcount );
 }
 
+/* fd_clock_tile_wallclock_to_tickcount converts a fd_log_wallclock()
+   value to the fd_tickcount() at which the clock would read it. */
+
+static inline long
+fd_clock_tile_wallclock_to_tickcount( fd_clock_tile_t const * clock,
+                                      long                    wallclock ) {
+  fd_clock_epoch_t const * epoch = clock->epoch;
+  return fd_clock_epoch_x0( epoch ) + (long)( (double)( wallclock-fd_clock_epoch_y0_eff( epoch ) )/fd_clock_epoch_m( epoch ) );
+}
+
 /* fd_clock_tile_tickcomp_to_wallclock converts a compressed
    fd_tickcount() sample to a fd_log_wallclock() estimate. */
 

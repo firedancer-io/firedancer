@@ -387,6 +387,9 @@ fd_config_fill( fd_config_t * config,
   fd_config_fill_net( config );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
+    if( FD_UNLIKELY( strcmp( config->firedancer.scheduler.mode, "performance" ) && strcmp( config->firedancer.scheduler.mode, "efficient" ) ) )
+      FD_LOG_ERR(( "[scheduler.mode] %s not recognized", config->firedancer.scheduler.mode ));
+
     fd_config_fillf( config );
   } else {
     fd_config_fillh( config );
@@ -463,6 +466,7 @@ fd_config_fill( fd_config_t * config,
 
 static void
 fd_config_validatef( fd_configf_t const * config ) {
+  CFG_HAS_NON_EMPTY( scheduler.mode );
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
   CFG_HAS_NON_ZERO( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO( layout.execle_tile_count );

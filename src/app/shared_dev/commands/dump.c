@@ -383,7 +383,8 @@ dump_cmd_fn( args_t      * args,
                0UL,          /* lazy */
                rng,          /* rng */
                scratch,      /* scratch */
-               &ctx );       /* ctx */
+               &ctx,         /* ctx */
+               NULL );       /* sleep */
 
     for( ulong i=0UL; i<ctx.link_cnt; i++ ) {
       struct link const * link = &ctx.links[ i ];

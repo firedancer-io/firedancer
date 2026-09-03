@@ -790,6 +790,22 @@ telemetry = true
 # of the verify tiles would be needed to keep up without dropping
 # transactions.
 #
+# The scheduler controls what tiles do when they have no work.
+[scheduler]
+    # Which scheduling mode to run the validator in.
+    #
+    # "performance" - Today's system, unchanged, and the default.
+    #                 Every tile spins at 100% of its CPU whether or
+    #                 not it has work.  Maximum performance, maximum
+    #                 power.  Recommended for staked validators.
+    #
+    # "efficient"   - The same core layout as performance mode.
+    #                 Tiles sleep when idle instead of spinning, and
+    #                 wake in microseconds when work arrives.
+    #                 Performance is nearly identical; power draw and
+    #                 thermals are substantially lower.
+    mode = "performance"
+
 # A full Firedancer layout spins up these eleven tasks onto a variety of
 # CPU cores and connects them together with queues so that data can flow
 # in and out of the system with maximum throughput and minimal drops.

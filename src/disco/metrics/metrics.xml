@@ -383,6 +383,16 @@ EXAMPLES
 
     <int value="6" name="CaughtUpPostfrag" label="Caught up + Postfrag" />
     <int value="7" name="ProcessingPostfrag" label="Processing + Postfrag" />
+
+    <!-- Parked in futex_wait (efficient mode) -->
+    <int value="8" name="CaughtUpSleeping" label="Caught up + Sleeping" />
+    <int value="9" name="BackpressureSleeping" label="Backpressure + Sleeping" />
+</enum>
+
+<enum name="ParkWake">
+    <int value="0" name="Ring" label="Woken by a doorbell ring (frag, fd, or sweep)" />
+    <int value="1" name="Deadline" label="Deadline or park cap lapsed" />
+    <int value="2" name="Pending" label="Pre-park recheck found work; never slept" />
 </enum>
 
 <enum name="CpuRegime">
@@ -407,6 +417,8 @@ EXAMPLES
     <counter name="Backpressure" summary="Times the tile waited for one or more consumers to catch up to resume publishing" />
     <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration the tile spent in each regime, in nanoseconds" />
     <counter name="CpuDurationNanos" enum="CpuRegime" summary="CPU time spent in each CPU regime, in nanoseconds" />
+    <counter name="Park" summary="Times the tile attempted to park while idle (efficient mode)" />
+    <counter name="Unpark" enum="ParkWake" summary="Times the tile resumed from a park attempt, by cause" />
     <counter name="IrqPreempted" summary="Times the tile was interrupted by an IRQ (fixed tiles only)" />
     <counter name="TlbShootdown" summary="TLB shootdowns observed on the tile CPU (fixed tiles only)" />
     <counter name="TimerTick" summary="Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only)" />
@@ -1797,6 +1809,13 @@ EXAMPLES
 <tile name="waker">
     <counter name="EpollWaitDispatched" summary="epoll_wait syscalls dispatched on the outer epoll set" />
     <counter name="WakeDelivered" summary="Client wakes delivered (readiness fseq raised)" />
+</tile>
+
+<tile name="mwaitx">
+    <counter name="Nap" summary="Hardware idle-wait naps on the doorbell line" />
+    <counter name="WakeIssued" summary="futex wakes issued to parked tiles" />
+    <counter name="DeadlineWake" summary="Wakes rung because a parked tile's deadline lapsed" />
+    <counter name="SweepWake" summary="Wakes rung by the verifying sweep (a doorbell was lost or raced; nonzero at a low rate is expected)" />
 </tile>
 
 <enum name="ConnCloseResult">

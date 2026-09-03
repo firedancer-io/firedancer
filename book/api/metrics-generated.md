@@ -43,11 +43,17 @@
 | <span class="metrics-name">tile_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{tile_&#8203;regime="<span class="metrics-enum">backpressure_&#8203;prefrag</span>"} | counter | Mutually exclusive and exhaustive duration the tile spent in each regime, in nanoseconds (Backpressure + Prefrag) |
 | <span class="metrics-name">tile_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{tile_&#8203;regime="<span class="metrics-enum">caught_&#8203;up_&#8203;postfrag</span>"} | counter | Mutually exclusive and exhaustive duration the tile spent in each regime, in nanoseconds (Caught up + Postfrag) |
 | <span class="metrics-name">tile_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{tile_&#8203;regime="<span class="metrics-enum">processing_&#8203;postfrag</span>"} | counter | Mutually exclusive and exhaustive duration the tile spent in each regime, in nanoseconds (Processing + Postfrag) |
+| <span class="metrics-name">tile_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{tile_&#8203;regime="<span class="metrics-enum">caught_&#8203;up_&#8203;sleeping</span>"} | counter | Mutually exclusive and exhaustive duration the tile spent in each regime, in nanoseconds (Caught up + Sleeping) |
+| <span class="metrics-name">tile_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{tile_&#8203;regime="<span class="metrics-enum">backpressure_&#8203;sleeping</span>"} | counter | Mutually exclusive and exhaustive duration the tile spent in each regime, in nanoseconds (Backpressure + Sleeping) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">wait</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (Wait (task was runnable but not scheduled)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">idle</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (Idle (task was not runnable)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">user</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (User (task was scheduled and executing in user mode)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">system</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (System (task was scheduled and executing in kernel mode)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">interrupt</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)) |
+| <span class="metrics-name">tile_&#8203;park</span> | counter | Times the tile attempted to park while idle (efficient mode) |
+| <span class="metrics-name">tile_&#8203;unpark</span><br/>{park_&#8203;wake="<span class="metrics-enum">ring</span>"} | counter | Times the tile resumed from a park attempt, by cause (Woken by a doorbell ring (frag, fd, or sweep)) |
+| <span class="metrics-name">tile_&#8203;unpark</span><br/>{park_&#8203;wake="<span class="metrics-enum">deadline</span>"} | counter | Times the tile resumed from a park attempt, by cause (Deadline or park cap lapsed) |
+| <span class="metrics-name">tile_&#8203;unpark</span><br/>{park_&#8203;wake="<span class="metrics-enum">pending</span>"} | counter | Times the tile resumed from a park attempt, by cause (Pre-park recheck found work; never slept) |
 | <span class="metrics-name">tile_&#8203;irq_&#8203;preempted</span> | counter | Times the tile was interrupted by an IRQ (fixed tiles only) |
 | <span class="metrics-name">tile_&#8203;tlb_&#8203;shootdown</span> | counter | TLB shootdowns observed on the tile CPU (fixed tiles only) |
 | <span class="metrics-name">tile_&#8203;timer_&#8203;tick</span> | counter | Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only) |
@@ -1928,6 +1934,19 @@
 |--------|------|-------------|
 | <span class="metrics-name">waker_&#8203;epoll_&#8203;wait_&#8203;dispatched</span> | counter | epoll_wait syscalls dispatched on the outer epoll set |
 | <span class="metrics-name">waker_&#8203;wake_&#8203;delivered</span> | counter | Client wakes delivered (readiness fseq raised) |
+
+</div>
+
+## Mwaitx Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">mwaitx_&#8203;nap</span> | counter | Hardware idle-wait naps on the doorbell line |
+| <span class="metrics-name">mwaitx_&#8203;wake_&#8203;issued</span> | counter | futex wakes issued to parked tiles |
+| <span class="metrics-name">mwaitx_&#8203;deadline_&#8203;wake</span> | counter | Wakes rung because a parked tile's deadline lapsed |
+| <span class="metrics-name">mwaitx_&#8203;sweep_&#8203;wake</span> | counter | Wakes rung by the verifying sweep (a doorbell was lost or raced; nonzero at a low rate is expected) |
 
 </div>
 

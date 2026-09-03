@@ -558,7 +558,8 @@ fd_quic_trace_rx_tile( fd_quic_trace_ctx_t  * trace_ctx,
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
              /* scratch    */ scratch,
-             /* ctx        */ trace_ctx );
+             /* ctx        */ trace_ctx,
+             /* sleep      */ NULL );
 
   for( int j = 0; j < 2; ++j ){
     fd_fseq_delete( fd_fseq_leave( fseq_tbl[j] ) );

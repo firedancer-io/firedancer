@@ -25,9 +25,10 @@
         specifically formatted for that role. */
 
 #include "../../tango/fd_tango_base.h"
+#include "../sleep/fd_sleep.h"
 
 #define FD_KEYGUARD_CLIENT_ALIGN (128UL)
-#define FD_KEYGUARD_CLIENT_FOOTPRINT (128UL)
+#define FD_KEYGUARD_CLIENT_FOOTPRINT (256UL)
 
 struct __attribute__((aligned(FD_KEYGUARD_CLIENT_ALIGN))) fd_keyguard_client {
   fd_frag_meta_t * request;
@@ -45,18 +46,28 @@ struct __attribute__((aligned(FD_KEYGUARD_CLIENT_ALIGN))) fd_keyguard_client {
   fd_wksp_t *      response_mem;
   ulong            response_chunk0;
   ulong            response_wmark;
+
+  /* Requests are published outside stem, so the client rings the sign
+     tile's doorbell itself.  NULL sleep disables. */
+  fd_sleep_t *    sleep;
+  fd_sleep_wake_t wake;
 };
 typedef struct fd_keyguard_client fd_keyguard_client_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* sleep is the sleep object join or NULL; sign_tile_id is the tile id
+   of the sign tile consuming request_mcache. */
+
 void *
-fd_keyguard_client_new( void *           shmem,
-                        fd_frag_meta_t * request_mcache,
-                        uchar *          request_dcache,
-                        fd_frag_meta_t * response_mcache,
-                        uchar *          response_dcache,
-                        ulong            request_mtu );
+fd_keyguard_client_new( void *             shmem,
+                        fd_frag_meta_t *   request_mcache,
+                        uchar *            request_dcache,
+                        fd_frag_meta_t *   response_mcache,
+                        uchar *            response_dcache,
+                        ulong              request_mtu,
+                        fd_sleep_t * sleep,
+                        ulong              sign_tile_id );
 
 static inline fd_keyguard_client_t *
 fd_keyguard_client_join( void * shclient ) { return (fd_keyguard_client_t*)shclient; }

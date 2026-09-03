@@ -143,6 +143,7 @@ main( int     argc,
   config->firedancer.runtime.program_cache.heap_size_mib         = 32UL;
   config->tiles.repair.slot_max                                   = 1UL;
   config->tiles.rotor.slot_max                                    = 1UL;
+  strcpy( config->firedancer.scheduler.mode, "performance" );
 
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );

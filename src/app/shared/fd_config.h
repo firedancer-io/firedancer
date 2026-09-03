@@ -100,6 +100,10 @@ typedef struct fd_configh fd_configh_t;
 
 struct fd_configf {
   struct {
+    char mode[ 16 ]; /* "performance" or "efficient" */
+  } scheduler;
+
+  struct {
     ulong max_accounts;
     ulong cache_size_gib;
   } accounts;

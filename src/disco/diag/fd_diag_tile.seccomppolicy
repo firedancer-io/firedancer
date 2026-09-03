@@ -46,11 +46,6 @@ fstat: (not (eq (arg 0) 2))
 # system summary: sample live disk capacity and free space
 fstatfs: (not (eq (arg 0) 2))
 
-# metrics: reduce CPU usage by sleeping
-clock_nanosleep: (and (eq (arg 0) CLOCK_REALTIME)
-                      (eq (arg 1) 0)
-                      (eq (arg 3) 0))
-
 # power saving: sleep until the next report is due
 #
 # The diag tile only has periodic work, so it parks on its sleep word

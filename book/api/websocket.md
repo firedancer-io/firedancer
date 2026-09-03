@@ -1321,10 +1321,16 @@ of an incoming message from an upstream producer tile
     "stalled_routine",
     "running_handling",
     "processing_handling",
+    "waiting",
 ]
 ```
 
 "stalled_handling" is an impossible state, and is therefore excluded.
+
+"waiting" is time spent parked (asleep in the kernel) while idle: it
+falls outside the two-state-vector product above and only occurs when
+the validator runs with `[scheduler] mode = "efficient"`.  Waiting
+time counts as idle.
 
 The sched_timers field is structured the same as the timers field, but
 represents a different set of regimes that together make up the total

@@ -2044,7 +2044,7 @@ snapmk_run( fd_topo_t *      topo,
              tile->out_cnt, out_mcache,
              reliable_cons_cnt, cons_out, cons_fseq, cons_slow,
              SNAPMK_STEM_BURST, SNAPMK_STEM_LAZY,
-             rng, stem_scratch, ctx );
+             rng, stem_scratch, ctx, NULL );
 }
 
 static ulong

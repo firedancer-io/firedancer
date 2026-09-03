@@ -83,7 +83,8 @@ fd_quic_trace_log_tile( fd_quic_trace_ctx_t  * ctx,
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
              /* scratch    */ scratch,
-             /* ctx        */ ctx );
+             /* ctx        */ ctx,
+             /* sleep      */ NULL );
 
   fd_fseq_delete( fd_fseq_leave( fseq ) );
 }

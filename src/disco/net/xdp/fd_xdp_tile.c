@@ -14,6 +14,8 @@
 #include "../fd_net_common.h"
 #include "../../../discof/repair/fd_repair.h"
 #include "../../metrics/fd_metrics.h"
+#include "../../sleep/fd_sleep.h"
+#include "../../waker/fd_waker.h"
 #include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
 #include "../../topo/fd_topo.h"
 
@@ -32,6 +34,7 @@
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
 #include <sys/ioctl.h>
+#include <sys/epoll.h>
 #include <linux/if_arp.h>
 #include <linux/rtnetlink.h>
 #include <linux/futex.h>
@@ -116,13 +119,17 @@ typedef struct {
 } fd_net_in_ctx_t;
 
 /* fd_net_out_ctx_t contains publisher information for a link to a
-   downstream app tile.  It is used as part of the RX path. */
+   downstream app tile.  It is used as part of the RX path.  Frags are
+   published outside stem, so parked consumers must have their sleep
+   doorbell rung here (wake pairs mirror the stem wake table). */
 
 typedef struct {
   fd_frag_meta_t * mcache;
   ulong *          sync;
   ulong            depth;
   ulong            seq;
+  fd_sleep_wake_t  wake[ FD_SLEEP_BITS_CNT ];
+  ulong            wake_cnt;
 } fd_net_out_ctx_t;
 
 /* fd_net_flusher_t controls the pacing of XDP sendto calls for flushing
@@ -279,6 +286,10 @@ typedef struct {
   fd_net_in_ctx_t in[ MAX_NET_INS ];
   uchar in_kind[ MAX_NET_INS ];
   fd_iproute_msg_t iproute_msg;
+
+  fd_sleep_t * sleep;
+  ulong              waker_client_idx;
+  ulong *            waker_fseq;
 
   fd_net_out_ctx_t quic_out[1];
   fd_net_out_ctx_t shred_out[1];
@@ -503,13 +514,11 @@ net_tx_ready( fd_xdp_ring_t *      tx_ring,
 
 static void
 net_rx_wakeup( fd_net_ctx_t * ctx,
-               fd_xsk_t *     xsk,
-               int *          charge_busy ) {
+               fd_xsk_t *     xsk ) {
   /* write-back local copies to fseqs */
   __atomic_store_n( xsk->ring_rx.cons, xsk->ring_rx.cached_cons, __ATOMIC_RELEASE );
   __atomic_store_n( xsk->ring_fr.prod, xsk->ring_fr.cached_prod, __ATOMIC_RELEASE );
   if( !fd_xsk_rx_need_wakeup( xsk ) ) return;
-  *charge_busy = 1;
   struct msghdr _ignored[ 1 ] = { 0 };
   if( FD_UNLIKELY( -1==recvmsg( xsk->xsk_fd, _ignored, MSG_DONTWAIT ) ) ) {
     if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
@@ -1177,6 +1186,9 @@ net_rx_packet( fd_net_ctx_t * ctx,
   /* Wind up for the next iteration */
   out->seq               = fd_seq_inc( out->seq, 1UL );
 
+  /* Ring parked consumers (raw publish bypasses the stem wake path) */
+  if( FD_UNLIKELY( ctx->sleep && out->wake_cnt ) ) fd_sleep_wake_check( ctx->sleep, out->wake, out->wake_cnt );
+
   if( is_packet_gre ) ctx->metrics.rx_gre_cnt++;
   ctx->metrics.rx_pkt_cnt++;
   ctx->metrics.rx_bytes_total += sz;
@@ -1283,7 +1295,7 @@ before_credit_softirq( fd_net_ctx_t *      ctx,
     *charge_busy = 1;
     net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons );
   } else {
-    net_rx_wakeup( ctx, rr_xsk, charge_busy );
+    net_rx_wakeup( ctx, rr_xsk );
 
     /* Iterate onto the next NAPI queue. */
     ctx->rr_idx++;
@@ -1354,6 +1366,40 @@ before_credit_prefbusy( fd_net_ctx_t *      ctx,
   /* Iterate onto the next NAPI queue. */
   ctx->rr_idx++;
   ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
+}
+
+/* park_pending vetoes stem parking while kernel-visible work is
+   outstanding, consumes waker readiness once drained, and arms the
+   kernel (NAPI kicks) so an IRQ->epoll->waker->doorbell chain can wake
+   a parked tile.  Never parks in prefbusy mode: sleeping would stall
+   its polled NAPI. */
+
+static int
+park_pending( fd_net_ctx_t * ctx ) {
+  for( uint i=0U; i<ctx->xsk_cnt; i++ ) {
+    fd_xsk_t * xsk = &ctx->xsk[ i ];
+    if( FD_UNLIKELY( xsk->prefbusy_poll_enabled ) ) return 1;
+    if( FD_UNLIKELY( !fd_xdp_ring_empty( &xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) ) return 1;
+    if( FD_UNLIKELY( !fd_xdp_ring_empty( &xsk->ring_cr, FD_XDP_RING_ROLE_CONS ) ) ) return 1;
+    if( FD_UNLIKELY( ctx->tx_flusher[ i ].pending_cnt ) ) return 1;
+  }
+  if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+    /* Rings drained: consume readiness and rearm.  EPOLL_CTL_MOD
+       refires immediately if a packet raced the drain. */
+    fd_fseq_update( ctx->waker_fseq, 0UL );
+    fd_waker_client_rearm( ctx->waker_client_idx );
+    return 1;
+  }
+  int _charge_busy = 0;
+  for( uint i=0U; i<ctx->xsk_cnt; i++ ) {
+    fd_xsk_t * xsk = &ctx->xsk[ i ];
+    net_rx_wakeup( ctx, xsk );
+    /* Idle TX rings keep NEED_WAKEUP raised; kicking them here would
+       cost a wasted sendto per park. */
+    if( FD_UNLIKELY( !fd_xdp_ring_empty( &xsk->ring_tx, FD_XDP_RING_ROLE_PROD ) ) )
+      net_tx_wakeup( ctx, xsk, &_charge_busy );
+  }
+  return 0;
 }
 
 /* before_credit is called every loop iteration. */
@@ -1605,6 +1651,16 @@ privileged_init( fd_topo_t const *      topo,
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   ctx->xdp_stats_interval_ticks = (long)( FD_XDP_STATS_INTERVAL_NS * tick_per_ns );
 
+  ctx->waker_client_idx = tile->waker_client_idx;
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  /* Register XSK fds in the waker inner epoll set (see fd_waker.h):
+     RX readiness wakes a parked net tile via the waker. */
+  for( uint i=0U; i<ctx->xsk_cnt; i++ ) {
+    struct epoll_event ev = { .events = EPOLLIN, .data.fd = ctx->xsk[ i ].xsk_fd };
+    if( FD_UNLIKELY( -1==epoll_ctl( FD_WAKER_INNER_FD( ctx->waker_client_idx ), EPOLL_CTL_ADD, ctx->xsk[ i ].xsk_fd, &ev ) ) )
+      FD_LOG_ERR(( "epoll_ctl(ADD,xsk_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -1619,7 +1675,30 @@ init_device_table( fd_net_ctx_t * ctx,
   FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, netdev_tbl_local ) );
 }
 
-FD_FN_UNUSED static void
+FD_FN_UNUSED 
+/* net_out_wake_init mirrors the stem producer wake table for one raw
+   published out link: (word,mask) pairs over all polled parking
+   consumers. */
+
+static void
+net_out_wake_init( fd_net_out_ctx_t *     out,
+                   fd_topo_t const *      topo,
+                   fd_topo_link_t const * link ) {
+  out->wake_cnt = 0UL;
+  if( FD_UNLIKELY( topo->sleep_obj_id==ULONG_MAX ) ) return;
+  ulong mask[ FD_SLEEP_BITS_CNT ] = {0};
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * consumer = &topo->tiles[ i ];
+    if( FD_UNLIKELY( !fd_sleep_tile_parks( consumer->name ) ) ) continue;
+    for( ulong j=0UL; j<consumer->in_cnt; j++ )
+      if( FD_UNLIKELY( consumer->in_link_id[ j ]==link->id && consumer->in_link_poll[ j ] ) )
+        mask[ consumer->id>>6 ] |= 1UL<<(consumer->id&63UL);
+  }
+  for( ulong w=0UL; w<FD_SLEEP_BITS_CNT; w++ )
+    if( FD_UNLIKELY( mask[ w ] ) ) out->wake[ out->wake_cnt++ ] = (fd_sleep_wake_t){ .w=w, .mask=mask[ w ] };
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -1668,6 +1747,15 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
+  ctx->sleep = NULL;
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    ctx->sleep = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+    FD_TEST( ctx->sleep );
+  }
+
+  ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+  FD_TEST( ctx->waker_fseq );
+
   ctx->rserve_enabled = 0;
   for( ulong i = 0; i < tile->out_cnt; i++ ) {
     fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ i  ] ];
@@ -1677,24 +1765,28 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->quic_out->sync   = fd_mcache_seq_laddr( ctx->quic_out->mcache );
       ctx->quic_out->depth  = fd_mcache_depth( ctx->quic_out->mcache );
       ctx->quic_out->seq    = fd_mcache_seq_query( ctx->quic_out->sync );
+      net_out_wake_init( ctx->quic_out, topo, out_link );
     } else if( strcmp( out_link->name, "net_shred" ) == 0 ) {
       fd_topo_link_t const * shred_out = out_link;
       ctx->shred_out->mcache = shred_out->mcache;
       ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
       ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
       ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
+      net_out_wake_init( ctx->shred_out, topo, out_link );
     } else if( strcmp( out_link->name, "net_gossvf" ) == 0 ) {
       fd_topo_link_t const * gossip_out = out_link;
       ctx->gossvf_out->mcache = gossip_out->mcache;
       ctx->gossvf_out->sync   = fd_mcache_seq_laddr( ctx->gossvf_out->mcache );
       ctx->gossvf_out->depth  = fd_mcache_depth( ctx->gossvf_out->mcache );
       ctx->gossvf_out->seq    = fd_mcache_seq_query( ctx->gossvf_out->sync );
+      net_out_wake_init( ctx->gossvf_out, topo, out_link );
     } else if( strcmp( out_link->name, "net_repair" ) == 0 ) {
       fd_topo_link_t const * repair_out = out_link;
       ctx->repair_out->mcache = repair_out->mcache;
       ctx->repair_out->sync   = fd_mcache_seq_laddr( ctx->repair_out->mcache );
       ctx->repair_out->depth  = fd_mcache_depth( ctx->repair_out->mcache );
       ctx->repair_out->seq    = fd_mcache_seq_query( ctx->repair_out->sync );
+      net_out_wake_init( ctx->repair_out, topo, out_link );
     } else if( strcmp( out_link->name, "net_netlnk" ) == 0 ) {
       fd_topo_link_t const * netlink_out = out_link;
       ctx->neigh4_solicit->mcache = netlink_out->mcache;
@@ -1706,12 +1798,14 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->txsend_out->sync   = fd_mcache_seq_laddr( ctx->txsend_out->mcache );
       ctx->txsend_out->depth  = fd_mcache_depth( ctx->txsend_out->mcache );
       ctx->txsend_out->seq    = fd_mcache_seq_query( ctx->txsend_out->sync );
+      net_out_wake_init( ctx->txsend_out, topo, out_link );
     } else if( strcmp( out_link->name, "net_rserve" ) == 0 ) {
       fd_topo_link_t const * rserve_out = out_link;
       ctx->rserve_out->mcache = rserve_out->mcache;
       ctx->rserve_out->sync   = fd_mcache_seq_laddr( ctx->rserve_out->mcache );
       ctx->rserve_out->depth  = fd_mcache_depth( ctx->rserve_out->mcache );
       ctx->rserve_out->seq    = fd_mcache_seq_query( ctx->rserve_out->sync );
+      net_out_wake_init( ctx->rserve_out, topo, out_link );
       ctx->rserve_enabled     = 1;
     } else if( strcmp( out_link->name, "net_votor" ) == 0 ) {
       fd_topo_link_t const * votor_out = out_link;
@@ -1719,6 +1813,7 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->votor_out->sync   = fd_mcache_seq_laddr( ctx->votor_out->mcache );
       ctx->votor_out->depth  = fd_mcache_depth( ctx->votor_out->mcache );
       ctx->votor_out->seq    = fd_mcache_seq_query( ctx->votor_out->sync );
+      net_out_wake_init( ctx->votor_out, topo, out_link );
       ctx->votor_enabled     = 1;
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
@@ -1802,7 +1897,7 @@ unprivileged_init( fd_topo_t const *      topo,
   int _charge_busy = 0;
   for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
     frame_off = net_xsk_bootstrap( ctx, j, frame_off );
-    net_rx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
+    net_rx_wakeup( ctx, &ctx->xsk[ j ] );
     net_tx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
   }
 
@@ -1825,7 +1920,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ].xsk_fd : ctx->xsk[ 0 ].xsk_fd;
   FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 );
 
-  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
+  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_xdp_tile_instr_cnt;
 }
 
@@ -1838,7 +1935,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
 
@@ -1850,6 +1947,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
                                       out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 0 ];
   if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->xsk[ 1 ].xsk_fd;
   if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 1 ];
+  out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+  out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
   return out_cnt;
 }
 
@@ -1862,6 +1961,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_PARK_PENDING        park_pending
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag

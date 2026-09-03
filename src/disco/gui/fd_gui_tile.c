@@ -1077,6 +1077,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gui_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gui_ctx_t)
 
+
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit

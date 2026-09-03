@@ -825,6 +825,11 @@ struct fd_topo {
   char           app_name[ 256UL ];
   uchar          props[ 32768UL ];
 
+  /* Tile sleep (see disco/sleep/fd_sleep.h).  sleep_obj_id is the
+     shared sleep shmem object, or ULONG_MAX when [scheduler] mode is
+     "performance" (no sleeping, no object). */
+  ulong          sleep_obj_id;
+
   ulong          wksp_cnt;
   ulong          link_cnt;
   ulong          tile_cnt;
@@ -1007,6 +1012,21 @@ fd_topo_find_link_producer( fd_topo_t const *      topo,
 
     for( ulong j=0; j<tile->out_cnt; j++ ) {
       if( FD_UNLIKELY( tile->out_link_id[ j ] == link->id ) ) return i;
+    }
+  }
+  return ULONG_MAX;
+}
+
+/* Find the id of the tile which is a consumer of the given link.  If
+   no tile is a consumer of the link, returns ULONG_MAX. */
+FD_FN_PURE static inline ulong
+fd_topo_find_link_consumer( fd_topo_t const *      topo,
+                            fd_topo_link_t const * link ) {
+  for( ulong i=0; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+
+    for( ulong j=0; j<tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( tile->in_link_id[ j ] == link->id ) ) return i;
     }
   }
   return ULONG_MAX;

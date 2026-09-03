@@ -193,6 +193,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_metric_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_metric_ctx_t)
 
+
 #define STEM_CALLBACK_BEFORE_CREDIT before_credit
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
 

@@ -20,6 +20,9 @@
 struct fd_waker_tile {
   ulong   client_cnt;
   ulong * fseq[ FD_WAKER_CLIENT_MAX ];
+  ulong   client_tile_id[ FD_WAKER_CLIENT_MAX ];
+
+  fd_sleep_t * sleep;
 };
 
 typedef struct fd_waker_tile fd_waker_tile_t;
@@ -55,6 +58,7 @@ before_credit( fd_waker_tile_t *   ctx,
     ulong idx = evs[ i ].data.u64;
     FD_TEST( idx<ctx->client_cnt );
     fd_fseq_update( ctx->fseq[ idx ], 1UL );
+    if( FD_UNLIKELY( ctx->sleep ) ) fd_sleep_ring( ctx->sleep, ctx->client_tile_id[ idx ] );
   }
   FD_MCNT_INC( WAKER, WAKE_DELIVERED, (ulong)n );
 }
@@ -75,9 +79,15 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( idx<FD_WAKER_CLIENT_MAX );
     ctx->fseq[ idx ] = fd_fseq_join( fd_topo_obj_laddr( topo, client->waker_fseq_obj_id ) );
     FD_TEST( ctx->fseq[ idx ] );
+    ctx->client_tile_id[ idx ] = client->id;
     ctx->client_cnt = fd_ulong_max( ctx->client_cnt, idx+1UL );
   }
 
+  ctx->sleep = NULL;
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    ctx->sleep = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+    FD_TEST( ctx->sleep );
+  }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

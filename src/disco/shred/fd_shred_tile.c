@@ -1549,12 +1549,19 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( sign_in_idx!=ULONG_MAX );
   fd_topo_link_t const * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
   fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
+  fd_sleep_t * sleep = NULL;
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    sleep = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+    FD_TEST( sleep );
+  }
   NONNULL( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                             sign_out->mcache,
                                                             sign_out->dcache,
                                                             sign_in->mcache,
                                                             sign_in->dcache,
-                                                            sign_out->mtu ) ) );
+                                                            sign_out->mtu,
+                                                            sleep,
+                                                            fd_topo_find_link_consumer( topo, sign_out ) ) ) );
 
   ctx->larger_shred_limits_per_block = tile->shred.larger_shred_limits_per_block;
   ulong shred_limit                  = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );

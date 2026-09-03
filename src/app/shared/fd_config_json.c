@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22970296UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22970304UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -141,6 +141,7 @@ static char const * const jw_redacted_keys[] = {
 
 static char const * const jw_reported_keys[] = {
   "name",
+  "scheduler.mode",
   "log.colorize",
   "log.level_logfile",
   "log.level_stderr",
@@ -343,6 +344,10 @@ fd_config_to_json( fd_config_t const * config,
     jw_path_arr( &w, "entrypoints", config->gossip.entrypoints_cnt );
     jw_ulong( &w, "port", config->gossip.port );
     jw_path ( &w, "host", f->gossip.host );
+  jw_obj_close( &w );
+
+  jw_obj_open( &w, "scheduler" );
+    jw_str( &w, "mode", f->scheduler.mode );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "layout" );

@@ -7,7 +7,16 @@
 # lo_xsk_fd: This is the file descriptor for the kernel XDP socket we
 #            created for the loopback network device.  This is currently
 #            needed because Solana sends packets to itself on loopback.
-uint logfile_fd, uint xsk_fd, uint lo_xsk_fd
+# epoll_inner_fd: Kernel file descriptors are waited by a separate tile
+#                 (the waker) for scheduling reasons, so the XSK sockets
+#                 are added to this epoll set before the sandbox is
+#                 entered.
+#
+# epoll_outer_fd: The waker puts our inner set into another set, so it
+#                 can poll all file descriptors across all tiles at once.
+#                 This tile needs access to the outer file descriptor to
+#                 rearm the inner set after a drain.
+uint logfile_fd, uint xsk_fd, uint lo_xsk_fd, uint epoll_inner_fd, uint epoll_outer_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -86,3 +95,12 @@ futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
 # kernel resumes the wait with the remaining timeout via restart_syscall
 # when the tile next runs.
 restart_syscall
+
+# waker: rearm the tile's entry in the waker's outer epoll set after
+# draining the XSK rings
+#
+# arg 0 is the epoll fd being modified.  The inner set was populated
+# before the sandbox, so the tile may only touch its own inner fd's
+# entry in the outer set.
+epoll_ctl: (and (eq (arg 0) epoll_outer_fd)
+                (eq (arg 2) epoll_inner_fd))

@@ -9,6 +9,7 @@
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/node_info/fd_node_info.h"
+#include "../../disco/sleep/fd_sleep.h"
 #include "../../discof/poh/fd_poh.h"
 
 #define VAL(name) (__extension__({                                                             \
@@ -307,6 +308,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_tile = {
   .align     = tile_align,
   .loose     = tile_loose,
   .new       = NULL,
+};
+
+static ulong
+sleep_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_sleep_footprint();
+}
+
+static ulong
+sleep_align( fd_topo_t const *     topo FD_FN_UNUSED,
+             fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_sleep_align();
+}
+
+static void
+sleep_new( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_sleep_new( fd_topo_obj_laddr( topo, obj->id ) ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_sleep = {
+  .name      = "sleep",
+  .footprint = sleep_footprint,
+  .align     = sleep_align,
+  .new       = sleep_new,
 };
 
 #undef VAL

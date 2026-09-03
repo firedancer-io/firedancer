@@ -23,6 +23,7 @@
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/tiles.h"
 #include "../../disco/topo/fd_topob.h"
+#include "../../disco/sleep/fd_sleep.h"
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../tango/dcache/fd_dcache.h"
@@ -271,6 +272,7 @@ fd_topo_initialize( config_t * config ) {
   int leader_enabled    = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled    = config->tiles.rserve.enabled;
   int alpenglow_enabled = config->firedancer.development.alpenglow;
+  int efficient_mode    = !strcmp( config->firedancer.scheduler.mode, "efficient" );
 
   char const * repair = alpenglow_enabled ? "rotor" : "repair";
   char const * poh    = alpenglow_enabled ? "motor" : "poh";
@@ -293,6 +295,8 @@ fd_topo_initialize( config_t * config ) {
   /*             topo, name */
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "diag"   );
+  if( FD_UNLIKELY( efficient_mode ) )
+    fd_topob_wksp( topo, "mwaitx" );
   fd_topob_wksp( topo, "genesi" );
   fd_topob_wksp( topo, "ipecho" );
   fd_topob_wksp( topo, "gossvf" );
@@ -564,6 +568,8 @@ fd_topo_initialize( config_t * config ) {
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch, is_waker_client */
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0,                 1 );
   /**/                 fd_topob_tile( topo, "diag",    "diag",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0,                 0 );
+  if( FD_UNLIKELY( efficient_mode ) )
+    /**/               fd_topob_tile( topo, "mwaitx",  "mwaitx",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0,                 0 );
   if( FD_LIKELY( config->tiles.gui.enabled ) )
     fd_topob_tile_out( topo, "diag", 0UL, "diag_gui", 0UL );
 
@@ -1127,6 +1133,14 @@ fd_topo_initialize( config_t * config ) {
   /* Auto layout must run after all fd_topob_tile() calls so every tile gets a blocklist-aware CPU assignment. */
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
 
+  /* Efficient mode: no pinning.  Tiles sleep when idle, so the kernel
+     schedules the awake ones over the floating (boot) core set. */
+  if( FD_UNLIKELY( efficient_mode ) ) {
+    if( FD_UNLIKELY( !is_auto_affinity ) )
+      FD_LOG_WARNING(( "[layout.affinity] is ignored with [scheduler.mode] \"efficient\": all tiles float" ));
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) topo->tiles[ i ].cpu_idx = ULONG_MAX;
+  }
+
   ulong fec_set_cnt = fd_shred_tile_fec_set_cnt( FD_SHRED_FIREDANCER_FEC_EXPOSURE,
                                                   config->tiles.shred.max_pending_shred_sets );
   ulong store_fec_set_cnt = shred_tile_cnt*fec_set_cnt;
@@ -1292,6 +1306,20 @@ fd_topo_initialize( config_t * config ) {
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 
   fd_topob_waker( topo );
+
+  /* Tile sleep (efficient mode).  One shared shmem object in its own
+     workspace: every tile is a producer (rings doorbells on publish),
+     sleepers park on it, the waker rings fd readiness into it, and
+     the mwaitx tile converts rings into futex wakes.  See
+     disco/sleep/fd_sleep.h. */
+  if( FD_UNLIKELY( efficient_mode ) ) {
+    FD_TEST( topo->tile_cnt<=FD_SLEEP_TILE_MAX );
+    fd_topob_wksp( topo, "sleep" );
+    fd_topo_obj_t * sleep_obj = fd_topob_obj( topo, "sleep", "sleep" );
+    topo->sleep_obj_id = sleep_obj->id;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ )
+      fd_topob_tile_uses( topo, &topo->tiles[ i ], sleep_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_configure_tile( &topo->tiles[ i ], config );
@@ -1785,6 +1813,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->diag.log_path,       config->log.path,        sizeof(tile->diag.log_path)      );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "waker" ) ) ) {
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "mwaitx" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
 

@@ -35,6 +35,7 @@ fd_topob_new( void * mem,
 
   topo->max_page_size           = FD_SHMEM_GIGANTIC_PAGE_SZ;
   topo->gigantic_page_threshold = 4 * FD_SHMEM_HUGE_PAGE_SZ;
+  topo->sleep_obj_id            = ULONG_MAX;
 
   topo->agave_affinity_cnt = 0;
   topo->blocklist_cores_cnt = 0;
@@ -412,6 +413,7 @@ static char const * FLOATING[] = {
   "metric",
   "diag",
   "waker",
+  "mwaitx",
   "bencho",
   "genesi", /* FIREDANCER ONLY */
   "ipecho", /* FIREDANCER ONLY */
