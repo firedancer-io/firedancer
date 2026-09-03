@@ -15,7 +15,7 @@ static void
 test_sched_footprint( void ) {
   /* Retain the per-block saving from compact shred lengths under the
      default scheduler sizing. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL )==1122030976UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL )==1122073984UL );
 }
 
 static void
@@ -223,9 +223,10 @@ run_interleaved_fec_residual_case( void ) {
         break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-        msg->mblk_idx = task->poh_hash->mblk_idx;
-        msg->hashcnt  = task->poh_hash->hashcnt;
-        repeat_hash( msg->hash, task->poh_hash->hash, task->poh_hash->hashcnt );
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
+          repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        }
         FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
         break;
       }
@@ -309,9 +310,10 @@ run_bad_tick_case( fd_hash_t const * start_poh,
         break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-        msg->mblk_idx = task->poh_hash->mblk_idx;
-        msg->hashcnt  = task->poh_hash->hashcnt;
-        repeat_hash( msg->hash, task->poh_hash->hash, task->poh_hash->hashcnt );
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
+          repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        }
         int rc = fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg );
         if( FD_UNLIKELY( rc!=FD_SCHED_DEAD_REASON_NONE ) ) seen_poh_fail = 1;
         break;
@@ -350,6 +352,146 @@ run_bad_tick_cases( void ) {
     ulong tick_hashcnt[ 2 ] = { 1UL, 2UL };
     run_bad_tick_case( start_poh, tick_hashcnt, 2UL, TEST_ROOT_TICK_HEIGHT + 2UL, 2UL, 0, 1, FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK );
   }
+}
+
+static void
+run_poh_spread_case( ulong tick_cnt,
+                     ulong hashes_per_tick ) {
+  ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
+  ulong block_cnt_max = 4UL;
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
+  void * mem          = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
+  FD_TEST( sched );
+
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  fd_hash_t start_poh[ 1 ];
+  hash_from_seed( start_poh, 0x7c1e5d3a9b204f6dUL );
+  ulong tick_hashcnt[ 8 ];
+  FD_TEST( tick_cnt<=8UL );
+  for( ulong i=0UL; i<tick_cnt; i++ ) tick_hashcnt[ i ] = hashes_per_tick;
+
+  uchar encoded[ sizeof(ulong) + 8UL*sizeof(fd_microblock_hdr_t) ] = {0};
+  ulong encoded_sz = 0UL;
+  encode_tick_block( encoded, &encoded_sz, start_poh, tick_hashcnt, tick_cnt );
+
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  store_fec->data_sz       = encoded_sz;
+  store_fec->shred_offs[0] = (uint)encoded_sz;
+
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT + 1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec,
+    .data              = encoded,
+    .shred_cnt         = 1U,
+    .is_last_in_batch  = 1U,
+    .is_last_in_block  = 1U,
+    .is_first_in_block = 1U
+  }};
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+tick_cnt, hashes_per_tick, start_poh );
+
+  fd_sched_task_t task[ 1 ];
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( task->task_type==FD_SCHED_TT_BLOCK_START );
+  FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+
+  /* All exec tiles are idle and the block is fully ingested, so no
+     tile is held back for transaction execution. */
+  ulong min_cnt      = fd_sha256_simd_lane_min();
+  ulong lane_cnt     = fd_sha256_simd_lane_max();
+  ulong expect_cnt   = fd_ulong_min( (tick_cnt+TEST_EXEC_CNT-1UL)/TEST_EXEC_CNT, lane_cnt );
+  if( expect_cnt<min_cnt ) expect_cnt = 1UL; /* below the kernel's SIMD floor, batching is pointless */
+  ulong expect_tasks = fd_ulong_min( tick_cnt, TEST_EXEC_CNT );
+  /* If the lane width is too narrow to fit every tick in one round
+     (e.g. width 1 on non-AVX-512 x86), a round dispatches at most
+     TEST_EXEC_CNT*expect_cnt microblocks and the rest wait. */
+  int   overflow     = tick_cnt>TEST_EXEC_CNT*expect_cnt;
+
+  ulong round_cnt = 0UL;
+  int   saw_end   = 0;
+  for(;;) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+
+    /* Drain every dispatchable PoH task for this round without
+       completing any, so the whole batch of ticks is in flight at
+       once. */
+    fd_sched_task_t in_flight[ TEST_EXEC_CNT ];
+    ulong in_flight_cnt = 0UL;
+    ulong tile_mask     = 0UL;
+    ulong mblk_cnt      = 0UL;
+    while( fd_sched_task_next_ready( sched, task ) ) {
+      if( task->task_type==FD_SCHED_TT_BLOCK_END ) {
+        FD_TEST( !in_flight_cnt );
+        FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
+        saw_end = 1;
+        break;
+      }
+      FD_TEST( task->task_type==FD_SCHED_TT_POH_HASH );
+      FD_TEST( in_flight_cnt<TEST_EXEC_CNT );
+      FD_TEST( task->poh_hash->cnt<=expect_cnt );
+      FD_TEST( task->poh_hash->exec_idx<TEST_EXEC_CNT );
+      FD_TEST( !fd_ulong_extract_bit( tile_mask, (int)task->poh_hash->exec_idx ) );
+      tile_mask = fd_ulong_set_bit( tile_mask, (int)task->poh_hash->exec_idx );
+      mblk_cnt += task->poh_hash->cnt;
+      in_flight[ in_flight_cnt++ ] = *task;
+    }
+    if( saw_end ) break;
+
+    if( !overflow ) {
+      FD_TEST( in_flight_cnt==expect_tasks );
+      FD_TEST( mblk_cnt==tick_cnt );
+    } else {
+      FD_TEST( in_flight_cnt>=1UL );
+      FD_TEST( mblk_cnt<=TEST_EXEC_CNT*expect_cnt );
+    }
+    round_cnt++;
+
+    for( ulong t=0UL; t<in_flight_cnt; t++ ) {
+      fd_sched_poh_hash_t * ph = in_flight[ t ].poh_hash;
+      fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+      msg->cnt = ph->cnt;
+      for( ulong i=0UL; i<ph->cnt; i++ ) {
+        repeat_hash( msg->hash+i, ph->hash+i, ph->hashcnt );
+      }
+      FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, ph->exec_idx, msg ) );
+    }
+  }
+
+  /* Each tick needs more than one maximally sized task, so the spread
+     must have survived at least one re-dispatch of partially hashed
+     ticks. */
+  FD_TEST( round_cnt>=2UL );
+  FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_NONE );
+  FD_TEST( fd_sched_is_drained( sched ) );
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+
+  fd_sched_delete( fd_sched_leave( sched ) );
+  free( mem );
+}
+
+static void
+run_poh_spread_cases( void ) {
+  /* Fewer ticks than tiles: exactly one tick per task, one task per
+     tile. */
+  run_poh_spread_case( 1UL, 9000UL );
+  run_poh_spread_case( 3UL, 9000UL );
+  run_poh_spread_case( TEST_EXEC_CNT, 9000UL );
+  /* More ticks than tiles: at most ceil( tick_cnt/tile_cnt ) per task,
+     clamped to the SIMD lane width (so exactly one per task on builds
+     with a serial fallback), still using every tile. */
+  run_poh_spread_case( 6UL, 9000UL );
+  run_poh_spread_case( 8UL, 9000UL );
 }
 
 static void
@@ -646,6 +788,7 @@ main( int     argc,
   test_sched_footprint();
   run_lane_policy_case();
   run_bad_tick_cases();
+  run_poh_spread_cases();
   run_interleaved_fec_residual_case();
   run_abandon_flavor_case();
   run_root_notify_flavor_case();
