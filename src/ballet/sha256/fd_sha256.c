@@ -657,6 +657,14 @@ fd_sha256_hash_32_repeated_batch_arm( uchar const * hash_in,
                                       ulong         batch_cnt );
 #endif
 
+#if FD_HAS_AVX512
+void
+fd_sha256_hash_32_repeated_batch_avx512( uchar const * hash_in,
+                                         uchar *       hash_out,
+                                         ulong         cnt,
+                                         ulong         batch_cnt );
+#endif
+
 void
 fd_sha256_hash_32_repeated_batch( void const * _hash_in,
                                   void *       _hash_out,
@@ -667,6 +675,9 @@ fd_sha256_hash_32_repeated_batch( void const * _hash_in,
   if( FD_UNLIKELY( batch_cnt>fd_sha256_simd_lane_max() ) ) FD_LOG_CRIT(( "batch_cnt %lu exceeds fd_sha256_simd_lane_max %lu", batch_cnt, fd_sha256_simd_lane_max() ));
 #if FD_SHA256_CORE_IMPL==2
   fd_sha256_hash_32_repeated_batch_arm( hash_in, hash_out, cnt, batch_cnt );
+  return;
+#elif FD_HAS_AVX512
+  fd_sha256_hash_32_repeated_batch_avx512( hash_in, hash_out, cnt, batch_cnt );
   return;
 #endif
   for( ulong i=0UL; i<batch_cnt; i++ ) {
