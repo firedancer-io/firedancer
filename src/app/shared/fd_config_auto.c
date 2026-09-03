@@ -1,4 +1,5 @@
 #include "fd_config_auto.h"
+#include "../platform/fd_sys_util.h"
 #include "../../disco/net/fd_linux_bond.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/net/mlx5/fd_mlx5.h"
@@ -448,7 +449,7 @@ fd_auto_scrape_info( fd_config_t const * config ) {
   if( !strcmp( config->net.provider, "auto" ) &&
       info.has_mlx5_rdma_port                 &&
       !info.has_uverbs ) {
-    info.has_uverbs_module = !fd_mlx5_uverbs_modprobe( 1 );
+    info.has_uverbs_module = !fd_sys_util_modprobe( "ib_uverbs", 1 );
   }
 
   return info;

@@ -219,7 +219,7 @@ struct fd_configf {
 typedef struct fd_configf fd_configf_t;
 
 struct fd_config_net {
-  char provider[ 8 ]; /* "auto", "xdp", "socket" or "mlx5" */
+  char provider[ 8 ]; /* "auto", "xdp", "socket", "mlx5" or "iavf" */
 
   char interface[ IF_NAMESIZE ];
   char bind_address[ 16 ];
@@ -245,6 +245,12 @@ struct fd_config_net {
     uint rx_queue_size;
     uint tx_queue_size;
   } mlx5;
+
+  struct {
+    uint vf_index;
+    uint rx_queue_size;
+    uint tx_queue_size;
+  } iavf;
 
   struct {
     uint receive_buffer_size;
