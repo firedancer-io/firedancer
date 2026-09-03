@@ -2326,9 +2326,10 @@ dispatch_task( fd_replay_tile_t *  ctx,
       fd_replay_out_link_t *   exec_out = ctx->exec_out;
       fd_execrp_poh_hash_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       exec_msg->bank_idx = task->poh_hash->bank_idx;
-      exec_msg->mblk_idx = task->poh_hash->mblk_idx;
+      exec_msg->cnt      = task->poh_hash->cnt;
       exec_msg->hashcnt  = task->poh_hash->hashcnt;
-      memcpy( exec_msg->hash, task->poh_hash->hash, sizeof(fd_hash_t) );
+      FD_STATIC_ASSERT( FD_SCHED_POH_PARA==FD_EXECRP_POH_PARA, poh batch width mismatch );
+      memcpy( exec_msg->hash, task->poh_hash->hash, task->poh_hash->cnt*sizeof(fd_hash_t) );
       fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_POH_HASH<<32) | task->poh_hash->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
