@@ -199,6 +199,15 @@ fd_runtime_validate_block_revenue_collector( fd_bank_t const *   bank,
    slot.  A portion is burnt, another portion is credited to the fee
    collector (typically leader). */
 
+void
+fd_runtime_fee_split( ulong   execution_fees,
+                      ulong   priority_fees,
+                      ulong * burn,
+                      ulong * reward ) {
+  *burn   = execution_fees/2UL;
+  *reward = fd_ulong_sat_add( priority_fees, execution_fees-*burn );
+}
+
 static void
 fd_runtime_settle_fees( fd_bank_t *        bank,
                         fd_accdb_t *       accdb,
@@ -212,8 +221,8 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
                    slot, execution_fees, priority_fees ));
   }
 
-  ulong fee_burn   = execution_fees / 2;
-  ulong fee_reward = fd_ulong_sat_add( priority_fees, execution_fees - fee_burn );
+  ulong fee_burn, fee_reward;
+  fd_runtime_fee_split( execution_fees, priority_fees, &fee_burn, &fee_reward );
 
   /* Remove fee balance from bank (decreasing capitalization).
      Allow underflow (wrap) to match Agave's silent fetch_sub behavior. */
@@ -446,6 +455,7 @@ fd_feature_activate( fd_bank_t *             bank,
     feature.activation_slot = bank->f.slot;
     FD_STORE( fd_feature_t, acc.data, feature );
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+    if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_feature( addr->uc );
   }
 }
 
@@ -703,6 +713,8 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
      vote_states_prev_prev (stakes for T-2). */
 
   fd_runtime_update_leaders( bank, runtime_stack );
+
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_emit( bank );
 
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(( "starting epoch %s%lu%s at slot %lu %s(took %.6f seconds)%s", fd_log_style_bold(), bank->f.epoch, fd_log_style_normal(), bank->f.slot, fd_log_style_dim(), (double)(end - start) / 1e9, fd_log_style_normal() ));
@@ -1122,8 +1134,7 @@ void
 fd_runtime_commit_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
-                       fd_txn_out_t *      txn_out,
-                       int                 report_transaction_diffs ) {
+                       fd_txn_out_t *      txn_out ) {
   FD_TEST( txn_out->err.is_committable );
 
   txn_out->details.commit_start_ticks = fd_tickcount();
@@ -1150,7 +1161,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
-        fd_stakes_update_stake_delegation( pubkey, account, bank );
+        fd_stakes_update_stake_delegation( pubkey, account, bank, txn_in );
       }
 
       if( txn_out->accounts.vote_update[i] ) {
@@ -1247,7 +1258,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     }
   }
 
-  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
@@ -1261,12 +1272,11 @@ void
 fd_runtime_cancel_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
-                       fd_txn_out_t *      txn_out,
-                       int                 report_transaction_diffs ) {
+                       fd_txn_out_t *      txn_out ) {
   FD_TEST( !txn_out->err.is_committable );
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
-  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+  if( FD_UNLIKELY( bank && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   fd_accdb_release_ab( runtime->accdb,
                        txn_out->accounts.cnt, runtime->accounts.account,
@@ -1578,6 +1588,17 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
           account->lamports,
           (uint)account->data_len,
           FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
+      if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
+        fd_event_runtime_stake_delegation_bootup_emit(
+            bank->f.slot,
+            bank->f.epoch,
+            account->pubkey.uc,
+            stake_state->stake.stake.delegation.voter_pubkey.uc,
+            stake_state->stake.stake.delegation.stake,
+            stake_state->stake.stake.delegation.activation_epoch,
+            stake_state->stake.stake.delegation.deactivation_epoch,
+            stake_state->stake.stake.credits_observed );
+      }
 
     } else if( !memcmp( account->owner.uc, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
       fd_feature_snoop_account( feature_snoop, &account->pubkey, account->lamports,
@@ -1715,6 +1736,11 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
 
   int err = fd_runtime_process_genesis_block( bank, accdb, capture_ctx, runtime_stack );
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
+
+  /* Genesis init ran the epoch-boundary refresh paths above; discard
+     the accumulated summary so the first real boundary's runtime_epoch
+     event only reflects itself. */
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_reset();
 }
 
 static int
@@ -1757,7 +1783,7 @@ apply_footer( fd_bank_t *               bank,
   uchar data[ 8UL ];
   FD_STORE( ulong, data, producer_time_nanos );
   fd_accdb_svm_write( bank, accdb, capture_ctx, &alpenclock_addr, &fd_solana_system_program_id,
-                      data, sizeof(data), fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, sizeof(data) ), 0 );
+                      data, sizeof(data), fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, sizeof(data) ), 0, 0 );
 
   return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs, producer_time_nanos );
 }

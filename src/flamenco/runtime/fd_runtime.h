@@ -363,6 +363,17 @@ fd_runtime_block_execute_finalize( fd_bank_t *                bank,
                                    fd_footer_certs_t const *  certs,
                                    ulong                      producer_time_nanos );
 
+/* fd_runtime_fee_split computes the burned portion and the leader
+   reward for a block's collected fees: half the execution fees burn,
+   the rest plus all priority fees go to the leader.  Single source of
+   truth for fee settlement and telemetry. */
+
+void
+fd_runtime_fee_split( ulong   execution_fees,
+                      ulong   priority_fees,
+                      ulong * burn,
+                      ulong * reward );
+
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of
    the transaction execution are set in the fd_txn_out_t.  The caller
@@ -385,8 +396,7 @@ void
 fd_runtime_commit_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
-                       fd_txn_out_t *      txn_out,
-                       int                 report_transaction_diffs );
+                       fd_txn_out_t *      txn_out );
 
 /* fd_runtime_cancel_txn cancels the result of a transaction execution
    and frees any resources that may have been acquired.  A transaction
@@ -400,8 +410,7 @@ void
 fd_runtime_cancel_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
-                       fd_txn_out_t *      txn_out,
-                       int                 report_transaction_diffs );
+                       fd_txn_out_t *      txn_out );
 
 /* fd_runtime_prepare_bundle_accounts is called before executing a
    bundle.  It is responsible for acquiring the union of all accounts

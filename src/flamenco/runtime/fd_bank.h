@@ -254,6 +254,7 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define FD_BANK_STATE_DEAD       (4UL)
 #define FD_BANK_STATE_PRUNABLE   (5UL)
 
+
 struct fd_bank {
 
   /* Fields used for internal pool and bank management */
@@ -384,6 +385,7 @@ typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 
 struct fd_banks {
   ulong magic;                       /* ==FD_BANKS_MAGIC */
+  int   report_runtime_diffs;        /* telemetry: emit the runtime events; report_runtime_diffs flag */
   ulong max_total_banks;             /* Maximum number of banks */
   ulong max_fork_width;              /* Maximum fork width executing through any given slot. */
   ulong max_stake_accounts;          /* Maximum number of stake accounts */
@@ -437,6 +439,16 @@ struct fd_banks {
   ulong vote_stakes_offset;
 };
 typedef struct fd_banks fd_banks_t;
+
+/* fd_bank_report_runtime_diffs returns the banks-wide runtime-events
+   flag (set once at replay tile init) for a bank.  Callers use it to
+   gate fd_event_runtime calls. */
+
+static inline int
+fd_bank_report_runtime_diffs( fd_bank_t const * bank ) {
+  fd_banks_t const * banks_data = fd_type_pun_const( (uchar const *)bank - bank->banks_data_offset );
+  return banks_data->report_runtime_diffs;
+}
 
 /* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */

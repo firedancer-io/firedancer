@@ -26,6 +26,7 @@ class ClickHouseType(Enum):
     UInt16 = auto()
     UInt32 = auto()
     UInt64 = auto()
+    UInt128 = auto()
     Int64 = auto()
     Pubkey = auto()
     Hash = auto()
@@ -45,6 +46,7 @@ class ClickHouseType(Enum):
         "UInt16": "UInt16",
         "UInt32": "UInt32",
         "UInt64": "UInt64",
+        "UInt128": "UInt128",
         "Int64": "Int64",
         "Pubkey": "Pubkey",
         "Hash": "Hash",
@@ -65,6 +67,7 @@ class ClickHouseType(Enum):
         "UInt16": "uint32",
         "UInt32": "uint32",
         "UInt64": "uint64",
+        "UInt128": "bytes",
         "Int64": "sint64",
         "Pubkey": "bytes",
         "Hash": "bytes",
@@ -253,6 +256,7 @@ _SCALAR_C = {
     ClickHouseType.UInt16:     ("ushort", "uint32"),
     ClickHouseType.UInt32:     ("uint",   "uint32"),
     ClickHouseType.UInt64:     ("ulong",  "uint64"),
+    ClickHouseType.UInt128:    ("uint128", "bytes"),
     ClickHouseType.Int64:      ("long",   "sint64"),
     ClickHouseType.DateTime64: ("ulong",  "uint64"),
     ClickHouseType.Bool:       ("int",    "bool"),
@@ -307,6 +311,8 @@ def scalar_max_encoded_sz(f: Field) -> int:
         return _PB_TAG_MAX + _PB_VARINT32
     if f.chtype in _FIXED_BYTE_SZ:       # fixed bytes: tag + length-prefix + data
         return _PB_TAG_MAX + _PB_VARINT32 + _FIXED_BYTE_SZ[f.chtype]
+    if f.chtype == ClickHouseType.UInt128: # 16 bytes little-endian, length-prefixed
+        return _PB_TAG_MAX + _PB_VARINT32 + 16
     if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
         return _PB_TAG_MAX + _PB_VARINT32 + f.max_len
     if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
@@ -538,8 +544,10 @@ def generate_c_header(schemas: List[Schema]) -> str:
         members = " ".join(f"fd_event_{s.name}_t {s.name}_;" for s in eligible)
         lines += [
             "/* Largest generated event struct; a consumer can stage any incoming",
-            "   event in a buffer of this size. */",
-            f"#define FD_EVENT_GEN_STRUCT_MAX (sizeof(union {{ {members} }}))",
+            "   event in a buffer of this size, aligned to",
+            "   FD_EVENT_GEN_STRUCT_ALIGN. */",
+            f"#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union {{ {members} }}))",
+            f"#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union {{ {members} }}))",
             "",
         ]
 
@@ -620,6 +628,9 @@ def encode_scalar( f: Field, field_id: int, acc: str, ind: str, omit_default: bo
         return [f"{ind}{guard}ok &= !!fd_pb_push_int32 ( encoder, {field_id}U, {acc} );"]
     if f.chtype in _FIXED_BYTE_SZ:
         return [f"{ind}ok &= !!fd_pb_push_bytes ( encoder, {field_id}U, {acc}, {_FIXED_BYTE_SZ[f.chtype]}UL );"]
+    if f.chtype == ClickHouseType.UInt128:
+        guard = f"if( {acc} ) " if omit_default else ""
+        return [f"{ind}{guard}ok &= !!fd_pb_push_bytes ( encoder, {field_id}U, (uchar const *)&{acc}, 16UL );"]
     suffix = _SCALAR_C[f.chtype][1]
     cast   = "(ulong)" if suffix == "uint64" else ("(uint)" if suffix == "uint32" else "")
     guard  = f"if( {acc} ) " if omit_default else ""
@@ -789,7 +800,8 @@ def generate_c_source(schemas: List[Schema]) -> str:
     return "\n".join(lines)
 
 _CTYPE_MAX = { "ulong": "ULONG_MAX", "long": "LONG_MAX", "uint": "UINT_MAX",
-               "int": "INT_MAX", "ushort": "USHORT_MAX", "uchar": "UCHAR_MAX" }
+               "int": "INT_MAX", "ushort": "USHORT_MAX", "uchar": "UCHAR_MAX",
+               "uint128": "(uint128)-1" }
 
 def fill_scalar( f: Field, acc: str, ind: str ) -> List[str]:
     """Emit lines setting a scalar/enum/fixed-byte field to the value with the

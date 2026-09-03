@@ -521,6 +521,7 @@ struct fd_topo_tile {
       char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
+      int   report_runtime_diffs;
 
       struct {
         int   enabled;
@@ -548,7 +549,7 @@ struct fd_topo_tile {
       int   dump_txn_to_pb;
       int   dump_txn_as_fixture;
       int   dump_syscall_to_pb;
-      int   report_transaction_diffs;
+      int   report_runtime_diffs;
     } execrp;
 
     struct {
@@ -711,6 +712,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong banks_obj_id;
       int   alpenglow;
+      int   report_runtime_diffs;
     } snapin;
 
     struct {
@@ -732,7 +734,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong accdb_obj_id;
-      int   report_transaction_diffs;
+      int   report_runtime_diffs;
     } execle;
 
     struct {

@@ -37,6 +37,8 @@
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/events/fd_event_runtime.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../repair/fd_repair_tile.h"
 #include "../rotor/fd_rotor_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -44,6 +46,7 @@
 
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
@@ -140,6 +143,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),           sizeof(fd_replay_tile_t) );
   l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),            fd_runtime_stack_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),          sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
+  if( FD_UNLIKELY( tile->replay.report_runtime_diffs ) ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_hash_t),                  sizeof(fd_hash_t) * FD_FEC_BLK_MAX * tile->replay.max_live_slots );
+    l = FD_LAYOUT_APPEND( l, 8UL,                                 FD_EVENT_RUNTIME_SLOT_DIFFS_FOOTPRINT * tile->replay.max_live_slots );
+  }
   if( !tile->replay.alpenglow ) {
     l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),             fd_block_id_map_footprint( chain_cnt ) );
   } else {
@@ -995,6 +1002,35 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*txn_executed), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+/* Emit the runtime_block event for a finalized bank (replayed or
+   leader-produced).  The fee arguments are the bank's values snapshotted
+   before fd_runtime_block_execute_finalize, which settles (zeroes) the
+   fee fields and applies the tip commission. */
+
+static void
+replay_runtime_block_emit( fd_replay_tile_t * ctx,
+                           fd_bank_t *        bank,
+                           ulong              execution_fees,
+                           ulong              priority_fees,
+                           ulong              tips ) {
+  fd_block_id_ele_t const * ele        = &ctx->block_id_arr[ bank->idx ];
+  fd_hash_t         const * block_id   = fd_ptr_if( ctx->alpenglow, &ele->dmr, &ele->latest_mr );
+  fd_hash_t parent_block_id = {0};
+  if( FD_LIKELY( bank->parent_idx!=ULONG_MAX ) ) {
+    fd_block_id_ele_t const * parent_ele = &ctx->block_id_arr[ bank->parent_idx ];
+    parent_block_id = fd_ptr_if( ctx->alpenglow, &parent_ele->dmr, &parent_ele->latest_mr )[0];
+  }
+  fd_pubkey_t leader = {0};
+  fd_pubkey_t const * _leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, bank->f.slot );
+  if( FD_LIKELY( _leader ) ) leader = *_leader;
+  fd_sol_sysvar_clock_t clock = {0};
+  if( FD_UNLIKELY( !fd_sysvar_clock_read( ctx->accdb, bank->accdb_fork_id, &clock ) ) ) FD_LOG_ERR(( "failed to read clock sysvar for slot %lu", bank->f.slot ));
+  fd_event_runtime_block_emit( bank, block_id->uc, parent_block_id.uc, leader.uc,
+                               execution_fees, priority_fees, tips, &clock,
+                               ctx->fec_chain + bank->idx*FD_FEC_BLK_MAX,
+                               ctx->block_id_arr[ bank->idx ].fec_cnt );
+}
+
 static void
 mark_bank_dead( fd_replay_tile_t *  ctx,
                 fd_stem_context_t * stem,
@@ -1017,6 +1053,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   ulong execution_fees_pre_settle = bank->f.execution_fees;
   ulong priority_fees_pre_settle  = bank->f.priority_fees;
+  ulong tips_pre_settle           = bank->f.tips;
 
   fd_footer_certs_t certs[1];
   fd_footer_certs_t const * certs_opt = NULL;
@@ -1058,6 +1095,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
       FD_LOG_INFO(( "slot %lu: bank hash matches, footer declares %s, executed %s", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
     }
   }
+
+  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
 
   /* Copy out cost tracker fields before freezing */
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1467,6 +1506,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
   ulong execution_fees_pre_settle;
   ulong priority_fees_pre_settle;
+  ulong tips_pre_settle;
 
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
 
@@ -1474,6 +1514,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
     execution_fees_pre_settle = ctx->leader_execution_fees;
     priority_fees_pre_settle  = ctx->leader_priority_fees;
+    tips_pre_settle           = ctx->leader_tips;
 
   } else {
 
@@ -1483,9 +1524,14 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
     execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
     priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
+    tips_pre_settle           = ctx->leader_bank->f.tips;
 
     fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL );
   }
+
+  ctx->leader_bank->f.shred_cnt = ctx->block_id_arr[ ctx->leader_bank->idx ].shred_cnt;
+
+  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, ctx->leader_bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
@@ -1926,6 +1972,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
 
     ctx->leader_execution_fees = ctx->leader_bank->f.execution_fees;
     ctx->leader_priority_fees  = ctx->leader_bank->f.priority_fees;
+    ctx->leader_tips           = ctx->leader_bank->f.tips;
 
     ulong producer_time_nanos = enforce_nanosecond_clock_bounds( ctx, ctx->leader_bank, (ulong)fd_clock_tile_now( ctx->clock ) );
 
@@ -2737,6 +2784,8 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->bank_seq       = bank->bank_seq;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
+    block_id_ele->fec_cnt        = 0U;
+    block_id_ele->shred_cnt      = 0U;
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
@@ -2747,6 +2796,15 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
     block_id_ele->latest_mr      = reasm_fec->key;
+  }
+
+  ctx->block_id_arr[ reasm_fec->bank_idx ].shred_cnt += reasm_fec->data_cnt;
+
+  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
+    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+    if( FD_LIKELY( block_id_ele->fec_cnt<FD_FEC_BLK_MAX ) ) {
+      ctx->fec_chain[ reasm_fec->bank_idx*FD_FEC_BLK_MAX + block_id_ele->fec_cnt++ ] = reasm_fec->key;
+    }
   }
 
   /* If the FEC set is a slot complete, this means we have finally seen
@@ -4506,6 +4564,10 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_replay_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
   void * runtime_stack_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_align(),    fd_runtime_stack_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
+  void * fec_chain_mem      = tile->replay.report_runtime_diffs ?
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_hash_t),           sizeof(fd_hash_t) * FD_FEC_BLK_MAX * tile->replay.max_live_slots ) : NULL;
+  void * slot_diffs_mem     = tile->replay.report_runtime_diffs ?
+                              FD_SCRATCH_ALLOC_APPEND( l, 8UL,                          FD_EVENT_RUNTIME_SLOT_DIFFS_FOOTPRINT * tile->replay.max_live_slots ) : NULL;
   if( !tile->replay.alpenglow ) {
     block_id_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
   } else {
@@ -4722,6 +4784,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->max_live_slots = tile->replay.max_live_slots;
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;
 
+  ctx->fec_chain    = (fd_hash_t *)fec_chain_mem;
+  if( FD_UNLIKELY( slot_diffs_mem ) ) fd_event_runtime_slot_diffs_init( slot_diffs_mem, tile->replay.max_live_slots );
+
   if( !tile->replay.alpenglow ) {
     ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
     FD_TEST( ctx->block_id_map );
@@ -4826,6 +4891,9 @@ unprivileged_init( fd_topo_t const *      topo,
   /* Ensure precompiles are available, crash fast otherwise */
   fd_precompiles();
 
+  ctx->report_runtime_diffs = tile->replay.report_runtime_diffs;
+  ctx->banks->report_runtime_diffs = tile->replay.report_runtime_diffs;
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -4906,8 +4974,12 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 #include "../../disco/stem/fd_stem.c"
 
 static ulong
-max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return sizeof(fd_event_block_completed_t);
+max_event_sz( fd_topo_tile_t const * tile ) {
+  /* replay always emits block_completed; runtime_block (the largest
+     runtime event) is added when runtime diffs are on. */
+  ulong sz = sizeof(fd_event_block_completed_t);
+  if( tile->replay.report_runtime_diffs && sizeof(fd_event_runtime_block_t)>sz ) sz = sizeof(fd_event_runtime_block_t);
+  return sz;
 }
 
 fd_topo_run_tile_t fd_tile_replay = {

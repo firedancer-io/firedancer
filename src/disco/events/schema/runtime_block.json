@@ -1,0 +1,112 @@
+{
+    "name": "runtime_block",
+    "id": 13,
+    "description": "One row per block emitted with all the block-level diffs and results",
+    "fields": {
+        "bank_seq":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key from runtime_txn / slot_confirmed / block_equivocated. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
+        "slot":                      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Block slot number" },
+        "block_id":                  { "type": "Hash",                                       "description": "Block id of slot (merkle root of the last FEC set)" },
+        "parent_slot":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Slot of the parent block" },
+        "parent_block_id":           { "type": "Hash",                                       "description": "Parent slot's block id" },
+        "epoch":                     { "type": "UInt64",                                     "description": "Epoch this block belongs to" },
+        "block_height":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Block height (count of ancestor blocks) of this block in the chain" },
+        "leader":                    { "type": "Pubkey",                                     "description": "Scheduled leader identity pubkey for this block" },
+        "bank_hash":                 { "type": "Hash",                                       "description": "Bank hash of this slot" },
+        "prev_bank_hash":            { "type": "Hash",                                       "description": "Bank hash of the parent slot" },
+        "accounts_lt_hash_checksum": { "type": "Hash",                                       "description": "Accounts lattice hash after this slot" },
+        "poh_hash":                  { "type": "Hash",                                       "description": "Proof-of-history hash at the end of the slot (same as blockhash)" },
+        "clock_sysvar": {
+            "type": "Tuple",
+            "description": "Decoded Clock sysvar for this slot",
+            "fields": {
+                "slot":                  { "type": "UInt64", "description": "Clock sysvar slot (same as this row's slot)" },
+                "epoch_start_timestamp": { "type": "Int64",  "description": "Unix timestamp of the first slot of this epoch" },
+                "epoch":                 { "type": "UInt64", "description": "Clock sysvar epoch" },
+                "leader_schedule_epoch": { "type": "UInt64", "description": "Epoch whose leader schedule is currently being computed" },
+                "unix_timestamp":        { "type": "Int64",  "description": "Stake-weighted cluster unix timestamp estimate for this slot" }
+            }
+        },
+        "recent_blockhashes": {
+            "type": "Array",
+            "description": "Newest 151 entries of the blockhash queue at the end of this slot, newest first: exactly the blockhashes a transaction in a child block may reference (age <= 150 inclusive, matching the agave off-by-one in the transaction age check). The first entry is this block's blockhash.",
+            "max_len": 151,
+            "element": { "type": "Hash", "description": "Blockhash" }
+        },
+        "recent_blockhashes_sysvar": {
+            "type": "Array",
+            "description": "Decoded RecentBlockhashes sysvar account content at the end of this slot, newest first (the newest 150 blockhash queue entries with their fee calculators)",
+            "max_len": 150,
+            "element": {
+                "type": "Tuple",
+                "description": "RecentBlockhashes sysvar entry",
+                "fields": {
+                    "blockhash":              { "type": "Hash",   "description": "Blockhash" },
+                    "lamports_per_signature": { "type": "UInt64", "description": "Fee calculator (lamports per signature) in effect when this blockhash was registered" }
+                }
+            }
+        },
+        "last_restart_slot_sysvar":  { "type": "UInt64",                                     "description": "Highest hard fork slot less than or equal to bank slot" },
+        "num_transactions":          { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Total number of transactions committed in this block" },
+        "num_failed_txns":           { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Number of transactions that committed with an error" },
+        "num_nonvote_txns":          { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Number of non-vote transactions committed in this block" },
+        "num_nonvote_failed_txns":   { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Number of non-vote transactions that committed with an error" },
+        "num_signatures":            { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Total number of signatures processed in the block" },
+        "num_shreds":                { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Number of data shreds making up this block" },
+        "tick_height":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Cumulative tick height at the end of this block" },
+        "execution_fees":            { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Total execution (base) fees collected in this block, pre-burn" },
+        "priority_fees":             { "type": "UInt64",                                     "description": "Total priority fees collected in this block (priority fees are not burned)" },
+        "tips":                      { "type": "UInt64",                                     "description": "Total gross tips credited to tip accounts in this block, before block-level tip commission" },
+        "fees_burned":               { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Lamports burned at fee settlement per the fee schedule (50% of execution fees). If the resolved fee collector fails validation the reward portion is also burned; that case shows up as leader_fee_reward with no matching other_diffs credit." },
+        "leader_fee_reward":         { "type": "UInt64",                                     "description": "Lamports owed for block production at fee settlement per the fee schedule (priority fees plus unburned execution fees). The actual credit is an other_diffs entry for the resolved fee collector: the leader identity, or the leader vote account's block-revenue collector when custom_commission_collector is active. If the collector fails validation this amount is burned instead and the collector's other_diffs entry shows no balance change." },
+        "capitalization":            { "type": "UInt64", "compression": "Delta, ZSTD",       "description": "Total lamport supply" },
+        "total_effective_stake":     { "type": "UInt64",                                     "description": "Effective stake from stake delegations" },
+        "total_activating_stake":    { "type": "UInt64",                                     "description": "Stake activating during this slot's epoch" },
+        "total_deactivating_stake":  { "type": "UInt64",                                     "description": "Stake deactivating during this slot's epoch" },
+        "total_epoch_stake":         { "type": "UInt64",                                     "description": "Total stake delegated to active vote accounts this epoch" },
+        "sysvar_diffs": {
+            "type": "Array",
+            "description": "Final per-account diff of every sysvar account written this block; repeated writes to the same sysvar (e.g. the stake history update then its rent-exemption top-up at an epoch boundary) are coalesced into one entry keeping the first pre-state and last post-state. Ordinary slots carry ~4 entries (Clock, SlotHashes, RecentBlockhashes, SlotHistory; LastRestartSlot only when it changes), boundary/PER slots 5-6. Overflow past the 16-account bound drops the entry with a validator log warning",
+            "max_len": 16,
+            "element": {
+                "type": "Tuple",
+                "description": "Post-state of an updated sysvar account",
+                "fields": {
+                    "pubkey":        { "type": "Pubkey", "description": "Sysvar account pubkey" },
+                    "owner":         { "type": "Pubkey", "description": "Post-state owner pubkey" },
+                    "prev_owner":    { "type": "Pubkey", "description": "Pre-state owner pubkey" },
+                    "lamports":      { "type": "UInt64", "description": "Post-state lamports" },
+                    "prev_lamports": { "type": "UInt64", "description": "Pre-state lamports" },
+                    "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
+                    "prev_data_sz":  { "type": "UInt64", "description": "Pre-state data size in bytes" },
+                    "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" }
+                }
+            }
+        },
+        "other_diffs": {
+            "type": "Array",
+            "description": "Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites. Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning",
+            "max_len": 32,
+            "element": {
+                "type": "Tuple",
+                "description": "Post-state of an updated account",
+                "fields": {
+                    "pubkey":        { "type": "Pubkey", "description": "Account pubkey" },
+                    "owner":         { "type": "Pubkey", "description": "Post-state owner pubkey" },
+                    "prev_owner":    { "type": "Pubkey", "description": "Pre-state owner pubkey" },
+                    "lamports":      { "type": "UInt64", "description": "Post-state lamports" },
+                    "prev_lamports": { "type": "UInt64", "description": "Pre-state lamports" },
+                    "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
+                    "prev_data_sz":  { "type": "UInt64", "description": "Pre-state data size in bytes" },
+                    "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" }
+                }
+            }
+        },
+        "fec_count":                 { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Number of FEC sets observed while assembling this block" },
+        "fec_merkle_roots": {
+            "type": "Array",
+            "description": "Merkle chain of FEC sets observed while assembling this block",
+            "max_len": 1024,
+            "element": { "type": "Hash", "description": "FEC merkle root" }
+        }
+    }
+}

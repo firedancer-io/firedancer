@@ -1,4 +1,5 @@
 #include "fd_stakes.h"
+#include "../events/fd_event_runtime.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -620,6 +621,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   fd_collector_overrides_inherit( overrides, bank->collector_overrides_fork_id, co_child, fd_ulong_sat_sub( bank->f.epoch, 1UL ) );
   bank->collector_overrides_fork_id = co_child;
 
+  ulong top_votes_eligible = 0UL;
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
        iter = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool ) ) {
@@ -661,6 +663,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     }
 
     fd_vote_stakes_insert( vote_stakes, fork_id, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1, bls_key_t_1 );
+    top_votes_eligible++;
     fd_accdb_unread_one( accdb, &acc );
   }
 
@@ -711,9 +714,10 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     fd_pubkey_t pubkey;
+    fd_pubkey_t node_account;
     ulong       stake;
     ushort      commission_t_1 = 0;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, NULL, &stake,
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
                              NULL, NULL, &commission_t_1, NULL, NULL, NULL );
 
     ushort commission_t_3 = 0;
@@ -742,11 +746,18 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     get_vote_credits( acc.data, acc.data_len, vote_ele->commission, epoch_credits );
     fd_accdb_unread_one( accdb, &acc );
 
+    if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
+      fd_event_runtime_vote_account_emit( bank, pubkey.uc, node_account.uc, stake,
+                                          commission_t_1, exists_t_2, commission_t_2, exists_t_3, commission_t_3,
+                                          vote_ele->commission, epoch_credits );
+    }
+
     fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
     vote_reward_cnt++;
     bank->f.total_epoch_stake += stake;
   }
   *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_votes( staked_accounts, top_votes_eligible );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L2644-L2695 */
@@ -774,10 +785,13 @@ fd_stakes_burn_vat( fd_bank_t *         bank,
     FD_TEST( acc.lamports>=burn_per_epoch );
     total_vat    += burn_per_epoch;
     acc.lamports -= burn_per_epoch;
+    update->skip_event_diff = 1;
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   }
 
-  fd_accdb_svm_credit( bank, accdb, capture_ctx, &fd_sysvar_incinerator_id, total_vat );
+  fd_accdb_svm_credit( bank, accdb, capture_ctx, &fd_sysvar_incinerator_id, total_vat, 0 );
+
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_vat_burn( burn_per_epoch );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
@@ -840,6 +854,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   }
 
   fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_stake_history( &elem );
 
   /* Snapshot the stake history sysvar into a local buffer and release
      the accdb bracket before calling fd_refresh_vote_accounts, which
@@ -884,7 +899,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 void
 fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
                                    fd_acc_t const *    acc,
-                                   fd_bank_t *         bank ) {
+                                   fd_bank_t *         bank,
+                                   fd_txn_in_t const * txn_in ) {
 
   fd_stake_state_t const * stake_state       = fd_stakes_get_state( acc );
   fd_stake_state_t const * prior_stake_state = NULL;
@@ -902,6 +918,7 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
     if( FD_LIKELY( !prior_has_delegation ) ) return; /* nothing to remove from */
     fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
     fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+    if( FD_UNLIKELY( txn_in && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_stake_delegation_emit( txn_in, bank, pubkey, NULL );
     return;
   }
 
@@ -940,4 +957,5 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
                                     acc->lamports,
                                     (uint)acc->data_len,
                                     fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
+  if( FD_UNLIKELY( txn_in && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_stake_delegation_emit( txn_in, bank, pubkey, stake_state );
 }

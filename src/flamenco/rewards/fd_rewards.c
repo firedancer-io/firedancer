@@ -16,6 +16,7 @@
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_accdb_svm.h"
 #include "fd_rewards_base.h"
+#include "../events/fd_event_runtime.h"
 
 #include <math.h>
 
@@ -1621,8 +1622,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
       /* Credit rewards to the collector (creating a new system account
          if it does not exist). */
-      fd_accdb_svm_credit( bank, accdb, capture_ctx, &collector_reward->pubkey, rewards );
-      if( FD_LIKELY( !fd_pubkey_eq( &collector_reward->pubkey, &fd_sysvar_incinerator_id ) ) ) {
+      int is_vote_reward = !fd_pubkey_eq( &collector_reward->pubkey, &fd_sysvar_incinerator_id );
+      fd_accdb_svm_credit( bank, accdb, capture_ctx, &collector_reward->pubkey, rewards, is_vote_reward );
+      if( FD_LIKELY( is_vote_reward ) ) {
         credited_vote_rewards = fd_ulong_sat_add( credited_vote_rewards, rewards );
       }
     }
@@ -1641,7 +1643,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
       /* Credit rewards to vote account (creating a new system account if
          it does not exist) */
-      fd_accdb_svm_credit( bank, accdb, capture_ctx, &ele->pubkey, rewards );
+      fd_accdb_svm_credit( bank, accdb, capture_ctx, &ele->pubkey, rewards, 1 );
       distributed_rewards   = fd_ulong_sat_add( distributed_rewards, rewards );
       credited_vote_rewards = fd_ulong_sat_add( credited_vote_rewards, rewards );
     }
@@ -1691,6 +1693,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
                                       fd_capture_ctx_t *  capture_ctx,
                                       ulong               reward_lamports,
                                       ulong               new_credits_observed,
+                                      ulong               partition_idx,
                                       fd_acc_t *          acc,
                                       fd_lthash_adder_t * adder_pre,
                                       fd_lthash_value_t * sum_pre,
@@ -1710,6 +1713,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
 
   fd_lthash_adder_push_solana_account( adder_pre, sum_pre, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
 
+  ulong lamports_pre = acc->lamports;
   FD_TEST( !__builtin_add_overflow( acc->lamports, reward_lamports, &acc->lamports ) );
 
   ulong old_credits_observed                = stake_state->stake.stake.credits_observed;
@@ -1740,6 +1744,15 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
                                     acc->lamports,
                                     (uint)acc->data_len,
                                     fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
+    fd_event_runtime_stake_delegation_payout_emit( bank,
+                                                   stake_pubkey->uc,
+                                                   stake_state->stake.stake.delegation.voter_pubkey.uc,
+                                                   stake_state->stake.stake.delegation.stake,
+                                                   stake_state->stake.stake.delegation.activation_epoch,
+                                                   stake_state->stake.stake.delegation.deactivation_epoch,
+                                                   stake_state->stake.stake.credits_observed );
+  }
 
   if( FD_UNLIKELY( capture_ctx && capture_ctx->capture_solcap ) ) {
     fd_capture_link_write_stake_account_payout( capture_ctx,
@@ -1757,6 +1770,11 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
   FD_STORE( fd_stake_state_t, acc->data, *stake_state );
   fd_lthash_adder_push_solana_account( adder_post, sum_post, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
   fd_hashes_capture_account( stake_pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
+    fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_STAKE, acc->pubkey, acc->owner,
+                                  lamports_pre, acc->lamports, partition_idx, new_credits_observed,
+                                  stake_state->stake.stake.delegation.stake );
+  }
   acc->commit = 1;
 
   return 0;
@@ -1821,6 +1839,7 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
                                                             capture_ctx,
                                                             reward_lamports[ i ],
                                                             credits_observed[ i ],
+                                                            partition_idx,
                                                             &accs[ i ],
                                                             adder_pre, sum_pre,
                                                             adder_post, sum_post ) ) ) {

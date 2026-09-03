@@ -171,7 +171,7 @@ vote_account_modify( fd_bank_t *           bank,
     FD_LOG_WARNING(( "slot %lu: vote account %s failed to serialize; skipping", bank->f.slot, pk_b58 ));
     return;
   }
-  fd_accdb_svm_write( bank, accdb, capture_ctx, pk, &owner, buf, data_len, 0UL, 0 );
+  fd_accdb_svm_write( bank, accdb, capture_ctx, pk, &owner, buf, data_len, 0UL, 0, 1 );
 }
 
 void

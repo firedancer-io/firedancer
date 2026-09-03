@@ -156,6 +156,11 @@ def start_cluster(ctx, bootstrap_validator_name, bootstrap_stake):
 
     solana_genesis = solana_binary('solana-genesis')
 
+    bootstrap_bls_pubkey = subprocess.run(
+        [solana_binary('solana-keygen'), 'bls_pubkey', id_key],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
     def parse_genesis_output(output):
         lines = output.split('\n')
         genesis_hash = None
@@ -193,6 +198,8 @@ def start_cluster(ctx, bootstrap_validator_name, bootstrap_stake):
             stake_key,
             "--bootstrap-stake-authorized-pubkey",
             id_key,
+            "--bootstrap-validator-bls-pubkey",
+            bootstrap_bls_pubkey,
             "--bootstrap-validator-lamports",
             "10000000000",
             "--bootstrap-validator-stake-lamports",
@@ -252,6 +259,7 @@ def start_cluster(ctx, bootstrap_validator_name, bootstrap_stake):
             "--expected-genesis-hash",
             genesis_hash,
             "--no-wait-for-vote-to-start-leader",
+            "--no-xdp",
             "--full-snapshot-interval-slots",
             "100",
             "--snapshot-interval-slots",
@@ -434,7 +442,7 @@ def add_node(ctx, validator_name):
             shred_version,
             "--expected-genesis-hash",
             genesis_hash,
-            "--tpu-disable-quic",
+            "--no-xdp",
             "--log",
             f"{node_path}/validator.log",
         ],
@@ -577,11 +585,14 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
             sys.exit(1)
 
         stake_history_output = result.stdout
-        first_entry = stake_history_output.splitlines()[3]
-        epoch, effective_stake, activating_stake, deactivating_stake, _ = first_entry.split()
+        data_lines = [l for l in stake_history_output.splitlines() if l.strip() and l.split()[0].isdigit()]
+        if not data_lines:
+            click.echo("Error: no stake-history entries yet (cluster must be past epoch 0)", err=True)
+            sys.exit(1)
+        epoch, effective_stake, activating_stake, deactivating_stake, _ = data_lines[0].split()
         total_stake = float(effective_stake) + float(activating_stake) - float(deactivating_stake)
 
-        staked_sol_amount = int(total_stake / (1 - float(percentage)/100.0) * float(percentage)/100.0)
+        staked_sol_amount = round(total_stake / (1 - float(percentage)/100.0) * float(percentage)/100.0, 9)
         click.echo(f"  Calculated stake amount: {staked_sol_amount} SOL ({percentage}% of network)")
     else:
         staked_sol_amount = int(sol)
