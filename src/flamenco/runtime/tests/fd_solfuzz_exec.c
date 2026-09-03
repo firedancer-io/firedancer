@@ -75,27 +75,10 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
     return 0;
   }
 
-  /* AcctState -> data */
-  if( expected->data != NULL || actual->data != NULL ) {
-    if( expected->data == NULL ) {
-      FD_LOG_WARNING(( "Expected account data is NULL, actual is non-NULL" ));
-      return 0;
-    }
-
-    if( actual->data == NULL ) {
-      FD_LOG_WARNING(( "Expected account data is NULL, actual is non-NULL" ));
-      return 0;
-    }
-
-    if( expected->data->size != actual->data->size ) {
-      FD_LOG_WARNING(( "Account data size mismatch: expected=%u actual=%u", expected->data->size, actual->data->size ));
-      return 0;
-    }
-
-    if( !fd_memeq( expected->data->bytes, actual->data->bytes, expected->data->size ) ) {
-      FD_LOG_WARNING(( "Account data mismatch" ));
-      return 0;
-    }
+  /* AcctState -> data_hash */
+  if( expected->data_repr.data_hash != actual->data_repr.data_hash ) {
+    FD_LOG_WARNING(( "Account data hash mismatch: expected=%016lx actual=%016lx", expected->data_repr.data_hash, actual->data_repr.data_hash ));
+    return 0;
   }
 
   /* AcctState -> executable */
@@ -194,27 +177,10 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
     }
   }
 
-  /* TxnResult -> return_data */
-  if( expected->return_data != NULL || actual->return_data != NULL ) {
-    if( expected->return_data == NULL ) {
-      FD_LOG_WARNING(( "Expected return data is NULL, actual is non-NULL" ));
-      return 0;
-    }
-
-    if( actual->return_data == NULL ) {
-      FD_LOG_WARNING(( "Expected return data is NULL, actual is non-NULL" ));
-      return 0;
-    }
-
-    if( expected->return_data->size != actual->return_data->size ) {
-      FD_LOG_WARNING(( "Return data size mismatch: expected=%u actual=%u", expected->return_data->size, actual->return_data->size ));
-      return 0;
-    }
-
-    if( !fd_memeq( expected->return_data->bytes, actual->return_data->bytes, expected->return_data->size ) ) {
-      FD_LOG_WARNING(( "Return data mismatch" ));
-      return 0;
-    }
+  /* TxnResult -> return_data_hash */
+  if( expected->return_data_hash != actual->return_data_hash ) {
+    FD_LOG_WARNING(( "Return data hash mismatch: expected=%016lx actual=%016lx", expected->return_data_hash, actual->return_data_hash ));
+    return 0;
   }
 
   /* TxnResult -> executed_units */

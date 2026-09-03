@@ -29,10 +29,10 @@ typedef enum fd_exec_test_err_kind {
 typedef struct fd_exec_test_input_data_region {
     /* Offset from the start of the input data segment (0x400000000) */
     uint64_t offset;
-    /* Content of the memory region */
-    pb_bytes_array_t *content;
     /* If the memory region is writable or not */
     bool is_writable;
+    /* 8-byte XXH64 hash (seed 0) of the memory region content, or 0 if empty. */
+    uint64_t content_hash;
 } fd_exec_test_input_data_region_t;
 
 typedef PB_BYTES_ARRAY_T(1400) fd_exec_test_syscall_invocation_function_name_t;
@@ -54,18 +54,19 @@ typedef struct fd_exec_test_syscall_effects {
     uint64_t r0; /* Result of a successful execution */
     /* CU's remaining */
     uint64_t cu_avail;
-    /* Memory regions */
-    pb_bytes_array_t *heap;
-    pb_bytes_array_t *stack;
     /* Current number of stack frames pushed */
     uint64_t frame_count;
-    pb_bytes_array_t *rodata;
     /* VM state */
     uint64_t pc;
     pb_size_t input_data_regions_count;
     struct fd_exec_test_input_data_region *input_data_regions;
     /* Error Kind (should be used along with error code) */
     fd_exec_test_err_kind_t error_kind;
+    /* 8-byte XXH64 hashes (seed 0) of the VM memory regions, or 0 if empty. */
+    uint64_t heap_hash;
+    uint64_t stack_hash;
+    /* 8-byte XXH64 hash (seed 0) of the rodata segment, or 0 if empty. */
+    uint64_t rodata_hash;
     /* Output registers (to test interpreter) */
     uint64_t r1;
     uint64_t r2;
@@ -188,21 +189,21 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT {0, NULL, 0}
+#define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT {0, 0, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, false, FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT}
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, 0, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, 0, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT {0, 0}
 #define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT    {NULL, NULL}
-#define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
+#define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, 0, 0}
 #define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, false, FD_EXEC_TEST_RETURN_DATA_INIT_ZERO, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO}
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, 0, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, 0, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_SYSCALL_FIXTURE_INIT_ZERO   {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_ZERO {0, 0}
@@ -211,21 +212,21 @@ extern "C" {
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_OFFSET_TAG 1
-#define FD_EXEC_TEST_INPUT_DATA_REGION_CONTENT_TAG 2
 #define FD_EXEC_TEST_INPUT_DATA_REGION_IS_WRITABLE_TAG 3
+#define FD_EXEC_TEST_INPUT_DATA_REGION_CONTENT_HASH_TAG 4
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_FUNCTION_NAME_TAG 1
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_HEAP_PREFIX_TAG 2
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_STACK_PREFIX_TAG 3
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_ERROR_TAG   1
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_R0_TAG      2
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_CU_AVAIL_TAG 3
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_HEAP_TAG    4
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_STACK_TAG   5
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_FRAME_COUNT_TAG 7
-#define FD_EXEC_TEST_SYSCALL_EFFECTS_RODATA_TAG  9
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_PC_TAG      10
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INPUT_DATA_REGIONS_TAG 11
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_ERROR_KIND_TAG 12
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_HEAP_HASH_TAG 13
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_STACK_HASH_TAG 14
+#define FD_EXEC_TEST_SYSCALL_EFFECTS_RODATA_HASH_TAG 15
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_R1_TAG      107
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_R2_TAG      108
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_R3_TAG      109
@@ -273,8 +274,8 @@ extern "C" {
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT64,   offset,            1) \
-X(a, POINTER,  SINGULAR, BYTES,    content,           2) \
-X(a, STATIC,   SINGULAR, BOOL,     is_writable,       3)
+X(a, STATIC,   SINGULAR, BOOL,     is_writable,       3) \
+X(a, STATIC,   SINGULAR, FIXED64,  content_hash,      4)
 #define FD_EXEC_TEST_INPUT_DATA_REGION_CALLBACK NULL
 #define FD_EXEC_TEST_INPUT_DATA_REGION_DEFAULT NULL
 
@@ -322,13 +323,13 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  syscall_invocation,   3)
 X(a, STATIC,   SINGULAR, INT64,    error,             1) \
 X(a, STATIC,   SINGULAR, UINT64,   r0,                2) \
 X(a, STATIC,   SINGULAR, UINT64,   cu_avail,          3) \
-X(a, POINTER,  SINGULAR, BYTES,    heap,              4) \
-X(a, POINTER,  SINGULAR, BYTES,    stack,             5) \
 X(a, STATIC,   SINGULAR, UINT64,   frame_count,       7) \
-X(a, POINTER,  SINGULAR, BYTES,    rodata,            9) \
 X(a, STATIC,   SINGULAR, UINT64,   pc,               10) \
 X(a, POINTER,  REPEATED, MESSAGE,  input_data_regions,  11) \
 X(a, STATIC,   SINGULAR, UENUM,    error_kind,       12) \
+X(a, STATIC,   SINGULAR, FIXED64,  heap_hash,        13) \
+X(a, STATIC,   SINGULAR, FIXED64,  stack_hash,       14) \
+X(a, STATIC,   SINGULAR, FIXED64,  rodata_hash,      15) \
 X(a, STATIC,   SINGULAR, UINT64,   r1,              107) \
 X(a, STATIC,   SINGULAR, UINT64,   r2,              108) \
 X(a, STATIC,   SINGULAR, UINT64,   r3,              109) \
@@ -407,7 +408,6 @@ extern const pb_msgdesc_t fd_exec_test_return_data_t_msg;
 #define FD_EXEC_TEST_RETURN_DATA_FIELDS &fd_exec_test_return_data_t_msg
 
 /* Maximum encoded size of messages (where known) */
-/* fd_exec_test_InputDataRegion_size depends on runtime parameters */
 /* fd_exec_test_VmContext_size depends on runtime parameters */
 /* fd_exec_test_SyscallInvocation_size depends on runtime parameters */
 /* fd_exec_test_SyscallContext_size depends on runtime parameters */
@@ -416,8 +416,9 @@ extern const pb_msgdesc_t fd_exec_test_return_data_t_msg;
 /* fd_exec_test_FullVmContext_size depends on runtime parameters */
 /* fd_exec_test_ValidateVmFixture_size depends on runtime parameters */
 /* fd_exec_test_ReturnData_size depends on runtime parameters */
+#define FD_EXEC_TEST_INPUT_DATA_REGION_SIZE      22
 #define FD_EXEC_TEST_VALIDATE_VM_EFFECTS_SIZE    13
-#define ORG_SOLANA_SEALEVEL_V1_VM_PB_H_MAX_SIZE  FD_EXEC_TEST_VALIDATE_VM_EFFECTS_SIZE
+#define ORG_SOLANA_SEALEVEL_V1_VM_PB_H_MAX_SIZE  FD_EXEC_TEST_INPUT_DATA_REGION_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_ErrKind fd_exec_test_ErrKind

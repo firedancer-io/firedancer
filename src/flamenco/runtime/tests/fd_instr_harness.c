@@ -175,10 +175,11 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     ulong txn_idx = input_txn_idx[j];
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
-    uint dlen = test_ctx->accounts[j].data ? test_ctx->accounts[j].data->size : 0U;
+    pb_bytes_array_t const * in_data = fd_solfuzz_acct_data( &test_ctx->accounts[j] );
+    uint dlen = in_data ? in_data->size : 0U;
     uchar * data_buf = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
     if( dlen ) {
-      fd_memcpy( data_buf, test_ctx->accounts[j].data->bytes, dlen );
+      fd_memcpy( data_buf, in_data->bytes, dlen );
     }
 
     /* Initialize entry with in-memory account data (no DB backing) */
@@ -207,10 +208,11 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
 
     if( FD_UNLIKELY( !memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      if( FD_UNLIKELY( !prog->data ) ) continue;
+      pb_bytes_array_t const * prog_data = fd_solfuzz_acct_data( prog );
+      if( FD_UNLIKELY( !prog_data ) ) continue;
 
       fd_bpf_state_t program_loader_state[1];
-      int err = fd_bpf_loader_program_get_state2( prog->data->bytes, prog->data->size, program_loader_state );
+      int err = fd_bpf_loader_program_get_state2( prog_data->bytes, prog_data->size, program_loader_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         continue;
       }
@@ -228,7 +230,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
           break;
         }
       }
-      if( FD_UNLIKELY( pd==NULL || !pd->data ) ) {
+      pb_bytes_array_t const * pd_data = pd ? fd_solfuzz_acct_data( pd ) : NULL;
+      if( FD_UNLIKELY( pd==NULL || !pd_data ) ) {
         continue;
       }
 
@@ -247,10 +250,10 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
          carries program data.  This executable account is read-only on
          the invoke path and its lamports are never consumed, only used
          as an existence gate. */
-      exe->lamports   = ( !pd->lamports && pd->data->size ) ? 1UL : pd->lamports;
+      exe->lamports   = ( !pd->lamports && pd_data->size ) ? 1UL : pd->lamports;
       exe->executable = pd->executable;
-      exe->data_len   = pd->data->size;
-      exe->data       = (uchar *)pd->data->bytes;
+      exe->data_len   = pd_data->size;
+      exe->data       = (uchar *)pd_data->bytes;
       txn_out->accounts.executable_cnt++;
     }
   }
@@ -267,14 +270,15 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   ctx->sysvar_cache = sysvar_cache;
   for( ulong i=0UL; i<test_ctx->accounts_count; i++ ) {
     fd_exec_test_acct_state_t const * account = &test_ctx->accounts[i];
-    if( FD_UNLIKELY( !account->data ) ) continue;
+    pb_bytes_array_t const *          data    = fd_solfuzz_acct_data( account );
+    if( FD_UNLIKELY( !data ) ) continue;
 
     fd_pubkey_t const * address = fd_type_pun_const( account->address );
     fd_sysvar_cache_restore_one( sysvar_cache,
                                  address,
                                  account->lamports,
-                                 account->data->bytes,
-                                 account->data->size );
+                                 data->bytes,
+                                 data->size );
   }
 
   ctx->runtime = runtime;
@@ -468,9 +472,10 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
       executable = acc->executable;
       owner      = acc->owner;
     } else {
+      pb_bytes_array_t const * in_data = fd_solfuzz_acct_data( in_acct );
       lamports   = in_acct->lamports;
-      data       = in_acct->data ? in_acct->data->bytes : NULL;
-      data_len   = in_acct->data ? in_acct->data->size  : 0UL;
+      data       = in_data ? in_data->bytes : NULL;
+      data_len   = in_data ? in_data->size  : 0UL;
       executable = in_acct->executable;
       owner      = in_acct->owner;
     }
@@ -486,17 +491,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
     /* Copy over account content */
     memcpy( out_acct->address, in_acct->address, sizeof(fd_pubkey_t) );
     out_acct->lamports = lamports;
-    if( data_len>0UL ) {
-      out_acct->data =
-        FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                    PB_BYTES_ARRAY_T_ALLOCSIZE( data_len ) );
-      if( FD_UNLIKELY( _l > output_end ) ) {
-        fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
-        return 0UL;
-      }
-      out_acct->data->size = (pb_size_t)data_len;
-      fd_memcpy( out_acct->data->bytes, data, data_len );
-    }
+    fd_solfuzz_acct_set_data_hash( out_acct, data, data_len );
 
     out_acct->executable = executable;
     memcpy( out_acct->owner, owner, sizeof(fd_pubkey_t) );
@@ -510,16 +505,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   /* Capture return data */
   fd_txn_return_data_t * return_data = &ctx->txn_out->details.return_data;
-  if( return_data->len>0UL ) {
-    effects->return_data = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
-                                PB_BYTES_ARRAY_T_ALLOCSIZE( return_data->len ) );
-    if( FD_UNLIKELY( _l > output_end ) ) {
-      fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
-      return 0UL;
-    }
-    effects->return_data->size = (pb_size_t)return_data->len;
-    fd_memcpy( effects->return_data->bytes, return_data->data, return_data->len );
-  }
+  effects->return_data_hash = fd_solfuzz_hash( return_data->data, return_data->len );
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
