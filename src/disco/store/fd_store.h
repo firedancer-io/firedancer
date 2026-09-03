@@ -45,16 +45,22 @@ fd_shredb_key_shred_idx( ulong key ) {
   return (uint)fd_ulong_extract( key, 0, 15 );
 }
 
+typedef __attribute__((aligned(4))) ulong fd_shredb_map_key_t;
+
+FD_STATIC_ASSERT( sizeof(fd_shredb_map_key_t)==8UL, shredb_map_key_footprint );
+FD_STATIC_ASSERT( alignof(fd_shredb_map_key_t)==4UL, shredb_map_key_align );
+
 struct fd_shredb_shred_entry {
-  ulong        key;
-  atomic_ulong tag;
-  uint         next;
+  fd_shredb_map_key_t key;
+  uint                next;
 };
 typedef struct fd_shredb_shred_entry fd_shredb_shred_entry_t;
 
+FD_STATIC_ASSERT( sizeof(fd_shredb_shred_entry_t)==12UL, shredb_shred_entry_footprint );
+
 #define MAP_NAME   fd_shredb_shred_map
 #define MAP_ELE_T  fd_shredb_shred_entry_t
-#define MAP_KEY_T  ulong
+#define MAP_KEY_T  fd_shredb_map_key_t
 #define MAP_KEY    key
 #define MAP_IDX_T  uint
 #define MAP_NEXT   next
@@ -175,6 +181,7 @@ struct fd_store {
      at byte offset wire_off + ring_idx*sizeof(entry). */
   ulong        shred_map_gaddr;
   ulong        shred_pool_gaddr;
+  ulong        shred_tag_gaddr;
   ulong        slot_hint_gaddr;
   ulong        disk_max_shreds;
   ulong        disk_max_slots;
@@ -261,6 +268,7 @@ fd_store_footprint( ulong fec_max,
     if( FD_UNLIKELY( !max_shreds || !max_slots ||
                      fd_store_layout_append( &l, fd_shredb_shred_map_align(),     1UL,         fd_shredb_shred_map_footprint( disk_chain_cnt ) ) ||
                      fd_store_layout_append( &l, alignof(fd_shredb_shred_entry_t), max_shreds, sizeof(fd_shredb_shred_entry_t) ) ||
+                     fd_store_layout_append( &l, alignof(atomic_ulong),            max_shreds, sizeof(atomic_ulong) ) ||
                      fd_store_layout_append( &l, alignof(atomic_ulong),            max_slots,   sizeof(atomic_ulong) ) ) ) return 0UL;
   }
   if( FD_UNLIKELY( fd_store_layout_append( &l, fd_store_align(), 0UL, 1UL ) ) ) return 0UL;

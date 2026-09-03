@@ -212,6 +212,13 @@ test_query_miss( fd_wksp_t * wksp ) {
 }
 
 void
+test_disk_index_footprint( void ) {
+  ulong fp_no_disk = fd_store_footprint( 8UL, 31840UL,  0UL, 0UL, 0UL );
+  ulong fp_50_gib  = fd_store_footprint( 8UL, 31840UL, 50UL, 0UL, 0UL );
+  FD_TEST( fp_50_gib-fp_no_disk==(1322UL<<20)+4096UL ); /* map, entries, tags, hints, and alignment */
+}
+
+void
 test_fec_data_max( fd_wksp_t * wksp ) {
   ulong fec_max = 8;
 
@@ -915,6 +922,8 @@ test_concurrent( fd_wksp_t * wksp ) {
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_disk_index_footprint();
 
   int require_multitile = fd_env_strip_cmdline_contains( &argc, &argv, "--require-multitile" );
   if( FD_UNLIKELY( require_multitile && fd_tile_cnt()<2UL ) )
