@@ -2085,6 +2085,7 @@ EXAMPLES
     <counter name="InvalidMessage" summary="Malformed messages received from the event service" />
     <counter name="ConnAttempt" summary="Connection attempts to the event service" />
     <counter name="HandshakeTimeout" summary="Authentication handshake timeouts with the event service" />
+    <counter name="CreditStall" summary="Reconnects forced because the event service stopped granting HTTP/2 flow-control credit while data was pending" />
 </tile>
 
 <enum name="SnapType">

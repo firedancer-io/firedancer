@@ -8,7 +8,6 @@
 #include "../../ballet/pb/fd_pb_tokenize.h"
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../../ballet/hex/fd_hex.h"
-#include "../../tango/tempo/fd_tempo.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/log/fd_log.h"
 #include "../keyguard/fd_keyguard.h"
@@ -42,6 +41,10 @@
 #define FD_EVENT_CLIENT_HEARTBEAT_NANOS (15L*(long)1e9)
 #define FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS (60L*(long)1e9)
 
+#define FD_EVENT_CLIENT_TX_RATE_BPS (2L*1000L*1000L)
+#define FD_EVENT_CLIENT_TX_BURST (256L<<10)
+#define FD_EVENT_CLIENT_CREDIT_STALL_NANOS (20L*(long)1e9)
+
 #define FD_EVENT_CLIENT_TOKEN_SZ (217UL)
 
 struct fd_event_client {
@@ -71,10 +74,16 @@ struct fd_event_client {
   int defer_disconnect;
   ulong consecutive_failure_count;
 
-  long last_stream_send_ticks;
-  long heartbeat_ticks;
-  long last_response_ticks;
-  long response_timeout_ticks;
+  long now; /* of the current poll */
+
+  long last_stream_send_ns;
+  long last_response_ns;
+
+  long  tx_tokens;
+  long  tx_tokens_ns;
+  long  stall_since;
+  ulong stall_rem;
+  ulong stall_events_sent;
 
   int auth_send_pending;
 
@@ -98,8 +107,6 @@ struct fd_event_client {
 
   int epoll_fd;
   int epoll_out_armed;
-
-  double tick_per_ns;
 
   int    use_tls;
 #if FD_HAS_OPENSSL
@@ -229,10 +236,12 @@ fd_event_client_new( void *                 shmem,
 
   client->defer_disconnect = INT_MAX;
   client->consecutive_failure_count = 7UL; /* Start high, so if server is down we don't keep retrying on boot */
-  client->last_stream_send_ticks = 0L;
-  client->tick_per_ns            = fd_tempo_tick_per_ns( NULL );
-  client->heartbeat_ticks        = (long)(client->tick_per_ns*(double)FD_EVENT_CLIENT_HEARTBEAT_NANOS);
-  client->response_timeout_ticks = (long)(fd_tempo_tick_per_ns( NULL )*(double)FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS);
+  client->now                  = 0L;
+  client->last_stream_send_ns  = 0L;
+  client->last_response_ns     = 0L;
+  client->tx_tokens            = FD_EVENT_CLIENT_TX_BURST;
+  client->tx_tokens_ns         = 0L;
+  client->stall_since          = 0L;
 
   client->circq = circq;
   client->rng = rng;
@@ -301,8 +310,8 @@ fd_event_client_init_shred_version( fd_event_client_t * client,
 }
 
 static void
-backoff( fd_event_client_t * client ) {
-  long now = fd_log_wallclock();
+backoff( fd_event_client_t * client,
+         long                now ) {
   ulong backoff_base = 1UL << fd_ulong_min( client->consecutive_failure_count, 7UL ); /* max 4 mins */
   ulong backoff_jitter = fd_rng_ulong_roll( client->rng, backoff_base );
   client->disconnected.reconnect_deadline = now + (long)( backoff_base + backoff_jitter )*(long)1e9;
@@ -311,6 +320,7 @@ backoff( fd_event_client_t * client ) {
 
 static void
 disconnect( fd_event_client_t * client,
+            long                now,
             int                 reason,
             int                 err,
             int                 _backoff ) {
@@ -331,6 +341,7 @@ disconnect( fd_event_client_t * client,
   client->event_stream = NULL;
   client->auth_deadline = LONG_MAX;
   client->auth_send_pending = 0;
+  client->stall_since = 0L;
 
   client->auth_bearer[ 0 ] = '\0';
   client->auth_bearer_len  = 0UL;
@@ -381,22 +392,22 @@ disconnect( fd_event_client_t * client,
       break;
   }
 
-  if( FD_LIKELY( _backoff ) ) backoff( client );
+  if( FD_LIKELY( _backoff ) ) backoff( client, now );
 }
 
 void
 fd_event_client_set_identity( fd_event_client_t * client,
                               uchar const *       identity_pubkey ) {
   fd_memcpy( client->identity_pubkey, identity_pubkey, 32UL );
-  disconnect( client, DISCONNECT_REASON_IDENTITY_CHANGED, 0, 0 );
+  disconnect( client, client->now, DISCONNECT_REASON_IDENTITY_CHANGED, 0, 0 );
 }
 
 static void
 reconnect( fd_event_client_t * client,
+           long                now,
            int *               charge_busy ) {
   FD_TEST( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED );
 
-  long now = fd_log_wallclock();
   if( FD_UNLIKELY( now<client->disconnected.reconnect_deadline ) ) return;
 
   *charge_busy = 1;
@@ -412,12 +423,12 @@ reconnect( fd_event_client_t * client,
   void * pscratch = scratch;
   int err = fd_getaddrinfo( client->server_fqdn, &hints, &res, &pscratch, sizeof(scratch) );
   if( FD_UNLIKELY( err ) ) {
-    disconnect( client, DISCONNECT_REASON_DNS_RESOLVE_FAILED, err, 1 );
+    disconnect( client, now, DISCONNECT_REASON_DNS_RESOLVE_FAILED, err, 1 );
     return;
   }
 
   if( FD_UNLIKELY( !res || !res->ai_addr ) ) {
-    disconnect( client, DISCONNECT_REASON_DNS_RESOLVE_FAILED, 0, 1 );
+    disconnect( client, now, DISCONNECT_REASON_DNS_RESOLVE_FAILED, 0, 1 );
     return;
   }
 
@@ -442,7 +453,7 @@ reconnect( fd_event_client_t * client,
   if( FD_UNLIKELY( -1==setsockopt( client->sockfd, SOL_SOCKET, SO_SNDBUF, &client->so_sndbuf, sizeof(int) ) ) ) FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", client->so_sndbuf, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( -1==connect( client->sockfd, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) ) && errno!=EINPROGRESS ) ) {
-    disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, errno, 1 );
+    disconnect( client, now, DISCONNECT_REASON_CONNECT_FAILED, errno, 1 );
     return;
   }
 
@@ -451,7 +462,7 @@ reconnect( fd_event_client_t * client,
     BIO * bio = fd_openssl_bio_new_socket( client->sockfd, BIO_NOCLOSE );
     if( FD_UNLIKELY( !bio ) ) {
       FD_LOG_WARNING(( "fd_openssl_bio_new_socket failed" ));
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+      disconnect( client, now, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
       return;
     }
 
@@ -459,7 +470,7 @@ reconnect( fd_event_client_t * client,
     if( FD_UNLIKELY( !ssl ) ) {
       FD_LOG_WARNING(( "SSL_new failed" ));
       BIO_free( bio );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+      disconnect( client, now, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
       return;
     }
 
@@ -470,13 +481,13 @@ reconnect( fd_event_client_t * client,
     if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, client->server_fqdn ) ) ) {
       FD_LOG_WARNING(( "SSL_set_tlsext_host_name failed" ));
       SSL_free( ssl );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+      disconnect( client, now, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
       return;
     }
     if( FD_UNLIKELY( !SSL_set1_host( ssl, client->server_fqdn ) ) ) {
       FD_LOG_WARNING(( "SSL_set1_host failed" ));
       SSL_free( ssl );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+      disconnect( client, now, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
       return;
     }
 
@@ -491,7 +502,8 @@ reconnect( fd_event_client_t * client,
 }
 
 static int
-fd_event_client_try_send_authenticate( fd_event_client_t * client ) {
+fd_event_client_try_send_authenticate( fd_event_client_t * client,
+                                       long                now ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) return 0;
   if( FD_UNLIKELY( fd_grpc_client_request_stream_busy( client->grpc_client ) ) ) return 0;
 
@@ -519,7 +531,6 @@ fd_event_client_try_send_authenticate( fd_event_client_t * client ) {
 
   if( FD_UNLIKELY( !stream ) ) return 0;
 
-  long now = fd_log_wallclock();
   fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)2e9 );
   fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)2e9 );
 
@@ -534,12 +545,12 @@ static void
 fd_event_client_grpc_conn_established( void * app_ctx ) {
   fd_event_client_t * client = app_ctx;
 
-  long now = fd_log_wallclock();
+  long now = client->now;
   client->state             = FD_EVENT_CLIENT_STATE_AUTHENTICATING;
   client->auth_deadline     = now + (long)2e9;
   client->auth_send_pending = 1;
 
-  fd_event_client_try_send_authenticate( client );
+  fd_event_client_try_send_authenticate( client, now );
 }
 
 static void
@@ -615,7 +626,7 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   client->event_stream = NULL;
   client->metrics.transport_success_cnt++;
   client->state = FD_EVENT_CLIENT_STATE_CONNECTED;
-  client->connected.connected_timestamp = fd_log_wallclock();
+  client->connected.connected_timestamp = client->now;
   client->connect_fail_logged = 0;
   FD_LOG_NOTICE(( "connected to telemetry server %s%s://%.*s:%u%s",
                   fd_log_style_bold(), client->use_tls ? "https" : "http",
@@ -673,7 +684,7 @@ fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
   }
 
   client->metrics.events_acked++;
-  client->last_response_ticks = fd_tickcount();
+  client->last_response_ns = client->now;
   if( FD_UNLIKELY( nonce_ack==ULONG_MAX ) ) return;
 
   client->metrics.last_acked_id = nonce_ack;
@@ -771,13 +782,17 @@ fd_event_client_grpc_ping_ack( void * app_ctx ) {
 
 static void
 tx( fd_event_client_t * client,
+    long                now,
     int *               charge_busy ) {
   FD_TEST( client->state==FD_EVENT_CLIENT_STATE_CONNECTED );
 
   if( FD_UNLIKELY( client->event_stream && client->grpc_client->request_stream != NULL && client->grpc_client->request_stream!=client->event_stream ) ) return;
 
   if( FD_UNLIKELY( client->event_stream ) ) {
-    if( FD_UNLIKELY( fd_grpc_client_stream_send_is_blocked( client->grpc_client ) ) ) return;
+    if( FD_UNLIKELY( fd_grpc_client_stream_send_is_blocked( client->grpc_client ) ) ) {
+      if( fd_grpc_client_tx_budget( client->grpc_client ) && fd_grpc_client_request_continue( client->grpc_client ) ) *charge_busy = 1;
+      return;
+    }
   } else {
     if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) return;
   }
@@ -791,12 +806,14 @@ tx( fd_event_client_t * client,
         client->auth_bearer, client->auth_bearer_len,
         1 /* streaming */ );
     if( FD_UNLIKELY( !client->event_stream ) ) return; /* transient; retry next poll */
-    fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_HEADER, fd_log_wallclock()+(long)10e9 /* 10s */ );
-    client->last_stream_send_ticks = fd_tickcount();
-    client->last_response_ticks    = client->last_stream_send_ticks;
+    fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_HEADER, now+(long)10e9 /* 10s */ );
+    client->last_stream_send_ns = now;
+    client->last_response_ns    = now;
     *charge_busy = 1;
     return;
   }
+
+  if( FD_UNLIKELY( !fd_grpc_client_tx_budget( client->grpc_client ) ) ) return;
 
   ulong msg_sz;
   uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
@@ -804,10 +821,9 @@ tx( fd_event_client_t * client,
     /* Nothing to send.  If the stream has been quiet long enough that an
        intermediary proxy might kill it, send a zero-length
        StreamEventsRequest to heartbeat. */
-    long now_ticks = fd_tickcount();
-    if( FD_UNLIKELY( now_ticks-client->last_stream_send_ticks>client->heartbeat_ticks ) ) {
+    if( FD_UNLIKELY( now-client->last_stream_send_ns>FD_EVENT_CLIENT_HEARTBEAT_NANOS ) ) {
       if( FD_LIKELY( fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, (uchar const *)"", 0UL ) ) ) {
-        client->last_stream_send_ticks = now_ticks;
+        client->last_stream_send_ns = now;
         *charge_busy = 1;
       }
     }
@@ -818,7 +834,7 @@ tx( fd_event_client_t * client,
   if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
 
   client->metrics.events_sent++;
-  client->last_stream_send_ticks = fd_tickcount();
+  client->last_stream_send_ns = now;
   *charge_busy = 1;
 }
 
@@ -861,24 +877,68 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
     deadline = fd_long_min( deadline, client->connected.connected_timestamp+10L*(long)1e9 );
   }
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED && client->event_stream ) ) {
-    long ticks_left = fd_long_min( client->last_response_ticks   +client->response_timeout_ticks,
-                                   client->last_stream_send_ticks+client->heartbeat_ticks        )-fd_tickcount();
-    deadline = fd_long_min( deadline, now + (long)( (double)fd_long_max( ticks_left, 0L )/client->tick_per_ns ) );
+    deadline = fd_long_min( deadline, fd_long_min( client->last_response_ns   +FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS,
+                                                   client->last_stream_send_ns+FD_EVENT_CLIENT_HEARTBEAT_NANOS ) );
+    if( FD_UNLIKELY( client->tx_tokens<=0L && ( fd_circq_unsent_cnt( client->circq ) || fd_grpc_client_tx_pending( client->grpc_client ) || fd_grpc_client_tx_starved( client->grpc_client )==0UL ) ) ) {
+      deadline = fd_long_min( deadline, client->tx_tokens_ns + (1L-client->tx_tokens)*(long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS );
+    }
+    if( FD_UNLIKELY( client->stall_since ) ) deadline = fd_long_min( deadline, client->stall_since+FD_EVENT_CLIENT_CREDIT_STALL_NANOS );
   }
   return deadline;
 }
 
+static ulong
+pace_refill( fd_event_client_t * client,
+             long                now ) {
+  long ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
+  long dt          = fd_long_max( now-client->tx_tokens_ns, 0L );
+  long grant       = fd_long_min( dt/ns_per_byte, FD_EVENT_CLIENT_TX_BURST-client->tx_tokens );
+  client->tx_tokens   += grant;
+  client->tx_tokens_ns = client->tx_tokens==FD_EVENT_CLIENT_TX_BURST ? now : client->tx_tokens_ns+grant*ns_per_byte;
+  ulong budget = (ulong)fd_long_max( client->tx_tokens, 0L );
+  fd_grpc_client_set_tx_budget( client->grpc_client, budget );
+  return budget;
+}
+
+static void
+pace_debit( fd_event_client_t * client,
+            ulong               budget ) {
+  client->tx_tokens -= (long)( budget-fd_grpc_client_tx_budget( client->grpc_client ) );
+}
+
+static int
+credit_stall_check( fd_event_client_t * client,
+                    long                now ) {
+  ulong rem = fd_grpc_client_tx_starved( client->grpc_client );
+  if( FD_LIKELY( !rem ) ) {
+    client->stall_since = 0L;
+    return 0;
+  }
+  if( !client->stall_since || rem!=client->stall_rem || client->metrics.events_sent!=client->stall_events_sent ) {
+    client->stall_since       = now;
+    client->stall_rem         = rem;
+    client->stall_events_sent = client->metrics.events_sent;
+    return 0;
+  }
+  if( FD_LIKELY( now-client->stall_since<=FD_EVENT_CLIENT_CREDIT_STALL_NANOS ) ) return 0;
+  FD_LOG_WARNING(( "telemetry server stopped granting flow-control credit for over %ld seconds, reconnecting", FD_EVENT_CLIENT_CREDIT_STALL_NANOS/(long)1e9 ));
+  client->metrics.credit_stall_cnt++;
+  disconnect( client, now, DISCONNECT_REASON_TIMEOUT, 0, 1 );
+  return 1;
+}
+
 static void
 poll1( fd_event_client_t * client,
+       long                now,
        int *               charge_busy ) {
   if( FD_UNLIKELY( !client->has_genesis_hash || !client->has_shred_version ) ) return;
 
-  long now = fd_log_wallclock();
+  ulong budget = pace_refill( client, now );
 
-  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) reconnect( client, charge_busy );
+  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) reconnect( client, now, charge_busy );
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTING ) ) {
     if( FD_UNLIKELY( now>client->connecting.connect_deadline ) ) {
-      disconnect( client, DISCONNECT_REASON_TIMEOUT, 0, 1 );
+      disconnect( client, now, DISCONNECT_REASON_TIMEOUT, 0, 1 );
       return;
     }
   }
@@ -886,19 +946,19 @@ poll1( fd_event_client_t * client,
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && now>client->auth_deadline ) ) {
     FD_LOG_WARNING(( "auth handshake timed out" ));
     client->metrics.handshake_timeout_cnt++;
-    disconnect( client, DISCONNECT_REASON_TIMEOUT, 0, 1 );
+    disconnect( client, now, DISCONNECT_REASON_TIMEOUT, 0, 1 );
     return;
   }
   if( FD_LIKELY( client->state!=FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) {
     int rxtx_err;
 #   if FD_HAS_OPENSSL
     if( client->use_tls )
-      rxtx_err = fd_grpc_client_rxtx_ossl( client->grpc_client, client->ssl, charge_busy );
+      rxtx_err = fd_grpc_client_rxtx_ossl( client->grpc_client, client->ssl, now, charge_busy );
     else
 #   endif
-      rxtx_err = fd_grpc_client_rxtx_socket( client->grpc_client, client->sockfd, charge_busy );
+      rxtx_err = fd_grpc_client_rxtx_socket( client->grpc_client, client->sockfd, now, charge_busy );
     if( FD_UNLIKELY( -1==rxtx_err ) ) {
-      disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
+      disconnect( client, now, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
       return;
     }
   }
@@ -908,29 +968,33 @@ poll1( fd_event_client_t * client,
     client->defer_disconnect = INT_MAX;
     if( reason==DISCONNECT_REASON_AUTH_FAILED ) client->metrics.auth_fail_cnt++;
     if( reason==DISCONNECT_REASON_INVALID_PROTOBUF ) client->metrics.invalid_msg_cnt++;
-    disconnect( client, reason, 0, 1 );
+    disconnect( client, now, reason, 0, 1 );
     return;
   }
 
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && client->auth_send_pending ) ) {
-    fd_event_client_try_send_authenticate( client );
+    fd_event_client_try_send_authenticate( client, now );
   }
 
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
-    if( FD_UNLIKELY( client->event_stream && fd_tickcount()-client->last_response_ticks>client->response_timeout_ticks ) ) {
+    if( FD_UNLIKELY( client->event_stream && now-client->last_response_ns>FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS ) ) {
       FD_LOG_WARNING(( "no response from telemetry server in over %ld seconds", FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS/(long)1e9 ));
-      disconnect( client, DISCONNECT_REASON_TIMEOUT, 0, 1 );
+      disconnect( client, now, DISCONNECT_REASON_TIMEOUT, 0, 1 );
       return;
     }
     if( FD_UNLIKELY( client->consecutive_failure_count && (now-client->connected.connected_timestamp>10L*(long)1e9 ) ) ) client->consecutive_failure_count = 0UL;
-    tx( client, charge_busy );
+    if( FD_UNLIKELY( credit_stall_check( client, now ) ) ) return;
+    tx( client, now, charge_busy );
   }
+  pace_debit( client, budget );
 }
 
 void
 fd_event_client_poll( fd_event_client_t * client,
+                      long                now,
                       int *               charge_busy ) {
-  poll1( client, charge_busy );
+  client->now = now;
+  poll1( client, now, charge_busy );
 
   /* poll1 flushes before tx() enqueues: flush once more so bytes queued
      this poll go out now instead of arming EPOLLOUT on a writable
@@ -941,7 +1005,7 @@ fd_event_client_poll( fd_event_client_t * client,
     else
 #   endif
     if( FD_UNLIKELY( -1==fd_grpc_client_tx_flush_socket( client->grpc_client, client->sockfd ) ) ) {
-      disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
+      disconnect( client, now, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
       return;
     }
   }
