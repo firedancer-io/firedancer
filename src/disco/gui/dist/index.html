@@ -1,6 +1,29 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>(function(){try{var u=(window.location.protocol.startsWith("https")?"wss":"ws")+"://"+window.location.hostname+":"+window.location.port+"/websocket";var s="("+"function earlyWsWorkerMain(self, WS, url, compress) {\n  const socket = compress ? new WS(url, [\"compress-zstd\"]) : new WS(url);\n  socket.binaryType = \"arraybuffer\";\n  let frames = [];\n  let port = null;\n  let opened = false;\n  let closed = false;\n  const postFrame = (p, data) => {\n    p.postMessage(\n      { type: \"frame\", data },\n      data instanceof ArrayBuffer ? [data] : []\n    );\n  };\n  socket.onmessage = (m) => {\n    if (port) postFrame(port, m.data);\n    else frames.push(m.data);\n  };\n  socket.onopen = () => {\n    opened = true;\n    if (port)\n      port.postMessage({ type: \"adopt-open\", protocol: socket.protocol });\n  };\n  socket.onerror = () => {\n    if (!port) self.postMessage(\"error\");\n  };\n  socket.onclose = () => {\n    closed = true;\n    if (port) {\n      port.postMessage({ type: \"adopt-closed\" });\n      self.close();\n    } else {\n      self.postMessage(\"closed\");\n    }\n  };\n  const adoptPort = (p) => {\n    port = p;\n    p.onmessage = (pe) => {\n      const pm = pe.data;\n      if (pm.type === \"ws-send\") {\n        if (socket.readyState === WS.OPEN) socket.send(pm.data);\n        else console.warn(\"[WS] Attempting to send on closed WebSocket\");\n      } else {\n        socket.onmessage = null;\n        socket.onopen = null;\n        socket.onerror = null;\n        socket.onclose = null;\n        try {\n          socket.close();\n        } catch {\n        }\n        self.close();\n      }\n    };\n    if (opened)\n      p.postMessage({ type: \"adopt-open\", protocol: socket.protocol });\n    const buffered = frames;\n    frames = [];\n    for (const f of buffered) postFrame(p, f);\n    if (closed) {\n      p.postMessage({ type: \"adopt-closed\" });\n      self.close();\n    }\n  };\n  let chartWorker = null;\n  self.onmessage = (e) => {\n    const d = e.data;\n    if (d === \"kill-chart\") {\n      chartWorker?.terminate();\n      chartWorker = null;\n      return;\n    }\n    if (typeof d.spawnChart === \"string\") {\n      const req = d;\n      try {\n        chartWorker = new Worker(req.spawnChart);\n        chartWorker.onerror = () => self.postMessage(\"chartspawnfail\");\n        chartWorker.postMessage({ type: \"mainPort\", port: req.main }, [\n          req.main\n        ]);\n      } catch {\n        self.postMessage(\"chartspawnfail\");\n      }\n      return;\n    }\n    if (typeof d.spawn === \"string\") {\n      const req = d;\n      try {\n        const nested = new Worker(req.spawn);\n        nested.onerror = () => self.postMessage(\"spawnfail\");\n        nested.postMessage({ type: \"mainPort\", port: req.main }, [req.main]);\n        const chan = new MessageChannel();\n        nested.postMessage(\n          { type: \"adopt\", websocketUrl: url, compress, port: chan.port2 },\n          [chan.port2]\n        );\n        adoptPort(chan.port1);\n      } catch {\n        self.postMessage(\"spawnfail\");\n      }\n      return;\n    }\n    adoptPort(d);\n  };\n}"+")(self,WebSocket,"+JSON.stringify(u)+",true);";var r=URL.createObjectURL(new Blob([s],{type:"text/javascript"}));var w=new Worker(r);URL.revokeObjectURL(r);var e={worker:w,url:u,compress:true,error:false,closed:false};w.onmessage=function(m){if(m.data==='error')e.error=true;else if(m.data==='closed')e.closed=true};w.onerror=function(){e.error=true};window.__fdWsEarly=e;try{var h;var c=new MessageChannel();var g={port:c.port1,early:w,url:u,compress:true,error:false,pending:[]};c.port1.onmessage=function(m){if(g.pending.length<1e4)g.pending.push(m)};w.onmessage=function(m){if(m.data==='error')e.error=true;else if(m.data==='closed')e.closed=true;else if(m.data==='spawnfail')g.error=true;else if(m.data==='chartspawnfail'&&h)h.error=true};w.postMessage({spawn:location.origin+"/assets/wsWorker-CYq5K-Vx.js",main:c.port2},[c.port2]);window.__fdWsMain=g;delete window.__fdWsEarly;try{if(typeof OffscreenCanvas!=="undefined"&&HTMLCanvasElement.prototype.transferControlToOffscreen){var c2=new MessageChannel();h={port:c2.port1,early:w,error:false,pending:[]};c2.port1.onmessage=function(m){if(h.pending.length<1e3)h.pending.push(m)};w.postMessage({spawnChart:location.origin+"/assets/chartWorker-Dp5TMlLx.js",main:c2.port2},[c2.port2]);window.__fdChartMain=h}}catch(x){}}catch(x){}}catch(x){}})();</script>
+
+    <script>import("/assets/react-CJI3hyrN.js").catch(function(){});import("/assets/vendor-D716aTlO.js").catch(function(){});</script>
+
+    <script>(function shellVerifierMain(w, id) {
+  return w.fetch("/", { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((t) => {
+    if (!t) return;
+    const m = t.match(/<meta name="fd-build" content="([\w./-]+)"/);
+    const served = m ? m[1] : "";
+    if (served === id) return;
+    try {
+      if (w.sessionStorage.getItem("fd-shell-reload") === served) return;
+      w.sessionStorage.setItem("fd-shell-reload", served);
+    } catch {
+      return;
+    }
+    w.__fdShellStale = true;
+    w.dispatchEvent(new Event("fd-shell-stale"));
+    w.location.reload();
+  }).catch(() => {
+  });
+})(window,"assets/index-dOd7JJf8.js");</script>
+
     <meta charset="UTF-8" />
     <link id="favicon" rel="icon" type="image/svg+xml" />
     <link
@@ -14,12 +37,6 @@
       rel="preload"
       type="image/svg+xml"
       as="image"
-      href="/assets/firedancer-D_J0EzUc.svg"
-    />
-    <link
-      rel="preload"
-      type="image/svg+xml"
-      as="image"
       href="/assets/firedancer_logo-CrgwxzPk.svg"
     />
     <link
@@ -28,34 +45,21 @@
       as="image"
       href="/assets/firedancer_circle_logo-D9jlxCje.svg"
     />
-    <link
-      rel="preload"
-      type="image/svg+xml"
-      as="image"
-      href="/assets/frankendancer-0Top5G94.svg"
-    />
-    <link
-      rel="preload"
-      type="image/svg+xml"
-      as="image"
-      href="/assets/frankendancer_logo-CHyfJ772.svg"
-    />
-    <link
-      rel="preload"
-      type="image/svg+xml"
-      as="image"
-      href="/assets/frankendancer_circle_logo-D5z79vwQ.svg"
-    />
-    <link
-      rel="preload"
-      type="image/svg+xml"
-      as="image"
-      href="data:image/svg+xml,%3csvg%20width='50'%20height='50'%20viewBox='0%200%2050%2050'%20fill='none'%20xmlns='http://www.w3.org/2000/svg'%3e%3cpath%20d='M0%2024.9971C13.4992%2024.8907%2024.4505%2014.0877%2024.791%200.645508L24.7988%200C24.7988%2013.7398%2035.8824%2024.8887%2049.5967%2024.9971C36.0977%2025.1037%2025.1471%2035.9075%2024.8066%2049.3496L24.7988%2049.9951C24.7988%2036.2551%2013.7145%2025.1052%200%2024.9971Z'%20fill='%2303030C'/%3e%3c/svg%3e"
-    />
+    <style>
+      html,
+      body {
+        background: #070b14;
+        margin: 0;
+      }
+    </style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Firedancer</title>
-    <script type="module" crossorigin src="/assets/index-Csl44Zj6.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DUZVCM52.css">
+    <script type="module" crossorigin src="/assets/index-dOd7JJf8.js" onerror="try{if(!sessionStorage.getItem('fd-entry-reload')){sessionStorage.setItem('fd-entry-reload','1');location.reload()}}catch(e){}"></script>
+    <link rel="stylesheet" crossorigin href="/assets/style-1o6-e8wD.css">
+    <meta name="fd-build" content="assets/index-dOd7JJf8.js">
+    <link rel="modulepreload" crossorigin href="/assets/react-CJI3hyrN.js" fetchpriority="high">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-D716aTlO.js">
+    <link rel="modulepreload" crossorigin href="/assets/main-SgVlxWuk.js" fetchpriority="low">
   </head>
 
   <body>

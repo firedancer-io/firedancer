@@ -1,0 +1,1 @@
+import{j as o}from"./react-CJI3hyrN.js";import{y as p}from"./main-SgVlxWuk.js";const b="_bars_1d34t_1",c={bars:b},e=2;function i({value:a,max:r,barWidth:s=e}){const t=!r||!a?0:p(a/r,0,1);return o.jsx("div",{className:c.bars,style:{"--bar-width":`${s}px`,"--bar-gap":`${s*1.5}px`,"--pct":t}})}export{i as B};

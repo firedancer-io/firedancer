@@ -1,0 +1,1 @@
+import{r as e}from"./react-CJI3hyrN.js";function c(n,o){const{asChild:i,children:r}=n;if(!i)return typeof o=="function"?o(r):o;const t=e.Children.only(r);return e.cloneElement(t,{children:typeof o=="function"?o(t.props.children):o})}export{c as d};
