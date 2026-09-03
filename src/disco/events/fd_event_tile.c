@@ -194,6 +194,7 @@ metrics_write( fd_event_tile_t * ctx ) {
   FD_MCNT_SET( EVENT, INVALID_MESSAGE,     metrics->invalid_msg_cnt );
   FD_MCNT_SET( EVENT, CONN_ATTEMPT,        metrics->connect_attempt_cnt );
   FD_MCNT_SET( EVENT, HANDSHAKE_TIMEOUT,   metrics->handshake_timeout_cnt );
+  FD_MCNT_SET( EVENT, CREDIT_STALL,        metrics->credit_stall_cnt );
 
   FD_MGAUGE_SET( EVENT, CONN_STATE,        fd_event_client_state( ctx->client ) );
 }
@@ -208,7 +209,7 @@ before_credit( fd_event_tile_t *   ctx,
   if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
   ctx->idle_cnt = 0UL;
 
-  fd_event_client_poll( ctx->client, charge_busy );
+  fd_event_client_poll( ctx->client, fd_clock_tile_now( ctx->clock ), charge_busy );
 }
 
 static void
