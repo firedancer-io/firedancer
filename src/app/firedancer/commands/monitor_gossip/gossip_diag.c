@@ -311,6 +311,7 @@ fd_gossip_diag_init( fd_gossip_diag_ctx_t * ctx,
   ctx->config = config;
   if(      !strcmp( config->net.provider, "xdp"  ) ) ctx->net_provider = FD_GOSSIP_DIAG_NET_XDP;
   else if( !strcmp( config->net.provider, "mlx5" ) ) ctx->net_provider = FD_GOSSIP_DIAG_NET_MLX5;
+  else if( !strcmp( config->net.provider, "iavf" ) ) ctx->net_provider = FD_GOSSIP_DIAG_NET_IAVF;
   else                                               ctx->net_provider = FD_GOSSIP_DIAG_NET_SOCKET;
 
   /* Find gossip tile */
@@ -413,6 +414,12 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
               fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ] - ctx->prev_net_tx_bytes[ i ] ) );
       ctx->prev_net_rx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ];
       ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ];
+    } else if( FD_LIKELY( ctx->net_provider==FD_GOSSIP_DIAG_NET_IAVF ) ) {
+      printf( " Net %lu RX bw %s, TX bw %s\n", i,
+              fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, IAVF, PKT_RX_BYTES ) ] - ctx->prev_net_rx_bytes[ i ] ),
+              fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, IAVF, PKT_TX_BYTES ) ] - ctx->prev_net_tx_bytes[ i ] ) );
+      ctx->prev_net_rx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, IAVF, PKT_RX_BYTES ) ];
+      ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, IAVF, PKT_TX_BYTES ) ];
     } else {
       printf( " Net %lu RX bw %s, TX bw %s\n", i,
               fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, SOCK, PKT_RX_BYTES ) ] - ctx->prev_net_rx_bytes[ i ] ),

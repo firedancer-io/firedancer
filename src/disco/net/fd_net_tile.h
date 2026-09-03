@@ -32,6 +32,10 @@ typedef struct fd_net_rx_bounds fd_net_rx_bounds_t;
 
 #define FD_MLX5_BATCH_SIZE 64U
 
+/* FD_IAVF_BATCH_SIZE is the descriptor and completion batch size. */
+
+#define FD_IAVF_BATCH_SIZE 64U
+
 #define FD_MLX5_QUEUE_DEPTH_MAX 65536U
 
 FD_PROTOTYPES_BEGIN

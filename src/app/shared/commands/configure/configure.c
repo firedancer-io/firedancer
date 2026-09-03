@@ -226,6 +226,7 @@ configure_stage_help( char const * name ) {
   if( !strcmp( name, "sysctl"           ) ) return "apply required kernel sysctl tunables";
   if( !strcmp( name, "hyperthreads"     ) ) return "check sibling hyperthreads are not in use";
   if( !strcmp( name, "bonding"          ) ) return "tune settings on bonded network interfaces";
+  if( !strcmp( name, "iavf"             ) ) return "create and bind an Intel SR-IOV Virtual Function";
   if( !strcmp( name, "ethtool-channels" ) ) return "set the NIC channel (queue) count";
   if( !strcmp( name, "ethtool-offloads" ) ) return "set the required NIC offload settings";
   if( !strcmp( name, "ethtool-loopback" ) ) return "disable an incompatible offload on the loopback interface";

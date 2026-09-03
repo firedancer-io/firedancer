@@ -606,13 +606,30 @@ fd_config_validate( fd_config_t const * config ) {
                      config->net.mlx5.tx_queue_size>FD_MLX5_QUEUE_DEPTH_MAX ) ) {
       FD_LOG_ERR(( "invalid mlx5 queue depth: RX and TX must not exceed %u", FD_MLX5_QUEUE_DEPTH_MAX ));
     }
+  } else if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    CFG_HAS_POW2( net.iavf.rx_queue_size );
+    CFG_HAS_POW2( net.iavf.tx_queue_size );
+    if( FD_UNLIKELY( config->net.iavf.vf_index ) ) {
+      FD_LOG_ERR(( "net.provider=\"iavf\" currently requires net.iavf.vf_index=0" ));
+    }
+    if( FD_UNLIKELY( config->layout.net_tile_count!=1UL ) ) {
+      FD_LOG_ERR(( "net.provider=\"iavf\" requires layout.net_tile_count=1" ));
+    }
+    if( FD_UNLIKELY( config->net.iavf.rx_queue_size<=FD_IAVF_BATCH_SIZE ||
+                     config->net.iavf.tx_queue_size< FD_IAVF_BATCH_SIZE ) ) {
+      FD_LOG_ERR(( "invalid IAVF queue depth: RX must exceed %u and TX must be at least %u",
+                   FD_IAVF_BATCH_SIZE, FD_IAVF_BATCH_SIZE ));
+    }
+    if( FD_UNLIKELY( config->net.iavf.rx_queue_size>4096U || config->net.iavf.tx_queue_size>4096U ) ) {
+      FD_LOG_ERR(( "invalid IAVF queue depth: RX and TX must not exceed 4096" ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
   } else if( 0==strcmp( config->net.provider, "auto" ) ) {
     /* "auto" is resolved after interface discovery in fd_config_fill(). */
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\" or \"mlx5\"",
+    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\", \"mlx5\" or \"iavf\"",
                  config->net.provider ));
   }
 

@@ -888,6 +888,13 @@ fdctl_check_configure( config_t const * config ) {
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message, FD_BINARY_NAME ));
 
+  if( FD_UNLIKELY( fd_cfg_stage_iavf.enabled( config ) ) ) {
+    check = fd_cfg_stage_iavf.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_ERR(( "The IAVF Virtual Function is not configured correctly: %s. You can run "
+                   "`%s configure init iavf` to create and bind it.", check.message, FD_BINARY_NAME ));
+  }
+
   if( FD_LIKELY( 0==strcmp( config->net.provider, "xdp" ) ) ) {
     if( fd_cfg_stage_bonding.enabled( config ) ) {
       check = fd_cfg_stage_bonding.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );

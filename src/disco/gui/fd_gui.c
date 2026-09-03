@@ -232,6 +232,7 @@ fd_gui_new( void *                   shmem,
 
   gui->summary.sock_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "sock"   );
   gui->summary.mlx5_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "mlx5"   );
+  gui->summary.iavf_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "iavf"   );
   gui->summary.net_tile_cnt    = fd_topo_tile_name_cnt( gui->topo, "net"    );
   gui->summary.quic_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "quic"   );
   gui->summary.verify_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "verify" );
@@ -805,6 +806,7 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
   cur->in.votor    = 0UL;
   fd_gui_network_stats_snap_egress( topo, "net",  gui->summary.is_alpenglow, cur );
   fd_gui_network_stats_snap_egress( topo, "mlx5", gui->summary.is_alpenglow, cur );
+  fd_gui_network_stats_snap_egress( topo, "iavf", gui->summary.is_alpenglow, cur );
 
   ulong votor_tile_idx = fd_topo_find_tile( topo, "votor", 0UL );
   if( FD_UNLIKELY( gui->summary.is_alpenglow && votor_tile_idx!=ULONG_MAX ) ) {
@@ -1394,7 +1396,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_ABANDONED           ) ];
     cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERRUN             ) ];
 
-    for( ulong j=0UL; j<gui->summary.sock_tile_cnt+gui->summary.net_tile_cnt+gui->summary.mlx5_tile_cnt; j++ ) {
+    for( ulong j=0UL; j<gui->summary.sock_tile_cnt+gui->summary.net_tile_cnt+gui->summary.mlx5_tile_cnt+gui->summary.iavf_tile_cnt; j++ ) {
       /* TODO: Not precise... net frags that were skipped might not have been destined for QUIC tile */
       /* TODO: Not precise... even if 1 frag gets skipped, it could have been for this QUIC tile */
       cur->out.quic_overrun += fd_metrics_link_in( quic->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ] / gui->summary.quic_tile_cnt;
@@ -1477,6 +1479,14 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
 
     stats->net_in_rx_bytes  += mlx5_metrics[ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ];
     stats->net_out_tx_bytes += mlx5_metrics[ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ];
+  }
+
+  for( ulong i=0UL; i<gui->summary.iavf_tile_cnt; i++ ) {
+    fd_topo_tile_t const * iavf = &topo->tiles[ fd_topo_find_tile( topo, "iavf", i ) ];
+    volatile ulong * iavf_metrics = fd_metrics_tile( iavf->metrics );
+
+    stats->net_in_rx_bytes  += iavf_metrics[ MIDX( COUNTER, IAVF, PKT_RX_BYTES ) ];
+    stats->net_out_tx_bytes += iavf_metrics[ MIDX( COUNTER, IAVF, PKT_TX_BYTES ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {

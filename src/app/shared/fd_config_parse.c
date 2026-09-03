@@ -217,6 +217,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( boolau, net.xdp.native_bond                              );
   CFG_POP      ( uint,   net.mlx5.rx_queue_size                           );
   CFG_POP      ( uint,   net.mlx5.tx_queue_size                           );
+  CFG_POP      ( uint,   net.iavf.vf_index                               );
+  CFG_POP      ( uint,   net.iavf.rx_queue_size                          );
+  CFG_POP      ( uint,   net.iavf.tx_queue_size                          );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 

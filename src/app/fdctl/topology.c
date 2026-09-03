@@ -423,7 +423,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   if( FD_UNLIKELY( !strcmp( tile->name, "net"  ) ||
                    !strcmp( tile->name, "sock" ) ||
-                   !strcmp( tile->name, "mlx5" ) ) ) {
+                   !strcmp( tile->name, "mlx5" ) ||
+                   !strcmp( tile->name, "iavf" ) ) ) {
 
     tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
     tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;

@@ -1105,6 +1105,11 @@ telemetry = true
     #   NICs.  Requires Linux 5.8 or newer and uses a kernel-bypass
     #   packet data path.  Bonding is supported when every bond member
     #   is a port on the same NIC.
+    #
+    #  "iavf"
+    #   Experimental direct networking through one Intel SR-IOV Virtual
+    #   Function bound to the Linux vfio-pci driver.  This mode requires
+    #   one net tile and an explicit bind address.
     provider = "auto"
 
     # Which interface to bind to for network traffic.  Currently,
@@ -1312,6 +1317,19 @@ telemetry = true
         # loss caused by excessive scheduling or inter-CPU latency.
         rx_queue_size = 32768
         tx_queue_size = 32768
+
+    # This section contains Intel SR-IOV Virtual Function configuration.
+    # Only active if [net.provider] is set to "iavf".
+    [net.iavf]
+        # Index of the Virtual Function on the Physical Function.  The
+        # prototype currently supports only index zero.
+        vf_index = 0
+
+        # Controls the depths of the single RX and TX descriptor rings.
+        # RX must be a power of two between 128 and 4096. TX must be a
+        # power of two between 64 and 4096.
+        rx_queue_size = 1024
+        tx_queue_size = 1024
 
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on

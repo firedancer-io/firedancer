@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22964152UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22964160UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -442,6 +442,11 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "mlx5" );
       jw_ulong( &w, "rx_queue_size", config->net.mlx5.rx_queue_size );
       jw_ulong( &w, "tx_queue_size", config->net.mlx5.tx_queue_size );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "iavf" );
+      jw_ulong( &w, "vf_index",      config->net.iavf.vf_index );
+      jw_ulong( &w, "rx_queue_size", config->net.iavf.rx_queue_size );
+      jw_ulong( &w, "tx_queue_size", config->net.iavf.tx_queue_size );
     jw_obj_close( &w );
   jw_obj_close( &w );
 

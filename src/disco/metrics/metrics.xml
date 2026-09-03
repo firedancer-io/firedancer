@@ -483,6 +483,38 @@ EXAMPLES
     <gauge name="TxBufferIdle" summary="Number of TX buffers available for a new transmit job." />
 </tile>
 
+<tile name="iavf">
+    <counter name="PktRx" summary="Number of packets successfully published to output links." />
+    <counter name="PktRxBytes" summary="Number of bytes in packets successfully published to output links, including the Ethernet header." />
+    <counter name="PktRxMalformed" summary="Number of packets dropped because their Ethernet, IPv4, UDP, GRE, or ARP headers were malformed." />
+    <counter name="PktRxRouteFail" summary="Number of packets dropped because the destination address or UDP port could not be routed." />
+    <counter name="RxDescError" summary="Number of receive descriptors completed with an Intel descriptor error." />
+    <counter name="RxOutOfBuffer" summary="Number of receive packets discarded by the Virtual Function." />
+    <counter name="RxArp" summary="Number of valid ARP requests received for the IAVF bind address." />
+    <counter name="GrePktRx" summary="Number of GRE packets successfully decapsulated and published." />
+    <counter name="GrePktRxInvalid" summary="Number of GRE packets dropped because the tunnel peer or headers were invalid." />
+    <counter name="GrePktRxIgnored" summary="Number of GRE packets ignored because no GRE tunnel is configured." />
+    <gauge name="RxBufferBusy" summary="Number of RX buffers not currently posted to the Virtual Function." />
+    <gauge name="RxBufferIdle" summary="Number of RX buffers currently posted to the Virtual Function." />
+    <counter name="PktTxCompleted" summary="Number of packets completed by the Virtual Function for transmission." />
+    <counter name="PktTxBytes" summary="Number of bytes transmitted, including the Ethernet header." />
+    <counter name="PktTxNoBuffer" summary="Number of transmit jobs dropped because no TX descriptor was available." />
+    <counter name="PktTxRouteFail" enum="RouteFail" summary="Number of transmit jobs dropped because route or source address selection failed." />
+    <counter name="PktTxInvalid" summary="Number of transmit jobs dropped because the Ethernet or IPv4 header was invalid." />
+    <counter name="PktTxNoNeighbor" summary="Number of transmit jobs dropped because the next-hop neighbor was unresolved." />
+    <counter name="TxError" summary="Number of packets discarded or completed with a transmit error by the Virtual Function." />
+    <counter name="TxArp" summary="Number of ARP replies submitted through the Virtual Function." />
+    <counter name="TxArpDrop" summary="Number of ARP replies dropped because no TX descriptor was available." />
+    <counter name="GrePktTxSubmitted" summary="Number of GRE transmit jobs submitted to the Virtual Function." />
+    <counter name="GrePktTxNoRoute" summary="Number of GRE transmit jobs dropped because the inner or outer route was incomplete." />
+    <counter name="GrePktTxOversize" summary="Number of GRE transmit jobs dropped because the encapsulated packet exceeded the route MTU." />
+    <counter name="AdminqFail" summary="Number of Intel Admin Queue requests that failed after tile startup." />
+    <counter name="LinkChange" summary="Number of Virtual Function link-state changes observed after tile startup." />
+    <gauge name="LinkUp" summary="Whether the Virtual Function link is up." />
+    <gauge name="TxBufferBusy" summary="Number of TX descriptors pending completion." />
+    <gauge name="TxBufferIdle" summary="Number of TX descriptors available for a new transmit job." />
+</tile>
+
 <enum name="SocketError">
     <int value="0" name="NoError" label="No error" />
     <int value="1" name="Slow" label="ENOBUFS, EAGAIN error" />

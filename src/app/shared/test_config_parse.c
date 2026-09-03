@@ -27,6 +27,13 @@ static char const cfg_str_4[] =
 static char const cfg_str_5[] =
   "[development.genesis]\n"
   "  max_file_size_mib = 33";
+static char const cfg_str_6[] =
+  "[net]\n"
+  "  interface = \"enp1s0f0np0\"\n"
+  "[net.iavf]\n"
+  "  vf_index = 0\n"
+  "  rx_queue_size = 256\n"
+  "  tx_queue_size = 512\n";
 
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
@@ -181,6 +188,17 @@ main( int     argc,
   FD_TEST( fd_toml_parse( cfg_str_5, sizeof(cfg_str_5)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   FD_TEST( config->firedancer.development.genesis.max_file_size_mib == 33UL );
+
+  /* Parse Intel SR-IOV Virtual Function configuration. */
+
+  memset( config, 0, sizeof(config_t) );
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_6, sizeof(cfg_str_6)-1UL, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( fd_config_extract_pod( pod, config ) == config );
+  FD_TEST( !strcmp( config->net.interface, "enp1s0f0np0" ) );
+  FD_TEST( config->net.iavf.vf_index==0U );
+  FD_TEST( config->net.iavf.rx_queue_size==256U );
+  FD_TEST( config->net.iavf.tx_queue_size==512U );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

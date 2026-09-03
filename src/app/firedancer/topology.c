@@ -1292,7 +1292,7 @@ fd_topo_initialize( config_t * config ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_configure_tile( &topo->tiles[ i ], config );
     if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, "gui" ) ) ) topo->tiles[ i ].gui.tile_cnt = topo->tile_cnt;
-    if( FD_UNLIKELY( alpenglow_enabled && ( !strcmp( topo->tiles[ i ].name, "net" ) || !strcmp( topo->tiles[ i ].name, "sock" ) || !strcmp( topo->tiles[ i ].name, "mlx5" ) ) ) ) {
+    if( FD_UNLIKELY( alpenglow_enabled && ( !strcmp( topo->tiles[ i ].name, "net" ) || !strcmp( topo->tiles[ i ].name, "sock" ) || !strcmp( topo->tiles[ i ].name, "mlx5" ) || !strcmp( topo->tiles[ i ].name, "iavf" ) ) ) ) {
       topo->tiles[ i ].net.votor_quic_client_listen_port = config->firedancer.development.votor.quic_client_listen_port;
       topo->tiles[ i ].net.votor_quic_server_listen_port = config->firedancer.development.votor.quic_server_listen_port;
     }
@@ -1345,7 +1345,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "net"   ) ||
                           !strcmp( tile->name, "sock"  ) ||
-                          !strcmp( tile->name, "mlx5" ) ) ) {
+                          !strcmp( tile->name, "mlx5" ) ||
+                          !strcmp( tile->name, "iavf" ) ) ) {
 
     tile->net.shred_listen_port                = config->tiles.shred.shred_listen_port;
     if( config->firedancer.layout.enable_block_production ) {

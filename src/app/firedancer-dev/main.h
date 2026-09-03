@@ -58,6 +58,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
+  &fd_cfg_stage_iavf,
   &fd_cfg_stage_bonding,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_offloads,
@@ -81,6 +82,7 @@ FD_STATIC_ASSERT( sizeof(STAGES)/sizeof(STAGES[0])<=CONFIGURE_STAGE_COUNT, stage
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;
 extern fd_topo_run_tile_t fd_tile_mlx5;
+extern fd_topo_run_tile_t fd_tile_iavf;
 extern fd_topo_run_tile_t fd_tile_sock;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_verify;
@@ -137,6 +139,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netlnk,
   &fd_tile_mlx5,
+  &fd_tile_iavf,
   &fd_tile_sock,
   &fd_tile_quic,
   &fd_tile_verify,

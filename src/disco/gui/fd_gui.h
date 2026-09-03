@@ -815,6 +815,7 @@ struct fd_gui_summary {
 
   ulong sock_tile_cnt;
   ulong mlx5_tile_cnt;
+  ulong iavf_tile_cnt;
   ulong net_tile_cnt;
   ulong quic_tile_cnt;
   ulong verify_tile_cnt;

@@ -194,6 +194,20 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
       /* */ rx_drop_now += metrics[ MIDX( COUNTER, MLX5, PKT_RX_ROUTE_FAIL ) ];
       tx_ok_now     = metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED ) ];
       tx_byte_now   = metrics[ MIDX( COUNTER, MLX5, PKT_TX_BYTES     ) ];
+    } else if( 0==strcmp( provider, "iavf" ) ) {
+      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, IAVF, RX_BUFFER_IDLE ) ];
+      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, IAVF, RX_BUFFER_BUSY ) ];
+      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, IAVF, TX_BUFFER_IDLE ) ];
+      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, IAVF, TX_BUFFER_BUSY ) ];
+
+      rx_ok_now     = metrics[ MIDX( COUNTER, IAVF, PKT_RX       ) ];
+      rx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_RX_BYTES ) ];
+      rx_drop_now   = metrics[ MIDX( COUNTER, IAVF, PKT_RX_MALFORMED  ) ];
+      /* */ rx_drop_now += metrics[ MIDX( COUNTER, IAVF, PKT_RX_ROUTE_FAIL ) ];
+      /* */ rx_drop_now += metrics[ MIDX( COUNTER, IAVF, RX_DESC_ERROR     ) ];
+      /* */ rx_drop_now += metrics[ MIDX( COUNTER, IAVF, RX_OUT_OF_BUFFER ) ];
+      tx_ok_now     = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_TX_BYTES     ) ];
     }
 
 
@@ -315,6 +329,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_iavf,             CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_offloads, CONFIGURE_CMD_INIT, config );

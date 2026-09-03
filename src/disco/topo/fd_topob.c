@@ -420,6 +420,7 @@ static char const * ALWAYS[] = {
   "benchs",
   "net",
   "mlx5",
+  "iavf",
   "sock",
   "quic",
   "bundle",

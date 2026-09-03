@@ -222,6 +222,21 @@ struct fd_topo_tile {
 
     struct {
       fd_topo_net_tile_t net;
+
+      char if_name[ 16 ];
+      uint vf_idx;
+      uint rx_queue_size;
+      uint tx_queue_size;
+
+      ulong netdev_tbl_obj_id;
+      ulong route_max;
+      ulong route_peer_max;
+      ulong route_peer_seed;
+      ulong neigh4_obj_id;
+    } iavf;
+
+    struct {
+      fd_topo_net_tile_t net;
       /* sock specific options */
       int so_sndbuf;
       int so_rcvbuf;
