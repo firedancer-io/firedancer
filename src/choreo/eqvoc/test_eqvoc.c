@@ -79,6 +79,44 @@ test_shred_insert( void ) {
 
   teardown( eqvoc );
 
+  /* Equal-index last-shred conflicts require different payloads. */
+
+  eqvoc = setup();
+  uchar last_bytes[ FD_SHRED_MIN_SZ ]; memcpy( last_bytes, id, FD_SHRED_MIN_SZ );
+  fd_shred_t * last_shred = (fd_shred_t *)fd_type_pun( last_bytes );
+  last_shred->slot        = 97UL;
+  last_shred->idx         = 31U;
+  last_shred->variant     = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, (uchar)(FD_SHRED_MERKLE_LAYER_CNT-1UL) );
+  last_shred->data.flags |= FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
+
+  FD_TEST( fd_eqvoc_shred_insert( eqvoc, 0, last_shred, chunks_out )==0 );
+  FD_TEST( fd_eqvoc_shred_insert( eqvoc, 0, last_shred, chunks_out )==0 ); /* identical retransmission */
+
+  uchar conflict_bytes[ FD_SHRED_MIN_SZ ]; memcpy( conflict_bytes, last_bytes, FD_SHRED_MIN_SZ );
+  fd_shred_t * conflict_shred = (fd_shred_t *)fd_type_pun( conflict_bytes );
+  conflict_bytes[ FD_SHRED_DATA_HEADER_SZ ] ^= 1U;
+  FD_TEST( fd_eqvoc_shred_insert( eqvoc, 0, conflict_shred, chunks_out )==1 );
+
+  teardown( eqvoc );
+
+  /* Also detect when the equal-index last shred arrives second. */
+
+  eqvoc = setup();
+  memcpy( last_bytes, id, FD_SHRED_MIN_SZ );
+  last_shred             = (fd_shred_t *)fd_type_pun( last_bytes );
+  last_shred->slot       = 98UL;
+  last_shred->idx        = 31U;
+  last_shred->variant    = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA_CHAINED, (uchar)(FD_SHRED_MERKLE_LAYER_CNT-1UL) );
+  last_shred->data.flags = (uchar)(last_shred->data.flags & ~FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+  FD_TEST( fd_eqvoc_shred_insert( eqvoc, 0, last_shred, chunks_out )==0 );
+
+  memcpy( conflict_bytes, last_bytes, FD_SHRED_MIN_SZ );
+  conflict_shred              = (fd_shred_t *)fd_type_pun( conflict_bytes );
+  conflict_shred->data.flags |= FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
+  FD_TEST( fd_eqvoc_shred_insert( eqvoc, 0, conflict_shred, chunks_out )==1 );
+
+  teardown( eqvoc );
+
   /* FEC eviction by (slot, fec_set_idx). */
 
   eqvoc = setup();
