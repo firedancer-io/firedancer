@@ -21,6 +21,23 @@ mkhash( ulong n ) {
   return h;
 }
 
+/* The rotor chainer supports the full 30K-slot Alpenglow admission
+   window with compact FEC bookkeeping. */
+
+static void
+test_fec_pool_layout( void ) {
+  ulong const fec_max = 30000UL * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX;
+  FD_TEST( fec_max<(ulong)UINT_MAX       );
+  FD_TEST( fec_max<fd_fec_pool_idx_null( NULL ) );
+  FD_TEST( fec_max<fd_fec_map_ele_max()   );
+  FD_TEST( sizeof(fd_chainer_fec_t)==52UL );
+  FD_TEST( sizeof(((fd_chainer_fec_t *)NULL)->slot)==sizeof(uint) );
+  FD_TEST( sizeof(((fd_chainer_fec_t *)NULL)->data_idxs)==sizeof(uint) );
+
+  ulong chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
+  FD_TEST( fd_fec_map_footprint( chain_cnt )<=(512UL<<20)+64UL );
+}
+
 /* slotv_at returns the `ord`-th version of slot in CREATION order (ord 0
    is the first version created -- the turbine version in the usual case
    where a turbine shred/FEC lands before any notar-fallback cert), or
@@ -1073,6 +1090,7 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_fec_pool_layout();
   test_basic                             ( wksp );
   test_shared_prefix                     ( wksp );
   test_notar_fallback_in_flight          ( wksp );
