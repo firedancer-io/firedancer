@@ -1671,7 +1671,7 @@ telemetry = true
 
         # Sets the fixed size of the in-memory shred cache.
         # This cache helps reduce disk I/O against the shred database file.
-        shred_cache_size_mib = 2048
+        shred_cache_size_mib = 32
 
     # The repair tile watches incoming shreds and sends repair requests
     # to other validators when it notices we are missing data needed to
