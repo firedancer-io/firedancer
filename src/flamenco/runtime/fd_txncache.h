@@ -161,6 +161,26 @@ fd_txncache_join( void * ljoin );
 void
 fd_txncache_reset( fd_txncache_t * tc );
 
+/* fd_txncache_snapin_scratch returns the txncache's transaction page
+   pool for use as scratch memory during snapshot loading, and sets
+   *out_sz to its size in bytes.
+
+   Between a call to fd_txncache_reset and the first subsequent
+   fd_txncache_insert, the txncache neither reads nor writes page
+   contents.  A page is fully reinitialized when an insert allocates it.
+   A caller that has just reset the txncache may therefore use the
+   region freely until it performs the first insert, at which point the
+   contents should be assumed clobbered.
+
+   The pool is sized to hold at least
+   FD_TXNCACHE_MAX_SLOT_DELTAS*max_txn_per_slot transactions, so the
+   region is at least that many times sizeof(fd_txncache_single_txn_t)
+   bytes regardless of max_live_slots. */
+
+void *
+fd_txncache_snapin_scratch( fd_txncache_t * tc,
+                            ulong *         out_sz );
+
 /* fd_txncache_attach_child notifies the txncache that a new child bank
    has been created, off some parent.  This must be called before any
    transaction executed on this child fork is inserted.  The parent fork
