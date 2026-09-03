@@ -21,6 +21,7 @@ struct vacc {
   ushort      commission;
   ushort      alpenglow_rank;
   uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; /* zero if unregistered */
+  uchar       bls_key_uncompressed[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ]; /* decompressed by finalize, valid iff alpenglow_rank!=NULL */
   uint        left;
   uint        right;
   uint        next;
@@ -552,8 +553,9 @@ fd_vote_stakes_finalize( fd_vote_stakes_t * vote_stakes,
     vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
     if( FD_UNLIKELY( !vacc->stake ) ) continue;
 #if FD_HAS_BLST
-    uchar decompressed[ 96 ];
-    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( decompressed, vacc->bls_key, 1 ) ) ) continue;
+    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( vacc->bls_key_uncompressed, vacc->bls_key, 1 ) ) ) continue;
+#else
+    memcpy( vacc->bls_key_uncompressed, vacc->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
 #endif
     FD_TEST( rank_cnt<FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
     rank[ rank_cnt++ ] = (vacc_rank_t){ .vacc=vacc, .drop=0UL };
@@ -649,6 +651,7 @@ fd_vote_stakes_new_fork( fd_vote_stakes_t * vote_stakes,
         dst->commission     = src->commission;
         dst->alpenglow_rank = src->alpenglow_rank;
         memcpy( dst->bls_key, src->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
+        memcpy( dst->bls_key_uncompressed, src->bls_key_uncompressed, FD_BLS_PUBKEY_UNCOMPRESSED_SZ );
         FD_TEST( vacc_map_ele_insert( t_2_map, dst, t_2_pool ) );
       }
       vote_stakes->t_2_epoch[ t_2_idx ] = epoch;
@@ -951,4 +954,26 @@ fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
     if( last_vote_ts_out_opt )   *last_vote_ts_out_opt   = states->states[ vacc_idx ].last_vote_ts;
     if( is_valid_out_opt )       *is_valid_out_opt       = states->states[ vacc_idx ].is_valid;
   }
+}
+
+void
+fd_vote_stakes_iter_ele_bls_key_uncompressed( fd_vote_stakes_t const * vote_stakes,
+                                              ulong                    fork_id,
+                                              int                      iter_kind,
+                                              fd_vote_stakes_iter_t *  iter,
+                                              uchar                    out[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ] ) {
+  vacc_t *     pool;
+  vacc_map_t * map;
+  if( FD_LIKELY( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) ) {
+    ulong width_idx = (ulong)fork_id_width_id( fork_id );
+    pool = t_1_vacc_pool( vote_stakes, width_idx );
+    map  = t_1_vacc_map ( vote_stakes, width_idx );
+  } else {
+    FD_TEST( iter_kind==FD_VOTE_STAKES_ITER_T_2 || iter_kind==FD_VOTE_STAKES_ITER_T_3 );
+    ulong epoch_idx = ((ulong)fork_id_epoch( fork_id )-(ulong)(iter_kind==FD_VOTE_STAKES_ITER_T_3)) & 1UL;
+    pool = t_2_vacc_pool( vote_stakes, epoch_idx );
+    map  = t_2_vacc_map ( vote_stakes, epoch_idx );
+  }
+  vacc_t const * vacc = vacc_map_iter_ele_const( *(vacc_map_iter_t *)iter, map, pool );
+  memcpy( out, vacc->bls_key_uncompressed, FD_BLS_PUBKEY_UNCOMPRESSED_SZ );
 }

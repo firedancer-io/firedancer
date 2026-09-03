@@ -287,6 +287,17 @@ fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
                          ushort *                 alpenglow_rank_out_opt,
                          uchar                    bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
+/* fd_vote_stakes_iter_ele_bls_key_uncompressed copies out the
+   decompressed BLS key of the current element, filled in by
+   fd_vote_stakes_finalize.  Only meaningful when alpenglow_rank!=NULL. */
+
+void
+fd_vote_stakes_iter_ele_bls_key_uncompressed( fd_vote_stakes_t const * vote_stakes,
+                                              ulong                    fork_id,
+                                              int                      iter_kind,
+                                              fd_vote_stakes_iter_t *  iter,
+                                              uchar                    out[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ] );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_vote_stakes_h */

@@ -52,6 +52,13 @@ ag_epoch_info_leader( ag_epoch_info_t const * self,
 FD_FN_PURE static inline ulong
 ag_epoch_info_total_stake( ag_epoch_info_t const * self ) { return self->total_stake; }
 
+/* ag_stake_is_*_quorum test stake against total_stake at the
+   Alpenglow thresholds; the ag_epoch_info_is_*_quorum forms use the
+   epoch's total. */
+
+FD_FN_CONST int ag_stake_is_quorum       ( ulong stake, ulong total_stake );
+FD_FN_CONST int ag_stake_is_strong_quorum( ulong stake, ulong total_stake );
+
 FD_FN_PURE int ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_weak_quorum   ( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_quorum        ( ag_epoch_info_t const * self, ulong stake );

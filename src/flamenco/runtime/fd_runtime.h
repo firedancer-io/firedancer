@@ -353,15 +353,20 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 /* fd_runtime_block_execute_finalize finishes the execution of the block
    by applying optional Alpenglow footer effects, paying a fee out to
    the block leader, updating any sysvars, and updating the bank hash.
-   certs is NULL for blocks without an Alpenglow footer.  Returns -1 if
-   the footer is invalid and 0 otherwise. */
+   certs is NULL for blocks without an Alpenglow footer.  Unless the
+   bank is a leader bank (its certs were verified by votor already),
+   the footer certs are verified against shred_version (the shred
+   version the cluster's votes are signed under, 0 if not known, which
+   fails every cert) before they are applied.  Returns -1 if the footer
+   is invalid and 0 otherwise. */
 
 int
 fd_runtime_block_execute_finalize( fd_bank_t *                bank,
                                    fd_accdb_t *               accdb,
                                    fd_capture_ctx_t *         capture_ctx,
                                    fd_footer_certs_t const *  certs,
-                                   ulong                      producer_time_nanos );
+                                   ulong                      producer_time_nanos,
+                                   ushort                     shred_version );
 
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of

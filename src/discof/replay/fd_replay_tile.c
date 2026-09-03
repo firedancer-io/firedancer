@@ -41,6 +41,7 @@
 #include "../rotor/fd_rotor_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
+#include "../../flamenco/stakes/fd_vote_stakes.h"
 
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
@@ -1027,13 +1028,15 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     certs->final_notar_cert  = fd_sched_get_final_notar_cert ( ctx->sched, bank->idx );
     certs->skip_reward_cert  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
     certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
-    // TODO missing cert verify - inline to replay or use new verify tiles
     certs_opt        = certs;
     footer_time_nanos = fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx );
   }
 
-  /* Do hashing and other end-of-block processing. */
-  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, certs_opt, footer_time_nanos ) ) ) {
+  /* Do hashing and other end-of-block processing.  The runtime verifies
+     the footer certs against the shred version before it credits their
+     signers, so a block whose certs fail (or cannot be checked) is
+     dead here. */
+  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, certs_opt, footer_time_nanos, ctx->shred_version ) ) ) {
     mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
     return 1;
   }
@@ -1484,7 +1487,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
     priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
 
-    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL );
+    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, 0UL, (ushort)0 );
   }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1938,9 +1941,11 @@ process_poh_message( fd_replay_tile_t *                 ctx,
     ulong migration_slot = fd_alpenglow_migration_slot( ctx->leader_bank, ctx->accdb );
     leader_footer_certs( ctx, ctx->leader_bank->f.slot, migration_slot, &marker->footer, certs );
 
-    /* The block goes out regardless: the certs are already committed to
-       the bank hash, so there is nothing left to fall back to. */
-    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, certs, producer_time_nanos ) ) ) {
+    /* The runtime applies a leader bank's certs unverified: votor
+       verified them before it handed them to us.  The block goes out
+       regardless: the certs are already committed to the bank hash, so
+       there is nothing left to fall back to. */
+    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, certs, producer_time_nanos, ctx->shred_version ) ) ) {
       FD_LOG_WARNING(( "slot %lu: our own block footer certs did not apply; the block we produce will be dead to the cluster", ctx->leader_bank->f.slot ));
     }
 
@@ -1968,6 +1973,10 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->identity_vote_rooted = 1;
 
   ctx->caught_up = 1;
+
+  /* Genesis carries no hard forks; the shred version is that of the
+     bare genesis hash (see maybe_verify_shred_version). */
+  ctx->hard_fork_cnt = 0UL;
 
   uchar const * genesis_blob = (uchar const *)( meta+1 );
   FD_TEST( meta->bootstrap && meta->has_lthash );
@@ -3870,6 +3879,10 @@ process_vote_txn_sent( fd_replay_tile_t *  ctx,
 
 static inline void
 maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
+  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX ) ) {
+    ctx->shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+  }
+
   if( FD_LIKELY( ctx->expected_shred_version && ctx->ipecho_shred_version ) ) {
     if( FD_UNLIKELY( ctx->expected_shred_version!=ctx->ipecho_shred_version ) ) {
       FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from ipecho", ctx->expected_shred_version, ctx->ipecho_shred_version ) );
@@ -3881,10 +3894,9 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
      snapshot's hard fork list until wait-for-supermajority completes. */
   if( FD_UNLIKELY( ctx->wfs_enabled && !ctx->wfs_complete && ctx->expected_shred_version ) ) return;
 
-  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
+  if( FD_LIKELY( ctx->shred_version && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
     ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
-
-    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+    ushort actual_shred_version   = ctx->shred_version;
 
     if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
@@ -4569,6 +4581,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->expected_shred_version = tile->replay.expected_shred_version;
   ctx->ipecho_shred_version = 0;
+  ctx->shred_version        = 0;
   fd_memcpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
   ctx->has_genesis_hash = 0;
   ctx->has_cluster_type = 0;

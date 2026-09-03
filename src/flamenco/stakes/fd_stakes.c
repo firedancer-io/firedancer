@@ -457,7 +457,7 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
 ulong
 fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
                           ulong                    fork_id,
-                          int                      use_t_1,
+                          int                      iter_kind,
                           fd_vote_stake_weight_t * weights ) {
 
   /* We don't care if an account is invalid, we just want to get the
@@ -465,7 +465,6 @@ fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
      vote account stakes. */
   ulong weights_cnt = 0;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  int iter_kind = use_t_1 ? FD_VOTE_STAKES_ITER_T_1 : FD_VOTE_STAKES_ITER_T_2;
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {

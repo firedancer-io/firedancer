@@ -25,6 +25,10 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
+#include "../../choreo/votor/ag_vote_serde.h"
+#if FD_HAS_BLST
+#include "../../ballet/bls/fd_bls12_381.h"
+#endif
 #include "../features/fd_feature_snoop.h"
 
 #include "program/fd_precompiles.h"
@@ -69,7 +73,7 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
 
   fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, 1, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_1, epoch_weights );
   FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
@@ -105,7 +109,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, 0, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2, epoch_weights );
   FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
@@ -1717,12 +1721,184 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
 }
 
+/* Alpenglow footer cert verification. */
+
+#if FD_HAS_BLST
+
+struct validator_set {
+  ulong        epoch;                  /* ULONG_MAX if not built */
+  ulong        validator_cnt;
+  ulong        total_stake;
+  ag_bls_pub_t bls_keys[ AG_VAT_MAX ]; /* indexed by rank */
+  ulong        stakes  [ AG_VAT_MAX ]; /* parellel to bls_keys, indexed by rank */
+};
+typedef struct validator_set validator_set_t;
+
+/* validator_set_for_slot makes set hold the validators of slot's
+   epoch, rebuilding it only when the epoch differs from the one it
+   holds (the certs of one footer almost always share an epoch; a
+   footer straddling a boundary rebuilds once).  Returns 1 on success,
+   0 if the bank holds no stakes for that epoch. */
+
+static int
+validator_set_for_slot( validator_set_t * set,
+                        fd_bank_t const * bank,
+                        ulong             slot ) {
+  ulong epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, slot, NULL );
+  if( FD_LIKELY( set->epoch==epoch ) ) return 1;
+
+  ulong fork_id    = bank->vote_stakes_fork_id;
+  ulong fork_epoch = (ulong)fd_vote_stakes_fork_epoch( fork_id );
+  int   iter_kind;
+  if     ( FD_LIKELY( epoch==fork_epoch                   ) ) iter_kind = FD_VOTE_STAKES_ITER_T_2;
+  else if( FD_LIKELY( fork_epoch && epoch==fork_epoch-1UL ) ) iter_kind = FD_VOTE_STAKES_ITER_T_3;
+  else {
+    FD_LOG_WARNING(( "slot %lu: no vote stakes for epoch %lu (fork epoch %lu)", bank->f.slot, epoch, fork_epoch ));
+    return 0;
+  }
+
+  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong cnt      = 0UL;
+  ulong max_rank = 0UL;
+  ulong total    = 0UL;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for(  fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, iter_mem );
+                                      !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
+                                       fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
+    fd_pubkey_t vote_key;
+    ulong       stake;
+    ushort      rank;
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &vote_key, NULL, &stake, NULL, NULL, NULL, NULL, &rank, NULL );
+    if( FD_UNLIKELY( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
+    FD_TEST( rank<AG_VAT_MAX );
+
+    fd_vote_stakes_iter_ele_bls_key_uncompressed( vote_stakes, fork_id, iter_kind, iter, set->bls_keys[ rank ] );
+    set->stakes[ rank ] = stake;
+    max_rank = fd_ulong_max( max_rank, (ulong)rank );
+    total   += stake;
+    cnt++;
+  }
+  FD_TEST( cnt==max_rank+1UL );
+  set->epoch         = epoch;
+  set->validator_cnt = cnt;
+  set->total_stake   = total;
+  return 1;
+}
+
+/* verify_finalization_cert checks one footer finalization cert's stake
+   threshold and aggregate BLS signature against its epoch's validator
+   set.
+   Returns 1 if the cert verifies, 0 otherwise. */
+
+static int
+verify_finalization_cert( validator_set_t * set,
+                          fd_bank_t const * bank,
+                          ag_cert_t const * cert,
+                          ushort            shred_version ) {
+  if( FD_UNLIKELY( !validator_set_for_slot( set, bank, ag_cert_slot( cert ) ) ) ) return 0;
+  if( FD_UNLIKELY( !ag_cert_verify( cert, (uchar const *)set->bls_keys, set->stakes, set->validator_cnt, set->total_stake, shred_version ) ) ) {
+    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed verification", bank->f.slot, ag_cert_str( cert ), ag_cert_slot( cert ) ));
+    return 0;
+  }
+  return 1;
+}
+
+/* verify_reward_cert checks a footer reward cert's aggregate BLS
+   signature against its epoch's validator set
+
+   Returns 1 if the cert verifies, 0 otherwise. */
+
+static int
+verify_reward_cert( validator_set_t *        set,
+                    fd_bank_t const *        bank,
+                    fd_reward_cert_t const * cert,
+                    int                      is_notar,
+                    ushort                   shred_version ) {
+  char const * name      = is_notar ? "NotarReward" : "SkipReward";
+  ulong        bank_slot = bank->f.slot;
+  ulong        cert_slot = cert->slot;
+
+  if( FD_UNLIKELY( !validator_set_for_slot( set, bank, cert_slot ) ) ) return 0;
+  if( FD_UNLIKELY( cert->nbits>set->validator_cnt ) ) return 0;
+
+  ag_bls_agg_t agg[1];
+  if( FD_UNLIKELY( fd_bls12_381_g2_decompress_syscall( agg->sig, cert->sig, 1 ) ) ) return 0;
+  memcpy( agg->bitmask, cert->signer_set, sizeof(agg->bitmask) );
+
+  ag_vote_t vote[1]; memset( vote, 0, sizeof(ag_vote_t) );
+  if( is_notar ) {
+    vote->kind       = AG_VOTE_KIND_NOTAR;
+    vote->notar.slot = cert_slot;
+    memcpy( vote->notar.block_hash, cert->block_id.uc, sizeof(ag_block_hash_t) );
+  } else {
+    vote->kind      = AG_VOTE_KIND_SKIP;
+    vote->skip.slot = cert_slot;
+  }
+  uchar payload[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong payload_sz = ag_vote_signing_ser( vote, shred_version, payload );
+
+  if( FD_UNLIKELY( !ag_bls_agg_verify( agg, payload, payload_sz, (uchar const *)set->bls_keys, sizeof(ag_bls_pub_t), set->validator_cnt ) ) ) {
+    FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed verification", bank_slot, name, cert_slot ));
+    return 0;
+  }
+  return 1;
+}
+
+/* verify_footer_certs verifies every cert the footer declares.
+   Returns 0 if all verify (or there are none), -1 if any fails or
+   cannot be checked. */
+
+static int
+verify_footer_certs( fd_bank_t const *         bank,
+                     fd_footer_certs_t const * certs,
+                     ushort                    shred_version ) {
+  int has_certs = !!certs->fast_final_cert | !!certs->final_cert | !!certs->final_notar_cert | !!certs->skip_reward_cert | !!certs->notar_reward_cert;
+  if( FD_LIKELY  ( !has_certs     ) ) return 0;
+  if( FD_UNLIKELY( !shred_version ) ) return -1;
+
+  /* the set is ~200 KiB */
+  static validator_set_t set[1];
+  set->epoch = ULONG_MAX;
+
+  ag_cert_t cert[1];
+  if( certs->fast_final_cert ) {
+    *cert = (ag_cert_t){ .kind=AG_CERT_KIND_FAST_FINAL, .fast_final=*certs->fast_final_cert };
+    if( FD_UNLIKELY( !verify_finalization_cert( set, bank, cert, shred_version ) ) ) return -1;
+  }
+  if( certs->final_cert ) {
+    *cert = (ag_cert_t){ .kind=AG_CERT_KIND_FINAL, .final=*certs->final_cert };
+    if( FD_UNLIKELY( !verify_finalization_cert( set, bank, cert, shred_version ) ) ) return -1;
+  }
+  if( certs->final_notar_cert ) {
+    *cert = (ag_cert_t){ .kind=AG_CERT_KIND_NOTAR, .notar=*certs->final_notar_cert };
+    if( FD_UNLIKELY( !verify_finalization_cert( set, bank, cert, shred_version ) ) ) return -1;
+  }
+  if( certs->skip_reward_cert  && FD_UNLIKELY( !verify_reward_cert( set, bank, certs->skip_reward_cert,  0, shred_version ) ) ) return -1;
+  if( certs->notar_reward_cert && FD_UNLIKELY( !verify_reward_cert( set, bank, certs->notar_reward_cert, 1, shred_version ) ) ) return -1;
+  return 0;
+}
+
+#else /* !FD_HAS_BLST */
+
+static int
+verify_footer_certs( fd_bank_t const *         bank,
+                     fd_footer_certs_t const * certs,
+                     ushort                    shred_version ) {
+  (void)shred_version; (void)bank; (void)certs;
+  return -1;
+}
+
+#endif /* FD_HAS_BLST */
+
 static int
 apply_footer( fd_bank_t *               bank,
               fd_accdb_t *              accdb,
               fd_capture_ctx_t *        capture_ctx,
               fd_footer_certs_t const * certs,
-              ulong                     producer_time_nanos ) {
+              ulong                     producer_time_nanos,
+              ushort                    shred_version ) {
+
+  if( FD_UNLIKELY( !bank->is_leader && verify_footer_certs( bank, certs, shred_version ) ) ) return -1;
 
   /* Rewrite the clock sysvar and the alpenclock account from the
      footer's producer timestamp (Agave Bank::update_clock_from_footer).
@@ -1767,8 +1943,9 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_accdb_t *              accdb,
                                    fd_capture_ctx_t *        capture_ctx,
                                    fd_footer_certs_t const * certs,
-                                   ulong                     producer_time_nanos ) {
-  if( FD_UNLIKELY( certs && apply_footer( bank, accdb, capture_ctx, certs, producer_time_nanos ) ) ) return -1;
+                                   ulong                     producer_time_nanos,
+                                   ushort                    shred_version ) {
+  if( FD_UNLIKELY( certs && apply_footer( bank, accdb, capture_ctx, certs, producer_time_nanos, shred_version ) ) ) return -1;
   fd_runtime_freeze( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );
   return 0;

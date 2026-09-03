@@ -13,6 +13,7 @@
 #include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/votor/fd_votor_tile.h"
+#include "../../choreo/votor/ag_votor_base.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
@@ -210,8 +211,10 @@ struct fd_replay_tile {
   ulong          hard_fork_cnt;
   fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
 
-  ushort expected_shred_version;
-  ushort ipecho_shred_version;
+  ushort expected_shred_version; /* from config, 0 if unset */
+  ushort ipecho_shred_version;   /* from the entrypoints via ipecho, 0 until it answers */
+  ushort shred_version;          /* computed from the genesis hash and the hard forks, 0 until both are known.
+                                    The one the cluster's votes are signed under; the two above only cross-check it. */
 
   ulong enable_features_cnt;
   char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
