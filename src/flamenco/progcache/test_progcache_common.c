@@ -97,3 +97,37 @@ test_account_init_v3_data( test_account_t * acc,
   (void)slot;
   return acc;
 }
+
+/* progcache internals.  Absent from fd_progcache_user.h: no production caller
+   has a use for a lookup that cannot fill, so the composition below lives with
+   the tests rather than in the library. */
+
+void
+fd_progcache_load_fork_slow( fd_progcache_t *       cache,
+                             fd_progcache_fork_id_t fork_id );
+
+fd_progcache_rec_t * /* read locked */
+fd_progcache_query( fd_progcache_t *    cache,
+                    fd_pubkey_t const * key,
+                    ulong               feature_slot,
+                    ulong               deploy_slot );
+
+/* fd_progcache_peek looks up an entry without filling: a miss returns NULL
+   rather than loading the program.  Tests use it as a reader that leaves the
+   cache unchanged, which is what lets them assert whether a concurrent fill
+   happened.  The returned record is read locked; release it with
+   fd_progcache_rec_close.
+
+   Resolving the lineage through load_fork_slow rather than the cached fast
+   path costs a fork-graph read lock per call and is otherwise equivalent. */
+
+FD_FN_UNUSED static fd_progcache_rec_t * /* read locked */
+fd_progcache_peek( fd_progcache_t *       cache,
+                   fd_progcache_fork_id_t fork_id,
+                   fd_pubkey_t const *    prog_addr,
+                   ulong                  feature_slot,
+                   ulong                  deploy_slot ) {
+  if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
+  fd_progcache_load_fork_slow( cache, fork_id );
+  return fd_progcache_query( cache, prog_addr, feature_slot, deploy_slot );
+}

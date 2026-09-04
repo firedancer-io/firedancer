@@ -23,9 +23,8 @@ setup_topo_banks( fd_topo_t *  topo,
 void
 setup_topo_progcache( fd_topo_t *  topo,
                       char const * wksp_name,
-                      ulong        max_cache_entries,
-                      ulong        max_database_transactions,
-                      ulong        heap_size_gib );
+                      ulong        txn_max,
+                      ulong        wksp_size );
 
 fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,

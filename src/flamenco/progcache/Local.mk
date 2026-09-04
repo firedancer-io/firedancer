@@ -14,6 +14,8 @@ $(call add-objs,fd_progcache_user,fd_flamenco)
 
 $(call add-hdrs,fd_progcache_lineage.h)
 
+$(call add-hdrs,fd_progcache_cache.h)
+
 $(call add-objs,fd_progcache_clock,fd_flamenco)
 $(call add-objs,fd_progcache_rec,fd_flamenco)
 $(call add-objs,fd_progcache_reclaim,fd_flamenco)
@@ -23,8 +25,8 @@ $(call make-unit-test,test_progcache,test_progcache,fd_flamenco fd_ballet fd_uti
 $(call run-unit-test,test_progcache)
 ifdef FD_HAS_RACESAN
 $(call make-unit-test,test_progcache_racesan,test_progcache_racesan,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_progcache_racesan)
 endif
 endif
 
 # Internals
-$(call add-objs,fd_progcache_rec,fd_flamenco)

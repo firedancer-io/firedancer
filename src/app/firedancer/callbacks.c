@@ -52,13 +52,7 @@ progcache_align( fd_topo_t const *     topo,
 static ulong
 progcache_footprint( fd_topo_t const *     topo,
                      fd_topo_obj_t const * obj ) {
-  return fd_progcache_shmem_footprint( VAL("txn_max"), VAL("rec_max") );
-}
-
-static ulong
-progcache_loose( fd_topo_t const *     topo,
-                 fd_topo_obj_t const * obj ) {
-  return VAL("heap_max");
+  return fd_progcache_shmem_footprint( VAL("txn_max"), VAL("progcache_sz") );
 }
 
 static void
@@ -66,13 +60,12 @@ progcache_new( fd_topo_t const *     topo,
                fd_topo_obj_t const * obj ) {
   ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
   if( !seed ) FD_TEST( fd_rng_secure( &seed, sizeof(ulong) ) );
-  FD_TEST( fd_progcache_shmem_new( fd_topo_obj_laddr( topo, obj->id ), 2UL, seed, VAL("txn_max"), VAL("rec_max") ) );
+  FD_TEST( fd_progcache_shmem_new( fd_topo_obj_laddr( topo, obj->id ), 2UL, seed, VAL("txn_max"), VAL("progcache_sz") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_progcache = {
   .name      = "progcache",
   .footprint = progcache_footprint,
-  .loose     = progcache_loose,
   .align     = progcache_align,
   .new       = progcache_new,
 };

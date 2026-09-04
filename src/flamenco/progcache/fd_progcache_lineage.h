@@ -13,15 +13,10 @@ struct fd_progcache_lineage {
   ulong                  fork_depth;
   fd_progcache_fork_id_t root;
 
-  uint txn_idx[ FD_PROGCACHE_DEPTH_MAX ];
-
   /* Cache of XIDs on fork */
   ulong tip_txn_idx; /* ==ULONG_MAX if tip is root */
-
-  ulong max_depth;
 };
 
-#define FD_PROGCACHE_LINEAGE_FOOTPRINT (sizeof(fd_progcache_lineage_t))
 
 typedef struct fd_progcache_lineage fd_progcache_lineage_t;
 
