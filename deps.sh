@@ -126,7 +126,7 @@ fetch () {
 
   mkdir -pv "$PREFIX/git"
 
-  checkout_repo openssl https://github.com/openssl/openssl "openssl-3.6.2"
+  checkout_repo openssl https://github.com/openssl/openssl "openssl-3.6.4"
 }
 
 check_fedora_pkgs () {
