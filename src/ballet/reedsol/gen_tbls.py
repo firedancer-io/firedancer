@@ -22,11 +22,15 @@ def gen_vgf2p8affineqb_matrix(c):
     return out_w
 bytes_to_multiply = range(256)
 encoded = []
+encoded_avx512 = []
 for b in bytes_to_multiply:
     intv = gen_vgf2p8affineqb_matrix(GF(b))
     encoded.append(struct.pack('<Q', intv)*4)
+    encoded_avx512.append(struct.pack('<Q', intv))
 with open(out_dir + 'gfni_constants.bin', 'wb') as bin_file:
     bin_file.write(b''.join(encoded))
+with open(out_dir + 'gfni_constants_avx512.bin', 'wb') as bin_file:
+    bin_file.write(b''.join(encoded_avx512))
 
 # Write out the AVX constant table
 shuffle_idx = np.tile(np.arange(0, 16, dtype=np.int32), (1,2))

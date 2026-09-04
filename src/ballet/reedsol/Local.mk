@@ -10,10 +10,16 @@ $(call add-objs,fd_reedsol_encode_128,fd_reedsol)
 $(call add-objs,fd_reedsol_recover_16,fd_reedsol)
 $(call add-objs,fd_reedsol_recover_32,fd_reedsol)
 $(call add-objs,fd_reedsol_recover_64,fd_reedsol)
+ifdef FD_HAS_AVX512
+ifdef FD_HAS_GFNI
+$(call add-objs,fd_reedsol_recover_16_zmm fd_reedsol_recover_32_zmm fd_reedsol_recover_64_zmm,fd_reedsol)
+endif
+endif
 $(call add-objs,fd_reedsol_recover_128,fd_reedsol)
 $(call add-objs,fd_reedsol_recover_256,fd_reedsol)
 $(call add-objs,fd_reedsol_pi,fd_reedsol)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_reedsol,test_reedsol,fd_reedsol fd_util)
+$(call make-unit-test,bench_reedsol,bench_reedsol,fd_reedsol fd_util)
 $(call make-fuzz-test,fuzz_reedsol,fuzz_reedsol,fd_reedsol fd_util)
 endif
