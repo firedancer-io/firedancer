@@ -618,6 +618,7 @@ replay_until_clean() {
         # config, permissions, ...) — that is an infrastructure problem, not
         # a ledger mismatch, so there is nothing to minimize.
         if [ "$status" -ne 0 ] && [ ! -s "$TEMP_LOG" ]; then
+            sudo -E $OBJDIR/bin/firedancer-dev configure fini all --config $LEDGER_DIR/offline_replay.toml &> /dev/null || true
             send_slack_message "@here Backtest produced no log output; firedancer-dev likely failed at startup. See the configure output in the harness log. Exiting."
             exit 1
         fi
