@@ -23,11 +23,6 @@ typedef struct ag_finality_tracker ag_finality_tracker_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* ag_finalization_event_default returns an empty event backed by the
-   caller's storage.  implicitly_finalized and implicitly_skipped must
-   each hold at least (source_slot-first_unpruned_slot) entries, as a
-   single call can walk the whole unpruned ancestry. */
-
 FD_FN_CONST static inline ag_finalization_event_t
 ag_finalization_event_default( ag_block_id_t * implicitly_finalized,
                                ulong *         implicitly_skipped ) {
@@ -58,18 +53,12 @@ ag_finality_tracker_leave( ag_finality_tracker_t const * tracker );
 void *
 ag_finality_tracker_delete( void * shtracker );
 
-/* init before any block, cert or vote is added; genesis is slot 0 */
-
 void
 ag_finality_tracker_init( ag_finality_tracker_t * self,
                           ulong                   slot );
 
 void
 ag_finality_tracker_fini( ag_finality_tracker_t * self );
-
-/* The mark_* and add_parent entry points append newly finalized and
-   newly skipped slots to event, which the caller supplies already
-   initialized by ag_finalization_event_default. */
 
 void
 ag_finality_tracker_add_parent( ag_finality_tracker_t *   self,
@@ -97,10 +86,6 @@ ag_finality_tracker_highest_finalized_slot( ag_finality_tracker_t const * self )
 
 FD_FN_PURE ulong
 ag_finality_tracker_first_unpruned_slot( ag_finality_tracker_t const * self );
-
-/* ag_finality_tracker_status returns the finalization status of slot, or
-   -1 if the slot is unknown.  out_hash, if non-NULL, receives the block
-   hash the status refers to, zeroed when the status carries none. */
 
 int
 ag_finality_tracker_status( ag_finality_tracker_t const * self,

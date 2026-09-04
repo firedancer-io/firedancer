@@ -57,12 +57,11 @@ mk_notar( ag_vote_notar_t *           o,
   for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar( slot, h, g_sk[lo+i], (ushort)(lo+i), TEST_SHRED_VERSION ).notar;
 }
 static void
-mk_nf( ag_vote_notar_fallback_t *           o,
-       ulong                 slot,
-       ag_block_hash_t const h,
-       ulong                 lo,
-       ulong                 n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar_fallback( slot, h, g_sk[lo+i], (ushort)(lo+i), TEST_SHRED_VERSION ).notar_fallback;
+mk_final( ag_vote_final_t * o,
+          ulong       slot,
+          ulong       lo,
+          ulong       n ) {
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_final( slot, g_sk[lo+i], (ushort)(lo+i), TEST_SHRED_VERSION ).final;
 }
 static void
 mk_skip( ag_vote_skip_t * o,
@@ -72,26 +71,27 @@ mk_skip( ag_vote_skip_t * o,
   for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip( slot, g_sk[lo+i], (ushort)(lo+i), TEST_SHRED_VERSION ).skip;
 }
 static void
+mk_nf( ag_vote_notar_fallback_t *           o,
+       ulong                 slot,
+       ag_block_hash_t const h,
+       ulong                 lo,
+       ulong                 n ) {
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar_fallback( slot, h, g_sk[lo+i], (ushort)(lo+i), TEST_SHRED_VERSION ).notar_fallback;
+}
+static void
 mk_sf( ag_vote_skip_fallback_t * o,
        ulong       slot,
        ulong       lo,
        ulong       n ) {
   for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip_fallback( slot, g_sk[lo+i], (ushort)(lo+i), TEST_SHRED_VERSION ).skip_fallback;
 }
-static void
-mk_final( ag_vote_final_t * o,
-          ulong       slot,
-          ulong       lo,
-          ulong       n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_final( slot, g_sk[lo+i], (ushort)(lo+i), TEST_SHRED_VERSION ).final;
-}
 
 static ulong
 cert_stake( ag_cert_t const * c ) {
   switch( c->kind ) {
-  case AG_CERT_KIND_NOTAR:          return c->notar.stake;
-  case AG_CERT_KIND_FAST_FINAL:     return c->fast_final.stake;
   case AG_CERT_KIND_FINAL:          return c->final.stake;
+  case AG_CERT_KIND_FAST_FINAL:     return c->fast_final.stake;
+  case AG_CERT_KIND_NOTAR:          return c->notar.stake;
   case AG_CERT_KIND_NOTAR_FALLBACK: return c->notar_fallback.stake;
   default:                          return c->skip.stake;
   }
@@ -101,9 +101,9 @@ static int
 cert_is_signer( ag_cert_t const * c,
                 ulong             v ) {
   switch( c->kind ) {
-  case AG_CERT_KIND_NOTAR:      return ag_bls_agg_is_signer( &c->notar.agg,      v );
-  case AG_CERT_KIND_FAST_FINAL: return ag_bls_agg_is_signer( &c->fast_final.agg, v );
   case AG_CERT_KIND_FINAL:      return ag_bls_agg_is_signer( &c->final.agg,      v );
+  case AG_CERT_KIND_FAST_FINAL: return ag_bls_agg_is_signer( &c->fast_final.agg, v );
+  case AG_CERT_KIND_NOTAR:      return ag_bls_agg_is_signer( &c->notar.agg,      v );
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_cert_notar_fallback_t const * n = &c->notar_fallback;
     return ag_bls_agg_is_signer( &n->agg_notar, v ) || ag_bls_agg_is_signer( &n->agg_notar_fallback, v );
@@ -194,7 +194,7 @@ test_mixed( void ) {
   free( em );
 }
 
-/* src/consensus/cert.rs::{notar,notar_fallback,skip,fast_final,final}_failure_cases
+/* src/consensus/cert.rs::{final,fast_final,notar,notar_fallback,skip}_failure_cases
 
    The reference's try_new rejects a vote set that disagrees on slot or block
    hash.  There is no try_new here: a cert is either ours, and construct
@@ -261,7 +261,7 @@ test_failure_cases( void ) {
   free( em );
 }
 
-/* src/consensus/cert.rs::{notar,notar_fallback,skip,final,fast_final}_stake_threshold
+/* src/consensus/cert.rs::{final,fast_final,notar,notar_fallback,skip}_stake_threshold
    src/consensus/validated_cert.rs::valid_cert, ::threshold_not_met */
 
 static void
@@ -317,7 +317,7 @@ test_thresholds( void ) {
   free( em );
 }
 
-/* src/consensus/cert.rs::{notar,notar_fallback,skip,final,fast_final}_sig_validity
+/* src/consensus/cert.rs::{final,fast_final,notar,notar_fallback,skip}_sig_validity
    src/consensus/validated_cert.rs::invalid_signature
 
    Validator 0 signs with validator 1's key while still claiming rank 0, so
@@ -435,8 +435,8 @@ test_identity_partition( void ) {
   ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
 
   ag_vote_notar_t nv [ 11 ];
-  ag_vote_notar_fallback_t fv [ 11 ];
   ag_vote_skip_t sv [ 11 ];
+  ag_vote_notar_fallback_t fv [ 11 ];
   ag_vote_skip_fallback_t sfv[ 11 ];
   ag_cert_t c;
 
@@ -571,10 +571,10 @@ test_wire_golden( void ) {
   ulong const slot = 7UL;
 
   ag_vote_notar_t          nv [ 11 ];
-  ag_vote_notar_fallback_t fv [ 11 ];
-  ag_vote_skip_t           sv [ 11 ];
-  ag_vote_skip_fallback_t  sfv[ 11 ];
   ag_vote_final_t          ev [ 11 ];
+  ag_vote_skip_t           sv [ 11 ];
+  ag_vote_notar_fallback_t fv [ 11 ];
+  ag_vote_skip_fallback_t  sfv[ 11 ];
   ag_cert_t                c;
 
   /* base2 packs one rank per bit, least significant bit first.  base3

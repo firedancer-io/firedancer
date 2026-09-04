@@ -153,10 +153,10 @@ test_serialize( void ) {
 
   ag_vote_t v;
   v = ag_vote_construct_notar( 12345UL, h, sk, 7UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
-  v = ag_vote_construct_notar_fallback( 99UL, h, sk, 65535UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
-  v = ag_vote_construct_skip( 42UL, sk, 3UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
-  v = ag_vote_construct_skip_fallback( 42UL, sk, 3UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
   v = ag_vote_construct_final( 7UL, sk, 1UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
+  v = ag_vote_construct_skip( 42UL, sk, 3UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
+  v = ag_vote_construct_notar_fallback( 99UL, h, sk, 65535UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
+  v = ag_vote_construct_skip_fallback( 42UL, sk, 3UL, TEST_SHRED_VERSION ); check_wire( &v, pk );
 
   FD_LOG_NOTICE(( "vote serialize round trip pass" ));
 }

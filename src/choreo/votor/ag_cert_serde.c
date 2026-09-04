@@ -138,7 +138,7 @@ ag_cert_de( ag_cert_t *   self,
     break;
   }
   default:
-    return AG_CERT_DE_ERR_INVAL; /* genesis, and any tag past it */
+    return AG_CERT_DE_ERR_INVAL;
   }
 
   return AG_CERT_DE_SUCCESS;

@@ -105,7 +105,7 @@ ag_vote_de( ag_vote_t *   self,
     memcpy( self->skip_fallback.sig, vote.signature, AG_BLS_SIG_SZ );
     break;
   default:
-    return AG_VOTE_DE_ERR_INVAL; /* genesis, and any tag past it */
+    return AG_VOTE_DE_ERR_INVAL;
   }
 
   return AG_VOTE_DE_SUCCESS;
