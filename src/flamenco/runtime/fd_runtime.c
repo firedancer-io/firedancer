@@ -1753,11 +1753,18 @@ apply_footer( fd_bank_t *               bank,
   fd_pubkey_t alpenclock_addr;
   fd_alpenglow_pda( "alpenclock", &alpenclock_addr );
 
-  /* size the alpenclock balance with default rent */
+  /* size the alpenclock balance with exactly the default rent, any
+     excess lamports must be burned */
   uchar data[ 8UL ];
   FD_STORE( ulong, data, producer_time_nanos );
-  fd_accdb_svm_write( bank, accdb, capture_ctx, &alpenclock_addr, &fd_solana_system_program_id,
-                      data, sizeof(data), fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, sizeof(data) ), 0 );
+  fd_accdb_svm_update_t update[1];
+  fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &alpenclock_addr, 1 );
+  acc.lamports = fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, sizeof(data) );
+  fd_memcpy( acc.owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) );
+  acc.executable = 0;
+  acc.data_len   = sizeof(data);
+  fd_memcpy( acc.data, data, sizeof(data) );
+  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 
   return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs, producer_time_nanos );
 }
