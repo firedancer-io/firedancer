@@ -4,7 +4,7 @@ on:
     inputs:
       machine:
         type: string
-        default: linux_gcc_zen2
+        default: native
       extras:
         type: string
         default: "handholding"
