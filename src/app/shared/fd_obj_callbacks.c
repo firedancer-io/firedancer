@@ -9,6 +9,7 @@
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/node_info/fd_node_info.h"
+#include "../../disco/wait_info/fd_wait_info.h"
 #include "../../discof/poh/fd_poh.h"
 
 #define VAL(name) (__extension__({                                                             \
@@ -227,6 +228,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_node_info = {
   .footprint = node_info_footprint,
   .align     = node_info_align,
   .new       = node_info_new,
+};
+
+static ulong
+wait_info_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return sizeof(fd_wait_info_box_t);
+}
+
+static ulong
+wait_info_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return alignof(fd_wait_info_box_t);
+}
+
+static void
+wait_info_new( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_wait_info_box_new( fd_topo_obj_laddr( topo, obj->id ) ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_wait_info = {
+  .name      = "wait_info",
+  .footprint = wait_info_footprint,
+  .align     = wait_info_align,
+  .new       = wait_info_new,
 };
 
 static ulong

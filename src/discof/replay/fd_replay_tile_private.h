@@ -8,6 +8,7 @@
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/node_info/fd_node_info.h"
+#include "../../disco/wait_info/fd_wait_info.h"
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/repair/fd_repair_tile.h"
@@ -440,14 +441,18 @@ struct fd_replay_tile {
   double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
+  ulong       epoch_end_slot;
+  ulong       slots_per_epoch;
+  ulong       ns_per_slot;
 
   /* Caught up to the cluster: replay has completed a slot within a few
      slots of the highest FEC set slot seen from repair (which tracks
-     the turbine tip). */
+     the turbine tip).  One-way startup latch for snapshot gating. */
   int         caught_up;
   ulong       catch_up_max_fec_slot;
   ulong       catch_up_tip_advance_cnt;
   long        boot_timestamp_nanos;
+
   fd_hash_t   reset_cmr; /* chained merkle root of the reset block */
   fd_hash_t   reset_dmr; /* ALPENGLOW-ONLY double merkle root of the reset block */
   long        reset_timestamp_nanos;
@@ -477,6 +482,7 @@ struct fd_replay_tile {
   fd_pubkey_t      vote_account[ 1 ];
 
   fd_node_info_box_t * node_info; /* shared */
+  fd_wait_info_box_t * wait_info; /* shared */
 
   fd_keyswitch_t * keyswitch;
   int              halt_leader;
@@ -522,6 +528,8 @@ struct fd_replay_tile {
     ulong incremental_interval_blocks;
     ulong next_incremental_block_height;
     ulong base_slot;
+    ulong snap_finished_full;
+    ulong snap_finished_incr;
   } snapmk;
 
   struct {
@@ -530,6 +538,9 @@ struct fd_replay_tile {
     ulong      store_query_missing_cnt;
     ulong      store_query_mr;
     ulong      store_query_missing_mr;
+
+    ulong delinquent_stake_lamports;
+    ulong cluster_active_stake_lamports;
 
     ulong slots_total;
     ulong transactions_total;

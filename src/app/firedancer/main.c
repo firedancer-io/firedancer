@@ -15,6 +15,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_netdev_tbl;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_node_info;
+extern fd_topo_obj_callbacks_t fd_obj_cb_wait_info;
 extern fd_topo_obj_callbacks_t fd_obj_cb_leader_txn_timing;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
@@ -36,6 +37,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_node_info,
+  &fd_obj_cb_wait_info,
   &fd_obj_cb_leader_txn_timing,
   &fd_obj_cb_tile,
   &fd_obj_cb_store,
@@ -189,6 +191,7 @@ extern action_t fd_action_get_identity;
 extern action_t fd_action_ps;
 extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_snapshot_create;
+extern action_t fd_action_wait;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -211,6 +214,7 @@ action_t * ACTIONS[] = {
   &fd_action_get_identity,
   &fd_action_ps,
   &fd_action_snapshot_create,
+  &fd_action_wait,
   NULL,
 };
 
