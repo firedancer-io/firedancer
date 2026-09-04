@@ -13,28 +13,28 @@ ag_cert_ser( ag_cert_t const * self,
   switch( self->kind ) {
   case AG_CERT_KIND_FINAL:
     slot = self->final.slot;
-    agg  = &self->final.agg_sig;
+    agg  = &self->final.agg;
     break;
   case AG_CERT_KIND_FAST_FINAL:
     slot = self->fast_final.slot;
-    agg  = &self->fast_final.agg_sig;
+    agg  = &self->fast_final.agg;
     hash = self->fast_final.block_hash;
     break;
   case AG_CERT_KIND_NOTAR:
     slot = self->notar.slot;
-    agg  = &self->notar.agg_sig;
+    agg  = &self->notar.agg;
     hash = self->notar.block_hash;
     break;
   case AG_CERT_KIND_NOTAR_FALLBACK:
     slot = self->notar_fallback.slot;
-    agg  = &self->notar_fallback.agg_sig_notar;
-    agg2 = &self->notar_fallback.agg_sig_notar_fallback;
+    agg  = &self->notar_fallback.agg_notar;
+    agg2 = &self->notar_fallback.agg_notar_fallback;
     hash = self->notar_fallback.block_hash;
     break;
   case AG_CERT_KIND_SKIP:
     slot = self->skip.slot;
-    agg  = &self->skip.agg_sig_skip;
-    agg2 = &self->skip.agg_sig_skip_fallback;
+    agg  = &self->skip.agg_skip;
+    agg2 = &self->skip.agg_skip_fallback;
     break;
   default:
     FD_LOG_ERR(( "unimplemented" ));
@@ -105,24 +105,24 @@ ag_cert_de( ag_cert_t *   self,
   switch( self->kind ) {
   case AG_CERT_KIND_FINAL:
     self->final.slot = cert.slot;
-    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->final.agg_sig, cert.bitmap, cert.bitmap_sz ) ) ) return err;
-    memcpy( self->final.agg_sig.sig, cert.signature, AG_BLS_SIG_SZ );
+    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->final.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
+    memcpy( self->final.agg.sig, cert.signature, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_KIND_FAST_FINAL:
     self->fast_final.slot = cert.slot;
     memcpy( self->fast_final.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->fast_final.agg_sig, cert.bitmap, cert.bitmap_sz ) ) ) return err;
-    memcpy( self->fast_final.agg_sig.sig, cert.signature, AG_BLS_SIG_SZ );
+    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->fast_final.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
+    memcpy( self->fast_final.agg.sig, cert.signature, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_KIND_NOTAR:
     self->notar.slot = cert.slot;
     memcpy( self->notar.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->notar.agg_sig, cert.bitmap, cert.bitmap_sz ) ) ) return err;
-    memcpy( self->notar.agg_sig.sig, cert.signature, AG_BLS_SIG_SZ );
+    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->notar.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
+    memcpy( self->notar.agg.sig, cert.signature, AG_BLS_SIG_SZ );
     break;
   case AG_CERT_KIND_NOTAR_FALLBACK: {
-    ag_bls_agg_t * agg  = &self->notar_fallback.agg_sig_notar;
-    ag_bls_agg_t * agg2 = &self->notar_fallback.agg_sig_notar_fallback;
+    ag_bls_agg_t * agg  = &self->notar_fallback.agg_notar;
+    ag_bls_agg_t * agg2 = &self->notar_fallback.agg_notar_fallback;
     self->notar_fallback.slot = cert.slot;
     memcpy( self->notar_fallback.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( err = ag_bls_agg_pair_de( agg, agg2, cert.bitmap, cert.bitmap_sz ) ) ) return err;
@@ -130,8 +130,8 @@ ag_cert_de( ag_cert_t *   self,
     break;
   }
   case AG_CERT_KIND_SKIP: {
-    ag_bls_agg_t * agg  = &self->skip.agg_sig_skip;
-    ag_bls_agg_t * agg2 = &self->skip.agg_sig_skip_fallback;
+    ag_bls_agg_t * agg  = &self->skip.agg_skip;
+    ag_bls_agg_t * agg2 = &self->skip.agg_skip_fallback;
     self->skip.slot = cert.slot;
     if( FD_UNLIKELY( err = ag_bls_agg_pair_de( agg, agg2, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     memcpy( agg->sig, cert.signature, AG_BLS_SIG_SZ );

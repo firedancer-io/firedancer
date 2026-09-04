@@ -14,7 +14,7 @@
 struct ag_cert_notar {
   ulong           slot;
   ag_block_hash_t block_hash;
-  ag_bls_agg_t    agg_sig;
+  ag_bls_agg_t    agg;
   ulong           stake;
 };
 typedef struct ag_cert_notar ag_cert_notar_t;
@@ -22,17 +22,16 @@ typedef struct ag_cert_notar ag_cert_notar_t;
 struct ag_cert_notar_fallback {
   ulong           slot;
   ag_block_hash_t block_hash;
-  ag_bls_agg_t    agg_sig_notar;
-  ag_bls_agg_t    agg_sig_notar_fallback;
+  ag_bls_agg_t    agg_notar;
+  ag_bls_agg_t    agg_notar_fallback;
   ulong           stake;
-
 };
 typedef struct ag_cert_notar_fallback ag_cert_notar_fallback_t;
 
 struct ag_cert_skip {
   ulong           slot;
-  ag_bls_agg_t    agg_sig_skip;
-  ag_bls_agg_t    agg_sig_skip_fallback;
+  ag_bls_agg_t    agg_skip;
+  ag_bls_agg_t    agg_skip_fallback;
   ulong           stake;
 };
 typedef struct ag_cert_skip ag_cert_skip_t;
@@ -40,14 +39,14 @@ typedef struct ag_cert_skip ag_cert_skip_t;
 struct ag_cert_fast_final {
   ulong           slot;
   ag_block_hash_t block_hash;
-  ag_bls_agg_t    agg_sig;
+  ag_bls_agg_t    agg;
   ulong           stake;
 };
 typedef struct ag_cert_fast_final ag_cert_fast_final_t;
 
 struct ag_cert_final {
   ulong           slot;
-  ag_bls_agg_t    agg_sig;
+  ag_bls_agg_t    agg;
   ulong           stake;
 };
 typedef struct ag_cert_final ag_cert_final_t;

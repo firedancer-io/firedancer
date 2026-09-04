@@ -367,12 +367,12 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
     ulong final_set[ RANK_SET_WORDS ] = {0};
     if( certs->fast_final_cert ) {
       final_slot = certs->fast_final_cert->slot;
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->fast_final_cert->agg_sig.bitmask[ w ];
+      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->fast_final_cert->agg.bitmask[ w ];
     } else {
       final_slot = certs->final_cert->slot;
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_cert->agg_sig.bitmask[ w ];
+      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_cert->agg.bitmask[ w ];
       if( FD_LIKELY( certs->final_notar_cert ) ) {
-        for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_notar_cert->agg_sig.bitmask[ w ];
+        for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_notar_cert->agg.bitmask[ w ];
       }
     }
 

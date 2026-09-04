@@ -101,16 +101,16 @@ static int
 cert_is_signer( ag_cert_t const * c,
                 ulong             v ) {
   switch( c->kind ) {
-  case AG_CERT_KIND_NOTAR:      return ag_bls_agg_is_signer( &c->notar.agg_sig,      v );
-  case AG_CERT_KIND_FAST_FINAL: return ag_bls_agg_is_signer( &c->fast_final.agg_sig, v );
-  case AG_CERT_KIND_FINAL:      return ag_bls_agg_is_signer( &c->final.agg_sig,      v );
+  case AG_CERT_KIND_NOTAR:      return ag_bls_agg_is_signer( &c->notar.agg,      v );
+  case AG_CERT_KIND_FAST_FINAL: return ag_bls_agg_is_signer( &c->fast_final.agg, v );
+  case AG_CERT_KIND_FINAL:      return ag_bls_agg_is_signer( &c->final.agg,      v );
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_cert_notar_fallback_t const * n = &c->notar_fallback;
-    return ag_bls_agg_is_signer( &n->agg_sig_notar, v ) || ag_bls_agg_is_signer( &n->agg_sig_notar_fallback, v );
+    return ag_bls_agg_is_signer( &n->agg_notar, v ) || ag_bls_agg_is_signer( &n->agg_notar_fallback, v );
   }
   default: {
     ag_cert_skip_t const * s = &c->skip;
-    return ag_bls_agg_is_signer( &s->agg_sig_skip, v ) || ag_bls_agg_is_signer( &s->agg_sig_skip_fallback, v );
+    return ag_bls_agg_is_signer( &s->agg_skip, v ) || ag_bls_agg_is_signer( &s->agg_skip_fallback, v );
   }
   }
 }
@@ -453,7 +453,7 @@ test_identity_partition( void ) {
      counted, and the cert degrades to the single partition form */
   mk_nf( fv, 1UL, h, 9UL, 2UL );
   c = ag_cert_construct_notar_fallback( nv, 7UL, fv, 2UL, e );
-  FD_TEST( ag_bls_agg_signer_cnt( &c.notar_fallback.agg_sig_notar_fallback )==0UL );
+  FD_TEST( ag_bls_agg_signer_cnt( &c.notar_fallback.agg_notar_fallback )==0UL );
   FD_TEST( !cert_is_signer( &c, 9UL ) && !cert_is_signer( &c, 10UL ) );
   FD_TEST( cert_stake( &c )==7UL );
   FD_TEST( bitmap_version( &c )==0 );
@@ -463,7 +463,7 @@ test_identity_partition( void ) {
   mk_skip( sv,  1UL, 0UL, 7UL );
   mk_sf  ( sfv, 1UL, 9UL, 2UL );
     c = ag_cert_construct_skip( sv, 7UL, sfv, 2UL, e );
-  FD_TEST( ag_bls_agg_signer_cnt( &c.skip.agg_sig_skip_fallback )==0UL );
+  FD_TEST( ag_bls_agg_signer_cnt( &c.skip.agg_skip_fallback )==0UL );
   FD_TEST( !cert_is_signer( &c, 9UL ) && !cert_is_signer( &c, 10UL ) );
   FD_TEST( cert_stake( &c )==7UL );
   FD_TEST( cert_verify( &c, e ) );
@@ -590,39 +590,39 @@ test_wire_golden( void ) {
 
   mk_final( ev, slot, 0UL, 5UL );
   c = ag_cert_construct_final( ev, 5UL, e );
-  check_cert_wire( "final", &c, 7, slot, NULL, &c.final.agg_sig,
+  check_cert_wire( "final", &c, 7, slot, NULL, &c.final.agg,
                    0, 5, bm5, sizeof(bm5), 216UL, GOLDEN_FINAL );
 
   mk_notar( nv, slot, h, 0UL, 9UL );
   c = ag_cert_construct_fast_final( nv, 9UL, e );
-  check_cert_wire( "fast final", &c, 8, slot, h, &c.fast_final.agg_sig,
+  check_cert_wire( "fast final", &c, 8, slot, h, &c.fast_final.agg,
                    0, 9, bm9, sizeof(bm9), 249UL, GOLDEN_FAST_FINAL );
 
   mk_notar( nv, slot, h, 0UL, 7UL );
   c = ag_cert_construct_notar( nv, 7UL, e );
-  check_cert_wire( "notar", &c, 9, slot, h, &c.notar.agg_sig,
+  check_cert_wire( "notar", &c, 9, slot, h, &c.notar.agg,
                    0, 7, bm7, sizeof(bm7), 248UL, GOLDEN_NOTAR );
 
   mk_notar( nv, slot, h, 0UL, 5UL );
   mk_nf   ( fv, slot, h, 5UL, 4UL );
   c = ag_cert_construct_notar_fallback( nv, 5UL, fv, 4UL, e );
-  check_cert_wire( "notar fallback base3", &c, 10, slot, h, &c.notar_fallback.agg_sig_notar,
+  check_cert_wire( "notar fallback base3", &c, 10, slot, h, &c.notar_fallback.agg_notar,
                    1, 9, bm_b3, sizeof(bm_b3), 249UL, GOLDEN_NOTAR_FALLBACK_BASE3 );
 
   mk_notar( nv, slot, h, 0UL, 7UL );
   c = ag_cert_construct_notar_fallback( nv, 7UL, NULL, 0UL, e );
-  check_cert_wire( "notar fallback base2", &c, 10, slot, h, &c.notar_fallback.agg_sig_notar,
+  check_cert_wire( "notar fallback base2", &c, 10, slot, h, &c.notar_fallback.agg_notar,
                    0, 7, bm7, sizeof(bm7), 248UL, GOLDEN_NOTAR_FALLBACK_BASE2 );
 
   mk_skip( sv,  slot, 0UL, 5UL );
   mk_sf  ( sfv, slot, 5UL, 4UL );
   c = ag_cert_construct_skip( sv, 5UL, sfv, 4UL, e );
-  check_cert_wire( "skip base3", &c, 11, slot, NULL, &c.skip.agg_sig_skip,
+  check_cert_wire( "skip base3", &c, 11, slot, NULL, &c.skip.agg_skip,
                    1, 9, bm_b3, sizeof(bm_b3), 217UL, GOLDEN_SKIP_BASE3 );
 
   mk_skip( sv, slot, 0UL, 7UL );
   c = ag_cert_construct_skip( sv, 7UL, NULL, 0UL, e );
-  check_cert_wire( "skip base2", &c, 11, slot, NULL, &c.skip.agg_sig_skip,
+  check_cert_wire( "skip base2", &c, 11, slot, NULL, &c.skip.agg_skip,
                    0, 7, bm7, sizeof(bm7), 216UL, GOLDEN_SKIP_BASE2 );
 
   free( em );
