@@ -938,6 +938,7 @@ fd_bundle_client_grpc_rx_end(
   if( FD_UNLIKELY( resp->h2_status!=200 ) ) {
     FD_LOG_WARNING(( "gRPC request failed (HTTP status %u)", resp->h2_status ));
     fd_bundle_client_request_failed( ctx, request_ctx );
+    if( resp->h2_status==401 || resp->h2_status==403 ) fd_bundle_auther_reset( &ctx->auther );
     return;
   }
 
