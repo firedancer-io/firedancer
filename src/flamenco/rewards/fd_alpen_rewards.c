@@ -134,28 +134,38 @@ struct vote_update {
 };
 typedef struct vote_update vote_update_t;
 
-static void
-vote_account_modify( fd_bank_t *           bank,
-                     fd_accdb_t *          accdb,
-                     fd_capture_ctx_t *    capture_ctx,
-                     fd_pubkey_t const *   pk,
-                     vote_update_t const * upd ) {
-  static FD_TL fd_vote_state_versioned_t vs[1];
-  static FD_TL uchar                     buf[ 8192UL ];
-
+static int
+vote_account_read( fd_bank_t *                 bank,
+                   fd_accdb_t *                accdb,
+                   fd_pubkey_t const *         pk,
+                   fd_vote_state_versioned_t * vs,
+                   ulong *                     out_data_len,
+                   fd_pubkey_t *               out_owner ) {
   fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pk->uc );
   if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
     fd_accdb_unread_one( accdb, &acc );
-    return;
+    return 0;
   }
   if( FD_UNLIKELY( fd_vsv_deserialize( &acc, vs ) ) ) {
     fd_accdb_unread_one( accdb, &acc );
-    return;
+    return 0;
   }
-  ulong       data_len = acc.data_len;
-  fd_pubkey_t owner;
-  fd_memcpy( owner.uc, acc.owner, sizeof(fd_pubkey_t) );
+  *out_data_len = acc.data_len;
+  fd_memcpy( out_owner->uc, acc.owner, sizeof(fd_pubkey_t) );
   fd_accdb_unread_one( accdb, &acc );
+  return 1;
+}
+
+static void
+vote_account_write( fd_bank_t *                 bank,
+                    fd_accdb_t *                accdb,
+                    fd_capture_ctx_t *          capture_ctx,
+                    fd_pubkey_t const *         pk,
+                    fd_pubkey_t const *         owner,
+                    ulong                       data_len,
+                    fd_vote_state_versioned_t * vs,
+                    vote_update_t const *       upd ) {
+  static FD_TL uchar buf[ 8192UL ];
 
   if( upd->update_votes ) vs_maybe_update_votes( vs, upd->vote_slot, upd->vote_ts_ns );
   if( upd->update_root ) {
@@ -171,7 +181,20 @@ vote_account_modify( fd_bank_t *           bank,
     FD_LOG_WARNING(( "slot %lu: vote account %s failed to serialize; skipping", bank->f.slot, pk_b58 ));
     return;
   }
-  fd_accdb_svm_write( bank, accdb, capture_ctx, pk, &owner, buf, data_len, 0UL, 0 );
+  fd_accdb_svm_write( bank, accdb, capture_ctx, pk, owner, buf, data_len, 0UL, 0 );
+}
+
+static void
+vote_account_modify( fd_bank_t *           bank,
+                     fd_accdb_t *          accdb,
+                     fd_capture_ctx_t *    capture_ctx,
+                     fd_pubkey_t const *   pk,
+                     vote_update_t const * upd ) {
+  static FD_TL fd_vote_state_versioned_t vs[1];
+  ulong       data_len;
+  fd_pubkey_t owner;
+  if( FD_UNLIKELY( !vote_account_read( bank, accdb, pk, vs, &data_len, &owner ) ) ) return;
+  vote_account_write( bank, accdb, capture_ctx, pk, &owner, data_len, vs, upd );
 }
 
 void
@@ -309,7 +332,6 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
       uint128 denominator = (uint128)slots_per_epoch*(uint128)total_stake;
       ulong   reward      = denominator ? (ulong)( numerator/denominator ) : 0UL;
       ulong   validator_reward = reward/2UL;
-      leader_credits = fd_ulong_sat_add( leader_credits, reward-validator_reward );
 
       vote_update_t upd = {
         .update_votes    = 1, .vote_slot = reward_slot, .vote_ts_ns = ts_ns,
@@ -317,7 +339,20 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
         .migration_epoch = migration_epoch,
         .current_epoch   = current_epoch,
       };
-      vote_account_modify( bank, accdb, capture_ctx, &vote_key, &upd );
+      static FD_TL fd_vote_state_versioned_t vs[1];
+      ulong       data_len;
+      fd_pubkey_t owner;
+
+      /* Skip this node if the vote account cannot be deserialized
+         https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L378-L380 */
+      if( FD_UNLIKELY( !vote_account_read( bank, accdb, &vote_key, vs, &data_len, &owner ) ) ) continue;
+
+      /* Only accumulate the leader credits if the vote account could
+         be successfully read.
+
+         https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L249 */
+      leader_credits = fd_ulong_sat_add( leader_credits, reward-validator_reward );
+      vote_account_write( bank, accdb, capture_ctx, &vote_key, &owner, data_len, vs, &upd );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu", bank_slot, reward_slot ));
