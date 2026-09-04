@@ -88,6 +88,81 @@ fd_reedsol_private_encode_32_32( ulong                 shred_sz,
                                  uchar const * const * data_shred,
                                  uchar       * const * parity_shred,
                                  uchar       *         _scratch );
+
+void
+fd_reedsol_private_encode_32_32_zmm( ulong                 shred_sz,
+                                     uchar const * const * data_shred,
+                                     uchar       * const * parity_shred,
+                                     uchar       *         _scratch );
+
+void
+fd_reedsol_private_encode_32_32_zmm_prefetch( ulong                 shred_sz,
+                                              uchar const * const * data_shred,
+                                              uchar       * const * parity_shred,
+                                              uchar       *         _scratch );
+
+void
+fd_reedsol_private_recover_data_32_32( ulong                 shred_sz,
+                                       uchar const * const * parity_shred,
+                                       uchar       * const * data_shred,
+                                       uchar       *         _scratch );
+
+void
+fd_reedsol_private_recover_data_32_32_zmm( ulong                 shred_sz,
+                                           uchar const * const * parity_shred,
+                                           uchar       * const * data_shred,
+                                           uchar       *         _scratch );
+
+void
+fd_reedsol_private_recover_data_32_32_zmm_prefetch( ulong                 shred_sz,
+                                                    uchar const * const * parity_shred,
+                                                    uchar       * const * data_shred,
+                                                    uchar       *         _scratch );
+
+int
+fd_reedsol_private_verify_32_32( ulong                 shred_sz,
+                                 uchar const * const * data_shred,
+                                 uchar       * const * parity_shred,
+                                 uchar       *         _scratch );
+
+int
+fd_reedsol_private_verify_32_32_zmm( ulong                 shred_sz,
+                                     uchar const * const * data_shred,
+                                     uchar       * const * parity_shred,
+                                     uchar       *         _scratch );
+
+int
+fd_reedsol_private_verify_32_32_zmm_mask( ulong                 shred_sz,
+                                          uchar const * const * data_shred,
+                                          uchar       * const * parity_shred,
+                                          uchar       *         _scratch );
+
+int
+fd_reedsol_private_verify_32_32_zmm_prefetch( ulong                 shred_sz,
+                                              uchar const * const * data_shred,
+                                              uchar       * const * parity_shred,
+                                              uchar       *         _scratch );
+
+int
+fd_reedsol_private_recover_first_32_32( ulong                 shred_sz,
+                                        uchar const * const * data_shred,
+                                        uchar       * const * parity_shred,
+                                        uchar       *         _scratch,
+                                        uchar const *         parity_erased );
+
+int
+fd_reedsol_private_recover_first_32_32_zmm( ulong                 shred_sz,
+                                            uchar const * const * data_shred,
+                                            uchar       * const * parity_shred,
+                                            uchar       *         _scratch,
+                                            uchar const *         parity_erased );
+
+int
+fd_reedsol_private_recover_first_32_32_zmm_prefetch( ulong                 shred_sz,
+                                                     uchar const * const * data_shred,
+                                                     uchar       * const * parity_shred,
+                                                     uchar       *         _scratch,
+                                                     uchar const *         parity_erased );
 #endif
 
 /* fd_reedsol_private_recover_var_{n}: Verifies the consistency
@@ -139,12 +214,37 @@ fd_reedsol_private_recover_var_32( ulong           shred_sz,
                                    ulong           parity_shred_cnt,
                                    uchar const *   erased );
 
+#if FD_REEDSOL_ARITH_IMPL==3
+int
+fd_reedsol_private_recover_var_16_zmm( ulong           shred_sz,
+                                       uchar * const * shred,
+                                       ulong           data_shred_cnt,
+                                       ulong           parity_shred_cnt,
+                                       uchar const *   erased );
+
+int
+fd_reedsol_private_recover_var_32_zmm( ulong           shred_sz,
+                                       uchar * const * shred,
+                                       ulong           data_shred_cnt,
+                                       ulong           parity_shred_cnt,
+                                       uchar const *   erased );
+#endif
+
 int
 fd_reedsol_private_recover_var_64( ulong           shred_sz,
                                    uchar * const * shred,
                                    ulong           data_shred_cnt,
                                    ulong           parity_shred_cnt,
                                    uchar const *   erased );
+
+#if FD_REEDSOL_ARITH_IMPL==3
+int
+fd_reedsol_private_recover_var_64_zmm( ulong           shred_sz,
+                                       uchar * const * shred,
+                                       ulong           data_shred_cnt,
+                                       ulong           parity_shred_cnt,
+                                       uchar const *   erased );
+#endif
 
 int
 fd_reedsol_private_recover_var_128( ulong           shred_sz,
