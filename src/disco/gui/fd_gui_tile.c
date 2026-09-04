@@ -66,8 +66,13 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 65536
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
+FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_CNT==FD_GUI_HIST_CNT, gui_db_metric_count );
+
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
+  if( FD_UNLIKELY( tile->gui.send_buffer_size_mb>(ULONG_MAX>>20) ) )
+    FD_LOG_ERR(( "[tiles.gui.send_buffer_size_mb] is too large" ));
+
   return (fd_http_server_params_t) {
     .max_connection_cnt    = tile->gui.max_http_connections,
     .max_ws_connection_cnt = tile->gui.max_websocket_connections,
@@ -956,6 +961,7 @@ unprivileged_init( fd_topo_t const *      topo,
     accdb_shmem = fd_accdb_shmem_join( accdb_shmem_raw );
     FD_TEST( accdb_shmem );
   }
+
   ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, tile->gui.is_alpenglow, tile->gui.max_live_slots, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
   FD_TEST( ctx->db );

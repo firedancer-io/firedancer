@@ -348,7 +348,7 @@ fd_gui_printf_catch_up_history( fd_gui_t * gui ) {
             fd_gui_hist_iter_t _it; \
             if( FD_LIKELY( !fd_gui_hist_range_begin( gui, &_it, FD_GUI_HIST_SHRED_EVENTS, _lo_ns, _hi_ns, NULL, NULL ) ) ) { \
               while( fd_gui_hist_range_next( &_it ) ) { \
-                fd_gui_slot_history_shred_event_t const * event = (fd_gui_slot_history_shred_event_t const *)_it.rec; (void)event; \
+                fd_gui_slot_history_tvu_event_t const * event = (fd_gui_slot_history_tvu_event_t const *)_it.rec; (void)event; \
                 ulong db_event_slot = event->slot; (void)db_event_slot; \
                 if( FD_UNLIKELY( event->timestamp < _lo_ns ) ) continue; \
                 do { code_archive } while (0); \
@@ -380,7 +380,7 @@ fd_gui_printf_catch_up_history( fd_gui_t * gui ) {
             SHREDS_REV_ITER(
               15000000000L,
               {
-                if( FD_LIKELY( event->shred_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, event->shred_idx );
+                if( FD_LIKELY( event->idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, event->idx );
                 else                                            jsonp_null ( gui->http, NULL );
               }
             )
@@ -3203,7 +3203,7 @@ fd_gui_printf_shreds_window( fd_gui_t * gui, long after_ns, long before_ns ) {
     fd_gui_hist_iter_t it;
     if( FD_LIKELY( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_SHRED_EVENTS, after_ns, before_ns, NULL, NULL ) ) ) {
       while( fd_gui_hist_range_next( &it ) ) {
-        fd_gui_slot_history_shred_event_t const * e = (fd_gui_slot_history_shred_event_t const *)it.rec;
+        fd_gui_slot_history_tvu_event_t const * e = (fd_gui_slot_history_tvu_event_t const *)it.rec;
         if( FD_UNLIKELY( e->timestamp<after_ns || e->timestamp>before_ns ) ) continue;
         min_slot = fd_ulong_min( min_slot, e->slot );
         min_ts   = fd_long_min ( min_ts,   e->timestamp );
@@ -3221,7 +3221,7 @@ fd_gui_printf_shreds_window( fd_gui_t * gui, long after_ns, long before_ns ) {
       fd_gui_hist_iter_t it; \
       if( FD_LIKELY( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_SHRED_EVENTS, after_ns, before_ns, NULL, NULL ) ) ) { \
         while( fd_gui_hist_range_next( &it ) ) { \
-          fd_gui_slot_history_shred_event_t const * e = (fd_gui_slot_history_shred_event_t const *)it.rec; (void)e; \
+          fd_gui_slot_history_tvu_event_t const * e = (fd_gui_slot_history_tvu_event_t const *)it.rec; (void)e; \
           ulong db_event_slot = e->slot; (void)db_event_slot; \
           if( FD_UNLIKELY( e->timestamp<after_ns || e->timestamp>before_ns ) ) continue; \
           do { code } while(0); \
@@ -3236,7 +3236,7 @@ fd_gui_printf_shreds_window( fd_gui_t * gui, long after_ns, long before_ns ) {
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "shred_idx" );
     SHREDS_WINDOW_ITER({
-      if( FD_LIKELY( e->shred_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, e->shred_idx );
+      if( FD_LIKELY( e->idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, e->idx );
       else                                        jsonp_null ( gui->http, NULL );
     });
   jsonp_close_array( gui->http );

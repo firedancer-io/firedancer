@@ -27,6 +27,7 @@ struct fd_gui_store_ring {
   ulong val_align;       /* slot/record alignment */
   ulong ts_off;          /* TS timestamp offset within val (0 for KV) */
   ulong granularity;     /* TS window granularity (0 for KV) */
+  ulong flags;           /* FD_GUI_STORE_FLAG_* */
   int   kind;            /* FD_GUI_STORE_KIND_* */
   ulong head_cur;        /* next cursor to write */
   ulong evict_cur;       /* logical low-watermark */
@@ -34,7 +35,7 @@ struct fd_gui_store_ring {
 };
 typedef struct fd_gui_store_ring fd_gui_store_ring_t;
 
-#define FD_GUI_STORE_SUPER_MAGIC (0xf17e6d0c0117db05UL) /* fd_gui_store regions, versioned */
+#define FD_GUI_STORE_SUPER_MAGIC (0xf17e6d0c0117db06UL) /* fd_gui_store regions, versioned */
 
 struct fd_gui_store_super {
   ulong            magic;
@@ -156,6 +157,8 @@ fd_gui_store_file_footprint( ulong                       size_bytes,
 
   /* Every ring must fit at least one slot in a region. */
   for( ulong i=0UL; i<ring_cnt; i++ ) {
+    if( FD_UNLIKELY( descs[ i ].flags & ~FD_GUI_STORE_FLAG_TS_MONOTONIC ) ) return 0UL;
+    if( FD_UNLIKELY( descs[ i ].kind==FD_GUI_STORE_KIND_KV && descs[ i ].flags ) ) return 0UL;
     ulong stride = fd_gui_store_ring_stride( descs[ i ].kind, descs[ i ].val_sz, descs[ i ].val_align );
     if( FD_UNLIKELY( !stride || stride>region_sz ) ) return 0UL; /* record does not fit a region */
   }
@@ -339,6 +342,7 @@ fd_gui_store_new( void *                      mem,
     p->val_align       = descs[ i ].val_align;
     p->ts_off          = descs[ i ].ts_off;
     p->granularity     = descs[ i ].granularity;
+    p->flags           = descs[ i ].flags;
     p->kind            = descs[ i ].kind;
     p->head_cur        = 0UL;
     p->evict_cur       = 0UL;
@@ -809,6 +813,23 @@ fd_gui_store_ts_oldest_window( fd_gui_store_t * db,
   if( FD_UNLIKELY( p->evict_cur>=p->head_cur ) )     return 0; /* empty */
   uchar const * slot = (uchar const *)fd_gui_store_slot( db, ring_idx, p, p->evict_cur );
   *out_window = fd_gui_store_ts_window( p, slot );
+  return 1;
+}
+
+int
+fd_gui_store_ts_live_window_bounds( fd_gui_store_t * db,
+                                    ulong            ring_idx,
+                                    ulong *          out_first_window,
+                                    ulong *          out_last_window ) {
+  if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) return 0;
+  fd_gui_store_ring_t const * p = &db->super->ring[ ring_idx ];
+  if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) return 0;
+  if( FD_UNLIKELY( p->evict_cur>=p->head_cur ) )     return 0; /* empty */
+
+  uchar const * first = (uchar const *)fd_gui_store_slot( db, ring_idx, p, p->evict_cur     );
+  uchar const * last  = (uchar const *)fd_gui_store_slot( db, ring_idx, p, p->head_cur-1UL  );
+  *out_first_window = fd_gui_store_ts_window( p, first );
+  *out_last_window  = fd_gui_store_ts_window( p, last  );
   return 1;
 }
 
