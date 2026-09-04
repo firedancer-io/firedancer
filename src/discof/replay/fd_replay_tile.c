@@ -1176,8 +1176,6 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   ctx->node_info->info.identity = *ctx->identity_pubkey;
   fd_node_info_write_end  ( ctx->node_info );
 
-  fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-
   /* The next leader slot will be incorrect now that the identity has
      switched.  The next leader slot normally gets updated based on the
      reset slot returned by tower. */
@@ -1201,6 +1199,11 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   ctx->identity_vote_rooted = 0;
   ctx->identity_idx++;
   fd_vote_tracker_reset( ctx->vote_tracker );
+
+  /* Save the current sequence so downstream consumers, namely tower,
+     know what sequence to consume up to. */
+  ctx->keyswitch->result = fd_mcache_seq_query( ctx->replay_out_seq );
+  fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
 }
 
 /* leader_footer_certs copies the certificates votor sent for
@@ -1326,7 +1329,7 @@ try_become_leader_ag( fd_replay_tile_t *        ctx,
   }
 
   if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX || !ctx->wfs_complete ) ) return;
-  if( FD_UNLIKELY( ctx->halt_leader || !ctx->supports_leader ) ) return;
+  if( FD_UNLIKELY( ctx->halt_replay || !ctx->supports_leader ) ) return;
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
     FD_LOG_WARNING(( "ignoring leader trigger from votor for slot %lu because no bank can be started", leader_slot ));
     return;
@@ -1512,8 +1515,6 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   ctx->recv_poh    = 0;
   ctx->is_leader   = 0;
 
-  maybe_switch_identity( ctx );
-
   if( FD_UNLIKELY( ctx->alpenglow && (curr_slot+1UL)%AG_SLOTS_PER_WINDOW ) ) {
     fd_votor_leader_t next[1] = {{
       .start_slot      = curr_slot+1UL,
@@ -1688,7 +1689,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
 
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
-  if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
+  if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
   if( !ctx->supports_leader ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
@@ -1906,7 +1907,6 @@ process_poh_message( fd_replay_tile_t *                 ctx,
     ctx->recv_poh    = 0;
     ctx->is_leader   = 0;
     mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_RESET );
-    maybe_switch_identity( ctx );
     return;
   }
 
@@ -3296,6 +3296,7 @@ after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->halt_replay && !ctx->is_leader ) ) return;
   if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
 
   /* The overall priority for the replay tile in order is:
@@ -4748,7 +4749,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
-  ctx->halt_leader = 0;
+  ctx->halt_replay = 0;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -4788,6 +4789,8 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
   *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
+
+  ctx->replay_out_seq = fd_mcache_seq_laddr_const( topo->links[ tile->out_link_id[ ctx->replay_out->idx ] ].mcache );
 
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
 
@@ -4876,16 +4879,16 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-    FD_CHECK_CRIT( ctx->halt_leader, "state machine corruption" );
-    FD_LOG_DEBUG(( "keyswitch: unhalting leader" ));
-    ctx->halt_leader = 0;
+    FD_CHECK_CRIT( ctx->halt_replay, "state machine corruption" );
+    FD_LOG_DEBUG(( "keyswitch: unhalting replay" ));
+    ctx->halt_replay = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    FD_LOG_DEBUG(( "keyswitch: halting leader" ));
-    ctx->halt_leader = 1;
-    if( !ctx->is_leader ) maybe_switch_identity( ctx );
+    if( FD_LIKELY( !ctx->halt_replay ) ) FD_LOG_DEBUG(( "keyswitch: halting replay" ));
+    ctx->halt_replay = 1;
+    if( !ctx->is_leader && ctx->is_booted ) maybe_switch_identity( ctx );
   }
 }
 

@@ -479,7 +479,7 @@ struct fd_replay_tile {
   fd_node_info_box_t * node_info; /* shared */
 
   fd_keyswitch_t * keyswitch;
-  int              halt_leader;
+  int              halt_replay;
 
   ulong  resolv_tile_cnt;
 
@@ -489,6 +489,7 @@ struct fd_replay_tile {
   fd_replay_out_link_t exec_out[ 1 ];
 
   fd_replay_out_link_t replay_out[1];
+  ulong const *        replay_out_seq;
   fd_replay_out_link_t snapmk_out[1];
   ulong admin_out_idx;
 
