@@ -294,6 +294,8 @@ fi
 
 echo_notice "Running backtest for $LEDGER"
 
+[ -x "$OBJDIR/bin/firedancer-dev" ] || { echo "error: firedancer-dev not found at \"$OBJDIR/bin\" -- build it, or set OBJDIR/EXTRAS" >&2; exit 1; }
+
 sudo killall firedancer-dev &> /dev/null || true
 
 set -x

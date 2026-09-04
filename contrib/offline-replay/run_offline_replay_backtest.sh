@@ -316,7 +316,11 @@ build_firedancer() {
     EXTRAS=offline-replay make -j
 
     OBJDIR=$(EXTRAS=offline-replay make --silent --no-print-directory objdir 2>/dev/null || true)
-    : "${OBJDIR:?cannot determine OBJDIR (make objdir failed)}"
+    if [ -z "$OBJDIR" ] || [ ! -x "$OBJDIR/bin/firedancer-dev" ]; then
+        send_slack_message "@here offline-replay: firedancer-dev not found at \`${OBJDIR:-<unresolved>}/bin\` after build (OBJDIR/build-config mismatch, not a ledger failure). Exiting."
+        exit 1
+    fi
+    export OBJDIR
 }
 
 # Convert the downloaded rocksdb into a shredcap capture covering the replay
