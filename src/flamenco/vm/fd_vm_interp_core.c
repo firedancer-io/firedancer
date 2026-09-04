@@ -94,7 +94,7 @@
 
 # define FD_VM_INTERP_INSTR_EXEC                                                                                    \
   if( FD_UNLIKELY( pc>=block_text_limit ) ) goto sigtext_or_sigcost; /* Note: untaken branches don't consume BTB */ \
-  instr   = text[ pc ];                  /* Guaranteed in-bounds */                                                 \
+  instr   = FD_LOAD( ulong, text+pc );   /* Guaranteed in-bounds */                                                 \
   opcode  = fd_vm_instr_opcode( instr ); /* in [0,256) even if malformed */                                         \
   dst     = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */                                         \
   src     = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */                                         \
@@ -387,7 +387,7 @@ interp_exec:
     ic_correction++;
     /* No need to check pc because it's already checked during validation.
        if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; // Note: untaken branches don't consume BTB */
-    reg[ dst ] = (ulong)((ulong)imm | ((ulong)fd_vm_instr_imm( text[ pc ] ) << 32));
+    reg[ dst ] = (ulong)((ulong)imm | ((ulong)fd_vm_instr_imm( FD_LOAD( ulong, text+pc ) ) << 32));
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x1c) /* FD_SBPF_OP_SUB_REG */
