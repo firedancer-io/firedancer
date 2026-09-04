@@ -1671,7 +1671,7 @@ telemetry = true
 
         # Sets the fixed size of the in-memory shred cache.
         # This cache helps reduce disk I/O against the shred database file.
-        shred_cache_size_mib = 2048
+        shred_cache_size_mib = 32
 
     # The repair tile watches incoming shreds and sends repair requests
     # to other validators when it notices we are missing data needed to
@@ -1709,12 +1709,12 @@ telemetry = true
         # The port the repair server listens for repair requests.
         repair_serve_listen_port = 8702
 
-        # Sets maximum size of the shreds partion in the shred database
-        # file, [paths].shred_db, which stores block data.
-        # A larger file limit makes the validator retain more old blocks,
-        # which are served to other nodes that are behind if rserve is
-        # enabled. The shred database file starts out small and grows up to
-        # this limit as shreds are added and removed.
+        # Sets the maximum logical size of the wire-shred ring in the Store
+        # backing file, [paths].shredb. A larger ring lets the validator
+        # retain more old blocks for repair service. The file is sparse:
+        # physical disk use starts small and grows as ring entries and FEC
+        # spill pages are written. This value is not a total disk limit;
+        # FEC payload spills can consume additional space.
         shred_storage_limit_gib = 50
 
     # The txsend tile is responsible for sending transactions out to

@@ -581,13 +581,9 @@ privileged_init( fd_topo_t const *      topo,
   fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( store );
 
-  if( FD_UNLIKELY( fd_store_file_init( store ) ) ) {
-    FD_LOG_ERR(( "failed to initialize store file %s (%i-%s)", store->db_path, errno, fd_io_strerror( errno ) ));
-  }
-  ctx->store_disk_fd = fd_store_file_open( store, O_RDWR );
-  if( FD_UNLIKELY( ctx->store_disk_fd<0 ) ) {
-    FD_LOG_ERR(( "open(%s) failed (%i-%s)", store->db_path, errno, fd_io_strerror( errno ) ));
-  }
+  ctx->store_disk_fd = FD_STORE_FD_RW;
+  if( FD_UNLIKELY( fcntl( ctx->store_disk_fd, F_GETFD )<0 ) )
+    FD_LOG_ERR(( "store file descriptor was not inherited (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void

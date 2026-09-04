@@ -34,6 +34,7 @@ static uchar          mock_store_data[ 4096 ];
 static ulong          mock_store_view_call_cnt;
 static ulong          mock_store_view_success_cnt;
 static ulong          mock_store_view_release_cnt;
+static int            mock_store_view_fail;
 
 fd_store_fec_t *
 mock_store_query_fn( fd_store_map_t *  map FD_PARAM_UNUSED,
@@ -47,6 +48,12 @@ mock_store_fec_data_view_fn( fd_store_t *               store FD_PARAM_UNUSED,
                              fd_store_fec_t *           fec FD_PARAM_UNUSED,
                              fd_store_fec_data_view_t * view ) {
   mock_store_view_call_cnt++;
+  if( FD_UNLIKELY( mock_store_view_fail ) ) {
+    view->data  = NULL;
+    view->fec   = NULL;
+    view->flags = 0U;
+    return -1;
+  }
   view->data = mock_store_data;
   view->fec = &mock_store_fec;
   view->flags = 0U;
@@ -337,6 +344,7 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   mock_store_view_call_cnt    = 0UL;
   mock_store_view_success_cnt = 0UL;
   mock_store_view_release_cnt = 0UL;
+  mock_store_view_fail        = 0;
   memset( ctx, 0, sizeof(*ctx) );
   setup_timing( ctx, wksp );
 
@@ -965,7 +973,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
 
   void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, "/tmp/test_replay_tile_fec_payload.db", 0UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, 0UL ) );
   FD_TEST( ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
   ctx->store_disk_fd = -1;
@@ -2225,9 +2233,9 @@ deliver_rotor_fec_bid( fd_replay_tile_t * ctx,
 
    Observability: the skip returns at the top of process_rotor_fec,
    before the store lock, so store_query_cnt does NOT advance for a
-   skipped FEC but DOES advance for one that is processed (it reaches
-   the store query, then drops for want of a store FEC -- the point is
-   only that it was not skipped). */
+   skipped FEC.  The control FEC forces payload pinning to fail after a
+   successful lookup and verifies replay abandons it before creating a
+   bank or changing the block-id map. */
 static void
 test_process_rotor_fec_skip_replayed( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
@@ -2286,13 +2294,24 @@ test_process_rotor_fec_skip_replayed( fd_wksp_t * wksp ) {
   FD_TEST( ele5->block_id_seen==1 );                        /* existing ele untouched */
 
   /* (2) Redelivered FEC for a NOT-yet-replayed block {6, C}: processed
-     past the skip check, reaching the store query (dropped there for
-     want of a store FEC -- but NOT skipped). */
+     past the skip check.  Model rotor removing the FEC between delivery
+     and replay's payload acquisition.  This must be treated as a pruned
+     slice, not an assertion failure, and must not leave a bank behind. */
   fd_hash_t C   = { .ul = { 0x6160UL } };
   fd_hash_t mrY = { .ul = { 601 } };
+  ag_block_id_t C_key = ag_block_id( 6UL, C.uc );
+  ulong view0    = mock_store_view_call_cnt;
+  ulong missing0 = ctx->metrics.store_query_missing_cnt;
+  mock_store_view_fail = 1;
   r = deliver_rotor_fec_bid( ctx, 6UL, 0U, 0UL, &parent_bid, &C, &mrY, 1, 1 );
+  mock_store_view_fail = 0;
   FD_TEST( r==0 );
-  FD_TEST( ctx->metrics.store_query_cnt==q0+1UL );          /* reached the store: not skipped */
+  FD_TEST( ctx->metrics.store_query_cnt==q0+1UL );
+  FD_TEST( ctx->metrics.store_query_missing_cnt==missing0+1UL );
+  FD_TEST( mock_store_view_call_cnt==view0+1UL );
+  FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
+  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0 );
+  FD_TEST( !fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &C_key, NULL, ctx->block_id_arr ) );
 
   FD_LOG_NOTICE(( "pass: test_process_rotor_fec_skip_replayed" ));
 }

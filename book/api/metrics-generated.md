@@ -695,7 +695,7 @@
 | <span class="metrics-name">shred_&#8203;microblock_&#8203;per_&#8203;batch</span> | histogram | Microblocks in each microblock batch that is shredded |
 | <span class="metrics-name">shred_&#8203;shredding_&#8203;duration_&#8203;seconds</span> | histogram | Duration of producing one FEC set from the shredder |
 | <span class="metrics-name">shred_&#8203;add_&#8203;shred_&#8203;duration_&#8203;seconds</span> | histogram | Duration of verifying and processing one shred received from the network |
-| <span class="metrics-name">shred_&#8203;disk_&#8203;write_&#8203;seconds</span> | histogram | Duration of persisting one accepted data shred |
+| <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write_&#8203;seconds</span> | histogram | Duration of spilling one FEC payload from the shred tile |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">bad_&#8203;slot</span>"} | counter | Result of processing a shred from the network (Shred was for a slot for which we don't know the leader) |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">parse_&#8203;failed</span>"} | counter | Result of processing a shred from the network (Shred parsing failed) |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">equivocated</span>"} | counter | Result of processing a shred from the network (Shred was equivocated with another shred) |
@@ -713,9 +713,8 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with repair shreds, including network headers |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx</span> | counter | Turbine shreds received |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with turbine shreds, including network headers |
-| <span class="metrics-name">shred_&#8203;disk_&#8203;shred_&#8203;inserted</span> | counter | Data shreds persisted to the repair store |
-| <span class="metrics-name">shred_&#8203;disk_&#8203;write_&#8203;failed</span> | counter | Data shreds rejected by the repair store API |
-| <span class="metrics-name">shred_&#8203;disk_&#8203;write_&#8203;bytes</span> | counter | Bytes written by data shreds successfully indexed in the repair store |
+| <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write</span> | counter | FEC payloads synchronously spilled by the shred tile |
+| <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write_&#8203;bytes</span> | counter | FEC payload bytes synchronously spilled by the shred tile |
 
 </div>
 
@@ -1010,7 +1009,18 @@
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;current</span> | gauge | The number of shreds currently in the shreds database |
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;max</span> | gauge | Total capacity of shreds that can be stored in the shreds database |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;current_&#8203;bytes</span> | gauge | Logical bytes occupied by live wire shreds and spilled FEC payloads |
-| <span class="metrics-name">rserve_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Physical bytes reserved for the wire ring and allocated spill pages |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Logical wire-ring high-water plus allocated spill pages |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;write_&#8203;seconds</span> | histogram | Duration of persisting one accepted data shred |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;shred_&#8203;inserted</span> | counter | Data shreds persisted to the repair store |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;write_&#8203;failed</span> | counter | Data shreds rejected by the repair store API |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;write_&#8203;bytes</span> | counter | Bytes written by persisted data shreds |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;preevict_&#8203;write_&#8203;seconds</span> | histogram | Duration of pre-evicting one FEC payload |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;preevict_&#8203;write</span> | counter | FEC payloads pre-evicted by rserve |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;preevict_&#8203;write_&#8203;bytes</span> | counter | FEC payload bytes pre-evicted by rserve |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;cache_&#8203;free</span> | gauge | Immediately available FEC payload cache entries |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;cache_&#8203;max</span> | gauge | Total FEC payload cache entries |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;cache_&#8203;target</span> | gauge | Background preeviction target in free entries |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;cache_&#8203;low_&#8203;water</span> | gauge | Free entries that trigger background preeviction |
 | <span class="metrics-name">rserve_&#8203;ping_&#8203;cache_&#8203;entries</span> | counter | How many active entries do we have in the ping cache |
 | <span class="metrics-name">rserve_&#8203;ping_&#8203;cache_&#8203;evictions</span> | counter | How many entries we've evicted from the ping cache |
 
