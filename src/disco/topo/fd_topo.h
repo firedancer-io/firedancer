@@ -640,6 +640,8 @@ struct fd_topo_tile {
 
     struct {
       char   identity_key_path[ PATH_MAX ];
+      ulong  authorized_voter_paths_cnt;
+      char   authorized_voter_paths[ 16 ][ PATH_MAX ];
       ushort quic_client_listen_port;
       ushort quic_server_listen_port;
       uint   ip_addr;
