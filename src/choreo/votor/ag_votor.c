@@ -514,6 +514,14 @@ handle_cert_created( ag_votor_t *      self,
 
   switch( cert->kind ) {
 
+  case AG_CERT_KIND_FINAL:
+  case AG_CERT_KIND_FAST_FINAL:
+    set_timeouts( self, ag_first_slot_in_window( slot ) );
+
+    self->highest_final_cert_slot = fd_ulong_max( self->highest_final_cert_slot, slot );
+    prune( self );
+    break;
+
   case AG_CERT_KIND_NOTAR: {
     uchar const * hash = ag_cert_block_hash( cert );
 
@@ -525,20 +533,12 @@ handle_cert_created( ag_votor_t *      self,
     break;
   }
 
-  case AG_CERT_KIND_FINAL:
-  case AG_CERT_KIND_FAST_FINAL:
-    set_timeouts( self, ag_first_slot_in_window( slot ) );
-
-    self->highest_final_cert_slot = fd_ulong_max( self->highest_final_cert_slot, slot );
-    prune( self );
-    break;
-
-  case AG_CERT_KIND_SKIP:
   case AG_CERT_KIND_NOTAR_FALLBACK:
+  case AG_CERT_KIND_SKIP:
     break;
 
   default:
-    FD_LOG_ERR(( "invalid cert kind %u", cert->kind ));
+    FD_LOG_CRIT(( "unimplemented" ));
   }
 
   FD_TEST( !cert_events_full( self->cert_events ) );

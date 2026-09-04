@@ -6,9 +6,9 @@ static int
 is_signer( ag_cert_t const * self,
            ulong             rank ) {
   switch( self->kind ) {
-  case AG_CERT_KIND_NOTAR:          return ag_bls_agg_is_signer( &self->notar.agg, rank );
-  case AG_CERT_KIND_FAST_FINAL:     return ag_bls_agg_is_signer( &self->fast_final.agg, rank );
   case AG_CERT_KIND_FINAL:          return ag_bls_agg_is_signer( &self->final.agg, rank );
+  case AG_CERT_KIND_FAST_FINAL:     return ag_bls_agg_is_signer( &self->fast_final.agg, rank );
+  case AG_CERT_KIND_NOTAR:          return ag_bls_agg_is_signer( &self->notar.agg, rank );
   case AG_CERT_KIND_NOTAR_FALLBACK: return ag_bls_agg_is_signer( &self->notar_fallback.agg_notar, rank ) || ag_bls_agg_is_signer( &self->notar_fallback.agg_notar_fallback, rank );
   case AG_CERT_KIND_SKIP:           return ag_bls_agg_is_signer( &self->skip.agg_skip, rank )            || ag_bls_agg_is_signer( &self->skip.agg_skip_fallback, rank );
   default:                          __builtin_unreachable();
@@ -60,15 +60,15 @@ check_sig( ag_cert_t const *       self,
   ulong                       validator_cnt = epoch_info->validator_cnt;
   uchar buf[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz;
   switch( self->kind ) {
-  case AG_CERT_KIND_NOTAR:
-    sz = voter_signing_ser( AG_VOTE_KIND_NOTAR, self->notar.slot, self->notar.block_hash, shred_version, buf );
-    return ag_bls_agg_verify( &self->notar.agg, buf, sz, pk0, pk_stride, validator_cnt );
-  case AG_CERT_KIND_FAST_FINAL:
-    sz = voter_signing_ser( AG_VOTE_KIND_NOTAR, self->fast_final.slot, self->fast_final.block_hash, shred_version, buf );
-    return ag_bls_agg_verify( &self->fast_final.agg, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_KIND_FINAL:
     sz = voter_signing_ser( AG_VOTE_KIND_FINAL, self->final.slot, NULL, shred_version, buf );
     return ag_bls_agg_verify( &self->final.agg, buf, sz, pk0, pk_stride, validator_cnt );
+  case AG_CERT_KIND_FAST_FINAL:
+    sz = voter_signing_ser( AG_VOTE_KIND_NOTAR, self->fast_final.slot, self->fast_final.block_hash, shred_version, buf );
+    return ag_bls_agg_verify( &self->fast_final.agg, buf, sz, pk0, pk_stride, validator_cnt );
+  case AG_CERT_KIND_NOTAR:
+    sz = voter_signing_ser( AG_VOTE_KIND_NOTAR, self->notar.slot, self->notar.block_hash, shred_version, buf );
+    return ag_bls_agg_verify( &self->notar.agg, buf, sz, pk0, pk_stride, validator_cnt );
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_cert_notar_fallback_t const * notar_fallback = &self->notar_fallback;
     uchar buf_fallback[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz_fallback;
@@ -92,17 +92,40 @@ check_sig( ag_cert_t const *       self,
   }
 }
 
-int
-ag_cert_verify( ag_cert_t const *       self,
-                ag_epoch_info_t const * epoch_info,
-                ushort                  shred_version ) {
-  return check_threshold( self, epoch_info ) && check_sig( self, epoch_info, shred_version );
+ag_cert_t
+ag_cert_construct_final( ag_vote_final_t const * votes,
+                         ulong                   vote_cnt,
+                         ag_epoch_info_t const * epoch_info ) {
+  ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
+  FD_TEST( vote_cnt>0UL );
+  ulong slot  = votes[0].slot;
+  ulong stake = 0UL;
+  for( ulong i=0UL; i<vote_cnt; i++ ) {
+    FD_TEST( votes[i].slot==slot );
+    stake += validators[ votes[i].rank ].stake;
+  }
+  ag_cert_final_t cert;
+  cert.slot = slot; cert.stake = stake;
+  ag_bls_agg_zero( &cert.agg );
+  for( ulong i=0UL; i<vote_cnt; i++ ) ag_bls_agg_add( &cert.agg, votes[i].rank, votes[i].sig );
+  return (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = cert };
 }
 
-static ag_cert_notar_t
-construct_notar( ag_vote_notar_t const * votes,
-                 ulong                   vote_cnt,
-                 ag_epoch_info_t const * epoch_info ) {
+ag_cert_t
+ag_cert_construct_fast_final( ag_vote_notar_t const * votes,
+                              ulong                   vote_cnt,
+                              ag_epoch_info_t const * epoch_info ) {
+  ag_cert_notar_t      notar = ag_cert_construct_notar( votes, vote_cnt, epoch_info ).notar;
+  ag_cert_fast_final_t cert;
+  cert.slot = notar.slot; cert.stake = notar.stake; cert.agg = notar.agg;
+  memcpy( cert.block_hash, notar.block_hash, sizeof(ag_block_hash_t) );
+  return (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = cert };
+}
+
+ag_cert_t
+ag_cert_construct_notar( ag_vote_notar_t const * votes,
+                         ulong                   vote_cnt,
+                         ag_epoch_info_t const * epoch_info ) {
   ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
   FD_TEST( vote_cnt>0UL );
   ulong           slot  = votes[0].slot;
@@ -119,45 +142,15 @@ construct_notar( ag_vote_notar_t const * votes,
   memcpy( cert.block_hash, block_hash, sizeof(ag_block_hash_t) );
   ag_bls_agg_zero( &cert.agg );
   for( ulong i=0UL; i<vote_cnt; i++ ) ag_bls_agg_add( &cert.agg, votes[i].rank, votes[i].sig );
-  return cert;
+  return (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR, .notar = cert };
 }
 
-static ag_cert_fast_final_t
-construct_fast_final( ag_vote_notar_t const * votes,
-                      ulong                   vote_cnt,
-                      ag_epoch_info_t const * epoch_info ) {
-  ag_cert_notar_t      notar = construct_notar( votes, vote_cnt, epoch_info );
-  ag_cert_fast_final_t cert;
-  cert.slot = notar.slot; cert.stake = notar.stake; cert.agg = notar.agg;
-  memcpy( cert.block_hash, notar.block_hash, sizeof(ag_block_hash_t) );
-  return cert;
-}
-
-static ag_cert_final_t
-construct_final( ag_vote_final_t const * votes,
-                 ulong                   vote_cnt,
-                 ag_epoch_info_t const * epoch_info ) {
-  ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
-  FD_TEST( vote_cnt>0UL );
-  ulong slot  = votes[0].slot;
-  ulong stake = 0UL;
-  for( ulong i=0UL; i<vote_cnt; i++ ) {
-    FD_TEST( votes[i].slot==slot );
-    stake += validators[ votes[i].rank ].stake;
-  }
-  ag_cert_final_t cert;
-  cert.slot = slot; cert.stake = stake;
-  ag_bls_agg_zero( &cert.agg );
-  for( ulong i=0UL; i<vote_cnt; i++ ) ag_bls_agg_add( &cert.agg, votes[i].rank, votes[i].sig );
-  return cert;
-}
-
-static ag_cert_notar_fallback_t
-construct_notar_fallback( ag_vote_notar_t const *          votes,
-                          ulong                            vote_cnt,
-                          ag_vote_notar_fallback_t const * fallback_votes,
-                          ulong                            fallback_vote_cnt,
-                          ag_epoch_info_t const *          epoch_info ) {
+ag_cert_t
+ag_cert_construct_notar_fallback( ag_vote_notar_t const *          votes,
+                                  ulong                            vote_cnt,
+                                  ag_vote_notar_fallback_t const * fallback_votes,
+                                  ulong                            fallback_vote_cnt,
+                                  ag_epoch_info_t const *          epoch_info ) {
   ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
   FD_TEST( vote_cnt>0UL || fallback_vote_cnt>0UL );
   ulong           slot;
@@ -195,15 +188,15 @@ construct_notar_fallback( ag_vote_notar_t const *          votes,
   }
   ag_bls_agg_merge( &cert.agg_notar, &cert.agg_notar_fallback );
   cert.stake = stake + stake_fallback;
-  return cert;
+  return (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR_FALLBACK, .notar_fallback = cert };
 }
 
-static ag_cert_skip_t
-construct_skip( ag_vote_skip_t const *          votes,
-                ulong                           vote_cnt,
-                ag_vote_skip_fallback_t const * fallback_votes,
-                ulong                           fallback_vote_cnt,
-                ag_epoch_info_t const *         epoch_info ) {
+ag_cert_t
+ag_cert_construct_skip( ag_vote_skip_t const *          votes,
+                        ulong                           vote_cnt,
+                        ag_vote_skip_fallback_t const * fallback_votes,
+                        ulong                           fallback_vote_cnt,
+                        ag_epoch_info_t const *         epoch_info ) {
   ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
   FD_TEST( vote_cnt>0UL || fallback_vote_cnt>0UL );
   ulong slot = vote_cnt>0UL ? votes[0].slot : fallback_votes[0].slot;
@@ -235,44 +228,12 @@ construct_skip( ag_vote_skip_t const *          votes,
   }
   cert.stake = stake + stake_fallback;
   ag_bls_agg_merge( &cert.agg_skip, &cert.agg_skip_fallback );
-  return cert;
+  return (ag_cert_t){ .kind = AG_CERT_KIND_SKIP, .skip = cert };
 }
 
-ag_cert_t
-ag_cert_construct_notar( ag_vote_notar_t const * votes,
-                         ulong                   vote_cnt,
-                         ag_epoch_info_t const * epoch_info ) {
-  return (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR, .notar = construct_notar( votes, vote_cnt, epoch_info ) };
-}
-
-ag_cert_t
-ag_cert_construct_fast_final( ag_vote_notar_t const * votes,
-                              ulong                   vote_cnt,
-                              ag_epoch_info_t const * epoch_info ) {
-  return (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = construct_fast_final( votes, vote_cnt, epoch_info ) };
-}
-
-ag_cert_t
-ag_cert_construct_final( ag_vote_final_t const * votes,
-                         ulong                   vote_cnt,
-                         ag_epoch_info_t const * epoch_info ) {
-  return (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = construct_final( votes, vote_cnt, epoch_info ) };
-}
-
-ag_cert_t
-ag_cert_construct_notar_fallback( ag_vote_notar_t const *          votes,
-                                  ulong                            vote_cnt,
-                                  ag_vote_notar_fallback_t const * fallback_votes,
-                                  ulong                            fallback_vote_cnt,
-                                  ag_epoch_info_t const *          epoch_info ) {
-  return (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR_FALLBACK, .notar_fallback = construct_notar_fallback( votes, vote_cnt, fallback_votes, fallback_vote_cnt, epoch_info ) };
-}
-
-ag_cert_t
-ag_cert_construct_skip( ag_vote_skip_t const *          votes,
-                        ulong                           vote_cnt,
-                        ag_vote_skip_fallback_t const * fallback_votes,
-                        ulong                           fallback_vote_cnt,
-                        ag_epoch_info_t const *         epoch_info ) {
-  return (ag_cert_t){ .kind = AG_CERT_KIND_SKIP, .skip = construct_skip( votes, vote_cnt, fallback_votes, fallback_vote_cnt, epoch_info ) };
+int
+ag_cert_verify( ag_cert_t const *       self,
+                ag_epoch_info_t const * epoch_info,
+                ushort                  shred_version ) {
+  return check_threshold( self, epoch_info ) && check_sig( self, epoch_info, shred_version );
 }

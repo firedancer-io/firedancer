@@ -428,8 +428,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
   case AG_VOTE_SERDE_TAG_FINAL:
   case AG_VOTE_SERDE_TAG_SKIP:
   case AG_VOTE_SERDE_TAG_NOTAR_FALLBACK:
-  case AG_VOTE_SERDE_TAG_SKIP_FALLBACK:
-  case AG_VOTE_SERDE_TAG_GENESIS: {
+  case AG_VOTE_SERDE_TAG_SKIP_FALLBACK: {
     if( FD_UNLIKELY( ag_vote_de( &ctx->scratch.vote, ctx->shred_version, data, data_sz ) ) ) return;
 
     fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
@@ -449,8 +448,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
   case AG_CERT_SERDE_TAG_FAST_FINAL:
   case AG_CERT_SERDE_TAG_NOTAR:
   case AG_CERT_SERDE_TAG_NOTAR_FALLBACK:
-  case AG_CERT_SERDE_TAG_SKIP:
-  case AG_CERT_SERDE_TAG_GENESIS: {
+  case AG_CERT_SERDE_TAG_SKIP: {
     if( FD_UNLIKELY( ag_cert_de( &ctx->scratch.cert, ctx->shred_version, data, data_sz ) ) ) return;
 
     fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );

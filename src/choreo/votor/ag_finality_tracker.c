@@ -375,13 +375,13 @@ ag_finality_tracker_add_parent( ag_finality_tracker_t *   self,
     parent_map_ele_insert( self->parents.map, pe, pool );
   }
 
-  status_ele_t * se = status_map_ele_query( self->status.map, &block->slot, NULL, self->status.pool );
-  if( FD_UNLIKELY( !se ) ) return;
+  status_ele_t * ele  = status_map_ele_query( self->status.map, &block->slot, NULL, self->status.pool );
+  if( FD_UNLIKELY( !ele ) ) return;
 
-  switch( se->status.kind ) {
+  switch( ele->status.kind ) {
     case AG_FINALIZATION_STATUS_FINALIZED:
     case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-      if( 0==memcmp( block->hash, status_hash( &se->status ), sizeof(ag_block_hash_t) ) ) {
+      if( 0==memcmp( block->hash, status_hash( &ele->status ), sizeof(ag_block_hash_t) ) ) {
         ag_block_id_t p = *parent;
         handle_implicitly_finalized( self, block->slot, &p, event );
         prune( self );

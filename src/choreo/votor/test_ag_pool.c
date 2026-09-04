@@ -88,7 +88,6 @@ drain_events( ag_pool_t * pool ) {
 }
 
 #define SLOTS_PER_WINDOW AG_SLOTS_PER_WINDOW
-#define SLOTS_PER_EPOCH  AG_SLOTS_PER_EPOCH
 #define NV               (11UL)
 
 #define TEST_SLOT_MAX    (64UL)
@@ -677,7 +676,7 @@ test_out_of_bounds_votes( void ) {
     }
   }
 
-  ulong future = 5UL*SLOTS_PER_EPOCH;
+  ulong future = 5UL*TEST_SLOT_MAX;
   for( ulong v=0UL; v<11UL; v++ ) {
     ag_vote_t vote = ag_vote_construct_final( future, g_sk[v], (ushort)v, TEST_SHRED_VERSION );
     FD_TEST( ag_pool_add_vote( pool, &vote )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
@@ -710,7 +709,7 @@ test_out_of_bounds_certs( void ) {
     FD_TEST( ag_pool_add_cert( pool, &c )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
   }
 
-  ulong future = 3UL*SLOTS_PER_EPOCH;
+  ulong future = 3UL*TEST_SLOT_MAX;
   ag_vote_skip_t sv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) sv[v] = ag_vote_construct_skip( future, g_sk[v], (ushort)v, TEST_SHRED_VERSION ).skip;
   ag_cert_t c = ag_cert_construct_skip( sv, NV, NULL, 0UL, g_epoch_info );
@@ -1102,8 +1101,8 @@ test_wait_for_parent_ready( void ) {
 }
 
 #define EPOCH_A_LO (0UL)
-#define EPOCH_B_LO (64UL)
-#define EPOCH_B_HI (127UL)
+#define EPOCH_B_LO (32UL)
+#define EPOCH_B_HI (63UL)
 
 #define HEAVY_CNT   (4UL)
 #define HEAVY_STAKE (3UL)
