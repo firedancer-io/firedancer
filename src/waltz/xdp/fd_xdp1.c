@@ -266,13 +266,13 @@ fd_xdp_install( uint           if_idx,
 
   /* Create XSK map */
 
-  union bpf_attr attr2 = {
-    .map_type    = BPF_MAP_TYPE_XSKMAP,
-    .key_size    = 4U,
-    .value_size  = 4U,
-    .max_entries = 256U,
-    .map_name    = "fd_xdp_xsks"
-  };
+  union bpf_attr attr2;
+  memset( &attr2, 0, sizeof(union bpf_attr) );
+  attr2.map_type    = BPF_MAP_TYPE_XSKMAP;
+  attr2.key_size    = 4U;
+  attr2.value_size  = 4U;
+  attr2.max_entries = 256U;
+  fd_memcpy( attr2.map_name, "fd_xdp_xsks", sizeof("fd_xdp_xsks") );
   int xsk_map_fd = (int)bpf( BPF_MAP_CREATE, &attr2, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( -1==xsk_map_fd ) ) FD_LOG_ERR(( "Failed to create XSKMAP (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -283,11 +283,8 @@ fd_xdp_install( uint           if_idx,
 
   char ebpf_kern_log[ 32768UL ];
 
-  /* Work around a compiler bug: Clang+ASan fails to zero-initialize the
-     entire struct if we use union assignment syntax.  (It memsets 148
-     bytes instead of 152, leaving 4 trailing bytes uninitialized, which
-     fails in BPF_PROG_LOAD) */
-  union bpf_attr attr = {0};
+  union bpf_attr attr;
+  memset( &attr, 0, sizeof(union bpf_attr) );
   attr.prog_type = BPF_PROG_TYPE_XDP;
   attr.insn_cnt  = (uint)code_cnt;
   attr.insns     = (ulong)code_buf;

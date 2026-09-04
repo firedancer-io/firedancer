@@ -54,16 +54,16 @@ load_prog( ulong * code_buf,
            ulong   code_cnt ) {
   static char ebpf_kern_log[ 32768UL ];
   ebpf_kern_log[0] = 0;
-  union bpf_attr attr = {
-    .prog_type = BPF_PROG_TYPE_XDP,
-    .insn_cnt  = (uint)code_cnt,
-    .insns     = (ulong)code_buf,
-    .license   = (ulong)"Apache-2.0",
-    .prog_name = "fd_redirect",
-    .log_level = 6,
-    .log_size  = 32768UL,
-    .log_buf   = (ulong)ebpf_kern_log
-  };
+  union bpf_attr attr;
+  memset( &attr, 0, sizeof(union bpf_attr) );
+  attr.prog_type = BPF_PROG_TYPE_XDP;
+  attr.insn_cnt  = (uint)code_cnt;
+  attr.insns     = (ulong)code_buf;
+  attr.license   = (ulong)"Apache-2.0";
+  fd_memcpy( attr.prog_name, "fd_redirect", sizeof("fd_redirect") );
+  attr.log_level = 6;
+  attr.log_size  = 32768UL;
+  attr.log_buf   = (ulong)ebpf_kern_log;
   prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( prog_fd<0 ) ) {
     if( errno==EPERM ) {
@@ -91,13 +91,11 @@ prog_test( uchar const * pkt,
   int rx_queue = 0;
   FD_TEST( 0==fd_bpf_map_update_elem( xsks_fd, &rx_queue, &xsk_fd, 0UL ) );
 
-  union bpf_attr attr = {
-    .test = {
-      .prog_fd      = (uint)prog_fd,
-      .data_in      = (ulong)pkt,
-      .data_size_in = (uint)pkt_sz
-    }
-  };
+  union bpf_attr attr;
+  memset( &attr, 0, sizeof(union bpf_attr) );
+  attr.test.prog_fd      = (uint)prog_fd;
+  attr.test.data_in      = (ulong)pkt;
+  attr.test.data_size_in = (uint)pkt_sz;
   FD_XDP_TEST( 0==bpf( BPF_PROG_TEST_RUN, &attr, sizeof(union bpf_attr) ) );
 
   FD_LOG_INFO(( "bpf test %s returned %#x expected %#x", name, attr.test.retval, expected_action));
@@ -340,13 +338,13 @@ int main( int     argc,
 
   /* Create maps */
 
-  union bpf_attr attr = {
-    .map_type    = BPF_MAP_TYPE_XSKMAP,
-    .key_size    = 4U,
-    .value_size  = 4U,
-    .max_entries = 4U,
-    .map_name    = "fd_xdp_xsks"
-  };
+  union bpf_attr attr;
+  memset( &attr, 0, sizeof(union bpf_attr) );
+  attr.map_type    = BPF_MAP_TYPE_XSKMAP;
+  attr.key_size    = 4U;
+  attr.value_size  = 4U;
+  attr.max_entries = 4U;
+  fd_memcpy( attr.map_name, "fd_xdp_xsks", sizeof("fd_xdp_xsks") );
   xsks_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( xsks_fd<0 ) ) {
     if( FD_UNLIKELY( errno==EPERM ) ) {
