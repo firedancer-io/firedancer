@@ -244,12 +244,16 @@ test_footer_with_certs( int has_notar_aggregate ) {
     FD_TEST( marker->footer.notar_cert.slot==777UL );
     FD_TEST( !memcmp( marker->footer.notar_cert.block_hash, block_id.uc, sizeof(fd_hash_t) ) );
     FD_TEST( marker->footer.notar_cert.agg_sig.bitmask[ 0 ]==0x1fUL );
+    FD_TEST( marker->footer.final_agg_nbits==13 );
+    FD_TEST( marker->footer.notar_agg_nbits==13 );
   } else {
     /* fast finalization */
     FD_TEST( marker->footer.has_fast_final_cert && !marker->footer.has_final_cert );
     FD_TEST( marker->footer.fast_final_cert.slot==777UL );
     FD_TEST( !memcmp( marker->footer.fast_final_cert.block_hash, block_id.uc, sizeof(fd_hash_t) ) );
     FD_TEST( marker->footer.fast_final_cert.agg_sig.bitmask[ 0 ]==0x7fUL );
+    FD_TEST( marker->footer.final_agg_nbits==13 );
+    FD_TEST( marker->footer.notar_agg_nbits==0  );
   }
 
   fd_hash_t zero_id = hash_of( 0x00 );
@@ -377,11 +381,13 @@ test_final_cert_de( void ) {
   ag_cert_fast_final_t fast_final;
   ag_cert_final_t      final;
   ag_cert_notar_t      notar;
+  ushort               final_nbits, notar_nbits;
 
   /* slow finalization: final + notar */
   ulong consumed;
-  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, g_buf, off, &consumed )==0 );
+  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, &final_nbits, &notar_nbits, g_buf, off, &consumed )==0 );
   FD_TEST( consumed==off );
+  FD_TEST( final_nbits==n && notar_nbits==n );
   FD_TEST( final.slot==7UL );
   FD_TEST( notar.slot==7UL );
   FD_TEST( !memcmp( notar.block_hash, block_id.uc, sizeof(fd_hash_t) ) );
@@ -391,10 +397,10 @@ test_final_cert_de( void ) {
 
   /* trailing bytes are not the cert's */
   g_buf[ off ] = 0xaa;
-  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, g_buf, off+1UL, &consumed )==0 );
+  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, &final_nbits, &notar_nbits, g_buf, off+1UL, &consumed )==0 );
   FD_TEST( consumed==off );
 
-  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, g_buf, off-1UL, NULL )==-1 );
+  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, &final_nbits, &notar_nbits, g_buf, off-1UL, NULL )==-1 );
 
   /* fast finalization: the notar aggregate is absent */
   g_sz = 8UL+sizeof(fd_hash_t);
@@ -402,8 +408,9 @@ test_final_cert_de( void ) {
   emit_u8 ( 0 );                                /* notar_aggregate: None */
   ulong off2 = g_sz;
 
-  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, g_buf, off2, &consumed )==1 );
+  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, &final_nbits, &notar_nbits, g_buf, off2, &consumed )==1 );
   FD_TEST( consumed==off2 );
+  FD_TEST( final_nbits==n && notar_nbits==0 );
   FD_TEST( fast_final.slot==7UL );
   FD_TEST( !memcmp( fast_final.block_hash, block_id.uc, sizeof(fd_hash_t) ) );
   for( ulong i=0UL; i<9UL; i++ ) FD_TEST( ag_bls_agg_is_signer( &fast_final.agg_sig, i ) );
@@ -411,7 +418,7 @@ test_final_cert_de( void ) {
 
   /* notar_aggregate tag out of range */
   g_buf[ off2-1UL ] = 2;
-  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, g_buf, off2, NULL )==-1 );
+  FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, &final_nbits, &notar_nbits, g_buf, off2, NULL )==-1 );
 }
 
 static void

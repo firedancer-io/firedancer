@@ -214,7 +214,8 @@ struct fd_replay_tile {
   ushort expected_shred_version; /* from config, 0 if unset */
   ushort ipecho_shred_version;   /* from the entrypoints via ipecho, 0 until it answers */
   ushort shred_version;          /* computed from the genesis hash and the hard forks, 0 until both are known.
-                                    The one the cluster's votes are signed under; the two above only cross-check it. */
+                                    The one the cluster's votes are signed under; the two above only cross-check
+                                    it, and replay holds off executing until it is known. */
 
   ulong enable_features_cnt;
   char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];

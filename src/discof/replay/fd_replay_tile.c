@@ -1026,6 +1026,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     certs->fast_final_cert   = fd_sched_get_fast_final_cert  ( ctx->sched, bank->idx );
     certs->final_cert        = fd_sched_get_final_cert       ( ctx->sched, bank->idx );
     certs->final_notar_cert  = fd_sched_get_final_notar_cert ( ctx->sched, bank->idx );
+    certs->final_agg_nbits   = fd_sched_get_final_agg_nbits  ( ctx->sched, bank->idx );
+    certs->notar_agg_nbits   = fd_sched_get_notar_agg_nbits  ( ctx->sched, bank->idx );
     certs->skip_reward_cert  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
     certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
     certs_opt        = certs;
@@ -1040,7 +1042,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
     fd_hash_t const * footer_bank_hash = fd_sched_get_footer_bank_hash( ctx->sched, bank->idx );
-    if( FD_UNLIKELY( !footer_bank_hash ) )
+    if( FD_UNLIKELY( !footer_bank_hash ) ) {
       /* Can't validate the bank hash; mark dead rather than dereference NULL. */
       FD_LOG_WARNING(( "slot %lu: no footer present at finalize; marking dead", bank->f.slot ));
       mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
@@ -2379,6 +2381,10 @@ try_replay( fd_replay_tile_t *  ctx,
             fd_stem_context_t * stem ) {
 
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
+
+  /* Hold off executing until the computed shred version is known (except
+     in backtest), so footer certs verify under it. */
+  if( FD_UNLIKELY( !ctx->shred_version && !ctx->expected_shred_version ) ) return 0;
 
   int charge_busy = 0;
   fd_sched_task_t task[ 1 ];

@@ -27,6 +27,15 @@ struct fd_footer_certs {
   ag_cert_notar_t const *      final_notar_cert;  /* notar aggregate accompanying final_cert */
   fd_reward_cert_t const *     skip_reward_cert;  /* SkipRewardCertificate  */
   fd_reward_cert_t const *     notar_reward_cert; /* NotarRewardCertificate */
+
+  /* Declared bitmap widths (num_bits) of the finalization aggregates
+     as they came off the wire: final_agg_nbits for fast_final_cert or
+     final_cert, notar_agg_nbits for final_notar_cert.  Verification
+     rejects a width past the epoch's validator count, as agave's
+     decode does.  0 for certs that did not come off the wire (leader
+     banks), which is never rejected. */
+  ushort final_agg_nbits;
+  ushort notar_agg_nbits;
 };
 typedef struct fd_footer_certs fd_footer_certs_t;
 

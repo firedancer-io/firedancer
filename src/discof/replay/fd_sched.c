@@ -1974,6 +1974,22 @@ fd_sched_get_final_notar_cert( fd_sched_t * sched, ulong bank_idx ) {
   return ( block->footer_present && block->footer.has_final_cert ) ? &block->footer.notar_cert : NULL;
 }
 
+ushort
+fd_sched_get_final_agg_nbits( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return block->footer_present ? block->footer.final_agg_nbits : (ushort)0;
+}
+
+ushort
+fd_sched_get_notar_agg_nbits( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return block->footer_present ? block->footer.notar_agg_nbits : (ushort)0;
+}
+
 void
 fd_sched_metrics_write( fd_sched_t * sched ) {
   FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_INDEX, sched->active_bank_idx );

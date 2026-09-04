@@ -540,6 +540,16 @@ fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx );
 ag_cert_notar_t const *
 fd_sched_get_final_notar_cert( fd_sched_t * sched, ulong bank_idx );
 
+/* fd_sched_get_{final,notar}_agg_nbits return the declared bitmap width
+   of the footer's final / notar aggregate (see
+   fd_block_footer_t::final_agg_nbits), 0 if the footer carries none or
+   no footer marker has been parsed for the block. */
+ushort
+fd_sched_get_final_agg_nbits( fd_sched_t * sched, ulong bank_idx );
+
+ushort
+fd_sched_get_notar_agg_nbits( fd_sched_t * sched, ulong bank_idx );
+
 void
 fd_sched_metrics_write( fd_sched_t * sched );
 

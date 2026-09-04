@@ -1794,8 +1794,11 @@ static int
 verify_finalization_cert( validator_set_t * set,
                           fd_bank_t const * bank,
                           ag_cert_t const * cert,
+                          ulong             nbits,
                           ushort            shred_version ) {
   if( FD_UNLIKELY( !validator_set_for_slot( set, bank, ag_cert_slot( cert ) ) ) ) return 0;
+  if( FD_UNLIKELY( nbits>set->validator_cnt ) ) return 0;
+
   if( FD_UNLIKELY( !ag_cert_verify( cert, (uchar const *)set->bls_keys, set->stakes, set->validator_cnt, set->total_stake, shred_version ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed verification", bank->f.slot, ag_cert_str( cert ), ag_cert_slot( cert ) ));
     return 0;
@@ -1854,24 +1857,27 @@ verify_footer_certs( fd_bank_t const *         bank,
                      ushort                    shred_version ) {
   int has_certs = !!certs->fast_final_cert | !!certs->final_cert | !!certs->final_notar_cert | !!certs->skip_reward_cert | !!certs->notar_reward_cert;
   if( FD_LIKELY  ( !has_certs     ) ) return 0;
-  if( FD_UNLIKELY( !shred_version ) ) return -1;
+  if( FD_UNLIKELY( !shred_version ) ) {
+    FD_LOG_WARNING(( "slot %lu: footer carries certs but the shred version is not known yet; cannot verify them", bank->f.slot ));
+    return -1;
+  }
 
   /* the set is ~200 KiB */
-  static validator_set_t set[1];
+  static FD_TL validator_set_t set[1];
   set->epoch = ULONG_MAX;
 
   ag_cert_t cert[1];
   if( certs->fast_final_cert ) {
     *cert = (ag_cert_t){ .kind=AG_CERT_KIND_FAST_FINAL, .fast_final=*certs->fast_final_cert };
-    if( FD_UNLIKELY( !verify_finalization_cert( set, bank, cert, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !verify_finalization_cert( set, bank, cert, certs->final_agg_nbits, shred_version ) ) ) return -1;
   }
   if( certs->final_cert ) {
     *cert = (ag_cert_t){ .kind=AG_CERT_KIND_FINAL, .final=*certs->final_cert };
-    if( FD_UNLIKELY( !verify_finalization_cert( set, bank, cert, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !verify_finalization_cert( set, bank, cert, certs->final_agg_nbits, shred_version ) ) ) return -1;
   }
   if( certs->final_notar_cert ) {
     *cert = (ag_cert_t){ .kind=AG_CERT_KIND_NOTAR, .notar=*certs->final_notar_cert };
-    if( FD_UNLIKELY( !verify_finalization_cert( set, bank, cert, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !verify_finalization_cert( set, bank, cert, certs->notar_agg_nbits, shred_version ) ) ) return -1;
   }
   if( certs->skip_reward_cert  && FD_UNLIKELY( !verify_reward_cert( set, bank, certs->skip_reward_cert,  0, shred_version ) ) ) return -1;
   if( certs->notar_reward_cert && FD_UNLIKELY( !verify_reward_cert( set, bank, certs->notar_reward_cert, 1, shred_version ) ) ) return -1;

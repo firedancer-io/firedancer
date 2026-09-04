@@ -68,15 +68,20 @@ struct fd_block_footer {
    ulong     user_agent_len;
    uchar     user_agent[ FD_BLOCK_FOOTER_USER_AGENT_MAX ];
 
-   /* Optional finalization certa, shape validated and agg
+   /* Optional finalization cert, shape validated and agg
       signatures decompressed, but not verified. A fast finalization
       cert fills fast_final_cert; a slow one fills final_cert +
-      notar_cert. */
+      notar_cert.  final_agg_nbits and notar_agg_nbits are the declared
+      widths (num_bits) of the final and notar aggregate bitmaps, 0 when
+      the aggregate is absent; verification rejects a width past the
+      epoch's validator count, as agave does. */
    int                  has_fast_final_cert;
    int                  has_final_cert;
    ag_cert_fast_final_t fast_final_cert;
    ag_cert_final_t      final_cert;
    ag_cert_notar_t      notar_cert;
+   ushort               final_agg_nbits;
+   ushort               notar_agg_nbits;
 
    /* Optional reward certs. Shapes are validated but signatures are
       not verified. */
@@ -157,13 +162,18 @@ FD_PROTOTYPES_BEGIN
    which a block footer carries inline.  Agg signatures are decompressed
    but not verified.  Returns 1 when the cert is a fast finalization, in
    which case only fast_final is written, 0 when it is a slow one, in
-   which case only final and notar are written, and -1 on failure.  On
-   success buf_sz (if non-NULL) receives the number of bytes consumed. */
+   which case only final and notar are written, and -1 on failure.
+   final_agg_nbits and notar_agg_nbits receive the declared widths of
+   the final and notar aggregate bitmaps (0 when absent or on failure).
+   On success buf_sz (if non-NULL) receives the number of bytes
+   consumed. */
 
 int
 fd_block_final_cert_de( ag_cert_fast_final_t * fast_final,
                         ag_cert_final_t *      final,
                         ag_cert_notar_t *      notar,
+                        ushort *               final_agg_nbits,
+                        ushort *               notar_agg_nbits,
                         uchar const *          buf,
                         ulong                  buf_max,
                         ulong *                buf_sz );

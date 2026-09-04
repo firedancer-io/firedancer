@@ -74,18 +74,17 @@ reward_cert_de( fd_reward_cert_t * cert,
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
 
-/* TODO: check serde accepting AG_BLS_SIGNERS_MAX (2048) vs AG_VAT_MAX
-   (2000); reward processing ignores bits past the validator count
-   instead of rejecting the cert. Check what Agave does with rank bits
-   >= the epoch's validator set size and match it. */
-
 /* votes_aggregate_de deserializes a VotesAggregate.  The bitmap is the
    same solana_signer_store encoding the wire framing uses, so the codes
    returned here are AG_CERT_DE_*; the only caller just tests for
-   nonzero. */
+   nonzero.  nbits receives the bitmap's declared width
+   (solana_signer_store num_bits), which the set bits alone cannot
+   recover and which verification has to bound by the epoch's validator
+   count, as agave's decode( bytes, max_len ) does. */
 
 static int
 votes_aggregate_de( ag_bls_agg_t * agg,
+                    ushort *       nbits,
                     uchar const *  buf,
                     ulong          buf_max,
                     ulong *        buf_sz ) {
@@ -98,6 +97,7 @@ votes_aggregate_de( ag_bls_agg_t * agg,
 
   int err = ag_bls_agg_de( agg, buf+sz, bm_cnt );  if( FD_UNLIKELY( err ) ) return err;
   memcpy( agg->sig, aggregate->signature, AG_BLS_SIG_COMPRESSED_SZ );
+  *nbits  = FD_LOAD( ushort, buf+sz+1UL ); /* bitmap header: version (1) | num_bits (u16 LE) */
   *buf_sz = sz + bm_cnt;
   return AG_CERT_DE_SUCCESS;
 }
@@ -113,10 +113,14 @@ int
 fd_block_final_cert_de( ag_cert_fast_final_t * fast_final,
                         ag_cert_final_t *      final,
                         ag_cert_notar_t *      notar,
+                        ushort *               final_agg_nbits,
+                        ushort *               notar_agg_nbits,
                         uchar const *          buf,
                         ulong                  buf_max,
                         ulong *                buf_sz ) {
   ulong remaining = buf_max;
+  *final_agg_nbits = 0;
+  *notar_agg_nbits = 0;
 
   if( FD_UNLIKELY( remaining<sizeof(fd_block_final_cert_serde_t) ) ) return -1;
   fd_block_final_cert_serde_t const * block_final = (fd_block_final_cert_serde_t const *)buf;
@@ -125,7 +129,7 @@ fd_block_final_cert_de( ag_cert_fast_final_t * fast_final,
 
   ag_bls_agg_t final_agg[1];
   ulong        consumed;
-  if( FD_UNLIKELY( votes_aggregate_de( final_agg, buf, remaining, &consumed ) ) ) return -1;
+  if( FD_UNLIKELY( votes_aggregate_de( final_agg, final_agg_nbits, buf, remaining, &consumed ) ) ) return -1;
   buf       += consumed;
   remaining -= consumed;
 
@@ -146,7 +150,7 @@ fd_block_final_cert_de( ag_cert_fast_final_t * fast_final,
   }
 
   ag_bls_agg_t notar_agg[1];
-  if( FD_UNLIKELY( votes_aggregate_de( notar_agg, buf, remaining, &consumed ) ) ) return -1;
+  if( FD_UNLIKELY( votes_aggregate_de( notar_agg, notar_agg_nbits, buf, remaining, &consumed ) ) ) return -1;
   remaining -= consumed;
 
   fd_memset( final, 0, sizeof(ag_cert_final_t) );
@@ -212,6 +216,8 @@ fd_block_footer_de( fd_block_footer_t * footer,
 
   footer->has_fast_final_cert   = 0;
   footer->has_final_cert        = 0;
+  footer->final_agg_nbits       = 0;
+  footer->notar_agg_nbits       = 0;
   footer->has_skip_reward_cert  = 0;
   footer->has_notar_reward_cert = 0;
 
@@ -233,7 +239,7 @@ fd_block_footer_de( fd_block_footer_t * footer,
   if( FD_UNLIKELY( (err=option_de( &buf, &rem, &present )) ) ) return err;
   if( present ) {
     ulong consumed;
-    int   is_fast = fd_block_final_cert_de( &footer->fast_final_cert, &footer->final_cert, &footer->notar_cert, buf, rem, &consumed );
+    int   is_fast = fd_block_final_cert_de( &footer->fast_final_cert, &footer->final_cert, &footer->notar_cert, &footer->final_agg_nbits, &footer->notar_agg_nbits, buf, rem, &consumed );
     if( FD_UNLIKELY( is_fast<0 ) ) return FD_BLOCK_MARKER_DE_ERR_MALFORMED;
     footer->has_fast_final_cert = is_fast==1;
     footer->has_final_cert      = is_fast==0;
