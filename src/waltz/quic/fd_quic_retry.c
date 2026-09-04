@@ -163,27 +163,37 @@ fd_quic_retry_server_verify(
     FD_DEBUG( FD_LOG_DEBUG(( "Retry with weird token sz, rejecting" )); )
     return FD_QUIC_FAILED;
   }
-
-  fd_quic_retry_token_t const * retry_token = fd_type_pun_const( initial->token );
-  if( FD_UNLIKELY( retry_token->data.odcid_sz >  FD_QUIC_MAX_CONN_ID_SZ ) ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "Retry token with invalid ODCID or RSCID, rejecting" )); )
+  if( FD_UNLIKELY( ttl<=0L ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Retry with non-positive TTL, rejecting" )); )
     return FD_QUIC_FAILED;
   }
+
+  fd_quic_retry_token_t const * retry_token = fd_type_pun_const( initial->token );
 
   fd_aes_gcm_t aes_gcm[1];
   int vfy_res = fd_quic_retry_token_verify( retry_token, aes_gcm, retry_secret, retry_iv );
   memset( aes_gcm, 0, sizeof(fd_aes_gcm_t) );
+  if( FD_UNLIKELY( vfy_res!=FD_QUIC_SUCCESS ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Invalid Retry Token" )); )
+    return FD_QUIC_FAILED;
+  }
+
+  ulong expire_comp = retry_token->data.expire_comp;
+  if( FD_UNLIKELY( (retry_token->data.odcid_sz>FD_QUIC_MAX_CONN_ID_SZ) |
+                   (expire_comp>((ulong)LONG_MAX>>FD_QUIC_RETRY_EXPIRE_SHIFT)) ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "Retry token with invalid claims, rejecting" )); )
+    return FD_QUIC_FAILED;
+  }
 
   uint  pkt_ip4       = pkt->ip4->saddr;
   uint  retry_ip4     = FD_LOAD( uint, retry_token->data.ip6_addr + 12 );
   int   is_ip4        = 0==memcmp( retry_token->data.ip6_addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff", 12 );
   uint  pkt_port      = fd_ushort_bswap( (ushort)pkt->udp->net_sport );
   uint  retry_port    = retry_token->data.udp_port;
-  long  expire_at     = (long)retry_token->data.expire_comp << FD_QUIC_RETRY_EXPIRE_SHIFT;
-  long  expire_before = now + ttl;
+  long  expire_at     = (long)(expire_comp << FD_QUIC_RETRY_EXPIRE_SHIFT);
+  long  expire_before = fd_quic_retry_expire_after( now, ttl );
 
   int is_match =
-    vfy_res == FD_QUIC_SUCCESS &&
     is_ip4                     &&
     pkt_ip4  == retry_ip4      &&
     pkt_port == retry_port     &&
@@ -191,8 +201,7 @@ fd_quic_retry_server_verify(
     expire_at < expire_before; /* token was issued in the future */
 
   FD_DEBUG(
-    if( vfy_res!=FD_QUIC_SUCCESS        ) FD_LOG_DEBUG(( "Invalid Retry Token" ));
-    else if( now >= expire_at           ) FD_LOG_DEBUG(( "Expired Retry Token" ));
+    if( now >= expire_at                ) FD_LOG_DEBUG(( "Expired Retry Token" ));
     else if( expire_at >= expire_before ) FD_LOG_WARNING(( "Retry Token issued in the future" ));
     else if( !is_match                  ) FD_LOG_DEBUG(( "Foreign Retry Token" ));
   )
