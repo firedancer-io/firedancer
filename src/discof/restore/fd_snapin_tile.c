@@ -366,6 +366,11 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     return -1;
   }
 
+  if( FD_UNLIKELY( view->blocks_len!=FD_SLOT_HISTORY_MAX_ENTRIES/64UL ) ) {
+    FD_LOG_WARNING(( "SlotHistory sysvar has invalid bitvec block count: %lu != expected: %lu", view->blocks_len, FD_SLOT_HISTORY_MAX_ENTRIES/64UL ));
+    return -1;
+  }
+
   /* All slots in slot deltas should be present in the slot history */
   fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
   for( ulong i=0UL; i<slot_set.ele_cnt; i++ ) {
