@@ -5,6 +5,7 @@
 #include "../../flamenco/runtime/tests/fd_svm_mini.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,11 @@
 #define VALIDATOR_CNT       3UL
 #define ROOT_SLOT           474UL /* epoch 1 with 432 slots/epoch */
 #define EPOCH_CREDITS_CNT   3UL
+
+/* The writer emits one slot delta per recent slot with a block, so the
+   parser must accept at least that many. */
+
+FD_STATIC_ASSERT( FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS<=FD_SLOT_DELTA_MAX_ENTRIES, slot_delta_cnt );
 
 /* The mock validators created by svm_mini have empty credit histories,
    which leaves the encoder's base/delta reconstruction unexercised.
@@ -81,7 +87,43 @@ create_txncache( void ) {
 
 #define NULL_FORK ((fd_txncache_fork_id_t){ .val = USHORT_MAX })
 
-static void
+#define SLOT_HISTORY_BLOCKS (FD_SLOT_HISTORY_MAX_ENTRIES/64UL)
+
+/* mock_slot_history writes the bincode form of a SlotHistory sysvar
+   account into buf, in which every slot in [first,last] has a block
+   except the skip_cnt slots listed in skip.  Returns buf. */
+
+static uchar *
+mock_slot_history( uchar *       buf,
+                   ulong         first,
+                   ulong         last,
+                   ulong const * skip,
+                   ulong         skip_cnt ) {
+  memset( buf, 0, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+
+  buf[ 0 ] = 1; /* bits present */
+  FD_STORE( ulong, buf+1UL, SLOT_HISTORY_BLOCKS );
+
+  uchar * bits   = buf+9UL;
+  uchar * footer = bits + SLOT_HISTORY_BLOCKS*sizeof(ulong);
+  FD_STORE( ulong, footer,     FD_SLOT_HISTORY_MAX_ENTRIES );
+  FD_STORE( ulong, footer+8UL, last+1UL /* next_slot */    );
+
+  for( ulong slot=first; slot<=last; slot++ ) {
+    int skipped = 0;
+    for( ulong i=0UL; i<skip_cnt; i++ ) skipped |= skip[ i ]==slot;
+    if( skipped ) continue;
+
+    uchar * word = bits + ((slot/64UL)%SLOT_HISTORY_BLOCKS)*sizeof(ulong);
+    FD_STORE( ulong, word, FD_LOAD( ulong, word ) | (1UL<<(slot%64UL)) );
+  }
+
+  return buf;
+}
+
+/* populate_txncache fills tc and returns the newest root, s3. */
+
+static fd_txncache_fork_id_t
 populate_txncache( fd_txncache_t * tc,
                    uchar           blockhashes[ 4 ][ 32 ],
                    uchar           txnhashes[ 6 ][ 20 ] ) {
@@ -143,6 +185,8 @@ populate_txncache( fd_txncache_t * tc,
     future_txnhash[1] = 0xCD;
     fd_txncache_insert( tc, future, tx ? blockhashes[2] : blockhashes[3], future_txnhash );
   }
+
+  return s3;
 }
 
 static void
@@ -371,6 +415,51 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   free( buf );
 }
 
+/* serialize_all drives writer to completion into a malloc'd buffer,
+   honoring placeholder/patch chunks the way snapmk does with raw
+   Zstandard frames and pwrite.  chunk_sz is the output buffer offered
+   per call.  Returns the buffer and its size in *out_sz. */
+
+static uchar *
+serialize_all( fd_txncache_writer_t * writer,
+               ulong                  chunk_sz,
+               ulong *                out_sz ) {
+  uchar * chunk = malloc( chunk_sz );
+  FD_TEST( chunk );
+  ulong   cap = 0UL;
+  ulong   sz  = 0UL;
+  uchar * buf = NULL;
+  ulong   ph_off = ULONG_MAX;
+  for(;;) {
+    int   kind;
+    ulong n = fd_txncache_writer_serialize( writer, chunk, chunk_sz, &kind );
+    if( !n ) break;
+    FD_TEST( n<=chunk_sz );
+    switch( kind ) {
+    case FD_TXNCACHE_WRITER_CHUNK_PLACEHOLDER:
+      FD_TEST( ph_off==ULONG_MAX ); /* one outstanding at a time */
+      ph_off = sz;
+      __attribute__((fallthrough));
+    case FD_TXNCACHE_WRITER_CHUNK_DATA:
+      if( sz+n>cap ) { cap = fd_ulong_max( 2UL*cap, sz+n ); buf = realloc( buf, cap ); FD_TEST( buf ); }
+      memcpy( buf+sz, chunk, n );
+      sz += n;
+      break;
+    case FD_TXNCACHE_WRITER_CHUNK_PATCH:
+      FD_TEST( ph_off!=ULONG_MAX && ph_off+n<=sz );
+      memcpy( buf+ph_off, chunk, n );
+      ph_off = ULONG_MAX;
+      break;
+    default:
+      FD_LOG_ERR(( "unexpected chunk kind %d", kind ));
+    }
+  }
+  FD_TEST( ph_off==ULONG_MAX );
+  free( chunk );
+  *out_sz = sz;
+  return buf;
+}
+
 static void
 test_txncache_roundtrip( void ) {
   FD_LOG_NOTICE(( "test_txncache_roundtrip" ));
@@ -380,29 +469,19 @@ test_txncache_roundtrip( void ) {
 
   uchar blockhashes[4][32];
   uchar txnhashes[6][20];
-  populate_txncache( tc, blockhashes, txnhashes );
+  fd_txncache_fork_id_t root = populate_txncache( tc, blockhashes, txnhashes );
 
-  ulong tc_sz = fd_txncache_writer_serialized_sz( tc, ROOT_SLOT );
-  FD_TEST( tc_sz>0UL );
-  FD_LOG_NOTICE(( "txncache serialized size: %lu", tc_sz ));
-
-  uchar * buf = aligned_alloc( 1UL, tc_sz );
-  FD_TEST( buf );
-
-  uchar * chunk_buf = aligned_alloc( 1UL, FD_TXNCACHE_WRITER_BUF_MIN );
-  FD_TEST( chunk_buf );
+  uchar * slot_history = malloc( FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  FD_TEST( slot_history );
+  mock_slot_history( slot_history, ROOT_SLOT-3UL, ROOT_SLOT, NULL, 0UL );
 
   fd_txncache_writer_t writer[1];
-  fd_txncache_writer_init( writer, tc, ROOT_SLOT );
-  ulong total_written = 0UL;
-  for(;;) {
-    ulong sz = fd_txncache_writer_serialize( writer, chunk_buf, FD_TXNCACHE_WRITER_BUF_MIN );
-    if( !sz ) break;
-    FD_TEST( total_written + sz <= tc_sz );
-    memcpy( buf + total_written, chunk_buf, sz );
-    total_written += sz;
-  }
-  FD_TEST( total_written==tc_sz );
+  FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) );
+  ulong   total_written;
+  uchar * buf = serialize_all( writer, FD_TXNCACHE_WRITER_BUF_MIN, &total_written );
+  FD_LOG_NOTICE(( "txncache serialized size: %lu", total_written ));
+  /* 1 slot_deltas_len + 4 slot deltas + 4 groups + 6 txns */
+  FD_TEST( total_written==8UL + 4UL*17UL + 4UL*48UL + 6UL*24UL );
 
   void * parser_mem = aligned_alloc( fd_slot_delta_parser_align(), fd_slot_delta_parser_footprint() );
   FD_TEST( parser_mem );
@@ -451,9 +530,208 @@ test_txncache_roundtrip( void ) {
   FD_TEST( groups_parsed==4UL );
   FD_LOG_NOTICE(( "parsed %lu entries across %lu groups", entries_parsed, groups_parsed ));
 
+  /* Every rooted slot must get a slot delta, even the ones that hold no
+     transactions, or snapshot load rejects the status cache when it
+     cross checks the slot deltas against the SlotHistory sysvar. */
+
+  fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( parser );
+  FD_TEST( slot_set.ele_cnt==4UL );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    ulong slot = ROOT_SLOT-3UL+i;
+    FD_TEST( slot_set_ele_query( slot_set.map, &slot, NULL, slot_set.pool ) );
+  }
+
+  free( slot_history );
+
   free( fd_slot_delta_parser_delete( fd_slot_delta_parser_leave( parser ) ) );
-  free( chunk_buf );
   free( buf );
+  free( test_tc.ljoin );
+  free( test_tc.shmem );
+}
+
+/* test_txncache_roundtrip_slot_history checks that the writer names a
+   slot delta for every recent slot that has a block, up to Agave's
+   MAX_CACHE_ENTRIES, and skips the slots that do not.  Snapshot load
+   walks the same SlotHistory sysvar and rejects the snapshot if any of
+   those slots is missing a delta. */
+
+static void
+test_txncache_roundtrip_slot_history( void ) {
+  FD_LOG_NOTICE(( "test_txncache_roundtrip_slot_history" ));
+
+  test_txncache_t test_tc = create_txncache();
+  fd_txncache_t * tc = test_tc.tc;
+
+  uchar blockhashes[4][32];
+  uchar txnhashes[6][20];
+  fd_txncache_fork_id_t root = populate_txncache( tc, blockhashes, txnhashes );
+
+  /* Two leaders skipped their slot, so the newest MAX_CACHE_ENTRIES
+     slots with a block reach two slots further back than a naive
+     "snapshot slot minus i" walk would. */
+
+  static ulong const skipped[ 2 ] = { ROOT_SLOT-4UL, ROOT_SLOT-14UL };
+  ulong const skipped_cnt  = sizeof(skipped)/sizeof(ulong);
+  ulong const oldest_named = ROOT_SLOT+1UL - (FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS+skipped_cnt);
+
+  uchar * slot_history = malloc( FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  FD_TEST( slot_history );
+  mock_slot_history( slot_history, 0UL, ROOT_SLOT, skipped, skipped_cnt );
+
+  fd_txncache_writer_t writer[1];
+  FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) );
+  ulong   total_written;
+  uchar * buf = serialize_all( writer, FD_TXNCACHE_WRITER_BUF_MIN, &total_written );
+  FD_TEST( total_written==8UL + FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS*17UL + 4UL*48UL + 6UL*24UL );
+
+  void * parser_mem = aligned_alloc( fd_slot_delta_parser_align(), fd_slot_delta_parser_footprint() );
+  FD_TEST( parser_mem );
+  fd_slot_delta_parser_t * parser = fd_slot_delta_parser_join( fd_slot_delta_parser_new( parser_mem ) );
+  FD_TEST( parser );
+  fd_slot_delta_parser_init( parser );
+
+  ulong entries_parsed = 0UL;
+  uchar const * p = buf;
+  ulong remaining = total_written;
+  for(;;) {
+    fd_slot_delta_parser_advance_result_t result[1];
+    int res = fd_slot_delta_parser_consume( parser, p, remaining, result );
+    FD_TEST( res>=0 );
+    if( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE ) break;
+
+    /* All transactions land in the snapshot slot's delta; the other
+       slots are named with an empty status map. */
+    if( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) {
+      FD_TEST( result->entry->slot==ROOT_SLOT );
+      entries_parsed++;
+    }
+
+    p         += result->bytes_consumed;
+    remaining -= result->bytes_consumed;
+  }
+  FD_TEST( entries_parsed==6UL );
+
+  fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( parser );
+  FD_TEST( slot_set.ele_cnt==FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS );
+
+  for( ulong slot=oldest_named; slot<=ROOT_SLOT; slot++ ) {
+    int skip = slot==skipped[0] || slot==skipped[1];
+    FD_TEST( !!slot_set_ele_query( slot_set.map, &slot, NULL, slot_set.pool )==!skip );
+  }
+
+  /* One slot older than the window, and one slot newer than the
+     snapshot, must both be absent. */
+  ulong too_old = oldest_named-1UL;
+  ulong future  = ROOT_SLOT+1UL;
+  FD_TEST( !slot_set_ele_query( slot_set.map, &too_old, NULL, slot_set.pool ) );
+  FD_TEST( !slot_set_ele_query( slot_set.map, &future,  NULL, slot_set.pool ) );
+
+  FD_LOG_NOTICE(( "named %lu slots, oldest %lu", slot_set.ele_cnt, oldest_named ));
+
+  /* A real snapshot is taken from a frozen bank whose sysvar cache was
+     last refreshed at the start of that block, so the cached SlotHistory
+     lags the snapshotted account: it is missing the snapshot slot, and
+     any slot skipped between the parent and the snapshot slot.  The
+     writer must name the snapshot slot anyway, and must not name the
+     skipped ones. */
+
+  mock_slot_history( slot_history, 0UL, ROOT_SLOT-3UL, skipped, skipped_cnt );
+  FD_TEST( fd_txncache_writer_init( writer, tc, root, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) );
+  FD_TEST( writer->slot_cnt==FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS );
+  FD_TEST( writer->slots[ writer->slot_cnt-1UL ]==ROOT_SLOT     ); /* forced in       */
+  FD_TEST( writer->slots[ writer->slot_cnt-2UL ]==ROOT_SLOT-3UL ); /* -1, -2 skipped  */
+  FD_TEST( writer->slots[ 0 ]==oldest_named-2UL                 ); /* two more needed */
+
+  /* Any fork but the newest root means replay moved on from the bank
+     being snapshotted, which the writer must refuse. */
+
+  fd_txncache_fork_id_t stale = { .val = (ushort)(root.val+1U) };
+  FD_TEST( !fd_txncache_writer_init( writer, tc, stale, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) );
+  FD_TEST( !fd_txncache_writer_init( writer, tc, NULL_FORK, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) );
+
+  free( fd_slot_delta_parser_delete( fd_slot_delta_parser_leave( parser ) ) );
+  free( buf );
+  free( slot_history );
+  free( test_tc.ljoin );
+  free( test_tc.shmem );
+}
+
+/* test_txncache_roundtrip_large streams a blockhash group that spans
+   many output chunks, so group headers get patched with counts learned
+   after the fact and buckets straddling a chunk boundary get rolled
+   back and retried. */
+
+static void
+test_txncache_roundtrip_large( void ) {
+  FD_LOG_NOTICE(( "test_txncache_roundtrip_large" ));
+
+  test_txncache_t test_tc = create_txncache();
+  fd_txncache_t * tc = test_tc.tc;
+
+  uchar blockhashes[4][32];
+  uchar txnhashes[6][20];
+  fd_txncache_fork_id_t s3 = populate_txncache( tc, blockhashes, txnhashes );
+
+  /* s4 references s3's blockhash (blockhashes[3]) with many txns */
+  ulong const big_cnt = 2000UL;
+  fd_txncache_fork_id_t s4 = fd_txncache_attach_child( tc, s3 );
+  for( ulong i=0UL; i<big_cnt; i++ ) {
+    uchar txnhash[ 32 ];
+    memset( txnhash, 0, sizeof(txnhash) );
+    FD_STORE( ulong, txnhash, i+1UL );
+    txnhash[ 8 ] = 0xEE;
+    fd_txncache_insert( tc, s4, blockhashes[3], txnhash );
+  }
+  uchar bh4[ 32 ]; memset( bh4, 0x44, 32UL );
+  fd_txncache_finalize_fork( tc, s4, 0UL, bh4 );
+  fd_txncache_advance_root( tc, s4 );
+
+  uchar * slot_history = malloc( FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  FD_TEST( slot_history );
+  mock_slot_history( slot_history, ROOT_SLOT-4UL, ROOT_SLOT, NULL, 0UL );
+
+  fd_txncache_writer_t writer[1];
+  FD_TEST( fd_txncache_writer_init( writer, tc, s4, ROOT_SLOT, slot_history, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) );
+  ulong   total_written;
+  uchar * buf = serialize_all( writer, FD_TXNCACHE_WRITER_BUF_MIN, &total_written );
+  FD_TEST( total_written==8UL + 5UL*17UL + 5UL*48UL + (6UL+big_cnt)*24UL );
+
+  void * parser_mem = aligned_alloc( fd_slot_delta_parser_align(), fd_slot_delta_parser_footprint() );
+  FD_TEST( parser_mem );
+  fd_slot_delta_parser_t * parser = fd_slot_delta_parser_join( fd_slot_delta_parser_new( parser_mem ) );
+  FD_TEST( parser );
+  fd_slot_delta_parser_init( parser );
+
+  ulong entries_parsed = 0UL;
+  ulong big_parsed     = 0UL;
+  ulong groups_parsed  = 0UL;
+  uchar const * p = buf;
+  ulong remaining = total_written;
+  for(;;) {
+    fd_slot_delta_parser_advance_result_t result[1];
+    int res = fd_slot_delta_parser_consume( parser, p, remaining, result );
+    FD_TEST( res>=0 );
+    if( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE ) break;
+    if( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) groups_parsed++;
+    if( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) {
+      entries_parsed++;
+      if( result->entry->txnhash[ 8 ]==0xEE ) {
+        ulong i = FD_LOAD( ulong, result->entry->txnhash );
+        FD_TEST( i>=1UL && i<=big_cnt );
+        big_parsed++;
+      }
+    }
+    p         += result->bytes_consumed;
+    remaining -= result->bytes_consumed;
+  }
+  FD_TEST( groups_parsed==5UL );
+  FD_TEST( entries_parsed==6UL+big_cnt );
+  FD_TEST( big_parsed==big_cnt );
+  FD_LOG_NOTICE(( "parsed %lu entries across %lu groups", entries_parsed, groups_parsed ));
+
+  free( fd_slot_delta_parser_delete( fd_slot_delta_parser_leave( parser ) ) );
+  free( buf );
+  free( slot_history );
   free( test_tc.ljoin );
   free( test_tc.shmem );
 }
@@ -481,6 +759,8 @@ main( int     argc,
 
   test_manifest_roundtrip( bank );
   test_txncache_roundtrip();
+  test_txncache_roundtrip_slot_history();
+  test_txncache_roundtrip_large();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );
