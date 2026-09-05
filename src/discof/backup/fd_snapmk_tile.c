@@ -68,6 +68,7 @@
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/events/generated/fd_event_gen.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../tango/fseq/fd_fseq.h"
 
 #include <time.h> /* CLOCK_REALTIME */
@@ -158,6 +159,8 @@ struct fd_snapmk {
   ulong manifest_sz;
   ulong status_cache_pad;
   ulong status_cache_sz;
+  ulong status_cache_hdr_off; /* file offset of the status cache TAR header, patched when the size is known */
+  ulong status_cache_ph_off;  /* file offset of the writer's outstanding placeholder */
   ulong zstd_data_frame_cnt;
   ulong zstd_padding_sz;
   ulong uncompressed_sz;
@@ -577,6 +580,70 @@ zip_flush( fd_snapmk_t *     ctx,
   ctx->zstd_data_frame_cnt += directive==ZSTD_e_end;
 }
 
+/* zip_placeholder ends the current frame and writes data, which is
+   sz<=128 KiB bytes, into its own Zstandard frame as a single raw
+   (uncompressed) block, so it sits verbatim in the file.  Returns the
+   file offset of data so zip_patch can overwrite it later. */
+
+#define ZIP_RAW_FRAME_HDR_SZ (4UL+1UL+8UL+3UL) /* magic, descriptor, content size, block header */
+
+static ulong
+zip_placeholder( fd_snapmk_t * ctx,
+                 void const *  data,
+                 ulong         sz ) {
+  FD_CHECK_CRIT( sz>0UL && sz<=(128UL<<10), "invalid placeholder size" );
+  zip_flush( ctx, ZSTD_e_end );
+
+  long off = lseek( ctx->snap_fd, 0L, SEEK_CUR );
+  if( FD_UNLIKELY( off<0L ) ) {
+    FD_LOG_ERR(( "lseek failed: %i-%s", errno, fd_io_strerror( errno ) ));
+  }
+
+  uchar hdr[ ZIP_RAW_FRAME_HDR_SZ ];
+  FD_STORE( uint, hdr, ZSTD_MAGICNUMBER );
+  hdr[ 4 ] = 0xE0; /* FCS field 8 bytes, single segment, no checksum, no dictionary */
+  FD_STORE( ulong, hdr+5, sz ); /* frame content size */
+  uint block_hdr = (uint)(sz<<3)|1U;  /* last block, raw block type, block size */
+  hdr[ 13 ] = (uchar)( block_hdr     );
+  hdr[ 14 ] = (uchar)( block_hdr>> 8 );
+  hdr[ 15 ] = (uchar)( block_hdr>>16 );
+
+  long t0 = fd_tickcount();
+  ulong wr_sz_;
+  int err = fd_io_write( ctx->snap_fd, hdr, sizeof(hdr), sizeof(hdr), &wr_sz_ );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_io_write failed: %i-%s", err, fd_io_strerror( err ) ));
+  err = fd_io_write( ctx->snap_fd, data, sz, sz, &wr_sz_ );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_io_write failed: %i-%s", err, fd_io_strerror( err ) ));
+  long t1 = fd_tickcount();
+
+  ctx->metrics.bytes_written    += sizeof(hdr)+sz;
+  ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
+  ctx->pool_sz[ ctx->snap_idx ] += sizeof(hdr)+sz;
+  ctx->uncompressed_sz          += sz;
+  ctx->zstd_data_frame_cnt++;
+  return (ulong)off + sizeof(hdr);
+}
+
+/* zip_patch overwrites sz bytes at file offset off, which must lie in a
+   region previously written by zip_placeholder. */
+
+static void
+zip_patch( fd_snapmk_t * ctx,
+           ulong         off,
+           void const *  data,
+           ulong         sz ) {
+  long t0 = fd_tickcount();
+  long n  = pwrite( ctx->snap_fd, data, sz, (long)off );
+  long t1 = fd_tickcount();
+  if( FD_UNLIKELY( n<0L ) ) {
+    FD_LOG_ERR(( "pwrite failed: %i-%s", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( (ulong)n!=sz ) ) {
+    FD_LOG_ERR(( "pwrite did not write full buffer (expected %lu bytes, wrote %ld bytes)", sz, n ));
+  }
+  ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
+}
+
 /* zip_align aligns the Zstandard compressed stream by 512 bytes using
    skippable frames. */
 
@@ -618,24 +685,38 @@ zip_align( fd_snapmk_t * ctx ) {
   atomic_store_explicit( ctx->file_off_p, aoff, memory_order_release );
 }
 
-/* snapmk_status_cache_prepare writes the file header for the serialized
-   status cache. */
+/* snapmk_status_cache_tar_hdr builds the TAR header of the status cache
+   file for a payload of sz bytes. */
+
+static fd_tar_meta_t *
+snapmk_status_cache_tar_hdr( fd_tar_meta_t * meta,
+                             ulong           sz ) {
+  fd_backup_tar_file_hdr( meta, sz );
+  fd_cstr_ncpy( meta->name, "snapshots/status_cache", sizeof(meta->name) );
+  fd_tar_meta_set_chksum( meta );
+  return meta;
+}
+
+/* snapmk_status_cache_prepare starts status cache serialization and
+   writes a placeholder TAR header for it.  The status cache is streamed
+   out of the txncache in a single pass, so its size is only known at
+   the end, when the header is patched. */
 
 static void
 snapmk_status_cache_prepare( fd_snapmk_t * ctx ) {
-  ulong slot = ctx->bank->f.slot;
-  fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, slot );
-  ulong bin_sz = fd_txncache_writer_serialized_sz( ctx->txncache, slot );
-  ctx->status_cache_sz = bin_sz;
+  fd_bank_t * bank = ctx->bank;
+  ulong         slot_history_sz = 0UL;
+  uchar const * slot_history    =
+      fd_sysvar_cache_data_query( &bank->f.sysvar_cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
+  if( FD_UNLIKELY( !fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->txncache_fork_id, bank->f.slot, slot_history, slot_history_sz ) ) ) {
+    FD_LOG_ERR(( "txncache fork %hu of snapshot bank at slot %lu is not the newest root", bank->txncache_fork_id.val, bank->f.slot ));
+  }
+  ctx->status_cache_sz = 0UL;
 
   zip_reset( ctx );
   fd_tar_meta_t meta;
-  fd_backup_tar_file_hdr( &meta, bin_sz );
-  fd_cstr_ncpy( meta.name, "snapshots/status_cache", sizeof(meta.name) );
-  fd_tar_meta_set_chksum( &meta );
-  ctx->status_cache_pad = fd_ulong_align_up( bin_sz, sizeof(fd_tar_meta_t) ) - bin_sz;
-  zip_append( ctx, &meta, sizeof(fd_tar_meta_t) );
-  zip_flush( ctx, ZSTD_e_continue ); /* still need padding in current frame */
+  snapmk_status_cache_tar_hdr( &meta, 0UL );
+  ctx->status_cache_hdr_off = zip_placeholder( ctx, &meta, sizeof(fd_tar_meta_t) );
 }
 
 /* snapmk_status_cache does a unit of status cache serialization and
@@ -649,22 +730,43 @@ snapmk_status_cache( fd_snapmk_t * ctx ) {
     zip_flush( ctx, ZSTD_e_continue );
     return 1;
   }
-  ulong buf_rem  = RAW_BUF_SZ - ctx->raw_buf.size;
-  ulong chunk_sz = fd_txncache_writer_serialize(
-      ctx->txncache_writer,
-      ctx->raw + ctx->raw_buf.size,
-      buf_rem );
-  ctx->raw_buf.size += chunk_sz;
+  ulong   buf_rem  = RAW_BUF_SZ - ctx->raw_buf.size;
+  uchar * chunk    = ctx->raw + ctx->raw_buf.size;
+  int     kind;
+  ulong   chunk_sz = fd_txncache_writer_serialize( ctx->txncache_writer, chunk, buf_rem, &kind );
   if( FD_UNLIKELY( !chunk_sz ) ) { /* done serializing? */
     zip_flush( ctx, ZSTD_e_continue );
+    ctx->status_cache_pad = fd_ulong_align_up( ctx->status_cache_sz, sizeof(fd_tar_meta_t) ) - ctx->status_cache_sz;
     if( ctx->status_cache_pad ) {
-      FD_CHECK_CRIT( ctx->status_cache_pad<sizeof(fd_tar_meta_t), "invalid status_cache_pad" );
       static uchar const zero[ sizeof(fd_tar_meta_t) ] = {0};
       zip_append( ctx, zero, ctx->status_cache_pad );
     }
     zip_flush( ctx, ZSTD_e_end );
+    fd_tar_meta_t meta;
+    snapmk_status_cache_tar_hdr( &meta, ctx->status_cache_sz );
+    zip_patch( ctx, ctx->status_cache_hdr_off, &meta, sizeof(fd_tar_meta_t) );
     ctx->state = SNAPMK_STATE_EOF_MARKER;
     return 0;
+  }
+  switch( kind ) {
+  case FD_TXNCACHE_WRITER_CHUNK_DATA:
+    ctx->raw_buf.size    += chunk_sz;
+    ctx->status_cache_sz += chunk_sz;
+    break;
+  case FD_TXNCACHE_WRITER_CHUNK_PLACEHOLDER: {
+    /* zip_placeholder drains raw_buf first, which moves chunk; copy */
+    uchar ph[ 64 ];
+    FD_CHECK_CRIT( chunk_sz<=sizeof(ph), "status cache placeholder too large" );
+    fd_memcpy( ph, chunk, chunk_sz );
+    ctx->status_cache_ph_off = zip_placeholder( ctx, ph, chunk_sz );
+    ctx->status_cache_sz    += chunk_sz;
+    break;
+  }
+  case FD_TXNCACHE_WRITER_CHUNK_PATCH:
+    zip_patch( ctx, ctx->status_cache_ph_off, chunk, chunk_sz );
+    break;
+  default:
+    FD_LOG_CRIT(( "invalid status cache chunk kind %d", kind ));
   }
   return 1;
 }
