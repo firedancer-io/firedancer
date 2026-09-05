@@ -28,8 +28,9 @@ insert_payload( fd_store_t * store,
   uchar * data = fd_store_fec_data_acquire( store, disk_fd, fec );
   FD_TEST( data );
   fd_memset( data, byte, sz );
-  fec->data_sz = sz;
-  fec->shred_offs[0] = (uint)sz;
+  FD_TEST( sz<=USHORT_MAX );
+  fec->data_sz = (uint)sz;
+  fec->shred_sz[0] = (ushort)sz;
   fd_store_fec_data_publish( store, fec );
   return fec;
 }
@@ -43,6 +44,8 @@ store_file_open( fd_store_t * store,
 
 void
 test_api( fd_wksp_t * wksp ) {
+  FD_TEST( sizeof(fd_store_fec_t)==128UL );
+
   ulong  fec_max     = 8;
   void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL, 0UL, 0UL, 0UL ), 1UL );
   fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, TEST_PAYLOAD_PATH, 0UL ) );
@@ -209,6 +212,13 @@ test_query_miss( fd_wksp_t * wksp ) {
 }
 
 void
+test_disk_index_footprint( void ) {
+  ulong fp_no_disk = fd_store_footprint( 8UL, 31840UL,  0UL, 0UL, 0UL );
+  ulong fp_50_gib  = fd_store_footprint( 8UL, 31840UL, 50UL, 0UL, 0UL );
+  FD_TEST( fp_50_gib-fp_no_disk==(1322UL<<20)+4096UL ); /* map, entries, tags, hints, and alignment */
+}
+
+void
 test_fec_data_max( fd_wksp_t * wksp ) {
   ulong fec_max = 8;
 
@@ -218,6 +228,7 @@ test_fec_data_max( fd_wksp_t * wksp ) {
   FD_TEST( fd_store_footprint( fec_max, 31840UL, 50UL, 0UL, 0UL )<(4UL<<30) );
   FD_TEST( !fd_store_payload_slot_sz( ULONG_MAX ) );
   FD_TEST( !fd_store_footprint( fec_max, ULONG_MAX, 0UL, 1UL, 0UL ) );
+  FD_TEST( !fd_store_footprint( fec_max, (ulong)UINT_MAX+1UL, 0UL, 1UL, 0UL ) );
   FD_TEST( !fd_store_footprint( fec_max, 31840UL, 0UL, 0UL, ULONG_MAX ) );
 
   /* With shred_cache_bytes==0, the RAM cache can hold all live FECs, so
@@ -911,6 +922,8 @@ test_concurrent( fd_wksp_t * wksp ) {
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_disk_index_footprint();
 
   int require_multitile = fd_env_strip_cmdline_contains( &argc, &argv, "--require-multitile" );
   if( FD_UNLIKELY( require_multitile && fd_tile_cnt()<2UL ) )
