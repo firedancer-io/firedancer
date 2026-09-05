@@ -289,14 +289,9 @@ struct fd_replay_final_cert {
 };
 typedef struct fd_replay_final_cert fd_replay_final_cert_t;
 
-/* Sized by the footer format itself rather than a guess: a footer that
-   carries certificates is ~1.8 KiB, well over the 512 this used to be. */
-#define FD_REPLAY_LEADER_FOOTER_MAX FD_BLOCK_FOOTER_SER_MAX
-
 struct fd_replay_leader_footer {
-  ulong slot;
-  ulong sz;
-  uchar footer[ FD_REPLAY_LEADER_FOOTER_MAX ];
+  ulong             slot;
+  fd_block_footer_t footer;
 };
 typedef struct fd_replay_leader_footer fd_replay_leader_footer_t;
 
