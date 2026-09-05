@@ -142,10 +142,11 @@ typedef struct {
   ulong txn_idx;
   ulong exec_idx;
   ulong local_txn_idx;
-  ulong mblk_idx;
-  ulong local_mblk_idx;
-  ulong hashcnt;
-  fd_hash_t hash[ 1 ];
+  ulong     poh_cnt;
+  ulong     mblk_idx      [ FD_SCHED_POH_PARA ];
+  ulong     local_mblk_idx[ FD_SCHED_POH_PARA ];
+  ulong     hashcnt       [ FD_SCHED_POH_PARA ];
+  fd_hash_t hash          [ FD_SCHED_POH_PARA ];
 } inflight_t;
 
 typedef struct {
@@ -917,16 +918,19 @@ complete_task( case_t *     tc,
     case FD_SCHED_TT_POH_HASH: {
       int is_lineage_dead = lineage_dead( tc, task->bank_idx );
       fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-      msg->mblk_idx = task->mblk_idx;
-      msg->hashcnt  = task->hashcnt;
-      FD_TEST( task->local_mblk_idx < block->mblk_cnt );
-      FD_TEST( task->hashcnt == mblk_task_hashcnt( block, task->local_mblk_idx ) );
-      FD_TEST( !memcmp( task->hash, block->mblk_start_hash + task->local_mblk_idx, sizeof(fd_hash_t) ) );
-      repeat_hash( msg->hash, task->hash, task->hashcnt );
-      FD_TEST( !memcmp( msg->hash, block->mblk_hashed_hash + task->local_mblk_idx, sizeof(fd_hash_t) ) );
+      msg->cnt = task->poh_cnt;
+      for( ulong i=0UL; i<task->poh_cnt; i++ ) {
+        msg->mblk_idx[ i ] = task->mblk_idx[ i ];
+        msg->hashcnt [ i ] = task->hashcnt [ i ];
+        FD_TEST( task->local_mblk_idx[ i ] < block->mblk_cnt );
+        FD_TEST( task->hashcnt[ i ] == mblk_task_hashcnt( block, task->local_mblk_idx[ i ] ) );
+        FD_TEST( !memcmp( task->hash+i, block->mblk_start_hash + task->local_mblk_idx[ i ], sizeof(fd_hash_t) ) );
+        repeat_hash( msg->hash+i, task->hash+i, task->hashcnt[ i ] );
+        FD_TEST( !memcmp( msg->hash+i, block->mblk_hashed_hash + task->local_mblk_idx[ i ], sizeof(fd_hash_t) ) );
+      }
       if( FD_UNLIKELY( block->failure_mode==TEST_FAIL_POH && !block->failure_injected ) ) {
-        block->failure_injected = 1;
-        msg->hash->hash[ 0 ]   ^= (uchar)0x80;
+        block->failure_injected  = 1;
+        msg->hash[ 0 ].hash[ 0 ] ^= (uchar)0x80;
       }
       int rc = fd_sched_task_done( tc->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->exec_idx, msg );
       if( FD_UNLIKELY( block->failure_mode==TEST_FAIL_POH && block->failure_injected ) ) {
@@ -1252,19 +1256,24 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         block_t * block = tc->block + (bank_idx-1UL);
         FD_TEST( block->start_seen );
         FD_TEST( !block->end_seen );
-        ulong local_mblk_idx = block->poh_dispatch_mblk_cnt++;
-        FD_TEST( local_mblk_idx<block->mblk_cnt );
-        FD_TEST( task->poh_hash->hashcnt == mblk_task_hashcnt( block, local_mblk_idx ) );
-        FD_TEST( !memcmp( task->poh_hash->hash, block->mblk_start_hash + local_mblk_idx, sizeof(fd_hash_t) ) );
-        inflight[ inflight_cnt++ ] = (inflight_t) {
-          .task_type      = FD_SCHED_TT_POH_HASH,
-          .bank_idx       = bank_idx,
-          .exec_idx       = task->poh_hash->exec_idx,
-          .mblk_idx       = task->poh_hash->mblk_idx,
-          .local_mblk_idx = local_mblk_idx,
-          .hashcnt        = task->poh_hash->hashcnt,
+        FD_TEST( task->poh_hash->cnt && task->poh_hash->cnt<=FD_SCHED_POH_PARA );
+        inflight_t * entry = inflight + inflight_cnt++;
+        *entry = (inflight_t) {
+          .task_type = FD_SCHED_TT_POH_HASH,
+          .bank_idx  = bank_idx,
+          .exec_idx  = task->poh_hash->exec_idx,
+          .poh_cnt   = task->poh_hash->cnt,
         };
-        fd_memcpy( inflight[ inflight_cnt-1UL ].hash, task->poh_hash->hash, sizeof(fd_hash_t) );
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
+          ulong local_mblk_idx = block->poh_dispatch_mblk_cnt++;
+          FD_TEST( local_mblk_idx<block->mblk_cnt );
+          FD_TEST( task->poh_hash->hashcnt[ i ] == mblk_task_hashcnt( block, local_mblk_idx ) );
+          FD_TEST( !memcmp( task->poh_hash->hash+i, block->mblk_start_hash + local_mblk_idx, sizeof(fd_hash_t) ) );
+          entry->mblk_idx      [ i ] = task->poh_hash->mblk_idx[ i ];
+          entry->local_mblk_idx[ i ] = local_mblk_idx;
+          entry->hashcnt       [ i ] = task->poh_hash->hashcnt [ i ];
+          fd_memcpy( entry->hash+i, task->poh_hash->hash+i, sizeof(fd_hash_t) );
+        }
         break;
       }
       default: FD_LOG_ERR(( "unexpected task_type %lu", task->task_type ));

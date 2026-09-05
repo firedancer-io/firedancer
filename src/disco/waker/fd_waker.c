@@ -56,7 +56,11 @@ self_test( void ) {
       if( FD_UNLIKELY( rd<=0L ) ) break;
       buf[ rd ] = '\0';
       long nr = strtol( buf, NULL, 10 );
-      if( FD_LIKELY( nr==__NR_epoll_pwait || nr==__NR_epoll_wait ) ) { blocked = 1; break; }
+      int is_epoll_wait = nr==__NR_epoll_pwait;
+#ifdef __NR_epoll_wait
+      is_epoll_wait |= nr==__NR_epoll_wait;
+#endif
+      if( FD_LIKELY( is_epoll_wait ) ) { blocked = 1; break; }
       sched_yield();
     }
     long n = write( pfd[ 1 ], "x", 1UL );

@@ -150,6 +150,26 @@ main( int     argc,
     for( ulong b=0UL; b<32UL; b++ ) FD_TEST( in_hash[b]==hash[b] );
   }
 
+  /* test fd_sha256_hash_32_repeated_batch */
+# define REPEATED_BATCH_MAX 32UL
+  for( ulong trial=0UL; trial<1000UL; trial++ ) {
+    ulong batch_cnt = 1UL+fd_rng_ulong_roll( rng, REPEATED_BATCH_MAX );
+
+    uchar batch_data[ REPEATED_BATCH_MAX*32UL ];
+    uchar batch_hash[ REPEATED_BATCH_MAX*32UL ];
+    uchar ref_hash  [ REPEATED_BATCH_MAX*32UL ];
+    ulong batch_iter[ REPEATED_BATCH_MAX      ];
+
+    for( ulong i=0UL; i<batch_cnt; i++ ) {
+      for( ulong b=0UL; b<32UL; b++ ) batch_data[ 32UL*i+b ] = fd_rng_uchar( rng );
+      batch_iter[ i ] = fd_rng_uint_roll( rng, 4U ) ? 100UL : fd_rng_ulong_roll( rng, 200UL );
+      fd_sha256_hash_32_repeated( batch_data+32UL*i, ref_hash+32UL*i, batch_iter[ i ] );
+    }
+
+    fd_sha256_hash_32_repeated_batch( batch_data, batch_hash, batch_iter, batch_cnt );
+    for( ulong i=0UL; i<batch_cnt; i++ ) FD_TEST( !memcmp( batch_hash+32UL*i, ref_hash+32UL*i, 32UL ) );
+  }
+
   if( bench ) {
     /* do a benchmark on PoH-style hashing */
     FD_LOG_NOTICE(( "Benchmarking poh" ));
@@ -178,6 +198,27 @@ main( int     argc,
       dt += fd_log_wallclock();
       float hashes_per_sec = ((float)iter * 1e-6f ) / ((float)dt * 1e-9f) ;
       FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core with fd_sha256_hash_32_repeated", (double)hashes_per_sec ));
+    }
+    {
+      uchar batch_in  [ REPEATED_BATCH_MAX*32UL ];
+      uchar batch_out [ REPEATED_BATCH_MAX*32UL ];
+      ulong batch_iter[ REPEATED_BATCH_MAX      ];
+
+      for( ulong b=0UL; b<REPEATED_BATCH_MAX*32UL; b++ ) batch_in[ b ] = fd_rng_uchar( rng );
+
+      for( ulong batch_cnt=1UL; batch_cnt<=REPEATED_BATCH_MAX; batch_cnt<<=1 ) {
+        for( ulong i=0UL; i<batch_cnt; i++ ) batch_iter[ i ] = 10UL;
+        fd_sha256_hash_32_repeated_batch( batch_in, batch_out, batch_iter, batch_cnt );
+
+        ulong iter = 1000000UL;
+        for( ulong i=0UL; i<batch_cnt; i++ ) batch_iter[ i ] = iter;
+        long dt = -fd_log_wallclock();
+        fd_sha256_hash_32_repeated_batch( batch_in, batch_out, batch_iter, batch_cnt );
+        dt += fd_log_wallclock();
+        float hashes_per_sec = ((float)(iter*batch_cnt) * 1e-6f ) / ((float)dt * 1e-9f) ;
+        FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core with fd_sha256_hash_32_repeated_batch (batch_cnt=%lu)",
+                        (double)hashes_per_sec, batch_cnt ));
+      }
     }
 
     /* do a quick benchmark of sha-256 on small and large UDP payload

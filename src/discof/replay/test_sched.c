@@ -223,9 +223,12 @@ run_interleaved_fec_residual_case( void ) {
         break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-        msg->mblk_idx = task->poh_hash->mblk_idx;
-        msg->hashcnt  = task->poh_hash->hashcnt;
-        repeat_hash( msg->hash, task->poh_hash->hash, task->poh_hash->hashcnt );
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
+          msg->mblk_idx[ i ] = task->poh_hash->mblk_idx[ i ];
+          msg->hashcnt [ i ] = task->poh_hash->hashcnt [ i ];
+          repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt[ i ] );
+        }
         FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
         break;
       }
@@ -309,9 +312,12 @@ run_bad_tick_case( fd_hash_t const * start_poh,
         break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-        msg->mblk_idx = task->poh_hash->mblk_idx;
-        msg->hashcnt  = task->poh_hash->hashcnt;
-        repeat_hash( msg->hash, task->poh_hash->hash, task->poh_hash->hashcnt );
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
+          msg->mblk_idx[ i ] = task->poh_hash->mblk_idx[ i ];
+          msg->hashcnt [ i ] = task->poh_hash->hashcnt [ i ];
+          repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt[ i ] );
+        }
         int rc = fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg );
         if( FD_UNLIKELY( rc!=FD_SCHED_DEAD_REASON_NONE ) ) seen_poh_fail = 1;
         break;
