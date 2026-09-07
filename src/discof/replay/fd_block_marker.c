@@ -274,16 +274,17 @@ fd_block_marker_de( fd_block_marker_t * marker,
 
   marker->variant = variant;
 
-  /* payload deserializer may consume less than length */
-  int err;
+  int   err;
+  ulong payload_sz;
   switch( variant ) {
-    case FOOTER:        err = fd_block_footer_de ( &marker->footer,        buf, length, NULL ); break;
-    case HEADER:        err = fd_block_header_de ( &marker->header,        buf, length, NULL ); break;
-    case UPDATE_PARENT: err = fd_update_parent_de( &marker->update_parent, buf, length, NULL ); break;
+    case FOOTER:        err = fd_block_footer_de ( &marker->footer,        buf, length, &payload_sz ); break;
+    case HEADER:        err = fd_block_header_de ( &marker->header,        buf, length, &payload_sz ); break;
+    case UPDATE_PARENT: err = fd_update_parent_de( &marker->update_parent, buf, length, &payload_sz ); break;
     case GENESIS_CERTIFICATE: return FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED;
     default:                  return FD_BLOCK_MARKER_DE_ERR_MALFORMED;
   }
   if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( payload_sz!=length ) ) return FD_BLOCK_MARKER_DE_ERR_MALFORMED;
   ADVANCE( length );
 
   if( buf_sz ) *buf_sz = buf_max-rem;
