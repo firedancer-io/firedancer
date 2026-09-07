@@ -10,10 +10,7 @@ LEDGER=""
 RESTORE_ARCHIVE=""
 END_SLOT="0"
 INDEX_MAX="5000000"
-TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
-TILE_CPUS="--tile-cpus 5-15"
-THREAD_MEM_BOUND="--thread-mem-bound 0"
 INGEST_MODE="shredcap"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
@@ -22,7 +19,7 @@ DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
 EXECRP_TILE_COUNT="10"
-INGEST_DEAD_SLOTS="false"
+SNAPDC_TILE_COUNT=""
 ROOT_DISTANCE="2"
 MAX_LIVE_SLOTS="32"
 ALPENGLOW="false"
@@ -60,11 +57,6 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-    -t|--trash)
-       TRASH_HASH="--trash-hash $2"
-       shift
-       shift
-       ;;
     -o|--one-offs)
        ONE_OFFS="$2"
        shift
@@ -82,11 +74,6 @@ while [[ $# -gt 0 ]]; do
         GENESIS=1
         shift
         ;;
-    --tile-cpus)
-        TILE_CPUS="--tile-cpus $2"
-        shift
-        shift
-        ;;
     --debug)
         DEBUG=( gdb -q -x contrib/debug.gdb --args )
         shift
@@ -101,8 +88,9 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
-    --ingest-dead-slots)
-        INGEST_DEAD_SLOTS="true"
+    --snapdc)
+        SNAPDC_TILE_COUNT="$2"
+        shift
         shift
         ;;
     --root-distance)
@@ -139,59 +127,29 @@ DUMP=$(realpath $DUMP_DIR)
 mkdir -p $DUMP
 
 download_and_extract_ledger() {
-  if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
-    if [[ -e $DUMP/$LEDGER.pending ]]; then
-      echo "Cleaning up previous interrupted download..."
-      rm -rf $DUMP/$LEDGER.pending
-    fi
-
-    if [[ -n "$ZST" ]]; then
-      echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
-    else
-      echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
-    fi
-    if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
-      if [ "`gcloud auth list |& grep  firedancer-ci | wc -l`" == "0" ]; then
-        if [ -f /etc/firedancer-scratch-bucket-key.json ]; then
-          gcloud auth activate-service-account --key-file /etc/firedancer-scratch-bucket-key.json
-        fi
-        if [ -f /etc/firedancer-ci-78fff3e07c8b.json ]; then
-          gcloud auth activate-service-account --key-file /etc/firedancer-ci-78fff3e07c8b.json
-        fi
-      fi
-    fi
-
-    mkdir -p $DUMP/$LEDGER.pending
-
-    if [[ -n "$ZST" ]]; then
-      if gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tee $DUMP/$LEDGER.tar.zst | tar xf - -C $DUMP/$LEDGER.pending --strip-components=1; then
-        rm -rf $DUMP/$LEDGER
-        mv $DUMP/$LEDGER.pending $DUMP/$LEDGER
-        echo "Download completed successfully"
-      else
-        echo "Download failed, cleaning up..."
-        rm -rf $DUMP/$LEDGER.pending
-        exit 1
-      fi
-    else
-      if gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP/$LEDGER.pending --strip-components=1; then
-        rm -rf $DUMP/$LEDGER
-        mv $DUMP/$LEDGER.pending $DUMP/$LEDGER
-        echo "Download completed successfully"
-      else
-        echo "Download failed, cleaning up..."
-        rm -rf $DUMP/$LEDGER.pending
-        exit 1
-      fi
-    fi
+  local ext=tar.gz unpack="tar zxf -"
+  [[ -n "${ZST:-}" ]] && ext=tar.zst unpack="zstd -d --stdout | tar xf -"
+  echo "Downloading gs://firedancer-ci-resources/$LEDGER.$ext"
+  if ! gcloud auth list 2>&1 | grep -q "firedancer-\(scratch\|ci\)"; then
+    for key in /etc/firedancer-scratch-bucket-key.json /etc/firedancer-ci-78fff3e07c8b.json; do
+      [[ -f $key ]] && gcloud auth activate-service-account --key-file "$key"
+    done
   fi
+  rm -rf "$DUMP/$LEDGER.pending" "$DUMP/$LEDGER"
+  mkdir -p "$DUMP/$LEDGER.pending"
+  if ! gcloud storage cat "gs://firedancer-ci-resources/$LEDGER.$ext" | eval "$unpack" -C "$DUMP/$LEDGER.pending" --strip-components=1; then
+    echo "Download failed, cleaning up..."; rm -rf "$DUMP/$LEDGER.pending"; exit 1
+  fi
+  ( cd "$DUMP/$LEDGER.pending" && find . -type f -printf '%P %s\n' | sort ) > "$DUMP/$LEDGER.manifest"
+  mv "$DUMP/$LEDGER.pending" "$DUMP/$LEDGER"
 }
 
-if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
-  if [[ -e $DUMP/$LEDGER.pending ]]; then
-    echo "Found incomplete download, cleaning up and retrying..."
-    rm -rf $DUMP/$LEDGER.pending
-  fi
+ledger_ok() {
+  [[ -f $DUMP/$LEDGER.manifest ]] || return 0
+  while read -r f sz; do [[ $(stat -c %s "$DUMP/$LEDGER/$f" 2>/dev/null) == "$sz" ]] || return 1; done < "$DUMP/$LEDGER.manifest"
+}
+
+if [[ SKIP_INGEST -eq 0 ]] && { [[ ! -e $DUMP/$LEDGER ]] || ! ledger_ok; }; then
   download_and_extract_ledger
 fi
 
@@ -215,7 +173,10 @@ convert_rocksdb_to_shredcap() {
   echo "Converted rocksdb to shredcap"
 }
 
-if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
+if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst && ! -e $DUMP/$LEDGER/rocksdb ]]; then
+  LEDGER_INPUT=""
+elif [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
   if ! make -B -C contrib/blockstore blockstore2shredcap; then
     echo "failed to build contrib/blockstore/blockstore2shredcap"
     exit 1
@@ -225,7 +186,6 @@ if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
     # A cached ledger may have a corrupt rocksdb (eg. damaged by a converter
     # version that deleted unopened column families); re-download once.
     echo "conversion failed; re-downloading ledger and retrying"
-    rm -rf $DUMP/$LEDGER
     download_and_extract_ledger
     if ! convert_rocksdb_to_shredcap; then
       echo "rocksdb to shredcap conversion failed"
@@ -233,12 +193,12 @@ if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
     fi
   fi
 fi
-LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
 
 chmod -R 0700 $DUMP/$LEDGER
 
 CONFIG_FILE="$DUMP_DIR/${LEDGER}_backtest.toml"
 cat <<EOF > ${CONFIG_FILE}
+telemetry = false
 [snapshots]
     max_full_snapshots_to_keep = 5
     max_incremental_snapshots_to_keep = 5
@@ -249,6 +209,7 @@ cat <<EOF > ${CONFIG_FILE}
             allow_list = []
 [layout]
     execrp_tile_count = $EXECRP_TILE_COUNT
+${SNAPDC_TILE_COUNT:+    snapdc_tile_count = $SNAPDC_TILE_COUNT}
 [tiles]
     [tiles.replay]
         enable_features = [ $FORMATTED_ONE_OFFS ]
@@ -264,7 +225,7 @@ cat <<EOF > ${CONFIG_FILE}
     path = "$LOG"
 [paths]
     snapshots = "$DUMP/$LEDGER"
-    accounts = "/$DUMP/accounts.db"
+    accounts = "$DUMP/accounts.db"
     genesis = "$DUMP/$LEDGER/genesis.bin"
 [development]
     fixed_fec_sets = false
@@ -295,6 +256,7 @@ fi
 echo_notice "Running backtest for $LEDGER"
 
 sudo killall firedancer-dev &> /dev/null || true
+rm -f $DUMP/accounts.db
 
 set -x
 if [[ -n "$CI" ]]; then

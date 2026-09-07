@@ -561,6 +561,7 @@ struct fd_topo_tile {
     struct {
       ushort rpc_port;
       uint   rpc_ip_addr;
+      ulong  duration_s;
     } bencho;
 
     struct {
@@ -616,6 +617,7 @@ struct fd_topo_tile {
       ulong end_slot;
       ulong root_distance;
       int   alpenglow;
+      long  boot_timestamp_nanos;
     } backtest;
 
     struct {

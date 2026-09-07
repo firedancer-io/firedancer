@@ -1529,7 +1529,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
     if( FD_UNLIKELY( q==NULL ) ) {
       q = penalty_map_insert( pack->penalty_treaps, penalty_acct );
-      treap_new( q->penalty_treap, pack->pack_depth );
+      treap_new( q->penalty_treap, trp_pool_max( pack->pool ) );
     }
     insert_into = q->penalty_treap;
     ord->root = FD_ORD_TXN_ROOT_PENALTY( penalty_idx[i] );

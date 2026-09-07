@@ -85,6 +85,12 @@ struct fd_backt_tile {
   long  publish_time;
   ulong slot_cnt;
 
+  long boot_time;
+  long snapshot_done_time;
+  long replay_ready_time;
+  long first_slot_begin_nanos;
+  ulong txn_cnt;
+
   fd_store_t    * store;
   fd_store_map_t  map_join[1];
   int             store_disk_fd;
@@ -319,6 +325,56 @@ after_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }
 
+/* Log the run summary, drain telemetry and exit the process. */
+
+static void
+finish( fd_backt_tile_t * ctx,
+        ulong             last_slot,
+        long              completion_nanos ) {
+  long now = fd_log_wallclock();
+  ctx->replay_time    += now;
+  double replay_time_s = (double)ctx->replay_time * 1e-9;
+  double publish_time_s = (double)ctx->publish_time * 1e-9;
+  double sec_per_slot  = ctx->slot_cnt ? replay_time_s / (double)ctx->slot_cnt : 0.0;
+  FD_LOG_NOTICE(( "Backtest playback done. replay completed - slots: %lu, published: %6.6f s, elapsed: %6.6f s, sec/slot: %6.6f", ctx->slot_cnt, publish_time_s, replay_time_s, sec_per_slot ));
+  double replay_s = (double)(now-ctx->replay_ready_time)/1e9;
+  FD_LOG_INFO(( "BACKTEST_SUMMARY snapshot_slot=%lu end_slot=%lu slots=%lu txns=%lu snap_bytes_s=%.3f replay_init_s=%.3f load_total_s=%.3f replay_s=%.3f slot_exec_s=%.3f sec_per_slot=%.6f tps=%.1f total_s=%.3f",
+                ctx->start_slot, last_slot, ctx->slot_cnt, ctx->txn_cnt,
+                (double)(ctx->snapshot_done_time-ctx->boot_time)/1e9,
+                (double)(ctx->replay_ready_time-ctx->snapshot_done_time)/1e9,
+                (double)(ctx->replay_ready_time-ctx->boot_time)/1e9,
+                replay_s,
+                ctx->slot_cnt ? (double)(completion_nanos-ctx->first_slot_begin_nanos)/1e9 : 0.0,
+                ctx->slot_cnt ? replay_s/(double)ctx->slot_cnt : 0.0,
+                replay_s>0.0 ? (double)ctx->txn_cnt/replay_s : 0.0,
+                (double)(now-ctx->boot_time)/1e9 ));
+  if( FD_LIKELY( ctx->src ) ) {
+    fd_backtest_src_destroy( ctx->src );
+    ctx->src = NULL;
+  }
+  if( FD_UNLIKELY( ctx->event_metrics ) ) {
+    long deadline = fd_log_wallclock() + (long)120e9;
+    for(;;) {
+      int drained = 1;
+      for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
+        if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
+      }
+      drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ];
+      if( FD_LIKELY( drained ) ) break;
+      if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
+        FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+        break;
+      }
+      if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
+        FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+        break;
+      }
+      FD_SPIN_PAUSE();
+    }
+  }
+  exit(0);
+}
+
 static inline int
 returnable_frag( fd_backt_tile_t *   ctx,
                  ulong               in_idx,
@@ -339,7 +395,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
     case IN_KIND_SNAP: {
       if( FD_LIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
         uchar first_buf[ FD_SHRED_MAX_SZ ];
-        ulong first_sz = ctx->src->vt->first_shred( ctx->src, first_buf, sizeof(first_buf) );
+        ulong first_sz = ctx->src ? ctx->src->vt->first_shred( ctx->src, first_buf, sizeof(first_buf) ) : 0UL;
         if( FD_LIKELY( first_sz ) ) {
           fd_shred_t const * first = fd_shred_parse( first_buf, first_sz, FD_SHRED_BLK_MAX );
           if( FD_UNLIKELY( !first ) ) {
@@ -353,7 +409,8 @@ returnable_frag( fd_backt_tile_t *   ctx,
           }
         }
         /* Skip past any shreds in the source for slots <=start_slot so we don't replay them */
-        fd_backtest_src_seek( ctx->src, ctx->start_slot+1UL );
+        if( FD_LIKELY( ctx->src ) ) fd_backtest_src_seek( ctx->src, ctx->start_slot+1UL );
+        ctx->snapshot_done_time = fd_log_wallclock();
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
         ctx->snapshot_done = 1;
@@ -376,6 +433,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         ctx->reading_slot = 0UL;
         ctx->start_slot  = 0UL;
         FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
+        ctx->snapshot_done_time = fd_log_wallclock();
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
         FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
@@ -401,7 +459,9 @@ returnable_frag( fd_backt_tile_t *   ctx,
       fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       ctx->rooted_slots_block_id[ msg->slot%BANK_HASH_BUFFER_LEN ] = msg->block_id;
       if( FD_UNLIKELY( msg->slot==ctx->start_slot ) ) {
+        ctx->replay_ready_time     = fd_log_wallclock();
         ctx->prev_root             = msg->slot;
+        if( FD_UNLIKELY( !ctx->src ) ) finish( ctx, msg->slot, msg->completion_time_nanos ); /* load-only: no ledger */
         if( FD_UNLIKELY( ctx->alpenglow ) ) return 0;
         /* Even though this is the first slot, we need to simulate tower
            publishing the slot done message to replay so replay can
@@ -461,44 +521,15 @@ returnable_frag( fd_backt_tile_t *   ctx,
         root_slot = ctx->prev_root;
       }
 
+      if( FD_UNLIKELY( !ctx->slot_cnt ) ) ctx->first_slot_begin_nanos = msg->preparation_begin_nanos;
       ctx->slot_cnt++;
+      ctx->txn_cnt += msg->vote_success+msg->vote_failed+msg->nonvote_success+msg->nonvote_failed;
 
       ctx->prior_completion_timestamp = msg->completion_time_nanos;
 
       int reached_end_slot  = msg->slot>=ctx->end_slot;
       int drained_exhausted = ctx->source_exhausted && !ctx->shreds_cnt && msg->slot>=ctx->prev_slot;
-      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) {
-        ctx->replay_time    += fd_log_wallclock();
-        double replay_time_s = (double)ctx->replay_time * 1e-9;
-        double publish_time_s = (double)ctx->publish_time * 1e-9;
-        double sec_per_slot  = replay_time_s / (double)ctx->slot_cnt;
-        FD_LOG_NOTICE(( "Backtest playback done. replay completed - slots: %lu, published: %6.6f s, elapsed: %6.6f s, sec/slot: %6.6f", ctx->slot_cnt, publish_time_s, replay_time_s, sec_per_slot ));
-        if( FD_LIKELY( ctx->src ) ) {
-          fd_backtest_src_destroy( ctx->src );
-          ctx->src = NULL;
-        }
-        if( FD_UNLIKELY( ctx->event_metrics ) ) {
-          long deadline = fd_log_wallclock() + (long)120e9;
-          for(;;) {
-            int drained = 1;
-            for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
-              if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
-            }
-            drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ];
-            if( FD_LIKELY( drained ) ) break;
-            if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
-              FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
-              break;
-            }
-            if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
-              FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
-              break;
-            }
-            FD_SPIN_PAUSE();
-          }
-        }
-        exit(0);
-      }
+      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) finish( ctx, msg->slot, msg->completion_time_nanos );
 
       int root_advanced = root_slot!=ctx->prev_root;
       ctx->prev_root    = root_slot;
@@ -627,6 +658,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->end_slot = tile->backtest.end_slot ? tile->backtest.end_slot : ULONG_MAX;
   ctx->slot_cnt = 0UL;
+  ctx->txn_cnt  = 0UL;
 
   ctx->shreds_idx = 0UL;
   ctx->shreds_cnt = 0UL;
@@ -647,15 +679,21 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->root_distance = tile->backtest.root_distance;
   ctx->alpenglow     = tile->backtest.alpenglow;
+  ctx->boot_time     = tile->backtest.boot_timestamp_nanos;
 
-  fd_backtest_src_opts_t opts = {
-    .format      = tile->backtest.ledger_format,
-    .path        = tile->backtest.ledger_path,
-    .rooted_only = 1,
-    .code_shreds = 0,
-  };
-  ctx->src = fd_backtest_src_create( &opts );
-  FD_TEST( ctx->src );
+  ctx->src = NULL;
+  if( FD_LIKELY( tile->backtest.ledger_path[ 0 ] ) ) { /* empty path: load the snapshot, then exit */
+    fd_backtest_src_opts_t opts = {
+      .format      = tile->backtest.ledger_format,
+      .path        = tile->backtest.ledger_path,
+      .rooted_only = 1,
+      .code_shreds = 0,
+    };
+    ctx->src = fd_backtest_src_create( &opts );
+    FD_TEST( ctx->src );
+  } else {
+    ctx->source_exhausted = 1;
+  }
   FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
   FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot   );
 

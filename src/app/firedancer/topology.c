@@ -1849,10 +1849,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->backtest.root_distance = config->firedancer.development.backtest.root_distance;
     fd_cstr_ncpy( tile->backtest.ledger_format, config->firedancer.development.ledger_input.format, sizeof(tile->backtest.ledger_format) );
     fd_cstr_ncpy( tile->backtest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
-    if( FD_UNLIKELY( 0==strlen( tile->backtest.ledger_path ) ) ) {
-      FD_LOG_ERR(( "missing [development.ledger_input.path] config option or '--ledger' flag" ));
-    }
     tile->backtest.end_slot = config->firedancer.development.ledger_input.end_slot;
+    tile->backtest.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "forkt" ) ) ) {
 

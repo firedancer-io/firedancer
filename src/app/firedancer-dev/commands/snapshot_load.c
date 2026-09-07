@@ -229,12 +229,18 @@ snapshot_load_args( int *    pargc,
   int          no_incremental= fd_env_strip_cmdline_contains( pargc, pargv, "--no-incremental"             )!=0;
   int          no_watch      = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch"                   )!=0;
   int          accounts_hist = fd_env_strip_cmdline_contains( pargc, pargv, "--accounts-hist"              )!=0;
+  double       db_sz         = fd_env_strip_cmdline_double  ( pargc, pargv, "--db-sz",        NULL, 0.0    );
+  double       db_rec_max    = fd_env_strip_cmdline_double  ( pargc, pargv, "--db-rec-max",   NULL, 0.0    );
+  if( FD_UNLIKELY( !(db_sz>=0.0 && db_sz<1.8e19) ) )           FD_LOG_ERR(( "--db-sz out of range" ));      /* also rejects NaN */
+  if( FD_UNLIKELY( !(db_rec_max>=0.0 && db_rec_max<1.8e19) ) ) FD_LOG_ERR(( "--db-rec-max out of range" ));
 
   fd_cstr_ncpy( args->snapshot_load.snapshot_dir, snapshot_dir, sizeof(args->snapshot_load.snapshot_dir) );
   args->snapshot_load.accounts_hist  = accounts_hist;
   args->snapshot_load.offline        = offline;
   args->snapshot_load.no_incremental = no_incremental;
   args->snapshot_load.no_watch       = no_watch;
+  args->snapshot_load.db_rec_max     = (ulong)db_rec_max;
+  args->snapshot_load.cache_sz       = (ulong)db_sz;
 }
 
 /* ACCOUNTS_HIST_N (32) is chosen to make the histogram lightweight.
@@ -635,7 +641,7 @@ snapshot_load_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--offline",        NULL,      "Do not attempt to download snapshots" );
   fd_action_help_arg( help, "--no-incremental", NULL,      "Disable incremental snapshot loading" );
   fd_action_help_arg( help, "--no-watch",       NULL,      "Do not print periodic progress updates" );
-  fd_action_help_arg( help, "--db-sz",          "<bytes>", "Database size in bytes (e.g. 10e9 -> 10 GB)" );
+  fd_action_help_arg( help, "--db-sz",          "<bytes>", "Accounts cache size in bytes (e.g. 10e9 -> 10 GB)" );
   fd_action_help_arg( help, "--db-rec-max",     "<num>",   "Database max record/account count (e.g. 10e6 -> 10M accounts)" );
   fd_action_help_arg( help, "--fsck",           NULL,      "After loading, run database integrity checks" );
   fd_action_help_arg( help, "--accounts-hist",  NULL,      "After loading, analyze account size distribution" );
