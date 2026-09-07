@@ -65,7 +65,10 @@ ENCODE_FN {
     PUSH_VAL( ulong,  bank->f.slot                                                );
     PUSH_VAL( ulong,  bank->f.epoch                                               );
     PUSH_VAL( ulong,  bank->f.block_height                                        );
-    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* leader_id, unused */
+    fd_epoch_leaders_t const * leaders   = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
+    fd_pubkey_t const *        leader    = fd_epoch_leaders_get( leaders, bank->f.slot );
+    fd_pubkey_t                leader_id = leader ? *leader : (fd_pubkey_t){0};
+    PUSH_VAL( fd_pubkey_t, leader_id );
     PUSH_VAL( ulong, 0UL ); /* unused_collector_fees */
     PUSH_VAL( ulong, 0UL ); /* unused_fee_calculator */
 
