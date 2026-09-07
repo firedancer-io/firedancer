@@ -456,6 +456,25 @@ test_errors( void ) {
   emit_u8( 1 ); emit_rep( 0x66, 32UL ); emit_u64( 0UL ); emit_u8( 0 );
   emit_u8( 2 ); /* block_final_cert tag */
   FD_TEST( fd_block_marker_de( marker, g_buf, g_sz, NULL )==FD_BLOCK_MARKER_DE_ERR_MALFORMED );
+
+  /* LengthPrefixed is exact: a length prefix larger than the payload's
+     serialized size is malformed even when the bytes are present */
+  emit_reset();
+  emit_preamble( HEADER, (ushort)42 );
+  emit_u8( 1 ); emit_rep( 0, 40UL ); emit_u8( 0xee ); /* one byte of padding */
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz, NULL )==FD_BLOCK_MARKER_DE_ERR_MALFORMED );
+
+  emit_reset();
+  emit_preamble( UPDATE_PARENT, (ushort)42 );
+  emit_u8( 1 ); emit_rep( 0, 40UL ); emit_u8( 0xee );
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz, NULL )==FD_BLOCK_MARKER_DE_ERR_MALFORMED );
+
+  emit_reset();
+  emit_preamble( FOOTER, (ushort)(1UL+32UL+8UL+1UL+3UL+1UL) );
+  emit_u8( 1 ); emit_rep( 0x66, 32UL ); emit_u64( 0UL ); emit_u8( 0 );
+  emit_u8( 0 ); emit_u8( 0 ); emit_u8( 0 ); /* all certs None */
+  emit_u8( 0xee );                          /* one byte of padding */
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz, NULL )==FD_BLOCK_MARKER_DE_ERR_MALFORMED );
 }
 
 /* roundtrip re-encodes the marker occupying g_buf[0,marker_sz) and
