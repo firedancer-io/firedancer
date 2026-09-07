@@ -30,8 +30,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  /* Auto selects mlx5 only for a supported driver, kernel, RDMA port,
-     and tile count.  Otherwise it falls back to XDP. */
+  /* Auto selects mlx5 only for a supported driver, kernel, and RDMA port.
+     Otherwise it falls back to XDP. */
 
   fd_auto_info_t info1 = { .linux_major=7, .linux_minor=0, .driver="mlx5_core", .has_mlx5_rdma_port=1 };
 
@@ -41,7 +41,7 @@ main( int     argc,
 
   reset_provider_auto( 3U );
   fd_auto_net( config, &info1 );
-  FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+  FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
 
   reset_provider_auto( 1U );
   fd_auto_info_t info_old_mlx5 = { .linux_major=5, .linux_minor=13, .driver="mlx5_core" };

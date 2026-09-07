@@ -81,12 +81,12 @@ test_hardware( char const * rdma_name,
                uint         rx_depth,
                uint         tx_depth,
                ulong        tile_cnt ) {
-  FD_TEST( tile_cnt==1UL || tile_cnt==2UL );
+  FD_TEST( tile_cnt && tile_cnt<=FD_TOPO_MAX_TILES );
   ulong queue_footprint = fd_mlx5_queue_footprint( rx_depth, tx_depth );
   FD_TEST( queue_footprint );
-  fd_mlx5_tile_t        tile  [2];
-  fd_mlx5_uverbs_tile_t queues[2];
-  fd_memset( tile, 0, sizeof(tile) );
+  fd_mlx5_tile_t *        tile   = calloc( tile_cnt, sizeof(fd_mlx5_tile_t       ) );
+  fd_mlx5_uverbs_tile_t * queues = calloc( tile_cnt, sizeof(fd_mlx5_uverbs_tile_t) );
+  FD_TEST( tile && queues );
   for( ulong i=0UL; i<tile_cnt; i++ ) {
     void * queue_memory = mmap( NULL, queue_footprint, PROT_READ | PROT_WRITE,
                                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
