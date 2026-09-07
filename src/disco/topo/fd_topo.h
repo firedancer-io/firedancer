@@ -827,6 +827,8 @@ struct fd_topo {
   char           app_name[ 256UL ];
   uchar          props[ 32768UL ];
 
+  ulong          sleep_obj_id;
+
   ulong          wksp_cnt;
   ulong          link_cnt;
   ulong          tile_cnt;
