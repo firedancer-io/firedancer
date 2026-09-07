@@ -98,8 +98,11 @@ fd_genesis_client_init( fd_genesis_client_t * client,
     };
     client->peers[ peer_cnt ].addr = server;
     client->peers[ peer_cnt ].writing = 1;
-    client->peers[ peer_cnt ].request_bytes_sent = 0UL;
-    client->peers[ peer_cnt ].response_bytes_read = 0UL;
+    client->peers[ peer_cnt ].request_bytes_sent    = 0UL;
+    client->peers[ peer_cnt ].response_bytes_read   = 0UL;
+    client->peers[ peer_cnt ].response_bytes_parsed = 0UL;
+    client->peers[ peer_cnt ].header_len            = 0UL;
+    client->peers[ peer_cnt ].content_length        = 0UL;
     peer_cnt++;
   }
 
@@ -159,7 +162,10 @@ write_conn( fd_genesis_client_t * client,
   peer->request_bytes_sent += (ulong)written;
   if( FD_UNLIKELY( peer->request_bytes_sent==request_sz ) ) {
     peer->writing = 0;
-    peer->response_bytes_read = 0UL;
+    peer->response_bytes_read   = 0UL;
+    peer->response_bytes_parsed = 0UL;
+    peer->header_len            = 0UL;
+    peer->content_length        = 0UL;
   }
 }
 
@@ -203,42 +209,50 @@ read_conn( fd_genesis_client_t * client,
 
   peer->response_bytes_read += (ulong)read;
 
-  int minor_version;
-  int status;
-  const char * message;
-  ulong message_len;
-  struct phr_header headers[ 32 ];
-  ulong num_headers = 32UL;
-  int len = phr_parse_response( (char*)peer->response, peer->response_bytes_read,
-                                &minor_version, &status, &message, &message_len,
-                                headers, &num_headers, 0L );
-  if( FD_UNLIKELY( -1==len ) ) {
-    close_one( client, conn_idx );
-    return 1;
-  } else if( FD_UNLIKELY( -2==len ) ) {
+  if( FD_UNLIKELY( !peer->header_len ) ) {
+    int minor_version;
+    int status;
+    const char * message;
+    ulong message_len;
+    struct phr_header headers[ 32 ];
+    ulong num_headers = 32UL;
+    ulong last_len = peer->response_bytes_parsed;
+    peer->response_bytes_parsed = peer->response_bytes_read;
+    int len = phr_parse_response( (char*)peer->response, peer->response_bytes_read,
+                                  &minor_version, &status, &message, &message_len,
+                                  headers, &num_headers, last_len );
+    if( FD_UNLIKELY( -1==len ) ) {
+      close_one( client, conn_idx );
+      return 1;
+    } else if( FD_UNLIKELY( -2==len ) ) {
+      return 1;
+    }
+
+    if( FD_UNLIKELY( status!=200 ) ) {
+      close_one( client, conn_idx );
+      return 1;
+    }
+
+    ulong content_length = rpc_phr_content_length( headers, num_headers );
+    if( FD_UNLIKELY( content_length==ULONG_MAX ) ) {
+      close_one( client, conn_idx );
+      return 1;
+    }
+    if( FD_UNLIKELY( content_length+(ulong)len>sizeof(peer->response) ) ) {
+      close_one( client, conn_idx );
+      return 1;
+    }
+
+    peer->header_len     = (ulong)len;
+    peer->content_length = content_length;
+  }
+
+  if( FD_LIKELY( peer->header_len+peer->content_length > peer->response_bytes_read ) ) {
     return 1;
   }
 
-  if( FD_UNLIKELY( status!=200 ) ) {
-    close_one( client, conn_idx );
-    return 1;
-  }
-
-  ulong content_length = rpc_phr_content_length( headers, num_headers );
-  if( FD_UNLIKELY( content_length==ULONG_MAX ) ) {
-    close_one( client, conn_idx );
-    return 1;
-  }
-  if( FD_UNLIKELY( content_length+(ulong)len>sizeof(peer->response) ) ) {
-    close_one( client, conn_idx );
-    return 1;
-  }
-  if( FD_LIKELY( content_length+(ulong)len>peer->response_bytes_read ) ) {
-    return 1;
-  }
-
-  *buffer_sz = content_length;
-  *buffer    = peer->response + (ulong)len;
+  *buffer_sz = peer->content_length;
+  *buffer    = peer->response + peer->header_len;
 
   uchar hash[ 32UL ] = {0};
   fd_sha256_hash( *buffer, *buffer_sz, hash );
