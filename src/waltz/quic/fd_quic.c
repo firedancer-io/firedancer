@@ -318,6 +318,17 @@ fd_quic_stream_init( fd_quic_stream_t * stream ) {
   stream->upd_pkt_number     = 0;
 }
 
+FD_FN_SENSITIVE void
+fd_quic_rng_reseed( fd_quic_state_t * state ) {
+  uchar key[ FD_CHACHA_KEY_SZ ];
+  if( FD_UNLIKELY( !fd_rng_secure( key, sizeof(key) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+  fd_chacha_rng_init( state->_rng, key, FD_CHACHA_RNG_ALGO_CHACHA8 );
+  fd_memzero_explicit( key, sizeof(key) );
+  state->rng_reseed_at = state->now + FD_QUIC_RNG_RESEED_INTERVAL;
+}
+
 FD_QUIC_API fd_quic_t *
 fd_quic_join( void * shquic ) {
 
@@ -512,13 +523,12 @@ fd_quic_init( fd_quic_t * quic ) {
     state->stream_pool = fd_quic_stream_pool_new( (void*)stream_pool_laddr, stream_pool_cnt, tx_buf_sz );
   }
 
-  /* generate a secure random number as seed for fd_rng */
-  uint rng_seed = 0;
-  int rng_seed_ok = !!fd_rng_secure( &rng_seed, sizeof(rng_seed) );
-  if( FD_UNLIKELY( !rng_seed_ok ) ) {
-    FD_LOG_ERR(( "fd_rng_secure failed" ));
+  if( FD_UNLIKELY( !fd_chacha_rng_join( fd_chacha_rng_new( state->_rng, FD_CHACHA_RNG_MODE_SHIFT ) ) ) ) {
+    FD_LOG_WARNING(( "fd_chacha_rng_new failed" ));
+    return NULL;
   }
-  fd_rng_new( state->_rng, rng_seed, 0UL );
+  fd_quic_rng_reseed( state );
+  state->rng_reseed_at = 0L;
 
   /* use rng to generate secret bytes for future RETRY token generation */
   int rng1_ok = !!fd_rng_secure( state->retry_secret, FD_QUIC_RETRY_SECRET_SZ );
@@ -1339,7 +1349,9 @@ fd_quic_send_retry( fd_quic_t *               quic,
 
   long  expire_at = state->now + quic->config.retry_ttl;
   uchar retry_pkt[ FD_QUIC_RETRY_LOCAL_SZ ];
-  ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, expire_at );
+  ulong nonce0 = fd_quic_rng_ulong( state );
+  ulong nonce1 = fd_quic_rng_ulong( state );
+  ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, nonce0, nonce1, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, expire_at );
 
   quic->metrics.retry_tx_cnt++;
 
@@ -1497,13 +1509,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         - No retry token, retry request:  generate new random ID
         - Retry token, accepted:          reuse SCID from retry token */
     if( !quic->config.retry ) {
-      scid = fd_rng_ulong( state->_rng );
+      scid = fd_quic_rng_ulong( state );
     } else { /* retry configured */
 
       /* Need to send retry? Do so before more work */
       if( initial->token_len != sizeof(fd_quic_retry_token_t) ) {
 
-        ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
+        ulong new_conn_id_u64 = fd_quic_rng_ulong( state );
         if( FD_UNLIKELY( fd_quic_send_retry(
               quic, pkt,
               dcid, peer_scid, new_conn_id_u64 ) ) ) {
@@ -4224,12 +4236,10 @@ fd_quic_connect( fd_quic_t * quic,
     }
   }
 
-  fd_rng_t * rng = state->_rng;
-
   /* create conn ids for us and them
      client creates connection id for the peer, peer immediately replaces it */
-  ulong our_conn_id_u64 = fd_rng_ulong( rng );
-  fd_quic_conn_id_t peer_conn_id;  fd_quic_conn_id_rand( &peer_conn_id, rng );
+  ulong our_conn_id_u64 = fd_quic_rng_ulong( state );
+  fd_quic_conn_id_t peer_conn_id;  fd_quic_conn_id_from_u64( &peer_conn_id, fd_quic_rng_ulong( state ) );
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       quic,
