@@ -470,8 +470,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
     tile->pack.max_pending_transactions      = config->tiles.pack.max_pending_transactions;
     tile->pack.execle_tile_count             = config->frankendancer.layout.bank_tile_count;
-    tile->pack.larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
-    tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+    tile->pack.max_cost_per_block            = config->limits.max_cost_per_block;
+    tile->pack.max_shreds_per_block          = config->limits.max_shreds_per_block;
+    tile->pack.bench_max_shreds_per_block    = config->development.bench.max_shreds_per_block;
     tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
     tile->pack.schedule_strategy             = config->tiles.pack.schedule_strategy_enum;
     tile->pack.acct_blocklist_cnt            = config->tiles.pack.account_blocklist_cnt;
@@ -522,7 +523,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
-    tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+    tile->shred.max_shreds_per_block          = config->limits.max_shreds_per_block;
+    tile->shred.bench_max_shreds_per_block    = config->development.bench.max_shreds_per_block;
     for( ulong i=0UL; i<config->tiles.shred.additional_shred_destinations_retransmit_cnt; i++ ) {
       parse_ip_port( "tiles.shred.additional_shred_destinations_retransmit",
                       config->tiles.shred.additional_shred_destinations_retransmit[ i ],

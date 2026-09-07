@@ -288,7 +288,7 @@ typedef struct {
   ulong                          next_max_shred_idx;
   ulong                          current_max_shred_idx_start_slot;
   ulong                          next_max_shred_idx_start_slot;
-  int                            larger_shred_limits_per_block;
+  ulong                          bench_max_shred_idx; /* [development.bench.max_shreds_per_block], floors the chain's limits */
   /* too large to be left in the stack */
   fd_shred_dest_idx_t scratchpad_dests[ FD_SHRED_DEST_MAX_FANOUT*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
@@ -574,28 +574,26 @@ during_frag( fd_shred_ctx_t * ctx,
 
     *ctx->epoch_schedule = epoch_msg->epoch_schedule;
 
-    if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
-      fd_slot_params_t slot_params = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
-                                                            &epoch_msg->features,
-                                                            &epoch_msg->epoch_schedule,
-                                                            epoch_msg->start_slot );
+    fd_slot_params_t slot_params = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
+                                                          &epoch_msg->features,
+                                                          &epoch_msg->epoch_schedule,
+                                                          epoch_msg->start_slot );
 
-      ctx->current_max_shred_idx            = slot_params.max_shred_idx;
-      ctx->current_max_shred_idx_start_slot = fd_slot_params_effective_slot( &slot_params,
-                                                                             &epoch_msg->features,
-                                                                             &epoch_msg->epoch_schedule );
-      ctx->next_max_shred_idx_start_slot    = fd_slot_params_next_effective_slot( &slot_params,
-                                                                                  &epoch_msg->features,
-                                                                                  &epoch_msg->epoch_schedule );
-      ctx->prev_max_shred_idx               = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
-                                                                     &epoch_msg->features,
-                                                                     &epoch_msg->epoch_schedule,
-                                                                     fd_ulong_sat_sub( ctx->current_max_shred_idx_start_slot, 1UL ) ).max_shred_idx;
-      ctx->next_max_shred_idx               = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
-                                                                     &epoch_msg->features,
-                                                                     &epoch_msg->epoch_schedule,
-                                                                     ctx->next_max_shred_idx_start_slot ).max_shred_idx;
-    }
+    ctx->current_max_shred_idx            = fd_ulong_max( slot_params.max_shred_idx, ctx->bench_max_shred_idx );
+    ctx->current_max_shred_idx_start_slot = fd_slot_params_effective_slot( &slot_params,
+                                                                           &epoch_msg->features,
+                                                                           &epoch_msg->epoch_schedule );
+    ctx->next_max_shred_idx_start_slot    = fd_slot_params_next_effective_slot( &slot_params,
+                                                                                &epoch_msg->features,
+                                                                                &epoch_msg->epoch_schedule );
+    ctx->prev_max_shred_idx               = fd_ulong_max( fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
+                                                                                 &epoch_msg->features,
+                                                                                 &epoch_msg->epoch_schedule,
+                                                                                 fd_ulong_sat_sub( ctx->current_max_shred_idx_start_slot, 1UL ) ).max_shred_idx, ctx->bench_max_shred_idx );
+    ctx->next_max_shred_idx               = fd_ulong_max( fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
+                                                                                 &epoch_msg->features,
+                                                                                 &epoch_msg->epoch_schedule,
+                                                                                 ctx->next_max_shred_idx_start_slot ).max_shred_idx, ctx->bench_max_shred_idx );
     ctx->features_activation->enforce_fixed_fec_set = fd_shred_get_feature_activation_slot0(
       epoch_msg->features.enforce_fixed_fec_set, ctx );
 
@@ -646,14 +644,12 @@ during_frag( fd_shred_ctx_t * ctx,
 
       *ctx->features_activation = msg->features_activation;
 
-      if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
-        fd_shred_slot_limits_t const * lim    = &msg->slot_limits;
-        ctx->prev_max_shred_idx               = lim->prev_max_shred_idx;
-        ctx->current_max_shred_idx            = lim->current_max_shred_idx;
-        ctx->next_max_shred_idx               = lim->next_max_shred_idx;
-        ctx->current_max_shred_idx_start_slot = lim->current_start_slot;
-        ctx->next_max_shred_idx_start_slot    = lim->next_start_slot;
-      }
+      fd_shred_slot_limits_t const * lim    = &msg->slot_limits;
+      ctx->prev_max_shred_idx               = fd_ulong_max( lim->prev_max_shred_idx,    ctx->bench_max_shred_idx );
+      ctx->current_max_shred_idx            = fd_ulong_max( lim->current_max_shred_idx, ctx->bench_max_shred_idx );
+      ctx->next_max_shred_idx               = fd_ulong_max( lim->next_max_shred_idx,    ctx->bench_max_shred_idx );
+      ctx->current_max_shred_idx_start_slot = lim->current_start_slot;
+      ctx->next_max_shred_idx_start_slot    = lim->next_start_slot;
     }
     else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
       /* This is a frag from the PoH tile.  We'll copy it to our pending
@@ -1555,8 +1551,8 @@ unprivileged_init( fd_topo_t const *      topo,
                                                             sign_in->dcache,
                                                             sign_out->mtu ) ) );
 
-  ctx->larger_shred_limits_per_block = tile->shred.larger_shred_limits_per_block;
-  ulong shred_limit                  = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
+  ctx->bench_max_shred_idx           = tile->shred.bench_max_shreds_per_block;
+  ulong shred_limit                  = tile->shred.max_shreds_per_block;
   ctx->shred_limit                   = shred_limit;
   fd_fec_set_t * resolver_sets       = fec_sets + fec_exposure + FD_SHRED_BATCH_FEC_SETS_MAX;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client ) ) );

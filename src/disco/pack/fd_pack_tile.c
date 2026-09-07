@@ -159,7 +159,6 @@ typedef struct {
      block to avoid hitting the shred limits.  See where this is set for
      more explanation. */
   ulong slot_max_data;
-  int   larger_shred_limits_per_block;
 
   /* Consensus critical slot cost limits. */
   struct {
@@ -169,6 +168,7 @@ typedef struct {
     ulong slot_max_allocated_data_per_block;
     ulong slot_max_data_shreds;
   } limits;
+  ulong bench_max_shreds_per_block; /* [development.bench], floors the leader's slot_max_data_shreds */
 
   /* If drain_execle is non-zero, then the pack tile must wait until all
      execle are idle before scheduling any more microblocks.  This is
@@ -340,10 +340,10 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_pack_limits_t limits[1] = {{
-    .max_cost_per_block           = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND,
+    .max_cost_per_block           = tile->pack.max_cost_per_block,
     .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
     .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
-    .max_data_bytes_per_block     = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_data_bytes_per_block     = FD_PACK_MAX_DATA_PER_BLOCK*(tile->pack.max_shreds_per_block/FD_SHRED_BLK_MAX),
     .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block    = (ulong)UINT_MAX, /* Limit not known yet */
     .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
@@ -1156,19 +1156,14 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->leader_bank_seq      = ctx->_became_leader->bank_seq;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
 
-    ulong base_max_data = ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK;
-    if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
-      /* Cap pack's entry bytes at the worst case: how many entry
-         bytes fit in max_shred_idx given our shredding.  We fill a
-         batch until the next microblock would not fit in two FEC
-         sets, then pad out that batch.  Empty ticks are subtracted
-         below. */
-      ulong shreds            = ctx->_became_leader->limits.slot_max_data_shreds;
-      ulong max_microblock_sz = sizeof(fd_entry_batch_header_t) + EFFECTIVE_TXN_PER_MICROBLOCK*FD_TPU_MTU;
-      ulong shred_safe        = fd_shred_batch_pack_data_max( shreds, max_microblock_sz );
-      FD_TEST( shred_safe );
-      base_max_data = shred_safe;
-    }
+    /* Cap pack's entry bytes at the worst case: how many entry bytes
+       fit in max_shred_idx given our shredding.  We fill a batch until
+       the next microblock would not fit in two FEC sets, then pad out
+       that batch.  Empty ticks are subtracted below. */
+    ulong shreds            = fd_ulong_max( ctx->_became_leader->limits.slot_max_data_shreds, ctx->bench_max_shreds_per_block );
+    ulong max_microblock_sz = sizeof(fd_entry_batch_header_t) + EFFECTIVE_TXN_PER_MICROBLOCK*FD_TPU_MTU;
+    ulong base_max_data     = fd_shred_batch_pack_data_max( shreds, max_microblock_sz );
+    FD_TEST( base_max_data );
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = base_max_data
                                       - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
@@ -1177,7 +1172,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->limits.slot_max_vote_cost                = ctx->_became_leader->limits.slot_max_vote_cost;
     ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
     ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
-    ctx->limits.slot_max_data_shreds              = ctx->_became_leader->limits.slot_max_data_shreds;
+    ctx->limits.slot_max_data_shreds              = shreds;
 
     double tick_per_ns = ctx->clock->epoch->w;
     long end_ticks = now_ticks + (long)((double)fd_long_max( ctx->_became_leader->slot_end_ns - now_ns, 1L )*tick_per_ns);
@@ -1309,10 +1304,10 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-10UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-11UL ));
 
   fd_pack_limits_t limits_upper[1] = {{
-    .max_cost_per_block           = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND,
+    .max_cost_per_block           = tile->pack.max_cost_per_block,
     .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
     .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
-    .max_data_bytes_per_block     = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_data_bytes_per_block     = FD_PACK_MAX_DATA_PER_BLOCK*(tile->pack.max_shreds_per_block/FD_SHRED_BLK_MAX),
     .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block    = (ulong)UINT_MAX, /* Limit not known yet */
     .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
@@ -1326,10 +1321,10 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
   fd_pack_limits_t limits_lower[1] = {{
-    .max_cost_per_block           = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND,
+    .max_cost_per_block           = FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND, /* replaced by the chain's at become-leader */
     .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND,
     .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND,
-    .max_data_bytes_per_block     = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_data_bytes_per_block     = FD_PACK_MAX_DATA_PER_BLOCK*(tile->pack.max_shreds_per_block/FD_SHRED_BLK_MAX),
     .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block    = (ulong)UINT_MAX, /* Limit not known yet */
     .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
@@ -1429,7 +1424,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->slot_dynamic_max_microblocks  = 0UL;
   ctx->pending_reduce_mb_bound       = 0;
   ctx->slot_max_data                 = 0UL;
-  ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
   ctx->drain_execle                  = 0;
   ctx->rng                           = rng;
   fd_clock_tile_init( ctx->clock );
@@ -1441,6 +1435,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->insert_to_extra               = 0;
 #endif
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
+  ctx->bench_max_shreds_per_block    = tile->pack.bench_max_shreds_per_block;
   ctx->crank->enabled                = tile->pack.bundle.enabled;
 
   ctx->limits.slot_max_cost                = limits_lower->max_cost_per_block;

@@ -17,8 +17,8 @@
 [development.bench]
   benchg_tile_count = 20
   benchs_tile_count = 3
-  larger_max_cost_per_block = true
-  larger_shred_limits_per_block = true
+  max_cost_per_block = 540000000
+  max_shreds_per_block = 131072
 
 [tiles.shred]
   max_pending_shred_sets = 16384

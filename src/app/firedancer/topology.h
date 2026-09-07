@@ -18,7 +18,7 @@ setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_live_slots,
                   ulong        max_fork_width,
-                  int          larger_max_cost_per_block );
+                  ulong        bench_max_cost_per_block );
 
 void
 setup_topo_progcache( fd_topo_t *  topo,
@@ -35,6 +35,7 @@ setup_topo_store( fd_topo_t *  topo,
                   ulong        shred_storage_gib,
                   ulong        shred_cache_mib,
                   ulong        fec_set_cnt,
+                  ulong        max_shreds_per_block,
                   char const * db_path );
 
 fd_topo_obj_t *
@@ -59,8 +60,7 @@ fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_live_slots,
-                     ulong        max_txn_per_slot,
-                     int          larger_max_cost_per_block );
+                     ulong        max_txn_per_slot );
 
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,

@@ -951,9 +951,10 @@ struct fd_gui {
   /* Reusable scratch for reassembling a single slot's transactions at
      query time (fd_gui_printf_slot_transactions_request). */
   struct {
-    fd_gui_store_txn_start_t  starts[ FD_MAX_TXN_PER_SLOT ];
-    fd_gui_store_txn_end_t    ends  [ FD_MAX_TXN_PER_SLOT ];
-    fd_gui_slot_txn_join_t    joined[ FD_MAX_TXN_PER_SLOT ];
+    ulong                      max;
+    fd_gui_store_txn_start_t * starts; /* [max] */
+    fd_gui_store_txn_end_t *   ends;   /* [max] */
+    fd_gui_slot_txn_join_t *   joined; /* [max] */
   } slot_txn_scratch;
 
   struct {
@@ -1023,7 +1024,8 @@ fd_gui_align( void );
 
 ulong
 fd_gui_footprint( ulong tile_cnt,
-                  ulong max_live_slots );
+                  ulong max_live_slots,
+                  ulong max_txn_per_slot );
 
 void *
 fd_gui_new( void *                   shmem,
@@ -1036,6 +1038,7 @@ fd_gui_new( void *                   shmem,
             int                      is_full_client,
             int                      is_alpenglow,
             ulong                    max_live_slots,
+            ulong                    max_txn_per_slot,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,

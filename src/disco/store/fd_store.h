@@ -30,19 +30,26 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
 #define FD_STORE_FEC_DATA_CONSUMED    (4U)
 #define FD_STORE_FEC_DATA_SPILLING    (5U)
 
+/* Shred ring keys are slot<<32 | shred_idx, so slot<2^32 and shred_idx
+   <2^32.  The per-slot hint reuses the key with bit 31 as the valid
+   flag, which further bounds shred_idx<2^31 (see FD_SHREDB_HINT_VALID). */
+
+#define FD_SHREDB_KEY_SLOT_MAX  (1UL<<32)
+#define FD_SHREDB_HINT_VALID    (1UL<<31)
+
 FD_FN_CONST static inline ulong
 fd_shredb_key_pack( ulong slot, uint shred_idx ) {
-  return (slot << 16) | (ulong)(ushort)shred_idx;
+  return (slot << 32) | (ulong)shred_idx;
 }
 
 FD_FN_CONST static inline ulong
 fd_shredb_key_slot( ulong key ) {
-  return fd_ulong_extract( key, 16, 63 );
+  return fd_ulong_extract( key, 32, 63 );
 }
 
 FD_FN_CONST static inline uint
 fd_shredb_key_shred_idx( ulong key ) {
-  return (uint)fd_ulong_extract( key, 0, 15 );
+  return (uint)fd_ulong_extract( key, 0, 31 );
 }
 
 struct fd_shredb_shred_entry {
@@ -177,6 +184,7 @@ struct fd_store {
   ulong        slot_hint_gaddr;
   ulong        disk_max_shreds;
   ulong        disk_max_slots;
+  ulong        max_shreds_per_block; /* bounds shred idxs, <=FD_SHREDB_HINT_VALID */
   atomic_ulong disk_reservation_head;
   atomic_ulong disk_cnt;
   atomic_ulong disk_insert_cnt;
@@ -268,7 +276,8 @@ fd_store_footprint( ulong fec_max,
 /* Formats a footprint-sized, fd_store_align()-aligned region.  fec_max
    bounds live FECs; fec_data_max bounds each payload.  The remaining size
    arguments configure the shred ring, RAM cache, and shred-tile arena.
-   Does not create the backing file. */
+   max_shreds_per_block bounds shred idxs in the shred ring, in
+   [1,FD_SHREDB_HINT_VALID].  Does not create the backing file. */
 
 void *
 fd_store_new( void       * shmem,
@@ -277,6 +286,7 @@ fd_store_new( void       * shmem,
               ulong        shred_storage_gib,
               ulong        shred_cache_bytes,
               ulong        fec_set_cnt,
+              ulong        max_shreds_per_block,
               char const * db_path,
               ulong        seed );
 
@@ -412,7 +422,7 @@ struct fd_store_disk_stats {
 };
 typedef struct fd_store_disk_stats fd_store_disk_stats_t;
 
-/* Persists one (slot,idx) shred, where idx is below FD_SHRED_BLK_MAX.
+/* Persists one (slot,idx) shred, where idx is below max_shreds_per_block.
    The caller guarantees that the shred has not previously been inserted.
    Returns FD_STORE_DISK_INSERT_SUCCESS or FD_STORE_DISK_INSERT_ERR. */
 
@@ -422,8 +432,8 @@ fd_store_disk_insert( fd_store_t       * store,
                       fd_shred_t const * shred );
 
 /* Copies (slot,shred_idx) to out, where shred_idx is below
-   FD_SHRED_BLK_MAX.  Returns its positive byte count, MISS, or retryable
-   BUSY. */
+   max_shreds_per_block.  Returns its positive byte count, MISS, or
+   retryable BUSY. */
 
 int
 fd_store_disk_query( fd_store_t const * store,

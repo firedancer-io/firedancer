@@ -23,16 +23,21 @@ fd_gui_align( void ) {
 
 ulong
 fd_gui_footprint( ulong tile_cnt,
-                  ulong max_live_slots ) {
+                  ulong max_live_slots,
+                  ulong max_txn_per_slot ) {
   FD_TEST( tile_cnt && tile_cnt <=FD_DIAG_SYSTEM_TILE_MAX );
   FD_TEST( max_live_slots && max_live_slots<=ULONG_MAX/sizeof(fd_gui_ag_slot_t) );
+  FD_TEST( max_txn_per_slot && max_txn_per_slot<=ULONG_MAX/sizeof(fd_gui_store_txn_start_t) );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_gui_align(),            sizeof(fd_gui_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_ag_slot_t), max_live_slots*sizeof(fd_gui_ag_slot_t) );
-  l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(), fd_gui_rate_deque_footprint() ); /* ingress_maxq */
-  l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(), fd_gui_rate_deque_footprint() ); /* egress_maxq  */
-  l = FD_LAYOUT_APPEND( l, fd_gui_hist_align(),       fd_gui_hist_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_gui_align(),                     sizeof(fd_gui_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_ag_slot_t),         max_live_slots*sizeof(fd_gui_ag_slot_t) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() ); /* ingress_maxq */
+  l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() ); /* egress_maxq  */
+  l = FD_LAYOUT_APPEND( l, fd_gui_hist_align(),               fd_gui_hist_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_start_t), max_txn_per_slot*sizeof(fd_gui_store_txn_start_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
   return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
 
@@ -94,6 +99,7 @@ fd_gui_new( void *                   shmem,
             int                      is_full_client,
             int                      is_alpenglow,
             ulong                    max_live_slots,
+            ulong                    max_txn_per_slot,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,
@@ -124,11 +130,19 @@ fd_gui_new( void *                   shmem,
   ulong tile_cnt = topo->tile_cnt;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_gui_t * gui              = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),            sizeof(fd_gui_t) );
-  void *     ag_slot_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_ag_slot_t), max_live_slots*sizeof(fd_gui_ag_slot_t) );
-  void *     ingress_maxq_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(), fd_gui_rate_deque_footprint() );
-  void *     egress_maxq_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(), fd_gui_rate_deque_footprint() );
-  void *     hist_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_hist_align(),       fd_gui_hist_footprint() );
+  fd_gui_t * gui              = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),                    sizeof(fd_gui_t) );
+  void *     ag_slot_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_ag_slot_t),         max_live_slots*sizeof(fd_gui_ag_slot_t) );
+  void *     ingress_maxq_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() );
+  void *     egress_maxq_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() );
+  void *     hist_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_hist_align(),               fd_gui_hist_footprint() );
+  void *     txn_starts_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_start_t), max_txn_per_slot*sizeof(fd_gui_store_txn_start_t) );
+  void *     txn_ends_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
+  void *     txn_joined_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
+
+  gui->slot_txn_scratch.max    = max_txn_per_slot;
+  gui->slot_txn_scratch.starts = txn_starts_mem;
+  gui->slot_txn_scratch.ends   = txn_ends_mem;
+  gui->slot_txn_scratch.joined = txn_joined_mem;
 
   gui->http        = http;
   gui->topo        = topo;

@@ -1594,7 +1594,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong slot_max    = fd_ulong_pow2_up( tile->tower.max_live_slots );
   ulong blk_max     = slot_max * EQVOC_MAX;
-  ulong fec_max     = slot_max * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
+  ulong fec_max     = slot_max * tile->tower.max_shreds_per_block / FD_FEC_SHRED_CNT;
   ulong pub_max     = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
 
   ulong l = FD_LAYOUT_INIT;
@@ -1629,7 +1629,7 @@ init_choreo( void                 * scratch,
              fd_topo_tile_t const * tile ) {
   ulong slot_max    = fd_ulong_pow2_up( tile->tower.max_live_slots );
   ulong blk_max     = slot_max * EQVOC_MAX;
-  ulong fec_max     = slot_max * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
+  ulong fec_max     = slot_max * tile->tower.max_shreds_per_block / FD_FEC_SHRED_CNT;
   ulong pub_max     = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->tower.accdb_obj_id );

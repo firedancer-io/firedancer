@@ -5,7 +5,7 @@
 #include "fd_block_marker.h"
 #include "fd_execrp.h" /* for poh hash value */
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
+#include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT_SHRED */
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
 #include "../../disco/pack/fd_chkdup.h"
@@ -210,7 +210,6 @@ struct fd_sched_block {
                                                              was ruled invalid (set-once via record_dead_reason), NONE otherwise. */
   uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
                                                              parseable after the next FEC set is ingested. */
-  ushort              shred_sz[ FD_SHRED_BLK_MAX ];       /* Payload size of each ingested data shred. */
 
   /* Alpenglow block footer, deserialized out of the marker batch at
      parse time.  footer_present is set if the block carries a footer
@@ -223,7 +222,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==141632UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==76096UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -282,6 +281,9 @@ struct fd_sched {
   fd_acct_addr_t        aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
   char                  print_buf[ FD_SCHED_MAX_PRINT_BUF_SZ ];
   ulong                 print_buf_sz;
+  ushort *              shred_sz;             /* Payload size of each ingested data shred, max_shreds_per_block per block pool idx. */
+  ulong                 max_shreds_per_block; /* Immutable. */
+  ulong                 max_txn_per_slot;     /* Immutable. */
   fd_chkdup_t           chkdup[ 1 ];
   fd_sched_metrics_t    metrics[ 1 ];
   int                   is_alpenglow; /* set if alpenglow is enabled. */
@@ -352,7 +354,8 @@ static void
 dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out );
 
 static uint
-shred_split( fd_sched_block_t * block,
+shred_split( fd_sched_t *       sched,
+             fd_sched_block_t * block,
              uint               query );
 
 static int
@@ -675,12 +678,14 @@ handle_bad_block( fd_sched_t * sched, fd_sched_block_t * block, int dead_reason 
    Transaction offsets are visited in nondecreasing order, so each
    shred length is scanned at most once per block. */
 static uint
-shred_split( fd_sched_block_t * block,
+shred_split( fd_sched_t *       sched,
+             fd_sched_block_t * block,
              uint               query ) {
   FD_TEST( block->shred_scan_idx<=block->shred_cnt );
   FD_TEST( block->shred_scan_off<=query );
+  ushort const * shred_sz = sched->shred_sz + block_to_idx( sched, block )*sched->max_shreds_per_block;
   while( block->shred_scan_idx<block->shred_cnt ) {
-    uint next_off = block->shred_scan_off + (uint)block->shred_sz[ block->shred_scan_idx ];
+    uint next_off = block->shred_scan_off + (uint)shred_sz[ block->shred_scan_idx ];
     if( next_off>=query ) break;
     block->shred_scan_off = next_off;
     block->shred_scan_idx++;
@@ -700,16 +705,21 @@ fd_sched_align( void ) {
 
 ulong
 fd_sched_footprint( ulong depth,
-                    ulong block_cnt_max ) {
+                    ulong block_cnt_max,
+                    ulong max_shreds_per_block,
+                    ulong max_txn_per_slot ) {
   if( FD_UNLIKELY( depth<FD_SCHED_MIN_DEPTH || depth>FD_SCHED_MAX_DEPTH ) ) return 0UL; /* bad depth */
   if( FD_UNLIKELY( !block_cnt_max ) ) return 0UL; /* bad block_cnt_max */
   if( FD_UNLIKELY( depth>UINT_MAX-1UL ) ) return 0UL; /* mblk_pool use uint as pointers */
+  if( FD_UNLIKELY( !max_shreds_per_block || max_shreds_per_block>UINT_MAX ) ) return 0UL; /* shred_cnt is uint */
+  if( FD_UNLIKELY( !max_txn_per_slot     || max_txn_per_slot    >UINT_MAX ) ) return 0UL; /* txn_parsed_cnt is uint */
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                         );
-  l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max ) ); /* dispatcher */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)     ); /* block pool */
-  l = FD_LAYOUT_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )           );
+  l = FD_LAYOUT_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                 );
+  l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )         ); /* dispatcher */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)             ); /* block pool */
+  l = FD_LAYOUT_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort)  ); /* shred_sz */
+  l = FD_LAYOUT_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                   ); /* txn_pool */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)          ); /* txn_info_pool */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)              ); /* mblk_pool */
@@ -721,6 +731,8 @@ fd_sched_new( void *     mem,
               fd_rng_t * rng,
               ulong      depth,
               ulong      block_cnt_max,
+              ulong      max_shreds_per_block,
+              ulong      max_txn_per_slot,
               ulong      exec_cnt,
               int        is_alpenglow ) {
 
@@ -754,19 +766,30 @@ fd_sched_new( void *     mem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( !max_shreds_per_block || max_shreds_per_block>UINT_MAX ) ) {
+    FD_LOG_WARNING(( "bad max_shreds_per_block (%lu)", max_shreds_per_block ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !max_txn_per_slot || max_txn_per_slot>UINT_MAX ) ) {
+    FD_LOG_WARNING(( "bad max_txn_per_slot (%lu)", max_txn_per_slot ));
+    return NULL;
+  }
+
   if( FD_UNLIKELY( !exec_cnt || exec_cnt>FD_SCHED_MAX_EXEC_TILE_CNT ) ) {
     FD_LOG_WARNING(( "bad exec_cnt (%lu)", exec_cnt ));
     return NULL;
   }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_sched_t *          sched          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                         );
-  void *                _rdisp         = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max ) );
-  void *                _bpool         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)     );
-  void *                _ref_q         = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )           );
-  fd_txn_p_t *          _txn_pool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                   );
-  fd_sched_txn_info_t * _txn_info_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)          );
-  fd_sched_mblk_t *     _mblk_pool     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)              );
+  fd_sched_t *          sched          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                );
+  void *                _rdisp         = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )        );
+  void *                _bpool         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)            );
+  /*                                   */ FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort) );
+  void *                _ref_q         = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                  );
+  fd_txn_p_t *          _txn_pool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                          );
+  fd_sched_txn_info_t * _txn_info_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)                 );
+  fd_sched_mblk_t *     _mblk_pool     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)                     );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->txn_pool      = _txn_pool;
@@ -794,6 +817,8 @@ fd_sched_new( void *     mem,
   sched->canary                 = FD_SCHED_MAGIC;
   sched->depth                  = depth;
   sched->block_cnt_max          = block_cnt_max;
+  sched->max_shreds_per_block   = max_shreds_per_block;
+  sched->max_txn_per_slot       = max_txn_per_slot;
   sched->exec_cnt               = exec_cnt;
   sched->poh_simd_max           = fd_sha256_simd_lane_max(); FD_CHECK_ERR( sched->poh_simd_max<=FD_SCHED_POH_PARA, "overly wide PoH SHA batch" );
   sched->poh_simd_min           = fd_sha256_simd_lane_min();
@@ -838,22 +863,25 @@ fd_sched_join( void * mem ) {
 
   fd_sched_t * sched         = (fd_sched_t *)mem;
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
-  ulong        depth         = sched->depth;
-  ulong        block_cnt_max = sched->block_cnt_max;
+  ulong        depth                = sched->depth;
+  ulong        block_cnt_max        = sched->block_cnt_max;
+  ulong        max_shreds_per_block = sched->max_shreds_per_block;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  /*                     */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                         );
-  void *           _rdisp = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max ) );
-  void *           _bpool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)     );
-  void *           _ref_q = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )           );
-  /*                     */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                   );
-  /*                     */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)          );
-  /*                     */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)              );
+  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                );
+  void *           _rdisp    = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )        );
+  void *           _bpool    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)            );
+  void *           _shred_sz = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort) );
+  void *           _ref_q    = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                  );
+  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                          );
+  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)                 );
+  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)                     );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->rdisp      = fd_rdisp_join( _rdisp );
   sched->ref_q      = ref_q_join( _ref_q );
   sched->block_pool = _bpool;
+  sched->shred_sz   = _shred_sz;
 
   for( ulong i=0; i<block_cnt_max; i++ ) {
     mblk_slist_join( sched->block_pool[ i ].mblks_unhashed );
@@ -1124,9 +1152,10 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   block->fec_eob = fec->is_last_in_batch;
   block->fec_eos = fec->is_last_in_block;
 
+  ushort * shred_sz = sched->shred_sz + fec->bank_idx*sched->max_shreds_per_block;
   uint prev_shred_off = 0U;
   for( ulong i=0; i<fec->shred_cnt; i++ ) {
-    FD_TEST( block->shred_cnt<FD_SHRED_BLK_MAX );
+    FD_TEST( block->shred_cnt<sched->max_shreds_per_block );
     uint shred_off;
     if( FD_LIKELY( i<32UL ) ) {
       shred_off = fec->fec->shred_offs[ i ];
@@ -1141,7 +1170,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
       shred_off = (uint)fec->fec->data_sz;
     }
     FD_TEST( shred_off>=prev_shred_off && shred_off-prev_shred_off<=USHORT_MAX );
-    block->shred_sz[ block->shred_cnt++ ] = (ushort)(shred_off-prev_shred_off);
+    shred_sz[ block->shred_cnt++ ] = (ushort)(shred_off-prev_shred_off);
     prev_shred_off = shred_off;
   }
 
@@ -2311,7 +2340,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( block->fec_buf+block->fec_buf_soff );
       block->fec_buf_soff      += (uint)sizeof(fd_microblock_hdr_t);
 
-      if( FD_UNLIKELY( hdr->txn_cnt>fd_ulong_sat_sub( FD_MAX_TXN_PER_SLOT, block->txn_parsed_cnt ) ) ) {
+      if( FD_UNLIKELY( hdr->txn_cnt>fd_ulong_sat_sub( sched->max_txn_per_slot, block->txn_parsed_cnt ) ) ) {
         FD_LOG_INFO(( "bad block: TOO_MANY_TXNS, microblock header declared too many transactions, slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
         return FD_SCHED_DEAD_REASON_TOO_MANY_TXNS;
       }
@@ -2598,9 +2627,9 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   /* Can't parse out a full transaction yet, EAGAIN. */
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) return -1;
 
-  if( FD_UNLIKELY( block->txn_parsed_cnt>=FD_MAX_TXN_PER_SLOT ) ) {
+  if( FD_UNLIKELY( block->txn_parsed_cnt>=sched->max_txn_per_slot ) ) {
     /* Transaction count is enforced as invariant
-       txn_parsed_cnt+txns_rem<=FD_MAX_TXN_PER_SLOT
+       txn_parsed_cnt+txns_rem<=max_txn_per_slot
        when we read the declared count in a microblock header.  So we
        shouldn't get here. */
     sched->print_buf_sz = 0UL;
@@ -2714,9 +2743,9 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   fd_txn_p_t * txn_p = sched->txn_pool + txn_idx;
   txn_p->payload_sz  = pay_sz;
 
-  txn_p->start_shred_idx = (ushort)shred_split( block, block->fec_buf_boff+block->fec_buf_soff );
+  txn_p->start_shred_idx = (ushort)fd_uint_min( shred_split( sched, block, block->fec_buf_boff+block->fec_buf_soff ), USHORT_MAX ); /* monitoring-only ushorts; saturate under bench shred counts */
   txn_p->start_shred_idx = fd_ushort_if( txn_p->start_shred_idx>0U, (ushort)(txn_p->start_shred_idx-1U), txn_p->start_shred_idx );
-  txn_p->end_shred_idx = (ushort)shred_split( block, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz );
+  txn_p->end_shred_idx = (ushort)fd_uint_min( shred_split( sched, block, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz ), USHORT_MAX );
 
   fd_memcpy( txn_p->payload, payload, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,     txn_sz );

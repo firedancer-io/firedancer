@@ -78,6 +78,7 @@ typedef struct ctx {
   fd_rserve_t * rserve;
   fd_store_t  * store;
   int           disk_fd;
+  ulong         max_shreds_per_block;
 
   /* Used for verifying incoming requests, and signing outgoing responses. */
   fd_sha512_t sha512[1];
@@ -332,7 +333,7 @@ handle_net_request( ctx_t             * ctx,
         ulong slot = msg->slot;
         ulong shred_idx = msg->shred_idx;
 
-        if( FD_UNLIKELY( shred_idx>=FD_SHRED_BLK_MAX ) ) {
+        if( FD_UNLIKELY( shred_idx>=ctx->max_shreds_per_block ) ) {
           ctx->metrics->fail_invalid_shred_idx++;
           return;
         }
@@ -583,6 +584,7 @@ unprivileged_init( fd_topo_t      const * topo,
     FD_LOG_ERR(( "rserve could not open the store disk file" ));
   }
 
+  ctx->max_shreds_per_block = tile->rserve.max_shreds_per_block;
   ctx->rserve    = fd_rserve_join   ( fd_rserve_new( ctx->rserve, ping_cache_entries, ctx->seed, ctx->rserve_secret ) );
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );

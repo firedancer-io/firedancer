@@ -18,11 +18,11 @@ extern action_t fd_action_rotor;
    mirror fd_chainer_new. */
 
 static fd_chainer_t
-rotor_chainer_reloc( void * chainer_laddr, ulong ele_max ) {
+rotor_chainer_reloc( void * chainer_laddr, ulong ele_max, ulong max_shreds_per_block ) {
   fd_chainer_t c = *(fd_chainer_t *)chainer_laddr;
 
   ulong blk_max       = ele_max * FD_CHAINER_SLOT_VER_MAX;
-  ulong fec_max       = blk_max * FD_FEC_BLK_MAX;
+  ulong fec_max       = blk_max * ( max_shreds_per_block / FD_FEC_SHRED_CNT );
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
   ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );
 
@@ -31,6 +31,7 @@ rotor_chainer_reloc( void * chainer_laddr, ulong ele_max ) {
   c.fec_pool     = fd_fec_pool_join    ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_pool_align(),     fd_fec_pool_footprint    ( fec_max )        ) );
   c.fec_map      = fd_fec_map_join     ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_map_align(),      fd_fec_map_footprint     ( fec_chain_cnt )  ) );
   c.slotv_pool   = fd_slotv_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( blk_max )        ) );
+  c.fec_tbl      =                       FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),           fec_max*sizeof(uint)                        );
   c.slotv_map    = fd_slotv_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( blk_chain_cnt ) ) );
   c.sched_pool   = fd_sched_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_pool_align(),   fd_sched_pool_footprint  ( blk_max )        ) );
   c.sched_map    = fd_sched_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_sched_map_align(),    fd_sched_map_footprint   ( blk_chain_cnt )) );
@@ -63,16 +64,17 @@ rotor_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   void *           scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "Failed to access rotor tile scratch memory" ));
 
-  ulong ele_max = tile->rotor.slot_max;
+  ulong ele_max              = tile->rotor.slot_max;
+  ulong max_shreds_per_block = tile->rotor.max_shreds_per_block;
 
   /* Walk the tile scratch layout (ctx, protocol, chainer) to the chainer
      local address; mirrors the rotor tile's unprivileged_init. */
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   (void)               FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),        sizeof(ctx_t)                    );
   (void)               FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),    fd_repair_footprint()            );
-  void * chainer_laddr = FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(), fd_chainer_footprint( ele_max ) );
+  void * chainer_laddr = FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(), fd_chainer_footprint( ele_max, max_shreds_per_block ) );
 
-  fd_chainer_t c = rotor_chainer_reloc( chainer_laddr, ele_max );
+  fd_chainer_t c = rotor_chainer_reloc( chainer_laddr, ele_max, max_shreds_per_block );
   if( FD_UNLIKELY( c.magic!=FD_CHAINER_MAGIC ) ) FD_LOG_ERR(( "bad chainer magic 0x%lx (tile not initialized?)", c.magic ));
 
   fd_chainer_print( &c );

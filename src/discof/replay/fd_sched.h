@@ -252,14 +252,20 @@ FD_PROTOTYPES_BEGIN
    depth controls the reorder buffer transaction count (~1 million
    recommended for live replay, ~10k recommended for async replay).
    block_cnt_max is the maximum number of blocks that will be tracked by
-   the scheduler. */
+   the scheduler.  max_shreds_per_block bounds the data shreds a block
+   may hold (the shred tile enforces the same limit upstream, sched
+   asserts it); a block declaring more than max_txn_per_slot
+   transactions is ruled invalid.  FD_SHRED_BLK_MAX and
+   FD_MAX_TXN_PER_SLOT in production. */
 
 ulong
 fd_sched_align( void );
 
 ulong
-fd_sched_footprint( ulong depth,           /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MAX_DEPTH] */
-                    ulong block_cnt_max ); /* >= 1 */
+fd_sched_footprint( ulong depth,                /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MAX_DEPTH] */
+                    ulong block_cnt_max,        /* >= 1 */
+                    ulong max_shreds_per_block, /* in [1,UINT_MAX] */
+                    ulong max_txn_per_slot );   /* in [1,UINT_MAX] */
 
 /* fd_sched_new creates a sched object backed by the given memory region
    (conforming to align() and footprint()).  Returns NULL if any
@@ -270,6 +276,8 @@ fd_sched_new( void *     mem,
               fd_rng_t * rng,
               ulong      depth,
               ulong      block_cnt_max,
+              ulong      max_shreds_per_block,
+              ulong      max_txn_per_slot,
               ulong      exec_cnt,
               int        is_alpenglow );
 
