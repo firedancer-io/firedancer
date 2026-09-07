@@ -19,6 +19,10 @@
 #define BANK_HASH_BUFFER_LEN (4096UL)
 #define OUT_FECS_BUFFER_LEN  (2048UL)
 
+/* Max wallclock with no slot completed (once replay has started)
+   before the backtest is considered deadlocked and aborts. */
+#define WATCHDOG_TIMEOUT_NS  (20L*1000L*1000L*1000L)
+
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_SNAP   (1)
 #define IN_KIND_GENESI (2)
@@ -79,6 +83,8 @@ struct fd_backt_tile {
 
   ulong idle_cnt;
 
+  long last_progress;
+
   long prior_completion_timestamp;
 
   long  replay_time;
@@ -130,6 +136,18 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, rooted_slots_align(),         rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
 
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static void
+during_housekeeping( fd_backt_tile_t * ctx ) {
+  if( FD_LIKELY( !ctx->last_progress ) ) return; /* replay not started */
+  long now = fd_log_wallclock();
+  if( FD_UNLIKELY( now-ctx->last_progress>WATCHDOG_TIMEOUT_NS ) ) {
+    FD_LOG_ERR(( "backtest made no progress for %ld s, aborting. last slot %lu, reading slot %lu, "
+                 "slots replayed %lu, shreds buffered %lu, source exhausted %u",
+                 (now-ctx->last_progress)/(long)1e9, ctx->prev_slot, ctx->reading_slot,
+                 ctx->slot_cnt, ctx->shreds_cnt, (uint)ctx->source_exhausted ));
+  }
 }
 
 static void
@@ -356,6 +374,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         fd_backtest_src_seek( ctx->src, ctx->start_slot+1UL );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
+        ctx->last_progress = fd_log_wallclock();
         ctx->snapshot_done = 1;
         return 0;
       }
@@ -378,6 +397,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
+        ctx->last_progress = fd_log_wallclock();
         FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
       }
       break;
@@ -392,6 +412,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
           FD_LOG_ERR(( "replay marked slot=%lu as dead", msg->slot ));
         }
         FD_LOG_NOTICE(( "replay marked slot=%lu as dead", msg->slot ));
+        ctx->last_progress = fd_log_wallclock();
         return 0;
       }
       if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED ) ) return 0;
@@ -462,6 +483,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       }
 
       ctx->slot_cnt++;
+      ctx->last_progress = fd_log_wallclock();
 
       ctx->prior_completion_timestamp = msg->completion_time_nanos;
 
@@ -713,9 +735,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_backt_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_backt_tile_t)
 
-#define STEM_CALLBACK_BEFORE_CREDIT   before_credit
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 

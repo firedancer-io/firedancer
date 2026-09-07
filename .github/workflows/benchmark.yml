@@ -29,6 +29,7 @@ jobs:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
       EXTRAS: ${{ inputs.extras }}
+      BACKTEST_TIMEOUT: 420
 
     steps:
     - name: Checkout current commit
@@ -146,6 +147,17 @@ jobs:
           {"name": "Performance change (%)", "unit": "%", "value": ${sps_pct_change_fmt}}
         ]
         EOF
+
+    - name: Upload backtest logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: benchmark-backtest-logs
+        path: |
+          baseline.log
+          new.log
+        if-no-files-found: ignore
+        retention-days: 7
 
     - name: Fetch gh-pages branch
       run: |
