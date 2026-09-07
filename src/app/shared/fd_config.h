@@ -394,6 +394,7 @@ struct fd_config {
       uint  benchg_tile_count;
       uint  benchs_tile_count;
       char  affinity[ AFFINITY_SZ ];
+      char  transaction_mode[ 32 ];
       ulong max_cost_per_block;
       ulong max_shreds_per_block;
       ulong disable_blockstore_from_slot;

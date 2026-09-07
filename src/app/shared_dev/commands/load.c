@@ -42,7 +42,9 @@ load_cmd_args( int *    pargc,
   args->load.benchs      = fd_env_strip_cmdline_ulong ( pargc, pargv, "--num-benchs",   NULL, 0 );
   args->load.accounts    = fd_env_strip_cmdline_ulong ( pargc, pargv, "--num-accounts", NULL, 0 );
   args->load.connections = fd_env_strip_cmdline_ulong ( pargc, pargv, "--connections",  NULL, 0 );
-  args->load.transaction_mode    = fd_env_strip_cmdline_int  ( pargc, pargv, "--transaction-mode",    NULL, 0    );
+  char const * transaction_mode  = fd_env_strip_cmdline_cstr ( pargc, pargv, "--transaction-mode",    NULL, "noop" );
+  args->load.transaction_mode    = bench_transaction_mode( transaction_mode );
+  if( FD_UNLIKELY( args->load.transaction_mode<0 ) ) FD_LOG_ERR(( "unknown --transaction-mode `%s`", transaction_mode ));
   args->load.contending_fraction = fd_env_strip_cmdline_float( pargc, pargv, "--contending-fraction", NULL, 0.0f );
   args->load.cu_price_spread     = fd_env_strip_cmdline_float( pargc, pargv, "--cu-price-spread",     NULL, 0.0f );
 
