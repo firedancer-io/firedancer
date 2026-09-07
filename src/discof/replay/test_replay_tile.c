@@ -69,7 +69,6 @@ mock_store_fec_data_view_release_fn( fd_store_t *                     store FD_P
 
 /* ---- Mock sched ---- */
 
-static fd_sched_fec_t mock_sched_last_fec;
 static ulong          mock_sched_fec_ingest_cnt;
 static ulong          mock_sched_abandon_cnt;
 static ulong          mock_sched_abandon_idx;
@@ -85,8 +84,8 @@ static ulong          mock_sched_task_done_txn_idx;
 static ulong          mock_sched_task_done_exec_idx;
 static long           mock_sched_task_done_tick;
 
-int mock_sched_fec_ingest_fn( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_fec_t * f ) {
-  mock_sched_last_fec = *f;
+int mock_sched_fec_ingest_fn( fd_sched_t * s, fd_sched_fec_t * f ) {
+  (void)s; (void)f;
   mock_sched_fec_ingest_cnt++;
   return 1;
 }
