@@ -456,11 +456,17 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
     if( FD_UNLIKELY( msg_hdr.type != FD_TLS_MSG_CLIENT_HELLO ) )
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_CH_EXPECTED );
 
+    ulong msg_sz = fd_tls_u24_to_uint( msg_hdr.sz );
+    if( FD_UNLIKELY( msg_sz > (ulong)(wire_end-wire) ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CH_PARSE );
+
     /* Decode Client Hello */
 
-    decode_res = fd_tls_decode_client_hello( &ch, wire, (ulong)(wire_end-wire) );
+    decode_res = fd_tls_decode_client_hello( &ch, wire, msg_sz );
     if( FD_UNLIKELY( decode_res<0L ) )
       return fd_tls_alert( &handshake->base, (uint)(-decode_res), FD_TLS_REASON_CH_PARSE );
+    if( FD_UNLIKELY( (ulong)decode_res != msg_sz ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CH_PARSE );
     wire += (ulong)decode_res;
 
     read_sz = (ulong)(wire - record);
@@ -1264,11 +1270,17 @@ fd_tls_client_hs_wait_sh( fd_tls_t const *      const client,
     if( FD_UNLIKELY( msg_hdr.type != FD_TLS_MSG_SERVER_HELLO ) )
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_SH_EXPECTED );
 
+    ulong msg_sz = fd_tls_u24_to_uint( msg_hdr.sz );
+    if( FD_UNLIKELY( msg_sz > (ulong)(wire_end-wire) ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_SH_PARSE );
+
     /* Decode Server Hello */
 
-    decode_res = fd_tls_decode_server_hello( sh, wire, (ulong)(wire_end-wire) );
+    decode_res = fd_tls_decode_server_hello( sh, wire, msg_sz );
     if( FD_UNLIKELY( decode_res<0L ) )
       return fd_tls_alert( &handshake->base, (uint)(-decode_res), FD_TLS_REASON_SH_PARSE );
+    if( FD_UNLIKELY( (ulong)decode_res != msg_sz ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_SH_PARSE );
     wire += (ulong)decode_res;
 
     read_sz = (ulong)(wire - record);
@@ -1376,11 +1388,17 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
     if( FD_UNLIKELY( msg_hdr.type != FD_TLS_MSG_ENCRYPTED_EXT ) )
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_EE_EXPECTED );
 
+    ulong msg_sz = fd_tls_u24_to_uint( msg_hdr.sz );
+    if( FD_UNLIKELY( msg_sz > (ulong)(wire_end-wire) ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_EE_PARSE );
+
     /* Decode EncryptedExtensions */
 
-    decode_res = fd_tls_decode_enc_ext( ee, wire, (ulong)(wire_end-wire) );
+    decode_res = fd_tls_decode_enc_ext( ee, wire, msg_sz );
     if( FD_UNLIKELY( decode_res<0L ) )
       return fd_tls_alert( &handshake->base, (uint)(-decode_res), FD_TLS_REASON_EE_PARSE );
+    if( FD_UNLIKELY( (ulong)decode_res != msg_sz ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_EE_PARSE );
     wire += (ulong)decode_res;
 
     read_sz = (ulong)(wire - record);
