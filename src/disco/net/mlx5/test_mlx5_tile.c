@@ -544,7 +544,7 @@ main( int     argc,
   FD_TEST( rx_link->mcache );
 
   /* UMEM */
-  ulong const dcache_depth   = rxq_depth+txq_depth+link_depth;
+  ulong const dcache_depth   = rxq_depth+txq_depth+2UL*link_depth;
   ulong const dcache_data_sz = fd_dcache_req_data_sz( FD_NET_MTU, dcache_depth, 1UL, 1 );
   FD_TEST( dcache_data_sz );
   void *  rx_dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), WKSP_TAG );
@@ -641,6 +641,7 @@ main( int     argc,
 
   /* Attach links to tile */
   fd_topob_tile_out( topo, "mlx5", 0UL, "net_shred", 0UL );
+  fd_topob_tile_out( topo, "mlx5", 0UL, "net_netlnk", 0UL );
   fd_topob_tile_in( topo, "mlx5", 0UL, "wksp", "shred_net", 0UL, 0, 1 );
 
   /* Initialize tile state (assigns frames) */

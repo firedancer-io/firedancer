@@ -1463,7 +1463,10 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 
-  ulong net_netlnk_id = fd_topo_find_link( topo, "net_netlnk", 0UL );
+  ulong net_netlnk_id = ULONG_MAX;
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    if( !strcmp( topo->links[ tile->out_link_id[ i ] ].name, "net_netlnk" ) ) net_netlnk_id = tile->out_link_id[ i ];
+  }
   if( FD_LIKELY( net_netlnk_id!=ULONG_MAX ) ) {
     fd_topo_link_t const * net_netlnk = &topo->links[ net_netlnk_id ];
     if( FD_UNLIKELY( !net_netlnk->mcache ) ) FD_LOG_ERR(( "netlink request link not initialized" ));
