@@ -1414,10 +1414,13 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       rewarded_epoch,
       runtime_stack );
 
-  /* Tower requires a non-zero global points denominator.  Alpenglow
-     stake rewards are already denominated in lamports per validator. */
-  if( FD_LIKELY( !rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch ) ) && !total_points ) {
-    *rewards_out = 0UL;
+  /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L959-L968
+     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1005-L1008
+     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L502-L518 */
+  int skip_rewards = !rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch ) && !total_points;
+  if( FD_UNLIKELY( skip_rewards ) ) {
+    *rewards_out                            = 0UL;
+    runtime_stack->stakes.stake_rewards_cnt = 0UL;
   }
 
   if( FD_UNLIKELY( capture_ctx && capture_ctx->capture_solcap ) ) {
@@ -1433,17 +1436,19 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
   /* Calculate the stake and vote rewards for each account. We want to
      use the vote states from the end of the current_epoch. */
-  calculate_stake_vote_rewards(
-      bank,
-      accdb,
-      stake_delegations,
-      capture_ctx,
-      stake_history,
-      rewarded_epoch,
-      *rewards_out,
-      total_points,
-      runtime_stack,
-      0 );
+  if( FD_LIKELY( !skip_rewards ) ) {
+    calculate_stake_vote_rewards(
+        bank,
+        accdb,
+        stake_delegations,
+        capture_ctx,
+        stake_history,
+        rewarded_epoch,
+        *rewards_out,
+        total_points,
+        runtime_stack,
+        0 );
+  }
 
   fd_hash_t const * parent_blockhash      = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   ulong             starting_block_height = bank->f.block_height + REWARD_CALCULATION_NUM_BLOCKS;
@@ -1464,15 +1469,17 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   }
   bank->stake_rewards_fork_id = fork_idx;
 
-  setup_stake_partitions( bank,
-                          accdb,
-                          stake_history,
-                          stake_delegations,
-                          runtime_stack,
-                          fork_idx,
-                          rewarded_epoch,
-                          *rewards_out,
-                          total_points );
+  if( FD_LIKELY( !skip_rewards ) ) {
+    setup_stake_partitions( bank,
+                            accdb,
+                            stake_history,
+                            stake_delegations,
+                            runtime_stack,
+                            fork_idx,
+                            rewarded_epoch,
+                            *rewards_out,
+                            total_points );
+  }
 
   return total_points;
 }
@@ -2113,8 +2120,14 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
   ulong const epoch          = bank->f.epoch;
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
-  if( FD_UNLIKELY( rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch ) ) ) {
+  int const is_alpenglow = rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch );
+  if( FD_UNLIKELY( is_alpenglow ) ) {
     fd_reward_epoch_stakes_restore( bank, accdb, rewarded_epoch, runtime_stack );
+  }
+
+  int const skip_rewards = !is_alpenglow && !epoch_rewards_sysvar->total_points.ud;
+  if( FD_UNLIKELY( skip_rewards ) ) {
+    runtime_stack->stakes.stake_rewards_cnt = 0UL;
   }
 
   uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
@@ -2135,17 +2148,19 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
                                          stake_delegations_fork_ids,
                                          stake_delegations_fork_id_cnt );
 
-  calculate_stake_vote_rewards(
-      bank,
-      accdb,
-      stake_delegations,
-      capture_ctx,
-      stake_history,
-      rewarded_epoch,
-      epoch_rewards_sysvar->total_rewards,
-      epoch_rewards_sysvar->total_points.ud,
-      runtime_stack,
-      1 );
+  if( FD_LIKELY( !skip_rewards ) ) {
+    calculate_stake_vote_rewards(
+        bank,
+        accdb,
+        stake_delegations,
+        capture_ctx,
+        stake_history,
+        rewarded_epoch,
+        epoch_rewards_sysvar->total_rewards,
+        epoch_rewards_sysvar->total_points.ud,
+        runtime_stack,
+        1 );
+  }
 
   /* The recomputed rewards go into a fork of their own rather than over
      the window the bank is holding: banks that branched off this one
@@ -2171,16 +2186,18 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
   }
   bank->stake_rewards_fork_id = fork_idx;
 
-  setup_stake_partitions(
-      bank,
-      accdb,
-      stake_history,
-      stake_delegations,
-      runtime_stack,
-      fork_idx,
-      rewarded_epoch,
-      epoch_rewards_sysvar->total_rewards,
-      epoch_rewards_sysvar->total_points.ud );
+  if( FD_LIKELY( !skip_rewards ) ) {
+    setup_stake_partitions(
+        bank,
+        accdb,
+        stake_history,
+        stake_delegations,
+        runtime_stack,
+        fork_idx,
+        rewarded_epoch,
+        epoch_rewards_sysvar->total_rewards,
+        epoch_rewards_sysvar->total_points.ud );
+  }
 
   fd_stake_delegations_unmark_fork_deltas( stake_delegations,
                                            bank->f.epoch-1UL,
