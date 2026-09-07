@@ -826,6 +826,60 @@ FD_UNIT_TEST( conn_close_after_body_rejected ) {
       RES_400_CLOSE );
 }
 
+static void
+expect_redirect_after( char const * method,
+                       char const * headers,
+                       char const * first_res ) {
+  char name[ FD_SNAP_NAME_MAX ];
+  snapsv_env_t * env = snap_env( name, 1 );
+
+  char req[ 512 ];
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "%s /%s HTTP/1.1\r\n%s\r\n"
+      "GET /snapshot.tar.zst HTTP/1.1\r\n\r\n",
+      method, name, headers );
+
+  char expected[ 512 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "%s"
+      "HTTP/1.1 302 Found\r\n"
+      "Location: /%s\r\n"
+      "Content-Length: 0\r\n"
+      "\r\n",
+      first_res, name );
+
+  static char res[ SNAP_RES_MAX ];
+  ulong res_len = sizeof(res);
+  curl_session( env, res, &res_len, req );
+  FD_TEST( res_len==strlen( expected ) );
+  FD_TEST( !memcmp( res, expected, res_len ) );
+
+  FD_TEST( !env->ctx->conn_cnt );
+  FD_TEST( env->ctx->iobuf_free_cnt==2U*CONN_MAX );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( redirect_after_head ) {
+  char first_res[ 256 ];
+  fd_cstr_printf( first_res, sizeof(first_res), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: %lu\r\n"
+      "\r\n", SNAP_FILE_SZ );
+  expect_redirect_after( "HEAD", "", first_res );
+}
+
+FD_UNIT_TEST( redirect_after_unsatisfiable_range ) {
+  char first_res[ 256 ];
+  fd_cstr_printf( first_res, sizeof(first_res), NULL,
+      "HTTP/1.1 416 Range Not Satisfiable\r\n"
+      "Content-Range: bytes */%lu\r\n"
+      "Content-Length: 0\r\n"
+      "\r\n", SNAP_FILE_SZ );
+  expect_redirect_after( "GET", "Range: bytes=99999-\r\n", first_res );
+}
+
 static char const *
 res_body( char const * res,
           ulong        res_len,
@@ -879,6 +933,49 @@ FD_UNIT_TEST( snap_body_range_multi ) {
 
 FD_UNIT_TEST( snap_body_suffix_range ) {
   expect_snap_body( "Range: bytes=-4200\r\n", SNAP_FILE_SZ-4200UL, 4200UL );
+}
+
+/* A snapshot GET that asks for a close still receives the whole body.
+   The conn must stay up until the body drains, rather than close right
+   after a header that advertised a Content-Length. */
+
+static void
+expect_snap_body_close( char const * req_tail ) {
+  char name[ FD_SNAP_NAME_MAX ];
+  snapsv_env_t * env = snap_env( name, 1 );
+
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s %s", name, req_tail );
+
+  static char res[ SNAP_RES_MAX ];
+  ulong res_len = sizeof(res);
+  curl_session( env, res, &res_len, req );
+
+  char hdr[ 256 ];
+  fd_cstr_printf( hdr, sizeof(hdr), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: %lu\r\n"
+      "Connection: close\r\n"
+      "\r\n", SNAP_FILE_SZ );
+  ulong hdr_len = strlen( hdr );
+
+  FD_TEST( res_len==hdr_len+SNAP_FILE_SZ );
+  FD_TEST( !memcmp( res, hdr, hdr_len ) );
+  FD_TEST( !memcmp( res+hdr_len, snap_file, SNAP_FILE_SZ ) );
+
+  FD_TEST( !env->ctx->conn_cnt );
+  FD_TEST( env->ctx->iobuf_free_cnt==2U*CONN_MAX );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( snap_body_connection_close ) {
+  expect_snap_body_close( "HTTP/1.1\r\nConnection: close\r\n\r\n" );
+}
+
+FD_UNIT_TEST( snap_body_http10 ) {
+  expect_snap_body_close( "HTTP/1.0\r\n\r\n" );
 }
 
 /* Deleting a snapshot mid transfer must abort the download rather than
