@@ -2443,13 +2443,14 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
                                lmeta->leader_end_time  !=LONG_MAX &&
                                lmeta->leader_start_time<=lmeta->leader_end_time;
 
-      fd_gui_store_txn_start_t *  starts = gui->slot_txn_scratch.starts;
-      fd_gui_store_txn_end_t *    ends   = gui->slot_txn_scratch.ends;
-      fd_gui_slot_txn_join_t * joined = gui->slot_txn_scratch.joined;
-      ulong                    start_cnt = 0UL;
-      ulong                    end_cnt   = 0UL;
-      ulong                    txn_cnt   = 0UL;
-      int                      have_txns = gui->db && processed_all_microblocks && have_leader_window;
+      fd_gui_store_txn_start_t * starts    = gui->slot_txn_scratch.starts;
+      fd_gui_store_txn_end_t *   ends      = gui->slot_txn_scratch.ends;
+      fd_gui_slot_txn_join_t *   joined    = gui->slot_txn_scratch.joined;
+      ulong                      txn_max   = gui->slot_txn_scratch.max;
+      ulong                      start_cnt = 0UL;
+      ulong                      end_cnt   = 0UL;
+      ulong                      txn_cnt   = 0UL;
+      int                        have_txns = gui->db && processed_all_microblocks && have_leader_window;
 
       if( FD_LIKELY( have_txns ) ) {
         /* Bound both scans to this slot's leader window, widened by a
@@ -2465,7 +2466,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
           while( fd_gui_hist_range_next( &it ) ) {
             fd_gui_store_txn_start_t const * r = (fd_gui_store_txn_start_t const *)it.rec;
             if( FD_UNLIKELY( r->slot!=_slot || r->bank_seq!=slot->bank_seq ) ) continue;
-            if( FD_UNLIKELY( start_cnt>=FD_MAX_TXN_PER_SLOT ) ) break;
+            if( FD_UNLIKELY( start_cnt>=txn_max ) ) break;
             starts[ start_cnt++ ] = *r;
           }
           fd_gui_hist_range_end( &it );
@@ -2476,7 +2477,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
           while( fd_gui_hist_range_next( &it ) ) {
             fd_gui_store_txn_end_t const * r = (fd_gui_store_txn_end_t const *)it.rec;
             if( FD_UNLIKELY( r->slot!=_slot || r->bank_seq!=slot->bank_seq ) ) continue;
-            if( FD_UNLIKELY( end_cnt>=FD_MAX_TXN_PER_SLOT ) ) break;
+            if( FD_UNLIKELY( end_cnt>=txn_max ) ) break;
             ends[ end_cnt++ ] = *r;
           }
           fd_gui_hist_range_end( &it );

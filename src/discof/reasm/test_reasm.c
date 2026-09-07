@@ -62,7 +62,7 @@ test_store_release( fd_wksp_t * wksp ) {
   void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(),
       fd_store_footprint( reasm_max, 64UL, 0UL, payload_slot_sz, 0UL ), 1UL );
   fd_store_t * store = fd_store_join( fd_store_new( store_mem, reasm_max, 64UL, 0UL,
-      payload_slot_sz, 0UL, TEST_STORE_PATH, 43UL ) );
+      payload_slot_sz, 0UL, FD_SHRED_BLK_MAX, TEST_STORE_PATH, 43UL ) );
   FD_TEST( store );
   FD_TEST( !fd_store_file_init( store ) );
   int fd = fd_store_file_open( store, O_RDWR );

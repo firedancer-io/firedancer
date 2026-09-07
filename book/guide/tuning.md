@@ -196,8 +196,8 @@ TPS rate,
   # The Solana protocol consensus limits restrict the benchmark to
   # around 81,000 TPS. We have special options to increase these limits
   # for testing and benchmarking
-  larger_max_cost_per_block = true
-  larger_shred_limits_per_block = true
+  max_cost_per_block = 540000000
+  max_shreds_per_block = 131072
 
 [rpc]
   # Tracking certain transaction history and metadata to serve RPC

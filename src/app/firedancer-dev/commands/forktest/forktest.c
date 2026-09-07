@@ -384,7 +384,7 @@ forktest_topo( config_t * config ) {
   /**/                 fd_topob_tile_uses( topo, replay_tile, progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.larger_max_cost_per_block );
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -400,15 +400,15 @@ forktest_topo( config_t * config ) {
   ulong store_fec_set_cnt = shred_tile_cnt*fec_set_cnt;
 
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
-                                         FD_FEC_BLK_MAX, FD_SHRED_BLK_MAX );
+                                         config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
   ulong store_fec_max = config->firedancer.runtime.max_live_slots * fec_sets_per_slot + (shred_depth * shred_tile_cnt) + 1;
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.shred.shred_cache_size_mib, store_fec_set_cnt, config->paths.shredb );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.shred.shred_cache_size_mib, store_fec_set_cnt, config->limits.max_shreds_per_block, config->paths.shredb );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT, config->development.bench.larger_max_cost_per_block );
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, 2UL*config->limits.max_txn_per_slot );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( snapshots_enabled ) ) {
     fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

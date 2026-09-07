@@ -334,6 +334,7 @@ fd_store_new( void       * shmem,
               ulong        shred_storage_gib,
               ulong        shred_cache_bytes,
               ulong        fec_set_cnt,
+              ulong        max_shreds_per_block,
               char const * db_path,
               ulong        seed ) {
 
@@ -344,6 +345,7 @@ fd_store_new( void       * shmem,
   if( FD_UNLIKELY( !fec_max ) ) { FD_LOG_WARNING(( "fec_max must be non-zero" )); return NULL; }
   if( FD_UNLIKELY( fec_max>UINT_MAX ) ) { FD_LOG_WARNING(( "fec_max must fit in uint" )); return NULL; }
   if( FD_UNLIKELY( !fec_data_max ) ) { FD_LOG_WARNING(( "fec_data_max must be non-zero" )); return NULL; }
+  if( FD_UNLIKELY( !max_shreds_per_block || max_shreds_per_block>FD_SHREDB_HINT_VALID ) ) { FD_LOG_WARNING(( "bad max_shreds_per_block (%lu)", max_shreds_per_block )); return NULL; }
   if( FD_UNLIKELY( shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ) ) {
     FD_LOG_ERR(( "shred database size limit is %lu GiB, but the maximum supported size is %lu GiB",
                  shred_storage_gib, FD_SHREDB_MAX_SIZE_GIB ));
@@ -425,6 +427,7 @@ fd_store_new( void       * shmem,
   store->spill_read_data_gaddr = fd_wksp_gaddr_fast( wksp, spill_read_mem );
   store->fec_set_cnt           = fec_set_cnt;
   store->fec_sets_gaddr        = fec_set_cnt ? fd_wksp_gaddr_fast( wksp, fec_sets ) : 0UL;
+  store->max_shreds_per_block  = max_shreds_per_block;
   fd_rwlock_new( &store->cache_lock );
   fd_rwlock_new( &store->spill_read_lock );
   fd_rwlock_new( &store->fec_lock );
@@ -835,11 +838,11 @@ disk_slot_hint_publish( fd_store_t * store,
                         ulong        slot,
                         uint         shred_idx ) {
   atomic_ulong * hint = disk_slot_hint_laddr( store ) + (slot % store->disk_max_slots);
-  ulong desired = fd_shredb_key_pack( slot, shred_idx ) | (1UL<<15);
+  ulong desired = fd_shredb_key_pack( slot, shred_idx ) | FD_SHREDB_HINT_VALID;
   ulong current = atomic_load_explicit( hint, memory_order_acquire );
   for(;;) {
-    if( FD_LIKELY( current & (1UL<<15) ) ) {
-      uint current_idx = (uint)(current & (FD_SHRED_BLK_MAX-1UL));
+    if( FD_LIKELY( current & FD_SHREDB_HINT_VALID ) ) {
+      uint current_idx = fd_shredb_key_shred_idx( current & ~FD_SHREDB_HINT_VALID );
       if( current_idx>=shred_idx ) return;
     }
     if( atomic_compare_exchange_strong_explicit( hint, &current, desired,
@@ -905,7 +908,7 @@ fd_store_disk_insert( fd_store_t       * store,
 
   ulong slot      = shred->slot;
   uint  shred_idx = shred->idx;
-  if( FD_UNLIKELY( (slot>>48) || shred_idx>=FD_SHRED_BLK_MAX ) ) return FD_STORE_DISK_INSERT_ERR;
+  if( FD_UNLIKELY( slot>=FD_SHREDB_KEY_SLOT_MAX || shred_idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_INSERT_ERR;
   ulong key = fd_shredb_key_pack( slot, shred_idx );
 
   ulong ticket = atomic_fetch_add_explicit( &store->disk_reservation_head, 1UL, memory_order_relaxed ) + 1UL;
@@ -995,7 +998,7 @@ fd_store_disk_query( fd_store_t const * store,
                      uint               shred_idx,
                      uchar              out[ FD_SHRED_MAX_SZ ] ) {
   if( FD_UNLIKELY( !store || disk_fd<0 || !out || !fd_store_has_disk( store ) ||
-                   (slot>>48) || shred_idx>=FD_SHRED_BLK_MAX ) ) return FD_STORE_DISK_QUERY_MISS;
+                   slot>=FD_SHREDB_KEY_SLOT_MAX || shred_idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_QUERY_MISS;
   ulong key = fd_shredb_key_pack( slot, shred_idx );
   for( ulong retry=0UL; retry<FD_STORE_DISK_READ_RETRY_CNT; retry++ ) {
     fd_shredb_entry_t rd_entry[1];
@@ -1014,14 +1017,15 @@ fd_store_disk_query_highest( fd_store_t const * store,
                              ulong              slot,
                              uint               min_shred_idx,
                              uchar              out[ FD_SHRED_MAX_SZ ] ) {
-  if( FD_UNLIKELY( !store || disk_fd<0 || !out || !fd_store_has_disk( store ) || (slot>>48) ) )
+  if( FD_UNLIKELY( !store || disk_fd<0 || !out || !fd_store_has_disk( store ) || slot>=FD_SHREDB_KEY_SLOT_MAX ) )
     return FD_STORE_DISK_QUERY_MISS;
   for( ulong retry=0UL; retry<FD_STORE_DISK_READ_RETRY_CNT; retry++ ) {
     atomic_ulong const * hint_ptr = disk_slot_hint_laddr( store ) + (slot % store->disk_max_slots);
     ulong hint = atomic_load_explicit( hint_ptr, memory_order_acquire );
-    if( FD_UNLIKELY( !(hint & (1UL<<15)) ) ) return FD_STORE_DISK_QUERY_MISS;
+    if( FD_UNLIKELY( !(hint & FD_SHREDB_HINT_VALID) ) ) return FD_STORE_DISK_QUERY_MISS;
     if( FD_UNLIKELY( fd_shredb_key_slot( hint )!=slot ) ) return FD_STORE_DISK_QUERY_BUSY;
-    uint idx = (uint)(hint & (FD_SHRED_BLK_MAX-1UL));
+    uint idx = fd_shredb_key_shred_idx( hint & ~FD_SHREDB_HINT_VALID );
+    if( FD_UNLIKELY( idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_QUERY_MISS;
 
     fd_shredb_entry_t rd_entry[1];
     int result = disk_read_key_once( store, disk_fd, fd_shredb_key_pack( slot, idx ), rd_entry );

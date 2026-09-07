@@ -586,7 +586,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
                                                     max_stake, max_fallback_stake, max_vote,
-                                                    0 /* larger_max_cost_per_block */, seed ) );
+                                                    0UL /* max_cost_per_block */, seed ) );
   FD_TEST( banks );
 
   fd_bank_t * bank = fd_banks_init_bank( banks );

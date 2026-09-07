@@ -242,8 +242,9 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
    Insertion cannot fail, as it is assumed the caller is respecting the
    invariants of the structure.  If there is no space internally to
    insert another transaction, stale entries from removed forks are
-   purged and the insert retries, spinning forever if the caller has
-   exceeded the sizing bounds and no stale entries exist.
+   purged and the insert retries.  If the purge frees nothing the
+   caller has exceeded the sizing bounds, which logs an error and
+   exits.
 
    This is a cheap, high performance, concurrent operation and can occur
    at the same time as queries and arbitrary other insertions. */

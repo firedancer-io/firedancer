@@ -321,11 +321,17 @@ static void
 setup_timing( fd_replay_tile_t * ctx,
               fd_wksp_t *        wksp ) {
   fd_clock_tile_init( ctx->clock );
+  ctx->max_txn_per_slot     = FD_MAX_TXN_PER_SLOT;
+  ctx->max_shreds_per_block = FD_SHRED_BLK_MAX;
   void * mem = fd_wksp_alloc_laddr( wksp, fd_timing_slot_pool_align(), fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ), 1UL );
   ctx->timing_slot_pool = fd_timing_slot_pool_join( fd_timing_slot_pool_new( mem, FD_REPLAY_TXN_TIMING_SLOTS ) );
   FD_TEST( ctx->timing_slot_pool );
+  ctx->timing_rec = fd_wksp_alloc_laddr( wksp, alignof(fd_replay_txn_timing_t), FD_REPLAY_TXN_TIMING_SLOTS*ctx->max_txn_per_slot*sizeof(fd_replay_txn_timing_t), 1UL );
+  FD_TEST( ctx->timing_rec );
   ctx->timing_slot_of_bank = test_timing_of_bank;
   for( ulong i=0UL; i<TEST_BANKS_MAX; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
+  ctx->backfill_path = fd_wksp_alloc_laddr( wksp, alignof(fd_reasm_fec_t *), (ctx->max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *), 1UL );
+  FD_TEST( ctx->backfill_path );
 }
 
 static void
@@ -964,7 +970,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
 
   void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, "/tmp/test_replay_tile_fec_payload.db", 0UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, "/tmp/test_replay_tile_fec_payload.db", 0UL ) );
   FD_TEST( ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
   ctx->store_disk_fd = -1;

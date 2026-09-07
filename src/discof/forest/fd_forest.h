@@ -32,7 +32,7 @@
 
 /* Merkle root tracking.
    For each FEC set in the slot, we record the merkle root of the first
-   shred we receive in `.merkle_roots[ fec_set_idx / 32 ]`. Then for any
+   shred we receive in `mroots[ fec_set_idx / 32 ]`. Then for any
    shred in the same FEC inserted later, the merkle root of the new
    shred is compared to the merkle root we have stored.
 
@@ -131,9 +131,34 @@
 
 #define FD_FOREST_MAGIC (0xf17eda2ce7b1c0UL) /* firedancer forest version 0 */
 
-#define SET_NAME fd_forest_blk_idxs
-#define SET_MAX  FD_SHRED_BLK_MAX
-#include "../../util/tmpl/fd_set.c"
+/* Per-block shred idx bitsets are raw ulong words, word_cnt per block,
+   living in side arrays indexed by pool idx so the per-block shred
+   bound (shred_max) is a runtime value.  idx must be < shred_max. */
+
+typedef ulong fd_forest_blk_idxs_t;
+
+FD_FN_CONST static inline ulong fd_forest_blk_idxs_word_cnt( ulong shred_max ) { return (shred_max+63UL)>>6; }
+FD_FN_PURE  static inline int   fd_forest_blk_idxs_test    ( fd_forest_blk_idxs_t const * set, ulong idx ) { return fd_ulong_extract_bit( set[ idx>>6 ], (int)(idx&63UL) ); }
+static inline void fd_forest_blk_idxs_insert( fd_forest_blk_idxs_t * set, ulong idx ) { set[ idx>>6 ] = fd_ulong_set_bit  ( set[ idx>>6 ], (int)(idx&63UL) ); }
+static inline void fd_forest_blk_idxs_remove( fd_forest_blk_idxs_t * set, ulong idx ) { set[ idx>>6 ] = fd_ulong_clear_bit( set[ idx>>6 ], (int)(idx&63UL) ); }
+
+FD_FN_PURE static inline ulong
+fd_forest_blk_idxs_cnt( fd_forest_blk_idxs_t const * set, ulong word_cnt ) {
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<word_cnt; i++ ) cnt += (ulong)fd_ulong_popcnt( set[ i ] );
+  return cnt;
+}
+
+/* Per-FEC merkle roots, shred_max/FD_FEC_SHRED_CNT per block, also in
+   a side array indexed by pool idx.  mr is initialized to null hash,
+   written to when a shred is received, invalidated to invalid_mr when
+   multiple versions of the merkle root are detected. */
+
+struct fd_forest_mr {
+  fd_hash_t mr;
+  fd_hash_t cmr;
+};
+typedef struct fd_forest_mr fd_forest_mr_t;
 
 /* fd_forest_blk_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
@@ -159,14 +184,10 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
-  fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* received data shred idxs */
-  struct {
-    fd_hash_t mr;
-    fd_hash_t cmr;
-  } merkle_roots[ FD_FEC_BLK_MAX ]; /* received merkle roots. mr is initialized to null hash, written to when a shred is
-                                       received. invalidated to invalid_mr on multiple versions of the merkle root are detected. */
+  /* received data shred idxs, received merkle roots and code shred idxs
+     are runtime-sized side arrays, see fd_forest_blk_{idxs,mroots,code} */
 
-  fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
+  fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the merkle roots struct because we can create sentinel blocks
                                on confirmation, and don't know the index of the last fec set until we repair the slot.
                                hash_null if unknown.  Otherwise populated by the child slot's CMR on confirmation,
                                or by a confirmation msg from tower.  Has no bearing on if the full slot is correct or not. */
@@ -184,7 +205,6 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
 
   /* Metrics */
 
-  fd_forest_blk_idxs_t code[fd_forest_blk_idxs_word_cnt]; /* code shred idxs */
   long first_shred_ts;     /* tick of first shred rcved in slot != complete_idx */
   long last_shred_ts;      /* tick at which the slot became fully buffered (buffered_idx==complete_idx) */
   long first_req_ts;       /* tick of first request sent in slot != complete_idx */
@@ -345,6 +365,12 @@ typedef struct fd_forest_ref fd_forest_ref_t;
    |-------------------|
    | pool              |
    |-------------------|
+   | idxs (per blk)    |
+   |-------------------|
+   | code (per blk)    |
+   |-------------------|
+   | mroots (per blk)  |
+   |-------------------|
    | ancestry          |
    |-------------------|
    | frontier          |
@@ -384,6 +410,10 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong root;           /* pool idx of the root */
   ulong wksp_gaddr;     /* wksp gaddr of fd_forest in the backing wksp, non-zero gaddr */
   ulong pool_gaddr;     /* wksp gaddr of fd_pool */
+  ulong shred_max;      /* max data shreds per block, bounds shred idxs and fec_set_idxs */
+  ulong idxs_gaddr;     /* wksp gaddr of per-blk data shred idx bitsets, fd_forest_blk_idxs_word_cnt( shred_max ) words each */
+  ulong code_gaddr;     /* wksp gaddr of per-blk code shred idx bitsets */
+  ulong mroots_gaddr;   /* wksp gaddr of per-blk fd_forest_mr_t arrays, shred_max/FD_FEC_SHRED_CNT each */
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
   ulong frontier_gaddr; /* leaves that needs repair */
   ulong subtrees_gaddr; /* head of orphaned trees */
@@ -420,7 +450,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_forest_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as forest with up to
-   ele_max eles and vote_max votes. */
+   ele_max eles of up to shred_max data shreds each. */
 
 FD_FN_CONST static inline ulong
 fd_forest_align( void ) {
@@ -428,8 +458,13 @@ fd_forest_align( void ) {
 }
 
 FD_FN_CONST static inline ulong
-fd_forest_footprint( ulong ele_max ) {
+fd_forest_footprint( ulong ele_max, ulong shred_max ) {
+  ulong idxs_sz   = ele_max*fd_forest_blk_idxs_word_cnt( shred_max )*sizeof(fd_forest_blk_idxs_t);
+  ulong mroots_sz = ele_max*(shred_max/FD_FEC_SHRED_CNT)*sizeof(fd_forest_mr_t);
   return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -450,6 +485,9 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_INIT,
       alignof(fd_forest_t),       sizeof(fd_forest_t)                     ),
       fd_forest_pool_align(),     fd_forest_pool_footprint    ( ele_max ) ),
+      128UL,                      idxs_sz                                 ),
+      128UL,                      idxs_sz                                 ),
+      128UL,                      mroots_sz                               ),
       fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max ) ),
       fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) ),
       fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) ),
@@ -471,10 +509,11 @@ fd_forest_footprint( ulong ele_max ) {
 
 /* fd_forest_new formats an unused memory region for use as a
    forest.  mem is a non-NULL pointer to this region in the local
-   address space with the required footprint and alignment. */
+   address space with the required footprint and alignment.  ele_max
+   is a power of 2, shred_max a positive multiple of FD_FEC_SHRED_CNT. */
 
 void *
-fd_forest_new( void * shmem, ulong ele_max, ulong seed );
+fd_forest_new( void * shmem, ulong ele_max, ulong shred_max, ulong seed );
 
 /* fd_forest_join joins the caller to the forest.  forest
    points to the first byte of the memory region backing the forest
@@ -535,6 +574,29 @@ fd_forest_pool( fd_forest_t * forest ) {
 FD_FN_PURE static inline fd_forest_blk_t const *
 fd_forest_pool_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->pool_gaddr );
+}
+
+/* fd_forest_blk_{idxs,code} return blk's data / code shred idx bitset
+   (fd_forest_blk_idxs_word_cnt( forest->shred_max ) words) and
+   fd_forest_blk_mroots blk's merkle roots (forest->shred_max /
+   FD_FEC_SHRED_CNT entries).  blk must be a pool element of forest. */
+
+FD_FN_PURE static inline fd_forest_blk_idxs_t *
+fd_forest_blk_idxs( fd_forest_t const * forest, fd_forest_blk_t const * blk ) {
+  fd_forest_blk_idxs_t * idxs = fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->idxs_gaddr );
+  return idxs + fd_forest_pool_idx( fd_forest_pool_const( forest ), blk )*fd_forest_blk_idxs_word_cnt( forest->shred_max );
+}
+
+FD_FN_PURE static inline fd_forest_blk_idxs_t *
+fd_forest_blk_code( fd_forest_t const * forest, fd_forest_blk_t const * blk ) {
+  fd_forest_blk_idxs_t * code = fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->code_gaddr );
+  return code + fd_forest_pool_idx( fd_forest_pool_const( forest ), blk )*fd_forest_blk_idxs_word_cnt( forest->shred_max );
+}
+
+FD_FN_PURE static inline fd_forest_mr_t *
+fd_forest_blk_mroots( fd_forest_t const * forest, fd_forest_blk_t const * blk ) {
+  fd_forest_mr_t * mroots = fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->mroots_gaddr );
+  return mroots + fd_forest_pool_idx( fd_forest_pool_const( forest ), blk )*(forest->shred_max/FD_FEC_SHRED_CNT);
 }
 
 /* fd_forest_{ancestry, ancestry_const} returns a pointer in the caller's

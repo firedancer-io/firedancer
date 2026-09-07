@@ -591,25 +591,25 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   FD_TEST( fd_rng_secure( &ctx->repair_seed, sizeof(ulong) ) );
   FD_TEST( fd_rng_secure( ctx->repair_nonce_ss, sizeof(fd_rnonce_ss_t) ) );
 
-  void * chainer_mem    = fd_wksp_alloc_laddr( wksp, fd_chainer_align(),        fd_chainer_footprint( TEST_SLOT_MAX ),   1UL );
+  void * chainer_mem    = fd_wksp_alloc_laddr( wksp, fd_chainer_align(),        fd_chainer_footprint( TEST_SLOT_MAX, FD_SHRED_BLK_MAX ), 1UL );
   void * policy_mem     = fd_wksp_alloc_laddr( wksp, fd_policy_align(),         fd_policy_footprint( TEST_PEER_MAX ),    1UL );
   void * dedup_mem      = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(),         fd_reqlim_footprint( TEST_DEDUP_MAX ),   1UL );
   void * inflights_mem  = fd_wksp_alloc_laddr( wksp, fd_inflights_align(),      fd_inflights_footprint(),                1UL );
   void * signs_map_mem  = fd_wksp_alloc_laddr( wksp, fd_signs_map_align(),      fd_signs_map_footprint( lg_sign_depth ), 1UL );
   void * pong_queue_mem = fd_wksp_alloc_laddr( wksp, fd_signs_queue_align(),    fd_signs_queue_footprint(),              1UL );
-  void * ag_req_mem     = fd_wksp_alloc_laddr( wksp, ag_req_queue_align(),      ag_req_queue_footprint(),                1UL );
+  void * ag_req_mem     = fd_wksp_alloc_laddr( wksp, ag_req_queue_align(),      ag_req_queue_footprint( FD_FEC_BLK_MAX ), 1UL );
   void * repair_mem     = fd_wksp_alloc_laddr( wksp, fd_repair_align(),         fd_repair_footprint(),                   1UL );
   void * metrics_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_metrics_align(), fd_repair_metrics_footprint(),           1UL );
   void * deliver_q_mem  = fd_wksp_alloc_laddr( wksp, out_queue_align(),         out_queue_footprint( (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ), 1UL );
   FD_TEST( chainer_mem && policy_mem && dedup_mem && inflights_mem && signs_map_mem && pong_queue_mem && ag_req_mem && repair_mem && metrics_mem && deliver_q_mem );
 
-  ctx->chainer       = fd_chainer_join       ( fd_chainer_new       ( chainer_mem,    TEST_SLOT_MAX, ctx->repair_seed                       ) );
+  ctx->chainer       = fd_chainer_join       ( fd_chainer_new       ( chainer_mem,    TEST_SLOT_MAX, FD_SHRED_BLK_MAX, ctx->repair_seed     ) );
   ctx->policy        = fd_policy_join        ( fd_policy_new        ( policy_mem,     TEST_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->dedup         = fd_reqlim_join        ( fd_reqlim_new        ( dedup_mem,      TEST_DEDUP_MAX, ctx->repair_seed                      ) );
   ctx->inflights     = fd_inflights_join     ( fd_inflights_new     ( inflights_mem,  ctx->repair_seed+1234UL                               ) );
   ctx->signs_map     = fd_signs_map_join     ( fd_signs_map_new     ( signs_map_mem,  lg_sign_depth, 0UL                                    ) );
   ctx->pong_queue    = fd_signs_queue_join   ( fd_signs_queue_new   ( pong_queue_mem                                                        ) );
-  ctx->ag_req_queue  = ag_req_queue_join     ( ag_req_queue_new     ( ag_req_mem                                                            ) );
+  ctx->ag_req_queue  = ag_req_queue_join     ( ag_req_queue_new     ( ag_req_mem,     FD_FEC_BLK_MAX                                        ) );
   ctx->protocol      = fd_repair_join        ( fd_repair_new        ( repair_mem,     &ctx->identity_public_key                             ) );
   ctx->slot_metrics  = fd_repair_metrics_join( fd_repair_metrics_new( metrics_mem                                                           ) );
   ctx->deliver_queue = out_queue_join        ( out_queue_new        ( deliver_q_mem, (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ) );
@@ -1370,7 +1370,7 @@ test_fec_rekey_merge( fd_wksp_t * wksp ) {
   pump( ctx );
   fd_chainer_slotv_t * vA = fd_chainer_slot_query( ctx->chainer, slot );
   FD_TEST( vA && fd_hash_eq( &vA->block_id, &blkA->block_id ) );
-  uint aFec0 = vA->fec[ 0 ]; /* A's complete full-root FEC 0 */
+  uint aFec0 = fd_chainer_slotv_fecs( ctx->chainer, vA )[ 0 ]; /* A's complete full-root FEC 0 */
   FD_TEST( aFec0!=UINT_MAX );
 
   /* Version B shares FEC set 0 with A (identical full root), diverges at
@@ -1400,8 +1400,8 @@ test_fec_rekey_merge( fd_wksp_t * wksp ) {
      A's full-root FEC, so B gets its own distinct sentinel rather than
      sharing A's entry. */
   respond_fec_root( ctx, blkB, 0U, root0->nonce, 0 );
-  FD_TEST( vB->fec[ 0 ]!=UINT_MAX );
-  FD_TEST( vB->fec[ 0 ]!=aFec0 ); /* distinct 20-byte-prefix sentinel */
+  FD_TEST( fd_chainer_slotv_fecs( ctx->chainer, vB )[ 0 ]!=UINT_MAX );
+  FD_TEST( fd_chainer_slotv_fecs( ctx->chainer, vB )[ 0 ]!=aFec0 ); /* distinct 20-byte-prefix sentinel */
 
   /* B requests set-0 shreds (its sentinel is incomplete). */
   pump( ctx );
@@ -1416,8 +1416,8 @@ test_fec_rekey_merge( fd_wksp_t * wksp ) {
   serve_shred_request( ctx, blkB, s0, &blkB->fec_root[ 0 ] );
   pump( ctx );
 
-  FD_TEST( vB->fec[ 0 ]==aFec0 );                          /* merged onto A's FEC */
-  FD_TEST( vA->fec[ 0 ]==aFec0 );                          /* A still owns it */
+  FD_TEST( fd_chainer_slotv_fecs( ctx->chainer, vB )[ 0 ]==aFec0 );                          /* merged onto A's FEC */
+  FD_TEST( fd_chainer_slotv_fecs( ctx->chainer, vA )[ 0 ]==aFec0 );                          /* A still owns it */
   FD_TEST( slot_version_cnt( ctx->chainer, slot )==2UL );  /* no stray version */
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
   FD_TEST( rep_cnt>rmark );                                /* FEC 0 re-delivered under B */

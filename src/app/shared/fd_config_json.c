@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22972352UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22974432UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -488,8 +488,8 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "benchg_tile_count",            config->development.bench.benchg_tile_count );
       jw_ulong( &w, "benchs_tile_count",            config->development.bench.benchs_tile_count );
       jw_str  ( &w, "affinity",                     config->development.bench.affinity );
-      jw_bool ( &w, "larger_max_cost_per_block",    config->development.bench.larger_max_cost_per_block );
-      jw_bool ( &w, "larger_shred_limits_per_block",config->development.bench.larger_shred_limits_per_block );
+      jw_ulong( &w, "max_cost_per_block",           config->development.bench.max_cost_per_block );
+      jw_ulong( &w, "max_shreds_per_block",         config->development.bench.max_shreds_per_block );
       jw_ulong( &w, "disable_blockstore_from_slot", config->development.bench.disable_blockstore_from_slot );
       jw_bool ( &w, "disable_status_cache",         config->development.bench.disable_status_cache );
     jw_obj_close( &w );

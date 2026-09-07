@@ -96,7 +96,6 @@ struct fd_replay_txn_timing_slot {
   } pool;
 
   ulong cnt;
-  fd_replay_txn_timing_t rec[ FD_MAX_TXN_PER_SLOT ];
 };
 
 typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
@@ -405,9 +404,13 @@ struct fd_replay_tile {
      so a small pool of full-depth slots is leased to banks as they start
      replaying.  A block that cannot get a slot (more than
      FD_REPLAY_TXN_TIMING_SLOTS blocks replaying at once) captures
-     nothing. */
+     nothing.  Slot depth is max_txn_per_slot, so the records sit in a
+     side array sized at footprint time. */
   fd_replay_txn_timing_slot_t * timing_slot_pool;    /* fd_pool, FD_REPLAY_TXN_TIMING_SLOTS elements */
+  fd_replay_txn_timing_t *      timing_rec;          /* [FD_REPLAY_TXN_TIMING_SLOTS*max_txn_per_slot], slot i at i*max_txn_per_slot */
   ulong *                       timing_slot_of_bank; /* [max_live_slots] bank_idx -> pool idx or idx_null */
+
+  fd_reasm_fec_t **             backfill_path;       /* [max_shreds_per_block/FD_FEC_SHRED_CNT] scratch for backfill_fec_sets */
 
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */
@@ -418,7 +421,8 @@ struct fd_replay_tile {
 
   fd_multi_epoch_leaders_t * mleaders;
 
-  int larger_max_cost_per_block;
+  ulong max_txn_per_slot;
+  ulong max_shreds_per_block;
 
   /* When we transition to becoming leader, we can only unbecome leader
      if we have received a block id from the FEC reassembler, and a

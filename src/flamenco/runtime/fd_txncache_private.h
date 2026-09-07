@@ -18,6 +18,11 @@
    [149, 300). */
 #define FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE (151UL)
 
+/* The global txn index (page*FD_TXNCACHE_TXNS_PER_PAGE+txn) is a uint
+   with UINT_MAX as the null link, which bounds the txnpage pool. */
+
+#define FD_TXNCACHE_MAX_TXNPAGES (UINT_MAX/FD_TXNCACHE_TXNS_PER_PAGE)
+
 struct __attribute__((packed)) fd_txncache_single_txn {
   uint  blockcache_next; /* Pointer to the next element in the blockcache hash chain containing this entry from the pool. */
   uint  generation;      /* The generation of the fork when this transaction was inserted.  Used to
@@ -68,7 +73,7 @@ struct fd_txncache_blockcache_shmem {
                             insert into the cache ourselves, we do just always use a key_offset of zero, so this is
                             only nonzero when constructed form a peer snapshot. */
 
-  ushort pages_cnt;      /* The number of txnpages currently in use to store the transactions in this blockcache. */
+  ulong pages_cnt;       /* The number of txnpages currently in use to store the transactions in this blockcache. */
 
   struct {
     ulong next;
@@ -129,11 +134,13 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
   ulong  active_slots_max;
   ulong  bucket_cnt;      /* Hash buckets per blockcache.  Decoupled from txn_per_slot_max (load
                              factor 8) to reduce the heads arrays' memory footprint. */
-  ushort txnpages_per_blockhash_max;
-  ushort max_txnpages;
+  ulong  txnpages_per_blockhash_max;
+  ulong  max_txnpages;
+  ulong  txnpage_idx_sz;  /* Element size of every txnpage index array (blockcache->pages,
+                             txnpages_free, scratch_pages), see fd_txncache_txnpage_idx_sz. */
 
-  uint blockcache_generation; /* Incremented for every blockcache. */
-  ushort txnpages_free_cnt; /* The number of pages in the txnpages that are not currently in use. */
+  uint  blockcache_generation; /* Incremented for every blockcache. */
+  ulong txnpages_free_cnt; /* The number of pages in the txnpages that are not currently in use. */
 
   ulong root_cnt;
   root_slist_t root_ll[1]; /* A singly linked list of the forks that are roots of fork chains.  The tail is the
@@ -146,19 +153,51 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
 
 FD_PROTOTYPES_BEGIN
 
-FD_FN_CONST ushort
-fd_txncache_max_txnpages_per_blockhash( ulong max_active_slots,
-                                        ulong max_txn_per_slot,
-                                        int   larger_max_cost_per_block );
+/* fd_txncache_max_txnpages{,_per_blockhash} return the txnpage pool
+   size and the per blockcache page cap for the given parameters.  The
+   result is not bounded; callers compare against
+   FD_TXNCACHE_MAX_TXNPAGES. */
 
-FD_FN_CONST ushort
+FD_FN_CONST ulong
+fd_txncache_max_txnpages_per_blockhash( ulong max_active_slots,
+                                        ulong max_txn_per_slot );
+
+FD_FN_CONST ulong
 fd_txncache_max_txnpages( ulong max_active_slots,
-                          ulong max_txn_per_slot,
-                          int   larger_max_cost_per_block );
+                          ulong max_txn_per_slot );
 
 FD_FN_CONST static inline ulong
 fd_txncache_bucket_cnt( ulong max_txn_per_slot ) {
   return fd_ulong_max( 1UL, (max_txn_per_slot+7UL)/8UL );
+}
+
+/* Txnpage indices are stored as ushort, which covers production
+   parameters, and widen to uint only when the pool exceeds the ushort
+   range (development.bench sizing), keeping the production footprint
+   unchanged.  The all-ones value of the width is the null index and
+   all-ones minus one is the allocation-in-progress flag, so memset 0xFF
+   nulls an array of either width.  ld/st access an index array of the
+   given element size. */
+
+FD_FN_CONST static inline ulong
+fd_txncache_txnpage_idx_sz( ulong max_txnpages ) {
+  return max_txnpages>USHORT_MAX-2UL ? sizeof(uint) : sizeof(ushort);
+}
+
+static inline ulong
+fd_txncache_txnpage_idx_ld( ulong        idx_sz,
+                            void const * idx,
+                            ulong        i ) {
+  return idx_sz==sizeof(uint) ? (ulong)((uint const *)idx)[ i ] : (ulong)((ushort const *)idx)[ i ];
+}
+
+static inline void
+fd_txncache_txnpage_idx_st( ulong  idx_sz,
+                            void * idx,
+                            ulong  i,
+                            ulong  val ) {
+  if( idx_sz==sizeof(uint) ) ((uint *)idx)[ i ] = (uint)val;
+  else                       ((ushort *)idx)[ i ] = (ushort)val;
 }
 
 FD_PROTOTYPES_END

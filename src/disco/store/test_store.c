@@ -45,7 +45,7 @@ void
 test_api( fd_wksp_t * wksp ) {
   ulong  fec_max     = 8;
   void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL, 0UL, 0UL, 0UL ), 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, TEST_PAYLOAD_PATH, 0UL ) );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, TEST_PAYLOAD_PATH, 0UL ) );
   FD_TEST( store );
 
   fd_store_map_t map[1];
@@ -120,7 +120,7 @@ test_db_path( fd_wksp_t * wksp ) {
 
   ulong fp = fd_store_footprint( 2UL, 31840UL, 0UL, 0UL, 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fp, 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, 2UL, 31840UL, 0UL, 0UL, 0UL, db_path, 0UL ) );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 2UL, 31840UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, db_path, 0UL ) );
   FD_TEST( store );
   FD_TEST( !strcmp( store->db_path, db_path ) );
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
@@ -129,7 +129,7 @@ test_db_path( fd_wksp_t * wksp ) {
   char too_long[ PATH_MAX ];
   fd_memset( too_long, 'x', sizeof(too_long) );
   mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fp, 1UL );
-  FD_TEST( !fd_store_new( mem, 2UL, 31840UL, 0UL, 0UL, 0UL, too_long, 0UL ) );
+  FD_TEST( !fd_store_new( mem, 2UL, 31840UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, too_long, 0UL ) );
   fd_wksp_free_laddr( mem );
 }
 
@@ -139,7 +139,7 @@ test_file_open( fd_wksp_t * wksp ) {
 
   ulong footprint = fd_store_footprint( 2UL, 31840UL, 1UL, 0UL, 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, 2UL, 31840UL, 1UL, 0UL, 0UL,
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 2UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
                                                     TEST_PAYLOAD_PATH, 0UL ) );
   FD_TEST( store );
   store->disk_max_shreds = 16UL;
@@ -187,7 +187,7 @@ void
 test_query_miss( fd_wksp_t * wksp ) {
   ulong  fec_max     = 16;
   void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL, 0UL, 0UL, 0UL ), 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, TEST_PAYLOAD_PATH, 0UL ) );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, TEST_PAYLOAD_PATH, 0UL ) );
   FD_TEST( store );
 
   fd_store_map_t map[1];
@@ -232,7 +232,7 @@ test_fec_data_max( fd_wksp_t * wksp ) {
   FD_TEST( fp_cap < fp_var );
 
   void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fp_var, 1UL );
-  fd_store_t * st    = fd_store_join( fd_store_new( mem, fec_max, 63985UL, 0UL, 0UL, 0UL, TEST_PAYLOAD_PATH, 0UL ) );
+  fd_store_t * st    = fd_store_join( fd_store_new( mem, fec_max, 63985UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, TEST_PAYLOAD_PATH, 0UL ) );
   FD_TEST( st );
   FD_TEST( st->fec_data_max == 63985UL );
 
@@ -280,7 +280,7 @@ test_fec_data_max( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( st ) ) );
 
   mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fp_fixed, 1UL );
-  st  = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, TEST_PAYLOAD_PATH, 0UL ) );
+  st  = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, TEST_PAYLOAD_PATH, 0UL ) );
   FD_TEST( st );
   FD_TEST( st->fec_data_max == 31840UL );
 
@@ -322,7 +322,7 @@ test_fec_sets_arena( fd_wksp_t * wksp ) {
   FD_TEST( fp_with > fp_without );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fp_with, 1UL );
-  fd_store_t * st = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, fec_set_cnt, TEST_PAYLOAD_PATH, 0UL ) );
+  fd_store_t * st = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, fec_set_cnt, FD_SHRED_BLK_MAX, TEST_PAYLOAD_PATH, 0UL ) );
   FD_TEST( st );
   FD_TEST( st->fec_set_cnt==fec_set_cnt );
 
@@ -345,7 +345,7 @@ test_spill( fd_wksp_t * wksp ) {
   ulong cache_bytes  = 2UL * fd_store_payload_slot_sz( fec_data_max );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, fec_data_max, 0UL, cache_bytes, 0UL ), 1UL );
-  fd_store_t * st = fd_store_join( fd_store_new( mem, fec_max, fec_data_max, 0UL, cache_bytes, 0UL, TEST_PAYLOAD_PATH, 0UL ) );
+  fd_store_t * st = fd_store_join( fd_store_new( mem, fec_max, fec_data_max, 0UL, cache_bytes, 0UL, FD_SHRED_BLK_MAX, TEST_PAYLOAD_PATH, 0UL ) );
   FD_TEST( st );
   FD_TEST( st->cache_slot_cnt==2UL );
   FD_TEST( st->cache_free_cnt==2UL );
@@ -436,7 +436,7 @@ test_pinned_spill( fd_wksp_t * wksp ) {
   ulong cache_bytes  = 2UL * fd_store_payload_slot_sz( fec_data_max );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, fec_data_max, 0UL, cache_bytes, 0UL ), 1UL );
-  fd_store_t * st = fd_store_join( fd_store_new( mem, fec_max, fec_data_max, 0UL, cache_bytes, 0UL, TEST_PAYLOAD_PATH, 0UL ) );
+  fd_store_t * st = fd_store_join( fd_store_new( mem, fec_max, fec_data_max, 0UL, cache_bytes, 0UL, FD_SHRED_BLK_MAX, TEST_PAYLOAD_PATH, 0UL ) );
   FD_TEST( st );
   int fd = store_file_open( st, O_RDWR );
   FD_TEST( fd>=0 );
@@ -513,7 +513,7 @@ test_disk_query_highest( fd_wksp_t * wksp ) {
   ulong fec_data_max = 31840UL;
   ulong footprint    = fd_store_footprint( fec_max, fec_data_max, 1UL, 0UL, 0UL );
   void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, fec_data_max, 1UL, 0UL, 0UL,
+  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, fec_data_max, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
                                                     TEST_PAYLOAD_PATH, 42UL ) );
   FD_TEST( store );
   store->disk_max_shreds = 64UL;
@@ -582,7 +582,7 @@ void
 test_disk_many_wraps( fd_wksp_t * wksp ) {
   ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL,
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
                                                     TEST_PAYLOAD_PATH, 42UL ) );
   FD_TEST( store );
   store->disk_max_shreds = 16UL;
@@ -618,7 +618,7 @@ void
 test_disk_concurrent_writes( fd_wksp_t * wksp ) {
   ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL,
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
                                                     TEST_PAYLOAD_PATH, 42UL ) );
   FD_TEST( store );
   store->disk_max_shreds = fd_ulong_max( 16UL, 2UL*fd_tile_cnt() );
@@ -661,7 +661,7 @@ void
 test_disk_slot_hint( fd_wksp_t * wksp ) {
   ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL,
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
                                                     TEST_PAYLOAD_PATH, 42UL ) );
   FD_TEST( store );
   store->disk_max_shreds = 4UL;
@@ -673,7 +673,7 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
   ulong const slot_a = 17UL;
   ulong const slot_b = slot_a + stride;
   ulong const slot_c = slot_b + stride;
-  FD_TEST( stride>8UL && !(slot_c>>48) );
+  FD_TEST( stride>8UL && slot_c<FD_SHREDB_KEY_SLOT_MAX );
   FD_TEST( slot_a%stride==slot_b%stride && slot_b%stride==slot_c%stride );
 
   uchar buf[ FD_SHRED_MAX_SZ ];
@@ -725,7 +725,7 @@ void
 test_disk_lazy_highest( fd_wksp_t * wksp ) {
   ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL,
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
                                                     TEST_PAYLOAD_PATH, 42UL ) );
   FD_TEST( store );
   store->disk_max_shreds = 2UL;
@@ -758,7 +758,7 @@ test_disk_collision_eviction( fd_wksp_t * wksp ) {
   ulong const seed = 42UL;
   ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL,
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
                                                     TEST_PAYLOAD_PATH, seed ) );
   FD_TEST( store );
   store->disk_max_shreds = 2UL;
@@ -773,7 +773,7 @@ test_disk_collision_eviction( fd_wksp_t * wksp ) {
   ulong key_cnt = 0UL;
   for( ulong upper=1UL; key_cnt<3UL; upper++ ) {
     ulong key = fd_ulong_hash_inverse( (upper<<32) | 0xdeadbeefUL ) ^ seed;
-    if( fd_shredb_key_shred_idx( key )>=FD_SHRED_BLK_MAX ) continue;
+    if( fd_shredb_key_shred_idx( key )>=store->max_shreds_per_block ) continue;
     keys[ key_cnt++ ] = key;
   }
   FD_TEST( keys[ 0 ]!=keys[ 1 ] );
@@ -810,6 +810,58 @@ test_disk_collision_eviction( fd_wksp_t * wksp ) {
   oversized->data.size = USHRT_MAX;
   FD_TEST( fd_store_disk_insert( store, disk_fd, oversized )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query( store, disk_fd, 9UL, 0U, out )==(int)FD_SHRED_MAX_SZ );
+
+  close( disk_fd );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
+}
+
+/* max_shreds_per_block is a runtime value: a store sized for 4x
+   FD_SHRED_BLK_MAX round-trips shred idxs above the production bound
+   through the exact index and the per-slot highest hint, and rejects
+   idxs at or beyond its own bound.  Also pins the key encoding. */
+
+void
+test_disk_max_shreds_per_block( fd_wksp_t * wksp ) {
+  ulong const shred_max = 4UL*FD_SHRED_BLK_MAX;
+  FD_TEST( fd_shredb_key_pack( 5UL, (uint)shred_max-1U )==((5UL<<32)|(shred_max-1UL)) );
+  FD_TEST( fd_shredb_key_slot( fd_shredb_key_pack( FD_SHREDB_KEY_SLOT_MAX-1UL, 7U ) )==FD_SHREDB_KEY_SLOT_MAX-1UL );
+  FD_TEST( fd_shredb_key_shred_idx( fd_shredb_key_pack( FD_SHREDB_KEY_SLOT_MAX-1UL, 7U ) )==7U );
+
+  ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
+  FD_TEST( !fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, 0UL,                     TEST_PAYLOAD_PATH, 42UL ) );
+  FD_TEST( !fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHREDB_HINT_VALID+1UL, TEST_PAYLOAD_PATH, 42UL ) );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, shred_max,
+                                                    TEST_PAYLOAD_PATH, 42UL ) );
+  FD_TEST( store && store->max_shreds_per_block==shred_max );
+  store->disk_max_shreds = 8UL;
+
+  int disk_fd = store_file_open( store, O_RDWR );
+  FD_TEST( disk_fd>=0 );
+
+  uchar buf[ FD_SHRED_MAX_SZ ];
+  uchar out[ FD_SHRED_MAX_SZ ];
+  ulong const slot = 21UL;
+  uint  const lo   = FD_SHRED_BLK_MAX-1U; /* highest production idx */
+  uint  const hi   = (uint)shred_max-1U;  /* highest bench idx, bit 15 set */
+
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, lo, 0x10U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, hi, 0x20U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, (uint)shred_max, 0x30U ) )==FD_STORE_DISK_INSERT_ERR );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, FD_SHREDB_KEY_SLOT_MAX, 0U, 0x40U ) )==FD_STORE_DISK_INSERT_ERR );
+
+  FD_TEST( fd_store_disk_query( store, disk_fd, slot, lo, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0x10U );
+  FD_TEST( fd_store_disk_query( store, disk_fd, slot, hi, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0x20U );
+  FD_TEST( fd_store_disk_query( store, disk_fd, slot, (uint)shred_max, out )==FD_STORE_DISK_QUERY_MISS );
+  FD_TEST( fd_store_disk_query( store, disk_fd, FD_SHREDB_KEY_SLOT_MAX, 0U, out )==FD_STORE_DISK_QUERY_MISS );
+
+  /* The hint tracks hi, which a 15-bit hint field would have folded. */
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot, 0U, out )>0 );
+  FD_TEST( ((fd_shred_t const *)fd_type_pun_const( out ))->idx==hi );
+  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0x20U );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, lo+1U, 0x11U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot, 0U, out )>0 );
+  FD_TEST( ((fd_shred_t const *)fd_type_pun_const( out ))->idx==hi ); /* never lowered */
 
   close( disk_fd );
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
@@ -862,7 +914,7 @@ test_concurrent( fd_wksp_t * wksp ) {
   ulong  tile_cnt = fd_tile_cnt();
   ulong  fec_max  = tile_cnt * num_insert + 16UL;
   void * mem      = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL, 0UL, 0UL, 0UL ), 1UL );
-  g_store         = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, TEST_PAYLOAD_PATH, 0UL ) );
+  g_store         = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, TEST_PAYLOAD_PATH, 0UL ) );
   FD_TEST( g_store );
 
   FD_COMPILER_MFENCE();
@@ -937,6 +989,7 @@ main( int argc, char ** argv ) {
   test_disk_concurrent_writes( wksp );
   test_disk_slot_hint( wksp );
   test_disk_lazy_highest( wksp );
+  test_disk_max_shreds_per_block( wksp );
   test_concurrent  ( wksp );
 
   FD_LOG_NOTICE(( "pass" ));

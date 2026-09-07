@@ -307,7 +307,7 @@ fd_banks_new( void * shmem,
               ulong  max_stake_accounts,
               ulong  max_fallback_stake_accounts,
               ulong  max_vote_accounts,
-              int    larger_max_cost_per_block,
+              ulong  bench_max_cost_per_block,
               ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -411,7 +411,7 @@ fd_banks_new( void * shmem,
 
   for( ulong i=0UL; i<max_fork_width; i++ ) {
     fd_bank_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i );
-    if( FD_UNLIKELY( !fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, larger_max_cost_per_block, seed ) ) ) ) {
+    if( FD_UNLIKELY( !fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, bench_max_cost_per_block, seed ) ) ) ) {
       FD_LOG_WARNING(( "Failed to create cost tracker" ));
       return NULL;
     }

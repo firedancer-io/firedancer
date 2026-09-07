@@ -765,7 +765,7 @@ build_case( case_t * tc, uchar const * data, ulong data_sz ) {
 
   fd_rng_t rng[1];
   fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  tc->sched = fd_sched_join( fd_sched_new( tc->mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
+  tc->sched = fd_sched_join( fd_sched_new( tc->mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
 
   /* Seed the scheduler with bank 0 as a completed snapshot root.  The
      notify/advance pair is a no-op for the current root, but using the
@@ -1363,7 +1363,7 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_log_level_core_set( 3 );
   atexit( fd_halt );
 
-  FD_TEST( fd_sched_footprint( TEST_SCHED_DEPTH, TEST_SCHED_BLOCK_CNT_MAX )<=sizeof(g_sched_mem) );
+  FD_TEST( fd_sched_footprint( TEST_SCHED_DEPTH, TEST_SCHED_BLOCK_CNT_MAX, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )<=sizeof(g_sched_mem) );
   FD_TEST( fd_sched_align()==TEST_SCHED_MEM_ALIGN );
 
   return 0;

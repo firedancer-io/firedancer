@@ -25,12 +25,6 @@
    complicated, so we need to use conservative limits. */
 #define FD_PACK_MAX_DATA_PER_BLOCK (FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX)
 
-/* Optionally allow up to 1M shreds per block for benchmarking. */
-#define LARGER_MAX_DATA_PER_BLOCK  (32UL*FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX)
-
-/* Optionally allow a larger limit for benchmarking */
-#define LARGER_MAX_COST_PER_BLOCK (18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND)
-
 /* ---- End consensus-critical constants */
 
 #define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE     ( 1U)
