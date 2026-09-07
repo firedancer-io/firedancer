@@ -21,6 +21,7 @@
 #include "../../../../disco/waker/fd_waker.h"
 
 #include "../configure/configure.h"
+#include "../configure/fd_cpu_isolation.h"
 
 #include <dirent.h>
 #include <sched.h>
@@ -247,6 +248,7 @@ leave_isolation_cgroup( struct spawn_cgroup * cg ) {
 static pid_t
 execve_tile( char const *           name,
              fd_topo_tile_t const * tile,
+             fd_cpuset_t const *    float_cpu_set,
              fd_cpuset_t const *    floating_cpu_set,
              int                    floating_priority,
              int                    config_memfd,
@@ -259,7 +261,14 @@ execve_tile( char const *           name,
        kernel first touch happens on the desired thread.  The child
        inherits both. */
     join_isolation_cgroup( name, cg );
-    fd_cpuset_insert( cpu_set, tile->cpu_idx );
+    if( FD_UNLIKELY( tile->floats ) ) {
+      /* the floating CPUs on this tile's NUMA node: memory was placed
+         by cpu_idx */
+      ulong numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
+      for( ulong cpu=0UL; cpu<FD_TILE_MAX; cpu++ )
+        if( fd_cpuset_test( float_cpu_set, cpu ) && fd_shmem_numa_idx( cpu )==numa_idx ) fd_cpuset_insert( cpu_set, cpu );
+    }
+    if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_cpuset_insert( cpu_set, tile->cpu_idx );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     leave_isolation_cgroup( cg );
@@ -327,6 +336,18 @@ main_pid_namespace( void * _args ) {
   FD_CPUSET_DECL( floating_cpu_set );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* The CPUs of the floating tiles (efficient mode): floaters share
+     these among themselves and never a pinned tile's CPU */
+  FD_CPUSET_DECL( float_cpu_set );
+  int any_floats = 0;
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    if( FD_LIKELY( !config->topo.tiles[ i ].floats ) ) continue;
+    fd_cpuset_insert( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
+    any_floats = 1;
+  }
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ )
+    if( FD_LIKELY( !config->topo.tiles[ i ].floats && config->topo.tiles[ i ].cpu_idx!=ULONG_MAX ) ) fd_cpuset_remove( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
 
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
   ulong actual_pids[ FD_TOPO_MAX_TILES+1 ];
@@ -482,7 +503,9 @@ main_pid_namespace( void * _args ) {
       int pipefd[ 2 ];
       if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
-      child_pids[ child_cnt ] = execve_tile( config->name, tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
+
+      int floating_priority = ( any_floats && !strcmp( tile->name, "waker" ) ) ? -19 : save_priority;
+      child_pids[ child_cnt ] = execve_tile( config->name, tile, float_cpu_set, floating_cpu_set, floating_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
       child_idxs[ child_cnt ] = i;
       if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       strncpy( child_names[ child_cnt ], tile->name, 32 );
@@ -956,6 +979,20 @@ fdctl_check_configure( config_t const * config ) {
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_WARNING(( "Kernel workqueues may steal CPU time from Firedancer tiles: %s. For lower jitter, run "
                        "`%s configure init kworkers`.", check.message, FD_BINARY_NAME ));
+  }
+
+  /* Floating tiles need a scheduler domain to be balanced across their
+     CPUs; isolcpus= removes it, and every floater would stay on the
+     CPU it was forked on. */
+  FD_CPUSET_DECL( isolated );
+  if( FD_LIKELY( fd_cpu_isolation_read_list( "/sys/devices/system/cpu/isolated", isolated ) ) ) {
+    for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+      fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+      if( FD_UNLIKELY( tile->floats && fd_cpuset_test( isolated, tile->cpu_idx ) ) )
+        FD_LOG_ERR(( "tile %s:%lu floats on CPU %lu, which the isolcpus= boot parameter removed from the kernel scheduler. "
+                     "Floating tiles need their CPUs scheduled: drop them from isolcpus= and isolate them with "
+                     "`%s configure init cpuset` instead.", tile->name, tile->kind_id, tile->cpu_idx, FD_BINARY_NAME ));
+    }
   }
 
   if( FD_LIKELY( fd_cfg_stage_cpuset.enabled( config ) ) ) {

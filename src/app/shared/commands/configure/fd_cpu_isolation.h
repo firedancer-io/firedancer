@@ -59,6 +59,14 @@ fd_cpu_isolation_format_list( char *              buf,
                               ulong               buf_sz,
                               fd_cpuset_t const * cpuset );
 
+/* fd_cpu_isolation_partition_type returns the cpuset.cpus.partition
+   value for the topology: "isolated" (no scheduler domain, tiles are
+   pinned 1:1) unless some tile floats within the tile CPU set, when
+   the partition must keep a domain to balance them: "root". */
+
+char const *
+fd_cpu_isolation_partition_type( fd_topo_t const * topo );
+
 /* fd_cpu_isolation_partition_cpus fills cpuset with the CPUs that the
    cpuset stage places in the isolated partition: all fixed tile CPUs,
    plus the otherwise-unused hyperthread siblings of the tiles that are

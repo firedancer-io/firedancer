@@ -11,6 +11,14 @@
    `isolcpus=` boot parameter, and the strongest tool available for
    keeping foreign tasks off tile CPUs.
 
+   The partition type follows the topology.  When every tile is pinned
+   to its own CPU the partition is "isolated".  When some tiles float
+   (the kernel schedules them across a shared set of tile CPUs) it is
+   "root" instead: still exclusive to Firedancer, but the CPUs keep a
+   scheduler domain, which load balancing needs.  An isolated partition
+   has no scheduler domain, so a floating tile would never move off the
+   CPU it started on.
+
    IMPORTANT INTERACTION: once the partition exists, ONLY processes
    inside the cgroup may run on tile CPUs.  The tile launcher
    (execve_tile in run.c) joins the cgroup before setting a fixed
@@ -164,12 +172,13 @@ init( config_t const * config ) {
   if( FD_UNLIKELY( !write_cstr( path, list ) ) )
     FD_LOG_ERR(( "write(%s,\"%s\") failed (%i-%s)", path, list, errno, fd_io_strerror( errno ) ));
 
+  char const * partition = fd_cpu_isolation_partition_type( &config->topo );
   cgroup_path( path, config, "cpuset.cpus.partition" );
-  FD_LOG_NOTICE(( "%sRUN: `echo \"isolated\" > %s`%s", fd_log_style_dim(), path , fd_log_style_normal() ));
-  if( FD_UNLIKELY( !write_cstr( path, "isolated" ) ) )
-    FD_LOG_ERR(( "write(%s,\"isolated\") failed (%i-%s). The kernel may be too old for isolated cpuset "
+  FD_LOG_NOTICE(( "%sRUN: `echo \"%s\" > %s`%s", fd_log_style_dim(), partition, path , fd_log_style_normal() ));
+  if( FD_UNLIKELY( !write_cstr( path, partition ) ) )
+    FD_LOG_ERR(( "write(%s,\"%s\") failed (%i-%s). The kernel may be too old for %s cpuset "
                  "partitions, or a sibling cgroup may have explicitly claimed one of the CPUs `%s`",
-                 path, errno, fd_io_strerror( errno ), list ));
+                 path, partition, errno, fd_io_strerror( errno ), partition, list ));
 }
 
 static int
@@ -214,9 +223,12 @@ check( config_t const * config,
 
   FD_CPUSET_DECL( part_cpus );
   fd_cpu_isolation_partition_cpus( part_cpus, &config->topo );
-  if( FD_UNLIKELY( !fd_cpuset_cnt( part_cpus ) ) ) CONFIGURE_OK();
 
   char cgroup[ PATH_MAX ]; cgroup_path( cgroup, config, NULL );
+  if( FD_UNLIKELY( !fd_cpuset_cnt( part_cpus ) ) ) {
+    if( FD_UNLIKELY( !access( cgroup, F_OK ) ) ) PARTIALLY_CONFIGURED( "`%s` exists but the topology pins no CPUs", cgroup );
+    CONFIGURE_OK();
+  }
   if( FD_UNLIKELY( access( cgroup, F_OK ) ) )
     NOT_CONFIGURED( "`%s` does not exist", cgroup );
 
@@ -242,8 +254,9 @@ check( config_t const * config,
     NOT_CONFIGURED( "`%s` does not exist", path ); /* cgroup removed concurrently */
 
   /* An invalid partition reads as e.g. "isolated invalid (...)". */
-  if( FD_UNLIKELY( strcmp( partition, "isolated" ) ) )
-    PARTIALLY_CONFIGURED( "`%s` is \"%s\", expected \"isolated\"", path, partition );
+  char const * expected = fd_cpu_isolation_partition_type( &config->topo );
+  if( FD_UNLIKELY( strcmp( partition, expected ) ) )
+    PARTIALLY_CONFIGURED( "`%s` is \"%s\", expected \"%s\"", path, partition, expected );
 
   CONFIGURE_OK();
 }

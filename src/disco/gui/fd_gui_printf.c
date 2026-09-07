@@ -1174,7 +1174,7 @@ fd_gui_printf_system_resources( fd_gui_t * gui ) {
               for( ulong j=0UL; j<gui->summary.tile_cnt; j++ ) {
                 ulong topo_tile_idx = gui->summary.tile[ j ];
                 fd_topo_tile_t const * tile = &gui->topo->tiles[ topo_tile_idx ];
-                if( FD_LIKELY( tile->cpu_idx!=i ) ) continue;
+                if( FD_LIKELY( tile->cpu_idx!=i || tile->floats ) ) continue;
                 ulong ordinal = fd_gui_tile_ordinal( gui, topo_tile_idx );
                 if( ordinal!=ULONG_MAX ) jsonp_ulong( gui->http, NULL, ordinal );
               }

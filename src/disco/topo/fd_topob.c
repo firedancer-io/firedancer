@@ -182,6 +182,7 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->event_link_id       = ULONG_MAX;
   tile->uses_obj_cnt        = 0UL;
   tile->is_waker_client     = is_waker_client;
+  tile->floats              = 0;
   tile->waker_client_idx    = ULONG_MAX;
   tile->waker_fseq_obj_id   = ULONG_MAX;
 
@@ -370,6 +371,14 @@ validate( fd_topo_t const * topo ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
     if( FD_UNLIKELY( tile->is_waker_client && tile->waker_client_idx==ULONG_MAX ) )
       FD_LOG_ERR(( "tile %s:%lu is a waker client but fd_topob_waker was not called", tile->name, tile->kind_id ));
+  }
+
+  /* Floating tiles have a CPU: it places their memory and anchors
+     their affinity mask */
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( FD_UNLIKELY( tile->floats && tile->cpu_idx>=FD_TILE_MAX ) )
+      FD_LOG_ERR(( "tile %s:%lu floats but has no CPU", tile->name, tile->kind_id ));
   }
 
   /* Workspace names are unique */

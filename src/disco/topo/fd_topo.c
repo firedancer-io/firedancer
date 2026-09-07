@@ -580,7 +580,7 @@ fd_topo_print_log( int         stdout,
            i, fd_topo_mem_sz_style( mlock, c_bold, c_dim ), size, c_normal,
            tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id );
     if( tile->cpu_idx!=ULONG_MAX ) {
-      PRINT( "%4lu", tile->cpu_idx );
+      PRINT( "%s%4lu%s", tile->floats ? c_dim : "", tile->cpu_idx, tile->floats ? c_normal : "" );
     } else {
       PRINT( "%s%4s%s", c_dim, "any", c_normal );
     }
@@ -768,6 +768,7 @@ fd_topo_print_json( fd_topo_t * topo ) {
            tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id );
     if( tile->cpu_idx!=ULONG_MAX ) PRINT( "\"cpu_idx\": %lu, ", tile->cpu_idx );
     else                           PRINT( "\"cpu_idx\": null, " );
+    PRINT( "\"floats\": %s, ", tile->floats ? "true" : "false" );
     PRINT( "\"numa_idx\": %lu, \"mlock_bytes\": %lu, \"in_links\": [", tile_numa, fd_topo_mlock_max_tile1( topo, tile ) );
     for( ulong j=0UL; j<tile->in_cnt; j++ ) {
       PRINT( "%s{ \"link_id\": %lu, \"reliable\": %s }", j ? ", " : "", tile->in_link_id[ j ], tile->in_link_reliable[ j ] ? "true" : "false" );
