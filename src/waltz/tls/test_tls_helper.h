@@ -8,29 +8,19 @@
 
 /* Common routines for fd_tls unit tests */
 
-/* fd_tls_test_rand creates an fd_tls provider from an fd_rng_t.
-   This is a deliberately insecure, deterministic RNG intended for tests. */
+/* fd_tls_test_rand formats mem as a ChaCha8 RNG keyed from rng and
+   returns it, for use as fd_tls_t.rng.  Deliberately deterministic:
+   tests and fuzz cases must be reproducible.  mem must outlive every
+   handshake driven by the fd_tls_t it is installed in. */
 
-static void *
-fd_tls_test_rand_read( void * ctx,
-                       void * buf,
-                       ulong  bufsz ) {
-
-  if( FD_UNLIKELY( !ctx ) ) return NULL;
-
-  fd_rng_t * rng  = (fd_rng_t *)ctx;
-  uchar *    buf_ = (uchar *)buf;
-  for( ulong i=0UL; i<bufsz; i++ )
-    buf_[i] = (uchar)fd_rng_uchar( rng );
-  return buf_;
-}
-
-static FD_FN_UNUSED fd_tls_rand_t
-fd_tls_test_rand( fd_rng_t * rng ) {
-  return (fd_tls_rand_t) {
-    .ctx     = rng,
-    .rand_fn = fd_tls_test_rand_read
-  };
+static FD_FN_UNUSED fd_chacha_rng_t *
+fd_tls_test_rand( fd_chacha_rng_t * mem,
+                  fd_rng_t *        rng ) {
+  uchar key[ 32 ];
+  for( ulong i=0UL; i<sizeof(key); i++ ) key[i] = fd_rng_uchar( rng );
+  fd_chacha_rng_t * chacha = fd_chacha_rng_join( fd_chacha_rng_new( mem, FD_CHACHA_RNG_MODE_SHIFT ) );
+  FD_TEST( chacha );
+  return fd_chacha_rng_init( chacha, key, FD_CHACHA_RNG_ALGO_CHACHA8 );
 }
 
 struct fd_tls_test_sign_ctx {

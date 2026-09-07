@@ -187,6 +187,25 @@ fd_chacha_rng_ulong( fd_chacha_rng_t * rng ) {
   return x;
 }
 
+/* fd_chacha_rng_read32 reads 32 bytes from the RNG stream into buf.
+   buf may be unaligned. */
+
+static inline void
+fd_chacha_rng_read32( fd_chacha_rng_t * rng,
+                      void *            buf ) {
+  rng->buf_off = fd_ulong_align_up( rng->buf_off, 32UL );
+  if( FD_UNLIKELY( fd_chacha_rng_avail( rng )<32UL ) ) {
+    if( rng->algo==FD_CHACHA_RNG_ALGO_CHACHA8 ) {
+      fd_chacha8_rng_private_refill( rng );
+    } else {
+      fd_chacha20_rng_private_refill( rng );
+    }
+  }
+
+  fd_memcpy( buf, rng->buf + (rng->buf_off % FD_CHACHA_RNG_BUFSZ), 32UL );
+  rng->buf_off += 32UL;
+}
+
 /* fd_chacha_rng_ulong_roll returns an uniform IID rand in [0,n)
    analogous to fd_rng_ulong_roll.  Rejection method based using
    fd_chacha_rng_ulong.

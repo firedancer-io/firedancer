@@ -142,7 +142,8 @@ LLVMFuzzerTestOneInput( uchar const * input,
   uint  enc_lvl   = (uint)(  ( state>>11 )&0x3UL );
 
   fd_tls_t tls[1]; fd_memcpy( tls, tls_tmpl, sizeof(fd_tls_t) );
-  tls->rand = fd_tls_test_rand( rng );
+  fd_chacha_rng_t chacha[1];
+  tls->rng = fd_tls_test_rand( chacha, rng );
   tls->quic = (uchar)(is_quic&1);
   if( !has_alpn ) tls->alpn_sz      = 0UL;
   if( !has_x509 ) tls->cert_x509_sz = 0UL;

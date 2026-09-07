@@ -165,18 +165,19 @@ prepare_tls_pair( fd_rng_t * rng,
                   fd_tls_t * client,
                   fd_tls_t * server ) {
   static fd_tls_test_sign_ctx_t client_sign_ctx[1], server_sign_ctx[1];
+  static fd_chacha_rng_t client_chacha[1], server_chacha[1];
   fd_tls_test_sign_ctx( client_sign_ctx, rng );
   fd_tls_test_sign_ctx( server_sign_ctx, rng );
 
   *client = (fd_tls_t) {
-    .rand       = fd_tls_test_rand( rng ),
+    .rng        = fd_tls_test_rand( client_chacha, rng ),
     .sign       = fd_tls_test_sign( &client_sign_ctx ),
     .secrets_fn = test_tls_secrets,
     .sendmsg_fn = test_tls_sendmsg,
   };
 
   *server = (fd_tls_t) {
-    .rand       = fd_tls_test_rand( rng ),
+    .rng        = fd_tls_test_rand( server_chacha, rng ),
     .sign       = fd_tls_test_sign( &server_sign_ctx ),
     .secrets_fn = test_tls_secrets,
     .sendmsg_fn = test_tls_sendmsg,
