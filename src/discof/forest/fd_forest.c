@@ -302,7 +302,9 @@ fd_forest_verify( fd_forest_t const * forest ) {
   for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool ); !fd_forest_frontier_iter_done( iter, frontier, pool ); iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
     fd_forest_blk_t const * ele = fd_forest_frontier_iter_ele_const( iter, frontier, pool );
     int found = 0;
+    ulong steps = 0;
     while( FD_LIKELY( ele ) ) {
+      if( FD_UNLIKELY( ++steps > fd_forest_pool_max( pool ) ) ) FAIL( "frontier parent chain longer than pool (cycle detected)" );
       ulong ele_idx = fd_forest_pool_idx( pool, ele );
       if( fd_forest_consumed_ele_query_const( consumed, &ele_idx, NULL, conspool ) ) {
         found = 1;
