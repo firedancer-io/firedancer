@@ -323,6 +323,12 @@ fd_mlx5_rdma_dev_find( char         rdma_name[ FD_MLX5_RDMA_NAME_MAX ],
   return 1;
 }
 
+int
+fd_mlx5_uverbs_avail( void ) {
+  struct stat class_stat;
+  return !stat( "/sys/class/infiniband_verbs", &class_stat ) && S_ISDIR( class_stat.st_mode );
+}
+
 struct fd_mlx5_pd {
   fd_uverbs_ctx_t * ctx;    /* uverbs context */
   uint              handle; /* protection domain handle */

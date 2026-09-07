@@ -30,6 +30,7 @@ struct fd_auto_info {
   uint bonded_if_slave_count;
   int  is_using_gre;
   int  has_mlx5_rdma_port;
+  int  has_uverbs;
 };
 typedef struct fd_auto_info fd_auto_info_t;
 
@@ -255,6 +256,7 @@ mlx5_check( fd_config_t    const * config,
             fd_auto_info_t const * info ) {
   if( strcmp( config->net.provider, "auto" ) ) return 0;
   if( !info->has_mlx5_rdma_port ) return 0;
+  if( !info->has_uverbs ) return 0;
   if( !fd_ulong_is_pow2( config->layout.net_tile_count ) ) return 0;
   return 1;
 }
@@ -466,6 +468,7 @@ scrape_networking( fd_auto_info_t * info,
     char rdma_name[ FD_MLX5_RDMA_NAME_MAX ];
     uint rdma_port;
     info->has_mlx5_rdma_port = fd_mlx5_rdma_dev_find( rdma_name, &rdma_port, if_name );
+    info->has_uverbs         = fd_mlx5_uverbs_avail();
   }
 }
 
