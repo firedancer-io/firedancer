@@ -34,6 +34,8 @@ $(call make-unit-test,test_ssping,utils/test_ssping,fd_discof fd_flamenco fd_bal
 $(call make-unit-test,test_ssload,utils/test_ssload,fd_discof fd_disco fd_flamenco fd_ballet fd_tango fd_util)
 $(call make-unit-test,test_ssarchive,utils/test_ssarchive,fd_discof fdctl_platform fd_ballet fd_util)
 $(call make-unit-test,test_ssparse,utils/test_ssparse,fd_discof fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_sshttp,utils/test_sshttp,fd_discof fd_waltz fd_flamenco fd_ballet fd_util,$(OPENSSL_LIBS))
+$(call run-unit-test,test_sshttp)
 $(call run-unit-test,test_slot_delta_parser)
 $(call run-unit-test,test_sspeer_selector)
 $(call run-unit-test,test_ssarchive)
