@@ -318,9 +318,9 @@ _setup_ssl_cert_and_quic( SSL *           ssl,
 
 
 static fd_tls_t
-_fd_tls_t( void* sign_ctx, fd_rng_t* rng ) {
+_fd_tls_t( void * sign_ctx, fd_rng_t* rng, fd_chacha_rng_t * chacha ) {
   return (fd_tls_t) {
-    .rand       =  fd_tls_test_rand( rng ),
+    .rng        =  fd_tls_test_rand( chacha, rng ),
     .secrets_fn = _fdtls_secrets,
     .sendmsg_fn = _fdtls_sendmsg,
 
@@ -354,7 +354,8 @@ test_server( SSL_CTX * ctx ) {
   fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
   fd_tls_test_sign_ctx_t server_sign_ctx[1];
   fd_tls_test_sign_ctx( server_sign_ctx, rng );
-  *server = _fd_tls_t( &server_sign_ctx, rng );
+  static fd_chacha_rng_t server_chacha[1];
+  *server = _fd_tls_t( &server_sign_ctx, rng, server_chacha );
 
   fd_tls_estate_srv_t hs[1];
   FD_TEST( fd_tls_estate_srv_new( hs ) );
@@ -441,7 +442,8 @@ test_client( SSL_CTX * ctx ) {
   fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
   fd_tls_test_sign_ctx_t client_sign_ctx[1];
   fd_tls_test_sign_ctx( client_sign_ctx, rng );
-  *client = _fd_tls_t( &client_sign_ctx, rng );
+  static fd_chacha_rng_t client_chacha[1];
+  *client = _fd_tls_t( &client_sign_ctx, rng, client_chacha );
 
   fd_tls_estate_cli_t hs[1];
   FD_TEST( fd_tls_estate_cli_new( hs ) );

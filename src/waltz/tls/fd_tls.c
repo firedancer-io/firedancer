@@ -528,8 +528,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   /* Create server random */
 
   uchar server_random[ 32 ];
-  if( FD_UNLIKELY( !fd_tls_rand( &server->rand, server_random, 32UL ) ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_RAND_FAIL );
+  fd_chacha_rng_read32( server->rng, server_random );
 
   /* Create server hello message */
 
@@ -1167,8 +1166,7 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
   /* Create client random */
 
   uchar client_random[ 32 ];
-  if( FD_UNLIKELY( !fd_tls_rand( &client->rand, client_random, 32UL ) ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_RAND_FAIL );
+  fd_chacha_rng_read32( client->rng, client_random );
 
   /* Remember client random for SSLKEYLOGFILE */
   fd_memcpy( handshake->base.client_random, client_random, 32UL );
@@ -1863,8 +1861,6 @@ fd_tls_reason_cstr( uint reason ) {
     return "sendmsg callback failed";
   case FD_TLS_REASON_WRONG_ENC_LVL:
     return "wrong encryption level";
-  case FD_TLS_REASON_RAND_FAIL:
-    return "rand function failed";
   case FD_TLS_REASON_CH_EXPECTED:
     return "expected ClientHello, but got other message type";
   case FD_TLS_REASON_CH_PARSE:

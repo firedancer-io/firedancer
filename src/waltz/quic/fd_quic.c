@@ -473,6 +473,13 @@ fd_quic_init( fd_quic_t * quic ) {
     return NULL;
   }
 
+  if( FD_UNLIKELY( !fd_chacha_rng_join( fd_chacha_rng_new( state->_rng, FD_CHACHA_RNG_MODE_SHIFT ) ) ) ) {
+    FD_LOG_WARNING(( "fd_chacha_rng_new failed" ));
+    return NULL;
+  }
+  fd_quic_rng_reseed( state );
+  state->rng_reseed_at = 0L;
+
   /* State: Initialize TLS */
 
   fd_quic_tls_cfg_t tls_cfg = {
@@ -489,6 +496,7 @@ fd_quic_init( fd_quic_t * quic ) {
     },
 
     .cert_public_key       = quic->config.identity_public_key,
+    .rng                   = state->_rng,
 
     .alpn                  = config->alpn,
     .alpn_sz               = config->alpn_sz,
@@ -522,13 +530,6 @@ fd_quic_init( fd_quic_t * quic ) {
     ulong stream_pool_laddr = (ulong)quic + layout.stream_pool_off;
     state->stream_pool = fd_quic_stream_pool_new( (void*)stream_pool_laddr, stream_pool_cnt, tx_buf_sz );
   }
-
-  if( FD_UNLIKELY( !fd_chacha_rng_join( fd_chacha_rng_new( state->_rng, FD_CHACHA_RNG_MODE_SHIFT ) ) ) ) {
-    FD_LOG_WARNING(( "fd_chacha_rng_new failed" ));
-    return NULL;
-  }
-  fd_quic_rng_reseed( state );
-  state->rng_reseed_at = 0L;
 
   /* use rng to generate secret bytes for future RETRY token generation */
   int rng1_ok = !!fd_rng_secure( state->retry_secret, FD_QUIC_RETRY_SECRET_SZ );
