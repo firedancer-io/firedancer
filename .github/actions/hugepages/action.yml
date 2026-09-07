@@ -20,17 +20,20 @@ runs:
         gigantic_have=$(cat /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages)
         huge_have=$(cat /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages)
 
-        gigantic_opts=$(findmnt -t hugetlbfs -n -o OPTIONS /mnt/.fd/.gigantic 2>/dev/null || true)
-        huge_opts=$(findmnt -t hugetlbfs -n -o OPTIONS /mnt/.fd/.huge 2>/dev/null || true)
-        has_min_size() { echo "$1" | grep -q 'min_size='; }
+        # A job that dies mid-run leaves its state behind: validator
+        # processes and workspace files holding pages.  Reset those every
+        # time; a min_size= mount option from a previous run is harmless
+        # (`configure init hugetlbfs` remounts if it needs different options).
+        sudo killall firedancer-dev firedancer 2>/dev/null || true
+        sudo find /mnt/.fd -type f -delete 2>/dev/null || true
+        findmnt -t hugetlbfs -o TARGET,OPTIONS || true
 
         if findmnt -t hugetlbfs /mnt/.fd/.gigantic >/dev/null 2>&1 && \
            findmnt -t hugetlbfs /mnt/.fd/.huge     >/dev/null 2>&1 && \
-           ! has_min_size "$gigantic_opts" && \
-           ! has_min_size "$huge_opts" && \
+           findmnt -t tmpfs     /mnt/.fd/.normal   >/dev/null 2>&1 && \
            [ "$gigantic_have" -ge '${{ inputs.count_gigantic }}' ] && \
            [ "$huge_have"     -ge '${{ inputs.count_huge }}'     ]; then
-          echo "hugepages: mounts present (no min_size) and >= ${{ inputs.count_gigantic }} gigantic / ${{ inputs.count_huge }} huge pages already reserved; nothing to do"
+          echo "hugepages: mounts present and >= ${{ inputs.count_gigantic }} gigantic / ${{ inputs.count_huge }} huge pages already reserved; nothing to do"
           sudo chown -R $USER:$USER /mnt/.fd || true
           exit 0
         fi

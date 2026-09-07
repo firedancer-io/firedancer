@@ -2059,6 +2059,9 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
 
+  FD_LOG_INFO(( "replay ready at slot %lu (%.3f s after snapshot done, %.3f s since boot)",
+                0UL, 0.0, (double)(fd_log_wallclock()-ctx->boot_timestamp_nanos)/1e9 ));
+
   publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
   publish_root_advanced( ctx, stem, bank );
   publish_reset( ctx, stem, bank );
@@ -2100,6 +2103,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                      ulong               sig ) {
   ulong msg = fd_ssmsg_sig_message( sig );
   if( FD_LIKELY( msg==FD_SSMSG_DONE ) ) {
+    long snapshot_done_nanos = fd_log_wallclock();
+
     /* An end of message notification indicates the snapshot is loaded.
        Replay is able to start executing from this point onwards. */
     /* TODO: replay should finish booting. Could make replay a
@@ -2197,9 +2202,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
 
-    publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
-    publish_root_advanced( ctx, stem, bank );
-
     if( ctx->reasm ) {
       fd_reasm_fec_t * fec = fd_reasm_init( ctx->reasm, &manifest_block_id, snapshot_slot );
       fec->bank_idx        = (uint)bank->idx;
@@ -2207,6 +2209,12 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     }
     store_xinsert( ctx->store, ctx->map_join, &manifest_block_id );
 
+    long now = fd_log_wallclock();
+    FD_LOG_INFO(( "replay ready at slot %lu (%.3f s after snapshot done, %.3f s since boot)",
+                  snapshot_slot, (double)(now-snapshot_done_nanos)/1e9, (double)(now-ctx->boot_timestamp_nanos)/1e9 ));
+
+    publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
+    publish_root_advanced( ctx, stem, bank );
     return;
   }
 

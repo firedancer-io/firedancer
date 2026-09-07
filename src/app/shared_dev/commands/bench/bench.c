@@ -34,6 +34,7 @@ bench_cmd_args( int *    pargc,
                 args_t * args ) {
   args->load.no_quic  = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
   args->load.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+  args->load.duration = fd_env_strip_cmdline_ulong( pargc, pargv, "--duration", NULL, 0UL );
 }
 
 void
@@ -104,6 +105,9 @@ add_bench_topo( fd_topo_t  * topo,
   }
 
   fd_topob_tile_out( topo, "bencho", 0UL, "bencho_out", 0UL );
+  if( FD_LIKELY( fd_topo_find_link( topo, "replay_out", 0UL )!=ULONG_MAX ) ) {
+    fd_topob_tile_in( topo, "bencho", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); /* fseq in a wksp replay maps */
+  }
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
     fd_topob_tile_in( topo, "benchg", i, "bench", "bencho_out", 0, 1, 1 );
     fd_topob_tile_out( topo, "benchg", i, "benchg_s", i );
@@ -183,6 +187,8 @@ bench_cmd_fn( args_t *   args,
       benchs->benchs.send_to_port = port;
     }
   }
+
+  config->topo.tiles[ fd_topo_find_tile( &config->topo, "bencho", 0UL ) ].bencho.duration_s = args->load.duration;
 
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,

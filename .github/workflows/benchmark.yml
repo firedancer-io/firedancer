@@ -1,18 +1,23 @@
-name: Benchmark Ledger Backtest
+name: Benchmark
 on:
   workflow_call:
     inputs:
       machine:
         type: string
         default: native
-      extras:
-        type: string
-        default: "handholding"
       github-token:
         type: string
         required: true
         description: 'GitHub token for posting comments'
+      snapshot-ledger:
+        type: string
+        default: testnet-438272759-snapload
+        description: 'load-only testnet ledger (genesis.bin + full snapshot) for the snapshot row'
   workflow_dispatch:
+    inputs:
+      snapshot-ledger:
+        type: string
+        default: testnet-438272759-snapload
 
 permissions:
   contents: read
@@ -20,206 +25,304 @@ permissions:
   pull-requests: write
 
 jobs:
-  benchmark:
+  bench-replay:
     runs-on:
       labels: [self-hosted, 512G]
       group: fd-public-repo
-    timeout-minutes: 15
+    timeout-minutes: 6
     env:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
-      EXTRAS: ${{ inputs.extras }}
+      BENCH_DIR: ${{ github.workspace }}/../bench
+      DUMP_DIR: ${{ github.workspace }}/../dump
 
     steps:
-    - name: Checkout current commit
-      uses: actions/checkout@v7
-
+    - uses: actions/checkout@v7
     - uses: ./.github/actions/deps
-
     - uses: ./.github/actions/hugepages
       with:
+        # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
         count_gigantic: 398
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
     - uses: actions/setup-node@v7
-    - run: make -j
 
-    - name: Checkout main for baseline
-      uses: actions/checkout@v7
-      with:
-        ref: main
-        clean: false
-
-    # OBJDIR is resolved per checkout: the two trees may key it differently
-    - run: make -j
-    - run: echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
-
-    - name: Run baseline benchmarks
+    # BENCH_DIR is a sibling of the checkout so it survives the main/PR
+    # checkouts (realpath: upload-artifact rejects `..`).  The PR's bench
+    # scripts are copied out so both sides are built by the same build.sh.
+    - name: Prepare
       run: |
-        sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
-        sudo $OBJDIR/bin/firedancer-dev configure init keys
-        rm -rf baseline.log
-        DUMP_DIR=../dump ./src/flamenco/runtime/tests/run_ledger_backtest.sh \
-          -l mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat -m 4000000 -e 424670300 \
-          --log baseline.log
-        SPS_BASELINE=$(grep "Backtest playback done." baseline.log | awk -F 'sec/slot: ' '{print $2}')
-        TOTAL_ELAPSED_BASELINE=$(grep "Backtest playback done." baseline.log | awk -F 'elapsed: ' '{print $2}' | awk '{print $1}')
-        SNAPSHOT_LOAD_BASELINE=$(grep "from snapshot in" baseline.log | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")
-        echo "Baseline SEC_SLOT=$SPS_BASELINE"
-        echo "Baseline TOTAL_ELAPSED=$TOTAL_ELAPSED_BASELINE"
-        echo SPS_BASELINE=$SPS_BASELINE >> $GITHUB_ENV
-        echo TOTAL_ELAPSED_BASELINE=$TOTAL_ELAPSED_BASELINE >> $GITHUB_ENV
-        echo "Baseline SNAPSHOT_LOAD=$SNAPSHOT_LOAD_BASELINE"
-        echo SNAPSHOT_LOAD_BASELINE=$SNAPSHOT_LOAD_BASELINE >> $GITHUB_ENV
+        sudo rm -f $DUMP_DIR/accounts.db            # left by a job that died mid-backtest
+        rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
+        echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
+        cp -r contrib/ci/bench $BENCH_DIR/tools
+        BASE_SHA=${{ github.event.pull_request.base.sha }}  # fixed per event, so all three jobs compare against the same main
+        [ -n "$BASE_SHA" ] || { git fetch --depth=1 origin main; BASE_SHA=$(git rev-parse FETCH_HEAD); }  # workflow_dispatch
+        echo BASE_SHA=$BASE_SHA >> $GITHUB_ENV
+        echo HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }} >> $GITHUB_ENV
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; } > $BENCH_DIR/runner.txt 2>&1 || true
 
-        DEFAULT_MEM_BYTES=$($OBJDIR/bin/firedancer-dev mem --mainnet | grep "Total Memory Locked" | grep -o '[0-9]* bytes' | grep -o '[0-9]*')
-        DEFAULT_MEM_BASELINE=$(echo "scale=2; $DEFAULT_MEM_BYTES / 1024 / 1024 / 1024" | bc)
-        echo "Baseline DEFAULT_MEM=$DEFAULT_MEM_BASELINE"
-        echo DEFAULT_MEM_BASELINE=$DEFAULT_MEM_BASELINE >> $GITHUB_ENV
-
-    - name: Checkout new changes
-      uses: actions/checkout@v7
-      with:
-        clean: false
-
-    - run: make -j
-    - run: echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
-
-    - name: Run new benchmarks
-      run: |
-        sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
-        rm -rf new.log
-        sudo $OBJDIR/bin/firedancer-dev configure init keys
-        DUMP_DIR=../dump ./src/flamenco/runtime/tests/run_ledger_backtest.sh \
-          -l mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat -m 4000000 -e 424670300 \
-          --log new.log
-        SPS_NEWVAL=$(grep "Backtest playback done." new.log | awk -F 'sec/slot: ' '{print $2}')
-        TOTAL_ELAPSED_NEWVAL=$(grep "Backtest playback done." new.log | awk -F 'elapsed: ' '{print $2}' | awk '{print $1}')
-        SNAPSHOT_LOAD_NEWVAL=$(grep "from snapshot in" new.log | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")
-        echo TOTAL_ELAPSED_NEWVAL=$TOTAL_ELAPSED_NEWVAL >> $GITHUB_ENV
-        echo "New SEC_SLOT=$SPS_NEWVAL"
-        echo SPS_NEWVAL=$SPS_NEWVAL >> $GITHUB_ENV
-        echo "New TOTAL_ELAPSED=$TOTAL_ELAPSED_NEWVAL"
-        echo "New SNAPSHOT_LOAD=$SNAPSHOT_LOAD_NEWVAL"
-        echo SNAPSHOT_LOAD_NEWVAL=$SNAPSHOT_LOAD_NEWVAL >> $GITHUB_ENV
-
-        DEFAULT_MEM_BYTES=$($OBJDIR/bin/firedancer-dev mem --mainnet | grep "Total Memory Locked" | grep -o '[0-9]* bytes' | grep -o '[0-9]*')
-        DEFAULT_MEM_NEWVAL=$(echo "scale=2; $DEFAULT_MEM_BYTES / 1024 / 1024 / 1024" | bc)
-        echo "New DEFAULT_MEM=$DEFAULT_MEM_NEWVAL"
-        echo DEFAULT_MEM_NEWVAL=$DEFAULT_MEM_NEWVAL >> $GITHUB_ENV
-
-    - name: Compare benchmarks
-      run: |
-        sps_ratio=$(echo "${SPS_NEWVAL} / ${SPS_BASELINE}" | bc -l)
-        echo "Ratio: $sps_ratio"
-        echo "SPS_RATIO=$sps_ratio" >> $GITHUB_ENV
-        total_elapsed_ratio=$(echo "${TOTAL_ELAPSED_NEWVAL} / ${TOTAL_ELAPSED_BASELINE}" | bc -l)
-        echo "Total elapsed ratio: $total_elapsed_ratio"
-        echo "TOTAL_ELAPSED_RATIO=$total_elapsed_ratio" >> $GITHUB_ENV
-        max_sps_ratio=$(echo "$sps_ratio > 1.10" | bc -l)
-        max_total_elapsed_ratio=$(echo "$total_elapsed_ratio > 1.10" | bc -l)
-        max_snapshot_load_ratio=$(echo "$SNAPSHOT_LOAD_NEWVAL / $SNAPSHOT_LOAD_BASELINE" | bc -l)
-        echo "Snapshot load ratio: $max_snapshot_load_ratio"
-        echo "SNAPSHOT_LOAD_RATIO=$max_snapshot_load_ratio" >> $GITHUB_ENV
-        default_mem_ratio=$(echo "${DEFAULT_MEM_NEWVAL} / ${DEFAULT_MEM_BASELINE}" | bc -l)
-        echo "Default mem ratio: $default_mem_ratio"
-        echo "DEFAULT_MEM_RATIO=$default_mem_ratio" >> $GITHUB_ENV
-
-
-    - name: Generate benchmark.json
-      run: |
-        sps_ratio=$(echo "${SPS_NEWVAL} / ${SPS_BASELINE}" | bc -l)
-        sps_pct_change=$(echo "(${SPS_NEWVAL} - ${SPS_BASELINE}) * 100 / ${SPS_BASELINE}" | bc -l)
-        # Force proper numeric formatting with leading zero and limited decimal places
-        sps_ratio_fmt=$(printf "%.6f" "$sps_ratio")
-        sps_pct_change_fmt=$(printf "%.6f" "$sps_pct_change")
-        baseline_sps_fmt=$(printf "%.6f" "$SPS_BASELINE")
-        newval_sps_fmt=$(printf "%.6f" "$SPS_NEWVAL")
-        # Export for later steps
-        echo "SPS_RATIO=$sps_ratio_fmt" >> $GITHUB_ENV
-        echo "SPS_PCT_CHANGE=$sps_pct_change_fmt" >> $GITHUB_ENV
-        cat <<EOF > benchmark.json
-        [
-          {"name": "Ledger SEC/slot (Baseline)", "unit": "sec/slot", "value": ${baseline_sps_fmt}},
-          {"name": "Ledger SEC/slot (New)", "unit": "sec/slot", "value": ${newval_sps_fmt}},
-          {"name": "Performance ratio (x)", "unit": "x", "value": ${sps_ratio_fmt}},
-          {"name": "Performance change (%)", "unit": "%", "value": ${sps_pct_change_fmt}}
-        ]
-        EOF
-
-    - name: Fetch gh-pages branch
-      run: |
-        git fetch origin gh-pages:gh-pages
-
-    - name: Publish benchmark results
-      uses: benchmark-action/github-action-benchmark@v1
-      with:
-        name: "Ledger Backtest Benchmark"
-        tool: "customSmallerIsBetter"
-        output-file-path: benchmark.json
-        github-token: ${{ inputs.github-token || github.token }}
-        skip-fetch-gh-pages: true
-        auto-push: false
-        alert-threshold: "0%"
-        fail-on-alert: false
-        comment-always: false
-
-    - name: Post PR Comment with baseline vs new (Markdown table)
-      if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
+    - name: Update PR comment (running)
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
       uses: actions/github-script@v9
+      env:
+        JOB: replay
+        STATUS: running
       with:
         github-token: ${{ inputs.github-token || github.token }}
         script: |
-          const baseline_sps = parseFloat(process.env.SPS_BASELINE);
-          const newval_sps = parseFloat(process.env.SPS_NEWVAL);
-          const sps_ratio = parseFloat(process.env.SPS_RATIO);
-          const sps_pct_change = ((newval_sps - baseline_sps) * 100 / baseline_sps).toFixed(3);
+          const { execSync } = require('child_process');
+          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
+          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
+          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
 
-          const baseline_total_elapsed = parseFloat(process.env.TOTAL_ELAPSED_BASELINE);
-          const newval_total_elapsed = parseFloat(process.env.TOTAL_ELAPSED_NEWVAL);
-          const total_elapsed_ratio = parseFloat(process.env.TOTAL_ELAPSED_RATIO);
-          const total_elapsed_pct_change = ((newval_total_elapsed - baseline_total_elapsed) * 100 / baseline_total_elapsed).toFixed(3);
+    - run: $BENCH_DIR/tools/bench.sh build new
 
-          const baseline_snapshot_load = parseFloat(process.env.SNAPSHOT_LOAD_BASELINE);
-          const newval_snapshot_load = parseFloat(process.env.SNAPSHOT_LOAD_NEWVAL);
-          const snapshot_load_ratio = parseFloat(process.env.SNAPSHOT_LOAD_RATIO);
-          const snapshot_load_pct_change = ((newval_snapshot_load - baseline_snapshot_load) * 100 / baseline_snapshot_load).toFixed(3);
+    - name: Checkout main
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ env.BASE_SHA }}
+        clean: false
+    - run: $BENCH_DIR/tools/bench.sh build base
 
-          const baseline_default_mem = parseFloat(process.env.DEFAULT_MEM_BASELINE);
-          const newval_default_mem = parseFloat(process.env.DEFAULT_MEM_NEWVAL);
-          const default_mem_ratio = parseFloat(process.env.DEFAULT_MEM_RATIO);
-          const default_mem_pct_change = ((newval_default_mem - baseline_default_mem) * 100 / baseline_default_mem).toFixed(3);
+    - name: Checkout PR
+      uses: actions/checkout@v7
+      with:
+        clean: false
 
-          // Helper for status icon
-          const changeIcon = (pct, max) => {
-            const num = parseFloat(pct);
-            return num > max ? "⚠️" : "✅";
-          };
+    # Publishes compile/binsize/mem rows before the replays run.
+    - name: Update PR comment (partial)
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: actions/github-script@v9
+      env:
+        JOB: replay
+        STATUS: partial
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const { execSync } = require('child_process');
+          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
+          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
+          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
 
-          // Format numbers with units and backticks
-          const fmt = (val, unit) => `\`${val} ${unit}\``;
+    - run: contrib/ci/bench/bench.sh replay base
+      continue-on-error: true  # a baseline that cannot run is not the PR's fault; its rows stay pending
+    - run: contrib/ci/bench/bench.sh replay new
 
-          const table = `
-          ## Performance Measurements ⏳
-          | Suite  | Baseline | New   | Change |
-          |--------|----------|-------|--------|
-          | backtest \`mainnet-424669000-perf\` per slot | ${fmt(baseline_sps, "s")} | ${fmt(newval_sps, "s")} | \`${sps_pct_change}%\` ${changeIcon(sps_pct_change, 5.0)} |
-          | backtest \`mainnet-424669000-perf\` snapshot load | ${fmt(baseline_snapshot_load, "s")} | ${fmt(newval_snapshot_load, "s")} | \`${snapshot_load_pct_change}%\` ${changeIcon(snapshot_load_pct_change, 5.0)} |
-          | backtest \`mainnet-424669000-perf\` total elapsed | ${fmt(baseline_total_elapsed, "s")} | ${fmt(newval_total_elapsed, "s")} | \`${total_elapsed_pct_change}%\` ${changeIcon(total_elapsed_pct_change, 5.0)} |
-          | \`firedancer mem\` usage with \`mainnet.toml\` | ${fmt(baseline_default_mem, "GiB")} | ${fmt(newval_default_mem, "GiB")} | \`${default_mem_pct_change}%\` ${changeIcon(default_mem_pct_change, 5.0)} |
-          `;
+    - name: Update PR comment (done)
+      if: always() && github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: actions/github-script@v9
+      env:
+        JOB: replay
+        STATUS: ${{ job.status == 'success' && 'done' || 'failed' }}
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const { execSync } = require('child_process');
+          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
+          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
+          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
 
-          const body = table;
+    # always(): a timeout counts as cancelled and its logs matter most.
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: bench-replay-${{ github.run_id }}
+        path: |
+          ${{ env.BENCH_DIR }}
+          !${{ env.BENCH_DIR }}/*/bin/**
+        retention-days: 90
+        overwrite: true
 
-          const isFromFork = context.payload.pull_request.head.repo.fork;
 
-          if (!isFromFork) {
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body
-            });
-          }
+  bench-snapshot:
+    runs-on:
+      labels: [self-hosted, 512G]
+      group: fd-public-repo
+    timeout-minutes: 6
+    env:
+      CC: gcc
+      MACHINE: ${{ inputs.machine }}
+      BENCH_DIR: ${{ github.workspace }}/../bench
+      DUMP_DIR: ${{ github.workspace }}/../dump
+      BENCH_SNAP_LEDGER: ${{ inputs.snapshot-ledger }}
 
-          console.log(body)
+    steps:
+    - uses: actions/checkout@v7
+    - uses: ./.github/actions/deps
+    - uses: ./.github/actions/hugepages
+      with:
+        # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
+        count_gigantic: 398
+        count_huge: 1024
+    - uses: ./.github/actions/cpusonline
+    - uses: actions/setup-node@v7
+
+    - name: Prepare
+      run: |
+        sudo rm -f $DUMP_DIR/accounts.db            # left by a job that died mid-backtest
+        rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
+        echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
+        cp -r contrib/ci/bench $BENCH_DIR/tools
+        BASE_SHA=${{ github.event.pull_request.base.sha }}  # fixed per event, so all three jobs compare against the same main
+        [ -n "$BASE_SHA" ] || { git fetch --depth=1 origin main; BASE_SHA=$(git rev-parse FETCH_HEAD); }  # workflow_dispatch
+        echo BASE_SHA=$BASE_SHA >> $GITHUB_ENV
+        echo HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }} >> $GITHUB_ENV
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; } > $BENCH_DIR/runner.txt 2>&1 || true
+
+    - name: Update PR comment (running)
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: actions/github-script@v9
+      env:
+        JOB: snapshot
+        STATUS: running
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const { execSync } = require('child_process');
+          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
+          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
+          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
+
+    - run: $BENCH_DIR/tools/bench.sh build new
+
+    - name: Checkout main
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ env.BASE_SHA }}
+        clean: false
+    - run: $BENCH_DIR/tools/bench.sh build base
+
+    - name: Checkout PR
+      uses: actions/checkout@v7
+      with:
+        clean: false
+
+    - run: contrib/ci/bench/bench.sh snapshot base
+      continue-on-error: true  # a baseline that cannot run is not the PR's fault; its rows stay pending
+    - run: contrib/ci/bench/bench.sh snapshot new
+
+    - name: Update PR comment (done)
+      if: always() && github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: actions/github-script@v9
+      env:
+        JOB: snapshot
+        STATUS: ${{ job.status == 'success' && 'done' || 'failed' }}
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const { execSync } = require('child_process');
+          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
+          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
+          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
+
+    # always(): a timeout counts as cancelled and its logs matter most.
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: bench-snapshot-${{ github.run_id }}
+        path: |
+          ${{ env.BENCH_DIR }}
+          !${{ env.BENCH_DIR }}/*/bin/**
+        retention-days: 90
+        overwrite: true
+
+
+  bench-tps:
+    runs-on:
+      labels: [self-hosted, 512G]
+      group: fd-public-repo
+    timeout-minutes: 6
+    env:
+      CC: gcc
+      MACHINE: ${{ inputs.machine }}
+      BENCH_DIR: ${{ github.workspace }}/../bench
+      DUMP_DIR: ${{ github.workspace }}/../dump
+
+    steps:
+    - uses: actions/checkout@v7
+    - uses: ./.github/actions/deps
+    - uses: ./.github/actions/hugepages
+      with:
+        # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
+        count_gigantic: 398
+        count_huge: 1024
+    - uses: ./.github/actions/cpusonline
+    - uses: actions/setup-node@v7
+
+    - name: Prepare
+      run: |
+        sudo rm -f $DUMP_DIR/accounts.db            # left by a job that died mid-backtest
+        rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
+        echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
+        cp -r contrib/ci/bench $BENCH_DIR/tools
+        BASE_SHA=${{ github.event.pull_request.base.sha }}  # fixed per event, so all three jobs compare against the same main
+        [ -n "$BASE_SHA" ] || { git fetch --depth=1 origin main; BASE_SHA=$(git rev-parse FETCH_HEAD); }  # workflow_dispatch
+        echo BASE_SHA=$BASE_SHA >> $GITHUB_ENV
+        echo HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }} >> $GITHUB_ENV
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; } > $BENCH_DIR/runner.txt 2>&1 || true
+
+    - name: Update PR comment (running)
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: actions/github-script@v9
+      env:
+        JOB: bench
+        STATUS: running
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const { execSync } = require('child_process');
+          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
+          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
+          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
+
+    - run: $BENCH_DIR/tools/bench.sh build new
+
+    - name: Checkout main
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ env.BASE_SHA }}
+        clean: false
+    - run: $BENCH_DIR/tools/bench.sh build base
+
+    - name: Checkout PR
+      uses: actions/checkout@v7
+      with:
+        clean: false
+
+    - run: contrib/ci/bench/bench.sh bench base
+      continue-on-error: true  # a baseline that cannot run is not the PR's fault; its rows stay pending
+    - run: contrib/ci/bench/bench.sh bench new
+
+    - name: Update PR comment (done)
+      if: always() && github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: actions/github-script@v9
+      env:
+        JOB: bench
+        STATUS: ${{ job.status == 'success' && 'done' || 'failed' }}
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const { execSync } = require('child_process');
+          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
+          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
+          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
+
+    # always(): a timeout counts as cancelled and its logs matter most.
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: bench-tps-${{ github.run_id }}
+        path: |
+          ${{ env.BENCH_DIR }}
+          !${{ env.BENCH_DIR }}/*/bin/**
+        retention-days: 90
+        overwrite: true
+
