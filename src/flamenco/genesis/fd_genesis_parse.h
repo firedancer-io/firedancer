@@ -4,7 +4,7 @@
 #include "../fd_flamenco_base.h"
 
 /* Hardcoded genesis array limits */
-#define FD_GENESIS_ACCOUNT_MAX_COUNT (65536UL)
+#define FD_GENESIS_ACCOUNT_MAX_COUNT (131072UL)
 #define FD_GENESIS_BUILTIN_MAX_COUNT (16UL)
 
 #define FD_GENESIS_TYPE_TESTNET     (0)
@@ -26,7 +26,7 @@ typedef struct fd_genesis_builtin_off fd_genesis_builtin_off_t;
 
 /* fd_genesis_t helps interpret a genesis blob.  Contains deserialized
    values and offsets to binary account data.  This is a very large
-   struct (~1 MiB) so it should not be stack allocated. */
+   struct (~2 MiB) so it should not be stack allocated. */
 
 struct fd_genesis {
   ulong creation_time;

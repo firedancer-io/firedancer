@@ -1,10 +1,13 @@
 #include "fd_genesis_create.h"
 
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/fd_pubkey_utils.h"
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_vote_program.h"
+#include "../runtime/program/fd_bpf_loader_program.h"
 #include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/genesis/src/main.rs#L69 */
 #define FD_GENESIS_VAT_MINIMUM_LAMPORTS (1600000000UL*100UL)
@@ -46,6 +49,44 @@ typedef struct fd_genesis_account_pair fd_genesis_account_pair_t;
 #define SORT_KEY_T fd_genesis_account_pair_t
 #define SORT_BEFORE(a,b) (0>memcmp( (a).key.ul, (b).key.ul, sizeof(fd_pubkey_t) ))
 #include "../../util/tmpl/fd_sort.c"
+
+/* SPL Token state layout sizes.  See
+   https://github.com/solana-program/token/blob/program%40v8.0.0/interface/src/state.rs */
+
+#define SPL_TOKEN_MINT_SZ    ( 82UL)
+#define SPL_TOKEN_ACCOUNT_SZ (165UL)
+
+/* token_addr derives the address of one of the token accounts, or of
+   the mint.  The addresses are domain separated SHA-256 hashes, so they
+   cannot collide with the ed25519 keys of the primordial accounts. */
+
+#define TOKEN_ADDR_KIND_MINT ((uchar)0xFF)
+
+FD_STATIC_ASSERT( FD_GENESIS_TOKEN_ACCOUNTS_PER_ACCOUNT<TOKEN_ADDR_KIND_MINT, token_addr_kind );
+
+static void
+token_addr( fd_pubkey_t * out,
+            ulong         acct_idx,
+            uchar         kind ) {
+  fd_sha256_t sha[1];
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "fd_genesis_token", 16UL          );
+  fd_sha256_append( sha, &kind,              sizeof(uchar) );
+  fd_sha256_append( sha, &acct_idx,          sizeof(ulong) );
+  fd_sha256_fini( sha, out->uc );
+}
+
+void
+fd_genesis_token_mint_address( fd_pubkey_t * out ) {
+  token_addr( out, 0UL, TOKEN_ADDR_KIND_MINT );
+}
+
+void
+fd_genesis_token_account_address( fd_pubkey_t * out,
+                                  ulong         acct_idx,
+                                  ulong         token_idx ) {
+  token_addr( out, acct_idx, (uchar)token_idx );
+}
 
 static inline uchar *
 emit_u8( uchar * p, uchar * end, uchar v ) {
@@ -382,6 +423,17 @@ genesis_create( void *                       buf,
   ulong feature_gate_idx = genesis->accounts_len;
   REQUIRE( !__builtin_add_overflow( genesis->accounts_len, feature_cnt, &genesis->accounts_len ) );
 
+  /* Program account, programdata account, mint, and a fixed number of
+     token accounts per primordial account. */
+  int   const token_enabled = !!options->token_program_elf;
+  ulong       token_cnt     = 0UL;
+  if( token_enabled ) {
+    REQUIRE( !__builtin_mul_overflow( default_funded_cnt, FD_GENESIS_TOKEN_ACCOUNTS_PER_ACCOUNT, &token_cnt ) );
+    REQUIRE( !__builtin_add_overflow( token_cnt, 3UL, &token_cnt ) );
+  }
+  ulong token_idx = genesis->accounts_len;
+  REQUIRE( !__builtin_add_overflow( genesis->accounts_len, token_cnt, &genesis->accounts_len ) );
+
   ulong accounts_sz;
   REQUIRE( !__builtin_mul_overflow( genesis->accounts_len, sizeof(fd_genesis_account_pair_t), &accounts_sz ) );
   REQUIRE( fd_scratch_alloc_is_safe( alignof(fd_genesis_account_pair_t), accounts_sz ) );
@@ -446,6 +498,126 @@ genesis_create( void *                       buf,
     };
   }
 #undef FEATURE_ENABLED_SZ
+
+  /* Deploy an SPL Token compatible program and set up the token
+     accounts */
+
+  if( token_enabled ) {
+    ulong const elf_sz             = options->token_program_elf_sz;
+    ulong const token_cnt_per_owner = FD_GENESIS_TOKEN_ACCOUNTS_PER_ACCOUNT;
+
+    /* Program account: UpgradeableLoaderState::Program { programdata_address } */
+
+    fd_pubkey_t programdata_addr[1];
+    uchar const * seed  = fd_solana_spl_token_id.uc;
+    ulong const   seedsz = sizeof(fd_pubkey_t);
+    uchar         bump;
+    uint          custom_err;
+    REQUIRE( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( &fd_solana_bpf_loader_upgradeable_program_id,
+                                                                1UL, &seed, &seedsz,
+                                                                programdata_addr, &bump, &custom_err ) );
+
+    REQUIRE( fd_scratch_alloc_is_safe( 1UL, SIZE_OF_PROGRAM ) );
+    uchar * program_data = fd_scratch_alloc( 1UL, SIZE_OF_PROGRAM );
+    fd_memset( program_data, 0, SIZE_OF_PROGRAM );
+    FD_STORE( uint, program_data, 2U ); /* UpgradeableLoaderState::Program */
+    fd_memcpy( program_data+4UL, programdata_addr->uc, sizeof(fd_pubkey_t) );
+
+    genesis->accounts[ token_idx++ ] = (fd_genesis_account_pair_t) {
+      .key     = fd_solana_spl_token_id,
+      .account = (fd_genesis_account_t) {
+        .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, SIZE_OF_PROGRAM ),
+        .data_len   = SIZE_OF_PROGRAM,
+        .data       = program_data,
+        .owner      = fd_solana_bpf_loader_upgradeable_program_id,
+        .executable = 1
+      }
+    };
+
+    /* ProgramData account: UpgradeableLoaderState::ProgramData {
+       slot, upgrade_authority_address } followed by the ELF.  The
+       metadata is always padded out to the size of a Some(pubkey)
+       authority, matching Agave. */
+
+    ulong programdata_sz;
+    REQUIRE( !__builtin_add_overflow( elf_sz, PROGRAMDATA_METADATA_SIZE, &programdata_sz ) );
+    REQUIRE( fd_scratch_alloc_is_safe( 1UL, programdata_sz ) );
+    uchar * programdata = fd_scratch_alloc( 1UL, programdata_sz );
+    fd_memset( programdata, 0, PROGRAMDATA_METADATA_SIZE );
+    FD_STORE( uint, programdata, 3U ); /* UpgradeableLoaderState::ProgramData */
+    fd_memcpy( programdata+PROGRAMDATA_METADATA_SIZE, options->token_program_elf, elf_sz );
+
+    genesis->accounts[ token_idx++ ] = (fd_genesis_account_pair_t) {
+      .key     = *programdata_addr,
+      .account = (fd_genesis_account_t) {
+        .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, programdata_sz ),
+        .data_len   = programdata_sz,
+        .data       = programdata,
+        .owner      = fd_solana_bpf_loader_upgradeable_program_id
+      }
+    };
+
+    /* Mint with no mint or freeze authority.  Supply does not need to
+       be consistent with the token accounts for transfers to work, but
+       keep it honest anyway. */
+
+    fd_pubkey_t mint_addr[1];
+    fd_genesis_token_mint_address( mint_addr );
+
+    REQUIRE( fd_scratch_alloc_is_safe( 1UL, SPL_TOKEN_MINT_SZ ) );
+    uchar * mint_data = fd_scratch_alloc( 1UL, SPL_TOKEN_MINT_SZ );
+    fd_memset( mint_data, 0, SPL_TOKEN_MINT_SZ );
+    ulong token_account_cnt;
+    ulong token_supply;
+    REQUIRE( !__builtin_mul_overflow( token_cnt_per_owner, default_funded_cnt, &token_account_cnt ) );
+    REQUIRE( !__builtin_mul_overflow( token_account_cnt, FD_GENESIS_TOKEN_AMOUNT, &token_supply ) );
+    FD_STORE( ulong, mint_data+36UL, token_supply ); /* supply */
+    mint_data[ 45 ] = 1; /* is_initialized */
+
+    genesis->accounts[ token_idx++ ] = (fd_genesis_account_pair_t) {
+      .key     = *mint_addr,
+      .account = (fd_genesis_account_t) {
+        .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, SPL_TOKEN_MINT_SZ ),
+        .data_len   = SPL_TOKEN_MINT_SZ,
+        .data       = mint_data,
+        .owner      = fd_solana_spl_token_id
+      }
+    };
+
+    /* Initialized token accounts owned by each primordial account, all
+       holding the same balance of the mint above. */
+
+    ulong token_accounts_sz;
+    REQUIRE( !__builtin_mul_overflow( token_account_cnt, SPL_TOKEN_ACCOUNT_SZ, &token_accounts_sz ) );
+    REQUIRE( fd_scratch_alloc_is_safe( 1UL, token_accounts_sz ) );
+    uchar * token_accounts = fd_scratch_alloc( 1UL, token_accounts_sz );
+    fd_memset( token_accounts, 0, token_accounts_sz );
+
+    ulong const token_min_bal = fd_rent_exempt_minimum_balance( &genesis->rent, SPL_TOKEN_ACCOUNT_SZ );
+    for( ulong j=0UL; j<default_funded_cnt; j++ ) {
+      for( ulong k=0UL; k<token_cnt_per_owner; k++ ) {
+        uchar * data = token_accounts + (token_cnt_per_owner*j+k)*SPL_TOKEN_ACCOUNT_SZ;
+        fd_memcpy( data,      mint_addr->uc,                                    sizeof(fd_pubkey_t) );
+        fd_memcpy( data+32UL, genesis->accounts[ default_funded_idx+j ].key.uc, sizeof(fd_pubkey_t) );
+        FD_STORE( ulong, data+64UL, FD_GENESIS_TOKEN_AMOUNT ); /* amount */
+        data[ 108 ] = 1; /* state = Initialized */
+
+        fd_pubkey_t key[1];
+        fd_genesis_token_account_address( key, j, k );
+        genesis->accounts[ token_idx++ ] = (fd_genesis_account_pair_t) {
+          .key     = *key,
+          .account = (fd_genesis_account_t) {
+            .lamports   = token_min_bal,
+            .data_len   = SPL_TOKEN_ACCOUNT_SZ,
+            .data       = data,
+            .owner      = fd_solana_spl_token_id
+          }
+        };
+      }
+    }
+
+    REQUIRE( token_idx==genesis->accounts_len );
+  }
 
   /* Sort and check for duplicates */
 

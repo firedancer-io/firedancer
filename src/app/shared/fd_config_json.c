@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22974432UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22974464UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -169,6 +169,7 @@ static char const * const jw_reported_keys[] = {
   "tiles.replay.enable_features",
   "development.core_dump",
   "development.bench.affinity",
+  "development.bench.transaction_mode",
   "development.pktgen.affinity",
   "development.pktgen.fake_dst_ip",
   "development.udpecho.affinity",
@@ -488,6 +489,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "benchg_tile_count",            config->development.bench.benchg_tile_count );
       jw_ulong( &w, "benchs_tile_count",            config->development.bench.benchs_tile_count );
       jw_str  ( &w, "affinity",                     config->development.bench.affinity );
+      jw_str  ( &w, "transaction_mode",             config->development.bench.transaction_mode );
       jw_ulong( &w, "max_cost_per_block",           config->development.bench.max_cost_per_block );
       jw_ulong( &w, "max_shreds_per_block",         config->development.bench.max_shreds_per_block );
       jw_ulong( &w, "disable_blockstore_from_slot", config->development.bench.disable_blockstore_from_slot );

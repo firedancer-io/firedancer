@@ -28,6 +28,15 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 void
 update_config_for_dev( config_t * config );
 
+int
+bench_transaction_mode( char const * name ) {
+  if( !strcmp( name, ""                ) ) return BENCHG_TRANSACTION_MODE_NOOP;
+  if( !strcmp( name, "noop"            ) ) return BENCHG_TRANSACTION_MODE_NOOP;
+  if( !strcmp( name, "sol-transfer"    ) ) return BENCHG_TRANSACTION_MODE_SOL_TRANSFER;
+  if( !strcmp( name, "ptoken-transfer" ) ) return BENCHG_TRANSACTION_MODE_PTOKEN_TRANSFER;
+  return -1;
+}
+
 void
 bench_cmd_args( int *    pargc,
                 char *** pargv,
@@ -160,12 +169,16 @@ bench_topo( config_t * config ) {
     FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity], [layout.agave_affinity], and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
   }
 
+  int transaction_mode = bench_transaction_mode( config->development.bench.transaction_mode );
+  if( FD_UNLIKELY( transaction_mode<0 ) )
+    FD_LOG_ERR(( "unknown [development.bench.transaction_mode] `%s`", config->development.bench.transaction_mode ));
+
   add_bench_topo( &config->topo,
                   config->development.bench.affinity,
                   config->development.bench.benchg_tile_count,
                   config->development.bench.benchs_tile_count,
                   config->development.genesis.fund_initial_accounts,
-                  0, 0.0f, 0.0f,
+                  transaction_mode, 0.0f, 0.0f,
                   config->layout.quic_tile_count,
                   config->tiles.quic.quic_transaction_listen_port,
                   config->net.ip_addr,
