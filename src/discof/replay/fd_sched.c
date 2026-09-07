@@ -74,6 +74,27 @@ typedef struct fd_sched_mblk fd_sched_mblk_t;
 #define SET_MAX  FD_SCHED_MAX_DEPTH
 #include "../../util/tmpl/fd_set.c"
 
+/* An Alpenglow block is a sequence of block components, each its own
+   entry batch: a batch whose declared microblock count is zero carries a
+   block marker, any other batch carries entries.  The components must
+   appear in exactly this order:
+
+     block header
+     optional genesis certificate marker
+     zero or more entry batches
+     optional update parent marker
+     zero or more entry batches
+     block footer
+     alpentick
+
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/block_component_processor.rs */
+
+#define MARKER_STAGE_PRE_PARENT          ((uchar)0) /* Start of the block; only a block header is accepted. */
+#define MARKER_STAGE_GENESIS_OR_ENTRIES  ((uchar)1) /* Just past the header; a genesis certificate, entries, or the footer. */
+#define MARKER_STAGE_ENTRIES_OR_FOOTER   ((uchar)2) /* In the entry section; more entries, or the footer. */
+#define MARKER_STAGE_ALPENTICK           ((uchar)3) /* Just past the footer; only the alpentick. */
+#define MARKER_STAGE_DONE                ((uchar)4) /* Past the alpentick; nothing more is accepted. */
+
 struct fd_sched_block {
   ulong               slot;
   ulong               parent_slot;
@@ -215,6 +236,7 @@ struct fd_sched_block {
      marker and it is seen by sched; footer is only meaningful in that
      case. */
   int               footer_present;
+  uchar             marker_stage;   /* One of MARKER_STAGE_*; where in the Alpenglow block shape the parser is. */
   fd_block_footer_t footer;
 };
 typedef struct fd_sched_block fd_sched_block_t;
@@ -223,6 +245,85 @@ FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
 FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==141632UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
+
+/* marker_stage_on_entry_batch, marker_stage_on_marker and
+   marker_stage_on_final advance an Alpenglow block's component stage
+   over, respectively, an entry batch, a block marker, and the end of the
+   block.  Each returns FD_SCHED_DEAD_REASON_NONE if the component is
+   allowed where it appeared, or FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE
+   if it is not.  Only ever called when sched->is_alpenglow is set.  See
+   MARKER_STAGE_* above for the shape being enforced.
+
+   The alpentick is not fully accepted here: an entry batch in
+   MARKER_STAGE_ALPENTICK must be a single tick microblock advancing one
+   hash, and the microblock count is all that is known at this point, so
+   the parser finishes the transition to MARKER_STAGE_DONE once it has
+   the microblock header. */
+
+FD_WARN_UNUSED static int
+marker_stage_on_entry_batch( fd_sched_block_t * block, ulong mblk_cnt ) {
+  switch( block->marker_stage ) {
+    case MARKER_STAGE_PRE_PARENT:
+      FD_LOG_INFO(( "bad block: BAD_BLOCK_STRUCTURE, slot %lu, parent slot %lu, entry batch before the block header", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE;
+    case MARKER_STAGE_GENESIS_OR_ENTRIES:
+      block->marker_stage = MARKER_STAGE_ENTRIES_OR_FOOTER;
+      return FD_SCHED_DEAD_REASON_NONE;
+    case MARKER_STAGE_ENTRIES_OR_FOOTER:
+      return FD_SCHED_DEAD_REASON_NONE;
+    case MARKER_STAGE_ALPENTICK:
+      if( FD_UNLIKELY( mblk_cnt!=1UL ) ) {
+        FD_LOG_INFO(( "bad block: BAD_BLOCK_STRUCTURE, slot %lu, parent slot %lu, entry batch of %lu microblocks after the block footer", block->slot, block->parent_slot, mblk_cnt ));
+        return FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE;
+      }
+      return FD_SCHED_DEAD_REASON_NONE;
+    default: /* MARKER_STAGE_DONE */
+      FD_LOG_INFO(( "bad block: BAD_BLOCK_STRUCTURE, slot %lu, parent slot %lu, entry batch after the alpentick", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE;
+  }
+}
+
+FD_WARN_UNUSED static int
+marker_stage_on_marker( fd_sched_block_t * block, uchar variant ) {
+  /* GENESIS_CERTIFICATE never reaches here: fd_block_marker_de rejects
+     it as unsupported.  UPDATE_PARENT is unhandled and crashes below,
+     rather than being staged. */
+  if( FD_LIKELY( variant==FOOTER ) ) {
+    if( FD_UNLIKELY( block->marker_stage==MARKER_STAGE_PRE_PARENT ) ) {
+      FD_LOG_INFO(( "bad block: BAD_BLOCK_STRUCTURE, slot %lu, parent slot %lu, block footer before the block header", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE;
+    }
+    if( FD_UNLIKELY( block->marker_stage>=MARKER_STAGE_ALPENTICK ) ) {
+      FD_LOG_INFO(( "bad block: BAD_BLOCK_STRUCTURE, slot %lu, parent slot %lu, more than one block footer", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE;
+    }
+    block->marker_stage = MARKER_STAGE_ALPENTICK;
+    return FD_SCHED_DEAD_REASON_NONE;
+  }
+
+  if( FD_LIKELY( variant==HEADER ) ) {
+    if( FD_UNLIKELY( block->marker_stage!=MARKER_STAGE_PRE_PARENT ) ) {
+      FD_LOG_INFO(( "bad block: BAD_BLOCK_STRUCTURE, slot %lu, parent slot %lu, more than one block header", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE;
+    }
+    /* The header's declared parent_slot needs no cross-check against
+       block->parent_slot: under Alpenglow the latter is derived from
+       this very marker, which rotor parses out of shred 0 to chain the
+       block.  This is where Agave's HeaderParentSlotMismatch would go. */
+    block->marker_stage = MARKER_STAGE_GENESIS_OR_ENTRIES;
+    return FD_SCHED_DEAD_REASON_NONE;
+  }
+
+  FD_LOG_INFO(( "bad block: BAD_BLOCK_STRUCTURE, slot %lu, parent slot %lu, unexpected block marker variant %u", block->slot, block->parent_slot, (uint)variant ));
+  return FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE;
+}
+
+FD_WARN_UNUSED static int
+marker_stage_on_final( fd_sched_block_t * block ) {
+  if( FD_LIKELY( block->marker_stage==MARKER_STAGE_DONE ) ) return FD_SCHED_DEAD_REASON_NONE;
+  FD_LOG_INFO(( "bad block: BAD_BLOCK_STRUCTURE, slot %lu, parent slot %lu, block ended in stage %u without a footer followed by the alpentick", block->slot, block->parent_slot, (uint)block->marker_stage ));
+  return FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE;
+}
 
 
 struct fd_sched_metrics {
@@ -1161,6 +1262,17 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
+  if( FD_UNLIKELY( block->fec_eos && sched->is_alpenglow ) ) {
+    /* The block is fully ingested, so every component it will ever have
+       has been staged.  A block that never reached the alpentick is
+       missing the footer, the alpentick, or both. */
+    int stage_err = marker_stage_on_final( block );
+    if( FD_UNLIKELY( stage_err ) ) {
+      handle_bad_block( sched, block, stage_err );
+      return 0;
+    }
+  }
+
   /* We just received a FEC set, which may have made all transactions in
      a partially parsed microblock available.  If this were a malformed
      block that ends in a non-tick microblock, there's not going to be a
@@ -2096,6 +2208,7 @@ add_block( fd_sched_t * sched,
   block->zero_hash_tick               = 0;
 
   block->footer_present = 0;
+  block->marker_stage   = MARKER_STAGE_PRE_PARENT;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
@@ -2297,6 +2410,18 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST;
       }
 
+      if( FD_UNLIKELY( sched->is_alpenglow && block->marker_stage==MARKER_STAGE_ALPENTICK ) ) {
+        /* The alpentick is the only entry batch allowed after the block
+           footer, and it is a single tick microblock advancing exactly
+           one hash.  The batch's microblock count was checked when the
+           batch opened, so this microblock is the whole batch. */
+        if( FD_UNLIKELY( hdr->txn_cnt || hdr->hash_cnt!=1UL ) ) {
+          FD_LOG_INFO(( "bad block: BAD_BLOCK_STRUCTURE, slot %lu, parent slot %lu, entry batch after the block footer is not the alpentick, txn_cnt %lu, hash_cnt %lu", block->slot, block->parent_slot, hdr->txn_cnt, hdr->hash_cnt ));
+          return FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE;
+        }
+        block->marker_stage = MARKER_STAGE_DONE;
+      }
+
       block->mblks_rem--;
       block->txns_rem = hdr->txn_cnt;
 
@@ -2420,12 +2545,18 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
           FD_LOG_INFO(( "bad block: slot %lu, unable to parse footer marker (err %d)", block->slot, err ));
           return FD_SCHED_DEAD_REASON_BAD_FOOTER;
         }
-        if( marker->variant==FOOTER ) {
-          block->footer         = marker->footer;
-          block->footer_present = 1;
-        } else if( marker->variant==UPDATE_PARENT ) {
+        if( FD_UNLIKELY( marker->variant==UPDATE_PARENT ) ) {
           FD_LOG_CRIT(( "UNHANDLED alpenglow update parent: slot %lu, new_parent_slot %lu", block->slot, marker->update_parent.new_parent_slot ));
         }
+        int stage_err = marker_stage_on_marker( block, marker->variant );
+        if( FD_UNLIKELY( stage_err ) ) return stage_err;
+        if( FD_LIKELY( marker->variant==FOOTER ) ) {
+          block->footer         = marker->footer;
+          block->footer_present = 1;
+        }
+      } else if( FD_UNLIKELY( block->mblks_rem && sched->is_alpenglow ) ) {
+        int stage_err = marker_stage_on_entry_batch( block, block->mblks_rem );
+        if( FD_UNLIKELY( stage_err ) ) return stage_err;
       } else if( FD_UNLIKELY( !block->mblks_rem && !sched->is_alpenglow ) ) {
         FD_LOG_INFO(( "bad block: ZERO_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks)", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));
         return FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS;

@@ -4,6 +4,7 @@
 #include "../../util/fd_util.h"
 #include "fd_execrp.h"
 #include "fd_sched.h"
+#include "fd_block_marker.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 
@@ -638,6 +639,143 @@ run_late_ancestor_discard_case( void ) {
   fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
 }
 
+/* An Alpenglow block is a sequence of components, each its own entry
+   batch, and sched rules the block invalid if they do not appear in the
+   order a valid block must have.  AG_* name the components a structure
+   case emits; AG_TICK_ENTRY is the shape the alpentick has, and
+   AG_WIDE_ENTRY and AG_FAT_ENTRY are entry batches that are deliberately
+   not that shape, in the two ways an entry batch can fail to be it. */
+
+#define AG_HEADER      (0) /* block header marker              */
+#define AG_FOOTER      (1) /* block footer marker              */
+#define AG_TICK_ENTRY  (2) /* one tick microblock, one hash    */
+#define AG_WIDE_ENTRY  (3) /* two tick microblocks             */
+#define AG_FAT_ENTRY   (4) /* one tick microblock, two hashes  */
+
+/* encode_ag_component writes one block component into out and returns
+   its size.  Ticks carry a garbage PoH hash, which is fine here: the
+   hash is only compared once the microblock's hashing task completes,
+   and these cases never get that far. */
+
+static ulong
+encode_ag_component( uchar * out, int component ) {
+  if( component==AG_HEADER || component==AG_FOOTER ) {
+    fd_block_marker_t marker[ 1 ];
+    fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+    marker->variant = (uchar)fd_int_if( component==AG_HEADER, HEADER, FOOTER );
+    ulong sz = 0UL;
+    FD_TEST( !fd_block_marker_ser( marker, out, FD_BLOCK_FOOTER_SER_MAX, &sz ) );
+    return sz;
+  }
+
+  ulong mblk_cnt = component==AG_WIDE_ENTRY ? 2UL : 1UL;
+  ulong hash_cnt = component==AG_FAT_ENTRY  ? 2UL : 1UL;
+  FD_STORE( ulong, out, mblk_cnt );
+  ulong cursor = sizeof(ulong);
+  for( ulong i=0UL; i<mblk_cnt; i++ ) {
+    fd_microblock_hdr_t hdr = { .hash_cnt = hash_cnt, .txn_cnt = 0UL };
+    hash_from_seed( (fd_hash_t *)fd_type_pun( hdr.hash ), 0x5c1de5UL+i );
+    fd_memcpy( out+cursor, &hdr, sizeof(fd_microblock_hdr_t) );
+    cursor += sizeof(fd_microblock_hdr_t);
+  }
+  return cursor;
+}
+
+/* run_ag_structure_case ingests the given components, one per FEC set
+   and one batch each, and asserts the dead reason sched ends up with. */
+
+static void
+run_ag_structure_case( char const * name,
+                       int const *  components,
+                       ulong        component_cnt,
+                       int          expect_dead_reason ) {
+  ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
+  ulong block_cnt_max = 4UL;
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
+  void * mem          = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 1 /* alpenglow */ ) );
+  FD_TEST( sched );
+
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  int dead = 0;
+  for( ulong i=0UL; i<component_cnt; i++ ) {
+    static uchar encoded[ FD_BLOCK_FOOTER_SER_MAX ];
+    fd_memset( encoded, 0, sizeof(encoded) );
+    ulong encoded_sz = encode_ag_component( encoded, components[ i ] );
+
+    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    store_fec->data_sz       = encoded_sz;
+    store_fec->shred_offs[0] = (uint)encoded_sz;
+
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx          = 2UL,
+      .parent_bank_idx   = 1UL,
+      .slot              = TEST_ROOT_SLOT + 1UL,
+      .parent_slot       = TEST_ROOT_SLOT,
+      .fec               = store_fec,
+      .data              = encoded,
+      .shred_cnt         = 1U,
+      .is_last_in_batch  = 1U,
+      .is_last_in_block  = (uint)(i==component_cnt-1UL),
+      .is_first_in_block = (uint)(i==0UL)
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    if( FD_UNLIKELY( !fd_sched_fec_ingest( sched, fec ) ) ) { dead = 1; break; }
+  }
+
+  int dead_reason = fd_sched_get_dead_reason( sched, 2UL );
+  if( FD_UNLIKELY( dead_reason!=expect_dead_reason ) ) {
+    FD_LOG_ERR(( "alpenglow structure case \"%s\": expected dead reason %d, got %d (dead %d)", name, expect_dead_reason, dead_reason, dead ));
+  }
+  FD_TEST( dead==!!expect_dead_reason );
+
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  fd_sched_delete( fd_sched_leave( sched ) );
+  free( mem );
+}
+
+static void
+run_ag_structure_cases( void ) {
+  #define CASE( name, reason, ... ) do {                                                        \
+    int components[] = { __VA_ARGS__ };                                                         \
+    run_ag_structure_case( name, components, sizeof(components)/sizeof(int), reason );          \
+  } while( 0 )
+
+  #define BAD FD_SCHED_DEAD_REASON_BAD_BLOCK_STRUCTURE
+
+  /* The two shapes a valid block can have: with and without entries. */
+  CASE( "empty block",         FD_SCHED_DEAD_REASON_NONE, AG_HEADER, AG_FOOTER, AG_TICK_ENTRY );
+  CASE( "block with entries",  FD_SCHED_DEAD_REASON_NONE, AG_HEADER, AG_TICK_ENTRY, AG_TICK_ENTRY, AG_FOOTER, AG_TICK_ENTRY );
+
+  /* Nothing may precede the block header. */
+  CASE( "entries before header", BAD, AG_TICK_ENTRY, AG_FOOTER, AG_TICK_ENTRY );
+  CASE( "footer before header",  BAD, AG_FOOTER, AG_TICK_ENTRY );
+
+  /* Neither the header nor the footer may repeat. */
+  CASE( "two headers", BAD, AG_HEADER, AG_HEADER, AG_FOOTER, AG_TICK_ENTRY );
+  CASE( "header after entries", BAD, AG_HEADER, AG_TICK_ENTRY, AG_HEADER, AG_FOOTER, AG_TICK_ENTRY );
+  CASE( "two footers", BAD, AG_HEADER, AG_FOOTER, AG_FOOTER, AG_TICK_ENTRY );
+  CASE( "footer after alpentick", BAD, AG_HEADER, AG_FOOTER, AG_TICK_ENTRY, AG_FOOTER );
+
+  /* The alpentick is the only entry batch allowed after the footer, and
+     nothing at all is allowed after the alpentick. */
+  CASE( "wide entry after footer", BAD, AG_HEADER, AG_FOOTER, AG_WIDE_ENTRY );
+  CASE( "fat entry after footer",  BAD, AG_HEADER, AG_FOOTER, AG_FAT_ENTRY  );
+  CASE( "entries after alpentick", BAD, AG_HEADER, AG_FOOTER, AG_TICK_ENTRY, AG_TICK_ENTRY );
+
+  /* The block must reach the alpentick before it ends. */
+  CASE( "no footer",    BAD, AG_HEADER, AG_TICK_ENTRY );
+  CASE( "no alpentick", BAD, AG_HEADER, AG_TICK_ENTRY, AG_FOOTER );
+
+  #undef BAD
+  #undef CASE
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -650,6 +788,7 @@ main( int     argc,
   run_abandon_flavor_case();
   run_root_notify_flavor_case();
   run_late_ancestor_discard_case();
+  run_ag_structure_cases();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
