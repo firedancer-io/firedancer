@@ -1026,6 +1026,56 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
   FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
 }
 
+/* fd_quic_rng_ulong periodically rekeys the CSPRNG.  Verify that it only
+   does so at/after the deadline, and that the deadline advances. */
+
+FD_UNIT_TEST( quic_rng_reseed ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_state_t * state = fd_quic_get_state( sandbox->quic );
+
+  long const t0 = 1000000000L;
+  state->now           = t0;
+  state->rng_reseed_at = t0 + FD_QUIC_RNG_RESEED_INTERVAL;
+
+  uchar key0[ FD_CHACHA_KEY_SZ ];
+  memcpy( key0, state->_rng->key, sizeof(key0) );
+
+  /* No reseed strictly before the deadline */
+
+  for( ulong i=0UL; i<1024UL; i++ ) fd_quic_rng_ulong( state );
+  FD_TEST( state->rng_reseed_at==t0+FD_QUIC_RNG_RESEED_INTERVAL );
+  FD_TEST( !memcmp( state->_rng->key, key0, sizeof(key0) ) );
+
+  state->now = state->rng_reseed_at - 1L;
+  fd_quic_rng_ulong( state );
+  FD_TEST( state->rng_reseed_at==t0+FD_QUIC_RNG_RESEED_INTERVAL );
+  FD_TEST( !memcmp( state->_rng->key, key0, sizeof(key0) ) );
+
+  /* Reseed exactly at the deadline */
+
+  state->now = state->rng_reseed_at;
+  long const t1 = state->now;
+  fd_quic_rng_ulong( state );
+  FD_TEST( state->rng_reseed_at==t1+FD_QUIC_RNG_RESEED_INTERVAL );
+  FD_TEST( memcmp( state->_rng->key, key0, sizeof(key0) )!=0 );
+
+  /* ... and not again until the new deadline */
+
+  memcpy( key0, state->_rng->key, sizeof(key0) );
+  state->now = state->rng_reseed_at - 1L;
+  for( ulong i=0UL; i<1024UL; i++ ) fd_quic_rng_ulong( state );
+  FD_TEST( state->rng_reseed_at==t1+FD_QUIC_RNG_RESEED_INTERVAL );
+  FD_TEST( !memcmp( state->_rng->key, key0, sizeof(key0) ) );
+
+  /* A clock jump well past the deadline reseeds once */
+
+  state->now = state->rng_reseed_at + 3L*FD_QUIC_RNG_RESEED_INTERVAL;
+  long const t2 = state->now;
+  fd_quic_rng_ulong( state );
+  FD_TEST( state->rng_reseed_at==t2+FD_QUIC_RNG_RESEED_INTERVAL );
+  FD_TEST( memcmp( state->_rng->key, key0, sizeof(key0) )!=0 );
+}
+
 int
 main( int     argc,
       char ** argv ) {
