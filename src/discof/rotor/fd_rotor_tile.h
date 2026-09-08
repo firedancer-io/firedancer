@@ -4,8 +4,10 @@
 #include "../../disco/tiles.h"
 #include "../../disco/shred/fd_shred_tile.h"
 
-/* Rotor tile forwards FECs in replay order to replay tile with the following sigs:
-   - REPAIR_SIG_FEC: FEC set complete
+/* Rotor OUTPUTS
+
+   Rotor tile forwards FECs in replay order to replay tile with sig
+   ROTOR_SIG_FEC_REPLAY.
 
    However since rotor is a direct drop in for repair tile, we have to make
    sure the sigs do not clobber the repair tile's sigs.
@@ -62,7 +64,12 @@
    never gets re-keyed (so it can never collide with the verified bank
    keyed {slot, block_id}), and is eventually evicted or pruned.
 
-   PRUNING
+   INPUTS: REPLAY
+
+   Rotor tile consumes from replay tile the sigs
+   REPLAY_SIG_ROOT_ADVANCED and REPLAY_SIG_MISSING_FEC.
+
+   Pruning:
 
    Rooting is not done off of votor rooting messages, but by
    replay root advance updates.  Consider the following case:
@@ -87,13 +94,44 @@
    can't be evicted.
 
    Rotor can safely assume anything below the notified root is
-   no longer needed. */
+   no longer needed.
 
-// TODO remove after reasm removal
+   Eviction:
+
+   Replay can evict leaf banks at will, without rotor's knowledge.  This
+   means rotor may continue deliverying down a lineage that banks cannot
+   immediately replay, since it has evicted an ancestor.  When that
+   occurs, replay should drain the rotor in-link dcache and send a
+   REPLAY_SIG_MISSING_FEC to rotor.  Rotor then sends it's next FEC set
+   with the full lineage starting from the chainer root.  It does this
+   only for the next FEC set to deliver.  If repeated evictions occur,
+   rotor can expect repeated REPLAY_SIG_MISSING_FEC messages to arrive,
+   and many redundant FECs to be delivered.
+
+   We assume currently that chainer will not require eviction.  The
+   default size is bounded to the Agave cap on future certs it tracks.
+   We can bound rotor even tighter once dynamic vote timeouts are
+   implemented, and thus rotor should always have all the data replay
+   needs.
+
+   INPUTS: NET
+
+   Alpenglow introduces three new repair types: ShredForBlockId,
+   ParentAndFecCount, and FecRoot.  ShredForBlockId response type is a
+   regular shred, similar to the legacy repair types, so those responses
+   get routed through the shred tile and are matched by nonce for
+   verification.
+
+   ParentAndFecCount and FecRoot response types are metadata, not
+   regular shreds. Thus the net tile routes them directly to the rotor
+   tile.  The routing is done entirely by packet size, so rotor tile
+   filters and validates aggressively.  The responses are matches by
+   nonce and verified before being ingested by the chainer. */
+
+/* keep in line with repair tile sigs */
 #define REPAIR_SIG_FEC         (0UL)
 #define REPAIR_SIG_FEC_LEADER  (1UL)
 #define REPAIR_SIG_FEC_INVALID (2UL)
-
 /* alpenglow type - replayable fec */
 #define ROTOR_SIG_FEC_REPLAY  (3UL)
 
