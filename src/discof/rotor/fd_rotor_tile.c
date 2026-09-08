@@ -640,8 +640,14 @@ after_alpen_meta_repair( ctx_t * ctx,
   fd_pubkey_t to = {0};
   if( FD_UNLIKELY( request->slot <= ctx->chainer->root ) ) goto cleanup; /* rooted in flight: obsolete */
 
+  /* The request queue drains one message per credit and ag_req_queue_push
+     does not check for space, so every push below is guarded.  When the
+     queue cannot take what a response implies, the inflight is left in
+     place and the aged-out redispatch retries it later. */
+
   if( FD_UNLIKELY( ( response->kind == AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT && request->kind != AG_REPAIR_KIND_PARENT_FEC_COUNT ) ||
                    ( response->kind == AG_REPAIR_RESPONSE_FEC_SET_ROOT         && request->kind != AG_REPAIR_KIND_FEC_ROOT ) ) ) {
+    if( FD_UNLIKELY( ag_req_queue_full( ctx->ag_req_queue ) ) ) return;
     // recreate original message for req_queue
     fd_repair_msg_t * msg = ( request->kind==AG_REPAIR_KIND_PARENT_FEC_COUNT )
                               ? ag_repair_parent_and_fec_set_count( ctx->protocol, &to, (ulong)(fd_log_wallclock()/(long)1e6), ctx->ag_nonce++, request->slot, &request->block_id )
@@ -660,10 +666,15 @@ after_alpen_meta_repair( ctx_t * ctx,
         FD_BASE58_ENCODE_32_BYTES( request->block_id.uc, block_id );
         FD_LOG_INFO(( "failed to verify ParentFecSetCount response for nonce: %u, slot: %lu, block_id: %s", nonce, request->slot, block_id ));
         ctx->metrics->failed_parent_fec_count_cnt++;
+        if( FD_UNLIKELY( ag_req_queue_full( ctx->ag_req_queue ) ) ) return;
         fd_repair_msg_t * msg = ag_repair_parent_and_fec_set_count( ctx->protocol, &to, (ulong)(fd_log_wallclock()/(long)1e6), ctx->ag_nonce++, request->slot, &request->block_id );
         ag_req_queue_push( ctx->ag_req_queue, *msg );
         goto cleanup;
       }
+
+      /* All of the block's FEC root requests are queued together or not
+         at all: a missing root is never re-requested on its own. */
+      if( FD_UNLIKELY( ag_req_queue_avail( ctx->ag_req_queue )<parent_fec_set_res->fec_set_count ) ) return;
 
       fd_chainer_verified_parent_fec_count( ctx->chainer, request->slot, &request->block_id, parent_fec_set_res->fec_set_count, parent_fec_set_res->parent_slot, &parent_fec_set_res->parent_block_id );
 
@@ -684,6 +695,7 @@ after_alpen_meta_repair( ctx_t * ctx,
         FD_BASE58_ENCODE_32_BYTES( request->block_id.uc, block_id );
         FD_LOG_INFO(( "failed to verify FecSetRoot response for nonce: %u, slot: %lu, fec_set_idx: %u, block_id: %s", nonce, request->slot, request->fec_set_idx, block_id ));
         ctx->metrics->failed_fec_root_cnt++;
+        if( FD_UNLIKELY( ag_req_queue_full( ctx->ag_req_queue ) ) ) return;
         fd_repair_msg_t * msg = ag_repair_fec_set_root( ctx->protocol, &to, (ulong)(fd_log_wallclock()/(long)1e6), ctx->ag_nonce++, request->slot, &request->block_id, request->fec_set_idx );
         ag_req_queue_push( ctx->ag_req_queue, *msg );
         goto cleanup;
