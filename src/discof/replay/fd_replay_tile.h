@@ -217,6 +217,7 @@ struct fd_replay_root_advanced {
   ulong     bank_seq;  /* fork discriminator of the rooted bank */
   ulong     slot;
   fd_hash_t bank_hash;
+  fd_hash_t block_id;
 };
 typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 

@@ -33,6 +33,7 @@ static void * test_out_mem[ TEST_OUT_MAX ];
 #define IN_IDX_SHRED  (1UL)
 #define IN_IDX_VOTOR  (2UL)
 #define IN_IDX_SIGN   (3UL)
+#define IN_IDX_REPLAY (4UL)
 
 typedef struct {
   ulong out_idx;
@@ -303,7 +304,7 @@ slot_version_cnt( fd_chainer_t * chainer, ulong slot ) {
    dcache buffers and pushed through before/during/after_frag; net frags
    go through after_frag's IN_KIND_NET path via ctx->net_buf. */
 
-static uchar * test_in_mem[ 4 ];
+static uchar * test_in_mem[ 5 ];
 
 /* noipa: keep GCC from constant-propagating sz into during_frag's
    inlined IN_KIND_SIGN branch (never taken here), which trips
@@ -473,6 +474,17 @@ static void
 deliver_votor( ctx_t * ctx, ulong sig, ulong slot, fd_hash_t const * block_id ) {
   fd_votor_repair_t msg = { .slot = slot, .block_id = *block_id };
   deliver_frag( ctx, IN_IDX_VOTOR, sig, &msg, sizeof(msg) );
+}
+
+/* deliver_replay_root models replay notifying a new root
+   (REPLAY_SIG_ROOT_ADVANCED).  Rotor roots the chainer off this, not
+   off votor's ROOTED, so it never prunes a slot replay may still need
+   to re-replay after a bank eviction. */
+
+static void
+deliver_replay_root( ctx_t * ctx, ulong slot, fd_hash_t const * block_id ) {
+  fd_replay_root_advanced_t msg = { .slot = slot, .block_id = *block_id };
+  deliver_frag( ctx, IN_IDX_REPLAY, REPLAY_SIG_ROOT_ADVANCED, &msg, sizeof(msg) );
 }
 
 /* deliver_turbine_block feeds a whole synthetic block through the
@@ -659,7 +671,9 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->in_kind[ IN_IDX_SHRED ] = IN_KIND_SHRED;
   ctx->in_kind[ IN_IDX_VOTOR ] = IN_KIND_VOTOR;
   ctx->in_kind[ IN_IDX_SIGN  ] = IN_KIND_SIGN;
-  for( ulong i=IN_IDX_SHRED; i<=IN_IDX_VOTOR; i++ ) {
+  ctx->in_kind[ IN_IDX_REPLAY ] = IN_KIND_REPLAY;
+  for( ulong i=IN_IDX_SHRED; i<=IN_IDX_REPLAY; i++ ) {
+    if( i==IN_IDX_SIGN ) continue; /* sign frags are read via ctx->sign_buf, not a dcache */
     void * buf = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, in_buf_sz, 1UL );
     FD_TEST( buf );
     test_in_mem[ i ]           = buf;
@@ -705,7 +719,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
    FEC completions deliver in order to replay (unverified, block_id only
    on the slot-complete FEC), the finalized block_id matches an
    independent double-merkle computation, equivocating/code/EQVOC shreds
-   are dropped, resolver evictions rewind the slot, and a votor ROOTED
+   are dropped, resolver evictions rewind the slot, and a replay ROOT_ADVANCED
    frag publishes the chainer root. */
 
 static void
@@ -808,10 +822,10 @@ test_turbine_shreds( fd_wksp_t * wksp ) {
   FD_TEST( fd_chainer_in_repair( ctx->chainer, v1 ) );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
-  /* Votor roots the completed block: everything below is pruned. */
+  /* Replay roots the completed block: everything below is pruned. */
 
   pump( ctx );
-  deliver_votor( ctx, FD_VOTOR_SIG_ROOTED, blk->slot, &blk->block_id );
+  deliver_replay_root( ctx, blk->slot, &blk->block_id );
   FD_TEST( ctx->chainer->root==blk->slot );
   FD_TEST( !fd_chainer_slot_query( ctx->chainer, SNAP_SLOT ) );
   FD_TEST( fd_chainer_slot_query( ctx->chainer, next_slot ) ); /* above the root: survives */
@@ -1241,10 +1255,10 @@ test_votor_notar_fallback( fd_wksp_t * wksp ) {
   FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==slot );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
-  /* Votor roots cert version B: the turbine version and the five other
+  /* Replay roots cert version B: the turbine version and the five other
      cert versions are all pruned. */
 
-  deliver_votor( ctx, FD_VOTOR_SIG_ROOTED, slot, &blkB->block_id );
+  deliver_replay_root( ctx, slot, &blkB->block_id );
   FD_TEST( ctx->chainer->root==slot );
   FD_TEST( fd_chainer_slot_version_query( ctx->chainer, slot, &blkB->block_id ) );
   FD_TEST( !fd_chainer_slot_version_query( ctx->chainer, slot, &blkA->block_id ) );
@@ -1545,7 +1559,7 @@ test_notar_fallback_same_block( fd_wksp_t * wksp ) {
 
   /* Rooting the block prunes the abandoned anchor. */
 
-  deliver_votor( ctx, FD_VOTOR_SIG_ROOTED, slot, &blk->block_id );
+  deliver_replay_root( ctx, slot, &blk->block_id );
   FD_TEST( ctx->chainer->root==slot );
   FD_TEST( slot_version_cnt( ctx->chainer, slot )==1UL );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
@@ -1650,7 +1664,7 @@ test_block_id_repair_only( fd_wksp_t * wksp ) {
              req_log[ i ].kind==AG_REPAIR_KIND_FEC_ROOT         ||
              req_log[ i ].kind==AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID );
 
-  deliver_votor( ctx, FD_VOTOR_SIG_ROOTED, slot, &blk->block_id );
+  deliver_replay_root( ctx, slot, &blk->block_id );
   FD_TEST( ctx->chainer->root==slot );
   FD_TEST( slot_version_cnt( ctx->chainer, slot )==1UL );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
@@ -1876,34 +1890,60 @@ test_deliver_from_root( fd_wksp_t * wksp ) {
 }
 
 /* ---------------------------------------------------------------------
-   test_deliver_from_root_arming: deliver_from_root is armed ONLY by
-   REPLAY_SIG_MISSING_FEC on the replay in-link.  before_frag filters
-   every other sig on that link, so after_frag (which sets the flag
-   unconditionally for IN_KIND_REPLAY) is only ever reached for the
-   MISSING_FEC signal.  This is the entry point of the whole recovery
-   round-trip: replay drops a FEC, publishes MISSING_FEC, rotor arms. */
+   test_deliver_from_root_arming: the replay in-link carries exactly two
+   signals into rotor.  REPLAY_SIG_MISSING_FEC arms the deliver_from_root
+   one-shot (replay dropped a FEC whose parent bank was evicted; rotor
+   must redeliver the ancestry path).  REPLAY_SIG_ROOT_ADVANCED roots the
+   chainer at replay's notified root -- rotor deliberately does NOT root
+   off votor's ROOTED, because votor can root a slot whose bank replay
+   has evicted, and pruning that slot's FECs would make it unrecoverable.
+   before_frag filters every other replay sig, and ROOT_ADVANCED must not
+   arm the one-shot. */
 
 static void
 test_deliver_from_root_arming( fd_wksp_t * wksp ) {
   static ctx_t ctx[1];
   setup_ctx( ctx, wksp );
 
-  ulong RIDX = 5UL; /* a spare in-link index; NET/SHRED/VOTOR/SIGN use 0..3 */
-  ctx->in_kind[ RIDX ] = IN_KIND_REPLAY;
+  /* before_frag: only MISSING_FEC and ROOT_ADVANCED pass (return 0). */
+  FD_TEST(  before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_SLOT_COMPLETED )!=0 );
+  FD_TEST(  before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_DROP_BANK_REF  )!=0 );
+  FD_TEST(  before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_REASM_EVICTED  )!=0 );
+  FD_TEST( !before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_MISSING_FEC    )    );
+  FD_TEST( !before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_ROOT_ADVANCED  )    );
 
-  /* before_frag: only REPLAY_SIG_MISSING_FEC passes (returns 0). */
-  FD_TEST(  before_frag( ctx, RIDX, 0UL, REPLAY_SIG_SLOT_COMPLETED )!=0 );
-  FD_TEST(  before_frag( ctx, RIDX, 0UL, REPLAY_SIG_ROOT_ADVANCED  )!=0 );
-  FD_TEST(  before_frag( ctx, RIDX, 0UL, REPLAY_SIG_DROP_BANK_REF  )!=0 );
-  FD_TEST( !before_frag( ctx, RIDX, 0UL, REPLAY_SIG_MISSING_FEC    )    );
+  /* votor ROOTED no longer reaches rotor at all. */
+  FD_TEST(  before_frag( ctx, IN_IDX_VOTOR, 0UL, FD_VOTOR_SIG_ROOTED )!=0 );
+  FD_TEST( !before_frag( ctx, IN_IDX_VOTOR, 0UL, FD_VOTOR_SIG_REPAIR )    );
 
   /* after_frag for the MISSING_FEC frag arms the one-shot.  The frag is
      zero-length (see notify_rotor_fec), so during_frag reads nothing. */
   FD_TEST( ctx->deliver_from_root==0 );
-  during_frag( ctx, RIDX, 0UL, REPLAY_SIG_MISSING_FEC, 0UL /*chunk*/, 0UL /*sz*/, 0UL /*ctl*/ );
+  during_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_MISSING_FEC, 0UL /*chunk*/, 0UL /*sz*/, 0UL /*ctl*/ );
   FD_TEST( !ctx->skip_frag );
-  after_frag( ctx, RIDX, 0UL, REPLAY_SIG_MISSING_FEC, 0UL, 0UL, 0UL, NULL );
+  after_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_MISSING_FEC, 0UL, 0UL, 0UL, NULL );
   FD_TEST( ctx->deliver_from_root==1 );
+  ctx->deliver_from_root = 0;
+
+  /* ROOT_ADVANCED for a block the chainer holds: chainer root moves to
+     it, the old root is pruned, and the one-shot stays clear. */
+  blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 1U }};
+  blk->fec_root[ 0 ] = mkhash( 0xA100UL );
+  blk_build( blk );
+  deliver_turbine_block( ctx, blk );
+  pump( ctx ); /* publish requires the chainer out_queue drained */
+  FD_TEST( ctx->chainer->root==SNAP_SLOT );
+
+  deliver_replay_root( ctx, blk->slot, &blk->block_id );
+  FD_TEST( ctx->chainer->root==blk->slot );
+  FD_TEST( !fd_chainer_slot_query( ctx->chainer, SNAP_SLOT ) );
+  FD_TEST(  fd_chainer_slot_query( ctx->chainer, blk->slot ) );
+  FD_TEST( ctx->deliver_from_root==0 );
+
+  /* A stale ROOT_ADVANCED (at or below the current root) is a no-op. */
+  deliver_replay_root( ctx, blk->slot, &blk->block_id );
+  FD_TEST( ctx->chainer->root==blk->slot );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
   FD_LOG_NOTICE(( "pass: test_deliver_from_root_arming" ));
 }
