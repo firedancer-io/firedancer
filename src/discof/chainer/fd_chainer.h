@@ -47,14 +47,14 @@
    re-requesting the shreds.  This case should be rare enough that the
    redundancy is worth the simplicity.
 
-   When that happens the turbine version is ABANDONED: arriving shreds
-   are still accepted and fill the FECs, but it never delivers to
-   replay, never finalizes a block_id, and is dropped from the repair
-   worklists.  Were it to keep delivering, and its block_id to finalize
-   to the same block a votor version is repairing, replay would
-   materialize two banks for the same {slot, block_id} (see
-   fd_rotor_tile.h).  An abandoned slotv is pruned with its slot at
-   publish.
+   When that happens both versions stay live.  They share the FECs
+   (the votor version's getFecRoot sentinels resolve to the roots the
+   turbine version already holds), so each completed FEC is delivered
+   once per version, and the turbine version finalizes its block_id to
+   the same value the votor version learned from the cert.  Replay owns
+   the deduplication of that second stream (see fd_rotor_tile.h), and
+   fd_chainer_publish prunes the non-canonical duplicate when the slot
+   roots.
 
    *Parent Discovery*
 
@@ -117,12 +117,6 @@ struct fd_chainer_slotv {
   ulong           prev; /* reserved by map_chain */
 
   uchar           turbine;   /* 1 for the slotv created through turbine */
-  uchar           abandoned; /* 1 once a votor-driven version of the slot was
-                                created while this (turbine) version's block_id
-                                was still unknown: keeps accepting shred/FEC
-                                bookkeeping but never delivers, never finalizes
-                                a block_id, and stays off the repair worklists.
-                                See the header comment above. */
   fd_hash_t       block_id;
   uint            complete_idx;
   uint            buffered_idx;     /* idx of highest buffered shred */
@@ -389,6 +383,14 @@ fd_chainer_notar_fallback( fd_chainer_t * chainer,
                            ulong          slot,
                            fd_hash_t      block_id );
 
+/* fd_chainer_verified_parent_fec_count is chainer's entrypoint for
+   updating information on what a slots fec set count, parent slot, and
+   parent block id are.  This mirrors the Alpenglow repair type
+   getParentAndFecSetCount.  The information should be verified before
+   calling this function; chainer does no verification.  Will CRIT if
+   {slot, block_id} does not exist in the chainer yet, otherwise creates
+   {parent, p_bid} slotv if it doesn't exist yet, and returns the slotv
+   associated with {slot, block_id}. */
 fd_chainer_slotv_t *
 fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
                                       ulong          slot,
@@ -397,6 +399,15 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
                                       ulong          parent_slot,
                                       fd_hash_t    * parent_block_id );
 
+/* fd_chainer_verified_hash_insert is chainer's entrypoint for updating
+   information on what a slotv's FEC root is.  This mirrors the Alpenglow
+   repair type getFecSetRoot.  The information should be verified before
+   calling this function; chainer does no verification.  Will CRIT if
+   {slot, block_id} does not exist in the chainer yet, otherwise creates
+   the FEC entry if it doesn't exist yet and updates bookkeeping.
+
+   Note this assumes the merkle root is the truncated 20-byte root
+   prefix. */
 void
 fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
                                  ulong          slot,

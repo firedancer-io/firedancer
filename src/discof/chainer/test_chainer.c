@@ -414,10 +414,8 @@ test_shared_prefix( fd_wksp_t * wksp ) {
 /* (c) A notar-fallback cert for a block that is still in flight from
    turbine.  We cannot compute the in-flight block's id yet, so we cannot
    tell the cert names the same block: a redundant slotv is created by
-   design, and the turbine version is abandoned -- it may be the same
-   block the cert version is repairing, and delivering both would hand
-   replay two banks for the same {slot, block_id}.  The structure must
-   stay consistent. */
+   design and both versions stay live (replay dedups the second
+   delivery stream).  The structure must stay consistent. */
 
 static void
 test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
@@ -456,13 +454,13 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v1 )==0UL );
   FD_TEST( !fec_at( chainer, 31UL, 0U, 1UL ) );
 
-  /* version 0 keeps its data but is abandoned: off the worklists, and
-     it will never deliver or finalize a block_id */
+  /* version 0 keeps its data and stays live: still in flight, still on
+     the repair worklist, parent known so not an orphan */
 
   FD_TEST( v0->buffered_idx==31U && v0->buffered_fec_idx==31U );
   FD_TEST( fec_at( chainer, 31UL, 0U, 0UL ) );
-  FD_TEST( v0->abandoned );
-  FD_TEST( !fd_chainer_in_repair( chainer, v0 ) && !fd_chainer_in_orphan( chainer, v0 ) );
+  FD_TEST( v0->turbine );
+  FD_TEST( fd_chainer_in_repair( chainer, v0 ) && !fd_chainer_in_orphan( chainer, v0 ) );
 
   /* a repeat of the same cert is a no-op -- no third version */
 
@@ -540,16 +538,15 @@ test_sentinel_before_turbine( fd_wksp_t * wksp ) {
   FD_TEST( v0->complete_idx    ==63U );
   FD_TEST( v0->buffered_idx    ==63U );
 
-  /* The cert abandoned version 0, so even though the turbine block is
-     whole its FEC prefix is not extended, its block_id never finalizes,
-     and its slot-complete FEC is not delivered.  Only set 0 -- queued
-     before the cert arrived -- ever reached replay. */
+  /* Version 0 stays live: the turbine block is whole, its FEC prefix
+     extends over set 1, its block_id finalizes, and its slot-complete
+     FEC is delivered under the turbine version.  Version 1 still lacks
+     set 0's root and delivers nothing yet. */
 
-  FD_TEST( v0->abandoned );
-  FD_TEST( v0->buffered_fec_idx==31U );
-  FD_TEST( fd_hash_check_zero( &v0->block_id ) );
-  out_rec_t exp[] = { { 41UL, 0U, r0 } };
-  expect_out( chainer, exp, 1UL );
+  FD_TEST( v0->buffered_fec_idx==63U );
+  FD_TEST( !fd_hash_check_zero( &v0->block_id ) );
+  out_rec_t exp[] = { { 41UL, 0U, r0 }, { 41UL, 32U, r1 } };
+  expect_out( chainer, exp, 2UL );
 
   FD_TEST( !fd_chainer_verify( chainer ) );
   teardown( chainer );
@@ -602,17 +599,14 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   FD_TEST( v0->complete_idx    ==63U );
   FD_TEST( v0->buffered_idx    ==63U );
 
-  /* But the cert abandoned version 0: the FEC prefix is not extended,
-     the block_id never finalizes, and the whole block -- possibly the
-     very one the cert version is repairing -- is not delivered under
-     the turbine version.  Only set 0, queued before the cert arrived,
-     ever reached replay. */
+  /* Version 0 stays live despite the cert: its FEC prefix extends, its
+     block_id finalizes, and the whole block is delivered under the
+     turbine version.  Version 1 has no roots yet and delivers nothing. */
 
-  FD_TEST( v0->abandoned );
-  FD_TEST( v0->buffered_fec_idx==31U );
-  FD_TEST( fd_hash_check_zero( &v0->block_id ) );
-  out_rec_t exp[] = { { 51UL, 0U, r0 } };
-  expect_out( chainer, exp, 1UL );
+  FD_TEST( v0->buffered_fec_idx==63U );
+  FD_TEST( !fd_hash_check_zero( &v0->block_id ) );
+  out_rec_t exp[] = { { 51UL, 0U, r0 }, { 51UL, 32U, r1 } };
+  expect_out( chainer, exp, 2UL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   teardown( chainer );

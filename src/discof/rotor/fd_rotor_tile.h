@@ -26,20 +26,12 @@
    is set to the correct value starting from fec 0. For these blocks,
    the verified bit is 1.
 
-   There is a race in the case no equivocation occurred, but we
-   suffered some network disconnection and are slow to complete the
-   block (but we get a votor event for the block_id).  Then we would be
-   simultaneously completing the same block through turbine and ag
-   block_id repair, and the turbine copy's slot-complete FEC would
-   re-key its replay bank from {slot, 0} to a {slot, block_id} that the
-   verified copy's bank already occupies.
-
-   To prevent that, the chainer ABANDONS the turbine version of a slot
-   the moment a votor-driven version of it is created while the turbine
-   block_id is still unknown (see fd_chainer.h): the abandoned version
-   keeps absorbing turbine shreds (they fill the FECs the verified
-   version shares) but never delivers another FEC and never finalizes a
-   block_id.
+   There is a race in the case no equivocation occurred, but we are
+   slow to complete the block (network blip, or simply the cert
+   arriving before the last FEC set) and get a votor event for the
+   block_id.  Then we complete the same block through turbine and ag
+   block_id repair simultaneously, as two chainer versions that share
+   the same FECs (see fd_chainer.h), and every FEC is delivered twice.
 
    Consider this case:
    Slot A (started receiving through turbine): received FEC 0, 1, and 5
@@ -48,19 +40,23 @@
    *blip*
 
    Get a notar fallback for slot A'. No equivocation occurred, but we
-   can't tell, so we also start repairing A' using ag block id repair,
-   and the turbine version of the slot is abandoned.  Slot A' is
-   immediately able to complete FEC 0 and 1 (the shreds are local), and
-   they are re-delivered to replay with {verified=1, block_id=A'}.
-   Remaining shreds of FEC 2 -- whether they arrive through turbine or
-   ShredForBlockId repair -- fill the shared FEC, and FEC 2 is delivered
-   once, under A', with {verified=1, block_id=A'}.
+   can't tell, so we also start repairing A' using ag block id repair.
+   Slot A' is immediately able to complete FEC 0 and 1 (the shreds are
+   local), and they are re-delivered to replay with {verified=1,
+   block_id=A'}.  Remaining shreds of FEC 2 -- whether they arrive
+   through turbine or ShredForBlockId repair -- fill the shared FEC,
+   and FEC 2 is delivered twice: once under the turbine version, whose
+   block_id finalizes to A' at that point, and once under A'.
 
-   The effect is that in time of network blips, replay ends up
-   allocating up to two banks for the same slot/block: the turbine bank
-   keyed {slot, 0} receives only a prefix of the block, never completes,
-   never gets re-keyed (so it can never collide with the verified bank
-   keyed {slot, block_id}), and is eventually evicted or pruned. */
+   Replay handles the second stream.  The verified copy's FEC 0 misses
+   the turbine bank (keyed {slot, 0}) and allocates its own bank keyed
+   {slot, A'}, and its mid-slot FECs are ingested into it.  Whichever
+   copy completes first re-keys onto {slot, A'}, unlinking the other
+   copy's map entry; the other copy's slot-complete FEC then finds the
+   completed bank and is skipped.  The loser is left an incomplete
+   sibling bank of the same slot and is pruned when the slot roots.  So
+   the cost of the race is one extra bank and the execution of the
+   duplicate's prefix, not a correctness problem. */
 
 // TODO remove after reasm removal
 #define REPAIR_SIG_FEC         (0UL)
