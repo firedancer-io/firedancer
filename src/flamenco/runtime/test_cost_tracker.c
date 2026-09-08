@@ -65,8 +65,6 @@ test_cost_tracker_block_limit( fd_cost_tracker_t * ct ) {
     FD_TEST( ct->block_cost == 0UL );
     FD_TEST( ct->block_cost_limit == 60000000UL );
 
-    txn_out.details.txn_cost.type = FD_TXN_COST_TYPE_TRANSACTION;
-
     /* Multiple txns required because max add is 24M. Transaction 1: 24M */
     txn_out.details.txn_cost.transaction.programs_execution_cost = 24000000U;
     int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
@@ -104,8 +102,6 @@ test_cost_tracker_account_limit( fd_cost_tracker_t * ct ) {
     ct->account_cost_limit = 1000UL;
     ct->data_size_limit    = 10000UL;
 
-    txn_out.details.txn_cost.type = FD_TXN_COST_TYPE_TRANSACTION;
-
     /* Cost below account limit succeeds. */
     txn_out.details.txn_cost.transaction.loaded_accounts_data_size_cost = 600U;
     int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
@@ -120,39 +116,21 @@ test_cost_tracker_account_limit( fd_cost_tracker_t * ct ) {
 }
 
 static void
-test_cost_tracker_vote_limit( fd_cost_tracker_t * ct ) {
+test_cost_tracker_txn_cost_sum( fd_cost_tracker_t * ct ) {
     ulong const SLOT = 10UL;
     fd_features_t f;
     static fd_txn_out_t txn_out = {0};
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
-    FD_TEST( ct->remove_simple_vote_from_cost_model == 0 );
 
+    ct->account_cost_limit = 1000UL;
+    txn_out.details.txn_cost.transaction.signature_cost = 600U;
+    txn_out.details.txn_cost.transaction.data_bytes_cost = 500U;
 
-    txn_out.details.txn_cost.type = FD_TXN_COST_TYPE_TRANSACTION;
-    txn_out.details.is_simple_vote = 1;
-
-    ct->vote_cost = 0UL;
-    ct->vote_cost_limit = 36000000UL;
-
-    /* First txn is 24M because that's the limit for a single txn */
-    txn_out.details.txn_cost.transaction.programs_execution_cost = 24000000UL;
     int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
-    FD_TEST( ct->vote_cost == 24000000UL );
-
-    /* Second txn is to get to the vote cost limit for the cost tracker */
-    txn_out.details.txn_cost.transaction.programs_execution_cost = 12000000UL;
-    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
-    FD_TEST( ct->vote_cost == 36000000UL );
-
-    /* Final attempted txn addition of 1 vote should push over limit and be rejected */
-    txn_out.details.txn_cost.transaction.programs_execution_cost = 1UL;
-    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT );
-    FD_TEST( ct->vote_cost == 36000000UL );
+    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+    FD_TEST( ct->block_cost == 0UL );
 }
 
 static void
@@ -163,8 +141,6 @@ test_cost_tracker_data_size_limit( fd_cost_tracker_t * ct ) {
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
-    txn_out.details.txn_cost.type = FD_TXN_COST_TYPE_TRANSACTION;
-
     txn_out.details.txn_cost.transaction.allocated_accounts_data_size = ct->data_size_limit;
 
     int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
@@ -173,7 +149,7 @@ test_cost_tracker_data_size_limit( fd_cost_tracker_t * ct ) {
 
     txn_out.details.txn_cost.transaction.allocated_accounts_data_size = ct->data_size_limit + 1UL;
     err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT);
+    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT );
     FD_TEST( ct->allocated_accounts_data_size == ct->data_size_limit );
 }
 
@@ -186,19 +162,16 @@ test_cost_tracker_rejection_non_mutating( fd_cost_tracker_t * ct ) {
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
-    txn_out.details.txn_cost.type = FD_TXN_COST_TYPE_TRANSACTION;
-    FD_TEST(ct->block_cost == 0);
+    FD_TEST( ct->block_cost == 0UL );
 
     ct->block_cost_limit = 1000UL;
     ulong block_cost = ct->block_cost;
-    ulong vote_cost = ct->vote_cost;
     ulong allocated_accounts_data_size = ct->allocated_accounts_data_size;
 
     txn_out.details.txn_cost.transaction.programs_execution_cost = 1001U;
     int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
     FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT);
     FD_TEST( ct->block_cost == block_cost );
-    FD_TEST( ct->vote_cost == vote_cost );
     FD_TEST( ct->allocated_accounts_data_size == allocated_accounts_data_size );
 }
 
@@ -210,7 +183,6 @@ test_cost_tracker_multiple_accounts( fd_cost_tracker_t * ct ) {
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
-    txn_out.details.txn_cost.type = FD_TXN_COST_TYPE_TRANSACTION;
 
     /* Set up two writable accounts */
     ct->account_cost_limit = 1000UL;
@@ -274,7 +246,7 @@ int main( int argc, char ** argv ) {
   test_cost_tracker_init_reconciliation( cost_tracker );
   test_cost_tracker_block_limit( cost_tracker );
   test_cost_tracker_account_limit( cost_tracker );
-  test_cost_tracker_vote_limit( cost_tracker );
+  test_cost_tracker_txn_cost_sum( cost_tracker );
   test_cost_tracker_data_size_limit( cost_tracker );
   test_cost_tracker_rejection_non_mutating( cost_tracker );
   test_cost_tracker_multiple_accounts( cost_tracker );
