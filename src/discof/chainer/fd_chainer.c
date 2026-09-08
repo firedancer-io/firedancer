@@ -6,10 +6,10 @@
 #include <stdio.h>
 
 void *
-fd_chainer_new( void * shmem, ulong ele_max, ulong seed ) {
-  ulong footprint = fd_chainer_footprint( ele_max );
+fd_chainer_new( void * shmem, ulong ele_max, ulong max_shreds_per_block, ulong seed ) {
+  ulong footprint = fd_chainer_footprint( ele_max, max_shreds_per_block );
   if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(("bad footprint: %lu", ele_max));
+    FD_LOG_WARNING(("bad footprint: %lu %lu", ele_max, max_shreds_per_block));
     return NULL;
   }
 
@@ -23,7 +23,8 @@ fd_chainer_new( void * shmem, ulong ele_max, ulong seed ) {
   fd_chainer_t * chainer;
 
   ulong blk_max       = ele_max * FD_CHAINER_SLOT_VER_MAX;
-  ulong fec_max       = blk_max * FD_FEC_BLK_MAX;
+  ulong fec_blk_max   = max_shreds_per_block / FD_FEC_SHRED_CNT;
+  ulong fec_max       = blk_max * fec_blk_max;
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
   ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );
 
@@ -32,6 +33,7 @@ fd_chainer_new( void * shmem, ulong ele_max, ulong seed ) {
   void * fec_pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_pool_align(),     fd_fec_pool_footprint    ( fec_max )         );
   void * fec_map      = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_map_align(),      fd_fec_map_footprint     ( fec_chain_cnt   ) );
   void * slotv_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( blk_max         ) );
+  void * fec_tbl      = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),           fec_max*sizeof(uint)                         );
   void * slotv_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( blk_chain_cnt   ) );
   void * sched_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_pool_align(),   fd_sched_pool_footprint  ( blk_max         ) );
   void * sched_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_map_align(),    fd_sched_map_footprint   ( blk_chain_cnt   ) );
@@ -47,6 +49,8 @@ fd_chainer_new( void * shmem, ulong ele_max, ulong seed ) {
   chainer->fec_pool     = fd_fec_pool_join    ( fd_fec_pool_new    ( fec_pool,     fec_max             ) );
   chainer->fec_map      = fd_fec_map_join     ( fd_fec_map_new     ( fec_map,      fec_chain_cnt, seed ) );
   chainer->slotv_pool   = fd_slotv_pool_join  ( fd_slotv_pool_new  ( slotv_pool,   blk_max             ) );
+  chainer->fec_tbl      = fec_tbl;
+  chainer->fec_blk_max  = fec_blk_max;
   chainer->slotv_map    = fd_slotv_map_join   ( fd_slotv_map_new   ( slotv_map,    blk_chain_cnt, seed ) );
   chainer->sched_pool   = fd_sched_pool_join  ( fd_sched_pool_new  ( sched_pool,   blk_max             ) );
   chainer->sched_map    = fd_sched_map_join   ( fd_sched_map_new   ( sched_map,    blk_chain_cnt, seed ) );
@@ -106,7 +110,7 @@ acquire_slotv( fd_chainer_t * chainer, ulong slot ) {
 
   fd_memset( &slotv->block_id,        0, sizeof(fd_hash_t) );
   fd_memset( &slotv->parent_block_id, 0, sizeof(fd_hash_t) );
-  fd_memset( slotv->fec, 0xff, sizeof(slotv->fec) ); /* UINT_MAX pool_idx sentinel */
+  fd_memset( fd_chainer_slotv_fecs( chainer, slotv ), 0xff, chainer->fec_blk_max*sizeof(uint) ); /* UINT_MAX pool_idx sentinel */
 
   fd_slotv_map_ele_insert( slotv_map, slotv, slotv_pool );
   fd_chainer_repair_add( chainer, slotv ); /* new slotv -> has un-requested shreds */
@@ -160,14 +164,15 @@ slotv_iter_ele( fd_chainer_t * chainer, ulong idx ) {
 
 
 /* slotv_fec returns the FEC that slotv owns at fec_set_idx, or NULL if
-   it holds none there. */
+   it holds none there (or fec_set_idx is beyond max_shreds_per_block). */
 
 static fd_chainer_fec_t *
 slotv_fec( fd_chainer_t * chainer, fd_chainer_slotv_t const * slotv, uint fec_set_idx ) {
-  fd_chainer_fec_t * fec_pool = chainer->fec_pool;
-  uint idx = slotv->fec[ fec_set_idx / FD_FEC_SHRED_CNT ];
+  ulong k = fec_set_idx / FD_FEC_SHRED_CNT;
+  if( FD_UNLIKELY( k>=chainer->fec_blk_max ) ) return NULL;
+  uint idx = fd_chainer_slotv_fecs( chainer, slotv )[ k ];
   if( FD_UNLIKELY( idx==UINT_MAX ) ) return NULL;
-  return fd_fec_pool_ele( fec_pool, (ulong)idx );
+  return fd_fec_pool_ele( chainer->fec_pool, (ulong)idx );
 }
 
 int
@@ -183,9 +188,10 @@ ulong
 fd_chainer_slotv_shred_cnt( fd_chainer_t *     chainer,
                             fd_chainer_slotv_t const * slotv ) {
   fd_chainer_fec_t * fec_pool = chainer->fec_pool;
+  uint const *       fecs     = fd_chainer_slotv_fecs( chainer, slotv );
   ulong cnt = 0UL;
-  for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) {
-    uint idx = slotv->fec[ k ];
+  for( ulong k=0UL; k<chainer->fec_blk_max; k++ ) {
+    uint idx = fecs[ k ];
     if( idx==UINT_MAX ) continue;
     cnt += (ulong)fd_uint_popcnt( fd_fec_pool_ele( fec_pool, (ulong)idx )->data_idxs );
   }
@@ -221,13 +227,14 @@ fec_join( fd_chainer_t    * chainer,
           fd_chainer_slotv_t      * slotv,
           fd_hash_t const * mr ) {
   if( FD_UNLIKELY( slot>(ulong)UINT_MAX ) ) FD_LOG_CRIT(( "slot %lu exceeds uint range", slot ));
+  ulong k = fec_set_idx / FD_FEC_SHRED_CNT;
+  FD_TEST( k<chainer->fec_blk_max );
 
   fd_fec_map_t     * fec_map  = chainer->fec_map;
   fd_chainer_fec_t * fec_pool = chainer->fec_pool;
   fd_chainer_fec_t * fec = fd_fec_map_ele_query( fec_map, mr, NULL, fec_pool );
   if( FD_UNLIKELY( !fec ) ) {
     if( FD_UNLIKELY( !fd_fec_pool_free( fec_pool ) ) ) FD_LOG_CRIT(( "fec_pool is full" ));
-    FD_TEST( fec_set_idx < (1U<<28) );
     fec = fd_fec_pool_ele_acquire( fec_pool );
     fec->merkle_root   = *mr;
     fec->slot          = (uint)slot;
@@ -239,7 +246,7 @@ fec_join( fd_chainer_t    * chainer,
     fec->is_leader     = 0;
     fd_fec_map_ele_insert( fec_map, fec, fec_pool );
   }
-  slotv->fec[ fec_set_idx / FD_FEC_SHRED_CNT ] = (uint)fd_fec_pool_idx( fec_pool, fec );
+  fd_chainer_slotv_fecs( chainer, slotv )[ k ] = (uint)fd_fec_pool_idx( fec_pool, fec );
   return fec;
 }
 
@@ -400,8 +407,8 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
     uint  fec_set_idx = fec->fec_set_idx;
     uint  fec_idx     = (uint)fd_fec_pool_idx( fec_pool, fec );
 
-    if( FD_UNLIKELY( fec_set_idx % FD_FEC_SHRED_CNT ) ) FAIL( "fec_set_idx is not a multiple of FD_FEC_SHRED_CNT" );
-    if( FD_UNLIKELY( fec_set_idx>=FD_SHRED_BLK_MAX   ) ) FAIL( "fec_set_idx out of range" );
+    if( FD_UNLIKELY( fec_set_idx % FD_FEC_SHRED_CNT                            ) ) FAIL( "fec_set_idx is not a multiple of FD_FEC_SHRED_CNT" );
+    if( FD_UNLIKELY( fec_set_idx / FD_FEC_SHRED_CNT >= chainer->fec_blk_max    ) ) FAIL( "fec_set_idx out of range" );
 
     if( FD_UNLIKELY( chainer->root!=ULONG_MAX && slot<chainer->root ) ) FAIL( "fec below the root" );
 
@@ -410,16 +417,16 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
 
     if( FD_UNLIKELY( !fd_chainer_slot_query( chainer_, slot ) ) ) FAIL( "slot has a fec but no version to anchor the list" );
 
-    /* A FEC is owned by every version whose forward fec[] array points at
-       it, and at least one must -- otherwise it is unreachable garbage
-       that publish would leak. */
+    /* A FEC is owned by every version whose fec_tbl row points at it,
+       and at least one must -- otherwise it is unreachable garbage that
+       publish would leak. */
 
     int owned = 0;
     for( ulong i = fd_slotv_map_idx_query_const( slotv_map, &slot, ULONG_MAX, slotv_pool );
                i != ULONG_MAX;
                i = fd_slotv_map_idx_next_const( i, ULONG_MAX, slotv_pool ) ) {
       fd_chainer_slotv_t const * slotv = fd_slotv_pool_ele_const( slotv_pool, i );
-      if( FD_LIKELY( slotv->fec[ fec_set_idx / FD_FEC_SHRED_CNT ]==fec_idx ) ) owned = 1;
+      if( FD_LIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ fec_set_idx / FD_FEC_SHRED_CNT ]==fec_idx ) ) owned = 1;
     }
     if( FD_UNLIKELY( !owned ) ) FAIL( "fec claimed by no version" );
   }
@@ -473,13 +480,14 @@ fd_chainer_shred_insert( fd_chainer_t    * chainer,
                          fd_hash_t const * mr,
                          ulong             parent_slot,
                          fd_hash_t const * parent_block_id ) {
-  FD_TEST( shred_idx < FD_SHRED_BLK_MAX ); // guaranteed by fec_resolver
   FD_TEST( slot > chainer->root );
-  uint fec_set_idx = shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
+  uint  fec_set_idx = shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
+  ulong k           = fec_set_idx / FD_FEC_SHRED_CNT;
+  uint  shred_max   = (uint)( chainer->fec_blk_max*FD_FEC_SHRED_CNT );
+  FD_TEST( k<chainer->fec_blk_max ); /* guaranteed by fec_resolver */
 
   /* Identify the slot versions this shred belongs to. */
 
-  ulong k = fec_set_idx / FD_FEC_SHRED_CNT;
   fd_chainer_slotv_t * turbine = turbine_slotv_query( chainer, slot );
 
   /* If a votor-driven version of the slot already exists (block-id
@@ -517,11 +525,11 @@ fd_chainer_shred_insert( fd_chainer_t    * chainer,
   uint fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
   for( ulong _i=slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=slotv_iter_next( chainer, _i ) ) {
     fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, _i );
-    if( FD_UNLIKELY( slotv->fec[ k ]!=fec_idx ) ) continue;
+    if( FD_UNLIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ k ]!=fec_idx ) ) continue;
 
     /* update slot-level shred indexing */
     if( FD_UNLIKELY( slot_complete ) ) slotv->complete_idx = shred_idx;
-    while( slotv->buffered_idx + 1 < FD_SHRED_BLK_MAX && fd_chainer_shred_test( chainer, slotv, slotv->buffered_idx + 1U ) ) {
+    while( slotv->buffered_idx + 1 < shred_max && fd_chainer_shred_test( chainer, slotv, slotv->buffered_idx + 1U ) ) {
       slotv->buffered_idx++;
     }
 
@@ -636,7 +644,9 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
                          int            is_leader,
                          fd_hash_t    * mr ) {
   FD_TEST( slot > chainer->root );
-  uint fec_set_idx = (uint)fec_set_idx_;
+  uint  fec_set_idx = (uint)fec_set_idx_;
+  ulong k           = fec_set_idx / FD_FEC_SHRED_CNT;
+  FD_TEST( k<chainer->fec_blk_max ); /* guaranteed by fec_resolver */
 
   for( uint i = 0; i < FD_FEC_SHRED_CNT; i++ ) {
     fd_chainer_shred_insert( chainer, slot, fec_set_idx_ + i, slot_complete && (i == FD_FEC_SHRED_CNT - 1), mr, AG_UNKNOWN_SLOT, NULL );
@@ -656,8 +666,7 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
   /* Process the turbine version first.  It is the only version whose
      block_id may finalize here.  An abandoned turbine version is
      skipped entirely. */
-  uint  fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
-  ulong k       = fec_set_idx / FD_FEC_SHRED_CNT;
+  uint fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
 
   fd_chainer_slotv_t * turbine = NULL;
   for( ulong _i=slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=slotv_iter_next( chainer, _i ) ) {
@@ -665,7 +674,7 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
     if( FD_LIKELY( slotv->turbine && !slotv->abandoned ) ) { turbine = slotv; break; }
   }
 
-  if( FD_LIKELY( turbine && turbine->fec[ k ]==fec_idx ) ) {
+  if( FD_LIKELY( turbine && fd_chainer_slotv_fecs( chainer, turbine )[ k ]==fec_idx ) ) {
     extend_buffered_fec( chainer, turbine );
 
     /* Slot is complete -> we can record the block_id, and we must have
@@ -685,7 +694,7 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
   for( ulong _i=slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=slotv_iter_next( chainer, _i ) ) {
     fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, _i );
     if( FD_UNLIKELY( slotv==turbine || slotv->abandoned ) ) continue;
-    if( FD_UNLIKELY( slotv->fec[ k ]!=fec_idx ) ) continue;
+    if( FD_UNLIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ k ]!=fec_idx ) ) continue;
 
     extend_buffered_fec( chainer, slotv );
     chainer_advance( chainer, slotv );
@@ -701,6 +710,8 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
                         fd_hash_t    * merkle_root ) {
   fd_chainer_fec_t * fec = fec_query( chainer, merkle_root );
   if( FD_UNLIKELY( !fec ) ) return;
+  ulong k = fec_set_idx / FD_FEC_SHRED_CNT;
+  FD_TEST( k<chainer->fec_blk_max ); /* guaranteed by fec_resolver */
 
   /* We choose not to remove the FEC from the chainer.  If this FEC
      belongs to a turbine slot and we are having trouble completing it
@@ -714,12 +725,11 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
 
   fec->data_idxs = 0U;
   uint fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
-  uint k = fec_set_idx / FD_FEC_SHRED_CNT;
 
   /* find slots that have this FEC root */
   for( ulong _i=slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=slotv_iter_next( chainer, _i ) ) {
     fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, _i );
-    if( FD_UNLIKELY( slotv->fec[ k ]!=fec_idx ) ) continue;
+    if( FD_UNLIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ k ]!=fec_idx ) ) continue;
 
     /* rederive buffered_idx */
     if( FD_UNLIKELY( slotv->buffered_idx!=UINT_MAX && slotv->buffered_idx >= fec_set_idx ) ) {
@@ -742,7 +752,7 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
   fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( chainer, slot, block_id );
   if( FD_UNLIKELY( !slotv ) ) FD_LOG_CRIT(("slotv not found for slot %lu", slot ));
 
-  FD_TEST( fec_set_cnt > 0 && fec_set_cnt <= FD_FEC_BLK_MAX );
+  FD_TEST( fec_set_cnt > 0 && fec_set_cnt <= chainer->fec_blk_max );
   slotv->complete_idx    = (fec_set_cnt*FD_FEC_SHRED_CNT) - 1;
   slotv->parent_slot     = parent_slot;
   slotv->parent_block_id = *parent_block_id;
@@ -816,8 +826,8 @@ fd_chainer_fec_rekey( fd_chainer_t *    chainer,
     uint existing_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, existing );
     uint k            = fec_set_idx / FD_FEC_SHRED_CNT;
     for( ulong _i=slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=slotv_iter_next( chainer, _i ) ) {
-      fd_chainer_slotv_t * v = slotv_iter_ele( chainer, _i );
-      if( FD_UNLIKELY( v->fec[ k ]==sentinel_idx ) ) v->fec[ k ] = existing_idx;
+      uint * fecs = fd_chainer_slotv_fecs( chainer, slotv_iter_ele( chainer, _i ) );
+      if( FD_UNLIKELY( fecs[ k ]==sentinel_idx ) ) fecs[ k ] = existing_idx;
     }
     fd_fec_map_ele_remove_fast( chainer->fec_map, fec, chainer->fec_pool );
     fd_fec_pool_ele_release   ( chainer->fec_pool, fec );
@@ -907,7 +917,7 @@ fd_chainer_publish( fd_chainer_t *    chainer,
       fd_chainer_orphan_remove( chainer, slotv );
       fd_chainer_repair_remove( chainer, slotv );
 
-      for( uint k = 0; k < FD_FEC_BLK_MAX; k++ ) {
+      for( uint k = 0; k < chainer->fec_blk_max; k++ ) {
         fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, k * FD_FEC_SHRED_CNT );
         /* because FEC pool eles can be shared across slotvs, in
            equivocating slots we can end up double-freeing the same FEC.
@@ -946,7 +956,7 @@ fd_chainer_publish( fd_chainer_t *    chainer,
     ulong                next = slotv_iter_next( chainer, i );
 
     /* free all FECs on slotv */
-    for( uint k = 0; k < FD_FEC_BLK_MAX; k++ ) {
+    for( uint k = 0; k < chainer->fec_blk_max; k++ ) {
       fd_chainer_fec_t * fec = slotv_fec( chainer, s, k * FD_FEC_SHRED_CNT );
       if( FD_UNLIKELY( fec && fd_fec_map_ele_query_const( fec_map, &fec->merkle_root, NULL, fec_pool ) ) ) {
         if( FD_LIKELY( store && fec->complete ) ) fd_store_remove( store, store_map, &fec->merkle_root );
@@ -963,7 +973,7 @@ fd_chainer_publish( fd_chainer_t *    chainer,
       fd_slotv_pool_ele_release( slotv_pool, s );
     } else {
       /* clear the surviving root's FEC list */
-      fd_memset( s->fec, 0xff, sizeof(s->fec) );
+      fd_memset( fd_chainer_slotv_fecs( chainer, s ), 0xff, chainer->fec_blk_max*sizeof(uint) );
     }
     i = next;
   }

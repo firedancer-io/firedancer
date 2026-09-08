@@ -232,9 +232,9 @@ fd_topo_obj_callbacks_t fd_obj_cb_node_info = {
 };
 
 static ulong
-leader_txn_timing_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
-                             fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return FD_LEADER_TXN_TIMING_TABLE_CNT*sizeof(fd_leader_txn_timing_table_t);
+leader_txn_timing_footprint( fd_topo_t const *     topo,
+                             fd_topo_obj_t const * obj ) {
+  return FD_LEADER_TXN_TIMING_TABLE_CNT*fd_leader_txn_timing_table_footprint( VAL("max_txn_per_slot") );
 }
 
 static ulong

@@ -58,7 +58,7 @@ fd_cost_tracker_footprint( void ) {
 
 void *
 fd_cost_tracker_new( void * shmem,
-                     int    larger_max_cost_per_block,
+                     ulong  bench_max_cost_per_block,
                      ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -82,7 +82,7 @@ fd_cost_tracker_new( void * shmem,
 
   cost_tracker->pool_offset = (ulong)_accounts-(ulong)cost_tracker;
 
-  cost_tracker->cost_tracker->larger_max_cost_per_block = larger_max_cost_per_block;
+  cost_tracker->cost_tracker->bench_max_cost_per_block = bench_max_cost_per_block;
 
   fd_rwlock_new( &cost_tracker->lock );
 
@@ -134,7 +134,7 @@ fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
     cost_tracker->account_cost_limit = fd_ulong_sat_mul( cost_tracker->account_cost_limit, 100UL ) / 60UL;
   }
 
-  if( FD_UNLIKELY( cost_tracker->larger_max_cost_per_block ) ) cost_tracker->block_cost_limit = LARGER_MAX_COST_PER_BLOCK;
+  cost_tracker->block_cost_limit = fd_ulong_max( cost_tracker->block_cost_limit, cost_tracker->bench_max_cost_per_block );
 
   cost_tracker->block_cost                   = 0UL;
   cost_tracker->allocated_accounts_data_size = 0UL;

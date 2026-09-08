@@ -334,8 +334,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   development.bench.benchg_tile_count              );
   CFG_POP      ( uint,   development.bench.benchs_tile_count              );
   CFG_POP      ( cstr,   development.bench.affinity                       );
-  CFG_POP      ( bool,   development.bench.larger_max_cost_per_block      );
-  CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
+  CFG_POP      ( ulong,  development.bench.max_cost_per_block             );
+  CFG_POP      ( ulong,  development.bench.max_shreds_per_block           );
   CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
   CFG_POP      ( bool,   development.bench.disable_status_cache           );
 

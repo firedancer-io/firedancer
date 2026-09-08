@@ -12,6 +12,12 @@
 
 #define FD_STORE_ALIGN (128UL)
 
+/* The launcher creates the Store backing file before starting any tile
+   and passes these descriptors through exec.  Keep them adjacent to the
+   accdb descriptor range, but distinct from it. */
+#define FD_STORE_FD_RW (123459)
+#define FD_STORE_FD_RO (123458)
+
 /* Spill and cache slots are page aligned. */
 #define FD_STORE_PAYLOAD_PAGE_SZ (FD_SHMEM_NORMAL_PAGE_SZ)
 
@@ -21,7 +27,7 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
   if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702e7UL) /* firedancer store version 7 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702e9UL) /* firedancer store version 9 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -30,19 +36,26 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
 #define FD_STORE_FEC_DATA_CONSUMED    (4U)
 #define FD_STORE_FEC_DATA_SPILLING    (5U)
 
+/* Shred ring keys are slot<<32 | shred_idx, so slot<2^32 and shred_idx
+   <2^32.  The per-slot hint reuses the key with bit 31 as the valid
+   flag, which further bounds shred_idx<2^31 (see FD_SHREDB_HINT_VALID). */
+
+#define FD_SHREDB_KEY_SLOT_MAX  (1UL<<32)
+#define FD_SHREDB_HINT_VALID    (1UL<<31)
+
 FD_FN_CONST static inline ulong
 fd_shredb_key_pack( ulong slot, uint shred_idx ) {
-  return (slot << 16) | (ulong)(ushort)shred_idx;
+  return (slot << 32) | (ulong)shred_idx;
 }
 
 FD_FN_CONST static inline ulong
 fd_shredb_key_slot( ulong key ) {
-  return fd_ulong_extract( key, 16, 63 );
+  return fd_ulong_extract( key, 32, 63 );
 }
 
 FD_FN_CONST static inline uint
 fd_shredb_key_shred_idx( ulong key ) {
-  return (uint)fd_ulong_extract( key, 0, 15 );
+  return (uint)fd_ulong_extract( key, 0, 31 );
 }
 
 struct fd_shredb_shred_entry {
@@ -129,9 +142,6 @@ struct fd_store {
   ulong payload_slot_sz;
   ulong payload_sz;                          /* logical spill region size: payload_slot_sz*fec_max */
   ulong wire_off;                            /* byte offset where the rserve wire region begins */
-  char  db_path[ PATH_MAX ];
-  atomic_int file_init_state;
-  int        file_init_errno;
 
   /* RAM FEC payload cache.  cache_slot_cnt is usually much smaller than
      fec_max.  cache_free is a stack of slot indices protected by
@@ -140,6 +150,9 @@ struct fd_store {
   ulong        cache_data_gaddr;
   ulong        cache_free_gaddr;
   ulong        cache_free_cnt;
+  ulong        cache_free_target;
+  ulong        cache_free_low_water;
+  uint         cache_preevict_active;
   uint         cache_lru_head;
   uint         cache_lru_tail;
   ulong        cache_pinned_cnt;
@@ -177,6 +190,7 @@ struct fd_store {
   ulong        slot_hint_gaddr;
   ulong        disk_max_shreds;
   ulong        disk_max_slots;
+  ulong        max_shreds_per_block; /* bounds shred idxs, <=FD_SHREDB_HINT_VALID */
   atomic_ulong disk_reservation_head;
   atomic_ulong disk_cnt;
   atomic_ulong disk_insert_cnt;
@@ -186,24 +200,24 @@ typedef struct fd_store fd_store_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* Store contains a Merkle-root keyed FEC map, a payload cache, and a 
-   persistent shred ring.
-   
+/* Store contains a Merkle-root keyed FEC map, a payload cache, and an
+   on-disk shred ring.
+
    Shred inserts a FEC, fills its payload, publishes it, and then notifies
-   Replay.  The correspending reassembly node owns the FEC until removal.
+   Replay.  The corresponding reassembly node owns the FEC until removal.
    Removal waits for payload users, then returns the payload and metadata
-   syncrhonously.  fec_max therefore coverts reassembly plus complete-FEC
+   synchronously.  fec_max therefore covers reassembly and complete-FEC
    messages in flight.
-   
+
    Payloads enter the RAM cache and spill by LRU to page-sized file slots.
    Freed slots are immediately eligible for reuse.  The file layout is:
-    
+
     [ sparse spill slots (payload_slot_sz*fec_max) ][ shred ring ]
-  
+
     wire_off is the fixed start of the shred ring.  Unused spill slots
     do not consume disk blocks.
 
-    shred writers reserve ring cells and mark only the target cell WRITING
+    Shred-ring writers reserve cells and mark only the target cell WRITING
     while its pwrite is in progress. */
 
 FD_FN_CONST static inline ulong
@@ -268,7 +282,8 @@ fd_store_footprint( ulong fec_max,
 /* Formats a footprint-sized, fd_store_align()-aligned region.  fec_max
    bounds live FECs; fec_data_max bounds each payload.  The remaining size
    arguments configure the shred ring, RAM cache, and shred-tile arena.
-   Does not create the backing file. */
+   max_shreds_per_block bounds shred idxs in the shred ring, in
+   [1,FD_SHREDB_HINT_VALID].  Does not create the backing file. */
 
 void *
 fd_store_new( void       * shmem,
@@ -277,19 +292,18 @@ fd_store_new( void       * shmem,
               ulong        shred_storage_gib,
               ulong        shred_cache_bytes,
               ulong        fec_set_cnt,
-              char const * db_path,
+              ulong        max_shreds_per_block,
               ulong        seed );
 
 fd_store_t * fd_store_join ( void * shstore );
 void *       fd_store_leave( fd_store_t const * store );
 void *       fd_store_delete( void * shstore );
 
-/* file_init creates the sparse backing file once.  file_open waits for
-   initialization and rejects O_CREAT, O_EXCL, and O_TRUNC.  Both return
-   -1 with errno set on failure. */
+/* Creates, truncates, and sizes the Store backing file. */
 
-int fd_store_file_init( fd_store_t * store );
-int fd_store_file_open( fd_store_t * store, int flags );
+int fd_store_file_create( char const * path,
+                          ulong        wire_off,
+                          ulong        disk_max_shreds );
 
 /* Reclaims one spill slot.  Returns non-zero if there was work. */
 
@@ -335,18 +349,49 @@ struct fd_store_fec_data_view {
 };
 typedef struct fd_store_fec_data_view fd_store_fec_data_view_t;
 
-/* Reserves a payload for a newly inserted FEC.  Fill the returned buffer,
-   data_sz, and shred_offs, then call data_publish.  Returns NULL if no
-   payload is available. */
+struct fd_store_fec_spill_stats {
+  ulong write_cnt;
+  ulong write_bytes;
+  ulong write_ticks;
+};
+typedef struct fd_store_fec_spill_stats fd_store_fec_spill_stats_t;
+
+struct fd_store_fec_cache_stats {
+  ulong free_cnt;
+  ulong max;
+  ulong target;
+  ulong low_water;
+};
+typedef struct fd_store_fec_cache_stats fd_store_fec_cache_stats_t;
+
+/* Reserves a payload.  Fill it, data_sz, and shred_offs, then publish.
+   The _ex form also reports synchronous fallback spills. */
 
 uchar *
 fd_store_fec_data_acquire( fd_store_t     * store,
                            int              disk_fd,
                            fd_store_fec_t * fec );
 
+uchar *
+fd_store_fec_data_acquire_ex( fd_store_t                  * store,
+                              int                           disk_fd,
+                              fd_store_fec_t              * fec,
+                              fd_store_fec_spill_stats_t * spill );
+
 void
 fd_store_fec_data_publish( fd_store_t     * store,
                            fd_store_fec_t * fec );
+
+/* Spills at most one LRU payload while refilling the free reserve. */
+
+int
+fd_store_fec_data_preevict( fd_store_t                  * store,
+                            int                           disk_fd,
+                            fd_store_fec_spill_stats_t * spill );
+
+void
+fd_store_fec_cache_stats_query( fd_store_t                 * store,
+                                fd_store_fec_cache_stats_t * stats );
 
 /* Pins a published payload.  Returns 0 on success and -1 with an empty
    view on failure.  The store has one spill-read buffer, so a second
@@ -412,7 +457,7 @@ struct fd_store_disk_stats {
 };
 typedef struct fd_store_disk_stats fd_store_disk_stats_t;
 
-/* Persists one (slot,idx) shred, where idx is below FD_SHRED_BLK_MAX.
+/* Persists one (slot,idx) shred, where idx is below max_shreds_per_block.
    The caller guarantees that the shred has not previously been inserted.
    Returns FD_STORE_DISK_INSERT_SUCCESS or FD_STORE_DISK_INSERT_ERR. */
 
@@ -422,8 +467,8 @@ fd_store_disk_insert( fd_store_t       * store,
                       fd_shred_t const * shred );
 
 /* Copies (slot,shred_idx) to out, where shred_idx is below
-   FD_SHRED_BLK_MAX.  Returns its positive byte count, MISS, or retryable
-   BUSY. */
+   max_shreds_per_block.  Returns its positive byte count, MISS, or
+   retryable BUSY. */
 
 int
 fd_store_disk_query( fd_store_t const * store,

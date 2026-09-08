@@ -10,6 +10,9 @@
 
 #define ELE_MAX (64UL)
 
+/* a [development.bench.max_shreds_per_block] value used by the bench configs */
+#define BENCH_SHRED_MAX (4UL*FD_SHRED_BLK_MAX)
+
 /* mkhash returns a distinct, deterministic, never-zero hash for n. */
 
 static fd_hash_t
@@ -36,6 +39,19 @@ test_fec_pool_layout( void ) {
 
   ulong chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
   FD_TEST( fd_fec_map_footprint( chain_cnt )<=(512UL<<20)+64UL );
+
+  /* bench limits: uint pool idxs (fd_chainer_fec, out_ele) still fit */
+  ulong const bench_fec_max = 30000UL * FD_CHAINER_SLOT_VER_MAX * (BENCH_SHRED_MAX/FD_FEC_SHRED_CNT);
+  FD_TEST( bench_fec_max<(ulong)UINT_MAX     );
+  FD_TEST( bench_fec_max<fd_fec_map_ele_max() );
+
+  /* footprint validates max_shreds_per_block and scales with it */
+  FD_TEST( !fd_chainer_footprint( ELE_MAX, 0UL                     ) );
+  FD_TEST( !fd_chainer_footprint( ELE_MAX, FD_FEC_SHRED_CNT+1UL    ) );
+  FD_TEST( !fd_chainer_footprint( ELE_MAX, (1UL<<28)+FD_FEC_SHRED_CNT ) );
+  FD_TEST( !fd_chainer_footprint( 30000UL, 1UL<<28 ) ); /* 30000*7*2^23 FEC elements do not fit uint indices */
+  FD_TEST(  fd_chainer_footprint( 30000UL, BENCH_SHRED_MAX ) );
+  FD_TEST(  fd_chainer_footprint( ELE_MAX, FD_SHRED_BLK_MAX )<fd_chainer_footprint( ELE_MAX, BENCH_SHRED_MAX ) );
 }
 
 /* slotv_at returns the `ord`-th version of slot in CREATION order (ord 0
@@ -70,13 +86,19 @@ fec_at( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, ulong ord ) {
 }
 
 static fd_chainer_t *
-setup( fd_wksp_t * wksp ) {
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_chainer_align(), fd_chainer_footprint( ELE_MAX ), 1UL );
+setup_sized( fd_wksp_t * wksp, ulong ele_max, ulong max_shreds_per_block ) {
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_chainer_align(), fd_chainer_footprint( ele_max, max_shreds_per_block ), 1UL );
   FD_TEST( mem );
-  fd_chainer_t * chainer = fd_chainer_join( fd_chainer_new( mem, ELE_MAX, 42UL ) );
+  fd_chainer_t * chainer = fd_chainer_join( fd_chainer_new( mem, ele_max, max_shreds_per_block, 42UL ) );
   FD_TEST( chainer );
+  FD_TEST( chainer->fec_blk_max==max_shreds_per_block/FD_FEC_SHRED_CNT );
   FD_TEST( !fd_chainer_verify( chainer ) ); /* an empty chainer is consistent */
   return chainer;
+}
+
+static fd_chainer_t *
+setup( fd_wksp_t * wksp ) {
+  return setup_sized( wksp, ELE_MAX, FD_SHRED_BLK_MAX );
 }
 
 /* teardown does not verify: some subtests deliberately end on a
@@ -1080,6 +1102,114 @@ test_output_order_out_of_order( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: output order out-of-order FEC arrival re-delivers from set 0" ));
 }
 
+/* Per-block shred limit is a runtime value.  The shred tile's resolver
+   bounds every position by the same limit before it reaches the
+   chainer, which asserts it; the last legal position must work. */
+
+static void
+test_shred_limit( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup( wksp );
+
+  fd_hash_t bid0 = mkhash( 100UL );
+  fd_chainer_init( chainer, 10UL, &bid0 );
+
+  uint const shred_max = (uint)FD_SHRED_BLK_MAX;
+
+  /* the last legal position is accepted */
+  fd_hash_t rL = mkhash( 2UL );
+  FD_TEST( !feed_fec( chainer, 11UL, shred_max-(uint)FD_FEC_SHRED_CNT, 1, &rL, 10UL, &bid0 ) );
+  fd_chainer_slotv_t * v0 = slotv_at( chainer, 11UL, 0UL );
+  FD_TEST( v0 && v0->complete_idx==shred_max-1U );
+  FD_TEST(  fd_chainer_shred_test( chainer, v0, shred_max-1U ) );
+  FD_TEST( !fd_chainer_shred_test( chainer, v0, shred_max    ) ); /* beyond the limit: never present */
+  FD_TEST( !fd_chainer_shred_test( chainer, v0, UINT_MAX     ) );
+  FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
+  FD_TEST( !fd_chainer_fec_query( chainer, 11UL, shred_max, &v0->block_id ) );
+  FD_TEST( !fd_chainer_shred_for_block_id_verify( chainer, 11UL, shred_max, &v0->block_id, &rL ) );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
+
+  /* a getParentAndFecCount naming exactly the limit connects the version */
+  fd_hash_t bidX = mkhash( 200UL );
+  fd_chainer_notar_fallback( chainer, 11UL, bidX );
+  fd_chainer_slotv_t * v1 = fd_chainer_slot_version_query( chainer, 11UL, &bidX );
+  FD_TEST( v1 && v1->complete_idx==UINT_MAX && v1->parent_slot==AG_UNKNOWN_SLOT );
+  FD_TEST( fd_chainer_verified_parent_fec_count( chainer, 11UL, &bidX, (uint)FD_FEC_BLK_MAX, 10UL, &bid0 )==v1 );
+  FD_TEST( v1->complete_idx==shred_max-1U && v1->connected );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: the last legal shred position and FEC count are accepted" ));
+}
+
+/* Under bench limits a block holds 4x the FEC sets: the per-version FEC
+   table is sized at runtime, so positions above FD_FEC_BLK_MAX are
+   owned per version, shared, equivocated and pruned like any other. */
+
+static void
+test_bench_shred_limit( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup_sized( wksp, 8UL, BENCH_SHRED_MAX );
+  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
+  fd_chainer_fec_t   * fec_pool   = chainer->fec_pool;
+  ulong slotv_free0 = fd_slotv_pool_free( slotv_pool );
+  ulong fec_free0   = fd_fec_pool_free  ( fec_pool   );
+
+  uint const shred_max = (uint)BENCH_SHRED_MAX;
+  uint const last      = shred_max-(uint)FD_FEC_SHRED_CNT; /* fec_set_idx of the last FEC set */
+  FD_TEST( last>=FD_SHRED_BLK_MAX );                        /* beyond the production limit */
+
+  fd_hash_t bid0 = mkhash( 100UL );
+  fd_chainer_init( chainer, 10UL, &bid0 );
+
+  /* turbine version of slot 11: set 0 and the last set */
+  fd_hash_t r0 = mkhash( 1UL );
+  fd_hash_t rA = mkhash( 2UL );
+  FD_TEST( !feed_fec( chainer, 11UL, 0U,   0, &r0, 10UL,            &bid0 ) );
+  FD_TEST( !feed_fec( chainer, 11UL, last, 1, &rA, AG_UNKNOWN_SLOT, NULL  ) );
+  fd_chainer_slotv_t * v0 = slotv_at( chainer, 11UL, 0UL );
+  FD_TEST( v0->complete_idx==shred_max-1U && v0->buffered_idx==31U );
+  FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v0 )==2UL*FD_FEC_SHRED_CNT );
+  for( uint i=last; i<shred_max; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v0, i ) );
+  FD_TEST( !fd_chainer_shred_test( chainer, v0, shred_max ) );
+  FD_TEST( fd_hash_eq( &fec_at( chainer, 11UL, last, 0UL )->merkle_root, &rA ) );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  /* a second version shares set 0 but equivocates on the last set:
+     each version's row holds its own root at the high position */
+  fd_hash_t bidX = mkhash( 200UL );
+  fd_hash_t rB   = mkhash( 3UL );
+  fd_chainer_notar_fallback( chainer, 11UL, bidX );
+  FD_TEST( fd_chainer_verified_parent_fec_count( chainer, 11UL, &bidX, shred_max/(uint)FD_FEC_SHRED_CNT, 10UL, &bid0 ) );
+  fd_hash_t mr;
+  mr = r0; fd_chainer_verified_hash_insert( chainer, 11UL, &bidX, 0U,   &mr );
+  mr = rB; fd_chainer_verified_hash_insert( chainer, 11UL, &bidX, last, &mr );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  fd_chainer_slotv_t * v1 = slotv_at( chainer, 11UL, 1UL );
+  FD_TEST( v1->complete_idx==shred_max-1U && v1->delivered_idx==31U );
+  FD_TEST( !feed_fec( chainer, 11UL, last, 1, &rB, AG_UNKNOWN_SLOT, NULL ) );
+  FD_TEST( fd_hash_eq( &fec_at( chainer, 11UL, last, 0UL )->merkle_root, &rA ) );
+  FD_TEST( fd_hash_eq( &fec_at( chainer, 11UL, last, 1UL )->merkle_root, &rB ) );
+  FD_TEST( fd_chainer_slotv_fecs( chainer, v0 )[ last/FD_FEC_SHRED_CNT ]!=fd_chainer_slotv_fecs( chainer, v1 )[ last/FD_FEC_SHRED_CNT ] );
+  FD_TEST( fd_chainer_slotv_fecs( chainer, v0 )[ 0 ]==fd_chainer_slotv_fecs( chainer, v1 )[ 0 ] );
+  for( uint i=last; i<shred_max; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v1, i ) );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  /* publish past it: the prune walks the whole runtime-sized row */
+  fd_hash_t r12 = mkhash( 4UL );
+  FD_TEST( !feed_fec( chainer, 12UL, 0U, 1, &r12, 11UL, &bidX ) );
+  FD_TEST( fd_fec_pool_free( fec_pool )==fec_free0-4UL ); /* r0, rA, rB, r12 */
+  out_ele_t * out_queue = chainer->out_queue;
+  while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
+  fd_chainer_publish( chainer, 12UL, NULL, NULL );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  FD_TEST( !fd_chainer_slot_query( chainer, 11UL ) );
+  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-1UL );
+  FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0        );
+
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: bench shred limit owns/shares/prunes FEC sets above FD_FEC_BLK_MAX" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1104,6 +1234,8 @@ main( int argc, char ** argv ) {
   test_versions_full                     ( wksp );
   test_equivocation_drop                 ( wksp );
   test_verify_detects                    ( wksp );
+  test_shred_limit                       ( wksp );
+  test_bench_shred_limit                 ( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

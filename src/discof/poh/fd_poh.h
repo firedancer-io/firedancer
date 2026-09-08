@@ -365,15 +365,39 @@ typedef struct fd_leader_txn_timing_rec fd_leader_txn_timing_rec_t;
 
 FD_STATIC_ASSERT( sizeof(fd_leader_txn_timing_rec_t)==32UL, leader_txn_timing_rec );
 
+/* The ldr_tt object holds FD_LEADER_TXN_TIMING_TABLE_CNT tables back to
+   back, each with room for config->limits.max_txn_per_slot records, so
+   the table stride is a runtime value: index them with
+   fd_leader_txn_timing_table(). */
+
 struct fd_leader_txn_timing_table {
   ulong slot;
   ulong cnt;
-  fd_leader_txn_timing_rec_t rec[ FD_MAX_TXN_PER_SLOT ];
+  fd_leader_txn_timing_rec_t rec[]; /* max_txn_per_slot */
 };
 
 typedef struct fd_leader_txn_timing_table fd_leader_txn_timing_table_t;
 
 #define FD_LEADER_TXN_TIMING_TABLE_CNT (2UL)
+
+FD_FN_CONST static inline ulong
+fd_leader_txn_timing_table_footprint( ulong max_txn_per_slot ) {
+  return sizeof(fd_leader_txn_timing_table_t)+max_txn_per_slot*sizeof(fd_leader_txn_timing_rec_t);
+}
+
+FD_FN_CONST static inline fd_leader_txn_timing_table_t const *
+fd_leader_txn_timing_table_const( fd_leader_txn_timing_table_t const * tables,
+                                  ulong                                idx,
+                                  ulong                                max_txn_per_slot ) {
+  return (fd_leader_txn_timing_table_t const *)( (uchar const *)tables + idx*fd_leader_txn_timing_table_footprint( max_txn_per_slot ) );
+}
+
+FD_FN_CONST static inline fd_leader_txn_timing_table_t *
+fd_leader_txn_timing_table( fd_leader_txn_timing_table_t * tables,
+                            ulong                          idx,
+                            ulong                          max_txn_per_slot ) {
+  return (fd_leader_txn_timing_table_t *)fd_leader_txn_timing_table_const( tables, idx, max_txn_per_slot );
+}
 
 struct fd_poh_leader_slot_ended {
   int   completed;
@@ -497,9 +521,10 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
   long  pack_end_ns;
 
   /* Shared per-transaction timing tables or NULL when the topology does
-     not provide them. */
+     not provide them; timing_table_max records per table. */
   fd_leader_txn_timing_table_t * timing_tables;
   ulong                          timing_table_idx;
+  ulong                          timing_table_max;
 
   ulong magic;
 };
@@ -521,7 +546,8 @@ fd_poh_t *
 fd_poh_join( void *                         shpoh,
              fd_poh_out_t *                 shred_out,
              fd_poh_out_t *                 replay_out,
-             fd_leader_txn_timing_table_t * timing_tables );
+             fd_leader_txn_timing_table_t * timing_tables,
+             ulong                          timing_table_max ); /* records per table, config->limits.max_txn_per_slot */
 
 void
 fd_poh_reset( fd_poh_t *          poh,

@@ -81,8 +81,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "txncache" );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
-      FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT,
-      config->development.bench.larger_max_cost_per_block );
+      2UL*config->limits.max_txn_per_slot );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_wksp( topo, "accdb" );
@@ -102,7 +101,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks",
       config->firedancer.runtime.max_live_slots,
       config->firedancer.runtime.max_fork_width,
-      config->development.bench.larger_max_cost_per_block );
+      config->development.bench.max_cost_per_block );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
 #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -452,6 +451,7 @@ snapshot_load_cmd_fn( args_t *   args,
   run_firedancer_init( config, 1, 0 );
 
   initialize_accdb_fd( config );
+  initialize_store_fds( config );
   initialize_snapshot_fds( config );
 
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );

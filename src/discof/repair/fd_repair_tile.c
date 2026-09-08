@@ -435,7 +435,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                      );
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),         fd_repair_footprint     ()                                         );
-  l = FD_LAYOUT_APPEND( l, fd_forest_align(),         fd_forest_footprint     ( tile->repair.slot_max )                  );
+  l = FD_LAYOUT_APPEND( l, fd_forest_align(),         fd_forest_footprint     ( tile->repair.slot_max, tile->repair.max_shreds_per_block ) );
   l = FD_LAYOUT_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_REPAIR_PEER_MAX )                     );
   l = FD_LAYOUT_APPEND( l, fd_reqlim_align(),         fd_reqlim_footprint     ( FD_REQLIM_CACHE_MAX )                     );
   l = FD_LAYOUT_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                         );
@@ -839,11 +839,12 @@ check_confirmed( ctx_t           * ctx,
        early exit above. */
     FD_TEST( bad_fec_idx != UINT_MAX );
 
-    fd_hash_t const * expected = (bad_fec_idx == bad_blk->complete_idx - (FD_FEC_SHRED_CNT - 1)) ? &bad_blk->confirmed_bid : &bad_blk->merkle_roots[(bad_fec_idx / 32) + 1].cmr;
+    fd_forest_mr_t const * bad_mroots = fd_forest_blk_mroots( ctx->forest, bad_blk );
+    fd_hash_t const * expected = (bad_fec_idx == bad_blk->complete_idx - (FD_FEC_SHRED_CNT - 1)) ? &bad_blk->confirmed_bid : &bad_mroots[(bad_fec_idx / 32) + 1].cmr;
 
-    FD_BASE58_ENCODE_32_BYTES( confirmed_bid->uc,                             confirmed_bid_b58 );
-    FD_BASE58_ENCODE_32_BYTES( expected->uc,                                  expected_mr );
-    FD_BASE58_ENCODE_32_BYTES( bad_blk->merkle_roots[bad_fec_idx / 32].mr.uc, recorded_mr );
+    FD_BASE58_ENCODE_32_BYTES( confirmed_bid->uc,                  confirmed_bid_b58 );
+    FD_BASE58_ENCODE_32_BYTES( expected->uc,                       expected_mr );
+    FD_BASE58_ENCODE_32_BYTES( bad_mroots[bad_fec_idx / 32].mr.uc, recorded_mr );
 
     FD_LOG_WARNING(( "[%s] slot %lu block_id %s confirmation detected incorrect FECs. bad FEC is slot %lu fec set %u. expected mr (%s) != recorded mr (%s)",
                        __func__,
@@ -905,7 +906,7 @@ after_fec( ctx_t      * ctx,
     /* Note: this log does not imply that the slot is fully executable.
        It's possible that we have a slot that doesn't chain verify,
        which could be un-executable. */
-    FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[ele->complete_idx / 32].mr.uc, block_id );
+    FD_BASE58_ENCODE_32_BYTES( fd_forest_blk_mroots( ctx->forest, ele )[ele->complete_idx / 32].mr.uc, block_id );
     FD_BASE58_ENCODE_32_BYTES( mr->uc, fec_mr );
     FD_LOG_INFO(( "[%s] slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms. last recvd fec: %u, mr %s. current block_id: %s",
                     __func__,
@@ -1140,8 +1141,9 @@ after_frag( ctx_t *             ctx,
           m->blk_turbine_cnt         = blk->turbine_cnt;
           m->blk_repair_cnt          = blk->repair_cnt;
           m->blk_recovered_cnt       = blk->recovered_cnt;
-          m->blk_data_cnt            = (uint)fd_forest_blk_idxs_cnt( blk->idxs );
-          m->blk_parity_cnt          = (uint)fd_forest_blk_idxs_cnt( blk->code );
+          ulong word_cnt             = fd_forest_blk_idxs_word_cnt( ctx->forest->shred_max );
+          m->blk_data_cnt            = (uint)fd_forest_blk_idxs_cnt( fd_forest_blk_idxs( ctx->forest, blk ), word_cnt );
+          m->blk_parity_cnt          = (uint)fd_forest_blk_idxs_cnt( fd_forest_blk_code( ctx->forest, blk ), word_cnt );
           m->blk_lowest_verified_fec = blk->lowest_verified_fec;
           m->blk_chain_confirmed     = blk->chain_confirmed;
           m->blk_slot_complete       = (uchar)( blk->complete_idx!=UINT_MAX );
@@ -1271,7 +1273,7 @@ after_credit( ctx_t *             ctx,
     fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &block_id, &shred_idx );
 
     fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
-    if( FD_UNLIKELY( blk && shred_idx <= blk->complete_idx && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
+    if( FD_UNLIKELY( blk && shred_idx <= blk->complete_idx && !fd_forest_blk_idxs_test( fd_forest_blk_idxs( ctx->forest, blk ), shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
 
       if( FD_UNLIKELY( !peer || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
@@ -1408,7 +1410,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                 );
   ctx->protocol     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),         fd_repair_footprint()                                         );
-  ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint( tile->repair.slot_max )                  );
+  ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint( tile->repair.slot_max, tile->repair.max_shreds_per_block ) );
   ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint( FD_REPAIR_PEER_MAX )                     );
   ctx->dedup        = FD_SCRATCH_ALLOC_APPEND( l, fd_reqlim_align(),          fd_reqlim_footprint( FD_REQLIM_CACHE_MAX )                      );
   ctx->inflights    = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint()                                      );
@@ -1420,7 +1422,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->protocol     = fd_repair_join        ( fd_repair_new        ( ctx->protocol,  &ctx->identity_public_key                                                      ) );
-  ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,    tile->repair.slot_max, ctx->repair_seed                                        ) );
+  ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,    tile->repair.slot_max, tile->repair.max_shreds_per_block, ctx->repair_seed       ) );
   ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,    FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->dedup        = fd_reqlim_join        ( fd_reqlim_new        ( ctx->dedup,     FD_REQLIM_CACHE_MAX, ctx->repair_seed                      ) );
   ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( ctx->inflights, ctx->repair_seed+1234UL                                                       ) );

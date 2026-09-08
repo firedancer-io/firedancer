@@ -212,7 +212,7 @@ typedef struct fd_repair_ping fd_repair_ping_t;
 /* alpenglow blockid repair response types */
 
 typedef uchar ag_proof_node_t[FD_SHRED_MERKLE_NODE_SZ];
-#define AG_MAX_FEC_PROOF_NODE_CNT  (1U + (63 - __builtin_clzl( (ulong)FD_FEC_BLK_MAX))) /* 11 = 1 node for parent block_id + 10 for log2(1024) max fec sets */
+#define AG_MAX_FEC_PROOF_NODE_CNT  (1U + (63 - __builtin_clzl( FD_SHRED_BLK_MAX_RAISED/FD_FEC_SHRED_CNT ))) /* 24 = 1 node for parent block_id + 23 for log2 of the most FEC sets any configuration allows */
 
 struct ag_parent_fec_count_res {
   uint      fec_set_count;
@@ -367,13 +367,15 @@ ag_repair_shred_block_id( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts
    Proofs are a concatenation of 20-byte merkle nodes (proof_sz must be
    a multiple of FD_SHRED_MERKLE_NODE_SZ).  Ping responses (tag 2) are
    not handled here; they are the same sz as legacy repair pings and
-   should be routed to the ping path.  Returns 0 on success and -1 if
-   the response is malformed.
+   should be routed to the ping path.  fec_set_max bounds the FEC sets
+   a block may hold (max_shreds_per_block/FD_FEC_SHRED_CNT).  Returns 0
+   on success and -1 if the response is malformed.
    Does NOT verify the merkle proofs. */
 int
 ag_repair_response_de( ag_repair_response_t * response,
                        uchar const *          buf,
-                       ulong                  buf_sz );
+                       ulong                  buf_sz,
+                       ulong                  fec_set_max );
 
 /* ag_repair_parent_fec_count_verify / ag_repair_fec_set_root_verify
    verifies a deserialized Alpenglow repair metadata response against

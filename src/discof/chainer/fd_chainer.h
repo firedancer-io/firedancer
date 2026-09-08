@@ -124,8 +124,6 @@ struct fd_chainer_slotv {
                                 a block_id, and stays off the repair worklists.
                                 See the header comment above. */
   fd_hash_t       block_id;
-  uint            fec[FD_FEC_BLK_MAX]; /* fec[k] = fd_fec_pool idx of the FEC this
-                                          version owns. TODO assert pool_idx < UINT_MAX */
   uint            complete_idx;
   uint            buffered_idx;     /* idx of highest buffered shred */
   uint            buffered_fec_idx; /* last shred idx of highest buffered FEC set we have received completion for */
@@ -254,6 +252,9 @@ struct fd_chainer {
 
   fd_chainer_slotv_t * slotv_pool;
   fd_slotv_map_t     * slotv_map;
+  uint               * fec_tbl;     /* fec_tbl[ slotv_idx*fec_blk_max + k ] = fd_fec_pool idx of the FEC
+                                       that slotv owns at FEC set k, UINT_MAX if none */
+  ulong                fec_blk_max; /* max FEC sets per block (max_shreds_per_block/FD_FEC_SHRED_CNT) */
 
   /* Repair scheduling worklists */
   fd_sched_ele_t    * sched_pool;
@@ -275,13 +276,26 @@ fd_chainer_align( void ) {
   return fd_ulong_max( alignof(fd_chainer_t), 128UL );
 }
 
+/* fd_chainer_footprint returns the footprint for ele_max slots, each
+   with up to FD_CHAINER_SLOT_VER_MAX versions of up to
+   max_shreds_per_block data shreds (FD_SHRED_BLK_MAX in production,
+   larger under bench limits).  Returns 0 if max_shreds_per_block is not
+   a positive multiple of FD_FEC_SHRED_CNT, exceeds the 28-bit
+   fec_set_idx, or asks for more FEC elements than the uint pool and map
+   indices can address. */
+
 FD_FN_CONST static inline ulong
-fd_chainer_footprint( ulong ele_max ) {
+fd_chainer_footprint( ulong ele_max,
+                      ulong max_shreds_per_block ) {
+  if( FD_UNLIKELY( !max_shreds_per_block || max_shreds_per_block%FD_FEC_SHRED_CNT || max_shreds_per_block>FD_SHRED_BLK_MAX_RAISED ) ) return 0UL;
   ulong blk_max       = ele_max * FD_CHAINER_SLOT_VER_MAX;
-  ulong fec_max       = blk_max * FD_FEC_BLK_MAX;
+  ulong fec_blk_max   = max_shreds_per_block / FD_FEC_SHRED_CNT;
+  ulong fec_max       = blk_max * fec_blk_max;
+  if( FD_UNLIKELY( !fd_fec_pool_footprint( fec_max ) ) ) return 0UL;
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
   ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );
   return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -298,6 +312,7 @@ fd_chainer_footprint( ulong ele_max ) {
       fd_fec_pool_align(),     fd_fec_pool_footprint    ( fec_max )        ),
       fd_fec_map_align(),      fd_fec_map_footprint     ( fec_chain_cnt )  ),
       fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( blk_max )        ),
+      alignof(uint),           fec_max*sizeof(uint)                        ), /* fec_tbl */
       fd_slotv_map_align(),    fd_slotv_map_footprint   ( blk_chain_cnt  ) ),
       fd_sched_pool_align(),   fd_sched_pool_footprint  ( blk_max        ) ),
       fd_sched_map_align(),    fd_sched_map_footprint   ( blk_chain_cnt  ) ),
@@ -309,7 +324,7 @@ fd_chainer_footprint( ulong ele_max ) {
 }
 
 void *
-fd_chainer_new( void * shmem, ulong ele_max, ulong seed );
+fd_chainer_new( void * shmem, ulong ele_max, ulong max_shreds_per_block, ulong seed );
 
 fd_chainer_t *
 fd_chainer_join( void * chainer );
@@ -338,7 +353,9 @@ fd_chainer_init( fd_chainer_t    * chainer,
 
 /* fd_chainer_shred_insert inserts a shred into the chainer.  If the
    parent_slot is provided, parent_block_id must also be provided.
-   Otherwise caller should pass AG_UNKNOWN_SLOT for parent_slot. */
+   Otherwise caller should pass AG_UNKNOWN_SLOT for parent_slot.
+   Returns the turbine version of slot, or NULL if shred_idx is at or
+   beyond max_shreds_per_block (the shred is dropped). */
 fd_chainer_slotv_t *
 fd_chainer_shred_insert( fd_chainer_t *    chainer,
                          ulong             slot,
@@ -348,7 +365,8 @@ fd_chainer_shred_insert( fd_chainer_t *    chainer,
                          ulong             parent_slot,
                          fd_hash_t const * parent_block_id );
 
-/* 0 if the FEC was accepted, 1 if rejected */
+/* 0 if the FEC was accepted, 1 if rejected (unauthorized equivocating
+   root, or fec_set_idx beyond max_shreds_per_block) */
 int
 fd_chainer_fec_complete( fd_chainer_t * chainer,
                          ulong          slot,
@@ -426,7 +444,8 @@ fd_chainer_fec_query( fd_chainer_t *    chainer,
 /* fd_chainer_shred_test returns 1 if slotv has data shred shred_idx --
    i.e. it owns the FEC at shred_idx's position and that FEC's presence
    bitmap has the shred.  The per-shred bitmap lives on the (shared) FEC,
-   so this indexes slotv->fec[] then tests fd_chainer_fec.data_idxs. */
+   so this indexes slotv's fec_tbl row then tests fd_chainer_fec.data_idxs.
+   Returns 0 for shred_idx at or beyond max_shreds_per_block. */
 
 int
 fd_chainer_shred_test( fd_chainer_t *             chainer,
@@ -466,6 +485,17 @@ fd_chainer_slot_version_query( fd_chainer_t *    chainer,
     if( FD_UNLIKELY( fd_hash_eq( &slotv->block_id, block_id ) ) ) return slotv;
   }
   return NULL;
+}
+
+/* fd_chainer_slotv_fecs returns slotv's row of chainer->fec_tbl:
+   fecs[ k ] is the fd_fec_pool idx of the FEC slotv owns at FEC set k
+   (shred position k*FD_FEC_SHRED_CNT), UINT_MAX if none, for k in
+   [0,chainer->fec_blk_max). */
+
+FD_FN_PURE static inline uint *
+fd_chainer_slotv_fecs( fd_chainer_t const *       chainer,
+                       fd_chainer_slotv_t const * slotv ) {
+  return chainer->fec_tbl + fd_slotv_pool_idx( chainer->slotv_pool, slotv )*chainer->fec_blk_max;
 }
 
 /* fd_chainer_slot_query returns any version of slot, or NULL if the slot

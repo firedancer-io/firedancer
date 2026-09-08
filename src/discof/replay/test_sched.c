@@ -14,8 +14,14 @@
 static void
 test_sched_footprint( void ) {
   /* Retain the per-block saving from compact shred lengths under the
-     default scheduler sizing. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL )==1122073984UL );
+     default scheduler sizing.  Production limits must reproduce the
+     footprint from before the limits became runtime values. */
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1122073984UL );
+  /* Only the shred length array scales with the shred limit. */
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1122073984UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1122073984UL );
+  FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
+  FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
 
 static void
@@ -94,12 +100,12 @@ build_shred_test_txn( uchar * payload ) {
 
 static void
 run_interleaved_fec_residual_case( void ) {
-  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL );
+  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
 
   fd_rng_t rng[ 1 ]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 4UL, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
   fd_sched_set_bypass_poh_verify( sched, 1 );
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -256,12 +262,12 @@ run_bad_tick_case( fd_hash_t const * start_poh,
      one spare slot. */
   ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
   ulong block_cnt_max = 4UL;
-  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem          = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
 
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -359,12 +365,12 @@ run_poh_spread_case( ulong tick_cnt,
                      ulong hashes_per_tick ) {
   ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
   ulong block_cnt_max = 4UL;
-  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem          = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
 
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -499,12 +505,12 @@ run_lane_policy_case( void ) {
   /* This test only needs the root and a handful of synthetic branches. */
   ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
   ulong block_cnt_max = 8UL;
-  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem          = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
 
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -627,10 +633,10 @@ add_live_block( fd_sched_t * sched,
 static fd_sched_t *
 new_sched( fd_rng_t * rng, void ** mem_out, ulong block_cnt_max ) {
   ulong depth     = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
-  ulong footprint = fd_sched_footprint( depth, block_cnt_max );
+  ulong footprint = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem      = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
   *mem_out = mem;
   return sched;
@@ -780,6 +786,93 @@ run_late_ancestor_discard_case( void ) {
   fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
 }
 
+/* The per-block shred and transaction limits are runtime values.  A
+   block declaring more transactions than the limit is ruled invalid,
+   and shred lengths past the first FEC land in the block's own slice of
+   the shred length array. */
+static void
+run_runtime_limit_case( void ) {
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
+  ulong block_cnt_max = 4UL;
+
+  /* Shred limit: a 3 shred block under a limit of 3 fits across two FEC
+     sets, and a sibling block gets its own shred slice. */
+  {
+    ulong footprint = fd_sched_footprint( depth, block_cnt_max, 3UL, FD_MAX_TXN_PER_SLOT );
+    void * mem = aligned_alloc( fd_sched_align(), footprint );
+    FD_TEST( mem );
+    fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, 3UL, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+    FD_TEST( sched );
+    fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx          = 2UL,
+      .parent_bank_idx   = 1UL,
+      .slot              = TEST_ROOT_SLOT+1UL,
+      .parent_slot       = TEST_ROOT_SLOT,
+      .fec               = store_fec,
+      .shred_cnt         = 2U,
+      .is_first_in_block = 1U
+    }};
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_get_shred_cnt( sched, 2UL )==2U );
+
+    fec->is_first_in_block = 0U;
+    fec->shred_cnt         = 1U;
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_get_shred_cnt( sched, 2UL )==3U );
+
+    fec->bank_idx          = 3UL;
+    fec->shred_cnt         = 3U;
+    fec->is_first_in_block = 1U;
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_get_shred_cnt( sched, 3UL )==3U );
+
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+  }
+
+  /* Transaction limit: a microblock header declaring more transactions
+     than the limit allows rules the block invalid at ingest. */
+  {
+    ulong footprint = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, 1UL );
+    void * mem = aligned_alloc( fd_sched_align(), footprint );
+    FD_TEST( mem );
+    fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, 1UL, TEST_EXEC_CNT, 0 ) );
+    FD_TEST( sched );
+    fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+    uchar encoded[ sizeof(ulong)+sizeof(fd_microblock_hdr_t) ] = {0};
+    FD_STORE( ulong, encoded, 1UL );
+    fd_microblock_hdr_t hdr = { .hash_cnt = 1UL, .txn_cnt = 2UL };
+    fd_memcpy( encoded+sizeof(ulong), &hdr, sizeof(hdr) );
+
+    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    store_fec->data_sz         = sizeof(encoded);
+    store_fec->shred_offs[ 0 ] = (uint)sizeof(encoded);
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx          = 2UL,
+      .parent_bank_idx   = 1UL,
+      .slot              = TEST_ROOT_SLOT+1UL,
+      .parent_slot       = TEST_ROOT_SLOT,
+      .fec               = store_fec,
+      .data              = encoded,
+      .shred_cnt         = 1U,
+      .is_first_in_block = 1U
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    FD_TEST( !fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_TOO_MANY_TXNS );
+
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -793,6 +886,7 @@ main( int     argc,
   run_abandon_flavor_case();
   run_root_notify_flavor_case();
   run_late_ancestor_discard_case();
+  run_runtime_limit_case();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

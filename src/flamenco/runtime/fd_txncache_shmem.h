@@ -23,23 +23,25 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_txncache_shmem_align( void );
 
-/* larger_max_cost_per_block indicates the validator is running with
-   development.bench.larger_max_cost_per_block, which raises the block
-   cost limit and invalidates the tightened txnpage pool bound (which
-   assumes at most FD_MAX_TXN_PER_SLOT committable transactions per
-   slot).  When set, the pool is sized for every active slot
-   simultaneously full at max_txn_per_slot instead. */
+/* The txnpage pool is sized for the worst case set of simultaneously
+   live transactions: a full snapshot load (151 slot deltas at
+   max_txn_per_slot entries, which counts each transaction twice) plus
+   every other active fork full at max_txn_per_slot/2.  Callers pass
+   2*config->limits.max_txn_per_slot, so a raised [development.bench]
+   block cost limit sizes the pool up through that value.
 
-FD_FN_CONST ulong
+   footprint and new return 0 / NULL for zero max_live_slots or
+   max_txn_per_slot, and log an error and exit if the parameters need a
+   txnpage pool larger than the structure can address. */
+
+ulong
 fd_txncache_shmem_footprint( ulong max_live_slots,
-                             ulong max_txn_per_slot,
-                             int   larger_max_cost_per_block );
+                             ulong max_txn_per_slot );
 
 void *
 fd_txncache_shmem_new( void * shmem,
                        ulong  max_live_slots,
                        ulong  max_txn_per_slot,
-                       int    larger_max_cost_per_block,
                        ulong  seed );
 
 fd_txncache_shmem_t *

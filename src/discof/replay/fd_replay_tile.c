@@ -151,13 +151,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_reasm_align(),                    fd_reasm_footprint( tile->replay.fec_max ) );
   }
   l = FD_LAYOUT_APPEND( l, alignof(fd_reception_stats_t),       sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),             fd_vote_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),              fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t),        sizeof(fd_dump_proto_ctx_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t) );
   l = FD_LAYOUT_APPEND( l, fd_timing_slot_pool_align(),         fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_txn_timing_t),     FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                      tile->replay.max_live_slots*sizeof(ulong) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_reasm_fec_t *),           (tile->replay.max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *) );
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -627,7 +629,7 @@ block_completed_event_fill_leader_txn_timing( fd_replay_tile_t *           ctx,
                                               fd_bank_t *                  bank ) {
   ulong tidx = ctx->leader_stats.timing_table_idx;
   if( FD_UNLIKELY( !ctx->leader_txn_timing || tidx>=FD_LEADER_TXN_TIMING_TABLE_CNT ) ) return;
-  fd_leader_txn_timing_table_t const * table = &ctx->leader_txn_timing[ tidx ];
+  fd_leader_txn_timing_table_t const * table = fd_leader_txn_timing_table_const( ctx->leader_txn_timing, tidx, ctx->max_txn_per_slot );
   if( FD_UNLIKELY( table->slot!=bank->f.slot ) ) return;
 
   ulong cnt = fd_ulong_min( table->cnt, FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX );
@@ -692,9 +694,10 @@ report_block_completed( fd_replay_tile_t *                 ctx,
     ulong tslot = ctx->timing_slot_of_bank[ bank->idx ];
     if( FD_LIKELY( tslot!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) ) ) {
       fd_replay_txn_timing_slot_t const * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
+      fd_replay_txn_timing_t const *      rec  = ctx->timing_rec + tslot*ctx->max_txn_per_slot;
       ulong cnt = fd_ulong_min( slot->cnt, FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX );
       for( ulong i=0UL; i<cnt; i++ ) {
-        fd_replay_txn_timing_t const * t = &slot->rec[ i ];
+        fd_replay_txn_timing_t const * t = &rec[ i ];
         ev->txn_timing[ i ] = (fd_event_block_completed_txn_timing_t){
           .received_time             = (ulong)t->received_ns, /* already wallclock */
           .parsed_time               = t->parsed_ticks        ==LONG_MAX ? 0UL : (ulong)fd_clock_epoch_y( ctx->clock->epoch, t->parsed_ticks         ),
@@ -948,11 +951,11 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
                       ulong               txn_idx ) {
   fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
 
-  FD_TEST( txn_info->index_in_slot<FD_MAX_TXN_PER_SLOT );
+  FD_TEST( txn_info->index_in_slot<ctx->max_txn_per_slot );
   ulong tslot = ctx->timing_slot_of_bank[ bank_idx ];
   if( FD_LIKELY( tslot!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) ) ) {
     fd_replay_txn_timing_slot_t * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
-    fd_replay_txn_timing_t * t = &slot->rec[ txn_info->index_in_slot ];
+    fd_replay_txn_timing_t * t = ctx->timing_rec + tslot*ctx->max_txn_per_slot + txn_info->index_in_slot;
     t->received_ns          = txn_info->received_ns;
     t->parsed_ticks         = txn_info->tick_parsed;
     t->sigverify_disp_ticks = txn_info->tick_sigverify_disp;
@@ -1435,7 +1438,7 @@ try_become_leader_ag( fd_replay_tile_t *        ctx,
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
 
-  msg->limits.slot_max_cost                     = ctx->larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : cost_tracker->block_cost_limit;
+  msg->limits.slot_max_cost                     = cost_tracker->block_cost_limit;
   msg->limits.slot_max_vote_cost                = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND;
   msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
   msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
@@ -1829,7 +1832,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
 
-  msg->limits.slot_max_cost                     = ctx->larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : cost_tracker->block_cost_limit;
+  msg->limits.slot_max_cost                     = cost_tracker->block_cost_limit;
   msg->limits.slot_max_vote_cost                = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND;
   msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
   msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
@@ -2836,9 +2839,10 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
   fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
   FD_TEST( !!parent );
 
-  fd_reasm_fec_t * path[ FD_FEC_BLK_MAX ];
-  ulong            path_cnt = 0UL;
-  ulong            path_slot = reasm_fec->slot;
+  fd_reasm_fec_t ** path     = ctx->backfill_path;
+  ulong             path_max = ctx->max_shreds_per_block/FD_FEC_SHRED_CNT;
+  ulong             path_cnt = 0UL;
+  ulong             path_slot = reasm_fec->slot;
 
   /* Walk backward from the candidate FEC until we find one with an
      associated bank that we consider 'valid'.  A FEC is considered
@@ -2861,7 +2865,7 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
       path_slot = curr->slot;
     }
 
-    FD_TEST( path_cnt<FD_FEC_BLK_MAX );
+    FD_TEST( path_cnt<path_max );
     path[ path_cnt++ ] = curr;
 
     curr = fd_reasm_parent( ctx->reasm, curr );
@@ -3732,18 +3736,23 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
 
   ulong work = (ulong)fd_log_wallclock();
 
+  fd_store_fec_data_view_t data_view[1];
+  fd_rwlock_read( &ctx->store->fec_lock );
   fd_store_fec_t * store_fec = fd_store_query( ctx->map_join, &fec->mr );
   ctx->metrics.store_query_cnt++;
+  int view_err = store_fec ? fd_store_fec_data_view( ctx->store, ctx->store_disk_fd, store_fec, data_view ) : -1;
+  fd_rwlock_unread( &ctx->store->fec_lock );
+
   /* A missing store entry is expected: rotor (the store publisher)
      removes FEC sets on publish, so a FEC delivered for a slice that has
-     since been pruned/rooted is no longer in the store.  Abandon the
-     slice rather than dereference a NULL store_fec below (fd_store_fec_data
-     and the sched copy would fault on it). */
-  if( FD_UNLIKELY( !store_fec ) ) {
+     since been pruned/rooted is no longer in the store.  The lookup and
+     payload pin are one lifetime transaction under fec_lock: remove may
+     unlink the key only after the view has pinned the pool element. */
+  if( FD_UNLIKELY( !store_fec || view_err ) ) {
     ctx->metrics.store_query_missing_cnt++;
     ctx->metrics.store_query_missing_mr = fec->mr.ul[0];
     FD_BASE58_ENCODE_32_BYTES( fec->mr.key, key_b58 );
-    FD_LOG_INFO(( "store fec for slot: %lu not present (pruned by publish); abandoning slice. root: %lu. merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
+    FD_LOG_INFO(( "store fec for slot: %lu unavailable (pruned by publish); abandoning slice. root: %lu. merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
     return;
   }
 
@@ -3806,7 +3815,10 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */
-  if( FD_UNLIKELY( fec->is_leader ) ) return;
+  if( FD_UNLIKELY( fec->is_leader ) ) {
+    fd_store_fec_data_view_release( ctx->store, data_view );
+    return;
+  }
 
   /* Forks form a partial ordering over FEC sets. The Rotor tile
      delivers FEC sets in-order per fork, but FEC set ordering across
@@ -3821,8 +3833,6 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   sched_fec->parent_slot       = fec->parent_slot;
   sched_fec->is_first_in_block = fec->fec_set_idx==0U;
   sched_fec->fec               = store_fec;
-  fd_store_fec_data_view_t data_view[1];
-  FD_TEST( !fd_store_fec_data_view( ctx->store, ctx->store_disk_fd, store_fec, data_view ) );
   sched_fec->data              = data_view->data;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
@@ -4498,9 +4508,9 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
     fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
     FD_TEST( store && store->magic==FD_STORE_MAGIC );
-    ctx->store_disk_fd = fd_store_file_open( store, O_RDONLY );
-    if( FD_UNLIKELY( ctx->store_disk_fd<0 ) )
-      FD_LOG_ERR(( "open(%s) failed (%i-%s)", store->db_path, errno, fd_io_strerror( errno ) ));
+    ctx->store_disk_fd = FD_STORE_FD_RO;
+    if( FD_UNLIKELY( fcntl( ctx->store_disk_fd, F_GETFD )<0 ) )
+      FD_LOG_ERR(( "store file descriptor was not inherited (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -4527,13 +4537,15 @@ unprivileged_init( fd_topo_t const *      topo,
     reasm_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
   }
   void * recp_stats_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reception_stats_t), sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
-  void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
+  void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
   void * block_completed_ev = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t) );
   void * timing_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_timing_slot_pool_align(),  fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
+  void * timing_rec_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_txn_timing_t), FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
   void * timing_of_bank_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),               tile->replay.max_live_slots*sizeof(ulong) );
+  void * backfill_path_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reasm_fec_t *),    (tile->replay.max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *) );
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -4634,8 +4646,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->timing_slot_pool = fd_timing_slot_pool_join( fd_timing_slot_pool_new( timing_pool_mem, FD_REPLAY_TXN_TIMING_SLOTS ) );
   FD_TEST( ctx->timing_slot_pool );
+  ctx->timing_rec          = timing_rec_mem;
   ctx->timing_slot_of_bank = timing_of_bank_mem;
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
+  ctx->backfill_path = backfill_path_mem;
 
   ctx->dump_proto_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
@@ -4658,7 +4672,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_clock_tile_init( ctx->clock );
 
-  ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
+  ctx->max_txn_per_slot     = tile->replay.max_txn_per_slot;
+  ctx->max_shreds_per_block = tile->replay.max_shreds_per_block;
 
   FD_TEST( fd_rng_new( ctx->rng, ctx->rng_seed, 0UL ) );
 
@@ -4675,7 +4690,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->leader_stats.slot = ULONG_MAX;
   ctx->alpenglow         = tile->replay.alpenglow;
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ), ctx->alpenglow ) );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ), ctx->alpenglow ) );
   FD_TEST( ctx->sched );
   FD_TEST( ctx->alpenglow || ctx->reasm );
 

@@ -1671,7 +1671,7 @@ telemetry = true
 
         # Sets the fixed size of the in-memory shred cache.
         # This cache helps reduce disk I/O against the shred database file.
-        shred_cache_size_mib = 2048
+        shred_cache_size_mib = 32
 
     # The repair tile watches incoming shreds and sends repair requests
     # to other validators when it notices we are missing data needed to
@@ -1709,12 +1709,12 @@ telemetry = true
         # The port the repair server listens for repair requests.
         repair_serve_listen_port = 8702
 
-        # Sets maximum size of the shreds partion in the shred database
-        # file, [paths].shred_db, which stores block data.
-        # A larger file limit makes the validator retain more old blocks,
-        # which are served to other nodes that are behind if rserve is
-        # enabled. The shred database file starts out small and grows up to
-        # this limit as shreds are added and removed.
+        # Sets the maximum logical size of the wire-shred ring in the Store
+        # backing file, [paths].shredb. A larger ring lets the validator
+        # retain more old blocks for repair service. The file is sparse:
+        # physical disk use starts small and grows as ring entries and FEC
+        # spill pages are written. This value is not a total disk limit;
+        # FEC payload spills can consume additional space.
         shred_storage_limit_gib = 50
 
     # The txsend tile is responsible for sending transactions out to
@@ -2069,32 +2069,34 @@ telemetry = true
         # automatically.
         affinity = "auto"
 
-        # Solana has a hard-coded maximum CUs per block limit of
-        # 50,000,000+ which works out to around 83,000 transfers a
-        # second, since each consumes about 1500 CUs.  When
-        # benchmarking, this can be the limiting bottleneck of the
-        # system, so this option is provided to raise the limit.  If set
-        # to true, the limit will be lifted to 624,000,000 for a little
-        # over 1 million transfers per second.
+        # Solana has a consensus-agreed maximum number of compute units
+        # per block, on the order of 50,000,000, which works out to
+        # around 83,000 transfers a second since each consumes about
+        # 1,500 CUs.  When benchmarking, this can be the limiting
+        # bottleneck of the system, so this option is provided to raise
+        # the limit.  0 keeps the consensus limits; any other value is
+        # the raised CUs per block and memory that scales with
+        # transactions per slot is sized up to match.
         #
         # This option should not be used in production, and would cause
         # consensus violations and a consensus difference between the
         # validator and the rest of the network.
-        larger_max_cost_per_block = false
+        max_cost_per_block = 0
 
-        # Solana has a consensus-agreed-upon limit of 32,768 data and
-        # parity shreds per block.  This limit prevents a malicious (or
-        # mistaken) validator from slowing down the network by producing
-        # a huge block.  When benchmarking, this limit can be the
-        # bottleneck of the whole system, so this option is provided to
-        # raise the limit.  If set to true, the limit will be raised to
-        # 131,072 data and parity shreds per block, for about 1,200,000
-        # small transactions per second.
+        # Solana has a consensus-agreed-upon limit of 32,768 data shreds
+        # (and as many parity shreds) per block.  This limit prevents a
+        # malicious (or mistaken) validator from slowing down the
+        # network by producing a huge block.  When benchmarking, this
+        # limit can be the bottleneck of the whole system, so this
+        # option is provided to raise the limit.  0 keeps the consensus
+        # limit; any other value is the raised number of data shreds per
+        # block, which must be a multiple of 32,768, and the block data
+        # byte limit scales with it.
         #
         # This option should not be used in a production network, since
         # it would cause consensus violations between the validator and
         # the rest of the network.
-        larger_shred_limits_per_block = false
+        max_shreds_per_block = 0
 
     # Experimental options for the bundle tile.  These should not be
     # changed on a production validator.

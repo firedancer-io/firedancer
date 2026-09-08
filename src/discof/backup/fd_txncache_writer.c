@@ -10,7 +10,7 @@
 struct fd_txncache_writer_blockcache {
   fd_txncache_blockcache_shmem_t * shmem;
   uint *           heads;
-  ushort *         pages;
+  void *           pages;   /* ushort or uint per tc->shmem->txnpage_idx_sz */
   descends_set_t * descends;
 };
 
@@ -21,7 +21,7 @@ struct fd_txncache_writer_tc {
   fd_txncache_blockcache_shmem_t *      blockcache_shmem_pool;
   fd_txncache_writer_blockcache_t *     blockcache_pool;
   blockhash_map_t *                     blockhash_map;
-  ushort *                              txnpages_free;
+  void *                                txnpages_free;
   fd_txncache_txnpage_t *               txnpages;
 };
 
