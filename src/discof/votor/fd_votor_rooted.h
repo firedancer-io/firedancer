@@ -9,7 +9,7 @@
    tile can just include this one.  See fd_tower_slot_rooted.h, which
    exists for the same reason. */
 
-#define FD_VOTOR_SIG_ROOTED (5) /* see fd_votor_tile.h for the full set */
+#define FD_VOTOR_SIG_ROOTED (0) /* see fd_votor_tile.h for the full set */
 
 /* fd_votor_rooted describes a Votor frag that notifies a new root.
    It is the Alpenglow counterpart of fd_tower_slot_rooted: under

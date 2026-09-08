@@ -1,7 +1,6 @@
 #include "fd_votor_tile.h"
 #include "generated/fd_votor_tile_seccomp.h"
 
-#include "../../ballet/bls/fd_bls12_381.h"
 #include "../../choreo/votor/ag_cert_serde.h"
 #include "../../choreo/votor/ag_pool.h"
 #include "../../choreo/votor/ag_vote_serde.h"
@@ -71,37 +70,6 @@ typedef struct replayed replayed_t;
 #define MAP_MEMOIZE            0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-/* The footer of a block we produce declares the highest finalization
-   cert we hold, and the notarization and skip votes that earned rewards
-   FD_NUM_SLOTS_FOR_REWARD slots back.  ag_pool will not hand a cert
-   back after the fact, so the tile keeps what a footer needs as certs
-   go past.
-
-   reward_slot caches, per slot, the widest notarization and skip
-   aggregate seen for it.  Only the plain notar and skip aggregates are
-   eligible: a reward cert is one compressed signature over one base2
-   bitmap, and the fallback aggregates of a skip or notar-fallback cert
-   sign a different vote message, so they cannot be folded in.
-
-   Publishing a leader window reads the reward slots of the whole window
-   while skip certs for the window itself can already be arriving, so
-   the live span is
-   [ W-FD_NUM_SLOTS_FOR_REWARD, W+AG_SLOTS_PER_WINDOW-1 ], and one more
-   keeps the next slot from aliasing onto the oldest. */
-
-#define REWARD_SLOT_MAX (64UL) /* >= FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1 = 13 */
-FD_STATIC_ASSERT( REWARD_SLOT_MAX>FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW, reward_slot_max );
-
-struct reward_slot {
-  ulong           slot; /* ULONG_MAX when the entry holds no slot */
-  int             has_notar;
-  ag_block_hash_t notar_block_hash;
-  ag_bls_agg_t    notar_agg;
-  int             has_skip;
-  ag_bls_agg_t    skip_agg;
-};
-typedef struct reward_slot reward_slot_t;
-
 struct publish {
   ulong          sig;
   fd_votor_msg_t msg;
@@ -159,6 +127,22 @@ typedef struct peer peer_t;
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 
+/* A slow finalization is reported with the notarization of the block
+   it finalizes, whichever of the two certs forms second, so both are
+   kept by slot until the pair is complete. */
+
+#define CERT_SLOT_MAX (4UL*AG_SLOTS_PER_WINDOW)
+
+struct cert_slot {
+  ulong           slot; /* ULONG_MAX when the entry holds no slot */
+  int             has_notar;
+  int             has_final;
+  ag_block_hash_t notar_block_hash;
+  ag_bls_agg_t    notar;
+  ag_bls_agg_t    final;
+};
+typedef struct cert_slot cert_slot_t;
+
 struct fd_votor_tile {
 
   /* Metadata */
@@ -195,10 +179,7 @@ struct fd_votor_tile {
 
   /* Certs */
 
-  ag_cert_fast_final_t fast_final_cert;
-  ag_cert_final_t      final_cert;
-  ag_cert_notar_t      notar_cert;
-  reward_slot_t        reward_slots[ REWARD_SLOT_MAX ];
+  cert_slot_t cert_slots[ CERT_SLOT_MAX ];
 
   /* Networking */
 
@@ -256,59 +237,6 @@ struct fd_votor_tile {
   } scratch;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
-
-static void
-record_final_cert( fd_votor_tile_t * ctx,
-                   ag_cert_t const * cert ) {
-  ulong                 slot       = ag_cert_slot( cert );
-  reward_slot_t const * rs         = &ctx->reward_slots[ slot%REWARD_SLOT_MAX ];
-  int                   have_notar = rs->slot==slot && rs->has_notar;
-
-  int   have_fast  = ctx->fast_final_cert.slot!=ULONG_MAX;
-  int   have_final = have_fast || ctx->final_cert.slot!=ULONG_MAX;
-  ulong final_slot = have_fast ? ctx->fast_final_cert.slot : ctx->final_cert.slot;
-
-  if( cert->kind==AG_CERT_KIND_FAST_FINAL ) {
-    if( !have_final || slot>final_slot || ( slot==final_slot && !have_fast ) ) {
-      ctx->fast_final_cert     = cert->fast_final;
-      ctx->final_cert.slot     = ULONG_MAX;
-      ctx->notar_cert.slot     = ULONG_MAX;
-    }
-  } else if( cert->kind==AG_CERT_KIND_FINAL ) {
-    if( ( !have_final || slot>final_slot ) && have_notar ) {
-      ctx->fast_final_cert.slot = ULONG_MAX;
-      ctx->final_cert          = cert->final;
-      memset( &ctx->notar_cert, 0, sizeof(ag_cert_notar_t) );
-      ctx->notar_cert.slot     = slot;
-      ctx->notar_cert.agg  = rs->notar_agg;
-      memcpy( ctx->notar_cert.block_hash, rs->notar_block_hash, sizeof(ag_block_hash_t) );
-    }
-  }
-}
-
-static void
-record_reward_cert( fd_votor_tile_t * ctx,
-                    ag_cert_t const * cert ) {
-  /* TODO naively implemented to just pass along certs */
-
-  ulong           slot = ag_cert_slot( cert );
-  reward_slot_t * rs   = &ctx->reward_slots[ slot%REWARD_SLOT_MAX ];
-
-  if( FD_UNLIKELY( rs->slot!=slot ) ) {
-    rs->slot      = slot;
-    rs->has_notar = 0;
-    rs->has_skip  = 0;
-  }
-
-  if( cert->kind==AG_CERT_KIND_NOTAR && ( !rs->has_notar || ag_bls_agg_signer_cnt( &cert->notar.agg )>ag_bls_agg_signer_cnt( &rs->notar_agg ) ) ) {
-    rs->has_notar = 1;
-    rs->notar_agg = cert->notar.agg;
-    memcpy( rs->notar_block_hash, cert->notar.block_hash, sizeof(ag_block_hash_t) );
-  } else if( cert->kind==AG_CERT_KIND_SKIP && ( !rs->has_skip || ag_bls_agg_signer_cnt( &cert->skip.agg_skip )>ag_bls_agg_signer_cnt( &rs->skip_agg ) ) ) {
-    rs->has_skip = 1;
-    rs->skip_agg = cert->skip.agg_skip;
-  }
-}
 
 static int
 quic_aio_tx( void *                    _ctx,
@@ -806,17 +734,62 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
     ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
     if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_CERT_CREATED ) ) {
-      publish_t pub;
-      switch( cert->kind ) {
-      case AG_CERT_KIND_FINAL:          pub.sig = FD_VOTOR_SIG_FINAL;          pub.msg.final.slot          = cert->final.slot;          ag_pool_finalized_block_hash( ctx->pool, cert->final.slot, pub.msg.final.block_id.uc ); break; /* names only the slot */
-      case AG_CERT_KIND_FAST_FINAL:     pub.sig = FD_VOTOR_SIG_FAST_FINAL;     pub.msg.fast_final.slot     = cert->fast_final.slot;     memcpy( pub.msg.fast_final.block_id.uc,     cert->fast_final.block_hash,     sizeof(fd_hash_t) ); break;
-      case AG_CERT_KIND_NOTAR:          pub.sig = FD_VOTOR_SIG_NOTAR;          pub.msg.notar.slot          = cert->notar.slot;          memcpy( pub.msg.notar.block_id.uc,          cert->notar.block_hash,          sizeof(fd_hash_t) ); break;
-      case AG_CERT_KIND_NOTAR_FALLBACK: pub.sig = FD_VOTOR_SIG_NOTAR_FALLBACK; pub.msg.notar_fallback.slot = cert->notar_fallback.slot; memcpy( pub.msg.notar_fallback.block_id.uc, cert->notar_fallback.block_hash, sizeof(fd_hash_t) ); break;
-      case AG_CERT_KIND_SKIP:           pub.sig = FD_VOTOR_SIG_SKIP;           pub.msg.skip.slot           = cert->skip.slot;           break;
-      default:                          FD_LOG_ERR(( "unexpected certificate kind %u", cert->kind ));
+      ulong         slot = ag_cert_slot( cert );
+      cert_slot_t * cs   = &ctx->cert_slots[ slot%CERT_SLOT_MAX ];
+      if( FD_UNLIKELY( cs->slot!=slot ) ) {
+        cs->slot      = slot;
+        cs->has_notar = 0;
+        cs->has_final = 0;
       }
-      FD_TEST( !publishes_full( ctx->publishes ) );
-      publishes_push( ctx->publishes, pub );
+
+      publish_t pub = { .sig = FD_VOTOR_SIG_CERTED };
+      fd_votor_certed_t * certed = &pub.msg.certed;
+      memset( certed, 0, sizeof(fd_votor_certed_t) );
+      certed->kind = cert->kind;
+      certed->slot = slot;
+      switch( cert->kind ) {
+      case AG_CERT_KIND_FINAL: /* reported with its notarization below */
+        cs->has_final = 1;
+        cs->final     = cert->final.agg;
+        break;
+      case AG_CERT_KIND_FAST_FINAL:
+        memcpy( certed->block_id.uc, cert->fast_final.block_hash, sizeof(fd_hash_t) );
+        certed->agg = cert->fast_final.agg;
+        break;
+      case AG_CERT_KIND_NOTAR:
+        memcpy( certed->block_id.uc, cert->notar.block_hash, sizeof(fd_hash_t) );
+        certed->agg = cert->notar.agg;
+        cs->has_notar = 1;
+        cs->notar     = cert->notar.agg;
+        memcpy( cs->notar_block_hash, cert->notar.block_hash, sizeof(ag_block_hash_t) );
+        break;
+      case AG_CERT_KIND_NOTAR_FALLBACK:
+        memcpy( certed->block_id.uc, cert->notar_fallback.block_hash, sizeof(fd_hash_t) );
+        certed->agg  = cert->notar_fallback.agg_notar;
+        certed->agg2 = cert->notar_fallback.agg_notar_fallback;
+        break;
+      case AG_CERT_KIND_SKIP:
+        certed->agg  = cert->skip.agg_skip;
+        certed->agg2 = cert->skip.agg_skip_fallback;
+        break;
+      default: FD_LOG_ERR(( "unexpected certificate kind %u", cert->kind ));
+      }
+      if( FD_LIKELY( cert->kind!=AG_CERT_KIND_FINAL ) ) {
+        FD_TEST( !publishes_full( ctx->publishes ) );
+        publishes_push( ctx->publishes, pub );
+      }
+
+      if( FD_UNLIKELY( cs->has_final && cs->has_notar ) ) {
+        memset( certed, 0, sizeof(fd_votor_certed_t) );
+        certed->kind = AG_CERT_KIND_FINAL;
+        certed->slot = slot;
+        certed->agg  = cs->final;
+        certed->agg2 = cs->notar;
+        memcpy( certed->block_id.uc, cs->notar_block_hash, sizeof(fd_hash_t) );
+        cs->has_final = 0;
+        FD_TEST( !publishes_full( ctx->publishes ) );
+        publishes_push( ctx->publishes, pub );
+      }
     }
     *charge_busy = 1;
   }
@@ -863,9 +836,6 @@ after_credit( fd_votor_tile_t *   ctx,
       quic_client_datagram_tx( ctx, peer->conn, ctx->scratch.ser, ser_sz );
     }
 
-    record_reward_cert( ctx, &ctx->scratch.cert_event.cert );
-    record_final_cert ( ctx, &ctx->scratch.cert_event.cert );
-
     uint            kind           = ctx->scratch.cert_event.cert.kind;
     ulong           finalized_slot = ag_pool_finalized_slot( ctx->pool );
     ag_block_hash_t finalized_hash;
@@ -889,54 +859,9 @@ after_credit( fd_votor_tile_t *   ctx,
   if( FD_UNLIKELY( parent.slot==ULONG_MAX ) ) return; /* the pool has not granted parent ready yet */
 
   publish_t pub = { .sig = FD_VOTOR_SIG_LEADER };
-  pub.msg.leader.start_slot  = ctx->next_leader_slot;
+  pub.msg.leader.slot        = ctx->next_leader_slot;
   pub.msg.leader.parent_slot = parent.slot;
   memcpy( pub.msg.leader.parent_block_id.uc, parent.hash, sizeof(fd_hash_t) );
-
-  /* The footer compresses every aggregate it carries and cannot encode a
-     rank past AG_VAT_MAX, so a cert failing either is dropped instead of
-     being allowed to make our block unencodable.  A slow finalization
-     carries the notarization aggregate too, so both are checked. */
-
-  ag_bls_agg_t const * agg[ 2 ] = {
-    fd_ptr_if( ctx->fast_final_cert.slot!=ULONG_MAX, &ctx->fast_final_cert.agg,
-    fd_ptr_if( ctx->final_cert.slot!=ULONG_MAX,      &ctx->final_cert.agg, NULL ) ),
-    fd_ptr_if( ctx->final_cert.slot!=ULONG_MAX,      &ctx->notar_cert.agg, NULL )
-  };
-
-  int final_ready = !!agg[ 0 ];
-  for( ulong i=0UL; i<2UL; i++ ) {
-    if( !agg[ i ] ) continue;
-    uchar csig[ AG_BLS_SIG_COMPRESSED_SZ ];
-    ulong last = signer_set_last( agg[ i ]->bitmask );
-    if( FD_UNLIKELY( ( last<AG_BLS_SIGNERS_MAX && last>=AG_VAT_MAX ) ||
-                     fd_bls12_381_g2_compress( csig, agg[ i ]->sig, 1 ) ) ) final_ready = 0;
-  }
-  pub.msg.leader.fast_final_cert = ctx->fast_final_cert;
-  pub.msg.leader.final_cert      = ctx->final_cert;
-  pub.msg.leader.notar_cert      = ctx->notar_cert;
-  if( FD_UNLIKELY( !final_ready ) ) {
-    pub.msg.leader.fast_final_cert.slot = ULONG_MAX;
-    pub.msg.leader.final_cert.slot      = ULONG_MAX;
-    pub.msg.leader.notar_cert.slot      = ULONG_MAX;
-  }
-  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) {
-    pub.msg.leader.skip_reward_cert [ i ].slot = ULONG_MAX;
-    pub.msg.leader.notar_reward_cert[ i ].slot = ULONG_MAX;
-  }
-
-  /* One reward cert pair per slot of the window: the runtime only
-     accepts the slot FD_NUM_SLOTS_FOR_REWARD before the block. */
-  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) {
-    ulong leader_slot = ctx->next_leader_slot+i;
-    if( FD_UNLIKELY( leader_slot<FD_NUM_SLOTS_FOR_REWARD ) ) continue;
-    ulong                 reward_slot = leader_slot-FD_NUM_SLOTS_FOR_REWARD;
-    reward_slot_t const * rs          = &ctx->reward_slots[ reward_slot%REWARD_SLOT_MAX ];
-    if( FD_UNLIKELY( rs->slot!=reward_slot ) ) continue;
-    if( rs->has_skip  && !fd_reward_cert_from_agg( &pub.msg.leader.skip_reward_cert [ i ], reward_slot, NULL,                 &rs->skip_agg  ) ) pub.msg.leader.skip_reward_cert [ i ].slot = ULONG_MAX;
-    if( rs->has_notar && !fd_reward_cert_from_agg( &pub.msg.leader.notar_reward_cert[ i ], reward_slot, rs->notar_block_hash, &rs->notar_agg ) ) pub.msg.leader.notar_reward_cert[ i ].slot = ULONG_MAX;
-  }
-
   FD_TEST( !publishes_full( ctx->publishes ) );
   publishes_push( ctx->publishes, pub );
 
@@ -1163,10 +1088,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->init                 = 0;
   ctx->next_leader_slot     = ULONG_MAX;
-  ctx->fast_final_cert.slot = ULONG_MAX;
-  ctx->final_cert.slot      = ULONG_MAX;
-  ctx->notar_cert.slot      = ULONG_MAX;
-  for( ulong i=0UL; i<REWARD_SLOT_MAX; i++ ) ctx->reward_slots[ i ].slot = ULONG_MAX;
+  for( ulong i=0UL; i<CERT_SLOT_MAX; i++ ) ctx->cert_slots[ i ].slot = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
