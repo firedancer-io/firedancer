@@ -45,14 +45,15 @@ struct pong_data {
 typedef struct pong_data pong_data_t;
 
 /* Sign credit management */
+
 struct sign_req {
-  ulong       key;        /* map key, ctx->pending_key_next */
+  ulong       key;       /* map key, ctx->pending_key_next */
   ulong       buflen;
   union {
     uchar           buf[sizeof(fd_repair_msg_t)];
     fd_repair_msg_t msg;
   };
-  pong_data_t  pong_data; /* populated only for pong msgs */
+  pong_data_t pong_data; /* populated only for pong msgs */
 };
 typedef struct sign_req sign_req_t;
 
