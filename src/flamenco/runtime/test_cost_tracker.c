@@ -57,7 +57,7 @@ __attribute__((noinline)) void
 test_cost_tracker_block_limit( fd_cost_tracker_t * ct ) {
     ulong const SLOT = 10UL;
     fd_features_t f;
-    fd_txn_out_t txn_out = {0};
+    static fd_txn_out_t txn_out = {0};
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
@@ -67,7 +67,7 @@ test_cost_tracker_block_limit( fd_cost_tracker_t * ct ) {
 
     txn_out.details.txn_cost.type = FD_TXN_COST_TYPE_TRANSACTION;
 
-    /* Transaction 1: 24M */
+    /* Multiple txns required because max add is 24M. Transaction 1: 24M */
     txn_out.details.txn_cost.transaction.programs_execution_cost = 24000000U;
     int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
     FD_TEST( err == FD_COST_TRACKER_SUCCESS );
@@ -91,6 +91,36 @@ test_cost_tracker_block_limit( fd_cost_tracker_t * ct ) {
     FD_TEST( ct->block_cost == 60000000UL );
 }
 
+static void
+test_cost_tracker_account_limit( fd_cost_tracker_t * ct ) {
+    ulong const SLOT = 10UL;
+    fd_features_t f;
+    static fd_txn_out_t txn_out = {0};
+
+    memset( &f, 0xFF, sizeof(f) );
+    fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
+
+    ct->block_cost_limit  = 10000UL;
+    ct->account_cost_limit = 1000UL;
+    ct->data_size_limit    = 10000UL;
+
+    txn_out.details.txn_cost.type = FD_TXN_COST_TYPE_TRANSACTION;
+
+    /* Cost below account limit succeeds. */
+    txn_out.details.txn_cost.transaction.loaded_accounts_data_size_cost = 600U;
+    int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
+    FD_TEST( ct->block_cost == 600UL );
+
+    /* Cost above account limit fails */
+    txn_out.details.txn_cost.transaction.loaded_accounts_data_size_cost = 1001U;
+    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+    FD_TEST( ct->block_cost == 600UL );
+}
+
+
+
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
@@ -100,7 +130,6 @@ int main( int argc, char ** argv ) {
   ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
   ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
 
-  FD_LOG_WARNING(( "fd_cost_tracker_footprint: %lu", fd_cost_tracker_footprint() ));
   fd_wksp_t * wksp;
   if( name ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
@@ -131,6 +160,8 @@ int main( int argc, char ** argv ) {
   FD_TEST( cost_tracker );
   test_cost_tracker_init_reconciliation( cost_tracker );
   test_cost_tracker_block_limit( cost_tracker );
+  test_cost_tracker_account_limit( cost_tracker );
+
   /* TODO: Add more sophisticated tests for the cost tracker. */
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
