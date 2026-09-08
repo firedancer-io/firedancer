@@ -81,7 +81,6 @@ typedef struct ctx {
   fd_store_t *    store;
   int             disk_fd;
   ulong           max_shreds_per_block;
-  fd_shred_base_t shred_buf[1];
 
   /* Used for verifying incoming requests, and signing outgoing responses. */
   fd_sha512_t sha512[1];
@@ -440,53 +439,6 @@ handle_net_request( ctx_t             * ctx,
 
 
 static inline int
-before_frag( ctx_t * ctx,
-             ulong   in_idx,
-             ulong   seq FD_PARAM_UNUSED,
-             ulong   sig ) {
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) ) return 0;
-  int shred_result = fd_shred_sig_res( sig );
-  return fd_shred_sig_src( sig )>SHRED_SIG_SRC_BAD_REPAIR ||
-         (shred_result!=SHRED_SIG_RESULT_OKAY && shred_result!=SHRED_SIG_RESULT_COMPLETES);
-}
-
-static inline void
-during_frag( ctx_t * ctx,
-             ulong   in_idx,
-             ulong   seq FD_PARAM_UNUSED,
-             ulong   sig FD_PARAM_UNUSED,
-             ulong   chunk,
-             ulong   sz,
-             ulong   ctl FD_PARAM_UNUSED ) {
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) ) return;
-  FD_TEST( sz==sizeof(fd_shred_base_t) );
-  fd_memcpy( ctx->shred_buf, fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk ), sz );
-}
-
-static inline void
-after_frag( ctx_t             * ctx,
-            ulong               in_idx,
-            ulong               seq FD_PARAM_UNUSED,
-            ulong               sig FD_PARAM_UNUSED,
-            ulong               sz FD_PARAM_UNUSED,
-            ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub FD_PARAM_UNUSED,
-            fd_stem_context_t * stem FD_PARAM_UNUSED ) {
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) ) return;
-  fd_shred_t const * shred = &ctx->shred_buf->shred;
-  if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return;
-
-  long dt = -fd_tickcount();
-  int result = fd_store_disk_insert( ctx->store, ctx->disk_fd, shred );
-  dt += fd_tickcount();
-  fd_histf_sample( ctx->metrics->disk_write_timing, (ulong)dt );
-  if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
-    ctx->metrics->disk_inserted++;
-    ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
-  } else ctx->metrics->disk_write_failed++;
-}
-
-static inline int
 returnable_frag( ctx_t             * ctx,
                  ulong               in_idx,
                  ulong               seq FD_PARAM_UNUSED,
@@ -517,7 +469,27 @@ returnable_frag( ctx_t             * ctx,
     return 0;
   }
   case IN_KIND_SIGN: return 0; /* handled internally by keyguard_client */
-  case IN_KIND_SHRED: return 0;
+  case IN_KIND_SHRED: {
+    int shred_result = fd_shred_sig_res( sig );
+    if( FD_UNLIKELY( fd_shred_sig_src( sig )>SHRED_SIG_SRC_BAD_REPAIR ||
+                     (shred_result!=SHRED_SIG_RESULT_OKAY && shred_result!=SHRED_SIG_RESULT_COMPLETES) ) ) return 0;
+    if( FD_UNLIKELY( sz!=sizeof(fd_shred_base_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
+      FD_LOG_ERR(( "shred_out chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
+
+    fd_shred_base_t const * msg   = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    fd_shred_t const *      shred = &msg->shred;
+    if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return 0;
+
+    long dt = -fd_tickcount();
+    int result = fd_store_disk_insert( ctx->store, ctx->disk_fd, shred );
+    dt += fd_tickcount();
+    fd_histf_sample( ctx->metrics->disk_write_timing, (ulong)dt );
+    if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
+      ctx->metrics->disk_inserted++;
+      ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
+    } else ctx->metrics->disk_write_failed++;
+    return 0;
+  }
   default: FD_LOG_ERR(( "unexpected input kind (%u)", in_kind ));
   }
 }
@@ -781,10 +753,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
-#define STEM_CALLBACK_BEFORE_FRAG         before_frag
-#define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
 

@@ -663,7 +663,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_gossvf", 0UL                                                );
   if( rserve_enabled ) {
     FOR(net_tile_cnt) fd_topob_tile_in(     topo, "rserve",  0UL,          "metric_in", "net_rserve",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-    FOR(shred_tile_cnt) fd_topob_tile_in(  topo, "rserve",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    FOR(shred_tile_cnt) fd_topob_tile_in(   topo, "rserve",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/              fd_topob_tile_out(    topo, "rserve",  0UL,                       "rserve_net",    0UL                                                );
     /**/              fd_topos_tile_in_net( topo,                          "metric_in", "rserve_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   }
