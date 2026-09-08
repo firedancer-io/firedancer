@@ -1508,10 +1508,12 @@ test_notar_fallback_same_block( fd_wksp_t * wksp ) {
 
   /* The remaining set arrives through turbine (not repair): its shreds
      fill the shared FEC, and the slot-complete FEC is delivered once
-     per version.  The turbine version goes first: its block_id
-     finalizes to the cert's, so its slot-complete FEC carries that id
-     but is not marked known_id (it is a turbine version).  The cert
-     version follows, verified. */
+     per version.  The turbine version's block_id finalizes to the
+     cert's, so its slot-complete FEC carries that id but is not marked
+     known_id (it is a turbine version).  The cert version's copy is
+     verified.  Delivery order between the two versions follows the
+     chainer's version-chain order (newest first), so only require one
+     copy of each kind. */
 
   rep_mark = rep_cnt;
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
@@ -1526,8 +1528,7 @@ test_notar_fallback_same_block( fd_wksp_t * wksp ) {
   FD_TEST( rep_cnt==rep_mark+2UL );
   rep_expect( rep_mark,     slot, 2U*FD_FEC_SHRED_CNT, &blk->fec_root[ 2 ], &blk->block_id, 1 );
   rep_expect( rep_mark+1UL, slot, 2U*FD_FEC_SHRED_CNT, &blk->fec_root[ 2 ], &blk->block_id, 1 );
-  FD_TEST( !rep_log[ rep_mark     ].known_id );
-  FD_TEST(  rep_log[ rep_mark+1UL ].known_id );
+  FD_TEST( rep_log[ rep_mark ].known_id != rep_log[ rep_mark+1UL ].known_id ); /* one turbine copy, one cert copy */
   FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==slot );
   FD_TEST( fd_hash_eq( &vT->block_id, &blk->block_id ) ); /* turbine version finalized to the cert's id */
   FD_TEST( slot_version_cnt( ctx->chainer, slot )==2UL ); /* both versions live, same {slot, block_id} */
