@@ -1094,35 +1094,20 @@ typedef long (*fd_clock_func_t)( void const * args );
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_memcpy(d,s,sz):  On modern x86 in some circumstances, rep mov will
-   be faster than memcpy under the hood (basically due to RFO /
-   read-for-ownership optimizations in the cache protocol under the hood
-   that aren't easily done from the ISA ... see Intel docs on enhanced
-   rep mov).  Compile time configurable though as this is not always
-   true.  So application can tune to taste.  Hard to beat rep mov for
-   code density though (2 bytes) and pretty hard to beat in situations
-   needing a completely generic memcpy.  But it can be beaten in
-   specialized situations for the usual reasons. */
+/* fd_memcpy(d,s,sz):
+
+   Compile-time-sized copies still use the compiler builtin.  This lets
+   the compiler inline small copies and select libc for large constants.
+   Sanitizers similarly use their interceptable implementations. */
 
 /* FIXME: CONSIDER MEMCMP TOO! */
 /* FIXME: CONSIDER MEMCPY RELATED FUNC ATTRS */
 
 #ifndef FD_USE_ARCH_MEMCPY
-#define FD_USE_ARCH_MEMCPY 0
+#define FD_USE_ARCH_MEMCPY FD_HAS_AVX
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
-
-static inline void *
-fd_memcpy( void       * FD_RESTRICT d,
-           void const * FD_RESTRICT s,
-           ulong                    sz ) {
-  void * p = d;
-  __asm__ __volatile__( "rep movsb" : "+D" (p), "+S" (s), "+c" (sz) :: "memory" );
-  return d;
-}
-
-#elif FD_HAS_MSAN
+#if FD_HAS_MSAN
 
 void * __msan_memcpy( void * dest, void const * src, ulong n );
 
@@ -1131,6 +1116,18 @@ fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
   return __msan_memcpy( d, s, sz );
+}
+
+#elif FD_HAS_AVX && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_ASAN
+
+void * fd_memcpy_avx( void * FD_RESTRICT d, void const * FD_RESTRICT s, ulong sz );
+
+static inline void *
+fd_memcpy( void       * FD_RESTRICT d,
+           void const * FD_RESTRICT s,
+           ulong                    sz ) {
+  if( __builtin_constant_p( sz ) ) return __builtin_memcpy( d, s, sz );
+  return fd_memcpy_avx( d, s, sz );
 }
 
 #else
@@ -1147,24 +1144,25 @@ fd_memcpy( void       * FD_RESTRICT d,
 
 #endif
 
-/* fd_memset(d,c,sz): architecturally optimized memset.  See fd_memcpy
+/* fd_memset(d,c,sz): Architecturally optimized memset.  See fd_memcpy
    for considerations. */
 
 /* FIXME: CONSIDER MEMSET RELATED FUNC ATTRS */
 
 #ifndef FD_USE_ARCH_MEMSET
-#define FD_USE_ARCH_MEMSET 0
+#define FD_USE_ARCH_MEMSET FD_HAS_AVX
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
+#if FD_HAS_AVX && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_ASAN && !FD_HAS_MSAN
+
+void * fd_memset_avx( void * d, int c, ulong sz );
 
 static inline void *
 fd_memset( void  * d,
            int     c,
            ulong   sz ) {
-  void * p = d;
-  __asm__ __volatile__( "rep stosb" : "+D" (p), "+c" (sz) : "a" (c) : "memory" );
-  return d;
+  if( __builtin_constant_p( sz ) ) return __builtin_memset( d, c, sz );
+  return fd_memset_avx( d, c, sz );
 }
 
 #else

@@ -2,10 +2,15 @@ $(call make-lib,fd_util)
 $(call add-hdrs,fd_util_base.h fd_util.h)
 $(call add-hdrs,fd_hash32.h)
 $(call add-objs,fd_hash fd_util,fd_util)
+ifdef FD_HAS_AVX
+$(call add-asms,fd_memcpy fd_memset,fd_util)
+endif
 $(call add-hdrs,fd_version.h)
 $(call add-objs,fd_version,fd_util)
 $(call make-unit-test,test_util,test_util,fd_util)
 $(call run-unit-test,test_util)
+$(call make-unit-test,test_mem,test_mem,fd_util)
+$(call run-unit-test,test_mem)
 
 ifndef FD_HAS_UBSAN
 # The point of test_util_base is to diagnose compatibility of the build
