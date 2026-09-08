@@ -23,7 +23,7 @@ case $network in
   "devnet")
     export BUCKET_ENDPOINT="gs://solana-devnet-ledger-us-ny5"
     export GENESIS_FILE="https://api.devnet.solana.com/genesis.tar.bz2"
-    export INDEX_MAX=300000000
+    export INDEX_MAX=400000000
     ;;
   *)
     echo "Unknown network: $network"
