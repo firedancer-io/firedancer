@@ -3,7 +3,6 @@
 # Raw results land in $BENCH_DIR/<side>.<what>.*; benchmark_comment.py turns them into the comment.
 set -euo pipefail
 what=${1:?usage: bench.sh build|replay|snapshot|bench base|new} side=${2:?side}
-here=$(dirname "$(realpath "$0")")
 BENCH_DIR=${BENCH_DIR:-$(realpath ..)/bench}
 DUMP_DIR=${DUMP_DIR:-$(realpath ..)/dump}
 bin=$BENCH_DIR/$side/bin
@@ -39,6 +38,7 @@ case $what in
     { time make -j"$(nproc)" firedancer > "$out.log" 2>&1 ; } 2> "$out.time"
     make -j"$(nproc)" firedancer-dev >> "$out.log" 2>&1
     cp "$(make --silent objdir)"/bin/{firedancer,firedancer-dev} "$bin/"
+    cp contrib/ci/bench/bench.toml "$BENCH_DIR/$side/"  # each side runs the config its checkout knows
     size -A -d "$bin/firedancer" > "$out.size"
     for c in mainnet testnet; do "$bin/firedancer-dev" mem --$c --json > "$out.mem.$c.json"; done
     ;;
@@ -46,10 +46,10 @@ case $what in
                      -e "${BENCH_END_SLOT:-424669200}" -m 4000000 ;;
   snapshot) backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000 --snapdc 2 ;;  # load-only ledger: no shreds
   bench)
-    { cat "$here/bench.toml"; printf '[paths]\n    accounts = "%s"\n' "$DUMP_DIR/accounts.db"; } > "$BENCH_DIR/bench.toml"
+    { cat "$BENCH_DIR/$side/bench.toml"; printf '[paths]\n    accounts = "%s"\n' "$DUMP_DIR/accounts.db"; } > "$out.toml"
     quiesce
     rm -f "$out.log"
-    sudo "$bin/firedancer-dev" bench --no-watch --duration 10 --config "$BENCH_DIR/bench.toml" \
+    sudo "$bin/firedancer-dev" bench --no-watch --duration 10 --config "$out.toml" \
          --log-path "$out.log" > /dev/null 2>&1
     ;;
   *) echo "bench.sh: unknown measurement $what" >&2; exit 1 ;;
