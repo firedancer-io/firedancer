@@ -173,7 +173,7 @@ pump( ctx_t * ctx ) {
     ulong before = pub_cnt;
     tick( ctx );
     if( pub_cnt==before &&
-        fd_signs_queue_empty( ctx->pong_queue ) &&
+        toss_queue_empty( ctx->toss_queue ) &&
         out_queue_empty( ctx->chainer->out_queue ) ) return;
   }
   FD_LOG_ERR(( "pump did not quiesce" ));
@@ -297,6 +297,23 @@ slot_version_cnt( fd_chainer_t * chainer, ulong slot ) {
              i!=ULONG_MAX;
              i=fd_slotv_map_idx_next_const( i, ULONG_MAX, chainer->slotv_pool ) ) n++;
   return n;
+}
+
+/* slotv_shred_cnt returns the number of data shreds slotv has, summed
+   over the FECs it owns. */
+
+static ulong
+slotv_shred_cnt( fd_chainer_t *             chainer,
+                 fd_chainer_slotv_t const * slotv ) {
+  fd_chainer_fec_t * fec_pool = chainer->fec_pool;
+  uint const *       fecs     = fd_chainer_slotv_fecs( chainer, slotv );
+  ulong              cnt      = 0UL;
+  for( ulong k=0UL; k<chainer->fec_blk_max; k++ ) {
+    uint idx = fecs[ k ];
+    if( idx==UINT_MAX ) continue;
+    cnt += (ulong)fd_uint_popcnt( fd_fec_pool_ele( fec_pool, (ulong)idx )->data_idxs );
+  }
+  return cnt;
 }
 
 /* ---------------------------------------------------------------------
@@ -608,8 +625,8 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * dedup_mem      = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(),         fd_reqlim_footprint( TEST_DEDUP_MAX ),   1UL );
   void * inflights_mem  = fd_wksp_alloc_laddr( wksp, fd_inflights_align(),      fd_inflights_footprint(),                1UL );
   void * signs_map_mem  = fd_wksp_alloc_laddr( wksp, fd_signs_map_align(),      fd_signs_map_footprint( lg_sign_depth ), 1UL );
-  void * pong_queue_mem = fd_wksp_alloc_laddr( wksp, fd_signs_queue_align(),    fd_signs_queue_footprint(),              1UL );
-  void * ag_req_mem     = fd_wksp_alloc_laddr( wksp, ag_req_queue_align(),      ag_req_queue_footprint( FD_FEC_BLK_MAX ), 1UL );
+  void * pong_queue_mem = fd_wksp_alloc_laddr( wksp, toss_queue_align(),        toss_queue_footprint(),                  1UL );
+  void * ag_req_mem     = fd_wksp_alloc_laddr( wksp, meta_queue_align(),        meta_queue_footprint( FD_FEC_BLK_MAX ),   1UL );
   void * repair_mem     = fd_wksp_alloc_laddr( wksp, fd_repair_align(),         fd_repair_footprint(),                   1UL );
   void * metrics_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_metrics_align(), fd_repair_metrics_footprint(),           1UL );
   void * deliver_q_mem  = fd_wksp_alloc_laddr( wksp, out_queue_align(),         out_queue_footprint( (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ), 1UL );
@@ -620,12 +637,12 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->dedup         = fd_reqlim_join        ( fd_reqlim_new        ( dedup_mem,      TEST_DEDUP_MAX, ctx->repair_seed                      ) );
   ctx->inflights     = fd_inflights_join     ( fd_inflights_new     ( inflights_mem,  ctx->repair_seed+1234UL                               ) );
   ctx->signs_map     = fd_signs_map_join     ( fd_signs_map_new     ( signs_map_mem,  lg_sign_depth, 0UL                                    ) );
-  ctx->pong_queue    = fd_signs_queue_join   ( fd_signs_queue_new   ( pong_queue_mem                                                        ) );
-  ctx->ag_req_queue  = ag_req_queue_join     ( ag_req_queue_new     ( ag_req_mem,     FD_FEC_BLK_MAX                                        ) );
+  ctx->toss_queue    = toss_queue_join       ( toss_queue_new       ( pong_queue_mem                                                        ) );
+  ctx->meta_queue    = meta_queue_join       ( meta_queue_new       ( ag_req_mem,     FD_FEC_BLK_MAX                                        ) );
   ctx->protocol      = fd_repair_join        ( fd_repair_new        ( repair_mem,     &ctx->identity_public_key                             ) );
   ctx->slot_metrics  = fd_repair_metrics_join( fd_repair_metrics_new( metrics_mem                                                           ) );
   ctx->deliver_queue = out_queue_join        ( out_queue_new        ( deliver_q_mem, (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ) );
-  FD_TEST( ctx->chainer && ctx->policy && ctx->dedup && ctx->inflights && ctx->signs_map && ctx->pong_queue && ctx->ag_req_queue && ctx->protocol && ctx->slot_metrics && ctx->deliver_queue );
+  FD_TEST( ctx->chainer && ctx->policy && ctx->dedup && ctx->inflights && ctx->signs_map && ctx->toss_queue && ctx->meta_queue && ctx->protocol && ctx->slot_metrics && ctx->deliver_queue );
 
   /* Out links.  fd_chunk_to_laddr( mem, 0 )==mem, so chunk0=0 with mem
      pointing at a flat buffer works like a compact dcache.  wmark leaves
@@ -684,7 +701,6 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   }
 
   fd_ip4_udp_hdr_init( ctx->intake_hdr, 0UL, 0U, 1234 );
-  ctx->repair_intake_addr.port = fd_ushort_bswap( 1234 );
 
   fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_DURATION_SECONDS ),
                                                               FD_MHIST_SECONDS_MAX( REPAIR, SLOT_COMPLETE_DURATION_SECONDS ) ) );
@@ -784,10 +800,10 @@ test_turbine_shreds( fd_wksp_t * wksp ) {
   /* Unauthorized equivocation, coding shreds, and EQVOC-flagged shreds
      are all dropped without touching the chainer. */
 
-  ulong shred_cnt = fd_chainer_slotv_shred_cnt( ctx->chainer, v0 );
+  ulong shred_cnt = slotv_shred_cnt( ctx->chainer, v0 );
   fd_hash_t evil = mkhash( 0xEE1AUL );
   deliver_shred( ctx, blk->slot, 40U, 0, &evil, 0U, SHRED_SIG_SRC_TURBINE, AG_UNKNOWN_SLOT, NULL );
-  FD_TEST( fd_chainer_slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
+  FD_TEST( slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
 
   {
     static fd_shred_base_t base[1];
@@ -797,13 +813,13 @@ test_turbine_shreds( fd_wksp_t * wksp ) {
     base->shred.slot    = blk->slot;
     base->shred.idx     = 7U;
     deliver_frag( ctx, IN_IDX_SHRED, (ulong)SHRED_SIG_SRC_TURBINE, base, sizeof(fd_shred_base_t) );
-    FD_TEST( fd_chainer_slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
+    FD_TEST( slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
 
     base->shred.variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
     base->shred.data.size = FD_SHRED_DATA_HEADER_SZ;
     ulong eqvoc_sig = ( (ulong)(uint)SHRED_SIG_RESULT_EQVOC<<32 ) | (ulong)SHRED_SIG_SRC_TURBINE;
     deliver_frag( ctx, IN_IDX_SHRED, eqvoc_sig, base, sizeof(fd_shred_base_t) );
-    FD_TEST( fd_chainer_slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
+    FD_TEST( slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
   }
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
