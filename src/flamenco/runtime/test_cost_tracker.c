@@ -16,16 +16,16 @@ test_cost_tracker_init_reconciliation( fd_cost_tracker_t * ct ) {
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
   FD_TEST( ct->block_cost_limit  ==60000000UL  );
   FD_TEST( ct->account_cost_limit==24000000UL  );
-  FD_TEST( ct->data_size_limit   ==100000000UL );
+  FD_TEST( ct->data_size_limit   ==FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK );
 
   /* 400ms + raise_block_limits_to_100m: table scaled by 100/60 ->
      100M / 40M. */
   memset( &f, 0xFF, sizeof(f) );
   f.raise_block_limits_to_100m = 0UL;
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
-  FD_TEST( ct->block_cost_limit  ==100000000UL );
+  FD_TEST( ct->block_cost_limit  ==FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND );
   FD_TEST( ct->account_cost_limit==40000000UL  );
-  FD_TEST( ct->data_size_limit   ==100000000UL );
+  FD_TEST( ct->data_size_limit   ==FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK );
 
   /* 200ms + 100m: regime table scaled by 100/60 -> 50M / 20M / 50M. */
   memset( &f, 0xFF, sizeof(f) );
