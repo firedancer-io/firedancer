@@ -1025,6 +1025,43 @@ run_runtime_limit_case( void ) {
     while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
     fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
   }
+
+  /* Microblock limit scales with the shred limit: under 2x shreds a
+     batch declaring more microblocks than the 1x limit is accepted,
+     one declaring more than the 2x limit rules the block invalid. */
+  for( ulong mblk_cnt=FD_SCHED_MAX_MBLK_PER_SLOT+1UL; mblk_cnt<=2UL*FD_SCHED_MAX_MBLK_PER_SLOT+1UL; mblk_cnt+=FD_SCHED_MAX_MBLK_PER_SLOT ) {
+    ulong footprint = fd_sched_footprint( depth, block_cnt_max, 2UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+    void * mem = aligned_alloc( fd_sched_align(), footprint );
+    FD_TEST( mem );
+    fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, 2UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+    FD_TEST( sched );
+    fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+    uchar encoded[ sizeof(ulong) ] = {0};
+    FD_STORE( ulong, encoded, mblk_cnt );
+
+    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    store_fec->data_sz         = sizeof(encoded);
+    store_fec->shred_offs[ 0 ] = (uint)sizeof(encoded);
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx          = 2UL,
+      .parent_bank_idx   = 1UL,
+      .slot              = TEST_ROOT_SLOT+1UL,
+      .parent_slot       = TEST_ROOT_SLOT,
+      .fec               = store_fec,
+      .data              = encoded,
+      .shred_cnt         = 1U,
+      .is_first_in_block = 1U
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    int too_many = mblk_cnt>2UL*FD_SCHED_MAX_MBLK_PER_SLOT;
+    FD_TEST( (!fd_sched_fec_ingest( sched, fec ))==too_many );
+    FD_TEST( (fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS)==too_many );
+
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+  }
 }
 
 int

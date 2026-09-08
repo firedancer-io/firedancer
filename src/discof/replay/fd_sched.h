@@ -6,6 +6,11 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../flamenco/accdb/fd_accdb.h"
+#include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
+
+/* Microblocks per slot at the production shred limit; scaled with
+   max_shreds_per_block at runtime. */
+#define FD_SCHED_MAX_MBLK_PER_SLOT (MAX_SKIPPED_TICKS)
 
 /* fd_sched wraps all the smarts and mechanical chores around scheduling
    transactions for replay execution.  It is built on top of the

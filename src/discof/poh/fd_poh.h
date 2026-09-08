@@ -322,19 +322,24 @@ typedef struct fd_done_packing fd_done_packing_t;
 
 #define FD_POH_MAGIC (0xF17EDA2CE580A000) /* FIREDANCE POH V0 */
 
-/* The maximum number of microblocks that pack is allowed to pack into a
-   single slot.  This is not consensus critical, and pack could, if we
-   let it, produce as many microblocks as it wants, and the slot would
-   still be valid.
+/* The maximum number of microblocks pack may put in a slot: one per
+   non-tick hash position (one per tick in low power mode), less the
+   phantom microblock PoH reserves for the done_packing message.  This
+   is not consensus critical; PoH reserves this many hashes so it never
+   runs out of positions to mixin microblocks still coming from pack.
+   Pack shrinks its live bound with the time left in the slot (see
+   compute_dynamic_max_microblocks in fd_pack_tile.c), so the reserve
+   is gone by the end of the slot rather than hashed through. */
 
-   We have this here instead so that PoH can estimate slot completion,
-   and keep the hashcnt up to date as pack progresses through packing
-   the slot.  If this upper bound was not enforced, PoH could tick to
-   the last hash of the slot and have no hashes left to mixin incoming
-   microblocks from pack, so this upper bound is a coordination
-   mechanism so that PoH can progress hashcnts while the slot is active,
-   and know that pack will not need those hashcnts later to do mixins. */
-#define MAX_MICROBLOCKS_PER_SLOT (131072UL)
+/* Alpenglow has one tick per block, so the hash budget does not bound
+   microblocks; pack is given this fixed budget instead. */
+#define FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT (131072UL)
+
+FD_FN_CONST static inline ulong
+fd_poh_max_microblocks_per_slot( ulong ticks_per_slot,
+                                 ulong hashcnt_per_tick ) {
+  return ticks_per_slot*(fd_ulong_max( hashcnt_per_tick, 2UL )-1UL)-1UL; /* low power genesis encodes hashes_per_tick as 0 or 1 */
+}
 
 /* When we are hashing in the background in case a prior leader skips
    their slot, we need to store the result of each tick hash so we can

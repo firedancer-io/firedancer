@@ -10,7 +10,6 @@
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
 #include "../../disco/pack/fd_chkdup.h"
 #include "../../disco/shred/fd_shredder.h" /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ */
-#include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
@@ -21,7 +20,6 @@
 #define FD_SCHED_MAX_PRINT_BUF_SZ          (2UL<<20)
 #define FD_SCHED_POISON_MAX_ACCT_PER_SLOT  (64UL)
 
-#define FD_SCHED_MAX_MBLK_PER_SLOT             (MAX_SKIPPED_TICKS)
 #define FD_SCHED_MAX_POH_HASHES_PER_TASK       (4096UL) /* This seems to be the sweet spot. */
 
 /* 64 ticks per slot, and a single gigantic microblock containing min
@@ -284,6 +282,7 @@ struct fd_sched {
   ushort *              shred_sz;             /* Payload size of each ingested data shred, max_shreds_per_block per block pool idx. */
   ulong                 max_shreds_per_block; /* Immutable. */
   ulong                 max_txn_per_slot;     /* Immutable. */
+  ulong                 max_mblk_per_slot;    /* Immutable, FD_SCHED_MAX_MBLK_PER_SLOT scaled with max_shreds_per_block. */
   fd_chkdup_t           chkdup[ 1 ];
   fd_sched_metrics_t    metrics[ 1 ];
   int                   is_alpenglow; /* set if alpenglow is enabled. */
@@ -822,6 +821,7 @@ fd_sched_new( void *     mem,
   sched->block_cnt_max          = block_cnt_max;
   sched->max_shreds_per_block   = max_shreds_per_block;
   sched->max_txn_per_slot       = max_txn_per_slot;
+  sched->max_mblk_per_slot      = fd_ulong_min( FD_SCHED_MAX_MBLK_PER_SLOT*max_shreds_per_block/FD_SHRED_BLK_MAX, UINT_MAX ); /* mblk_cnt is uint */
   sched->exec_cnt               = exec_cnt;
   sched->poh_simd_max           = fd_sha256_simd_lane_max(); FD_CHECK_ERR( sched->poh_simd_max<=FD_SCHED_POH_PARA, "overly wide PoH SHA batch" );
   sched->poh_simd_min           = fd_sha256_simd_lane_min();
@@ -2266,15 +2266,15 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
     }
 
     if( block->txns_rem==0UL && block->mblks_rem>0UL ) {
-      if( FD_UNLIKELY( block->mblk_cnt>=FD_SCHED_MAX_MBLK_PER_SLOT ) ) {
+      if( FD_UNLIKELY( block->mblk_cnt>=sched->max_mblk_per_slot ) ) {
         /* Microblock count is enforced as invariant
-           mblk_cnt+mblks_rem<=FD_SCHED_MAX_MBLK_PER_SLOT
+           mblk_cnt+mblks_rem<=max_mblk_per_slot
            when we read the declared count in a batch header.  So we
            shouldn't get here. */
         sched->print_buf_sz = 0UL;
         print_all( sched, block );
         FD_LOG_NOTICE(( "%s", sched->print_buf ));
-        FD_LOG_CRIT(( "invariant violation: slot %lu, parent slot %lu, mblks_rem %lu, mblk_cnt %u (%u ticks) >= %lu", block->slot, block->parent_slot, block->mblks_rem, block->mblk_cnt, block->mblk_tick_cnt, FD_SCHED_MAX_MBLK_PER_SLOT ));
+        FD_LOG_CRIT(( "invariant violation: slot %lu, parent slot %lu, mblks_rem %lu, mblk_cnt %u (%u ticks) >= %lu", block->slot, block->parent_slot, block->mblks_rem, block->mblk_cnt, block->mblk_tick_cnt, sched->max_mblk_per_slot ));
       }
 
       CHECK_LEFT( sizeof(fd_microblock_hdr_t) );
@@ -2399,8 +2399,8 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
       block->fec_buf_soff += (uint)sizeof(ulong);
 
-      if( FD_UNLIKELY( block->mblks_rem>fd_ulong_sat_sub( FD_SCHED_MAX_MBLK_PER_SLOT, block->mblk_cnt ) ) ) {
-        FD_LOG_INFO(( "bad block: TOO_MANY_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks) + hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, FD_SCHED_MAX_MBLK_PER_SLOT ));
+      if( FD_UNLIKELY( block->mblks_rem>fd_ulong_sat_sub( sched->max_mblk_per_slot, block->mblk_cnt ) ) ) {
+        FD_LOG_INFO(( "bad block: TOO_MANY_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks) + hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, sched->max_mblk_per_slot ));
         return FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS;
       }
 
