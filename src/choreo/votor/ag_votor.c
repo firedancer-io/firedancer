@@ -85,7 +85,8 @@ struct __attribute__((aligned(128UL))) ag_votor {
   ulong        curr_epoch_slot;
   ulong        next_epoch_rank;
   ulong        next_epoch_slot;
-  ag_bls_sec_t bls_sec;
+  uchar const * curr_bls_sec;
+  uchar const * next_bls_sec;
 
   ag_event_vote_t * vote_events;
   ag_event_cert_t * cert_events;
@@ -246,6 +247,12 @@ own_rank( ag_votor_t const * self,
   return (ushort)fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, self->curr_epoch_rank );
 }
 
+static uchar const *
+own_bls_sec( ag_votor_t const * self,
+             ulong              slot ) {
+  return fd_ptr_if( slot>=self->next_epoch_slot, self->next_bls_sec, self->curr_bls_sec );
+}
+
 void
 ag_votor_advance_epoch( ag_votor_t * self,
                         ulong        epoch_rank,
@@ -253,14 +260,18 @@ ag_votor_advance_epoch( ag_votor_t * self,
   if( FD_UNLIKELY( self->curr_epoch_slot==ULONG_MAX ) ) {
     self->curr_epoch_rank = epoch_rank;
     self->curr_epoch_slot = epoch_slot;
+    self->curr_bls_sec = NULL;
   } else if( FD_UNLIKELY( self->next_epoch_slot==ULONG_MAX ) ) {
     self->next_epoch_rank = epoch_rank;
     self->next_epoch_slot = epoch_slot;
+    self->next_bls_sec = NULL;
   } else {
     self->curr_epoch_rank = self->next_epoch_rank;
     self->curr_epoch_slot = self->next_epoch_slot;
+    self->curr_bls_sec = self->next_bls_sec;
     self->next_epoch_rank = epoch_rank;
     self->next_epoch_slot = epoch_slot;
+    self->next_bls_sec = NULL;
   }
 }
 
@@ -268,7 +279,8 @@ void
 ag_votor_set_bls_key( ag_votor_t *       self,
                       ag_bls_sec_t const bls_key ) {
   FD_TEST( bls_key );
-  memcpy( self->bls_sec, bls_key, AG_BLS_SEC_SZ );
+  if( FD_LIKELY( self->next_epoch_slot==ULONG_MAX ) ) self->curr_bls_sec = bls_key;
+  else                                                self->next_bls_sec = bls_key;
 }
 
 void
@@ -398,13 +410,15 @@ try_final( ag_votor_t *          self,
            ulong                 slot,
            ag_block_hash_t const hash ) {
   FD_TEST( slot>=first_unpruned_slot( self ) );
+  uchar const * bls_sec = own_bls_sec( self, slot );
+  if( FD_UNLIKELY( !bls_sec ) ) return;
 
   slot_state_ele_t const * state = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
   int notarized   = state && state->block_notarized && !memcmp( state->block_notarized_hash, hash, sizeof(ag_block_hash_t) );
   int voted_notar = state && state->voted_notar     && !memcmp( state->voted_notar_hash,     hash, sizeof(ag_block_hash_t) );
   int not_bad     = !( state && state->bad_window );
   if( FD_LIKELY( notarized && voted_notar && not_bad ) ) {
-    ag_vote_t vote = ag_vote_construct_final( slot, self->bls_sec, own_rank( self, slot ), self->shred_version );
+    ag_vote_t vote = ag_vote_construct_final( slot, bls_sec, own_rank( self, slot ), self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
     vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
     state_mut( self, slot )->retired = 1;
@@ -416,6 +430,8 @@ try_notar( ag_votor_t *            self,
            ulong                   slot,
            ag_block_info_t const * block_info ) {
   FD_TEST( slot>=first_unpruned_slot( self ) );
+  uchar const * bls_sec = own_bls_sec( self, slot );
+  if( FD_UNLIKELY( !bls_sec ) ) return 0;
   if( FD_UNLIKELY( has_voted( self, slot ) ) ) return 0;
 
   ag_block_hash_t hash;
@@ -438,7 +454,7 @@ try_notar( ag_votor_t *            self,
     if( FD_UNLIKELY( memcmp( parent_state->voted_notar_hash, parent.hash, sizeof(ag_block_hash_t) )!=0 ) ) return 0;
   }
 
-  ag_vote_t vote = ag_vote_construct_notar( slot, hash, self->bls_sec, own_rank( self, slot ), self->shred_version );
+  ag_vote_t vote = ag_vote_construct_notar( slot, hash, bls_sec, own_rank( self, slot ), self->shred_version );
   FD_TEST( !vote_events_full( self->vote_events ) );
   vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
 
@@ -461,12 +477,14 @@ try_skip_window( ag_votor_t * self,
   ulong window_start = ag_first_slot_in_window( slot );
   for( ulong s=window_start; s<window_start+AG_SLOTS_PER_WINDOW; s++ ) {
     if( FD_UNLIKELY( has_voted( self, s ) ) ) continue;
+    uchar const * bls_sec = own_bls_sec( self, s );
+    if( FD_UNLIKELY( !bls_sec ) ) continue;
 
     slot_state_ele_t * state = state_mut( self, s );
     state->voted             = 1;
     state->bad_window        = 1;
 
-    ag_vote_t vote = ag_vote_construct_skip( s, self->bls_sec, own_rank( self, s ), self->shred_version );
+    ag_vote_t vote = ag_vote_construct_skip( s, bls_sec, own_rank( self, s ), self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
     vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
   }
@@ -577,8 +595,10 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
   case AG_EVENT_POOL_SAFE_TO_NOTAR: {
     ulong         slot = event->safe_to_notar.slot;
     uchar const * hash = event->safe_to_notar.hash;
+    uchar const * bls_sec = own_bls_sec( self, slot );
+    if( FD_UNLIKELY( !bls_sec ) ) break;
 
-    ag_vote_t vote = ag_vote_construct_notar_fallback( slot, hash, self->bls_sec, own_rank( self, slot ), self->shred_version );
+    ag_vote_t vote = ag_vote_construct_notar_fallback( slot, hash, bls_sec, own_rank( self, slot ), self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
     vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
     try_skip_window( self, slot );
@@ -588,8 +608,10 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
 
   case AG_EVENT_POOL_SAFE_TO_SKIP: {
     ulong slot = event->safe_to_skip;
+    uchar const * bls_sec = own_bls_sec( self, slot );
+    if( FD_UNLIKELY( !bls_sec ) ) break;
 
-    ag_vote_t vote = ag_vote_construct_skip_fallback( slot, self->bls_sec, own_rank( self, slot ), self->shred_version );
+    ag_vote_t vote = ag_vote_construct_skip_fallback( slot, bls_sec, own_rank( self, slot ), self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
     vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
     try_skip_window( self, slot );

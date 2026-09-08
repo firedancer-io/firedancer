@@ -25,6 +25,11 @@ ag_votor_advance_epoch( ag_votor_t * self,
                         ulong        epoch_rank,
                         ulong        epoch_slot );
 
+/* Sets the signing key for the most recently advanced epoch.  If this
+   is not called after advancing an epoch, the votor does not vote in
+   that epoch.  The caller retains ownership of bls_key and must keep it
+   valid for the lifetime of the votor. */
+
 void
 ag_votor_set_bls_key( ag_votor_t *       self,
                       ag_bls_sec_t const bls_key );
