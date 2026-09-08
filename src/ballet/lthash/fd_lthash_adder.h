@@ -43,7 +43,8 @@ struct __attribute__((aligned(FD_LTHASH_ADDER_ALIGN))) fd_lthash_adder {
   ulong batch_ptrs[ FD_LTHASH_ADDER_PARA_MAX ]
   __attribute__((aligned(64)));
 
-  uint  batch_sz[ FD_LTHASH_ADDER_PARA_MAX ];
+  uint  batch_sz[ FD_LTHASH_ADDER_PARA_MAX ]
+  __attribute__((aligned(64)));
 
 #endif
 

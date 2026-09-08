@@ -829,9 +829,9 @@ fd_blake3_lthash_batch8(
 
 void
 fd_blake3_lthash_batch16(
-    void const * batch_data[16],  /* align=32 ele_align=1 */
-    uint const   batch_sz  [16],  /* align=32 */
-    void *       out_lthash      /* align=32 */
+    void const * batch_data[16],  /* align=64 ele_align=1 */
+    uint const   batch_sz  [16],  /* align=64 */
+    void *       out_lthash      /* align=64 */
 ) {
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)batch_data, 64 ) ) ) {
     FD_LOG_ERR(( "misaligned batch_data: %p", (void *)batch_data ));

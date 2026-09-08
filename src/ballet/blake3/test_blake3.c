@@ -164,7 +164,7 @@ static void
 test_avx_compress8_xof2048_para( void ) {
   void const * data[ 16 ] __attribute__((aligned(32)));
   for( uint i=0; i<16; i++ ) data[ i ] = rand_buf + 1024*i;
-  uint sz[ 8 ];
+  uint sz[ 8 ] __attribute__((aligned(32)));
   for( uint i=0; i< 8; i++ ) sz  [ i ] = 1024UL;
 
   ushort lthash0[ 1024 ] __attribute__((aligned(32)));
@@ -265,7 +265,7 @@ static void
 test_avx512_compress16_xof2048_para( void ) {
   void const * data[ 16 ] __attribute__((aligned(64)));
   for( uint i=0; i<16; i++ ) data[ i ] = rand_buf + 1024*i;
-  uint sz[ 16 ];
+  uint sz[ 16 ] __attribute__((aligned(64)));
   for( uint i=0; i<16; i++ ) sz  [ i ] = 1024UL;
 
   ushort lthash[ 1024 ] __attribute__((aligned(64)));
