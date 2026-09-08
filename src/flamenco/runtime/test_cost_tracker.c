@@ -57,7 +57,7 @@ static void
 test_cost_tracker_block_limit( fd_cost_tracker_t * ct ) {
     ulong const SLOT = 10UL;
     fd_features_t f;
-    static fd_txn_out_t txn_out = {0};
+    static fd_txn_out_t txn_out = { 0 };
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
@@ -93,7 +93,7 @@ static void
 test_cost_tracker_account_limit( fd_cost_tracker_t * ct ) {
     ulong const SLOT = 10UL;
     fd_features_t f;
-    static fd_txn_out_t txn_out = {0};
+    static fd_txn_out_t txn_out = { 0 };
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
@@ -119,7 +119,7 @@ static void
 test_cost_tracker_txn_cost_sum( fd_cost_tracker_t * ct ) {
     ulong const SLOT = 10UL;
     fd_features_t f;
-    static fd_txn_out_t txn_out = {0};
+    static fd_txn_out_t txn_out = { 0 };
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
@@ -137,7 +137,7 @@ static void
 test_cost_tracker_data_size_limit( fd_cost_tracker_t * ct ) {
     ulong const SLOT = 10UL;
     fd_features_t f;
-    static fd_txn_out_t txn_out = {0};
+    static fd_txn_out_t txn_out = { 0 };
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
@@ -157,8 +157,7 @@ static void
 test_cost_tracker_rejection_non_mutating( fd_cost_tracker_t * ct ) {
     ulong const SLOT = 10UL;
     fd_features_t f;
-    static fd_txn_out_t txn_out = {0};
-
+    static fd_txn_out_t txn_out = { 0 };
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
@@ -179,7 +178,7 @@ static void
 test_cost_tracker_multiple_accounts( fd_cost_tracker_t * ct ) {
     ulong const SLOT = 10UL;
     fd_features_t f;
-    static fd_txn_out_t txn_out = {0};
+    static fd_txn_out_t txn_out = { 0 };
 
     memset( &f, 0xFF, sizeof(f) );
     fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
