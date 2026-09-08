@@ -29,6 +29,7 @@ struct fd_event_client_metrics {
   ulong invalid_msg_cnt;
   ulong connect_attempt_cnt;
   ulong handshake_timeout_cnt;
+  ulong credit_stall_cnt;
 };
 
 typedef struct fd_event_client_metrics fd_event_client_metrics_t;
@@ -85,7 +86,19 @@ fd_event_client_set_identity( fd_event_client_t * client,
 
 void
 fd_event_client_poll( fd_event_client_t * client,
+                      long                now,
                       int *               charge_busy );
+
+/* fd_event_client_next_deadline returns when fd_event_client_poll
+   next needs to run absent any fd event: the earliest pending
+   timeout (reconnect, connect, auth, response, heartbeat, gRPC
+   deadlines).  Returns now if TLS bytes are buffered inside OpenSSL
+   (no fd event will announce them), LONG_MAX while awaiting the
+   genesis/shred version frags. */
+
+long
+fd_event_client_next_deadline( fd_event_client_t const * client,
+                               long                      now );
 
 FD_PROTOTYPES_END
 

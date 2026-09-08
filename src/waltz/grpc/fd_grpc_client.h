@@ -177,6 +177,44 @@ fd_grpc_client_new( void *                             mem,
 void *
 fd_grpc_client_delete( fd_grpc_client_t * client );
 
+/* fd_grpc_client_next_deadline returns the earliest stream deadline
+   (header or rx-end) across all inflight requests, or LONG_MAX if no
+   stream has a deadline armed. */
+
+FD_FN_PURE long
+fd_grpc_client_next_deadline( fd_grpc_client_t const * client );
+
+/* fd_grpc_client_tx_pending returns 1 if the client has HTTP/2 frame
+   bytes buffered that could not yet be written to the transport. */
+
+FD_FN_PURE int
+fd_grpc_client_tx_pending( fd_grpc_client_t const * client );
+
+/* fd_grpc_client_tx_starved returns the number of request bytes parked
+   mid-send because the peer's HTTP/2 flow-control window (stream or
+   connection) is exhausted, or 0 if not starved.  Only a WINDOW_UPDATE
+   from the peer can resume it. */
+
+FD_FN_PURE ulong
+fd_grpc_client_tx_starved( fd_grpc_client_t const * client );
+
+/* fd_grpc_client_set_tx_budget caps the request payload bytes that may
+   be copied into the TX frame buffer until the next call (pacing).
+   ULONG_MAX (the default) means unlimited.  fd_grpc_client_tx_budget
+   returns the remaining budget.  fd_grpc_client_request_continue
+   resumes a request send that was stopped by the budget or by flow
+   control; returns 1 if the request finished. */
+
+void
+fd_grpc_client_set_tx_budget( fd_grpc_client_t * client,
+                              ulong              budget );
+
+FD_FN_PURE ulong
+fd_grpc_client_tx_budget( fd_grpc_client_t const * client );
+
+int
+fd_grpc_client_request_continue( fd_grpc_client_t * client );
+
 /* fd_grpc_client_reset cancels all inflight requests and abandons the
    HTTP/2 client connection.  Config params are kept intact (e.g. host,
    port, version). */
@@ -224,7 +262,15 @@ fd_grpc_client_set_authority( fd_grpc_client_t * client,
 int
 fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
                           SSL *              ssl,
+                          long               now,
                           int *              charge_busy );
+
+/* fd_grpc_client_tx_flush_ossl writes pending frame bytes to the SSL
+   object (no-op before the TLS handshake completes). */
+
+void
+fd_grpc_client_tx_flush_ossl( fd_grpc_client_t * client,
+                              SSL *              ssl );
 
 #endif /* FD_HAS_OPENSSL */
 
@@ -237,7 +283,15 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
 int
 fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
                             int                sock_fd,
+                            long               now,
                             int *              charge_busy );
+
+/* fd_grpc_client_tx_flush_socket writes pending frame bytes to the
+   socket.  Returns -1 (errno set) on a hard send error, else 0. */
+
+int
+fd_grpc_client_tx_flush_socket( fd_grpc_client_t * client,
+                                int                sock_fd );
 
 /* fd_grpc_client_request_start queues a gRPC request for send.  The
    request includes one Protobuf message (unary request).  The client

@@ -11,8 +11,6 @@
 #include "../h2/fd_h2_rbuf_ossl.h"
 #endif
 
-static int
-fd_grpc_client_request_continue( fd_grpc_client_t * client );
 
 ulong
 fd_grpc_client_align( void ) {
@@ -90,6 +88,7 @@ fd_grpc_client_new( void *                             mem,
     .stream_bufs       = stream_buf_mem,
     .nanopb_tx         = nanopb_tx,
     .nanopb_tx_max     = buf_max,
+    .tx_budget         = ULONG_MAX,
     .frame_scratch     = frame_scratch,
     .frame_scratch_max = buf_max,
     .frame_rx_buf      = frame_rx_buf,
@@ -272,6 +271,40 @@ fd_grpc_client_send_timeout( fd_h2_rbuf_t *        rbuf_tx,
   fd_grpc_client_stream_release( client, stream );
 }
 
+long
+fd_grpc_client_next_deadline( fd_grpc_client_t const * client ) {
+  long deadline = LONG_MAX;
+  for( ulong i=0UL; i<(client->stream_cnt); i++ ) {
+    fd_grpc_h2_stream_t const * stream = client->streams[ i ];
+    if( stream->has_header_deadline ) deadline = fd_long_min( deadline, stream->header_deadline_nanos );
+    if( stream->has_rx_end_deadline ) deadline = fd_long_min( deadline, stream->rx_end_deadline_nanos );
+  }
+  return deadline;
+}
+
+int
+fd_grpc_client_tx_pending( fd_grpc_client_t const * client ) {
+  return !!fd_h2_rbuf_used_sz( client->frame_tx );
+}
+
+ulong
+fd_grpc_client_tx_starved( fd_grpc_client_t const * client ) {
+  fd_grpc_h2_stream_t const * stream = client->request_stream;
+  if( !stream || fd_uint_min( client->conn->tx_wnd, stream->s.tx_wnd ) ) return 0UL;
+  return client->request_tx_op->chunk_sz;
+}
+
+void
+fd_grpc_client_set_tx_budget( fd_grpc_client_t * client,
+                              ulong              budget ) {
+  client->tx_budget = budget;
+}
+
+ulong
+fd_grpc_client_tx_budget( fd_grpc_client_t const * client ) {
+  return client->tx_budget;
+}
+
 void
 fd_grpc_client_service_streams( fd_grpc_client_t * client,
                                 long               ts_nanos ) {
@@ -322,6 +355,7 @@ fd_ossl_log_error( char const * str,
 int
 fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
                           SSL *              ssl,
+                          long               now,
                           int *              charge_busy ) {
   if( FD_UNLIKELY( !client->ssl_hs_done ) ) {
     int res = SSL_do_handshake( ssl );
@@ -358,13 +392,20 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
     client->window_update_pending = 0;
     fd_grpc_client_request_continue( client );
   }
-  fd_grpc_client_service_streams( client, fd_log_wallclock() );
+  fd_grpc_client_service_streams( client, now );
   ulong write_sz = fd_h2_rbuf_ssl_write( client->frame_tx, ssl );
   client->metrics->stream_chunks_rx_bytes += read_sz;
   client->metrics->stream_chunks_tx_bytes += write_sz;
 
   if( read_sz!=0 || write_sz!=0 ) *charge_busy = 1;
   return 0;
+}
+
+void
+fd_grpc_client_tx_flush_ossl( fd_grpc_client_t * client,
+                              SSL *              ssl ) {
+  if( FD_UNLIKELY( !client->ssl_hs_done ) ) return;
+  client->metrics->stream_chunks_tx_bytes += fd_h2_rbuf_ssl_write( client->frame_tx, ssl );
 }
 
 #endif /* FD_HAS_OPENSSL */
@@ -374,6 +415,7 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
 int
 fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
                             int                sock_fd,
+                            long               now,
                             int *              charge_busy ) {
   fd_h2_conn_t * conn = client->conn;
   ulong const frame_rx_lo_0 = client->frame_rx->lo_off;
@@ -394,7 +436,7 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
     client->window_update_pending = 0;
     fd_grpc_client_request_continue( client );
   }
-  fd_grpc_client_service_streams( client, fd_log_wallclock() );
+  fd_grpc_client_service_streams( client, now );
 
   int tx_err = fd_h2_rbuf_sendmsg( client->frame_tx, sock_fd, MSG_NOSIGNAL|MSG_DONTWAIT );
   if( FD_UNLIKELY( tx_err && tx_err!=EAGAIN ) ) {
@@ -419,6 +461,20 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
   return tx_err==EAGAIN ? 1 : 0;
 }
 
+int
+fd_grpc_client_tx_flush_socket( fd_grpc_client_t * client,
+                                int                sock_fd ) {
+  ulong const lo_0 = client->frame_tx->lo_off;
+  int tx_err = fd_h2_rbuf_sendmsg( client->frame_tx, sock_fd, MSG_NOSIGNAL|MSG_DONTWAIT );
+  if( FD_UNLIKELY( tx_err && tx_err!=EAGAIN ) ) {
+    FD_LOG_WARNING(( "fd_h2_rbuf_sendmsg failed (%i-%s)", tx_err, fd_io_strerror( tx_err ) ));
+    errno = tx_err;
+    return -1;
+  }
+  client->metrics->stream_chunks_tx_bytes += client->frame_tx->lo_off - lo_0;
+  return 0;
+}
+
 #endif /* FD_H2_HAS_SOCKETS */
 
 /* fd_grpc_client_request continue attempts to write a request data
@@ -428,7 +484,8 @@ static int
 fd_grpc_client_request_continue1( fd_grpc_client_t * client ) {
   fd_grpc_h2_stream_t * stream    = client->request_stream;
   fd_h2_stream_t *      h2_stream = &stream->s;
-  fd_h2_tx_op_copy( client->conn, h2_stream, client->frame_tx, client->request_tx_op );
+  ulong copied = fd_h2_tx_op_copy1( client->conn, h2_stream, client->frame_tx, client->request_tx_op, client->tx_budget );
+  if( client->tx_budget!=ULONG_MAX ) client->tx_budget -= copied;
   if( FD_UNLIKELY( client->request_tx_op->chunk_sz ) ) return 0;
   client->request_stream = NULL;
   if( FD_UNLIKELY( h2_stream->state != FD_H2_STREAM_STATE_CLOSING_TX ) ) return 0;
@@ -438,7 +495,7 @@ fd_grpc_client_request_continue1( fd_grpc_client_t * client ) {
   return 1;
 }
 
-static int
+int
 fd_grpc_client_request_continue( fd_grpc_client_t * client ) {
   if( FD_UNLIKELY( client->conn->flags & (FD_H2_CONN_FLAGS_DEAD|FD_H2_CONN_FLAGS_SEND_GOAWAY) ) ) return 0;
   if( FD_UNLIKELY( !client->request_stream ) ) return 0;

@@ -1619,6 +1619,7 @@
 | <span class="metrics-name">event_&#8203;invalid_&#8203;message</span> | counter | Malformed messages received from the event service |
 | <span class="metrics-name">event_&#8203;conn_&#8203;attempt</span> | counter | Connection attempts to the event service |
 | <span class="metrics-name">event_&#8203;handshake_&#8203;timeout</span> | counter | Authentication handshake timeouts with the event service |
+| <span class="metrics-name">event_&#8203;credit_&#8203;stall</span> | counter | Reconnects forced because the event service stopped granting HTTP/2 flow-control credit while data was pending |
 
 </div>
 

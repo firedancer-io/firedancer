@@ -118,6 +118,7 @@ struct fd_grpc_client_private {
      Non-NULL until a gRPC request is fully written out. */
   fd_grpc_h2_stream_t * request_stream;
   fd_h2_tx_op_t         request_tx_op[1];
+  ulong                 tx_budget; /* request payload bytes still allowed into frame_tx, ULONG_MAX if unlimited */
 
   /* Stream pool */
   fd_grpc_h2_stream_t * stream_pool;
