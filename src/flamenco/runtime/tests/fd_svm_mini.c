@@ -237,6 +237,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
 
   FD_TEST( fd_sha256_join( fd_sha256_new( mini->sha256 ) ) );
 
+  fd_memset( vm_mem, 0, fd_vm_footprint() );
   mini->vm = fd_vm_join( fd_vm_new( vm_mem ) );
   FD_TEST( mini->vm );
 

@@ -204,14 +204,6 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   ulong                     reg   [ FD_VM_REG_MAX         ]; /* registers, indexed [0,FD_VM_REG_CNT).  Note that FD_VM_REG_MAX>FD_VM_REG_CNT.
                                                                 As such, malformed instructions, which can have src/dst reg index in
                                                                 [0,FD_VM_REG_MAX), cannot access info outside reg.  Aligned 8. */
-  fd_vm_shadow_t            shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is
-                                                                bottom/top.  Aligned 16. */
-  uchar                     stack [ FD_VM_STACK_MAX       ]; /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
-                                                                frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
-                                                                FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
-                                                                current stack frame.  Aligned 16. */
-  uchar                     heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
-
   fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
 
   ulong magic;    /* ==FD_VM_MAGIC */
@@ -234,6 +226,21 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   ulong sbpf_version;     /* SBPF version, SIMD-0161 */
 
   int dump_syscall_to_pb; /* If true, syscalls will be dumped to the specified output directory */
+
+  /* fd_vm_new zero-initializes up to this point only */
+
+  /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is
+     bottom/top.  Lazily initialized. */
+  fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ] __attribute__((aligned(16)));
+
+  /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
+     frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
+     FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
+     current stack frame. */
+  uchar stack[ FD_VM_STACK_MAX ] __attribute__((aligned(FD_VM_HOST_REGION_ALIGN)));
+
+  /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free. */
+  uchar heap[ FD_VM_HEAP_MAX ] __attribute__((aligned(FD_VM_HOST_REGION_ALIGN)));
 };
 
 /* FIXME: MOVE ABOVE INTO PRIVATE WHEN CONSTRUCTORS READY */
