@@ -30,6 +30,12 @@ store_file_wait( fd_store_t const * store,
   return 0;
 }
 
+enum {
+  FD_STORE_SPILL_RETRY    = -1,
+  FD_STORE_SPILL_NONE     =  0,
+  FD_STORE_SPILL_COMPLETE =  1
+};
+
 static int
 store_pwrite_all( int          fd,
                   void const * buf,
@@ -261,13 +267,14 @@ fd_store_fec_release( fd_store_t * store,
 }
 
 static int
-spill_one_locked( fd_store_t * store,
-                  int          disk_fd ) {
-  if( FD_UNLIKELY( disk_fd<0 ) ) return 0;
+spill_one_locked( fd_store_t                 * store,
+                  int                          disk_fd,
+                  fd_store_fec_spill_stats_t * spill ) {
+  if( FD_UNLIKELY( disk_fd<0 ) ) return FD_STORE_SPILL_NONE;
 
   fd_store_fec_t * fec0 = pool_ele_laddr( store );
   uint victim_idx = store->cache_lru_head;
-  if( FD_UNLIKELY( victim_idx==UINT_MAX ) ) return 0;
+  if( FD_UNLIKELY( victim_idx==UINT_MAX ) ) return FD_STORE_SPILL_NONE;
   fd_store_fec_t * victim = fec0 + victim_idx;
   FD_TEST( victim->data_state==FD_STORE_FEC_DATA_RAM_READY && !victim->data_pin_cnt );
   FD_TEST( victim->data_sz<=store->fec_data_max );
@@ -285,7 +292,7 @@ spill_one_locked( fd_store_t * store,
     spill_slot_allocated = 0;
   } else {
     if( FD_UNLIKELY( store->spill_slot_cnt>=store->fec_max ) )
-      return store->spill_reclaiming_cnt ? -1 : 0;
+      return store->spill_reclaiming_cnt ? FD_STORE_SPILL_RETRY : FD_STORE_SPILL_NONE;
     spill_slot           = (uint)store->spill_slot_cnt++;
     spill_slot_allocated = 0;
   }
@@ -296,6 +303,7 @@ spill_one_locked( fd_store_t * store,
 
   cache_lru_remove_locked( store, victim );
   victim->data_state = FD_STORE_FEC_DATA_SPILLING;
+  long evict_ticks = -fd_tickcount();
   fd_rwlock_unwrite( &store->cache_lock );
 
   if( FD_UNLIKELY( store_pwrite_all( disk_fd, cache_data_laddr( store ) + ram_off, data_sz, (off_t)spill_off ) ) )
@@ -303,6 +311,7 @@ spill_one_locked( fd_store_t * store,
 
   fd_rwlock_write( &store->cache_lock );
   FD_TEST( victim->data_state==FD_STORE_FEC_DATA_SPILLING );
+  int result;
   if( FD_UNLIKELY( victim->data_pin_cnt || victim->data_consume_pending ) ) {
     int try_next = !!victim->data_pin_cnt;
     atomic_fetch_add_explicit( &store->spill_allocated_cnt, (ulong)!spill_slot_allocated, memory_order_relaxed );
@@ -313,17 +322,26 @@ spill_one_locked( fd_store_t * store,
     if( FD_LIKELY( !victim->data_pin_cnt && !victim->data_consume_pending ) )
       cache_lru_push_tail_locked( store, victim );
     cache_consume_locked( store, victim );
-    return try_next || !!store->cache_free_cnt;
+    result = try_next ? FD_STORE_SPILL_RETRY :
+             store->cache_free_cnt ? FD_STORE_SPILL_COMPLETE : FD_STORE_SPILL_NONE;
+  } else {
+    victim->data_off   = spill_off;
+    victim->data_state = FD_STORE_FEC_DATA_DISK;
+    atomic_fetch_add_explicit( &store->spill_live_cnt, 1UL, memory_order_relaxed );
+    atomic_fetch_add_explicit( &store->spill_allocated_cnt, (ulong)!spill_slot_allocated, memory_order_relaxed );
+    atomic_fetch_add_explicit( &store->fec_spill_cnt, 1UL, memory_order_relaxed );
+    atomic_fetch_add_explicit( &store->fec_spill_bytes, data_sz, memory_order_relaxed );
+    cache_slot_release_locked( store, ram_off );
+    result = FD_STORE_SPILL_COMPLETE;
   }
 
-  victim->data_off   = spill_off;
-  victim->data_state = FD_STORE_FEC_DATA_DISK;
-  atomic_fetch_add_explicit( &store->spill_live_cnt, 1UL, memory_order_relaxed );
-  atomic_fetch_add_explicit( &store->spill_allocated_cnt, (ulong)!spill_slot_allocated, memory_order_relaxed );
-  atomic_fetch_add_explicit( &store->fec_spill_cnt, 1UL, memory_order_relaxed );
-  atomic_fetch_add_explicit( &store->fec_spill_bytes, data_sz, memory_order_relaxed );
-  cache_slot_release_locked( store, ram_off );
-  return 1;
+  evict_ticks += fd_tickcount();
+  if( FD_LIKELY( spill ) ) {
+    spill->write_cnt++;
+    spill->write_bytes += data_sz;
+    spill->write_ticks += (ulong)evict_ticks;
+  }
+  return result;
 }
 
 
@@ -418,6 +436,11 @@ fd_store_new( void       * shmem,
   store->cache_data_gaddr      = fd_wksp_gaddr_fast( wksp, cache_mem );
   store->cache_free_gaddr      = fd_wksp_gaddr_fast( wksp, cache_free );
   store->cache_free_cnt        = cache_slot_cnt;
+  ulong free_cap               = fd_ulong_min( 8192UL, (64UL<<20) / payload_slot_sz );
+  ulong burst_floor            = fd_ulong_min( 512UL, cache_slot_cnt/2UL );
+  ulong free_target            = fd_ulong_max( cache_slot_cnt/10UL, burst_floor );
+  store->cache_free_target     = fd_ulong_max( 1UL, fd_ulong_min( free_cap, free_target ) );
+  store->cache_free_low_water  = fd_ulong_max( 1UL, (store->cache_free_target*3UL)/4UL );
   store->cache_lru_head        = UINT_MAX;
   store->cache_lru_tail        = UINT_MAX;
   store->spill_free_gaddr      = fd_wksp_gaddr_fast( wksp, spill_free );
@@ -523,7 +546,6 @@ fd_store_file_init( fd_store_t * store ) {
         ulong wire_sz = store->disk_max_shreds*sizeof(fd_shredb_entry_t);
         ulong file_sz = store->wire_off + wire_sz;
         if( FD_UNLIKELY( ftruncate( fd, (off_t)file_sz ) ) ) err = errno;
-        else if( FD_UNLIKELY( wire_sz && fallocate( fd, 0, (off_t)store->wire_off, (off_t)wire_sz ) ) ) err = errno;
         close( fd );
       }
       store->file_init_errno = err;
@@ -580,6 +602,15 @@ uchar *
 fd_store_fec_data_acquire( fd_store_t     * store,
                            int              disk_fd,
                            fd_store_fec_t * fec ) {
+  return fd_store_fec_data_acquire_ex( store, disk_fd, fec, NULL );
+}
+
+uchar *
+fd_store_fec_data_acquire_ex( fd_store_t                  * store,
+                              int                           disk_fd,
+                              fd_store_fec_t              * fec,
+                              fd_store_fec_spill_stats_t * spill ) {
+  if( FD_LIKELY( spill ) ) *spill = (fd_store_fec_spill_stats_t){0};
   if( FD_UNLIKELY( !store || !fec ) ) return NULL;
 
   fd_store_fec_t * fec0 = pool_ele_laddr( store );
@@ -606,8 +637,8 @@ fd_store_fec_data_acquire( fd_store_t     * store,
       fd_rwlock_write( &store->cache_lock );
       continue;
     }
-    int spill_result = spill_one_locked( store, disk_fd );
-    if( FD_UNLIKELY( spill_result<0 ) ) {
+    int spill_result = spill_one_locked( store, disk_fd, spill );
+    if( FD_UNLIKELY( spill_result==FD_STORE_SPILL_RETRY ) ) {
       fd_rwlock_unwrite( &store->cache_lock );
       FD_SPIN_PAUSE();
       fd_rwlock_write( &store->cache_lock );
@@ -630,6 +661,45 @@ fd_store_fec_data_acquire( fd_store_t     * store,
   uchar * data = cache_data_laddr( store ) + fec->data_off;
   fd_rwlock_unwrite( &store->cache_lock );
   return data;
+}
+
+int
+fd_store_fec_data_preevict( fd_store_t                  * store,
+                            int                           disk_fd,
+                            fd_store_fec_spill_stats_t * spill ) {
+  fd_store_fec_spill_stats_t local_spill[1];
+  if( FD_UNLIKELY( !spill ) ) spill = local_spill;
+  *spill = (fd_store_fec_spill_stats_t){0};
+  if( FD_UNLIKELY( !store || disk_fd<0 ) ) return 0;
+
+  fd_rwlock_write( &store->cache_lock );
+  if( FD_UNLIKELY( !store->cache_preevict_active && store->cache_free_cnt<store->cache_free_low_water ) )
+    store->cache_preevict_active = 1U;
+  if( FD_UNLIKELY( store->cache_preevict_active && store->cache_free_cnt>=store->cache_free_target ) )
+    store->cache_preevict_active = 0U;
+
+  if( FD_LIKELY( !store->cache_preevict_active ) ) {
+    fd_rwlock_unwrite( &store->cache_lock );
+    return 0;
+  }
+
+  spill_one_locked( store, disk_fd, spill );
+  if( FD_UNLIKELY( store->cache_free_cnt>=store->cache_free_target ) )
+    store->cache_preevict_active = 0U;
+  fd_rwlock_unwrite( &store->cache_lock );
+  return !!spill->write_cnt;
+}
+
+void
+fd_store_fec_cache_stats_query( fd_store_t                 * store,
+                                fd_store_fec_cache_stats_t * stats ) {
+  if( FD_UNLIKELY( !store || !stats ) ) return;
+  fd_rwlock_read( &store->cache_lock );
+  stats->free_cnt = store->cache_free_cnt;
+  stats->max       = store->cache_slot_cnt;
+  stats->target    = store->cache_free_target;
+  stats->low_water = store->cache_free_low_water;
+  fd_rwlock_unread( &store->cache_lock );
 }
 
 void
@@ -840,7 +910,7 @@ disk_slot_hint_publish( fd_store_t * store,
   for(;;) {
     if( FD_LIKELY( current & (1UL<<15) ) ) {
       uint current_idx = (uint)(current & (FD_SHRED_BLK_MAX-1UL));
-      if( current_idx>=shred_idx ) return;
+      if( FD_LIKELY( fd_shredb_key_slot( current )==slot ) && current_idx>=shred_idx ) return;
     }
     if( atomic_compare_exchange_strong_explicit( hint, &current, desired,
                                                  memory_order_release, memory_order_acquire ) ) return;
@@ -1091,7 +1161,8 @@ fd_store_disk_stats_query( fd_store_t const *      store,
   stats->shred_cnt       = atomic_load_explicit( &store->disk_cnt, memory_order_relaxed );
   stats->current_bytes   = stats->shred_cnt*sizeof(fd_shredb_entry_t)
                          + atomic_load_explicit( &store->spill_live_cnt, memory_order_relaxed )*store->payload_slot_sz;
-  stats->allocated_bytes = store->disk_max_shreds*sizeof(fd_shredb_entry_t)
+  stats->allocated_bytes = fd_ulong_min( atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed ),
+                                        store->disk_max_shreds )*sizeof(fd_shredb_entry_t)
                          + atomic_load_explicit( &store->spill_allocated_cnt, memory_order_relaxed )*store->payload_slot_sz;
   stats->insert_cnt      = atomic_load_explicit( &store->disk_insert_cnt, memory_order_relaxed );
   stats->write_bytes     = atomic_load_explicit( &store->disk_write_bytes, memory_order_relaxed );

@@ -1147,8 +1147,8 @@ EXAMPLES
     <histogram name="AddShredDurationSeconds" min="0.00000001" max="0.001" converter="seconds">
         <summary>Duration of verifying and processing one shred received from the network</summary>
     </histogram>
-    <histogram name="DiskWriteSeconds" min="0.0000001" max="0.1" converter="seconds">
-        <summary>Duration of persisting one accepted data shred</summary>
+    <histogram name="FecFallbackWriteSeconds" min="0.0000001" max="0.1" converter="seconds">
+        <summary>Duration of spilling one FEC payload from the shred tile</summary>
     </histogram>
     <counter name="ShredProcessed" enum="ShredProcessingResult" summary="Result of processing a shred from the network" />
     <counter name="FecSpilled" summary="FEC sets spilled because they didn't complete in time and we needed space" />
@@ -1160,9 +1160,8 @@ EXAMPLES
     <counter name="ShredRepairRxBytes" summary="Bytes received from network packets with repair shreds, including network headers" />
     <counter name="ShredTurbineRx" summary="Turbine shreds received" />
     <counter name="ShredTurbineRxBytes" summary="Bytes received from network packets with turbine shreds, including network headers" />
-    <counter name="DiskShredInserted" summary="Data shreds persisted to the repair store" />
-    <counter name="DiskWriteFailed" summary="Data shreds rejected by the repair store API" />
-    <counter name="DiskWriteBytes" summary="Bytes written by data shreds successfully indexed in the repair store" />
+    <counter name="FecFallbackWrite" summary="FEC payloads synchronously spilled by the shred tile" />
+    <counter name="FecFallbackWriteBytes" summary="FEC payload bytes synchronously spilled by the shred tile" />
 </tile>
 
 <tile name="store" telemetry="false">
@@ -1477,7 +1476,24 @@ EXAMPLES
     <gauge   name="ShredsCurrent" summary="The number of shreds currently in the shreds database" />
     <gauge   name="ShredsMax" summary="Total capacity of shreds that can be stored in the shreds database" />
     <gauge   name="DiskCurrentBytes" summary="Logical bytes occupied by live wire shreds and spilled FEC payloads" />
-    <gauge   name="DiskAllocatedBytes" summary="Physical bytes reserved for the wire ring and allocated spill pages" />
+    <gauge   name="DiskAllocatedBytes" summary="Logical wire-ring high-water plus allocated spill pages" />
+
+    <histogram name="DiskWriteSeconds" min="0.0000001" max="0.1" converter="seconds">
+        <summary>Duration of persisting one accepted data shred</summary>
+    </histogram>
+    <counter name="DiskShredInserted" summary="Data shreds persisted to the repair store" />
+    <counter name="DiskWriteFailed" summary="Data shreds rejected by the repair store API" />
+    <counter name="DiskWriteBytes" summary="Bytes written by persisted data shreds" />
+
+    <histogram name="FecPreevictWriteSeconds" min="0.0000001" max="0.1" converter="seconds">
+        <summary>Duration of pre-evicting one FEC payload</summary>
+    </histogram>
+    <counter name="FecPreevictWrite" summary="FEC payloads pre-evicted by rserve" />
+    <counter name="FecPreevictWriteBytes" summary="FEC payload bytes pre-evicted by rserve" />
+    <gauge name="FecCacheFree" summary="Immediately available FEC payload cache entries" />
+    <gauge name="FecCacheMax" summary="Total FEC payload cache entries" />
+    <gauge name="FecCacheTarget" summary="Background preeviction target in free entries" />
+    <gauge name="FecCacheLowWater" summary="Free entries that trigger background preeviction" />
 
     <counter name="PingCacheEntries" summary="How many active entries do we have in the ping cache" />
     <counter name="PingCacheEvictions" summary="How many entries we've evicted from the ping cache" />

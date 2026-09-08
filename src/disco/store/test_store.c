@@ -151,6 +151,7 @@ test_file_open( fd_wksp_t * wksp ) {
   struct stat st[1];
   FD_TEST( !fstat( fd, st ) );
   FD_TEST( (ulong)st->st_size==store->wire_off + store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
+  FD_TEST( (ulong)st->st_blocks*512UL<store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
 
   uchar value = 0xa5U;
   FD_TEST( pwrite( fd, &value, 1UL, 0 )==1L );
@@ -430,6 +431,50 @@ test_spill( fd_wksp_t * wksp ) {
 }
 
 void
+test_preevict( fd_wksp_t * wksp ) {
+  ulong fec_max      = 4UL;
+  ulong fec_data_max = 64UL;
+  ulong cache_bytes  = 2UL * fd_store_payload_slot_sz( fec_data_max );
+
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, fec_data_max, 0UL, cache_bytes, 0UL ), 1UL );
+  fd_store_t * st = fd_store_join( fd_store_new( mem, fec_max, fec_data_max, 0UL, cache_bytes, 0UL, TEST_PAYLOAD_PATH, 0UL ) );
+  FD_TEST( st );
+  int fd = store_file_open( st, O_RDWR );
+  FD_TEST( fd>=0 );
+
+  fd_store_map_t map[1];
+  FD_TEST( fd_store_map_ljoin( st, map ) );
+  fd_hash_t mr0 = { { 0 } };
+  fd_hash_t mr1 = { { 1 } };
+  fd_hash_t mr2 = { { 2 } };
+  fd_hash_t mr3 = { { 3 } };
+  fd_store_fec_t * fec0 = insert_payload( st, map, fd, &mr0, 0xA0, fec_data_max );
+  insert_payload( st, map, fd, &mr1, 0xB0, fec_data_max );
+
+  fd_store_fec_cache_stats_t stats[1];
+  fd_store_fec_cache_stats_query( st, stats );
+  FD_TEST( !stats->free_cnt && stats->target==1UL && stats->low_water==1UL );
+
+  fd_store_fec_spill_stats_t spill[1];
+  FD_TEST( fd_store_fec_data_preevict( st, fd, spill ) );
+  FD_TEST( spill->write_cnt==1UL && spill->write_bytes==fec_data_max );
+  FD_TEST( fec0->data_state==FD_STORE_FEC_DATA_DISK );
+
+  fd_store_fec_t * fec2 = insert( st, map, &mr2 );
+  FD_TEST( fd_store_fec_data_acquire_ex( st, fd, fec2, spill ) );
+  FD_TEST( !spill->write_cnt );
+  fec2->data_sz = fec_data_max;
+  fd_store_fec_data_publish( st, fec2 );
+
+  fd_store_fec_t * fec3 = insert( st, map, &mr3 );
+  FD_TEST( fd_store_fec_data_acquire_ex( st, fd, fec3, spill ) );
+  FD_TEST( spill->write_cnt==1UL );
+
+  close( fd );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( st ) ) );
+}
+
+void
 test_pinned_spill( fd_wksp_t * wksp ) {
   ulong fec_max      = 4UL;
   ulong fec_data_max = 64UL;
@@ -524,7 +569,7 @@ test_disk_query_highest( fd_wksp_t * wksp ) {
   struct stat file_stat[1];
   FD_TEST( !fstat( disk_fd, file_stat ) );
   FD_TEST( (ulong)file_stat->st_size==store->wire_off + store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
-  FD_TEST( (ulong)file_stat->st_blocks*512UL>=store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
+  FD_TEST( (ulong)file_stat->st_blocks*512UL<store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
   FD_TEST( (ulong)file_stat->st_blocks*512UL<(ulong)file_stat->st_size );
 
   uchar buf[ FD_SHRED_MAX_SZ ];
@@ -545,7 +590,7 @@ test_disk_query_highest( fd_wksp_t * wksp ) {
   FD_TEST( !fd_store_disk_stats_query( store, stats ) );
   FD_TEST( stats->shred_cnt==1UL );
   FD_TEST( stats->current_bytes==sizeof(fd_shredb_entry_t) );
-  FD_TEST( stats->allocated_bytes==store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
+  FD_TEST( stats->allocated_bytes==sizeof(fd_shredb_entry_t) );
   FD_TEST( stats->insert_cnt==1UL );
   FD_TEST( stats->write_bytes==sizeof(fd_shredb_entry_t) );
 
@@ -673,26 +718,32 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
   ulong const slot_a = 17UL;
   ulong const slot_b = slot_a + stride;
   ulong const slot_c = slot_b + stride;
-  FD_TEST( stride>8UL && !(slot_c>>48) );
-  FD_TEST( slot_a%stride==slot_b%stride && slot_b%stride==slot_c%stride );
+  ulong const slot_d = slot_c + stride;
+  FD_TEST( stride>8UL && !(slot_d>>48) );
+  FD_TEST( slot_a%stride==slot_b%stride && slot_b%stride==slot_c%stride && slot_c%stride==slot_d%stride );
 
   uchar buf[ FD_SHRED_MAX_SZ ];
   uchar out[ FD_SHRED_MAX_SZ ];
 
-  /* A lower-index colliding slot cannot lower or steal the bucket
-     watermark.  Its exact shred remains independently readable. */
+  /* A newer slot that wraps onto this bucket replaces the stale owner
+     even when its shred index is lower. */
   FD_TEST( fd_store_disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_a, 10U, 0xa1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_b, 5U, 0xb1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query( store, disk_fd, slot_b, 5U, out )>0 );
   FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xb1U );
-  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_b, 0U, out )==FD_STORE_DISK_QUERY_BUSY );
-  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_a, 0U, out )>0 );
-  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xa1U );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_b, 0U, out )>0 );
+  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xb1U );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_a, 0U, out )==FD_STORE_DISK_QUERY_BUSY );
 
-  /* A higher index may claim the bucket, but that only makes the old
-     owner conservative-BUSY; it does not affect exact reads. */
+  /* Monotonicity still applies within one slot. */
+  FD_TEST( fd_store_disk_insert( store, disk_fd,
+                                 disk_make_shred( buf, slot_b, 3U, 0xb2U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_b, 0U, out )>0 );
+  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xb1U );
+
+  /* The next modulo generation can take ownership in the same way. */
   FD_TEST( fd_store_disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_c, 11U, 0xc1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_c, 0U, out )>0 );
@@ -716,6 +767,13 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_c, 0U, out )==FD_STORE_DISK_QUERY_SCAN_LIMIT );
   FD_TEST( fd_store_disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_c, FD_SHRED_BLK_MAX, 0xc3U ) )==FD_STORE_DISK_INSERT_ERR );
+
+  /* A fresh modulo generation must be serviceable from shred zero; it
+     must not wait to exceed slot_c's stale index 11 watermark. */
+  FD_TEST( fd_store_disk_insert( store, disk_fd,
+                                 disk_make_shred( buf, slot_d, 0U, 0xe0U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_d, 0U, out )>0 );
+  FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xe0U );
 
   close( disk_fd );
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
@@ -930,6 +988,7 @@ main( int argc, char ** argv ) {
   test_fec_data_max( wksp );
   test_fec_sets_arena( wksp );
   test_spill       ( wksp );
+  test_preevict    ( wksp );
   test_pinned_spill( wksp );
   test_disk_query_highest( wksp );
   test_disk_collision_eviction( wksp );

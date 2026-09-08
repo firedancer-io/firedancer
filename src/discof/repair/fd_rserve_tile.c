@@ -13,6 +13,7 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -23,8 +24,9 @@
 
 #define IN_KIND_NET    (0)
 #define IN_KIND_SIGN   (1)
+#define IN_KIND_SHRED  (2)
 
-#define MAX_IN_LINKS 32
+#define MAX_IN_LINKS FD_TOPO_MAX_TILE_IN_LINKS
 
 #define FD_RSERVE_MAX_PACKET_SIZE 1232
 
@@ -73,11 +75,11 @@ typedef struct ctx {
   ulong       net_out_wmark;
   ulong       net_out_chunk;
 
-  ulong         seed;
-  uchar         rserve_secret[ 32 ];
-  fd_rserve_t * rserve;
-  fd_store_t  * store;
-  int           disk_fd;
+  ulong           seed;
+  uchar           rserve_secret[ 32 ];
+  fd_rserve_t *   rserve;
+  fd_store_t *    store;
+  int             disk_fd;
 
   /* Used for verifying incoming requests, and signing outgoing responses. */
   fd_sha512_t sha512[1];
@@ -114,6 +116,13 @@ typedef struct ctx {
     ulong shreds_current;
     ulong disk_current_bytes;
     ulong disk_allocated_bytes;
+    fd_histf_t disk_write_timing[1];
+    ulong      disk_inserted;
+    ulong      disk_write_failed;
+    ulong      disk_write_bytes;
+    fd_histf_t fec_preevict_timing[1];
+    ulong      fec_preevict_write_cnt;
+    ulong      fec_preevict_write_bytes;
 
     ulong ping_cache_entries;
     ulong ping_cache_evictions;
@@ -459,8 +468,44 @@ returnable_frag( ctx_t             * ctx,
     return 0;
   }
   case IN_KIND_SIGN: return 0; /* handled internally by keyguard_client */
+  case IN_KIND_SHRED: {
+    int shred_result = fd_shred_sig_res( sig );
+    if( FD_UNLIKELY( fd_shred_sig_src( sig )>SHRED_SIG_SRC_BAD_REPAIR ||
+                     (shred_result!=SHRED_SIG_RESULT_OKAY && shred_result!=SHRED_SIG_RESULT_COMPLETES) ) ) return 0;
+    if( FD_UNLIKELY( sz!=sizeof(fd_shred_base_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
+      FD_LOG_ERR(( "shred_out chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
+
+    fd_shred_base_t const * msg   = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    fd_shred_t const *      shred = &msg->shred;
+    if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return 0;
+
+    long dt = -fd_tickcount();
+    int result = fd_store_disk_insert( ctx->store, ctx->disk_fd, shred );
+    dt += fd_tickcount();
+    fd_histf_sample( ctx->metrics->disk_write_timing, (ulong)dt );
+    if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
+      ctx->metrics->disk_inserted++;
+      ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
+    } else ctx->metrics->disk_write_failed++;
+    return 0;
+  }
   default: FD_LOG_ERR(( "unexpected input kind (%u)", in_kind ));
   }
+}
+
+static inline void
+before_credit( ctx_t             * ctx,
+               fd_stem_context_t * stem FD_PARAM_UNUSED,
+               int               * charge_busy ) {
+  fd_store_fec_spill_stats_t spill[1];
+  if( FD_UNLIKELY( fd_store_fec_data_preevict( ctx->store, ctx->disk_fd, spill ) ) ) {
+    fd_histf_sample( ctx->metrics->fec_preevict_timing, spill->write_ticks );
+    ctx->metrics->fec_preevict_write_cnt   += spill->write_cnt;
+    ctx->metrics->fec_preevict_write_bytes += spill->write_bytes;
+    *charge_busy = 1;
+    return;
+  }
+  if( FD_UNLIKELY( fd_store_disk_maintain( ctx->store, ctx->disk_fd ) ) ) *charge_busy = 1;
 }
 
 static inline void
@@ -495,6 +540,7 @@ during_housekeeping( ctx_t * ctx ) {
 
 static inline void
 metrics_write( ctx_t * ctx ) {
+  fd_store_fec_cache_stats_t cache_stats[1] = {{0}};
   if( FD_LIKELY( ctx->store ) ) {
     fd_store_disk_stats_t stats[1];
     if( FD_LIKELY( !fd_store_disk_stats_query( ctx->store, stats ) ) ) {
@@ -502,6 +548,7 @@ metrics_write( ctx_t * ctx ) {
       ctx->metrics->disk_current_bytes       = stats->current_bytes;
       ctx->metrics->disk_allocated_bytes     = stats->allocated_bytes;
     }
+    fd_store_fec_cache_stats_query( ctx->store, cache_stats );
   }
 
   FD_MCNT_ENUM_COPY( RSERVE, RECEIVED_REQUEST_COUNT,      ctx->metrics->received_request_count );
@@ -528,6 +575,17 @@ metrics_write( ctx_t * ctx ) {
   FD_MGAUGE_SET( RSERVE, SHREDS_CURRENT,                   ctx->metrics->shreds_current );
   FD_MGAUGE_SET( RSERVE, DISK_CURRENT_BYTES,               ctx->metrics->disk_current_bytes );
   FD_MGAUGE_SET( RSERVE, DISK_ALLOCATED_BYTES,             ctx->metrics->disk_allocated_bytes );
+  FD_MHIST_COPY( RSERVE, DISK_WRITE_SECONDS,                ctx->metrics->disk_write_timing );
+  FD_MCNT_SET  ( RSERVE, DISK_SHRED_INSERTED,               ctx->metrics->disk_inserted );
+  FD_MCNT_SET  ( RSERVE, DISK_WRITE_FAILED,                 ctx->metrics->disk_write_failed );
+  FD_MCNT_SET  ( RSERVE, DISK_WRITE_BYTES,                  ctx->metrics->disk_write_bytes );
+  FD_MHIST_COPY( RSERVE, FEC_PREEVICT_WRITE_SECONDS,        ctx->metrics->fec_preevict_timing );
+  FD_MCNT_SET  ( RSERVE, FEC_PREEVICT_WRITE,                ctx->metrics->fec_preevict_write_cnt );
+  FD_MCNT_SET  ( RSERVE, FEC_PREEVICT_WRITE_BYTES,          ctx->metrics->fec_preevict_write_bytes );
+  FD_MGAUGE_SET( RSERVE, FEC_CACHE_FREE,                    cache_stats->free_cnt );
+  FD_MGAUGE_SET( RSERVE, FEC_CACHE_MAX,                     cache_stats->max );
+  FD_MGAUGE_SET( RSERVE, FEC_CACHE_TARGET,                  cache_stats->target );
+  FD_MGAUGE_SET( RSERVE, FEC_CACHE_LOW_WATER,               cache_stats->low_water );
 
   FD_MCNT_SET( RSERVE, PING_CACHE_ENTRIES,                 ctx->metrics->ping_cache_entries );
   FD_MCNT_SET( RSERVE, PING_CACHE_EVICTIONS,               ctx->metrics->ping_cache_evictions );
@@ -549,7 +607,7 @@ privileged_init( fd_topo_t      const * topo,
   if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
     fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
     FD_TEST( store );
-    ctx->disk_fd = fd_store_file_open( store, O_RDONLY );
+    ctx->disk_fd = fd_store_file_open( store, O_RDWR );
     if( FD_UNLIKELY( ctx->disk_fd<0 ) )
       FD_LOG_ERR(( "open(%s) failed (%i-%s)", store->db_path, errno, fd_io_strerror( errno ) ));
   }
@@ -588,6 +646,12 @@ unprivileged_init( fd_topo_t      const * topo,
   FD_TEST( ctx->keyswitch );
 
   fd_memset( ctx->metrics, 0, sizeof(ctx->metrics) );
+  fd_histf_join( fd_histf_new( ctx->metrics->disk_write_timing,
+                               FD_MHIST_SECONDS_MIN( RSERVE, DISK_WRITE_SECONDS ),
+                               FD_MHIST_SECONDS_MAX( RSERVE, DISK_WRITE_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->fec_preevict_timing,
+                               FD_MHIST_SECONDS_MIN( RSERVE, FEC_PREEVICT_WRITE_SECONDS ),
+                               FD_MHIST_SECONDS_MAX( RSERVE, FEC_PREEVICT_WRITE_SECONDS ) ) );
   FD_MGAUGE_SET( RSERVE, SHREDS_MAX, ctx->store ? ctx->store->disk_max_shreds : 0UL );
 
   ctx->halt_signing = 0;
@@ -619,6 +683,7 @@ unprivileged_init( fd_topo_t      const * topo,
       continue;
     }
     else if( 0==strcmp( link->name, "sign_rserve" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
+    else if( 0==strcmp( link->name, "shred_out" ) )   ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     else FD_LOG_ERR(( "rserve tile has unexpected input link: %s", link->name ));
 
     ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -685,6 +750,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
