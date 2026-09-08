@@ -873,9 +873,11 @@ telemetry = true
     # download a snapshot on every restart.
     enable_snapshot_production = true
 
-    # How many net tiles to run.  This is configurable and designed to
-    # scale out for future network conditions, but there is no need to
-    # run more than 2 net tiles given current `mainnet` conditions.
+    # How many net tiles to run.  If set to 0, the count is selected
+    # automatically based on the network provider.
+    # This is configurable and designed to scale out for future network 
+    # conditions, but there is no need to run more than 2 net tiles given 
+    # current `mainnet` conditions.
     #
     # Net tiles are responsible for sending and receiving packets from
     # the network device configured in the [tiles.net] section below.
@@ -887,7 +889,7 @@ telemetry = true
     #
     # See the comments for the [tiles.net] section below for more
     # information.
-    net_tile_count = 2
+    net_tile_count = 0
 
     # How many QUIC tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network

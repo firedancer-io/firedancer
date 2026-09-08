@@ -31,23 +31,32 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   /* Auto selects mlx5 only for a supported driver, kernel, RDMA port,
-     and tile count.  Otherwise it falls back to XDP. */
+     and an explicit valid tile count (or an automatic count).  Otherwise
+     it falls back to XDP. */
 
   fd_auto_info_t info1 = { .linux_major=7, .linux_minor=0, .driver="mlx5_core",
                            .has_mlx5_rdma_port=1, .has_uverbs=1 };
 
-  reset_provider_auto( 1U );
+  reset_provider_auto( 0U );
   fd_auto_net( config, &info1 );
   FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
+  FD_TEST( config->layout.net_tile_count==1U );
+
+  reset_provider_auto( 2U );
+  fd_auto_net( config, &info1 );
+  FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
+  FD_TEST( config->layout.net_tile_count==2U );
 
   reset_provider_auto( 3U );
   fd_auto_net( config, &info1 );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+  FD_TEST( config->layout.net_tile_count==3U );
 
-  reset_provider_auto( 1U );
+  reset_provider_auto( 0U );
   fd_auto_info_t info_old_mlx5 = { .linux_major=5, .linux_minor=13, .driver="mlx5_core" };
   fd_auto_net( config, &info_old_mlx5 );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+  FD_TEST( config->layout.net_tile_count==2U );
 
   reset_provider_auto( 1U );
   fd_auto_info_t info_i40e = { .linux_major=7, .linux_minor=0, .driver="i40e" };
@@ -71,14 +80,16 @@ main( int     argc,
 
   /* Explicit providers bypass automatic provider requirements. */
 
-  reset_auto( 1U );
+  reset_auto( 0U );
   fd_auto_net( config, &info1 );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+  FD_TEST( config->layout.net_tile_count==2U );
 
-  reset_auto( 3U );
+  reset_auto( 0U );
   strcpy( config->net.provider, "mlx5" );
   fd_auto_net( config, &info_i40e );
   FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
+  FD_TEST( config->layout.net_tile_count==1U );
 
   /* Supported NIC on a recent kernel */
 
@@ -168,9 +179,10 @@ main( int     argc,
 
   /* Non XDP provider still collapses "auto" fields to defaults */
 
-  reset_auto( 1U );
+  reset_auto( 0U );
   strcpy( config->net.provider, "socket" );
   fd_auto_net( config, &info1 );
+  FD_TEST( config->layout.net_tile_count==2U );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "skb"     ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "softirq" ) );
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "simple" ) );

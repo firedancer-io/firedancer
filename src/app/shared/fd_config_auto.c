@@ -257,13 +257,19 @@ mlx5_check( fd_config_t    const * config,
   if( strcmp( config->net.provider, "auto" ) ) return 0;
   if( !info->has_mlx5_rdma_port ) return 0;
   if( !info->has_uverbs ) return 0;
-  if( !fd_ulong_is_pow2( config->layout.net_tile_count ) ) return 0;
+  if( config->layout.net_tile_count && !fd_ulong_is_pow2( config->layout.net_tile_count ) ) return 0;
   return 1;
 }
 
 static void
 mlx5_apply( fd_config_t * config ) {
   fd_memcpy( config->net.provider, "mlx5", 5 );
+}
+
+static void
+net_tile_count_apply( fd_config_t * config ) {
+  if( config->layout.net_tile_count ) return; /* user override */
+  config->layout.net_tile_count = !strcmp( config->net.provider, "mlx5" ) ? 1U : 2U;
 }
 
 /* Each feature's supported Linux version matrix per driver decided
@@ -509,6 +515,7 @@ fd_auto_net( fd_config_t          * config,
         }
         provider->apply( config );
       }
+      net_tile_count_apply( config );
     }
 
     for( ulong f=0UL; f<FEAT_CNT_MAX; f++ ) {
@@ -533,6 +540,8 @@ fd_auto_net( fd_config_t          * config,
       feat->apply( config );
     }
   }
+
+  net_tile_count_apply( config );
 }
 
 void

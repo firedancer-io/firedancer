@@ -751,10 +751,11 @@ dynamic_port_range = "8900-9000"
     # falling behind.
     agave_unified_scheduler_handler_threads = 0
 
-    # How many net tiles to run.  Should be set to 1.  This is
-    # configurable and designed to scale out for future network
-    # conditions, but there is no need to run more than 1 net tile given
-    # current `mainnet-beta` conditions.
+    # How many net tiles to run.  If set to 0, the count is selected
+    # automatically based on the provider.  This is configurable and
+    # designed to scale out for future network conditions, but there is
+    # no need to run more than 1 net tile given current `mainnet-beta`
+    # conditions.
     #
     # Net tiles are responsible for sending and receiving packets from
     # the network device configured in the [net] section below.
