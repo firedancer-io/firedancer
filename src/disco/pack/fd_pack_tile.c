@@ -191,6 +191,12 @@ typedef struct {
      Monotonically decreasing over the slot lifetime. */
   ulong slot_dynamic_max_microblocks;
 
+  /* PoH mixin positions per tick (0 when PoH has no hash budget) and
+     tick length for the leader slot, the rate at which PoH can absorb
+     microblocks. */
+  ulong slot_mixin_per_tick;
+  ulong slot_tick_duration_ns;
+
   /* Set by during_housekeeping when the dynamic bound drops below
      slot_max_microblocks.  Consumed by after_credit which publishes
      the updated bound to POH over the pack_poh link. */
@@ -429,7 +435,7 @@ metrics_write( fd_pack_ctx_t * ctx ) {
 }
 
 /* compute_dynamic_max_microblocks: Computes the upper bound on total
-   microblocks based on remaining time and bank count.
+   microblocks based on remaining time, bank count and PoH hash rate.
 
    The basic idea here is that if there is 1ms left in the slot, we
    don't expect to schedule 130k microblocks.  We can reduce our
@@ -438,7 +444,14 @@ metrics_write( fd_pack_ctx_t * ctx ) {
 
    The fastest we can execute a transaction is about 1us.  With n
    execle tiles, that means we can execute at most n txn/us.  If we have
-   k ms left in the block, only reserve up to k*n*1000 microblocks. */
+   k ms left in the block, only reserve up to k*n*1000 microblocks.
+
+   PoH mixes each microblock into one hash position and has
+   hashcnt_per_tick-1 of them per tick, so with k ns left it can absorb
+   at most k*(hashcnt_per_tick-1)/tick_duration_ns more microblocks.
+   Bounding by that keeps PoH on its wall clock schedule however large
+   the slot maximum is: the reserve tracks the time left instead of
+   piling up as a hash wall at the end of the slot. */
 
 static inline ulong
 compute_dynamic_max_microblocks( fd_pack_ctx_t * ctx ) {
@@ -450,16 +463,18 @@ compute_dynamic_max_microblocks( fd_pack_ctx_t * ctx ) {
 
   /* remaining_ns * n / 1000 = (remaining_ns/1e6 ms) * n * 1000.
 
-     Overflow: remaining_ns is at most ~4e8, n at most 64, so
-     remaining_ns * n is at most ~2.6e10 << 1.8e19. */
+     Overflow: remaining_ns is at most ~4e8, n at most 64 and
+     mixin_per_tick at most 62,499 (FD_RUNTIME_MAX_HASHES_PER_TICK), so
+     the products are < 3e13. */
 
   ulong remaining_ns = (ulong)(end - now);
   ulong n            = ctx->execle_cnt;
   ulong cnt          = ctx->slot_microblock_cnt;
   ulong R            = ctx->slot_max_microblocks - cnt;
   ulong can_execute  = remaining_ns * n / 1000UL;
+  ulong can_mixin    = fd_ulong_if( !!ctx->slot_mixin_per_tick, remaining_ns * ctx->slot_mixin_per_tick / ctx->slot_tick_duration_ns, ULONG_MAX );
 
-  return cnt + fd_ulong_min( R, can_execute );
+  return cnt + fd_ulong_min( R, fd_ulong_min( can_execute, can_mixin ) );
 }
 
 static inline void
@@ -1195,6 +1210,8 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ctx->slot_end_ns = ctx->_became_leader->slot_end_ns;
     ctx->slot_dynamic_max_microblocks  = ctx->slot_max_microblocks;
+    ctx->slot_mixin_per_tick           = fd_ulong_if( ctx->_became_leader->hashcnt_per_tick>1UL, ctx->_became_leader->hashcnt_per_tick-1UL, 0UL ); /* 0: low power / alpenglow, no hash budget */
+    ctx->slot_tick_duration_ns         = ctx->_became_leader->tick_duration_ns;
     ctx->pending_reduce_mb_bound       = 0;
     fd_pack_limits_t limits[ 1 ];
     limits->max_cost_per_block = ctx->limits.slot_max_cost;
