@@ -136,7 +136,6 @@ test_cost_tracker_vote_limit( fd_cost_tracker_t * ct ) {
     ct->vote_cost = 0UL;
     ct->vote_cost_limit = 36000000UL;
 
-
     /* First txn is 24M because that's the limit for a single txn */
     txn_out.details.txn_cost.transaction.programs_execution_cost = 24000000UL;
     int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
@@ -156,6 +155,27 @@ test_cost_tracker_vote_limit( fd_cost_tracker_t * ct ) {
     FD_TEST( ct->vote_cost == 36000000UL );
 }
 
+static void
+test_cost_tracker_data_size_limit( fd_cost_tracker_t * ct ) {
+    ulong const SLOT = 10UL;
+    fd_features_t f;
+    static fd_txn_out_t txn_out = {0};
+
+    memset( &f, 0xFF, sizeof(f) );
+    fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
+
+    txn_out.details.txn_cost.type = FD_TXN_COST_TYPE_TRANSACTION;
+    txn_out.details.txn_cost.transaction.allocated_accounts_data_size = ct->data_size_limit;
+
+    int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
+    FD_TEST( ct->allocated_accounts_data_size == ct->data_size_limit );
+
+    txn_out.details.txn_cost.transaction.allocated_accounts_data_size = ct->data_size_limit + 1UL;
+    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT);
+    FD_TEST( ct->allocated_accounts_data_size == ct->data_size_limit );
+}
 
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -198,6 +218,7 @@ int main( int argc, char ** argv ) {
   test_cost_tracker_block_limit( cost_tracker );
   test_cost_tracker_account_limit( cost_tracker );
   test_cost_tracker_vote_limit( cost_tracker );
+  test_cost_tracker_data_size_limit( cost_tracker );
 
   /* TODO: Add more sophisticated tests for the cost tracker. */
   FD_LOG_NOTICE(( "pass" ));
