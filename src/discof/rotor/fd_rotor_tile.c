@@ -427,7 +427,9 @@ before_frag( ctx_t * ctx,
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
-  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) return sig!=REPLAY_SIG_MISSING_FEC;
+  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) return sig!=REPLAY_SIG_MISSING_FEC &&
+                                                      sig!=REPLAY_SIG_ROOT_ADVANCED;
+  if( FD_UNLIKELY( in_kind==IN_KIND_VOTOR ) ) return sig!=FD_VOTOR_SIG_REPAIR;
   return 0;
 }
 
@@ -895,7 +897,14 @@ after_frag( ctx_t *             ctx,
       break;
     }
     case IN_KIND_REPLAY: {
-      ctx->deliver_from_root = 1;
+      if( FD_UNLIKELY( sig==REPLAY_SIG_MISSING_FEC ) ) {
+        ctx->deliver_from_root = 1;
+        return;
+      }
+      if( FD_LIKELY( sig==REPLAY_SIG_ROOT_ADVANCED ) ) {
+        fd_replay_root_advanced_t const * root = (fd_replay_root_advanced_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+        if( FD_LIKELY( root->slot > ctx->chainer->root ) ) fd_chainer_publish( ctx->chainer, root->slot, &root->block_id, ctx->store );
+      }
       break;
     }
     case IN_KIND_SIGN: {
@@ -919,20 +928,9 @@ after_frag( ctx_t *             ctx,
       break;
     }
     case IN_KIND_VOTOR: {
-      switch( sig ) {
-        case FD_VOTOR_SIG_ROOTED: {
-          fd_votor_rooted_t const * rooted = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
-          if( FD_LIKELY( rooted->slot > ctx->chainer->root ) ) fd_chainer_publish( ctx->chainer, rooted->slot, &rooted->block_id, ctx->store );
-          break;
-        }
-        case FD_VOTOR_SIG_REPAIR: {
-          fd_votor_repair_t const * nf = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
-          if( FD_UNLIKELY( nf->slot <= ctx->chainer->root ) ) return;
-          after_votor_notar_fallback( ctx, nf );
-          break;
-        }
-        default: return;
-      }
+      fd_votor_repair_t const * nf = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
+      if( FD_UNLIKELY( nf->slot <= ctx->chainer->root ) ) return;
+      after_votor_notar_fallback( ctx, nf );
       break;
     }
     case IN_KIND_SHRED: {

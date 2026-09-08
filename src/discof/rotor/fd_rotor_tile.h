@@ -60,7 +60,34 @@
    allocating up to two banks for the same slot/block: the turbine bank
    keyed {slot, 0} receives only a prefix of the block, never completes,
    never gets re-keyed (so it can never collide with the verified bank
-   keyed {slot, block_id}), and is eventually evicted or pruned. */
+   keyed {slot, block_id}), and is eventually evicted or pruned.
+
+   PRUNING
+
+   Rooting is not done off of votor rooting messages, but by
+   replay root advance updates.  Consider the following case:
+
+   The cluster is having trouble rooting, and so we have a long
+   chain of unfinalized slots. Banks begins to evict
+   arbitrarily. It evicts slot N and begins executing down a
+   different fork, but then soon after a finalization arrives
+   for slot N.
+
+   Replay tile updates its consensus root, but can't advance to
+   it yet, because the bank for it has not been executed.  Rotor
+   has no eviction, and thus could root from the finalized
+   message immediately.  This is clearly a problem; replay needs
+   the consensus root data re-delivered for execution, so rotor
+   cannot immediately prune based on the finalized message.
+
+   Instead replay already does its own bookkeeping.  It has a
+   highest known consensus root, a storage root that is the
+   earliest slot data maintained, and a notified root that is
+   the highest consensus root that replay verifies is live and
+   can't be evicted.
+
+   Rotor can safely assume anything below the notified root is
+   no longer needed. */
 
 // TODO remove after reasm removal
 #define REPAIR_SIG_FEC         (0UL)
