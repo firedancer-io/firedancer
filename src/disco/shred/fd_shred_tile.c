@@ -227,6 +227,7 @@ typedef struct {
   fd_store_t    * store;
   fd_store_map_t  map_join[1];
   int             disk_fd;
+  int             store_maintenance;
 
   fd_gossip_update_message_t gossip_upd_buf[1];
 
@@ -385,6 +386,16 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MCNT_SET  ( SHRED, SHRED_UNCHAINED_REJECTED,   ctx->metrics->shred_rejected_unchained_cnt );
 
   FD_MCNT_ENUM_COPY( SHRED, SHRED_PROCESSED, ctx->metrics->shred_processing_result             );
+}
+
+static void
+after_credit( fd_shred_ctx_t *    ctx,
+              fd_stem_context_t * stem FD_PARAM_UNUSED,
+              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->store_maintenance && ctx->disk_fd>=0 &&
+                   fd_store_disk_maintain( ctx->store, ctx->disk_fd ) ) )
+    *charge_busy = 1;
 }
 
 static inline void
@@ -1403,6 +1414,10 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( ctx->store->magic==FD_STORE_MAGIC );
     FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
   }
+  /* With rserve disabled, shred:0 remains responsible for punching
+     reclaimed spill pages, and will charge busy. */
+  ctx->store_maintenance = !!ctx->store && !ctx->round_robin_id &&
+                           fd_topo_find_tile( topo, "rserve", 0UL )==ULONG_MAX;
 
   /* If the default partial_depth is ever changed, correspondingly
      change the size of the fd_fec_intra_pool in fd_fec_repair. */
@@ -1713,6 +1728,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
