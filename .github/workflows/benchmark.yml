@@ -60,7 +60,7 @@ jobs:
         [ -n "$BASE_SHA" ] || { git fetch --depth=1 origin main; BASE_SHA=$(git rev-parse FETCH_HEAD); }  # workflow_dispatch
         echo BASE_SHA=$BASE_SHA >> $GITHUB_ENV
         echo HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }} >> $GITHUB_ENV
-        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; } > $BENCH_DIR/runner.txt 2>&1 || true
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; sudo dmsetup table | sed 's/ [0-9a-f]\{32,\} / <key> /'; grep -m1 -A8 'name *: xts(aes)' /proc/crypto | grep driver; grep -H . /sys/block/nvme*/queue/max_sectors_kb; } > $BENCH_DIR/runner.txt 2>&1 || true
 
     - name: Update PR comment (running)
       if: github.event_name == 'pull_request'
@@ -171,7 +171,7 @@ jobs:
         [ -n "$BASE_SHA" ] || { git fetch --depth=1 origin main; BASE_SHA=$(git rev-parse FETCH_HEAD); }  # workflow_dispatch
         echo BASE_SHA=$BASE_SHA >> $GITHUB_ENV
         echo HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }} >> $GITHUB_ENV
-        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; } > $BENCH_DIR/runner.txt 2>&1 || true
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; sudo dmsetup table | sed 's/ [0-9a-f]\{32,\} / <key> /'; grep -m1 -A8 'name *: xts(aes)' /proc/crypto | grep driver; grep -H . /sys/block/nvme*/queue/max_sectors_kb; } > $BENCH_DIR/runner.txt 2>&1 || true
 
     - name: Update PR comment (running)
       if: github.event_name == 'pull_request'
@@ -265,7 +265,7 @@ jobs:
         [ -n "$BASE_SHA" ] || { git fetch --depth=1 origin main; BASE_SHA=$(git rev-parse FETCH_HEAD); }  # workflow_dispatch
         echo BASE_SHA=$BASE_SHA >> $GITHUB_ENV
         echo HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }} >> $GITHUB_ENV
-        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; } > $BENCH_DIR/runner.txt 2>&1 || true
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; sudo dmsetup table | sed 's/ [0-9a-f]\{32,\} / <key> /'; grep -m1 -A8 'name *: xts(aes)' /proc/crypto | grep driver; grep -H . /sys/block/nvme*/queue/max_sectors_kb; } > $BENCH_DIR/runner.txt 2>&1 || true
 
     - name: Update PR comment (running)
       if: github.event_name == 'pull_request'
