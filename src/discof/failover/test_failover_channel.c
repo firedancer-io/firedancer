@@ -234,7 +234,9 @@ test_short_session_backoff( fd_failover_channel_t * a, fd_failover_channel_t * b
   fd_failover_channel_hangup( b, now );
   now += 2000000001L;
   pump( a, b );
-  /* Consecutive short sessions keep doubling the backoff up to its cap. */
+  /* Consecutive short sessions keep doubling the backoff up to its cap.
+     Start from the minimum so the doubling is observable. */
+  b->backoff = b->backoff_min;
   long backoff = b->backoff;
   for( int i=0; i<4; i++ ) {
     fd_failover_channel_hangup( b, now );
