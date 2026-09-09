@@ -153,6 +153,19 @@ fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
   return 0;
 }
 
+int
+fd_compact_tower_sync_de_exact( fd_compact_tower_sync_serde_t * serde,
+                                uchar const *                   buf,
+                                ulong                           buf_sz ) {
+  if( FD_UNLIKELY( fd_compact_tower_sync_de( serde, buf, buf_sz ) ) ) return -1;
+  /* The decoder takes only canonical encodings, so the bytes it read
+     are the ones serializing the result writes. */
+  uchar canonical[ 512 ];
+  ulong canonical_sz;
+  if( FD_UNLIKELY( fd_compact_tower_sync_ser( serde, canonical, sizeof(canonical), &canonical_sz ) ) ) return -1;
+  return canonical_sz==buf_sz && fd_memeq( canonical, buf, buf_sz ) ? 0 : -1;
+}
+
 fd_vote_acc_desc_t *
 fd_vote_acc_desc( fd_vote_acc_desc_t * desc,
                   uchar const *        data,
