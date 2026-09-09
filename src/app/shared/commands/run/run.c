@@ -17,6 +17,7 @@
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
 #include "../../../../disco/net/fd_net_tile.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../discof/backup/fd_backup.h"
 #include "../../../../discof/backup/fd_snap_pool.h"
 #include "../../../../discof/restore/utils/fd_ssarchive.h"
@@ -70,6 +71,26 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+  if( FD_UNLIKELY( config->is_firedancer && config->firedancer.failover.enabled ) ) {
+    /* Only a member with a peer listed before it binds a listener, on its
+       own listed port.  Find this machine in the list by its junk key the
+       way the failover tile does, so a machine that only dials is not
+       asked for a capability it never uses. */
+    uchar const * junk_pubkey = fd_keyload_load( config->firedancer.failover.junk_identity_path, 1 );
+    ulong members_cnt = fd_ulong_min( config->firedancer.failover.members_cnt, FD_TOPO_FAILOVER_MEMBER_MAX );
+    for( ulong i=1UL; i<members_cnt; i++ ) {
+      uchar member_junk[ 32 ];
+      if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.failover.member_junk_pubkeys[ i ], member_junk ) ) ) continue;
+      if( FD_LIKELY( !fd_memeq( member_junk, junk_pubkey, 32UL ) ) ) continue;
+      fd_topo_ip_port_t member;
+      fd_config_parse_ip_port( "failover.members", config->firedancer.failover.members[ i ], &member );
+      if( FD_UNLIKELY( member.port<1024 ) ) {
+        fd_cap_chk_cap(  chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for a failover listener" );
+      }
+      break;
+    }
+    fd_keyload_unload( junk_pubkey, 1 );
+  }
 }
 
 struct pidns_clone_args {
