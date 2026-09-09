@@ -35,7 +35,8 @@
 #define PRIOR_VOTERS_MAX (32UL)
 
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/mod.rs#L33 */
-#define FD_BLS_PUBKEY_COMPRESSED_SZ (48UL)
+#define FD_BLS_PUBKEY_COMPRESSED_SZ   (48UL)
+#define FD_BLS_PUBKEY_UNCOMPRESSED_SZ (96UL)
 
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/mod.rs#L36 */
 #define FD_BLS_PROOF_OF_POSSESSION_COMPRESSED_SZ (96UL)

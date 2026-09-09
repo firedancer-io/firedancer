@@ -20,7 +20,7 @@ epoch_rank( fd_vote_stakes_t const * vote_stakes,
        fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
     fd_pubkey_t pubkey;
     ushort     rank;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL );
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
     if( fd_pubkey_eq( &pubkey, vote_key ) ) return rank;
   }
   FD_LOG_ERR(( "vote account not found" ));
@@ -75,7 +75,7 @@ main( int argc, char ** argv ) {
        fd_vote_stakes_iter_next( vote_stakes, child, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
     fd_pubkey_t pubkey;
     fd_vote_stakes_iter_ele( vote_stakes, child, FD_VOTE_STAKES_ITER_T_2, iter, &pubkey, NULL, &stake,
-                             &last_vote_slot, &last_vote_ts, NULL, &is_valid, &alpenglow_rank, iter_bls );
+                             &last_vote_slot, &last_vote_ts, NULL, &is_valid, &alpenglow_rank, iter_bls, NULL );
     FD_TEST( fd_pubkey_eq( &pubkey, &vote_a ) && stake==100UL );
     FD_TEST( !last_vote_slot && !last_vote_ts && !is_valid );
     FD_TEST( alpenglow_rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
@@ -91,7 +91,7 @@ main( int argc, char ** argv ) {
     fd_pubkey_t pubkey;
     fd_pubkey_t node;
     fd_vote_stakes_iter_ele( vote_stakes, child, FD_VOTE_STAKES_ITER_T_3, iter, &pubkey, &node, &stake,
-                             NULL, NULL, &commission, NULL, &alpenglow_rank, iter_bls );
+                             NULL, NULL, &commission, NULL, &alpenglow_rank, iter_bls, NULL );
     FD_TEST( fd_pubkey_eq( &pubkey, &vote_b ) && fd_pubkey_eq( &node, &node_b ) );
     FD_TEST( stake==200UL && commission==20U );
     FD_TEST( alpenglow_rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
@@ -117,7 +117,7 @@ main( int argc, char ** argv ) {
        fd_vote_stakes_iter_next( vote_stakes, sibling, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     fd_pubkey_t pubkey;
     fd_vote_stakes_iter_ele( vote_stakes, sibling, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, NULL, NULL,
-                             NULL, NULL, NULL, NULL, NULL, NULL );
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL );
     FD_TEST( fd_pubkey_eq( &pubkey, &vote_c ) );
     iter_cnt++;
   }

@@ -6,7 +6,7 @@ $(call add-hdrs,test_vm_util.h)
 $(call add-objs,test_vm_util,fd_flamenco)
 
 ifdef FD_HAS_BLST
-$(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_ballet fd_util fd_disco,$(BLST_LIBS))
+$(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_choreo fd_ballet fd_util fd_disco,$(BLST_LIBS))
 $(call run-unit-test,test_vm_interp)
 endif
 endif
@@ -17,7 +17,7 @@ $(call run-unit-test,test_vm_base)
 endif
 
 ifdef FD_HAS_BLST
-$(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_ballet fd_util,$(BLST_LIBS))
+$(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_choreo fd_ballet fd_util,$(BLST_LIBS))
 $(call run-unit-test,test_vm_instr)
 endif
 

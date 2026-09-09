@@ -29,8 +29,8 @@ $(call make-unit-test,test_svm_elfgen,test_svm_elfgen,fd_flamenco_test fd_flamen
 ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_svm_mini.h)
 $(call add-objs,fd_svm_mini,fd_flamenco_test)
-$(call make-unit-test,test_svm_mini,test_svm_mini,fd_flamenco_test fd_flamenco fd_tango fd_ballet fd_util fd_disco)
-$(call make-unit-test,test_accdb_svm,test_accdb_svm,fd_flamenco_test fd_flamenco fd_tango fd_ballet fd_util fd_disco)
+$(call make-unit-test,test_svm_mini,test_svm_mini,fd_flamenco_test fd_flamenco fd_choreo fd_tango fd_ballet fd_util fd_disco)
+$(call make-unit-test,test_accdb_svm,test_accdb_svm,fd_flamenco_test fd_flamenco fd_choreo fd_tango fd_ballet fd_util fd_disco)
 endif
 
 run-runtime-backtest: $(OBJDIR)/bin/firedancer-dev

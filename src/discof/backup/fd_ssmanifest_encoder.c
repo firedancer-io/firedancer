@@ -211,7 +211,7 @@ ENCODE_FN {
       fd_vote_stakes_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
       FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) );
       fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
-                               NULL, NULL, &commission, NULL, NULL, bls_key );
+                               NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
       ec = find_epoch_credits( enc->bank, &pubkey );
       FD_TEST( ec );
       ec_cnt = ec->cnt;
@@ -220,7 +220,7 @@ ENCODE_FN {
       fd_vote_stakes_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
       FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) );
       fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, &pubkey, &node_account, &stake,
-                               NULL, NULL, &commission, NULL, NULL, bls_key );
+                               NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
       /* The bank epoch credits will have the resolved commission for
