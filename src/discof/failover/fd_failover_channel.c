@@ -212,6 +212,11 @@ fd_failover_channel_hangup( fd_failover_channel_t * ch, long now ) {
   if( ch->active>=0 ) drop( ch, (ulong)ch->active, now );
   for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) if( ch->candidates[i].fd!=-1 ) drop( ch, i, now );
 }
+void
+fd_failover_channel_protocol_error( fd_failover_channel_t * ch, long now ) {
+  ch->metrics.wire_fatal_cnt++;
+  fd_failover_channel_hangup( ch, now );
+}
 
 static ulong
 refill( ulong credit, long * updated, long now, ulong rate, ulong burst ) {
