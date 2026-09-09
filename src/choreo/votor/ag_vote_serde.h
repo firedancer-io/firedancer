@@ -8,8 +8,6 @@
 #define AG_VOTE_DE_ERR_INVAL         (-2) /* InvalidTagEncoding, InvalidValue                                                 */
 #define AG_VOTE_DE_ERR_SHRED_VERSION (-3) /* Custom("shred version mismatch")                                                 */
 
-/* WireConsensusMessageKind: https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor-messages/src/wire.rs#L164-L176 */
-
 #define AG_VOTE_SERDE_TAG_NOTAR          (1)  /* WireConsensusMessageKind::NotarVote          #[wincode(tag = 1)] */
 #define AG_VOTE_SERDE_TAG_FINAL          (2)  /* WireConsensusMessageKind::FinalizeVote       #[wincode(tag = 2)] */
 #define AG_VOTE_SERDE_TAG_SKIP           (3)  /* WireConsensusMessageKind::SkipVote           #[wincode(tag = 3)] */
@@ -58,9 +56,11 @@ ag_vote_de( ag_vote_t *   self,
             ulong         buf_sz );
 
 ulong
-ag_vote_signing_ser( ag_vote_t const * self,
-                     ushort            shred_version,
-                     uchar             buf[ static AG_VOTE_SIGNING_SER_MAX ] );
+ag_vote_signing_ser( uint          kind,
+                     ulong         slot,
+                     uchar const * block_hash,
+                     ushort        shred_version,
+                     uchar         buf[ static AG_VOTE_SIGNING_SER_MAX ] );
 
 FD_PROTOTYPES_END
 

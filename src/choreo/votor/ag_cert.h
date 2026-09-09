@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_choreo_votor_ag_cert_h
 #define HEADER_fd_src_choreo_votor_ag_cert_h
 
-#include "ag_vote.h"
+#include "ag_bls.h"
 #include "ag_epoch_info.h"
 
 #define AG_CERT_KIND_FINAL          (0)
@@ -11,9 +11,9 @@
 #define AG_CERT_KIND_SKIP           (4)
 
 struct ag_cert_final {
-  ulong           slot;
-  ag_bls_agg_t    agg;
-  ulong           stake;
+  ulong        slot;
+  ag_bls_agg_t agg;
+  ulong        stake;
 };
 typedef struct ag_cert_final ag_cert_final_t;
 
@@ -43,10 +43,10 @@ struct ag_cert_notar_fallback {
 typedef struct ag_cert_notar_fallback ag_cert_notar_fallback_t;
 
 struct ag_cert_skip {
-  ulong           slot;
-  ag_bls_agg_t    agg_skip;
-  ag_bls_agg_t    agg_skip_fallback;
-  ulong           stake;
+  ulong        slot;
+  ag_bls_agg_t agg_skip;
+  ag_bls_agg_t agg_skip_fallback;
+  ulong        stake;
 };
 typedef struct ag_cert_skip ag_cert_skip_t;
 
@@ -72,7 +72,7 @@ ag_cert_slot( ag_cert_t const * self ) {
   case AG_CERT_KIND_NOTAR:          return self->notar.slot;
   case AG_CERT_KIND_NOTAR_FALLBACK: return self->notar_fallback.slot;
   case AG_CERT_KIND_SKIP:           return self->skip.slot;
-  default:                          __builtin_unreachable();
+  default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
 
@@ -84,8 +84,7 @@ ag_cert_block_hash( ag_cert_t const * self ) {
   case AG_CERT_KIND_NOTAR:          return self->notar.block_hash;
   case AG_CERT_KIND_NOTAR_FALLBACK: return self->notar_fallback.block_hash;
   case AG_CERT_KIND_SKIP:           return NULL;
-  default:                          FD_LOG_CRIT(( "unimplemented" ));
-  }
+  default:                          FD_LOG_CRIT(( "unreachable" )); }
 }
 
 FD_FN_PURE static inline char const *
@@ -96,38 +95,9 @@ ag_cert_str( ag_cert_t const * self ) {
   case AG_CERT_KIND_NOTAR:          return "Notar";
   case AG_CERT_KIND_NOTAR_FALLBACK: return "NotarFallback";
   case AG_CERT_KIND_SKIP:           return "Skip";
-  default:                          __builtin_unreachable();
+  default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
-
-ag_cert_t
-ag_cert_construct_final( ag_vote_final_t const * votes,
-                         ulong                   vote_cnt,
-                         ag_epoch_info_t const * epoch_info );
-
-ag_cert_t
-ag_cert_construct_fast_final( ag_vote_notar_t const * votes,
-                              ulong                   vote_cnt,
-                              ag_epoch_info_t const * epoch_info );
-
-ag_cert_t
-ag_cert_construct_notar( ag_vote_notar_t const * votes,
-                         ulong                   vote_cnt,
-                         ag_epoch_info_t const * epoch_info );
-
-ag_cert_t
-ag_cert_construct_notar_fallback( ag_vote_notar_t const *          votes,
-                                  ulong                            vote_cnt,
-                                  ag_vote_notar_fallback_t const * fallback_votes,
-                                  ulong                            fallback_vote_cnt,
-                                  ag_epoch_info_t const *          epoch_info );
-
-ag_cert_t
-ag_cert_construct_skip( ag_vote_skip_t const *          votes,
-                        ulong                           vote_cnt,
-                        ag_vote_skip_fallback_t const * fallback_votes,
-                        ulong                           fallback_vote_cnt,
-                        ag_epoch_info_t const *         epoch_info );
 
 int
 ag_cert_verify( ag_cert_t const *       self,

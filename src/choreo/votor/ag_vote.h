@@ -15,6 +15,7 @@ struct ag_vote_notar {
   ag_block_hash_t block_hash;
   ag_bls_sig_t    sig;
   ushort          rank;
+  ushort          shred_version;
 };
 typedef struct ag_vote_notar ag_vote_notar_t;
 
@@ -22,6 +23,7 @@ struct ag_vote_final {
   ulong        slot;
   ag_bls_sig_t sig;
   ushort       rank;
+  ushort       shred_version;
 };
 typedef struct ag_vote_final ag_vote_final_t;
 
@@ -29,6 +31,7 @@ struct ag_vote_skip {
   ulong        slot;
   ag_bls_sig_t sig;
   ushort       rank;
+  ushort       shred_version;
 };
 typedef struct ag_vote_skip ag_vote_skip_t;
 
@@ -37,6 +40,7 @@ struct ag_vote_notar_fallback {
   ag_block_hash_t block_hash;
   ag_bls_sig_t    sig;
   ushort          rank;
+  ushort          shred_version;
 };
 typedef struct ag_vote_notar_fallback ag_vote_notar_fallback_t;
 
@@ -44,11 +48,13 @@ struct ag_vote_skip_fallback {
   ulong        slot;
   ag_bls_sig_t sig;
   ushort       rank;
+  ushort       shred_version;
 };
 typedef struct ag_vote_skip_fallback ag_vote_skip_fallback_t;
 
 struct ag_vote {
-  uint kind;
+  uint   kind;
+  ushort shred_version;
   union {
     ag_vote_notar_t          notar;
     ag_vote_final_t          final;
@@ -72,6 +78,17 @@ ag_vote_slot( ag_vote_t const * self ) {
   }
 }
 
+FD_FN_PURE static inline ag_bls_sig_t const *
+ag_vote_sig( ag_vote_t const * self ) {
+  switch( self->kind ) {
+  case AG_VOTE_KIND_NOTAR:          return &self->notar.sig;
+  case AG_VOTE_KIND_SKIP:           return &self->skip.sig;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return &self->notar_fallback.sig;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return &self->skip_fallback.sig;
+  default:                          return &self->final.sig;
+  }
+}
+
 FD_FN_PURE static inline ushort
 ag_vote_rank( ag_vote_t const * self ) {
   switch( self->kind ) {
@@ -80,6 +97,26 @@ ag_vote_rank( ag_vote_t const * self ) {
   case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.rank;
   case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.rank;
   default:                          return self->final.rank;
+  }
+}
+
+FD_FN_PURE static inline ushort
+ag_vote_shred_version( ag_vote_t const * self ) {
+  switch( self->kind ) {
+  case AG_VOTE_KIND_NOTAR:          return self->notar.shred_version;
+  case AG_VOTE_KIND_SKIP:           return self->skip.shred_version;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.shred_version;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.shred_version;
+  default:                          return self->final.shred_version;
+  }
+}
+
+FD_FN_PURE static inline uchar const *
+ag_vote_block_hash( ag_vote_t const * self ) {
+  switch( self->kind ) {
+  case AG_VOTE_KIND_NOTAR:          return self->notar.block_hash;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.block_hash;
+  default:                          return NULL;
   }
 }
 
@@ -106,41 +143,40 @@ ag_vote_notar_fallback_block_hash( ag_vote_notar_fallback_t const * self ) {
 }
 
 ag_vote_t
-ag_vote_construct_notar( ulong                 slot,
+ag_vote_construct_notar( ag_bls_sec_t const *  sec,
+                         ulong                 slot,
                          ag_block_hash_t const hash,
-                         ag_bls_sec_t const    sec,
                          ushort                rank,
                          ushort                shred_version );
 
 ag_vote_t
-ag_vote_construct_final( ulong              slot,
-                         ag_bls_sec_t const sec,
-                         ushort             rank,
-                         ushort             shred_version );
+ag_vote_construct_final( ag_bls_sec_t const * sec,
+                         ulong                slot,
+                         ushort               rank,
+                         ushort               shred_version );
 
 ag_vote_t
-ag_vote_construct_skip( ulong              slot,
-                        ag_bls_sec_t const sec,
-                        ushort             rank,
-                        ushort             shred_version );
+ag_vote_construct_skip( ag_bls_sec_t const * sec,
+                        ulong                slot,
+                        ushort               rank,
+                        ushort               shred_version );
 
 ag_vote_t
-ag_vote_construct_notar_fallback( ulong                 slot,
+ag_vote_construct_notar_fallback( ag_bls_sec_t const *  sec,
+                                  ulong                 slot,
                                   ag_block_hash_t const hash,
-                                  ag_bls_sec_t const    sec,
                                   ushort                rank,
                                   ushort                shred_version );
 
 ag_vote_t
-ag_vote_construct_skip_fallback( ulong              slot,
-                                 ag_bls_sec_t const sec,
-                                 ushort             rank,
-                                 ushort             shred_version );
+ag_vote_construct_skip_fallback( ag_bls_sec_t const * sec,
+                                 ulong                slot,
+                                 ushort               rank,
+                                 ushort               shred_version );
 
 int
 ag_vote_verify( ag_vote_t const *    self,
-                ag_bls_pub_t const * pub,
-                ushort               shred_version );
+                ag_bls_pub_t const * pub );
 
 FD_PROTOTYPES_END
 

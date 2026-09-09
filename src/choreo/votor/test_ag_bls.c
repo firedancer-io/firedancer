@@ -9,7 +9,7 @@ static void
 pub_compress( uchar                out[ AG_BLS_PUB_COMPRESSED_SZ ],
               ag_bls_pub_t const * pub ) {
   blst_p1_affine a[1];
-  FD_TEST( blst_p1_deserialize( a, pub->bytes )==BLST_SUCCESS );
+  blst_p1_to_affine( a, pub );
   blst_p1_affine_compress( out, a );
 }
 
@@ -26,7 +26,7 @@ pick_sig( ag_bls_sig_t * dst,
           ag_bls_sig_t * src,
           ulong const *  sel,
           ulong          cnt ) {
-  for( ulong i=0UL; i<cnt; i++ ) memcpy( dst[i], src[ sel[i] ], AG_BLS_SIG_SZ );
+  for( ulong i=0UL; i<cnt; i++ ) dst[i] = src[ sel[i] ];
 }
 
 /* src/crypto/aggsig.rs::signers */
@@ -40,10 +40,10 @@ test_signers( void ) {
   ag_bls_pub_t pk[3];
   ag_bls_sig_t sig[3];
   for( ulong i=0UL; i<3UL; i++ ) {
-    fd_memset( sk[i], (int)(i+1UL), AG_BLS_SEC_SZ );
-    ag_bls_sec_to_pub( sk[i], pk+i );
-    ag_bls_sec_sign( sk[i], sig[i], msg, msg_sz );
-    FD_TEST( ag_bls_sig_verify( sig[i], pk+i, msg, msg_sz ) );
+    fd_memset( &sk[i], (int)(i+1UL), AG_BLS_SEC_SZ );
+    ag_bls_sec_to_pub( &sk[i], pk+i );
+    ag_bls_sec_sign( &sk[i], msg, msg_sz, &sig[i] );
+    FD_TEST( ag_bls_sig_verify( &sig[i], pk+i, msg, msg_sz ) );
   }
 
   ag_bls_sig_t sigs[2];
@@ -51,7 +51,7 @@ test_signers( void ) {
   ulong        idx [2] = { 0UL, 2UL };
   ag_bls_agg_t agg[1];
   ag_bls_agg_zero( agg );
-  for( ulong i=0UL; i<2UL; i++ ) ag_bls_agg_add( agg, idx[i], sigs[i] );
+  for( ulong i=0UL; i<2UL; i++ ) ag_bls_agg_add( agg, idx[i], &sigs[i] );
 
   FD_TEST( ag_bls_agg_signer_cnt( agg )==2UL );
   FD_TEST(  ag_bls_agg_is_signer( agg, 0UL ) );
@@ -77,14 +77,14 @@ test_signers( void ) {
 FD_FN_UNUSED static void
 test_incremental( void ) {
   uchar const * msg = (uchar const *)"incremental";
-  ag_bls_sec_t  sk; fd_memset( sk, 7, AG_BLS_SEC_SZ );
-  ag_bls_sig_t  s; ag_bls_sec_sign( sk, s, msg, 11UL );
+  ag_bls_sec_t  sk; fd_memset( &sk, 7, AG_BLS_SEC_SZ );
+  ag_bls_sig_t  s; ag_bls_sec_sign( &sk, msg, 11UL, &s );
 
   ag_bls_agg_t agg[1];
   ag_bls_agg_zero( agg );
   FD_TEST( ag_bls_agg_signer_cnt( agg )==0UL );
-  ag_bls_agg_add( agg, 5UL, s );
-  ag_bls_agg_add( agg, 1UL, s );
+  ag_bls_agg_add( agg, 5UL, &s );
+  ag_bls_agg_add( agg, 1UL, &s );
   FD_TEST( ag_bls_agg_signer_cnt( agg )==2UL );
   FD_TEST( ag_bls_agg_is_signer( agg, 5UL ) );
   FD_TEST( ag_bls_agg_is_signer( agg, 1UL ) );
@@ -111,13 +111,13 @@ check_base2( ag_bls_agg_t const * agg,
   FD_TEST( !memcmp( buf, exp, sz ) );
 
   ag_bls_agg_t back[1];
-  fd_memset( back->sig, 0xAA, AG_BLS_SIG_SZ );
+  fd_memset( &back->sig, 0xAA, sizeof(ag_bls_sig_t) );
   FD_TEST( ag_bls_agg_de( back, buf, sz )==AG_BLS_DE_SUCCESS );
   for( ulong i=0UL; i<AG_BLS_SIGNERS_MAX; i++ ) FD_TEST( ag_bls_agg_is_signer( back, i )==ag_bls_agg_is_signer( agg, i ) );
 
   /* a bitmap carries no signature, so decoding clears the one that was there */
   ag_bls_agg_t zero[1]; ag_bls_agg_zero( zero );
-  FD_TEST( !memcmp( back->sig, zero->sig, AG_BLS_SIG_SZ ) );
+  FD_TEST( !memcmp( &back->sig, &zero->sig, sizeof(ag_bls_sig_t) ) );
 
   /* base2 is legal wherever a fallback partition could be: it says the
      fallback set is empty */
@@ -279,14 +279,14 @@ test_roundtrip( void ) {
   ag_bls_pub_t pk [5];
   ag_bls_sig_t sig[5];
   for( ulong i=0UL; i<N; i++ ) {
-    fd_memset( sk[i], 0, AG_BLS_SEC_SZ );
-    sk[i][0] = (uchar)( i+1UL );
-    ag_bls_sec_to_pub( sk[i], pk+i );
-    ag_bls_sec_sign ( sk[i], sig[i], msg, msg_sz );
+    fd_memset( &sk[i], 0, AG_BLS_SEC_SZ );
+    sk[i].b[0] = (uchar)( i+1UL );
+    ag_bls_sec_to_pub( &sk[i], pk+i );
+    ag_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
 
-    FD_TEST(  ag_bls_sig_verify( sig[i], pk+i,         msg,  msg_sz ) );
-    FD_TEST( !ag_bls_sig_verify( sig[i], pk+(i+1UL)%N, msg,  msg_sz ) );
-    FD_TEST( !ag_bls_sig_verify( sig[i], pk+i, (uchar const *)"x", 1UL ) );
+    FD_TEST(  ag_bls_sig_verify( &sig[i], pk+i,         msg,  msg_sz ) );
+    FD_TEST( !ag_bls_sig_verify( &sig[i], pk+(i+1UL)%N, msg,  msg_sz ) );
+    FD_TEST( !ag_bls_sig_verify( &sig[i], pk+i, (uchar const *)"x", 1UL ) );
   }
 
   ag_bls_pub_t pks[5];
@@ -297,14 +297,14 @@ test_roundtrip( void ) {
   ulong        idx [3] = { 0UL, 2UL, 4UL };
   ag_bls_agg_t agg[1];
   ag_bls_agg_zero( agg );
-  for( ulong i=0UL; i<3UL; i++ ) ag_bls_agg_add( agg, idx[i], sigs[i] );
+  for( ulong i=0UL; i<3UL; i++ ) ag_bls_agg_add( agg, idx[i], &sigs[i] );
 
   FD_TEST( ag_bls_agg_verify( agg, msg, msg_sz, pks, N ) );
 
   FD_TEST( !ag_bls_agg_verify( agg, (uchar const *)"different message", 17UL, pks, N ) );
 
   ag_bls_agg_t tampered = *agg;
-  tampered.sig[0] = (uchar)( tampered.sig[0] ^ 0xFFu );
+  tampered.sig.x.fp[0].l[0] ^= 1UL; /* perturb the point */
   FD_TEST( !ag_bls_agg_verify( &tampered, msg, msg_sz, pks, N ) );
 
   ag_bls_pub_t pks_wrong[5];
@@ -321,7 +321,7 @@ test_roundtrip( void ) {
   ag_bls_agg_t agg_all[1];
   ulong        idx_all[5] = { 0UL, 1UL, 2UL, 3UL, 4UL };
   ag_bls_agg_zero( agg_all );
-  for( ulong i=0UL; i<N; i++ ) ag_bls_agg_add( agg_all, idx_all[i], sig[i] );
+  for( ulong i=0UL; i<N; i++ ) ag_bls_agg_add( agg_all, idx_all[i], &sig[i] );
   FD_TEST( ag_bls_agg_verify( agg_all, msg, msg_sz, pks, N ) );
 
   FD_LOG_NOTICE(( "blst agg sig round trip pass" ));
@@ -333,18 +333,18 @@ test_derive( void ) {
   uchar ikm_b[64]; for( ulong i=0UL; i<64UL; i++ ) ikm_b[i] = (uchar)(i*7u+2u);
 
   ag_bls_sec_t sk_a, sk_a2, sk_b;
-  ag_bls_sec_derive( sk_a,  ikm_a, sizeof(ikm_a) );
-  ag_bls_sec_derive( sk_a2, ikm_a, sizeof(ikm_a) );
-  ag_bls_sec_derive( sk_b,  ikm_b, sizeof(ikm_b) );
+  ag_bls_sec_derive( &sk_a,  ikm_a, sizeof(ikm_a) );
+  ag_bls_sec_derive( &sk_a2, ikm_a, sizeof(ikm_a) );
+  ag_bls_sec_derive( &sk_b,  ikm_b, sizeof(ikm_b) );
 
-  FD_TEST(  !memcmp( sk_a, sk_a2, AG_BLS_SEC_SZ ) );
-  FD_TEST(   memcmp( sk_a, sk_b,  AG_BLS_SEC_SZ ) );
+  FD_TEST(  !memcmp( &sk_a, &sk_a2, sizeof(ag_bls_sec_t) ) );
+  FD_TEST(   memcmp( &sk_a, &sk_b,  sizeof(ag_bls_sec_t) ) );
 
-  ag_bls_pub_t  pk; ag_bls_sec_to_pub( sk_a, &pk );
+  ag_bls_pub_t  pk; ag_bls_sec_to_pub( &sk_a, &pk );
   uchar const * msg = (uchar const *)"derived key vote";
   ulong         msg_sz = 16UL;
-  ag_bls_sig_t  sig; ag_bls_sec_sign( sk_a, sig, msg, msg_sz );
-  FD_TEST( ag_bls_sig_verify( sig, &pk, msg, msg_sz ) );
+  ag_bls_sig_t  sig; ag_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
+  FD_TEST( ag_bls_sig_verify( &sig, &pk, msg, msg_sz ) );
 
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
@@ -361,10 +361,10 @@ test_ref_api( void ) {
   ag_bls_pub_t pk [5];
   ag_bls_sig_t sig[5];
   for( ulong i=0UL; i<N; i++ ) {
-    fd_memset( sk[i], 0, AG_BLS_SEC_SZ );
-    sk[i][0] = (uchar)( i+1UL );
-    ag_bls_sec_to_pub( sk[i], pk+i );
-    ag_bls_sec_sign( sk[i], sig[i], msg, msg_sz );
+    fd_memset( &sk[i], 0, AG_BLS_SEC_SZ );
+    sk[i].b[0] = (uchar)( i+1UL );
+    ag_bls_sec_to_pub( &sk[i], pk+i );
+    ag_bls_sec_sign( &sk[i], msg, msg_sz, &sig[i] );
   }
 
   /* PublicKey::try_from_bytes -- compressed and affine both round trip */
@@ -372,7 +372,8 @@ test_ref_api( void ) {
   pub_compress( comp, pk );
   ag_bls_pub_t from_comp, from_aff;
   FD_TEST( !ag_bls_pub_try_from_bytes( &from_comp, comp,        sizeof(comp)     ) );
-  FD_TEST( !ag_bls_pub_try_from_bytes( &from_aff,  pk[0].bytes, AG_BLS_PUB_SZ    ) );
+  uchar aff[ AG_BLS_PUB_SZ ]; { blst_p1_affine a[1]; blst_p1_to_affine( a, pk ); blst_p1_affine_serialize( aff, a ); }
+  FD_TEST( !ag_bls_pub_try_from_bytes( &from_aff,  aff,         AG_BLS_PUB_SZ    ) );
   FD_TEST( !memcmp( &from_comp, pk, sizeof(ag_bls_pub_t) ) );
   FD_TEST( !memcmp( &from_aff,  pk, sizeof(ag_bls_pub_t) ) );
   FD_TEST(  ag_bls_pub_try_from_bytes( &from_aff, comp, 47UL ) ); /* bad length */
@@ -385,7 +386,7 @@ test_ref_api( void ) {
   ulong        idx [3] = { 0UL, 2UL, 4UL };
   ag_bls_agg_t agg[1];
   ag_bls_agg_zero( agg );
-  for( ulong i=0UL; i<3UL; i++ ) ag_bls_agg_add( agg, idx[i], sigs[i] );
+  for( ulong i=0UL; i<3UL; i++ ) ag_bls_agg_add( agg, idx[i], &sigs[i] );
 
   /* signers() iteration agrees with is_signer */
   ulong seen = 0UL, cnt = 0UL;
@@ -423,7 +424,7 @@ test_ref_api( void ) {
   ulong        tidx [2] = { 0UL, 1UL };
   ag_bls_agg_t trimmed[1];
   ag_bls_agg_zero( trimmed );
-  for( ulong i=0UL; i<2UL; i++ ) ag_bls_agg_add( trimmed, tidx[i], tsigs[i] );
+  for( ulong i=0UL; i<2UL; i++ ) ag_bls_agg_add( trimmed, tidx[i], &tsigs[i] );
   FD_TEST( ag_bls_agg_verify( trimmed, msg, msg_sz, all_pk, N ) );
 
   FD_LOG_NOTICE(( "reference api pass" ));

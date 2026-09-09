@@ -14,19 +14,30 @@
    - The finalization cert signers get root_slot / votes /
      last_timestamp refreshed in their vote states. */
 
-#include "fd_reward_cert.h"
 #include "../runtime/fd_bank.h"
 #include "../../choreo/votor/ag_cert.h"
 
 /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor-messages/src/reward_certificate.rs#L20 */
 #define NUM_SLOTS_FOR_REWARD (8UL)
 
+/* FD_BLOCK_CERT_SET_WORDS is the word count of a block footer
+   certificate's signer bitmap, one bit per validator rank. */
+
+#define FD_BLOCK_CERT_SET_WORDS ((AG_VAT_MAX+63UL)/64UL)
+
+/* Only the slot and signer bitmap of each footer certificate price
+   rewards; signatures never reach the runtime, so no certificate type
+   crosses this boundary.  A NULL signer_set means the cert is absent. */
+
 struct fd_footer_certs {
-  ag_cert_fast_final_t const * fast_final_cert;   /* fast BlockFinalizationCert */
-  ag_cert_final_t const *      final_cert;        /* slow BlockFinalizationCert */
-  ag_cert_notar_t const *      final_notar_cert;  /* notar aggregate accompanying final_cert */
-  fd_reward_cert_t const *     skip_reward_cert;  /* SkipRewardCertificate  */
-  fd_reward_cert_t const *     notar_reward_cert; /* NotarRewardCertificate */
+  ulong         final_slot;              /* slot both finalization shapes name */
+  ulong const * fast_final_signer_set;   /* fast BlockFinalizationCert */
+  ulong const * final_signer_set;        /* slow BlockFinalizationCert */
+  ulong const * final_notar_signer_set;  /* notar aggregate accompanying the slow one */
+  ulong         skip_reward_slot;
+  ulong const * skip_reward_signer_set;  /* SkipRewardCertificate  */
+  ulong         notar_reward_slot;
+  ulong const * notar_reward_signer_set; /* NotarRewardCertificate */
 };
 typedef struct fd_footer_certs fd_footer_certs_t;
 

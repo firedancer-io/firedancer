@@ -222,7 +222,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==76096UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75840UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -1974,44 +1974,33 @@ fd_sched_get_footer_producer_time_nanos( fd_sched_t * sched, ulong bank_idx ) {
   return block->footer_present ? block->footer.block_producer_time_nanos : 0UL;
 }
 
-fd_reward_cert_t const *
-fd_sched_get_skip_reward_cert( fd_sched_t * sched, ulong bank_idx ) {
+void
+fd_sched_get_footer_certs( fd_sched_t *        sched,
+                           ulong               bank_idx,
+                           fd_footer_certs_t * certs ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_memset( certs, 0, sizeof(fd_footer_certs_t) );
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
-  return ( block->footer_present && block->footer.has_skip_reward_cert ) ? &block->footer.skip_reward_cert : NULL;
-}
+  if( FD_UNLIKELY( !block->footer_present ) ) return;
+  fd_block_footer_t const * f = &block->footer;
 
-fd_reward_cert_t const *
-fd_sched_get_notar_reward_cert( fd_sched_t * sched, ulong bank_idx ) {
-  FD_TEST( sched->canary==FD_SCHED_MAGIC );
-  FD_TEST( bank_idx<sched->block_cnt_max );
-  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
-  return ( block->footer_present && block->footer.has_notar_reward_cert ) ? &block->footer.notar_reward_cert : NULL;
-}
-
-ag_cert_fast_final_t const *
-fd_sched_get_fast_final_cert( fd_sched_t * sched, ulong bank_idx ) {
-  FD_TEST( sched->canary==FD_SCHED_MAGIC );
-  FD_TEST( bank_idx<sched->block_cnt_max );
-  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
-  return ( block->footer_present && block->footer.has_fast_final_cert ) ? &block->footer.fast_final_cert : NULL;
-}
-
-ag_cert_final_t const *
-fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx ) {
-  FD_TEST( sched->canary==FD_SCHED_MAGIC );
-  FD_TEST( bank_idx<sched->block_cnt_max );
-  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
-  return ( block->footer_present && block->footer.has_final_cert ) ? &block->footer.final_cert : NULL;
-}
-
-ag_cert_notar_t const *
-fd_sched_get_final_notar_cert( fd_sched_t * sched, ulong bank_idx ) {
-  FD_TEST( sched->canary==FD_SCHED_MAGIC );
-  FD_TEST( bank_idx<sched->block_cnt_max );
-  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
-  return ( block->footer_present && block->footer.has_final_cert ) ? &block->footer.notar_cert : NULL;
+  if( f->has_fast_final_cert ) {
+    certs->final_slot            = f->fast_final_cert.slot;
+    certs->fast_final_signer_set = f->fast_final_cert.signer_set;
+  } else if( f->has_final_cert ) {
+    certs->final_slot             = f->final_cert.slot;
+    certs->final_signer_set       = f->final_cert.signer_set;
+    certs->final_notar_signer_set = f->notar_cert.signer_set;
+  }
+  if( f->has_skip_reward_cert ) {
+    certs->skip_reward_slot       = f->skip_reward_cert.slot;
+    certs->skip_reward_signer_set = f->skip_reward_cert.signer_set;
+  }
+  if( f->has_notar_reward_cert ) {
+    certs->notar_reward_slot       = f->notar_reward_cert.slot;
+    certs->notar_reward_signer_set = f->notar_reward_cert.signer_set;
+  }
 }
 
 void

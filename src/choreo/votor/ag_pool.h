@@ -12,8 +12,6 @@
 #define AG_POOL_ERR_DUPLICATE          (-2)
 #define AG_POOL_ERR_SLASHABLE          (-3)
 
-#define AG_POOL_ERR_HASH_CAPACITY      (-4)
-
 typedef struct ag_pool ag_pool_t;
 
 FD_PROTOTYPES_BEGIN

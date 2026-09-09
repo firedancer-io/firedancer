@@ -368,7 +368,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     ushort                  rank       = fd_ushort_if( vote_slot>=ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) return; /* peer is not ranked in their vote slot's epoch */
     ag_vote_set_rank( &ctx->scratch.vote, rank );
-    // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, &epoch_info->validators[ rank ].bls_key, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive */
+    // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, &epoch_info->validators[ rank ].bls_key ) ) ) return; /* FIXME a pairing per vote is ~1ms; agave batches instead, one check per batch with a per-vote fallback to find the culprit.  Until we do the same, one bad signature poisons the slot's running aggregate for good. */
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
     return;
   }
@@ -1001,7 +1001,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
   fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha );
   fd_sha512_leave( sha );
-  ag_bls_sec_derive( ctx->bls_key, ikm, sizeof(ikm) );
+  ag_bls_sec_derive( &ctx->bls_key, ikm, sizeof(ikm) );
   fd_memzero_explicit( ikm, sizeof(ikm) );
 
   fd_log_wallclock();
@@ -1042,7 +1042,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
-  ag_votor_set_bls_key( ctx->votor, ctx->bls_key );
+  ag_votor_set_bls_key( ctx->votor, &ctx->bls_key );
 
   ctx->curr_epoch_info = NULL;
   ctx->curr_epoch_slot = ULONG_MAX;

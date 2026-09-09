@@ -95,8 +95,8 @@ ag_bls_agg_pair_ser( ag_bls_agg_t const * base,
 
 static int
 bitmap_hdr( ag_bls_agg_serde_t * bm,
-             uchar const *        b,
-             ulong                b_sz ) {
+            uchar const *        b,
+            ulong                b_sz ) {
   FAIL( b_sz<AG_BLS_AGG_HDR_SZ, SZ );
 
   bm->version    = b[ 0 ];

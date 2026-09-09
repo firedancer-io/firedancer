@@ -240,29 +240,29 @@ test_footer_with_certs( int has_notar_aggregate ) {
     /* slow finalization: final + notar certs */
     FD_TEST( !marker->footer.has_fast_final_cert && marker->footer.has_final_cert );
     FD_TEST( marker->footer.final_cert.slot==777UL );
-    FD_TEST( marker->footer.final_cert.agg.bitmask[ 0 ]==0x7fUL );
+    FD_TEST( marker->footer.final_cert.signer_set[ 0 ]==0x7fUL );
     FD_TEST( marker->footer.notar_cert.slot==777UL );
-    FD_TEST( !memcmp( marker->footer.notar_cert.block_hash, block_id.uc, sizeof(fd_hash_t) ) );
-    FD_TEST( marker->footer.notar_cert.agg.bitmask[ 0 ]==0x1fUL );
+    FD_TEST( !memcmp( marker->footer.notar_cert.block_id.uc, block_id.uc, sizeof(fd_hash_t) ) );
+    FD_TEST( marker->footer.notar_cert.signer_set[ 0 ]==0x1fUL );
   } else {
     /* fast finalization */
     FD_TEST( marker->footer.has_fast_final_cert && !marker->footer.has_final_cert );
     FD_TEST( marker->footer.fast_final_cert.slot==777UL );
-    FD_TEST( !memcmp( marker->footer.fast_final_cert.block_hash, block_id.uc, sizeof(fd_hash_t) ) );
-    FD_TEST( marker->footer.fast_final_cert.agg.bitmask[ 0 ]==0x7fUL );
+    FD_TEST( !memcmp( marker->footer.fast_final_cert.block_id.uc, block_id.uc, sizeof(fd_hash_t) ) );
+    FD_TEST( marker->footer.fast_final_cert.signer_set[ 0 ]==0x7fUL );
   }
 
   fd_hash_t zero_id = hash_of( 0x00 );
-  fd_reward_cert_t const * skip = &marker->footer.skip_reward_cert;
+  fd_block_footer_reward_cert_t const * skip = &marker->footer.skip_reward_cert;
   FD_TEST( marker->footer.has_skip_reward_cert );
   FD_TEST( skip->slot==775UL );
   FD_TEST( !memcmp( skip->block_id.uc, zero_id.uc, sizeof(fd_hash_t) ) );
   for( ulong i=0UL; i<sizeof(skip->sig); i++ ) FD_TEST( skip->sig[ i ]==0xf3 );
   FD_TEST( skip->nbits==13 );
   FD_TEST( skip->signer_set[ 0 ]==0x14a5UL );
-  for( ulong w=1UL; w<FD_REWARD_CERT_SET_WORDS; w++ ) FD_TEST( !skip->signer_set[ w ] );
+  for( ulong w=1UL; w<FD_BLOCK_CERT_SET_WORDS; w++ ) FD_TEST( !skip->signer_set[ w ] );
 
-  fd_reward_cert_t const * notar = &marker->footer.notar_reward_cert;
+  fd_block_footer_reward_cert_t const * notar = &marker->footer.notar_reward_cert;
   FD_TEST( marker->footer.has_notar_reward_cert );
   FD_TEST( notar->slot==776UL );
   FD_TEST( !memcmp( notar->block_id.uc, block_id.uc, sizeof(fd_hash_t) ) );
@@ -374,9 +374,9 @@ test_final_cert_de( void ) {
   emit_votes_aggregate( n, 0x7fUL );            /* notar_aggregate, signer ranks 0-6 */
   ulong off = g_sz;
 
-  ag_cert_fast_final_t fast_final;
-  ag_cert_final_t      final;
-  ag_cert_notar_t      notar;
+  fd_block_footer_final_cert_t fast_final;
+  fd_block_footer_final_cert_t final;
+  fd_block_footer_final_cert_t notar;
 
   /* slow finalization: final + notar */
   ulong consumed;
@@ -384,10 +384,10 @@ test_final_cert_de( void ) {
   FD_TEST( consumed==off );
   FD_TEST( final.slot==7UL );
   FD_TEST( notar.slot==7UL );
-  FD_TEST( !memcmp( notar.block_hash, block_id.uc, sizeof(fd_hash_t) ) );
-  for( ulong i=0UL; i<7UL; i++ ) FD_TEST( ag_bls_agg_is_signer( &final.agg, i ) );
-  FD_TEST( !ag_bls_agg_is_signer( &final.agg, 7UL ) );
-  for( ulong i=0UL; i<7UL; i++ ) FD_TEST( ag_bls_agg_is_signer( &notar.agg, i ) );
+  FD_TEST( !memcmp( notar.block_id.uc, block_id.uc, sizeof(fd_hash_t) ) );
+  for( ulong i=0UL; i<7UL; i++ ) FD_TEST( !!( final.signer_set[ (i)>>6 ] & (1UL<<((i)&63UL)) ) );
+  FD_TEST( !!!( final.signer_set[ (7UL)>>6 ] & (1UL<<((7UL)&63UL)) ) );
+  for( ulong i=0UL; i<7UL; i++ ) FD_TEST( !!( notar.signer_set[ (i)>>6 ] & (1UL<<((i)&63UL)) ) );
 
   /* trailing bytes are not the cert's */
   g_buf[ off ] = 0xaa;
@@ -405,9 +405,9 @@ test_final_cert_de( void ) {
   FD_TEST( fd_block_final_cert_de( &fast_final, &final, &notar, g_buf, off2, &consumed )==1 );
   FD_TEST( consumed==off2 );
   FD_TEST( fast_final.slot==7UL );
-  FD_TEST( !memcmp( fast_final.block_hash, block_id.uc, sizeof(fd_hash_t) ) );
-  for( ulong i=0UL; i<9UL; i++ ) FD_TEST( ag_bls_agg_is_signer( &fast_final.agg, i ) );
-  FD_TEST( !ag_bls_agg_is_signer( &fast_final.agg, 9UL ) );
+  FD_TEST( !memcmp( fast_final.block_id.uc, block_id.uc, sizeof(fd_hash_t) ) );
+  for( ulong i=0UL; i<9UL; i++ ) FD_TEST( !!( fast_final.signer_set[ (i)>>6 ] & (1UL<<((i)&63UL)) ) );
+  FD_TEST( !!!( fast_final.signer_set[ (9UL)>>6 ] & (1UL<<((9UL)&63UL)) ) );
 
   /* notar_aggregate tag out of range */
   g_buf[ off2-1UL ] = 2;
@@ -660,12 +660,14 @@ fill_max_cert_footer( fd_block_marker_t * marker ) {
   footer->has_final_cert  = 1;
   footer->final_cert.slot = 777UL;
   footer->notar_cert.slot = 777UL;
-  fd_memset( footer->notar_cert.block_hash, 0x55, sizeof(ag_block_hash_t) );
-  FD_TEST( !fd_bls12_381_g2_decompress_syscall( footer->final_cert.agg.sig, csig, 1 ) );
-  FD_TEST( !fd_bls12_381_g2_decompress_syscall( footer->notar_cert.agg.sig, csig, 1 ) );
+  fd_memset( footer->notar_cert.block_id.uc, 0x55, sizeof(fd_hash_t) );
+  fd_memcpy( footer->final_cert.sig, csig, AG_BLS_SIG_COMPRESSED_SZ );
+  fd_memcpy( footer->notar_cert.sig, csig, AG_BLS_SIG_COMPRESSED_SZ );
+  footer->final_cert.nbits = (ushort)AG_VAT_MAX;
+  footer->notar_cert.nbits = (ushort)AG_VAT_MAX;
   for( ulong r=0UL; r<AG_VAT_MAX; r++ ) {
-    signer_set_insert( footer->final_cert.agg.bitmask, r );
-    signer_set_insert( footer->notar_cert.agg.bitmask, r );
+    footer->final_cert.signer_set[ r>>6 ] |= 1UL<<(r&63UL);
+    footer->notar_cert.signer_set[ r>>6 ] |= 1UL<<(r&63UL);
   }
 
   footer->has_skip_reward_cert   = 1;
@@ -709,8 +711,8 @@ test_ser_max( void ) {
   FD_TEST( marker->footer.skip_reward_cert.nbits ==(ushort)AG_VAT_MAX );
   FD_TEST( marker->footer.notar_reward_cert.nbits==(ushort)AG_VAT_MAX );
   for( ulong r=0UL; r<AG_VAT_MAX; r++ ) {
-    FD_TEST( ag_bls_agg_is_signer( &marker->footer.final_cert.agg, r ) );
-    FD_TEST( ag_bls_agg_is_signer( &marker->footer.notar_cert.agg, r ) );
+    FD_TEST( !!( marker->footer.final_cert.signer_set[ (r)>>6 ] & (1UL<<((r)&63UL)) ) );
+    FD_TEST( !!( marker->footer.notar_cert.signer_set[ (r)>>6 ] & (1UL<<((r)&63UL)) ) );
     FD_TEST( marker->footer.skip_reward_cert.signer_set [ r>>6 ] & (1UL<<(r&63UL)) );
     FD_TEST( marker->footer.notar_reward_cert.signer_set[ r>>6 ] & (1UL<<(r&63UL)) );
   }
@@ -722,7 +724,7 @@ test_ser_max( void ) {
   /* a rank the footer bound does not cover is refused rather than
      silently overrunning it */
   fill_max_cert_footer( marker );
-  signer_set_insert( marker->footer.final_cert.agg.bitmask, AG_VAT_MAX );
+  marker->footer.final_cert.nbits = (ushort)(AG_VAT_MAX+1UL);
   FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_UNSUPPORTED );
 
   fill_max_cert_footer( marker );
@@ -741,38 +743,32 @@ test_ser_signature( void ) {
 
   ag_bls_sec_t sec;
   ag_bls_sig_t sig;
-  ag_bls_sec_derive( sec, (uchar const *)"fd_block_marker footer serializer seed", 38UL );
-  ag_bls_sec_sign( sec, sig, (uchar const *)"footer", 6UL );
+  ag_bls_sec_derive( &sec, (uchar const *)"fd_block_marker footer serializer seed", 38UL );
+  ag_bls_sec_sign( &sec, (uchar const *)"footer", 6UL, &sig );
 
   fd_block_marker_t marker[1];
   fd_memset( marker, 0, sizeof(fd_block_marker_t) );
   marker->variant                        = FOOTER;
   marker->footer.has_fast_final_cert     = 1;
   marker->footer.fast_final_cert.slot    = 99UL;
-  ag_bls_agg_zero( &marker->footer.fast_final_cert.agg );
-  ag_bls_agg_add( &marker->footer.fast_final_cert.agg, 4UL, sig );
+  { ag_bls_agg_t agg[1]; ag_bls_agg_zero( agg ); ag_bls_agg_add( agg, 4UL, &sig );
+    FD_TEST( fd_block_footer_final_cert_from_agg( &marker->footer.fast_final_cert, 99UL, NULL, agg ) ); }
 
   ulong out_sz = 0UL;
   FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), &out_sz )==FD_BLOCK_MARKER_SER_SUCCESS );
 
   /* the emitted signature decompresses back to the aggregate's */
   ulong sig_off = FD_BLOCK_MARKER_PREAMBLE_SZ+1UL+32UL+8UL+1UL+1UL+8UL+32UL;
-  uchar decompressed[ 192 ];
-  FD_TEST( !fd_bls12_381_g2_decompress_syscall( decompressed, out+sig_off, 1 ) );
-  FD_TEST( !memcmp( decompressed, marker->footer.fast_final_cert.agg.sig, sizeof(decompressed) ) );
+  FD_TEST( !memcmp( out+sig_off, marker->footer.fast_final_cert.sig, AG_BLS_SIG_COMPRESSED_SZ ) );
 
   /* and the whole marker reads back to the same aggregate */
   fd_block_marker_t rt[1];
   FD_TEST( fd_block_marker_de( rt, out, out_sz, NULL )==FD_BLOCK_MARKER_DE_SUCCESS );
   FD_TEST( rt->footer.has_fast_final_cert );
   FD_TEST( rt->footer.fast_final_cert.slot==99UL );
-  FD_TEST( ag_bls_agg_is_signer( &rt->footer.fast_final_cert.agg, 4UL ) );
-  FD_TEST( ag_bls_agg_signer_cnt( &rt->footer.fast_final_cert.agg )==1UL );
-  FD_TEST( !memcmp( rt->footer.fast_final_cert.agg.sig, marker->footer.fast_final_cert.agg.sig, sizeof(ag_bls_sig_t) ) );
-
-  /* a signature that is not a G2 point cannot be emitted */
-  fd_memset( marker->footer.fast_final_cert.agg.sig, 0x11, sizeof(ag_bls_sig_t) );
-  FD_TEST( fd_block_marker_ser( marker, out, sizeof(out), NULL )==FD_BLOCK_MARKER_SER_ERR_MALFORMED );
+  FD_TEST( !!( rt->footer.fast_final_cert.signer_set[ 0 ] & (1UL<<4) ) );
+  FD_TEST( rt->footer.fast_final_cert.signer_set[ 0 ]==(1UL<<4) );
+  FD_TEST( !memcmp( rt->footer.fast_final_cert.sig, marker->footer.fast_final_cert.sig, AG_BLS_SIG_COMPRESSED_SZ ) );
 }
 
 int

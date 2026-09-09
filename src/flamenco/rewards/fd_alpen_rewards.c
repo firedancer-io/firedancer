@@ -9,7 +9,6 @@
 #define RANK_SET_WORDS ((AG_VAT_MAX+63UL)/64UL)
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL,             epoch_credits_bound );
-FD_STATIC_ASSERT( RANK_SET_WORDS==FD_REWARD_CERT_SET_WORDS,    rank_set_words );
 FD_STATIC_ASSERT( RANK_SET_WORDS==signer_set_word_cnt,         agg_set_words );
 
 static int
@@ -250,16 +249,16 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
 
   /* credits for the attested voters of the reward slot */
 
-  if( certs->skip_reward_cert || certs->notar_reward_cert ) {
+  if( certs->skip_reward_signer_set || certs->notar_reward_signer_set ) {
     ulong reward_set[ RANK_SET_WORDS ] = {0};
     ulong skip_slot = ULONG_MAX, notar_slot = ULONG_MAX;
-    if( certs->skip_reward_cert ) {
-      skip_slot = certs->skip_reward_cert->slot;
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) reward_set[ w ] |= certs->skip_reward_cert->signer_set[ w ];
+    if( certs->skip_reward_signer_set ) {
+      skip_slot = certs->skip_reward_slot;
+      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) reward_set[ w ] |= certs->skip_reward_signer_set[ w ];
     }
-    if( certs->notar_reward_cert ) {
-      notar_slot = certs->notar_reward_cert->slot;
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) reward_set[ w ] |= certs->notar_reward_cert->signer_set[ w ];
+    if( certs->notar_reward_signer_set ) {
+      notar_slot = certs->notar_reward_slot;
+      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) reward_set[ w ] |= certs->notar_reward_signer_set[ w ];
     }
     if( FD_UNLIKELY( skip_slot!=ULONG_MAX && notar_slot!=ULONG_MAX && skip_slot!=notar_slot ) ) {
       FD_LOG_WARNING(( "slot %lu: reward cert slots differ: skip %lu, notar %lu", bank_slot, skip_slot, notar_slot ));
@@ -274,7 +273,7 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
     }
     migration_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, migration_slot, NULL );
 
-    if( FD_UNLIKELY( fd_ulong_sat_add( reward_slot, FD_NUM_SLOTS_FOR_REWARD )!=bank_slot || reward_slot<=migration_slot ) ) {
+    if( FD_UNLIKELY( fd_ulong_sat_add( reward_slot, NUM_SLOTS_FOR_REWARD )!=bank_slot || reward_slot<=migration_slot ) ) {
       FD_LOG_WARNING(( "slot %lu: invalid reward cert slot %lu (migration slot %lu)", bank_slot, reward_slot, migration_slot ));
       return -1;
     }
@@ -362,17 +361,15 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
 
   /* finalization cert: root/votes/timestamp for the signers */
 
-  if( certs->fast_final_cert || certs->final_cert ) {
-    ulong final_slot;
+  if( certs->fast_final_signer_set || certs->final_signer_set ) {
+    ulong final_slot = certs->final_slot;
     ulong final_set[ RANK_SET_WORDS ] = {0};
-    if( certs->fast_final_cert ) {
-      final_slot = certs->fast_final_cert->slot;
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->fast_final_cert->agg.bitmask[ w ];
+    if( certs->fast_final_signer_set ) {
+      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->fast_final_signer_set[ w ];
     } else {
-      final_slot = certs->final_cert->slot;
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_cert->agg.bitmask[ w ];
-      if( FD_LIKELY( certs->final_notar_cert ) ) {
-        for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_notar_cert->agg.bitmask[ w ];
+      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_signer_set[ w ];
+      if( FD_LIKELY( certs->final_notar_signer_set ) ) {
+        for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_notar_signer_set[ w ];
       }
     }
 
