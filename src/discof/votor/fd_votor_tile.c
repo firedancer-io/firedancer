@@ -152,31 +152,25 @@ struct fd_votor_tile {
 
   /* Data */
 
-  int               init;
-  ag_block_id_t     rooted_block_id;
-  ag_block_id_t     finalized_block_id;
-  ag_epoch_info_t * curr_epoch_info;
-  ulong             curr_epoch_slot;
-  ushort            curr_epoch_rank;
-  ag_epoch_info_t * next_epoch_info;
-  ulong             next_epoch_slot;
-  ushort            next_epoch_rank;
-  contact_info_t *  contact_infos;
-  peer_t *          peers;
-  ag_pool_t *       pool;
-  ag_votor_t *      votor;
-  replayed_t *      replayed;
-  ag_block_id_t *   rooted;
-  publish_t *       publishes;
-
-  /* Leader */
-
+  int                        init;
+  ag_block_id_t              rooted_block_id;
+  ag_block_id_t              finalized_block_id;
+  ag_epoch_info_t *          curr_epoch_info;
+  ulong                      curr_epoch_slot;
+  ushort                     curr_epoch_rank;
+  ag_epoch_info_t *          next_epoch_info;
+  ulong                      next_epoch_slot;
+  ushort                     next_epoch_rank;
   fd_multi_epoch_leaders_t * mleaders;
   ulong                      next_leader_slot;
-
-  /* Certs */
-
-  final_notar_join_t cert_slots[ CERT_SLOT_MAX ];
+  final_notar_join_t         final_notar_join[CERT_SLOT_MAX];
+  contact_info_t *           contact_infos;
+  peer_t *                   peers;
+  ag_pool_t *                pool;
+  ag_votor_t *               votor;
+  replayed_t *               replayed;
+  ag_block_id_t *            rooted;
+  publish_t *                publishes;
 
   /* Networking */
 
@@ -287,6 +281,27 @@ try_advance_root( fd_votor_tile_t * ctx,
 
     ctx->rooted_block_id = rooted_block_id;
   }
+}
+
+static void
+sign_ed25519( void *      signer_ctx,
+              uchar       signature[ static 64 ],
+              uchar const payload[ static 130 ] ) {
+  fd_votor_tile_t * ctx = signer_ctx;
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+}
+
+FD_STATIC_ASSERT( AG_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
+
+static void
+sign_bls( void *         signer_ctx,
+          ag_bls_sig_t * sig,
+          uchar const *  payload,
+          ulong          payload_sz ) {
+  fd_votor_tile_t * ctx = signer_ctx;
+  uchar sig_bytes[ AG_BLS_SIG_SZ ];
+  fd_keyguard_client_sign( ctx->keyguard_client, sig_bytes, payload, payload_sz, FD_KEYGUARD_SIGN_TYPE_BLS );
+  if( FD_UNLIKELY( ag_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
 }
 
 static int
@@ -450,27 +465,6 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
 }
 
 static void
-quic_sign( void *      signer_ctx,
-           uchar       signature[ static 64 ],
-           uchar const payload[ static 130 ] ) {
-  fd_votor_tile_t * ctx = signer_ctx;
-  fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-}
-
-FD_STATIC_ASSERT( AG_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
-
-static void
-bls_sign( void *         signer_ctx,
-          ag_bls_sig_t * sig,
-          uchar const *  payload,
-          ulong          payload_sz ) {
-  fd_votor_tile_t * ctx = signer_ctx;
-  uchar sig_bytes[ AG_BLS_SIG_SZ ];
-  fd_keyguard_client_bls_sign( ctx->keyguard_client, sig_bytes, payload, payload_sz );
-  if( FD_UNLIKELY( ag_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
-}
-
-static void
 handle_epoch( fd_votor_tile_t *           ctx,
               fd_epoch_info_msg_t const * msg ) {
 
@@ -519,10 +513,6 @@ handle_epoch( fd_votor_tile_t *           ctx,
   }
 
   /* unmark all ranked in next epoch */
-
-  /* Not fd_ulong_if: it is a function, so it would load validator_cnt
-     through next_epoch_info before selecting.  On the first epoch
-     message the swap above leaves next_epoch_info NULL. */
 
   ulong next_cnt = ctx->next_epoch_info ? ctx->next_epoch_info->validator_cnt : 0UL;
   for( ulong rank=0UL; rank<next_cnt; rank++ ) {
@@ -583,8 +573,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   ag_pool_advance_epoch( ctx->pool, epoch_info, epoch_rank, msg->start_slot );
   ag_votor_advance_epoch( ctx->votor, epoch_rank, msg->start_slot );
 
-  /* update our leader schedule.  msg only points into the epoch dcache
-     for this callback, so it must be consumed here. */
+  /* update our leader schedule */
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
@@ -743,7 +732,7 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
     if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_CERT_CREATED ) ) {
       ulong                slot = ag_cert_slot( cert );
-      final_notar_join_t * cs   = &ctx->cert_slots[ slot%CERT_SLOT_MAX ];
+      final_notar_join_t * cs   = &ctx->final_notar_join[ slot%CERT_SLOT_MAX ];
       if( FD_UNLIKELY( cs->slot!=slot ) ) {
         cs->slot      = slot;
         cs->has_notar = 0;
@@ -1083,7 +1072,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->init                 = 0;
   ctx->next_leader_slot     = ULONG_MAX;
-  for( ulong i=0UL; i<CERT_SLOT_MAX; i++ ) ctx->cert_slots[ i ].slot = ULONG_MAX;
+  for( ulong i=0UL; i<CERT_SLOT_MAX; i++ ) ctx->final_notar_join[ i ].slot = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -1138,7 +1127,7 @@ unprivileged_init( fd_topo_t const *      topo,
                                                                      sign_in->mtu ) ) ) ) {
     FD_LOG_ERR(( "failed to construct keyguard client" ));
   }
-  ag_votor_set_bls_signer( ctx->votor, bls_sign, ctx );
+  ag_votor_set_bls_signer( ctx->votor, sign_bls, ctx );
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );
@@ -1153,7 +1142,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic_client->config.idle_timeout               = 5L*1000L*1000L*1000L;
   ctx->quic_client->config.ack_delay                  = 2L*1000L*1000L;
   memcpy( ctx->quic_client->config.identity_public_key, ctx->id_key.uc, 32UL );
-  ctx->quic_client->config.sign                       = quic_sign;
+  ctx->quic_client->config.sign                       = sign_ed25519;
   ctx->quic_client->config.sign_ctx                   = ctx;
   ctx->quic_client->config.alpn[ 0 ]                  = 0x0c;
   memcpy( ctx->quic_client->config.alpn+1, "alpenglow-v1", 12UL );
@@ -1175,7 +1164,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic_server->config.idle_timeout               = 5L*1000L*1000L*1000L;
   ctx->quic_server->config.ack_delay                  = 2L*1000L*1000L;
   memcpy( ctx->quic_server->config.identity_public_key, ctx->id_key.uc, 32UL );
-  ctx->quic_server->config.sign                       = quic_sign;
+  ctx->quic_server->config.sign                       = sign_ed25519;
   ctx->quic_server->config.sign_ctx                   = ctx;
   ctx->quic_server->config.alpn[ 0 ]                  = 0x0c;
   memcpy( ctx->quic_server->config.alpn+1, "alpenglow-v1", 12UL );

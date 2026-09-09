@@ -28,14 +28,6 @@ ag_bls_sec_derive( ag_bls_sec_t * sk,
 }
 
 void
-ag_bls_sec_sign_fn( void *         ctx,
-                    ag_bls_sig_t * sig,
-                    uchar const *  msg,
-                    ulong          msg_sz ) {
-  ag_bls_sec_sign( (ag_bls_sec_t const *)ctx, msg, msg_sz, sig );
-}
-
-void
 ag_bls_sig_ser( uchar                out[ static AG_BLS_SIG_SZ ],
                 ag_bls_sig_t const * sig ) {
   blst_p2_affine a[1];

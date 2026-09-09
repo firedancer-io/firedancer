@@ -56,21 +56,21 @@ mk_notar( ag_vote_notar_t *     o,
           ag_block_hash_t const h,
           ulong                 lo,
           ulong                 n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, h, (ushort)(lo+i), TEST_SHRED_VERSION ).notar;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar( sec_sign_fn, &g_sk[lo+i], slot, h, (ushort)(lo+i), TEST_SHRED_VERSION ).notar;
 }
 static void
 mk_final( ag_vote_final_t * o,
           ulong             slot,
           ulong             lo,
           ulong             n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_final( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).final;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_final( sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).final;
 }
 static void
 mk_skip( ag_vote_skip_t * o,
          ulong            slot,
          ulong            lo,
          ulong            n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).skip;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip( sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).skip;
 }
 static void
 mk_nf( ag_vote_notar_fallback_t * o,
@@ -78,14 +78,14 @@ mk_nf( ag_vote_notar_fallback_t * o,
        ag_block_hash_t const      h,
        ulong                      lo,
        ulong                      n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar_fallback( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, h, (ushort)(lo+i), TEST_SHRED_VERSION ).notar_fallback;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[lo+i], slot, h, (ushort)(lo+i), TEST_SHRED_VERSION ).notar_fallback;
 }
 static void
 mk_sf( ag_vote_skip_fallback_t * o,
        ulong                     slot,
        ulong                     lo,
        ulong                     n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip_fallback( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).skip_fallback;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip_fallback( sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).skip_fallback;
 }
 
 static ulong

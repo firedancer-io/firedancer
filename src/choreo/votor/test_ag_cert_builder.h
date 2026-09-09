@@ -10,6 +10,17 @@
 #include "ag_epoch_info.h"
 #include "ag_vote.h"
 
+/* sec_sign_fn is the ag_bls_sign_fn of a test that holds the secret
+   key in memory; ctx points to the ag_bls_sec_t. */
+
+static void
+sec_sign_fn( void *         ctx,
+             ag_bls_sig_t * sig,
+             uchar const *  msg,
+             ulong          msg_sz ) {
+  ag_bls_sec_sign( (ag_bls_sec_t const *)ctx, msg, msg_sz, sig );
+}
+
 static inline void
 agg_add( ag_bls_agg_t *       agg,
          ulong                rank,
