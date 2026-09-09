@@ -7,6 +7,7 @@
 
 #include <sys/file.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
@@ -463,6 +464,49 @@ test_landlock( void ) {
 }
 
 void
+test_landlock_write_path_inner( int          dirfd,
+                                char const * escape_path ) {
+  long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
+  if( FD_UNLIKELY( abi==-1L && (errno==ENOSYS || errno==EOPNOTSUPP) ) ) {
+    FD_LOG_WARNING(( "Test skipped - landlock not supported" ));
+    return;
+  }
+  FD_TEST( abi>=1L );
+
+  FD_TEST( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
+  fd_sandbox_private_landlock_restrict_self_with_write_path( 0, 0, dirfd );
+
+  int fd = openat( dirfd, "tower.new", O_WRONLY|O_CREAT|O_EXCL, 0600 );
+  FD_TEST( fd>=0 );
+  FD_TEST( write( fd, "tower", 5UL )==5L );
+  FD_TEST( !close( fd ) );
+  FD_TEST( !renameat( dirfd, "tower.new", dirfd, "tower" ) );
+  FD_TEST( !unlinkat( dirfd, "tower", 0 ) );
+
+  FD_TEST( -1==openat( dirfd, escape_path, O_WRONLY|O_CREAT|O_EXCL, 0600 ) && errno==EACCES );
+}
+
+void
+test_landlock_write_path( void ) {
+  char allowed_dir[] = "/tmp/fd_sandbox_allowed.XXXXXX";
+  char denied_dir [] = "/tmp/fd_sandbox_denied.XXXXXX";
+  FD_TEST( mkdtemp( allowed_dir ) );
+  FD_TEST( mkdtemp( denied_dir  ) );
+
+  int dirfd = open( allowed_dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
+  FD_TEST( dirfd>=0 );
+  char const * denied_name = strrchr( denied_dir, '/' );
+  FD_TEST( denied_name );
+  char escape_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( escape_path, sizeof(escape_path), NULL, "../%s/file", denied_name+1 ) );
+  TEST_FORK_EXIT_CODE( test_landlock_write_path_inner( dirfd, escape_path ), 0 );
+
+  FD_TEST( !close( dirfd ) );
+  FD_TEST( !rmdir( allowed_dir ) );
+  FD_TEST( !rmdir( denied_dir  ) );
+}
+
+void
 test_read_last_cap( void ) {
   FD_TEST( fd_sandbox_private_read_cap_last_cap()==40UL );
 }
@@ -583,6 +627,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Test landlock" ));
   test_landlock();
+  test_landlock_write_path();
 
   FD_LOG_NOTICE(( "Testing cap last cap" ));
   test_read_last_cap();

@@ -3,6 +3,32 @@
 
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
+static uchar tower_buf[ FD_KEYGUARD_SIGN_REQ_MTU ];
+
+static void
+test_tower_digest( void ) {
+  fd_keyguard_authority_t authority = {0};
+  uchar digest[ 32 ];
+  fd_memset( digest, 0x5a, 32UL );
+
+  FD_TEST( fd_keyguard_payload_match( digest, 32UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, digest, 32UL, FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, digest, 32UL, FD_KEYGUARD_ROLE_LEADER, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+
+  /* A raw 32 byte request is a shred or ping, not a tower digest. */
+  FD_TEST( !(fd_keyguard_payload_match( digest, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, digest, 32UL, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_match( digest, 31UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_match( digest, 33UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+
+  FD_STATIC_ASSERT( 106UL+32UL*36UL>FD_GOSSIP_MTU, oversized_prune_sz );
+  ulong const oversized_prune_sz = 106UL+32UL*36UL;
+  fd_memset( tower_buf, 0, oversized_prune_sz );
+  FD_STORE( ulong, tower_buf, 18UL );
+  fd_memcpy( tower_buf+8UL, "\xffSOLANA_PRUNE_DATA", 18UL );
+  FD_STORE( ulong, tower_buf+58UL, 36UL );
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, oversized_prune_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_PRUNE) );
+}
 
 static ulong
 build_txn_v1( uchar * buf,
@@ -183,6 +209,7 @@ main( int     argc,
   test_vote_txn_oob();
   test_txn_v1_match();
   test_ag_vote_authorize();
+  test_tower_digest();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }
