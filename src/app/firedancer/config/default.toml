@@ -77,7 +77,8 @@ telemetry = true
     #  +-- snapshots
     #      +-- snapshot-368327930-E5ZsnTCNX7WToyrP4ZQYJj7pPii6Ssa7UnNcV7HZ3iAf.tar.zst
     #      +-- incremental-snapshot-368327930-368400391-8ybYYVq7Ecui9TLj13SvzXjTX7JiGP65f4KrtNRCPajW.tar.zst
-    #  +-- tower-1_9-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin.new
+    #  +-- tower
+    #  |   +-- tower-1_9-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin
     #  +-- vote-account.json
     #
     # Two substitutions will be performed on this string.  If "{user}"
@@ -1897,8 +1898,18 @@ telemetry = true
     retry_backoff_min_millis = 800
     retry_backoff_max_millis = 12800
 
-    # Write the Agave compatible tower file on every vote.  Requires
-    # the identity key for signing, so this runs on the active only.
+    # Write a signed tower file under `paths.base/tower` before each local
+    # vote is published, and restore it before voting on restart.  The
+    # layout is Agave's but the signature is not, so Agave cannot use the
+    # file.  Required when failover is enabled, unsupported with
+    # Alpenglow. An existing invalid file prevents startup.  Missing files
+    # are allowed either without failover or if on a passive standby.
+    # An active failover voter requires the latest checkpoint, except for
+    # upon first-time launch of a genuinely new voter.  First-time launches
+    # must be explicitly authorized with --failover-first-use <staked-pubkey>.
+    # Never keep that option on in any other scenario.  A valid signature
+    # does not necessarily mean freshness.  Do not restore stale tower
+    # backups or roll back the disk after voting.
     tower_file = false
 
 # These options can be useful for development, but should not be used

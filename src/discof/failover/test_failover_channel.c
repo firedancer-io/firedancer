@@ -1,6 +1,9 @@
 #include "fd_failover_channel.c"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../util/net/fd_ip4.h"
+#include "../../util/sandbox/fd_sandbox_private.h"
+#include "../admin/generated/fd_admin_tile_failover_listener_seccomp.h"
+#include "../admin/generated/fd_admin_tile_failover_dialer_seccomp.h"
 #include <sys/resource.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
@@ -36,6 +39,102 @@ poll_channel( fd_failover_channel_t * ch ) {
 
 static int
 paired( fd_failover_channel_t * ch ) { return ch->state==FD_FAILOVER_SESSION_PAIRED; }
+
+static void
+test_seccomp( void ) {
+  /* One child per role, each under its own production filter.  The
+     listener socket is opened before the fork so both know the port.
+     progress[0] counts frames the listener took, progress[1] frames
+     the dialer saw acknowledged. */
+  volatile int * progress = mmap( NULL, 4096UL, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( progress!=MAP_FAILED );
+  progress[0] = 0; progress[1] = 0;
+  fd_sha512_t sha[1];
+  fd_sha512_join( fd_sha512_new( sha ) );
+  fd_ed25519_public_from_private( key_a+32, key_a, sha );
+  fd_ed25519_public_from_private( key_b+32, key_b, sha );
+  fd_failover_channel_t * a = fd_failover_channel_join( fd_failover_channel_new( scratch_a ) );
+  fd_failover_hello_t ha = hello( key_a, FD_FAILOVER_ROLE_STANDBY );
+  FD_TEST( !fd_failover_channel_set_identity( a, key_a, key_b+32, &ha ) );
+  fd_failover_channel_init_listener( a, FD_IP4_ADDR(127,0,0,1), 0 );
+  ushort port      = fd_failover_channel_listen_port( a );
+  int    listen_fd = fd_failover_channel_listen_fd( a );
+  pid_t pids[ 2 ];
+  for( int dial=0; dial<2; dial++ ) {
+    pids[ dial ] = fork();
+    FD_TEST( pids[ dial ]>=0 );
+    if( pids[ dial ] ) continue;
+    fd_failover_channel_t * ch = a;
+    if( dial ) {
+      FD_TEST( !close( listen_fd ) );
+      ch = fd_failover_channel_join( fd_failover_channel_new( scratch_b ) );
+      fd_failover_hello_t hb = hello( key_b, FD_FAILOVER_ROLE_ACTIVE );
+      FD_TEST( !fd_failover_channel_set_identity( ch, key_b, key_a+32, &hb ) );
+      fd_failover_channel_init_dialer( ch, FD_IP4_ADDR(127,0,0,1), port );
+      fd_failover_channel_set_timing( ch, 2000000000L, 10000000000L, 1000000L, 10000000L );
+    } else {
+      /* The junk private key lives on a page wiped on fork. */
+      FD_TEST( !fd_failover_channel_set_identity( ch, key_a, key_b+32, &ha ) );
+    }
+    struct rlimit limit = { .rlim_cur=32UL, .rlim_max=32UL };
+    FD_TEST( !setrlimit( RLIMIT_NOFILE, &limit ) );
+    struct sock_filter filter[ 128 ];
+    ushort instr_cnt;
+    if( dial ) {
+      populate_sock_filter_policy_fd_admin_tile_failover_dialer( 128UL, filter, (uint)fd_log_private_logfile_fd() );
+      instr_cnt = (ushort)sock_filter_policy_fd_admin_tile_failover_dialer_instr_cnt;
+    } else {
+      populate_sock_filter_policy_fd_admin_tile_failover_listener( 128UL, filter, (uint)fd_log_private_logfile_fd(), (uint)listen_fd );
+      instr_cnt = (ushort)sock_filter_policy_fd_admin_tile_failover_listener_instr_cnt;
+    }
+    FD_TEST( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
+    fd_sandbox_private_set_seccomp_filter( instr_cnt, filter );
+    for( int round=0; round<3; round++ ) {
+      long deadline = fd_log_wallclock()+5000000000L;
+      while( !paired( ch ) ) {
+        now = fd_log_wallclock();
+        if( now>=deadline ) __builtin_trap();
+        poll_channel( ch );
+      }
+      if( dial ) {
+        if( fd_failover_channel_send( ch, now, FD_FAILOVER_MSG_STATUS, (uchar const *)"test", 4UL ) ) __builtin_trap();
+        while( progress[ 0 ]<=round ) {
+          now = fd_log_wallclock();
+          if( now>=deadline ) __builtin_trap();
+          poll_channel( ch );
+        }
+        progress[ 1 ] = round+1;
+      } else {
+        while( !poll_channel( ch ) ) {
+          now = fd_log_wallclock();
+          if( now>=deadline ) __builtin_trap();
+        }
+        progress[ 0 ] = round+1;
+        while( progress[ 1 ]<=round ) {
+          now = fd_log_wallclock();
+          if( now>=deadline ) __builtin_trap();
+          poll_channel( ch );
+        }
+      }
+      fd_failover_channel_hangup( ch, now );
+    }
+    /* A forbidden syscall must kill each child: the listener may not
+       close its own socket, the dialer has no accept4 at all. */
+    if( dial ) (void)syscall( SYS_accept4, 0, NULL, NULL, 0 );
+    else       (void)close( listen_fd );
+    __builtin_trap();
+  }
+  for( int dial=0; dial<2; dial++ ) {
+    int status;
+    FD_TEST( waitpid( pids[ dial ], &status, 0 )==pids[ dial ] );
+    if( !WIFSIGNALED( status ) || WTERMSIG( status )!=SIGSYS )
+      FD_LOG_ERR(( "seccomp child %i status %i, progress %i %i", dial, status, progress[ 0 ], progress[ 1 ] ));
+  }
+  FD_TEST( progress[ 0 ]==3 && progress[ 1 ]==3 );
+  fd_failover_channel_fini( a );
+  FD_TEST( !munmap( (void *)progress, 4096UL ) );
+  FD_LOG_NOTICE(( "pass: TLS pairing, transfer and reconnect under the listener and dialer seccomp filters" ));
+}
 
 static void
 pump( fd_failover_channel_t * a, fd_failover_channel_t * b ) {
@@ -277,6 +376,7 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   test_admission_buckets();
+  test_seccomp();
   FD_TEST( fd_failover_channel_footprint()<=sizeof(scratch_a) );
   FD_TEST( !fd_failover_channel_new( NULL ) );
   FD_TEST( !fd_failover_channel_new( scratch_a+1 ) );

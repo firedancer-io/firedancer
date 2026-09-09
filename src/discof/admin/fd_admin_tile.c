@@ -35,6 +35,7 @@ struct fd_admin_tile_ctx {
   fd_sha512_t       sha512[ 1 ];
 
   int                     failover_enabled;
+  int                     tower_file_enabled;
   ulong                   failover_role;
   int                     failover_dials;
   fd_failover_channel_t * failover;
@@ -167,6 +168,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->failover_peer_status.next_leader_slot = FD_FAILOVER_SLOT_NULL;
 
   ctx->failover_enabled = tile->admin.failover_enabled;
+  ctx->tower_file_enabled = tile->admin.tower_file_enabled;
   if( FD_UNLIKELY( ctx->failover_enabled ) ) {
     void * ch_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_failover_channel_align(), fd_failover_channel_footprint() );
     ctx->failover = fd_failover_channel_join( fd_failover_channel_new( ch_mem ) );
@@ -740,6 +742,11 @@ set_identity( fd_admin_tile_ctx_t * ctx,
 
   fd_adminctl_t * adminctl = ctx->adminctl;
   fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_SET_IDENTITY, data, data_sz );
+  if( FD_UNLIKELY( ctx->failover_enabled || ctx->tower_file_enabled ) ) {
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
+    return;
+  }
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, old_identity );
   FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"old_identity\":\"%s\"}", old_identity ) );
 

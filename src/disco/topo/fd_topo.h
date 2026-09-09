@@ -245,6 +245,7 @@ struct fd_topo_tile {
       char   identity_key_path[ PATH_MAX ];
       uint   target_uid;
       int    failover_enabled;
+      int    tower_file_enabled;
       int    failover_dial_peer;
       uint   failover_bind_addr;
       ushort failover_bind_port;
@@ -670,6 +671,10 @@ struct fd_topo_tile {
       char  vote_account[ PATH_MAX ];
       char  base_path[PATH_MAX];
       ulong max_shreds_per_block;
+      int   tower_file;
+      int   failover_enabled;
+      char  failover_staked_identity_path[ PATH_MAX ];
+      char  failover_first_use[ 45 ];
     } tower;
 
     struct {
@@ -906,6 +911,7 @@ typedef struct {
   ulong (*max_event_sz            )( fd_topo_tile_t const * tile );
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );
+  int   (*populate_allowed_write_path_fd)( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   ulong (*scratch_align           )( void );
   ulong (*scratch_footprint       )( fd_topo_tile_t const * tile );
   ulong (*loose_footprint         )( fd_topo_tile_t const * tile );

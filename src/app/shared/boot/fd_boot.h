@@ -6,6 +6,15 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* Parse the one-time new-voter authorization before building the
+   topology.  The inherited child config is left intact when this option
+   is absent.  Only Firedancer run/dev may accept the explicit option. */
+void
+fd_boot_failover_first_use( int *        argc,
+                            char ***     argv,
+                            config_t   * config,
+                            char const * action );
+
 int
 fd_main( int                        argc,
          char **                    _argv,
