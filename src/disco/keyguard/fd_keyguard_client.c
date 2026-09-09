@@ -99,16 +99,8 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          uchar const *          sign_data,
                          ulong                  sign_data_len,
                          int                    sign_type ) {
-  FD_TEST( sign_type!=FD_KEYGUARD_SIGN_TYPE_BLS ); /* use fd_keyguard_client_bls_sign */
-  fd_keyguard_client_sign_sz( client, signature, 64UL, sign_data, sign_data_len, sign_type );
-}
-
-void
-fd_keyguard_client_bls_sign( fd_keyguard_client_t * client,
-                             uchar *                signature,
-                             uchar const *          sign_data,
-                             ulong                  sign_data_len ) {
-  fd_keyguard_client_sign_sz( client, signature, FD_KEYGUARD_BLS_SIG_SZ, sign_data, sign_data_len, FD_KEYGUARD_SIGN_TYPE_BLS );
+  ulong signature_sz = fd_ulong_if( sign_type==FD_KEYGUARD_SIGN_TYPE_BLS, FD_KEYGUARD_BLS_SIG_SZ, 64UL );
+  fd_keyguard_client_sign_sz( client, signature, signature_sz, sign_data, sign_data_len, sign_type );
 }
 
 void
