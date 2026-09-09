@@ -123,6 +123,10 @@ main( int     argc,
   fd_config_validate( config );
   strcpy( config->net.provider, "xdp" );
 
+  config->firedancer.layout.sign_tile_count = 1U;
+  fd_config_validate( config );
+  config->firedancer.layout.sign_tile_count = 2U;
+
   /* bzip2's avail_in and avail_out fields are uint. */
 
   config->is_firedancer = 1;
@@ -139,7 +143,10 @@ main( int     argc,
   config->firedancer.snapshots.server.send_timeout_millis      = 100UL;
   config->firedancer.accounts.max_accounts                     = 1UL;
   config->firedancer.accounts.cache_size_gib                   = 1UL;
+  config->firedancer.accounts.max_stake_accounts               = 1UL;
+  config->firedancer.accounts.max_stake_accounts_fallback      = 1UL;
   config->firedancer.runtime.program_cache_size_mib            = 32UL;
+  config->firedancer.runtime.vote_history_max                  = 1UL;
   config->tiles.repair.slot_max                                   = 1UL;
   config->tiles.rotor.slot_max                                    = 1UL;
 

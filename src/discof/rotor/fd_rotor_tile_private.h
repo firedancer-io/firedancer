@@ -166,8 +166,8 @@ struct ctx {
   out_ctx_t net_out_ctx[1];
   out_ctx_t repair_out_ctx[1];
 
-  /* repair_sign links (to sign tiles 1+) - for round-robin
-     distribution */
+  /* repair_sign links (to sign tiles 1+, or tile 0 when it is the only
+     sign tile) - for round-robin distribution */
   ulong     repair_sign_cnt;
   out_ctx_t repair_sign_out_ctx[ MAX_SIGN_TILE_CNT ];
 

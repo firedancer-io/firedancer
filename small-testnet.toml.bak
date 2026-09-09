@@ -1,0 +1,59 @@
+telemetry = false
+
+[accounts]
+  max_accounts = 92_000_000
+  cache_size_gib = 3
+  max_stake_accounts = 2_150_000
+  max_stake_accounts_fallback = 10_000_000
+
+[runtime]
+  max_live_slots = 128
+  max_fork_width = 4
+  vote_history_max = 64
+
+[layout]
+  affinity = "f64"
+  enable_block_production = false
+  enable_snapshot_production = false
+  net_tile_count = 1
+  quic_tile_count = 1
+  verify_tile_count = 1
+  resolv_tile_count = 1
+  execle_tile_count = 1
+  execrp_tile_count = 1
+  shred_tile_count = 1
+  sign_tile_count = 1
+  gossvf_tile_count = 1
+
+[net]
+  ingress_buffer_size = 4096
+
+[tiles.gui]
+  enabled = false
+
+[tiles.rserve]
+  enabled = false
+  repair_serve_listen_port = 0
+
+[snapshots.sources]
+  # servers = [ "http://tsdal1-solana-testnet-rpc202.jumpisolated.com:8899" ]
+  servers = []
+
+[tiles.rpc]
+  enabled = false
+
+[tiles.verify]
+  signature_cache_size = 1048574
+  receive_buffer_size = 4096
+
+[tiles.dedup]
+  signature_cache_size = 4194302
+
+[tiles.shred]
+  max_pending_shred_sets = 8192
+  shred_cache_size_mib = 16
+
+[paths]
+    base = "/data/drubin/ledger"
+    identity_key = "/data/drubin/ledger/identity.json"
+    vote_account = "/data/drubin/ledger/vote-account.json"

@@ -409,7 +409,7 @@ backtest_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
   fd_topob_wksp( topo, "banks" );
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.max_cost_per_block );
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->firedancer.accounts.max_stake_accounts, config->firedancer.accounts.max_stake_accounts_fallback, config->development.bench.max_cost_per_block );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );

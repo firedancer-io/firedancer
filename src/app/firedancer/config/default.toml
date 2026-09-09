@@ -698,6 +698,18 @@ telemetry = true
     # transactions, if enabled).
     cache_size_gib = 12
 
+    # Maximum number of active stake delegations retained in the fast
+    # in-memory stake cache.  If this is exceeded, Firedancer falls back
+    # to resolving delegations from the accounts database at epoch
+    # boundaries.  Production operators should not reduce this value.
+    max_stake_accounts = 2_150_000
+
+    # Total number of stake-account pubkeys supported while the stake
+    # cache is in fallback mode.  This table is intentionally large for
+    # production.  Development snapshot/replay nodes may right-size it
+    # to the cluster they are testing.
+    max_stake_accounts_fallback = 100_000_000
+
 [runtime]
     # Certain slots are considered "live" in the validator if we must
     # hold space in memory for them.  The root slot is live, as are any
@@ -734,6 +746,12 @@ telemetry = true
     # It is not recommended to change this value, except in development
     # or test environments to decrease memory usage or test edge cases.
     max_fork_width = 32
+
+    # Number of recent vote-history entries retained per validator by
+    # Tower.  The protocol vote sysvar can retain 512 entries, so this is
+    # the production default.  A smaller value trades duplicate-vote
+    # history for memory and is intended only for test/replay nodes.
+    vote_history_max = 512
 
     # Total size of the program cache workspace in MiB.
     #
@@ -1019,13 +1037,13 @@ telemetry = true
     # very high TPS rates because the cluster size will be very small.
     shred_tile_count = 1
 
-    # How many sign tiles to run, should be at least two.  The signing
+    # How many sign tiles to run, must be at least one.  The signing
     # tiles exclusively hold the validator private key for security, and
     # all requests to sign things (transactions, shreds, repair
     # requests, etc.) are routed to these tiles.  Adding more signing
     # tiles can speed up signing of repair requests, which there are a
-    # lot of, but all other signing requests are easily handled by two
-    # tiles.
+    # lot of.  With one sign tile, repair signing shares the tile with
+    # all other signing requests.
     sign_tile_count = 2
 
 # All memory that will be used in Firedancer is pre-allocated in two
