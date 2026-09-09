@@ -54,6 +54,7 @@
 #define FD_FAILOVER_HELLO_ERR_BOTH_ACT   (6)
 #define FD_FAILOVER_HELLO_ERR_ROLE       (7)
 #define FD_FAILOVER_HELLO_ERR_NONCE      (8)
+#define FD_FAILOVER_HELLO_ERR_CFG        (9)
 
 /* Upper bound size on the consensus state payload in tower mode. A
    CompactTowerSync with block ID and bank hash is under 512 bytes */

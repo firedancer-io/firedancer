@@ -102,12 +102,22 @@ fd_topo_run_tile( fd_topo_t *          topo,
     rlimit_file_cnt = tile_run->rlimit_file_cnt_fn( topo, tile );
   }
 
+  int keep_host_networking = tile_run->keep_host_networking;
+  if( tile_run->keep_host_networking_fn ) {
+    keep_host_networking = tile_run->keep_host_networking_fn( topo, tile );
+  }
+
+  int allow_connect = tile_run->allow_connect;
+  if( tile_run->allow_connect_fn ) {
+    allow_connect = tile_run->allow_connect_fn( topo, tile );
+  }
+
   if( FD_LIKELY( sandbox ) ) {
     int dumpable = core_dump_level == FD_TOPO_CORE_DUMP_LEVEL_DISABLED ? 0 : 1;
     fd_sandbox_enter( uid,
                       gid,
-                      tile_run->keep_host_networking,
-                      tile_run->allow_connect,
+                      keep_host_networking,
+                      allow_connect,
                       tile_run->allow_renameat,
                       keep_controlling_terminal,
                       dumpable,
