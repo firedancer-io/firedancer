@@ -136,7 +136,9 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   ulong cu;        /* The remaining CUs left for the transaction, positive in normal execution, may be zero in a fault */
   ulong frame_cnt; /* The current number of stack frames pushed, in [0,frame_max] */
 
-  ulong heap_sz; /* Heap size in bytes, in [0,heap_max] */
+  ulong heap_sz;     /* Heap size in bytes, in [0,heap_max] */
+  ulong heap_clean;  /* Initialized part of the heap  in bytes, in [0,heap_max] */
+  ulong stack_clean; /* Initialized part of the stack in bytes, in [0,FD_VM_STACK_MAX] */
 
   /* VM memory */
 
@@ -255,7 +257,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527856UL)
+#define FD_VM_FOOTPRINT (527872UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.

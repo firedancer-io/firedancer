@@ -167,6 +167,167 @@ test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
   FD_LOG_NOTICE(( "%-20s PASS", "stack-frame-cfg" ));
 }
 
+/* fd_vm_init zeroes no stack and no heap; fd_vm_{stack,heap}_grow do it
+   on demand.  These tests ensure that the guest's view is coherent.
+
+   Each runs two programs through the *same* fd_vm_t: the first writes
+   0xff somewhere the second reads back.  Reusing the vm is what makes
+   this deterministic -- the second fd_vm_init drops the clean bound back
+   to 0 without touching the buffer, so the 0xff is definitely still
+   there, and the read can only return 0 if grow zeroed it. */
+
+static ulong
+lazy_exec( fd_vm_t *             vm,
+           fd_sha256_t *         sha,
+           char const *          name,
+           ulong                 sbpf_version,
+           ulong const *         text,
+           ulong                 text_cnt,
+           int                   expected_err,
+           fd_sbpf_syscalls_t *  syscalls,
+           fd_exec_instr_ctx_t * instr_ctx ) {
+
+  FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+      (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt, 0UL, NULL,
+      sbpf_version, syscalls, NULL, sha, NULL, 0UL, NULL, 0,
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      0, 0UL ) );
+
+  int err = fd_vm_validate( vm );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "%s: validate: %i-%s", name, err, fd_vm_strerror( err ) ));
+
+  err = fd_vm_exec( vm );
+  if( FD_UNLIKELY( err!=expected_err ) ) {
+    FD_LOG_ERR(( "%s: expected %i (%s), got %i (%s)", name,
+                 expected_err, fd_vm_strerror( expected_err ), err, fd_vm_strerror( err ) ));
+  }
+  if( err!=FD_VM_SUCCESS ) test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+
+  return vm->reg[0];
+}
+
+/* The heap must read as zero anywhere in [0,heap_max), including bytes
+   sol_alloc_free has never handed out -- it does not zero what it
+   returns, so the guest can allocate and read before writing. */
+
+static void
+test_lazy_heap_zeroing( fd_sbpf_syscalls_t *  syscalls,
+                        fd_exec_instr_ctx_t * instr_ctx ) {
+
+  fd_sha256_t   _sha[1]; fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t       _vm [1]; fd_vm_t     * vm  = fd_vm_join   ( fd_vm_new   ( _vm  ) );
+  FD_TEST( vm );
+
+  /* Well past FD_VM_GROW_MIN but inside the default heap_max. */
+# define TEST_LHZ_OFF (24576U)
+
+  /* r1 = 3<<32 | off, i.e. FD_VM_MEM_MAP_HEAP_REGION_START + off */
+# define TEST_LHZ_ADDR( off )                                    \
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 1UL, 0UL, 0, 3U  ),       \
+    fd_vm_instr( FD_SBPF_OP_LSH64_IMM, 1UL, 0UL, 0, 32U ),       \
+    fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 1UL, 0UL, 0, (off) )
+
+  ulong dirty[] = {
+    TEST_LHZ_ADDR( TEST_LHZ_OFF ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 2UL, 0UL, 0, 0xffffffffU ),
+    fd_vm_instr( FD_SBPF_OP_STXDW,     1UL, 2UL, 0, 0U          ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL, 0, 0U          ),
+  };
+
+  ulong read[] = {
+    TEST_LHZ_ADDR( TEST_LHZ_OFF ),
+    fd_vm_instr( FD_SBPF_OP_LDXDW, 0UL, 1UL, 0, 0U ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,  0UL, 0UL, 0, 0U ),
+  };
+
+  /* First byte past heap_max must fault, not grow. */
+  ulong oob[] = {
+    TEST_LHZ_ADDR( FD_VM_HEAP_DEFAULT ),
+    fd_vm_instr( FD_SBPF_OP_LDXDW, 0UL, 1UL, 0, 0U ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,  0UL, 0UL, 0, 0U ),
+  };
+
+  lazy_exec( vm, sha, "lazy-heap-dirty", FD_SBPF_V3, dirty, 6UL, FD_VM_SUCCESS, syscalls, instr_ctx );
+  FD_TEST( lazy_exec( vm, sha, "lazy-heap-read", FD_SBPF_V3, read, 5UL, FD_VM_SUCCESS, syscalls, instr_ctx )==0UL );
+  lazy_exec( vm, sha, "lazy-heap-oob", FD_SBPF_V3, oob, 5UL, FD_VM_ERR_EBPF_ACCESS_VIOLATION, syscalls, instr_ctx );
+
+  FD_LOG_NOTICE(( "%-20s PASS", "lazy-heap-zero" ));
+
+# undef TEST_LHZ_ADDR
+# undef TEST_LHZ_OFF
+}
+
+static void
+test_lazy_stack_zeroing( fd_sbpf_syscalls_t *  syscalls,
+                         fd_exec_instr_ctx_t * instr_ctx ) {
+
+  fd_sha256_t   _sha[1]; fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t       _vm [1]; fd_vm_t     * vm  = fd_vm_join   ( fd_vm_new   ( _vm  ) );
+  FD_TEST( vm );
+
+  /* Buffer offset to poke: frame 40 of 64, far above the frame a
+     depth-1 program owns.  reg[10] and frame_cnt bound nothing -- the
+     stack region is mapped flat -- so this must be reachable and zero. */
+# define TEST_LSZ_OFF (163840UL)
+
+  static struct { char const * name; ulong ver; ulong delta; } const cases[] = {
+    /* V0 has stack frame gaps, so the virtual stack is twice the size of
+       the backing buffer and a buffer offset sits at twice the virtual
+       distance.  0x50000 has bit 0x1000 clear, so it is not in a gap. */
+    { "v0", FD_SBPF_V0, 2UL*TEST_LSZ_OFF - FD_VM_STACK_FRAME_SZ },
+    /* V3 has no gaps: virtual distance == buffer offset. */
+    { "v3", FD_SBPF_V3,      TEST_LSZ_OFF - FD_VM_STACK_FRAME_SZ },
+  };
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    uint delta = (uint)cases[i].delta;
+
+    /* r1 = r10 + delta; r2 = -1; *(ulong *)r1 = r2 */
+    ulong dirty[] = {
+      fd_vm_instr( FD_SBPF_OP_MOV64_REG, 1UL, 10UL, 0, 0U          ),
+      fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 1UL,  0UL, 0, delta       ),
+      fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 2UL,  0UL, 0, 0xffffffffU ),
+      fd_vm_instr( FD_SBPF_OP_STXDW,     1UL,  2UL, 0, 0U          ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,      0UL,  0UL, 0, 0U          ),
+    };
+
+    /* r1 = r10 + delta; r0 = *(ulong *)r1 */
+    ulong read[] = {
+      fd_vm_instr( FD_SBPF_OP_MOV64_REG, 1UL, 10UL, 0, 0U    ),
+      fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 1UL,  0UL, 0, delta ),
+      fd_vm_instr( FD_SBPF_OP_LDXDW,     0UL,  1UL, 0, 0U    ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,      0UL,  0UL, 0, 0U    ),
+    };
+
+    lazy_exec( vm, sha, "lazy-stack-dirty", cases[i].ver, dirty, 5UL, FD_VM_SUCCESS, syscalls, instr_ctx );
+    FD_TEST( lazy_exec( vm, sha, "lazy-stack-read", cases[i].ver, read, 4UL, FD_VM_SUCCESS, syscalls, instr_ctx )==0UL );
+
+    FD_LOG_NOTICE(( "%-20s PASS (%s)", "lazy-stack-zero", cases[i].name ));
+  }
+
+  /* The first byte past the end of the stack must still fault.  V3 starts
+     reg[10] one frame in, so this lands exactly on FD_VM_STACK_MAX -- the
+     boundary lazy growth has to refuse to cross.  That offset is call
+     depth FD_VM_MAX_CALL_DEPTH, so fd_vm_generate_access_violation still
+     classifies it as a stack violation rather than a generic one. */
+  {
+    uint  delta = (uint)( FD_VM_STACK_MAX - FD_VM_STACK_FRAME_SZ );
+    ulong oob[] = {
+      fd_vm_instr( FD_SBPF_OP_MOV64_REG, 1UL, 10UL, 0, 0U    ),
+      fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 1UL,  0UL, 0, delta ),
+      fd_vm_instr( FD_SBPF_OP_LDXDW,     0UL,  1UL, 0, 0U    ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,      0UL,  0UL, 0, 0U    ),
+    };
+    lazy_exec( vm, sha, "lazy-stack-oob", FD_SBPF_V3, oob, 4UL,
+               FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION, syscalls, instr_ctx );
+    FD_LOG_NOTICE(( "%-20s PASS", "lazy-stack-oob" ));
+  }
+
+# undef TEST_LSZ_OFF
+}
+
 static void
 generate_random_alu_instrs( fd_rng_t * rng,
                             ulong *    text,
@@ -1909,6 +2070,8 @@ main( int     argc,
   }
 
   test_stack_configuration( syscalls, instr_ctx );
+  test_lazy_stack_zeroing( syscalls, instr_ctx );
+  test_lazy_heap_zeroing( syscalls, instr_ctx );
 
   ulong   text_cnt = 128*1024*1024;
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */

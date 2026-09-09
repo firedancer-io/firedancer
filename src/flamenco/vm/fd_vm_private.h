@@ -226,8 +226,8 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
     vm->region_haddr[0]                  = 0UL;               vm->region_ld_sz[0]                  = (uint)0UL;             vm->region_st_sz[0]                  = (uint)0UL;
     vm->region_haddr[FD_VM_PROG_REGION]  = (ulong)vm->rodata; vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)vm->rodata_sz;   vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
   }
-  vm->region_haddr[FD_VM_STACK_REGION]   = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX;
-  vm->region_haddr[FD_VM_HEAP_REGION]    = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;    vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;
+  vm->region_haddr[FD_VM_STACK_REGION]   = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)vm->stack_clean; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)vm->stack_clean;
+  vm->region_haddr[FD_VM_HEAP_REGION]    = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_clean;  vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_clean;
   vm->region_haddr[5]                    = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
   if( vm->direct_mapping || !vm->input_mem_regions_cnt ) {
     /* When direct mapping is enabled, we don't use these fields because
@@ -442,9 +442,54 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   return adjusted_haddr;
 }
 
+/* FD_VM_GROW_MIN amortizes {stack,heap} growth by rounding up request
+   sizes. */
+
+#define FD_VM_GROW_MIN (16384UL)
+
+/* fd_vm_{stack,heap}_grow lazily grow the stack and heap */
+
+static inline void
+fd_vm_region_grow( fd_vm_t * vm,
+                   ulong     region,
+                   uchar *   base,
+                   ulong *   pclean,
+                   ulong     cap,
+                   ulong     sz ) {
+  ulong clean = *pclean;
+  if( FD_LIKELY( sz<=clean ) ) return; /* nothing to do */
+
+  sz = fd_ulong_min( fd_ulong_align_up( sz, FD_VM_GROW_MIN ), cap );
+
+  fd_memset( base + clean, 0, sz-clean );
+
+  *pclean                        = sz;
+  vm->region_ld_sz[ region ]     = (uint)sz;
+  vm->region_st_sz[ region ]     = (uint)sz;
+}
+
+static inline void
+fd_vm_stack_grow( fd_vm_t * vm,
+                  ulong     sz ) {
+  fd_vm_region_grow( vm, FD_VM_STACK_REGION, vm->stack, &vm->stack_clean, FD_VM_STACK_MAX, sz );
+}
+
+static inline void
+fd_vm_heap_grow( fd_vm_t * vm,
+                 ulong     sz ) {
+  fd_vm_region_grow( vm, FD_VM_HEAP_REGION, vm->heap, &vm->heap_clean, vm->heap_max, sz );
+}
+
+/* fd_vm_mem_init_full eagerly initializes the whole stack and heap. */
+
+static inline void
+fd_vm_mem_init_full( fd_vm_t * vm ) {
+  fd_vm_stack_grow( vm, FD_VM_STACK_MAX );
+  fd_vm_heap_grow ( vm, vm->heap_max    );
+}
 
 static inline ulong
-fd_vm_mem_haddr( fd_vm_t const * vm,
+fd_vm_mem_haddr( fd_vm_t *       vm,
                  ulong           vaddr,
                  ulong           sz,
                  ulong const *   vm_region_haddr, /* indexed [0,6) */
@@ -484,6 +529,19 @@ fd_vm_mem_haddr( fd_vm_t const * vm,
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
   }
 
+  if( FD_UNLIKELY( sz>sz_max && (region==FD_VM_STACK_REGION || region==FD_VM_HEAP_REGION) ) ) {
+    /* {stack,heap} are lazily initialized.  faults here mean that we
+       need to do some zero initialization work. */
+    ulong need = fd_ulong_sat_add( offset, sz );
+    ulong cap  = fd_ulong_if( region==FD_VM_STACK_REGION, FD_VM_STACK_MAX, vm->heap_max );
+    if( FD_LIKELY( need<=cap ) ) {
+      if( region==FD_VM_STACK_REGION ) fd_vm_stack_grow( vm, need );
+      else                             fd_vm_heap_grow ( vm, need );
+      region_sz = (ulong)vm_region_sz[ region ]; /* republished by grow */
+      sz_max    = region_sz - fd_ulong_min( offset, region_sz );
+    }
+  }
+
 # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
   if ( FD_LIKELY( sz<=sz_max ) ) {
     fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, vm_region_haddr[ region ] + offset );
@@ -492,17 +550,6 @@ fd_vm_mem_haddr( fd_vm_t const * vm,
   return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
 }
 
-static inline ulong
-fd_vm_mem_haddr_fast( fd_vm_t const * vm,
-                      ulong           vaddr,
-                      ulong   const * vm_region_haddr ) { /* indexed [0,6) */
-  ulong region   = FD_VADDR_TO_REGION( vaddr );
-  ulong offset   = vaddr & FD_VM_OFFSET_MASK;
-  if( FD_UNLIKELY( region==FD_VM_INPUT_REGION ) ) {
-    return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL );
-  }
-  return vm_region_haddr[ region ] + offset;
-}
 
 FD_FN_PURE static inline ulong fd_vm_mem_ld_1( ulong haddr ) {
   return (ulong)*(uchar const *)haddr;

@@ -7,6 +7,7 @@
 #include "../program/fd_bpf_loader_serialization.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../vm/fd_vm.h"
+#include "../../vm/fd_vm_private.h"
 #include "../../vm/test_vm_util.h"
 #include "generated/vm.pb.h"
 #include "generated/vm_serialization.pb.h"
@@ -218,16 +219,18 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   vm->reg[10] = input->vm_ctx.r10;
   vm->reg[11] = input->vm_ctx.r11;
 
+  fd_vm_mem_init_full( vm );
+
   // Override initial part of the heap, if specified the syscall fuzzer input
   if( input->syscall_invocation.heap_prefix ) {
     fd_memcpy( vm->heap, input->syscall_invocation.heap_prefix->bytes,
-               fd_ulong_min(input->syscall_invocation.heap_prefix->size, vm->heap_max) );
+               fd_ulong_min( input->syscall_invocation.heap_prefix->size, vm->heap_max ) );
   }
 
   // Override initial part of the stack, if specified the syscall fuzzer input
   if( input->syscall_invocation.stack_prefix ) {
     fd_memcpy( vm->stack, input->syscall_invocation.stack_prefix->bytes,
-               fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX) );
+               fd_ulong_min( input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX ) );
   }
 
   // Look up the syscall to execute
