@@ -1854,6 +1854,45 @@ telemetry = true
         # loading.
         delay_startup = true
 
+# Failover pairs two machines that manage one staked identity.
+[failover]
+    # When false, failover is completely disengaged.
+    enabled = false
+
+    # Exactly one member of the pair must set this to true and dial the other.
+    dial_peer = false
+
+    # Local listener address used when dial_peer is false.
+    bind_address = "0.0.0.0"
+    bind_port = 9700
+
+    # Address and port used when dial_peer is true.  It is not advised to
+    # use a public network for the pair link.
+    peer_address = ""
+    peer_port = 9700
+
+    # Pair credentials and the two local identity keypairs.
+    pair_secret_path = ""
+    junk_identity_path = ""
+    staked_identity_path = ""
+
+    # Permit a request initiated by the standby to trigger a handoff.
+    accept_peer_requests = false
+
+    # Handoff and channel parameter thresholds.
+    status_interval_millis = 800
+    min_slots_to_leader = 150
+    deadline_slots = 64
+    catchup_gap_slots = 8
+    replication_lag_slots = 8
+    peer_silence_intervals = 5
+    retry_backoff_min_millis = 800
+    retry_backoff_max_millis = 12800
+
+    # Write the Agave compatible tower file on every vote.  Requires
+    # the identity key for signing, so this runs on the active only.
+    tower_file = false
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program

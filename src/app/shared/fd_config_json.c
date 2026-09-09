@@ -117,6 +117,11 @@ static char const * const jw_redacted_keys[] = {
   "snapshots.sources.servers",
   "snapshots.server.http_listen_address",
   "hugetlbfs.mount_path",
+  "failover.bind_address",
+  "failover.peer_address",
+  "failover.pair_secret_path",
+  "failover.junk_identity_path",
+  "failover.staked_identity_path",
   "net.bind_address",
   "tiles.quic.ssl_key_log_file",
   "tiles.bundle.url",
@@ -408,6 +413,28 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "send_timeout_millis",  f->snapshots.server.send_timeout_millis );
       jw_ulong( &w, "send_buffer_size_kib", f->snapshots.server.send_buffer_size_kib );
     jw_obj_close( &w );
+  jw_obj_close( &w );
+
+  jw_obj_open( &w, "failover" );
+    jw_bool ( &w, "enabled",                  f->failover.enabled );
+    jw_bool ( &w, "dial_peer",                f->failover.dial_peer );
+    jw_path ( &w, "bind_address",             f->failover.bind_address );
+    jw_ulong( &w, "bind_port",                f->failover.bind_port );
+    jw_path ( &w, "peer_address",             f->failover.peer_address );
+    jw_ulong( &w, "peer_port",                f->failover.peer_port );
+    jw_path ( &w, "pair_secret_path",         f->failover.pair_secret_path );
+    jw_path ( &w, "junk_identity_path",       f->failover.junk_identity_path );
+    jw_path ( &w, "staked_identity_path",     f->failover.staked_identity_path );
+    jw_bool ( &w, "accept_peer_requests",     f->failover.accept_peer_requests );
+    jw_ulong( &w, "status_interval_millis",   f->failover.status_interval_millis );
+    jw_ulong( &w, "min_slots_to_leader",      f->failover.min_slots_to_leader );
+    jw_ulong( &w, "deadline_slots",           f->failover.deadline_slots );
+    jw_ulong( &w, "catchup_gap_slots",        f->failover.catchup_gap_slots );
+    jw_ulong( &w, "replication_lag_slots",    f->failover.replication_lag_slots );
+    jw_ulong( &w, "peer_silence_intervals",   f->failover.peer_silence_intervals );
+    jw_ulong( &w, "retry_backoff_min_millis", f->failover.retry_backoff_min_millis );
+    jw_ulong( &w, "retry_backoff_max_millis", f->failover.retry_backoff_max_millis );
+    jw_bool ( &w, "tower_file",               f->failover.tower_file );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "hugetlbfs" );

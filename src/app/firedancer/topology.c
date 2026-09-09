@@ -1415,6 +1415,26 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "admin" ) ) ) {
 
     fd_cstr_ncpy( tile->admin.identity_key_path, config->paths.identity_key, sizeof(tile->admin.identity_key_path) );
+    tile->admin.failover_enabled   = config->firedancer.failover.enabled;
+    tile->admin.failover_dial_peer = config->firedancer.failover.dial_peer;
+    fd_cstr_ncpy( tile->admin.failover_bind_address,         config->firedancer.failover.bind_address,         sizeof(tile->admin.failover_bind_address)     );
+    fd_cstr_ncpy( tile->admin.failover_peer_address,         config->firedancer.failover.peer_address,         sizeof(tile->admin.failover_peer_address)     );
+    fd_cstr_ncpy( tile->admin.failover_pair_secret_path,     config->firedancer.failover.pair_secret_path,     sizeof(tile->admin.failover_pair_secret_path) );
+    fd_cstr_ncpy( tile->admin.failover_junk_identity_path,   config->firedancer.failover.junk_identity_path,   sizeof(tile->admin.failover_junk_identity_path) );
+    fd_cstr_ncpy( tile->admin.failover_staked_identity_path, config->firedancer.failover.staked_identity_path, sizeof(tile->admin.failover_staked_identity_path) );
+    fd_cstr_ncpy( tile->admin.failover_vote_account_path,    config->paths.vote_account,                       sizeof(tile->admin.failover_vote_account_path) );
+    tile->admin.failover_accept_peer_requests     = config->firedancer.failover.accept_peer_requests;
+    tile->admin.failover_bind_port                = config->firedancer.failover.bind_port;
+    tile->admin.failover_peer_port                = config->firedancer.failover.peer_port;
+    tile->admin.failover_status_interval_millis   = config->firedancer.failover.status_interval_millis;
+    tile->admin.failover_min_slots_to_leader      = config->firedancer.failover.min_slots_to_leader;
+    tile->admin.failover_deadline_slots           = config->firedancer.failover.deadline_slots;
+    tile->admin.failover_catchup_gap_slots        = config->firedancer.failover.catchup_gap_slots;
+    tile->admin.failover_replication_lag_slots    = config->firedancer.failover.replication_lag_slots;
+    tile->admin.failover_peer_silence_intervals   = config->firedancer.failover.peer_silence_intervals;
+    tile->admin.failover_retry_backoff_min_millis = config->firedancer.failover.retry_backoff_min_millis;
+    tile->admin.failover_retry_backoff_max_millis = config->firedancer.failover.retry_backoff_max_millis;
+    tile->admin.failover_cfg_hash = 0UL;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 

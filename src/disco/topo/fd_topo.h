@@ -242,7 +242,27 @@ struct fd_topo_tile {
     } netlink;
 
     struct {
-      char identity_key_path[ PATH_MAX ];
+      char   identity_key_path[ PATH_MAX ];
+      int    failover_enabled;
+      int    failover_dial_peer;
+      char   failover_bind_address[ 64 ];
+      ushort failover_bind_port;
+      char   failover_peer_address[ 64 ];
+      ushort failover_peer_port;
+      char   failover_pair_secret_path[ PATH_MAX ];
+      char   failover_junk_identity_path[ PATH_MAX ];
+      char   failover_staked_identity_path[ PATH_MAX ];
+      char   failover_vote_account_path[ PATH_MAX ];
+      int    failover_accept_peer_requests;
+      ulong  failover_status_interval_millis;
+      ulong  failover_min_slots_to_leader;
+      ulong  failover_deadline_slots;
+      ulong  failover_catchup_gap_slots;
+      ulong  failover_replication_lag_slots;
+      ulong  failover_peer_silence_intervals;
+      ulong  failover_retry_backoff_min_millis;
+      ulong  failover_retry_backoff_max_millis;
+      ulong  failover_cfg_hash;
     } admin;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL

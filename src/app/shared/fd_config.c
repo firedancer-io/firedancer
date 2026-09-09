@@ -505,6 +505,40 @@ fd_config_validatef( fd_configf_t const * config ) {
   }
 
   CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
+
+  if( FD_UNLIKELY( config->failover.enabled ) ) {
+    if( FD_UNLIKELY( config->development.alpenglow ) ) {
+      FD_LOG_ERR(( "`failover.enabled` is incompatible with `development.alpenglow`" ));
+    }
+    if( FD_UNLIKELY( config->failover.dial_peer ) ) {
+      CFG_HAS_NON_EMPTY( failover.peer_address );
+      CFG_HAS_NON_ZERO ( failover.peer_port );
+    } else {
+      CFG_HAS_NON_EMPTY( failover.bind_address );
+      CFG_HAS_NON_ZERO ( failover.bind_port );
+    }
+    CFG_HAS_NON_EMPTY( failover.pair_secret_path );
+    CFG_HAS_NON_EMPTY( failover.junk_identity_path );
+    CFG_HAS_NON_EMPTY( failover.staked_identity_path );
+    CFG_HAS_NON_ZERO ( failover.status_interval_millis );
+    CFG_HAS_NON_ZERO ( failover.min_slots_to_leader );
+    CFG_HAS_NON_ZERO ( failover.deadline_slots );
+    if( FD_UNLIKELY( config->failover.deadline_slots>UINT_MAX ) ) {
+      FD_LOG_ERR(( "`failover.deadline_slots` must not exceed %u", UINT_MAX ));
+    }
+    if( FD_UNLIKELY( config->failover.deadline_slots>=config->failover.min_slots_to_leader ) ) {
+      FD_LOG_ERR(( "`failover.deadline_slots` must be less than `failover.min_slots_to_leader`" ));
+    }
+    CFG_HAS_NON_ZERO ( failover.peer_silence_intervals );
+    CFG_HAS_NON_ZERO ( failover.retry_backoff_min_millis );
+    CFG_HAS_NON_ZERO ( failover.retry_backoff_max_millis );
+    if( FD_UNLIKELY( config->failover.retry_backoff_min_millis>config->failover.retry_backoff_max_millis ) ) {
+      FD_LOG_ERR(( "`failover.retry_backoff_min_millis` must not exceed `failover.retry_backoff_max_millis`" ));
+    }
+    if( FD_UNLIKELY( !strcmp( config->failover.junk_identity_path, config->failover.staked_identity_path ) ) ) {
+      FD_LOG_ERR(( "`failover.junk_identity_path` must differ from `failover.staked_identity_path`" ));
+    }
+  }
   if( FD_UNLIKELY( config->snapshots.server.idle_timeout_millis<100UL ||
                    config->snapshots.server.idle_timeout_millis>=60000UL ) ) {
     FD_LOG_ERR(( "`snapshots.server.idle_timeout_millis` must be in [100,60000)" ));
