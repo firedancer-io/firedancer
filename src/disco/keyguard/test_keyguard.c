@@ -3,6 +3,176 @@
 
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
+static uchar tower_buf[ FD_KEYGUARD_SIGN_REQ_MTU ];
+
+typedef struct {
+  ulong threshold_depth;
+  ulong second_vote_slot;
+  ulong third_vote_slot;
+  ulong vote_root;
+  ulong compact_root;
+  ulong compact_vote_cnt;
+  ulong compact_first_offset;
+  ulong compact_second_offset;
+  ulong compact_third_offset;
+  ulong last_timestamp;
+} tower_payload_layout_t;
+
+static ulong
+build_tower_payload( uchar *                  buf,
+                     uchar const *            identity,
+                     int                      has_root,
+                     ulong                    first_slot,
+                     tower_payload_layout_t * layout ) {
+  ulong off = 0UL;
+#define STORE(T,v) do { FD_STORE( T, buf+off, (v) ); off += sizeof(T); } while(0)
+#define ZERO(n) do { fd_memset( buf+off, 0, (n) ); off += (n); } while(0)
+
+  fd_memcpy( buf+off, identity, 32UL ); off += 32UL;
+  layout->threshold_depth = off;
+  STORE( ulong, 8UL );
+  STORE( double, 2.0/3.0 );
+  ZERO( 65UL );
+  STORE( ulong, 3UL );
+  STORE( ulong, first_slot     ); STORE( uint, 3U );
+  layout->second_vote_slot = off;
+  STORE( ulong, first_slot+1UL ); STORE( uint, 2U );
+  layout->third_vote_slot = off;
+  STORE( ulong, first_slot+5UL ); STORE( uint, 1U );
+  STORE( uchar, (uchar)has_root );
+  if( has_root ) {
+    layout->vote_root = off;
+    STORE( ulong, first_slot-10UL );
+  } else {
+    layout->vote_root = ULONG_MAX;
+  }
+  STORE( ulong, 0UL );
+  ZERO( 32UL*48UL );
+  STORE( ulong, 31UL );
+  STORE( uchar, 1U );
+  STORE( ulong, 0UL );
+  ZERO( 16UL );
+  STORE( uint, 3U );
+  layout->compact_root = off;
+  STORE( ulong, has_root ? first_slot-10UL : ULONG_MAX );
+  layout->compact_vote_cnt = off;
+  STORE( uchar, 3U );
+  layout->compact_first_offset = off;
+  STORE( uchar, has_root ? 10U : (uchar)first_slot ); STORE( uchar, 3U );
+  layout->compact_second_offset = off;
+  STORE( uchar,  1U ); STORE( uchar, 2U );
+  layout->compact_third_offset = off;
+  STORE( uchar,  4U ); STORE( uchar, 1U );
+  fd_memset( buf+off, 0xab, 32UL ); off += 32UL;
+  STORE( uchar, 1U );
+  STORE( long, 1234567L );
+  fd_memset( buf+off, 0xcd, 32UL ); off += 32UL;
+  STORE( ulong, first_slot+5UL );
+  layout->last_timestamp = off;
+  STORE( long, 1234567L );
+
+#undef STORE
+#undef ZERO
+  return off;
+}
+
+static void
+test_tower_payload( void ) {
+  fd_keyguard_authority_t authority = {0};
+  fd_memset( authority.identity_pubkey, 0x21, 32UL );
+  tower_payload_layout_t layout;
+  ulong sz = build_tower_payload( tower_buf, authority.identity_pubkey, 1, 100UL, &layout );
+  uchar valid[ FD_KEYGUARD_SIGN_REQ_MTU ];
+  fd_memcpy( valid, tower_buf, sz );
+
+  FD_TEST( fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, tower_buf, sz, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+
+  authority.identity_pubkey[0] ^= 1U;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, tower_buf, sz, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  authority.identity_pubkey[0] ^= 1U;
+
+  tower_buf[ layout.threshold_depth ] ^= 1U;
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+  tower_buf[ layout.threshold_depth ] ^= 1U;
+
+  FD_STORE( ulong, tower_buf+layout.second_vote_slot, 100UL );
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+
+  fd_memcpy( tower_buf, valid, sz );
+  tower_buf[ layout.compact_first_offset ] = 0U;
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+
+  fd_memcpy( tower_buf, valid, sz );
+  FD_STORE( ulong, tower_buf+layout.vote_root, ULONG_MAX );
+  FD_STORE( ulong, tower_buf+layout.compact_root, ULONG_MAX );
+  tower_buf[ layout.compact_first_offset ] = 100U;
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+
+  fd_memcpy( tower_buf, valid, sz );
+  FD_STORE( ulong, tower_buf+layout.third_vote_slot, 106UL );
+  tower_buf[ layout.compact_third_offset ] = 5U;
+  FD_STORE( ulong, tower_buf+sz-16UL, 106UL );
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+
+  fd_memcpy( tower_buf, valid, sz );
+  FD_STORE( ulong, tower_buf+layout.second_vote_slot, 107UL );
+  FD_STORE( ulong, tower_buf+layout.third_vote_slot,  111UL );
+  tower_buf[ layout.compact_second_offset ] = 7U;
+  tower_buf[ layout.compact_third_offset  ] = 4U;
+  FD_STORE( ulong, tower_buf+sz-16UL, 111UL );
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+
+  fd_memcpy( tower_buf, valid, sz );
+  tower_buf[ layout.compact_vote_cnt ] = 2U;
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+
+  fd_memcpy( tower_buf, valid, sz );
+  FD_STORE( long, tower_buf+layout.last_timestamp, 1234568L );
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+
+  fd_memcpy( tower_buf, valid, sz );
+  memmove( tower_buf+layout.compact_first_offset+2UL,
+           tower_buf+layout.compact_first_offset+1UL,
+           sz-layout.compact_first_offset-1UL );
+  tower_buf[ layout.compact_first_offset     ] = 0x8AU;
+  tower_buf[ layout.compact_first_offset+1UL ] = 0U;
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz+1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+
+  fd_memcpy( tower_buf, valid, sz );
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, sz+1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+
+  sz = build_tower_payload( tower_buf, authority.identity_pubkey, 0, 0UL, &layout );
+  FD_TEST( fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+
+  fd_memset( authority.identity_pubkey, 0, 32UL );
+  sz = build_tower_payload( tower_buf, authority.identity_pubkey, 0, 0UL, &layout );
+  FD_TEST( fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, tower_buf, sz, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  fd_memset( authority.identity_pubkey, 0, 32UL );
+  authority.identity_pubkey[0] = 1U;
+  authority.identity_pubkey[3] = 4U;
+  sz = build_tower_payload( tower_buf, authority.identity_pubkey, 1, 100UL, &layout );
+  FD_TEST( fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, tower_buf, sz, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  fd_memset( authority.identity_pubkey, 0, 32UL );
+  authority.identity_pubkey[0] = 0x81U;
+  authority.identity_pubkey[1] = 1U;
+  sz = build_tower_payload( tower_buf, authority.identity_pubkey, 1, 100UL, &layout );
+  FD_TEST( fd_keyguard_payload_match( tower_buf, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, tower_buf, sz, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  FD_STATIC_ASSERT( 106UL+32UL*36UL>FD_GOSSIP_MTU, oversized_prune_sz );
+  ulong const oversized_prune_sz = 106UL+32UL*36UL;
+  fd_memset( tower_buf, 0, oversized_prune_sz );
+  FD_STORE( ulong, tower_buf, 18UL );
+  fd_memcpy( tower_buf+8UL, "\xffSOLANA_PRUNE_DATA", 18UL );
+  FD_STORE( ulong, tower_buf+58UL, 36UL );
+  FD_TEST( !(fd_keyguard_payload_match( tower_buf, oversized_prune_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_PRUNE) );
+}
 
 static ulong
 build_txn_v1( uchar * buf,
@@ -183,6 +353,7 @@ main( int     argc,
   test_vote_txn_oob();
   test_txn_v1_match();
   test_ag_vote_authorize();
+  test_tower_payload();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

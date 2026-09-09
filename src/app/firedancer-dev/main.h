@@ -205,6 +205,7 @@ extern action_t fd_action_mem;
 extern action_t fd_action_netconf;
 extern action_t fd_action_set_identity;
 extern action_t fd_action_get_identity;
+extern action_t fd_action_failover;
 extern action_t fd_action_ps;
 extern action_t fd_action_version;
 extern action_t fd_action_bench;
@@ -250,6 +251,7 @@ action_t * ACTIONS[] = {
   &fd_action_netconf,
   &fd_action_set_identity,
   &fd_action_get_identity,
+  &fd_action_failover,
   &fd_action_ps,
   &fd_action_help,
   &fd_action_metrics,

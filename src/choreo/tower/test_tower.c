@@ -338,6 +338,15 @@ test_to_vote_txn( fd_wksp_t * wksp ) {
   FD_TEST( compact_tower_sync_serde.lockouts_cnt == 31 );
   FD_TEST( compact_tower_sync_serde.timestamp_option == 1 );
   FD_TEST( 0==memcmp( &compact_tower_sync_serde.block_id, &block_id, sizeof(fd_hash_t) ));
+
+  fd_txn_instr_t * mutable_instr = &((fd_txn_t *)txn_mem)->instr[ 0 ];
+  FD_STORE( uint, txnp->payload+mutable_instr->data_off, FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH );
+  fd_memset( txnp->payload+mutable_instr->data_off+mutable_instr->data_sz, 0xA5, sizeof(fd_hash_t) );
+  mutable_instr->data_sz += (ushort)( sizeof(fd_hash_t)-1UL );
+  FD_TEST( !fd_txn_parse_simple_vote( (fd_txn_t *)txn_mem, txnp->payload, &compact_tower_sync_serde ) );
+  mutable_instr->data_sz++;
+  FD_TEST( fd_txn_parse_simple_vote( (fd_txn_t *)txn_mem, txnp->payload, &compact_tower_sync_serde ) );
+  FD_TEST( compact_tower_sync_serde.root==1UL );
 }
 
 void

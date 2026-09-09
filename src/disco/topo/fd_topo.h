@@ -242,7 +242,28 @@ struct fd_topo_tile {
     } netlink;
 
     struct {
-      char identity_key_path[ PATH_MAX ];
+      char   identity_key_path[ PATH_MAX ];
+      uint   target_uid;
+      int    failover_enabled;
+      int    failover_dial_peer;
+      uint   failover_bind_addr;
+      ushort failover_bind_port;
+      uint   failover_peer_addr;
+      ushort failover_peer_port;
+      char   failover_pair_secret_path[ PATH_MAX ];
+      char   failover_junk_identity_path[ PATH_MAX ];
+      char   failover_staked_identity_path[ PATH_MAX ];
+      char   failover_vote_account_path[ PATH_MAX ];
+      int    failover_accept_peer_requests;
+      ulong  failover_status_interval_millis;
+      ulong  failover_min_slots_to_leader;
+      ulong  failover_deadline_slots;
+      ulong  failover_catchup_gap_slots;
+      ulong  failover_replication_lag_slots;
+      ulong  failover_peer_silence_intervals;
+      ulong  failover_retry_backoff_min_millis;
+      ulong  failover_retry_backoff_max_millis;
+      ulong  failover_cfg_hash;
     } admin;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
@@ -649,6 +670,7 @@ struct fd_topo_tile {
       char  vote_account[ PATH_MAX ];
       char  base_path[PATH_MAX];
       ulong max_shreds_per_block;
+      int   tower_file;
     } tower;
 
     struct {
@@ -885,12 +907,15 @@ typedef struct {
   ulong (*max_event_sz            )( fd_topo_tile_t const * tile );
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );
+  int   (*populate_allowed_write_path_fd)( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   ulong (*scratch_align           )( void );
   ulong (*scratch_footprint       )( fd_topo_tile_t const * tile );
   ulong (*loose_footprint         )( fd_topo_tile_t const * tile );
   void  (*privileged_init         )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   void  (*unprivileged_init       )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   void  (*run                     )( fd_topo_t * topo, fd_topo_tile_t * tile );
+  int   (*keep_host_networking_fn )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
+  int   (*allow_connect_fn        )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   ulong (*rlimit_file_cnt_fn      )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
 } fd_topo_run_tile_t;
 

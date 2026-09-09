@@ -1281,14 +1281,15 @@ fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_
 }
 
 void
-fd_tower_to_vote_txn( fd_tower_t const *    tower,
-                      fd_hash_t const *     bank_hash,
-                      fd_hash_t const *     block_id,
-                      fd_hash_t const *     recent_blockhash,
-                      fd_pubkey_t const *   validator_identity,
-                      fd_pubkey_t const *   vote_authority,
-                      fd_pubkey_t const *   vote_acc,
-                      fd_txn_p_t *          vote_txn ) {
+fd_tower_to_vote_txn_at( fd_tower_t const *    tower,
+                         fd_hash_t const *     bank_hash,
+                         fd_hash_t const *     block_id,
+                         long                  timestamp,
+                         fd_hash_t const *     recent_blockhash,
+                         fd_pubkey_t const *   validator_identity,
+                         fd_pubkey_t const *   vote_authority,
+                         fd_pubkey_t const *   vote_acc,
+                         fd_txn_p_t *          vote_txn ) {
 
   FD_TEST( fd_tower_vote_cnt( tower->votes )<=FD_TOWER_VOTE_MAX );
   fd_compact_tower_sync_serde_t tower_sync_serde = {
@@ -1297,7 +1298,7 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
     /* .lockouts populated below */
     .hash             = *bank_hash,
     .timestamp_option = 1,
-    .timestamp        = fd_log_wallclock() / (long)1e9, /* seconds */
+    .timestamp        = timestamp,
     .block_id         = *block_id
   };
 
@@ -1372,6 +1373,19 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
     program_id = 3; /* vote program */
   }
   vote_txn->payload_sz = fd_txn_add_instr( txn_meta_out, txn_out, program_id, ix_accs, 2, vote_ix_buf, vote_ix_sz );
+}
+
+void
+fd_tower_to_vote_txn( fd_tower_t  const * tower,
+                      fd_hash_t   const * bank_hash,
+                      fd_hash_t   const * block_id,
+                      fd_hash_t   const * recent_blockhash,
+                      fd_pubkey_t const * validator_identity,
+                      fd_pubkey_t const * vote_authority,
+                      fd_pubkey_t const * vote_acc,
+                      fd_txn_p_t *        vote_txn ) {
+  fd_tower_to_vote_txn_at( tower, bank_hash, block_id, fd_log_wallclock()/(long)1e9,
+                           recent_blockhash, validator_identity, vote_authority, vote_acc, vote_txn );
 }
 
 int

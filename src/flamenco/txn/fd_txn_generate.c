@@ -67,18 +67,20 @@ fd_txn_base_generate( uchar out_txn_meta[ static FD_TXN_MAX_SZ ],
 
   /* Write accounts list to txn payload */
   ulong signers_write_sz = FD_TXN_ACCT_ADDR_SZ * (ulong)(accounts->signature_cnt - accounts->readonly_signed_cnt);
-  fd_memcpy( write_ptr, accounts->signers_w, signers_write_sz );
+  if( FD_LIKELY( signers_write_sz ) ) fd_memcpy( write_ptr, accounts->signers_w, signers_write_sz );
   write_ptr += signers_write_sz;
 
-  fd_memcpy( write_ptr, accounts->signers_r, FD_TXN_ACCT_ADDR_SZ * accounts->readonly_signed_cnt );
-  write_ptr += FD_TXN_ACCT_ADDR_SZ * accounts->readonly_signed_cnt;
+  ulong signers_read_sz = FD_TXN_ACCT_ADDR_SZ * (ulong)accounts->readonly_signed_cnt;
+  if( FD_LIKELY( signers_read_sz ) ) fd_memcpy( write_ptr, accounts->signers_r, signers_read_sz );
+  write_ptr += signers_read_sz;
 
   ulong non_signers_write_sz = FD_TXN_ACCT_ADDR_SZ * (ulong)(accounts->acct_cnt - accounts->readonly_unsigned_cnt - accounts->signature_cnt);
-  fd_memcpy( write_ptr, accounts->non_signers_w, non_signers_write_sz);
+  if( FD_LIKELY( non_signers_write_sz ) ) fd_memcpy( write_ptr, accounts->non_signers_w, non_signers_write_sz );
   write_ptr += non_signers_write_sz;
 
-  fd_memcpy( write_ptr, accounts->non_signers_r, FD_TXN_ACCT_ADDR_SZ * accounts->readonly_unsigned_cnt );
-  write_ptr += FD_TXN_ACCT_ADDR_SZ * accounts->readonly_unsigned_cnt;
+  ulong non_signers_read_sz = FD_TXN_ACCT_ADDR_SZ * (ulong)accounts->readonly_unsigned_cnt;
+  if( FD_LIKELY( non_signers_read_sz ) ) fd_memcpy( write_ptr, accounts->non_signers_r, non_signers_read_sz );
+  write_ptr += non_signers_read_sz;
   FD_TEST( (ushort)((ulong)write_ptr - (ulong)out_txn_payload) == txn_meta->recent_blockhash_off );
 
   /* Write recent blockhash */

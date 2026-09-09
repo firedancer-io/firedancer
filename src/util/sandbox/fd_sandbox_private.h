@@ -188,6 +188,14 @@ void
 fd_sandbox_private_landlock_restrict_self( int allow_connect,
                                            int allow_renameat );
 
+/* Applies the same restriction while permitting file writes beneath
+   allowed_write_path_fd.  Landlock support is required. */
+
+void
+fd_sandbox_private_landlock_restrict_self_with_write_path( int allow_connect,
+                                                           int allow_renameat,
+                                                           int allowed_write_path_fd );
+
 /* Install a seccomp-bpf to the current process.  This filter looks at
    all syscalls and will terminate the process with SIGSYS if a syscall
    is attempted that does not pass the whitelist specified in the
@@ -222,6 +230,22 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      ulong       rlimit_nproc,
                                      ulong       allowed_file_descriptor_cnt,
                                      int const * allowed_file_descriptor );
+
+void
+fd_sandbox_private_enter_no_seccomp_with_write_path( uint        desired_uid,
+                                                     uint        desired_gid,
+                                                     int         keep_host_networking,
+                                                     int         allow_connect,
+                                                     int         allow_renameat,
+                                                     int         allowed_write_path_fd,
+                                                     int         keep_controlling_terminal,
+                                                     int         dumpable,
+                                                     ulong       rlimit_file_cnt,
+                                                     ulong       rlimit_address_space,
+                                                     ulong       rlimit_data,
+                                                     ulong       rlimit_nproc,
+                                                     ulong       allowed_file_descriptor_cnt,
+                                                     int const * allowed_file_descriptor );
 
 FD_PROTOTYPES_END
 

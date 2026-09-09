@@ -4,6 +4,7 @@
 
 #include "fd_tower_tile.c"
 #include "../../disco/topo/fd_topob.h"
+#include "../../util/sandbox/fd_sandbox_private.h"
 
 void
 mock_query_voters( fd_tower_tile_t *            ctx,
@@ -13,9 +14,153 @@ mock_query_voters( fd_tower_tile_t *            ctx,
 }
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
+
+static void
+wait_sigsys( pid_t          pid,
+             volatile int * progress,
+             int            expected_progress ) {
+  int status;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFSIGNALED( status ) && WTERMSIG( status )==SIGSYS );
+  FD_TEST( *progress==expected_progress );
+}
+
+static void
+test_tower_seccomp( void ) {
+  char dir[] = "/tmp/fd_tower_seccomp.XXXXXX";
+  FD_TEST( mkdtemp( dir ) );
+  int dirfd = open( dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( dirfd>=0 );
+  int tower_fd = fcntl( dirfd, F_DUPFD_CLOEXEC, 0 );
+  FD_TEST( tower_fd>=0 );
+
+  volatile int * progress = mmap( NULL, 4096UL, PROT_READ|PROT_WRITE,
+                                  MAP_SHARED|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( progress!=MAP_FAILED );
+
+  *progress = 0;
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    struct sock_filter filter[ 128 ];
+    populate_sock_filter_policy_fd_tower_tile( 128UL, filter, (uint)-1, FD_ACCDB_FD_RW );
+    if( prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) __builtin_trap();
+    fd_sandbox_private_set_seccomp_filter( (ushort)sock_filter_policy_fd_tower_tile_instr_cnt, filter );
+    (void)openat( dirfd, "disabled", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, 0600 );
+    *progress = 1;
+    __builtin_trap();
+  }
+  wait_sigsys( pid, progress, 0 );
+
+  *progress = 0;
+  pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    struct sock_filter filter[ 128 ];
+    populate_sock_filter_policy_fd_tower_tile_file( 128UL, filter, (uint)-1, (uint)dirfd, (uint)tower_fd, FD_ACCDB_FD_RW );
+    if( prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) __builtin_trap();
+    fd_sandbox_private_set_seccomp_filter( (ushort)sock_filter_policy_fd_tower_tile_file_instr_cnt, filter );
+    if( close( tower_fd ) ) __builtin_trap();
+    if( unlinkat( dirfd, "enabled.new", 0 ) && errno!=ENOENT ) __builtin_trap();
+    int fd = openat( dirfd, "enabled.new", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, 0600 );
+    if( fd!=tower_fd ) __builtin_trap();
+    if( write( fd, "tower", 5UL )!=5L ) __builtin_trap();
+    if( fsync( fd ) ) __builtin_trap();
+    if( renameat( dirfd, "enabled.new", dirfd, "enabled" ) ) __builtin_trap();
+    if( fsync( dirfd ) ) __builtin_trap();
+    *progress = 1;
+    (void)syscall( SYS_getpid );
+    __builtin_trap();
+  }
+  wait_sigsys( pid, progress, 1 );
+
+  FD_TEST( !munmap( (void *)progress, 4096UL ) );
+  FD_TEST( !close( tower_fd ) );
+  FD_TEST( !unlinkat( dirfd, "enabled", 0 ) );
+  FD_TEST( !close( dirfd ) );
+  FD_TEST( !rmdir( dir ) );
+}
+
+static void
+test_tower_file_store( void ) {
+  char base[] = "/tmp/fd_tower_file.XXXXXX";
+  FD_TEST( mkdtemp( base ) );
+  char tower_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( tower_path, sizeof(tower_path), NULL, "%s/tower", base ) );
+  FD_TEST( !mkdir( tower_path, 0755 ) );
+  FD_TEST( !chmod( tower_path, 0755 ) );
+
+  static fd_tower_tile_t ctx[1];
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->tower_dir_fd = tower_file_dir_open( base );
+  FD_TEST( ctx->tower_dir_fd>=0 );
+  struct stat st;
+  FD_TEST( !fstat( ctx->tower_dir_fd, &st ) );
+  FD_TEST( S_ISDIR( st.st_mode ) && (st.st_mode & 07777U)==0700U );
+  ctx->tower_file_fd = fcntl( ctx->tower_dir_fd, F_DUPFD_CLOEXEC, 0 );
+  FD_TEST( ctx->tower_file_fd>=0 );
+  int const tower_file_fd = ctx->tower_file_fd;
+
+  fd_memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
+  char first_name[ 64 ];
+  char first_new[ 64 ];
+  tower_file_names( ctx->identity_key, first_name, first_new );
+  uchar const first[] = { 1U, 2U, 3U };
+  tower_file_store( ctx, ctx->identity_key, first, sizeof(first) );
+  FD_TEST( ctx->tower_file_fd==tower_file_fd );
+
+  int fd = openat( ctx->tower_dir_fd, first_name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( fd>=0 );
+  uchar buf[ 4 ];
+  FD_TEST( read( fd, buf, sizeof(buf) )==(long)sizeof(first) );
+  FD_TEST( !memcmp( buf, first, sizeof(first) ) );
+  FD_TEST( !close( fd ) );
+  FD_TEST( faccessat( ctx->tower_dir_fd, first_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+
+  uchar const replacement[] = { 7U, 8U, 9U, 10U };
+  tower_file_store( ctx, ctx->identity_key, replacement, sizeof(replacement) );
+  FD_TEST( ctx->tower_file_fd==tower_file_fd );
+  fd = openat( ctx->tower_dir_fd, first_name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( fd>=0 );
+  FD_TEST( read( fd, buf, sizeof(buf) )==(long)sizeof(replacement) );
+  FD_TEST( !memcmp( buf, replacement, sizeof(replacement) ) );
+  FD_TEST( !close( fd ) );
+  FD_TEST( faccessat( ctx->tower_dir_fd, first_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+
+  fd_memset( ctx->identity_key, 0x22, sizeof(fd_pubkey_t) );
+  char second_name[ 64 ];
+  char second_new[ 64 ];
+  tower_file_names( ctx->identity_key, second_name, second_new );
+  uchar const second[] = { 4U, 5U };
+  tower_file_store( ctx, ctx->identity_key, second, sizeof(second) );
+  FD_TEST( ctx->tower_file_fd==tower_file_fd );
+
+  fd = openat( ctx->tower_dir_fd, first_name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( fd>=0 );
+  FD_TEST( read( fd, buf, sizeof(buf) )==(long)sizeof(replacement) );
+  FD_TEST( !memcmp( buf, replacement, sizeof(replacement) ) );
+  FD_TEST( !close( fd ) );
+  fd = openat( ctx->tower_dir_fd, second_name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( fd>=0 );
+  FD_TEST( read( fd, buf, sizeof(buf) )==(long)sizeof(second) );
+  FD_TEST( !memcmp( buf, second, sizeof(second) ) );
+  FD_TEST( !close( fd ) );
+  FD_TEST( faccessat( ctx->tower_dir_fd, second_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+
+  FD_TEST( !close( ctx->tower_file_fd ) );
+  FD_TEST( !unlinkat( ctx->tower_dir_fd, first_name, 0 ) );
+  FD_TEST( !unlinkat( ctx->tower_dir_fd, second_name, 0 ) );
+  FD_TEST( !close( ctx->tower_dir_fd ) );
+  FD_TEST( !rmdir( tower_path ) );
+  FD_TEST( !rmdir( base ) );
+}
 
 /* mock_vote_txn builds a vote transaction from a tower.  Constructs an
    fd_tower_t with the given (slot, conf) pairs, serializes it via
@@ -521,8 +666,8 @@ test_fixture_replay( fd_wksp_t * wksp ) {
 
   /* Set fields normally handled by privileged_init. */
 
-  ctx->checkpt_fd = -1;
-  ctx->restore_fd = -1;
+  ctx->tower_dir_fd  = -1;
+  ctx->tower_file_fd = -1;
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
 
@@ -637,8 +782,8 @@ eqvoc_setup( fd_wksp_t * wksp ) {
   fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
   FD_TEST( ctx );
 
-  ctx->checkpt_fd = -1;
-  ctx->restore_fd = -1;
+  ctx->tower_dir_fd  = -1;
+  ctx->tower_file_fd = -1;
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
 
@@ -888,6 +1033,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  test_tower_seccomp();
+  test_tower_file_store();
   test_publish_slot_done_identity_mismatch();
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();

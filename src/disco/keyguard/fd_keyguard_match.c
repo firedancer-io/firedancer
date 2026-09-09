@@ -16,6 +16,7 @@
    - Merkle shred roots
    - TLS CertificateVerify challenges
    - Gossip message signed payloads (CrdsData)
+   - Agave tower-file payloads
 
    ### Fake Signing Attacks
 
@@ -49,8 +50,8 @@
      be parsed as transactions.
    - fd_keyguard_match_txn_harness verifies that the txn fingerprinting
      logic is free of false negatives.
-   - fd_keyguard_ambiguity_proof verifies that any input up to 2048 byte
-     size are unambiguous, i.e. either detected by one or none of the
+   - fd_keyguard_ambiguity_proof verifies that bounded inputs are
+     unambiguous, i.e. either detected by one or none of the
      fingerprinting functions.
 
    Under the hood, CBMC executes the keyguard logic with all possible
@@ -170,10 +171,12 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
       return 1;
     }
 
+    if( sz>FD_TXN_MTU_V0 ) return 0;
     sig_cnt = *cursor;
     cursor++;
   } else {
     /* Legacy message */
+    if( sz>FD_TXN_MTU_V0 ) return 0;
     sig_cnt = header_b0;
   }
 
@@ -225,6 +228,7 @@ fd_keyguard_payload_matches_prune_data( uchar const * data,
                                         ulong         sz,
                                         int           sign_type ) {
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz > FD_GOSSIP_MTU ) return 0;
 
   ulong const static_sz = 106UL;
   if( sz < static_sz ) return 0;
@@ -248,6 +252,7 @@ fd_keyguard_payload_matches_gossip( uchar const * data,
 
   /* All gossip messages except pings use raw signing */
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz > 1188UL-64UL ) return 0;
 
   /* Every gossip message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
@@ -266,6 +271,7 @@ fd_keyguard_payload_matches_repair( uchar const * data,
 
   /* All repair messages except pings use raw signing */
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz > FD_REPAIR_MAX_PREIMAGE_SZ ) return 0;
 
   /* Every repair message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
@@ -379,6 +385,131 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
+static int
+fd_keyguard_tower_varint( uchar const * data,
+                          ulong         sz,
+                          ulong *       off,
+                          ulong *       value ) {
+  ulong out = 0UL;
+  for( uint shift=0U; shift<=63U; shift+=7U ) {
+    if( FD_UNLIKELY( *off>=sz ) ) return 0;
+    uchar byte = data[ (*off)++ ];
+    if( FD_UNLIKELY( shift==63U && byte>1U ) ) return 0;
+    out |= (ulong)(byte & 0x7FU) << shift;
+    if( FD_LIKELY( !(byte & 0x80U) ) ) {
+      if( FD_UNLIKELY( shift && !(byte & 0x7FU) ) ) return 0;
+      *value = out;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+#define TOWER_PAYLOAD_MIN (1815UL) /* one vote, no root, 1-byte offset */
+
+static int
+fd_keyguard_payload_matches_tower_file( uchar const * data,
+                                        ulong         sz,
+                                        int           sign_type ) {
+  if( FD_UNLIKELY( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0;
+  if( FD_UNLIKELY( sz<TOWER_PAYLOAD_MIN || sz>FD_KEYGUARD_SIGN_REQ_MTU ) ) return 0;
+
+#define TOWER_REQUIRE(n) do { if( FD_UNLIKELY( (n)>sz-off ) ) return 0; } while(0)
+#define TOWER_LOAD(T,v) do { TOWER_REQUIRE( sizeof(T) ); (v)=FD_LOAD( T, data+off ); off+=sizeof(T); } while(0)
+#define TOWER_SKIP(n) do { TOWER_REQUIRE( (n) ); off+=(n); } while(0)
+
+  ulong off = 0UL;
+  TOWER_SKIP( 32UL );
+  ulong threshold_depth; TOWER_LOAD( ulong, threshold_depth );
+  if( FD_UNLIKELY( threshold_depth!=8UL ) ) return 0;
+  double threshold_size = 2.0/3.0;
+  ulong threshold_bits; TOWER_LOAD( ulong, threshold_bits );
+  if( FD_UNLIKELY( threshold_bits!=FD_LOAD( ulong, &threshold_size ) ) ) return 0;
+
+  TOWER_REQUIRE( 65UL );
+  if( FD_UNLIKELY( !fd_mem_iszero( data+off, 65UL ) ) ) return 0;
+  off += 65UL;
+
+  ulong votes_cnt; TOWER_LOAD( ulong, votes_cnt );
+  if( FD_UNLIKELY( !votes_cnt || votes_cnt>31UL ) ) return 0;
+  ulong slots[ 31 ];
+  uint  confs[ 31 ];
+  for( ulong i=0UL; i<votes_cnt; i++ ) {
+    TOWER_LOAD( ulong, slots[ i ] );
+    TOWER_LOAD( uint,  confs[ i ] );
+    if( FD_UNLIKELY( slots[i]==ULONG_MAX || !confs[i] || confs[i]>31U ) ) return 0;
+    if( FD_UNLIKELY( i && ( slots[i]<=slots[i-1UL] ||
+                            confs[i]>=confs[i-1UL] ||
+                            slots[i]-slots[i-1UL]>(1UL<<confs[i-1UL]) ) ) ) return 0;
+  }
+  ulong newest_slot = slots[ votes_cnt-1UL ];
+  for( ulong i=0UL; i+1UL<votes_cnt; i++ ) {
+    if( FD_UNLIKELY( newest_slot-slots[i]>(1UL<<confs[i]) ) ) return 0;
+  }
+
+  uchar has_root; TOWER_LOAD( uchar, has_root );
+  if( FD_UNLIKELY( has_root>1U ) ) return 0;
+  ulong root = ULONG_MAX;
+  if( has_root ) TOWER_LOAD( ulong, root );
+  if( FD_UNLIKELY( has_root && root==ULONG_MAX ) ) return 0;
+
+  ulong authorized_voters_cnt; TOWER_LOAD( ulong, authorized_voters_cnt );
+  if( FD_UNLIKELY( authorized_voters_cnt ) ) return 0;
+
+  TOWER_REQUIRE( 32UL*48UL );
+  if( FD_UNLIKELY( !fd_mem_iszero( data+off, 32UL*48UL ) ) ) return 0;
+  off += 32UL*48UL;
+
+  ulong prior_voters_idx; TOWER_LOAD( ulong, prior_voters_idx );
+  uchar prior_voters_empty; TOWER_LOAD( uchar, prior_voters_empty );
+  if( FD_UNLIKELY( prior_voters_idx!=31UL || prior_voters_empty!=1U ) ) return 0;
+
+  ulong epoch_credits_cnt; TOWER_LOAD( ulong, epoch_credits_cnt );
+  if( FD_UNLIKELY( epoch_credits_cnt ) ) return 0;
+
+  TOWER_REQUIRE( 16UL );
+  if( FD_UNLIKELY( !fd_mem_iszero( data+off, 16UL ) ) ) return 0;
+  off += 16UL;
+
+  uint last_vote_kind; TOWER_LOAD( uint, last_vote_kind );
+  if( FD_UNLIKELY( last_vote_kind!=3U ) ) return 0;
+
+  ulong compact_root; TOWER_LOAD( ulong, compact_root );
+  if( FD_UNLIKELY( compact_root!=root ) ) return 0;
+
+  TOWER_REQUIRE( 1UL );
+  if( FD_UNLIKELY( data[off++]!=votes_cnt ) ) return 0;
+  ulong slot = root==ULONG_MAX ? 0UL : root;
+  for( ulong i=0UL; i<votes_cnt; i++ ) {
+    ulong offset;
+    if( FD_UNLIKELY( !fd_keyguard_tower_varint( data, sz, &off, &offset ) ) ) return 0;
+    int repeats_slot = !offset && (i || root!=ULONG_MAX);
+    if( FD_UNLIKELY( repeats_slot || offset>ULONG_MAX-slot ) ) return 0;
+    if( FD_UNLIKELY( i && offset>(1UL<<(ulong)confs[i-1UL]) ) ) return 0;
+    slot += offset;
+    TOWER_REQUIRE( 1UL );
+    if( FD_UNLIKELY( slot!=slots[i] || data[off++]!=confs[i] ) ) return 0;
+  }
+
+  TOWER_SKIP( 32UL );
+  uchar timestamp_option; TOWER_LOAD( uchar, timestamp_option );
+  if( FD_UNLIKELY( timestamp_option!=1U ) ) return 0;
+  long timestamp; TOWER_LOAD( long, timestamp );
+  TOWER_SKIP( 32UL );
+
+  ulong last_timestamp_slot; TOWER_LOAD( ulong, last_timestamp_slot );
+  long  last_timestamp;      TOWER_LOAD( long,  last_timestamp      );
+  if( FD_UNLIKELY( last_timestamp_slot!=slots[votes_cnt-1UL] || last_timestamp!=timestamp || off!=sz ) ) return 0;
+
+#undef TOWER_REQUIRE
+#undef TOWER_LOAD
+#undef TOWER_SKIP
+
+  return 1;
+}
+
+#undef TOWER_PAYLOAD_MIN
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
@@ -395,5 +526,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_bundle    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE,  0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,   0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_tower_file( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,   0 );
   return res;
 }

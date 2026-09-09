@@ -384,6 +384,7 @@ enum AdminCommandType {
   ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER = 3;  // Add an authorized voter key.
   ADMIN_COMMAND_TYPE_REMOVE_ALL_AUTHORIZED_VOTERS = 4;  // Remove every authorized voter key.
   ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE = 5;  // Request creation of a snapshot.
+  ADMIN_COMMAND_TYPE_FAILOVER_STATUS = 6;  // Read failover pair status.
 }
 
 // The result of processing the admin command.

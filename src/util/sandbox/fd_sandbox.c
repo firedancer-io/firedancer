@@ -34,6 +34,10 @@
 #define SYS_landlock_create_ruleset 444
 #endif
 
+#ifndef SYS_landlock_add_rule
+#define SYS_landlock_add_rule 445
+#endif
+
 #ifndef SYS_landlock_restrict_self
 #define SYS_landlock_restrict_self 446
 #endif
@@ -452,6 +456,7 @@ fd_sandbox_private_drop_caps( ulong cap_last_cap ) {
 }
 
 #define LANDLOCK_CREATE_RULESET_VERSION (1U << 0)
+#define LANDLOCK_RULE_PATH_BENEATH      (1U)
 
 #define LANDLOCK_ACCESS_FS_EXECUTE      (1ULL << 0)
 #define LANDLOCK_ACCESS_FS_WRITE_FILE   (1ULL << 1)
@@ -478,9 +483,15 @@ struct landlock_ruleset_attr {
     __u64 handled_access_net;
 };
 
+struct landlock_path_beneath_attr {
+    __u64 allowed_access;
+    __s32 parent_fd;
+} __attribute__((packed));
+
 void
-fd_sandbox_private_landlock_restrict_self( int allow_connect,
-                                           int allow_renameat ) {
+fd_sandbox_private_landlock_restrict_self_with_write_path( int allow_connect,
+                                                           int allow_renameat,
+                                                           int allowed_write_path_fd ) {
   struct landlock_ruleset_attr attr = {
     .handled_access_fs =
       LANDLOCK_ACCESS_FS_EXECUTE |
@@ -505,13 +516,18 @@ fd_sandbox_private_landlock_restrict_self( int allow_connect,
     attr.handled_access_net |= LANDLOCK_ACCESS_NET_CONNECT_TCP;
   }
 
-  if( FD_UNLIKELY( !allow_renameat ) ) {
+  if( FD_UNLIKELY( !allow_renameat || allowed_write_path_fd>=0 ) ) {
     attr.handled_access_fs |= LANDLOCK_ACCESS_FS_REMOVE_FILE;
     attr.handled_access_fs |= LANDLOCK_ACCESS_FS_MAKE_REG;
   }
 
   long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
-  if( -1L==abi && (errno==ENOSYS || errno==EOPNOTSUPP ) ) return;
+  if( -1L==abi && (errno==ENOSYS || errno==EOPNOTSUPP ) ) {
+    if( FD_UNLIKELY( allowed_write_path_fd>=0 ) ) {
+      FD_LOG_ERR(( "landlock is required for a writable sandbox path" ));
+    }
+    return;
+  }
   else if( -1L==abi ) FD_LOG_ERR(( "landlock_create_ruleset() failed (%i-%s).", errno, fd_io_strerror( errno ) ));
 
   switch (abi) {
@@ -537,8 +553,28 @@ fd_sandbox_private_landlock_restrict_self( int allow_connect,
   long landlock_fd = syscall( SYS_landlock_create_ruleset, &attr, 16, 0 );
   if( -1L==landlock_fd ) FD_LOG_ERR(( "landlock_create_ruleset() failed (%i-%s).", errno, fd_io_strerror( errno ) ));
 
+  if( FD_UNLIKELY( allowed_write_path_fd>=0 ) ) {
+    struct landlock_path_beneath_attr path = {
+      .allowed_access = ( LANDLOCK_ACCESS_FS_WRITE_FILE |
+                          LANDLOCK_ACCESS_FS_REMOVE_FILE |
+                          LANDLOCK_ACCESS_FS_MAKE_REG |
+                          LANDLOCK_ACCESS_FS_REFER |
+                          LANDLOCK_ACCESS_FS_TRUNCATE ) & attr.handled_access_fs,
+      .parent_fd = allowed_write_path_fd,
+    };
+    if( FD_UNLIKELY( syscall( SYS_landlock_add_rule, landlock_fd, LANDLOCK_RULE_PATH_BENEATH, &path, 0 ) ) ) {
+      FD_LOG_ERR(( "landlock_add_rule() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
   if( syscall( SYS_landlock_restrict_self, landlock_fd, 0 ) ) FD_LOG_ERR(( "landlock_restrict_self() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( -1==close( (int)landlock_fd ) ) FD_LOG_ERR(( "close(landlock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+void
+fd_sandbox_private_landlock_restrict_self( int allow_connect,
+                                           int allow_renameat ) {
+  fd_sandbox_private_landlock_restrict_self_with_write_path( allow_connect, allow_renameat, -1 );
 }
 
 void
@@ -572,19 +608,20 @@ fd_sandbox_private_read_cap_last_cap( void ) {
 }
 
 void
-fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
-                                     uint        desired_gid,
-                                     int         keep_host_networking,
-                                     int         allow_connect,
-                                     int         allow_renameat,
-                                     int         keep_controlling_terminal,
-                                     int         dumpable,
-                                     ulong       rlimit_file_cnt,
-                                     ulong       rlimit_address_space,
-                                     ulong       rlimit_data,
-                                     ulong       rlimit_nproc,
-                                     ulong       allowed_file_descriptor_cnt,
-                                     int const * allowed_file_descriptor ) {
+fd_sandbox_private_enter_no_seccomp_with_write_path( uint        desired_uid,
+                                                     uint        desired_gid,
+                                                     int         keep_host_networking,
+                                                     int         allow_connect,
+                                                     int         allow_renameat,
+                                                     int         allowed_write_path_fd,
+                                                     int         keep_controlling_terminal,
+                                                     int         dumpable,
+                                                     ulong       rlimit_file_cnt,
+                                                     ulong       rlimit_address_space,
+                                                     ulong       rlimit_data,
+                                                     ulong       rlimit_nproc,
+                                                     ulong       allowed_file_descriptor_cnt,
+                                                     int const * allowed_file_descriptor ) {
   /* Read the highest capability index on the currently running kernel
      from /proc */
   ulong cap_last_cap = fd_sandbox_private_read_cap_last_cap();
@@ -671,9 +708,8 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   /* Now remount the filesystem root so no files are accessible any more. */
   fd_sandbox_private_pivot_root();
 
-  /* Add an empty landlock restriction to further prevent filesystem
-     access. */
-  fd_sandbox_private_landlock_restrict_self( allow_connect, allow_renameat );
+  /* Restrict filesystem access to the optional writable directory. */
+  fd_sandbox_private_landlock_restrict_self_with_write_path( allow_connect, allow_renameat, allowed_write_path_fd );
 
   /* And trim all the resource limits down to zero. */
   fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data, rlimit_nproc, dumpable );
@@ -682,6 +718,76 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   fd_sandbox_private_drop_caps( cap_last_cap );
 
   if( -1==prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_NO_NEW_PRIVS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+void
+fd_sandbox_enter_with_write_path( uint                 desired_uid,
+                                  uint                 desired_gid,
+                                  int                  keep_host_networking,
+                                  int                  allow_connect,
+                                  int                  allow_renameat,
+                                  int                  allowed_write_path_fd,
+                                  int                  keep_controlling_terminal,
+                                  int                  dumpable,
+                                  ulong                rlimit_file_cnt,
+                                  ulong                rlimit_address_space,
+                                  ulong                rlimit_data,
+                                  ulong                rlimit_nproc,
+                                  ulong                allowed_file_descriptor_cnt,
+                                  int const *          allowed_file_descriptor,
+                                  ulong                seccomp_filter_cnt,
+                                  struct sock_filter * seccomp_filter ) {
+  if( seccomp_filter_cnt>USHORT_MAX ) FD_LOG_ERR(( "seccomp_filter_cnt must not be more than %d", USHORT_MAX ));
+
+  fd_sandbox_private_enter_no_seccomp_with_write_path( desired_uid,
+                                                       desired_gid,
+                                                       keep_host_networking,
+                                                       allow_connect,
+                                                       allow_renameat,
+                                                       allowed_write_path_fd,
+                                                       keep_controlling_terminal,
+                                                       dumpable,
+                                                       rlimit_file_cnt,
+                                                       rlimit_address_space,
+                                                       rlimit_data,
+                                                       rlimit_nproc,
+                                                       allowed_file_descriptor_cnt,
+                                                       allowed_file_descriptor );
+
+  FD_LOG_INFO(( "sandbox: full sandbox is being enabled" )); /* log before seccomp in-case logging not allowed in sandbox */
+
+  /* Now finally install the seccomp-bpf filter. */
+  fd_sandbox_private_set_seccomp_filter( (ushort)seccomp_filter_cnt, seccomp_filter );
+}
+
+void
+fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
+                                     uint        desired_gid,
+                                     int         keep_host_networking,
+                                     int         allow_connect,
+                                     int         allow_renameat,
+                                     int         keep_controlling_terminal,
+                                     int         dumpable,
+                                     ulong       rlimit_file_cnt,
+                                     ulong       rlimit_address_space,
+                                     ulong       rlimit_data,
+                                     ulong       rlimit_nproc,
+                                     ulong       allowed_file_descriptor_cnt,
+                                     int const * allowed_file_descriptor ) {
+  fd_sandbox_private_enter_no_seccomp_with_write_path( desired_uid,
+                                                       desired_gid,
+                                                       keep_host_networking,
+                                                       allow_connect,
+                                                       allow_renameat,
+                                                       -1,
+                                                       keep_controlling_terminal,
+                                                       dumpable,
+                                                       rlimit_file_cnt,
+                                                       rlimit_address_space,
+                                                       rlimit_data,
+                                                       rlimit_nproc,
+                                                       allowed_file_descriptor_cnt,
+                                                       allowed_file_descriptor );
 }
 
 void
@@ -700,26 +806,22 @@ fd_sandbox_enter( uint                 desired_uid,
                   int const *          allowed_file_descriptor,
                   ulong                seccomp_filter_cnt,
                   struct sock_filter * seccomp_filter ) {
-  if( seccomp_filter_cnt>USHORT_MAX ) FD_LOG_ERR(( "seccomp_filter_cnt must not be more than %d", USHORT_MAX ));
-
-  fd_sandbox_private_enter_no_seccomp( desired_uid,
-                                       desired_gid,
-                                       keep_host_networking,
-                                       allow_connect,
-                                       allow_renameat,
-                                       keep_controlling_terminal,
-                                       dumpable,
-                                       rlimit_file_cnt,
-                                       rlimit_address_space,
-                                       rlimit_data,
-                                       rlimit_nproc,
-                                       allowed_file_descriptor_cnt,
-                                       allowed_file_descriptor );
-
-  FD_LOG_INFO(( "sandbox: full sandbox is being enabled" )); /* log before seccomp in-case logging not allowed in sandbox */
-
-  /* Now finally install the seccomp-bpf filter. */
-  fd_sandbox_private_set_seccomp_filter( (ushort)seccomp_filter_cnt, seccomp_filter );
+  fd_sandbox_enter_with_write_path( desired_uid,
+                                    desired_gid,
+                                    keep_host_networking,
+                                    allow_connect,
+                                    allow_renameat,
+                                    -1,
+                                    keep_controlling_terminal,
+                                    dumpable,
+                                    rlimit_file_cnt,
+                                    rlimit_address_space,
+                                    rlimit_data,
+                                    rlimit_nproc,
+                                    allowed_file_descriptor_cnt,
+                                    allowed_file_descriptor,
+                                    seccomp_filter_cnt,
+                                    seccomp_filter );
 }
 
 void

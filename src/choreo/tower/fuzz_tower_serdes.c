@@ -68,6 +68,18 @@ fuzz_vote_instruction( uchar const * data,
   }
   assert( !memcmp( &serde->block_id, &serde2->block_id, sizeof(fd_hash_t) ) );
 
+  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+  ulong vote_cnt;
+  ulong root;
+  if( !fd_compact_tower_sync_to_votes( serde, votes, &vote_cnt, &root ) ) {
+    assert( vote_cnt==serde->lockouts_cnt );
+    assert( root==serde->root );
+    for( ulong i=1UL; i<vote_cnt; i++ ) {
+      assert( votes[ i-1UL ].slot<votes[ i ].slot );
+      assert( votes[ i-1UL ].conf>votes[ i ].conf );
+    }
+  }
+
   FD_FUZZ_MUST_BE_COVERED;
 }
 

@@ -159,6 +159,27 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">admin_&#8203;failover_&#8203;link</span> | gauge | Failover pair channel session state (0=listening, 1=dialing, 2=hello, 3=paired, 4=rejected, 5=backoff) |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;role</span> | gauge | Local failover role |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;term</span> | gauge | Local failover fencing term |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;status</span> | gauge | Local failover status bit word |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;role</span> | gauge | Last authenticated peer failover role |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;term</span> | gauge | Last authenticated peer failover term |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;status</span> | gauge | Last authenticated peer status bit word |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;replication_&#8203;lag_&#8203;slots</span> | gauge | Slots the replicated tower trails the active's last vote |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;rtt_&#8203;nanos</span> | gauge | Smoothed round trip time of the failover pair link |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;enabled</span> | gauge | Whether failover is enabled |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;status_&#8203;valid</span> | gauge | Whether an authenticated peer status is available |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;status_&#8203;age_&#8203;nanos</span> | gauge | Age of the last authenticated peer status, or zero when unavailable |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;replication_&#8203;lag_&#8203;valid</span> | gauge | Whether failover replication lag is available |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;ready</span> | gauge | Whether the observed pair state passes the handoff readiness checks |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;readiness_&#8203;reason</span> | gauge | Handoff readiness result (0=ready, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind) |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;frames_&#8203;sent</span> | counter | Frames written to the failover pair channel |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;frames_&#8203;received</span> | counter | Frames verified and delivered from the failover pair channel |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;mac_&#8203;failures</span> | counter | Failover frames dropped for failing authentication |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;wire_&#8203;failures</span> | counter | Failover sessions dropped for protocol framing errors |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;hello_&#8203;rejections</span> | counter | Failover sessions rejected by HELLO validation |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;connections</span> | counter | Failover pair connections established |
 
 </div>
 

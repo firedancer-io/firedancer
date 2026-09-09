@@ -109,10 +109,11 @@ ser_var_int( uchar * dst, ulong val ) {
   return off + 1;
 }
 
-int
-fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
-                          uchar const *                   buf,
-                          ulong                           buf_sz ) {
+static int
+compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
+                       uchar const *                   buf,
+                       ulong                           buf_sz,
+                       int                             exact ) {
   DE( ulong, root );
   if( FD_UNLIKELY( de_short_u16( &serde->lockouts_cnt, &buf, &buf_sz ) ) ) return -1;
   if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
@@ -127,7 +128,21 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
     DE( long, timestamp );
   }
   DE( fd_hash_t, block_id );
-  return 0;
+  return exact && buf_sz ? -1 : 0;
+}
+
+int
+fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
+                          uchar const *                   buf,
+                          ulong                           buf_sz ) {
+  return compact_tower_sync_de( serde, buf, buf_sz, 0 );
+}
+
+int
+fd_compact_tower_sync_de_exact( fd_compact_tower_sync_serde_t * serde,
+                                uchar const *                   buf,
+                                ulong                           buf_sz ) {
+  return compact_tower_sync_de( serde, buf, buf_sz, 1 );
 }
 
 int
@@ -136,6 +151,7 @@ fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
                            ulong                                 buf_max,
                            ulong *                               buf_sz ) {
   if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
+  if( FD_UNLIKELY( serde->timestamp_option > 1U ) ) return -1;
   ulong off = 0;
   SER( ulong, root );
   SER_SHORT_U16( lockouts_cnt );
@@ -217,13 +233,51 @@ fd_txn_parse_simple_vote( fd_txn_t const *                txn,
   uint                   kind       = fd_uint_load_4_fast( instr_data );
   /* Older vote instruction kinds are deprecated / ignored */
   if( FD_UNLIKELY( kind == FD_VOTE_IX_KIND_TOWER_SYNC || kind == FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) {
+    ulong tower_sync_sz = (ulong)instr->data_sz-sizeof(uint);
+    if( FD_UNLIKELY( kind==FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) {
+      if( FD_UNLIKELY( tower_sync_sz<sizeof(fd_hash_t) ) ) return 0;
+      tower_sync_sz -= sizeof(fd_hash_t);
+    }
     fd_compact_tower_sync_serde_t compact_tower_sync_serde[ 1 ];
-    int err = fd_compact_tower_sync_de( compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) );
+    int err = fd_compact_tower_sync_de_exact( compact_tower_sync_serde, instr_data+sizeof(uint), tower_sync_sz );
     if( FD_LIKELY( !err ) ) {
       if( !!opt_tower_sync ) *opt_tower_sync = *compact_tower_sync_serde;
       return 1;
     }
   }
+  return 0;
+}
+
+int
+fd_compact_tower_sync_to_votes( fd_compact_tower_sync_serde_t const * serde,
+                                fd_tower_vote_t *                     out,
+                                ulong *                              out_cnt,
+                                ulong *                              out_root ) {
+  if( FD_UNLIKELY( serde->lockouts_cnt>FD_TOWER_VOTE_MAX ) ) return -1;
+
+  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+  ulong slot      = fd_ulong_if( serde->root==ULONG_MAX, 0UL, serde->root );
+  ulong prev_conf = FD_TOWER_VOTE_MAX+1UL;
+  for( ulong i=0UL; i<serde->lockouts_cnt; i++ ) {
+    ulong offset = serde->lockouts[ i ].offset;
+    ulong conf   = serde->lockouts[ i ].confirmation_count;
+    int repeats_slot = !offset && (i || serde->root!=ULONG_MAX);
+    if( FD_UNLIKELY( repeats_slot || offset>ULONG_MAX-slot || !conf ||
+                     conf>=prev_conf || conf>FD_TOWER_VOTE_MAX ) ) return -1;
+    if( FD_UNLIKELY( i && offset>(1UL<<prev_conf) ) ) return -1;
+    slot += offset;
+    votes[ i ] = (fd_tower_vote_t){ .slot=slot, .conf=conf };
+    prev_conf = conf;
+  }
+  if( FD_LIKELY( serde->lockouts_cnt ) ) {
+    ulong newest = votes[ serde->lockouts_cnt-1UL ].slot;
+    for( ulong i=0UL; i+1UL<serde->lockouts_cnt; i++ ) {
+      if( FD_UNLIKELY( newest-votes[ i ].slot>(1UL<<votes[ i ].conf) ) ) return -1;
+    }
+  }
+  fd_memcpy( out, votes, serde->lockouts_cnt*sizeof(fd_tower_vote_t) );
+  *out_cnt  = serde->lockouts_cnt;
+  *out_root = serde->root;
   return 0;
 }
 
