@@ -36,8 +36,8 @@
 #define FD_PROGCACHE_REC_LOADING ((uchar)4)
 
 /* MAPPED marks a record reachable through the record map.  It is the only way to
-   tell a rooted record, which stays mapped, from one a cancel or drain unmapped:
-   both have txn_idx==UINT_MAX. */
+   tell a rooted record, which stays mapped, from one a cancel or a sweep's claim
+   unmapped: both have txn_idx==UINT_MAX. */
 
 #define FD_PROGCACHE_REC_MAPPED  ((uchar)8)
 
@@ -47,8 +47,8 @@ FD_PROTOTYPES_BEGIN
    benign.  The load sentinel is not -- setting and clearing it are release stores,
    paired with the acquire in fd_prog_state_is_loading. */
 
-/* fd_prog_state_load_begin publishes the record at the given index as loading:
-   reachable through the map, but not yet LIVE.  Ended by fd_prog_state_touch. */
+/* fd_prog_state_load_begin marks the record at the given index LOADING|MAPPED
+   ahead of fd_progcache_push inserting it; not LIVE.  Ended by fd_prog_state_touch. */
 
 static inline void
 fd_prog_state_load_begin( fd_progcache_rec_t * ele,
@@ -90,8 +90,8 @@ fd_prog_state_is_loading( fd_progcache_rec_t const * rec ) {
 }
 
 /* fd_prog_state_clear marks the record at the given index as free / removed, run
-   when the record's value is released.  The release keeps the preceding teardown
-   ordered before the record reads as free. */
+   when the record is released or reinitialized.  The release keeps the preceding
+   teardown ordered before the record reads as free. */
 
 static inline void
 fd_prog_state_clear( fd_progcache_rec_t * ele,

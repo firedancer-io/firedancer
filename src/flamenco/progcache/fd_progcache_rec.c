@@ -3,9 +3,9 @@
 #include "../../util/racesan/fd_racesan_target.h"
 #include "../vm/fd_vm.h" /* fd_vm_syscall_register_slot, fd_vm_validate */
 
-/* A free record is always write-locked: pop/push moves the lock between 0xFFFF
-   (free) and 1 (read-locked by the acquirer), so a stale speculative reader can
-   never lock a free record. */
+/* A free record is always write-locked: fd_progcache_rec_release leaves it so
+   and rec_init_inflight hands it to the acquirer read-locked, so a stale
+   speculative reader can never lock a free record. */
 
 /* rec_init_inflight turns a write-locked record of class c into an in-flight
    one owned by the caller.  Callers hold the write lock and have the record
@@ -18,17 +18,21 @@ rec_init_inflight( fd_progcache_join_t * join,
   fd_progcache_shmem_t * pc  = join->shmem;
   fd_progcache_rec_t *   rec = join->rec.ele + idx;
 
-  /* Spans skip the lock (the record is write-locked, and a stale speculative
-     reader must never see that clear; state is skipped with it and cleared
-     below) and free_next (a stale popper may still be reading it -- its pop
-     fails on the versioned head, but the read must not race a plain write).
-     free_next is only meaningful on the free list and free_push rewrites it. */
+  /* Not written here: the lock (stays write-locked; a stale speculative reader
+     must never see it clear), free_next (a stale popper may be reading it) and
+     the fork-list links (owned by the fork lock). */
   memset( rec, 0, offsetof(fd_progcache_rec_t, lock) );
-  memset( &rec->txn_idx, 0, offsetof(fd_progcache_rec_t, free_next)-offsetof(fd_progcache_rec_t, txn_idx) );
-  rec->exists       = 1;
-  rec->size_class   = c & 0x7UL; /* c<FD_PROGCACHE_CACHE_CLASS_CNT, checked by callers */
-  rec->txn_idx      = UINT_MAX;
+  rec->txn_idx       = UINT_MAX;
+  rec->entry_pc      = 0U;
+  rec->text_cnt      = 0U;
+  rec->text_off      = 0U;
+  rec->text_sz       = 0U;
+  rec->rodata_sz     = 0U;
   rec->calldests_off = UINT_MAX;
+  rec->rodata_off    = 0U;
+  rec->sbpf_version  = 0;
+  rec->exists        = 1;
+  rec->size_class    = c & 0x7UL; /* c<FD_PROGCACHE_CACHE_CLASS_CNT, checked by callers */
 
   /* Attach value storage: the record's own arena slot */
   ulong slot_sz   = fd_progcache_cache_slot_sz[ c ];
@@ -130,7 +134,7 @@ fd_progcache_rec_abandon( fd_progcache_join_t * join,
      previous incarnation may hold a transient tryread: trade our read lock for
      the write lock to drain them. */
   fd_rwlock_unread( &rec->lock );
-  while( FD_UNLIKELY( !fd_rwlock_trywrite( &rec->lock ) ) ) FD_SPIN_PAUSE();
+  fd_rwlock_write( &rec->lock );
   fd_progcache_rec_release( join, rec );
 }
 

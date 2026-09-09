@@ -11,8 +11,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_prog_info derives executable info from a program data account.
    progdata_ro is a handle to the program data account (ownership stays
-   with caller). program_owner is the owner pubkey of the program account
-   (NOT the programdata account). This is used to determine the loader type.
+   with caller); the loader type is derived from its owner.
    Populates *out and returns out on success.
    On failure, logs warning and returns NULL. */
 
@@ -55,7 +54,7 @@ FD_PROTOTYPES_END
 
 struct fd_prog_load_env {
   fd_features_t const * features;
-  ulong feature_slot; /* newest feature activated at this slot */
+  ulong feature_slot; /* activation slot of the newest active feature */
 };
 
 typedef struct fd_prog_load_env fd_prog_load_env_t;

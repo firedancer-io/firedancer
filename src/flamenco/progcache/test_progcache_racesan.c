@@ -388,7 +388,7 @@ FD_UNIT_TEST( pull_root ) {
   /* Catches the strand: a mapped, detached record must be LIVE. */
   FD_TEST( !fd_progcache_verify( admin ) );
 
-  /* And it must be usable.  Pre-fix this pull never returns. */
+  /* And it must be usable: a rooted LOADING record still resolves. */
   {
     fd_progcache_fork_id_t child = fd_progcache_attach_child( admin, xid );
     fd_progcache_t tmp[1];
@@ -456,8 +456,8 @@ FD_UNIT_TEST( pull_cancel ) {
 }
 
 /* test_lost_race_failed_load: B loses the publish race and parks in insert's wait
-   on A's record.  A's load is then rejected, so A unmaps that record -- B must not
-   be handed the failed load's slot as if it were a program. */
+   on A's record.  A's load then fails verification and the record is marked
+   non-executable in place -- B must not be handed program data, and only A loads. */
 
 FD_UNIT_TEST( lost_race_failed_load ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
@@ -472,6 +472,7 @@ FD_UNIT_TEST( lost_race_failed_load ) {
   fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
 
   /* Both miss in query and hold their own record, neither published yet. */
+  metrics_reset();
   fd_racesan_async_t * a = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
   FD_TEST( fd_racesan_async_step_until( a, "prog_insert:pre_push", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
   fd_racesan_async_t * b = fiber_pull( &g_fiber[ 1 ], shmem, xid, &key, &load_env, acc.entry );
@@ -483,7 +484,7 @@ FD_UNIT_TEST( lost_race_failed_load ) {
   /* B loses and parks on A's record. */
   FD_TEST( fd_racesan_async_step_until( b, "prog_wait_if_loading:spin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* A's load is rejected: it unmaps the record B is waiting on. */
+  /* A's load fails verification: the record B waits on becomes non-executable. */
   for(;;) {
     int ret = fd_racesan_async_step( a );
     if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
@@ -496,9 +497,13 @@ FD_UNIT_TEST( lost_race_failed_load ) {
     FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
   }
 
-  /* Neither caller may be handed program data for a program that did not load. */
+  /* Neither caller may be handed program data for a program that did not load,
+     both got A's record, and only A ran the load. */
   FD_TEST( !g_fiber[ 0 ].pull.res_data_gaddr );
   FD_TEST( !g_fiber[ 1 ].pull.res_data_gaddr );
+  FD_TEST( g_fiber[ 0 ].pull.res==g_fiber[ 1 ].pull.res );
+  FD_TEST( fd_progcache_metrics_default.load_cnt==1UL );
+  FD_TEST( fd_progcache_metrics_default.fill_cnt==1UL );
 
   fiber_delete( &g_fiber[ 0 ] );
   fiber_delete( &g_fiber[ 1 ] );
@@ -532,7 +537,7 @@ FD_UNIT_TEST( peek_failed_load ) {
   fd_racesan_async_t * b = fiber_pull( &g_fiber[ 1 ], shmem, xid, &key, &load_env, acc.entry );
   FD_TEST( fd_racesan_async_step_until( b, "prog_wait_if_loading:spin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* A fails verification: it deletes the record B holds, then publishes nx. */
+  /* A fails verification: the record B holds becomes non-executable in place. */
   int a_done = 0;
   for( ulong step=0UL; step<STEP_MAX; step++ ) {
     int ret = fd_racesan_async_step( a );
@@ -541,7 +546,7 @@ FD_UNIT_TEST( peek_failed_load ) {
   }
   FD_TEST( a_done );
 
-  /* B must notice the record never became LIVE and re-find the nx record. */
+  /* B wakes on the same record once it is LIVE and reads it as non-executable. */
   int b_done = 0;
   for( ulong step=0UL; step<STEP_MAX; step++ ) {
     int ret = fd_racesan_async_step( b );
@@ -651,6 +656,8 @@ FD_UNIT_TEST( cancel_evict ) {
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
     FD_TEST( !w->rem_cnt );
+    FD_TEST( !query_rec_exact( admin, xid1, &key ) ); /* gone either way */
+    FD_TEST( fd_progcache_metrics_default.evict_cnt<=1UL );
 
     fd_racesan_weave_delete( w );
     fiber_delete( &g_fiber[ 0 ] );
@@ -697,6 +704,8 @@ FD_UNIT_TEST( publish_evict ) {
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
     FD_TEST( !w->rem_cnt );
+    /* Mapped iff the sweep did not take it. */
+    FD_TEST( ( query_rec_exact( admin, xid1, &key )!=NULL )==( fd_progcache_metrics_default.evict_cnt==0UL ) );
 
     fd_racesan_weave_delete( w );
     fiber_delete( &g_fiber[ 0 ] );
@@ -952,8 +961,8 @@ FD_UNIT_TEST( peek_peek_root ) {
   test_progcache_shmem_delete( shmem );
 }
 
-/* test_inject_at_hook verifies that racesan hooks fire correctly
-   during advance_root */
+/* test_inject_at_hook steps advance_root hook by hook: every step yields a
+   hook until it exits, and at least one hook fires. */
 
 FD_UNIT_TEST( inject_at_hook ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
@@ -979,11 +988,14 @@ FD_UNIT_TEST( inject_at_hook ) {
 
   fd_racesan_async_t * a = fiber_advance_root( &g_fiber[ 0 ], shmem, xid1 );
 
+  ulong hooks = 0UL;
   for(;;) {
     int ret = fd_racesan_async_step( a );
     if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
     FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+    hooks++;
   }
+  FD_TEST( hooks>0UL );
 
   fiber_delete( &g_fiber[ 0 ] );
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
@@ -1024,6 +1036,7 @@ FD_UNIT_TEST( publish_reclaim_evicted ) {
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
     FD_TEST( !w->rem_cnt );
+    FD_TEST( ( query_rec_exact( admin, xid1, &key )!=NULL )==( fd_progcache_metrics_default.evict_cnt==0UL ) );
 
     fd_racesan_weave_delete( w );
     fiber_delete( &g_fiber[ 0 ] );
@@ -1077,6 +1090,8 @@ FD_UNIT_TEST( root_evict_two ) {
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
     FD_TEST( !w->rem_cnt );
     metrics_check_no_oom();
+    FD_TEST( !query_rec_exact( admin, xid2, &kb ) ); /* the sibling fork is cancelled by the root */
+    FD_TEST( fd_progcache_metrics_default.evict_cnt<=1UL );
 
     fd_racesan_weave_delete( w );
     fiber_delete( &g_fiber[ 0 ] );
@@ -1089,9 +1104,8 @@ FD_UNIT_TEST( root_evict_two ) {
   test_progcache_shmem_delete( shmem );
 }
 
-/* test_publish_evict_stale races advance_root against clock eviction
-   where the evicted record's CLOCK bits are stale.
-   Reproduces the crash from auditor-internal#460 */
+/* test_publish_evict_stale races advance_root against clock eviction where the
+   child record's CLOCK bits may be read before the detach. */
 
 FD_UNIT_TEST( publish_evict_stale ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
@@ -1133,11 +1147,8 @@ FD_UNIT_TEST( publish_evict_stale ) {
       fd_progcache_leave( tmp, NULL );
     }
 
-    /* Race advance_root (which gc's old root and retags child to
-       root) against clock eviction (which may see stale CLOCK bits
-       for the gc'd record).  Request evicting 2 records so that
-       clock_evict does a full 2*rec_max scan, wrapping around to
-       revisit entries whose visited bits were cleared on pass 1. */
+    /* Race advance_root (detaching xid1's record) against a sweep over a class
+       holding both revisions. */
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
     fd_racesan_weave_add( w, fiber_advance_root( &g_fiber[ 0 ], shmem, xid1 ) );
@@ -1146,6 +1157,10 @@ FD_UNIT_TEST( publish_evict_stale ) {
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
     FD_TEST( !w->rem_cnt );
+    /* Both revisions stay mapped unless the sweep took exactly one. */
+    ulong mapped = (ulong)( query_rec_exact( admin, xid_pre, &key )!=NULL ) + (ulong)( query_rec_exact( admin, xid1, &key )!=NULL );
+    FD_TEST( fd_progcache_metrics_default.evict_cnt<=1UL );
+    FD_TEST( mapped==2UL-fd_progcache_metrics_default.evict_cnt );
 
     fd_racesan_weave_delete( w );
     fiber_delete( &g_fiber[ 0 ] );
@@ -1185,8 +1200,8 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
   }
   ulong rec_idx = (ulong)( rec_old - admin->rec.ele );
 
-  /* Only rooted records are evictable, and a rooted record stays visible to the
-     fresh child used for the pulls below. */
+  /* Detach the record so the claim goes through the rooted arm; a rooted record
+     stays visible to the fresh child used for the pulls below. */
   fd_progcache_advance_root( admin, xid1 );
   xid1 = fd_progcache_attach_child( admin, xid1 );
 
@@ -1204,7 +1219,8 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
   FD_TEST( fd_racesan_async_step_until( e, "prog_clock_evict:pre_delete", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
   /* Retire the record behind the paused scan's back and release its slot. */
-  FD_TEST( fd_prog_delete_rec( admin, rec_old )>=0L );
+  long sz0 = (long)rec_old->rodata_sz;
+  FD_TEST( fd_prog_delete_rec( admin, rec_old )==sz0 );
   FD_TEST( fd_prog_reclaim_work( admin )==1UL );
 
   /* Reuse the slot for a different program */
@@ -1220,7 +1236,7 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
   FD_TEST( rec_new==rec_old ); /* pool slot was reused */
 
   /* Run the eviction scan to completion.  Its claim was decided under key1,
-     which is no longer mapped here, so it must fail rather than take the new
+     which is not mapped here, so it must fail rather than take the new
      record. */
   for(;;) {
     int ret = fd_racesan_async_step( e );
@@ -1306,7 +1322,8 @@ FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
   fd_racesan_async_t * d = fiber_delete_rec( &g_fiber[ 0 ], shmem, rec_old );
   FD_TEST( fd_racesan_async_step_until( d, "prog_delete_rec:post_txn_add", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  FD_TEST( fd_prog_delete_rec( admin, rec_old )>=0L );
+  long sz0 = (long)rec_old->rodata_sz;
+  FD_TEST( fd_prog_delete_rec( admin, rec_old )==sz0 );
   FD_TEST( fd_prog_reclaim_work( admin )==1UL );
 
   fd_progcache_rec_t * rec_new;
@@ -1344,8 +1361,8 @@ FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
 }
 
 /* test_publish_evict_reuse_walk: eviction claims a just-detached record while
-   advance_root is still walking the fork's record list.  The claim
-   reinitializes the record's link, so the walk must have read it first. */
+   advance_root is still walking the fork's record list.  The claim leaves the
+   record's link alone, so the walk still reaches the rest of the list. */
 
 FD_UNIT_TEST( publish_evict_reuse_walk ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
@@ -1381,7 +1398,7 @@ FD_UNIT_TEST( publish_evict_reuse_walk ) {
   fd_racesan_async_t * p = fiber_advance_root( &g_fiber[ 0 ], shmem, xid1 );
   FD_TEST( fd_racesan_async_step_until( p, "prog_publish_one:post_detach", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* Evict the detached record: the claim reinitializes its link. */
+  /* Evict the detached record mid-walk. */
   __atomic_fetch_and( &admin->rec.ele[ rec1_idx ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
   ulong cls = fd_progcache_rec_class( shmem, rec1_idx );
   shmem->cache.clock_hand[ cls ].val = rec1_idx - shmem->cache.rec_base[ cls ];
@@ -1394,7 +1411,7 @@ FD_UNIT_TEST( publish_evict_reuse_walk ) {
   }
   FD_TEST( done );
   fiber_delete( &g_fiber[ 1 ] );
-  FD_TEST( rec1->next_idx==0U ); /* the reuse really did clobber the link */
+  FD_TEST( rec1->next_idx==(uint)( rec2 - admin->rec.ele ) ); /* a claim leaves the fork-list link alone */
 
   /* The walk must still reach and detach rec2. */
   done = 0;
@@ -1445,7 +1462,8 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
   FD_TEST( rec2_idx!=0U );
   FD_TEST( rec1->next_idx==rec2_idx );
 
-  FD_TEST( fd_prog_delete_rec( admin, rec1 )>=0L );
+  long sz1 = (long)rec1->rodata_sz;
+  FD_TEST( fd_prog_delete_rec( admin, rec1 )==sz1 );
 
   fd_racesan_async_t * c = fiber_cancel( &g_fiber[ 0 ], shmem, xid1 );
   FD_TEST( fd_racesan_async_step_until( c, "prog_cancel_one:post_orphan", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
@@ -1454,7 +1472,7 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
 
   fd_progcache_rec_t * rec_reuse = fd_progcache_rec_acquire( admin, 4096UL ); /* class 0: LIFO free list returns rec1 */
   FD_TEST( rec_reuse==rec1 );
-  FD_TEST( rec_reuse->next_idx==0U );
+  FD_TEST( rec_reuse->next_idx==rec2_idx ); /* a claim leaves the fork-list link alone */
 
   int done = 0;
   for( ulong step=0UL; step<STEP_MAX; step++ ) {
@@ -1473,6 +1491,60 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
   FD_TEST( !query_rec_exact( admin, xid1, &key1 ) );
   FD_TEST( !query_rec_exact( admin, xid1, &key2 ) );
   FD_TEST( !fd_progcache_verify( admin ) );
+
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
+/* test_peek_evict races a lookup's tryread window against a sweep claiming and
+   reinitializing the same record. */
+
+FD_UNIT_TEST( peek_evict ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t key = test_key( 42UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_progcache_rec_t * rec;
+    {
+      fd_progcache_t tmp[1];
+      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 2 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      rec = fd_progcache_pull( tmp, xid, &key, &load_env, acc.entry );
+      FD_TEST( rec );
+      fd_progcache_rec_close( tmp, rec );
+      fd_progcache_leave( tmp, NULL );
+    }
+    fd_progcache_advance_root( admin, xid );
+    xid = fd_progcache_attach_child( admin, xid );
+    ulong rec_idx = (ulong)( rec - admin->rec.ele );
+    __atomic_fetch_and( &admin->rec.ele[ rec_idx ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
+    ulong cls = fd_progcache_rec_class( shmem, rec_idx );
+    shmem->cache.clock_hand[ cls ].val = rec_idx - shmem->cache.rec_base[ cls ];
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_peek ( &g_fiber[ 0 ], shmem, xid, &key ) );
+    fd_racesan_weave_add( w, fiber_evict( &g_fiber[ 1 ], shmem, valid_program_data_sz ) );
+
+    metrics_reset();
+    fd_racesan_weave_exec_rand( w, i, STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+    FD_TEST( fd_progcache_metrics_default.evict_cnt<=1UL );
+    FD_TEST( ( query_rec_exact( admin, xid, &key )!=NULL )==( fd_progcache_metrics_default.evict_cnt==0UL ) );
+
+    fd_racesan_weave_delete( w );
+    fiber_delete( &g_fiber[ 0 ] );
+    fiber_delete( &g_fiber[ 1 ] );
+    FD_TEST( !fd_progcache_verify( admin ) );
+    fd_progcache_cancel_fork( admin, xid );
+    test_progcache_reset( admin );
+  }
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
@@ -1707,8 +1779,9 @@ FD_UNIT_TEST( evict_unrooted_vs_root ) {
   run_to_exit( e );
   fiber_delete( &g_fiber[ 0 ] );
 
-  FD_TEST( fd_progcache_metrics_default.evict_cnt<=1UL );
-  if( fd_progcache_metrics_default.evict_cnt ) FD_TEST( !query_rec_exact( admin, xid, &key ) );
+  /* The owner claim rejects; the hand comes back around and the rooted arm claims. */
+  FD_TEST( fd_progcache_metrics_default.evict_cnt==1UL );
+  FD_TEST( !query_rec_exact( admin, xid, &key ) );
   FD_TEST( !fd_progcache_verify( admin ) );
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
@@ -1758,7 +1831,7 @@ FD_UNIT_TEST( evict_unrooted_vs_push_lock ) {
   test_progcache_shmem_delete( shmem );
 }
 
-/* Two sweeps race for one attached record: at most one claim. */
+/* Two sweeps race for one attached record: exactly one claim. */
 
 FD_UNIT_TEST( evict_unrooted_vs_evict ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
@@ -1783,9 +1856,8 @@ FD_UNIT_TEST( evict_unrooted_vs_evict ) {
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
     FD_TEST( !w->rem_cnt );
-    FD_TEST( fd_progcache_metrics_default.evict_cnt<=1UL );
-    if( fd_progcache_metrics_default.evict_cnt ) FD_TEST( !query_rec_exact( admin, xid, &key ) );
-    else                                          FD_TEST(  query_rec_exact( admin, xid, &key )==rec );
+    FD_TEST( fd_progcache_metrics_default.evict_cnt==1UL );
+    FD_TEST( !query_rec_exact( admin, xid, &key ) );
 
     fd_racesan_weave_delete( w );
     fiber_delete( &g_fiber[ 0 ] );

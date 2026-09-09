@@ -66,7 +66,7 @@ check_exact_fit( ulong txn_max,
   ulong locked = wksp->page_cnt*wksp->page_sz;
   if( FD_UNLIKELY( locked!=fd_ulong_align_up( wksp_size, wksp->page_sz ) ) ) {
     FD_LOG_ERR(( "wksp_size %lu (%lu MiB): locked %lu B (%lu x %lu B pages), expected %lu B; "
-                 "wksp_overhead_sz no longer covers fd_topob's layout",
+                 "PROGCACHE_WKSP_OVERHEAD_SZ does not cover fd_topob's layout",
                  wksp_size, wksp_size>>20, locked, wksp->page_cnt, wksp->page_sz,
                  fd_ulong_align_up( wksp_size, wksp->page_sz ) ));
   }

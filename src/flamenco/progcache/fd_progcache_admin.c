@@ -10,9 +10,9 @@
 /* FIXME get rid of this thread-local */
 FD_TL fd_progcache_admin_metrics_t fd_progcache_admin_metrics_g;
 
-/* Begin transaction-level operations.  It is assumed that txn data
-   structures are not concurrently modified.  This includes txn_pool and
-   txn_map. */
+/* Transaction-level operations.  txn_pool and txn_map are serialized by
+   txn.rwlock: written here under the exclusive lock, read shared by the user
+   and eviction paths. */
 
 fd_progcache_fork_id_t
 fd_progcache_attach_child( fd_progcache_join_t *  cache,
@@ -228,8 +228,6 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; ) {
     if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (publish_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
-    /* The detach store makes the record claimable by eviction, which
-       reinitializes the link, so the link is read first. */
     uint next_idx = cache->rec.ele[ idx ].next_idx;
     if( FD_UNLIKELY( next_idx!=UINT_MAX && (ulong)next_idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (publish_one next_idx=%u rec_max=%lu)", next_idx, rec_max ));

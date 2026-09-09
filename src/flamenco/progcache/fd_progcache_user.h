@@ -14,8 +14,8 @@
 
    The program cache is fork-aware (using transactions).  Txn-level
    operations (attach/publish/cancel) take the fork graph's exclusive
-   lock; record reads never block on it, and inserts hold it shared only
-   while publishing.
+   lock; a read on the cached lineage never touches it, while switching
+   fork, publishing and the eviction sweep take it shared.
 
    ### Cache entry
 
@@ -40,16 +40,15 @@
    Cache eviction (i.e. force removal of potentially useful records)
    happens on fill: when a fill finds its size class full, it evicts
    within that class (per-class CLOCK), and falls back to the spill
-   scratch if no record frees up.
+   scratch if no record frees up.  The replay tile's housekeeping runs
+   the same sweep to keep a few slots free per class.
 
    ### Garbage collect policy
 
-   fd_progcache cleans up unused entries eagerly when:
-
-   1. a database fork is cancelled (e.g. slot is rooted and competing
-      history dies, or consensus layer prunes a fork)
-   2. a cache entry is orphaned (updated or invalidated by an epoch
-      boundary) */
+   When a database fork is cancelled (a competing history dies, or the
+   consensus layer prunes a fork), its records are unmapped at once and
+   their slots recovered by the next sweep.  A superseded revision stays
+   mapped until CLOCK evicts it. */
 
 #include "fd_progcache.h"
 #include "fd_prog_load.h"
@@ -152,9 +151,8 @@ fd_progcache_leave( fd_progcache_t *        cache,
      either "Loaded" or "FailedVerification")
    - Returns a pointer to a newly created cache entry (cache fill,
      state either "Loaded" or "FailedVerification")
-   - Returns NULL if the requested program account is not deployed (i.e.
-     account is missing, the program is under visibility delay, or user
-     has not finished uploading the program)
+   - Returns NULL if fd_prog_info rejects the account (not a deployed
+     program of a known loader)
    In other words, this method guarantees to return a cache entry if a
    deployed program was found in the account database, and the program
    either loaded successfully, or failed ELF/bytecode verification.

@@ -42,8 +42,8 @@ fd_prog_delete_rec_claim( fd_progcache_join_t *          cache,
 
 /* Attached-record variant of fd_prog_delete_rec_claim: claims a record on
    owner's list and splices it out.  Caller holds owner->lock (write) and
-   txn.rwlock (read).  -1, no side effects, if taken, held, VISITED or no
-   longer owner's. */
+   txn.rwlock (read).  -1, no side effects, if taken, held, VISITED or not
+   owner's. */
 
 long
 fd_prog_delete_rec_claim_txn( fd_progcache_join_t *          cache,

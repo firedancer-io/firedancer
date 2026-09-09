@@ -1,5 +1,5 @@
-/* test_progcache.c contains single-threaded correctness tests for
-   progcache. */
+/* test_progcache.c contains correctness tests for progcache: single-threaded,
+   plus the two pthread tests at the end. */
 
 #include "test_progcache_common.c"
 #include "fd_progcache_clock.h"
@@ -28,9 +28,7 @@ struct test_env {
 
 typedef struct test_env test_env_t;
 
-/* test_env_create allocates a new account database and program cache
-   from a wksp.  Joins an admin and user client to the program cache, as
-   well as a database client. */
+/* test_env_create allocates a program cache from a wksp and joins it. */
 
 static test_env_t *
 test_env_create_ex( fd_wksp_t * wksp,
@@ -125,8 +123,8 @@ test_evict( fd_progcache_t * cache,
   return 1;
 }
 
-/* test_root roots the fork, making its records evictable, and hands back a fresh
-   child of the new root so pulls and peeks keep working. */
+/* test_root roots the fork, detaching its records, and hands back a fresh child
+   of the new root so pulls and peeks keep working. */
 
 FD_FN_UNUSED static fd_progcache_fork_id_t
 test_root( fd_progcache_join_t *  join,
@@ -239,15 +237,13 @@ FD_UNIT_TEST( cache_fill_evicts ) {
 
   ulong over = 20UL;
   ulong n    = class0_slots + over;
-  FD_TEST( n<512UL ); /* rec pool must not be the bottleneck */
 
   ulong oom0   = env->progcache->metrics->class_full_cnt;
   ulong evict0 = env->progcache->metrics->evict_cnt;
   ulong spill0 = env->progcache->metrics->spill_cnt;
 
   for( ulong i=0UL; i<n; i++ ) {
-    /* Only rooted records are evictable, so root once the class is full: the
-       overflow then evicts the rooted fills. */
+    /* Root once the class is full so the overflow evicts through the rooted arm. */
     if( FD_UNLIKELY( i==class0_slots ) ) fork = test_root( env->progcache->join, fork );
 
     fd_pubkey_t key = test_key( 1000UL+i );
@@ -264,14 +260,14 @@ FD_UNIT_TEST( cache_fill_evicts ) {
   ulong evict_d = env->progcache->metrics->evict_cnt    - evict0;
   ulong spill_d = env->progcache->metrics->spill_cnt    - spill0;
 
-  /* Every insert past the class capacity must have hit the class-full
-     path and been resolved by eviction (not spill). */
-  FD_TEST( oom_d  >=over ); /* at least `over` allocations found the class full */
-  FD_TEST( evict_d>=over ); /* and eviction ran to make room                  */
-  FD_TEST( spill_d==0UL  ); /* eviction always succeeded; nothing spilled      */
+  /* Every insert past the class capacity hit the class-full path exactly once
+     and was resolved by one eviction, never a spill. */
+  FD_TEST( oom_d  ==over );
+  FD_TEST( evict_d==over );
+  FD_TEST( spill_d==0UL  );
 
-  /* Never more slots in use than the class provides. */
-  FD_TEST( fd_progcache_class_free_cnt( env->progcache->join->shmem, 0 )<=class0_slots );
+  /* The class ends exactly full. */
+  FD_TEST( fd_progcache_class_free_cnt( env->progcache->join->shmem, 0 )==0UL );
 
   fd_progcache_cancel_fork( env->progcache->join, fork );
   test_env_destroy( env );
@@ -423,11 +419,9 @@ FD_UNIT_TEST( feature_slot_key ) {
 #endif
 }
 
-/* eb_reload_bench measures the per-program reload cost (ELF parse + verify)
-   that an epoch boundary incurs when the feature-set key changes, and shows
-   that an unchanged key reuses the cached entry (no reload).  This quantifies
-   the work saved per program when a no-feature-change epoch boundary no longer
-   bumps the key. */
+/* eb_reload_bench measures the per-program reload cost (ELF parse + verify) of
+   a feature_slot change, and checks that an unchanged key reuses the cached
+   entry. */
 
 FD_UNIT_TEST( eb_reload_bench ) {
   test_env_t * env = test_env_create( wksp );
@@ -443,8 +437,8 @@ FD_UNIT_TEST( eb_reload_bench ) {
   fd_progcache_rec_t const * r0 = test_pull( env->progcache, acc.entry, fork, &key, &e0 );
   FD_TEST( r0 );
 
-  /* FIX: feature set unchanged across the boundary -> same key -> a child fork
-     (next epoch) at the same feature_slot reuses the cached entry (no reload). */
+  /* Same key across the boundary: a child fork at the same feature_slot reuses
+     the cached entry. */
   ulong const N = 8UL;
   fd_progcache_fork_id_t forks[ N+1 ];
   forks[ 0 ] = fork;
@@ -455,8 +449,8 @@ FD_UNIT_TEST( eb_reload_bench ) {
   FD_TEST( env->progcache->metrics->fill_cnt==fills_before );   /* no reload */
   fd_progcache_cancel_fork( env->progcache->join, fork_same );
 
-  /* BASELINE: the key bumps every boundary -> reload.  Each child fork pulled
-     at a new feature_slot forces a re-parse+verify.  Time N reloads. */
+  /* A changed key reloads: each child fork pulled at a new feature_slot
+     re-parses and verifies.  Time N reloads. */
   ulong load_ticks0 = env->progcache->metrics->cum_load_ticks;
   ulong fills0      = env->progcache->metrics->fill_cnt;
   long  t0          = fd_log_wallclock();
@@ -471,7 +465,7 @@ FD_UNIT_TEST( eb_reload_bench ) {
   FD_TEST( fills==N ); /* every key bump reloaded */
   FD_LOG_NOTICE(( "EB reload bench: %lu reloads of a %lu-byte program, %.1f us/program (wall), load_ticks/program=%lu",
                   fills, bigger_valid_program_data_sz, (double)(t1-t0)/1e3/(double)fills, dticks/fills ));
-  FD_LOG_NOTICE(( "  => a no-feature-change epoch boundary saves ~this per cached program reused after the boundary" ));
+  FD_LOG_NOTICE(( "  => saved per cached program when the key does not change" ));
 
   for( ulong i=N; i>=1UL; i-- ) fd_progcache_cancel_fork( env->progcache->join, forks[ i ] );
   fd_progcache_cancel_fork( env->progcache->join, fork );
@@ -492,8 +486,8 @@ FD_UNIT_TEST( publish_trivial ) {
   test_env_destroy( env );
 }
 
-/* test_root_nonroot_prio: non-rooted record should take priority over
-   rooted records. */
+/* test_root_nonroot_prio: a revision pulled on the tip coexists with the rooted
+   one, and each feature_slot resolves to its own record. */
 
 FD_UNIT_TEST( root_nonroot_prio ) {
   test_env_t * env = test_env_create( wksp );
@@ -523,6 +517,9 @@ FD_UNIT_TEST( root_nonroot_prio ) {
   };
   fd_progcache_rec_t const * rec4 = test_pull( env->progcache, acc.entry, fork_4, &key, &load_env4 );
   FD_TEST( rec4 );
+  FD_TEST( rec4!=rec1 );
+  FD_TEST( test_peek( env->progcache, fork_4, &key, 4UL, rec4->deploy_slot )==rec4 );
+  FD_TEST( test_peek( env->progcache, fork_4, &key, 1UL, rec1->deploy_slot )==rec1 );
 
   fd_progcache_cancel_fork( env->progcache->join, fork_4 );
   fd_progcache_cancel_fork( env->progcache->join, fork_3 );
@@ -603,8 +600,7 @@ FD_UNIT_TEST( reclaim_no_readers ) {
   FD_TEST( rec );
   FD_TEST( rec->exists );
 
-  long freed = fd_prog_delete_rec( env->progcache->join, rec );
-  FD_TEST( freed>=0L );
+  FD_TEST( fd_prog_delete_rec( env->progcache->join, rec )==(long)rec->rodata_sz );
 
   /* Still attached to its fork: the sweep leaves the zombie to cancel. */
   FD_TEST( fd_prog_reclaim_work( env->progcache->join )==0UL );
@@ -710,7 +706,7 @@ FD_UNIT_TEST( reclaim_txn_unlink ) {
   fd_progcache_txn_t * txn = &env->progcache->join->txn.pool[ txn_idx ];
   FD_TEST( txn->rec_head_idx!=UINT_MAX );
 
-  fd_prog_delete_rec( env->progcache->join, rec );
+  FD_TEST( fd_prog_delete_rec( env->progcache->join, rec )==(long)rec->rodata_sz );
   /* The zombie stays on the fork's record list; the sweep leaves it alone. */
   FD_TEST( fd_prog_reclaim_work( env->progcache->join )==0UL );
   FD_TEST( txn->rec_head_idx!=UINT_MAX );
@@ -785,9 +781,14 @@ FD_UNIT_TEST( preevict ) {
   /* Attached records are not victims: the sweep comes up empty. */
   FD_TEST( fd_prog_preevict( join, 0UL, free0+1UL )==0UL );
   FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==free0 );
+#else
+  /* Attached records are victims: one sweep claims one and frees its slot. */
+  FD_TEST( fd_prog_preevict( join, 0UL, free0+1UL )==1UL );
+  FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==free0+1UL );
+  free0++;
 #endif
 
-  xid = test_root( join, xid ); /* detach both */
+  xid = test_root( join, xid ); /* detach the rest */
 
   /* Free list already at target: no sweep. */
   FD_TEST( fd_prog_preevict( join, 0UL, free0 )==0UL );
@@ -797,10 +798,14 @@ FD_UNIT_TEST( preevict ) {
   FD_TEST( fd_prog_preevict( join, 0UL, free0+1UL )==1UL );
   FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==free0+1UL );
 
-  /* Exactly one of the two is gone, and the admin sweep bumped no metrics. */
+  /* The admin sweep bumped no metrics. */
   uchar st0 = __atomic_load_n( &rec[ 0 ]->state, __ATOMIC_RELAXED );
   uchar st1 = __atomic_load_n( &rec[ 1 ]->state, __ATOMIC_RELAXED );
-  FD_TEST( ( st0==0 ) ^ ( st1==0 ) );
+#if !FD_PROGCACHE_EVICT_UNROOTED
+  FD_TEST( ( st0==0 ) ^ ( st1==0 ) ); /* exactly one of the two is gone */
+#else
+  FD_TEST( ( st0==0 ) & ( st1==0 ) ); /* one per sweep: both gone */
+#endif
   FD_TEST( env->progcache->metrics->evict_cnt==evicts0 );
 
   /* Back at target: no further sweep. */
@@ -828,7 +833,7 @@ FD_UNIT_TEST( preevict_zombie ) {
   FD_TEST( rec );
 
   xid = test_root( join, xid ); /* detach */
-  FD_TEST( fd_prog_delete_rec( join, rec )>=0L ); /* zombie */
+  FD_TEST( fd_prog_delete_rec( join, rec )==(long)rec->rodata_sz ); /* zombie */
 
   ulong free0   = fd_progcache_class_free_cnt( shmem, 0UL );
   ulong evicts0 = env->progcache->metrics->evict_cnt;
@@ -869,8 +874,10 @@ FD_UNIT_TEST( shmem_new_zero_txn_max ) {
 }
 
 FD_UNIT_TEST( shmem_new_oversized_txn_max ) {
+  FD_TEST(  fd_progcache_shmem_min_sz( FD_PROGCACHE_DEPTH_MAX     ) );
+  FD_TEST( !fd_progcache_shmem_min_sz( FD_PROGCACHE_DEPTH_MAX+1UL ) );
   fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 512UL<<20 ), 1UL );
-  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, (ulong)UINT_MAX+1UL, 512UL<<20 ) );
+  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, FD_PROGCACHE_DEPTH_MAX+1UL, 512UL<<20 ) );
   fd_wksp_free_laddr( mem );
 }
 
@@ -892,9 +899,8 @@ FD_UNIT_TEST( cache_class ) {
   FD_TEST( fd_progcache_cache_class( FD_PROGCACHE_CACHE_SLOT_TOP_SZ+1UL )==FD_PROGCACHE_CACHE_CLASS_CNT );
 }
 
-/* test_cache_provision: the provisioner fits the budget, never starves a
-   class, scales the nx class off the data classes, and rejects tiny
-   budgets. */
+/* test_cache_provision: the provisioner fits the budget, gives every class at
+   least its minimum, and rejects budgets below the minimum. */
 
 static void
 check_provision( ulong txn_max,
@@ -905,7 +911,7 @@ check_provision( ulong txn_max,
   ulong used = 0UL;
   ulong tot  = 0UL;
   for( ulong c=0UL; c<FD_PROGCACHE_CACHE_CLASS_CNT; c++ ) {
-    if( c<FD_PROGCACHE_CACHE_CLASS_CNT ) FD_TEST( sc[c]>=fd_progcache_cache_class_min( c ) );
+    FD_TEST( sc[c]>=fd_progcache_cache_class_min( c ) );
     used += sc[c]*fd_progcache_cache_slot_sz[c];
     tot  += sc[c];
   }
@@ -918,7 +924,7 @@ check_provision( ulong txn_max,
 
 FD_UNIT_TEST( cache_provision ) {
   ulong txn_max = 64UL;
-  check_provision( txn_max, 1792UL<<20 ); /* production default */
+  check_provision( txn_max, 2048UL<<20 ); /* production default, before the topology overhead */
   check_provision( txn_max,  768UL<<20 );
   check_provision( txn_max,  512UL<<20 );
 
@@ -937,7 +943,7 @@ FD_UNIT_TEST( cache_provision ) {
 /* test_shmem_dirty_memory: construction must not rely on zero-filled
    memory.  Pattern-fill the shmem region, construct, use, and delete: a
    constructor that leaves cache fields (notably arena_gaddr) uninitialized
-   would free garbage addresses on delete. */
+   would hand out garbage value addresses on the first fill. */
 
 FD_UNIT_TEST( shmem_dirty_memory ) {
   ulong txn_max = 16UL;
@@ -968,8 +974,7 @@ FD_UNIT_TEST( shmem_dirty_memory ) {
   fd_wksp_free_laddr( scratch );
 }
 
-/* The smallest accepted progcache_sz brackets the class-minimum gate in
-   setup_slots, which the tests above do not reach. */
+/* The smallest accepted progcache_sz, found by scanning up from 64 MiB. */
 
 FD_UNIT_TEST( provision_boundary ) {
   ulong txn_max = 16UL;
@@ -1365,7 +1370,7 @@ FD_UNIT_TEST( clock_evict_all_visited ) {
   fd_progcache_rec_t * rec3 = test_pull( env->progcache, acc3.entry, xid, &key3, &load_env );
   FD_TEST( rec1 && rec2 && rec3 );
 
-  xid = test_root( env->progcache->join, xid ); /* only rooted records are evictable */
+  xid = test_root( env->progcache->join, xid ); /* detach so the claim goes through the rooted arm */
 
   /* Ensure visited bits are set */
   ulong rec1_idx = (ulong)( rec1 - env->progcache->join->rec.ele );
@@ -1409,7 +1414,7 @@ FD_UNIT_TEST( clock_evict_unvisited ) {
   fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.entry, xid, &key1, &load_env );
   FD_TEST( rec1 );
 
-  xid = test_root( env->progcache->join, xid ); /* only rooted records are evictable */
+  xid = test_root( env->progcache->join, xid ); /* detach so the claim goes through the rooted arm */
 
   ulong rec_idx = (ulong)( rec1 - env->progcache->join->rec.ele );
 
@@ -1465,7 +1470,7 @@ FD_UNIT_TEST( clock_evict_rooted_claim ) {
   FD_TEST( atomic_load_explicit( &recA->txn_idx, memory_order_relaxed )==UINT_MAX );
 
   /* Turn B into a zombie. */
-  FD_TEST( fd_prog_delete_rec( join, recB )>=0L );
+  FD_TEST( fd_prog_delete_rec( join, recB )==(long)recB->rodata_sz );
 
   /* Spend A's second chance so a draw on its slot takes it. */
   __atomic_fetch_and( &join->rec.ele[ recA-join->rec.ele ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
@@ -1523,7 +1528,7 @@ FD_UNIT_TEST( delete_rec_claim_aba ) {
 
   /* Retire the slot and hand it to B. */
   xid = test_root( join, xid ); /* detach A so the sweep can collect it */
-  FD_TEST( fd_prog_delete_rec( join, recA )>=0L );
+  FD_TEST( fd_prog_delete_rec( join, recA )==(long)recA->rodata_sz );
   FD_TEST( fd_prog_reclaim_work( join )==1UL );
   fd_progcache_rec_t * recB = test_pull( env->progcache, accB.entry, xid, &keyB, &load_env );
   FD_TEST( recB==recA ); /* same slot, different key */
@@ -1561,7 +1566,7 @@ FD_UNIT_TEST( clock_evict_delete_fails ) {
   fd_progcache_rec_t * rec2 = test_pull( env->progcache, acc2.entry, xid, &key2, &load_env );
   FD_TEST( rec1 && rec2 );
 
-  xid = test_root( env->progcache->join, xid ); /* only rooted records are evictable */
+  xid = test_root( env->progcache->join, xid ); /* detach so the claim goes through the rooted arm */
 
   ulong rec1_idx = (ulong)( rec1 - env->progcache->join->rec.ele );
   ulong rec2_idx = (ulong)( rec2 - env->progcache->join->rec.ele );
@@ -1583,7 +1588,7 @@ FD_UNIT_TEST( clock_evict_delete_fails ) {
      so the sweep skips it; rec2 (unvisited) is evicted. */
   test_evict( env->progcache, valid_program_data_sz );
 
-  FD_TEST( env->progcache->metrics->evict_cnt - evict_cnt_before >= 1UL );
+  FD_TEST( env->progcache->metrics->evict_cnt - evict_cnt_before == 1UL );
   FD_TEST( !test_peek( env->progcache, xid, &key2, 0UL, 0UL ) );
 
   fd_prog_state_clear( recs, rec1_idx ); /* undo the injected flag */
@@ -1617,7 +1622,7 @@ FD_UNIT_TEST( evict_hands_over_slot ) {
   }
 
   fd_progcache_join_t * join  = env->progcache->join;
-  xid = test_root( join, xid ); /* only rooted records are evictable */
+  xid = test_root( join, xid ); /* detach so the claim goes through the rooted arm */
   for( ulong i=0UL; i<2UL; i++ )
     __atomic_fetch_and( &rec[ i ]->state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
 
@@ -1667,7 +1672,7 @@ FD_UNIT_TEST( evict_skips_pinned_victims ) {
   }
 
   fd_progcache_join_t * join  = env->progcache->join;
-  xid = test_root( join, xid ); /* only rooted records are evictable */
+  xid = test_root( join, xid ); /* detach so the claim goes through the rooted arm */
 
   /* The sweep walks the class low index to high, so releasing the higher of the
      two leaves a read-locked victim in front of it. */
@@ -1770,7 +1775,7 @@ FD_UNIT_TEST( clock_evict_frees_bytes ) {
   FD_TEST( rec1 );
   FD_TEST( rec1->data_gaddr );
 
-  xid = test_root( env->progcache->join, xid ); /* only rooted records are evictable */
+  xid = test_root( env->progcache->join, xid ); /* detach so the claim goes through the rooted arm */
 
   ulong rec_idx = (ulong)( rec1 - env->progcache->join->rec.ele );
 
@@ -1822,7 +1827,7 @@ FD_UNIT_TEST( pull_refreshes_clock_bit ) {
   fd_progcache_rec_t * rec_cold = test_pull( env->progcache, acc_cold.entry, xid, &key_cold, &load_env );
   FD_TEST( rec_hot && rec_cold );
 
-  xid = test_root( env->progcache->join, xid ); /* only rooted records are evictable */
+  xid = test_root( env->progcache->join, xid ); /* detach so the claim goes through the rooted arm */
 
   ulong hot_idx  = (ulong)( rec_hot  - env->progcache->join->rec.ele );
   ulong cold_idx = (ulong)( rec_cold - env->progcache->join->rec.ele );
@@ -1877,13 +1882,13 @@ FD_UNIT_TEST( nx_class ) {
   FD_TEST( fd_progcache_class_free_cnt( env->progcache->join->shmem, cls )==free0-1UL );
   fd_progcache_rec_close( env->progcache, rec );
 
-  xid = test_root( env->progcache->join, xid ); /* only rooted records are evictable */
+  xid = test_root( env->progcache->join, xid ); /* detach so the claim goes through the rooted arm */
 
   /* Evict it (clear visited so it goes on the first pass). */
   __atomic_fetch_and( &env->progcache->join->rec.ele[ rec_idx ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
   ulong evict_before = env->progcache->metrics->evict_cnt;
   test_evict( env->progcache, invalid_program_data_sz );
-  FD_TEST( env->progcache->metrics->evict_cnt - evict_before >= 1UL );
+  FD_TEST( env->progcache->metrics->evict_cnt - evict_before == 1UL );
   FD_TEST( !test_peek( env->progcache, xid, &key, 0UL, 0UL ) );                    /* gone */
   FD_TEST( fd_progcache_class_free_cnt( env->progcache->join->shmem, cls )==free0 ); /* slot returned */
 
@@ -2055,7 +2060,7 @@ FD_UNIT_TEST( spill_sticks_for_nested_frames ) {
      and remove its record outright, so no CLOCK decision is involved. */
   fd_progcache_rec_close( pc, held[ 0 ] );
   xid = test_root( pc->join, xid ); /* detach it so the sweep can collect it */
-  FD_TEST( fd_prog_delete_rec( pc->join, held[ 0 ] )>=0L );
+  FD_TEST( fd_prog_delete_rec( pc->join, held[ 0 ] )==(long)held[ 0 ]->rodata_sz );
   FD_TEST( fd_prog_reclaim_work( pc->join )==1UL );
   FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==1UL );
 
@@ -2229,9 +2234,8 @@ conc_worker( void * arg ) {
 FD_UNIT_TEST( cancel_concurrent_readers ) {
   ulong wksp_tag  = 1UL;
   ulong txn_max   = 64UL;
-  /* Headroom past the floor: the workers' records are attached (their fork is
-     never rooted), so at the bare minimum every worker miss would serialize
-     through the spill lock instead of contending the classes. */
+  /* Headroom past the floor so worker misses fill from free slots and the
+     churn contends the classes rather than the spill lock. */
   ulong progcache_sz = fd_progcache_shmem_min_sz( 64UL ) + (17UL<<20);
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_sz ), wksp_tag );
@@ -2326,10 +2330,9 @@ FD_UNIT_TEST( cancel_concurrent_readers ) {
 FD_UNIT_TEST( spill_concurrent ) {
   ulong wksp_tag = 1UL;
   ulong txn_max  = 64UL;
-  /* The smallest legal budget puts every small class at its 20-slot minimum
-     (class 0 gets 22), fewer than the CONC_NTHREAD*CONC_HOLD records the
-     threads hold at once -- so the cache cannot satisfy them all and the
-     surplus must come from the spill. */
+  /* Class 0 sits at its 50-slot minimum and the CONC_NTHREAD*CONC_HOLD records
+     held at once fit in it: the spills come from sweeps whose draws all land on
+     records whose fork lock a peer holds. */
   ulong progcache_sz = fd_progcache_shmem_min_sz( txn_max );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_sz ), wksp_tag );
