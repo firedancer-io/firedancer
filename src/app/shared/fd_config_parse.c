@@ -131,6 +131,22 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  snapshots.server.send_timeout_millis                );
   CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
+  CFG_POP      ( bool,   failover.enabled                                    );
+  CFG_POP      ( bool,   failover.dial_peer                                  );
+  CFG_POP      ( cstr,   failover.bind_address                               );
+  CFG_POP      ( ushort, failover.bind_port                                  );
+  CFG_POP      ( cstr,   failover.peer_address                               );
+  CFG_POP      ( ushort, failover.peer_port                                  );
+  CFG_POP      ( cstr,   failover.peer_junk_pubkey                           );
+  CFG_POP      ( cstr,   failover.junk_identity_path                         );
+  CFG_POP      ( cstr,   failover.staked_identity_path                       );
+  CFG_POP      ( ulong,  failover.status_interval_millis                     );
+  CFG_POP      ( ulong,  failover.replication_lag_slots                      );
+  CFG_POP      ( ulong,  failover.peer_silence_intervals                     );
+  CFG_POP      ( ulong,  failover.retry_backoff_min_millis                   );
+  CFG_POP      ( ulong,  failover.retry_backoff_max_millis                   );
+  CFG_POP      ( bool,   failover.tower_file                                 );
+
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
   CFG_POP      ( bool,   development.alpenglow                               );

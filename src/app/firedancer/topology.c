@@ -1428,6 +1428,29 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "admin" ) ) ) {
 
     fd_cstr_ncpy( tile->admin.identity_key_path, config->paths.identity_key, sizeof(tile->admin.identity_key_path) );
+    tile->admin.failover_enabled   = config->firedancer.failover.enabled;
+    tile->admin.failover_dial_peer = config->firedancer.failover.dial_peer;
+    fd_cstr_ncpy( tile->admin.failover_bind_address,         config->firedancer.failover.bind_address,         sizeof(tile->admin.failover_bind_address)     );
+    fd_cstr_ncpy( tile->admin.failover_peer_address,         config->firedancer.failover.peer_address,         sizeof(tile->admin.failover_peer_address)     );
+    fd_cstr_ncpy( tile->admin.failover_peer_junk_pubkey,     config->firedancer.failover.peer_junk_pubkey,     sizeof(tile->admin.failover_peer_junk_pubkey) );
+    fd_cstr_ncpy( tile->admin.failover_junk_identity_path,   config->firedancer.failover.junk_identity_path,   sizeof(tile->admin.failover_junk_identity_path) );
+    fd_cstr_ncpy( tile->admin.failover_staked_identity_path, config->firedancer.failover.staked_identity_path, sizeof(tile->admin.failover_staked_identity_path) );
+    fd_cstr_ncpy( tile->admin.failover_vote_account_path,    config->paths.vote_account,                       sizeof(tile->admin.failover_vote_account_path) );
+    tile->admin.failover_bind_port                = config->firedancer.failover.bind_port;
+    tile->admin.failover_peer_port                = config->firedancer.failover.peer_port;
+    tile->admin.failover_status_interval_millis   = config->firedancer.failover.status_interval_millis;
+    tile->admin.failover_replication_lag_slots    = config->firedancer.failover.replication_lag_slots;
+    tile->admin.failover_peer_silence_intervals   = config->firedancer.failover.peer_silence_intervals;
+    tile->admin.failover_retry_backoff_min_millis = config->firedancer.failover.retry_backoff_min_millis;
+    tile->admin.failover_retry_backoff_max_millis = config->firedancer.failover.retry_backoff_max_millis;
+    /* HELLO rejects a peer whose safety config differs.  The hash covers
+       the settings both hosts must agree on, today the tower persistence
+       switch.  Timing values stay local and out of it. */
+    struct __attribute__((packed)) { ulong layout; uchar tower_file; } cfg = {
+      .layout     = 1UL,
+      .tower_file = (uchar)!!config->firedancer.failover.tower_file,
+    };
+    tile->admin.failover_cfg_hash = fd_hash( 0xF17EDA2CE5FA1C0FUL, &cfg, sizeof(cfg) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 

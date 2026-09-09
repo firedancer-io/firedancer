@@ -211,6 +211,24 @@ struct fd_configf {
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
 
+  struct {
+    int    enabled;
+    int    dial_peer;
+    char   bind_address[ 64 ];
+    ushort bind_port;
+    char   peer_address[ 64 ];
+    ushort peer_port;
+    char   peer_junk_pubkey[ 45 ];
+    char   junk_identity_path[ PATH_MAX ];
+    char   staked_identity_path[ PATH_MAX ];
+    ulong  status_interval_millis;
+    ulong  replication_lag_slots;
+    ulong  peer_silence_intervals;
+    ulong  retry_backoff_min_millis;
+    ulong  retry_backoff_max_millis;
+    int    tower_file;
+  } failover;
+
 };
 
 typedef struct fd_configf fd_configf_t;
