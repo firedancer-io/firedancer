@@ -174,6 +174,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.snapshots                                  );
     CFG_POP    ( cstr,   paths.genesis                                    );
     CFG_POP    ( cstr,   paths.accounts                                   );
+    CFG_POP    ( cstr,   paths.stake_delegations                          );
     CFG_POP    ( cstr,   paths.shredb                                 );
     CFG_POP    ( cstr,   paths.guidb                                  );
   } else {

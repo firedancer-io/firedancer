@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_bank.h"
 
 #define POOL_NAME fd_banks_pool
@@ -5,34 +6,15 @@
 #include "../../util/tmpl/fd_pool.c"
 
 #include "../rewards/fd_stake_rewards.h"
+#include "../stakes/test_stake_delegations_util.h"
+#include "sysvar/fd_sysvar_epoch_schedule.h"
 
 #include <stdlib.h> // ARM64: aligned_alloc(3)
+#include <sys/mman.h>
+#include <unistd.h>
 
 #define TEST_BANK_STAKE_LAMPORTS (123456789UL)
 #define TEST_BANK_STAKE_ACC_DLEN (197U)
-
-/* These tests never drive stake delegations into pubkey fallback mode, so
-   the iterator never needs to resolve anything out of an accounts
-   database. */
-#define NO_RESOLVE NULL, ((fd_accdb_fork_id_t){ .val = USHORT_MAX }), 0UL, NULL
-
-static fd_stake_delegation_t const *
-test_bank_frontier_delegation_query( fd_banks_t *                   banks FD_PARAM_UNUSED,
-                                     fd_stake_delegations_t const * stake_delegations,
-                                     fd_pubkey_t const *            stake_account ) {
-  fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, NO_RESOLVE );
-       !fd_stake_delegations_iter_done( iter );
-       fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
-    if( FD_UNLIKELY( stake_delegation->is_tombstone ) ) continue;
-    if( FD_LIKELY( !memcmp( &stake_delegation->stake_account, stake_account, sizeof(fd_pubkey_t) ) ) ) {
-      return stake_delegation;
-    }
-  }
-
-  return NULL;
-}
 
 static fd_stake_delegations_t *
 test_bank_stake_delegations_frontier_mark( fd_banks_t * banks,
@@ -77,7 +59,7 @@ test_bank_assert_stake_metadata( fd_stake_delegation_t const * stake_delegation 
 
 static void
 test_bank_advancing( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   /* Create the following fork tree with refcnts:
 
          P(0)
@@ -361,7 +343,7 @@ test_bank_advancing( void * mem ) {
 
 static void
 test_bank_dead_eviction( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   fd_bank_t * bank_data_pool = fd_type_pun( (uchar *)banks + banks->pool_offset );
 
   fd_bank_t * bank_P = fd_banks_init_bank( banks );
@@ -563,7 +545,7 @@ test_bank_dead_eviction( void * mem ) {
 
 static void
 test_bank_evictable( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 8UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 8UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   banks->evict_rr_idx = 0UL; /* This test verifies a specific RR order. */
 
   /*     A
@@ -687,7 +669,7 @@ test_bank_evictable( void * mem ) {
 
 static void
 test_bank_evictable_protected( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 4UL, 4UL, 8UL, 128UL, 8UL, 0, 8889UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 4UL, 8UL, 128UL, 8UL, 0, 8889UL ) );
   FD_TEST( banks );
 
   fd_bank_t * root = fd_banks_init_bank( banks );
@@ -731,12 +713,12 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   ulong const max_vote_accounts     = 2048UL;
   ulong const max_stake_small       = 32UL;
   ulong const max_stake_large       = 2048UL;
-  ulong const max_fallback_stake    = 32768UL;
-  ulong const stake_footprint_small = fd_stake_delegations_footprint( max_stake_small, max_fallback_stake, max_stake_small, max_total_banks );
-  ulong const stake_footprint_large = fd_stake_delegations_footprint( max_stake_large, max_fallback_stake, max_stake_large, max_total_banks );
+  ulong const max_disk_records      = 32768UL;
+  ulong const stake_footprint_small = fd_stake_delegations_footprint( max_stake_small, max_total_banks );
+  ulong const stake_footprint_large = fd_stake_delegations_footprint( max_stake_large, max_total_banks );
   ulong const vote_footprint        = fd_vote_stakes_footprint( max_total_banks, max_fork_width );
 
-  fd_banks_t * banks_small = fd_banks_join( fd_banks_new( mem, max_total_banks, max_fork_width, max_stake_small, max_fallback_stake, max_vote_accounts, 0, 9991UL ) );
+  fd_banks_t * banks_small = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, max_fork_width, max_stake_small, max_disk_records, max_vote_accounts, 0, 9991UL ) );
   FD_TEST( banks_small );
 
   uchar * root_mem_small      = fd_type_pun( (uchar *)banks_small + banks_small->stake_delegations_offset );
@@ -765,16 +747,16 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   fd_stake_delegations_root_update( root_stake_delegations, &stake_0, &vote_0, 11UL, 1UL, 2UL, 3UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
   fd_stake_delegations_t * frontier_stake_delegations = test_bank_stake_delegations_frontier_mark( banks_small, root_bank );
-  FD_TEST( fd_stake_delegations_base_cnt( frontier_stake_delegations )==1UL );
-  fd_stake_delegation_t const * stake_delegation = test_bank_frontier_delegation_query( banks_small, frontier_stake_delegations, &stake_0 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( frontier_stake_delegations )==1UL );
+  fd_stake_delegation_t stake_delegation[1];
+  FD_TEST( test_stake_delegations_find_copy( frontier_stake_delegations, &stake_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake==11UL );
   test_bank_assert_stake_metadata( stake_delegation );
   FD_TEST( !memcmp( epoch_leaders_snapshot, (uchar *)banks_small + banks_small->epoch_leaders_offset, sizeof(epoch_leaders_snapshot) ) );
   test_bank_stake_delegations_frontier_unmark( banks_small, root_bank );
 
   /* Frontier overlays root with deltas during query; base root state is unchanged once query ends. */
-  FD_TEST( test_bank_frontier_delegation_query( banks_small, root_stake_delegations, &stake_0 ) );
+  FD_TEST( test_stake_delegations_contains( root_stake_delegations, &stake_0 ) );
 
   fd_bank_t * child_bank = fd_banks_new_bank( banks_small, root_bank->idx, 0L, 0 );
   ulong child_bank_idx = child_bank->idx;
@@ -785,38 +767,33 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   fd_stake_delegations_fork_update( sd, child_bank->stake_delegations_fork_id, &stake_0, &vote_0, 33UL, 4UL, 5UL, 6UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   fd_stake_delegations_fork_update( sd, child_bank->stake_delegations_fork_id, &stake_1, &vote_1, 22UL, 4UL, 5UL, 6UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   frontier_stake_delegations = test_bank_stake_delegations_frontier_mark( banks_small, child_bank );
-  FD_TEST( fd_stake_delegations_base_cnt( frontier_stake_delegations )==2UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks_small, frontier_stake_delegations, &stake_0 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( frontier_stake_delegations )==2UL );
+  FD_TEST( test_stake_delegations_find_copy( frontier_stake_delegations, &stake_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake==33UL );
   test_bank_assert_stake_metadata( stake_delegation );
-  stake_delegation = test_bank_frontier_delegation_query( banks_small, frontier_stake_delegations, &stake_1 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_find_copy( frontier_stake_delegations, &stake_1, stake_delegation ) );
   FD_TEST( stake_delegation->stake==22UL );
   test_bank_assert_stake_metadata( stake_delegation );
   FD_TEST( !memcmp( epoch_leaders_snapshot, (uchar *)banks_small + banks_small->epoch_leaders_offset, sizeof(epoch_leaders_snapshot) ) );
   test_bank_stake_delegations_frontier_unmark( banks_small, child_bank );
 
   /* Root state should still reflect only rooted delegations pre-publish. */
-  stake_delegation = test_bank_frontier_delegation_query( banks_small, root_stake_delegations, &stake_0 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_find_copy( root_stake_delegations, &stake_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake==11UL );
   test_bank_assert_stake_metadata( stake_delegation );
-  FD_TEST( !test_bank_frontier_delegation_query( banks_small, root_stake_delegations, &stake_1 ) );
+  FD_TEST( !test_stake_delegations_contains( root_stake_delegations, &stake_1 ) );
 
   fd_banks_mark_bank_frozen( child_bank );
   fd_banks_advance_root( banks_small, child_bank_idx );
   root_stake_delegations = fd_banks_stake_delegations_root_query( banks_small );
-  stake_delegation = test_bank_frontier_delegation_query( banks_small, root_stake_delegations, &stake_0 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_find_copy( root_stake_delegations, &stake_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake==33UL );
   test_bank_assert_stake_metadata( stake_delegation );
-  stake_delegation = test_bank_frontier_delegation_query( banks_small, root_stake_delegations, &stake_1 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_find_copy( root_stake_delegations, &stake_1, stake_delegation ) );
   FD_TEST( stake_delegation->stake==22UL );
   test_bank_assert_stake_metadata( stake_delegation );
 
-  fd_banks_t * banks_large = fd_banks_join( fd_banks_new( mem, max_total_banks, max_fork_width, max_stake_large, max_fallback_stake, max_vote_accounts, 0, 9992UL ) );
+  fd_banks_t * banks_large = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, max_fork_width, max_stake_large, max_disk_records, max_vote_accounts, 0, 9992UL ) );
   FD_TEST( banks_large );
 
   uchar * root_mem_large      = fd_type_pun( (uchar *)banks_large + banks_large->stake_delegations_offset );
@@ -833,7 +810,7 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
 
 static void
 test_bank_advance_root_preserves_inherited_stake_rewards( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 6666UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 6666UL ) );
   FD_TEST( banks );
 
   fd_bank_t * bank_A = fd_banks_init_bank( banks );
@@ -900,7 +877,7 @@ static void
 test_stake_rewards_metadata_survives_three_fork_thrash( void * mem ) {
   ulong const max_total_banks = 16UL;
   fd_banks_t * banks = fd_banks_join( fd_banks_new(
-      mem, max_total_banks, 3UL, 2048UL, 32768UL, 2048UL, 0, 9993UL ) );
+      mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, 3UL, 2048UL, 32768UL, 2048UL, 0, 9993UL ) );
   FD_TEST( banks );
   fd_bank_t * bank = fd_banks_init_bank( banks );
   FD_TEST( bank );
@@ -973,7 +950,7 @@ test_stake_rewards_wide_fork_ids( void ) {
 
 static void
 test_bank_clear( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 7777UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 7777UL ) );
   FD_TEST( banks );
 
   fd_bank_t * root = fd_banks_init_bank( banks );
@@ -1027,7 +1004,7 @@ test_bank_clear( void * mem ) {
 
 static void
 test_bank_epoch_credits_singleton( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 4UL, 2UL, 16UL, 256UL, 4UL, 0, 7777UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 2UL, 16UL, 256UL, 4UL, 0, 7777UL ) );
   FD_TEST( banks );
 
   fd_bank_t * root = fd_banks_init_bank( banks );
@@ -1066,13 +1043,13 @@ test_bank_epoch_credits_fork_id_width( void ) {
 static void
 test_bank_max_fork_width_limit( void ) {
   uchar mem[ FD_BANKS_ALIGN ] __attribute__((aligned(FD_BANKS_ALIGN)));
-  FD_TEST( !fd_banks_new( mem, 16UL, FD_BANKS_MAX_BANKS+1UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  FD_TEST( !fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, FD_BANKS_MAX_BANKS+1UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
 }
 
 static void
 test_bank_stake_delegations_fork_ids( void * mem ) {
   fd_banks_t * banks = fd_banks_join(
-      fd_banks_new( mem, 4UL, 2UL, 8UL, 128UL, 8UL, 0, 10000UL ) );
+      fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 2UL, 8UL, 128UL, 8UL, 0, 10000UL ) );
   FD_TEST( banks );
 
   fd_bank_t * root = fd_banks_init_bank( banks );
@@ -1098,7 +1075,7 @@ static void
 test_bank_advance_root_prunes_inactive_stakes( void * mem ) {
   for( int feature_active=0; feature_active<=1; feature_active++ ) {
     fd_banks_t * banks = fd_banks_join(
-        fd_banks_new( mem, 4UL, 2UL, 8UL, 128UL, 8UL, 0, 10001UL+(ulong)feature_active ) );
+        fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 2UL, 8UL, 128UL, 8UL, 0, 10001UL+(ulong)feature_active ) );
     FD_TEST( banks );
 
     fd_bank_t * root = fd_banks_init_bank( banks );
@@ -1149,20 +1126,21 @@ test_bank_advance_root_prunes_inactive_stakes( void * mem ) {
         TEST_BANK_STAKE_ACC_DLEN,
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 
+    fd_stake_delegation_t stake_delegation[1];
     fd_stake_delegations_t * child_frontier =
         test_bank_stake_delegations_frontier_mark( banks, child );
-    FD_TEST( test_bank_frontier_delegation_query(
-        banks, child_frontier, &stake_account )->deactivation_epoch==2U );
+    FD_TEST( test_stake_delegations_find_copy( child_frontier, &stake_account, stake_delegation ) );
+    FD_TEST( stake_delegation->deactivation_epoch==2U );
     test_bank_stake_delegations_frontier_unmark( banks, child );
 
     fd_stake_delegations_t * sibling_frontier =
         test_bank_stake_delegations_frontier_mark( banks, sibling );
-    FD_TEST( test_bank_frontier_delegation_query(
-        banks, sibling_frontier, &stake_account )->deactivation_epoch==USHORT_MAX );
+    FD_TEST( test_stake_delegations_find_copy( sibling_frontier, &stake_account, stake_delegation ) );
+    FD_TEST( stake_delegation->deactivation_epoch==USHORT_MAX );
     test_bank_stake_delegations_frontier_unmark( banks, sibling );
 
     fd_banks_advance_root( banks, child->idx );
-    FD_TEST( !!fd_stake_delegation_root_query(
+    FD_TEST( !!test_stake_delegations_contains(
         stake_delegations, &stake_account )==!feature_active );
   }
 }
@@ -1170,6 +1148,13 @@ test_bank_advance_root_prunes_inactive_stakes( void * mem ) {
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+
+  int spill_fd = memfd_create( "bank_stakedel_spill", 0 );
+  FD_TEST( spill_fd>=0 );
+  if( spill_fd!=FD_STAKE_DELEGATIONS_FD ) {
+    FD_TEST( dup2( spill_fd, FD_STAKE_DELEGATIONS_FD )==FD_STAKE_DELEGATIONS_FD );
+    FD_TEST( !close( spill_fd ) );
+  }
 
   fd_pubkey_t key_0 = { .ul[0] = 1 };
   fd_pubkey_t key_1 = { .ul[0] = 2 };
@@ -1191,7 +1176,7 @@ main( int argc, char ** argv ) {
 
   test_bank_max_fork_width_limit();
 
-  ulong const fp = fd_banks_footprint( 16UL, 8UL, 2048UL, 32768UL, 2048UL );
+  ulong const fp = fd_banks_footprint( 16UL, 8UL, 2048UL, 2048UL );
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fp, 1UL );
   FD_TEST( mem );
 # if !FD_HAS_MSAN
@@ -1200,7 +1185,7 @@ main( int argc, char ** argv ) {
 
   test_bank_stake_delegations_fork_ids( mem );
 
-  mem = fd_banks_new( mem, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL );
+  mem = fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL );
   FD_TEST( mem );
 
   /* Init banks */
@@ -1228,9 +1213,9 @@ main( int argc, char ** argv ) {
   fd_stake_delegations_fork_update( sd_test, bank->stake_delegations_fork_id, &key_0, &key_9, 100UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
   fd_stake_delegations_t * stake_delegations = test_bank_stake_delegations_frontier_mark( banks, bank );
-  FD_TEST( fd_stake_delegations_base_cnt( stake_delegations ) == 1UL );
-  fd_stake_delegation_t const * stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_0 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 1UL );
+  fd_stake_delegation_t stake_delegation[1];
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
   FD_TEST( !memcmp( &stake_delegation->vote_account, &key_9, sizeof(fd_pubkey_t) ) );
   FD_TEST( !memcmp( &stake_delegation->stake_account, &key_0, sizeof(fd_pubkey_t) ) );
@@ -1258,9 +1243,8 @@ main( int argc, char ** argv ) {
      after a new bank has been created. */
 
   stake_delegations = test_bank_stake_delegations_frontier_mark( banks, bank );
-  FD_TEST( fd_stake_delegations_base_cnt( stake_delegations ) == 1UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_0 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 1UL );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
   test_bank_stake_delegations_frontier_unmark( banks, bank );
 
@@ -1270,13 +1254,11 @@ main( int argc, char ** argv ) {
   fd_stake_delegations_fork_update( sd_test, bank2->stake_delegations_fork_id, &key_0, &key_0, 200UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   fd_stake_delegations_fork_update( sd_test, bank2->stake_delegations_fork_id, &key_1, &key_8, 100UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   stake_delegations = test_bank_stake_delegations_frontier_mark( banks, bank2 );
-  FD_TEST( fd_stake_delegations_base_cnt( stake_delegations ) == 2UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_0 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 2UL );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 200UL );
   test_bank_assert_stake_metadata( stake_delegation );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_1, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
   test_bank_assert_stake_metadata( stake_delegation );
   test_bank_stake_delegations_frontier_unmark( banks, bank2 );
@@ -1298,12 +1280,11 @@ main( int argc, char ** argv ) {
   sd_test = fd_bank_stake_delegations_modify( bank3 );
   fd_stake_delegations_fork_update( sd_test, bank3->stake_delegations_fork_id, &key_2, &key_7, 10UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   stake_delegations = test_bank_stake_delegations_frontier_mark( banks, bank3 );
-  FD_TEST( fd_stake_delegations_base_cnt( stake_delegations ) == 2UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_2 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 2UL );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_2, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 10UL );
   test_bank_assert_stake_metadata( stake_delegation );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_0 );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
   test_bank_stake_delegations_frontier_unmark( banks, bank3 );
 
@@ -1359,16 +1340,14 @@ main( int argc, char ** argv ) {
   fd_stake_delegations_fork_update( sd_test, bank7->stake_delegations_fork_id, &key_3, &key_6, 7UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   stake_delegations = test_bank_stake_delegations_frontier_mark( banks, bank7 );
 
-  FD_TEST( fd_stake_delegations_base_cnt( stake_delegations ) == 3UL );
-  FD_TEST( test_bank_frontier_delegation_query( banks, stake_delegations, &key_0 ) ); // bank2
-  FD_TEST( test_bank_frontier_delegation_query( banks, stake_delegations, &key_1 ) ); // bank2
-  FD_TEST( test_bank_frontier_delegation_query( banks, stake_delegations, &key_3 ) ); // bank7
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_3 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 3UL );
+  FD_TEST( test_stake_delegations_contains( stake_delegations, &key_0 ) ); // bank2
+  FD_TEST( test_stake_delegations_contains( stake_delegations, &key_1 ) ); // bank2
+  FD_TEST( test_stake_delegations_contains( stake_delegations, &key_3 ) ); // bank7
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_3, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 7UL );
   test_bank_assert_stake_metadata( stake_delegation );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_1, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
   test_bank_stake_delegations_frontier_unmark( banks, bank7 );
 
@@ -1389,9 +1368,8 @@ main( int argc, char ** argv ) {
   sd_test = fd_bank_stake_delegations_modify( bank8 );
   fd_stake_delegations_fork_update( sd_test, bank8->stake_delegations_fork_id, &key_4, &key_5, 4UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   stake_delegations = test_bank_stake_delegations_frontier_mark( banks, bank8 );
-  FD_TEST( fd_stake_delegations_base_cnt( stake_delegations ) == 4UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_4 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 4UL );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_4, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 4UL );
   test_bank_assert_stake_metadata( stake_delegation );
   test_bank_stake_delegations_frontier_unmark( banks, bank8 );
@@ -1410,12 +1388,10 @@ main( int argc, char ** argv ) {
      published any delegations. */
 
   stake_delegations = test_bank_stake_delegations_frontier_mark( banks, bank9 );
-  FD_TEST( fd_stake_delegations_base_cnt( stake_delegations ) == 3UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_3 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 3UL );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_3, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 7UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_1, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
   test_bank_stake_delegations_frontier_unmark( banks, bank9 );
 
@@ -1450,22 +1426,18 @@ main( int argc, char ** argv ) {
   FD_TEST( !fd_banks_bank_query( banks, bank_idx3 ) );
 
   stake_delegations = test_bank_stake_delegations_frontier_mark( banks, new_root );
-  FD_TEST( fd_stake_delegations_base_cnt( stake_delegations ) == 3UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_3 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 3UL );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_3, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 7UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_1, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
   test_bank_stake_delegations_frontier_unmark( banks, new_root );
 
   stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  FD_TEST( fd_stake_delegations_base_cnt( stake_delegations ) == 3UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_3 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_base_cnt( stake_delegations ) == 3UL );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_3, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 7UL );
-  stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &key_1, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
 
   /* Create some new children */

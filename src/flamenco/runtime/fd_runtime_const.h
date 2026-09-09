@@ -31,15 +31,10 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
 
-/* FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK is the number of stake
-   accounts that the system can support.  FD_RUNTIME_STAKE_ACCOUNTS is
-   the measure of active stake accounts while _FALLBACK is the measure
-   of total stake accounts that the network can support.  This is a
-   measured and chosen threshold based on what the wider network on
-   mainnet can reasonably support across clients and valdiator
-   hardware. */
+/* FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS is the maximum number
+   of records in each stake-delegation disk tier. */
 
-#define FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK (100000000UL)
+#define FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS (100000000UL)
 
 /* The runtime only supports post-validator_admission_ticket banks.  The
    accumulator can still see one distinct voter per stake account before

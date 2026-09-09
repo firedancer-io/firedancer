@@ -381,7 +381,6 @@ struct fd_banks {
   ulong bank_seq;                    /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
   ulong evict_rr_idx;                /* internal index for round-robin banks eviction */
   ulong prunable_idx;                /* index of pending prunable bank, ULONG_MAX if none */
-  ulong max_fallback_stake_accounts; /* Maximum number of stake accounts nameable by the pubkey fallback tier */
 
   ulong curr_fork_width;
 
@@ -560,20 +559,21 @@ ulong
 fd_banks_footprint( ulong max_total_banks,
                     ulong max_fork_width,
                     ulong max_stake_accounts,
-                    ulong max_fallback_stake_accounts,
                     ulong max_vote_accounts );
 
 /* fd_banks_new() creates a new fd_banks_t struct.  This function
    lays out the memory for all of the constituent fd_bank_t structs
    and pools depending on the max_total_banks and the max_fork_width for
-   a given block. */
+   a given block.  stake_delegations_fd identifies the backing file for
+   this instance's stake delegation store. */
 
 void *
 fd_banks_new( void * mem,
+              int    stake_delegations_fd,
               ulong  max_total_banks,
               ulong  max_fork_width,
               ulong  max_stake_accounts,
-              ulong  max_fallback_stake_accounts,
+              ulong  max_disk_records,
               ulong  max_vote_accounts,
               ulong  bench_max_cost_per_block, /* [development.bench], floors the block cost limit */
               ulong  seed );

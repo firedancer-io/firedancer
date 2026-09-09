@@ -8,6 +8,7 @@
 #include "../../progcache/fd_progcache_admin.h"
 #include <errno.h>
 #include <sys/mman.h>
+#include <unistd.h>
 #include "../../../util/shmem/fd_shmem_private.h"
 
 fd_wksp_t *
@@ -79,6 +80,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
                        ulong                               wksp_tag,
                        fd_solfuzz_runner_options_t const * options ) {
 
+  int stake_delegations_fd = -1;
+
   /* Allocate objects */
   ulong const txn_max  = 16UL;
   ulong const progcache_sz = fd_progcache_shmem_min_sz( txn_max );
@@ -106,7 +109,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(),   fd_progcache_shmem_footprint( txn_max, progcache_sz ),       wksp_tag );
   uchar *               scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,                              wksp_tag );
   void *                spad_mem     = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),                               wksp_tag );
-  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 32768UL, 2048UL ), wksp_tag );
+  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner       ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed"                                            )); goto bail1; }
   if( FD_UNLIKELY( !accdb_shmem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_shmem) failed"                                               )); goto bail1; }
   if( FD_UNLIKELY( !accdb_join   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_join) failed"                                                )); goto bail1; }
@@ -123,6 +126,9 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   /* Create accdb backed by memfd */
   int accdb_fd = memfd_create( "accdb_fuzz", 0 );
   if( FD_UNLIKELY( accdb_fd<0 ) ) { FD_LOG_WARNING(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) )); goto bail1; }
+  stake_delegations_fd = memfd_create( "stake_delegations_fuzz", 0 );
+  if( FD_UNLIKELY( stake_delegations_fd<0 ) ) { FD_LOG_WARNING(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) )); goto bail1; }
+  runner->stake_delegations_fd = stake_delegations_fd;
 
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( accdb_shmem, max_accounts, max_live_slots,
@@ -151,8 +157,9 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
   /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
-  runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  runner->banks = fd_banks_join( fd_banks_new( banks_mem, stake_delegations_fd, bank_max, fork_max, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
+  FD_TEST( fd_banks_stake_delegations_root_query( runner->banks )->disk_fd_==stake_delegations_fd );
 
   /* Runtime block execution requires every non-genesis bank to have a
      parent.  Keep the root bank as that parent and run harnesses against
@@ -179,6 +186,7 @@ bail2:
   if( runner->spad ) fd_spad_delete( fd_spad_leave( runner->spad ) );
   if( shpcache     ) fd_progcache_shmem_delete( shpcache );
 bail1:
+  if( stake_delegations_fd>=0 ) close( stake_delegations_fd );
   fd_wksp_free_laddr( scratch      );
   fd_wksp_free_laddr( pcache_mem   );
   fd_wksp_free_laddr( accdb_join   );
@@ -201,6 +209,7 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 
   fd_wksp_free_laddr( fd_progcache_shmem_delete( shpcache ) );
   fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
+  FD_TEST( !close( runner->stake_delegations_fd ) );
   fd_wksp_free_laddr( runner->banks );
   fd_wksp_free_laddr( runner );
 }

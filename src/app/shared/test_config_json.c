@@ -55,6 +55,13 @@ main( int     argc,
 
   static fd_config_t config[1];
   fd_config_load( 1, 0, default_config, strlen( default_config ), NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 );
+  char expected_stake_delegations[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( expected_stake_delegations,
+                                 sizeof(expected_stake_delegations),
+                                 NULL,
+                                 "%s/stakedelegations.db",
+                                 config->paths.base ) );
+  FD_TEST( !strcmp( config->paths.stake_delegations, expected_stake_delegations ) );
 
   strcpy( config->tiles.bundle.url, "https://user:hunter2@mainnet.example.com:443/v1/txns?api-key=SECRET#frag" );
   strcpy( config->tiles.event.url,  "https://events.example.com/submit" );
