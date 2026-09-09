@@ -18,6 +18,13 @@
 #include "../fd_rwlock.h"
 #include "../runtime/fd_runtime_const.h"
 
+/* Eviction may claim records still attached to a live fork (unlinked under the
+   fork lock); 0 restricts it to rooted records. */
+
+#ifndef FD_PROGCACHE_EVICT_UNROOTED
+#define FD_PROGCACHE_EVICT_UNROOTED 1
+#endif
+
 /* fd_progcache_shmem_t is the top-level shared memory data structure
    of the progcache. */
 

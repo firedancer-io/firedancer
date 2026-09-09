@@ -759,8 +759,7 @@ FD_UNIT_TEST( housekeeping ) {
 }
 
 /* test_preevict: the housekeeping top-up frees a slot via the eviction sweep
-   only when the class free list is below target, takes only rooted victims,
-   and bumps no metrics. */
+   only when the class free list is below target, and bumps no metrics. */
 
 FD_UNIT_TEST( preevict ) {
   test_env_t * env = test_env_create( wksp );
@@ -782,9 +781,11 @@ FD_UNIT_TEST( preevict ) {
   ulong free0   = fd_progcache_class_free_cnt( shmem, 0UL );
   ulong evicts0 = env->progcache->metrics->evict_cnt;
 
+#if !FD_PROGCACHE_EVICT_UNROOTED
   /* Attached records are not victims: the sweep comes up empty. */
   FD_TEST( fd_prog_preevict( join, 0UL, free0+1UL )==0UL );
   FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==free0 );
+#endif
 
   xid = test_root( join, xid ); /* detach both */
 

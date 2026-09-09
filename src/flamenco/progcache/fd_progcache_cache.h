@@ -56,12 +56,14 @@ fd_progcache_cache_class( ulong program_sz ) {
   return FD_PROGCACHE_CACHE_CLASS_CNT;
 }
 
-/* fd_progcache_cache_class_min returns the guaranteed minimum slot count
-   of class c: 30 for classes up to 2 MiB, 3 for the larger ones.  This is
-   used to derive the minimum memory requirements for progcache. */
+/* Guaranteed minimum slots per class; derives the minimum progcache footprint. */
+static const ulong fd_progcache_cache_class_min_tbl[ FD_PROGCACHE_CACHE_CLASS_CNT ] = {
+  50UL, 50UL, 30UL, 30UL, 10UL, 3UL
+};
+
 FD_FN_CONST static inline ulong
 fd_progcache_cache_class_min( ulong c ) {
-  return fd_progcache_cache_slot_sz[ c ]<=(2UL<<20) ? 30UL : 3UL;
+  return fd_progcache_cache_class_min_tbl[ c ];
 }
 
 

@@ -14,7 +14,8 @@ static long
 delete_rec_inner( fd_progcache_join_t *          cache,
                   fd_progcache_rec_t *           rec,
                   fd_progcache_rec_key_t const * _pair,
-                  int                            claim ) {
+                  int                            claim,
+                  fd_progcache_txn_t *           owner ) {
   if( !rec ) return -1L;
 
   fd_progcache_rec_key_t pair = *_pair;
@@ -39,12 +40,14 @@ delete_rec_inner( fd_progcache_join_t *          cache,
     ok = !!fd_rwlock_trywrite( &rec->lock );
     fd_racesan_hook( "prog_delete_rec:post_claim" );
     if( ok ) {
-      /* The write lock freezes the record, so these reads decide.  A slot recycled
-         since the caller chose it reads back LOADING or LIVE|VISITED, and one that
-         went back onto a fork's record list is not ours to take. */
-      uchar st = __atomic_load_n( &rec->state, __ATOMIC_RELAXED );
+      /* The write lock freezes the record, so these reads decide: a rooted claim
+         needs it detached, an owner claim needs it still owner's (xid rejects a
+         recycled txn slot). */
+      uchar st   = __atomic_load_n( &rec->state, __ATOMIC_RELAXED );
+      uint  want = owner ? (uint)( owner - cache->txn.pool ) : UINT_MAX;
       ok = !!( st & FD_PROGCACHE_REC_LIVE ) & !( st & FD_PROGCACHE_REC_VISITED )
-         & ( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )==UINT_MAX );
+         & ( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )==want );
+      if( owner ) ok &= ( owner->xid==rec->pair.xid );
       if( FD_UNLIKELY( !ok ) ) fd_rwlock_unwrite( &rec->lock );
     }
   }
@@ -53,6 +56,23 @@ delete_rec_inner( fd_progcache_join_t *          cache,
     fd_prog_recm_txn_test( map_txn );
     fd_prog_recm_txn_fini( map_txn );
     return -1L;
+  }
+
+  /* Splice an attached victim out of owner's list (owner->lock held by the
+     caller), only now that the claim is certain. */
+  if( owner ) {
+    ulong rec_max = cache->rec.max;
+    uint  p = rec->prev_idx;
+    uint  n = rec->next_idx;
+    if( n!=UINT_MAX ) {
+      if( FD_UNLIKELY( (ulong)n>=rec_max ) ) FD_LOG_CRIT(( "progcache: corruption detected (evict unlink next_idx=%u rec_max=%lu)", n, rec_max ));
+      cache->rec.ele[ n ].prev_idx = p;
+    } else owner->rec_tail_idx = p;
+    if( p!=UINT_MAX ) {
+      if( FD_UNLIKELY( (ulong)p>=rec_max ) ) FD_LOG_CRIT(( "progcache: corruption detected (evict unlink prev_idx=%u rec_max=%lu)", p, rec_max ));
+      cache->rec.ele[ p ].next_idx = n;
+    } else owner->rec_head_idx = n;
+    atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
   }
 
   /* Drop record */
@@ -78,14 +98,22 @@ fd_prog_delete_rec( fd_progcache_join_t * cache,
                     fd_progcache_rec_t *  rec ) {
   if( !rec ) return -1L;
   fd_progcache_rec_key_t pair = rec->pair;
-  return delete_rec_inner( cache, rec, &pair, 0 );
+  return delete_rec_inner( cache, rec, &pair, 0, NULL );
 }
 
 long
 fd_prog_delete_rec_claim( fd_progcache_join_t *          cache,
                           fd_progcache_rec_t *           rec,
                           fd_progcache_rec_key_t const * pair ) {
-  return delete_rec_inner( cache, rec, pair, 1 );
+  return delete_rec_inner( cache, rec, pair, 1, NULL );
+}
+
+long
+fd_prog_delete_rec_claim_txn( fd_progcache_join_t *          cache,
+                              fd_progcache_rec_t *           rec,
+                              fd_progcache_rec_key_t const * pair,
+                              fd_progcache_txn_t *           owner ) {
+  return delete_rec_inner( cache, rec, pair, 1, owner );
 }
 
 ulong
