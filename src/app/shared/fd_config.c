@@ -121,6 +121,17 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.accounts, sizeof(config->paths.accounts), NULL, "%s/accounts.db", config->paths.base ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->paths.stake_delegations, "" ) ) ) {
+    replace( config->paths.stake_delegations, "{user}", config->user );
+    replace( config->paths.stake_delegations, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.stake_delegations,
+                                   sizeof(config->paths.stake_delegations),
+                                   NULL,
+                                   "%s.stakedel",
+                                   config->paths.accounts ) );
+  }
+
   if( FD_UNLIKELY( strcmp( config->paths.shredb, "" ) ) ) {
     replace( config->paths.shredb, "{user}", config->user );
     replace( config->paths.shredb, "{name}", config->name );

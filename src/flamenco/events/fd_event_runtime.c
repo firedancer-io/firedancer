@@ -3,7 +3,6 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/sysvar/fd_sysvar_last_restart_slot.h"
 #include "../runtime/sysvar/fd_sysvar_recent_hashes.h"
-#include "../stakes/fd_stakes.h"
 #include "../../ballet/blake3/fd_blake3.h"
 
 void
@@ -251,7 +250,7 @@ fd_event_runtime_stake_delegation_payout_emit( fd_bank_t const * bank,
                                                 activation_epoch, deactivation_epoch, credits_observed );
 }
 
-/* Boundary processing runs single-threaded; pieces of the runtime_epoch event computed 
+/* Boundary processing runs single-threaded; pieces of the runtime_epoch event computed
    at different points are stashed here and emitted together at the end of the boundary. */
 
 static FD_TL struct {
@@ -421,7 +420,7 @@ fd_event_runtime_rooted_emit( fd_bank_t const *                          bank,
 
   ev.stake_delegations_upserts = stake_delegations_delta_stats->upserts;
   ev.stake_delegations_removes = stake_delegations_delta_stats->removes;
-  ev.stake_delegations_cnt     = fd_stake_delegations_base_cnt( stake_delegations );
+  ev.stake_delegations_cnt     = stake_delegations_delta_stats->root_cnt;
   ev.effective_stake           = stake_delegations->effective_stake;
   ev.activating_stake          = stake_delegations->activating_stake;
   ev.deactivating_stake        = stake_delegations->deactivating_stake;

@@ -204,6 +204,16 @@ telemetry = true
     # Firedancer instance.
     accounts = ""
 
+    # File path used to create the temporary stake-delegation spill
+    # file.  If no path is provided, it defaults beside the accounts
+    # database file with a `.stakedel` suffix.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    stake_delegations = ""
+
     # File path to the shreds database file.
     #
     # The shreds database stores recorded and reconstructed shreds
