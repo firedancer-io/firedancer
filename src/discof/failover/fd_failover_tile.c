@@ -1,8 +1,10 @@
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../util/fd_version.h"
 
+#include "fd_failover_bus.h"
 #include "fd_failover_channel.h"
 #include "fd_failover_stream.h"
 #include "fd_failover_tls.h"
@@ -36,7 +38,8 @@ struct fd_failover_peer {
   int                     status_valid;
   long                    status_time;
   ulong                   channel_state;      /* last seen session state, for edge detection */
-  int                     session_setup; /* silence window sized for this session */
+  int                     session_setup;      /* silence window sized for this session */
+  long                    effective_interval; /* slower of the two cadences, nanos */
   long                    last_status;
   int                     status_sent;   /* sent in this session */
   long                    rtt_nanos;
@@ -66,6 +69,20 @@ struct fd_failover_tile_ctx {
   ulong replication_lag_limit;
 
   uchar rx[ FD_FAILOVER_PAYLOAD_MAX ];
+
+  /* The admin tile forwards operator commands over the bus and waits for
+     one response frame per request. */
+  ulong                 admin_in_idx;
+  fd_wksp_t *           admin_in_mem;
+  ulong                 admin_in_chunk0;
+  ulong                 admin_in_wmark;
+  ulong                 admin_out_idx;
+  fd_wksp_t *           admin_out_mem;
+  ulong                 admin_out_chunk0;
+  ulong                 admin_out_wmark;
+  ulong                 admin_out_chunk;
+  fd_failover_bus_msg_t bus_req;
+  int                   bus_req_fresh;
 
   ulong       tower_in_idx;
   fd_wksp_t * tower_in_mem;
@@ -247,8 +264,24 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_failover_tile_ctx_t * ctx     = (fd_failover_tile_ctx_t *)scratch;
 
   ctx->tower_in_idx = ULONG_MAX;
+  ctx->admin_in_idx = ULONG_MAX;
+  ctx->admin_out_idx = fd_topo_find_tile_out_link( topo, tile, "failov_admin", 0UL );
+  if( FD_LIKELY( ctx->admin_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->admin_out_idx ] ];
+    ctx->admin_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->admin_out_chunk0 = fd_dcache_compact_chunk0( ctx->admin_out_mem, link->dcache );
+    ctx->admin_out_wmark  = fd_dcache_compact_wmark ( ctx->admin_out_mem, link->dcache, link->mtu );
+    ctx->admin_out_chunk  = ctx->admin_out_chunk0;
+  }
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_LIKELY( !strcmp( link->name, "admin_failov" ) ) ) {
+      ctx->admin_in_idx    = i;
+      ctx->admin_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->admin_in_chunk0 = fd_dcache_compact_chunk0( ctx->admin_in_mem, link->dcache );
+      ctx->admin_in_wmark  = fd_dcache_compact_wmark ( ctx->admin_in_mem, link->dcache, link->mtu );
+      continue;
+    }
     if( FD_LIKELY( !strcmp( link->name, "tower_out" ) ) ) {
       ctx->tower_in_idx    = i;
       ctx->tower_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -301,6 +334,17 @@ peer_update_lag( fd_failover_peer_t * peer ) {
                                                  &peer->status,
                                                  fd_failover_channel_peer_hello( peer->channel )->boot_id,
                                                  &peer->consensus );
+}
+
+/* A status older than two intervals says nothing about the peer now.
+   The valid flag alone only says one arrived on this session. */
+static int
+peer_status_fresh( fd_failover_tile_ctx_t const * ctx,
+                   fd_failover_peer_t const *     peer,
+                   long                           now ) {
+  if( FD_UNLIKELY( !peer->status_valid || now<peer->status_time ) ) return 0;
+  long interval = peer->effective_interval ? peer->effective_interval : ctx->status_interval;
+  return fd_long_sat_sub( now, peer->status_time )<=fd_long_sat_add( interval, interval );
 }
 
 /* A session edge invalidates everything the old session told us. */
@@ -460,6 +504,7 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
        members with different status_interval_millis settings hold. */
     ulong peer_millis = fd_ulong_min( fd_failover_channel_peer_hello( peer->channel )->status_interval_millis, FD_FAILOVER_TILE_PEER_MILLIS_MAX );
     ulong millis      = fd_ulong_max( ctx->status_interval_millis, peer_millis );
+    peer->effective_interval = duration_nanos( millis, 1000000UL );
     fd_failover_channel_set_silence( peer->channel,
                                      duration_nanos( fd_ulong_sat_mul( millis, ctx->peer_silence_intervals ), 1000000UL ) );
     peer->session_setup = 1;
@@ -496,9 +541,158 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
   peer_sync_channel_state( peer );
 }
 
+/* One peer's view of the pool for the status payload and the metrics.
+   This reports pool health only, not handoff readiness. */
+static void
+status_snapshot( fd_failover_tile_ctx_t const *       ctx,
+                 ulong                                peer_idx,
+                 long                                 now,
+                 fd_adminctl_failover_status_resp_t * resp ) {
+  fd_adminctl_failover_status_resp_init( resp );
+  resp->enabled               = 1U;
+  resp->member_cnt            = (uchar)ctx->member_cnt;
+  resp->self_idx              = (uchar)ctx->self_idx;
+  resp->peer_idx              = (uchar)peer_idx;
+
+  ulong paired = 0UL;
+  for( ulong i=0UL; i<ctx->peer_cnt; i++ ) {
+    paired += (ulong)( fd_failover_channel_state( ctx->peers[ i ].channel )==FD_FAILOVER_SESSION_PAIRED );
+  }
+  resp->peers_paired = (uchar)paired;
+
+  fd_failover_peer_t const *            peer  = &ctx->peers[ peer_idx ];
+  fd_failover_channel_metrics_t const * m     = fd_failover_channel_metrics( peer->channel );
+  fd_failover_status_t                  local = local_status( ctx, peer );
+
+  resp->role                  = local.role;
+  resp->term                  = local.term;
+  resp->link_state            = (uchar)fd_failover_channel_state( peer->channel );
+  resp->status                = local.status;
+  resp->flags                 = local.flags;
+  resp->replication_lag_slots = peer->lag_slots;
+  resp->rtt_nanos             = (ulong)fd_long_max( peer->rtt_nanos, 0L );
+  resp->replay_slot           = local.replay_slot;
+  resp->root_slot             = local.root_slot;
+  resp->turbine_slot          = local.turbine_slot;
+  resp->next_leader_slot      = local.next_leader_slot;
+  resp->last_vote_slot        = local.last_vote_slot;
+  resp->frames_sent           = m->frames_sent;
+  resp->frames_received       = m->frames_received;
+  resp->tls_failures          = m->tls_fail_cnt;
+  resp->wire_failures         = m->wire_fatal_cnt;
+  resp->hello_rejections      = m->hello_reject_cnt;
+  resp->connection_attempts   = m->connection_attempt_cnt;
+  resp->sessions_paired       = m->paired_cnt;
+  resp->pending_handshakes    = fd_failover_channel_pending( peer->channel );
+  resp->admission_drops       = m->admission_drop_cnt;
+  resp->handshake_timeouts    = m->handshake_timeout_cnt;
+
+  if( FD_LIKELY( peer->status_valid ) ) {
+    resp->peer_role             = peer->status.role;
+    resp->peer_term             = peer->status.term;
+    resp->peer_status           = peer->status.status;
+    resp->peer_flags            = peer->status.flags;
+    resp->peer_status_valid     = 1U;
+    resp->peer_replay_slot      = peer->status.replay_slot;
+    resp->peer_root_slot        = peer->status.root_slot;
+    resp->peer_turbine_slot     = peer->status.turbine_slot;
+    resp->peer_next_leader_slot = peer->status.next_leader_slot;
+    resp->peer_last_vote_slot   = peer->status.last_vote_slot;
+    if( FD_LIKELY( now>=peer->status_time ) ) {
+      resp->peer_status_age_nanos = (ulong)fd_long_sat_sub( now, peer->status_time );
+    }
+  }
+
+  int peer_fresh = peer_status_fresh( ctx, peer, now );
+
+  if( FD_UNLIKELY( resp->link_state!=FD_FAILOVER_SESSION_PAIRED ) ) {
+    resp->readiness_reason = FD_FAILOVER_READINESS_LINK_DOWN;
+  } else if( FD_UNLIKELY( !peer_fresh ) ) {
+    resp->readiness_reason = FD_FAILOVER_READINESS_STATUS_STALE;
+  } else if( FD_UNLIKELY( resp->term!=resp->peer_term ||
+                          !((resp->role==FD_FAILOVER_ROLE_ACTIVE  && resp->peer_role==FD_FAILOVER_ROLE_STANDBY) ||
+                            (resp->role==FD_FAILOVER_ROLE_STANDBY && resp->peer_role==FD_FAILOVER_ROLE_ACTIVE )) ) ) {
+    resp->readiness_reason = FD_FAILOVER_READINESS_ROLE_CONFLICT;
+  } else {
+    uint active_status  = resp->role==FD_FAILOVER_ROLE_ACTIVE ? resp->status      : resp->peer_status;
+    uint standby_status = resp->role==FD_FAILOVER_ROLE_ACTIVE ? resp->peer_status : resp->status;
+    if( FD_UNLIKELY( active_status ) ) {
+      resp->readiness_reason = FD_FAILOVER_READINESS_ACTIVE_UNHEALTHY;
+    } else if( FD_UNLIKELY( standby_status & ~FD_FAILOVER_STATUS_REPLAG ) ) {
+      resp->readiness_reason = FD_FAILOVER_READINESS_STANDBY_UNHEALTHY;
+    } else if( FD_UNLIKELY( standby_status&FD_FAILOVER_STATUS_REPLAG ) ) {
+      resp->readiness_reason = FD_FAILOVER_READINESS_STANDBY_BEHIND;
+    } else {
+      /* Link, cadence, roles and status bits are all in order.  The
+         caught-up check and the handoff verdict are not part of this. */
+      resp->pool_healthy     = 1U;
+      resp->readiness_reason = FD_FAILOVER_READINESS_POOL_HEALTHY;
+    }
+  }
+}
+
+/* Answer one bus request.  The admin tile validated the ABI already, so
+   only the peer selection can fail here. */
+static void
+serve_bus_request( fd_failover_tile_ctx_t * ctx,
+                   fd_stem_context_t *      stem,
+                   long                     now ) {
+  fd_failover_bus_msg_t const * req = &ctx->bus_req;
+  fd_failover_bus_msg_t *       out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
+  fd_memset( out, 0, sizeof(*out) );
+  out->nonce = req->nonce;
+
+  fd_adminctl_failover_status_req_t const * status_req = (fd_adminctl_failover_status_req_t const *)req->payload;
+  if( FD_UNLIKELY( status_req->peer_idx>=ctx->peer_cnt ) ) {
+    out->result = FD_FAILOVER_STATUS_RESULT_NO_SUCH_PEER;
+  } else {
+    out->result = FD_ADMINCTL_RESULT_SUCCESS;
+    status_snapshot( ctx, status_req->peer_idx, now, (fd_adminctl_failover_status_resp_t *)out->payload );
+  }
+
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_STATUS_RESP, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
+  ctx->admin_out_chunk = fd_dcache_compact_next( ctx->admin_out_chunk, sizeof(*out), ctx->admin_out_chunk0, ctx->admin_out_wmark );
+}
+
+static inline void
+metrics_write( fd_failover_tile_ctx_t * ctx ) {
+  fd_adminctl_failover_status_resp_t status;
+  status_snapshot( ctx, 0UL, fd_failover_clock(), &status );
+
+  int peer_valid = !!status.peer_status_valid;
+  int lag_valid  = ( status.replication_lag_slots!=FD_FAILOVER_SLOT_NULL );
+  FD_MGAUGE_SET( FAILOV, MEMBER_CNT,             status.member_cnt );
+  FD_MGAUGE_SET( FAILOV, PEERS_PAIRED,           status.peers_paired );
+  FD_MGAUGE_SET( FAILOV, LINK,                   status.link_state );
+  FD_MGAUGE_SET( FAILOV, ROLE,                   status.role );
+  FD_MGAUGE_SET( FAILOV, TERM,                   status.term );
+  FD_MGAUGE_SET( FAILOV, STATUS,                 status.status );
+  FD_MGAUGE_SET( FAILOV, PEER_ROLE,              peer_valid ? status.peer_role : 0UL );
+  FD_MGAUGE_SET( FAILOV, PEER_TERM,              peer_valid ? status.peer_term : 0UL );
+  FD_MGAUGE_SET( FAILOV, PEER_STATUS,            peer_valid ? status.peer_status : 0UL );
+  FD_MGAUGE_SET( FAILOV, REPLICATION_LAG_SLOTS,  lag_valid ? status.replication_lag_slots : 0UL );
+  FD_MGAUGE_SET( FAILOV, RTT_NANOS,              status.rtt_nanos );
+  FD_MGAUGE_SET( FAILOV, PEER_STATUS_VALID,      (ulong)peer_valid );
+  FD_MGAUGE_SET( FAILOV, PEER_STATUS_AGE_NANOS,  status.peer_status_age_nanos==ULONG_MAX ? 0UL : status.peer_status_age_nanos );
+  FD_MGAUGE_SET( FAILOV, REPLICATION_LAG_VALID,  (ulong)lag_valid );
+  FD_MGAUGE_SET( FAILOV, POOL_HEALTHY,           status.pool_healthy );
+  FD_MGAUGE_SET( FAILOV, POOL_HEALTH_REASON,     status.readiness_reason );
+  FD_MCNT_SET  ( FAILOV, FRAMES_SENT,            status.frames_sent );
+  FD_MCNT_SET  ( FAILOV, FRAMES_RECEIVED,        status.frames_received );
+  FD_MCNT_SET  ( FAILOV, TLS_FAILURES,           status.tls_failures );
+  FD_MCNT_SET  ( FAILOV, WIRE_FAILURES,          status.wire_failures );
+  FD_MCNT_SET  ( FAILOV, HELLO_REJECTIONS,       status.hello_rejections );
+  FD_MCNT_SET  ( FAILOV, CONNECTION_ATTEMPTS,    status.connection_attempts );
+  FD_MCNT_SET  ( FAILOV, SESSIONS_PAIRED,        status.sessions_paired );
+  FD_MGAUGE_SET( FAILOV, PENDING_HANDSHAKES,     status.pending_handshakes );
+  FD_MCNT_SET  ( FAILOV, ADMISSION_DROPS,        status.admission_drops );
+  FD_MCNT_SET  ( FAILOV, HANDSHAKE_TIMEOUTS,     status.handshake_timeouts );
+}
+
 static inline void
 after_credit( fd_failover_tile_ctx_t * ctx,
-              fd_stem_context_t *      stem FD_PARAM_UNUSED,
+              fd_stem_context_t *      stem,
               int *                    opt_poll_in FD_PARAM_UNUSED,
               int *                    charge_busy ) {
   if( FD_UNLIKELY( ctx->slot_done_fresh ) ) {
@@ -507,6 +701,11 @@ after_credit( fd_failover_tile_ctx_t * ctx,
   }
   long now = fd_failover_clock();
   for( ulong i=0UL; i<ctx->peer_cnt; i++ ) peer_poll( ctx, &ctx->peers[ i ], now, charge_busy );
+  if( FD_UNLIKELY( ctx->bus_req_fresh ) ) {
+    ctx->bus_req_fresh = 0;
+    serve_bus_request( ctx, stem, now );
+    *charge_busy = 1;
+  }
 }
 
 static inline int
@@ -515,6 +714,7 @@ before_frag( fd_failover_tile_ctx_t * ctx,
              ulong                    seq FD_PARAM_UNUSED,
              ulong                    sig ) {
   if( FD_LIKELY( in_idx==ctx->tower_in_idx ) ) return sig!=FD_TOWER_SIG_SLOT_DONE;
+  if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) return sig!=FD_FAILOVER_BUS_STATUS_REQ;
   return 0;
 }
 
@@ -526,6 +726,13 @@ during_frag( fd_failover_tile_ctx_t * ctx,
              ulong                    chunk,
              ulong                    sz,
              ulong                    ctl FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
+    if( FD_UNLIKELY( chunk<ctx->admin_in_chunk0 || chunk>ctx->admin_in_wmark || sz!=sizeof(fd_failover_bus_msg_t) ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->admin_in_chunk0, ctx->admin_in_wmark ));
+    }
+    fd_memcpy( &ctx->bus_req, fd_chunk_to_laddr_const( ctx->admin_in_mem, chunk ), sizeof(fd_failover_bus_msg_t) );
+    return;
+  }
   if( FD_UNLIKELY( in_idx!=ctx->tower_in_idx ) ) return;
   if( FD_UNLIKELY( chunk<ctx->tower_in_chunk0 || chunk>ctx->tower_in_wmark || sz!=sizeof(fd_tower_msg_t) ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->tower_in_chunk0, ctx->tower_in_wmark ));
@@ -542,6 +749,11 @@ after_frag( fd_failover_tile_ctx_t * ctx,
             ulong                    tsorig FD_PARAM_UNUSED,
             ulong                    tspub FD_PARAM_UNUSED,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
+    /* Answered from after_credit, where a publish credit is available. */
+    ctx->bus_req_fresh = 1;
+    return;
+  }
   if( FD_LIKELY( in_idx!=ctx->tower_in_idx ) ) return;
   ctx->slot_done_seq   = seq;
   ctx->slot_done_fresh = 1;
@@ -595,6 +807,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_failover_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_failover_tile_ctx_t)
 
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag

@@ -13,6 +13,7 @@ class Tile(Enum):
     SNAPWR = 7
 
     ADMIN = 8
+    FAILOV = 9
 
     NETLNK = 14
     NET = 15

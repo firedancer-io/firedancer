@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_failover_proto.h fd_failover_wire.h fd_failover_channel.h fd_failover_stream.h)
+$(call add-hdrs,fd_failover_proto.h fd_failover_wire.h fd_failover_channel.h fd_failover_stream.h fd_failover_bus.h)
 $(call add-objs,fd_failover_proto,fd_discof)
 $(call add-objs,fd_failover_wire,fd_discof)
 $(call add-objs,fd_failover_channel,fd_discof)
