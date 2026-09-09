@@ -187,6 +187,7 @@ fd_tls_sign( fd_tls_sign_t const * sign,
 }
 
 extern char const fd_tls13_cli_sign_prefix[ 98 ];
+extern char const fd_tls13_srv_sign_prefix[ 98 ];
 
 /* Public API *********************************************************/
 

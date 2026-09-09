@@ -394,6 +394,11 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "txsend_sign"   );
   fd_topob_wksp( topo, "sign_txsend"   );
 
+  if( alpenglow_enabled ) {
+    fd_topob_wksp( topo, "votor_sign"  );
+    fd_topob_wksp( topo, "sign_votor"  );
+  }
+
   fd_topob_wksp( topo, "execrp_replay" );
   fd_topob_wksp( topo, "admin_replay"  );
 
@@ -520,6 +525,8 @@ fd_topo_initialize( config_t * config ) {
   if( alpenglow_enabled ) {
     /**/               fd_topob_link( topo, "votor_out",     "votor_out",     config->firedancer.runtime.max_live_slots, sizeof(fd_votor_msg_t),                        2UL ); /* one rooted per rooted slot, and the pool only tracks max_live_slots slots */
     /**/               fd_topob_link( topo, "votor_net",     "net_votor",     config->net.ingress_buffer_size,          FD_NET_MTU,                                    1UL );
+    /**/               fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    130UL,                                         1UL ); /* TLS 1.3 CertificateVerify payload */
+    /**/               fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    sizeof(fd_ed25519_sig_t),                      1UL );
   } else {
     /**/               fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
   }
@@ -929,6 +936,13 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "sign_txsend",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_txsend",  0UL                                                  );
+
+  if( alpenglow_enabled ) {
+    /**/               fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "votor_sign",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out(   topo, "votor",   0UL,                       "votor_sign",   0UL                                                  );
+    /**/               fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "sign_votor",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_votor",   0UL                                                  );
+  }
 
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_link( topo, "rpc_replay", "rpc_replay", 8UL, 0UL, 1UL );
