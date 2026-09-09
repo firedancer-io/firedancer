@@ -149,6 +149,28 @@ main( int     argc,
   FD_TEST( fd_config_user_toml_to_json( config, user_json, sizeof(user_json) ) );
   FD_LOG_NOTICE(( "extractor vocabulary swept: %lu cstr keys", key_cnt ));
 
+  /* An empty toml array is empty, so it renders as [] only when
+     the key is listed in jw_array_keys. */
+  off = 0UL;
+  for( ulong i=0UL; i<key_cnt; i++ ) {
+    if( !is_arr[ i ] ) continue;
+    ulong n;
+    FD_TEST( fd_cstr_printf_check( config->user_config+off, sizeof(config->user_config)-off, &n, "%s = []\n", keys[ i ] ) );
+    off += n;
+  }
+  config->user_config_len = off;
+  FD_TEST( fd_config_user_toml_to_json( config, user_json, sizeof(user_json) ) );
+  for( ulong i=0UL; i<key_cnt; i++ ) {
+    if( !is_arr[ i ] ) continue;
+    char const * leaf = strrchr( keys[ i ], '.' );
+    leaf = leaf ? leaf+1 : keys[ i ];
+    char expected[ 96 ];
+    FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), NULL, "\"%s\":[]", leaf ) );
+    if( FD_UNLIKELY( !strstr( user_json, expected ) ) )
+      FD_LOG_ERR(( "array key %s rendered as a table, add it to jw_array_keys in fd_config_json.c", keys[ i ] ) );
+  }
+  FD_LOG_NOTICE(( "empty array rendering checked for every array key" ));
+
   /* and the reverse: every classified key must exist in the extractor
      vocabulary, catching dead list entries */
   static char all_keys[ 160 ][ 64 ]; static int all_arr[ 160 ];

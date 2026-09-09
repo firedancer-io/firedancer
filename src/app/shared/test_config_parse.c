@@ -47,6 +47,50 @@ genesis_max_file_size_is_valid( config_t * config,
   return WIFEXITED( status ) && !WEXITSTATUS( status );
 }
 
+/* Validates a two-member failover pool built from the loaded default
+   config, in a child so the FD_LOG_ERR paths can be asserted. */
+
+static int
+failover_pool_is_valid( config_t *   config,
+                        ulong        members_cnt,
+                        char const * member_a,
+                        char const * member_b,
+                        char const * junk_a,
+                        char const * junk_b ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    config->firedancer.development.genesis.max_file_size_mib = 4055UL;
+    config->firedancer.failover.enabled                  = 1;
+    config->firedancer.failover.tower_file               = 1;
+    config->firedancer.failover.status_interval_millis   = 800UL;
+    config->firedancer.failover.replication_lag_slots    = 8UL;
+    config->firedancer.failover.peer_silence_intervals   = 5UL;
+    config->firedancer.failover.retry_backoff_min_millis = 800UL;
+    config->firedancer.failover.retry_backoff_max_millis = 12800UL;
+    config->firedancer.failover.members_cnt             = members_cnt;
+    config->firedancer.failover.member_junk_pubkeys_cnt = members_cnt;
+    fd_cstr_ncpy( config->firedancer.failover.members[ 0 ], member_a, sizeof(config->firedancer.failover.members[ 0 ]) );
+    fd_cstr_ncpy( config->firedancer.failover.members[ 1 ], member_b, sizeof(config->firedancer.failover.members[ 1 ]) );
+    fd_cstr_ncpy( config->firedancer.failover.member_junk_pubkeys[ 0 ], junk_a, sizeof(config->firedancer.failover.member_junk_pubkeys[ 0 ]) );
+    fd_cstr_ncpy( config->firedancer.failover.member_junk_pubkeys[ 1 ], junk_b, sizeof(config->firedancer.failover.member_junk_pubkeys[ 1 ]) );
+    fd_cstr_ncpy( config->firedancer.failover.bind_address,         "0.0.0.0",           sizeof(config->firedancer.failover.bind_address) );
+    fd_cstr_ncpy( config->firedancer.failover.junk_identity_path,   "/keys/junk.json",   sizeof(config->firedancer.failover.junk_identity_path) );
+    fd_cstr_ncpy( config->firedancer.failover.staked_identity_path, "/keys/staked.json", sizeof(config->firedancer.failover.staked_identity_path) );
+    fd_config_validate( config );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
+static char const cfg_str_failover[] =
+  "[failover]\n"
+  "  members = [\"10.0.0.1:9700\", \"10.0.0.2:9701\"]\n"
+  "  member_junk_pubkeys = [\"11111111111111111111111111111111\", \"Vote111111111111111111111111111111111111111\"]";
+
 int
 main( int     argc,
       char ** argv ) {
@@ -146,6 +190,27 @@ main( int     argc,
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
 
+  /* Failover pool with two members and a distinct junk key for each. */
+
+  static char const junk_a[] = "11111111111111111111111111111111";
+  static char const junk_b[] = "Vote111111111111111111111111111111111111111";
+  FD_TEST(  failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:9700", junk_a, junk_b ) );
+  FD_TEST( !failover_pool_is_valid( config, 1UL, "10.0.0.1:9700", "10.0.0.2:9700", junk_a, junk_b ) );
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:9700", junk_a, junk_a ) );
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2",      junk_a, junk_b ) );
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:0",    junk_a, junk_b ) );
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:9700", junk_a, "not-a-key" ) );
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.1:9700", junk_a, junk_b ) );
+
+  /* A port is plain decimal in [1,65535], nothing wraps and nothing after it is ignored. */
+
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:65536",   junk_a, junk_b ) );
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:65538",   junk_a, junk_b ) );
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:0x1f90",  junk_a, junk_b ) );
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:9700junk",junk_a, junk_b ) );
+  FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:",        junk_a, junk_b ) );
+  FD_TEST(  failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:65535",   junk_a, junk_b ) );
+
   /* Ensure we can selectively override a field */
 
   config->gossip.port = 9191;
@@ -180,6 +245,16 @@ main( int     argc,
   FD_TEST( fd_toml_parse( cfg_str_5, sizeof(cfg_str_5)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   FD_TEST( config->firedancer.development.genesis.max_file_size_mib == 33UL );
+
+  /* The failover member lists get extracted in order along with their counts. */
+
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_failover, sizeof(cfg_str_failover)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( fd_config_extract_pod( pod, config ) == config );
+  FD_TEST( config->firedancer.failover.members_cnt==2UL );
+  FD_TEST( config->firedancer.failover.member_junk_pubkeys_cnt==2UL );
+  FD_TEST( !strcmp( config->firedancer.failover.members[ 1 ], "10.0.0.2:9701" ) );
+  FD_TEST( !strcmp( config->firedancer.failover.member_junk_pubkeys[ 1 ], "Vote111111111111111111111111111111111111111" ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

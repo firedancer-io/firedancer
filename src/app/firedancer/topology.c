@@ -11,6 +11,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../ballet/base58/fd_base58.h"
 #include "../../discof/backup/fd_snapmk_tile.h"
 #include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
@@ -87,24 +88,6 @@ wire_event_links( fd_topo_t * topo ) {
 
     fd_topob_tile_in( topo, "event", 0UL, "metric_in", link_name, link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
-}
-
-static void
-parse_ip_port( const char * name, const char * ip_port, fd_topo_ip_port_t *parsed_ip_port) {
-  char buf[ sizeof( "255.255.255.255:65536" ) ];
-  memcpy( buf, ip_port, sizeof( buf ) );
-  char *ip_end = strchr( buf, ':' );
-  if( FD_UNLIKELY( !ip_end ) )
-    FD_LOG_ERR(( "[%s] must in the form ip:port", name ));
-  *ip_end = '\0';
-
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( buf, &( parsed_ip_port->ip ) ) ) ) {
-    FD_LOG_ERR(( "could not parse IP %s in [%s]", buf, name ));
-  }
-
-  parsed_ip_port->port = fd_cstr_to_ushort( ip_end+1 );
-  if( FD_UNLIKELY( !parsed_ip_port->port ) )
-    FD_LOG_ERR(( "could not parse port %s in [%s]", ip_end+1, name ));
 }
 
 fd_topo_obj_t *
@@ -1432,6 +1415,58 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "admin" ) ) ) {
 
     fd_cstr_ncpy( tile->admin.identity_key_path, config->paths.identity_key, sizeof(tile->admin.identity_key_path) );
+    tile->admin.failover_enabled = config->firedancer.failover.enabled;
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
+
+    fd_cstr_ncpy( tile->failov.identity_key_path,    config->paths.identity_key,                       sizeof(tile->failov.identity_key_path) );
+    fd_cstr_ncpy( tile->failov.junk_identity_path,   config->firedancer.failover.junk_identity_path,   sizeof(tile->failov.junk_identity_path) );
+    fd_cstr_ncpy( tile->failov.staked_identity_path, config->firedancer.failover.staked_identity_path, sizeof(tile->failov.staked_identity_path) );
+    fd_cstr_ncpy( tile->failov.vote_account_path,    config->paths.vote_account,                       sizeof(tile->failov.vote_account_path) );
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->firedancer.failover.bind_address, &tile->failov.bind_addr ) ) ) {
+      FD_LOG_ERR(( "[failover.bind_address] is not a valid IPv4 address" ));
+    }
+    tile->failov.member_cnt = config->firedancer.failover.members_cnt;
+    FD_TEST( tile->failov.member_cnt<=FD_TOPO_FAILOVER_MEMBER_MAX );
+    for( ulong i=0UL; i<tile->failov.member_cnt; i++ ) {
+      fd_config_parse_ip_port( "failover.members", config->firedancer.failover.members[ i ], &tile->failov.member[ i ] );
+      if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.failover.member_junk_pubkeys[ i ], tile->failov.member_junk_pubkey[ i ] ) ) ) {
+        FD_LOG_ERR(( "[failover.member_junk_pubkeys] entry %lu is not a base58 public key", i ));
+      }
+    }
+    tile->failov.status_interval_millis   = config->firedancer.failover.status_interval_millis;
+    tile->failov.replication_lag_slots    = config->firedancer.failover.replication_lag_slots;
+    tile->failov.peer_silence_intervals   = config->firedancer.failover.peer_silence_intervals;
+    tile->failov.retry_backoff_min_millis = config->firedancer.failover.retry_backoff_min_millis;
+    tile->failov.retry_backoff_max_millis = config->firedancer.failover.retry_backoff_max_millis;
+    /* HELLO rejects a peer whose safety config differs.  The hash covers
+       what every member must agree on: the tower persistence switch and
+       the ordered member list, both pins and addresses, so machines with
+       different lists do not end up both dialing, both listening, or
+       dialing a port nobody binds.  Timing values stay local and out of
+       it.  Only the listed members are hashed, so raising the member cap
+       leaves existing pools paired. */
+    struct __attribute__((packed)) {
+      ulong layout;
+      uchar tower_file;
+      ulong member_cnt;
+      struct __attribute__((packed)) {
+        uchar  junk[ 32 ];
+        uint   ip;
+        ushort port;
+      } member[ FD_TOPO_FAILOVER_MEMBER_MAX ];
+    } cfg = {
+      .layout     = 1UL,
+      .tower_file = (uchar)!!config->firedancer.failover.tower_file,
+      .member_cnt = tile->failov.member_cnt,
+    };
+    for( ulong i=0UL; i<tile->failov.member_cnt; i++ ) {
+      fd_memcpy( cfg.member[ i ].junk, tile->failov.member_junk_pubkey[ i ], 32UL );
+      cfg.member[ i ].ip   = tile->failov.member[ i ].ip;
+      cfg.member[ i ].port = tile->failov.member[ i ].port;
+    }
+    tile->failov.cfg_hash = fd_hash( 0xF17EDA2CE5FA1C0FUL, &cfg,
+                                     sizeof(cfg)-sizeof(cfg.member)+tile->failov.member_cnt*sizeof(cfg.member[ 0 ]) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 
@@ -1788,15 +1823,15 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->shred.max_shreds_per_block          = config->limits.max_shreds_per_block;
     tile->shred.bench_max_shreds_per_block    = config->development.bench.max_shreds_per_block;
     for( ulong i=0UL; i<config->tiles.shred.additional_shred_destinations_retransmit_cnt; i++ ) {
-      parse_ip_port( "tiles.shred.additional_shred_destinations_retransmit",
-                      config->tiles.shred.additional_shred_destinations_retransmit[ i ],
-                      &tile->shred.adtl_dests_retransmit[ i ] );
+      fd_config_parse_ip_port( "tiles.shred.additional_shred_destinations_retransmit",
+                               config->tiles.shred.additional_shred_destinations_retransmit[ i ],
+                               &tile->shred.adtl_dests_retransmit[ i ] );
     }
     tile->shred.adtl_dests_retransmit_cnt = config->tiles.shred.additional_shred_destinations_retransmit_cnt;
     for( ulong i=0UL; i<config->tiles.shred.additional_shred_destinations_leader_cnt; i++ ) {
-      parse_ip_port( "tiles.shred.additional_shred_destinations_leader",
-                      config->tiles.shred.additional_shred_destinations_leader[ i ],
-                      &tile->shred.adtl_dests_leader[ i ] );
+      fd_config_parse_ip_port( "tiles.shred.additional_shred_destinations_leader",
+                               config->tiles.shred.additional_shred_destinations_leader[ i ],
+                               &tile->shred.adtl_dests_leader[ i ] );
     }
     tile->shred.adtl_dests_leader_cnt = config->tiles.shred.additional_shred_destinations_leader_cnt;
 

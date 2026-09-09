@@ -118,6 +118,10 @@ static char const * const jw_redacted_keys[] = {
   "snapshots.sources.servers",
   "snapshots.server.http_listen_address",
   "hugetlbfs.mount_path",
+  "failover.members",
+  "failover.bind_address",
+  "failover.junk_identity_path",
+  "failover.staked_identity_path",
   "net.bind_address",
   "tiles.quic.ssl_key_log_file",
   "tiles.bundle.url",
@@ -142,6 +146,7 @@ static char const * const jw_redacted_keys[] = {
 
 static char const * const jw_reported_keys[] = {
   "name",
+  "failover.member_junk_pubkeys",
   "log.colorize",
   "log.level_logfile",
   "log.level_stderr",
@@ -197,6 +202,8 @@ static char const * const jw_array_keys[] = {
   "snapshots.sources.gossip.allow_list",
   "snapshots.sources.gossip.block_list",
   "snapshots.sources.servers",
+  "failover.members",
+  "failover.member_junk_pubkeys",
   "tiles.pack.account_blocklist",
   "tiles.replay.enable_features",
   "tiles.shred.additional_shred_destinations_retransmit",
@@ -408,6 +415,21 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "send_timeout_millis",  f->snapshots.server.send_timeout_millis );
       jw_ulong( &w, "send_buffer_size_kib", f->snapshots.server.send_buffer_size_kib );
     jw_obj_close( &w );
+  jw_obj_close( &w );
+
+  jw_obj_open( &w, "failover" );
+    jw_bool    ( &w, "enabled",                  f->failover.enabled );
+    jw_path_arr( &w, "members",                  f->failover.members_cnt );
+    jw_str_arr ( &w, "member_junk_pubkeys",      f->failover.member_junk_pubkeys[ 0 ], sizeof(f->failover.member_junk_pubkeys[ 0 ]), f->failover.member_junk_pubkeys_cnt );
+    jw_path    ( &w, "bind_address",             f->failover.bind_address );
+    jw_path    ( &w, "junk_identity_path",       f->failover.junk_identity_path );
+    jw_path ( &w, "staked_identity_path",     f->failover.staked_identity_path );
+    jw_ulong( &w, "status_interval_millis",   f->failover.status_interval_millis );
+    jw_ulong( &w, "replication_lag_slots",    f->failover.replication_lag_slots );
+    jw_ulong( &w, "peer_silence_intervals",   f->failover.peer_silence_intervals );
+    jw_ulong( &w, "retry_backoff_min_millis", f->failover.retry_backoff_min_millis );
+    jw_ulong( &w, "retry_backoff_max_millis", f->failover.retry_backoff_max_millis );
+    jw_bool ( &w, "tower_file",               f->failover.tower_file );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "hugetlbfs" );
