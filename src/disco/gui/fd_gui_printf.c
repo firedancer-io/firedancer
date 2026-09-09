@@ -3869,38 +3869,22 @@ fd_gui_timeline_query_sum( ulong * dst,
 }
 
 static void
-fd_gui_timeline_ts_bounds( fd_gui_t * gui,
-                           int        dbi,
-                           long *     start,
-                           long *     end ) {
-  *start = LONG_MAX;
-  *end   = LONG_MAX;
-  fd_gui_hist_iter_t it;
-  if( fd_gui_hist_range_begin( gui, &it, dbi, 0L, LONG_MAX-1L, NULL, NULL ) ) return;
-  while( fd_gui_hist_range_next( &it ) ) {
-    long ts;
-    if( dbi==FD_GUI_HIST_REPLAY_TXN ) ts=((fd_gui_store_replay_txn_t const *)it.rec)->completion_time_ns;
-    else if( dbi==FD_GUI_HIST_REPLAY_TXN_BATCH ) ts=((fd_gui_store_replay_txn_batch_t const *)it.rec)->completion_time_ns;
-    else ts=((fd_gui_slot_history_tvu_event_t const *)it.rec)->timestamp;
-    if( *start==LONG_MAX ) *start=ts;
-    *end = ts==LONG_MAX ? LONG_MAX : ts+1L;
-  }
-  fd_gui_hist_range_end( &it );
-}
-
-static void
 fd_gui_timeline_print_bounds( fd_gui_t * gui,
                               int        dbi0,
                               int        dbi1 ) {
   long lo0, hi0;
-  fd_gui_timeline_ts_bounds( gui, dbi0, &lo0, &hi0 );
+  int have_bounds = fd_gui_hist_ts_bounds( gui, dbi0, &lo0, &hi0 );
   if( dbi1>=0 ) {
     long lo1, hi1;
-    fd_gui_timeline_ts_bounds( gui, dbi1, &lo1, &hi1 );
-    if( lo0==LONG_MAX || lo1==LONG_MAX ) lo0=hi0=LONG_MAX;
-    else { lo0=fd_long_max( lo0, lo1 ); hi0=fd_long_min( hi0, hi1 ); if( hi0<=lo0 ) lo0=hi0=LONG_MAX; }
+    int have_bounds1 = fd_gui_hist_ts_bounds( gui, dbi1, &lo1, &hi1 );
+    if( !have_bounds || !have_bounds1 ) have_bounds = 0;
+    else {
+      lo0 = fd_long_max( lo0, lo1 );
+      hi0 = fd_long_min( hi0, hi1 );
+      if( hi0<=lo0 ) have_bounds = 0;
+    }
   }
-  if( lo0==LONG_MAX ) {
+  if( !have_bounds ) {
     jsonp_null( gui->http, "available_start_ns" );
     jsonp_null( gui->http, "available_end_ns" );
   } else {

@@ -706,7 +706,20 @@ test_timeline_db( fd_gui_t * gui ) {
   long const source_ns = sec_ns( 2000UL );
   long const now_ns    = source_ns+sec_ns( 100UL );
   long const stored_ns = now_ns-FD_GUI_HIST_TS_SKEW_NS;
+
+  long available_start_ns;
+  long available_end_ns;
+  FD_TEST( !fd_gui_hist_ts_bounds( gui, FD_GUI_HIST_REPLAY_TXN, &available_start_ns, &available_end_ns ) );
+
   append_replay_txn( gui, now_ns, source_ns, 2UL );
+
+  fd_gui_store_metrics_t const * metrics = fd_gui_store_metrics( gui->db );
+  ulong reads_before   = metrics->ts_reads       [ FD_GUI_HIST_REPLAY_TXN ];
+  ulong records_before = metrics->ts_read_records[ FD_GUI_HIST_REPLAY_TXN ];
+  FD_TEST( fd_gui_hist_ts_bounds( gui, FD_GUI_HIST_REPLAY_TXN, &available_start_ns, &available_end_ns ) );
+  FD_TEST( available_start_ns==stored_ns && available_end_ns==stored_ns+1L );
+  FD_TEST( metrics->ts_reads       [ FD_GUI_HIST_REPLAY_TXN ]==reads_before   );
+  FD_TEST( metrics->ts_read_records[ FD_GUI_HIST_REPLAY_TXN ]==records_before );
 
   fd_gui_hist_iter_t it[ 1 ];
   FD_TEST( !fd_gui_hist_range_begin( gui, it, FD_GUI_HIST_REPLAY_TXN,

@@ -363,20 +363,17 @@ fd_gui_store_ts_oldest_window( fd_gui_store_t * db,
                                ulong            ring_idx,
                                ulong *          out_window );
 
-/* fd_gui_store_ts_live_window_bounds returns, in *out_first_window and
-   *out_last_window, the time windows of the oldest and newest records
-   held by TS ring `ring_idx`.  Returns 1 if the ring holds any record,
-   0 if it is empty or not a TS ring.
-
-   Unlike fd_gui_store_ts_oldest_window this yields an upper bound too,
-   which is what lets a range scan reject a wholly stale or wholly
-   future request instead of walking the ring to find nothing. */
+/* fd_gui_store_ts_live_timestamp_bounds returns, in *out_first_timestamp
+   and *out_last_timestamp, the exact timestamps of the oldest and newest
+   records held by TS ring `ring_idx` in insertion order.  Returns 1 if the
+   ring holds any record, 0 if it is empty or not a TS ring.  This is an O(1)
+   metadata lookup and does not perform or count as a TS scan. */
 
 int
-fd_gui_store_ts_live_window_bounds( fd_gui_store_t * db,
-                                    ulong            ring_idx,
-                                    ulong *          out_first_window,
-                                    ulong *          out_last_window );
+fd_gui_store_ts_live_timestamp_bounds( fd_gui_store_t * db,
+                                       ulong            ring_idx,
+                                       long *           out_first_timestamp,
+                                       long *           out_last_timestamp );
 
 /* ---- TS ring: eviction ---------------------------------------------- */
 

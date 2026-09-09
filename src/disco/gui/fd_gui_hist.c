@@ -510,6 +510,24 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
   return -1;
 }
 
+int
+fd_gui_hist_ts_bounds( fd_gui_t * gui,
+                       int        dbi,
+                       long *     start_ns,
+                       long *     end_ns ) {
+  if( FD_UNLIKELY( !gui || !gui->db ) ) return 0;
+  if( FD_UNLIKELY( dbi<0 || dbi>=FD_GUI_HIST_CNT ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_bounds: bad dbi %d", dbi )); return 0; }
+  if( FD_UNLIKELY( !fd_gui_hist_is_timeseries( dbi ) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_bounds: dbi %d is not time-series", dbi )); return 0; }
+
+  long first_ts;
+  long last_ts;
+  if( FD_UNLIKELY( !fd_gui_store_ts_live_timestamp_bounds( fd_gui_hist_db( gui ), (ulong)dbi, &first_ts, &last_ts ) ) ) return 0;
+
+  *start_ns = first_ts;
+  *end_ns   = last_ts==LONG_MAX ? LONG_MAX : last_ts+1L;
+  return 1;
+}
+
 
 static void
 fd_gui_hist_iter_load( fd_gui_hist_iter_t * iter ) {
@@ -557,9 +575,12 @@ fd_gui_hist_range_begin( fd_gui_t *                   gui,
      Every TS record is skew-clamped at append time, so the ring's
      contents are within 2*SKEW of its append-order endpoints. */
 
-  ulong first_window;
-  ulong last_window;
-  if( FD_UNLIKELY( !fd_gui_store_ts_live_window_bounds( db, (ulong)dbi, &first_window, &last_window ) ) ) return 0; /* empty ring */
+  long first_ts;
+  long last_ts;
+  if( FD_UNLIKELY( !fd_gui_store_ts_live_timestamp_bounds( db, (ulong)dbi, &first_ts, &last_ts ) ) ) return 0; /* empty ring */
+
+  ulong first_window = (ulong)fd_long_max( first_ts, 0L )/(ulong)res_ns;
+  ulong last_window  = (ulong)fd_long_max( last_ts,  0L )/(ulong)res_ns;
 
   ulong skew_window = (ulong)((2L*FD_GUI_HIST_TS_SKEW_NS + res_ns-1L) / res_ns);
   ulong live_lo = fd_ulong_min( first_window, last_window );

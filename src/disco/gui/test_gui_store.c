@@ -417,6 +417,54 @@ test_ts_append_scan( void ) {
   FD_LOG_NOTICE(( "test_ts_append_scan: ok" ));
 }
 
+static void
+test_ts_live_timestamp_bounds( void ) {
+  char path[ 128 ]; mk_path( path, sizeof(path) );
+  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+
+  long first_ts;
+  long last_ts;
+  FD_TEST( !fd_gui_store_ts_live_timestamp_bounds( db, DB_TS, &first_ts, &last_ts ) );
+  FD_TEST( !fd_gui_store_ts_live_timestamp_bounds( db, DB_ENT8, &first_ts, &last_ts ) );
+  FD_TEST( !fd_gui_store_ts_live_timestamp_bounds( db, DB_CNT, &first_ts, &last_ts ) );
+
+  ts_val_t values[] = {
+    { .ts=10L, .seq=0UL },
+    { .ts=20L, .seq=1UL },
+    { .ts=15L, .seq=2UL },
+  };
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( fd_gui_store_ts_append( db, DB_TS, &values[ i ] )==FD_GUI_STORE_SUCCESS );
+
+  fd_gui_store_metrics_t const * metrics = fd_gui_store_metrics( db );
+  ulong reads_before       = metrics->ts_reads       [ DB_TS ];
+  ulong records_before     = metrics->ts_read_records[ DB_TS ];
+  FD_TEST( fd_gui_store_ts_live_timestamp_bounds( db, DB_TS, &first_ts, &last_ts ) );
+  FD_TEST( first_ts==10L && last_ts==15L ); /* insertion endpoints, not timestamp extrema */
+  FD_TEST( metrics->ts_reads       [ DB_TS ]==reads_before   );
+  FD_TEST( metrics->ts_read_records[ DB_TS ]==records_before );
+
+  ulong budget = 3UL;
+  int drained = 0;
+  FD_TEST( fd_gui_store_ts_evict( db, DB_TS, ULONG_MAX, &budget, &drained )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( drained && !budget );
+  FD_TEST( !fd_gui_store_ts_live_timestamp_bounds( db, DB_TS, &first_ts, &last_ts ) );
+
+  for( long ts=30L; ts<=32L; ts++ ) {
+    ts_val_t value = { .ts=ts, .seq=(ulong)ts };
+    FD_TEST( fd_gui_store_ts_append( db, DB_TS, &value )==FD_GUI_STORE_SUCCESS );
+  }
+  budget = 1UL;
+  drained = 1;
+  FD_TEST( fd_gui_store_ts_evict( db, DB_TS, 32UL, &budget, &drained )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( !drained && !budget );
+  FD_TEST( fd_gui_store_ts_live_timestamp_bounds( db, DB_TS, &first_ts, &last_ts ) );
+  FD_TEST( first_ts==31L && last_ts==32L );
+
+  db_close( db );
+  cleanup( path );
+  FD_LOG_NOTICE(( "test_ts_live_timestamp_bounds: ok" ));
+}
+
 /* keep only even record values */
 static int
 even_filter( void const * rec, void * ctx ) {
@@ -590,6 +638,7 @@ main( int     argc,
   test_kv_index_footprint();
   test_ts_index_footprint();
   test_ts_append_scan();
+  test_ts_live_timestamp_bounds();
   test_ts_filter_and_evict();
   test_map_full();
   test_space_accounting();

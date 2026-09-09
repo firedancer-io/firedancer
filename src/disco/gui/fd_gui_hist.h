@@ -197,6 +197,17 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
                        long         ts_ns,
                        void const * val );
 
+/* fd_gui_hist_ts_bounds returns the retained half-open timestamp interval
+   [*start_ns,*end_ns) for time-series database `dbi`.  The endpoints are
+   taken from the oldest and newest live records in insertion order.  Returns
+   1 if the database is non-empty, 0 otherwise. */
+
+int
+fd_gui_hist_ts_bounds( fd_gui_t * gui,
+                       int        dbi,
+                       long *     start_ns,
+                       long *     end_ns );
+
 int
 fd_gui_hist_range_begin( fd_gui_t *                   gui,
                          fd_gui_hist_iter_t *         iter,
