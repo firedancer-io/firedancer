@@ -56,21 +56,21 @@ mk_notar( ag_vote_notar_t *     o,
           ag_block_hash_t const h,
           ulong                 lo,
           ulong                 n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar( &g_sk[lo+i], slot, h, (ushort)(lo+i), TEST_SHRED_VERSION ).notar;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, h, (ushort)(lo+i), TEST_SHRED_VERSION ).notar;
 }
 static void
 mk_final( ag_vote_final_t * o,
           ulong             slot,
           ulong             lo,
           ulong             n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_final( &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).final;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_final( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).final;
 }
 static void
 mk_skip( ag_vote_skip_t * o,
          ulong            slot,
          ulong            lo,
          ulong            n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip( &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).skip;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).skip;
 }
 static void
 mk_nf( ag_vote_notar_fallback_t * o,
@@ -78,14 +78,14 @@ mk_nf( ag_vote_notar_fallback_t * o,
        ag_block_hash_t const      h,
        ulong                      lo,
        ulong                      n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar_fallback( &g_sk[lo+i], slot, h, (ushort)(lo+i), TEST_SHRED_VERSION ).notar_fallback;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_notar_fallback( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, h, (ushort)(lo+i), TEST_SHRED_VERSION ).notar_fallback;
 }
 static void
 mk_sf( ag_vote_skip_fallback_t * o,
        ulong                     slot,
        ulong                     lo,
        ulong                     n ) {
-  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip_fallback( &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).skip_fallback;
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip_fallback( ag_bls_sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).skip_fallback;
 }
 
 static ulong
@@ -346,7 +346,7 @@ test_sig_validity( void ) {
   mk_notar( nv, slot, h, 0UL, 9UL );
   c = cert_build_notar( nv, 9UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  nv[0] = ag_vote_construct_notar( &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar; /* wrong key for rank 0 */
+  nv[0] = ag_vote_construct_notar( ag_bls_sec_sign_fn, &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar; /* wrong key for rank 0 */
   c = cert_build_notar( nv, 9UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
@@ -355,7 +355,7 @@ test_sig_validity( void ) {
   mk_nf   ( fv, slot, h, 5UL, 4UL );
     c = cert_build_notar_fallback( nv, 5UL, fv, 4UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  nv[0] = ag_vote_construct_notar( &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar;
+  nv[0] = ag_vote_construct_notar( ag_bls_sec_sign_fn, &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar;
   c = cert_build_notar_fallback( nv, 5UL, fv, 4UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
@@ -363,7 +363,7 @@ test_sig_validity( void ) {
   mk_skip( sv, slot, 0UL, 9UL );
   c = cert_build_skip( sv, 9UL, NULL, 0UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  sv[0] = ag_vote_construct_skip( &g_sk[1], slot, 0, TEST_SHRED_VERSION ).skip;
+  sv[0] = ag_vote_construct_skip( ag_bls_sec_sign_fn, &g_sk[1], slot, 0, TEST_SHRED_VERSION ).skip;
   c = cert_build_skip( sv, 9UL, NULL, 0UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
@@ -371,7 +371,7 @@ test_sig_validity( void ) {
   mk_final( ev, slot, 0UL, 9UL );
   c = cert_build_final( ev, 9UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  ev[0] = ag_vote_construct_final( &g_sk[1], slot, 0, TEST_SHRED_VERSION ).final;
+  ev[0] = ag_vote_construct_final( ag_bls_sec_sign_fn, &g_sk[1], slot, 0, TEST_SHRED_VERSION ).final;
   c = cert_build_final( ev, 9UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
@@ -379,7 +379,7 @@ test_sig_validity( void ) {
   mk_notar( nv, slot, h, 0UL, 9UL );
   c = cert_build_fast_final( nv, 9UL, e );
   FD_TEST( cert_verify( &c, e ) );
-  nv[0] = ag_vote_construct_notar( &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar;
+  nv[0] = ag_vote_construct_notar( ag_bls_sec_sign_fn, &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar;
   c = cert_build_fast_final( nv, 9UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 

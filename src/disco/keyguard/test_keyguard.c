@@ -153,12 +153,36 @@ test_vote_txn_oob( void ) {
   (void)res;
 }
 
+static void
+test_ag_vote_authorize( void ) {
+  fd_keyguard_authority_t authority = {0};
+  uchar skip[ 11 ]  = { 3 /* skip */ };
+  uchar notar[ 43 ] = { 1 /* notar */ };
+
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, notar, sizeof(notar), FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  /* wrong sign type */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  /* wrong role */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_TXSEND, FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  /* hash-carrying tag with the short size and vice versa */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, notar, sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(notar), FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  /* bad tag */
+  skip[ 0 ] = 6;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  skip[ 0 ] = 0;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_log_private_boot( &argc, &argv );
   test_vote_txn_oob();
   test_txn_v1_match();
+  test_ag_vote_authorize();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

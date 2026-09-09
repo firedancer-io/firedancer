@@ -307,6 +307,14 @@ fd_keyguard_authorize_tls_cv_srv( fd_keyguard_authority_t const * authority FD_P
   return fd_memeq( fd_tls13_srv_sign_prefix, data, sizeof(fd_tls13_srv_sign_prefix) );
 }
 
+static int
+fd_keyguard_authorize_ag_vote( fd_keyguard_authority_t const * authority FD_PARAM_UNUSED,
+                               uchar const *                   data      FD_PARAM_UNUSED,
+                               ulong                           sz        FD_PARAM_UNUSED,
+                               int                             sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_BLS;
+}
+
 int
 fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
                                uchar const *                   data,
@@ -432,10 +440,12 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   }
 
   case FD_KEYGUARD_ROLE_VOTOR: {
-    int tls_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
-                 ( fd_keyguard_authorize_tls_cv    ( authority, data, sz, sign_type ) ||
-                   fd_keyguard_authorize_tls_cv_srv( authority, data, sz, sign_type ) );
-    if( FD_UNLIKELY( !tls_ok ) ) {
+    int tls_ok  = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
+                  ( fd_keyguard_authorize_tls_cv    ( authority, data, sz, sign_type ) ||
+                    fd_keyguard_authorize_tls_cv_srv( authority, data, sz, sign_type ) );
+    int vote_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_AG_VOTE )) &&
+                  fd_keyguard_authorize_ag_vote( authority, data, sz, sign_type );
+    if( FD_UNLIKELY( !tls_ok && !vote_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for votor (mask=%#lx)", payload_mask ));
       return 0;
     }
