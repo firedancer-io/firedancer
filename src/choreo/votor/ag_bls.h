@@ -57,6 +57,30 @@ ag_bls_sec_sign( ag_bls_sec_t const * sec,
                  ulong                msg_sz,
                  ag_bls_sig_t *       sig );
 
+/* ag_bls_sec_sign_fn is an ag_bls_sign_fn adapter around
+   ag_bls_sec_sign; ctx points to an ag_bls_sec_t.  For tests that have
+   the secret key in-memory; a live validator should be signing via the
+   keyguard client instead. */
+
+void
+ag_bls_sec_sign_fn( void *         ctx,
+                    ag_bls_sig_t * sig,
+                    uchar const *  msg,
+                    ulong          msg_sz );
+
+/* ag_bls_sig_ser writes the canonical uncompressed encoding of sig
+   (AG_BLS_SIG_SZ bytes) to out.  ag_bls_sig_de parses such an encoding
+   into sig, returning 0 on success and -1 if the bytes are not a valid
+   G2 point.  Translates between raw bytes and the canonical encoding. */
+
+void
+ag_bls_sig_ser( uchar                out[ static AG_BLS_SIG_SZ ],
+                ag_bls_sig_t const * sig );
+
+int
+ag_bls_sig_de( ag_bls_sig_t * sig,
+               uchar const    in[ static AG_BLS_SIG_SZ ] );
+
 /* PublicKey::try_from_bytes */
 
 int

@@ -9,6 +9,7 @@
 #include "../../discof/admin/fd_adminctl.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../metrics/fd_metrics.h"
+#include "../../choreo/votor/ag_bls.h"
 
 #include "../../util/hist/fd_histf.h"
 
@@ -56,6 +57,8 @@ typedef struct {
   uchar *           public_key;
   uchar *           private_key;
 
+  uchar *           bls_private_key; /* alpenglow BLS voting key */
+
   uchar tip_payment_program     [32];
   uchar tip_distribution_program[32];
 
@@ -89,6 +92,15 @@ derive_fields( fd_sign_ctx_t * ctx ) {
 
   fd_base58_encode_32( ctx->public_key, &ctx->public_key_base58_sz, (char *)ctx->concat );
   ctx->concat[ ctx->public_key_base58_sz ] = '-';
+
+  /* Alpenglow BLS key derivation, matching
+     solana_bls_signatures::SecretKey::derive_from_signer: the BLS IKM
+     is the identity's ed25519 signature over a fixed message. */
+  static char const derive_msg[] = "bls-key-derive-alpenglow";
+  uchar ikm[ 64 ];
+  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+  ag_bls_sec_derive( (ag_bls_sec_t *)fd_type_pun( ctx->bls_private_key ), ikm, sizeof(ikm) );
+  fd_memzero_explicit( ikm, sizeof(ikm) );
 }
 
 static void FD_FN_SENSITIVE
@@ -235,7 +247,8 @@ after_frag_sensitive( void *              _ctx,
 
   long sign_duration = -fd_tickcount();
 
-  uchar * dst = fd_chunk_to_laddr( ctx->out[ in_idx ].out_mem, ctx->out[ in_idx ].out_chunk );
+  uchar * dst    = fd_chunk_to_laddr( ctx->out[ in_idx ].out_mem, ctx->out[ in_idx ].out_chunk );
+  ulong   out_sz = 64UL;
 
   switch( sign_type ) {
   case FD_KEYGUARD_SIGN_TYPE_ED25519: {
@@ -245,6 +258,7 @@ after_frag_sensitive( void *              _ctx,
       if( FD_UNLIKELY( authority_idx>=ctx->authorized_voters_cnt ) )
         FD_LOG_CRIT(( "invalid sign request from in_idx=%lu: authority_idx=%lu out of range (authorized_voters_cnt=%lu)", in_idx, authority_idx, ctx->authorized_voters_cnt ));
       fd_ed25519_sign( dst+64UL, ctx->_data, sz, ctx->authorized_voter_pubkeys[ authority_idx ], ctx->authorized_voter_private_keys[ authority_idx ], ctx->sha512 );
+      out_sz = 128UL;
     }
     break;
   }
@@ -259,6 +273,13 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( dst, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
+  case FD_KEYGUARD_SIGN_TYPE_BLS: {
+    ag_bls_sig_t bls_sig[1];
+    ag_bls_sec_sign( (ag_bls_sec_t const *)fd_type_pun_const( ctx->bls_private_key ), ctx->_data, sz, bls_sig );
+    ag_bls_sig_ser( dst, bls_sig );
+    out_sz = FD_KEYGUARD_BLS_SIG_SZ;
+    break;
+  }
   default:
     FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
   }
@@ -266,7 +287,6 @@ after_frag_sensitive( void *              _ctx,
   sign_duration += fd_tickcount();
   fd_histf_sample( ctx->sign_duration, (ulong)sign_duration );
 
-  ulong out_sz = fd_ulong_if( (sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519) && needs_second_sign, 128UL, 64UL );
   fd_stem_publish( stem, in_idx, sig, ctx->out[ in_idx ].out_chunk, out_sz, 0UL, tsorig, 0UL );
   ctx->out[ in_idx ].out_chunk = fd_dcache_compact_next( ctx->out[ in_idx ].out_chunk, out_sz, ctx->out[ in_idx ].out_chunk0, ctx->out[ in_idx ].out_wmark );
 }
@@ -293,6 +313,8 @@ privileged_init_sensitive( fd_topo_t const *      topo,
   uchar * identity_key = fd_keyload_mprotect_wr( fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 ), /* public_key_only: */ 0 );
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
+
+  ctx->bls_private_key = fd_keyload_alloc_protected_pages( 1UL, 2UL );
 
   ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
   for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
@@ -367,7 +389,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
 
     ctx->out[ i ].out_mem    = fd_wksp_containing( out_link->dcache );
     ctx->out[ i ].out_chunk0 = fd_dcache_compact_chunk0( ctx->out[ i ].out_mem, out_link->dcache );
-    ctx->out[ i ].out_wmark  = fd_dcache_compact_wmark( ctx->out[ i ].out_mem, out_link->dcache, 64UL );
+    ctx->out[ i ].out_wmark  = fd_dcache_compact_wmark( ctx->out[ i ].out_mem, out_link->dcache, out_link->mtu );
     ctx->out[ i ].out_chunk  = ctx->out[ i ].out_chunk0;
 
     if( !strcmp( in_link->name, "shred_sign" ) ) {
@@ -414,7 +436,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_VOTOR;
       FD_TEST( !strcmp( out_link->name, "sign_votor" ) );
       FD_TEST( in_link->mtu==130UL );
-      FD_TEST( out_link->mtu==64UL );
+      FD_TEST( out_link->mtu==FD_KEYGUARD_BLS_SIG_SZ );
     } else {
       FD_LOG_CRIT(( "unexpected link %s", in_link->name ));
     }

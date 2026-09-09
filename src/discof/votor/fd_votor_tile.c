@@ -152,7 +152,6 @@ struct fd_votor_tile {
 
   fd_pubkey_t          id_key;
   fd_keyguard_client_t keyguard_client[1];
-  ag_bls_sec_t         bls_key; /* FIXME keyguard */
   ushort               shred_version;
 
   /* Data */
@@ -293,10 +292,7 @@ quic_client_conn_hs_complete( fd_quic_conn_t * conn,
 
   if( FD_LIKELY( !conn->tls_hs || memcmp( conn->tls_hs->hs.cli.server_pubkey, id_key->uc, sizeof(fd_pubkey_t) ) ) ) {
     fd_quic_conn_close( conn, CLOSE_CODE_INVALID_IDENTITY );
-    return;
   }
-  FD_BASE58_ENCODE_32_BYTES( id_key->uc, id_key_b58 );
-  FD_LOG_INFO(( "votor quic client connection to %s established", id_key_b58 ));
 }
 
 static void
@@ -343,8 +339,6 @@ quic_server_conn_new( fd_quic_conn_t * conn,
   }
   ctx->server_peer_id_keys[ conn->conn_idx ] = *id_key;
   fd_quic_conn_set_context( conn, &ctx->server_peer_id_keys[ conn->conn_idx ] );
-  FD_BASE58_ENCODE_32_BYTES( id_key->uc, id_key_b58 );
-  FD_LOG_INFO(( "votor quic server accepted connection from %s", id_key_b58 ));
 }
 
 static void
@@ -410,6 +404,19 @@ quic_sign( void *      signer_ctx,
            uchar const payload[ static 130 ] ) {
   fd_votor_tile_t * ctx = signer_ctx;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+}
+
+FD_STATIC_ASSERT( AG_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
+
+static void
+bls_sign( void *         signer_ctx,
+          ag_bls_sig_t * sig,
+          uchar const *  payload,
+          ulong          payload_sz ) {
+  fd_votor_tile_t * ctx = signer_ctx;
+  uchar sig_bytes[ AG_BLS_SIG_SZ ];
+  fd_keyguard_client_bls_sign( ctx->keyguard_client, sig_bytes, payload, payload_sz );
+  if( FD_UNLIKELY( ag_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
 }
 
 static void
@@ -996,23 +1003,7 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !strcmp( tile->votor.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  /* The identity private key is only needed transiently to derive the
-     BLS voting key.  All ed25519 signing (QUIC TLS) goes through the
-     sign tile via the keyguard client, so unload the keypair as soon as
-     the derivation is done.  FIXME the BLS key derivation and signing
-     should also move to the sign tile. */
-  uchar const * identity_keypair = fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 0 );
-  memcpy( ctx->id_key.uc, identity_keypair+32UL, sizeof(fd_pubkey_t) );
-
-  char const derive_msg[] = "bls-key-derive-alpenglow";
-  uchar         ikm[ 64 ];
-  fd_sha512_t   _sha[ 1 ];
-  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
-  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, identity_keypair+32UL, identity_keypair, sha );
-  fd_sha512_leave( sha );
-  ag_bls_sec_derive( &ctx->bls_key, ikm, sizeof(ikm) );
-  fd_memzero_explicit( ikm, sizeof(ikm) );
-  fd_keyload_unload( identity_keypair, /* pubkey only: */ 0 );
+  ctx->id_key = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 1 ) );
 
   fd_log_wallclock();
 }
@@ -1050,7 +1041,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
-  ag_votor_set_bls_key( ctx->votor, &ctx->bls_key );
 
   ctx->curr_epoch_info = NULL;
   ctx->curr_epoch_slot = ULONG_MAX;
@@ -1147,9 +1137,11 @@ unprivileged_init( fd_topo_t const *      topo,
                                                                      sign_out->dcache,
                                                                      sign_in->mcache,
                                                                      sign_in->dcache,
-                                                                     sign_out->mtu ) ) ) ) {
+                                                                     sign_out->mtu,
+                                                                     sign_in->mtu ) ) ) ) {
     FD_LOG_ERR(( "failed to construct keyguard client" ));
   }
+  ag_votor_set_bls_signer( ctx->votor, bls_sign, ctx );
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );

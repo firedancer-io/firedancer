@@ -124,7 +124,7 @@ setup_votor( long now ) {
   FD_TEST( votor );
   ag_votor_init            ( votor, 0UL, now );
   ag_votor_advance_epoch    ( votor, 0UL, 0UL );
-  ag_votor_set_bls_key      ( votor, &g_sk[0] );
+  ag_votor_set_bls_signer   ( votor, ag_bls_sec_sign_fn, &g_sk[0] );
   ag_votor_set_shred_version( votor, TEST_SHRED_VERSION );
 
   g_epoch_info = &epoch_info_mem;
@@ -366,7 +366,7 @@ test_prunes_to_finalized_window( void ) {
 
   /* finalizing a mid-window slot should drop only the slots before its
      window */
-  ag_vote_t fv; fv = ag_vote_construct_final( &g_sk[1], finalized, (ushort)1, TEST_SHRED_VERSION );
+  ag_vote_t fv; fv = ag_vote_construct_final( ag_bls_sec_sign_fn, &g_sk[1], finalized, (ushort)1, TEST_SHRED_VERSION );
   ag_cert_t cert = cert_build_final( &fv.final, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );

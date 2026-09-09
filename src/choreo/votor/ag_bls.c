@@ -29,6 +29,32 @@ ag_bls_sec_derive( ag_bls_sec_t * sk,
   blst_keygen( sk, ikm, ikm_sz, NULL, 0UL );
 }
 
+void
+ag_bls_sec_sign_fn( void *         ctx,
+                    ag_bls_sig_t * sig,
+                    uchar const *  msg,
+                    ulong          msg_sz ) {
+  ag_bls_sec_sign( (ag_bls_sec_t const *)ctx, msg, msg_sz, sig );
+}
+
+void
+ag_bls_sig_ser( uchar                out[ static AG_BLS_SIG_SZ ],
+                ag_bls_sig_t const * sig ) {
+  blst_p2_affine a[1];
+  blst_p2_to_affine( a, sig );
+  blst_p2_affine_serialize( out, a );
+}
+
+int
+ag_bls_sig_de( ag_bls_sig_t * sig,
+               uchar const    in[ static AG_BLS_SIG_SZ ] ) {
+  blst_p2_affine a[1];
+  if( FD_UNLIKELY( blst_p2_deserialize( a, in )!=BLST_SUCCESS ) ) return -1;
+  if( FD_UNLIKELY( !blst_p2_affine_in_g2( a ) ) )                 return -1;
+  blst_p2_from_affine( sig, a );
+  return 0;
+}
+
 static int
 pub_from_bytes( blst_p1_affine * out,
                 uchar const *    in,
@@ -36,9 +62,9 @@ pub_from_bytes( blst_p1_affine * out,
   BLST_ERROR err;
   switch( in_sz ) {
   case AG_BLS_PUB_COMPRESSED_SZ: err = blst_p1_uncompress ( out, in ); break;
-  case AG_BLS_PUB_SZ:            
-    if( FD_UNLIKELY( in[0]&0xA0U ) ) return 0;  
-    err = blst_p1_deserialize( out, in ); 
+  case AG_BLS_PUB_SZ:
+    if( FD_UNLIKELY( in[0]&0xA0U ) ) return 0;
+    err = blst_p1_deserialize( out, in );
     break;
   default: return 0;
   }

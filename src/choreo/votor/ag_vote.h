@@ -143,36 +143,41 @@ ag_vote_notar_fallback_block_hash( ag_vote_notar_fallback_t const * self ) {
 }
 
 ag_vote_t
-ag_vote_construct_notar( ag_bls_sec_t const *  sec,
+ag_vote_construct_notar( ag_bls_sign_fn        sign_fn,
+                         void *                sign_ctx,
                          ulong                 slot,
                          ag_block_hash_t const hash,
                          ushort                rank,
                          ushort                shred_version );
 
 ag_vote_t
-ag_vote_construct_final( ag_bls_sec_t const * sec,
-                         ulong                slot,
-                         ushort               rank,
-                         ushort               shred_version );
+ag_vote_construct_final( ag_bls_sign_fn sign_fn,
+                         void *         sign_ctx,
+                         ulong          slot,
+                         ushort         rank,
+                         ushort         shred_version );
 
 ag_vote_t
-ag_vote_construct_skip( ag_bls_sec_t const * sec,
-                        ulong                slot,
-                        ushort               rank,
-                        ushort               shred_version );
+ag_vote_construct_skip( ag_bls_sign_fn sign_fn,
+                        void *         sign_ctx,
+                        ulong          slot,
+                        ushort         rank,
+                        ushort         shred_version );
 
 ag_vote_t
-ag_vote_construct_notar_fallback( ag_bls_sec_t const *  sec,
+ag_vote_construct_notar_fallback( ag_bls_sign_fn        sign_fn,
+                                  void *                sign_ctx,
                                   ulong                 slot,
                                   ag_block_hash_t const hash,
                                   ushort                rank,
                                   ushort                shred_version );
 
 ag_vote_t
-ag_vote_construct_skip_fallback( ag_bls_sec_t const * sec,
-                                 ulong                slot,
-                                 ushort               rank,
-                                 ushort               shred_version );
+ag_vote_construct_skip_fallback( ag_bls_sign_fn sign_fn,
+                                 void *         sign_ctx,
+                                 ulong          slot,
+                                 ushort         rank,
+                                 ushort         shred_version );
 
 int
 ag_vote_verify( ag_vote_t const *    self,

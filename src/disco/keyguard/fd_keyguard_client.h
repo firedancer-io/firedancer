@@ -45,6 +45,7 @@ struct __attribute__((aligned(FD_KEYGUARD_CLIENT_ALIGN))) fd_keyguard_client {
   fd_wksp_t *      response_mem;
   ulong            response_chunk0;
   ulong            response_wmark;
+  ulong            response_mtu;
 };
 typedef struct fd_keyguard_client fd_keyguard_client_t;
 
@@ -56,7 +57,8 @@ fd_keyguard_client_new( void *           shmem,
                         uchar *          request_dcache,
                         fd_frag_meta_t * response_mcache,
                         uchar *          response_dcache,
-                        ulong            request_mtu );
+                        ulong            request_mtu,
+                        ulong            response_mtu );
 
 static inline fd_keyguard_client_t *
 fd_keyguard_client_join( void * shclient ) { return (fd_keyguard_client_t*)shclient; }
@@ -132,6 +134,17 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
                                   uchar const *          sign_data,
                                   ulong                  sign_data_len );
 
+/* fd_keyguard_client_bls_sign sends a remote FD_KEYGUARD_SIGN_TYPE_BLS
+   signing request and blocks (spins) until the response is received.
+   Same failure semantics as fd_keyguard_client_sign.  The response is a
+   FD_KEYGUARD_BLS_SIG_SZ (192) byte BLS signature written to
+   signature. */
+
+void
+fd_keyguard_client_bls_sign( fd_keyguard_client_t * client,
+                             uchar *                signature,
+                             uchar const *          sign_data,
+                             ulong                  sign_data_len );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_keyguard_fd_keyguard_client_h */
