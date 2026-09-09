@@ -2,6 +2,7 @@
 #define HEADER_fd_src_choreo_votor_ag_bls_h
 
 #include "../../util/fd_util.h"
+#include "../../third_party/blst/bindings/blst.h"
 
 #define AG_BLS_SEC_SZ            (32UL)
 #define AG_BLS_PUB_SZ            (96UL)
@@ -10,19 +11,16 @@
 #define AG_BLS_SIG_COMPRESSED_SZ (96UL)
 #define AG_BLS_SIGNERS_MAX       (2048UL)
 
+#define AG_BLS_DST               "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
+#define AG_BLS_DST_SZ            (sizeof(AG_BLS_DST)-1UL)
+
 #define SET_NAME signer_set
 #define SET_MAX  AG_BLS_SIGNERS_MAX
 #include "../../util/tmpl/fd_set.c"
 
-typedef uchar ag_bls_sec_t[ AG_BLS_SEC_SZ ];
-/* ag_bls_pub_t contains the canonical uncompressed encoding of a
-   validated, non-identity public key.  Construct it with
-   ag_bls_pub_try_from_bytes or ag_bls_sec_to_pub. */
-struct ag_bls_pub { uchar bytes[ AG_BLS_PUB_SZ ]; };
-typedef struct ag_bls_pub ag_bls_pub_t;
-typedef uchar ag_bls_sig_t[ AG_BLS_SIG_SZ ];
-
-FD_STATIC_ASSERT( sizeof(ag_bls_pub_t)==AG_BLS_PUB_SZ, ag_bls_pub_sz );
+typedef blst_scalar ag_bls_sec_t;
+typedef blst_p1     ag_bls_pub_t;
+typedef blst_p2     ag_bls_sig_t;
 
 struct ag_bls_agg {
   ag_bls_sig_t sig;
@@ -31,33 +29,33 @@ struct ag_bls_agg {
 typedef struct ag_bls_agg ag_bls_agg_t;
 
 typedef void
-(* ag_bls_sign_fn)( void *        ctx,
-                    ag_bls_sig_t  sig,
-                    uchar const * payload,
-                    ulong         payload_sz );
+(* ag_bls_sign_fn)( void *         ctx,
+                    ag_bls_sig_t * sig,
+                    uchar const *  payload,
+                    ulong          payload_sz );
 
 FD_PROTOTYPES_BEGIN
 
 /* SecretKey::to_pk */
 
 void
-ag_bls_sec_to_pub( ag_bls_sec_t const sec,
-                   ag_bls_pub_t *     pub );
+ag_bls_sec_to_pub( ag_bls_sec_t const * sec,
+                   ag_bls_pub_t *       pub );
 
 /* solana_bls_signatures::SecretKey::derive */
 
 void
-ag_bls_sec_derive( ag_bls_sec_t  sec,
-                   uchar const * ikm,
-                   ulong         ikm_sz );
+ag_bls_sec_derive( ag_bls_sec_t * sec,
+                   uchar const *  ikm,
+                   ulong          ikm_sz );
 
 /* SecretKey::sign_bytes */
 
 void
-ag_bls_sec_sign( ag_bls_sec_t const sec,
-                 ag_bls_sig_t       sig,
-                 uchar const *      msg,
-                 ulong              msg_sz );
+ag_bls_sec_sign( ag_bls_sec_t const * sec,
+                 uchar const *        msg,
+                 ulong                msg_sz,
+                 ag_bls_sig_t *       sig );
 
 /* PublicKey::try_from_bytes */
 
@@ -69,7 +67,7 @@ ag_bls_pub_try_from_bytes( ag_bls_pub_t * out,
 /* IndividualSignature::verify_bytes */
 
 int
-ag_bls_sig_verify( ag_bls_sig_t const   sig,
+ag_bls_sig_verify( ag_bls_sig_t const * sig,
                    ag_bls_pub_t const * pub,
                    uchar const *        msg,
                    ulong                msg_sz );
@@ -82,9 +80,9 @@ ag_bls_agg_zero( ag_bls_agg_t * agg );
 /* AggregateSignature::new */
 
 void
-ag_bls_agg_add( ag_bls_agg_t *     self,
-                ulong              rank,
-                ag_bls_sig_t const sig );
+ag_bls_agg_add( ag_bls_agg_t *       self,
+                ulong                rank,
+                ag_bls_sig_t const * sig );
 
 /* agave AggregateAccumulator::add_aggregate */
 
@@ -119,13 +117,13 @@ ag_bls_agg_verify_without_bitmask( ag_bls_agg_t const * self,
 
 int
 ag_bls_agg_verify_merged( ag_bls_agg_t const * agg_base,
-                         uchar const *        msg_base,
-                         ulong                msg_base_sz,
-                         ag_bls_agg_t const * agg_fb,
-                         uchar const *        msg_fb,
-                         ulong                msg_fb_sz,
-                         ag_bls_pub_t const * pks,
-                         ulong                pk_cnt );
+                          uchar const *        msg_base,
+                          ulong                msg_base_sz,
+                          ag_bls_agg_t const * agg_fb,
+                          uchar const *        msg_fb,
+                          ulong                msg_fb_sz,
+                          ag_bls_pub_t const * pks,
+                          ulong                pk_cnt );
 
 /* AggregateSignature::is_signer */
 

@@ -26,8 +26,8 @@ ag_votor_advance_epoch( ag_votor_t * self,
                         ulong        epoch_slot );
 
 void
-ag_votor_set_bls_key( ag_votor_t *       self,
-                      ag_bls_sec_t const bls_key );
+ag_votor_set_bls_key( ag_votor_t *         self,
+                      ag_bls_sec_t const * bls_key );
 
 void
 ag_votor_set_shred_version( ag_votor_t * self,

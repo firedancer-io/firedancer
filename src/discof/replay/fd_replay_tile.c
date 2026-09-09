@@ -296,16 +296,18 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
   ushort rank         = replay_voter_rank( ctx, bank, reward_epoch );
   *rank_out = rank;
 
-  fd_reward_cert_t const * skip  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
-  fd_reward_cert_t const * notar = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
-  if( FD_LIKELY( !skip && !notar ) ) return 0;
+  fd_footer_certs_t certs[1];
+  fd_sched_get_footer_certs( ctx->sched, bank->idx, certs );
+  if( FD_LIKELY( !certs->skip_reward_signer_set && !certs->notar_reward_signer_set ) ) return 0;
 
   if( FD_UNLIKELY( rank==USHORT_MAX ) ) return 0;
 
+  /* bits at or past the cert's nbits are left clear at decode, so the
+     mask test alone bounds the rank */
   ulong word = (ulong)rank>>6;
   ulong bit  = 1UL<<( (ulong)rank & 63UL );
-  int   in_cert = ( !!skip  && rank<skip ->nbits && !!( skip ->signer_set[ word ] & bit ) ) ||
-                  ( !!notar && rank<notar->nbits && !!( notar->signer_set[ word ] & bit ) );
+  int   in_cert = ( !!certs->skip_reward_signer_set  && !!( certs->skip_reward_signer_set [ word ] & bit ) ) ||
+                  ( !!certs->notar_reward_signer_set && !!( certs->notar_reward_signer_set[ word ] & bit ) );
 
   if( FD_UNLIKELY( in_cert && ( ctx->metrics.voted_slot==ULONG_MAX || reward_slot>ctx->metrics.voted_slot ) ) ) ctx->metrics.voted_slot = reward_slot;
   return in_cert;
@@ -1026,11 +1028,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_footer_certs_t const * certs_opt = NULL;
   ulong footer_time_nanos = 0UL;
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
-    certs->fast_final_cert   = fd_sched_get_fast_final_cert  ( ctx->sched, bank->idx );
-    certs->final_cert        = fd_sched_get_final_cert       ( ctx->sched, bank->idx );
-    certs->final_notar_cert  = fd_sched_get_final_notar_cert ( ctx->sched, bank->idx );
-    certs->skip_reward_cert  = fd_sched_get_skip_reward_cert ( ctx->sched, bank->idx );
-    certs->notar_reward_cert = fd_sched_get_notar_reward_cert( ctx->sched, bank->idx );
+    fd_sched_get_footer_certs( ctx->sched, bank->idx, certs );
     // TODO missing cert verify - inline to replay or use new verify tiles
     certs_opt        = certs;
     footer_time_nanos = fd_sched_get_footer_producer_time_nanos( ctx->sched, bank->idx );
@@ -1230,24 +1228,17 @@ leader_footer_certs( fd_replay_tile_t const * ctx,
   int final_ready = !!agg[ 0 ];
   for( ulong i=0UL; i<2UL; i++ ) {
     if( !agg[ i ] ) continue;
-    uchar csig[ AG_BLS_SIG_COMPRESSED_SZ ];
     ulong last = signer_set_last( agg[ i ]->bitmask );
-    if( FD_UNLIKELY( ( last<AG_BLS_SIGNERS_MAX && last>=AG_VAT_MAX ) ||
-                     fd_bls12_381_g2_compress( csig, agg[ i ]->sig, 1 ) ) ) final_ready = 0;
+    if( FD_UNLIKELY( last<AG_BLS_SIGNERS_MAX && last>=AG_VAT_MAX ) ) final_ready = 0; /* a point cannot be malformed */
   }
   footer->has_fast_final_cert = final_ready && use_fast;
   footer->has_final_cert      = final_ready && use_slow;
   if( footer->has_fast_final_cert ) {
-    footer->fast_final_cert.slot = fin->slot;
-    footer->fast_final_cert.agg  = fin->agg;
-    memcpy( footer->fast_final_cert.block_hash, fin->block_id.uc, sizeof(ag_block_hash_t) );
+    footer->has_fast_final_cert = fd_block_footer_final_cert_from_agg( &footer->fast_final_cert, fin->slot, fin->block_id.uc, &fin->agg );
   }
   if( footer->has_final_cert ) {
-    footer->final_cert.slot = fin->slot;
-    footer->final_cert.agg  = fin->agg;
-    footer->notar_cert.slot = fin->slot;
-    footer->notar_cert.agg  = fin->agg2;
-    memcpy( footer->notar_cert.block_hash, fin->block_id.uc, sizeof(ag_block_hash_t) );
+    footer->has_final_cert = fd_block_footer_final_cert_from_agg( &footer->final_cert, fin->slot, NULL,             &fin->agg  ) &&
+                             fd_block_footer_final_cert_from_agg( &footer->notar_cert, fin->slot, fin->block_id.uc, &fin->agg2 );
   }
 
   int reward_ok = migration_slot!=ULONG_MAX &&
@@ -1256,17 +1247,27 @@ leader_footer_certs( fd_replay_tile_t const * ctx,
     ulong                     reward_slot = leader_slot-FD_NUM_SLOTS_FOR_REWARD;
     fd_votor_certed_t const * rn          = &ctx->votor_notar[ reward_slot%(4UL*AG_SLOTS_PER_WINDOW) ];
     fd_votor_certed_t const * rs          = &ctx->votor_skip [ reward_slot%(4UL*AG_SLOTS_PER_WINDOW) ];
-    footer->has_notar_reward_cert = rn->slot==reward_slot && fd_reward_cert_from_agg( &footer->notar_reward_cert, reward_slot, rn->block_id.uc, &rn->agg );
-    footer->has_skip_reward_cert  = rs->slot==reward_slot && fd_reward_cert_from_agg( &footer->skip_reward_cert,  reward_slot, NULL,            &rs->agg );
+    footer->has_notar_reward_cert = rn->slot==reward_slot && fd_block_footer_reward_cert_from_agg( &footer->notar_reward_cert, reward_slot, rn->block_id.uc, &rn->agg );
+    footer->has_skip_reward_cert  = rs->slot==reward_slot && fd_block_footer_reward_cert_from_agg( &footer->skip_reward_cert,  reward_slot, NULL,            &rs->agg );
   }
 
-  if( footer->has_fast_final_cert ) certs->fast_final_cert = &footer->fast_final_cert;
-  if( footer->has_final_cert      ) {
-    certs->final_cert       = &footer->final_cert;
-    certs->final_notar_cert = &footer->notar_cert;
+  if( footer->has_fast_final_cert ) {
+    certs->final_slot            = footer->fast_final_cert.slot;
+    certs->fast_final_signer_set = footer->fast_final_cert.signer_set;
   }
-  if( footer->has_skip_reward_cert  ) certs->skip_reward_cert  = &footer->skip_reward_cert;
-  if( footer->has_notar_reward_cert ) certs->notar_reward_cert = &footer->notar_reward_cert;
+  if( footer->has_final_cert ) {
+    certs->final_slot             = footer->final_cert.slot;
+    certs->final_signer_set       = footer->final_cert.signer_set;
+    certs->final_notar_signer_set = footer->notar_cert.signer_set;
+  }
+  if( footer->has_skip_reward_cert ) {
+    certs->skip_reward_slot       = footer->skip_reward_cert.slot;
+    certs->skip_reward_signer_set = footer->skip_reward_cert.signer_set;
+  }
+  if( footer->has_notar_reward_cert ) {
+    certs->notar_reward_slot       = footer->notar_reward_cert.slot;
+    certs->notar_reward_signer_set = footer->notar_reward_cert.signer_set;
+  }
 }
 
 static void

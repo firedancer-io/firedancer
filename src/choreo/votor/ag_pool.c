@@ -94,7 +94,6 @@ struct __attribute__((aligned(128UL))) ag_pool {
     ulong               pool_event_cnt;
     ag_block_id_t *     implicitly_finalized;
     ulong *             implicitly_skipped;
-    ag_slot_state_cert_builder_t slot_state; /* shared by every slot state */
   } scratch;
 };
 
@@ -283,7 +282,6 @@ ag_pool_strerror( int err ) {
   case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: return "slot is either too old or too far in the future";
   case AG_POOL_ERR_DUPLICATE:          return "duplicate vote or cert";
   case AG_POOL_ERR_SLASHABLE:          return "vote constitutes a slashable offence";
-  case AG_POOL_ERR_HASH_CAPACITY:      return "slot already tracks the maximum distinct block hashes or notar-fallback certs";
   default:                             return "unknown";
   }
 }
@@ -302,7 +300,6 @@ slot_state( ag_pool_t * self,
   ele       = slot_state_pool_ele_acquire( self->slot_states->pool );
   ele->slot = slot;
   ag_slot_state_zero( &ele->slot_state, slot, info, rank );
-  ele->slot_state.cert_builder = &self->scratch.slot_state;
   slot_state_map_ele_insert( self->slot_states->map, ele, self->slot_states->pool );
   return &ele->slot_state;
 }
@@ -470,7 +467,7 @@ ag_pool_add_cert( ag_pool_t *       self,
   case AG_CERT_KIND_NOTAR:          duplicate = state->certs.notar.slot!=ULONG_MAX;                                                   break;
   case AG_CERT_KIND_NOTAR_FALLBACK: duplicate = ag_slot_state_is_notar_fallback     ( state, ag_cert_block_hash( cert ) );                   break;
   case AG_CERT_KIND_SKIP:           duplicate = state->certs.skip.slot!=ULONG_MAX;                                                    break;
-  default:                          __builtin_unreachable();
+  default:                          FD_LOG_CRIT(( "unreachable" ));
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
 
@@ -492,12 +489,12 @@ ag_pool_add_vote( ag_pool_t *       self,
   ulong             voter_stake = ag_epoch_info_validator( fd_ptr_if( slot >= self->next_epoch_slot, self->next_epoch_info, self->curr_epoch_info ), voter )->stake;
   ag_slot_state_t * slot_state_ = slot_state( self, slot );
 
-  if( FD_UNLIKELY( ag_slot_state_check_slashable_offence( slot_state_, vote )!=AG_SLASHABLE_NONE ) ) {
+  if       ( FD_UNLIKELY( ag_slot_state_check_slashable_offence( slot_state_, vote )!=AG_SLASHABLE_NONE ) ) {
     return AG_POOL_ERR_SLASHABLE;
   } else if( FD_UNLIKELY( ag_slot_state_should_ignore_vote( slot_state_, vote ) ) ) {
     return AG_POOL_ERR_DUPLICATE;
   } else if( FD_UNLIKELY( vote->kind==AG_VOTE_KIND_NOTAR_FALLBACK && slot_state_->votes.notar_fallback_cnt[ voter ]>=AG_NOTAR_FALLBACK_VOTE_MAX ) ) {
-    return AG_POOL_ERR_HASH_CAPACITY;
+    return AG_POOL_ERR_SLASHABLE;
   }
 
   ag_slot_state_outputs_t slot_state_outputs = ag_slot_state_add_vote( slot_state_, vote, voter_stake );

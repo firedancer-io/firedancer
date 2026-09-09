@@ -5,8 +5,9 @@
 /* fd_block_marker serializes and deserializes block markers */
 
 #include "../../flamenco/fd_flamenco_base.h"
-#include "../../flamenco/rewards/fd_reward_cert.h"
-#include "../../choreo/votor/ag_cert.h"
+#include "../../flamenco/rewards/fd_alpen_rewards.h" /* FD_BLOCK_CERT_SET_WORDS */
+#include "../../choreo/votor/ag_bls.h"
+#include "../../choreo/votor/ag_votor_base.h"
 
 #define FD_BLOCK_MARKER_DE_SUCCESS         ( 0)
 #define FD_BLOCK_MARKER_DE_ERR_TRUNCATED   (-1) /* input ended short of the encoding */
@@ -62,28 +63,57 @@ typedef struct fd_update_parent fd_update_parent_t;
                                      2UL*FD_BLOCK_MARKER_AGG_MAX        + /* final + notar aggregates  */ \
                                      2UL*FD_BLOCK_MARKER_REWARD_MAX )     /* skip + notar reward certs */
 
+/* FD_NUM_SLOTS_FOR_REWARD is how far back the reward certs in a block
+   footer reach: a leader producing slot s attests the voters of
+   s-FD_NUM_SLOTS_FOR_REWARD. */
+
+#define FD_NUM_SLOTS_FOR_REWARD (8UL)
+
+/* A certificate as a block footer carries it.  The shape, including the
+   signer bitmap, is validated at deserialization; the signature is NOT
+   verified here and stays compressed, exactly as it arrived, for votor
+   to decode and check. */
+
+struct fd_block_footer_final_cert {
+  ulong     slot;
+  fd_hash_t block_id;                              /* zero when the wire carries none */
+  uchar     sig[ AG_BLS_SIG_COMPRESSED_SZ ];       /* compressed, unverified */
+  ushort    nbits;                                 /* signer bitmap bit count, <=AG_VAT_MAX */
+  ulong     signer_set[ FD_BLOCK_CERT_SET_WORDS ]; /* decoded base2 signer bitmap */
+};
+typedef struct fd_block_footer_final_cert fd_block_footer_final_cert_t;
+
+struct fd_block_footer_reward_cert {
+  ulong     slot;
+  fd_hash_t block_id;                              /* zero for skip reward certs */
+  uchar     sig[ AG_BLS_SIG_COMPRESSED_SZ ];       /* compressed, unverified */
+  ushort    nbits;
+  ulong     signer_set[ FD_BLOCK_CERT_SET_WORDS ];
+};
+typedef struct fd_block_footer_reward_cert fd_block_footer_reward_cert_t;
+
 struct fd_block_footer {
    fd_hash_t bank_hash;
    ulong     block_producer_time_nanos;
    ulong     user_agent_len;
    uchar     user_agent[ FD_BLOCK_FOOTER_USER_AGENT_MAX ];
 
-   /* Optional finalization certa, shape validated and agg
-      signatures decompressed, but not verified. A fast finalization
+   /* Optional finalization certs, shape validated but signatures
+      neither decompressed nor verified. A fast finalization
       cert fills fast_final_cert; a slow one fills final_cert +
       notar_cert. */
-   int                  has_fast_final_cert;
-   int                  has_final_cert;
-   ag_cert_fast_final_t fast_final_cert;
-   ag_cert_final_t      final_cert;
-   ag_cert_notar_t      notar_cert;
+   int                          has_fast_final_cert;
+   int                          has_final_cert;
+   fd_block_footer_final_cert_t fast_final_cert;
+   fd_block_footer_final_cert_t final_cert;
+   fd_block_footer_final_cert_t notar_cert;
 
    /* Optional reward certs. Shapes are validated but signatures are
       not verified. */
-   int              has_skip_reward_cert;
-   fd_reward_cert_t skip_reward_cert;
-   int              has_notar_reward_cert;
-   fd_reward_cert_t notar_reward_cert;
+   int                           has_skip_reward_cert;
+   fd_block_footer_reward_cert_t skip_reward_cert;
+   int                           has_notar_reward_cert;
+   fd_block_footer_reward_cert_t notar_reward_cert;
 };
 typedef struct fd_block_footer fd_block_footer_t;
 
@@ -153,6 +183,19 @@ typedef struct fd_block_final_cert_serde fd_block_final_cert_serde_t;
 
 FD_PROTOTYPES_BEGIN
 
+int
+fd_block_footer_final_cert_from_agg( fd_block_footer_final_cert_t * cert,
+                                     ulong                          slot,
+                                     uchar const *                  block_hash,
+                                     ag_bls_agg_t const *           agg );
+
+int
+fd_block_footer_reward_cert_from_agg( fd_block_footer_reward_cert_t * cert,
+                                      ulong                           slot,
+                                      uchar const *                   block_hash,
+                                      ag_bls_agg_t const *            agg );
+
+
 /* fd_block_final_cert_de deserializes the BlockFinalizationCert at buf,
    which a block footer carries inline.  Agg signatures are decompressed
    but not verified.  Returns 1 when the cert is a fast finalization, in
@@ -161,12 +204,12 @@ FD_PROTOTYPES_BEGIN
    success buf_sz (if non-NULL) receives the number of bytes consumed. */
 
 int
-fd_block_final_cert_de( ag_cert_fast_final_t * fast_final,
-                        ag_cert_final_t *      final,
-                        ag_cert_notar_t *      notar,
-                        uchar const *          buf,
-                        ulong                  buf_max,
-                        ulong *                buf_sz );
+fd_block_final_cert_de( fd_block_footer_final_cert_t * fast_final,
+                        fd_block_footer_final_cert_t * final,
+                        fd_block_footer_final_cert_t * notar,
+                        uchar const *                  buf,
+                        ulong                          buf_max,
+                        ulong *                        buf_sz );
 
 /* The deserializers below decode a versioned block marker payload,
    with buf pointing at the payload byte (FD_BLOCK_MARKER_PREAMBLE_SZ

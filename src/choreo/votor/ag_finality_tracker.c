@@ -93,7 +93,7 @@ status_hash( finalization_status_t const * status ) {
   case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED: return status->implicitly_finalized.hash;
   case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:  return NULL;
   case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:   return NULL;
-  default:                                          __builtin_unreachable();
+  default:                                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
 
@@ -163,7 +163,7 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
           case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
             FD_LOG_CRIT(( "consensus safety violation" ));
           default:
-            __builtin_unreachable();
+            FD_LOG_CRIT(( "unreachable" ));
         }
       }
       if( FD_UNLIKELY( !ele ) ) {
@@ -197,7 +197,7 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
         case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
           FD_LOG_CRIT(( "consensus safety violation" ));
         default:
-          __builtin_unreachable();
+          FD_LOG_CRIT(( "unreachable" ));
       }
     }
     ele->status.kind = AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED;
@@ -421,7 +421,7 @@ ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t *   self,
       case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
         FD_LOG_CRIT(( "consensus safety violation" ));
       default:
-        __builtin_unreachable();
+        FD_LOG_CRIT(( "unreachable" ));
     }
   }
   ele->status.kind = AG_FINALIZATION_STATUS_FINALIZED;
@@ -462,7 +462,7 @@ ag_finality_tracker_mark_notarized( ag_finality_tracker_t *   self,
       return;
     }
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unreachable" ));
   }
 }
 
@@ -496,7 +496,7 @@ ag_finality_tracker_mark_finalized( ag_finality_tracker_t *   self,
     case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
       FD_LOG_CRIT(( "consensus safety violation" ));
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unreachable" ));
   }
 }
 

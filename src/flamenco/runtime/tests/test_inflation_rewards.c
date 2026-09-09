@@ -450,9 +450,8 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
     fd_vote_stakes_finalize( vote_stakes, bank->f.epoch );
   }
 
-  fd_reward_cert_t reward_cert = { .slot=reward_slot, .nbits=1U };
-  reward_cert.signer_set[0] = 1UL;
-  fd_footer_certs_t certs = { .skip_reward_cert=&reward_cert };
+  ulong reward_set[ FD_BLOCK_CERT_SET_WORDS ] = { 1UL };
+  fd_footer_certs_t certs = { .skip_reward_slot=reward_slot, .skip_reward_signer_set=reward_set };
 
   fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )!=reward_slot );
@@ -461,9 +460,8 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=reward_slot );
 
   ulong final_slot = reward_slot+1UL;
-  ag_cert_fast_final_t final_cert = { .slot=final_slot };
-  final_cert.agg.bitmask[0] = 1UL;
-  certs = (fd_footer_certs_t){ .fast_final_cert=&final_cert };
+  ulong final_set[ FD_BLOCK_CERT_SET_WORDS ] = { 1UL };
+  certs = (fd_footer_certs_t){ .final_slot=final_slot, .fast_final_signer_set=final_set };
   FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==final_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=final_slot );

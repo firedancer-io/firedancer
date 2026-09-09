@@ -16,10 +16,10 @@ test_sched_footprint( void ) {
   /* Retain the per-block saving from compact shred lengths under the
      default scheduler sizing.  Production limits must reproduce the
      footprint from before the limits became runtime values. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1122073984UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1121549696UL );
   /* Only the shred length array scales with the shred limit. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1122073984UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1122073984UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1121549696UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1121549696UL );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
