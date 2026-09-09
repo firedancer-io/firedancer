@@ -1,0 +1,17 @@
+uint logfile_fd
+
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+fsync: (eq (arg 0) logfile_fd)
+
+accept4: (eq (arg 3) "SOCK_NONBLOCK|SOCK_CLOEXEC")
+
+socket: (and (eq (arg 0) "AF_INET")
+             (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC")
+             (eq (arg 2) 0))
+connect
+read
+sendto
+close
+getrandom

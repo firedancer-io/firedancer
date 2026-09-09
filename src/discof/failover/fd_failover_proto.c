@@ -17,6 +17,7 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
   if( FD_UNLIKELY( self->role==FD_FAILOVER_ROLE_ACTIVE &&
                    peer->role==FD_FAILOVER_ROLE_ACTIVE &&
                    self->term==peer->term ) )                                    return FD_FAILOVER_HELLO_ERR_BOTH_ACT;
+  if( FD_UNLIKELY( self->cfg_hash!=peer->cfg_hash ) )                            return FD_FAILOVER_HELLO_ERR_CFG;
   return FD_FAILOVER_HELLO_OK;
 }
 

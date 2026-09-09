@@ -243,11 +243,12 @@ struct fd_topo_tile {
 
     struct {
       char   identity_key_path[ PATH_MAX ];
+      uint   target_uid;
       int    failover_enabled;
       int    failover_dial_peer;
-      char   failover_bind_address[ 64 ];
+      uint   failover_bind_addr;
       ushort failover_bind_port;
-      char   failover_peer_address[ 64 ];
+      uint   failover_peer_addr;
       ushort failover_peer_port;
       char   failover_pair_secret_path[ PATH_MAX ];
       char   failover_junk_identity_path[ PATH_MAX ];
@@ -911,6 +912,8 @@ typedef struct {
   void  (*privileged_init         )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   void  (*unprivileged_init       )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   void  (*run                     )( fd_topo_t * topo, fd_topo_tile_t * tile );
+  int   (*keep_host_networking_fn )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
+  int   (*allow_connect_fn        )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   ulong (*rlimit_file_cnt_fn      )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
 } fd_topo_run_tile_t;
 

@@ -1415,10 +1415,20 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "admin" ) ) ) {
 
     fd_cstr_ncpy( tile->admin.identity_key_path, config->paths.identity_key, sizeof(tile->admin.identity_key_path) );
+    tile->admin.target_uid         = config->uid;
     tile->admin.failover_enabled   = config->firedancer.failover.enabled;
     tile->admin.failover_dial_peer = config->firedancer.failover.dial_peer;
-    fd_cstr_ncpy( tile->admin.failover_bind_address,         config->firedancer.failover.bind_address,         sizeof(tile->admin.failover_bind_address)     );
-    fd_cstr_ncpy( tile->admin.failover_peer_address,         config->firedancer.failover.peer_address,         sizeof(tile->admin.failover_peer_address)     );
+    if( FD_UNLIKELY( config->firedancer.failover.enabled ) ) {
+      if( FD_UNLIKELY( config->firedancer.failover.dial_peer ) ) {
+        if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->firedancer.failover.peer_address, &tile->admin.failover_peer_addr ) ) ) {
+          FD_LOG_ERR(( "`failover.peer_address` is not a valid IPv4 address" ));
+        }
+      } else {
+        if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->firedancer.failover.bind_address, &tile->admin.failover_bind_addr ) ) ) {
+          FD_LOG_ERR(( "`failover.bind_address` is not a valid IPv4 address" ));
+        }
+      }
+    }
     fd_cstr_ncpy( tile->admin.failover_pair_secret_path,     config->firedancer.failover.pair_secret_path,     sizeof(tile->admin.failover_pair_secret_path) );
     fd_cstr_ncpy( tile->admin.failover_junk_identity_path,   config->firedancer.failover.junk_identity_path,   sizeof(tile->admin.failover_junk_identity_path) );
     fd_cstr_ncpy( tile->admin.failover_staked_identity_path, config->firedancer.failover.staked_identity_path, sizeof(tile->admin.failover_staked_identity_path) );

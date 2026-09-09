@@ -132,6 +132,13 @@ test_hello_checks( void ) {
   peer.term = 1UL;
   FD_TEST( fd_failover_hello_check( &self, &peer )==FD_FAILOVER_HELLO_OK );
 
+  /* A safety relevant config mismatch is fatal */
+  fill_hello( &self, 0x01, 0xAA, 0xBB, (uchar)FD_FAILOVER_ROLE_ACTIVE  );
+  fill_hello( &peer, 0x02, 0xAA, 0xBB, (uchar)FD_FAILOVER_ROLE_STANDBY );
+  peer.cfg_hash = 7UL;
+  FD_TEST( fd_failover_hello_check( &self, &peer )==FD_FAILOVER_HELLO_ERR_CFG );
+  peer.cfg_hash = 0UL;
+
   /* Both nodes may remain standby until an operator promotes one */
   fill_hello( &self, 0x01, 0xAA, 0xBB, (uchar)FD_FAILOVER_ROLE_STANDBY );
   fill_hello( &peer, 0x02, 0xAA, 0xBB, (uchar)FD_FAILOVER_ROLE_STANDBY );
