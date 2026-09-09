@@ -26,7 +26,7 @@ backtest() { # ledger, then run_ledger_backtest.sh args
   quiesce "$ledger"/shreds.pcapng.zst "$ledger"/snapshot-*.tar.zst "$ledger"/genesis.bin
   rm -f "$out.log"  # fd_log appends
   cat /proc/diskstats > "$out.diskstats.pre"   # disk work of the run = post - pre
-  OBJDIR=$BENCH_DIR/$side CI=1 DUMP_DIR=$DUMP_DIR setarch x86_64 -R \
+  OBJDIR=$BENCH_DIR/$side CI=1 DUMP_DIR=$DUMP_DIR setarch -R \
     ./src/flamenco/runtime/tests/run_ledger_backtest.sh -l "$@" --log "$out.log"
   cat /proc/diskstats > "$out.diskstats.post"
 }
