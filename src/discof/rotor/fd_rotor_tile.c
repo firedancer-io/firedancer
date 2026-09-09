@@ -35,7 +35,7 @@
 
 #include "../../discof/chainer/fd_chainer.h"
 #include "../../disco/store/fd_store.h"
-#include "../../discof/replay/fd_block_marker.h"
+#include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 
 #define DEBUG_LOGGING 0
 
@@ -724,23 +724,22 @@ ag_parse_parent_marker( fd_shred_t const * shred,
   ulong         sz      = fd_shred_payload_sz( shred );
 
   fd_block_marker_t marker[1];
-  ulong marker_sz;
-  int err = fd_block_marker_de( marker, payload, sz, &marker_sz );
+  int err = fd_block_marker_de( marker, payload, sz );
   if( FD_UNLIKELY( err ) ) return 0;
 
-  if( marker->variant==HEADER ) {
+  if( marker->kind==FD_BLOCK_MARKER_KIND_HEADER ) {
     memcpy( out_parent_slot,         &marker->header.parent_slot,        8UL );
     memcpy( out_parent_block_id->uc,  marker->header.parent_block_id.uc, 32UL );
     return 1;
   }
 
-  if( marker->variant==UPDATE_PARENT ) {
+  if( marker->kind==FD_BLOCK_MARKER_KIND_UPDATE_PARENT ) {
     memcpy( out_parent_slot,         &marker->update_parent.new_parent_slot,        8UL );
     memcpy( out_parent_block_id->uc,  marker->update_parent.new_parent_block_id.uc, 32UL );
     return 1;
   }
 
-  return 0; /* FOOTER / GENESIS_CERTIFICATE carry no parent */
+  return 0; /* a footer or genesis cert carries no parent */
 }
 
 static inline void

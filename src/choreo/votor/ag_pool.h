@@ -39,8 +39,6 @@ ag_pool_leave( ag_pool_t const * pool );
 void *
 ag_pool_delete( void * mem );
 
-/* init before any cert, vote or block is added; genesis is slot 0 */
-
 void
 ag_pool_init( ag_pool_t * self,
               ulong       slot );
@@ -86,10 +84,6 @@ ag_pool_parents_ready( ag_pool_t * self,
 ag_block_id_t
 ag_pool_wait_for_parent_ready( ag_pool_t * self,
                                ulong       slot );
-
-/* ag_pool_poll_pool_event and ag_pool_poll_repair_event drain the pool's
-   two outbound event streams.  Each dequeues at most one event per call,
-   returning 1 and writing it to event, or 0 if the stream is empty. */
 
 int
 ag_pool_poll_pool_event( ag_pool_t *       self,

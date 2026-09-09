@@ -74,12 +74,7 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
   for( ulong i=0UL; i<in_cnt; i++ ) {
     if( FD_UNLIKELY( !stakes[i].stake ) ) continue; /* re-check nonzero stake, in case stakes came verbatim from a snapshot */
     uchar const * bls = stakes[i].bls_key;
-#if FD_HAS_BLST
     if( FD_UNLIKELY( ag_bls_pub_try_from_bytes( &rank[m].pk, bls, AG_BLS_PUB_COMPRESSED_SZ ) ) ) continue; /* no / invalid BLS key */
-#else
-    memset( &rank[m].pk, 0, sizeof(ag_bls_pub_t) );
-    memcpy( rank[m].pk.bytes, bls, AG_BLS_PUB_COMPRESSED_SZ ); /* stub builds do not verify signatures */
-#endif
     rank[m].stake = stakes[i].stake;
     rank[m].bls   = bls;
     rank[m].id    = stakes[i].id_key.uc;

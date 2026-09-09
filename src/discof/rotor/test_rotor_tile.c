@@ -400,7 +400,7 @@ respond_fec_root( ctx_t * ctx, blk_t const * b, uint fec_set_idx, uint nonce, in
 
 /* mk_block_header_marker serializes a BlockHeaderV1 block marker into
    buf (see fd_block_marker_de): marker flag (u64 0) | VersionedBlockMarker
-   tag (u16 1) | variant (u8) | length (u16) | VersionedBlockHeader tag
+   tag (u16 1) | tag (u8) | length (u16) | VersionedBlockHeader tag
    (u8 1) | parent_slot (u64) | parent_block_id (32). */
 
 static ulong
@@ -409,7 +409,7 @@ mk_block_header_marker( uchar * buf, ulong parent_slot, fd_hash_t const * parent
   ulong off = 0UL;
   FD_STORE( ulong,  buf+off, 0UL          ); off += 8UL;
   FD_STORE( ushort, buf+off, (ushort)1    ); off += 2UL;
-  buf[ off++ ] = (uchar)HEADER;
+  buf[ off++ ] = (uchar)FD_BLOCK_MARKER_SERDE_TAG_HEADER;
   FD_STORE( ushort, buf+off, (ushort)41   ); off += 2UL;
   buf[ off++ ] = (uchar)1;
   FD_STORE( ulong,  buf+off, parent_slot  ); off += 8UL;

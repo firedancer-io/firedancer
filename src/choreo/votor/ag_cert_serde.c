@@ -42,10 +42,10 @@ ag_cert_ser( ag_cert_t const * self,
     FD_LOG_ERR(( "unimplemented" ));
   }
 
-  if( FD_UNLIKELY( agg2 && !ag_bls_agg_signer_cnt( agg2 ) ) ) agg2 = NULL; /* check empty */
+  if( FD_UNLIKELY( agg2 && !ag_bls_set_cnt( agg2->set ) ) ) agg2 = NULL; /* check empty */
 
-  ag_bls_sig_t agg3 = agg->sig;
-  if( agg2 ) blst_p2_add_or_double( &agg3, &agg3, &agg2->sig );
+  ag_bls_sig_t sig = agg->sig;
+  if( FD_UNLIKELY( agg2 ) ) blst_p2_add_or_double( &sig, &sig, &agg2->sig );
 
   ag_cert_serde_t cert;
 
@@ -58,16 +58,16 @@ ag_cert_ser( ag_cert_t const * self,
   cert.shred_version = shred_version;
 
   ulong off = 0UL;
-  buf[ off ] = cert.version;                                                       off += sizeof(uchar);
-  buf[ off ] = cert.tag;                                                           off += sizeof(uchar);
-  FD_STORE( ulong, buf+off, cert.slot );                                           off += sizeof(ulong);
-  if( cert.block_id ) { memcpy( buf+off, cert.block_id, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t); }
+  buf[ off ] = cert.version;                                                                    off += sizeof(uchar);
+  buf[ off ] = cert.tag;                                                                        off += sizeof(uchar);
+  FD_STORE( ulong, buf+off, cert.slot );                                                        off += sizeof(ulong);
+  if( FD_LIKELY( cert.block_id ) ) { memcpy( buf+off, cert.block_id, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t); }
   blst_p2_affine sig_aff[1];
-  blst_p2_to_affine( sig_aff, &agg3 );
-  blst_p2_affine_serialize( buf+off, sig_aff );                                    off += AG_BLS_SIG_SZ;
-  FD_STORE( ulong, buf+off, cert.bitmap_sz );                                      off += sizeof(ulong);
-                                                                                   off += agg2 ? ag_bls_agg_pair_ser( agg, agg2, buf+off ) : ag_bls_agg_ser( agg, buf+off );
-  FD_STORE( ushort, buf+off, cert.shred_version );                                 off += sizeof(ushort);
+  blst_p2_to_affine( sig_aff, &sig );
+  blst_p2_affine_serialize( buf+off, sig_aff );                                                 off += AG_BLS_SIG_SZ;
+  FD_STORE( ulong, buf+off, cert.bitmap_sz );                                                   off += sizeof(ulong);
+                                                                                                off += agg2 ? ag_bls_agg_pair_ser( agg, agg2, buf+off ) : ag_bls_agg_ser( agg, buf+off );
+  FD_STORE( ushort, buf+off, cert.shred_version );                                              off += sizeof(ushort);
 
   return off;
 }
@@ -93,7 +93,7 @@ ag_cert_de( ag_cert_t *   self,
 
   cert.slot          = FD_LOAD( ulong, buf+off ); off += sizeof(ulong);
   cert.block_id      = NULL;
-  if( has_block_id ) {
+  if( FD_LIKELY( has_block_id ) ) {
     cert.block_id    = buf+off;                   off += sizeof(ag_block_hash_t);
   }
   cert.signature     = buf+off;                   off += AG_BLS_SIG_SZ;

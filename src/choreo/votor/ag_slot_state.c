@@ -1,5 +1,4 @@
 #include "ag_slot_state.h"
-
 #include "ag_vote_serde.h"
 
 #define AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR  (0)
@@ -32,93 +31,37 @@ ag_slot_state_zero( ag_slot_state_t *       self,
 FD_FN_PURE ulong
 ag_slot_state_stake( ag_slot_voted_stake_hash_t const * ele,
                      ulong                              cnt,
-                     ag_block_hash_t const              hash ) {
+                     ag_block_hash_t const              block_hash ) {
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( !memcmp( ele[i].hash, hash, sizeof(ag_block_hash_t) ) ) return ele[i].stake;
+    if( FD_LIKELY( !memcmp( ele[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) return ele[i].stake;
   }
   return 0UL;
 }
 
-static ag_slot_voted_stake_hash_t *
-count_block_hash_stake( ag_slot_voted_stake_hash_t * ele,
-                        ulong *                      cnt,
-                        ulong                        max,
-                        ag_block_hash_t const        block_hash,
-                        ulong                        rank,
-                        ulong                        stake,
-                        ag_bls_pub_t const *         pub,
-                        ag_bls_sig_t const *         sig ) {
-  ag_slot_voted_stake_hash_t * self = NULL;
-  for( ulong i=0UL; i<*cnt; i++ )
-    if( !memcmp( ele[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) { self = &ele[i]; break; }
-  if( FD_UNLIKELY( !self ) ) {
-    FD_CHECK_CRIT( *cnt<max, "invariant violation" );
-    self = &ele[ (*cnt)++ ];
-    memcpy( self->hash, block_hash, sizeof(ag_block_hash_t) );
-    self->stake = 0UL;
-    memset( &self->pub, 0, sizeof(ag_bls_pub_t) ); /* zero is the point at infinity */
-    memset( &self->agg, 0, sizeof(ag_bls_sig_t) ); /* zero is the point at infinity */
-    signer_set_null( self->bitmask );
-  }
-  self->stake += stake;
-  blst_p1_add_or_double( &self->pub, &self->pub, pub );
-  blst_p2_add_or_double( &self->agg, &self->agg, sig );
-  signer_set_insert( self->bitmask, rank );
-  return self;
-}
-
 static int
-verify_agg( ag_bls_pub_t const * pub,
-            ag_bls_sig_t const * agg,
-            uint                 kind,
-            ulong                slot,
-            uchar const *        block_hash,
-            ushort               shred_version ) {
-  if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p2_is_inf( agg ) ) ) return 0; /* the miller loop is wrong on an infinity operand */
-
-  uchar buf[ AG_VOTE_SIGNING_SER_MAX ];
-  ulong msg_sz = ag_vote_signing_ser( kind, slot, block_hash, shred_version, buf );
-
-  blst_p1_affine a[2];
-  blst_p2_affine b[2];
-  blst_p2        h[1];
-  blst_p1_to_affine( a, pub );
-  blst_hash_to_g2( h, buf, msg_sz, (uchar const *)AG_BLS_DST, AG_BLS_DST_SZ, NULL, 0UL );
-  blst_p2_to_affine( b, h );
-  a[1] = BLS12_381_NEG_G1;
-  blst_p2_to_affine( b+1, agg );
-
-  blst_p1_affine const * aptr[2] = { a, a+1 };
-  blst_p2_affine const * bptr[2] = { b, b+1 };
-  blst_fp12 r[1];
-  blst_miller_loop_n( r, bptr, aptr, 2UL );
-  return !!blst_fp12_finalverify( r, blst_fp12_one() );
-}
-
-static int
-set_contains( ag_hash_set_t const * set,
-              ag_block_hash_t const hash ) {
+block_hash_set_contains( ag_block_hash_set_t const * set,
+                         ag_block_hash_t const       block_hash ) {
   for( ulong i=0UL; i<set->cnt; i++ ) {
-    if( !memcmp( set->hash[i], hash, sizeof(ag_block_hash_t) ) ) return 1;
+    if( FD_LIKELY( !memcmp( set->hash[i], block_hash, sizeof(ag_block_hash_t) ) ) ) return 1;
   }
   return 0;
 }
 
 static void
-set_insert( ag_hash_set_t *       set,
-            ag_block_hash_t const hash ) {
-  if( set_contains( set, hash ) ) return;
+block_hash_set_insert( ag_block_hash_set_t * set,
+                       ag_block_hash_t const block_hash ) {
+  if( FD_UNLIKELY( block_hash_set_contains( set, block_hash ) ) ) return;
   FD_TEST( set->cnt < AG_EQVOC_BLOCK_HASH_MAX );
-  memcpy( set->hash[ set->cnt++ ], hash, sizeof(ag_block_hash_t) );
+  memcpy( set->hash[ set->cnt++ ], block_hash, sizeof(ag_block_hash_t) );
 }
 
 static void
-set_remove( ag_hash_set_t *       set,
-            ag_block_hash_t const hash ) {
+block_hash_set_remove( ag_block_hash_set_t * set,
+                       ag_block_hash_t const block_hash ) {
   for( ulong i=0UL; i<set->cnt; i++ ) {
-    if( !memcmp( set->hash[i], hash, sizeof(ag_block_hash_t) ) ) {
+    if( FD_LIKELY( !memcmp( set->hash[i], block_hash, sizeof(ag_block_hash_t) ) ) ) {
       set->cnt--;
-      if( i!=set->cnt ) memcpy( set->hash[i], set->hash[ set->cnt ], sizeof(ag_block_hash_t) );
+      if( FD_UNLIKELY( i!=set->cnt ) ) memcpy( set->hash[i], set->hash[ set->cnt ], sizeof(ag_block_hash_t) );
       return;
     }
   }
@@ -149,42 +92,70 @@ check_safe_to_notar( ag_slot_state_t *     self,
   ulong notar_stake = ag_slot_state_stake( self->voted_stakes.notar, self->voted_stakes.notar_cnt, block_hash );
   ulong skip_stake  = self->voted_stakes.skip;
 
-  if( !ag_epoch_info_is_weakest_quorum( epoch_info, notar_stake ) ) {
+  if( FD_UNLIKELY( !ag_epoch_info_is_weakest_quorum( epoch_info, notar_stake ) ) ) {
     return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
   }
-  if( !ag_epoch_info_is_weak_quorum( epoch_info, notar_stake ) && !ag_epoch_info_is_quorum( epoch_info, notar_stake + skip_stake ) ) {
-    set_insert( &self->pending_safe_to_notar, block_hash );
+  if( FD_UNLIKELY( !ag_epoch_info_is_weak_quorum( epoch_info, notar_stake ) && !ag_epoch_info_is_quorum( epoch_info, notar_stake + skip_stake ) ) ) {
+    block_hash_set_insert( &self->pending_safe_to_notar, block_hash );
     return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
   }
 
   ag_parent_status_t const * parent = NULL;
   for( ulong i=0UL; i<self->parents_cnt; i++ ) {
-    if( !memcmp( self->parents[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) { parent = &self->parents[i]; break; }
+    if( FD_LIKELY( !memcmp( self->parents[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) { parent = &self->parents[i]; break; }
   }
-  if( !parent                                   ) return AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK;
-  if( parent->kind!=AG_PARENT_STATUS_CERTIFIED  ) return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
+  if( FD_UNLIKELY( !parent                                  ) ) return AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK;
+  if( FD_UNLIKELY( parent->kind!=AG_PARENT_STATUS_CERTIFIED ) ) return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
 
   ag_slot_votes_t const * v   = &self->votes;
   ulong                   own = self->own_rank;
 
   if( FD_LIKELY( own!=USHORT_MAX ) ) { /* must be staked */
-    if( v->skip[ own ].slot!=ULONG_MAX ) {
-      set_remove( &self->pending_safe_to_notar, block_hash );
-      set_insert( &self->sent_safe_to_notar,    block_hash );
+    if( FD_UNLIKELY( v->skip[ own ].slot!=ULONG_MAX ) ) {
+      block_hash_set_remove( &self->pending_safe_to_notar, block_hash );
+      block_hash_set_insert( &self->sent_safe_to_notar,    block_hash );
       return AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR;
     }
-    if( v->notar[ own ].slot!=ULONG_MAX ) {
-      if( memcmp( v->notar[ own ].block_hash, block_hash, sizeof(ag_block_hash_t) ) ) {
-        set_remove( &self->pending_safe_to_notar, block_hash );
-        set_insert( &self->sent_safe_to_notar,    block_hash );
+    if( FD_LIKELY( v->notar[ own ].slot!=ULONG_MAX ) ) {
+      if( FD_UNLIKELY( memcmp( v->notar[ own ].block_hash, block_hash, sizeof(ag_block_hash_t) ) ) ) {
+        block_hash_set_remove( &self->pending_safe_to_notar, block_hash );
+        block_hash_set_insert( &self->sent_safe_to_notar,    block_hash );
         return AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR;
       }
       return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
     }
   }
 
-  set_insert( &self->pending_safe_to_notar, block_hash );
+  block_hash_set_insert( &self->pending_safe_to_notar, block_hash );
   return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
+}
+
+static ag_slot_voted_stake_hash_t *
+count_block_hash_stake( ag_slot_voted_stake_hash_t * ele,
+                        ag_block_hash_t const        block_hash,
+                        ulong                        stake,
+                        ulong                        rank,
+                        ag_bls_pub_t const *         pub,
+                        ag_bls_sig_t const *         sig,
+                        ulong *                      cnt,
+                        ulong                        max ) {
+  ag_slot_voted_stake_hash_t * self = NULL;
+  for( ulong i=0UL; i<*cnt; i++ )
+    if( FD_LIKELY( !memcmp( ele[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) { self = &ele[i]; break; }
+  if( FD_UNLIKELY( !self ) ) {
+    FD_CHECK_CRIT( *cnt<max, "invariant violation" );
+    self = &ele[ (*cnt)++ ];
+    memcpy( self->hash, block_hash, sizeof(ag_block_hash_t) );
+    self->stake = 0UL;
+    memset( &self->pub, 0, sizeof(ag_bls_pub_t) ); /* zero is the point at infinity */
+    memset( &self->agg, 0, sizeof(ag_bls_sig_t) ); /* zero is the point at infinity */
+    ag_bls_set_null( self->set );
+  }
+  self->stake += stake;
+  blst_p1_add_or_double( &self->pub, &self->pub, pub );
+  blst_p2_add_or_double( &self->agg, &self->agg, sig );
+  ag_bls_set_insert( self->set, rank );
+  return self;
 }
 
 static ag_slot_state_outputs_t
@@ -200,36 +171,36 @@ count_notar_stake( ag_slot_state_t *     self,
   ag_slot_state_outputs_t outputs; outputs.certs_cnt = 0UL; outputs.votor_events_cnt = 0UL; outputs.block_to_repair_cnt = 0UL;
 
   ag_slot_voted_stake_t *      voted_stake          = &self->voted_stakes;
-  ag_slot_voted_stake_hash_t * voted_stake_for_hash = count_block_hash_stake( voted_stake->notar, &voted_stake->notar_cnt, AG_VAT_MAX, block_hash, rank, stake, pub, sig );
+  ag_slot_voted_stake_hash_t * voted_stake_for_hash = count_block_hash_stake( voted_stake->notar, block_hash, stake, rank, pub, sig, &voted_stake->notar_cnt, AG_VAT_MAX );
 
   ulong notar_stake           = voted_stake_for_hash->stake;
   voted_stake->notar_or_skip += stake;
   voted_stake->top_notar      = fd_ulong_max( notar_stake, voted_stake->top_notar );
 
-  if( FD_UNLIKELY( !set_contains( &self->sent_safe_to_notar, block_hash ) ) ) {
+  if( FD_UNLIKELY( !block_hash_set_contains( &self->sent_safe_to_notar, block_hash ) ) ) {
     switch( check_safe_to_notar( self, block_hash ) ) {
     case AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR:
       outputs.votor_events[ outputs.votor_events_cnt++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = ag_block_id( slot, block_hash ) };
       break;
     case AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK: {
-      ulong j; for( j=0UL; j<outputs.block_to_repair_cnt; j++ ) if( !memcmp( outputs.block_to_repair[j].hash, block_hash, sizeof(ag_block_hash_t) ) ) break;
-      if( j==outputs.block_to_repair_cnt ) outputs.block_to_repair[ outputs.block_to_repair_cnt++ ] = ag_block_id( slot, block_hash );
+      ulong j; for( j=0UL; j<outputs.block_to_repair_cnt; j++ ) if( FD_UNLIKELY( !memcmp( outputs.block_to_repair[j].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) break;
+      if( FD_LIKELY( j==outputs.block_to_repair_cnt ) ) outputs.block_to_repair[ outputs.block_to_repair_cnt++ ] = ag_block_id( slot, block_hash );
       break;
     }
     default: break;
     }
   }
-  if( !self->sent_safe_to_skip
-      && ag_epoch_info_is_weak_quorum( epoch_info, self->voted_stakes.notar_or_skip - self->voted_stakes.top_notar )
-      && self->own_rank!=USHORT_MAX /* must be staked */
-      && self->votes.notar[ self->own_rank ].slot!=ULONG_MAX ) {
+  if( FD_UNLIKELY( !self->sent_safe_to_skip
+                   && ag_epoch_info_is_weak_quorum( epoch_info, self->voted_stakes.notar_or_skip - self->voted_stakes.top_notar )
+                   && self->own_rank!=USHORT_MAX /* must be staked */
+                   && self->votes.notar[ self->own_rank ].slot!=ULONG_MAX ) ) {
     outputs.votor_events[ outputs.votor_events_cnt++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = slot };
     self->sent_safe_to_skip = 1;
   }
 
   ag_slot_voted_stake_hash_t const * voted_stake_for_hash_fallback = NULL;
   for( ulong i=0UL; i<voted_stake->notar_fallback_cnt; i++ ) {
-    if( !memcmp( voted_stake->notar_fallback[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) {
+    if( FD_LIKELY( !memcmp( voted_stake->notar_fallback[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) {
       voted_stake_for_hash_fallback = &voted_stake->notar_fallback[i];
       break;
     }
@@ -240,8 +211,13 @@ count_notar_stake( ag_slot_state_t *     self,
   int notar_fallback_verified = 0;
 
   if( FD_UNLIKELY( ag_epoch_info_is_quorum( epoch_info, nf_stake + notar_stake ) ) ) {
-    notar_verified          = verify_agg( &voted_stake_for_hash->pub, &voted_stake_for_hash->agg, AG_VOTE_KIND_NOTAR, slot, block_hash, shred_version );
-    notar_fallback_verified = !!voted_stake_for_hash_fallback && verify_agg( &voted_stake_for_hash_fallback->pub, &voted_stake_for_hash_fallback->agg, AG_VOTE_KIND_NOTAR_FALLBACK, slot, block_hash, shred_version );
+    uchar buf[ AG_VOTE_SIGNING_SER_MAX ];
+    ulong msg_sz   = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, block_hash, shred_version, buf );
+    notar_verified = ag_bls_agg_verify( &voted_stake_for_hash->pub, &voted_stake_for_hash->agg, buf, msg_sz );
+    if( FD_LIKELY( voted_stake_for_hash_fallback ) ) {
+      msg_sz                  = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR_FALLBACK, slot, block_hash, shred_version, buf );
+      notar_fallback_verified = ag_bls_agg_verify( &voted_stake_for_hash_fallback->pub, &voted_stake_for_hash_fallback->agg, buf, msg_sz );
+    }
   }
 
   if( FD_UNLIKELY( !ag_slot_state_is_notar_fallback( self, block_hash ) ) ) {
@@ -250,34 +226,34 @@ count_notar_stake( ag_slot_state_t *     self,
     memcpy( cert.block_hash, block_hash, sizeof( ag_block_hash_t ) );
 
     if( FD_LIKELY( notar_verified ) ) {
-      memcpy( cert.agg_notar.bitmask, voted_stake_for_hash->bitmask, sizeof(cert.agg_notar.bitmask) );
+      memcpy( cert.agg_notar.set, voted_stake_for_hash->set, sizeof(cert.agg_notar.set) );
       cert.agg_notar.sig = voted_stake_for_hash->agg;
       cert.stake += voted_stake_for_hash->stake;
     }
     if( FD_LIKELY( notar_fallback_verified ) ) {
-      memcpy( cert.agg_notar_fallback.bitmask, voted_stake_for_hash_fallback->bitmask, sizeof(cert.agg_notar_fallback.bitmask) );
+      memcpy( cert.agg_notar_fallback.set, voted_stake_for_hash_fallback->set, sizeof(cert.agg_notar_fallback.set) );
       cert.agg_notar_fallback.sig = voted_stake_for_hash_fallback->agg;
       cert.stake += voted_stake_for_hash_fallback->stake;
     }
     if( FD_LIKELY( ag_epoch_info_is_quorum( epoch_info, cert.stake ) ) ) outputs.certs[ outputs.certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR_FALLBACK, .notar_fallback = cert };
   }
 
-  if( ag_epoch_info_is_quorum( epoch_info, notar_stake ) && self->certs.notar.slot==ULONG_MAX ) {
+  if( FD_UNLIKELY( ag_epoch_info_is_quorum( epoch_info, notar_stake ) && self->certs.notar.slot==ULONG_MAX ) ) {
     ag_cert_notar_t cert = { 0 };
     cert.slot = slot;
     memcpy( cert.block_hash, block_hash, sizeof(ag_block_hash_t) );
     cert.stake = notar_stake;
-    memcpy( cert.agg.bitmask, voted_stake_for_hash->bitmask, sizeof(cert.agg.bitmask) );
+    memcpy( cert.agg.set, voted_stake_for_hash->set, sizeof(cert.agg.set) );
     cert.agg.sig = voted_stake_for_hash->agg;
     outputs.certs[ outputs.certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR, .notar = cert };
   }
 
-  if( ag_epoch_info_is_strong_quorum( epoch_info, notar_stake ) && self->certs.fast_finalize.slot==ULONG_MAX ) {
+  if( FD_UNLIKELY( ag_epoch_info_is_strong_quorum( epoch_info, notar_stake ) && self->certs.fast_finalize.slot==ULONG_MAX ) ) {
     ag_cert_fast_final_t cert = { 0 };
     cert.slot = slot;
     memcpy( cert.block_hash, block_hash, sizeof(ag_block_hash_t) );
     cert.stake = notar_stake;
-    memcpy( cert.agg.bitmask, voted_stake_for_hash->bitmask, sizeof(cert.agg.bitmask) );
+    memcpy( cert.agg.set, voted_stake_for_hash->set, sizeof(cert.agg.set) );
     cert.agg.sig = voted_stake_for_hash->agg;
     outputs.certs[ outputs.certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = cert };
   }
@@ -299,18 +275,24 @@ count_notar_fallback_stake( ag_slot_state_t *     self,
   outputs.certs_cnt = 0UL; outputs.votor_events_cnt = 0UL; outputs.block_to_repair_cnt = 0UL;
 
   ag_slot_voted_stake_t *      vs = &self->voted_stakes;
-  ag_slot_voted_stake_hash_t * hs = count_block_hash_stake( vs->notar_fallback, &vs->notar_fallback_cnt, AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX, block_hash, rank, stake, pub, sig );
+  ag_slot_voted_stake_hash_t * hs = count_block_hash_stake( vs->notar_fallback, block_hash, stake, rank, pub, sig, &vs->notar_fallback_cnt, AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX );
 
   ag_slot_voted_stake_hash_t const * notar = NULL;
   for( ulong i=0UL; i<vs->notar_cnt; i++ )
-    if( !memcmp( vs->notar[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) { notar = &vs->notar[i]; break; }
+    if( FD_LIKELY( !memcmp( vs->notar[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) { notar = &vs->notar[i]; break; }
   ulong nf_stake    = hs->stake;
   ulong notar_stake = notar ? notar->stake : 0UL;
   int notar_verified          = 0;
   int notar_fallback_verified = 0;
-  if( ag_epoch_info_is_quorum( epoch_info, nf_stake + notar_stake ) && !ag_slot_state_is_notar_fallback( self, block_hash ) ) {
-    notar_verified          = !!notar && verify_agg( &notar->pub, &notar->agg, AG_VOTE_KIND_NOTAR, slot, block_hash, shred_version ); /* no notar vote for this hash is the common case here */
-    notar_fallback_verified = verify_agg( &hs->pub, &hs->agg, AG_VOTE_KIND_NOTAR_FALLBACK, slot, block_hash, shred_version );
+  if( FD_UNLIKELY( ag_epoch_info_is_quorum( epoch_info, nf_stake + notar_stake ) && !ag_slot_state_is_notar_fallback( self, block_hash ) ) ) {
+    uchar buf[ AG_VOTE_SIGNING_SER_MAX ];
+    ulong msg_sz;
+    if( FD_UNLIKELY( notar ) ) { /* no notar vote for this hash is the common case here */
+      msg_sz         = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, block_hash, shred_version, buf );
+      notar_verified = ag_bls_agg_verify( &notar->pub, &notar->agg, buf, msg_sz );
+    }
+    msg_sz                  = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR_FALLBACK, slot, block_hash, shred_version, buf );
+    notar_fallback_verified = ag_bls_agg_verify( &hs->pub, &hs->agg, buf, msg_sz );
 
     ag_cert_notar_fallback_t cert = { 0 };
     cert.slot = slot;
@@ -318,12 +300,12 @@ count_notar_fallback_stake( ag_slot_state_t *     self,
 
 
     if( FD_LIKELY( notar_verified ) ) {
-      memcpy( cert.agg_notar.bitmask, notar->bitmask, sizeof(cert.agg_notar.bitmask) );
+      memcpy( cert.agg_notar.set, notar->set, sizeof(cert.agg_notar.set) );
       cert.agg_notar.sig = notar->agg;
       cert.stake += notar->stake;
     }
     if( FD_LIKELY( notar_fallback_verified ) ) {
-      memcpy( cert.agg_notar_fallback.bitmask, hs->bitmask, sizeof(cert.agg_notar_fallback.bitmask) );
+      memcpy( cert.agg_notar_fallback.set, hs->set, sizeof(cert.agg_notar_fallback.set) );
       cert.agg_notar_fallback.sig = hs->agg;
       cert.stake += hs->stake;
     }
@@ -346,19 +328,19 @@ count_skip_stake( ag_slot_state_t *    self,
   ag_slot_state_outputs_t outputs    = { 0 };
 
   ag_slot_voted_stake_t * vs = &self->voted_stakes;
-  if( fallback ) { vs->skip_fallback += stake; blst_p1_add_or_double( &vs->skip_fallback_pub, &vs->skip_fallback_pub, pub ); blst_p2_add_or_double( &vs->skip_fallback_agg, &vs->skip_fallback_agg, sig ); signer_set_insert( vs->skip_fallback_bitmask, rank ); }
-  else           { vs->skip          += stake; blst_p1_add_or_double( &vs->skip_pub,          &vs->skip_pub,          pub ); blst_p2_add_or_double( &vs->skip_agg,          &vs->skip_agg,          sig ); signer_set_insert( vs->skip_bitmask,          rank ); }
+  if( FD_UNLIKELY( fallback ) ) { vs->skip_fallback += stake; blst_p1_add_or_double( &vs->skip_fallback_pub, &vs->skip_fallback_pub, pub ); blst_p2_add_or_double( &vs->skip_fallback_agg, &vs->skip_fallback_agg, sig ); ag_bls_set_insert( vs->skip_fallback_set, rank ); }
+  else                          { vs->skip          += stake; blst_p1_add_or_double( &vs->skip_pub,          &vs->skip_pub,          pub ); blst_p2_add_or_double( &vs->skip_agg,          &vs->skip_agg,          sig ); ag_bls_set_insert( vs->skip_set,          rank ); }
 
-  ag_hash_set_t pending = self->pending_safe_to_notar;
+  ag_block_hash_set_t pending = self->pending_safe_to_notar;
   for( ulong i=0UL; i<pending.cnt; i++ ) {
-    if( set_contains( &self->sent_safe_to_notar, pending.hash[i] ) ) continue;
+    if( FD_UNLIKELY( block_hash_set_contains( &self->sent_safe_to_notar, pending.hash[i] ) ) ) continue;
     switch( check_safe_to_notar( self, pending.hash[i] ) ) {
     case AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR:
       outputs.votor_events[ outputs.votor_events_cnt++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = ag_block_id( slot, pending.hash[i] ) };
       break;
     case AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK: {
-      ulong j; for( j=0UL; j<outputs.block_to_repair_cnt; j++ ) if( !memcmp( outputs.block_to_repair[j].hash, pending.hash[i], sizeof(ag_block_hash_t) ) ) break;
-      if( j==outputs.block_to_repair_cnt ) outputs.block_to_repair[ outputs.block_to_repair_cnt++ ] = ag_block_id( slot, pending.hash[i] );
+      ulong j; for( j=0UL; j<outputs.block_to_repair_cnt; j++ ) if( FD_UNLIKELY( !memcmp( outputs.block_to_repair[j].hash, pending.hash[i], sizeof(ag_block_hash_t) ) ) ) break;
+      if( FD_LIKELY( j==outputs.block_to_repair_cnt ) ) outputs.block_to_repair[ outputs.block_to_repair_cnt++ ] = ag_block_id( slot, pending.hash[i] );
       break;
     }
     default:
@@ -370,30 +352,33 @@ count_skip_stake( ag_slot_state_t *    self,
 
   int skip_verified          = 0;
   int skip_fallback_verified = 0;
-  if( ag_epoch_info_is_quorum( epoch_info, total_skip_stake ) && self->certs.skip.slot==ULONG_MAX ) {
-    skip_verified          = verify_agg( &vs->skip_pub,          &vs->skip_agg,          AG_VOTE_KIND_SKIP,          slot, NULL, shred_version );
-    skip_fallback_verified = verify_agg( &vs->skip_fallback_pub, &vs->skip_fallback_agg, AG_VOTE_KIND_SKIP_FALLBACK, slot, NULL, shred_version );
+  if( FD_UNLIKELY( ag_epoch_info_is_quorum( epoch_info, total_skip_stake ) && self->certs.skip.slot==ULONG_MAX ) ) {
+    uchar buf[ AG_VOTE_SIGNING_SER_MAX ];
+    ulong msg_sz           = ag_vote_signing_ser( AG_VOTE_KIND_SKIP,          slot, NULL, shred_version, buf );
+    skip_verified          = ag_bls_agg_verify( &vs->skip_pub,          &vs->skip_agg,          buf, msg_sz );
+    msg_sz                 = ag_vote_signing_ser( AG_VOTE_KIND_SKIP_FALLBACK, slot, NULL, shred_version, buf );
+    skip_fallback_verified = ag_bls_agg_verify( &vs->skip_fallback_pub, &vs->skip_fallback_agg, buf, msg_sz );
 
     ag_cert_skip_t cert = { 0 };
     cert.slot = slot;
 
 
     if( FD_LIKELY( skip_verified ) ) {
-      memcpy( cert.agg_skip.bitmask, vs->skip_bitmask, sizeof(cert.agg_skip.bitmask) );
+      memcpy( cert.agg_skip.set, vs->skip_set, sizeof(cert.agg_skip.set) );
       cert.agg_skip.sig = vs->skip_agg;
       cert.stake += vs->skip;
     }
     if( FD_LIKELY( skip_fallback_verified ) ) {
-      memcpy( cert.agg_skip_fallback.bitmask, vs->skip_fallback_bitmask, sizeof(cert.agg_skip_fallback.bitmask) );
+      memcpy( cert.agg_skip_fallback.set, vs->skip_fallback_set, sizeof(cert.agg_skip_fallback.set) );
       cert.agg_skip_fallback.sig = vs->skip_fallback_agg;
       cert.stake += vs->skip_fallback;
     }
     if( FD_LIKELY( ag_epoch_info_is_quorum( epoch_info, cert.stake ) ) ) outputs.certs[ outputs.certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_SKIP, .skip = cert };
   }
-  if( !self->sent_safe_to_skip
-      && ag_epoch_info_is_weak_quorum( epoch_info, self->voted_stakes.notar_or_skip - self->voted_stakes.top_notar )
-      && self->own_rank!=USHORT_MAX /* must be staked */
-      && self->votes.notar[ self->own_rank ].slot!=ULONG_MAX ) {
+  if( FD_UNLIKELY( !self->sent_safe_to_skip
+                   && ag_epoch_info_is_weak_quorum( epoch_info, self->voted_stakes.notar_or_skip - self->voted_stakes.top_notar )
+                   && self->own_rank!=USHORT_MAX /* must be staked */
+                   && self->votes.notar[ self->own_rank ].slot!=ULONG_MAX ) ) {
     outputs.votor_events[ outputs.votor_events_cnt++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = slot };
     self->sent_safe_to_skip = 1;
   }
@@ -417,15 +402,19 @@ count_finalize_stake( ag_slot_state_t *    self,
   vs->finalize += stake;
   blst_p1_add_or_double( &vs->finalize_pub, &vs->finalize_pub, pub );
   blst_p2_add_or_double( &vs->finalize_agg, &vs->finalize_agg, sig );
-  signer_set_insert( vs->finalize_bitmask, rank );
-  if( ag_epoch_info_is_quorum( epoch_info, vs->finalize ) && self->certs.finalize.slot==ULONG_MAX
-      && verify_agg( &vs->finalize_pub, &vs->finalize_agg, AG_VOTE_KIND_FINAL, slot, NULL, shred_version ) ) {
-    ag_cert_final_t cert;
-    cert.slot = slot; cert.stake = vs->finalize;
-    ag_bls_agg_zero( &cert.agg );
-    memcpy( cert.agg.bitmask, vs->finalize_bitmask, sizeof(cert.agg.bitmask) );
-    cert.agg.sig = vs->finalize_agg;
-    outputs.certs[ outputs.certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = cert };
+  ag_bls_set_insert( vs->finalize_set, rank );
+  if( FD_UNLIKELY( ag_epoch_info_is_quorum( epoch_info, vs->finalize ) && self->certs.finalize.slot==ULONG_MAX ) ) {
+    uchar buf[ AG_VOTE_SIGNING_SER_MAX ];
+    ulong msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_FINAL, slot, NULL, shred_version, buf );
+    if( FD_LIKELY( ag_bls_agg_verify( &vs->finalize_pub, &vs->finalize_agg, buf, msg_sz ) ) ) {
+      ag_cert_final_t cert;
+      cert.slot = slot; cert.stake = vs->finalize;
+      memset( &cert.agg, 0, sizeof(ag_bls_sig_t) );
+      ag_bls_set_null( cert.agg.set );
+      memcpy( cert.agg.set, vs->finalize_set, sizeof(cert.agg.set) );
+      cert.agg.sig = vs->finalize_agg;
+      outputs.certs[ outputs.certs_cnt++ ] = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = cert };
+    }
   }
 
   return outputs;
@@ -441,7 +430,7 @@ ag_slot_state_add_cert( ag_slot_state_t * self,
   }
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_cert_notar_fallback_t const * n = &cert->notar_fallback;
-    if( !ag_slot_state_is_notar_fallback( self, n->block_hash ) ) {
+    if( FD_LIKELY( !ag_slot_state_is_notar_fallback( self, n->block_hash ) ) ) {
       FD_TEST( self->certs.notar_fallback_cnt < AG_NOTAR_FALLBACK_CERT_MAX );
       self->certs.notar_fallback[ self->certs.notar_fallback_cnt++ ] = *n;
     }
@@ -503,15 +492,15 @@ ag_slot_state_add_vote( ag_slot_state_t * self,
     FD_LOG_CRIT(( "unreachable" ));
   }
 
-  if( rank==self->own_rank ) {
-    ag_hash_set_t pending = self->pending_safe_to_notar;
+  if( FD_UNLIKELY( rank==self->own_rank ) ) {
+    ag_block_hash_set_t pending = self->pending_safe_to_notar;
     for( ulong i=0UL; i<pending.cnt; i++ ) {
-      if( set_contains( &self->sent_safe_to_notar, pending.hash[i] ) ) continue;
+      if( FD_UNLIKELY( block_hash_set_contains( &self->sent_safe_to_notar, pending.hash[i] ) ) ) continue;
       switch( check_safe_to_notar( self, pending.hash[i] ) ) {
       case AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR: outputs.votor_events[ outputs.votor_events_cnt++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = ag_block_id( slot, pending.hash[i] ) }; break;
       case AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK: {
-        ulong j; for( j=0UL; j<outputs.block_to_repair_cnt; j++ ) if( !memcmp( outputs.block_to_repair[j].hash, pending.hash[i], sizeof(ag_block_hash_t) ) ) break;
-        if( j==outputs.block_to_repair_cnt ) outputs.block_to_repair[ outputs.block_to_repair_cnt++ ] = ag_block_id( slot, pending.hash[i] );
+        ulong j; for( j=0UL; j<outputs.block_to_repair_cnt; j++ ) if( FD_UNLIKELY( !memcmp( outputs.block_to_repair[j].hash, pending.hash[i], sizeof(ag_block_hash_t) ) ) ) break;
+        if( FD_LIKELY( j==outputs.block_to_repair_cnt ) ) outputs.block_to_repair[ outputs.block_to_repair_cnt++ ] = ag_block_id( slot, pending.hash[i] );
         break;
       }
       default: break;
@@ -524,29 +513,29 @@ ag_slot_state_add_vote( ag_slot_state_t * self,
 
 void
 ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
-                                   ag_block_hash_t const hash ) {
+                                   ag_block_hash_t const block_hash ) {
   for( ulong i=0UL; i<self->parents_cnt; i++ ) {
-    if( !memcmp( self->parents[i].hash, hash, sizeof(ag_block_hash_t) ) ) return;
+    if( FD_UNLIKELY( !memcmp( self->parents[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) return;
   }
   FD_TEST( self->parents_cnt < AG_EQVOC_BLOCK_HASH_MAX );
   ag_parent_status_t * e = &self->parents[ self->parents_cnt++ ];
-  memcpy( e->hash, hash, sizeof(ag_block_hash_t) );
+  memcpy( e->hash, block_hash, sizeof(ag_block_hash_t) );
   e->kind = AG_PARENT_STATUS_KNOWN;
 }
 
 int
 ag_slot_state_notify_parent_certified( ag_slot_state_t *     self,
-                                       ag_block_hash_t const hash ) {
+                                       ag_block_hash_t const block_hash ) {
   ag_parent_status_t * parent = NULL;
   for( ulong i=0UL; i<self->parents_cnt; i++ ) {
-    if( !memcmp( self->parents[i].hash, hash, sizeof(ag_block_hash_t) ) ) { parent = &self->parents[i]; break; }
+    if( FD_LIKELY( !memcmp( self->parents[i].hash, block_hash, sizeof(ag_block_hash_t) ) ) ) { parent = &self->parents[i]; break; }
   }
   FD_TEST( parent );
   parent->kind = AG_PARENT_STATUS_CERTIFIED;
 
-  if( set_contains( &self->sent_safe_to_notar, hash ) ) return 0;
+  if( FD_UNLIKELY( block_hash_set_contains( &self->sent_safe_to_notar, block_hash ) ) ) return 0;
 
-  switch( check_safe_to_notar( self, hash ) ) {
+  switch( check_safe_to_notar( self, block_hash ) ) {
   case AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK:  return -1;
   case AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES: return  0;
   case AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR:  return  1;
@@ -562,41 +551,41 @@ ag_slot_state_check_slashable_offence( ag_slot_state_t const * self,
 
   switch( vote->kind ) {
   case AG_VOTE_KIND_NOTAR: {
-    if( v->skip[ voter ].slot!=ULONG_MAX ) {
+    if( FD_UNLIKELY( v->skip[ voter ].slot!=ULONG_MAX ) ) {
       return AG_SLASHABLE_SKIP_AND_NOTARIZE;
     }
-    if( v->notar[ voter ].slot!=ULONG_MAX
-        && memcmp( vote->notar.block_hash, v->notar[ voter ].block_hash, sizeof(ag_block_hash_t) ) ) {
+    if( FD_UNLIKELY( v->notar[ voter ].slot!=ULONG_MAX
+                     && memcmp( vote->notar.block_hash, v->notar[ voter ].block_hash, sizeof(ag_block_hash_t) ) ) ) {
       return AG_SLASHABLE_NOTAR_DIFFERENT_HASH;
     }
     break;
   }
 
   case AG_VOTE_KIND_NOTAR_FALLBACK:
-    if( v->finalize[ voter ].slot!=ULONG_MAX ) {
+    if( FD_UNLIKELY( v->finalize[ voter ].slot!=ULONG_MAX ) ) {
       return AG_SLASHABLE_NOTAR_FALLBACK_AND_FINALIZE;
     }
     break;
 
   case AG_VOTE_KIND_SKIP:
-    if( v->finalize[ voter ].slot!=ULONG_MAX ) {
+    if( FD_UNLIKELY( v->finalize[ voter ].slot!=ULONG_MAX ) ) {
       return AG_SLASHABLE_SKIP_AND_FINALIZE;
-    } else if( v->notar[ voter ].slot!=ULONG_MAX ) {
+    } else if( FD_UNLIKELY( v->notar[ voter ].slot!=ULONG_MAX ) ) {
       return AG_SLASHABLE_SKIP_AND_NOTARIZE;
     }
     break;
 
   case AG_VOTE_KIND_SKIP_FALLBACK:
-    if( v->finalize[ voter ].slot!=ULONG_MAX ) {
+    if( FD_UNLIKELY( v->finalize[ voter ].slot!=ULONG_MAX ) ) {
       return AG_SLASHABLE_SKIP_AND_FINALIZE;
     }
     break;
 
   case AG_VOTE_KIND_FINAL: {
-    if( v->skip[ voter ].slot!=ULONG_MAX || v->skip_fallback[ voter ].slot!=ULONG_MAX ) {
+    if( FD_UNLIKELY( v->skip[ voter ].slot!=ULONG_MAX || v->skip_fallback[ voter ].slot!=ULONG_MAX ) ) {
       return AG_SLASHABLE_SKIP_AND_FINALIZE;
     }
-    if( v->notar_fallback_cnt[ voter ] ) {
+    if( FD_UNLIKELY( v->notar_fallback_cnt[ voter ] ) ) {
       return AG_SLASHABLE_NOTAR_FALLBACK_AND_FINALIZE;
     }
     break;
@@ -615,18 +604,18 @@ ag_slot_state_should_ignore_vote( ag_slot_state_t const * self,
   ag_slot_votes_t const * v = &self->votes;
   switch( vote->kind ) {
   case AG_VOTE_KIND_NOTAR: {
-    if( v->notar[ voter ].slot!=ULONG_MAX ) return 1;
+    if( FD_UNLIKELY( v->notar[ voter ].slot!=ULONG_MAX ) ) return 1;
 
     uchar const * hash = vote->notar.block_hash;
     for( ulong j=0UL; j<v->notar_fallback_cnt[ voter ]; j++ ) {
-      if( !memcmp( v->notar_fallback[ voter ][j].block_hash, hash, sizeof(ag_block_hash_t) ) ) return 1;
+      if( FD_UNLIKELY( !memcmp( v->notar_fallback[ voter ][j].block_hash, hash, sizeof(ag_block_hash_t) ) ) ) return 1;
     }
     return 0;
   }
   case AG_VOTE_KIND_NOTAR_FALLBACK: {
     uchar const * hash = vote->notar_fallback.block_hash;
     for( ulong j=0UL; j<v->notar_fallback_cnt[ voter ]; j++ ) {
-      if( !memcmp( v->notar_fallback[ voter ][j].block_hash, hash, sizeof(ag_block_hash_t) ) ) return 1;
+      if( FD_UNLIKELY( !memcmp( v->notar_fallback[ voter ][j].block_hash, hash, sizeof(ag_block_hash_t) ) ) ) return 1;
     }
 
     return v->notar[ voter ].slot!=ULONG_MAX &&
