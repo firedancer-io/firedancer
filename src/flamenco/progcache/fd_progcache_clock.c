@@ -76,6 +76,12 @@ evict_inner( fd_progcache_join_t *    join,
         if( FD_UNLIKELY( (ulong)owner_idx>=shmem->txn.max ) ) continue;
         fd_racesan_hook( "prog_clock_evict:pre_fork_lock" );
         fd_rwlock_read( &shmem->txn.rwlock );
+        /* Recycling a txn slot needs the write lock, so a matching re-read here
+           proves the slot still owns rec. */
+        if( FD_UNLIKELY( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )!=owner_idx ) ) {
+          fd_rwlock_unread( &shmem->txn.rwlock );
+          continue;
+        }
         fd_progcache_txn_t * owner = &join->txn.pool[ owner_idx ];
         if( FD_UNLIKELY( !fd_rwlock_trywrite( &owner->lock ) ) ) {
           fd_rwlock_unread( &shmem->txn.rwlock );

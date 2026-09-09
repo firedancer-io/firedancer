@@ -11,8 +11,7 @@
 FD_STATIC_ASSERT( FD_METRICS_ENUM_PROGCACHE_CLASS_CNT==FD_PROGCACHE_CACHE_CLASS_CNT,
                   progcache_metrics_class_cnt );
 
-/* Counts sz's size class in a per-class metrics array.
-   An oversized value classes out of range and goes uncounted. */
+/* Counts class c in a per-class metrics array; an out-of-range class goes uncounted. */
 
 static inline void
 progcache_metric_per_class( ulong * per_class,
@@ -141,8 +140,8 @@ fd_prog_wait_if_loading( fd_progcache_t *     cache,
   return rec;
 }
 
-/* fd_progcache_query searches for a program cache entry on the current
-   fork.  Stops short of an epoch boundary. */
+/* fd_progcache_search_chain walks one chain for an exact (key, feature_slot,
+   deploy_slot) match whose fork is on the current lineage. */
 
 static int
 fd_progcache_search_chain( fd_progcache_t const * cache,
@@ -500,31 +499,18 @@ fd_progcache_insert( fd_progcache_t *        cache,
     fd_rwlock_unwrite( &txn->lock );
     fd_rwlock_unread( &shmem->txn.rwlock );
 
-    /* fd_progcache_push inserts the rec except 2 failure cases:
-       1. mapped==NULL - this is impossible today because of delayed visibility,
-          therefore the current impl simply spills.
-          note that if we ever remove delayed visibility, a tx invoking an upgraded
-          program in the same slot will always spill, which is not ideal (but also not
-          incorrect). the fix/improvement is to tell progcache that a program is
-          upgraded and delete the old version (so that the new version can be cached)
-       2. mapped!=rec - another thread insert the same rec in parallel, in
-          which case we need to wait it to finish loading. */
+    /* fd_progcache_push returns rec, the winner of a same-revision race, or
+       NULL for another revision of this key, which delayed visibility excludes. */
     if( FD_UNLIKELY( !mapped ) ) {
-      /* Same key, different program revision (see fd_progcache_push).
-         This can never happen so, for simplicity, just spill. */
-      fd_progcache_rec_abandon( ljoin, rec );
-      for( ;; ) {
-        if( fd_rwlock_trywrite( &shmem->spill.lock ) ) {
-          rec = fd_progcache_spill_acquire( cache, params );
-          from_spill = 1;
-          break;
-        }
-        FD_SPIN_PAUSE();
-      }
+      FD_LOG_CRIT(( "progcache insert found another revision of this program mapped" ));
 
     } else if( FD_UNLIKELY( mapped!=rec ) ) {
-      /* Another thread published this revision first, and may still be loading */
+      /* Another thread published this revision first and may still be loading.
+         The lookup was counted as a miss; the winner serves it, a hit. */
       fd_progcache_rec_abandon( ljoin, rec );
+      cache->metrics->miss_cnt--;
+      cache->metrics->hit_cnt++;
+      progcache_metric_per_class( cache->metrics->hit_per_class, mapped->size_class );
       return fd_prog_wait_if_loading( cache, mapped );
 
     } else {

@@ -211,7 +211,7 @@ enum {
 
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_HIT_LOADING_NAME "execrp_progcache_hit_loading"
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_HIT_LOADING_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_EXECRP_PROGCACHE_HIT_LOADING_DESC "Program cache hits whose entry was concurrently loading by another tile, causing the lookup to wait"
+#define FD_METRICS_COUNTER_EXECRP_PROGCACHE_HIT_LOADING_DESC "Program cache lookups that waited on another tile's in-flight load of the same program"
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_HIT_LOADING_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_CLASS_FULL_NAME "execrp_progcache_class_full"
@@ -241,7 +241,7 @@ enum {
 
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_EVICTION_NAME "execrp_progcache_eviction"
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_EVICTION_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_EXECRP_PROGCACHE_EVICTION_DESC "Program cache evictions"
+#define FD_METRICS_COUNTER_EXECRP_PROGCACHE_EVICTION_DESC "Program cache slots reclaimed by a fill's eviction sweep (housekeeping evictions are not counted)"
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_EVICTION_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_EVICTION_BYTES_NAME "execrp_progcache_eviction_bytes"

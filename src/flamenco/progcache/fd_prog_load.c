@@ -84,8 +84,8 @@ fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
 
 #else
 
-  /* Max activation slot <= bank_slot.  Signed so DISABLED (ULONG_MAX) reads as
-     -1 and loses the max, and so this vectorizes: vpmaxsq has no unsigned form. */
+  /* Max activation slot <= bank_slot.  Signed so DISABLED (ULONG_MAX) compares
+     as -1 and never wins the max. */
   long const * f     = (long const *)features->f;
   long         limit = (long)bank->f.slot;
   long         acc   = 0L;

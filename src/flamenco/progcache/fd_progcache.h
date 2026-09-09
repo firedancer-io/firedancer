@@ -8,9 +8,10 @@
    record's value storage is the arena slot at its own index.  Acquiring a
    record from a class's free list is acquiring its value slot.
 
-   Lock ordering: global txn lock, txn lock, recm chain_lock, rec.lock.
-   An in-flight record's read lock is outside the ordering.  None of these locks prefer writers, so a
-   writer can in principle be starved by readers. */
+   Lock ordering: spill.lock (outermost, held across a spilled frame's
+   execution), global txn lock, txn lock, recm chain_lock, rec.lock.  An
+   in-flight record's read lock is outside the ordering.  None of these locks
+   prefer writers, so a writer can in principle be starved by readers. */
 
 #include "fd_progcache_rec.h" /* includes fd_progcache_base.h */
 #include "fd_progcache_cache.h"
@@ -207,7 +208,8 @@ FD_FN_CONST ulong
 fd_progcache_shmem_align( void );
 
 /* fd_progcache_shmem_min_sz returns the smallest progcache_sz that provisions
-   txn_max, rounded up to a MiB: every class at fd_progcache_cache_class_min. */
+   txn_max, rounded up to the next MiB boundary: every class at
+   fd_progcache_cache_class_min. */
 
 ulong
 fd_progcache_shmem_min_sz( ulong txn_max );
@@ -216,7 +218,7 @@ fd_progcache_shmem_min_sz( ulong txn_max );
    txn_max bounds concurrent fork-graph nodes and progcache_sz is the shared memory
    budget, which covers everything: this shmem, the fork graph, the record array
    and the per-class value arenas.  footprint returns progcache_sz, or 0 if that
-   budget cannot cover fd_progcache_cache_class_min slots for every class.
+   budget is below fd_progcache_shmem_min_sz.
    shmem_new derives the split internally, provisioning every byte it can into
    value slots, and allocates nothing beyond the region it is given. */
 

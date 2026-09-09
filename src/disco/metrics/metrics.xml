@@ -1054,13 +1054,13 @@ EXAMPLES
     <counter name="ProgcacheLookup" summary="Program cache lookups" />
     <counter name="ProgcacheHit" summary="Program cache hits" />
     <counter name="ProgcacheMiss" summary="Program cache misses" />
-    <counter name="ProgcacheHitLoading" summary="Program cache hits whose entry was concurrently loading by another tile, causing the lookup to wait" />
+    <counter name="ProgcacheHitLoading" summary="Program cache lookups that waited on another tile's in-flight load of the same program" />
     <counter name="ProgcacheClassFull" summary="Program cache insertions that found their size class full" />
     <counter name="ProgcacheFill" summary="Program cache insertions" />
     <counter name="ProgcacheFillBytes" summary="Bytes inserted into program cache" />
     <counter name="ProgcacheSpill" summary="Program cache spills (OOM fallback mechanism)" />
     <counter name="ProgcacheSpillBytes" summary="Bytes spilled from program cache (OOM fallback mechanism)" />
-    <counter name="ProgcacheEviction" summary="Program cache evictions" />
+    <counter name="ProgcacheEviction" summary="Program cache slots reclaimed by a fill's eviction sweep (housekeeping evictions are not counted)" />
     <counter name="ProgcacheEvictionBytes" summary="Bytes evicted from program cache" />
     <counter name="ProgcacheDurationSeconds" converter="seconds" summary="Time spent on program cache operations, in seconds" />
     <counter name="ProgcacheLoad" summary="Programs loaded and verified for insertion into the program cache" />
@@ -1210,7 +1210,7 @@ EXAMPLES
     <int value="2" name="Class2" label="512 KiB-1 MiB" />
     <int value="3" name="Class3" label="1-2 MiB" />
     <int value="4" name="Class4" label="2-4 MiB" />
-    <int value="5" name="Class5" label="4-10 MiB" />
+    <int value="5" name="Class5" label="4-11 MiB" />
 </enum>
 
 <enum name="AccdbCacheClass">
@@ -1872,13 +1872,13 @@ EXAMPLES
     <counter name="ProgcacheLookup" summary="Program cache lookups" />
     <counter name="ProgcacheHit" summary="Program cache hits" />
     <counter name="ProgcacheMiss" summary="Program cache misses" />
-    <counter name="ProgcacheHitLoading" summary="Program cache hits whose entry was concurrently loading by another tile, causing the lookup to wait" />
+    <counter name="ProgcacheHitLoading" summary="Program cache lookups that waited on another tile's in-flight load of the same program" />
     <counter name="ProgcacheClassFull" summary="Program cache insertions that found their size class full" />
     <counter name="ProgcacheFill" summary="Program cache insertions" />
     <counter name="ProgcacheFillBytes" summary="Bytes inserted into program cache" />
     <counter name="ProgcacheSpill" summary="Program cache spills (OOM fallback mechanism)" />
     <counter name="ProgcacheSpillBytes" summary="Bytes spilled from program cache (OOM fallback mechanism)" />
-    <counter name="ProgcacheEviction" summary="Program cache evictions" />
+    <counter name="ProgcacheEviction" summary="Program cache slots reclaimed by a fill's eviction sweep (housekeeping evictions are not counted)" />
     <counter name="ProgcacheEvictionBytes" summary="Bytes evicted from program cache" />
     <counter name="ProgcacheDurationSeconds" converter="seconds" summary="Time spent on program cache operations, in seconds" />
     <counter name="ProgcacheLoad" summary="Programs loaded and verified for insertion into the program cache" />

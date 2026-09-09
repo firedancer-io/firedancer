@@ -20,7 +20,7 @@ delete_rec_inner( fd_progcache_join_t *          cache,
 
   fd_progcache_rec_key_t pair = *_pair;
 
-  /* Prepare index removal, and bail if rec is no longer present in map */
+  /* Prepare index removal, and bail if rec is not mapped under pair */
   struct {
     fd_prog_recm_txn_t txn[1];
     fd_prog_recm_txn_private_info_t info[1];
