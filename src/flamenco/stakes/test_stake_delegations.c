@@ -1,7 +1,19 @@
+#define _GNU_SOURCE
 #include "fd_stake_delegations.h"
 #include "fd_stakes.h"
 #include "fd_stake_types.h"
 #include "../runtime/fd_runtime_const.h"
+#include "../runtime/fd_system_ids.h"
+#include "../../disco/store/fd_store.h"
+
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_FD!=FD_STORE_FD_RW, stake_spill_fd_store_rw );
+FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_FD!=FD_STORE_FD_RO, stake_spill_fd_store_ro );
+FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_FD!=FD_ACCDB_FD_RW, stake_spill_fd_accdb_rw );
+FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_FD!=FD_ACCDB_FD_RO, stake_spill_fd_accdb_ro );
 
 FD_STATIC_ASSERT( offsetof( fd_stake_state_t, stake_type  )==  0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_state_t, initialized )==  4UL, layout );
@@ -30,6 +42,60 @@ FD_STATIC_ASSERT( sizeof  ( fd_stake_delegation_t        )==112UL, layout );
 
 #define TEST_STAKE_DELEGATION_LAMPORTS (123456789UL)
 #define TEST_STAKE_DELEGATION_ACC_DLEN ((uint)sizeof(fd_stake_state_t))
+
+#define TEST_ACCDB_CACHE_FOOTPRINT    (32UL<<20)
+#define TEST_ACCDB_CACHE_MIN_RESERVED (2UL)
+
+struct test_accdb {
+  fd_accdb_t * accdb;
+  void *       shmem_mem;
+  int          fd;
+};
+typedef struct test_accdb test_accdb_t;
+
+static test_accdb_t
+test_accdb_new( void ) {
+  test_accdb_t test = { .fd = memfd_create( "stake_delegations_accdb", 0 ) };
+  FD_TEST( test.fd>=0 );
+
+  ulong shmem_footprint = fd_accdb_shmem_footprint( 64UL, 3UL, 64UL, 64UL, TEST_ACCDB_CACHE_FOOTPRINT, TEST_ACCDB_CACHE_MIN_RESERVED, 1UL, 0UL );
+  FD_TEST( shmem_footprint );
+  test.shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_footprint );
+  FD_TEST( test.shmem_mem );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( test.shmem_mem, 64UL, 3UL, 64UL, 64UL, 1UL<<30, TEST_ACCDB_CACHE_FOOTPRINT, TEST_ACCDB_CACHE_MIN_RESERVED, 0, 42UL, 1UL, 0UL ) );
+  FD_TEST( shmem );
+
+  void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 3UL ) );
+  FD_TEST( accdb_mem );
+  test.accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, test.fd, 0UL, NULL ) );
+  FD_TEST( test.accdb );
+  return test;
+}
+
+static void
+test_accdb_delete( test_accdb_t * test ) {
+  free( test->shmem_mem );
+  free( test->accdb );
+  FD_TEST( !close( test->fd ) );
+}
+
+static void
+test_accdb_write_stake( fd_accdb_t *             accdb,
+                        fd_accdb_fork_id_t       fork_id,
+                        fd_pubkey_t const *      pubkey,
+                        fd_stake_state_t const * stake ) {
+  uchar const * keys[ 1 ] = { pubkey->uc };
+  int           writable[ 1 ] = { 1 };
+  fd_acc_t      acc[ 1 ] = {0};
+  fd_accdb_acquire( accdb, fork_id, 1UL, keys, writable, acc );
+  acc[ 0 ].lamports = TEST_STAKE_DELEGATION_LAMPORTS;
+  acc[ 0 ].data_len = sizeof(fd_stake_state_t);
+  memcpy( acc[ 0 ].owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) );
+  memcpy( acc[ 0 ].data, stake, sizeof(fd_stake_state_t) );
+  acc[ 0 ].commit = 1;
+  fd_accdb_release( accdb, 1UL, acc );
+}
 
 /* These tests never drive the struct into pubkey fallback mode, so the
    iterator never needs to resolve anything out of an accounts database. */
@@ -865,6 +931,102 @@ int main( int argc, char ** argv ) {
     FD_TEST( reactivated );
     FD_TEST( !memcmp( &reactivated->vote_account, &voter_pubkey_1, sizeof(fd_pubkey_t) ) );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
+  /* Case 35: The pubkey tier stays in RAM through its structural
+     root+delta bound, then spills fallback-only overflow to disk. */
+  {
+    int spill_fd = memfd_create( "stakedel_spill", 0 );
+    FD_TEST( spill_fd>=0 );
+    FD_TEST( dup2( spill_fd, FD_STAKE_DELEGATIONS_FD )==FD_STAKE_DELEGATIONS_FD );
+    FD_TEST( !close( spill_fd ) );
+
+    fd_stake_delegations_reset( stake_delegations );
+
+    ushort      fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    ulong const ram_max  = 2UL*max_stake_accounts;
+    for( ulong i=0UL; i<ram_max; i++ ) {
+      fd_pubkey_t k = { .ul = { 60000UL+i, 70000UL+i } };
+      fd_stake_delegations_fork_update( stake_delegations, fork_idx, &k, &voter_pubkey_0, i+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    }
+    FD_TEST( fd_stake_delegations_pubkey_fallback( stake_delegations ) );
+    FD_TEST( fd_stake_delegations_pubkey_cnt( stake_delegations )==ram_max );
+    FD_TEST( lseek( FD_STAKE_DELEGATIONS_FD, 0L, SEEK_END )==0L );
+
+    fd_pubkey_t overflow = { .ul = { 60000UL+ram_max, 70000UL+ram_max } };
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &overflow, &voter_pubkey_0, ram_max+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    FD_TEST( fd_stake_delegations_pubkey_cnt( stake_delegations )==ram_max+1UL );
+    FD_TEST( lseek( FD_STAKE_DELEGATIONS_FD, 0L, SEEK_END )>0L );
+
+    /* Reset must make stale disk records reusable. */
+    fd_stake_delegations_reset( stake_delegations );
+    FD_TEST( !fd_stake_delegations_pubkey_cnt( stake_delegations ) );
+    fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    ulong const disk_cnt = 12UL;
+    for( ulong i=0UL; i<ram_max+disk_cnt; i++ ) {
+      fd_pubkey_t k = { .ul = { 60000UL+i, 70000UL+i } };
+      fd_stake_delegations_fork_update( stake_delegations, fork_idx, &k, &voter_pubkey_0, i+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    }
+    FD_TEST( fd_stake_delegations_pubkey_cnt( stake_delegations )==ram_max+disk_cnt );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+
+    /* Refresh must apply remove_inactive_stakes to disk-tier entries,
+       just as it does to RAM-tier entries. */
+    test_accdb_t accdb = test_accdb_new();
+    fd_accdb_fork_id_t accdb_fork = fd_accdb_attach_child(
+        accdb.accdb,
+        (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
+    fd_stake_state_t inactive = {
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = {
+        .stake = {
+          .delegation = {
+            .voter_pubkey         = voter_pubkey_0,
+            .stake                = 1UL,
+            .activation_epoch     = 2UL,
+            .deactivation_epoch   = 2UL,
+            .warmup_cooldown_rate = FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025,
+          },
+        },
+      },
+    };
+    test_accdb_write_stake( accdb.accdb, accdb_fork, &overflow, &inactive );
+
+    ulong refresh_warmup_epoch = ULONG_MAX;
+    fd_stake_delegations_iter_t iter_[1];
+    fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init(
+        iter_,
+        stake_delegations,
+        accdb.accdb,
+        accdb_fork,
+        4UL,
+        &refresh_warmup_epoch );
+    FD_TEST( !fd_stake_delegations_iter_done( iter ) );
+    assert_delegation(
+        fd_stake_delegations_iter_ele( iter ),
+        &overflow,
+        &voter_pubkey_0,
+        1UL,
+        2U,
+        2U,
+        FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    FD_TEST( fd_stake_delegations_iter_idx( iter )>=ram_max );
+    fd_stake_delegations_iter_next( iter );
+    FD_TEST( fd_stake_delegations_iter_done( iter ) );
+
+    fd_stake_delegations_refresh(
+        stake_delegations,
+        4UL,
+        stake_history,
+        &refresh_warmup_epoch,
+        1,
+        1,
+        accdb.accdb,
+        accdb_fork );
+    FD_TEST( !fd_stake_delegations_pubkey_cnt( stake_delegations ) );
+    test_accdb_delete( &accdb );
+
+    fd_stake_delegations_reset( stake_delegations );
   }
 
   /* Test stake delegations refresh */

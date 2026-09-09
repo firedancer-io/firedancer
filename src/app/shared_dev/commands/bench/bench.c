@@ -207,6 +207,7 @@ bench_cmd_fn( args_t *   args,
   }
 
   initialize_accdb_fd( config );
+  initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
   if( FD_LIKELY( config->is_firedancer ) ) {
     initialize_snapshot_fds( config );
