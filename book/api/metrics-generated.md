@@ -157,6 +157,31 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">admin_&#8203;failover_&#8203;link</span> | gauge | Failover pair channel state (0=listener, including pending candidates: 1=dialing, 2=dialer TLS or HELLO, 3=paired, 4=backoff) |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;role</span> | gauge | Local failover role |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;term</span> | gauge | Local failover fencing term |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;status</span> | gauge | Local failover status bit word |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;role</span> | gauge | Last authenticated peer failover role |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;term</span> | gauge | Last authenticated peer failover term |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;status</span> | gauge | Last authenticated peer status bit word |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;replication_&#8203;lag_&#8203;slots</span> | gauge | Slots the replicated tower trails the active's last vote |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;rtt_&#8203;nanos</span> | gauge | Smoothed round trip time of the failover pair link |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;enabled</span> | gauge | Whether failover is enabled |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;status_&#8203;valid</span> | gauge | Whether an authenticated peer status is available |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;peer_&#8203;status_&#8203;age_&#8203;nanos</span> | gauge | Age of the last authenticated peer status, or zero when unavailable |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;replication_&#8203;lag_&#8203;valid</span> | gauge | Whether failover replication lag is available |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;pair_&#8203;healthy</span> | gauge | Whether the pair link, cadence, roles and status bits pass the Phase 0 health checks; the handoff readiness verdict arrives with the Phase 1 controller |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;pair_&#8203;health_&#8203;reason</span> | gauge | Pair health result (0=pair healthy, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind on replication) |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;frames_&#8203;sent</span> | counter | Complete frames written to TLS, including HELLO frames |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;frames_&#8203;received</span> | counter | Complete frames decoded from TLS before message validation, including HELLO frames |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;tls_&#8203;failures</span> | counter | Failover TLS setup or handshake failures, excluding I/O failures after the TLS handshake |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;wire_&#8203;failures</span> | counter | Failover sessions dropped for protocol framing errors |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;hello_&#8203;rejections</span> | counter | Failover sessions rejected by HELLO validation |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;connection_&#8203;attempts</span> | counter | Failover candidate sockets started before TCP connection or TLS handshake success is known |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;sessions_&#8203;paired</span> | counter | Failover sessions that completed mutual TLS and HELLO validation |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;pending_&#8203;handshakes</span> | gauge | Failover candidate sockets awaiting TCP, TLS, or HELLO completion, excluding the paired session |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;admission_&#8203;drops</span> | counter | Accepted failover sockets closed before TLS setup because a session is already paired, an admission limit was reached, or the source address was invalid |
+| <span class="metrics-name">admin_&#8203;failover_&#8203;handshake_&#8203;timeouts</span> | counter | Failover candidates closed when the absolute TCP, TLS, and HELLO deadline expired |
 
 </div>
 

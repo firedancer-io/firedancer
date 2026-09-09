@@ -1,4 +1,5 @@
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -46,6 +47,7 @@ struct fd_admin_tile_ctx {
   ulong                   failover_status_interval_millis;
   ulong                   failover_peer_silence_intervals;
   int                     failover_session_setup; /* silence window sized for this session */
+  long                    failover_effective_interval; /* slower of the two cadences, nanos */
   ulong                   failover_replication_lag_limit;
   long                    failover_last_status;
   int                     failover_status_sent; /* sent in this session */
@@ -189,9 +191,12 @@ privileged_init( fd_topo_t const *      topo,
     }
     ctx->failover_role       = is_staked ? FD_FAILOVER_ROLE_ACTIVE : FD_FAILOVER_ROLE_STANDBY;
     ctx->failover_hello.role = (uchar)ctx->failover_role;
-    uchar const * vote_account = fd_keyload_load( tile->admin.failover_vote_account_path, 1 );
-    fd_memcpy( ctx->failover_hello.vote_account, vote_account, 32UL );
-    fd_keyload_unload( vote_account, 1 );
+    /* paths.vote_account is either a base58 pubkey or a keypair file. */
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->admin.failover_vote_account_path, ctx->failover_hello.vote_account ) ) ) {
+      uchar const * vote_account = fd_keyload_load( tile->admin.failover_vote_account_path, 1 );
+      fd_memcpy( ctx->failover_hello.vote_account, vote_account, 32UL );
+      fd_keyload_unload( vote_account, 1 );
+    }
     fd_memcpy( ctx->failover_hello.commit, fd_commit_ref_cstr,
                fd_ulong_min( sizeof(ctx->failover_hello.commit), strlen( fd_commit_ref_cstr ) ) );
     ctx->failover_hello.cfg_hash = tile->admin.failover_cfg_hash;
@@ -835,6 +840,161 @@ get_identity( fd_admin_tile_ctx_t * ctx,
   fd_adminctl_complete_response( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS, &resp, sizeof(resp) );
 }
 
+static fd_failover_status_t
+failover_local_status( fd_admin_tile_ctx_t const * ctx ) {
+  fd_failover_status_t status;
+  fd_memset( &status, 0, sizeof(status) );
+  status.term             = ctx->failover_hello.term;
+  status.role             = (uchar)ctx->failover_role;
+  status.replay_slot      = ctx->failover_replay_slot;
+  status.turbine_slot     = FD_FAILOVER_SLOT_NULL;
+  status.last_vote_slot   = ctx->failover_last_vote_slot;
+  status.root_slot        = ctx->failover_root_slot;
+  status.next_leader_slot = FD_FAILOVER_SLOT_NULL;
+  status.ack_seq          = fd_failover_channel_ack_seq( ctx->failover );
+  if( FD_UNLIKELY( ctx->failover_role==FD_FAILOVER_ROLE_STANDBY &&
+                   ( ctx->failover_lag_slots==FD_FAILOVER_SLOT_NULL ||
+                     ctx->failover_lag_slots>ctx->failover_replication_lag_limit ) ) ) {
+    status.status |= FD_FAILOVER_STATUS_REPLAG;
+  }
+  return status;
+}
+
+static void
+failover_status_snapshot( fd_admin_tile_ctx_t const *         ctx,
+                          long                                now,
+                          fd_adminctl_failover_status_resp_t * resp ) {
+  fd_memset( resp, 0, sizeof(*resp) );
+  resp->version               = FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION;
+  resp->enabled               = (uchar)( !!ctx->failover_enabled );
+  resp->peer_status_age_nanos = ULONG_MAX;
+  resp->replication_lag_slots = FD_FAILOVER_SLOT_NULL;
+  resp->replay_slot           = FD_FAILOVER_SLOT_NULL;
+  resp->root_slot             = FD_FAILOVER_SLOT_NULL;
+  resp->turbine_slot          = FD_FAILOVER_SLOT_NULL;
+  resp->next_leader_slot      = FD_FAILOVER_SLOT_NULL;
+  resp->last_vote_slot        = FD_FAILOVER_SLOT_NULL;
+  resp->peer_replay_slot      = FD_FAILOVER_SLOT_NULL;
+  resp->peer_root_slot        = FD_FAILOVER_SLOT_NULL;
+  resp->peer_turbine_slot     = FD_FAILOVER_SLOT_NULL;
+  resp->peer_next_leader_slot = FD_FAILOVER_SLOT_NULL;
+  resp->peer_last_vote_slot   = FD_FAILOVER_SLOT_NULL;
+
+  if( FD_UNLIKELY( !ctx->failover_enabled ) ) return;
+
+  fd_failover_channel_metrics_t const * m = fd_failover_channel_metrics( ctx->failover );
+  fd_failover_status_t local = failover_local_status( ctx );
+
+  resp->role                  = local.role;
+  resp->term                  = local.term;
+  resp->link_state            = (uchar)fd_failover_channel_state( ctx->failover );
+  resp->status                = local.status;
+  resp->flags                 = local.flags;
+  resp->replication_lag_slots = ctx->failover_lag_slots;
+  resp->rtt_nanos             = (ulong)fd_long_max( ctx->failover_rtt_nanos, 0L );
+  resp->replay_slot           = local.replay_slot;
+  resp->root_slot             = local.root_slot;
+  resp->turbine_slot          = local.turbine_slot;
+  resp->next_leader_slot      = local.next_leader_slot;
+  resp->last_vote_slot        = local.last_vote_slot;
+  resp->frames_sent           = m->frames_sent;
+  resp->frames_received       = m->frames_received;
+  resp->tls_failures          = m->tls_fail_cnt;
+  resp->wire_failures         = m->wire_fatal_cnt;
+  resp->hello_rejections      = m->hello_reject_cnt;
+  resp->connection_attempts   = m->connection_attempt_cnt;
+  resp->sessions_paired       = m->paired_cnt;
+  resp->pending_handshakes    = fd_failover_channel_pending( ctx->failover );
+  resp->admission_drops       = m->admission_drop_cnt;
+  resp->handshake_timeouts    = m->handshake_timeout_cnt;
+
+  if( FD_LIKELY( ctx->failover_peer_status_valid ) ) {
+    resp->peer_role             = ctx->failover_peer_status.role;
+    resp->peer_term             = ctx->failover_peer_status.term;
+    resp->peer_status           = ctx->failover_peer_status.status;
+    resp->peer_flags            = ctx->failover_peer_status.flags;
+    resp->peer_status_valid     = 1U;
+    resp->peer_replay_slot      = ctx->failover_peer_status.replay_slot;
+    resp->peer_root_slot        = ctx->failover_peer_status.root_slot;
+    resp->peer_turbine_slot     = ctx->failover_peer_status.turbine_slot;
+    resp->peer_next_leader_slot = ctx->failover_peer_status.next_leader_slot;
+    resp->peer_last_vote_slot   = ctx->failover_peer_status.last_vote_slot;
+    if( FD_LIKELY( now>=ctx->failover_peer_status_time ) ) {
+      resp->peer_status_age_nanos = (ulong)fd_long_sat_sub( now, ctx->failover_peer_status_time );
+    }
+  }
+
+  long interval        = ctx->failover_effective_interval ? ctx->failover_effective_interval : ctx->failover_status_interval;
+  long freshness_limit = fd_long_sat_add( interval, interval );
+  int peer_status_fresh = resp->peer_status_valid &&
+                          resp->peer_status_age_nanos!=ULONG_MAX &&
+                          resp->peer_status_age_nanos<=(ulong)freshness_limit;
+
+  if( FD_UNLIKELY( resp->link_state!=FD_FAILOVER_SESSION_PAIRED ) ) {
+    resp->readiness_reason = FD_FAILOVER_READINESS_LINK_DOWN;
+  } else if( FD_UNLIKELY( !peer_status_fresh ) ) {
+    resp->readiness_reason = FD_FAILOVER_READINESS_STATUS_STALE;
+  } else if( FD_UNLIKELY( resp->term!=resp->peer_term ||
+                          !((resp->role==FD_FAILOVER_ROLE_ACTIVE  && resp->peer_role==FD_FAILOVER_ROLE_STANDBY) ||
+                            (resp->role==FD_FAILOVER_ROLE_STANDBY && resp->peer_role==FD_FAILOVER_ROLE_ACTIVE )) ) ) {
+    resp->readiness_reason = FD_FAILOVER_READINESS_ROLE_CONFLICT;
+  } else {
+    uint  active_status  = resp->role==FD_FAILOVER_ROLE_ACTIVE ? resp->status      : resp->peer_status;
+    uint  standby_status = resp->role==FD_FAILOVER_ROLE_ACTIVE ? resp->peer_status : resp->status;
+    if( FD_UNLIKELY( active_status ) ) {
+      resp->readiness_reason = FD_FAILOVER_READINESS_ACTIVE_UNHEALTHY;
+    } else if( FD_UNLIKELY( standby_status & ~FD_FAILOVER_STATUS_REPLAG ) ) {
+      resp->readiness_reason = FD_FAILOVER_READINESS_STANDBY_UNHEALTHY;
+    } else if( FD_UNLIKELY( standby_status&FD_FAILOVER_STATUS_REPLAG ) ) {
+      resp->readiness_reason = FD_FAILOVER_READINESS_STANDBY_BEHIND;
+    } else {
+      /* Link, cadence, roles and status bits are all in order.  The
+         caught-up check and the handoff verdict belong to Phase 1. */
+      resp->pair_healthy     = 1U;
+      resp->readiness_reason = FD_FAILOVER_READINESS_PAIR_HEALTHY;
+    }
+  }
+}
+
+static void
+failover_status( fd_admin_tile_ctx_t * ctx,
+                 ulong                 slot_idx,
+                 void *                data,
+                 ulong                 data_sz ) {
+
+  fd_adminctl_t * adminctl = ctx->adminctl;
+  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS,
+                                                          data, data_sz );
+
+  if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
+    FD_LOG_WARNING(( "unexpected adminctl failover-status payload_sz %lu", data_sz ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
+    return;
+  }
+
+  ulong version = FD_LOAD( ulong, data );
+  if( FD_UNLIKELY( version!=FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION ) ) {
+    FD_LOG_WARNING(( "unsupported adminctl failover-status payload version %lu", version ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
+    return;
+  }
+
+  if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_failover_status_req_t) ) ) {
+    FD_LOG_WARNING(( "unexpected adminctl failover-status payload_sz %lu", data_sz ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
+    return;
+  }
+
+  fd_adminctl_failover_status_resp_t resp;
+  failover_status_snapshot( ctx, fd_failover_clock(), &resp );
+
+  report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
+  fd_adminctl_complete_response( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS, &resp, sizeof(resp) );
+}
+
 /* The process of adding an authorized voter to the validator must be
    done carefully in order to prevent vote transactions being generated
    with an authorized voter that the sign tile is not yet aware of.
@@ -1467,6 +1627,21 @@ failover_prepare_consensus( fd_admin_tile_ctx_t *       ctx,
   ctx->failover_cs_sent  = 0;
 }
 
+/* Replay completes blocks out of order across forks, so a slot_done can
+   name a slot below the last vote.  STATUS reports the highest replayed
+   slot, and the peer rejects a status whose last vote is above it. */
+static void
+failover_consume_slot_done( fd_admin_tile_ctx_t *        ctx,
+                            fd_tower_slot_done_t const * done ) {
+  if( FD_LIKELY( ctx->failover_replay_slot==FD_FAILOVER_SLOT_NULL || done->replay_slot>ctx->failover_replay_slot ) )
+    ctx->failover_replay_slot = done->replay_slot;
+  if( FD_LIKELY( done->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->failover_root_slot = done->root_slot;
+  if( FD_LIKELY( done->has_vote_txn && done->vote_slot!=FD_FAILOVER_SLOT_NULL ) ) {
+    ctx->failover_last_vote_slot = done->vote_slot;
+    if( FD_LIKELY( ctx->failover_role==FD_FAILOVER_ROLE_ACTIVE ) ) failover_prepare_consensus( ctx, done );
+  }
+}
+
 /* Drive the pair channel from the run loop.  Channel time is the
    monotonic clock, wall clock steps must not drop a healthy pair. */
 static void
@@ -1515,14 +1690,7 @@ failover_poll( fd_admin_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->failover_slot_done_fresh ) ) {
     ctx->failover_slot_done_fresh = 0;
-    fd_tower_slot_done_t const * done = &ctx->failover_slot_done;
-
-    ctx->failover_replay_slot = done->replay_slot;
-    if( FD_LIKELY( done->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->failover_root_slot = done->root_slot;
-    if( FD_LIKELY( done->has_vote_txn && done->vote_slot!=FD_FAILOVER_SLOT_NULL ) ) {
-      ctx->failover_last_vote_slot = done->vote_slot;
-      if( FD_LIKELY( ctx->failover_role==FD_FAILOVER_ROLE_ACTIVE ) ) failover_prepare_consensus( ctx, done );
-    }
+    failover_consume_slot_done( ctx, &ctx->failover_slot_done );
   }
 
   if( FD_LIKELY( fd_failover_channel_state( ctx->failover )!=FD_FAILOVER_SESSION_PAIRED ) ) return;
@@ -1532,6 +1700,7 @@ failover_poll( fd_admin_tile_ctx_t * ctx,
        a pair with different status_interval_millis settings holds. */
     ulong peer_millis = fd_ulong_min( fd_failover_channel_peer_hello( ctx->failover )->status_interval_millis, FD_ADMIN_FAILOVER_PEER_MILLIS_MAX );
     ulong millis      = fd_ulong_max( ctx->failover_status_interval_millis, peer_millis );
+    ctx->failover_effective_interval = failover_duration_nanos( millis, 1000000UL );
     fd_failover_channel_set_silence( ctx->failover,
                                      failover_duration_nanos( fd_ulong_sat_mul( millis, ctx->failover_peer_silence_intervals ), 1000000UL ) );
     ctx->failover_session_setup = 1;
@@ -1541,20 +1710,7 @@ failover_poll( fd_admin_tile_ctx_t * ctx,
                    now<ctx->failover_last_status ||
                    fd_long_sat_sub( now, ctx->failover_last_status )>=ctx->failover_status_interval;
   if( FD_UNLIKELY( status_due && !fd_failover_channel_tx_pending( ctx->failover ) ) ) {
-    fd_failover_status_t status;
-    fd_memset( &status, 0, sizeof(status) );
-    status.term             = ctx->failover_hello.term;
-    status.role             = (uchar)ctx->failover_role;
-    status.replay_slot      = ctx->failover_replay_slot;
-    status.turbine_slot     = FD_FAILOVER_SLOT_NULL;
-    status.last_vote_slot   = ctx->failover_last_vote_slot;
-    status.root_slot        = ctx->failover_root_slot;
-    status.next_leader_slot = FD_FAILOVER_SLOT_NULL;
-    if( FD_UNLIKELY( ctx->failover_lag_slots!=FD_FAILOVER_SLOT_NULL &&
-                     ctx->failover_lag_slots>ctx->failover_replication_lag_limit ) ) {
-      status.status |= FD_FAILOVER_STATUS_REPLAG;
-    }
-    status.ack_seq      = fd_failover_channel_ack_seq( ctx->failover );
+    fd_failover_status_t status = failover_local_status( ctx );
     status.sent_at      = (ulong)now;
     status.echo_sent_at = ctx->failover_peer_sent_at;
     status.echo_delay   = ctx->failover_peer_sent_at ? (ulong)fd_long_sat_sub( now, ctx->failover_peer_recv_at ) : 0UL;
@@ -1614,6 +1770,10 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       get_identity( ctx, slot_idx, payload, payload_sz );
       *charge_busy = 1;
       break;
+    case FD_ADMINCTL_CMD_FAILOVER_STATUS:
+      failover_status( ctx, slot_idx, payload, payload_sz );
+      *charge_busy = 1;
+      break;
     case FD_ADMINCTL_CMD_SNAP_CREATE:
       snapshot_create( ctx, stem, slot_idx, payload, payload_sz );
       *charge_busy = 1;
@@ -1623,6 +1783,42 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       FD_LOG_WARNING(( "unexpected adminctl cmd %lu", cmd_id ));
       fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
   }
+}
+
+static inline void
+metrics_write( fd_admin_tile_ctx_t * ctx ) {
+  fd_adminctl_failover_status_resp_t status;
+  failover_status_snapshot( ctx, fd_failover_clock(), &status );
+
+  FD_MGAUGE_SET( ADMIN, FAILOVER_ENABLED, status.enabled );
+  if( FD_UNLIKELY( !status.enabled ) ) return;
+
+  int peer_valid = !!status.peer_status_valid;
+  int lag_valid  = ( status.replication_lag_slots!=FD_FAILOVER_SLOT_NULL );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_LINK,                  status.link_state );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_ROLE,                  status.role );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_TERM,                  status.term );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_STATUS,                status.status );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_PEER_ROLE,             peer_valid ? status.peer_role : 0UL );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_PEER_TERM,             peer_valid ? status.peer_term : 0UL );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_PEER_STATUS,           peer_valid ? status.peer_status : 0UL );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_REPLICATION_LAG_SLOTS, lag_valid ? status.replication_lag_slots : 0UL );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_RTT_NANOS,             status.rtt_nanos );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_PEER_STATUS_VALID,     (ulong)peer_valid );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_PEER_STATUS_AGE_NANOS, status.peer_status_age_nanos==ULONG_MAX ? 0UL : status.peer_status_age_nanos );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_REPLICATION_LAG_VALID, (ulong)lag_valid );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_PAIR_HEALTHY,          status.pair_healthy );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_PAIR_HEALTH_REASON,    status.readiness_reason );
+  FD_MCNT_SET  ( ADMIN, FAILOVER_FRAMES_SENT,           status.frames_sent );
+  FD_MCNT_SET  ( ADMIN, FAILOVER_FRAMES_RECEIVED,       status.frames_received );
+  FD_MCNT_SET  ( ADMIN, FAILOVER_TLS_FAILURES,          status.tls_failures );
+  FD_MCNT_SET  ( ADMIN, FAILOVER_WIRE_FAILURES,         status.wire_failures );
+  FD_MCNT_SET  ( ADMIN, FAILOVER_HELLO_REJECTIONS,      status.hello_rejections );
+  FD_MCNT_SET  ( ADMIN, FAILOVER_CONNECTION_ATTEMPTS,   status.connection_attempts );
+  FD_MCNT_SET  ( ADMIN, FAILOVER_SESSIONS_PAIRED,       status.sessions_paired );
+  FD_MGAUGE_SET( ADMIN, FAILOVER_PENDING_HANDSHAKES,    status.pending_handshakes );
+  FD_MCNT_SET  ( ADMIN, FAILOVER_ADMISSION_DROPS,       status.admission_drops );
+  FD_MCNT_SET  ( ADMIN, FAILOVER_HANDSHAKE_TIMEOUTS,    status.handshake_timeouts );
 }
 
 static inline int
@@ -1735,10 +1931,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_admin_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_admin_tile_ctx_t)
 
-#define STEM_CALLBACK_AFTER_CREDIT after_credit
-#define STEM_CALLBACK_BEFORE_FRAG  before_frag
-#define STEM_CALLBACK_DURING_FRAG  during_frag
-#define STEM_CALLBACK_AFTER_FRAG   after_frag
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_BEFORE_FRAG   before_frag
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
