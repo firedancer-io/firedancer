@@ -269,6 +269,8 @@ fd_topo_initialize( config_t * config ) {
   int leader_enabled    = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled    = config->tiles.rserve.enabled;
   int alpenglow_enabled = config->firedancer.development.alpenglow;
+  /* Failover does not support Alpenglow yet. */
+  int failover_enabled  = config->firedancer.failover.enabled && !config->firedancer.development.alpenglow;
 
   char const * repair = alpenglow_enabled ? "rotor" : "repair";
   char const * poh    = alpenglow_enabled ? "motor" : "poh";
@@ -306,6 +308,11 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "txsend" );
   fd_topob_wksp( topo, "sign"   )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
   fd_topob_wksp( topo, "admin"  )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
+  if( FD_UNLIKELY( failover_enabled ) ) {
+    /* The failover tile keeps TLS session keys in its scratch, so its
+       workspace stays out of core dumps like admin and sign. */
+    fd_topob_wksp( topo, "failov" )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
+  }
 
   if( leader_enabled ) {
     fd_topob_wksp( topo, "quic"   );
@@ -624,6 +631,9 @@ fd_topo_initialize( config_t * config ) {
   }
 
   fd_topo_tile_t * admin_tile = fd_topob_tile( topo, "admin", "admin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
+  if( FD_UNLIKELY( failover_enabled ) ) {
+    /**/                 fd_topob_tile( topo, "failov", "failov", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
+  }
 
   /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
   FOR(gossvf_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )

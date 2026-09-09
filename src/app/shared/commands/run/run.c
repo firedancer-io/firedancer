@@ -70,6 +70,17 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+  if( FD_UNLIKELY( config->is_firedancer && config->firedancer.failover.enabled ) ) {
+    ulong members_cnt = fd_ulong_min( config->firedancer.failover.members_cnt, FD_TOPO_FAILOVER_MEMBER_MAX );
+    for( ulong i=1UL; i<members_cnt; i++ ) {
+      fd_topo_ip_port_t member;
+      fd_config_parse_ip_port( "failover.members", config->firedancer.failover.members[ i ], &member );
+      if( FD_UNLIKELY( member.port<1024 ) ) {
+        fd_cap_chk_cap(    chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for a failover listener" );
+        break;
+      }
+    }
+  }
 }
 
 struct pidns_clone_args {
