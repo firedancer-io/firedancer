@@ -57,6 +57,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
       (void)fd_keyguard_payload_authorize( &authority, data, size, role, (int)i );
       if( bit==FD_KEYGUARD_PAYLOAD_LG_TXN ) {
         (void)fd_keyguard_payload_authorize( &authority, data, size, FD_KEYGUARD_ROLE_BUNDLE_CRANK, (int)i );
+      } else if( bit==FD_KEYGUARD_PAYLOAD_LG_TLS_CV ) {
+        (void)fd_keyguard_payload_authorize( &authority, data, size, FD_KEYGUARD_ROLE_VOTOR, (int)i );
       }
     }
   }

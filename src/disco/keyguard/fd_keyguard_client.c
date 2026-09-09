@@ -1,4 +1,5 @@
 #include "fd_keyguard_client.h"
+#include "fd_keyguard.h"
 
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
@@ -82,6 +83,13 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
   seq_found = fd_frag_meta_seq_query( mline );
   if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));
   client->response_seq = fd_seq_inc( client->response_seq, 1UL );
+}
+
+void
+fd_keyguard_client_tls_cv_sign( void *      signer_ctx,
+                                uchar       signature[ static 64 ],
+                                uchar const payload[ static 130 ] ) {
+  fd_keyguard_client_sign( signer_ctx, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 void

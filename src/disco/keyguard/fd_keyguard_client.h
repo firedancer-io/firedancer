@@ -94,6 +94,14 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          ulong                  sign_data_len,
                          int                    sign_type );
 
+/* fd_keyguard_client_tls_cv_sign adapts a keyguard client to the
+   fd_tls_sign_fn_t callback interface. */
+
+void
+fd_keyguard_client_tls_cv_sign( void *      signer_ctx,
+                                uchar       signature[ static 64 ],
+                                uchar const payload[ static 130 ] );
+
 /* fd_keyguard_client_vote_txn_sign sends a remote signing request to
    the signing server, and blocks (spins) until the response is
    received.

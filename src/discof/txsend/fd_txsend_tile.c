@@ -25,7 +25,6 @@
 #include "../../disco/events/fd_event_report.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
-#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../fd_startup.h"
 #include "../tower/fd_tower_tile.h"
@@ -156,15 +155,6 @@ metrics_write( fd_txsend_tile_t * ctx ) {
 
   FD_MHIST_COPY(       TXSEND, SERVICE_DURATION_SECONDS,    ctx->quic->metrics.service_duration        );
   FD_MHIST_COPY(       TXSEND, RX_DURATION_SECONDS,         ctx->quic->metrics.receive_duration        );
-}
-
-static void
-quic_tls_cv_sign( void *      signer_ctx,
-                  uchar       signature[ static 64 ],
-                  uchar const payload[ static 130 ] ) {
-  fd_txsend_tile_t * ctx = signer_ctx;
-
-  fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static void
@@ -768,8 +758,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic->config.idle_timeout = 30e9L;
   ctx->quic->config.ack_delay    = 25e6L;
   ctx->quic->config.keep_alive   = 1;
-  ctx->quic->config.sign         = quic_tls_cv_sign;
-  ctx->quic->config.sign_ctx     = ctx;
+  ctx->quic->config.sign         = fd_keyguard_client_tls_cv_sign;
+  ctx->quic->config.sign_ctx     = ctx->keyguard_client;
   fd_memcpy( ctx->quic->config.identity_public_key, ctx->identity_key, sizeof(ctx->identity_key) );
 
   ctx->quic->cb.conn_final       = quic_conn_final;

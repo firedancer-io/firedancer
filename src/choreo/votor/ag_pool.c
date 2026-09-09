@@ -434,6 +434,23 @@ ag_pool_advance_epoch( ag_pool_t *             self,
   }
 }
 
+void
+ag_pool_set_identity( ag_pool_t * self,
+                      ulong       curr_epoch_rank,
+                      ulong       next_epoch_rank ) {
+  self->curr_epoch_rank = curr_epoch_rank;
+  self->next_epoch_rank = next_epoch_rank;
+
+  slot_state_map_t * map  = self->slot_states->map;
+  slot_state_ele_t * pool = self->slot_states->pool;
+  for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
+                                   !slot_state_map_iter_done( iter, map, pool );
+                              iter = slot_state_map_iter_next( iter, map, pool ) ) {
+    ag_slot_state_t * state = &slot_state_map_iter_ele( iter, map, pool )->slot_state;
+    state->own_rank = fd_ulong_if( state->slot>=self->next_epoch_slot, next_epoch_rank, curr_epoch_rank );
+  }
+}
+
 /* The boot block is already final, so both trackers start from it
    rather than from slot 0. */
 
