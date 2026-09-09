@@ -551,6 +551,8 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
 
   if( FD_UNLIKELY( config->failover.enabled ) ) {
+    if( FD_UNLIKELY( !config->failover.tower_file ) )
+      FD_LOG_ERR(( "[failover.enabled] requires [failover.tower_file] for voting recovery" ));
     if( FD_UNLIKELY( config->development.alpenglow ) ) {
       FD_LOG_ERR(( "[failover.enabled] is incompatible with [development.alpenglow]" ));
     }
@@ -593,6 +595,8 @@ fd_config_validatef( fd_configf_t const * config ) {
       FD_LOG_ERR(( "[failover.junk_identity_path] must differ from [failover.staked_identity_path]" ));
     }
   }
+  if( FD_UNLIKELY( config->failover.tower_file && config->development.alpenglow ) )
+    FD_LOG_ERR(( "[failover.tower_file] is not supported with Alpenglow" ));
   if( FD_UNLIKELY( config->snapshots.server.idle_timeout_millis<100UL ||
                    config->snapshots.server.idle_timeout_millis>=60000UL ) ) {
     FD_LOG_ERR(( "`snapshots.server.idle_timeout_millis` must be in [100,60000)" ));

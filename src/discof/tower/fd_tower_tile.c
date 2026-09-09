@@ -1,5 +1,10 @@
 #include "fd_tower_tile.h"
+#include "../../choreo/tower/fd_tower_file.h"
+#include "../../choreo/tower/fd_tower_recover.h"
+#include "../../disco/keyguard/fd_keyguard_client.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "generated/fd_tower_tile_seccomp.h"
+#include "generated/fd_tower_tile_file_seccomp.h"
 
 #include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../choreo/ghost/fd_ghost.h"
@@ -29,6 +34,8 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* The Tower tile broadly processes three classes of frags, leading to
@@ -503,6 +510,165 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
 }
 
 static void
+tower_file_names( fd_pubkey_t const * identity,
+                  char                tower_file_name[ static 64 ],
+                  char                tower_file_name_new[ static 64 ] ) {
+  FD_BASE58_ENCODE_32_BYTES( identity->uc, identity_b58 );
+  FD_TEST( fd_cstr_printf_check( tower_file_name,     64UL, NULL, "tower-1_9-%s.bin",     identity_b58 ) );
+  FD_TEST( fd_cstr_printf_check( tower_file_name_new, 64UL, NULL, "tower-1_9-%s.bin.new", identity_b58 ) );
+}
+
+static int
+tower_file_dir_open( char const * base_path ) {
+  int base_fd = open( base_path, O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW );
+  if( FD_UNLIKELY( -1==base_fd ) ) {
+    FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", base_path, errno, fd_io_strerror( errno ) ));
+  }
+  struct stat base_stat;
+  if( FD_UNLIKELY( -1==fstat( base_fd, &base_stat ) ) ) {
+    FD_LOG_ERR(( "fstat(base directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==mkdirat( base_fd, "tower", 0700 ) && errno!=EEXIST ) ) {
+    FD_LOG_ERR(( "mkdirat(tower) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  int tower_dir_fd = openat( base_fd, "tower", O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW );
+  if( FD_UNLIKELY( -1==tower_dir_fd ) ) {
+    FD_LOG_ERR(( "openat(tower) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  struct stat tower_stat;
+  if( FD_UNLIKELY( -1==fstat( tower_dir_fd, &tower_stat ) ) ) {
+    FD_LOG_ERR(( "fstat(tower directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( ( tower_stat.st_uid!=base_stat.st_uid || tower_stat.st_gid!=base_stat.st_gid ) &&
+                   -1==fchown( tower_dir_fd, base_stat.st_uid, base_stat.st_gid ) ) )
+    FD_LOG_ERR(( "fchown(tower) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( (tower_stat.st_mode & 07777U)!=0700U && -1==fchmod( tower_dir_fd, 0700 ) ) ) {
+    FD_LOG_ERR(( "fchmod(tower) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==fsync( tower_dir_fd ) ) ) {
+    FD_LOG_ERR(( "fsync(tower directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==fsync( base_fd ) ) ) {
+    FD_LOG_ERR(( "fsync(base directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==close( base_fd ) ) ) {
+    FD_LOG_ERR(( "close(base directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  return tower_dir_fd;
+}
+
+/* Returns 1 for a verified checkpoint, 0 only for ENOENT, and -1 for
+   any existing invalid file or I/O error. */
+static int
+tower_file_load( int                 dir_fd,
+                 fd_pubkey_t const * identity,
+                 fd_tower_file_t *   out ) {
+  char name[ 64 ];
+  char name_new[ 64 ];
+  tower_file_names( identity, name, name_new );
+  int fd = openat( dir_fd, name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK );
+  if( FD_UNLIKELY( fd<0 ) ) return errno==ENOENT ? 0 : -1;
+  struct stat st;
+  int valid = !fstat( fd, &st ) && S_ISREG( st.st_mode ) &&
+              st.st_size>0 && st.st_size<=(off_t)FD_TOWER_FILE_MAX;
+  uchar buf[ FD_TOWER_FILE_MAX+1UL ];
+  if( valid ) {
+    ulong sz;
+    int err = fd_io_read( fd, buf, sizeof(buf), sizeof(buf), &sz );
+    valid = err<0 && sz==(ulong)st.st_size && !fd_tower_file_de( buf, sz, identity, out );
+  }
+  if( FD_UNLIKELY( close( fd ) ) ) return -1;
+  return valid ? 1 : -1;
+}
+
+static void
+tower_file_store( fd_tower_tile_t * ctx,
+                  fd_pubkey_t const * identity,
+                  uchar const *       data,
+                  ulong               data_sz ) {
+  char tower_file_name[ 64 ];
+  char tower_file_name_new[ 64 ];
+  tower_file_names( identity, tower_file_name, tower_file_name_new );
+
+  /* The seccomp policy allows one descriptor number for the file.  A
+     sandboxed tile owns its descriptor table, so it closes the reserved
+     number and openat hands it back.  The threaded dev launcher shares
+     one table between all tiles, so there the number is never left free,
+     the file is opened first and dup2 moves it onto the reserved number. */
+  int tower_file_fd = ctx->tower_file_fd;
+  if( FD_LIKELY( ctx->tower_file_sandboxed ) ) {
+    if( FD_UNLIKELY( -1==close( tower_file_fd ) ) ) {
+      FD_LOG_ERR(( "close(tower file) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+  if( FD_UNLIKELY( -1==unlinkat( ctx->tower_dir_fd, tower_file_name_new, 0 ) && errno!=ENOENT ) ) {
+    FD_LOG_ERR(( "unlinkat(%s) failed (%i-%s)", tower_file_name_new, errno, fd_io_strerror( errno ) ));
+  }
+
+  int fd = openat( ctx->tower_dir_fd, tower_file_name_new,
+                   O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, 0600 );
+  if( FD_UNLIKELY( -1==fd ) ) {
+    FD_LOG_ERR(( "openat(%s) failed (%i-%s)", tower_file_name_new, errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( fd!=tower_file_fd ) ) {
+    if( FD_LIKELY( ctx->tower_file_sandboxed ) ) {
+      FD_LOG_ERR(( "openat(%s) returned fd %i, expected %i", tower_file_name_new, fd, tower_file_fd ));
+    }
+    if( FD_UNLIKELY( -1==dup2( fd, tower_file_fd ) || -1==fcntl( tower_file_fd, F_SETFD, FD_CLOEXEC ) ) ) {
+      FD_LOG_ERR(( "dup2(tower file) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( -1==close( fd ) ) ) {
+      FD_LOG_ERR(( "close(tower file) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    fd = tower_file_fd;
+  }
+  ctx->tower_file_fd = fd;
+
+  ulong wsz;
+  int   err = fd_io_write( fd, data, data_sz, data_sz, &wsz );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "tower file write failed (%i-%s)", err, fd_io_strerror( err ) ));
+  }
+  if( FD_UNLIKELY( -1==fsync( fd ) ) ) {
+    FD_LOG_ERR(( "tower file fsync failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( -1==renameat( ctx->tower_dir_fd, tower_file_name_new, ctx->tower_dir_fd, tower_file_name ) ) ) {
+    FD_LOG_ERR(( "renameat(%s) failed (%i-%s)", tower_file_name, errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==fsync( ctx->tower_dir_fd ) ) ) {
+    FD_LOG_ERR(( "tower directory fsync failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+static void
+tower_sign_cb( void *        _ctx,
+               uchar         sig[ 64 ],
+               uchar const * msg,
+               ulong         msg_sz ) {
+  fd_tower_tile_t * ctx = (fd_tower_tile_t *)_ctx;
+  uchar req[ FD_KEYGUARD_TOWER_FILE_MSG_SZ ];
+  fd_tower_file_sign_msg( msg, msg_sz, req );
+  fd_keyguard_client_sign( ctx->keyguard_client, sig, req, sizeof(req), FD_KEYGUARD_SIGN_TYPE_ED25519 );
+}
+
+static ulong
+prepare_tower_file( fd_tower_tile_t *      ctx,
+                    fd_tower_out_t const * out,
+                    long                   timestamp ) {
+  /* The file is written with the same root as the vote transaction, so
+     a restart does not see a file root below the one already on chain. */
+  long sz = fd_tower_file_ser( ctx->tower->votes, fd_tower_consensus_root( ctx->tower ),
+                               &out->vote_bank_hash, &out->vote_block_id,
+                               timestamp, ctx->identity_key,
+                               tower_sign_cb, ctx, ctx->tower_file_buf, sizeof(ctx->tower_file_buf) );
+  if( FD_UNLIKELY( sz<0L ) ) FD_LOG_ERR(( "tower file serialization failed" ));
+  ctx->tower_file_identity = *ctx->identity_key;
+  return (ulong)sz;
+}
+
+static void
 publish_slot_done( fd_tower_tile_t *            ctx,
                    fd_replay_slot_completed_t * slot_completed,
                    fd_tower_out_t *             out,
@@ -540,6 +706,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   msg->is_voting = found_authority && identity_matches;
 
   if( FD_LIKELY( out->vote_slot!=ULONG_MAX &&
+                 !ctx->recovery_pending && !ctx->failover_standby &&
                  found_authority &&
                  identity_matches &&
                  !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
@@ -560,6 +727,12 @@ publish_slot_done( fd_tower_tile_t *            ctx,
     msg->vote_txn_sz        = txn->payload_sz;
     msg->authority_idx      = authority_idx;
     msg->vote_created_nanos = fd_log_wallclock();
+
+    if( FD_UNLIKELY( ctx->tower_file_enabled ) ) {
+      ctx->tower_file_sz = prepare_tower_file( ctx, out, msg->vote_created_nanos/(long)1e9 );
+      ctx->first_use_pending = 0;
+      ctx->recovery_initialized = 0;
+    }
   } else {
     msg->has_vote_txn = 0;
   }
@@ -665,6 +838,44 @@ count_vote_acc( fd_tower_tile_t *            ctx,
    2. vote accounts (for each staked voter, which contains their tower)
       from accountsDB. */
 
+static void
+tower_recovery_init( fd_tower_tile_t *            ctx,
+                     fd_replay_slot_completed_t * slot_completed,
+                     fd_bank_t *                  bank ) {
+  fd_acc_t history_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, fd_sysvar_slot_history_id.uc );
+  fd_slot_history_view_t history;
+  fd_slot_history_view_t * h = NULL;
+  if( history_acc.lamports && fd_memeq( history_acc.owner, fd_sysvar_owner_id.uc, 32UL ) )
+    h = fd_sysvar_slot_history_view( &history, history_acc.data, history_acc.data_len );
+  int result = fd_tower_recover_init( &ctx->recovery, &ctx->recovery.saved, slot_completed->slot, h );
+  fd_accdb_unread_one( ctx->accdb, &history_acc );
+  if( FD_UNLIKELY( result==FD_TOWER_RECOVER_ERR_FORK ) )
+    FD_LOG_ERR(( "signed tower disagrees with the snapshot's rooted history at slot %lu: a rooted vote is missing below a found one. Preserve the tower and investigate before restarting.", slot_completed->slot ));
+  if( FD_UNLIKELY( result<0 ) )
+    FD_LOG_ERR(( "signed tower cannot be anchored to snapshot slot %lu (error %d): it is older than the rooted history or shares no slot with it. Preserve the tower and restart with a compatible snapshot.", slot_completed->slot, result ));
+
+  /* The retained votes go live now.  Voting resumes as soon as their
+     lockouts allow it, a stray tip needs a switch proof first. */
+  fd_tower_recover_install( &ctx->recovery, ctx->tower );
+  ctx->recovery_initialized   = 1;
+  ctx->recovery_pending       = 0;
+  ctx->metrics.last_vote_slot = ctx->recovery.saved.votes[ ctx->recovery.saved.votes_cnt-1UL ].slot;
+  FD_LOG_NOTICE(( "restored signed tower through slot %lu, kept %lu votes as lockouts and retired %lu rooted votes",
+                  ctx->metrics.last_vote_slot, ctx->recovery.retained_cnt, ctx->recovery.saved.votes_cnt-ctx->recovery.retained_cnt ));
+}
+
+static void
+tower_first_use_check( fd_tower_tile_t * ctx,
+                       ulong             onchain_root ) {
+  fd_vote_block_timestamp_t timestamp;
+  ulong credits_cnt;
+  fd_vote_epoch_credits_t const * credits = fd_vote_account_epoch_credits( ctx->our_vote_acct, ctx->our_vote_acct_sz, &credits_cnt );
+  if( FD_UNLIKELY( !fd_tower_vote_empty( ctx->scratch_tower ) || onchain_root!=ULONG_MAX ||
+                   fd_vote_account_last_timestamp( ctx->our_vote_acct, ctx->our_vote_acct_sz, &timestamp ) ||
+                   timestamp.slot || timestamp.timestamp || !credits || credits_cnt ) )
+    FD_LOG_ERR(( "--failover-first-use cannot authorize an identity with existing voting history. Restore its latest signed tower file." ));
+}
+
 FD_FN_UNUSED ulong
 query_towers( fd_tower_tile_t *            ctx,
               fd_replay_slot_completed_t * slot_completed,
@@ -678,6 +889,10 @@ query_towers( fd_tower_tile_t *            ctx,
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_completed->bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
+  if( FD_UNLIKELY( ctx->recovery_pending && !ctx->recovery_initialized ) ) {
+    FD_TEST( !ctx->init );
+    tower_recovery_init( ctx, slot_completed, bank );
+  }
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ulong              fork_id     = bank->vote_stakes_fork_id;
@@ -731,6 +946,7 @@ query_towers( fd_tower_tile_t *            ctx,
   *our_vote_acct_com   = USHORT_MAX;
   *found_our_vote_acct = 0;
   fd_acc_t reconcile_ro = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
+  ctx->recovery_onchain_root = ULONG_MAX;
   if( FD_LIKELY( reconcile_ro.lamports ) ) {
     *found_our_vote_acct = 1;
     ctx->our_vote_acct_sz = fd_ulong_min( reconcile_ro.data_len, FD_VOTE_STATE_DATA_MAX );
@@ -741,11 +957,39 @@ query_towers( fd_tower_tile_t *            ctx,
                                                our_vote_acct_com ) );
     fd_memcpy( ctx->our_vote_acct, reconcile_ro.data, ctx->our_vote_acct_sz );
     int skip_reconcile = !ctx->init && ctx->wfs;
+    if( FD_UNLIKELY( ctx->recovery_pending || ctx->recovery_initialized ) ) skip_reconcile = 1; /* a restored tower is checked against the vote account instead */
+    if( FD_UNLIKELY( ctx->recovery_pending || ctx->recovery_initialized || ctx->first_use_pending ) ) {
+      if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( reconcile_ro.owner, reconcile_ro.data, reconcile_ro.data_len ) ) )
+        FD_LOG_ERR(( "tower recovery requires a valid initialized vote account" ));
+      ulong root;
+      fd_tower_vote_remove_all( ctx->scratch_tower );
+      fd_tower_from_vote_acc( ctx->scratch_tower, &root, ctx->our_vote_acct, ctx->our_vote_acct_sz );
+      if( ctx->first_use_pending ) tower_first_use_check( ctx, root );
+      if( FD_UNLIKELY( ctx->recovery_initialized && fd_tower_recover_check_onchain( &ctx->recovery, ctx->scratch_tower, root ) ) ) {
+        /* A tower file behind the vote account is only fatal for the
+           identity that votes for this account.  A machine running
+           another identity is not the one voting, so its file is
+           expected to fall behind.  Drop the file and follow the vote
+           account, as a boot without a file does. */
+        fd_pubkey_t node_pubkey[1];
+        FD_TEST( 0==fd_vote_account_node_pubkey( ctx->our_vote_acct, ctx->our_vote_acct_sz, node_pubkey ) );
+        if( FD_UNLIKELY( fd_pubkey_eq( node_pubkey, ctx->identity_key ) ) ) FD_LOG_ERR(( "tower file is stale, the vote account has a later vote or root." ));
+        FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_b58 );
+        FD_LOG_WARNING(( "tower file is behind the vote account, but %s is not this account's voting identity: following the vote account instead", identity_b58 ));
+        ctx->recovery_initialized  = 0;
+        ctx->recovery.retained_cnt = 0UL;
+        ctx->tower->saved_root     = ULONG_MAX;
+        skip_reconcile = ( !ctx->init && ctx->wfs );
+      }
+      ctx->recovery_onchain_root = root;
+    }
     if( FD_LIKELY( !skip_reconcile ) ) {
       ulong root;
       fd_tower_vote_remove_all( ctx->scratch_tower );
       fd_tower_from_vote_acc( ctx->scratch_tower, &root, ctx->our_vote_acct, ctx->our_vote_acct_sz );
       fd_tower_reconcile( ctx->tower, ctx->scratch_tower, root );
+    } else if( ctx->recovery_pending || ctx->recovery_initialized ) {
+      /* Nothing to log, the restored tower was checked against the vote account above. */
     } else {
       FD_LOG_NOTICE(( "wait_for_supermajority: skipping tower reconcile on init slot %lu", slot_completed->slot ));
     }
@@ -1104,6 +1348,15 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   }
   FD_TEST( ghost_blk );
 
+  /* A restored tower only votes once replay passes its tip.  Meanwhile the
+     root advances from the vote account, but if our votes never landed the
+     block pool would fill up first, so fail with a hint. */
+
+  if( FD_UNLIKELY( ctx->recovery_initialized && slot_completed->slot>ctx->tower->root &&
+                   slot_completed->slot-ctx->tower->root>=ctx->tower->blk_max-2UL ) )
+    FD_LOG_ERR(( "restored tower: replay is %lu slots past root %lu without the saved tower (tip %lu) resolving, the block pool is exhausted. Restart from a newer snapshot.",
+                 slot_completed->slot-ctx->tower->root, ctx->tower->root, ctx->recovery.saved.votes[ ctx->recovery.saved.votes_cnt-1UL ].slot ));
+
   /* Insert into tower. */
 
   fd_tower_blk_t * eqvoc_tower_blk = NULL;
@@ -1253,6 +1506,13 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     QUERY_VOTERS( ctx, slot_completed, slot_completed->epoch );
   }
 
+  /* Give a restored vote its block identity once replay produces it.
+     After the first vote every surviving restored vote is an ancestor
+     of it and already bound. */
+
+  if( FD_UNLIKELY( ctx->recovery_initialized && ctx->recovery.retained_cnt ) )
+    fd_tower_recover_replayed( &ctx->recovery, ctx->tower, slot_completed->slot, &slot_completed->block_id );
+
   /* Insert into hard fork detector. */
 
   fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, slot_completed->slot );
@@ -1263,10 +1523,33 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
      root slot but there is always a reset slot. */
 
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
-  out.flags = fd_tower_vote_and_reset( ctx->tower,      ctx->ghost,          ctx->votes,
-                                       &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
-                                       &out.vote_slot,  &out.vote_block_id,  &out.vote_bank_hash,
-                                       &out.root_slot,  &out.root_block_id );
+  fd_ghost_blk_t * onchain_root_blk = NULL;
+  if( FD_UNLIKELY( ctx->recovery_initialized && ctx->recovery_onchain_root!=ULONG_MAX && ctx->recovery_onchain_root>ctx->tower->root ) ) {
+
+    /* While the restored tower waits for replay to pass its tip, advance
+       the root from our own root recorded on chain, as a boot without a
+       tower file does through reconcile.  That keeps the block pools
+       bounded and never touches the restored votes, which all sit above
+       it.  The block is this slot's ancestor at that height. */
+
+    onchain_root_blk = ghost_blk;
+    while( onchain_root_blk && onchain_root_blk->slot>ctx->recovery_onchain_root ) onchain_root_blk = fd_ghost_parent( ctx->ghost, onchain_root_blk );
+    if( FD_UNLIKELY( !onchain_root_blk || onchain_root_blk->slot!=ctx->recovery_onchain_root ||
+                     fd_ghost_invalid_ancestor( ctx->ghost, onchain_root_blk ) ) ) onchain_root_blk = NULL;
+  }
+  if( FD_UNLIKELY( onchain_root_blk ) ) {
+    out.root_slot     = onchain_root_blk->slot;
+    out.root_block_id = onchain_root_blk->id;
+    fd_ghost_blk_t const * best = fd_ghost_best( ctx->ghost, onchain_root_blk );
+    out.reset_slot     = best->slot;
+    out.reset_block_id = best->id;
+    out.reset_bank_seq = best->bank_seq;
+  } else {
+    out.flags = fd_tower_vote_and_reset( ctx->tower,      ctx->ghost,          ctx->votes,
+                                         &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
+                                         &out.vote_slot,  &out.vote_block_id,  &out.vote_bank_hash,
+                                         &out.root_slot,  &out.root_block_id );
+  }
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) { /* if there is a vote slot we record it. */
     fd_tower_blk_t * vote_tower_blk = fd_tower_blocks_query( ctx->tower, out.vote_slot );
     vote_tower_blk->voted           = 1;
@@ -1289,6 +1572,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
        make at least one root in an epoch, so the root's epoch cannot
        advance by more than one.  */
 
+    if( FD_UNLIKELY( ctx->recovery_initialized && oldr_tower_blk->epoch+1<newr_tower_blk->epoch ) )
+      FD_LOG_ERR(( "tower root crosses more than one epoch, restart recovery with a newer compatible snapshot" ));
     FD_TEST( oldr_tower_blk->epoch==newr_tower_blk->epoch || oldr_tower_blk->epoch+1==newr_tower_blk->epoch  ); /* root can only move forward one epoch */
 
     /* Publish votes: 1. reindex if it's a new epoch. 2. publish the new
@@ -1489,6 +1774,14 @@ init_choreo( void                 * scratch,
   memset( ctx->vote_txn, 0, sizeof(ctx->vote_txn) );
 
   ctx->halt_signing    = 0;
+  if( !tile->tower.tower_file ) {
+    ctx->recovery_pending      = 0;
+    ctx->recovery_initialized  = 0;
+    ctx->recovery_onchain_root = ULONG_MAX;
+    ctx->recovery.retained_cnt = 0UL;
+    ctx->first_use_pending     = 0;
+    ctx->failover_standby      = 0;
+  }
   ctx->hard_fork_fatal = tile->tower.hard_fork_fatal;
   ctx->wfs             = tile->tower.wait_for_supermajority;
   ctx->shred_version   = 0;
@@ -1529,19 +1822,6 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     }
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
-
-  /* FIXME: Currently, the tower tile doesn't support set-identity with
-     a tower file.  When support for a tower file is added, we need to
-     swap the file that is running and sync it to the local state of
-     the tower.  Because a tower file is not supported, if another
-     validator was running with the identity that was switched to, then
-     it is possible that the original validator and the fallback (this
-     node), may have tower files which are out of sync.  This could lead
-     to consensus violations such as double voting or duplicate
-     confirmations.  Currently it is unsafe for a validator operator to
-     switch identities without a 512 slot delay: the reason for this
-     delay is to account for the worst case number of slots a vote
-     account can be locked out for. */
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting signing" ));
@@ -1605,6 +1885,12 @@ after_credit( fd_tower_tile_t *   ctx,
               int *               charge_busy ) {
   if( FD_LIKELY( !publishes_empty( ctx->publishes ) ) ) {
     publish_t * pub = publishes_pop_head_nocopy( ctx->publishes );
+    int store_tower = ctx->tower_file_enabled &&
+                      pub->sig==FD_TOWER_SIG_SLOT_DONE &&
+                      pub->msg.slot_done.has_vote_txn;
+    if( FD_UNLIKELY( store_tower ) ) {
+      tower_file_store( ctx, &ctx->tower_file_identity, ctx->tower_file_buf, ctx->tower_file_sz );
+    }
     memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), &pub->msg, sizeof(fd_tower_msg_t) );
     fd_stem_publish( stem, OUT_IDX, pub->sig, ctx->out_chunk, sizeof(fd_tower_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_msg_t), ctx->out_chunk0, ctx->out_wmark );
@@ -1764,15 +2050,58 @@ privileged_init( fd_topo_t const *      topo,
   /* The tower file is used to checkpt and restore the state of the
      local tower. */
 
-  char path[ PATH_MAX ];
-  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin.new", tile->tower.base_path, identity_key_b58 ) );
-  ctx->checkpt_fd = open( path, O_WRONLY|O_CREAT|O_TRUNC, 0600 );
-  if( FD_UNLIKELY( -1==ctx->checkpt_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  ctx->tower_file_enabled    = tile->tower.tower_file;
+  ctx->tower_dir_fd          = -1;
+  ctx->tower_file_fd         = -1;
+  ctx->tower_file_sz         = 0UL;
+  ctx->recovery_pending      = 0;
+  ctx->recovery_initialized  = 0;
+  ctx->recovery_onchain_root = ULONG_MAX;
+  ctx->recovery.retained_cnt = 0UL;
+  ctx->first_use_pending    = 0;
+  ctx->failover_standby     = 0;
+  fd_pubkey_t checkpoint_identity = *ctx->identity_key;
+  int first_use = 0;
+  if( tile->tower.failover_enabled ) {
+    if( FD_UNLIKELY( !ctx->tower_file_enabled ) ) FD_LOG_ERR(( "failover requires tower persistence" ));
+    uchar const * staked = fd_keyload_load( tile->tower.failover_staked_identity_path, 1 );
+    fd_memcpy( &checkpoint_identity, staked, 32UL );
+    fd_keyload_unload( staked, 1 );
+    ctx->failover_standby         = !fd_pubkey_eq( ctx->identity_key, &checkpoint_identity );
+    if( tile->tower.failover_first_use[ 0 ] ) {
+      fd_pubkey_t authorized;
+      if( FD_UNLIKELY( ctx->failover_standby ||
+                       !fd_base58_decode_32( tile->tower.failover_first_use, authorized.uc ) ||
+                       !fd_pubkey_eq( &authorized, &checkpoint_identity ) ) )
+        FD_LOG_ERR(( "--failover-first-use must pass in this active validator's staked identity" ));
+      first_use = 1;
+    }
+  }
+  if( FD_UNLIKELY( ctx->tower_file_enabled ) ) {
+    ctx->tower_dir_fd = tower_file_dir_open( tile->tower.base_path );
+    int loaded = tower_file_load( ctx->tower_dir_fd, &checkpoint_identity, &ctx->recovery.saved );
+    if( FD_UNLIKELY( loaded<0 ) )
+      FD_LOG_ERR(( "cannot read or verify signed tower file." ));
+    if( FD_UNLIKELY( !loaded && tile->tower.failover_enabled && !ctx->failover_standby && !first_use ) )
+      FD_LOG_ERR(( "failover active startup requires its latest signed tower file." ));
+    ctx->recovery_pending = loaded && !ctx->failover_standby;
+    ctx->first_use_pending = !loaded && first_use;
+    if( ctx->recovery_pending ) FD_LOG_NOTICE(( "loaded signed tower through slot %lu, it is reconciled with the snapshot's rooted history at the first replayed slot", ctx->recovery.saved.votes[ ctx->recovery.saved.votes_cnt-1UL ].slot ));
+    if( ctx->first_use_pending ) FD_LOG_NOTICE(( "first-use authorization accepted for this launch." ));
+    ctx->tower_file_fd = fcntl( ctx->tower_dir_fd, F_DUPFD_CLOEXEC, 0 );
+    if( FD_UNLIKELY( -1==ctx->tower_file_fd ) ) FD_LOG_ERR(( "fcntl(F_DUPFD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.base_path, identity_key_b58 ) );
-  ctx->restore_fd = open( path, O_RDONLY );
-  if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    /* Under seccomp tower_file_store closes this descriptor and expects
+       openat to give the same number back, which only holds if no lower
+       number is free.  The launcher closes stdin before starting tiles, so
+       the reserved descriptor has to be 0.  Fail at boot rather than at the
+       first vote.  The threaded dev launcher shares one descriptor table and
+       uses dup2 instead. */
+    ctx->tower_file_sandboxed = tile->tower.tower_file_sandboxed;
+    if( FD_UNLIKELY( ctx->tower_file_sandboxed && ctx->tower_file_fd!=0 ) ) {
+      FD_LOG_ERR(( "reserved tower file descriptor is %i, expected 0: another descriptor was open when the tower tile started", ctx->tower_file_fd ));
+    }
+  }
 }
 
 static void
@@ -1806,6 +2135,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_tower"    ) ) ) continue; /* unpolled keyguard responses */
     else FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mcache_only = !link->mtu;
@@ -1815,6 +2145,25 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
       ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     }
+  }
+
+  if( FD_UNLIKELY( ctx->tower_file_enabled ) ) {
+    ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_tower", tile->kind_id );
+    ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_sign", tile->kind_id );
+    FD_TEST( sign_in_idx!=ULONG_MAX && sign_out_idx!=ULONG_MAX );
+    fd_topo_link_t const * sign_in  = &topo->links[ tile->in_link_id [ sign_in_idx  ] ];
+    fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+    fd_sleep_t * sleep = NULL;
+    if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+      sleep = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+      FD_TEST( sleep );
+    }
+    FD_TEST( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                              sign_out->mcache, sign_out->dcache,
+                                                              sign_in->mcache,  sign_in->dcache,
+                                                              sign_out->mtu,    sign_in->mtu,
+                                                              sleep, sign_out->id,
+                                                              fd_topo_find_link_consumer( topo, sign_out ) ) ) );
   }
 
   ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
@@ -1838,8 +2187,23 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, FD_ACCDB_FD_RW );
+  if( FD_UNLIKELY( ctx->tower_file_enabled ) ) {
+    populate_sock_filter_policy_fd_tower_tile_file( out_cnt, out,
+                                                    (uint)fd_log_private_logfile_fd(), (uint)ctx->tower_dir_fd,
+                                                    (uint)ctx->tower_file_fd, FD_ACCDB_FD_RW );
+    return sock_filter_policy_fd_tower_tile_file_instr_cnt;
+  }
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
+}
+
+static int
+populate_allowed_write_path_fd( fd_topo_t const *      topo,
+                                fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
+  return ctx->tower_dir_fd;
 }
 
 static ulong
@@ -1851,17 +2215,29 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  ulong need = 2UL + (ulong)(fd_log_private_logfile_fd()!=-1) + 2UL*(ulong)ctx->tower_file_enabled;
+  if( FD_UNLIKELY( out_fds_cnt<need ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  if( FD_LIKELY( ctx->checkpt_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->checkpt_fd;
-  if( FD_LIKELY( ctx->restore_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->restore_fd;
+  if( FD_UNLIKELY( ctx->tower_file_enabled ) ) {
+    out_fds[ out_cnt++ ] = ctx->tower_dir_fd;
+    out_fds[ out_cnt++ ] = ctx->tower_file_fd;
+  }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts database */
 
   return out_cnt;
+}
+
+static ulong
+rlimit_file_cnt( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
+  return fd_ulong_if( ctx->tower_file_enabled, (ulong)ctx->tower_file_fd+1UL, 0UL );
 }
 
 #define STEM_BURST (2UL)        /* MAX( slot_confirmed, slot_rooted AND (slot_done OR slot_ignored) ) */
@@ -1887,9 +2263,11 @@ fd_topo_run_tile_t fd_tile_tower = {
   .max_event_sz             = max_event_sz,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_write_path_fd = populate_allowed_write_path_fd,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
   .privileged_init          = privileged_init,
   .run                      = stem_run,
+  .rlimit_file_cnt_fn       = rlimit_file_cnt,
 };

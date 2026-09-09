@@ -25,7 +25,16 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_BUNDLE_CRANK (7)  /* Sign cranking transactions for bundle tips */
 #define FD_KEYGUARD_ROLE_RSERVE       (8)  /* Repair server tile */
 #define FD_KEYGUARD_ROLE_VOTOR        (9)  /* Alpenglow votor tile (QUIC TLS) */
-#define FD_KEYGUARD_ROLE_CNT          (10) /* number of known roles */
+#define FD_KEYGUARD_ROLE_TOWER        (10) /* Sign tower file messages */
+#define FD_KEYGUARD_ROLE_CNT          (11) /* number of known roles */
+
+/* The tower tile signs its saved tower file with plain Ed25519 over a
+   16 byte domain prefix followed by the sha256 of the file body.  The
+   prefix keeps that signature out of every other raw message domain,
+   in particular the 32 byte shred roots the leader role signs. */
+#define FD_KEYGUARD_TOWER_FILE_PREFIX    "FD_TOWER_FILE_V1"
+#define FD_KEYGUARD_TOWER_FILE_PREFIX_SZ (16UL)
+#define FD_KEYGUARD_TOWER_FILE_MSG_SZ    (48UL)
 
 /* Payload types ******************************************************/
 
@@ -40,6 +49,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_LG_EVENT   ( 9)  /* Event reporter authentication */
 #define FD_KEYGUARD_PAYLOAD_LG_PONG    (10)  /* Gossip/Repair ping/pong protocol */
 #define FD_KEYGUARD_PAYLOAD_LG_AG_VOTE (11) /* Alpenglow BLS vote */
+#define FD_KEYGUARD_PAYLOAD_LG_TOWER   (12) /* Saved tower file message */
 
 #define FD_KEYGUARD_PAYLOAD_TXN     (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN    )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP  (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP )
@@ -52,6 +62,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_EVENT   (1UL<<FD_KEYGUARD_PAYLOAD_LG_EVENT  )
 #define FD_KEYGUARD_PAYLOAD_PONG    (1UL<<FD_KEYGUARD_PAYLOAD_LG_PONG   )
 #define FD_KEYGUARD_PAYLOAD_AG_VOTE (1UL<<FD_KEYGUARD_PAYLOAD_LG_AG_VOTE)
+#define FD_KEYGUARD_PAYLOAD_TOWER   (1UL<<FD_KEYGUARD_PAYLOAD_LG_TOWER  )
 
 /* Sign types *********************************************************/
 

@@ -168,6 +168,28 @@ test_bus_unresponsive( void ) {
   FD_LOG_NOTICE(( "pass: a silent failover tile completes the command as unresponsive" ));
 }
 
+static void
+test_identity_guard( void ) {
+  static fd_admin_tile_ctx_t saved;
+  fd_adminctl_set_identity_t req = { .version=FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION, .keypair={1} };
+  fd_ed25519_public_from_private( req.keypair+32UL, req.keypair, ctx.sha512 );
+  for( uint flags=1U; flags<4U; flags++ ) {
+    ctx.failover_enabled   = !!(flags & 1U);
+    ctx.tower_file_enabled = !!(flags & 2U);
+    void * payload;
+    ulong idx = request( FD_ADMINCTL_CMD_SET_IDENTITY, &req, sizeof(req), &payload );
+    saved = ctx;
+    /* A valid key must be refused before any topology or keyswitch
+       access.  The context intentionally has no topology attached. */
+    set_identity( &ctx, idx, payload, sizeof(req) );
+    FD_TEST( fd_adminctl_wait( ctx.adminctl, idx )==FD_ADMINCTL_RESULT_UNSUPPORTED );
+    FD_TEST( fd_memeq( &ctx, &saved, sizeof(ctx) ) );
+    for( ulong i=0UL; i<sizeof(req); i++ ) FD_TEST( !((uchar *)payload)[i] );
+  }
+  ctx.failover_enabled = ctx.tower_file_enabled = 0;
+  FD_LOG_NOTICE(( "pass: failover and tower-file identity guards" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -178,6 +200,7 @@ main( int argc, char ** argv ) {
   ctx.failover_status_slot_idx = ULONG_MAX;
   ctx.snap_create_slot_idx     = ULONG_MAX;
   stem_init();
+  test_identity_guard();
   test_status_abi();
   test_bus_forwarding();
   test_bus_unresponsive();

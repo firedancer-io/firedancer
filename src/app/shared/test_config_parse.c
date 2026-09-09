@@ -47,6 +47,25 @@ genesis_max_file_size_is_valid( config_t * config,
   return WIFEXITED( status ) && !WEXITSTATUS( status );
 }
 
+static int
+tower_file_config_is_valid( config_t * config,
+                            int        tower_file,
+                            int        alpenglow ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    config->is_firedancer                    = 1;
+    config->firedancer.failover.tower_file   = tower_file;
+    config->firedancer.development.alpenglow = alpenglow;
+    fd_config_validate( config );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
 /* Validates a two-member failover pool built from the loaded default
    config, in a child so the FD_LOG_ERR paths can be asserted. */
 
@@ -185,8 +204,33 @@ main( int     argc,
   config->firedancer.accounts.max_accounts                     = 1UL;
   config->firedancer.accounts.cache_size_gib                   = 1UL;
   config->firedancer.runtime.program_cache_size_mib            = 32UL;
+  config->firedancer.development.genesis.max_file_size_mib     = 4055UL;
   config->tiles.repair.slot_max                                   = 1UL;
   config->tiles.rotor.slot_max                                    = 1UL;
+
+  FD_TEST(  tower_file_config_is_valid( config, 0, 0 ) );
+  FD_TEST(  tower_file_config_is_valid( config, 1, 0 ) );
+  FD_TEST(  tower_file_config_is_valid( config, 0, 1 ) );
+  FD_TEST( !tower_file_config_is_valid( config, 1, 1 ) );
+
+  /* Failover requires tower persistence, whatever the pool looks like. */
+  config->firedancer.failover.enabled                 = 1;
+  config->firedancer.failover.members_cnt             = 2UL;
+  config->firedancer.failover.member_junk_pubkeys_cnt = 2UL;
+  strcpy( config->firedancer.failover.members[ 0 ], "127.0.0.1:9700" );
+  strcpy( config->firedancer.failover.members[ 1 ], "127.0.0.2:9700" );
+  strcpy( config->firedancer.failover.member_junk_pubkeys[ 0 ], "11111111111111111111111111111111" );
+  strcpy( config->firedancer.failover.member_junk_pubkeys[ 1 ], "Vote111111111111111111111111111111111111111" );
+  strcpy( config->firedancer.failover.bind_address, "127.0.0.1" );
+  strcpy( config->firedancer.failover.junk_identity_path, "junk.json" );
+  strcpy( config->firedancer.failover.staked_identity_path, "staked.json" );
+  config->firedancer.failover.status_interval_millis = 800UL;
+  config->firedancer.failover.peer_silence_intervals = 5UL;
+  config->firedancer.failover.retry_backoff_min_millis = 800UL;
+  config->firedancer.failover.retry_backoff_max_millis = 12800UL;
+  FD_TEST( !tower_file_config_is_valid( config, 0, 0 ) );
+  FD_TEST(  tower_file_config_is_valid( config, 1, 0 ) );
+  config->firedancer.failover.enabled = 0;
 
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
