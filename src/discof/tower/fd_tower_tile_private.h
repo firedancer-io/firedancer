@@ -11,8 +11,11 @@
 #include "../../choreo/hfork/fd_hfork.h"
 #include "../../choreo/votes/fd_votes.h"
 #include "../../choreo/tower/fd_tower.h"
+#include "../../choreo/tower/fd_tower_file.h"
+#include "../../choreo/tower/fd_tower_recover.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../choreo/tower/fd_tower_stakes.h"
+#include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/fd_txn_m.h"
@@ -119,8 +122,20 @@ typedef struct in_ctx in_ctx_t;
 
 struct fd_tower_tile {
   ulong            seed; /* map seed */
-  int              checkpt_fd;
-  int              restore_fd;
+  int              tower_file_enabled;
+  int              tower_file_sandboxed; /* reserved descriptor number is fixed by seccomp */
+  int              tower_dir_fd;
+  int              tower_file_fd;
+  ulong            tower_file_sz;
+  fd_pubkey_t      tower_file_identity;
+  fd_keyguard_client_t keyguard_client[ 1 ];
+  uchar            tower_file_buf[ FD_TOWER_FILE_MAX ];
+  fd_tower_recover_t recovery;
+  int              recovery_pending;
+  int              recovery_initialized;
+  ulong            recovery_onchain_root;  /* our root in the vote account at the last replayed slot */
+  int              first_use_pending;
+  int              failover_standby;
   fd_pubkey_t      identity_key[1];
   fd_pubkey_t      vote_account[1];
   ulong            auth_vtr_path_cnt;  /* number of authorized voter paths passed to tile */

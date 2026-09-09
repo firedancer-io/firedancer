@@ -4,6 +4,35 @@
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
 
+static void
+test_tower_message( void ) {
+  fd_keyguard_authority_t authority = {0};
+  uchar msg[ FD_KEYGUARD_TOWER_FILE_MSG_SZ ];
+  fd_memcpy( msg, FD_KEYGUARD_TOWER_FILE_PREFIX, FD_KEYGUARD_TOWER_FILE_PREFIX_SZ );
+  fd_memset( msg+FD_KEYGUARD_TOWER_FILE_PREFIX_SZ, 0x5a, 32UL );
+
+  FD_TEST( fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_LEADER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  /* Only the exact prefix, size and sign type are a tower message. */
+  FD_TEST( !fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  FD_TEST( !(fd_keyguard_payload_match( msg, sizeof(msg)-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+  FD_TEST( !(fd_keyguard_payload_match( msg+1, sizeof(msg)-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+  msg[ 0 ] ^= 1;
+  FD_TEST( !(fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_TOWER) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  msg[ 0 ] ^= 1;
+
+  /* The leader role signs raw 32 byte shred roots.  The 48 byte tower
+     message is not one of them, so a compromised shred tile cannot produce
+     a tower file signature. */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_LEADER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg+FD_KEYGUARD_TOWER_FILE_PREFIX_SZ, 32UL, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+}
+
 static ulong
 build_txn_v1( uchar * buf,
               ulong   sig_cnt,
@@ -183,6 +212,7 @@ main( int     argc,
   test_vote_txn_oob();
   test_txn_v1_match();
   test_ag_vote_authorize();
+  test_tower_message();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

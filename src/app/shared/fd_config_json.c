@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22991088UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24056096UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -320,6 +320,7 @@ fd_config_to_json( fd_config_t const * config,
   jw_bool ( &w, "is_dev",            config->is_dev );
   jw_bool ( &w, "has_user_config",   config->has_user_config );
   jw_str  ( &w, "action",            config->action );
+  jw_bool ( &w, "failover_first_use", !!config->failover_first_use[ 0 ] );
 
   jw_obj_open( &w, "paths" );
     jw_path( &w, "base",                    config->paths.base );

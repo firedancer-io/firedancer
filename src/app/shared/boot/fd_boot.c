@@ -5,6 +5,7 @@
 #include "../fd_action.h"
 #include "../../platform/fd_file_util.h"
 #include "../../../disco/topo/fd_topo.h"
+#include "../../../ballet/base58/fd_base58.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -13,6 +14,23 @@
 
 extern action_t * ACTIONS[];
 extern fd_topo_run_tile_t * TILES[];
+
+void
+fd_boot_failover_first_use( int *        argc,
+                            char ***     argv,
+                            config_t *   config,
+                            char const * action ) {
+  char const * pubkey = fd_env_strip_cmdline_cstr( argc, argv, "--failover-first-use", NULL, NULL );
+  if( !pubkey ) return;
+  if( FD_UNLIKELY( !config->is_firedancer || !action ||
+                   ( strcmp( action, "run" ) && strcmp( action, "dev" ) ) ||
+                   !config->firedancer.failover.enabled || !config->firedancer.failover.tower_file ) )
+    FD_LOG_ERR(( "--failover-first-use requires Firedancer run/dev with failover and tower persistence enabled" ));
+  uchar decoded[ 32 ];
+  if( FD_UNLIKELY( strlen( pubkey )>=sizeof(config->failover_first_use) || !fd_base58_decode_32( pubkey, decoded ) ) )
+    FD_LOG_ERR(( "--failover-first-use requires the staked identity's base58 public key" ));
+  fd_cstr_ncpy( config->failover_first_use, pubkey, sizeof(config->failover_first_use) );
+}
 
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile ) {
@@ -318,6 +336,7 @@ fd_main( int                        argc,
   int is_local_cluster = action ? action->is_local_cluster : 0;
   int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs, 0 /* dev */ );
   if( FD_LIKELY( load_topo && action ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
+  fd_boot_failover_first_use( &argc, &argv, &config, action ? action->name : NULL );
   if( FD_LIKELY( load_topo ) ) topo_init( &config );
 
   if( FD_UNLIKELY( !action ) ) {

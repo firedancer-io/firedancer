@@ -25,6 +25,7 @@ struct fd_admin_tile_ctx {
   /* Failover commands get forwarded to the failover tile over the bus.
      Only one can be in flight at a time, same as snapshot creation. */
   int                   failover_enabled;
+  int                   tower_file_enabled;
   ulong                 failov_out_idx;             /* admin_failov stem out index */
   fd_wksp_t *           failov_out_mem;
   ulong                 failov_out_chunk0;
@@ -116,6 +117,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->failov_in_idx            = ULONG_MAX;
   ctx->failover_status_slot_idx = ULONG_MAX;
   ctx->failover_enabled         = tile->admin.failover_enabled;
+  ctx->tower_file_enabled       = tile->admin.tower_file_enabled;
   ctx->topo = topo;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
@@ -640,6 +642,15 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_SET_IDENTITY, data, data_sz );
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, old_identity );
   FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"old_identity\":\"%s\"}", old_identity ) );
+
+  /* With failover or tower persistence on, the failover controller owns
+     the identity.  Refuse before touching any keyswitch so a CLI switch
+     cannot race the pool. */
+  if( FD_UNLIKELY( ctx->failover_enabled || ctx->tower_file_enabled ) ) {
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
+    return;
+  }
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl set-identity payload too small: %lu", data_sz ));
