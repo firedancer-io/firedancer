@@ -62,6 +62,11 @@ union fdctl_args {
   } get_identity;
 
   struct {
+    char  name[ 64UL ];
+    ulong peer_idx;
+  } failover;
+
+  struct {
     int clean;
   } ps;
 

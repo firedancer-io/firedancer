@@ -1828,6 +1828,35 @@ EXAMPLES
 <tile name="admin">
 </tile>
 
+<tile name="failov">
+    <gauge name="Link" summary="Session state toward the first peer (0=listening, including pending candidates: 1=dialing, 2=dialer TLS or HELLO, 3=paired, 4=backoff)" />
+    <gauge name="Role" summary="Local failover role" />
+    <gauge name="Term" summary="Local failover fencing term" />
+    <gauge name="Status" summary="Local failover status bit word" />
+    <gauge name="PeerRole" summary="Last authenticated role of the first peer" />
+    <gauge name="PeerTerm" summary="Last authenticated term of the first peer" />
+    <gauge name="PeerStatus" summary="Last authenticated status bit word of the first peer" />
+    <gauge name="ReplicationLagSlots" summary="Slots the replicated tower trails the active's last vote" />
+    <gauge name="RttNanos" summary="Smoothed round trip time of the session toward the first peer" />
+    <gauge name="PeerStatusValid" summary="Whether an authenticated status from the first peer is available" />
+    <gauge name="PeerStatusAgeNanos" summary="Age of the last authenticated status from the first peer, or zero when unavailable" />
+    <gauge name="ReplicationLagValid" summary="Whether failover replication lag is available" />
+    <gauge name="MemberCnt" summary="Machines in the failover pool including this one" />
+    <gauge name="PeersPaired" summary="Pool peers with an authenticated session right now" />
+    <gauge name="PoolHealthy" summary="Whether every pool session passes the health checks on link, cadence, roles and status bits" />
+    <gauge name="PoolHealthReason" summary="Pool health result (0=pool healthy, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind on replication)" />
+    <counter name="FramesSent" summary="Complete frames written to TLS, including HELLO frames" />
+    <counter name="FramesReceived" summary="Complete frames decoded from TLS before message validation, including HELLO frames" />
+    <counter name="TlsFailures" summary="Failover TLS setup or handshake failures, excluding I/O failures after the TLS handshake" />
+    <counter name="WireFailures" summary="Failover sessions dropped for protocol framing errors" />
+    <counter name="HelloRejections" summary="Failover sessions rejected by HELLO validation" />
+    <counter name="ConnectionAttempts" summary="Failover candidate sockets started before TCP connection or TLS handshake success is known" />
+    <counter name="SessionsPaired" summary="Failover sessions that completed mutual TLS and HELLO validation" />
+    <gauge name="PendingHandshakes" summary="Failover candidate sockets awaiting TCP, TLS, or HELLO completion, excluding paired sessions" />
+    <counter name="AdmissionDrops" summary="Accepted failover sockets closed before TLS setup because a session is already paired, an admission limit was reached, or the source address was invalid" />
+    <counter name="HandshakeTimeouts" summary="Failover candidates closed when the absolute TCP, TLS, and HELLO deadline expired" />
+</tile>
+
 <tile name="waker">
     <counter name="EpollWaitDispatched" summary="epoll_wait syscalls dispatched on the outer epoll set" />
     <counter name="WakeDelivered" summary="Client wakes delivered (readiness fseq raised)" />
