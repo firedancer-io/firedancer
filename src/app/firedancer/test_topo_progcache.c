@@ -85,13 +85,14 @@ main( int     argc,
   check_exact_fit( max_live_slots, 4UL<<30 );
 
   /* Non-multiples round up to the page size and no further. */
-  check_exact_fit( max_live_slots, fd_progcache_shmem_min_sz( max_live_slots )+(3UL<<20) );
+  check_exact_fit( max_live_slots, setup_topo_progcache_min_sz( max_live_slots )+(3UL<<20) );
   check_exact_fit( max_live_slots,  256UL<<20 );
   check_exact_fit( max_live_slots, 1792UL<<20 );
 
-  /* The advertised minimum provisions. */
-  check_exact_fit( max_live_slots, fd_progcache_shmem_min_sz( max_live_slots ) );
-  check_exact_fit(   64UL, fd_progcache_shmem_min_sz(   64UL ) );
+  /* The advertised minimum provisions, and is itself a huge-page multiple. */
+  FD_TEST( fd_ulong_is_aligned( setup_topo_progcache_min_sz( max_live_slots ), FD_SHMEM_HUGE_PAGE_SZ ) );
+  check_exact_fit( max_live_slots, setup_topo_progcache_min_sz( max_live_slots ) );
+  check_exact_fit(   64UL, setup_topo_progcache_min_sz(   64UL ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

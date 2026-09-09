@@ -75,6 +75,10 @@ delete_rec_inner( fd_progcache_join_t *          cache,
     atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
   }
 
+  /* Read while still mapped under the chain: once MAPPED clears, an unclaimed
+     zombie can be reinitialized by a sweep at any time. */
+  long rodata_sz = (long)rec->rodata_sz;
+
   /* Drop record */
   int rm_err = fd_prog_recm_txn_remove( cache->rec.map, &pair, NULL, query, 0 );
   if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) )
@@ -82,6 +86,7 @@ delete_rec_inner( fd_progcache_join_t *          cache,
   /* Cleared inside the map txn that removed it, so it is serialized against any
      publish or lookup of this key. */
   __atomic_fetch_and( &rec->state, (uchar)~FD_PROGCACHE_REC_MAPPED, __ATOMIC_RELAXED );
+  fd_racesan_hook( "prog_delete_rec:post_unmap" );
   int test_err = fd_prog_recm_txn_test( map_txn );
   if( FD_UNLIKELY( test_err!=FD_MAP_SUCCESS ) )
     FD_LOG_CRIT(( "fd_prog_recm_txn_test failed: %i-%s", test_err, fd_map_strerror( test_err ) ));
@@ -90,7 +95,7 @@ delete_rec_inner( fd_progcache_join_t *          cache,
   /* A claimed record is the caller's, write locked.  Otherwise it is now a
      zombie: unmapped, still LIVE, reused by a later sweep once it is detached
      from its fork and unheld. */
-  return (long)rec->rodata_sz;
+  return rodata_sz;
 }
 
 long
