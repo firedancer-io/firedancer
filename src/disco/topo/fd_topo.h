@@ -249,7 +249,27 @@ struct fd_topo_tile {
 
     struct {
       char identity_key_path[ PATH_MAX ];
+      int  failover_enabled;
     } admin;
+
+/* The failover pool is one active plus its hot spares. */
+#define FD_TOPO_FAILOVER_MEMBER_MAX (8UL)
+    struct {
+      char              identity_key_path[ PATH_MAX ];
+      char              junk_identity_path[ PATH_MAX ];
+      char              staked_identity_path[ PATH_MAX ];
+      char              vote_account_path[ PATH_MAX ];
+      uint              bind_addr;
+      ulong             member_cnt;
+      fd_topo_ip_port_t member[ FD_TOPO_FAILOVER_MEMBER_MAX ];
+      uchar             member_junk_pubkey[ FD_TOPO_FAILOVER_MEMBER_MAX ][ 32 ];
+      ulong             status_interval_millis;
+      ulong             replication_lag_slots;
+      ulong             peer_silence_intervals;
+      ulong             retry_backoff_min_millis;
+      ulong             retry_backoff_max_millis;
+      ulong             cfg_hash;
+    } failov;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
 

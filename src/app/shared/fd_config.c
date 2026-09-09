@@ -478,6 +478,42 @@ fd_config_fill( fd_config_t * config,
   }                                                    \
 } while(0)
 
+void
+fd_config_parse_ip_port( char const *        name,
+                         char const *        ip_port,
+                         fd_topo_ip_port_t * out ) {
+  char buf[ sizeof( "255.255.255.255:65535" ) ];
+  if( FD_UNLIKELY( strlen( ip_port )>=sizeof( buf ) ) )
+    FD_LOG_ERR(( "[%s] value `%s` is too long for an ip:port", name, ip_port ));
+  fd_cstr_ncpy( buf, ip_port, sizeof( buf ) );
+  char * ip_end = strchr( buf, ':' );
+  if( FD_UNLIKELY( !ip_end ) )
+    FD_LOG_ERR(( "[%s] must be in the form ip:port", name ));
+  *ip_end = '\0';
+
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( buf, &out->ip ) ) ) {
+    FD_LOG_ERR(( "could not parse IP %s in [%s]", buf, name ));
+  }
+
+  /* fd_cstr_to_ushort truncates out of range values and ignores trailing
+     characters, so read the port strictly as plain decimal digits only, and
+     in [1,65535]. */
+  char const * port_str = ip_end+1;
+  if( FD_UNLIKELY( !port_str[ 0 ] ) )
+    FD_LOG_ERR(( "missing port in [%s]", name ));
+  ulong port = 0UL;
+  for( char const * c=port_str; *c; c++ ) {
+    if( FD_UNLIKELY( *c<'0' || *c>'9' ) )
+      FD_LOG_ERR(( "could not parse port %s in [%s]", port_str, name ));
+    port = port*10UL + (ulong)( *c-'0' );
+    if( FD_UNLIKELY( port>65535UL ) )
+      FD_LOG_ERR(( "port %s in [%s] is above 65535", port_str, name ));
+  }
+  if( FD_UNLIKELY( !port ) )
+    FD_LOG_ERR(( "could not parse port %s in [%s]", port_str, name ));
+  out->port = (ushort)port;
+}
+
 static void
 fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
@@ -513,6 +549,50 @@ fd_config_validatef( fd_configf_t const * config ) {
   }
 
   CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
+
+  if( FD_UNLIKELY( config->failover.enabled ) ) {
+    if( FD_UNLIKELY( config->development.alpenglow ) ) {
+      FD_LOG_ERR(( "[failover.enabled] is incompatible with [development.alpenglow]" ));
+    }
+    /* We support one hot spare, so the pool is exactly this machine and one other. */
+    if( FD_UNLIKELY( config->failover.members_cnt!=2UL ) ) {
+      FD_LOG_ERR(( "[failover.members] must list exactly two members, this machine and its hot spare" ));
+    }
+    if( FD_UNLIKELY( config->failover.member_junk_pubkeys_cnt!=config->failover.members_cnt ) ) {
+      FD_LOG_ERR(( "[failover.member_junk_pubkeys] needs one entry per [failover.members] entry" ));
+    }
+    uchar             junk  [ FD_TOPO_FAILOVER_MEMBER_MAX ][ 32 ];
+    fd_topo_ip_port_t member[ FD_TOPO_FAILOVER_MEMBER_MAX ];
+    for( ulong i=0UL; i<config->failover.members_cnt; i++ ) {
+      fd_config_parse_ip_port( "failover.members", config->failover.members[ i ], &member[ i ] );
+      if( FD_UNLIKELY( !fd_base58_decode_32( config->failover.member_junk_pubkeys[ i ], junk[ i ] ) ) )
+        FD_LOG_ERR(( "[failover.member_junk_pubkeys] entry %lu must be a base58 Ed25519 public key", i ));
+      for( ulong j=0UL; j<i; j++ ) {
+        if( FD_UNLIKELY( fd_memeq( junk[ i ], junk[ j ], 32UL ) ) )
+          FD_LOG_ERR(( "[failover.member_junk_pubkeys] entries %lu and %lu are the same key, every member needs its own junk identity", j, i ));
+        /* Two members at one address cannot both be reached, and the pool
+           would never pair. */
+        if( FD_UNLIKELY( member[ i ].ip==member[ j ].ip && member[ i ].port==member[ j ].port ) )
+          FD_LOG_ERR(( "[failover.members] entries %lu and %lu are the same address, every member needs its own", j, i ));
+      }
+    }
+    CFG_HAS_NON_EMPTY( failover.bind_address );
+    uint bind_addr;
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->failover.bind_address, &bind_addr ) ) )
+      FD_LOG_ERR(( "[failover.bind_address] is not a valid IPv4 address" ));
+    CFG_HAS_NON_EMPTY( failover.junk_identity_path );
+    CFG_HAS_NON_EMPTY( failover.staked_identity_path );
+    CFG_HAS_NON_ZERO ( failover.status_interval_millis );
+    CFG_HAS_NON_ZERO ( failover.peer_silence_intervals );
+    CFG_HAS_NON_ZERO ( failover.retry_backoff_min_millis );
+    CFG_HAS_NON_ZERO ( failover.retry_backoff_max_millis );
+    if( FD_UNLIKELY( config->failover.retry_backoff_min_millis>config->failover.retry_backoff_max_millis ) ) {
+      FD_LOG_ERR(( "[failover.retry_backoff_min_millis] must not exceed [failover.retry_backoff_max_millis]" ));
+    }
+    if( FD_UNLIKELY( !strcmp( config->failover.junk_identity_path, config->failover.staked_identity_path ) ) ) {
+      FD_LOG_ERR(( "[failover.junk_identity_path] must differ from [failover.staked_identity_path]" ));
+    }
+  }
   if( FD_UNLIKELY( config->snapshots.server.idle_timeout_millis<100UL ||
                    config->snapshots.server.idle_timeout_millis>=60000UL ) ) {
     FD_LOG_ERR(( "`snapshots.server.idle_timeout_millis` must be in [100,60000)" ));
