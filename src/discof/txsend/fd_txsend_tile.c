@@ -590,11 +590,12 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
   txnm->first_seen_nanos       = slot_done->vote_created_nanos;
   fd_memcpy( fd_txn_m_payload( txnm ), slot_done->vote_txn, slot_done->vote_txn_sz );
 
-  txnm->txn_t_sz = (ushort)fd_txn_parse( slot_done->vote_txn, slot_done->vote_txn_sz, fd_txn_m_txn_t( txnm ), NULL );
+  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  txnm->txn_t_sz = (ushort)fd_txn_parse( slot_done->vote_txn, slot_done->vote_txn_sz, txn_mem, NULL );
   FD_TEST( txnm->txn_t_sz );
 
   uchar * payload = fd_txn_m_payload( txnm );
-  fd_txn_t const * txn = fd_txn_m_txn_t_const( txnm );
+  fd_txn_t const * txn = (fd_txn_t const *)txn_mem;
 
   uchar *       signatures = payload + txn->signature_off;
   uchar const * message    = payload + txn->message_off;
