@@ -143,7 +143,7 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
                              ag_finalization_event_t * event ) {
 
   ag_block_id_t const * parent = implicitly_finalized;
-  while( FD_LIKELY( parent ) ) {
+  while( parent ) {
     ag_block_id_t const * implicitly_finalized = parent; /* intentional shadowing */
 
     FD_TEST( source_slot > implicitly_finalized->slot );
@@ -381,7 +381,7 @@ ag_finality_tracker_add_parent( ag_finality_tracker_t *   self,
   switch( ele->status.kind ) {
     case AG_FINALIZATION_STATUS_FINALIZED:
     case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-      if( 0==memcmp( block->hash, status_hash( &ele->status ), sizeof(ag_block_hash_t) ) ) {
+      if( FD_LIKELY( 0==memcmp( block->hash, status_hash( &ele->status ), sizeof(ag_block_hash_t) ) ) ) {
         ag_block_id_t p = *parent;
         handle_implicitly_finalized( self, block->slot, &p, event );
         prune( self );
@@ -516,10 +516,10 @@ ag_finality_tracker_status( ag_finality_tracker_t const * self,
                             ag_block_hash_t               out_hash ) {
   status_ele_t const * e = status_map_ele_query_const( self->status.map, &slot, NULL, self->status.pool );
   if( FD_UNLIKELY( !e ) ) return -1;
-  if( out_hash ) {
+  if( FD_LIKELY( out_hash ) ) {
     uchar const * hash = status_hash( &e->status );
-    if( hash ) memcpy( out_hash, hash, sizeof(ag_block_hash_t) );
-    else       fd_memset( out_hash, 0,    sizeof(ag_block_hash_t) );
+    if( FD_LIKELY( hash ) ) memcpy( out_hash, hash, sizeof(ag_block_hash_t) );
+    else                    fd_memset( out_hash, 0,    sizeof(ag_block_hash_t) );
   }
   return e->status.kind;
 }

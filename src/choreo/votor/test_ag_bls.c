@@ -13,83 +13,6 @@ pub_compress( uchar                out[ AG_BLS_PUB_COMPRESSED_SZ ],
   blst_p1_affine_compress( out, a );
 }
 
-static void
-pick_pub( ag_bls_pub_t *       dst,
-          ag_bls_pub_t const * src,
-          ulong const *        sel,
-          ulong                cnt ) {
-  for( ulong i=0UL; i<cnt; i++ ) dst[i] = src[sel[i]];
-}
-
-static void
-pick_sig( ag_bls_sig_t * dst,
-          ag_bls_sig_t * src,
-          ulong const *  sel,
-          ulong          cnt ) {
-  for( ulong i=0UL; i<cnt; i++ ) dst[i] = src[ sel[i] ];
-}
-
-/* src/crypto/aggsig.rs::signers */
-
-FD_FN_UNUSED static void
-test_signers( void ) {
-  uchar const * msg = (uchar const *)"blst is such a blast";
-  ulong         msg_sz = 20UL;
-
-  ag_bls_sec_t sk[3];
-  ag_bls_pub_t pk[3];
-  ag_bls_sig_t sig[3];
-  for( ulong i=0UL; i<3UL; i++ ) {
-    fd_memset( &sk[i], (int)(i+1UL), AG_BLS_SEC_SZ );
-    ag_bls_sec_to_pub( &sk[i], pk+i );
-    ag_bls_sec_sign( &sk[i], msg, msg_sz, &sig[i] );
-    FD_TEST( ag_bls_sig_verify( &sig[i], pk+i, msg, msg_sz ) );
-  }
-
-  ag_bls_sig_t sigs[2];
-  { ulong _sel[2] = { 0UL, 2UL }; pick_sig( sigs, sig, _sel, 2UL ); }
-  ulong        idx [2] = { 0UL, 2UL };
-  ag_bls_agg_t agg[1];
-  ag_bls_agg_zero( agg );
-  for( ulong i=0UL; i<2UL; i++ ) ag_bls_agg_add( agg, idx[i], &sigs[i] );
-
-  FD_TEST( ag_bls_agg_signer_cnt( agg )==2UL );
-  FD_TEST(  ag_bls_agg_is_signer( agg, 0UL ) );
-  FD_TEST( !ag_bls_agg_is_signer( agg, 1UL ) );
-  FD_TEST(  ag_bls_agg_is_signer( agg, 2UL ) );
-  FD_TEST( !ag_bls_agg_is_signer( agg, 3UL ) );
-
-  ulong seen = 0UL, cnt = 0UL;
-  for( ulong i=signer_set_const_iter_init( agg->bitmask );
-       !signer_set_const_iter_done( i );
-       i=signer_set_const_iter_next( agg->bitmask, i ) ) {
-    seen |= (1UL<<i); cnt++;
-  }
-  FD_TEST( cnt==2UL );
-  FD_TEST( seen==((1UL<<0)|(1UL<<2)) );
-
-  ag_bls_pub_t pks[3];
-  { ulong _sel[3] = { 0UL, 1UL, 2UL }; pick_pub( pks, pk, _sel, 3UL ); }
-  FD_TEST(  ag_bls_agg_verify( agg, msg, msg_sz, pks, 3UL ) );
-  FD_TEST( !ag_bls_agg_verify( agg, msg, msg_sz, pks, 2UL ) );
-}
-
-FD_FN_UNUSED static void
-test_incremental( void ) {
-  uchar const * msg = (uchar const *)"incremental";
-  ag_bls_sec_t  sk; fd_memset( &sk, 7, AG_BLS_SEC_SZ );
-  ag_bls_sig_t  s; ag_bls_sec_sign( &sk, msg, 11UL, &s );
-
-  ag_bls_agg_t agg[1];
-  ag_bls_agg_zero( agg );
-  FD_TEST( ag_bls_agg_signer_cnt( agg )==0UL );
-  ag_bls_agg_add( agg, 5UL, &s );
-  ag_bls_agg_add( agg, 1UL, &s );
-  FD_TEST( ag_bls_agg_signer_cnt( agg )==2UL );
-  FD_TEST( ag_bls_agg_is_signer( agg, 5UL ) );
-  FD_TEST( ag_bls_agg_is_signer( agg, 1UL ) );
-}
-
 /* Golden bitmap vectors.
 
    ag_bls_agg_ser and ag_bls_agg_de speak the solana_signer_store bitmap
@@ -113,18 +36,18 @@ check_base2( ag_bls_agg_t const * agg,
   ag_bls_agg_t back[1];
   fd_memset( &back->sig, 0xAA, sizeof(ag_bls_sig_t) );
   FD_TEST( ag_bls_agg_de( back, buf, sz )==AG_BLS_DE_SUCCESS );
-  for( ulong i=0UL; i<AG_BLS_SIGNERS_MAX; i++ ) FD_TEST( ag_bls_agg_is_signer( back, i )==ag_bls_agg_is_signer( agg, i ) );
+  for( ulong i=0UL; i<AG_BLS_SET_MAX; i++ ) FD_TEST( ag_bls_set_test( back->set, i )==ag_bls_set_test( agg->set, i ) );
 
   /* a bitmap carries no signature, so decoding clears the one that was there */
-  ag_bls_agg_t zero[1]; ag_bls_agg_zero( zero );
+  ag_bls_agg_t zero[1]; memset( zero, 0, sizeof(ag_bls_agg_t) );
   FD_TEST( !memcmp( &back->sig, &zero->sig, sizeof(ag_bls_sig_t) ) );
 
   /* base2 is legal wherever a fallback partition could be: it says the
      fallback set is empty */
   ag_bls_agg_t b[1], f[1];
   FD_TEST( ag_bls_agg_pair_de( b, f, buf, sz )==AG_BLS_DE_SUCCESS );
-  FD_TEST( !ag_bls_agg_signer_cnt( f ) );
-  for( ulong i=0UL; i<AG_BLS_SIGNERS_MAX; i++ ) FD_TEST( ag_bls_agg_is_signer( b, i )==ag_bls_agg_is_signer( agg, i ) );
+  FD_TEST( !ag_bls_set_cnt( f->set ) );
+  for( ulong i=0UL; i<AG_BLS_SET_MAX; i++ ) FD_TEST( ag_bls_set_test( b->set, i )==ag_bls_set_test( agg->set, i ) );
 }
 
 static void
@@ -141,9 +64,9 @@ check_base3( ag_bls_agg_t const * base,
 
   ag_bls_agg_t b[1], f[1];
   FD_TEST( ag_bls_agg_pair_de( b, f, buf, sz )==AG_BLS_DE_SUCCESS );
-  for( ulong i=0UL; i<AG_BLS_SIGNERS_MAX; i++ ) {
-    FD_TEST( ag_bls_agg_is_signer( b, i )==ag_bls_agg_is_signer( base, i ) );
-    FD_TEST( ag_bls_agg_is_signer( f, i )==ag_bls_agg_is_signer( fb,   i ) );
+  for( ulong i=0UL; i<AG_BLS_SET_MAX; i++ ) {
+    FD_TEST( ag_bls_set_test( b->set, i )==ag_bls_set_test( base->set, i ) );
+    FD_TEST( ag_bls_set_test( f->set, i )==ag_bls_set_test( fb->set,   i ) );
   }
 
   /* only the pair decoder takes base3: a message with a single partition
@@ -158,8 +81,8 @@ test_agg_bitmap( void ) {
 
   /* nobody signed, so the bitmap is its framing and nothing else */
 
-  ag_bls_agg_zero( agg );
-  ag_bls_agg_zero( fb  );
+  memset( agg, 0, sizeof(ag_bls_agg_t) );
+  memset( fb,  0, sizeof(ag_bls_agg_t) );
   uchar const empty2[3] = { 0, 0, 0 };
   uchar const empty3[3] = { 1, 0, 0 };
   check_base2( agg, empty2, sizeof(empty2) );
@@ -167,58 +90,55 @@ test_agg_bitmap( void ) {
 
   /* ranks 0..4, one bit to a rank, least significant bit first */
 
-  for( ulong i=0UL; i<5UL; i++ ) signer_set_insert( agg->bitmask, i );
+  for( ulong i=0UL; i<5UL; i++ ) ag_bls_set_insert( agg->set, i );
   uchar const five[4] = { 0, 5, 0, 0x1f };
   check_base2( agg, five, sizeof(five) );
 
   /* the same five in the base partition and ranks 5..8 in the fallback,
      five ranks to a byte: 1+3+9+27+81 == 121, then 2+6+18+54 == 80 */
 
-  for( ulong i=5UL; i<9UL; i++ ) signer_set_insert( fb->bitmask, i );
+  for( ulong i=5UL; i<9UL; i++ ) ag_bls_set_insert( fb->set, i );
   uchar const mixed[5] = { 1, 9, 0, 121, 80 };
   check_base3( agg, fb, mixed, sizeof(mixed) );
 
   /* only ranks 0 and 63, so the count is 64 and the payload is the eight
      bytes that span it -- a bitmap is trimmed, not sparse */
 
-  ag_bls_agg_zero( agg );
-  signer_set_insert( agg->bitmask, 0UL  );
-  signer_set_insert( agg->bitmask, 63UL );
+  memset( agg, 0, sizeof(ag_bls_agg_t) );
+  ag_bls_set_insert( agg->set, 0UL  );
+  ag_bls_set_insert( agg->set, 63UL );
   uchar const sparse[11] = { 0, 64, 0, 0x01, 0, 0, 0, 0, 0, 0, 0x80 };
   check_base2( agg, sparse, sizeof(sparse) );
 
   /* every rank */
 
-  ag_bls_agg_zero( agg );
-  signer_set_full( agg->bitmask );
+  memset( agg, 0, sizeof(ag_bls_agg_t) );
+  ag_bls_set_full( agg->set );
   uchar full2[ AG_BLS_AGG_SER_MAX ];
-  full2[ 0 ] = 0; FD_STORE( ushort, full2+1UL, (ushort)AG_BLS_SIGNERS_MAX );
+  full2[ 0 ] = 0; FD_STORE( ushort, full2+1UL, (ushort)AG_BLS_SET_MAX );
   fd_memset( full2+AG_BLS_AGG_HDR_SZ, 0xff, AG_BLS_AGG_SER_MAX-AG_BLS_AGG_HDR_SZ );
   check_base2( agg, full2, AG_BLS_AGG_SER_MAX );
 
   /* every rank in the base partition: a full byte is 1+3+9+27+81 == 121,
-     and 2048 ranks leave three over for the last, 1+3+9 == 13 */
+     and 2000 ranks fill 400 of them exactly */
 
-  ag_bls_agg_zero( fb );
+  memset( fb, 0, sizeof(ag_bls_agg_t) );
   ulong const chunks = AG_BLS_AGG_PAIR_SER_MAX-AG_BLS_AGG_HDR_SZ;
   uchar full3[ AG_BLS_AGG_PAIR_SER_MAX ];
-  full3[ 0 ] = 1; FD_STORE( ushort, full3+1UL, (ushort)AG_BLS_SIGNERS_MAX );
-  fd_memset( full3+AG_BLS_AGG_HDR_SZ, 121, chunks-1UL );
-  full3[ AG_BLS_AGG_HDR_SZ+chunks-1UL ] = 13;
+  full3[ 0 ] = 1; FD_STORE( ushort, full3+1UL, (ushort)AG_BLS_SET_MAX );
+  fd_memset( full3+AG_BLS_AGG_HDR_SZ, 121, chunks );
   check_base3( agg, fb, full3, AG_BLS_AGG_PAIR_SER_MAX );
 
   /* the partitions interleaved, base on the even ranks and fallback on
      the odd: a byte that starts on an even rank is 1+6+9+54+81 == 151 and
-     one that starts on an odd rank is 2+3+18+27+162 == 212, and the three
-     that are left over are 2+3+18 == 23 */
+     one that starts on an odd rank is 2+3+18+27+162 == 212 */
 
-  ag_bls_agg_zero( agg );
-  ag_bls_agg_zero( fb  );
-  for( ulong i=0UL; i<AG_BLS_SIGNERS_MAX; i++ ) signer_set_insert( (i&1UL) ? fb->bitmask : agg->bitmask, i );
+  memset( agg, 0, sizeof(ag_bls_agg_t) );
+  memset( fb,  0, sizeof(ag_bls_agg_t) );
+  for( ulong i=0UL; i<AG_BLS_SET_MAX; i++ ) ag_bls_set_insert( (i&1UL) ? fb->set : agg->set, i );
   uchar split3[ AG_BLS_AGG_PAIR_SER_MAX ];
-  split3[ 0 ] = 1; FD_STORE( ushort, split3+1UL, (ushort)AG_BLS_SIGNERS_MAX );
-  for( ulong c=0UL; c<chunks-1UL; c++ ) split3[ AG_BLS_AGG_HDR_SZ+c ] = (c&1UL) ? 212 : 151;
-  split3[ AG_BLS_AGG_HDR_SZ+chunks-1UL ] = 23;
+  split3[ 0 ] = 1; FD_STORE( ushort, split3+1UL, (ushort)AG_BLS_SET_MAX );
+  for( ulong c=0UL; c<chunks; c++ ) split3[ AG_BLS_AGG_HDR_SZ+c ] = (c&1UL) ? 212 : 151;
   check_base3( agg, fb, split3, AG_BLS_AGG_PAIR_SER_MAX );
 
   FD_LOG_NOTICE(( "signer set bitmap golden vectors pass" ));
@@ -227,9 +147,9 @@ test_agg_bitmap( void ) {
 static void
 test_agg_bitmap_errors( void ) {
   ag_bls_agg_t agg[1], dst[1], b[1], f[1];
-  ag_bls_agg_zero( agg );
-  ag_bls_agg_zero( f   );
-  for( ulong i=0UL; i<5UL; i++ ) signer_set_insert( agg->bitmask, i );
+  memset( agg, 0, sizeof(ag_bls_agg_t) );
+  memset( f,   0, sizeof(ag_bls_agg_t) );
+  for( ulong i=0UL; i<5UL; i++ ) ag_bls_set_insert( agg->set, i );
 
   uchar buf[ AG_BLS_AGG_PAIR_SER_MAX ];
   ulong sz = ag_bls_agg_ser( agg, buf );
@@ -257,11 +177,11 @@ test_agg_bitmap_errors( void ) {
   /* a bit count past the signer bound */
 
   fd_memcpy( bad, buf, sz );
-  FD_STORE( ushort, bad+1UL, (ushort)(AG_BLS_SIGNERS_MAX+1UL) );
+  FD_STORE( ushort, bad+1UL, (ushort)(AG_BLS_SET_MAX+1UL) );
   FD_TEST( ag_bls_agg_de( dst, bad, sz )==AG_BLS_DE_ERR_SZ );
 
   ulong sz3 = ag_bls_agg_pair_ser( agg, f, bad );
-  FD_STORE( ushort, bad+1UL, (ushort)(AG_BLS_SIGNERS_MAX+1UL) );
+  FD_STORE( ushort, bad+1UL, (ushort)(AG_BLS_SET_MAX+1UL) );
   FD_TEST( ag_bls_agg_pair_de( b, f, bad, sz3 )==AG_BLS_DE_ERR_SZ );
 
   FD_LOG_NOTICE(( "signer set bitmap error paths pass" ));
@@ -284,47 +204,12 @@ test_roundtrip( void ) {
     ag_bls_sec_to_pub( &sk[i], pk+i );
     ag_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
 
-    FD_TEST(  ag_bls_sig_verify( &sig[i], pk+i,         msg,  msg_sz ) );
-    FD_TEST( !ag_bls_sig_verify( &sig[i], pk+(i+1UL)%N, msg,  msg_sz ) );
-    FD_TEST( !ag_bls_sig_verify( &sig[i], pk+i, (uchar const *)"x", 1UL ) );
+    FD_TEST(  ag_bls_agg_verify( pk+i,         &sig[i], msg,  msg_sz ) );
+    FD_TEST( !ag_bls_agg_verify( pk+(i+1UL)%N, &sig[i], msg,  msg_sz ) );
+    FD_TEST( !ag_bls_agg_verify( pk+i, &sig[i], (uchar const *)"x", 1UL ) );
   }
 
-  ag_bls_pub_t pks[5];
-  { ulong _sel[5] = { 0UL, 1UL, 2UL, 3UL, 4UL }; pick_pub( pks, pk, _sel, 5UL ); }
-
-  ag_bls_sig_t sigs[3];
-  { ulong _sel[3] = { 0UL, 2UL, 4UL }; pick_sig( sigs, sig, _sel, 3UL ); }
-  ulong        idx [3] = { 0UL, 2UL, 4UL };
-  ag_bls_agg_t agg[1];
-  ag_bls_agg_zero( agg );
-  for( ulong i=0UL; i<3UL; i++ ) ag_bls_agg_add( agg, idx[i], &sigs[i] );
-
-  FD_TEST( ag_bls_agg_verify( agg, msg, msg_sz, pks, N ) );
-
-  FD_TEST( !ag_bls_agg_verify( agg, (uchar const *)"different message", 17UL, pks, N ) );
-
-  ag_bls_agg_t tampered = *agg;
-  tampered.sig.x.fp[0].l[0] ^= 1UL; /* perturb the point */
-  FD_TEST( !ag_bls_agg_verify( &tampered, msg, msg_sz, pks, N ) );
-
-  ag_bls_pub_t pks_wrong[5];
-  { ulong _sel[5] = { 1UL, 1UL, 2UL, 3UL, 4UL }; pick_pub( pks_wrong, pk, _sel, 5UL ); }
-  FD_TEST( !ag_bls_agg_verify( agg, msg, msg_sz, pks_wrong, N ) );
-
-  ag_bls_agg_t mismatch = *agg;
-  signer_set_remove( mismatch.bitmask, 4UL );
-  FD_TEST( ag_bls_agg_signer_cnt( &mismatch )==2UL );
-  FD_TEST( !ag_bls_agg_verify( &mismatch, msg, msg_sz, pks, N ) );
-
-  FD_TEST( !ag_bls_agg_verify( agg, msg, msg_sz, pks, N-1UL ) );
-
-  ag_bls_agg_t agg_all[1];
-  ulong        idx_all[5] = { 0UL, 1UL, 2UL, 3UL, 4UL };
-  ag_bls_agg_zero( agg_all );
-  for( ulong i=0UL; i<N; i++ ) ag_bls_agg_add( agg_all, idx_all[i], &sig[i] );
-  FD_TEST( ag_bls_agg_verify( agg_all, msg, msg_sz, pks, N ) );
-
-  FD_LOG_NOTICE(( "blst agg sig round trip pass" ));
+  FD_LOG_NOTICE(( "blst sig round trip pass" ));
 }
 
 static void
@@ -344,7 +229,7 @@ test_derive( void ) {
   uchar const * msg = (uchar const *)"derived key vote";
   ulong         msg_sz = 16UL;
   ag_bls_sig_t  sig; ag_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
-  FD_TEST( ag_bls_sig_verify( &sig, &pk, msg, msg_sz ) );
+  FD_TEST( ag_bls_agg_verify( &pk, &sig, msg, msg_sz ) );
 
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
@@ -380,53 +265,6 @@ test_ref_api( void ) {
   uchar junk[ AG_BLS_PUB_COMPRESSED_SZ ]; fd_memset( junk, 0xEE, sizeof(junk) );
   FD_TEST(  ag_bls_pub_try_from_bytes( &from_aff, junk, sizeof(junk) ) ); /* not on curve */
 
-  /* aggregate over signers {0,2,4} */
-  ag_bls_sig_t sigs[3];
-  { ulong _sel[3] = { 0UL, 2UL, 4UL }; pick_sig( sigs, sig, _sel, 3UL ); }
-  ulong        idx [3] = { 0UL, 2UL, 4UL };
-  ag_bls_agg_t agg[1];
-  ag_bls_agg_zero( agg );
-  for( ulong i=0UL; i<3UL; i++ ) ag_bls_agg_add( agg, idx[i], &sigs[i] );
-
-  /* signers() iteration agrees with is_signer */
-  ulong seen = 0UL, cnt = 0UL;
-  for( ulong i=ag_bls_agg_signers_iter_init( agg );
-       !ag_bls_agg_signers_iter_done( i );
-       i=ag_bls_agg_signers_iter_next( agg, i ) ) { seen |= 1UL<<i; cnt++; }
-  FD_TEST( cnt==3UL );
-  FD_TEST( seen==((1UL<<0)|(1UL<<2)|(1UL<<4)) );
-  FD_TEST( cnt==ag_bls_agg_signer_cnt( agg ) );
-  for( ulong i=0UL; i<N; i++ ) FD_TEST( ag_bls_agg_is_signer( agg, i )==(int)!!(seen&(1UL<<i)) );
-
-  /* verify_without_bitmask: caller supplies exactly the signers' keys */
-  ag_bls_pub_t signer_pk[3];
-  { ulong _sel[3] = { 0UL, 2UL, 4UL }; pick_pub( signer_pk, pk, _sel, 3UL ); }
-  FD_TEST( ag_bls_agg_verify_without_bitmask( agg, msg, msg_sz, signer_pk, 3UL ) );
-  /* wrong count -> reject */
-  FD_TEST( !ag_bls_agg_verify_without_bitmask( agg, msg, msg_sz, signer_pk, 2UL ) );
-  /* wrong keys -> reject */
-  ag_bls_pub_t wrong_pk[3];
-  { ulong _sel[3] = { 1UL, 2UL, 4UL }; pick_pub( wrong_pk, pk, _sel, 3UL ); }
-  FD_TEST( !ag_bls_agg_verify_without_bitmask( agg, msg, msg_sz, wrong_pk, 3UL ) );
-
-  ag_bls_pub_t all_pk[5];
-  { ulong _sel[5] = { 0UL, 1UL, 2UL, 3UL, 4UL }; pick_pub( all_pk, pk, _sel, 5UL ); }
-  FD_TEST(  ag_bls_agg_verify( agg, msg, msg_sz, all_pk, N     ) );
-  /* a bitmask wider than the key set is still a hard reject */
-  FD_TEST( !ag_bls_agg_verify( agg, msg, msg_sz, all_pk, N-1UL ) );
-
-  /* Regression: wire certs carry a TRIMMED bit count (ag_signer_store
-     trimmed width = highest rank rank + 1), so it is routinely below the
-     epoch validator count.  Rejecting that -- as aggsig.rs' strict
-     bitmask.len()==pks.len() would -- discards almost every real cert. */
-  ag_bls_sig_t tsigs[2];
-  { ulong _sel[2] = { 0UL, 1UL }; pick_sig( tsigs, sig, _sel, 2UL ); }
-  ulong        tidx [2] = { 0UL, 1UL };
-  ag_bls_agg_t trimmed[1];
-  ag_bls_agg_zero( trimmed );
-  for( ulong i=0UL; i<2UL; i++ ) ag_bls_agg_add( trimmed, tidx[i], &tsigs[i] );
-  FD_TEST( ag_bls_agg_verify( trimmed, msg, msg_sz, all_pk, N ) );
-
   FD_LOG_NOTICE(( "reference api pass" ));
 }
 
@@ -435,8 +273,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  test_signers();
-  test_incremental();
   test_agg_bitmap();
   test_agg_bitmap_errors();
   test_roundtrip();

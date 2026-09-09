@@ -1756,14 +1756,14 @@ static int
 apply_footer( fd_bank_t *               bank,
               fd_accdb_t *              accdb,
               fd_capture_ctx_t *        capture_ctx,
-              fd_footer_certs_t const * certs,
-              ulong                     producer_time_nanos ) {
+              fd_block_footer_t const * footer ) {
 
   /* Rewrite the clock sysvar and the alpenclock account from the
      footer's producer timestamp (Agave Bank::update_clock_from_footer).
      The clock must be applied before the reward certs. */
 
-  long unix_timestamp = (long)(producer_time_nanos/1000000000UL);
+  ulong producer_time_nanos = footer->block_producer_time_nanos;
+  long  unix_timestamp = (long)(producer_time_nanos/1000000000UL);
 
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock_ );
@@ -1803,16 +1803,15 @@ apply_footer( fd_bank_t *               bank,
   fd_memcpy( acc.data, data, sizeof(data) );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 
-  return fd_alpen_rewards_apply( bank, accdb, capture_ctx, certs, producer_time_nanos );
+  return fd_alpenglow_rewards_apply( bank, accdb, capture_ctx, footer );
 }
 
 int
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_accdb_t *              accdb,
                                    fd_capture_ctx_t *        capture_ctx,
-                                   fd_footer_certs_t const * certs,
-                                   ulong                     producer_time_nanos ) {
-  if( FD_UNLIKELY( certs && apply_footer( bank, accdb, capture_ctx, certs, producer_time_nanos ) ) ) return -1;
+                                   fd_block_footer_t const * footer ) {
+  if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer ) ) ) return -1;
   fd_runtime_freeze( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );
   return 0;

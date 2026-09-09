@@ -1,15 +1,12 @@
-#include "fd_alpen_rewards.h"
-#include "fd_epoch_inflation_account.h"
+#include "fd_alpenglow.h"
+#include "../rewards/fd_epoch_inflation_account.h"
 
 #include "../runtime/fd_accdb_svm.h"
 #include "../runtime/fd_pubkey_utils.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
-#define RANK_SET_WORDS ((AG_VAT_MAX+63UL)/64UL)
-
-FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL,             epoch_credits_bound );
-FD_STATIC_ASSERT( RANK_SET_WORDS==signer_set_word_cnt,         agg_set_words );
+FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );
 
 static int
 vote_stakes_iter_kind_for_epoch( ulong fork_id,
@@ -236,29 +233,30 @@ slot_timestamp( fd_bank_t * bank,
 }
 
 int
-fd_alpen_rewards_apply( fd_bank_t *                bank,
-                         fd_accdb_t *              accdb,
-                         fd_capture_ctx_t *        capture_ctx,
-                         fd_footer_certs_t const * certs,
-                         ulong                     footer_time_nanos ) {
+fd_alpenglow_rewards_apply( fd_bank_t *               bank,
+                            fd_accdb_t *              accdb,
+                            fd_capture_ctx_t *        capture_ctx,
+                            fd_block_footer_t const * footer ) {
 
-  ulong bank_slot       = bank->f.slot;
-  ulong current_epoch   = fd_slot_to_epoch( &bank->f.epoch_schedule, bank_slot, NULL );
-  ulong migration_epoch = ULONG_MAX;
-  ulong leader_credits  = 0UL;
+  ulong bank_slot         = bank->f.slot;
+  ulong footer_time_nanos = footer->block_producer_time_nanos;
+  ulong current_epoch     = fd_slot_to_epoch( &bank->f.epoch_schedule, bank_slot, NULL );
+  ulong migration_epoch   = ULONG_MAX;
+  ulong leader_credits    = 0UL;
 
   /* credits for the attested voters of the reward slot */
 
-  if( certs->skip_reward_signer_set || certs->notar_reward_signer_set ) {
-    ulong reward_set[ RANK_SET_WORDS ] = {0};
+  if( footer->has_skip_reward_cert || footer->has_notar_reward_cert ) {
+    ag_bls_set_t reward_set[ ag_bls_set_word_cnt ];
+    ag_bls_set_null( reward_set );
     ulong skip_slot = ULONG_MAX, notar_slot = ULONG_MAX;
-    if( certs->skip_reward_signer_set ) {
-      skip_slot = certs->skip_reward_slot;
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) reward_set[ w ] |= certs->skip_reward_signer_set[ w ];
+    if( footer->has_skip_reward_cert ) {
+      skip_slot = footer->skip_reward_cert.slot;
+      ag_bls_set_union( reward_set, reward_set, footer->skip_reward_cert.signer_set );
     }
-    if( certs->notar_reward_signer_set ) {
-      notar_slot = certs->notar_reward_slot;
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) reward_set[ w ] |= certs->notar_reward_signer_set[ w ];
+    if( footer->has_notar_reward_cert ) {
+      notar_slot = footer->notar_reward_cert.slot;
+      ag_bls_set_union( reward_set, reward_set, footer->notar_reward_cert.signer_set );
     }
     if( FD_UNLIKELY( skip_slot!=ULONG_MAX && notar_slot!=ULONG_MAX && skip_slot!=notar_slot ) ) {
       FD_LOG_WARNING(( "slot %lu: reward cert slots differ: skip %lu, notar %lu", bank_slot, skip_slot, notar_slot ));
@@ -273,7 +271,7 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
     }
     migration_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, migration_slot, NULL );
 
-    if( FD_UNLIKELY( fd_ulong_sat_add( reward_slot, NUM_SLOTS_FOR_REWARD )!=bank_slot || reward_slot<=migration_slot ) ) {
+    if( FD_UNLIKELY( fd_ulong_sat_add( reward_slot, FD_NUM_SLOTS_FOR_REWARD )!=bank_slot || reward_slot<=migration_slot ) ) {
       FD_LOG_WARNING(( "slot %lu: invalid reward cert slot %lu (migration slot %lu)", bank_slot, reward_slot, migration_slot ));
       return -1;
     }
@@ -324,7 +322,7 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
       FD_TEST( rank<AG_VAT_MAX );
       have_ranked_vote = 1;
       ulong r = (ulong)rank;
-      if( !( reward_set[ r>>6 ] & (1UL<<(r&63UL)) ) ) continue;
+      if( !ag_bls_set_test( reward_set, r ) ) continue;
       /* per-slot, stake-fractional reward; split half validator, half
          (rounded up) leader */
       uint128 numerator   = (uint128)max_reward*(uint128)stake;
@@ -361,16 +359,15 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
 
   /* finalization cert: root/votes/timestamp for the signers */
 
-  if( certs->fast_final_signer_set || certs->final_signer_set ) {
-    ulong final_slot = certs->final_slot;
-    ulong final_set[ RANK_SET_WORDS ] = {0};
-    if( certs->fast_final_signer_set ) {
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->fast_final_signer_set[ w ];
+  if( footer->has_fast_final_cert || footer->has_final_cert ) {
+    ulong        final_slot;
+    ag_bls_set_t final_set[ ag_bls_set_word_cnt ];
+    if( footer->has_fast_final_cert ) {
+      final_slot = footer->fast_final_cert.slot;
+      ag_bls_set_copy( final_set, footer->fast_final_cert.signer_set );
     } else {
-      for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_signer_set[ w ];
-      if( FD_LIKELY( certs->final_notar_signer_set ) ) {
-        for( ulong w=0UL; w<RANK_SET_WORDS; w++ ) final_set[ w ] |= certs->final_notar_signer_set[ w ];
-      }
+      final_slot = footer->final_cert.slot;
+      ag_bls_set_union( final_set, footer->final_cert.signer_set, footer->notar_cert.signer_set );
     }
 
     ulong final_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, final_slot, NULL );
@@ -395,7 +392,7 @@ fd_alpen_rewards_apply( fd_bank_t *                bank,
       FD_TEST( rank<AG_VAT_MAX );
       have_ranked_vote = 1;
       ulong r = (ulong)rank;
-      if( !( final_set[ r>>6 ] & (1UL<<(r&63UL)) ) ) continue;
+      if( !ag_bls_set_test( final_set, r ) ) continue;
       vote_update_t upd = {
         .update_root  = 1, .root_slot = final_slot,
         .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = ts_ns,

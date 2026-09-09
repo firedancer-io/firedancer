@@ -466,22 +466,22 @@ test_set_insert_contains_iter( void ) {
   ag_block_hash_t h1, h3, h5, h2;
   random_hash( h1 ); random_hash( h3 ); random_hash( h5 ); random_hash( h2 );
 
-  ag_hash_set_t set; set.cnt = 0UL;
+  ag_block_hash_set_t set; set.cnt = 0UL;
 
-  set_insert( &set, h3 ); FD_TEST( set.cnt==1UL );
-  set_insert( &set, h1 ); FD_TEST( set.cnt==2UL );
-  set_insert( &set, h5 ); FD_TEST( set.cnt==3UL );
-  set_insert( &set, h3 ); FD_TEST( set.cnt==3UL );
+  block_hash_set_insert( &set, h3 ); FD_TEST( set.cnt==1UL );
+  block_hash_set_insert( &set, h1 ); FD_TEST( set.cnt==2UL );
+  block_hash_set_insert( &set, h5 ); FD_TEST( set.cnt==3UL );
+  block_hash_set_insert( &set, h3 ); FD_TEST( set.cnt==3UL );
 
-  FD_TEST(  set_contains( &set, h1 ) );
-  FD_TEST( !set_contains( &set, h2 ) );
+  FD_TEST(  block_hash_set_contains( &set, h1 ) );
+  FD_TEST( !block_hash_set_contains( &set, h2 ) );
 
-  set_remove( &set, h1 ); FD_TEST( set.cnt==2UL );
-  set_remove( &set, h1 ); FD_TEST( set.cnt==2UL );
-  FD_TEST( !set_contains( &set, h1 ) );
+  block_hash_set_remove( &set, h1 ); FD_TEST( set.cnt==2UL );
+  block_hash_set_remove( &set, h1 ); FD_TEST( set.cnt==2UL );
+  FD_TEST( !block_hash_set_contains( &set, h1 ) );
 
-  FD_TEST( set_contains( &set, h3 ) );
-  FD_TEST( set_contains( &set, h5 ) );
+  FD_TEST( block_hash_set_contains( &set, h3 ) );
+  FD_TEST( block_hash_set_contains( &set, h5 ) );
 }
 
 static void

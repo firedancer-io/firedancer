@@ -6,7 +6,7 @@
 #include "../fd_cost_tracker.h"
 #include "../fd_slot_params.h"
 #include "../fd_runtime.h"
-#include "../../rewards/fd_alpen_rewards.h"
+#include "../../alpenglow/fd_alpenglow.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../progcache/fd_progcache_admin.h"

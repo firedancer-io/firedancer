@@ -11,7 +11,7 @@
 #include "context/fd_exec_instr_ctx.h"
 #include "../fd_flamenco_base.h"
 #include "../accdb/fd_accdb.h"
-#include "../rewards/fd_alpen_rewards.h"
+#include "../alpenglow/fd_alpenglow.h"
 
 /* The general structure for executing transactions in Firedancer can
    be thought of as a state machine where transaction execution is a
@@ -353,15 +353,14 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 /* fd_runtime_block_execute_finalize finishes the execution of the block
    by applying optional Alpenglow footer effects, paying a fee out to
    the block leader, updating any sysvars, and updating the bank hash.
-   certs is NULL for blocks without an Alpenglow footer.  Returns -1 if
+   footer is NULL for blocks without an Alpenglow footer.  Returns -1 if
    the footer is invalid and 0 otherwise. */
 
 int
-fd_runtime_block_execute_finalize( fd_bank_t *                bank,
-                                   fd_accdb_t *               accdb,
-                                   fd_capture_ctx_t *         capture_ctx,
-                                   fd_footer_certs_t const *  certs,
-                                   ulong                      producer_time_nanos );
+fd_runtime_block_execute_finalize( fd_bank_t *               bank,
+                                   fd_accdb_t *              accdb,
+                                   fd_capture_ctx_t *        capture_ctx,
+                                   fd_block_footer_t const * footer );
 
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of

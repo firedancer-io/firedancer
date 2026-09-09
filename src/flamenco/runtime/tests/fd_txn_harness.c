@@ -4,7 +4,7 @@
 #include "fd_dump_pb.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../rewards/fd_alpen_rewards.h"
+#include "../../alpenglow/fd_alpenglow.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../../ballet/txn/fd_compact_u16.h"

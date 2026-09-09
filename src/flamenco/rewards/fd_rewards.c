@@ -2,7 +2,7 @@
 #include "fd_stake_rewards.h"
 #include "fd_reward_epoch_delegated_stakes.h"
 #include "fd_epoch_inflation_account.h"
-#include "fd_alpen_rewards.h"
+#include "../alpenglow/fd_alpenglow.h"
 
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"

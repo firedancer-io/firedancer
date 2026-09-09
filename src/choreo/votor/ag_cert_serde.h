@@ -53,7 +53,7 @@ typedef struct ag_cert_serde ag_cert_serde_t;
                           AG_BLS_AGG_PAIR_SER_MAX + \
                           sizeof(ushort) /* shred_version */ )
 
-FD_STATIC_ASSERT( AG_CERT_SER_MAX==657UL, ag_cert_serde );
+FD_STATIC_ASSERT( AG_CERT_SER_MAX==647UL, ag_cert_serde );
 
 FD_PROTOTYPES_BEGIN
 

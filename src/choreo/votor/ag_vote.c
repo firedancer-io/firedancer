@@ -11,45 +11,6 @@ sign( ag_vote_t const * self,
   sign_fn( sign_ctx, sig, buf, sz );
 }
 
-static int
-verify( ag_vote_t const *    self,
-        ag_bls_pub_t const * pub,
-        ag_bls_sig_t const * sig ) {
-  uchar buf[ AG_VOTE_SIGNING_SER_MAX ];
-  ulong sz = ag_vote_signing_ser( self->kind, ag_vote_slot( self ), ag_vote_block_hash( self ), ag_vote_shred_version( self ), buf );
-  return ag_bls_sig_verify( sig, pub, buf, sz );
-}
-
-static int
-verify_notar( ag_vote_t const *    self,
-              ag_bls_pub_t const * pub ) {
-  return verify( self, pub, &self->notar.sig );
-}
-
-static int
-verify_final( ag_vote_t const *    self,
-              ag_bls_pub_t const * pub ) {
-  return verify( self, pub, &self->final.sig );
-}
-
-static int
-verify_skip( ag_vote_t const *    self,
-             ag_bls_pub_t const * pub ) {
-  return verify( self, pub, &self->skip.sig );
-}
-
-static int
-verify_notar_fallback( ag_vote_t const *    self,
-                       ag_bls_pub_t const * pub ) {
-  return verify( self, pub, &self->notar_fallback.sig );
-}
-
-static int
-verify_skip_fallback( ag_vote_t const *    self,
-                      ag_bls_pub_t const * pub ) {
-  return verify( self, pub, &self->skip_fallback.sig );
-}
-
 ag_vote_t
 ag_vote_construct_notar( ag_bls_sign_fn        sign_fn,
                          void *                sign_ctx,
@@ -127,17 +88,4 @@ ag_vote_construct_skip_fallback( ag_bls_sign_fn sign_fn,
   vote.skip_fallback.shred_version = shred_version;
   sign( &vote, sign_fn, sign_ctx, shred_version, &vote.skip_fallback.sig );
   return vote;
-}
-
-int
-ag_vote_verify( ag_vote_t const *    self,
-                ag_bls_pub_t const * pub ) {
-  switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          return verify_notar         ( self, pub );
-  case AG_VOTE_KIND_FINAL:          return verify_final         ( self, pub );
-  case AG_VOTE_KIND_SKIP:           return verify_skip          ( self, pub );
-  case AG_VOTE_KIND_NOTAR_FALLBACK: return verify_notar_fallback( self, pub );
-  case AG_VOTE_KIND_SKIP_FALLBACK:  return verify_skip_fallback ( self, pub );
-  default:                          FD_LOG_CRIT(( "unreachable" ));
-  }
 }

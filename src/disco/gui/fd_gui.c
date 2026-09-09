@@ -3332,8 +3332,8 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   slot->parent_completed_time = parent ? parent->completed_time : LONG_MAX;
 
   if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
-    if( FD_UNLIKELY( slot_completed->voted && slot_completed->slot>=NUM_SLOTS_FOR_REWARD ) ) {
-      vote_slot = slot_completed->slot-NUM_SLOTS_FOR_REWARD;
+    if( FD_UNLIKELY( slot_completed->voted && slot_completed->slot>=FD_NUM_SLOTS_FOR_REWARD ) ) {
+      vote_slot = slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD;
     } else {
       vote_slot = gui->summary.slot_voted; /* TODO: inherit from parent so it's fork-correct. Requires tracking identity changes to be correct. */
     }
@@ -3401,7 +3401,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   }
 
   if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
-    if( FD_UNLIKELY( slot_completed->voted && slot_completed->slot>=NUM_SLOTS_FOR_REWARD && ( gui->summary.slot_voted==ULONG_MAX || vote_slot>gui->summary.slot_voted ) ) ) {
+    if( FD_UNLIKELY( slot_completed->voted && slot_completed->slot>=FD_NUM_SLOTS_FOR_REWARD && ( gui->summary.slot_voted==ULONG_MAX || vote_slot>gui->summary.slot_voted ) ) ) {
       gui->summary.slot_voted = vote_slot;
       fd_gui_printf_vote_slot( gui );
       fd_http_server_ws_broadcast( gui->http );
@@ -3421,8 +3421,8 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
       fd_http_server_ws_broadcast( gui->http );
     }
 
-    if( FD_LIKELY( slot_completed->slot>=NUM_SLOTS_FOR_REWARD ) ) {
-      fd_gui_handle_ag_reward( gui, slot_completed->slot-NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank );
+    if( FD_LIKELY( slot_completed->slot>=FD_NUM_SLOTS_FOR_REWARD ) ) {
+      fd_gui_handle_ag_reward( gui, slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank );
     }
 
     int frontier_updated = handle_tower_slot( gui, slot_completed->slot, slot_completed->bank_seq, now );

@@ -6,7 +6,7 @@
 #include "../program/fd_precompiles.h"
 #include "../fd_system_ids.h"
 #include "../../progcache/fd_progcache_admin.h"
-#include "../../rewards/fd_alpen_rewards.h"
+#include "../../alpenglow/fd_alpenglow.h"
 #include "../../log_collector/fd_log_collector.h"
 
 void

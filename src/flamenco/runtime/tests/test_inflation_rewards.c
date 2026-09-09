@@ -1,5 +1,5 @@
 #include "fd_svm_mini.h"
-#include "../../rewards/fd_alpen_rewards.h"
+#include "../../alpenglow/fd_alpenglow.h"
 #include "../../rewards/fd_rewards.h"
 #include "../../rewards/fd_rewards_base.h"
 #include "../../rewards/fd_stake_rewards.h"
@@ -450,19 +450,26 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
     fd_vote_stakes_finalize( vote_stakes, bank->f.epoch );
   }
 
-  ulong reward_set[ FD_BLOCK_CERT_SET_WORDS ] = { 1UL };
-  fd_footer_certs_t certs = { .skip_reward_slot=reward_slot, .skip_reward_signer_set=reward_set };
+  fd_block_footer_t footer[1];
+  fd_memset( footer, 0, sizeof(fd_block_footer_t) );
+  footer->block_producer_time_nanos = 1000000000UL;
+  footer->has_skip_reward_cert      = 1;
+  footer->skip_reward_cert.slot     = reward_slot;
+  ag_bls_set_insert( footer->skip_reward_cert.signer_set, 0UL );
 
   fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )!=reward_slot );
-  FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL ) );
+  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, footer ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==reward_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=reward_slot );
 
   ulong final_slot = reward_slot+1UL;
-  ulong final_set[ FD_BLOCK_CERT_SET_WORDS ] = { 1UL };
-  certs = (fd_footer_certs_t){ .final_slot=final_slot, .fast_final_signer_set=final_set };
-  FD_TEST( !fd_alpen_rewards_apply( bank, mini->runtime->accdb, NULL, &certs, 1000000000UL ) );
+  fd_memset( footer, 0, sizeof(fd_block_footer_t) );
+  footer->block_producer_time_nanos = 1000000000UL;
+  footer->has_fast_final_cert       = 1;
+  footer->fast_final_cert.slot      = final_slot;
+  ag_bls_set_insert( footer->fast_final_cert.signer_set, 0UL );
+  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, footer ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==final_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=final_slot );
 }

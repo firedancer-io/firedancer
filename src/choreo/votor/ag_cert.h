@@ -2,7 +2,7 @@
 #define HEADER_fd_src_choreo_votor_ag_cert_h
 
 #include "ag_bls.h"
-#include "ag_epoch_info.h"
+#include "ag_votor_base.h"
 
 #define AG_CERT_KIND_FINAL          (0)
 #define AG_CERT_KIND_FAST_FINAL     (1)
@@ -86,23 +86,6 @@ ag_cert_block_hash( ag_cert_t const * self ) {
   case AG_CERT_KIND_SKIP:           return NULL;
   default:                          FD_LOG_CRIT(( "unreachable" )); }
 }
-
-FD_FN_PURE static inline char const *
-ag_cert_str( ag_cert_t const * self ) {
-  switch( self->kind ) {
-  case AG_CERT_KIND_FINAL:          return "Final";
-  case AG_CERT_KIND_FAST_FINAL:     return "FastFinal";
-  case AG_CERT_KIND_NOTAR:          return "Notar";
-  case AG_CERT_KIND_NOTAR_FALLBACK: return "NotarFallback";
-  case AG_CERT_KIND_SKIP:           return "Skip";
-  default:                          FD_LOG_CRIT(( "unreachable" ));
-  }
-}
-
-int
-ag_cert_verify( ag_cert_t const *       self,
-                ag_epoch_info_t const * epoch_info,
-                ushort                  shred_version );
 
 FD_PROTOTYPES_END
 

@@ -315,7 +315,7 @@ test_safe_to_notar( void ) {
   ag_vote_t msg = recv( votor );
   FD_TEST( msg.kind==AG_VOTE_KIND_NOTAR_FALLBACK );
   FD_TEST( ag_vote_slot( &msg )==block.slot );
-  FD_TEST( !memcmp( ag_vote_notar_fallback_block_hash( &msg.notar_fallback ), block.hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( !memcmp( msg.notar_fallback.block_hash, block.hash, sizeof(ag_block_hash_t) ) );
 
   teardown_votor( votor );
 }

@@ -132,16 +132,6 @@ ag_vote_set_rank( ag_vote_t * self,
   }
 }
 
-FD_FN_PURE static inline uchar const *
-ag_vote_notar_block_hash( ag_vote_notar_t const * self ) {
-  return self->block_hash;
-}
-
-FD_FN_PURE static inline uchar const *
-ag_vote_notar_fallback_block_hash( ag_vote_notar_fallback_t const * self ) {
-  return self->block_hash;
-}
-
 ag_vote_t
 ag_vote_construct_notar( ag_bls_sign_fn        sign_fn,
                          void *                sign_ctx,
@@ -178,10 +168,6 @@ ag_vote_construct_skip_fallback( ag_bls_sign_fn sign_fn,
                                  ulong          slot,
                                  ushort         rank,
                                  ushort         shred_version );
-
-int
-ag_vote_verify( ag_vote_t const *    self,
-                ag_bls_pub_t const * pub );
 
 FD_PROTOTYPES_END
 
