@@ -2,9 +2,22 @@
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../util/fd_version.h"
 
 #include "fd_adminctl.h"
+#include "../failover/fd_failover_channel.h"
+#include "../failover/fd_failover_tls.h"
+
+#include <sys/socket.h>
+
 #include "generated/fd_admin_tile_seccomp.h"
+#include "generated/fd_admin_tile_failover_listener_seccomp.h"
+#include "generated/fd_admin_tile_failover_dialer_seccomp.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 struct fd_admin_tile_ctx {
   fd_topo_t const * topo;
@@ -15,6 +28,22 @@ struct fd_admin_tile_ctx {
   fd_keyswitch_t *  sign_av_keyswitch[ FD_TOPO_MAX_TILES ];
   ulong             sign_av_keyswitch_cnt;
   fd_sha512_t       sha512[ 1 ];
+
+  int                     failover_enabled;
+  ulong                   failover_role;
+  int                     failover_dials;
+  fd_failover_channel_t * failover;
+  fd_failover_hello_t     failover_hello;
+  fd_failover_status_t    failover_peer_status;
+  long                    failover_status_interval;
+  ulong                   failover_status_interval_millis;
+  ulong                   failover_peer_silence_intervals;
+  int                     failover_session_setup; /* silence window sized for this session */
+  long                    failover_last_status;
+  long                    failover_rtt_nanos;
+  ulong                   failover_peer_sent_at;  /* sent_at of the newest peer STATUS, 0 if none */
+  long                    failover_peer_recv_at;  /* our clock when it arrived */
+  uchar                   failover_rx[ FD_FAILOVER_PAYLOAD_MAX ];
 
   ulong replay_out_idx;           /* admin_replay stem out index */
   ulong snap_create_slot_idx;     /* adminctl slot of snapshot-create command */
@@ -65,25 +94,81 @@ report_admin_command_custom_result( fd_event_admin_command_t * event,
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return alignof(fd_admin_tile_ctx_t);
+  return fd_ulong_max( alignof(fd_admin_tile_ctx_t), fd_failover_channel_align() );
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return sizeof(fd_admin_tile_ctx_t);
+scratch_footprint( fd_topo_tile_t const * tile ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_admin_tile_ctx_t), sizeof(fd_admin_tile_ctx_t) );
+  if( FD_UNLIKELY( tile->admin.failover_enabled ) ) {
+    l = FD_LAYOUT_APPEND( l, fd_failover_channel_align(), fd_failover_channel_footprint() );
+  }
+  return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static long
+failover_duration_nanos( ulong count,
+                         ulong nanos_per_unit ) {
+  return (long)fd_ulong_min( fd_ulong_sat_mul( count, nanos_per_unit ),
+                             (ulong)LONG_MAX );
 }
 
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
-  void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_admin_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_admin_tile_ctx_t), sizeof(fd_admin_tile_ctx_t) );
   fd_memset( ctx, 0, sizeof(fd_admin_tile_ctx_t) );
 
   if( FD_UNLIKELY( !strcmp( tile->admin.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
+
+  ctx->failover_enabled = tile->admin.failover_enabled;
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+    void * ch_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_failover_channel_align(), fd_failover_channel_footprint() );
+    ctx->failover = fd_failover_channel_join( fd_failover_channel_new( ch_mem ) );
+    FD_TEST( ctx->failover );
+    ctx->failover_dials = tile->admin.failover_dial_peer;
+
+    ctx->failover_hello.version = (ushort)FD_FAILOVER_VERSION;
+    uchar const * junk_pubkey = fd_keyload_load( tile->admin.failover_junk_identity_path, 1 );
+    fd_memcpy( ctx->failover_hello.junk_pubkey, junk_pubkey, 32UL );
+    fd_keyload_unload( junk_pubkey, 1 );
+    uchar const * staked_pubkey = fd_keyload_load( tile->admin.failover_staked_identity_path, 1 );
+    fd_memcpy( ctx->failover_hello.staked_pubkey, staked_pubkey, 32UL );
+    fd_keyload_unload( staked_pubkey, 1 );
+    int is_junk   = !memcmp( ctx->identity_pubkey, ctx->failover_hello.junk_pubkey,   32UL );
+    int is_staked = !memcmp( ctx->identity_pubkey, ctx->failover_hello.staked_pubkey, 32UL );
+    if( FD_UNLIKELY( is_junk==is_staked ) ) {
+      FD_LOG_ERR(( "`paths.identity_key` must match exactly one failover identity" ));
+    }
+    ctx->failover_role       = is_staked ? FD_FAILOVER_ROLE_ACTIVE : FD_FAILOVER_ROLE_STANDBY;
+    ctx->failover_hello.role = (uchar)ctx->failover_role;
+    uchar const * vote_account = fd_keyload_load( tile->admin.failover_vote_account_path, 1 );
+    fd_memcpy( ctx->failover_hello.vote_account, vote_account, 32UL );
+    fd_keyload_unload( vote_account, 1 );
+    fd_memcpy( ctx->failover_hello.commit, fd_commit_ref_cstr,
+               fd_ulong_min( sizeof(ctx->failover_hello.commit), strlen( fd_commit_ref_cstr ) ) );
+    ctx->failover_hello.cfg_hash = tile->admin.failover_cfg_hash;
+    ctx->failover_hello.status_interval_millis = (uint)fd_ulong_min( tile->admin.failover_status_interval_millis, UINT_MAX );
+    FD_TEST( fd_rng_secure( &ctx->failover_hello.boot_id, 8UL ) );
+
+    uchar peer_junk_pubkey[ 32 ];
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->admin.failover_peer_junk_pubkey, peer_junk_pubkey ) ) )
+      FD_LOG_ERR(( "invalid failover peer junk public key" ));
+    uchar const * junk_keypair = fd_keyload_load( tile->admin.failover_junk_identity_path, 0 );
+    int tls_err = fd_failover_channel_set_identity( ctx->failover, junk_keypair, peer_junk_pubkey, &ctx->failover_hello );
+    fd_keyload_unload( junk_keypair, 0 );
+    if( FD_UNLIKELY( tls_err ) ) FD_LOG_ERR(( "failover TLS initialization failed; check junk keypair and peer pin" ));
+
+    if( FD_LIKELY( !ctx->failover_dials ) ) {
+      fd_failover_channel_init_listener( ctx->failover, tile->admin.failover_bind_addr, tile->admin.failover_bind_port );
+    }
+  }
 }
 
 static void
@@ -136,6 +221,21 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->sign_av_keyswitch_cnt );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
+
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+    fd_failover_channel_set_timing( ctx->failover,
+                                    FD_FAILOVER_CHANNEL_HELLO_TIMEOUT_NANOS,
+                                    failover_duration_nanos( fd_ulong_sat_mul( tile->admin.failover_status_interval_millis,
+                                                                               tile->admin.failover_peer_silence_intervals ), 1000000UL ),
+                                    failover_duration_nanos( tile->admin.failover_retry_backoff_min_millis, 1000000UL ),
+                                    failover_duration_nanos( tile->admin.failover_retry_backoff_max_millis, 1000000UL ) );
+    if( FD_LIKELY( ctx->failover_dials ) ) {
+      fd_failover_channel_init_dialer( ctx->failover, tile->admin.failover_peer_addr, tile->admin.failover_peer_port );
+    }
+    ctx->failover_status_interval        = failover_duration_nanos( tile->admin.failover_status_interval_millis, 1000000UL );
+    ctx->failover_status_interval_millis = tile->admin.failover_status_interval_millis;
+    ctx->failover_peer_silence_intervals = tile->admin.failover_peer_silence_intervals;
+  }
 }
 
 /* The process of switching identity of the validator is somewhat
@@ -1223,11 +1323,92 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
+/* Bounds on what an authenticated but misconfigured peer can push: a
+   round trip sample above a minute is discarded and an advertised
+   STATUS cadence above a minute is clamped before sizing the silence
+   window. */
+#define FD_ADMIN_FAILOVER_RTT_MAX_NANOS   (60000000000UL)
+#define FD_ADMIN_FAILOVER_PEER_MILLIS_MAX (60000UL)
+
+/* The peer echoes our STATUS timestamp together with how long it held
+   it, so its cadence drops out of the round trip sample. */
+static void
+failover_rtt_sample( fd_admin_tile_ctx_t *        ctx,
+                     long                         now,
+                     fd_failover_status_t const * status ) {
+  if( FD_UNLIKELY( !status->echo_sent_at || status->echo_sent_at>(ulong)now ) ) return;
+  ulong elapsed = (ulong)now-status->echo_sent_at;
+  if( FD_UNLIKELY( status->echo_delay>elapsed || elapsed>FD_ADMIN_FAILOVER_RTT_MAX_NANOS ) ) return;
+  long sample = (long)( elapsed-status->echo_delay );
+  ctx->failover_rtt_nanos = ctx->failover_rtt_nanos
+    ? ctx->failover_rtt_nanos+(sample-ctx->failover_rtt_nanos)/8L
+    : sample;
+}
+
+/* Drive the pair channel from the run loop.  Channel time is the
+   monotonic clock, wall clock steps must not drop a healthy pair. */
+static void
+failover_poll( fd_admin_tile_ctx_t * ctx,
+               int *                 charge_busy ) {
+  long now = fd_failover_clock();
+
+  ushort type;
+  ulong  payload_sz;
+  if( FD_UNLIKELY( fd_failover_channel_poll( ctx->failover, now, charge_busy, &type, ctx->failover_rx, &payload_sz ) ) ) {
+    if( FD_LIKELY( type==(ushort)FD_FAILOVER_MSG_STATUS && payload_sz==sizeof(fd_failover_status_t) ) ) {
+      fd_memcpy( &ctx->failover_peer_status, ctx->failover_rx, sizeof(fd_failover_status_t) );
+      failover_rtt_sample( ctx, now, &ctx->failover_peer_status );
+      ctx->failover_peer_sent_at = ctx->failover_peer_status.sent_at;
+      ctx->failover_peer_recv_at = now;
+    }
+  }
+
+  if( FD_LIKELY( fd_failover_channel_state( ctx->failover )!=FD_FAILOVER_SESSION_PAIRED ) ) {
+    ctx->failover_last_status   = 0L;
+    ctx->failover_peer_sent_at  = 0UL;
+    ctx->failover_session_setup = 0;
+    return;
+  }
+  if( FD_UNLIKELY( !ctx->failover_session_setup ) ) {
+    /* Size the silence window from the slower of the two cadences, so
+       a pair with different status_interval_millis settings holds. */
+    ulong peer_millis = fd_ulong_min( fd_failover_channel_peer_hello( ctx->failover )->status_interval_millis, FD_ADMIN_FAILOVER_PEER_MILLIS_MAX );
+    ulong millis      = fd_ulong_max( ctx->failover_status_interval_millis, peer_millis );
+    fd_failover_channel_set_silence( ctx->failover,
+                                     failover_duration_nanos( fd_ulong_sat_mul( millis, ctx->failover_peer_silence_intervals ), 1000000UL ) );
+    ctx->failover_session_setup = 1;
+  }
+  if( FD_LIKELY( fd_failover_channel_tx_pending( ctx->failover ) ||
+                 (now>=ctx->failover_last_status &&
+                  fd_long_sat_sub( now, ctx->failover_last_status )<ctx->failover_status_interval) ) ) return;
+
+  fd_failover_status_t status;
+  fd_memset( &status, 0, sizeof(status) );
+  status.role             = (uchar)ctx->failover_role;
+  status.replay_slot      = FD_FAILOVER_SLOT_NULL;
+  status.turbine_slot     = FD_FAILOVER_SLOT_NULL;
+  status.last_vote_slot   = FD_FAILOVER_SLOT_NULL;
+  status.root_slot        = FD_FAILOVER_SLOT_NULL;
+  status.next_leader_slot = FD_FAILOVER_SLOT_NULL;
+  status.ack_seq          = fd_failover_channel_ack_seq( ctx->failover );
+  status.sent_at          = (ulong)now;
+  status.echo_sent_at     = ctx->failover_peer_sent_at;
+  status.echo_delay       = ctx->failover_peer_sent_at ? (ulong)fd_long_sat_sub( now, ctx->failover_peer_recv_at ) : 0UL;
+
+  if( FD_LIKELY( !fd_failover_channel_send( ctx->failover, now, (ushort)FD_FAILOVER_MSG_STATUS,
+                                            (uchar const *)&status, sizeof(status) ) ) ) {
+    ctx->failover_last_status = now;
+    *charge_busy = 1;
+  }
+}
+
 static inline void FD_FN_SENSITIVE
 after_credit( fd_admin_tile_ctx_t * ctx,
               fd_stem_context_t *   stem,
               int *                 opt_poll_in,
               int *                 charge_busy ) {
+
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_poll( ctx, charge_busy );
 
   fd_adminctl_t * adminctl   = ctx->adminctl;
   ulong           slot_idx   = ULONG_MAX;
@@ -1281,27 +1462,60 @@ during_frag( fd_admin_tile_ctx_t * ctx,
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-
+  if( FD_UNLIKELY( tile->admin.failover_enabled ) ) {
+    /* The dialer opens and connects sockets, the listener only accepts
+       on its own socket.  Neither may close the log or the listener. */
+    if( tile->admin.failover_dial_peer ) {
+      populate_sock_filter_policy_fd_admin_tile_failover_dialer( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+      return sock_filter_policy_fd_admin_tile_failover_dialer_instr_cnt;
+    }
+    fd_admin_tile_ctx_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+    populate_sock_filter_policy_fd_admin_tile_failover_listener( out_cnt, out, (uint)fd_log_private_logfile_fd(),
+                                                                 (uint)fd_failover_channel_listen_fd( ctx->failover ) );
+    return sock_filter_policy_fd_admin_tile_failover_listener_instr_cnt;
+  }
   populate_sock_filter_policy_fd_admin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_fd_admin_tile_instr_cnt;
 }
 
+static int
+failover_enabled( fd_topo_t const * topo FD_PARAM_UNUSED,
+                  fd_topo_tile_t const * tile ) {
+  return tile->admin.failover_enabled;
+}
+
+static int
+failover_dials( fd_topo_t const * topo FD_PARAM_UNUSED,
+                fd_topo_tile_t const * tile ) {
+  return tile->admin.failover_enabled && tile->admin.failover_dial_peer;
+}
+
 static ulong
-populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+rlimit_file_cnt( fd_topo_t const * topo FD_PARAM_UNUSED,
+                 fd_topo_tile_t const * tile ) {
+  return tile->admin.failover_enabled ? 32UL : 0UL;
+}
+
+static ulong
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
+  fd_admin_tile_ctx_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  int logfile_fd = fd_log_private_logfile_fd();
+  int listen_fd  = ctx->failover_enabled ? fd_failover_channel_listen_fd( ctx->failover ) : -1;
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  ulong required_fds = 1UL + (ulong)(-1!=logfile_fd) + (ulong)(-1!=listen_fd);
+  if( FD_UNLIKELY( out_fds_cnt<required_fds ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
-  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
-    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_LIKELY(   -1!=logfile_fd ) ) out_fds[ out_cnt++ ] = logfile_fd; /* logfile */
+  if( FD_UNLIKELY( -1!=listen_fd  ) ) out_fds[ out_cnt++ ] = listen_fd;  /* pair listener */
   return out_cnt;
 }
 
@@ -1324,6 +1538,9 @@ max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 fd_topo_run_tile_t fd_tile_admin = {
   .name                     = "admin",
   .max_event_sz             = max_event_sz,
+  .keep_host_networking_fn  = failover_enabled,
+  .allow_connect_fn         = failover_dials,
+  .rlimit_file_cnt_fn       = rlimit_file_cnt,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

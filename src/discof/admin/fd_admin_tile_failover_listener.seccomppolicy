@@ -1,0 +1,16 @@
+uint logfile_fd, uint listen_fd
+
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+fsync: (eq (arg 0) logfile_fd)
+
+accept4: (and (eq (arg 0) listen_fd)
+              (eq (arg 3) "SOCK_NONBLOCK|SOCK_CLOEXEC"))
+recvfrom
+sendto
+
+# Candidate sockets come and go, the listener and the log stay open.
+close: (not (or (eq (arg 0) 2)
+                (eq (arg 0) logfile_fd)
+                (eq (arg 0) listen_fd)))
