@@ -1808,6 +1808,27 @@ EXAMPLES
 </tile>
 
 <tile name="admin">
+    <gauge name="FailoverLink" summary="Failover pair channel session state (0=listening, 1=dialing, 2=hello, 3=paired, 4=rejected, 5=backoff)" />
+    <gauge name="FailoverRole" summary="Local failover role" />
+    <gauge name="FailoverTerm" summary="Local failover fencing term" />
+    <gauge name="FailoverStatus" summary="Local failover status bit word" />
+    <gauge name="FailoverPeerRole" summary="Last authenticated peer failover role" />
+    <gauge name="FailoverPeerTerm" summary="Last authenticated peer failover term" />
+    <gauge name="FailoverPeerStatus" summary="Last authenticated peer status bit word" />
+    <gauge name="FailoverReplicationLagSlots" summary="Slots the replicated tower trails the active's last vote" />
+    <gauge name="FailoverRttNanos" summary="Smoothed round trip time of the failover pair link" />
+    <gauge name="FailoverEnabled" summary="Whether failover is enabled" />
+    <gauge name="FailoverPeerStatusValid" summary="Whether an authenticated peer status is available" />
+    <gauge name="FailoverPeerStatusAgeNanos" summary="Age of the last authenticated peer status, or zero when unavailable" />
+    <gauge name="FailoverReplicationLagValid" summary="Whether failover replication lag is available" />
+    <gauge name="FailoverReady" summary="Whether the observed pair state passes the handoff readiness checks" />
+    <gauge name="FailoverReadinessReason" summary="Handoff readiness result (0=ready, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind)" />
+    <counter name="FailoverFramesSent" summary="Frames written to the failover pair channel" />
+    <counter name="FailoverFramesReceived" summary="Frames verified and delivered from the failover pair channel" />
+    <counter name="FailoverMacFailures" summary="Failover frames dropped for failing authentication" />
+    <counter name="FailoverWireFailures" summary="Failover sessions dropped for protocol framing errors" />
+    <counter name="FailoverHelloRejections" summary="Failover sessions rejected by HELLO validation" />
+    <counter name="FailoverConnections" summary="Failover pair connections established" />
 </tile>
 
 <tile name="waker">

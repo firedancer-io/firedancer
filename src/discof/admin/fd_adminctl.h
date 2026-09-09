@@ -37,6 +37,7 @@
 #define FD_ADMINCTL_CMD_GET_IDENTITY           (3UL)
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
+#define FD_ADMINCTL_CMD_FAILOVER_STATUS        (6UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
@@ -102,6 +103,65 @@ struct fd_adminctl_remove_all_auth_voters_v1 {
 };
 typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth_voters_t;
 #define FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION (1UL)
+
+struct fd_adminctl_failover_status_req_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION */
+};
+typedef struct fd_adminctl_failover_status_req_v1 fd_adminctl_failover_status_req_t;
+
+struct fd_adminctl_failover_status_resp_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION */
+  uchar enabled;
+  uchar role;
+  uchar link_state;           /* FD_FAILOVER_SESSION_* */
+  uchar peer_role;
+  uchar peer_status_valid;
+  uchar ready;
+  uchar readiness_reason;
+  uchar reserved0;
+  ulong term;
+  ulong peer_term;
+  uint  status;
+  uint  peer_status;
+  uchar flags;
+  uchar peer_flags;
+  uchar reserved1[ 6 ];
+  ulong peer_status_age_nanos;
+  ulong replication_lag_slots; /* ULONG_MAX until measured */
+  ulong rtt_nanos;             /* 0 until measured */
+  ulong replay_slot;           /* ULONG_MAX until observed */
+  ulong root_slot;
+  ulong turbine_slot;
+  ulong next_leader_slot;
+  ulong last_vote_slot;
+  ulong peer_replay_slot;
+  ulong peer_root_slot;
+  ulong peer_turbine_slot;
+  ulong peer_next_leader_slot;
+  ulong peer_last_vote_slot;
+  ulong frames_sent;
+  ulong frames_received;
+  ulong mac_failures;
+  ulong wire_failures;
+  ulong hello_rejections;
+  ulong connections;
+};
+typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_resp_t;
+#define FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION (1UL)
+
+#define FD_FAILOVER_READINESS_READY             (0U)
+#define FD_FAILOVER_READINESS_LINK_DOWN         (1U)
+#define FD_FAILOVER_READINESS_STATUS_STALE      (2U)
+#define FD_FAILOVER_READINESS_ROLE_CONFLICT     (3U)
+#define FD_FAILOVER_READINESS_ACTIVE_UNHEALTHY  (4U)
+#define FD_FAILOVER_READINESS_STANDBY_UNHEALTHY (5U)
+#define FD_FAILOVER_READINESS_STANDBY_BEHIND    (6U)
+#define FD_FAILOVER_READINESS_CNT               (7U)
+
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_req_t )<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_req_fits );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_resp_fits );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_req_t )==8UL, failover_status_req_v1_layout );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)==200UL, failover_status_resp_v1_layout );
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 
