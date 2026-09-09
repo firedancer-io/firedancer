@@ -153,12 +153,38 @@ test_vote_txn_oob( void ) {
   (void)res;
 }
 
+static void
+test_votor_tls_cv( void ) {
+  static char const client_prefix[ 98 ] =
+    "                                "
+    "                                "
+    "TLS 1.3, client CertificateVerify";
+  static char const server_prefix[ 98 ] =
+    "                                "
+    "                                "
+    "TLS 1.3, server CertificateVerify";
+
+  fd_keyguard_authority_t authority = {0};
+  uchar data[ 130 ] = {0};
+
+  memcpy( data, client_prefix, sizeof(client_prefix) );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, data, sizeof(data), FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  memcpy( data, server_prefix, sizeof(server_prefix) );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, data, sizeof(data), FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, data, sizeof(data), FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  data[ 64 ] = (uchar)'X';
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, data, sizeof(data), FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_log_private_boot( &argc, &argv );
   test_vote_txn_oob();
   test_txn_v1_match();
+  test_votor_tls_cv();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

@@ -185,14 +185,15 @@ unprivileged_init( fd_topo_t const *      topo,
 #define FD_SET_IDENTITY_STATE_REPLAY_HALTED            (3UL)
 
 /* State 4: TOWER_HALT_REQUESTED
-     Tower has been requested to consume replay_out through Replay's
-     pause sequence, stop producing new vote transactions, drain its
-     local publish queue, and switch identity. */
+     The active consensus tile (Tower or Votor) has been requested to
+     consume replay_out through Replay's pause sequence, stop producing
+     new votes, drain its local publish queue, and switch identity. */
 #define FD_SET_IDENTITY_STATE_TOWER_HALT_REQUESTED     (4UL)
 
 /* State 5: TOWER_HALTED
-     Tower has drained its pre-switch publish queue, switched identity,
-     and reported the sequence after the final drained message. */
+     The active consensus tile has drained its pre-switch publish queue
+     and switched identity.  Tower additionally reports the sequence
+     after the final drained vote transaction. */
 #define FD_SET_IDENTITY_STATE_TOWER_HALTED             (5UL)
 
 /* State 6: TXSEND_FLUSH_REQUESTED
@@ -209,7 +210,7 @@ unprivileged_init( fd_topo_t const *      topo,
 #define FD_SET_IDENTITY_STATE_TXSEND_FLUSHED           (7UL)
 
 /* State 8: SIGNERS_HALT_REQUESTED
-     Repair, Gossip, Bundle, and Rserve will stop sending requests
+     Repair/Rotor, Gossip, Bundle, and Rserve will stop sending requests
      downstream to the sign tile.  This is done to avoid any mismatches
      with the identity key.  Their identity keys will be switched during
      this step, except for Gossip, which switches during
@@ -234,8 +235,9 @@ unprivileged_init( fd_topo_t const *      topo,
 #define FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED   (8UL)
 
 /* State 9: SIGNERS_HALTED
-     Repair, Gossip, Bundle, and Rserve are no longer sending requests
-     to the sign tile.  Tower and TxSend remain halted. */
+     Repair/Rotor, Gossip, Bundle, and Rserve are no longer sending
+     requests to the sign tile.  The consensus tile and TxSend remain
+     halted. */
 #define FD_SET_IDENTITY_STATE_SIGNERS_HALTED           (9UL)
 
 /* State 10: ALL_SWITCH_REQUESTED
@@ -265,15 +267,15 @@ unprivileged_init( fd_topo_t const *      topo,
 /* State 11: ALL_SWITCHED
      All remaining tiles that use the identity key have confirmed that
      they have switched to the new key.  Gossip has not yet updated its
-     identity key.  Repair, Gossip, Tower, TxSend, Bundle, and Rserve
-     remain halted. */
+     identity key.  Repair/Rotor, Gossip, the consensus tile, TxSend,
+     Bundle, and Rserve remain halted. */
 #define FD_SET_IDENTITY_STATE_ALL_SWITCHED             (11UL)
 
 /* State 12: SIGNERS_UNHALT_REQUESTED
      Now that the sign tile is using the switched identity key, the
      halted signers can be unhalted.  Gossip switches its identity key
      during this step.  These are the same tiles from
-     SIGNERS_HALT_REQUESTED, along with Tower and TxSend. */
+     SIGNERS_HALT_REQUESTED, along with the consensus tile and TxSend. */
 #define FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED (12UL)
 
 /* State 13: SIGNERS_UNHALTED
@@ -346,33 +348,36 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
     }
     case FD_SET_IDENTITY_STATE_REPLAY_HALTED: {
       fd_keyswitch_t * replay = find_identity_keyswitch( ctx, "replay" );
-      fd_keyswitch_t * tower = find_identity_keyswitch( ctx, "tower" );
-      tower->param = replay->result;
-      memcpy( tower->bytes, keypair+32UL, 32UL );
+      char const * consensus_name = fd_topo_find_tile( ctx->topo, "tower", 0UL )!=ULONG_MAX ? "tower" : "votor";
+      fd_keyswitch_t * consensus = find_identity_keyswitch( ctx, consensus_name );
+      consensus->param = replay->result;
+      memcpy( consensus->bytes, keypair+32UL, 32UL );
       FD_COMPILER_MFENCE();
-      tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      consensus->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
 
       *state = FD_SET_IDENTITY_STATE_TOWER_HALT_REQUESTED;
-      FD_LOG_INFO(( "Pausing Tower and draining queued messages..." ));
+      FD_LOG_INFO(( "Pausing %s and draining queued messages...", consensus_name ));
       break;
     }
     case FD_SET_IDENTITY_STATE_TOWER_HALT_REQUESTED: {
-      fd_keyswitch_t * tower = find_identity_keyswitch( ctx, "tower" );
-      if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        fd_memzero_explicit( tower->bytes, 64UL );
+      char const * consensus_name = fd_topo_find_tile( ctx->topo, "tower", 0UL )!=ULONG_MAX ? "tower" : "votor";
+      fd_keyswitch_t * consensus = find_identity_keyswitch( ctx, consensus_name );
+      if( FD_LIKELY( consensus->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        fd_memzero_explicit( consensus->bytes, 64UL );
         FD_COMPILER_MFENCE();
         *state = FD_SET_IDENTITY_STATE_TOWER_HALTED;
-        FD_LOG_INFO(( "Tower successfully paused..." ));
-      } else if( FD_UNLIKELY( tower->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+        FD_LOG_INFO(( "%s successfully paused...", consensus_name ));
+      } else if( FD_UNLIKELY( consensus->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
         FD_SPIN_PAUSE();
       } else {
-        FD_LOG_ERR(( "Unexpected tower keyswitch state %lu", tower->state ));
+        FD_LOG_ERR(( "Unexpected %s keyswitch state %lu", consensus_name, consensus->state ));
       }
       break;
     }
     case FD_SET_IDENTITY_STATE_TOWER_HALTED: {
-      ulong tower_halted_seq = find_identity_keyswitch( ctx, "tower" )->result;
+      ulong tower_idx = fd_topo_find_tile( topo, "tower", 0UL );
+      ulong tower_halted_seq = tower_idx==ULONG_MAX ? 0UL : find_identity_keyswitch( ctx, "tower" )->result;
       fd_keyswitch_t * txsend = find_identity_keyswitch( ctx, "txsend" );
       txsend->param = tower_halted_seq;
       memcpy( txsend->bytes, keypair+32UL, 32UL );
@@ -403,6 +408,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
+            strcmp( tile->name, "rotor"  ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) ) {
@@ -426,6 +432,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
+            strcmp( tile->name, "rotor"  ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) ) {
@@ -465,9 +472,11 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( FD_LIKELY( !strcmp( tile->name, "sign" ) ||
                        !strcmp( tile->name, "replay" ) ||
                        !strcmp( tile->name, "repair" ) ||
+                       !strcmp( tile->name, "rotor"  ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
                        !strcmp( tile->name, "tower" ) ||
+                       !strcmp( tile->name, "votor" ) ||
                        !strcmp( tile->name, "bundle" ) ||
                        !strcmp( tile->name, "rserve" ) ) ) continue;
 
@@ -490,9 +499,11 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( tile->name, "replay" ) ||
                        !strcmp( tile->name, "repair" ) ||
+                       !strcmp( tile->name, "rotor"  ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
                        !strcmp( tile->name, "tower" ) ||
+                       !strcmp( tile->name, "votor" ) ||
                        !strcmp( tile->name, "bundle" ) ||
                        !strcmp( tile->name, "rserve" ) ) ) continue;
 
@@ -525,8 +536,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
+            strcmp( tile->name, "rotor"  ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, "votor" ) &&
             strcmp( tile->name, "txsend" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) ) {
@@ -549,8 +562,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
+            strcmp( tile->name, "rotor"  ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, "votor" ) &&
             strcmp( tile->name, "txsend" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) ) {

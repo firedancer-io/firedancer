@@ -385,6 +385,33 @@ test_prunes_to_finalized_window( void ) {
   teardown_votor( votor );
 }
 
+static void
+test_set_identity_discards_pending_votes( void ) {
+  ag_votor_t *  votor  = setup_votor( 0L );
+  ag_block_id_t parent = genesis_block_id();
+
+  ag_event_block_t first_shred = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = 1UL };
+  ag_votor_handle_block_event( votor, &first_shred );
+
+  ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = 1UL };
+  random_hash( block.block_info.hash );
+  block.block_info.parent = parent;
+  ag_votor_handle_replay_event( votor, &block );
+
+  ag_votor_set_identity( votor, USHORT_MAX, USHORT_MAX );
+
+  FD_TEST( votor->curr_epoch_rank==USHORT_MAX );
+  FD_TEST( votor->next_epoch_rank==USHORT_MAX );
+  slot_state_ele_t const * state = slot_state_map_ele_query_const( votor->slot_states->map, &block.slot, NULL, votor->slot_states->pool );
+  FD_TEST( state );
+  FD_TEST( !state->voted );
+  FD_TEST( !state->voted_notar );
+  FD_TEST( !state->retired );
+  FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -397,6 +424,7 @@ main( int     argc,
   test_safe_to_notar();
   test_safe_to_skip();
   test_prunes_to_finalized_window();
+  test_set_identity_discards_pending_votes();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

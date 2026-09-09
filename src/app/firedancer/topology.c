@@ -14,6 +14,7 @@
 #include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/store/fd_store.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../discof/repair/fd_repair_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/backup/fd_backup.h"
@@ -394,6 +395,11 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "txsend_sign"   );
   fd_topob_wksp( topo, "sign_txsend"   );
 
+  if( alpenglow_enabled ) {
+    fd_topob_wksp( topo, "votor_sign" );
+    fd_topob_wksp( topo, "sign_votor" );
+  }
+
   fd_topob_wksp( topo, "execrp_replay" );
   fd_topob_wksp( topo, "admin_replay"  );
 
@@ -514,6 +520,11 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU_V0,                 1UL ); /* TODO: Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
+
+  if( alpenglow_enabled ) {
+    /**/               fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,      1UL );
+    /**/               fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
+  }
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    FD_SHRED_STEM_BURST );
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    shred_depth,                              sizeof(fd_repair_fec_complete_t), 1UL );
@@ -929,6 +940,13 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "sign_txsend",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_txsend",  0UL                                                  );
+
+  if( alpenglow_enabled ) {
+    /**/               fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "votor_sign",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out(   topo, "votor",   0UL,                       "votor_sign",   0UL                                                  );
+    /**/               fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "sign_votor",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_votor",   0UL                                                  );
+  }
 
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_link( topo, "rpc_replay", "rpc_replay", 8UL, 0UL, 1UL );

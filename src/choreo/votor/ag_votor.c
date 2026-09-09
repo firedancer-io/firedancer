@@ -265,6 +265,30 @@ ag_votor_advance_epoch( ag_votor_t * self,
 }
 
 void
+ag_votor_set_identity( ag_votor_t * self,
+                       ulong        curr_epoch_rank,
+                       ulong        next_epoch_rank ) {
+  self->curr_epoch_rank = curr_epoch_rank;
+  self->next_epoch_rank = next_epoch_rank;
+
+  vote_events_remove_all( self->vote_events );
+
+  slot_state_map_t * map  = self->slot_states->map;
+  slot_state_ele_t * pool = self->slot_states->pool;
+  for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
+                                   !slot_state_map_iter_done( iter, map, pool );
+                              iter = slot_state_map_iter_next( iter, map, pool ) ) {
+    slot_state_ele_t * state = slot_state_map_iter_ele( iter, map, pool );
+    int finalized            = state->slot<=self->highest_final_cert_slot;
+    state->voted              = finalized;
+    state->voted_notar        = finalized;
+    fd_memset( state->voted_notar_hash, 0, sizeof(ag_block_hash_t) );
+    state->bad_window         = 0;
+    state->retired            = finalized;
+  }
+}
+
+void
 ag_votor_set_bls_key( ag_votor_t *         self,
                       ag_bls_sec_t const * bls_key ) {
   FD_TEST( bls_key );

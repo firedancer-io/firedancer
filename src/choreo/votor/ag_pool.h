@@ -54,6 +54,13 @@ ag_pool_advance_epoch( ag_pool_t *             self,
                        ulong                   epoch_rank,
                        ulong                   epoch_slot );
 
+/* Updates the local validator rank without advancing an epoch. */
+
+void
+ag_pool_set_identity( ag_pool_t * self,
+                      ulong       curr_epoch_rank,
+                      ulong       next_epoch_rank );
+
 int
 ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert );
