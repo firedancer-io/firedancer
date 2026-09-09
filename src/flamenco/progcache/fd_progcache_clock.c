@@ -67,18 +67,35 @@ evict_inner( fd_progcache_join_t *    join,
         continue;
       }
 
-      /* We skip records still attached to a fork.
-         This is a policy / implementation choice, not a correctness requirement,
-         and allows us to evict avoiding locks on the fork graph.
-         Worst case the class is all unrooted and we spill, but in practice
-         records that are still attached to a fork are the newest fills, so
-         CLOCK would likely skip them anyway. */
-      if( FD_UNLIKELY( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )!=UINT_MAX ) ) continue;
-
-      fd_racesan_hook( "prog_clock_evict:pre_delete" );
-      long res = fd_prog_delete_rec_claim( join, rec, &pair );
-      fd_racesan_hook( "prog_clock_evict:post_delete" );
-      if( FD_UNLIKELY( res<0L ) ) continue;
+      /* An attached record is on its fork's list: claim it under the fork lock,
+         or skip it when eviction is rooted-only. */
+      uint owner_idx = atomic_load_explicit( &rec->txn_idx, memory_order_relaxed );
+      if( FD_UNLIKELY( owner_idx!=UINT_MAX ) ) {
+#if FD_PROGCACHE_EVICT_UNROOTED
+        /* Lock order matches fd_progcache_push: txn.rwlock -> txn->lock -> chain -> rec.lock. */
+        if( FD_UNLIKELY( (ulong)owner_idx>=shmem->txn.max ) ) continue;
+        fd_racesan_hook( "prog_clock_evict:pre_fork_lock" );
+        fd_rwlock_read( &shmem->txn.rwlock );
+        fd_progcache_txn_t * owner = &join->txn.pool[ owner_idx ];
+        if( FD_UNLIKELY( !fd_rwlock_trywrite( &owner->lock ) ) ) {
+          fd_rwlock_unread( &shmem->txn.rwlock );
+          continue;
+        }
+        fd_racesan_hook( "prog_clock_evict:pre_delete" );
+        long res = fd_prog_delete_rec_claim_txn( join, rec, &pair, owner );
+        fd_racesan_hook( "prog_clock_evict:post_delete" );
+        fd_rwlock_unwrite( &owner->lock );
+        fd_rwlock_unread( &shmem->txn.rwlock );
+        if( FD_UNLIKELY( res<0L ) ) continue;
+#else
+        continue;
+#endif
+      } else {
+        fd_racesan_hook( "prog_clock_evict:pre_delete" );
+        long res = fd_prog_delete_rec_claim( join, rec, &pair );
+        fd_racesan_hook( "prog_clock_evict:post_delete" );
+        if( FD_UNLIKELY( res<0L ) ) continue;
+      }
       /* Write locked by the claim; fall through to fd_progcache_rec_reinit */
     }
 

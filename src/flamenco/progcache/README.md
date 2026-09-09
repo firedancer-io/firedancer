@@ -171,8 +171,12 @@ Progcache uses the CLOCK cache replacement policy, independently per
 size class.  Any thread that inserts records also runs cache replacement.
 
 Eviction runs concurrently with rooting and fork cancellation.
-Only records detached from the fork graph (rooted) are taken.
-A record with active readers is never taken either: the sweep steps over it.
+By default (`FD_PROGCACHE_EVICT_UNROOTED=1`) a record still attached to a
+live fork is a victim too: the sweep freezes its fork, splices it out of the
+fork's record list and claims it under that lock.  Built with
+`FD_PROGCACHE_EVICT_UNROOTED=0`, only records detached from the fork graph
+(rooted) are taken.
+A record with active readers is never taken: the sweep steps over it.
 A zombie encountered by the sweep is handed over directly as its content is
 already dead, so no live record needs to die for that slot.
 
@@ -218,8 +222,9 @@ allocator reserves a slot in the smallest class that fits the program
 size.
 
 If all slots are taken, the allocator attempts an eviction, i.e. finds
-a rooted record that is not read-locked and not recently used, removes
-it from the map, and hands its slot to the new program.
+a record that is not read-locked and not recently used (attached to a live
+fork or rooted; rooted only when built with `FD_PROGCACHE_EVICT_UNROOTED=0`),
+removes it from the map, and hands its slot to the new program.
 
 In the (rare) event in which all slots are read-locked and eviction
 can't happen, the process spins until it can either reclaim a slot
