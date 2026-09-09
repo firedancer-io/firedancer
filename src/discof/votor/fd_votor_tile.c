@@ -5,6 +5,8 @@
 #include "../../choreo/votor/ag_pool.h"
 #include "../../choreo/votor/ag_vote_serde.h"
 #include "../../choreo/votor/ag_votor.h"
+#include "../../disco/keyguard/fd_keyguard.h"
+#include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/stem/fd_stem.h"
@@ -23,6 +25,7 @@
 #define IN_KIND_IPECHO (2)
 #define IN_KIND_NET    (3)
 #define IN_KIND_REPLAY (4)
+#define IN_KIND_SIGN   (5)
 
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
@@ -147,11 +150,10 @@ struct fd_votor_tile {
 
   /* Metadata */
 
-  uchar const * identity_keypair; /* FIXME keyguard */
-  fd_pubkey_t   id_key;
-  ag_bls_sec_t  bls_key;
-  uchar         sha512[ FD_SHA512_FOOTPRINT ] __attribute__((aligned(FD_SHA512_ALIGN)));
-  ushort        shred_version;
+  fd_pubkey_t          id_key;
+  fd_keyguard_client_t keyguard_client[1];
+  ag_bls_sec_t         bls_key; /* FIXME keyguard */
+  ushort               shred_version;
 
   /* Data */
 
@@ -291,7 +293,10 @@ quic_client_conn_hs_complete( fd_quic_conn_t * conn,
 
   if( FD_LIKELY( !conn->tls_hs || memcmp( conn->tls_hs->hs.cli.server_pubkey, id_key->uc, sizeof(fd_pubkey_t) ) ) ) {
     fd_quic_conn_close( conn, CLOSE_CODE_INVALID_IDENTITY );
+    return;
   }
+  FD_BASE58_ENCODE_32_BYTES( id_key->uc, id_key_b58 );
+  FD_LOG_INFO(( "votor quic client connection to %s established", id_key_b58 ));
 }
 
 static void
@@ -338,6 +343,8 @@ quic_server_conn_new( fd_quic_conn_t * conn,
   }
   ctx->server_peer_id_keys[ conn->conn_idx ] = *id_key;
   fd_quic_conn_set_context( conn, &ctx->server_peer_id_keys[ conn->conn_idx ] );
+  FD_BASE58_ENCODE_32_BYTES( id_key->uc, id_key_b58 );
+  FD_LOG_INFO(( "votor quic server accepted connection from %s", id_key_b58 ));
 }
 
 static void
@@ -402,10 +409,7 @@ quic_sign( void *      signer_ctx,
            uchar       signature[ static 64 ],
            uchar const payload[ static 130 ] ) {
   fd_votor_tile_t * ctx = signer_ctx;
-
-  fd_sha512_t * sha = fd_sha512_join( ctx->sha512 );
-  fd_ed25519_sign( signature, payload, 130UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha ); /* TODO keyguard */
-  fd_sha512_leave( sha );
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static void
@@ -992,17 +996,23 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !strcmp( tile->votor.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_keypair = fd_keyload_load( tile->votor.identity_key_path, 0 );
-  memcpy( ctx->id_key.uc, ctx->identity_keypair+32UL, sizeof(fd_pubkey_t) );
+  /* The identity private key is only needed transiently to derive the
+     BLS voting key.  All ed25519 signing (QUIC TLS) goes through the
+     sign tile via the keyguard client, so unload the keypair as soon as
+     the derivation is done.  FIXME the BLS key derivation and signing
+     should also move to the sign tile. */
+  uchar const * identity_keypair = fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 0 );
+  memcpy( ctx->id_key.uc, identity_keypair+32UL, sizeof(fd_pubkey_t) );
 
   char const derive_msg[] = "bls-key-derive-alpenglow";
   uchar         ikm[ 64 ];
   fd_sha512_t   _sha[ 1 ];
   fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
-  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha );
+  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, identity_keypair+32UL, identity_keypair, sha );
   fd_sha512_leave( sha );
   ag_bls_sec_derive( &ctx->bls_key, ikm, sizeof(ikm) );
   fd_memzero_explicit( ikm, sizeof(ikm) );
+  fd_keyload_unload( identity_keypair, /* pubkey only: */ 0 );
 
   fd_log_wallclock();
 }
@@ -1031,8 +1041,6 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->shred_version = (ushort)0;
-
-  FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
 
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
@@ -1102,6 +1110,7 @@ unprivileged_init( fd_topo_t const *      topo,
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     }
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_votor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( link->mtu ) ) {
@@ -1126,6 +1135,21 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
+
+  ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_votor", tile->kind_id );
+  ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_sign", tile->kind_id );
+  FD_TEST( sign_in_idx !=ULONG_MAX );
+  FD_TEST( sign_out_idx!=ULONG_MAX );
+  fd_topo_link_t const * sign_in  = &topo->links[ tile->in_link_id [ sign_in_idx  ] ];
+  fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+  if( FD_UNLIKELY( !fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                                     sign_out->mcache,
+                                                                     sign_out->dcache,
+                                                                     sign_in->mcache,
+                                                                     sign_in->dcache,
+                                                                     sign_out->mtu ) ) ) ) {
+    FD_LOG_ERR(( "failed to construct keyguard client" ));
+  }
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );

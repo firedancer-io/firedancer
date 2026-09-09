@@ -12,7 +12,7 @@ char const fd_tls13_cli_sign_prefix[ 98 ] =
   "                                "  /* 32 spaces */
   "TLS 1.3, client CertificateVerify";
 
-static char const fd_tls13_srv_sign_prefix[ 98 ] =
+char const fd_tls13_srv_sign_prefix[ 98 ] =
   "                                "  /* 32 spaces */
   "                                "  /* 32 spaces */
   "TLS 1.3, server CertificateVerify";
