@@ -138,6 +138,10 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  snapshots.server.send_timeout_millis                );
   CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
+  CFG_POP      ( bool,   failover.enabled                                    );
+  CFG_POP      ( cstr,   failover.listen_address                             );
+  CFG_POP      ( ushort, failover.listen_port                                );
+
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
 
