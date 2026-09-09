@@ -34,6 +34,11 @@ static char const cfg_str_vote_history[] =
   "  write_vote_history_file = false\n"
   "[tiles.votor]\n"
   "  write_vote_history_file = true";
+static char const cfg_str_failover[] =
+  "[failover]\n"
+  "  enabled = true\n"
+  "  listen_address = \"10.0.0.1\"\n"
+  "  listen_port = 9010";
 
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
@@ -68,6 +73,34 @@ vote_history_path_is_valid( char const * path ) {
     uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
     FD_TEST( fd_toml_parse( toml, strlen( toml ), pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
     _exit( fd_config_extract_pod( pod, config )!=config ); /* exits 1 on an invalid path */
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
+/* Validates the config with the given failover knobs in a child, so the
+   FD_LOG_ERR paths can be checked. */
+
+static int
+failover_is_valid( config_t *   config,
+                   int          enabled,
+                   char const * listen_address,
+                   ushort       listen_port,
+                   char const * vote_account,
+                   int          alpenglow ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    config->firedancer.development.genesis.max_file_size_mib = 4055UL;
+    config->firedancer.consensus.alpenglow                   = alpenglow;
+    config->firedancer.failover.enabled                      = enabled;
+    config->firedancer.failover.listen_port                  = listen_port;
+    fd_cstr_ncpy( config->firedancer.failover.listen_address, listen_address, sizeof(config->firedancer.failover.listen_address) );
+    fd_cstr_ncpy( config->paths.vote_account, vote_account, sizeof(config->paths.vote_account) );
+    fd_config_validate( config );
+    _exit( 0 );
   }
 
   int status = 0;
@@ -182,6 +215,14 @@ main( int     argc,
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
 
+  FD_TEST(  failover_is_valid( config, 1, "0.0.0.0",   8010, "vote.json", 0 ) );
+  FD_TEST(  failover_is_valid( config, 1, "10.0.0.1",  8010, "vote.json", 0 ) );
+  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   0,    "vote.json", 0 ) );
+  FD_TEST( !failover_is_valid( config, 1, "localhost", 8010, "vote.json", 0 ) );
+  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   8010, "",          0 ) );
+  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   8010, "vote.json", 1 ) );
+  FD_TEST(  failover_is_valid( config, 0, "",          0,    "",          1 ) );
+
   /* Ensure we can selectively override a field */
 
   config->gossip.port = 9191;
@@ -233,6 +274,17 @@ main( int     argc,
   FD_TEST(  vote_history_path_is_valid( "/data/vote_history" ) );
   FD_TEST(  vote_history_path_is_valid( "/data/"             ) );
   FD_TEST( !vote_history_path_is_valid( "data/vote_history"  ) ); /* relative */
+
+  /* Parse the failover knobs */
+
+  fd_memset( config, 0, sizeof(config_t) );
+  config->is_firedancer = 1;
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_failover, sizeof(cfg_str_failover)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( fd_config_extract_pod( pod, config ) == config );
+  FD_TEST( config->firedancer.failover.enabled );
+  FD_TEST( !strcmp( config->firedancer.failover.listen_address, "10.0.0.1" ) );
+  FD_TEST( config->firedancer.failover.listen_port==9010 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
