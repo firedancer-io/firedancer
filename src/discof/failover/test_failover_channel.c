@@ -244,6 +244,12 @@ main( int     argc,
   PUMP_UNTIL( a, b, PAIRED( a ) && PAIRED( b ) );
   FD_LOG_NOTICE(( "pass: logical role changes" ));
 
+  ulong wire_fatal_cnt = fd_failover_channel_metrics( a )->wire_fatal_cnt;
+  fd_failover_channel_protocol_error( a, fd_log_wallclock() );
+  FD_TEST( fd_failover_channel_state( a )==FD_FAILOVER_SESSION_LISTENING );
+  FD_TEST( fd_failover_channel_metrics( a )->wire_fatal_cnt==wire_fatal_cnt+1UL );
+  PUMP_UNTIL( a, b, PAIRED( a ) && PAIRED( b ) );
+
   /* A local encoding failure drops and reconnects the session. */
   FD_TEST( fd_failover_channel_send( a, fd_log_wallclock(),
                                      (ushort)FD_FAILOVER_MSG_STATUS,

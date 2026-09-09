@@ -85,6 +85,19 @@ test_de_attacker( void ) {
       FD_TEST( serde->lockouts_cnt==3 );
       FD_TEST( serde->timestamp==1234567890L );
     }
+
+    buf[ sz ] = 0U;
+    FD_TEST( !fd_compact_tower_sync_de( serde, buf, sz+1UL ) );
+    FD_TEST( fd_compact_tower_sync_de_exact( serde, buf, sz+1UL )==-1 );
+
+    uchar bounded[ 512 ];
+    memset( bounded, 0xA5, sizeof(bounded) );
+    for( ulong cap=0UL; cap<sz; cap++ ) {
+      ulong out_sz = ULONG_MAX;
+      FD_TEST( fd_compact_tower_sync_ser( serde, bounded, cap, &out_sz )==-1 );
+      for( ulong i=cap; i<sizeof(bounded); i++ ) FD_TEST( bounded[ i ]==0xA5U );
+      memset( bounded, 0xA5, sizeof(bounded) );
+    }
   }
 
   /* Sanity: zero lockouts is valid. */
@@ -299,6 +312,78 @@ test_de_attacker( void ) {
   FD_LOG_NOTICE(( "pass: test_de_attacker" ));
 }
 
+static void
+test_compact_to_votes( void ) {
+  fd_compact_tower_sync_serde_t in;
+  memset( &in, 0, sizeof(in) );
+  in.root         = 100UL;
+  in.lockouts_cnt = 3;
+  in.lockouts[ 0 ] = ( __typeof__(in.lockouts[0]) ){ .offset=5UL, .confirmation_count=3 };
+  in.lockouts[ 1 ] = ( __typeof__(in.lockouts[0]) ){ .offset=2UL, .confirmation_count=2 };
+  in.lockouts[ 2 ] = ( __typeof__(in.lockouts[0]) ){ .offset=4UL, .confirmation_count=1 };
+  in.timestamp_option = 1;
+
+  uchar buf[ 512 ];
+  ulong sz = 0UL;
+  FD_TEST( !fd_compact_tower_sync_ser( &in, buf, sizeof(buf), &sz ) );
+
+  fd_compact_tower_sync_serde_t out;
+  FD_TEST( !fd_compact_tower_sync_de( &out, buf, sz ) );
+
+  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+  ulong cnt;
+  ulong root;
+  FD_TEST( !fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root ) );
+  FD_TEST( root==100UL && cnt==3UL );
+  FD_TEST( votes[ 0 ].slot==105UL && votes[ 0 ].conf==3UL );
+  FD_TEST( votes[ 1 ].slot==107UL && votes[ 1 ].conf==2UL );
+  FD_TEST( votes[ 2 ].slot==111UL && votes[ 2 ].conf==1UL );
+
+  fd_memset( votes, 0xA5, sizeof(votes) );
+  fd_tower_vote_t first = votes[ 0 ];
+  cnt  = 99UL;
+  root = 99UL;
+  out.lockouts[ 1 ].offset = 0UL;
+  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
+  FD_TEST( cnt==99UL && root==99UL && !memcmp( &votes[ 0 ], &first, sizeof(first) ) );
+  out.lockouts[ 1 ].offset = 2UL;
+  out.lockouts[ 0 ].confirmation_count = FD_TOWER_VOTE_MAX+1U;
+  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
+  out.lockouts[ 0 ].confirmation_count = 3U;
+  out.lockouts[ 1 ].confirmation_count = 3U;
+  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
+  out.lockouts[ 1 ].confirmation_count = 2U;
+  out.lockouts[ 2 ].confirmation_count = 0U;
+  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
+  out.lockouts[ 2 ].confirmation_count = 1U;
+  out.lockouts[ 2 ].offset = 5UL;
+  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
+  out.lockouts[ 1 ].offset = 7UL;
+  out.lockouts[ 2 ].offset = 2UL;
+  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
+  out.lockouts[ 1 ].offset = 2UL;
+  out.lockouts[ 2 ].offset = 4UL;
+  out.root = ULONG_MAX-4UL;
+  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
+
+  out.root = ULONG_MAX;
+  out.lockouts[ 0 ].offset = 0UL;
+  FD_TEST( !fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root ) );
+  FD_TEST( root==ULONG_MAX && cnt==3UL );
+  FD_TEST( votes[ 0 ].slot==0UL && votes[ 1 ].slot==2UL && votes[ 2 ].slot==6UL );
+
+  out.root = 1UL;
+  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
+
+  out.root = 0UL;
+  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
+
+  in.timestamp_option = 2U;
+  FD_TEST( fd_compact_tower_sync_ser( &in, buf, sizeof(buf), &sz )==-1 );
+
+  FD_LOG_NOTICE(( "pass: test_compact_to_votes" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -308,6 +393,7 @@ main( int     argc,
   test_voter_v3();
   test_voter_v4();
   test_de_attacker();
+  test_compact_to_votes();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

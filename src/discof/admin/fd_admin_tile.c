@@ -6,6 +6,10 @@
 
 #include "fd_adminctl.h"
 #include "../failover/fd_failover_channel.h"
+#include "../failover/fd_failover_stream.h"
+#include "../tower/fd_tower_tile.h"
+#include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../ballet/txn/fd_txn.h"
 
 #include <sys/socket.h>
 
@@ -34,12 +38,39 @@ struct fd_admin_tile_ctx {
   uchar                   failover_secret[ 32 ];
   fd_failover_hello_t     failover_hello;
   fd_failover_status_t    failover_peer_status;
+  int                     failover_peer_status_valid;
+  long                    failover_peer_status_time;
+  ulong                   failover_channel_state;
   long                    failover_status_interval;
+  ulong                   failover_replication_lag_limit;
   long                    failover_last_status;
+  int                     failover_status_sent; /* sent in this session */
   long                    failover_rtt_nanos;
   long                    failover_rtt_probe_time;
   ulong                   failover_rtt_probe_seq;
   uchar                   failover_rx[ FD_FAILOVER_PAYLOAD_MAX ];
+
+  ulong       tower_in_idx;
+  fd_wksp_t * tower_in_mem;
+  ulong       tower_in_chunk0;
+  ulong       tower_in_wmark;
+
+  fd_tower_slot_done_t failover_slot_done;
+  ulong                failover_slot_done_seq;
+  int                  failover_slot_done_fresh;
+
+  ulong failover_replay_slot;
+  ulong failover_root_slot;
+  ulong failover_last_vote_slot;
+
+  fd_failover_consensus_cache_t failover_consensus;
+  ulong                         failover_lag_slots;
+
+  /* Latest locally produced tower and its delivery state. */
+  uchar failover_cs_buf[ sizeof(fd_failover_consensus_state_t)+FD_FAILOVER_TOWER_STATE_MAX ];
+  ulong failover_cs_sz;
+  int   failover_cs_valid;
+  int   failover_cs_sent;
 
   ulong replay_out_idx;           /* admin_replay stem out index */
   ulong snap_create_slot_idx;     /* adminctl slot of snapshot-create command */
@@ -147,6 +178,16 @@ privileged_init( fd_topo_t const *      topo,
 
   fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
 
+  ctx->failover_replay_slot    = FD_FAILOVER_SLOT_NULL;
+  ctx->failover_root_slot      = FD_FAILOVER_SLOT_NULL;
+  ctx->failover_last_vote_slot = FD_FAILOVER_SLOT_NULL;
+  ctx->failover_lag_slots      = FD_FAILOVER_SLOT_NULL;
+  ctx->failover_peer_status.replay_slot      = FD_FAILOVER_SLOT_NULL;
+  ctx->failover_peer_status.turbine_slot     = FD_FAILOVER_SLOT_NULL;
+  ctx->failover_peer_status.last_vote_slot   = FD_FAILOVER_SLOT_NULL;
+  ctx->failover_peer_status.root_slot        = FD_FAILOVER_SLOT_NULL;
+  ctx->failover_peer_status.next_leader_slot = FD_FAILOVER_SLOT_NULL;
+
   ctx->failover_enabled = tile->admin.failover_enabled;
   if( FD_UNLIKELY( ctx->failover_enabled ) ) {
     void * ch_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_failover_channel_align(), fd_failover_channel_footprint() );
@@ -201,11 +242,18 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "admin_replay", 0UL );
 
+  ctx->tower_in_idx = ULONG_MAX;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
-    if( FD_UNLIKELY( strcmp( link->name, "replay_admin" ) ) ) {
-      FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+    if( FD_LIKELY( !strcmp( link->name, "replay_admin" ) ) ) continue;
+    if( FD_LIKELY( !strcmp( link->name, "tower_out" ) ) ) {
+      ctx->tower_in_idx    = i;
+      ctx->tower_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->tower_in_chunk0 = fd_dcache_compact_chunk0( ctx->tower_in_mem, link->dcache );
+      ctx->tower_in_wmark  = fd_dcache_compact_wmark( ctx->tower_in_mem, link->dcache, link->mtu );
+      continue;
     }
+    FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
   ulong tower_idx = fd_topo_find_tile( topo, "tower", 0UL );
@@ -248,6 +296,8 @@ unprivileged_init( fd_topo_t const *      topo,
       fd_failover_channel_init_dialer( ctx->failover, tile->admin.failover_peer_addr, tile->admin.failover_peer_port );
     }
     ctx->failover_status_interval = failover_duration_nanos( tile->admin.failover_status_interval_millis, 1000000UL );
+    ctx->failover_replication_lag_limit = tile->admin.failover_replication_lag_slots;
+    ctx->failover_channel_state = fd_failover_channel_state( ctx->failover );
   }
 }
 
@@ -1336,19 +1386,105 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
+static void
+failover_update_lag( fd_admin_tile_ctx_t * ctx ) {
+  ctx->failover_lag_slots = fd_failover_replication_lag( ctx->failover_peer_status_valid,
+                                                         &ctx->failover_peer_status,
+                                                         fd_failover_channel_peer_hello( ctx->failover )->boot_id,
+                                                         &ctx->failover_consensus );
+}
+
+static void
+failover_sync_channel_state( fd_admin_tile_ctx_t * ctx ) {
+  ulong state = fd_failover_channel_state( ctx->failover );
+  if( FD_LIKELY( state==ctx->failover_channel_state ) ) return;
+
+  ctx->failover_channel_state      = state;
+  ctx->failover_peer_status_valid  = 0;
+  ctx->failover_peer_status_time   = 0L;
+  ctx->failover_rtt_probe_time     = 0L;
+  if( FD_UNLIKELY( state==FD_FAILOVER_SESSION_PAIRED ) ) {
+    ctx->failover_status_sent = 0;
+    ctx->failover_cs_sent     = 0;
+  }
+  failover_update_lag( ctx );
+}
+
+static void
+failover_prepare_consensus( fd_admin_tile_ctx_t *       ctx,
+                            fd_tower_slot_done_t const * done ) {
+  if( FD_UNLIKELY( !done->vote_txn_sz || done->vote_txn_sz>sizeof(done->vote_txn) ) ) {
+    FD_LOG_WARNING(( "tower produced an invalid vote transaction size" ));
+    return;
+  }
+
+  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  fd_compact_tower_sync_serde_t serde;
+  if( FD_UNLIKELY( !fd_txn_parse( done->vote_txn, done->vote_txn_sz, txn_mem, NULL ) ||
+                   !fd_txn_parse_simple_vote( (fd_txn_t const *)txn_mem, done->vote_txn, &serde ) ) ) {
+    FD_LOG_WARNING(( "tower produced an invalid vote transaction" ));
+    return;
+  }
+
+  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+  ulong vote_cnt;
+  ulong root;
+  if( FD_UNLIKELY( fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ||
+                   !vote_cnt || votes[ vote_cnt-1UL ].slot!=done->vote_slot ) ) {
+    FD_LOG_WARNING(( "tower vote transaction does not match its slot metadata" ));
+    return;
+  }
+
+  ulong state_sz = 0UL;
+  if( FD_UNLIKELY( fd_compact_tower_sync_ser( &serde,
+                                              ctx->failover_cs_buf+sizeof(fd_failover_consensus_state_t),
+                                              FD_FAILOVER_TOWER_STATE_MAX,
+                                              &state_sz ) ) ) {
+    FD_LOG_WARNING(( "tower vote transaction exceeds the failover state limit" ));
+    return;
+  }
+
+  fd_failover_consensus_state_t msg = {
+    .term      = ctx->failover_hello.term,
+    .link_seq  = ctx->failover_slot_done_seq,
+    .vote_slot = done->vote_slot,
+    .mode      = (uchar)FD_FAILOVER_MODE_TOWER,
+    .state_len = (ushort)state_sz,
+  };
+  fd_memcpy( ctx->failover_cs_buf, &msg, sizeof(msg) );
+  ctx->failover_cs_sz    = sizeof(msg)+state_sz;
+  ctx->failover_cs_valid = 1;
+  ctx->failover_cs_sent  = 0;
+}
+
 /* Drive the pair channel from the run loop. */
 static void
 failover_poll( fd_admin_tile_ctx_t * ctx,
                int *                 charge_busy ) {
   long now = fd_log_wallclock();
 
+  failover_sync_channel_state( ctx );
+
   ushort type;
   ulong  payload_sz;
   if( FD_UNLIKELY( fd_failover_channel_poll( ctx->failover, now, charge_busy, &type, ctx->failover_rx, &payload_sz ) ) ) {
-    if( FD_LIKELY( type==(ushort)FD_FAILOVER_MSG_STATUS && payload_sz==sizeof(fd_failover_status_t) ) ) {
-      fd_memcpy( &ctx->failover_peer_status, ctx->failover_rx, sizeof(fd_failover_status_t) );
-      if( FD_LIKELY( ctx->failover_rtt_probe_time && ctx->failover_peer_status.ack_seq!=ULONG_MAX &&
-                     fd_seq_ge( ctx->failover_peer_status.ack_seq, ctx->failover_rtt_probe_seq ) ) ) {
+    if( FD_LIKELY( type==(ushort)FD_FAILOVER_MSG_STATUS ) ) {
+      fd_failover_status_t status;
+      if( FD_UNLIKELY( !fd_failover_status_decode( &status,
+                                                   fd_failover_channel_peer_hello( ctx->failover ),
+                                                   fd_failover_channel_tx_seq( ctx->failover ),
+                                                   ctx->failover_rx,
+                                                   payload_sz ) ) ) {
+        fd_failover_channel_protocol_error( ctx->failover, now );
+        failover_sync_channel_state( ctx );
+        return;
+      }
+      ctx->failover_peer_status       = status;
+      ctx->failover_peer_status_valid = 1;
+      ctx->failover_peer_status_time  = now;
+      failover_update_lag( ctx );
+      if( FD_LIKELY( ctx->failover_rtt_probe_time && status.ack_seq!=ULONG_MAX &&
+                     fd_seq_ge( status.ack_seq, ctx->failover_rtt_probe_seq ) ) ) {
         if( FD_LIKELY( now>=ctx->failover_rtt_probe_time ) ) {
           long sample = fd_long_sat_sub( now, ctx->failover_rtt_probe_time );
           ctx->failover_rtt_nanos = ctx->failover_rtt_nanos
@@ -1357,38 +1493,80 @@ failover_poll( fd_admin_tile_ctx_t * ctx,
         }
         ctx->failover_rtt_probe_time = 0L;
       }
+    } else if( FD_LIKELY( type==(ushort)FD_FAILOVER_MSG_CONSENSUS_STATE ) ) {
+      if( FD_UNLIKELY( !fd_failover_consensus_decode( &ctx->failover_consensus,
+                                                      ctx->failover_role,
+                                                      fd_failover_channel_peer_hello( ctx->failover ),
+                                                      ctx->failover_rx,
+                                                      payload_sz ) ) ) {
+        fd_failover_channel_protocol_error( ctx->failover, now );
+        failover_sync_channel_state( ctx );
+        return;
+      }
+      failover_update_lag( ctx );
     }
   }
 
-  if( FD_LIKELY( fd_failover_channel_state( ctx->failover )!=FD_FAILOVER_SESSION_PAIRED ) ) {
-    ctx->failover_last_status    = 0L;
-    ctx->failover_rtt_probe_time = 0L;
-    return;
-  }
-  if( FD_LIKELY( fd_failover_channel_tx_pending( ctx->failover ) ||
-                 (now>=ctx->failover_last_status &&
-                  fd_long_sat_sub( now, ctx->failover_last_status )<ctx->failover_status_interval) ) ) return;
+  failover_sync_channel_state( ctx );
 
-  fd_failover_status_t status;
-  fd_memset( &status, 0, sizeof(status) );
-  status.role             = (uchar)ctx->failover_role;
-  status.replay_slot      = FD_FAILOVER_SLOT_NULL;
-  status.turbine_slot     = FD_FAILOVER_SLOT_NULL;
-  status.last_vote_slot   = FD_FAILOVER_SLOT_NULL;
-  status.root_slot        = FD_FAILOVER_SLOT_NULL;
-  status.next_leader_slot = FD_FAILOVER_SLOT_NULL;
-  status.ack_seq          = fd_failover_channel_ack_seq( ctx->failover );
+  if( FD_UNLIKELY( ctx->failover_slot_done_fresh ) ) {
+    ctx->failover_slot_done_fresh = 0;
+    fd_tower_slot_done_t const * done = &ctx->failover_slot_done;
 
-  ulong seq_before = fd_failover_channel_tx_seq( ctx->failover );
-  if( FD_LIKELY( !fd_failover_channel_send( ctx->failover, now, (ushort)FD_FAILOVER_MSG_STATUS,
-                                            (uchar const *)&status, sizeof(status) ) ) ) {
-    ctx->failover_last_status = now;
-    if( FD_LIKELY( !ctx->failover_rtt_probe_time ) ) {
-      ctx->failover_rtt_probe_seq  = seq_before;
-      ctx->failover_rtt_probe_time = now;
+    ctx->failover_replay_slot = done->replay_slot;
+    if( FD_LIKELY( done->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->failover_root_slot = done->root_slot;
+    if( FD_LIKELY( done->has_vote_txn && done->vote_slot!=FD_FAILOVER_SLOT_NULL ) ) {
+      ctx->failover_last_vote_slot = done->vote_slot;
+      if( FD_LIKELY( ctx->failover_role==FD_FAILOVER_ROLE_ACTIVE ) ) failover_prepare_consensus( ctx, done );
     }
+  }
+
+  if( FD_LIKELY( fd_failover_channel_state( ctx->failover )!=FD_FAILOVER_SESSION_PAIRED ) ) return;
+
+  int status_due = !ctx->failover_status_sent ||
+                   now<ctx->failover_last_status ||
+                   fd_long_sat_sub( now, ctx->failover_last_status )>=ctx->failover_status_interval;
+  if( FD_UNLIKELY( status_due && !fd_failover_channel_tx_pending( ctx->failover ) ) ) {
+    fd_failover_status_t status;
+    fd_memset( &status, 0, sizeof(status) );
+    status.term             = ctx->failover_hello.term;
+    status.role             = (uchar)ctx->failover_role;
+    status.replay_slot      = ctx->failover_replay_slot;
+    status.turbine_slot     = FD_FAILOVER_SLOT_NULL;
+    status.last_vote_slot   = ctx->failover_last_vote_slot;
+    status.root_slot        = ctx->failover_root_slot;
+    status.next_leader_slot = FD_FAILOVER_SLOT_NULL;
+    if( FD_UNLIKELY( ctx->failover_lag_slots!=FD_FAILOVER_SLOT_NULL &&
+                     ctx->failover_lag_slots>ctx->failover_replication_lag_limit ) ) {
+      status.status |= FD_FAILOVER_STATUS_REPLAG;
+    }
+    status.ack_seq = fd_failover_channel_ack_seq( ctx->failover );
+
+    ulong seq_before = fd_failover_channel_tx_seq( ctx->failover );
+    if( FD_LIKELY( !fd_failover_channel_send( ctx->failover, now, (ushort)FD_FAILOVER_MSG_STATUS,
+                                              (uchar const *)&status, sizeof(status) ) ) ) {
+      ctx->failover_last_status = now;
+      ctx->failover_status_sent = 1;
+      if( FD_LIKELY( !ctx->failover_rtt_probe_time ) ) {
+        ctx->failover_rtt_probe_seq  = seq_before;
+        ctx->failover_rtt_probe_time = now;
+      }
+      *charge_busy = 1;
+    }
+  }
+
+  if( FD_UNLIKELY( ctx->failover_role==FD_FAILOVER_ROLE_ACTIVE &&
+                   ctx->failover_cs_valid &&
+                   !ctx->failover_cs_sent &&
+                   !fd_failover_channel_tx_pending( ctx->failover ) &&
+                   fd_failover_channel_state( ctx->failover )==FD_FAILOVER_SESSION_PAIRED &&
+                   !fd_failover_channel_send( ctx->failover, now, (ushort)FD_FAILOVER_MSG_CONSENSUS_STATE,
+                                              ctx->failover_cs_buf, ctx->failover_cs_sz ) ) ) {
+    ctx->failover_cs_sent = 1;
     *charge_busy = 1;
   }
+
+  failover_sync_channel_state( ctx );
 }
 
 static inline void FD_FN_SENSITIVE
@@ -1435,19 +1613,50 @@ after_credit( fd_admin_tile_ctx_t * ctx,
   }
 }
 
+static inline int
+before_frag( fd_admin_tile_ctx_t * ctx,
+             ulong                 in_idx,
+             ulong                 seq FD_PARAM_UNUSED,
+             ulong                 sig ) {
+  if( FD_LIKELY( in_idx==ctx->tower_in_idx ) ) return sig!=FD_TOWER_SIG_SLOT_DONE;
+  return 0;
+}
+
 static void
 during_frag( fd_admin_tile_ctx_t * ctx,
-             ulong                 in_idx FD_PARAM_UNUSED,
+             ulong                 in_idx,
              ulong                 seq FD_PARAM_UNUSED,
              ulong                 sig,
-             ulong                 chunk FD_PARAM_UNUSED,
-             ulong                 sz FD_PARAM_UNUSED,
+             ulong                 chunk,
+             ulong                 sz,
              ulong                 ctl ) {
+  if( FD_UNLIKELY( in_idx==ctx->tower_in_idx ) ) {
+    if( FD_UNLIKELY( chunk<ctx->tower_in_chunk0 || chunk>ctx->tower_in_wmark || sz!=sizeof(fd_tower_msg_t) ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->tower_in_chunk0, ctx->tower_in_wmark ));
+    }
+    fd_memcpy( &ctx->failover_slot_done, fd_chunk_to_laddr_const( ctx->tower_in_mem, chunk ), sizeof(fd_tower_slot_done_t) );
+    return;
+  }
+
   if( FD_UNLIKELY( ctx->snap_create_slot_idx==ULONG_MAX ) ) {
     FD_LOG_ERR(( "unexpected replay snapshot-create response with no pending adminctl command" ));
     return;
   }
   snapshot_create_response( ctx, sig, ctl );
+}
+
+static void
+after_frag( fd_admin_tile_ctx_t * ctx,
+            ulong                 in_idx,
+            ulong                 seq,
+            ulong                 sig FD_PARAM_UNUSED,
+            ulong                 sz FD_PARAM_UNUSED,
+            ulong                 tsorig FD_PARAM_UNUSED,
+            ulong                 tspub FD_PARAM_UNUSED,
+            fd_stem_context_t *   stem FD_PARAM_UNUSED ) {
+  if( FD_LIKELY( in_idx!=ctx->tower_in_idx ) ) return;
+  ctx->failover_slot_done_seq   = seq;
+  ctx->failover_slot_done_fresh = 1;
 }
 
 static ulong
@@ -1501,7 +1710,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_admin_tile_ctx_t)
 
 #define STEM_CALLBACK_AFTER_CREDIT after_credit
+#define STEM_CALLBACK_BEFORE_FRAG  before_frag
 #define STEM_CALLBACK_DURING_FRAG  during_frag
+#define STEM_CALLBACK_AFTER_FRAG   after_frag
 
 #include "../../disco/stem/fd_stem.c"
 

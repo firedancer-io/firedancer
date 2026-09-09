@@ -272,6 +272,13 @@ fd_failover_channel_hangup( fd_failover_channel_t * channel,
   drop( channel, now, 1 );
 }
 
+void
+fd_failover_channel_protocol_error( fd_failover_channel_t * channel,
+                                    long                    now ) {
+  channel->metrics.wire_fatal_cnt++;
+  fd_failover_channel_hangup( channel, now );
+}
+
 static int
 flush_tx( fd_failover_channel_t * channel,
           long                    now,

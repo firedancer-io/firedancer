@@ -109,6 +109,11 @@ void
 fd_failover_channel_hangup( fd_failover_channel_t * channel,
                             long                    now );
 
+/* Drops a paired session after an authenticated protocol violation. */
+void
+fd_failover_channel_protocol_error( fd_failover_channel_t * channel,
+                                    long                    now );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_failover_fd_failover_channel_h */
