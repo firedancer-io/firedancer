@@ -1915,6 +1915,30 @@ telemetry = true
         # loading.
         delay_startup = true
 
+# Firedancer validators support a special failover protocol between one
+# another, which guarantees fast, safe, at-most-once handover with no
+# equivocation or voting violations.
+#
+# The protocol works by hosting a TCP listener on your validator.  Any
+# peer in possession of the currently active identity private key can
+# demote this validator to the junk identity by sending a specially
+# signed packet proving that possession.
+[failover]
+    # Whether to enable the failover protocol on this validator, which
+    # exposes the TCP listener and allows peers to demote it to the junk
+    # identity.
+    enabled = false
+
+    # The address to listen on.  If enabled, by default the listener is
+    # exposed to the network.  This is safe as possession of the private
+    # key is required to demote the node, but could be a vector for
+    # a targeted denial of service.  For added reliability, restrict
+    # the listener to a private network.
+    listen_address = "0.0.0.0"
+
+    # The port to listen on.
+    listen_port = 8010
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program

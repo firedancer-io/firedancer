@@ -149,6 +149,14 @@ fd_config_fillf( fd_config_t * config ) {
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
   }
+
+  if( FD_UNLIKELY( config->firedancer.failover.enabled ) ) {
+    FD_TEST( fd_cstr_printf_check( config->firedancer.failover.junk_identity_path,
+                                   sizeof(config->firedancer.failover.junk_identity_path),
+                                   NULL,
+                                   "%s/junk-identity.json",
+                                   config->paths.base ) );
+  }
 }
 
 static void
@@ -346,6 +354,12 @@ fd_config_fill( fd_config_t * config,
 
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
+
+  /* Under failover [paths.identity_key] is the staked key both machines
+     share, a generated one would differ per machine. */
+  if( FD_UNLIKELY( config->is_firedancer && config->firedancer.failover.enabled && !strcmp( config->paths.identity_key, "" ) ) ) {
+    FD_LOG_ERR(( "[failover.enabled] is true, so [paths.identity_key] must name the staked identity keypair both machines share" ));
+  }
 
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
     /* Development binaries generate an identity key on boot. */
@@ -562,10 +576,36 @@ fd_config_validateh( fd_configh_t const * config ) {
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
 }
 
+/* Only what the config can decide by itself is checked here, the key
+   checks run where the keys are loaded. */
+
+static void
+fd_config_validate_failover( fd_config_t const * config ) {
+  fd_configf_t const * f = &config->firedancer;
+
+  if( FD_LIKELY( !f->failover.enabled ) ) return;
+  if( FD_UNLIKELY( !f->failover.listen_port ) ) {
+    FD_LOG_ERR(( "[failover.listen_port] must not be zero" ));
+  }
+  uint listen_addr;
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( f->failover.listen_address, &listen_addr ) ) ) {
+    FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", f->failover.listen_address ));
+  }
+  if( FD_UNLIKELY( !strcmp( config->paths.vote_account, "" ) ) ) {
+    FD_LOG_ERR(( "[failover.enabled] is true, so [paths.vote_account] must be set to the vote account both machines vote for" ));
+  }
+  /* Failover is built on the Tower tiles, and Votor does not adopt a
+     vote history or follow the staked key's BLS key through a switch. */
+  if( FD_UNLIKELY( f->development.alpenglow ) ) {
+    FD_LOG_ERR(( "failover in this build supports Tower only, set [development.alpenglow] to false or [failover.enabled] to false" ));
+  }
+}
+
 void
 fd_config_validate( fd_config_t const * config ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     fd_config_validatef( &config->firedancer );
+    fd_config_validate_failover( config );
   } else {
     fd_config_validateh( &config->frankendancer );
   }

@@ -214,6 +214,13 @@ struct fd_configf {
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
 
+  struct {
+    int    enabled;
+    char   listen_address[ 16 ];
+    ushort listen_port;
+    char   junk_identity_path[ PATH_MAX ]; /* derived, [paths.base]/junk-identity.json when enabled */
+  } failover;
+
 };
 
 typedef struct fd_configf fd_configf_t;
