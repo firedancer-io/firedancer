@@ -130,6 +130,8 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
           continue to be allowed if allow_connect is nonzero.  Note that
           this restriction is separate from the seccomp-bpf filter, and
           the syscall might still be prevented by that.
+          fd_sandbox_enter_with_write_path additionally permits file
+          writes beneath one directory, see below.
 
      (17) Finally, a seccomp-bpf filter is installed to prevent most
           syscalls from being made.  The filter is provided in the
@@ -161,6 +163,27 @@ fd_sandbox_enter( uint                 desired_uid,                  /* User ID 
                   int const *          allowed_file_descriptor,      /* Entries [0, allowed_file_descriptor_cnt) describe the allowed file descriptors */
                   ulong                seccomp_filter_cnt,           /* Number of entries in the seccomp_filter array */
                   struct sock_filter * seccomp_filter );             /* Entries [0, seccomp_filter_cnt) describe the instructions of the seccomp-bpf program to apply */
+
+/* fd_sandbox_enter_with_write_path is equivalent to fd_sandbox_enter,
+   but permits writes beneath allowed_write_path_fd. */
+
+void
+fd_sandbox_enter_with_write_path( uint                 desired_uid,
+                                  uint                 desired_gid,
+                                  int                  keep_host_networking,
+                                  int                  allow_connect,
+                                  int                  allow_renameat,
+                                  int                  allowed_write_path_fd,
+                                  int                  keep_controlling_terminal,
+                                  int                  dumpable,
+                                  ulong                rlimit_file_cnt,
+                                  ulong                rlimit_address_space,
+                                  ulong                rlimit_data,
+                                  ulong                rlimit_nproc,
+                                  ulong                allowed_file_descriptor_cnt,
+                                  int const *          allowed_file_descriptor,
+                                  ulong                seccomp_filter_cnt,
+                                  struct sock_filter * seccomp_filter );
 
 /* fd_sandbox_switch_uid_gid switches the calling process effective,
    real, and saved-set user ID and GID are switched to the desired_uid

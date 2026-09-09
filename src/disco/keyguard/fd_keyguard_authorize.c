@@ -370,6 +370,19 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     return 1;
   }
 
+  case FD_KEYGUARD_ROLE_TOWER: {
+    if( FD_UNLIKELY( payload_mask!=FD_KEYGUARD_PAYLOAD_TOWER ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for tower (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    if( FD_UNLIKELY( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0;
+    if( FD_UNLIKELY( memcmp( data, authority->identity_pubkey, 32UL ) ) ) {
+      FD_LOG_WARNING(( "tower payload names a foreign identity" ));
+      return 0;
+    }
+    return 1;
+  }
+
   case FD_KEYGUARD_ROLE_GOSSIP: {
     int ping_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&
                     fd_keyguard_authorize_ping( authority, data, sz, sign_type );

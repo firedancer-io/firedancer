@@ -12,7 +12,7 @@ FD_PROTOTYPES_BEGIN
    request payload.  The payload in this case is the message byte array
    passed to fd_ed25519_sign. */
 
-#define FD_KEYGUARD_SIGN_REQ_MTU (2048UL)
+#define FD_KEYGUARD_SIGN_REQ_MTU (4096UL)
 
 /* Role definitions ***************************************************/
 
@@ -25,7 +25,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_BUNDLE_CRANK (7)  /* Sign cranking transactions for bundle tips */
 #define FD_KEYGUARD_ROLE_RSERVE       (8)  /* Repair server tile */
 #define FD_KEYGUARD_ROLE_VOTOR        (9)  /* Alpenglow votor tile (QUIC TLS) */
-#define FD_KEYGUARD_ROLE_CNT          (10) /* number of known roles */
+#define FD_KEYGUARD_ROLE_TOWER        (10) /* Sign Agave tower files */
+#define FD_KEYGUARD_ROLE_CNT          (11) /* number of known roles */
 
 /* Payload types ******************************************************/
 
@@ -40,6 +41,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_LG_EVENT   ( 9)  /* Event reporter authentication */
 #define FD_KEYGUARD_PAYLOAD_LG_PONG    (10)  /* Gossip/Repair ping/pong protocol */
 #define FD_KEYGUARD_PAYLOAD_LG_AG_VOTE (11) /* Alpenglow BLS vote */
+#define FD_KEYGUARD_PAYLOAD_LG_TOWER   (12) /* Saved tower file payload */
 
 #define FD_KEYGUARD_PAYLOAD_TXN     (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN    )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP  (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP )
@@ -52,6 +54,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_EVENT   (1UL<<FD_KEYGUARD_PAYLOAD_LG_EVENT  )
 #define FD_KEYGUARD_PAYLOAD_PONG    (1UL<<FD_KEYGUARD_PAYLOAD_LG_PONG   )
 #define FD_KEYGUARD_PAYLOAD_AG_VOTE (1UL<<FD_KEYGUARD_PAYLOAD_LG_AG_VOTE)
+#define FD_KEYGUARD_PAYLOAD_TOWER   (1UL<<FD_KEYGUARD_PAYLOAD_LG_TOWER  )
 
 /* Sign types *********************************************************/
 

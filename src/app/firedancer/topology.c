@@ -23,6 +23,7 @@
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/tiles.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
@@ -270,9 +271,10 @@ fd_topo_initialize( config_t * config ) {
   int snapmk_enabled    = !!snapzp_tile_cnt;
   int rpc_enabled       = config->tiles.rpc.enabled;
   int telemetry_enabled = config->telemetry && strcmp( config->tiles.event.url, "" );
-  int leader_enabled    = !!config->firedancer.layout.enable_block_production;
-  int rserve_enabled    = config->tiles.rserve.enabled;
-  int alpenglow_enabled = config->firedancer.development.alpenglow;
+  int leader_enabled     = !!config->firedancer.layout.enable_block_production;
+  int rserve_enabled     = config->tiles.rserve.enabled;
+  int alpenglow_enabled  = config->firedancer.development.alpenglow;
+  int tower_file_enabled = config->firedancer.failover.tower_file && !alpenglow_enabled;
 
   char const * repair = alpenglow_enabled ? "rotor" : "repair";
   char const * poh    = alpenglow_enabled ? "motor" : "poh";
@@ -394,6 +396,10 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "txsend_sign"   );
   fd_topob_wksp( topo, "sign_txsend"   );
+  if( tower_file_enabled ) {
+    fd_topob_wksp( topo, "tower_sign"  );
+    fd_topob_wksp( topo, "sign_tower"  );
+  }
 
   if( alpenglow_enabled ) {
     fd_topob_wksp( topo, "votor_sign"  );
@@ -520,6 +526,10 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU_V0,                 1UL ); /* TODO: Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
+  if( tower_file_enabled ) {
+    /**/               fd_topob_link( topo, "tower_sign",    "tower_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,      1UL );
+    /**/               fd_topob_link( topo, "sign_tower",    "sign_tower",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
+  }
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    FD_SHRED_STEM_BURST );
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    shred_depth,                              sizeof(fd_repair_fec_complete_t), 1UL );
@@ -940,6 +950,12 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "sign_txsend",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_txsend",  0UL                                                  );
+  if( tower_file_enabled ) {
+    /**/               fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_sign",   0UL                                                  );
+    /**/               fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "sign_tower",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "tower_sign",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_tower",   0UL                                                  );
+  }
 
   if( alpenglow_enabled ) {
     /**/               fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "votor_sign",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -1684,6 +1700,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     fd_cstr_ncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
     fd_cstr_ncpy( tile->tower.base_path, config->paths.base, sizeof(tile->tower.base_path) );
+    tile->tower.tower_file = config->firedancer.failover.tower_file && !config->firedancer.development.alpenglow;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {
 

@@ -663,9 +663,20 @@ fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_
                                  uchar const *      data,
                                  ulong              data_sz );
 
-/* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
-   instruction and serializes it into a Solana transaction.  Assumes
-   tower is a valid local join. */
+/* fd_tower_to_vote_txn_at serializes a CompactTowerSync transaction
+   with the supplied Unix timestamp.  fd_tower_to_vote_txn uses the
+   current wallclock time.  Both assume tower is a valid local join. */
+
+void
+fd_tower_to_vote_txn_at( fd_tower_t    const * tower,
+                         fd_hash_t     const * bank_hash,
+                         fd_hash_t     const * block_id,
+                         long                  timestamp,
+                         fd_hash_t     const * recent_blockhash,
+                         fd_pubkey_t   const * validator_identity,
+                         fd_pubkey_t   const * vote_authority,
+                         fd_pubkey_t   const * vote_account,
+                         fd_txn_p_t          * vote_txn );
 
 void
 fd_tower_to_vote_txn( fd_tower_t    const * tower,
