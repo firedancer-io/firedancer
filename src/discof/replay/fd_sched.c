@@ -358,11 +358,14 @@ shred_split( fd_sched_t *       sched,
              fd_sched_block_t * block,
              uint               query );
 
-static int
+static void
 dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, ulong max_cnt, fd_sched_task_t * out );
 
 static int
 poh_retire_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx );
+
+static int
+poh_retire_ready_mblks( fd_sched_t * sched, fd_sched_block_t * block );
 
 static inline ulong
 poh_batch_max_cnt( fd_sched_t const * sched, ulong queued_cnt, ulong free_cnt, ulong threshold ) {
@@ -1318,17 +1321,10 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
       int   poh_threshold = fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 );
       if( FD_LIKELY( poh_hashing_queued_cnt>0UL && fd_ulong_popcnt( poh_ready_bitset )>poh_threshold ) ) {
         ulong max_cnt = poh_batch_max_cnt( sched, poh_hashing_queued_cnt, (ulong)fd_ulong_popcnt( poh_ready_bitset ), (ulong)poh_threshold );
-        int dead_reason = dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), max_cnt, out );
-        if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
-          out->task_type = FD_SCHED_TT_MARK_DEAD;
-          out->mark_dead->bank_idx = bank_idx;
-        }
-        if( FD_LIKELY( out->task_type!=FD_SCHED_TT_NULL ) ) {
-          sched->next_ready_last_tick     = fd_tickcount();
-          sched->next_ready_last_bank_idx = bank_idx;
-          return 1UL;
-        }
-        /* Everything queued for hashing was retired inline. */
+        dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), max_cnt, out );
+        sched->next_ready_last_tick     = fd_tickcount();
+        sched->next_ready_last_bank_idx = bank_idx;
+        return 1UL;
       }
 
       /* Dispatch more sigverify tasks only if at least one exec tile is
@@ -1418,17 +1414,10 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   int   poh_threshold = fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 );
   if( FD_LIKELY( poh_hashing_queued_cnt>0UL && fd_ulong_popcnt( poh_ready_bitset )>poh_threshold ) ) {
     ulong max_cnt = poh_batch_max_cnt( sched, poh_hashing_queued_cnt, (ulong)fd_ulong_popcnt( poh_ready_bitset ), (ulong)poh_threshold );
-    int dead_reason = dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), max_cnt, out );
-    if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
-      out->task_type = FD_SCHED_TT_MARK_DEAD;
-      out->mark_dead->bank_idx = bank_idx;
-    }
-    if( FD_LIKELY( out->task_type!=FD_SCHED_TT_NULL ) ) {
-      sched->next_ready_last_tick     = fd_tickcount();
-      sched->next_ready_last_bank_idx = bank_idx;
-      return 1UL;
-    }
-    /* Everything queued for hashing was retired inline. */
+    dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), max_cnt, out );
+    sched->next_ready_last_tick     = fd_tickcount();
+    sched->next_ready_last_bank_idx = bank_idx;
+    return 1UL;
   }
 
   /* Try to dispatch a sigverify task, but leave one exec tile idle for
@@ -1644,7 +1633,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         }
         dead_reason = poh_retire_mblk( sched, block, mblk_idx );
       }
-      if( FD_LIKELY( dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) dead_reason = verify_ticks_eager( block );
+      if( FD_LIKELY( dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) dead_reason = poh_retire_ready_mblks( sched, block );
       if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
         handle_bad_block( sched, block, dead_reason );
         return dead_reason;
@@ -2841,25 +2830,36 @@ poh_retire_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx ) {
   return FD_SCHED_DEAD_REASON_NONE;
 }
 
-/* Assembles a PoH task for the given exec tile.  Assumes there is a
-   PoH task available for dispatching.  Queued microblocks with nothing
-   left to hash are retired inline, as they would otherwise truncate the
-   batch and cost a round trip to an exec tile for no work.  Returns
-   FD_SCHED_DEAD_REASON_NONE on success, in which case out is left
-   untouched if every queued microblock was retired inline.  Otherwise
-   the block is bad, handle_bad_block has been called, and the dead
-   reason is returned. */
+/* Retires microblocks at the head of the unhashed queue that have
+   nothing left for PoH to hash.  Returns FD_SCHED_DEAD_REASON_NONE on
+   success, else the dead reason. */
 static int
+poh_retire_ready_mblks( fd_sched_t * sched, fd_sched_block_t * block ) {
+  while( block->mblk_unhashed_cnt ) {
+    uint mblk_idx = (uint)mblk_slist_idx_peek_head( block->mblks_unhashed, sched->mblk_pool );
+    fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
+    if( FD_LIKELY( mblk->curr_hashcnt!=mblk->hashcnt ) ) break;
+    mblk_slist_idx_pop_head( block->mblks_unhashed, sched->mblk_pool );
+    block->mblk_unhashed_cnt--;
+    int dead_reason = poh_retire_mblk( sched, block, mblk_idx );
+    if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
+  }
+  return verify_ticks_eager( block );
+}
+
+/* Assembles a PoH task for the given exec tile.  Assumes there is a
+   PoH task available for dispatching.  A microblock with nothing left
+   to hash is dispatched as a degenerate zero-hashcnt task, so that it
+   retires through fd_sched_task_done like any other PoH task. */
+static void
 dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, ulong max_cnt, fd_sched_task_t * out ) {
   FD_TEST( max_cnt>=1UL && max_cnt<=FD_SCHED_POH_PARA );
   /* Every element of a batch advances by the same hashcnt, so the
      batch hashcnt is the smallest remaining hashcnt of its elements.
      Elements with more work left are re-queued on completion. */
   fd_sched_poh_hash_t * poh = out->poh_hash;
-  ulong cnt         = 0UL;
-  ulong hashcnt     = ULONG_MAX;
-  int   retired     = 0;
-  int   dead_reason = FD_SCHED_DEAD_REASON_NONE;
+  ulong cnt     = 0UL;
+  ulong hashcnt = ULONG_MAX;
   while( cnt<max_cnt ) {
     mblk_slist_t * list;
     if( FD_LIKELY( !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ) ) ) {
@@ -2871,33 +2871,23 @@ dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int 
       break; /* Nothing more to batch. */
     }
     uint mblk_idx = (uint)mblk_slist_idx_pop_head( list, sched->mblk_pool );
-    if( list==block->mblks_unhashed ) block->mblk_unhashed_cnt--;
     fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
     ulong hashcnt_todo = mblk->hashcnt-mblk->curr_hashcnt;
-    if( FD_UNLIKELY( !hashcnt_todo ) ) {
-      retired     = 1;
-      dead_reason = poh_retire_mblk( sched, block, mblk_idx );
-      if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) break;
-      continue;
+    /* A microblock with nothing left to hash can't share a batch with
+       one that has work left.  The batch hashcnt would be zero, and the
+       latter would never make progress. */
+    if( FD_UNLIKELY( cnt && (!hashcnt_todo)!=(!hashcnt) ) ) {
+      mblk_slist_idx_push_head( list, mblk_idx, sched->mblk_pool );
+      break;
     }
+    if( list==block->mblks_unhashed ) block->mblk_unhashed_cnt--;
     hashcnt = fd_ulong_min( hashcnt, hashcnt_todo );
     poh->mblk_idx[ cnt ] = mblk_idx;
     memcpy( poh->hash+cnt, mblk->curr_hash, sizeof(fd_hash_t) );
     cnt++;
-    block->poh_mblk_in_flight_cnt++; /* Eager, so that inline retirement sees the batch as in progress. */
+    block->poh_mblk_in_flight_cnt++;
   }
-  if( FD_UNLIKELY( retired && dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) dead_reason = verify_ticks_eager( block );
-  if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
-    /* Put the batch assembled so far back on a list, so that it gets
-       freed along with the block. */
-    for( ulong i=0UL; i<cnt; i++ ) {
-      block->poh_mblk_in_flight_cnt--;
-      mblk_slist_idx_push_tail( block->mblks_hashing_in_progress, (uint)poh->mblk_idx[ i ], sched->mblk_pool );
-    }
-    handle_bad_block( sched, block, dead_reason );
-    return dead_reason;
-  }
-  if( FD_UNLIKELY( !cnt ) ) return FD_SCHED_DEAD_REASON_NONE; /* Everything queued was retired inline. */
+  FD_TEST( cnt ); /* poh_hashing_queued_cnt>0 implies at least one queued microblock. */
 
   /* See FD_SCHED_MAX_POH_HASHES_PER_TASK. */
   hashcnt = fd_ulong_min( hashcnt, fd_ulong_if( cnt>=sched->poh_simd_min, sched->poh_simd_iters_max, FD_SCHED_MAX_POH_HASHES_PER_TASK ) );
@@ -2912,7 +2902,6 @@ dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int 
   sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
   block->poh_hashing_in_flight_cnt++;
   if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
-  return FD_SCHED_DEAD_REASON_NONE;
 }
 
 /* Does up to one transaction mixin.  Returns 1 if one mixin was done, 2

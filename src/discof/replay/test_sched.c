@@ -790,6 +790,160 @@ run_late_ancestor_discard_case( void ) {
    block declaring more transactions than the limit is ruled invalid,
    and shred lengths past the first FEC land in the block's own slice of
    the shred length array. */
+/* A microblock whose header declares hash_cnt==1 and at least one
+   transaction has nothing left for PoH to hash.  It still dispatches,
+   as a degenerate zero-hashcnt task, so that it retires through
+   fd_sched_task_done and the block gets deactivated there.  Here such a
+   microblock is the only queued work, and it lands in mixin waiting on
+   transactions the FEC stream hasn't delivered yet, so the block is
+   exhausted the moment the task retires. */
+static void
+run_zero_hashcnt_mblk_case( void ) {
+  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  void * mem = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[ 1 ]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  FD_TEST( sched );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  uchar txn_payload[ FD_TXN_MTU ];
+  ulong txn_sz = build_shred_test_txn( txn_payload );
+
+  fd_hash_t start_poh[ 1 ];
+  fd_hash_t mblk_hash[ 1 ];
+  hash_from_seed( start_poh, 0x6d1f4c9a3b57e802UL );
+  hash_from_seed( mblk_hash, 0xc40a97e5182b6d3fUL );
+
+  /* First FEC: a complete single-transaction microblock.  The block
+     declares more microblocks than this, so it stays incomplete. */
+  uchar fec0[ 4096 ];
+  ulong fec0_sz = 0UL;
+  FD_STORE( ulong, fec0, 3UL );
+  fec0_sz += sizeof(ulong);
+  fd_microblock_hdr_t hdr_a = { .hash_cnt = 1UL, .txn_cnt = 1UL };
+  fd_memcpy( hdr_a.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( fec0+fec0_sz, &hdr_a, sizeof(hdr_a) );
+  fec0_sz += sizeof(hdr_a);
+  fd_memcpy( fec0+fec0_sz, txn_payload, txn_sz );
+  fec0_sz += txn_sz;
+
+  fd_store_fec_t store_fec0[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec0, 0, sizeof(fd_store_fec_t) );
+  store_fec0->data_sz         = fec0_sz;
+  store_fec0->shred_offs[ 0 ] = (uint)fec0_sz;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT+1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec0,
+    .data              = fec0,
+    .shred_cnt         = 1U,
+    .is_first_in_block = 1U,
+  }};
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+4UL, 64UL, start_poh );
+
+  /* Drain everything the first FEC made available. */
+  ulong exec_cnt = 0UL;
+  ulong poh_task_cnt = 0UL;
+  for( ulong step=0UL; step<100UL; step++ ) {
+    fd_sched_task_t task[ 1 ];
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    switch( task->task_type ) {
+      case FD_SCHED_TT_BLOCK_START:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_EXEC:
+        exec_cnt++;
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_SIGVERIFY:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_POH_HASH: {
+        poh_task_cnt++;
+        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+        break;
+      }
+      default:
+        FD_LOG_ERR(( "unexpected task type %lu draining first FEC", task->task_type ));
+    }
+  }
+  FD_TEST( exec_cnt==1UL );
+  /* The microblock had nothing to hash, but still went out as a task. */
+  FD_TEST( poh_task_cnt==1UL );
+
+  /* Second FEC: a microblock header declaring two transactions, but
+     only a fragment of the first.  No transaction gets parsed out, so
+     the only new work is a microblock with nothing left to hash. */
+  uchar fec1[ 4096 ];
+  ulong fec1_sz = 0UL;
+  fd_microblock_hdr_t hdr_b = { .hash_cnt = 1UL, .txn_cnt = 2UL };
+  fd_memcpy( hdr_b.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( fec1+fec1_sz, &hdr_b, sizeof(hdr_b) );
+  fec1_sz += sizeof(hdr_b);
+  fd_memcpy( fec1+fec1_sz, txn_payload, txn_sz/2UL );
+  fec1_sz += txn_sz/2UL;
+
+  fd_store_fec_t store_fec1[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec1, 0, sizeof(fd_store_fec_t) );
+  store_fec1->data_sz         = fec1_sz;
+  store_fec1->shred_offs[ 0 ] = (uint)fec1_sz;
+  fec->fec               = store_fec1;
+  fec->data              = fec1;
+  fec->is_first_in_block = 0U;
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+
+  /* The microblock dispatches with nothing to hash, and retiring it
+     exhausts the block.  Deactivation happens in fd_sched_task_done, so
+     the scheduler simply parks and idles until more of the block shows
+     up. */
+  fd_sched_task_t task[ 1 ];
+  FD_TEST( fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( task->task_type==FD_SCHED_TT_POH_HASH );
+  FD_TEST( task->poh_hash->cnt==1UL );
+  FD_TEST( !task->poh_hash->hashcnt );
+  {
+    fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+    msg->cnt = task->poh_hash->cnt;
+    for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+  }
+  FD_TEST( !fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( fd_sched_is_drained( sched ) );
+
+  /* Parked, not lost.  Delivering the rest of the transaction has to
+     bring the block back and get it replaying again. */
+  uchar fec2[ 4096 ];
+  ulong fec2_sz = txn_sz-txn_sz/2UL;
+  fd_memcpy( fec2, txn_payload+txn_sz/2UL, fec2_sz );
+
+  fd_store_fec_t store_fec2[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec2, 0, sizeof(fd_store_fec_t) );
+  store_fec2->data_sz         = fec2_sz;
+  store_fec2->shred_offs[ 0 ] = (uint)fec2_sz;
+  fec->fec  = store_fec2;
+  fec->data = fec2;
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+
+  FD_TEST( fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( task->task_type==FD_SCHED_TT_TXN_EXEC );
+  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+
+  fd_sched_delete( fd_sched_leave( sched ) );
+  free( mem );
+}
+
 static void
 run_runtime_limit_case( void ) {
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
@@ -887,6 +1041,7 @@ main( int     argc,
   run_root_notify_flavor_case();
   run_late_ancestor_discard_case();
   run_runtime_limit_case();
+  run_zero_hashcnt_mblk_case();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
