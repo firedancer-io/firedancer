@@ -1478,6 +1478,57 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
   test_progcache_shmem_delete( shmem );
 }
 
+/* A sweep claims the record the instant its non-claim delete clears MAPPED and
+   reinitializes it while the delete is still running; the delete must still
+   return the size it removed. */
+
+FD_UNIT_TEST( delete_rec_vs_zombie_claim ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t key = test_key( 1UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  fd_progcache_rec_t * rec;
+  {
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    rec = fd_progcache_pull( tmp, xid, &key, &load_env, acc.entry );
+    FD_TEST( rec );
+    fd_progcache_rec_close( tmp, rec );
+    fd_progcache_leave( tmp, NULL );
+  }
+  fd_progcache_advance_root( admin, xid ); /* detached: its zombie is claimable */
+  ulong rec_idx = (ulong)( rec - admin->rec.ele );
+  long  rodata0 = (long)rec->rodata_sz;
+  FD_TEST( rodata0>0L );
+
+  /* Pause the delete with the record unmapped and the chain still held. */
+  fd_racesan_async_t * d = fiber_delete_rec( &g_fiber[ 0 ], shmem, rec );
+  FD_TEST( fd_racesan_async_step_until( d, "prog_delete_rec:post_unmap", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* A sweep takes the zombie and reinitializes it. */
+  __atomic_fetch_and( &admin->rec.ele[ rec_idx ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
+  ulong cls = fd_progcache_rec_class( shmem, rec_idx );
+  shmem->cache.clock_hand[ cls ].val = rec_idx - shmem->cache.rec_base[ cls ];
+  fd_racesan_async_t * e = fiber_evict( &g_fiber[ 2 ], shmem, valid_program_data_sz );
+  for(;;) { int ret = fd_racesan_async_step( e ); if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break; FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK ); }
+  fiber_delete( &g_fiber[ 2 ] );
+  FD_TEST( rec->rodata_sz==0U ); /* reinitialized under the paused delete */
+
+  for(;;) { int ret = fd_racesan_async_step( d ); if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break; FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK ); }
+  FD_TEST( g_fiber[ 0 ].delete_rec.result==rodata0 );
+  fiber_delete( &g_fiber[ 0 ] );
+
+  FD_TEST( !fd_progcache_verify( admin ) );
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
 /* UNROOTED EVICTION *****************************************************/
 
 /* These schedules pause the sweep at prog_clock_evict:pre_fork_lock, after the

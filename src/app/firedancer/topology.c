@@ -132,6 +132,18 @@ setup_topo_fec_sets( fd_topo_t *  topo,
   return obj;
 }
 
+/* Workspace bytes reserved for the topology's own layout around the cache. */
+#define PROGCACHE_WKSP_OVERHEAD_SZ ( 3UL * fd_topo_workspace_align() )
+
+ulong
+setup_topo_progcache_min_sz( ulong txn_max ) {
+  ulong min_sz = fd_progcache_shmem_min_sz( txn_max );
+  if( FD_UNLIKELY( !min_sz ) ) return 0UL;
+  /* Smallest huge-page multiple holding the cache minimum plus the overhead,
+     so a workspace of exactly this size is what gets locked. */
+  return fd_ulong_align_up( min_sz + PROGCACHE_WKSP_OVERHEAD_SZ, FD_SHMEM_HUGE_PAGE_SZ );
+}
+
 void
 setup_topo_progcache( fd_topo_t *  topo,
                       char const * wksp_name,
@@ -140,23 +152,20 @@ setup_topo_progcache( fd_topo_t *  topo,
   fd_topo_obj_t * obj = fd_topob_obj( topo, "progcache", wksp_name );
   FD_TEST( fd_pod_insert_ulong(  topo->props, "progcache", obj->id ) );
 
-  /* Simple err message to fix invalid config */
-  ulong min_sz = fd_progcache_shmem_min_sz( txn_max );
-  if( FD_UNLIKELY( !min_sz ) ) {
+  ulong min_wksp_sz = setup_topo_progcache_min_sz( txn_max );
+  if( FD_UNLIKELY( !min_wksp_sz ) ) {
     FD_LOG_ERR(( "Invalid [runtime]: max_live_slots is invalid" ));
   }
-  if( FD_UNLIKELY( wksp_size<min_sz ) ) {
-    FD_LOG_ERR(( "Invalid [runtime]: program_cache_size_mib must be at least %lu", min_sz>>20 ));
+  if( FD_UNLIKELY( wksp_size<min_wksp_sz ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: program_cache_size_mib must be at least %lu", min_wksp_sz>>20 ));
   }
 
-  /* Fit the whole progcache in exactly program_cache_size_mib, by subtracting
-     the tile's mem overhead.  For example, for the default config of
-     program_cache_size_mib = 2048, this uses exactly 2 gigantic pages. */
-  ulong wksp_overhead_sz    = 3UL * fd_topo_workspace_align();
-  ulong progcache_sz        = fd_ulong_max( wksp_size-wksp_overhead_sz, min_sz );
+  /* The workspace is exactly program_cache_size_mib: the cache gets what is
+     left after the overhead.  For the default 2048 that is 2 gigantic pages. */
+  ulong progcache_sz        = wksp_size - PROGCACHE_WKSP_OVERHEAD_SZ;
   ulong progcache_footprint = fd_progcache_shmem_footprint( txn_max, progcache_sz );
   if( FD_UNLIKELY( !progcache_footprint ) ) {
-    FD_LOG_ERR(( "Invalid [runtime]: program_cache_size_mib must be at least %lu", min_sz>>20 ));
+    FD_LOG_ERR(( "Invalid [runtime]: program_cache_size_mib must be at least %lu", min_wksp_sz>>20 ));
   }
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, txn_max, "obj.%lu.txn_max", obj->id ) );
