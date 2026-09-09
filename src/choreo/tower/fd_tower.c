@@ -308,6 +308,8 @@ fd_tower_new( void * shmem,
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_tower_align() ) == (ulong)shmem + footprint );
 
   tower->root     = ULONG_MAX;
+  tower->saved_root   = ULONG_MAX;
+  tower->restored_tip = ULONG_MAX;
   tower->blk_max  = blk_max;
   tower->vtr_max  = vtr_max;
   tower->votes    = fd_tower_vote_new( votes );
@@ -541,9 +543,27 @@ push_vote( fd_tower_t * tower,
    In the final tower, note the gap in confirmation counts between slot
    18 and slot 2, even though slot 18 is directly above slot 2. */
 
+/* vote_is_stray returns 1 if the vote at slot has no block in ghost,
+   because replay never produced its slot or the block was purged.  Only
+   a restored vote can be stray, a local vote is on a block we replayed. */
+
+static int
+vote_is_stray( fd_tower_t * tower,
+               fd_ghost_t * ghost,
+               ulong        slot ) {
+  fd_tower_blk_t const * blk = fd_tower_blocks_query( tower, slot );
+  if( FD_UNLIKELY( !blk ) ) return 1;
+  return !fd_ghost_query( ghost, blk->voted ? &blk->voted_block_id : &blk->replayed_block_id );
+}
+
 static int
 lockout_check( fd_tower_t * tower,
                ulong        slot ) {
+
+  /* A root restored from the tower file above the snapshot root is a
+     floor as well.  Agave keeps its tower root across the restart and
+     does not vote at or below it. */
+  if( FD_UNLIKELY( tower->saved_root!=ULONG_MAX && slot<=tower->saved_root ) ) return 0;
 
   /* Mirrors Agave's Tower::is_recent(): reject slot if it is not strictly
      newer than our last vote (non-empty tower) or our root (empty tower,
@@ -559,6 +579,16 @@ lockout_check( fd_tower_t * tower,
 
   ulong cnt = simulate_vote( tower->votes, slot ); /* pop off votes that would be expired */
   if( FD_UNLIKELY( !cnt ) ) return 1;              /* tower is empty after popping expired votes */
+
+  /* Restored votes are bound to blocks by slot and need not sit on one
+     chain, so while one of them is still on top check every surviving
+     vote, the way Agave's is_locked_out does. */
+  if( FD_UNLIKELY( fd_tower_vote_is_restored( tower, fd_tower_vote_peek_index_const( tower->votes, cnt-1 )->slot ) ) ) {
+    for( ulong i=0UL; i<cnt; i++ ) {
+      if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, fd_tower_vote_peek_index_const( tower->votes, i )->slot, slot ) ) ) return 0;
+    }
+    return 1;
+  }
 
   fd_tower_vote_t const * vote    = fd_tower_vote_peek_index_const( tower->votes, cnt - 1 );       /* newly top-of-tower */
   int                     lockout = fd_tower_blocks_is_slot_descendant( tower, vote->slot, slot ); /* check if on same fork */
@@ -623,6 +653,13 @@ switch_check( fd_tower_t * tower,
   ulong vote_slot    = fd_tower_vote_peek_tail_const( tower->votes )->slot;
   ulong root_slot    = tower->root;
 
+  /* Restored tower.  A saved root above the snapshot root is the floor,
+     as Agave keeps its tower root.  A stray last vote has no block we
+     replayed, so its ancestry is unknown and every lockout above the
+     root counts, as Agave does with an empty ancestor set. */
+  if( FD_UNLIKELY( tower->saved_root!=ULONG_MAX ) ) root_slot = fd_tower_consensus_root( tower );
+  int stray = fd_tower_vote_is_restored( tower, vote_slot ) && vote_is_stray( tower, ghost, vote_slot );
+
   ulong            null = fd_ghost_blk_idx_null( ghost );
   fd_ghost_blk_t * head = fd_ghost_blk_map_remove( ghost, fd_ghost_root( ghost ) );
   fd_ghost_blk_t * tail = head;
@@ -659,7 +696,7 @@ switch_check( fd_tower_t * tower,
     if( FD_UNLIKELY( !is_valid_leaf ) ) continue;  /* not a real candidate */
 
     ulong candidate_slot = blk->slot;
-    ulong lca = fd_tower_blocks_lowest_common_ancestor( tower, candidate_slot, vote_slot );
+    ulong lca = stray ? root_slot : fd_tower_blocks_lowest_common_ancestor( tower, candidate_slot, vote_slot );
     if( FD_UNLIKELY( candidate_slot == vote_slot ) ) continue;
     if( FD_UNLIKELY( lca==ULONG_MAX ) ) continue;       /* unlikely but this leaf is an already pruned minority fork */
 
@@ -828,6 +865,76 @@ propagated_check( fd_tower_t * tower,
   return prev_leader_blk->propagated;
 }
 
+/* vote_and_reset_stray is fd_tower_vote_and_reset for a restored prev
+   vote that has no block in ghost.  As in Agave there is no same-fork
+   shortcut and no duplicate handling, only a switch proof for ghost_best
+   and then the usual lockout, threshold and propagation checks.  Agave
+   has no reset block when the switch check fails for a stray vote, we
+   reset to ghost_best anyway so block production has a parent. */
+
+static uchar
+vote_and_reset_stray( fd_tower_t *           tower,
+                      fd_ghost_t *           ghost,
+                      fd_ghost_blk_t const * best_blk,
+                      ulong                  prev_vote_slot,
+                      ulong *                reset_slot,
+                      fd_hash_t *            reset_block_id,
+                      ulong *                reset_bank_seq,
+                      ulong *                vote_slot,
+                      fd_hash_t *            vote_block_id,
+                      fd_hash_t *            vote_bank_hash,
+                      ulong *                root_slot,
+                      fd_hash_t *            root_block_id ) {
+
+  uchar                  flags    = 0;
+  fd_ghost_blk_t const * vote_blk = NULL;
+
+  if( FD_LIKELY( switch_check( tower, ghost, best_blk->total_stake, best_blk->slot ) ) ) {
+    flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_PASS );
+    vote_blk = best_blk;
+  } else {
+    flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_FAIL );
+  }
+
+  if( FD_LIKELY( vote_blk ) ) {
+    if( FD_UNLIKELY( !lockout_check( tower, vote_blk->slot ) ) ) {
+      flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_LOCKOUT_FAIL );
+      vote_blk = NULL;
+    } else if( FD_UNLIKELY( !threshold_check( tower, tower->vtrs, vote_blk->total_stake, vote_blk->slot ) ) ) {
+      flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_THRESHOLD_FAIL );
+      vote_blk = NULL;
+    } else if( FD_UNLIKELY( !propagated_check( tower, vote_blk->slot ) ) ) {
+      flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_PROPAGATED_FAIL );
+      vote_blk = NULL;
+    }
+  }
+  FD_LOG_DEBUG(( "[%s] stray prev vote. flags: %d. prev_vote_slot: %lu. reset_slot: %lu. vote_slot: %lu", __func__, flags, prev_vote_slot, best_blk->slot, vote_blk ? vote_blk->slot : ULONG_MAX ));
+
+  *reset_slot     = best_blk->slot;
+  *reset_block_id = best_blk->id;
+  *reset_bank_seq = best_blk->bank_seq;
+  *vote_slot      = ULONG_MAX;
+  *vote_block_id  = (fd_hash_t){0};
+  *vote_bank_hash = (fd_hash_t){0};
+  *root_slot      = ULONG_MAX;
+  *root_block_id  = (fd_hash_t){0};
+
+  if( FD_LIKELY( vote_blk ) ) {
+    fd_tower_blk_t * fork = fd_tower_blocks_query( tower, vote_blk->slot );
+    fork->voted           = 1;
+    fork->voted_block_id  = vote_blk->id;
+    *vote_slot            = vote_blk->slot;
+    *vote_block_id        = vote_blk->id;
+    *vote_bank_hash       = fork->bank_hash;
+    *root_slot            = push_vote( tower, vote_blk->slot );
+    if( FD_LIKELY( *root_slot!=ULONG_MAX ) ) {
+      fd_tower_blk_t * root_fork = fd_tower_blocks_query( tower, *root_slot );
+      *root_block_id             = *fd_ptr_if( root_fork->confirmed, &root_fork->confirmed_block_id, &root_fork->voted_block_id );
+    }
+  }
+  return flags;
+}
+
 uchar
 fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_ghost_t * ghost,
@@ -889,6 +996,14 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   }
 
   ulong            prev_vote_slot = fd_tower_vote_peek_tail_const( tower->votes )->slot;
+
+  /* A restored prev vote with no block in ghost is stray.  Cases 1 to 4
+     all need the prev vote's block, so it takes its own path. */
+
+  if( FD_UNLIKELY( fd_tower_vote_is_restored( tower, prev_vote_slot ) && vote_is_stray( tower, ghost, prev_vote_slot ) ) ) {
+    return vote_and_reset_stray( tower, ghost, best_blk, prev_vote_slot, reset_slot, reset_block_id, reset_bank_seq, vote_slot, vote_block_id, vote_bank_hash, root_slot, root_block_id );
+  }
+
   fd_tower_blk_t * prev_vote_fork = fd_tower_blocks_query( tower, prev_vote_slot ); /* must exist */
 
   fd_hash_t      * prev_vote_block_id = &prev_vote_fork->voted_block_id;
@@ -1253,6 +1368,7 @@ fd_tower_reconcile( fd_tower_t      * tower,
                             iter = fd_tower_vote_iter_next( tower->votes, iter ) ) {
     fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( tower->votes, iter );
     fd_tower_blk_t * tower_blk = fd_tower_blocks_query( tower, vote->slot );
+    if( FD_UNLIKELY( !tower_blk && fd_tower_vote_is_restored( tower, vote->slot ) ) ) continue; /* a restored vote may have no block yet */
     FD_TEST( tower_blk ); /* must exist if it's in our tower */
     tower_blk->voted = 0;
   }
@@ -1269,6 +1385,8 @@ fd_tower_reconcile( fd_tower_t      * tower,
   /* Overwrite the root.  No-op if local_root > onchain_root. */
 
   tower->root = onchain_root;
+  tower->saved_root   = ULONG_MAX; /* the on-chain tower is authoritative now, a root restored from the tower file no longer overrides it */
+  tower->restored_tip = ULONG_MAX;
 
   /* Clear out all local_votes. */
 
@@ -1376,6 +1494,11 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
     .timestamp        = fd_log_wallclock() / (long)1e9, /* seconds */
     .block_id         = *block_id
   };
+
+  /* A root restored from the tower file above the local root is the root
+     we put in our last vote, so it stays in the vote, as Agave keeps its
+     tower root. */
+  if( FD_UNLIKELY( tower->saved_root!=ULONG_MAX ) ) tower_sync_serde.root = fd_tower_consensus_root( tower );
 
   ulong i = 0UL;
   ulong prev = tower_sync_serde.root;

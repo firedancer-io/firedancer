@@ -6,6 +6,15 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* Parse --failover-first-use before the topology is built.  Without the
+   flag the inherited child config is left alone.  Only run and dev
+   accept it. */
+void
+fd_boot_failover_first_use( int *        argc,
+                            char ***     argv,
+                            config_t   * config,
+                            char const * action );
+
 int
 fd_main( int                        argc,
          char **                    _argv,

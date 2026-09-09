@@ -422,6 +422,11 @@ forktest_topo( config_t * config ) {
 
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 
+  /* This topology has no sign links for the tower tile and no failover
+     tile, so neither tower persistence nor failover can run here. */
+  config->firedancer.failover.tower_file = 0;
+  config->firedancer.failover.enabled    = 0;
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_configure_tile( &topo->tiles[ i ], config );
   }

@@ -315,6 +315,10 @@ struct fd_config {
      "backtest").  Populated by fd_main before topo_init runs. */
   char action[ 16 ];
 
+  /* First-use authorization.  Not a TOML key, it reaches the tiles only
+     through this launch's config fd. */
+  char failover_first_use[ 45 ];
+
   struct {
     char base[ PATH_MAX ];
     char identity_key[ PATH_MAX ];
