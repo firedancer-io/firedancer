@@ -2318,17 +2318,21 @@ dispatch_task( fd_replay_tile_t *  ctx,
       break;
     }
     case FD_SCHED_TT_TXN_SIGVERIFY: {
-      fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, task->txn_sigverify->txn_idx );
-
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->txn_sigverify->bank_idx );
       FD_TEST( bank );
       bank->refcnt++;
 
       fd_replay_out_link_t *        exec_out = ctx->exec_out;
       fd_execrp_txn_sigverify_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      memcpy( exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
+      FD_STATIC_ASSERT( FD_SCHED_SIGVERIFY_MAX==FD_EXECRP_SIGVERIFY_MAX, sigverify group width mismatch );
+      FD_STATIC_ASSERT( FD_SCHED_SIGVERIFY_BYTES==FD_EXECRP_SIGVERIFY_BYTES, sigverify byte capacity mismatch );
+      /* Fixed-size publication must not expose stale payload tails. */
+      fd_memset( exec_msg, 0, sizeof(*exec_msg) );
       exec_msg->bank_idx = task->txn_sigverify->bank_idx;
-      exec_msg->txn_idx  = task->txn_sigverify->txn_idx;
+      for( ulong i=0UL; i<task->txn_sigverify->cnt; i++ ) {
+        ulong txn_idx = task->txn_sigverify->txn_idx[ i ];
+        fd_execrp_sigverify_add( exec_msg, txn_idx, fd_sched_get_txn( ctx->sched, txn_idx ) );
+      }
       fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
@@ -3495,26 +3499,31 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       break;
     }
     case FD_EXECRP_TT_TXN_SIGVERIFY: {
-      ulong txn_idx = msg->txn_sigverify->txn_idx;
-      fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
-      txn_info->flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
-      if( FD_UNLIKELY( msg->txn_sigverify->err ) ) {
-        txn_info->txn_err = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-        txn_info->flags  &= ~FD_SCHED_TXN_IS_COMMITTABLE;
-        txn_info->flags  &= ~FD_SCHED_TXN_IS_FEES_ONLY;
-        txn_info->flags  &= ~FD_SCHED_TXN_IS_NOOP;
-      }
-      if( FD_UNLIKELY( msg->txn_sigverify->err && bank->state!=FD_BANK_STATE_DEAD ) ) {
-        /* Every transaction in a valid block has to sigverify.
-           Otherwise, we should mark the block as dead.  Also freeze the
-           bank if possible. */
-        mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
-        fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
-      }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
-      FD_TEST( res==0 );
-      if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
-        publish_txn_executed( ctx, stem, bank->idx, txn_idx );
+      FD_TEST( msg->txn_sigverify->cnt && msg->txn_sigverify->cnt<=FD_EXECRP_SIGVERIFY_MAX );
+      /* Retire every member even if an earlier member killed the bank.
+         The scheduler holds the group until its last member retires. */
+      for( ulong i=0UL; i<msg->txn_sigverify->cnt; i++ ) {
+        ulong txn_idx = msg->txn_sigverify->txn_idx[ i ];
+        fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
+        txn_info->flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
+        if( FD_UNLIKELY( msg->txn_sigverify->err[ i ] ) ) {
+          txn_info->txn_err = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+          txn_info->flags  &= ~FD_SCHED_TXN_IS_COMMITTABLE;
+          txn_info->flags  &= ~FD_SCHED_TXN_IS_FEES_ONLY;
+          txn_info->flags  &= ~FD_SCHED_TXN_IS_NOOP;
+        }
+        if( FD_UNLIKELY( msg->txn_sigverify->err[ i ] && bank->state!=FD_BANK_STATE_DEAD ) ) {
+          /* Every transaction in a valid block has to sigverify.
+             Otherwise, we should mark the block as dead.  Also freeze the
+             bank if possible. */
+          mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+          fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
+        }
+        int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
+        FD_TEST( res==0 );
+        if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
+          publish_txn_executed( ctx, stem, bank->idx, txn_idx );
+        }
       }
       break;
     }
@@ -4936,10 +4945,12 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 #undef DEBUG_LOGGING
 
-/* counting carefully, after_credit can generate at most 8 frags and
-   returnable_frag boot_genesis can generate at most 7 frags, so 15 is a
-   conservative bound. */
-#define STEM_BURST (15UL)
+/* after_credit generates at most 8 frags.  A sigverify completion can
+   publish FD_EXECRP_SIGVERIFY_MAX transaction events plus one slot-dead
+   event (once per bank), exceeding boot_genesis's 7.  Reserve additional
+   headroom from the old bound for the extra group members.  The smallest
+   reliable output (replay_epoch) must have depth at least this large. */
+#define STEM_BURST (15UL+FD_EXECRP_SIGVERIFY_MAX-1UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch, which is so infrequent

@@ -134,7 +134,7 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_TT_BLOCK_START   (1UL) /* (i) Start-of-block processing. */
 #define FD_SCHED_TT_BLOCK_END     (2UL) /* (q) End-of-block processing. */
 #define FD_SCHED_TT_TXN_EXEC      (3UL) /* (e) Transaction execution. */
-#define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify. */
+#define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify group. */
 #define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
 #define FD_SCHED_TT_POH_HASH      (6UL) /* (e) PoH hashing. */
 #define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
@@ -159,10 +159,17 @@ struct fd_sched_txn_exec {
 };
 typedef struct fd_sched_txn_exec fd_sched_txn_exec_t;
 
+/* A group never crosses a bank boundary.  Count and total payload bytes
+   are bounded independently.  Partial groups are dispatched immediately;
+   no timer or minimum fill is required. */
+#define FD_SCHED_SIGVERIFY_MAX   8UL
+#define FD_SCHED_SIGVERIFY_BYTES (8UL*FD_TXN_MTU_V0)
+FD_STATIC_ASSERT( FD_SCHED_SIGVERIFY_BYTES>=FD_TXN_MTU, sched_sigverify_singleton_fits );
 struct fd_sched_txn_sigverify {
   ulong bank_idx;
-  ulong txn_idx;
   ulong exec_idx;
+  ulong cnt;
+  ulong txn_idx[ FD_SCHED_SIGVERIFY_MAX ];
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
@@ -373,6 +380,10 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    completing.  Then, in the immediate ensuing stem run loop,
    sched_pruned_next() will return the index for the corresponding bank
    so the refcnt can be decremented for sched.
+
+   For a sigverify group, call once for each transaction in the group,
+   using the same exec_idx.  The tile remains occupied until the last
+   member completes.  Members may complete in any order, exactly once.
 
    The transaction at the given index may be freed upon return from this
    function.  Nonetheless, as long as there is no intervening FEC

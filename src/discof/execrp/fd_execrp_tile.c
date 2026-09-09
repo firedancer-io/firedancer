@@ -1,3 +1,4 @@
+#include "fd_execrp_sigverify.h"
 #include "../execle/fd_execle_err.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -325,15 +326,15 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         break;
       }
       case FD_EXECRP_TT_TXN_SIGVERIFY: {
+        FD_CHECK_CRIT( sz==sizeof(fd_execrp_txn_sigverify_msg_t), "invalid sigverify message size" );
         fd_execrp_txn_sigverify_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        int res = fd_executor_txn_verify( msg->txn, ctx->sha_lj );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_SIGVERIFY_MAX, "invalid sigverify group" );
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        out_msg->bank_idx               = msg->bank_idx;
-        out_msg->txn_sigverify->txn_idx = msg->txn_idx;
-        out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
+        fd_memset( out_msg, 0, sizeof(*out_msg) );
+        out_msg->bank_idx = msg->bank_idx;
+        ctx->metrics.sigverify_cnt += fd_execrp_sigverify( msg, out_msg->txn_sigverify, ctx->sha_lj );
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
-        ctx->metrics.sigverify_cnt += TXN( msg->txn )->signature_cnt;
         break;
       }
       case FD_EXECRP_TT_POH_HASH: {

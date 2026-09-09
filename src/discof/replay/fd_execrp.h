@@ -32,12 +32,65 @@ struct fd_execrp_txn_exec_msg {
 };
 typedef struct fd_execrp_txn_exec_msg fd_execrp_txn_exec_msg_t;
 
+/* Copy inputs into the reliable link: workers never borrow scheduler
+   pool pointers.  One completion and bank reference per group. */
+#define FD_EXECRP_SIGVERIFY_MAX   8UL
+#define FD_EXECRP_SIGVERIFY_BYTES (8UL*FD_TXN_MTU_V0)
+FD_STATIC_ASSERT( FD_EXECRP_SIGVERIFY_BYTES>=FD_TXN_MTU, sigverify_singleton_fits );
+
+struct fd_execrp_sigverify_txn {
+  ushort payload_off; /* Relative to group's payload buffer. */
+  ushort payload_sz;
+  ushort signature_off; /* Remaining offsets relative to this payload. */
+  ushort acct_addr_off;
+  ushort message_off;
+  ushort message_sz; /* Computed with fd_txn_msg_sz, including V1. */
+  ushort signature_cnt;
+};
+typedef struct fd_execrp_sigverify_txn fd_execrp_sigverify_txn_t;
+
 struct fd_execrp_txn_sigverify_msg {
-  ulong      bank_idx;
-  ulong      txn_idx;
-  fd_txn_p_t txn[ 1 ];
+  ulong                     bank_idx;
+  ulong                     cnt;
+  ulong                     payload_used;
+  ulong                     txn_idx[ FD_EXECRP_SIGVERIFY_MAX ];
+  fd_execrp_sigverify_txn_t   txn[ FD_EXECRP_SIGVERIFY_MAX ];
+  uchar                     payload[ FD_EXECRP_SIGVERIFY_BYTES ];
 };
 typedef struct fd_execrp_txn_sigverify_msg fd_execrp_txn_sigverify_msg_t;
+
+/* fd_execrp_sigverify_add appends an already parsed transaction to a
+   zero-initialized group.  The scheduler must reserve count and byte
+   capacity before calling.  The copied descriptor retains the parser's
+   message region for all supported transaction versions. */
+static inline void
+fd_execrp_sigverify_add( fd_execrp_txn_sigverify_msg_t * msg,
+                        ulong                         txn_idx,
+                        fd_txn_p_t const *            txn_p ) {
+  fd_txn_t const * txn = TXN( txn_p );
+  ulong sz = txn_p->payload_sz;
+  ulong message_sz = fd_txn_msg_sz( txn, sz );
+  FD_TEST( msg->cnt<FD_EXECRP_SIGVERIFY_MAX );
+  FD_TEST( msg->payload_used<=FD_EXECRP_SIGVERIFY_BYTES );
+  FD_TEST( sz<=FD_TXN_MTU && sz<=FD_EXECRP_SIGVERIFY_BYTES-msg->payload_used );
+  FD_TEST( txn->signature_cnt && txn->signature_cnt<=FD_TXN_SIG_MAX );
+  FD_TEST( (ulong)txn->signature_off+64UL*txn->signature_cnt<=sz );
+  FD_TEST( (ulong)txn->acct_addr_off+32UL*txn->signature_cnt<=sz );
+  FD_TEST( txn->message_off<=sz && message_sz<=sz-txn->message_off );
+  fd_execrp_sigverify_txn_t * out = msg->txn+msg->cnt;
+  *out = (fd_execrp_sigverify_txn_t) {
+    .payload_off   = (ushort)msg->payload_used,
+    .payload_sz    = (ushort)sz,
+    .signature_off = txn->signature_off,
+    .acct_addr_off = txn->acct_addr_off,
+    .message_off   = txn->message_off,
+    .message_sz    = (ushort)message_sz,
+    .signature_cnt = txn->signature_cnt
+  };
+  msg->txn_idx[ msg->cnt++ ] = txn_idx;
+  fd_memcpy( msg->payload+msg->payload_used, txn_p->payload, sz );
+  msg->payload_used += sz;
+}
 
 #define FD_EXECRP_POH_PARA 16
 struct fd_execrp_poh_hash_msg {
@@ -121,8 +174,9 @@ struct fd_execrp_txn_exec_done_msg {
 typedef struct fd_execrp_txn_exec_done_msg fd_execrp_txn_exec_done_msg_t;
 
 struct fd_execrp_txn_sigverify_done_msg {
-  ulong txn_idx;
-  int   err;
+  ulong cnt;
+  ulong txn_idx[ FD_EXECRP_SIGVERIFY_MAX ];
+  int   err[ FD_EXECRP_SIGVERIFY_MAX ]; /* First failing signature's Ed25519 code, or 0. */
 };
 typedef struct fd_execrp_txn_sigverify_done_msg fd_execrp_txn_sigverify_done_msg_t;
 
@@ -141,5 +195,9 @@ struct fd_execrp_task_done_msg {
   };
 };
 typedef struct fd_execrp_task_done_msg fd_execrp_task_done_msg_t;
+
+/* Fragment sizes are carried in ushort by mcache/stem. */
+FD_STATIC_ASSERT( sizeof(fd_execrp_task_msg_t)<=USHORT_MAX, execrp_task_mtu );
+FD_STATIC_ASSERT( sizeof(fd_execrp_task_done_msg_t)<=USHORT_MAX, execrp_done_mtu );
 
 #endif /* HEADER_fd_src_discof_replay_fd_execrp_h */

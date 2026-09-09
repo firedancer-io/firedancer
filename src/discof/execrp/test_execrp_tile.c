@@ -421,8 +421,7 @@ FD_UNIT_TEST( execrp_sigverify ) {
   fd_execrp_txn_sigverify_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
   fd_memset( in_msg, 0, sizeof(fd_execrp_txn_sigverify_msg_t) );
   in_msg->bank_idx = env->bank_idx;
-  in_msg->txn_idx  = 91UL;
-  fd_memcpy( in_msg->txn, txn, sizeof(fd_txn_p_t) );
+  fd_execrp_sigverify_add( in_msg, 91UL, txn );
 
   fd_stem_context_t stem[1];
   ulong const sig = (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | env->execrp->tile_idx;
@@ -431,8 +430,8 @@ FD_UNIT_TEST( execrp_sigverify ) {
                              test_stem( env->execrp, stem ) ) );
 
   fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_SIGVERIFY );
-  FD_TEST( out_msg->txn_sigverify->txn_idx==91UL );
-  FD_TEST( out_msg->txn_sigverify->err );
+  FD_TEST( out_msg->txn_sigverify->cnt==1UL && out_msg->txn_sigverify->txn_idx[ 0 ]==91UL );
+  FD_TEST( out_msg->txn_sigverify->err[ 0 ] );
   FD_TEST( env->execrp->metrics.sigverify_cnt==TXN(txn)->signature_cnt );
 
   test_env_destroy( env );

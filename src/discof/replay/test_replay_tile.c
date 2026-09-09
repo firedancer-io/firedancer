@@ -21,6 +21,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/rewards/fd_stake_rewards.h"
 #include "fd_sched.h"
+#include "fd_execrp.h"
 
 #define TEST_BANKS_MAX 16UL
 #define TEST_OUT_CNT   3UL
@@ -85,6 +86,9 @@ static ulong          mock_sched_capacity;
 static fd_sched_txn_info_t mock_sched_txn_info;
 static fd_txn_p_t     mock_sched_txn;
 static ulong          mock_sched_txn_idx;
+static ulong          mock_sched_group_cnt;
+static fd_sched_txn_info_t mock_sched_group_info[ FD_EXECRP_SIGVERIFY_MAX ];
+static fd_txn_p_t          mock_sched_group_txn [ FD_EXECRP_SIGVERIFY_MAX ];
 static ulong          mock_sched_task_done_cnt;
 static ulong          mock_sched_task_done_type;
 static ulong          mock_sched_task_done_txn_idx;
@@ -130,6 +134,10 @@ mock_sched_task_done_fn( fd_sched_t * s FD_PARAM_UNUSED,
 fd_txn_p_t *
 mock_sched_get_txn_fn( fd_sched_t * s FD_PARAM_UNUSED,
                        ulong        txn_idx ) {
+  if( mock_sched_group_cnt ) {
+    FD_TEST( txn_idx && txn_idx<=mock_sched_group_cnt );
+    return mock_sched_group_txn+txn_idx-1UL;
+  }
   FD_TEST( txn_idx==mock_sched_txn_idx );
   return &mock_sched_txn;
 }
@@ -137,6 +145,10 @@ mock_sched_get_txn_fn( fd_sched_t * s FD_PARAM_UNUSED,
 fd_sched_txn_info_t *
 mock_sched_get_txn_info_fn( fd_sched_t * s FD_PARAM_UNUSED,
                             ulong        txn_idx ) {
+  if( mock_sched_group_cnt ) {
+    FD_TEST( txn_idx && txn_idx<=mock_sched_group_cnt );
+    return mock_sched_group_info+txn_idx-1UL;
+  }
   FD_TEST( txn_idx==mock_sched_txn_idx );
   return &mock_sched_txn_info;
 }
@@ -560,6 +572,58 @@ assert_reception_event_matches( fd_event_block_completed_t const * ev,
   FD_TEST( ev->last_shred_received_time==metrics->blk_last_shred_ts_nanos );
   FD_TEST( ev->first_repair_request_time==metrics->blk_first_req_ts_nanos );
   FD_TEST( ev->last_repair_received_time==metrics->blk_last_repair_resp_ts_nanos );
+}
+
+/* Completion publication must keep valid neighbors intact even when an
+   interior transaction kills the bank.  Exercise both partial and full
+   groups, and a bank already dead before the response arrives. */
+static void
+test_sigverify_completion_publish( fd_wksp_t * wksp, ulong cnt, int already_dead ) {
+  static fd_replay_tile_t ctx[1];
+  setup_ctx( ctx, wksp );
+  fd_bank_t * bank = fd_banks_new_bank( ctx->banks, fd_banks_root( ctx->banks )->idx, 0L, 0 );
+  FD_TEST( bank );
+  bank->state = already_dead ? FD_BANK_STATE_DEAD : FD_BANK_STATE_REPLAYABLE;
+  bank->refcnt = 1UL;
+  ctx->block_id_arr[ bank->idx ].block_id_seen = 1;
+  ctx->block_id_arr[ bank->idx ].slot = 1001UL;
+  mock_sched_group_cnt = cnt;
+  mock_sched_task_done_cnt = 0UL;
+  mock_sched_abandon_cnt = 0UL;
+  fd_memset( mock_sched_group_info, 0, sizeof(mock_sched_group_info) );
+  fd_memset( mock_sched_group_txn, 0, sizeof(mock_sched_group_txn) );
+  fd_execrp_task_done_msg_t msg[1] = {{0}};
+  msg->bank_idx = bank->idx;
+  msg->txn_sigverify->cnt = cnt;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    msg->txn_sigverify->txn_idx[i] = i+1UL;
+    mock_sched_group_info[i].flags = FD_SCHED_TXN_EXEC_DONE | FD_SCHED_TXN_IS_COMMITTABLE | FD_SCHED_TXN_IS_FEES_ONLY;
+    mock_sched_group_info[i].index_in_slot = i;
+    mock_sched_group_info[i].txn_err = FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+  }
+  ulong bad = cnt/2UL;
+  msg->txn_sigverify->err[bad] = FD_ED25519_ERR_SIG;
+  process_exec_task_done( ctx, test_stem, msg, (FD_EXECRP_TT_TXN_SIGVERIFY<<32)|2UL );
+  FD_TEST( !bank->refcnt && bank->state==FD_BANK_STATE_DEAD );
+  FD_TEST( mock_sched_task_done_cnt==cnt );
+  FD_TEST( mock_sched_abandon_cnt==(ulong)!already_dead );
+  ulong out_idx = ctx->replay_out->idx;
+  FD_TEST( test_stem_seqs[out_idx]==cnt+(ulong)!already_dead );
+  ulong seen = 0UL;
+  for( ulong seq=0UL; seq<test_stem_seqs[out_idx]; seq++ ) {
+    fd_frag_meta_t const * meta = test_stem_mcaches[out_idx]+fd_mcache_line_idx( seq, test_stem_depths[out_idx] );
+    if( meta->sig==REPLAY_SIG_SLOT_DEAD ) continue;
+    FD_TEST( meta->sig==REPLAY_SIG_TXN_EXECUTED );
+    fd_replay_txn_executed_t const * out = fd_chunk_to_laddr_const( ctx->replay_out->mem, meta->chunk );
+    FD_TEST( out->index_in_slot==seen );
+    FD_TEST( out->txn_err==(seen==bad ? FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE : FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND) );
+    FD_TEST( out->is_committable==(seen!=bad) );
+    FD_TEST( out->is_fees_only==(seen!=bad) );
+    FD_TEST( (mock_sched_group_info[seen].flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE );
+    seen++;
+  }
+  FD_TEST( seen==cnt );
+  mock_sched_group_cnt = 0UL;
 }
 
 static void
@@ -2800,6 +2864,9 @@ main( int     argc,
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_sigverify_completion_publish( wksp, 3UL, 0 ); fd_wksp_reset( wksp, 42U );
+  test_sigverify_completion_publish( wksp, 8UL, 0 ); fd_wksp_reset( wksp, 42U );
+  test_sigverify_completion_publish( wksp, 8UL, 1 ); fd_wksp_reset( wksp, 42U );
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
   test_leader_fec_payload_retained( wksp );          fd_wksp_reset( wksp, 42U );
   test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );

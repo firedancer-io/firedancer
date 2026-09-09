@@ -9,6 +9,9 @@ $(call run-unit-test,test_rdisp)
 $(call add-objs,fd_sched,fd_discof)
 $(call make-unit-test,test_sched,test_sched,fd_discof fd_choreo fd_disco fd_flamenco fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_sched)
+# Keep lifecycle coverage independent of the execution tile/runtime.
+$(call make-unit-test,test_sched_sigverify,test_sched_sigverify fd_sched fd_rdisp fd_block_marker,fd_choreo fd_disco fd_flamenco fd_ballet fd_tango fd_util)
+$(call run-unit-test,test_sched_sigverify)
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_sched_rdisp,fuzz_sched_rdisp,fd_discof fd_choreo fd_disco fd_flamenco fd_ballet fd_tango fd_util)
 endif

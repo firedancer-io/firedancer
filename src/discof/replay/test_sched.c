@@ -16,10 +16,10 @@ test_sched_footprint( void ) {
   /* Retain the per-block saving from compact shred lengths under the
      default scheduler sizing.  Production limits must reproduce the
      footprint from before the limits became runtime values. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1122073984UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1122079616UL );
   /* Only the shred length array scales with the shred limit. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1122073984UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1122073984UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1122079616UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1122079616UL );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
@@ -225,7 +225,8 @@ run_interleaved_fec_residual_case( void ) {
         break;
       }
       case FD_SCHED_TT_TXN_SIGVERIFY:
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        for( ulong i=0UL; i<task->txn_sigverify->cnt; i++ )
+          FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx[ i ], task->txn_sigverify->exec_idx, NULL ) );
         break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
@@ -863,7 +864,8 @@ run_zero_hashcnt_mblk_case( void ) {
         FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
         break;
       case FD_SCHED_TT_TXN_SIGVERIFY:
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        for( ulong i=0UL; i<task->txn_sigverify->cnt; i++ )
+          FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx[ i ], task->txn_sigverify->exec_idx, NULL ) );
         break;
       case FD_SCHED_TT_POH_HASH: {
         poh_task_cnt++;

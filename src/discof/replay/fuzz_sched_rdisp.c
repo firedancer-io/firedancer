@@ -1140,7 +1140,7 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
 
   mirror_t mirror[ 1 ] = {0};
 
-  inflight_t inflight[ TEST_EXEC_CNT * 4UL ];
+  inflight_t inflight[ TEST_EXEC_CNT * FD_SCHED_SIGVERIFY_MAX ];
   ulong inflight_cnt = 0UL;
   reader_t r = {
     .data    = data,
@@ -1231,35 +1231,38 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
       }
       case FD_SCHED_TT_TXN_EXEC:
       case FD_SCHED_TT_TXN_SIGVERIFY: {
-        bank_idx = fd_ulong_if( task->task_type==FD_SCHED_TT_TXN_EXEC, task->txn_exec->bank_idx, task->txn_sigverify->bank_idx );
-        ulong txn_idx  = fd_ulong_if( task->task_type==FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_sigverify->txn_idx );
-        ulong exec_idx = fd_ulong_if( task->task_type==FD_SCHED_TT_TXN_EXEC, task->txn_exec->exec_idx, task->txn_sigverify->exec_idx );
-        FD_TEST( bank_idx>0UL && bank_idx<=tc->block_cnt );
-        block_t * block = tc->block + (bank_idx-1UL);
-        fd_txn_p_t * txn = fd_sched_get_txn( tc->sched, txn_idx );
-        fd_sched_txn_info_t * info = fd_sched_get_txn_info( tc->sched, txn_idx );
-        FD_TEST( txn );
-        FD_TEST( info );
-        ulong local = find_txn( block, txn );
-        FD_TEST( local!=ULONG_MAX );
-        FD_TEST( block->start_seen );
-        FD_TEST( info->slot==block->slot );
-        FD_TEST( info->index_in_slot==local );
-        if( FD_LIKELY( task->task_type==FD_SCHED_TT_TXN_EXEC ) )
-          FD_TEST( (block->exec_done_mask & block->pred_mask[ local ]) == block->pred_mask[ local ] );
-        if( FD_LIKELY( task->task_type==FD_SCHED_TT_TXN_EXEC ) ) {
-          FD_TEST( !(info->flags & FD_SCHED_TXN_EXEC_DONE) );
-        } else {
-          FD_TEST( !(info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
-          FD_TEST( info->sigverify_exec_tile_idx==exec_idx );
+        ulong cnt = task->task_type==FD_SCHED_TT_TXN_EXEC ? 1UL : task->txn_sigverify->cnt;
+        for( ulong i=0UL; i<cnt; i++ ) {
+          bank_idx = fd_ulong_if( task->task_type==FD_SCHED_TT_TXN_EXEC, task->txn_exec->bank_idx, task->txn_sigverify->bank_idx );
+          ulong txn_idx  = fd_ulong_if( task->task_type==FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_sigverify->txn_idx[ i ] );
+          ulong exec_idx = fd_ulong_if( task->task_type==FD_SCHED_TT_TXN_EXEC, task->txn_exec->exec_idx, task->txn_sigverify->exec_idx );
+          FD_TEST( bank_idx>0UL && bank_idx<=tc->block_cnt );
+          block_t * block = tc->block + (bank_idx-1UL);
+          fd_txn_p_t * txn = fd_sched_get_txn( tc->sched, txn_idx );
+          fd_sched_txn_info_t * info = fd_sched_get_txn_info( tc->sched, txn_idx );
+          FD_TEST( txn );
+          FD_TEST( info );
+          ulong local = find_txn( block, txn );
+          FD_TEST( local!=ULONG_MAX );
+          FD_TEST( block->start_seen );
+          FD_TEST( info->slot==block->slot );
+          FD_TEST( info->index_in_slot==local );
+          if( FD_LIKELY( task->task_type==FD_SCHED_TT_TXN_EXEC ) )
+            FD_TEST( (block->exec_done_mask & block->pred_mask[ local ]) == block->pred_mask[ local ] );
+          if( FD_LIKELY( task->task_type==FD_SCHED_TT_TXN_EXEC ) ) {
+            FD_TEST( !(info->flags & FD_SCHED_TXN_EXEC_DONE) );
+          } else {
+            FD_TEST( !(info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
+            FD_TEST( info->sigverify_exec_tile_idx==exec_idx );
+          }
+          inflight[ inflight_cnt++ ] = (inflight_t) {
+            .task_type     = task->task_type,
+            .bank_idx      = bank_idx,
+            .txn_idx       = txn_idx,
+            .exec_idx      = exec_idx,
+            .local_txn_idx = local,
+          };
         }
-        inflight[ inflight_cnt++ ] = (inflight_t) {
-          .task_type     = task->task_type,
-          .bank_idx      = bank_idx,
-          .txn_idx       = txn_idx,
-          .exec_idx      = exec_idx,
-          .local_txn_idx = local,
-        };
         break;
       }
       case FD_SCHED_TT_POH_HASH: {
