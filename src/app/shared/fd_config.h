@@ -214,6 +214,13 @@ struct fd_configf {
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
 
+  struct {
+    int    enabled;                         /* derived, failover is on when junk_identity_key is set */
+    char   junk_identity_key[ PATH_MAX ];
+    ushort port;
+    char   peer_address[ FD_FQDN_BUF_MAX ]; /* empty to find the active through gossip */
+  } failover;
+
 };
 
 typedef struct fd_configf fd_configf_t;

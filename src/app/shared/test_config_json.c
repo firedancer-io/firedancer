@@ -99,6 +99,15 @@ main( int     argc,
   FD_TEST( !strstr( json, "hunter2" ) );
   FD_TEST( !strstr( json, "example.com" ) );
 
+  /* the junk key path and the peer address are redacted, the port is
+     reported */
+  strcpy( config->firedancer.failover.junk_identity_key, "/keys/junk-secret.json" );
+  strcpy( config->firedancer.failover.peer_address,      "peer-secret.example" );
+  FD_TEST( fd_config_to_json( config, json, sizeof(json) ) );
+  FD_TEST( !strstr( json, "junk-secret" ) );
+  FD_TEST( !strstr( json, "peer-secret" ) );
+  FD_TEST(  strstr( json, "\"failover\":{\"junk_identity_key\":\"[redacted]\",\"port\":8010,\"peer_address\":\"[redacted]\"}" ) );
+
   /* user override toml renders with keyword redaction */
   static char const user_toml[] =
     "name = \"fd1\"\n"
