@@ -1542,14 +1542,20 @@ fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
 
   /* SyscallContext -> syscall_invocation -> heap_prefix */
   sys_ctx.syscall_invocation.heap_prefix = fd_spad_alloc( spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
-  sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_out->details.compute_budget.heap_size;
-  fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_out->details.compute_budget.heap_size );
+
+  ulong heap_dump_sz = vm->instr_ctx->txn_out->details.compute_budget.heap_size;
+  ulong heap_init_sz = fd_ulong_min( vm->heap_clean, heap_dump_sz );
+  sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t)heap_dump_sz;
+  fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, heap_init_sz );
+  fd_memset( sys_ctx.syscall_invocation.heap_prefix->bytes + heap_init_sz, 0, heap_dump_sz - heap_init_sz );
 
   /* SyscallContext -> syscall_invocation -> stack_prefix */
   pb_size_t stack_sz = (pb_size_t)FD_VM_STACK_MAX;
   sys_ctx.syscall_invocation.stack_prefix = fd_spad_alloc( spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( stack_sz ) );
+  ulong stack_init_sz = fd_ulong_min( vm->stack_clean, (ulong)stack_sz );
   sys_ctx.syscall_invocation.stack_prefix->size = stack_sz;
-  fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
+  fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_init_sz );
+  fd_memset( sys_ctx.syscall_invocation.stack_prefix->bytes + stack_init_sz, 0, (ulong)stack_sz - stack_init_sz );
 
   /* Output to file */
   ulong out_buf_size = 1UL<<29UL; /* 128 MB */

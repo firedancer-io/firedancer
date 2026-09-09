@@ -197,6 +197,8 @@ test_env_setup( fd_svm_mini_t * mini ) {
     FD_FEATURE_ACTIVE_BANK( bank, virtual_address_space_adjustments ),
     0, 0UL
   ) );
+
+  fd_vm_mem_init_full( vm );
 }
 
 static void

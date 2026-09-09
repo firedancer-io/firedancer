@@ -372,6 +372,7 @@ main( int     argc,
       /* r2_initial_value                       */ 0UL
   );
   FD_TEST( vm_ok );
+  fd_vm_mem_init_full( vm );
 
   /* Run relevant tests with and without direct mapping enabled */
   test_vm_syscall_toggle_direct_mapping( vm, 0 ); /* disable direct mapping */

@@ -658,12 +658,11 @@ fd_vm_init(
   vm->segv_access_type                       = 0;
   vm->dump_syscall_to_pb                     = dump_syscall_to_pb;
 
+  vm->stack_clean = 0UL;
+  vm->heap_clean  = 0UL;
+
   /* Unpack input and rodata */
   fd_vm_mem_cfg( vm );
-
-  /* Zero the memory the program can observe */
-  fd_memset( vm->stack, 0, FD_VM_STACK_MAX );
-  fd_memset( vm->heap,  0, heap_max        );
 
   /* Initialize registers */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
