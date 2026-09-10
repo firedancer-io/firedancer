@@ -606,11 +606,8 @@ fd_stake_delegations_align( void ) {
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
-                                ulong max_fallback_stake_accounts,
                                 ulong expected_stake_accounts,
                                 ulong max_live_slots ) {
-  (void)max_fallback_stake_accounts;
-
   ulong map_chain_cnt = root_map_chain_cnt_est( expected_stake_accounts );
 
   ulong l = FD_LAYOUT_INIT;
@@ -686,7 +683,7 @@ fd_stake_delegations_new( void * mem,
     }
   }
 
-  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_stake_delegations_align() )!=(ulong)mem+fd_stake_delegations_footprint( max_stake_accounts, max_fallback_stake_accounts, expected_stake_accounts, max_live_slots ) ) ) {
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_stake_delegations_align() )!=(ulong)mem+fd_stake_delegations_footprint( max_stake_accounts, expected_stake_accounts, max_live_slots ) ) ) {
     FD_LOG_WARNING(( "fd_stake_delegations_new: bad layout" ));
     return NULL;
   }
@@ -716,7 +713,6 @@ fd_stake_delegations_new( void * mem,
   }
 
   stake_delegations->max_stake_accounts_      = max_stake_accounts;
-  stake_delegations->expected_stake_accounts_ = expected_stake_accounts;
   stake_delegations->pool_offset_             = (ulong)root_pool - (ulong)mem;
   stake_delegations->map_offset_              = (ulong)root_map - (ulong)mem;
   stake_delegations->delta_pool_offset_       = (ulong)delta_pool - (ulong)mem;
@@ -1570,8 +1566,8 @@ fd_stake_delegations_apply_fork_deltas( ulong                                epo
 }
 
 void
-fd_stake_delegations_iter_read_disk_delta( fd_stake_delegations_iter_t * iter,
-                                           uint                          delta_idx ) {
+fd_stake_delegations_iter_read_disk_delta_private( fd_stake_delegations_iter_t * iter,
+                                                   uint                          delta_idx ) {
   FD_CHECK_CRIT( (ulong)delta_idx<iter->stake_delegations->disk_delta_cnt_,
                  "invalid stake delegation iterator disk delta" );
   disk_delta_t delta;
@@ -1581,7 +1577,7 @@ fd_stake_delegations_iter_read_disk_delta( fd_stake_delegations_iter_t * iter,
 }
 
 void
-fd_stake_delegations_iter_advance_disk_root( fd_stake_delegations_iter_t * iter ) {
+fd_stake_delegations_iter_advance_disk_root_private( fd_stake_delegations_iter_t * iter ) {
   fd_stake_delegations_t const * stake_delegations = iter->stake_delegations;
   while( iter->disk_idx<stake_delegations->disk_root_cnt_ ) {
     disk_root_read( stake_delegations, (uint)iter->disk_idx, &iter->disk_ele );
@@ -1593,7 +1589,7 @@ fd_stake_delegations_iter_advance_disk_root( fd_stake_delegations_iter_t * iter 
       return;
     }
     if( FD_UNLIKELY( delta_idx & FD_STAKE_DELEGATIONS_DELTA_DISK_TAG ) ) {
-      fd_stake_delegations_iter_read_disk_delta( iter, delta_idx & FD_STAKE_DELEGATIONS_DELTA_IDX_MASK );
+      fd_stake_delegations_iter_read_disk_delta_private( iter, delta_idx & FD_STAKE_DELEGATIONS_DELTA_IDX_MASK );
       if( FD_LIKELY( iter->ele ) ) return;
     } else {
       fd_stake_delegation_t * delta = iter->delta_pool + delta_idx;

@@ -985,7 +985,7 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         mini->runtime->accdb,
         root_bank->accdb_fork_id );
 
-    FD_TEST( !!fd_stake_delegation_root_query(
+    FD_TEST( !!test_stake_delegations_contains(
         stake_delegations, &stake_key )==!feature_active );
   }
 
@@ -1006,7 +1006,7 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
 
   ulong align = fd_stake_delegations_align();
   ulong footprint = fd_ulong_align_up(
-      fd_stake_delegations_footprint( 1UL, 8UL, 1UL, 1UL ), align );
+      fd_stake_delegations_footprint( 1UL, 1UL, 1UL ), align );
   void * mem = aligned_alloc( align, footprint );
   FD_TEST( mem );
   fd_stake_delegations_t * spill_delegations = fd_stake_delegations_join(
@@ -1027,8 +1027,8 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         FD_STAKE_STATE_SZ,
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   }
-  FD_TEST( fd_stake_delegations_base_cnt( spill_delegations )==2UL );
-  FD_TEST( fd_stake_delegations_disk_cnt( spill_delegations )==1UL );
+  FD_TEST( test_stake_delegations_base_cnt( spill_delegations )==2UL );
+  FD_TEST( test_stake_delegations_disk_cnt( spill_delegations )==1UL );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   fd_stake_history_t stake_history_[1];
@@ -1043,8 +1043,8 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
       1,
       mini->runtime->accdb,
       root_fork_id );
-  FD_TEST( !fd_stake_delegations_base_cnt( spill_delegations ) );
-  FD_TEST( !fd_stake_delegations_disk_cnt( spill_delegations ) );
+  FD_TEST( !test_stake_delegations_base_cnt( spill_delegations ) );
+  FD_TEST( !test_stake_delegations_disk_cnt( spill_delegations ) );
   free( mem );
 
   FD_LOG_NOTICE(( "test_snapshot_refresh_prunes_inactive_stakes: PASSED" ));

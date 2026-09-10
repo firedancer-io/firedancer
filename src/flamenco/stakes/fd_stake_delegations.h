@@ -63,12 +63,9 @@
    and the iterator are the exception: the caller holds the write lock
    across the whole mark/iterate/unmark bracket.
 
-   max_fallback_stake_accounts bounds each persistent full-record disk
-   tier beyond its corresponding RAM pool.  Frontier projection and
-   multi-fork rooting have separate temporary root headroom bounded by
-   max_stake_accounts plus max_fallback_stake_accounts.  The disk file
-   is ephemeral and accessed with explicit pread/pwrite on the
-   well-known descriptor below. */
+   max_fallback_stake_accounts bounds tha max amount of stake accounts
+   that can spill to disk for the root pool and the delta pool
+   separately. */
 
 #define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
 #define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
@@ -195,7 +192,6 @@ FD_STATIC_ASSERT( sizeof(fd_stake_delegation_t)==112UL, fd_stake_delegation );
 
 struct fd_stake_delegations {
   ulong magic;
-  ulong expected_stake_accounts_;
   ulong max_stake_accounts_;
 
   /* Root map + pool */
@@ -254,17 +250,6 @@ struct fd_stake_delegations_iter {
   fd_stake_delegation_t          disk_ele;
 };
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
-
-FD_PROTOTYPES_BEGIN
-
-void
-fd_stake_delegations_iter_read_disk_delta( fd_stake_delegations_iter_t * iter,
-                                           uint                          delta_idx );
-
-void
-fd_stake_delegations_iter_advance_disk_root( fd_stake_delegations_iter_t * iter );
-
-FD_PROTOTYPES_END
 
 #include "fd_stake_delegations_private.h"
 
@@ -347,12 +332,11 @@ ulong
 fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
-   delegations struct for the given RAM pool capacity, disk spill
-   capacity, expected stake accounts, and max live slots. */
+   delegations struct for the given RAM pool capacity, expected stake
+   accounts, and max live slots. */
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
-                                ulong max_fallback_stake_accounts,
                                 ulong expected_stake_accounts,
                                 ulong max_live_slots );
 
@@ -600,7 +584,7 @@ fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter ) {
     fd_stake_delegations_iter_advance_private( iter );
   } else {
     iter->disk_idx++;
-    fd_stake_delegations_iter_advance_disk_root( iter );
+    fd_stake_delegations_iter_advance_disk_root_private( iter );
   }
 }
 

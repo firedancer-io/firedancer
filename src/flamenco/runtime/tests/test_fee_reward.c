@@ -524,9 +524,9 @@ test_simd0232_fee_stake_account_collector_cache( fd_svm_mini_t * mini ) {
   FD_TEST( read_lamports( mini, fork_id, &stake_key )==stake_lamports+SIMD0232_FEE_REWARD );
 
   fd_svm_mini_advance_root( mini, child_idx );
-  fd_stake_delegation_t const * delegation =
-      fd_stake_delegation_root_query( fd_banks_stake_delegations_root_query( mini->banks ), &stake_key );
-  FD_TEST( delegation );
+  fd_stake_delegation_t delegation[1];
+  FD_TEST( test_stake_delegations_find_copy(
+      fd_banks_stake_delegations_root_query( mini->banks ), &stake_key, delegation ) );
   FD_TEST( delegation->lamports==stake_lamports+SIMD0232_FEE_REWARD );
 
   FD_LOG_NOTICE(( "test_simd0232_fee_stake_account_collector_cache: PASSED" ));

@@ -18,7 +18,7 @@
 static ulong
 banks_footprint( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  return fd_banks_footprint( VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+  return fd_banks_footprint( VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
 }
 
 static ulong

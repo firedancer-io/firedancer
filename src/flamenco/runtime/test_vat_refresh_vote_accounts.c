@@ -347,7 +347,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   env->accdb = fd_accdb_join( fd_accdb_new( env->accdb_join, shmem, env->accdb_fd, 0UL, NULL ) );
   FD_TEST( env->accdb );
 
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 32768UL, 2048UL ), env->tag );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
   FD_TEST( banks_mem );
   env->banks = fd_banks_join( fd_banks_new( banks_mem, max_total_banks, max_fork_width, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   FD_TEST( env->banks );
