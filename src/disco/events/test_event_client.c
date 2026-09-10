@@ -465,6 +465,18 @@ FD_UNIT_TEST( credit_stall ) {
   long dl = fd_event_client_next_deadline( client, now );
   FD_TEST( dl<=now+FD_EVENT_CLIENT_CREDIT_STALL_NANOS );
 
+  /* The bucket keeps refilling while parked, so an expired pacing
+     deadline does not pin the tile awake. */
+  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
+  b = fd_circq_push_back( circq, 1UL, 16UL ); FD_TEST( b ); memset( b, 0, 16UL );
+  client->tx_tokens = -1000L; client->tx_tokens_ns = now;
+  long t0 = now+2000L*ns_per_byte;
+  client->last_response_ns = t0; client->last_stream_send_ns = t0;
+  test_poll_tx( client, t0 );
+  FD_TEST( client->tx_tokens==1000L );
+  FD_TEST( fd_grpc_client_tx_starved( grpc )==rem ); /* still parked */
+  FD_TEST( fd_event_client_next_deadline( client, t0 )>t0 );
+
   /* A late grant makes progress: timer restarts from the new remainder. */
   long t1 = now+FD_EVENT_CLIENT_CREDIT_STALL_NANOS-(long)1e9;
   client->event_stream->s.tx_wnd = 50U;
