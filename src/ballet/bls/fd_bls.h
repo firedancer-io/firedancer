@@ -27,12 +27,6 @@ struct fd_bls_agg {
 };
 typedef struct fd_bls_agg fd_bls_agg_t;
 
-typedef void
-(* fd_bls_sign_fn)( void *         ctx,
-                    fd_bls_sig_t * sig,
-                    uchar const *  payload,
-                    ulong          payload_sz );
-
 FD_PROTOTYPES_BEGIN
 
 /* SecretKey::to_pk */

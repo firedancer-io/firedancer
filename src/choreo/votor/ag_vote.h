@@ -10,6 +10,11 @@
 #define AG_VOTE_KIND_NOTAR_FALLBACK  (3U)
 #define AG_VOTE_KIND_SKIP_FALLBACK   (4U)
 
+typedef void
+(* fd_bls_sign_fn)( void *         ctx,
+                    fd_bls_sig_t * sig,
+                    uchar const *  payload,
+                    ulong          payload_sz );
 struct ag_vote_notar {
   ulong           slot;
   ag_block_hash_t block_hash;
