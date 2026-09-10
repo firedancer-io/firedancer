@@ -32,7 +32,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
 
 /* FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK is the max number of stake
-   accounts that can be stored on disk in the stake delegations cache. */
+   accounts that can be stored on disk in the stakes cache. */
 
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK (100000000UL)
 
