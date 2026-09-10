@@ -338,8 +338,8 @@ fd_repair_ping_ser( fd_repair_ping_t const * ping,
    Does not require the caller to provide memory, as Repair itself
    maintains a dedicated memory region (repair->msg) for buffering
    requests.  Assumes repair->msg is not already buffering an existing
-   request and can be overwritten.  Returns a pointer to repair->msg on
-   success, NULL on failure. */
+   request and can be overwritten.  Returns a pointer to repair->msg,
+   cannot fail. */
 
 fd_repair_msg_t * fd_repair_pong         ( fd_repair_t * repair, fd_hash_t * ping_token );
 fd_repair_msg_t * fd_repair_shred        ( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, ulong shred_idx );

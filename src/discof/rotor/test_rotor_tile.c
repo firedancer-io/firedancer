@@ -194,13 +194,14 @@ req_find( ulong from, uint kind, ulong slot, uint idx, fd_hash_t const * block_i
   return NULL;
 }
 
-/* meta_inflight_find returns the outstanding metadata inflight for
-   nonce, or NULL, without consuming it. */
+/* meta_inflight_find returns the outstanding metadata inflight of kind
+   for nonce, or NULL, without consuming it. */
 
-static fd_meta_inflight_t *
-meta_inflight_find( ctx_t * ctx, uint nonce ) {
-  ulong key = nonce;
-  return fd_meta_inflight_map_ele_query( ctx->inflights->ag_map, &key, NULL, ctx->inflights->ag_pool );
+static fd_inflight_t *
+meta_inflight_find( ctx_t * ctx, uint kind, uint nonce ) {
+  fd_inflight_key_t key[1];
+  fd_inflight_key_init( key, kind, 0UL, 0UL, nonce, NULL );
+  return fd_inflight_map_ele_query( ctx->inflights->map, key, NULL, ctx->inflights->pool );
 }
 
 static ulong
@@ -530,20 +531,31 @@ deliver_turbine_block( ctx_t * ctx, blk_t const * b ) {
   }
 }
 
+/* deliver_turbine_fec_set_flags feeds only FEC set k of block b
+   through the turbine path (all its shreds plus the completion
+   message), with the caller choosing the data-shred flags carried by
+   the set's last shred and completion message instead of deriving them
+   from the block shape.  Lets a test put SLOT_COMPLETE on a FEC set
+   that is not the block's last. */
+
+static void
+deliver_turbine_fec_set_flags( ctx_t * ctx, blk_t const * b, uint k, uchar flags ) {
+  FD_TEST( k<b->fec_cnt );
+  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
+    uint idx = k*FD_FEC_SHRED_CNT+i;
+    deliver_shred( ctx, b->slot, idx, (uchar)( i==FD_FEC_SHRED_CNT-1U ? flags : 0 ), &b->fec_root[ k ], 0U, SHRED_SIG_SRC_TURBINE,
+                   b->parent_slot, &b->parent_block_id );
+  }
+  deliver_fec_complete( ctx, b->slot, k*FD_FEC_SHRED_CNT, flags, &b->fec_root[ k ] );
+}
+
 /* deliver_turbine_fec_set feeds only FEC set k of block b through the
    turbine path (all its shreds plus the completion message), so a block
    can be left incomplete in the chainer. */
 
 static void
 deliver_turbine_fec_set( ctx_t * ctx, blk_t const * b, uint k ) {
-  FD_TEST( k<b->fec_cnt );
-  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
-    uint  idx   = k*FD_FEC_SHRED_CNT+i;
-    uchar flags = (uchar)( i==FD_FEC_SHRED_CNT-1U ? blk_fec_flags( b, k ) : 0 );
-    deliver_shred( ctx, b->slot, idx, flags, &b->fec_root[ k ], 0U, SHRED_SIG_SRC_TURBINE,
-                   b->parent_slot, &b->parent_block_id );
-  }
-  deliver_fec_complete( ctx, b->slot, k*FD_FEC_SHRED_CNT, blk_fec_flags( b, k ), &b->fec_root[ k ] );
+  deliver_turbine_fec_set_flags( ctx, b, k, blk_fec_flags( b, k ) );
 }
 
 /* serve_shred_request answers one ShredForBlockId request for block b
@@ -620,6 +632,7 @@ static fd_pubkey_t peer_key[ 2 ];
 static void
 setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   memset( ctx, 0, sizeof(*ctx) );
+  fd_clock_tile_init( ctx->clock ); /* after_credit reads now from the tile clock */
 
   pub_cnt = 0UL; pub_cursor = 0UL;
   req_cnt = 0UL;
@@ -1378,6 +1391,109 @@ test_votor_notar_fallback( fd_wksp_t * wksp ) {
 }
 
 /* =====================================================================
+   Test: block-id-only catchup anchors on the first complete turbine
+   slot.
+
+   Joining turbine mid-slot leaves turbine_slot0 (T) without its leading
+   shreds: its turbine version knows complete_idx but has no shred 0,
+   so it never finalizes a block_id, and block-id-only mode never
+   repairs a version without a block_id.  The next slot T+1 arrives
+   whole via turbine and finalizes its block_id; its header names
+   (T, bid_T).  Mere slot presence of T must NOT resolve T+1's
+   ancestry: the tile has to ask getParentAndFecSetCount for T+1, learn
+   (T, bid_T), start block-id repair of T and walk on down to the root.
+   Before this was fixed nothing was ever requested and the node sat at
+   the snapshot root forever. */
+
+static void
+test_block_id_catchup_anchor( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+  ctx->block_id_repair_only = 1;
+
+  ulong T = SNAP_SLOT+1UL;
+  blk_t blkT[1] = {{ .slot = T,     .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid,        .fec_cnt = 2U }};
+  blkT->fec_root[ 0 ] = mkhash( 0xA0UL ); blkT->fec_root[ 1 ] = mkhash( 0xA1UL );
+  blk_build( blkT );
+  blk_t blkN[1] = {{ .slot = T+1UL, .parent_slot = T,         .parent_block_id = blkT->block_id, .fec_cnt = 2U }};
+  blkN->fec_root[ 0 ] = mkhash( 0xB0UL ); blkN->fec_root[ 1 ] = mkhash( 0xB1UL );
+  blk_build( blkN );
+
+  /* Turbine: only T's last FEC set (we joined mid-slot), then all of
+     T+1. */
+  deliver_turbine_fec_set( ctx, blkT, 1U );
+  deliver_turbine_block  ( ctx, blkN );
+  pump( ctx );
+
+  fd_hash_t zero = {0};
+  fd_chainer_slotv_t * vT = fd_chainer_slot_version_query( ctx->chainer, T,     &zero           );
+  fd_chainer_slotv_t * vN = fd_chainer_slot_version_query( ctx->chainer, T+1UL, &blkN->block_id );
+  FD_TEST( vT && vN );
+  FD_TEST( vT->complete_idx==2U*FD_FEC_SHRED_CNT-1U && fd_hash_check_zero( &vT->block_id ) );
+  FD_TEST( vN->turbine && !vN->connected );
+  FD_TEST( rep_cnt==0UL ); /* nothing chains to the root yet */
+
+  /* The orphan pass must ask for T+1's ancestry even though slot T has
+     a (block_id-less) turbine version.  T itself has no block_id to
+     ask with. */
+  req_t * metaN = req_find( 0UL, AG_REPAIR_KIND_PARENT_FEC_COUNT, T+1UL, UINT_MAX, &blkN->block_id );
+  FD_TEST( metaN );
+  FD_TEST( !req_find( 0UL, AG_REPAIR_KIND_PARENT_FEC_COUNT, T, UINT_MAX, NULL ) );
+
+  /* The response names (T, bid_T): a block-id version of T is created,
+     T's stuck turbine version is abandoned, and the walk continues
+     with T, whose parent is the snapshot root. */
+  respond_parent_fec_count( ctx, blkN, metaN->nonce, 0 );
+  fd_chainer_slotv_t * vTb = fd_chainer_slot_version_query( ctx->chainer, T, &blkT->block_id );
+  FD_TEST( vTb && vT->abandoned );
+
+  ulong mark = req_cnt;
+  pump( ctx );
+  req_t * metaT = req_find( mark, AG_REPAIR_KIND_PARENT_FEC_COUNT, T, UINT_MAX, &blkT->block_id );
+  FD_TEST( metaT );
+  respond_parent_fec_count( ctx, blkT, metaT->nonce, 0 );
+  FD_TEST( vTb->connected );
+  FD_TEST( vTb->complete_idx==2U*FD_FEC_SHRED_CNT-1U );
+
+  /* FEC roots for T.  Set 1 is already complete on the turbine side and
+     is adopted; only set 0 needs ShredForBlockId repair. */
+  mark = req_cnt;
+  pump( ctx );
+  req_t * r0 = req_find( mark, AG_REPAIR_KIND_FEC_ROOT, T, 0U,               &blkT->block_id );
+  req_t * r1 = req_find( mark, AG_REPAIR_KIND_FEC_ROOT, T, FD_FEC_SHRED_CNT, &blkT->block_id );
+  FD_TEST( r0 && r1 );
+  respond_fec_root( ctx, blkT, 0U,               r0->nonce, 0 );
+  respond_fec_root( ctx, blkT, FD_FEC_SHRED_CNT, r1->nonce, 0 );
+
+  mark = req_cnt;
+  pump( ctx );
+  FD_TEST( req_count( mark, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, T )==FD_FEC_SHRED_CNT );
+  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) FD_TEST( req_find( mark, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, T, i, &blkT->block_id ) );
+
+  uint served[ BLK_FEC_MAX ] = {0};
+  serve_shred_requests( ctx, mark, blkT, UINT_MAX, NULL, served );
+  pump( ctx );
+
+  /* The whole chain now delivers in order: T under its block id, then
+     T+1 (turbine version: block id only on its slot-complete FEC). */
+  FD_TEST( rep_cnt==4UL );
+  rep_expect( 0UL, T,     0U,               &blkT->fec_root[ 0 ], &blkT->block_id, 0 );
+  rep_expect( 1UL, T,     FD_FEC_SHRED_CNT, &blkT->fec_root[ 1 ], &blkT->block_id, 1 );
+  rep_expect( 2UL, T+1UL, 0U,               &blkN->fec_root[ 0 ], NULL,            0 );
+  rep_expect( 3UL, T+1UL, FD_FEC_SHRED_CNT, &blkN->fec_root[ 1 ], &blkN->block_id, 1 );
+  FD_TEST( vN->connected );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  /* block-id-only mode never emitted a legacy positional request. */
+  for( ulong i=0UL; i<req_cnt; i++ )
+    FD_TEST( req_log[ i ].kind==AG_REPAIR_KIND_PARENT_FEC_COUNT ||
+             req_log[ i ].kind==AG_REPAIR_KIND_FEC_ROOT         ||
+             req_log[ i ].kind==AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID );
+
+  FD_LOG_NOTICE(( "pass: test_block_id_catchup_anchor" ));
+}
+
+/* =====================================================================
    Test 2b: FEC re-key merge.
 
    When turbine sees a FEC first it keys it by the full 32-byte merkle
@@ -1385,7 +1501,7 @@ test_votor_notar_fallback( fd_wksp_t * wksp ) {
    the 20-byte root prefix from its FecSetRoot repair response, so
    verified_hash_insert (querying with the padded root) misses the
    full-root entry and creates a distinct sentinel.  Once a real shred
-   delivers the full root, fd_chainer_fec_rekey must merge the sentinel's
+   delivers the full root, the chainer must merge the sentinel's
    owners onto the existing full-root FEC rather than leaving them
    stranded.  This is invisible unless the root has a non-zero tail
    (bytes 20-31), which mkhash does not produce, so build one here. */
@@ -1448,9 +1564,9 @@ test_fec_rekey_merge( fd_wksp_t * wksp ) {
   FD_TEST( s0 );
 
   /* Serve one set-0 shred carrying the full root.  after_alpen_shred
-     accepts it (20-byte compare) and fd_chainer_fec_rekey, seeing A's
-     full-root FEC already exists, merges B onto it and releases the
-     sentinel. */
+     matches it to B's request by the 20-byte root prefix, and the
+     chainer, seeing A's full-root FEC already exists, merges B's
+     sentinel onto it on insert and releases the sentinel. */
   ulong rmark = rep_cnt;
   serve_shred_request( ctx, blkB, s0, &blkB->fec_root[ 0 ] );
   pump( ctx );
@@ -1617,7 +1733,7 @@ test_block_id_repair_only( fd_wksp_t * wksp ) {
   blk->fec_root[ 1 ] = mkhash( 0xCC1UL );
   blk_build( blk );
 
-  /* Notar-fallback cert with no local data: after_votor_notar_fallback
+  /* Votor block-repair event with no local data: after_votor_block_repair
      requests the metadata, and the block-id orphan pass issues its own
      (duplicate) request for the unresolved ancestry on the next credit. */
 
@@ -1748,10 +1864,9 @@ test_meta_queue_defer( fd_wksp_t * wksp ) {
   FD_TEST( req_count( mark, AG_REPAIR_KIND_FEC_ROOT, slot )==0UL );
 
   for( uint k=0U; k<2U; k++ ) {
-    fd_meta_inflight_t * inf = meta_inflight_find( ctx, nonce0+k );
+    fd_inflight_t * inf = meta_inflight_find( ctx, AG_REPAIR_KIND_FEC_ROOT, nonce0+k );
     FD_TEST( inf );
-    FD_TEST( inf->kind==AG_REPAIR_KIND_FEC_ROOT );
-    FD_TEST( inf->slot==slot && inf->fec_set_idx==k*FD_FEC_SHRED_CNT );
+    FD_TEST( inf->key.slot==slot && inf->key.idx==k*FD_FEC_SHRED_CNT );
     FD_TEST( fd_hash_eq( &inf->block_id, &blk->block_id ) );
   }
 
@@ -1777,8 +1892,8 @@ test_meta_queue_defer( fd_wksp_t * wksp ) {
   }
   FD_TEST( root0 && root0->nonce!=nonce0 && root0->nonce!=nonce0+1U );
   FD_TEST( root1 && root1->nonce!=nonce0 && root1->nonce!=nonce0+1U );
-  FD_TEST( !meta_inflight_find( ctx, nonce0 ) && !meta_inflight_find( ctx, nonce0+1U ) );
-  FD_TEST(  meta_inflight_find( ctx, root0->nonce ) && meta_inflight_find( ctx, root1->nonce ) );
+  FD_TEST( !meta_inflight_find( ctx, AG_REPAIR_KIND_FEC_ROOT, nonce0 ) && !meta_inflight_find( ctx, AG_REPAIR_KIND_FEC_ROOT, nonce0+1U ) );
+  FD_TEST(  meta_inflight_find( ctx, AG_REPAIR_KIND_FEC_ROOT, root0->nonce ) && meta_inflight_find( ctx, AG_REPAIR_KIND_FEC_ROOT, root1->nonce ) );
 
   /* Serving the resent requests completes recovery as usual. */
 
@@ -1795,11 +1910,11 @@ test_meta_queue_defer( fd_wksp_t * wksp ) {
    Test 4: fd_inflight popped-set logic.
 
    Directly exercises the inflight table (independent of the tile
-   pipeline): a shred request moved to the popped set by a redispatch is
-   still visible to the query iterator and consumable by take, and a
-   metadata request likewise survives a pop into the popped set and is
-   matchable by a late response.  These are the paths that let a
-   response arriving after its request timed out still be recognized. */
+   pipeline): a request moved to the popped set by a redispatch is still
+   matchable by a late response, for shred and metadata requests alike,
+   and the shred key distinguishes versions by FEC root.  These are the
+   paths that let a response arriving after its request timed out still
+   be recognized. */
 
 static void
 test_inflight_popped( fd_wksp_t * wksp ) {
@@ -1808,102 +1923,101 @@ test_inflight_popped( fd_wksp_t * wksp ) {
   fd_inflights_t * inf = fd_inflights_join( fd_inflights_new( mem, 1234UL ) );
   FD_TEST( inf );
 
-  /* Count entries the query iterator visits for a key, across both the
-     outstanding and popped sets. */
-# define QCOUNT( n, s, i ) __extension__({                                                        \
-    ulong _c = 0UL;                                                                               \
-    for( fd_inflight_t * _e = fd_inflights_request_query( inf, (n), (s), (i) );                   \
-                         _e; _e = fd_inflights_request_query_next( inf, _e ) ) _c++;              \
-    _c; })
-
-  /* --- Shred inflights: query/pop/take span the popped set --- */
-
   fd_pubkey_t peer     = *(fd_pubkey_t *)fd_type_pun( mkhash( 0x9E ).uc );
+  fd_pubkey_t peer_out;
   fd_hash_t   block_id = mkhash( 0xB1 );
+  fd_hash_t   root     = mkhash( 0xF0 );
+  fd_hash_t   other    = mkhash( 0xF1 );
+  fd_hash_t   bid_out;
   ulong slot = 5UL, idx = 7UL, nonce = 99UL;
+  long  now  = fd_log_wallclock();
 
-  /* Two requests sharing one (slot, idx, nonce) key -- the version-blind
-     rnonce case.  Both are outstanding, popped is empty. */
-  fd_inflights_request_insert( inf, nonce, &peer, slot, idx, &block_id );
-  fd_inflights_request_insert( inf, nonce, &peer, slot, idx, &block_id );
+  /* --- Shred requests --- */
+
+  /* Two requests sharing one (slot, idx, nonce, root) key -- the same
+     version re-requested within one rnonce time bucket.  Both are
+     outstanding, popped is empty. */
+  fd_inflights_shred_insert( inf, nonce, &peer, slot, idx, &block_id, &root, now );
+  fd_inflights_shred_insert( inf, nonce, &peer, slot, idx, &block_id, &root, now );
   FD_TEST( inf->popped_cnt==0UL );
-  FD_TEST( QCOUNT( nonce, slot, idx )==2UL );
+  FD_TEST( fd_inflights_outstanding_cnt( inf )==2UL );
 
-  /* query returns an entry carrying the request's block_id (used by the
-     tile to verify a ShredForBlockId response against the version). */
-  fd_inflight_t * q = fd_inflights_request_query( inf, nonce, slot, idx );
-  FD_TEST( q && fd_hash_eq( &q->block_id, &block_id ) );
+  /* The FEC root prefix is part of the key: the positional key for the
+     same (slot, idx, nonce) matches nothing, and so does a sibling root. */
+  FD_TEST( !fd_inflights_shred_match( inf, nonce, slot, idx, NULL,   &peer_out, NULL, now ) );
+  FD_TEST( !fd_inflights_shred_match( inf, nonce, slot, idx, &other, &peer_out, NULL, now ) );
+  FD_TEST( fd_inflights_outstanding_cnt( inf )==2UL );
 
-  /* Redispatch pops the oldest to the popped set; the iterator still
-     sees both (one outstanding, one popped). */
-  ulong pn, ps, pi; fd_hash_t pb;
-  fd_inflights_request_pop( inf, &pn, &ps, &pb, &pi );
-  FD_TEST( pn==nonce && ps==slot && pi==idx );
+  /* Redispatch pops the oldest to the popped set. */
+  fd_inflight_t req[1];
+  fd_inflights_pop( inf, req );
+  FD_TEST( req->key.kind==FD_REPAIR_KIND_SHRED && req->key.nonce==nonce && req->key.slot==slot && req->key.idx==idx );
+  FD_TEST( fd_hash_eq( &req->block_id, &block_id ) && fd_hash_eq( &req->pubkey, &peer ) );
   FD_TEST( inf->popped_cnt==1UL );
-  FD_TEST( QCOUNT( nonce, slot, idx )==2UL );
+  FD_TEST( fd_inflights_outstanding_cnt( inf )==1UL );
 
-  /* Pop the second one too: the key now lives only in the popped set,
-     and query must fall back to it. */
-  fd_inflights_request_pop( inf, &pn, &ps, &pb, &pi );
-  FD_TEST( inf->popped_cnt==2UL );
-  FD_TEST( QCOUNT( nonce, slot, idx )==2UL );
-
-  /* take a popped entry: released from the popped set, popped_cnt and
-     pool free adjust. */
-  ulong free0 = fd_inflight_pool_free( inf->pool );
-  q = fd_inflights_request_query( inf, nonce, slot, idx );
-  FD_TEST( q );
-  FD_TEST( fd_inflights_request_remove( inf, q )>0L );
-  FD_TEST( inf->popped_cnt==1UL );
-  FD_TEST( fd_inflight_pool_free( inf->pool )==free0+1UL );
-  FD_TEST( QCOUNT( nonce, slot, idx )==1UL );
-
-  /* take the last popped entry: the key is now empty. */
-  q = fd_inflights_request_query( inf, nonce, slot, idx );
-  FD_TEST( q );
-  fd_inflights_request_remove( inf, q );
+  /* A response consumes every record with the key -- one outstanding
+     and one popped -- and credits the peer. */
+  FD_TEST( fd_inflights_shred_match( inf, nonce, slot, idx, &root, &peer_out, &bid_out, now )>0L );
+  FD_TEST( fd_hash_eq( &peer_out, &peer ) && fd_hash_eq( &bid_out, &block_id ) );
   FD_TEST( inf->popped_cnt==0UL );
-  FD_TEST( QCOUNT( nonce, slot, idx )==0UL );
-  FD_TEST( !fd_inflights_request_query( inf, nonce, slot, idx ) );
+  FD_TEST( fd_inflights_outstanding_cnt( inf )==0UL );
+  FD_TEST( fd_inflight_pool_used( inf->pool )==0UL );
+  FD_TEST( !fd_inflights_shred_match( inf, nonce, slot, idx, &root, &peer_out, NULL, now ) ); /* consumed */
 
-  /* take an OUTSTANDING entry: must not touch popped_cnt. */
-  fd_inflights_request_insert( inf, nonce, &peer, slot, idx, NULL );
-  q = fd_inflights_request_query( inf, nonce, slot, idx );
-  FD_TEST( q && fd_hash_check_zero( &q->block_id ) ); /* NULL block_id -> zero */
-  fd_inflights_request_remove( inf, q );
-  FD_TEST( inf->popped_cnt==0UL );
-  FD_TEST( !fd_inflights_request_query( inf, nonce, slot, idx ) );
+  /* A popped-only entry (both pops) still matches a late response. */
+  fd_inflights_shred_insert( inf, nonce, &peer, slot, idx, NULL, NULL, now );
+  fd_inflights_pop( inf, req );
+  FD_TEST( inf->popped_cnt==1UL && fd_inflights_outstanding_cnt( inf )==0UL );
+  FD_TEST( fd_inflights_shred_match( inf, nonce, slot, idx, NULL, &peer_out, &bid_out, now )>0L );
+  FD_TEST( fd_hash_check_zero( &bid_out ) ); /* positional request: zero block_id */
+  FD_TEST( inf->popped_cnt==0UL && fd_inflight_pool_used( inf->pool )==0UL );
 
-  /* --- Metadata inflights: pop -> popped, match spans popped --- */
+  /* --- Metadata requests: same table, keyed by (nonce, kind) --- */
 
   fd_hash_t bid = mkhash( 0xC7 );
 
-  /* A match while outstanding removes it from the outstanding set. */
-  fd_meta_inflights_request_insert( inf, 1000UL, AG_REPAIR_KIND_PARENT_FEC_COUNT, slot, &bid, 0U );
-  FD_TEST( inf->ag_popped_cnt==0UL );
-  fd_meta_inflight_t * m = fd_meta_inflights_request_match( inf, 1000UL );
-  FD_TEST( m && m->nonce==1000UL && m->slot==slot && m->kind==AG_REPAIR_KIND_PARENT_FEC_COUNT );
-  fd_meta_inflight_pool_ele_release( inf->ag_pool, m );
-  FD_TEST( !fd_meta_inflights_request_match( inf, 1000UL ) ); /* consumed */
+  /* A match while outstanding removes it and reports the requested kind
+     (metadata requests match by nonce alone). */
+  fd_inflights_meta_insert( inf, 1000UL, AG_REPAIR_KIND_PARENT_FEC_COUNT, &peer, slot, &bid, 0U, now );
+  FD_TEST( !fd_inflights_shred_match( inf, 1000UL, 0UL, 0UL, NULL, &peer_out, NULL, now ) ); /* never matches a shred key */
+  FD_TEST(  fd_inflights_meta_match( inf, 1000UL, req ) );
+  FD_TEST( req->key.nonce==1000UL && req->key.kind==AG_REPAIR_KIND_PARENT_FEC_COUNT && req->key.slot==slot && fd_hash_eq( &req->block_id, &bid ) && fd_hash_eq( &req->pubkey, &peer ) );
+  FD_TEST( !fd_inflights_meta_match( inf, 1000UL, req ) ); /* consumed */
 
   /* A redispatch pops the request to the popped set (preserving its
      fields); a late response to that nonce still matches there. */
-  fd_meta_inflights_request_insert( inf, 2000UL, AG_REPAIR_KIND_FEC_ROOT, slot, &bid, 32U );
-  ulong mn, msl; uint mk, mf; fd_hash_t mb;
-  fd_meta_inflights_request_pop( inf, &mn, &mk, &msl, &mb, &mf );
-  FD_TEST( mn==2000UL && mk==AG_REPAIR_KIND_FEC_ROOT && msl==slot && mf==32U && fd_hash_eq( &mb, &bid ) );
-  FD_TEST( inf->ag_popped_cnt==1UL );
+  fd_inflights_meta_insert( inf, 2000UL, AG_REPAIR_KIND_FEC_ROOT, &peer, slot, &bid, 32U, now );
+  fd_inflights_pop( inf, req );
+  FD_TEST( req->key.nonce==2000UL && req->key.kind==AG_REPAIR_KIND_FEC_ROOT && req->key.slot==slot && req->key.idx==32U && fd_hash_eq( &req->block_id, &bid ) );
+  FD_TEST( inf->popped_cnt==1UL );
 
-  m = fd_meta_inflights_request_match( inf, 2000UL );
-  FD_TEST( m && m->nonce==2000UL && m->fec_set_idx==32U && fd_hash_eq( &m->block_id, &bid ) );
-  FD_TEST( inf->ag_popped_cnt==0UL ); /* match decremented the popped count */
-  fd_meta_inflight_pool_ele_release( inf->ag_pool, m );
-  FD_TEST( !fd_meta_inflights_request_match( inf, 2000UL ) ); /* consumed from popped */
+  FD_TEST( fd_inflights_meta_match( inf, 2000UL, req ) );
+  FD_TEST( req->key.kind==AG_REPAIR_KIND_FEC_ROOT && req->key.idx==32U && fd_hash_eq( &req->block_id, &bid ) );
+  FD_TEST( inf->popped_cnt==0UL ); /* match decremented the popped count */
+  FD_TEST( !fd_inflights_meta_match( inf, 2000UL, req ) ); /* consumed from popped */
+
+  /* A parked (nonce 0, never sent) record is released on pop rather
+     than moved to the popped set: nothing could ever match it. */
+  ulong used0 = fd_inflight_pool_used( inf->pool );
+  fd_inflights_shred_insert( inf, 0UL, &peer, slot, idx, &block_id, &root, now );
+  FD_TEST( fd_inflight_pool_used( inf->pool )==used0+1UL );
+  fd_inflights_pop( inf, req );
+  FD_TEST( req->key.nonce==0U && req->key.slot==slot );
+  FD_TEST( inf->popped_cnt==0UL );
+  FD_TEST( fd_inflight_pool_used( inf->pool )==used0 );
+
+  /* Shred and metadata requests share one outstanding order: the oldest
+     of either kind pops first. */
+  fd_inflights_meta_insert ( inf, 3000UL, AG_REPAIR_KIND_PARENT_FEC_COUNT, &peer, slot, &bid, 0U, now );
+  fd_inflights_shred_insert( inf, nonce, &peer, slot, idx, NULL, NULL, now );
+  fd_inflights_pop( inf, req ); FD_TEST( req->key.kind==AG_REPAIR_KIND_PARENT_FEC_COUNT );
+  fd_inflights_pop( inf, req ); FD_TEST( req->key.kind==FD_REPAIR_KIND_SHRED );
+  FD_TEST( inf->popped_cnt==2UL && fd_inflights_outstanding_cnt( inf )==0UL );
 
   /* An unknown nonce matches nothing in either set. */
-  FD_TEST( !fd_meta_inflights_request_match( inf, 0xDEADBEEFUL ) );
+  FD_TEST( !fd_inflights_meta_match( inf, 0xDEADBEEFUL, req ) );
 
-# undef QCOUNT
   fd_wksp_free_laddr( inf );
   FD_LOG_NOTICE(( "pass: test_inflight_popped" ));
 }
@@ -2444,6 +2558,72 @@ test_deliver_from_root_known_id( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_deliver_from_root_known_id" ));
 }
 
+/* =====================================================================
+   Test: SLOT_COMPLETE on a FEC set that is not the slot's last, with
+   the trailing FEC set completing first.
+
+   A leader (or a malformed / adversarial shred stream) marks
+   SLOT_COMPLETE on shred 31, i.e. the block ends at FEC set 0, while a
+   second FEC set (shreds 32..63) also exists for the slot.  Turbine
+   delivers FEC set 1 first (packet reorder), so the turbine version
+   adopts it at position 1 but buffered_fec_idx stays UINT_MAX (FEC 0
+   is still incomplete).  When FEC set 0 then completes, the
+   buffered_fec_idx extension in fd_chainer_fec_complete would walk
+   both sets (buffered_fec_idx=63) while complete_idx==31, and the
+   buffered_fec_idx==complete_idx gate would never finalize the
+   block_id; chainer_advance would then deliver FEC 0 with a zero
+   block_id.  fd_chainer_fec_complete clamps buffered_fec_idx to
+   complete_idx (as shred_insert does for buffered_idx), so the FEC is
+   delivered slot-complete with the block_id finalized from
+   complete_idx (a one-FEC block), and FEC set 1 is never delivered. */
+
+static void
+test_slot_complete_before_trailing_fec( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk->fec_root[ 0 ] = mkhash( 0xC0UL );
+  blk->fec_root[ 1 ] = mkhash( 0xC1UL );
+  blk_build( blk );
+
+  /* The block_id the slot-complete marker actually describes: FEC set
+     0 only. */
+  blk_t one[1] = {{ .slot = blk->slot, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 1U }};
+  one->fec_root[ 0 ] = blk->fec_root[ 0 ];
+  blk_build( one );
+
+  /* FEC set 1 completes first: no shred 0 yet, so no parent, not
+     connected, nothing delivered. */
+  deliver_turbine_fec_set_flags( ctx, blk, 1U, FD_SHRED_DATA_FLAG_DATA_COMPLETE );
+  pump( ctx );
+  fd_chainer_slotv_t * v = fd_chainer_slot_query( ctx->chainer, blk->slot );
+  FD_TEST( v && v->turbine );
+  FD_TEST( !v->connected );
+  FD_TEST( v->complete_idx==UINT_MAX );
+  FD_TEST( v->buffered_fec_idx==UINT_MAX );
+  FD_TEST( rep_cnt==0UL );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  /* FEC set 0 arrives with SLOT_COMPLETE on shred 31 and completes.
+     buffered_fec_idx walks past complete_idx onto FEC set 1. */
+  deliver_turbine_fec_set_flags( ctx, blk, 0U, FD_SHRED_DATA_FLAG_SLOT_COMPLETE|FD_SHRED_DATA_FLAG_DATA_COMPLETE );
+  pump( ctx );
+
+  FD_TEST( v->connected );
+  FD_TEST( v->complete_idx==FD_FEC_SHRED_CNT-1U );
+  FD_TEST( v->buffered_fec_idx==FD_FEC_SHRED_CNT-1U ); /* clamped to complete_idx, not FEC set 1's end */
+  FD_TEST( v->delivered_idx==FD_FEC_SHRED_CNT-1U );
+  FD_TEST( fd_hash_eq( &v->block_id, &one->block_id ) );
+
+  FD_TEST( rep_cnt==1UL );
+  rep_expect( 0UL, blk->slot, 0U, &blk->fec_root[ 0 ], &one->block_id, 1 );
+  FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==blk->slot );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  FD_LOG_NOTICE(( "pass: test_slot_complete_before_trailing_fec" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -2470,6 +2650,9 @@ main( int argc, char ** argv ) {
   test_meta_queue_defer( wksp );
 
   fd_wksp_reset( wksp, 1U );
+  test_block_id_catchup_anchor( wksp );
+
+  fd_wksp_reset( wksp, 1U );
   test_inflight_popped( wksp );
 
   fd_wksp_reset( wksp, 1U );
@@ -2492,6 +2675,9 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_deliver_from_root_known_id( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_slot_complete_before_trailing_fec( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

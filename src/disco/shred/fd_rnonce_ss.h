@@ -22,6 +22,9 @@ FD_STATIC_ASSERT( sizeof(fd_rnonce_ss_t)==64, rnonce_ss );
 
 FD_PROTOTYPES_BEGIN
 
+FD_FN_CONST static inline int
+fd_rnonce_ss_normal_repair( uint nonce ) { return (int)(nonce>>31); }
+
 /* fd_rnonce_ss_{compute,verify} compute and verify, respectively, the
    nonce for the specified repair request issued or received at time_ns.
    slot and shred_idx specify the slot and shred index of the
@@ -84,7 +87,7 @@ fd_rnonce_ss_verify( fd_rnonce_ss_t const * ss,
                      int                    slot_complete,
                      long                   time_ns ) {
   fd_rnonce_ss_t temp[1] = { *ss };
-  int normal_repair      = !!(nonce>>31);
+  int normal_repair      = fd_rnonce_ss_normal_repair( nonce );
 
   /* If it's not "normal" repair, then the shred must have slot
      complete.  Technically this is not required by the repair protocol,
