@@ -59,7 +59,7 @@ test_cost_tracker_block_limit( fd_cost_tracker_t * ct ) {
   fd_features_t f;
   static fd_txn_out_t txn_out = {0};
 
-  fd_features_enable_all( &f );
+  fd_features_disable_all( &f );
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
 
   FD_TEST( ct->block_cost == 0UL );
