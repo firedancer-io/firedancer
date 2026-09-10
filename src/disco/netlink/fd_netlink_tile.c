@@ -550,11 +550,8 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
     ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
     return;
   }
-  if( FD_UNLIKELY( sig>>48 ) ) {
-    FD_LOG_WARNING(( "unexpected high bits in sig %016lx", sig ));
-  }
-  ushort if_idx   = (ushort)(sig>>32);
-  uint   ip4_addr = (uint)sig;
+  uint if_idx   = (uint)(sig>>32);
+  uint ip4_addr = (uint)sig;
   if( FD_UNLIKELY( if_idx!=ctx->neigh4_ifidx ) ) {
     ctx->metrics.neigh_solicits_fails++;
     FD_LOG_ERR(( "received neighbor solicit request for invalid interface index %u", if_idx ));
