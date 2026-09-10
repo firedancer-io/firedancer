@@ -1262,7 +1262,9 @@ publish_reset( fd_replay_tile_t *  ctx,
   fd_memcpy( reset->completed_blockhash, block_hash->uc,    sizeof(fd_hash_t) );
 
   ulong ticks_per_slot = bank->f.ticks_per_slot;
-  if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    reset->max_microblocks_in_slot = MAX_MICROBLOCKS_PER_SLOT;
+  } else if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
     reset->max_microblocks_in_slot = ticks_per_slot;
   } else {
@@ -1390,13 +1392,7 @@ try_become_leader_ag( fd_replay_tile_t *        ctx,
   memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
   memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc, sizeof(fd_pubkey_t) );
 
-  if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
-    /* Low power producer, maximum of one microblock per tick in the slot */
-    msg->max_microblocks_in_slot = msg->ticks_per_slot;
-  } else {
-    /* See the long comment in after_credit for this limit */
-    msg->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, msg->ticks_per_slot*(msg->hashcnt_per_tick-1UL) );
-  }
+  msg->max_microblocks_in_slot = MAX_MICROBLOCKS_PER_SLOT;
 
   msg->total_skipped_ticks = 0UL; /* even when slots are skipped, ticks increment by exactly one for every block */
   msg->epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->next_leader_slot, NULL );
