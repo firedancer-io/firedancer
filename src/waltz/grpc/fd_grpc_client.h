@@ -198,23 +198,6 @@ fd_grpc_client_tx_pending( fd_grpc_client_t const * client );
 FD_FN_PURE ulong
 fd_grpc_client_tx_starved( fd_grpc_client_t const * client );
 
-/* fd_grpc_client_set_tx_budget caps the request payload bytes that may
-   be copied into the TX frame buffer until the next call (pacing).
-   ULONG_MAX (the default) means unlimited.  fd_grpc_client_tx_budget
-   returns the remaining budget.  fd_grpc_client_request_continue
-   resumes a request send that was stopped by the budget or by flow
-   control; returns 1 if the request finished. */
-
-void
-fd_grpc_client_set_tx_budget( fd_grpc_client_t * client,
-                              ulong              budget );
-
-FD_FN_PURE ulong
-fd_grpc_client_tx_budget( fd_grpc_client_t const * client );
-
-int
-fd_grpc_client_request_continue( fd_grpc_client_t * client );
-
 /* fd_grpc_client_reset cancels all inflight requests and abandons the
    HTTP/2 client connection.  Config params are kept intact (e.g. host,
    port, version). */
