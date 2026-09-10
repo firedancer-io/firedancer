@@ -997,6 +997,12 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*txn_executed), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+static inline ushort
+shred_version( fd_replay_tile_t * ctx ) {
+  /* for backtest */
+  return ctx->shred_version ? ctx->shred_version : ctx->expected_shred_version;
+}
+
 static void
 mark_bank_dead( fd_replay_tile_t *  ctx,
                 fd_stem_context_t * stem,
@@ -1032,7 +1038,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   }
 
   /* Do hashing and other end-of-block processing. */
-  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version ) ) ) {
+  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer, shred_version( ctx ) ) ) ) {
     mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
     return 1;
   }
@@ -1448,7 +1454,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
     priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
 
-    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, ctx->shred_version );
+    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, shred_version( ctx ) );
   }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1901,7 +1907,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
 
     /* The block goes out regardless: the certs are already committed to
        the bank hash, so there is nothing left to fall back to. */
-    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version ) ) ) {
+    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, footer, shred_version( ctx ) ) ) ) {
       FD_LOG_WARNING(( "slot %lu: our own block footer certs did not apply; the block we produce will be dead to the cluster", ctx->leader_bank->f.slot ));
     }
     footer->bank_hash = ctx->leader_bank->f.bank_hash;
