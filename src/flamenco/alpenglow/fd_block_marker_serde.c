@@ -130,11 +130,11 @@ header_ser( fd_block_header_t const * header,
 
 static ulong
 bitmap_ser( ulong                nbits,
-            ag_bls_set_t const * signer_set,
+            fd_bls_set_t const * signer_set,
             uchar *              buf ) {
-  ag_bls_agg_t agg[1]; /* only the set is read */
-  ag_bls_set_copy( agg->set, signer_set );
-  ulong bits = fd_ulong_min( AG_BLS_SET_MAX, ag_bls_set_last( signer_set )+1UL ); /* one past the highest rank, 0 when empty */
+  fd_bls_agg_t agg[1]; /* only the set is read */
+  fd_bls_set_copy( agg->set, signer_set );
+  ulong bits = fd_ulong_min( FD_BLS_SET_MAX, fd_bls_set_last( signer_set )+1UL ); /* one past the highest rank, 0 when empty */
   if( FD_UNLIKELY( nbits>AG_VAT_MAX || bits>nbits ) ) return 0UL;
 
   /* ag_bls_agg_ser packs bits<=nbits of them (none for an empty set);
@@ -169,7 +169,7 @@ votes_aggregate_ser( fd_block_footer_cert_t const * cert,
 
   ulong off = 0UL;
   ulong sz;
-  memcpy( buf+off, aggregate.signature, AG_BLS_SIG_COMPRESSED_SZ );                     off += AG_BLS_SIG_COMPRESSED_SZ;
+  memcpy( buf+off, aggregate.signature, FD_BLS_SIG_COMPRESSED_SZ );                     off += FD_BLS_SIG_COMPRESSED_SZ;
   FD_STORE( ushort, buf+off, aggregate.bitmap_sz );                                     off += sizeof(ushort);
   if( FD_UNLIKELY( !(sz=bitmap_ser( cert->nbits, cert->signer_set, buf+off )) ) ) return 0UL;
                                                                                         off += sz;
@@ -219,7 +219,7 @@ skip_reward_cert_ser( fd_block_footer_cert_t const * cert,
   ulong off = 0UL;
   ulong sz;
   FD_STORE( ulong, buf+off, reward.slot );                                              off += sizeof(ulong);
-  memcpy( buf+off, reward.signature, AG_BLS_SIG_COMPRESSED_SZ );                        off += AG_BLS_SIG_COMPRESSED_SZ;
+  memcpy( buf+off, reward.signature, FD_BLS_SIG_COMPRESSED_SZ );                        off += FD_BLS_SIG_COMPRESSED_SZ;
                                                                                         off += fd_cu16_enc( reward.bitmap_sz, buf+off );
   if( FD_UNLIKELY( !(sz=bitmap_ser( cert->nbits, cert->signer_set, buf+off )) ) ) return 0UL;
                                                                                         off += sz;
@@ -241,7 +241,7 @@ notar_reward_cert_ser( fd_block_footer_cert_t const * cert,
   ulong sz;
   FD_STORE( ulong, buf+off, reward.slot );                                              off += sizeof(ulong);
   memcpy( buf+off, reward.block_id, sizeof(fd_hash_t) );                                off += sizeof(fd_hash_t);
-  memcpy( buf+off, reward.signature, AG_BLS_SIG_COMPRESSED_SZ );                        off += AG_BLS_SIG_COMPRESSED_SZ;
+  memcpy( buf+off, reward.signature, FD_BLS_SIG_COMPRESSED_SZ );                        off += FD_BLS_SIG_COMPRESSED_SZ;
                                                                                         off += fd_cu16_enc( reward.bitmap_sz, buf+off );
   if( FD_UNLIKELY( !(sz=bitmap_ser( cert->nbits, cert->signer_set, buf+off )) ) ) return 0UL;
                                                                                         off += sz;
@@ -366,21 +366,21 @@ update_parent_de( fd_update_parent_t * update_parent,
 
 /* bitmap_de decodes the base2 bitmap at b into nbits and signer_set
    through ag_bls_agg_de, which checks the version, the width against
-   AG_BLS_SET_MAX and the payload length against the width.  The
+   FD_BLS_SET_MAX and the payload length against the width.  The
    width is then kept verbatim, so a cert re-encodes at the width it came
    with. */
 
 static int
 bitmap_de( ushort *       nbits,
-           ag_bls_set_t * signer_set,
+           fd_bls_set_t * signer_set,
            uchar const *  b,
            ulong          b_sz ) {
-  ag_bls_agg_t agg[1];
+  fd_bls_agg_t agg[1];
   int err = ag_bls_agg_de( agg, b, b_sz ); /* base2 only; AG_BLS_DE_ERR_* are FD_BLOCK_MARKER_DE_ERR_* */
   if( FD_UNLIKELY( err ) ) return err;
 
   *nbits = FD_LOAD( ushort, b+sizeof(uchar) ); /* ag_bls_agg_de has sized and bounded this header */
-  ag_bls_set_copy( signer_set, agg->set );
+  fd_bls_set_copy( signer_set, agg->set );
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
 
@@ -392,14 +392,14 @@ votes_aggregate_de( fd_block_footer_cert_t * cert,
   FAIL( buf_sz<FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ, SZ );
 
   votes_aggregate_serde_t aggregate; ulong off = 0UL;
-  aggregate.signature = buf+off;                    off += AG_BLS_SIG_COMPRESSED_SZ;
+  aggregate.signature = buf+off;                    off += FD_BLS_SIG_COMPRESSED_SZ;
   aggregate.bitmap_sz = FD_LOAD( ushort, buf+off ); off += sizeof(ushort);
   FAIL( (ulong)aggregate.bitmap_sz>buf_sz-off, SZ );
   aggregate.bitmap    = buf+off;                    off += aggregate.bitmap_sz;
 
   int err = bitmap_de( &cert->nbits, cert->signer_set, aggregate.bitmap, aggregate.bitmap_sz );
   if( FD_UNLIKELY( err ) ) return err;
-  memcpy( cert->sig, aggregate.signature, AG_BLS_SIG_COMPRESSED_SZ ); /* stays compressed for votor */
+  memcpy( cert->sig, aggregate.signature, FD_BLS_SIG_COMPRESSED_SZ ); /* stays compressed for votor */
 
   *sz = off;
   return FD_BLOCK_MARKER_DE_SUCCESS;
@@ -458,7 +458,7 @@ skip_reward_cert_de( fd_block_footer_cert_t * cert,
 
   skip_reward_cert_serde_t reward; ulong off = 0UL;
   reward.slot      = FD_LOAD( ulong, buf+off );             off += sizeof(ulong);
-  reward.signature = buf+off;                               off += AG_BLS_SIG_COMPRESSED_SZ;
+  reward.signature = buf+off;                               off += FD_BLS_SIG_COMPRESSED_SZ;
   FAIL( buf_sz==off, SZ ); /* no byte for the ShortU16 */
   ulong cu16_sz = fd_cu16_dec_sz( buf+off, buf_sz-off );
   FAIL( !cu16_sz, INVAL ); /* ShortU16 malformed (or a multi byte one cut short, which fd_cu16_dec_sz cannot tell apart) */
@@ -469,7 +469,7 @@ skip_reward_cert_de( fd_block_footer_cert_t * cert,
   int err = bitmap_de( &cert->nbits, cert->signer_set, reward.bitmap, reward.bitmap_sz );
   if( FD_UNLIKELY( err ) ) return err;
   cert->slot = reward.slot; /* block_id stays zero */
-  memcpy( cert->sig, reward.signature, AG_BLS_SIG_COMPRESSED_SZ );
+  memcpy( cert->sig, reward.signature, FD_BLS_SIG_COMPRESSED_SZ );
 
   *sz = off;
   return FD_BLOCK_MARKER_DE_SUCCESS;
@@ -485,7 +485,7 @@ notar_reward_cert_de( fd_block_footer_cert_t * cert,
   notar_reward_cert_serde_t reward; ulong off = 0UL;
   reward.slot      = FD_LOAD( ulong, buf+off );             off += sizeof(ulong);
   reward.block_id  = buf+off;                               off += sizeof(fd_hash_t);
-  reward.signature = buf+off;                               off += AG_BLS_SIG_COMPRESSED_SZ;
+  reward.signature = buf+off;                               off += FD_BLS_SIG_COMPRESSED_SZ;
   FAIL( buf_sz==off, SZ ); /* no byte for the ShortU16 */
   ulong cu16_sz = fd_cu16_dec_sz( buf+off, buf_sz-off );
   FAIL( !cu16_sz, INVAL ); /* ShortU16 malformed (or a multi byte one cut short, which fd_cu16_dec_sz cannot tell apart) */
@@ -497,7 +497,7 @@ notar_reward_cert_de( fd_block_footer_cert_t * cert,
   if( FD_UNLIKELY( err ) ) return err;
   cert->slot = reward.slot;
   memcpy( cert->block_id.uc, reward.block_id, sizeof(fd_hash_t) );
-  memcpy( cert->sig, reward.signature, AG_BLS_SIG_COMPRESSED_SZ );
+  memcpy( cert->sig, reward.signature, FD_BLS_SIG_COMPRESSED_SZ );
 
   *sz = off;
   return FD_BLOCK_MARKER_DE_SUCCESS;

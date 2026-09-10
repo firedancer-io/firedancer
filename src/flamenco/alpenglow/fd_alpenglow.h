@@ -43,6 +43,22 @@ ulong
 fd_alpenglow_migration_slot( fd_bank_t *  bank,
                              fd_accdb_t * accdb );
 
+/* fd_alpenglow_footer_verify verifies every cert's aggregate BLS
+   signature in the footer.  It also checks the following:
+
+   - the signer bitmap must fit the epoch's ranked validators
+   - the finalization certs must carry a quorum of stake
+   - does NOT check the reward certs stake threshold
+
+   Returns 0 if every cert verifies (or the footer carries none) and -1
+   if any cert fails or cannot be checked: shred_version is 0, or the
+   bank holds no ranked validators for the cert's epoch. */
+
+int
+fd_alpenglow_footer_verify( fd_bank_t const *         bank,
+                            fd_block_footer_t const * footer,
+                            ushort                    shred_version );
+
 /* fd_alpenglow_rewards_apply applies the side effects of the footer's
    certs to the bank's accounts.  Only the slot and signer bitmap of
    each cert are read; the signatures are not verified here.

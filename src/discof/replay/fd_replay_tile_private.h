@@ -209,8 +209,10 @@ struct fd_replay_tile {
   ulong          hard_fork_cnt;
   fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
 
-  ushort expected_shred_version;
-  ushort ipecho_shred_version;
+  ushort expected_shred_version; /* from config, 0 if unset */
+  ushort ipecho_shred_version;   /* from the entrypoints via ipecho, 0 until it answers */
+  ushort shred_version;          /* 0 until computed. the two above only cross-check
+                                    it, and replay holds off executing until it is known. */
 
   ulong enable_features_cnt;
   char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];

@@ -137,8 +137,8 @@ struct final_notar_join {
   int             has_notar;
   int             has_final;
   ag_block_hash_t notar_block_hash;
-  ag_bls_agg_t    notar;
-  ag_bls_agg_t    final;
+  fd_bls_agg_t    notar;
+  fd_bls_agg_t    final;
 };
 typedef struct final_notar_join final_notar_join_t;
 
@@ -291,17 +291,17 @@ sign_ed25519( void *      signer_ctx,
   fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
-FD_STATIC_ASSERT( AG_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
+FD_STATIC_ASSERT( FD_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
 
 static void
 sign_bls( void *         signer_ctx,
-          ag_bls_sig_t * sig,
+          fd_bls_sig_t * sig,
           uchar const *  payload,
           ulong          payload_sz ) {
   fd_votor_tile_t * ctx = signer_ctx;
-  uchar sig_bytes[ AG_BLS_SIG_SZ ];
+  uchar sig_bytes[ FD_BLS_SIG_SZ ];
   fd_keyguard_client_sign( ctx->keyguard_client, sig_bytes, payload, payload_sz, FD_KEYGUARD_SIGN_TYPE_BLS );
-  if( FD_UNLIKELY( ag_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
+  if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
 }
 
 static int

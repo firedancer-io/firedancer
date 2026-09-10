@@ -455,7 +455,7 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   footer->block_producer_time_nanos = 1000000000UL;
   footer->has_skip_reward_cert      = 1;
   footer->skip_reward_cert.slot     = reward_slot;
-  ag_bls_set_insert( footer->skip_reward_cert.signer_set, 0UL );
+  fd_bls_set_insert( footer->skip_reward_cert.signer_set, 0UL );
 
   fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )!=reward_slot );
@@ -468,7 +468,7 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   footer->block_producer_time_nanos = 1000000000UL;
   footer->has_fast_final_cert       = 1;
   footer->fast_final_cert.slot      = final_slot;
-  ag_bls_set_insert( footer->fast_final_cert.signer_set, 0UL );
+  fd_bls_set_insert( footer->fast_final_cert.signer_set, 0UL );
   FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, footer ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==final_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=final_slot );

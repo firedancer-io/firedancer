@@ -28,8 +28,8 @@ struct fd_votor_certed {
   uint         kind; /* AG_CERT_KIND_* */
   ulong        slot;
   fd_hash_t    block_id;
-  ag_bls_agg_t agg;
-  ag_bls_agg_t agg2;
+  fd_bls_agg_t agg;
+  fd_bls_agg_t agg2;
 };
 typedef struct fd_votor_certed fd_votor_certed_t;
 

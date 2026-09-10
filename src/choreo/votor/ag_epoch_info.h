@@ -2,15 +2,17 @@
 #define HEADER_fd_src_choreo_votor_ag_epoch_info_h
 
 #include "ag_votor_base.h"
-#include "ag_bls.h"
+#include "../../ballet/bls/fd_bls.h"
 #include "../../flamenco/stakes/fd_stake_weight.h"
+
+FD_STATIC_ASSERT( FD_BLS_SET_MAX==AG_VAT_MAX, fd_bls_set_max );
 
 struct ag_validator_info {
   ulong         id;
   ulong         stake;
   ag_id_key_t   id_key;
   ag_vote_key_t vote_key;
-  ag_bls_pub_t  bls_key;
+  fd_bls_pub_t  bls_key;
 };
 typedef struct ag_validator_info ag_validator_info_t;
 
@@ -18,7 +20,7 @@ struct ag_epoch_info {
   ulong               validator_cnt;
   ulong               total_stake;
   ag_validator_info_t validators[ AG_VAT_MAX ]; /* indexed by rank; validator_cnt live */
-  ag_bls_pub_t        pubkeys   [ AG_VAT_MAX ]; /* validated keys, indexed by rank */
+  fd_bls_pub_t        pubkeys   [ AG_VAT_MAX ]; /* validated keys, indexed by rank */
 };
 typedef struct ag_epoch_info ag_epoch_info_t;
 

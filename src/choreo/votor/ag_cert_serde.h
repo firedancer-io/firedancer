@@ -41,7 +41,7 @@ typedef struct ag_cert_serde ag_cert_serde_t;
                                              sizeof(uchar)                                      /* kind      */ + \
                                              sizeof(ulong)                                      /* slot      */ + \
                                              ( (has_block_id) ? sizeof(ag_block_hash_t) : 0UL ) /* block_id  */ + \
-                                             AG_BLS_SIG_SZ                                      /* signature */ + \
+                                             FD_BLS_SIG_SZ                                      /* signature */ + \
                                              sizeof(ulong)                                      /* bitmap_sz */ )
 
 

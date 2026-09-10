@@ -9,7 +9,7 @@
 #include "../../discof/admin/fd_adminctl.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../metrics/fd_metrics.h"
-#include "../../choreo/votor/ag_bls.h"
+#include "../../ballet/bls/fd_bls.h"
 
 #include "../../util/hist/fd_histf.h"
 
@@ -99,7 +99,7 @@ derive_fields( fd_sign_ctx_t * ctx ) {
   static char const derive_msg[] = "bls-key-derive-alpenglow";
   uchar ikm[ 64 ];
   fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-  ag_bls_sec_derive( (ag_bls_sec_t *)fd_type_pun( ctx->bls_private_key ), ikm, sizeof(ikm) );
+  fd_bls_sec_derive( (fd_bls_sec_t *)fd_type_pun( ctx->bls_private_key ), ikm, sizeof(ikm) );
   fd_memzero_explicit( ikm, sizeof(ikm) );
 }
 
@@ -274,9 +274,9 @@ after_frag_sensitive( void *              _ctx,
     break;
   }
   case FD_KEYGUARD_SIGN_TYPE_BLS: {
-    ag_bls_sig_t bls_sig[1];
-    ag_bls_sec_sign( (ag_bls_sec_t const *)fd_type_pun_const( ctx->bls_private_key ), ctx->_data, sz, bls_sig );
-    ag_bls_sig_ser( dst, bls_sig );
+    fd_bls_sig_t bls_sig[1];
+    fd_bls_sec_sign( (fd_bls_sec_t const *)fd_type_pun_const( ctx->bls_private_key ), ctx->_data, sz, bls_sig );
+    fd_bls_sig_ser( dst, bls_sig );
     out_sz = FD_KEYGUARD_BLS_SIG_SZ;
     break;
   }

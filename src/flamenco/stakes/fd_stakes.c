@@ -457,7 +457,7 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
 ulong
 fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
                           ulong                    fork_id,
-                          int                      use_t_1,
+                          int                      iter_kind,
                           fd_vote_stake_weight_t * weights ) {
 
   /* We don't care if an account is invalid, we just want to get the
@@ -465,7 +465,6 @@ fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
      vote account stakes. */
   ulong weights_cnt = 0;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  int iter_kind = use_t_1 ? FD_VOTE_STAKES_ITER_T_1 : FD_VOTE_STAKES_ITER_T_2;
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
@@ -474,7 +473,7 @@ fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
     fd_pubkey_t node_account;
     uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &pubkey, &node_account, &stake,
-                             NULL, NULL, NULL, NULL, NULL, bls_key );
+                             NULL, NULL, NULL, NULL, NULL, bls_key, NULL );
 
     FD_TEST( weights_cnt<MAX_STAKE_WEIGHTS );
     fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
@@ -677,7 +676,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       fd_pubkey_t vote_pubkey;
       fd_pubkey_t node_pubkey;
       fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
-                               &vote_pubkey, &node_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+                               &vote_pubkey, &node_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
 
       fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, vote_pubkey.uc );
       fd_pubkey_t inflation_collector;
@@ -714,7 +713,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     ulong       stake;
     ushort      commission_t_1 = 0;
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, NULL, &stake,
-                             NULL, NULL, &commission_t_1, NULL, NULL, NULL );
+                             NULL, NULL, &commission_t_1, NULL, NULL, NULL, NULL );
 
     ushort commission_t_3 = 0;
     int    exists_t_3     = fd_vote_stakes_query_t_3( vote_stakes, fork_id, &pubkey, NULL, NULL, &commission_t_3 );
@@ -767,7 +766,7 @@ fd_stakes_burn_vat( fd_bank_t *         bank,
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     fd_pubkey_t vote_pubkey;
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
-                             &vote_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+                             &vote_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
 
     fd_accdb_svm_update_t update[1];
     fd_acc_t              acc = fd_accdb_svm_open_rw( bank, accdb, update, &vote_pubkey, 0 );

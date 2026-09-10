@@ -3,11 +3,11 @@
 #include "../../third_party/blst/bindings/blst.h"
 
 /* Compressed public keys are only needed to exercise the compressed arm
-   of ag_bls_pub_try_from_bytes; ag_bls has no compressor of its own. */
+   of fd_bls_pub_try_from_bytes; ag_bls has no compressor of its own. */
 
 static void
-pub_compress( uchar                out[ AG_BLS_PUB_COMPRESSED_SZ ],
-              ag_bls_pub_t const * pub ) {
+pub_compress( uchar                out[ FD_BLS_PUB_COMPRESSED_SZ ],
+              fd_bls_pub_t const * pub ) {
   blst_p1_affine a[1];
   blst_p1_to_affine( a, pub );
   blst_p1_affine_compress( out, a );
@@ -23,7 +23,7 @@ pub_compress( uchar                out[ AG_BLS_PUB_COMPRESSED_SZ ],
    expected bytes outright. */
 
 static void
-check_base2( ag_bls_agg_t const * agg,
+check_base2( fd_bls_agg_t const * agg,
              uchar const *        exp,
              ulong                exp_sz ) {
   uchar buf[ AG_BLS_AGG_SER_MAX ];
@@ -33,26 +33,26 @@ check_base2( ag_bls_agg_t const * agg,
   FD_TEST( sz==ag_bls_agg_ser_sz( agg ) );
   FD_TEST( !memcmp( buf, exp, sz ) );
 
-  ag_bls_agg_t back[1];
-  fd_memset( &back->sig, 0xAA, sizeof(ag_bls_sig_t) );
+  fd_bls_agg_t back[1];
+  fd_memset( &back->sig, 0xAA, sizeof(fd_bls_sig_t) );
   FD_TEST( ag_bls_agg_de( back, buf, sz )==AG_BLS_DE_SUCCESS );
-  for( ulong i=0UL; i<AG_BLS_SET_MAX; i++ ) FD_TEST( ag_bls_set_test( back->set, i )==ag_bls_set_test( agg->set, i ) );
+  for( ulong i=0UL; i<FD_BLS_SET_MAX; i++ ) FD_TEST( fd_bls_set_test( back->set, i )==fd_bls_set_test( agg->set, i ) );
 
   /* a bitmap carries no signature, so decoding clears the one that was there */
-  ag_bls_agg_t zero[1]; memset( zero, 0, sizeof(ag_bls_agg_t) );
-  FD_TEST( !memcmp( &back->sig, &zero->sig, sizeof(ag_bls_sig_t) ) );
+  fd_bls_agg_t zero[1]; memset( zero, 0, sizeof(fd_bls_agg_t) );
+  FD_TEST( !memcmp( &back->sig, &zero->sig, sizeof(fd_bls_sig_t) ) );
 
   /* base2 is legal wherever a fallback partition could be: it says the
      fallback set is empty */
-  ag_bls_agg_t b[1], f[1];
+  fd_bls_agg_t b[1], f[1];
   FD_TEST( ag_bls_agg_pair_de( b, f, buf, sz )==AG_BLS_DE_SUCCESS );
-  FD_TEST( !ag_bls_set_cnt( f->set ) );
-  for( ulong i=0UL; i<AG_BLS_SET_MAX; i++ ) FD_TEST( ag_bls_set_test( b->set, i )==ag_bls_set_test( agg->set, i ) );
+  FD_TEST( !fd_bls_set_cnt( f->set ) );
+  for( ulong i=0UL; i<FD_BLS_SET_MAX; i++ ) FD_TEST( fd_bls_set_test( b->set, i )==fd_bls_set_test( agg->set, i ) );
 }
 
 static void
-check_base3( ag_bls_agg_t const * base,
-             ag_bls_agg_t const * fb,
+check_base3( fd_bls_agg_t const * base,
+             fd_bls_agg_t const * fb,
              uchar const *        exp,
              ulong                exp_sz ) {
   uchar buf[ AG_BLS_AGG_PAIR_SER_MAX ];
@@ -62,27 +62,27 @@ check_base3( ag_bls_agg_t const * base,
   FD_TEST( sz==ag_bls_agg_pair_ser_sz( base, fb ) );
   FD_TEST( !memcmp( buf, exp, sz ) );
 
-  ag_bls_agg_t b[1], f[1];
+  fd_bls_agg_t b[1], f[1];
   FD_TEST( ag_bls_agg_pair_de( b, f, buf, sz )==AG_BLS_DE_SUCCESS );
-  for( ulong i=0UL; i<AG_BLS_SET_MAX; i++ ) {
-    FD_TEST( ag_bls_set_test( b->set, i )==ag_bls_set_test( base->set, i ) );
-    FD_TEST( ag_bls_set_test( f->set, i )==ag_bls_set_test( fb->set,   i ) );
+  for( ulong i=0UL; i<FD_BLS_SET_MAX; i++ ) {
+    FD_TEST( fd_bls_set_test( b->set, i )==fd_bls_set_test( base->set, i ) );
+    FD_TEST( fd_bls_set_test( f->set, i )==fd_bls_set_test( fb->set,   i ) );
   }
 
   /* only the pair decoder takes base3: a message with a single partition
      has no second signer set to decode into */
-  ag_bls_agg_t one[1];
+  fd_bls_agg_t one[1];
   FD_TEST( ag_bls_agg_de( one, buf, sz )==AG_BLS_DE_ERR_INVAL );
 }
 
 static void
 test_agg_bitmap( void ) {
-  ag_bls_agg_t agg[1], fb[1];
+  fd_bls_agg_t agg[1], fb[1];
 
   /* nobody signed, so the bitmap is its framing and nothing else */
 
-  memset( agg, 0, sizeof(ag_bls_agg_t) );
-  memset( fb,  0, sizeof(ag_bls_agg_t) );
+  memset( agg, 0, sizeof(fd_bls_agg_t) );
+  memset( fb,  0, sizeof(fd_bls_agg_t) );
   uchar const empty2[3] = { 0, 0, 0 };
   uchar const empty3[3] = { 1, 0, 0 };
   check_base2( agg, empty2, sizeof(empty2) );
@@ -90,42 +90,42 @@ test_agg_bitmap( void ) {
 
   /* ranks 0..4, one bit to a rank, least significant bit first */
 
-  for( ulong i=0UL; i<5UL; i++ ) ag_bls_set_insert( agg->set, i );
+  for( ulong i=0UL; i<5UL; i++ ) fd_bls_set_insert( agg->set, i );
   uchar const five[4] = { 0, 5, 0, 0x1f };
   check_base2( agg, five, sizeof(five) );
 
   /* the same five in the base partition and ranks 5..8 in the fallback,
      five ranks to a byte: 1+3+9+27+81 == 121, then 2+6+18+54 == 80 */
 
-  for( ulong i=5UL; i<9UL; i++ ) ag_bls_set_insert( fb->set, i );
+  for( ulong i=5UL; i<9UL; i++ ) fd_bls_set_insert( fb->set, i );
   uchar const mixed[5] = { 1, 9, 0, 121, 80 };
   check_base3( agg, fb, mixed, sizeof(mixed) );
 
   /* only ranks 0 and 63, so the count is 64 and the payload is the eight
      bytes that span it -- a bitmap is trimmed, not sparse */
 
-  memset( agg, 0, sizeof(ag_bls_agg_t) );
-  ag_bls_set_insert( agg->set, 0UL  );
-  ag_bls_set_insert( agg->set, 63UL );
+  memset( agg, 0, sizeof(fd_bls_agg_t) );
+  fd_bls_set_insert( agg->set, 0UL  );
+  fd_bls_set_insert( agg->set, 63UL );
   uchar const sparse[11] = { 0, 64, 0, 0x01, 0, 0, 0, 0, 0, 0, 0x80 };
   check_base2( agg, sparse, sizeof(sparse) );
 
   /* every rank */
 
-  memset( agg, 0, sizeof(ag_bls_agg_t) );
-  ag_bls_set_full( agg->set );
+  memset( agg, 0, sizeof(fd_bls_agg_t) );
+  fd_bls_set_full( agg->set );
   uchar full2[ AG_BLS_AGG_SER_MAX ];
-  full2[ 0 ] = 0; FD_STORE( ushort, full2+1UL, (ushort)AG_BLS_SET_MAX );
+  full2[ 0 ] = 0; FD_STORE( ushort, full2+1UL, (ushort)FD_BLS_SET_MAX );
   fd_memset( full2+AG_BLS_AGG_HDR_SZ, 0xff, AG_BLS_AGG_SER_MAX-AG_BLS_AGG_HDR_SZ );
   check_base2( agg, full2, AG_BLS_AGG_SER_MAX );
 
   /* every rank in the base partition: a full byte is 1+3+9+27+81 == 121,
      and 2000 ranks fill 400 of them exactly */
 
-  memset( fb, 0, sizeof(ag_bls_agg_t) );
+  memset( fb, 0, sizeof(fd_bls_agg_t) );
   ulong const chunks = AG_BLS_AGG_PAIR_SER_MAX-AG_BLS_AGG_HDR_SZ;
   uchar full3[ AG_BLS_AGG_PAIR_SER_MAX ];
-  full3[ 0 ] = 1; FD_STORE( ushort, full3+1UL, (ushort)AG_BLS_SET_MAX );
+  full3[ 0 ] = 1; FD_STORE( ushort, full3+1UL, (ushort)FD_BLS_SET_MAX );
   fd_memset( full3+AG_BLS_AGG_HDR_SZ, 121, chunks );
   check_base3( agg, fb, full3, AG_BLS_AGG_PAIR_SER_MAX );
 
@@ -133,11 +133,11 @@ test_agg_bitmap( void ) {
      the odd: a byte that starts on an even rank is 1+6+9+54+81 == 151 and
      one that starts on an odd rank is 2+3+18+27+162 == 212 */
 
-  memset( agg, 0, sizeof(ag_bls_agg_t) );
-  memset( fb,  0, sizeof(ag_bls_agg_t) );
-  for( ulong i=0UL; i<AG_BLS_SET_MAX; i++ ) ag_bls_set_insert( (i&1UL) ? fb->set : agg->set, i );
+  memset( agg, 0, sizeof(fd_bls_agg_t) );
+  memset( fb,  0, sizeof(fd_bls_agg_t) );
+  for( ulong i=0UL; i<FD_BLS_SET_MAX; i++ ) fd_bls_set_insert( (i&1UL) ? fb->set : agg->set, i );
   uchar split3[ AG_BLS_AGG_PAIR_SER_MAX ];
-  split3[ 0 ] = 1; FD_STORE( ushort, split3+1UL, (ushort)AG_BLS_SET_MAX );
+  split3[ 0 ] = 1; FD_STORE( ushort, split3+1UL, (ushort)FD_BLS_SET_MAX );
   for( ulong c=0UL; c<chunks; c++ ) split3[ AG_BLS_AGG_HDR_SZ+c ] = (c&1UL) ? 212 : 151;
   check_base3( agg, fb, split3, AG_BLS_AGG_PAIR_SER_MAX );
 
@@ -146,10 +146,10 @@ test_agg_bitmap( void ) {
 
 static void
 test_agg_bitmap_errors( void ) {
-  ag_bls_agg_t agg[1], dst[1], b[1], f[1];
-  memset( agg, 0, sizeof(ag_bls_agg_t) );
-  memset( f,   0, sizeof(ag_bls_agg_t) );
-  for( ulong i=0UL; i<5UL; i++ ) ag_bls_set_insert( agg->set, i );
+  fd_bls_agg_t agg[1], dst[1], b[1], f[1];
+  memset( agg, 0, sizeof(fd_bls_agg_t) );
+  memset( f,   0, sizeof(fd_bls_agg_t) );
+  for( ulong i=0UL; i<5UL; i++ ) fd_bls_set_insert( agg->set, i );
 
   uchar buf[ AG_BLS_AGG_PAIR_SER_MAX ];
   ulong sz = ag_bls_agg_ser( agg, buf );
@@ -177,11 +177,11 @@ test_agg_bitmap_errors( void ) {
   /* a bit count past the signer bound */
 
   fd_memcpy( bad, buf, sz );
-  FD_STORE( ushort, bad+1UL, (ushort)(AG_BLS_SET_MAX+1UL) );
+  FD_STORE( ushort, bad+1UL, (ushort)(FD_BLS_SET_MAX+1UL) );
   FD_TEST( ag_bls_agg_de( dst, bad, sz )==AG_BLS_DE_ERR_SZ );
 
   ulong sz3 = ag_bls_agg_pair_ser( agg, f, bad );
-  FD_STORE( ushort, bad+1UL, (ushort)(AG_BLS_SET_MAX+1UL) );
+  FD_STORE( ushort, bad+1UL, (ushort)(FD_BLS_SET_MAX+1UL) );
   FD_TEST( ag_bls_agg_pair_de( b, f, bad, sz3 )==AG_BLS_DE_ERR_SZ );
 
   FD_LOG_NOTICE(( "signer set bitmap error paths pass" ));
@@ -195,18 +195,18 @@ test_roundtrip( void ) {
   ulong       msg_sz = sizeof(msg)-1UL;
 
   ulong const  N = 5UL;
-  ag_bls_sec_t sk [5];
-  ag_bls_pub_t pk [5];
-  ag_bls_sig_t sig[5];
+  fd_bls_sec_t sk [5];
+  fd_bls_pub_t pk [5];
+  fd_bls_sig_t sig[5];
   for( ulong i=0UL; i<N; i++ ) {
-    fd_memset( &sk[i], 0, AG_BLS_SEC_SZ );
+    fd_memset( &sk[i], 0, FD_BLS_SEC_SZ );
     sk[i].b[0] = (uchar)( i+1UL );
-    ag_bls_sec_to_pub( &sk[i], pk+i );
-    ag_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
+    fd_bls_sec_to_pub( &sk[i], pk+i );
+    fd_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
 
-    FD_TEST(  ag_bls_agg_verify( pk+i,         &sig[i], msg,  msg_sz ) );
-    FD_TEST( !ag_bls_agg_verify( pk+(i+1UL)%N, &sig[i], msg,  msg_sz ) );
-    FD_TEST( !ag_bls_agg_verify( pk+i, &sig[i], (uchar const *)"x", 1UL ) );
+    FD_TEST(  fd_bls_agg_verify( pk+i,         &sig[i], msg,  msg_sz ) );
+    FD_TEST( !fd_bls_agg_verify( pk+(i+1UL)%N, &sig[i], msg,  msg_sz ) );
+    FD_TEST( !fd_bls_agg_verify( pk+i, &sig[i], (uchar const *)"x", 1UL ) );
   }
 
   FD_LOG_NOTICE(( "blst sig round trip pass" ));
@@ -217,19 +217,19 @@ test_derive( void ) {
   uchar ikm_a[64]; for( ulong i=0UL; i<64UL; i++ ) ikm_a[i] = (uchar)(i*7u+1u);
   uchar ikm_b[64]; for( ulong i=0UL; i<64UL; i++ ) ikm_b[i] = (uchar)(i*7u+2u);
 
-  ag_bls_sec_t sk_a, sk_a2, sk_b;
-  ag_bls_sec_derive( &sk_a,  ikm_a, sizeof(ikm_a) );
-  ag_bls_sec_derive( &sk_a2, ikm_a, sizeof(ikm_a) );
-  ag_bls_sec_derive( &sk_b,  ikm_b, sizeof(ikm_b) );
+  fd_bls_sec_t sk_a, sk_a2, sk_b;
+  fd_bls_sec_derive( &sk_a,  ikm_a, sizeof(ikm_a) );
+  fd_bls_sec_derive( &sk_a2, ikm_a, sizeof(ikm_a) );
+  fd_bls_sec_derive( &sk_b,  ikm_b, sizeof(ikm_b) );
 
-  FD_TEST(  !memcmp( &sk_a, &sk_a2, sizeof(ag_bls_sec_t) ) );
-  FD_TEST(   memcmp( &sk_a, &sk_b,  sizeof(ag_bls_sec_t) ) );
+  FD_TEST(  !memcmp( &sk_a, &sk_a2, sizeof(fd_bls_sec_t) ) );
+  FD_TEST(   memcmp( &sk_a, &sk_b,  sizeof(fd_bls_sec_t) ) );
 
-  ag_bls_pub_t  pk; ag_bls_sec_to_pub( &sk_a, &pk );
+  fd_bls_pub_t  pk; fd_bls_sec_to_pub( &sk_a, &pk );
   uchar const * msg = (uchar const *)"derived key vote";
   ulong         msg_sz = 16UL;
-  ag_bls_sig_t  sig; ag_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
-  FD_TEST( ag_bls_agg_verify( &pk, &sig, msg, msg_sz ) );
+  fd_bls_sig_t  sig; fd_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
+  FD_TEST( fd_bls_agg_verify( &pk, &sig, msg, msg_sz ) );
 
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
@@ -242,28 +242,28 @@ test_ref_api( void ) {
   ulong         msg_sz = 13UL;
   ulong const   N      = 5UL;
 
-  ag_bls_sec_t sk [5];
-  ag_bls_pub_t pk [5];
-  ag_bls_sig_t sig[5];
+  fd_bls_sec_t sk [5];
+  fd_bls_pub_t pk [5];
+  fd_bls_sig_t sig[5];
   for( ulong i=0UL; i<N; i++ ) {
-    fd_memset( &sk[i], 0, AG_BLS_SEC_SZ );
+    fd_memset( &sk[i], 0, FD_BLS_SEC_SZ );
     sk[i].b[0] = (uchar)( i+1UL );
-    ag_bls_sec_to_pub( &sk[i], pk+i );
-    ag_bls_sec_sign( &sk[i], msg, msg_sz, &sig[i] );
+    fd_bls_sec_to_pub( &sk[i], pk+i );
+    fd_bls_sec_sign( &sk[i], msg, msg_sz, &sig[i] );
   }
 
   /* PublicKey::try_from_bytes -- compressed and affine both round trip */
-  uchar comp[ AG_BLS_PUB_COMPRESSED_SZ ];
+  uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ];
   pub_compress( comp, pk );
-  ag_bls_pub_t from_comp, from_aff;
-  FD_TEST( !ag_bls_pub_try_from_bytes( &from_comp, comp,        sizeof(comp)     ) );
-  uchar aff[ AG_BLS_PUB_SZ ]; { blst_p1_affine a[1]; blst_p1_to_affine( a, pk ); blst_p1_affine_serialize( aff, a ); }
-  FD_TEST( !ag_bls_pub_try_from_bytes( &from_aff,  aff,         AG_BLS_PUB_SZ    ) );
-  FD_TEST( !memcmp( &from_comp, pk, sizeof(ag_bls_pub_t) ) );
-  FD_TEST( !memcmp( &from_aff,  pk, sizeof(ag_bls_pub_t) ) );
-  FD_TEST(  ag_bls_pub_try_from_bytes( &from_aff, comp, 47UL ) ); /* bad length */
-  uchar junk[ AG_BLS_PUB_COMPRESSED_SZ ]; fd_memset( junk, 0xEE, sizeof(junk) );
-  FD_TEST(  ag_bls_pub_try_from_bytes( &from_aff, junk, sizeof(junk) ) ); /* not on curve */
+  fd_bls_pub_t from_comp, from_aff;
+  FD_TEST( !fd_bls_pub_try_from_bytes( &from_comp, comp,        sizeof(comp)     ) );
+  uchar aff[ FD_BLS_PUB_SZ ]; { blst_p1_affine a[1]; blst_p1_to_affine( a, pk ); blst_p1_affine_serialize( aff, a ); }
+  FD_TEST( !fd_bls_pub_try_from_bytes( &from_aff,  aff,         FD_BLS_PUB_SZ    ) );
+  FD_TEST( !memcmp( &from_comp, pk, sizeof(fd_bls_pub_t) ) );
+  FD_TEST( !memcmp( &from_aff,  pk, sizeof(fd_bls_pub_t) ) );
+  FD_TEST(  fd_bls_pub_try_from_bytes( &from_aff, comp, 47UL ) ); /* bad length */
+  uchar junk[ FD_BLS_PUB_COMPRESSED_SZ ]; fd_memset( junk, 0xEE, sizeof(junk) );
+  FD_TEST(  fd_bls_pub_try_from_bytes( &from_aff, junk, sizeof(junk) ) ); /* not on curve */
 
   FD_LOG_NOTICE(( "reference api pass" ));
 }

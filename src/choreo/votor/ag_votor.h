@@ -2,7 +2,7 @@
 #define HEADER_fd_src_choreo_votor_ag_votor_h
 
 #include "ag_votor_base.h"
-#include "ag_bls.h"
+#include "../../ballet/bls/fd_bls.h"
 #include "ag_event.h"
 
 typedef struct ag_votor ag_votor_t;
@@ -31,7 +31,7 @@ ag_votor_advance_epoch( ag_votor_t * self,
 
 void
 ag_votor_set_bls_signer( ag_votor_t *   self,
-                         ag_bls_sign_fn sign_fn,
+                         fd_bls_sign_fn sign_fn,
                          void *         sign_ctx );
 
 void

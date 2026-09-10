@@ -24,19 +24,19 @@
 
 #define MAXV 128UL
 
-static ag_bls_sec_t     g_sk  [ MAXV ];
+static fd_bls_sec_t     g_sk  [ MAXV ];
 static ag_validator_info_t g_info[ MAXV ];
 
 static void
 create_signers( ulong n ) {
   FD_TEST( n<=MAXV );
   for( ulong i=0UL; i<n; i++ ) {
-    fd_memset( &g_sk[i], 0, AG_BLS_SEC_SZ );
+    fd_memset( &g_sk[i], 0, FD_BLS_SEC_SZ );
     g_sk[i].b[0] = (uchar)( i+1UL );
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
+    fd_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
   }
 }
 
@@ -103,16 +103,16 @@ static int
 cert_is_signer( ag_cert_t const * c,
                 ulong             v ) {
   switch( c->kind ) {
-  case AG_CERT_KIND_FINAL:      return ag_bls_set_test( c->final.agg.set,      v );
-  case AG_CERT_KIND_FAST_FINAL: return ag_bls_set_test( c->fast_final.agg.set, v );
-  case AG_CERT_KIND_NOTAR:      return ag_bls_set_test( c->notar.agg.set,      v );
+  case AG_CERT_KIND_FINAL:      return fd_bls_set_test( c->final.agg.set,      v );
+  case AG_CERT_KIND_FAST_FINAL: return fd_bls_set_test( c->fast_final.agg.set, v );
+  case AG_CERT_KIND_NOTAR:      return fd_bls_set_test( c->notar.agg.set,      v );
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_cert_notar_fallback_t const * n = &c->notar_fallback;
-    return ag_bls_set_test( n->agg_notar.set, v ) || ag_bls_set_test( n->agg_notar_fallback.set, v );
+    return fd_bls_set_test( n->agg_notar.set, v ) || fd_bls_set_test( n->agg_notar_fallback.set, v );
   }
   default: {
     ag_cert_skip_t const * s = &c->skip;
-    return ag_bls_set_test( s->agg_skip.set, v ) || ag_bls_set_test( s->agg_skip_fallback.set, v );
+    return fd_bls_set_test( s->agg_skip.set, v ) || fd_bls_set_test( s->agg_skip_fallback.set, v );
   }
   }
 }
@@ -191,7 +191,7 @@ test_mixed( void ) {
    that carry one, the aggregate signature and the bitmap byte count.
    CERT_BITMAP_HDR_SZ is the bitmap's own version byte and bit count. */
 
-#define CERT_HDR_SZ( has_block_id ) ( 1UL + 1UL + 8UL + ( (has_block_id) ? sizeof(ag_block_hash_t) : 0UL ) + AG_BLS_SIG_SZ + 8UL )
+#define CERT_HDR_SZ( has_block_id ) ( 1UL + 1UL + 8UL + ( (has_block_id) ? sizeof(ag_block_hash_t) : 0UL ) + FD_BLS_SIG_SZ + 8UL )
 #define CERT_BITMAP_HDR_SZ           ( 1UL + 2UL )
 
 /* Golden wire vectors.
@@ -227,8 +227,8 @@ check_cert_wire( char const *         name,
                  uchar                kind,       /* WireConsensusMessageKind tag                     */
                  ulong                slot,
                  uchar const *        block_id,   /* NULL for the kinds whose wire form carries none  */
-                 ag_bls_agg_t const * agg,        /* base aggregate                                   */
-                 ag_bls_agg_t const * agg2,       /* second partition, NULL for the single-partition kinds;
+                 fd_bls_agg_t const * agg,        /* base aggregate                                   */
+                 fd_bls_agg_t const * agg2,       /* second partition, NULL for the single-partition kinds;
                                                      the wire carries the two signatures summed          */
                  uchar                bitmap_ver, /* 0 base2, 1 base3                                 */
                  ushort               bit_cnt,
@@ -248,11 +248,11 @@ check_cert_wire( char const *         name,
   FD_TEST( buf[ off ]==kind     ); off += 1UL;
   FD_TEST( FD_LOAD( ulong, buf+off )==slot ); off += 8UL;
   if( block_id ) { FD_TEST( !memcmp( buf+off, block_id, sizeof(ag_block_hash_t) ) ); off += sizeof(ag_block_hash_t); }
-  ag_bls_sig_t exp_sig[1]; *exp_sig = agg->sig;
+  fd_bls_sig_t exp_sig[1]; *exp_sig = agg->sig;
   if( agg2 ) blst_p2_add_or_double( exp_sig, exp_sig, &agg2->sig );
-  uchar exp_bytes[ AG_BLS_SIG_SZ ];
+  uchar exp_bytes[ FD_BLS_SIG_SZ ];
   { blst_p2_affine a[1]; blst_p2_to_affine( a, exp_sig ); blst_p2_affine_serialize( exp_bytes, a ); }
-  FD_TEST( !memcmp( buf+off, exp_bytes, AG_BLS_SIG_SZ ) ); off += AG_BLS_SIG_SZ;
+  FD_TEST( !memcmp( buf+off, exp_bytes, FD_BLS_SIG_SZ ) ); off += FD_BLS_SIG_SZ;
   FD_TEST( FD_LOAD( ulong, buf+off )==CERT_BITMAP_HDR_SZ+bitmap_sz ); off += 8UL;
   FD_TEST( off==hdr );
   FD_TEST( buf[ off ]==bitmap_ver ); off += 1UL;

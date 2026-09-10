@@ -34,7 +34,7 @@ typedef struct ag_vote_serde ag_vote_serde_t;
                                          sizeof(uchar)                                      /* kind          */ + \
                                          sizeof(ulong)                                      /* slot          */ + \
                                          ( (has_block_id) ? sizeof(ag_block_hash_t) : 0UL ) /* block_id      */ + \
-                                         AG_BLS_SIG_SZ                                      /* signature     */ + \
+                                         FD_BLS_SIG_SZ                                      /* signature     */ + \
                                          sizeof(ushort)                                     /* shred_version */ )
 
 #define AG_VOTE_SIGNING_SER_MAX ( sizeof(uchar)           /* kind          */ + \

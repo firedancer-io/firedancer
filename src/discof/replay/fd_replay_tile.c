@@ -275,7 +275,7 @@ replay_voter_rank( fd_replay_tile_t * ctx,
     fd_pubkey_t identity;
     ushort     rank;
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &vote_key, &identity,
-                             NULL, NULL, NULL, NULL, NULL, &rank, NULL );
+                             NULL, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
     if( FD_UNLIKELY( fd_pubkey_eq( &identity, ctx->identity_pubkey ) ) ) return rank;
   }
   return USHORT_MAX;
@@ -302,8 +302,8 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
 
   /* bits at or past the cert's nbits are left clear at decode, so the
      set test alone bounds the rank */
-  int in_cert = ( footer->has_skip_reward_cert  && ag_bls_set_test( footer->skip_reward_cert.signer_set,  rank ) ) ||
-                ( footer->has_notar_reward_cert && ag_bls_set_test( footer->notar_reward_cert.signer_set, rank ) );
+  int in_cert = ( footer->has_skip_reward_cert  && fd_bls_set_test( footer->skip_reward_cert.signer_set,  rank ) ) ||
+                ( footer->has_notar_reward_cert && fd_bls_set_test( footer->notar_reward_cert.signer_set, rank ) );
 
   if( FD_UNLIKELY( in_cert && ( ctx->metrics.voted_slot==ULONG_MAX || reward_slot>ctx->metrics.voted_slot ) ) ) ctx->metrics.voted_slot = reward_slot;
   return in_cert;
@@ -997,6 +997,12 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*txn_executed), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+static inline ushort
+shred_version( fd_replay_tile_t * ctx ) {
+  /* for backtest */
+  return ctx->shred_version ? ctx->shred_version : ctx->expected_shred_version;
+}
+
 static void
 mark_bank_dead( fd_replay_tile_t *  ctx,
                 fd_stem_context_t * stem,
@@ -1032,7 +1038,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   }
 
   /* Do hashing and other end-of-block processing. */
-  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer ) ) ) {
+  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer, shred_version( ctx ) ) ) ) {
     mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
     return 1;
   }
@@ -1448,7 +1454,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
     priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
 
-    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL );
+    fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, shred_version( ctx ) );
   }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1578,7 +1584,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   bank->f.slot_params              = fd_slot_params_at_slot( bank, bank->f.slot );
   FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
   FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
-  if( FD_LIKELY( manifest_params.hashes_per_tick ) ) {
+  if( FD_LIKELY( manifest_params.hashes_per_tick && !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
     FD_TEST( bank->f.slot_params.hashes_per_tick==manifest_params.hashes_per_tick );
   }
 
@@ -1901,7 +1907,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
 
     /* The block goes out regardless: the certs are already committed to
        the bank hash, so there is nothing left to fall back to. */
-    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, footer ) ) ) {
+    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, footer, shred_version( ctx ) ) ) ) {
       FD_LOG_WARNING(( "slot %lu: our own block footer certs did not apply; the block we produce will be dead to the cluster", ctx->leader_bank->f.slot ));
     }
     footer->bank_hash = ctx->leader_bank->f.bank_hash;
@@ -1930,6 +1936,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->identity_vote_rooted = 1;
 
   ctx->caught_up = 1;
+
+  ctx->hard_fork_cnt = 0UL;
 
   uchar const * genesis_blob = (uchar const *)( meta+1 );
   FD_TEST( meta->bootstrap && meta->has_lthash );
@@ -2347,6 +2355,10 @@ try_replay( fd_replay_tile_t *  ctx,
             fd_stem_context_t * stem ) {
 
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
+
+  /* Hold off executing until the computed shred version is known (except
+     in backtest), so footer certs verify under it. */
+  if( FD_UNLIKELY( ctx->alpenglow && !ctx->shred_version && !ctx->expected_shred_version ) ) return 0;
 
   int charge_busy = 0;
   fd_sched_task_t task[ 1 ];
@@ -3849,6 +3861,10 @@ process_vote_txn_sent( fd_replay_tile_t *  ctx,
 
 static inline void
 maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
+  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX ) ) {
+    ctx->shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+  }
+
   if( FD_LIKELY( ctx->expected_shred_version && ctx->ipecho_shred_version ) ) {
     if( FD_UNLIKELY( ctx->expected_shred_version!=ctx->ipecho_shred_version ) ) {
       FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from ipecho", ctx->expected_shred_version, ctx->ipecho_shred_version ) );
@@ -3860,10 +3876,9 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
      snapshot's hard fork list until wait-for-supermajority completes. */
   if( FD_UNLIKELY( ctx->wfs_enabled && !ctx->wfs_complete && ctx->expected_shred_version ) ) return;
 
-  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
+  if( FD_LIKELY( ctx->shred_version && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
     ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
-
-    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+    ushort actual_shred_version   = ctx->shred_version;
 
     if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
@@ -4267,7 +4282,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
         default: break;
         }
         /* newest slot wins the ring entry, and at the same slot the widest aggregate, which rewards the most voters */
-        if( ring && ( ring->slot==ULONG_MAX || certed->slot>ring->slot || ( certed->slot==ring->slot && ag_bls_set_cnt( certed->agg.set )>ag_bls_set_cnt( ring->agg.set ) ) ) ) *ring = *certed;
+        if( ring && ( ring->slot==ULONG_MAX || certed->slot>ring->slot || ( certed->slot==ring->slot && fd_bls_set_cnt( certed->agg.set )>fd_bls_set_cnt( ring->agg.set ) ) ) ) *ring = *certed;
       }
       break;
     }
@@ -4565,6 +4580,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->expected_shred_version = tile->replay.expected_shred_version;
   ctx->ipecho_shred_version = 0;
+  ctx->shred_version        = 0;
   fd_memcpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
   ctx->has_genesis_hash = 0;
   ctx->has_cluster_type = 0;

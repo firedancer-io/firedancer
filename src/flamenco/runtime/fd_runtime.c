@@ -69,7 +69,7 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
 
   fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, 1, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_1, epoch_weights );
   FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
@@ -105,7 +105,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, 0, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2, epoch_weights );
   FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
@@ -1644,7 +1644,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
       uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
 
       fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
-                               NULL, NULL, &commission, NULL, NULL, bls_key );
+                               NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
       fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &pubkey, &node_account, stake, commission, bls_key );
     }
     fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );
@@ -1756,7 +1756,11 @@ static int
 apply_footer( fd_bank_t *               bank,
               fd_accdb_t *              accdb,
               fd_capture_ctx_t *        capture_ctx,
-              fd_block_footer_t const * footer ) {
+              fd_block_footer_t const * footer,
+              ushort                    shred_version ) {
+
+  /* leader bank's certs were verified by votor */
+  if( FD_UNLIKELY( !bank->is_leader && fd_alpenglow_footer_verify( bank, footer, shred_version ) ) ) return -1;
 
   /* Rewrite the clock sysvar and the alpenclock account from the
      footer's producer timestamp (Agave Bank::update_clock_from_footer).
@@ -1810,8 +1814,9 @@ int
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_accdb_t *              accdb,
                                    fd_capture_ctx_t *        capture_ctx,
-                                   fd_block_footer_t const * footer ) {
-  if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer ) ) ) return -1;
+                                   fd_block_footer_t const * footer,
+                                   ushort                    shred_version ) {
+  if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer, shred_version ) ) ) return -1;
   fd_runtime_freeze( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );
   return 0;

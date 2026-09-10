@@ -23,6 +23,7 @@ SNAPDC_TILE_COUNT=""
 ROOT_DISTANCE="2"
 MAX_LIVE_SLOTS="32"
 ALPENGLOW="false"
+SHRED_VERSION=""
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
 if [[ -n "$CI" ]]; then
@@ -105,6 +106,11 @@ while [[ $# -gt 0 ]]; do
         ;;
     --alpenglow)
         ALPENGLOW="true"
+        shift
+        ;;
+    --shred-version)
+        SHRED_VERSION="$2"
+        shift
         shift
         ;;
     -*|--*)
@@ -251,6 +257,12 @@ EOF
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]
     entrypoints = [ \"0.0.0.0:1\" ]" >> $DUMP_DIR/${LEDGER}_backtest.toml
+fi
+
+# alpenglow ledgers require an expected_shred_verion
+if [[ -n "$SHRED_VERSION" ]]; then
+  echo "[consensus]
+    expected_shred_version = $SHRED_VERSION" >> $DUMP_DIR/${LEDGER}_backtest.toml
 fi
 
 echo_notice "Running backtest for $LEDGER"

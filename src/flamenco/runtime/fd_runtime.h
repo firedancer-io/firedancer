@@ -360,7 +360,8 @@ int
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_accdb_t *              accdb,
                                    fd_capture_ctx_t *        capture_ctx,
-                                   fd_block_footer_t const * footer );
+                                   fd_block_footer_t const * footer,
+                                   ushort                    shred_version );
 
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of

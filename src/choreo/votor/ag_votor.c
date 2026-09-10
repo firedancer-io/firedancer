@@ -85,7 +85,7 @@ struct __attribute__((aligned(128UL))) ag_votor {
   ulong        curr_epoch_slot;
   ulong        next_epoch_rank;
   ulong        next_epoch_slot;
-  ag_bls_sign_fn bls_sign_fn;
+  fd_bls_sign_fn bls_sign_fn;
   void *         bls_sign_ctx;
 
   ag_event_vote_t * vote_events;
@@ -267,7 +267,7 @@ ag_votor_advance_epoch( ag_votor_t * self,
 
 void
 ag_votor_set_bls_signer( ag_votor_t *   self,
-                         ag_bls_sign_fn sign_fn,
+                         fd_bls_sign_fn sign_fn,
                          void *         sign_ctx ) {
   FD_TEST( sign_fn );
   self->bls_sign_fn  = sign_fn;
