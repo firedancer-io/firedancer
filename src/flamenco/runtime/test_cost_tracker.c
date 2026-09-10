@@ -57,9 +57,9 @@ static void
 test_cost_tracker_block_limit( fd_cost_tracker_t * ct ) {
   ulong const slot = 10UL;
   fd_features_t f;
-  static fd_txn_out_t txn_out = { 0 };
+  static fd_txn_out_t txn_out = {0};
 
-  memset( &f, 0xFF, sizeof(f) );
+  fd_features_enable_all( &f );
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
 
   FD_TEST( ct->block_cost == 0UL );
@@ -93,9 +93,9 @@ static void
 test_cost_tracker_account_limit( fd_cost_tracker_t * ct ) {
   ulong const slot = 10UL;
   fd_features_t f;
-  static fd_txn_out_t txn_out = { 0 };
+  static fd_txn_out_t txn_out = {0};
 
-  memset( &f, 0xFF, sizeof(f) );
+  fd_features_enable_all( &f );
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
 
   ct->block_cost_limit  = 10000UL;
@@ -119,9 +119,9 @@ static void
 test_cost_tracker_txn_cost_sum( fd_cost_tracker_t * ct ) {
   ulong const slot = 10UL;
   fd_features_t f;
-  static fd_txn_out_t txn_out = { 0 };
+  static fd_txn_out_t txn_out = {0};
 
-  memset( &f, 0xFF, sizeof(f) );
+  fd_features_enable_all( &f );
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
 
   ct->account_cost_limit = 1000UL;
@@ -137,9 +137,9 @@ static void
 test_cost_tracker_data_size_limit( fd_cost_tracker_t * ct ) {
   ulong const slot = 10UL;
   fd_features_t f;
-  static fd_txn_out_t txn_out = { 0 };
+  static fd_txn_out_t txn_out = {0};
 
-  memset( &f, 0xFF, sizeof(f) );
+  fd_features_enable_all( &f );
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
   txn_out.details.txn_cost.transaction.allocated_accounts_data_size = ct->data_size_limit;
 
@@ -157,9 +157,9 @@ static void
 test_cost_tracker_rejection_non_mutating( fd_cost_tracker_t * ct ) {
   ulong const slot = 10UL;
   fd_features_t f;
-  static fd_txn_out_t txn_out = { 0 };
+  static fd_txn_out_t txn_out = {0};
 
-  memset( &f, 0xFF, sizeof(f) );
+  fd_features_enable_all( &f );
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
   FD_TEST( ct->block_cost == 0UL );
 
@@ -178,9 +178,9 @@ static void
 test_cost_tracker_multiple_accounts( fd_cost_tracker_t * ct ) {
   ulong const slot = 10UL;
   fd_features_t f;
-  static fd_txn_out_t txn_out = { 0 };
+  static fd_txn_out_t txn_out = {0};
 
-  memset( &f, 0xFF, sizeof(f) );
+  fd_features_enable_all( &f );
   fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
 
   /* Set up two writable accounts */
@@ -189,7 +189,7 @@ test_cost_tracker_multiple_accounts( fd_cost_tracker_t * ct ) {
   txn_out.accounts.is_writable[0] = 1U;
   txn_out.accounts.is_writable[1] = 1U;
 
-  memset( txn_out.accounts.keys, 0, sizeof( txn_out.accounts.keys ) );
+  memset( txn_out.accounts.keys, 0, sizeof( txn_out.accounts.keys ));
   txn_out.accounts.keys[1].uc[1] = 1U;
 
   /* Setting up the txn costs */
@@ -242,6 +242,8 @@ int main( int argc, char ** argv ) {
 
   fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( new_cost_tracker_mem );
   FD_TEST( cost_tracker );
+  FD_LOG_NOTICE(( "fd_cost_tracker_footprint: %lu", fd_cost_tracker_footprint() ));
+
   test_cost_tracker_init_reconciliation( cost_tracker );
   test_cost_tracker_block_limit( cost_tracker );
   test_cost_tracker_account_limit( cost_tracker );
