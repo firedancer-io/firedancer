@@ -18,7 +18,6 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
                                    fd_stake_history_t const * stake_history,
                                    ulong *                    new_rate_activation_epoch );
 
-#if FD_HAS_DOUBLE
 /* Caller must ensure cluster_portion is nonzero. */
 
 static inline ulong
@@ -32,7 +31,6 @@ fd_stake_calculate_change_allowance_float( ulong   current_epoch,
   double newly_changed_cluster_stake = (double)cluster_effective * warmup_cooldown_rate;
   return fd_rust_cast_double_to_ulong( weight * newly_changed_cluster_stake );
 }
-#endif /* FD_HAS_DOUBLE */
 
 ulong
 fd_stake_calculate_activation_allowance( ulong                            current_epoch,

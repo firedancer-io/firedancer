@@ -14,8 +14,6 @@
 #include "../../util/log/fd_log.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
-FD_STATIC_ASSERT( FD_HAS_ATOMIC, fd_node_info requires atomics );
-
 #include <stdatomic.h>
 
 #define FD_NODE_INFO_MAGIC (0xf17eda2c4e490000UL) /* firedancer ni ver 0 */
@@ -66,8 +64,6 @@ fd_node_info_box_join( void * shni ) {
   return ni;
 }
 
-#if FD_HAS_ATOMIC
-
 /* fd_node_info_read does an atomic read of a shared fd_node_info_t. */
 
 static inline fd_node_info_t *
@@ -104,8 +100,6 @@ static inline void
 fd_node_info_write_end( fd_node_info_box_t * dst ) {
   atomic_fetch_add_explicit( &dst->seq_lock, 1U, memory_order_release );
 }
-
-#endif /* FD_HAS_ATOMIC */
 
 FD_PROTOTYPES_END
 
