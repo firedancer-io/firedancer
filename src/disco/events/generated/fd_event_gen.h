@@ -280,12 +280,15 @@ struct fd_event_runtime_txn {
   ulong                                readonly_accounts_cnt;             /* Number of readonly_accounts entries (<= 64) */
   uchar                                program_ids[ 64UL ][ 32UL ];       /* Distinct program pubkeys invoked at the top level of this transaction */
   ulong                                program_ids_cnt;                   /* Number of program_ids entries (<= 64) */
+  ulong                                perf_cpu_cycles;                   /* CPU cycles spent executing this transaction; zero when AMD PMU profiling is unavailable */
+  ulong                                perf_instructions;                 /* Instructions retired while executing this transaction; zero when AMD PMU profiling is unavailable */
+  ulong                                perf_demand_llc_miss;              /* Demand-data fills sourced beyond the local LLC while executing this transaction; zero when AMD PMU profiling is unavailable */
 };
 typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 
 /* Worst-case encoded size of a runtime_txn event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23249UL)
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23294UL)
 
 /* Why the block was ruled invalid; not_dead otherwise. Blocks this validator produced are never dead: they do not go through replay's block checks. A block invalid for several independent reasons records the first one detected locally, which can differ across validators for the same block. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD                    (1) /* Not ruled invalid. */

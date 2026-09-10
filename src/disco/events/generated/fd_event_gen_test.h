@@ -173,6 +173,9 @@ fd_event_runtime_txn_fill_max( fd_event_runtime_txn_t * msg ) {
   for( ulong k=0UL; k<64UL; k++ ) {
     fd_memset( msg->program_ids[ k ], 0xFF, 32UL );
   }
+  msg->perf_cpu_cycles = ULONG_MAX;
+  msg->perf_instructions = ULONG_MAX;
+  msg->perf_demand_llc_miss = ULONG_MAX;
 }
 
 static void

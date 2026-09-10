@@ -62,7 +62,7 @@ extern FD_TL volatile ulong * fd_metrics_tl;
 #define FD_METRICS_FOOTPRINT(in_link_cnt)                                                                   \
   FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND ( FD_LAYOUT_INIT,                    \
     8UL, 8UL ),                                                                                             \
-    8UL, (in_link_cnt)*FD_METRICS_ALL_LINK_IN_TOTAL*sizeof(ulong) ),                                        \
+    8UL, (in_link_cnt)*FD_METRICS_ALL_LINK_IN_FOOTPRINT*sizeof(ulong) ),                                    \
     8UL, FD_METRICS_TOTAL_SZ ),                                                                             \
     FD_METRICS_ALIGN )
 
@@ -119,17 +119,27 @@ extern FD_TL volatile ulong * fd_metrics_tl;
     }                                                                         \
   } while(0)
 
+/* Optional counters and gauges are omitted from Prometheus output until
+   marked available.  Availability is shared by all enum variants. */
+
+#define FD_METRIC_SET_AVAILABLE( group, measurement, available ) do {                   \
+    ulong const __fd_metric_off  = FD_METRICS_##group##_##measurement##_AVAILABLE_OFF;  \
+    ulong const __fd_metric_mask = FD_METRICS_##group##_##measurement##_AVAILABLE_MASK; \
+    if( (available) ) fd_metrics_tl[ __fd_metric_off ] |=  __fd_metric_mask;            \
+    else              fd_metrics_tl[ __fd_metric_off ] &= ~__fd_metric_mask;            \
+  } while(0)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_metrics_tile returns a pointer to the tile-specific metrics area
    for the given metrics object.  */
 static inline volatile ulong *
-fd_metrics_tile( ulong * metrics ) { return metrics + 1UL + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[ 0 ]; }
+fd_metrics_tile( ulong * metrics ) { return metrics + 1UL + FD_METRICS_ALL_LINK_IN_FOOTPRINT*metrics[ 0 ]; }
 
 /* fd_metrics_link_in returns a pointer the in-link metrics area for the
    given in link index of this metrics object. */
 static inline volatile ulong *
-fd_metrics_link_in( ulong * metrics, ulong in_idx ) { return metrics + 1UL + FD_METRICS_ALL_LINK_IN_TOTAL*in_idx; }
+fd_metrics_link_in( ulong * metrics, ulong in_idx ) { return metrics + 1UL + FD_METRICS_ALL_LINK_IN_FOOTPRINT*in_idx; }
 
 /* fd_metrics_new formats an unused memory region for use as a metrics.
    Assumes shmem is a non-NULL pointer to this region in the local

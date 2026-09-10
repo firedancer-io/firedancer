@@ -21,6 +21,16 @@
     .converter = FD_METRICS_##TYPE##_##MEASUREMENT##_CVT   \
   }
 
+#define DECLARE_METRIC_OPTIONAL( MEASUREMENT, TYPE ) {                         \
+    .name      = FD_METRICS_##TYPE##_##MEASUREMENT##_NAME,                    \
+    .type      = FD_METRICS_TYPE_##TYPE,                                      \
+    .desc      = FD_METRICS_##TYPE##_##MEASUREMENT##_DESC,                    \
+    .offset    = FD_METRICS_##TYPE##_##MEASUREMENT##_OFF,                     \
+    .availability_offset = FD_METRICS_##MEASUREMENT##_AVAILABLE_OFF,          \
+    .availability_mask   = FD_METRICS_##MEASUREMENT##_AVAILABLE_MASK,         \
+    .converter = FD_METRICS_##TYPE##_##MEASUREMENT##_CVT                      \
+  }
+
 #define DECLARE_METRIC_ENUM( MEASUREMENT, TYPE, ENUM_NAME, ENUM_VARIANT ) { \
     .name         = FD_METRICS_##TYPE##_##MEASUREMENT##_NAME,               \
     .enum_name    = FD_METRICS_ENUM_##ENUM_NAME##_NAME,                     \
@@ -30,6 +40,19 @@
     .offset       = FD_METRICS_##TYPE##_##MEASUREMENT##_OFF +               \
                     FD_METRICS_ENUM_##ENUM_NAME##_V_##ENUM_VARIANT##_IDX,   \
     .converter    = FD_METRICS_##TYPE##_##MEASUREMENT##_CVT                 \
+  }
+
+#define DECLARE_METRIC_ENUM_OPTIONAL( MEASUREMENT, TYPE, ENUM_NAME, ENUM_VARIANT ) { \
+    .name         = FD_METRICS_##TYPE##_##MEASUREMENT##_NAME,                       \
+    .enum_name    = FD_METRICS_ENUM_##ENUM_NAME##_NAME,                            \
+    .enum_variant = FD_METRICS_ENUM_##ENUM_NAME##_V_##ENUM_VARIANT##_NAME,         \
+    .type         = FD_METRICS_TYPE_##TYPE,                                        \
+    .desc         = FD_METRICS_##TYPE##_##MEASUREMENT##_DESC,                      \
+    .offset       = FD_METRICS_##TYPE##_##MEASUREMENT##_OFF +                      \
+                    FD_METRICS_ENUM_##ENUM_NAME##_V_##ENUM_VARIANT##_IDX,          \
+    .availability_offset = FD_METRICS_##MEASUREMENT##_AVAILABLE_OFF,               \
+    .availability_mask   = FD_METRICS_##MEASUREMENT##_AVAILABLE_MASK,              \
+    .converter    = FD_METRICS_##TYPE##_##MEASUREMENT##_CVT                        \
   }
 
 #define DECLARE_METRIC_HISTOGRAM_NONE( MEASUREMENT ) {     \
@@ -67,6 +90,8 @@ typedef struct {
   int          type;
   char const * desc;
   ulong        offset;
+  ulong        availability_offset;
+  ulong        availability_mask; /* zero when always available */
 
   int converter;
 

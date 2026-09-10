@@ -59,6 +59,33 @@ main( int     argc,
     FD_LOG_ERR(( "Metrics didn't match. Updated src/disco/quic/test_quic_metrics.txt" ));
   }
 
+  fd_metrics_meta_t optional_metric = {
+    .name                = "test_optional",
+    .type                = FD_METRICS_TYPE_COUNTER,
+    .desc                = "Optional test metric",
+    .offset              = 0UL,
+    .availability_offset = 1UL,
+    .availability_mask   = 1UL<<2,
+    .converter           = FD_METRICS_CONVERTER_NONE,
+  };
+
+  tile_metrics[ 0 ] = 42UL;
+  tile_metrics[ 1 ] = 1UL<<1;
+  fd_prometheus_render_tile( http, &tile, &optional_metric, 1UL );
+  FD_TEST( !fd_http_server_stage_body( http, &resp ) );
+  FD_TEST( !resp._body_len );
+
+  tile_metrics[ 1 ] |= 1UL<<2;
+  fd_prometheus_render_tile( http, &tile, &optional_metric, 1UL );
+  FD_TEST( !fd_http_server_stage_body( http, &resp ) );
+  body     = (char const *)http->oring + resp._body_off;
+  body_len = resp._body_len;
+  char const expected[] = "# HELP test_optional_total Optional test metric\n"
+                          "# TYPE test_optional_total counter\n"
+                          "test_optional_total{kind=\"quic\",kind_id=\"0\"} 42\n";
+  FD_TEST( body_len==sizeof(expected)-1UL );
+  FD_TEST( fd_memeq( body, expected, body_len ) );
+
   free( fd_metrics_delete( fd_metrics_leave( metrics ) ) );
   free( fd_http_server_delete( fd_http_server_leave( http ) ) );
 

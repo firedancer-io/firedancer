@@ -35,6 +35,10 @@ def _write_off_enum(f: TextIO, metrics: List[Metric], prefix: str, start_expr: s
             # Histogram occupies 17 slots (136/8). Sentinel ensures correct next offset.
             f.write(f'  {off_name}_END = {off_name} + 16,\n')
 
+    optional_word_cnt = (sum(metric.optional for metric in metrics) + 63) // 64
+    for word_idx in range(optional_word_cnt):
+        f.write(f'  FD_METRICS_{prefix.upper()}_AVAILABLE_{word_idx}_OFF,\n')
+
     if end_name:
         f.write(f'  {end_name},\n')
 
@@ -68,19 +72,24 @@ def _write_metric(f: TextIO, metric: Metric, prefix: str):
         f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MIN  ({min_str})\n')
         f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MAX  ({max_str})\n')
 
+    if metric.optional:
+        f.write(f'#define FD_METRICS_{prefix.upper()}_{full_name}_AVAILABLE_OFF  (FD_METRICS_{prefix.upper()}_AVAILABLE_{metric.availability_word}_OFF)\n')
+        f.write(f'#define FD_METRICS_{prefix.upper()}_{full_name}_AVAILABLE_MASK (1UL<<{metric.availability_bit})\n')
+
     f.write('\n')
 
 def _write_metric_descriptor(f, full_name, metric: Metric):
+    optional = '_OPTIONAL' if metric.optional else ''
     if isinstance(metric, CounterMetric):
-        f.write(f'    DECLARE_METRIC( {full_name}, COUNTER ),\n')
+        f.write(f'    DECLARE_METRIC{optional}( {full_name}, COUNTER ),\n')
     elif isinstance(metric, GaugeMetric):
-        f.write(f'    DECLARE_METRIC( {full_name}, GAUGE ),\n')
+        f.write(f'    DECLARE_METRIC{optional}( {full_name}, GAUGE ),\n')
     elif isinstance(metric, CounterEnumMetric):
         for value in metric.enum.values:
-            f.write(f'    DECLARE_METRIC_ENUM( {full_name}, COUNTER, {camel2snake(metric.enum.name)}, {camel2snake(value.name)} ),\n')
+            f.write(f'    DECLARE_METRIC_ENUM{optional}( {full_name}, COUNTER, {camel2snake(metric.enum.name)}, {camel2snake(value.name)} ),\n')
     elif isinstance(metric, GaugeEnumMetric):
         for value in metric.enum.values:
-            f.write(f'    DECLARE_METRIC_ENUM( {full_name}, GAUGE, {camel2snake(metric.enum.name)}, {camel2snake(value.name)} ),\n')
+            f.write(f'    DECLARE_METRIC_ENUM{optional}( {full_name}, GAUGE, {camel2snake(metric.enum.name)}, {camel2snake(value.name)} ),\n')
     elif isinstance(metric, HistogramMetric):
         if metric.converter == HistogramConverter.SECONDS:
             f.write(f'    DECLARE_METRIC_HISTOGRAM_SECONDS( {full_name} ),\n')
@@ -117,21 +126,19 @@ def _write_common(metrics: Metrics):
         for metric in metrics.common:
             _write_metric(f, metric, "tile")
 
-        offset = sum([int(metric.footprint()/8) for metric in metrics.common])
-        f.write(f'\n#define FD_METRICS_ALL_TOTAL ({offset}UL)\n')
+        total = sum([metric.count() for metric in metrics.common])
+        f.write(f'\n#define FD_METRICS_ALL_TOTAL ({total}UL)\n')
         f.write(f'extern const fd_metrics_meta_t FD_METRICS_ALL[FD_METRICS_ALL_TOTAL];\n')
-        f.write(f'\n#define FD_METRICS_ALL_LINK_IN_TOTAL ({len(metrics.link_in)}UL)\n')
+        link_in_total = sum([metric.count() for metric in metrics.link_in])
+        f.write(f'\n#define FD_METRICS_ALL_LINK_IN_TOTAL ({link_in_total}UL)\n')
+        f.write(f'#define FD_METRICS_ALL_LINK_IN_FOOTPRINT ({metrics.link_in_footprint}UL)\n')
         f.write(f'extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL];\n')
 
         # Max size of any particular tiles metrics
-        max_offset = 0
-        for (tile, tile_metrics) in metrics.tiles.items():
-            tile_offset = sum([int(metric.footprint() / 8) for metric in tile_metrics])
-            if tile_offset > max_offset:
-                max_offset = tile_offset
+        max_offset = max(metrics.tile_footprints.values(), default=metrics.common_footprint)
 
         # Kind of a hack for now.  Different tiles should get a different size.
-        f.write(f'\n#define FD_METRICS_TOTAL_SZ (8UL*{max_offset+offset}UL)\n')
+        f.write(f'\n#define FD_METRICS_TOTAL_SZ (8UL*{max_offset}UL)\n')
         f.write(f'\n#define FD_METRICS_TILE_KIND_CNT {len(metrics.tiles)}\n')
         f.write(f'extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];\n')
         f.write(f'extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];\n')
@@ -229,7 +236,7 @@ def write_codegen(metrics: Metrics):
     os.makedirs(Path(__file__).parent / '../generated', exist_ok=True)
 
     _write_common(metrics)
-    common_offset = sum([int(metric.footprint()/8) for metric in metrics.common])
+    common_offset = metrics.common_footprint
     for (tile, tile_metrics) in metrics.tiles.items():
         _write_tile(tile, tile_metrics)
     _write_enums(metrics.enums.values(), common_offset)
