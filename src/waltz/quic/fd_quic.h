@@ -161,7 +161,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   X( identity_public_key,         "%x",     hex32, "",             __VA_ARGS__ ) \
   X( sign,                        "%p",     ptr,   "",             __VA_ARGS__ ) \
   X( sign_ctx,                    "%p",     ptr,   "",             __VA_ARGS__ ) \
-  X( keylog_file,                 "%s",     value, "",             __VA_ARGS__ ) \
   X( initial_rx_max_stream_data,  "%lu",    units, "bytes",        __VA_ARGS__ ) \
   X( max_datagram_frame_size,     "%lu",    units, "bytes",        __VA_ARGS__ ) \
   X( net.dscp,                    "0x%02x", value, "",             __VA_ARGS__ )
@@ -217,9 +216,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* alpn: either "solana-tpu" or "alpenglow-v1" */
   uchar alpn[ 32 ];
   ulong alpn_sz;
-
-# define FD_QUIC_PATH_LEN 1023UL
-  char keylog_file[ FD_QUIC_PATH_LEN+1UL ];
 
   ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
   ulong max_datagram_frame_size;    /* RFC 9221 RX frame limit; zero disables DATAGRAM */
