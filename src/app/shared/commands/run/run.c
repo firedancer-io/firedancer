@@ -495,8 +495,6 @@ main_pid_namespace( void * _args ) {
             FD_LOG_ERR(( "fcntl(FD_STORE_FD_RO,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
-        /* Stake delegation fallback spill file: only the tiles that
-           mutate the stake delegations cache touch it. */
         int tile_uses_stake_spill = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
                                     !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapin" );
         if( FD_UNLIKELY( -1==fcntl( FD_STAKE_DELEGATIONS_FD, F_SETFD, tile_uses_stake_spill ? 0 : FD_CLOEXEC ) ) )
@@ -1097,10 +1095,6 @@ void
 initialize_stake_delegations_fd( config_t const * config ) {
   if( FD_UNLIKELY( !config->is_firedancer ) ) return;
 
-  /* Spill file for the disk overflow of the stake delegation pubkey
-     fallback tier, alongside accounts.db.  Contents never survive a
-     boot, so it is unlinked immediately: the kernel reclaims the space
-     on exit however the process dies. */
   char spill_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s.stakedel", config->paths.accounts ) );
   int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
