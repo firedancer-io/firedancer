@@ -259,6 +259,7 @@ FD_PROTOTYPES_END
 #undef SET_POP_LSB
 #undef SET_FIND_LSB
 #undef SET_POPCNT
+#undef SET_IDX_T
 #undef SET_MAX
 #undef SET_TYPE
 #undef SET_NAME

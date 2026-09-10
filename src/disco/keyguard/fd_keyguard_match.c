@@ -333,6 +333,26 @@ fd_keyguard_payload_matches_tls_cv( uchar const * data,
 }
 
 FD_FN_PURE int
+fd_keyguard_payload_matches_ag_vote( uchar const * data,
+                                     ulong         sz,
+                                     int           sign_type ) {
+
+  /* Alpenglow vote payload produced by ag_vote_signing_ser:
+
+     u8  tag            (1..5, WireConsensusMessageKind vote tags)
+     u64 slot
+     [32 bytes block id] only for notar (1) and notar fallback (4)
+     u16 shred_version */
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_BLS ) return 0;
+  if( sz!=11UL && sz!=43UL ) return 0;
+  uchar tag = data[ 0 ];
+  if( tag<1 || tag>5 ) return 0;
+  int has_hash = ( tag==1 ) | ( tag==4 );
+  return has_hash ? ( sz==43UL ) : ( sz==11UL );
+}
+
+FD_FN_PURE int
 fd_keyguard_payload_matches_bundle( uchar const * data,
                                     ulong         sz,
                                     int           sign_type ) {
@@ -364,15 +384,16 @@ fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
                            int           sign_type ) {
   ulong res = 0UL;
-  res |= fd_ulong_if( fd_keyguard_payload_matches_txn_msg   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TXN,    0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_gossip    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_GOSSIP, 0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_repair    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_REPAIR, 0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_prune_data( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PRUNE,  0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_shred     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_SHRED,  0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_tls_cv    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TLS_CV, 0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_ping_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PING,   0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_pong_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PONG,   0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_bundle    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE, 0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,  0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_txn_msg   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TXN,     0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_gossip    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_GOSSIP,  0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_repair    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_REPAIR,  0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_prune_data( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PRUNE,   0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_shred     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_SHRED,   0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_tls_cv    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TLS_CV,  0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_ping_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PING,    0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_pong_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PONG,    0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_bundle    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE,  0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,   0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE, 0 );
   return res;
 }

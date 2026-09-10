@@ -3,10 +3,6 @@
 #include "../../../util/bits/fd_bits.h"
 #include "../../../util/log/fd_log.h"
 
-#if !FD_HAS_ZSTD
-#error "fd_zstd_frame requires Zstandard"
-#endif
-
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 

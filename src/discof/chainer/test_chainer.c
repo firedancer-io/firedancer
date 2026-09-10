@@ -75,6 +75,23 @@ slotv_at( fd_chainer_t * chainer, ulong slot, ulong ord ) {
   return list[ n-1UL-ord ]; /* reverse iteration -> creation order */
 }
 
+/* slotv_shred_cnt returns the number of data shreds slotv has, summed
+   over the FECs it owns. */
+
+static ulong
+slotv_shred_cnt( fd_chainer_t *             chainer,
+                 fd_chainer_slotv_t const * slotv ) {
+  fd_chainer_fec_t * fec_pool = chainer->fec_pool;
+  uint const *       fecs     = fd_chainer_slotv_fecs( chainer, slotv );
+  ulong              cnt      = 0UL;
+  for( ulong k=0UL; k<chainer->fec_blk_max; k++ ) {
+    uint idx = fecs[ k ];
+    if( idx==UINT_MAX ) continue;
+    cnt += (ulong)fd_uint_popcnt( fd_fec_pool_ele( fec_pool, (ulong)idx )->data_idxs );
+  }
+  return cnt;
+}
+
 /* fec_at returns the FEC the ord-th (creation-order) version of slot owns
    at fec_set_idx, or NULL. */
 
@@ -217,7 +234,7 @@ test_basic( fd_wksp_t * wksp ) {
     fd_chainer_slotv_t * slotv = slotv_at( chainer, 11UL, 0UL );
     FD_TEST( slotv );                                          /* created on the first shred */
     FD_TEST( fd_chainer_shred_test( chainer, slotv, i  ) );
-    FD_TEST( fd_chainer_slotv_shred_cnt( chainer, slotv )==i+1UL );
+    FD_TEST( slotv_shred_cnt( chainer, slotv )==i+1UL );
     FD_TEST( slotv->buffered_idx==i );                         /* contiguous from 0 */
     FD_TEST( slotv->complete_idx==UINT_MAX );                  /* tip still unknown */
   }
@@ -259,7 +276,7 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( s11->buffered_idx    ==63U );
   FD_TEST( s11->buffered_fec_idx==63U );
   FD_TEST( s11->delivered_idx   ==63U );
-  FD_TEST( fd_chainer_slotv_shred_cnt( chainer, s11 )==64UL );
+  FD_TEST( slotv_shred_cnt( chainer, s11 )==64UL );
   FD_TEST( !fd_chainer_in_repair( chainer, s11 ) ); /* whole block -> off the repair worklist */
   FD_TEST( fd_chainer_highest_repaired_slot( chainer )==11UL );
 
@@ -453,7 +470,7 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   FD_TEST( v1->parent_slot     ==AG_UNKNOWN_SLOT );
   FD_TEST( !v1->connected );
   FD_TEST( fd_chainer_in_repair( chainer, v1 ) && fd_chainer_in_orphan( chainer, v1 ) ); /* needs shreds and ancestry */
-  FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v1 )==0UL );
+  FD_TEST( slotv_shred_cnt( chainer, v1 )==0UL );
   FD_TEST( !fec_at( chainer, 31UL, 0U, 1UL ) );
 
   /* version 0 keeps its data but is abandoned: off the worklists, and
@@ -874,7 +891,7 @@ test_equivocation_drop( fd_wksp_t * wksp ) {
   FD_TEST( fd_hash_eq( &fec_at( chainer, 91UL, 0U, 0UL )->merkle_root, &r0 ) );
   FD_TEST( !fec_at( chainer, 91UL, 0U, 1UL ) );
   FD_TEST( v0->buffered_idx==31U );
-  FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v0 )==32UL );
+  FD_TEST( slotv_shred_cnt( chainer, v0 )==32UL );
 
   /* a duplicate completion of the same root is idempotent */
 
@@ -920,13 +937,15 @@ test_verify_detects( fd_wksp_t * wksp ) {
   s->delivered_idx = 95U; FD_TEST( fd_chainer_verify( chainer ) ); s->delivered_idx = 63U;
   FD_TEST( !fd_chainer_verify( chainer ) );
 
-  /* worklist flags vs. treap membership (flags now live on the sched
+  /* worklist flags vs. treap membership (flags now live on the work
      ele, not the slotv) */
 
-  fd_chainer_repair_add( chainer, s );                   /* creates a sched ele in the repair treap */
-  fd_sched_ele_t * se = fd_chainer_sched_ele( chainer, s );
-  se->in_repair = 0; FD_TEST( fd_chainer_verify( chainer ) ); se->in_repair = 1; /* in neither treap / count mismatch */
-  se->in_orphan = 1; FD_TEST( fd_chainer_verify( chainer ) ); se->in_orphan = 0; /* orphan flag set but not in orphan treap */
+  fd_chainer_repair_add( chainer, s );                   /* creates a work ele in the repair treap */
+  ulong               s_idx = fd_slotv_pool_idx( chainer->slotv_pool, s );
+  fd_chainer_work_t * we    = fd_work_map_ele_query( chainer->work_map, &s_idx, NULL, chainer->work_pool );
+  FD_TEST( we );
+  we->in_repair = 0; FD_TEST( fd_chainer_verify( chainer ) ); we->in_repair = 1; /* in neither treap / count mismatch */
+  we->in_orphan = 1; FD_TEST( fd_chainer_verify( chainer ) ); we->in_orphan = 0; /* orphan flag set but not in orphan treap */
   fd_chainer_repair_remove( chainer, s );                /* restore: gc's the ele */
   FD_TEST( !fd_chainer_verify( chainer ) );
 
@@ -1123,11 +1142,11 @@ test_shred_limit( fd_wksp_t * wksp ) {
   FD_TEST(  fd_chainer_shred_test( chainer, v0, shred_max-1U ) );
   FD_TEST( !fd_chainer_shred_test( chainer, v0, shred_max    ) ); /* beyond the limit: never present */
   FD_TEST( !fd_chainer_shred_test( chainer, v0, UINT_MAX     ) );
-  FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
+  FD_TEST( slotv_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
   FD_TEST( !fd_chainer_fec_query( chainer, 11UL, shred_max, &v0->block_id ) );
   FD_TEST( !fd_chainer_shred_for_block_id_verify( chainer, 11UL, shred_max, &v0->block_id, &rL ) );
   FD_TEST( !fd_chainer_verify( chainer ) );
-  FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
+  FD_TEST( slotv_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
 
   /* a getParentAndFecCount naming exactly the limit connects the version */
   fd_hash_t bidX = mkhash( 200UL );
@@ -1168,7 +1187,7 @@ test_bench_shred_limit( fd_wksp_t * wksp ) {
   FD_TEST( !feed_fec( chainer, 11UL, last, 1, &rA, AG_UNKNOWN_SLOT, NULL  ) );
   fd_chainer_slotv_t * v0 = slotv_at( chainer, 11UL, 0UL );
   FD_TEST( v0->complete_idx==shred_max-1U && v0->buffered_idx==31U );
-  FD_TEST( fd_chainer_slotv_shred_cnt( chainer, v0 )==2UL*FD_FEC_SHRED_CNT );
+  FD_TEST( slotv_shred_cnt( chainer, v0 )==2UL*FD_FEC_SHRED_CNT );
   for( uint i=last; i<shred_max; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v0, i ) );
   FD_TEST( !fd_chainer_shred_test( chainer, v0, shred_max ) );
   FD_TEST( fd_hash_eq( &fec_at( chainer, 11UL, last, 0UL )->merkle_root, &rA ) );

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "../../../shared/commands/configure/configure.h"
+#include "../bench/bench.h"
 
 #include "../../../platform/fd_file_util.h"
 #include "../../../../ballet/poh/fd_poh.h"
@@ -16,6 +17,13 @@
 #include <sys/wait.h>
 
 #define NAME "genesis"
+
+/* Covers genesis and scratch requirements of the 32,768-account bench
+   presets, including two token accounts per funded account. */
+
+#define GENESIS_BUF_MAX (1UL<<25)
+
+FD_IMPORT_BINARY( ptoken_program_elf, "src/ballet/sbpf/fixtures/spl_p_token.so" );
 
 /* default_enable_features is a table of features enabled by default */
 
@@ -184,6 +192,13 @@ create_genesis( config_t const * config,
 
   options->warmup_epochs                = config->development.genesis.warmup_epochs;
 
+  options->token_program_elf    = NULL;
+  options->token_program_elf_sz = 0UL;
+  if( BENCHG_TRANSACTION_MODE_PTOKEN_TRANSFER==bench_transaction_mode( config->development.bench.transaction_mode ) ) {
+    options->token_program_elf    = ptoken_program_elf;
+    options->token_program_elf_sz = ptoken_program_elf_sz;
+  }
+
   fd_features_t features[1];
   fd_features_disable_all( features );
   fd_features_enable_cleaned_up( features );
@@ -193,7 +208,7 @@ create_genesis( config_t const * config,
 
   /* Serialize blob */
 
-  static uchar scratch_smem[ 1<<24UL ];  /* fits at least 32k accounts */
+  static uchar scratch_smem[ GENESIS_BUF_MAX ];
          ulong scratch_fmem[ 4 ];
   fd_scratch_attach( scratch_smem, scratch_fmem,
                      sizeof(scratch_smem), sizeof(scratch_fmem)/sizeof(ulong) );
@@ -222,7 +237,7 @@ init( config_t const * config ) {
   if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( genesis_path, config->uid, config->gid, 0 ) ) )
     FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
-  static uchar blob[ 1UL<<24UL ];
+  static uchar blob[ GENESIS_BUF_MAX ];
   ulong blob_sz = create_genesis( config, blob, sizeof(blob) );
 
   /* Switch to target user in the configuration when creating the
@@ -315,7 +330,7 @@ check( config_t const * config,
   if( FD_UNLIKELY( !config->is_firedancer ) ) CHECK( check_dir( config->frankendancer.paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
-  static uchar disk_bin[ 1UL<<24UL ];
+  static uchar disk_bin[ GENESIS_BUF_MAX ];
   if( FD_UNLIKELY( (ulong)st.st_size>sizeof(disk_bin) ) ) FD_LOG_ERR(( "genesis file at `%s` too large (%lu bytes, max %lu)", genesis_path, (ulong)st.st_size, sizeof(disk_bin) ));
 
   ulong bytes_read = 0UL;
@@ -335,7 +350,7 @@ check( config_t const * config,
   if( FD_UNLIKELY( !fd_genesis_parse( _genesis, disk_bin, (ulong)st.st_size ) ) )
     FD_LOG_ERR(( "malformed genesis file at `%s`", genesis_path ));
 
-  static uchar fresh_bin[ 1UL<<24UL ];
+  static uchar fresh_bin[ GENESIS_BUF_MAX ];
   ulong fresh_bin_sz = create_genesis( config, fresh_bin, sizeof(fresh_bin) );
 
   static fd_genesis_t _tmp_genesis[1];

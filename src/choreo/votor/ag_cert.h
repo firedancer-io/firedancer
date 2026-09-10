@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_choreo_votor_ag_cert_h
 #define HEADER_fd_src_choreo_votor_ag_cert_h
 
-#include "ag_bls.h"
-#include "ag_epoch_info.h"
+#include "../../ballet/bls/fd_bls.h"
+#include "ag_votor_base.h"
 
 #define AG_CERT_KIND_FINAL          (0)
 #define AG_CERT_KIND_FAST_FINAL     (1)
@@ -12,7 +12,7 @@
 
 struct ag_cert_final {
   ulong        slot;
-  ag_bls_agg_t agg;
+  fd_bls_agg_t agg;
   ulong        stake;
 };
 typedef struct ag_cert_final ag_cert_final_t;
@@ -20,7 +20,7 @@ typedef struct ag_cert_final ag_cert_final_t;
 struct ag_cert_fast_final {
   ulong           slot;
   ag_block_hash_t block_hash;
-  ag_bls_agg_t    agg;
+  fd_bls_agg_t    agg;
   ulong           stake;
 };
 typedef struct ag_cert_fast_final ag_cert_fast_final_t;
@@ -28,7 +28,7 @@ typedef struct ag_cert_fast_final ag_cert_fast_final_t;
 struct ag_cert_notar {
   ulong           slot;
   ag_block_hash_t block_hash;
-  ag_bls_agg_t    agg;
+  fd_bls_agg_t    agg;
   ulong           stake;
 };
 typedef struct ag_cert_notar ag_cert_notar_t;
@@ -36,16 +36,16 @@ typedef struct ag_cert_notar ag_cert_notar_t;
 struct ag_cert_notar_fallback {
   ulong           slot;
   ag_block_hash_t block_hash;
-  ag_bls_agg_t    agg_notar;
-  ag_bls_agg_t    agg_notar_fallback;
+  fd_bls_agg_t    agg_notar;
+  fd_bls_agg_t    agg_notar_fallback;
   ulong           stake;
 };
 typedef struct ag_cert_notar_fallback ag_cert_notar_fallback_t;
 
 struct ag_cert_skip {
   ulong        slot;
-  ag_bls_agg_t agg_skip;
-  ag_bls_agg_t agg_skip_fallback;
+  fd_bls_agg_t agg_skip;
+  fd_bls_agg_t agg_skip_fallback;
   ulong        stake;
 };
 typedef struct ag_cert_skip ag_cert_skip_t;
@@ -86,23 +86,6 @@ ag_cert_block_hash( ag_cert_t const * self ) {
   case AG_CERT_KIND_SKIP:           return NULL;
   default:                          FD_LOG_CRIT(( "unreachable" )); }
 }
-
-FD_FN_PURE static inline char const *
-ag_cert_str( ag_cert_t const * self ) {
-  switch( self->kind ) {
-  case AG_CERT_KIND_FINAL:          return "Final";
-  case AG_CERT_KIND_FAST_FINAL:     return "FastFinal";
-  case AG_CERT_KIND_NOTAR:          return "Notar";
-  case AG_CERT_KIND_NOTAR_FALLBACK: return "NotarFallback";
-  case AG_CERT_KIND_SKIP:           return "Skip";
-  default:                          FD_LOG_CRIT(( "unreachable" ));
-  }
-}
-
-int
-ag_cert_verify( ag_cert_t const *       self,
-                ag_epoch_info_t const * epoch_info,
-                ushort                  shred_version );
 
 FD_PROTOTYPES_END
 

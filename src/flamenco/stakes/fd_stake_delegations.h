@@ -412,14 +412,17 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
    that are inactive in both epoch and epoch-1.  This function removes
    all inactive delegations from the RAM and disk roots.  It is a
    parallel to Agave removing inactive stake accounts directly at the
-   epoch boundary. */
+   epoch boundary.  Returns the number of delegations removed.  When
+   emit_bank is non-NULL, a runtime_stake_delegation remove event is
+   emitted for each removal (NULL to skip). */
 
-void
+ulong
 fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_delegations,
                                           ulong                      epoch,
                                           fd_stake_history_t const * stake_history,
                                           ulong *                    warmup_cooldown_rate_epoch,
-                                          int                        use_fixed_point_stake_math );
+                                          int                        use_fixed_point_stake_math,
+                                          fd_bank_t const *          emit_bank );
 
 /* fd_stake_delegations_refresh is used to refresh the stake
    delegations stored in fd_stake_delegations_t which is owned by
@@ -496,33 +499,49 @@ void
 fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
                                  ushort                   fork_idx );
 
+/* upserts and removes accumulate across applications.  root_cnt is
+   overwritten with the current RAM and disk root count. */
+
+struct fd_stake_delegations_delta_stats {
+  ulong upserts;
+  ulong removes;
+  ulong root_cnt;
+};
+typedef struct fd_stake_delegations_delta_stats fd_stake_delegations_delta_stats_t;
+
 /* fd_stake_delegations_apply_fork_delta merges all RAM and disk stake
    delegation entries for fork_idx into the root: non-tombstone entries
    are applied via fd_stake_delegations_root_update; tombstone entries
    remove the corresponding stake account.  Caller must ensure no
-   concurrent iteration on stake_delegations for this fork. */
+   concurrent iteration on stake_delegations for this fork.
+   If stake_delegations_delta_stats is non-NULL, the number of upserts
+   and removes applied is accumulated into it (caller zeroes). */
 
 void
-fd_stake_delegations_apply_fork_delta( ulong                      epoch,
-                                       fd_stake_history_t const * stake_history,
-                                       ulong *                    warmup_cooldown_rate_epoch,
-                                       int                        use_fixed_point_stake_math,
-                                       fd_stake_delegations_t *   stake_delegations,
-                                       ushort                     fork_idx );
+fd_stake_delegations_apply_fork_delta( ulong                                epoch,
+                                       fd_stake_history_t const *           stake_history,
+                                       ulong *                              warmup_cooldown_rate_epoch,
+                                       int                                  use_fixed_point_stake_math,
+                                       fd_stake_delegations_t *             stake_delegations,
+                                       ushort                               fork_idx,
+                                       fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
 
 /* fd_stake_delegations_apply_fork_deltas applies an ordered fork
    ancestry atomically.  It processes capacity-releasing work before
    RAM insertions, so transient intermediate roots cannot exhaust a
-   disk budget that the final root fits. */
+   disk budget that the final root fits.  If
+   stake_delegations_delta_stats is non-NULL, the number of upserts and
+   removes applied is accumulated into it (caller zeroes). */
 
 void
-fd_stake_delegations_apply_fork_deltas( ulong                      epoch,
-                                        fd_stake_history_t const * stake_history,
-                                        ulong *                    warmup_cooldown_rate_epoch,
-                                        int                        use_fixed_point_stake_math,
-                                        fd_stake_delegations_t *   stake_delegations,
-                                        ushort const *             fork_ids,
-                                        ulong                      fork_id_cnt );
+fd_stake_delegations_apply_fork_deltas( ulong                                epoch,
+                                        fd_stake_history_t const *           stake_history,
+                                        ulong *                              warmup_cooldown_rate_epoch,
+                                        int                                  use_fixed_point_stake_math,
+                                        fd_stake_delegations_t *             stake_delegations,
+                                        ushort const *                       fork_ids,
+                                        ulong                                fork_id_cnt,
+                                        fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
 
 /* fd_stake_delegations_frontier_query_{begin,end} temporarily overlay
    delta elements from the provided forks onto the base/root stake

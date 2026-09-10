@@ -30,9 +30,9 @@ typedef struct ag_slot_state_outputs ag_slot_state_outputs_t;
 struct ag_slot_voted_stake_hash {
   ag_block_hash_t hash;
   ulong           stake;
-  ag_bls_pub_t    pub;
-  ag_bls_sig_t    agg;
-  signer_set_t    bitmask[ signer_set_word_cnt ];
+  fd_bls_pub_t    pub;
+  fd_bls_sig_t    agg;
+  fd_bls_set_t    set[ fd_bls_set_word_cnt ];
 };
 typedef struct ag_slot_voted_stake_hash ag_slot_voted_stake_hash_t;
 
@@ -42,11 +42,11 @@ struct ag_parent_status {
 };
 typedef struct ag_parent_status ag_parent_status_t;
 
-struct ag_hash_set {
+struct ag_block_hash_set {
   ulong           cnt;
   ag_block_hash_t hash[ AG_EQVOC_BLOCK_HASH_MAX ];
 };
-typedef struct ag_hash_set ag_hash_set_t;
+typedef struct ag_block_hash_set ag_block_hash_set_t;
 
 struct ag_slot_votes {
   ag_vote_notar_t          notar             [AG_VAT_MAX];
@@ -64,17 +64,17 @@ struct ag_slot_voted_stake {
   ag_slot_voted_stake_hash_t notar_fallback[AG_VAT_MAX * AG_NOTAR_FALLBACK_VOTE_MAX];
   ulong                      notar_fallback_cnt;
   ulong                      skip;
-  ag_bls_pub_t               skip_pub;
-  ag_bls_sig_t               skip_agg;
-  signer_set_t               skip_bitmask[ signer_set_word_cnt ];
+  fd_bls_pub_t               skip_pub;
+  fd_bls_sig_t               skip_agg;
+  fd_bls_set_t               skip_set[ fd_bls_set_word_cnt ];
   ulong                      skip_fallback;
-  ag_bls_pub_t               skip_fallback_pub;
-  ag_bls_sig_t               skip_fallback_agg;
-  signer_set_t               skip_fallback_bitmask[ signer_set_word_cnt ];
+  fd_bls_pub_t               skip_fallback_pub;
+  fd_bls_sig_t               skip_fallback_agg;
+  fd_bls_set_t               skip_fallback_set[ fd_bls_set_word_cnt ];
   ulong                      finalize;
-  ag_bls_pub_t               finalize_pub;
-  ag_bls_sig_t               finalize_agg;
-  signer_set_t               finalize_bitmask[ signer_set_word_cnt ];
+  fd_bls_pub_t               finalize_pub;
+  fd_bls_sig_t               finalize_agg;
+  fd_bls_set_t               finalize_set[ fd_bls_set_word_cnt ];
   ulong                      notar_or_skip;
   ulong                      top_notar;
 };
@@ -98,9 +98,9 @@ struct __attribute__((aligned(128UL))) ag_slot_state {
   ag_parent_status_t parents[ AG_EQVOC_BLOCK_HASH_MAX ];
   ulong              parents_cnt;
 
-  ag_hash_set_t pending_safe_to_notar;
-  ag_hash_set_t sent_safe_to_notar;
-  int           sent_safe_to_skip;
+  ag_block_hash_set_t pending_safe_to_notar;
+  ag_block_hash_set_t sent_safe_to_notar;
+  int                 sent_safe_to_skip;
 
   ulong slot;
   ulong own_rank;
@@ -128,11 +128,11 @@ ag_slot_state_add_vote( ag_slot_state_t * self,
 
 void
 ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
-                                   ag_block_hash_t const hash );
+                                   ag_block_hash_t const block_hash );
 
 int
 ag_slot_state_notify_parent_certified( ag_slot_state_t *     self,
-                                       ag_block_hash_t const hash );
+                                       ag_block_hash_t const block_hash );
 
 FD_FN_PURE int
 ag_slot_state_check_slashable_offence( ag_slot_state_t const * self,
@@ -145,7 +145,7 @@ ag_slot_state_should_ignore_vote( ag_slot_state_t const * self,
 FD_FN_PURE ulong
 ag_slot_state_stake( ag_slot_voted_stake_hash_t const * ele,
                      ulong                              cnt,
-                     ag_block_hash_t const              hash );
+                     ag_block_hash_t const              block_hash );
 
 FD_FN_PURE int
 ag_slot_state_is_notar_fallback( ag_slot_state_t const * self,

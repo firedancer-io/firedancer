@@ -122,7 +122,7 @@ struct fd_event_tile {
 
   ulong event_type;
   ulong event_sz;
-  uchar event_buf[ FD_EVENT_GEN_STRUCT_MAX ];
+  uchar event_buf[ FD_EVENT_GEN_STRUCT_MAX ] __attribute__((aligned(FD_EVENT_GEN_STRUCT_ALIGN)));
 
   uchar identity_pubkey[ 32UL ];
 
@@ -527,7 +527,8 @@ unprivileged_init( fd_topo_t const *      topo,
           sign_out->dcache,
           sign_in->mcache,
           sign_in->dcache,
-          sign_out->mtu ) ) ) ) {
+          sign_out->mtu,
+          sign_in->mtu ) ) ) ) {
     FD_LOG_ERR(( "failed to construct keyguard" ));
   }
 

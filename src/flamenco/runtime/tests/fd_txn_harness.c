@@ -4,7 +4,7 @@
 #include "fd_dump_pb.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../rewards/fd_alpen_rewards.h"
+#include "../../alpenglow/fd_alpenglow.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../../ballet/txn/fd_compact_u16.h"
@@ -315,7 +315,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         txn_result->modified_accounts, txn_result->modified_accounts_count );
 
     txn_out->err.is_committable = 0;
-    fd_runtime_cancel_txn( runner->runtime, NULL, NULL, txn_out, 0 );
+    fd_runtime_cancel_txn( runner->runtime, NULL, NULL, txn_out );
     fd_solfuzz_txn_ctx_destroy( runner );
 
     *output = txn_result;

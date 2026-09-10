@@ -2,7 +2,7 @@
 #define HEADER_fd_src_choreo_votor_ag_votor_h
 
 #include "ag_votor_base.h"
-#include "ag_bls.h"
+#include "../../ballet/bls/fd_bls.h"
 #include "ag_event.h"
 
 typedef struct ag_votor ag_votor_t;
@@ -25,9 +25,14 @@ ag_votor_advance_epoch( ag_votor_t * self,
                         ulong        epoch_rank,
                         ulong        epoch_slot );
 
+/* ag_votor_set_bls_signer installs the BLS signer used for our own
+   votes.  The votor never holds the BLS secret key itself; in the
+   validator sign_fn forwards the signing payload to the sign tile. */
+
 void
-ag_votor_set_bls_key( ag_votor_t *         self,
-                      ag_bls_sec_t const * bls_key );
+ag_votor_set_bls_signer( ag_votor_t *   self,
+                         fd_bls_sign_fn sign_fn,
+                         void *         sign_ctx );
 
 void
 ag_votor_set_shred_version( ag_votor_t * self,

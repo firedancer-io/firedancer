@@ -18,7 +18,6 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
                                    fd_stake_history_t const * stake_history,
                                    ulong *                    new_rate_activation_epoch );
 
-#if FD_HAS_DOUBLE
 /* Caller must ensure cluster_portion is nonzero. */
 
 static inline ulong
@@ -32,7 +31,6 @@ fd_stake_calculate_change_allowance_float( ulong   current_epoch,
   double newly_changed_cluster_stake = (double)cluster_effective * warmup_cooldown_rate;
   return fd_rust_cast_double_to_ulong( weight * newly_changed_cluster_stake );
 }
-#endif /* FD_HAS_DOUBLE */
 
 ulong
 fd_stake_calculate_activation_allowance( ulong                            current_epoch,
@@ -73,6 +71,9 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
    acc, active stake) tuples) to an ordered list of (stake, vote pubkey, node
    identity) sorted by (stake descending, vote pubkey descending).
 
+   iter_kind selects the vote stakes set: FD_VOTE_STAKES_ITER_T_1 (next
+   epoch), T_2 (current epoch) or T_3 (previous epoch).
+
    weights points to an array suitable to hold ...
 
      fd_vote_accounts_pair_t_map_size( accs->vote_accounts_pool,
@@ -85,7 +86,7 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
 ulong
 fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
                           ulong                    fork_id,
-                          int                      use_t_1,
+                          int                      iter_kind,
                           fd_vote_stake_weight_t * weights );
 
 void
@@ -115,7 +116,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 void
 fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
                                    fd_acc_t const *    acc,
-                                   fd_bank_t *         bank );
+                                   fd_bank_t *         bank,
+                                   fd_txn_in_t const * txn_in );
 
 FD_PROTOTYPES_END
 

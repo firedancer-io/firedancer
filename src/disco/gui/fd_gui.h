@@ -25,7 +25,7 @@
 #include "../../waltz/http/fd_url.h"
 #include "../../flamenco/accdb/fd_accdb_cache.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
-#include "../../flamenco/rewards/fd_alpen_rewards.h" /* NUM_SLOTS_FOR_REWARD */
+#include "../../flamenco/alpenglow/fd_block_marker.h" /* FD_NUM_SLOTS_FOR_REWARD */
 
 
 /* ---- Network Bandwidth Monitoring ----------------------------------- */

@@ -136,8 +136,6 @@ fd_fltbits_is_normal( ulong u ) {
          ( !fd_fltbits_is_nan   ( u ) );
 }
 
-#if FD_HAS_DOUBLE /* These are 64-bit / double precision counterparts to the above */
-
 FD_FN_CONST static inline ulong
 fd_dblbits( double f ) {
   union { ulong u[1]; double f[1]; } tmp;
@@ -197,8 +195,6 @@ fd_dblbits_is_normal( ulong u ) {
          ( !fd_dblbits_is_inf   ( u ) ) &
          ( !fd_dblbits_is_nan   ( u ) );
 }
-
-#endif
 
 FD_PROTOTYPES_END
 

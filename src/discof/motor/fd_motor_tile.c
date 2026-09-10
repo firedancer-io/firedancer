@@ -1,5 +1,5 @@
 #include "../poh/fd_poh.h"
-#include "../replay/fd_block_marker.h"
+#include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/tiles.h"
 #include "../../discof/fd_startup.h"
@@ -90,16 +90,17 @@ struct fd_motor_tile {
 };
 typedef struct fd_motor_tile fd_motor_tile_t;
 
+FD_STATIC_ASSERT( FD_POH_SHRED_MTU-sizeof(fd_entry_batch_meta_t)>=FD_BLOCK_MARKER_SER_MAX, fd_motor_tile );
+
 static ulong
 prepare_header( fd_motor_tile_t * ctx ) {
   fd_block_marker_t marker[1];
-  marker->variant                = HEADER;
+  marker->kind                   = FD_BLOCK_MARKER_KIND_HEADER;
   marker->header.parent_slot     = ctx->parent_slot;
   marker->header.parent_block_id = ctx->parent_dmr;
 
-  ulong marker_sz;
-  int err = fd_block_marker_ser( marker, (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t), FD_POH_SHRED_MTU-sizeof(fd_entry_batch_meta_t), &marker_sz );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_block_marker_ser(HEADER) failed (%d)", err ));
+  ulong marker_sz = fd_block_marker_ser( marker, (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t) );
+  if( FD_UNLIKELY( !marker_sz ) ) FD_LOG_ERR(( "fd_block_marker_ser(HEADER) failed" ));
   return marker_sz;
 }
 
@@ -153,12 +154,11 @@ static ulong
 prepare_footer( fd_motor_tile_t *                 ctx,
                 fd_replay_leader_footer_t const * footer ) {
   fd_block_marker_t marker[1];
-  marker->variant = FOOTER;
+  marker->kind    = FD_BLOCK_MARKER_KIND_FOOTER;
   marker->footer  = footer->footer;
 
-  ulong marker_sz;
-  int err = fd_block_marker_ser( marker, (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t), FD_POH_SHRED_MTU-sizeof(fd_entry_batch_meta_t), &marker_sz );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_block_marker_ser(FOOTER) failed (%d)", err ));
+  ulong marker_sz = fd_block_marker_ser( marker, (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t) );
+  if( FD_UNLIKELY( !marker_sz ) ) FD_LOG_ERR(( "fd_block_marker_ser(FOOTER) failed" ));
   return marker_sz;
 }
 
@@ -449,9 +449,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* The footer and the alpentick, or one entry batch, or one slot ended
-   message */
-#define STEM_BURST (2UL)
+#define STEM_BURST (2UL) /* footer + alpentick */
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)

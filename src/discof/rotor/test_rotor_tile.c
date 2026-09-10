@@ -173,7 +173,7 @@ pump( ctx_t * ctx ) {
     ulong before = pub_cnt;
     tick( ctx );
     if( pub_cnt==before &&
-        fd_signs_queue_empty( ctx->pong_queue ) &&
+        toss_queue_empty( ctx->toss_queue ) &&
         out_queue_empty( ctx->chainer->out_queue ) ) return;
   }
   FD_LOG_ERR(( "pump did not quiesce" ));
@@ -192,6 +192,15 @@ req_find( ulong from, uint kind, ulong slot, uint idx, fd_hash_t const * block_i
     return r;
   }
   return NULL;
+}
+
+/* meta_inflight_find returns the outstanding metadata inflight for
+   nonce, or NULL, without consuming it. */
+
+static fd_meta_inflight_t *
+meta_inflight_find( ctx_t * ctx, uint nonce ) {
+  ulong key = nonce;
+  return fd_meta_inflight_map_ele_query( ctx->inflights->ag_map, &key, NULL, ctx->inflights->ag_pool );
 }
 
 static ulong
@@ -299,6 +308,23 @@ slot_version_cnt( fd_chainer_t * chainer, ulong slot ) {
   return n;
 }
 
+/* slotv_shred_cnt returns the number of data shreds slotv has, summed
+   over the FECs it owns. */
+
+static ulong
+slotv_shred_cnt( fd_chainer_t *             chainer,
+                 fd_chainer_slotv_t const * slotv ) {
+  fd_chainer_fec_t * fec_pool = chainer->fec_pool;
+  uint const *       fecs     = fd_chainer_slotv_fecs( chainer, slotv );
+  ulong              cnt      = 0UL;
+  for( ulong k=0UL; k<chainer->fec_blk_max; k++ ) {
+    uint idx = fecs[ k ];
+    if( idx==UINT_MAX ) continue;
+    cnt += (ulong)fd_uint_popcnt( fd_fec_pool_ele( fec_pool, (ulong)idx )->data_idxs );
+  }
+  return cnt;
+}
+
 /* ---------------------------------------------------------------------
    Inbound frag delivery.  Reliable frags are staged in per-in-link
    dcache buffers and pushed through before/during/after_frag; net frags
@@ -400,7 +426,7 @@ respond_fec_root( ctx_t * ctx, blk_t const * b, uint fec_set_idx, uint nonce, in
 
 /* mk_block_header_marker serializes a BlockHeaderV1 block marker into
    buf (see fd_block_marker_de): marker flag (u64 0) | VersionedBlockMarker
-   tag (u16 1) | variant (u8) | length (u16) | VersionedBlockHeader tag
+   tag (u16 1) | tag (u8) | length (u16) | VersionedBlockHeader tag
    (u8 1) | parent_slot (u64) | parent_block_id (32). */
 
 static ulong
@@ -409,7 +435,7 @@ mk_block_header_marker( uchar * buf, ulong parent_slot, fd_hash_t const * parent
   ulong off = 0UL;
   FD_STORE( ulong,  buf+off, 0UL          ); off += 8UL;
   FD_STORE( ushort, buf+off, (ushort)1    ); off += 2UL;
-  buf[ off++ ] = (uchar)HEADER;
+  buf[ off++ ] = (uchar)FD_BLOCK_MARKER_SERDE_TAG_HEADER;
   FD_STORE( ushort, buf+off, (ushort)41   ); off += 2UL;
   buf[ off++ ] = (uchar)1;
   FD_STORE( ulong,  buf+off, parent_slot  ); off += 8UL;
@@ -608,8 +634,8 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * dedup_mem      = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(),         fd_reqlim_footprint( TEST_DEDUP_MAX ),   1UL );
   void * inflights_mem  = fd_wksp_alloc_laddr( wksp, fd_inflights_align(),      fd_inflights_footprint(),                1UL );
   void * signs_map_mem  = fd_wksp_alloc_laddr( wksp, fd_signs_map_align(),      fd_signs_map_footprint( lg_sign_depth ), 1UL );
-  void * pong_queue_mem = fd_wksp_alloc_laddr( wksp, fd_signs_queue_align(),    fd_signs_queue_footprint(),              1UL );
-  void * ag_req_mem     = fd_wksp_alloc_laddr( wksp, ag_req_queue_align(),      ag_req_queue_footprint( FD_FEC_BLK_MAX ), 1UL );
+  void * pong_queue_mem = fd_wksp_alloc_laddr( wksp, toss_queue_align(),        toss_queue_footprint(),                  1UL );
+  void * ag_req_mem     = fd_wksp_alloc_laddr( wksp, meta_queue_align(),        meta_queue_footprint( FD_FEC_BLK_MAX ),   1UL );
   void * repair_mem     = fd_wksp_alloc_laddr( wksp, fd_repair_align(),         fd_repair_footprint(),                   1UL );
   void * metrics_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_metrics_align(), fd_repair_metrics_footprint(),           1UL );
   void * deliver_q_mem  = fd_wksp_alloc_laddr( wksp, out_queue_align(),         out_queue_footprint( (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ), 1UL );
@@ -620,12 +646,12 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->dedup         = fd_reqlim_join        ( fd_reqlim_new        ( dedup_mem,      TEST_DEDUP_MAX, ctx->repair_seed                      ) );
   ctx->inflights     = fd_inflights_join     ( fd_inflights_new     ( inflights_mem,  ctx->repair_seed+1234UL                               ) );
   ctx->signs_map     = fd_signs_map_join     ( fd_signs_map_new     ( signs_map_mem,  lg_sign_depth, 0UL                                    ) );
-  ctx->pong_queue    = fd_signs_queue_join   ( fd_signs_queue_new   ( pong_queue_mem                                                        ) );
-  ctx->ag_req_queue  = ag_req_queue_join     ( ag_req_queue_new     ( ag_req_mem,     FD_FEC_BLK_MAX                                        ) );
+  ctx->toss_queue    = toss_queue_join       ( toss_queue_new       ( pong_queue_mem                                                        ) );
+  ctx->meta_queue    = meta_queue_join       ( meta_queue_new       ( ag_req_mem,     FD_FEC_BLK_MAX                                        ) );
   ctx->protocol      = fd_repair_join        ( fd_repair_new        ( repair_mem,     &ctx->identity_public_key                             ) );
   ctx->slot_metrics  = fd_repair_metrics_join( fd_repair_metrics_new( metrics_mem                                                           ) );
   ctx->deliver_queue = out_queue_join        ( out_queue_new        ( deliver_q_mem, (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ) );
-  FD_TEST( ctx->chainer && ctx->policy && ctx->dedup && ctx->inflights && ctx->signs_map && ctx->pong_queue && ctx->ag_req_queue && ctx->protocol && ctx->slot_metrics && ctx->deliver_queue );
+  FD_TEST( ctx->chainer && ctx->policy && ctx->dedup && ctx->inflights && ctx->signs_map && ctx->toss_queue && ctx->meta_queue && ctx->protocol && ctx->slot_metrics && ctx->deliver_queue );
 
   /* Out links.  fd_chunk_to_laddr( mem, 0 )==mem, so chunk0=0 with mem
      pointing at a flat buffer works like a compact dcache.  wmark leaves
@@ -684,7 +710,6 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   }
 
   fd_ip4_udp_hdr_init( ctx->intake_hdr, 0UL, 0U, 1234 );
-  ctx->repair_intake_addr.port = fd_ushort_bswap( 1234 );
 
   fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_DURATION_SECONDS ),
                                                               FD_MHIST_SECONDS_MAX( REPAIR, SLOT_COMPLETE_DURATION_SECONDS ) ) );
@@ -784,10 +809,10 @@ test_turbine_shreds( fd_wksp_t * wksp ) {
   /* Unauthorized equivocation, coding shreds, and EQVOC-flagged shreds
      are all dropped without touching the chainer. */
 
-  ulong shred_cnt = fd_chainer_slotv_shred_cnt( ctx->chainer, v0 );
+  ulong shred_cnt = slotv_shred_cnt( ctx->chainer, v0 );
   fd_hash_t evil = mkhash( 0xEE1AUL );
   deliver_shred( ctx, blk->slot, 40U, 0, &evil, 0U, SHRED_SIG_SRC_TURBINE, AG_UNKNOWN_SLOT, NULL );
-  FD_TEST( fd_chainer_slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
+  FD_TEST( slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
 
   {
     static fd_shred_base_t base[1];
@@ -797,13 +822,13 @@ test_turbine_shreds( fd_wksp_t * wksp ) {
     base->shred.slot    = blk->slot;
     base->shred.idx     = 7U;
     deliver_frag( ctx, IN_IDX_SHRED, (ulong)SHRED_SIG_SRC_TURBINE, base, sizeof(fd_shred_base_t) );
-    FD_TEST( fd_chainer_slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
+    FD_TEST( slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
 
     base->shred.variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
     base->shred.data.size = FD_SHRED_DATA_HEADER_SZ;
     ulong eqvoc_sig = ( (ulong)(uint)SHRED_SIG_RESULT_EQVOC<<32 ) | (ulong)SHRED_SIG_SRC_TURBINE;
     deliver_frag( ctx, IN_IDX_SHRED, eqvoc_sig, base, sizeof(fd_shred_base_t) );
-    FD_TEST( fd_chainer_slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
+    FD_TEST( slotv_shred_cnt( ctx->chainer, v0 )==shred_cnt );
   }
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
@@ -1673,6 +1698,100 @@ test_block_id_repair_only( fd_wksp_t * wksp ) {
 }
 
 /* =====================================================================
+   Test: meta queue overflow is deferred, not dropped.
+
+   A verified ParentFecSetCount response fans out one getFecSetRoot per
+   FEC set onto the meta queue.  When the queue is full those requests
+   must not be lost (nothing else would ever ask for those roots) and
+   must not overflow the queue (fd_queue_dynamic has no bounds check):
+   meta_queue_push_or_defer records them directly in the metadata
+   inflight table instead, and the policy walk's age-out redispatch
+   sends them once the dedup timeout passes. */
+
+static void
+test_meta_queue_defer( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  ulong slot = SNAP_SLOT+1UL;
+  blk_t blk[1] = {{ .slot = slot, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk->fec_root[ 0 ] = mkhash( 0xE0UL );
+  blk->fec_root[ 1 ] = mkhash( 0xE1UL );
+  blk_build( blk );
+
+  /* Cert the version and let its metadata request go out. */
+
+  deliver_votor( ctx, FD_VOTOR_SIG_REPAIR, slot, &blk->block_id );
+  pump( ctx );
+  req_t * meta = req_find( 0UL, AG_REPAIR_KIND_PARENT_FEC_COUNT, slot, UINT_MAX, &blk->block_id );
+  FD_TEST( meta );
+  FD_TEST( meta_queue_empty( ctx->meta_queue ) );
+
+  /* Fill the meta queue to capacity with inert placeholders (popped
+     below before any credit could dispatch them). */
+
+  fd_repair_msg_t filler[1]; memset( filler, 0, sizeof(filler) );
+  ulong filled = 0UL;
+  while( !meta_queue_full( ctx->meta_queue ) ) { meta_queue_push( ctx->meta_queue, *filler ); filled++; }
+  FD_TEST( filled==meta_queue_max( ctx->meta_queue ) );
+
+  /* The fec-count response arrives against a full queue.  Both
+     getFecSetRoot requests are deferred straight into the inflight
+     table under the nonces they were minted with; none is sent and the
+     queue is exactly as full as before. */
+
+  uint  nonce0 = (uint)ctx->ag_nonce;
+  ulong mark   = req_cnt;
+  respond_parent_fec_count( ctx, blk, meta->nonce, 0 );
+  FD_TEST( (uint)ctx->ag_nonce==nonce0+2U );
+  FD_TEST( meta_queue_full( ctx->meta_queue ) && meta_queue_cnt( ctx->meta_queue )==filled );
+  FD_TEST( req_count( mark, AG_REPAIR_KIND_FEC_ROOT, slot )==0UL );
+
+  for( uint k=0U; k<2U; k++ ) {
+    fd_meta_inflight_t * inf = meta_inflight_find( ctx, nonce0+k );
+    FD_TEST( inf );
+    FD_TEST( inf->kind==AG_REPAIR_KIND_FEC_ROOT );
+    FD_TEST( inf->slot==slot && inf->fec_set_idx==k*FD_FEC_SHRED_CNT );
+    FD_TEST( fd_hash_eq( &inf->block_id, &blk->block_id ) );
+  }
+
+  /* Make room again (the placeholders are never dispatched), then wait
+     out the dedup timeout: the redispatch resends both deferred
+     requests under fresh nonces and consumes the deferred entries. */
+
+  while( !meta_queue_empty( ctx->meta_queue ) ) meta_queue_pop( ctx->meta_queue );
+
+  mark = req_cnt;
+  pump( ctx );
+  FD_TEST( req_count( mark, AG_REPAIR_KIND_FEC_ROOT, slot )==0UL ); /* not yet aged out */
+
+  long deadline = fd_log_wallclock()+FD_REQLIM_DEDUP_TIMEOUT+(long)20e6;
+  while( fd_log_wallclock()<deadline ) fd_log_sleep( deadline-fd_log_wallclock() );
+
+  req_t * root0 = NULL;
+  req_t * root1 = NULL;
+  for( ulong i=0UL; i<64UL && !( root0 && root1 ); i++ ) {
+    tick( ctx );
+    root0 = req_find( mark, AG_REPAIR_KIND_FEC_ROOT, slot, 0U,               &blk->block_id );
+    root1 = req_find( mark, AG_REPAIR_KIND_FEC_ROOT, slot, FD_FEC_SHRED_CNT, &blk->block_id );
+  }
+  FD_TEST( root0 && root0->nonce!=nonce0 && root0->nonce!=nonce0+1U );
+  FD_TEST( root1 && root1->nonce!=nonce0 && root1->nonce!=nonce0+1U );
+  FD_TEST( !meta_inflight_find( ctx, nonce0 ) && !meta_inflight_find( ctx, nonce0+1U ) );
+  FD_TEST(  meta_inflight_find( ctx, root0->nonce ) && meta_inflight_find( ctx, root1->nonce ) );
+
+  /* Serving the resent requests completes recovery as usual. */
+
+  respond_fec_root( ctx, blk, 0U,               root0->nonce, 0 );
+  respond_fec_root( ctx, blk, FD_FEC_SHRED_CNT, root1->nonce, 0 );
+  FD_TEST( fd_chainer_fec_query( ctx->chainer, slot, 0U,               &blk->block_id ) );
+  FD_TEST( fd_chainer_fec_query( ctx->chainer, slot, FD_FEC_SHRED_CNT, &blk->block_id ) );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  FD_LOG_NOTICE(( "pass: test_meta_queue_defer" ));
+}
+
+/* =====================================================================
    Test 4: fd_inflight popped-set logic.
 
    Directly exercises the inflight table (independent of the tile
@@ -2348,6 +2467,7 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_block_id_repair_only( wksp );
+  test_meta_queue_defer( wksp );
 
   fd_wksp_reset( wksp, 1U );
   test_inflight_popped( wksp );

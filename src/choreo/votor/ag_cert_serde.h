@@ -41,7 +41,7 @@ typedef struct ag_cert_serde ag_cert_serde_t;
                                              sizeof(uchar)                                      /* kind      */ + \
                                              sizeof(ulong)                                      /* slot      */ + \
                                              ( (has_block_id) ? sizeof(ag_block_hash_t) : 0UL ) /* block_id  */ + \
-                                             AG_BLS_SIG_SZ                                      /* signature */ + \
+                                             FD_BLS_SIG_SZ                                      /* signature */ + \
                                              sizeof(ulong)                                      /* bitmap_sz */ )
 
 
@@ -53,7 +53,7 @@ typedef struct ag_cert_serde ag_cert_serde_t;
                           AG_BLS_AGG_PAIR_SER_MAX + \
                           sizeof(ushort) /* shred_version */ )
 
-FD_STATIC_ASSERT( AG_CERT_SER_MAX==657UL, ag_cert_serde );
+FD_STATIC_ASSERT( AG_CERT_SER_MAX==647UL, ag_cert_serde );
 
 FD_PROTOTYPES_BEGIN
 

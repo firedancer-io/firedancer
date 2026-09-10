@@ -66,6 +66,7 @@ struct fd_block_id_ele {
   ulong         bank_seq;
   ulong         next_;
   ulong         ag_next_;
+  uint          fec_cnt;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
@@ -209,8 +210,10 @@ struct fd_replay_tile {
   ulong          hard_fork_cnt;
   fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
 
-  ushort expected_shred_version;
-  ushort ipecho_shred_version;
+  ushort expected_shred_version; /* from config, 0 if unset */
+  ushort ipecho_shred_version;   /* from the entrypoints via ipecho, 0 until it answers */
+  ushort shred_version;          /* 0 until computed. the two above only cross-check
+                                    it, and replay holds off executing until it is known. */
 
   ulong enable_features_cnt;
   char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
@@ -381,6 +384,7 @@ struct fd_replay_tile {
   ulong               max_live_slots;
   fd_block_id_ele_t * block_id_arr;
 
+  fd_hash_t *         fec_chain;
   ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
 
@@ -436,10 +440,11 @@ struct fd_replay_tile {
 
   ulong       leader_execution_fees; /* ALPENGLOW-ONLY */
   ulong       leader_priority_fees;  /* ALPENGLOW-ONLY */
+  ulong       leader_tips;           /* ALPENGLOW-ONLY */
 
-  fd_votor_certed_t votor_final[ 1 ];                       /* ALPENGLOW-ONLY: highest finalization, fast over slow at the same slot */
-  fd_votor_certed_t votor_notar[ 4UL*AG_SLOTS_PER_WINDOW ]; /* ALPENGLOW-ONLY: by slot, the notar reward */
-  fd_votor_certed_t votor_skip [ 4UL*AG_SLOTS_PER_WINDOW ]; /* ALPENGLOW-ONLY: by slot, the skip reward */
+  fd_votor_certed_t votor_final[ 1 ];                                                /* ALPENGLOW-ONLY: highest finalization, fast over slow at the same slot */
+  fd_votor_certed_t votor_notar[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ]; /* ALPENGLOW-ONLY: by slot, the notar reward */
+  fd_votor_certed_t votor_skip [ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ]; /* ALPENGLOW-ONLY: by slot, the skip reward */
 
   ulong       next_leader_slot;
   long        next_leader_tickcount;
@@ -560,6 +565,9 @@ struct fd_replay_tile {
   fd_event_block_completed_t * block_completed_event;
 
   fd_leader_txn_timing_table_t const * leader_txn_timing;
+
+  /* If non-zero, emit the runtime events during replay. */
+  int report_runtime_diffs;
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;

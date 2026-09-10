@@ -210,12 +210,12 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) );
   fd_pubkey_t vote0;
   fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &vote0, NULL, NULL,
-                           NULL, NULL, NULL, NULL, NULL, NULL );
+                           NULL, NULL, NULL, NULL, NULL, NULL, NULL );
   fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
   FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) );
   fd_pubkey_t vote1;
   fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &vote1, NULL, NULL,
-                           NULL, NULL, NULL, NULL, NULL, NULL );
+                           NULL, NULL, NULL, NULL, NULL, NULL, NULL );
 
   fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
   fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };

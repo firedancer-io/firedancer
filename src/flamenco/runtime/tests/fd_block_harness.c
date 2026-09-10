@@ -468,13 +468,13 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       txn_out->err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
-        fd_runtime_cancel_txn( runtime, NULL, NULL, txn_out, 0 );
+        fd_runtime_cancel_txn( runtime, NULL, NULL, txn_out );
         has_err = 1;
         continue;
       }
 
       /* Finalize the transaction */
-      fd_runtime_commit_txn( runtime, runner->bank, NULL, txn_out, 0 );
+      fd_runtime_commit_txn( runtime, runner->bank, NULL, txn_out );
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         has_err = 1;
@@ -486,7 +486,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
        updated in the blockhash queue. */
     runner->bank->f.poh = *poh;
     /* Finalize the block */
-    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx, NULL, 0UL );
+    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx, NULL, (ushort)0 );
 
     return !has_err;
   } FD_SPAD_FRAME_END;

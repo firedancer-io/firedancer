@@ -5,6 +5,8 @@
 #include "../../choreo/votor/ag_pool.h"
 #include "../../choreo/votor/ag_vote_serde.h"
 #include "../../choreo/votor/ag_votor.h"
+#include "../../disco/keyguard/fd_keyguard.h"
+#include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/stem/fd_stem.h"
@@ -23,6 +25,7 @@
 #define IN_KIND_IPECHO (2)
 #define IN_KIND_NET    (3)
 #define IN_KIND_REPLAY (4)
+#define IN_KIND_SIGN   (5)
 
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
@@ -127,59 +130,47 @@ typedef struct peer peer_t;
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 
-/* A slow finalization is reported with the notarization of the block
-   it finalizes, whichever of the two certs forms second, so both are
-   kept by slot until the pair is complete. */
-
 #define CERT_SLOT_MAX (4UL*AG_SLOTS_PER_WINDOW)
 
-struct cert_slot {
+struct final_notar_join {
   ulong           slot; /* ULONG_MAX when the entry holds no slot */
   int             has_notar;
   int             has_final;
   ag_block_hash_t notar_block_hash;
-  ag_bls_agg_t    notar;
-  ag_bls_agg_t    final;
+  fd_bls_agg_t    notar;
+  fd_bls_agg_t    final;
 };
-typedef struct cert_slot cert_slot_t;
+typedef struct final_notar_join final_notar_join_t;
 
 struct fd_votor_tile {
 
   /* Metadata */
 
-  uchar const * identity_keypair; /* FIXME keyguard */
-  fd_pubkey_t   id_key;
-  ag_bls_sec_t  bls_key;
-  uchar         sha512[ FD_SHA512_FOOTPRINT ] __attribute__((aligned(FD_SHA512_ALIGN)));
-  ushort        shred_version;
+  fd_pubkey_t          id_key;
+  fd_keyguard_client_t keyguard_client[1];
+  ushort               shred_version;
 
   /* Data */
 
-  int               init;
-  ag_block_id_t     rooted_block_id;
-  ag_block_id_t     finalized_block_id;
-  ag_epoch_info_t * curr_epoch_info;
-  ulong             curr_epoch_slot;
-  ushort            curr_epoch_rank;
-  ag_epoch_info_t * next_epoch_info;
-  ulong             next_epoch_slot;
-  ushort            next_epoch_rank;
-  contact_info_t *  contact_infos;
-  peer_t *          peers;
-  ag_pool_t *       pool;
-  ag_votor_t *      votor;
-  replayed_t *      replayed;
-  ag_block_id_t *   rooted;
-  publish_t *       publishes;
-
-  /* Leader */
-
+  int                        init;
+  ag_block_id_t              rooted_block_id;
+  ag_block_id_t              finalized_block_id;
+  ag_epoch_info_t *          curr_epoch_info;
+  ulong                      curr_epoch_slot;
+  ushort                     curr_epoch_rank;
+  ag_epoch_info_t *          next_epoch_info;
+  ulong                      next_epoch_slot;
+  ushort                     next_epoch_rank;
   fd_multi_epoch_leaders_t * mleaders;
   ulong                      next_leader_slot;
-
-  /* Certs */
-
-  cert_slot_t cert_slots[ CERT_SLOT_MAX ];
+  final_notar_join_t         final_notar_join[CERT_SLOT_MAX];
+  contact_info_t *           contact_infos;
+  peer_t *                   peers;
+  ag_pool_t *                pool;
+  ag_votor_t *               votor;
+  replayed_t *               replayed;
+  ag_block_id_t *            rooted;
+  publish_t *                publishes;
 
   /* Networking */
 
@@ -238,6 +229,81 @@ struct fd_votor_tile {
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
 
+/* try_advance_root attempts to advance root to finalized_block_id.  For
+   something to be rooted, it must be BOTH finalized AND replayed.  This
+   walks up the replay block id lineage to find and set root.
+
+   ON FINALIZED
+
+   If finalized is ahead of replayed => root does not advance
+   If replayed is ahead of finalized => root advances
+
+   ON REPLAYED
+
+   If finalized is ahead of replayed => root advances
+   If replayed is ahead of finalized => root does not advance */
+
+static void
+try_advance_root( fd_votor_tile_t * ctx,
+                  ag_block_id_t     finalized_block_id ) {
+
+  ag_block_id_t ancestor_block_id = finalized_block_id;
+  replayed_t *  replayed          = NULL;
+
+  while( FD_LIKELY( ancestor_block_id.slot>ctx->rooted_block_id.slot && ( replayed = replayed_query( ctx->replayed, ancestor_block_id, NULL ) ) ) ) {
+    FD_TEST( !rooted_full( ctx->rooted ) );
+    rooted_push( ctx->rooted, ancestor_block_id );
+    ancestor_block_id = replayed->parent_block_id;
+  }
+
+  if( FD_UNLIKELY( ancestor_block_id.slot != ctx->rooted_block_id.slot ) ) FD_TEST( memcmp( ancestor_block_id.hash, ctx->rooted_block_id.hash, sizeof(ag_block_hash_t) ) );
+
+  /* When a block id is finalized ahead of replay, we need to cache it
+     and process it when replay catches up. */
+
+  if( FD_UNLIKELY( !ag_block_id_eq( &ancestor_block_id, &ctx->rooted_block_id ) ) ) {
+    rooted_remove_all( ctx->rooted );
+    if( FD_LIKELY( ctx->finalized_block_id.slot==ULONG_MAX || finalized_block_id.slot>ctx->finalized_block_id.slot ) ) ctx->finalized_block_id = finalized_block_id;
+    return;
+  }
+
+  while( FD_UNLIKELY( !rooted_empty( ctx->rooted ) ) ) {
+    ag_block_id_t rooted_block_id = rooted_pop( ctx->rooted );
+
+    publish_t pub = { .sig = FD_VOTOR_SIG_ROOTED };
+    pub.msg.rooted.slot = rooted_block_id.slot;
+    memcpy( pub.msg.rooted.block_id.uc, rooted_block_id.hash, sizeof(fd_hash_t) );
+    FD_TEST( !publishes_full( ctx->publishes ) );
+    publishes_push( ctx->publishes, pub );
+
+    replayed = replayed_query( ctx->replayed, rooted_block_id, NULL );
+    if( FD_LIKELY( replayed ) ) replayed_remove( ctx->replayed, replayed );
+
+    ctx->rooted_block_id = rooted_block_id;
+  }
+}
+
+static void
+sign_ed25519( void *      signer_ctx,
+              uchar       signature[ static 64 ],
+              uchar const payload[ static 130 ] ) {
+  fd_votor_tile_t * ctx = signer_ctx;
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+}
+
+FD_STATIC_ASSERT( FD_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
+
+static void
+sign_bls( void *         signer_ctx,
+          fd_bls_sig_t * sig,
+          uchar const *  payload,
+          ulong          payload_sz ) {
+  fd_votor_tile_t * ctx = signer_ctx;
+  uchar sig_bytes[ FD_BLS_SIG_SZ ];
+  fd_keyguard_client_sign( ctx->keyguard_client, sig_bytes, payload, payload_sz, FD_KEYGUARD_SIGN_TYPE_BLS );
+  if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
+}
+
 static int
 quic_aio_tx( void *                    _ctx,
              fd_aio_pkt_info_t const * batch,
@@ -251,13 +317,15 @@ quic_aio_tx( void *                    _ctx,
   for( ulong i=0UL; i<batch_cnt; i++ ) {
     if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
 
+    ulong const sz_l2 = sizeof(fd_eth_hdr_t) + batch[ i ].buf_sz;
+    if( FD_UNLIKELY( sz_l2>FD_ETH_PAYLOAD_MAX ) ) continue;
+
     uint const ip_dst = FD_LOAD( uint, batch[ i ].buf+offsetof( fd_ip4_hdr_t, daddr_c ) );
     uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
     uchar * packet_l3 = packet_l2 + sizeof(fd_eth_hdr_t);
     memset( packet_l2, 0, 12 );
     FD_STORE( ushort, packet_l2+offsetof( fd_eth_hdr_t, net_type ), fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
     fd_memcpy( packet_l3, batch[ i ].buf, batch[ i ].buf_sz );
-    ulong sz_l2 = sizeof(fd_eth_hdr_t) + batch[ i ].buf_sz;
 
     ulong sig   = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
     ulong chunk = ctx->net_out_chunk;
@@ -368,7 +436,6 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     ushort                  rank       = fd_ushort_if( vote_slot>=ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) return; /* peer is not ranked in their vote slot's epoch */
     ag_vote_set_rank( &ctx->scratch.vote, rank );
-    // if( FD_UNLIKELY( !ag_vote_verify( &ctx->scratch.vote, &epoch_info->validators[ rank ].bls_key ) ) ) return; /* FIXME a pairing per vote is ~1ms; agave batches instead, one check per batch with a per-vote fallback to find the culprit.  Until we do the same, one bad signature poisons the slot's running aggregate for good. */
     ag_pool_add_vote( ctx->pool, &ctx->scratch.vote );
     return;
   }
@@ -384,8 +451,10 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     peer_t const * peer = peers_query( ctx->peers, *id_key, NULL );
     if( FD_UNLIKELY( !peer ) ) return;
 
-    ulong                   cert_slot = ag_cert_slot( &ctx->scratch.cert );
-    ushort                  rank      = fd_ushort_if( cert_slot>=ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
+    ulong  cert_slot = ag_cert_slot( &ctx->scratch.cert );
+    ushort rank      = fd_ushort_if( cert_slot >= ctx->next_epoch_slot,
+                                     peer->next_rank,
+                                     peer->curr_rank );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) return; /* peer is not ranked in this cert slot's epoch */
 
     // if( FD_UNLIKELY( !ag_cert_verify( &ctx->scratch.cert, epoch_info, ctx->shred_version ) ) ) return; /* FIXME BLS is too expensive, 35x duplicate certs each cost a pairing */
@@ -395,17 +464,6 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
   default:
     return;
   }
-}
-
-static void
-quic_sign( void *      signer_ctx,
-           uchar       signature[ static 64 ],
-           uchar const payload[ static 130 ] ) {
-  fd_votor_tile_t * ctx = signer_ctx;
-
-  fd_sha512_t * sha = fd_sha512_join( ctx->sha512 );
-  fd_ed25519_sign( signature, payload, 130UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha ); /* TODO keyguard */
-  fd_sha512_leave( sha );
 }
 
 static void
@@ -457,10 +515,6 @@ handle_epoch( fd_votor_tile_t *           ctx,
   }
 
   /* unmark all ranked in next epoch */
-
-  /* Not fd_ulong_if: it is a function, so it would load validator_cnt
-     through next_epoch_info before selecting.  On the first epoch
-     message the swap above leaves next_epoch_info NULL. */
 
   ulong next_cnt = ctx->next_epoch_info ? ctx->next_epoch_info->validator_cnt : 0UL;
   for( ulong rank=0UL; rank<next_cnt; rank++ ) {
@@ -521,8 +575,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   ag_pool_advance_epoch( ctx->pool, epoch_info, epoch_rank, msg->start_slot );
   ag_votor_advance_epoch( ctx->votor, epoch_rank, msg->start_slot );
 
-  /* update our leader schedule.  msg only points into the epoch dcache
-     for this callback, so it must be consumed here. */
+  /* update our leader schedule */
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
@@ -540,12 +593,12 @@ handle_gossip( fd_votor_tile_t *                  ctx,
   memcpy( id_key.uc, msg->origin, sizeof(fd_pubkey_t) );
   if( FD_UNLIKELY( peers_key_inval( id_key ) ) ) return;
 
-  contact_info_t contact_info = {0}; /* dummy 0:0 address for removal */
+  contact_info_t new_ci = {0}; /* dummy 0:0 address for removal */
   switch( sig ) {
   case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
     fd_gossip_socket_t const * socket = &msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW ];
-    contact_info.ip4  = fd_uint_if  ( !socket->is_ipv6, socket->ip4,                     0U        );
-    contact_info.port = fd_ushort_if( !socket->is_ipv6, fd_ushort_bswap( socket->port ), (ushort)0 );
+    new_ci.ip4  = fd_uint_if  ( !socket->is_ipv6, socket->ip4,                     0U        );
+    new_ci.port = fd_ushort_if( !socket->is_ipv6, fd_ushort_bswap( socket->port ), (ushort)0 );
     break;
   }
   case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE:
@@ -557,7 +610,7 @@ handle_gossip( fd_votor_tile_t *                  ctx,
   contact_info_t * ci   = contact_infos_query( ctx->contact_infos, id_key, NULL );
   peer_t *         peer = peers_query        ( ctx->peers,         id_key, NULL );
 
-  if( FD_UNLIKELY( !contact_info.port ) ) { /* nowhere left to reach it */
+  if( FD_UNLIKELY( !new_ci.port ) ) { /* nowhere left to reach it */
     if( FD_LIKELY( ci ) ) contact_infos_remove( ctx->contact_infos, ci );
     if( FD_UNLIKELY( peer && peer->conn ) ) {
       fd_quic_conn_set_context( peer->conn, NULL );
@@ -569,11 +622,11 @@ handle_gossip( fd_votor_tile_t *                  ctx,
 
   if( FD_UNLIKELY( !ci ) ) {
     ci       = contact_infos_insert( ctx->contact_infos, id_key );
-    ci->ip4  = contact_info.ip4;
-    ci->port = contact_info.port;
-  } else if( FD_UNLIKELY( ci->ip4 !=contact_info.ip4 || ci->port!=contact_info.port ) ) {
-    ci->ip4  = contact_info.ip4;
-    ci->port = contact_info.port;
+    ci->ip4  = new_ci.ip4;
+    ci->port = new_ci.port;
+  } else if( FD_UNLIKELY( ci->ip4 !=new_ci.ip4 || ci->port!=new_ci.port ) ) {
+    ci->ip4  = new_ci.ip4;
+    ci->port = new_ci.port;
     if( FD_UNLIKELY( peer && peer->conn ) ) { /* our conn is to the old address */
       fd_quic_conn_set_context( peer->conn, NULL );
       fd_quic_conn_close( peer->conn, 0U );
@@ -588,60 +641,6 @@ handle_gossip( fd_votor_tile_t *                  ctx,
       fd_quic_conn_set_context( conn, &ctx->client_peer_id_keys[ conn->conn_idx ] );
       peer->conn = conn;
     }
-  }
-}
-
-/* try_advance_root attempts to advance root to finalized_block_id.  For
-   something to be rooted, it must be BOTH finalized AND replayed.  This
-   walks up the replay block id lineage to find and set root.
-
-   ON FINALIZED
-
-   If finalized is ahead of replayed => root does not advance
-   If replayed is ahead of finalized => root advances
-
-   ON REPLAYED
-
-   If finalized is ahead of replayed => root advances
-   If replayed is ahead of finalized => root does not advance */
-
-static void
-try_advance_root( fd_votor_tile_t * ctx,
-                  ag_block_id_t     finalized_block_id ) {
-
-  ag_block_id_t ancestor_block_id = finalized_block_id;
-  replayed_t *  replayed          = NULL;
-
-  while( FD_LIKELY( ancestor_block_id.slot>ctx->rooted_block_id.slot && ( replayed = replayed_query( ctx->replayed, ancestor_block_id, NULL ) ) ) ) {
-    FD_TEST( !rooted_full( ctx->rooted ) );
-    rooted_push( ctx->rooted, ancestor_block_id );
-    ancestor_block_id = replayed->parent_block_id;
-  }
-
-  if( FD_UNLIKELY( ancestor_block_id.slot != ctx->rooted_block_id.slot ) ) FD_TEST( memcmp( ancestor_block_id.hash, ctx->rooted_block_id.hash, sizeof(ag_block_hash_t) ) );
-
-  /* When a block id is finalized ahead of replay, we need to cache it
-     and process it when replay catches up. */
-
-  if( FD_UNLIKELY( !ag_block_id_eq( &ancestor_block_id, &ctx->rooted_block_id ) ) ) {
-    rooted_remove_all( ctx->rooted );
-    if( FD_LIKELY( ctx->finalized_block_id.slot==ULONG_MAX || finalized_block_id.slot>ctx->finalized_block_id.slot ) ) ctx->finalized_block_id = finalized_block_id;
-    return;
-  }
-
-  while( FD_UNLIKELY( !rooted_empty( ctx->rooted ) ) ) {
-    ag_block_id_t rooted_block_id = rooted_pop( ctx->rooted );
-
-    publish_t pub = { .sig = FD_VOTOR_SIG_ROOTED };
-    pub.msg.rooted.slot = rooted_block_id.slot;
-    memcpy( pub.msg.rooted.block_id.uc, rooted_block_id.hash, sizeof(fd_hash_t) );
-    FD_TEST( !publishes_full( ctx->publishes ) );
-    publishes_push( ctx->publishes, pub );
-
-    replayed = replayed_query( ctx->replayed, rooted_block_id, NULL );
-    if( FD_LIKELY( replayed ) ) replayed_remove( ctx->replayed, replayed );
-
-    ctx->rooted_block_id = rooted_block_id;
   }
 }
 
@@ -734,8 +733,8 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
     ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
     if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_CERT_CREATED ) ) {
-      ulong         slot = ag_cert_slot( cert );
-      cert_slot_t * cs   = &ctx->cert_slots[ slot%CERT_SLOT_MAX ];
+      ulong                slot = ag_cert_slot( cert );
+      final_notar_join_t * cs   = &ctx->final_notar_join[ slot%CERT_SLOT_MAX ];
       if( FD_UNLIKELY( cs->slot!=slot ) ) {
         cs->slot      = slot;
         cs->has_notar = 0;
@@ -992,17 +991,7 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !strcmp( tile->votor.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_keypair = fd_keyload_load( tile->votor.identity_key_path, 0 );
-  memcpy( ctx->id_key.uc, ctx->identity_keypair+32UL, sizeof(fd_pubkey_t) );
-
-  char const derive_msg[] = "bls-key-derive-alpenglow";
-  uchar         ikm[ 64 ];
-  fd_sha512_t   _sha[ 1 ];
-  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
-  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha );
-  fd_sha512_leave( sha );
-  ag_bls_sec_derive( &ctx->bls_key, ikm, sizeof(ikm) );
-  fd_memzero_explicit( ikm, sizeof(ikm) );
+  ctx->id_key = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 1 ) );
 
   fd_log_wallclock();
 }
@@ -1032,8 +1021,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->shred_version = (ushort)0;
 
-  FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
-
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
 
@@ -1042,7 +1029,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
-  ag_votor_set_bls_key( ctx->votor, &ctx->bls_key );
 
   ctx->curr_epoch_info = NULL;
   ctx->curr_epoch_slot = ULONG_MAX;
@@ -1088,7 +1074,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->init                 = 0;
   ctx->next_leader_slot     = ULONG_MAX;
-  for( ulong i=0UL; i<CERT_SLOT_MAX; i++ ) ctx->cert_slots[ i ].slot = ULONG_MAX;
+  for( ulong i=0UL; i<CERT_SLOT_MAX; i++ ) ctx->final_notar_join[ i ].slot = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -1102,6 +1088,7 @@ unprivileged_init( fd_topo_t const *      topo,
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     }
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_votor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( link->mtu ) ) {
@@ -1127,6 +1114,23 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
+  ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_votor", tile->kind_id );
+  ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_sign", tile->kind_id );
+  FD_TEST( sign_in_idx !=ULONG_MAX );
+  FD_TEST( sign_out_idx!=ULONG_MAX );
+  fd_topo_link_t const * sign_in  = &topo->links[ tile->in_link_id [ sign_in_idx  ] ];
+  fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+  if( FD_UNLIKELY( !fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                                     sign_out->mcache,
+                                                                     sign_out->dcache,
+                                                                     sign_in->mcache,
+                                                                     sign_in->dcache,
+                                                                     sign_out->mtu,
+                                                                     sign_in->mtu ) ) ) ) {
+    FD_LOG_ERR(( "failed to construct keyguard client" ));
+  }
+  ag_votor_set_bls_signer( ctx->votor, sign_bls, ctx );
+
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );
 
@@ -1140,7 +1144,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic_client->config.idle_timeout               = 5L*1000L*1000L*1000L;
   ctx->quic_client->config.ack_delay                  = 2L*1000L*1000L;
   memcpy( ctx->quic_client->config.identity_public_key, ctx->id_key.uc, 32UL );
-  ctx->quic_client->config.sign                       = quic_sign;
+  ctx->quic_client->config.sign                       = sign_ed25519;
   ctx->quic_client->config.sign_ctx                   = ctx;
   ctx->quic_client->config.alpn[ 0 ]                  = 0x0c;
   memcpy( ctx->quic_client->config.alpn+1, "alpenglow-v1", 12UL );
@@ -1162,7 +1166,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic_server->config.idle_timeout               = 5L*1000L*1000L*1000L;
   ctx->quic_server->config.ack_delay                  = 2L*1000L*1000L;
   memcpy( ctx->quic_server->config.identity_public_key, ctx->id_key.uc, 32UL );
-  ctx->quic_server->config.sign                       = quic_sign;
+  ctx->quic_server->config.sign                       = sign_ed25519;
   ctx->quic_server->config.sign_ctx                   = ctx;
   ctx->quic_server->config.alpn[ 0 ]                  = 0x0c;
   memcpy( ctx->quic_server->config.alpn+1, "alpenglow-v1", 12UL );

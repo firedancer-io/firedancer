@@ -2,14 +2,25 @@
 
 #define TEST_SHRED_VERSION ((ushort)514)
 
+/* sec_sign_fn is the fd_bls_sign_fn of a test that holds the secret
+   key in memory; ctx points to the fd_bls_sec_t. */
+
+static void
+sec_sign_fn( void *         ctx,
+             fd_bls_sig_t * sig,
+             uchar const *  msg,
+             ulong          msg_sz ) {
+  fd_bls_sec_sign( (fd_bls_sec_t const *)ctx, msg, msg_sz, sig );
+}
+
 /* check_wire drives its expectations off the kinds that carry a block
    hash, so it needs the dispatch the typed accessors do not do */
 
 static uchar const *
 block_hash( ag_vote_t const * self ) {
   switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          return ag_vote_notar_block_hash( &self->notar );
-  case AG_VOTE_KIND_NOTAR_FALLBACK: return ag_vote_notar_fallback_block_hash( &self->notar_fallback );
+  case AG_VOTE_KIND_NOTAR:          return self->notar.block_hash;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.block_hash;
   default:                          return NULL;
   }
 }
@@ -18,34 +29,30 @@ block_hash( ag_vote_t const * self ) {
 
 static void
 test_basic( void ) {
-  ag_bls_sec_t sk; fd_memset( &sk, 9, AG_BLS_SEC_SZ );
-  ag_bls_pub_t pk; ag_bls_sec_to_pub( &sk, &pk );
+  fd_bls_sec_t sk; fd_memset( &sk, 9, FD_BLS_SEC_SZ );
   ag_block_hash_t h; memset( h, 0, sizeof(ag_block_hash_t) );
 
   ag_vote_t v;
 
-  v = ag_vote_construct_notar( &sk, 0UL, h, 0UL, TEST_SHRED_VERSION );
+  v = ag_vote_construct_notar( sec_sign_fn, &sk, 0UL, h, 0UL, TEST_SHRED_VERSION );
   FD_TEST( v.kind==AG_VOTE_KIND_NOTAR );
   FD_TEST( ag_vote_slot( &v )==0UL );
   FD_TEST( ag_vote_rank( &v )==0UL );
-  FD_TEST( !memcmp( ag_vote_notar_block_hash( &v.notar ), h, sizeof(ag_block_hash_t) ) );
-  FD_TEST( ag_vote_verify( &v, &pk ) );
+  FD_TEST( !memcmp( v.notar.block_hash, h, sizeof(ag_block_hash_t) ) );
 
-  v = ag_vote_construct_notar_fallback( &sk, 1UL, h, 2UL, TEST_SHRED_VERSION );
+  v = ag_vote_construct_notar_fallback( sec_sign_fn, &sk, 1UL, h, 2UL, TEST_SHRED_VERSION );
   FD_TEST( v.kind==AG_VOTE_KIND_NOTAR_FALLBACK );
-  FD_TEST( !memcmp( ag_vote_notar_fallback_block_hash( &v.notar_fallback ), h, sizeof(ag_block_hash_t) ) );
-  FD_TEST( ag_vote_verify( &v, &pk ) );
+  FD_TEST( !memcmp( v.notar_fallback.block_hash, h, sizeof(ag_block_hash_t) ) );
 
-  v = ag_vote_construct_skip( &sk, 3UL, 0UL, TEST_SHRED_VERSION );
+  v = ag_vote_construct_skip( sec_sign_fn, &sk, 3UL, 0UL, TEST_SHRED_VERSION );
   FD_TEST( v.kind==AG_VOTE_KIND_SKIP );
   FD_TEST( block_hash( &v )==NULL );
-  FD_TEST( ag_vote_verify( &v, &pk ) );
 
-  v = ag_vote_construct_skip_fallback( &sk, 3UL, 0UL, TEST_SHRED_VERSION );
+  v = ag_vote_construct_skip_fallback( sec_sign_fn, &sk, 3UL, 0UL, TEST_SHRED_VERSION );
   FD_TEST( v.kind==AG_VOTE_KIND_SKIP_FALLBACK );
   FD_TEST( block_hash( &v )==NULL );
 
-  v = ag_vote_construct_final( &sk, 4UL, 0UL, TEST_SHRED_VERSION );
+  v = ag_vote_construct_final( sec_sign_fn, &sk, 4UL, 0UL, TEST_SHRED_VERSION );
   FD_TEST( v.kind==AG_VOTE_KIND_FINAL );
   FD_TEST( block_hash( &v )==NULL );
   FD_TEST( ag_vote_slot( &v )==4UL );
@@ -77,14 +84,14 @@ test_payload_distinct( void ) {
 
 static void
 check_wire( ag_vote_t const *    v,
-            ag_bls_pub_t const * pk ) {
+            fd_bls_pub_t const * pk ) {
   uchar out[ AG_VOTE_SER_SZ( 1 ) ];
   ulong n;
   n = ag_vote_ser( v, TEST_SHRED_VERSION, out );
   FD_TEST( n>0UL );
 
   uchar const * h       = block_hash( v );
-  ulong         body_sz = 8UL + ( h ? sizeof(ag_block_hash_t) : 0UL ) + AG_BLS_SIG_SZ;
+  ulong         body_sz = 8UL + ( h ? sizeof(ag_block_hash_t) : 0UL ) + FD_BLS_SIG_SZ;
   FD_TEST( n == 2UL + body_sz + 2UL );
 
   ulong off = 0UL;
@@ -92,7 +99,7 @@ check_wire( ag_vote_t const *    v,
   FD_TEST( out[off]==(uchar)(v->kind+1U)               ); off += 1UL;
   FD_TEST( FD_LOAD( ulong, out+off )==ag_vote_slot( v )); off += 8UL;
   if( h ) { FD_TEST( !memcmp( out+off, h, sizeof(ag_block_hash_t) ) ); off += sizeof(ag_block_hash_t); }
-  uchar const * wire_sig = out+off; off += AG_BLS_SIG_SZ;
+  uchar const * wire_sig = out+off; off += FD_BLS_SIG_SZ;
   FD_TEST( FD_LOAD( ushort, out+off )==TEST_SHRED_VERSION  ); off += 2UL;
   FD_TEST( off==n );
 
@@ -104,38 +111,35 @@ check_wire( ag_vote_t const *    v,
   uchar const * rt_h = block_hash( &rt );
   FD_TEST( !rt_h==!h );
   if( h ) FD_TEST( !memcmp( rt_h, h, sizeof(ag_block_hash_t) ) );
-  FD_TEST( ag_vote_verify( &rt, pk ) );
   FD_TEST( ag_vote_de( &rt, (ushort)(TEST_SHRED_VERSION+1), out, n )==AG_VOTE_DE_ERR_SHRED_VERSION );
   FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n-1UL )==AG_VOTE_DE_ERR_SZ ); /* too few  */
   FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n+1UL )==AG_VOTE_DE_ERR_SZ ); /* trailing */
 
-  FD_TEST( ag_vote_verify( v, pk ) );
-
   uchar        payload[ AG_VOTE_SIGNING_SER_MAX ];
   ulong        payload_sz = ag_vote_signing_ser( v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION, payload );
-  ag_bls_sig_t   sig[1];
+  fd_bls_sig_t   sig[1];
   blst_p2_affine sig_aff[1];
   FD_TEST( blst_p2_deserialize( sig_aff, wire_sig )==BLST_SUCCESS );
   blst_p2_from_affine( sig, sig_aff );
-  FD_TEST( ag_bls_sig_verify( sig, pk, payload, payload_sz ) );
+  FD_TEST( fd_bls_agg_verify( pk, sig, payload, payload_sz ) );
 
   payload[ 1 ] ^= 0xFFu;
-  FD_TEST( !ag_bls_sig_verify( sig, pk, payload, payload_sz ) );
+  FD_TEST( !fd_bls_agg_verify( pk, sig, payload, payload_sz ) );
 }
 
 static void
 test_serialize( void ) {
   uchar        ikm[ 64 ]; for( ulong i=0UL; i<64UL; i++ ) ikm[i] = (uchar)(i+1u);
-  ag_bls_sec_t sk; ag_bls_sec_derive( &sk, ikm, sizeof(ikm) );
-  ag_bls_pub_t pk; ag_bls_sec_to_pub( &sk, &pk );
+  fd_bls_sec_t sk; fd_bls_sec_derive( &sk, ikm, sizeof(ikm) );
+  fd_bls_pub_t pk; fd_bls_sec_to_pub( &sk, &pk );
   ag_block_hash_t h; for( ulong i=0UL; i<32UL; i++ ) h[i] = (uchar)(0xA0u+i);
 
   ag_vote_t v;
-  v = ag_vote_construct_notar( &sk, 12345UL, h, 7UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
-  v = ag_vote_construct_final( &sk, 7UL, 1UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
-  v = ag_vote_construct_skip( &sk, 42UL, 3UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
-  v = ag_vote_construct_notar_fallback( &sk, 99UL, h, 65535UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
-  v = ag_vote_construct_skip_fallback( &sk, 42UL, 3UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
+  v = ag_vote_construct_notar( sec_sign_fn, &sk, 12345UL, h, 7UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
+  v = ag_vote_construct_final( sec_sign_fn, &sk, 7UL, 1UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
+  v = ag_vote_construct_skip( sec_sign_fn, &sk, 42UL, 3UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
+  v = ag_vote_construct_notar_fallback( sec_sign_fn, &sk, 99UL, h, 65535UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
+  v = ag_vote_construct_skip_fallback( sec_sign_fn, &sk, 42UL, 3UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
 
   FD_LOG_NOTICE(( "vote serialize round trip pass" ));
 }

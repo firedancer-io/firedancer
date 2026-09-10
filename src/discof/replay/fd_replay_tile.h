@@ -99,7 +99,7 @@
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
 #include "../../choreo/votor/ag_cert.h"
-#include "fd_block_marker.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)

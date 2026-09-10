@@ -159,7 +159,7 @@ inflight_in_map( fd_inflight_map_t const * map,
 
 long
 fd_inflights_request_remove( fd_inflights_t * table,
-                           fd_inflight_t *  ele ) {
+                             fd_inflight_t *  ele ) {
   long rtt = fd_log_wallclock()-ele->timestamp_ns;
   if( FD_LIKELY( inflight_in_map( table->map, table, ele ) ) ) {
     fd_inflight_map_ele_remove_fast( table->map,            ele, table->pool );
@@ -216,11 +216,11 @@ fd_inflights_request_pop( fd_inflights_t * table,
 
 void
 fd_meta_inflights_request_insert( fd_inflights_t *  table,
-                             ulong             nonce,
-                             uint              kind,
-                             ulong             slot,
-                             fd_hash_t const * block_id,
-                             uint              fec_set_idx ) {
+                                  ulong             nonce,
+                                  uint              kind,
+                                  ulong             slot,
+                                  fd_hash_t const * block_id,
+                                  uint              fec_set_idx ) {
   if( FD_UNLIKELY( !fd_meta_inflight_pool_free( table->ag_pool ) ) ) {
     /* pool full: evict the oldest popped (already timed-out) ag request
        first, and only an outstanding one as a last resort. */

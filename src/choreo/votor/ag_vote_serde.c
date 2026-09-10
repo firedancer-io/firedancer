@@ -15,14 +15,14 @@ ag_vote_ser( ag_vote_t const * self,
   vote.shred_version = shred_version;
 
   ulong off = 0UL;
-  buf[ off ] = vote.version;                                                       off += sizeof(uchar);
-  buf[ off ] = vote.tag;                                                           off += sizeof(uchar);
-  FD_STORE( ulong, buf+off, vote.slot );                                           off += sizeof(ulong);
-  if( vote.block_id ) { memcpy( buf+off, vote.block_id, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t); }
+  buf[ off ] = vote.version;                                                                    off += sizeof(uchar);
+  buf[ off ] = vote.tag;                                                                        off += sizeof(uchar);
+  FD_STORE( ulong, buf+off, vote.slot );                                                        off += sizeof(ulong);
+  if( FD_LIKELY( vote.block_id ) ) { memcpy( buf+off, vote.block_id, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t); }
   blst_p2_affine sig_aff[1];
   blst_p2_to_affine( sig_aff, ag_vote_sig( self ) );
-  blst_p2_affine_serialize( buf+off, sig_aff );                                    off += AG_BLS_SIG_SZ;
-  FD_STORE( ushort, buf+off, vote.shred_version );                                 off += sizeof(ushort);
+  blst_p2_affine_serialize( buf+off, sig_aff );                                                 off += FD_BLS_SIG_SZ;
+  FD_STORE( ushort, buf+off, vote.shred_version );                                              off += sizeof(ushort);
 
   return off;
 }
@@ -46,13 +46,13 @@ ag_vote_de( ag_vote_t *   self,
 
   vote.slot          = FD_LOAD( ulong, buf+off );  off += sizeof(ulong);
   vote.block_id      = NULL;
-  if( has_block_id ) {
+  if( FD_LIKELY( has_block_id ) ) {
     vote.block_id    = buf+off;                    off += sizeof(ag_block_hash_t);
   }
-  vote.signature     = buf+off;                    off += AG_BLS_SIG_SZ;
+  vote.signature     = buf+off;                    off += FD_BLS_SIG_SZ;
 
   /* the only place a signature crosses between bytes and a point */
-  ag_bls_sig_t   sig[1];
+  fd_bls_sig_t   sig[1];
   blst_p2_affine sig_aff[1];
   FAIL( vote.signature[0]&0xA0U,                                      INVAL );
   FAIL( blst_p2_deserialize( sig_aff, vote.signature )!=BLST_SUCCESS, INVAL );
@@ -108,9 +108,9 @@ ag_vote_signing_ser( uint          kind,
                      ushort        shred_version,
                      uchar         buf[ static AG_VOTE_SIGNING_SER_MAX ] ) {
   ulong off = 0UL;
-  buf[ off ] = (uchar)( kind+AG_VOTE_SERDE_TAG_NOTAR );                      off += sizeof(uchar);
-  FD_STORE( ulong, buf+off, slot );                                          off += sizeof(ulong);
-  if( block_hash ) { memcpy( buf+off, block_hash, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t); }
-  FD_STORE( ushort, buf+off, shred_version );                                off += sizeof(ushort);
+  buf[ off ] = (uchar)( kind+AG_VOTE_SERDE_TAG_NOTAR );                                   off += sizeof(uchar);
+  FD_STORE( ulong, buf+off, slot );                                                       off += sizeof(ulong);
+  if( FD_LIKELY( block_hash ) ) { memcpy( buf+off, block_hash, sizeof(ag_block_hash_t) ); off += sizeof(ag_block_hash_t); }
+  FD_STORE( ushort, buf+off, shred_version );                                             off += sizeof(ushort);
   return off;
 }

@@ -132,14 +132,10 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
 //REGISTER( "sol_remaining_compute_units",           fd_vm_syscall_sol_remaining_compute_units );
 
-#if FD_HAS_BLST
   if( enable_bls12_381_syscall ) {
     REGISTER( "sol_curve_decompress",                fd_vm_syscall_sol_curve_decompress );
     REGISTER( "sol_curve_pairing_map",               fd_vm_syscall_sol_curve_pairing_map );
   }
-#else
-  (void)enable_bls12_381_syscall;
-#endif /* FD_HAS_BLST */
 
 # undef REGISTER
 

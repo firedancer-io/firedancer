@@ -2,8 +2,7 @@
 #define HEADER_fd_src_discof_replay_fd_sched_h
 
 #include "fd_rdisp.h"
-#include "fd_block_marker.h"
-#include "../../flamenco/rewards/fd_alpen_rewards.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../flamenco/accdb/fd_accdb.h"
@@ -511,30 +510,12 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
 
-/* fd_sched_get_footer_bank_hash returns the bank hash in the block
-   footer, or NULL if no footer marker has been parsed for the block.
-   The hash stays valid until the block is pruned. */
-fd_hash_t const *
-fd_sched_get_footer_bank_hash( fd_sched_t * sched, ulong bank_idx );
-
-/* fd_sched_get_footer_producer_time_nanos returns the producer
-   timestamp in the block footer, or 0 if no footer marker has been
-   parsed for the block. */
-ulong
-fd_sched_get_footer_producer_time_nanos( fd_sched_t * sched, ulong bank_idx );
-
-/* fd_sched_get_footer_certs fills certs from the block footer: the slot
-   and signer bitmap of each certificate it carries, which is all the
-   runtime needs to price rewards.  A NULL signer_set means that cert is
-   absent, or that no footer marker has been parsed for the block.  The
-   shapes were validated at parse time; the signatures are not verified
-   and never leave the footer.  The bitmaps stay valid until the block is
-   pruned. */
-
-void
-fd_sched_get_footer_certs( fd_sched_t *        sched,
-                           ulong               bank_idx,
-                           fd_footer_certs_t * certs );
+/* fd_sched_get_footer returns the block footer, or NULL if no footer
+   marker has been parsed for the block.  The shapes were validated at
+   parse time; the signatures are not verified.  The footer stays valid
+   until the block is pruned. */
+fd_block_footer_t const *
+fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx );
 
 void
 fd_sched_metrics_write( fd_sched_t * sched );

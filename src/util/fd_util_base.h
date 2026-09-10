@@ -196,13 +196,6 @@
 #define FD_HAS_LZ4 0
 #endif
 
-/* FD_HAS_ZSTD indicates that the target supports ZSTD compression.
-   Roughly, does "#include <zstd.h>" and the APIs therein work? */
-
-#ifndef FD_HAS_ZSTD
-#define FD_HAS_ZSTD 0
-#endif
-
 /* FD_HAS_COVERAGE indicates that the build target is built with coverage instrumentation. */
 
 #ifndef FD_HAS_COVERAGE
@@ -822,8 +815,6 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_VOLATILE(x) (*((volatile __typeof__((x)) *)&(x)))
 
-#if FD_HAS_ATOMIC
-
 /* FD_ATOMIC_FETCH_AND_{ADD,SUB,OR,AND,XOR}(p,v):
 
    FD_ATOMIC_FETCH_AND_ADD(p,v) does
@@ -871,8 +862,6 @@ fd_type_pun_const( void const * p ) {
    as a single atomic operation. */
 
 #define FD_ATOMIC_XCHG(p,v) __atomic_exchange_n( (p), (v), __ATOMIC_SEQ_CST )
-
-#endif /* FD_HAS_ATOMIC */
 
 /* FD_TL:  This indicates that the variable should be thread local.
 

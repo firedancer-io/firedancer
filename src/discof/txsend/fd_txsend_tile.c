@@ -177,6 +177,10 @@ send_to_net( fd_txsend_tile_t *   ctx,
   uint  const ip_dst = FD_LOAD( uint, ip4_hdr->daddr_c );
   ulong const ip_sz  = FD_IP4_GET_LEN( *ip4_hdr );
 
+  ulong const hdr_sz = sizeof(fd_eth_hdr_t) + ip_sz + sizeof(fd_udp_hdr_t);
+  if( FD_UNLIKELY( payload_sz>FD_ETH_PAYLOAD_MAX-hdr_sz ) ) return;
+  ulong const sz_l2 = hdr_sz + payload_sz;
+
   fd_txsend_out_t * net_out_link = ctx->net_out;
   uchar * packet_l2 = fd_chunk_to_laddr( net_out_link->mem, net_out_link->chunk );
   uchar * packet_l3 = packet_l2 + sizeof(fd_eth_hdr_t);
@@ -189,7 +193,6 @@ send_to_net( fd_txsend_tile_t *   ctx,
   fd_memcpy( packet_l5, payload,              payload_sz           );
 
   ulong sig   = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
-  ulong sz_l2 = sizeof(fd_eth_hdr_t) + ip_sz + sizeof(fd_udp_hdr_t) + payload_sz;
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( now );
   fd_stem_publish( ctx->stem, net_out_link->idx, sig, net_out_link->chunk, sz_l2, 0UL, 0, tspub );
@@ -590,11 +593,12 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
   txnm->first_seen_nanos       = slot_done->vote_created_nanos;
   fd_memcpy( fd_txn_m_payload( txnm ), slot_done->vote_txn, slot_done->vote_txn_sz );
 
-  txnm->txn_t_sz = (ushort)fd_txn_parse( slot_done->vote_txn, slot_done->vote_txn_sz, fd_txn_m_txn_t( txnm ), NULL );
+  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  txnm->txn_t_sz = (ushort)fd_txn_parse( slot_done->vote_txn, slot_done->vote_txn_sz, txn_mem, NULL );
   FD_TEST( txnm->txn_t_sz );
 
   uchar * payload = fd_txn_m_payload( txnm );
-  fd_txn_t const * txn = fd_txn_m_txn_t_const( txnm );
+  fd_txn_t const * txn = (fd_txn_t const *)txn_mem;
 
   uchar *       signatures = payload + txn->signature_off;
   uchar const * message    = payload + txn->message_off;
@@ -824,7 +828,8 @@ unprivileged_init( fd_topo_t const *      topo,
           sign_out->dcache,
           sign_in->mcache,
           sign_in->dcache,
-          sign_out->mtu ) ) ) ) {
+          sign_out->mtu,
+          sign_in->mtu ) ) ) ) {
     FD_LOG_ERR(( "failed to construct keyguard" ));
   }
 

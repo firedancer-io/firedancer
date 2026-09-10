@@ -85,7 +85,8 @@ struct __attribute__((aligned(128UL))) ag_votor {
   ulong        curr_epoch_slot;
   ulong        next_epoch_rank;
   ulong        next_epoch_slot;
-  ag_bls_sec_t bls_sec;
+  fd_bls_sign_fn bls_sign_fn;
+  void *         bls_sign_ctx;
 
   ag_event_vote_t * vote_events;
   ag_event_cert_t * cert_events;
@@ -265,10 +266,12 @@ ag_votor_advance_epoch( ag_votor_t * self,
 }
 
 void
-ag_votor_set_bls_key( ag_votor_t *         self,
-                      ag_bls_sec_t const * bls_key ) {
-  FD_TEST( bls_key );
-  self->bls_sec = *bls_key;
+ag_votor_set_bls_signer( ag_votor_t *   self,
+                         fd_bls_sign_fn sign_fn,
+                         void *         sign_ctx ) {
+  FD_TEST( sign_fn );
+  self->bls_sign_fn  = sign_fn;
+  self->bls_sign_ctx = sign_ctx;
 }
 
 void
@@ -404,7 +407,7 @@ try_final( ag_votor_t *          self,
   int voted_notar = state && state->voted_notar     && !memcmp( state->voted_notar_hash,     hash, sizeof(ag_block_hash_t) );
   int not_bad     = !( state && state->bad_window );
   if( FD_LIKELY( notarized && voted_notar && not_bad ) ) {
-    ag_vote_t vote = ag_vote_construct_final( &self->bls_sec, slot, own_rank( self, slot ), self->shred_version );
+    ag_vote_t vote = ag_vote_construct_final( self->bls_sign_fn, self->bls_sign_ctx, slot, own_rank( self, slot ), self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
     vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
     state_mut( self, slot )->retired = 1;
@@ -438,7 +441,7 @@ try_notar( ag_votor_t *            self,
     if( FD_UNLIKELY( memcmp( parent_state->voted_notar_hash, parent.hash, sizeof(ag_block_hash_t) )!=0 ) ) return 0;
   }
 
-  ag_vote_t vote = ag_vote_construct_notar( &self->bls_sec, slot, hash, own_rank( self, slot ), self->shred_version );
+  ag_vote_t vote = ag_vote_construct_notar( self->bls_sign_fn, self->bls_sign_ctx, slot, hash, own_rank( self, slot ), self->shred_version );
   FD_TEST( !vote_events_full( self->vote_events ) );
   vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
 
@@ -466,7 +469,7 @@ try_skip_window( ag_votor_t * self,
     state->voted             = 1;
     state->bad_window        = 1;
 
-    ag_vote_t vote = ag_vote_construct_skip( &self->bls_sec, s, own_rank( self, s ), self->shred_version );
+    ag_vote_t vote = ag_vote_construct_skip( self->bls_sign_fn, self->bls_sign_ctx, s, own_rank( self, s ), self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
     vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
   }
@@ -578,7 +581,7 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
     ulong         slot = event->safe_to_notar.slot;
     uchar const * hash = event->safe_to_notar.hash;
 
-    ag_vote_t vote = ag_vote_construct_notar_fallback( &self->bls_sec, slot, hash, own_rank( self, slot ), self->shred_version );
+    ag_vote_t vote = ag_vote_construct_notar_fallback( self->bls_sign_fn, self->bls_sign_ctx, slot, hash, own_rank( self, slot ), self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
     vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
     try_skip_window( self, slot );
@@ -589,7 +592,7 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
   case AG_EVENT_POOL_SAFE_TO_SKIP: {
     ulong slot = event->safe_to_skip;
 
-    ag_vote_t vote = ag_vote_construct_skip_fallback( &self->bls_sec, slot, own_rank( self, slot ), self->shred_version );
+    ag_vote_t vote = ag_vote_construct_skip_fallback( self->bls_sign_fn, self->bls_sign_ctx, slot, own_rank( self, slot ), self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
     vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
     try_skip_window( self, slot );

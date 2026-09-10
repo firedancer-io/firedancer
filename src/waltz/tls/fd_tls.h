@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_tls_fd_tls_h
 
 #include "fd_tls_estate.h"
+#include "../../ballet/chacha/fd_chacha_rng.h"
 
 /* fd_tls implements a subset of the TLS v1.3 (RFC 8446) handshake
    protocol.
@@ -119,43 +120,6 @@ typedef void
                               uchar const * quic_tp,
                               ulong         quic_tp_sz );
 
-/* fd_tls_rand_vt_t is an abstraction for retrieving secure pseudorandom
-   values.  When fd_tls needs random values, it calls fd_tls_rand_fn_t.
-
-   ctx is an arbitrary pointer that is provided as a callback argument.
-   buf points to a buffer of bufsz bytes that is to be filled with
-   cryptographically secure randomness.  bufsz is usually 32 bytes.
-   Assume buf is unaligned.  Returns buf on success and NULL on failure.
-
-   Function must not block, but may synchronously pre-calculate a
-   reasonable amount of data ahead of time.  NULL return value implies
-   inability to keep up with demand for random values.  In this case,
-   function should return NULL.  Function should minimize side effects
-   (notably, should not log).
-
-   TODO API considerations:
-   - read() style error codes?
-   - Buffering to reduce amount of virtual function calls? */
-
-typedef void *
-(* fd_tls_rand_fn_t)( void * ctx,
-                      void * buf,
-                      ulong  bufsz );
-
-struct fd_tls_rand_vt {
-  void *           ctx;
-  fd_tls_rand_fn_t rand_fn;
-};
-
-typedef struct fd_tls_rand_vt fd_tls_rand_t;
-
-static inline void *
-fd_tls_rand( fd_tls_rand_t const * rand,
-             void *                buf,
-             ulong                 bufsz ) {
-  return rand->rand_fn( rand->ctx, buf, bufsz );
-}
-
 /* fd_tls_sign_fn_t is called by by fd_tls to request signing of a
    TLS 1.3 certificate verify payload.
 
@@ -187,6 +151,7 @@ fd_tls_sign( fd_tls_sign_t const * sign,
 }
 
 extern char const fd_tls13_cli_sign_prefix[ 98 ];
+extern char const fd_tls13_srv_sign_prefix[ 98 ];
 
 /* Public API *********************************************************/
 
@@ -228,7 +193,8 @@ extern char const fd_tls13_cli_sign_prefix[ 98 ];
    across multiple TLS handshakes. */
 
 struct fd_tls {
-  fd_tls_rand_t       rand;
+  /* CSPRNG, caller-provided.  caller is responsible for reseeding. */
+  fd_chacha_rng_t *   rng;
   fd_tls_secrets_fn_t secrets_fn;
   fd_tls_sendmsg_fn_t sendmsg_fn;
 
@@ -294,7 +260,6 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_ILLEGAL_STATE   ( 1)  /* illegal hs state */
 #define FD_TLS_REASON_SENDMSG_FAIL    ( 2)  /* sendmsg callback failed */
 #define FD_TLS_REASON_WRONG_ENC_LVL   ( 3)  /* wrong encryption level */
-#define FD_TLS_REASON_RAND_FAIL       ( 4)  /* rand fn failed */
 
 #define FD_TLS_REASON_X25519_FAIL     ( 9)  /* fd_x25519_exchange failed */
 #define FD_TLS_REASON_NO_X509         (10)  /* no X.509 cert installed */

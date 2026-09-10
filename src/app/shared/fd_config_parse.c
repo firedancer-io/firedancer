@@ -334,6 +334,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   development.bench.benchg_tile_count              );
   CFG_POP      ( uint,   development.bench.benchs_tile_count              );
   CFG_POP      ( cstr,   development.bench.affinity                       );
+  CFG_POP      ( cstr,   development.bench.transaction_mode               );
   CFG_POP      ( ulong,  development.bench.max_cost_per_block             );
   CFG_POP      ( ulong,  development.bench.max_shreds_per_block           );
   CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
@@ -345,7 +346,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   development.event.report_shreds                  );
   CFG_POP      ( bool,   development.event.report_transactions            );
-  CFG_POP      ( bool,   development.event.report_transaction_diffs       );
+  CFG_POP      ( bool,   development.event.report_runtime_diffs           );
 
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );

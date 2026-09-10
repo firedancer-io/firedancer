@@ -1,97 +1,87 @@
 #include "ag_bls_serde.h"
 
-/* FAIL returns the named AG_BLS_DE_ code when cond holds. */
-
 #define FAIL( cond, err ) do { if( FD_UNLIKELY( cond ) ) return AG_BLS_DE_ERR_##err; } while( 0 )
 
 #define BASE2_BITMAP (0)
 #define BASE3_BITMAP (1)
 
-/* One past the highest rank, or zero when nobody signed.  Agave trims
-   the rank bitvec to exactly this width when it builds a certificate, and
-   to the wider of the two partitions for base3. */
-
 static ulong
-bit_cnt( ag_bls_agg_t const * agg ) {
-  return fd_ulong_min( AG_BLS_SIGNERS_MAX, signer_set_last( agg->bitmask )+1UL );
+bit_cnt( fd_bls_agg_t const * agg ) {
+  return fd_ulong_min( FD_BLS_SET_MAX, fd_bls_set_last( agg->set )+1UL );
 }
 
 ulong
-ag_bls_agg_ser_sz( ag_bls_agg_t const * agg ) {
+ag_bls_agg_ser_sz( fd_bls_agg_t const * agg ) {
   return AG_BLS_AGG_SER_SZ( bit_cnt( agg ) );
 }
 
 ulong
-ag_bls_agg_pair_ser_sz( ag_bls_agg_t const * base,
-                        ag_bls_agg_t const * fb ) {
-  return AG_BLS_AGG_PAIR_SER_SZ( fd_ulong_max( bit_cnt( base ), bit_cnt( fb ) ) );
+ag_bls_agg_pair_ser_sz( fd_bls_agg_t const * agg,
+                        fd_bls_agg_t const * agg2 ) {
+  return AG_BLS_AGG_PAIR_SER_SZ( fd_ulong_max( bit_cnt( agg ), bit_cnt( agg2 ) ) );
 }
 
 ulong
-ag_bls_agg_ser( ag_bls_agg_t const * agg,
+ag_bls_agg_ser( fd_bls_agg_t const * agg,
                 uchar *              buf ) {
-  ag_bls_agg_serde_t bm[1];
 
   ulong bits = bit_cnt( agg );
 
-  bm->version = (uchar)BASE2_BITMAP;
-  bm->bit_cnt = (ushort)bits;
-  bm->payload    = NULL; /* the packed ranks exist nowhere to point at, so they go
-                            into buf below rather than being copied out of agg */
-  bm->payload_sz = ag_bls_agg_ser_sz( agg ) - AG_BLS_AGG_HDR_SZ;
+  ag_bls_agg_serde_t serde[1];
+  serde->version = (uchar)BASE2_BITMAP;
+  serde->bit_cnt = (ushort)bits;
+  serde->payload    = NULL;
+  serde->payload_sz = ag_bls_agg_ser_sz( agg ) - AG_BLS_AGG_HDR_SZ;
 
   ulong off = 0UL;
-  buf[ off ] = bm->version;                 off += sizeof(uchar);
-  FD_STORE( ushort, buf+off, bm->bit_cnt ); off += sizeof(ushort);
+  buf[ off ] = serde->version;                 off += sizeof(uchar);
+  FD_STORE( ushort, buf+off, serde->bit_cnt ); off += sizeof(ushort);
 
   uchar * p = buf+off;
-  fd_memset( p, 0, bm->payload_sz );
+  fd_memset( p, 0, serde->payload_sz );
   for( ulong i=0UL; i<bits; i++ ) {
-    if( signer_set_test( agg->bitmask, i ) ) p[ i>>3 ] |= (uchar)( 1U << (i&7U) );
+    if( FD_LIKELY( fd_bls_set_test( agg->set, i ) ) ) p[ i>>3 ] |= (uchar)( 1U << (i&7U) );
   }
-  off += bm->payload_sz;
+  off += serde->payload_sz;
 
   return off;
 }
 
 ulong
-ag_bls_agg_pair_ser( ag_bls_agg_t const * base,
-                     ag_bls_agg_t const * fb,
+ag_bls_agg_pair_ser( fd_bls_agg_t const * agg,
+                     fd_bls_agg_t const * agg2,
                      uchar *              buf ) {
-  ag_bls_agg_serde_t bm[1];
 
-  ulong bits = fd_ulong_max( bit_cnt( base ), bit_cnt( fb ) );
+  ulong bits = fd_ulong_max( bit_cnt( agg ), bit_cnt( agg2 ) );
 
-  bm->version = (uchar)BASE3_BITMAP;
-  bm->bit_cnt = (ushort)bits;
-  bm->payload    = NULL; /* as in ag_bls_agg_ser: packed into buf, not copied */
-  bm->payload_sz = ag_bls_agg_pair_ser_sz( base, fb ) - AG_BLS_AGG_HDR_SZ;
+  ag_bls_agg_serde_t serde[1];
+  serde->version = (uchar)BASE3_BITMAP;
+  serde->bit_cnt = (ushort)bits;
+  serde->payload    = NULL;
+  serde->payload_sz = ag_bls_agg_pair_ser_sz( agg, agg2 ) - AG_BLS_AGG_HDR_SZ;
 
   ulong off = 0UL;
-  buf[ off ] = bm->version;                 off += sizeof(uchar);
-  FD_STORE( ushort, buf+off, bm->bit_cnt ); off += sizeof(ushort);
+  buf[ off ] = serde->version;                 off += sizeof(uchar);
+  FD_STORE( ushort, buf+off, serde->bit_cnt ); off += sizeof(ushort);
 
   uchar * p = buf+off;
-  for( ulong chunk=0UL; chunk<bm->payload_sz; chunk++ ) {
+  for( ulong chunk=0UL; chunk<serde->payload_sz; chunk++ ) {
     ulong start = chunk*5UL;
     ulong end   = fd_ulong_min( start+5UL, bits );
     uint  block = 0U;
     uint  place = 1U;
     for( ulong i=start; i<end; i++ ) {
-      uint digit = signer_set_test( base->bitmask, i ) ? 1U
-                 : signer_set_test( fb->bitmask,   i ) ? 2U : 0U;
+      uint digit = fd_bls_set_test( agg->set,  i ) ? 1U
+                 : fd_bls_set_test( agg2->set, i ) ? 2U : 0U;
       block += digit*place;
       place *= 3U;
     }
     p[ chunk ] = (uchar)block;
   }
-  off += bm->payload_sz;
+  off += serde->payload_sz;
 
   return off;
 }
-
-/* bitmap_hdr reads the bitmap's framing out of b.  b_sz is the whole
-   bitmap, so whatever is left after the framing is the payload. */
 
 static int
 bitmap_hdr( ag_bls_agg_serde_t * bm,
@@ -108,31 +98,31 @@ bitmap_hdr( ag_bls_agg_serde_t * bm,
 }
 
 static int
-base2_de( ag_bls_agg_t *             agg,
+base2_de( fd_bls_agg_t *             agg,
           ag_bls_agg_serde_t const * bm ) {
   ulong bits = (ulong)bm->bit_cnt;
-  FAIL( bits>AG_BLS_SIGNERS_MAX,                                     SZ );
+  FAIL( bits>FD_BLS_SET_MAX,                                         SZ );
   FAIL( bm->payload_sz!=AG_BLS_AGG_SER_SZ( bits )-AG_BLS_AGG_HDR_SZ, INVAL );
 
-  ag_bls_agg_zero( agg );
+  memset( agg, 0, sizeof(fd_bls_agg_t) ); /* zero is the point at infinity */
 
   for( ulong i=0UL; i<bits; i++ ) {
-    if( (bm->payload[ i>>3 ] >> (i&7U)) & 1U ) signer_set_insert( agg->bitmask, i );
+    if( FD_LIKELY( (bm->payload[ i>>3 ] >> (i&7U)) & 1U ) ) fd_bls_set_insert( agg->set, i );
   }
   return AG_BLS_DE_SUCCESS;
 }
 
 static int
-base3_de( ag_bls_agg_t *             base,
-          ag_bls_agg_t *             fb,
+base3_de( fd_bls_agg_t *             agg,
+          fd_bls_agg_t *             agg2,
           ag_bls_agg_serde_t const * bm ) {
   ulong bits    = (ulong)bm->bit_cnt;
   ulong nchunks = AG_BLS_AGG_PAIR_SER_SZ( bits )-AG_BLS_AGG_HDR_SZ;
-  FAIL( bits>AG_BLS_SIGNERS_MAX, SZ );
+  FAIL( bits>FD_BLS_SET_MAX, SZ );
   FAIL( bm->payload_sz!=nchunks, INVAL );
 
-  ag_bls_agg_zero( base );
-  ag_bls_agg_zero( fb   );
+  memset( agg,  0, sizeof(fd_bls_agg_t) ); /* zero is the point at infinity */
+  memset( agg2, 0, sizeof(fd_bls_agg_t) );
 
   for( ulong chunk=0UL; chunk<nchunks; chunk++ ) {
     uint  block = (uint)bm->payload[ chunk ];
@@ -140,15 +130,15 @@ base3_de( ag_bls_agg_t *             base,
     ulong end   = fd_ulong_min( start+5UL, bits );
     for( ulong i=start; i<end; i++ ) {
       uint digit = block % 3U; block /= 3U;
-      if(      digit==1U ) signer_set_insert( base->bitmask, i );
-      else if( digit==2U ) signer_set_insert( fb->bitmask,   i );
+      if(      FD_LIKELY  ( digit==1U ) ) fd_bls_set_insert( agg->set,  i );
+      else if( FD_UNLIKELY( digit==2U ) ) fd_bls_set_insert( agg2->set, i );
     }
   }
   return AG_BLS_DE_SUCCESS;
 }
 
 int
-ag_bls_agg_de( ag_bls_agg_t * agg,
+ag_bls_agg_de( fd_bls_agg_t * agg,
                uchar const *  b,
                ulong          b_sz ) {
   ag_bls_agg_serde_t bm[1];
@@ -161,8 +151,8 @@ ag_bls_agg_de( ag_bls_agg_t * agg,
 }
 
 int
-ag_bls_agg_pair_de( ag_bls_agg_t * base,
-                    ag_bls_agg_t * fb,
+ag_bls_agg_pair_de( fd_bls_agg_t * agg,
+                    fd_bls_agg_t * agg2,
                     uchar const *  b,
                     ulong          b_sz ) {
   ag_bls_agg_serde_t bm[1];
@@ -172,13 +162,12 @@ ag_bls_agg_pair_de( ag_bls_agg_t * base,
 
   switch( bm->version ) {
   case BASE2_BITMAP:
-    /* one partition: everyone who signed is in the base set */
-    err = base2_de( base, bm );
+    err = base2_de( agg, bm );
     if( FD_UNLIKELY( err ) ) return err;
-    ag_bls_agg_zero( fb );
+    memset( agg2, 0, sizeof(fd_bls_agg_t) );
     return AG_BLS_DE_SUCCESS;
   case BASE3_BITMAP:
-    return base3_de( base, fb, bm );
+    return base3_de( agg, agg2, bm );
   default:
     return AG_BLS_DE_ERR_INVAL;
   }

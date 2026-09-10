@@ -9,10 +9,9 @@
 #include "tower/fd_tower_serdes.h"
 #include "tower/fd_tower_stakes.h"
 
-#if FD_HAS_BLST
 #include "votor/ag_votor_base.h"
 
-#include "votor/ag_bls.h"
+#include "../ballet/bls/fd_bls.h"
 #include "votor/ag_bls_serde.h"
 #include "votor/ag_cert.h"
 #include "votor/ag_cert_serde.h"
@@ -23,6 +22,5 @@
 #include "votor/ag_slot_state.h"
 #include "votor/ag_vote.h"
 #include "votor/ag_vote_serde.h"
-#endif
 
 #endif /* HEADER_fd_src_choreo_fd_choreo_h */

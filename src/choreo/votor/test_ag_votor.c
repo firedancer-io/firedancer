@@ -18,7 +18,7 @@
 
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
-static ag_bls_sec_t      g_sk  [ NV ];
+static fd_bls_sec_t      g_sk  [ NV ];
 static ag_validator_info_t g_info[ NV ];
 static ulong               g_hash_ctr = 0UL;
 
@@ -49,11 +49,11 @@ random_block_id( ulong slot ) {
 static void
 create_validators( void ) {
   for( ulong i=0UL; i<NV; i++ ) {
-    fd_memset( &g_sk[i], (int)(i*7UL+1UL), AG_BLS_SEC_SZ );
+    fd_memset( &g_sk[i], (int)(i*7UL+1UL), FD_BLS_SEC_SZ );
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
+    fd_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
   }
 }
 
@@ -124,7 +124,7 @@ setup_votor( long now ) {
   FD_TEST( votor );
   ag_votor_init            ( votor, 0UL, now );
   ag_votor_advance_epoch    ( votor, 0UL, 0UL );
-  ag_votor_set_bls_key      ( votor, &g_sk[0] );
+  ag_votor_set_bls_signer   ( votor, sec_sign_fn, &g_sk[0] );
   ag_votor_set_shred_version( votor, TEST_SHRED_VERSION );
 
   g_epoch_info = &epoch_info_mem;
@@ -315,7 +315,7 @@ test_safe_to_notar( void ) {
   ag_vote_t msg = recv( votor );
   FD_TEST( msg.kind==AG_VOTE_KIND_NOTAR_FALLBACK );
   FD_TEST( ag_vote_slot( &msg )==block.slot );
-  FD_TEST( !memcmp( ag_vote_notar_fallback_block_hash( &msg.notar_fallback ), block.hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( !memcmp( msg.notar_fallback.block_hash, block.hash, sizeof(ag_block_hash_t) ) );
 
   teardown_votor( votor );
 }
@@ -366,7 +366,7 @@ test_prunes_to_finalized_window( void ) {
 
   /* finalizing a mid-window slot should drop only the slots before its
      window */
-  ag_vote_t fv; fv = ag_vote_construct_final( &g_sk[1], finalized, (ushort)1, TEST_SHRED_VERSION );
+  ag_vote_t fv; fv = ag_vote_construct_final( sec_sign_fn, &g_sk[1], finalized, (ushort)1, TEST_SHRED_VERSION );
   ag_cert_t cert = cert_build_final( &fv.final, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
