@@ -23,6 +23,9 @@ device.
 * **cpuset** Creates an isolated cgroup cpuset partition over the CPU
   cores used by Firedancer, so no other process can be scheduled onto
   them (via `/sys/fs/cgroup`).
+* **watchdog** Disables the kernel lockup detectors, whose per-CPU
+  timers and NMIs periodically interrupt CPU cores used by Firedancer
+  (via `/proc/sys/kernel/watchdog`).
 * **console** Quiets periodic kernel console rendering work that runs
   on the CPU that generated it, including CPU cores used by Firedancer
   (via `/proc/sys/kernel/printk` and
@@ -46,8 +49,8 @@ where `mode` is one of:
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
 `bonding`,  `ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`,
-`irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, `console`, and
-`snapshots`
+`irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, `watchdog`,
+`console`, and `snapshots`
 and these stages are described below. You can also use the stage `all`
 which will configure everything.
 
@@ -379,7 +382,8 @@ system.
 
 ::: tip NOTE
 
-The `kworkers`, `cpuset`, and `console` stages are optional hardening:
+The `kworkers`, `cpuset`, `watchdog`, and `console` stages are
+optional hardening:
 Firedancer runs correctly without them, and they are recommended for
 production validator deployments to reduce scheduling jitter on tile
 CPUs.
@@ -395,6 +399,25 @@ They can also be run manually with `configure check nohz-full
 rcu-nocbs`.
 
 :::
+
+## watchdog
+The kernel lockup detectors watch for CPUs stuck inside the kernel.
+The soft lockup detector arms a timer on every CPU that fires several
+times a minute, and the hard lockup detector claims a hardware
+performance counter that fires periodic NMIs.
+
+The `watchdog` stage disables both detectors by writing `0` to the
+master switch at `/proc/sys/kernel/watchdog`, the runtime equivalent
+of booting with the `nowatchdog` kernel parameter. Note this disables
+lockup detection for the whole machine, not just the tile CPUs.
+
+<<< @/snippets/watchdog.ansi
+
+The `init` mode requires either root privileges or `CAP_SYS_ADMIN`.
+The `fini` mode re-enables the detectors, which is the kernel default
+(if the operator had disabled them before `init`, that customization
+is not restored). The stage is skipped on kernels built without
+lockup detector support.
 
 ## console
 The kernel renders its own log messages onto the machine's console.

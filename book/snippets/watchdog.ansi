@@ -1,0 +1,4 @@
+$ sudo firedancer configure init watchdog
+[32mNOTICE [0m watchdog ... unconfigured ... kernel lockup watchdog is enabled (`/proc/sys/kernel/watchdog` is 1, expected 0)
+[32mNOTICE [0m watchdog ... configuring
+[32mNOTICE [0m RUN: `echo "0" > /proc/sys/kernel/watchdog`
