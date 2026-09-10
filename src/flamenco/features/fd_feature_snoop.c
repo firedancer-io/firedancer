@@ -3,7 +3,7 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
 void
-fd_feature_snoop_account( fd_feature_snoop_t * snoop,
+fd_feature_snoop_account_full( fd_feature_snoop_t * snoop,
                           fd_pubkey_t const *  pubkey,
                           ulong                lamports,
                           uchar const *        owner,
