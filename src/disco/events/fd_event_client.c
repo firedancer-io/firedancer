@@ -768,6 +768,17 @@ fd_event_client_grpc_ping_ack( void * app_ctx ) {
   FD_LOG_WARNING(( "Event gRPC ping ack" ));
 }
 
+static long
+pace_refill( fd_event_client_t * client,
+             long                now ) {
+  long ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
+  long dt          = fd_long_max( now-client->tx_tokens_ns, 0L );
+  long grant       = fd_long_min( dt/ns_per_byte, FD_EVENT_CLIENT_TX_BURST-client->tx_tokens );
+  client->tx_tokens   += grant;
+  client->tx_tokens_ns = client->tx_tokens==FD_EVENT_CLIENT_TX_BURST ? now : client->tx_tokens_ns+grant*ns_per_byte;
+  return client->tx_tokens;
+}
+
 static void
 tx( fd_event_client_t * client,
     long                now,
@@ -777,10 +788,7 @@ tx( fd_event_client_t * client,
   if( FD_UNLIKELY( client->event_stream && client->grpc_client->request_stream != NULL && client->grpc_client->request_stream!=client->event_stream ) ) return;
 
   if( FD_UNLIKELY( client->event_stream ) ) {
-    if( FD_UNLIKELY( fd_grpc_client_stream_send_is_blocked( client->grpc_client ) ) ) {
-      if( fd_grpc_client_tx_budget( client->grpc_client ) && fd_grpc_client_request_continue( client->grpc_client ) ) *charge_busy = 1;
-      return;
-    }
+    if( FD_UNLIKELY( fd_grpc_client_stream_send_is_blocked( client->grpc_client ) ) ) return;
   } else {
     if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) return;
   }
@@ -801,7 +809,7 @@ tx( fd_event_client_t * client,
     return;
   }
 
-  if( FD_UNLIKELY( !fd_grpc_client_tx_budget( client->grpc_client ) ) ) return;
+  if( FD_UNLIKELY( pace_refill( client, now )<=0L ) ) return;
 
   ulong msg_sz;
   uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
@@ -821,6 +829,7 @@ tx( fd_event_client_t * client,
   int result = fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, msg, msg_sz );
   if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
 
+  client->tx_tokens -= (long)msg_sz;
   client->metrics.events_sent++;
   client->last_stream_send_ns = now;
   *charge_busy = 1;
@@ -857,31 +866,12 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED && client->event_stream ) ) {
     deadline = fd_long_min( deadline, fd_long_min( client->last_response_ns   +FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS,
                                                    client->last_stream_send_ns+FD_EVENT_CLIENT_HEARTBEAT_NANOS ) );
-    if( FD_UNLIKELY( client->tx_tokens<=0L && ( fd_circq_unsent_cnt( client->circq ) || fd_grpc_client_tx_pending( client->grpc_client ) || fd_grpc_client_tx_starved( client->grpc_client )==0UL ) ) ) {
+    if( FD_UNLIKELY( client->tx_tokens<=0L && fd_circq_unsent_cnt( client->circq ) ) ) {
       deadline = fd_long_min( deadline, client->tx_tokens_ns + (1L-client->tx_tokens)*(long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS );
     }
     if( FD_UNLIKELY( client->stall_since ) ) deadline = fd_long_min( deadline, client->stall_since+FD_EVENT_CLIENT_CREDIT_STALL_NANOS );
   }
   return deadline;
-}
-
-static ulong
-pace_refill( fd_event_client_t * client,
-             long                now ) {
-  long ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
-  long dt          = fd_long_max( now-client->tx_tokens_ns, 0L );
-  long grant       = fd_long_min( dt/ns_per_byte, FD_EVENT_CLIENT_TX_BURST-client->tx_tokens );
-  client->tx_tokens   += grant;
-  client->tx_tokens_ns = client->tx_tokens==FD_EVENT_CLIENT_TX_BURST ? now : client->tx_tokens_ns+grant*ns_per_byte;
-  ulong budget = (ulong)fd_long_max( client->tx_tokens, 0L );
-  fd_grpc_client_set_tx_budget( client->grpc_client, budget );
-  return budget;
-}
-
-static void
-pace_debit( fd_event_client_t * client,
-            ulong               budget ) {
-  client->tx_tokens -= (long)( budget-fd_grpc_client_tx_budget( client->grpc_client ) );
 }
 
 static int
@@ -910,8 +900,6 @@ poll1( fd_event_client_t * client,
        long                now,
        int *               charge_busy ) {
   if( FD_UNLIKELY( !client->has_genesis_hash || !client->has_shred_version ) ) return;
-
-  ulong budget = pace_refill( client, now );
 
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) reconnect( client, now, charge_busy );
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTING ) ) {
@@ -964,7 +952,6 @@ poll1( fd_event_client_t * client,
     if( FD_UNLIKELY( credit_stall_check( client, now ) ) ) return;
     tx( client, now, charge_busy );
   }
-  pace_debit( client, budget );
 }
 
 void

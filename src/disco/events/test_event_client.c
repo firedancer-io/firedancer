@@ -305,14 +305,12 @@ test_connected_client( fd_circq_t * circq,
   return client;
 }
 
-/* One poll's worth of sending without a socket: refill, tx, debit. */
+/* One poll's worth of sending without a socket. */
 static void
 test_poll_tx( fd_event_client_t * client,
               long                now ) {
-  ulong budget = pace_refill( client, now );
   int charge_busy = 0;
   tx( client, now, &charge_busy );
-  pace_debit( client, budget );
 }
 
 /* Drain frame_tx as if the socket had taken it; returns bytes drained. */
@@ -333,11 +331,12 @@ FD_UNIT_TEST( tx_pacing ) {
   fd_grpc_client_t * grpc = client->grpc_client;
 
   /* 2x burst worth of 1 KiB messages queued */
-  ulong const msg_sz  = 1024UL;
-  ulong const msg_cnt = 2UL*(ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz;
+  ulong const msg_sz   = 1024UL;
+  ulong const msg_cnt  = 2UL*(ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz;
+  ulong const frame_sz = msg_sz+sizeof(fd_grpc_hdr_t)+sizeof(fd_h2_frame_hdr_t);
   for( ulong i=0UL; i<msg_cnt; i++ ) { uchar * b = fd_circq_push_back( circq, 1UL, msg_sz ); FD_TEST( b ); memset( b, 0, msg_sz ); }
 
-  /* Same instant: sends until the bucket is empty, then stops. */
+  /* Same instant: whole messages go out until the bucket is empty. */
   long now = fd_log_wallclock();
   client->tx_tokens = FD_EVENT_CLIENT_TX_BURST; client->tx_tokens_ns = now;
   ulong sent = 0UL, wire = 0UL;
@@ -348,9 +347,9 @@ FD_UNIT_TEST( tx_pacing ) {
     if( client->metrics.events_sent==before ) break;
     sent++;
   }
-  FD_TEST( sent>0UL && sent<=(ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz );
-  FD_TEST( wire<=(ulong)FD_EVENT_CLIENT_TX_BURST+sent*sizeof(fd_h2_frame_hdr_t) );
-  FD_TEST( client->tx_tokens<=0L || fd_grpc_client_tx_pending( grpc ) || grpc->request_tx_op->chunk_sz );
+  FD_TEST( sent>0UL && sent<=(ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz+1UL );
+  FD_TEST( wire==sent*frame_sz ); /* one DATA frame per message, never sliced */
+  FD_TEST( client->tx_tokens<=0L && client->tx_tokens>-(long)msg_sz );
   client->last_response_ns = now;
   long dl = fd_event_client_next_deadline( client, now );
   FD_TEST( dl>now && dl<=now+(long)1e9 );
@@ -375,13 +374,13 @@ FD_UNIT_TEST( tx_pacing ) {
     if( !got ) break;
     wire2 += got;
   }
-  FD_TEST( wire2>0UL && wire2<=(ulong)FD_EVENT_CLIENT_TX_BURST+msg_cnt*sizeof(fd_h2_frame_hdr_t) );
+  FD_TEST( wire2>0UL && wire2<=((ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz+1UL)*frame_sz );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
-/* A message larger than the burst leaves frame_tx in budget-sized slices
-   across polls; the parked remainder is not a credit stall. */
+/* A message larger than the burst still goes out whole; the bucket goes
+   negative and the next message waits for the refill. */
 FD_UNIT_TEST( tx_pacing_large_msg ) {
   static uchar circq_mem[ 4096UL+(2UL<<20) ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 2UL<<20 ) );
@@ -393,34 +392,34 @@ FD_UNIT_TEST( tx_pacing_large_msg ) {
 
   ulong const msg_sz = 3UL*(ulong)FD_EVENT_CLIENT_TX_BURST;
   uchar * b = fd_circq_push_back( circq, 1UL, msg_sz ); FD_TEST( b ); memset( b, 0, msg_sz );
+  b = fd_circq_push_back( circq, 1UL, 16UL ); FD_TEST( b ); memset( b, 0, 16UL );
 
   long now = fd_log_wallclock();
   client->tx_tokens = FD_EVENT_CLIENT_TX_BURST; client->tx_tokens_ns = now;
   test_poll_tx( client, now );
   ulong wire = test_drain( grpc );
   FD_TEST( client->metrics.events_sent==1UL );
-  FD_TEST( wire<=(ulong)FD_EVENT_CLIENT_TX_BURST+32UL*sizeof(fd_h2_frame_hdr_t) );
-  FD_TEST( grpc->request_tx_op->chunk_sz==msg_sz+sizeof(fd_grpc_hdr_t)-(ulong)FD_EVENT_CLIENT_TX_BURST );
-  FD_TEST( client->tx_tokens<=0L );
-  FD_TEST( !fd_grpc_client_tx_starved( grpc ) ); /* parked on budget, not on credit */
+  FD_TEST( wire>=msg_sz+sizeof(fd_grpc_hdr_t) );
+  FD_TEST( grpc->request_tx_op->chunk_sz==0UL );
+  FD_TEST( client->tx_tokens==-2L*FD_EVENT_CLIENT_TX_BURST );
+  FD_TEST( !fd_grpc_client_tx_starved( grpc ) );
   FD_TEST( !credit_stall_check( client, now ) );
   FD_TEST( !client->stall_since );
 
-  /* Same instant: nothing more goes out. */
+  /* Same instant: the small message waits. */
   test_poll_tx( client, now );
-  FD_TEST( !test_drain( grpc ) );
+  FD_TEST( client->metrics.events_sent==1UL && !test_drain( grpc ) );
+  client->last_response_ns = now;
+  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
+  long dl = fd_event_client_next_deadline( client, now );
+  FD_TEST( dl==now+(2L*FD_EVENT_CLIENT_TX_BURST+1L)*ns_per_byte );
 
-  /* Each second releases another burst of the same message until done. */
-  ulong rem = grpc->request_tx_op->chunk_sz;
-  while( rem ) {
-    now += (long)1e9;
-    test_poll_tx( client, now );
-    ulong got = test_drain( grpc );
-    FD_TEST( got>0UL && got<=(ulong)FD_EVENT_CLIENT_TX_BURST+32UL*sizeof(fd_h2_frame_hdr_t) );
-    FD_TEST( grpc->request_tx_op->chunk_sz<rem );
-    rem = grpc->request_tx_op->chunk_sz;
-  }
+  /* At the deadline the bucket is back to one token: it goes out. */
+  test_poll_tx( client, dl-1L );
   FD_TEST( client->metrics.events_sent==1UL );
+  test_poll_tx( client, dl );
+  FD_TEST( client->metrics.events_sent==2UL );
+  FD_TEST( test_drain( grpc )==16UL+sizeof(fd_grpc_hdr_t)+sizeof(fd_h2_frame_hdr_t) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 }
@@ -435,8 +434,9 @@ FD_UNIT_TEST( credit_stall ) {
   fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
   fd_event_client_t * client = test_connected_client( circq, rng, 65536UL );
   fd_grpc_client_t * grpc = client->grpc_client;
-  client->sockfd = open( "/dev/null", O_RDONLY ); /* disconnect() closes it */
-  FD_TEST( client->sockfd>=0 );
+  int sv[2];
+  FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK, 0, sv ) );
+  client->sockfd = sv[0]; /* disconnect() closes it */
 
   ulong const msg_sz = 4096UL;
   uchar * b = fd_circq_push_back( circq, 1UL, msg_sz ); FD_TEST( b ); memset( b, 0, msg_sz );
@@ -462,8 +462,9 @@ FD_UNIT_TEST( credit_stall ) {
   /* A late grant makes progress: timer restarts from the new remainder. */
   long t1 = now+FD_EVENT_CLIENT_CREDIT_STALL_NANOS-(long)1e9;
   client->event_stream->s.tx_wnd = 50U;
-  fd_grpc_client_request_continue( grpc );
-  test_drain( grpc );
+  grpc->window_update_pending = 1;
+  int charge_busy = 0;
+  FD_TEST( 0==fd_grpc_client_rxtx_socket( grpc, client->sockfd, t1, &charge_busy ) );
   FD_TEST( fd_grpc_client_tx_starved( grpc )==rem-50UL );
   FD_TEST( !credit_stall_check( client, t1 ) );
   FD_TEST( client->stall_since==t1 );
@@ -478,6 +479,7 @@ FD_UNIT_TEST( credit_stall ) {
   FD_TEST( client->disconnected.reconnect_deadline>t2 );
   FD_TEST( client->sockfd==-1 );
 
+  close( sv[1] );
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 

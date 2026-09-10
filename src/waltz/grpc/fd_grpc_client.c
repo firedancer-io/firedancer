@@ -11,6 +11,8 @@
 #include "../h2/fd_h2_rbuf_ossl.h"
 #endif
 
+static int
+fd_grpc_client_request_continue( fd_grpc_client_t * client );
 
 ulong
 fd_grpc_client_align( void ) {
@@ -88,7 +90,6 @@ fd_grpc_client_new( void *                             mem,
     .stream_bufs       = stream_buf_mem,
     .nanopb_tx         = nanopb_tx,
     .nanopb_tx_max     = buf_max,
-    .tx_budget         = ULONG_MAX,
     .frame_scratch     = frame_scratch,
     .frame_scratch_max = buf_max,
     .frame_rx_buf      = frame_rx_buf,
@@ -295,17 +296,6 @@ fd_grpc_client_tx_starved( fd_grpc_client_t const * client ) {
 }
 
 void
-fd_grpc_client_set_tx_budget( fd_grpc_client_t * client,
-                              ulong              budget ) {
-  client->tx_budget = budget;
-}
-
-ulong
-fd_grpc_client_tx_budget( fd_grpc_client_t const * client ) {
-  return client->tx_budget;
-}
-
-void
 fd_grpc_client_service_streams( fd_grpc_client_t * client,
                                 long               ts_nanos ) {
   ulong const meta_frame_max =
@@ -484,8 +474,7 @@ static int
 fd_grpc_client_request_continue1( fd_grpc_client_t * client ) {
   fd_grpc_h2_stream_t * stream    = client->request_stream;
   fd_h2_stream_t *      h2_stream = &stream->s;
-  ulong copied = fd_h2_tx_op_copy1( client->conn, h2_stream, client->frame_tx, client->request_tx_op, client->tx_budget );
-  if( client->tx_budget!=ULONG_MAX ) client->tx_budget -= copied;
+  fd_h2_tx_op_copy( client->conn, h2_stream, client->frame_tx, client->request_tx_op );
   if( FD_UNLIKELY( client->request_tx_op->chunk_sz ) ) return 0;
   client->request_stream = NULL;
   if( FD_UNLIKELY( h2_stream->state != FD_H2_STREAM_STATE_CLOSING_TX ) ) return 0;
@@ -495,7 +484,7 @@ fd_grpc_client_request_continue1( fd_grpc_client_t * client ) {
   return 1;
 }
 
-int
+static int
 fd_grpc_client_request_continue( fd_grpc_client_t * client ) {
   if( FD_UNLIKELY( client->conn->flags & (FD_H2_CONN_FLAGS_DEAD|FD_H2_CONN_FLAGS_SEND_GOAWAY) ) ) return 0;
   if( FD_UNLIKELY( !client->request_stream ) ) return 0;
