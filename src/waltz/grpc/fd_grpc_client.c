@@ -378,9 +378,9 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
   }
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
-  if( FD_UNLIKELY( client->window_update_pending ) ) {
+  if( FD_UNLIKELY( client->window_update_pending || client->request_stream ) ) {
     client->window_update_pending = 0;
-    fd_grpc_client_request_continue( client );
+    fd_grpc_client_request_continue( client ); /* credit or TX ring space may have freed */
   }
   fd_grpc_client_service_streams( client, now );
   ulong write_sz = fd_h2_rbuf_ssl_write( client->frame_tx, ssl );
@@ -422,9 +422,9 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
 
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
-  if( FD_UNLIKELY( client->window_update_pending ) ) {
+  if( FD_UNLIKELY( client->window_update_pending || client->request_stream ) ) {
     client->window_update_pending = 0;
-    fd_grpc_client_request_continue( client );
+    fd_grpc_client_request_continue( client ); /* credit or TX ring space may have freed */
   }
   fd_grpc_client_service_streams( client, now );
 

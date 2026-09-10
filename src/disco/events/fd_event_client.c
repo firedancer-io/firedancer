@@ -797,6 +797,8 @@ tx( fd_event_client_t * client,
     int *               charge_busy ) {
   FD_TEST( client->state==FD_EVENT_CLIENT_STATE_CONNECTED );
 
+  long tokens = pace_refill( client, now );
+
   if( FD_UNLIKELY( client->event_stream && client->grpc_client->request_stream != NULL && client->grpc_client->request_stream!=client->event_stream ) ) return;
 
   if( FD_UNLIKELY( client->event_stream ) ) {
@@ -821,7 +823,7 @@ tx( fd_event_client_t * client,
     return;
   }
 
-  if( FD_UNLIKELY( pace_refill( client, now )<=0L ) ) return;
+  if( FD_UNLIKELY( tokens<=0L ) ) return;
 
   ulong msg_sz;
   uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
