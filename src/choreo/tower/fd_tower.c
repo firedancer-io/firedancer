@@ -817,6 +817,10 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
 
   fd_hash_t      * prev_vote_block_id = &prev_vote_fork->voted_block_id;
   fd_ghost_blk_t * prev_vote_blk      = fd_ghost_query( ghost, prev_vote_block_id );
+  if( FD_UNLIKELY( !prev_vote_blk ) ) {
+    FD_BASE58_ENCODE_32_BYTES( prev_vote_block_id->uc, prev_vote_block_id_b58 );
+    FD_LOG_CRIT(( "invariant violation: previous vote block %s (slot %lu) is missing from ghost", prev_vote_block_id_b58, prev_vote_slot ));
+  }
 
   /* Case 1: if any ancestor of our prev vote (including prev vote
      itself) is an unconfirmed duplicate, then our prev vote was on a
