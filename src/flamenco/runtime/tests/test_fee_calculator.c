@@ -84,7 +84,7 @@ txn_serialize( fd_txn_p_t *     out,
   ushort addr_table_cnt = 0;
   FD_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, addr_table_cnt );
 
-  out->payload_sz = (ulong)(txn_raw_cur_ptr - txn_raw_begin);
+  out->payload_sz = (ushort)(txn_raw_cur_ptr - txn_raw_begin);
 }
 
 static void

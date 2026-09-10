@@ -5,7 +5,17 @@
 
 struct __attribute__((aligned(64))) fd_txn_p {
   uchar payload[FD_TPU_MTU];
-  ulong payload_sz;
+
+  /* Keep metadata within 40 bytes so fd_txn_p_t fits in 4992 bytes. */
+
+  /* Size of payload in bytes, at most FD_TPU_MTU. */
+  ushort payload_sz;
+
+  /* Source ipv4 address and tpu pipeline for this transaction. TPU is
+     one of FD_TXN_M_TPU_SOURCE_* */
+  uchar source_tpu;
+  uint  source_ipv4;
+
   union {
    struct {
      uint non_execution_cus;
@@ -38,10 +48,6 @@ struct __attribute__((aligned(64))) fd_txn_p {
     uint pack_alloc;
   };
 
-  /* Source ipv4 address and tpu pipeline for this transaction. TPU is one of FD_TXN_M_TPU_SOURCE_* */
-  uchar source_tpu;
-  uint  source_ipv4;
-
   /* Populated by pack, execle.  A combination of the bitfields
      FD_TXN_P_FLAGS_* defined above.  The execle sets the high byte with
      the transaction result code. */
@@ -56,6 +62,9 @@ struct __attribute__((aligned(64))) fd_txn_p {
 };
 
 typedef struct fd_txn_p fd_txn_p_t;
+
+FD_STATIC_ASSERT( FD_TPU_MTU<=USHORT_MAX, fd_txn_p_payload_sz );
+FD_STATIC_ASSERT( sizeof(fd_txn_p_t)==4992UL, fd_txn_p_layout );
 
 #define TXN(txn_p) ((fd_txn_t *)( (txn_p)->_ ))
 

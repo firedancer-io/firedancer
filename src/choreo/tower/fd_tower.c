@@ -1371,7 +1371,7 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
     ix_accs[1] = 1; /* vote authority */
     program_id = 3; /* vote program */
   }
-  vote_txn->payload_sz = fd_txn_add_instr( txn_meta_out, txn_out, program_id, ix_accs, 2, vote_ix_buf, vote_ix_sz );
+  vote_txn->payload_sz = (ushort)fd_txn_add_instr( txn_meta_out, txn_out, program_id, ix_accs, 2, vote_ix_buf, vote_ix_sz );
 }
 
 int
