@@ -24,6 +24,7 @@
 #include "../keyguard/fd_keyswitch.h"
 #include "../fd_disco.h"
 #include "../net/fd_net_tile.h"
+#include "fd_shred_dest_resolver.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
@@ -1423,6 +1424,17 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->shred.identity_key_path, /* pubkey only: */ 1 ) );
 
+  ctx->adtl_dests_retransmit_cnt = tile->shred.adtl_dests_retransmit_cnt;
+  fd_shred_resolve_additional_destinations( tile->shred.adtl_dests_retransmit,
+                                            tile->shred.adtl_dests_retransmit_cnt,
+                                            "tiles.shred.additional_shred_destinations_retransmit",
+                                            ctx->adtl_dests_retransmit );
+  ctx->adtl_dests_leader_cnt = tile->shred.adtl_dests_leader_cnt;
+  fd_shred_resolve_additional_destinations( tile->shred.adtl_dests_leader,
+                                            tile->shred.adtl_dests_leader_cnt,
+                                            "tiles.shred.additional_shred_destinations_leader",
+                                            ctx->adtl_dests_leader );
+
   if( FD_UNLIKELY( !fd_rng_secure( &(ctx->resolver_seed), sizeof(ulong) ) ) ) {
     FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
@@ -1606,17 +1618,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_ip4_udp_hdr_init( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, 0, tile->shred.shred_listen_port );
   fd_ip4_udp_hdr_init( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, 0, tile->shred.shred_listen_port );
-
-  ctx->adtl_dests_retransmit_cnt = tile->shred.adtl_dests_retransmit_cnt;
-  for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++) {
-    ctx->adtl_dests_retransmit[ i ].ip4 = tile->shred.adtl_dests_retransmit[ i ].ip;
-    ctx->adtl_dests_retransmit[ i ].port = tile->shred.adtl_dests_retransmit[ i ].port;
-  }
-  ctx->adtl_dests_leader_cnt = tile->shred.adtl_dests_leader_cnt;
-  for( ulong i=0UL; i<ctx->adtl_dests_leader_cnt; i++) {
-    ctx->adtl_dests_leader[i].ip4  = tile->shred.adtl_dests_leader[i].ip;
-    ctx->adtl_dests_leader[i].port = tile->shred.adtl_dests_leader[i].port;
-  }
 
   uchar has_contact_info_in = 0;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
