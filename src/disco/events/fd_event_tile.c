@@ -122,7 +122,7 @@ struct fd_event_tile {
 
   ulong event_type;
   ulong event_sz;
-  uchar event_buf[ FD_EVENT_GEN_STRUCT_MAX ];
+  uchar event_buf[ FD_EVENT_GEN_STRUCT_MAX ] __attribute__((aligned(FD_EVENT_GEN_STRUCT_ALIGN)));
 
   uchar identity_pubkey[ 32UL ];
 

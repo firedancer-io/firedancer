@@ -93,8 +93,6 @@ struct fd_execrp_tile {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
   } metrics;
 
-  /* If non-zero, emit one runtime_txn event per dispatched txn */
-  int report_transaction_diffs;
 };
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
@@ -168,7 +166,6 @@ metrics_write( fd_execrp_tile_t * ctx ) {
 
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
-
 
 static void
 publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
@@ -298,9 +295,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
+          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
         } else {
-          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
+          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
         }
 
         long const txn_end_ticks = fd_tickcount();
@@ -415,7 +412,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
   FD_TEST( ctx->accdb );
 
-
   /* First find and setup the in-link from replay to exec. */
   ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", 0UL );
   FD_TEST( ctx->replay_in->idx!=ULONG_MAX );
@@ -433,7 +429,6 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->execrp_replay_out->wmark  = fd_dcache_compact_wmark( ctx->execrp_replay_out->mem, execrp_replay_link->dcache, execrp_replay_link->mtu );
     ctx->execrp_replay_out->chunk  = ctx->execrp_replay_out->chunk0;
   }
-
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -525,8 +520,6 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
-  ctx->report_transaction_diffs = tile->execrp.report_transaction_diffs;
-
   fd_wksp_oom_silent = 1;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
@@ -583,7 +576,7 @@ static ulong
 max_event_sz( fd_topo_tile_t const * tile ) {
   /* execrp emits accdb_partition_added, plus runtime_txn when diffs are on. */
   ulong sz = sizeof(fd_event_accdb_partition_added_t);
-  if( tile->execrp.report_transaction_diffs && sizeof(fd_event_runtime_txn_t)>sz ) sz = sizeof(fd_event_runtime_txn_t);
+  if( tile->execrp.report_runtime_diffs && sizeof(fd_event_runtime_txn_t)>sz ) sz = sizeof(fd_event_runtime_txn_t);
   return sz;
 }
 
