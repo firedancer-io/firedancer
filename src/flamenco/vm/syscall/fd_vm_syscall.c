@@ -1,6 +1,38 @@
 #include "fd_vm_syscall.h"
 #include "../../../ballet/murmur3/fd_murmur3.h"
 
+/* Keep these bits synchronized with the feature-gated registrations in
+   fd_vm_syscall_register_slot. */
+#define FD_VM_SYSCALL_KEY_GET_SYSVAR      (1UL<<0)
+#define FD_VM_SYSCALL_KEY_GET_EPOCH_STAKE (1UL<<1)
+#define FD_VM_SYSCALL_KEY_BLS12_381       (1UL<<2)
+#define FD_VM_SYSCALL_KEY_SHA512          (1UL<<3)
+#define FD_VM_SYSCALL_KEY_DEPLOY          (1UL<<4)
+
+FD_FN_PURE ulong
+fd_vm_syscall_slot_key( ulong                 slot,
+                        fd_features_t const * features,
+                        uchar                 is_deploy ) {
+  ulong key = is_deploy ? FD_VM_SYSCALL_KEY_DEPLOY : 0UL;
+  if( FD_UNLIKELY( !slot ) ) {
+    return key |
+           FD_VM_SYSCALL_KEY_GET_SYSVAR |
+           FD_VM_SYSCALL_KEY_GET_EPOCH_STAKE |
+#if FD_HAS_BLST
+           FD_VM_SYSCALL_KEY_BLS12_381 |
+#endif
+           FD_VM_SYSCALL_KEY_SHA512;
+  }
+
+  if( FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled      ) ) key |= FD_VM_SYSCALL_KEY_GET_SYSVAR;
+  if( FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall ) ) key |= FD_VM_SYSCALL_KEY_GET_EPOCH_STAKE;
+#if FD_HAS_BLST
+  if( FD_FEATURE_ACTIVE( slot, features, enable_bls12_381_syscall       ) ) key |= FD_VM_SYSCALL_KEY_BLS12_381;
+#endif
+  if( FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall          ) ) key |= FD_VM_SYSCALL_KEY_SHA512;
+  return key;
+}
+
 int
 fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
                         char const *           name,
@@ -23,25 +55,11 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
                              uchar                     is_deploy ) {
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
-  int enable_get_sysvar_syscall        = 0;
-  int enable_get_epoch_stake_syscall   = 0;
-  int enable_bls12_381_syscall         = 0;
-  int enable_sha512_syscall            = 0;
+  ulong key = fd_vm_syscall_slot_key( slot, features, is_deploy );
 
-  if( slot ) {
-    enable_get_sysvar_syscall        = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
-    enable_get_epoch_stake_syscall   = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
-    enable_bls12_381_syscall         = FD_FEATURE_ACTIVE( slot, features, enable_bls12_381_syscall );
-    enable_sha512_syscall            = FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall );
-
-  } else { /* enable ALL */
-
-    enable_get_sysvar_syscall        = 1;
-    enable_get_epoch_stake_syscall   = 1;
-    enable_bls12_381_syscall         = 1;
-    enable_sha512_syscall            = 1;
-
-  }
+  int enable_get_sysvar_syscall      = !!(key & FD_VM_SYSCALL_KEY_GET_SYSVAR      );
+  int enable_get_epoch_stake_syscall = !!(key & FD_VM_SYSCALL_KEY_GET_EPOCH_STAKE);
+  int enable_sha512_syscall          = !!(key & FD_VM_SYSCALL_KEY_SHA512          );
 
   fd_sbpf_syscalls_clear( syscalls );
 
@@ -63,7 +81,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
      programs can no longer be deployed which use the sol_alloc_free_ syscall.
 
     https://github.com/anza-xyz/agave/blob/d6041c002bbcf1526de4e38bc18fa6e781c380e7/programs/bpf_loader/src/syscalls/mod.rs#L429 */
-  if ( FD_LIKELY( !is_deploy ) ) {
+  if( FD_LIKELY( !(key & FD_VM_SYSCALL_KEY_DEPLOY) ) ) {
     REGISTER( "sol_alloc_free_",                       fd_vm_syscall_sol_alloc_free );
   }
 
@@ -133,12 +151,10 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 //REGISTER( "sol_remaining_compute_units",           fd_vm_syscall_sol_remaining_compute_units );
 
 #if FD_HAS_BLST
-  if( enable_bls12_381_syscall ) {
+  if( key & FD_VM_SYSCALL_KEY_BLS12_381 ) {
     REGISTER( "sol_curve_decompress",                fd_vm_syscall_sol_curve_decompress );
     REGISTER( "sol_curve_pairing_map",               fd_vm_syscall_sol_curve_pairing_map );
   }
-#else
-  (void)enable_bls12_381_syscall;
 #endif /* FD_HAS_BLST */
 
 # undef REGISTER

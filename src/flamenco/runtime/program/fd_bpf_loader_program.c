@@ -403,17 +403,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
 
-  uchar syscalls_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
-  if( FD_UNLIKELY( !syscalls ) ) {
-    FD_LOG_CRIT(( "Unable to allocate syscalls" ));
-  }
-
-  /* TODO do we really need to re-do this on every instruction? */
-  fd_vm_syscall_register_slot( syscalls,
-                               instr_ctx->bank->f.slot,
-                               &instr_ctx->bank->f.features,
-                               0 );
+  fd_sbpf_syscalls_t * syscalls = fd_runtime_bpf_loader_syscalls_get(
+      &instr_ctx->runtime->bpf_loader_program.syscalls, instr_ctx->bank );
+  if( FD_UNLIKELY( !syscalls ) ) FD_LOG_CRIT(( "Unable to register syscalls" ));
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
   ulong                   input_sz                                 = 0UL;
