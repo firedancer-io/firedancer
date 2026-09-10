@@ -1261,6 +1261,48 @@ test_standstill_recovery_no_final_cert( void ) {
   teardown_pool_only( pool );
 }
 
+/* Firedancer-only test.
+
+   A block replayed after its slot was pruned (replay lagging the cert
+   stream during catch-up) is out of bounds like a vote or cert would be
+   and must not take a slot state below the watermark, and the next
+   finalization must still leave nothing below it.  The reference split_off()s a BTreeMap on every prune; here the
+   fixed-capacity pool would run dry. */
+
+static void
+test_add_block_below_watermark( void ) {
+  ag_pool_t * pool = setup_pool();
+  ag_block_hash_t gh; genesis_hash( gh );
+
+  ulong slot = 3UL*SLOTS_PER_WINDOW - 1UL;
+  for( ulong s=1UL; s<=slot; s++ ) fast_finalize( pool, s, gh );
+  FD_TEST( pool_first_unpruned_slot( pool )==slot );
+  FD_TEST_PRUNED_TO_WATERMARK( pool );
+
+  ulong free_cnt = slot_state_pool_free( pool->slot_states->pool );
+
+  ag_block_id_t stale  = random_block_id( slot-2UL );
+  ag_block_id_t parent = random_block_id( slot-3UL );
+  FD_TEST( ag_pool_add_block( pool, &stale, &parent )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+  drain_events( pool );
+
+  FD_TEST( !contains_slot( pool, slot-2UL ) );
+  FD_TEST( slot_state_pool_free( pool->slot_states->pool )==free_cnt );
+  FD_TEST_PRUNED_TO_WATERMARK( pool );
+
+  /* and the same window bound as votes and certs on the far side */
+  ag_block_id_t far = random_block_id( slot+pool->slot_max );
+  FD_TEST( ag_pool_add_block( pool, &far, &stale )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+  FD_TEST( !contains_slot( pool, slot+pool->slot_max ) );
+  FD_TEST( slot_state_pool_free( pool->slot_states->pool )==free_cnt );
+
+  fast_finalize( pool, slot+1UL, gh );
+  FD_TEST( pool_first_unpruned_slot( pool )==slot+1UL );
+  FD_TEST_PRUNED_TO_WATERMARK( pool );
+
+  teardown_pool( pool );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1301,6 +1343,7 @@ main( int     argc,
   test_epoch_installed_late();
   test_retired_epoch_already_pruned();
   test_standstill_recovery_no_final_cert();
+  test_add_block_below_watermark();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

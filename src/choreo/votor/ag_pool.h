@@ -60,7 +60,7 @@ int
 ag_pool_add_vote( ag_pool_t *       self,
                   ag_vote_t const * vote );
 
-void
+int
 ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
                    ag_block_id_t const * parent_id );
