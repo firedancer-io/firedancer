@@ -9,7 +9,7 @@
 #define FD_BLS_PUB_COMPRESSED_SZ (48UL)
 #define FD_BLS_SIG_SZ            (192UL)
 #define FD_BLS_SIG_COMPRESSED_SZ (96UL)
-#define FD_BLS_SET_MAX           (2000UL) /* the VAT cap, AG_VAT_MAX; ag_epoch_info.h asserts they agree */
+#define FD_BLS_SET_MAX           (2000UL) /* TODO remove */
 #define FD_BLS_DST               "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
 #define FD_BLS_DST_SZ            (sizeof(FD_BLS_DST)-1UL)
 
@@ -17,6 +17,7 @@ typedef blst_scalar fd_bls_sec_t;
 typedef blst_p1     fd_bls_pub_t;
 typedef blst_p2     fd_bls_sig_t;
 
+/* TODO make set_dynamic so this isn't dependent on the VAT cap */
 #define SET_NAME fd_bls_set
 #define SET_MAX  FD_BLS_SET_MAX
 #include "../../util/tmpl/fd_set.c"
