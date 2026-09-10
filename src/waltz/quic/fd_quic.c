@@ -24,9 +24,6 @@
 #include "templ/fd_quic_parse_util.h"
 #include "tls/fd_quic_tls.h"
 
-#include <fcntl.h>   /* for keylog open(2)  */
-#include <unistd.h>  /* for keylog close(2) */
-
 #include "../../ballet/hex/fd_hex.h"
 #include "../../ballet/x509/fd_x509_mock.h"
 #include "../../tango/tempo/fd_tempo.h"
@@ -256,7 +253,6 @@ fd_quic_config_from_env( int  *             pargc,
 
   if( FD_UNLIKELY( !cfg ) ) return NULL;
 
-  char const * keylog_file     = fd_env_strip_cmdline_cstr( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL   );
   long         idle_timeout_ms = fd_env_strip_cmdline_long( pargc, pargv, "--idle-timeout", NULL,            3000UL );
   ulong        initial_rx_max_stream_data = fd_env_strip_cmdline_ulong(
       pargc,
@@ -266,12 +262,6 @@ fd_quic_config_from_env( int  *             pargc,
       FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA
   );
   cfg->retry = fd_env_strip_cmdline_contains( pargc, pargv, "--quic-retry" );
-
-  if( keylog_file ) {
-    fd_cstr_ncpy( cfg->keylog_file, keylog_file, sizeof(cfg->keylog_file) );
-  } else {
-    cfg->keylog_file[0]='\0';
-  }
 
   cfg->idle_timeout = idle_timeout_ms * (long)1e6;
   cfg->initial_rx_max_stream_data = initial_rx_max_stream_data;
