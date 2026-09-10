@@ -1496,8 +1496,9 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_evict_fork( stake_delegations, fork_up );
     FD_TEST( stats.upserts==1UL ); /* duplicate update to one account dedups to one delta entry */
     FD_TEST( stats.removes==0UL );
-    fd_stake_delegation_t const * stake_delegation_3 = test_stake_delegations_find( stake_delegations, &stake_account_3 );
-    FD_TEST( stake_delegation_3 && stake_delegation_3->stake==200UL ); /* last entry wins */
+    fd_stake_delegation_t stake_delegation_3[1];
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_3, stake_delegation_3 ) );
+    FD_TEST( stake_delegation_3->stake==200UL ); /* last entry wins */
 
     ushort fork_rm = fd_stake_delegations_new_fork( stake_delegations );
     fd_stake_delegations_fork_remove( stake_delegations, fork_rm, &stake_account_3 );
