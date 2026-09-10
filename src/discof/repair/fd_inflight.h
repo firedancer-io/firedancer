@@ -254,13 +254,14 @@ fd_meta_inflights_should_drain( fd_inflights_t * table, long now ) {
    outstanding set (map + outstanding dlist, stamped with the current
    time).  Evicts the oldest outstanding request if the ag pool is
    full.  TODO are evictions okay? */
+
 void
 fd_meta_inflights_request_insert( fd_inflights_t *    table,
-                             ulong               nonce,
-                             uint                kind,
-                             ulong               slot,
-                             fd_hash_t const *   block_id,
-                             uint                fec_set_idx );
+                                  ulong               nonce,
+                                  uint                kind,
+                                  ulong               slot,
+                                  fd_hash_t const *   block_id,
+                                  uint                fec_set_idx );
 
 /* fd_meta_inflights_request_pop pops the oldest outstanding ag request,
    returns its fields (including kind, so the caller can rebuild the
@@ -272,6 +273,7 @@ fd_meta_inflights_request_insert( fd_inflights_t *    table,
    request list is not empty. This function cannot fail and will always
    try to populate the output parameters. Typical use should only call
    this after fd_meta_inflights_should_drain returns true. */
+
 void
 fd_meta_inflights_request_pop( fd_inflights_t * table,
                           ulong *          nonce_out,
@@ -285,6 +287,7 @@ fd_meta_inflights_request_pop( fd_inflights_t * table,
    order), removing it from that set, or NULL.  The returned element
    remains valid until the caller releases it with
    fd_meta_inflight_pool_ele_release. */
+
 fd_meta_inflight_t *
 fd_meta_inflights_request_match( fd_inflights_t * table, ulong nonce );
 
