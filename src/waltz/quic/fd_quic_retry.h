@@ -204,6 +204,13 @@ FD_PROTOTYPES_BEGIN
    in the Retry packet.  nonce0 and nonce1 are the two halves of the
    token's single 96-bit AES-GCM nonce. */
 
+FD_FN_CONST static inline long
+fd_quic_retry_expire_after( long now, long ttl ) {
+  long expire_at;
+  int overflow = __builtin_saddl_overflow( now, ttl, &expire_at );
+  return fd_long_if( overflow, LONG_MAX, expire_at );
+}
+
 ulong
 fd_quic_retry_create(
     uchar                     retry[FD_QUIC_RETRY_LOCAL_SZ], /* out */
