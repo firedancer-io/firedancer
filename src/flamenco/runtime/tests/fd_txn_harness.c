@@ -125,7 +125,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
     return NULL;
   }
 
-  txn->payload_sz = msg_sz;
+  txn->payload_sz = (ushort)msg_sz;
 
   return txn;
 }

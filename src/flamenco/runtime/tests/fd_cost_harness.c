@@ -24,7 +24,7 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
   ulong txn_sz = fd_solfuzz_pb_txn_serialize( txn_p->payload, &input->tx );
   if( FD_UNLIKELY( txn_sz==ULONG_MAX ) ) return 0UL;
 
-  txn_p->payload_sz = txn_sz;
+  txn_p->payload_sz = (ushort)txn_sz;
   if( FD_UNLIKELY( !fd_txn_parse( txn_p->payload, txn_p->payload_sz, TXN( txn_p ), NULL ) ) ) {
     return 0UL;
   }

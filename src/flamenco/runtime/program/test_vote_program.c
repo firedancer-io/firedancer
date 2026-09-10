@@ -109,7 +109,7 @@ enable_mainnet_features( test_env_t * env ) {
 static void
 exec_txn_hex( test_env_t * env, char const * hex, int expect_ok, int expect_err ) {
   ulong txn_sz = strlen( hex ) / 2;
-  env->txn_p->payload_sz = txn_sz;
+  env->txn_p->payload_sz = (ushort)txn_sz;
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
   env->txn_in->txn              = env->txn_p;
@@ -264,7 +264,7 @@ setup_account_initialize_txn( test_env_t * env ) {
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
-  env->txn_p->payload_sz = txn_sz;
+  env->txn_p->payload_sz = (ushort)txn_sz;
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
 
@@ -329,7 +329,7 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
-  env->txn_p->payload_sz = txn_sz;
+  env->txn_p->payload_sz = (ushort)txn_sz;
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
 
@@ -385,7 +385,7 @@ setup_update_commission_collector_txn( test_env_t * env ) {
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
-  env->txn_p->payload_sz = txn_sz;
+  env->txn_p->payload_sz = (ushort)txn_sz;
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
 
@@ -534,7 +534,7 @@ test_update_validator_identity_collector_sync( fd_svm_mini_t * mini, int feature
     strcat( hex, "01" ); strcat( hex, "02" ); strcat( hex, "02" );
     strcat( hex, "0100" ); strcat( hex, "04" ); strcat( hex, "04000000" );
     ulong txn_sz = strlen(hex) / 2;
-    env->txn_p->payload_sz = txn_sz;
+    env->txn_p->payload_sz = (ushort)txn_sz;
     fd_hex_decode( env->txn_p->payload, hex, txn_sz );
     FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
     env->txn_in->txn = env->txn_p;
@@ -610,7 +610,7 @@ test_update_commission_collector( fd_svm_mini_t * mini ) {
     strcat( hex, "01" ); strcat( hex, "03" ); strcat( hex, "03" );                                            \
     strcat( hex, (instr_accts) ); strcat( hex, "08" ); strcat( hex, (data_hex) );                             \
     ulong txn_sz = strlen(hex) / 2;                                                                           \
-    env->txn_p->payload_sz = txn_sz;                                                                          \
+    env->txn_p->payload_sz = (ushort)txn_sz;                                                                  \
     fd_hex_decode( env->txn_p->payload, hex, txn_sz );                                                        \
     FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );                          \
     env->txn_in->txn = env->txn_p;                                                                            \
@@ -682,7 +682,7 @@ test_update_commission_collector( fd_svm_mini_t * mini ) {
     strcat( hex, "01" ); strcat( hex, "03" ); strcat( hex, "02" );
     strcat( hex, "0102" ); strcat( hex, "08" ); strcat( hex, "1100000000000000" );
     ulong txn_sz = strlen(hex) / 2;
-    env->txn_p->payload_sz = txn_sz;
+    env->txn_p->payload_sz = (ushort)txn_sz;
     fd_hex_decode( env->txn_p->payload, hex, txn_sz );
     FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
     env->txn_in->txn = env->txn_p;

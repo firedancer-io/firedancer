@@ -81,7 +81,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
     ulong payload_sz = fd_ulong_min( test_ctx->data->size, sizeof(txn->payload) );
     memcpy( txn->payload, test_ctx->data->bytes, payload_sz );
-    txn->payload_sz = payload_sz;
+    txn->payload_sz = (ushort)payload_sz;
   }
   txn_descriptor->transaction_version = FD_TXN_VLEGACY;
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;

@@ -98,7 +98,7 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
     ulong msg_sz = fd_solfuzz_pb_txn_serialize( txns[i].payload, &test_ctx->txns[i] );
     if( FD_UNLIKELY( msg_sz==ULONG_MAX ) ) return NULL;
     if( FD_UNLIKELY( !fd_txn_parse( txns[i].payload, msg_sz, TXN( &txns[i] ), NULL ) ) ) return NULL;
-    txns[i].payload_sz = msg_sz;
+    txns[i].payload_sz = (ushort)msg_sz;
   }
 
   *out_txn_cnt = txn_cnt;

@@ -169,7 +169,7 @@ build_txn( test_env_t *        env,
   memcpy( p, owner->key, 32 ); p += 32;
 
   ulong payload_sz = (ulong)(p - start);
-  env->txn_p->payload_sz = payload_sz;
+  env->txn_p->payload_sz = (ushort)payload_sz;
   FD_TEST( fd_txn_parse( env->txn_p->payload, payload_sz, TXN(env->txn_p), NULL ) > 0 );
 
   env->txn_in->txn              = env->txn_p;

@@ -388,7 +388,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     if( FD_UNLIKELY( msg_sz==ULONG_MAX ) ) {
       return NULL;
     }
-    txn->payload_sz = msg_sz;
+    txn->payload_sz = (ushort)msg_sz;
 
     // Reject any transactions that cannot be parsed
     if( FD_UNLIKELY( !fd_txn_parse( txn->payload, msg_sz, TXN( txn ), NULL ) ) ) {
