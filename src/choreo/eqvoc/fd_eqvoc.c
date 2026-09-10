@@ -756,7 +756,10 @@ fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
       last = fec_insert( eqvoc, slot, UINT_MAX );  /* specially index the last shred in a slot */
       fd_memcpy( &last->sample_shred, shred, fd_shred_sz( shred ) );
     } else if( FD_UNLIKELY( ( is_last_shred( shred               ) && shred->idx < last->sample_shred.idx ) ||
-                            ( is_last_shred( &last->sample_shred ) && shred->idx > last->sample_shred.idx ) ) ) {
+                            ( is_last_shred( &last->sample_shred ) && shred->idx > last->sample_shred.idx ) ||
+                            ( shred->idx==last->sample_shred.idx &&
+                              ( is_last_shred( shred ) || is_last_shred( &last->sample_shred ) ) &&
+                              verify_proof( eqvoc, shred->version, NULL, shred, &last->sample_shred )==FD_EQVOC_SUCCESS ) ) ) {
       construct_proof( shred, &last->sample_shred, chunks_out );
       dup_insert( eqvoc, slot );
       return 1;
