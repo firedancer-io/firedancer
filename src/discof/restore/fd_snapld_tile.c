@@ -11,6 +11,8 @@
 #include <sys/mman.h> /* memfd_create */
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/uio.h>
 #include <unistd.h>
 #include <sys/socket.h>
 
@@ -27,6 +29,11 @@
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
    for later decompression. */
+
+/* Upper bound on dcache slots filled by one read().  The actual count is
+   clamped to the flow-control credits available at the time, so this is a
+   ceiling and not a threshold the tile waits to reach. */
+#define FD_SNAPLD_READ_MAX (1024UL)
 
 typedef struct fd_snapld_tile {
 
@@ -54,6 +61,8 @@ typedef struct fd_snapld_tile {
 
   int local_full_fd;
   int local_incr_fd;
+  int direct_io;    /* snapshot fds were opened O_DIRECT */
+  int direct_align; /* ...and the dcache ring is page-aligned, so we may use it */
   int sockfd;
 
   fd_sshttp_t * sshttp;
@@ -96,6 +105,36 @@ loose_footprint( fd_topo_tile_t const * tile ) {
   return 1UL<<26UL; /* 64 MiB */
 }
 
+
+
+  /* Report how much of a file is already in the page cache, as a percentage,
+     by probing PROBES offsets spread evenly through it.  preadv2 with
+     RWF_NOWAIT fails with EAGAIN instead of blocking when a page is not
+     resident, so this costs a few microseconds and reads nothing.
+
+     Returns 100 if the probe cannot be run at all (old kernel, ENOSYS,
+     filesystem without RWF_NOWAIT support), which keeps the buffered path --
+     the conservative choice, since buffered is never catastrophically wrong
+     while O_DIRECT on a fully cached file gives up 6.3s. */
+
+#define FD_SNAPLD_CACHE_PROBES (64UL)
+
+static ulong
+cached_pct( int   fd,
+            ulong sz ) {
+  if( FD_UNLIKELY( sz<FD_SNAPLD_CACHE_PROBES ) ) return 100UL;
+  uchar buf[ 1 ];
+  ulong hits = 0UL;
+  ulong step = sz/FD_SNAPLD_CACHE_PROBES;
+  for( ulong i=0UL; i<FD_SNAPLD_CACHE_PROBES; i++ ) {
+    struct iovec iov = { .iov_base = buf, .iov_len = 1UL };
+    long r = preadv2( fd, &iov, 1, (long)(i*step), RWF_NOWAIT );
+    if( FD_UNLIKELY( r<0L && errno!=EAGAIN ) ) return 100UL; /* cannot tell */
+    if( r>0L ) hits++;
+  }
+  return (100UL*hits)/FD_SNAPLD_CACHE_PROBES;
+}
+
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -134,12 +173,36 @@ privileged_init( fd_topo_t const *      topo,
                                                full_snapshot_hash, incr_snapshot_hash ) ) ) {
     FD_TEST( full_slot!=ULONG_MAX );
 
+    /* O_DIRECT: the snapshot is read once, streamed straight into the dcache
+       ring, and never looked at again, so there is nothing for the page cache
+       to do except cost a copy -- two thirds of this tile's cycles.  Not every
+       filesystem accepts it, so fall back rather than fail. */
+    /* Open buffered, ask whether the archive is already resident, and only
+       then decide.  O_DIRECT is worth ~15.7s when the file is cold and costs
+       ~6.3s when it is hot, so the answer matters more than the default. */
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
+    ctx->direct_io     = 0;
+    if( FD_LIKELY( -1!=ctx->local_full_fd ) ) {
+      struct stat st;
+      ulong pct = 100UL;
+      if( FD_LIKELY( !fstat( ctx->local_full_fd, &st ) ) ) pct = cached_pct( ctx->local_full_fd, (ulong)st.st_size );
+      if( pct<30UL ) { /* ldthresh30: crossover measured between 26% and 40% (SS7z145) */
+        int dfd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK|O_DIRECT );
+        if( FD_LIKELY( -1!=dfd ) ) {
+          close( ctx->local_full_fd );
+          ctx->local_full_fd = dfd;
+          ctx->direct_io     = 1;
+        } else {
+          FD_LOG_NOTICE(( "open() with O_DIRECT failed `%s` (%i-%s), staying buffered", full_path, errno, fd_io_strerror( errno ) ));
+        }
+      }
+      FD_LOG_NOTICE(( "snapshot %lu%% resident in page cache; using %s reads", pct, ctx->direct_io ? "O_DIRECT" : "buffered" ));
+    }
     if( FD_UNLIKELY( -1==ctx->local_full_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", full_path, errno, fd_io_strerror( errno ) ));
     posix_fadvise( ctx->local_full_fd, 0L, 0L, POSIX_FADV_SEQUENTIAL );
 
     if( FD_LIKELY( incr_slot!=ULONG_MAX ) ) {
-      ctx->local_incr_fd = open( incr_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
+      ctx->local_incr_fd = open( incr_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK|(ctx->direct_io?O_DIRECT:0) );
       if( FD_UNLIKELY( -1==ctx->local_incr_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", incr_path, errno, fd_io_strerror( errno ) ));
       posix_fadvise( ctx->local_incr_fd, 0L, 0L, POSIX_FADV_SEQUENTIAL );
     }
@@ -221,6 +284,18 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out_dc.mem    = fd_topo_obj_wksp_base( topo, out_link->dcache_obj_id );
   ctx->out_dc.chunk0 = fd_dcache_compact_chunk0( ctx->out_dc.mem, out_link->dcache );
   ctx->out_dc.wmark  = fd_dcache_compact_wmark ( ctx->out_dc.mem, out_link->dcache, out_link->mtu );
+
+  /* O_DIRECT reads go straight into the ring, so slot 0 must be page-aligned.
+     Every subsequent read starts a multiple of 32 slots
+     later, and that displacement is 4096-aligned by construction, so checking
+     slot 0 is sufficient.  Check rather than assume: the dcache base depends
+     on workspace layout, and silently doing unaligned O_DIRECT would mean
+     EINVAL on every read. */
+  ulong slot0_addr  = (ulong)fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk0 );
+  ctx->direct_align = !(slot0_addr%4096UL) && !((32UL*ctx->out_dc.mtu)%4096UL);
+  if( FD_UNLIKELY( ctx->direct_io && !ctx->direct_align ) ) {
+    FD_LOG_NOTICE(( "snapld dcache slot 0 at %#lx is not 4096-aligned; using buffered reads", slot0_addr ));
+  }
   ctx->out_dc.chunk  = ctx->out_dc.chunk0;
   ctx->out_dc.mtu    = out_link->mtu;
 
@@ -311,7 +386,40 @@ after_credit( fd_snapld_tile_t *  ctx,
       ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
       return;
     }
-    long result = read( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, out, ctx->out_dc.mtu );
+    /* Fill as many consecutive dcache slots as we have credits for and as
+       remain before the wmark, in a single read().  The slots are contiguous,
+       so this needs no staging buffer and adds no copy.  Clamping to cr_avail
+       is what keeps STEM_BURST small: the tile never waits for a large credit
+       balance, it just reads less when downstream is behind. */
+    ulong slots       = FD_SNAPLD_READ_MAX;
+    ulong cr          = stem->cr_avail[ 0 ];
+    if( FD_UNLIKELY( cr<slots ) ) slots = cr;
+    ulong slot_chunks = ctx->out_dc.mtu >> FD_CHUNK_LG_SZ;
+    ulong avail_slots = 1UL + ( (ctx->out_dc.wmark - ctx->out_dc.chunk) / slot_chunks );
+    if( FD_UNLIKELY( avail_slots<slots ) ) slots = avail_slots;
+    if( FD_UNLIKELY( ctx->direct_io && ctx->direct_align ) ) {
+      /* Snap the cursor onto the 32-slot grid.  Both the buffer address and the
+         read length must be 4096-aligned for O_DIRECT; 32 slots is the smallest
+         unit for which slots*65408 is a whole number of pages.  Skipped slots
+         are never published -- at most 31 slots of ring space per meta frag,
+         twice per load. */
+      ulong max_slot = (ctx->out_dc.wmark - ctx->out_dc.chunk0) / slot_chunks;
+      ulong slot_idx = (ctx->out_dc.chunk - ctx->out_dc.chunk0 + slot_chunks - 1UL) / slot_chunks;
+      ulong rem      = slot_idx % 32UL;
+      if( rem ) slot_idx += 32UL - rem;
+      if( FD_UNLIKELY( slot_idx+32UL-1UL>max_slot ) ) slot_idx = 0UL;
+      ctx->out_dc.chunk = ctx->out_dc.chunk0 + slot_idx*slot_chunks;
+      out               = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
+      /* re-derive headroom from the moved cursor, then quantise the length */
+      avail_slots = 1UL + ( (ctx->out_dc.wmark - ctx->out_dc.chunk) / slot_chunks );
+      if( FD_UNLIKELY( avail_slots<slots ) ) slots = avail_slots;
+      slots -= slots % 32UL;
+      if( FD_UNLIKELY( !slots ) ) return;
+    }
+    if( FD_UNLIKELY( !slots ) ) slots = 1UL;
+
+    long result = read( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd,
+                        out, slots*ctx->out_dc.mtu );
     if( FD_UNLIKELY( result<=0L ) ) {
       if( result==0L ) {
         FD_LOG_INFO(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
@@ -323,8 +431,15 @@ after_credit( fd_snapld_tile_t *  ctx,
         return; /* verbose return */
       }
     } else {
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, (ulong)result, 0UL, 0UL, 0UL );
-      ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, (ulong)result, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+      /* One frag per slot; sizes must stay <= mtu and the tail is the
+         remainder.  cr_avail bounded the read, so a credit exists for each. */
+      ulong left = (ulong)result;
+      while( left ) {
+        ulong psz = fd_ulong_min( left, ctx->out_dc.mtu );
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, psz, 0UL, 0UL, 0UL );
+        ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, psz, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+        left -= psz;
+      }
       *charge_busy = 1;
       return; /* verbose return */
     }
@@ -570,7 +685,9 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 }
 
 /* Up to two frags from after_credit plus one from returnable_frag */
-#define STEM_BURST 3UL
+/* Entry gate only.  Reads are clamped to cr_avail, so the tile does not need
+   a large credit balance before it may run -- which is the whole point. */
+#define STEM_BURST 4UL
 
 #define STEM_LAZY (128L*3000L)
 
