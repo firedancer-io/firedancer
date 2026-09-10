@@ -162,7 +162,7 @@ fd_write_builtin_account( fd_bank_t  *       bank,
       data, sz,                    /* data */
       1UL,                         /* lamports_min */
       1                            /* exec_bit */
-  );
+ , 0 );
 }
 
 void

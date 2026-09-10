@@ -199,6 +199,15 @@ fd_runtime_validate_block_revenue_collector( fd_bank_t const *   bank,
    slot.  A portion is burnt, another portion is credited to the fee
    collector (typically leader). */
 
+void
+fd_runtime_fee_split( ulong   execution_fees,
+                      ulong   priority_fees,
+                      ulong * burn,
+                      ulong * reward ) {
+  *burn   = execution_fees/2UL;
+  *reward = fd_ulong_sat_add( priority_fees, execution_fees-*burn );
+}
+
 static void
 fd_runtime_settle_fees( fd_bank_t *        bank,
                         fd_accdb_t *       accdb,
@@ -212,8 +221,8 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
                    slot, execution_fees, priority_fees ));
   }
 
-  ulong fee_burn   = execution_fees / 2;
-  ulong fee_reward = fd_ulong_sat_add( priority_fees, execution_fees - fee_burn );
+  ulong fee_burn, fee_reward;
+  fd_runtime_fee_split( execution_fees, priority_fees, &fee_burn, &fee_reward );
 
   /* Remove fee balance from bank (decreasing capitalization).
      Allow underflow (wrap) to match Agave's silent fetch_sub behavior. */
@@ -273,7 +282,7 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
     if( FD_UNLIKELY( burn ) ) {
       FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
     }
-    if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank );
+    if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, NULL );
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   }
 
@@ -447,6 +456,7 @@ fd_feature_activate( fd_bank_t *             bank,
     feature.activation_slot = bank->f.slot;
     FD_STORE( fd_feature_t, acc.data, feature );
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+    if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_feature( addr->uc );
   }
 }
 
@@ -704,6 +714,8 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
      vote_states_prev_prev (stakes for T-2). */
 
   fd_runtime_update_leaders( bank, runtime_stack );
+
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_emit( bank );
 
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(( "starting epoch %s%lu%s at slot %lu %s(took %.6f seconds)%s", fd_log_style_bold(), bank->f.epoch, fd_log_style_normal(), bank->f.slot, fd_log_style_dim(), (double)(end - start) / 1e9, fd_log_style_normal() ));
@@ -1130,8 +1142,7 @@ void
 fd_runtime_commit_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
-                       fd_txn_out_t *      txn_out,
-                       int                 report_transaction_diffs ) {
+                       fd_txn_out_t *      txn_out ) {
   FD_TEST( txn_out->err.is_committable );
 
   txn_out->details.commit_start_ticks = fd_tickcount();
@@ -1158,7 +1169,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
-        fd_stakes_update_stake_delegation( pubkey, account, bank );
+        fd_stakes_update_stake_delegation( pubkey, account, bank, txn_in );
       }
 
       if( txn_out->accounts.vote_update[i] ) {
@@ -1255,7 +1266,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     }
   }
 
-  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
@@ -1269,12 +1280,12 @@ void
 fd_runtime_cancel_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
-                       fd_txn_out_t *      txn_out,
-                       int                 report_transaction_diffs ) {
+                       fd_txn_out_t *      txn_out ) {
   FD_TEST( !txn_out->err.is_committable );
-  if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
-  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+  if( FD_UNLIKELY( bank && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+
+  if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
   fd_accdb_release_ab( runtime->accdb,
                        txn_out->accounts.cnt, runtime->accounts.account,
@@ -1586,7 +1597,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
           account->lamports,
           (uint)account->data_len,
           FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
-
     } else if( !memcmp( account->owner.uc, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
       fd_feature_snoop_account( feature_snoop, &account->pubkey, account->lamports,
                                  account->owner.uc, acc_data, account->data_len );
@@ -1723,6 +1733,11 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
 
   int err = fd_runtime_process_genesis_block( bank, accdb, capture_ctx, runtime_stack );
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
+
+  /* Genesis init ran the epoch-boundary refresh paths above; discard
+     the accumulated summary so the first real boundary's runtime_epoch
+     event only reflects itself. */
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_reset();
 }
 
 /* valid_producer_time returns 1 iff an Alpenglow block footer's
