@@ -18,7 +18,7 @@ $(call add-objs,fd_progcache_clock,fd_flamenco)
 $(call add-objs,fd_progcache_rec,fd_flamenco)
 $(call add-objs,fd_progcache_reclaim,fd_flamenco)
 
-ifdef FD_HAS_ATOMIC
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_progcache,test_progcache,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_progcache)
 ifdef FD_HAS_RACESAN

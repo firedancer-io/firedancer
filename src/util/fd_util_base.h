@@ -815,8 +815,6 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_VOLATILE(x) (*((volatile __typeof__((x)) *)&(x)))
 
-#if FD_HAS_ATOMIC
-
 /* FD_ATOMIC_FETCH_AND_{ADD,SUB,OR,AND,XOR}(p,v):
 
    FD_ATOMIC_FETCH_AND_ADD(p,v) does
@@ -864,8 +862,6 @@ fd_type_pun_const( void const * p ) {
    as a single atomic operation. */
 
 #define FD_ATOMIC_XCHG(p,v) __atomic_exchange_n( (p), (v), __ATOMIC_SEQ_CST )
-
-#endif /* FD_HAS_ATOMIC */
 
 /* FD_TL:  This indicates that the variable should be thread local.
 

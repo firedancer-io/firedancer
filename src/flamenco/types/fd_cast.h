@@ -12,8 +12,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-#if FD_HAS_DOUBLE
-
 /* Cast a double to unsigned long with identical behaviour to Rust's
    saturating "as" case.
    Saturate to 0 if the value is negative or NaN.
@@ -97,8 +95,6 @@ fd_rust_cast_double_to_int( double f ) {
   if( FD_UNLIKELY( f<=-2147483648. ) ) return INT_MIN;  /* -2^31 */
   return (int)f;
 }
-
-#endif /* FD_HAS_DOUBLE */
 
 /* Single precision sources, same semantics. */
 
