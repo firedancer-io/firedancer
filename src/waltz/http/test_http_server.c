@@ -186,12 +186,7 @@ test_oring( void ) {
 
   /* zstd cctx estimate assumes the single-threaded vendored build */
   uchar scratch[ 1633280 ] __attribute__((aligned(128UL)));
-#if FD_HAS_ZSTD
   FD_TEST( fd_http_server_footprint( params )==1633280 );
-#else
-  FD_TEST( fd_http_server_footprint( params )==329600 );
-  FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
-#endif
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
 
   http->stage_off = 6UL;
@@ -277,12 +272,7 @@ test_content_length_overflow_close( void ) {
 
   FD_LOG_NOTICE(( "footprint %lu", fd_http_server_footprint( params ) ));
   uchar scratch[ 1306624 ] __attribute__((aligned(128UL)));
-#if FD_HAS_ZSTD
   FD_TEST( fd_http_server_footprint( params )==sizeof( scratch ) );
-#else
-  FD_TEST( fd_http_server_footprint( params )==3072 );
-  FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
-#endif
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );

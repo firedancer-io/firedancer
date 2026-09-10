@@ -19,11 +19,9 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
-#if FD_HAS_ZSTD
 #define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
-#endif
 
 #define POOL_NAME       ws_conn_pool
 #define POOL_T          struct fd_http_server_ws_connection
@@ -123,9 +121,7 @@ fd_http_server_footprint( fd_http_server_params_t params ) {
   l = FD_LAYOUT_APPEND( l, 1UL,                                       params.max_ws_recv_frame_len*params.max_ws_connection_cnt                                          );
   l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_frame ), params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_frame ) );
   l = FD_LAYOUT_APPEND( l, 1UL,                                       params.outgoing_buffer_sz                                                                          );
-#if FD_HAS_ZSTD
   l = FD_LAYOUT_APPEND( l, 16UL,                                      ZSTD_estimateCCtxSize( FD_HTTP_ZSTD_COMPRESSION_LEVEL )                                            );
-#endif
   return FD_LAYOUT_FINI( l, fd_http_server_align() );
 }
 
@@ -165,9 +161,7 @@ fd_http_server_new( void *                     shmem,
   uchar * _ws_recv_bytes  = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.max_ws_recv_frame_len*params.max_ws_connection_cnt                            );
   struct fd_http_server_ws_frame * _ws_send_frames = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct fd_http_server_ws_frame), params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof(struct fd_http_server_ws_frame) );
   http->oring             = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.outgoing_buffer_sz                                                            );
-#if FD_HAS_ZSTD
   uchar * _zstd_ctx       = FD_SCRATCH_ALLOC_APPEND( l,  16UL,                                         ZSTD_estimateCCtxSize( FD_HTTP_ZSTD_COMPRESSION_LEVEL )                              );
-#endif
   http->oring_sz       = params.outgoing_buffer_sz;
   http->stage_err      = 0;
   http->stage_off      = 0UL;
@@ -187,13 +181,11 @@ fd_http_server_new( void *                     shmem,
   http->send_buffer_sz        = params.send_buffer_sz;
   http->compress_websocket    = params.compress_websocket;
 
-#if FD_HAS_ZSTD
   http->zstd_ctx = ZSTD_initStaticCCtx( _zstd_ctx, ZSTD_estimateCCtxSize( FD_HTTP_ZSTD_COMPRESSION_LEVEL ) );
   FD_TEST( http->zstd_ctx );
   ulong err = ZSTD_CCtx_setParameter( http->zstd_ctx, 100, FD_HTTP_ZSTD_COMPRESSION_LEVEL );
   if( FD_UNLIKELY( ZSTD_isError( err ) ) )
       FD_LOG_ERR(( "ZSTD_CCtx_setParameter failed (%s)", ZSTD_getErrorName( err ) ) );
-#endif
 
   http->conns = conn_pool_join( conn_pool_new( conn_pool, params.max_connection_cnt ) );
   conn_treap_join( conn_treap_new( http->conn_treap, params.max_connection_cnt ) );
@@ -729,14 +721,12 @@ parse_conn_http( fd_http_server_t * http,
     conn->request_bytes_len = conn->request_bytes_off+(ulong)result;
     conn->upgrade_websocket = 1;
 
-#if FD_HAS_ZSTD
     for( ulong i=0UL; i<num_headers; i++ ) {
       if( FD_LIKELY( headers[ i ].name_len==22UL && !strncasecmp( headers[ i ].name, "Sec-WebSocket-Protocol", 22UL ) &&
                      headers[ i ].value_len==13UL && !strncmp( headers[ i ].value, "compress-zstd", 13UL ) ) ) {
         compress_websocket = 1;
       }
     }
-#endif
 
     char const * sec_websocket_key = NULL;
     for( ulong i=0UL; i<num_headers; i++ ) {
@@ -1565,7 +1555,6 @@ fd_http_ws_compress_maybe( fd_http_server_t * http ) {
      disabled in the config */
   if( FD_LIKELY( !http->compress_websocket || http->stage_len <= 200 || http->stage_err ) ) return 0;
 
-#if FD_HAS_ZSTD
   ulong worst_case_compressed_sz = ZSTD_compressBound( http->stage_len );
   fd_http_server_reserve( http, worst_case_compressed_sz );
 
@@ -1582,9 +1571,6 @@ fd_http_ws_compress_maybe( fd_http_server_t * http ) {
   http->stage_comp_len = compressed_sz;
 
   return 1;
-#else
-  return 0;
-#endif
 }
 
 uchar *

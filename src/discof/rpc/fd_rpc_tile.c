@@ -33,10 +33,8 @@
 #include <sys/socket.h>
 #include <string.h>
 
-#if FD_HAS_ZSTD
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
-#endif
 
 #include "../../util/archive/fd_tar.h"
 #include "../../third_party/bzip2/bzlib.h"
@@ -377,10 +375,8 @@ struct fd_rpc_tile {
   fd_epoch_schedule_t      epoch_schedule;
   int                      has_epoch_schedule;
 
-# if FD_HAS_ZSTD
   ZSTD_CCtx * zstd_cctx;
   uchar compress_buf[ ZSTD_COMPRESSBOUND( FD_RUNTIME_ACC_SZ_MAX ) ];
-# endif
 
   /* Redirect to snapshot server */
   int    snapshot_server_enabled;
@@ -559,9 +555,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
   l = FD_LAYOUT_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size )    );
   l = FD_LAYOUT_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size ) );
-# if FD_HAS_ZSTD
   l = FD_LAYOUT_APPEND( l, 16UL, ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL ) );
-# endif
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -1481,7 +1475,6 @@ fd_rpc_encode_account_data( fd_rpc_tile_t *             ctx,
     return 0;
   }
 
-# if FD_HAS_ZSTD
   if( is_zstd ) {
     ulong zstd_res = ZSTD_compressCCtx( ctx->zstd_cctx, ctx->compress_buf, sizeof(ctx->compress_buf), out, snip_sz, FD_RPC_ZSTD_LEVEL );
     if( ZSTD_isError( zstd_res ) ) {
@@ -1492,13 +1485,6 @@ fd_rpc_encode_account_data( fd_rpc_tile_t *             ctx,
     out    = ctx->compress_buf;
     out_sz = (ulong)zstd_res;
   }
-# else
-  if( is_zstd ) {
-    fd_http_server_unstage( ctx->http );
-    *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard is disabled\"},\"id\":%s}\n", id_cstr );
-    return 0;
-  }
-# endif
 
   FD_BASE58_ENCODE_32_BYTES( acct_owner, owner_b58 );
   fd_http_server_printf( ctx->http,
@@ -2886,10 +2872,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _ws_sub_slot    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    http_params.max_ws_connection_cnt*sizeof(ulong)                    );
   void * _genesis_tar    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size )    );
   void * _genesis_tar_bz = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                    fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size ) );
-# if FD_HAS_ZSTD
   ulong  zstd_wksp_sz = ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL );
   void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
-# endif
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
@@ -2907,10 +2891,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _bz2_alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
 
-# if FD_HAS_ZSTD
   ctx->zstd_cctx = ZSTD_initStaticCCtx( _zstd_wksp, zstd_wksp_sz );
   FD_CHECK_ERR( ctx->zstd_cctx, "ZSTD_initStaticCCtx failed" );
-# endif
 
   fd_clock_tile_init( ctx->clock );
   ctx->in_cnt          = tile->in_cnt;
