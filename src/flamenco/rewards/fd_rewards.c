@@ -2127,13 +2127,13 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
   fd_stake_history_t * frontier_stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, frontier_stake_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-  fd_stake_delegations_mark_fork_deltas( stake_delegations,
-                                         bank->f.epoch,
-                                         frontier_stake_history,
-                                         &bank->f.warmup_cooldown_rate_epoch,
-                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                         stake_delegations_fork_ids,
-                                         stake_delegations_fork_id_cnt );
+  fd_stake_delegations_frontier_query_begin( stake_delegations,
+                                             bank->f.epoch,
+                                             frontier_stake_history,
+                                             &bank->f.warmup_cooldown_rate_epoch,
+                                             FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                             stake_delegations_fork_ids,
+                                             stake_delegations_fork_id_cnt );
 
   calculate_stake_vote_rewards(
       bank,
@@ -2182,8 +2182,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
       epoch_rewards_sysvar->total_rewards,
       epoch_rewards_sysvar->total_points.ud );
 
-  fd_stake_delegations_unmark_fork_deltas( stake_delegations,
-                                           bank->f.epoch-1UL,
+  fd_stake_delegations_frontier_query_end( stake_delegations,
                                            frontier_stake_history,
                                            &bank->f.warmup_cooldown_rate_epoch,
                                            FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),

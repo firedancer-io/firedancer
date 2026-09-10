@@ -39,13 +39,13 @@ test_bank_stake_delegations_frontier_mark( fd_banks_t * banks,
   fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-  fd_stake_delegations_mark_fork_deltas( stake_delegations,
-                                         bank->f.epoch,
-                                         stake_history,
-                                         &bank->f.warmup_cooldown_rate_epoch,
-                                         FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                         fork_ids,
-                                         fork_id_cnt );
+  fd_stake_delegations_frontier_query_begin( stake_delegations,
+                                             bank->f.epoch,
+                                             stake_history,
+                                             &bank->f.warmup_cooldown_rate_epoch,
+                                             FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                             fork_ids,
+                                             fork_id_cnt );
   return stake_delegations;
 }
 
@@ -57,8 +57,7 @@ test_bank_stake_delegations_frontier_unmark( fd_banks_t * banks,
   fd_stake_history_t   stake_history_[1];
   fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
 
-  fd_stake_delegations_unmark_fork_deltas( fd_bank_stake_delegations_modify( bank ),
-                                           bank->f.epoch-1UL,
+  fd_stake_delegations_frontier_query_end( fd_bank_stake_delegations_modify( bank ),
                                            stake_history,
                                            &bank->f.warmup_cooldown_rate_epoch,
                                            FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
