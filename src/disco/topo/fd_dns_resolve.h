@@ -39,7 +39,7 @@ fd_dns_resolve_addresses( char const *            address,
                           fd_ip4_port_t *         ip_addrs,
                           ulong                   ip_addr_cnt );
 
-#define FD_DNS_RESOLVE_PEERS_MAX (16UL)
+#define FD_DNS_RESOLVE_PEERS_MAX (32UL)
 
 /* fd_dns_resolve_peers resolves peer_cnt (<=FD_DNS_RESOLVE_PEERS_MAX)
    peer strings, stored in fixed peer_stride byte cstr slots starting at
