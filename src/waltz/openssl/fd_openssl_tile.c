@@ -77,7 +77,10 @@ crypto_realloc( void *       addr,
     return NULL;
   }
   void * new = fd_alloc_malloc( fd_ossl_alloc, 8UL, alloc_sz );
-  if( FD_UNLIKELY( !new ) ) return NULL;
+  if( FD_UNLIKELY( !new ) ) {
+    fd_ossl_alloc_errors++;
+    return NULL;
+  }
 
   ulong old_num = *(ulong*)( (uchar*)addr - 8UL );
   fd_memcpy( (uchar*)new + 8, (uchar*)addr, fd_ulong_min( old_num, num ) );
