@@ -1663,9 +1663,12 @@ telemetry = true
         # Each shred that the validator produced when it is leader will
         # be sent to the addresses specified for leader.
         #
-        # Destinations must be in the form "ip:port", for example
-        # "1.2.3.4:5566".  Shreds will be sent to these destinations
-        # first, prior to sending to other validators.
+        # Destinations must be in the form "host:port", e.g.
+        # "1.2.3.4:5566" or "shred-receiver.example.com:5566".  Hosts may
+        # be IPv4 addresses or DNS/NSS names.  Names resolve once at
+        # startup to the first IPv4 result; failure prevents startup.
+        # Restart for DNS changes.  IPv6 is unsupported.  Shreds are sent
+        # to these destinations first, before other validators.
         additional_shred_destinations_retransmit = []
         additional_shred_destinations_leader = []
 

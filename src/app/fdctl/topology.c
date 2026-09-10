@@ -11,24 +11,6 @@
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
-static void
-parse_ip_port( const char * name, const char * ip_port, fd_topo_ip_port_t *parsed_ip_port) {
-  char buf[ sizeof( "255.255.255.255:65536" ) ];
-  memcpy( buf, ip_port, sizeof( buf ) );
-  char *ip_end = strchr( buf, ':' );
-  if( FD_UNLIKELY( !ip_end ) )
-    FD_LOG_ERR(( "[%s] must in the form ip:port", name ));
-  *ip_end = '\0';
-
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( buf, &( parsed_ip_port->ip ) ) ) ) {
-    FD_LOG_ERR(( "could not parse IP %s in [%s]", buf, name ));
-  }
-
-  parsed_ip_port->port = fd_cstr_to_ushort( ip_end+1 );
-  if( FD_UNLIKELY( !parsed_ip_port->port ) )
-    FD_LOG_ERR(( "could not parse port %s in [%s]", ip_end+1, name ));
-}
-
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config );
@@ -525,18 +507,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
     tile->shred.max_shreds_per_block          = config->limits.max_shreds_per_block;
     tile->shred.bench_max_shreds_per_block    = config->development.bench.max_shreds_per_block;
-    for( ulong i=0UL; i<config->tiles.shred.additional_shred_destinations_retransmit_cnt; i++ ) {
-      parse_ip_port( "tiles.shred.additional_shred_destinations_retransmit",
-                      config->tiles.shred.additional_shred_destinations_retransmit[ i ],
-                      &tile->shred.adtl_dests_retransmit[ i ] );
-    }
-    tile->shred.adtl_dests_retransmit_cnt = config->tiles.shred.additional_shred_destinations_retransmit_cnt;
-    for( ulong i=0UL; i<config->tiles.shred.additional_shred_destinations_leader_cnt; i++ ) {
-      parse_ip_port( "tiles.shred.additional_shred_destinations_leader",
-                      config->tiles.shred.additional_shred_destinations_leader[ i ],
-                      &tile->shred.adtl_dests_leader[ i ] );
-    }
-    tile->shred.adtl_dests_leader_cnt = config->tiles.shred.additional_shred_destinations_leader_cnt;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "store" ) ) ) {
     tile->store.disable_blockstore_from_slot = config->development.bench.disable_blockstore_from_slot;

@@ -13,7 +13,7 @@
 int
 fd_dns_resolve_address( char const * address,
                         uint *       ip_addr ) {
-  if( FD_LIKELY( fd_cstr_to_ip4_addr( address, ip_addr ) ) ) return 1;
+  if( FD_LIKELY( strlen( address )<=15UL && fd_cstr_to_ip4_addr( address, ip_addr ) ) ) return 1;
 
   struct addrinfo hints = { .ai_family = AF_INET };
   struct addrinfo * res;

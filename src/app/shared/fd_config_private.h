@@ -48,6 +48,23 @@ fd_config_fill( fd_config_t * config,
 void
 fd_config_validate( fd_config_t const * config );
 
+/* fd_config_resolve_ip4_endpoint parses an IPv4 host:port endpoint.
+   Numeric addresses are parsed directly; hostnames use the system
+   resolver's first IPv4 result.  Returns 1 on success, or logs a warning
+   and returns 0 on failure. */
+
+int
+fd_config_resolve_ip4_endpoint( char const *        endpoint,
+                                fd_topo_ip_port_t * out );
+
+/* fd_config_apply_shred_destinations resolves each additional shred
+   destination once and copies it into every shred tile.  Call with a
+   loaded config when starting tiles, before serializing or sandboxing.
+   Does nothing without shred tiles. */
+
+void
+fd_config_apply_shred_destinations( fd_config_t * config );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_shared_fd_config_private_h */

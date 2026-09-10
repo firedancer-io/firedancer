@@ -4,6 +4,7 @@ Constructed using a full topology which is pruned down. */
 #define _GNU_SOURCE
 #include "../../../firedancer/topology.h"
 #include "../../../shared/fd_action.h"
+#include "../../../shared/fd_config_private.h"
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h"
 #include "../../../shared/commands/watch/watch.h"
@@ -441,6 +442,8 @@ forktest_cmd_args( int *    pargc,
 static void
 forktest_fn( args_t *   args,
              config_t * config ) {
+  fd_config_apply_shred_destinations( config );
+
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
 
