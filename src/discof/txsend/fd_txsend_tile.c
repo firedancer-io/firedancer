@@ -177,6 +177,10 @@ send_to_net( fd_txsend_tile_t *   ctx,
   uint  const ip_dst = FD_LOAD( uint, ip4_hdr->daddr_c );
   ulong const ip_sz  = FD_IP4_GET_LEN( *ip4_hdr );
 
+  ulong const hdr_sz = sizeof(fd_eth_hdr_t) + ip_sz + sizeof(fd_udp_hdr_t);
+  if( FD_UNLIKELY( payload_sz>FD_ETH_PAYLOAD_MAX-hdr_sz ) ) return;
+  ulong const sz_l2 = hdr_sz + payload_sz;
+
   fd_txsend_out_t * net_out_link = ctx->net_out;
   uchar * packet_l2 = fd_chunk_to_laddr( net_out_link->mem, net_out_link->chunk );
   uchar * packet_l3 = packet_l2 + sizeof(fd_eth_hdr_t);
@@ -189,7 +193,6 @@ send_to_net( fd_txsend_tile_t *   ctx,
   fd_memcpy( packet_l5, payload,              payload_sz           );
 
   ulong sig   = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
-  ulong sz_l2 = sizeof(fd_eth_hdr_t) + ip_sz + sizeof(fd_udp_hdr_t) + payload_sz;
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( now );
   fd_stem_publish( ctx->stem, net_out_link->idx, sig, net_out_link->chunk, sz_l2, 0UL, 0, tspub );

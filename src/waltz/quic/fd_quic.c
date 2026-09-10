@@ -3816,15 +3816,24 @@ fd_quic_conn_tx( fd_quic_t      * quic,
       }
     }
 
-    /* first initial frame is padded to FD_QUIC_INITIAL_PAYLOAD_SZ_MIN
-       all short quic packets are padded so 16 bytes of sample are available */
+    /* initial padding */
     uint tot_frame_sz = (uint)( payload_ptr - frame_start );
     uint base_pkt_len = (uint)tot_frame_sz + pkt_num_len + FD_QUIC_CRYPTO_TAG_SZ;
-    uint padding      = ( initial_pkt && (base_pkt_len < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN) )
-                            ? FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - base_pkt_len : 0u;
+    ulong datagram_sz = (ulong)( conn->tx_ptr - conn->tx_buf_conn ) + hdr_sz + tot_frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
+    uint padding      = ( initial_pkt && (datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN) )
+                            ? (uint)( FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - datagram_sz ) : 0u;
 
     if( base_pkt_len + padding < FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START + FD_QUIC_CRYPTO_SAMPLE_SZ ) {
       padding = FD_QUIC_CRYPTO_SAMPLE_SZ + FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START - base_pkt_len;
+    }
+
+    if( FD_UNLIKELY( datagram_sz + padding > tx_max_datagram_sz ||
+                     (ulong)padding > (ulong)( payload_end - payload_ptr ) ) ) {
+      conn->tx_ptr = conn->tx_buf_conn;
+      fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
+      fd_quic_svc_prep_schedule_now( conn );
+      quic->metrics.conn_aborted_cnt++;
+      return;
     }
 
     /* this length includes the packet number length (pkt_number_len_enc+1),
