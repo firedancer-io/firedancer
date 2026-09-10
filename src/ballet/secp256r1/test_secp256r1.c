@@ -271,9 +271,11 @@ test_secp256r1_point_add_mixed( FD_FN_UNUSED fd_rng_t * rng ) {
   /* add opposite points: P + (-P) = 0 */
   {
     ulong b_neg[ 8 ];
-    fd_memcpy( b_neg,   b,   32 );
-    fd_memcpy( b_neg+4, b+4, 32 );
-    bignum_optneg_p256( b_neg+4, 1UL, b_neg+4 );  /* negate y in Montgomery domain */
+    fd_secp256r1_fp_t y_neg[1];
+    fd_memcpy( y_neg->limbs, b+4, 32 );
+    fd_secp256r1_fp_neg( y_neg, y_neg );  /* negate y in Montgomery domain */
+    fd_memcpy( b_neg,   b,             32 );
+    fd_memcpy( b_neg+4, y_neg->limbs,  32 );
 
     fd_secp256r1_point_add_mixed( r, p, b_neg );
     FD_TEST( fd_uint256_eq( r->z, fd_secp256r1_const_zero ) );

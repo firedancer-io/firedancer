@@ -72,6 +72,10 @@ static const ulong fd_secp384r1_const_g_mont[18] = {
 
 FD_PROTOTYPES_END
 
+#if FD_HAS_S2NBIGNUM
 #include "fd_secp384r1_s2n.c"
+#else
+#include "fd_secp384r1_ref.c"
+#endif
 
 #endif
