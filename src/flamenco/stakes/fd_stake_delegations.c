@@ -801,24 +801,6 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
   fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
-fd_stake_delegation_t const *
-fd_stake_delegation_root_query( fd_stake_delegations_t const * stake_delegations,
-                                fd_pubkey_t const *            stake_account ) {
-  fd_stake_delegation_t * pool = get_root_pool( stake_delegations );
-  root_map_t *            map = get_root_map( stake_delegations );
-
-  fd_stake_delegation_t const * delegation = root_map_ele_query_const( map, stake_account, NULL, pool );
-  if( FD_LIKELY( delegation ) ) return delegation;
-  if( FD_LIKELY( !stake_delegations->disk_root_cnt_ ) ) return NULL;
-
-  static FD_TL fd_stake_delegation_t disk_delegation;
-  uint  disk_idx;
-  ulong bucket_slot;
-  ulong free_slot;
-  disk_root_find( stake_delegations, stake_account, &disk_delegation, &disk_idx, &bucket_slot, &free_slot );
-  return disk_idx==UINT_MAX ? NULL : &disk_delegation;
-}
-
 struct root_ref {
   fd_stake_delegation_t * ram;
   uint                    disk_idx;
@@ -1588,19 +1570,6 @@ fd_stake_delegations_apply_fork_deltas( ulong                                epo
 }
 
 void
-fd_stake_delegations_apply_fork_delta( ulong                                epoch,
-                                       fd_stake_history_t const *           stake_history,
-                                       ulong *                              warmup_cooldown_rate_epoch,
-                                       int                                  use_fixed_point_stake_math,
-                                       fd_stake_delegations_t *             stake_delegations,
-                                       ushort                               fork_idx,
-                                       fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats ) {
-  fd_stake_delegations_apply_fork_deltas( epoch, stake_history, warmup_cooldown_rate_epoch,
-                                          use_fixed_point_stake_math, stake_delegations, &fork_idx, 1UL,
-                                          stake_delegations_delta_stats );
-}
-
-void
 fd_stake_delegations_iter_read_disk_delta( fd_stake_delegations_iter_t * iter,
                                            uint                          delta_idx ) {
   FD_CHECK_CRIT( (ulong)delta_idx<iter->stake_delegations->disk_delta_cnt_,
@@ -1640,16 +1609,7 @@ fd_stake_delegations_iter_advance_disk_root( fd_stake_delegations_iter_t * iter 
 
 fd_stake_delegations_iter_t *
 fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
-                                fd_stake_delegations_t const * stake_delegations,
-                                fd_accdb_t *                   accdb,
-                                fd_accdb_fork_id_t             accdb_fork_id,
-                                ulong                          epoch,
-                                ulong *                        warmup_cooldown_rate_epoch ) {
-  (void)accdb;
-  (void)accdb_fork_id;
-  (void)epoch;
-  (void)warmup_cooldown_rate_epoch;
-
+                                fd_stake_delegations_t const * stake_delegations ) {
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "NULL stake_delegations" ));
   }

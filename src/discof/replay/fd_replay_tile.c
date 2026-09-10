@@ -1677,7 +1677,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      account stream. */
   if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
     fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, root_delegations, ctx->accdb, bank->accdb_fork_id, bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch );
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, root_delegations );
          !fd_stake_delegations_iter_done( iter );
          fd_stake_delegations_iter_next( iter ) ) {
       fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );

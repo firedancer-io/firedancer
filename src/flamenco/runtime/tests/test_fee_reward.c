@@ -12,6 +12,7 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../stakes/fd_collector_overrides.h"
+#include "../../stakes/test_stake_delegations_util.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../program/fd_vote_program.h"
 

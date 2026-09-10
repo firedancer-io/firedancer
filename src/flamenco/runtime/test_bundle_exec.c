@@ -3,7 +3,7 @@
 #include "fd_bank.h"
 #include "fd_system_ids.h"
 #include "fd_alut.h"
-#include "../stakes/fd_stake_delegations.h"
+#include "../stakes/test_stake_delegations_util.h"
 #include "../stakes/fd_stake_types.h"
 #include "../stakes/fd_stakes.h"
 #include "program/fd_system_program.h"
@@ -19,9 +19,6 @@
 #define TEST_SLOTS_PER_EPOCH         (32UL)
 #define TEST_PARENT_SLOT             (9UL)
 #define TEST_CHILD_SLOT              (10UL)
-
-/* Iterator accdb inputs are retained only for caller compatibility. */
-#define NO_RESOLVE NULL, ((fd_accdb_fork_id_t){ .val = USHORT_MAX }), 0UL, NULL
 
 struct test_env {
   fd_svm_mini_t *    mini;
@@ -56,7 +53,7 @@ static fd_stake_delegation_t const *
 find_visible_stake_delegation( fd_stake_delegations_t const * stake_delegations,
                                fd_pubkey_t const *            stake_account ) {
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, NO_RESOLVE );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );

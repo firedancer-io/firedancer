@@ -75,6 +75,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #undef fd_accdb_reset
 
 #include <stdlib.h>
+#include "../../flamenco/stakes/test_stake_delegations_util.h"
 
 /* Production per-slot limits (tile->snapin.max_txn_per_slot and its
    derived staging bounds). */

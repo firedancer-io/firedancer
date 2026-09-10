@@ -216,8 +216,9 @@ struct fd_stake_delegations {
   /* Full-record disk spill.  Root and delta stores have separate hash
      indexes and dense record arrays, each bounded by
      max_disk_records_. */
-  ulong max_disk_records_;
-  ulong disk_root_cnt_;
+  /* Managment for stake delegations that spill to the disk. */
+  ulong max_disk_records_; /* capacity of disk-backed stake accounts */
+  ulong disk_root_cnt_; /* # of stake accounts in disk-backed root*/
   ulong disk_temp_root_cnt_;
   ulong disk_delta_cnt_;
   ulong disk_slot_cnt_; /* pow2 slots in each disk hash index */
@@ -232,7 +233,7 @@ struct fd_stake_delegations {
   ulong activating_stake;
   ulong deactivating_stake;
 
-  /* Epoch used to temporarily project the active frontier. */
+  /* Epoch used to query the active frontier. */
   ulong frontier_query_epoch;
 
   /* Only relevant around upgrade_bpf_stake_program_to_v5_1 activation.
@@ -382,14 +383,6 @@ fd_stake_delegations_join( void * mem );
 void
 fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations );
 
-/* fd_stake_delegation_root_query looks up a delegation across the RAM
-   and disk root tiers.  A disk result is returned through thread-local
-   storage and remains valid until the next call on the same thread. */
-
-fd_stake_delegation_t const *
-fd_stake_delegation_root_query( fd_stake_delegations_t const * stake_delegations,
-                                fd_pubkey_t const *            stake_account );
-
 /* fd_stake_delegations_root_update will either insert a new stake
    delegation if the pubkey doesn't exist yet, or it will update the
    stake delegation for the pubkey if already in the RAM or disk root,
@@ -509,23 +502,6 @@ struct fd_stake_delegations_delta_stats {
 };
 typedef struct fd_stake_delegations_delta_stats fd_stake_delegations_delta_stats_t;
 
-/* fd_stake_delegations_apply_fork_delta merges all RAM and disk stake
-   delegation entries for fork_idx into the root: non-tombstone entries
-   are applied via fd_stake_delegations_root_update; tombstone entries
-   remove the corresponding stake account.  Caller must ensure no
-   concurrent iteration on stake_delegations for this fork.
-   If stake_delegations_delta_stats is non-NULL, the number of upserts
-   and removes applied is accumulated into it (caller zeroes). */
-
-void
-fd_stake_delegations_apply_fork_delta( ulong                                epoch,
-                                       fd_stake_history_t const *           stake_history,
-                                       ulong *                              warmup_cooldown_rate_epoch,
-                                       int                                  use_fixed_point_stake_math,
-                                       fd_stake_delegations_t *             stake_delegations,
-                                       ushort                               fork_idx,
-                                       fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
-
 /* fd_stake_delegations_apply_fork_deltas applies an ordered fork
    ancestry atomically.  It processes capacity-releasing work before
    RAM insertions, so transient intermediate roots cannot exhaust a
@@ -593,14 +569,10 @@ fd_stake_delegations_frontier_query_end( fd_stake_delegations_t *   stake_delega
    iterator-owned storage, so that pointer remains valid only until the
    next call to fd_stake_delegations_iter_next.
 
-   accdb, accdb_fork_id, epoch, and warmup_cooldown_rate_epoch are kept
-   in fd_stake_delegations_iter_init for caller compatibility but are no
-   longer used.  Iteration never consults accdb.
-
    Example use:
 
    fd_stake_delegations_iter_t iter_[1];
-   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, fork_id, epoch, warmup_cooldown_rate_epoch );
+   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
         !fd_stake_delegations_iter_done( iter );
         fd_stake_delegations_iter_next( iter ) ) {
      fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
@@ -608,12 +580,8 @@ fd_stake_delegations_frontier_query_end( fd_stake_delegations_t *   stake_delega
 */
 
 fd_stake_delegations_iter_t *
-fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *   iter,
-                                fd_stake_delegations_t const *  stake_delegations,
-                                fd_accdb_t *                    accdb,
-                                fd_accdb_fork_id_t              accdb_fork_id,
-                                ulong                           epoch,
-                                ulong *                         warmup_cooldown_rate_epoch );
+fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
+                                fd_stake_delegations_t const * stake_delegations );
 
 static inline fd_stake_delegation_t *
 fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter ) {
