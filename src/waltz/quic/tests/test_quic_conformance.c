@@ -1026,6 +1026,37 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
   FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
 }
 
+FD_UNIT_TEST( quic_initial_datagram_size ) {
+  uint const token_lengths[] = { 0U, 46U };
+  for( ulong i=0UL; i<sizeof(token_lengths)/sizeof(token_lengths[0]); i++ ) {
+    FD_TEST( fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT ) );
+    fd_quic_conn_t * conn = fd_quic_connect(
+        sandbox->quic,
+        FD_QUIC_SANDBOX_PEER_IP4, FD_QUIC_SANDBOX_PEER_PORT,
+        FD_QUIC_SANDBOX_SELF_IP4, FD_QUIC_SANDBOX_SELF_PORT,
+        sandbox->wallclock );
+    FD_TEST( conn );
+    uint token_len = token_lengths[i];
+    FD_TEST( token_len<=sizeof(conn->token) );
+    fd_memset( conn->token, 0x41, token_len );
+    conn->token_len = token_len;
+
+    fd_quic_service( sandbox->quic, sandbox->wallclock );
+    fd_frag_meta_t const * frag = fd_quic_sandbox_next_packet( sandbox );
+    FD_TEST( frag );
+    FD_TEST( frag->sz>=sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) );
+    uchar const * packet = fd_quic_sandbox_packet_data( sandbox, frag );
+    fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)packet;
+    ulong ip4_sz = FD_IP4_GET_LEN( *ip4 );
+    FD_TEST( frag->sz>=ip4_sz+sizeof(fd_udp_hdr_t) );
+    ulong udp_payload_sz = frag->sz-ip4_sz-sizeof(fd_udp_hdr_t);
+    FD_TEST( udp_payload_sz<=conn->tx_max_datagram_sz );
+    FD_TEST( udp_payload_sz==FD_QUIC_INITIAL_PAYLOAD_SZ_MIN );
+    FD_TEST( !fd_quic_sandbox_next_packet( sandbox ) );
+    fd_quic_fini( sandbox->quic );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
