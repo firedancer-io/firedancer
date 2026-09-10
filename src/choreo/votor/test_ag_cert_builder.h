@@ -58,7 +58,7 @@ cert_build_final( ag_vote_final_t const * votes,
     stake += validators[ votes[i].rank ].stake;
   }
   ag_cert_final_t cert;
-  cert.slot = slot; cert.stake = stake;
+  cert.slot = slot; cert.stake = stake; cert.shred_version = votes[0].shred_version;
   memset( &cert.agg, 0, sizeof(fd_bls_agg_t) );
   for( ulong i=0UL; i<vote_cnt; i++ ) agg_add( &cert.agg, votes[i].rank, &votes[i].sig );
   return (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = cert };
@@ -70,7 +70,7 @@ cert_build_fast_final( ag_vote_notar_t const * votes,
                        ag_epoch_info_t const * epoch_info ) {
   ag_cert_notar_t      notar = cert_build_notar( votes, vote_cnt, epoch_info ).notar;
   ag_cert_fast_final_t cert;
-  cert.slot = notar.slot; cert.stake = notar.stake; cert.agg = notar.agg;
+  cert.slot = notar.slot; cert.stake = notar.stake; cert.agg = notar.agg; cert.shred_version = notar.shred_version;
   memcpy( cert.block_hash, notar.block_hash, sizeof(ag_block_hash_t) );
   return (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = cert };
 }
@@ -91,7 +91,7 @@ cert_build_notar( ag_vote_notar_t const * votes,
     stake += validators[ votes[i].rank ].stake;
   }
   ag_cert_notar_t cert;
-  cert.slot = slot; cert.stake = stake;
+  cert.slot = slot; cert.stake = stake; cert.shred_version = votes[0].shred_version;
   memcpy( cert.block_hash, block_hash, sizeof(ag_block_hash_t) );
   memset( &cert.agg, 0, sizeof(fd_bls_agg_t) );
   for( ulong i=0UL; i<vote_cnt; i++ ) agg_add( &cert.agg, votes[i].rank, &votes[i].sig );
@@ -125,7 +125,7 @@ cert_build_notar_fallback( ag_vote_notar_t const *          votes,
   }
 
   ag_cert_notar_fallback_t cert;
-  cert.slot = slot;
+  cert.slot = slot; cert.shred_version = vote_cnt>0UL ? votes[0].shred_version : fallback_votes[0].shred_version;
   memcpy( cert.block_hash, block_hash, sizeof(ag_block_hash_t) );
   memset( &cert.agg_notar, 0, sizeof(fd_bls_agg_t) );
   for( ulong i=0UL; i<vote_cnt; i++ ) agg_add( &cert.agg_notar, votes[i].rank, &votes[i].sig );
@@ -165,7 +165,7 @@ cert_build_skip( ag_vote_skip_t const *          votes,
   }
 
   ag_cert_skip_t cert;
-  cert.slot = slot;
+  cert.slot = slot; cert.shred_version = vote_cnt>0UL ? votes[0].shred_version : fallback_votes[0].shred_version;
   memset( &cert.agg_skip, 0, sizeof(fd_bls_agg_t) );
   for( ulong i=0UL; i<vote_cnt; i++ ) agg_add( &cert.agg_skip, votes[i].rank, &votes[i].sig );
   if( FD_UNLIKELY( agg_is_identity( &cert.agg_skip ) ) ) {

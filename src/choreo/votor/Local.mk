@@ -1,5 +1,5 @@
 $(call add-hdrs,ag_votor_base.h ag_bls_serde.h ag_vote.h ag_vote_serde.h ag_epoch_info.h ag_cert.h ag_cert_serde.h ag_event.h ag_pool.h ag_slot_state.h ag_finality_tracker.h ag_parent_ready_tracker.h ag_votor.h)
-$(call add-objs,ag_bls_serde ag_vote ag_vote_serde ag_epoch_info ag_cert_serde ag_pool ag_slot_state ag_finality_tracker ag_parent_ready_tracker ag_votor,fd_choreo)
+$(call add-objs,ag_bls_serde ag_vote ag_vote_serde ag_epoch_info ag_cert ag_cert_serde ag_pool ag_slot_state ag_finality_tracker ag_parent_ready_tracker ag_votor,fd_choreo)
 
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_ag_votor_base,test_ag_votor_base,fd_util)

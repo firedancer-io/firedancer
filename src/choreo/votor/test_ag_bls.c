@@ -3,7 +3,7 @@
 #include "../../third_party/blst/bindings/blst.h"
 
 /* Compressed public keys are only needed to exercise the compressed arm
-   of fd_bls_pub_try_from_bytes; ag_bls has no compressor of its own. */
+   of fd_bls_pub_de; ag_bls has no compressor of its own. */
 
 static void
 pub_compress( uchar                out[ FD_BLS_PUB_COMPRESSED_SZ ],
@@ -204,9 +204,9 @@ test_roundtrip( void ) {
     fd_bls_sec_to_pub( &sk[i], pk+i );
     fd_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
 
-    FD_TEST(  fd_bls_agg_verify( pk+i,         &sig[i], msg,  msg_sz ) );
-    FD_TEST( !fd_bls_agg_verify( pk+(i+1UL)%N, &sig[i], msg,  msg_sz ) );
-    FD_TEST( !fd_bls_agg_verify( pk+i, &sig[i], (uchar const *)"x", 1UL ) );
+    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, pk+i,         &sig[i] ) );
+    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, pk+(i+1UL)%N, &sig[i] ) );
+    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    pk+i,         &sig[i] ) );
   }
 
   FD_LOG_NOTICE(( "blst sig round trip pass" ));
@@ -229,7 +229,7 @@ test_derive( void ) {
   uchar const * msg = (uchar const *)"derived key vote";
   ulong         msg_sz = 16UL;
   fd_bls_sig_t  sig; fd_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
-  FD_TEST( fd_bls_agg_verify( &pk, &sig, msg, msg_sz ) );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pk, &sig ) );
 
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
@@ -256,14 +256,14 @@ test_ref_api( void ) {
   uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ];
   pub_compress( comp, pk );
   fd_bls_pub_t from_comp, from_aff;
-  FD_TEST( !fd_bls_pub_try_from_bytes( &from_comp, comp,        sizeof(comp)     ) );
+  FD_TEST( !fd_bls_pub_de( &from_comp, comp,        sizeof(comp)     ) );
   uchar aff[ FD_BLS_PUB_SZ ]; { blst_p1_affine a[1]; blst_p1_to_affine( a, pk ); blst_p1_affine_serialize( aff, a ); }
-  FD_TEST( !fd_bls_pub_try_from_bytes( &from_aff,  aff,         FD_BLS_PUB_SZ    ) );
+  FD_TEST( !fd_bls_pub_de( &from_aff,  aff,         FD_BLS_PUB_SZ    ) );
   FD_TEST( !memcmp( &from_comp, pk, sizeof(fd_bls_pub_t) ) );
   FD_TEST( !memcmp( &from_aff,  pk, sizeof(fd_bls_pub_t) ) );
-  FD_TEST(  fd_bls_pub_try_from_bytes( &from_aff, comp, 47UL ) ); /* bad length */
+  FD_TEST(  fd_bls_pub_de( &from_aff, comp, 47UL ) ); /* bad length */
   uchar junk[ FD_BLS_PUB_COMPRESSED_SZ ]; fd_memset( junk, 0xEE, sizeof(junk) );
-  FD_TEST(  fd_bls_pub_try_from_bytes( &from_aff, junk, sizeof(junk) ) ); /* not on curve */
+  FD_TEST(  fd_bls_pub_de( &from_aff, junk, sizeof(junk) ) ); /* not on curve */
 
   FD_LOG_NOTICE(( "reference api pass" ));
 }

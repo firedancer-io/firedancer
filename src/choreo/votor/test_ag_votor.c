@@ -14,7 +14,7 @@
     FD_TEST( !try_recv( (votor), &unused_ ) ); \
   } while( 0 )
 
-#define SCRATCH_MAX (1UL<<18) /* 256 KiB */
+#define SCRATCH_MAX (1UL<<19) /* 512 KiB */
 
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
@@ -122,9 +122,8 @@ setup_votor( long now ) {
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init            ( votor, 0UL, now );
+  ag_votor_init            ( votor, 0UL, now, sec_sign_fn, &g_sk[0] );
   ag_votor_advance_epoch    ( votor, 0UL, 0UL );
-  ag_votor_set_bls_signer   ( votor, sec_sign_fn, &g_sk[0] );
   ag_votor_set_shred_version( votor, TEST_SHRED_VERSION );
 
   g_epoch_info = &epoch_info_mem;

@@ -6,7 +6,6 @@
 
 ulong
 ag_cert_ser( ag_cert_t const * self,
-             ushort            shred_version,
              uchar             buf[ static AG_CERT_SER_MAX ] ) {
   fd_bls_agg_t const * agg;
   fd_bls_agg_t const * agg2 = NULL;
@@ -55,7 +54,7 @@ ag_cert_ser( ag_cert_t const * self,
   cert.block_id      = hash;
   cert.bitmap_sz     = agg2 ? ag_bls_agg_pair_ser_sz( agg, agg2 ) : ag_bls_agg_ser_sz( agg );
   cert.bitmap        = NULL; /* filled straight into buf by the bitmap encoder below */
-  cert.shred_version = shred_version;
+  cert.shred_version = ag_cert_shred_version( self );
 
   ulong off = 0UL;
   buf[ off ] = cert.version;                                                                    off += sizeof(uchar);
@@ -74,7 +73,6 @@ ag_cert_ser( ag_cert_t const * self,
 
 int
 ag_cert_de( ag_cert_t *   self,
-            ushort        shred_version,
             uchar const * buf,
             ulong         buf_sz ) {
   FAIL( buf_sz<AG_CERT_SER_MIN || buf_sz>AG_CERT_SER_MAX, SZ );
@@ -112,23 +110,25 @@ ag_cert_de( ag_cert_t *   self,
   FAIL( cert.bitmap_sz>rem || rem-cert.bitmap_sz!=sizeof(ushort), SZ ); /* too few, or trailing bytes */
 
   cert.shred_version = FD_LOAD( ushort, cert.bitmap+cert.bitmap_sz );
-  FAIL( cert.shred_version!=shred_version, SHRED_VERSION );
 
   int err;
   switch( self->kind ) {
   case AG_CERT_KIND_FINAL:
     self->final.slot = cert.slot;
+    self->final.shred_version = cert.shred_version;
     if( FD_UNLIKELY( err = ag_bls_agg_de( &self->final.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     self->final.agg.sig = *sig;
     break;
   case AG_CERT_KIND_FAST_FINAL:
     self->fast_final.slot = cert.slot;
+    self->fast_final.shred_version = cert.shred_version;
     memcpy( self->fast_final.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( err = ag_bls_agg_de( &self->fast_final.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     self->fast_final.agg.sig = *sig;
     break;
   case AG_CERT_KIND_NOTAR:
     self->notar.slot = cert.slot;
+    self->notar.shred_version = cert.shred_version;
     memcpy( self->notar.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( err = ag_bls_agg_de( &self->notar.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     self->notar.agg.sig = *sig;
@@ -137,6 +137,7 @@ ag_cert_de( ag_cert_t *   self,
     fd_bls_agg_t * agg  = &self->notar_fallback.agg_notar;
     fd_bls_agg_t * agg2 = &self->notar_fallback.agg_notar_fallback;
     self->notar_fallback.slot = cert.slot;
+    self->notar_fallback.shred_version = cert.shred_version;
     memcpy( self->notar_fallback.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
     if( FD_UNLIKELY( err = ag_bls_agg_pair_de( agg, agg2, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     agg->sig = *sig;
@@ -146,6 +147,7 @@ ag_cert_de( ag_cert_t *   self,
     fd_bls_agg_t * agg  = &self->skip.agg_skip;
     fd_bls_agg_t * agg2 = &self->skip.agg_skip_fallback;
     self->skip.slot = cert.slot;
+    self->skip.shred_version = cert.shred_version;
     if( FD_UNLIKELY( err = ag_bls_agg_pair_de( agg, agg2, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     agg->sig = *sig;
     break;

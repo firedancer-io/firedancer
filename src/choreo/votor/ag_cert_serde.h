@@ -7,7 +7,6 @@
 #define AG_CERT_DE_SUCCESS           ( 0)
 #define AG_CERT_DE_ERR_SZ            (-1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */
 #define AG_CERT_DE_ERR_INVAL         (-2) /* InvalidTagEncoding, InvalidValue                                                 */
-#define AG_CERT_DE_ERR_SHRED_VERSION (-3) /* Custom("shred version mismatch")                                                 */
 
 FD_STATIC_ASSERT( AG_BLS_DE_SUCCESS  ==AG_CERT_DE_SUCCESS,   ag_cert_serde );
 FD_STATIC_ASSERT( AG_BLS_DE_ERR_SZ   ==AG_CERT_DE_ERR_SZ,    ag_cert_serde );
@@ -59,12 +58,10 @@ FD_PROTOTYPES_BEGIN
 
 ulong
 ag_cert_ser( ag_cert_t const * self,
-             ushort            shred_version,
              uchar             buf[ static AG_CERT_SER_MAX ] );
 
 int
 ag_cert_de( ag_cert_t *   cert,
-            ushort        shred_version,
             uchar const * buf,
             ulong         buf_sz );
 
