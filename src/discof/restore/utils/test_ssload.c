@@ -3,7 +3,7 @@
 #include "../../../flamenco/runtime/fd_bank.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../../flamenco/stakes/fd_stake_delegations.h"
+#include "../../../flamenco/stakes/test_stake_delegations_util.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include <limits.h>
 

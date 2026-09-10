@@ -4,6 +4,7 @@
 #include "../../rewards/fd_rewards_base.h"
 #include "../../rewards/fd_stake_rewards.h"
 #include "../../stakes/fd_stake_types.h"
+#include "../../stakes/test_stake_delegations_util.h"
 #include "../program/fd_vote_program.h"
 #include "../program/vote/fd_vote_codec.h"
 #include "../program/vote/fd_vote_state_versioned.h"
@@ -1019,7 +1020,6 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         FD_STAKE_STATE_SZ,
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   }
-  FD_TEST( fd_stake_delegations_disk_spill( spill_delegations ) );
   FD_TEST( fd_stake_delegations_base_cnt( spill_delegations )==2UL );
   FD_TEST( fd_stake_delegations_disk_cnt( spill_delegations )==1UL );
 
@@ -1038,7 +1038,6 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
       root_fork_id );
   FD_TEST( !fd_stake_delegations_base_cnt( spill_delegations ) );
   FD_TEST( !fd_stake_delegations_disk_cnt( spill_delegations ) );
-  FD_TEST( !fd_stake_delegations_disk_spill( spill_delegations ) );
   free( mem );
 
   FD_LOG_NOTICE(( "test_snapshot_refresh_prunes_inactive_stakes: PASSED" ));

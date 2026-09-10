@@ -807,11 +807,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      need to do this once, at the feature activation epoch boundary.
 
      https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477
-
-     Recompute while disk spill records exist as a conservative check on
-     the cross-tier running totals. */
-  int disk_spill = fd_stake_delegations_disk_spill( stake_delegations );
-  if( FD_UNLIKELY( disk_spill || FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
+  */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
     fd_stake_history_t history[1];
     if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, history ) ) ) {
       FD_LOG_CRIT(( "invariant violation: StakeHistory sysvar missing or invalid" ));

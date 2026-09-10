@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_bank.h"
 #include "../rewards/fd_stake_rewards.h"
+#include "../stakes/test_stake_delegations_util.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 
 #include <stdlib.h> // ARM64: aligned_alloc(3)

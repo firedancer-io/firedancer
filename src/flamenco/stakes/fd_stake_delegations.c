@@ -1235,16 +1235,6 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
 
 #endif
 
-ulong
-fd_stake_delegations_base_cnt( fd_stake_delegations_t const * stake_delegations ) {
-  return root_pool_used( get_root_pool( stake_delegations ) ) + stake_delegations->disk_root_cnt_;
-}
-
-ulong
-fd_stake_delegations_disk_cnt( fd_stake_delegations_t const * stake_delegations ) {
-  return stake_delegations->disk_root_cnt_ + stake_delegations->disk_delta_cnt_;
-}
-
 /* Fork-aware delta operations */
 
 ushort

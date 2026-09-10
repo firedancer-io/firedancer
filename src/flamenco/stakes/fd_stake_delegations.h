@@ -450,27 +450,6 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               fd_accdb_t *               accdb,
                               fd_accdb_fork_id_t         fork_id );
 
-/* fd_stake_delegations_base_cnt returns the number of RAM and disk root
-   delegations in the base of the stake delegations struct. */
-
-ulong
-fd_stake_delegations_base_cnt( fd_stake_delegations_t const * stake_delegations );
-
-/* fd_stake_delegations_disk_cnt returns the combined number of full
-   root and delta records resident on disk. */
-
-ulong
-fd_stake_delegations_disk_cnt( fd_stake_delegations_t const * stake_delegations );
-
-/* fd_stake_delegations_disk_spill returns non-zero while any full
-   record is resident on disk.  Unlike the old fallback predicate, this
-   is not sticky. */
-
-FD_FN_PURE static inline int
-fd_stake_delegations_disk_spill( fd_stake_delegations_t const * stake_delegations ) {
-  return !!(stake_delegations->disk_root_cnt_ + stake_delegations->disk_delta_cnt_);
-}
-
 /* fd_stake_delegations_new_fork allocates a new fork index for the
    stake delegations.  The fork index is returned to the caller. */
 
