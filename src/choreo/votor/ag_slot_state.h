@@ -125,11 +125,6 @@ ag_slot_state_add_vote( ag_slot_state_t *   self,
                         fd_bls_set_t *      bad );
 
 void
-ag_slot_state_subtract_vote( ag_slot_state_t * self,
-                             ag_vote_t const * vote,
-                             ulong             stake );
-
-void
 ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
                                    ag_block_hash_t const block_hash );
 
