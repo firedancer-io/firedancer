@@ -2024,6 +2024,51 @@ EXAMPLES
 
 </tile>
 
+<enum name="DatagramRxResult">
+    <int value="0" name="Vote" label="Datagram carried a vote and was handed to vote rx" />
+    <int value="1" name="Cert" label="Datagram carried a cert and was handed to cert rx" />
+    <int value="2" name="NotReady" label="Datagram arrived before the votor tile was initialized" />
+    <int value="3" name="TooSmall" label="Datagram was too small to hold a version and a tag" />
+    <int value="4" name="UnknownTag" label="Datagram tag was neither a vote nor a cert" />
+</enum>
+
+<enum name="VoteRxResult">
+    <int value="0" name="Success" label="Vote was handed to the pool and accepted" />
+    <int value="1" name="BadSize" label="Vote was truncated or had trailing bytes" />
+    <int value="2" name="BadEncoding" label="Vote had an invalid version, tag, or signature encoding" />
+    <int value="3" name="ShredVersion" label="Vote was for a different shred version" />
+    <int value="4" name="UnknownSigner" label="Sending connection had no authenticated identity" />
+    <int value="5" name="NotAPeer" label="Sender was not in the peer set" />
+    <int value="6" name="NotRanked" label="Sender was not a ranked validator in the vote slot's epoch" />
+    <int value="7" name="SlotOutOfBounds" label="Vote slot was either too old or too far in the future" />
+    <int value="8" name="Duplicate" label="Voter had already cast this vote" />
+    <int value="9" name="Slashable" label="Vote constitutes a slashable offence" />
+    <int value="10" name="Banned" label="Sender is banned for a failed signature verification" />
+    <int value="11" name="FailedVerify" label="Vote's own signature failed the check and the vote was dropped" />
+</enum>
+
+<enum name="CertRxResult">
+    <int value="0" name="Success" label="Cert was handed to the pool and accepted" />
+    <int value="1" name="BadSize" label="Cert was truncated or had trailing bytes" />
+    <int value="2" name="BadEncoding" label="Cert had an invalid version, tag, bitmap, or signature encoding" />
+    <int value="3" name="ShredVersion" label="Cert was for a different shred version" />
+    <int value="4" name="UnknownSigner" label="Sending connection had no authenticated identity" />
+    <int value="5" name="NotAPeer" label="Sender was not in the peer set" />
+    <int value="6" name="NotRanked" label="Sender was not a ranked validator in the cert slot's epoch" />
+    <int value="7" name="SlotOutOfBounds" label="Cert slot was either too old or too far in the future" />
+    <int value="8" name="Duplicate" label="Cert was already in the pool" />
+    <int value="9" name="FailedVerify" label="Cert failed the stake threshold or the aggregate signature check" />
+    <int value="10" name="Banned" label="Sender is banned for a failed signature verification" />
+</enum>
+
+<tile name="votor">
+
+    <counter name="DatagramRx" enum="DatagramRxResult" summary="Result of dispatching an inbound datagram (per datagram)" />
+    <counter name="VoteRx"     enum="VoteRxResult"     summary="Result of processing an inbound vote (per vote)" />
+    <counter name="CertRx"     enum="CertRxResult"     summary="Result of processing an inbound cert (per cert)" />
+
+</tile>
+
 <tile name="gui">
     <gauge name="ConnActive" summary="Active HTTP connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection" />
     <gauge name="WebsocketConnActive" summary="Active WebSocket connections to the GUI service" />

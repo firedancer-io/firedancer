@@ -74,7 +74,7 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
   for( ulong i=0UL; i<in_cnt; i++ ) {
     if( FD_UNLIKELY( !stakes[i].stake ) ) continue; /* re-check nonzero stake, in case stakes came verbatim from a snapshot */
     uchar const * bls = stakes[i].bls_key;
-    if( FD_UNLIKELY( fd_bls_pub_try_from_bytes( &rank[m].pk, bls, FD_BLS_PUB_COMPRESSED_SZ ) ) ) continue; /* no / invalid BLS key */
+    if( FD_UNLIKELY( fd_bls_pub_de( &rank[m].pk, bls, FD_BLS_PUB_COMPRESSED_SZ ) ) ) continue; /* no / invalid BLS key */
     rank[m].stake = stakes[i].stake;
     rank[m].bls   = bls;
     rank[m].id    = stakes[i].id_key.uc;

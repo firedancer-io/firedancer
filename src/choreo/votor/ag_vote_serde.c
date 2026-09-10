@@ -4,7 +4,6 @@
 
 ulong
 ag_vote_ser( ag_vote_t const * self,
-             ushort            shred_version,
              uchar             buf[ static AG_VOTE_SER_SZ( 1 ) ] ) {
   ag_vote_serde_t vote;
 
@@ -12,7 +11,7 @@ ag_vote_ser( ag_vote_t const * self,
   vote.tag           = (uchar)( self->kind+AG_VOTE_SERDE_TAG_NOTAR );
   vote.slot          = ag_vote_slot( self );
   vote.block_id      = ag_vote_block_hash( self );
-  vote.shred_version = shred_version;
+  vote.shred_version = ag_vote_shred_version( self );
 
   ulong off = 0UL;
   buf[ off ] = vote.version;                                                                    off += sizeof(uchar);
@@ -29,7 +28,6 @@ ag_vote_ser( ag_vote_t const * self,
 
 int
 ag_vote_de( ag_vote_t *   self,
-            ushort        shred_version,
             uchar const * buf,
             ulong         buf_sz ) {
   FAIL( buf_sz<2 /* version + tag */, SZ );
@@ -51,7 +49,6 @@ ag_vote_de( ag_vote_t *   self,
   }
   vote.signature     = buf+off;                    off += FD_BLS_SIG_SZ;
 
-  /* the only place a signature crosses between bytes and a point */
   fd_bls_sig_t   sig[1];
   blst_p2_affine sig_aff[1];
   FAIL( vote.signature[0]&0xA0U,                                      INVAL );
@@ -59,7 +56,6 @@ ag_vote_de( ag_vote_t *   self,
   FAIL( !blst_p2_affine_in_g2( sig_aff ),                             INVAL );
   blst_p2_from_affine( sig, sig_aff );
   vote.shred_version = FD_LOAD( ushort, buf+off ); off += sizeof(ushort);
-  FAIL( vote.shred_version!=shred_version, SHRED_VERSION );
 
   fd_memset( self, 0, sizeof(ag_vote_t) );
   self->kind = kind;

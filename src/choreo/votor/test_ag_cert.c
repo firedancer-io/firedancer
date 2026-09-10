@@ -117,9 +117,19 @@ cert_is_signer( ag_cert_t const * c,
   }
 }
 
+static int
+cert_verify( ag_cert_t const *       c,
+             ag_epoch_info_t const * epoch_info ) {
+  return ag_cert_verify( c, epoch_info );
+}
+
 static void
 check_full_cert( ag_cert_t const * c,
                  ulong             n ) {
+  void *            mem        = NULL;
+  ag_epoch_info_t * epoch_info = make_epoch( n, &mem );
+  FD_TEST( cert_verify( c, epoch_info ) );
+  free( mem );
   FD_TEST( cert_stake( c )==n );
   for( ulong i=0UL; i<n; i++ ) FD_TEST( cert_is_signer( c, g_info[i].id ) );
 }
@@ -186,6 +196,221 @@ test_mixed( void ) {
   free( em );
 }
 
+/* src/consensus/cert.rs::{final,fast_final,notar,notar_fallback,skip}_failure_cases
+
+   The reference's try_new rejects a vote set that disagrees on slot or block
+   hash.  There is no try_new here: a cert is either ours, and construct
+   FD_TESTs that agreement because disagreeing votes are a bug rather than an
+   input, or it is the network's, and arrives as (slot, hash, aggregate) with
+   no votes to disagree in the first place.  So the same defect is caught one
+   step later -- an aggregate signed over a different slot or block hash than
+   the cert records fails verify.  Stake is untouched by the tampering, so
+   check_threshold still passes and only check_sig can be rejecting. */
+
+static void
+test_failure_cases( void ) {
+  ulong n = 11UL;
+  create_signers( n );
+  void * em; ag_epoch_info_t * e = make_epoch( n, &em );
+  ag_block_hash_t h;     memset( h,     0x42, sizeof(ag_block_hash_t) );
+  ag_block_hash_t other; memset( other, 0x43, sizeof(ag_block_hash_t) );
+
+  ulong const signers = 9UL; /* clears every kind's threshold, fast-final included */
+  ulong const slot    = 1UL;
+
+  ag_vote_notar_t nv [ 11 ];
+  ag_vote_notar_fallback_t fv [ 11 ];
+  ag_vote_skip_t sv [ 11 ];
+  ag_vote_skip_fallback_t sfv[ 11 ];
+  ag_vote_final_t ev [ 11 ];
+  ag_cert_t c, bad;
+
+  /* notar: slot mismatch, shred version mismatch, then block hash mismatch */
+  mk_notar( nv, slot, h, 0UL, signers );
+  c = cert_build_notar( nv, signers, e );
+  FD_TEST( cert_verify( &c, e ) );
+  bad = c; bad.notar.slot = slot+1UL;   FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; bad.notar.shred_version++;   FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; memcpy( bad.notar.block_hash, other, sizeof(ag_block_hash_t) ); FD_TEST( !cert_verify( &bad, e ) );
+
+  /* notar-fallback: slot mismatch, shred version mismatch, then block hash mismatch */
+  mk_notar( nv, slot, h, 0UL,      5UL );
+  mk_nf   ( fv, slot, h, 5UL,      4UL );
+    c = cert_build_notar_fallback( nv, 5UL, fv, 4UL, e );
+  FD_TEST( cert_verify( &c, e ) );
+  { static char cstr[ AG_CERT_CSTR_MAX ]; FD_TEST( !strncmp( ag_cert_to_cstr( &c, cstr ), "NotarFallback { slot: ", 22UL ) ); FD_LOG_NOTICE(( "%s", cstr )); }
+  bad = c; bad.notar_fallback.slot = slot+1UL;   FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; bad.notar_fallback.shred_version++;   FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; memcpy( bad.notar_fallback.block_hash, other, sizeof(ag_block_hash_t) ); FD_TEST( !cert_verify( &bad, e ) );
+
+  /* skip: slot mismatch, then shred version mismatch (skip certs carry no block hash) */
+  mk_skip( sv,  slot, 0UL, 5UL );
+  mk_sf  ( sfv, slot, 5UL, 4UL );
+    c = cert_build_skip( sv, 5UL, sfv, 4UL, e );
+  FD_TEST( cert_verify( &c, e ) );
+  bad = c; bad.skip.slot = slot+1UL; FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; bad.skip.shred_version++; FD_TEST( !cert_verify( &bad, e ) );
+
+  /* fast-final: slot mismatch, shred version mismatch, then block hash mismatch */
+  mk_notar( nv, slot, h, 0UL, signers );
+  c = cert_build_fast_final( nv, signers, e );
+  FD_TEST( cert_verify( &c, e ) );
+  bad = c; bad.fast_final.slot = slot+1UL;   FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; bad.fast_final.shred_version++;   FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; memcpy( bad.fast_final.block_hash, other, sizeof(ag_block_hash_t) ); FD_TEST( !cert_verify( &bad, e ) );
+
+  /* final: slot mismatch, then shred version mismatch (final certs carry no block hash) */
+  mk_final( ev, slot, 0UL, signers );
+  c = cert_build_final( ev, signers, e );
+  FD_TEST( cert_verify( &c, e ) );
+  bad = c; bad.final.slot = slot+1UL; FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; bad.final.shred_version++; FD_TEST( !cert_verify( &bad, e ) );
+
+  free( em );
+}
+
+/* src/consensus/cert.rs::{final,fast_final,notar,notar_fallback,skip}_stake_threshold
+   src/consensus/validated_cert.rs::valid_cert, ::threshold_not_met */
+
+static void
+test_thresholds( void ) {
+  ulong n = 11UL;
+  create_signers( n );
+  void * em; ag_epoch_info_t * e = make_epoch( n, &em );
+  ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
+
+  ag_vote_notar_t nv[ 11 ];
+  ag_vote_notar_fallback_t fv[ 11 ];
+  ag_vote_skip_t sv[ 11 ];
+  ag_vote_final_t ev[ 11 ];
+  ag_cert_t c;
+
+  mk_notar( nv, 1UL, h, 0UL, 7UL );
+  c = cert_build_notar( nv, 7UL, e );
+  FD_TEST(  cert_verify( &c, e ) );
+  mk_notar( nv, 1UL, h, 0UL, 6UL );
+  c = cert_build_notar( nv, 6UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  mk_notar( nv, 1UL, h, 0UL, 4UL );
+  mk_nf   ( fv, 1UL, h, 4UL, 3UL );
+    c = cert_build_notar_fallback( nv, 4UL, fv, 3UL, e );
+  FD_TEST(  cert_verify( &c, e ) );
+  mk_notar( nv, 1UL, h, 0UL, 3UL );
+  mk_nf   ( fv, 1UL, h, 3UL, 3UL );
+  c = cert_build_notar_fallback( nv, 3UL, fv, 3UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  mk_skip( sv, 1UL, 0UL, 7UL );
+  c = cert_build_skip( sv, 7UL, NULL, 0UL, e );
+  FD_TEST(  cert_verify( &c, e ) );
+  mk_skip( sv, 1UL, 0UL, 6UL );
+  c = cert_build_skip( sv, 6UL, NULL, 0UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  mk_final( ev, 1UL, 0UL, 7UL );
+  c = cert_build_final( ev, 7UL, e );
+  FD_TEST(  cert_verify( &c, e ) );
+  mk_final( ev, 1UL, 0UL, 6UL );
+  c = cert_build_final( ev, 6UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  mk_notar( nv, 1UL, h, 0UL, 9UL );
+  c = cert_build_fast_final( nv, 9UL, e );
+  FD_TEST(  cert_verify( &c, e ) );
+  mk_notar( nv, 1UL, h, 0UL, 8UL );
+  c = cert_build_fast_final( nv, 8UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  free( em );
+}
+
+/* src/consensus/cert.rs::{final,fast_final,notar,notar_fallback,skip}_sig_validity
+   src/consensus/validated_cert.rs::invalid_signature
+
+   Validator 0 signs with validator 1's key while still claiming rank 0, so
+   the aggregate is built over a signature that its recorded rank's pubkey
+   cannot verify.  Nine signers either way, so the threshold is met in both
+   halves and only check_sig separates them. */
+
+static void
+test_sig_validity( void ) {
+  ulong n = 11UL;
+  create_signers( n );
+  void * em; ag_epoch_info_t * e = make_epoch( n, &em );
+  ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
+
+  ulong const slot = 1UL;
+
+  ag_vote_notar_t nv [ 11 ];
+  ag_vote_notar_fallback_t fv [ 11 ];
+  ag_vote_skip_t sv [ 11 ];
+  ag_vote_final_t ev [ 11 ];
+  ag_cert_t c;
+
+  /* notar */
+  mk_notar( nv, slot, h, 0UL, 9UL );
+  c = cert_build_notar( nv, 9UL, e );
+  FD_TEST( cert_verify( &c, e ) );
+  nv[0] = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar; /* wrong key for rank 0 */
+  c = cert_build_notar( nv, 9UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  /* notar-fallback */
+  mk_notar( nv, slot, h, 0UL, 5UL );
+  mk_nf   ( fv, slot, h, 5UL, 4UL );
+    c = cert_build_notar_fallback( nv, 5UL, fv, 4UL, e );
+  FD_TEST( cert_verify( &c, e ) );
+  nv[0] = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar;
+  c = cert_build_notar_fallback( nv, 5UL, fv, 4UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  /* skip */
+  mk_skip( sv, slot, 0UL, 9UL );
+  c = cert_build_skip( sv, 9UL, NULL, 0UL, e );
+  FD_TEST( cert_verify( &c, e ) );
+  sv[0] = ag_vote_construct_skip( sec_sign_fn, &g_sk[1], slot, 0, TEST_SHRED_VERSION ).skip;
+  c = cert_build_skip( sv, 9UL, NULL, 0UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  /* final */
+  mk_final( ev, slot, 0UL, 9UL );
+  c = cert_build_final( ev, 9UL, e );
+  FD_TEST( cert_verify( &c, e ) );
+  ev[0] = ag_vote_construct_final( sec_sign_fn, &g_sk[1], slot, 0, TEST_SHRED_VERSION ).final;
+  c = cert_build_final( ev, 9UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  /* fast-final */
+  mk_notar( nv, slot, h, 0UL, 9UL );
+  c = cert_build_fast_final( nv, 9UL, e );
+  FD_TEST( cert_verify( &c, e ) );
+  nv[0] = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar;
+  c = cert_build_fast_final( nv, 9UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  free( em );
+}
+
+/* agave votor/src/aggregate_accumulator.rs try_build_base3_cert
+
+   "Individually valid votes can still be chosen such that their signatures
+   cancel to the identity within one partition, making any certificate
+   containing that partition invalid.  Treat an identity partition as absent
+   and do not count its stake."  Ranks 9 and 10 hold negated keys -- proof of
+   possession does not prevent that -- so their two fallback signatures over
+   the same payload sum to the point at infinity.  The research reference has
+   no such check, so there is no test of it to mirror. */
+
+static void
+negate_sec( fd_bls_sec_t *       out,
+            fd_bls_sec_t const * in ) {
+  blst_fr f[1];
+  blst_fr_from_scalar( f, in );
+  blst_fr_cneg( f, f, 1 );
+  blst_scalar_from_fr( out, f );
+}
+
 /* CERT_HDR_SZ is everything a serialized cert carries ahead of its
    bitmap: the version and kind tags, the slot, the block id for the kinds
    that carry one, the aggregate signature and the bitmap byte count.
@@ -193,6 +418,70 @@ test_mixed( void ) {
 
 #define CERT_HDR_SZ( has_block_id ) ( 1UL + 1UL + 8UL + ( (has_block_id) ? sizeof(ag_block_hash_t) : 0UL ) + FD_BLS_SIG_SZ + 8UL )
 #define CERT_BITMAP_HDR_SZ           ( 1UL + 2UL )
+
+/* the bitmap version byte of a serialized notar-fallback cert: 0 is base2
+   (one partition), 1 is base3 (two).  The bitmap follows the header, whose
+   size includes the block hash. */
+
+static uchar
+bitmap_version( ag_cert_t const * c ) {
+  uchar buf[ AG_CERT_SER_MAX ];
+  ag_cert_ser( c, buf );
+  return buf[ CERT_HDR_SZ( 1 ) ];
+}
+
+static void
+test_identity_partition( void ) {
+  ulong n = 11UL;
+  create_signers( n );
+  negate_sec( &g_sk[10], &g_sk[9] );
+  fd_bls_sec_to_pub( &g_sk[10], &g_info[10].bls_key );
+  void * em; ag_epoch_info_t * e = make_epoch( n, &em );
+  ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
+
+  ag_vote_notar_t nv [ 11 ];
+  ag_vote_skip_t sv [ 11 ];
+  ag_vote_notar_fallback_t fv [ 11 ];
+  ag_vote_skip_fallback_t sfv[ 11 ];
+  ag_cert_t c;
+
+  /* control: ranks 8 and 9 do not cancel, so both partitions survive */
+  mk_notar( nv, 1UL, h, 0UL, 7UL );
+  mk_nf   ( fv, 1UL, h, 8UL, 2UL );
+  c = cert_build_notar_fallback( nv, 7UL, fv, 2UL, e );
+  FD_TEST( cert_stake( &c )==9UL );
+  FD_TEST( cert_is_signer( &c, 8UL ) && cert_is_signer( &c, 9UL ) );
+  FD_TEST( bitmap_version( &c )==1 );
+  FD_TEST( cert_verify( &c, e ) );
+
+  /* ranks 9 and 10 cancel: the fallback partition is absent, its stake is not
+     counted, and the cert degrades to the single partition form */
+  mk_nf( fv, 1UL, h, 9UL, 2UL );
+  c = cert_build_notar_fallback( nv, 7UL, fv, 2UL, e );
+  FD_TEST( fd_bls_set_cnt( c.notar_fallback.agg_notar_fallback.set )==0UL );
+  FD_TEST( !cert_is_signer( &c, 9UL ) && !cert_is_signer( &c, 10UL ) );
+  FD_TEST( cert_stake( &c )==7UL );
+  FD_TEST( bitmap_version( &c )==0 );
+  FD_TEST( cert_verify( &c, e ) ); /* the 7 surviving notar votes still clear 60% */
+
+  /* same in a skip cert's fallback partition */
+  mk_skip( sv,  1UL, 0UL, 7UL );
+  mk_sf  ( sfv, 1UL, 9UL, 2UL );
+    c = cert_build_skip( sv, 7UL, sfv, 2UL, e );
+  FD_TEST( fd_bls_set_cnt( c.skip.agg_skip_fallback.set )==0UL );
+  FD_TEST( !cert_is_signer( &c, 9UL ) && !cert_is_signer( &c, 10UL ) );
+  FD_TEST( cert_stake( &c )==7UL );
+  FD_TEST( cert_verify( &c, e ) );
+
+  /* without the dropped partition the remaining stake can fall short, which is
+     what stops ag_slot_state.c from emitting the cert at all */
+  mk_notar( nv, 1UL, h, 0UL, 6UL );
+    c = cert_build_notar_fallback( nv, 6UL, fv, 2UL, e );
+  FD_TEST( cert_stake( &c )==6UL );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  free( em );
+}
 
 /* Golden wire vectors.
 
@@ -237,7 +526,7 @@ check_cert_wire( char const *         name,
                  ulong                exp_sz,
                  char const *         exp_sha ) {
   uchar buf[ AG_CERT_SER_MAX ];
-  ulong sz   = ag_cert_ser( c, TEST_SHRED_VERSION, buf );
+  ulong sz   = ag_cert_ser( c, buf );
   ulong hdr = CERT_HDR_SZ( !!block_id );
 
   FD_TEST( sz==hdr+CERT_BITMAP_HDR_SZ+bitmap_sz+2UL );
@@ -267,19 +556,19 @@ check_cert_wire( char const *         name,
   /* the same bytes decode back, and the decoded cert reserializes to them */
 
   ag_cert_t rt;
-  FD_TEST( ag_cert_de( &rt, TEST_SHRED_VERSION, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
   FD_TEST( rt.kind==c->kind );
   FD_TEST( ag_cert_slot( &rt )==slot );
+  FD_TEST( ag_cert_shred_version( &rt )==TEST_SHRED_VERSION );
   if( block_id ) FD_TEST( ag_cert_block_hash( &rt ) && !memcmp( ag_cert_block_hash( &rt ), block_id, sizeof(ag_block_hash_t) ) );
   else           FD_TEST( ag_cert_block_hash( &rt )==NULL );
 
   uchar again[ AG_CERT_SER_MAX ];
-  FD_TEST( ag_cert_ser( &rt, TEST_SHRED_VERSION, again )==sz );
+  FD_TEST( ag_cert_ser( &rt, again )==sz );
   FD_TEST( !memcmp( again, buf, sz ) );
 
-  FD_TEST( ag_cert_de( &rt, (ushort)(TEST_SHRED_VERSION+1), buf, sz     )==AG_CERT_DE_ERR_SHRED_VERSION );
-  FD_TEST( ag_cert_de( &rt, TEST_SHRED_VERSION,             buf, sz-1UL )==AG_CERT_DE_ERR_SZ ); /* too few  */
-  FD_TEST( ag_cert_de( &rt, TEST_SHRED_VERSION,             buf, sz+1UL )==AG_CERT_DE_ERR_SZ ); /* trailing */
+  FD_TEST( ag_cert_de( &rt, buf, sz-1UL )==AG_CERT_DE_ERR_SZ ); /* too few  */
+  FD_TEST( ag_cert_de( &rt, buf, sz+1UL )==AG_CERT_DE_ERR_SZ ); /* trailing */
 }
 
 static void
@@ -350,13 +639,74 @@ test_wire_golden( void ) {
   FD_LOG_NOTICE(( "cert golden wire vectors pass" ));
 }
 
+/* A cert off the wire holds the sum of both partitions' signatures in
+   its base aggregate and the identity in its fallback aggregate, which
+   is how every notar-fallback and skip cert reaches verify in the tile. */
+
+static void
+test_wire_verify( void ) {
+  ulong n = 11UL;
+  create_signers( n );
+  void * em; ag_epoch_info_t * e = make_epoch( n, &em );
+  ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
+
+  ulong const slot = 7UL;
+
+  ag_vote_notar_t          nv [ 11 ];
+  ag_vote_skip_t           sv [ 11 ];
+  ag_vote_notar_fallback_t fv [ 11 ];
+  ag_vote_skip_fallback_t  sfv[ 11 ];
+  ag_cert_t                c, rt;
+  uchar                    buf[ AG_CERT_SER_MAX ];
+  ulong                    sz;
+
+  /* both partitions */
+  mk_notar( nv, slot, h, 0UL, 5UL );
+  mk_nf   ( fv, slot, h, 5UL, 4UL );
+  c  = cert_build_notar_fallback( nv, 5UL, fv, 4UL, e );
+  sz = ag_cert_ser( &c, buf );
+  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( blst_p2_is_inf( &rt.notar_fallback.agg_notar_fallback.sig ) );
+  FD_TEST( cert_verify( &rt, e ) );
+  rt.notar_fallback.slot = slot+1UL; FD_TEST( !cert_verify( &rt, e ) );
+
+  mk_skip( sv,  slot, 0UL, 5UL );
+  mk_sf  ( sfv, slot, 5UL, 4UL );
+  c  = cert_build_skip( sv, 5UL, sfv, 4UL, e );
+  sz = ag_cert_ser( &c, buf );
+  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( blst_p2_is_inf( &rt.skip.agg_skip_fallback.sig ) );
+  FD_TEST( cert_verify( &rt, e ) );
+  rt.skip.slot = slot+1UL; FD_TEST( !cert_verify( &rt, e ) );
+
+  /* fallback partition only: the sum lands in the empty notar aggregate */
+  mk_nf( fv, slot, h, 0UL, 9UL );
+  c  = cert_build_notar_fallback( NULL, 0UL, fv, 9UL, e );
+  sz = ag_cert_ser( &c, buf );
+  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( cert_verify( &rt, e ) );
+
+  /* a rank the epoch does not have */
+  mk_notar( nv, slot, h, 0UL, 9UL );
+  c = cert_build_notar( nv, 9UL, e );
+  fd_bls_set_insert( c.notar.agg.set, n );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  free( em );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   test_create();
   test_mixed();
+  test_failure_cases();
+  test_thresholds();
+  test_sig_validity();
+  test_identity_partition();
   test_wire_golden();
+  test_wire_verify();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

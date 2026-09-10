@@ -156,7 +156,7 @@ cert_verify( validator_set_t *              set,
 
   uchar payload[ VOTE_SIGNING_SER_MAX ];
   ulong payload_sz = vote_signing_ser( vote_tag, cert_slot, vote_tag==VOTE_TAG_NOTAR ? cert->block_id.uc : NULL, shred_version, payload );
-  if( FD_UNLIKELY( !fd_bls_agg_verify( pub, sig, payload, payload_sz ) ) ) {
+  if( FD_UNLIKELY( !fd_bls_agg_verify( payload, payload_sz, pub, sig ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer (is_reward %d) cert for slot %lu failed signature verification", bank_slot, !quorum_numer, cert_slot ));
     return 0;
   }

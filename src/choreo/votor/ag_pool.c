@@ -64,6 +64,9 @@ struct s2n_waiting_parent_cert {
 typedef struct s2n_waiting_parent_cert s2n_waiting_parent_cert_t;
 
 struct __attribute__((aligned(128UL))) ag_pool {
+  ulong seq; /* sequence number for total ordering events as producer */
+  ulong slot_max;
+
   slot_states_t *             slot_states;
   ag_parent_ready_tracker_t * parent_ready_tracker;
   ag_finality_tracker_t *     finality_tracker;
@@ -76,11 +79,8 @@ struct __attribute__((aligned(128UL))) ag_pool {
   ulong                   next_epoch_rank;
   ulong                   next_epoch_slot;
 
-  ulong               seq; /* sequence number for total ordering produced events */
   ag_event_pool_t *   pool_events;
   ag_event_repair_t * repair_events;
-
-  ulong slot_max;
 
   struct {
     ag_cert_t *         certs;
@@ -276,6 +276,8 @@ ag_pool_strerror( int err ) {
   case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: return "slot is either too old or too far in the future";
   case AG_POOL_ERR_DUPLICATE:          return "duplicate vote or cert";
   case AG_POOL_ERR_SLASHABLE:          return "vote constitutes a slashable offence";
+  case AG_POOL_ERR_CERT_VERIFY:        return "cert failed the signature or threshold check";
+  case AG_POOL_ERR_VOTE_VERIFY:        return "vote(s) failed the signature check";
   default:                             return "unknown";
   }
 }
@@ -321,7 +323,8 @@ handle_finalization( ag_pool_t *                     self,
 
 static void
 add_valid_cert( ag_pool_t *       self,
-                ag_cert_t const * cert ) {
+                ag_cert_t const * cert,
+                fd_bls_set_t *    bad ) {
   ulong slot = ag_cert_slot( cert );
 
   ag_slot_state_add_cert( slot_state( self, slot ), cert );
@@ -358,7 +361,9 @@ add_valid_cert( ag_pool_t *       self,
       ag_block_id_t child_id = child->child; /* copy before the release below */
       s2n_waiting_parent_cert_pool_ele_release( self->s2n_waiting_parent_cert->pool, child );
 
-      int output = ag_slot_state_notify_parent_certified( slot_state( self, child_id.slot ), child_id.hash );
+      fd_bls_set_t bad_child[ fd_bls_set_word_cnt ];
+      int output = ag_slot_state_notify_parent_certified( slot_state( self, child_id.slot ), child_id.hash, bad_child );
+      fd_bls_set_union( bad, bad, bad_child );
       switch( output ) {
       case -1: repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = child_id } ); break;
       case  0: break;
@@ -443,9 +448,10 @@ ag_pool_fini( ag_pool_t * self ) {
 
 int
 ag_pool_add_cert( ag_pool_t *       self,
-                  ag_cert_t const * cert ) {
-
+                  ag_cert_t const * cert,
+                  fd_bls_set_t *    bad ) {
   ulong slot = ag_cert_slot( cert );
+  fd_bls_set_null( bad );
 
   ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max;
   if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
@@ -462,14 +468,19 @@ ag_pool_add_cert( ag_pool_t *       self,
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
 
-  add_valid_cert( self, cert );
+  ag_epoch_info_t const * epoch_info = fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, self->curr_epoch_info );
+  if( FD_UNLIKELY( !epoch_info || !ag_cert_verify( cert, epoch_info ) ) ) return AG_POOL_ERR_CERT_VERIFY;
+
+  add_valid_cert( self, cert, bad );
   return AG_POOL_SUCCESS;
 }
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
-                  ag_vote_t const * vote ) {
+                  ag_vote_t const * vote,
+                  fd_bls_set_t *    bad ) {
   ulong slot = ag_vote_slot( vote );
+  fd_bls_set_null( bad );
 
   ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max;
   if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) {
@@ -484,30 +495,43 @@ ag_pool_add_vote( ag_pool_t *       self,
     return AG_POOL_ERR_SLASHABLE;
   } else if( FD_UNLIKELY( ag_slot_state_should_ignore_vote( slot_state_, vote ) ) ) {
     return AG_POOL_ERR_DUPLICATE;
-  } else if( FD_UNLIKELY( vote->kind==AG_VOTE_KIND_NOTAR_FALLBACK && slot_state_->votes.notar_fallback_cnt[ voter ]>=AG_NOTAR_FALLBACK_VOTE_MAX ) ) {
-    return AG_POOL_ERR_SLASHABLE;
   }
 
-  ag_slot_state_outputs_t slot_state_outputs = ag_slot_state_add_vote( slot_state_, vote, voter_stake );
+  ag_event_cert_t   cert_events  [ AG_SLOT_STATE_OUT_CERT_MAX   ]; ulong cert_event_cnt;
+  ag_event_pool_t   pool_events  [ AG_SLOT_STATE_OUT_EVENT_MAX  ]; ulong pool_event_cnt;
+  ag_event_repair_t repair_events[ AG_SLOT_STATE_OUT_REPAIR_MAX ]; ulong repair_event_cnt;
+  int ok = ag_slot_state_add_vote( slot_state_, vote, voter_stake, cert_events, &cert_event_cnt, pool_events, &pool_event_cnt, repair_events, &repair_event_cnt, bad );
 
-  for( ulong i=0UL; i<slot_state_outputs.certs_cnt; i++ ) {
-    add_valid_cert( self, &slot_state_outputs.certs[i] );
-  }
-  for( ulong i=0UL; i<slot_state_outputs.votor_events_cnt; i++ ) {
-    ag_event_pool_t event = slot_state_outputs.votor_events[i];
-    event.seq             = self->seq++;
-    pool_events_push( self->pool_events, event );
-  }
-  for( ulong i=0UL; i<slot_state_outputs.block_to_repair_cnt; i++ ) {
-    repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = slot_state_outputs.block_to_repair[i] } );
-  }
+  for( ulong i=0UL; i<cert_event_cnt;   i++ ) add_valid_cert( self, &cert_events[i].cert, bad );
+  for( ulong i=0UL; i<pool_event_cnt;   i++ ) { pool_events  [i].seq = self->seq++; pool_events_push  ( self->pool_events,   pool_events  [i] ); }
+  for( ulong i=0UL; i<repair_event_cnt; i++ ) { repair_events[i].seq = self->seq++; repair_events_push( self->repair_events, repair_events[i] ); }
+  return ok ? AG_POOL_SUCCESS : AG_POOL_ERR_VOTE_VERIFY;
+}
+
+int
+ag_pool_subtract_vote( ag_pool_t *       self,
+                       ag_vote_t const * vote ) {
+  ulong              slot = ag_vote_slot( vote );
+  slot_state_ele_t * ele  = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
+  if( FD_UNLIKELY( !ele ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  ulong voter_stake = ag_epoch_info_validator( ele->slot_state.epoch_info, ag_vote_rank( vote ) )->stake;
+  ag_slot_state_subtract_vote( &ele->slot_state, vote, voter_stake );
   return AG_POOL_SUCCESS;
+}
+
+ag_slot_state_t const *
+ag_pool_slot_state( ag_pool_t const * self,
+                    ulong             slot ) {
+  slot_state_ele_t const * ele = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
+  return ele ? &ele->slot_state : NULL;
 }
 
 int
 ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
-                   ag_block_id_t const * parent_id ) {
+                   ag_block_id_t const * parent_id,
+                   fd_bls_set_t *        bad ) {
+  fd_bls_set_null( bad );
 
   ulong         slot        = block_id->slot;
   uchar const * block_hash  = block_id->hash;
@@ -529,7 +553,7 @@ ag_pool_add_block( ag_pool_t *           self,
   slot_state_ele_t * parent_state_ = slot_state_map_ele_query( self->slot_states->map, &parent_slot, NULL, self->slot_states->pool );
   ag_slot_state_t *  parent_state  = parent_state_ ? &parent_state_->slot_state : NULL;
   if( FD_LIKELY( parent_state && ag_slot_state_is_notar_fallback_or_stronger( parent_state, parent_hash ) ) ) {
-    int output = ag_slot_state_notify_parent_certified( slot_state( self, slot ), block_hash );
+    int output = ag_slot_state_notify_parent_certified( slot_state( self, slot ), block_hash, bad );
     switch( output ) {
     case -1: repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = *block_id } ); return AG_POOL_SUCCESS;
     case  0: break;

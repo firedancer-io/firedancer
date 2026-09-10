@@ -15,24 +15,16 @@
 #define AG_SLASHABLE_SKIP_AND_NOTARIZE           (2)
 #define AG_SLASHABLE_SKIP_AND_FINALIZE           (3)
 #define AG_SLASHABLE_NOTAR_FALLBACK_AND_FINALIZE (4)
+#define AG_SLASHABLE_NOTAR_FALLBACK_OVER_THREE   (5)
 
 #define AG_SLOT_STATE_OUT_CERT_MAX   (3UL)
 #define AG_SLOT_STATE_OUT_EVENT_MAX  (3UL)
 #define AG_SLOT_STATE_OUT_REPAIR_MAX (3UL)
 
-struct ag_slot_state_outputs {
-  ag_cert_t       certs          [ AG_SLOT_STATE_OUT_CERT_MAX   ]; ulong certs_cnt;
-  ag_event_pool_t votor_events   [ AG_SLOT_STATE_OUT_EVENT_MAX  ]; ulong votor_events_cnt;
-  ag_block_id_t   block_to_repair[ AG_SLOT_STATE_OUT_REPAIR_MAX ]; ulong block_to_repair_cnt;
-};
-typedef struct ag_slot_state_outputs ag_slot_state_outputs_t;
-
 struct ag_slot_voted_stake_hash {
   ag_block_hash_t hash;
   ulong           stake;
-  fd_bls_pub_t    pub;
-  fd_bls_sig_t    agg;
-  fd_bls_set_t    set[ fd_bls_set_word_cnt ];
+  fd_bls_agg_t    agg;
 };
 typedef struct ag_slot_voted_stake_hash ag_slot_voted_stake_hash_t;
 
@@ -61,20 +53,19 @@ typedef struct ag_slot_votes ag_slot_votes_t;
 struct ag_slot_voted_stake {
   ag_slot_voted_stake_hash_t notar[AG_VAT_MAX];
   ulong                      notar_cnt;
+  fd_bls_sig_t               notar_sig[ AG_VAT_MAX ];
   ag_slot_voted_stake_hash_t notar_fallback[AG_VAT_MAX * AG_NOTAR_FALLBACK_VOTE_MAX];
   ulong                      notar_fallback_cnt;
+  fd_bls_sig_t               notar_fallback_sig[ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
   ulong                      skip;
-  fd_bls_pub_t               skip_pub;
-  fd_bls_sig_t               skip_agg;
-  fd_bls_set_t               skip_set[ fd_bls_set_word_cnt ];
+  fd_bls_sig_t               skip_sig[ AG_VAT_MAX ];
+  fd_bls_agg_t               skip_agg;
   ulong                      skip_fallback;
-  fd_bls_pub_t               skip_fallback_pub;
-  fd_bls_sig_t               skip_fallback_agg;
-  fd_bls_set_t               skip_fallback_set[ fd_bls_set_word_cnt ];
+  fd_bls_sig_t               skip_fallback_sig[ AG_VAT_MAX ];
+  fd_bls_agg_t               skip_fallback_agg;
   ulong                      finalize;
-  fd_bls_pub_t               finalize_pub;
-  fd_bls_sig_t               finalize_agg;
-  fd_bls_set_t               finalize_set[ fd_bls_set_word_cnt ];
+  fd_bls_sig_t               finalize_sig[ AG_VAT_MAX ];
+  fd_bls_agg_t               finalize_agg;
   ulong                      notar_or_skip;
   ulong                      top_notar;
 };
@@ -121,10 +112,22 @@ void
 ag_slot_state_add_cert( ag_slot_state_t * self,
                         ag_cert_t const * cert );
 
-ag_slot_state_outputs_t
-ag_slot_state_add_vote( ag_slot_state_t * self,
-                        ag_vote_t const * vote,
-                        ulong             stake );
+int
+ag_slot_state_add_vote( ag_slot_state_t *   self,
+                        ag_vote_t const *   vote,
+                        ulong               stake,
+                        ag_event_cert_t *   out_cert_events,
+                        ulong *             out_cert_event_cnt,
+                        ag_event_pool_t *   out_pool_events,
+                        ulong *             out_pool_event_cnt,
+                        ag_event_repair_t * out_repair_events,
+                        ulong *             out_repair_event_cnt,
+                        fd_bls_set_t *      bad );
+
+void
+ag_slot_state_subtract_vote( ag_slot_state_t * self,
+                             ag_vote_t const * vote,
+                             ulong             stake );
 
 void
 ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
@@ -132,7 +135,8 @@ ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
 
 int
 ag_slot_state_notify_parent_certified( ag_slot_state_t *     self,
-                                       ag_block_hash_t const block_hash );
+                                       ag_block_hash_t const block_hash,
+                                       fd_bls_set_t *        bad );
 
 FD_FN_PURE int
 ag_slot_state_check_slashable_offence( ag_slot_state_t const * self,

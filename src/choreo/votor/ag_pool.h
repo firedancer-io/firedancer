@@ -5,12 +5,15 @@
 #include "ag_cert.h"
 #include "ag_epoch_info.h"
 #include "ag_event.h"
+#include "ag_slot_state.h"
 #include "ag_vote.h"
 
 #define AG_POOL_SUCCESS                ( 0)
 #define AG_POOL_ERR_SLOT_OUT_OF_BOUNDS (-1)
 #define AG_POOL_ERR_DUPLICATE          (-2)
 #define AG_POOL_ERR_SLASHABLE          (-3)
+#define AG_POOL_ERR_CERT_VERIFY        (-4)
+#define AG_POOL_ERR_VOTE_VERIFY        (-5)
 
 typedef struct ag_pool ag_pool_t;
 
@@ -54,16 +57,27 @@ ag_pool_advance_epoch( ag_pool_t *             self,
 
 int
 ag_pool_add_cert( ag_pool_t *       self,
-                  ag_cert_t const * cert );
+                  ag_cert_t const * cert,
+                  fd_bls_set_t *    bad );
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
-                  ag_vote_t const * vote );
+                  ag_vote_t const * vote,
+                  fd_bls_set_t *    bad );
+
+int
+ag_pool_subtract_vote( ag_pool_t *       self,
+                       ag_vote_t const * vote );
 
 int
 ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
-                   ag_block_id_t const * parent_id );
+                   ag_block_id_t const * parent_id,
+                   fd_bls_set_t *        bad );
+
+ag_slot_state_t const *
+ag_pool_slot_state( ag_pool_t const * self,
+                    ulong             slot );
 
 void
 ag_pool_recover_from_standstill( ag_pool_t * self );

@@ -89,3 +89,17 @@ ag_vote_construct_skip_fallback( fd_bls_sign_fn sign_fn,
   sign( &vote, sign_fn, sign_ctx, shred_version, &vote.skip_fallback.sig );
   return vote;
 }
+
+char *
+ag_vote_to_cstr( ag_vote_t const * self,
+                 char              cstr[ static AG_VOTE_CSTR_MAX ] ) {
+  static char const * kind_cstr[] = { "Notar", "Final", "Skip", "NotarFallback", "SkipFallback" };
+  uchar         sig[ FD_BLS_SIG_COMPRESSED_SZ ]; blst_p2_compress( sig, ag_vote_sig( self ) );
+  uchar const * block_hash = ag_vote_block_hash( self );
+  char *        p          = cstr;
+  p = fd_cstr_append_printf( p, "%s { slot: %lu", kind_cstr[ self->kind ], ag_vote_slot( self ) );
+  if( FD_LIKELY( block_hash ) ) p = fd_cstr_append_printf( p, ", hash: %02x%02x%02x...", block_hash[0], block_hash[1], block_hash[2] );
+  p = fd_cstr_append_printf( p, ", sig: %02x%02x%02x..., rank: %u }", sig[0], sig[1], sig[2], (uint)ag_vote_rank( self ) );
+  *p = '\0';
+  return cstr;
+}

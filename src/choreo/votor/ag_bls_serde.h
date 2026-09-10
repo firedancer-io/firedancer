@@ -34,7 +34,7 @@ ag_bls_agg_ser_sz( fd_bls_agg_t const * agg );
 
 FD_FN_PURE ulong
 ag_bls_agg_pair_ser_sz( fd_bls_agg_t const * agg,
-                        fd_bls_agg_t const * agg2 );
+                        fd_bls_agg_t const * agg_fb );
 
 ulong
 ag_bls_agg_ser( fd_bls_agg_t const * agg,
@@ -42,19 +42,19 @@ ag_bls_agg_ser( fd_bls_agg_t const * agg,
 
 ulong
 ag_bls_agg_pair_ser( fd_bls_agg_t const * agg,
-                     fd_bls_agg_t const * agg2,
+                     fd_bls_agg_t const * agg_fb,
                      uchar *              buf );
 
 int
 ag_bls_agg_de( fd_bls_agg_t * agg,
-               uchar const *  b,
-               ulong          b_sz );
+               uchar const *  buf,
+               ulong          buf_sz );
 
 int
 ag_bls_agg_pair_de( fd_bls_agg_t * agg,
-                    fd_bls_agg_t * agg2,
-                    uchar const *  b,
-                    ulong          b_sz );
+                    fd_bls_agg_t * agg_fb,
+                    uchar const *  buf,
+                    ulong          buf_sz );
 
 FD_PROTOTYPES_END
 

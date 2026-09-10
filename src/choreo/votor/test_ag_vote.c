@@ -35,6 +35,7 @@ test_basic( void ) {
   ag_vote_t v;
 
   v = ag_vote_construct_notar( sec_sign_fn, &sk, 0UL, h, 0UL, TEST_SHRED_VERSION );
+  { char cstr[ AG_VOTE_CSTR_MAX ]; FD_TEST( !strncmp( ag_vote_to_cstr( &v, cstr ), "Notar { slot: 0, hash: 000000...", 32UL ) ); FD_LOG_NOTICE(( "%s", cstr )); }
   FD_TEST( v.kind==AG_VOTE_KIND_NOTAR );
   FD_TEST( ag_vote_slot( &v )==0UL );
   FD_TEST( ag_vote_rank( &v )==0UL );
@@ -87,7 +88,7 @@ check_wire( ag_vote_t const *    v,
             fd_bls_pub_t const * pk ) {
   uchar out[ AG_VOTE_SER_SZ( 1 ) ];
   ulong n;
-  n = ag_vote_ser( v, TEST_SHRED_VERSION, out );
+  n = ag_vote_ser( v, out );
   FD_TEST( n>0UL );
 
   uchar const * h       = block_hash( v );
@@ -104,16 +105,16 @@ check_wire( ag_vote_t const *    v,
   FD_TEST( off==n );
 
   ag_vote_t rt;
-  FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n )==AG_VOTE_DE_SUCCESS );
+  FD_TEST( ag_vote_de( &rt, out, n )==AG_VOTE_DE_SUCCESS );
   FD_TEST( rt.kind==v->kind );
+  FD_TEST( ag_vote_shred_version( &rt )==TEST_SHRED_VERSION );
   FD_TEST( ag_vote_slot  ( &rt )==ag_vote_slot  ( v ) );
   FD_TEST( ag_vote_rank( &rt )==USHORT_MAX ); /* rank is not on the wire */
   uchar const * rt_h = block_hash( &rt );
   FD_TEST( !rt_h==!h );
   if( h ) FD_TEST( !memcmp( rt_h, h, sizeof(ag_block_hash_t) ) );
-  FD_TEST( ag_vote_de( &rt, (ushort)(TEST_SHRED_VERSION+1), out, n )==AG_VOTE_DE_ERR_SHRED_VERSION );
-  FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n-1UL )==AG_VOTE_DE_ERR_SZ ); /* too few  */
-  FD_TEST( ag_vote_de( &rt, TEST_SHRED_VERSION, out, n+1UL )==AG_VOTE_DE_ERR_SZ ); /* trailing */
+  FD_TEST( ag_vote_de( &rt, out, n-1UL )==AG_VOTE_DE_ERR_SZ ); /* too few  */
+  FD_TEST( ag_vote_de( &rt, out, n+1UL )==AG_VOTE_DE_ERR_SZ ); /* trailing */
 
   uchar        payload[ AG_VOTE_SIGNING_SER_MAX ];
   ulong        payload_sz = ag_vote_signing_ser( v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION, payload );
@@ -121,10 +122,10 @@ check_wire( ag_vote_t const *    v,
   blst_p2_affine sig_aff[1];
   FD_TEST( blst_p2_deserialize( sig_aff, wire_sig )==BLST_SUCCESS );
   blst_p2_from_affine( sig, sig_aff );
-  FD_TEST( fd_bls_agg_verify( pk, sig, payload, payload_sz ) );
+  FD_TEST( fd_bls_agg_verify( payload, payload_sz, pk, sig ) );
 
   payload[ 1 ] ^= 0xFFu;
-  FD_TEST( !fd_bls_agg_verify( pk, sig, payload, payload_sz ) );
+  FD_TEST( !fd_bls_agg_verify( payload, payload_sz, pk, sig ) );
 }
 
 static void

@@ -10,6 +10,8 @@
 #define AG_VOTE_KIND_NOTAR_FALLBACK  (3U)
 #define AG_VOTE_KIND_SKIP_FALLBACK   (4U)
 
+#define AG_VOTE_CSTR_MAX (256UL)
+
 typedef void
 (* fd_bls_sign_fn)( void *         ctx,
                     fd_bls_sig_t * sig,
@@ -173,6 +175,10 @@ ag_vote_construct_skip_fallback( fd_bls_sign_fn sign_fn,
                                  ulong          slot,
                                  ushort         rank,
                                  ushort         shred_version );
+
+char *
+ag_vote_to_cstr( ag_vote_t const * self,
+                 char              cstr[ static AG_VOTE_CSTR_MAX ] );
 
 FD_PROTOTYPES_END
 

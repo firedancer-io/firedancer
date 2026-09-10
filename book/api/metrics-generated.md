@@ -2187,3 +2187,40 @@
 | <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time it took to receive a repair request response, in nanoseconds |
 
 </div>
+
+## Votor Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">vote</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram carried a vote and was handed to vote rx) |
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">cert</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram carried a cert and was handed to cert rx) |
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;ready</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram arrived before the votor tile was initialized) |
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">too_&#8203;small</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram was too small to hold a version and a tag) |
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">unknown_&#8203;tag</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram tag was neither a vote nor a cert) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of processing an inbound vote (per vote) (Vote was handed to the pool and accepted) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">bad_&#8203;size</span>"} | counter | Result of processing an inbound vote (per vote) (Vote was truncated or had trailing bytes) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">bad_&#8203;encoding</span>"} | counter | Result of processing an inbound vote (per vote) (Vote had an invalid version, tag, or signature encoding) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">shred_&#8203;version</span>"} | counter | Result of processing an inbound vote (per vote) (Vote was for a different shred version) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">unknown_&#8203;signer</span>"} | counter | Result of processing an inbound vote (per vote) (Sending connection had no authenticated identity) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;a_&#8203;peer</span>"} | counter | Result of processing an inbound vote (per vote) (Sender was not in the peer set) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;ranked</span>"} | counter | Result of processing an inbound vote (per vote) (Sender was not a ranked validator in the vote slot's epoch) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">slot_&#8203;out_&#8203;of_&#8203;bounds</span>"} | counter | Result of processing an inbound vote (per vote) (Vote slot was either too old or too far in the future) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Result of processing an inbound vote (per vote) (Voter had already cast this vote) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">slashable</span>"} | counter | Result of processing an inbound vote (per vote) (Vote constitutes a slashable offence) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">banned</span>"} | counter | Result of processing an inbound vote (per vote) (Sender is banned for a failed signature verification) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">failed_&#8203;verify</span>"} | counter | Result of processing an inbound vote (per vote) (Vote's own signature failed the check and the vote was dropped) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was handed to the pool and accepted) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">bad_&#8203;size</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was truncated or had trailing bytes) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">bad_&#8203;encoding</span>"} | counter | Result of processing an inbound cert (per cert) (Cert had an invalid version, tag, bitmap, or signature encoding) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">shred_&#8203;version</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was for a different shred version) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">unknown_&#8203;signer</span>"} | counter | Result of processing an inbound cert (per cert) (Sending connection had no authenticated identity) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;a_&#8203;peer</span>"} | counter | Result of processing an inbound cert (per cert) (Sender was not in the peer set) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;ranked</span>"} | counter | Result of processing an inbound cert (per cert) (Sender was not a ranked validator in the cert slot's epoch) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">slot_&#8203;out_&#8203;of_&#8203;bounds</span>"} | counter | Result of processing an inbound cert (per cert) (Cert slot was either too old or too far in the future) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was already in the pool) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">failed_&#8203;verify</span>"} | counter | Result of processing an inbound cert (per cert) (Cert failed the stake threshold or the aggregate signature check) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">banned</span>"} | counter | Result of processing an inbound cert (per cert) (Sender is banned for a failed signature verification) |
+
+</div>

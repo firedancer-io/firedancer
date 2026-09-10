@@ -9,7 +9,7 @@
 #define FD_BLS_PUB_COMPRESSED_SZ (48UL)
 #define FD_BLS_SIG_SZ            (192UL)
 #define FD_BLS_SIG_COMPRESSED_SZ (96UL)
-#define FD_BLS_SET_MAX           (2000UL) /* TODO remove */
+#define FD_BLS_SET_MAX           (2000UL) /* TODO make set_dynamic so this isn't dependent on the VAT cap */
 #define FD_BLS_DST               "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
 #define FD_BLS_DST_SZ            (sizeof(FD_BLS_DST)-1UL)
 
@@ -17,12 +17,13 @@ typedef blst_scalar fd_bls_sec_t;
 typedef blst_p1     fd_bls_pub_t;
 typedef blst_p2     fd_bls_sig_t;
 
-/* TODO make set_dynamic so this isn't dependent on the VAT cap */
+
 #define SET_NAME fd_bls_set
 #define SET_MAX  FD_BLS_SET_MAX
-#include "../../util/tmpl/fd_set.c"
+#include "../../util/tmpl/fd_set.c" /* TODO make set_dynamic so this isn't dependent on the VAT cap */
 
 struct fd_bls_agg {
+  fd_bls_pub_t pub;
   fd_bls_sig_t sig;
   fd_bls_set_t set[ fd_bls_set_word_cnt ]; /* each bit position corresponds to a signer's rank in the epoch (based on ag_epoch_info) */
 };
@@ -67,15 +68,31 @@ fd_bls_sig_de( fd_bls_sig_t * sig,
 /* PublicKey::try_from_bytes */
 
 int
-fd_bls_pub_try_from_bytes( fd_bls_pub_t * out,
-                           uchar const *  in,
-                           ulong          in_sz );
+fd_bls_pub_de( fd_bls_pub_t * pub,
+               uchar const *  in,
+               ulong          in_sz );
 
 int
-fd_bls_agg_verify( fd_bls_pub_t const * pub,
-                   fd_bls_sig_t const * agg,
-                   uchar const *        msg,
-                   ulong                msg_sz );
+fd_bls_agg_verify( uchar const *        msg,
+                   ulong                msg_sz,
+                   fd_bls_pub_t const * pub,
+                   fd_bls_sig_t const * sig );
+
+fd_bls_set_t *
+fd_bls_agg_verify_linear( fd_bls_agg_t const * agg,
+                          uchar const *        msg,
+                          ulong                msg_sz,
+                          fd_bls_pub_t const * pub,
+                          fd_bls_sig_t const * sig,
+                          fd_bls_set_t *       bad );
+
+fd_bls_set_t *
+fd_bls_agg_verify_bisect( fd_bls_agg_t const * agg,
+                          uchar const *        msg,
+                          ulong                msg_sz,
+                          fd_bls_pub_t const * pub,
+                          fd_bls_sig_t const * sig,
+                          fd_bls_set_t *       bad );
 
 FD_PROTOTYPES_END
 
