@@ -504,7 +504,7 @@ ag_pool_add_vote( ag_pool_t *       self,
   return AG_POOL_SUCCESS;
 }
 
-void
+int
 ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
                    ag_block_id_t const * parent_id ) {
@@ -513,6 +513,9 @@ ag_pool_add_block( ag_pool_t *           self,
   uchar const * block_hash  = block_id->hash;
   ulong         parent_slot = parent_id->slot;
   uchar const * parent_hash = parent_id->hash;
+
+  ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max;
+  if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
 
   ag_finalization_event_t finalization_event = finalization_event_default( self );
   ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id, &finalization_event );
@@ -528,9 +531,9 @@ ag_pool_add_block( ag_pool_t *           self,
   if( FD_LIKELY( parent_state && ag_slot_state_is_notar_fallback_or_stronger( parent_state, parent_hash ) ) ) {
     int output = ag_slot_state_notify_parent_certified( slot_state( self, slot ), block_hash );
     switch( output ) {
-    case -1: repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = *block_id } ); return;
+    case -1: repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = *block_id } ); return AG_POOL_SUCCESS;
     case  0: break;
-    case  1: pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = *block_id } ); return;
+    case  1: pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = *block_id } ); return AG_POOL_SUCCESS;
     }
   }
 
@@ -541,6 +544,8 @@ ag_pool_add_block( ag_pool_t *           self,
     s2n_waiting_parent_cert_map_ele_insert( self->s2n_waiting_parent_cert->map, ele, self->s2n_waiting_parent_cert->pool );
   }
   ele->child = *block_id;
+
+  return AG_POOL_SUCCESS;
 }
 
 void
