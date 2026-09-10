@@ -2,7 +2,7 @@
 #define HEADER_fd_src_disco_gui_fd_gui_h
 
 #include "fd_gui_peers.h"
-#include "fd_gui_hist.h"
+#include "fd_gui_shreds.h"
 #include "fd_gui_ema.h"
 
 #include "../topo/fd_topo.h"
@@ -108,20 +108,6 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ  (4096UL)
 #define FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ (4096UL)
 
-/* FD_GUI_SHREDS_HISTORY_SZ the number of shred events in our historical
-   shred store.  Shred events here belong to finalized slots which means
-   we won't record any additional shred updates for these slots.
-
-   All shred events for a given slot will be places in a contiguous
-   chunk in the array, and the bounding indices are stored in the
-   slot history.  Within a slot chunk, shred events are ordered in the
-   order they were recorded by the gui tile.
-
-   Ideally, we have enough space to store an epoch's worth of events,
-   but we are limited by realistic memory consumption.  Instead, we pick
-   bound heuristically. */
-#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 12UL)
-
 #define FD_GUI_SLOT_RANKINGS_SZ (100UL)
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
 #define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
@@ -190,13 +176,154 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 
 #define FD_GUI_LANDED_VOTE_MAX      (4096UL)
 
-#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST          (0UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE  (1UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR   (2UL)
-#define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE  (3UL)
-#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE     (4UL)
-/* #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START (5UL) // UNUSED */
-#define FD_GUI_SLOT_SHRED_SHRED_PUBLISHED         (6UL)
+/* Stored timeline-day bucket layout. */
+#define FD_GUI_TIMELINE_DAY_NS                 (86400000000000L)
+
+#define FD_GUI_TIMELINE_GRANULARITY_250MS (0)
+#define FD_GUI_TIMELINE_GRANULARITY_2S    (1)
+#define FD_GUI_TIMELINE_GRANULARITY_15S   (2)
+#define FD_GUI_TIMELINE_GRANULARITY_2M    (3)
+#define FD_GUI_TIMELINE_GRANULARITY_15M   (4)
+#define FD_GUI_TIMELINE_GRANULARITY_2H    (5)
+#define FD_GUI_TIMELINE_GRANULARITY_12H   (6)
+
+#define FD_GUI_TIMELINE_250MS_CNT (FD_GUI_TIMELINE_DAY_NS / (             250L*1000L*1000L))
+#define FD_GUI_TIMELINE_2S_CNT    (FD_GUI_TIMELINE_DAY_NS / (         2L*1000L*1000L*1000L))
+#define FD_GUI_TIMELINE_15S_CNT   (FD_GUI_TIMELINE_DAY_NS / (        15L*1000L*1000L*1000L))
+#define FD_GUI_TIMELINE_2M_CNT    (FD_GUI_TIMELINE_DAY_NS / (     2L*60L*1000L*1000L*1000L))
+#define FD_GUI_TIMELINE_15M_CNT   (FD_GUI_TIMELINE_DAY_NS / (    15L*60L*1000L*1000L*1000L))
+#define FD_GUI_TIMELINE_2H_CNT    (FD_GUI_TIMELINE_DAY_NS / ( 2L*60L*60L*1000L*1000L*1000L))
+#define FD_GUI_TIMELINE_12H_CNT   (FD_GUI_TIMELINE_DAY_NS / (12L*60L*60L*1000L*1000L*1000L))
+
+#define FD_GUI_TIMELINE_FIELD_MAP( X )                                                           \
+  /* field                              250ms   2s      15s     2m      15m     2h      12h   */ \
+  X( START_SLOT,      start_slot,       ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
+  X( END_SLOT,        end_slot,         ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
+  X( TURBINE,         turbine,          uint,   uint,   uint,   uint,   ulong,  ulong,  ulong  ) \
+  X( REPAIR,          repair,           uint,   uint,   uint,   uint,   ulong,  ulong,  ulong  ) \
+  X( RECONSTRUCTED,   reconstructed,    uint,   uint,   uint,   uint,   ulong,  ulong,  ulong  ) \
+  X( PUBLISHED,       published,        uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
+  X( COMPUTE_UNITS,   compute_units,    uint,   uint,   ulong,  ulong,  ulong,  ulong,  ulong  ) \
+  X( MAX_COMPUTE,     max_compute,      uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
+  X( TXN_FEES,        txn_fees,         uint,   uint,   uint,   ulong,  ulong,  ulong,  ulong  ) \
+  X( PRIO_FEES,       prio_fees,        uint,   uint,   uint,   ulong,  ulong,  ulong,  ulong  ) \
+  X( TIPS,            tips,             uint,   uint,   uint,   ulong,  ulong,  ulong,  ulong  ) \
+  X( NONVOTE_SUCCESS, nonvote_success,  uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
+  X( NONVOTE_FAILED,  nonvote_failed,   uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
+  X( VOTE_SUCCESS,    vote_success,     uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
+  X( VOTE_FAILED,     vote_failed,      uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
+  X( SKIPPED,         skipped,          ushort, ushort, ushort, ushort, ushort, ushort, uint   )
+
+#define FD_GUI_TIMELINE_FIELD_ENUM( id, name, t0, t1, t2, t3, t4, t5, t6 ) FD_GUI_TIMELINE_FIELD_##id,
+enum fd_gui_timeline_field {
+  FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELINE_FIELD_ENUM )
+  FD_GUI_TIMELINE_FIELD_CNT
+};
+#undef FD_GUI_TIMELINE_FIELD_ENUM
+
+#define FD_GUI_TIMELINE_DECL_250MS(id, name, t0, t1, t2, t3, t4, t5, t6) t0 name[ FD_GUI_TIMELINE_250MS_CNT ];
+#define FD_GUI_TIMELINE_DECL_2S(id, name, t0, t1, t2, t3, t4, t5, t6)    t1 name[ FD_GUI_TIMELINE_2S_CNT    ];
+#define FD_GUI_TIMELINE_DECL_15S(id, name, t0, t1, t2, t3, t4, t5, t6)   t2 name[ FD_GUI_TIMELINE_15S_CNT   ];
+#define FD_GUI_TIMELINE_DECL_2M(id, name, t0, t1, t2, t3, t4, t5, t6)    t3 name[ FD_GUI_TIMELINE_2M_CNT    ];
+#define FD_GUI_TIMELINE_DECL_15M(id, name, t0, t1, t2, t3, t4, t5, t6)   t4 name[ FD_GUI_TIMELINE_15M_CNT   ];
+#define FD_GUI_TIMELINE_DECL_2H(id, name, t0, t1, t2, t3, t4, t5, t6)    t5 name[ FD_GUI_TIMELINE_2H_CNT    ];
+#define FD_GUI_TIMELINE_DECL_12H(id, name, t0, t1, t2, t3, t4, t5, t6)   t6 name[ FD_GUI_TIMELINE_12H_CNT   ];
+
+typedef struct fd_gui_timeline_250ms { FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELINE_DECL_250MS ) } fd_gui_timeline_250ms_t;
+typedef struct fd_gui_timeline_2s    { FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELINE_DECL_2S    ) } fd_gui_timeline_2s_t;
+typedef struct fd_gui_timeline_15s   { FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELINE_DECL_15S   ) } fd_gui_timeline_15s_t;
+typedef struct fd_gui_timeline_2m    { FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELINE_DECL_2M    ) } fd_gui_timeline_2m_t;
+typedef struct fd_gui_timeline_15m   { FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELINE_DECL_15M   ) } fd_gui_timeline_15m_t;
+typedef struct fd_gui_timeline_2h    { FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELINE_DECL_2H    ) } fd_gui_timeline_2h_t;
+typedef struct fd_gui_timeline_12h   { FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELINE_DECL_12H   ) } fd_gui_timeline_12h_t;
+
+#undef FD_GUI_TIMELINE_DECL_250MS
+#undef FD_GUI_TIMELINE_DECL_2S
+#undef FD_GUI_TIMELINE_DECL_15S
+#undef FD_GUI_TIMELINE_DECL_2M
+#undef FD_GUI_TIMELINE_DECL_15M
+#undef FD_GUI_TIMELINE_DECL_2H
+#undef FD_GUI_TIMELINE_DECL_12H
+
+struct fd_gui_timeline_day {
+  long end_time_ns; /* exclusive UTC day end (the following midnight) */
+  fd_gui_timeline_250ms_t bucket_250ms;
+  fd_gui_timeline_2s_t    bucket_2s;
+  fd_gui_timeline_15s_t   bucket_15s;
+  fd_gui_timeline_2m_t    bucket_2m;
+  fd_gui_timeline_15m_t   bucket_15m;
+  fd_gui_timeline_2h_t    bucket_2h;
+  fd_gui_timeline_12h_t   bucket_12h;
+};
+typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
+
+static inline ulong
+fd_gui_timeline_bucket_cnt( int granularity ) {
+  switch( granularity ) {
+    case FD_GUI_TIMELINE_GRANULARITY_250MS: return FD_GUI_TIMELINE_250MS_CNT;
+    case FD_GUI_TIMELINE_GRANULARITY_2S:    return FD_GUI_TIMELINE_2S_CNT;
+    case FD_GUI_TIMELINE_GRANULARITY_15S:   return FD_GUI_TIMELINE_15S_CNT;
+    case FD_GUI_TIMELINE_GRANULARITY_2M:    return FD_GUI_TIMELINE_2M_CNT;
+    case FD_GUI_TIMELINE_GRANULARITY_15M:   return FD_GUI_TIMELINE_15M_CNT;
+    case FD_GUI_TIMELINE_GRANULARITY_2H:    return FD_GUI_TIMELINE_2H_CNT;
+    case FD_GUI_TIMELINE_GRANULARITY_12H:   return FD_GUI_TIMELINE_12H_CNT;
+    default: FD_LOG_ERR(( "invalid timeline granularity %d", granularity ));
+  }
+}
+
+static inline void *
+fd_gui_timeline_field_ptr( fd_gui_timeline_day_t * day,
+                           int                     granularity,
+                           int                     field,
+                           ulong                   idx,
+                           ulong *                 sz ) {
+  if( FD_UNLIKELY( !day ) ) FD_LOG_ERR(( "NULL timeline day" ));
+  ulong bucket_cnt = fd_gui_timeline_bucket_cnt( granularity );
+  if( FD_UNLIKELY( idx>=bucket_cnt ) ) FD_LOG_ERR(( "timeline bucket index %lu out of range [0,%lu)", idx, bucket_cnt ));
+#define FD_GUI_TIMELINE_FIELD_CASE( id, name, t0, t1, t2, t3, t4, t5, t6 ) \
+  case FD_GUI_TIMELINE_FIELD_##id: \
+    switch( granularity ) { \
+      case FD_GUI_TIMELINE_GRANULARITY_250MS: *sz=sizeof(t0); return &day->bucket_250ms.name[ idx ]; \
+      case FD_GUI_TIMELINE_GRANULARITY_2S:    *sz=sizeof(t1); return &day->bucket_2s.name   [ idx ]; \
+      case FD_GUI_TIMELINE_GRANULARITY_15S:   *sz=sizeof(t2); return &day->bucket_15s.name  [ idx ]; \
+      case FD_GUI_TIMELINE_GRANULARITY_2M:    *sz=sizeof(t3); return &day->bucket_2m.name   [ idx ]; \
+      case FD_GUI_TIMELINE_GRANULARITY_15M:   *sz=sizeof(t4); return &day->bucket_15m.name  [ idx ]; \
+      case FD_GUI_TIMELINE_GRANULARITY_2H:    *sz=sizeof(t5); return &day->bucket_2h.name   [ idx ]; \
+      case FD_GUI_TIMELINE_GRANULARITY_12H:   *sz=sizeof(t6); return &day->bucket_12h.name  [ idx ]; \
+      default: FD_LOG_ERR(( "invalid timeline granularity %d", granularity )); \
+    }
+  switch( field ) {
+    FD_GUI_TIMELINE_FIELD_MAP( FD_GUI_TIMELINE_FIELD_CASE )
+    default: FD_LOG_ERR(( "invalid timeline field %d", field ));
+  }
+#undef FD_GUI_TIMELINE_FIELD_CASE
+}
+
+static inline ulong
+fd_gui_timeline_field_get( fd_gui_timeline_day_t const * day,
+                           int                           granularity,
+                           int                           field,
+                           ulong                         idx ) {
+  ulong sz = 0UL;
+  void const * ptr = fd_gui_timeline_field_ptr( (fd_gui_timeline_day_t *)day, granularity, field, idx, &sz );
+  if( sz==sizeof(ushort) ) { ushort v = *(ushort const *)ptr; return v==USHORT_MAX ? ULONG_MAX : (ulong)v; }
+  if( sz==sizeof(uint  ) ) { uint   v = *(uint   const *)ptr; return v==UINT_MAX   ? ULONG_MAX : (ulong)v; }
+  ulong v = *(ulong const *)ptr;
+  return v;
+}
+
+static inline void
+fd_gui_timeline_field_set( fd_gui_timeline_day_t * day,
+                           int                     granularity,
+                           int                     field,
+                           ulong                   idx,
+                           ulong                   value ) {
+  ulong sz = 0UL;
+  void * ptr = fd_gui_timeline_field_ptr( day, granularity, field, idx, &sz );
+  if( sz==sizeof(ushort) ) { *(ushort *)ptr = value==ULONG_MAX ? USHORT_MAX : (ushort)fd_ulong_min( value, (ulong)USHORT_MAX-1UL ); return; }
+  if( sz==sizeof(uint  ) ) { *(uint   *)ptr = value==ULONG_MAX ? UINT_MAX   : (uint  )fd_ulong_min( value, (ulong)UINT_MAX-1UL   ); return; }
+  *(ulong *)ptr = value;
+}
 
 struct fd_gui_tile_timers {
   long   sample_time_nanos; /* wallclock ns this sample was taken; identical across the per-tile records. */
@@ -324,15 +451,6 @@ struct fd_gui_turbine_slot {
 };
 
 typedef struct fd_gui_turbine_slot fd_gui_turbine_slot_t;
-
-struct __attribute__((packed)) fd_gui_slot_history_shred_event {
-  long   timestamp;
-  uint   slot;
-  ushort shred_idx;
-  uchar  event;
-};
-
-typedef struct fd_gui_slot_history_shred_event fd_gui_slot_history_shred_event_t;
 
 struct __attribute__((packed)) fd_gui_slot {
   ulong     slot;             /* this record's slot number. */
@@ -487,6 +605,38 @@ struct __attribute__((packed)) fd_gui_store_txn_end {
   uchar flags;                  /* ENDED | LANDED_IN_BLOCK */
 };
 typedef struct fd_gui_store_txn_end fd_gui_store_txn_end_t;
+
+/* A fully joined replay transaction.  completion_time_ns is the later
+   of sigverify_end_ns and commit_end_ns and is the time-series index
+   for this record. */
+
+struct fd_gui_store_replay_txn {
+  long  completion_time_ns;
+  ulong slot;
+  ulong txn_idx;
+  ulong txn_exec_idx;
+  ulong txn_sigverify_exec_idx;
+  uchar signature[ FD_TXN_SIGNATURE_SZ ];
+
+  long sigverify_start_ns;
+  long sigverify_end_ns;
+  long load_start_ns;
+  long check_start_ns;
+  long exec_start_ns;
+  long commit_start_ns;
+  long commit_end_ns;
+
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
+  uint  compute_units_requested; /* 0 means unavailable */
+  uint  compute_units_consumed;
+  uint  error_code;
+  uchar is_committable;
+  uchar is_fees_only;
+  uchar is_simple_vote;
+};
+typedef struct fd_gui_store_replay_txn fd_gui_store_replay_txn_t;
 
 struct fd_gui_slot_txn_join {
   fd_gui_store_txn_start_t const * start;
@@ -992,6 +1142,10 @@ struct fd_gui {
     ulong leader_shred_slot;     /* The slot leader_shred_cnt is currently counting, ULONG_MAX if none. Used to reset
                                     counter after an abandoned/ended slot. This works because leader fecs are published
                                     in order. */
+
+    fd_gui_shred_event_staged_t * shred_event_pool;
+    fd_gui_shred_event_dlist_t *  shred_event_list;
+    ulong                         dropped_event_cnt;
 
     /* The wallclock-ns timestamp up to which shred events have already
        been pushed to clients. */

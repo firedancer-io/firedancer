@@ -6,7 +6,7 @@
    time-bucketed time-series rows -- then evicts the oldest epoch and asserts
    that exactly that epoch's rows are gone while the newer epochs survive,
    including the SHRED_EVENTS boundary case (a slot of the NEXT epoch whose
-   shred landed in a wallclock second shared with the oldest epoch's tail).
+   event landed in a wallclock second shared with the oldest epoch's tail).
 
    The eviction path only touches gui->db / gui->hist, so the test allocates a
    bare fd_gui_t (like test_gui_consensus) and wires up the two store layers
@@ -42,6 +42,20 @@ slot_complete_ns( ulong slot ) {
 }
 static long
 sec_ns( ulong sec ) { return (long)( sec*1000000000UL ); }
+
+static long
+timeline_day_end_ns( ulong day ) {
+  FD_TEST( day<(ulong)LONG_MAX/(ulong)FD_GUI_TIMELINE_DAY_NS );
+  return (long)(day+1UL)*FD_GUI_TIMELINE_DAY_NS;
+}
+
+/* Put epoch A immediately before a UTC-day boundary and epochs B/C after it.
+   This lets the cascade test verify that timeline-day eviction retains the
+   day shared by the first surviving epoch while reclaiming older days. */
+static long
+epoch_slot_complete_ns( ulong slot ) {
+  return sec_ns( 86390UL+(slot-A_START_SLOT) );
+}
 
 static void
 rm_tmpdir( char const * path ) {
@@ -121,15 +135,52 @@ append_sched_counts( fd_gui_t * gui, long ts_ns ) {
   FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ts_ns, ts_ns, rec ) );
 }
 
-/* SHRED_EVENTS carries its slot in the record. */
 static void
 append_shred( fd_gui_t * gui, long ts_ns, ulong slot ) {
-  fd_gui_slot_history_shred_event_t rec[ 1 ];
+  fd_gui_shred_batch_t rec[ 1 ];
   memset( rec, 0, sizeof(*rec) );
-  rec->slot      = (uint)slot;
-  rec->timestamp = ts_ns;
+  rec->slot           = slot;
+  rec->base_timestamp = ts_ns;
+  rec->event_cnt      = 1U;
 
   FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, ts_ns, ts_ns, rec ) );
+}
+
+static void
+append_replay_txn( fd_gui_t * gui,
+                   long       now_ns,
+                   long       ts_ns,
+                   ulong      slot ) {
+  fd_gui_store_replay_txn_t rec[ 1 ];
+  memset( rec, 0, sizeof(*rec) );
+  rec->completion_time_ns = ts_ns;
+  rec->slot               = slot;
+
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, now_ns, ts_ns, rec ) );
+}
+
+static void
+append_replay_txn_batch( fd_gui_t * gui,
+                         long       now_ns,
+                         long       ts_ns,
+                         ulong      slot ) {
+  fd_gui_store_replay_txn_t rec[ 1 ];
+  memset( rec, 0, sizeof(*rec) );
+  rec->completion_time_ns = ts_ns;
+  rec->slot               = slot;
+
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, now_ns, ts_ns, rec ) );
+}
+
+static void
+put_timeline_day( fd_gui_t * gui,
+                  ulong      day ) {
+  fd_gui_timeline_day_t * rec = aligned_alloc( alignof(fd_gui_timeline_day_t), sizeof(fd_gui_timeline_day_t) );
+  FD_TEST( rec );
+  memset( rec, 0xFF, sizeof(*rec) );
+  rec->end_time_ns = timeline_day_end_ns( day );
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_TIMELINE_DAY, rec->end_time_ns+sec_ns( 100UL ), rec->end_time_ns, rec ) );
+  free( rec );
 }
 
 /* ---- read helpers (presence checks) ----------------------------------- */
@@ -158,13 +209,25 @@ count_ts( fd_gui_t * gui, int dbi, ulong slot ) {
   ulong cnt = 0UL;
   while( fd_gui_hist_range_next( it ) ) {
     if( slot!=ULONG_MAX ) {
-      fd_gui_slot_history_shred_event_t const * e = (fd_gui_slot_history_shred_event_t const *)it->rec;
-      if( e->slot!=slot ) continue;
+      ulong rec_slot = ((fd_gui_shred_batch_t const *)it->rec)->slot;
+      if( rec_slot!=slot ) continue;
     }
     cnt++;
   }
   fd_gui_hist_range_end( it );
   return cnt;
+}
+
+static int
+timeline_day_present( fd_gui_t * gui,
+                      ulong      day ) {
+  long end_time_ns = timeline_day_end_ns( day );
+  fd_gui_hist_iter_t it[ 1 ];
+  FD_TEST( !fd_gui_hist_range_begin( gui, it, FD_GUI_HIST_TIMELINE_DAY, end_time_ns, end_time_ns, NULL, NULL ) );
+  int found = 0;
+  while( fd_gui_hist_range_next( it ) ) found |= ((fd_gui_timeline_day_t const *)it->rec)->end_time_ns==end_time_ns;
+  fd_gui_hist_range_end( it );
+  return found;
 }
 
 /* ---- the test --------------------------------------------------------- */
@@ -177,22 +240,33 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
   put_epoch( gui, EPOCH_C, C_START_SLOT, SLOT_CNT );
 
   for( ulong s=A_START_SLOT; s<=C_END_SLOT; s++ ) {
-    put_slot( gui, s, slot_complete_ns( s ) );
-    put_leader_slot( gui, s, slot_complete_ns( s ) );
+    put_slot( gui, s, epoch_slot_complete_ns( s ) );
+    put_leader_slot( gui, s, epoch_slot_complete_ns( s ) );
   }
 
   /* time-series: one scheduler-counts sample per second across all epochs'
-     windows [10,39] */
-  for( ulong sec=10UL; sec<=39UL; sec++ ) append_sched_counts( gui, sec_ns( sec ) );
+     windows [86390,86419], straddling midnight at the A/B boundary. */
+  for( ulong sec=86390UL; sec<=86419UL; sec++ ) append_sched_counts( gui, sec_ns( sec ) );
 
-  /* shred events: one per slot at the slot's own completion second */
-  for( ulong s=A_START_SLOT; s<=C_END_SLOT; s++ ) append_shred( gui, slot_complete_ns( s ), s );
+  /* event streams: one record per slot at the slot's own completion second */
+  for( ulong s=A_START_SLOT; s<=C_END_SLOT; s++ ) {
+    long ts_ns = epoch_slot_complete_ns( s );
+    append_shred( gui, ts_ns, s );
+    append_replay_txn( gui, ts_ns, ts_ns, s );
+    append_replay_txn_batch( gui, ts_ns, ts_ns, s );
+  }
 
   /* boundary case: a shred for epoch B's first slot (1010) that landed in
-     window 19 -- the same second as epoch A's last slot (1009).  Eviction of
-     epoch A bounds the window at 19, but the slot watermark (1010 > 1009)
-     must keep this row. */
-  append_shred( gui, sec_ns( 19UL ), B_START_SLOT );
+     window 86399 -- the same second as epoch A's last slot (1009).  Eviction
+     of epoch A bounds the window there, but the slot watermark
+     (1010 > 1009) must keep this row. */
+  append_shred( gui, sec_ns( 86399UL ), B_START_SLOT );
+
+  /* Timeline records are indexed by the exclusive day end. */
+  put_timeline_day( gui, 0UL );
+  put_timeline_day( gui, 1UL );
+  FD_TEST( timeline_day_present( gui, 0UL ) );
+  FD_TEST( timeline_day_present( gui, 1UL ) );
 
   /* flush time-series so the writes are visible to range reads */
   /* (range_begin flushes internally, but count_ts below relies on that) */
@@ -205,9 +279,11 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
   FD_TEST( slot_meta_present( gui, FD_GUI_HIST_SLOT, B_START_SLOT ) );
   FD_TEST( slot_meta_present( gui, FD_GUI_HIST_LEADER_SLOT, A_END_SLOT ) );
   FD_TEST( slot_meta_present( gui, FD_GUI_HIST_LEADER_SLOT, B_END_SLOT ) );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==30UL ); /* secs 10..39 */
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==30UL ); /* secs 86390..86419 */
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==31UL ); /* 30 slots + 1 boundary */
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     B_START_SLOT )==2UL ); /* slot 1010: its own + boundary */
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN,       ULONG_MAX )==30UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==30UL );
 
   /* --- evict the oldest epoch (A); B and C stay resident (the current +
      next epochs the floor protects) --------------------------------- */
@@ -217,6 +293,10 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
   FD_TEST( !epoch_present( gui, EPOCH_A ) );
   FD_TEST(  epoch_present( gui, EPOCH_B ) );
   FD_TEST(  epoch_present( gui, EPOCH_C ) );
+  /* Day zero's 86400s timestamp deliberately follows all of day zero's
+     ordinary TS data, so the epoch-A cutoff at 86399s leaves it resident. */
+  FD_TEST(  timeline_day_present( gui, 0UL ) );
+  FD_TEST(  timeline_day_present( gui, 1UL ) );
 
   for( ulong s=A_START_SLOT; s<=A_END_SLOT; s++ ) {
     FD_TEST( !slot_meta_present( gui, FD_GUI_HIST_SLOT, s ) );
@@ -227,9 +307,11 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
     FD_TEST( slot_meta_present( gui, FD_GUI_HIST_LEADER_SLOT, s ) );
   }
 
-  /* time-series: epoch A windows [10,19] gone, epochs B+C windows [20,39]
-     kept.  scheduler_counts had 10 in epoch A, 20 across B+C. */
+  /* time-series: epoch A windows [86390,86399] gone, epochs B+C windows
+     [86400,86419] kept.  scheduler_counts had 10 in epoch A, 20 across B+C. */
   FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==20UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN,       ULONG_MAX )==20UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==20UL );
 
   /* shred events: TS eviction is an approximate watermark advance (a
      monotonic prefix bump on the partition's evict_cur), not a precise
@@ -239,10 +321,10 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
      watermark and survives eviction even though its window is in epoch A's
      range.  This is intentional -- readers re-filter on the record's own
      timestamp/slot, and the watermark never touches records below it.  So
-     epoch A's 10 in-order slot rows (windows 10..19) are evicted, epochs B+C's
-     20 rows (windows 20..39) are kept, and the straggler boundary row
-     survives: 21 live rows, with slot 1010 keeping its own row plus the
-     boundary row. */
+     epoch A's 10 in-order slot rows (windows 86390..86399) are evicted,
+     epochs B+C's 20 rows (windows 86400..86419) are kept, and the straggler
+     boundary row survives: 21 live rows, with slot 1010 keeping its own row
+     plus the boundary row. */
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==21UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, B_START_SLOT )==2UL );
   /* an evicted epoch-A slot has no shred rows left */
@@ -256,6 +338,8 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
   FD_TEST( epoch_present( gui, EPOCH_C ) );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==20UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==21UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN,       ULONG_MAX )==20UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==20UL );
 
   FD_LOG_NOTICE(( "test_evict_oldest_epoch: ok" ));
 }
@@ -363,11 +447,13 @@ test_evict_ts_oldest_fallback( fd_gui_t * gui ) {
   for( ulong sec=50UL; sec<=54UL; sec++ ) {
     append_sched_counts( gui, sec_ns( sec ) );
     append_shred( gui, sec_ns( sec ), TS_START_SLOT + (sec-50UL) );
+    append_replay_txn_batch( gui, sec_ns( sec ), sec_ns( sec ), TS_START_SLOT + (sec-50UL) );
   }
 
   FD_TEST(  epoch_present( gui, TS_EPOCH ) );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==5UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==5UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==5UL );
 
   /* Whole-epoch eviction refuses (below FD_GUI_HIST_MIN_EPOCHS resident). */
   FD_TEST( fd_gui_hist_evict_oldest( gui )==0 );
@@ -381,17 +467,41 @@ test_evict_ts_oldest_fallback( fd_gui_t * gui ) {
   FD_TEST(  slot_meta_present( gui, FD_GUI_HIST_SLOT, TS_START_SLOT ) );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==4UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==4UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==4UL );
 
   /* Drive it to exhaustion: each call sheds the next-oldest window until the
      TS DBs are empty, at which point it reports 0 (nothing left). */
   for( int i=0; i<4; i++ ) FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==1 );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==0UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==0UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN_BATCH, ULONG_MAX )==0UL );
   FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==0 ); /* genuinely nothing left */
   /* Epoch metadata survived the entire TS drain. */
   FD_TEST(  epoch_present( gui, TS_EPOCH ) );
 
   FD_LOG_NOTICE(( "test_evict_ts_oldest_fallback: ok" ));
+}
+
+
+static void
+test_evict_timeline_ts_fallback( fd_gui_t * gui ) {
+  ulong day_cnt = 0UL;
+  while( fd_gui_store_free_region_cnt( gui->db ) ) {
+    put_timeline_day( gui, day_cnt++ );
+  }
+  FD_TEST( day_cnt>1UL );
+  FD_TEST( timeline_day_present( gui, 0UL ) );
+  FD_TEST( !fd_gui_hist_evict_oldest( gui ) );
+  ulong evicted_before = fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_TIMELINE_DAY ];
+  ulong reserves_before = fd_gui_hist_metrics( gui )->reserves[ FD_GUI_HIST_TIMELINE_DAY ];
+  put_timeline_day( gui, day_cnt );
+
+  FD_TEST( fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_TIMELINE_DAY ]==evicted_before+1UL );
+  FD_TEST( fd_gui_hist_metrics( gui )->reserves[ FD_GUI_HIST_TIMELINE_DAY ]==reserves_before+1UL );
+  FD_TEST( !timeline_day_present( gui, 0UL ) );
+  for( ulong day=1UL; day<=day_cnt; day++ ) FD_TEST( timeline_day_present( gui, day ) );
+
+  FD_LOG_NOTICE(( "test_evict_timeline_ts_fallback: ok" ));
 }
 
 /* test_resident_meta_mutation_survives_evict checks the in-place mutation
@@ -517,6 +627,8 @@ struct test_store {
   fd_gui_t * gui;
   void *     db_mem;
   void *     hist_mem;
+  void *     shred_pool_mem;
+  void *     shred_list_mem;
   char       path[ 128 ];
 };
 typedef struct test_store test_store_t;
@@ -540,15 +652,167 @@ store_open( test_store_t * s, ulong map_bytes, int instance ) {
   FD_TEST( s->hist_mem );
   s->gui->hist = fd_gui_hist_join( fd_gui_hist_new( s->hist_mem, s->gui->db ) );
   FD_TEST( s->gui->hist );
+
+  s->shred_pool_mem = aligned_alloc( fd_gui_shred_event_pool_align(),
+                                     fd_gui_shred_event_pool_footprint( FD_GUI_SHRED_EVENT_POOL_MAX ) );
+  FD_TEST( s->shred_pool_mem );
+  s->gui->shreds.shred_event_pool = fd_gui_shred_event_pool_join(
+      fd_gui_shred_event_pool_new( s->shred_pool_mem, FD_GUI_SHRED_EVENT_POOL_MAX ) );
+  FD_TEST( s->gui->shreds.shred_event_pool );
+
+  s->shred_list_mem = aligned_alloc( fd_gui_shred_event_dlist_align(), fd_gui_shred_event_dlist_footprint() );
+  FD_TEST( s->shred_list_mem );
+  s->gui->shreds.shred_event_list = fd_gui_shred_event_dlist_join(
+      fd_gui_shred_event_dlist_new( s->shred_list_mem ) );
+  FD_TEST( s->gui->shreds.shred_event_list );
 }
 
 static void
 store_close( test_store_t * s ) {
+  fd_gui_shred_event_dlist_delete( fd_gui_shred_event_dlist_leave( s->gui->shreds.shred_event_list ) );
+  fd_gui_shred_event_pool_delete( fd_gui_shred_event_pool_leave( s->gui->shreds.shred_event_pool ) );
   fd_gui_store_delete( fd_gui_store_leave( s->gui->db ) );
+  free( s->shred_list_mem );
+  free( s->shred_pool_mem );
   free( s->hist_mem );
   free( s->db_mem );
   free( s->gui );
   rm_tmpdir( s->path );
+}
+
+static void
+test_timeline_db( fd_gui_t * gui ) {
+  fd_gui_store_desc_t const * descs = fd_gui_hist_db_descs( 1UL<<30 );
+  FD_TEST( FD_GUI_HIST_TIMELINE_DAY==11 );
+  FD_TEST( FD_GUI_HIST_REPLAY_TXN==12 );
+  FD_TEST( FD_GUI_HIST_REPLAY_TXN_BATCH==13 );
+  FD_TEST( FD_GUI_HIST_CNT==14 );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_TIMELINE_DAY     ].name, "timeline_day"     ) );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_TXN       ].name, "replay_txn"       ) );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_TXN_BATCH ].name, "replay_txn_batch" ) );
+  FD_TEST( descs[ FD_GUI_HIST_SHRED_EVENTS     ].val_sz==sizeof(fd_gui_shred_batch_t) );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY     ].val_sz==sizeof(fd_gui_timeline_day_t) );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_TXN_BATCH ].val_sz==sizeof(fd_gui_store_replay_txn_t) );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].kind==FD_GUI_STORE_KIND_TS );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].flags==FD_GUI_STORE_FLAG_TS_MONOTONIC );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].ts_off==offsetof(fd_gui_timeline_day_t,end_time_ns) );
+  FD_TEST( descs[ FD_GUI_HIST_SCHEDULER_COUNTS ].flags==FD_GUI_STORE_FLAG_TS_MONOTONIC );
+  FD_TEST( descs[ FD_GUI_HIST_TILE_TIMERS      ].flags==FD_GUI_STORE_FLAG_TS_MONOTONIC );
+  FD_TEST( descs[ FD_GUI_HIST_TILE_STATS       ].flags==FD_GUI_STORE_FLAG_TS_MONOTONIC );
+  FD_TEST( descs[ FD_GUI_HIST_TXN_WATERFALL    ].flags==FD_GUI_STORE_FLAG_TS_MONOTONIC );
+  FD_TEST( !descs[ FD_GUI_HIST_SHRED_EVENTS     ].flags );
+  FD_TEST( !descs[ FD_GUI_HIST_REPLAY_TXN       ].flags );
+  FD_TEST( !descs[ FD_GUI_HIST_REPLAY_TXN_BATCH ].flags );
+
+  fd_gui_timeline_day_t * day = aligned_alloc( alignof(fd_gui_timeline_day_t), sizeof(fd_gui_timeline_day_t) );
+  FD_TEST( day );
+  memset( day, 0xFF, sizeof(*day) );
+  FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_SKIPPED, 0UL )==ULONG_MAX );
+  fd_gui_timeline_field_set( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_SKIPPED, 0UL, (ulong)USHORT_MAX );
+  FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_SKIPPED, 0UL )==(ulong)USHORT_MAX-1UL );
+  fd_gui_timeline_field_set( day, FD_GUI_TIMELINE_GRANULARITY_15M, FD_GUI_TIMELINE_FIELD_PUBLISHED, 0UL, (ulong)UINT_MAX );
+  FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_15M, FD_GUI_TIMELINE_FIELD_PUBLISHED, 0UL )==(ulong)UINT_MAX-1UL );
+  FD_TEST( sizeof(day->bucket_250ms.skipped[0])==sizeof(ushort) );
+  FD_TEST( sizeof(day->bucket_2h.skipped[0])==sizeof(ushort) );
+  FD_TEST( sizeof(day->bucket_12h.skipped[0])==sizeof(uint) );
+  FD_TEST( sizeof(day->bucket_15s.compute_units[0])==sizeof(ulong) );
+  free( day );
+
+  /* Replay transactions use the same bounded-skew timestamp handling as all
+     other time-series records. */
+  long const source_ns = sec_ns( 2000UL );
+  long const now_ns    = source_ns+sec_ns( 100UL );
+  long const stored_ns = now_ns-FD_GUI_HIST_TS_SKEW_NS;
+
+  long available_start_ns;
+  long available_end_ns;
+  FD_TEST( !fd_gui_hist_ts_bounds( gui, FD_GUI_HIST_REPLAY_TXN, &available_start_ns, &available_end_ns ) );
+
+  append_replay_txn( gui, now_ns, source_ns, 2UL );
+
+  fd_gui_store_metrics_t const * metrics = fd_gui_store_metrics( gui->db );
+  ulong reads_before   = metrics->ts_reads       [ FD_GUI_HIST_REPLAY_TXN ];
+  ulong records_before = metrics->ts_read_records[ FD_GUI_HIST_REPLAY_TXN ];
+  FD_TEST( fd_gui_hist_ts_bounds( gui, FD_GUI_HIST_REPLAY_TXN, &available_start_ns, &available_end_ns ) );
+  FD_TEST( available_start_ns==stored_ns && available_end_ns==stored_ns+1L );
+  FD_TEST( metrics->ts_reads       [ FD_GUI_HIST_REPLAY_TXN ]==reads_before   );
+  FD_TEST( metrics->ts_read_records[ FD_GUI_HIST_REPLAY_TXN ]==records_before );
+
+  long const shred_ns = sec_ns( 3000UL );
+  FD_TEST( !fd_gui_hist_ts_bounds( gui, FD_GUI_HIST_SHRED_EVENTS, &available_start_ns, &available_end_ns ) );
+  append_shred( gui, shred_ns, 3UL );
+  reads_before   = metrics->ts_reads       [ FD_GUI_HIST_SHRED_EVENTS ];
+  records_before = metrics->ts_read_records[ FD_GUI_HIST_SHRED_EVENTS ];
+  FD_TEST( fd_gui_hist_ts_bounds( gui, FD_GUI_HIST_SHRED_EVENTS, &available_start_ns, &available_end_ns ) );
+  FD_TEST( available_start_ns==shred_ns && available_end_ns==shred_ns+1L );
+  FD_TEST( metrics->ts_reads       [ FD_GUI_HIST_SHRED_EVENTS ]==reads_before   );
+  FD_TEST( metrics->ts_read_records[ FD_GUI_HIST_SHRED_EVENTS ]==records_before );
+
+  fd_gui_hist_iter_t it[ 1 ];
+  FD_TEST( !fd_gui_hist_range_begin( gui, it, FD_GUI_HIST_REPLAY_TXN,
+                                     stored_ns, stored_ns+1L, NULL, NULL ) );
+  ulong found = 0UL;
+  while( fd_gui_hist_range_next( it ) ) {
+    fd_gui_store_replay_txn_t const * rec = it->rec;
+    if( rec->completion_time_ns==stored_ns ) {
+      FD_TEST( rec->slot==2UL );
+      found++;
+    }
+  }
+  fd_gui_hist_range_end( it );
+  FD_TEST( found==1UL );
+
+  /* Monotonic timestamps are rejected before reserve can evict data. */
+  fd_gui_scheduler_counts_t sched[ 1 ] = {{0}};
+  sched->sample_time_ns = sec_ns( 3000UL );
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_SCHEDULER_COUNTS,
+                                  sched->sample_time_ns, sched->sample_time_ns, sched ) );
+  ulong appends_before = fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SCHEDULER_COUNTS ];
+  sched->sample_time_ns--;
+  FD_TEST( fd_gui_hist_ts_append( gui, FD_GUI_HIST_SCHEDULER_COUNTS,
+                                 sched->sample_time_ns, sched->sample_time_ns, sched )==-1 );
+  FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SCHEDULER_COUNTS ]==appends_before );
+
+  FD_LOG_NOTICE(( "test_timeline_foundation: ok" ));
+}
+
+static void
+test_range_live_timestamp_bounds( fd_gui_t * gui ) {
+  append_shred( gui, -sec_ns( 2UL ), 1UL );
+
+  fd_gui_hist_iter_t it[ 1 ];
+  FD_TEST( !fd_gui_hist_range_begin( gui, it, FD_GUI_HIST_SHRED_EVENTS, 0L, 0L, NULL, NULL ) );
+  FD_TEST( fd_gui_hist_range_next( it ) );
+  fd_gui_shred_batch_t const * shred = it->rec;
+  FD_TEST( shred->base_timestamp==-sec_ns( 2UL ) && shred->slot==1UL );
+  FD_TEST( !fd_gui_hist_range_next( it ) );
+  fd_gui_hist_range_end( it );
+
+  append_replay_txn( gui, sec_ns( 100UL ), sec_ns( 100UL ), 2UL );
+  append_replay_txn( gui, sec_ns(  10UL ), sec_ns(  10UL ), 3UL );
+
+  FD_TEST( !fd_gui_hist_range_begin( gui, it, FD_GUI_HIST_REPLAY_TXN,
+                                     sec_ns( 10UL ), sec_ns( 100UL ), NULL, NULL ) );
+  ulong found = 0UL;
+  while( fd_gui_hist_range_next( it ) ) {
+    fd_gui_store_replay_txn_t const * rec = it->rec;
+    if( rec->completion_time_ns==sec_ns( 100UL ) ) { FD_TEST( rec->slot==2UL ); found |= 1UL; }
+    if( rec->completion_time_ns==sec_ns(  10UL ) ) { FD_TEST( rec->slot==3UL ); found |= 2UL; }
+  }
+  fd_gui_hist_range_end( it );
+  FD_TEST( found==3UL );
+
+  fd_gui_store_metrics_t const * metrics = fd_gui_store_metrics( gui->db );
+  ulong reads_before   = metrics->ts_reads       [ FD_GUI_HIST_REPLAY_TXN ];
+  ulong records_before = metrics->ts_read_records[ FD_GUI_HIST_REPLAY_TXN ];
+  FD_TEST( !fd_gui_hist_range_begin( gui, it, FD_GUI_HIST_REPLAY_TXN,
+                                     sec_ns( 121UL ), sec_ns( 121UL ), NULL, NULL ) );
+  FD_TEST( !fd_gui_hist_range_next( it ) );
+  fd_gui_hist_range_end( it );
+  FD_TEST( metrics->ts_reads       [ FD_GUI_HIST_REPLAY_TXN ]==reads_before   );
+  FD_TEST( metrics->ts_read_records[ FD_GUI_HIST_REPLAY_TXN ]==records_before );
+
+  FD_LOG_NOTICE(( "test_range_live_timestamp_bounds: ok" ));
 }
 
 static void
@@ -596,6 +860,228 @@ test_waterfall_snapshots( fd_gui_t * gui ) {
   FD_LOG_NOTICE(( "test_waterfall_snapshots: ok" ));
 }
 
+static void
+test_shred_event_batches( fd_gui_t * gui ) {
+  long const base = 10000000000L;
+
+  for( ulong i=0UL; i<128UL; i++ )
+    fd_gui_shred_event_append( gui, 700UL, i, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, base+(long)i );
+  fd_gui_shred_event_append( gui, 701UL, 9UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, base+50L );
+  fd_gui_shred_event_append( gui, 700UL, 128UL, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, base+128L );
+
+  FD_TEST( fd_gui_shred_event_pool_used( gui->shreds.shred_event_pool )==130UL );
+
+  fd_gui_shred_event_iter_t it[ 1 ];
+  fd_gui_shred_event_iter_begin( gui, it, base+10L, base+60L );
+  for( ulong i=10UL; i<=60UL; i++ ) {
+    FD_TEST( fd_gui_shred_event_iter_next( it ) );
+    FD_TEST( it->event.slot==700UL );
+    FD_TEST( it->event.idx==(ushort)i );
+    FD_TEST( it->event.timestamp==base+(long)i );
+  }
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==701UL && it->event.idx==9U && it->event.timestamp==base+50L );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  fd_gui_shred_event_slot_complete( gui, 700UL, base+129L, base+129L );
+  FD_TEST( fd_gui_shred_event_pool_used( gui->shreds.shred_event_pool )==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==2UL );
+
+  fd_gui_shred_event_iter_begin( gui, it, base, base+1000L );
+  for( ulong i=0UL; i<128UL; i++ ) {
+    FD_TEST( fd_gui_shred_event_iter_next( it ) );
+    FD_TEST( it->event.slot==700UL );
+    FD_TEST( it->event.idx==(ushort)i );
+    FD_TEST( it->event.timestamp==base+(long)i );
+  }
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==700UL && it->event.idx==128U && it->event.event==FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==700UL && it->event.idx==USHORT_MAX && it->event.event==FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==701UL && it->event.idx==9U );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  fd_gui_shred_event_slot_complete( gui, 701UL, base+130L, base+130L );
+  FD_TEST( fd_gui_shred_event_pool_free( gui->shreds.shred_event_pool )==FD_GUI_SHRED_EVENT_POOL_MAX );
+  FD_TEST( fd_gui_shred_event_dlist_is_empty( gui->shreds.shred_event_list, gui->shreds.shred_event_pool ) );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==3UL );
+
+  put_slot( gui, 700UL, base+129L );
+  fd_gui_shred_event_append( gui, 700UL, 129UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR, base+131L );
+  FD_TEST( gui->shreds.dropped_event_cnt==1UL );
+  FD_TEST( fd_gui_shred_event_pool_free( gui->shreds.shred_event_pool )==FD_GUI_SHRED_EVENT_POOL_MAX );
+
+  long const split_base = 20000000000L;
+  fd_gui_shred_event_append( gui, 702UL, 500UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, split_base+100L );
+  fd_gui_shred_event_append( gui, 702UL, 400UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR,  split_base      );
+  fd_gui_shred_event_append( gui, 702UL, 655UL, FD_GUI_SLOT_SHRED_SHRED_PUBLISHED,        split_base+(long)FD_GUI_SHRED_EVENT_TS_MAX );
+  fd_gui_shred_event_append( gui, 702UL, 400UL, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, split_base+(long)FD_GUI_SHRED_EVENT_TS_MAX+1L );
+  fd_gui_shred_event_append( gui, 702UL, 401UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST,          split_base+FD_GUI_HIST_RES_1S_NS );
+  fd_gui_shred_event_slot_complete( gui, 702UL, split_base+FD_GUI_HIST_RES_1S_NS+1L,
+                                    split_base+FD_GUI_HIST_RES_1S_NS+1L );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 702UL )==3UL );
+
+  ushort const expected_idx[] = { 500U, 400U, 655U, 400U, 401U, USHORT_MAX };
+  long const expected_ts[] = {
+    split_base+100L,
+    split_base,
+    split_base+(long)FD_GUI_SHRED_EVENT_TS_MAX,
+    split_base+(long)FD_GUI_SHRED_EVENT_TS_MAX+1L,
+    split_base+FD_GUI_HIST_RES_1S_NS,
+    split_base+FD_GUI_HIST_RES_1S_NS+1L
+  };
+  fd_gui_shred_event_iter_begin( gui, it, split_base, split_base+FD_GUI_HIST_RES_1S_NS+1L );
+  for( ulong i=0UL; i<6UL; i++ ) {
+    FD_TEST( fd_gui_shred_event_iter_next( it ) );
+    FD_TEST( it->event.slot==702UL );
+    FD_TEST( it->event.idx==expected_idx[ i ] );
+    FD_TEST( it->event.timestamp==expected_ts[ i ] );
+  }
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  fd_gui_shred_event_append( gui, 703UL,   0UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, split_base );
+  fd_gui_shred_event_append( gui, 703UL, 255UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, split_base );
+  fd_gui_shred_event_append( gui, 703UL, 256UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, split_base );
+  fd_gui_shred_event_slot_complete( gui, 703UL, split_base+1L, split_base+1L );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 703UL )==2UL );
+
+  ulong dropped_event_cnt = gui->shreds.dropped_event_cnt;
+  fd_gui_shred_event_append( gui, (ulong)UINT_MAX+1UL, 0UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, split_base );
+  fd_gui_shred_event_append( gui, 704UL, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, split_base );
+  FD_TEST( gui->shreds.dropped_event_cnt==dropped_event_cnt+2UL );
+
+  long const clamp_now = 40000000000L;
+  fd_gui_shred_event_append( gui, 704UL, 1UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, 0L );
+  fd_gui_shred_event_slot_complete( gui, 704UL, 0L, clamp_now );
+  fd_gui_shred_event_iter_begin( gui, it, clamp_now-FD_GUI_HIST_TS_SKEW_NS, clamp_now );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==704UL && it->event.idx==1U );
+  FD_TEST( it->event.timestamp==clamp_now-FD_GUI_HIST_TS_SKEW_NS );
+  FD_TEST( fd_gui_shred_event_iter_next( it ) );
+  FD_TEST( it->event.slot==704UL && it->event.idx==USHORT_MAX );
+  FD_TEST( it->event.timestamp==clamp_now-FD_GUI_HIST_TS_SKEW_NS );
+  FD_TEST( !fd_gui_shred_event_iter_next( it ) );
+  fd_gui_shred_event_iter_end( it );
+
+  FD_LOG_NOTICE(( "test_shred_event_batches: ok" ));
+}
+
+static void
+assert_staged_events( fd_gui_t *         gui,
+                      ulong const *      slots,
+                      ushort const *     idxs,
+                      ulong              event_cnt ) {
+  fd_gui_shred_event_staged_t * pool = gui->shreds.shred_event_pool;
+  fd_gui_shred_event_dlist_t *  list = gui->shreds.shred_event_list;
+  ulong i = 0UL;
+  for( fd_gui_shred_event_dlist_iter_t iter = fd_gui_shred_event_dlist_iter_fwd_init( list, pool );
+       !fd_gui_shred_event_dlist_iter_done( iter, list, pool );
+       iter = fd_gui_shred_event_dlist_iter_fwd_next( iter, list, pool ) ) {
+    FD_TEST( i<event_cnt );
+    fd_gui_shred_event_staged_t const * staged = fd_gui_shred_event_dlist_iter_ele_const( iter, list, pool );
+    FD_TEST( staged->slot==slots[ i ] );
+    FD_TEST( staged->idx ==idxs [ i ] );
+    i++;
+  }
+  FD_TEST( i==event_cnt );
+  FD_TEST( fd_gui_shred_event_pool_used( pool )==event_cnt );
+}
+
+static void
+test_shred_event_root_reclaim( fd_gui_t * gui ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 4UL,
+    .outgoing_buffer_sz    = 1UL<<20
+  };
+  ulong http_footprint = fd_http_server_footprint( params );
+  void * http_mem = aligned_alloc( fd_http_server_align(), http_footprint );
+  FD_TEST( http_mem );
+  gui->http = fd_http_server_join( fd_http_server_new( http_mem, params, (fd_http_server_callbacks_t){0}, NULL ) );
+  FD_TEST( gui->http );
+  gui->summary.slot_rooted = ULONG_MAX;
+
+  fd_gui_shred_event_append( gui, 899UL, 1UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, 1L );
+  fd_gui_shred_event_append( gui, 900UL, 2UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR,  2L );
+  fd_gui_shred_event_append( gui, 901UL, 3UL, FD_GUI_SLOT_SHRED_SHRED_PUBLISHED,        3L );
+  fd_gui_shred_event_append( gui, 898UL, 4UL, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, 4L );
+  fd_gui_shred_event_append( gui, 902UL, 5UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST,          5L );
+
+  put_slot( gui, 900UL, 6L );
+  fd_gui_slot_get( gui, 900UL, BANK_SEQ )->parent_slot = ULONG_MAX;
+  fd_gui_handle_root_advanced( gui, 900UL, BANK_SEQ, 6L );
+
+  ulong const  slots_after_first[] = { 900UL, 901UL, 902UL };
+  ushort const idxs_after_first [] = { 2U,    3U,    5U    };
+  assert_staged_events( gui, slots_after_first, idxs_after_first, 3UL );
+  FD_TEST( !count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 898UL ) );
+  FD_TEST( !count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 899UL ) );
+
+  fd_gui_shred_event_append( gui, 899UL, 6UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, 7L );
+  ulong const  slots_before_advance[] = { 900UL, 901UL, 902UL, 899UL };
+  ushort const idxs_before_advance [] = { 2U,    3U,    5U,    6U    };
+  assert_staged_events( gui, slots_before_advance, idxs_before_advance, 4UL );
+
+  put_slot( gui, 899UL, 8L );
+  fd_gui_slot_get( gui, 899UL, BANK_SEQ )->parent_slot = ULONG_MAX;
+  fd_gui_handle_root_advanced( gui, 900UL, BANK_SEQ, 8L );
+  assert_staged_events( gui, slots_before_advance, idxs_before_advance, 4UL );
+  fd_gui_handle_root_advanced( gui, 899UL, BANK_SEQ, 8L );
+  assert_staged_events( gui, slots_before_advance, idxs_before_advance, 4UL );
+
+  put_slot( gui, 901UL, 9L );
+  fd_gui_slot_get( gui, 901UL, BANK_SEQ )->parent_slot = ULONG_MAX;
+  fd_gui_handle_root_advanced( gui, 901UL, BANK_SEQ, 9L );
+
+  ulong const  slots_after_advance[] = { 901UL, 902UL };
+  ushort const idxs_after_advance [] = { 3U,    5U    };
+  assert_staged_events( gui, slots_after_advance, idxs_after_advance, 2UL );
+  FD_TEST( !count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 899UL ) );
+  FD_TEST( !count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 900UL ) );
+
+  fd_gui_shred_event_slot_complete( gui, 901UL, 10L, 10L );
+  ulong const  slots_after_complete[] = { 902UL };
+  ushort const idxs_after_complete [] = { 5U    };
+  assert_staged_events( gui, slots_after_complete, idxs_after_complete, 1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 901UL )==1UL );
+
+  fd_gui_shred_event_slot_complete( gui, 902UL, 11L, 11L );
+  FD_TEST( fd_gui_shred_event_dlist_is_empty( gui->shreds.shred_event_list, gui->shreds.shred_event_pool ) );
+  FD_TEST( !fd_gui_shred_event_pool_used( gui->shreds.shred_event_pool ) );
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+
+  FD_LOG_NOTICE(( "test_shred_event_root_reclaim: ok" ));
+}
+
+static void
+test_shred_event_pool_exhaustion( fd_gui_t * gui ) {
+  long const timestamp = 30000000000L;
+  for( ulong i=0UL; i<FD_GUI_SHRED_EVENT_POOL_MAX; i++ )
+    fd_gui_shred_event_append( gui, 800UL, i & 255UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, timestamp );
+
+  FD_TEST( !fd_gui_shred_event_pool_free( gui->shreds.shred_event_pool ) );
+  FD_TEST( !gui->shreds.dropped_event_cnt );
+  fd_gui_shred_event_append( gui, 801UL, 0UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, timestamp );
+  FD_TEST( gui->shreds.dropped_event_cnt==1UL );
+
+  fd_gui_shred_event_slot_complete( gui, 800UL, timestamp+1L, timestamp+1L );
+  FD_TEST( fd_gui_shred_event_pool_free( gui->shreds.shred_event_pool )==FD_GUI_SHRED_EVENT_POOL_MAX );
+  FD_TEST( fd_gui_shred_event_dlist_is_empty( gui->shreds.shred_event_list, gui->shreds.shred_event_pool ) );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, 800UL)==(FD_GUI_SHRED_EVENT_POOL_MAX/FD_GUI_SHRED_EVENT_BATCH_MAX)+1UL );
+
+  FD_LOG_NOTICE(( "test_shred_event_pool_exhaustion: ok" ));
+}
+
 /* ---- space-pressure trigger ------------------------------------------
 
    The space-pressure *trigger* (high-water threshold via
@@ -633,6 +1119,11 @@ main( int     argc,
   test_evict_ts_oldest_fallback( s2->gui );
   store_close( s2 );
 
+  test_store_t st[ 1 ];
+  store_open( st, 1UL<<30, 9 );
+  test_evict_timeline_ts_fallback( st->gui );
+  store_close( st );
+
   test_store_t s3[ 1 ];
   store_open( s3, 1UL<<30, 4 );
   test_resident_meta_mutation_survives_evict( s3->gui );
@@ -647,6 +1138,31 @@ main( int     argc,
   store_open( s5, 1UL<<30, 7 );
   test_waterfall_snapshots( s5->gui );
   store_close( s5 );
+
+  test_store_t s6[ 1 ];
+  store_open( s6, 1UL<<30, 8 );
+  test_timeline_db( s6->gui );
+  store_close( s6 );
+
+  test_store_t sr[ 1 ];
+  store_open( sr, 1UL<<30, 13 );
+  test_range_live_timestamp_bounds( sr->gui );
+  store_close( sr );
+
+  test_store_t s7[ 1 ];
+  store_open( s7, 1UL<<30, 10 );
+  test_shred_event_batches( s7->gui );
+  store_close( s7 );
+
+  test_store_t s8[ 1 ];
+  store_open( s8, 1UL<<30, 11 );
+  test_shred_event_pool_exhaustion( s8->gui );
+  store_close( s8 );
+
+  test_store_t s9[ 1 ];
+  store_open( s9, 1UL<<30, 12 );
+  test_shred_event_root_reclaim( s9->gui );
+  store_close( s9 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
