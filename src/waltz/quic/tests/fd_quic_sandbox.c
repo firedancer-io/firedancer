@@ -237,7 +237,11 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
   sandbox->wallclock = 1L;
   sandbox->pkt_seq_r = 0UL;
   sandbox->pkt_seq_w = 0UL;
-  sandbox->pkt_mcache[0].seq = ULONG_MAX;  /* mark first entry as unpublished */
+  ulong pkt_depth = fd_mcache_depth( sandbox->pkt_mcache );
+  for( ulong seq=0UL; seq<pkt_depth; seq++ ) {
+    ulong line = fd_mcache_line_idx( seq, pkt_depth );
+    sandbox->pkt_mcache[ line ].seq = fd_seq_dec( seq, 1UL );
+  }
   sandbox->pkt_chunk = fd_dcache_compact_chunk0( sandbox, sandbox->pkt_dcache );
 
   /* skip ahead the log seq no */
