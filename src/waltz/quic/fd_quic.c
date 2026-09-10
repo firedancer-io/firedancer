@@ -1993,6 +1993,17 @@ fd_quic_handle_v1_retry(
     return FD_QUIC_PARSE_FAIL;
   }
 
+  /* RFC 9000 Section 17.2.5.2:
+     > A client MUST accept and process at most one Retry packet for
+     > each connection attempt.  After the client has received and
+     > processed an Initial or Retry packet from the server, it MUST
+     > discard any subsequent Retry packets that it receives. */
+  if( FD_UNLIKELY( conn->established | (conn->retry_src_conn_id.sz!=0) ) ) {
+    FD_DTRACE_PROBE_2( fd_quic_handle_v1_retry_late, state->now, conn->our_conn_id );
+    quic->metrics.conn_err_retry_fail_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   fd_quic_conn_id_t const * orig_dst_conn_id = &conn->peer_cids[0];
   uchar const *             retry_token      = NULL;
   ulong                     retry_token_sz   = 0UL;
@@ -2004,6 +2015,16 @@ fd_quic_handle_v1_retry(
       &retry_token, &retry_token_sz
   );
   if( FD_UNLIKELY( rc!=FD_QUIC_SUCCESS ) ) {
+    quic->metrics.conn_err_retry_fail_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  /* RFC 9000 Section 17.2.5.2:
+     > A client MUST discard a Retry packet that contains a SCID field
+     > that is identical to the DCID field of its Initial packet. */
+  if( FD_UNLIKELY( ( conn->retry_src_conn_id.sz==orig_dst_conn_id->sz ) &&
+                   ( 0==memcmp( conn->retry_src_conn_id.conn_id, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz ) ) ) ) {
+    conn->retry_src_conn_id.sz = 0U;
     quic->metrics.conn_err_retry_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
