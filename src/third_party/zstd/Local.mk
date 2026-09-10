@@ -1,5 +1,3 @@
-ifdef FD_HAS_ZSTD
-
 ZSTD_OBJS:=\
   common/debug \
   common/entropy_common \
@@ -26,6 +24,11 @@ ZSTD_OBJS:=\
   decompress/zstd_decompress_block
 
 ZSTD_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS))) -DZSTD_TRACE=0 -DDEBUGLEVEL=0 -DZSTD_LEGACY_SUPPORT=0 -DZSTD_ASAN_DONT_POISON_WORKSPACE=1 -DZSTD_MSAN_DONT_POISON_WORKSPACE=1
+# huf_decompress_amd64.S is the only asm; keep the C path for machines
+# without FD_HAS_X86 (noarch etc.) so it stays exercised.
+ifndef FD_HAS_X86
+ZSTD_CFLAGS_NOWARN+=-DZSTD_DISABLE_ASM
+endif
 
 $(OBJDIR)/obj/third_party/zstd/lib/%.o : src/third_party/zstd/lib/%.c $(OBJDIR)/.flags src/third_party/zstd/Local.mk
 	@echo -e "CC\t$(notdir $@)"
@@ -59,6 +62,3 @@ lib: $(OBJDIR)/lib/libfd_zstd.a
 # Global-LDFLAGS archive: order-only edge via libfd_util.a (see
 # third_party/blst/Local.mk for rationale).
 $(OBJDIR)/lib/libfd_util.a: | $(OBJDIR)/lib/libfd_zstd.a
-
-endif
-

@@ -2,7 +2,6 @@ ifdef FD_HAS_HOSTED
 ifdef FD_HAS_LINUX
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
-ifdef FD_HAS_ZSTD
 
 .PHONY: firedancer-dev
 
@@ -25,9 +24,6 @@ endif
 
 $(call make-integration-test,test_firedancer_dev,tests/test_firedancer_dev,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util,$(OPENSSL_LIBS))
 $(call run-integration-test,test_firedancer_dev)
-else
-$(warning firedancer-dev build disabled due to lack of zstd)
-endif
 endif
 endif
 endif

@@ -80,4 +80,5 @@ include $(wildcard $(addprefix config/extra/with-,$(addsuffix -pre.mk,$(EXTRAS))
 include config/machine/$(MACHINE).mk
 include $(addprefix config/extra/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/extra/with-blst.mk
+include config/extra/with-zstd.mk
 include config/everything.mk

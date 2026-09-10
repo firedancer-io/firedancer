@@ -46,8 +46,6 @@
    frame.  The Solana protocol does not properly bound max decompressed
    frame size, so using streaming mode is safer for now. */
 
-#if FD_HAS_ZSTD
-
 #include "../fd_ballet_base.h"
 
 /* FD_ZSTD_MAX_HDR_SZ is the amount of bytes required to fit any
@@ -157,7 +155,5 @@ fd_zstd_dstream_read( fd_zstd_dstream_t *     dstream,
 /* TODO: Migrate compression logic from fd_snapshot_create. to fd_zstd.h */
 
 FD_PROTOTYPES_END
-
-#endif /* FD_HAS_ZSTD */
 
 #endif /* HEADER_fd_src_ballet_zstd_fd_zstd_h */

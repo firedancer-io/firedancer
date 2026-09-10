@@ -196,13 +196,6 @@
 #define FD_HAS_LZ4 0
 #endif
 
-/* FD_HAS_ZSTD indicates that the target supports ZSTD compression.
-   Roughly, does "#include <zstd.h>" and the APIs therein work? */
-
-#ifndef FD_HAS_ZSTD
-#define FD_HAS_ZSTD 0
-#endif
-
 /* FD_HAS_COVERAGE indicates that the build target is built with coverage instrumentation. */
 
 #ifndef FD_HAS_COVERAGE
