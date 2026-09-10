@@ -221,8 +221,6 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-#if FD_HAS_S2NBIGNUM
-
 /*
   Secp256K1
 */
@@ -461,22 +459,3 @@ fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
   const fd_native_prog_info_t null_function = {0};
   return fd_native_precompile_program_fn_lookup_tbl_query( pubkey, &null_function )->fn;
 }
-
-#else /* !FD_HAS_S2NBIGNUM */
-
-fd_precompile_program_t const *
-fd_precompiles( void ) {
-  FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
-               "Rebuild with a MACHINE config that enables config/extra/with-s2nbignum.mk" ));
-  return NULL;
-}
-
-fd_exec_instr_fn_t
-fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
-  (void)pubkey;
-  FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
-               "Rebuild with a MACHINE config that enables config/extra/with-s2nbignum.mk" ));
-  return NULL;
-}
-
-#endif /* FD_HAS_S2NBIGNUM */

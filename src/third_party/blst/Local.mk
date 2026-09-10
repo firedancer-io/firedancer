@@ -7,7 +7,7 @@
 # Other machines (noarch, power9, riscv) take the pure C path.  vect.h
 # forces 64-bit limbs whenever the compiler defines __x86_64__ or
 # __aarch64__, which no_asm.h (32-bit limbs only) cannot build, so
-# undefine them; blst includes only stddef.h so this is safe.
+# undefine them.
 BLST_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS))) -fno-builtin
 BLST_OBJS:=$(OBJDIR)/obj/third_party/blst/server.o
 ifdef FD_HAS_X86
@@ -16,7 +16,7 @@ BLST_OBJS+=$(OBJDIR)/obj/third_party/blst/assembly.o
 else ifdef FD_HAS_ARM
 BLST_OBJS+=$(OBJDIR)/obj/third_party/blst/assembly.o
 else
-BLST_CFLAGS_NOWARN+=-D__BLST_NO_ASM__ -U__x86_64__ -U__aarch64__
+BLST_CFLAGS_NOWARN+=-D__BLST_NO_ASM__ -U__x86_64__ -U__aarch64__ -ffreestanding
 endif
 
 $(OBJDIR)/obj/third_party/blst/server.o : src/third_party/blst/src/server.c $(OBJDIR)/.flags src/third_party/blst/Local.mk

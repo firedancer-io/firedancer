@@ -92,6 +92,14 @@ fd_secp256r1_fp_set( fd_secp256r1_fp_t * r,
   return r;
 }
 
+/* r = -a, Montgomery domain */
+static inline fd_secp256r1_fp_t *
+fd_secp256r1_fp_neg( fd_secp256r1_fp_t *       r,
+                     fd_secp256r1_fp_t const * a ) {
+  bignum_optneg_p256( r->limbs, 1UL, (ulong *)a->limbs );
+  return r;
+}
+
 static inline fd_secp256r1_fp_t *
 fd_secp256r1_fp_frombytes( fd_secp256r1_fp_t * r,
                            uchar const             in[ 32 ] ) {
