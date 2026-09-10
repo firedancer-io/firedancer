@@ -181,6 +181,15 @@ typedef struct {
   ulong                    adtl_dests_retransmit_cnt;
   fd_shred_dest_weighted_t adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ];
 
+  /* Alpentick equivocation, see [development.equivocate]. */
+  ulong                    equiv_dests_a_cnt;
+  fd_shred_dest_weighted_t equiv_dests_a[ FD_TOPO_ADTL_DESTS_MAX ];
+  ulong                    equiv_dests_b_cnt;
+  fd_shred_dest_weighted_t equiv_dests_b[ FD_TOPO_ADTL_DESTS_MAX ];
+  fd_shredder_t *          equiv_shredder;
+  fd_fec_set_t *           equiv_fec;
+  int                      equiv_active;
+
   fd_ip4_udp_hdrs_t data_shred_net_hdr  [1];
   fd_ip4_udp_hdrs_t parity_shred_net_hdr[1];
 
@@ -345,6 +354,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()                 );
   l = FD_LAYOUT_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint                  );
   l = FD_LAYOUT_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()                 );
+  l = FD_LAYOUT_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()                 );
+  l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,                   sizeof(fd_fec_set_t)                    );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -793,6 +804,13 @@ alpenglow_marker:
           if( FD_UNLIKELY( !writing_marker ) ) ctx->send_fec_set_cnt = 0UL; /* verbose */
           ctx->shredded_txn_cnt = ctx->pending_batch.txn_cnt;
 
+          int equivocate = (entry_meta->block_complete==1) & !!ctx->equiv_dests_b_cnt;
+          uchar equiv_cmr[ 32 ];
+          if( FD_UNLIKELY( equivocate ) ) {
+            memcpy( ctx->equiv_shredder, ctx->shredder, fd_shredder_footprint() );
+            memcpy( equiv_cmr, chained_merkle_root, 32UL );
+          }
+
           fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz_padded, target_slot, entry_meta );
 
           ulong pend_sz  = batch_sz_padded;
@@ -820,6 +838,23 @@ alpenglow_marker:
           }
 
           fd_shredder_fini_batch( ctx->shredder );
+
+          if( FD_UNLIKELY( equivocate ) ) {
+            /* The alpentick is a single resigned FEC set; anything else
+               means the block layout changed and this hack is stale. */
+            FD_TEST( batch_sz_padded==load_for_32_shreds );
+            /* fd_entry_batch_header_t.hash[0], past the 8-byte microblock
+               count and the 8-byte hashcnt_delta. */
+            ctx->pending_batch.payload[ 16 ] ^= (uchar)1;
+            fd_shredder_init_batch( ctx->equiv_shredder, ctx->pending_batch.raw, batch_sz_padded, target_slot, entry_meta );
+            FD_TEST( fd_shredder_next_fec_set( ctx->equiv_shredder, ctx->equiv_fec, equiv_cmr ) );
+            fd_shredder_fini_batch( ctx->equiv_shredder );
+            ctx->pending_batch.payload[ 16 ] ^= (uchar)1;
+            ctx->equiv_fec->data_shred_rcvd   = 0U;
+            ctx->equiv_fec->parity_shred_rcvd = 0U;
+            ctx->equiv_active = 1;
+          }
+
           shredding_timing += fd_tickcount();
 
           /* Update metrics */
@@ -1200,6 +1235,22 @@ after_frag( fd_shred_ctx_t *    ctx,
         for( ulong i=0UL; i<k; i++ ) {
           for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
         }
+        if( FD_UNLIKELY( ctx->equiv_active ) ) {
+          /* Bypass the turbine tree: variant A goes only to dests_a, and
+             variant B only to dests_b, so the two halves of the cluster
+             see different final entry batches at the same shred indices. */
+          for( ulong i=0UL; i<k; i++ ) {
+            for( ulong j=0UL; j<ctx->equiv_dests_a_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->equiv_dests_a+j, ctx->tsorig );
+          }
+          for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+            for( ulong j=0UL; j<ctx->equiv_dests_b_cnt; j++ ) {
+              send_shred( ctx, stem, ctx->equiv_fec->data_shreds  [ i ].s, ctx->equiv_dests_b+j, ctx->tsorig );
+              send_shred( ctx, stem, ctx->equiv_fec->parity_shreds[ i ].s, ctx->equiv_dests_b+j, ctx->tsorig );
+            }
+          }
+          ctx->equiv_active = 0;
+          break;
+        }
         out_stride = 1UL;
         *max_dest_cnt = 1UL;
         dests = fd_shred_dest_compute_first( sdest, new_shreds, k, ctx->scratchpad_dests );
@@ -1480,6 +1531,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );
   void * _resolver = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint             );
   void * _shredder = FD_SCRATCH_ALLOC_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()            );
+  void * _equiv_shredder = FD_SCRATCH_ALLOC_APPEND( l, fd_shredder_align(),        fd_shredder_footprint()            );
+  void * _equiv_fec      = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN,             sizeof(fd_fec_set_t)               );
 
   fd_fec_set_t * fec_sets  = (fd_fec_set_t *)fec_sets_shmem;
 
@@ -1526,6 +1579,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->shred_limit                   = shred_limit;
   fd_fec_set_t * resolver_sets       = fec_sets + fec_exposure + FD_SHRED_BATCH_FEC_SETS_MAX;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client ) ) );
+  ctx->equiv_shredder = NONNULL( fd_shredder_join( fd_shredder_new( _equiv_shredder, fd_shred_signer, ctx->keyguard_client ) ) );
+  ctx->equiv_fec      = (fd_fec_set_t *)_equiv_fec;
+  ctx->equiv_active   = 0;
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
                                                                         fd_shred_signer, ctx->keyguard_client,
                                                                         tile->shred.fec_resolver_depth, 1UL,
@@ -1557,6 +1613,19 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->adtl_dests_leader[i].ip4  = tile->shred.adtl_dests_leader[i].ip;
     ctx->adtl_dests_leader[i].port = tile->shred.adtl_dests_leader[i].port;
   }
+  ctx->equiv_dests_a_cnt = tile->shred.equiv_dests_a_cnt;
+  for( ulong i=0UL; i<ctx->equiv_dests_a_cnt; i++) {
+    ctx->equiv_dests_a[i].ip4  = tile->shred.equiv_dests_a[i].ip;
+    ctx->equiv_dests_a[i].port = tile->shred.equiv_dests_a[i].port;
+  }
+  ctx->equiv_dests_b_cnt = tile->shred.equiv_dests_b_cnt;
+  for( ulong i=0UL; i<ctx->equiv_dests_b_cnt; i++) {
+    ctx->equiv_dests_b[i].ip4  = tile->shred.equiv_dests_b[i].ip;
+    ctx->equiv_dests_b[i].port = tile->shred.equiv_dests_b[i].port;
+  }
+  if( FD_UNLIKELY( ctx->equiv_dests_a_cnt || ctx->equiv_dests_b_cnt ) )
+    FD_LOG_WARNING(( "ALPENTICK EQUIVOCATION ENABLED: %lu dests get variant A, %lu get variant B",
+                     ctx->equiv_dests_a_cnt, ctx->equiv_dests_b_cnt ));
 
   uchar has_contact_info_in = 0;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

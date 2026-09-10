@@ -123,6 +123,8 @@ static char const * const jw_redacted_keys[] = {
   "tiles.event.url",
   "tiles.shred.additional_shred_destinations_retransmit",
   "tiles.shred.additional_shred_destinations_leader",
+  "development.equivocate.dests_a",
+  "development.equivocate.dests_b",
   "tiles.metric.prometheus_listen_address",
   "gossip.entrypoints",
   "tiles.gui.gui_listen_address",
@@ -200,6 +202,8 @@ static char const * const jw_array_keys[] = {
   "tiles.replay.enable_features",
   "tiles.shred.additional_shred_destinations_retransmit",
   "tiles.shred.additional_shred_destinations_leader",
+  "development.equivocate.dests_a",
+  "development.equivocate.dests_b",
 };
 
 static int
@@ -458,6 +462,10 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "votor" );
       jw_ulong( &w, "quic_client_listen_port", f->development.votor.quic_client_listen_port );
       jw_ulong( &w, "quic_server_listen_port", f->development.votor.quic_server_listen_port );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "equivocate" );
+      jw_path_arr( &w, "dests_a", f->development.equivocate.dests_a_cnt );
+      jw_path_arr( &w, "dests_b", f->development.equivocate.dests_b_cnt );
     jw_obj_close( &w );
     jw_obj_open( &w, "gossip" );
       jw_bool( &w, "allow_private_address", config->development.gossip.allow_private_address );

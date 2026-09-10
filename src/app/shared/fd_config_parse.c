@@ -139,6 +139,9 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ushort, development.votor.quic_client_listen_port           );
   CFG_POP      ( ushort, development.votor.quic_server_listen_port           );
 
+  CFG_POP_ARRAY( cstr,   development.equivocate.dests_a                      );
+  CFG_POP_ARRAY( cstr,   development.equivocate.dests_b                      );
+
   CFG_POP      ( bool,   development.genesis.validate_genesis_hash           );
   CFG_POP      ( ulong,  development.genesis.max_file_size_mib               );
 

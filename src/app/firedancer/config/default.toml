@@ -1950,6 +1950,19 @@ telemetry = true
     # `firedancer-dev`.
     alpenglow = false
 
+    # Equivocate the final entry batch of every block we lead (the
+    # alpentick), to test peer repair handling.  Two disjoint lists of
+    # shred destinations, "ip:port" of each peer's shred/TVU socket.
+    # Peers in dests_a get the real alpentick; peers in dests_b get one
+    # with a flipped bit in the tick hash, shredded at the same slot and
+    # shred indices, so the two are a genuine equivocation.  Both lists
+    # are unicast directly, bypassing the turbine tree, and no other peer
+    # receives the final batch.  Our own replay/store only ever sees the
+    # dests_a version.  Leave both empty (the default) to disable.
+    [development.equivocate]
+        dests_a = []
+        dests_b = []
+
     [development.votor]
         # The votor tile makes outgoing QUIC connections from this port
         # to broadcast the votes it produces.  Peers see it as the

@@ -405,6 +405,10 @@ struct fd_topo_tile {
       fd_topo_ip_port_t adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ];
       ulong             adtl_dests_leader_cnt;
       fd_topo_ip_port_t adtl_dests_leader[ FD_TOPO_ADTL_DESTS_MAX ];
+      ulong             equiv_dests_a_cnt;
+      fd_topo_ip_port_t equiv_dests_a[ FD_TOPO_ADTL_DESTS_MAX ];
+      ulong             equiv_dests_b_cnt;
+      fd_topo_ip_port_t equiv_dests_b[ FD_TOPO_ADTL_DESTS_MAX ];
     } shred;
 
     struct {

@@ -1783,6 +1783,18 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
                       &tile->shred.adtl_dests_leader[ i ] );
     }
     tile->shred.adtl_dests_leader_cnt = config->tiles.shred.additional_shred_destinations_leader_cnt;
+    for( ulong i=0UL; i<config->firedancer.development.equivocate.dests_a_cnt; i++ ) {
+      parse_ip_port( "development.equivocate.dests_a",
+                      config->firedancer.development.equivocate.dests_a[ i ],
+                      &tile->shred.equiv_dests_a[ i ] );
+    }
+    tile->shred.equiv_dests_a_cnt = config->firedancer.development.equivocate.dests_a_cnt;
+    for( ulong i=0UL; i<config->firedancer.development.equivocate.dests_b_cnt; i++ ) {
+      parse_ip_port( "development.equivocate.dests_b",
+                      config->firedancer.development.equivocate.dests_b[ i ],
+                      &tile->shred.equiv_dests_b[ i ] );
+    }
+    tile->shred.equiv_dests_b_cnt = config->firedancer.development.equivocate.dests_b_cnt;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
 

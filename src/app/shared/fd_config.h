@@ -186,6 +186,13 @@ struct fd_configf {
     } votor;
 
     struct {
+      ulong  dests_a_cnt;
+      char   dests_a[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
+      ulong  dests_b_cnt;
+      char   dests_b[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
+    } equivocate;
+
+    struct {
       int   validate_genesis_hash;
       ulong max_file_size_mib;
     } genesis;
