@@ -728,8 +728,10 @@ fd_bank_apply_deltas( fd_banks_t * banks,
   for( ulong i=0UL; i<pool_indices_len; i++ ) {
     ushort idx = pool_indices[ i ];
     FD_LOG_DEBUG(( "applying stake delegation delta (sd_fork_idx=%u)", idx ));
-    fd_stake_delegations_apply_fork_delta( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), stake_delegations, idx );
   }
+  fd_stake_delegations_apply_fork_deltas( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch,
+                                          FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                          stake_delegations, pool_indices, pool_indices_len );
 }
 
 fd_stake_delegations_t *

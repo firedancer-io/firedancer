@@ -20,9 +20,7 @@
 #define TEST_PARENT_SLOT             (9UL)
 #define TEST_CHILD_SLOT              (10UL)
 
-/* These tests never drive stake delegations into pubkey fallback mode, so
-   the iterator never needs to resolve anything out of an accounts
-   database. */
+/* Iterator accdb inputs are retained only for caller compatibility. */
 #define NO_RESOLVE NULL, ((fd_accdb_fork_id_t){ .val = USHORT_MAX }), 0UL, NULL
 
 struct test_env {

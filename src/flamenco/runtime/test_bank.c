@@ -1,15 +1,16 @@
+#define _GNU_SOURCE
 #include "fd_bank.h"
 #include "../rewards/fd_stake_rewards.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 
 #include <stdlib.h> // ARM64: aligned_alloc(3)
+#include <sys/mman.h>
+#include <unistd.h>
 
 #define TEST_BANK_STAKE_LAMPORTS (123456789UL)
 #define TEST_BANK_STAKE_ACC_DLEN (197U)
 
-/* These tests never drive stake delegations into pubkey fallback mode, so
-   the iterator never needs to resolve anything out of an accounts
-   database. */
+/* Iterator accdb inputs are retained only for caller compatibility. */
 #define NO_RESOLVE NULL, ((fd_accdb_fork_id_t){ .val = USHORT_MAX }), 0UL, NULL
 
 static fd_stake_delegation_t const *
@@ -1079,6 +1080,13 @@ test_bank_advance_root_prunes_inactive_stakes( void * mem ) {
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+
+  int spill_fd = memfd_create( "bank_stakedel_spill", 0 );
+  FD_TEST( spill_fd>=0 );
+  if( spill_fd!=FD_STAKE_DELEGATIONS_FD ) {
+    FD_TEST( dup2( spill_fd, FD_STAKE_DELEGATIONS_FD )==FD_STAKE_DELEGATIONS_FD );
+    FD_TEST( !close( spill_fd ) );
+  }
 
   fd_pubkey_t key_0 = { .ul[0] = 1 };
   fd_pubkey_t key_1 = { .ul[0] = 2 };

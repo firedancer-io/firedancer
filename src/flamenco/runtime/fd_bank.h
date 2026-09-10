@@ -392,7 +392,7 @@ struct fd_banks {
   ulong bank_seq;                    /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
   ulong evict_rr_idx;                /* internal index for round-robin banks eviction */
   ulong prunable_idx;                /* index of pending prunable bank, ULONG_MAX if none */
-  ulong max_fallback_stake_accounts; /* Maximum number of stake accounts nameable by the pubkey fallback tier */
+  ulong max_fallback_stake_accounts; /* Maximum records in each stake delegation disk tier */
 
   ulong curr_fork_width;
 

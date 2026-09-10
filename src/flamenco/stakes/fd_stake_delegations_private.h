@@ -13,7 +13,14 @@ fd_stake_delegations_iter_advance_private( fd_stake_delegations_iter_t * iter ) 
   while( iter->idx<iter->wmk ) {
     fd_stake_delegation_t * root_delegation = iter->root_pool+iter->idx;
     if( FD_LIKELY( root_delegation->in_use ) ) {
-      fd_stake_delegation_t * ele = (root_delegation->delta_idx!=UINT_MAX) ? (iter->delta_pool+root_delegation->delta_idx) : root_delegation;
+      if( FD_UNLIKELY( root_delegation->delta_idx!=UINT_MAX &&
+                       (root_delegation->delta_idx & FD_STAKE_DELEGATIONS_DELTA_DISK_TAG) ) ) {
+        fd_stake_delegations_iter_read_disk_delta( iter, root_delegation->delta_idx & FD_STAKE_DELEGATIONS_DELTA_IDX_MASK );
+        if( FD_LIKELY( iter->ele ) ) return;
+        iter->idx++;
+        continue;
+      }
+      fd_stake_delegation_t * ele = root_delegation->delta_idx!=UINT_MAX ? iter->delta_pool+root_delegation->delta_idx : root_delegation;
       if( FD_LIKELY( !ele->is_tombstone ) ) {
         iter->ele = ele;
         return;
@@ -21,7 +28,7 @@ fd_stake_delegations_iter_advance_private( fd_stake_delegations_iter_t * iter ) 
     }
     iter->idx++;
   }
-  iter->ele = NULL;
+  fd_stake_delegations_iter_advance_disk_root( iter );
 }
 
 FD_PROTOTYPES_END

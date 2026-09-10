@@ -47,10 +47,9 @@ preadv2: (eq (arg 0) accounts_fd)
 fallocate: (and (eq (arg 0) accounts_fd)
                 (eq (arg 1) 0))
 
-# stake delegations: disk overflow of the pubkey fallback tier, only
-# touched in fallback mode (more stake accounts than the delegation
-# pools can hold).
+# stake delegations: full root and fork-delta records spilled beyond
+# the in-memory delegation pools.
 pread64: (eq (arg 0) stake_spill_fd)
 
-# stake delegations: disk overflow of the pubkey fallback tier
+# stake delegations: full-record disk spill
 pwrite64: (eq (arg 0) stake_spill_fd)

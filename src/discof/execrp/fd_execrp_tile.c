@@ -559,7 +559,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
-  out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation fallback spill */
+  out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
 
   return out_cnt;
 }

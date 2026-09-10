@@ -981,8 +981,8 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         stake_delegations, &stake_key )==!feature_active );
   }
 
-  /* Refresh also drops inactive accounts that only reside in the
-     pubkey fallback tier, and compacts back out of fallback mode. */
+  /* Refresh also drops inactive accounts that reside in the disk root
+     tier. */
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
   params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
@@ -1001,14 +1001,14 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
       fd_stake_delegations_footprint( 1UL, 8UL, 1UL, 1UL ), align );
   void * mem = aligned_alloc( align, footprint );
   FD_TEST( mem );
-  fd_stake_delegations_t * fallback_delegations = fd_stake_delegations_join(
+  fd_stake_delegations_t * spill_delegations = fd_stake_delegations_join(
       fd_stake_delegations_new( mem, 1UL, 1UL, 8UL, 1UL, 1UL ) );
-  FD_TEST( fallback_delegations );
+  FD_TEST( spill_delegations );
 
   fd_accdb_fork_id_t root_fork_id = fd_svm_mini_fork_id( mini, root_idx );
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_stake_delegations_root_update(
-        fallback_delegations,
+        spill_delegations,
         &stake[i],
         &vote[i],
         1000000000UL,
@@ -1019,16 +1019,16 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         FD_STAKE_STATE_SZ,
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   }
-  FD_TEST( fd_stake_delegations_pubkey_fallback( fallback_delegations ) );
-  FD_TEST( fd_stake_delegations_base_cnt( fallback_delegations )==1UL );
-  FD_TEST( fd_stake_delegations_pubkey_cnt( fallback_delegations )==2UL );
+  FD_TEST( fd_stake_delegations_disk_spill( spill_delegations ) );
+  FD_TEST( fd_stake_delegations_base_cnt( spill_delegations )==2UL );
+  FD_TEST( fd_stake_delegations_disk_cnt( spill_delegations )==1UL );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   fd_stake_history_t stake_history_[1];
   fd_stake_history_t const * stake_history =
       fd_sysvar_cache_stake_history_view( &root_bank->f.sysvar_cache, stake_history_ );
   fd_stake_delegations_refresh(
-      fallback_delegations,
+      spill_delegations,
       root_bank->f.epoch,
       stake_history,
       &root_bank->f.warmup_cooldown_rate_epoch,
@@ -1036,9 +1036,9 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
       1,
       mini->runtime->accdb,
       root_fork_id );
-  FD_TEST( !fd_stake_delegations_base_cnt( fallback_delegations ) );
-  FD_TEST( !fd_stake_delegations_pubkey_cnt( fallback_delegations ) );
-  FD_TEST( !fd_stake_delegations_pubkey_fallback( fallback_delegations ) );
+  FD_TEST( !fd_stake_delegations_base_cnt( spill_delegations ) );
+  FD_TEST( !fd_stake_delegations_disk_cnt( spill_delegations ) );
+  FD_TEST( !fd_stake_delegations_disk_spill( spill_delegations ) );
   free( mem );
 
   FD_LOG_NOTICE(( "test_snapshot_refresh_prunes_inactive_stakes: PASSED" ));

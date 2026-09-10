@@ -65,7 +65,7 @@ struct fd_svm_mini_limits {
   /* consensus */
   ulong max_vote_accounts;
   ulong max_stake_accounts;
-  ulong max_fallback_stake_accounts;
+  ulong max_fallback_stake_accounts; /* records in each stake-delegation disk tier */
 
   /* accdb */
   ulong max_accounts;
