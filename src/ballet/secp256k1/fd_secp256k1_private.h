@@ -82,6 +82,14 @@ fd_secp256k1_fp_t const fd_secp256k1_const_base_y_mont[1] = {{{
 
 FD_PROTOTYPES_END
 
+/* Backend: scalar and field primitives */
+#if FD_HAS_S2NBIGNUM
 #include "fd_secp256k1_s2n.c"
+#else
+#include "fd_secp256k1_ref.c"
+#endif
+
+/* Square root and group law, backend independent */
+#include "fd_secp256k1_point.c"
 
 #endif /* HEADER_fd_src_ballet_secp256k1_fd_secp256k1_private_h */
