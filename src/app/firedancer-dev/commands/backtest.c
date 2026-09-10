@@ -69,6 +69,15 @@ backtest_topo( config_t * config ) {
   int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
   int telemetry_enabled        = config->telemetry && strcmp( config->tiles.event.url, "" );
 
+  ushort shred_version = 0;
+  uchar  genesis_hash[ 32 ] = {0};
+  int    has_genesis = -1!=read_genesis_bin( config->paths.genesis, &shred_version, genesis_hash );
+  if( FD_UNLIKELY( !has_genesis ) ) {
+    FD_LOG_WARNING(( "could not read genesis `%s` (%i-%s)", config->paths.genesis, errno, fd_io_strerror( errno ) ));
+  } else if( FD_LIKELY( !config->consensus.expected_shred_version ) ) {
+    config->consensus.expected_shred_version = shred_version;
+  }
+
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
@@ -170,12 +179,7 @@ backtest_topo( config_t * config ) {
     fd_topob_tile( topo, "sign",  "sign",  "metric_in", cpu_idx++, 0, 1, 1, 0 );
     fd_topo_tile_t * event_tile = fd_topob_tile( topo, "event", "event", "metric_in", cpu_idx++, 0, 1, 0, 1 );
 
-    ushort shred_version = 0;
-    uchar  genesis_hash[ 32 ] = {0};
-    if( FD_UNLIKELY( -1==read_genesis_bin( config->paths.genesis, &shred_version, genesis_hash ) ) ) {
-      FD_LOG_ERR(( "could not read genesis `%s` for the event tile (%i-%s)",
-                       config->paths.genesis, errno, fd_io_strerror( errno ) ));
-    }
+    if( FD_UNLIKELY( !has_genesis ) ) FD_LOG_ERR(( "could not read genesis `%s` for the event tile", config->paths.genesis ));
     fd_memcpy( event_tile->event.genesis_hash, genesis_hash, 32UL );
     event_tile->event.shred_version = shred_version;
 
@@ -412,8 +416,7 @@ backtest_topo( config_t * config ) {
     if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
       tile->gui.tile_cnt = topo->tile_cnt;
 
-      uchar genesis_hash[ 32 ] = {0};
-      if( FD_LIKELY( -1!=read_genesis_bin( config->paths.genesis, NULL, genesis_hash ) ) ) {
+      if( FD_LIKELY( has_genesis ) ) {
         char genesis_hash_b58[ FD_BASE58_ENCODED_32_SZ ];
         fd_base58_encode_32( genesis_hash, NULL, genesis_hash_b58 );
         strcpy( tile->gui.cluster, fd_genesis_cluster_name( fd_genesis_cluster_identify( genesis_hash_b58 ) ) );
