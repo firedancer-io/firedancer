@@ -273,6 +273,7 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
     if( FD_UNLIKELY( burn ) ) {
       FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
     }
+    if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank );
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   }
 
