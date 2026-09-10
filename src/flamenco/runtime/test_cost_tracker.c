@@ -55,154 +55,154 @@ test_cost_tracker_init_reconciliation( fd_cost_tracker_t * ct ) {
 
 static void
 test_cost_tracker_block_limit( fd_cost_tracker_t * ct ) {
-    ulong const SLOT = 10UL;
-    fd_features_t f;
-    static fd_txn_out_t txn_out = { 0 };
+  ulong const slot = 10UL;
+  fd_features_t f;
+  static fd_txn_out_t txn_out = { 0 };
 
-    memset( &f, 0xFF, sizeof(f) );
-    fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
+  memset( &f, 0xFF, sizeof(f) );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
 
-    FD_TEST( ct->block_cost == 0UL );
-    FD_TEST( ct->block_cost_limit == 60000000UL );
+  FD_TEST( ct->block_cost == 0UL );
+  FD_TEST( ct->block_cost_limit == 60000000UL );
 
-    /* Multiple txns required because max add is 24M. Transaction 1: 24M */
-    txn_out.details.txn_cost.transaction.programs_execution_cost = 24000000U;
-    int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
-    FD_TEST( ct->block_cost == 24000000UL );
+  /* Multiple txns required because max add is 24M. Transaction 1: 24M */
+  txn_out.details.txn_cost.transaction.programs_execution_cost = 24000000U;
+  int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_SUCCESS );
+  FD_TEST( ct->block_cost == 24000000UL );
 
-    /* Transaction 2: another 24M */
-    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
-    FD_TEST( ct->block_cost == 48000000UL );
+  /* Transaction 2: another 24M */
+  err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_SUCCESS );
+  FD_TEST( ct->block_cost == 48000000UL );
 
-    /* Transaction 3: 12M, bringing the block exactly to 60M */
-    txn_out.details.txn_cost.transaction.programs_execution_cost = 12000000U;
-    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
-    FD_TEST( ct->block_cost == 60000000UL );
+  /* Transaction 3: 12M, bringing the block exactly to 60M */
+  txn_out.details.txn_cost.transaction.programs_execution_cost = 12000000U;
+  err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_SUCCESS );
+  FD_TEST( ct->block_cost == 60000000UL );
 
-    /* Transaction 4: 1 more CU should exceed the block limit */
-    txn_out.details.txn_cost.transaction.programs_execution_cost = 1U;
-    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT );
-    FD_TEST( ct->block_cost == 60000000UL );
+  /* Transaction 4: 1 more CU should exceed the block limit */
+  txn_out.details.txn_cost.transaction.programs_execution_cost = 1U;
+  err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT );
+  FD_TEST( ct->block_cost == 60000000UL );
 }
 
 static void
 test_cost_tracker_account_limit( fd_cost_tracker_t * ct ) {
-    ulong const SLOT = 10UL;
-    fd_features_t f;
-    static fd_txn_out_t txn_out = { 0 };
+  ulong const slot = 10UL;
+  fd_features_t f;
+  static fd_txn_out_t txn_out = { 0 };
 
-    memset( &f, 0xFF, sizeof(f) );
-    fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
+  memset( &f, 0xFF, sizeof(f) );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
 
-    ct->block_cost_limit  = 10000UL;
-    ct->account_cost_limit = 1000UL;
-    ct->data_size_limit    = 10000UL;
+  ct->block_cost_limit  = 10000UL;
+  ct->account_cost_limit = 1000UL;
+  ct->data_size_limit  = 10000UL;
 
-    /* Cost below account limit succeeds. */
-    txn_out.details.txn_cost.transaction.loaded_accounts_data_size_cost = 600U;
-    int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
-    FD_TEST( ct->block_cost == 600UL );
+  /* Cost below account limit succeeds. */
+  txn_out.details.txn_cost.transaction.loaded_accounts_data_size_cost = 600U;
+  int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_SUCCESS );
+  FD_TEST( ct->block_cost == 600UL );
 
-    /* Cost above account limit fails */
-    txn_out.details.txn_cost.transaction.loaded_accounts_data_size_cost = 1001U;
-    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
-    FD_TEST( ct->block_cost == 600UL );
+  /* Cost above account limit fails */
+  txn_out.details.txn_cost.transaction.loaded_accounts_data_size_cost = 1001U;
+  err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+  FD_TEST( ct->block_cost == 600UL );
 }
 
 static void
 test_cost_tracker_txn_cost_sum( fd_cost_tracker_t * ct ) {
-    ulong const SLOT = 10UL;
-    fd_features_t f;
-    static fd_txn_out_t txn_out = { 0 };
+  ulong const slot = 10UL;
+  fd_features_t f;
+  static fd_txn_out_t txn_out = { 0 };
 
-    memset( &f, 0xFF, sizeof(f) );
-    fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
+  memset( &f, 0xFF, sizeof(f) );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
 
-    ct->account_cost_limit = 1000UL;
-    txn_out.details.txn_cost.transaction.signature_cost = 600U;
-    txn_out.details.txn_cost.transaction.data_bytes_cost = 500U;
+  ct->account_cost_limit = 1000UL;
+  txn_out.details.txn_cost.transaction.signature_cost = 600U;
+  txn_out.details.txn_cost.transaction.data_bytes_cost = 500U;
 
-    int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
-    FD_TEST( ct->block_cost == 0UL );
+  int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+  FD_TEST( ct->block_cost == 0UL );
 }
 
 static void
 test_cost_tracker_data_size_limit( fd_cost_tracker_t * ct ) {
-    ulong const SLOT = 10UL;
-    fd_features_t f;
-    static fd_txn_out_t txn_out = { 0 };
+  ulong const slot = 10UL;
+  fd_features_t f;
+  static fd_txn_out_t txn_out = { 0 };
 
-    memset( &f, 0xFF, sizeof(f) );
-    fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
-    txn_out.details.txn_cost.transaction.allocated_accounts_data_size = ct->data_size_limit;
+  memset( &f, 0xFF, sizeof(f) );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
+  txn_out.details.txn_cost.transaction.allocated_accounts_data_size = ct->data_size_limit;
 
-    int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
-    FD_TEST( ct->allocated_accounts_data_size == ct->data_size_limit );
+  int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_SUCCESS );
+  FD_TEST( ct->allocated_accounts_data_size == ct->data_size_limit );
 
-    txn_out.details.txn_cost.transaction.allocated_accounts_data_size = ct->data_size_limit + 1UL;
-    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT );
-    FD_TEST( ct->allocated_accounts_data_size == ct->data_size_limit );
+  txn_out.details.txn_cost.transaction.allocated_accounts_data_size = ct->data_size_limit + 1UL;
+  err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT );
+  FD_TEST( ct->allocated_accounts_data_size == ct->data_size_limit );
 }
 
 static void
 test_cost_tracker_rejection_non_mutating( fd_cost_tracker_t * ct ) {
-    ulong const SLOT = 10UL;
-    fd_features_t f;
-    static fd_txn_out_t txn_out = { 0 };
+  ulong const slot = 10UL;
+  fd_features_t f;
+  static fd_txn_out_t txn_out = { 0 };
 
-    memset( &f, 0xFF, sizeof(f) );
-    fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
-    FD_TEST( ct->block_cost == 0UL );
+  memset( &f, 0xFF, sizeof(f) );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
+  FD_TEST( ct->block_cost == 0UL );
 
-    ct->block_cost_limit = 1000UL;
-    ulong block_cost = ct->block_cost;
-    ulong allocated_accounts_data_size = ct->allocated_accounts_data_size;
+  ct->block_cost_limit = 1000UL;
+  ulong block_cost = ct->block_cost;
+  ulong allocated_accounts_data_size = ct->allocated_accounts_data_size;
 
-    txn_out.details.txn_cost.transaction.programs_execution_cost = 1001U;
-    int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT);
-    FD_TEST( ct->block_cost == block_cost );
-    FD_TEST( ct->allocated_accounts_data_size == allocated_accounts_data_size );
+  txn_out.details.txn_cost.transaction.programs_execution_cost = 1001U;
+  int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT );
+  FD_TEST( ct->block_cost == block_cost );
+  FD_TEST( ct->allocated_accounts_data_size == allocated_accounts_data_size );
 }
 
 static void
 test_cost_tracker_multiple_accounts( fd_cost_tracker_t * ct ) {
-    ulong const SLOT = 10UL;
-    fd_features_t f;
-    static fd_txn_out_t txn_out = { 0 };
+  ulong const slot = 10UL;
+  fd_features_t f;
+  static fd_txn_out_t txn_out = { 0 };
 
-    memset( &f, 0xFF, sizeof(f) );
-    fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
+  memset( &f, 0xFF, sizeof(f) );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
 
-    /* Set up two writable accounts */
-    ct->account_cost_limit = 1000UL;
-    txn_out.accounts.cnt = 2UL;
-    txn_out.accounts.is_writable[0] = 1U;
-    txn_out.accounts.is_writable[1] = 1U;
+  /* Set up two writable accounts */
+  ct->account_cost_limit = 1000UL;
+  txn_out.accounts.cnt = 2UL;
+  txn_out.accounts.is_writable[0] = 1U;
+  txn_out.accounts.is_writable[1] = 1U;
 
-    memset( txn_out.accounts.keys, 0, sizeof( txn_out.accounts.keys ) );
-    txn_out.accounts.keys[1].uc[1] = 1U;
+  memset( txn_out.accounts.keys, 0, sizeof( txn_out.accounts.keys ) );
+  txn_out.accounts.keys[1].uc[1] = 1U;
 
-    /* Setting up the txn costs */
-    txn_out.details.txn_cost.transaction.programs_execution_cost = 600U;
-    int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST(ct->block_cost == 600);
-    FD_TEST( err == FD_COST_TRACKER_SUCCESS );
-    txn_out.details.txn_cost.transaction.programs_execution_cost = 500U;
-    txn_out.accounts.is_writable[0] = 1U;
-    txn_out.accounts.is_writable[1] = 0U;
-    err = fd_cost_tracker_try_add_cost( ct, &txn_out );
-    FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
-    FD_TEST( ct->block_cost == 600UL );
+  /* Setting up the txn costs */
+  txn_out.details.txn_cost.transaction.programs_execution_cost = 600U;
+  int err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( ct->block_cost == 600UL );
+  FD_TEST( err == FD_COST_TRACKER_SUCCESS );
+  txn_out.details.txn_cost.transaction.programs_execution_cost = 500U;
+  txn_out.accounts.is_writable[0] = 1U;
+  txn_out.accounts.is_writable[1] = 0U;
+  err = fd_cost_tracker_try_add_cost( ct, &txn_out );
+  FD_TEST( err == FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+  FD_TEST( ct->block_cost == 600UL );
 }
 
 int main( int argc, char ** argv ) {
