@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_choreo_votor_ag_cert_h
 #define HEADER_fd_src_choreo_votor_ag_cert_h
 
-#include "ag_bls.h"
+#include "../../ballet/bls/ag_bls.h"
 #include "ag_votor_base.h"
 
 #define AG_CERT_KIND_FINAL          (0)

@@ -2,8 +2,10 @@
 #define HEADER_fd_src_choreo_votor_ag_epoch_info_h
 
 #include "ag_votor_base.h"
-#include "ag_bls.h"
+#include "../../ballet/bls/ag_bls.h"
 #include "../../flamenco/stakes/fd_stake_weight.h"
+
+FD_STATIC_ASSERT( AG_BLS_SET_MAX==AG_VAT_MAX, ag_bls_set_max );
 
 struct ag_validator_info {
   ulong         id;

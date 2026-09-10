@@ -2,7 +2,7 @@
 #define HEADER_fd_src_choreo_votor_ag_votor_h
 
 #include "ag_votor_base.h"
-#include "ag_bls.h"
+#include "../../ballet/bls/ag_bls.h"
 #include "ag_event.h"
 
 typedef struct ag_votor ag_votor_t;

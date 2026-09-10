@@ -2,7 +2,7 @@
 #define HEADER_fd_src_choreo_votor_ag_vote_h
 
 #include "ag_votor_base.h"
-#include "ag_bls.h"
+#include "../../ballet/bls/ag_bls.h"
 
 #define AG_VOTE_KIND_NOTAR           (0U)
 #define AG_VOTE_KIND_FINAL           (1U)

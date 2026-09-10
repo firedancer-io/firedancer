@@ -9,7 +9,7 @@
 #include "../../discof/admin/fd_adminctl.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../metrics/fd_metrics.h"
-#include "../../choreo/votor/ag_bls.h"
+#include "../../ballet/bls/ag_bls.h"
 
 #include "../../util/hist/fd_histf.h"
 

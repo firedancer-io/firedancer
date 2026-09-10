@@ -5,7 +5,6 @@
 #include "../runtime/fd_pubkey_utils.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../choreo/votor/ag_vote_serde.h"
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );
 
@@ -19,6 +18,30 @@ vote_stakes_iter_kind_for_epoch( ulong fork_id,
 }
 
 /* Footer cert verification */
+
+/* TBD: this is a copy of the votor's ag_vote_signing_ser so the runtime
+   does not link fd_choreo; keep the two in sync. */
+
+#define VOTE_TAG_NOTAR (1U) /* WireConsensusMessageKind::NotarVote    */
+#define VOTE_TAG_FINAL (2U) /* WireConsensusMessageKind::FinalizeVote */
+#define VOTE_TAG_SKIP  (3U) /* WireConsensusMessageKind::SkipVote     */
+
+#define VOTE_SIGNING_SER_MAX ( sizeof(uchar) + sizeof(ulong) + sizeof(fd_hash_t) + sizeof(ushort) )
+
+static ulong
+vote_signing_ser( uint          tag,
+                  ulong         slot,
+                  uchar const * block_hash,
+                  ushort        shred_version,
+                  uchar         buf[ static VOTE_SIGNING_SER_MAX ] ) {
+  ulong off = 0UL;
+  buf[ off ] = (uchar)tag;                                                          off += sizeof(uchar);
+  FD_STORE( ulong, buf+off, slot );                                                 off += sizeof(ulong);
+  if( FD_LIKELY( block_hash ) ) { memcpy( buf+off, block_hash, sizeof(fd_hash_t) ); off += sizeof(fd_hash_t); }
+  FD_STORE( ushort, buf+off, shred_version );                                       off += sizeof(ushort);
+  return off;
+}
+
 struct validator_set {
   ulong          epoch;
   ulong          validator_cnt;          /* 0 if not built */
@@ -84,7 +107,7 @@ validator_set_for_slot( validator_set_t * set,
 }
 
 /* cert_verify checks one footer cert against its epoch's validator set.
-   The aggregate signature verifies over the vote of vote_kind the
+   The aggregate signature verifies over the vote with wire tag vote_tag the
    signers would have signed, and if quorum_numer is nonzero the signers
    hold quorum_numer/5 of the epoch's stake.  i.e., for verifying
    reward certs, quorum_numer should be 0.
@@ -95,7 +118,7 @@ static int
 cert_verify( validator_set_t *              set,
              fd_bank_t const *              bank,
              fd_block_footer_cert_t const * cert,
-             uint                           vote_kind,
+             uint                           vote_tag,
              ulong                          quorum_numer,
              ushort                         shred_version ) {
   ulong bank_slot = bank->f.slot;
@@ -131,10 +154,10 @@ cert_verify( validator_set_t *              set,
   }
   blst_p2_from_affine( sig, sig_affine );
 
-  uchar payload[ AG_VOTE_SIGNING_SER_MAX ];
-  ulong payload_sz = ag_vote_signing_ser( vote_kind, cert_slot, vote_kind==AG_VOTE_KIND_NOTAR ? cert->block_id.uc : NULL, shred_version, payload );
+  uchar payload[ VOTE_SIGNING_SER_MAX ];
+  ulong payload_sz = vote_signing_ser( vote_tag, cert_slot, vote_tag==VOTE_TAG_NOTAR ? cert->block_id.uc : NULL, shred_version, payload );
   if( FD_UNLIKELY( !ag_bls_agg_verify( pub, sig, payload, payload_sz ) ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer (is_reward %d) cert for slot %lu failed signature verification", bank_slot, quorum_numer ? 1 : 0, cert_slot ));
+    FD_LOG_WARNING(( "slot %lu: footer (is_reward %d) cert for slot %lu failed signature verification", bank_slot, !quorum_numer, cert_slot ));
     return 0;
   }
   return 1;
@@ -156,17 +179,17 @@ fd_alpenglow_footer_verify( fd_bank_t const *         bank,
   static FD_TL validator_set_t set[1];
 
   if( footer->has_fast_final_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->fast_final_cert,   AG_VOTE_KIND_NOTAR, AG_STRONG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->fast_final_cert,   VOTE_TAG_NOTAR, AG_STRONG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
   }
   if( footer->has_final_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->final_cert,        AG_VOTE_KIND_FINAL, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_cert,        AG_VOTE_KIND_NOTAR, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->final_cert,        VOTE_TAG_FINAL, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_cert,        VOTE_TAG_NOTAR, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
   }
   if( footer->has_skip_reward_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->skip_reward_cert,  AG_VOTE_KIND_SKIP,  0UL, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->skip_reward_cert,  VOTE_TAG_SKIP,  0UL, shred_version ) ) ) return -1;
   }
   if( footer->has_notar_reward_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_reward_cert, AG_VOTE_KIND_NOTAR, 0UL, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_reward_cert, VOTE_TAG_NOTAR, 0UL, shred_version ) ) ) return -1;
   }
   return 0;
 }

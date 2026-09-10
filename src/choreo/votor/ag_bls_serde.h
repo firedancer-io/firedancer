@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_choreo_votor_ag_bls_serde_h
 #define HEADER_fd_src_choreo_votor_ag_bls_serde_h
 
-#include "ag_bls.h"
+#include "../../ballet/bls/ag_bls.h"
 
 #define AG_BLS_DE_SUCCESS   ( 0)
 #define AG_BLS_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit */

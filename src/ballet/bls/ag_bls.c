@@ -1,6 +1,6 @@
 #include "ag_bls.h"
 
-#include "../../ballet/bls/fd_bls12_381.h"
+#include "fd_bls12_381.h"
 #include "../../third_party/blst/bindings/blst.h"
 
 void

@@ -3,14 +3,13 @@
 
 #include "../../util/fd_util.h"
 #include "../../third_party/blst/bindings/blst.h"
-#include "ag_votor_base.h"
 
 #define AG_BLS_SEC_SZ            (32UL)
 #define AG_BLS_PUB_SZ            (96UL)
 #define AG_BLS_PUB_COMPRESSED_SZ (48UL)
 #define AG_BLS_SIG_SZ            (192UL)
 #define AG_BLS_SIG_COMPRESSED_SZ (96UL)
-#define AG_BLS_SET_MAX           (AG_VAT_MAX)
+#define AG_BLS_SET_MAX           (2000UL) /* the VAT cap, AG_VAT_MAX; ag_epoch_info.h asserts they agree */
 #define AG_BLS_DST               "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
 #define AG_BLS_DST_SZ            (sizeof(AG_BLS_DST)-1UL)
 
