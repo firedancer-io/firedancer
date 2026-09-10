@@ -317,13 +317,15 @@ quic_aio_tx( void *                    _ctx,
   for( ulong i=0UL; i<batch_cnt; i++ ) {
     if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
 
+    ulong const sz_l2 = sizeof(fd_eth_hdr_t) + batch[ i ].buf_sz;
+    if( FD_UNLIKELY( sz_l2>FD_ETH_PAYLOAD_MAX ) ) continue;
+
     uint const ip_dst = FD_LOAD( uint, batch[ i ].buf+offsetof( fd_ip4_hdr_t, daddr_c ) );
     uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
     uchar * packet_l3 = packet_l2 + sizeof(fd_eth_hdr_t);
     memset( packet_l2, 0, 12 );
     FD_STORE( ushort, packet_l2+offsetof( fd_eth_hdr_t, net_type ), fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
     fd_memcpy( packet_l3, batch[ i ].buf, batch[ i ].buf_sz );
-    ulong sz_l2 = sizeof(fd_eth_hdr_t) + batch[ i ].buf_sz;
 
     ulong sig   = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
     ulong chunk = ctx->net_out_chunk;
