@@ -1033,8 +1033,9 @@ replay_runtime_block_emit( fd_replay_tile_t * ctx,
   if( FD_LIKELY( _leader ) ) leader = *_leader;
   fd_sol_sysvar_clock_t clock = {0};
   if( FD_UNLIKELY( !fd_sysvar_clock_read( ctx->accdb, bank->accdb_fork_id, &clock ) ) ) FD_LOG_ERR(( "failed to read clock sysvar for slot %lu", bank->f.slot ));
+  ulong num_shreds = fd_ulong_if( bank==ctx->leader_bank, (ulong)ctx->block_id_arr[ bank->idx ].fec_cnt*FD_FEC_SHRED_CNT, bank->f.shred_cnt );
   fd_event_runtime_block_emit( bank, block_id->uc, parent_block_id.uc, leader.uc,
-                               execution_fees, priority_fees, tips, &clock,
+                               execution_fees, priority_fees, tips, num_shreds, &clock,
                                ctx->fec_chain + bank->idx*FD_FEC_BLK_MAX,
                                ctx->block_id_arr[ bank->idx ].fec_cnt );
 }
@@ -1498,8 +1499,6 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
     fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, shred_version( ctx ) );
   }
-
-  ctx->leader_bank->f.shred_cnt = ctx->block_id_arr[ ctx->leader_bank->idx ].shred_cnt;
 
   if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, ctx->leader_bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
 
@@ -2786,7 +2785,6 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
     block_id_ele->fec_cnt        = 0U;
-    block_id_ele->shred_cnt      = 0U;
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
@@ -2798,8 +2796,6 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
     block_id_ele->latest_mr      = reasm_fec->key;
   }
-
-  ctx->block_id_arr[ reasm_fec->bank_idx ].shred_cnt += reasm_fec->data_cnt;
 
   if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
@@ -3823,7 +3819,6 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     block_id_ele->slot           = fec->slot;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->fec_cnt        = 0U;
-    block_id_ele->shred_cnt      = 0U;
     block_id_ele->block_info     = fec->known_id ? ag_block_id( fec->slot, fec->block_id.uc ) : (ag_block_id_t){ .slot = fec->slot };
 
     /* If this fec 0 is rebuilding an evicted block (recovery redelivery),
@@ -3841,7 +3836,6 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
 
   block_id_ele->latest_mr = fec->mr;
 
-  block_id_ele->shred_cnt += FD_FEC_SHRED_CNT;
   if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
     if( FD_LIKELY( block_id_ele->fec_cnt<FD_FEC_BLK_MAX ) ) {
       ctx->fec_chain[ bank->idx*FD_FEC_BLK_MAX + block_id_ele->fec_cnt ] = fec->mr;

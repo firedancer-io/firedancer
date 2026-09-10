@@ -67,7 +67,6 @@ struct fd_block_id_ele {
   ulong         next_;
   ulong         ag_next_;
   uint          fec_cnt;
-  uint          shred_cnt; /* data shreds observed for the bank; source of bank->f.shred_cnt for leader banks, which skip the scheduler's count */
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
