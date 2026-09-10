@@ -1,54 +1,5 @@
-#include "fd_collector_overrides.h"
-#include "../fd_rwlock.h"
-#include "../../util/fd_hash32.h"
-
-struct override_ele {
-  fd_pubkey_t pubkey;
-  ulong       epoch;
-  fd_pubkey_t inflation; /* valid iff has_inflation */
-  fd_pubkey_t block;     /* valid iff has_block */
-  ulong       mask[2];   /* fork membership bits */
-  uint        next;      /* pool / map chain */
-  uint        prev_multi;
-  uint        next_multi;
-  uchar       has_inflation;
-  uchar       has_block;
-};
-typedef struct override_ele override_ele_t;
-
-#define POOL_NAME  override_pool
-#define POOL_T     override_ele_t
-#define POOL_NEXT  next
-#define POOL_IDX_T uint
-#define POOL_LAZY  1
-#include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME                           override_map
-#define MAP_MULTI                          1
-#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
-#define MAP_KEY_T                          fd_pubkey_t
-#define MAP_ELE_T                          override_ele_t
-#define MAP_KEY                            pubkey
-#define MAP_KEY_EQ(k0,k1)                  (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
-#define MAP_KEY_HASH(key,seed)             (fd_hash32( key->uc, seed ))
-#define MAP_PREV                           prev_multi
-#define MAP_NEXT                           next_multi
-#define MAP_IDX_T                          uint
-#include "../../util/tmpl/fd_map_chain.c"
-
-#define FD_COLLECTOR_OVERRIDES_MAGIC (0xF17EDA2CC011EC70UL) /* FIREDANCER COLLECTOR V0 */
-
-struct fd_collector_overrides {
-  ulong magic;
-  ulong pool_off;
-  ulong map_off;
-
-  ulong  forks_used[2]; /* allocated fork id bits */
-  ushort root_idx;
-
-  fd_rwlock_t lock;
-};
-typedef struct fd_collector_overrides fd_collector_overrides_t;
+#include "fd_collector_overrides_private.h"
+#include <stdatomic.h>
 
 static inline override_ele_t *
 get_pool( fd_collector_overrides_t const * co ) {
@@ -128,7 +79,8 @@ fd_collector_overrides_new( void * shmem,
   co->map_off       = (ulong)map - (ulong)shmem;
   co->forks_used[0] = 1UL; /* root */
   co->forks_used[1] = 0UL;
-  co->root_idx      = 0;
+  atomic_store_explicit( &co->root_idx, (ushort)0, memory_order_relaxed );
+  co->ele_cnt = 0UL;
 
   fd_rwlock_new( &co->lock );
 
@@ -212,6 +164,7 @@ release_fork( fd_collector_overrides_t * co,
     if( FD_UNLIKELY( !ele->mask[0] && !ele->mask[1] ) ) {
       FD_TEST( override_map_ele_remove_fast( map, ele, pool ) );
       override_pool_ele_release( pool, ele );
+      co->ele_cnt--;
     }
   }
 
@@ -223,7 +176,7 @@ fd_collector_overrides_advance_root( fd_collector_overrides_t * co,
                                      ushort                     root_idx ) {
   fd_rwlock_write( &co->lock );
 
-  if( FD_LIKELY( root_idx==co->root_idx ) ) {
+  if( FD_LIKELY( root_idx==atomic_load_explicit( &co->root_idx, memory_order_relaxed ) ) ) {
     fd_rwlock_unwrite( &co->lock );
     return;
   }
@@ -231,7 +184,7 @@ fd_collector_overrides_advance_root( fd_collector_overrides_t * co,
   for( ushort i=0; i<=(ushort)FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH; i++ ) {
     if( i!=root_idx && mask_test( co->forks_used, i ) ) release_fork( co, i );
   }
-  co->root_idx = root_idx;
+  atomic_store_explicit( &co->root_idx, root_idx, memory_order_release );
 
   fd_rwlock_unwrite( &co->lock );
 }
@@ -241,7 +194,7 @@ fd_collector_overrides_purge_child( fd_collector_overrides_t * co,
                                     ushort                     fork_idx ) {
   fd_rwlock_write( &co->lock );
 
-  if( FD_UNLIKELY( fork_idx==co->root_idx ) ) {
+  if( FD_UNLIKELY( fork_idx==atomic_load_explicit( &co->root_idx, memory_order_relaxed ) ) ) {
     fd_rwlock_unwrite( &co->lock );
     return;
   }
@@ -259,17 +212,15 @@ fd_collector_overrides_reset( fd_collector_overrides_t * co ) {
   override_pool_reset( get_pool( co ) );
   co->forks_used[0] = 1UL;
   co->forks_used[1] = 0UL;
-  co->root_idx      = 0;
+  atomic_store_explicit( &co->root_idx, (ushort)0, memory_order_release );
+  co->ele_cnt = 0UL;
 
   fd_rwlock_unwrite( &co->lock );
 }
 
 ushort
-fd_collector_overrides_get_root_idx( fd_collector_overrides_t * co ) {
-  fd_rwlock_read( &co->lock );
-  ushort idx = co->root_idx;
-  fd_rwlock_unread( &co->lock );
-  return idx;
+fd_collector_overrides_get_root_idx( fd_collector_overrides_t const * co ) {
+  return atomic_load_explicit( &co->root_idx, memory_order_acquire );
 }
 
 void
@@ -319,6 +270,7 @@ fd_collector_overrides_upsert( fd_collector_overrides_t * co,
   ele->mask[1]       = 0UL;
   mask_set( ele->mask, fork_idx );
   FD_TEST( override_map_ele_insert( map, ele, pool ) );
+  co->ele_cnt++;
 
   fd_rwlock_unwrite( &co->lock );
 }
@@ -355,12 +307,4 @@ fd_collector_overrides_query( fd_collector_overrides_t * co,
 
   fd_rwlock_unread( &co->lock );
   return flags;
-}
-
-ulong
-fd_collector_overrides_ele_cnt( fd_collector_overrides_t * co ) {
-  fd_rwlock_read( &co->lock );
-  ulong cnt = override_pool_used( get_pool( co ) );
-  fd_rwlock_unread( &co->lock );
-  return cnt;
 }
