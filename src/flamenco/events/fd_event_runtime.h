@@ -304,6 +304,7 @@ fd_event_runtime_block_emit( fd_bank_t const *             bank,
                              ulong                         execution_fees,
                              ulong                         priority_fees,
                              ulong                         tips,
+                             ulong                         num_shreds,
                              fd_sol_sysvar_clock_t const * clock,
                              fd_hash_t const *             fec_mrs,
                              ulong                         fec_mr_cnt );

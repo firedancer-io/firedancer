@@ -583,6 +583,7 @@ fd_event_runtime_block_emit( fd_bank_t const *             bank,
                              ulong                         execution_fees,
                              ulong                         priority_fees,
                              ulong                         tips,
+                             ulong                         num_shreds,
                              fd_sol_sysvar_clock_t const * clock,
                              fd_hash_t const *             fec_mrs,
                              ulong                         fec_mr_cnt ) {
@@ -614,7 +615,7 @@ fd_event_runtime_block_emit( fd_bank_t const *             bank,
   ev.num_nonvote_txns        = bank->f.nonvote_txn_count;
   ev.num_nonvote_failed_txns = bank->f.nonvote_failed_txn_count;
   ev.num_signatures          = bank->f.signature_count;
-  ev.num_shreds              = bank->f.shred_cnt;
+  ev.num_shreds              = num_shreds;
   ev.tick_height             = bank->f.tick_height;
 
   ulong fees_burned, leader_fee_reward;
