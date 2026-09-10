@@ -9,18 +9,18 @@
 
 static ag_slot_state_t slot_state_mem;
 
-static ag_bls_sec_t        g_sk  [ VAT_MAX ];
+static fd_bls_sec_t        g_sk  [ VAT_MAX ];
 static ag_validator_info_t g_info[ VAT_MAX ];
 
 static void
 generate_validators( ulong n ) {
   FD_TEST( n<=VAT_MAX );
   for( ulong i=0UL; i<n; i++ ) {
-    fd_memset( &g_sk[i], (int)(i*7UL+1UL), AG_BLS_SEC_SZ );
+    fd_memset( &g_sk[i], (int)(i*7UL+1UL), FD_BLS_SEC_SZ );
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
+    fd_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
   }
 }
 

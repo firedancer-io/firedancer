@@ -62,7 +62,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_SIGN_TYPE_CNT                   (4)  /* number of sign types */
 
 
-#define FD_KEYGUARD_BLS_SIG_SZ (192UL) /* matches AG_BLS_SIG_SZ */
+#define FD_KEYGUARD_BLS_SIG_SZ (192UL) /* matches FD_BLS_SIG_SZ */
 
 /* Type confusion/ambiguity checks ************************************/
 

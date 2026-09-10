@@ -126,17 +126,17 @@ cert_verify( validator_set_t *              set,
 
   if( FD_UNLIKELY( !validator_set_for_slot( set, bank, cert_slot ) ) ) return 0;
 
-  ulong last_rank = ag_bls_set_last( cert->signer_set ); /* ULONG_MAX when empty */
+  ulong last_rank = fd_bls_set_last( cert->signer_set ); /* ULONG_MAX when empty */
   if( FD_UNLIKELY( cert->nbits>set->validator_cnt || last_rank>=set->validator_cnt ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu names %u ranks (highest signer %lu) but its epoch has %lu validators",
                      bank_slot, cert_slot, cert->nbits, last_rank, set->validator_cnt ));
     return 0;
   }
 
-  ag_bls_pub_t pub[1]; memset( pub, 0, sizeof(ag_bls_pub_t) );
+  fd_bls_pub_t pub[1]; memset( pub, 0, sizeof(fd_bls_pub_t) );
   ulong        stake = 0UL;
   for( ulong rank=0UL; rank<=last_rank; rank++ ) {
-    if( !ag_bls_set_test( cert->signer_set, rank ) ) continue;
+    if( !fd_bls_set_test( cert->signer_set, rank ) ) continue;
     blst_p1_add_or_double_affine( pub, pub, set->bls_keys+rank );
     stake += set->stakes[ rank ];
   }
@@ -147,7 +147,7 @@ cert_verify( validator_set_t *              set,
   }
 
   blst_p2_affine sig_affine[1];
-  ag_bls_sig_t   sig[1];
+  fd_bls_sig_t   sig[1];
   if( FD_UNLIKELY( blst_p2_uncompress( sig_affine, cert->sig )!=BLST_SUCCESS || !blst_p2_affine_in_g2( sig_affine ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has a malformed signature", bank_slot, cert_slot ));
     return 0;
@@ -156,7 +156,7 @@ cert_verify( validator_set_t *              set,
 
   uchar payload[ VOTE_SIGNING_SER_MAX ];
   ulong payload_sz = vote_signing_ser( vote_tag, cert_slot, vote_tag==VOTE_TAG_NOTAR ? cert->block_id.uc : NULL, shred_version, payload );
-  if( FD_UNLIKELY( !ag_bls_agg_verify( pub, sig, payload, payload_sz ) ) ) {
+  if( FD_UNLIKELY( !fd_bls_agg_verify( pub, sig, payload, payload_sz ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer (is_reward %d) cert for slot %lu failed signature verification", bank_slot, !quorum_numer, cert_slot ));
     return 0;
   }
@@ -424,16 +424,16 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
   /* credits for the attested voters of the reward slot */
 
   if( footer->has_skip_reward_cert || footer->has_notar_reward_cert ) {
-    ag_bls_set_t reward_set[ ag_bls_set_word_cnt ];
-    ag_bls_set_null( reward_set );
+    fd_bls_set_t reward_set[ fd_bls_set_word_cnt ];
+    fd_bls_set_null( reward_set );
     ulong skip_slot = ULONG_MAX, notar_slot = ULONG_MAX;
     if( footer->has_skip_reward_cert ) {
       skip_slot = footer->skip_reward_cert.slot;
-      ag_bls_set_union( reward_set, reward_set, footer->skip_reward_cert.signer_set );
+      fd_bls_set_union( reward_set, reward_set, footer->skip_reward_cert.signer_set );
     }
     if( footer->has_notar_reward_cert ) {
       notar_slot = footer->notar_reward_cert.slot;
-      ag_bls_set_union( reward_set, reward_set, footer->notar_reward_cert.signer_set );
+      fd_bls_set_union( reward_set, reward_set, footer->notar_reward_cert.signer_set );
     }
     if( FD_UNLIKELY( skip_slot!=ULONG_MAX && notar_slot!=ULONG_MAX && skip_slot!=notar_slot ) ) {
       FD_LOG_WARNING(( "slot %lu: reward cert slots differ: skip %lu, notar %lu", bank_slot, skip_slot, notar_slot ));
@@ -499,7 +499,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       FD_TEST( rank<AG_VAT_MAX );
       have_ranked_vote = 1;
       ulong r = (ulong)rank;
-      if( !ag_bls_set_test( reward_set, r ) ) continue;
+      if( !fd_bls_set_test( reward_set, r ) ) continue;
       /* per-slot, stake-fractional reward; split half validator, half
          (rounded up) leader */
       uint128 numerator   = (uint128)max_reward*(uint128)stake;
@@ -538,13 +538,13 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
 
   if( footer->has_fast_final_cert || footer->has_final_cert ) {
     ulong        final_slot;
-    ag_bls_set_t final_set[ ag_bls_set_word_cnt ];
+    fd_bls_set_t final_set[ fd_bls_set_word_cnt ];
     if( footer->has_fast_final_cert ) {
       final_slot = footer->fast_final_cert.slot;
-      ag_bls_set_copy( final_set, footer->fast_final_cert.signer_set );
+      fd_bls_set_copy( final_set, footer->fast_final_cert.signer_set );
     } else {
       final_slot = footer->final_cert.slot;
-      ag_bls_set_union( final_set, footer->final_cert.signer_set, footer->notar_cert.signer_set );
+      fd_bls_set_union( final_set, footer->final_cert.signer_set, footer->notar_cert.signer_set );
     }
 
     ulong final_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, final_slot, NULL );
@@ -569,7 +569,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       FD_TEST( rank<AG_VAT_MAX );
       have_ranked_vote = 1;
       ulong r = (ulong)rank;
-      if( !ag_bls_set_test( final_set, r ) ) continue;
+      if( !fd_bls_set_test( final_set, r ) ) continue;
       vote_update_t upd = {
         .update_root  = 1, .root_slot = final_slot,
         .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = ts_ns,

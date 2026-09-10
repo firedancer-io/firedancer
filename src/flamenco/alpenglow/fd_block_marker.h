@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_alpenglow_fd_block_marker_h
 
 #include "../fd_flamenco_base.h"
-#include "../../ballet/bls/ag_bls.h"
+#include "../../ballet/bls/fd_bls.h"
 #include "../../choreo/votor/ag_votor_base.h"
 
 #define FD_BLOCK_MARKER_KIND_FOOTER        (0U)
@@ -33,9 +33,9 @@ typedef struct fd_update_parent fd_update_parent_t;
 struct fd_block_footer_cert {
   ulong        slot;
   fd_hash_t    block_id;                          /* zero when the wire carries none: final and skip reward certs */
-  uchar        sig[ AG_BLS_SIG_COMPRESSED_SZ ];   /* compressed, unverified */
+  uchar        sig[ FD_BLS_SIG_COMPRESSED_SZ ];   /* compressed, unverified */
   ushort       nbits;                             /* signer bitmap bit count, <=AG_VAT_MAX */
-  ag_bls_set_t signer_set[ ag_bls_set_word_cnt ]; /* decoded base2 signer bitmap */
+  fd_bls_set_t signer_set[ fd_bls_set_word_cnt ]; /* decoded base2 signer bitmap */
 };
 typedef struct fd_block_footer_cert fd_block_footer_cert_t;
 
@@ -74,7 +74,7 @@ int
 fd_block_footer_cert_from_agg( fd_block_footer_cert_t * cert,
                                ulong                    slot,
                                uchar const *            block_hash,
-                               ag_bls_agg_t const *     agg );
+                               fd_bls_agg_t const *     agg );
 
 FD_PROTOTYPES_END
 

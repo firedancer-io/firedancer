@@ -2,7 +2,7 @@
 #define HEADER_fd_src_choreo_votor_ag_vote_h
 
 #include "ag_votor_base.h"
-#include "../../ballet/bls/ag_bls.h"
+#include "../../ballet/bls/fd_bls.h"
 
 #define AG_VOTE_KIND_NOTAR           (0U)
 #define AG_VOTE_KIND_FINAL           (1U)
@@ -13,7 +13,7 @@
 struct ag_vote_notar {
   ulong           slot;
   ag_block_hash_t block_hash;
-  ag_bls_sig_t    sig;
+  fd_bls_sig_t    sig;
   ushort          rank;
   ushort          shred_version;
 };
@@ -21,7 +21,7 @@ typedef struct ag_vote_notar ag_vote_notar_t;
 
 struct ag_vote_final {
   ulong        slot;
-  ag_bls_sig_t sig;
+  fd_bls_sig_t sig;
   ushort       rank;
   ushort       shred_version;
 };
@@ -29,7 +29,7 @@ typedef struct ag_vote_final ag_vote_final_t;
 
 struct ag_vote_skip {
   ulong        slot;
-  ag_bls_sig_t sig;
+  fd_bls_sig_t sig;
   ushort       rank;
   ushort       shred_version;
 };
@@ -38,7 +38,7 @@ typedef struct ag_vote_skip ag_vote_skip_t;
 struct ag_vote_notar_fallback {
   ulong           slot;
   ag_block_hash_t block_hash;
-  ag_bls_sig_t    sig;
+  fd_bls_sig_t    sig;
   ushort          rank;
   ushort          shred_version;
 };
@@ -46,7 +46,7 @@ typedef struct ag_vote_notar_fallback ag_vote_notar_fallback_t;
 
 struct ag_vote_skip_fallback {
   ulong        slot;
-  ag_bls_sig_t sig;
+  fd_bls_sig_t sig;
   ushort       rank;
   ushort       shred_version;
 };
@@ -78,7 +78,7 @@ ag_vote_slot( ag_vote_t const * self ) {
   }
 }
 
-FD_FN_PURE static inline ag_bls_sig_t const *
+FD_FN_PURE static inline fd_bls_sig_t const *
 ag_vote_sig( ag_vote_t const * self ) {
   switch( self->kind ) {
   case AG_VOTE_KIND_NOTAR:          return &self->notar.sig;
@@ -133,7 +133,7 @@ ag_vote_set_rank( ag_vote_t * self,
 }
 
 ag_vote_t
-ag_vote_construct_notar( ag_bls_sign_fn        sign_fn,
+ag_vote_construct_notar( fd_bls_sign_fn        sign_fn,
                          void *                sign_ctx,
                          ulong                 slot,
                          ag_block_hash_t const hash,
@@ -141,21 +141,21 @@ ag_vote_construct_notar( ag_bls_sign_fn        sign_fn,
                          ushort                shred_version );
 
 ag_vote_t
-ag_vote_construct_final( ag_bls_sign_fn sign_fn,
+ag_vote_construct_final( fd_bls_sign_fn sign_fn,
                          void *         sign_ctx,
                          ulong          slot,
                          ushort         rank,
                          ushort         shred_version );
 
 ag_vote_t
-ag_vote_construct_skip( ag_bls_sign_fn sign_fn,
+ag_vote_construct_skip( fd_bls_sign_fn sign_fn,
                         void *         sign_ctx,
                         ulong          slot,
                         ushort         rank,
                         ushort         shred_version );
 
 ag_vote_t
-ag_vote_construct_notar_fallback( ag_bls_sign_fn        sign_fn,
+ag_vote_construct_notar_fallback( fd_bls_sign_fn        sign_fn,
                                   void *                sign_ctx,
                                   ulong                 slot,
                                   ag_block_hash_t const hash,
@@ -163,7 +163,7 @@ ag_vote_construct_notar_fallback( ag_bls_sign_fn        sign_fn,
                                   ushort                shred_version );
 
 ag_vote_t
-ag_vote_construct_skip_fallback( ag_bls_sign_fn sign_fn,
+ag_vote_construct_skip_fallback( fd_bls_sign_fn sign_fn,
                                  void *         sign_ctx,
                                  ulong          slot,
                                  ushort         rank,

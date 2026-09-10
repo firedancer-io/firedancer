@@ -302,8 +302,8 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
 
   /* bits at or past the cert's nbits are left clear at decode, so the
      set test alone bounds the rank */
-  int in_cert = ( footer->has_skip_reward_cert  && ag_bls_set_test( footer->skip_reward_cert.signer_set,  rank ) ) ||
-                ( footer->has_notar_reward_cert && ag_bls_set_test( footer->notar_reward_cert.signer_set, rank ) );
+  int in_cert = ( footer->has_skip_reward_cert  && fd_bls_set_test( footer->skip_reward_cert.signer_set,  rank ) ) ||
+                ( footer->has_notar_reward_cert && fd_bls_set_test( footer->notar_reward_cert.signer_set, rank ) );
 
   if( FD_UNLIKELY( in_cert && ( ctx->metrics.voted_slot==ULONG_MAX || reward_slot>ctx->metrics.voted_slot ) ) ) ctx->metrics.voted_slot = reward_slot;
   return in_cert;
@@ -1578,7 +1578,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   bank->f.slot_params              = fd_slot_params_at_slot( bank, bank->f.slot );
   FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
   FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
-  if( FD_LIKELY( manifest_params.hashes_per_tick ) ) {
+  if( FD_LIKELY( manifest_params.hashes_per_tick && !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
     FD_TEST( bank->f.slot_params.hashes_per_tick==manifest_params.hashes_per_tick );
   }
 
@@ -4276,7 +4276,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
         default: break;
         }
         /* newest slot wins the ring entry, and at the same slot the widest aggregate, which rewards the most voters */
-        if( ring && ( ring->slot==ULONG_MAX || certed->slot>ring->slot || ( certed->slot==ring->slot && ag_bls_set_cnt( certed->agg.set )>ag_bls_set_cnt( ring->agg.set ) ) ) ) *ring = *certed;
+        if( ring && ( ring->slot==ULONG_MAX || certed->slot>ring->slot || ( certed->slot==ring->slot && fd_bls_set_cnt( certed->agg.set )>fd_bls_set_cnt( ring->agg.set ) ) ) ) *ring = *certed;
       }
       break;
     }

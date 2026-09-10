@@ -6,23 +6,23 @@
 #define BASE3_BITMAP (1)
 
 static ulong
-bit_cnt( ag_bls_agg_t const * agg ) {
-  return fd_ulong_min( AG_BLS_SET_MAX, ag_bls_set_last( agg->set )+1UL );
+bit_cnt( fd_bls_agg_t const * agg ) {
+  return fd_ulong_min( FD_BLS_SET_MAX, fd_bls_set_last( agg->set )+1UL );
 }
 
 ulong
-ag_bls_agg_ser_sz( ag_bls_agg_t const * agg ) {
+ag_bls_agg_ser_sz( fd_bls_agg_t const * agg ) {
   return AG_BLS_AGG_SER_SZ( bit_cnt( agg ) );
 }
 
 ulong
-ag_bls_agg_pair_ser_sz( ag_bls_agg_t const * agg,
-                        ag_bls_agg_t const * agg2 ) {
+ag_bls_agg_pair_ser_sz( fd_bls_agg_t const * agg,
+                        fd_bls_agg_t const * agg2 ) {
   return AG_BLS_AGG_PAIR_SER_SZ( fd_ulong_max( bit_cnt( agg ), bit_cnt( agg2 ) ) );
 }
 
 ulong
-ag_bls_agg_ser( ag_bls_agg_t const * agg,
+ag_bls_agg_ser( fd_bls_agg_t const * agg,
                 uchar *              buf ) {
 
   ulong bits = bit_cnt( agg );
@@ -40,7 +40,7 @@ ag_bls_agg_ser( ag_bls_agg_t const * agg,
   uchar * p = buf+off;
   fd_memset( p, 0, serde->payload_sz );
   for( ulong i=0UL; i<bits; i++ ) {
-    if( FD_LIKELY( ag_bls_set_test( agg->set, i ) ) ) p[ i>>3 ] |= (uchar)( 1U << (i&7U) );
+    if( FD_LIKELY( fd_bls_set_test( agg->set, i ) ) ) p[ i>>3 ] |= (uchar)( 1U << (i&7U) );
   }
   off += serde->payload_sz;
 
@@ -48,8 +48,8 @@ ag_bls_agg_ser( ag_bls_agg_t const * agg,
 }
 
 ulong
-ag_bls_agg_pair_ser( ag_bls_agg_t const * agg,
-                     ag_bls_agg_t const * agg2,
+ag_bls_agg_pair_ser( fd_bls_agg_t const * agg,
+                     fd_bls_agg_t const * agg2,
                      uchar *              buf ) {
 
   ulong bits = fd_ulong_max( bit_cnt( agg ), bit_cnt( agg2 ) );
@@ -71,8 +71,8 @@ ag_bls_agg_pair_ser( ag_bls_agg_t const * agg,
     uint  block = 0U;
     uint  place = 1U;
     for( ulong i=start; i<end; i++ ) {
-      uint digit = ag_bls_set_test( agg->set,  i ) ? 1U
-                 : ag_bls_set_test( agg2->set, i ) ? 2U : 0U;
+      uint digit = fd_bls_set_test( agg->set,  i ) ? 1U
+                 : fd_bls_set_test( agg2->set, i ) ? 2U : 0U;
       block += digit*place;
       place *= 3U;
     }
@@ -98,31 +98,31 @@ bitmap_hdr( ag_bls_agg_serde_t * bm,
 }
 
 static int
-base2_de( ag_bls_agg_t *             agg,
+base2_de( fd_bls_agg_t *             agg,
           ag_bls_agg_serde_t const * bm ) {
   ulong bits = (ulong)bm->bit_cnt;
-  FAIL( bits>AG_BLS_SET_MAX,                                         SZ );
+  FAIL( bits>FD_BLS_SET_MAX,                                         SZ );
   FAIL( bm->payload_sz!=AG_BLS_AGG_SER_SZ( bits )-AG_BLS_AGG_HDR_SZ, INVAL );
 
-  memset( agg, 0, sizeof(ag_bls_agg_t) ); /* zero is the point at infinity */
+  memset( agg, 0, sizeof(fd_bls_agg_t) ); /* zero is the point at infinity */
 
   for( ulong i=0UL; i<bits; i++ ) {
-    if( FD_LIKELY( (bm->payload[ i>>3 ] >> (i&7U)) & 1U ) ) ag_bls_set_insert( agg->set, i );
+    if( FD_LIKELY( (bm->payload[ i>>3 ] >> (i&7U)) & 1U ) ) fd_bls_set_insert( agg->set, i );
   }
   return AG_BLS_DE_SUCCESS;
 }
 
 static int
-base3_de( ag_bls_agg_t *             agg,
-          ag_bls_agg_t *             agg2,
+base3_de( fd_bls_agg_t *             agg,
+          fd_bls_agg_t *             agg2,
           ag_bls_agg_serde_t const * bm ) {
   ulong bits    = (ulong)bm->bit_cnt;
   ulong nchunks = AG_BLS_AGG_PAIR_SER_SZ( bits )-AG_BLS_AGG_HDR_SZ;
-  FAIL( bits>AG_BLS_SET_MAX, SZ );
+  FAIL( bits>FD_BLS_SET_MAX, SZ );
   FAIL( bm->payload_sz!=nchunks, INVAL );
 
-  memset( agg,  0, sizeof(ag_bls_agg_t) ); /* zero is the point at infinity */
-  memset( agg2, 0, sizeof(ag_bls_agg_t) );
+  memset( agg,  0, sizeof(fd_bls_agg_t) ); /* zero is the point at infinity */
+  memset( agg2, 0, sizeof(fd_bls_agg_t) );
 
   for( ulong chunk=0UL; chunk<nchunks; chunk++ ) {
     uint  block = (uint)bm->payload[ chunk ];
@@ -130,15 +130,15 @@ base3_de( ag_bls_agg_t *             agg,
     ulong end   = fd_ulong_min( start+5UL, bits );
     for( ulong i=start; i<end; i++ ) {
       uint digit = block % 3U; block /= 3U;
-      if(      FD_LIKELY  ( digit==1U ) ) ag_bls_set_insert( agg->set,  i );
-      else if( FD_UNLIKELY( digit==2U ) ) ag_bls_set_insert( agg2->set, i );
+      if(      FD_LIKELY  ( digit==1U ) ) fd_bls_set_insert( agg->set,  i );
+      else if( FD_UNLIKELY( digit==2U ) ) fd_bls_set_insert( agg2->set, i );
     }
   }
   return AG_BLS_DE_SUCCESS;
 }
 
 int
-ag_bls_agg_de( ag_bls_agg_t * agg,
+ag_bls_agg_de( fd_bls_agg_t * agg,
                uchar const *  b,
                ulong          b_sz ) {
   ag_bls_agg_serde_t bm[1];
@@ -151,8 +151,8 @@ ag_bls_agg_de( ag_bls_agg_t * agg,
 }
 
 int
-ag_bls_agg_pair_de( ag_bls_agg_t * agg,
-                    ag_bls_agg_t * agg2,
+ag_bls_agg_pair_de( fd_bls_agg_t * agg,
+                    fd_bls_agg_t * agg2,
                     uchar const *  b,
                     ulong          b_sz ) {
   ag_bls_agg_serde_t bm[1];
@@ -164,7 +164,7 @@ ag_bls_agg_pair_de( ag_bls_agg_t * agg,
   case BASE2_BITMAP:
     err = base2_de( agg, bm );
     if( FD_UNLIKELY( err ) ) return err;
-    memset( agg2, 0, sizeof(ag_bls_agg_t) );
+    memset( agg2, 0, sizeof(fd_bls_agg_t) );
     return AG_BLS_DE_SUCCESS;
   case BASE3_BITMAP:
     return base3_de( agg, agg2, bm );

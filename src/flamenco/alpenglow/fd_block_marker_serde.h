@@ -38,7 +38,7 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
                                   sizeof(ulong)     /* new_parent_slot     */ + \
                                   sizeof(fd_hash_t) /* new_parent_block_id */ )
 
-#define FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ ( AG_BLS_SIG_COMPRESSED_SZ /* signature */ + \
+#define FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ ( FD_BLS_SIG_COMPRESSED_SZ /* signature */ + \
                                               sizeof(ushort)           /* bitmap_sz */ )
 
 #define FD_BLOCK_VOTES_AGGREGATE_SER_SZ( bit_cnt ) ( FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ + \
@@ -57,7 +57,7 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
 #define FD_BLOCK_REWARD_CERT_SER_CU16_MAX (3UL) /* a ShortU16 is at most three bytes */
 
 #define FD_BLOCK_SKIP_REWARD_CERT_SER_HDR_SZ ( sizeof(ulong)            /* slot      */ + \
-                                               AG_BLS_SIG_COMPRESSED_SZ /* signature */ )
+                                               FD_BLS_SIG_COMPRESSED_SZ /* signature */ )
 
 #define FD_BLOCK_SKIP_REWARD_CERT_SER_MAX ( FD_BLOCK_SKIP_REWARD_CERT_SER_HDR_SZ /* slot, signature */ + \
                                             FD_BLOCK_REWARD_CERT_SER_CU16_MAX    /* bitmap_sz       */ + \
@@ -65,7 +65,7 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
 
 #define FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ ( sizeof(ulong)            /* slot      */ + \
                                                 sizeof(fd_hash_t)        /* block_id  */ + \
-                                                AG_BLS_SIG_COMPRESSED_SZ /* signature */ )
+                                                FD_BLS_SIG_COMPRESSED_SZ /* signature */ )
 
 #define FD_BLOCK_NOTAR_REWARD_CERT_SER_MAX ( FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ /* slot, block_id, signature */ + \
                                              FD_BLOCK_REWARD_CERT_SER_CU16_MAX     /* bitmap_sz                 */ + \

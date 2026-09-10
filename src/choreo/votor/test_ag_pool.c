@@ -99,7 +99,7 @@ drain_events( ag_pool_t * pool ) {
 
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
-static ag_bls_sec_t      g_sk  [ NV ];
+static fd_bls_sec_t      g_sk  [ NV ];
 static ag_validator_info_t g_info[ NV ];
 
 static void
@@ -125,11 +125,11 @@ random_block_id( ulong slot ) {
 static void
 create_validators( void ) {
   for( ulong i=0UL; i<NV; i++ ) {
-    fd_memset( &g_sk[i], (int)(i*7UL+1UL), AG_BLS_SEC_SZ );
+    fd_memset( &g_sk[i], (int)(i*7UL+1UL), FD_BLS_SEC_SZ );
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
+    fd_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
   }
 }
 
