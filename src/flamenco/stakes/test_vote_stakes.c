@@ -205,13 +205,8 @@ main( int argc, char ** argv ) {
   fd_vote_stakes_snap_insert_t_3( vote_stakes, root, &invalid_vote, &node_a, 300UL, 0U, invalid_bls );
   fd_vote_stakes_snap_insert_t_3( vote_stakes, root, &valid_vote,   &node_b, 100UL, 0U, valid_bls[0] );
   fd_vote_stakes_finalize( vote_stakes, 2UL );
-#if FD_HAS_BLST
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &invalid_vote )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &valid_vote   )==0U );
-#else
-  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &invalid_vote )==0U );
-  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &valid_vote   )==1U );
-#endif
   fd_vote_stakes_purge_fork( vote_stakes, root );
 
   fd_vote_stakes_reset( vote_stakes );

@@ -8,7 +8,6 @@ $(call run-unit-test,test_vm_syscall_cpi)
 $(call make-unit-test,test_vm_syscall_hash,test_vm_syscall_hash,fd_flamenco fd_util fd_ballet)
 $(call run-unit-test,test_vm_syscall_hash)
 
-ifdef FD_HAS_BLST
 $(call make-unit-test,test_vm_syscalls,test_vm_syscalls,fd_flamenco fd_util fd_ballet)
 $(call run-unit-test,test_vm_syscalls)
 $(call make-unit-test,test_vm_syscall_curve,test_vm_syscall_curve,fd_flamenco fd_util fd_ballet)
@@ -17,5 +16,4 @@ $(call make-unit-test,test_cpi_shared_data_addr,test_cpi_shared_data_addr,fd_fla
 $(call run-unit-test,test_cpi_shared_data_addr)
 $(call make-unit-test,test_cpi_semantics,test_cpi_semantics,fd_flamenco_test fd_flamenco fd_util fd_ballet)
 $(call run-unit-test,test_cpi_semantics)
-endif
 endif
