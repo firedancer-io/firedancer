@@ -1576,6 +1576,8 @@ fd_sbpf_lenient_relocs_fast_ok( fd_sbpf_elf_t const *      elf,
   fd_sbpf_range_t text_range;
   fd_shdr_get_file_range( sh_text, &text_range );
 
+  if( fd_ulong_sat_add( sh_text->sh_offset, sh_text->sh_size )>rodata_sz ) return 0;
+
   fd_elf64_rel const * rels    = (fd_elf64_rel const *)( elf->bin + info->dt_rel_off );
   uint                 rel_cnt = info->dt_rel_sz / sizeof(fd_elf64_rel);
   for( uint i=0U; i<rel_cnt; i++ ) {
