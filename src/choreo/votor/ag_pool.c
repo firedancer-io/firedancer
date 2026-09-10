@@ -361,9 +361,10 @@ add_valid_cert( ag_pool_t *       self,
       ag_block_id_t child_id = child->child; /* copy before the release below */
       s2n_waiting_parent_cert_pool_ele_release( self->s2n_waiting_parent_cert->pool, child );
 
-      fd_bls_set_t bad_child[ fd_bls_set_word_cnt ];
-      int output = ag_slot_state_notify_parent_certified( slot_state( self, child_id.slot ), child_id.hash, bad_child );
-      fd_bls_set_union( bad, bad, bad_child );
+      ag_slot_state_t * child_state = slot_state( self, child_id.slot );
+      fd_bls_set_t      bad_child[ fd_bls_set_word_cnt ];
+      int output = ag_slot_state_notify_parent_certified( child_state, child_id.hash, bad_child );
+      if( FD_LIKELY( child_state->epoch_info==slot_state( self, slot )->epoch_info ) ) fd_bls_set_union( bad, bad, bad_child );
       switch( output ) {
       case -1: repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = child_id } ); break;
       case  0: break;
@@ -506,17 +507,6 @@ ag_pool_add_vote( ag_pool_t *       self,
   for( ulong i=0UL; i<pool_event_cnt;   i++ ) { pool_events  [i].seq = self->seq++; pool_events_push  ( self->pool_events,   pool_events  [i] ); }
   for( ulong i=0UL; i<repair_event_cnt; i++ ) { repair_events[i].seq = self->seq++; repair_events_push( self->repair_events, repair_events[i] ); }
   return ok ? AG_POOL_SUCCESS : AG_POOL_ERR_VOTE_VERIFY;
-}
-
-int
-ag_pool_subtract_vote( ag_pool_t *       self,
-                       ag_vote_t const * vote ) {
-  ulong              slot = ag_vote_slot( vote );
-  slot_state_ele_t * ele  = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
-  if( FD_UNLIKELY( !ele ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
-  ulong voter_stake = ag_epoch_info_validator( ele->slot_state.epoch_info, ag_vote_rank( vote ) )->stake;
-  ag_slot_state_subtract_vote( &ele->slot_state, vote, voter_stake );
-  return AG_POOL_SUCCESS;
 }
 
 ag_slot_state_t const *

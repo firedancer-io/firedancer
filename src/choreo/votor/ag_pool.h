@@ -66,10 +66,6 @@ ag_pool_add_vote( ag_pool_t *       self,
                   fd_bls_set_t *    bad );
 
 int
-ag_pool_subtract_vote( ag_pool_t *       self,
-                       ag_vote_t const * vote );
-
-int
 ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
                    ag_block_id_t const * parent_id,
