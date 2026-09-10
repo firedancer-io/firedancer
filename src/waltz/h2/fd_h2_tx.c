@@ -2,21 +2,19 @@
 #include "fd_h2_conn.h"
 #include "fd_h2_stream.h"
 
-ulong
-fd_h2_tx_op_copy1( fd_h2_conn_t *   conn,
-                   fd_h2_stream_t * stream,
-                   fd_h2_rbuf_t *   rbuf_tx,
-                   fd_h2_tx_op_t *  tx_op,
-                   ulong            max_sz ) {
-  long quota = fd_long_min( fd_long_min( conn->tx_wnd, stream->tx_wnd ), (long)fd_ulong_min( max_sz, LONG_MAX ) );
-  if( FD_UNLIKELY( quota<=0L ) ) return 0UL;
+void
+fd_h2_tx_op_copy( fd_h2_conn_t *   conn,
+                  fd_h2_stream_t * stream,
+                  fd_h2_rbuf_t *   rbuf_tx,
+                  fd_h2_tx_op_t *  tx_op ) {
+  long quota = fd_long_min( conn->tx_wnd, stream->tx_wnd );
+  if( FD_UNLIKELY( quota<0L ) ) return;
 
-  if( FD_UNLIKELY( stream->state == FD_H2_STREAM_STATE_CLOSED ) ) return 0UL;
+  if( FD_UNLIKELY( stream->state == FD_H2_STREAM_STATE_CLOSED ) ) return;
   if( FD_UNLIKELY( stream->state != FD_H2_STREAM_STATE_OPEN &&
                    stream->state != FD_H2_STREAM_STATE_CLOSING_RX ) ) {
-    return 0UL;
+    return;
   }
-  ulong copied = 0UL;
 
   do {
     /* Calculate how much we can send in this frame */
@@ -46,7 +44,5 @@ fd_h2_tx_op_copy1( fd_h2_conn_t *   conn,
     conn->tx_wnd       -= (uint)payload_sz;
     stream->tx_wnd     -= (uint)payload_sz;
     quota              -= payload_sz;
-    copied             += (ulong)payload_sz;
   } while( quota );
-  return copied;
 }
