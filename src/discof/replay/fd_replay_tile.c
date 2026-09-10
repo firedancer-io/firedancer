@@ -2358,7 +2358,7 @@ try_replay( fd_replay_tile_t *  ctx,
 
   /* Hold off executing until the computed shred version is known (except
      in backtest), so footer certs verify under it. */
-  if( FD_UNLIKELY( !ctx->shred_version && !ctx->expected_shred_version ) ) return 0;
+  if( FD_UNLIKELY( ctx->alpenglow && !ctx->shred_version && !ctx->expected_shred_version ) ) return 0;
 
   int charge_busy = 0;
   fd_sched_task_t task[ 1 ];
