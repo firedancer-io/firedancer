@@ -5,6 +5,7 @@
 #include "../fd_quic_proto.h"
 #include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
+#include "../fd_quic_retry.h"
 #include "../templ/fd_quic_parse_util.h"
 #include "../../tls/fd_tls_proto.h"
 #include "../../../disco/metrics/generated/fd_metrics_enums.h"
@@ -1074,6 +1075,120 @@ FD_UNIT_TEST( quic_rng_reseed ) {
   fd_quic_rng_ulong( state );
   FD_TEST( state->rng_reseed_at==t2+FD_QUIC_RNG_RESEED_INTERVAL );
   FD_TEST( memcmp( state->_rng->key, key0, sizeof(key0) )!=0 );
+}
+
+/* RFC 9000 Section 17.2.5.2. Retry Packet
+
+   > A client MUST accept and process at most one Retry packet for each
+   > connection attempt.  After the client has received and processed
+   > an Initial or Retry packet from the server, it MUST discard any
+   > subsequent Retry packets that it receives.
+
+   > A client MUST discard a Retry packet that contains a SCID field
+   > that is identical to the DCID field of its Initial packet.
+
+   An on-path attacker that observed the client's Initial can forge a
+   Retry with a valid integrity tag at any time.  Verify that such a
+   Retry is ignored once the connection has progressed. */
+
+static ulong
+test_quic_client_retry_build( uchar                    retry[ FD_QUIC_RETRY_LOCAL_SZ ],
+                              fd_quic_pkt_t *          pkt,
+                              fd_quic_conn_t const *   conn,
+                              ulong                    retry_scid ) {
+  memset( pkt, 0, sizeof(fd_quic_pkt_t) );
+  pkt->ip4->saddr     = FD_QUIC_SANDBOX_PEER_IP4;
+  pkt->ip4->daddr     = FD_QUIC_SANDBOX_SELF_IP4;
+  pkt->udp->net_sport = FD_QUIC_SANDBOX_PEER_PORT;
+  pkt->udp->net_dport = FD_QUIC_SANDBOX_SELF_PORT;
+
+  /* The Retry's DCID is the client's SCID, the ODCID is the DCID the
+     client used in its Initial (conn->peer_cids[0]).  The retry token
+     is opaque to the client, so any secret/IV works here. */
+  fd_quic_conn_id_t client_scid = fd_quic_conn_id_new( &conn->our_conn_id, FD_QUIC_CONN_ID_SZ );
+  uchar secret[ FD_QUIC_RETRY_SECRET_SZ ] = {0};
+  uchar iv    [ FD_QUIC_RETRY_IV_SZ     ] = {0};
+  return fd_quic_retry_create( retry, pkt, 1UL, 2UL, secret, iv,
+                               &conn->peer_cids[0], &client_scid,
+                               retry_scid, LONG_MAX/2 );
+}
+
+FD_UNIT_TEST( quic_client_retry_after_initial ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  FD_TEST( !conn->server );
+  FD_TEST( conn->established );
+  FD_TEST( conn->retry_src_conn_id.sz==0 );
+
+  fd_quic_conn_id_t const orig_peer_cid = conn->peer_cids[0];
+  ulong             const forged_scid   = 0x4141414141414141UL;
+  fd_quic_pkt_t     pkt[1];
+  uchar             retry[ FD_QUIC_RETRY_LOCAL_SZ ];
+  ulong             retry_sz = test_quic_client_retry_build( retry, pkt, conn, forged_scid );
+  FD_TEST( retry_sz>0UL && retry_sz<=FD_QUIC_RETRY_LOCAL_SZ );
+  FD_TEST( fd_quic_h0_long_packet_type( retry[0] )==FD_QUIC_PKT_TYPE_RETRY );
+
+  /* Connection already processed a server Initial: the Retry must be
+     discarded without touching connection state. */
+  ulong before_fail = sandbox->quic->metrics.conn_err_retry_fail_cnt;
+  FD_TEST( fd_quic_process_quic_packet_v1( sandbox->quic, pkt, retry, retry_sz )==FD_QUIC_PARSE_FAIL );
+  FD_TEST( sandbox->quic->metrics.conn_err_retry_fail_cnt==before_fail+1UL );
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn->retry_src_conn_id.sz==0 );
+  FD_TEST( conn->token_len==0UL );
+  FD_TEST( conn->peer_cids[0].sz==orig_peer_cid.sz );
+  FD_TEST( 0==memcmp( conn->peer_cids[0].conn_id, orig_peer_cid.conn_id, orig_peer_cid.sz ) );
+  FD_TEST( conn->keys_avail==(1U<<fd_quic_enc_level_appdata_id) );
+
+  /* Positive control: the same Retry is accepted by a connection that
+     has not yet heard from the server.  This proves the forged packet
+     is well-formed and that the gate above is what rejected it. */
+  conn->established = 0;
+  FD_TEST( fd_quic_process_quic_packet_v1( sandbox->quic, pkt, retry, retry_sz )==retry_sz );
+  FD_TEST( sandbox->quic->metrics.conn_err_retry_fail_cnt==before_fail+1UL );
+  FD_TEST( conn->retry_src_conn_id.sz==FD_QUIC_CONN_ID_SZ );
+  FD_TEST( FD_LOAD( ulong, conn->retry_src_conn_id.conn_id )==forged_scid );
+  FD_TEST( conn->peer_cids[0].sz==FD_QUIC_CONN_ID_SZ );
+  FD_TEST( FD_LOAD( ulong, conn->peer_cids[0].conn_id )==forged_scid );
+  FD_TEST( conn->token_len==sizeof(fd_quic_retry_token_t) );
+
+  /* At most one Retry per connection attempt: a second Retry (even
+     one that is valid for the updated DCID) must be discarded. */
+  fd_quic_conn_id_t const retry_peer_cid = conn->peer_cids[0];
+  ulong             const second_scid    = 0x4242424242424242UL;
+  retry_sz = test_quic_client_retry_build( retry, pkt, conn, second_scid );
+  FD_TEST( fd_quic_process_quic_packet_v1( sandbox->quic, pkt, retry, retry_sz )==FD_QUIC_PARSE_FAIL );
+  FD_TEST( sandbox->quic->metrics.conn_err_retry_fail_cnt==before_fail+2UL );
+  FD_TEST( FD_LOAD( ulong, conn->retry_src_conn_id.conn_id )==forged_scid );
+  FD_TEST( conn->peer_cids[0].sz==retry_peer_cid.sz );
+  FD_TEST( 0==memcmp( conn->peer_cids[0].conn_id, retry_peer_cid.conn_id, retry_peer_cid.sz ) );
+}
+
+FD_UNIT_TEST( quic_client_retry_scid_eq_dcid ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->established = 0; /* pretend no server Initial seen yet */
+  FD_TEST( conn->peer_cids[0].sz==FD_QUIC_CONN_ID_SZ );
+
+  /* Retry SCID identical to the DCID of the client's Initial */
+  fd_quic_conn_id_t const orig_peer_cid = conn->peer_cids[0];
+  ulong             const same_scid     = FD_LOAD( ulong, orig_peer_cid.conn_id );
+  fd_quic_pkt_t     pkt[1];
+  uchar             retry[ FD_QUIC_RETRY_LOCAL_SZ ];
+  ulong             retry_sz = test_quic_client_retry_build( retry, pkt, conn, same_scid );
+
+  ulong before_fail = sandbox->quic->metrics.conn_err_retry_fail_cnt;
+  FD_TEST( fd_quic_process_quic_packet_v1( sandbox->quic, pkt, retry, retry_sz )==FD_QUIC_PARSE_FAIL );
+  FD_TEST( sandbox->quic->metrics.conn_err_retry_fail_cnt==before_fail+1UL );
+  FD_TEST( conn->retry_src_conn_id.sz==0 );
+  FD_TEST( conn->token_len==0UL );
+  FD_TEST( 0==memcmp( conn->peer_cids[0].conn_id, orig_peer_cid.conn_id, orig_peer_cid.sz ) );
+
+  /* A subsequent Retry with a distinct SCID is still accepted */
+  retry_sz = test_quic_client_retry_build( retry, pkt, conn, same_scid ^ 1UL );
+  FD_TEST( fd_quic_process_quic_packet_v1( sandbox->quic, pkt, retry, retry_sz )==retry_sz );
+  FD_TEST( conn->retry_src_conn_id.sz==FD_QUIC_CONN_ID_SZ );
+  FD_TEST( FD_LOAD( ulong, conn->peer_cids[0].conn_id )==(same_scid ^ 1UL) );
 }
 
 int
