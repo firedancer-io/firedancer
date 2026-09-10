@@ -66,7 +66,7 @@ main( int     argc,
   FD_TEST( config->gossip.entrypoints_cnt == 1 );
   FD_TEST( 0==strcmp( config->gossip.entrypoints[0], "208.91.106.45:8080" ) );
 
-  /* Maximum-sized URL values survive config extraction. */
+  /* Maximum-sized URLs and shred destinations survive config extraction. */
 
   char endpoint[ FD_URL_MAX ];
   fd_memcpy( endpoint, "https://", 8UL );
@@ -80,8 +80,11 @@ main( int     argc,
                                 "[snapshots.sources]\n"
                                 "servers = [\"%s\"]\n"
                                 "[tiles.bundle]\n"
-                                "url = \"%s\"\n",
-                                endpoint, endpoint ) );
+                                "url = \"%s\"\n"
+                                "[tiles.shred]\n"
+                                "additional_shred_destinations_retransmit = [\"%s\"]\n"
+                                "additional_shred_destinations_leader = [\"%s\"]\n",
+                                endpoint, endpoint, endpoint+8UL, endpoint+8UL ) );
 
   memset( config, 0, sizeof(config_t) );
   config->is_firedancer = 1;
@@ -91,6 +94,10 @@ main( int     argc,
   FD_TEST( config->firedancer.snapshots.sources.servers_cnt==1UL );
   FD_TEST( !strcmp( config->firedancer.snapshots.sources.servers[0], endpoint ) );
   FD_TEST( !strcmp( config->tiles.bundle.url, endpoint ) );
+  FD_TEST( config->tiles.shred.additional_shred_destinations_retransmit_cnt==1UL &&
+           !strcmp( config->tiles.shred.additional_shred_destinations_retransmit[ 0 ], endpoint+8UL ) );
+  FD_TEST( config->tiles.shred.additional_shred_destinations_leader_cnt==1UL &&
+           !strcmp( config->tiles.shred.additional_shred_destinations_leader[ 0 ], endpoint+8UL ) );
 
   /* Reject invalid direct and aliased array elements. */
 
