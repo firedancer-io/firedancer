@@ -113,19 +113,29 @@ fd_bootinfo_print( fd_bootinfo_instance_t const * instances,
 void
 fd_bootinfo_notice( fd_bootinfo_instance_t const * instance );
 
-/* fd_bootinfo_adopt prepares config for a command that attaches to the
-   full topology of a running validator.  If --config was given, the
-   topology from the file is used and only the layout is verified.
+/* fd_bootinfo_adopt_named prepares config for a command that attaches
+   to the full topology of a running validator.  If --config was given,
+   the topology from the file is used and only the layout is verified.
    Otherwise the running validator is discovered and config is replaced
    with the validator's own published resolved config, so all topology
    offsets are exactly the ones in use.  In either case
    config->boot_timestamp_nanos is replaced with the running
    validator's boot time, or zero if it cannot be determined.  Logs an
    error and exits if no or multiple validators are running, or on a
-   version mismatch. */
+   version mismatch.
+
+   opt_name, when non-NULL and non-empty, filters auto-discovery to
+   the validator whose name matches.  Ignored when --config was given. */
 
 void
-fd_bootinfo_adopt( config_t * config );
+fd_bootinfo_adopt_named( config_t *   config,
+                         char const * opt_name );
+
+/* fd_bootinfo_adopt is shorthand for fd_bootinfo_adopt_named with no
+   name filter. */
+
+static inline void
+fd_bootinfo_adopt( config_t * config ) { fd_bootinfo_adopt_named( config, NULL ); }
 
 FD_PROTOTYPES_END
 
