@@ -1,7 +1,7 @@
 {
     "name": "runtime_reward",
     "id": 14,
-    "description": "One row per epoch-reward credit to an account   ",
+    "description": "One row per epoch-reward credit to an account",
     "fields": {
         "bank_seq":         { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
         "slot":             { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Slot in which the credit was applied" },

@@ -583,13 +583,13 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( &parent_bank->f.sysvar_cache, stake_delegations_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( parent_bank );
-  fd_stake_delegations_mark_fork_deltas( stake_delegations,
-                                         parent_bank->f.epoch,
-                                         stake_delegations_history,
-                                         &parent_bank->f.warmup_cooldown_rate_epoch,
-                                         FD_FEATURE_ACTIVE_BANK( parent_bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                         stake_delegations_fork_ids,
-                                         stake_delegations_fork_id_cnt );
+  fd_stake_delegations_frontier_query_begin( stake_delegations,
+                                             parent_bank->f.epoch,
+                                             stake_delegations_history,
+                                             &parent_bank->f.warmup_cooldown_rate_epoch,
+                                             FD_FEATURE_ACTIVE_BANK( parent_bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                             stake_delegations_fork_ids,
+                                             stake_delegations_fork_id_cnt );
 
   /* Collect account states in a temporary set before iterating over
      them and dumping them out. */
@@ -644,14 +644,13 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   /* Dump stake accounts for this epoch */
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, parent_bank->accdb_fork_id, parent_bank->f.epoch, &parent_bank->f.warmup_cooldown_rate_epoch );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
     add_account_to_dumped_accounts( dumped_accounts, &stake_delegation->stake_account );
   }
-  fd_stake_delegations_unmark_fork_deltas( stake_delegations,
-                                           parent_bank->f.epoch-1UL,
+  fd_stake_delegations_frontier_query_end( stake_delegations,
                                            stake_delegations_history,
                                            &parent_bank->f.warmup_cooldown_rate_epoch,
                                            FD_FEATURE_ACTIVE_BANK( parent_bank, upgrade_bpf_stake_program_to_v5_1 ),

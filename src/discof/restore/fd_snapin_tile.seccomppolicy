@@ -5,7 +5,7 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd
+uint logfile_fd, uint accounts_fd, uint stake_spill_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -31,3 +31,10 @@ exit: (eq (arg 0) 0)
 # device in chunks, as it runs out.
 fallocate: (and (eq (arg 0) accounts_fd)
                 (eq (arg 1) 0))
+
+# stake delegations: full root and fork-delta records spilled beyond
+# the in-memory delegation pools.
+pread64: (eq (arg 0) stake_spill_fd)
+
+# stake delegations: full-record disk spill
+pwrite64: (eq (arg 0) stake_spill_fd)

@@ -1423,7 +1423,7 @@ message RuntimeBlock {
   repeated bytes fec_merkle_roots = 37;
 }
 
-// One row per epoch-reward credit to an account   
+// One row per epoch-reward credit to an account
 message RuntimeReward {
   // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
   uint64 bank_seq = 1;

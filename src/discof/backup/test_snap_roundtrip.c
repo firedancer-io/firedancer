@@ -250,8 +250,9 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
 
   fd_ssmanifest_writer_t writer[1];
   fd_ssmanifest_writer_init( writer, bank );
-  ulong total_written = 0UL;
-  int   injected      = 0;
+  ulong total_written             = 0UL;
+  ulong stake_delegations_len_off = ULONG_MAX;
+  int   injected                  = 0;
   for(;;) {
     ulong sz = fd_snap_manifest_serialize( writer, chunk_buf, FD_SSMANIFEST_BUF_MIN );
     if( !sz ) break;
@@ -268,6 +269,7 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
       uchar * dst = buf+total_written;
       memcpy( dst, chunk_buf, 8UL );
       dst += 8UL;
+      stake_delegations_len_off = (ulong)(dst-buf);
       FD_STORE( ulong, dst, 1UL );
       dst += 8UL;
       memcpy( dst, &ignored_stake_pubkey, sizeof(fd_pubkey_t) );
@@ -287,6 +289,7 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
     }
   }
   FD_TEST( injected );
+  FD_TEST( stake_delegations_len_off!=ULONG_MAX );
   FD_TEST( total_written==manifest_sz+stake_delegation_sz );
 
   fd_snapshot_manifest_t * manifest = aligned_alloc( alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
@@ -297,6 +300,17 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( parser_mem );
   fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( parser_mem ) );
   FD_TEST( parser );
+
+  /* The primary delegation map is skipped and reconstructed from the
+     account stream, so its declared length is not bounded by the
+     in-memory delegation cache capacity. */
+  FD_STORE( ulong, buf+stake_delegations_len_off, FD_RUNTIME_MAX_STAKE_ACCOUNTS+1UL );
+  fd_ssmanifest_parser_init( parser, manifest );
+  FD_TEST( fd_ssmanifest_parser_consume( parser, buf, stake_delegations_len_off+sizeof(ulong) )==
+           FD_SSMANIFEST_PARSER_ADVANCE_AGAIN );
+
+  FD_STORE( ulong, buf+stake_delegations_len_off, 1UL );
+  memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
   fd_ssmanifest_parser_init( parser, manifest );
 
   int result = fd_ssmanifest_parser_consume( parser, buf, total_written );

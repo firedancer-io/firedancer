@@ -3,7 +3,7 @@
 #include "../../../flamenco/runtime/fd_bank.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../../flamenco/stakes/fd_stake_delegations.h"
+#include "../../../flamenco/stakes/test_stake_delegations_util.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include <limits.h>
 
@@ -574,18 +574,18 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   ulong max_banks = 16UL;
   ulong max_forks =  4UL;
   ulong max_stake          = 64UL;
-  ulong max_fallback_stake = 1024UL;
+  ulong max_disk_records   = 1024UL;
   ulong max_vote           = 64UL;
   ulong seed               = 42UL;
 
   ulong banks_footprint = fd_banks_footprint( max_banks, max_forks,
-                                              max_stake, max_fallback_stake, max_vote );
+                                              max_stake, max_vote );
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),
                                           banks_footprint, 2UL );
   FD_TEST( banks_mem );
 
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
-                                                    max_stake, max_fallback_stake, max_vote,
+                                                    max_stake, max_disk_records, max_vote,
                                                     0UL /* max_cost_per_block */, seed ) );
   FD_TEST( banks );
 
@@ -636,8 +636,8 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( bank->txncache_fork_id.val==38U );
 
   /* ssload must leave the cache populated by snapin untouched. */
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_s )!=NULL );
-  FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
+  FD_TEST( test_stake_delegations_contains( sd, (fd_pubkey_t *)pubkey_s ) );
+  FD_TEST( test_stake_delegations_base_cnt( sd )==1UL );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, bank->vote_stakes_fork_id )==1UL );
@@ -671,8 +671,8 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( bank->txncache_fork_id.val==40U );
 
   /* snapin's delegation remains present. */
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_s )!=NULL );
-  FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
+  FD_TEST( test_stake_delegations_contains( sd, (fd_pubkey_t *)pubkey_s ) );
+  FD_TEST( test_stake_delegations_base_cnt( sd )==1UL );
 
   /* Top votes: pubkey_X must have been removed, pubkey_Y must be
      present, exactly 1 entry (not 2). */

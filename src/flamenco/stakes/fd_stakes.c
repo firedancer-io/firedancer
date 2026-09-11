@@ -558,7 +558,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
   /* Accumulate stakes across all delegations for all vote accounts. */
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, epoch, new_rate_activation_epoch );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
       !fd_stake_delegations_iter_done( iter );
       fd_stake_delegations_iter_next( iter ) ) {
 
@@ -820,11 +820,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      need to do this once, at the feature activation epoch boundary.
 
      https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477
-
-     The same recomputation needs to be done as soon as fallback stake
-     accounts are enabled. */
-  int fallback = fd_stake_delegations_pubkey_fallback( stake_delegations );
-  if( FD_UNLIKELY( fallback || FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
+  */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
     fd_stake_history_t history[1];
     if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, history ) ) ) {
       FD_LOG_CRIT(( "invariant violation: StakeHistory sysvar missing or invalid" ));
@@ -836,7 +833,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     int use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
 
     fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, bank->accdb_fork_id, bank->f.epoch, new_rate_activation_epoch );
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
          !fd_stake_delegations_iter_done( iter );
          fd_stake_delegations_iter_next( iter ) ) {
       fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );

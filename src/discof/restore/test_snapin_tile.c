@@ -75,6 +75,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #undef fd_accdb_reset
 
 #include <stdlib.h>
+#include "../../flamenco/stakes/test_stake_delegations_util.h"
 
 /* Production per-slot limits (tile->snapin.max_txn_per_slot and its
    derived staging bounds). */
@@ -782,7 +783,7 @@ test_nonempty_raw_data( void ) {
 
 static fd_banks_t *
 new_banks( fd_wksp_t * wksp ) {
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 4UL, 16UL, 64UL, 16UL ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 4UL, 16UL, 16UL ), 1UL );
   FD_TEST( mem );
   fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 16UL, 64UL, 16UL, 0, 42UL ) );
   FD_TEST( banks );
@@ -805,9 +806,8 @@ static void
 assert_stake_delegation( fd_stake_delegations_t const * stake_delegations,
                          fd_pubkey_t const *            stake_account,
                          fd_pubkey_t const *            vote_account ) {
-  fd_stake_delegation_t const * delegation =
-      fd_stake_delegation_root_query( stake_delegations, stake_account );
-  FD_TEST( delegation );
+  fd_stake_delegation_t delegation[1];
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, stake_account, delegation ) );
   FD_TEST( fd_pubkey_eq( &delegation->vote_account, vote_account ) );
   FD_TEST( delegation->stake==1234UL );
   FD_TEST( delegation->activation_epoch==7UL );
@@ -879,7 +879,7 @@ test_streaming_stake_delegation( fd_wksp_t * wksp ) {
     },
   };
   process_account_data( &ctx, &data );
-  FD_TEST( !fd_stake_delegation_root_query( stake_delegations, &stake_account ) );
+  FD_TEST( !test_stake_delegations_contains( stake_delegations, &stake_account ) );
 
   data.account_data.data    = (uchar const *)state + split;
   data.account_data.data_sz = sizeof(fd_stake_state_t) - split;
