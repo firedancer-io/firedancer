@@ -1029,6 +1029,68 @@ FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
   test_progcache_shmem_delete( shmem );
 }
 
+/* A speculative reader may retain a record pointer after map removal.
+   Reclamation and reuse must keep the descriptor write locked so that
+   reader cannot acquire the next record generation during reset. */
+
+FD_UNIT_TEST( peek_reclaim_reuse_lock ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  fd_pubkey_t key2 = test_key( 2UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc1, acc2;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc2, &key2, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  fd_progcache_rec_t * rec_old;
+  {
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 2 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    rec_old = fd_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
+    FD_TEST( rec_old );
+    fd_progcache_rec_close( tmp, rec_old );
+    fd_progcache_leave( tmp, NULL );
+  }
+
+  fd_racesan_async_t * peek = fiber_peek( &g_fiber[ 0 ], shmem, xid1, &key1 );
+  FD_TEST( fd_racesan_async_step_until( peek, "prog_search_chain:pre_tryread", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  FD_TEST( fd_prog_delete_rec( admin, rec_old )>=0L );
+  FD_TEST( fd_prog_reclaim_work( admin )==1UL );
+  FD_TEST( atomic_load_explicit( &rec_old->lock.value, memory_order_relaxed )==FD_RWLOCK_WRITE_LOCK );
+
+  fd_racesan_async_t * pull = fiber_pull( &g_fiber[ 1 ], shmem, xid1, &key2, &load_env, acc2.entry );
+  FD_TEST( fd_racesan_async_step_until( pull, "prog_insert:post_reset", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( atomic_load_explicit( &rec_old->lock.value, memory_order_relaxed )==FD_RWLOCK_WRITE_LOCK );
+
+  for(;;) {
+    int ret = fd_racesan_async_step( peek );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  fiber_delete( &g_fiber[ 0 ] );
+
+  for(;;) {
+    int ret = fd_racesan_async_step( pull );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  fiber_delete( &g_fiber[ 1 ] );
+
+  FD_TEST( query_rec_exact( admin, xid1, &key2 )==rec_old );
+  FD_TEST( atomic_load_explicit( &rec_old->lock.value, memory_order_relaxed )==0U );
+  FD_TEST( !fd_progcache_verify( admin ) );
+
+  fd_progcache_cancel_fork( admin, xid1 );
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
 FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
@@ -1071,10 +1133,8 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
 
   fd_progcache_rec_t * rec_reuse = fd_prog_recp_acquire( admin->rec.pool );
   FD_TEST( rec_reuse==rec1 );
-  memset( rec_reuse, 0, sizeof(fd_progcache_rec_t) );
+  fd_progcache_rec_reset( rec_reuse );
   rec_reuse->exists       = 1;
-  rec_reuse->txn_idx      = UINT_MAX;
-  rec_reuse->reclaim_next = UINT_MAX;
   FD_TEST( rec_reuse->next_idx==0U );
 
   int done = 0;
