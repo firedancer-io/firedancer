@@ -32,6 +32,9 @@
 #include "../../flamenco/runtime/fd_slot_params.h"
 #include "../../discof/tower/fd_tower_slot_rooted.h"
 #include "../../discof/votor/fd_votor_rooted.h"
+#if FD_HAS_AVX
+#include "../../util/simd/fd_nt_memcpy.h"
+#endif
 
 /* The shred tile handles shreds from two data sources: shreds generated
    from microblocks from the leader pipeline, and shreds retransmitted
@@ -939,27 +942,9 @@ send_shred( fd_shred_ctx_t                 * ctx,
      to use non-temporal writes here.  We need to make sure we don't
      touch the cache line containing the network headers that we just
      wrote to though.  We know the destination is 64 byte aligned.  */
-  FD_STATIC_ASSERT( sizeof(*hdr)<64UL, non_temporal );
-  /* src[0:sizeof(hdrs)] is invalid, but now we want to copy
-     dest[i]=src[i] for i>=sizeof(hdrs), so it simplifies the code. */
-  uchar const * src = (uchar const *)((ulong)shred - sizeof(fd_ip4_udp_hdrs_t));
-  memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), src+sizeof(fd_ip4_udp_hdrs_t), 64UL-sizeof(fd_ip4_udp_hdrs_t) );
-
-  ulong end_offset = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
-  ulong i;
-  for( i=64UL; end_offset-i<64UL; i+=64UL ) {
-#  if FD_HAS_AVX512
-    _mm512_stream_si512( (void *)(packet+i     ), _mm512_loadu_si512( (void const *)(src+i     ) ) );
-#  else
-    _mm256_stream_si256( (void *)(packet+i     ), _mm256_loadu_si256( (void const *)(src+i     ) ) );
-    _mm256_stream_si256( (void *)(packet+i+32UL), _mm256_loadu_si256( (void const *)(src+i+32UL) ) );
-#  endif
-  }
-  _mm_sfence();
-  fd_memcpy( packet+i, src+i, end_offset-i ); /* Copy the last partial cache line */
-
+  fd_memcpy_nt( packet+sizeof(fd_ip4_udp_hdrs_t), shred, shred_sz );
 #else
-  fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), shred, shred_sz );
+  fd_memcpy   ( packet+sizeof(fd_ip4_udp_hdrs_t), shred, shred_sz );
 #endif
 
   ulong pkt_sz = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
