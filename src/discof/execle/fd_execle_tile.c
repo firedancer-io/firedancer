@@ -236,8 +236,15 @@ during_frag( fd_execle_tile_t * ctx,
   fd_txn_e_t const * src_txn_e = (fd_txn_e_t const *)src;
   fd_txn_p_t       * dst_txn_p = (fd_txn_p_t       *)dst;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_memcpy( dst_txn_p + i, src_txn_e[i].txnp, sizeof(fd_txn_p_t) );
-    ulong alt_cnt = fd_ulong_min( (ulong)TXN(src_txn_e[i].txnp)->addr_table_adtl_cnt, FD_TXN_ACCT_ADDR_MAX );
+    fd_txn_p_t const * s = src_txn_e[i].txnp;
+    fd_txn_p_t *       d = dst_txn_p + i;
+    fd_txn_t const *   t = TXN( s );
+    ulong payload_sz = fd_ulong_min( s->payload_sz, FD_TPU_MTU );
+    ulong txn_sz     = fd_ulong_min( fd_txn_footprint( t->instr_cnt, t->addr_table_lookup_cnt ), FD_TXN_MAX_SZ );
+    fd_memcpy( d->payload,     s->payload,     payload_sz );
+    fd_memcpy( &d->payload_sz, &s->payload_sz, offsetof(fd_txn_p_t, _)-offsetof(fd_txn_p_t, payload_sz) );
+    fd_memcpy( d->_,           s->_,           txn_sz );
+    ulong alt_cnt = fd_ulong_min( (ulong)t->addr_table_adtl_cnt, FD_TXN_ACCT_ADDR_MAX );
     fd_memcpy( ctx->_alt_accts[i], src_txn_e[i].alt_accts, alt_cnt * sizeof(fd_acct_addr_t) );
   }
 
