@@ -456,8 +456,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
     if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
   }
 
-  /* Flush GUI-visible counters before releasing the execle to pack. */
-  metrics_write( ctx );
+  /* Flush GUI-visible counters before releasing the execle to pack.
+     The rest of metrics_write waits for housekeeping. */
+  FD_MCNT_ENUM_COPY( EXECLE, TXN_RESULT, ctx->metrics.txn_result );
+  FD_MCNT_ENUM_COPY( EXECLE, TXN_LANDED, ctx->metrics.txn_landed );
 
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
@@ -659,7 +661,8 @@ handle_bundle( fd_execle_tile_t *  ctx,
   }
 
   /* Flush GUI-visible counters before releasing the execle to pack. */
-  metrics_write( ctx );
+  FD_MCNT_ENUM_COPY( EXECLE, TXN_RESULT, ctx->metrics.txn_result );
+  FD_MCNT_ENUM_COPY( EXECLE, TXN_LANDED, ctx->metrics.txn_landed );
 
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
