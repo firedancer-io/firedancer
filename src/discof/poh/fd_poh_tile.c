@@ -13,13 +13,33 @@
 #define IN_KIND_EXECLE (2)
 
 struct fd_poh_in {
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-  ulong       mtu;
+  fd_wksp_t *            mem;
+  ulong                  chunk0;
+  ulong                  wmark;
+  ulong                  mtu;
+  fd_frag_meta_t const * mcache;
+  ulong                  depth;
 };
 
 typedef struct fd_poh_in fd_poh_in_t;
+
+/* Microblocks (execle_poh) and done_packing (pack_poh) arrive across
+   links out of pack_idx order.  Rather than holding a frag on its link
+   until its turn, consume it into a ring indexed by pack_idx and mix
+   from the ring in order.  Frags REORDER_DEPTH or more ahead of
+   expect_pack_idx are still held. */
+#define REORDER_DEPTH (4096UL)
+
+struct __attribute__((aligned(64UL))) fd_poh_reorder {
+  ulong slot;
+  ulong sz;   /* 0 if empty */
+  int   kind;
+  uchar data[ FD_EXECLE_POH_MTU ] __attribute__((aligned(64UL)));
+};
+
+typedef struct fd_poh_reorder fd_poh_reorder_t;
+
+FD_STATIC_ASSERT( sizeof(fd_done_packing_t)<=FD_EXECLE_POH_MTU, reorder_done_packing );
 
 struct fd_poh_tile {
   fd_poh_t poh[1];
@@ -50,6 +70,9 @@ struct fd_poh_tile {
 
   fd_poh_out_t shred_out[ 1 ];
   fd_poh_out_t replay_out[ 1 ];
+
+  ulong            reorder_cnt; /* occupied ring entries */
+  fd_poh_reorder_t reorder[ REORDER_DEPTH ];
 };
 
 typedef struct fd_poh_tile fd_poh_tile_t;
@@ -74,12 +97,72 @@ during_housekeeping( fd_poh_tile_t * ctx ) {
   }
 }
 
+/* Whether poh state lets a pack_idx-ordered frag of this kind be applied
+   now.  See the hold comments in returnable_frag. */
+static inline int
+mixable( fd_poh_tile_t * ctx,
+         int             kind ) {
+  if( FD_UNLIKELY( !fd_poh_have_leader_bank( ctx->poh ) ) ) return 0;
+  if( FD_UNLIKELY( fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 0;
+  return kind==IN_KIND_PACK || !fd_poh_must_publish_skipped_tick( ctx->poh );
+}
+
+static void
+apply_frag( fd_poh_tile_t *     ctx,
+            fd_stem_context_t * stem,
+            int                 kind,
+            ulong               slot,
+            uchar const *       data,
+            ulong               sz ) {
+  if( FD_UNLIKELY( kind==IN_KIND_PACK ) ) {
+    fd_poh_done_packing( ctx->poh, stem, fd_type_pun_const( data ) );
+    return;
+  }
+
+  FD_TEST( sz>=sizeof(fd_microblock_trailer_t) && (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
+  ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
+  fd_txn_p_t const * txns = fd_type_pun_const( data );
+  fd_microblock_trailer_t const * trailer = fd_type_pun_const( data+sz-sizeof(fd_microblock_trailer_t) );
+
+  fd_leader_txn_timing_rec_t timing = {
+    .dispatched_ticks = trailer->exec_start_ticks,
+    .replayed_ticks   = trailer->exec_end_ticks,
+  };
+  fd_poh1_mixin( ctx->poh, stem, slot, trailer->hash, txn_cnt, txns, &timing );
+}
+
+/* Apply ring entries in pack_idx order while the head is present, poh
+   state allows and out credits remain.  Each entry gets the same
+   treatment a frag polled on its own would: after_credit's forced
+   advance (tick boundary, skipped ticks) first, then the hold checks. */
+static void
+drain_reorder( fd_poh_tile_t *     ctx,
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
+  while( FD_LIKELY( ctx->reorder_cnt ) ) {
+    fd_poh_reorder_t * r = &ctx->reorder[ ctx->expect_pack_idx & (REORDER_DEPTH-1UL) ];
+    if( FD_UNLIKELY( !r->sz ) ) break;
+    if( FD_UNLIKELY( *stem->min_cr_avail<2UL ) ) break; /* one tick, one microblock */
+    if( FD_UNLIKELY( fd_poh_must_tick( ctx->poh ) || fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) {
+      int poll_in = 1;
+      fd_poh_advance( ctx->poh, stem, &poll_in, charge_busy );
+      if( FD_UNLIKELY( !poll_in ) ) break;
+    }
+    if( FD_UNLIKELY( !mixable( ctx, r->kind ) ) ) break;
+    apply_frag( ctx, stem, r->kind, r->slot, r->data, r->sz );
+    r->sz = 0UL;
+    ctx->reorder_cnt--;
+    ctx->expect_pack_idx++;
+    *charge_busy = 1;
+  }
+}
+
 static inline void
 after_credit( fd_poh_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  if( FD_UNLIKELY( !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
+  if( FD_UNLIKELY( !ctx->startup_gate->started && !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
 
   ctx->idle_cnt++;
   if( FD_LIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt || fd_poh_must_tick( ctx->poh ) || fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) {
@@ -103,6 +186,10 @@ after_credit( fd_poh_tile_t *     ctx,
     fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
     ctx->idle_cnt = 0UL;
   }
+
+  /* Buffered frags may have become mixable (leader bank arrived, hashed
+     to the leader slot, skipped ticks published). */
+  if( FD_UNLIKELY( ctx->reorder_cnt && *opt_poll_in ) ) drain_reorder( ctx, stem, charge_busy );
 }
 
 /* ....
@@ -135,7 +222,6 @@ returnable_frag( fd_poh_tile_t *     ctx,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-  (void)seq;
   (void)ctl;
   (void)tsorig;
   (void)tspub;
@@ -170,83 +256,104 @@ returnable_frag( fd_poh_tile_t *     ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  /* There's a race condition where we might receive microblocks from
-     execles (or pack's done_packing, when pack ends the block on a
-     reset) before we have learned what the leader bank is from replay
-     (the become_leader message makes it from replay->pack->execle->poh)
-     before it just makes it from replay->poh.  This is rare but
-     violates invariants in poh, so we simply do not process any
-     transactions for mixin until we have learned what the leader bank
-     is.  become_leader always precedes the reset on the replay link, so
-     these holds always drain. */
-  if( FD_UNLIKELY( ( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) && !fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
+  int kind = ctx->in_kind[ in_idx ];
+  uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
-  /* If prior leaders skipped, it might happen that replay tells us to
-     become leader, but poh is still hashing through the skipped slots
-     and could not yet mixin any microblocks.  In this case, we hold
-     the microblocks and do not mixin them yet until we have hashed
-     through to the actual leader slot.
-
-     It might actually be allowed by the protocol to mixin earlier, but
-     that really doesn't seem like a good idea.
-
-     It's fine to block pack/execles on hashing here, because they we
-     are going to have the wait for the full block to timeout once it
-     starts. */
-  if( FD_UNLIKELY( ( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) && fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 1;
-  /* If prior leaders skipped, it might happen that replay tells us to
-     become leader, but we haven't published the skipped ticks yet.
-
-     Skipped ticks need to be published before any microblocks, so we
-     hold the microblocks and do not mixin them yet until we have
-     published any skipped ticks.
-
-     It's fine to block pack/execles here, because the skipped ticks
-     will be published in the immediate after_credit iterations. */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) return 1;
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
-    uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
-    if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
-    if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return 1;
-    ctx->expect_pack_idx++;
+  if( FD_UNLIKELY( kind==IN_KIND_REPLAY ) ) {
+    if( FD_UNLIKELY( fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
+    if( FD_LIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
+      fd_became_leader_t const * became_leader = fd_type_pun_const( src );
+      fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot, became_leader->slot_start_ns );
+    } else if( sig==REPLAY_SIG_RESET ) {
+      fd_poh_reset_t const * reset = fd_type_pun_const( src );
+      fd_poh_reset( ctx->poh, stem, reset->timestamp, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot, reset->completed_cmr );
+      ctx->poh->wfs_paused = reset->wfs_paused;
+    }
+    ctx->idle_cnt = 0UL;
+    return 0; /* after_credit drains the ring once state allows */
   }
 
-  switch( ctx->in_kind[ in_idx ] ) {
-    case IN_KIND_PACK: {
-      fd_done_packing_t const * done_packing = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      fd_poh_done_packing( ctx->poh, stem, done_packing );
-      break;
+  /* Execle microblocks and pack's done_packing are applied strictly in
+     pack_idx order (see expect_pack_idx).  A frag whose turn has not
+     come, or that poh cannot yet accept, is copied into the ring and
+     applied from drain_reorder once it can be.
+
+     Poh cannot accept a frag when:
+
+     - We have not yet learned the leader bank from replay.  Microblocks
+       (or pack's done_packing, when pack ends the block on a reset) can
+       race ahead of it, since become_leader travels
+       replay->pack->execle->poh as well as replay->poh.  become_leader
+       always precedes the reset on the replay link, so this clears.
+
+     - Prior leaders skipped and poh is still hashing through the
+       skipped slots.  It might be allowed by the protocol to mixin
+       earlier, but that really doesn't seem like a good idea.  Blocking
+       pack/execles on hashing is fine, they are going to have to wait
+       for the full block to timeout once it starts.
+
+     - Prior leaders skipped and the skipped ticks have not all been
+       published.  They must precede any microblock, and go out in the
+       immediate after_credit iterations. */
+  uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
+  int  dist     = (int)(pack_idx-ctx->expect_pack_idx);
+  if( FD_UNLIKELY( dist<0 ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
+  if( FD_UNLIKELY( (ulong)dist>=REORDER_DEPTH ) ) return 1; /* too far ahead for the ring, hold */
+
+  if( FD_LIKELY( kind==IN_KIND_EXECLE ) ) {
+    /* The execle wrote the result flags and the trailer just before
+       publishing, so those lines are still modified in its cache and
+       cost a snoop each.  Request them together, before the state
+       checks and payload copy, rather than one at a time below.  With
+       sticky polling this link's next frag is polled next; if it is
+       already published (its data is then complete) request its lines
+       too.  Never touch unpublished frag data: the execle would pay an
+       invalidation on every line it then writes. */
+    fd_poh_in_t const * in = &ctx->in[ in_idx ];
+    __builtin_prefetch( src+offsetof(fd_txn_p_t, flags),             0, 3 );
+    __builtin_prefetch( src+sz-sizeof(fd_microblock_trailer_t),      0, 3 );
+    __builtin_prefetch( src+sz-sizeof(fd_microblock_trailer_t)+64UL, 0, 3 );
+    fd_frag_meta_t const * next = in->mcache+fd_mcache_line_idx( seq+1UL, in->depth );
+    if( FD_LIKELY( FD_VOLATILE_CONST( next->seq )==seq+1UL ) ) {
+      ulong         nsz  = (ulong)next->sz; /* torn read only misdirects a hint */
+      uchar const * nsrc = fd_chunk_to_laddr_const( in->mem, (ulong)next->chunk );
+      __builtin_prefetch( nsrc+offsetof(fd_txn_p_t, flags),              0, 3 );
+      __builtin_prefetch( nsrc+nsz-sizeof(fd_microblock_trailer_t),      0, 3 );
+      __builtin_prefetch( nsrc+nsz-sizeof(fd_microblock_trailer_t)+64UL, 0, 3 );
     }
-    case IN_KIND_REPLAY: {
-      if( FD_LIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
-        fd_became_leader_t const * became_leader = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot, became_leader->slot_start_ns );
-      } else if( sig==REPLAY_SIG_RESET ) {
-        fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        fd_poh_reset( ctx->poh, stem, reset->timestamp, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot, reset->completed_cmr );
-        ctx->poh->wfs_paused = reset->wfs_paused;
-      }
-      break;
-    }
-    case IN_KIND_EXECLE: {
-      ulong target_slot = fd_disco_execle_sig_slot( sig );
+  }
+
+  if( FD_LIKELY( !dist && mixable( ctx, kind ) ) ) {
+    apply_frag( ctx, stem, kind, fd_disco_execle_sig_slot( sig ), src, sz );
+    ctx->expect_pack_idx++;
+    int busy;
+    drain_reorder( ctx, stem, &busy );
+  } else {
+    fd_poh_reorder_t * r = &ctx->reorder[ pack_idx & (REORDER_DEPTH-1UL) ];
+    FD_TEST( !r->sz && sz && sz<=sizeof(r->data) ); /* full slot means duplicate pack_idx */
+    r->slot = fd_disco_execle_sig_slot( sig );
+    r->sz   = sz;
+    r->kind = kind;
+    if( FD_UNLIKELY( kind==IN_KIND_PACK ) ) fd_memcpy( r->data, src, sz );
+    else {
+      /* Same layout, but only the bytes mixin reads: each txn's payload
+         prefix and the fields after it (not the parsed txn), plus the
+         trailer.  A full 5 KiB copy per microblock is DRAM bound.  The
+         fixed size pieces are copied by word, since znver tuning turns
+         a 16..8192 byte memcpy into a slow rep movsl. */
       FD_TEST( sz>=sizeof(fd_microblock_trailer_t) && (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
-      fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const*)txns+sz-sizeof(fd_microblock_trailer_t) );
-
-      fd_leader_txn_timing_rec_t timing = {
-        .dispatched_ticks = trailer->exec_start_ticks,
-        .replayed_ticks   = trailer->exec_end_ticks,
-      };
-      fd_poh1_mixin( ctx->poh, stem, target_slot, trailer->hash, txn_cnt, txns, &timing );
-      break;
+      fd_txn_p_t const * s = fd_type_pun_const( src );
+      fd_txn_p_t *       d = fd_type_pun( r->data );
+      for( ulong i=0UL; i<txn_cnt; i++ ) {
+        fd_memcpy( d[ i ].payload, s[ i ].payload, fd_ulong_min( s[ i ].payload_sz, FD_TPU_MTU ) );
+        uchar const * sf = (uchar const *)&s[ i ].payload_sz;
+        uchar *       df = (uchar *)      &d[ i ].payload_sz;
+        for( ulong j=0UL; j<offsetof(fd_txn_p_t, _)-offsetof(fd_txn_p_t, payload_sz); j+=8UL ) FD_STORE( ulong, df+j, FD_LOAD( ulong, sf+j ) );
+      }
+      for( ulong j=sz-sizeof(fd_microblock_trailer_t); j<sz; j+=8UL ) FD_STORE( ulong, r->data+j, FD_LOAD( ulong, src+j ) );
     }
-    default: {
-      FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));
-      break;
-    }
+    ctx->reorder_cnt++;
   }
 
   ctx->idle_cnt = 0UL;
@@ -289,6 +396,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->in_cnt   = tile->in_cnt;
   ctx->idle_cnt = 0UL;
 
+  ctx->reorder_cnt = 0UL;
+  for( ulong i=0UL; i<REORDER_DEPTH; i++ ) ctx->reorder[ i ].sz = 0UL;
+
   FD_CHECK_ERR( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]), "too many input links" );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -299,6 +409,8 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
+    ctx->in[ i ].mcache = link->mcache;
+    ctx->in[ i ].depth  = fd_mcache_depth( link->mcache );
 
     if(      !strcmp( link->name, "replay_out" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "pack_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
@@ -355,6 +467,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 /* One tick, one microblock */
 #define STEM_BURST (2UL)
+
+/* Frags are consumed out of pack_idx order into the reorder ring, so
+   keep draining a link that just had one. */
+#define STEM_STICKY_POLL_MAX (16UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
