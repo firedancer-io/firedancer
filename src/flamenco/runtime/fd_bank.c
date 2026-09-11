@@ -286,7 +286,7 @@ fd_banks_footprint( ulong max_total_banks,
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  l = FD_LAYOUT_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( max_stake_accounts, max_stake_accounts, max_total_banks ) );
+  l = FD_LAYOUT_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( max_stake_accounts, max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_total_banks, max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * epoch_leaders_footprint );
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
@@ -339,7 +339,7 @@ fd_banks_new( void * shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_banks_t * banks_data              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  void *       stake_delegations_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( max_stake_accounts, max_stake_accounts, max_total_banks ) );
+  void *       stake_delegations_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( max_stake_accounts, max_total_banks ) );
   void *       vote_stakes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_total_banks, max_fork_width ) );
   void *       epoch_leaders_mem       = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * epoch_leaders_footprint );
   void *       pool_mem                = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
@@ -388,7 +388,7 @@ fd_banks_new( void * shmem,
      each of the elements in the pool as well as set up the lock for
      each of the pools. */
 
-  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations_mem, seed, max_stake_accounts, max_disk_records, max_stake_accounts, max_total_banks ) );
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations_mem, seed, max_stake_accounts, max_disk_records, max_total_banks ) );
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_WARNING(( "Unable to create stake delegations root" ));
     return NULL;
@@ -489,7 +489,7 @@ fd_banks_join( void * banks_data_mem ) {
 
   FD_SCRATCH_ALLOC_INIT( l, banks_data );
   banks_data                   = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  void * stake_delegations_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( banks_data->max_stake_accounts, banks_data->max_stake_accounts, banks_data->max_total_banks ) );
+  void * stake_delegations_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( banks_data->max_stake_accounts, banks_data->max_total_banks ) );
   void * vote_stakes_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( banks_data->max_total_banks, banks_data->max_fork_width ) );
   void * epoch_leaders_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * banks_data->epoch_leaders_footprint );
   void * pool_mem              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( banks_data->max_total_banks ) );

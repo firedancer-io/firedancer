@@ -4,7 +4,6 @@
 #include "fd_stake_types.h"
 #include "../runtime/fd_system_ids.h"
 #include "../../disco/store/fd_store.h"
-#include "../../util/fd_hash32.h"
 
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -233,22 +232,20 @@ int main( int argc, char ** argv ) {
 
   ulong const max_stake_accounts = 10UL;
 
-  /* Leaves disk headroom for root, delta, and frontier spill records. */
+  /* Sets disk-delta capacity and derives disk-root capacity. */
   ulong const max_disk_records = 512UL;
 
   ulong const max_live_slots = 32UL;
 
-  ulong const expected_stake_accounts = max_stake_accounts;
-
-  void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( max_stake_accounts, expected_stake_accounts, max_live_slots ), wksp_tag );
+  void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( max_stake_accounts, max_live_slots ), wksp_tag );
   FD_TEST( stake_delegations_mem );
 
   FD_TEST( fd_stake_delegations_align()>=alignof(fd_stake_delegations_t)  );
   FD_TEST( fd_stake_delegations_align()==FD_STAKE_DELEGATIONS_ALIGN );
 
-  FD_TEST( !fd_stake_delegations_new( NULL, 0UL, max_stake_accounts, max_disk_records, expected_stake_accounts, max_live_slots ) );
-  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0UL, max_disk_records, expected_stake_accounts, max_live_slots ) );
-  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts, max_disk_records, expected_stake_accounts, max_live_slots );
+  FD_TEST( !fd_stake_delegations_new( NULL, 0UL, max_stake_accounts, max_disk_records, max_live_slots ) );
+  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0UL, max_disk_records, max_live_slots ) );
+  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts, max_disk_records, max_live_slots );
   FD_TEST( new_stake_delegations_mem );
 
   FD_TEST( !fd_stake_delegations_join( NULL ) );
@@ -755,8 +752,8 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
   }
 
-  /* Case 29: Entries that fit in the two RAM pools do not consume the
-     full-record disk budget. */
+  /* Case 29: Entries that fit in the two in-memory pools do not consume
+     the full-record disk budget. */
   {
     fd_stake_delegations_reset( stake_delegations );
     FD_TEST( !test_stake_delegations_disk_cnt( stake_delegations ) );
@@ -849,11 +846,12 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_reset( stake_delegations );
   }
 
-  /* Case 32: max_disk_records bounds each full-record disk
-     tier, and every disk index fits below the delta tag bit. */
+  /* Case 32: Every configured or derived disk index fits below the
+     delta tag bit. */
   {
     FD_TEST( stake_delegations->max_disk_records_==max_disk_records );
     FD_TEST( stake_delegations->max_disk_records_<(ulong)FD_STAKE_DELEGATIONS_DELTA_DISK_TAG );
+    FD_TEST( 2UL*max_disk_records+max_stake_accounts<=(ulong)FD_STAKE_DELEGATIONS_DELTA_IDX_MASK );
   }
 
   /* Case 33: fp_warmed_awarded lifecycle + invalidate_warmed. */
@@ -955,15 +953,15 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_reset( stake_delegations );
 
     ushort      fork_idx = fd_stake_delegations_new_fork( stake_delegations );
-    ulong const ram_max  = max_stake_accounts;
-    for( ulong i=0UL; i<ram_max; i++ ) {
+    ulong const in_memory_max = max_stake_accounts;
+    for( ulong i=0UL; i<in_memory_max; i++ ) {
       fd_pubkey_t k = { .ul = { 60000UL+i, 70000UL+i } };
       fd_stake_delegations_fork_update( stake_delegations, fork_idx, &k, &voter_pubkey_0, i+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
     }
     FD_TEST( !test_stake_delegations_disk_cnt( stake_delegations ) );
 
-    fd_pubkey_t overflow = { .ul = { 60000UL+ram_max, 70000UL+ram_max } };
-    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &overflow, &voter_pubkey_0, ram_max+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_pubkey_t overflow = { .ul = { 60000UL+in_memory_max, 70000UL+in_memory_max } };
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &overflow, &voter_pubkey_0, in_memory_max+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
     FD_TEST( test_stake_delegations_disk_cnt( stake_delegations )==1UL );
     FD_TEST( lseek( FD_STAKE_DELEGATIONS_FD, 0L, SEEK_END )>0L );
 
@@ -972,7 +970,7 @@ int main( int argc, char ** argv ) {
     FD_TEST( !test_stake_delegations_disk_cnt( stake_delegations ) );
     fork_idx = fd_stake_delegations_new_fork( stake_delegations );
     ulong const disk_cnt = 12UL;
-    for( ulong i=0UL; i<ram_max+disk_cnt; i++ ) {
+    for( ulong i=0UL; i<in_memory_max+disk_cnt; i++ ) {
       fd_pubkey_t k = { .ul = { 60000UL+i, 70000UL+i } };
       fd_stake_delegations_fork_update( stake_delegations, fork_idx, &k, &voter_pubkey_0, i+1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
     }
@@ -981,7 +979,7 @@ int main( int argc, char ** argv ) {
     FD_TEST( !test_stake_delegations_disk_cnt( stake_delegations ) );
 
     /* Refresh must apply remove_inactive_stakes to disk-tier entries,
-       just as it does to RAM-tier entries. */
+       just as it does to in-memory-tier entries. */
     fd_stake_delegations_reset( stake_delegations );
     for( ulong i=0UL; i<max_stake_accounts; i++ ) {
       fd_pubkey_t k = { .ul = { 62000UL+i, 72000UL+i } };
@@ -1040,7 +1038,7 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_reset( stake_delegations );
   }
 
-  /* Case 36: A root entry that exceeds the RAM pool remains fully
+  /* Case 36: A root entry that exceeds the in-memory pool remains fully
      iterable without consulting accdb. */
   {
     fd_stake_delegations_reset( stake_delegations );
@@ -1185,8 +1183,8 @@ int main( int argc, char ** argv ) {
     FD_TEST( !stake_delegations->disk_root_tombstone_cnt_ );
   }
 
-  /* Case 39: The configured disk capacity bounds persistent spill
-     records, but frontier projection has separate temporary headroom. */
+  /* Case 39: Frontier projection uses ordinary disk-root capacity for
+     temporary placeholders. */
   {
     FD_TEST( !ftruncate( FD_STAKE_DELEGATIONS_FD, 0L ) );
 
@@ -1196,11 +1194,11 @@ int main( int argc, char ** argv ) {
     void * small_mem = fd_wksp_alloc_laddr(
         wksp,
         fd_stake_delegations_align(),
-        fd_stake_delegations_footprint( small_max, small_max, small_forks ),
+        fd_stake_delegations_footprint( small_max, small_forks ),
         wksp_tag );
     FD_TEST( small_mem );
     fd_stake_delegations_t * small = fd_stake_delegations_join(
-        fd_stake_delegations_new( small_mem, 1UL, small_max, small_disk_max, small_max, small_forks ) );
+        fd_stake_delegations_new( small_mem, 1UL, small_max, small_disk_max, small_forks ) );
     FD_TEST( small );
 
     fd_pubkey_t root_key  = { .ul = { 160001UL, 170001UL } };
@@ -1217,6 +1215,7 @@ int main( int argc, char ** argv ) {
     FD_TEST( test_stake_delegations_disk_cnt( small )==1UL );
 
     test_stake_delegations_mark_fork_delta( small, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_idx );
+    FD_TEST( small->disk_root_cnt_==2UL );
     fd_stake_delegation_t found[1];
     FD_TEST( test_stake_delegations_find_copy( small, &delta_key, found ) );
     assert_delegation( found, &delta_key, &voter_pubkey_0, 2UL, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
@@ -1236,97 +1235,8 @@ int main( int argc, char ** argv ) {
     fd_wksp_free_laddr( small_mem );
   }
 
-  /* Case 40: Rooting applies RAM tombstones before insertions so a fork
-     whose final disk occupancy fits cannot fail due to map order. */
-  {
-    FD_TEST( !ftruncate( FD_STAKE_DELEGATIONS_FD, 0L ) );
-
-    ulong const small_max      = 2UL;
-    ulong const small_disk_max = 1UL;
-    ulong const small_forks    = 2UL;
-    void * small_mem = fd_wksp_alloc_laddr(
-        wksp,
-        fd_stake_delegations_align(),
-        fd_stake_delegations_footprint( small_max, small_max, small_forks ),
-        wksp_tag );
-    FD_TEST( small_mem );
-    fd_stake_delegations_t * small = fd_stake_delegations_join(
-        fd_stake_delegations_new( small_mem, 1UL, small_max, small_disk_max, small_max, small_forks ) );
-    FD_TEST( small );
-
-    fd_pubkey_t root0 = { .ul = { 210001UL, 220001UL } };
-    fd_pubkey_t root1 = { .ul = { 210002UL, 220002UL } };
-    fd_pubkey_t remove_key = { .ul = { 210003UL, 220003UL } };
-    while( (fd_hash32( remove_key.uc, 1UL ) & (FD_STAKE_DELEGATIONS_FORK_MAP_CHAIN_CNT-1UL)) ==
-           FD_STAKE_DELEGATIONS_FORK_MAP_CHAIN_CNT-1UL ) remove_key.ul[0]++;
-    fd_stake_delegations_root_update( small, &root0,      &voter_pubkey_0, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-    fd_stake_delegations_root_update( small, &root1,      &voter_pubkey_0, 2UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-    fd_stake_delegations_root_update( small, &remove_key, &voter_pubkey_0, 3UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-
-    ulong remove_chain = fd_hash32( remove_key.uc, 1UL ) & (FD_STAKE_DELEGATIONS_FORK_MAP_CHAIN_CNT-1UL);
-    fd_pubkey_t insert_key = { .ul = { 230001UL, 240001UL } };
-    while( (fd_hash32( insert_key.uc, 1UL ) & (FD_STAKE_DELEGATIONS_FORK_MAP_CHAIN_CNT-1UL)) <= remove_chain ) insert_key.ul[0]++;
-
-    ushort fork_idx = fd_stake_delegations_new_fork( small );
-    fd_stake_delegations_fork_update( small, fork_idx, &insert_key, &voter_pubkey_1, 4UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-    fd_stake_delegations_fork_remove( small, fork_idx, &remove_key );
-    fd_stake_delegations_apply_fork_deltas( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, small, &fork_idx, 1UL, NULL );
-
-    FD_TEST( !test_stake_delegations_contains( small, &remove_key ) );
-    fd_stake_delegation_t inserted[1];
-    FD_TEST( test_stake_delegations_find_copy( small, &insert_key, inserted ) );
-    assert_delegation( inserted, &insert_key, &voter_pubkey_1, 4UL, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-    FD_TEST( small->disk_root_cnt_==1UL );
-    fd_stake_delegations_evict_fork( small, fork_idx );
-    fd_wksp_free_laddr( small_mem );
-  }
-
-  /* Case 41: Rooting a multi-fork ancestry releases capacity across
-     descendants before committing RAM insertions from ancestors. */
-  {
-    FD_TEST( !ftruncate( FD_STAKE_DELEGATIONS_FD, 0L ) );
-
-    ulong const small_max      = 2UL;
-    ulong const small_disk_max = 1UL;
-    ulong const small_forks    = 3UL;
-    void * small_mem = fd_wksp_alloc_laddr(
-        wksp,
-        fd_stake_delegations_align(),
-        fd_stake_delegations_footprint( small_max, small_max, small_forks ),
-        wksp_tag );
-    FD_TEST( small_mem );
-    fd_stake_delegations_t * small = fd_stake_delegations_join(
-        fd_stake_delegations_new( small_mem, 2UL, small_max, small_disk_max, small_max, small_forks ) );
-    FD_TEST( small );
-
-    fd_pubkey_t root0      = { .ul = { 250001UL, 260001UL } };
-    fd_pubkey_t root1      = { .ul = { 250002UL, 260002UL } };
-    fd_pubkey_t remove_key = { .ul = { 250003UL, 260003UL } };
-    fd_pubkey_t insert_key = { .ul = { 250004UL, 260004UL } };
-    fd_stake_delegations_root_update( small, &root0,      &voter_pubkey_0, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-    fd_stake_delegations_root_update( small, &root1,      &voter_pubkey_0, 2UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-    fd_stake_delegations_root_update( small, &remove_key, &voter_pubkey_0, 3UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-
-    ushort fork0 = fd_stake_delegations_new_fork( small );
-    ushort fork1 = fd_stake_delegations_new_fork( small );
-    fd_stake_delegations_fork_update( small, fork0, &insert_key, &voter_pubkey_1, 4UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-    fd_stake_delegations_fork_remove( small, fork1, &remove_key );
-
-    ushort fork_ids[2] = { fork0, fork1 };
-    fd_stake_delegations_apply_fork_deltas( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, small, fork_ids, 2UL, NULL );
-
-    FD_TEST( !test_stake_delegations_contains( small, &remove_key ) );
-    fd_stake_delegation_t inserted[1];
-    FD_TEST( test_stake_delegations_find_copy( small, &insert_key, inserted ) );
-    assert_delegation( inserted, &insert_key, &voter_pubkey_1, 4UL, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-    FD_TEST( small->disk_root_cnt_==1UL );
-    fd_stake_delegations_evict_fork( small, fork0 );
-    fd_stake_delegations_evict_fork( small, fork1 );
-    fd_wksp_free_laddr( small_mem );
-  }
-
-  /* Case 42: Root and fork-delta disk tiers each retain their configured
-     capacity; a full root tier does not starve fork versioning. */
+  /* Case 40: The root tier uses its full derived capacity without
+     starving the independent disk-delta tier. */
   {
     FD_TEST( !ftruncate( FD_STAKE_DELEGATIONS_FD, 0L ) );
 
@@ -1336,124 +1246,34 @@ int main( int argc, char ** argv ) {
     void * small_mem = fd_wksp_alloc_laddr(
         wksp,
         fd_stake_delegations_align(),
-        fd_stake_delegations_footprint( small_max, small_max, small_forks ),
+        fd_stake_delegations_footprint( small_max, small_forks ),
         wksp_tag );
     FD_TEST( small_mem );
     fd_stake_delegations_t * small = fd_stake_delegations_join(
-        fd_stake_delegations_new( small_mem, 3UL, small_max, small_disk_max, small_max, small_forks ) );
+        fd_stake_delegations_new( small_mem, 3UL, small_max, small_disk_max, small_forks ) );
     FD_TEST( small );
 
     fd_pubkey_t root0  = { .ul = { 270001UL, 280001UL } };
     fd_pubkey_t root1  = { .ul = { 270002UL, 280002UL } };
-    fd_pubkey_t delta0 = { .ul = { 270003UL, 280003UL } };
-    fd_pubkey_t delta1 = { .ul = { 270004UL, 280004UL } };
+    fd_pubkey_t root2  = { .ul = { 270003UL, 280003UL } };
+    fd_pubkey_t root3  = { .ul = { 270004UL, 280004UL } };
+    fd_pubkey_t delta0 = { .ul = { 270005UL, 280005UL } };
+    fd_pubkey_t delta1 = { .ul = { 270006UL, 280006UL } };
     fd_stake_delegations_root_update( small, &root0, &voter_pubkey_0, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
     fd_stake_delegations_root_update( small, &root1, &voter_pubkey_0, 2UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_root_update( small, &root2, &voter_pubkey_0, 3UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_root_update( small, &root3, &voter_pubkey_0, 4UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 
     ushort fork_idx = fd_stake_delegations_new_fork( small );
     fd_stake_delegations_fork_update( small, fork_idx, &delta0, &voter_pubkey_1, 3UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
     fd_stake_delegations_fork_update( small, fork_idx, &delta1, &voter_pubkey_1, 4UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
-    FD_TEST( small->disk_root_cnt_==1UL );
+    FD_TEST( small->disk_root_cnt_==small_max+2UL*small_disk_max );
     FD_TEST( small->disk_delta_cnt_==1UL );
-    FD_TEST( test_stake_delegations_disk_cnt( small )==2UL );
+    FD_TEST( test_stake_delegations_disk_cnt( small )==small_max+3UL*small_disk_max );
     fd_stake_delegations_evict_fork( small, fork_idx );
-    FD_TEST( small->disk_root_cnt_==1UL );
+    FD_TEST( small->disk_root_cnt_==small_max+2UL*small_disk_max );
     FD_TEST( !small->disk_delta_cnt_ );
-    fd_wksp_free_laddr( small_mem );
-  }
-
-  /* Case 43: Temporary roots return to RAM when a descendant frees a
-     root-pool slot, including configurations with no persistent disk
-     root capacity. */
-  {
-    FD_TEST( !ftruncate( FD_STAKE_DELEGATIONS_FD, 0L ) );
-
-    ulong const small_max      = 2UL;
-    ulong const small_disk_max = 0UL;
-    ulong const small_forks    = 3UL;
-    void * small_mem = fd_wksp_alloc_laddr(
-        wksp,
-        fd_stake_delegations_align(),
-        fd_stake_delegations_footprint( small_max, small_max, small_forks ),
-        wksp_tag );
-    FD_TEST( small_mem );
-    fd_stake_delegations_t * small = fd_stake_delegations_join(
-        fd_stake_delegations_new( small_mem, 4UL, small_max, small_disk_max, small_max, small_forks ) );
-    FD_TEST( small );
-
-    fd_pubkey_t root0      = { .ul = { 290001UL, 300001UL } };
-    fd_pubkey_t root1      = { .ul = { 290002UL, 300002UL } };
-    fd_pubkey_t insert_key = { .ul = { 290003UL, 300003UL } };
-    fd_stake_delegations_root_update( small, &root0, &voter_pubkey_0, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-    fd_stake_delegations_root_update( small, &root1, &voter_pubkey_0, 2UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-
-    ushort fork0 = fd_stake_delegations_new_fork( small );
-    ushort fork1 = fd_stake_delegations_new_fork( small );
-    fd_stake_delegations_fork_update( small, fork0, &insert_key, &voter_pubkey_1, 3UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-    fd_stake_delegations_fork_remove( small, fork1, &root0 );
-
-    ushort fork_ids[2] = { fork0, fork1 };
-    fd_stake_delegations_apply_fork_deltas( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, small, fork_ids, 2UL, NULL );
-
-    FD_TEST( !test_stake_delegations_contains( small, &root0 ) );
-    fd_stake_delegation_t inserted[1];
-    FD_TEST( test_stake_delegations_find_copy( small, &insert_key, inserted ) );
-    assert_delegation( inserted, &insert_key, &voter_pubkey_1, 3UL, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-    FD_TEST( test_stake_delegations_base_cnt( small )==small_max );
-    FD_TEST( !test_stake_delegations_disk_cnt( small ) );
-    fd_stake_delegations_evict_fork( small, fork0 );
-    fd_stake_delegations_evict_fork( small, fork1 );
-    fd_wksp_free_laddr( small_mem );
-  }
-
-  /* Case 44: Temporary root headroom covers disk as well as RAM deltas
-     when an ancestor adds records that a descendant later removes. */
-  {
-    FD_TEST( !ftruncate( FD_STAKE_DELEGATIONS_FD, 0L ) );
-
-    ulong const small_max      = 1UL;
-    ulong const small_disk_max = 3UL;
-    ulong const small_forks    = 3UL;
-    void * small_mem = fd_wksp_alloc_laddr(
-        wksp,
-        fd_stake_delegations_align(),
-        fd_stake_delegations_footprint( small_max, small_max, small_forks ),
-        wksp_tag );
-    FD_TEST( small_mem );
-    fd_stake_delegations_t * small = fd_stake_delegations_join(
-        fd_stake_delegations_new( small_mem, 5UL, small_max, small_disk_max, small_max, small_forks ) );
-    FD_TEST( small );
-
-    fd_pubkey_t root0   = { .ul = { 310001UL, 320001UL } };
-    fd_pubkey_t remove0 = { .ul = { 310002UL, 320002UL } };
-    fd_pubkey_t remove1 = { .ul = { 310003UL, 320003UL } };
-    fd_pubkey_t keep    = { .ul = { 310004UL, 320004UL } };
-    fd_pubkey_t insert0 = { .ul = { 310005UL, 320005UL } };
-    fd_pubkey_t insert1 = { .ul = { 310006UL, 320006UL } };
-    fd_stake_delegations_root_update( small, &root0,   &voter_pubkey_0, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-    fd_stake_delegations_root_update( small, &remove0, &voter_pubkey_0, 2UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-    fd_stake_delegations_root_update( small, &remove1, &voter_pubkey_0, 3UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-    fd_stake_delegations_root_update( small, &keep,    &voter_pubkey_0, 4UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-
-    ushort fork0 = fd_stake_delegations_new_fork( small );
-    ushort fork1 = fd_stake_delegations_new_fork( small );
-    fd_stake_delegations_fork_update( small, fork0, &insert0, &voter_pubkey_1, 5UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-    fd_stake_delegations_fork_update( small, fork0, &insert1, &voter_pubkey_1, 6UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-    fd_stake_delegations_fork_remove( small, fork1, &remove0 );
-    fd_stake_delegations_fork_remove( small, fork1, &remove1 );
-
-    ushort fork_ids[2] = { fork0, fork1 };
-    fd_stake_delegations_apply_fork_deltas( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, small, fork_ids, 2UL, NULL );
-
-    FD_TEST( !test_stake_delegations_contains( small, &remove0 ) );
-    FD_TEST( !test_stake_delegations_contains( small, &remove1 ) );
-    FD_TEST( test_stake_delegations_contains( small, &keep ) );
-    FD_TEST( test_stake_delegations_contains( small, &insert0 ) );
-    FD_TEST( test_stake_delegations_contains( small, &insert1 ) );
-    FD_TEST( small->disk_root_cnt_==small_disk_max );
-    fd_stake_delegations_evict_fork( small, fork0 );
-    fd_stake_delegations_evict_fork( small, fork1 );
     fd_wksp_free_laddr( small_mem );
   }
 

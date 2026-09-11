@@ -1006,11 +1006,11 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
 
   ulong align = fd_stake_delegations_align();
   ulong footprint = fd_ulong_align_up(
-      fd_stake_delegations_footprint( 1UL, 1UL, 1UL ), align );
+      fd_stake_delegations_footprint( 1UL, 1UL ), align );
   void * mem = aligned_alloc( align, footprint );
   FD_TEST( mem );
   fd_stake_delegations_t * spill_delegations = fd_stake_delegations_join(
-      fd_stake_delegations_new( mem, 1UL, 1UL, 8UL, 1UL, 1UL ) );
+      fd_stake_delegations_new( mem, 1UL, 1UL, 8UL, 1UL ) );
   FD_TEST( spill_delegations );
 
   fd_accdb_fork_id_t root_fork_id = fd_svm_mini_fork_id( mini, root_idx );

@@ -15,10 +15,10 @@
    epoch boundary reward calculations.
 
    The implementation of fd_stake_delegations_t is split into two:
-   1. The entire set of stake delegations are stored in the root RAM
-      map/pool and, when needed, the disk root store.  This root state
-      is setup at boot (on snapshot load) and is not directly modified
-      after that point.
+   1. The entire set of stake delegations are stored in the in-memory
+      root map/pool and, when needed, the disk root store.  This root
+      state is setup at boot (on snapshot load) and is not directly
+      modified after that point.
    2. As banks/forks execute, they will maintain a delta-based
       representation of the stake delegations.  Each fork will hold its
       own set of deltas.  These are then applied to the root set when
@@ -27,10 +27,10 @@
       across all stake delegation forks.  The caller is expected to
       create a new fork index for each bank and add deltas to it.
 
-   Root and delta entries that exceed their respective RAM pools spill
-   to disk as full fd_stake_delegation_t records.  Root records are
-   keyed by stake pubkey.  Delta records are keyed by fork index and
-   stake pubkey, so sibling forks retain independent versions.
+   Root and delta entries that exceed their respective in-memory pools
+   spill to disk as full fd_stake_delegation_t records.  Root records
+   are keyed by stake pubkey.  Delta records are keyed by fork index
+   and stake pubkey, so sibling forks retain independent versions.
 
    There are some important invariants wrt fd_stake_delegations_t:
    1. After execution has started, there will be no invalid stake
@@ -63,8 +63,9 @@
    and the iterator are the exception: the caller holds the write lock
    across the whole mark/iterate/unmark bracket.
 
-   max_disk_records bounds the number of stake accounts that can spill
-   to disk for the root pool and the delta pool separately. */
+   max_disk_records bounds the number of delta records that can spill
+   to disk.  The disk root capacity is max_stake_accounts plus twice
+   max_disk_records. */
 
 #define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
 #define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
@@ -76,7 +77,7 @@
 #define FD_STAKE_DELEGATIONS_FD (123457)
 
 /* delta_idx uses the high bit to distinguish a dense disk-delta index
-   from a RAM delta-pool index. */
+   from an in-memory delta-pool index. */
 
 #define FD_STAKE_DELEGATIONS_DELTA_DISK_TAG (1U<<31)
 #define FD_STAKE_DELEGATIONS_DELTA_IDX_MASK (FD_STAKE_DELEGATIONS_DELTA_DISK_TAG-1U)
@@ -170,7 +171,7 @@ struct fd_stake_delegation {
   ulong       credits_observed;
   uint        acc_dlen;
   uint        next_;     /* Internal pool/map usage */
-  uint        delta_idx; /* RAM/disk delta reference for iteration */
+  uint        delta_idx; /* in-memory/disk delta reference for iteration */
   ushort      activation_epoch;
   ushort      deactivation_epoch;
   union {
@@ -180,9 +181,9 @@ struct fd_stake_delegation {
     uchar     dne_in_root;  /* Tracking for stake delegation iteration */
   };
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
-  uchar       in_use; /* For the RAM root pool only.  Not meaningful in the delta pool.  Set to
-                         1 if this element holds a live delegation present in the root map, 0
-                         if the element has been reclaimed. */
+  uchar       in_use; /* For the in-memory root pool only.  Not meaningful in the
+                         delta pool.  Set to 1 if this element holds a live delegation
+                         present in the root map, 0 if the element has been reclaimed. */
   uchar       state;  /* Can only be non-UNKNOWN in a root record. */
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
@@ -191,6 +192,7 @@ FD_STATIC_ASSERT( sizeof(fd_stake_delegation_t)==112UL, fd_stake_delegation );
 
 struct fd_stake_delegations {
   ulong magic;
+  ulong seed_;
   ulong max_stake_accounts_;
 
   /* Root map + pool */
@@ -208,18 +210,14 @@ struct fd_stake_delegations {
   /* Guards every mutating operation on the struct. */
   fd_rwlock_t lock;
 
-  /* Full-record disk spill.  Root and delta stores have separate hash
-     indexes and dense record arrays, each bounded by
-     max_disk_records_. */
-  /* Managment for stake delegations that spill to the disk. */
-  ulong max_disk_records_; /* capacity of disk-backed stake accounts */
-  ulong disk_root_cnt_; /* # of stake accounts in disk-backed root*/
-  ulong disk_temp_root_cnt_;
+  /* Management for stake delegations that spill to disk. */
+  ulong max_disk_records_;        /* disk delta capacity; disk root capacity is derived */
+  ulong disk_root_cnt_;           /* number of disk-backed root records */
   ulong disk_delta_cnt_;
-  ulong disk_slot_cnt_; /* pow2 slots in each disk hash index */
+  ulong disk_bucket_cnt_;         /* pow2 buckets in each disk hash index */
   ulong disk_root_tombstone_cnt_;
   ulong disk_delta_tombstone_cnt_;
-  uint  disk_root_gen_; /* buckets with an older generation are empty */
+  uint  disk_root_gen_;           /* buckets with an older generation are empty */
   uint  disk_delta_gen_;
 
   /* Stake totals for the current root. */
@@ -238,12 +236,12 @@ struct fd_stake_delegations {
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
 struct fd_stake_delegations_iter {
-  fd_stake_delegation_t *       root_pool;
-  fd_stake_delegation_t *       delta_pool;
-  fd_stake_delegation_t *       ele;
+  fd_stake_delegation_t *        root_pool;
+  fd_stake_delegation_t *        delta_pool;
+  fd_stake_delegation_t *        ele;
   fd_stake_delegations_t const * stake_delegations;
   ulong                          idx;      /* externally visible index */
-  ulong                          wmk;      /* RAM root watermark */
+  ulong                          wmk;      /* in-memory root watermark */
   ulong                          disk_idx; /* dense disk-root cursor */
   fd_stake_delegation_t          disk_ele;
 };
@@ -330,26 +328,23 @@ ulong
 fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
-   delegations struct for the given RAM pool capacity, expected stake
-   accounts, and max live slots. */
+   delegations struct for the given in-memory pool capacity and max live
+   slots. */
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
-                                ulong expected_stake_accounts,
                                 ulong max_live_slots );
 
 /* fd_stake_delegations_new creates a new stake delegations struct with
-   the given RAM pool capacity, disk spill capacity, expected stake
-   accounts, and max live slots.  It formats a memory region sized from
-   the pool capacity, expected map occupancy, and per-fork delta
-   structures. */
+   the given in-memory pool capacity, disk spill capacity, and max live
+   slots.  It formats a memory region sized from the pool capacity and
+   per-fork delta structures. */
 
 void *
 fd_stake_delegations_new( void * mem,
                           ulong  seed,
                           ulong  max_stake_accounts,
                           ulong  max_disk_records,
-                          ulong  expected_stake_accounts,
                           ulong  max_live_slots );
 
 /* fd_stake_delegations_join joins a stake delegations struct from a
@@ -367,9 +362,9 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations );
 
 /* fd_stake_delegations_root_update will either insert a new stake
    delegation if the pubkey doesn't exist yet, or it will update the
-   stake delegation for the pubkey if already in the RAM or disk root,
-   overriding any previous data. fd_stake_delegations_t must be a valid
-   local join. */
+   stake delegation for the pubkey if already in the in-memory or disk
+   root, overriding any previous data. fd_stake_delegations_t must be a
+   valid local join. */
 
 void
 fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
@@ -385,7 +380,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
 
 /* fd_stake_delegations_prune_inactive_root removes root delegations
    that are inactive in both epoch and epoch-1.  This function removes
-   all inactive delegations from the RAM and disk roots.  It is a
+   all inactive delegations from the in-memory and disk roots.  It is a
    parallel to Agave removing inactive stake accounts directly at the
    epoch boundary.  Returns the number of delegations removed.  When
    emit_bank is non-NULL, a runtime_stake_delegation remove event is
@@ -475,7 +470,7 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
                                  ushort                   fork_idx );
 
 /* upserts and removes accumulate across applications.  root_cnt is
-   overwritten with the current RAM and disk root count. */
+   overwritten with the current in-memory and disk root count. */
 
 struct fd_stake_delegations_delta_stats {
   ulong upserts;
@@ -485,11 +480,9 @@ struct fd_stake_delegations_delta_stats {
 typedef struct fd_stake_delegations_delta_stats fd_stake_delegations_delta_stats_t;
 
 /* fd_stake_delegations_apply_fork_deltas applies an ordered fork
-   ancestry atomically.  It processes capacity-releasing work before
-   RAM insertions, so transient intermediate roots cannot exhaust a
-   disk budget that the final root fits.  If
-   stake_delegations_delta_stats is non-NULL, the number of upserts and
-   removes applied is accumulated into it (caller zeroes). */
+   ancestry atomically.  If stake_delegations_delta_stats is non-NULL,
+   the number of upserts and removes applied is accumulated into it
+   (caller zeroes). */
 
 void
 fd_stake_delegations_apply_fork_deltas( ulong                                epoch,
@@ -507,8 +500,8 @@ fd_stake_delegations_apply_fork_deltas( ulong                                epo
    delegations for a bank using the root and its deltas without creating
    a copy.
 
-   Under the hood, each RAM or disk root record points to the
-   corresponding RAM or disk delta.  If an element is inserted by a
+   Under the hood, each in-memory or disk root record points to the
+   corresponding in-memory or disk delta.  If an element is inserted by a
    delta, a temporary root record is added and then removed by
    frontier_query_end.  These functions also temporarily update and
    unwind the stake totals for the current root.
@@ -545,11 +538,11 @@ fd_stake_delegations_frontier_query_end( fd_stake_delegations_t *   stake_delega
    stake delegation.  It is not safe to modify the stake delegation
    while iterating through it.
 
-   Under the hood, the iterator walks RAM roots followed by dense disk
-   roots, redirecting through tagged RAM/disk delta references for
-   entries a marked fork has changed.  Disk records are returned through
-   iterator-owned storage, so that pointer remains valid only until the
-   next call to fd_stake_delegations_iter_next.
+   Under the hood, the iterator walks in-memory roots followed by dense
+   disk roots, redirecting through tagged in-memory/disk delta references
+   for entries a marked fork has changed.  Disk records are returned
+   through iterator-owned storage, so that pointer remains valid only
+   until the next call to fd_stake_delegations_iter_next.
 
    Example use:
 
@@ -591,13 +584,14 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
   return !iter->ele;
 }
 
-/* Invalidates every WARMED tag in the RAM and disk roots.  Only useful at
-   boundaries where upgrade_bpf_stake_program_to_v5_1 is active but a
-   WARMED tag may have been awarded under the old floating point math,
-   aka fp_warmed_awarded is set.  Forces fully warmed delegations to
-   reevaluate their effective stake, in case there's a difference
-   between the old floating point math and the new integer math.  Also
-   clears fp_warmed_awarded, since no WARMED tag survives the wipe.
+/* Invalidates every WARMED tag in the in-memory and disk roots.  Only
+   useful at boundaries where upgrade_bpf_stake_program_to_v5_1 is
+   active but a WARMED tag may have been awarded under the old floating
+   point math, aka fp_warmed_awarded is set.  Forces fully warmed
+   delegations to reevaluate their effective stake, in case there's a
+   difference between the old floating point math and the new integer
+   math.  Also clears fp_warmed_awarded, since no WARMED tag survives
+   the wipe.
 
    Unlike the other mutators, this one does not take the write lock
    itself: its only callers run inside the boundary's
