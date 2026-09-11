@@ -19,7 +19,7 @@
 #include "generated/fd_execle_tile_seccomp.h"
 
 #define REBATE_BATCH_IDLE_LOOPS      (128UL)
-#define REBATE_BATCH_MAX_MICROBLOCKS (4UL)
+#define REBATE_BATCH_MAX_MICROBLOCKS (16UL)
 
 FD_STATIC_ASSERT( REBATE_BATCH_MAX_MICROBLOCKS*FD_PACK_REBATE_MAX_ENTRIES<=FD_PACK_REBATE_SUM_CAPACITY,
                   rebate_batch_fits_rebater );
