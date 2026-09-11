@@ -141,7 +141,7 @@ returnable_frag( fd_bencho_ctx_t *   ctx,
   ctx->last_txns  = txns;
   ctx->last_nanos = nanos;
   if( FD_UNLIKELY( !ctx->start_nanos ) ) {
-    if( FD_LIKELY( slot_txns ) ) { ctx->start_txns = txns; ctx->start_nanos = nanos; }
+    if( FD_LIKELY( slot_txns>1UL ) ) { ctx->start_txns = txns; ctx->start_nanos = nanos; }
     return 0;
   }
   ulong tps = (ulong)((double)slot_txns*1e9/(double)slot_ns);
