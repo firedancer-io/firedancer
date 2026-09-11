@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "run.h"
+#include "../../fd_config_private.h"
 #include "../../../../flamenco/accdb/fd_accdb.h"
 #include "../../../../disco/store/fd_store.h"
 
@@ -1034,6 +1035,10 @@ void
 run_firedancer_init( config_t * config,
                      int        init_workspaces,
                      int        check_configure ) {
+  /* Resolve before serializing the topology or starting any tiles.  Admin
+     commands also construct topologies, but must not depend on live DNS. */
+  fd_config_apply_shred_destinations( config );
+
   struct stat st;
   int err = stat( config->paths.identity_key, &st );
   if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
