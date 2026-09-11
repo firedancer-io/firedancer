@@ -176,13 +176,13 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
-  tile->cpu_idx             = cpu_idx;
+  tile->cpu_idx             = fd_ulong_if( cpu_idx<ULONG_MAX, cpu_idx & ~FD_TOPOB_CPU_SHARED, ULONG_MAX );
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
   tile->event_link_id       = ULONG_MAX;
   tile->uses_obj_cnt        = 0UL;
   tile->is_waker_client     = is_waker_client;
-  tile->floats              = 0;
+  tile->floats              = cpu_idx<ULONG_MAX && !!(cpu_idx & FD_TOPOB_CPU_SHARED);
   tile->waker_client_idx    = ULONG_MAX;
   tile->waker_fseq_obj_id   = ULONG_MAX;
 
@@ -528,12 +528,13 @@ fd_topob_tile_priority_type( char const * name ) {
   return FD_TOPOB_PRIORITY_FLOATING;
 }
 
-FD_STATIC_ASSERT( FD_TILE_MAX<65535, update_tile_to_cpu_type );
+FD_STATIC_ASSERT( FD_TILE_MAX<FD_TOPOB_CPU_SHARED, update_tile_to_cpu_type );
 
 ulong
 fd_topob_parse_affinity_cstr( char const * cstr,
                               ushort *     tile_to_cpu,
-                              int          allow_repeats ) {
+                              int          allow_repeats,
+                              int          allow_shared ) {
   if( !cstr ) return 0UL;
   ulong cnt = 0UL;
 
@@ -571,8 +572,14 @@ fd_topob_parse_affinity_cstr( char const * cstr,
       continue;
     }
 
+    ulong shared = 0UL;
+    if( p[0]=='s' ) {
+      if( FD_UNLIKELY( !allow_shared ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (shared cpus not supported here)" ));
+      p++; shared = FD_TOPOB_CPU_SHARED;
+    }
+
     if( !fd_isdigit( (int)p[0] ) ) {
-      if( FD_UNLIKELY( p[0]!='\0' ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (range lo not a cpu)" ));
+      if( FD_UNLIKELY( shared || p[0]!='\0' ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (range lo not a cpu)" ));
       break;
     }
     ulong cpu0   = fd_cstr_to_ulong( p );
@@ -610,9 +617,10 @@ fd_topob_parse_affinity_cstr( char const * cstr,
 
     for( ulong cpu=cpu0; cpu<cpu1; cpu+=stride ) {
       if( FD_UNLIKELY( cnt>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_topob: too many affinity entries" ));
-      if( FD_UNLIKELY( !allow_repeats && cpu_bv_test( cpu_assigned, cpu ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (repeated cpu)" ));
-      tile_to_cpu[ cnt++ ] = (ushort)cpu;
-      cpu_bv_insert( cpu_assigned, cpu );
+      if( FD_UNLIKELY( cpu>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (cpu index too large)" )); /* cpu_assigned holds FD_TILE_MAX */
+      if( FD_UNLIKELY( !allow_repeats && !shared && cpu_bv_test( cpu_assigned, cpu ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (repeated cpu)" ));
+      tile_to_cpu[ cnt++ ] = (ushort)(cpu | shared);
+      if( !shared ) cpu_bv_insert( cpu_assigned, cpu );
     }
   }
 
@@ -642,6 +650,8 @@ fd_topob_tile_live_phase( char const * name ) {
 static int
 fd_topob_cpu_overlap_allowed( fd_topo_tile_t const * a,
                               fd_topo_tile_t const * b ) {
+  if( a->floats && b->floats ) return 1;
+
   int a_phase = fd_topob_tile_live_phase( a->name );
   int b_phase = fd_topob_tile_live_phase( b->name );
 

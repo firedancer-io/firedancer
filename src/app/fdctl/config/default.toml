@@ -672,6 +672,13 @@ dynamic_port_range = "8900-9000"
     # not pinned and will float on the original core set that Firedancer
     # was started with.
     #
+    # A core preceded by an 's' like 's5' is shared.  The tile is homed
+    # at core 5, so its memory is placed on that core's NUMA node, but
+    # the kernel may schedule it on any shared core of that node.  A
+    # shared core is not claimed exclusively, so more than one tile may
+    # name it.  This is for tiles that are idle in your configuration
+    # and would otherwise hold a core a busy tile could use.
+    #
     # For example, if Firedancer has six tiles numbered 0..5, and the
     # affinity is specified as
     #
