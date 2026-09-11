@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <unistd.h>
+#include <sys/sysinfo.h>
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
 #include <net/if.h>
@@ -16,6 +17,16 @@
 #define MAX_NTUPLE_RULES    (8192)
 
 #define ETHTOOL_CMD_SIZE( base_t, data_t, data_len ) ( sizeof(base_t) + (sizeof(data_t)*(data_len)) )
+
+/* cpu_present_cnt returns the number of installed CPUs in the system,
+   including offline CPUs */
+
+static uint
+cpu_present_cnt( void ) {
+  int cpu_cnt = get_nprocs_conf();
+  if( FD_UNLIKELY( cpu_cnt<=0 ) ) FD_LOG_ERR(( "get_nprocs_conf() returned %i", cpu_cnt ));
+  return (uint)cpu_cnt;
+}
 
 static int
 run_ioctl( fd_ethtool_ioctl_t * ioc,
@@ -86,7 +97,7 @@ fd_ethtool_ioctl_channels_set_num( fd_ethtool_ioctl_t * ioc,
   ech.cmd = ETHTOOL_SCHANNELS;
   if( num == 0 ) {
     uint max_queue_count = ech.max_combined ? ech.max_combined : ech.max_rx;
-    num = fd_uint_min( max_queue_count, (uint)fd_shmem_cpu_cnt() );
+    num = fd_uint_min( max_queue_count, cpu_present_cnt() );
   }
   if( ech.max_combined ) {
     ech.combined_count = num;
@@ -123,7 +134,7 @@ fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t * ioc,
 
   if( FD_LIKELY( ech.combined_count ) ) {
     channels->current = ech.combined_count;
-    channels->max = fd_uint_min( ech.max_combined, (uint)fd_shmem_cpu_cnt() );
+    channels->max = fd_uint_min( ech.max_combined, cpu_present_cnt() );
     return 0;
   }
   if( ech.rx_count || ech.tx_count ) {
@@ -131,7 +142,7 @@ fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t * ioc,
       FD_LOG_WARNING(( "device `%s` has unbalanced channel count: (got %u rx, %u tx)",
                        ioc->ifr.ifr_name, ech.rx_count, ech.tx_count ));
     channels->current = ech.rx_count;
-    channels->max = fd_uint_min( ech.max_rx, (uint)fd_shmem_cpu_cnt() );
+    channels->max = fd_uint_min( ech.max_rx, cpu_present_cnt() );
     return 0;
   }
   return EINVAL;
