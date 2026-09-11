@@ -1202,7 +1202,10 @@ fd_execute_instr( fd_runtime_t *      runtime,
     .txn_out      = txn_out,
     .bank         = bank,
   };
-  fd_base58_encode_32( txn_out->accounts.keys[ instr->program_id ].uc, NULL, ctx->program_id_base58 );
+
+  if( FD_UNLIKELY( !runtime->log.log_collector->disabled ) ) {
+    fd_base58_encode_32( txn_out->accounts.keys[ instr->program_id ].uc, NULL, ctx->program_id_base58 );
+  }
 
   /* Look up the native program. We check for precompiles within the lookup function as well.
      https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/message_processor.rs#L88 */
