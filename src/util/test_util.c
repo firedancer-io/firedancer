@@ -12,10 +12,15 @@ main( int     argc,
   FD_TEST( !strcmp( fd_version_cstr_format( version, sizeof(version), 25UL, 8UL, 1UL ), "25.8.1" ) );
   FD_TEST( !strcmp( fd_version_cstr_format( version, sizeof(version), 26UL, 8UL, 1UL ), "26.08.1" ) );
   FD_TEST( !strcmp( fd_version_cstr_format( version, sizeof(version), 26UL, 10UL, 1UL ), "26.10.1" ) );
+  volatile ulong zero = 0UL;
+  void * volatile null = NULL;
+  uchar byte = 0U;
+  FD_TEST( fd_memcpy( null,  &byte, zero )==NULL  );
+  FD_TEST( fd_memcpy( &byte, null,  zero )==&byte );
+  FD_TEST( fd_memcpy( null,  null,  zero )==NULL  );
   FD_LOG_INFO(( "fd_commit_ref_cstr = %s", fd_commit_ref_cstr ));
   FD_LOG_INFO(( "fd_commit_ref_u32 = 0x%08x", fd_commit_ref_u32 ));
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-

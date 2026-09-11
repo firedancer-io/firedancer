@@ -103,6 +103,8 @@ struct cpi_test_cfg {
   uchar             cpi_meta_writable[ MAX_CFG_ACCTS ];
   uchar             cpi_meta_signer  [ MAX_CFG_ACCTS ];
 
+  int zero_instruction_data;
+
   /* Optional hook: mutate input_buf after env_build but before the CPI
      syscall.  NULL = no mutation. */
   pre_cpi_hook_t    pre_cpi_hook;
@@ -500,6 +502,7 @@ rust_cpi_build( fd_vm_t *              vm,
   ulong data_off = fd_ulong_align_up( h, 8UL );
   vm->heap[ data_off ] = 0;
   instr->data     = (fd_vm_rust_vec_t){ .addr = HEAP_VA( data_off ), .cap = 1, .len = 1 };
+  if( cfg->zero_instruction_data ) instr->data = (fd_vm_rust_vec_t){0};
   memcpy( instr->pubkey, callee_program_pubkey.uc, 32 );
 
   setup_input_region_for_cfg( vm, cfg );
@@ -590,6 +593,10 @@ c_cpi_build( fd_vm_t *              vm,
   vm->heap[ data_off ] = 0;
   instr->data_addr       = HEAP_VA( data_off );
   instr->data_len        = 1UL;
+  if( cfg->zero_instruction_data ) {
+    instr->data_addr = 0UL;
+    instr->data_len  = 0UL;
+  }
 
   setup_input_region_for_cfg( vm, cfg );
 }
@@ -1008,8 +1015,8 @@ test_zero_account_cpi( fd_svm_mini_t * mini ) {
 
 static void
 test_zero_data_cpi( fd_svm_mini_t * mini ) {
-  /* data_len=0 is the default in both ABI builders. */
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
+  cfg->zero_instruction_data = 1;
 
   int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_zero_data_cpi", e );
