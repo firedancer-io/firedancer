@@ -1,5 +1,5 @@
 name: cpusonline
-description: 'Dissolve isolated cpuset partitions left behind by a previous job'
+description: 'Dissolve cpuset partitions left behind by a previous job'
 inputs: {}
 outputs: {}
 runs:
@@ -8,13 +8,15 @@ runs:
     - shell: bash
       run: |
         set -x
-        # A validator or test that died mid-run leaves its isolated cpuset
-        # partition, which removes its CPUs from every other cgroup and
-        # breaks CPU pinning for subsequent jobs on this runner.
+        # A validator or test that died mid-run leaves its cpuset partition
+        # ("isolated" when every tile is pinned, "root" when some float),
+        # which removes its CPUs from every other cgroup and breaks CPU
+        # pinning for subsequent jobs on this runner.
         for cg in /sys/fs/cgroup/*/cpuset.cpus.partition; do
           [ -e "$cg" ] || continue
-          grep -q isolated "$cg" || continue
+          grep -Eq '^(isolated|root)' "$cg" || continue
           dir="$(dirname "$cg")"
+          echo member | sudo tee "$cg" > /dev/null || true
           while read -r pid; do
             echo "$pid" | sudo tee /sys/fs/cgroup/cgroup.procs > /dev/null || true
           done < "$dir/cgroup.procs"

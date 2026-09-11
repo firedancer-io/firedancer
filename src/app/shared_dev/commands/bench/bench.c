@@ -4,6 +4,7 @@
 #include "../../../shared/commands/run/run.h"
 
 #include "../../../shared/commands/watch/watch.h"
+#include "../../../platform/fd_sys_util.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../disco/net/fd_net_tile.h"
@@ -13,6 +14,7 @@
 #include <sched.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <signal.h>
 #include <linux/capability.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
@@ -187,6 +189,13 @@ bench_topo( config_t * config ) {
                   !config->is_firedancer );
 }
 
+static pid_t bench_pid;
+
+static void
+bench_signal( int sig ) {
+  kill( bench_pid, sig );
+}
+
 void
 bench_cmd_fn( args_t *   args,
               config_t * config ) {
@@ -210,6 +219,26 @@ bench_cmd_fn( args_t *   args,
   for( ulong i=0UL; STAGES[ i ]; i++ )
     configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
+
+  /* Everything past configure runs in a child: the tiles join the
+     cpuset cgroup and drop privileges, so only a root parent outside
+     it can dissolve the partition once they exit (or fail to boot) */
+  bench_pid = fork();
+  if( FD_UNLIKELY( bench_pid<0 ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( bench_pid ) ) {
+    struct sigaction sa = { .sa_handler = bench_signal };
+    if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) || sigaction( SIGTERM, &sa, NULL ) ) )
+      FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    int wstatus;
+    while( FD_UNLIKELY( -1==waitpid( bench_pid, &wstatus, 0 ) ) ) {
+      if( FD_UNLIKELY( errno!=EINTR ) ) FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
+    configure_args = (args_t){ .configure.command = CONFIGURE_CMD_FINI, .configure.stages = { &fd_cfg_stage_cpuset } };
+    configure_cmd_fn( &configure_args, config );
+    fd_sys_util_exit_group( WIFSIGNALED( wstatus ) ? 128+WTERMSIG( wstatus ) : WEXITSTATUS( wstatus ) );
+  }
 
   update_config_for_dev( config );
 
