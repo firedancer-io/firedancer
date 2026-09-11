@@ -8,7 +8,7 @@
 #include <net/if.h>
 
 #define NAME_SZ                     (256UL)
-#define AFFINITY_SZ                 (256UL)
+#define AFFINITY_SZ                 (2048UL) /* FD_TOPO_MAX_TILES entries of "s1023," */
 #define CONFIGURE_STAGE_COUNT       ( 24UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX ( 16UL)
 #define IP4_PORT_STR_MAX            ( 22UL)
