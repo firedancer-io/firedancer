@@ -45,7 +45,6 @@ fd_reward_epoch_stakes_account_address( void ) {
 static inline void
 fd_reward_epoch_stakes_set( fd_bank_t *                    bank,
                             fd_accdb_t *                   accdb,
-                            fd_capture_ctx_t *             capture_ctx,
                             ulong                          rewarded_epoch,
                             fd_runtime_stack_t *           runtime_stack ) {
   fd_stake_accum_t *     pool = runtime_stack->stakes.stake_accum;
@@ -91,7 +90,7 @@ fd_reward_epoch_stakes_set( fd_bank_t *                    bank,
   acc.executable = 0;
   acc.data_len   = data_sz;
   fd_memcpy( acc.data, data, data_sz );
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+  fd_accdb_svm_close_rw( bank, accdb, &acc, update );
 }
 
 static inline void

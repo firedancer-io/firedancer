@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22974464UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22970352UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -131,7 +131,6 @@ static char const * const jw_redacted_keys[] = {
   "development.ledger_input.path",
   "capture.dump_proto_dir",
   "capture.dump_syscall_name_filter",
-  "capture.solcap_capture",
   /* legacy aliases accepted by the extractor but not in default.toml */
   "consensus.identity_path",
   "consensus.vote_account_path",
@@ -634,9 +633,6 @@ fd_config_to_json( fd_config_t const * config,
     jw_path ( &w, "dump_proto_dir",               config->capture.dump_proto_dir );
     jw_path ( &w, "dump_syscall_name_filter",     config->capture.dump_syscall_name_filter );
     jw_str  ( &w, "dump_instr_program_id_filter", config->capture.dump_instr_program_id_filter );
-    jw_path ( &w, "solcap_capture",               config->capture.solcap_capture );
-    jw_bool ( &w, "recent_only",                  config->capture.recent_only );
-    jw_ulong( &w, "recent_slots_per_file",        config->capture.recent_slots_per_file );
     jw_bool ( &w, "dump_syscall_to_pb",           config->capture.dump_syscall_to_pb );
     jw_bool ( &w, "dump_instr_to_pb",             config->capture.dump_instr_to_pb );
     jw_bool ( &w, "dump_txn_to_pb",               config->capture.dump_txn_to_pb );

@@ -524,8 +524,6 @@ struct fd_topo_tile {
       ulong max_txn_per_slot;     /* config->limits */
       ulong max_shreds_per_block;
 
-      ulong capture_start_slot;
-      char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
       int   report_runtime_diffs;
@@ -548,7 +546,6 @@ struct fd_topo_tile {
       ulong max_live_slots;
 
       ulong capture_start_slot;
-      char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       char  dump_syscall_name_filter[ PATH_MAX ];
       char  dump_instr_program_id_filter[ FD_BASE58_ENCODED_32_SZ ];
@@ -770,14 +767,6 @@ struct fd_topo_tile {
       ulong accdb_obj_id;
       ulong max_message_size;
     } genesi;
-
-    struct {
-      ulong capture_start_slot;
-      char  solcap_capture[ PATH_MAX ];
-      int   recent_only;
-      ulong recent_slots_per_file;
-    } solcap;
-
     struct {
       ulong accdb_obj_id;
       ulong accdb_epoch_obj_id;

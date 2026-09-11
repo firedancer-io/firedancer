@@ -33,7 +33,6 @@
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/accdb/fd_accdb_cache.h"
-#include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
 #include "../../flamenco/stakes/fd_collector_overrides.h"
@@ -289,8 +288,6 @@ fd_topo_initialize( config_t * config ) {
 
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
-
-  int solcap_enabled = strlen( config->capture.solcap_capture ) > 0;
 
   /*             topo, name */
   fd_topob_wksp( topo, "metric" );
@@ -627,11 +624,6 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile( topo, "rpc", "rpc", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1, 0, 1 );
   }
 
-  if( FD_UNLIKELY( solcap_enabled ) ) {
-    fd_topob_wksp( topo, "solcap" );
-    fd_topob_tile( topo, "solcap", "solcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
-  }
-
   fd_topo_tile_t * admin_tile = fd_topob_tile( topo, "admin", "admin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
 
   /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
@@ -958,15 +950,6 @@ fd_topo_initialize( config_t * config ) {
       fd_topob_tile_in( topo, "rpc",  0UL, "metric_in", "tower_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
     fd_topob_tile_in( topo, "rpc",    0UL, "metric_in", "replay_epoch", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
-
-  if( FD_UNLIKELY( solcap_enabled ) ) {
-    fd_topob_link( topo, "cap_repl", "solcap", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
-    fd_topob_tile_out( topo, "replay", 0UL, "cap_repl", 0UL );
-    fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(execrp_tile_cnt) fd_topob_link( topo, "cap_execrp", "solcap", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
-    FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "cap_execrp", i );
-    FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_execrp", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   if( snapmk_enabled ) {
@@ -1594,8 +1577,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     /* not specified by [tiles.replay] */
 
-    tile->replay.capture_start_slot = config->capture.capture_start_slot;
-    fd_cstr_ncpy( tile->replay.solcap_capture, config->capture.solcap_capture, sizeof(tile->replay.solcap_capture) );
     fd_cstr_ncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
     tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
     tile->replay.report_runtime_diffs = config->development.event.report_runtime_diffs;
@@ -1621,7 +1602,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
     tile->execrp.capture_start_slot = config->capture.capture_start_slot;
-    fd_cstr_ncpy( tile->execrp.solcap_capture, config->capture.solcap_capture, sizeof(tile->execrp.solcap_capture) );
     fd_cstr_ncpy( tile->execrp.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->execrp.dump_proto_dir) );
     fd_cstr_ncpy( tile->execrp.dump_syscall_name_filter, config->capture.dump_syscall_name_filter, sizeof(tile->execrp.dump_syscall_name_filter) );
     fd_cstr_ncpy( tile->execrp.dump_instr_program_id_filter, config->capture.dump_instr_program_id_filter, sizeof(tile->execrp.dump_instr_program_id_filter) );
@@ -1901,13 +1881,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
     tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
     tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
-
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "solcap" ) ) ) {
-
-    tile->solcap.capture_start_slot = config->capture.capture_start_slot;
-    fd_cstr_ncpy( tile->solcap.solcap_capture, config->capture.solcap_capture, sizeof(tile->solcap.solcap_capture) );
-    tile->solcap.recent_only = config->capture.recent_only;
-    tile->solcap.recent_slots_per_file = config->capture.recent_slots_per_file;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) {
 
