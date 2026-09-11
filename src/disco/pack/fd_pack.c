@@ -3,12 +3,13 @@
 #include "fd_pack_cost.h"
 #include "fd_pack_bitset.h"
 #include "fd_pack_unwritable.h"
-#include "fd_chkdup.h"
-#include "fd_pack_tip_prog_blacklist.h"
 #include <math.h> /* for sqrt */
 #include <stddef.h> /* for offsetof */
 #include "../metrics/fd_metrics.h"
 #include "../../util/fd_hash32.h"
+#if FD_HAS_AVX
+#include "../../util/simd/fd_avx.h" /* fd_chkdup.h used to bring this in */
+#endif
 
 #define FD_PACK_USE_NON_TEMPORAL_MEMCPY 1
 
@@ -20,12 +21,6 @@
 #define pack_memcpy_out  fd_memcpy
 #define pack_memcpy_fini()
 #endif
-
-/* Declare a bunch of helper structs used for pack-internal data
-   structures. */
-typedef struct {
-  fd_acct_addr_t key;
-} wrapped_acct_t;
 
 /* fd_pack_ord_txn_t: An fd_txn_p_t with information required to order
    it by priority. */
@@ -445,29 +440,6 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_HASH(key,s)   ((uint)fd_hash32( (key).b, (s) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-
-#define MAP_NAME              acct_blocklist
-#define MAP_T                 wrapped_acct_t
-/* Add 1 to the slot cnt to ensure the map is sparse even at capacity */
-#define MAP_LG_SLOT_CNT       (FD_PACK_ACCT_BLOCKLIST_LG_MAX+1)
-#define MAP_KEY_T             fd_acct_addr_t
-#define MAP_KEY_NULL          null_addr
-#if FD_HAS_AVX
-# define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
-#else
-# define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
-#endif
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
-/* It would be nice if this were seeded, but since fd_map doesn't have
-   any auxiliary data, there's not a clear place to store the seed.
-   It's okay though, because the insert process is trusted, since it
-   comes from operator config. */
-#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_MEMOIZE           0
-#define MAX_QUERY_OPT         2 /* rare hits */
-#include "../../util/tmpl/fd_map.c"
-
 /* Since transactions can also expire, we also maintain a parallel
    priority queue.  This means elements are simultaneously part of the
    treap (ordered by priority) and the expiration queue (ordered by
@@ -663,11 +635,6 @@ struct fd_pack_private {
      used by downstream consumers for monitoring purposes. */
   fd_pack_addr_use_t top_writers[ FD_PACK_TOP_WRITERS_CNT ];
 
-  /* At initialization time, the caller can configure a blocklist of
-     accounts.  Any transaction that includes one of these accounts will
-     be rejected.  This is an fd_map, and it's effectively const. */
-  wrapped_acct_t        acct_blocklist[ 2*FD_PACK_ACCT_BLOCKLIST_MAX ];
-
   /* Noncemap is a map_chain that maps from tuples (nonce account,
      recent blockhash value, nonce authority) to a transaction.  This
      map stores exactly the transactions in pool that have the nonce
@@ -738,9 +705,6 @@ struct fd_pack_private {
      reference count, which bit, etc. */
   fd_pack_bitset_acct_mapping_t * acct_to_bitset;
 
-  /* chdkup: scratch memory chkdup needs for its internal processing */
-  fd_chkdup_t chkdup[ 1 ];
-
   /* bundle_meta: an array, parallel to the pool, with each element
      having size bundle_meta_sz.  I.e. if pool[i] has an associated
      bundle meta, it's located at bundle_meta[j] for j in
@@ -810,8 +774,6 @@ fd_pack_new( void                   * mem,
              ulong                    bundle_meta_sz,
              ulong                    bank_tile_cnt,
              fd_pack_limits_t const * limits,
-             fd_acct_addr_t const *   acct_blocklist,
-             ulong                    acct_blocklist_cnt,
              fd_rng_t               * rng           ) {
 
   int enable_bundles = !!bundle_meta_sz;
@@ -868,18 +830,6 @@ fd_pack_new( void                   * mem,
   pack->expire_before               = 0UL;
   pack->outstanding_microblock_mask = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
-
-  acct_blocklist_new( pack->acct_blocklist );
-  int ins_failed = acct_blocklist_cnt>FD_PACK_ACCT_BLOCKLIST_MAX;
-  for( ulong i=0UL; (!ins_failed) & (i<acct_blocklist_cnt); i++ ) {
-    ins_failed |= acct_blocklist_key_inval( acct_blocklist[i] ) ||
-                  (NULL==acct_blocklist_insert( pack->acct_blocklist, acct_blocklist[i] ));
-  }
-  if( FD_UNLIKELY( ins_failed ) ) {
-    FD_LOG_WARNING(( "constructing the account blocklist failed.  Ensure the list contains no more than %lu "
-                     "entries, and does not contain duplicates or the System Program (11...111)", FD_PACK_ACCT_BLOCKLIST_MAX ));
-    return NULL;
-  }
 
   trp_pool_new(  _pool,        pack_depth+extra_depth );
 
@@ -954,8 +904,6 @@ fd_pack_new( void                   * mem,
 
   bitset_map_new( _acct_bitset, lg_acct_in_trp, fd_rng_ulong( rng ) );
 
-  fd_chkdup_new( pack->chkdup, rng );
-
   pack->bundle_meta = bundle_meta;
 
   return mem;
@@ -1012,40 +960,25 @@ fd_pack_join( void * mem ) {
 }
 
 
-/* Returns 0 on failure, 1 on success for a vote, 2 on success for a
+/* Applies the upstream fd_pack_est_txn result (txnp->pack_est).
+   Returns 0 on failure, 1 on success for a vote, 2 on success for a
    non-vote. */
 static int
 fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
                                       fd_pack_ord_txn_t      * out,
                                       fd_pack_limits_t const * lim ) {
-  fd_txn_t * txn = TXN(txne->txnp);
-  ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt; /* Easily in [5000, 635000] */
-
-  ulong requested_execution_cus;
-  ulong priority_rewards;
-  ulong precompile_sigs;
-  ulong requested_loaded_accounts_data_cost;
-  ulong allocated_data;
-  ulong cost_estimate = fd_pack_compute_cost( txn, txne->txnp->payload, &txne->txnp->flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
+  fd_pack_est_t const * est = &txne->txnp->pack_est;
+  ulong cost_estimate  = est->cost;
+  ulong allocated_data = est->alloc;
 
   if( FD_UNLIKELY( !cost_estimate ) ) return 0;
 
-  /* precompile_sigs <= 16320, so after the addition,
-     sig_rewards < 83,000,000 */
-  sig_rewards += FD_PACK_FEE_PER_SIGNATURE * precompile_sigs;
-  sig_rewards = sig_rewards * FD_PACK_TXN_FEE_BURN_PCT / 100UL;
-
-  /* No fancy CU estimation in this version of pack
-  for( ulong i=0UL; i<(ulong)txn->instr_cnt; i++ ) {
-    uchar prog_id_idx = txn->instr[ i ].program_id;
-    fd_acct_addr_t const * acct_addr = fd_txn_get_acct_addrs( txn, txnp->payload ) + (ulong)prog_id_idx;
-  }
-  */
-  out->rewards                              = (priority_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + priority_rewards) : UINT_MAX;
-  out->compute_est                          = (uint)cost_estimate;
-  out->txn->pack_cu.requested_exec_plus_acct_data_cus = (uint)(requested_execution_cus + requested_loaded_accounts_data_cost);
-  out->txn->pack_cu.non_execution_cus       = (uint)(cost_estimate - requested_execution_cus - requested_loaded_accounts_data_cost);
-  out->txn->pack_alloc                      = (uint)allocated_data;
+  out->rewards                                        = est->rewards;
+  out->compute_est                                    = est->cost;
+  out->txn->pack_cu.requested_exec_plus_acct_data_cus = est->exec_cus;
+  out->txn->pack_cu.non_execution_cus                 = est->cost - est->exec_cus;
+  out->txn->pack_alloc                                = est->alloc;
+  out->txn->flags                                     = est->flags;
 
   /* If a transaction allocates a lot, we want to treat it as if it
      requests more CUs.  However, we use compute_est in the block
@@ -1069,34 +1002,18 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
   ulong divisor = 1UL + (allocated_data * lim->max_cost_per_block) / (cost_estimate * lim->max_allocated_data_per_block);
   out->rewards /= (uint)divisor;
 
-  return fd_int_if( txne->txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, 1, 2 );
+  return fd_int_if( est->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, 1, 2 );
 }
 
 /* Returns 0 on failure, 1 if not a durable nonce transaction, and 2 if
-   it is.  FIXME: These return codes are set to harmonize with
-   estimate_rewards_and_compute but -1/0/1 makes a lot more sense to me.
-   */
-static int
-fd_pack_validate_durable_nonce( fd_txn_e_t * txne ) {
-  fd_txn_t const * txn = TXN(txne->txnp);
-
-  /* First instruction invokes system program with 4 bytes of
-     instruction data with the little-endian value 4.  It also has 3
-     accounts: the nonce account, recent blockhashes sysvar, and the
-     nonce authority.  It seems like technically the nonce authority may
-     not need to be passed in, but we disallow that.  We also allow
-     trailing data and trailing accounts.  We want to organize the
-     checks somewhat to minimize cache misses. */
-  if( FD_UNLIKELY( txn->instr_cnt==0            ) ) return 1;
-  if( FD_UNLIKELY( txn->instr[ 0 ].data_sz<4UL  ) ) return 1;
-  if( FD_UNLIKELY( txn->instr[ 0 ].acct_cnt<3UL ) ) return 1; /* It seems like technically 2 is allowed, but never used */
-  if( FD_LIKELY  ( fd_uint_load_4( txne->txnp->payload + txn->instr[ 0 ].data_off )!=4U ) ) return 1;
-  /* The program has to be a static account */
-  fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, txne->txnp->payload );
-  if( FD_UNLIKELY( !fd_memeq( accts[ txn->instr[ 0 ].program_id ].b, null_addr.b, 32UL       ) ) ) return 1;
-  if( FD_UNLIKELY( !fd_txn_is_signer( txn, txne->txnp->payload[ txn->instr[ 0 ].acct_off+2 ] ) ) ) return 0;
-  /* We could check recent blockhash, but it's not necessary */
-  return 2;
+   it is, as fd_pack_est_txn determined.  FIXME: These return codes are
+   set to harmonize with estimate_rewards_and_compute but -1/0/1 makes a
+   lot more sense to me. */
+static inline int
+fd_pack_validate_durable_nonce( fd_txn_e_t const * txne ) {
+  uint flags = txne->txnp->pack_est.flags;
+  if( FD_UNLIKELY( flags & FD_TXN_P_FLAGS_EST_INVALID_NONCE ) ) return 0;
+  return fd_int_if( flags & FD_TXN_P_FLAGS_DURABLE_NONCE, 2, 1 );
 }
 
 /* Can the fee payer afford to pay a transaction with the specified
@@ -1302,34 +1219,15 @@ delete_worst( fd_pack_t * pack,
   return delete_transaction( pack, worst, 1, 1 );
 }
 
+/* The transaction-only checks come precomputed in
+   txnp->pack_est.flags (fd_pack_est_txn); this orders them with the
+   ones that need pack state. */
 static inline int
 validate_transaction( fd_pack_t               * pack,
                       fd_pack_ord_txn_t const * ord,
-                      fd_txn_t          const * txn,
                       fd_acct_addr_t    const * accts,
-                      fd_acct_addr_t    const * alt_adj,
                       int                       check_bundle_blacklist ) {
-  int writes_to_sysvar = 0;
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
-      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    writes_to_sysvar |= fd_pack_unwritable_contains( ACCT_ITER_TO_PTR( iter ) );
-  }
-
-  int bundle_blacklist = 0;
-  int acct_blocklist   = 0;
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
-      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    bundle_blacklist |= (3==fd_pack_tip_prog_check_blacklist( ACCT_ITER_TO_PTR( iter ) ));
-    /* querying for the inval key is a violation of the fd_map
-       contract, even though it's actually fine... */
-    acct_blocklist   |= (!acct_blocklist_key_inval( *ACCT_ITER_TO_PTR( iter ) )) &&
-                        !!acct_blocklist_query( pack->acct_blocklist, *ACCT_ITER_TO_PTR( iter ), NULL );
-  }
-
-  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
-  fd_chkdup_t * chkdup = pack->chkdup;
-  ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
-  ulong alt_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT );
+  uint est = ord->txn->pack_est.flags;
 
   /* Throw out transactions ... */
   /*           ... that are unfunded */
@@ -1337,15 +1235,15 @@ validate_transaction( fd_pack_t               * pack,
   /*           ... that are so big they'll never run */
   if( FD_UNLIKELY( ord->compute_est >= pack->lim->max_cost_per_block       ) ) return FD_PACK_INSERT_REJECT_TOO_LARGE;
   /*           ... that load too many accounts (ignoring 9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK) */
-  if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALL )>64UL     ) ) return FD_PACK_INSERT_REJECT_ACCOUNT_CNT;
+  if( FD_UNLIKELY( est & FD_TXN_P_FLAGS_EST_ACCOUNT_CNT                    ) ) return FD_PACK_INSERT_REJECT_ACCOUNT_CNT;
   /*           ... that duplicate an account address */
-  if( FD_UNLIKELY( fd_chkdup_check( chkdup, accts, imm_cnt, alt, alt_cnt ) ) ) return FD_PACK_INSERT_REJECT_DUPLICATE_ACCT;
+  if( FD_UNLIKELY( est & FD_TXN_P_FLAGS_EST_DUPLICATE_ACCT                 ) ) return FD_PACK_INSERT_REJECT_DUPLICATE_ACCT;
   /*           ... that try to write to a sysvar */
-  if( FD_UNLIKELY( writes_to_sysvar                                        ) ) return FD_PACK_INSERT_REJECT_WRITES_SYSVAR;
+  if( FD_UNLIKELY( est & FD_TXN_P_FLAGS_EST_WRITES_SYSVAR                  ) ) return FD_PACK_INSERT_REJECT_WRITES_SYSVAR;
   /*           ... that use an account that violates bundle rules */
-  if( FD_UNLIKELY( bundle_blacklist & !!check_bundle_blacklist             ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
+  if( FD_UNLIKELY( !!(est & FD_TXN_P_FLAGS_EST_BUNDLE_BLACKLIST) & !!check_bundle_blacklist ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
   /*           ... that use a blocklisted account */
-  if( FD_UNLIKELY( acct_blocklist                                          ) ) return FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST;
+  if( FD_UNLIKELY( est & FD_TXN_P_FLAGS_EST_ACCT_BLOCKLIST                 ) ) return FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST;
 
   return 0;
 }
@@ -1471,10 +1369,8 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   int nonce_result = fd_pack_validate_durable_nonce( txne );
   if( FD_UNLIKELY( !nonce_result ) ) REJECT( INVALID_NONCE );
   int is_durable_nonce = nonce_result==2;
-  ord->txn->flags &= ~FD_TXN_P_FLAGS_DURABLE_NONCE;
-  ord->txn->flags |= fd_uint_if( is_durable_nonce, FD_TXN_P_FLAGS_DURABLE_NONCE, 0U );
 
-  int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !!pack->bundle_meta_sz );
+  int validation_result = validate_transaction( pack, ord, accts, !!pack->bundle_meta_sz );
   if( FD_UNLIKELY( validation_result ) ) {
     trp_pool_ele_release( pack->pool, ord );
     return validation_result;
@@ -1504,7 +1400,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     replaces = 1;
   }
 
-  ord->txn->flags &= ~(FD_TXN_P_FLAGS_BUNDLE | FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
+  ord->txn->flags &= ~(FD_TXN_P_FLAGS_BUNDLE | FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_EST_MASK);
   ord->skip = FD_PACK_SKIP_CNT;
 
   /* At this point, we know we have space to insert the transaction and
@@ -1629,7 +1525,6 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     uchar    const * payload = bundle[ i ]->txnp->payload;
 
     fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-    fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
     int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord, pack->lim );
     if( FD_UNLIKELY( est_result==0 ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL;  break; }
@@ -1641,7 +1536,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     nonce_txn_cnt += !!is_durable_nonce;
 
     bundle[ i ]->txnp->flags |= FD_TXN_P_FLAGS_BUNDLE;
-    bundle[ i ]->txnp->flags &= ~(FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_DURABLE_NONCE);
+    bundle[ i ]->txnp->flags &= ~(FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_DURABLE_NONCE | FD_TXN_P_FLAGS_EST_MASK);
     bundle[ i ]->txnp->flags |= fd_uint_if( initializer_bundle, FD_TXN_P_FLAGS_INITIALIZER_BUNDLE, 0U );
     bundle[ i ]->txnp->flags |= fd_uint_if( is_durable_nonce,   FD_TXN_P_FLAGS_DURABLE_NONCE,      0U );
     ord->skip = FD_PACK_SKIP_CNT;
@@ -1664,7 +1559,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
       }
     }
 
-    int validation_result = validate_transaction( pack, ord, txn, accts, alt_adj, !initializer_bundle );
+    int validation_result = validate_transaction( pack, ord, accts, !initializer_bundle );
     if( FD_UNLIKELY( validation_result ) ) { err = validation_result; break; }
   }
 
@@ -1947,6 +1842,32 @@ release_bit_reference( fd_pack_t            * pack,
   return ret;
 }
 
+/* Copies a taken transaction to its slot in the outgoing microblock.
+   Unfenced; the caller runs pack_memcpy_fini before it returns. */
+static inline void
+copy_txn_out( fd_pack_ord_txn_t const * cur,
+              fd_txn_e_t              * out ) {
+  fd_txn_t const * txn      = TXN(cur->txn);
+  fd_txn_p_t     * out_txnp = out->txnp;
+  if( FD_LIKELY( cur->txn->payload_sz>=1024UL ) ) pack_memcpy_out( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
+  else                                            fd_memcpy      ( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
+
+  out_txnp->payload_sz                                = cur->txn->payload_sz;
+  out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
+  out_txnp->pack_cu.non_execution_cus                 = cur->txn->pack_cu.non_execution_cus;
+  out_txnp->pack_alloc                                = cur->txn->pack_alloc;
+  out_txnp->scheduler_arrival_time_nanos              = cur->txn->scheduler_arrival_time_nanos;
+  out_txnp->first_seen_nanos                          = cur->txn->first_seen_nanos;
+  out_txnp->source_tpu                                = cur->txn->source_tpu;
+  out_txnp->source_ipv4                               = cur->txn->source_ipv4;
+  out_txnp->flags                                     = cur->txn->flags;
+  fd_memcpy( TXN(out_txnp), txn, fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+
+  /* Copy the ALT accounts from the source fd_txn_e_t */
+  ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
+  if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
+}
+
 typedef struct {
   ulong cus_scheduled;
   ulong txns_scheduled;
@@ -2131,24 +2052,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     FD_PACK_BITSET_OR( bitset_rw_in_use, cur->rw_bitset );
     FD_PACK_BITSET_OR( bitset_w_in_use,  cur->w_bitset  );
 
-    fd_txn_p_t * out_txnp = out->txnp;
-    if( FD_LIKELY( cur->txn->payload_sz>=1024UL ) ) pack_memcpy_out( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
-    else                                            fd_memcpy      ( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
-
-    out_txnp->payload_sz                                = cur->txn->payload_sz;
-    out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
-    out_txnp->pack_cu.non_execution_cus                 = cur->txn->pack_cu.non_execution_cus;
-    out_txnp->pack_alloc                                = cur->txn->pack_alloc;
-    out_txnp->scheduler_arrival_time_nanos              = cur->txn->scheduler_arrival_time_nanos;
-    out_txnp->first_seen_nanos                          = cur->txn->first_seen_nanos;
-    out_txnp->source_tpu                                = cur->txn->source_tpu;
-    out_txnp->source_ipv4                               = cur->txn->source_ipv4;
-    out_txnp->flags                                     = cur->txn->flags;
-    fd_memcpy( TXN(out_txnp), txn, fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-
-    /* Copy the ALT accounts from the source fd_txn_e_t */
-    ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
-    if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
+    copy_txn_out( cur, out );
     out++;
 
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );

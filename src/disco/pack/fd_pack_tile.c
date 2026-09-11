@@ -12,6 +12,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../pack/fd_pack.h"
 #include "../pack/fd_pack_cost.h"
+#include "../pack/fd_pack_est.h"
 #include "../pack/fd_pack_pacing.h"
 #include "../fd_clock_tile.h"
 
@@ -29,6 +30,7 @@
 #define IN_KIND_SIGN         (3UL)
 #define IN_KIND_REPLAY       (4UL)
 #define IN_KIND_EXECUTED_TXN (5UL)
+#define IN_KIND_RESOLH       (6UL) /* resolv without fd_pack_est_txn upstream */
 
 /* Pace microblocks, but only slightly.  This helps keep performance
    more stable.  This limit is 2,000 microblocks/second/execle.  At
@@ -232,6 +234,8 @@ typedef struct {
 
   fd_pack_in_ctx_t in[ 32 ];
   int              in_kind[ 32 ];
+
+  fd_pack_est_ctx_t est[ 1 ]; /* for IN_KIND_RESOLH frags and crank bundles */
 
   ulong    execle_cnt;
   ulong    execle_idle_bitset; /* bit i is 1 if we've observed *execle_current[i]==execle_expect[i] */
@@ -562,6 +566,7 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   spot->txnp->source_ipv4 = insert->txnp->source_ipv4;
   spot->txnp->scheduler_arrival_time_nanos = insert->txnp->scheduler_arrival_time_nanos;
   spot->txnp->first_seen_nanos = insert->txnp->first_seen_nanos;
+  spot->txnp->pack_est         = insert->txnp->pack_est;
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
   ulong blockhash_slot = insert->txnp->blockhash_slot;
@@ -780,6 +785,7 @@ after_credit( fd_pack_ctx_t *     ctx,
             bundle[0]->txnp->payload+65UL, txn_sz-65UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
         memcpy( ctx->crank->last_sig, bundle[0]->txnp->payload+1UL, 64UL );
+        fd_pack_est_txn( ctx->est, TXN(bundle[0]->txnp), bundle[0]->txnp->payload, bundle[0]->alt_accts, &bundle[0]->txnp->pack_est );
 
         ctx->crank->ib_inserted = 1;
         ulong deleted;
@@ -964,9 +970,16 @@ during_frag( fd_pack_ctx_t * ctx,
     fd_memcpy( ctx->rebate, dcache_entry, sz );
     return;
   }
+  case IN_KIND_RESOLH:
   case IN_KIND_RESOLV: {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+#if FD_HAS_X86
+    /* The frag lives in another core's cache; fetch all its lines at
+       once instead of header, then payload, then txn. */
+    for( ulong off=0UL; off<sz; off+=64UL ) _mm_prefetch( dcache_entry+off, _MM_HINT_T0 );
+#endif
 
     fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
     ulong payload_sz  = txnm->payload_sz;
@@ -1051,11 +1064,14 @@ during_frag( fd_pack_ctx_t * ctx,
     fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
     fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    addr_table_sz );
-    ctx->cur_spot->txnp->scheduler_arrival_time_nanos = fd_clock_tile_now( ctx->clock );
+    /* scheduler_arrival_time_nanos is stamped in after_frag */
     ctx->cur_spot->txnp->first_seen_nanos = txnm->first_seen_nanos;
     ctx->cur_spot->txnp->payload_sz  = (ushort)payload_sz;
     ctx->cur_spot->txnp->source_ipv4 = source_ipv4;
     ctx->cur_spot->txnp->source_tpu  = source_tpu;
+    ctx->cur_spot->txnp->pack_est    = txnm->pack_est;
+    if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_RESOLH ) )
+      fd_pack_est_txn( ctx->est, TXN(ctx->cur_spot->txnp), ctx->cur_spot->txnp->payload, ctx->cur_spot->alt_accts, &ctx->cur_spot->txnp->pack_est );
 
     break;
   }
@@ -1086,7 +1102,10 @@ after_frag( fd_pack_ctx_t *     ctx,
   (void)tspub;
   (void)stem;
 
-  long now = fd_tickcount();
+  /* The resolv path reads the clock once: insert timer start, arrival
+     stamp and now. */
+  long now = 0L;
+  if( (ctx->in_kind[ in_idx ]!=IN_KIND_RESOLV) & (ctx->in_kind[ in_idx ]!=IN_KIND_RESOLH) ) now = fd_tickcount();
 
   ulong leader_slot = ULONG_MAX;
   switch( ctx->in_kind[ in_idx ] ) {
@@ -1231,20 +1250,22 @@ after_frag( fd_pack_ctx_t *     ctx,
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
     break;
   }
+  case IN_KIND_RESOLH:
   case IN_KIND_RESOLV: {
     /* Normal transaction case */
+    if( FD_UNLIKELY( ctx->is_bundle & (ctx->current_bundle->txn_cnt==0UL) ) ) return;
+    now = fd_tickcount();
+    ctx->cur_spot->txnp->scheduler_arrival_time_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock, now );
 #if FD_PACK_USE_EXTRA_STORAGE
     if( FD_LIKELY( !ctx->insert_to_extra ) ) {
 #else
     if( 1 ) {
 #endif
     if( FD_UNLIKELY( ctx->is_bundle ) ) {
-      if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) return;
       if( FD_UNLIKELY( ++(ctx->current_bundle->txn_received)==ctx->current_bundle->txn_cnt ) ) {
         ulong deleted;
-        long insert_duration = -fd_tickcount();
         int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0, ctx->blk_engine_cfg, &deleted );
-        insert_duration      += fd_tickcount();
+        long insert_duration = fd_tickcount() - now;
         FD_MCNT_INC( PACK, TXN_DELETED, deleted );
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
@@ -1345,10 +1366,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
                                          tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count,
-                                         limits_upper,
-                                         fd_type_pun_const( tile->pack.acct_blocklist ), tile->pack.acct_blocklist_cnt,
-                                         rng ) );
+                                         limits_upper, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
+  if( FD_UNLIKELY( !fd_pack_est_ctx_init( ctx->est, fd_type_pun_const( tile->pack.acct_blocklist ), tile->pack.acct_blocklist_cnt, rng ) ) )
+    FD_LOG_ERR(( "fd_pack_est_ctx_init failed" ));
 
   fd_pack_set_block_limits( ctx->pack, limits_lower );
 
@@ -1360,7 +1381,7 @@ unprivileged_init( fd_topo_t const *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
     if( FD_LIKELY(      !strcmp( link->name, "resolv_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( FD_LIKELY( !strcmp( link->name, "resolh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( FD_LIKELY( !strcmp( link->name, "resolh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLH;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "pohh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;

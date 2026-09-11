@@ -186,6 +186,10 @@ test_env_create( test_env_t * env ) {
   FD_TEST( env->ctx->blockhash_map );
   FD_TEST( map_seed( env->ctx->blockhash_map )==TEST_HASH_SEED );
   FD_TEST( env->ctx->lru_list==lru_list_join( lru_list_new( env->ctx->lru_list ) ) );
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)TEST_HASH_SEED, 0UL ) );
+  FD_TEST( fd_pack_est_ctx_init( env->ctx->est, NULL, 0UL, rng ) );
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   env->ctx->in[0].kind = IN_KIND_DEDUP;
   env->ctx->in[1].kind = IN_KIND_REPLAY;

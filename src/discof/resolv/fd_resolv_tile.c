@@ -1,5 +1,6 @@
 #include "fd_resolv_tile.h"
 #include "../../disco/fd_txn_m.h"
+#include "../../disco/pack/fd_pack_est.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../discof/fd_startup.h"
@@ -160,6 +161,8 @@ typedef struct {
   fd_stashed_txn_m_t * pool;
   map_chain_t *        map_chain;
   lru_list_t           lru_list[1];
+
+  fd_pack_est_ctx_t est[1];
 
   fd_startup_gate_t startup_gate[1];
 
@@ -352,6 +355,8 @@ publish_txn( fd_resolv_ctx_t *          ctx,
     int err = peek_aluts( ctx, txnm );
     if( FD_UNLIKELY( err ) ) return 0;
   }
+
+  fd_pack_est_txn( ctx->est, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ), &txnm->pack_est );
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -578,6 +583,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
     }
   }
 
+  fd_pack_est_txn( ctx->est, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ), &txnm->pack_est );
+
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_pack->chunk, realized_sz, 0UL, tsorig, tspub );
@@ -620,6 +627,12 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->map_chain );
 
   FD_TEST( ctx->lru_list==lru_list_join( lru_list_new( ctx->lru_list ) ) );
+
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)ctx->map_seed, 0UL ) );
+  if( FD_UNLIKELY( !fd_pack_est_ctx_init( ctx->est, fd_type_pun_const( tile->resolv.acct_blocklist ), tile->resolv.acct_blocklist_cnt, rng ) ) )
+    FD_LOG_ERR(( "fd_pack_est_ctx_init failed" ));
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   memset( ctx->blockhash_ring, 0, sizeof( ctx->blockhash_ring ) );
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
@@ -709,6 +722,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
+#define STEM_STICKY_POLL_MAX (64UL)
 
 /* The default STEM_LAZY is derived from cr_max, which is the minimum
    depth among all reliably-consumed output links.  The resolv_replay

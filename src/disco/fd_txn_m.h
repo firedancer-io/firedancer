@@ -12,6 +12,19 @@
 #define FD_TXN_M_TPU_SOURCE_BUNDLE (4UL)
 #define FD_TXN_M_TPU_SOURCE_TXSEND (5UL)
 
+/* fd_pack_est_t: what pack derives from a transaction alone, computed
+   upstream by fd_pack_est_txn (pack/fd_pack_est.h) so pack's insert
+   only reads it. */
+struct fd_pack_est {
+  uint cost;     /* total cost units, 0 if estimation failed */
+  uint exec_cus; /* requested execution + loaded accounts data CUs */
+  uint rewards;  /* signature + priority fee lamports, before alloc scaling */
+  uint alloc;    /* bound on allocated account data, bytes */
+  uint flags;    /* FD_TXN_P_FLAGS_{IS_SIMPLE_VOTE,DURABLE_NONCE,EST_*} */
+};
+
+typedef struct fd_pack_est fd_pack_est_t;
+
 struct fd_txn_m {
   /* The computed slot that this transaction is referencing, aka. the
      slot number of the reference_blockhash.  If it could not be
@@ -29,7 +42,10 @@ struct fd_txn_m {
   uint     source_ipv4;
   uchar    source_tpu;
 
-  /* 7 bytes of padding here */
+  /* 3 bytes of padding here */
+
+  /* Only meaningful in frags after the resolv step. */
+  fd_pack_est_t pack_est;
 
   /* Wallclock nanoseconds at which this transaction entered the
      validator. */

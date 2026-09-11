@@ -1,6 +1,7 @@
 #include "../../ballet/fd_ballet.h"
 #include "fd_pack.h"
 #include "fd_pack_cost.h"
+#include "fd_pack_est.h"
 #include "fd_compute_budget_program.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/base58/fd_base58.h"
@@ -41,6 +42,11 @@ fd_rng_t _rng[1];
 fd_rng_t * rng;
 int extra_verify;
 
+/* Stands in for the resolv tile: what pack's insert expects precomputed */
+fd_pack_est_ctx_t est_ctx[1];
+static inline void est( fd_txn_e_t * e ) { fd_pack_est_txn( est_ctx, TXN(e->txnp), e->txnp->payload, e->alt_accts, &e->txnp->pack_est ); }
+static inline void est_bundle( fd_txn_e_t * const * b, ulong cnt ) { for( ulong i=0UL; i<cnt; i++ ) est( b[ i ] ); }
+
 #define SET_NAME aset
 #include "../../util/tmpl/fd_smallset.c"
 
@@ -78,7 +84,7 @@ init_all( ulong pack_depth,
   else                         FD_LOG_NOTICE(( "Test required %lu bytes of %lu available bytes",    footprint, PACK_SCRATCH_SZ ));
 #endif
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, 1UL, bank_tile_cnt, limits, NULL, 0UL, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, 1UL, bank_tile_cnt, limits, rng ) );
 
   outcome->microblock_cnt = 0UL;
   for( ulong i=0UL; i<FD_PACK_MAX_EXECLE_TILES; i++ ) {
@@ -361,6 +367,7 @@ insert1( fd_txn_p_t * txnp,
          fd_pack_t *  pack ) {
   fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
   memcpy( slot->txnp, txnp, sizeof(fd_txn_p_t) );
+  est( slot );
   ulong _deleted;
   return fd_pack_insert_txn_fini( pack, slot, i, &_deleted );
 }
@@ -743,7 +750,7 @@ performance_test2( void ) {
 #define OUTER_ROUNDS 88
   long elapsed = 0L;
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 0UL, 4UL, limits, NULL, 0UL, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 0UL, 4UL, limits, rng ) );
 
   for( ulong outer=0UL; outer<OUTER_ROUNDS; outer++ ) {
     elapsed -= fd_log_wallclock();
@@ -754,6 +761,7 @@ performance_test2( void ) {
         slot->txnp->payload_sz = (ushort)payload_sz[ i ];
         fd_memcpy( slot->txnp->payload, payload_scratch[ i ], payload_sz[ i ]                                                );
         fd_memcpy( TXN(slot->txnp),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        est( slot );
         ulong _deleted;
         fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
       }
@@ -828,7 +836,7 @@ void performance_test( int extra_bench ) {
     long schedule  = 0L;
 
     for( ulong iter=0UL; iter<ITER_CNT; iter++ ) {
-      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 0UL, 1UL, limits, NULL, 0UL, rng ) );
+      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 0UL, 1UL, limits, rng ) );
 
       FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
 
@@ -852,6 +860,7 @@ void performance_test( int extra_bench ) {
         slot->txnp->payload_sz  = (ushort)payload_sz[ j&1 ];
         fd_memcpy( slot->txnp->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
         fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        est( slot );
 
         ulong _deleted;
         fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
@@ -898,6 +907,7 @@ void performance_test( int extra_bench ) {
         slot->txnp->payload_sz  = (ushort)payload_sz[ j&1 ];
         fd_memcpy( slot->txnp->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
         fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        est( slot );
 
         ulong _deleted;
         fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
@@ -927,6 +937,7 @@ void performance_test( int extra_bench ) {
         slot->txnp->payload_sz  = (ushort)payload_sz[ j&1 ];
         fd_memcpy( slot->txnp->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
         fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        est( slot );
 
         ulong _deleted;
         fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
@@ -989,7 +1000,7 @@ void performance_end_block( void ) {
   payload_sz[ 0UL ] = txnp_scratch[ 0UL ].payload_sz;
 
   FD_LOG_NOTICE(( "Writers\tTime (ms/call)" ));
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, 4096UL, 0UL, 8UL, limits, NULL, 0UL, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, 4096UL, 0UL, 8UL, limits, rng ) );
   for( ulong writers_cnt=1UL; writers_cnt<=16*1024UL; writers_cnt *= 2UL ) {
     long end_block = 0L;
 
@@ -1005,6 +1016,7 @@ void performance_end_block( void ) {
         slot->txnp->payload_sz = (ushort)payload_sz[ 0UL ];
         fd_memcpy( slot->txnp->payload, payload_scratch[ 0UL ], payload_sz[ 0UL ]                                              );
         fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        est( slot );
 
         ulong _deleted;
         fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
@@ -1035,6 +1047,7 @@ void heap_overflow_test( void ) {
   for( ulong j=0UL; j<1024UL; j++ ) {
     fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
     make_transaction1( slot->txnp, j, 800U, 500U, 3.0, "ABC", "DEF", NULL, NULL );  /* 11733 cus */
+    est( slot );
     ulong _deleted;
     fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
   }
@@ -1047,6 +1060,7 @@ void heap_overflow_test( void ) {
   for( ulong j=0UL; j<1024UL; j++ ) {
     fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
     make_transaction1( slot->txnp, j, 500U, 500U, 10.0, "GHJ", "KLMNOP", &r_hi, NULL );  /* 11434 cus */
+    est( slot );
     ulong _deleted;
     fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
   }
@@ -1467,6 +1481,7 @@ test_copy_out( void ) {
       make_wide_transaction( 0UL, payload_sz, alt_cnt, "A", "B" );
       fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
       fill_slot( slot, 0UL );
+      est( slot );
       FD_TEST( fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted )>=0 );
 
       fd_pack_microblock_complete( pack, 0UL );
@@ -1486,6 +1501,7 @@ test_copy_out( void ) {
       fd_txn_e_t *        _bundle[ 3 ];
       fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
       for( ulong j=0UL; j<3UL; j++ ) fill_slot( bundle[ j ], j );
+      est_bundle( bundle, 3UL );
       FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted )>=0 );
 
       fd_memset( outcome.results, COPY_OUT_CANARY, 3UL*sizeof(fd_txn_e_t) );
@@ -1529,6 +1545,7 @@ test_reject( void ) {
   ulong _deleted;
   fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
   make_vote_transaction1( bundle[0]->txnp, 0UL );
+  est_bundle( bundle, 1UL );
   int result = fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST );
 
@@ -1554,8 +1571,9 @@ test_reject_blocklist( void ) {
   fd_memset( blocklist+0, 'Z', 32UL );
   fd_memset( blocklist+1, 'Y', 32UL );
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, 2UL, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, rng ) );
   FD_TEST( pack );
+  FD_TEST( fd_pack_est_ctx_init( est_ctx, blocklist, 2UL, rng ) );
 
   ulong i = 0UL;
   make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_ADD    );
@@ -1565,18 +1583,20 @@ test_reject_blocklist( void ) {
   make_transaction( i, 1000001U, 500U, 11.0, "Y", "Z", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST );
   make_transaction( i, 1000001U, 500U, 11.0, "YZ","A", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST );
 
-  pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, 1UL, rng ) );
+  FD_TEST( fd_pack_est_ctx_init( est_ctx, blocklist, 1UL, rng ) );
   make_transaction( i, 1000001U, 500U, 11.0, "A", "Y", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_ADD    );
 
   fd_memset( blocklist+2, 'Y', 32UL );
-  FD_TEST( !fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, 3UL, rng ) );
+  FD_TEST( !fd_pack_est_ctx_init( est_ctx, blocklist, 3UL, rng ) );
 
   for( ulong i=0UL; i<FD_PACK_ACCT_BLOCKLIST_MAX+1UL; i++ ) {
     fd_memset( blocklist+i, (char)('Z'-i), 32UL );
   }
-  FD_TEST( fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, FD_PACK_ACCT_BLOCKLIST_MAX, rng ) ) );
+  FD_TEST( fd_pack_est_ctx_init( est_ctx, blocklist, FD_PACK_ACCT_BLOCKLIST_MAX, rng ) );
 
-  FD_TEST( !fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, FD_PACK_ACCT_BLOCKLIST_MAX+1UL, rng ) );
+  FD_TEST( !fd_pack_est_ctx_init( est_ctx, blocklist, FD_PACK_ACCT_BLOCKLIST_MAX+1UL, rng ) );
+
+  FD_TEST( fd_pack_est_ctx_init( est_ctx, NULL, 0UL, rng ) );
 }
 
 static inline void
@@ -1650,6 +1670,7 @@ test_bundle_nonce_conflict_detect( fd_pack_t * pack,
   for( ulong i=0UL; i<txn_cnt; i++ ) make_nonce_transaction1( bundle[ i ]->txnp, i, 11.0, 4, 0, (char)( 'a'+i ) );
   make_nonce_transaction1( bundle[ dup_idx_0 ]->txnp, dup_idx_0, 11.0, 4, 0, 'D' );
   make_nonce_transaction1( bundle[ dup_idx_1 ]->txnp, dup_idx_1, 11.0, 4, 0, 'D' );
+  est_bundle( bundle, txn_cnt );
   int result = fd_pack_insert_bundle_fini( pack, bundle, txn_cnt, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_CONFLICT );
 
@@ -1658,6 +1679,7 @@ test_bundle_nonce_conflict_detect( fd_pack_t * pack,
   for( ulong i=0UL; i<txn_cnt; i++ ) make_transaction1( bundle[ i ]->txnp, i, 1000U, 100U, 12.0-(double)i, "A", "B", NULL, NULL );
   make_nonce_transaction1( bundle[ dup_idx_0 ]->txnp, dup_idx_0, 11.0, 4, 0, 'D' );
   make_nonce_transaction1( bundle[ dup_idx_1 ]->txnp, dup_idx_1, 11.0, 4, 0, 'D' );
+  est_bundle( bundle, txn_cnt );
   result = fd_pack_insert_bundle_fini( pack, bundle, txn_cnt, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_CONFLICT );
 
@@ -1667,6 +1689,7 @@ test_bundle_nonce_conflict_detect( fd_pack_t * pack,
   make_nonce_transaction1( bundle[ dup_idx_0 ]->txnp, dup_idx_0, 11.0, 4, 0, 'D' );
   make_nonce_transaction1( bundle[ dup_idx_1 ]->txnp, dup_idx_1, 11.0, 5, 0, 'D' ); /* different */
   fd_ed25519_sig_t sig; memcpy( &sig, txnp_get_signatures( bundle[ dup_idx_1 ]->txnp ), sizeof(fd_ed25519_sig_t) );
+  est_bundle( bundle, txn_cnt );
   result = fd_pack_insert_bundle_fini( pack, bundle, txn_cnt, 1000UL, 0, NULL, &_deleted );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==txn_cnt );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
@@ -1688,6 +1711,7 @@ test_bundle_nonce( void ) {
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 11.0, 4, 0, 'a' );
   make_nonce_transaction1( bundle[1]->txnp, 1UL, 11.0, 5, 0, 'b' );
   make_nonce_transaction1( bundle[2]->txnp, 2UL, 11.0, 6, 0, 'c' );
+  est_bundle( bundle, 3UL );
   int result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 3UL );
@@ -1698,12 +1722,14 @@ test_bundle_nonce( void ) {
   make_transaction1      ( bundle[0]->txnp, 0UL, 100U, 100U, 5.0, "A", "B", NULL, NULL );
   make_nonce_transaction1( bundle[1]->txnp, 1UL, 12.0, 5, 0, 'b' );
   make_transaction1      ( bundle[2]->txnp, 2UL, 100U, 100U, 4.0, "C", "D", NULL, NULL );
+  est_bundle( bundle, 3UL );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_PRIORITY );
 
   /* Cannot insert transaction with same nonce, even with higher prio */
   fd_txn_e_t * txn = fd_pack_insert_txn_init( pack );
   make_nonce_transaction1( txn->txnp, 1UL, 12.0, 5, 0, 'b' );
+  est( txn );
   result = fd_pack_insert_txn_fini( pack, txn, 1000UL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_PRIORITY );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
@@ -1725,6 +1751,7 @@ test_bundle_nonce( void ) {
   /* Now, insert transaction (nonce free again) */
   txn = fd_pack_insert_txn_init( pack );
   make_nonce_transaction1( txn->txnp, 3UL, 10.0, 5, 0, 'b' );
+  est( txn );
   result = fd_pack_insert_txn_fini( pack, txn, 1000UL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
@@ -1736,6 +1763,7 @@ test_bundle_nonce( void ) {
   make_transaction1      ( bundle[1]->txnp, 1UL, 100U, 100U, 5.0, "A", "B", NULL, NULL );
   make_nonce_transaction1( bundle[2]->txnp, 2UL, 2.0, 5, 0, 'c' );
   fd_ed25519_sig_t sig; memcpy( &sig, txnp_get_signatures( bundle[1]->txnp ), sizeof(fd_ed25519_sig_t) );
+  est_bundle( bundle, 3UL );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
@@ -1751,6 +1779,7 @@ test_bundle_nonce( void ) {
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 2.0, 5, 0, 'b' );
   make_transaction1      ( bundle[1]->txnp, 1UL, 100U, 100U, 5.0, "A", "B", NULL, NULL );
   make_nonce_transaction1( bundle[2]->txnp, 2UL, 2.0, 5, 0, 'b' );
+  est_bundle( bundle, 3UL );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_CONFLICT );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
@@ -1761,12 +1790,14 @@ test_bundle_nonce( void ) {
     fd_txn_e_t * txn = fd_pack_insert_txn_init( pack );
     make_nonce_transaction1( txn->txnp, j, 2.0, 4, 0, (char)( 'A'+j ) );
     ulong _deleted;
+    est( txn );
     FD_TEST( fd_pack_insert_txn_fini( pack, txn, 1000UL, &_deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
   }
   bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 2.0, 4, 0, 'a' );
   make_nonce_transaction1( bundle[1]->txnp, 1UL, 2.0, 5, 0, 'b' );
   make_nonce_transaction1( bundle[2]->txnp, 2UL, 2.0, 4, 0, 'c' );
+  est_bundle( bundle, 3UL );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==32UL );
@@ -1782,6 +1813,7 @@ test_bundle_nonce( void ) {
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 11.0, 4, 0, 'a' );
   make_nonce_transaction1( bundle[1]->txnp, 1UL, 11.0, 5, 0, 'b' );
   make_nonce_transaction1( bundle[2]->txnp, 2UL, 11.0, 6, 0, 'c' );
+  est_bundle( bundle, 3UL );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );

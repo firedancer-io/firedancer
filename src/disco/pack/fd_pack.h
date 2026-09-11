@@ -35,6 +35,16 @@
 #define FD_TXN_P_FLAGS_FEES_ONLY          (32U)
 #define FD_TXN_P_FLAGS_DURABLE_NONCE      (64U)
 
+/* Set on fd_pack_est_t.flags by fd_pack_est_txn; insert rejects on
+   them, so a scheduled transaction never carries one. */
+#define FD_TXN_P_FLAGS_EST_INVALID_NONCE    (0x0100U)
+#define FD_TXN_P_FLAGS_EST_ACCOUNT_CNT      (0x0200U)
+#define FD_TXN_P_FLAGS_EST_DUPLICATE_ACCT   (0x0400U)
+#define FD_TXN_P_FLAGS_EST_WRITES_SYSVAR    (0x0800U)
+#define FD_TXN_P_FLAGS_EST_BUNDLE_BLACKLIST (0x1000U)
+#define FD_TXN_P_FLAGS_EST_ACCT_BLOCKLIST   (0x2000U)
+#define FD_TXN_P_FLAGS_EST_MASK             (0x3F00U)
+
 #define FD_TXN_P_FLAGS_RESULT_MASK  (0xFF000000U)
 
 /* A bundle is a sequence of between 1 and FD_PACK_MAX_TXN_PER_BUNDLE
@@ -226,12 +236,7 @@ fd_pack_footprint( ulong                    pack_depth,
    The limits provided in this function are the maximum possible limits
    this pack object can handle without being completely reformatted.
    rng is a local join to a random number generator used to perturb
-   estimates.  acct_blocklist is a list of accounts that cannot be read
-   or written to.  acct_blocklist is accessed acct_blocklist[i] for i in
-   [0, acct_blocklist_cnt).  acct_blocklist==NULL is okay if
-   acct_blocklist_cnt==0.  acct_blocklist_cnt must be no more than
-   FD_PACK_ACCT_BLOCKLIST_MAX.  acct_blocklist must not contain
-   duplicates or the zero address.
+   estimates.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
@@ -242,8 +247,6 @@ fd_pack_new( void                   * mem,
              ulong                    bundle_meta_sz,
              ulong                    bank_tile_cnt,
              fd_pack_limits_t const * limits,
-             fd_acct_addr_t const *   acct_blocklist,
-             ulong                    acct_blocklist_cnt,
              fd_rng_t               * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
@@ -449,6 +452,12 @@ FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RET
 
    The caller of these methods should not retain any read or write
    interest in the transaction after _fini or _cancel have been called.
+
+   Before _fini, the caller fills txn->txnp (payload, payload_sz, the
+   parsed fd_txn_t and pack_est) and txn->alt_accts.  pack_est is
+   fd_pack_est_txn's result for exactly that content; _fini derives its
+   cost, rewards and validation verdict from it rather than from the
+   transaction.
 
    expires_at (for _fini only) bounds the lifetime of the inserted
    transaction.  No particular unit is prescribed, and it need not be

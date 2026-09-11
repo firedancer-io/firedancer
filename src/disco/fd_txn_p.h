@@ -2,11 +2,13 @@
 #define HEADER_fd_src_disco_fd_txn_p_h
 
 #include "../ballet/txn/fd_txn.h"
+#include "fd_txn_m.h"
 
 struct __attribute__((aligned(64))) fd_txn_p {
   uchar payload[FD_TPU_MTU];
 
-  /* Keep metadata within 40 bytes so fd_txn_p_t fits in 4992 bytes. */
+  /* FIXME pack_est pushes metadata to 60 bytes and fd_txn_p_t to 5056;
+     main wants this back within 40 bytes / 4992. */
 
   /* Size of payload in bytes, at most FD_TPU_MTU. */
   ushort payload_sz;
@@ -52,6 +54,10 @@ struct __attribute__((aligned(64))) fd_txn_p {
      FD_TXN_P_FLAGS_* defined above.  The execle sets the high byte with
      the transaction result code. */
   uint  flags;
+
+  /* Input to pack's insert (see fd_pack_est_txn); insert derives
+     pack_cu, pack_alloc and flags from it. */
+  fd_pack_est_t pack_est;
   /* union {
     This would be ideal but doesn't work because of the flexible array member
     uchar _[FD_TXN_MAX_SZ];
@@ -64,7 +70,7 @@ struct __attribute__((aligned(64))) fd_txn_p {
 typedef struct fd_txn_p fd_txn_p_t;
 
 FD_STATIC_ASSERT( FD_TPU_MTU<=USHORT_MAX, fd_txn_p_payload_sz );
-FD_STATIC_ASSERT( sizeof(fd_txn_p_t)==4992UL, fd_txn_p_layout );
+FD_STATIC_ASSERT( sizeof(fd_txn_p_t)==5056UL, fd_txn_p_layout );
 
 #define TXN(txn_p) ((fd_txn_t *)( (txn_p)->_ ))
 

@@ -675,6 +675,8 @@ struct fd_topo_tile {
       ulong max_live_slots;
       ulong accdb_obj_id;
       ulong accdb_epoch_fseq_obj_id;
+      ulong acct_blocklist_cnt; /* [tiles.pack.account_blocklist], checked here for pack */
+      fd_pubkey_t acct_blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX ];
     } resolv;
 
 

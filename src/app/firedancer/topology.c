@@ -1715,6 +1715,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_TEST( tile->resolv.accdb_obj_id!=ULONG_MAX );
     tile->resolv.accdb_epoch_fseq_obj_id = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "accdb_epoch.resolv.%lu", tile->kind_id );
     FD_TEST( tile->resolv.accdb_epoch_fseq_obj_id!=ULONG_MAX );
+    tile->resolv.acct_blocklist_cnt = config->tiles.pack.account_blocklist_cnt;
+
+    for( ulong i=0UL; i<tile->resolv.acct_blocklist_cnt; i++ ) {
+      if( FD_UNLIKELY( NULL==fd_base58_decode_32( config->tiles.pack.account_blocklist[i], tile->resolv.acct_blocklist[i].uc ) ) ) {
+        FD_LOG_ERR(( "could not parse account %s at index %lu in [tiles.pack.account_blocklist]", config->tiles.pack.account_blocklist[i], i ));
+      }
+    }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
 
