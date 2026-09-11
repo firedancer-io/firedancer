@@ -1476,13 +1476,6 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       }
       break;
     }
-    case STATE_STAKES_STAKE_DELEGATIONS_LENGTH: {
-      if( FD_UNLIKELY( parser->length1>FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) {
-        FD_LOG_WARNING(( "invalid stakes_stake_delegations length %lu (max %lu)", parser->length1, FD_RUNTIME_MAX_STAKE_ACCOUNTS ));
-        return -1;
-      }
-      break;
-    }
     case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE: {
       if( FD_UNLIKELY( parser->warmup_cooldown_rate>1.0 ) ) {
         FD_LOG_WARNING(( "invalid stakes_stake_delegations warmup cooldown rate %f", parser->warmup_cooldown_rate ));
