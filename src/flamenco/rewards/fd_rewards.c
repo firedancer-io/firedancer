@@ -242,7 +242,7 @@ validator( fd_inflation_t const * inflation, double year) {
     - full_inflation_enable, if full_inflation_vote has been activated
 
     https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2095 */
-static FD_FN_CONST ulong
+static FD_FN_PURE ulong
 get_inflation_start_slot( fd_bank_t const * bank ) {
   ulong devnet_and_testnet = FD_FEATURE_ACTIVE_BANK( bank, devnet_and_testnet )
       ? bank->f.features.devnet_and_testnet
