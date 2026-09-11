@@ -405,6 +405,12 @@ poll_resolve( fd_http_resolver_t *  resolver,
     int res = fd_ssresolve_advance_poll_out( ssresolve );
 
     if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_ERROR ) ) {
+      /* Errors past this point are TLS shutdown failures.  Keep the
+         result. */
+      if( FD_UNLIKELY( fd_ssresolve_is_resolved( ssresolve ) ) ) {
+        fd_ssresolve_finish( ssresolve );
+        return 0;
+      }
       unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ idx ] ), now );
       return -1;
     }
@@ -415,10 +421,14 @@ poll_resolve( fd_http_resolver_t *  resolver,
     int res = fd_ssresolve_advance_poll_in( ssresolve, &resolve_result );
 
     if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_ERROR ) ) {
+      if( FD_UNLIKELY( fd_ssresolve_is_resolved( ssresolve ) ) ) {
+        fd_ssresolve_finish( ssresolve );
+        return 0;
+      }
       unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ idx ] ), now );
       return -1;
     } else if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_AGAIN ) ) {
-      return -1;
+      return 0; /* let the caller handle POLLERR/POLLHUP below */
     } else if( FD_LIKELY( res==FD_SSRESOLVE_ADVANCE_RESULT ) ) {
       FD_TEST( peer->deadline_nanos>now );
 
@@ -463,12 +473,15 @@ poll_advance( fd_http_resolver_t * resolver,
       if( FD_UNLIKELY( res ) ) continue;
     }
 
-    /* Only react to POLLERR/POLLHUP if the ssresolve hasn't completed
-       yet.  After a redirect is parsed the server often closes the
-       connection, which is harmless. */
-    if( FD_UNLIKELY( (pfd->revents & (POLLERR|POLLHUP)) && !fd_ssresolve_is_done( ssresolve ) ) ) {
-      unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] ), now );
-      continue;
+    /* Servers usually close right after the redirect.  If the result
+       was already parsed that is harmless, so give up on the pending
+       TLS shutdown instead of discarding the peer. */
+    if( FD_UNLIKELY( pfd->revents & (POLLERR|POLLHUP) ) ) {
+      if( FD_UNLIKELY( !fd_ssresolve_is_resolved( ssresolve ) ) ) {
+        unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] ), now );
+        continue;
+      }
+      if( FD_UNLIKELY( !fd_ssresolve_is_done( ssresolve ) ) ) fd_ssresolve_finish( ssresolve );
     }
 
     /* Once both the full and incremental snapshots are resolved, we can
