@@ -421,7 +421,7 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L98-L107
    https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L156-L176 */
-static inline int
+int
 fd_executor_sanitize_txn_v1_config( fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out ) {
   fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
