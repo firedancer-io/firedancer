@@ -11,6 +11,7 @@
 static ulong
 feature_effective_slot( fd_epoch_schedule_t const * epoch_schedule,
                         ulong                       activation_slot ) {
+  if( FD_UNLIKELY( !activation_slot ) ) return 0UL; /* genesis immediately */
   ulong activation_epoch = fd_slot_to_epoch( epoch_schedule, activation_slot, NULL );
   return fd_epoch_slot0( epoch_schedule, fd_ulong_sat_add( activation_epoch, 1UL ) );
 }
