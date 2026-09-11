@@ -802,8 +802,7 @@ after_shred( ctx_t      * ctx,
     if( FD_UNLIKELY( !blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) return;
 
     if( FD_LIKELY( fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr, rx_tick ) ) ) {
-      fd_hash_t match_block_id[1]; /* unused by the legacy repair path */
-      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_match( ctx->inflights, nonce, shred->slot, shred->idx, &peer, match_block_id ) ) > 0 ) ) {
+      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_shred_match( ctx->inflights, nonce, shred->slot, shred->idx, NULL, &peer, NULL, fd_clock_tile_now( ctx->clock ) ) ) > 0 ) ) {
         fd_policy_peer_response_update( ctx->policy, &peer, rtt );
         fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
         blk->response_cnt++;
@@ -1179,18 +1178,19 @@ after_frag( ctx_t *             ctx,
    are not real requests made to the network, and cannot be matched
    by a shred response. */
 static void
-defer_inflight_request( ctx_t * ctx, ulong slot, ulong shred_idx ) {
+defer_inflight_request( ctx_t * ctx, ulong slot, ulong shred_idx, long now ) {
   fd_hash_t hash = { .ul[0] = 0 };
-  fd_inflight_key_t inflight_req = { .slot = slot, .shred_idx = shred_idx, .nonce = 0 };
-  if( FD_LIKELY( !fd_inflight_map_ele_query( ctx->inflights->map, &inflight_req, NULL, ctx->inflights->pool ) ) ) {
-    fd_inflights_request_insert( ctx->inflights, 0, &hash, slot, shred_idx, NULL );
+  fd_inflight_key_t inflight_req[1];
+  fd_inflight_key_init( inflight_req, FD_REPAIR_KIND_SHRED, slot, shred_idx, 0UL, NULL );
+  if( FD_LIKELY( !fd_inflight_map_ele_query( ctx->inflights->map, inflight_req, NULL, ctx->inflights->pool ) ) ) {
+    fd_inflights_shred_insert( ctx->inflights, 0, &hash, slot, shred_idx, NULL, NULL, now );
   }
 }
 
 /* Should be called for any regular FD_REPAIR_KIND_SHRED request made. */
 static void
-record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulong slot, ulong shred_idx ) {
-  fd_inflights_request_insert( ctx->inflights, nonce, peer, slot, shred_idx, NULL );
+record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulong slot, ulong shred_idx, long now ) {
+  fd_inflights_shred_insert( ctx->inflights, nonce, peer, slot, shred_idx, NULL, NULL, now );
   fd_policy_peer_request_update( ctx->policy, peer );
 }
 
@@ -1216,10 +1216,10 @@ record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulo
 
    There are two methods through which we make regular shred requests:
    1. policy_next
-   2. fd_inflights_request_pop
+   2. fd_inflights_pop
 
    In general, policy_next makes the first request for shred X, and
-   fd_inflights_request_pop makes all subsequent requests for shred X at
+   fd_inflights_pop makes all subsequent requests for shred X at
    DEDUP_TIMEOUT intervals.  This is to give each request a fair chance
    to be received, but also to avoid colliding nonces.  This is because
    we want to be as accurate as possible when tracking per-peer response
@@ -1227,7 +1227,7 @@ record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulo
 
    With eviction, it's possible for policy_next to make the same request
    for shred X multiple times, in short timeout intervals.  Therefore we
-   need to have both policy_next and fd_inflights_request_pop requests
+   need to have both policy_next and fd_inflights_pop requests
    pass through the same dedup cache.  At the point of eviction, we
    leave requests for that slot in the dedup cache and in the inflights
    table. If an old request from before eviction happens to
@@ -1268,9 +1268,12 @@ after_credit( ctx_t *             ctx,
   }
 
   if( FD_UNLIKELY( fd_inflights_should_drain( ctx->inflights, now ) ) ) {
-    ulong nonce; ulong slot; ulong shred_idx; fd_hash_t block_id;
+    fd_inflight_t req[1];
+    fd_inflights_pop( ctx->inflights, req );
     *charge_busy = 1;
-    fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &block_id, &shred_idx );
+    ulong nonce     = req->key.nonce;
+    ulong slot      = req->key.slot;
+    ulong shred_idx = req->key.idx;
 
     fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
     if( FD_UNLIKELY( blk && shred_idx <= blk->complete_idx && !fd_forest_blk_idxs_test( fd_forest_blk_idxs( ctx->forest, blk ), shred_idx ) ) ) {
@@ -1278,14 +1281,14 @@ after_credit( ctx_t *             ctx,
 
       if( FD_UNLIKELY( !peer || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
         /* No peers available, park the request in inflights. */
-        defer_inflight_request( ctx, slot, shred_idx );
+        defer_inflight_request( ctx, slot, shred_idx, now );
       } else {
         ctx->metrics->rerequest++;
         blk->req_retransmit_cnt++;
         nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, (uint)shred_idx, now );
         fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now/(ulong)1e6, (uint)nonce, slot, shred_idx );
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
-        record_inflight_request( ctx, nonce, peer, slot, shred_idx ); /* Request is definitely a regular shred request. */
+        record_inflight_request( ctx, nonce, peer, slot, shred_idx, now ); /* Request is definitely a regular shred request. */
         return;
       }
     }
@@ -1303,13 +1306,13 @@ after_credit( ctx_t *             ctx,
        removed and then readded. policy_next will re-request shred 0,
        but if we let it get dropped here, it's possible the request
        could get lost forever. */
-    defer_inflight_request( ctx, cout->shred.slot, cout->shred.shred_idx );
+    defer_inflight_request( ctx, cout->shred.slot, cout->shred.shred_idx, now );
     return;
   }
 
   /* finally, send the request made by policy */
   fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
-  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx );
+  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx, now );
 }
 
 static void
@@ -1583,7 +1586,7 @@ metrics_write( ctx_t * ctx ) {
 
   FD_MGAUGE_SET( REPAIR, SLOT_LAST_REQUESTED,   ctx->metrics->last_requested_slot );
   FD_MGAUGE_SET( REPAIR, ORPHAN_LAST_REQUESTED, ctx->metrics->last_requested_orphan );
-  FD_MGAUGE_SET( REPAIR, REQUEST_INFLIGHT,      fd_inflight_pool_used( ctx->inflights->pool ) - ctx->inflights->popped_cnt );
+  FD_MGAUGE_SET( REPAIR, REQUEST_INFLIGHT,      fd_inflights_outstanding_cnt( ctx->inflights ) );
 
   FD_MCNT_SET      ( REPAIR, PKT_TX,      ctx->metrics->send_pkt_cnt   );
   FD_MCNT_ENUM_COPY( REPAIR, REQUEST_TX, ctx->metrics->sent_pkt_types );

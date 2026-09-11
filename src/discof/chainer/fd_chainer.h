@@ -361,10 +361,10 @@ fd_chainer_init( fd_chainer_t *    chainer,
 /* fd_chainer_shred_insert inserts a shred into the chainer.  If the
    parent_slot is provided, parent_block_id must also be provided.
    Otherwise caller should pass AG_UNKNOWN_SLOT for parent_slot.
-   Returns the turbine version of slot, or NULL if shred_idx is at or
-   beyond max_shreds_per_block (the shred is dropped). */
 
-fd_chainer_slotv_t *
+   The shred may be rejected. */
+
+void
 fd_chainer_shred_insert( fd_chainer_t *    chainer,
                          ulong             slot,
                          uint              shred_idx,
@@ -396,10 +396,11 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
                         uint           fec_set_idx,
                         fd_hash_t    * merkle_root );
 
+
 void
-fd_chainer_notar_fallback( fd_chainer_t * chainer,
-                           ulong          slot,
-                           fd_hash_t      block_id );
+fd_chainer_verified_block_insert( fd_chainer_t * chainer,
+                                  ulong          slot,
+                                  fd_hash_t      block_id );
 
 /* fd_chainer_verified_parent_fec_count is chainer's entrypoint for
    updating information on what a slots fec set count, parent slot, and
@@ -407,8 +408,8 @@ fd_chainer_notar_fallback( fd_chainer_t * chainer,
    getParentAndFecSetCount.  The information should be verified before
    calling this function; chainer does no verification.  Will CRIT if
    {slot, block_id} does not exist in the chainer yet, otherwise creates
-   {parent, p_bid} slotv if it doesn't exist yet, and returns the slotv
-   associated with {slot, block_id}. */
+   {parent, p_bid} slotv if it doesn't exist yet, and returns parent
+   slotv.  May return NULL if the parent slotv is on a dead fork. */
 
 fd_chainer_slotv_t *
 fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
@@ -431,36 +432,6 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
                                  fd_hash_t    * block_id,
                                  uint           fec_set_idx,
                                  fd_hash_t    * mr );
-
-/* fd_chainer_shred_for_block_id_verify returns 1 if mr matches the root
-   previously established by a (proof-verified) getFecRoot response for
-   the version of the slot identified by block_id.  Returns 0 if the
-   version is unknown, the FEC root hasn't been authorized yet, or the
-   roots differ.  Used to verify ShredForBlockId responses before
-   admitting them to the chainer. */
-
-int
-fd_chainer_shred_for_block_id_verify( fd_chainer_t *    chainer,
-                                      ulong             slot,
-                                      uint              fec_set_idx,
-                                      fd_hash_t const * block_id,
-                                      fd_hash_t const * mr );
-
-/* fd_chainer_fec_rekey re-keys the FEC that the version of slot
-   identified by block_id owns at fec_set_idx.  Should be used when a
-   shred with the full merkle root is delivered for a FEC created from a
-   FecSetRoot repair response. FecSetRoot responses carry only the
-   20-byte root prefix.
-
-   No-op if the FEC is missing, already keyed by full_mr, or a full-root
-   entry already exists. */
-
-void
-fd_chainer_fec_rekey( fd_chainer_t *    chainer,
-                      ulong             slot,
-                      fd_hash_t const * block_id,
-                      uint              fec_set_idx,
-                      fd_hash_t const * full_mr );
 
 /* fd_chainer_fec_query returns the FEC that the version of slot
    identified by block_id owns at fec_set_idx, or NULL. */
