@@ -816,6 +816,8 @@ root_insert( fd_stake_delegations_t *      stake_delegations,
   disk_root_insert( stake_delegations, delegation );
 }
 
+#if FD_HAS_DOUBLE
+
 static void
 disk_root_promote( fd_stake_delegations_t *      stake_delegations,
                    uint                          disk_idx,
@@ -832,6 +834,8 @@ disk_root_promote( fd_stake_delegations_t *      stake_delegations,
   FD_CHECK_CRIT( found_idx==disk_idx, "missing promoted stake delegation disk root" );
   disk_root_remove( stake_delegations, disk_idx, found_bucket_idx );
 }
+
+#endif
 
 static void
 root_store( fd_stake_delegations_t *      stake_delegations,
