@@ -2669,6 +2669,128 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   return scheduled;
 }
 
+int
+fd_pack_insert_txn_fini_express( fd_pack_t  * pack,
+                                 fd_txn_e_t * txne,
+                                 ulong        expires_at,
+                                 ulong        bank_tile,
+                                 fd_txn_e_t * out ) {
+  /* Anything pending, or an initializer bundle in flight, outranks it */
+  if( FD_UNLIKELY( pack->pending_txn_cnt | (ulong)(pack->initializer_bundle_state==FD_PACK_IB_STATE_PENDING) ) ) return 0;
+
+#if FD_HAS_X86
+  /* Same cold out lines as schedule_next_microblock */
+  _mm_prefetch( (uchar *)out+FD_TPU_MTU,       _MM_HINT_ET0 );
+  _mm_prefetch( (uchar *)out+FD_TPU_MTU+ 64UL, _MM_HINT_ET0 );
+  _mm_prefetch( (uchar *)out+FD_TPU_MTU+128UL, _MM_HINT_ET0 );
+  _mm_prefetch( out+1,                         _MM_HINT_ET0 );
+#endif
+
+  fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txne;
+  fd_txn_t * txn   = TXN(txne->txnp);
+  uchar * payload  = txne->txnp->payload;
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
+  fd_acct_addr_t const * alt_adj = txne->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+
+  /* insert_txn_fini's checks; votes, nonces and rejects take that path */
+  if( FD_UNLIKELY( fd_pack_estimate_rewards_and_compute( txne, ord, pack->lim )!=2                  ) ) return 0;
+  if( FD_UNLIKELY( fd_pack_validate_durable_nonce( txne )!=1                                        ) ) return 0;
+  if( FD_UNLIKELY( validate_transaction( pack, ord, accts, !!pack->bundle_meta_sz )               ) ) return 0;
+  if( FD_UNLIKELY( expires_at<pack->expire_before                                                   ) ) return 0;
+
+  /* Block limits, as schedule_next_microblock and schedule_impl apply them */
+  ulong cus = ord->compute_est;
+  if( FD_UNLIKELY( pack->microblock_cnt>=pack->lim->max_microblocks_per_block                                                          ) ) return 0;
+  if( FD_UNLIKELY( pack->data_bytes_consumed+MICROBLOCK_DATA_OVERHEAD+FD_TXN_MIN_SERIALIZED_SZ>pack->lim->max_data_bytes_per_block ) ) return 0;
+  if( FD_UNLIKELY( (cus                    >pack->lim->max_cost_per_block          -pack->cumulative_block_cost                      ) |
+                   (txne->txnp->payload_sz>pack->lim->max_data_bytes_per_block    -pack->data_bytes_consumed-MICROBLOCK_DATA_OVERHEAD) |
+                   (txne->txnp->pack_alloc>pack->lim->max_allocated_data_per_block-pack->alloc_consumed                             ) ) ) return 0;
+
+  fd_pack_addr_use_t  * acct_in_use  = pack->acct_in_use;
+  wcost_map_t         * writer_costs = pack->writer_costs;
+  fd_pack_wcost_ele_t * writers      = pack->writers;
+  ulong max_write_cost_per_acct = pack->lim->max_write_cost_per_acct;
+
+  /* Conflicts with outstanding microblocks, as schedule_impl checks
+     them.  Nothing is pending so no bitset fast path applies. */
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
+    fd_pack_wcost_ele_t const * in_wcost_table = wcost_map_ele_query_const( writer_costs, &acct, NULL, writers );
+    if( FD_UNLIKELY( in_wcost_table && in_wcost_table->total_cost+cus>max_write_cost_per_acct ) ) return 0;
+    fd_pack_addr_use_t const * use = acct_uses_query( acct_in_use, acct, NULL );
+    if( FD_UNLIKELY( use && use->in_use_by ) ) return 0;
+  }
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+    if( fd_pack_unwritable_contains( acct ) ) continue;
+    fd_pack_addr_use_t const * use = acct_uses_query( acct_in_use, *acct, NULL );
+    if( FD_UNLIKELY( use && (use->in_use_by & FD_PACK_IN_USE_WRITABLE) ) ) return 0;
+  }
+
+  /* Take it: what schedule_impl does for a taken transaction, minus the
+     pool state it never had.  Its accounts hold no bitset references,
+     so the uses get BIT_CLEARED as a released last reference would set
+     it, and microblock_complete leaves the bitsets alone. */
+  txne->txnp->flags &= ~(FD_TXN_P_FLAGS_BUNDLE | FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_DURABLE_NONCE | FD_TXN_P_FLAGS_EST_MASK);
+  copy_txn_out( ord, out );
+
+  fd_pack_addr_use_t * use_by_bank     = pack->use_by_bank    [bank_tile];
+  ulong                use_by_bank_cnt = pack->use_by_bank_cnt[bank_tile];
+  ulong bank_tile_mask = 1UL<<bank_tile;
+
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t acct_addr = *ACCT_ITER_TO_PTR( iter );
+
+    fd_pack_wcost_ele_t * in_wcost_table = wcost_map_ele_query( writer_costs, &acct_addr, NULL, writers );
+    if( !in_wcost_table ) {
+      in_wcost_table = wcost_pool_ele_acquire( writers );
+      in_wcost_table->key        = acct_addr;
+      in_wcost_table->total_cost = 0UL;
+      wcost_map_ele_insert     ( writer_costs,       in_wcost_table, writers );
+      wcost_dlist_ele_push_tail( pack->written_list, in_wcost_table, writers );
+    }
+    in_wcost_table->total_cost += cus;
+
+    fd_pack_addr_use_t * use = acct_uses_insert( acct_in_use, acct_addr );
+    use->in_use_by = bank_tile_mask | FD_PACK_IN_USE_WRITABLE | FD_PACK_IN_USE_BIT_CLEARED;
+
+    use_by_bank[use_by_bank_cnt++] = *use;
+  }
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t acct_addr = *ACCT_ITER_TO_PTR( iter );
+    if( fd_pack_unwritable_contains( &acct_addr ) ) continue;
+
+    fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct_addr, NULL );
+    if( !use ) { use = acct_uses_insert( acct_in_use, acct_addr ); use->in_use_by = 0UL; }
+
+    if( !(use->in_use_by & bank_tile_mask) ) use_by_bank[use_by_bank_cnt++] = *use;
+    use->in_use_by |= bank_tile_mask | FD_PACK_IN_USE_BIT_CLEARED;
+  }
+
+  pack->use_by_bank_txn[bank_tile][0] = use_by_bank_cnt;
+  pack->use_by_bank_cnt[bank_tile]    = use_by_bank_cnt;
+
+  pack->cumulative_block_cost       += cus;
+  pack->data_bytes_consumed         += txne->txnp->payload_sz + MICROBLOCK_DATA_OVERHEAD;
+  pack->alloc_consumed              += txne->txnp->pack_alloc;
+  pack->microblock_cnt              += 1UL;
+  pack->outstanding_microblock_mask |= bank_tile_mask;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX ]++;
+  fd_histf_sample( pack->txn_per_microblock,  1UL );
+  fd_histf_sample( pack->vote_per_microblock, 0UL );
+
+  trp_pool_ele_release( pack->pool, ord );
+
+#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+  _mm_sfence();
+#endif
+  return 1;
+}
+
 ulong fd_pack_bank_tile_cnt     ( fd_pack_t const * pack ) { return pack->bank_tile_cnt;         }
 ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumulative_block_cost; }
 

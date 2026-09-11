@@ -476,6 +476,22 @@ fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                        
 int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong expires_at, ulong * delete_cnt );
 void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                                       );
 
+/* fd_pack_insert_txn_fini_express is an alternative to _fini for when
+   pack has no pending transactions.  txn is then the only schedulable
+   candidate, so if it passes the same checks _fini and
+   fd_pack_schedule_next_microblock would apply (validation, block
+   limits, no conflict with an outstanding microblock), it is copied to
+   out as a one-transaction microblock for bank_tile, with all the
+   accounting of a scheduled microblock, without ever entering the pool.
+   bank_tile must not have an outstanding microblock.  Returns 1 if
+   dispatched: the caller publishes out and later calls
+   fd_pack_microblock_complete( pack, bank_tile ) as usual, and txn is
+   released.  Returns 0 otherwise (something is pending, txn is a vote
+   or durable nonce transaction, fails validation, does not fit, or
+   conflicts): pack is unchanged and the caller must pass txn to _fini
+   or _cancel exactly as if this function had not been called. */
+int fd_pack_insert_txn_fini_express( fd_pack_t * pack, fd_txn_e_t * txn, ulong expires_at, ulong bank_tile, fd_txn_e_t * out );
+
 /* fd_pack_insert_bundle_{init,fini,cancel} are parallel to the
    similarly named fd_pack_insert_txn functions but can be used to
    insert a bundle instead of a transaction.

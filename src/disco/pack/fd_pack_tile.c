@@ -152,6 +152,7 @@ typedef struct {
 
   long  slot_pack_start_ns;  /* wallclock ns production began for leader_slot */
   ulong slot_bundle_txn_cnt; /* bundled txns scheduled into leader_slot */
+  ulong slot_express_cnt;    /* txns dispatched from after_frag without pooling */
 
   /* The maximum number of microblocks that can be packed in this slot.
      Provided by the PoH tile when we become leader.*/
@@ -379,13 +380,14 @@ log_end_block_metrics( fd_pack_ctx_t * ctx,
                        ulong           cus_consumed_in_block ) {
 #define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULED_##m) ] - ctx->last_sched_metrics->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
 #define AVAIL( m ) (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_AVAILABLE_##m) ])
-    FD_LOG_INFO(( "pack_end_block(slot=%lu,%s,%lx,ticks_since_last_schedule=%ld,reasons=%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu;remaining=%lu+%lu+%lu+%lu;smallest=%lu;cus=%lu->%lu)",
+    FD_LOG_INFO(( "pack_end_block(slot=%lu,%s,%lx,ticks_since_last_schedule=%ld,reasons=%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu;remaining=%lu+%lu+%lu+%lu;smallest=%lu;cus=%lu->%lu;microblocks=%lu;express=%lu)",
           ctx->leader_slot, reason, ctx->execle_idle_bitset, now-ctx->last_sched_metrics->time,
           DELTA( TAKEN ), DELTA( CU_LIMIT ), DELTA( FAST_PATH ), DELTA( BYTE_LIMIT ), DELTA( ALLOC_LIMIT ), DELTA( WRITE_COST ), DELTA( SLOW_PATH ), DELTA( DEFER_SKIP ),
           AVAIL(REGULAR), AVAIL(VOTES), AVAIL(BUNDLES), AVAIL(CONFLICTING),
           (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_PENDING_SMALLEST_CU) ]),
           (cus_consumed_in_block),
-          (fd_metrics_tl[ MIDX(GAUGE, PACK, BLOCK_CU_CONSUMED) ])
+          (fd_metrics_tl[ MIDX(GAUGE, PACK, BLOCK_CU_CONSUMED) ]),
+          ctx->slot_microblock_cnt, ctx->slot_express_cnt
     ));
 #undef AVAIL
 #undef DELTA
@@ -1177,6 +1179,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ctx->slot_pack_start_ns  = now_ns;
     ctx->slot_bundle_txn_cnt = 0UL;
+    ctx->slot_express_cnt    = 0UL;
 
     ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
     FD_MCNT_INC( PACK, TXN_EXPIRED, exp_cnt );
@@ -1273,10 +1276,33 @@ after_frag( fd_pack_ctx_t *     ctx,
       }
     } else {
       ulong blockhash_slot = sig;
-      ulong deleted;
-      long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot, &deleted );
-      insert_duration      += fd_tickcount();
+      ulong deleted        = 0UL;
+      int   result         = FD_PACK_INSERT_ACCEPT_NONVOTE_ADD;
+
+      /* Express lane: leader with nothing pending and an idle execle
+         that may take normal transactions makes the arriving
+         transaction the only candidate; dispatch it without pooling.
+         Never take the last allowed microblock: after_credit ends the
+         slot when its own dispatch reaches the bound. */
+      int i = -1; /* the express execle */
+      if( (ctx->leader_slot!=ULONG_MAX) & !ctx->drain_execle & !!ctx->execle_idle_bitset &
+          (ctx->slot_microblock_cnt+1UL<ctx->slot_dynamic_max_microblocks) & !fd_pack_avail_txn_cnt( ctx->pack ) ) {
+        i = fd_ulong_find_lsb( ctx->execle_idle_bitset );
+        if( (ctx->strategy==FD_PACK_STRATEGY_BALANCED) && ((ulong)i>=fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now )) ) i = -1;
+      }
+      int express = 0;
+      if( i>=0 ) {
+        fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( ctx->execle_out[ i ].mem, ctx->execle_out[ i ].chunk );
+        express = fd_pack_insert_txn_fini_express( ctx->pack, ctx->cur_spot, blockhash_slot, (ulong)i, microblock_dst );
+        if( express ) {
+          publish_microblock( ctx, stem, i, microblock_dst, 1UL, now, fd_tickcount() );
+          ctx->slot_express_cnt++;
+          update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,     1 );
+          update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS, 1 );
+        }
+      }
+      if( !express ) result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot, &deleted );
+      long insert_duration = fd_tickcount() - now;
       FD_MCNT_INC( PACK, TXN_DELETED, deleted );
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
@@ -1455,6 +1481,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->pack_idx                      = 0UL;
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;
+  ctx->slot_express_cnt              = 0UL;
   ctx->slot_max_microblocks          = 0UL;
   ctx->slot_dynamic_max_microblocks  = 0UL;
   ctx->pending_reduce_mb_bound       = 0;
@@ -1586,6 +1613,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
      E. EXHAUST_MICROBLOCKS. Sets ctx->leader_slot=ULONG_MAX. return.
    after_frag:
    	 F. ABANDONED. Requires ctx->leader_slot!=ULONG_MAX
+     G. EXPRESS_MB. To an execle D left idle, so never the same link as D.
 
      It isn't possible to get a burst of 3, but a burst of 2 is possible
      in these situations.
@@ -1593,6 +1621,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
      C -> F
      D -> F
      D -> E
+     C -> G
+     D -> G
  */
 #define STEM_BURST (2UL)
 #define STEM_STICKY_POLL_MAX (4UL)
