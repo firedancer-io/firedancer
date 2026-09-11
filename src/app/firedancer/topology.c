@@ -1374,7 +1374,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
     tile->net.gossip_listen_port               = config->gossip.port;
     tile->net.repair_client_listen_port        = config->tiles.repair.repair_client_listen_port;
-    tile->net.repair_serve_listen_port         = config->tiles.rserve.repair_serve_listen_port;
+    tile->net.repair_serve_listen_port         = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
     tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
@@ -1458,7 +1458,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.tpu              = config->tiles.quic.regular_transaction_listen_port;
     tile->gossip.ports.tpu_quic         = config->tiles.quic.quic_transaction_listen_port;
     tile->gossip.ports.repair           = config->tiles.repair.repair_client_listen_port;
-    tile->gossip.ports.rserve           = config->tiles.rserve.repair_serve_listen_port;
+    tile->gossip.ports.rserve           = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
     tile->gossip.ports.votor            = fd_ushort_if( config->firedancer.development.alpenglow, config->firedancer.development.votor.quic_server_listen_port, (ushort)0 );
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
