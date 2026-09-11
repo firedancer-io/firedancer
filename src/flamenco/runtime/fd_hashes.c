@@ -10,8 +10,10 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
                                  uchar const *       data,
                                  ulong               data_len,
                                  fd_lthash_value_t * lthash_out ) {
-  fd_lthash_zero( lthash_out );
-  if( FD_UNLIKELY( !lamports ) ) return;
+  if( FD_UNLIKELY( !lamports ) ) {
+    fd_lthash_zero( lthash_out );
+    return;
+  }
 
   uchar executable_flag = !!executable;
 
@@ -65,13 +67,12 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
   /* Compute the new hash of the account */
   fd_hashes_account_lthash_simple( pubkey, owner, lamports, executable, data, data_len, lthash_post );
 
-  /* Subtract the old hash of the account from the bank lthash */
+  fd_lthash_value_t delta[1];
+  fd_memcpy( delta, lthash_post, sizeof(fd_lthash_value_t) );
+  fd_lthash_sub( delta, lthash_prev );
+
   fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
-  fd_lthash_sub( bank_lthash, lthash_prev );
-
-  /* Add the new hash of the account to the bank lthash */
-  fd_lthash_add( bank_lthash, lthash_post );
-
+  fd_lthash_add( bank_lthash, delta );
   fd_bank_lthash_end_locking_modify( bank );
 
   fd_hashes_capture_account( pubkey, owner, lamports, executable, data, data_len, bank, capture_ctx );
