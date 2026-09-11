@@ -2933,6 +2933,13 @@ static int
 try_notify_consensus_root( fd_replay_tile_t *  ctx,
                            fd_stem_context_t * stem ) {
 
+  /* Other tiles cannot prune while we are leader - replay may still be
+     waiting for the remaining FEC sets of our own slots to be
+     delivered, and if the upstream tiles prune too early, they may fail
+     to forward our own leader FECs.  Then we would be permanently stuck
+     in the leader state. */
+  if( FD_UNLIKELY( ctx->is_leader ) ) return 0;
+
   if( FD_LIKELY( ctx->notified_root_slot==ctx->consensus_root_slot &&
                  fd_hash_eq( &ctx->notified_root, &ctx->consensus_root ) ) ) return 0;
 
