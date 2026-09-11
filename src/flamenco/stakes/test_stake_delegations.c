@@ -234,7 +234,7 @@ int main( int argc, char ** argv ) {
   ulong const max_stake_accounts = 10UL;
 
   /* Leaves disk headroom for root, delta, and frontier spill records. */
-  ulong const max_fallback_stake_accounts = 512UL;
+  ulong const max_disk_records = 512UL;
 
   ulong const max_live_slots = 32UL;
 
@@ -246,9 +246,9 @@ int main( int argc, char ** argv ) {
   FD_TEST( fd_stake_delegations_align()>=alignof(fd_stake_delegations_t)  );
   FD_TEST( fd_stake_delegations_align()==FD_STAKE_DELEGATIONS_ALIGN );
 
-  FD_TEST( !fd_stake_delegations_new( NULL, 0UL, max_stake_accounts, max_fallback_stake_accounts, expected_stake_accounts, max_live_slots ) );
-  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0UL, max_fallback_stake_accounts, expected_stake_accounts, max_live_slots ) );
-  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts, max_fallback_stake_accounts, expected_stake_accounts, max_live_slots );
+  FD_TEST( !fd_stake_delegations_new( NULL, 0UL, max_stake_accounts, max_disk_records, expected_stake_accounts, max_live_slots ) );
+  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0UL, max_disk_records, expected_stake_accounts, max_live_slots ) );
+  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts, max_disk_records, expected_stake_accounts, max_live_slots );
   FD_TEST( new_stake_delegations_mem );
 
   FD_TEST( !fd_stake_delegations_join( NULL ) );
@@ -849,10 +849,10 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_reset( stake_delegations );
   }
 
-  /* Case 32: max_fallback_stake_accounts bounds each full-record disk
+  /* Case 32: max_disk_records bounds each full-record disk
      tier, and every disk index fits below the delta tag bit. */
   {
-    FD_TEST( stake_delegations->max_disk_records_==max_fallback_stake_accounts );
+    FD_TEST( stake_delegations->max_disk_records_==max_disk_records );
     FD_TEST( stake_delegations->max_disk_records_<(ulong)FD_STAKE_DELEGATIONS_DELTA_DISK_TAG );
   }
 

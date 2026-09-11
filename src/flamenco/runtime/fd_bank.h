@@ -584,7 +584,7 @@ fd_banks_new( void * mem,
               ulong  max_total_banks,
               ulong  max_fork_width,
               ulong  max_stake_accounts,
-              ulong  max_fallback_stake_accounts,
+              ulong  max_disk_records,
               ulong  max_vote_accounts,
               ulong  bench_max_cost_per_block, /* [development.bench], floors the block cost limit */
               ulong  seed );

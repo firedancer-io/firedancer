@@ -574,7 +574,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   ulong max_banks = 16UL;
   ulong max_forks =  4UL;
   ulong max_stake          = 64UL;
-  ulong max_fallback_stake = 1024UL;
+  ulong max_disk_records   = 1024UL;
   ulong max_vote           = 64UL;
   ulong seed               = 42UL;
 
@@ -585,7 +585,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( banks_mem );
 
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
-                                                    max_stake, max_fallback_stake, max_vote,
+                                                    max_stake, max_disk_records, max_vote,
                                                     0UL /* max_cost_per_block */, seed ) );
   FD_TEST( banks );
 

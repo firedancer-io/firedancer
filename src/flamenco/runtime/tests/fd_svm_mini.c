@@ -211,7 +211,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache ) )) );
 
   mini->banks = fd_banks_join( fd_banks_new( banks_mem, txn_max, limits->max_fork_width,
-                               limits->max_stake_accounts, limits->max_fallback_stake_accounts,
+                               limits->max_stake_accounts, limits->max_disk_records,
                                limits->max_vote_accounts, 0, 8888UL ) );
   FD_TEST( mini->banks );
 

@@ -305,7 +305,7 @@ fd_banks_new( void * shmem,
               ulong  max_total_banks,
               ulong  max_fork_width,
               ulong  max_stake_accounts,
-              ulong  max_fallback_stake_accounts,
+              ulong  max_disk_records,
               ulong  max_vote_accounts,
               ulong  bench_max_cost_per_block,
               ulong  seed ) {
@@ -388,7 +388,7 @@ fd_banks_new( void * shmem,
      each of the elements in the pool as well as set up the lock for
      each of the pools. */
 
-  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations_mem, seed, max_stake_accounts, max_fallback_stake_accounts, max_stake_accounts, max_total_banks ) );
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations_mem, seed, max_stake_accounts, max_disk_records, max_stake_accounts, max_total_banks ) );
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_WARNING(( "Unable to create stake delegations root" ));
     return NULL;

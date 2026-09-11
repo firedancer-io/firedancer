@@ -63,9 +63,8 @@
    and the iterator are the exception: the caller holds the write lock
    across the whole mark/iterate/unmark bracket.
 
-   max_fallback_stake_accounts bounds tha max amount of stake accounts
-   that can spill to disk for the root pool and the delta pool
-   separately. */
+   max_disk_records bounds the number of stake accounts that can spill
+   to disk for the root pool and the delta pool separately. */
 
 #define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
 #define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
@@ -218,7 +217,6 @@ struct fd_stake_delegations {
   ulong disk_temp_root_cnt_;
   ulong disk_delta_cnt_;
   ulong disk_slot_cnt_; /* pow2 slots in each disk hash index */
-  ulong disk_seed_;
   ulong disk_root_tombstone_cnt_;
   ulong disk_delta_tombstone_cnt_;
   uint  disk_root_gen_; /* buckets with an older generation are empty */
@@ -350,7 +348,7 @@ void *
 fd_stake_delegations_new( void * mem,
                           ulong  seed,
                           ulong  max_stake_accounts,
-                          ulong  max_fallback_stake_accounts,
+                          ulong  max_disk_records,
                           ulong  expected_stake_accounts,
                           ulong  max_live_slots );
 
@@ -559,7 +557,7 @@ fd_stake_delegations_frontier_query_end( fd_stake_delegations_t *   stake_delega
    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
         !fd_stake_delegations_iter_done( iter );
         fd_stake_delegations_iter_next( iter ) ) {
-     fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
+     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
    }
 */
 
@@ -567,8 +565,8 @@ fd_stake_delegations_iter_t *
 fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
                                 fd_stake_delegations_t const * stake_delegations );
 
-static inline fd_stake_delegation_t *
-fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter ) {
+static inline fd_stake_delegation_t const *
+fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t const * iter ) {
   return iter->ele;
 }
 

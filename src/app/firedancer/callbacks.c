@@ -31,7 +31,7 @@ static void
 banks_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
   ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
-  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS_FALLBACK, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, VAL("bench_max_cost_per_block"), seed ) );
+  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, VAL("bench_max_cost_per_block"), seed ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_banks = {
