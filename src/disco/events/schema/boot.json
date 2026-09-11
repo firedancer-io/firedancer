@@ -3,17 +3,17 @@
     "id": 10,
     "description": "Reported once when the validator process starts. A wide fingerprint of the host, operating system, kernel, hardware, network, build, and validator configuration at launch.",
     "fields": {
-        "kernel_release":              { "type": "String",        "description": "Kernel release string, such as 6.1.0-1202605170043.el9.x86_64.", "max_len": 65 },
-        "kernel_version":              { "type": "String",        "description": "Full kernel build version string including build date and preemption model.", "max_len": 129 },
+        "kernel_release":              { "type": "String",           "description": "Kernel release string, such as 6.1.0-1202605170043.el9.x86_64.", "max_len": 65 },
+        "kernel_version":              { "type": "String",           "description": "Full kernel build version string including build date and preemption model.", "max_len": 129 },
         "mitigations": {
             "type": "Array",
             "description": "Processor vulnerabilities for which a kernel mitigation is active; mitigations in force split performance cohorts on otherwise identical hardware. Empty when every mitigation is disabled or the hardware is unaffected.",
             "max_len": 32,
             "element": { "type": "LowCardinality(String)", "description": "Name of one vulnerability with an active mitigation, such as spectre_v2." }
         },
-        "distro_id":                   { "type": "String",        "description": "Short distribution identifier such as ubuntu, rhel, debian, or centos.", "max_len": 64 },
-        "distro_version_id":           { "type": "String",        "description": "Distribution version number, such as 22.04 or 9.4.", "max_len": 64 },
-        "distro_id_like":              { "type": "String",        "description": "Family of distributions this one derives from, such as debian or rhel.", "max_len": 128 },
+        "distro_id":                   { "type": "String",           "description": "Short distribution identifier such as ubuntu, rhel, debian, or centos.", "max_len": 64 },
+        "distro_version_id":           { "type": "String",           "description": "Distribution version number, such as 22.04 or 9.4.", "max_len": 64 },
+        "distro_id_like":              { "type": "String",           "description": "Family of distributions this one derives from, such as debian or rhel.", "max_len": 128 },
         "libc_kind": {
             "type": "LowCardinality(String)",
             "description": "Which system C library the validator is running against.",
@@ -23,7 +23,7 @@
                 "unknown": { "description": "unknown" }
             }
         },
-        "libc_version":                { "type": "String",        "description": "Version of the system C runtime library, such as 2.34.", "max_len": 32 },
+        "libc_version":                { "type": "String",           "description": "Version of the system C runtime library, such as 2.34.", "max_len": 32 },
         "build_machine_target": {
             "type": "LowCardinality(String)",
             "description": "The named hardware target the binary was compiled for, which fixes the minimum processor it can run on. Distinct from the live processor it is currently running on.",
@@ -45,8 +45,8 @@
                 "other":               { "description": "other" }
             }
         },
-        "build_extras":                { "type": "String",        "description": "The list of optional build features requested when the binary was compiled, such as sanitizers or coverage. Empty for a normal production build.", "max_len": 128 },
-        "build_git_dirty":             { "type": "Bool",          "description": "Whether tracked files in the source tree had uncommitted changes when the binary was built, meaning the commit hash alone does not fully describe the code. Untracked files do not count." },
+        "build_extras":                { "type": "String",           "description": "The list of optional build features requested when the binary was compiled, such as sanitizers or coverage. Empty for a normal production build.", "max_len": 128 },
+        "build_git_dirty":             { "type": "Bool",             "description": "Whether tracked files in the source tree had uncommitted changes when the binary was built, meaning the commit hash alone does not fully describe the code. Untracked files do not count." },
         "compiler": {
             "type": "LowCardinality(String)",
             "description": "Which compiler family produced the binary.",
@@ -55,8 +55,8 @@
                 "clang": { "description": "Built with clang." }
             }
         },
-        "compiler_version":            { "type": "String",        "description": "The exact version of the compiler that produced the binary.", "max_len": 128 },
-        "build_timestamp":             { "type": "DateTime64(9)", "description": "When the binary was compiled; distinguishes rebuilds of the same commit, which build_git_dirty makes common on development builds." },
+        "compiler_version":            { "type": "String",           "description": "The exact version of the compiler that produced the binary.", "max_len": 128 },
+        "build_timestamp":             { "type": "DateTime64(9)",    "description": "When the binary was compiled; distinguishes rebuilds of the same commit, which build_git_dirty makes common on development builds." },
         "build_features": {
             "type": "Array",
             "description": "Instruction set extensions the binary was compiled to use, such as avx512 or gfni; fixes the minimum processor the binary can run on and which accelerated code paths are compiled in.",
@@ -83,15 +83,15 @@
                 "unknown": { "description": "Unlisted or undeterminable." }
             }
         },
-        "cpu_model_name":              { "type": "String",        "description": "The full marketing name of the processor.", "max_len": 96 },
-        "cpu_family":                  { "type": "UInt16",        "description": "The processor family number identifying the broad generation of the chip." },
-        "cpu_model_id":                { "type": "UInt16",        "description": "The numeric model identifier within the family, distinguishing specific chip designs." },
-        "cpu_stepping":                { "type": "UInt8",         "description": "The silicon revision number of the processor, indicating minor hardware fixes within a model." },
-        "cpu_microcode_version":       { "type": "UInt64",        "description": "The currently loaded microcode firmware revision of the processor, important because microcode updates change performance and security behavior." },
-        "cpu_logical_count":           { "type": "UInt16",        "description": "The total number of logical processors the operating system sees, counting each hardware thread separately." },
-        "cpu_physical_core_count":     { "type": "UInt16",        "description": "The number of physical cores across all processor sockets, ignoring hardware threads." },
-        "cpu_socket_count":            { "type": "UInt8",         "description": "The number of physical processor packages installed in the machine." },
-        "smt_active":                  { "type": "Bool",          "description": "Whether simultaneous multithreading (hyperthreading) is currently enabled on the host." },
+        "cpu_model_name":              { "type": "String",           "description": "The full marketing name of the processor.", "max_len": 96 },
+        "cpu_family":                  { "type": "UInt16",           "description": "The processor family number identifying the broad generation of the chip." },
+        "cpu_model_id":                { "type": "UInt16",           "description": "The numeric model identifier within the family, distinguishing specific chip designs." },
+        "cpu_stepping":                { "type": "UInt8",            "description": "The silicon revision number of the processor, indicating minor hardware fixes within a model." },
+        "cpu_microcode_version":       { "type": "UInt64",           "description": "The currently loaded microcode firmware revision of the processor, important because microcode updates change performance and security behavior." },
+        "cpu_logical_count":           { "type": "UInt16",           "description": "The total number of logical processors the operating system sees, counting each hardware thread separately." },
+        "cpu_physical_core_count":     { "type": "UInt16",           "description": "The number of physical cores across all processor sockets, ignoring hardware threads." },
+        "cpu_socket_count":            { "type": "UInt8",            "description": "The number of physical processor packages installed in the machine." },
+        "smt_active":                  { "type": "Bool",             "description": "Whether simultaneous multithreading (hyperthreading) is currently enabled on the host." },
         "cpufreq_governor": {
             "type": "LowCardinality(String)",
             "description": "The active frequency-scaling policy, which determines how aggressively the chip clocks up.",
@@ -140,11 +140,11 @@
                 "unknown":    { "description": "unknown" }
             }
         },
-        "cpu_max_enabled_cstate":      { "type": "String",        "description": "Name of the deepest processor idle state currently enabled; deeper states add wake-up latency on pinned cores.", "max_len": 16 },
+        "cpu_max_enabled_cstate":      { "type": "String",           "description": "Name of the deepest processor idle state currently enabled; deeper states add wake-up latency on pinned cores.", "max_len": 16 },
 
 
-        "host_memory_bytes":           { "type": "UInt64",        "description": "Total usable physical memory detected by the kernel at boot, in bytes." },
-        "host_memory_available_bytes": { "type": "UInt64",        "description": "Estimate of memory available for starting new applications without swapping at boot, in bytes." },
+        "host_memory_bytes":           { "type": "UInt64",           "description": "Total usable physical memory detected by the kernel at boot, in bytes." },
+        "host_memory_available_bytes": { "type": "UInt64",           "description": "Estimate of memory available for starting new applications without swapping at boot, in bytes." },
         "numa_cpu_to_node": {
             "type": "Array",
             "description": "For each logical processor, the memory locality domain it belongs to; joins tile placements against the locality of network and storage devices to find cross-domain pinning.",
@@ -240,16 +240,16 @@
                 "other":         { "description": "Another mode." }
             }
         },
-        "bound_nic_idx":               { "type": "UInt8",         "description": "Index into nic_devices of the interface bound for the kernel-bypass path, the bond master entry when bonded; 255 when the bound interface is not in the inventory." },
-        "net_bpf_jit_enable":          { "type": "UInt8",         "description": "Whether the kernel just-in-time compiler for packet programs is enabled, which is needed for efficient kernel-bypass networking." },
+        "bound_nic_idx":               { "type": "UInt8",            "description": "Index into nic_devices of the interface bound for the kernel-bypass path, the bond master entry when bonded; 255 when the bound interface is not in the inventory." },
+        "net_bpf_jit_enable":          { "type": "UInt8",            "description": "Whether the kernel just-in-time compiler for packet programs is enabled, which is needed for efficient kernel-bypass networking." },
 
 
-        "dmi_sys_vendor":              { "type": "String",        "description": "System manufacturer of the physical machine, or the virtualization vendor when virtualized.", "max_len": 64 },
-        "dmi_product_name":            { "type": "String",        "description": "Model or product name of the system, or a cloud instance product string.", "max_len": 64 },
-        "dmi_bios_version":            { "type": "String",        "description": "Version string of the installed system firmware.", "max_len": 64 },
-        "dmi_bios_date":               { "type": "String",        "description": "Release date of the installed system firmware.", "max_len": 16 },
-        "dmi_board_vendor":            { "type": "String",        "description": "Manufacturer of the motherboard.", "max_len": 64 },
-        "dmi_board_name":              { "type": "String",        "description": "Model or part name of the motherboard.", "max_len": 64 },
+        "dmi_sys_vendor":              { "type": "String",           "description": "System manufacturer of the physical machine, or the virtualization vendor when virtualized.", "max_len": 64 },
+        "dmi_product_name":            { "type": "String",           "description": "Model or product name of the system, or a cloud instance product string.", "max_len": 64 },
+        "dmi_bios_version":            { "type": "String",           "description": "Version string of the installed system firmware.", "max_len": 64 },
+        "dmi_bios_date":               { "type": "String",           "description": "Release date of the installed system firmware.", "max_len": 16 },
+        "dmi_board_vendor":            { "type": "String",           "description": "Manufacturer of the motherboard.", "max_len": 64 },
+        "dmi_board_name":              { "type": "String",           "description": "Model or part name of the motherboard.", "max_len": 64 },
         "dmi_chassis_type": {
             "type": "LowCardinality(String)",
             "description": "Physical chassis form factor of the host.",
@@ -315,11 +315,11 @@
                 "unknown":        { "description": "Unlisted or undeterminable." }
             }
         },
-        "kubernetes_pod":              { "type": "Bool",          "description": "Whether the validator is running inside a managed orchestration pod." },
-        "cgroup_memory_limit_bytes":   { "type": "UInt64",        "description": "Hard memory limit imposed by the control group, 0 when unlimited; the ceiling the kernel kills at." },
-        "cgroup_memory_high_bytes":    { "type": "UInt64",        "description": "Memory throttle threshold imposed by the control group, 0 when unset; exceeding it forces reclaim stalls long before the hard limit kills." },
-        "cgroup_swap_limit_bytes":     { "type": "UInt64",        "description": "Swap limit imposed by the control group, 0 when swap is denied to the process even though the host has swap, UInt64 max when unlimited or no limit file exists." },
-        "cgroup_cpu_quota_millicores": { "type": "UInt32",        "description": "Processor quota imposed by the control group in millicores, 0 when unlimited; a quota below the tile count strangles the validator." },
+        "kubernetes_pod":              { "type": "Bool",             "description": "Whether the validator is running inside a managed orchestration pod." },
+        "cgroup_memory_limit_bytes":   { "type": "UInt64",           "description": "Hard memory limit imposed by the control group, 0 when unlimited; the ceiling the kernel kills at." },
+        "cgroup_memory_high_bytes":    { "type": "UInt64",           "description": "Memory throttle threshold imposed by the control group, 0 when unset; exceeding it forces reclaim stalls long before the hard limit kills." },
+        "cgroup_swap_limit_bytes":     { "type": "UInt64",           "description": "Swap limit imposed by the control group, 0 when swap is denied to the process even though the host has swap, UInt64 max when unlimited or no limit file exists." },
+        "cgroup_cpu_quota_millicores": { "type": "UInt32",           "description": "Processor quota imposed by the control group in millicores, 0 when unlimited; a quota below the tile count strangles the validator." },
 
 
         "block_devices": {
@@ -389,22 +389,30 @@
                 }
             }
         },
-        "accounts_fs_idx":             { "type": "UInt8",         "description": "Index into filesystems of the mount holding the accounts database; the database grows until write failures stall replay. 255 when unset or unresolved." },
-        "snapshots_fs_idx":            { "type": "UInt8",         "description": "Index into filesystems of the mount holding the snapshots directory; download plus unpack needs roughly twice the snapshot size, and running out mid-download is a leading boot failure. 255 when unset or unresolved." },
-        "log_fs_idx":                  { "type": "UInt8",         "description": "Index into filesystems of the mount holding the log file, usually the root partition rather than the data disks. 255 when unset or unresolved." },
-        "shredb_fs_idx":               { "type": "UInt8",         "description": "Index into filesystems of the mount holding the shred database. 255 when unset or unresolved." },
-        "guidb_fs_idx":                { "type": "UInt8",         "description": "Index into filesystems of the mount holding the GUI database. 255 when unset or unresolved." },
+        "accounts_fs_idx":             { "type": "UInt8",            "description": "Index into filesystems of the mount holding the accounts database; the database grows until write failures stall replay. 255 when unset or unresolved." },
+        "snapshots_fs_idx":            { "type": "UInt8",            "description": "Index into filesystems of the mount holding the snapshots directory; download plus unpack needs roughly twice the snapshot size, and running out mid-download is a leading boot failure. 255 when unset or unresolved." },
+        "log_fs_idx":                  { "type": "UInt8",            "description": "Index into filesystems of the mount holding the log file, usually the root partition rather than the data disks. 255 when unset or unresolved." },
+        "shredb_fs_idx":               { "type": "UInt8",            "description": "Index into filesystems of the mount holding the shred database. 255 when unset or unresolved." },
+        "guidb_fs_idx":                { "type": "UInt8",            "description": "Index into filesystems of the mount holding the GUI database. 255 when unset or unresolved." },
 
 
-        "resolved_config_json":        { "type": "String",        "description": "The full resolved validator configuration serialized as text, capturing every effective setting after defaults, overrides, and system-derived values are merged. Filesystem paths, the user and host names, bind, listen, and advertised addresses, external service URLs, and gossip entrypoints are redacted.", "max_len": 262144 },
-        "user_config_json":            { "type": "String",        "description": "The operator's own configuration file parsed and serialized as text: only the settings they explicitly override, before defaults are merged. Values whose keys suggest paths, addresses, hosts, users, servers, or secrets are redacted.", "max_len": 131072 },
-        "topology_json":               { "type": "String",        "description": "The full runtime topology serialized as text, capturing the complete wiring of the validator: a tiles list with each tile's kind, core assignment or floating flag, consumed and produced link lists, event link, and memory-object count; a links list, referenced from the tile link lists by position, with each link's kind, depth, message size and burst; and a workspaces list with each workspace's locality domain, page size, page count and footprint. This is the authoritative wiring fingerprint (memory-object assignments are summarized as a count); the scalar fields are derived summaries. Tile locality follows from the core assignment joined against numa_cpu_to_node.", "max_len": 262144 },
-        "tile_count":                  { "type": "UInt16",        "description": "Total number of tiles in the running topology." },
-        "memory_total":                { "type": "UInt64",        "description": "Total memory the validator locks at boot: workspaces, tile stacks, and private pages." },
-        "memory_gigantic_pages":       { "type": "UInt64",        "description": "Gigantic pages the topology requires across all memory locality domains." },
-        "memory_huge_pages":           { "type": "UInt64",        "description": "Huge pages the topology reserves in the hugetlbfs across all memory locality domains. Tile stack pages are reserved on every domain, since stack placement is only decided when a tile starts, so they are counted once per domain." },
-        "memory_normal_pages":         { "type": "UInt64",        "description": "Normal pages the topology requires." },
-        "process_start_time":          { "type": "DateTime64(9)", "description": "Wall-clock time at which the validator process itself was started." },
-        "feature_set_id":              { "type": "UInt32",        "description": "A numeric identifier summarizing the exact set of protocol features this build understands, used to detect when nodes disagree on consensus rules." }
+        "resolved_config_json":        { "type": "String",           "description": "The full resolved validator configuration serialized as text, capturing every effective setting after defaults, overrides, and system-derived values are merged. Filesystem paths, the user and host names, bind, listen, and advertised addresses, external service URLs, and gossip entrypoints are redacted.", "max_len": 262144 },
+        "user_config_json":            { "type": "String",           "description": "The operator's own configuration file parsed and serialized as text: only the settings they explicitly override, before defaults are merged. Values whose keys suggest paths, addresses, hosts, users, servers, or secrets are redacted.", "max_len": 131072 },
+        "topology_json":               { "type": "String",           "description": "The full runtime topology serialized as text, capturing the complete wiring of the validator: a tiles list with each tile's kind, core assignment or floating flag, consumed and produced link lists, event link, and memory-object count; a links list, referenced from the tile link lists by position, with each link's kind, depth, message size and burst; and a workspaces list with each workspace's locality domain, page size, page count and footprint. This is the authoritative wiring fingerprint (memory-object assignments are summarized as a count); the scalar fields are derived summaries. Tile locality follows from the core assignment joined against numa_cpu_to_node.", "max_len": 262144 },
+        "tile_count":                  { "type": "UInt16",           "description": "Total number of tiles in the running topology." },
+        "memory_total":                { "type": "UInt64",           "description": "Total memory the validator locks at boot: workspaces, tile stacks, and private pages." },
+        "memory_gigantic_pages":       { "type": "UInt64",           "description": "Gigantic pages the topology requires across all memory locality domains." },
+        "memory_huge_pages":           { "type": "UInt64",           "description": "Huge pages the topology reserves in the hugetlbfs across all memory locality domains. Tile stack pages are reserved on every domain, since stack placement is only decided when a tile starts, so they are counted once per domain." },
+        "memory_normal_pages":         { "type": "UInt64",           "description": "Normal pages the topology requires." },
+        "process_start_time":          { "type": "DateTime64(9)",    "description": "Wall-clock time at which the validator process itself was started." },
+        "feature_set_id":              { "type": "UInt32",           "description": "A numeric identifier summarizing the exact set of protocol features this build understands, used to detect when nodes disagree on consensus rules." },
+
+        "msr_x86_amd_syscfg":          { "type": "Nullable(UInt64)", "description": "Raw value of AMD MSR C001_0010 (AMD64_SYSCFG) read from CPU0, or NULL when unavailable." },
+        "msr_x86_amd_bp_cfg":          { "type": "Nullable(UInt64)", "description": "Raw value of AMD MSR C001_102E (BP_CFG) read from CPU0, or NULL when unavailable." },
+        "msr_x86_amd_hwcr":            { "type": "Nullable(UInt64)", "description": "Raw value of AMD MSR C001_0015 (HWCR) read from CPU0, or NULL when unavailable." },
+        "msr_x86_amd_prefetch_ctl":    { "type": "Nullable(UInt64)", "description": "Raw value of AMD MSR C000_0108 (Prefetch Control, Zen3 and later) read from CPU0, or NULL when unavailable." },
+        "msr_x86_amd_de_cfg":          { "type": "Nullable(UInt64)", "description": "Raw value of AMD MSR C001_1029 (DE_CFG) read from CPU0, or NULL when unavailable." },
+        "msr_x86_amd_cppc_cap1":       { "type": "Nullable(UInt64)", "description": "Raw value of AMD MSR C001_02B0 (CPPC_CAP1) read from CPU0, or NULL when unavailable." },
+        "msr_x86_spec_ctrl":           { "type": "Nullable(UInt64)", "description": "Raw value of MSR IA32_SPEC_CTRL read from CPU0, or NULL when unavailable." }
     }
 }

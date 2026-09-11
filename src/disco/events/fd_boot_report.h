@@ -218,6 +218,24 @@ struct fd_boot_report {
   ulong  memory_normal_pages;
   ulong  process_start_time_nanos;
   uint   feature_set_id;
+
+  /* Raw MSR values at boot time */
+
+  ulong msr_x86_amd_syscfg;
+  ulong msr_x86_amd_bp_cfg;
+  ulong msr_x86_amd_hwcr;
+  ulong msr_x86_amd_prefetch_ctl;
+  ulong msr_x86_amd_de_cfg;
+  ulong msr_x86_amd_cppc_cap1;
+  ulong msr_x86_spec_ctrl;
+
+  uint  msr_x86_amd_syscfg_present       : 1;
+  uint  msr_x86_amd_bp_cfg_present       : 1;
+  uint  msr_x86_amd_hwcr_present         : 1;
+  uint  msr_x86_amd_prefetch_ctl_present : 1;
+  uint  msr_x86_amd_de_cfg_present       : 1;
+  uint  msr_x86_amd_cppc_cap1_present    : 1;
+  uint  msr_x86_spec_ctrl_present        : 1;
 };
 typedef struct fd_boot_report fd_boot_report_t;
 
