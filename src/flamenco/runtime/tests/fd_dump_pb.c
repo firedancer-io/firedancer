@@ -264,7 +264,7 @@ dump_sanitized_transaction( fd_accdb_t *                           accdb,
     uint          mask = fd_uint_load_4( txn_payload+4UL );
     uchar const * v    = txn_payload + txn_descriptor->v1_txn_config_values_off;
     fd_exec_test_transaction_config_t * cfg = &message->v1_config;
-    if( mask & 0x01U ) { cfg->has_priority_fee = 1;                    cfg->priority_fee = FD_LOAD( ulong, v );                    v += 8UL; }
+    if( mask & 0x01U ) { cfg->has_priority_fee = 1;                    cfg->priority_fee = FD_LOAD( ulong, v );                   v += 8UL; }
     if( mask & 0x04U ) { cfg->has_compute_unit_limit = 1;              cfg->compute_unit_limit = FD_LOAD( uint, v );              v += 4UL; }
     if( mask & 0x08U ) { cfg->has_loaded_accounts_data_size_limit = 1; cfg->loaded_accounts_data_size_limit = FD_LOAD( uint, v ); v += 4UL; }
     if( mask & 0x10U ) { cfg->has_heap_size = 1;                       cfg->heap_size = FD_LOAD( uint, v );                                 }
