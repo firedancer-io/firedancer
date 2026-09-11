@@ -316,7 +316,11 @@ build_firedancer() {
     EXTRAS=offline-replay make -j
 
     OBJDIR=$(EXTRAS=offline-replay make --silent --no-print-directory objdir 2>/dev/null || true)
-    : "${OBJDIR:?cannot determine OBJDIR (make objdir failed)}"
+    if [ -z "$OBJDIR" ] || [ ! -x "$OBJDIR/bin/firedancer-dev" ]; then
+        send_slack_message "@here offline-replay: firedancer-dev not found at \`${OBJDIR:-<unresolved>}/bin\` after build (OBJDIR/build-config mismatch, not a ledger failure). Exiting."
+        exit 1
+    fi
+    export OBJDIR
 }
 
 # Convert the downloaded rocksdb into a shredcap capture covering the replay
@@ -614,6 +618,7 @@ replay_until_clean() {
         # config, permissions, ...) — that is an infrastructure problem, not
         # a ledger mismatch, so there is nothing to minimize.
         if [ "$status" -ne 0 ] && [ ! -s "$TEMP_LOG" ]; then
+            sudo -E $OBJDIR/bin/firedancer-dev configure fini all --config $LEDGER_DIR/offline_replay.toml &> /dev/null || true
             send_slack_message "@here Backtest produced no log output; firedancer-dev likely failed at startup. See the configure output in the harness log. Exiting."
             exit 1
         fi

@@ -267,6 +267,8 @@ fi
 
 echo_notice "Running backtest for $LEDGER"
 
+[ -x "$OBJDIR/bin/firedancer-dev" ] || { echo "error: firedancer-dev not found at \"$OBJDIR/bin\" -- build it, or set OBJDIR/EXTRAS" >&2; exit 1; }
+
 sudo killall firedancer-dev &> /dev/null || true
 rm -f $DUMP/accounts.db
 
@@ -299,6 +301,9 @@ if [ "$status" -eq 0 ]; then
   exit 0
 fi
 
+if [ -z "$CI" ] && grep -q "Unable to set the thread affinity" "$LOG"; then
+  $OBJDIR/bin/firedancer-dev configure fini all --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null || true
+fi
 tail -n 10 $LOG
 echo "Failed with status: $status"
 
