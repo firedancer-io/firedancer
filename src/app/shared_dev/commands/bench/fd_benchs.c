@@ -22,6 +22,8 @@
 
 /* max number of buffers batched for receive */
 #define IO_VEC_CNT 128
+/* datagrams per sendmmsg in no_quic mode */
+#define TX_BATCH_CNT 64
 
 static int
 quic_tx_aio_send( void *                    _ctx,
@@ -62,9 +64,21 @@ typedef struct {
   uchar          tx_bufs[IO_VEC_CNT][2048];
 
   ulong tx_idx;
+  ulong tx_conn;  /* socket of the current no_quic batch */
+  ulong idle_cnt; /* polls since the last frag */
+  ulong in_cnt;
 
   fd_wksp_t * mem;
 } fd_benchs_ctx_t;
+
+static void
+udp_tx_flush( fd_benchs_ctx_t * ctx ) {
+  int rtn = sendmmsg( ctx->conn_fd[ ctx->tx_conn ], ctx->tx_msgs, (uint)ctx->tx_idx, 0 );
+  if( FD_UNLIKELY( rtn<0 ) ) FD_LOG_ERR(( "sendmmsg() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ctx->packet_cnt += (ulong)rtn;
+  ctx->tx_idx      = 0UL;
+  ctx->tx_conn     = (ctx->tx_conn+1UL)%ctx->conn_cnt; /* next batch to the next quic tile */
+}
 
 static void
 service_quic( fd_benchs_ctx_t * ctx,
@@ -220,7 +234,8 @@ before_frag( fd_benchs_ctx_t * ctx,
 
   (void)seq;
 
-  ctx->now = fd_clock_tile_now( ctx->clock );
+  ctx->now      = fd_clock_tile_now( ctx->clock );
+  ctx->idle_cnt = 0UL;
 
   return 0; /* sharded by seq, see in_shard */
 }
@@ -235,6 +250,18 @@ in_shard( fd_benchs_ctx_t * ctx,
 }
 
 static inline void
+after_credit( fd_benchs_ctx_t *   ctx,
+              fd_stem_context_t * stem        FD_PARAM_UNUSED,
+              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               charge_busy ) {
+  /* flush a partial batch once every in link polled empty */
+  if( FD_UNLIKELY( ctx->no_quic && ctx->tx_idx && ++ctx->idle_cnt>ctx->in_cnt ) ) {
+    udp_tx_flush( ctx );
+    *charge_busy = 1;
+  }
+}
+
+static inline void
 during_frag( fd_benchs_ctx_t * ctx,
              ulong             in_idx FD_PARAM_UNUSED,
              ulong             seq    FD_PARAM_UNUSED,
@@ -243,11 +270,10 @@ during_frag( fd_benchs_ctx_t * ctx,
              ulong             sz,
              ulong             ctl    FD_PARAM_UNUSED ) {
   if( ctx->no_quic ) {
-
-    if( FD_UNLIKELY( -1==send( ctx->conn_fd[ ctx->packet_cnt % ctx->conn_cnt ], fd_chunk_to_laddr( ctx->mem, chunk ), sz, 0 ) ) )
-      FD_LOG_ERR(( "send() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-    ctx->packet_cnt++;
+    ulong tx_idx = ctx->tx_idx;
+    fd_memcpy( ctx->tx_bufs[ tx_idx ], fd_chunk_to_laddr( ctx->mem, chunk ), sz );
+    ctx->tx_iovecs[ tx_idx ].iov_len = sz;
+    if( FD_UNLIKELY( ++ctx->tx_idx==TX_BATCH_CNT ) ) udp_tx_flush( ctx );
   } else {
     /* allows to accumulate multiple transactions before creating a UDP datagram */
     /* make this configurable */
@@ -451,6 +477,12 @@ unprivileged_init( fd_topo_t const *      topo,
         }
       };
     }
+  } else {
+    ctx->in_cnt = tile->in_cnt;
+    for( ulong i=0UL; i<TX_BATCH_CNT; i++ ) {
+      ctx->tx_iovecs[i] = (struct iovec)  { .iov_base = ctx->tx_bufs[i] };
+      ctx->tx_msgs[i]   = (struct mmsghdr){ .msg_hdr = { .msg_iov = &ctx->tx_iovecs[i], .msg_iovlen = 1 } };
+    }
   }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -550,6 +582,7 @@ during_housekeeping( fd_benchs_ctx_t * ctx ) {
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_IN_SHARD            in_shard
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
