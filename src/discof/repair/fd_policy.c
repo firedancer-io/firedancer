@@ -289,7 +289,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ele->slot, 0U, now );
       out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, 0 );
       ele->req_highest_cnt++;
-    } else if( FD_LIKELY( ele->slot == highest_known_slot ) ) {
+    } else if( FD_LIKELY( ele->slot == highest_known_slot && (ulong)cand_idx < forest->shred_max ) ) {
       ulong key = fd_reqlim_key( FD_REPAIR_KIND_SHRED, ele->slot, cand_idx );
       if( FD_UNLIKELY( fd_reqlim_query( dedup, key, now ) ) ) {
         policy->skip.slot      = ele->slot;
