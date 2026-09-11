@@ -60,13 +60,13 @@ delete_sched( fd_sched_t * sched ) {
    by a cache line or two with the machine target through the duplicate
    account checker. */
 #define TEST_SCHED_PER_SLOT_FOOTPRINT   (9586UL)
-#define TEST_SCHED_DEPTH_STEP_FOOTPRINT (745799680UL)
+#define TEST_SCHED_DEPTH_STEP_FOOTPRINT (747896832UL)
 
 static void
 test_sched_footprint( void ) {
   ulong footprint = fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   FD_TEST( footprint );
-  /* Retain the per-block savings and the 4992-byte transaction
+  /* Retain the per-block savings and the 5056-byte transaction
      records. */
   FD_TEST( footprint-fd_sched_footprint( 65536UL, 1024UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1024UL*TEST_SCHED_PER_SLOT_FOOTPRINT );
   FD_TEST( footprint-fd_sched_footprint( 32768UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==TEST_SCHED_DEPTH_STEP_FOOTPRINT );
