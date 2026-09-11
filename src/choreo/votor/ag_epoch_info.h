@@ -3,7 +3,6 @@
 
 #include "ag_votor_base.h"
 #include "../../ballet/bls/fd_bls.h"
-#include "../../flamenco/stakes/fd_stake_weight.h"
 
 FD_STATIC_ASSERT( FD_BLS_SET_MAX==AG_VAT_MAX, fd_bls_set_max );
 
@@ -25,11 +24,6 @@ struct ag_epoch_info {
 typedef struct ag_epoch_info ag_epoch_info_t;
 
 FD_PROTOTYPES_BEGIN
-
-void
-ag_epoch_info( ag_epoch_info_t *           self,
-               ag_validator_info_t const * validators,
-               ulong                       validator_cnt );
 
 FD_FN_CONST static inline ag_validator_info_t const *
 ag_epoch_info_validators( ag_epoch_info_t const * self ) {
@@ -58,11 +52,6 @@ FD_FN_PURE int ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * self, ul
 FD_FN_PURE int ag_epoch_info_is_weak_quorum   ( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_quorum        ( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_strong_quorum ( ag_epoch_info_t const * self, ulong stake );
-
-ag_epoch_info_t *
-ag_epoch_info_rank( ag_epoch_info_t              * epoch_info_mem,
-                    fd_vote_stake_weight_t const * stakes,
-                    ulong                          stake_cnt );
 
 FD_PROTOTYPES_END
 

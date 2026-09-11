@@ -16,6 +16,7 @@
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/stakes/fd_stake_weight.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_conn.h"
@@ -138,6 +139,53 @@ typedef struct peer peer_t;
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 
+#define RANK_VOTERS_LG_SLOT_CNT (12) /* AG_VAT_MAX keys, fill ratio 0.49 */
+FD_STATIC_ASSERT( (1UL<<RANK_VOTERS_LG_SLOT_CNT)>=2UL*AG_VAT_MAX, rank_voters );
+
+union bls_key {
+  uchar uc[ FD_BLS_PUB_COMPRESSED_SZ ];
+  ulong ul[ FD_BLS_PUB_COMPRESSED_SZ/sizeof(ulong) ];
+};
+typedef union bls_key bls_key_t;
+
+struct bls_key_cnt {
+  bls_key_t key;
+  ulong     cnt;
+};
+typedef struct bls_key_cnt bls_key_cnt_t;
+
+#define MAP_NAME              bls_key_cnts
+#define MAP_T                 bls_key_cnt_t
+#define MAP_LG_SLOT_CNT       RANK_VOTERS_LG_SLOT_CNT
+#define MAP_KEY               key
+#define MAP_KEY_T             bls_key_t
+#define MAP_KEY_NULL          ((bls_key_t){ .ul = {0} }) /* no compressed BLS key is all zero */
+#define MAP_KEY_INVAL(k)      (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]|(k).ul[4]|(k).ul[5]))
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(bls_key_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, &(key), sizeof(bls_key_t) ))
+#define MAP_MEMOIZE           0
+#include "../../util/tmpl/fd_map.c"
+
+struct id_key_cnt {
+  fd_pubkey_t key;
+  ulong       cnt;
+};
+typedef struct id_key_cnt id_key_cnt_t;
+
+#define MAP_NAME              id_key_cnts
+#define MAP_T                 id_key_cnt_t
+#define MAP_LG_SLOT_CNT       RANK_VOTERS_LG_SLOT_CNT
+#define MAP_KEY               key
+#define MAP_KEY_T             fd_pubkey_t
+#define MAP_KEY_NULL          ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
+#define MAP_KEY_INVAL(k)      (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, &(key), sizeof(fd_pubkey_t) ))
+#define MAP_MEMOIZE           0
+#include "../../util/tmpl/fd_map.c"
+
 #define CERT_SLOT_MAX (4UL*AG_SLOTS_PER_WINDOW)
 
 struct final_notar_join {
@@ -233,6 +281,8 @@ struct fd_votor_tile {
     ag_epoch_info_t prev_epoch_info;
     ag_epoch_info_t curr_epoch_info;
     ag_epoch_info_t next_epoch_info;
+    bls_key_cnt_t   bls_key_cnts[ 1UL<<RANK_VOTERS_LG_SLOT_CNT ];
+    id_key_cnt_t    id_key_cnts [ 1UL<<RANK_VOTERS_LG_SLOT_CNT ];
 
     uchar ser[ AG_VOTE_SER_MAX > AG_CERT_SER_MAX ? AG_VOTE_SER_MAX : AG_CERT_SER_MAX ];
 
@@ -352,15 +402,14 @@ publish_reward_certs( fd_votor_tile_t * ctx,
     return;
   }
   ag_epoch_info_t const *       epoch_info  = state->epoch_info;
-  ag_slot_voted_stake_t const * voted_stake = &state->voted_stakes;
+  ag_slot_voted_stake_t const * voted_stake = &state->votes;
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz;
   int   err;
 
   uchar const *                      hash = voted_stake->top_notar_hash;
-  ag_slot_voted_stake_hash_t const * top  = NULL;
-  for( ulong i=0UL; i<voted_stake->notar_cnt; i++ ) if( FD_LIKELY( !memcmp( voted_stake->notar[ i ].hash, hash, sizeof(ag_block_hash_t) ) ) ) top = &voted_stake->notar[ i ];
+  ag_slot_voted_stake_hash_t const * top  = notar_map_query_const( voted_stake->notar, FD_LOAD( ag_block_hash_key_t, hash ), NULL );
   if( FD_LIKELY( top ) ) {
     fd_bls_agg_t agg = top->agg;
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, hash, ctx->shred_version, msg );
@@ -647,6 +696,79 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
   }
 }
 
+struct rank_voter { ulong stake; uchar const * bls; ulong src; fd_bls_pub_t pk; };
+typedef struct rank_voter rank_voter_t;
+
+#define SORT_NAME        rank_voters_sort
+#define SORT_KEY_T       rank_voter_t
+#define SORT_BEFORE(a,b) ( (a).stake>(b).stake ||                                            \
+                          ( (a).stake==(b).stake &&                                         \
+                            memcmp( (a).bls, (b).bls, FD_BLS_PUB_COMPRESSED_SZ )<0 ) )
+#include "../../util/tmpl/fd_sort.c"
+
+FD_STATIC_ASSERT( sizeof(((fd_vote_stake_weight_t *)0)->bls_key)==FD_BLS_PUB_COMPRESSED_SZ, bls_key_sz );
+
+static ag_epoch_info_t *
+rank_voters( fd_votor_tile_t *              ctx,
+             ag_epoch_info_t *              mem,
+             fd_vote_stake_weight_t const * stakes,
+             ulong                          stake_cnt ) {
+  bls_key_cnt_t * bls_key_cnts = bls_key_cnts_join( bls_key_cnts_new( ctx->scratch.bls_key_cnts ) );
+  id_key_cnt_t *  id_key_cnts  = id_key_cnts_join ( id_key_cnts_new ( ctx->scratch.id_key_cnts  ) );
+
+  rank_voter_t rank[ AG_VAT_MAX ]; /* surviving validators, pre-sort */
+  ulong        in_cnt = fd_ulong_min( stake_cnt, AG_VAT_MAX );
+  ulong        m      = 0UL;
+  for( ulong i=0UL; i<in_cnt; i++ ) {
+    if( FD_UNLIKELY( !stakes[i].stake ) ) continue; /* re-check nonzero stake, in case stakes came verbatim from a snapshot */
+    uchar const * bls = stakes[i].bls_key;
+    if( FD_UNLIKELY( fd_bls_pub_de( &rank[m].pk, bls, FD_BLS_PUB_COMPRESSED_SZ ) ) ) continue; /* no / invalid BLS key */
+    rank[m].stake = stakes[i].stake;
+    rank[m].bls   = bls;
+    rank[m].src   = i;
+    m++;
+
+    bls_key_cnt_t * bls_key_cnt = bls_key_cnts_query( bls_key_cnts, FD_LOAD( bls_key_t, bls ), NULL );
+    if( FD_LIKELY( !bls_key_cnt ) ) { bls_key_cnt = bls_key_cnts_insert( bls_key_cnts, FD_LOAD( bls_key_t, bls ) ); bls_key_cnt->cnt = 0UL; }
+    bls_key_cnt->cnt++;
+    id_key_cnt_t * id_key_cnt = id_key_cnts_query( id_key_cnts, stakes[i].id_key, NULL );
+    if( FD_LIKELY( !id_key_cnt ) ) { id_key_cnt = id_key_cnts_insert( id_key_cnts, stakes[i].id_key ); id_key_cnt->cnt = 0UL; }
+    id_key_cnt->cnt++;
+  }
+
+  /* ALL copies of a duplicated BLS key or identity are dropped */
+
+  ulong k = 0UL;
+  for( ulong i=0UL; i<m; i++ ) {
+    if( FD_UNLIKELY( bls_key_cnts_query( bls_key_cnts, FD_LOAD( bls_key_t, rank[i].bls ), NULL )->cnt!=1UL ) ) continue;
+    if( FD_UNLIKELY( id_key_cnts_query ( id_key_cnts,  stakes[ rank[i].src ].id_key,       NULL )->cnt!=1UL ) ) continue;
+    rank[k++] = rank[i];
+  }
+
+  if( FD_UNLIKELY( !k ) ) { FD_LOG_WARNING(( "no validators survived ranking" )); return NULL; }
+
+  rank_voters_sort_inplace( rank, k );
+
+  ag_epoch_info_t * epoch_info = mem;
+
+  ulong total = 0UL;
+  for( ulong r=0UL; r<k; r++ ) {
+    ulong                 src = rank[r].src;
+    ag_validator_info_t * vi  = epoch_info->validators + r;
+    memset( vi, 0, sizeof(ag_validator_info_t) );
+    vi->id    = r;
+    vi->stake = stakes[src].stake;
+    memcpy( vi->id_key,   stakes[src].id_key.uc,   sizeof(ag_id_key_t)   );
+    memcpy( vi->vote_key, stakes[src].vote_key.uc, sizeof(ag_vote_key_t) );
+    vi->bls_key            = rank[r].pk;
+    epoch_info->pubkeys[r] = rank[r].pk;
+    total += vi->stake;
+  }
+  epoch_info->validator_cnt = k;
+  epoch_info->total_stake   = total;
+  return mem;
+}
+
 static void
 handle_epoch( fd_votor_tile_t *           ctx,
               fd_epoch_info_msg_t const * msg ) {
@@ -656,7 +778,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   else if( FD_UNLIKELY( !ctx->next_epoch_info ) ) epoch_info = &ctx->scratch.next_epoch_info;
   else if( FD_UNLIKELY( !ctx->prev_epoch_info ) ) epoch_info = &ctx->scratch.prev_epoch_info;
   else                                            epoch_info = ctx->prev_epoch_info;
-  ag_epoch_info_rank( epoch_info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt );
+  rank_voters( ctx, epoch_info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt );
 
   /* swap pointers */
 

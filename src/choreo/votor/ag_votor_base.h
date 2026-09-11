@@ -26,6 +26,12 @@ typedef uchar ag_block_hash_t[ 32 ]; /* double merkle root of the block */
 typedef uchar ag_vote_key_t  [ 32 ]; /* vote account address */
 typedef uchar ag_id_key_t    [ 32 ]; /* identity public key */
 
+union ag_block_hash_key { /* ag_block_hash_t as an assignable fd_map key */
+  uchar uc[ 32 ];
+  ulong ul[  4 ];
+};
+typedef union ag_block_hash_key ag_block_hash_key_t;
+
 struct ag_block_id {
   ulong           slot;
   ag_block_hash_t hash;

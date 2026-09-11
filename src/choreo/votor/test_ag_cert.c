@@ -46,7 +46,7 @@ make_epoch( ulong   n,
   ag_epoch_info_t * epoch_info = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
   FD_TEST( epoch_info );
   *out_mem = epoch_info;
-  ag_epoch_info( epoch_info, g_info, n );
+  epoch_info_build( epoch_info, g_info, n );
   return epoch_info;
 }
 
