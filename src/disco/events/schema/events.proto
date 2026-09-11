@@ -1257,6 +1257,20 @@ message Boot {
   uint64 process_start_time = 74;
   // A numeric identifier summarizing the exact set of protocol features this build understands, used to detect when nodes disagree on consensus rules.
   uint32 feature_set_id = 75;
+  // Raw value of AMD MSR C001_0010 (AMD64_SYSCFG) read from CPU0, or NULL when unavailable.
+  optional uint64 msr_x86_amd_syscfg = 76;
+  // Raw value of AMD MSR C001_102E (BP_CFG) read from CPU0, or NULL when unavailable.
+  optional uint64 msr_x86_amd_bp_cfg = 77;
+  // Raw value of AMD MSR C001_0015 (HWCR) read from CPU0, or NULL when unavailable.
+  optional uint64 msr_x86_amd_hwcr = 78;
+  // Raw value of AMD MSR C000_0108 (Prefetch Control, Zen3 and later) read from CPU0, or NULL when unavailable.
+  optional uint64 msr_x86_amd_prefetch_ctl = 79;
+  // Raw value of AMD MSR C001_1029 (DE_CFG) read from CPU0, or NULL when unavailable.
+  optional uint64 msr_x86_amd_de_cfg = 80;
+  // Raw value of AMD MSR C001_02B0 (CPPC_CAP1) read from CPU0, or NULL when unavailable.
+  optional uint64 msr_x86_amd_cppc_cap1 = 81;
+  // Raw value of MSR IA32_SPEC_CTRL read from CPU0, or NULL when unavailable.
+  optional uint64 msr_x86_spec_ctrl = 82;
 }
 
 // The result of a snapshot production attempt.
