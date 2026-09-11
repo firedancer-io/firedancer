@@ -152,3 +152,29 @@ fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
 
   return schedule->first_normal_epoch + new_epochs_since_first_normal_leader_schedule;
 }
+
+int
+fd_slot_to_leader_schedule_epoch_checked( fd_epoch_schedule_t const * schedule,
+                                          ulong                       slot,
+                                          ulong *                     out ) {
+
+  if( FD_UNLIKELY( slot<schedule->first_normal_slot ) ) {
+    return !__builtin_uaddl_overflow( fd_slot_to_epoch( schedule, slot, NULL ), 1UL, out );
+  }
+
+  if( FD_UNLIKELY( !schedule->slots_per_epoch ) ) return 0;
+
+  ulong slots_since_first_normal_slot = slot - schedule->first_normal_slot;
+
+  ulong first_normal_leader_schedule_slot;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( slots_since_first_normal_slot,
+                                             schedule->leader_schedule_slot_offset,
+                                             &first_normal_leader_schedule_slot ) ) ) return 0;
+
+  ulong epochs_since_first_normal_leader_schedule =
+      first_normal_leader_schedule_slot / schedule->slots_per_epoch;
+
+  return !__builtin_uaddl_overflow( schedule->first_normal_epoch,
+                                    epochs_since_first_normal_leader_schedule,
+                                    out );
+}
