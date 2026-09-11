@@ -253,8 +253,22 @@ dump_sanitized_transaction( fd_accdb_t *                           accdb,
   sanitized_transaction->has_message = true;
   fd_exec_test_transaction_message_t * message = &sanitized_transaction->message;
 
-  /* Transaction Context -> tx -> message -> is_legacy */
-  message->is_legacy = txn_descriptor->transaction_version == FD_TXN_VLEGACY;
+  /* Transaction Context -> tx -> message -> version / v1_config */
+  int is_v1     = txn_descriptor->transaction_version==FD_TXN_V1;
+  int is_legacy = txn_descriptor->transaction_version==FD_TXN_VLEGACY;
+  message->version       = is_v1     ? FD_EXEC_TEST_TRANSACTION_VERSION_TRANSACTION_VERSION_V1
+                         : is_legacy ? FD_EXEC_TEST_TRANSACTION_VERSION_TRANSACTION_VERSION_LEGACY
+                         :             FD_EXEC_TEST_TRANSACTION_VERSION_TRANSACTION_VERSION_V0;
+  message->has_v1_config = (bool)is_v1;
+  if( is_v1 ) {
+    uint          mask = fd_uint_load_4( txn_payload+4UL );
+    uchar const * v    = txn_payload + txn_descriptor->v1_txn_config_values_off;
+    fd_exec_test_transaction_config_t * cfg = &message->v1_config;
+    if( mask & 0x01U ) { cfg->has_priority_fee = 1;                    cfg->priority_fee = FD_LOAD( ulong, v );                    v += 8UL; }
+    if( mask & 0x04U ) { cfg->has_compute_unit_limit = 1;              cfg->compute_unit_limit = FD_LOAD( uint, v );              v += 4UL; }
+    if( mask & 0x08U ) { cfg->has_loaded_accounts_data_size_limit = 1; cfg->loaded_accounts_data_size_limit = FD_LOAD( uint, v ); v += 4UL; }
+    if( mask & 0x10U ) { cfg->has_heap_size = 1;                       cfg->heap_size = FD_LOAD( uint, v );                                 }
+  }
 
   /* Transaction Context -> tx -> message -> header */
   message->has_header = true;
@@ -310,9 +324,9 @@ dump_sanitized_transaction( fd_accdb_t *                           accdb,
     memcpy( compiled_instruction->data->bytes, instr_data, instr.data_sz );
   }
 
-  /* ALUT stuff (non-legacy) */
+  /* ALUT stuff (V0 only: legacy and V1 have none) */
   message->address_table_lookups_count = 0;
-  if( !message->is_legacy ) {
+  if( !is_legacy && !is_v1 ) {
     /* Transaction Context -> tx -> message -> address_table_lookups */
     message->address_table_lookups_count = txn_descriptor->addr_table_lookup_cnt;
     message->address_table_lookups = fd_spad_alloc( spad,

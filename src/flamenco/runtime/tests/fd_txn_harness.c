@@ -130,10 +130,120 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   return txn;
 }
 
+static uchar
+fd_solfuzz_pb_txn_version( fd_exec_test_transaction_message_t const * message ) {
+  switch( message->version ) {
+  case FD_EXEC_TEST_TRANSACTION_VERSION_TRANSACTION_VERSION_LEGACY: return FD_TXN_VLEGACY;
+  case FD_EXEC_TEST_TRANSACTION_VERSION_TRANSACTION_VERSION_V1:     return FD_TXN_V1;
+  default:                                                          return FD_TXN_V0;
+  }
+}
+
+/* Serializes a Transaction V1 (SIMD-0385): message first, then exactly
+   num_required_signatures signatures.  An absent v1_config is an empty
+   config mask. */
+static ulong
+fd_solfuzz_pb_txn_serialize_v1( uchar *                                      txn_raw_begin,
+                                fd_exec_test_sanitized_transaction_t const * tx ) {
+  uchar * txn_raw_cur_ptr = txn_raw_begin;
+  fd_exec_test_transaction_config_t const empty_cfg = FD_EXEC_TEST_TRANSACTION_CONFIG_INIT_ZERO;
+  fd_exec_test_transaction_config_t const * cfg = tx->message.has_v1_config ? &tx->message.v1_config : &empty_cfg;
+
+  /* Version byte: high bit set, version 1 */
+  uchar version_byte = (uchar)(0x80U | FD_TXN_V1);
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &version_byte, sizeof(uchar) );
+
+  /* Header (3 bytes).  V1 has no separate signature count: exactly
+     num_required_signatures signatures are appended at the end. */
+  uchar num_required_signatures = fd_uchar_max( 1, (uchar)tx->message.header.num_required_signatures );
+  uchar ro_signed_cnt   = (uchar)tx->message.header.num_readonly_signed_accounts;
+  uchar ro_unsigned_cnt = (uchar)tx->message.header.num_readonly_unsigned_accounts;
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &num_required_signatures, sizeof(uchar) );
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &ro_signed_cnt,           sizeof(uchar) );
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &ro_unsigned_cnt,         sizeof(uchar) );
+
+  /* Config mask (u32 LE): bits 0+1 priority fee, 2 CU limit, 3 loaded
+     accounts data size limit, 4 heap size.  Field presence == bit set. */
+  uint config_mask = 0U;
+  if( cfg->has_priority_fee                    ) config_mask |= 0x03U;
+  if( cfg->has_compute_unit_limit              ) config_mask |= 0x04U;
+  if( cfg->has_loaded_accounts_data_size_limit ) config_mask |= 0x08U;
+  if( cfg->has_heap_size                       ) config_mask |= 0x10U;
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &config_mask, sizeof(uint) );
+
+  /* Recent blockhash */
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, tx->message.recent_blockhash, sizeof(fd_hash_t) );
+
+  /* Instruction count and static account count (u8 each) */
+  uchar instr_cnt     = (uchar)tx->message.instructions_count;
+  uchar acct_addr_cnt = (uchar)tx->message.account_keys_count;
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &instr_cnt,     sizeof(uchar) );
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &acct_addr_cnt, sizeof(uchar) );
+
+  /* Static account keys */
+  for( uchar i=0; i<acct_addr_cnt; i++ ) {
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, tx->message.account_keys[i]->bytes, sizeof(fd_pubkey_t) );
+  }
+
+  /* Config values, only the present ones, in ascending mask-bit order */
+  if( cfg->has_priority_fee ) {
+    ulong v = cfg->priority_fee;
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &v, sizeof(ulong) );
+  }
+  if( cfg->has_compute_unit_limit ) {
+    uint v = cfg->compute_unit_limit;
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &v, sizeof(uint) );
+  }
+  if( cfg->has_loaded_accounts_data_size_limit ) {
+    uint v = cfg->loaded_accounts_data_size_limit;
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &v, sizeof(uint) );
+  }
+  if( cfg->has_heap_size ) {
+    uint v = cfg->heap_size;
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &v, sizeof(uint) );
+  }
+
+  /* Instruction headers: program_id (u8), account count (u8), data length (u16 LE) */
+  for( uchar i=0; i<instr_cnt; i++ ) {
+    fd_exec_test_compiled_instruction_t const * ix = &tx->message.instructions[i];
+    uchar  program_id_index = (uchar)ix->program_id_index;
+    uchar  acct_cnt         = (uchar)ix->accounts_count;
+    ushort data_len         = (ushort)( ix->data ? ix->data->size : 0U );
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &program_id_index, sizeof(uchar)  );
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &acct_cnt,         sizeof(uchar)  );
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &data_len,         sizeof(ushort) );
+  }
+
+  /* Instruction payloads: account indices then data, same truncation as the headers */
+  for( uchar i=0; i<instr_cnt; i++ ) {
+    fd_exec_test_compiled_instruction_t const * ix = &tx->message.instructions[i];
+    uchar  acct_cnt = (uchar)ix->accounts_count;
+    ushort data_len = (ushort)( ix->data ? ix->data->size : 0U );
+    for( uchar j=0; j<acct_cnt; j++ ) {
+      uchar account_index = (uchar)ix->accounts[j];
+      FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &account_index, sizeof(uchar) );
+    }
+    if( data_len ) FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, ix->data->bytes, data_len );
+  }
+
+  /* Signatures: exactly num_required_signatures of them (zero-filled if
+     fewer were provided, extras ignored) */
+  for( uchar i=0; i<num_required_signatures; i++ ) {
+    fd_signature_t sig = {0};
+    if( i<tx->signatures_count && tx->signatures && tx->signatures[i] ) sig = FD_LOAD( fd_signature_t, tx->signatures[i]->bytes );
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &sig, FD_TXN_SIGNATURE_SZ );
+  }
+
+  return (ulong)(txn_raw_cur_ptr - txn_raw_begin);
+}
+
 ulong
 fd_solfuzz_pb_txn_serialize( uchar *                                      txn_raw_begin,
                              fd_exec_test_sanitized_transaction_t const * tx ) {
   uchar * txn_raw_cur_ptr = txn_raw_begin;
+
+  uchar version = fd_solfuzz_pb_txn_version( &tx->message );
+  if( version==FD_TXN_V1 ) return fd_solfuzz_pb_txn_serialize_v1( txn_raw_begin, tx );
 
   /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
      Note that although documentation interchangeably refers to the signature cnt as a compact-u16
@@ -155,7 +265,7 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
      We will always create a transaction with at least 1 signature, and cap the signature count to 127 to avoid
      collisions with the header_b0 tag. */
   uchar num_required_signatures = fd_uchar_max( 1, fd_uchar_min( 127, (uchar) tx->message.header.num_required_signatures ) );
-  if( !tx->message.is_legacy ) {
+  if( version!=FD_TXN_VLEGACY ) {
     uchar header_b0 = (uchar) 0x80UL;
     FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &header_b0, sizeof(uchar) );
   }
@@ -209,7 +319,7 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
 
   /* Address table lookups (N/A for legacy transactions) */
   ushort addr_table_cnt = 0;
-  if( !tx->message.is_legacy ) {
+  if( version!=FD_TXN_VLEGACY ) {
     /* Compact array of address table lookups (https://solanacookbook.com/guides/versioned-transactions.html#compact-array-of-address-table-lookups) */
     // NOTE: The diagram is slightly wrong - the account key is a 32 byte pubkey, not a u8
     addr_table_cnt = (ushort) tx->message.address_table_lookups_count;
