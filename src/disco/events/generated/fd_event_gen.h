@@ -629,7 +629,7 @@ typedef struct fd_event_runtime_block fd_event_runtime_block_t;
 #define FD_EVENT_RUNTIME_REWARD_KIND_VOTE  (1) /* Vote commission credit in the first replayed bank that crosses the epoch boundary (not necessarily the epoch's nominal first slot when slots were skipped). Credited to the vote account itself, or, with custom_commission_collector active, to its inflation collector (possibly system-owned; one row per collector, rewards aggregated across the vote accounts routing to it) */
 #define FD_EVENT_RUNTIME_REWARD_KIND_STAKE (2) /* Stake-account credit during the partitioned-epoch-rewards window */
 
-/* One row per epoch-reward credit to an account    */
+/* One row per epoch-reward credit to an account */
 struct fd_event_runtime_reward {
   ulong bank_seq;         /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
   ulong slot;             /* Slot in which the credit was applied */
