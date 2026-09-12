@@ -102,7 +102,7 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
 
   void * val           = fd_wksp_laddr_fast( wksp, rec->data_gaddr );
   void * calldests_mem = NULL;
-  void * rodata_mem;
+  uchar * rodata_mem;
   if( has_calldests ) {
     /* Lenient (v0-v2): [ calldests | rodata ] laid out inside val.  The rodata
        buffer is load_buf_sz (rodata image on the fast path, bin_sz on the
@@ -133,7 +133,7 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
   fd_sbpf_program_t prog[1] = {{
     .info     = *elf_info,
     .rodata   = rodata_mem,
-    .text     = (ulong *)((ulong)rodata_mem + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
+    .text     = rodata_mem + elf_info->text_off,
     .entry_pc = ULONG_MAX
   }};
   if( has_calldests && elf_info->text_cnt>0UL ) {

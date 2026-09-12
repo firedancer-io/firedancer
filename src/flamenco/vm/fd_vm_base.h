@@ -540,7 +540,7 @@ FD_PROTOTYPES_BEGIN
    clobbered. */
 
 int
-fd_vm_disasm_instr( ulong const *              text,      /* Indexed [0,text_cnt) */
+fd_vm_disasm_instr( uchar const *              text,      /* Word i at text+8*i, i in [0,text_cnt) */
                     ulong                      text_cnt,
                     ulong                      pc,
                     fd_sbpf_syscalls_t const * syscalls,
@@ -549,7 +549,7 @@ fd_vm_disasm_instr( ulong const *              text,      /* Indexed [0,text_cnt
                     ulong *                    _out_len );
 
 int
-fd_vm_disasm_program( ulong const *              text,       /* Indexed [0,text_cnt) */
+fd_vm_disasm_program( uchar const *              text,       /* Word i at text+8*i, i in [0,text_cnt) */
                       ulong                      text_cnt,
                       fd_sbpf_syscalls_t const * syscalls,
                       char *                     out,        /* Indexed [0,out_max) */
@@ -691,7 +691,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           ic,
                        ulong           cu,
                        ulong           reg[ FD_VM_REG_CNT ],
-                       ulong const *   text,       /* Indexed [0,text_cnt) */
+                       uchar const *   text,       /* Word i at text+8*i, i in [0,text_cnt) */
                        ulong           text_cnt,
                        ulong           ic_correction,
                        ulong           frame_cnt );

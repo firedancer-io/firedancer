@@ -318,7 +318,7 @@ interp_exec:
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
   if( FD_UNLIKELY( pc>=block_text_limit ) ) goto sigtext_or_sigcost;
-  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, frame_cnt );
+  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + 8UL*pc, vm->text_cnt - pc, ic_correction, frame_cnt );
 # endif
 
   FD_VM_INTERP_INSTR_EXEC;
