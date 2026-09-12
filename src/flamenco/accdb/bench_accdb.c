@@ -107,7 +107,7 @@ bench_setup( int *   out_fd,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp,  cache_min_reserved, 0, 42UL, 1UL, 0UL ) );
+                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, 1UL, 0UL ) );
   FD_TEST( shmem );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
@@ -586,8 +586,8 @@ main( int     argc,
     FD_TEST( sweep_rng );
 
     FD_LOG_NOTICE(( "--- cache min reserved sweep @ %lu ---", min_reserved_sweep[i] ));
-    // Using 10 GiB instead of 16 based on results from the prior sweep but also to lighten computational load and meet the req for 800
-    bench_replay(1000, writes_per_slot, reads_per_slot, sweep_rng, 10UL << 30, min_reserved_sweep[i]);
+    /* Using 10 Gi based on cache0footprint sweep and to support min_reserved = 800 */
+    bench_replay( 1000, writes_per_slot, reads_per_slot, sweep_rng, 10UL << 30, min_reserved_sweep[i] );
 
     fd_rng_delete( fd_rng_leave ( sweep_rng ));
   }
