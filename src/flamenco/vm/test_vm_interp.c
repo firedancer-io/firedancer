@@ -44,9 +44,9 @@ test_program_exec( char *                   test_case_name,
       /* instr_ctx                              */ instr_ctx,
       /* heap_max                               */ FD_VM_HEAP_DEFAULT,
       /* entry_cu                               */ cu_limit,
-      /* rodata                                 */ (uchar *)text,
+      /* rodata                                 */ (uchar const *)text,
       /* rodata_sz                              */ 8UL*text_cnt,
-      /* text                                   */ text,
+      /* text                                   */ (uchar const *)text,
       /* text_cnt                               */ text_cnt,
       /* text_off                               */ 0UL,
       /* text_sz                                */ 8UL*text_cnt,
@@ -112,10 +112,10 @@ test_program_exec( char *                   test_case_name,
 
 static int
 test_vm_validate( ulong                 sbpf_version,
-                       ulong const *         text,
-                       ulong                 text_cnt,
-                       fd_sbpf_syscalls_t *  syscalls,
-                       fd_exec_instr_ctx_t * instr_ctx ) {
+                  ulong const *         text,
+                  ulong                 text_cnt,
+                  fd_sbpf_syscalls_t *  syscalls,
+                  fd_exec_instr_ctx_t * instr_ctx ) {
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
   fd_vm_t _vm[1];
@@ -123,7 +123,7 @@ test_vm_validate( ulong                 sbpf_version,
   FD_TEST( vm );
   int ok = !!fd_vm_init(
       vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
-      (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+      (uchar const *)text, 8UL*text_cnt, (uchar const *)text, text_cnt, 0UL, 8UL*text_cnt,
       0UL, NULL, sbpf_version, syscalls, NULL, sha, NULL, 0UL, NULL, 0,
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
@@ -154,7 +154,7 @@ test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
 
   for( ulong i=0; i<4; i++ ) {
     FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
-        (uchar *)text, 8UL, text, 1UL, 0UL, 8UL, 0UL, NULL,
+        (uchar const *)text, 8UL, (uchar const *)text, 1UL, 0UL, 8UL, 0UL, NULL,
         versions[i], syscalls, NULL, sha, NULL, 0UL, NULL, 0,
         FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
         FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
@@ -317,9 +317,9 @@ test_0cu_exit( fd_runtime_t * runtime ) {
       /* instr_ctx                              */ instr_ctx,
       /* heap_max                               */ FD_VM_HEAP_DEFAULT,
       /* entry_cu                               */ text_cnt,
-      /* rodata                                 */ (uchar *)text,
+      /* rodata                                 */ (uchar const *)text,
       /* rodata_sz                              */ 8UL*text_cnt,
-      /* text                                   */ text,
+      /* text                                   */ (uchar const *)text,
       /* text_cnt                               */ text_cnt,
       /* text_off                               */ 0UL,
       /* text_sz                                */ 8UL*text_cnt,
@@ -352,9 +352,9 @@ test_0cu_exit( fd_runtime_t * runtime ) {
       /* instr_ctx                              */ instr_ctx,
       /* heap_max                               */ FD_VM_HEAP_DEFAULT,
       /* entry_cu                               */ text_cnt - 1UL,
-      /* rodata                                 */ (uchar *)text,
+      /* rodata                                 */ (uchar const *)text,
       /* rodata_sz                              */ 8UL*text_cnt,
-      /* text                                   */ text,
+      /* text                                   */ (uchar const *)text,
       /* text_cnt                               */ text_cnt,
       /* text_off                               */ 0UL,
       /* text_sz                                */ 8UL*text_cnt,
@@ -456,6 +456,69 @@ test_block_text_limit( fd_sbpf_syscalls_t *  syscalls,
 }
 
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
+
+static void
+test_misaligned_text( fd_sbpf_syscalls_t *  syscalls,
+                      fd_exec_instr_ctx_t * instr_ctx ) {
+
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  FD_TEST( vm );
+
+  ulong const prog[] = {
+    fd_vm_instr( FD_SBPF_OP_LDDW,      FD_SBPF_R0, 0, 0, 0x55667788U ), /* exercises the LDDW second-word fetch */
+    fd_vm_instr( 0,                    0,          0, 0, 0x11223344U ),
+    fd_vm_instr( FD_SBPF_OP_ADD64_IMM, FD_SBPF_R0, 0, 0, 1U          ),
+    fd_vm_instr( FD_SBPF_OP_JA,        0,          0, 1, 0U          ), /* exercises the validator's jump-target fetch */
+    fd_vm_instr( FD_SBPF_OP_ADD64_IMM, FD_SBPF_R0, 0, 0, 1U          ), /* skipped */
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0,          0, 0, 0U          ),
+  };
+  ulong const text_cnt = sizeof(prog)/sizeof(ulong);
+  ulong const text_off = 4UL;
+
+  uchar rodata[ 8UL+sizeof(prog) ] __attribute__((aligned(8)));
+  memset( rodata, 0, sizeof(rodata) );
+  memcpy( rodata+text_off, prog, sizeof(prog) );
+  uchar const * text = rodata+text_off;
+  FD_TEST( !fd_ulong_is_aligned( (ulong)text, 8UL ) );
+
+  int vm_ok = !!fd_vm_init(
+      /* vm                                     */ vm,
+      /* instr_ctx                              */ instr_ctx,
+      /* heap_max                               */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu                               */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata                                 */ rodata,
+      /* rodata_sz                              */ sizeof(rodata),
+      /* text                                   */ text,
+      /* text_cnt                               */ text_cnt,
+      /* text_off                               */ text_off,
+      /* text_sz                                */ 8UL*text_cnt,
+      /* entry_pc                               */ 0UL,
+      /* calldests                              */ NULL,
+      /* sbpf_version                           */ FD_SBPF_V0,
+      /* syscalls                               */ syscalls,
+      /* trace                                  */ NULL,
+      /* sha                                    */ sha,
+      /* mem_regions                            */ NULL,
+      /* mem_regions_cnt                        */ 0UL,
+      /* mem_regions_accs                       */ NULL,
+      /* is_deprecated                          */ 0,
+      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      /* dump_syscall_to_pb                     */ 0,
+      /* r2_initial_value                       */ 0UL
+  );
+  FD_TEST( vm_ok );
+
+  FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+  FD_TEST( fd_vm_exec    ( vm )==FD_VM_SUCCESS );
+  FD_TEST( vm->reg[0]==0x1122334455667789UL );
+  FD_LOG_NOTICE(( "%-20s PASS", "misaligned-text" ));
+}
 
 int
 main( int     argc,
@@ -1929,6 +1992,8 @@ main( int     argc,
   test_0cu_exit( runtime );
 
   test_block_text_limit( syscalls, instr_ctx );
+
+  test_misaligned_text( syscalls, instr_ctx );
 
   free( text );
 

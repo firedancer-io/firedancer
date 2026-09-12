@@ -145,7 +145,7 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
 fd_sbpf_program_t *
 fd_sbpf_program_new( void *                     prog_mem,
                      fd_sbpf_elf_info_t const * elf_info,
-                     void *                     rodata ) {
+                     uchar *                    rodata ) {
 
   if( FD_UNLIKELY( !prog_mem ) ) {
     FD_LOG_WARNING(( "NULL prog_mem" ));
@@ -178,7 +178,7 @@ fd_sbpf_program_new( void *                     prog_mem,
     .info            = *elf_info,
     .rodata          = rodata,
     .rodata_sz       = 0UL,
-    .text            = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
+    .text            = rodata + elf_info->text_off,
     .entry_pc        = ULONG_MAX,
     .calldests_shmem = NULL,
     .calldests       = NULL,
@@ -2055,7 +2055,7 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
    https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L406-L590 */
 static int
 fd_sbpf_program_load_strict( fd_sbpf_program_t * prog,
-                             void const *        bin ) {
+                             uchar const *       bin ) {
   fd_elf64_ehdr ehdr   = FD_LOAD( fd_elf64_ehdr, bin );
   fd_elf64_phdr phdr_0 = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr) );
   int skip_rodata      = phdr_0.p_flags != FD_SBPF_PF_R;
@@ -2077,14 +2077,14 @@ fd_sbpf_program_load_strict( fd_sbpf_program_t * prog,
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L498-L499
      Note: memcpy merged below */
-  prog->text = (ulong *)( (uchar *)prog->rodata + prog->rodata_sz );
+  prog->text = prog->rodata + prog->rodata_sz;
   // fd_memcpy( (uchar *)prog->text, (uchar const *)bin + bytecode_phdr.p_offset, bytecode_phdr.p_filesz );
 
   /* Copy the rodata and bytecode (text) segments into the destination buffer.
      rodata and text are contiguous, so we can copy them in a single memcpy.
      text_sz >= 8, so we can safely use memcpy. */
   memcpy( prog->rodata,
-          (uchar const *)bin + phdr_0.p_offset,
+          bin + phdr_0.p_offset,
           prog->rodata_sz + (ulong)prog->info.text_sz );
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L510-L514 */
@@ -2094,7 +2094,7 @@ fd_sbpf_program_load_strict( fd_sbpf_program_t * prog,
 
 int
 fd_sbpf_program_load( fd_sbpf_program_t *             prog,
-                      void const *                    bin,
+                      uchar const *                   bin,
                       ulong                           bin_sz,
                       fd_sbpf_syscalls_t *            syscalls,
                       fd_sbpf_loader_config_t const * config,

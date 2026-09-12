@@ -196,7 +196,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* rodata_sz                              */ prog->rodata_sz,
     /* text                                   */ prog->text,
     /* text_cnt                               */ prog->info.text_cnt,
-    /* text_off                               */ prog->info.text_off, /* FIXME: What if text_off is not multiple of 8 */
+    /* text_off                               */ prog->info.text_off,
     /* text_sz                                */ prog->info.text_sz,
     /* entry_pc                               */ prog->entry_pc,
     /* calldests                              */ prog->calldests,
@@ -466,7 +466,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* TODO: (topointon): correctly set check_size in vm setup */
   fd_wksp_t * progcache_wksp = instr_ctx->runtime->progcache->join->data_base;
-  void const * rodata = fd_progcache_rec_rodata( cache_entry, progcache_wksp );
+  uchar const * rodata = fd_progcache_rec_rodata( cache_entry, progcache_wksp );
   vm = fd_vm_init(
     /* vm                                     */ vm,
     /* instr_ctx                              */ instr_ctx,
@@ -474,7 +474,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     /* entry_cu                               */ instr_ctx->txn_out->details.compute_budget.compute_meter,
     /* rodata                                 */ rodata,
     /* rodata_sz                              */ cache_entry->rodata_sz,
-    /* text (note: text_off is byte offset)   */ (ulong *)( (ulong)rodata + cache_entry->text_off ),
+    /* text (note: text_off is byte offset)   */ rodata + cache_entry->text_off,
     /* text_cnt                               */ cache_entry->text_cnt,
     /* text_off                               */ cache_entry->text_off,
     /* text_sz                                */ cache_entry->text_sz,
