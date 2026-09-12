@@ -918,12 +918,27 @@ fd_x509_san_matches( fd_x509_cert_info_t const * info,
   if( hostname_len && hostname[ hostname_len-1UL ]=='.' ) hostname_len--;
 
   if( FD_UNLIKELY( !dns_name_valid( hostname, hostname_len ) ) ) return 0;
+
+  /* An IPv4 literal is matched byte-for-byte against iPAddress SANs
+     (RFC 6125 Section 1.7.2, RFC 5280 Section 4.2.1.6) and never
+     against dNSName SANs.  IPv6 literals contain ':' and are rejected
+     by dns_name_valid above; the HTTP clients are IPv4-only. */
+
+  int   is_ip4 = 0;
+  uchar ip4[ 4 ];
   if( hostname_len<=15UL ) {
-    char ip4[ 16 ];
-    memcpy( ip4, hostname, hostname_len );
-    ip4[ hostname_len ] = '\0';
+    char ip4_cstr[ 16 ];
+    memcpy( ip4_cstr, hostname, hostname_len );
+    ip4_cstr[ hostname_len ] = '\0';
     uint addr;
-    if( FD_UNLIKELY( fd_cstr_to_ip4_addr( ip4, &addr ) ) ) return 0;
+    if( fd_cstr_to_ip4_addr( ip4_cstr, &addr ) ) {
+      is_ip4 = 1;
+      /* opposite endianness of FD_IP4_ADDR */
+      ip4[0] = (uchar)( addr       );
+      ip4[1] = (uchar)( addr >>  8 );
+      ip4[2] = (uchar)( addr >> 16 );
+      ip4[3] = (uchar)( addr >> 24 );
+    }
   }
   if( FD_UNLIKELY( !info->has_subject_alt_name ) ) return 0;
 
@@ -936,8 +951,13 @@ fd_x509_san_matches( fd_x509_cert_info_t const * info,
     if( FD_UNLIKELY( !fd_x509_general_name_valid( gn_tag, san.p, gn_len ) ) )
       return 0;
 
-    if( gn_tag==(int)FD_DER_TAG_CONTEXT_PRIM(2) &&
-        dns_pattern_matches( (char const *)san.p, gn_len, hostname, hostname_len ) ) matched = 1;
+    if( is_ip4 ) {
+      if( gn_tag==(int)FD_DER_TAG_CONTEXT_PRIM(7) && gn_len==4UL &&
+          !memcmp( san.p, ip4, 4UL ) ) matched = 1;
+    } else {
+      if( gn_tag==(int)FD_DER_TAG_CONTEXT_PRIM(2) &&
+          dns_pattern_matches( (char const *)san.p, gn_len, hostname, hostname_len ) ) matched = 1;
+    }
     san.p += gn_len;
   }
 

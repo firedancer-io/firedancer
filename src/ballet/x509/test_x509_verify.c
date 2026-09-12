@@ -497,6 +497,58 @@ main( int     argc,
     FD_LOG_INFO(( "OK: IPv4 literal rejected as dNSName" ));
   }
 
+  /* IPv4 literals match a 4-octet iPAddress SAN byte-for-byte. */
+  {
+    static uchar const ip_192_0_2_1[ 4 ]  = { 192, 0, 2, 1 };
+    static uchar const ip_192_0_2_2[ 4 ]  = { 192, 0, 2, 2 };
+    static uchar const ip6_mapped[ 16 ]   = { 0,0,0,0, 0,0,0,0, 0,0,0xff,0xff, 192,0,2,1 };
+    uchar general_names[ 96 ]; fd_x509_cert_info_t info;
+
+    /* accept: iPAddress equal to the literal */
+    memset( &info, 0, sizeof(info) );
+    info.san_general_names     = general_names;
+    info.san_general_names_len = der_tlv( general_names, FD_DER_TAG_CONTEXT_PRIM(7), ip_192_0_2_1, 4UL );
+    info.has_subject_alt_name  = 1;
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.1", 9UL )==1 );
+
+    /* reject: different iPAddress */
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.2", 9UL )==0 );
+
+    /* reject: a DNS reference name never matches an iPAddress SAN */
+    FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==0 );
+
+    /* accept: iPAddress found after a non-matching dNSName and a
+       non-matching iPAddress */
+    set_san_info( &info, general_names, "example.com", 11UL );
+    info.san_general_names_len += der_tlv( general_names+info.san_general_names_len,
+                                           FD_DER_TAG_CONTEXT_PRIM(7), ip_192_0_2_2, 4UL );
+    info.san_general_names_len += der_tlv( general_names+info.san_general_names_len,
+                                           FD_DER_TAG_CONTEXT_PRIM(7), ip_192_0_2_1, 4UL );
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.1", 9UL )==1 );
+    FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
+
+    /* reject: literal not present; only other iPAddress/dNSName SANs */
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.3", 9UL )==0 );
+
+    /* reject: only dNSName SANs */
+    set_san_info( &info, general_names, "example.com", 11UL );
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.1", 9UL )==0 );
+
+    /* reject: 16-octet (IPv4-mapped IPv6) iPAddress does not match an
+       IPv4 literal */
+    memset( &info, 0, sizeof(info) );
+    info.san_general_names     = general_names;
+    info.san_general_names_len = der_tlv( general_names, FD_DER_TAG_CONTEXT_PRIM(7), ip6_mapped, 16UL );
+    info.has_subject_alt_name  = 1;
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.1", 9UL )==0 );
+
+    /* reject: malformed iPAddress length fails closed */
+    info.san_general_names_len = der_tlv( general_names, FD_DER_TAG_CONTEXT_PRIM(7), ip_192_0_2_1, 3UL );
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.1", 9UL )==0 );
+
+    FD_LOG_INFO(( "OK: IPv4 literal matches iPAddress SAN" ));
+  }
+
   /* Test 11: Empty store find returns NULL */
   {
     fd_x509_ca_store_t store;

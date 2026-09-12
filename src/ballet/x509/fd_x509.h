@@ -187,11 +187,10 @@ fd_x509_time_parse( uchar         tag,
                     uchar const * s,
                     ulong         s_len );
 
-/* fd_x509_san_matches tests hostname against every dNSName in info's
-   subjectAltName extension.  Matching folds ASCII case and permits a
-   wildcard only as the complete leftmost label.  IPv4 literals do not match
-   dNSName values.  Returns 1 for a match and 0 for no match, an absent SAN,
-   malformed input, or a NULL argument. */
+/* fd_x509_san_matches tests hostname against info's subjectAltName
+   extension.  Supports dNSName and IPv4 iPAddress.  Returns 1 for a
+   match and 0 for no match, an absent SAN, malformed input, or a NULL
+   argument. */
 
 int
 fd_x509_san_matches( fd_x509_cert_info_t const * info,
