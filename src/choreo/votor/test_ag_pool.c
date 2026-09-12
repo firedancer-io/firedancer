@@ -1,6 +1,7 @@
 #include "ag_pool.c"
 #include "test_ag_cert_builder.h"
 #include "ag_cert_serde.h"
+#include "ag_vote_serde.h"
 
 static int
 has_notar_cert( ag_pool_t const * pool,
@@ -62,7 +63,7 @@ min_live_slot( ag_pool_t const * pool ) {
 }
 
 #define FD_TEST_PRUNED_TO_WATERMARK( pool ) \
-  FD_TEST( min_live_slot( pool )>=pool_first_unpruned_slot( pool ) )
+  FD_TEST( min_live_slot( pool )+FD_NUM_SLOTS_FOR_REWARD>=pool_first_unpruned_slot( pool ) )
 
 static int
 is_parent_ready( ag_pool_t *           pool,
@@ -97,7 +98,7 @@ drain_events( ag_pool_t * pool ) {
 
 static fd_bls_set_t bad[ fd_bls_set_word_cnt ];
 
-#define SCRATCH_MAX (TEST_SLOT_MAX*sizeof(ag_slot_state_t)+(4UL<<20)) /* ~212 MiB */
+#define SCRATCH_MAX ((TEST_SLOT_MAX+FD_NUM_SLOTS_FOR_REWARD)*sizeof(ag_slot_state_t)+(4UL<<20))
 
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
@@ -363,6 +364,194 @@ test_finalize_block( void ) {
 }
 
 static void
+test_reward_readback_window( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ulong slot = 1UL;
+  ag_block_hash_t hash; random_hash( hash );
+  add_notar_votes( pool, slot, hash, 0UL, 7UL );
+  add_final_votes( pool, slot, 0UL, 7UL );
+  FD_TEST( has_final_cert( pool, slot ) );
+  add_notar_votes( pool, slot, hash, 7UL, 10UL );
+  add_skip_votes( pool, slot, 10UL, 11UL );
+
+  ag_slot_state_t const * state = ag_pool_slot_state( pool, slot );
+  FD_TEST( state );
+  ag_slot_voted_stake_t const * voted_stake = &state->voted_stakes;
+  FD_TEST( voted_stake->notar_cnt==1UL );
+  FD_TEST( fd_bls_set_cnt( voted_stake->notar[0].agg.set )==10UL );
+  FD_TEST( fd_bls_set_cnt( voted_stake->skip_agg.set )==1UL );
+
+  uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, hash, TEST_SHRED_VERSION, msg );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &voted_stake->notar[0].agg.pub, &voted_stake->notar[0].agg.sig ) );
+  msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, TEST_SHRED_VERSION, msg );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &voted_stake->skip_agg.pub, &voted_stake->skip_agg.sig ) );
+
+  for( ulong s=slot+1UL; s<=slot+FD_NUM_SLOTS_FOR_REWARD; s++ ) {
+    ag_block_hash_t hash2; random_hash( hash2 );
+    add_notar_votes( pool, s, hash2, 0UL, 7UL );
+    add_final_votes( pool, s, 0UL, 7UL );
+    FD_TEST( ag_pool_slot_state( pool, slot ) ); /* retained for the reward certs */
+  }
+  ag_block_hash_t hash2; random_hash( hash2 );
+  add_notar_votes( pool, slot+FD_NUM_SLOTS_FOR_REWARD+1UL, hash2, 0UL, 7UL );
+  add_final_votes( pool, slot+FD_NUM_SLOTS_FOR_REWARD+1UL, 0UL, 7UL );
+  FD_TEST( !ag_pool_slot_state( pool, slot ) );
+
+  teardown_pool( pool );
+}
+
+static void
+test_reward_late_skip_unverified( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ulong slot = 1UL;
+  add_skip_votes( pool, slot, 0UL, 7UL );
+  FD_TEST( has_skip_cert( pool, slot ) );
+  ag_vote_t poisoned = ag_vote_construct_skip( sec_sign_fn, &g_sk[4], slot, (ushort)8, TEST_SHRED_VERSION );
+  FD_TEST( ag_pool_add_vote( pool, &poisoned, bad )==AG_POOL_SUCCESS );
+  FD_TEST( fd_bls_set_is_null( bad ) );
+  drain_events( pool );
+
+  ag_slot_state_t const * state = ag_pool_slot_state( pool, slot );
+  FD_TEST( state );
+  FD_TEST( fd_bls_set_cnt( state->voted_stakes.skip_agg.set )==8UL );
+  FD_TEST( fd_bls_set_cnt( state->certs.skip.agg_skip.set )==7UL );
+
+  uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, TEST_SHRED_VERSION, msg );
+  FD_TEST( !fd_bls_agg_verify( msg, msg_sz, &state->voted_stakes.skip_agg.pub, &state->voted_stakes.skip_agg.sig ) );
+
+  fd_bls_agg_t base = state->certs.skip.agg_skip;
+  memset( &base.pub, 0, sizeof(fd_bls_pub_t) );
+  for( ulong rank = fd_bls_set_const_iter_init( base.set );
+                   !fd_bls_set_const_iter_done( rank );
+             rank = fd_bls_set_const_iter_next( base.set, rank ) ) {
+    blst_p1_add_or_double( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
+  }
+  fd_bls_agg_t extra = { 0 };
+  for( ulong rank = fd_bls_set_const_iter_init( state->voted_stakes.skip_agg.set );
+                   !fd_bls_set_const_iter_done( rank );
+             rank = fd_bls_set_const_iter_next( state->voted_stakes.skip_agg.set, rank ) ) {
+    if( FD_UNLIKELY( fd_bls_set_test( base.set, rank ) ) ) continue;
+    fd_bls_set_insert( extra.set, rank );
+    blst_p1_add_or_double( &extra.pub, &extra.pub, g_epoch_info->pubkeys       +rank );
+    blst_p2_add_or_double( &extra.sig, &extra.sig, state->voted_stakes.skip_sig+rank );
+  }
+  FD_TEST( fd_bls_set_cnt( extra.set )==1UL && fd_bls_set_test( extra.set, 8UL ) );
+  fd_bls_agg_t agg = base;
+  blst_p1_add_or_double( &agg.pub, &agg.pub, &extra.pub );
+  blst_p2_add_or_double( &agg.sig, &agg.sig, &extra.sig );
+  fd_bls_set_union( agg.set, agg.set, extra.set );
+  FD_TEST( fd_bls_set_cnt( agg.set )==8UL );
+  FD_TEST( !fd_bls_agg_verify( msg, msg_sz, &agg.pub, &agg.sig ) );
+
+  fd_bls_agg_verify_bisect( &extra, msg, msg_sz, g_epoch_info->pubkeys, state->voted_stakes.skip_sig, bad );
+  FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 8UL ) );
+  for( ulong rank = fd_bls_set_const_iter_init( bad );
+                   !fd_bls_set_const_iter_done( rank );
+             rank = fd_bls_set_const_iter_next( bad, rank ) ) {
+    fd_bls_pub_t neg_pub = g_epoch_info->pubkeys       [ rank ]; blst_p1_cneg( &neg_pub, 1 );
+    fd_bls_sig_t neg_sig = state->voted_stakes.skip_sig[ rank ]; blst_p2_cneg( &neg_sig, 1 );
+    blst_p1_add_or_double( &agg.pub, &agg.pub, &neg_pub );
+    blst_p2_add_or_double( &agg.sig, &agg.sig, &neg_sig );
+    fd_bls_set_remove( agg.set, rank );
+  }
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &agg.pub, &agg.sig ) );
+  FD_TEST( fd_bls_set_cnt( agg.set )==7UL );
+
+  ag_block_hash_t hash; random_hash( hash );
+  add_notar_votes( pool, slot+1UL, hash, 0UL, 7UL );
+  FD_TEST( has_notar_cert( pool, slot+1UL ) );
+  poisoned = ag_vote_construct_notar( sec_sign_fn, &g_sk[4], slot+1UL, hash, (ushort)8, TEST_SHRED_VERSION );
+  FD_TEST( ag_pool_add_vote( pool, &poisoned, bad )==AG_POOL_SUCCESS );
+  FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 8UL ) );
+  drain_events( pool );
+  state = ag_pool_slot_state( pool, slot+1UL );
+  FD_TEST( state && state->voted_stakes.notar_cnt==1UL && fd_bls_set_cnt( state->voted_stakes.notar[0].agg.set )==7UL );
+  msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot+1UL, hash, TEST_SHRED_VERSION, msg );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &state->voted_stakes.notar[0].agg.pub, &state->voted_stakes.notar[0].agg.sig ) );
+
+  teardown_pool( pool );
+}
+
+static void
+test_reward_wire_cert_base( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ulong slot = 1UL;
+  ag_vote_skip_t          sv [ 5 ];
+  ag_vote_skip_fallback_t sfv[ 4 ];
+  for( ulong v=0UL; v<5UL; v++ ) sv [v] = ag_vote_construct_skip         ( sec_sign_fn, &g_sk[v],     slot, (ushort)v,       TEST_SHRED_VERSION ).skip;
+  for( ulong v=0UL; v<4UL; v++ ) sfv[v] = ag_vote_construct_skip_fallback( sec_sign_fn, &g_sk[v+5UL], slot, (ushort)(v+5UL), TEST_SHRED_VERSION ).skip_fallback;
+  ag_cert_t cert = cert_build_skip( sv, 5UL, sfv, 4UL, g_epoch_info );
+  uchar buf[ AG_CERT_SER_MAX ];
+  ulong buf_sz = ag_cert_ser( &cert, buf );
+  FD_TEST( ag_cert_de( &cert, buf, buf_sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &cert, bad )==AG_POOL_SUCCESS );
+  drain_events( pool );
+  add_skip_votes( pool, slot, 0UL,  3UL  );
+  add_skip_votes( pool, slot, 9UL,  11UL );
+
+  ag_slot_state_t const * state = ag_pool_slot_state( pool, slot );
+  FD_TEST( state );
+  FD_TEST( fd_bls_set_cnt( state->certs.skip.agg_skip.set )==5UL && fd_bls_set_cnt( state->certs.skip.agg_skip_fallback.set )==4UL );
+  FD_TEST( fd_bls_set_cnt( state->voted_stakes.skip_agg.set )==5UL );
+
+  uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, TEST_SHRED_VERSION, msg );
+  fd_bls_agg_t base = state->certs.skip.agg_skip;
+  memset( &base.pub, 0, sizeof(fd_bls_pub_t) );
+  for( ulong rank = fd_bls_set_const_iter_init( base.set );
+                   !fd_bls_set_const_iter_done( rank );
+             rank = fd_bls_set_const_iter_next( base.set, rank ) ) {
+    blst_p1_add_or_double( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
+  }
+  FD_TEST( !fd_bls_agg_verify( msg, msg_sz, &base.pub, &base.sig ) );
+
+  memset( &base, 0, sizeof(fd_bls_agg_t) );
+  fd_bls_agg_t extra = { 0 };
+  for( ulong rank = fd_bls_set_const_iter_init( state->voted_stakes.skip_agg.set );
+                   !fd_bls_set_const_iter_done( rank );
+             rank = fd_bls_set_const_iter_next( state->voted_stakes.skip_agg.set, rank ) ) {
+    if( FD_UNLIKELY( fd_bls_set_test( base.set, rank ) ) ) continue;
+    fd_bls_set_insert( extra.set, rank );
+    blst_p1_add_or_double( &extra.pub, &extra.pub, g_epoch_info->pubkeys       +rank );
+    blst_p2_add_or_double( &extra.sig, &extra.sig, state->voted_stakes.skip_sig+rank );
+  }
+  fd_bls_agg_t agg = base;
+  blst_p1_add_or_double( &agg.pub, &agg.pub, &extra.pub );
+  blst_p2_add_or_double( &agg.sig, &agg.sig, &extra.sig );
+  fd_bls_set_union( agg.set, agg.set, extra.set );
+  FD_TEST( fd_bls_set_cnt( agg.set )==5UL );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &agg.pub, &agg.sig ) );
+
+  ag_block_hash_t hash; random_hash( hash );
+  ag_vote_notar_t nv[ 7 ];
+  for( ulong v=0UL; v<7UL; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], slot+1UL, hash, (ushort)v, TEST_SHRED_VERSION ).notar;
+  cert   = cert_build_notar( nv, 7UL, g_epoch_info );
+  buf_sz = ag_cert_ser( &cert, buf );
+  FD_TEST( ag_cert_de( &cert, buf, buf_sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &cert, bad )==AG_POOL_SUCCESS );
+  drain_events( pool );
+  state = ag_pool_slot_state( pool, slot+1UL );
+  FD_TEST( state && state->voted_stakes.notar_cnt==0UL && state->certs.notar.slot==slot+1UL );
+  base = state->certs.notar.agg;
+  FD_TEST( blst_p1_is_inf( &base.pub ) );
+  for( ulong rank = fd_bls_set_const_iter_init( base.set );
+                   !fd_bls_set_const_iter_done( rank );
+             rank = fd_bls_set_const_iter_next( base.set, rank ) ) {
+    blst_p1_add_or_double( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
+  }
+  msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot+1UL, hash, TEST_SHRED_VERSION, msg );
+  FD_TEST( fd_bls_set_cnt( base.set )==7UL );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &base.pub, &base.sig ) );
+
+  teardown_pool( pool );
+}
+
+static void
 test_finalized_block_hash( void ) {
   ag_pool_t *     pool = setup_pool();
   ag_block_hash_t hash;
@@ -587,7 +776,7 @@ test_pruning( void ) {
   ulong last_slot = 3UL*SLOTS_PER_WINDOW - 1UL;
   FD_TEST( ag_pool_finalized_slot( pool )==last_slot );
 
-  for( ulong s=0UL; s<last_slot; s++ ) FD_TEST( !contains_slot( pool, s ) );
+  for( ulong s=0UL; s<last_slot; s++ ) FD_TEST( contains_slot( pool, s )==(s+FD_NUM_SLOTS_FOR_REWARD>=pool_first_unpruned_slot( pool )) );
   FD_TEST( contains_slot( pool, last_slot ) );
   FD_TEST_PRUNED_TO_WATERMARK( pool );
 
@@ -608,7 +797,7 @@ test_pruning( void ) {
   }
   FD_TEST( ag_pool_finalized_slot( pool )==last_slot+10UL );
 
-  for( ulong s=0UL; s<10UL; s++ ) FD_TEST( !contains_slot( pool, last_slot+s ) );
+  for( ulong s=0UL; s<10UL; s++ ) FD_TEST( contains_slot( pool, last_slot+s )==(last_slot+s+FD_NUM_SLOTS_FOR_REWARD>=pool_first_unpruned_slot( pool )) );
   FD_TEST( contains_slot( pool, last_slot+10UL ) );
   FD_TEST_PRUNED_TO_WATERMARK( pool );
 
@@ -745,11 +934,11 @@ test_slow_finalize_closing_gap_no_double_parent_ready( void ) {
   fast_finalize( pool, next_start, gh );
   FD_TEST( ag_pool_finalized_slot( pool )==next_start );
   FD_TEST( pool_first_unpruned_slot( pool )==watermark_slot );
-  FD_TEST( min_live_slot( pool )==watermark_slot );
+  FD_TEST( min_live_slot( pool )<=watermark_slot && min_live_slot( pool )+FD_NUM_SLOTS_FOR_REWARD>=watermark_slot );
 
   add_notar_votes( pool, gap_slot, gap_hash, 0UL, 7UL );
   FD_TEST( pool_first_unpruned_slot( pool )==next_start );
-  FD_TEST( min_live_slot( pool )==next_start );
+  FD_TEST( min_live_slot( pool )<=next_start && min_live_slot( pool )+FD_NUM_SLOTS_FOR_REWARD>=next_start );
 
   ulong cnt; ag_pool_parents_ready( pool, next_start, &cnt );
   FD_TEST( cnt==1UL );
@@ -1211,10 +1400,10 @@ test_retired_epoch_already_pruned( void ) {
   }
   FD_TEST( ag_pool_finalized_slot( pool )==EPOCH_B_LO );
 
-  FD_TEST( !contains_slot( pool, EPOCH_B_LO-1UL ) );
-  FD_TEST(  contains_slot( pool, EPOCH_B_LO      ) );
+  FD_TEST( contains_slot( pool, EPOCH_B_LO-1UL ) ); /* retained for the reward certs */
+  FD_TEST( contains_slot( pool, EPOCH_B_LO     ) );
   FD_TEST( pool_first_unpruned_slot( pool )==EPOCH_B_LO );
-  FD_TEST( min_live_slot( pool )==EPOCH_B_LO );
+  FD_TEST( min_live_slot( pool )<=EPOCH_B_LO && min_live_slot( pool )+FD_NUM_SLOTS_FOR_REWARD>=EPOCH_B_LO );
 
   ag_epoch_info_t * c = make_epoch_info( 2UL, g_info, NV );
   ag_pool_advance_epoch( pool, c, 0UL, EPOCH_B_HI+1UL );
@@ -1226,7 +1415,7 @@ test_retired_epoch_already_pruned( void ) {
   ag_vote_t v_below; ag_block_hash_t h_below; random_hash( h_below );
   v_below = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], EPOCH_B_LO-1UL, h_below, (ushort)0, TEST_SHRED_VERSION );
   FD_TEST( ag_pool_add_vote( pool, &v_below, bad )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
-  FD_TEST( !contains_slot( pool, EPOCH_B_LO-1UL ) );
+  FD_TEST( contains_slot( pool, EPOCH_B_LO-1UL ) ); /* retained, untouched */
 
   teardown_pool_only( pool );
 }
@@ -1288,7 +1477,7 @@ test_add_block_below_watermark( void ) {
   FD_TEST( ag_pool_add_block( pool, &stale, &parent, bad )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
   drain_events( pool );
 
-  FD_TEST( !contains_slot( pool, slot-2UL ) );
+  FD_TEST( contains_slot( pool, slot-2UL ) ); /* retained, untouched */
   FD_TEST( slot_state_pool_free( pool->slot_states->pool )==free_cnt );
   FD_TEST_PRUNED_TO_WATERMARK( pool );
 
@@ -1313,6 +1502,9 @@ main( int     argc,
   test_notarize_block();
   test_skip_block();
   test_finalize_block();
+  test_reward_readback_window();
+  test_reward_late_skip_unverified();
+  test_reward_wire_cert_base();
   test_fast_finalize_block();
   test_finalized_block_hash();
   test_simple_branch_certified();

@@ -1265,10 +1265,9 @@ construct_footer_certs( fd_replay_tile_t const * ctx,
                   leader_slot>=migration_slot+FD_NUM_SLOTS_FOR_REWARD+1UL;
   if( FD_LIKELY( reward_ok ) ) {
     ulong                     reward_slot = leader_slot-FD_NUM_SLOTS_FOR_REWARD;
-    fd_votor_certed_t const * rn          = &ctx->votor_notar[ reward_slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ];
-    fd_votor_certed_t const * rs          = &ctx->votor_skip [ reward_slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ];
-    footer->has_notar_reward_cert = rn->slot==reward_slot && fd_block_footer_cert_from_agg( &footer->notar_reward_cert, reward_slot, rn->block_id.uc, &rn->agg );
-    footer->has_skip_reward_cert  = rs->slot==reward_slot && fd_block_footer_cert_from_agg( &footer->skip_reward_cert,  reward_slot, NULL,            &rs->agg );
+    fd_votor_reward_t const * reward      = &ctx->votor_reward[ reward_slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ];
+    footer->has_notar_reward_cert = reward->slot==reward_slot && !fd_bls_set_is_null( reward->agg_notar.set ) && fd_block_footer_cert_from_agg( &footer->notar_reward_cert, reward_slot, reward->block_id.uc, &reward->agg_notar );
+    footer->has_skip_reward_cert  = reward->slot==reward_slot && !fd_bls_set_is_null( reward->agg_skip.set  ) && fd_block_footer_cert_from_agg( &footer->skip_reward_cert,  reward_slot, NULL,                &reward->agg_skip  );
   }
 }
 
@@ -4350,7 +4349,6 @@ returnable_frag( fd_replay_tile_t *  ctx,
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_CERTED ) ) {
         fd_votor_certed_t const * certed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_votor_certed_t *       fin    = ctx->votor_final;
-        fd_votor_certed_t *       ring   = NULL;
         switch( certed->kind ) {
         case AG_CERT_KIND_FINAL:
           if( fin->slot==ULONG_MAX || certed->slot>fin->slot ) *fin = *certed;
@@ -4358,12 +4356,12 @@ returnable_frag( fd_replay_tile_t *  ctx,
         case AG_CERT_KIND_FAST_FINAL: /* fast beats slow at the same slot */
           if( fin->slot==ULONG_MAX || certed->slot>fin->slot || ( certed->slot==fin->slot && fin->kind==AG_CERT_KIND_FINAL ) ) *fin = *certed;
           break;
-        case AG_CERT_KIND_NOTAR: ring = &ctx->votor_notar[ certed->slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ]; break;
-        case AG_CERT_KIND_SKIP:  ring = &ctx->votor_skip [ certed->slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ]; break;
         default: break;
         }
-        /* newest slot wins the ring entry, and at the same slot the widest aggregate, which rewards the most voters */
-        if( ring && ( ring->slot==ULONG_MAX || certed->slot>ring->slot || ( certed->slot==ring->slot && fd_bls_set_cnt( certed->agg.set )>fd_bls_set_cnt( ring->agg.set ) ) ) ) *ring = *certed;
+      } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_REWARD ) ) {
+        fd_votor_reward_t const * reward = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        fd_votor_reward_t *       ring   = &ctx->votor_reward[ reward->slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ];
+        if( ring->slot==ULONG_MAX || reward->slot>=ring->slot ) *ring = *reward;
       }
       break;
     }
@@ -4810,8 +4808,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->highwater_leader_slot = ULONG_MAX;
 
   ctx->votor_final->slot = ULONG_MAX;
-  for( ulong i=0UL; i<FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL; i++ ) ctx->votor_notar[ i ].slot = ULONG_MAX;
-  for( ulong i=0UL; i<FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL; i++ ) ctx->votor_skip [ i ].slot = ULONG_MAX;
+  for( ulong i=0UL; i<FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL; i++ ) ctx->votor_reward[ i ].slot = ULONG_MAX;
 
   ctx->caught_up                = 0;
   ctx->catch_up_max_fec_slot    = ULONG_MAX;

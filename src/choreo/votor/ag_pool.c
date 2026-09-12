@@ -2,6 +2,7 @@
 #include "ag_slot_state.h"
 #include "ag_finality_tracker.h"
 #include "ag_parent_ready_tracker.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 
 #define QUEUE_NAME pool_events
 #define QUEUE_T    ag_event_pool_t
@@ -105,7 +106,7 @@ ulong
 ag_pool_footprint( ulong slot_max ) {
   if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW ) ) return 0UL;
 
-  ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
+  ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max+FD_NUM_SLOTS_FOR_REWARD );
   ulong s2n_max        = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
   ulong s2n_chain_cnt  = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
 
@@ -130,7 +131,7 @@ ag_pool_footprint( ulong slot_max ) {
     FD_LAYOUT_INIT,
       alignof(ag_pool_t),                   sizeof(ag_pool_t)                                       ),
       alignof(slot_states_t),               sizeof(slot_states_t)                                   ),
-      slot_state_pool_align(),              slot_state_pool_footprint( slot_max )                   ),
+      slot_state_pool_align(),              slot_state_pool_footprint( slot_max+FD_NUM_SLOTS_FOR_REWARD ) ),
       slot_state_map_align(),               slot_state_map_footprint ( slot_chain_cnt )             ),
       ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( slot_max )           ),
       ag_finality_tracker_align(),          ag_finality_tracker_footprint( slot_max )               ),
@@ -168,14 +169,14 @@ ag_pool_new( void * mem,
   fd_memset( mem, 0, footprint );
 
   ulong s2n_max        = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
-  ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
+  ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max+FD_NUM_SLOTS_FOR_REWARD );
   ulong s2n_chain_cnt  = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
 
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   ag_pool_t * pool                         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_pool_t),                   sizeof(ag_pool_t)                                       );
   void *      slot_states                  = FD_SCRATCH_ALLOC_APPEND( l, alignof(slot_states_t),               sizeof(slot_states_t)                                   );
-  void *      slot_state_pool              = FD_SCRATCH_ALLOC_APPEND( l, slot_state_pool_align(),              slot_state_pool_footprint( slot_max )                   );
+  void *      slot_state_pool              = FD_SCRATCH_ALLOC_APPEND( l, slot_state_pool_align(),              slot_state_pool_footprint( slot_max+FD_NUM_SLOTS_FOR_REWARD ) );
   void *      slot_state_map               = FD_SCRATCH_ALLOC_APPEND( l, slot_state_map_align(),               slot_state_map_footprint ( slot_chain_cnt )             );
   void *      parent_ready_tracker         = FD_SCRATCH_ALLOC_APPEND( l, ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( slot_max )           );
   void *      finality_tracker             = FD_SCRATCH_ALLOC_APPEND( l, ag_finality_tracker_align(),          ag_finality_tracker_footprint( slot_max )               );
@@ -200,7 +201,7 @@ ag_pool_new( void * mem,
   pool->next_epoch_slot = ULONG_MAX;
 
   pool->slot_states       = (slot_states_t *)slot_states;
-  pool->slot_states->pool = slot_state_pool_join( slot_state_pool_new( slot_state_pool, slot_max                   ) );
+  pool->slot_states->pool = slot_state_pool_join( slot_state_pool_new( slot_state_pool, slot_max+FD_NUM_SLOTS_FOR_REWARD ) );
   pool->slot_states->map  = slot_state_map_join ( slot_state_map_new ( slot_state_map,  slot_chain_cnt, seed ) );
 
   pool->parent_ready_tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( parent_ready_tracker, slot_max, seed ) );
@@ -277,7 +278,6 @@ ag_pool_strerror( int err ) {
   case AG_POOL_ERR_DUPLICATE:          return "duplicate vote or cert";
   case AG_POOL_ERR_SLASHABLE:          return "vote constitutes a slashable offence";
   case AG_POOL_ERR_CERT_VERIFY:        return "cert failed the signature or threshold check";
-  case AG_POOL_ERR_VOTE_VERIFY:        return "vote(s) failed the signature check";
   default:                             return "unknown";
   }
 }
@@ -314,7 +314,8 @@ handle_finalization( ag_pool_t *                     self,
     pool_events_push( self->pool_events, event );
   }
   ulong first_unpruned_slot = ag_finality_tracker_first_unpruned_slot( self->finality_tracker );
-  for( ulong slot = self->parent_ready_tracker->root; slot<first_unpruned_slot; slot++ ) {
+  ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, FD_NUM_SLOTS_FOR_REWARD );
+  for( ulong slot = fd_ulong_sat_sub( self->parent_ready_tracker->root, FD_NUM_SLOTS_FOR_REWARD ); slot<retained_slot; slot++ ) {
     slot_state_ele_t * ele = slot_state_map_ele_remove( self->slot_states->map, &slot, NULL, self->slot_states->pool );
     if( FD_LIKELY( ele ) ) slot_state_pool_ele_release( self->slot_states->pool, ele );
   }
@@ -501,12 +502,12 @@ ag_pool_add_vote( ag_pool_t *       self,
   ag_event_cert_t   cert_events  [ AG_SLOT_STATE_OUT_CERT_MAX   ]; ulong cert_event_cnt;
   ag_event_pool_t   pool_events  [ AG_SLOT_STATE_OUT_EVENT_MAX  ]; ulong pool_event_cnt;
   ag_event_repair_t repair_events[ AG_SLOT_STATE_OUT_REPAIR_MAX ]; ulong repair_event_cnt;
-  int ok = ag_slot_state_add_vote( slot_state_, vote, voter_stake, cert_events, &cert_event_cnt, pool_events, &pool_event_cnt, repair_events, &repair_event_cnt, bad );
+  ag_slot_state_add_vote( slot_state_, vote, voter_stake, cert_events, &cert_event_cnt, pool_events, &pool_event_cnt, repair_events, &repair_event_cnt, bad );
 
   for( ulong i=0UL; i<cert_event_cnt;   i++ ) add_valid_cert( self, &cert_events[i].cert, bad );
   for( ulong i=0UL; i<pool_event_cnt;   i++ ) { pool_events  [i].seq = self->seq++; pool_events_push  ( self->pool_events,   pool_events  [i] ); }
   for( ulong i=0UL; i<repair_event_cnt; i++ ) { repair_events[i].seq = self->seq++; repair_events_push( self->repair_events, repair_events[i] ); }
-  return ok ? AG_POOL_SUCCESS : AG_POOL_ERR_VOTE_VERIFY;
+  return AG_POOL_SUCCESS;
 }
 
 ag_slot_state_t const *

@@ -155,7 +155,10 @@ subtract_votes( ag_slot_state_t *     self,
   if( FD_UNLIKELY( kind==AG_VOTE_KIND_NOTAR ) ) {
     voted_stake->top_notar = 0UL;
     for( ulong i=0UL; i<voted_stake->notar_cnt; i++ ) {
-      voted_stake->top_notar = fd_ulong_max( voted_stake->top_notar, voted_stake->notar[i].stake ); /* FIXME slow */
+      if( FD_LIKELY( voted_stake->notar[i].stake>voted_stake->top_notar ) ) { /* FIXME slow */
+        voted_stake->top_notar = voted_stake->notar[i].stake;
+        memcpy( voted_stake->top_notar_hash, voted_stake->notar[i].hash, sizeof(ag_block_hash_t) );
+      }
     }
   }
   return !emptied && !blst_p1_is_inf( &agg->pub );
@@ -308,7 +311,10 @@ count_notar_stake( ag_slot_state_t *       self,
 
   ulong notar_stake           = voted_stake_for_hash->stake;
   voted_stake->notar_or_skip += stake;
-  voted_stake->top_notar      = fd_ulong_max( notar_stake, voted_stake->top_notar );
+  if( FD_LIKELY( notar_stake>voted_stake->top_notar ) ) {
+    voted_stake->top_notar = notar_stake;
+    memcpy( voted_stake->top_notar_hash, block_hash, sizeof(ag_block_hash_t) );
+  }
 
   if( FD_UNLIKELY( !block_hash_set_contains( &self->sent_safe_to_notar, block_hash ) ) ) {
     switch( check_safe_to_notar( self, block_hash, bad ) ) {
@@ -323,7 +329,9 @@ count_notar_stake( ag_slot_state_t *       self,
     default: break;
     }
   }
-  if( FD_UNLIKELY( check_safe_to_skip( self, bad ) ) ) out_pool_events[ (*out_pool_event_cnt)++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = slot };
+  if( FD_UNLIKELY( check_safe_to_skip( self, bad ) ) ) {
+    out_pool_events[ (*out_pool_event_cnt)++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = slot };
+  }
   if( FD_UNLIKELY( !fd_bls_set_is_null( bad ) ) ) {
     voted_stake_for_hash = NULL;
     for( ulong i=0UL; i<voted_stake->notar_cnt; i++ ) {
@@ -490,7 +498,9 @@ count_skip_stake( ag_slot_state_t *   self,
     }
   }
 
-  if( FD_UNLIKELY( check_safe_to_skip( self, bad ) ) ) out_pool_events[ (*out_pool_event_cnt)++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = slot };
+  if( FD_UNLIKELY( check_safe_to_skip( self, bad ) ) ) {
+    out_pool_events[ (*out_pool_event_cnt)++ ] = (ag_event_pool_t){ .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = slot };
+  }
   if( FD_UNLIKELY( !fd_bls_set_is_null( bad ) && !fd_bls_set_test( fallback ? voted_stake->skip_fallback_agg.set : voted_stake->skip_agg.set, rank ) ) ) return 0;
 
   ulong total_skip_stake = voted_stake->skip + voted_stake->skip_fallback;
