@@ -89,7 +89,7 @@ $(shell mkdir -p $(addprefix $(OBJDIR)/,bin lib unit-test integration-test fuzz-
 endif
 stamp = $(if $(subst |$(strip $(file <$(1))),,|$(strip $(2))),$(if $(FD_STAMPS),$(file >$(1).tmp,$(2))$(eval STAMPED+=$(1)),$(if $(FD_DRYRUN),$(eval .PHONY: $(1)))))
 # per-target link-flag stamp name (see the .ldflags.d rule)
-ldstamp = $(OBJDIR)/.ldflags.d/$(1)_$(2)@$(subst /,_,$(subst $(space),_,$(strip $(subst $(OPT)/,,$(subst $(OBJDIR)/,,$(subst $(CURDIR)/,,$(3)))))))
+ldstamp = $(OBJDIR)/.ldflags.d/$(1)_$(2)@$(subst /,_,$(subst $(space),_,$(strip $(subst $(OBJDIR)/,,$(subst $(CURDIR)/,,$(3))))))
 
 # Quiet/verbose build switch
 Q=@
@@ -398,7 +398,8 @@ make-proof = $(eval $(call _make-proof,$(1),$(2)))
 ## GENERIC RULES
 
 $(OBJDIR)/info :
-	$(MKDIR) $(dir $@) && \
+	@echo -e "INFO\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
 echo -e \
 "# date     `date +'%Y-%m-%d %H:%M:%S %z'`\n"\
 "# source   `whoami`@`hostname`:`pwd`\n"\

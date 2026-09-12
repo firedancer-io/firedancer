@@ -77,12 +77,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   REGISTER( "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address );
   REGISTER( "sol_sha256",                            fd_vm_syscall_sol_sha256 );
   REGISTER( "sol_keccak256",                         fd_vm_syscall_sol_keccak256 );
-# if FD_HAS_S2NBIGNUM
   REGISTER( "sol_secp256k1_recover",                 fd_vm_syscall_sol_secp256k1_recover );
-# else
-  FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
-               "Rebuild with a MACHINE config that enables config/extra/with-s2nbignum.mk" ));
-# endif
 
   if( enable_sha512_syscall )
     REGISTER( "sol_sha512",                          fd_vm_syscall_sol_sha512 );

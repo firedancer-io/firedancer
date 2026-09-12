@@ -82,8 +82,8 @@ LLVMFuzzerInitialize( int  *   argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1000U, 0UL ) );
 
-  for( ulong b=0; b<32UL; b++ ) tls_tmpl->kex_private_key[b] = fd_rng_uchar( rng );
-  fd_x25519_public( tls_tmpl->kex_public_key, tls_tmpl->kex_private_key );
+  for( ulong b=0; b<32UL; b++ ) tls_tmpl->key_share_private[b] = fd_rng_uchar( rng );
+  fd_x25519_public( tls_tmpl->key_share_public, tls_tmpl->key_share_private );
 
   static fd_tls_test_sign_ctx_t sign_ctx[1];
   fd_tls_test_sign_ctx( sign_ctx, rng );
@@ -104,8 +104,8 @@ _tls_valid_srv_hs_state[ 16 ] = {
   [FD_TLS_HS_CONNECTED    ] = 1,
   [FD_TLS_HS_START        ] = 1,
   [FD_TLS_HS_WAIT_CERT    ] = 1,
-  [FD_TLS_HS_WAIT_CV      ] = 1,
-  [FD_TLS_HS_WAIT_FINISHED] = 1
+  [FD_TLS_HS_WAIT_CERT_VERIFY] = 1,
+  [FD_TLS_HS_WAIT_FINISHED  ] = 1
 };
 
 static uchar
@@ -114,10 +114,10 @@ _tls_valid_cli_hs_state[ 16 ] = {
   [FD_TLS_HS_CONNECTED    ] = 1,
   [FD_TLS_HS_START        ] = 1,
   [FD_TLS_HS_WAIT_SH      ] = 1,
-  [FD_TLS_HS_WAIT_EE      ] = 1,
+  [FD_TLS_HS_WAIT_ENC_EXT ] = 1,
   [FD_TLS_HS_WAIT_CERT_CR ] = 1,
   [FD_TLS_HS_WAIT_CERT    ] = 1,
-  [FD_TLS_HS_WAIT_CV      ] = 1,
+  [FD_TLS_HS_WAIT_CERT_VERIFY] = 1,
   [FD_TLS_HS_WAIT_FINISHED] = 1
 };
 
@@ -140,6 +140,7 @@ LLVMFuzzerTestOneInput( uchar const * input,
   uchar hs_state  = (uchar)( ( state>> 4 )&0xFUL );
   int   cli_cert  = !!( state & (1UL<<10) );
   uint  enc_lvl   = (uint)(  ( state>>11 )&0x3UL );
+  int   cs_sha384 = !!( state & (1UL<<13) );
 
   fd_tls_t tls[1]; fd_memcpy( tls, tls_tmpl, sizeof(fd_tls_t) );
   fd_chacha_rng_t chacha[1];
@@ -163,9 +164,14 @@ LLVMFuzzerTestOneInput( uchar const * input,
     fd_tls_server_handshake( tls, hs, payload, payload_sz, enc_lvl );
   } else {
     if( !_tls_valid_cli_hs_state[ hs_state ] ) return -1;
+    /* States past WAIT_SH assume a negotiated cipher suite */
+    ushort cipher_suite = cs_sha384 ? FD_TLS_CIPHER_SUITE_AES_256_GCM_SHA384
+                                    : FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256;
     fd_tls_estate_cli_t hs[1] = {{
-      .base        = base,
-      .client_cert = (uchar)(cli_cert&1),
+      .base         = base,
+      .client_cert  = (uchar)(cli_cert&1),
+      .cs           = fd_tls_cs_lookup( cipher_suite ),
+      .cipher_suite = cipher_suite,
     }};
     fd_tls_client_handshake( tls, hs, payload, payload_sz, enc_lvl );
   }

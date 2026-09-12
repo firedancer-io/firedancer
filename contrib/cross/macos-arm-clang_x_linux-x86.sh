@@ -99,12 +99,8 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 EOF
 }
 
-deps () {
-  deps_cmake
-}
-
 macos_pkgs
 sysroot
-deps
+deps_cmake
 
 echo "DONE!"

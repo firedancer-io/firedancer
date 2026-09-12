@@ -32,7 +32,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   data    += 4UL;
   data_sz -= 4UL;
 
-  uint rec_sz = fd_tls_u24_to_uint( hdr.sz );
+  uint rec_sz = fd_tls_u24_to_uint( hdr.length );
   if( rec_sz > data_sz ) return 0;
 
   switch( hdr.type ) {
@@ -46,12 +46,12 @@ LLVMFuzzerTestOneInput( uchar const * data,
       fd_tls_decode_server_hello( &sh, data, rec_sz );
       break;
     }
-    case FD_TLS_MSG_ENCRYPTED_EXT: {
-      fd_tls_enc_ext_t ee = {0};
+    case FD_TLS_MSG_ENCRYPTED_EXTENSIONS: {
+      fd_tls_encrypted_ext_t ee = {0};
       fd_tls_decode_enc_ext( &ee, data, rec_sz );
       break;
     }
-    case FD_TLS_MSG_CERT_VERIFY: {
+    case FD_TLS_MSG_CERTIFICATE_VERIFY: {
       fd_tls_cert_verify_t cv = {0};
       fd_tls_decode_cert_verify( &cv, data, rec_sz );
       break;

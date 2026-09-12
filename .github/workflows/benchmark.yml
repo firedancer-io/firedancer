@@ -38,7 +38,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - uses: ./.github/actions/deps
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
@@ -152,7 +151,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - uses: ./.github/actions/deps
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
@@ -246,7 +244,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - uses: ./.github/actions/deps
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners

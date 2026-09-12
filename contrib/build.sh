@@ -10,7 +10,6 @@ help() {
   echo " Flags:"
   echo "   --no-gcc             Do not run any gcc builds"
   echo "   --no-clang           Do not run any clang builds"
-  echo "   --no-deps            Do not install deps during any builds"
   echo "   --no-rust            Do not install rust"
   echo "   --no-optimization    Compile with FD_DISABLE_OPTIMIZATION=1"
   echo "   --dry-run            Print build matrix and exit"
@@ -44,7 +43,6 @@ help() {
   echo "   0  all builds that ran were successful"
   echo "   1  one or more builds failed"
   echo "   2  compiler environment activation script not found"
-  echo "   3  failed to compile and install dependencies"
   echo
 }
 
@@ -100,10 +98,6 @@ while [[ $# -gt 0 ]]; do
     # do not run clang builds
     "--no-clang")
       NO_CLANG=1
-      ;;
-    # do not install dependencies
-    "--no-deps")
-      NO_DEPS=1
       ;;
     # do not install rust
     "--no-rust")
@@ -330,31 +324,7 @@ if [[ $NO_GCC -ne 1 ]]; then
       err "Environment activate script not found at /opt/gcc/$compiler... exiting.\n"
       finish 2
     fi
-    # We need to use the same compiler for compiling our code
-    # as well as the dependencies that our code uses.
     source /opt/gcc/$compiler/activate
-    if [[ $NO_DEPS -ne 1 ]]; then
-      start=$(date +%s)
-      inf "Installing dependencies with $compiler...\n"
-      ./deps.sh nuke > /dev/null 2>&1
-      CC=gcc CXX=g++ ./deps.sh fetch install > "$LOG_FILE" 2>&1
-      if [[ $? -ne 0 ]]; then
-        err "Failed to install deps with $compiler... exiting.\n"
-        FAIL=1
-        if [[ $VERBOSE -eq 1 ]]; then
-          cat "$LOG_FILE"
-        fi
-        if [[ $EXIT_ON_ERR -eq 1 ]]; then
-          finish 3
-        else
-          continue
-        fi
-      fi
-      stop=$(date +%s)
-      inf "Elapsed Time: "
-      elapsed "$start" "$stop"
-      echo
-    fi
     for machine in "${MACHINES[@]}"; do
       MACHINE="${machine%.mk}"
       # Should we skip this compiler+machine?
@@ -409,8 +379,7 @@ if [[ $NO_GCC -ne 1 ]]; then
           echo "${FAILED[@]}"
           inf "To reproduce, run:\n"
           echo "  source /opt/gcc/$compiler/activate"
-          echo "  ./deps.sh nuke"
-          echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=gcc CXX=g++ ./deps.sh fetch check install"
+          echo "  FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check"
           echo "  make -j distclean"
           echo "  $([[ $NO_OPTIMIZATION != "" ]] && echo "FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} " || echo "")MACHINE=${MACHINE} CC=gcc make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
@@ -448,31 +417,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
       err "Environment activate script not found at /opt/clang/$compiler... exiting.\n"
       finish 2
     fi
-    # We need to use the same compiler for compiling our code
-    # as well as the dependencies that our code uses.
     source /opt/clang/$compiler/activate
-    if [[ $NO_DEPS -ne 1 ]]; then
-      start=$(date +%s)
-      inf "Installing dependencies with $compiler...\n"
-      ./deps.sh nuke > /dev/null 2>&1
-      CC=clang CXX=clang++ ./deps.sh fetch install > "$LOG_FILE" 2>&1
-      if [[ $? -ne 0 ]]; then
-        err "Failed to install deps with $compiler...\n"
-        FAIL=1
-        if [[ $VERBOSE -eq 1 ]]; then
-          cat "$LOG_FILE"
-        fi
-        if [[ $EXIT_ON_ERR -eq 1 ]]; then
-          finish 3
-        else
-          continue
-        fi
-      fi
-      stop=$(date +%s)
-      inf "Elapsed Time: "
-      elapsed "$start" "$stop"
-      echo
-    fi
     for machine in "${MACHINES[@]}"; do
       MACHINE="${machine%.mk}"
       # Should we skip this compiler+machine?
@@ -526,8 +471,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
           err "Failed Targets: "
           echo "${FAILED[@]}"
           echo "  source /opt/clang/$compiler/activate"
-          echo "  ./deps.sh nuke"
-          echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=clang CXX=clang++ ./deps.sh fetch check install"
+          echo "  FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check"
           echo "  make -j distclean"
           echo "  $([[ $NO_OPTIMIZATION != "" ]] && echo "FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} " || echo "")MACHINE=${MACHINE} CC=clang make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then

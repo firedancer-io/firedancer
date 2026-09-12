@@ -30,10 +30,6 @@ endif
 
 include config/extra/with-s2nbignum.mk
 
-ifneq ($(CROSS),1)
-include config/extra/with-openssl.mk
-endif
-
 FD_ARCH_SUPPORTS_SANDBOX:=1
 
 CPPFLAGS+=-DFD_HAS_ARM=1

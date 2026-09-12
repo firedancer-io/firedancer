@@ -33,10 +33,6 @@ jobs:
 
       - uses: ./.github/actions/submodule-init
 
-      - uses: ./.github/actions/deps
-        with:
-          compiler: ${{ matrix.compiler }}
-          compiler-version: ${{ matrix.compiler-version }}
       - uses: dtolnay/rust-toolchain@1.95.0
       - name: clean targets
         run: |

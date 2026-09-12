@@ -11,8 +11,8 @@
 #include "../fd_txn_m.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
-#include "../../waltz/openssl/fd_openssl.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/ed25519/fd_x25519.h"
 #include "../../third_party/nanopb/pb_decode.h"
 #include "../../util/net/fd_ip4.h"
 
@@ -55,13 +55,6 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   ctx->bundle_subscription_wait = 0;
 
   fd_memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
-
-# if FD_HAS_OPENSSL
-  if( FD_UNLIKELY( ctx->ssl ) ) {
-    SSL_free( ctx->ssl );
-    ctx->ssl = NULL;
-  }
-# endif
 
   fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
 
@@ -141,10 +134,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     FD_LOG_ERR(( "fcntl(tcp_sock,F_SETFL,O_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  char const * scheme = "http";
-# if FD_HAS_OPENSSL
-  if( ctx->is_ssl ) scheme = "https";
-# endif
+  char const * scheme = ctx->is_ssl ? "https" : "http";
 
   FD_LOG_INFO(( "Connecting to %s://" FD_IP4_ADDR_FMT ":%hu (%.*s)",
                 scheme,
@@ -164,34 +154,16 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     }
   }
 
-# if FD_HAS_OPENSSL
   if( ctx->is_ssl ) {
-    BIO * bio = fd_openssl_bio_new_socket( ctx->tcp_sock, BIO_NOCLOSE );
-    if( FD_UNLIKELY( !bio ) ) {
-      FD_LOG_ERR(( "fd_openssl_bio_new_socket failed" ));
-    }
-
-    SSL * ssl = SSL_new( ctx->ssl_ctx );
-    if( FD_UNLIKELY( !ssl ) ) {
-      FD_LOG_ERR(( "SSL_new failed" ));
-    }
-
-    SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
-    SSL_set_connect_state( ssl );
-
-    /* Indicate to endpoint which server name we want */
-    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, ctx->server_sni ) ) ) {
-      FD_LOG_ERR(( "SSL_set_tlsext_host_name failed" ));
-    }
-
-    /* Enable hostname verification */
-    if( FD_UNLIKELY( !SSL_set1_host( ssl, ctx->server_sni ) ) ) {
-      FD_LOG_ERR(( "SSL_set1_host failed" ));
-    }
-
-    ctx->ssl = ssl;
+    fd_tls_t * tls = ctx->tls;
+    ulong sni_len = strlen( ctx->server_sni );
+    fd_memcpy( tls->server_name, ctx->server_sni, sni_len );
+    tls->server_name[ sni_len ] = '\0';
+    tls->server_name_len = (ushort)sni_len;
+    if( FD_UNLIKELY( !fd_rng_secure( tls->key_share_private, 32UL ) ) ) FD_LOG_CRIT(( "fd_rng_secure failed" ));
+    fd_x25519_public( tls->key_share_public, tls->key_share_private );
+    fd_tlsrec_conn_init( ctx->tls_conn, tls, 0 );
   }
-# endif /* FD_HAS_OPENSSL */
 
   fd_grpc_client_reset( ctx->grpc_client );
   fd_keepalive_init( ctx->keepalive, ctx->rng, ctx->keepalive_interval, ctx->keepalive_interval, fd_bundle_now( ctx ) );
@@ -201,11 +173,9 @@ static int
 fd_bundle_client_drive_io( fd_bundle_tile_t * ctx,
                            long               now,
                            int *              charge_busy ) {
-# if FD_HAS_OPENSSL
   if( ctx->is_ssl ) {
-    return fd_grpc_client_rxtx_ossl( ctx->grpc_client, ctx->ssl, now, charge_busy );
+    return fd_grpc_client_rxtx_tls( ctx->grpc_client, ctx->tls_conn, ctx->tcp_sock, now, charge_busy );
   }
-# endif /* FD_HAS_OPENSSL */
 
   return fd_grpc_client_rxtx_socket( ctx->grpc_client, ctx->tcp_sock, now, charge_busy );
 }
@@ -315,11 +285,9 @@ fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
   /* Disconnected: next action is the reconnect attempt. */
   if( FD_UNLIKELY( ctx->tcp_sock<0 ) ) return fd_long_max( ctx->backoff_until, now );
 
-# if FD_HAS_OPENSSL
-  /* Decrypted TLS bytes buffered inside OpenSSL do not make the fd
+  /* Decrypted TLS bytes buffered in the gRPC client do not make the fd
      readable: drain now or they wait for the next unrelated event. */
-  if( FD_UNLIKELY( ctx->is_ssl && ctx->ssl && SSL_has_pending( ctx->ssl ) ) ) return now;
-# endif
+  if( FD_UNLIKELY( ctx->is_ssl && fd_grpc_client_tls_rx_pending( ctx->grpc_client ) ) ) return now;
 
   long deadline = fd_grpc_client_next_deadline( ctx->grpc_client );
   if( FD_LIKELY( ctx->keepalive->interval ) )
@@ -478,11 +446,9 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
   fd_bundle_client_log_status( ctx );
 
   if( FD_UNLIKELY( ctx->tcp_sock_connected && fd_grpc_client_tx_pending( ctx->grpc_client ) ) ) {
-#   if FD_HAS_OPENSSL
-    if( ctx->is_ssl ) fd_grpc_client_tx_flush_ossl( ctx->grpc_client, ctx->ssl );
-    else
-#   endif
-    if( FD_UNLIKELY( -1==fd_grpc_client_tx_flush_socket( ctx->grpc_client, ctx->tcp_sock ) ) ) {
+    int flush_err = ctx->is_ssl ? fd_grpc_client_tls_flush     ( ctx->grpc_client, ctx->tcp_sock )
+                                : fd_grpc_client_tx_flush_socket( ctx->grpc_client, ctx->tcp_sock );
+    if( FD_UNLIKELY( -1==flush_err ) ) {
       fd_bundle_client_reset( ctx );
       ctx->metrics.transport_fail_cnt++;
       *charge_busy = 1;
@@ -495,9 +461,7 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
      socket would keep the epoll set ready forever). */
   if( FD_LIKELY( ctx->tcp_sock_connected && ctx->grpc_client ) ) {
     int want = fd_grpc_client_tx_pending( ctx->grpc_client );
-#   if FD_HAS_OPENSSL
-    want |= ctx->is_ssl && ctx->ssl && SSL_want_write( ctx->ssl );
-#   endif
+    want |= ctx->is_ssl && fd_grpc_client_tls_tx_pending( ctx->grpc_client );
     fd_bundle_client_epoll_out( ctx, want );
   }
 }

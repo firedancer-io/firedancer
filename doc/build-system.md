@@ -99,19 +99,6 @@ generation tools during development.
 All tools used generate C code for Firedancer are currently written
 in Python 3.9.
 
-### Out-of-tree Dependencies
-
-Firedancer aims to have zero out-of-tree library dependencies.
-We are not quite there yet.  For reasons of practicality, some large
-external dependencies are fetched externally.
-
-The `deps.sh` script fetches and builds those dependencies (using the
-dependency's build script).  It then installs includes and static
-libraries into a custom prefix (the `opt` directory).
-
-The compiler discovers those via `-isystem ./opt/include -L./opt/lib`.
-(No need for pkg-config or overcomplicated configure scripts)
-
 Make configuration
 ------------------
 

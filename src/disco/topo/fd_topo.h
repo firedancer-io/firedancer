@@ -326,7 +326,6 @@ struct fd_topo_tile {
       char  key_log_path[ PATH_MAX ];
       ulong buf_sz;
       ulong out_depth;
-      ulong ssl_heap_sz;
       ulong keepalive_interval_nanos;
       uchar tls_cert_verify : 1;
     } bundle;

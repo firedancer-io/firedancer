@@ -1,8 +1,7 @@
 # Software Supply Chain
 
 Below is a list of third-party software that is either included in
-Firedancer source code (vendored), required to build Firedancer, or
-downloaded when checking out the repository (`./deps.sh`).
+Firedancer source code (vendored) or required to build Firedancer.
 
 Development-only dependencies are omitted.
 
@@ -27,8 +26,6 @@ For copyright notices of vendored code, see the [NOTICE] file instead.
 
 Firedancer source code is distributed via GitHub.com.
 
-External dependencies are downloaded from GitHub.com and GitLab.com.
-
 ## System environment
 
 Firedancer requires a glibc-based Linux environment, either Fedora- or
@@ -39,12 +36,10 @@ Ubuntu-like.
 Build dependencies are installed via the system's native package
 manager (dnf or apt) when running `./deps.sh check`. These include:
 
-- Git
 - GNU Make
-- C/C++ compiler: GCC or Clang
-- pkgconf
+- C compiler: GCC or Clang
 - GNU coreutils
-- Perl (for building OpenSSL)
+- Perl (for building Agave's OpenSSL)
 
 ## Vendored
 
@@ -117,23 +112,6 @@ Data compression library by Meta. Written in C.
 https://github.com/lz4/lz4 (`src/third_party/lz4`)
 
 Data compression library. Written in C.
-
-## External
-
-External dependencies are downloaded and installed when running
-`./deps.sh install`.
-
-Most dependencies are checked out using by Git tag; SHA refs are not
-pinned.
-
-All production external dependencies are statically linked into the
-Firedancer executable.
-
-### OpenSSL
-
-https://github.com/openssl/openssl
-
-Widely used TLS library. Written in C.
 
 ---
 

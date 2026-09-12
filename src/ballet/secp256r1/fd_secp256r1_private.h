@@ -68,8 +68,25 @@ static const fd_secp256r1_scalar_t fd_secp256r1_const_n_m1_half[1] = {{{
   0x79dce5617e3192a8, 0xde737d56d38bcf42, 0x7fffffffffffffff, 0x7fffffff80000000,
 }}};
 
+/* Generator G in Jacobian Montgomery form (Gx_mont, Gy_mont, 1_mont).
+   12 ulongs = 3 coords * 4 limbs.
+   Gx = 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296
+   Gy = 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5 */
+static const ulong fd_secp256r1_const_g_mont[12] = {
+  /* Gx in Montgomery form */
+  0x79e730d418a9143cUL, 0x75ba95fc5fedb601UL, 0x79fb732b77622510UL, 0x18905f76a53755c6UL,
+  /* Gy in Montgomery form */
+  0xddf25357ce95560aUL, 0x8b4ab8e4ba19e45cUL, 0xd2e88688dd21f325UL, 0x8571ff1825885d85UL,
+  /* Gz = 1 in Montgomery form */
+  0x0000000000000001UL, 0xffffffff00000000UL, 0xffffffffffffffffUL, 0x00000000fffffffeUL,
+};
+
 FD_PROTOTYPES_END
 
+#if FD_HAS_S2NBIGNUM
 #include "fd_secp256r1_s2n.c"
+#else
+#include "fd_secp256r1_ref.c"
+#endif
 
 #endif /* HEADER_fd_src_ballet_secp256r1_fd_secp256r1_private_h */
