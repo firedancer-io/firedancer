@@ -334,6 +334,60 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
 }
 
 static void
+publish_reward_certs( fd_votor_tile_t * ctx,
+                      ulong             slot ) {
+  publish_t           pub    = { .sig = FD_VOTOR_SIG_REWARD };
+  fd_votor_reward_t * reward = &pub.msg.reward;
+  memset( reward, 0, sizeof(fd_votor_reward_t) );
+  reward->slot = slot;
+
+  ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, slot );
+  if( FD_UNLIKELY( !state ) ) {
+    FD_TEST( !publishes_full( ctx->publishes ) );
+    publishes_push( ctx->publishes, pub );
+    return;
+  }
+  ag_epoch_info_t const *       epoch_info  = state->epoch_info;
+  ag_slot_voted_stake_t const * voted_stake = &state->voted_stakes;
+
+  uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong msg_sz;
+  int   err;
+
+  uchar const *                      hash = voted_stake->top_notar_hash;
+  ag_slot_voted_stake_hash_t const * top  = NULL;
+  for( ulong i=0UL; i<voted_stake->notar_cnt; i++ ) if( FD_LIKELY( !memcmp( voted_stake->notar[ i ].hash, hash, sizeof(ag_block_hash_t) ) ) ) top = &voted_stake->notar[ i ];
+  if( FD_LIKELY( top ) ) {
+    fd_bls_agg_t agg = top->agg;
+    msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, hash, ctx->shred_version, msg );
+    err    = fd_bls_agg_verify_subtract( &agg, msg, msg_sz, epoch_info->pubkeys, voted_stake->notar_sig, ctx->scratch.bad );
+    ban_bad_ranks( ctx, ctx->scratch.bad, slot );
+    switch( err ) {
+    case FD_BLS_SUCCESS:      memcpy( reward->block_id.uc, hash, sizeof(fd_hash_t) ); reward->agg_notar = agg; break;
+    case FD_BLS_ERR_EMPTY:    break;
+    case FD_BLS_ERR_INFINITY: FD_LOG_WARNING(( "slot %lu: notar reward cert cancels to infinity", slot )); break;
+    default:                  FD_LOG_CRIT(( "unhandled kind %d", err ));
+    }
+  }
+
+  if( FD_LIKELY( !fd_bls_set_is_null( voted_stake->skip_agg.set ) ) ) {
+    fd_bls_agg_t agg = voted_stake->skip_agg;
+    msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, ctx->shred_version, msg );
+    err    = fd_bls_agg_verify_subtract( &agg, msg, msg_sz, epoch_info->pubkeys, voted_stake->skip_sig, ctx->scratch.bad );
+    ban_bad_ranks( ctx, ctx->scratch.bad, slot );
+    switch( err ) {
+    case FD_BLS_SUCCESS:      reward->agg_skip = agg; break;
+    case FD_BLS_ERR_EMPTY:    break;
+    case FD_BLS_ERR_INFINITY: FD_LOG_WARNING(( "slot %lu: skip reward cert cancels to infinity", slot )); break;
+    default:                  FD_LOG_CRIT(( "unhandled kind %d", err ));
+    }
+  }
+
+  FD_TEST( !publishes_full( ctx->publishes ) );
+  publishes_push( ctx->publishes, pub );
+}
+
+static void
 sign_ed25519( void *      signer_ctx,
               uchar       sig[ static FD_ED25519_SIG_SZ ],
               uchar const msg[ static 130 ] ) {
@@ -527,7 +581,6 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_BOUNDS_IDX ]++; break;
     case AG_POOL_ERR_DUPLICATE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_DUPLICATE_IDX          ]++; break;
     case AG_POOL_ERR_SLASHABLE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLASHABLE_IDX          ]++; break;
-    case AG_POOL_ERR_VOTE_VERIFY:        ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_FAILED_VERIFY_IDX      ]++; break;
     default:
       FD_LOG_CRIT(( "unhandled kind" ));
     }
@@ -894,7 +947,8 @@ after_credit( fd_votor_tile_t *   ctx,
         certed->agg  = cert->skip.agg_skip;
         certed->agg2 = cert->skip.agg_skip_fallback;
         break;
-      default: FD_LOG_ERR(( "unexpected certificate kind %u", cert->kind ));
+      default:
+        FD_LOG_CRIT(( "unreachable" ));
       }
       if( FD_LIKELY( cert->kind!=AG_CERT_KIND_FINAL ) ) {
         FD_TEST( !publishes_full( ctx->publishes ) );
@@ -981,6 +1035,9 @@ after_credit( fd_votor_tile_t *   ctx,
 
   ag_block_id_t parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
   if( FD_UNLIKELY( parent.slot==ULONG_MAX ) ) return; /* the pool has not granted parent ready yet */
+
+  ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
+  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_certs( ctx, reward_slot+i );
 
   publish_t pub = { .sig = FD_VOTOR_SIG_LEADER };
   pub.msg.leader.slot        = ctx->next_leader_slot;

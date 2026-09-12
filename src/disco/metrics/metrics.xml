@@ -2044,7 +2044,6 @@ EXAMPLES
     <int value="8" name="Duplicate" label="Voter had already cast this vote" />
     <int value="9" name="Slashable" label="Vote constitutes a slashable offence" />
     <int value="10" name="Banned" label="Sender is banned for a failed signature verification" />
-    <int value="11" name="FailedVerify" label="Vote's own signature failed the check and the vote was dropped" />
 </enum>
 
 <enum name="CertRxResult">

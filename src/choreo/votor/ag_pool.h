@@ -13,7 +13,6 @@
 #define AG_POOL_ERR_DUPLICATE          (-2)
 #define AG_POOL_ERR_SLASHABLE          (-3)
 #define AG_POOL_ERR_CERT_VERIFY        (-4)
-#define AG_POOL_ERR_VOTE_VERIFY        (-5)
 
 typedef struct ag_pool ag_pool_t;
 

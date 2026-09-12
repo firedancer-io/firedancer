@@ -3,6 +3,7 @@
 
 #include "../../util/fd_util.h"
 #include "../../third_party/blst/bindings/blst.h"
+#include "fd_bls_err.h"
 
 #define FD_BLS_SEC_SZ            (32UL)
 #define FD_BLS_PUB_SZ            (96UL)
@@ -31,20 +32,14 @@ typedef struct fd_bls_agg fd_bls_agg_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* SecretKey::to_pk */
-
 void
 fd_bls_sec_to_pub( fd_bls_sec_t const * sec,
                    fd_bls_pub_t *       pub );
-
-/* solana_bls_signatures::SecretKey::derive */
 
 void
 fd_bls_sec_derive( fd_bls_sec_t * sec,
                    uchar const *  ikm,
                    ulong          ikm_sz );
-
-/* SecretKey::sign_bytes */
 
 void
 fd_bls_sec_sign( fd_bls_sec_t const * sec,
@@ -52,25 +47,24 @@ fd_bls_sec_sign( fd_bls_sec_t const * sec,
                  ulong                msg_sz,
                  fd_bls_sig_t *       sig );
 
-/* fd_bls_sig_ser writes the canonical uncompressed encoding of sig
-   (FD_BLS_SIG_SZ bytes) to out.  fd_bls_sig_de parses such an encoding
-   into sig, returning 0 on success and -1 if the bytes are not a valid
-   G2 point.  Translates between raw bytes and the canonical encoding. */
-
 void
-fd_bls_sig_ser( uchar                out[ static FD_BLS_SIG_SZ ],
-                fd_bls_sig_t const * sig );
+fd_bls_sig_ser( fd_bls_sig_t const * sig,
+                uchar                buf[ static FD_BLS_SIG_SZ ] );
 
 int
 fd_bls_sig_de( fd_bls_sig_t * sig,
-               uchar const    in[ static FD_BLS_SIG_SZ ] );
-
-/* PublicKey::try_from_bytes */
+               uchar const    buf[ static FD_BLS_SIG_SZ ] );
 
 int
 fd_bls_pub_de( fd_bls_pub_t * pub,
-               uchar const *  in,
-               ulong          in_sz );
+               uchar const *  buf,
+               ulong          buf_sz );
+
+fd_bls_agg_t *
+fd_bls_agg_construct( fd_bls_agg_t *       agg,
+                      fd_bls_pub_t const * pub,
+                      fd_bls_sig_t const * sig,
+                      fd_bls_set_t const * set );
 
 int
 fd_bls_agg_verify( uchar const *        msg,
@@ -93,6 +87,14 @@ fd_bls_agg_verify_bisect( fd_bls_agg_t const * agg,
                           fd_bls_pub_t const * pub,
                           fd_bls_sig_t const * sig,
                           fd_bls_set_t *       bad );
+
+int
+fd_bls_agg_verify_subtract( fd_bls_agg_t *       agg,
+                            uchar const *        msg,
+                            ulong                msg_sz,
+                            fd_bls_pub_t const * pub,
+                            fd_bls_sig_t const * sig,
+                            fd_bls_set_t *       bad );
 
 FD_PROTOTYPES_END
 
