@@ -82,31 +82,41 @@ static uchar data_buf[ BENCH_MAX_DATA_SZ ];
 #define BENCH_CACHE_MIN_RESERVED (640UL)
 
 static fd_accdb_t *
-bench_setup( int * out_fd,
-             ulong max_accounts,
-             ulong max_live_slots,
-             ulong max_account_writes_per_slot,
-             ulong partition_cnt,
-             ulong partition_sz ) {
+bench_setup( int *   out_fd,
+             void ** out_shmem_mem,
+             void ** out_accdb_mem,
+             ulong   max_accounts,
+             ulong   max_live_slots,
+             ulong   max_account_writes_per_slot,
+             ulong   partition_cnt,
+             ulong   partition_sz,
+             ulong   cache_footprint,
+             ulong   cache_min_reserved) {
   int fd = memfd_create( "accdb_bench", 0 );
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
 
-  ulong cache_fp = BENCH_CACHE_FOOTPRINT;
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, BENCH_CACHE_MIN_RESERVED, 1UL, 0UL );
+  ulong cache_fp = cache_footprint;
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, 1UL, 0UL );
   FD_TEST( shmem_fp );
+
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
+  *out_shmem_mem = shmem_mem;
+
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, BENCH_CACHE_MIN_RESERVED, 0, 42UL, 1UL, 0UL ) );
+                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, 1UL, 0UL ) );
   FD_TEST( shmem );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
   FD_TEST( accdb_fp );
+
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
+  *out_accdb_mem = accdb_mem;
+
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL ) );
   FD_TEST( accdb );
   return accdb;
@@ -170,14 +180,20 @@ static void
 bench_write( ulong   account_cnt,
              fd_rng_t * rng ) {
   int fd;
+  void * shmem_mem;
+  void * accdb_mem;
   ulong partition_sz = 1UL<<30UL;
   ulong partition_cnt = 1024UL;
   fd_accdb_t * accdb = bench_setup( &fd,
+                                    &shmem_mem,
+                                    &accdb_mem,
                                     account_cnt + 1024UL,
                                     64UL,
                                     (uint)account_cnt + 1024U,
                                     partition_cnt,
-                                    partition_sz );
+                                    partition_sz,
+                                    BENCH_CACHE_FOOTPRINT,
+                                    BENCH_CACHE_MIN_RESERVED);
 
   fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
   fd_accdb_fork_id_t fork  = fd_accdb_attach_child( accdb, root );
@@ -206,6 +222,8 @@ bench_write( ulong   account_cnt,
                   (double)total_bytes / (double)(1UL<<20UL) / secs,
                   (double)dt / (double)account_cnt ));
 
+  free( accdb_mem );
+  free( shmem_mem );
   close( fd );
 }
 
@@ -217,14 +235,20 @@ static void
 bench_read( ulong   account_cnt,
             fd_rng_t * rng ) {
   int fd;
+  void * shmem_mem;
+  void * accdb_mem;
   ulong partition_sz = 1UL<<30UL;
   ulong partition_cnt = 1024UL;
   fd_accdb_t * accdb = bench_setup( &fd,
+                                    &shmem_mem,
+                                    &accdb_mem,
                                     account_cnt + 1024UL,
                                     64UL,
                                     (uint)account_cnt + 1024U,
                                     partition_cnt,
-                                    partition_sz );
+                                    partition_sz,
+                                    BENCH_CACHE_FOOTPRINT,
+                                    BENCH_CACHE_MIN_RESERVED);
 
   fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
   fd_accdb_fork_id_t fork  = fd_accdb_attach_child( accdb, root );
@@ -269,6 +293,8 @@ bench_read( ulong   account_cnt,
                   (double)total_bytes / (double)(1UL<<20UL) / secs,
                   (double)dt / (double)account_cnt ));
 
+  free( accdb_mem );
+  free( shmem_mem );
   close( fd );
 }
 
@@ -292,18 +318,26 @@ static void
 bench_replay( ulong   slot_cnt,
               ulong   writes_per_slot,
               ulong   reads_per_slot,
-              fd_rng_t * rng ) {
+              fd_rng_t * rng,
+              ulong   cache_footprint,
+              ulong   cache_min_reserve ) {
   int fd;
+  void * shmem_mem;
+  void * accdb_mem;
   ulong total_accounts = slot_cnt * writes_per_slot + 1024UL;
   ulong partition_sz  = 1UL<<30UL;
   ulong partition_cnt = 1024UL;
   ulong max_live      = 64UL;
   fd_accdb_t * accdb = bench_setup( &fd,
+                                    &shmem_mem,
+                                    &accdb_mem,
                                     total_accounts,
                                     max_live,
                                     writes_per_slot + 16UL,
                                     partition_cnt,
-                                    partition_sz );
+                                    partition_sz,
+                                    cache_footprint,
+                                    cache_min_reserve );
 
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
 
@@ -312,7 +346,7 @@ bench_replay( ulong   slot_cnt,
   /* We re-use a pool of pubkeys so that rooting has old versions to
      tombstone (realistic for hot accounts like token program,
      system program, fee payers, etc.). */
-  ulong pubkey_pool_sz = writes_per_slot * 4UL;
+  ulong pubkey_pool_sz = writes_per_slot * slot_cnt;
 
   ulong total_reads       = 0UL;
   ulong total_read_hits   = 0UL;
@@ -405,6 +439,8 @@ bench_replay( ulong   slot_cnt,
                   (double)m->disk_used_bytes / (double)(1UL<<20UL),
                   (double)m->disk_allocated_bytes / (double)(1UL<<20UL) ));
 
+  free( accdb_mem );
+  free( shmem_mem );
   close( fd );
 }
 
@@ -420,14 +456,20 @@ bench_mixed( ulong   base_cnt,
              uint    read_pct,
              fd_rng_t * rng ) {
   int fd;
+  void * shmem_mem;
+  void * accdb_mem;
   ulong partition_sz  = 1UL<<30UL;
   ulong partition_cnt = 1024UL;
   fd_accdb_t * accdb = bench_setup( &fd,
+                                    &shmem_mem,
+                                    &accdb_mem,
                                     base_cnt + op_cnt + 1024UL,
                                     64UL,
                                     (uint)(base_cnt + op_cnt) + 1024U,
                                     partition_cnt,
-                                    partition_sz );
+                                    partition_sz,
+                                    BENCH_CACHE_FOOTPRINT,
+                                    BENCH_CACHE_MIN_RESERVED);
 
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
   fd_accdb_fork_id_t fork = fd_accdb_attach_child( accdb, root );
@@ -476,6 +518,8 @@ bench_mixed( ulong   base_cnt,
                   (double)dt / (double)op_cnt,
                   (uint)read_pct ));
 
+  free( accdb_mem );
+  free( shmem_mem );
   close( fd );
 }
 
@@ -492,7 +536,7 @@ main( int     argc,
   ulong reads_per_slot  = fd_env_strip_cmdline_ulong( &argc, &argv, "--reads-per-slot",  NULL,   4800UL  );
   ulong mixed_ops       = fd_env_strip_cmdline_ulong( &argc, &argv, "--mixed-ops",       NULL, 200000UL  );
   uint  read_pct        = fd_env_strip_cmdline_uint ( &argc, &argv, "--read-pct",        NULL,      80U  );
-  uint  seed            = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",            NULL,      42U  );
+  uint  seed             = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",            NULL,      42U  );
 
   FD_LOG_NOTICE(( "accdb benchmark (accounts=%lu slots=%lu wpslot=%lu "
                   "rpslot=%lu mixed_ops=%lu read_pct=%u seed=%u)",
@@ -510,10 +554,43 @@ main( int     argc,
   bench_read( account_cnt, rng );
 
   FD_LOG_NOTICE(( "--- replay simulation ---" ));
-  bench_replay( slot_cnt, writes_per_slot, reads_per_slot, rng );
+  bench_replay( slot_cnt, writes_per_slot, reads_per_slot, rng, BENCH_CACHE_FOOTPRINT, BENCH_CACHE_MIN_RESERVED);
 
   FD_LOG_NOTICE(( "--- mixed read/write (%u%% reads) ---", read_pct ));
   bench_mixed( account_cnt, mixed_ops, read_pct, rng );
+
+  FD_LOG_NOTICE(( "--- cache sweep ---" ));
+  ulong const cache_sweep_gib[] = { 7UL, 8UL, 10UL, 12UL, 16UL };
+  int length = sizeof( cache_sweep_gib ) / sizeof( cache_sweep_gib[0] );
+
+  for( int i = 0; i < length; i++ ) {
+    fd_rng_t _sweep_rng[1];
+    fd_rng_t * sweep_rng = fd_rng_join ( fd_rng_new ( _sweep_rng, seed, 0UL ) );
+
+    FD_TEST( sweep_rng );
+
+    FD_LOG_NOTICE(( "--- cache sweep @ %lu GiB ---", cache_sweep_gib[i] ));
+    bench_replay( 1000, writes_per_slot, reads_per_slot, sweep_rng, cache_sweep_gib[i] << 30U, BENCH_CACHE_MIN_RESERVED );
+
+    fd_rng_delete( fd_rng_leave ( sweep_rng ));
+  }
+
+  FD_LOG_NOTICE(( "--- cache min reserved sweep ---" ));
+  ulong const min_reserved_sweep[] = { 160UL, 320UL, 480UL, 640UL, 800UL };
+  length = sizeof( min_reserved_sweep ) / sizeof( min_reserved_sweep[0] );
+
+  for ( int i = 0; i < length; i++ ) {
+    fd_rng_t _sweep_rng[1];
+    fd_rng_t * sweep_rng = fd_rng_join( fd_rng_new ( _sweep_rng, seed, 0UL ));
+
+    FD_TEST( sweep_rng );
+
+    FD_LOG_NOTICE(( "--- cache min reserved sweep @ %lu ---", min_reserved_sweep[i] ));
+    /* Using 10 GiB based on cache footprint sweep and to support min_reserved = 800 */
+    bench_replay( 1000, writes_per_slot, reads_per_slot, sweep_rng, 10UL << 30UL, min_reserved_sweep[i] );
+
+    fd_rng_delete( fd_rng_leave ( sweep_rng ));
+  }
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
