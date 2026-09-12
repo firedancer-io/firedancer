@@ -229,6 +229,7 @@ fd_active_set_remove_peer( fd_active_set_t * active_set,
       if( FD_UNLIKELY( active_set->peers[ b*12UL+peer_idx ].ci_idx==ci_idx ) ) {
         fd_active_set_peer_t * peer = &active_set->peers[ b*12UL+peer_idx ];
         if( FD_UNLIKELY( peer->txbuild->crds_len ) ) push_dlist_ele_remove( active_set->push_dlist, peer, active_set->peers );
+        fd_gossip_wsample_add_bucket( active_set->wsample, b, ci_idx );
 
         for( ulong j=i; j<entry->nodes_len-1UL; j++ ) {
           ulong from_idx = b*12UL+(entry->nodes_idx+j+1UL) % 12UL;
