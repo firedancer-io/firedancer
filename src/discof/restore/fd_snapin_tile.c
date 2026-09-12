@@ -191,8 +191,6 @@ struct fd_snapin_tile {
   recent_blockhash_group_t * recent_groups;
   ulong                      recent_groups_len;
 
-  int alpenglow;
-
   fd_sstxncache_hash_t *  txncache_entries;
   txncache_staging_slot_t txncache_slots[ FD_TXNCACHE_MAX_SLOT_DELTAS ];
   ulong                   txncache_slots_len;
@@ -879,13 +877,13 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   /* Now load the blockhash offsets for these blockhashes ... */
   if( FD_UNLIKELY( !ctx->blockhash_groups_cnt ) ) {
     fd_slot_delta_slot_set_t ss = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
-    /* No offsets AND no rooted slots is corruption in either mode.  No
-       offsets WITH rooted slots only happens under Alpenglow. */
-    if( FD_UNLIKELY( !ctx->alpenglow || !ss.ele_cnt ) ) {
+    /* Rooted slots with no groups represent an empty status cache.
+       No restored entry needs a hash offset, so finalization uses zero. */
+    if( FD_UNLIKELY( !ss.ele_cnt ) ) {
       FD_LOG_WARNING(( "corrupt snapshot: no blockhash offsets found (rooted_slots=%lu)", ss.ele_cnt ));
       return 1;
     }
-    FD_LOG_WARNING(( "status cache has no blockhash offsets (rooted_slots=%lu); proceeding with empty txncache offsets", ss.ele_cnt ));
+    FD_LOG_WARNING(( "status cache has no blockhash groups (rooted_slots=%lu); defaulting transaction hash offsets to zero", ss.ele_cnt ));
   }
   for( ulong i=0UL; i<ctx->recent_groups_len; i++ ) {
     recent_blockhash_group_t const * group = &ctx->recent_groups[ i ];
@@ -1873,8 +1871,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->blockhash_groups = NULL;
   txncache_staging_reset( ctx );
-
-  ctx->alpenglow = tile->snapin.alpenglow;
 
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->snapin.banks_obj_id ) );
   FD_TEST( ctx->banks );

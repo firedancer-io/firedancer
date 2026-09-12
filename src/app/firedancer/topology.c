@@ -1516,7 +1516,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
     tile->snapin.banks_obj_id = fd_pod_query_ulong( config->topo.props, "banks", ULONG_MAX );
-    tile->snapin.alpenglow = config->firedancer.development.alpenglow;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapwr" ) ) ) {
     tile->snapwr.partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
@@ -1919,6 +1918,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapmk.txncache_obj_id    = fd_pod_query_ulong( config->topo.props, "txncache",           ULONG_MAX ); FD_TEST( tile->snapmk.txncache_obj_id!=ULONG_MAX );
     tile->snapmk.max_accounts       = config->firedancer.accounts.max_accounts;
     tile->snapmk.max_live_slots     = config->firedancer.runtime.max_live_slots;
+    tile->snapmk.max_txn_per_slot   = config->limits.max_txn_per_slot;
     tile->snapmk.max_full_snapshots_to_keep        = config->firedancer.snapshots.max_full_snapshots_to_keep;
     tile->snapmk.max_incremental_snapshots_to_keep = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     fd_cstr_ncpy( tile->snapmk.snapshots_path, config->paths.snapshots, PATH_MAX );

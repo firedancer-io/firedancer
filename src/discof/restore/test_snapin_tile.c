@@ -1544,6 +1544,67 @@ test_populate_txncache_requires_snapshot_slot_delta( fd_wksp_t * wksp ) {
   FD_TEST( populate_txncache( ctx, blockhashes, 3UL, 1002UL )==1 );
 }
 
+static void
+test_parse_status_cache( fd_snapin_tile_t * ctx,
+                         uchar *            status_cache,
+                         ulong              status_cache_sz ) {
+  ctx->in[ 0 ].wksp   = (fd_wksp_t *)status_cache;
+  ctx->in[ 0 ].chunk0 = 0UL;
+  ctx->in[ 0 ].wmark  = 0UL;
+  ctx->in[ 0 ].mtu    = status_cache_sz;
+  test_parser_script   = 4;
+  test_parser_call_cnt = 0UL;
+  FD_TEST( !handle_data_frag( ctx, 0UL, 0UL, status_cache_sz, (fd_stem_context_t *)1UL ) );
+  FD_TEST( test_parser_call_cnt==1UL );
+  FD_TEST( ctx->flags.status_cache_done );
+}
+
+static void
+test_populate_txncache_accepts_empty_rooted_status_cache( fd_wksp_t * wksp ) {
+  fd_snapin_tile_t ctx[ 1 ];
+  test_populate_txncache_ctx_init( ctx, wksp );
+
+  static ulong const snapshot_slot = 1000UL;
+  static uchar const blockhash[ 32UL ] = { 0xA1 };
+  fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {{ .hash_index = 0UL }};
+  fd_memcpy( blockhashes[ 0UL ].hash, blockhash, 32UL );
+
+  uchar no_slots[ 8UL ] __attribute__((aligned(FD_CHUNK_ALIGN))) = {0};
+  test_parse_status_cache( ctx, no_slots, sizeof(no_slots) );
+  FD_TEST( populate_txncache( ctx, blockhashes, 1UL, snapshot_slot )==1 );
+
+  fd_txncache_reset( ctx->txncache );
+  txncache_staging_reset( ctx );
+  fd_slot_delta_parser_init( ctx->slot_delta_parser );
+  ctx->flags.status_cache_done = 0;
+  test_attached_fork_cnt        = 0UL;
+
+  uchar status_cache[ 25UL ] __attribute__((aligned(FD_CHUNK_ALIGN))) = {0};
+  FD_STORE( ulong, status_cache,      1UL           );
+  FD_STORE( ulong, status_cache+8UL,  snapshot_slot );
+  status_cache[ 16UL ] = 1U;
+  FD_STORE( ulong, status_cache+17UL, 0UL           );
+  test_parse_status_cache( ctx, status_cache, sizeof(status_cache) );
+
+  fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
+  FD_TEST( slot_set.ele_cnt==1UL );
+  FD_TEST( slot_set_ele_query( slot_set.map, &snapshot_slot, NULL, slot_set.pool ) );
+  FD_TEST( populate_txncache( ctx, blockhashes, 1UL, snapshot_slot )==0 );
+
+  fd_txncache_fork_id_t child = fd_txncache_attach_child( ctx->txncache, ctx->txncache_root_fork_id );
+  uchar inserted_txnhash       [ 32UL ];
+  uchar matching_prefix_txnhash[ 32UL ];
+  for( ulong i=0UL; i<20UL; i++ ) inserted_txnhash[ i ] = matching_prefix_txnhash[ i ] = (uchar)( i+1UL );
+  for( ulong i=20UL; i<32UL; i++ ) {
+    inserted_txnhash       [ i ] = (uchar)( 0x80UL+i );
+    matching_prefix_txnhash[ i ] = (uchar)( 0x40UL+i );
+  }
+  fd_txncache_insert( ctx->txncache, child, blockhash, inserted_txnhash );
+  FD_TEST( fd_txncache_query( ctx->txncache, child, blockhash, matching_prefix_txnhash ) );
+  matching_prefix_txnhash[ 0UL ] ^= 1U;
+  FD_TEST( !fd_txncache_query( ctx->txncache, child, blockhash, matching_prefix_txnhash ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1594,6 +1655,7 @@ main( int     argc,
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_slot_attribution( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_rejects_invalid_blockhash_age( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_requires_snapshot_slot_delta( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_populate_txncache_accepts_empty_rooted_status_cache( wksp );
 
   fd_wksp_delete_anonymous( wksp );
   FD_LOG_NOTICE(( "pass" ));
