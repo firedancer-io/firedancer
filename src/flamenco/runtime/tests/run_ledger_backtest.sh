@@ -251,7 +251,6 @@ fi
 cat <<EOF >> ${CONFIG_FILE}
 [accounts]
     max_accounts = $INDEX_MAX
-    cache_size_gib = 3
 EOF
 
 if [[ -z "$GENESIS" ]]; then

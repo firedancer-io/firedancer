@@ -18,7 +18,6 @@ telemetry = false
     max_fork_width = 8
 [accounts]
     max_accounts = 4000000
-    cache_size_gib = 3
 [snapshots]
     max_full_snapshots_to_keep = 1
     max_incremental_snapshots_to_keep = 1
