@@ -1960,6 +1960,10 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
                        fd_pack_smallest_t * smallest_in_treap,
                        ulong              * use_by_bank_txn,
                        fd_txn_e_t         * out ) {
+  if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) {
+    sched_return_t to_return = { .cus_scheduled = 0UL, .txns_scheduled = 0UL, .bytes_scheduled = 0UL };
+    return to_return;
+  }
 
   fd_pack_ord_txn_t   * pool         = pack->pool;
   fd_pack_addr_use_t  * acct_in_use  = pack->acct_in_use;
@@ -1996,11 +2000,6 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
   ulong min_cus   = ULONG_MAX;
   ulong min_bytes = ULONG_MAX;
-
-  if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) {
-    sched_return_t to_return = { .cus_scheduled = 0UL, .txns_scheduled = 0UL, .bytes_scheduled = 0UL };
-    return to_return;
-  }
 
   treap_rev_iter_t prev = treap_idx_null();
   for( treap_rev_iter_t _cur=treap_rev_iter_init( sched_from, pool ); !treap_rev_iter_done( _cur ); _cur=prev ) {
