@@ -162,6 +162,7 @@ main( int     argc,
       /* r2_initial_value                       */ 0UL
   );
   FD_TEST( vm_ok );
+  fd_vm_mem_init_full( vm );
 
   ulong scalar_vaddr = 0;
   ulong point_vaddr = 0;

@@ -23,8 +23,8 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
   fd_sbpf_syscalls_t const * FD_RESTRICT syscalls = vm->syscalls;
 
   ulong const * FD_RESTRICT region_haddr = vm->region_haddr;
-  uint  const * FD_RESTRICT region_ld_sz = vm->region_ld_sz;
-  uint  const * FD_RESTRICT region_st_sz = vm->region_st_sz;
+  uint  const *             region_ld_sz = vm->region_ld_sz;
+  uint  const *             region_st_sz = vm->region_st_sz;
 
   ulong * FD_RESTRICT reg = vm->reg;
 
@@ -55,8 +55,8 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
   fd_sbpf_syscalls_t const * FD_RESTRICT syscalls = vm->syscalls;
 
   ulong const * FD_RESTRICT region_haddr = vm->region_haddr;
-  uint  const * FD_RESTRICT region_ld_sz = vm->region_ld_sz;
-  uint  const * FD_RESTRICT region_st_sz = vm->region_st_sz;
+  uint  const *             region_ld_sz = vm->region_ld_sz;
+  uint  const *             region_st_sz = vm->region_st_sz;
 
   ulong * FD_RESTRICT reg = vm->reg;
 
