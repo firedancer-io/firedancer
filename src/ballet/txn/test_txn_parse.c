@@ -43,7 +43,7 @@ build_legacy_one_instr( uchar * buf, ushort instr_acct_cnt ) {
   buf[ o++ ] = 0x01;                                         /* header: num_readonly_unsigned = 1    */
   buf[ o++ ] = 0x02;                                         /* account address count = 2            */
   for( ulong a=0UL; a<2UL; a++ )
-    for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(a*32UL+j); /* 2 addresses                   */
+    for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)( j ? 0xA0UL+j : a ); /* 2 distinct addresses  */
   for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(0xB0+j);     /* recent blockhash              */
   buf[ o++ ] = 0x01;                                         /* instruction count = 1                */
   buf[ o++ ] = 0x01;                                         /* program_id index = 1                 */
@@ -307,7 +307,7 @@ build_v1( uchar       * buf,
   buf[ o++ ] = num_addr;
   /* addresses */
   for( ulong a=0UL; a<num_addr; a++ )
-    for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(a*32UL+j);
+    for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)( j ? 0xA0UL+j : a ); /* byte 0 = index so addresses are distinct */
   /* config values: one 4-byte word per set bit.  When the heap-size bit
      (bit 4, the highest bit) is set its word is last and must hold a valid
      heap size, so use 64 KiB; the other words are arbitrary. */
@@ -461,6 +461,33 @@ void txn_v1_correctness( void ) {
     ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 2, ix, 1 );
     counters = (fd_txn_parse_counters_t){0};
     FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* duplicate address (address 2 is a copy of address 1) */
+  {
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 3, ix1, 1 );
+    ulong addr_off = 1UL+3UL+4UL+32UL+1UL+1UL;
+    fd_memcpy( v1_buf+addr_off+2UL*32UL, v1_buf+addr_off+1UL*32UL, 32UL );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* duplicate address at the far end (address 63 is a copy of address 0) */
+  {
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 64, ix1, 1 );
+    ulong addr_off = 1UL+3UL+4UL+32UL+1UL+1UL;
+    fd_memcpy( v1_buf+addr_off+63UL*32UL, v1_buf+addr_off, 32UL );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+  }
+
+  /* num_addr == FD_TXN_ACCT_ADDR_MAX (64) distinct addresses is accepted */
+  {
+    ulong sz = build_v1( v1_buf, 1, 0, 1, 0u, 64, ix1, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+    FD_TEST( counters.success_cnt==1UL );
+    FD_TEST( parsed->acct_addr_cnt == 64 );
   }
 
   /* num_addr exceeds FD_TXN_ACCT_ADDR_MAX (64) */

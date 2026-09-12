@@ -137,6 +137,14 @@ fd_txn_parse_core( uchar const             * payload,
 
     CHECK_LEFT( FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt ); ulong acct_addr_off  =          i  ;     i+=FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt;
 
+    /* Throw out transactions with duplicate addresses at parse time.
+       Agave rejects these at sanitisation time. */
+    for( ulong j=0UL; j<(ulong)acct_addr_cnt; j++ ) {
+      for( ulong k=j+1UL; k<(ulong)acct_addr_cnt; k++ ) {
+        CHECK( memcmp( payload+acct_addr_off+FD_TXN_ACCT_ADDR_SZ*j, payload+acct_addr_off+FD_TXN_ACCT_ADDR_SZ*k, FD_TXN_ACCT_ADDR_SZ ) );
+      }
+    }
+
     /* Config values: 4 bytes per set mask bit */
     ulong config_values_off = i;
     ulong num_config_values = (ulong)fd_uint_popcnt( config_mask );

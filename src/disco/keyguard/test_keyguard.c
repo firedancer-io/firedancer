@@ -20,7 +20,7 @@ build_txn_v1( uchar * buf,
   buf[ o++ ] = (uchar)instr_cnt;
   buf[ o++ ] = (uchar)num_addr;
   for( ulong a=0UL; a<num_addr; a++ )
-    for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(a*32UL+j);
+    for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)( j ? 0xA0UL+j : a );
   /* instruction headers: program id 1, no accounts, no data */
   for( ulong x=0UL; x<instr_cnt; x++ ) {
     buf[ o++ ] = (uchar)1;  /* program id */
