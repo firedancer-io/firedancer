@@ -146,7 +146,6 @@ struct fd_replay_tile {
   fd_clock_tile_t clock[1];
 
   fd_progcache_join_t progcache[1];
-  fd_wksp_mon_t       progcache_wksp_mon[1];
 
   fd_accdb_t *    accdb;
   fd_txncache_t * txncache;

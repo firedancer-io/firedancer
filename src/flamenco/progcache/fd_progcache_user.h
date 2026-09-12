@@ -13,8 +13,9 @@
    ### Fork management
 
    The program cache is fork-aware (using transactions).  Txn-level
-   operations take an exclusive lock over the cache (record ops are
-   stalled indefinitely until the txn completes).
+   operations (attach/publish/cancel) take the fork graph's exclusive
+   lock; a read on the cached lineage never touches it, while switching
+   fork, publishing and the eviction sweep take it shared.
 
    ### Cache entry
 
@@ -22,9 +23,9 @@
    (typically only zero or one, in rare cases where the program content
    differs across forks multiple).
 
-   A cache entry consists of a progcache_rec object (from a preallocated
-   object pool), and a variable-sized fd_progcache_entry struct
-   (from an fd_alloc heap).
+   A cache entry is a progcache_rec object.  Records are partitioned by
+   size class and double as value slots: an executable entry's program
+   data lives in its own class's arena slot (see fd_progcache.h).
 
    ### Cache fill policy
 
@@ -37,21 +38,17 @@
    ### Cache evict policy
 
    Cache eviction (i.e. force removal of potentially useful records)
-   happens on fill.  Specifically, cache eviction is triggered when a
-   cache fill fails to allocate from the wksp (fd_alloc) heap.
-
-   fd_progcache further has a concept of "generations" (gen).  Each
-   cache fill operation specifies a 'gen' number.  Only entries with a
-   lower 'gen' number may get evicted.
+   happens on fill: when a fill finds its size class full, it evicts
+   within that class (per-class CLOCK), and falls back to the spill
+   scratch if no record frees up.  The replay tile's housekeeping runs
+   the same sweep to keep a few slots free per class.
 
    ### Garbage collect policy
 
-   fd_progcache cleans up unused entries eagerly when:
-
-   1. a database fork is cancelled (e.g. slot is rooted and competing
-      history dies, or consensus layer prunes a fork)
-   2. a cache entry is orphaned (updated or invalidated by an epoch
-      boundary) */
+   When a database fork is cancelled (a competing history dies, or the
+   consensus layer prunes a fork), its records are unmapped at once and
+   their slots recovered by the next sweep.  A superseded revision stays
+   mapped until CLOCK evicts it. */
 
 #include "fd_progcache.h"
 #include "fd_prog_load.h"
@@ -62,8 +59,8 @@ struct fd_progcache_metrics {
   ulong lookup_cnt;
   ulong hit_cnt;
   ulong miss_cnt;
-  ulong oom_heap_cnt;
-  ulong oom_desc_cnt;
+  ulong hit_loading_cnt;
+  ulong class_full_cnt;
   ulong fill_cnt;
   ulong fill_tot_sz;
   ulong spill_cnt;
@@ -71,7 +68,13 @@ struct fd_progcache_metrics {
   ulong evict_cnt;
   ulong evict_tot_sz;
   ulong cum_pull_ticks;
+  ulong load_cnt;
   ulong cum_load_ticks;
+  /* Per-size-class breakdowns. */
+  ulong hit_per_class  [ FD_PROGCACHE_CACHE_CLASS_CNT ];
+  ulong fill_per_class [ FD_PROGCACHE_CACHE_CLASS_CNT ];
+  ulong evict_per_class[ FD_PROGCACHE_CACHE_CLASS_CNT ];
+  ulong spill_per_class[ FD_PROGCACHE_CACHE_CLASS_CNT ];
 };
 
 typedef struct fd_progcache_metrics fd_progcache_metrics_t;
@@ -91,6 +94,30 @@ struct fd_progcache {
 
   uint spill_active;
 };
+
+/* Writes every progcache counter for a tile. */
+
+#define FD_PROGCACHE_METRICS_WRITE( TILE, m ) do {                                        \
+    fd_progcache_metrics_t const * _m = (m);                                              \
+    FD_MCNT_SET( TILE, PROGCACHE_LOOKUP,                _m->lookup_cnt     );             \
+    FD_MCNT_SET( TILE, PROGCACHE_HIT,                   _m->hit_cnt        );             \
+    FD_MCNT_SET( TILE, PROGCACHE_MISS,                  _m->miss_cnt       );             \
+    FD_MCNT_SET( TILE, PROGCACHE_HIT_LOADING,           _m->hit_loading_cnt );            \
+    FD_MCNT_SET( TILE, PROGCACHE_CLASS_FULL,            _m->class_full_cnt );             \
+    FD_MCNT_SET( TILE, PROGCACHE_FILL,                  _m->fill_cnt       );             \
+    FD_MCNT_SET( TILE, PROGCACHE_FILL_BYTES,            _m->fill_tot_sz    );             \
+    FD_MCNT_SET( TILE, PROGCACHE_SPILL,                 _m->spill_cnt      );             \
+    FD_MCNT_SET( TILE, PROGCACHE_SPILL_BYTES,           _m->spill_tot_sz   );             \
+    FD_MCNT_SET( TILE, PROGCACHE_EVICTION,              _m->evict_cnt      );             \
+    FD_MCNT_SET( TILE, PROGCACHE_EVICTION_BYTES,        _m->evict_tot_sz   );             \
+    FD_MCNT_SET( TILE, PROGCACHE_DURATION_SECONDS,      _m->cum_pull_ticks );             \
+    FD_MCNT_SET( TILE, PROGCACHE_LOAD,                  _m->load_cnt       );             \
+    FD_MCNT_SET( TILE, PROGCACHE_LOAD_DURATION_SECONDS, _m->cum_load_ticks );             \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_HIT,      _m->hit_per_class   );             \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_FILL,     _m->fill_per_class  );             \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_EVICTION, _m->evict_per_class );             \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_SPILL,    _m->spill_per_class );             \
+  } while(0)
 
 FD_PROTOTYPES_BEGIN
 
@@ -118,28 +145,14 @@ void *
 fd_progcache_leave( fd_progcache_t *        cache,
                     fd_progcache_shmem_t ** opt_shmem );
 
-/* fd_progcache_peek queries the program cache for an existing cache
-   entry.  Does not fill the cache.  Returns a pointer to the entry on
-   cache hit.  Returns NULL on cache miss.  It is the caller's
-   responsibility to release the returned record with
-   fd_progcache_rec_close. */
-
-fd_progcache_rec_t * /* read locked */
-fd_progcache_peek( fd_progcache_t *       cache,
-                   fd_progcache_fork_id_t fork_id,
-                   fd_pubkey_t const *    prog_addr,
-                   ulong                  feature_slot,
-                   ulong                  deploy_slot );
-
 /* fd_progcache_pull loads a program from cache, filling the cache if
    necessary.  The load operation can have a number of outcomes:
    - Returns a pointer to an existing cache entry (cache hit, state
      either "Loaded" or "FailedVerification")
    - Returns a pointer to a newly created cache entry (cache fill,
      state either "Loaded" or "FailedVerification")
-   - Returns NULL if the requested program account is not deployed (i.e.
-     account is missing, the program is under visibility delay, or user
-     has not finished uploading the program)
+   - Returns NULL if fd_prog_info rejects the account (not a deployed
+     program of a known loader)
    In other words, this method guarantees to return a cache entry if a
    deployed program was found in the account database, and the program
    either loaded successfully, or failed ELF/bytecode verification.
@@ -154,7 +167,7 @@ fd_progcache_pull( fd_progcache_t *           cache,
                    fd_acc_t const *           progdata_ro );
 
 /* fd_progcache_rec_close releases a cache record handle returned by
-   fd_progcache_{pull,peek}. */
+   fd_progcache_pull. */
 
 void
 fd_progcache_rec_close( fd_progcache_t *     cache,

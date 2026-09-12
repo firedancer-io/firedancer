@@ -16,16 +16,6 @@ extern FD_TL fd_progcache_admin_metrics_t fd_progcache_admin_metrics_g;
 
 FD_PROTOTYPES_BEGIN
 
-/* Constructors *******************************************************/
-
-/* fd_progcache_est_rec_max estimates the progcache rec_max parameter
-   given the cache's wksp footprint and mean cache entry heap
-   utilization. */
-
-ulong
-fd_progcache_est_rec_max( ulong wksp_footprint,
-                          ulong mean_cache_entry_size );
-
 /* Transaction-level operations ***************************************/
 
 /* fd_progcache_attach_child creates a new program cache fork node
