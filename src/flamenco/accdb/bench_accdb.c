@@ -586,8 +586,8 @@ main( int     argc,
     FD_TEST( sweep_rng );
 
     FD_LOG_NOTICE(( "--- cache min reserved sweep @ %lu ---", min_reserved_sweep[i] ));
-    /* Using 10 Gi based on cache0footprint sweep and to support min_reserved = 800 */
-    bench_replay( 1000, writes_per_slot, reads_per_slot, sweep_rng, 10UL << 30, min_reserved_sweep[i] );
+    /* Using 10 GiB based on cache footprint sweep and to support min_reserved = 800 */
+    bench_replay( 1000, writes_per_slot, reads_per_slot, sweep_rng, 10UL << 30UL, min_reserved_sweep[i] );
 
     fd_rng_delete( fd_rng_leave ( sweep_rng ));
   }
