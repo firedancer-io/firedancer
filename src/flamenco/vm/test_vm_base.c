@@ -1,4 +1,5 @@
 #include "fd_vm.h"
+#include "fd_vm_private.h"
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
@@ -113,6 +114,68 @@ FD_STATIC_ASSERT( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT          ==64UL*1024UL*1
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_EXE   ==0, vm_trace );
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_READ  ==1, vm_trace );
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_WRITE ==2, vm_trace );
+
+/* test_unaligned_text validates, executes, disassembles, and traces
+   the same program out of an aligned and a misaligned buffer and
+   requires identical results.  The loader can produce a misaligned
+   text (see test_unaligned_text in ballet/sbpf/test_sbpf_loader.c).
+   instr_ctx may be NULL because neither fd_vm_validate nor a program
+   that makes no syscalls uses it. */
+
+static void
+test_unaligned_text( void ) {
+  FD_LOG_NOTICE(( "Testing VM with misaligned text" ));
+
+  ulong prog[4] = {
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 0, 0, 1U          ),
+    fd_vm_instr( FD_SBPF_OP_LDDW,      1, 0, 0, 0xAAAAAAAAU ),
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM,  0, 0, 0, 0xBBBBBBBBU ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0U          )
+  };
+  uchar buf[ sizeof(prog)+1UL ] __attribute__((aligned(8)));
+  ulong const * unaligned = (ulong const *)( buf+1UL );
+  fd_memcpy( buf+1UL, prog, sizeof(prog) );
+  FD_TEST( !fd_ulong_is_aligned( (ulong)unaligned, 8UL ) );
+
+  ulong const * text[2] = { prog, unaligned };
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_vm_t _vm[1];
+    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+    FD_TEST( vm );
+    FD_TEST( fd_vm_init( vm, NULL, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+                         (uchar const *)text[i], sizeof(prog), text[i], 4UL, 0UL, sizeof(prog),
+                         0UL, NULL, FD_SBPF_V0, NULL, NULL, NULL, NULL, 0U, NULL,
+                         0, 0, 0, 0, 0, 0UL ) );
+    FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+    FD_TEST( fd_vm_exec_notrace( vm )==FD_VM_SUCCESS );
+    FD_TEST( vm->reg[0]==1UL );
+    FD_TEST( vm->reg[1]==0xBBBBBBBBAAAAAAAAUL );
+    fd_vm_delete( fd_vm_leave( vm ) );
+  }
+
+  char  out[2][ 256 ];
+  ulong out_len[2] = { 0UL, 0UL };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    out[i][0] = '\0';
+    FD_TEST( fd_vm_disasm_program( text[i], 4UL, NULL, out[i], 256UL, &out_len[i] )==FD_VM_SUCCESS );
+  }
+  FD_TEST( out_len[0]==out_len[1] );
+  FD_TEST( fd_memeq( out[0], out[1], out_len[0] ) );
+
+  uchar tr_mem[2][ 1024 ] __attribute__((aligned(8)));
+  FD_TEST( fd_vm_trace_footprint( 256UL, 64UL )<=sizeof(tr_mem[0]) );
+  ulong reg[ FD_VM_REG_CNT ] = { 0 };
+  fd_vm_trace_t * tr[2];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    tr[i] = fd_vm_trace_join( fd_vm_trace_new( tr_mem[i], 256UL, 64UL ) );
+    FD_TEST( tr[i] );
+    FD_TEST( fd_vm_trace_event_exe( tr[i], 1UL, 1UL, 0UL, reg, text[i]+1UL, 3UL, 0UL, 0UL )==FD_VM_SUCCESS );
+  }
+  FD_TEST( fd_vm_trace_event_sz( tr[0] )==fd_vm_trace_event_sz( tr[1] ) );
+  FD_TEST( fd_memeq( fd_vm_trace_event( tr[0] ), fd_vm_trace_event( tr[1] ), fd_vm_trace_event_sz( tr[0] ) ) );
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( fd_vm_trace_delete( fd_vm_trace_leave( tr[i] ) ) );
+}
 
 int
 main( int     argc,
@@ -309,6 +372,8 @@ vm_trace_done:
 
   FD_TEST( !fd_vm_trace_join  ( _trace ) ); /* not a trace */
   FD_TEST( !fd_vm_trace_delete( _trace ) ); /* not a trace */
+
+  test_unaligned_text();
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

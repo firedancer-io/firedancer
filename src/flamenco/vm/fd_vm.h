@@ -95,7 +95,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   uchar const * rodata;    /* Program read only data, indexed [0,rodata_sz), aligned 8 */
   ulong         rodata_sz; /* Program read only data size in bytes, FIXME: BOUNDS? */
-  ulong const * text;      /* Program sBPF words, indexed [0,text_cnt), aligned 8 */
+  ulong const * text;      /* Program sBPF words, indexed [0,text_cnt), not necessarily aligned 8, read with FD_LOAD */
   ulong         text_cnt;  /* Program sBPF word count, all text words are inside the rodata */
   ulong         text_off;  /* CALLX virtual address offset in bytes (NOT words).
                               SBPF V0-V2: ==(ulong)text - (ulong)rodata (file offset of text within ELF).
