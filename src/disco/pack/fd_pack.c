@@ -12,6 +12,15 @@
 
 #define FD_PACK_USE_NON_TEMPORAL_MEMCPY 1
 
+#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+#include "../../util/simd/fd_nt_memcpy.h"
+#define pack_memcpy_out  fd_memcpy_nt_nofence
+#define pack_memcpy_fini() _mm_sfence()
+#else
+#define pack_memcpy_out  fd_memcpy
+#define pack_memcpy_fini()
+#endif
+
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
 typedef struct {
@@ -2081,45 +2090,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     FD_PACK_BITSET_OR( bitset_w_in_use,  cur->w_bitset  );
 
     fd_txn_p_t * out_txnp = out->txnp;
-    if(
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-        FD_LIKELY( cur->txn->payload_sz>=1024UL )
-#else
-        0
-#endif
-      ) {
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-      _mm512_stream_si512( (void*)(out_txnp->payload+   0UL), _mm512_load_epi64( cur->txn->payload+   0UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+  64UL), _mm512_load_epi64( cur->txn->payload+  64UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 128UL), _mm512_load_epi64( cur->txn->payload+ 128UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 192UL), _mm512_load_epi64( cur->txn->payload+ 192UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 256UL), _mm512_load_epi64( cur->txn->payload+ 256UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 320UL), _mm512_load_epi64( cur->txn->payload+ 320UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 384UL), _mm512_load_epi64( cur->txn->payload+ 384UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 448UL), _mm512_load_epi64( cur->txn->payload+ 448UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 512UL), _mm512_load_epi64( cur->txn->payload+ 512UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 576UL), _mm512_load_epi64( cur->txn->payload+ 576UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 640UL), _mm512_load_epi64( cur->txn->payload+ 640UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 704UL), _mm512_load_epi64( cur->txn->payload+ 704UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 768UL), _mm512_load_epi64( cur->txn->payload+ 768UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 832UL), _mm512_load_epi64( cur->txn->payload+ 832UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 896UL), _mm512_load_epi64( cur->txn->payload+ 896UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 960UL), _mm512_load_epi64( cur->txn->payload+ 960UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+1024UL), _mm512_load_epi64( cur->txn->payload+1024UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+1088UL), _mm512_load_epi64( cur->txn->payload+1088UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+1152UL), _mm512_load_epi64( cur->txn->payload+1152UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+1216UL), _mm512_load_epi64( cur->txn->payload+1216UL ) );
-
-      /* For V1 transactions, the payload can be up to 4096 bytes so we copy an additional 2816 bytes. */
-      if( FD_UNLIKELY( txn->transaction_version==FD_TXN_V1 ) ) {
-        for( ulong off=1280UL; off<FD_TPU_MTU; off+=64UL ) {
-          _mm512_stream_si512( (void*)(out_txnp->payload+off), _mm512_load_epi64( cur->txn->payload+off ) );
-        }
-      }
-#endif
-    } else {
-      fd_memcpy( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
-    }
+    if( FD_LIKELY( cur->txn->payload_sz>=1024UL ) ) pack_memcpy_out( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
+    else                                            fd_memcpy      ( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
 
     out_txnp->payload_sz                                = cur->txn->payload_sz;
     out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
@@ -2134,20 +2106,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     /* Copy the ALT accounts from the source fd_txn_e_t */
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-    /* In order to use non-temporal copies, we have to copy a full cache
-       line (which fits two pubkeys) at a time.  If alt_acct_cnt is odd,
-       this copies one extra address, but it touches the same number of
-       cache lines, since both the source and destination are aligned
-       to 64 bytes. The max is even, so this can never read out of bounds. */
-    fd_acct_addr_t       * dst = out->alt_accts;
-    fd_acct_addr_t const * src = cur->txn_e->alt_accts;
-    for( ulong i=0UL; i<alt_acct_cnt; i+=2UL ) {
-      _mm512_stream_si512( (void*)(dst+i), _mm512_load_epi64( src+i ) );
-    }
-#else
-    fd_memcpy( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt * sizeof(fd_acct_addr_t) );
-#endif
+    if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
     out++;
 
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
@@ -2585,7 +2544,8 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
     fd_txn_t const    * txn = TXN(cur->txn);
     fd_txn_p_t        * out_txnp = out->txnp;
-    fd_memcpy( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz                                           );
+    if( FD_LIKELY( cur->txn->payload_sz>=1024UL ) ) pack_memcpy_out( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
+    else                                            fd_memcpy      ( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
     fd_memcpy( TXN(out_txnp),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
     out_txnp->payload_sz                      = cur->txn->payload_sz;
     out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
@@ -2598,7 +2558,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     out_txnp->flags                           = cur->txn->flags;
     /* Copy the ALT accounts from the source fd_txn_e_t */
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
-    fd_memcpy( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt * sizeof(fd_acct_addr_t) );
+    if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
     out++;
 
     pack->cumulative_block_cost += cur->compute_est;
@@ -2659,6 +2619,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   if( FD_UNLIKELY( is_ib ) ) {
     pack->initializer_bundle_state = FD_PACK_IB_STATE_PENDING;
   }
+  pack_memcpy_fini();
   return retval;
 }
 
@@ -2689,6 +2650,15 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   }
 
   ulong * use_by_bank_txn = pack->use_by_bank_txn[ bank_tile ];
+
+#if FD_HAS_X86
+  /* out is a cold dcache chunk.  Its payload is streamed, but the
+     metadata and TXN() lines are regular stores; start those reads for
+     ownership under the scheduling work. */
+  _mm_prefetch( (uchar *)out+FD_TPU_MTU,       _MM_HINT_ET0 );
+  _mm_prefetch( (uchar *)out+FD_TPU_MTU+ 64UL, _MM_HINT_ET0 );
+  _mm_prefetch( (uchar *)out+FD_TPU_MTU+128UL, _MM_HINT_ET0 );
+#endif
 
   ulong cu_limit    = total_cus - vote_cus;
   ulong txn_limit   = pack->lim->max_txn_per_microblock - vote_reserved_txns;
@@ -2753,10 +2723,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
 
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-  _mm_sfence();
-#endif
-
+  pack_memcpy_fini();
   return scheduled;
 }
 
