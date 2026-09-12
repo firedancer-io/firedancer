@@ -945,7 +945,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   }
   programdata_account.acc->pd_write = 1;
 
-  /* Max msg_sz: 41 - 2 + 20 = 57 < 127 => we can use printf
+  /* Max msg_sz: 40 - 2 + 10 = 48 < 127 => we can use printf
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1532-L1536 */
   fd_log_collector_printf_dangerous_max_127( instr_ctx,
     "Extended ProgramData account by %u bytes", additional_bytes );
@@ -2007,7 +2007,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
             close_account_state );
         if( FD_UNLIKELY( err ) ) return err;
 
-        /* Max msg_sz: 16 - 2 + 45 = 63 < 127 => we can use printf */
+        /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
         FD_BASE58_ENCODE_32_BYTES( close_key->uc, close_key_b58 );
         fd_log_collector_printf_dangerous_max_127( instr_ctx, "Closed Buffer %s", close_key_b58 );
 
