@@ -1864,7 +1864,8 @@ fd_pack_metrics_write( fd_pack_t const * pack ) {
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_VOTES,       pending_votes               );
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_CONFLICTING, conflicting                 );
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_BUNDLES,     pending_bundle              );
-  FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST_CU,      pack->pending_smallest->cus );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST_CU,   pack->pending_smallest->cus );
+  FD_MGAUGE_SET( PACK, BLOCK_CU_CONSUMED,         pack->cumulative_block_cost );
 
   FD_MCNT_ENUM_COPY( PACK, TXN_SCHEDULED, pack->sched_results );
 }
@@ -2715,10 +2716,6 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   pack->microblock_cnt              += nonempty;
   pack->outstanding_microblock_mask |= nonempty << bank_tile;
   pack->data_bytes_consumed         += nonempty * MICROBLOCK_DATA_OVERHEAD;
-
-  /* Update metrics counters */
-  fd_pack_metrics_write( pack );
-  FD_MGAUGE_SET( PACK, BLOCK_CU_CONSUMED, pack->cumulative_block_cost );
 
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );

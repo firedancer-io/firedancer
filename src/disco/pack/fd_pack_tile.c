@@ -389,9 +389,11 @@ log_end_block_metrics( fd_pack_ctx_t * ctx,
 
 static inline void
 get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int reason ) {
-    done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
-    done_packing->end_slot_reason = reason;
-    fd_pack_get_block_limits( ctx->pack, done_packing->limits_usage, done_packing->limits );
+  fd_pack_metrics_write( ctx->pack );
+
+  done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
+  done_packing->end_slot_reason = reason;
+  fd_pack_get_block_limits( ctx->pack, done_packing->limits_usage, done_packing->limits );
 
 #define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULED_##m) ] - ctx->mem->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
     done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX       ] = DELTA( start_block_sched_metrics, TAKEN       );
@@ -418,7 +420,6 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
   done_packing->bundle_txn_count = ctx->slot_bundle_txn_cnt;
   done_packing->pack_start_ns    = ctx->slot_pack_start_ns;
   done_packing->pack_end_ns      = fd_clock_tile_now( ctx->clock );
-
 }
 
 static inline void
@@ -645,6 +646,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
     get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_TIME ); /* needs to be called before fd_pack_end_block */
+    log_end_block_metrics( ctx, now, "time", done_packing->limits_usage->block_cost ); /* reads gauges fd_pack_end_block resets */
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers ); /* needs to be called after fd_pack_end_block */
 
@@ -652,7 +654,6 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
 
-    log_end_block_metrics( ctx, now, "time", done_packing->limits_usage->block_cost );
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -894,6 +895,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
     get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_MICROBLOCK );
+    log_end_block_metrics( ctx, now, "microblock", done_packing->limits_usage->block_cost );
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
@@ -901,7 +903,6 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
 
-    log_end_block_metrics( ctx, now, "microblock", done_packing->limits_usage->block_cost );
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -1102,6 +1103,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       if( FD_UNLIKELY( sig==REPLAY_SIG_RESET && ctx->leader_slot!=ULONG_MAX ) ) {
         fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
         get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_ABANDONED );
+        log_end_block_metrics( ctx, now, "reset", done_packing->limits_usage->block_cost );
         fd_pack_end_block( ctx->pack );
         fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
@@ -1110,7 +1112,6 @@ after_frag( fd_pack_ctx_t *     ctx,
         ctx->pack_idx++;
 
         FD_LOG_WARNING(( "consensus reset while packing for slot %lu, ending block early", ctx->leader_slot ));
-        log_end_block_metrics( ctx, now, "reset", done_packing->limits_usage->block_cost );
         ctx->drain_execle        = 1;
         ctx->leader_slot         = ULONG_MAX;
         ctx->slot_microblock_cnt = 0UL;
@@ -1144,6 +1145,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
       fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
       get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_ABANDONED );
+      log_end_block_metrics( ctx, now_ticks, "switch", done_packing->limits_usage->block_cost );
       fd_pack_end_block( ctx->pack );
       fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
@@ -1152,7 +1154,6 @@ after_frag( fd_pack_ctx_t *     ctx,
       ctx->pack_idx++;
 
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining execle tiles.", leader_slot, ctx->leader_slot ));
-      log_end_block_metrics( ctx, now_ticks, "switch", done_packing->limits_usage->block_cost );
       ctx->drain_execle        = 1;
       ctx->leader_slot         = ULONG_MAX;
       ctx->slot_microblock_cnt = 0UL;
