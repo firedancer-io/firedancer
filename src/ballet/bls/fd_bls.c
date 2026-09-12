@@ -28,18 +28,18 @@ fd_bls_sec_derive( fd_bls_sec_t * sk,
 }
 
 void
-fd_bls_sig_ser( uchar                out[ static FD_BLS_SIG_SZ ],
-                fd_bls_sig_t const * sig ) {
+fd_bls_sig_ser( fd_bls_sig_t const * sig,
+                uchar                buf[ static FD_BLS_SIG_SZ ] ) {
   blst_p2_affine a[1];
   blst_p2_to_affine( a, sig );
-  blst_p2_affine_serialize( out, a );
+  blst_p2_affine_serialize( buf, a );
 }
 
 int
 fd_bls_sig_de( fd_bls_sig_t * sig,
-               uchar const    in[ static FD_BLS_SIG_SZ ] ) {
+               uchar const    buf[ static FD_BLS_SIG_SZ ] ) {
   blst_p2_affine a[1];
-  if( FD_UNLIKELY( blst_p2_deserialize( a, in )!=BLST_SUCCESS ) ) return -1;
+  if( FD_UNLIKELY( blst_p2_deserialize( a, buf )!=BLST_SUCCESS ) ) return -1;
   if( FD_UNLIKELY( !blst_p2_affine_in_g2( a ) ) )                 return -1;
   blst_p2_from_affine( sig, a );
   return 0;
@@ -65,12 +65,27 @@ pub_from_bytes( blst_p1_affine * out,
 
 int
 fd_bls_pub_de( fd_bls_pub_t * pub,
-               uchar const *  in,
-               ulong          in_sz ) {
+               uchar const *  buf,
+               ulong          buf_sz ) {
   blst_p1_affine a[1];
-  if( FD_UNLIKELY( !pub_from_bytes( a, in, in_sz ) ) ) return -1;
+  if( FD_UNLIKELY( !pub_from_bytes( a, buf, buf_sz ) ) ) return -1;
   blst_p1_from_affine( pub, a );
   return 0;
+}
+
+fd_bls_agg_t *
+fd_bls_agg_construct( fd_bls_agg_t *       agg,
+                      fd_bls_pub_t const * pub,
+                      fd_bls_sig_t const * sig,
+                      fd_bls_set_t const * set ) {
+  fd_bls_set_copy( agg->set, set );
+  for( ulong rank = fd_bls_set_const_iter_init( set );
+                   !fd_bls_set_const_iter_done( rank );
+             rank = fd_bls_set_const_iter_next( set, rank ) ) {
+    blst_p1_add_or_double( &agg->pub, &agg->pub, pub+rank );
+    blst_p2_add_or_double( &agg->sig, &agg->sig, sig+rank );
+  }
+  return agg;
 }
 
 int
@@ -145,4 +160,23 @@ fd_bls_agg_verify_bisect( fd_bls_agg_t const * agg,
     cnt = fd_bls_set_cnt( key.set );
   }
   return fd_bls_agg_verify_linear( &key, msg, msg_sz, pub, sig, bad );
+}
+
+int
+fd_bls_agg_verify_subtract( fd_bls_agg_t *       agg,
+                            uchar const *        msg,
+                            ulong                msg_sz,
+                            fd_bls_pub_t const * pub,
+                            fd_bls_sig_t const * sig,
+                            fd_bls_set_t *       bad ) {
+  if( FD_LIKELY( fd_bls_agg_verify( msg, msg_sz, &agg->pub, &agg->sig ) ) ) { fd_bls_set_null( bad ); return FD_BLS_SUCCESS; }
+  fd_bls_agg_verify_bisect( agg, msg, msg_sz, pub, sig, bad );
+  fd_bls_agg_t sub = { 0 };
+  fd_bls_agg_construct( &sub, pub, sig, bad );
+  blst_p1_cneg( &sub.pub, 1 ); blst_p1_add_or_double( &agg->pub, &agg->pub, &sub.pub );
+  blst_p2_cneg( &sub.sig, 1 ); blst_p2_add_or_double( &agg->sig, &agg->sig, &sub.sig );
+  fd_bls_set_subtract( agg->set, agg->set, bad );
+  if( FD_UNLIKELY( fd_bls_set_is_null( agg->set ) ) ) return FD_BLS_ERR_EMPTY;
+  if( FD_UNLIKELY( blst_p1_is_inf( &agg->pub ) ) ) return FD_BLS_ERR_INFINITY;
+  return FD_BLS_SUCCESS;
 }

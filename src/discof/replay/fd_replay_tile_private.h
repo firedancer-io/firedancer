@@ -443,8 +443,7 @@ struct fd_replay_tile {
   ulong       leader_tips;           /* ALPENGLOW-ONLY */
 
   fd_votor_certed_t votor_final[ 1 ];                                                /* ALPENGLOW-ONLY: highest finalization, fast over slow at the same slot */
-  fd_votor_certed_t votor_notar[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ]; /* ALPENGLOW-ONLY: by slot, the notar reward */
-  fd_votor_certed_t votor_skip [ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ]; /* ALPENGLOW-ONLY: by slot, the skip reward */
+  fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ];
 
   ulong       next_leader_slot;
   long        next_leader_tickcount;

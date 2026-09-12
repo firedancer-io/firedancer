@@ -9,6 +9,7 @@
 #define FD_VOTOR_SIG_CERTED (1)
 #define FD_VOTOR_SIG_REPAIR (2)
 #define FD_VOTOR_SIG_LEADER (3)
+#define FD_VOTOR_SIG_REWARD (4)
 
 typedef fd_votor_rooted_t fd_votor_repair_t;
 
@@ -33,6 +34,9 @@ struct fd_votor_certed {
 };
 typedef struct fd_votor_certed fd_votor_certed_t;
 
+/* fd_votor_leader notifies that it is time to become leader for the
+   window beginning from slot. */
+
 struct fd_votor_leader {
   ulong     slot;
   ulong     parent_slot;
@@ -40,11 +44,25 @@ struct fd_votor_leader {
 };
 typedef struct fd_votor_leader fd_votor_leader_t;
 
+/* fd_votor_reward notifies Votor has produced a new reward cert (agg of
+   all skip / reward votes).  Votor always publishes a fd_votor_reward_t
+   for every leader slot before fd_votor_leader_t, and may publish add'l
+   reward certs that include more votes after fd_votor_leader_t. */
+
+struct fd_votor_reward {
+  ulong        slot;
+  fd_hash_t    block_id;
+  fd_bls_agg_t agg_notar;
+  fd_bls_agg_t agg_skip;
+};
+typedef struct fd_votor_reward fd_votor_reward_t;
+
 union fd_votor_msg {
   fd_votor_certed_t certed;
   fd_votor_rooted_t rooted;
   fd_votor_repair_t repair;
   fd_votor_leader_t leader;
+  fd_votor_reward_t reward;
 };
 typedef union fd_votor_msg fd_votor_msg_t;
 

@@ -276,7 +276,7 @@ after_frag_sensitive( void *              _ctx,
   case FD_KEYGUARD_SIGN_TYPE_BLS: {
     fd_bls_sig_t bls_sig[1];
     fd_bls_sec_sign( (fd_bls_sec_t const *)fd_type_pun_const( ctx->bls_private_key ), ctx->_data, sz, bls_sig );
-    fd_bls_sig_ser( dst, bls_sig );
+    fd_bls_sig_ser( bls_sig, dst );
     out_sz = FD_KEYGUARD_BLS_SIG_SZ;
     break;
   }

@@ -68,6 +68,7 @@ struct ag_slot_voted_stake {
   fd_bls_agg_t               finalize_agg;
   ulong                      notar_or_skip;
   ulong                      top_notar;
+  ag_block_hash_t            top_notar_hash;
 };
 typedef struct ag_slot_voted_stake ag_slot_voted_stake_t;
 
