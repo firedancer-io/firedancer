@@ -68,12 +68,20 @@
    and is only included for completeness; the compiler may even replace
    a call to it with memcpy.
 
+   fd_memcpy_{nn,nt}_nofence are the same without the trailing fence,
+   for a caller issuing a run of non-temporal copies to disjoint
+   destinations.  The caller MUST execute _mm_sfence() itself after the
+   last copy and before anything that publishes the destinations.  One
+   fence for the run is much cheaper than one per copy, since each
+   fence drains the write combining buffers the copies just filled.
+
    WARNING: the writes to memory that this function issues may become
    visible to another core in a surprising order.  This is a normal part
    of the memcpy contract, but is especially true when using
-   non-temporal stores.  This function includes the appropriate fencing
-   so that stores issued by this function will become visible before any
-   stores following the function call.
+   non-temporal stores.  The fencing variants include the appropriate
+   fencing so that stores issued by the function will become visible
+   before any stores following the call; with the _nofence variants
+   that is the caller's job.
 
    WARNING: on many CPUs, a normal store following a non-temporal store
    to the same cache line causes a SEVERE performance degradation
@@ -85,7 +93,7 @@
 #include "../fd_util_base.h"
 #include <immintrin.h>
 
-#define FD_EMIT_TEMPORAL_MEMCPY( suffix, needs_sfence )                                               \
+#define FD_EMIT_TEMPORAL_MEMCPY( suffix, copy64, needs_sfence )                                       \
 FD_FN_UNUSED static void *                                                                            \
 fd_memcpy_##suffix( void       * FD_RESTRICT _d,                                                      \
                     void const * FD_RESTRICT _s,                                                      \
@@ -95,7 +103,7 @@ fd_memcpy_##suffix( void       * FD_RESTRICT _d,                                
   uchar const * FD_RESTRICT s   = (uchar const *)_s;                                                  \
   ulong align = fd_ulong_min( rem, fd_ulong_align_up( (ulong)d, 64UL ) - (ulong)d );                  \
   if( FD_UNLIKELY( align ) ) { memcpy( d, s, align ); rem -= align; d += align; s += align; }         \
-  for( ; rem>63UL; rem-=64UL, d += 64UL, s += 64UL ) copy64_##suffix( d, s );                         \
+  for( ; rem>63UL; rem-=64UL, d += 64UL, s += 64UL ) copy64( d, s );                                  \
   if( needs_sfence         ) _mm_sfence();                                                            \
   if( FD_UNLIKELY( rem   ) ) memcpy( d, s, rem );                                                     \
   return _d;                                                                                          \
@@ -155,10 +163,12 @@ fd_memcpy_##suffix( void       * FD_RESTRICT _d,                                
 #endif
 
 
-FD_EMIT_TEMPORAL_MEMCPY( nn, 1 )
-FD_EMIT_TEMPORAL_MEMCPY( nt, 1 )
-FD_EMIT_TEMPORAL_MEMCPY( tn, 0 )
-FD_EMIT_TEMPORAL_MEMCPY( tt, 0 )
+FD_EMIT_TEMPORAL_MEMCPY( nn,         copy64_nn, 1 )
+FD_EMIT_TEMPORAL_MEMCPY( nt,         copy64_nt, 1 )
+FD_EMIT_TEMPORAL_MEMCPY( tn,         copy64_tn, 0 )
+FD_EMIT_TEMPORAL_MEMCPY( tt,         copy64_tt, 0 )
+FD_EMIT_TEMPORAL_MEMCPY( nn_nofence, copy64_nn, 0 )
+FD_EMIT_TEMPORAL_MEMCPY( nt_nofence, copy64_nt, 0 )
 
 #undef copy64_nn
 #undef copy64_nt

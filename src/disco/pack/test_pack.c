@@ -1399,6 +1399,103 @@ test_reject_writes_to_sysvars( void ) {
 #undef N_ACCTS
 }
 
+/* The scheduled transaction is copied out of the pool with
+   non-temporal stores, which only move whole cache lines.  Cover a
+   payload past the V0 limit, sizes that are not a multiple of 64, and
+   an odd number of ALT accounts, on both scheduling paths. */
+
+static fd_txn_e_t copy_out_expected[ 3 ];
+
+static void
+make_wide_transaction( ulong        i,
+                       ulong        payload_sz,
+                       ulong        alt_cnt,
+                       char const * writes,
+                       char const * reads ) {
+  fd_txn_e_t * e = copy_out_expected + i;
+  fd_memset( e, 0, sizeof(fd_txn_e_t) );
+  make_transaction1( e->txnp, i, 500U, 500U, 11.0, writes, reads, NULL, NULL );
+  fd_txn_t * txn = TXN( e->txnp );
+  for( ulong b=e->txnp->payload_sz; b<payload_sz; b++ ) e->txnp->payload[ b ] = (uchar)(b*7UL+i);
+  e->txnp->payload_sz        = (ushort)payload_sz;
+  txn->transaction_version   = FD_TXN_V1;
+  txn->addr_table_lookup_cnt = (uchar)!!alt_cnt;
+  txn->addr_table_adtl_cnt   = (uchar)alt_cnt;
+  for( ulong a=0UL; a<alt_cnt; a++ ) fd_memset( e->alt_accts+a, (int)(16UL*i+a+1UL), sizeof(fd_acct_addr_t) );
+}
+
+static void
+fill_slot( fd_txn_e_t * slot,
+           ulong        i ) {
+  fd_txn_e_t const * e = copy_out_expected + i;
+  fd_memcpy( slot->txnp, e->txnp, sizeof(fd_txn_p_t) );
+  fd_memcpy( slot->alt_accts, e->alt_accts, (ulong)TXN( e->txnp )->addr_table_adtl_cnt*sizeof(fd_acct_addr_t) );
+}
+
+#define COPY_OUT_CANARY (0xa5)
+
+static void
+check_slot( fd_txn_e_t const * out,
+            ulong              i ) {
+  fd_txn_e_t const * e         = copy_out_expected + i;
+  ulong              payload_sz = e->txnp->payload_sz;
+  ulong              alt_cnt    = (ulong)TXN( e->txnp )->addr_table_adtl_cnt;
+
+  FD_TEST( out->txnp->payload_sz==payload_sz );
+  FD_TEST( !memcmp( out->txnp->payload, e->txnp->payload, payload_sz ) );
+  FD_TEST( !memcmp( out->alt_accts,     e->alt_accts,     alt_cnt*sizeof(fd_acct_addr_t) ) );
+
+  /* Nothing past the end of either may be written, or an
+     implementation that rounds up to a whole cache line passes the
+     comparisons above. */
+  for( ulong b=payload_sz; b<fd_ulong_min( payload_sz+64UL, FD_TPU_MTU ); b++ ) FD_TEST( out->txnp->payload[ b ]==COPY_OUT_CANARY );
+  for( ulong a=alt_cnt; a<fd_ulong_min( alt_cnt+2UL, FD_TXN_ACCT_ADDR_MAX ); a++ )
+    for( ulong b=0UL; b<sizeof(fd_acct_addr_t); b++ ) FD_TEST( out->alt_accts[ a ].b[ b ]==COPY_OUT_CANARY );
+}
+
+static void
+test_copy_out( void ) {
+  FD_LOG_NOTICE(( "TEST COPY OUT" ));
+
+  for( ulong payload_sz=1024UL; payload_sz<=FD_TPU_MTU; payload_sz+=311UL ) {
+    for( ulong alt_cnt=0UL; alt_cnt<4UL; alt_cnt++ ) {
+      ulong _deleted;
+
+      /* One transaction, copied by fd_pack_schedule_impl */
+      fd_pack_t * pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+
+      make_wide_transaction( 0UL, payload_sz, alt_cnt, "A", "B" );
+      fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
+      fill_slot( slot, 0UL );
+      FD_TEST( fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted )>=0 );
+
+      fd_pack_microblock_complete( pack, 0UL );
+      fd_memset( outcome.results, COPY_OUT_CANARY, sizeof(fd_txn_e_t) );
+      FD_TEST( fd_pack_schedule_next_microblock( pack, 1000000UL, 0.0f, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results )==1UL );
+      check_slot( outcome.results, 0UL );
+      fd_pack_delete( fd_pack_leave( pack ) );
+
+      /* A three transaction bundle, copied by fd_pack_try_schedule_bundle */
+      pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+      fd_pack_set_initializer_bundles_ready( pack );
+
+      make_wide_transaction( 0UL, payload_sz, alt_cnt, "A", "B" );
+      make_wide_transaction( 1UL, payload_sz, alt_cnt, "C", "D" );
+      make_wide_transaction( 2UL, payload_sz, alt_cnt, "E", "F" );
+
+      fd_txn_e_t *        _bundle[ 3 ];
+      fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
+      for( ulong j=0UL; j<3UL; j++ ) fill_slot( bundle[ j ], j );
+      FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted )>=0 );
+
+      fd_memset( outcome.results, COPY_OUT_CANARY, 3UL*sizeof(fd_txn_e_t) );
+      FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0.0f, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==3UL );
+      for( ulong j=0UL; j<3UL; j++ ) check_slot( outcome.results+j, j );
+      fd_pack_delete( fd_pack_leave( pack ) );
+    }
+  }
+}
+
 static inline void
 test_reject( void ) {
   FD_LOG_NOTICE(( "TEST REJECT" ));
@@ -1727,6 +1824,7 @@ main( int     argc,
   test_limits();
   if( 0 ) test_vote_qos();
   test_reject_writes_to_sysvars();
+  test_copy_out();
   test_reject();
   test_reject_blocklist();
   test_duplicate_sig();
