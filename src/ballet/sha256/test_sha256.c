@@ -140,6 +140,29 @@ main( int     argc,
 # undef DATA_MAX
 # undef BATCH_MAX
 
+  /* Every message size in [0,4096] in every lane of a full batch, with
+     the other lanes at different sizes so tail switching is exercised. */
+  do {
+    ulong const sz_max = 4096UL;
+    static uchar big[ 4096UL+64UL ] __attribute__((aligned(64)));
+    for( ulong idx=0UL; idx<sz_max+64UL; idx++ ) big[ idx ] = fd_rng_uchar( rng );
+    uchar out[ FD_SHA256_BATCH_MAX*32UL ];
+    for( ulong s=0UL; s<=sz_max; s++ ) {
+      ulong sz[ FD_SHA256_BATCH_MAX ]; uchar const * data[ FD_SHA256_BATCH_MAX ];
+      fd_sha256_batch_t * batch = fd_sha256_batch_init( batch_mem );
+      for( ulong lane=0UL; lane<FD_SHA256_BATCH_MAX; lane++ ) {
+        sz  [ lane ] = (s + 257UL*lane) % (sz_max+1UL); /* lane l sees every size once over the sweep */
+        data[ lane ] = big + (lane*7UL % 64UL);
+        fd_sha256_batch_add( batch, data[ lane ], sz[ lane ], out + 32UL*lane );
+      }
+      fd_sha256_batch_fini( batch );
+      for( ulong lane=0UL; lane<FD_SHA256_BATCH_MAX; lane++ ) {
+        uchar ref_hash[ 32 ];
+        FD_TEST( !memcmp( fd_sha256_hash( data[ lane ], sz[ lane ], ref_hash ), out + 32UL*lane, 32UL ) );
+      }
+    }
+  } while(0);
+
   uchar in_hash[32];
   /* test fd_sha256_hash_32_repeated */
   for( ulong k=0UL; k<1000000UL; k = (k<<1)|1UL ) {

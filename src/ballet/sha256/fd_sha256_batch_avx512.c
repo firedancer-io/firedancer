@@ -186,12 +186,13 @@ fd_sha256_private_batch_avx512( ulong          batch_cnt,
 
     wwu_t a = s0; wwu_t b = s1; wwu_t c = s2; wwu_t d = s3; wwu_t e = s4; wwu_t f = s5; wwu_t g = s6; wwu_t h = s7;
 
-#   define Sigma0(x)  wwu_xor( wwu_rol(x,30), wwu_xor( wwu_rol(x,19), wwu_rol(x,10) ) )
-#   define Sigma1(x)  wwu_xor( wwu_rol(x,26), wwu_xor( wwu_rol(x,21), wwu_rol(x, 7) ) )
-#   define sigma0(x)  wwu_xor( wwu_rol(x,25), wwu_xor( wwu_rol(x,14), wwu_shr(x, 3) ) )
-#   define sigma1(x)  wwu_xor( wwu_rol(x,15), wwu_xor( wwu_rol(x,13), wwu_shr(x,10) ) )
-#   define Ch(x,y,z)  wwu_xor( wwu_and(x,y), wwu_andnot(x,z) )
-#   define Maj(x,y,z) wwu_xor( wwu_and(x,y), wwu_xor( wwu_and(x,z), wwu_and(y,z) ) )
+    /* One vpternlogd per 3-input boolean; GCC does not fuse these. */
+#   define Sigma0(x)  _mm512_ternarylogic_epi32( wwu_rol(x,30), wwu_rol(x,19), wwu_rol(x,10), 0x96 )
+#   define Sigma1(x)  _mm512_ternarylogic_epi32( wwu_rol(x,26), wwu_rol(x,21), wwu_rol(x, 7), 0x96 )
+#   define sigma0(x)  _mm512_ternarylogic_epi32( wwu_rol(x,25), wwu_rol(x,14), wwu_shr(x, 3), 0x96 )
+#   define sigma1(x)  _mm512_ternarylogic_epi32( wwu_rol(x,15), wwu_rol(x,13), wwu_shr(x,10), 0x96 )
+#   define Ch(x,y,z)  _mm512_ternarylogic_epi32( (x), (y), (z), 0xCA )
+#   define Maj(x,y,z) _mm512_ternarylogic_epi32( (x), (y), (z), 0xE8 )
 #   define SHA_CORE(xi,ki)                                                           \
     T1 = wwu_add( wwu_add(xi,ki), wwu_add( wwu_add( h, Sigma1(e) ), Ch(e, f, g) ) ); \
     T2 = wwu_add( Sigma0(a), Maj(a, b, c) );                                         \
