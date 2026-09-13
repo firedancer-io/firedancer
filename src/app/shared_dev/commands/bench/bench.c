@@ -66,7 +66,7 @@ add_bench_topo( fd_topo_t  * topo,
 
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 128UL, 64UL, 1UL );
-  for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_s", "bench", 65536UL, FD_TXN_MTU, 1UL );
+  for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_s", "bench", 65536UL, FD_TXN_MTU, 64UL ); /* benchg signs 64 at a time */
 
   int is_bench_auto_affinity = !strcmp( affinity, "auto" );
 
