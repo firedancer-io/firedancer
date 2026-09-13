@@ -23,6 +23,8 @@ $(call add-objs,commands/wksp,fddev_shared)
 # fddev tiles
 $(call add-objs,commands/bench/fd_bencho,fddev_shared)
 $(call add-objs,commands/bench/fd_benchg,fddev_shared)
+$(call add-objs,commands/bench/fd_bench_sign8,fddev_shared)
+$(call make-unit-test,test_bench_sign8,commands/bench/test_bench_sign8,fddev_shared fd_ballet fd_util)
 $(call add-objs,commands/bench/fd_benchs,fddev_shared)
 $(call add-objs,commands/pktgen/fd_pktgen_tile,fddev_shared)
 $(call add-objs,commands/udpecho/fd_udpecho_tile,fddev_shared)
