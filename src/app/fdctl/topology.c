@@ -4,6 +4,7 @@
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/tiles.h"
 #include "../../disco/topo/fd_topob.h"
+#include "../../disco/verify/fd_verify_tile.h"
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -86,7 +87,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     config->net.ingress_buffer_size,          FD_NET_MTU,             1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",    "net_shred",    32768UL,                                  FD_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  config->tiles.verify.receive_buffer_size, sizeof(fd_tpu_msg_t),   config->tiles.quic.txn_reassembly_count );
-  FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,      1UL );
+  FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,      FD_VERIFY_BATCH_TXN_MAX+1UL );
   /**/                 fd_topob_link( topo, "gossip_dedup", "gossip_dedup", 2048UL,                                   FD_TPU_RAW_MTU,         1UL );
   /* dedup_resolh is large currently because pack can encounter stalls when running at very high throughput rates that would
      otherwise cause drops. */
