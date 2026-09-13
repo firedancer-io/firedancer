@@ -33,6 +33,7 @@
 #include "fd_tlsrec_frag.h"
 #include "../tls/fd_tls.h"
 #include "../tls/fd_tls_estate.h"
+#include "../../ballet/aes/fd_aes_gcm.h"
 #include <stddef.h>
 
 /* fd_tlsrec_conn drives a TLS 1.3 connection over a reliable byte
@@ -52,7 +53,11 @@ typedef struct fd_tlsrec_conn fd_tlsrec_conn_t;
 
 /* fd_tlsrec_keys holds symmetric keys for a given encryption layer. */
 
-struct __attribute__((aligned(16UL))) fd_tlsrec_keys {
+struct __attribute__((aligned(FD_AES_GCM_ALIGN))) fd_tlsrec_keys {
+  /* rebuilt on key change */
+  fd_aes_gcm_t read_gcm;
+  fd_aes_gcm_t write_gcm;
+
   uchar read_secret [ 32 ];
   uchar write_secret[ 32 ];
   uchar read_key    [ 16 ];

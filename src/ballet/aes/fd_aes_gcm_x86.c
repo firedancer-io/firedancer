@@ -161,6 +161,12 @@ aes_gcm_dec_final_aesni( fd_aes_gcm_aesni_t const * key,
                          int                        taglen );
 
 void
+fd_aes_gcm_set_iv_aesni( fd_aes_gcm_aesni_t * aes_gcm,
+                         uchar const          iv[ 12 ] ) {
+  memcpy( aes_gcm->iv, iv, 12 );
+}
+
+void
 fd_aes_gcm_init_aesni( fd_aes_gcm_aesni_t * aes_gcm,
                        uchar const *        key,
                        ulong                key_sz,
@@ -258,6 +264,12 @@ aes_gcm_dec_final_aesni_avx( fd_aes_gcm_aesni_t const * key,
                              int                        taglen );
 
 void
+fd_aes_gcm_set_iv_avx2( fd_aes_gcm_aesni_t * aes_gcm,
+                        uchar const          iv[ 12 ] ) {
+  memcpy( aes_gcm->iv, iv, 12 );
+}
+
+void
 fd_aes_gcm_init_avx2( fd_aes_gcm_aesni_t * aes_gcm,
                       uchar const *        key,
                       ulong                key_sz,
@@ -344,6 +356,12 @@ aes_gcm_dec_final_vaes_avx10( fd_aes_gcm_avx10_t const * key,
                               ulong                      total_datalen,
                               uchar const                tag[16],
                               int                        taglen );
+
+void
+fd_aes_gcm_set_iv_avx10_512( fd_aes_gcm_avx10_t * aes_gcm,
+                             uchar const          iv[ 12 ] ) {
+  memcpy( aes_gcm->iv, iv, 12 );
+}
 
 void
 fd_aes_gcm_init_avx10_512( fd_aes_gcm_avx10_t * aes_gcm,

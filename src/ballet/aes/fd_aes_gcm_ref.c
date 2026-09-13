@@ -7,9 +7,9 @@
 #define fd_gcm_gmult fd_gcm_gmult_4bit
 #define fd_gcm_ghash fd_gcm_ghash_4bit
 
-static void
-fd_aes_gcm_setiv( fd_aes_gcm_ref_t * gcm,
-                  uchar const        iv[ 12 ] ) {
+void
+fd_aes_gcm_set_iv_ref( fd_aes_gcm_ref_t * gcm,
+                       uchar const        iv[ 12 ] ) {
 
   uint ctr;
   gcm->len.u[ 0 ] = 0;  /* AAD length */
@@ -48,7 +48,7 @@ fd_aes_gcm_init_ref( fd_aes_gcm_ref_t * gcm,
   gcm->H.u[ 1 ] = fd_ulong_bswap( gcm->H.u[ 1 ] );
 
   fd_gcm_init( gcm->Htable, gcm->H.u );
-  fd_aes_gcm_setiv( gcm, iv );
+  fd_aes_gcm_set_iv_ref( gcm, iv );
 }
 
 static int
