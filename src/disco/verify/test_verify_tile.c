@@ -112,13 +112,23 @@ test_load_balance( void ) {
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 0UL, 1UL )==0 );
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 1UL, 1UL )==0 );
 
-  /* Tile 0 should load balance other traffic */
+  /* Tile 0 should load balance other bundle traffic */
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 0UL, 0UL )==0 );
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 1UL, 0UL )==1 );
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 2UL, 0UL )==1 );
+
+  /* QUIC traffic is load balanced by the stem shard, not before_frag */
   FD_TEST( before_frag( ctx, IN_IDX_QUIC,   0UL, 0UL )==0 );
-  FD_TEST( before_frag( ctx, IN_IDX_QUIC,   1UL, 0UL )==1 );
-  FD_TEST( before_frag( ctx, IN_IDX_QUIC,   2UL, 0UL )==1 );
+  FD_TEST( before_frag( ctx, IN_IDX_QUIC,   1UL, 0UL )==0 );
+  ulong shard_cnt = 1UL, shard_idx = 0UL;
+  in_shard( ctx, IN_IDX_QUIC, &shard_cnt, &shard_idx );
+  FD_TEST( shard_cnt==4UL && shard_idx==0UL );
+  ctx->round_robin_idx = 3UL;
+  in_shard( ctx, IN_IDX_QUIC, &shard_cnt, &shard_idx );
+  FD_TEST( shard_cnt==4UL && shard_idx==3UL );
+  shard_cnt = 1UL; shard_idx = 0UL;
+  in_shard( ctx, IN_IDX_BUNDLE, &shard_cnt, &shard_idx );
+  FD_TEST( shard_cnt==1UL && shard_idx==0UL );
 }
 
 /* Batching tests: transactions go through the frag callbacks as the
@@ -214,7 +224,8 @@ test_env_init( test_env_t * env ) {
     test_stem_in[ i ] = (fd_stem_tile_in_t){
       .mcache = env->in_link[ i ]->mcache,
       .depth  = (uint)env->in_link[ i ]->depth,
-      .idx    = (uint)i,
+      .idx    = (ushort)i,
+      .stride = (ushort)1,
       .seq    = 0UL,
     };
   }
@@ -256,7 +267,8 @@ feed( test_env_t *  env,
   m->block_engine.bundle_id   = bundle_id;
   memcpy( fd_txn_m_payload( m ), payload, payload_sz );
 
-  ulong seq   = env->in_seq[ in_idx ]++;
+  ulong seq   = env->in_seq[ in_idx ];
+  env->in_seq[ in_idx ] += test_stem_in[ in_idx ].stride; /* the stem advances a sharded in by its stride */
   ulong sig   = !!bundle_id;
   ulong chunk = fd_laddr_to_chunk( ctx->in[ in_idx ].mem, m );
   ulong sz    = sizeof(fd_txn_m_t)+payload_sz;
@@ -345,12 +357,15 @@ test_idle_flush( void ) {
   FD_TEST( pub_cnt( env )==1UL && !charge_busy );
 }
 
-/* A pending fragment holds the batch only if before_frag keeps it */
+/* A pending fragment holds the batch only if it is in this tile's
+   shard (the stem steps a QUIC in by the shard count) and before_frag
+   keeps it */
 static void
 test_filtered_not_ready( void ) {
   test_env_t env[1]; test_env_init( env );
   env->ctx->round_robin_cnt = 2UL;
   env->ctx->round_robin_idx = 1UL;
+  test_stem_in[ IN_IDX_QUIC ].stride = (ushort)env->ctx->round_robin_cnt;
   uchar txn[ FD_TPU_MTU ];
   ulong txn_sz = txn_build( txn, 1UL, 0UL, ULONG_MAX );
   env->in_seq[ IN_IDX_QUIC ] = test_stem_in[ IN_IDX_QUIC ].seq = 1UL; /* this tile's slot */
@@ -377,7 +392,7 @@ test_filtered_not_ready( void ) {
   FD_TEST( pub_cnt( env )==1UL && !charge_busy );
 
   /* a bundle, bound for tile 0, does not hold it */
-  test_stem_in[ IN_IDX_QUIC ].seq = 8UL;
+  test_stem_in[ IN_IDX_QUIC ].seq = 9UL;
   fd_topo_link_t * bundle = env->in_link[ IN_IDX_BUNDLE ];
   fd_mcache_publish( bundle->mcache, bundle->depth, 0UL, 1UL, 0UL, 0UL, 0UL, 0UL, 0UL );
   after_credit( env->ctx, env->stem, NULL, &charge_busy );

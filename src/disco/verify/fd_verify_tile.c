@@ -38,13 +38,29 @@ before_frag( fd_verify_ctx_t * ctx,
      prevent interleaving of bundle streams. */
   int is_bundle_packet = (ctx->in_kind[ in_idx ]==IN_KIND_BUNDLE && !sig);
 
-  if( FD_LIKELY( is_bundle_packet || ctx->in_kind[ in_idx ]==IN_KIND_QUIC ) ) {
+  if( FD_LIKELY( is_bundle_packet ) ) {
     return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BUNDLE ) ) {
     return ctx->round_robin_idx!=0UL;
   }
 
+  /* QUIC links are sharded by the stem, see in_shard */
   return 0;
+}
+
+/* QUIC frags are split between the verify tiles by sequence
+   number; the stem only polls this tile's share.  Bundle links carry
+   bundles that must all land on verify 0, so they are filtered
+   per frag in before_frag instead. */
+static inline void
+in_shard( fd_verify_ctx_t * ctx,
+          ulong             in_idx,
+          ulong *           shard_cnt,
+          ulong *           shard_idx ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_QUIC ) ) {
+    *shard_cnt = ctx->round_robin_cnt;
+    *shard_idx = ctx->round_robin_idx;
+  }
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -195,11 +211,12 @@ batch_enqueue( fd_verify_ctx_t *   ctx,
   if( FD_LIKELY( ctx->batch_sig_cnt>=ctx->batch_sig_max ) ) batch_flush( ctx, stem, 0UL );
 }
 
-/* Is a fragment this tile will take published on some input?  On the
-   round robin links that is the next sequence number in this tile's
-   slot.  A fragment counts only if before_frag keeps it, and not if the
-   input has overrun this tile.  The sig is read without an atomic pair
-   with the seq: a misread only moves one flush decision. */
+/* Is a fragment this tile will take published on some input?  in->seq
+   is the next sequence number this tile takes, which on sharded links
+   is not the next one on the link.  A fragment counts only if
+   before_frag keeps it, and not if the input has overrun this tile.
+   The sig is read without an atomic pair with the seq: a misread only
+   moves one flush decision. */
 static inline int
 frag_ready( fd_verify_ctx_t *         ctx,
             fd_stem_context_t const * stem ) {
@@ -208,9 +225,6 @@ frag_ready( fd_verify_ctx_t *         ctx,
     ulong in_idx = (ulong)in->idx;
     ulong seq    = in->seq;
     if( FD_LIKELY( fd_seq_lt( seq, ctx->in_ready_seq[ in_idx ] ) ) ) return 1;
-    if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_QUIC ) ) {
-      seq += (ctx->round_robin_idx + ctx->round_robin_cnt - seq%ctx->round_robin_cnt) % ctx->round_robin_cnt;
-    }
     fd_frag_meta_t const * mline = in->mcache + fd_mcache_line_idx( seq, in->depth );
     ulong seq_found = fd_frag_meta_seq_query( mline );
     if( FD_LIKELY( fd_seq_ne( seq_found, seq ) ) ) continue;
@@ -406,6 +420,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_IN_SHARD      in_shard
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
