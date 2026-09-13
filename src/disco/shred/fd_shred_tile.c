@@ -1709,6 +1709,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
 
+/* When leader, poh_shred carries a stream of one microblock per frag
+   and the other links are near empty; keep draining it. */
+#define STEM_STICKY_POLL_MAX (16UL)
+
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_shred_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_shred_ctx_t)
 
