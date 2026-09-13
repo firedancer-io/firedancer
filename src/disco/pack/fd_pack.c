@@ -1898,7 +1898,10 @@ typedef struct {
   ulong alloc_scheduled;
 } sched_return_t;
 
-static inline sched_return_t
+/* Inlined at both callers: called, the 4 word result comes back through
+   memory a word at a time and is reloaded as vectors, which stalls on
+   the store queue; and the empty treap case would pay the prologue. */
+static inline __attribute__((always_inline)) sched_return_t
 fd_pack_schedule_impl( fd_pack_t          * pack,
                        treap_t            * sched_from,
                        ulong                cu_limit,
