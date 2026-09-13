@@ -32,6 +32,13 @@
 #define IN_KIND_EXECUTED_TXN (5UL)
 #define IN_KIND_RESOLH       (6UL) /* resolv without fd_pack_est_txn upstream */
 
+/* Microblocks pack keeps queued at each execle.  With one, the execle
+   idles from finishing a microblock until pack sees the fseq, schedules
+   and publishes the next; with two the next is already on the link.
+   Each queued microblock is its own bank tile to fd_pack, so account
+   locks are held and released per microblock as before. */
+#define PACK_INFLIGHT (2UL)
+
 /* Pace microblocks, but only slightly.  This helps keep performance
    more stable.  This limit is 2,000 microblocks/second/execle.  At
    MAX_TXN_PER_MICROBLOCK transactions/microblock, that's
@@ -107,6 +114,20 @@ typedef struct {
   ulong       chunk0;
   ulong       wmark;
 } fd_pack_in_ctx_t;
+
+/* An execle's rebate link, read from after_credit instead of the round
+   robin: rebates come every REBATE_BATCH microblocks, so a poll of the
+   link almost never finds anything, and the misses cost pack one
+   iteration each. */
+typedef struct {
+  fd_frag_meta_t const * mcache;
+  ulong                  depth;
+  ulong                  seq;
+  ulong *                fseq;
+  fd_wksp_t *            mem;
+  ulong                  chunk0;
+  ulong                  wmark;
+} fd_pack_rebate_in_t;
 
 typedef struct {
   fd_wksp_t * mem;
@@ -236,15 +257,25 @@ typedef struct {
   fd_pack_in_ctx_t in[ 32 ];
   int              in_kind[ 32 ];
 
+  ulong               rebate_in_cnt;
+  fd_pack_rebate_in_t rebate_in[ FD_PACK_MAX_EXECLE_TILES ];
+
   fd_pack_est_ctx_t est[ 1 ]; /* for IN_KIND_RESOLH frags and crank bundles */
 
   ulong    execle_cnt;
-  ulong    execle_idle_bitset; /* bit i is 1 if we've observed *execle_current[i]==execle_expect[i] */
+  ulong    execle_idle_bitset; /* bit i is 1 if execle i has fewer than PACK_INFLIGHT microblocks queued */
   int      poll_cursor; /* in [0, execle_cnt), the next execle to poll */
   int      use_consumed_cus;
   long     skip_cnt;
   ulong *  execle_current[ FD_PACK_MAX_EXECLE_TILES ];
-  ulong    execle_expect[ FD_PACK_MAX_EXECLE_TILES  ];
+  /* Per execle, the microblocks on its link in dispatch order: the seq
+     its busy fseq reaches when each is done, and the bank tile it was
+     scheduled as (i + slot*execle_cnt). */
+  ulong    execle_inflight_cnt[ FD_PACK_MAX_EXECLE_TILES ];
+  ulong    execle_inflight_seq[ FD_PACK_MAX_EXECLE_TILES ][ PACK_INFLIGHT ];
+  ulong    execle_inflight_vb [ FD_PACK_MAX_EXECLE_TILES ][ PACK_INFLIGHT ];
+  ulong    execle_slot_free   [ FD_PACK_MAX_EXECLE_TILES ]; /* bitmask over PACK_INFLIGHT slots */
+  ulong    execle_inflight_total;
   /* execle_ready_at[x] means don't check execle x until tickcount is at
      least execle_ready_at[x]. */
   long     execle_ready_at[ FD_PACK_MAX_EXECLE_TILES  ];
@@ -365,7 +396,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint()                                        );
   l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
                                                                         BUNDLE_META_SZ,
-                                                                        tile->pack.execle_tile_count,
+                                                                        tile->pack.execle_tile_count*PACK_INFLIGHT,
                                                                         limits                               ) );
 #if FD_PACK_USE_EXTRA_STORAGE
   l = FD_LAYOUT_APPEND( l, extra_txn_deq_align(),    extra_txn_deq_footprint()                                 );
@@ -593,6 +624,7 @@ static inline void
 publish_microblock( fd_pack_ctx_t *     ctx,
                     fd_stem_context_t * stem,
                     int                 i,
+                    ulong               vb, /* the bank tile it was scheduled as */
                     fd_txn_e_t *        microblock_dst,
                     ulong               schedule_cnt,
                     long                now,
@@ -616,7 +648,12 @@ publish_microblock( fd_pack_ctx_t *     ctx,
   FD_STATIC_ASSERT( MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t)<=MAX_MICROBLOCK_SZ, pack_execle_mtu );
 
   ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
-  ctx->execle_expect[ i ] = fd_stem_publish( stem, execle_out->out_idx, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );
+  ulong seq = fd_stem_publish( stem, execle_out->out_idx, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );
+  ulong k = ctx->execle_inflight_cnt[ i ]++;
+  ctx->execle_inflight_seq[ i ][ k ] = seq;
+  ctx->execle_inflight_vb [ i ][ k ] = vb;
+  ctx->execle_slot_free   [ i ]     &= ~(1UL<<(vb/ctx->execle_cnt));
+  ctx->execle_inflight_total++;
   ctx->execle_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
   execle_out->chunk = fd_dcache_compact_next( execle_out->chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), execle_out->chunk0, execle_out->wmark );
   ctx->slot_microblock_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 1UL );
@@ -624,7 +661,7 @@ publish_microblock( fd_pack_ctx_t *     ctx,
   ctx->pack_txn_cnt += schedule_cnt;
   ctx->slot_bundle_txn_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 0UL );
 
-  ctx->execle_idle_bitset &= ~(1UL<<i);
+  if( FD_LIKELY( ctx->execle_inflight_cnt[ i ]==PACK_INFLIGHT ) ) ctx->execle_idle_bitset &= ~(1UL<<i);
   /* Look for finished execles on every iteration: the gap between an
      execle going idle and pack noticing is dead time for it, and every
      idle execle is served in one round anyway (it was execle_cnt+1). */
@@ -653,29 +690,58 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   int pacing_execle_cnt = (int)fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now ), execle_cnt );
 
-  /* Mark every execle that has finished its microblock idle. */
-  ulong busy_bitset = (~ctx->execle_idle_bitset) & fd_ulong_mask_lsb( (int)execle_cnt );
-  while( busy_bitset ) {
-    int i = fd_ulong_find_lsb( busy_bitset );
-    busy_bitset = fd_ulong_pop_lsb( busy_bitset );
-
-    if( FD_UNLIKELY(
-        /* if microblock duration is 0, bypass the execle_ready_at check
-           to avoid a potential cache miss.  Can't use an ifdef here
-           because FD_UNLIKELY is a macro, but the compiler should
-           eliminate the check easily. */
-        ( (MICROBLOCK_DURATION_NS==0L) || (ctx->execle_ready_at[i]<now) ) &&
-        (fd_fseq_query( ctx->execle_current[i] )==ctx->execle_expect[i]) ) ) {
+  /* Retire every microblock the execles have finished.  The busy fseq
+     is the seq of the last one an execle completed, and it completes
+     them in order. */
+  for( ulong i=0UL; i<execle_cnt; i++ ) {
+    if( FD_LIKELY( !ctx->execle_inflight_cnt[ i ] ) ) continue;
+    /* if microblock duration is 0, bypass the execle_ready_at check to
+       avoid a potential cache miss */
+    if( FD_LIKELY( (MICROBLOCK_DURATION_NS!=0L) && (ctx->execle_ready_at[i]>=now) ) ) continue;
+    ulong done_seq = fd_fseq_query( ctx->execle_current[i] );
+    while( ctx->execle_inflight_cnt[ i ] && fd_seq_ge( done_seq, ctx->execle_inflight_seq[ i ][ 0 ] ) ) {
       *charge_busy = 1;
-      ctx->execle_idle_bitset |= 1UL<<i;
+      ulong vb = ctx->execle_inflight_vb[ i ][ 0 ];
 
       long complete_duration = -fd_tickcount();
-      int completed = fd_pack_microblock_complete( ctx->pack, (ulong)i );
+      int completed = fd_pack_microblock_complete( ctx->pack, vb );
       complete_duration      += fd_tickcount();
       if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
+
+      ctx->execle_slot_free[ i ] |= 1UL<<(vb/execle_cnt);
+      for( ulong k=1UL; k<ctx->execle_inflight_cnt[ i ]; k++ ) {
+        ctx->execle_inflight_seq[ i ][ k-1UL ] = ctx->execle_inflight_seq[ i ][ k ];
+        ctx->execle_inflight_vb [ i ][ k-1UL ] = ctx->execle_inflight_vb [ i ][ k ];
+      }
+      ctx->execle_inflight_cnt[ i ]--;
+      ctx->execle_inflight_total--;
+      ctx->execle_idle_bitset |= 1UL<<i;
     }
   }
 
+
+  /* Take any rebates the execles have published.  The link is
+     reliable, so the frag cannot change under us. */
+  for( ulong i=0UL; i<ctx->rebate_in_cnt; i++ ) {
+    fd_pack_rebate_in_t * r = ctx->rebate_in+i;
+    ulong seq = r->seq;
+    for(;;) {
+      fd_frag_meta_t const * mline = r->mcache + fd_mcache_line_idx( seq, r->depth );
+      if( FD_LIKELY( fd_seq_ne( fd_frag_meta_seq_query( mline ), seq ) ) ) break;
+      ulong sig   = mline->sig;
+      ulong chunk = mline->chunk;
+      ulong sz    = mline->sz;
+      if( FD_UNLIKELY( chunk<r->chunk0 || chunk>r->wmark || sz<FD_PACK_REBATE_MIN_SZ || sz>FD_PACK_REBATE_MAX_SZ ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, r->chunk0, r->wmark ));
+      if( FD_LIKELY( sig==ctx->leader_slot ) ) { /* else for a previous slot */
+        fd_pack_rebate_cus( ctx->pack, fd_chunk_to_laddr_const( r->mem, chunk ) );
+        fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+      }
+      seq++;
+      *charge_busy = 1;
+    }
+    if( FD_UNLIKELY( seq!=r->seq ) ) { r->seq = seq; if( FD_LIKELY( r->fseq ) ) fd_fseq_update( r->fseq, seq ); }
+  }
 
   /* If we time out on our slot, then stop being leader. */
   if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX &&
@@ -705,7 +771,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   /* Am I in drain mode?  If so, check if I can exit it */
   if( FD_UNLIKELY( ctx->drain_execle ) ) {
-    if( FD_LIKELY( ctx->execle_idle_bitset==fd_ulong_mask_lsb( (int)execle_cnt ) ) ) {
+    if( FD_LIKELY( !ctx->execle_inflight_total ) ) {
       ctx->drain_execle = 0;
 
       /* Pack notifies poh when execle are drained so that poh can
@@ -855,15 +921,16 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     fd_pack_out_ctx_t * execle_out = &ctx->execle_out[ i ];
     fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( execle_out->mem, execle_out->chunk );
+    ulong vb = (ulong)i + (ulong)fd_ulong_find_lsb( ctx->execle_slot_free[ i ] )*execle_cnt;
     long schedule_duration = -fd_tickcount();
-    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
+    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, vb, flags, microblock_dst );
     now2 = fd_tickcount();
     schedule_duration += now2;
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
-      publish_microblock( ctx, stem, i, microblock_dst, schedule_cnt, now, now2 );
+      publish_microblock( ctx, stem, i, vb, microblock_dst, schedule_cnt, now, now2 );
     } else break;
   }
 
@@ -1293,9 +1360,10 @@ after_frag( fd_pack_ctx_t *     ctx,
       int express = 0;
       if( i>=0 ) {
         fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( ctx->execle_out[ i ].mem, ctx->execle_out[ i ].chunk );
-        express = fd_pack_insert_txn_fini_express( ctx->pack, ctx->cur_spot, blockhash_slot, (ulong)i, microblock_dst );
+        ulong vb = (ulong)i + (ulong)fd_ulong_find_lsb( ctx->execle_slot_free[ i ] )*ctx->execle_cnt;
+        express = fd_pack_insert_txn_fini_express( ctx->pack, ctx->cur_spot, blockhash_slot, vb, microblock_dst );
         if( express ) {
-          publish_microblock( ctx, stem, i, microblock_dst, 1UL, now, fd_tickcount() );
+          publish_microblock( ctx, stem, i, vb, microblock_dst, 1UL, now, fd_tickcount() );
           ctx->slot_express_cnt++;
           update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,     1 );
           update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS, 1 );
@@ -1373,7 +1441,7 @@ unprivileged_init( fd_topo_t const *      topo,
     .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
   }};
 
-  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count, limits_upper );
+  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count*PACK_INFLIGHT, limits_upper );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
@@ -1391,7 +1459,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }};
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
-                                         tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count,
+                                         tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count*PACK_INFLIGHT,
                                          limits_upper, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
   if( FD_UNLIKELY( !fd_pack_est_ctx_init( ctx->est, fd_type_pun_const( tile->pack.acct_blocklist ), tile->pack.acct_blocklist_cnt, rng ) ) )
@@ -1399,6 +1467,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_pack_set_block_limits( ctx->pack, limits_lower );
 
+  ctx->rebate_in_cnt = 0UL;
   ulong in_max = sizeof(ctx->in)/sizeof(ctx->in[0]);
   if( FD_UNLIKELY( tile->in_cnt>in_max ) )
     FD_LOG_ERR(( "Too many input links (%lu>%lu) to pack tile", tile->in_cnt, in_max ));
@@ -1418,7 +1487,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
-  if( FD_UNLIKELY( tile->pack.execle_tile_count>FD_PACK_MAX_EXECLE_TILES ) ) FD_LOG_ERR(( "pack tile connects to too many execle tiles" ));
+  if( FD_UNLIKELY( tile->pack.execle_tile_count*PACK_INFLIGHT>FD_PACK_MAX_EXECLE_TILES ) ) FD_LOG_ERR(( "pack tile connects to too many execle tiles" ));
 
   FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BALANCED) );
 
@@ -1507,12 +1576,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->execle_cnt       = tile->pack.execle_tile_count;
   ctx->poll_cursor      = 0;
   ctx->skip_cnt         = 0L;
-  ctx->execle_idle_bitset = fd_ulong_mask_lsb( (int)tile->pack.execle_tile_count );
+  ctx->execle_idle_bitset    = fd_ulong_mask_lsb( (int)tile->pack.execle_tile_count );
+  ctx->execle_inflight_total = 0UL;
   for( ulong i=0UL; i<tile->pack.execle_tile_count; i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", i );
     FD_TEST( busy_obj_id!=ULONG_MAX );
     ctx->execle_current[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
-    ctx->execle_expect[ i ] = ULONG_MAX;
+    ctx->execle_inflight_cnt[ i ] = 0UL;
+    ctx->execle_slot_free   [ i ] = fd_ulong_mask_lsb( (int)PACK_INFLIGHT );
     if( FD_UNLIKELY( !ctx->execle_current[ i ] ) ) FD_LOG_ERR(( "execle tile %lu has no busy flag", i ));
     ctx->execle_ready_at[ i ] = 0L;
     FD_TEST( ULONG_MAX==fd_fseq_query( ctx->execle_current[ i ] ) );
@@ -1525,6 +1596,19 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+
+    if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_EXECLE && !tile->in_link_poll[ i ] ) ) {
+      if( FD_UNLIKELY( ctx->rebate_in_cnt>=FD_PACK_MAX_EXECLE_TILES ) ) FD_LOG_ERR(( "too many rebate links" ));
+      fd_pack_rebate_in_t * r = ctx->rebate_in + ctx->rebate_in_cnt++;
+      r->mcache = link->mcache;
+      r->depth  = fd_mcache_depth( link->mcache );
+      r->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr_const( link->mcache ) );
+      r->fseq   = tile->in_link_fseq[ i ];
+      r->mem    = ctx->in[ i ].mem;
+      r->chunk0 = ctx->in[ i ].chunk0;
+      r->wmark  = ctx->in[ i ].wmark;
+      if( FD_LIKELY( r->fseq ) ) fd_fseq_update( r->fseq, r->seq ); /* diagnostic only, the link is unreliable */
+    }
   }
 
   char const * execle_out_name = fd_topo_find_tile_out_link( topo, tile, "pack_execle", 0UL )!=ULONG_MAX ? "pack_execle" : "pack_bank";

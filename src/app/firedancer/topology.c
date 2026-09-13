@@ -798,7 +798,7 @@ fd_topo_initialize( config_t * config ) {
     FOR(execle_tile_cnt) fd_topob_tile_out(  topo, "pack",   0UL,                       "pack_execle",   i                                                  );
     /**/                 fd_topob_tile_out(  topo, "pack",   0UL,                       "pack_poh" ,     0UL                                                );
     if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
-      FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "pack",  0UL,          "metric_in", "execle_pack",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "pack",  0UL,          "metric_in", "execle_pack",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED ); /* pack drains rebates from after_credit; a drain per iteration cannot fall a depth behind */
     }
     FOR(execle_tile_cnt) fd_topob_tile_in ( topo, "execle",  i,            "metric_in", "pack_execle",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     FOR(execle_tile_cnt) fd_topob_tile_out( topo, "execle",  i,                         "execle_poh",    i                                                  );
