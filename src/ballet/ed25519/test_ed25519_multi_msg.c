@@ -3,6 +3,7 @@
 #include "../hex/fd_hex.h"
 #include "test_ed25519_cctv.c"
 #include "test_ed25519_wycheproof.c"
+#include <stdio.h>
 
 #if FD_HAS_AVX512
 #include "avx512/fd_ed25519_lane.h"
@@ -100,35 +101,92 @@ test_lane_field( fd_rng_t * rng ) {
 static void
 test_lane_decode( fd_rng_t * rng ) {
   for( ulong trial=0; trial<1000UL; trial++ ) {
-    uchar bytes[8][33]; uchar const * inputs[8];
-    fd_ed25519_point_t points[8];
-    int expected_valid = 0, expected_small = 0;
-    for( int j=0; j<8; j++ ) {
-      inputs[j] = bytes[j]+1;
-      for( int b=1; b<33; b++ ) bytes[j][b] = fd_rng_uchar( rng );
-      if( trial<38UL ) {
-        fd_memset( bytes[j]+1, 255, 32UL );
-        bytes[j][1] = (uchar)(237UL+trial%19UL);
-        bytes[j][32] = (uchar)(127U | ((uint)(trial/19UL)<<7));
+    uchar bytes[2][8][33]; uchar const * inputs[2][8];
+    fd_ed25519_point_t points[2][8];
+    int expected_valid[2] = {0,0}, expected_small[2] = {0,0};
+    for( int n=0; n<2; n++ ) {
+      for( int j=0; j<8; j++ ) {
+        inputs[n][j] = bytes[n][j]+1;
+        for( int b=1; b<33; b++ ) bytes[n][j][b] = fd_rng_uchar( rng );
+        if( trial<38UL && n==(int)(trial&1UL) ) {
+          fd_memset( bytes[n][j]+1, 255, 32UL );
+          bytes[n][j][1] = (uchar)(237UL+trial%19UL);
+          bytes[n][j][32] = (uchar)(127U | ((uint)(trial/19UL)<<7));
+        }
+        if( fd_ed25519_point_frombytes( &points[n][j], inputs[n][j] ) ) expected_valid[n] |= 1<<j;
+        else fd_ed25519_point_set_zero( &points[n][j] );
+        if( fd_ed25519_affine_is_small_order( &points[n][j] ) ) expected_small[n] |= 1<<j;
       }
-      if( fd_ed25519_point_frombytes( &points[j], inputs[j] ) ) expected_valid |= 1<<j;
-      else fd_ed25519_point_set_zero( &points[j] );
-      if( fd_ed25519_affine_is_small_order( &points[j] ) ) expected_small |= 1<<j;
     }
-    fd_ed25519_lane_point_t got, expected;
-    FD_TEST( fd_ed25519_lane_decode( &got, inputs )==expected_valid );
-    FD_TEST( fd_ed25519_lane_small_order( &got )==expected_small );
-    fd_ed25519_lane_pack( &expected, points );
-    fd_ed25519_lane_sub( &got.x, &got.x, &expected.x );
-    fd_ed25519_lane_sub( &got.y, &got.y, &expected.y );
-    fd_ed25519_lane_sub( &got.z, &got.z, &expected.z );
-    fd_ed25519_lane_sub( &got.t, &got.t, &expected.t );
-    FD_TEST( fd_ed25519_lane_is_zero( got.x )==255 );
-    FD_TEST( fd_ed25519_lane_is_zero( got.y )==255 );
-    FD_TEST( fd_ed25519_lane_is_zero( got.z )==255 );
-    FD_TEST( fd_ed25519_lane_is_zero( got.t )==255 );
+    fd_ed25519_lane_point_t got[2], expected;
+    int valid[2];
+    fd_ed25519_lane_decode2( &got[0], inputs[0], &valid[0], &got[1], inputs[1], &valid[1] );
+    for( int n=0; n<2; n++ ) {
+      FD_TEST( valid[n]==expected_valid[n] );
+      FD_TEST( fd_ed25519_lane_small_order( &got[n] )==expected_small[n] );
+      fd_ed25519_lane_pack( &expected, points[n] );
+      fd_ed25519_lane_sub( &got[n].x, &got[n].x, &expected.x );
+      fd_ed25519_lane_sub( &got[n].y, &got[n].y, &expected.y );
+      fd_ed25519_lane_sub( &got[n].z, &got[n].z, &expected.z );
+      fd_ed25519_lane_sub( &got[n].t, &got[n].t, &expected.t );
+      FD_TEST( fd_ed25519_lane_is_zero( got[n].x )==255 );
+      FD_TEST( fd_ed25519_lane_is_zero( got[n].y )==255 );
+      FD_TEST( fd_ed25519_lane_is_zero( got[n].z )==255 );
+      FD_TEST( fd_ed25519_lane_is_zero( got[n].t )==255 );
+    }
   }
-  FD_LOG_NOTICE(( "lane decode differential: 8000 encodings, canonical parity and small order pass" ));
+  FD_LOG_NOTICE(( "lane decode differential: 16000 encodings, canonical parity and small order pass" ));
+}
+
+/* The fixed-base table is a constant; recompute it from the scalar
+   point arithmetic.  --gen-table prints the source file. */
+static void
+test_lane_base_table( int print ) {
+  static ulong table[ 20UL*FD_ED25519_LANE_BASE_CNT ];
+  fd_ed25519_point_t acc[1];
+  fd_ed25519_point_set_zero( acc );
+  for( ulong e=0; e<FD_ED25519_LANE_BASE_CNT; e++ ) {
+    fd_f25519_t x[1], y[1], z[1], t[1], zi[1], c[3];
+    fd_ed25519_point_to( x, y, z, t, acc );
+    fd_f25519_inv( zi, z );
+    fd_f25519_mul( x, x, zi );
+    fd_f25519_mul( y, y, zi );
+    fd_f25519_add( &c[0], y, x );
+    fd_f25519_sub( &c[1], y, x );
+    fd_f25519_mul( &c[2], x, y );
+    fd_f25519_mul( &c[2], &c[2], fd_f25519_k );
+    ulong * out = table + 20UL*e;
+    for( ulong n=0; n<3UL; n++ ) {
+      uchar buf[32];
+      fd_f25519_tobytes( buf, &c[n] );
+      out[5*n+0] =  fd_ulong_load_8( buf    )       & FD_ED25519_LANE_MASK;
+      out[5*n+1] = (fd_ulong_load_8( buf+ 6 )>> 3) & FD_ED25519_LANE_MASK;
+      out[5*n+2] = (fd_ulong_load_8( buf+12 )>> 6) & FD_ED25519_LANE_MASK;
+      out[5*n+3] = (fd_ulong_load_8( buf+19 )>> 1) & FD_ED25519_LANE_MASK;
+      out[5*n+4] = (fd_ulong_load_8( buf+24 )>>12) & FD_ED25519_LANE_MASK;
+    }
+    for( ulong i=0; i<5UL; i++ ) out[15+i] = (i ? FD_ED25519_LANE_2P : FD_ED25519_LANE_2P0) - out[10+i];
+    fd_ed25519_point_add( acc, acc, fd_ed25519_base_point );
+  }
+  if( print ) {
+    printf( "/* Generated by the --gen-table mode of test_ed25519_multi_msg.  Do not edit.\n"
+            "   Entries 0..128 of (y+x, y-x, 2dxy, 2p-2dxy) for [e]B in canonical radix-51\n"
+            "   limbs, 20 ulongs each. */\n"
+            "#include \"../../../util/fd_util_base.h\"\n"
+            "ulong const fd_ed25519_lane_base_table[ 20UL*129UL ] __attribute__((aligned(64))) = {\n" );
+    for( ulong e=0; e<FD_ED25519_LANE_BASE_CNT; e++ ) {
+      ulong const * v = table + 20UL*e;
+      printf( "  /* %3lu */ %16luUL, %16luUL, %16luUL, %16luUL, %16luUL,\n"
+              "             %16luUL, %16luUL, %16luUL, %16luUL, %16luUL,\n"
+              "             %16luUL, %16luUL, %16luUL, %16luUL, %16luUL,\n"
+              "             %16luUL, %16luUL, %16luUL, %16luUL, %16luUL,\n",
+              e, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15], v[16], v[17], v[18], v[19] );
+    }
+    printf( "};\n" );
+    return;
+  }
+  FD_TEST( fd_memeq( table, fd_ed25519_lane_base_table, sizeof(table) ) );
+  FD_LOG_NOTICE(( "lane fixed-base table: %lu entries match the scalar multiples", FD_ED25519_LANE_BASE_CNT ));
 }
 
 static void
@@ -226,8 +284,9 @@ test_corpora( fd_sha512_t * shas[] ) {
 }
 
 static void
-test_messages( fd_rng_t * rng,
-               fd_sha512_t * shas[] ) {
+test_messages( fd_rng_t *    rng,
+               fd_sha512_t * shas[],
+               ulong         iters ) {
   uchar msg[TEST_MAX][4097], sig[TEST_MAX][65], pub[TEST_MAX][33], priv[TEST_MAX][32];
   uchar const * msgs[TEST_MAX], * sigs[TEST_MAX], * pubs[TEST_MAX];
   ulong sizes[TEST_MAX];
@@ -246,40 +305,81 @@ test_messages( fd_rng_t * rng,
   for( ulong cnt=0; cnt<=TEST_MAX; cnt++ ) check_batch( msgs, sizes, sigs, pubs, shas, cnt );
 
   /* Scalar/encoding boundaries and conflicting errors.  Every edge is
-     tested in each lane among valid neighbors, then restored. */
-  uchar enc[8][32] = {{0}};
+     tested in each lane among valid neighbors, then restored.  The
+     encodings are: y=0 (order 4), the identity, y=2 (no square root),
+     y=p (noncanonical zero), y=p-1 (order 2), y=p+1 (noncanonical
+     identity), an order 8 point, all ones, then every small-order
+     point [n]T8 with both sign bits, and x=0 encodings with sign=1. */
+#define EDGE_CNT 32UL
+  uchar enc[EDGE_CNT][32] = {{0}};
   enc[1][0] = 1; enc[2][0] = 2;
   fd_hex_decode( enc[3], "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32UL );
   fd_hex_decode( enc[4], "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32UL );
   fd_hex_decode( enc[5], "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32UL );
   fd_hex_decode( enc[6], "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05", 32UL );
   fd_memset( enc[7], 255, 32UL );
+  {
+    fd_ed25519_point_t t8[1], m[1];
+    FD_TEST( fd_ed25519_point_frombytes( t8, enc[6] ) );
+    fd_ed25519_point_set_zero( m );
+    for( ulong n=0; n<8UL; n++ ) {
+      fd_ed25519_point_tobytes( enc[8+2*n], m );
+      fd_memcpy( enc[9+2*n], enc[8+2*n], 32UL );
+      enc[9+2*n][31] ^= 0x80;
+      fd_ed25519_point_add( m, m, t8 );
+    }
+  }
+  enc[24][0] = 1;    enc[24][31] = 0x80;                         /* y=1, sign=1: x=0 accepted */
+  fd_memcpy( enc[25], enc[4], 32UL ); enc[25][31] |= 0x80;       /* y=p-1, sign=1 */
+  fd_memcpy( enc[26], enc[5], 32UL ); enc[26][31] |= 0x80;       /* y=p+1, sign=1 */
+  fd_memcpy( enc[27], enc[3], 32UL ); enc[27][31] |= 0x80;       /* y=p, sign=1: x=0 */
+  fd_memcpy( enc[28], enc[7], 32UL ); enc[28][31] = 0x7f;        /* y=2^255-1 */
+  fd_memcpy( enc[29], enc[7], 32UL ); enc[29][0] = 0xec;         /* y=2^255-20 = p-1 + 2^255? noncanonical */
+  fd_hex_decode( enc[30], "0000000000000000000000000000000000000000000000000000000000000080", 32UL );
+  fd_hex_decode( enc[31], "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32UL );
   for( ulong lane=0; lane<TEST_MAX; lane++ ) {
     uchar saved_sig[64], saved_pub[32];
     fd_memcpy( saved_sig, sigs[lane], 64UL ); fd_memcpy( saved_pub, pubs[lane], 32UL );
-    for( ulong edge=0; edge<8UL; edge++ ) {
+    for( ulong edge=0; edge<EDGE_CNT; edge++ ) {
       for( ulong kind=0; kind<6UL; kind++ ) {
         fd_memcpy( sig[lane]+1, saved_sig, 64UL ); fd_memcpy( pub[lane]+1, saved_pub, 32UL );
         if( kind==0 || kind>=3 ) fd_memcpy( pub[lane]+1, enc[edge], 32UL );
-        if( kind==1 || kind==3 || kind==5 ) fd_memcpy( sig[lane]+1, enc[(edge+1)%8UL], 32UL );
+        if( kind==1 || kind==3 || kind==5 ) fd_memcpy( sig[lane]+1, enc[(edge+1)%EDGE_CNT], 32UL );
         if( kind==2 || kind>=4 ) {
           fd_hex_decode( sig[lane]+33, "edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010", 32UL );
           if( edge==0 ) sig[lane][33]--; /* L-1 */
           if( edge==1 ) sig[lane][33]++; /* L+1 */
           if( edge==2 ) fd_memset( sig[lane]+33, 0, 32UL );
-          if( edge>=3 ) sig[lane][64] = (uchar)(1U<<(uint)edge);
+          if( edge>=3 && edge<8UL ) sig[lane][64] = (uchar)(1U<<(uint)edge);
+          if( edge>=8 ) sig[lane][33+(edge%32UL)] ^= (uchar)(1U<<(edge%8UL));
         }
         check_batch( msgs, sizes, sigs, pubs, shas, TEST_MAX );
       }
     }
     fd_memcpy( sig[lane]+1, saved_sig, 64UL ); fd_memcpy( pub[lane]+1, saved_pub, 32UL );
   }
+  /* Small-order points as both A and R in the same lane, and R equal
+     to A, with valid neighbors. */
+  for( ulong lane=0; lane<TEST_MAX; lane+=5UL ) {
+    uchar saved_sig[64], saved_pub[32];
+    fd_memcpy( saved_sig, sigs[lane], 64UL ); fd_memcpy( saved_pub, pubs[lane], 32UL );
+    for( ulong ea=8UL; ea<24UL; ea++ ) for( ulong er=8UL; er<24UL; er++ ) {
+      fd_memcpy( pub[lane]+1, enc[ea], 32UL ); fd_memcpy( sig[lane]+1, enc[er], 32UL );
+      check_batch( msgs, sizes, sigs, pubs, shas, TEST_MAX );
+    }
+    fd_memcpy( sig[lane]+1, saved_sig, 64UL ); fd_memcpy( pub[lane]+1, saved_pub, 32UL );
+  }
+#undef EDGE_CNT
   /* Deterministic mixed random changes, many simultaneous invalid lanes,
-     with full/tail/multiple groups and lane permutations. */
-  for( ulong trial=0; trial<200UL; trial++ ) {
+     with full/tail/multiple groups and lane permutations.  Flips hit
+     signatures, public keys and messages. */
+  for( ulong trial=0; trial<200UL*iters; trial++ ) {
     for( ulong j=0; j<TEST_MAX; j++ ) {
       fd_ed25519_sign( sig[j]+1, msgs[j], sizes[j], pubs[j], priv[j], shas[j] );
-      if( fd_rng_uint( rng )&1U ) sig[j][1UL+fd_rng_ulong_roll( rng, 64UL )] ^= 1;
+      uint r = fd_rng_uint( rng );
+      if( r&1U ) sig[j][1UL+fd_rng_ulong_roll( rng, 64UL )] ^= (uchar)(1U<<(fd_rng_uint( rng )&7U));
+      if( (r&6U)==2U ) pub[j][1UL+fd_rng_ulong_roll( rng, 32UL )] ^= (uchar)(1U<<(fd_rng_uint( rng )&7U));
+      if( (r&24U)==8U && sizes[j] ) msg[j][1UL+fd_rng_ulong_roll( rng, sizes[j] )] ^= (uchar)(1U<<(fd_rng_uint( rng )&7U));
     }
     check_batch( msgs, sizes, sigs, pubs, shas, trial%(TEST_MAX+1UL) );
     for( ulong j=0; j<TEST_MAX/2UL; j++ ) {
@@ -291,7 +391,7 @@ test_messages( fd_rng_t * rng,
       ulong z=sizes[j]; sizes[j]=sizes[k]; sizes[k]=z;
     }
     check_batch( msgs, sizes, sigs, pubs, shas, TEST_MAX );
-    /* Restore pointer order for the next signing round. */
+    /* Restore pointer order and keys for the next signing round. */
     for( ulong j=0; j<TEST_MAX/2UL; j++ ) {
       ulong k = TEST_MAX-1UL-j;
       uchar const * p;
@@ -300,8 +400,9 @@ test_messages( fd_rng_t * rng,
       p=pubs[j]; pubs[j]=pubs[k]; pubs[k]=p;
       ulong z=sizes[j]; sizes[j]=sizes[k]; sizes[k]=z;
     }
+    for( ulong j=0; j<TEST_MAX; j++ ) fd_ed25519_public_from_private( pub[j]+1, priv[j], shas[j] );
   }
-  FD_LOG_NOTICE(( "counts 0..33, SHA boundaries, encoding/scalar precedence, mixed permutations: pass" ));
+  FD_LOG_NOTICE(( "counts 0..33, SHA boundaries, encoding/scalar precedence, small order pairs, %lu mixed random rounds: pass", 200UL*iters ));
 }
 
 #if FD_HAS_AVX512
@@ -314,13 +415,15 @@ bench_phases( uchar const * const msgs[],
               uchar const * const sigs[],
               uchar const * const pubs[],
               fd_sha512_t *         shas[],
+              ulong                 prep_iters,
               ulong                 iters ) {
   fd_ed25519_lane_point_t a, r;
   uchar k[8][32], s[8][32], hash_input[8][64+1232], hashes[8][64];
   long start = fd_log_wallclock();
-  for( ulong i=0; i<iters; i++ ) {
-    FD_TEST( fd_ed25519_lane_decode( &a, pubs )==255 );
-    FD_TEST( fd_ed25519_lane_decode( &r, sigs )==255 );
+  for( ulong i=0; i<prep_iters; i++ ) {
+    int a_valid, r_valid;
+    fd_ed25519_lane_decode2( &a, pubs, &a_valid, &r, sigs, &r_valid );
+    FD_TEST( a_valid==255 && r_valid==255 );
     FD_TEST( !fd_ed25519_lane_small_order( &a ) );
     FD_TEST( !fd_ed25519_lane_small_order( &r ) );
     fd_sha512_batch_t batch[1];
@@ -356,7 +459,7 @@ bench_phases( uchar const * const msgs[],
   }
   long core = fd_log_wallclock()-start;
   FD_LOG_NOTICE(( "phase bytes=%4lu count=8 prepare=%9.1f core=%9.1f ns/signature (diagnostic, not end-to-end)",
-                   sizes[0], (double)prepare/(double)(iters*8UL), (double)core/(double)(iters*8UL) ));
+                   sizes[0], (double)prepare/(double)(prep_iters*8UL), (double)core/(double)(iters*8UL) ));
 }
 #endif
 
@@ -378,7 +481,7 @@ bench_messages( fd_sha512_t * shas[],
       fd_ed25519_sign( sig[j], msgs[j], sizes[j], pubs[j], priv, shas[j] );
     }
 #if FD_HAS_AVX512
-    bench_phases( msgs, sizes, sigs, pubs, shas, iters*4UL );
+    bench_phases( msgs, sizes, sigs, pubs, shas, iters*4UL, iters*4UL );
 #endif
     for( ulong c=0; c<sizeof(counts)/sizeof(counts[0]); c++ ) {
       ulong cnt = counts[c];
@@ -410,16 +513,38 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   ulong bench = fd_env_strip_cmdline_ulong( &argc, &argv, "--bench", NULL, 0UL );
+  ulong iters = fd_env_strip_cmdline_ulong( &argc, &argv, "--iters", NULL, 1UL );
+  ulong core  = fd_env_strip_cmdline_ulong( &argc, &argv, "--core",  NULL, 0UL );
+  ulong prep  = fd_env_strip_cmdline_ulong( &argc, &argv, "--prep",  NULL, 1UL );
+  int   gen   = fd_env_strip_cmdline_contains( &argc, &argv, "--gen-table" );
   fd_rng_t rng_mem[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 0UL ) );
   fd_sha512_t sha_mem[TEST_MAX]; fd_sha512_t * shas[TEST_MAX];
   for( ulong j=0; j<TEST_MAX; j++ ) shas[j] = fd_sha512_join( fd_sha512_new( &sha_mem[j] ) );
+#if FD_HAS_AVX512
+  if( gen ) { test_lane_base_table( 1 ); fd_halt(); return 0; }
+  if( core ) { /* isolated x8 core for perf stat */
+    uchar msg[8][200], sig[8][64], pub[8][32], priv[32];
+    uchar const * msgs[8], * sigs[8], * pubs[8];
+    ulong sizes[8];
+    for( ulong j=0; j<8UL; j++ ) {
+      fd_memset( priv, (int)j+1, 32UL ); fd_memset( msg[j], (int)j+2, 200UL );
+      msgs[j]=msg[j]; sizes[j]=200UL; sigs[j]=sig[j]; pubs[j]=pub[j];
+      fd_ed25519_public_from_private( pub[j], priv, shas[j] );
+      fd_ed25519_sign( sig[j], msgs[j], sizes[j], pubs[j], priv, shas[j] );
+    }
+    bench_phases( msgs, sizes, sigs, pubs, shas, prep, core );
+    fd_halt();
+    return 0;
+  }
+#endif
   fd_ed25519_verify_batch_multi_msg( NULL, NULL, NULL, NULL, NULL, NULL, 0UL );
 #if FD_HAS_AVX512
   test_lane_field( rng );
+  test_lane_base_table( 0 );
   test_lane_decode( rng );
   test_lane_group( rng );
 #endif
-  test_messages( rng, shas );
+  test_messages( rng, shas, iters );
   test_corpora( shas );
   if( bench ) bench_messages( shas, bench );
   for( ulong j=0; j<TEST_MAX; j++ ) fd_sha512_delete( fd_sha512_leave( shas[j] ) );
