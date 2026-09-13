@@ -1764,7 +1764,8 @@ getEpochSchedule( fd_rpc_tile_t * ctx,
 
   CSTR_JSON( id, id_cstr );
   if( FD_UNLIKELY( !ctx->has_epoch_schedule ) ) {
-    /* Arrives on the first replay_epoch frag; until then, as getGenesisHash */
+    /* Set by the first replay_epoch frag.  Agave answers this from
+       genesis and never fails it; until then, error as getGenesisHash. */
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Firedancer Error: No epoch schedule\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SNAPSHOT, id_cstr );
   }
 

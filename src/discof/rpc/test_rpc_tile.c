@@ -140,7 +140,7 @@ static void
 ingest_test_epoch( fd_multi_epoch_leaders_t * mleaders,
                    ulong                      epoch,
                    uchar                      leader_byte ) {
-  uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+  uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) + sizeof(fd_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
   fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_msg_buf );
   memset( emsg, 0, sizeof(epoch_msg_buf) );
   emsg->epoch           = epoch;
@@ -758,7 +758,7 @@ main( int     argc,
     FD_TEST( epoch_in_idx<ctx->in_cnt );
 
     fd_epoch_info_msg_t * epoch_info = fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_epoch->dcache ) );
-    ulong epoch_info_sz = FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t);
+    ulong epoch_info_sz = fd_epoch_info_msg_sz( 1UL, 1UL );
     memset( epoch_info, 0, epoch_info_sz );
     epoch_info->epoch           = 0UL;
     epoch_info->start_slot      = 0UL;
@@ -774,7 +774,7 @@ main( int     argc,
     memset( epoch_w->vote_key.uc, 0x11, sizeof(fd_pubkey_t) );
     memset( epoch_w->id_key.uc,   0x22, sizeof(fd_pubkey_t) );
     epoch_w->stake = 1000000UL;
-    FD_TEST( !returnable_frag( ctx, epoch_in_idx, 0UL, 4UL, fd_laddr_to_chunk( wksp, epoch_info ), epoch_info_sz, 0UL, 0UL, 0UL, NULL ) );
+    FD_TEST( !returnable_frag( ctx, epoch_in_idx, 0UL, 4UL /* replay's epoch_info_sig */, fd_laddr_to_chunk( wksp, epoch_info ), epoch_info_sz, 0UL, 0UL, 0UL, NULL ) );
     FD_TEST( ctx->has_epoch_schedule );
 
     expect_rpc_response( ctx,
@@ -940,7 +940,7 @@ main( int     argc,
     fd_pubkey_t leader_vk; memset( leader_vk.uc, 0x88, 32 );
     FD_BASE58_ENCODE_32_BYTES( leader_id.uc, leader_id_b58 );
 
-    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) + sizeof(fd_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
     fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)epoch_msg_buf;
     memset( emsg, 0, sizeof(epoch_msg_buf) );
     emsg->epoch           = 0UL;
@@ -1094,7 +1094,7 @@ main( int     argc,
     fd_pubkey_t vote_b;    memset( vote_b.uc,    0xb2, 32 );
     FD_BASE58_ENCODE_32_BYTES( leader_id.uc, dup_id_b58 );
 
-    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + 2UL*sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + 2UL*sizeof(fd_vote_stake_weight_t) + sizeof(fd_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
     fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)epoch_msg_buf;
     memset( emsg, 0, sizeof(epoch_msg_buf) );
     emsg->epoch           = 0UL;
