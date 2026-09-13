@@ -698,6 +698,9 @@ struct fd_pack_private {
 
   fd_histf_t txn_per_microblock [ 1 ];
   fd_histf_t vote_per_microblock[ 1 ];
+  /* Express microblocks always sample 1 and 0 into the two above; count
+     them and add the samples in bulk at end of block. */
+  ulong      express_microblock_cnt;
 
   fd_histf_t scheduled_cus_per_block[ 1 ];
   fd_histf_t rebated_cus_per_block  [ 1 ];
@@ -899,6 +902,7 @@ fd_pack_new( void                   * mem,
     pack->use_by_bank_txn[i] = NULL;
   }
 
+  pack->express_microblock_cnt = 0UL;
   fd_histf_new( pack->txn_per_microblock,  FD_MHIST_MIN( PACK, TXN_PER_MICROBLOCK ),
                                            FD_MHIST_MAX( PACK, TXN_PER_MICROBLOCK ) );
   fd_histf_new( pack->vote_per_microblock, FD_MHIST_MIN( PACK, VOTE_PER_MICROBLOCK ),
@@ -2815,8 +2819,7 @@ fd_pack_insert_txn_fini_express( fd_pack_t  * pack,
   pack->outstanding_microblock_mask |= bank_tile_mask;
   pack->vb_gen[ bank_tile ]++;
   pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX ]++;
-  fd_histf_sample( pack->txn_per_microblock,  1UL );
-  fd_histf_sample( pack->vote_per_microblock, 0UL );
+  pack->express_microblock_cnt++;
 
   trp_pool_ele_release( pack->pool, ord );
 
@@ -2981,6 +2984,9 @@ fd_pack_end_block( fd_pack_t * pack ) {
      infrequent to do anything related to metrics.  However, we only
      update the histograms when we are leader, so this is actually a
      good place to copy them. */
+  fd_histf_sample_n( pack->txn_per_microblock,  1UL, pack->express_microblock_cnt );
+  fd_histf_sample_n( pack->vote_per_microblock, 0UL, pack->express_microblock_cnt );
+  pack->express_microblock_cnt = 0UL;
   FD_MHIST_COPY( PACK, TXN_PER_MICROBLOCK,  pack->txn_per_microblock  );
   FD_MHIST_COPY( PACK, VOTE_PER_MICROBLOCK, pack->vote_per_microblock );
 

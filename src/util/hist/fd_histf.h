@@ -160,6 +160,17 @@ fd_histf_sample( fd_histf_t * hist,
 #endif
 }
 
+/* fd_histf_sample_n adds n samples of value at once. */
+static inline void
+fd_histf_sample_n( fd_histf_t * hist,
+                   ulong        value,
+                   ulong        n ) {
+  if( FD_LIKELY( !n ) ) return;
+  hist->sum += value*n;
+  long shifted_v = (long)(value - (1UL<<63));
+  for( ulong i=0UL; i<16UL; i++ ) hist->counts[ i ] += n*(ulong)( (hist->left_edge[ i ] <= shifted_v) & (shifted_v < hist->left_edge[ i+1UL ]) );
+}
+
 /* fd_histf_cnt gets the count of samples in a particular bucket of the
    histogram.
 
