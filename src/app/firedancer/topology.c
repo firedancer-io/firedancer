@@ -295,6 +295,7 @@ fd_topo_initialize( config_t * config ) {
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
   ulong verify_tile_cnt = config->layout.verify_tile_count;
   ulong resolv_tile_cnt = config->firedancer.layout.resolv_tile_count;
+  ulong dedup_tile_cnt  = fd_ulong_max( 1UL, config->firedancer.layout.dedup_tile_count );
   ulong execle_tile_cnt = config->firedancer.layout.execle_tile_count;
   ulong snapzp_tile_cnt = config->firedancer.layout.enable_snapshot_production
                           ? config->firedancer.layout.snapzp_tile_count : 0UL;
@@ -552,7 +553,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_misc",   "gossip_misc",   65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL );
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",   "quic_verify",   config->tiles.verify.receive_buffer_size, sizeof(fd_tpu_msg_t),          config->tiles.quic.txn_reassembly_count );
-  FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup",  "verify_dedup",  1024UL,                                   FD_TPU_PARSED_MTU,             FD_VERIFY_BATCH_TXN_MAX+1UL ); /* shallow enough to stay in cache */
+  FOR(verify_tile_cnt*dedup_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", 1024UL, FD_TPU_PARSED_MTU, FD_VERIFY_BATCH_TXN_MAX+1UL ); /* shallow enough to stay in cache */ /* verify i, dedup d is i*dedup_cnt+d */
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  32UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* replay publishes two epochs at boot and must keep replay's STEM_BURST credits after */
   /* In efficient mode dedup and pack read replay_bat, which is
      replay_out with TXN_EXECUTED batched (see fd_replay_bat_rec_t), so
@@ -578,7 +579,7 @@ fd_topo_initialize( config_t * config ) {
     }
   }
   if( leader_enabled ) {
-    /**/                   fd_topob_link( topo, "dedup_resolv",  "dedup_resolv",  16384UL,                                  FD_TPU_PARSED_MTU,             1UL );
+    FOR(dedup_tile_cnt)    fd_topob_link( topo, "dedup_resolv",  "dedup_resolv",  16384UL,                                  FD_TPU_PARSED_MTU,             1UL );
     FOR(resolv_tile_cnt)   fd_topob_link( topo, "resolv_pack",   "resolv_pack",   4096UL,                                   FD_TPU_RESOLVED_MTU,           1UL );
     /**/                   fd_topob_link( topo, "pack_poh",      "pack_poh",      4096UL,                                   sizeof(fd_done_packing_t),     1UL );
     FOR(execle_tile_cnt)   fd_topob_link( topo, "execle_poh",    "execle_poh",    4096UL,                                   FD_EXECLE_POH_MTU,             1UL );
@@ -710,7 +711,7 @@ fd_topo_initialize( config_t * config ) {
   if( leader_enabled ) {
     FOR(quic_tile_cnt)   fd_topob_tile( topo, "quic",    "quic",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,               0,               0 );
     FOR(verify_tile_cnt) fd_topob_tile( topo, "verify",  "verify",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,               0,               0 );
-    /**/                 fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,               0,               0 );
+    FOR(dedup_tile_cnt)  fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,               0,               0 );
     FOR(resolv_tile_cnt) fd_topob_tile( topo, "resolv",  "resolv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,               0,               0 );
     /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], config->tiles.bundle.enabled, 0, 0 );
     FOR(execle_tile_cnt) fd_topob_tile( topo, "execle",  "execle",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,               0,               0 );
@@ -859,11 +860,11 @@ fd_topo_initialize( config_t * config ) {
     /* All verify tiles read from all QUIC tiles, packets are round robin. */
     FOR(verify_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
                          fd_topob_tile_in(  topo, "verify",  i,            "metric_in", "quic_verify",   j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers, verify tiles may be overrun */
-    FOR(verify_tile_cnt) fd_topob_tile_out( topo, "verify",  i,                         "verify_dedup",  i                                                  );
-    FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "verify_dedup",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", replay_rd,       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_out( topo, "dedup",   0UL,                       "dedup_resolv",  0UL                                                );
-    FOR(resolv_tile_cnt) fd_topob_tile_in(  topo, "resolv",  i,            "metric_in", "dedup_resolv",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(verify_tile_cnt) for( ulong d=0UL; d<dedup_tile_cnt; d++ ) fd_topob_tile_out( topo, "verify", i, "verify_dedup", i*dedup_tile_cnt+d );
+    FOR(dedup_tile_cnt)  for( ulong v=0UL; v<verify_tile_cnt; v++ ) fd_topob_tile_in( topo, "dedup", i, "metric_in", "verify_dedup", v*dedup_tile_cnt+i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(dedup_tile_cnt)  fd_topob_tile_in(  topo, "dedup",   i,            "metric_in", replay_rd,       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(dedup_tile_cnt)  fd_topob_tile_out( topo, "dedup",   i,                         "dedup_resolv",  i                                                  );
+    FOR(resolv_tile_cnt) for( ulong d=0UL; d<dedup_tile_cnt; d++ ) fd_topob_tile_in( topo, "resolv", i, "metric_in", "dedup_resolv", d, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     FOR(resolv_tile_cnt) fd_topob_tile_in(  topo, "resolv",  i,            "metric_in", "replay_slot",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     FOR(resolv_tile_cnt) fd_topob_tile_out( topo, "resolv",  i,                         "resolv_pack",   i                                                  );
     FOR(resolv_tile_cnt) fd_topob_tile_out( topo, "resolv",  i,                         "resolv_replay", i                                                  );
@@ -912,7 +913,7 @@ fd_topo_initialize( config_t * config ) {
     }
 
     if( FD_UNLIKELY( config->development.event.report_transactions && leader_enabled ) ) {
-      fd_topob_tile_in( topo, "event", 0UL, "metric_in", "dedup_resolv", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      FOR(dedup_tile_cnt) fd_topob_tile_in( topo, "event", 0UL, "metric_in", "dedup_resolv", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
 
     fd_topob_tile_in(  topo, "sign",   0UL, "metric_in", "event_sign", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
