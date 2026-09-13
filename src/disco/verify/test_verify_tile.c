@@ -195,7 +195,7 @@ mock_stem_init( mock_stem_t * m, fd_topo_t * topo, fd_topo_tile_t * tile ) {
 
 static int
 test_ingest( fd_verify_ctx_t * ctx, mock_stem_t * ms, ulong in_idx, uchar const * blockhash, int durable_nonce ) {
-  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_mem, ctx->out[ 0 ].chunk );
   memset( txnm, 0, sizeof(fd_txn_m_t) );
   txnm->payload_sz = (ushort)test_make_txn( fd_txn_m_payload( txnm ), blockhash, durable_nonce );
   ulong before = ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_BLOCKHASH_EXPIRED_IDX ];
@@ -399,8 +399,8 @@ test_batching( void ) {
      with the payload copied into the out chunk, and advance the in. */
 #define DELIVER( payload, sz ) do {                                                                   \
     fd_mcache_publish( in_link->mcache, ins[IN_IDX_QUIC].depth, in_seq, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL ); \
-    fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );                            \
-    for( ulong e=0UL; e<expect_cnt; e++ ) if( expect_chunk[e]==ULONG_MAX && !memcmp( expect[e], (payload)+1UL, 8UL ) ) { expect_chunk[e] = ctx->out_chunk; break; } \
+    fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_mem, ctx->out[ 0 ].chunk );                            \
+    for( ulong e=0UL; e<expect_cnt; e++ ) if( expect_chunk[e]==ULONG_MAX && !memcmp( expect[e], (payload)+1UL, 8UL ) ) { expect_chunk[e] = ctx->out[ 0 ].chunk; break; } \
     txnm->payload_sz = (ushort)(sz);                                                                  \
     txnm->block_engine.bundle_id = 0UL;                                                               \
     fd_memcpy( fd_txn_m_payload( txnm ), (payload), (sz) );                                           \
@@ -474,8 +474,8 @@ test_batching( void ) {
     fd_stem_tile_in_t tmp = ins[0]; ins[0] = ins[IN_IDX_QUIC]; ins[IN_IDX_QUIC] = tmp;
     payload_sz[0] = make_txn( rng, sha, payload[0], 1UL, ULONG_MAX ); EXPECT( 0 );
     fd_mcache_publish( in_link->mcache, ins[0].depth, in_seq, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
-    fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-    expect_chunk[0] = ctx->out_chunk;
+    fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_mem, ctx->out[ 0 ].chunk );
+    expect_chunk[0] = ctx->out[ 0 ].chunk;
     txnm->payload_sz = (ushort)payload_sz[0]; txnm->block_engine.bundle_id = 0UL;
     fd_memcpy( fd_txn_m_payload( txnm ), payload[0], payload_sz[0] );
     after_frag( ctx, IN_IDX_QUIC, in_seq, 0UL, payload_sz[0], 0UL, 0UL, stem );
