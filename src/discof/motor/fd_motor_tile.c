@@ -185,6 +185,11 @@ publish_shred( fd_motor_tile_t *   ctx,
   memcpy( meta->parent_block_id, ctx->parent_cmr.uc, sizeof(fd_hash_t) );
   meta->parent_block_id_valid = 1;
 
+  /* markers carry no entry, everything else exactly one */
+  int entry = block_complete!=-1;
+  meta->entry_cnt = (ushort)entry;
+  meta->txn_cnt   = (ushort)fd_ulong_if( entry, ((fd_entry_batch_header_t const *)(meta+1))->txn_cnt, 0UL );
+
   ulong sz    = sizeof(fd_entry_batch_meta_t)+payload_sz;
   ulong sig   = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );

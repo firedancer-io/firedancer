@@ -47,6 +47,13 @@ struct fd_entry_batch_meta {
      block).  TODO: Remove. Not a good design. */
   uchar parent_block_id[ 32 ];
   uchar parent_block_id_valid;
+
+  /* Entries (fd_entry_batch_header_t each followed by its raw
+     transactions) in this frag, and their total transaction count.
+     PoH coalesces microblocks between ticks into one frag; markers
+     carry none. */
+  ushort entry_cnt;
+  ushort txn_cnt;
 };
 typedef struct fd_entry_batch_meta fd_entry_batch_meta_t;
 
@@ -70,11 +77,15 @@ typedef struct fd_entry_batch_header fd_entry_batch_header_t;
    contain up to five transactions. */
 #define MAX_TXN_PER_MICROBLOCK (5UL)
 
-/* FD_POH_SHRED_MTU is the size of the raw transaction portion of the
-   largest microblock the pack tile will produce, plus the 48B of
-   microblock header (hash and 2 ulongs) plus the fd_entry_batch_meta_t
-   metadata. */
-#define FD_POH_SHRED_MTU (sizeof(fd_entry_batch_meta_t) + sizeof(fd_entry_batch_header_t) + FD_TPU_MTU * MAX_TXN_PER_MICROBLOCK)
+/* FD_POH_SHRED_ENTRY_MAX is the largest entry the pack tile will
+   produce: 48B of header (hash and 2 ulongs) plus the raw
+   transactions.  PoH appends entries to a frag until it holds at least
+   FD_POH_SHRED_BATCH_SZ bytes of them, so FD_POH_SHRED_MTU is the
+   fd_entry_batch_meta_t metadata plus one byte short of that plus one
+   more entry. */
+#define FD_POH_SHRED_ENTRY_MAX (sizeof(fd_entry_batch_header_t) + FD_TPU_MTU * MAX_TXN_PER_MICROBLOCK)
+#define FD_POH_SHRED_BATCH_SZ  (8192UL)
+#define FD_POH_SHRED_MTU       (sizeof(fd_entry_batch_meta_t) + FD_POH_SHRED_BATCH_SZ + FD_POH_SHRED_ENTRY_MAX)
 
 FD_STATIC_ASSERT( FD_POH_SHRED_MTU<=USHORT_MAX, poh_shred_mtu );
 

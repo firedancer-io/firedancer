@@ -182,7 +182,11 @@ after_credit( fd_poh_tile_t *     ctx,
        the tick.  Otherwise, a tick will be skipped if a microblock
        mixin happens.  Additionally, when there are pending skipped
        ticks to be published, we should do that before processing any
-       incoming microblocks. */
+       incoming microblocks.
+
+       Input has run dry, so any coalesced microblocks go out now
+       rather than wait for the next one. */
+    fd_poh_flush_shred( ctx->poh, stem );
     fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
     ctx->idle_cnt = 0UL;
   }

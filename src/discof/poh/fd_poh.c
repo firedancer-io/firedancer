@@ -82,6 +82,7 @@ fd_poh_new( void * shmem ) {
   poh->hashcnt_per_tick = ULONG_MAX;
   poh->state = STATE_UNINIT;
   poh->wfs_paused = 0;
+  poh->shred_pend_entry_sz = 0UL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( poh->magic ) = FD_POH_MAGIC;
@@ -350,12 +351,27 @@ fd_poh_done_packing( fd_poh_t *                poh,
   FD_TEST( poh->microblocks_lower_bound==poh->max_microblocks_per_slot );
 }
 
+void
+fd_poh_flush_shred( fd_poh_t *          poh,
+                    fd_stem_context_t * stem ) {
+  if( FD_LIKELY( !poh->shred_pend_entry_sz ) ) return;
+
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sz    = sizeof(fd_entry_batch_meta_t)+poh->shred_pend_entry_sz;
+  ulong sig   = fd_disco_poh_sig( poh->shred_pend_slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
+  fd_stem_publish( stem, poh->shred_out->idx, sig, poh->shred_out->chunk, sz, 0UL, 0UL, tspub );
+  poh->shred_out->chunk = fd_dcache_compact_next( poh->shred_out->chunk, sz, poh->shred_out->chunk0, poh->shred_out->wmark );
+  poh->shred_pend_entry_sz = 0UL;
+}
+
 static void
 publish_tick( fd_poh_t *          poh,
               fd_stem_context_t * stem,
               uchar               hash[ static 32 ],
               int                 is_skipped ) {
   ulong hashcnt = poh->hashcnt_per_tick*(1UL+(poh->last_hashcnt/poh->hashcnt_per_tick));
+
+  fd_poh_flush_shred( poh, stem ); /* entries precede the tick */
 
   uchar * dst = (uchar *)fd_chunk_to_laddr( poh->shred_out->mem, poh->shred_out->chunk );
 
@@ -373,6 +389,8 @@ publish_tick( fd_poh_t *          poh,
 
   meta->parent_block_id_valid = 1;
   fd_memcpy( meta->parent_block_id, poh->completed_block_id, 32UL );
+  meta->entry_cnt = 1;
+  meta->txn_cnt   = 0;
 
   ulong slot = fd_ulong_if( meta->block_complete, poh->slot-1UL, poh->slot );
   meta->parent_offset = 1UL+slot-poh->reset_slot;
@@ -699,6 +717,10 @@ fd_poh_advance( fd_poh_t *          poh,
   }
 }
 
+/* Append one microblock to the pending shred_out frag, opening a new
+   frag when there is none or the metadata would differ, and publish
+   the frag once it holds FD_POH_SHRED_BATCH_SZ bytes of entries or
+   completes the block. */
 static void
 publish_microblock( fd_poh_t *          poh,
                     fd_stem_context_t * stem,
@@ -706,17 +728,29 @@ publish_microblock( fd_poh_t *          poh,
                     ulong               hashcnt_delta,
                     ulong               txn_cnt,
                     fd_txn_p_t const *  txns ) {
-  uchar * dst = (uchar *)fd_chunk_to_laddr( poh->shred_out->mem, poh->shred_out->chunk );
   FD_TEST( slot>=poh->reset_slot );
-  fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
-  meta->parent_offset = 1UL+slot-poh->reset_slot;
-  meta->reference_tick = (poh->hashcnt/poh->hashcnt_per_tick) % poh->ticks_per_slot;
-  meta->block_complete = !poh->hashcnt;
+  ulong reference_tick = (poh->hashcnt/poh->hashcnt_per_tick) % poh->ticks_per_slot;
+  int   block_complete = !poh->hashcnt;
 
-  meta->parent_block_id_valid = 1;
-  fd_memcpy( meta->parent_block_id, poh->completed_block_id, 32UL );
+  uchar * base = (uchar *)fd_chunk_to_laddr( poh->shred_out->mem, poh->shred_out->chunk );
+  fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)base;
+  if( FD_UNLIKELY( poh->shred_pend_entry_sz && ( slot!=poh->shred_pend_slot || reference_tick!=meta->reference_tick ) ) ) {
+    fd_poh_flush_shred( poh, stem );
+    base = (uchar *)fd_chunk_to_laddr( poh->shred_out->mem, poh->shred_out->chunk );
+    meta = (fd_entry_batch_meta_t *)base;
+  }
+  if( FD_LIKELY( !poh->shred_pend_entry_sz ) ) {
+    meta->parent_offset  = 1UL+slot-poh->reset_slot;
+    meta->reference_tick = reference_tick;
+    meta->parent_block_id_valid = 1;
+    fd_memcpy( meta->parent_block_id, poh->completed_block_id, 32UL );
+    meta->entry_cnt = 0;
+    meta->txn_cnt   = 0;
+    poh->shred_pend_slot = slot;
+  }
+  meta->block_complete = block_complete;
 
-  dst += sizeof(fd_entry_batch_meta_t);
+  uchar * dst = base + sizeof(fd_entry_batch_meta_t) + poh->shred_pend_entry_sz;
   fd_entry_batch_header_t * header = (fd_entry_batch_header_t *)dst;
   header->hashcnt_delta = hashcnt_delta;
   fd_memcpy( header->hash, poh->hash, 32UL );
@@ -734,16 +768,15 @@ publish_microblock( fd_poh_t *          poh,
     included_txn_cnt++;
   }
   header->txn_cnt = included_txn_cnt;
+  meta->entry_cnt = (ushort)( meta->entry_cnt+1U );
+  meta->txn_cnt   = (ushort)( meta->txn_cnt+included_txn_cnt );
+  poh->shred_pend_entry_sz += sizeof(fd_entry_batch_header_t)+payload_sz;
 
   /* We always have credits to publish here, because we have a burst
-     value of 3 credits, and at most we will publish_tick() once and
-     then publish_became_leader() once, leaving one credit here to
-     publish the microblock. */
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)+payload_sz;
-  ulong new_sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
-  fd_stem_publish( stem, poh->shred_out->idx, new_sig, poh->shred_out->chunk, sz, 0UL, 0UL, tspub );
-  poh->shred_out->chunk = fd_dcache_compact_next( poh->shred_out->chunk, sz, poh->shred_out->chunk0, poh->shred_out->wmark );
+     value of 2 credits, and publish_tick() flushes the pending frag
+     before it publishes, so a tick and a mixin in one loop iteration
+     publish at most two frags. */
+  if( FD_UNLIKELY( block_complete || poh->shred_pend_entry_sz>=FD_POH_SHRED_BATCH_SZ ) ) fd_poh_flush_shred( poh, stem );
 }
 
 void

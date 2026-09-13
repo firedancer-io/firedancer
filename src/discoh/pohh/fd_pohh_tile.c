@@ -1555,6 +1555,9 @@ publish_tick( fd_pohh_tile_t *      ctx,
   FD_TEST( hashcnt>ctx->last_hashcnt );
   ulong hash_delta = hashcnt-ctx->last_hashcnt;
 
+  meta->entry_cnt = 1;
+  meta->txn_cnt   = 0;
+
   dst += sizeof(fd_entry_batch_meta_t);
   fd_entry_batch_header_t * tick = (fd_entry_batch_header_t *)dst;
   tick->hashcnt_delta = hash_delta;
@@ -2075,6 +2078,8 @@ publish_microblock( fd_pohh_tile_t *    ctx,
     included_txn_cnt++;
   }
   header->txn_cnt = included_txn_cnt;
+  meta->entry_cnt = 1;
+  meta->txn_cnt   = (ushort)included_txn_cnt;
 
   /* We always have credits to publish here, because we have a burst
      value of 3 credits, and at most we will publish_tick() once and

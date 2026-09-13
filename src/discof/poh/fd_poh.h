@@ -513,6 +513,14 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
   fd_poh_out_t shred_out[ 1 ];
   fd_poh_out_t replay_out[ 1 ];
 
+  /* Microblocks are coalesced into one shred_out frag at the current
+     chunk until it holds FD_POH_SHRED_BATCH_SZ bytes of entries, a
+     tick is published, or the tile runs out of input.  entry_sz is
+     the bytes of entries written so far, zero when nothing is
+     pending. */
+  ulong shred_pend_entry_sz;
+  ulong shred_pend_slot;
+
   /* Summary for the current leader slot, captured from the pack
      done_packing message and forwarded to replay in the slot-ended
      message. */
@@ -607,6 +615,13 @@ fd_poh1_mixin( fd_poh_t *                         poh,
                ulong                              txn_cnt,
                fd_txn_p_t const *                 txns,
                fd_leader_txn_timing_rec_t const * timing );
+
+/* fd_poh_flush_shred publishes the microblocks coalesced so far, if
+   any, as one shred_out frag.  Call when input has run dry so nothing
+   waits on the next microblock. */
+void
+fd_poh_flush_shred( fd_poh_t *          poh,
+                    fd_stem_context_t * stem );
 
 void
 fd_poh_wfs_done( fd_poh_t * poh );
