@@ -48,12 +48,12 @@
    the follower state once again, and waits for further instructions
    from replay. */
 
-#define STATE_UNINIT            (0)
-#define STATE_FOLLOWER          (1)
-#define STATE_WAITING_FOR_BANK  (2)
-#define STATE_WAITING_FOR_SLOT  (3)
-#define STATE_LEADER            (4)
-#define STATE_WAITING_FOR_RESET (5)
+#define STATE_UNINIT            FD_POH_STATE_UNINIT
+#define STATE_FOLLOWER          FD_POH_STATE_FOLLOWER
+#define STATE_WAITING_FOR_BANK  FD_POH_STATE_WAITING_FOR_BANK
+#define STATE_WAITING_FOR_SLOT  FD_POH_STATE_WAITING_FOR_SLOT
+#define STATE_LEADER            FD_POH_STATE_LEADER
+#define STATE_WAITING_FOR_RESET FD_POH_STATE_WAITING_FOR_RESET
 
 FD_FN_CONST ulong
 fd_poh_align( void ) {
@@ -190,6 +190,7 @@ update_hashes_per_tick( fd_poh_t * poh,
     FD_TEST( !poh->last_hashcnt );
     poh->slot = poh->reset_slot;
     poh->hashcnt = 0UL;
+    poh->tick    = 0UL;
     fd_memcpy( poh->hash, poh->reset_hash, 32UL );
   }
 }
@@ -213,6 +214,7 @@ fd_poh_reset( fd_poh_t *          poh,
   memcpy( poh->completed_block_id, completed_block_id, 32UL );
   poh->slot                     = completed_slot+1UL;
   poh->hashcnt                  = 0UL;
+  poh->tick                     = 0UL;
   poh->last_slot                = poh->slot;
   poh->last_hashcnt             = 0UL;
   poh->reset_slot               = poh->slot;
@@ -277,27 +279,6 @@ fd_poh_begin_leader( fd_poh_t * poh,
   }
 
   FD_LOG_INFO(( "begin_leader(slot=%lu, last_slot=%lu, last_hashcnt=%lu)", slot, poh->last_slot, poh->last_hashcnt ));
-}
-
-int
-fd_poh_have_leader_bank( fd_poh_t const * poh ) {
-  return poh->state==STATE_WAITING_FOR_SLOT || poh->state==STATE_LEADER;
-}
-
-int
-fd_poh_hashing_to_leader_slot( fd_poh_t const * poh ) {
-  int hashing = poh->state==STATE_WAITING_FOR_SLOT || poh->state==STATE_LEADER;
-  return hashing && poh->slot<poh->next_leader_slot;
-}
-
-int
-fd_poh_must_tick( fd_poh_t const * poh ) {
-  return poh->state==STATE_LEADER && (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL);
-}
-
-int
-fd_poh_must_publish_skipped_tick( fd_poh_t const * poh ) {
-  return poh->state==STATE_LEADER && poh->last_slot<poh->slot;
 }
 
 void
@@ -425,6 +406,7 @@ fd_poh_advance( fd_poh_t *          poh,
                 int *               charge_busy ) {
   if( FD_UNLIKELY( poh->state==STATE_UNINIT || poh->state==STATE_WAITING_FOR_RESET ) ) return;
   if( FD_UNLIKELY( poh->wfs_paused ) ) return;
+  FD_TEST( poh->tick==poh->hashcnt/poh->hashcnt_per_tick );
   if( FD_UNLIKELY( poh->state==STATE_WAITING_FOR_BANK ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
        bank object is from the replay tile, do not do any hashing. */
@@ -667,6 +649,7 @@ fd_poh_advance( fd_poh_t *          poh,
     poh->slot++;
     poh->hashcnt = 0UL;
   }
+  poh->tick = poh->hashcnt/poh->hashcnt_per_tick;
 
   switch( poh->state ) {
     case STATE_LEADER: {
@@ -729,7 +712,7 @@ publish_microblock( fd_poh_t *          poh,
                     ulong               txn_cnt,
                     fd_txn_p_t const *  txns ) {
   FD_TEST( slot>=poh->reset_slot );
-  ulong reference_tick = (poh->hashcnt/poh->hashcnt_per_tick) % poh->ticks_per_slot;
+  ulong reference_tick = fd_ulong_if( poh->tick==poh->ticks_per_slot, 0UL, poh->tick ); /* tick%ticks_per_slot, tick<=ticks_per_slot */
   int   block_complete = !poh->hashcnt;
 
   uchar * base = (uchar *)fd_chunk_to_laddr( poh->shred_out->mem, poh->shred_out->chunk );
@@ -780,17 +763,19 @@ publish_microblock( fd_poh_t *          poh,
 }
 
 void
-fd_poh1_mixin( fd_poh_t *                         poh,
-               fd_stem_context_t *                stem,
-               ulong                              slot,
-               uchar const *                      hash,
-               ulong                              txn_cnt,
-               fd_txn_p_t const *                 txns,
-               fd_leader_txn_timing_rec_t const * timing ) {
+fd_poh1_mixin( fd_poh_t *          poh,
+               fd_stem_context_t * stem,
+               ulong               slot,
+               uchar const *       hash,
+               ulong               txn_cnt,
+               fd_txn_p_t const *  txns,
+               long                dispatched_ticks,
+               long                replayed_ticks ) {
   if( FD_UNLIKELY( slot!=poh->next_leader_slot || slot!=poh->slot ) ) {
     FD_LOG_ERR(( "packed too early or late slot=%lu, current_slot=%lu", slot, poh->slot ));
   }
-  if( FD_UNLIKELY( (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL) ) ) FD_LOG_CRIT(( "a tick will be skipped due to hashcnt %lu hashcnt_per_tick %lu", poh->hashcnt, poh->hashcnt_per_tick ));
+  ulong next_tick_hashcnt = (poh->tick+1UL)*poh->hashcnt_per_tick;
+  if( FD_UNLIKELY( poh->hashcnt+1UL==next_tick_hashcnt ) ) FD_LOG_CRIT(( "a tick will be skipped due to hashcnt %lu hashcnt_per_tick %lu", poh->hashcnt, poh->hashcnt_per_tick ));
 
   FD_TEST( poh->state==STATE_LEADER );
   FD_TEST( poh->microblocks_lower_bound<poh->max_microblocks_per_slot );
@@ -821,9 +806,10 @@ fd_poh1_mixin( fd_poh_t *                         poh,
       if( FD_UNLIKELY( table->cnt>=poh->timing_table_max ) ) break;
 
       fd_leader_txn_timing_rec_t * rec = &table->rec[ table->cnt++ ];
-      *rec = *timing;
-      rec->received_ns     = txns[ i ].first_seen_nanos;
-      rec->poh_mixed_ticks = poh_mixed_ticks;
+      rec->received_ns      = txns[ i ].first_seen_nanos;
+      rec->dispatched_ticks = dispatched_ticks;
+      rec->replayed_ticks   = replayed_ticks;
+      rec->poh_mixed_ticks  = poh_mixed_ticks;
     }
   }
 
@@ -842,15 +828,18 @@ fd_poh1_mixin( fd_poh_t *                         poh,
      for development, in which case we do need to register the tick
      with the leader bank.  We don't need to publish the tick since
      sending the microblock below is the publishing action. */
-  if( FD_UNLIKELY( !(poh->hashcnt%poh->hashcnt_per_slot ) ) ) {
+  int ticked = poh->hashcnt==next_tick_hashcnt;
+  poh->tick += (ulong)ticked;
+  if( FD_UNLIKELY( poh->hashcnt==poh->hashcnt_per_slot ) ) {
     poh->slot++;
     poh->hashcnt = 0UL;
+    poh->tick    = 0UL;
   }
 
   poh->last_slot    = poh->slot;
   poh->last_hashcnt = poh->hashcnt;
 
-  if( FD_UNLIKELY( !(poh->hashcnt%poh->hashcnt_per_tick ) ) ) {
+  if( FD_UNLIKELY( ticked ) ) {
     if( FD_UNLIKELY( poh->slot>poh->next_leader_slot ) ) {
       /* We ticked while leader and are no longer leader... transition
          the state machine. */

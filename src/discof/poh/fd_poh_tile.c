@@ -136,11 +136,7 @@ apply_frag( fd_poh_tile_t *     ctx,
   fd_txn_p_t const * txns = fd_type_pun_const( data );
   fd_microblock_trailer_t const * trailer = fd_type_pun_const( data+sz-sizeof(fd_microblock_trailer_t) );
 
-  fd_leader_txn_timing_rec_t timing = {
-    .dispatched_ticks = trailer->exec_start_ticks,
-    .replayed_ticks   = trailer->exec_end_ticks,
-  };
-  fd_poh1_mixin( ctx->poh, stem, slot, trailer->hash, txn_cnt, txns, &timing );
+  fd_poh1_mixin( ctx->poh, stem, slot, trailer->hash, txn_cnt, txns, trailer->exec_start_ticks, trailer->exec_end_ticks );
 }
 
 /* Apply ring entries in pack_idx order while the head is present, poh
@@ -212,11 +208,12 @@ after_credit( fd_poh_tile_t *     ctx,
     fd_poh_flush_shred( ctx->poh, stem );
     fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
     ctx->idle_cnt = 0UL;
-  }
 
-  /* Buffered frags may have become mixable (leader bank arrived, hashed
-     to the leader slot, skipped ticks published). */
-  if( FD_UNLIKELY( ctx->reorder_cnt && *opt_poll_in ) ) drain_reorder( ctx, stem, charge_busy );
+    /* Ring entries become applicable when poh state moves: here
+       (hashed to the leader slot, skipped ticks published, tick
+       produced, out credits back) or on a replay frag. */
+    if( FD_UNLIKELY( ctx->reorder_cnt && *opt_poll_in ) ) drain_reorder( ctx, stem, charge_busy );
+  }
 }
 
 /* ....
@@ -297,13 +294,15 @@ returnable_frag( fd_poh_tile_t *     ctx,
       ctx->poh->wfs_paused = reset->wfs_paused;
     }
     ctx->idle_cnt = 0UL;
-    return 0; /* after_credit drains the ring once state allows */
+    int busy;
+    if( FD_UNLIKELY( ctx->reorder_cnt ) ) drain_reorder( ctx, stem, &busy ); /* the leader bank may have let held frags through */
+    return 0;
   }
 
   /* Execle microblocks and pack's done_packing are applied strictly in
-     pack_idx order (see expect_pack_idx).  A frag whose turn has not
-     come, or that poh cannot yet accept, is noted in the ring and
-     applied from drain_reorder once it can be.
+     pack_idx order (see expect_pack_idx).  Every frag goes into the
+     ring, and drain_reorder applies from the head while its turn has
+     come and poh can accept it.
 
      Poh cannot accept a frag when:
 
@@ -350,25 +349,21 @@ returnable_frag( fd_poh_tile_t *     ctx,
     }
   }
 
-  if( FD_LIKELY( !dist && mixable( ctx, kind ) ) ) {
-    apply_frag( ctx, stem, kind, fd_disco_execle_sig_slot( sig ), src, sz );
-    ctx->expect_pack_idx++;
-    int busy;
-    drain_reorder( ctx, stem, &busy );
-  } else {
-    fd_poh_in_t *      in = &ctx->in[ in_idx ];
-    fd_poh_reorder_t * r  = &ctx->reorder[ pack_idx & (REORDER_DEPTH-1UL) ];
-    FD_TEST( !r->sz && sz ); /* full slot means duplicate pack_idx */
-    r->data   = src;
-    r->seq    = seq;
-    r->slot   = fd_disco_execle_sig_slot( sig );
-    r->sz     = (ushort)sz;
-    r->kind   = (uchar)kind;
-    r->in_idx = (uchar)in_idx;
-    in->held_seq = in->held_cnt ? in->held_seq : seq;
-    in->held_cnt++;
-    ctx->reorder_cnt++;
-  }
+  fd_poh_in_t *      in = &ctx->in[ in_idx ];
+  fd_poh_reorder_t * r  = &ctx->reorder[ pack_idx & (REORDER_DEPTH-1UL) ];
+  FD_TEST( !r->sz && sz ); /* full slot means duplicate pack_idx */
+  r->data   = src;
+  r->seq    = seq;
+  r->slot   = fd_disco_execle_sig_slot( sig );
+  r->sz     = (ushort)sz;
+  r->kind   = (uchar)kind;
+  r->in_idx = (uchar)in_idx;
+  in->held_seq = in->held_cnt ? in->held_seq : seq;
+  in->held_cnt++;
+  ctx->reorder_cnt++;
+
+  int busy;
+  drain_reorder( ctx, stem, &busy );
 
   ctx->idle_cnt = 0UL;
   return 0;

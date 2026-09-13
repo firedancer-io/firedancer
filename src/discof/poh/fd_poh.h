@@ -322,6 +322,14 @@ typedef struct fd_done_packing fd_done_packing_t;
 
 #define FD_POH_MAGIC (0xF17EDA2CE580A000) /* FIREDANCE POH V0 */
 
+/* See the state machine in fd_poh.c */
+#define FD_POH_STATE_UNINIT            (0)
+#define FD_POH_STATE_FOLLOWER          (1)
+#define FD_POH_STATE_WAITING_FOR_BANK  (2)
+#define FD_POH_STATE_WAITING_FOR_SLOT  (3)
+#define FD_POH_STATE_LEADER            (4)
+#define FD_POH_STATE_WAITING_FOR_RESET (5)
+
 /* The maximum number of microblocks pack may put in a slot: one per
    non-tick hash position (one per tick in low power mode), less the
    phantom microblock PoH reserves for the done_packing message.  This
@@ -471,6 +479,7 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
      while waiting for our next leader slot. */
   ulong slot;
   ulong hashcnt;
+  ulong tick; /* hashcnt/hashcnt_per_tick, kept so the per-microblock path does not divide */
 
   ulong next_leader_slot;
   long  leader_slot_start_ns;
@@ -575,17 +584,27 @@ fd_poh_reset( fd_poh_t *          poh,
               ulong               max_microblocks_in_slot,
               uchar const *       completed_block_id );
 
-int
-fd_poh_have_leader_bank( fd_poh_t const * poh );
+static inline int
+fd_poh_have_leader_bank( fd_poh_t const * poh ) {
+  return poh->state==FD_POH_STATE_WAITING_FOR_SLOT || poh->state==FD_POH_STATE_LEADER;
+}
 
-int
-fd_poh_hashing_to_leader_slot( fd_poh_t const * poh );
+static inline int
+fd_poh_hashing_to_leader_slot( fd_poh_t const * poh ) {
+  return fd_poh_have_leader_bank( poh ) && poh->slot<poh->next_leader_slot;
+}
 
-int
-fd_poh_must_tick( fd_poh_t const * poh );
+/* hashcnt is one before a tick boundary, so the tick must be produced
+   before any mixin */
+static inline int
+fd_poh_must_tick( fd_poh_t const * poh ) {
+  return poh->state==FD_POH_STATE_LEADER && poh->hashcnt+1UL==(poh->tick+1UL)*poh->hashcnt_per_tick;
+}
 
-int
-fd_poh_must_publish_skipped_tick( fd_poh_t const * poh );
+static inline int
+fd_poh_must_publish_skipped_tick( fd_poh_t const * poh ) {
+  return poh->state==FD_POH_STATE_LEADER && poh->last_slot<poh->slot;
+}
 
 void
 fd_poh_begin_leader( fd_poh_t * poh,
@@ -607,14 +626,17 @@ fd_poh_advance( fd_poh_t *          poh,
                 int *               opt_poll_in,
                 int *               charge_busy );
 
+/* dispatched_ticks and replayed_ticks fill the timing record of each
+   transaction mixed in (see fd_leader_txn_timing_rec) */
 void
-fd_poh1_mixin( fd_poh_t *                         poh,
-               fd_stem_context_t *                stem,
-               ulong                              slot,
-               uchar const *                      hash,
-               ulong                              txn_cnt,
-               fd_txn_p_t const *                 txns,
-               fd_leader_txn_timing_rec_t const * timing );
+fd_poh1_mixin( fd_poh_t *          poh,
+               fd_stem_context_t * stem,
+               ulong               slot,
+               uchar const *       hash,
+               ulong               txn_cnt,
+               fd_txn_p_t const *  txns,
+               long                dispatched_ticks,
+               long                replayed_ticks );
 
 /* fd_poh_flush_shred publishes the microblocks coalesced so far, if
    any, as one shred_out frag.  Call when input has run dry so nothing
