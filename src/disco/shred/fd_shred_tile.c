@@ -104,7 +104,7 @@
 #define SIGN_OUT_IDX    2
 #define IN_LINK_MAX     32UL
 
-FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL, poh_shred_mtu );
+FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==64UL, poh_shred_mtu );
 
 #define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 3
 FD_STATIC_ASSERT( FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT+FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT==FD_METRICS_ENUM_SHRED_PROCESS_RESULT_CNT, metrics );
@@ -617,14 +617,15 @@ during_frag( fd_shred_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
     ctx->send_fec_set_cnt = 0UL;
 
-    /* This is a frag from the PoH tile.  We'll copy it to our pending
-       microblock batch and shred it if necessary (last in block or
-       above watermark).  We just go ahead and shred it here, even
-       though we may get overrun.  If we do end up getting overrun, we
-       just won't send these shreds out and we'll reuse the FEC set for
-       the next one.  From a higher level though, if we do get overrun,
-       a bunch of shreds will never be transmitted, and we'll end up
-       producing a block that never lands on chain. */
+    /* This is a frag from the PoH tile carrying one or more entries.
+       We'll copy them to our pending microblock batch and shred it if
+       necessary (last in block or above watermark).  We just go ahead
+       and shred it here, even though we may get overrun.  If we do end
+       up getting overrun, we just won't send these shreds out and
+       we'll reuse the FEC set for the next one.  From a higher level
+       though, if we do get overrun, a bunch of shreds will never be
+       transmitted, and we'll end up producing a block that never lands
+       on chain. */
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_POH_SHRED_MTU ||
@@ -741,7 +742,7 @@ during_frag( fd_shred_ctx_t * ctx,
         fd_memcpy_tn( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
       }
       ctx->pending_batch.pos            += entry_sz;
-      ctx->pending_batch.microblock_cnt += 1UL;
+      ctx->pending_batch.microblock_cnt += entry_meta->entry_cnt;
     }
 
 alpenglow_marker:
@@ -810,7 +811,7 @@ alpenglow_marker:
       }
       ctx->pending_batch.slot           = target_slot;
       ctx->pending_batch.pos            = fd_ulong_if( is_marker, entry_sz-sizeof(ulong), entry_sz );
-      ctx->pending_batch.microblock_cnt = fd_ulong_if( is_marker, 0UL, 1UL                 );
+      ctx->pending_batch.microblock_cnt = fd_ulong_if( is_marker, 0UL, entry_meta->entry_cnt );
     }
 
     /* The entry opened a batch of its own, so close it now. */
