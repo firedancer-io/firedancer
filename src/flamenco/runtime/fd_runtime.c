@@ -1328,14 +1328,13 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->details.tips            = 0UL;
   txn_out->details.execution_fee   = 0UL;
   txn_out->details.priority_fee    = 0UL;
-  txn_out->details.signature_count = 0UL;
-  fd_memset( txn_out->details.signature.uc, 0, sizeof(fd_signature_t) );
-
   txn_out->details.signature_count = TXN( txn_in->txn )->signature_cnt;
   if( FD_LIKELY( txn_out->details.signature_count ) ) {
     fd_memcpy( txn_out->details.signature.uc,
                (uchar const *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off,
                sizeof(fd_signature_t) );
+  } else {
+    fd_memset( txn_out->details.signature.uc, 0, sizeof(fd_signature_t) );
   }
   txn_out->details.is_simple_vote  = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );
 
@@ -1345,28 +1344,18 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->accounts.is_setup           = 0;
   txn_out->accounts.is_bundle          = txn_in->bundle.is_bundle;
   if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) txn_out->accounts.cnt= 0UL;
-  memset( txn_out->accounts.is_writable, 0, sizeof(txn_out->accounts.is_writable) );
-  memset( txn_out->accounts.account_acquired, 0, sizeof(txn_out->accounts.account_acquired) );
-  memset( txn_out->accounts.stake_update, 0, sizeof(txn_out->accounts.stake_update) );
-  memset( txn_out->accounts.vote_update, 0, sizeof(txn_out->accounts.vote_update) );
-  memset( txn_out->accounts.new_vote, 0, sizeof(txn_out->accounts.new_vote) );
-  memset( txn_out->accounts.rm_vote, 0, sizeof(txn_out->accounts.rm_vote) );
+
+  FD_STATIC_ASSERT( offsetof(fd_txn_out_t, accounts.rm_vote)-offsetof(fd_txn_out_t, accounts.stake_update)==3UL*MAX_TX_ACCOUNT_LOCKS, txn_out_flags_contiguous );
+  memset( txn_out->accounts.is_writable,  0, sizeof(txn_out->accounts.is_writable) );
+  memset( txn_out->accounts.stake_update, 0, 4UL*MAX_TX_ACCOUNT_LOCKS );
   txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
 
   /* For bundle transactions the resolved key list is bound once up
      front by fd_runtime_prepare_bundle_accounts() before this runs per
-     transaction, so preserve it here.  The executable list is rebuilt
-     per transaction by fd_runtime_setup_bundle_executables(), which
-     sets every element it reports, so it needs no reset either.  For a
-     non-bundle transaction the executable list is built in
-     fd_executor_setup_accounts_for_txn(), which only writes the entries
-     it acquires, so reset it here.  executable_cur_len needs no reset:
-     it is written per-element for every i in [0, executable_cnt) before
-     any read (its sentinel is ULONG_MAX, so a zero memset would be
-     wrong anyway). */
+     transaction, so preserve it here.  For a non-bundle transaction the
+     executable list is built in fd_executor_setup_accounts_for_txn(),
+     so reset it here. */
   if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) {
-    memset( txn_out->accounts.executable_from_parent, 0, sizeof(txn_out->accounts.executable_from_parent) );
-    memset( txn_out->accounts.executable_pd_write,    0, sizeof(txn_out->accounts.executable_pd_write) );
     txn_out->accounts.executable_cnt         = 0UL;
     txn_out->accounts.executable_skipped_cnt = 0;
   }

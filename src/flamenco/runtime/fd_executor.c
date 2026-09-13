@@ -718,8 +718,8 @@ fd_executor_load_transaction_accounts( fd_bank_t *         bank,
   /* Programdata accounts that are loaded by this transaction.
      We keep track of these to ensure they are not counted twice.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L559 */
-  fd_pubkey_t additional_loaded_account_keys[ FD_TXN_ACCT_ADDR_MAX ] = { 0 };
-  ulong       additional_loaded_account_keys_cnt                     = 0UL;
+  fd_pubkey_t additional_loaded_account_keys[ FD_TXN_ACCT_ADDR_MAX ];
+  ulong       additional_loaded_account_keys_cnt = 0UL;
 
   /* Charge a base fee for each address lookup table.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L570-L576 */
