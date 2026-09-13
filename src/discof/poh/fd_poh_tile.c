@@ -17,8 +17,6 @@ struct fd_poh_in {
   ulong                  chunk0;
   ulong                  wmark;
   ulong                  mtu;
-  fd_frag_meta_t const * mcache;
-  ulong                  depth;
 
   /* Consumed frags still in the reorder ring: their count and the seq
      of the oldest, below which credits are not returned.  Frags from
@@ -74,6 +72,7 @@ struct fd_poh_tile {
 
   ulong in_cnt;
   ulong idle_cnt;
+  ulong last_in_idx; /* link of the last frag put in the ring */
 
   fd_startup_gate_t startup_gate[1];
 
@@ -157,6 +156,7 @@ drain_reorder( fd_poh_tile_t *     ctx,
       if( FD_UNLIKELY( !poll_in ) ) break;
     }
     if( FD_UNLIKELY( !mixable( ctx, r->kind ) ) ) break;
+
     apply_frag( ctx, stem, r->kind, r->slot, r->data, r->sz );
     fd_poh_in_t * in = &ctx->in[ r->in_idx ];
     in->held_cnt--;
@@ -214,6 +214,10 @@ after_credit( fd_poh_tile_t *     ctx,
        produced, out credits back) or on a replay frag. */
     if( FD_UNLIKELY( ctx->reorder_cnt && *opt_poll_in ) ) drain_reorder( ctx, stem, charge_busy );
   }
+
+  /* The last poll found nothing: the link being drained ran dry, so
+     its burst is over (see returnable_frag). */
+  if( FD_UNLIKELY( ctx->idle_cnt==2UL && ctx->reorder_cnt ) ) drain_reorder( ctx, stem, charge_busy );
 }
 
 /* ....
@@ -326,27 +330,19 @@ returnable_frag( fd_poh_tile_t *     ctx,
   if( FD_UNLIKELY( dist<0 ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
   if( FD_UNLIKELY( (ulong)dist>=REORDER_DEPTH ) ) return 1; /* too far ahead for the ring, hold */
 
-  if( FD_LIKELY( kind==IN_KIND_EXECLE ) ) {
-    /* The execle wrote the result flags and the trailer just before
-       publishing, so those lines are still modified in its cache and
-       cost a snoop each.  Request them together, before the state
-       checks and payload copy, rather than one at a time below.  With
-       sticky polling this link's next frag is polled next; if it is
-       already published (its data is then complete) request its lines
-       too.  Never touch unpublished frag data: the execle would pay an
-       invalidation on every line it then writes. */
-    fd_poh_in_t const * in = &ctx->in[ in_idx ];
-    __builtin_prefetch( src+offsetof(fd_txn_p_t, flags),             0, 3 );
-    __builtin_prefetch( src+sz-sizeof(fd_microblock_trailer_t),      0, 3 );
-    __builtin_prefetch( src+sz-sizeof(fd_microblock_trailer_t)+64UL, 0, 3 );
-    fd_frag_meta_t const * next = in->mcache+fd_mcache_line_idx( seq+1UL, in->depth );
-    if( FD_LIKELY( FD_VOLATILE_CONST( next->seq )==seq+1UL ) ) {
-      ulong         nsz  = (ulong)next->sz; /* torn read only misdirects a hint */
-      uchar const * nsrc = fd_chunk_to_laddr_const( in->mem, (ulong)next->chunk );
-      __builtin_prefetch( nsrc+offsetof(fd_txn_p_t, flags),              0, 3 );
-      __builtin_prefetch( nsrc+nsz-sizeof(fd_microblock_trailer_t),      0, 3 );
-      __builtin_prefetch( nsrc+nsz-sizeof(fd_microblock_trailer_t)+64UL, 0, 3 );
-    }
+  /* Frags come in sticky bursts from one link and the ring head is
+     usually the first of a burst.  Apply the ring once the burst is
+     over (a frag from another link, or an empty poll, see after_credit)
+     rather than as the head arrives.  The frag data is not touched or
+     prefetched before the apply: the lines are still modified in the
+     execle's cache, and pulling them (or what the stream prefetcher
+     fetches past them, into the frag the execle is writing next) as
+     they arrive costs the execles 2-5% (measured), more than it saves
+     here.  Read a few microseconds later, they are just probes. */
+  int busy;
+  if( FD_LIKELY( in_idx!=ctx->last_in_idx ) ) {
+    drain_reorder( ctx, stem, &busy );
+    ctx->last_in_idx = in_idx;
   }
 
   fd_poh_in_t *      in = &ctx->in[ in_idx ];
@@ -361,9 +357,6 @@ returnable_frag( fd_poh_tile_t *     ctx,
   in->held_seq = in->held_cnt ? in->held_seq : seq;
   in->held_cnt++;
   ctx->reorder_cnt++;
-
-  int busy;
-  drain_reorder( ctx, stem, &busy );
 
   ctx->idle_cnt = 0UL;
   return 0;
@@ -402,8 +395,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->expect_pack_idx = 0UL;
 
-  ctx->in_cnt   = tile->in_cnt;
-  ctx->idle_cnt = 0UL;
+  ctx->in_cnt      = tile->in_cnt;
+  ctx->idle_cnt    = 0UL;
+  ctx->last_in_idx = ULONG_MAX;
 
   ctx->reorder_cnt = 0UL;
   for( ulong i=0UL; i<REORDER_DEPTH; i++ ) ctx->reorder[ i ].sz = 0U;
@@ -418,8 +412,6 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
-    ctx->in[ i ].mcache = link->mcache;
-    ctx->in[ i ].depth  = fd_mcache_depth( link->mcache );
     ctx->in[ i ].held_cnt = 0UL;
     ctx->in[ i ].held_seq = 0UL;
 
