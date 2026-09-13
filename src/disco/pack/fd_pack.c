@@ -491,6 +491,37 @@ acct_uses_insert_at( fd_pack_addr_use_t   * map,
 #define MAP_KEY_HASH(key,s)   ((uint)fd_hash32( (key).b, (s) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+/* As acct_uses_probe, for the same reason */
+static inline fd_pack_bitset_acct_mapping_t *
+bitset_map_probe( fd_pack_bitset_acct_mapping_t * map,
+                  fd_acct_addr_t const          * key ) {
+  bitset_map_private_t const * hdr = bitset_map_private_from_slot_const( map );
+  ulong slot_mask = hdr->slot_mask;
+  ulong slot      = bitset_map_private_start( (uint)fd_hash32( key->b, hdr->seed ), slot_mask );
+  for(;;) {
+    fd_pack_bitset_acct_mapping_t * m = map + slot;
+    if( FD_LIKELY( bitset_map_key_inval( m->key ) | bitset_map_key_equal( m->key, *key ) ) ) return m;
+    slot = bitset_map_private_next( slot, slot_mask );
+  }
+}
+
+static inline fd_pack_bitset_acct_mapping_t *
+bitset_map_find( fd_pack_bitset_acct_mapping_t * map,
+                 fd_acct_addr_t const          * key ) {
+  fd_pack_bitset_acct_mapping_t * m = bitset_map_probe( map, key );
+  return fd_ptr_if( bitset_map_key_inval( m->key ), (fd_pack_bitset_acct_mapping_t *)NULL, m );
+}
+
+/* Fills the empty slot bitset_map_probe just returned for *key */
+static inline fd_pack_bitset_acct_mapping_t *
+bitset_map_fill( fd_pack_bitset_acct_mapping_t * map,
+                 fd_pack_bitset_acct_mapping_t * m,
+                 fd_acct_addr_t const          * key ) {
+  m->key = *key;
+  bitset_map_private_from_slot( map )->key_cnt++;
+  return m;
+}
+
 /* Since transactions can also expire, we also maintain a parallel
    priority queue.  This means elements are simultaneously part of the
    treap (ordered by priority) and the expiration queue (ordered by
@@ -1348,10 +1379,10 @@ populate_bitsets( fd_pack_t         * pack,
 
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
-    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct, NULL );
-    if( FD_UNLIKELY( q==NULL ) ) {
-      q = bitset_map_insert( pack->acct_to_bitset, acct );
+    fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+    fd_pack_bitset_acct_mapping_t * q = bitset_map_probe( pack->acct_to_bitset, acct );
+    if( FD_UNLIKELY( bitset_map_key_inval( q->key ) ) ) {
+      q = bitset_map_fill( pack->acct_to_bitset, q, acct );
       q->ref_cnt                  = 0UL;
       q->first_instance           = ord;
       q->first_instance_was_write = 1;
@@ -1379,12 +1410,12 @@ populate_bitsets( fd_pack_t         * pack,
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-    fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
-    if( FD_UNLIKELY( fd_pack_unwritable_contains( &acct ) ) ) continue;
+    fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+    if( FD_UNLIKELY( fd_pack_unwritable_contains( acct ) ) ) continue;
 
-    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct, NULL );
-    if( FD_UNLIKELY( q==NULL ) ) {
-      q = bitset_map_insert( pack->acct_to_bitset, acct );
+    fd_pack_bitset_acct_mapping_t * q = bitset_map_probe( pack->acct_to_bitset, acct );
+    if( FD_UNLIKELY( bitset_map_key_inval( q->key ) ) ) {
+      q = bitset_map_fill( pack->acct_to_bitset, q, acct );
       q->ref_cnt                  = 0UL;
       q->first_instance           = ord;
       q->first_instance_was_write = 0;
@@ -1473,7 +1504,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
      that the total number of references for an account is < USHORT_MAX.
      If these were ulongs, the array would be 512B, which is kind of a
      lot to zero out.*/
-  ushort penalties[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  ushort penalties  [ FD_TXN_ACCT_ADDR_MAX ]; /* the roll below stays within the populated prefix */
   uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
   ulong cumulative_penalty = populate_bitsets( pack, ord, penalties, penalty_idx );
 
@@ -1871,7 +1902,9 @@ fd_pack_metrics_write( fd_pack_t const * pack ) {
 
 void
 fd_pack_get_sched_metrics( fd_pack_t const * pack, ulong * metrics ) {
-  fd_memcpy( metrics, pack->sched_results, sizeof(pack->sched_results) );
+  /* Word loads: a counter was just bumped with a word store and a
+     vector load over it waits for the store queue to drain. */
+  for( ulong i=0UL; i<FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT; i++ ) metrics[ i ] = FD_VOLATILE_CONST( pack->sched_results[ i ] );
 }
 
 typedef struct {
@@ -1883,7 +1916,7 @@ static inline release_result_t
 release_bit_reference( fd_pack_t            * pack,
                        fd_acct_addr_t const * acct ) {
 
-  fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, *acct, NULL );
+  fd_pack_bitset_acct_mapping_t * q = bitset_map_find( pack->acct_to_bitset, acct );
   FD_TEST( q ); /* q==NULL not be possible */
 
   q->ref_cnt--;
@@ -2299,7 +2332,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
        D, while bits 2 and 3 will remain set, which is correct.  Then
        when bank 0 completes, bits 2 and 3 will be cleared. */
     if( FD_LIKELY( !use->in_use_by ) ) { /* if in_use_by==0, doesn't include BIT_CLEARED */
-      fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, base[i].key, NULL );
+      fd_pack_bitset_acct_mapping_t * q = bitset_map_find( pack->acct_to_bitset, &base[i].key );
       FD_TEST( q );
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  q->bit );
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, q->bit );
