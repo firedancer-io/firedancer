@@ -1118,7 +1118,16 @@ fd_pack_can_fee_payer_afford( fd_acct_addr_t const * acct_addr,
 
 
 
-fd_txn_e_t * fd_pack_insert_txn_init(   fd_pack_t * pack                   ) { return trp_pool_ele_acquire( pack->pool )->txn_e; }
+fd_txn_e_t *
+fd_pack_insert_txn_init( fd_pack_t * pack ) {
+  fd_pack_ord_txn_t * ord = trp_pool_ele_acquire( pack->pool );
+  /* fini clears the bitsets; nothing on the way there touches those
+     lines and a just-evicted element has them cold.  The two sets are
+     adjacent and span at most two lines, whatever the bitset mode. */
+  __builtin_prefetch( &ord->rw_bitset,                                         1, 3 );
+  __builtin_prefetch( (uchar const *)&ord->w_bitset+sizeof(ord->w_bitset)-1UL, 1, 3 );
+  return ord->txn_e;
+}
 void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { trp_pool_ele_release( pack->pool, (fd_pack_ord_txn_t*)txn ); }
 
 #define REJECT( reason ) do {                                       \
@@ -1198,9 +1207,15 @@ delete_worst( fd_pack_t * pack,
 
   float worst_score = FLT_MAX;
   fd_pack_ord_txn_t * worst = NULL;
+  uint  pool_max = (uint)trp_pool_max( pack->pool );
+  ulong samples[ 8UL ];
   for( ulong i=0UL; i<8UL; i++ ) {
-    uint  pool_max = (uint)trp_pool_max( pack->pool );
-    ulong sample_i = fd_rng_uint_roll( pack->rng, pool_max );
+    /* Roll all 8 first so the root loads (8 cold lines) overlap */
+    samples[ i ] = fd_rng_uint_roll( pack->rng, pool_max );
+    __builtin_prefetch( &pack->pool[ samples[ i ] ].root, 0, 3 );
+  }
+  for( ulong i=0UL; i<8UL; i++ ) {
+    ulong sample_i = samples[ i ];
 
     fd_pack_ord_txn_t * sample = &pack->pool[ sample_i ];
     /* Presumably if we're calling this, the pool is almost entirely
@@ -1269,6 +1284,20 @@ delete_worst( fd_pack_t * pack,
 
   if( FD_UNLIKELY( !worst                      ) ) return 0;
   if( FD_UNLIKELY( threshold_score<worst_score ) ) return 0;
+
+  /* The next eviction most likely takes worst's in-order successor;
+     warm what delete_transaction reads of it: the treap node, the
+     payload's account addresses, the metadata and the parsed txn. */
+  treap_fwd_iter_t nxt = treap_fwd_iter_next( (treap_fwd_iter_t)treap_idx_fast( worst, pack->pool ), pack->pool );
+  if( FD_LIKELY( !treap_fwd_iter_done( nxt ) ) ) {
+    fd_pack_ord_txn_t const * n = pack->pool + nxt;
+    __builtin_prefetch( &n->root,              0, 3 );
+    __builtin_prefetch( &n->rewards,           0, 3 );
+    __builtin_prefetch( n->txn->payload+ 64UL, 0, 3 );
+    __builtin_prefetch( n->txn->payload+128UL, 0, 3 );
+    __builtin_prefetch( &n->txn->payload_sz,   0, 3 );
+    __builtin_prefetch( TXN( n->txn ),         0, 3 );
+  }
 
   return delete_transaction( pack, worst, 1, 1 );
 }
