@@ -37,8 +37,8 @@ fd_ed25519_verify_batch_multi_msg( uchar const * const msgs[],
     }
     if( FD_LIKELY( candidates ) ) {
       fd_ed25519_lane_point_t a, r;
-      int a_valid = fd_ed25519_lane_decode( &a, a_buf );
-      int r_valid = fd_ed25519_lane_decode( &r, r_buf );
+      int a_valid, r_valid;
+      fd_ed25519_lane_decode2( &a, a_buf, &a_valid, &r, r_buf, &r_valid );
       int a_small = fd_ed25519_lane_small_order( &a );
       int r_small = fd_ed25519_lane_small_order( &r );
       int live = 0;
