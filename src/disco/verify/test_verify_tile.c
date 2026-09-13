@@ -214,9 +214,9 @@ test_env_init( test_env_t * env ) {
   /* Out chunks are counted from the out dcache so they fit a frag */
   fd_topo_link_t * out = &topo->links[ tile->out_link_id[ 0 ] ];
   ctx->out_mem    = (fd_wksp_t *)out->dcache;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, out->dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, out->dcache, out->mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
+  ctx->out[ 0 ].chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, out->dcache );
+  ctx->out[ 0 ].wmark  = fd_dcache_compact_wmark ( ctx->out_mem, out->dcache, out->mtu );
+  ctx->out[ 0 ].chunk  = ctx->out[ 0 ].chunk0;
   env->out_mcache = out->mcache;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -487,8 +487,8 @@ test_batch_mixed( void ) {
   check_frag( env, 1UL, c, c_sz );
   fd_frag_meta_t const * f0 = env->out_mcache + fd_mcache_line_idx( 0UL, OUT_DEPTH );
   fd_frag_meta_t const * f1 = env->out_mcache + fd_mcache_line_idx( 1UL, OUT_DEPTH );
-  FD_TEST( f1->chunk==fd_dcache_compact_next( f0->chunk, f0->sz, env->ctx->out_chunk0, env->ctx->out_wmark ) );
-  FD_TEST( env->ctx->out_chunk==fd_dcache_compact_next( f1->chunk, f1->sz, env->ctx->out_chunk0, env->ctx->out_wmark ) );
+  FD_TEST( f1->chunk==fd_dcache_compact_next( f0->chunk, f0->sz, env->ctx->out[ 0 ].chunk0, env->ctx->out[ 0 ].wmark ) );
+  FD_TEST( env->ctx->out[ 0 ].chunk==fd_dcache_compact_next( f1->chunk, f1->sz, env->ctx->out[ 0 ].chunk0, env->ctx->out[ 0 ].wmark ) );
   FD_TEST( result_cnt( env, RES_SUCCESS )==2UL );
   FD_TEST( result_cnt( env, RES_SIGFAIL )==2UL );
   FD_TEST( result_cnt( env, RES_DUP     )==1UL );

@@ -77,12 +77,20 @@ during_frag( fd_verify_ctx_t * ctx,
              ulong             ctl FD_PARAM_UNUSED ) {
 
   ulong in_kind = ctx->in_kind[ in_idx ];
+  ctx->cur_out = 0UL; /* bundles go to dedup 0 */
   if( FD_UNLIKELY( in_kind==IN_KIND_BUNDLE || in_kind==IN_KIND_QUIC ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>FD_TPU_RAW_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark, FD_TPU_RAW_MTU ));
 
     uchar * src = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-    uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    /* The first signature starts at payload byte 1; its low bytes pick
+       the dedup tile.  Read before the copy so it lands in that dcache. */
+    if( FD_LIKELY( in_kind==IN_KIND_QUIC && ctx->out_cnt>1UL ) ) {
+      fd_txn_m_t const * m = (fd_txn_m_t const *)src;
+      ulong payload_off = (ulong)fd_txn_m_payload( (fd_txn_m_t *)m )-(ulong)m;
+      if( FD_LIKELY( sz>=payload_off+9UL ) ) ctx->cur_out = fd_ulong_load_8( src+payload_off+1UL ) % ctx->out_cnt;
+    }
+    uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out[ ctx->cur_out ].chunk );
     fd_memcpy( dst, src, sz );
   }
 }
@@ -100,14 +108,14 @@ bundle_peer_failed( fd_verify_ctx_t * ctx,
 }
 
 /* Verify the pending batch and publish the passing transactions in
-   arrival order, compacting them over the rejected ones.  A fragment
-   of staged_sz bytes at the out chunk is moved along with them; its
-   new address is returned. */
+   arrival order, compacting them over the rejected ones in each out
+   link's dcache.  A fragment of staged_sz bytes at the current out's
+   chunk is moved along with them; its new address is returned. */
 static fd_txn_m_t *
 batch_flush( fd_verify_ctx_t *   ctx,
              fd_stem_context_t * stem,
              ulong               staged_sz ) {
-  if( FD_LIKELY( !ctx->batch_txn_cnt ) ) return fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  if( FD_LIKELY( !ctx->batch_txn_cnt ) ) return fd_chunk_to_laddr( ctx->out_mem, ctx->out[ ctx->cur_out ].chunk );
 
   /* The tcache inserts below each evict ring[oldest+k] (the k-th
      insert, if none is a dup or a bundle member); warm those tags' map
@@ -125,10 +133,15 @@ batch_flush( fd_verify_ctx_t *   ctx,
   fd_ed25519_verifier_verify_sigs( ctx->verifier, ctx->batch_msg, ctx->batch_msg_sz, ctx->batch_sig, ctx->batch_pubkey,
                                    ctx->batch_result, ctx->batch_sig_cnt );
 
-  ulong chunk = ctx->batch_txn[ 0 ].chunk;
+  /* Each out's write position starts at its first queued transaction */
+  ulong chunk[ FD_VERIFY_OUT_MAX ];
+  for( ulong o=0UL; o<ctx->out_cnt; o++ ) chunk[ o ] = ctx->out[ o ].chunk;
+  for( ulong i=ctx->batch_txn_cnt; i; i-- ) chunk[ ctx->batch_txn[ i-1UL ].out_idx ] = ctx->batch_txn[ i-1UL ].chunk;
+
   ulong lane  = 0UL;
   for( ulong i=0UL; i<ctx->batch_txn_cnt; i++ ) {
     fd_verify_batch_txn_t * t = ctx->batch_txn+i;
+    ulong                   o = t->out_idx;
     int ok = 1;
     for( ulong j=0UL; j<t->sig_cnt; j++ ) ok &= (ctx->batch_result[ lane++ ]==FD_ED25519_SUCCESS);
 
@@ -153,22 +166,23 @@ batch_flush( fd_verify_ctx_t *   ctx,
       }
     }
 
-    if( FD_UNLIKELY( t->chunk!=chunk ) ) {
-      memmove( fd_chunk_to_laddr( ctx->out_mem, chunk ), fd_chunk_to_laddr( ctx->out_mem, t->chunk ), t->realized_sz );
+    if( FD_UNLIKELY( t->chunk!=chunk[ o ] ) ) {
+      memmove( fd_chunk_to_laddr( ctx->out_mem, chunk[ o ] ), fd_chunk_to_laddr( ctx->out_mem, t->chunk ), t->realized_sz );
     }
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, 0UL, 0UL, chunk, t->realized_sz, 0UL, t->tsorig, tspub );
-    chunk = fd_dcache_compact_next( chunk, t->realized_sz, ctx->out_chunk0, ctx->out_wmark );
+    fd_stem_publish( stem, o, 0UL, chunk[ o ], t->realized_sz, 0UL, t->tsorig, tspub );
+    chunk[ o ] = fd_dcache_compact_next( chunk[ o ], t->realized_sz, ctx->out[ o ].chunk0, ctx->out[ o ].wmark );
     ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SUCCESS_IDX ]++;
   }
 
-  if( FD_UNLIKELY( staged_sz && chunk!=ctx->out_chunk ) ) {
-    memmove( fd_chunk_to_laddr( ctx->out_mem, chunk ), fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), staged_sz );
+  ulong cur = ctx->cur_out;
+  if( FD_UNLIKELY( staged_sz && chunk[ cur ]!=ctx->out[ cur ].chunk ) ) {
+    memmove( fd_chunk_to_laddr( ctx->out_mem, chunk[ cur ] ), fd_chunk_to_laddr( ctx->out_mem, ctx->out[ cur ].chunk ), staged_sz );
   }
-  ctx->out_chunk     = chunk;
+  for( ulong o=0UL; o<ctx->out_cnt; o++ ) ctx->out[ o ].chunk = chunk[ o ];
   ctx->batch_txn_cnt = 0UL;
   ctx->batch_sig_cnt = 0UL;
-  return fd_chunk_to_laddr( ctx->out_mem, chunk );
+  return fd_chunk_to_laddr( ctx->out_mem, chunk[ cur ] );
 }
 
 /* Queue the transaction staged at the out chunk; batch_flush publishes
@@ -198,15 +212,17 @@ batch_enqueue( fd_verify_ctx_t *   ctx,
     ctx->batch_pubkey[ lane ] = payload + txn->acct_addr_off + 32UL*j;
   }
 
+  fd_verify_out_ctx_t * out = ctx->out + ctx->cur_out;
   fd_verify_batch_txn_t * t = ctx->batch_txn + ctx->batch_txn_cnt++;
-  t->chunk       = ctx->out_chunk;
+  t->chunk       = out->chunk;
   t->realized_sz = realized_sz;
   t->tsorig      = tsorig;
   t->dedup_tag   = dedup_tag;
   t->bundle_id   = bundle_id;
   t->enq_tick    = fd_tickcount();
   t->sig_cnt     = txn->signature_cnt;
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
+  t->out_idx     = (uchar)ctx->cur_out;
+  out->chunk = fd_dcache_compact_next( out->chunk, realized_sz, out->chunk0, out->wmark );
 
   if( FD_LIKELY( ctx->batch_sig_cnt>=ctx->batch_sig_max ) ) batch_flush( ctx, stem, 0UL );
 }
@@ -262,7 +278,8 @@ after_frag( fd_verify_ctx_t *   ctx,
   (void)sz;
   (void)_tspub;
 
-  fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_verify_out_ctx_t * out = ctx->out + ctx->cur_out;
+  fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, out->chunk );
   if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
     FD_LOG_ERR(( "verify: txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
   }
@@ -373,10 +390,17 @@ unprivileged_init( fd_topo_t const *      topo,
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
+  ctx->out_cnt = fd_ulong_max( 1UL, tile->out_cnt ); /* unit tests mock a tile with no outs */
+  FD_CHECK_ERR( ctx->out_cnt<=FD_VERIFY_OUT_MAX, "verify has too many out links" );
+  ctx->out_mem = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
+    FD_CHECK_ERR( topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp==ctx->out_mem, "verify out links must share a workspace" );
+    ctx->out[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, link->dcache );
+    ctx->out[ i ].wmark  = fd_dcache_compact_wmark ( ctx->out_mem, link->dcache, link->mtu );
+    ctx->out[ i ].chunk  = ctx->out[ i ].chunk0;
+  }
+  ctx->cur_out = 0UL;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
