@@ -87,6 +87,17 @@ struct fd_pack_private_ord_txn {
      the compressed slot reaches a new value.  skip is never 0. */
   ushort skip;
 
+  /* blocked_vb, blocked_gen: the last schedule attempt found this
+     transaction conflicting with the microblock outstanding on virtual
+     bank blocked_vb, whose generation was blocked_gen.  Until that
+     microblock completes the same attempt would fail the same way, so
+     it is skipped without looking its accounts up.  Express
+     microblocks hold no bitset bits, so this is what stands in for the
+     bitset fast path against them.  FD_PACK_MAX_EXECLE_TILES when not
+     blocked. */
+  ushort blocked_vb;
+  uint   blocked_gen;
+
   FD_PACK_BITSET_DECLARE( rw_bitset ); /* all accts this txn references */
   FD_PACK_BITSET_DECLARE(  w_bitset ); /* accts this txn write-locks    */
 
@@ -554,6 +565,11 @@ struct fd_pack_private {
      notified fd_pack that it has completed it. */
   ulong      outstanding_microblock_mask;
 
+  /* vb_gen[b]: incremented each time a microblock is dispatched to
+     virtual bank b, so a pending transaction can tell whether the
+     microblock it was blocked on is the one still outstanding. */
+  uint       vb_gen[ FD_PACK_MAX_EXECLE_TILES ];
+
   /* The actual footprint for the pool and maps is allocated
      in the same order in which they are declared immediately following
      the struct.  I.e. these pointers point to memory not far after the
@@ -829,6 +845,7 @@ fd_pack_new( void                   * mem,
   pack->cumulative_vote_cost        = 0UL;
   pack->expire_before               = 0UL;
   pack->outstanding_microblock_mask = 0UL;
+  memset( pack->vb_gen, 0, sizeof(pack->vb_gen) );
   pack->cumulative_rebated_cus      = 0UL;
 
   trp_pool_new(  _pool,        pack_depth+extra_depth );
@@ -1401,7 +1418,8 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   }
 
   ord->txn->flags &= ~(FD_TXN_P_FLAGS_BUNDLE | FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_EST_MASK);
-  ord->skip = FD_PACK_SKIP_CNT;
+  ord->skip       = FD_PACK_SKIP_CNT;
+  ord->blocked_vb = FD_PACK_MAX_EXECLE_TILES;
 
   /* At this point, we know we have space to insert the transaction and
      we've committed to insert it. */
@@ -1539,7 +1557,8 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     bundle[ i ]->txnp->flags &= ~(FD_TXN_P_FLAGS_INITIALIZER_BUNDLE | FD_TXN_P_FLAGS_DURABLE_NONCE | FD_TXN_P_FLAGS_EST_MASK);
     bundle[ i ]->txnp->flags |= fd_uint_if( initializer_bundle, FD_TXN_P_FLAGS_INITIALIZER_BUNDLE, 0U );
     bundle[ i ]->txnp->flags |= fd_uint_if( is_durable_nonce,   FD_TXN_P_FLAGS_DURABLE_NONCE,      0U );
-    ord->skip = FD_PACK_SKIP_CNT;
+    ord->skip       = FD_PACK_SKIP_CNT;
+    ord->blocked_vb = FD_PACK_MAX_EXECLE_TILES;
     ord->expires_at = expires_at;
 
     if( FD_UNLIKELY( is_durable_nonce ) ) {
@@ -1958,6 +1977,15 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       continue;
     }
 
+    if( FD_UNLIKELY( cur->blocked_vb<FD_PACK_MAX_EXECLE_TILES ) ) {
+      if( FD_LIKELY( (cur->blocked_gen==pack->vb_gen[ cur->blocked_vb ]) &
+                     !!((pack->outstanding_microblock_mask>>cur->blocked_vb) & 1UL) ) ) {
+        fast_path++;
+        continue;
+      }
+      cur->blocked_vb = FD_PACK_MAX_EXECLE_TILES;
+    }
+
     /* Likely? Unlikely? */
     if( FD_LIKELY( !FD_PACK_BITSET_INTERSECT4_EMPTY( bitset_rw_in_use, bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) ) {
       fast_path++;
@@ -2028,6 +2056,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     if( FD_UNLIKELY( conflicts ) ) {
       slow_path++;
+      cur->blocked_vb  = (ushort)fd_ulong_find_lsb( conflicts & ~(FD_PACK_IN_USE_WRITABLE|FD_PACK_IN_USE_BIT_CLEARED) );
+      cur->blocked_gen = pack->vb_gen[ cur->blocked_vb ];
       continue;
     }
 
@@ -2045,6 +2075,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     if( FD_UNLIKELY( conflicts ) ) {
       slow_path++;
+      cur->blocked_vb  = (ushort)fd_ulong_find_lsb( conflicts & ~(FD_PACK_IN_USE_WRITABLE|FD_PACK_IN_USE_BIT_CLEARED) );
+      cur->blocked_gen = pack->vb_gen[ cur->blocked_vb ];
       continue;
     }
 
@@ -2470,6 +2502,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
   /* This bundle passed validation, so now we'll take it! */
   pack->outstanding_microblock_mask |= bank_tile_mask;
+  pack->vb_gen[ bank_tile ]++;
 
   treap_rev_iter_t   _end  = _cur;
   treap_rev_iter_t   _next;
@@ -2660,6 +2693,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   ulong nonempty = (ulong)(scheduled>0UL);
   pack->microblock_cnt              += nonempty;
   pack->outstanding_microblock_mask |= nonempty << bank_tile;
+  pack->vb_gen[ bank_tile ]         += (uint)nonempty;
   pack->data_bytes_consumed         += nonempty * MICROBLOCK_DATA_OVERHEAD;
 
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
@@ -2779,6 +2813,7 @@ fd_pack_insert_txn_fini_express( fd_pack_t  * pack,
   pack->alloc_consumed              += txne->txnp->pack_alloc;
   pack->microblock_cnt              += 1UL;
   pack->outstanding_microblock_mask |= bank_tile_mask;
+  pack->vb_gen[ bank_tile ]++;
   pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX ]++;
   fd_histf_sample( pack->txn_per_microblock,  1UL );
   fd_histf_sample( pack->vote_per_microblock, 0UL );
