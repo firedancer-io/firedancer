@@ -115,6 +115,8 @@ typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
+  fd_frag_meta_t const * mcache; /* to look a frag ahead */
+  ulong                  depth;
 } fd_pack_in_ctx_t;
 
 /* An execle's rebate link, read from after_credit instead of the round
@@ -1001,7 +1003,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 static inline void
 during_frag( fd_pack_ctx_t * ctx,
              ulong           in_idx,
-             ulong           seq FD_PARAM_UNUSED,
+             ulong           seq,
              ulong           sig,
              ulong           chunk,
              ulong           sz,
@@ -1058,7 +1060,10 @@ during_frag( fd_pack_ctx_t * ctx,
 
 #if FD_HAS_X86
     /* The frag lives in another core's cache; fetch all its lines at
-       once instead of header, then payload, then txn. */
+       once instead of header, then payload, then txn.  Start on the
+       next frag's mcache line too, for the look ahead below. */
+    fd_frag_meta_t const * next_mline = ctx->in[ in_idx ].mcache + fd_mcache_line_idx( seq+1UL, ctx->in[ in_idx ].depth );
+    _mm_prefetch( next_mline, _MM_HINT_T0 );
     for( ulong off=0UL; off<sz; off+=64UL ) _mm_prefetch( dcache_entry+off, _MM_HINT_T0 );
 #endif
 
@@ -1153,6 +1158,21 @@ during_frag( fd_pack_ctx_t * ctx,
     ctx->cur_spot->txnp->pack_est    = txnm->pack_est;
     if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_RESOLH ) )
       fd_pack_est_txn( ctx->est, TXN(ctx->cur_spot->txnp), ctx->cur_spot->txnp->payload, ctx->cur_spot->alt_accts, &ctx->cur_spot->txnp->pack_est );
+
+#if FD_HAS_X86 && FD_HAS_AVX
+    /* Look a frag ahead: when the next one on this link is published,
+       fetch its lines now so they are here by the time the stem polls
+       it, under this frag's insert instead of in front of the next.
+       The read may tear against the producer, so trust nothing in it
+       past bounds; a prefetch of a wrong line is harmless. */
+    fd_frag_meta_v256_t next = FD_VOLATILE_CONST( next_mline->avx );
+    ulong next_chunk = fd_frag_meta_avx_chunk( next );
+    ulong next_sz    = fd_ulong_min( fd_frag_meta_avx_sz( next ), FD_TPU_RESOLVED_MTU );
+    if( FD_LIKELY( (fd_frag_meta_avx_seq( next )==seq+1UL) & (next_chunk>=ctx->in[ in_idx ].chunk0) & (next_chunk<=ctx->in[ in_idx ].wmark) ) ) {
+      uchar const * next_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, next_chunk );
+      for( ulong off=0UL; off<next_sz; off+=64UL ) _mm_prefetch( next_entry+off, _MM_HINT_T0 );
+    }
+#endif
 
     break;
   }
@@ -1608,6 +1628,8 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+    ctx->in[ i ].mcache = link->mcache;
+    ctx->in[ i ].depth  = fd_mcache_depth( link->mcache );
 
     if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_EXECLE && !tile->in_link_poll[ i ] ) ) {
       if( FD_UNLIKELY( ctx->rebate_in_cnt>=FD_PACK_MAX_EXECLE_TILES ) ) FD_LOG_ERR(( "too many rebate links" ));
