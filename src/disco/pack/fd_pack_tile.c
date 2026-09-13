@@ -34,7 +34,7 @@
    more stable.  This limit is 2,000 microblocks/second/execle.  At
    MAX_TXN_PER_MICROBLOCK transactions/microblock, that's
    2000*MAX_TXN_PER_MICROBLOCK txn/sec/execle. */
-#define MICROBLOCK_DURATION_NS  (0L)
+#define MICROBLOCK_DURATION_NS  (2000L) /* skip the fseq read until an execle can plausibly be done */
 
 /* There are 151 accepted blockhashes, but those don't include skips.
    This check is neither precise nor accurate, but just good enough.
@@ -631,8 +631,13 @@ publish_microblock( fd_pack_ctx_t *     ctx,
 static inline void
 after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               opt_poll_in,
               int *               charge_busy ) {
+  /* Drain a backlog before taking in more: with transactions pending,
+     dispatching them is worth more than inserting the next arrival,
+     which would only deepen the pool. */
+  if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX && fd_pack_avail_txn_cnt( ctx->pack )>64UL ) ) *opt_poll_in = 0;
+
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
@@ -1569,6 +1574,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
      D -> E
  */
 #define STEM_BURST (2UL)
+#define STEM_STICKY_POLL_MAX (4UL)
 
 /* We want lazy (measured in ns) to be small enough that the producer
     and the consumer never have to wait for credits.  For most tango
@@ -1578,7 +1584,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     1000ns per microblock, and then reduce it further (in line with the
     default lazy value computation) to ensure the random value chosen
     based on this won't lead to credit return stalls. */
-#define STEM_LAZY  (128L*3000L)
+#define STEM_LAZY  (32000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_pack_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pack_ctx_t)
