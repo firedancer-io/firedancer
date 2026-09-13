@@ -8,6 +8,7 @@
 
 enum {
   FD_METRICS_COUNTER_BENCHS_TXN_TX_OFF = FD_METRICS_TILE_OFF,
+  FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_OFF,
 };
 
 #define FD_METRICS_COUNTER_BENCHS_TXN_TX_NAME "benchs_txn_tx"
@@ -15,7 +16,12 @@ enum {
 #define FD_METRICS_COUNTER_BENCHS_TXN_TX_DESC "Benchmark transactions sent"
 #define FD_METRICS_COUNTER_BENCHS_TXN_TX_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_BENCHS_TOTAL (1UL)
+#define FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_NAME "benchs_txn_dropped"
+#define FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_DESC "Benchmark transactions dropped because the QUIC connection had no stream available"
+#define FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_BENCHS_TOTAL (2UL)
 extern const fd_metrics_meta_t FD_METRICS_BENCHS[FD_METRICS_BENCHS_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_benchs_h */

@@ -177,7 +177,7 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->conn_cnt = 2;
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
-  limits->inflight_frame_cnt = 1500;
+  limits->inflight_frame_cnt = 1UL<<14;
   limits->tx_buf_sz = 1UL<<11;
   limits->stream_pool_cnt = 1UL<<16;
   limits->stream_id_cnt = 1UL<<16;
@@ -206,7 +206,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_benchs_ctx_t * ctx ) {
-  FD_MCNT_SET( BENCHS, TXN_TX, ctx->packet_cnt );
+  FD_MCNT_SET( BENCHS, TXN_TX,      ctx->packet_cnt );
+  FD_MCNT_SET( BENCHS, TXN_DROPPED, ctx->no_stream  );
 }
 
 static inline int
@@ -246,7 +247,7 @@ during_frag( fd_benchs_ctx_t * ctx,
     }
 
     if( FD_UNLIKELY( !ctx->quic_conn ) ) {
-      ctx->no_stream = 0;
+      ctx->no_stream++;
 
       /* try to connect */
       uint   dest_ip   = ctx->quic_ip;

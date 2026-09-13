@@ -2138,6 +2138,7 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">benchs_&#8203;txn_&#8203;tx</span> | counter | Benchmark transactions sent |
+| <span class="metrics-name">benchs_&#8203;txn_&#8203;dropped</span> | counter | Benchmark transactions dropped because the QUIC connection had no stream available |
 
 </div>
 
