@@ -37,6 +37,8 @@
    locks are held and released per microblock as before. */
 #define PACK_INFLIGHT (2UL)
 
+#define TIMING_SAMPLE (64UL)
+
 /* Minimum time between microblocks per execle.  Zero disables pacing. */
 #define MICROBLOCK_DURATION_NS  (2000L) /* skip the fseq read until an execle can plausibly be done */
 
@@ -364,6 +366,10 @@ typedef struct {
   int      poll_cursor; /* in [0, execle_cnt), the next execle to poll */
   int      use_consumed_cus;
   long     skip_cnt;
+  /* rdtsc is ~40 cycles and pack took ten per transaction, mostly for
+     the per-operation duration histograms.  Those now time one
+     operation in TIMING_SAMPLE and add it with that weight. */
+  ulong    timing_seq;
   ulong *  execle_current[ FD_PACK_MAX_EXECLE_TILES ];
   /* Per execle, the microblocks on its link in dispatch order: the seq
      its busy fseq reaches when each is done, and the bank tile it was
@@ -819,10 +825,13 @@ after_credit( fd_pack_ctx_t *     ctx,
       *charge_busy = 1;
       ulong vb = ctx->execle_inflight_vb[ i ][ 0 ];
 
-      long complete_duration = -fd_tickcount();
+      int  timed = !(ctx->timing_seq++ % TIMING_SAMPLE);
+      long complete_duration = timed ? -fd_tickcount() : 0L;
       int completed = fd_pack_microblock_complete( ctx->pack, vb );
-      complete_duration      += fd_tickcount();
-      if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
+      if( FD_UNLIKELY( timed ) ) {
+        complete_duration += fd_tickcount();
+        if( FD_LIKELY( completed ) ) fd_histf_sample_n( ctx->complete_duration, (ulong)complete_duration, TIMING_SAMPLE );
+      }
 
       ctx->execle_slot_free[ i ] |= 1UL<<(vb/execle_cnt);
       for( ulong k=1UL; k<ctx->execle_inflight_cnt[ i ]; k++ ) {
@@ -1039,11 +1048,14 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_pack_out_ctx_t * execle_out = &ctx->execle_out[ i ];
     fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( execle_out->mem, execle_out->chunk );
     ulong vb = (ulong)i + (ulong)fd_ulong_find_lsb( ctx->execle_slot_free[ i ] )*execle_cnt;
-    long schedule_duration = -fd_tickcount();
+    int  timed = !(ctx->timing_seq++ % TIMING_SAMPLE);
+    long schedule_duration = timed ? -fd_tickcount() : 0L;
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, vb, flags, microblock_dst );
-    now2 = fd_tickcount();
-    schedule_duration += now2;
-    fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
+    if( FD_UNLIKELY( timed ) ) {
+      now2 = fd_tickcount();
+      schedule_duration += now2;
+      fd_histf_sample_n( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration, TIMING_SAMPLE );
+    }
 
     if( fd_pack_auction_running( ctx->pack ) ) {
       /* End the auction early if we have reached the CU limit. */
@@ -1440,18 +1452,18 @@ after_frag( fd_pack_ctx_t *     ctx,
     /* Normal transaction case */
     if( FD_UNLIKELY( ctx->is_bundle & (ctx->current_bundle->txn_cnt==0UL) ) ) return;
     now = fd_tickcount();
+    int timed = !(ctx->timing_seq++ % TIMING_SAMPLE);
     ctx->cur_spot->txnp->scheduler_arrival_time_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock, now );
     if( FD_UNLIKELY( ctx->is_bundle ) ) {
       if( FD_UNLIKELY( ++(ctx->current_bundle->txn_received)==ctx->current_bundle->txn_cnt ) ) {
         ulong deleted;
         int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_height, 0, ctx->blk_engine_cfg, &deleted );
-        long insert_duration   = fd_tickcount() - now;
         long burst             = fd_long_max( now+ctx->auction_bundle_end_gap_tick, ctx->auction_last_attempt_tick+ctx->auction_spacing_tick );
         long fallback          = ctx->auction_last_attempt_tick+ctx->auction_interval_tick;
         ctx->auction_next_tick = fd_long_min( burst, fallback );
         FD_MCNT_INC( PACK, TXN_EVICTED, deleted );
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
-        fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
+        if( FD_UNLIKELY( timed ) ) fd_histf_sample_n( ctx->insert_duration, (ulong)(fd_tickcount()-now), TIMING_SAMPLE );
         ctx->current_bundle->bundle = NULL;
       }
     } else {
@@ -1476,17 +1488,16 @@ after_frag( fd_pack_ctx_t *     ctx,
         ulong vb = (ulong)i + (ulong)fd_ulong_find_lsb( ctx->execle_slot_free[ i ] )*ctx->execle_cnt;
         express = fd_pack_insert_txn_fini_express( ctx->pack, ctx->cur_spot, blockhash_height, vb, microblock_dst );
         if( express ) {
-          publish_microblock( ctx, stem, i, vb, microblock_dst, 1UL, now, fd_tickcount() );
+          publish_microblock( ctx, stem, i, vb, microblock_dst, 1UL, now, now );
           ctx->slot_express_cnt++;
           update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,     1 );
           update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS, 1 );
         }
       }
       if( !express ) result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_height, &deleted );
-      long insert_duration = fd_tickcount() - now;
       FD_MCNT_INC( PACK, TXN_EVICTED, deleted );
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
-      fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
+      if( FD_UNLIKELY( timed ) ) fd_histf_sample_n( ctx->insert_duration, (ulong)(fd_tickcount()-now), TIMING_SAMPLE );
       if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
     }
 
@@ -1684,6 +1695,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->execle_cnt       = tile->pack.execle_tile_count;
   ctx->poll_cursor      = 0;
   ctx->skip_cnt         = 0L;
+  ctx->timing_seq       = 0UL;
   ctx->execle_idle_bitset    = fd_ulong_mask_lsb( (int)tile->pack.execle_tile_count );
   ctx->execle_inflight_total = 0UL;
   for( ulong i=0UL; i<tile->pack.execle_tile_count; i++ ) {
