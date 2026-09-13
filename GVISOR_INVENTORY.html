@@ -1,0 +1,214 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gVisor Compatibility Inventory</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f4f6f3; --ink:#161a20; --muted:#5c6572; --rule:#d6dbd5; --soft:#e9ede8;
+  --accent:#0d8a9e; --accent-ink:#0a6d7d; --bad:#b8177a; --good:#177a4a; --warn:#9a6a00;
+  --code-bg:#eef1ec;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1319; --ink:#dde3ea; --muted:#96a1ad; --rule:#273038; --soft:#171d25;
+    --accent:#2bc4da; --accent-ink:#5ad4e6; --bad:#ff5fc0; --good:#4fcf8a; --warn:#e2b04a;
+    --code-bg:#151b23;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1319; --ink:#dde3ea; --muted:#96a1ad; --rule:#273038; --soft:#171d25;
+  --accent:#2bc4da; --accent-ink:#5ad4e6; --bad:#ff5fc0; --good:#4fcf8a; --warn:#e2b04a;
+  --code-bg:#151b23;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+main{max-width:1100px;margin:0 auto;padding:40px 28px 96px}
+h1,h2,h3{font-family:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;font-weight:600;letter-spacing:-.01em;text-wrap:balance;margin:0}
+h1{font-size:2.5rem;line-height:1.05}
+h2{font-size:1.55rem;margin:64px 0 16px;padding-top:18px;border-top:1px solid var(--rule)}
+h3{font-size:1.15rem;margin:30px 0 10px;color:var(--accent-ink)}
+p{max-width:76ch;margin:0 0 14px}
+ul,ol{max-width:80ch;padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.lede{font-size:1.1rem;color:var(--muted);max-width:74ch;margin:16px 0 0}
+code,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;background:var(--code-bg);padding:.08em .35em;border-radius:3px}
+pre{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82rem;line-height:1.45;background:var(--code-bg);padding:14px 16px;border-radius:4px;overflow-x:auto;margin:0 0 16px}
+pre code{background:none;padding:0;font-size:inherit}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin:0 0 18px}
+.tw{overflow-x:auto;margin:0 0 18px}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--rule)}
+th{font-family:"IBM Plex Sans Condensed",system-ui,sans-serif;font-weight:600;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--rule)}
+td code{white-space:nowrap}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:28px 0 8px}
+.tile{background:var(--soft);border:1px solid var(--rule);border-radius:6px;padding:14px 16px}
+.tile .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.tile .v{font-family:"IBM Plex Sans Condensed",system-ui,sans-serif;font-size:1.7rem;font-weight:600;line-height:1.1;margin-top:4px}
+.tile .s{font-size:.85rem;color:var(--muted);margin-top:4px}
+.ok{color:var(--good);font-weight:500}
+.bad{color:var(--bad);font-weight:500}
+.warn{color:var(--warn);font-weight:500}
+.pill{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;padding:.1em .5em;border-radius:3px;border:1px solid currentColor;white-space:nowrap}
+.callout{border-left:3px solid var(--accent);background:var(--soft);padding:12px 16px;margin:18px 0;max-width:80ch}
+.callout.bad{border-left-color:var(--bad);color:inherit;font-weight:400}
+.callout.warn{border-left-color:var(--warn);color:inherit;font-weight:400}
+.small{font-size:.85rem;color:var(--muted)}
+</style>
+
+<main>
+<div class="eyebrow">Firedancer · perfloop bench backend · tested 2026-08-26, harness re-verified 2026-09-13</div>
+<h1>Firedancer under gVisor</h1>
+<p class="lede">Test harness and compatibility inventory for running unmodified <code>firedancer-dev</code> (including <code>backtest --config &lt;cfg&gt;</code>) inside gVisor's <code>runsc</code>, so the perfloop MCP backend can bench it hermetically.</p>
+
+<div class="tiles">
+  <div class="tile"><div class="k">udpecho</div><div class="v ok">runs</div><div class="s">UDP echoed through netstack, verified on the wire</div></div>
+  <div class="tile"><div class="k">backtest (perf-ledger)</div><div class="v ok">boots</div><div class="s">39+ wksps, 63 GiB accdb mlocked, all tiles up, snapshot streaming</div></div>
+  <div class="tile"><div class="k">hard blockers</div><div class="v">7</div><div class="s">all bypassed by harness; each is a small fd- or gVisor-side fix</div></div>
+  <div class="tile"><div class="k">config-only constraints</div><div class="v">6</div><div class="s">no code change; TOML + bundle spec</div></div>
+</div>
+
+<h2 id="bottom-line">Bottom line</h2>
+<p>Firedancer <strong>boots and runs real workloads under gVisor today</strong> with (a) a handful of bundle/host-side accommodations and (b) an <code>LD_PRELOAD</code> shim that papers over six gVisor gaps. Proven end to end on tsewr2-ossdev-firedancer8 (Rocky 9.7, 96 cores, runsc <code>release-20260817.0</code>, branch <code>mmcgee/scheduler-waker-tile</code> build):</p>
+<ul>
+  <li><strong><code>udpecho</code> mini-topology</strong> (net/metric/l4swap tiles): full boot → tile spawn → UDP request in on the veth, swapped reply out, captured with tcpdump.</li>
+  <li><strong><code>backtest</code></strong> with the real <code>dump/mainnet-424669000-perf-ledger</code> config: 39+ workspaces created (incl. the 63 GiB accdb workspace, fully mlocked), all tiles spawned (snapct/snapdc/snapin/snapwr/replay/execrp×10/backt/tower/diag/…), snapshot tar streamed through snapct→snapin. The final stop is a <strong>branch/fixture mismatch, not gVisor</strong>: this branch's manifest parser caps <code>FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS</code> at 2000 while the May-era snapshot has 6814 vote accounts in versioned epoch stakes (<code>fd_ssmanifest_parser.c:1557</code>). It would fail identically on bare metal; needs a branch-compatible fixture.</li>
+</ul>
+<div class="callout">Every shim item in the inventory is a candidate for a tiny upstream fix if we want to drop the shim. None of them is architectural.</div>
+
+<h2 id="harness">How to test (harness)</h2>
+<p>Everything lives in <code>/opt/gvharness/</code> (self-contained, reboot-safe; sources included). No Docker required — plain <code>runsc run</code> with an OCI bundle.</p>
+<div class="tw"><table>
+<tr><th>File</th><th>Role</th></tr>
+<tr><td><code>fdgv.sh</code></td><td>Wrapper. Rewrites <code>process.args</code> in the bundle, creates the <code>gvtest</code> netns + veth pair if missing, re-applies the veth addr/route (runsc strips them on device takeover), runs <code>runsc --overlay2=root:memory --net-raw run</code>, deletes the container after. <code>--flags "…"</code> passes extra runsc flags.</td></tr>
+<tr><td><code>config.json</code></td><td>OCI spec. rootfs = host <code>/</code> with <code>readonly:false</code> + memory overlay (writes are discarded; host untouched). Binds: host <code>/sys/devices/system</code> ro (NUMA topology), <code>/sys/kernel/mm</code> ro, <code>/mnt/.fd/.huge</code> + <code>/mnt/.fd/.gigantic</code> rw, tmpfs on <code>/tmp</code> and <code>/dev/shm</code>. Network namespace <code>/var/run/netns/gvtest</code> (10.200.0.1 host ↔ 10.200.0.2 sandbox). rlimits set in-spec: NOFILE 1M, MEMLOCK ∞, NICE 40, STACK 8 MiB.</td></tr>
+<tr><td><code>runsc</code></td><td>gVisor release-20260817.0 (sha512-verified from the release bucket).</td></tr>
+<tr><td><code>align_mmap.c</code> / <code>.so</code></td><td><code>LD_PRELOAD</code> shim: aligned hugepage mmap, fake <code>/proc/self/mounts</code>, fake sysctl/proc files, <code>MADV_WIPEONFORK</code>→OK. Each behaviour is opt-in via an env var (see invocation).</td></tr>
+<tr><td><code>fake_mounts</code>, <code>fake_sysctl/</code>, <code>fake_sched</code>, <code>fake_proc/</code></td><td>Replacement contents for the procfs entries gVisor lacks.</td></tr>
+<tr><td><code>gv.toml</code>, <code>gvbt.toml</code></td><td>dev/udpecho and backtest configs carrying the gVisor-required knobs.</td></tr>
+<tr><td><code>probe.c</code>, <code>poll_repro*.c</code>, <code>pivot_probe.c</code></td><td>Syscall capability probes and minimal repros (results below).</td></tr>
+</table></div>
+
+<h3>Invocation</h3>
+<pre><code>/opt/gvharness/fdgv.sh /bin/sh -c '
+  export LD_PRELOAD=/opt/gvharness/align_mmap.so \
+         FDGV_FAKE_MOUNTS=/opt/gvharness/fake_mounts \
+         FDGV_FAKE_SYSCTL_DIR=/opt/gvharness/fake_sysctl \
+         FDGV_FAKE_SCHED=/opt/gvharness/fake_sched \
+         FDGV_FAKE_PROC_DIR=/opt/gvharness/fake_proc
+  cd /home/mmcgee/firedancer
+  build/native/gcc/11.5.0/bin/firedancer-dev backtest --no-watch --config /opt/gvharness/gvbt.toml'
+
+# inventory mode: strace selected syscalls inside the sentry
+/opt/gvharness/fdgv.sh --flags "--debug --strace --strace-syscalls=ppoll,mmap \
+  --debug-log=/tmp/gvlogs/x.%COMMAND%.log" …</code></pre>
+<p class="small">Pre-stage keys/genesis on the host (<code>firedancer-dev configure init keys genesis --config …</code>) or let them be generated into the overlay; <code>--no-configure</code> on <code>dev</code> skips the stages that cannot pass under gVisor.</p>
+
+<h3>Config knobs required under gVisor (no code change)</h3>
+<div class="tw"><table>
+<tr><th>Key</th><th>Value</th><th>Why</th></tr>
+<tr><td><code>[hugetlbfs] max_page_size</code></td><td><code>"huge"</code></td><td><strong>Critical.</strong> Files on a 1 GiB-page hugetlbfs mount break sentry syscall access (item 2). Everything must land on the 2 MiB mount.</td></tr>
+<tr><td><code>[net] provider</code></td><td><code>"socket"</code></td><td>AF_XDP does not exist in gVisor (item 8).</td></tr>
+<tr><td><code>[net.socket] receive_buffer_size</code> / <code>send_buffer_size</code></td><td><code>212992</code></td><td>netstack <code>rmem_max</code>/<code>wmem_max</code> are hard-capped at 212992 and read-only (item 9); the sysctl ENFORCE_MINIMUM check fails otherwise.</td></tr>
+<tr><td><code>user</code></td><td>a real host user</td><td>fd refuses uid 0 (<code>fd_config.c:292</code>); the sandbox runs as root and rootfs is host <code>/</code>, so any host passwd entry works.</td></tr>
+<tr><td><code>name</code></td><td>unique</td><td>Avoid workspace-file collisions with host-side runs on the same hugetlbfs mount (see host notes).</td></tr>
+</table></div>
+
+<h2 id="ladder">Escalation ladder</h2>
+<p>Each rung was run under the harness; the failure it surfaced became an inventory item, then the rung was re-run with the fix.</p>
+<div class="tw"><table>
+<tr><th>Rung</th><th>Command</th><th>Result</th><th>What it surfaced</th></tr>
+<tr><td>0</td><td><code>probe</code> (syscall matrix)</td><td class="ok">done</td><td>AF_XDP, hugetlbfs mount, memfd hugetlb, setrlimit raise, io_uring all absent — see probe table</td></tr>
+<tr><td>1</td><td><code>test_util_base</code>, <code>test_log</code> (fd_boot)</td><td class="ok">pass</td><td>Item 1 (no NUMA sysfs) — fatal for every fd binary until bound in</td></tr>
+<tr><td>2</td><td><code>fd_shmem_ctl create/query/unlink</code>, <code>fd_wksp_ctl new/alloc/query</code></td><td class="ok">pass</td><td>Item 4 (mmap alignment) — fixed by shim</td></tr>
+<tr><td>3</td><td><code>firedancer-dev configure check &lt;stage&gt;</code> ×18</td><td class="warn">4 stages fail</td><td>hugetlbfs (item 3), sysctl (item 6), irq-affinity (no <code>/proc/irq</code>), genesis (item 5). Remaining 14 pass or are no-ops.</td></tr>
+<tr><td>4</td><td><code>firedancer-dev dev --no-watch --no-configure</code></td><td class="warn">reaches wksp init</td><td>Items 7, 3, 6, 9 in sequence; then SIGBUS from a starved 2 MiB pool (host-side, live validator was holding most pages)</td></tr>
+<tr><td>5</td><td><code>test_tile</code> (clone + pinning)</td><td class="ok">pass</td><td>—</td></tr>
+<tr><td>6</td><td><code>firedancer-dev udpecho --port 9000</code></td><td class="ok">echo verified on wire</td><td>Item 2 (1 GiB-page file EFAULT in metric tile's ppoll) — fixed by <code>max_page_size="huge"</code></td></tr>
+<tr><td>7</td><td><code>firedancer-dev backtest --config gvbt.toml</code> (real perf-ledger)</td><td class="warn">boots fully; fixture mismatch</td><td>Sentry panic on under-provisioned pool (open item), items 5 and 6 for replay/diag tiles, shredcap conversion needed, then manifest cap 2000 &lt; 6814 (branch, not gVisor)</td></tr>
+<tr><td>8</td><td><code>pivot_probe</code> (fd_sandbox pivot_root sequence)</td><td class="ok">pass</td><td>—</td></tr>
+</table></div>
+
+<h2 id="inventory">Inventory</h2>
+<h3>Hard blockers — solved by the harness, need a real fix to drop the shim</h3>
+<div class="tw"><table>
+<tr><th>#</th><th>Gap</th><th>Where it bites in fd</th><th>Harness workaround</th><th>Candidate real fix</th></tr>
+<tr><td>1</td><td><strong>NUMA topology absent.</strong> gVisor sysfs has no <code>/sys/devices/system/node</code>, and <code>cpuN/</code> lacks <code>nodeN</code> links.</td><td><code>fd_numa_linux.c:50</code> → <code>fd_shmem_admin.c:708</code> fatal in <code>fd_boot</code> for <em>every</em> binary.</td><td>Bind host <code>/sys/devices/system</code> ro into the sandbox.</td><td>fd: fall back to a single-node topology when sysfs NUMA is absent. gVisor: expose a synthetic node0.</td></tr>
+<tr><td>2</td><td><strong>1 GiB-hugetlbfs-backed files break sentry syscall access.</strong> mmap succeeds and app loads/stores work, but any syscall that copies through a pointer into a mapping of a <code>pagesize=1024M</code> file EFAULTs; even <code>write()</code> to such a file returns 0. 2 MiB-page files are fine.</td><td><code>fd_http_server.c:1371</code> "poll failed (14-Bad address)" in the metric tile — first tile whose ppoll array happened to live in a gigantic-mount wksp. Repro: <code>/opt/gvharness/poll_repro5</code>.</td><td><code>max_page_size = "huge"</code> so no workspace lands on the gigantic mount.</td><td>gVisor bug (sentry mmap/IO for host 1 GiB hugetlb files); file upstream with the repro.</td></tr>
+<tr><td>3</td><td><strong>hugetlbfs cannot be mounted (ENODEV), and bind-mounted host hugetlbfs shows as <code>9p</code>.</strong></td><td>Textual <code>/proc/self/mounts</code> validation in <code>hugetlbfs.c:330–460</code> ("unrecognized type, expected hugetlbfs"; then <code>min_size</code> too small), fatal at <code>run.c:894</code> via <code>fdctl_check_configure</code>.</td><td>Shim interposes <code>fopen("/proc/self/mounts")</code> (<code>FDGV_FAKE_MOUNTS</code>) and serves hugetlbfs-formatted lines with a large <code>min_size</code>.</td><td>fd: config/env override to skip mount-type validation, or validate by probing page size rather than parsing mount options.</td></tr>
+<tr><td>4</td><td><strong>Hugepage mmap alignment guarantees lost.</strong> Mapping a hugetlbfs file through the gofer returns a 4 KiB-aligned VA.</td><td><code>fd_shmem_admin.c:266</code> "misaligned memory mapping" on create; joins use <code>fd_shmem_private_grab_region</code> and are fine.</td><td>Shim over-reserves PROT_NONE and <code>MAP_FIXED</code>s into an aligned window for NULL-hint hugepage-shaped mmaps.</td><td>fd: aligned-reserve on the create path too (<code>fd_shmem_admin.c:257</code>), mirroring the join path.</td></tr>
+<tr><td>5</td><td><strong><code>MADV_WIPEONFORK</code> unimplemented (EINVAL).</strong> DONTDUMP / DONTFORK / HUGEPAGE all work.</td><td><code>fd_keyload.c:163</code> fatal — hit by every tile that loads the identity key (replay, sign, …) and by <code>configure init genesis</code>.</td><td>Shim returns 0 for advice 18 + EINVAL.</td><td>gVisor: implement or no-op it (fork-wipe semantics are moot in a single-container sandbox). fd: tolerate EINVAL as it already tolerates old kernels elsewhere.</td></tr>
+<tr><td>6</td><td><strong>procfs gaps.</strong> Missing: <code>/proc/sys/fs/file-max</code>, <code>kernel/numa_balancing</code>, <code>net/ipv4/conf/&lt;if&gt;/rp_filter|accept_local|route_localnet</code>, <code>net/core/bpf_jit_enable</code>, <code>/proc/&lt;pid&gt;/task/&lt;tid&gt;/sched</code>, <code>/proc/interrupts</code>, <code>/proc/softirqs</code>. Present: <code>vm/max_map_count</code>, <code>fs/nr_open</code>, <code>net/core/rmem_max</code>+<code>wmem_max</code>, <code>task/&lt;tid&gt;/stat</code>, <code>/proc/stat</code>, <code>/proc/meminfo</code>.</td><td>sysctl stage fatal at <code>sysctl.c:149</code>; diag tile fatal at <code>fd_diag_tile.c:1129/1136/1139</code> (and needs <code>nr_voluntary_switches</code> in the sched file).</td><td>Shim redirects ENOENT opens under <code>/proc</code> to fake files (<code>FDGV_FAKE_SYSCTL_DIR</code>, <code>FDGV_FAKE_SCHED</code>, <code>FDGV_FAKE_PROC_DIR</code>).</td><td>gVisor: add the files (several are constants). fd: diag tile degrades instead of dying when a source is missing.</td></tr>
+<tr><td>7</td><td><strong>setrlimit raises refused (EPERM)</strong> even as root with CAP_SYS_RESOURCE — RLIMIT_NICE, RLIMIT_MEMLOCK→∞.</td><td><code>fd_cap_chk_raise_rlimit</code> (<code>fd_cap_chk.c:218</code>) fatal at <code>run</code>/<code>dev</code> start.</td><td>Set the limits in the OCI spec's <code>process.rlimits</code>; fd checks the current limit first and skips the raise. Keep STACK at 8 MiB — ∞ trips an fd_log stack-diagnostics warning.</td><td>None needed; document for the perfloop image. (gVisor could honour raises within the container's hard limits.)</td></tr>
+</table></div>
+
+<h3>Environment constraints — config-level, no shim</h3>
+<div class="tw"><table>
+<tr><th>#</th><th>Constraint</th><th>Consequence / action</th></tr>
+<tr><td>8</td><td><strong>No AF_XDP</strong> (<code>socket(AF_XDP)</code> → EAFNOSUPPORT).</td><td><code>[net] provider = "socket"</code>. fd's auto-detect reports <code>provider=socket xdp_mode=skb kernel=4.19 virtual_if=1</code> correctly.</td></tr>
+<tr><td>9</td><td><strong>netstack <code>rmem_max</code>/<code>wmem_max</code> capped at 212992 and read-only</strong> (write → EIO).</td><td>Lower <code>[net.socket]</code> buffers to ≤ 212992. Perf-relevant: 208 KiB socket buffers vs the 128 MiB fd asks for. No runsc tunable exists; needs a gVisor change or acceptance.</td></tr>
+<tr><td>10</td><td><strong>Networking must be netstack + a netns/veth with a default route.</strong> hostinet (<code>--network=host</code>) fails — no netlink, so <code>if_nametoindex</code> can't resolve the interface. runsc strips the veth's addr/route on takeover.</td><td>Docker/containerd give you the netns for free; the wrapper recreates it and re-applies the address per run. fd's route-to-8.8.8.8 auto-detect then works; don't pin <code>[net.interface]</code> (the device is renamed inside the sandbox).</td></tr>
+<tr><td>11</td><td><strong>fd refuses to run as root</strong> (<code>fd_config.c:292</code>); the sandbox is uid 0.</td><td><code>user = "&lt;real user&gt;"</code>; the user must exist in the rootfs passwd.</td></tr>
+<tr><td>12</td><td><strong>NUMA binding is a no-op.</strong> <code>mbind</code>/<code>move_pages</code>/<code>set_mempolicy</code> on shared file maps → EPERM (WARNING, non-fatal). <code>sched_setaffinity</code> works; 96 CPUs visible in bundle mode (1 under <code>runsc do</code>).</td><td>Bench numbers carry no NUMA-locality guarantee. Warnings are noisy — filter <code>numa binding failed|move_pages</code> from logs.</td></tr>
+<tr><td>13</td><td><strong>Kernel string is <code>4.19.0-gvisor</code>.</strong></td><td>fd's netdev auto-config takes the conservative path; nothing fatal observed.</td></tr>
+</table></div>
+
+<h3>Syscall probe matrix</h3>
+<p class="small"><code>/opt/gvharness/probe</code>, <code>poll_repro*</code>, <code>pivot_probe</code>, plus a Python madvise sweep. Bundle mode with <code>--net-raw</code> unless noted.</p>
+<div class="tw"><table>
+<tr><th>Probe</th><th>gVisor</th><th>Note</th></tr>
+<tr><td>mmap MAP_HUGETLB 2M / 1G (anon)</td><td class="ok">OK</td><td>faked with normal pages</td></tr>
+<tr><td>memfd_create MFD_HUGETLB</td><td class="bad">EINVAL</td><td>unused by fd</td></tr>
+<tr><td>mount hugetlbfs</td><td class="bad">ENODEV</td><td>item 3</td></tr>
+<tr><td>mount tmpfs</td><td class="ok">OK</td><td></td></tr>
+<tr><td>mlock (incl. 63 GiB wksp)</td><td class="ok">OK</td><td>given a provisioned pool — see open items</td></tr>
+<tr><td>sched_setaffinity / setpriority −19</td><td class="ok">OK</td><td></td></tr>
+<tr><td>socket AF_XDP</td><td class="bad">EAFNOSUPPORT</td><td>item 8</td></tr>
+<tr><td>socket AF_PACKET</td><td class="warn">EPERM without <code>--net-raw</code></td><td>unused by socket provider</td></tr>
+<tr><td>UDP socket, SO_REUSEPORT</td><td class="ok">OK</td><td></td></tr>
+<tr><td>unshare NEWUSER / NEWNET / NEWNS, chroot, pivot_root sequence</td><td class="ok">OK</td><td><code>pivot_probe</code> replays <code>fd_sandbox_private_pivot_root</code></td></tr>
+<tr><td>seccomp-BPF filter, PR_SET_DUMPABLE, capget</td><td class="ok">OK</td><td></td></tr>
+<tr><td>landlock_create_ruleset</td><td class="warn">ENOSYS</td><td>fd already tolerates (<code>fd_sandbox.c</code>)</td></tr>
+<tr><td>setrlimit MEMLOCK→∞ / NICE raise</td><td class="bad">EPERM</td><td>item 7; NOFILE raise to 1M works</td></tr>
+<tr><td>set_mempolicy / mbind (anon)</td><td class="ok">OK</td><td>EPERM on shared file maps (item 12)</td></tr>
+<tr><td>madvise DONTDUMP / DONTFORK / HUGEPAGE</td><td class="ok">OK</td><td></td></tr>
+<tr><td>madvise WIPEONFORK</td><td class="bad">EINVAL</td><td>item 5</td></tr>
+<tr><td>ppoll with pollfds in 2M-page file map (any offset, straddling)</td><td class="ok">OK</td><td></td></tr>
+<tr><td>ppoll with pollfds in 1G-page file map</td><td class="bad">EFAULT</td><td>item 2 (<code>poll_repro5</code>)</td></tr>
+<tr><td>rdtsc, getrandom</td><td class="ok">OK</td><td></td></tr>
+<tr><td>io_uring_setup</td><td class="bad">ENOSYS</td><td>open items</td></tr>
+</table></div>
+
+<h3>Verified working — no action</h3>
+<ul>
+  <li><code>fd_boot</code>; shmem create/join/alloc/unlink on bind-mounted 2 MiB hugetlbfs via the gofer, including a 63 GiB workspace with full mlock population.</li>
+  <li>fd_tile threading (<code>test_tile</code>), tile spawn, prometheus HTTP server, tango links carrying real traffic, zstd snapshot streaming through the snapshot tiles.</li>
+  <li>The sandboxing primitives fd uses: seccomp-BPF, unshare(USER/NET/NS), the exact <code>fd_sandbox</code> pivot_root sequence, capget/capset, landlock (ENOSYS path).</li>
+</ul>
+
+<h2 id="open">Open items and risks</h2>
+<ul>
+  <li><strong>gVisor sentry panics on mlock over an under-provisioned hugetlb pool.</strong> With enough pages the 63 GiB mlock succeeds; without, the sentry crashes the whole sandbox (<code>ExtractErrno</code> "stub syscall (mmap) failed with cannot allocate memory", goroutine dump from <code>sys_signal.go</code>) instead of fd receiving ENOMEM — which fd would tolerate (<code>fd_shmem_user.c:283</code> only warns). Worth filing upstream. The perfloop backend must provision <code>nr_hugepages</code> strictly ≥ topology demand.</li>
+  <li><strong>io_uring</strong> is ENOSYS (runsc has an experimental <code>--iouring</code>). Only <code>fd_snapsv</code> (backup tile) uses it today — not in the dev/backtest/bench paths. Vinyl declares an io_uring IO type but it isn't built. Becomes relevant if accdb goes async-IO.</li>
+  <li><strong>Multi-process boot</strong> (clone-per-tile with the full per-tile sandbox) was not exercised end to end — the default dev topology (~247 GiB) didn't fit beside the live validator. All its primitives probe green; <code>backtest</code>/<code>udpecho</code> use <code>fd_topo_run_single_process</code>, which is the perfloop-relevant path.</li>
+  <li><strong>Overlay writes</strong> (accounts.db, logs, generated keys/genesis) live in sentry memory — size for it or bind a real scratch dir rw.</li>
+  <li><strong>Performance</strong> was not characterised; this was a functional inventory. Known taxes: netstack UDP path, 208 KiB socket buffers, gofer-mediated page faults on the hugetlbfs files, no NUMA locality, KVM vs ptrace platform choice.</li>
+</ul>
+
+<h2 id="host">Host-side notes</h2>
+<ul>
+  <li><strong>Fixture prep for <code>backtest</code>:</strong> this branch's backt tile reads a shredcap pcapng, not RocksDB. Converted once with <code>fd_blockstore2shredcap --rocksdb … --out … --zstd</code> → <code>dump/mainnet-424669000-perf-ledger/shredcap.pcapng.zst</code> (1297 slots, 301 MB). <code>gvbt.toml</code> points at it. Its snapshot is incompatible with this branch's manifest cap (see bottom line) — a current fixture is needed for a complete run.</li>
+  <li><strong>Always set a unique <code>name</code>.</strong> One early boot with the default <code>fd1</code> unlinked and recreated the live validator's workspace files on the shared hugetlbfs mount. Harmless to the running process (POSIX unlink semantics) but it consumes pool pages and would confuse a restart. The harness configs pin <code>gvtest</code>/<code>gvbt</code>.</li>
+  <li><strong>hugetlb reservation accounting</strong> on tsewr2-ossdev-firedancer8 was already underflowed on 2026-08-26 and worsened with each SIGBUS'd <code>min_size</code> reservation, pinning the 2 MiB pool at 48000 pages (94 GiB) until the box was rebooted on 2026-09-10. Pool is sane again (<code>HugePages_Rsvd</code> normal). Sandbox runs should keep <code>min_size</code> reservations within the pool to avoid re-triggering this.</li>
+  <li><strong>Where things live now:</strong> the harness, runsc binary and bundle are all in <code>/opt/gvharness</code> (verified working 2026-09-13 with <code>test_util_base</code> on the <code>mmcgee/benchcfg1</code> build at <code>build/native/gcc/11.5.0/</code>). Nothing under <code>/tmp</code> is required any more.</li>
+</ul>
+
+<h2 id="recommendation">Recommendation for the perfloop backend</h2>
+<ol>
+  <li>Run via Docker/containerd with the <code>runsc</code> runtime (netns/veth, bundle and rlimits come for free); image contains the fd build and a non-root user in <code>/etc/passwd</code>.</li>
+  <li>Bind the host 2 MiB hugetlbfs mount rw; skip the gigantic mount entirely. Provision <code>nr_hugepages</code> ≥ topology demand + slack before launch — the sentry panics rather than degrading.</li>
+  <li>Ship the <code>LD_PRELOAD</code> shim and fake proc files inside the image until the fd/gVisor fixes for items 1–7 land; wire the five <code>FDGV_*</code> env vars in the entrypoint.</li>
+  <li>Config: <code>max_page_size = "huge"</code>, socket provider, 212992 socket buffers, unique <code>name</code>, real <code>user</code>.</li>
+  <li>For <code>backtest</code>, pre-stage genesis, keys, a branch-compatible snapshot and the shredcap capture in the image or a read-only bind; run with <code>--no-watch</code>.</li>
+  <li>Upstream candidates, roughly in order of payoff: gVisor <code>MADV_WIPEONFORK</code> no-op; fd single-node NUMA fallback; fd aligned-reserve on the shmem create path; gVisor procfs constants; then the 1 GiB-file EFAULT and the mlock panic as bug reports with the included repros.</li>
+</ol>
+</main>
