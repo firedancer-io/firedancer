@@ -331,6 +331,9 @@ fd_bmtree_get_proof( fd_bmtree_commit_t * state,
   ulong inc_idx   = leaf_idx * 2UL;
   ulong layer     = 0UL;
   ulong layer_cnt = state->leaf_cnt;
+# if FD_HAS_AVX512
+  __mmask32 hash_mask = (__mmask32)fd_ulong_mask_lsb( (int)hash_sz );
+# endif
 
   while( layer_cnt>1UL ) {
     ulong sibling_idx = inc_idx ^ (1UL<<(layer+1UL));
@@ -338,7 +341,11 @@ fd_bmtree_get_proof( fd_bmtree_commit_t * state,
     sibling_idx = fd_ulong_if( sibling_idx>max_idx_for_layer, inc_idx /* Double link */, sibling_idx );
 
     if( FD_UNLIKELY( sibling_idx>=state->inclusion_proof_sz ) ) return -1;
+# if FD_HAS_AVX512
+    _mm256_mask_storeu_epi8( dest + layer*hash_sz, hash_mask, _mm256_loadu_si256( (__m256i const *)(state->inclusion_proofs + sibling_idx) ) );
+# else
     fd_memcpy( dest + layer*hash_sz, state->inclusion_proofs + sibling_idx, hash_sz );
+# endif
 
     layer++; layer_cnt = (layer_cnt+1UL)>>1;
     inc_idx = fd_ulong_insert_lsb( inc_idx, (int)layer+1, (1UL<<layer)-1UL );
