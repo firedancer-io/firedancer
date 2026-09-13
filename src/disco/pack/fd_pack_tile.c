@@ -579,6 +579,55 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
 }
 #endif
 
+/* Publishes the schedule_cnt transactions pack wrote at execle i's
+   next chunk and does the per-microblock accounting.  now bounds when
+   execle i was seen idle, now2 is when the microblock was finished. */
+static inline void
+publish_microblock( fd_pack_ctx_t *     ctx,
+                    fd_stem_context_t * stem,
+                    int                 i,
+                    fd_txn_e_t *        microblock_dst,
+                    ulong               schedule_cnt,
+                    long                now,
+                    long                now2 ) {
+  fd_pack_out_ctx_t * execle_out = &ctx->execle_out[ i ];
+  ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  );
+  ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
+  ulong chunk  = execle_out->chunk;
+  ulong msg_sz = schedule_cnt*sizeof(fd_txn_e_t);
+  fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
+  trailer->bank = ctx->leader_bank;
+  trailer->bank_idx = ctx->leader_bank_idx;
+  trailer->bank_seq = ctx->leader_bank_seq;
+  trailer->microblock_idx = ctx->slot_microblock_cnt;
+  trailer->pack_idx = ctx->pack_idx;
+  trailer->pack_txn_idx = ctx->pack_txn_cnt;
+  trailer->is_bundle = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
+
+  /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_e_t
+     to execle, there must be room for the trailer at the end. */
+  FD_STATIC_ASSERT( MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t)<=MAX_MICROBLOCK_SZ, pack_execle_mtu );
+
+  ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
+  ctx->execle_expect[ i ] = fd_stem_publish( stem, execle_out->out_idx, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );
+  ctx->execle_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
+  execle_out->chunk = fd_dcache_compact_next( execle_out->chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), execle_out->chunk0, execle_out->wmark );
+  ctx->slot_microblock_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 1UL );
+  ctx->pack_idx += fd_uint_if( trailer->is_bundle, (uint)schedule_cnt, 1U );
+  ctx->pack_txn_cnt += schedule_cnt;
+  ctx->slot_bundle_txn_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 0UL );
+
+  ctx->execle_idle_bitset &= ~(1UL<<i);
+  /* Look for finished execles on every iteration: the gap between an
+     execle going idle and pack noticing is dead time for it, and every
+     idle execle is served in one round anyway (it was execle_cnt+1). */
+  ctx->skip_cnt           = 0L;
+  fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
+
+  ctx->last_sched_metrics->time = now2;
+  fd_pack_get_sched_metrics( ctx->pack, ctx->last_sched_metrics->sched_results );
+}
+
 static inline void
 after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
@@ -592,50 +641,27 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   int pacing_execle_cnt = (int)fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now ), execle_cnt );
 
-  /* If any execle are busy, check one of the busy ones see if it is
-     still busy. */
-  if( FD_LIKELY( ctx->execle_idle_bitset!=fd_ulong_mask_lsb( (int)execle_cnt ) ) ) {
-    int   poll_cursor = ctx->poll_cursor;
-    ulong busy_bitset = (~ctx->execle_idle_bitset) & fd_ulong_mask_lsb( (int)execle_cnt );
-
-    /* Suppose execle_cnt is 4 and idle_bitset looks something like this
-       (pretending it's a uchar):
-                0000 1001
-                       ^ busy cursor is 1
-       Then busy_bitset is
-                0000 0110
-       Rotate it right by 2 bits
-                1000 0001
-       Find lsb returns 0, so busy cursor remains 2, and we poll
-       execle 2.
-
-       If instead idle_bitset were
-                0000 1110
-                       ^
-       The rotated version would be
-                0100 0000
-       Find lsb will return 6, so busy cursor would be set to 0, and
-       we'd poll execle 0, which is the right one. */
-    poll_cursor++;
-    poll_cursor = (poll_cursor + fd_ulong_find_lsb( fd_ulong_rotate_right( busy_bitset, (poll_cursor&63) ) )) & 63;
+  /* Mark every execle that has finished its microblock idle. */
+  ulong busy_bitset = (~ctx->execle_idle_bitset) & fd_ulong_mask_lsb( (int)execle_cnt );
+  while( busy_bitset ) {
+    int i = fd_ulong_find_lsb( busy_bitset );
+    busy_bitset = fd_ulong_pop_lsb( busy_bitset );
 
     if( FD_UNLIKELY(
         /* if microblock duration is 0, bypass the execle_ready_at check
            to avoid a potential cache miss.  Can't use an ifdef here
            because FD_UNLIKELY is a macro, but the compiler should
            eliminate the check easily. */
-        ( (MICROBLOCK_DURATION_NS==0L) || (ctx->execle_ready_at[poll_cursor]<now) ) &&
-        (fd_fseq_query( ctx->execle_current[poll_cursor] )==ctx->execle_expect[poll_cursor]) ) ) {
+        ( (MICROBLOCK_DURATION_NS==0L) || (ctx->execle_ready_at[i]<now) ) &&
+        (fd_fseq_query( ctx->execle_current[i] )==ctx->execle_expect[i]) ) ) {
       *charge_busy = 1;
-      ctx->execle_idle_bitset |= 1UL<<poll_cursor;
+      ctx->execle_idle_bitset |= 1UL<<i;
 
       long complete_duration = -fd_tickcount();
-      int completed = fd_pack_microblock_complete( ctx->pack, (ulong)poll_cursor );
+      int completed = fd_pack_microblock_complete( ctx->pack, (ulong)i );
       complete_duration      += fd_tickcount();
       if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
     }
-
-    ctx->poll_cursor = poll_cursor;
   }
 
 
@@ -788,8 +814,9 @@ after_credit( fd_pack_ctx_t *     ctx,
     }
   }
 
-  /* Try to schedule the next microblock. */
-  if( FD_LIKELY( ctx->execle_idle_bitset ) ) { /* Optimize for schedule */
+  /* Schedule a microblock to every idle execle. */
+  long now2 = now; /* end of the last schedule attempt */
+  while( FD_LIKELY( ctx->execle_idle_bitset ) ) { /* Optimize for schedule */
     any_ready = 1;
 
     int i = fd_ulong_find_lsb( ctx->execle_idle_bitset );
@@ -817,56 +844,19 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( execle_out->mem, execle_out->chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
-    schedule_duration      += fd_tickcount();
+    now2 = fd_tickcount();
+    schedule_duration += now2;
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
-      long  now2   = fd_tickcount();
-      ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed execle was idle */
-      ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
-      ulong chunk  = execle_out->chunk;
-      ulong msg_sz = schedule_cnt*sizeof(fd_txn_e_t);
-      fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
-      trailer->bank = ctx->leader_bank;
-      trailer->bank_idx = ctx->leader_bank_idx;
-      trailer->bank_seq = ctx->leader_bank_seq;
-      trailer->microblock_idx = ctx->slot_microblock_cnt;
-      trailer->pack_idx = ctx->pack_idx;
-      trailer->pack_txn_idx = ctx->pack_txn_cnt;
-      trailer->is_bundle = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
-
-      /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_e_t
-         to execle, there must be room for the trailer at the end. */
-      FD_STATIC_ASSERT( MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t)<=MAX_MICROBLOCK_SZ, pack_execle_mtu );
-
-      ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
-      ctx->execle_expect[ i ] = fd_stem_publish( stem, execle_out->out_idx, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );
-      ctx->execle_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
-      execle_out->chunk = fd_dcache_compact_next( execle_out->chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), execle_out->chunk0, execle_out->wmark );
-      ctx->slot_microblock_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 1UL );
-      ctx->pack_idx += fd_uint_if( trailer->is_bundle, (uint)schedule_cnt, 1U );
-      ctx->pack_txn_cnt += schedule_cnt;
-      ctx->slot_bundle_txn_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 0UL );
-
-      ctx->execle_idle_bitset = fd_ulong_pop_lsb( ctx->execle_idle_bitset );
-      ctx->skip_cnt           = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)execle_cnt/2L, 1L );
-      fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
-
-      ctx->last_sched_metrics->time = now2;
-      fd_pack_get_sched_metrics( ctx->pack, ctx->last_sched_metrics->sched_results );
-
-      /* If we're using CU rebates, then we have one in for each execle
-         in addition to the two normal ones.  We want to skip schedule
-         attempts for (execle_cnt + 1) link polls after a successful
-         schedule attempt. */
-      fd_long_store_if( ctx->use_consumed_cus, &(ctx->skip_cnt), (long)(ctx->execle_cnt + 1) );
-    }
+      publish_microblock( ctx, stem, i, microblock_dst, schedule_cnt, now, now2 );
+    } else break;
   }
 
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,     any_ready     );
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS, any_scheduled );
-  now = fd_tickcount();
+  now = any_ready ? now2 : fd_tickcount();
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 
 #if FD_PACK_USE_EXTRA_STORAGE
