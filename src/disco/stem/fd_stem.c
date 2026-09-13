@@ -85,6 +85,16 @@
    the after_credit function is doing work that should be accounted for
    as part of the tiles busy indicator.
 
+      IN_SHARD
+   Is called once per in link before the run loop starts, with the in
+   index and pointers to a shard count (defaults to 1) and shard index
+   (defaults to 0) the callback may overwrite.  The stem then only ever
+   polls that in at sequence numbers congruent to the shard index modulo
+   the shard count.  A tile that splits a link with its siblings by
+   sequence number should declare that here rather than filter in
+   BEFORE_FRAG, so that it does not pay to poll every fragment its
+   siblings own.  Overruns resume on the tile's own shard.
+
       BEFORE_FRAG
    Is called immediately whenever a new fragment has been detected that
    was published by an upstream producer.  The signature and sequence
@@ -221,6 +231,19 @@
 #endif
 
 #define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
+
+/* Resume in at seq after an overrun, on the in's own shard */
+
+static inline void
+STEM_(in_resume)( fd_stem_tile_in_t * in,
+                  ulong               seq ) {
+  ulong stride = (ulong)in->stride;
+  if( FD_UNLIKELY( stride>1UL ) ) {
+    seq += (in->seq%stride + stride - seq%stride) % stride;
+    in->mline = in->mcache + fd_mcache_line_idx( seq, in->depth );
+  }
+  in->seq = seq;
+}
 
 static inline void
 STEM_(credit_ring)( fd_stem_sleep_t const * sleep,
@@ -382,7 +405,8 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
         /* The sweep must not wake us for the blocked frag or the
            backlog already mirrored behind it */
         ulong mirror = __atomic_load_n( &sleep->shmem->seq_mirror[ sleep->in_link_id[ in[ i ].idx ] ], __ATOMIC_ACQUIRE );
-        snap = fd_seq_gt( mirror, snap+1UL ) ? mirror : snap+1UL;
+        ulong next = snap+(ulong)in[ i ].stride;
+        snap = fd_seq_gt( mirror, next ) ? mirror : next;
       }
       sleep->shmem->seq_snap[ sleep->tile_id ][ in[ i ].idx ] = snap;
     }
@@ -839,6 +863,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_CHECK_CREDIT
 #undef STEM_CALLBACK_BEFORE_CREDIT
 #undef STEM_CALLBACK_AFTER_CREDIT
+#undef STEM_CALLBACK_IN_SHARD
 #undef STEM_CALLBACK_BEFORE_FRAG
 #undef STEM_CALLBACK_DURING_FRAG
 #undef STEM_CALLBACK_RETURNABLE_FRAG
