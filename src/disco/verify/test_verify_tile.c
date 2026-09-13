@@ -179,7 +179,8 @@ mock_stem_init( mock_stem_t * m, fd_topo_t * topo, fd_topo_tile_t * tile ) {
     fd_topo_link_t const * l = &topo->links[ tile->in_link_id[ i ] ];
     m->in[i].mcache = l->mcache;
     m->in[i].depth  = (uint)fd_mcache_depth( l->mcache );
-    m->in[i].idx    = (uint)i;
+    m->in[i].idx    = (ushort)i;
+    m->in[i].stride = (ushort)1;
     m->in[i].mline  = l->mcache;
   }
   m->stem->mcaches = m->out_mcache; m->stem->depths = m->out_depth; m->stem->seqs = m->out_seq;
@@ -305,13 +306,23 @@ test_load_balance( void ) {
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 0UL, 1UL )==0 );
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 1UL, 1UL )==0 );
 
-  /* Tile 0 should load balance other traffic */
+  /* Tile 0 should load balance other bundle traffic */
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 0UL, 0UL )==0 );
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 1UL, 0UL )==1 );
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 2UL, 0UL )==1 );
+
+  /* QUIC traffic is load balanced by the stem shard, not before_frag */
   FD_TEST( before_frag( ctx, IN_IDX_QUIC,   0UL, 0UL )==0 );
-  FD_TEST( before_frag( ctx, IN_IDX_QUIC,   1UL, 0UL )==1 );
-  FD_TEST( before_frag( ctx, IN_IDX_QUIC,   2UL, 0UL )==1 );
+  FD_TEST( before_frag( ctx, IN_IDX_QUIC,   1UL, 0UL )==0 );
+  ulong shard_cnt = 1UL, shard_idx = 0UL;
+  in_shard( ctx, IN_IDX_QUIC, &shard_cnt, &shard_idx );
+  FD_TEST( shard_cnt==4UL && shard_idx==0UL );
+  ctx->round_robin_idx = 3UL;
+  in_shard( ctx, IN_IDX_QUIC, &shard_cnt, &shard_idx );
+  FD_TEST( shard_cnt==4UL && shard_idx==3UL );
+  shard_cnt = 1UL; shard_idx = 0UL;
+  in_shard( ctx, IN_IDX_BUNDLE, &shard_cnt, &shard_idx );
+  FD_TEST( shard_cnt==1UL && shard_idx==0UL );
 }
 
 /* Batching: transactions are queued through after_frag and published
