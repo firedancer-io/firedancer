@@ -1,4 +1,5 @@
 #include "bench.h"
+#include "fd_bench_sign8.h"
 
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../flamenco/genesis/fd_genesis_create.h"
@@ -32,7 +33,12 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  fd_bench_sign8_t * sign8;
 } fd_benchg_ctx_t;
+
+/* Transactions are built and signed eight at a time */
+#define BENCHG_BATCH (8UL*FD_BENCH_SIGN8_N_MAX)
 
 FD_STATIC_ASSERT( FD_GENESIS_TOKEN_ACCOUNTS_PER_ACCOUNT>=2UL, token_accounts );
 
@@ -49,6 +55,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
   l = FD_LAYOUT_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
   l = FD_LAYOUT_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * 2UL * tile->benchg.accounts_cnt );
+  l = FD_LAYOUT_APPEND( l, fd_bench_sign8_align(), fd_bench_sign8_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -178,6 +185,16 @@ after_credit( fd_benchg_ctx_t *   ctx,
 
   *charge_busy = 1;
 
+  uchar *       sig [ BENCHG_BATCH ];
+  uchar const * msg [ BENCHG_BATCH ];
+  ulong         msz [ BENCHG_BATCH ];
+  uchar const * pub [ BENCHG_BATCH ];
+  uchar const * priv[ BENCHG_BATCH ];
+  ulong         chunk[ BENCHG_BATCH ];
+  ulong         sz   [ BENCHG_BATCH ];
+
+  for( ulong b=0UL; b<BENCHG_BATCH; b++ ) {
+
   int is_contending = fd_rng_float_c( ctx->rng ) < ctx->contending_fraction;
   ulong sender_idx = fd_ulong_if( is_contending, 0UL, ctx->sender_idx );
 
@@ -296,14 +313,13 @@ after_credit( fd_benchg_ctx_t *   ctx,
   fd_memcpy( txnh->fee_payer,  ctx->acct_public_keys[ sender_idx ].uc, 32UL );
   fd_memcpy( recent_blockhash, ctx->recent_blockhash,                  32UL );
 
-  fd_ed25519_sign( txnh->signature,
-                   &(txnh->_sig_cnt),
-                   transaction_size-65UL,
-                   ctx->acct_public_keys[ sender_idx ].uc,
-                   ctx->acct_private_keys[ sender_idx ].uc,
-                   ctx->sha );
-
-  fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, transaction_size, 0UL, 0UL, 0UL );
+  sig  [ b ] = txnh->signature;
+  msg  [ b ] = &(txnh->_sig_cnt);
+  msz  [ b ] = transaction_size-65UL;
+  pub  [ b ] = ctx->acct_public_keys [ sender_idx ].uc;
+  priv [ b ] = ctx->acct_private_keys[ sender_idx ].uc;
+  chunk[ b ] = ctx->out_chunk;
+  sz   [ b ] = transaction_size;
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, transaction_size, ctx->out_chunk0, ctx->out_wmark );
 
   ctx->sender_idx = (ctx->sender_idx + 1UL) % ctx->acct_cnt;
@@ -318,6 +334,11 @@ after_credit( fd_benchg_ctx_t *   ctx,
       ctx->lamport_idx += ctx->benchg_cnt;
     }
   }
+
+  } /* batch */
+
+  fd_bench_sign8_n( ctx->sign8, FD_BENCH_SIGN8_N_MAX, sig, msg, msz, pub, priv );
+  for( ulong b=0UL; b<BENCHG_BATCH; b++ ) fd_stem_publish( stem, 0UL, 0UL, chunk[ b ], sz[ b ], 0UL, 0UL, 0UL );
 }
 
 static inline void
@@ -350,6 +371,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->acct_public_keys = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
   ctx->acct_private_keys = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
   ctx->token_accounts    = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * 2UL * tile->benchg.accounts_cnt );
+  ctx->sign8             = fd_bench_sign8_new( FD_SCRATCH_ALLOC_APPEND( l, fd_bench_sign8_align(), fd_bench_sign8_footprint() ) );
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, (uint)tile->kind_id, 0UL ) ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
@@ -391,7 +413,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (BENCHG_BATCH)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_benchg_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_benchg_ctx_t)
