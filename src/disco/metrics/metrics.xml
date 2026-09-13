@@ -1893,6 +1893,7 @@ EXAMPLES
 
 <tile name="benchs" telemetry="false">
     <counter name="TxnTx" summary="Benchmark transactions sent" />
+    <counter name="TxnDropped" summary="Benchmark transactions dropped because the QUIC connection had no stream available" />
 </tile>
 
 
