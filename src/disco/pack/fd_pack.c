@@ -1346,6 +1346,18 @@ populate_bitsets( fd_pack_t         * pack,
   ulong  cumulative_penalty = 0UL;
   ulong  penalty_i          = 0UL;
 
+  /* Scheduling this transaction looks every account up in acct_in_use,
+     whose slot for a fresh account is a cold line; warm them now. */
+  {
+    ulong uses_seed = acct_uses_seed( pack->acct_in_use );
+    ulong uses_mask = acct_uses_slot_cnt( pack->acct_in_use )-1UL;
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE|FD_TXN_ACCT_CAT_READONLY );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+      ulong slot = acct_uses_key_hash( *ACCT_ITER_TO_PTR( iter ), uses_seed ) & uses_mask;
+      __builtin_prefetch( pack->acct_in_use+slot, 0, 2 );
+    }
+  }
+
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
     fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
