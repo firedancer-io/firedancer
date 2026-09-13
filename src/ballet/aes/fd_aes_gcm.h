@@ -82,6 +82,7 @@ typedef struct fd_aes_gcm_avx10_state fd_aes_gcm_avx10_t;
 
   typedef fd_aes_gcm_ref_t    fd_aes_gcm_t;
   #define fd_aes_gcm_init     fd_aes_gcm_init_ref
+  #define fd_aes_gcm_set_iv   fd_aes_gcm_set_iv_ref
   #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_ref
   #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_ref
 
@@ -89,6 +90,7 @@ typedef struct fd_aes_gcm_avx10_state fd_aes_gcm_avx10_t;
 
   typedef fd_aes_gcm_aesni_t  fd_aes_gcm_t;
   #define fd_aes_gcm_init     fd_aes_gcm_init_aesni
+  #define fd_aes_gcm_set_iv   fd_aes_gcm_set_iv_aesni
   #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_aesni
   #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_aesni
 
@@ -96,6 +98,7 @@ typedef struct fd_aes_gcm_avx10_state fd_aes_gcm_avx10_t;
 
   typedef fd_aes_gcm_aesni_t  fd_aes_gcm_t;
   #define fd_aes_gcm_init     fd_aes_gcm_init_avx2
+  #define fd_aes_gcm_set_iv   fd_aes_gcm_set_iv_avx2
   #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_avx2
   #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_avx2
 
@@ -103,6 +106,7 @@ typedef struct fd_aes_gcm_avx10_state fd_aes_gcm_avx10_t;
 
   typedef fd_aes_gcm_avx10_t  fd_aes_gcm_t;
   #define fd_aes_gcm_init     fd_aes_gcm_init_avx10_512
+  #define fd_aes_gcm_set_iv   fd_aes_gcm_set_iv_avx10_512
   #define fd_aes_gcm_encrypt  fd_aes_gcm_encrypt_avx10_512
   #define fd_aes_gcm_decrypt  fd_aes_gcm_decrypt_avx10_512
 
@@ -123,6 +127,13 @@ fd_aes_gcm_init( fd_aes_gcm_t * aes_gcm,
                  uchar const *  key,
                  ulong          key_sz,
                  uchar const    iv[ 12 ] );
+
+/* fd_aes_gcm_set_iv replaces the IV of an initialized fd_aes_gcm_t,
+   keeping the key schedule and GHASH tables. */
+
+void
+fd_aes_gcm_set_iv( fd_aes_gcm_t * aes_gcm,
+                   uchar const    iv[ 12 ] );
 
 static inline void
 fd_aes_128_gcm_init( fd_aes_gcm_t * aes_gcm,
