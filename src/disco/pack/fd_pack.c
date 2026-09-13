@@ -412,6 +412,46 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_HASH(key,s)   ((uint)fd_hash32( (key).b, (s) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+/* acct_uses_query and acct_uses_insert take the key by value, which
+   crosses the call a word at a time and is reloaded as vectors: a
+   store-forwarding stall per call.  These probe from a pointer, and a
+   probe can be kept for the insert that follows it. */
+
+/* Returns the slot holding *key, or the empty slot it would fill. */
+static inline fd_pack_addr_use_t *
+acct_uses_probe( fd_pack_addr_use_t   * map,
+                 fd_acct_addr_t const * key ) {
+  acct_uses_private_t const * hdr = acct_uses_private_from_slot_const( map );
+  ulong slot_mask = hdr->slot_mask;
+  ulong slot      = acct_uses_private_start( (uint)fd_hash32( key->b, hdr->seed ), slot_mask );
+  for(;;) {
+    fd_pack_addr_use_t * m = map + slot;
+    if( FD_LIKELY( acct_uses_key_inval( m->key ) | acct_uses_key_equal( m->key, *key ) ) ) return m;
+    slot = acct_uses_private_next( slot, slot_mask );
+  }
+}
+
+static inline fd_pack_addr_use_t *
+acct_uses_find( fd_pack_addr_use_t   * map,
+                fd_acct_addr_t const * key ) {
+  fd_pack_addr_use_t * m = acct_uses_probe( map, key );
+  return fd_ptr_if( acct_uses_key_inval( m->key ), (fd_pack_addr_use_t *)NULL, m );
+}
+
+/* Inserts *key at the slot acct_uses_probe returned for it, past any
+   slot an insert since took.  Nothing may have been removed since. */
+static inline fd_pack_addr_use_t *
+acct_uses_insert_at( fd_pack_addr_use_t   * map,
+                     fd_pack_addr_use_t   * m,
+                     fd_acct_addr_t const * key ) {
+  acct_uses_private_t * hdr = acct_uses_private_from_slot( map );
+  ulong slot = (ulong)(m-map);
+  while( FD_UNLIKELY( !acct_uses_key_inval( map[ slot ].key ) ) ) slot = acct_uses_private_next( slot, hdr->slot_mask );
+  map[ slot ].key = *key;
+  hdr->key_cnt++;
+  return map+slot;
+}
+
 #define MAP_NAME              wcost_map
 #define MAP_ELE_T             fd_pack_wcost_ele_t
 #define MAP_KEY_T             fd_acct_addr_t
@@ -1853,7 +1893,7 @@ release_bit_reference( fd_pack_t            * pack,
     bitset_map_remove( pack->acct_to_bitset, q );
     if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
 
-    fd_pack_addr_use_t * use = acct_uses_query( pack->acct_in_use,  *acct, NULL );
+    fd_pack_addr_use_t * use = acct_uses_find( pack->acct_in_use, acct );
     if( FD_LIKELY( use ) ) {
       use->in_use_by |= FD_PACK_IN_USE_BIT_CLEARED;
       release_result_t ret = { .clear_rw_bit = bit,
@@ -1953,6 +1993,11 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   ulong min_cus   = ULONG_MAX;
   ulong min_bytes = ULONG_MAX;
 
+  /* Per account index: the conflict check's probes, reused by the take */
+  fd_pack_addr_use_t  * use_probe  [ FD_TXN_ACCT_ADDR_MAX ];
+  fd_pack_wcost_ele_t * wcost_probe[ FD_TXN_ACCT_ADDR_MAX ];
+  ulong                 use_found; /* bit k: use_probe[k] holds account k */
+
   treap_rev_iter_t prev = treap_idx_null();
   for( treap_rev_iter_t _cur=treap_rev_iter_init( sched_from, pool ); !treap_rev_iter_done( _cur ); _cur=prev ) {
     /* Capture next so that we can delete while we iterate. */
@@ -2022,21 +2067,27 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
     fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
     /* Check conflicts between this transaction's writable accounts and
-       current readers */
+       current readers.  The probes are kept for the take below. */
+    use_found = 0UL;
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-      fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
+      fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+      ulong                  k    = fd_txn_acct_iter_idx( iter );
 
-      fd_pack_wcost_ele_t const * in_wcost_table = wcost_map_ele_query_const( writer_costs, &acct, NULL, writers );
+      fd_pack_wcost_ele_t * in_wcost_table = wcost_map_ele_query( writer_costs, acct, NULL, writers );
+      wcost_probe[ k ] = in_wcost_table;
       if( FD_UNLIKELY( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > max_write_cost_per_acct ) ) {
         /* Can't be scheduled until the next block */
         conflicts = ULONG_MAX;
         break;
       }
 
-      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use, acct, NULL );
-      if( FD_UNLIKELY( use ) ) conflicts |= use->in_use_by; /* break? */
+      fd_pack_addr_use_t * use   = acct_uses_probe( acct_in_use, acct );
+      ulong                found = (ulong)!acct_uses_key_inval( use->key );
+      use_probe[ k ] = use;
+      use_found |= found<<k;
+      if( FD_UNLIKELY( found ) ) conflicts |= use->in_use_by; /* break? */
     }
 
     if( FD_UNLIKELY( conflicts==ULONG_MAX ) ) {
@@ -2076,8 +2127,11 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
       if( fd_pack_unwritable_contains( acct ) ) continue; /* No need to track sysvars because they can't be writable */
 
-      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  *acct, NULL );
-      if( use ) conflicts |= (use->in_use_by & FD_PACK_IN_USE_WRITABLE) ? use->in_use_by : 0UL;
+      fd_pack_addr_use_t * use   = acct_uses_probe( acct_in_use, acct );
+      ulong                found = (ulong)!acct_uses_key_inval( use->key );
+      use_probe[ fd_txn_acct_iter_idx( iter ) ] = use;
+      use_found |= found<<fd_txn_acct_iter_idx( iter );
+      if( found ) conflicts |= (use->in_use_by & FD_PACK_IN_USE_WRITABLE) ? use->in_use_by : 0UL;
     }
 
     if( FD_UNLIKELY( conflicts ) ) {
@@ -2096,19 +2150,21 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-      fd_acct_addr_t acct_addr = *ACCT_ITER_TO_PTR( iter );
+      fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+      ulong                  k    = fd_txn_acct_iter_idx( iter );
 
-      fd_pack_wcost_ele_t * in_wcost_table = wcost_map_ele_query( writer_costs, &acct_addr, NULL, writers );
+      fd_pack_wcost_ele_t * in_wcost_table = wcost_probe[ k ];
       if( !in_wcost_table ) {
         in_wcost_table = wcost_pool_ele_acquire( writers );
-        in_wcost_table->key        = acct_addr;
+        in_wcost_table->key        = *acct;
         in_wcost_table->total_cost = 0UL;
         wcost_map_ele_insert     ( writer_costs, in_wcost_table, writers );
         wcost_dlist_ele_push_tail( written_list, in_wcost_table, writers );
       }
       in_wcost_table->total_cost += cur->compute_est;
 
-      fd_pack_addr_use_t * use = acct_uses_insert( acct_in_use, acct_addr );
+      fd_pack_addr_use_t * use = use_probe[ k ];
+      if( FD_LIKELY( !((use_found>>k) & 1UL) ) ) use = acct_uses_insert_at( acct_in_use, use, acct );
       use->in_use_by = bank_tile_mask | FD_PACK_IN_USE_WRITABLE;
 
       use_by_bank[use_by_bank_cnt++] = *use;
@@ -2117,26 +2173,27 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
          heap, it can't cause any conflicts.  That means we actually
          don't need to record that we are using it, which is good
          because we want to release the bit. */
-      release_result_t ret = release_bit_reference( pack, &acct_addr );
+      release_result_t ret = release_bit_reference( pack, acct );
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, ret.clear_rw_bit );
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  ret.clear_w_bit  );
     }
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
         iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-      fd_acct_addr_t acct_addr = *ACCT_ITER_TO_PTR( iter );
+      fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
 
-      if( fd_pack_unwritable_contains( &acct_addr ) ) continue; /* No need to track sysvars because they can't be writable */
+      if( fd_pack_unwritable_contains( acct ) ) continue; /* No need to track sysvars because they can't be writable */
 
-      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct_addr, NULL );
-      if( !use ) { use = acct_uses_insert( acct_in_use, acct_addr ); use->in_use_by = 0UL; }
+      ulong                k   = fd_txn_acct_iter_idx( iter );
+      fd_pack_addr_use_t * use = use_probe[ k ];
+      if( !((use_found>>k) & 1UL) ) { use = acct_uses_insert_at( acct_in_use, use, acct ); use->in_use_by = 0UL; }
 
       if( !(use->in_use_by & bank_tile_mask) ) use_by_bank[use_by_bank_cnt++] = *use;
       use->in_use_by |= bank_tile_mask;
       use->in_use_by &= ~FD_PACK_IN_USE_BIT_CLEARED;
 
 
-      release_result_t ret = release_bit_reference( pack, &acct_addr );
+      release_result_t ret = release_bit_reference( pack, acct );
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, ret.clear_rw_bit );
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  ret.clear_w_bit  );
     }
@@ -2208,7 +2265,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
   ulong                     txn_cnt      = 0UL;
 
   for( ulong i=0UL; i<pack->use_by_bank_cnt[bank_tile]; i++ ) {
-    fd_pack_addr_use_t * use = acct_uses_query( pack->acct_in_use, base[i].key, NULL );
+    fd_pack_addr_use_t * use = acct_uses_find( pack->acct_in_use, &base[i].key );
     FD_TEST( use );
     use->in_use_by &= clear_mask;
 
@@ -2753,21 +2810,34 @@ fd_pack_insert_txn_fini_express( fd_pack_t  * pack,
   ulong max_write_cost_per_acct = pack->lim->max_write_cost_per_acct;
 
   /* Conflicts with outstanding microblocks, as schedule_impl checks
-     them.  Nothing is pending so no bitset fast path applies. */
+     them.  Nothing is pending so no bitset fast path applies.  The
+     probes are kept for the take. */
+  fd_pack_addr_use_t  * use_probe  [ FD_TXN_ACCT_ADDR_MAX ];
+  fd_pack_wcost_ele_t * wcost_probe[ FD_TXN_ACCT_ADDR_MAX ];
+  ulong                 use_found = 0UL;
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    fd_acct_addr_t acct = *ACCT_ITER_TO_PTR( iter );
-    fd_pack_wcost_ele_t const * in_wcost_table = wcost_map_ele_query_const( writer_costs, &acct, NULL, writers );
+    fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+    ulong                  k    = fd_txn_acct_iter_idx( iter );
+    fd_pack_wcost_ele_t * in_wcost_table = wcost_map_ele_query( writer_costs, acct, NULL, writers );
+    wcost_probe[ k ] = in_wcost_table;
     if( FD_UNLIKELY( in_wcost_table && in_wcost_table->total_cost+cus>max_write_cost_per_acct ) ) return 0;
-    fd_pack_addr_use_t const * use = acct_uses_query( acct_in_use, acct, NULL );
-    if( FD_UNLIKELY( use && use->in_use_by ) ) return 0;
+    fd_pack_addr_use_t * use   = acct_uses_probe( acct_in_use, acct );
+    ulong                found = (ulong)!acct_uses_key_inval( use->key );
+    use_probe[ k ] = use;
+    use_found |= found<<k;
+    if( FD_UNLIKELY( found && use->in_use_by ) ) return 0;
   }
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
     fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
     if( fd_pack_unwritable_contains( acct ) ) continue;
-    fd_pack_addr_use_t const * use = acct_uses_query( acct_in_use, *acct, NULL );
-    if( FD_UNLIKELY( use && (use->in_use_by & FD_PACK_IN_USE_WRITABLE) ) ) return 0;
+    ulong                k     = fd_txn_acct_iter_idx( iter );
+    fd_pack_addr_use_t * use   = acct_uses_probe( acct_in_use, acct );
+    ulong                found = (ulong)!acct_uses_key_inval( use->key );
+    use_probe[ k ] = use;
+    use_found |= found<<k;
+    if( FD_UNLIKELY( found && (use->in_use_by & FD_PACK_IN_USE_WRITABLE) ) ) return 0;
   }
 
   /* Take it: what schedule_impl does for a taken transaction, minus the
@@ -2783,30 +2853,33 @@ fd_pack_insert_txn_fini_express( fd_pack_t  * pack,
 
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    fd_acct_addr_t acct_addr = *ACCT_ITER_TO_PTR( iter );
+    fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+    ulong                  k    = fd_txn_acct_iter_idx( iter );
 
-    fd_pack_wcost_ele_t * in_wcost_table = wcost_map_ele_query( writer_costs, &acct_addr, NULL, writers );
+    fd_pack_wcost_ele_t * in_wcost_table = wcost_probe[ k ];
     if( !in_wcost_table ) {
       in_wcost_table = wcost_pool_ele_acquire( writers );
-      in_wcost_table->key        = acct_addr;
+      in_wcost_table->key        = *acct;
       in_wcost_table->total_cost = 0UL;
       wcost_map_ele_insert     ( writer_costs,       in_wcost_table, writers );
       wcost_dlist_ele_push_tail( pack->written_list, in_wcost_table, writers );
     }
     in_wcost_table->total_cost += cus;
 
-    fd_pack_addr_use_t * use = acct_uses_insert( acct_in_use, acct_addr );
+    fd_pack_addr_use_t * use = use_probe[ k ];
+    if( FD_LIKELY( !((use_found>>k) & 1UL) ) ) use = acct_uses_insert_at( acct_in_use, use, acct );
     use->in_use_by = bank_tile_mask | FD_PACK_IN_USE_WRITABLE | FD_PACK_IN_USE_BIT_CLEARED;
 
     use_by_bank[use_by_bank_cnt++] = *use;
   }
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    fd_acct_addr_t acct_addr = *ACCT_ITER_TO_PTR( iter );
-    if( fd_pack_unwritable_contains( &acct_addr ) ) continue;
+    fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+    if( fd_pack_unwritable_contains( acct ) ) continue;
+    ulong                k   = fd_txn_acct_iter_idx( iter );
 
-    fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct_addr, NULL );
-    if( !use ) { use = acct_uses_insert( acct_in_use, acct_addr ); use->in_use_by = 0UL; }
+    fd_pack_addr_use_t * use = use_probe[ k ];
+    if( !((use_found>>k) & 1UL) ) { use = acct_uses_insert_at( acct_in_use, use, acct ); use->in_use_by = 0UL; }
 
     if( !(use->in_use_by & bank_tile_mask) ) use_by_bank[use_by_bank_cnt++] = *use;
     use->in_use_by |= bank_tile_mask | FD_PACK_IN_USE_BIT_CLEARED;
