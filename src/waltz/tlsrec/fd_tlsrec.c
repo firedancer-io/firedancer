@@ -28,21 +28,19 @@ fd_tlsrec_nonce( uchar iv[ static 12 ], uchar const base[ static 12 ], ulong seq
 static int
 fd_tlsrec_decrypt( uchar * p, uchar const * c, ulong sz,
                    fd_tlsrec_hdr_t const * hdr, ulong seq,
-                   uchar const tag[16], fd_tlsrec_keys_t const * k ) {
+                   uchar const tag[16], fd_tlsrec_keys_t * k ) {
   uchar iv[12]; fd_tlsrec_nonce( iv, k->read_iv, seq );
-  fd_aes_gcm_t gcm[1];
-  fd_aes_gcm_init( gcm, k->read_key, 16UL, iv );
-  return fd_aes_gcm_decrypt( gcm, c, p, sz, (uchar const *)hdr, sizeof(*hdr), tag );
+  fd_aes_gcm_set_iv( &k->read_gcm, iv );
+  return fd_aes_gcm_decrypt( &k->read_gcm, c, p, sz, (uchar const *)hdr, sizeof(*hdr), tag );
 }
 
 static void
 fd_tlsrec_encrypt( uchar * c, uchar const * p, ulong sz,
                    fd_tlsrec_hdr_t const * hdr, ulong seq,
-                   uchar tag[16], fd_tlsrec_keys_t const * k ) {
+                   uchar tag[16], fd_tlsrec_keys_t * k ) {
   uchar iv[12]; fd_tlsrec_nonce( iv, k->write_iv, seq );
-  fd_aes_gcm_t gcm[1];
-  fd_aes_gcm_init( gcm, k->write_key, 16UL, iv );
-  fd_aes_gcm_encrypt( gcm, c, p, sz, (uchar const *)hdr, sizeof(*hdr), tag );
+  fd_aes_gcm_set_iv( &k->write_gcm, iv );
+  fd_aes_gcm_encrypt( &k->write_gcm, c, p, sz, (uchar const *)hdr, sizeof(*hdr), tag );
 }
 
 /* Transmit path ********************************************************/
@@ -94,21 +92,24 @@ fd_tlsrec_tx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_tx,
 /* RFC 8446 §7.3 */
 
 static void
-fd_tlsrec_derive_traffic_key( uchar       key[ static 16 ],
-                              uchar       iv[ static 12 ],
-                              uchar const secret[ static 32 ] ) {
+fd_tlsrec_derive_traffic_key( fd_aes_gcm_t * gcm,
+                              uchar          key[ static 16 ],
+                              uchar          iv[ static 12 ],
+                              uchar const    secret[ static 32 ] ) {
   fd_tls_hkdf_expand_label( key, 16UL, secret, "key", 3UL, NULL, 0UL );
   fd_tls_hkdf_expand_label( iv,  12UL, secret, "iv",  2UL, NULL, 0UL );
+  fd_aes_gcm_init( gcm, key, 16UL, iv );
 }
 
 static void
-fd_tlsrec_update_traffic_secret( uchar secret[ static 32 ],
-                                 uchar key[ static 16 ],
-                                 uchar iv[ static 12 ] ) {
+fd_tlsrec_update_traffic_secret( fd_aes_gcm_t * gcm,
+                                 uchar          secret[ static 32 ],
+                                 uchar          key[ static 16 ],
+                                 uchar          iv[ static 12 ] ) {
   uchar next_secret[ 32 ];
   fd_tls_hkdf_expand_label( next_secret, 32UL, secret, "traffic upd", 11UL, NULL, 0UL );
   fd_memcpy( secret, next_secret, 32UL );
-  fd_tlsrec_derive_traffic_key( key, iv, secret );
+  fd_tlsrec_derive_traffic_key( gcm, key, iv, secret );
 }
 
 static int
@@ -132,7 +133,8 @@ fd_tlsrec_send_key_update( fd_tlsrec_conn_t *  conn,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   fd_tlsrec_keys_t * keys = &conn->keys[1];
-  fd_tlsrec_update_traffic_secret( keys->write_secret, keys->write_key, keys->write_iv );
+  fd_tlsrec_update_traffic_secret( &keys->write_gcm, keys->write_secret, keys->write_key,
+                                   keys->write_iv );
   conn->write_seq = 0UL;
   return FD_TLSREC_SUCCESS;
 }
@@ -259,7 +261,8 @@ fd_tlsrec_post_hs_rx( fd_tlsrec_conn_t * conn, uchar const * msg, ulong msg_sz )
       return fd_tlsrec_fail( conn, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_KEY_UPDATE_PARSE );
 
     fd_tlsrec_keys_t * keys = &conn->keys[1];
-    fd_tlsrec_update_traffic_secret( keys->read_secret, keys->read_key, keys->read_iv );
+    fd_tlsrec_update_traffic_secret( &keys->read_gcm, keys->read_secret, keys->read_key,
+                                     keys->read_iv );
     conn->read_seq = 0UL;
 
     if( msg[4] ) return fd_tlsrec_send_key_update( conn, &hs_tbuf.tcp_tx, 0U );
@@ -372,8 +375,8 @@ cb_secrets( void const * hs, void const * rx_secret, void const * tx_secret, uin
   fd_memcpy( out->read_secret,  rx_secret, 32UL );
   fd_memcpy( out->write_secret, tx_secret, 32UL );
 
-  fd_tlsrec_derive_traffic_key( out->read_key,  out->read_iv,  rx_secret );
-  fd_tlsrec_derive_traffic_key( out->write_key, out->write_iv, tx_secret );
+  fd_tlsrec_derive_traffic_key( &out->read_gcm,  out->read_key,  out->read_iv,  rx_secret );
+  fd_tlsrec_derive_traffic_key( &out->write_gcm, out->write_key, out->write_iv, tx_secret );
 
   /* A client encrypts under handshake keys from here on (the server
      from its encrypted flight going out, see hs_tbuf_flush).  Writes
@@ -514,7 +517,7 @@ fd_tlsrec_rx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_rx, fd_tlsrec_sli
 
   uint enc_level = ( hs->state == FD_TLS_HS_CONNECTED )
                    ? FD_TLS_LEVEL_APPLICATION : FD_TLS_LEVEL_HANDSHAKE;
-  fd_tlsrec_keys_t const * keys = &conn->keys[ enc_level==FD_TLS_LEVEL_APPLICATION ];
+  fd_tlsrec_keys_t * keys = &conn->keys[ enc_level==FD_TLS_LEVEL_APPLICATION ];
 
   uchar const * tag  = rec + rec_sz - FD_AES_GCM_TAG_SZ;
   uchar *       c    = rec + sizeof(fd_tlsrec_hdr_t);
