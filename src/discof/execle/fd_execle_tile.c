@@ -283,9 +283,6 @@ handle_microblock( fd_execle_tile_t *  ctx,
                    ulong               sz,
                    ulong               begin_tspub,
                    fd_stem_context_t * stem ) {
-  long const exec_start_ticks       = fd_tickcount();
-  long const microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, exec_start_ticks );
-
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
@@ -299,8 +296,14 @@ handle_microblock( fd_execle_tile_t *  ctx,
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt        = (fd_txn_ns_dt_t){0};
   trailer->bank_seq         = bank->bank_seq;
-  trailer->exec_start_ticks = exec_start_ticks;
   trailer->exec_end_ticks   = LONG_MAX;
+
+  /* exec_start_ticks is the first transaction's load_start_ticks (an
+     empty microblock reads the clock itself); microblock_start_ticks
+     stays pack's publish time, decompressed against it. */
+  long exec_start_ticks       = txn_cnt ? 0L : fd_tickcount();
+  long microblock_start_ticks = txn_cnt ? 0L : fd_frag_meta_ts_decomp( begin_tspub, exec_start_ticks );
+  long last_ticks             = exec_start_ticks;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
@@ -323,6 +326,12 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 
+    if( FD_UNLIKELY( !i ) ) {
+      exec_start_ticks       = txn_out->details.load_start_ticks;
+      microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, exec_start_ticks );
+      last_ticks             = exec_start_ticks;
+    }
+
     /* Stash the result in the flags value so that pack can inspect it. */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
 
@@ -340,6 +349,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
       fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+      last_ticks = fd_tickcount();
       continue;
     }
 
@@ -363,6 +373,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
         fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
         /* FD_TXN_P_FLAGS_EXECUTE_SUCCESS = 0 ensures txn won't be
            mixed-in by POH */
+        last_ticks = fd_tickcount();
         continue;
       }
     }
@@ -392,6 +403,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
     fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
 
     long const txn_end_ticks = fd_tickcount();
+    last_ticks = txn_end_ticks;
 
     ulong const load_ticks_dt   = fd_ulong_if( txn_out->details.check_start_ticks==LONG_MAX  || txn_out->details.load_start_ticks==LONG_MAX,   0UL, (ulong)( txn_out->details.check_start_ticks  - txn_out->details.load_start_ticks   ) );
     ulong const check_ticks_dt  = fd_ulong_if( txn_out->details.exec_start_ticks==LONG_MAX   || txn_out->details.check_start_ticks==LONG_MAX,  0UL, (ulong)( txn_out->details.exec_start_ticks   - txn_out->details.check_start_ticks  ) );
@@ -465,8 +477,9 @@ handle_microblock( fd_execle_tile_t *  ctx,
      (mixin) to the PoH hash.  This is done on the execle tile because
      it shards / scales horizontally here, while PoH does not. */
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
-  trailer->pack_txn_idx = ctx->_txn_idx;
-  trailer->tips         = ctx->txn_out[ 0 ].details.tips;
+  trailer->pack_txn_idx     = ctx->_txn_idx;
+  trailer->tips             = ctx->txn_out[ 0 ].details.tips;
+  trailer->exec_start_ticks = exec_start_ticks;
 
   /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_p_t to PoH,
      there's always extra bytes at the end to stash the trailer. */
@@ -477,9 +490,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks
-     it has seen. */
+     it has seen.  PoH ignores tspub and the GUI takes it as the end of
+     execution, which every path through the loop leaves in last_ticks. */
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-  fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( last_ticks ) );
   ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
 }
 

@@ -37,6 +37,8 @@ struct test_env {
   fd_svm_mini_t *    mini;
   fd_execle_tile_t * execle;
   ulong              bank_idx;
+  /* pack's publish time handed to the last test_execle_run */
+  ulong              begin_tspub;
 };
 
 typedef struct test_env test_env_t;
@@ -611,7 +613,8 @@ test_execle_run( test_env_t *     env,
   during_frag( env->execle, 0UL, 0UL, sig, in_chunk, sz, 0UL );
 
   fd_stem_context_t stem[1];
-  after_frag( env->execle, 0UL, 0UL, sig, sz, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execle, stem ) );
+  env->begin_tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  after_frag( env->execle, 0UL, 0UL, sig, sz, 0UL, env->begin_tspub, test_stem( env->execle, stem ) );
   FD_TEST( fd_fseq_query( env->execle->busy_fseq )==0UL );
 }
 
@@ -673,6 +676,21 @@ test_compute_expected_hash( fd_txn_p_t * txns,
                             uchar        expected_hash[32] ) {
   uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   hash_transactions( bmtree_mem, txns, txn_cnt, expected_hash );
+}
+
+/* tsorig is pack's publish time; exec_start_ticks is the first
+   transaction's load_start_ticks when there is one; tspub is the end
+   of execution, after exec_start_ticks and strictly after it once a
+   transaction ran (the tile keeps no other copy of that tick). */
+static void
+test_assert_nonbundle_timing( test_env_t * env,
+                              ulong        txn_cnt ) {
+  fd_frag_meta_t const *          meta    = test_out_poh_meta( 0UL );
+  fd_microblock_trailer_t const * trailer = test_out_poh_trailer_nonbundle( env, txn_cnt );
+  FD_TEST( meta->tsorig==(uint)env->begin_tspub );
+  if( txn_cnt ) FD_TEST( trailer->exec_start_ticks==env->execle->txn_out[0].details.load_start_ticks );
+  long end_ticks = fd_frag_meta_ts_decomp( meta->tspub, trailer->exec_start_ticks );
+  FD_TEST( txn_cnt ? end_ticks>trailer->exec_start_ticks : end_ticks>=trailer->exec_start_ticks );
 }
 
 static void
@@ -975,6 +993,14 @@ FD_UNIT_TEST( execle_bundle_vote_authorize ) {
   test_env_destroy( env );
 }
 
+FD_UNIT_TEST( execle_empty_microblock ) {
+  test_env_t * env = test_env_create();
+  test_execle_run( env, NULL, 0UL, 7U, 21UL, 0 );
+  test_assert_nonbundle_out( env, 0UL, 7U );
+  test_assert_nonbundle_timing( env, 0UL );
+  test_env_destroy( env );
+}
+
 FD_UNIT_TEST( execle_simple_ok ) {
   /* Simple system program transfer */
   test_env_t * env = test_env_create();
@@ -999,6 +1025,7 @@ FD_UNIT_TEST( execle_simple_ok ) {
   test_execle_run( env, txn, 1UL, 3U, 17UL, 0 );
 
   test_assert_nonbundle_out( env, 1UL, 3U );
+  test_assert_nonbundle_timing( env, 1UL );
   fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta( 0UL )->chunk );
   FD_TEST( env->execle->txn_out[0].err.is_committable );
   FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
@@ -1043,6 +1070,7 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail ) {
   test_execle_run( env, txn, 1UL, 4U, 18UL, 0 );
 
   test_assert_nonbundle_out( env, 1UL, 4U );
+  test_assert_nonbundle_timing( env, 1UL );
   fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta( 0UL )->chunk );
   FD_TEST( !env->execle->txn_out[0].err.is_committable );
   FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
@@ -1089,6 +1117,7 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail_relaxed ) {
   test_execle_run( env, txn, 1UL, 4U, 18UL, 0 );
 
   test_assert_nonbundle_out( env, 1UL, 4U );
+  test_assert_nonbundle_timing( env, 1UL );
   fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta( 0UL )->chunk );
   FD_TEST( env->execle->txn_out[0].err.is_noop );
 
