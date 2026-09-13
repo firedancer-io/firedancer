@@ -39,7 +39,17 @@ typedef struct {
   ulong dedup_tag;
   int   dedup;
   uchar sig_cnt;
+  uchar out_idx; /* the dedup tile it goes to */
 } fd_verify_batch_txn_t;
+
+/* One out link per dedup tile; a transaction's dedup is chosen by its
+   first signature so duplicates from different verify tiles meet. */
+#define FD_VERIFY_OUT_MAX (8UL)
+typedef struct {
+  ulong chunk0;
+  ulong wmark;
+  ulong chunk;
+} fd_verify_out_ctx_t;
 
 typedef struct {
   fd_sha512_t * sha[ FD_TXN_SIG_MAX ];
@@ -77,10 +87,10 @@ typedef struct {
   ulong              in_kind[ 32 ];
   fd_verify_in_ctx_t in[ 32 ];
 
-  fd_wksp_t * out_mem;
-  ulong       out_chunk0;
-  ulong       out_wmark;
-  ulong       out_chunk;
+  fd_wksp_t *         out_mem; /* every out link's dcache is in this workspace */
+  ulong               out_cnt;
+  ulong               cur_out; /* chosen in during_frag */
+  fd_verify_out_ctx_t out[ FD_VERIFY_OUT_MAX ];
 
   ulong       hashmap_seed;
 

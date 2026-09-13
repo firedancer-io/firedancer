@@ -83,19 +83,27 @@ during_frag( fd_verify_ctx_t * ctx,
              ulong             ctl FD_PARAM_UNUSED ) {
 
   ulong in_kind = ctx->in_kind[ in_idx ];
+  ctx->cur_out = 0UL; /* bundles, gossip votes and txsend all go to dedup 0 */
   if( FD_UNLIKELY( in_kind==IN_KIND_BUNDLE || in_kind==IN_KIND_QUIC || in_kind==IN_KIND_TXSEND ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>FD_TPU_RAW_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark, FD_TPU_RAW_MTU ));
 
     uchar * src = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-    uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    /* The first signature starts at payload byte 1; its low bytes pick
+       the dedup tile.  Read before the copy so it lands in that dcache. */
+    if( FD_LIKELY( in_kind==IN_KIND_QUIC && ctx->out_cnt>1UL ) ) {
+      fd_txn_m_t const * m = (fd_txn_m_t const *)src;
+      ulong payload_off = (ulong)fd_txn_m_payload( (fd_txn_m_t *)m )-(ulong)m;
+      if( FD_LIKELY( sz>=payload_off+9UL ) ) ctx->cur_out = fd_ulong_load_8( src+payload_off+1UL ) % ctx->out_cnt;
+    }
+    uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out[ ctx->cur_out ].chunk );
     fd_memcpy( dst, src, sz );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>2048UL ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
 
     fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
-    fd_txn_m_t * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    fd_txn_m_t * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out[ 0 ].chunk );
 
     dst->payload_sz = (ushort)msg->vote->value->transaction_len;
     dst->block_engine.bundle_id = 0UL;
@@ -138,7 +146,7 @@ batch_flush( fd_verify_ctx_t *   ctx,
     }
 
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, 0UL, 0UL, t->chunk, t->realized_sz, 0UL, t->tsorig, tspub );
+    fd_stem_publish( stem, t->out_idx, 0UL, t->chunk, t->realized_sz, 0UL, t->tsorig, tspub );
     ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_SUCCESS_IDX ]++;
   }
 
@@ -172,14 +180,16 @@ batch_enqueue( fd_verify_ctx_t *   ctx,
   }
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
+  fd_verify_out_ctx_t * out = ctx->out + ctx->cur_out;
   fd_verify_batch_txn_t * t = ctx->batch_txn + ctx->batch_txn_cnt++;
-  t->chunk       = ctx->out_chunk;
+  t->chunk       = out->chunk;
   t->realized_sz = realized_sz;
   t->tsorig      = tsorig;
   t->dedup_tag   = dedup_tag;
   t->dedup       = dedup;
   t->sig_cnt     = txn->signature_cnt;
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
+  t->out_idx     = (uchar)ctx->cur_out;
+  out->chunk = fd_dcache_compact_next( out->chunk, realized_sz, out->chunk0, out->wmark );
 
   if( FD_LIKELY( ctx->batch_sig_cnt>=FD_VERIFY_BATCH_SIG_MAX || ctx->batch_txn_cnt>=FD_VERIFY_BATCH_TXN_MAX ) ) batch_flush( ctx, stem );
 }
@@ -230,7 +240,8 @@ after_frag( fd_verify_ctx_t *   ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_TXSEND ) ) ctx->metrics.gossiped_votes_cnt++;
 
-  fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_verify_out_ctx_t * out = ctx->out + ctx->cur_out;
+  fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, out->chunk );
   if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
     FD_LOG_ERR(( "verify: txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
   }
@@ -291,8 +302,8 @@ after_frag( fd_verify_ctx_t *   ctx,
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
+  fd_stem_publish( stem, ctx->cur_out, 0UL, out->chunk, realized_sz, 0UL, tsorig, tspub );
+  out->chunk = fd_dcache_compact_next( out->chunk, realized_sz, out->chunk0, out->wmark );
 
   ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_SUCCESS_IDX ]++;
 }
@@ -364,10 +375,17 @@ unprivileged_init( fd_topo_t const *      topo,
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
+  ctx->out_cnt = fd_ulong_max( 1UL, tile->out_cnt ); /* unit tests mock a tile with no outs */
+  FD_CHECK_ERR( ctx->out_cnt<=FD_VERIFY_OUT_MAX, "verify has too many out links" );
+  ctx->out_mem = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
+    FD_CHECK_ERR( topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp==ctx->out_mem, "verify out links must share a workspace" );
+    ctx->out[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, link->dcache );
+    ctx->out[ i ].wmark  = fd_dcache_compact_wmark ( ctx->out_mem, link->dcache, link->mtu );
+    ctx->out[ i ].chunk  = ctx->out[ i ].chunk0;
+  }
+  ctx->cur_out = 0UL;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

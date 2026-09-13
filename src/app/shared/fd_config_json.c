@@ -358,6 +358,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "sign_tile_count",            f->layout.sign_tile_count );
     jw_ulong( &w, "gossvf_tile_count",          f->layout.gossvf_tile_count );
     jw_ulong( &w, "resolv_tile_count",          f->layout.resolv_tile_count );
+    jw_ulong( &w, "dedup_tile_count",           f->layout.dedup_tile_count );
     jw_ulong( &w, "execle_tile_count",          f->layout.execle_tile_count );
     jw_ulong( &w, "execrp_tile_count",          f->layout.execrp_tile_count );
     jw_ulong( &w, "snapzp_tile_count",          f->layout.snapzp_tile_count );

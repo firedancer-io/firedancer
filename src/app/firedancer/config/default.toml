@@ -924,6 +924,11 @@ telemetry = true
     # transaction metadata like the age of the blockhash it references.
     resolv_tile_count = 1
 
+    # How many dedup tiles to run.  Verify tiles send each transaction
+    # to the dedup tile chosen by its signature, so duplicates always
+    # meet, and bundles always go to the first.
+    dedup_tile_count = 1
+
     # How many verify tiles to run.  Verify tiles perform signature
     # verification on incoming transactions, an expensive operation that
     # is often the bottleneck of the validator.

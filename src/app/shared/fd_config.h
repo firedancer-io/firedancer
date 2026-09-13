@@ -110,6 +110,7 @@ struct fd_configf {
     uint sign_tile_count;
     uint gossvf_tile_count;
     uint resolv_tile_count;
+    uint dedup_tile_count;
     uint execle_tile_count;
     uint execrp_tile_count;
     uint snapdc_tile_count;
