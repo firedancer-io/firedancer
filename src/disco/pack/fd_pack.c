@@ -1091,8 +1091,10 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
      so the denominator is never zero.
      1 <= divisor <= 1 + (max_cost_per_block * .000206)
      */
-  ulong divisor = 1UL + (allocated_data * lim->max_cost_per_block) / (cost_estimate * lim->max_allocated_data_per_block);
-  out->rewards /= (uint)divisor;
+  if( FD_LIKELY( allocated_data ) ) { /* else divisor 1: skip two divides */
+    ulong divisor = 1UL + (allocated_data * lim->max_cost_per_block) / (cost_estimate * lim->max_allocated_data_per_block);
+    out->rewards /= (uint)divisor;
+  }
 
   return fd_int_if( est->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, 1, 2 );
 }
@@ -1153,6 +1155,35 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { t
       ulong __idx = fd_txn_acct_iter_idx( iter );                                              \
       fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
       }))
+
+void
+fd_pack_insert_txn_prefetch( fd_pack_t const      * pack,
+                             fd_txn_t const       * txn,
+                             uchar const          * payload,
+                             fd_acct_addr_t const * alt_accts ) {
+#if FD_HAS_X86
+  /* Each account's slot in the four maps is a random line that the
+     hot accounts recur too slowly to keep in L2. */
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
+  fd_acct_addr_t const * alt_adj = alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  ulong bs_seed = bitset_map_seed  ( pack->acct_to_bitset );  ulong bs_mask = bitset_map_slot_cnt  ( pack->acct_to_bitset  )-1UL;
+  ulong au_seed = acct_uses_seed   ( pack->acct_in_use    );  ulong au_mask = acct_uses_slot_cnt   ( pack->acct_in_use     )-1UL;
+  ulong pn_seed = penalty_map_seed ( pack->penalty_treaps );  ulong pn_mask = penalty_map_slot_cnt ( pack->penalty_treaps  )-1UL;
+  ulong wc_seed = pack->writer_costs->seed;                   ulong wc_mask = pack->writer_costs->chain_cnt-1UL;
+  uint const * wc_chain = wcost_map_private_chain_const( pack->writer_costs );
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE|FD_TXN_ACCT_CAT_READONLY );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
+    if( FD_UNLIKELY( fd_pack_unwritable_contains( acct ) ) ) continue;
+    _mm_prefetch( pack->acct_to_bitset+( fd_hash32( acct->b, bs_seed ) & bs_mask ), _MM_HINT_T0 );
+    _mm_prefetch( pack->acct_in_use   +( fd_hash32( acct->b, au_seed ) & au_mask ), _MM_HINT_T0 );
+    _mm_prefetch( pack->penalty_treaps+( fd_hash32( acct->b, pn_seed ) & pn_mask ), _MM_HINT_T0 );
+    _mm_prefetch( wc_chain            +( fd_hash32( acct->b, wc_seed ) & wc_mask ), _MM_HINT_T0 );
+  }
+#else
+  (void)pack; (void)txn; (void)payload; (void)alt_accts;
+#endif
+}
 
 
 /* Tries to find the worst transaction in any treap in pack.  If that
@@ -1364,18 +1395,6 @@ populate_bitsets( fd_pack_t         * pack,
 
   ulong  cumulative_penalty = 0UL;
   ulong  penalty_i          = 0UL;
-
-  /* Scheduling this transaction looks every account up in acct_in_use,
-     whose slot for a fresh account is a cold line; warm them now. */
-  {
-    ulong uses_seed = acct_uses_seed( pack->acct_in_use );
-    ulong uses_mask = acct_uses_slot_cnt( pack->acct_in_use )-1UL;
-    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE|FD_TXN_ACCT_CAT_READONLY );
-        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-      ulong slot = acct_uses_key_hash( *ACCT_ITER_TO_PTR( iter ), uses_seed ) & uses_mask;
-      __builtin_prefetch( pack->acct_in_use+slot, 0, 2 );
-    }
-  }
 
   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
@@ -1912,9 +1931,11 @@ typedef struct {
   ushort clear_w_bit;
 } release_result_t;
 
+/* use is acct's acct_in_use entry when the caller has it, else NULL */
 static inline release_result_t
 release_bit_reference( fd_pack_t            * pack,
-                       fd_acct_addr_t const * acct ) {
+                       fd_acct_addr_t const * acct,
+                       fd_pack_addr_use_t   * use ) {
 
   fd_pack_bitset_acct_mapping_t * q = bitset_map_find( pack->acct_to_bitset, acct );
   FD_TEST( q ); /* q==NULL not be possible */
@@ -1926,7 +1947,7 @@ release_bit_reference( fd_pack_t            * pack,
     bitset_map_remove( pack->acct_to_bitset, q );
     if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
 
-    fd_pack_addr_use_t * use = acct_uses_find( pack->acct_in_use, acct );
+    if( !use ) use = acct_uses_find( pack->acct_in_use, acct );
     if( FD_LIKELY( use ) ) {
       use->in_use_by |= FD_PACK_IN_USE_BIT_CLEARED;
       release_result_t ret = { .clear_rw_bit = bit,
@@ -2206,7 +2227,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
          heap, it can't cause any conflicts.  That means we actually
          don't need to record that we are using it, which is good
          because we want to release the bit. */
-      release_result_t ret = release_bit_reference( pack, acct );
+      release_result_t ret = release_bit_reference( pack, acct, use );
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, ret.clear_rw_bit );
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  ret.clear_w_bit  );
     }
@@ -2226,7 +2247,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       use->in_use_by &= ~FD_PACK_IN_USE_BIT_CLEARED;
 
 
-      release_result_t ret = release_bit_reference( pack, acct );
+      release_result_t ret = release_bit_reference( pack, acct, use );
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, ret.clear_rw_bit );
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  ret.clear_w_bit  );
     }
@@ -2681,7 +2702,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     use_by_bank[ use_by_bank_txn[ addr_use->last_use_in-1UL ]++ ] = *use;
 
     for( ulong k=0UL; k<(ulong)addr_use->ref_cnt; k++ ) {
-      release_result_t ret = release_bit_reference( pack, &(addr_use->key) );
+      release_result_t ret = release_bit_reference( pack, &(addr_use->key), use );
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, ret.clear_rw_bit );
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  ret.clear_w_bit  );
     }
@@ -3292,7 +3313,7 @@ delete_transaction( fd_pack_t         * pack,
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
     if( FD_UNLIKELY( fd_pack_unwritable_contains( ACCT_ITER_TO_PTR( iter ) ) ) ) continue;
 
-    release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ) );
+    release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ), NULL );
     FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, ret.clear_rw_bit );
     FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  ret.clear_w_bit  );
   }

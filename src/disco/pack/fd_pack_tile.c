@@ -1147,6 +1147,9 @@ during_frag( fd_pack_ctx_t * ctx,
        The transactions should have been parsed and verified. */
     FD_MCNT_INC( PACK, TXN_NORMAL_RX, 1UL );
 
+    /* From the source, which nothing here has stored to */
+    fd_pack_insert_txn_prefetch( ctx->pack, txn, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
+
     fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
     fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    addr_table_sz );

@@ -476,6 +476,13 @@ fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                        
 int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong expires_at, ulong * delete_cnt );
 void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                                       );
 
+/* fd_pack_insert_txn_prefetch starts fetching the map slots that
+   inserting, scheduling and completing a transaction with the given
+   parsed txn, payload and address lookup table expansion (as the
+   fd_txn_e_t fields, but any copy of the same content) will probe.
+   A hint only; call it as soon as the content is at hand. */
+void fd_pack_insert_txn_prefetch( fd_pack_t const * pack, fd_txn_t const * txn, uchar const * payload, fd_acct_addr_t const * alt_accts );
+
 /* fd_pack_insert_txn_fini_express is an alternative to _fini for when
    pack has no pending transactions.  txn is then the only schedulable
    candidate, so if it passes the same checks _fini and
