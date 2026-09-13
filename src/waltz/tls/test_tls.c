@@ -34,7 +34,7 @@ test_client_hello_decode( void ) {
       .host_name_len = 7
     },
     .supported_groups = { .x25519 = 1 },
-    .signature_algorithms = { .ed25519 = 1 },
+    .signature_algorithms = { .ed25519 = 1, .ecdsa_secp256r1_sha256 = 1 },
     .key_share = {
       .has_x25519 = 1,
       .x25519 = {
@@ -257,13 +257,13 @@ test_tls_client_wrong_ciphersuite( fd_rng_t * rng ) {
   FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
   fd_memcpy( cli_hs->server_pubkey, server->cert_public_key, 32UL );
 
-  /* Send a ClientHello with only unsupported cipher suites
-     (TLS_AES_256_GCM_SHA384) */
+  /* Send a ClientHello with only an unsupported cipher suite
+     (TLS_CHACHA20_POLY1305_SHA256) */
 
   static uchar const client_hello[] =
     { 0x01, 0x00, 0x00, 0xbb, 0x03, 0x03, 0x6a, 0x9d, 0xe3, 0xec, 0xd3, 0x52, 0x11, 0x55, 0x5d, 0x2c,
       0xe8, 0x1c, 0x96, 0xb2, 0x17, 0x0b, 0x23, 0x34, 0x8d, 0x1d, 0x82, 0x12, 0x89, 0xe0, 0x9d, 0x31,
-      0x1b, 0xc0, 0x7f, 0xe8, 0x92, 0xa3, 0x00, 0x00, 0x02, 0x13, 0x02, 0x01, 0x00, 0x00, 0x90, 0x00,
+      0x1b, 0xc0, 0x7f, 0xe8, 0x92, 0xa3, 0x00, 0x00, 0x02, 0x13, 0x03, 0x01, 0x00, 0x00, 0x90, 0x00,
       0x2b, 0x00, 0x03, 0x02, 0x03, 0x04, 0x00, 0x33, 0x00, 0x26, 0x00, 0x24, 0x00, 0x1d, 0x00, 0x20,
       0x4e, 0xf4, 0x92, 0x5b, 0x61, 0x0f, 0x99, 0x8d, 0x6f, 0xbc, 0xb7, 0x58, 0x91, 0x6b, 0x5d, 0x31,
       0x26, 0x5f, 0xc0, 0x3f, 0xc0, 0xd1, 0x49, 0xab, 0xb9, 0xd3, 0x9e, 0x46, 0x20, 0x9a, 0xd4, 0x53,
@@ -283,6 +283,25 @@ test_tls_client_wrong_ciphersuite( fd_rng_t * rng ) {
   fd_tls_delete( fd_tls_leave( server ) );
   fd_tls_delete( fd_tls_leave( client ) );
 }
+
+static ulong test_tls_quic_tp_self( void * handshake, uchar * quic_tp, ulong quic_tp_bufsz );
+
+/* ServerHello template with a 32 byte legacy_session_id_echo slot at
+   offset 39 and the cipher suite at offset 71. */
+
+static uchar const test_sh_template[] =
+  { 0x02, 0x00, 0x00, 0x76, 0x03, 0x03, 0xb0, 0x4f, 0x8f, 0xf4, 0x62, 0xd2, 0x47, 0xca, 0x62, 0x37,
+    0x19, 0x41, 0x70, 0xca, 0x83, 0x01, 0x00, 0x75, 0x76, 0xdf, 0x3b, 0xc3, 0x27, 0x1f, 0xa9, 0x85,
+    0x51, 0x80, 0x8c, 0xe7, 0x0d, 0x0f, 0x20,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x13, 0x01, 0x00, 0x00, 0x2e, 0x00, 0x2b, 0x00, 0x02,
+    0x03, 0x04, 0x00, 0x33, 0x00, 0x24, 0x00, 0x1d, 0x00, 0x20, 0xec, 0xcf, 0x96, 0x4f, 0xbe, 0xf6,
+    0xf9, 0x1e, 0xaf, 0xe8, 0x03, 0x88, 0xb2, 0x7e, 0x50, 0x48, 0xf6, 0x4a, 0x61, 0x0f, 0x54, 0x40,
+    0xca, 0xac, 0x3e, 0x66, 0x27, 0x93, 0xe4, 0x5b, 0x6d, 0x15 };
+
+#define TEST_SH_SESSION_ID_OFF (39UL)
+#define TEST_SH_CIPHER_OFF     (71UL)
 
 static void
 test_tls_server_wrong_ciphersuite( fd_rng_t * rng ) {
@@ -304,19 +323,59 @@ test_tls_server_wrong_ciphersuite( fd_rng_t * rng ) {
 
   /* ClientHello */
   fd_tls_client_handshake( client, cli_hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL );
+  FD_TEST( cli_hs->session_id_sz == 32 );
 
   /* Send a ServerHello with the cipher suite the client didn't offer */
-  static uchar const server_hello[] =
-    { 0x02, 0x00, 0x00, 0x56, 0x03, 0x03, 0xb0, 0x4f, 0x8f, 0xf4, 0x62, 0xd2, 0x47, 0xca, 0x62, 0x37,
-      0x19, 0x41, 0x70, 0xca, 0x83, 0x01, 0x00, 0x75, 0x76, 0xdf, 0x3b, 0xc3, 0x27, 0x1f, 0xa9, 0x85,
-      0x51, 0x80, 0x8c, 0xe7, 0x0d, 0x0f, 0x00, 0x13, 0x02, 0x00, 0x00, 0x2e, 0x00, 0x2b, 0x00, 0x02,
-      0x03, 0x04, 0x00, 0x33, 0x00, 0x24, 0x00, 0x1d, 0x00, 0x20, 0xec, 0xcf, 0x96, 0x4f, 0xbe, 0xf6,
-      0xf9, 0x1e, 0xaf, 0xe8, 0x03, 0x88, 0xb2, 0x7e, 0x50, 0x48, 0xf6, 0x4a, 0x61, 0x0f, 0x54, 0x40,
-      0xca, 0xac, 0x3e, 0x66, 0x27, 0x93, 0xe4, 0x5b, 0x6d, 0x15 };
+  uchar server_hello[ sizeof(test_sh_template) ];
+  fd_memcpy( server_hello, test_sh_template, sizeof(test_sh_template) );
+  fd_memcpy( server_hello+TEST_SH_SESSION_ID_OFF, cli_hs->session_id, 32UL );
+  server_hello[ TEST_SH_CIPHER_OFF+1 ] = 0x02; /* TLS_AES_256_GCM_SHA384 */
 
-  long alert = fd_tls_client_handshake( server, cli_hs, server_hello, sizeof(server_hello), FD_TLS_LEVEL_INITIAL );
+  long alert = fd_tls_client_handshake( client, cli_hs, server_hello, sizeof(server_hello), FD_TLS_LEVEL_INITIAL );
   FD_TEST( alert == -FD_TLS_ALERT_ILLEGAL_PARAMETER );
-  FD_TEST( cli_hs->base.reason == FD_TLS_REASON_SH_PARSE );
+  FD_TEST( cli_hs->base.reason == FD_TLS_REASON_SH_NEG_CIPHER );
+
+  test_server_hs = NULL;
+  fd_tls_estate_srv_delete( srv_hs );
+  fd_tls_estate_cli_delete( cli_hs );
+  fd_tls_delete( fd_tls_leave( server ) );
+  fd_tls_delete( fd_tls_leave( client ) );
+}
+
+/* ServerHello.legacy_session_id_echo must match ClientHello.session_id
+   (RFC 8446 Section 4.1.3).  TCP mode: echo of the wrong bytes.  QUIC
+   mode: non-empty echo where an empty one was sent. */
+
+static void
+test_tls_server_session_id_mismatch( fd_rng_t * rng,
+                                     int        quic ) {
+
+  fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  prepare_tls_pair( rng, client, server );
+  client->quic            = !!quic;
+  client->quic_tp_self_fn = test_tls_quic_tp_self;
+
+  fd_tls_estate_srv_t srv_hs[1]; FD_TEST( fd_tls_estate_srv_new( srv_hs ) );
+  test_server_hs = srv_hs;
+
+  fd_tls_estate_cli_t cli_hs[1];
+  FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+  fd_memcpy( cli_hs->server_pubkey, server->cert_public_key, 32UL );
+
+  fd_tls_client_handshake( client, cli_hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL );
+  FD_TEST( cli_hs->session_id_sz == ( quic ? 0 : 32 ) );
+
+  uchar server_hello[ sizeof(test_sh_template) ];
+  fd_memcpy( server_hello, test_sh_template, sizeof(test_sh_template) );
+  if( !quic ) {
+    fd_memcpy( server_hello+TEST_SH_SESSION_ID_OFF, cli_hs->session_id, 32UL );
+    server_hello[ TEST_SH_SESSION_ID_OFF+31 ] ^= 0x01;
+  }
+
+  long alert = fd_tls_client_handshake( client, cli_hs, server_hello, sizeof(server_hello), FD_TLS_LEVEL_INITIAL );
+  FD_TEST( alert == -FD_TLS_ALERT_ILLEGAL_PARAMETER );
+  FD_TEST( cli_hs->base.reason == FD_TLS_REASON_SH_SESSION_ID );
 
   test_server_hs = NULL;
   fd_tls_estate_srv_delete( srv_hs );
@@ -438,6 +497,184 @@ test_tls_truncated_cert_handshake( fd_rng_t * rng ) {
   fd_tls_delete( fd_tls_leave( client ) );
 }
 
+/* fd_tls does not support the certificate_type extension (RFC 7250).
+   A server that sends one anyway must be rejected. */
+
+static void
+test_tls_client_unsolicited_cert_type( fd_rng_t * rng ) {
+
+  static uchar const ee_srv_ct[] = {
+    FD_TLS_MSG_ENCRYPTED_EXT,
+    0x00, 0x00, 0x07,        /* msg sz */
+    0x00, 0x05,              /* extension list sz */
+    0x00, FD_TLS_EXT_SERVER_CERT_TYPE,
+    0x00, 0x01,              /* ext sz */
+    0x02,                    /* RawPublicKey */
+  };
+
+  static uchar const ee_cli_ct[] = {
+    FD_TLS_MSG_ENCRYPTED_EXT,
+    0x00, 0x00, 0x07,        /* msg sz */
+    0x00, 0x05,              /* extension list sz */
+    0x00, FD_TLS_EXT_CLIENT_CERT_TYPE,
+    0x00, 0x01,              /* ext sz */
+    0x02,                    /* RawPublicKey */
+  };
+
+  uchar const * const records[2] = { ee_srv_ct, ee_cli_ct };
+  ulong         const record_sz  = sizeof(ee_srv_ct);
+  FD_TEST( sizeof(ee_srv_ct)==sizeof(ee_cli_ct) );
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+    fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+    prepare_tls_pair( rng, client, server );
+
+    fd_tls_estate_cli_t cli_hs[1];
+    FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+    cli_hs->base.state = FD_TLS_HS_WAIT_EE;
+    fd_sha256_init( &cli_hs->transcript );
+
+    long res = fd_tls_client_handshake( client, cli_hs, records[i], record_sz, FD_TLS_LEVEL_HANDSHAKE );
+    FD_TEST( res == -(long)FD_TLS_ALERT_UNSUPPORTED_EXTENSION );
+    FD_TEST( cli_hs->base.reason == FD_TLS_REASON_EE_PARSE );
+
+    fd_tls_estate_cli_delete( cli_hs );
+    fd_tls_delete( fd_tls_leave( server ) );
+    fd_tls_delete( fd_tls_leave( client ) );
+  }
+}
+
+/* A client that cannot present a certificate must reject the server's
+   CertificateRequest, rather than walking into the signing path. */
+
+static void
+test_tls_client_refuses_cert_req( fd_rng_t * rng ) {
+
+  static uchar const cert_req[] = {
+    FD_TLS_MSG_CERT_REQ,
+    0x00, 0x00, 0x03,        /* msg sz */
+    0x00,                    /* certificate_request_context */
+    0x00, 0x00,              /* extensions length prefix */
+  };
+
+  /* No certificate installed */
+  {
+    fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+    fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+    prepare_tls_pair( rng, client, server );
+    client->cert_x509_sz = 0UL;
+
+    fd_tls_estate_cli_t cli_hs[1];
+    FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+    cli_hs->base.state = FD_TLS_HS_WAIT_CERT_CR;
+
+    long res = fd_tls_client_handshake( client, cli_hs, cert_req, sizeof(cert_req), FD_TLS_LEVEL_HANDSHAKE );
+    FD_TEST( res == -(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE );
+    FD_TEST( cli_hs->base.reason == FD_TLS_REASON_NO_X509 );
+    FD_TEST( !cli_hs->client_cert );
+
+    fd_tls_estate_cli_delete( cli_hs );
+    fd_tls_delete( fd_tls_leave( server ) );
+    fd_tls_delete( fd_tls_leave( client ) );
+  }
+
+  /* Certificate installed, but no signer */
+  {
+    fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+    fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+    prepare_tls_pair( rng, client, server );
+    client->sign.sign_fn = NULL;
+
+    fd_tls_estate_cli_t cli_hs[1];
+    FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+    cli_hs->base.state = FD_TLS_HS_WAIT_CERT_CR;
+
+    long res = fd_tls_client_handshake( client, cli_hs, cert_req, sizeof(cert_req), FD_TLS_LEVEL_HANDSHAKE );
+    FD_TEST( res == -(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE );
+    FD_TEST( cli_hs->base.reason == FD_TLS_REASON_NO_SIGNER );
+    FD_TEST( !cli_hs->client_cert );
+
+    fd_tls_estate_cli_delete( cli_hs );
+    fd_tls_delete( fd_tls_leave( server ) );
+    fd_tls_delete( fd_tls_leave( client ) );
+  }
+}
+
+/* Opaque QUIC transport params, required when the client runs in QUIC
+   mode. */
+
+static ulong
+test_tls_quic_tp_self( void *  handshake,
+                       uchar * quic_tp,
+                       ulong   quic_tp_bufsz ) {
+  (void)handshake;
+  FD_TEST( quic_tp_bufsz>=1UL );
+  quic_tp[0] = 0x00;
+  return 1UL;
+}
+
+/* test_tls_client_hello_sigalgs checks that QUIC clients only advertise
+   Ed25519, whereas TCP clients also accept the ECDSA schemes used by
+   web PKI certs. */
+
+static void
+test_tls_client_hello_sigalgs( fd_rng_t * rng ) {
+
+  for( uint quic=0U; quic<2U; quic++ ) {
+
+    fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+    fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+    prepare_tls_pair( rng, client, server );
+    client->quic            = !!quic;
+    client->quic_tp_self_fn = test_tls_quic_tp_self;
+
+    fd_tls_estate_cli_t cli_hs[1]; FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+    test_record_reset( &test_client_out );
+    FD_TEST( fd_tls_client_handshake( client, cli_hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL )>=0L );
+
+    /* Re-parse the ClientHello we just emitted */
+
+    test_record_t * rec = test_record_recv( &test_client_out );
+    FD_TEST( rec );
+    fd_tls_msg_hdr_t hdr = {0};
+    long hdr_sz = fd_tls_decode_msg_hdr( &hdr, rec->buf, rec->cur );
+    FD_TEST( hdr_sz>0L );
+    FD_TEST( hdr.type == FD_TLS_MSG_CLIENT_HELLO );
+
+    fd_tls_client_hello_t ch = {0};
+    FD_TEST( fd_tls_decode_client_hello( &ch, rec->buf+hdr_sz, rec->cur-(ulong)hdr_sz )>0L );
+
+    FD_TEST( ch.signature_algorithms.ed25519 );
+    FD_TEST( ch.signature_algorithms.ecdsa_secp256r1_sha256 == !quic );
+    FD_TEST( ch.cipher_suites.aes_128_gcm_sha256 );
+
+    test_record_reset( &test_client_out );
+    fd_tls_estate_cli_delete( cli_hs );
+    fd_tls_delete( fd_tls_leave( server ) );
+    fd_tls_delete( fd_tls_leave( client ) );
+  }
+}
+
+static void
+test_tls_client_rejects_oversz_sni( fd_rng_t * rng ) {
+  fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  prepare_tls_pair( rng, client, server );
+
+  fd_memset( client->server_name, 'x', sizeof(client->server_name) );
+  client->server_name_len = (ushort)sizeof(client->server_name);
+
+  fd_tls_estate_cli_t hs[1]; FD_TEST( fd_tls_estate_cli_new( hs ) );
+  FD_TEST( fd_tls_client_handshake( client, hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL )==
+           -(long)FD_TLS_ALERT_INTERNAL_ERROR );
+  FD_TEST( hs->base.reason==FD_TLS_REASON_CH_ENCODE );
+
+  fd_tls_estate_cli_delete( hs );
+  fd_tls_delete( fd_tls_leave( server ) );
+  fd_tls_delete( fd_tls_leave( client ) );
+}
+
 int
 main( int     argc,
       char ** argv) {
@@ -448,8 +685,14 @@ main( int     argc,
   test_tls_pair( rng );
   test_tls_client_wrong_ciphersuite( rng );
   test_tls_server_wrong_ciphersuite( rng );
+  test_tls_server_session_id_mismatch( rng, 0 );
+  test_tls_server_session_id_mismatch( rng, 1 );
   test_tls_truncated_cert_extract();
   test_tls_truncated_cert_handshake( rng );
+  test_tls_client_unsolicited_cert_type( rng );
+  test_tls_client_refuses_cert_req( rng );
+  test_tls_client_hello_sigalgs( rng );
+  test_tls_client_rejects_oversz_sni( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));

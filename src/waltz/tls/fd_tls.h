@@ -129,7 +129,11 @@ typedef void
    buffer containing the TLS 1.3 CertificateVerify payload.
 
    This function must not fail.  Lifetime of the payload buffer ends at
-   return. */
+   return.
+
+   May be NULL for clients that never present a client certificate.  In
+   that case, fd_tls rejects a server's CertificateRequest instead of
+   requesting a signature.  Servers must always install a signer. */
 
 typedef void
 (* fd_tls_sign_fn_t)( void *        ctx,
@@ -152,6 +156,25 @@ fd_tls_sign( fd_tls_sign_t const * sign,
 
 extern char const fd_tls13_cli_sign_prefix[ 98 ];
 extern char const fd_tls13_srv_sign_prefix[ 98 ];
+
+/* fd_tls_cert_verify_fn_t is an optional callback invoked when a
+   server certificate chain is received during a client TLS handshake.
+   Allows the caller to validate the certificate chain (e.g. check
+   CA signatures, hostname matching).
+
+   cert_chain points to the TLS Certificate message body, starting
+   with the certificate_request_context field (RFC 8446 Section
+   4.4.2).  cert_chain_sz is the total size.  handshake is the estate
+   pointer.
+
+   Returns 0 on success (chain is trusted).
+   Returns non-zero on failure (connection should be aborted). */
+
+typedef int
+(* fd_tls_cert_verify_fn_t)( void *        ctx,
+                             uchar const * cert_chain,
+                             ulong         cert_chain_sz,
+                             void const *  handshake );
 
 /* Public API *********************************************************/
 
@@ -203,6 +226,13 @@ struct fd_tls {
   fd_tls_quic_tp_self_fn_t quic_tp_self_fn;
   fd_tls_quic_tp_peer_fn_t quic_tp_peer_fn;
 
+  /* Optional certificate verification callback (TCP client mode).
+     If non-NULL, called when the server's certificate chain is received
+     during the TLS handshake.  If the callback returns non-zero,
+     the handshake is aborted.  If NULL, no chain validation is done. */
+  fd_tls_cert_verify_fn_t cert_verify_fn;
+  void *                  cert_verify_ctx;
+
   /* key_{private,public}_key is an X25519 key pair.  During the TLS
      handshake, it is used to establish symmetric encryption keys.
      kex_private_key is an arbitrary 32 byte vector.  It is recommended
@@ -242,6 +272,12 @@ struct fd_tls {
   uchar alpn[ 32 ];
   ulong alpn_sz;
 
+  /* Server Name Indication (SNI) for client mode (RFC 6066).
+     Set before starting a TLS client handshake.  Omitted when
+     server_name_len==0 (e.g. QUIC mode).  NUL terminated. */
+  char   server_name[ 254 ];
+  ushort server_name_len;
+
   /* Flags */
   ulong quic            :  1;
   ulong _flags_reserved : 63;
@@ -265,6 +301,8 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_NO_X509         (10)  /* no X.509 cert installed */
 #define FD_TLS_REASON_WRONG_PUBKEY    (11)  /* peer cert has different pubkey than expected */
 #define FD_TLS_REASON_ED25519_FAIL    (12)  /* Ed25519 signature validation failed */
+#define FD_TLS_REASON_NO_SIGNER       (13)  /* client auth requested, but no signer installed */
+#define FD_TLS_REASON_SECP256R1_FAIL  (14)  /* ECDSA P-256 signature validation failed */
 
 #define FD_TLS_REASON_CH_EXPECTED    (101)  /* wanted ClientHello, got another msg type */
 #define FD_TLS_REASON_CH_PARSE       (103)  /* failed to parse ClientHello */
@@ -279,6 +317,8 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_SH_EXPECTED    (201)  /* wanted ServerHello, got another msg type */
 #define FD_TLS_REASON_SH_PARSE       (203)  /* failed to parse ServerHello */
 #define FD_TLS_REASON_SH_ENCODE      (204)  /* failed to encode ServerHello */
+#define FD_TLS_REASON_SH_NEG_CIPHER  (205)  /* ServerHello selected unoffered cipher suite */
+#define FD_TLS_REASON_SH_SESSION_ID  (206)  /* ServerHello session_id echo mismatch */
 
 #define FD_TLS_REASON_EE_NO_QUIC     (301)  /* Missing QUIC transport params in EncryptedExtensions */
 #define FD_TLS_REASON_EE_EXPECTED    (302)  /* wanted EncryptedExtensions, got another msg type */
@@ -287,17 +327,19 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_QUIC_TP_OVERSZ (306)  /* Buffer overflow in QUIC transport params callback */
 
 #define FD_TLS_REASON_CV_EXPECTED    (401)  /* wanted CertificateVerify, got another msg type */
-#define FD_TLS_REASON_CV_SIGALG      (402)  /* CertificateVerify sig is not Ed25519 */
+#define FD_TLS_REASON_CV_SIGALG      (402)  /* CertificateVerify sig alg doesn't match cert key type */
 #define FD_TLS_REASON_CV_PARSE       (404)  /* failed to parse CertificateVerify */
 #define FD_TLS_REASON_CV_ENCODE      (405)  /* failed to encode CertificateVerify */
 
 #define FD_TLS_REASON_CERT_CR_EXPECTED (501)  /* wanted Certificate or CertificateRequest, got another msg type */
 #define FD_TLS_REASON_CERT_CR_PARSE    (503)  /* failed to parse Certificate or CertificateRequest */
 
+#define FD_TLS_REASON_CERT_KEY_TYPE  (601)  /* unsupported certificate key type */
 #define FD_TLS_REASON_CERT_EXPECTED  (602)  /* wanted Certificate, got another msg type */
 #define FD_TLS_REASON_CERT_PARSE     (604)  /* failed to parse Certificate */
 #define FD_TLS_REASON_X509_PARSE     (605)  /* X.509 DER parse failed */
 #define FD_TLS_REASON_CERT_ENCODE    (606)  /* failed to encode Certificate */
+#define FD_TLS_REASON_CERT_VERIFY    (607)  /* cert_verify_fn rejected the certificate chain */
 
 #define FD_TLS_REASON_CERT_CHAIN_EMPTY    (701)  /* cert chain contains no certs */
 #define FD_TLS_REASON_CERT_CHAIN_PARSE    (702)  /* failed to parse cert chain */
@@ -309,6 +351,12 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_ALPN_PARSE     (1001)  /* failed to parse ALPN */
 #define FD_TLS_REASON_ALPN_NEG       (1002)  /* ALPN negotiation failed */
 #define FD_TLS_REASON_NO_ALPN        (1003)  /* no ALPN extension */
+
+#define FD_TLS_REASON_POST_HS_MSG      (1101)  /* unexpected post-handshake msg type */
+#define FD_TLS_REASON_KEY_UPDATE_PARSE (1102)  /* failed to parse KeyUpdate */
+#define FD_TLS_REASON_CCS              (1103)  /* unexpected ChangeCipherSpec record */
+#define FD_TLS_REASON_ALERT_PARSE      (1104)  /* malformed alert record */
+#define FD_TLS_REASON_PEER_ALERT       (1105)  /* peer sent a fatal alert */
 
 FD_PROTOTYPES_BEGIN
 
