@@ -168,7 +168,7 @@ test_pack_execle_links( config_t const * config ) {
     ulong execle_idx = fd_topo_find_tile( &config->topo, "execle", i );
     FD_TEST( link_idx!=ULONG_MAX );
     FD_TEST( execle_idx!=ULONG_MAX );
-    FD_TEST( config->topo.links[ link_idx ].depth==256UL );
+    FD_TEST( config->topo.links[ link_idx ].depth==128UL );
     FD_TEST( fd_topo_find_tile_out_link( &config->topo, &config->topo.tiles[ pack_idx ], "pack_execle", i )!=ULONG_MAX );
     FD_TEST( fd_topo_find_tile_in_link( &config->topo, &config->topo.tiles[ execle_idx ], "pack_execle", i )!=ULONG_MAX );
   }

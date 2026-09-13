@@ -49,6 +49,7 @@ struct fd_execle_tile {
   fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
 
   ulong * busy_fseq;
+  ulong * pack_in_fseq;
 
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
@@ -744,6 +745,10 @@ after_frag( fd_execle_tile_t *  ctx,
     ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
     ctx->rebate_microblock_cnt += fd_ulong_if( ctx->_is_bundle, txn_cnt, 1UL );
   }
+
+  /* Return the pack_execle credit now rather than at housekeeping, so
+     the link can be shallow enough for pack to keep it in cache. */
+  fd_fseq_update( ctx->pack_in_fseq, seq+1UL );
 }
 
 static inline fd_execle_out_t
@@ -846,6 +851,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
   ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
+  ctx->pack_in_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->in_link_fseq_obj_id[ 0UL ] ) );
+  FD_TEST( ctx->pack_in_fseq );
   if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "execle tile %lu has no busy flag", tile->kind_id ));
 
   memset( &ctx->metrics,          0, sizeof( ctx->metrics )          );

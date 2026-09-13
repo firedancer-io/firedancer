@@ -39,6 +39,7 @@ struct test_env {
   ulong              bank_idx;
   /* pack's publish time handed to the last test_execle_run */
   ulong              begin_tspub;
+  ulong              in_seq; /* next pack_execle sequence */
 };
 
 typedef struct test_env test_env_t;
@@ -146,6 +147,12 @@ test_env_create( void ) {
   FD_TEST( fd_fseq_new( busy_fseq_mem, 0UL ) );
   fd_topo_obj_t * busy_fseq_obj = test_topo_obj_laddr( topo, "fseq", "execle", busy_fseq_mem );
   FD_TEST( fd_pod_insertf_ulong( topo->props, busy_fseq_obj->id, "execle_busy.%lu", topo_tile->kind_id ) );
+
+  /* Back the pack_execle in's fseq the tile joins to return credits */
+  void * in_fseq_mem = fd_wksp_alloc_laddr( env->mini->wksp, fd_fseq_align(), fd_fseq_footprint(), TOPO_TAG );
+  FD_TEST( fd_fseq_new( in_fseq_mem, 0UL ) );
+  fd_topo_obj_t * in_fseq_obj = &topo->objs[ topo_tile->in_link_fseq_obj_id[ 0UL ] ];
+  in_fseq_obj->offset = (ulong)fd_wksp_gaddr_fast( topo->workspaces[ in_fseq_obj->wksp_id ].wksp, in_fseq_mem );
 
   topo_tile->execle.accdb_obj_id     = accdb_obj->id;
   topo_tile->execle.progcache_obj_id = progcache_obj->id;
@@ -609,13 +616,16 @@ test_execle_run( test_env_t *     env,
 
   ulong sig = fd_disco_poh_sig( bank->f.slot, POH_PKT_TYPE_MICROBLOCK, env->execle->kind_id );
   ulong sz  = txn_cnt*sizeof(fd_txn_e_t) + sizeof(fd_microblock_execle_trailer_t);
-  FD_TEST( !before_frag( env->execle, 0UL, 0UL, sig ) );
-  during_frag( env->execle, 0UL, 0UL, sig, in_chunk, sz, 0UL );
+  ulong seq = env->in_seq++;
+  FD_TEST( !before_frag( env->execle, 0UL, seq, sig ) );
+  during_frag( env->execle, 0UL, seq, sig, in_chunk, sz, 0UL );
 
   fd_stem_context_t stem[1];
   env->begin_tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  after_frag( env->execle, 0UL, 0UL, sig, sz, 0UL, env->begin_tspub, test_stem( env->execle, stem ) );
-  FD_TEST( fd_fseq_query( env->execle->busy_fseq )==0UL );
+  after_frag( env->execle, 0UL, seq, sig, sz, 0UL, env->begin_tspub, test_stem( env->execle, stem ) );
+  /* Pack sees the microblock done and has its credit back */
+  FD_TEST( fd_fseq_query( env->execle->busy_fseq )==seq );
+  FD_TEST( fd_fseq_query( env->execle->pack_in_fseq )==seq+1UL );
 }
 
 static fd_frag_meta_t const *
@@ -905,13 +915,15 @@ FD_UNIT_TEST( execle_vote ) {
 
   ulong sig = fd_disco_poh_sig( bank->f.slot, POH_PKT_TYPE_MICROBLOCK, env->execle->kind_id );
   ulong sz  = sizeof(fd_txn_e_t) + sizeof(fd_microblock_execle_trailer_t);
-  FD_TEST( !before_frag( env->execle, 0UL, 0UL, sig ) );
-  during_frag( env->execle, 0UL, 0UL, sig, in_chunk, sz, 0UL );
+  ulong seq = env->in_seq++;
+  FD_TEST( !before_frag( env->execle, 0UL, seq, sig ) );
+  during_frag( env->execle, 0UL, seq, sig, in_chunk, sz, 0UL );
 
   fd_stem_context_t stem[1];
-  after_frag( env->execle, 0UL, 0UL, sig, sz, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execle, stem ) );
+  after_frag( env->execle, 0UL, seq, sig, sz, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execle, stem ) );
 
-  FD_TEST( fd_fseq_query( env->execle->busy_fseq )==0UL );
+  FD_TEST( fd_fseq_query( env->execle->busy_fseq )==seq );
+  FD_TEST( fd_fseq_query( env->execle->pack_in_fseq )==seq+1UL );
   fd_topo_link_t const * execle_poh = test_topo_link( "execle_poh" );
   fd_frag_meta_t const * out_poh_mcache = execle_poh->mcache;
   fd_frag_meta_t const * out_poh_meta = out_poh_mcache + fd_mcache_line_idx( 0UL, execle_poh->depth );
