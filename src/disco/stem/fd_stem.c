@@ -85,6 +85,16 @@
    the after_credit function is doing work that should be accounted for
    as part of the tiles busy indicator.
 
+      IN_SHARD
+   Is called once per in link before the run loop starts, with the in
+   index and pointers to a shard count (defaults to 1) and shard index
+   (defaults to 0) the callback may overwrite.  The stem then only ever
+   polls that in at sequence numbers congruent to the shard index modulo
+   the shard count.  A tile that splits a link with its siblings by
+   sequence number should declare that here rather than filter in
+   BEFORE_FRAG, so that it does not pay to poll every fragment its
+   siblings own.  Overruns resume on the tile's own shard.
+
       BEFORE_FRAG
    Is called immediately whenever a new fragment has been detected that
    was published by an upstream producer.  The signature and sequence
@@ -198,6 +208,19 @@
 #endif
 
 #define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
+
+/* Resume in at seq after an overrun, on the in's own shard */
+
+static inline void
+STEM_(in_resume)( fd_stem_tile_in_t * in,
+                  ulong               seq ) {
+  ulong stride = (ulong)in->stride;
+  if( FD_UNLIKELY( stride>1UL ) ) {
+    seq += (in->seq%stride + stride - seq%stride) % stride;
+    in->mline = in->mcache + fd_mcache_line_idx( seq, in->depth );
+  }
+  in->seq = seq;
+}
 
 static inline void
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
@@ -322,9 +345,20 @@ STEM_(run1)( ulong                        in_cnt,
     ulong depth    = fd_mcache_depth( this_in->mcache );
     if( FD_UNLIKELY( depth > UINT_MAX ) ) FD_LOG_ERR(( "in_mcache[%lu] too deep", in_idx ));
     this_in->depth = (uint)depth;
-    this_in->idx   = (uint)in_idx;
-    this_in->seq   = 0UL;
-    this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in->seq, this_in->depth );
+    this_in->idx   = (ushort)in_idx;
+
+    /* A sharded in only ever visits seqs congruent to shard_idx mod
+       shard_cnt, so a tile that owns every shard_cnt'th frag does not
+       poll the ones it would filter. */
+    ulong shard_cnt = 1UL;
+    ulong shard_idx = 0UL;
+#ifdef STEM_CALLBACK_IN_SHARD
+    STEM_CALLBACK_IN_SHARD( ctx, in_idx, &shard_cnt, &shard_idx );
+    if( FD_UNLIKELY( !shard_cnt || shard_cnt>USHORT_MAX || shard_idx>=shard_cnt ) ) FD_LOG_ERR(( "bad in shard %lu/%lu for in %lu", shard_idx, shard_cnt, in_idx ));
+#endif
+    this_in->stride = (ushort)shard_cnt;
+    this_in->seq    = shard_idx;
+    this_in->mline  = this_in->mcache + fd_mcache_line_idx( this_in->seq, this_in->depth );
 
     this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;
     this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
@@ -671,7 +705,7 @@ STEM_(run1)( ulong                        in_cnt,
       ulong * prefrag_regime = &metric_regime_ticks[3];
       ulong * finish_regime = &metric_regime_ticks[6];
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
-        this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
+        STEM_(in_resume)( this_in, seq_found ); /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
         finish_regime = &metric_regime_ticks[7];
@@ -720,7 +754,7 @@ STEM_(run1)( ulong                        in_cnt,
       this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ]++;
       this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_BYTES_OFF ] += (uint)this_in_mline->sz; /* TODO: This might be overrun ... ? Not loaded atomically */
 
-      this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
+      this_in_seq    = fd_seq_inc( this_in_seq, (ulong)this_in->stride );
       this_in->seq   = this_in_seq;
       this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
@@ -770,7 +804,7 @@ STEM_(run1)( ulong                        in_cnt,
     FD_COMPILER_MFENCE();
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
-      this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
+      STEM_(in_resume)( this_in, seq_test ); /* Resume from here (probably reasonably current, could query in mcache sync instead) */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_LINK_READING_OVERRUN_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_FRAG_READING_OVERRUN_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
       /* Don't bother with spin as polling multiple locations */
@@ -800,7 +834,7 @@ STEM_(run1)( ulong                        in_cnt,
 
     /* Windup for the next in poll and accumulate diagnostics */
 
-    this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
+    this_in_seq    = fd_seq_inc( this_in_seq, (ulong)this_in->stride );
     this_in->seq   = this_in_seq;
     this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 

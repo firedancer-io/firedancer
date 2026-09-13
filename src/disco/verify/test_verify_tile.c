@@ -109,13 +109,23 @@ test_load_balance( void ) {
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 0UL, 1UL )==0 );
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 1UL, 1UL )==0 );
 
-  /* Tile 0 should load balance other traffic */
+  /* Tile 0 should load balance other bundle traffic */
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 0UL, 0UL )==0 );
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 1UL, 0UL )==1 );
   FD_TEST( before_frag( ctx, IN_IDX_BUNDLE, 2UL, 0UL )==1 );
+
+  /* QUIC traffic is load balanced by the stem shard, not before_frag */
   FD_TEST( before_frag( ctx, IN_IDX_QUIC,   0UL, 0UL )==0 );
-  FD_TEST( before_frag( ctx, IN_IDX_QUIC,   1UL, 0UL )==1 );
-  FD_TEST( before_frag( ctx, IN_IDX_QUIC,   2UL, 0UL )==1 );
+  FD_TEST( before_frag( ctx, IN_IDX_QUIC,   1UL, 0UL )==0 );
+  ulong shard_cnt = 1UL, shard_idx = 0UL;
+  in_shard( ctx, IN_IDX_QUIC, &shard_cnt, &shard_idx );
+  FD_TEST( shard_cnt==4UL && shard_idx==0UL );
+  ctx->round_robin_idx = 3UL;
+  in_shard( ctx, IN_IDX_QUIC, &shard_cnt, &shard_idx );
+  FD_TEST( shard_cnt==4UL && shard_idx==3UL );
+  shard_cnt = 1UL; shard_idx = 0UL;
+  in_shard( ctx, IN_IDX_BUNDLE, &shard_cnt, &shard_idx );
+  FD_TEST( shard_cnt==1UL && shard_idx==0UL );
 }
 
 int

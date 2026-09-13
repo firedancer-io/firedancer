@@ -42,16 +42,31 @@ before_frag( fd_verify_ctx_t * ctx,
      prevent interleaving of bundle streams. */
   int is_bundle_packet = (ctx->in_kind[ in_idx ]==IN_KIND_BUNDLE && !sig);
 
-  if( FD_LIKELY( is_bundle_packet || ctx->in_kind[ in_idx ]==IN_KIND_QUIC ) ) {
+  if( FD_LIKELY( is_bundle_packet ) ) {
     return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BUNDLE ) ) {
     return ctx->round_robin_idx!=0UL;
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
-      return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx ||
-             sig!=FD_GOSSIP_UPDATE_TAG_VOTE;
+    return sig!=FD_GOSSIP_UPDATE_TAG_VOTE;
   }
 
+  /* QUIC and gossip links are sharded by the stem, see in_shard */
   return 0;
+}
+
+/* QUIC and gossip frags are split between the verify tiles by sequence
+   number; the stem only polls this tile's share.  Bundle links carry
+   bundles that must all land on verify 0, so they are filtered
+   per frag in before_frag instead. */
+static inline void
+in_shard( fd_verify_ctx_t * ctx,
+          ulong             in_idx,
+          ulong *           shard_cnt,
+          ulong *           shard_idx ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_QUIC || ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
+    *shard_cnt = ctx->round_robin_cnt;
+    *shard_idx = ctx->round_robin_idx;
+  }
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -169,9 +184,9 @@ batch_enqueue( fd_verify_ctx_t *   ctx,
   if( FD_LIKELY( ctx->batch_sig_cnt>=FD_VERIFY_BATCH_SIG_MAX || ctx->batch_txn_cnt>=FD_VERIFY_BATCH_TXN_MAX ) ) batch_flush( ctx, stem );
 }
 
-/* Is a fragment for this tile already published on some input?  On
-   the round robin links that is the next sequence number this tile
-   takes, not the next one on the link. */
+/* Is a fragment for this tile already published on some input?  in->seq
+   is the next sequence number this tile takes, which on sharded links
+   is not the next one on the link. */
 static inline int
 frag_ready( fd_verify_ctx_t *         ctx,
             fd_stem_context_t const * stem ) {
@@ -179,7 +194,6 @@ frag_ready( fd_verify_ctx_t *         ctx,
     fd_stem_tile_in_t const * in = stem->in + i;
     ulong seq = in->seq;
     if( FD_LIKELY( fd_seq_lt( seq, ctx->in_ready_seq[ i ] ) ) ) return 1;
-    if( FD_LIKELY( ctx->in_kind[ i ]==IN_KIND_QUIC ) ) seq += (ctx->round_robin_idx + ctx->round_robin_cnt - seq%ctx->round_robin_cnt) % ctx->round_robin_cnt;
     if( FD_LIKELY( fd_seq_ge( fd_mcache_query( in->mcache, in->depth, seq ), seq ) ) ) {
       ctx->in_ready_seq[ i ] = seq+1UL;
       return 1;
@@ -398,6 +412,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_IN_SHARD      in_shard
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag

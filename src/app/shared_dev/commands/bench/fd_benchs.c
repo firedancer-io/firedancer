@@ -218,9 +218,20 @@ before_frag( fd_benchs_ctx_t * ctx,
   (void)in_idx;
   (void)sig;
 
+  (void)seq;
+
   ctx->now = fd_clock_tile_now( ctx->clock );
 
-  return (int)( (seq%ctx->round_robin_cnt)!=ctx->round_robin_id );
+  return 0; /* sharded by seq, see in_shard */
+}
+
+static inline void
+in_shard( fd_benchs_ctx_t * ctx,
+          ulong             in_idx FD_PARAM_UNUSED,
+          ulong *           shard_cnt,
+          ulong *           shard_idx ) {
+  *shard_cnt = ctx->round_robin_cnt;
+  *shard_idx = ctx->round_robin_id;
 }
 
 static inline void
@@ -538,6 +549,7 @@ during_housekeeping( fd_benchs_ctx_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_benchs_ctx_t)
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_IN_SHARD            in_shard
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
