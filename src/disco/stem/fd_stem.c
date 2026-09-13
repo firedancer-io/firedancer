@@ -179,7 +179,17 @@
       AFTER_POLL_OVERRUN
    Is called when an overrun is detected while polling for new frags.
    This callback is not called when an overrun is detected in
-   during_frag. */
+   during_frag.
+
+      RETURN_CREDIT
+   Is called when the stem is about to return flow control credits to
+   the producer of an in, with the in index and the sequence number it
+   would publish (one past the last frag consumed from that in).  It
+   returns the sequence number to publish instead, at most that value.
+   A tile that keeps reading consumed frags after RETURNABLE_FRAG (to
+   apply them out of arrival order, say) returns the seq of the oldest
+   one it still reads, so the producer cannot overwrite it.  Without
+   the callback credits are returned in full. */
 
 #include "../../util/log/fd_log.h"
 #include "../topo/fd_topo.h"
@@ -222,9 +232,12 @@ STEM_(in_resume)( fd_stem_tile_in_t * in,
   in->seq = seq;
 }
 
+/* Return credits to in's producer up to seq and drain its diagnostics */
+
 static inline void
-STEM_(in_update)( fd_stem_tile_in_t * in ) {
-  __atomic_store_n( in->fseq, in->seq, __ATOMIC_RELEASE );
+STEM_(in_update_seq)( fd_stem_tile_in_t * in,
+                      ulong               seq ) {
+  __atomic_store_n( in->fseq, seq, __ATOMIC_RELEASE );
 
   volatile ulong * metrics = fd_metrics_link_in( fd_metrics_base_tl, in->idx );
 
@@ -237,6 +250,11 @@ STEM_(in_update)( fd_stem_tile_in_t * in ) {
   FD_COMPILER_MFENCE();
   accum[0] = 0U;              accum[1] = 0U;              accum[2] = 0U;
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
+}
+
+static inline void
+STEM_(in_update)( fd_stem_tile_in_t * in ) {
+  STEM_(in_update_seq)( in, in->seq );
 }
 
 FD_FN_PURE static inline ulong
@@ -466,7 +484,11 @@ STEM_(run1)( ulong                        in_cnt,
         /* Send flow control credits and drain flow control diagnostics
            for in_idx. */
 
+#ifdef STEM_CALLBACK_RETURN_CREDIT
+        STEM_(in_update_seq)( &in[ in_idx ], STEM_CALLBACK_RETURN_CREDIT( ctx, (ulong)in[ in_idx ].idx, in[ in_idx ].seq ) );
+#else
         STEM_(in_update)( &in[ in_idx ] );
+#endif
 
       } else { /* event_idx==cons_cnt, housekeeping event */
 
@@ -972,3 +994,4 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_RETURNABLE_FRAG
 #undef STEM_CALLBACK_AFTER_FRAG
 #undef STEM_CALLBACK_AFTER_POLL_OVERRUN
+#undef STEM_CALLBACK_RETURN_CREDIT

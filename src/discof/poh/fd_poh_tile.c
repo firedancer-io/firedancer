@@ -19,27 +19,39 @@ struct fd_poh_in {
   ulong                  mtu;
   fd_frag_meta_t const * mcache;
   ulong                  depth;
+
+  /* Consumed frags still in the reorder ring: their count and the seq
+     of the oldest, below which credits are not returned.  Frags from
+     one link leave the ring in seq order, so the oldest is tracked
+     exactly. */
+  ulong                  held_cnt;
+  ulong                  held_seq;
 };
 
 typedef struct fd_poh_in fd_poh_in_t;
 
 /* Microblocks (execle_poh) and done_packing (pack_poh) arrive across
    links out of pack_idx order.  Rather than holding a frag on its link
-   until its turn, consume it into a ring indexed by pack_idx and mix
-   from the ring in order.  Frags REORDER_DEPTH or more ahead of
-   expect_pack_idx are still held. */
+   until its turn, consume it, note where it is in a ring indexed by
+   pack_idx and apply from the ring in order.  The data stays in the
+   producer's dcache: the link's credits are only returned up to its
+   oldest frag in the ring (see return_credit).  Frags REORDER_DEPTH or
+   more ahead of expect_pack_idx are still held. */
 #define REORDER_DEPTH (4096UL)
 
-struct __attribute__((aligned(64UL))) fd_poh_reorder {
-  ulong slot;
-  ulong sz;   /* 0 if empty */
-  int   kind;
-  uchar data[ FD_EXECLE_POH_MTU ] __attribute__((aligned(64UL)));
+struct fd_poh_reorder {
+  uchar const * data;
+  ulong         seq;
+  ulong         slot;
+  ushort        sz;   /* 0 if empty */
+  uchar         kind;
+  uchar         in_idx;
 };
 
 typedef struct fd_poh_reorder fd_poh_reorder_t;
 
-FD_STATIC_ASSERT( sizeof(fd_done_packing_t)<=FD_EXECLE_POH_MTU, reorder_done_packing );
+FD_STATIC_ASSERT( FD_EXECLE_POH_MTU<=USHORT_MAX, reorder_sz );
+FD_STATIC_ASSERT( sizeof(fd_done_packing_t)<=USHORT_MAX, reorder_sz );
 
 struct fd_poh_tile {
   fd_poh_t poh[1];
@@ -150,11 +162,22 @@ drain_reorder( fd_poh_tile_t *     ctx,
     }
     if( FD_UNLIKELY( !mixable( ctx, r->kind ) ) ) break;
     apply_frag( ctx, stem, r->kind, r->slot, r->data, r->sz );
-    r->sz = 0UL;
+    fd_poh_in_t * in = &ctx->in[ r->in_idx ];
+    in->held_cnt--;
+    in->held_seq = r->seq+1UL;
+    r->sz = 0U;
     ctx->reorder_cnt--;
     ctx->expect_pack_idx++;
     *charge_busy = 1;
   }
+}
+
+static inline ulong
+return_credit( fd_poh_tile_t * ctx,
+               ulong           in_idx,
+               ulong           seq ) {
+  fd_poh_in_t const * in = &ctx->in[ in_idx ];
+  return in->held_cnt ? in->held_seq : seq;
 }
 
 static inline void
@@ -279,7 +302,7 @@ returnable_frag( fd_poh_tile_t *     ctx,
 
   /* Execle microblocks and pack's done_packing are applied strictly in
      pack_idx order (see expect_pack_idx).  A frag whose turn has not
-     come, or that poh cannot yet accept, is copied into the ring and
+     come, or that poh cannot yet accept, is noted in the ring and
      applied from drain_reorder once it can be.
 
      Poh cannot accept a frag when:
@@ -333,30 +356,17 @@ returnable_frag( fd_poh_tile_t *     ctx,
     int busy;
     drain_reorder( ctx, stem, &busy );
   } else {
-    fd_poh_reorder_t * r = &ctx->reorder[ pack_idx & (REORDER_DEPTH-1UL) ];
-    FD_TEST( !r->sz && sz && sz<=sizeof(r->data) ); /* full slot means duplicate pack_idx */
-    r->slot = fd_disco_execle_sig_slot( sig );
-    r->sz   = sz;
-    r->kind = kind;
-    if( FD_UNLIKELY( kind==IN_KIND_PACK ) ) fd_memcpy( r->data, src, sz );
-    else {
-      /* Same layout, but only the bytes mixin reads: each txn's payload
-         prefix and the fields after it (not the parsed txn), plus the
-         trailer.  A full 5 KiB copy per microblock is DRAM bound.  The
-         fixed size pieces are copied by word, since znver tuning turns
-         a 16..8192 byte memcpy into a slow rep movsl. */
-      FD_TEST( sz>=sizeof(fd_microblock_trailer_t) && (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
-      ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
-      fd_txn_p_t const * s = fd_type_pun_const( src );
-      fd_txn_p_t *       d = fd_type_pun( r->data );
-      for( ulong i=0UL; i<txn_cnt; i++ ) {
-        fd_memcpy( d[ i ].payload, s[ i ].payload, fd_ulong_min( s[ i ].payload_sz, FD_TPU_MTU ) );
-        uchar const * sf = (uchar const *)&s[ i ].payload_sz;
-        uchar *       df = (uchar *)      &d[ i ].payload_sz;
-        for( ulong j=0UL; j<offsetof(fd_txn_p_t, _)-offsetof(fd_txn_p_t, payload_sz); j+=8UL ) FD_STORE( ulong, df+j, FD_LOAD( ulong, sf+j ) );
-      }
-      for( ulong j=sz-sizeof(fd_microblock_trailer_t); j<sz; j+=8UL ) FD_STORE( ulong, r->data+j, FD_LOAD( ulong, src+j ) );
-    }
+    fd_poh_in_t *      in = &ctx->in[ in_idx ];
+    fd_poh_reorder_t * r  = &ctx->reorder[ pack_idx & (REORDER_DEPTH-1UL) ];
+    FD_TEST( !r->sz && sz ); /* full slot means duplicate pack_idx */
+    r->data   = src;
+    r->seq    = seq;
+    r->slot   = fd_disco_execle_sig_slot( sig );
+    r->sz     = (ushort)sz;
+    r->kind   = (uchar)kind;
+    r->in_idx = (uchar)in_idx;
+    in->held_seq = in->held_cnt ? in->held_seq : seq;
+    in->held_cnt++;
     ctx->reorder_cnt++;
   }
 
@@ -401,7 +411,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->idle_cnt = 0UL;
 
   ctx->reorder_cnt = 0UL;
-  for( ulong i=0UL; i<REORDER_DEPTH; i++ ) ctx->reorder[ i ].sz = 0UL;
+  for( ulong i=0UL; i<REORDER_DEPTH; i++ ) ctx->reorder[ i ].sz = 0U;
 
   FD_CHECK_ERR( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]), "too many input links" );
 
@@ -415,6 +425,8 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].mtu    = link->mtu;
     ctx->in[ i ].mcache = link->mcache;
     ctx->in[ i ].depth  = fd_mcache_depth( link->mcache );
+    ctx->in[ i ].held_cnt = 0UL;
+    ctx->in[ i ].held_seq = 0UL;
 
     if(      !strcmp( link->name, "replay_out" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "pack_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
@@ -486,6 +498,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_RETURN_CREDIT       return_credit
 
 #include "../../disco/stem/fd_stem.c"
 
