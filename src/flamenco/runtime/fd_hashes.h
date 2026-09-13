@@ -3,6 +3,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../accdb/fd_accdb.h"
 
 /* fd_hashes.h provides functions for computing and updating the bank
    hash for a completed slot.  The bank hash is a cryptographic hash of
@@ -49,43 +50,22 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
                                  ulong               data_len,
                                  fd_lthash_value_t * lthash_out );
 
-/* fd_hashes_update_lthash updates the bank's incremental lthash when an
-   account is modified during transaction execution.  The bank lthash is
-   maintained incrementally by subtracting the old account hash and
-   adding the new account hash.
+/* fd_hashes_fold_lthash brings bank's account lthash up to date for
+   the block executed on its accdb fork: for every account committed on
+   the fork it subtracts the lthash of the account's state on the
+   parent fork and adds that of its state on the bank's fork.  Call
+   once, after the last write to the fork and before the bank hash is
+   computed.  Zero lamport and missing accounts hash to zero on either
+   side.  Only for banks with fd_bank_lthash_deferred.
 
-   meta is a pointer to the modified account's metadata and data.
-   prev_hash contains the lthash of the account before modification (or
-   zero for newly created accounts).  bank is the bank whose lthash
-   should be updated.  capture_ctx is an optional capture context for
-   recording account changes (can be NULL).
-
-   This function:
-   - Acquires a write lock on the bank's lthash
-   - Subtracts prev_hash from the bank lthash
-   - Computes the new account hash
-   - Adds the new hash to the bank lthash
-   - Releases the lock
-   - If capture_ctx is provided, writes the account state to the capture
-
-   On capture write failure, the function will FD_LOG_ERR and terminate.
-   The function assumes all non-optional pointers are valid.
-
-   IMPORTANT: fd_hashes_update_simple must be called whenever an account
-   is modified during transaction execution. This includes sysvar
-   accounts. */
+   Writes within the block are not hashed individually: an account
+   rewritten a thousand times in a block costs two account hashes here
+   instead of two thousand on the executors, and no executor touches
+   the bank's 2 KiB lthash. */
 
 void
-fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
-                         fd_lthash_value_t const * lthash_prev, /* in */
-                         uchar const               pubkey[ static FD_HASH_FOOTPRINT ],
-                         uchar const               owner[ static FD_HASH_FOOTPRINT ],
-                         ulong                     lamports,
-                         int                       executable,
-                         uchar const *             data,
-                         ulong                     data_len,
-                         fd_bank_t               * bank,
-                         fd_capture_ctx_t        * capture_ctx );
+fd_hashes_fold_lthash( fd_bank_t *  bank,
+                       fd_accdb_t * accdb );
 
 /* fd_hashes_capture_account records the state of a modified account to
    the solcap capture.  It does nothing unless capture_ctx is non-NULL,
@@ -96,8 +76,7 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
    account as it should appear in the capture, i.e. after the
    modification being recorded.
 
-   Callers that accumulate the lthash themselves must call this
-   directly.  Callers that use fd_hashes_update_simple do not. */
+   Every path that commits an account calls this. */
 
 void
 fd_hashes_capture_account( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],

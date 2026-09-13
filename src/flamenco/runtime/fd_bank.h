@@ -506,6 +506,17 @@ fd_bank_lthash_locking_modify( fd_bank_t * bank );
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 
+/* fd_bank_lthash_deferred is 1 if the bank's account lthash is folded
+   once at block end from the accounts modified on its accdb fork (see
+   fd_hashes_fold_lthash), 0 if every write updates it immediately.
+   Block banks defer; the genesis and snapshot banks, whose accdb fork
+   is their own parent, do not. */
+
+static inline int
+fd_bank_lthash_deferred( fd_bank_t const * bank ) {
+  return bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val;
+}
+
 /* fd_banks_stake_delegations_fork_ids writes the stake delegation fork
    IDs in bank's ancestry to fork_ids in root-to-bank order, skipping
    banks without a fork ID, and returns the number written.  fork_ids

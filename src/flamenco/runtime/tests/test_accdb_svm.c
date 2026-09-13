@@ -1,6 +1,8 @@
 #include "fd_svm_mini.h"
 #include "../fd_accdb_svm.h"
 #include "../fd_bank.h"
+#include "../fd_hashes.h"
+#include "../fd_system_ids.h"
 #include "../../../ballet/lthash/fd_lthash.h"
 
 static const fd_pubkey_t acct_a = {{ 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,
@@ -28,15 +30,13 @@ test_credit( fd_svm_mini_t * mini,
   fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 1000UL, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_a.uc )==1000UL );
   FD_TEST( bank->f.capitalization==cap_before+1000UL );
-  FD_TEST( !fd_lthash_eq( &lthash, &bank->f.lthash ) );
-  lthash = bank->f.lthash;
+  FD_TEST( fd_lthash_eq( &lthash, &bank->f.lthash ) );
 
   /* Credit the same account again */
   fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 500UL, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_a.uc )==1500UL );
   FD_TEST( bank->f.capitalization==cap_before+1500UL );
-  FD_TEST( !fd_lthash_eq( &lthash, &bank->f.lthash ) );
-  lthash = bank->f.lthash;
+  FD_TEST( fd_lthash_eq( &lthash, &bank->f.lthash ) );
 
   /* Credit with zero lamports is a no-op */
   fd_accdb_svm_credit( bank, accdb, NULL, &acct_a, 0UL, 0 );
@@ -64,8 +64,7 @@ test_write_create( fd_svm_mini_t * mini,
                       100UL, 1, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_b.uc )==100UL );
   FD_TEST( bank->f.capitalization==cap_before+100UL );
-  FD_TEST( !fd_lthash_eq( &lthash, &bank->f.lthash ) );
-  lthash = bank->f.lthash;
+  FD_TEST( fd_lthash_eq( &lthash, &bank->f.lthash ) );
 
   /* Verify owner, data, and exec_bit */
   fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, acct_b.uc );
@@ -99,8 +98,7 @@ test_write_overwrite( fd_svm_mini_t * mini,
                       0UL, 0, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_c.uc )==500UL );
   FD_TEST( bank->f.capitalization==cap_before );
-  FD_TEST( !fd_lthash_eq( &lthash, &bank->f.lthash ) );
-  lthash = bank->f.lthash;
+  FD_TEST( fd_lthash_eq( &lthash, &bank->f.lthash ) );
 
   /* Verify owner changed */
   fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, acct_c.uc );
@@ -117,7 +115,7 @@ test_write_overwrite( fd_svm_mini_t * mini,
                       1000UL, 0, 0 );
   FD_TEST( fd_accdb_lamports( accdb, fork_id, acct_c.uc )==1000UL );
   FD_TEST( bank->f.capitalization==cap_before+500UL );
-  FD_TEST( !fd_lthash_eq( &lthash, &bank->f.lthash ) );
+  FD_TEST( fd_lthash_eq( &lthash, &bank->f.lthash ) );
 
   acc = fd_accdb_read_one( accdb, fork_id, acct_c.uc );
   FD_TEST( acc.data_len==sizeof(data3) );
@@ -253,6 +251,66 @@ test_fork_isolation( fd_svm_mini_t * mini,
   FD_LOG_NOTICE(( "test_fork_isolation passed" ));
 }
 
+/* The bank lthash of a block bank only moves when the block is
+   finalized, and then by root - H(pre) + H(post) over the accounts the
+   block touched.  A sibling with no writes of its own isolates the
+   sysvar updates the runtime makes to every block. */
+
+static fd_lthash_value_t
+freeze_delta( fd_svm_mini_t * mini,
+              ulong           bank_idx ) {
+  fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
+  fd_lthash_value_t before = bank->f.lthash;
+  fd_svm_mini_freeze( mini, bank_idx );
+  fd_lthash_value_t delta = bank->f.lthash;
+  fd_lthash_sub( &delta, &before );
+  return delta;
+}
+
+static void
+test_fold( fd_svm_mini_t * mini,
+           ulong           root_idx ) {
+  fd_accdb_t * accdb = mini->runtime->accdb;
+  fd_lthash_value_t h[1];
+
+  /* create on a child of root */
+  ulong control_idx = fd_svm_mini_attach_child( mini, root_idx, 11UL );
+  ulong seed_idx    = fd_svm_mini_attach_child( mini, root_idx, 11UL );
+  fd_bank_t * seed_bank = fd_svm_mini_bank( mini, seed_idx );
+  fd_lthash_value_t seed_lthash = seed_bank->f.lthash;
+  uchar data1[4] = { 1,2,3,4 };
+  fd_accdb_svm_write( seed_bank, accdb, NULL, &acct_a, &owner1, data1, sizeof(data1), 700UL, 0, 0 );
+  fd_accdb_svm_credit( seed_bank, accdb, NULL, &acct_c, 2000UL, 0 );
+  FD_TEST( fd_lthash_eq( &seed_lthash, &seed_bank->f.lthash ) );
+
+  fd_lthash_value_t expected = freeze_delta( mini, control_idx );
+  fd_hashes_account_lthash_simple( acct_a.uc, owner1.uc, 700UL, 0, data1, sizeof(data1), h ); fd_lthash_add( &expected, h );
+  fd_hashes_account_lthash_simple( acct_c.uc, fd_solana_system_program_id.uc, 2000UL, 0, NULL, 0UL, h ); fd_lthash_add( &expected, h );
+  fd_lthash_value_t delta = freeze_delta( mini, seed_idx );
+  FD_TEST( fd_lthash_eq( &expected, &delta ) );
+
+  /* overwrite, create and delete on a child of the new root */
+  fd_svm_mini_advance_root( mini, seed_idx );
+  control_idx = fd_svm_mini_attach_child( mini, seed_idx, 12UL );
+  ulong child_idx = fd_svm_mini_attach_child( mini, seed_idx, 12UL );
+  fd_bank_t * bank = fd_svm_mini_bank( mini, child_idx );
+  uchar data2[8] = { 8,7,6,5,4,3,2,1 };
+  fd_accdb_svm_write( bank, accdb, NULL, &acct_a, &owner2, data2, sizeof(data2), 0UL, 1, 0 );
+  fd_accdb_svm_write( bank, accdb, NULL, &acct_a, &owner2, data2, sizeof(data2), 900UL, 1, 0 ); /* only the final state counts */
+  fd_accdb_svm_credit( bank, accdb, NULL, &acct_b, 300UL, 0 );
+  FD_TEST( fd_accdb_svm_remove( bank, accdb, NULL, &acct_c )==2000UL );
+
+  expected = freeze_delta( mini, control_idx );
+  fd_hashes_account_lthash_simple( acct_a.uc, owner1.uc, 700UL, 0, data1, sizeof(data1), h ); fd_lthash_sub( &expected, h );
+  fd_hashes_account_lthash_simple( acct_c.uc, fd_solana_system_program_id.uc, 2000UL, 0, NULL, 0UL, h ); fd_lthash_sub( &expected, h );
+  fd_hashes_account_lthash_simple( acct_a.uc, owner2.uc, 900UL, 1, data2, sizeof(data2), h ); fd_lthash_add( &expected, h );
+  fd_hashes_account_lthash_simple( acct_b.uc, fd_solana_system_program_id.uc, 300UL, 0, NULL, 0UL, h ); fd_lthash_add( &expected, h );
+  delta = freeze_delta( mini, child_idx );
+  FD_TEST( fd_lthash_eq( &expected, &delta ) );
+
+  FD_LOG_NOTICE(( "test_fold passed" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -295,6 +353,9 @@ main( int     argc,
 
   root_idx = fd_svm_mini_reset( mini, params );
   test_fork_isolation( mini, root_idx );
+
+  root_idx = fd_svm_mini_reset( mini, params );
+  test_fold( mini, root_idx );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

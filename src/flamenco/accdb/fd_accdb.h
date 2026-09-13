@@ -418,6 +418,21 @@ fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
                  uchar const *      pubkey );
 
+/* fd_accdb_for_each_modified calls fn( ctx, pubkey ) once for every
+   account committed on fork_id (a new version on that fork; later
+   overwrites on the same fork do not add entries), in no particular
+   order.  The fork must be done: no acquire on it may be outstanding
+   or begin during the call.  Other forks may be in use concurrently,
+   as may advance_root of an ancestor while the fork's bank is live. */
+
+typedef void (*fd_accdb_modified_fn_t)( void * ctx, uchar const pubkey[ 32 ] );
+
+void
+fd_accdb_for_each_modified( fd_accdb_t *           accdb,
+                            fd_accdb_fork_id_t     fork_id,
+                            fd_accdb_modified_fn_t fn,
+                            void *                 ctx );
+
 /* fd_accdb_probe_pd_this_fork checks whether the newest version of
    pubkey visible on fork_id was committed on fork_id itself.  If so,
    returns 1 and sets *out_pd_write to that version's pd_write flag,

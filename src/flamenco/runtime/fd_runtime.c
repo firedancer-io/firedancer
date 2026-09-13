@@ -1105,8 +1105,10 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   return err;
 }
 
-/* fd_runtime_lthash_account updates the running lthash of the bank
-   given an account that might have been updated. */
+/* fd_runtime_lthash_account settles an account that might have been
+   updated: a deleted account loses its data and owner, and the bank's
+   lthash takes the change now unless the bank folds it at block end
+   (fd_hashes_fold_lthash). */
 
 static void
 fd_runtime_lthash_account( fd_bank_t *         bank,
@@ -1119,17 +1121,22 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
     memset( acc->owner, 0, sizeof(acc->owner) );
   }
 
-  fd_lthash_value_t lthash_prev[1];
-  if( FD_LIKELY( acc->prior_data ) ) {
-    fd_hashes_account_lthash_simple( pubkey->uc, acc->prior_owner, acc->prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len, lthash_prev );
-  } else {
-    fd_lthash_zero( lthash_prev );
+  if( FD_UNLIKELY( !(acc->prior_lamports || acc->lamports) ) ) return;
+
+  if( FD_UNLIKELY( !fd_bank_lthash_deferred( bank ) ) ) {
+    fd_lthash_value_t delta[1];
+    fd_hashes_account_lthash_simple( pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, delta );
+    if( FD_LIKELY( acc->prior_data ) ) {
+      fd_lthash_value_t prev[1];
+      fd_hashes_account_lthash_simple( pubkey->uc, acc->prior_owner, acc->prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len, prev );
+      fd_lthash_sub( delta, prev );
+    }
+    fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
+    fd_lthash_add( bank_lthash, delta );
+    fd_bank_lthash_end_locking_modify( bank );
   }
 
-  fd_lthash_value_t lthash_post[1];
-  if( FD_LIKELY( acc->prior_lamports || acc->lamports ) ) {
-    fd_hashes_update_simple( lthash_post, lthash_prev, pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
-  }
+  fd_hashes_capture_account( pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
 }
 
 /* fd_runtime_commit_txn is a helper used by the transaction executor to
@@ -1814,6 +1821,7 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    ushort                    shred_version ) {
   if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer, shred_version ) ) ) return -1;
   fd_runtime_freeze( bank, accdb, capture_ctx );
+  if( FD_LIKELY( fd_bank_lthash_deferred( bank ) ) ) fd_hashes_fold_lthash( bank, accdb );
   fd_runtime_update_bank_hash( bank, capture_ctx );
   return 0;
 }
