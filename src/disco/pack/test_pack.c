@@ -2030,6 +2030,134 @@ test_express( void ) {
   fd_pack_delete( fd_pack_leave( pack ) );
 }
 
+/* A randomized workload of inserts, express dispatches, schedules,
+   completions, rebates, expirations, deletes and block ends, with
+   every outcome folded into one hash.  The hash pins which transaction
+   goes to which bank in which order and with what accounting, so a
+   change to the schedule or express paths that keeps behaviour must
+   keep it, and one that changes behaviour must update it. */
+#define TRACE_STEPS (40000UL)
+#define TRACE_BANKS (4UL)
+#define TRACE_SIGS  (256UL)
+
+static void
+test_schedule_trace( ulong max_txn_per_microblock,
+                     ulong expected ) {
+  FD_LOG_NOTICE(( "TEST SCHEDULE TRACE (%lu per microblock)", max_txn_per_microblock ));
+  fd_rng_t   _trng[1];
+  fd_rng_t * trng = fd_rng_join( fd_rng_new( _trng, 0x5EEDU, 0UL ) );
+  fd_pack_rebate_sum_t _rebater[1];
+  union{ fd_pack_rebate_t rebate[1]; uchar footprint[USHORT_MAX]; } report[1];
+  fd_pack_rebate_sum_t * rebater = fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( _rebater, 0x0123456789abcdefUL ) );
+  fd_acct_addr_t const * rebate_alt[1] = { NULL };
+
+  /* Pack's own randomness comes from the global rng; make it fixed */
+  fd_rng_t * saved_rng = rng;
+  rng = trng;
+  fd_pack_t * pack = init_all( 256UL, TRACE_BANKS, max_txn_per_microblock, &outcome );
+  rng = saved_rng;
+
+  ulong hash = 0UL;
+# define TRACE( v ) do { hash = fd_ulong_hash( hash ^ (ulong)(v) ); } while( 0 )
+
+  fd_txn_e_t * results[ TRACE_BANKS ];
+  ulong        result_cnt[ TRACE_BANKS ];
+  for( ulong b=0UL; b<TRACE_BANKS; b++ ) { results[ b ] = outcome.results + b*FD_PACK_MAX_TXN_PER_BUNDLE; result_cnt[ b ] = 0UL; }
+  FD_STATIC_ASSERT( TRACE_BANKS*FD_PACK_MAX_TXN_PER_BUNDLE<=1024UL, results );
+  uchar sigs[ TRACE_SIGS ][ FD_TXN_SIGNATURE_SZ ];
+
+  ulong outstanding = 0UL; /* bank b has a microblock out */
+  ulong next_i      = 0UL;
+  ulong express_cnt = 0UL;
+  ulong sched_cnt   = 0UL;
+  char  writes[ 4 ], reads[ 4 ];
+
+  for( ulong step=0UL; step<TRACE_STEPS; step++ ) {
+    ulong expires_at = step/16UL;
+    /* Arrivals come in bursts that fill the pool and lulls that drain it */
+    uint  r = fd_rng_uint_roll( trng, 100U );
+    if( r<(((step/2000UL)&1UL) ? 12U : 55U) ) { /* a transaction arrives */
+      ulong i   = next_i++;
+      ulong idx = i%MAX_TEST_TXNS;
+      if( FD_UNLIKELY( !fd_rng_uint_roll( trng, 8U ) ) ) make_vote_transaction( idx );
+      else {
+        ulong wcnt = 1UL+fd_rng_uint_roll( trng, 3U );
+        ulong rcnt =     fd_rng_uint_roll( trng, 3U );
+        for( ulong k=0UL; k<wcnt; k++ ) writes[ k ] = (char)('0'+fd_rng_uint_roll( trng, 16U ));
+        for( ulong k=0UL; k<rcnt; k++ ) reads [ k ] = (char)('0'+8U+fd_rng_uint_roll( trng, 16U ));
+        writes[ wcnt ] = '\0'; reads[ rcnt ] = '\0';
+        double priority = 1.0 + (double)fd_rng_uint_roll( trng, 12U ) + (double)fd_rng_uint_roll( trng, 100U )/100.0;
+        uint   compute  = (1U+fd_rng_uint_roll( trng, 50U ))*1000U;
+        make_transaction( idx, compute, 500U, priority, writes, reads, NULL, NULL );
+      }
+      memcpy( sigs[ i%TRACE_SIGS ], txnp_scratch[ idx ].payload+1UL, FD_TXN_SIGNATURE_SZ );
+
+      fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
+      memcpy( slot->txnp, &txnp_scratch[ idx ], sizeof(fd_txn_p_t) );
+      est( slot );
+      int express = 0;
+      if( (outstanding!=fd_ulong_mask_lsb( TRACE_BANKS )) & !!fd_rng_uint_roll( trng, 2U ) ) {
+        ulong b = (ulong)fd_ulong_find_lsb( ~outstanding & fd_ulong_mask_lsb( TRACE_BANKS ) );
+        express = fd_pack_insert_txn_fini_express( pack, slot, expires_at, b, results[ b ] );
+        if( express ) { outstanding |= 1UL<<b; result_cnt[ b ] = 1UL; express_cnt++; TRACE( 0x10UL|b ); TRACE( i ); }
+      }
+      if( !express ) {
+        ulong deleted;
+        int result = fd_pack_insert_txn_fini( pack, slot, expires_at, &deleted );
+        TRACE( 0x20UL ); TRACE( (ulong)(long)result ); TRACE( deleted );
+      }
+    } else if( (r=fd_rng_uint_roll( trng, 100U ))<45U ) { /* schedule to an idle bank */
+      if( outstanding==fd_ulong_mask_lsb( TRACE_BANKS ) ) continue;
+      ulong b = (ulong)fd_ulong_find_lsb( ~outstanding & fd_ulong_mask_lsb( TRACE_BANKS ) );
+      ulong total_cus     = fd_rng_uint_roll( trng, 4U ) ? FD_PACK_TEST_MAX_COST_PER_BLOCK : 30000UL;
+      float vote_fraction = fd_rng_uint_roll( trng, 2U ) ? 1.0f : 0.0f;
+      ulong cnt = fd_pack_schedule_next_microblock( pack, total_cus, vote_fraction, b, ALL, results[ b ] );
+      TRACE( 0x30UL|b ); TRACE( cnt );
+      for( ulong k=0UL; k<cnt; k++ ) {
+        fd_txn_p_t const * txnp = results[ b ][ k ].txnp;
+        TRACE( fd_ulong_load_8( txnp->payload+1UL ) ); TRACE( txnp->payload_sz ); TRACE( txnp->flags );
+        TRACE( txnp->pack_cu.requested_exec_plus_acct_data_cus ); TRACE( txnp->pack_cu.non_execution_cus );
+      }
+      if( cnt ) { outstanding |= 1UL<<b; result_cnt[ b ] = cnt; sched_cnt += cnt; }
+    } else if( r<85U ) { /* a bank finishes, sometimes with a rebate */
+      if( !outstanding ) continue;
+      ulong b = (ulong)fd_ulong_find_lsb( outstanding );
+      if( !fd_rng_uint_roll( trng, 3U ) ) {
+        for( ulong k=0UL; k<result_cnt[ b ]; k++ ) {
+          fd_txn_p_t * txnp = results[ b ][ k ].txnp;
+          txnp->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+          txnp->execle_cu.rebated_cus = fd_rng_uint_roll( trng, txnp->pack_cu.requested_exec_plus_acct_data_cus+1U );
+          fd_pack_rebate_sum_add_txn( rebater, txnp, rebate_alt, 1UL );
+          fd_pack_rebate_sum_report( rebater, report->rebate );
+          fd_pack_rebate_cus( pack, report->rebate );
+          TRACE( 0x40UL ); TRACE( report->rebate->total_cost_rebate );
+        }
+      }
+      TRACE( 0x50UL|b ); TRACE( (ulong)fd_pack_microblock_complete( pack, b ) );
+      outstanding &= ~(1UL<<b);
+    } else if( r<91U ) { /* expire */
+      TRACE( 0x60UL ); TRACE( fd_pack_expire_before( pack, fd_ulong_max( expires_at, 40UL )-40UL ) );
+    } else if( r<95U ) { /* delete a recent transaction */
+      if( !next_i ) continue;
+      ulong i = next_i-1UL-fd_ulong_min( fd_rng_uint_roll( trng, (uint)TRACE_SIGS ), next_i-1UL );
+      TRACE( 0x70UL ); TRACE( fd_pack_delete_transaction( pack, (fd_ed25519_sig_t const *)sigs[ i%TRACE_SIGS ] ) );
+    } else { /* end of block */
+      fd_pack_end_block( pack );
+      TRACE( 0x80UL );
+      for( ulong b=0UL; b<TRACE_BANKS; b++ ) if( (outstanding>>b) & 1UL ) TRACE( (ulong)fd_pack_microblock_complete( pack, b ) );
+      outstanding = 0UL;
+    }
+    TRACE( fd_pack_avail_txn_cnt( pack ) );
+  }
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+# undef TRACE
+
+  FD_LOG_NOTICE(( "%lu transactions, %lu express, %lu scheduled, trace hash 0x%016lx", next_i, express_cnt, sched_cnt, hash ));
+  FD_TEST( hash==expected );
+  fd_pack_delete( fd_pack_leave( pack ) );
+  fd_rng_delete( fd_rng_leave( trng ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2059,6 +2187,8 @@ main( int     argc,
   test_nonce();
   test_bundle_nonce();
   test_express();
+  test_schedule_trace( 1UL, 0x8e0f6abbd7ef76a1UL );
+  test_schedule_trace( 4UL, 0x2dd29120ea2f35cfUL );
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
     performance_test2();
