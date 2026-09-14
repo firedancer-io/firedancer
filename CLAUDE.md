@@ -27,14 +27,35 @@ The default make parameters are:
 - MACHINE=native
 - EXTRAS=''
 
-Always isolate build dirs when changing Make params, e.g.:
+Default build directories include the compiler version and `EXTRAS`.
+Use `make --silent objdir` with the same build parameters to locate the
+artifacts. When overriding `BUILDDIR`, use a separate flat name for each
+compiler/instrumentation configuration, e.g.:
 - `make -j BUILDDIR=clang-fuzz-asan CC=clang EXTRAS="fuzz asan" all`
-- `make -j BUILDDIR=clang-cov CC=clang EXTRAS=cov all`
+- `make -j BUILDDIR=clang-cov CC=clang EXTRAS=llvm-cov all`
 
-For Firedancer builds:
-- keep a single flat name for BUILDDIR
-- never pass arbitrary other make variables
-- never invoke raw gcc
+Use repository Make targets and supported build options so compiler flags,
+generated sources, and dependencies match the real build. Check the command's
+exit status and diagnostics; an empty filtered log does not establish success.
+
+## Validation
+
+Choose checks for the affected behavior. Documentation edits need a diff
+review and checks of affected links or examples; code changes need the
+relevant tests. Broaden testing when the change or a failure warrants it.
+
+Build tests before running them. For example:
+
+```bash
+make -j test_blake3
+"$(make --silent objdir)/unit-test/test_blake3"
+```
+
+`make run-unit-test` builds neither the executables nor the automatic test
+manifest; run `make -j unit-test` first. Many tests need huge pages and a
+higher MEMLOCK limit, raised in the same shell that runs them. Use
+[testing.md](doc/testing.md) for prerequisites and test conventions.
+Integration tests can change host configuration.
 
 ## Auto-generated Code
 
@@ -58,4 +79,5 @@ For Firedancer builds:
 
 ## Code Style
 
-Follow the coding conventions in `CONTRIBUTING.md` when making code changes.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) and nearby code; `src/tango/`
+defines the style.

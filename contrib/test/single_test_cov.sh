@@ -8,11 +8,18 @@
 #  make -j BUILDDIR=clang-cov CC=clang EXTRAS=llvm-cov all
 #  ./contrib/test/single_test_cov.sh build/clang-cov/unit-test/test_xxx ... test-arguments ...
 
-BINARY="$1"
-COMMAND="$@"
+set -euo pipefail
 
-rm -f default.profraw
-LLVM_PROFILE_FILE=default.profraw eval "$COMMAND"
+if (( $# == 0 )); then
+  echo "usage: $0 <test-binary> [test-arguments ...]" >&2
+  exit 2
+fi
+
+BINARY="$1"
+
+rm -f default.profraw default.profdata
+test_status=0
+LLVM_PROFILE_FILE=default.profraw "$@" || test_status=$?
 
 print_error() {
   echo -e "\033[0;31mERR\033[0m $1"
@@ -24,10 +31,8 @@ if [[ ! -f "default.profraw" ]]; then
   exit 1
 fi
 
-set -e
-
 llvm-profdata merge -sparse default.profraw -o default.profdata
-if [[ "${CLANKER:-0}" == "1" ]]; then exit 0; fi
+if [[ "${CLANKER:-0}" == "1" ]]; then exit "$test_status"; fi
 
 llvm-cov export "$BINARY" -instr-profile=default.profdata -format=lcov > default.lcov
 
@@ -39,6 +44,7 @@ genhtml default.lcov \
   --title "Coverage Report" \
   --num-spaces 1 \
   --legend \
-  --highlight \
   --branch-coverage \
   --quiet
+
+exit "$test_status"
