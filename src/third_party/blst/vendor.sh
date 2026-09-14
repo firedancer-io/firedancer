@@ -4,8 +4,9 @@
 # upstream's build.sh performs (src/server.c unity build +
 # build/assembly.S, which #includes the pre-generated per-arch .s
 # bodies from build/elf/).  The src/asm/*.pl generators, non-ELF
-# platforms, non-C bindings, and the optional client_min_pk.c /
-# client_min_sig.c min-pk/min-sig API variants) are not imported.
+# platforms, non-C bindings, the optional client_min_pk.c /
+# client_min_sig.c min-pk/min-sig API variants, and the opt-in
+# pentaroot module are not imported.
 
 set -euo pipefail
 
@@ -21,10 +22,11 @@ git clone --depth=1 --branch "$BLST_TAG" "$BLST_URL" "$tmp/blst"
 
 cp "$tmp/blst/LICENSE" LICENSE
 mkdir -p src build/elf bindings
-# src/*.c minus the unused client_min_pk.c / client_min_sig.c variants
+# src/*.c minus the unused client_min_pk.c / client_min_sig.c min-pk/
+# min-sig API variants and the opt-in pentaroot
 for f in "$tmp/blst/src/"*.c "$tmp/blst/src/"*.h; do
   case "$( basename -- "$f" )" in
-    client_min_pk.c|client_min_sig.c) continue ;;
+    client_min_pk.c|client_min_sig.c|pentaroot.c|pentaroot-addchain.h) continue ;;
   esac
   cp "$f" src/
 done

@@ -28,5 +28,6 @@ cp "$tmp/zstd/lib/decompress/"*.c "$tmp/zstd/lib/decompress/"*.h \
 rm lib/compress/zstdmt_compress.c lib/compress/zstdmt_compress.h \
    lib/common/pool.c lib/common/pool.h \
    lib/common/threading.c lib/common/threading.h
+rm lib/common/debug.c
 
 echo "[+] Vendored zstd files from $ZSTD_TAG"
