@@ -8,6 +8,7 @@
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../../ballet/txn/fd_compact_u16.h"
+#include "../../../disco/pack/fd_chkdup.h"
 
 /* Macros to append data to construct a serialized transaction
    without exceeding bounds */
@@ -123,6 +124,19 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Set up txn descriptor from raw data */
   if( FD_UNLIKELY( !fd_txn_parse( txn->payload, msg_sz, TXN( txn ), NULL ) ) ) {
     return NULL;
+  }
+
+  /* V1 transactions with duplicate addresses fail sanitization in
+     Agave, so we should drop these. */
+  fd_txn_t const * txn_desc = TXN( txn );
+  if( txn_desc->transaction_version==FD_TXN_V1 ) {
+    fd_rng_t    rng[1];
+    fd_chkdup_t chkdup[1];
+    fd_chkdup_t * chk = fd_chkdup_join( fd_chkdup_new( chkdup, fd_rng_join( fd_rng_new( rng, 0U, 0UL ) ) ) );
+    fd_acct_addr_t const * addrs = fd_txn_get_acct_addrs( txn_desc, txn->payload );
+    if( FD_UNLIKELY( fd_chkdup_check( chk, addrs, txn_desc->acct_addr_cnt, NULL, 0UL ) ) ) {
+      return NULL;
+    }
   }
 
   txn->payload_sz = (ushort)msg_sz;
