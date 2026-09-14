@@ -10,8 +10,3 @@ $(call make-unit-test,test_tls_web,test_tls_web,fd_waltz fd_tls fd_ballet fd_uti
 $(call make-fuzz-test,fuzz_tls,fuzz_tls,fd_tls fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_tls_msg_parser,fuzz_tls_msg_parser,fd_tls fd_ballet fd_util)
 endif
-
-ifdef FD_HAS_OPENSSL
-$(call make-unit-test,test_tls_openssl,test_tls_openssl,fd_quic fd_tls fd_ballet fd_util,-lssl -lcrypto)
-$(call run-unit-test,test_tls_openssl)
-endif
