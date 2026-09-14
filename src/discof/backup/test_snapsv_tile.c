@@ -1022,7 +1022,39 @@ shoveling_conn( fd_snapsv_t * ctx ) {
   }
   return NULL;
 }
+FD_UNIT_TEST( snap_connection_too_slow ) {
+  char name[ FD_SNAP_NAME_MAX ];
+  snapsv_env_t * env = snap_env( name, 0 );
+  fake_client_t fake;
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", name );
+  fake_client_req( &fake, req );
+  static char res[ SNAP_RES_MAX ];
+  ulong res_len = sizeof(res);
+  fake_client_res( &fake, res, &res_len );
+  uint iter = 0U;
+  for( ; iter<64U && fake.res_sz<=4096U; iter++ ) snapsv_step( env, &fake, iter );
+  FD_TEST( fake.res_sz>4096U );
+  FD_TEST( env->ctx->conn_cnt );
+  ulong        body_len;
+  char const * body = res_body( res, res_len, &body_len );
+  ( void )body;
+  snapsv_conn_t * conn = shoveling_conn( env->ctx );
+  FD_TEST( conn );
+  int charge_busy = 0;
+  long time = 5L * 1000L * 1000L * 1000L;
+  after_credit_pre( env->ctx, env->stem, &charge_busy, time );
+  fake_client_drive( &fake, env->ctx->ring->sq, env->ctx->ring->cq );
+  after_credit_post( env->ctx, env->stem, &charge_busy, time );
+  /* After incrementing time by serve window ns, it should check the speed and close the conn */
+  time += SERVE_WINDOW_NS;
+  FD_TEST( !conn->closing );
+  after_credit_pre( env->ctx, env->stem, &charge_busy, time );
+  FD_TEST( conn->closing );
 
+
+  snapsv_env_destroy( env );
+}
 /* A snapshot read that is already submitted when the snapshot is
    deleted may land after snapmk recycled the file.  Those bytes must
    not reach the client. */
