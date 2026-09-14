@@ -11,3 +11,6 @@ ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_x509_verify,test_x509_verify,fd_ballet fd_util)
 $(call run-unit-test,test_x509_verify)
 endif
+ifdef FD_HAS_HOSTED
+$(call make-fuzz-test,fuzz_x509_tls_cert_msg,fuzz_x509_tls_cert_msg,fd_ballet fd_util)
+endif
