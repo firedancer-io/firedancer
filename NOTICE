@@ -588,18 +588,6 @@ See src/third_party/zstd/LICENSE for the full license text.
 
 =======================================================================
 
-'src/third_party/lz4' contains a subset of the LZ4 library
-(tag v1.10.0, lib/ only, which is BSD-2-Clause licensed).
-
-https://github.com/lz4/lz4
-
-Copyright (c) 2011-2020, Yann Collet
-All rights reserved.
-
-See src/third_party/lz4/LICENSE for the full license text.
-
-=======================================================================
-
 'src/third_party/zlib' contains a compress-only subset of the zlib
 library (tag v1.3.1).
 
