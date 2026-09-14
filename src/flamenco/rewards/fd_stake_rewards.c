@@ -5,7 +5,8 @@
 #include <errno.h>
 #include <unistd.h>
 
-#define FD_STAKE_REWARDS_MAGIC (0xF17EDA2CE757A4E0) /* FIREDANCER STAKE V0 */
+/* FIREDANCER STAKE V0 */
+#define FD_STAKE_REWARDS_MAGIC (0xF17EDA2CE757A4E0)
 
 /* Entries moved through the bounce buffer per syscall: pread per refill
    while iterating a run that lives on disk, pwrite per gather while
@@ -17,13 +18,18 @@
 
 #define FD_STAKE_REWARDS_SPILL_CHUNK_ELE (131072UL)
 
-/* RAM resident sealed images. */
+/* In-memory sealed images. */
 
 #define FD_STAKE_REWARDS_SEALED_BUF_CNT (2UL)
 
-/* Disk extents: one spill extent per fork plus the shared overflow
-   budget. */
+/* Disk extents available for overflow areas, shared by all forks, on
+   top of the one spill extent every fork is guaranteed.  Each extent
+   is max_stake_accounts entries of 48 bytes (about 103 MiB at the
+   production capacity), so this is about 3.3 GiB of sparse file.  A
+   single fork may take all of them, which bounds the rewards of one
+   epoch to about 27x max_stake_accounts. */
 
+#define FD_STAKE_REWARDS_OVF_EXTENTS (32UL)
 #define FD_STAKE_REWARDS_MAX_EXTENTS (FD_STAKE_REWARDS_MAX_FORK_WIDTH+FD_STAKE_REWARDS_OVF_EXTENTS)
 
 struct fork {
@@ -60,45 +66,52 @@ typedef struct disk_ele disk_ele_t;
 FD_STATIC_ASSERT( sizeof(disk_ele_t)==48UL, disk_ele );
 
 struct fork_info {
-  uint  ele_cnt;        /* entries in the RAM part: staged so far, or in the sealed image */
+  uint  ele_cnt;        /* staged or in-memory sealed entries */
   uint  partition_cnt;
   uint  sealed;
-  uint  sealed_buf;     /* sealed buffer holding the image, UINT_MAX if spilled or empty */
-  uint  spill_extent;   /* extent holding the image once spilled, UINT_MAX otherwise */
-  uint  ovf_slot_cap;   /* per-partition slot of the overflow area in entries, 0 if none is expected */
-  uint  ovf_extent_cnt; /* extents backing the overflow area, 0 until the first flush */
+  uint  sealed_buf;     /* buffer index; UINT_MAX if spilled/empty */
+  uint  spill_extent;   /* spill extent; UINT_MAX unless spilled */
+  uint  ovf_slot_cap;   /* overflow entries per partition, or 0 */
+  uint  ovf_extent_cnt; /* extents allocated on first flush */
   uint  ovf_extent[ FD_STAKE_REWARDS_OVF_EXTENTS ];
 
-  /* Before seal: head/tail staging index of each partition's chain.
-     After seal: head = first entry of the partition's run in the sealed
-     image (runs are laid out in partition order, so the run of p ends
-     where the run of p+1 begins, or at ele_cnt for the last one); tail =
-     entry count of the partition in the overflow area. */
+  /* Before fini, head/tail index each partition's staging chain.
+     After fini, head is the first entry of the partition's run in the
+     sealed image.  Runs are in partition order, so p ends where p+1
+     starts, or at ele_cnt for the last partition.  tail is the
+     partition's entry count in the overflow area. */
   uint  partition_idxs_head[MAX_PARTITIONS_PER_EPOCH];
   uint  partition_idxs_tail[MAX_PARTITIONS_PER_EPOCH];
 
   ulong starting_block_height;
   ulong total_stake_rewards;
   ulong refcnt;
-  ulong seal_seq;       /* order sealed in, to pick the oldest live image to spill */
+  ulong seal_seq;      /* seal order used to choose the spill victim */
 };
 typedef struct fork_info fork_info_t;
 
 struct fd_stake_rewards {
   ulong       magic;
-  ulong       max_stake_accounts; /* entries per staging buffer, sealed buffer and disk extent */
+
+  /* Entries per staging buffer, sealed buffer, and disk extent. */
+  ulong       max_stake_accounts;
+
   fork_info_t fork_info[ FD_STAKE_REWARDS_MAX_FORK_WIDTH ];
+
   ulong       fork_pool_offset;
-  ulong       staging_offset; /* partition_ele_t[max_stake_accounts]: fork being computed */
-  ulong       sealed_offset;  /* disk_ele_t[SEALED_BUF_CNT*max_stake_accounts]: grouped images */
-  ulong       iobuf_offset;   /* disk_ele_t[IOBUF_ELE]: disk bounce buffer */
+  ulong       staging_offset; /* partition_ele_t staging buffer */
+  ulong       sealed_offset;  /* partition-grouped disk_ele_t buffers */
+  ulong       iobuf_offset;   /* disk bounce buffer */
   ulong       epoch;
-  uint        staging_fork;   /* fork accepting inserts, UINT_MAX none */
-  uint        sealed_buf_fork[ FD_STAKE_REWARDS_SEALED_BUF_CNT ]; /* fork whose image a buffer holds, UINT_MAX free */
+  uint        staging_fork;   /* fork accepting inserts, or UINT_MAX */
+
+  /* Owner of each sealed buffer, or UINT_MAX. */
+  uint        sealed_buf_fork[ FD_STAKE_REWARDS_SEALED_BUF_CNT ];
+
   ulong       seal_seq;
 
-  /* Per-partition entry count of the staged fork's overflow area.  Moves
-     into partition_idxs_tail when the fork is sealed. */
+  /* Per-partition entry count in the staged fork's overflow area.
+     Moves into partition_idxs_tail when the fork is sealed. */
   uint        staging_ovf_cnt[MAX_PARTITIONS_PER_EPOCH];
 
   /* Disk extent free list. */
@@ -111,16 +124,16 @@ struct fd_stake_rewards {
 
   /* Partition iterator state.  A partition is read as two segments:
      its run in the overflow area (disk), then its run in the sealed
-     image (RAM, or the spill extent). */
+     image (in an in-memory buffer or the spill extent). */
   uint  iter_fork;
   uint  iter_partition;
   int   iter_seg;      /* -1 not started, 0 overflow, 1 image, 2 done */
   uint  iter_rem;      /* entries not yet consumed in the segment */
   int   iter_resident; /* segment is served from a sealed buffer */
-  ulong iter_res_idx;  /* resident: index of the next entry in the sealed region */
+  ulong iter_res_idx;  /* next in-memory entry */
   uint  iter_buf_pos;  /* disk: next entry in iobuf */
   uint  iter_buf_cnt;  /* disk: valid entries in iobuf */
-  ulong iter_ele_off;  /* disk: next unread entry, overflow-area logical or spill-extent index */
+  ulong iter_ele_off;  /* disk: next overflow or spill entry */
 };
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
@@ -247,7 +260,8 @@ ovf_io( fd_stake_rewards_t * stake_rewards,
 static ulong
 isqrt( ulong x ) {
   if( FD_UNLIKELY( x<2UL ) ) return x;
-  ulong r = 1UL<<( ((uint)fd_ulong_find_msb( x )/2U)+1U ); /* >= sqrt(x) */
+  /* Initial guess is at least sqrt(x). */
+  ulong r = 1UL<<( ((uint)fd_ulong_find_msb( x )/2U)+1U );
   for(;;) {
     ulong next = (r + x/r)/2UL;
     if( next>=r ) return r;
@@ -255,9 +269,8 @@ isqrt( ulong x ) {
   }
 }
 
-/* ovf_slot_cap sizes the per-partition slot of a fork's overflow area,
-   or returns 0 when all of the fork's rewards fit in RAM and the area
-   is never used. */
+/* ovf_slot_cap sizes a fork's per-partition overflow slot.  It returns
+   0 when the in-memory buffer can hold all rewards. */
 
 static uint
 ovf_slot_cap( ulong capacity,
@@ -481,12 +494,12 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
      sealed here: the staging buffer is single-occupancy. */
   if( FD_UNLIKELY( stake_rewards->staging_fork!=UINT_MAX &&
                    !stake_rewards->fork_info[ stake_rewards->staging_fork ].sealed ) ) {
-    fd_stake_rewards_seal( stake_rewards, (uchar)stake_rewards->staging_fork );
+    fd_stake_rewards_fini( stake_rewards, (uchar)stake_rewards->staging_fork );
   }
 
-  /* Forks are not reclaimed wholesale when the epoch changes.  Every fork
-     is returned by the banks referencing it, so a new epoch has nothing
-     left over to clean up. */
+  /* Forks are not reclaimed wholesale when the epoch changes.  Every
+     fork is returned by the banks referencing it, so a new epoch has
+     nothing left over to clean up. */
   stake_rewards->epoch = epoch;
 
   if( FD_UNLIKELY( !fork_pool_free( fork_pool ) ) ) {
@@ -661,7 +674,7 @@ sealed_buf_take( fd_stake_rewards_t * stake_rewards ) {
 }
 
 void
-fd_stake_rewards_seal( fd_stake_rewards_t * stake_rewards,
+fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
                        uchar                fork_idx ) {
   FD_CHECK_CRIT( stake_rewards->staging_fork==(uint)fork_idx, "sealing a fork that is not staged" );
   fork_info_t * fork_info = &stake_rewards->fork_info[fork_idx];
@@ -696,7 +709,7 @@ fd_stake_rewards_seal( fd_stake_rewards_t * stake_rewards,
     fork_info->sealed_buf = UINT_MAX;
   }
 
-  /* The chain tails are free now: they become the overflow area counts. */
+  /* The chain tails are free now.  Reuse them for overflow counts. */
   for( uint p=0U; p<fork_info->partition_cnt; p++ ) {
     fork_info->partition_idxs_tail[p] = fork_info->ovf_extent_cnt ? stake_rewards->staging_ovf_cnt[p] : 0U;
   }

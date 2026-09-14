@@ -12,13 +12,14 @@
 #include "fd_rewards_base.h"
 #include "fd_stake_rewards.h"
 
-/* The RAM capacity is kept far below the entries a fork may hold so
-   that flushes to the overflow area, multi-extent areas and spills of
-   sealed images are all exercised.  A fork announces FUZZ_MAX_ENTRIES
-   rewards, so with up to FUZZ_MAX_PARTITIONS partitions its overflow
-   area is at most 30 of the 40 extents (12 partitions of 40-entry
-   slots); the shared budget only fits one such fork at a time next to
-   the spilled images, which insert_reward enforces. */
+/* The in-memory capacity is kept far below the entries a fork may hold
+   so that flushes to the overflow area, multi-extent areas, and spills
+   of sealed images are all exercised.  A fork announces
+   FUZZ_MAX_ENTRIES rewards, so with up to FUZZ_MAX_PARTITIONS
+   partitions its overflow area is at most 30 of the 40 extents (12
+   partitions of 40-entry slots).  The shared budget only fits one such
+   fork at a time next to the spilled images, which insert_reward
+   enforces. */
 
 #define FUZZ_MAX_FORKS           (  8UL)
 #define FUZZ_CAPACITY            ( 16UL)
@@ -66,7 +67,7 @@ typedef struct {
   ulong                epoch;
   ulong                root_slot;
   ulong                fork_cnt;
-  uint                 staging_idx; /* fork_idx currently staged, UINT_MAX none */
+  uint                 staging_idx; /* staged fork, or UINT_MAX */
   fork_model_t         fork[ FUZZ_MAX_FORKS ];
 } model_t;
 
@@ -223,8 +224,8 @@ validate_model( model_t const * m ) {
   for( ulong i=0UL; i<m->fork_cnt; i++ ) validate_fork( m, &m->fork[ i ] );
 }
 
-/* Give one of the model's references on a fork back.  The fork is purged
-   once the last reference goes, so the model stops tracking it and
+/* Give back one of the model's references on a fork.  The last
+   reference purges the fork, so the model stops tracking it and
    expects its slot to return to the pool. */
 
 static void
@@ -250,7 +251,8 @@ release_fork( model_t * m,
   if( FD_UNLIKELY( free_after!=free_before+1UL ) ) {
     FD_LOG_ERR(( "fork %u was not returned to the pool", (uint)f->fork_idx ));
   }
-  if( FD_UNLIKELY( m->staging_idx==(uint)f->fork_idx ) ) m->staging_idx = UINT_MAX; /* purge un-stages */
+  /* Purging also removes the staged fork. */
+  if( FD_UNLIKELY( m->staging_idx==(uint)f->fork_idx ) ) m->staging_idx = UINT_MAX;
   m->fork[ fork_pos ] = m->fork[ --m->fork_cnt ];
 }
 
@@ -288,10 +290,9 @@ static fork_model_t *
 init_fork( model_t * m, fuzz_reader_t * r, int force_new_epoch ) {
   int new_epoch = force_new_epoch || ( m->fork_cnt && !( fuzz_u8( r ) & 15U ) );
   if( FD_UNLIKELY( new_epoch ) ) {
-    /* The banks holding an epoch's forks retire before the rewards of the
-       next epoch are computed, so every reference is given back.  Nothing
-       reclaims forks on an epoch change: the pool only comes back if the
-       references are dropped. */
+    /* Banks holding an epoch's forks retire before rewards for the next
+       epoch are computed, so every reference is returned.  Epoch
+       changes do not reclaim forks; references must be dropped. */
     while( m->fork_cnt ) release_fork( m, m->fork_cnt-1UL );
     if( FD_UNLIKELY( fd_stake_rewards_free_cnt( m->stake_rewards )!=FUZZ_MAX_FORKS ) ) {
       FD_LOG_ERR(( "epoch change left %lu of %lu forks in use",
@@ -406,7 +407,7 @@ distribute_partition( model_t *       m,
      does when its computation completes.  Any unsealed fork is the
      staged one. */
   if( FD_UNLIKELY( !f->sealed ) ) {
-    fd_stake_rewards_seal( m->stake_rewards, f->fork_idx );
+    fd_stake_rewards_fini( m->stake_rewards, f->fork_idx );
     mark_sealed( m, f );
   }
 

@@ -3,82 +3,35 @@
 
 #include "../fd_flamenco_base.h"
 
-/* fd_stake_rewards is a fork aware structure that stores and keeps
-   track of pending stake rewards for the purposes of partitioned epoch
-   rewards that occurs after the epoch boundary.
+/* fd_stake_rewards stores partitioned epoch rewards for multiple forks.
+   At an epoch boundary, the caller initializes a fork, inserts each
+   reward, and finishes the fork.  Each reward is hashed into a
+   partition.  During distribution, the saved partitions are read back
+   one per slot.  Finished rewards are immutable and never recomputed.
 
-   The access pattern is as follows:
-   1. Insertion/Hashing: This occurs at the epoch boundary after stake
-      rewards are computed before rewards are distributed.  The stake
-      account along with corresponding lamports and credits observed are
-      hashed into a rewards partition.  These rewards will be paid out
-      later.
-   2. Iteration: A partition is paid out per slot.  All of the accounts
-      in the partition are iterated over and the rewards are distributed
-      to the stake accounts involved.
+   The in-memory tier holds one fork being built and two finished forks.
+   Additional rewards or live forks spill to the sparse file described
+   below.  The common mainnet path uses only the in-memory tier.  The
+   protocol permits up to 43200 reward slots and does not limit the
+   number of rewards in one slot.
 
-  The protocol level guarantees is just that there can be up to 43200
-  rewards slots.  There is no limit on the number of stake rewards paid
-  out per slot.
+   Rewards for a new epoch must not begin while rewards from the
+   previous epoch are still being distributed.  The protocol guarantees
+   this because distribution finishes within the first 10% of an epoch.
 
-  A fork's reward set is computed exactly once and is immutable after
-  it is sealed.  Distribution reads back the partition that was saved,
-  it never recomputes rewards.
+   This structure is not thread-safe.  The caller must synchronize
+   concurrent access.
 
-  Storage is tiered.  Locked RAM holds:
-  - one staging buffer of max_stake_accounts entries, in insert order
-    and chained per partition, for the single fork being computed;
-  - two sealed buffers of max_stake_accounts entries each, grouped by
-    partition, for the two most recently sealed live forks.
-  Disk (the well-known fd below) is the overflow tier, an arena of
-  fixed-size extents of max_stake_accounts entries each:
-  - when a third live fork is sealed while both sealed buffers are
-    held, the oldest sealed live fork is spilled to an extent, once.  A
-    fork whose last reference is dropped just gives its buffer back.
-  - when a fork has more than max_stake_accounts rewards, every time
-    the staging buffer fills during insertion it is flushed to the
-    fork's overflow area, laid out partition-major with a fixed
-    per-partition slot so that a partition is one contiguous run there.
-    The remainder that fits is sealed to RAM as usual.
-
-  On mainnet a single boundary chain is live and its rewards fit, so
-  the common path never touches the disk.  The sparse file address
-  space is bounded by (max_fork_width+FD_STAKE_REWARDS_OVF_EXTENTS)
-  extents, and blocks are only ever allocated for what is written.
-
-  As a note, the structure is also only partially fork-aware.  It safely
-  assumes that the epoch boundary of a second epoch will not happen
-  while the stake rewards are still being paid out of a first epoch.
-  The protocol guarantees this because stake rewards must be paid out
-  within the first 10% of an epoch.
-
-  It is assumed that there will not be concurrent users of the stake
-  rewards structure.  The caller is expected to manage synchronization
-  between threads.
-
-  TODO: nothing reserves a fork for a bank before the bank runs, so
-  this capacity is not checked when the bank is started: banks are
-  admitted by fd_banks_can_start_bank, which only accounts for the bank
-  pool and the fork width, and acquire their fork later while executing
-  the block.  This means that under really adverse staking conditions
-  and forking conditions, the pool capacity can exceed which would
-  cause the validator to crash.  These conditions don't exist today. */
+   TODO: fd_banks_can_start_bank does not reserve a rewards fork.  Under
+   extreme staking and forking conditions, a bank could start and then
+   exhaust this pool while executing an epoch-boundary block. */
 
 #define FD_STAKE_REWARDS_ALIGN          (128UL)
 #define FD_STAKE_REWARDS_MAX_FORK_WIDTH (128UL)
 
-/* Disk extents available for overflow areas, shared by all forks, on
-   top of the one spill extent every fork is guaranteed.  Each extent
-   is max_stake_accounts entries of 48 bytes (about 103 MiB at the
-   production capacity), so this is about 3.3 GiB of sparse file.  A
-   single fork may take all of them, which bounds the rewards of one
-   epoch to about 27x max_stake_accounts. */
-
-#define FD_STAKE_REWARDS_OVF_EXTENTS (32UL)
-
 /* The spill file lives on the well-known fd below (see
-   initialize_stake_rewards_fd; tests dup2 a memfd onto it).  123458/9 are
-   Store, 123460/1 are accdb, and 123462 is reserved by XDP. */
+   initialize_stake_rewards_fd; tests dup2 a memfd onto it).  123458/9
+   are Store, 123460/1 are accdb, and 123462 is reserved by XDP. */
 
 #define FD_STAKE_REWARDS_FD (123453)
 
@@ -95,8 +48,8 @@ fd_stake_rewards_align( void );
 
 /* fd_stake_rewards_footprint is used to get the footprint for the stake
    rewards structure given the max number of stake accounts and the max
-   number of forks.  max_stake_accounts is the RAM capacity in entries
-   of the staging buffer and of each sealed buffer, not a bound on the
+   number of forks.  max_stake_accounts is the in-memory capacity in
+   entries of the staging buffer and of each buffer, not a bound on the
    number of rewards in an epoch. */
 
 ulong
@@ -123,8 +76,7 @@ void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards );
 
 /* fd_stake_rewards_purge frees all per-fork state for a given fork,
-   regardless of how many references it has.  A sealed buffer or disk
-   extents the fork held are returned without any I/O. */
+   regardless of how many references it has. */
 
 void
 fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
@@ -175,7 +127,7 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
 /* fd_stake_rewards_insert inserts a new stake reward for a given fork.
    It hashes the reward into the appropriate partition.  fork_idx must
-   be the staged fork (the most recently init'd, not yet sealed).  When
+   be the staged fork (the most recently init'd, not yet fini'd).  When
    the staging buffer is full the staged entries are flushed to the
    fork's overflow area on disk first. */
 
@@ -186,15 +138,14 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ulong                lamports,
                          ulong                credits_observed );
 
-/* fd_stake_rewards_seal finishes a fork's computation: the staged
-   entries are grouped by partition into a sealed buffer, spilling the
-   oldest sealed live fork to disk if both buffers are held.  Must be
-   called after the last insert and before any iteration; fork_idx
-   must be the staged fork.  Initializing another fork seals the staged
-   one implicitly. */
+/* fd_stake_rewards_fini finishes building rewards for the staged fork
+   and makes them ready to iterate.  If both in-memory buffers are in
+   use, the oldest fork is moved to disk.  Call this after the final
+   insert.  Starting a new fork finishes the staged fork
+   automatically. */
 
 void
-fd_stake_rewards_seal( fd_stake_rewards_t * stake_rewards,
+fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
                        uchar                fork_idx );
 
 /* Iterator for iterating over the stake rewards for a given fork and
@@ -203,13 +154,15 @@ fd_stake_rewards_seal( fd_stake_rewards_t * stake_rewards,
    structure while iterating.
 
    Example use:
-   for( fd_stake_rewards_iter_init( stake_rewards, fork_idx, partition_idx );
+   for( fd_stake_rewards_iter_init( stake_rewards, fork_idx,
+                                    partition_idx );
         !fd_stake_rewards_iter_done( stake_rewards );
         fd_stake_rewards_iter_next( stake_rewards, fork_idx ) ) {
      fd_pubkey_t pubkey;
      ulong       lamports;
      ulong       credits_observed;
-     fd_stake_rewards_iter_ele( stake_rewards, fork_idx, &pubkey, &lamports, &credits_observed );
+     fd_stake_rewards_iter_ele( stake_rewards, fork_idx, &pubkey,
+                                &lamports, &credits_observed );
    }
 */
 

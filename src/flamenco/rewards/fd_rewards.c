@@ -1392,7 +1392,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
 
   /* Computation done: group the entries by partition into the fork's
      sealed image. */
-  fd_stake_rewards_seal( stake_rewards, fork_idx );
+  fd_stake_rewards_fini( stake_rewards, fork_idx );
 }
 
 /* Calculate epoch reward and return vote and stake rewards.
@@ -1485,7 +1485,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                             *rewards_out,
                             total_points );
   } else {
-    fd_stake_rewards_seal( stake_rewards, fork_idx );
+    fd_stake_rewards_fini( stake_rewards, fork_idx );
   }
 
   return total_points;
@@ -2161,7 +2161,7 @@ recalculate_partitioned_rewards( fd_banks_t *         banks,
         epoch_rewards_sysvar->total_rewards,
         epoch_rewards_sysvar->total_points.ud );
   } else {
-    fd_stake_rewards_seal( stake_rewards, fork_idx );
+    fd_stake_rewards_fini( stake_rewards, fork_idx );
   }
 
   fd_stake_delegations_unmark_fork_deltas( stake_delegations,
