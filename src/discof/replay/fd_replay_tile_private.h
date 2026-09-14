@@ -441,6 +441,7 @@ struct fd_replay_tile {
   ulong       leader_execution_fees; /* ALPENGLOW-ONLY */
   ulong       leader_priority_fees;  /* ALPENGLOW-ONLY */
   ulong       leader_tips;           /* ALPENGLOW-ONLY */
+  fd_block_footer_t leader_footer[ 1 ];
 
   fd_votor_certed_t votor_final[ 1 ];                                                /* ALPENGLOW-ONLY: highest finalization, fast over slow at the same slot */
   fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ];
