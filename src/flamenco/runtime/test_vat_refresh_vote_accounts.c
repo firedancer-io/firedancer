@@ -14,6 +14,7 @@
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "../accdb/fd_accdb.h"
+#include "../rewards/fd_stake_rewards.h"
 #include "../accdb/fd_accdb_shmem.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_stake_types.h"
@@ -338,6 +339,11 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
 
   env->accdb_fd = memfd_create( "vat_test", 0 );
   if( FD_UNLIKELY( env->accdb_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  int rewards_fd = memfd_create( "vat_stake_rewards_spill", 0 );
+  if( FD_UNLIKELY( rewards_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( dup2( rewards_fd, FD_STAKE_REWARDS_FD )!=FD_STAKE_REWARDS_FD ) ) FD_LOG_ERR(( "dup2 failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( rewards_fd ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( env->accdb_shmem, accdb_max_accounts, accdb_max_live_slots,

@@ -21,11 +21,30 @@
   rewards slots.  There is no limit on the number of stake rewards paid
   out per slot.
 
-  Each fork can support a window of entries at a time.  It is sized to
-  support current mainnet load along with some slack, but it can support
-  more.  When the rewards for a specific block are reached, the rewards
-  are recalculated and the window is advanced.  In the non-degenerate
-  case, rewards are only calculated once per fork.
+  A fork's reward set is computed exactly once and is immutable after
+  it is sealed.  Distribution reads back the partition that was saved,
+  it never recomputes rewards.
+
+  Storage is tiered.  Locked RAM holds:
+  - one staging buffer of max_stake_accounts entries, in insert order
+    and chained per partition, for the single fork being computed;
+  - two sealed buffers of max_stake_accounts entries each, grouped by
+    partition, for the two most recently sealed live forks.
+  Disk (the well-known fd below) is the overflow tier, an arena of
+  fixed-size extents of max_stake_accounts entries each:
+  - when a third live fork is sealed while both sealed buffers are
+    held, the oldest sealed live fork is spilled to an extent, once.  A
+    fork whose last reference is dropped just gives its buffer back.
+  - when a fork has more than max_stake_accounts rewards, every time
+    the staging buffer fills during insertion it is flushed to the
+    fork's overflow area, laid out partition-major with a fixed
+    per-partition slot so that a partition is one contiguous run there.
+    The remainder that fits is sealed to RAM as usual.
+
+  On mainnet a single boundary chain is live and its rewards fit, so
+  the common path never touches the disk.  The sparse file address
+  space is bounded by (max_fork_width+FD_STAKE_REWARDS_OVF_EXTENTS)
+  extents, and blocks are only ever allocated for what is written.
 
   As a note, the structure is also only partially fork-aware.  It safely
   assumes that the epoch boundary of a second epoch will not happen
@@ -48,6 +67,21 @@
 #define FD_STAKE_REWARDS_ALIGN          (128UL)
 #define FD_STAKE_REWARDS_MAX_FORK_WIDTH (128UL)
 
+/* Disk extents available for overflow areas, shared by all forks, on
+   top of the one spill extent every fork is guaranteed.  Each extent
+   is max_stake_accounts entries of 48 bytes (about 103 MiB at the
+   production capacity), so this is about 3.3 GiB of sparse file.  A
+   single fork may take all of them, which bounds the rewards of one
+   epoch to about 27x max_stake_accounts. */
+
+#define FD_STAKE_REWARDS_OVF_EXTENTS (32UL)
+
+/* The spill file lives on the well-known fd below (see
+   initialize_accdb_fd; tests dup2 a memfd onto it).  123458/9 are
+   Store, 123460/1 are accdb, and 123462 is reserved by XDP. */
+
+#define FD_STAKE_REWARDS_FD (123457)
+
 struct fd_stake_rewards;
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
@@ -61,8 +95,9 @@ fd_stake_rewards_align( void );
 
 /* fd_stake_rewards_footprint is used to get the footprint for the stake
    rewards structure given the max number of stake accounts and the max
-   number of forks.  max_stake_accounts is the per fork window capacity
-   in entries, not a bound on the number of rewards in an epoch. */
+   number of forks.  max_stake_accounts is the RAM capacity in entries
+   of the staging buffer and of each sealed buffer, not a bound on the
+   number of rewards in an epoch. */
 
 ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
@@ -88,7 +123,8 @@ void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards );
 
 /* fd_stake_rewards_purge frees all per-fork state for a given fork,
-   regardless of how many references it has. */
+   regardless of how many references it has.  A sealed buffer or disk
+   extents the fork held are returned without any I/O. */
 
 void
 fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
@@ -112,16 +148,22 @@ fd_stake_rewards_refcnt( fd_stake_rewards_t const * stake_rewards,
                          uchar                      fork_idx );
 
 /* fd_stake_rewards_free_cnt returns how many forks can still be
-   acquired.  A bank needs one whenever it computes rewards it does not
-   already hold: at an epoch boundary, or when the partition it has to
-   distribute falls outside its window. */
+   acquired.  A bank needs one whenever it computes rewards: at an
+   epoch boundary, or when booting from a snapshot taken while rewards
+   were being distributed. */
 
 ulong
 fd_stake_rewards_free_cnt( fd_stake_rewards_t const * stake_rewards );
 
 /* fd_stake_rewards_init initializes the stake rewards structure for a
    given fork.  It should be used at the start of epoch reward
-   calculation or recalculation.  It returns a fork index. */
+   calculation.  It returns a fork index.  The returned fork becomes
+   the staged fork, sealing any fork that was still staged.
+
+   max_rewards_cnt is the number of rewards the caller is about to
+   insert.  It only matters when it exceeds max_stake_accounts: it then
+   sizes the per-partition slot of the fork's overflow area, so it must
+   not undercount. */
 
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
@@ -131,43 +173,11 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        uint                 partitions_cnt,
                        ulong                max_rewards_cnt );
 
-/* fd_stake_rewards_window_advance removes all of the entries associated
-   with the current window of a specific fork and shifts the starting
-   window to be win_lo.  The caller is expected to insert stake rewards
-   in the same way it does when computing rewards.  parent_blockhash
-   must match the one that was supplied to fd_stake_rewards_init for
-   the initial rewards computation.
-
-   A fork's window is only ever positioned before its entries are
-   computed: a bank that needs a window other than the one it holds
-   acquires a fork of its own, because the fork it holds is shared with
-   the banks that branched off it.  When the window is advance, it must
-   belong to a new fork_idx. */
-
-void
-fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
-                                 uchar                fork_idx,
-                                 fd_hash_t const *    parent_blockhash,
-                                 uint                 win_lo,
-                                 ulong                max_rewards_cnt );
-
-/* fd_stake_rewards_window_{lo,hi} return the inclusive range of
-   partition indices that a stake rewards fork currently holds.  If the
-   requested partition is not in this window, the caller needs to
-   re-derive the set of stake partitions for the next window. */
-
-uint
-fd_stake_rewards_window_lo( fd_stake_rewards_t const * stake_rewards,
-                            uchar                      fork_idx );
-
-uint
-fd_stake_rewards_window_hi( fd_stake_rewards_t const * stake_rewards,
-                            uchar                      fork_idx );
-
 /* fd_stake_rewards_insert inserts a new stake reward for a given fork.
-   It hashes the reward into the appropriate partition.  The reward is
-   only stored if its partition falls inside the fork's window, but it
-   always counts towards fd_stake_rewards_total_rewards. */
+   It hashes the reward into the appropriate partition.  fork_idx must
+   be the staged fork (the most recently init'd, not yet sealed).  When
+   the staging buffer is full the staged entries are flushed to the
+   fork's overflow area on disk first. */
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
@@ -176,10 +186,21 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ulong                lamports,
                          ulong                credits_observed );
 
+/* fd_stake_rewards_seal finishes a fork's computation: the staged
+   entries are grouped by partition into a sealed buffer, spilling the
+   oldest sealed live fork to disk if both buffers are held.  Must be
+   called after the last insert and before any iteration; fork_idx
+   must be the staged fork.  Initializing another fork seals the staged
+   one implicitly. */
+
+void
+fd_stake_rewards_seal( fd_stake_rewards_t * stake_rewards,
+                       uchar                fork_idx );
+
 /* Iterator for iterating over the stake rewards for a given fork and
-   partition.  partition_idx must lie inside the fork's window.  The
-   caller should not interleave any other iteration or modification of
-   the stake rewards structure while iterating.
+   partition.  The fork must be sealed.  The caller should not
+   interleave any other iteration or modification of the stake rewards
+   structure while iterating.
 
    Example use:
    for( fd_stake_rewards_iter_init( stake_rewards, fork_idx, partition_idx );
@@ -228,6 +249,18 @@ fd_stake_rewards_starting_block_height( fd_stake_rewards_t const * stake_rewards
 ulong
 fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t const * stake_rewards,
                                                 uchar                      fork_idx );
+
+/* Introspection for tests: whether a sealed fork's RAM part currently
+   lives in a sealed buffer (1) or was spilled to disk (0), and how many
+   disk extents the fork holds for overflow. */
+
+int
+fd_stake_rewards_is_resident( fd_stake_rewards_t const * stake_rewards,
+                              uchar                      fork_idx );
+
+ulong
+fd_stake_rewards_ovf_extent_cnt( fd_stake_rewards_t const * stake_rewards,
+                                 uchar                      fork_idx );
 
 FD_PROTOTYPES_END
 
