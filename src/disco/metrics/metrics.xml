@@ -1041,9 +1041,18 @@ EXAMPLES
     <int value="3" name="Unlanded" label="Transaction did not land" />
 </enum>
 
+<enum name="TxnVersion">
+    <int value="0" name="Legacy" label="Legacy transaction format" />
+    <int value="1" name="V0" label="Version 0 transaction format" />
+    <int value="2" name="V1" label="Version 1 transaction format" />
+</enum>
+
 <tile name="execle">
     <counter name="TxnResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
     <counter name="TxnLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not" />
+    <counter name="TxnVersion" enum="TxnVersion" summary="Number of transactions executed, broken down by transaction version" />
+    <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
+    <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
     <counter name="CuExecuted" summary="Estimated compute units executed since tile start" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
@@ -1851,8 +1860,11 @@ EXAMPLES
     <gauge name="Processing" summary="Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing), either 1 or 0" />
 
     <counter name="TxnResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
+    <counter name="TxnVersion" enum="TxnVersion" summary="Number of transactions executed, broken down by transaction version" />
     <counter name="SignatureVerified" summary="Ed25519 signature verification jobs executed" />
     <counter name="PohHashed" summary="PoH SHA-256 calls executed" />
+    <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
+    <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
     <counter name="VmRegimeDurationNanos" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds" />

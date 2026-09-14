@@ -4,6 +4,17 @@
 #include "../../util/log/fd_log.h"
 #include "../../flamenco/runtime/fd_runtime_err.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
+#include "../../ballet/txn/fd_txn.h"
+
+static inline ulong
+fd_execle_version_from_txn( fd_txn_t const * txn ) {
+  switch( txn->transaction_version ) {
+    case FD_TXN_VLEGACY: return FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX;
+    case FD_TXN_V0:      return FD_METRICS_ENUM_TXN_VERSION_V_V0_IDX;
+    case FD_TXN_V1:      return FD_METRICS_ENUM_TXN_VERSION_V_V1_IDX;
+    default:             return FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX;
+  }
+}
 
 static inline int
 fd_execle_err_from_runtime_err( int err ) {

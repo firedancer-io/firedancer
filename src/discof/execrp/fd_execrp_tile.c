@@ -91,6 +91,7 @@ struct fd_execrp_tile {
     ulong txn_commit_cum_ticks;
 
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
+    ulong txn_version[ FD_METRICS_ENUM_TXN_VERSION_CNT ];
   } metrics;
 
 };
@@ -132,6 +133,7 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET      ( EXECRP, SIGNATURE_VERIFIED,    ctx->metrics.sigverify_cnt );
   FD_MCNT_SET      ( EXECRP, POH_HASHED,     ctx->metrics.poh_hash_cnt  );
   FD_MCNT_ENUM_COPY( EXECRP, TXN_RESULT,   ctx->metrics.txn_result    );
+  FD_MCNT_ENUM_COPY( EXECRP, TXN_VERSION,  ctx->metrics.txn_version   );
 
   fd_progcache_metrics_t * pm = ctx->progcache->metrics;
   FD_MCNT_SET( EXECRP, PROGCACHE_LOOKUP,                 pm->lookup_cnt     );
@@ -163,6 +165,8 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
 
   FD_MCNT_SET( EXECRP, CU_EXECUTED, runtime->metrics.cu_cum );
+  FD_MCNT_SET( EXECRP, INSTRUCTION_EXECUTED, runtime->metrics.instr_cum );
+  FD_MCNT_SET( EXECRP, CPI_EXECUTED,         runtime->metrics.cpi_cum   );
 
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -293,6 +297,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
+        ctx->metrics.txn_version[ fd_execle_version_from_txn( TXN( ctx->txn_in.txn ) ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
           fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );

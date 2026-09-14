@@ -14,6 +14,7 @@
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/program/fd_system_program.h"
 #include "../../flamenco/runtime/program/fd_bpf_loader_program.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../util/tmpl/fd_unit_test.c"
@@ -332,6 +333,61 @@ test_build_empty_txn( fd_txn_p_t *    out,
   out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
 }
 
+/* Serializes a V1 (SIMD-0385) transaction containing a single system
+   transfer.  The message comes first and the signature last. */
+
+static void
+test_build_v1_transfer_txn( fd_txn_p_t * out,
+                            fd_bank_t *   bank,
+                            fd_pubkey_t   from,
+                            fd_pubkey_t   to,
+                            ulong         lamports ) {
+  fd_system_program_instruction_t instr = {
+    .discriminant   = FD_SYSTEM_PROGRAM_INSTR_TRANSFER,
+    .inner.transfer = lamports
+  };
+  uchar instr_data[ 16 ];
+  ulong instr_data_sz = 0UL;
+  FD_TEST( !fd_system_program_instruction_encode( &instr, instr_data, sizeof(instr_data), &instr_data_sz ) );
+
+  fd_hash_t const * recent_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  FD_TEST( recent_blockhash );
+
+  fd_memset( out, 0, sizeof(fd_txn_p_t) );
+  uchar * p = out->payload;
+  *p++ = (uchar)(0x80U | FD_TXN_V1);
+  *p++ = (uchar)1;  /* signature_cnt */
+  *p++ = (uchar)0;  /* readonly_signed_cnt */
+  *p++ = (uchar)1;  /* readonly_unsigned_cnt (system program) */
+  FD_STORE( uint, p, (1U<<2)|(1U<<3) ); p += 4UL; /* config_mask: cu limit, loaded accounts data size */
+  fd_memcpy( p, recent_blockhash, sizeof(fd_hash_t) ); p += sizeof(fd_hash_t);
+  *p++ = (uchar)1;  /* instr_cnt */
+  *p++ = (uchar)3;  /* acct_addr_cnt */
+  fd_memcpy( p, &from,                        sizeof(fd_pubkey_t) ); p += sizeof(fd_pubkey_t);
+  fd_memcpy( p, &to,                          sizeof(fd_pubkey_t) ); p += sizeof(fd_pubkey_t);
+  fd_memcpy( p, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ); p += sizeof(fd_pubkey_t);
+  /* config values, ascending bit order */
+  FD_STORE( uint, p, 300000U );                                  p += 4UL;
+  FD_STORE( uint, p, (uint)FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT ); p += 4UL;
+  /* instruction header */
+  *p++ = (uchar)2;  /* program_id */
+  *p++ = (uchar)2;  /* acct_cnt */
+  FD_STORE( ushort, p, (ushort)instr_data_sz ); p += 2UL;
+  /* instruction payload */
+  *p++ = (uchar)0;
+  *p++ = (uchar)1;
+  fd_memcpy( p, instr_data, instr_data_sz ); p += instr_data_sz;
+  /* signature */
+  fd_memset( p, 0, FD_TXN_SIGNATURE_SZ ); p += FD_TXN_SIGNATURE_SZ;
+
+  ulong sz = (ulong)( p - out->payload );
+  FD_TEST( fd_txn_parse( out->payload, sz, TXN( out ), NULL ) );
+  FD_TEST( TXN( out )->transaction_version==FD_TXN_V1 );
+  out->payload_sz = (ushort)sz;
+  out->pack_cu.non_execution_cus                 = 1000U;
+  out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
+}
+
 static void
 test_build_system_transfer_txn( fd_txn_p_t * out,
                                 fd_bank_t *   bank,
@@ -454,6 +510,45 @@ test_build_bpf_close_txn( fd_txn_p_t * out,
   FD_TEST( fd_txn_builder_instr_account_push( builder, &recipient,   FD_TXN_ACCT_CAT_WRITABLE ) );
   FD_TEST( fd_txn_builder_instr_account_push( builder, &authority,   FD_TXN_ACCT_CAT_SIGNER   ) );
   FD_TEST( fd_txn_builder_instr_account_push( builder, &program,     FD_TXN_ACCT_CAT_WRITABLE ) );
+  fd_txn_builder_instr_close( builder );
+
+  fd_memset( out, 0, sizeof(fd_txn_p_t) );
+  FD_TEST( fd_txn_build_p( builder, out ) );
+  out->pack_cu.non_execution_cus                 = 1000U;
+  out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
+  fd_txn_builder_delete( builder );
+}
+
+/* ExtendProgram tops up programdata via a native CPI into the system
+   program when the payer account is provided. */
+
+static void
+test_build_bpf_extend_txn( fd_txn_p_t * out,
+                           fd_bank_t *   bank,
+                           fd_pubkey_t   payer,
+                           fd_pubkey_t   program,
+                           fd_pubkey_t   programdata,
+                           uint          additional_bytes ) {
+  fd_bpf_instruction_t instr = {
+    .discriminant                         = FD_BPF_INSTR_EXTEND_PROGRAM,
+    .inner.extend_program.additional_bytes = additional_bytes
+  };
+  uchar instr_data[ 8 ];
+  ulong instr_data_sz = 0UL;
+  FD_TEST( !fd_bpf_instruction_encode( &instr, instr_data, sizeof(instr_data), &instr_data_sz ) );
+
+  fd_hash_t const * recent_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  FD_TEST( recent_blockhash );
+
+  fd_txn_builder_t builder[1];
+  FD_TEST( fd_txn_builder_new( builder, 6UL ) );
+  FD_TEST( fd_txn_builder_fee_payer_set( builder, &payer ) );
+  fd_txn_builder_blockhash_set( builder, recent_blockhash );
+  FD_TEST( fd_txn_builder_instr_open( builder, &fd_solana_bpf_loader_upgradeable_program_id, instr_data, instr_data_sz ) );
+  FD_TEST( fd_txn_builder_instr_account_push( builder, &programdata,                 FD_TXN_ACCT_CAT_WRITABLE ) );
+  FD_TEST( fd_txn_builder_instr_account_push( builder, &program,                     FD_TXN_ACCT_CAT_WRITABLE ) );
+  FD_TEST( fd_txn_builder_instr_account_push( builder, &fd_solana_system_program_id, 0U ) );
+  FD_TEST( fd_txn_builder_instr_account_push( builder, &payer,                       FD_TXN_ACCT_CAT_WRITABLE | FD_TXN_ACCT_CAT_SIGNER ) );
   fd_txn_builder_instr_close( builder );
 
   fd_memset( out, 0, sizeof(fd_txn_p_t) );
@@ -1063,6 +1158,9 @@ FD_UNIT_TEST( execle_simple_ok ) {
 
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]==1UL );
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX ]==1UL );
+  FD_TEST( env->execle->runtime->metrics.instr_cum==1UL );
+  FD_TEST( env->execle->runtime->metrics.cpi_cum==0UL );
 
   test_env_destroy( env );
 }
@@ -1107,6 +1205,7 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail ) {
 
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]==1UL );
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_ACCOUNT_NOT_FOUND_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_V0_IDX ]==1UL );
 
   test_env_destroy( env );
 }
@@ -1319,8 +1418,9 @@ FD_UNIT_TEST( execle_bundle_ok ) {
   FD_TEST( test_read_lamports( env, &recipient0 )==recipient0_start + transfer0 );
   FD_TEST( test_read_lamports( env, &recipient1 )==recipient1_start + transfer1 );
 
-  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]==2UL );
-  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ]==2UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED  )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]==2UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT  )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ]==2UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX ]==2UL );
 
   test_env_destroy( env );
 }
@@ -1807,8 +1907,177 @@ FD_UNIT_TEST( execle_bundle_dup ) {
   }
 
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]==2UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_V0_IDX ]==2UL );
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_ALREADY_PROCESSED_IDX ]==1UL );
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX ]==1UL );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_txn_version_map ) {
+  fd_txn_t txn = {0};
+  txn.transaction_version = FD_TXN_VLEGACY;
+  FD_TEST( fd_execle_version_from_txn( &txn )==FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX );
+  txn.transaction_version = FD_TXN_V0;
+  FD_TEST( fd_execle_version_from_txn( &txn )==FD_METRICS_ENUM_TXN_VERSION_V_V0_IDX );
+  txn.transaction_version = FD_TXN_V1;
+  FD_TEST( fd_execle_version_from_txn( &txn )==FD_METRICS_ENUM_TXN_VERSION_V_V1_IDX );
+  txn.transaction_version = (uchar)0x7f;
+  FD_TEST( fd_execle_version_from_txn( &txn )==FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX );
+}
+
+FD_UNIT_TEST( execle_v1_ok ) {
+  /* System program transfer wrapped in a V1 transaction */
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  fd_features_set( &bank->f.features, fd_feature_id_query( 0x9c92e629e8d74f0dUL ), 0UL ); /* enable_tx_v1 */
+
+  fd_pubkey_t fee_payer = { .ul = { 0x5151UL } };
+  fd_pubkey_t recipient = { .ul = { 0x5252UL } };
+  ulong const payer_start     = 1000000000UL;
+  ulong const recipient_start = 1UL;
+  ulong const transfer        = 7654321UL;
+  ulong const fee             = 5000UL;
+
+  fd_blockhash_info_t * blockhash_info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &bank->f.block_hash_queue );
+  FD_TEST( blockhash_info );
+  blockhash_info->lamports_per_signature = fee;
+
+  test_fund_account( env, &fee_payer, payer_start );
+  test_fund_account( env, &recipient, recipient_start );
+
+  fd_txn_p_t txn[1];
+  test_build_v1_transfer_txn( txn, bank, fee_payer, recipient, transfer );
+  test_execle_run( env, txn, 1UL, 3U, 51UL, 0 );
+
+  test_assert_nonbundle_out( env, 1UL, 3U );
+  fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta( 0UL )->chunk );
+  FD_TEST( env->execle->txn_out[0].err.is_committable );
+  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
+  FD_TEST( test_read_lamports( env, &fee_payer )==payer_start-fee-transfer );
+  FD_TEST( test_read_lamports( env, &recipient )==recipient_start+transfer );
+
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX ]==0UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_V0_IDX     ]==0UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_V1_IDX     ]==1UL );
+  FD_TEST( env->execle->runtime->metrics.instr_cum==1UL );
+  FD_TEST( env->execle->runtime->metrics.cpi_cum==0UL );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_v1_unsupported ) {
+  /* Same V1 transaction without the feature: rejected, but still
+     counted under the V1 bucket */
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer = { .ul = { 0x5353UL } };
+  fd_pubkey_t recipient = { .ul = { 0x5454UL } };
+  ulong const payer_start     = 1000000000UL;
+  ulong const recipient_start = 1UL;
+  test_fund_account( env, &fee_payer, payer_start );
+  test_fund_account( env, &recipient, recipient_start );
+
+  fd_txn_p_t txn[1];
+  test_build_v1_transfer_txn( txn, bank, fee_payer, recipient, 1UL );
+  test_execle_run( env, txn, 1UL, 3U, 52UL, 0 );
+
+  test_assert_nonbundle_out( env, 1UL, 3U );
+  FD_TEST( !env->execle->txn_out[0].err.is_committable );
+  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION );
+  FD_TEST( test_read_lamports( env, &fee_payer )==payer_start     );
+  FD_TEST( test_read_lamports( env, &recipient )==recipient_start );
+
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_UNSUPPORTED_VERSION_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_V1_IDX ]==1UL );
+  FD_TEST( env->execle->runtime->metrics.instr_cum==0UL );
+  FD_TEST( env->execle->runtime->metrics.cpi_cum==0UL );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execle_cpi ) {
+  /* ExtendProgram on a rooted program whose programdata is only rent
+     exempt for its current size.  The loader natively invokes the
+     system program to transfer the shortfall from the payer, which
+     counts one top-level instruction and one CPI. */
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t payer       = { .ul = { 0xbbb0UL } };
+  fd_pubkey_t authority   = { .ul = { 0xbbb1UL } };
+  fd_pubkey_t program     = { .ul = { 0xbbb3UL } };
+  fd_pubkey_t programdata = { .ul = { 0xbbb4UL } };
+
+  ulong const payer_start      = 10000000000UL;
+  ulong const program_lamports = 1000000UL;
+  ulong const fee              = 5000UL;
+
+  fd_blockhash_info_t * blockhash_info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &bank->f.block_hash_queue );
+  FD_TEST( blockhash_info );
+  blockhash_info->lamports_per_signature = fee;
+
+  test_fund_account( env, &payer, payer_start );
+
+  uchar program_state_data[ SIZE_OF_PROGRAM ];
+  fd_bpf_state_t program_state = {
+    .discriminant = FD_BPF_STATE_PROGRAM,
+    .inner.program.programdata_address = programdata
+  };
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &program_state, program_state_data, sizeof(program_state_data), &out_sz ) );
+
+  uchar programdata_state_data[ PROGRAMDATA_METADATA_SIZE + test_bpf_program_sz ];
+  fd_bpf_state_t programdata_state = {
+    .discriminant = FD_BPF_STATE_PROGRAM_DATA,
+    .inner.program_data = {
+      .slot = bank->f.slot - 1UL,
+      .upgrade_authority_address = authority,
+      .has_upgrade_authority_address = 1
+    }
+  };
+  out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &programdata_state, programdata_state_data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+  fd_memcpy( programdata_state_data + PROGRAMDATA_METADATA_SIZE, test_bpf_program, test_bpf_program_sz );
+
+  fd_rent_t rent_;
+  fd_rent_t const * rent = fd_sysvar_cache_rent_read( &bank->f.sysvar_cache, &rent_ );
+  FD_TEST( rent );
+  ulong const old_len              = sizeof(programdata_state_data);
+  ulong const new_len              = old_len + MINIMUM_EXTEND_PROGRAM_BYTES;
+  ulong const programdata_lamports = fd_rent_exempt_minimum_balance( rent, old_len );
+  ulong const required_payment     = fd_rent_exempt_minimum_balance( rent, new_len ) - programdata_lamports;
+  FD_TEST( required_payment>0UL );
+
+  test_put_account_rooted( env, &program, &fd_solana_bpf_loader_upgradeable_program_id,
+                           program_lamports, bank->f.slot-1UL, 1, program_state_data, sizeof(program_state_data) );
+  test_put_account_rooted( env, &programdata, &fd_solana_bpf_loader_upgradeable_program_id,
+                           programdata_lamports, bank->f.slot-1UL, 0,
+                           programdata_state_data, sizeof(programdata_state_data) );
+
+  fd_txn_p_t txn[1];
+  test_build_bpf_extend_txn( txn, bank, payer, program, programdata, (uint)MINIMUM_EXTEND_PROGRAM_BYTES );
+  test_execle_run( env, txn, 1UL, 5U, 53UL, 0 );
+
+  test_assert_nonbundle_out( env, 1UL, 5U );
+  fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta( 0UL )->chunk );
+  FD_TEST( env->execle->txn_out[0].err.is_committable );
+  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
+  FD_TEST( test_read_lamports( env, &payer       )==payer_start-fee-required_payment );
+  FD_TEST( test_read_lamports( env, &programdata )==programdata_lamports+required_payment );
+  FD_TEST( test_read_lamports( env, &program     )==program_lamports );
+
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX ]==1UL );
+  FD_TEST( env->execle->runtime->metrics.instr_cum==1UL );
+  FD_TEST( env->execle->runtime->metrics.cpi_cum==1UL );
 
   test_env_destroy( env );
 }
