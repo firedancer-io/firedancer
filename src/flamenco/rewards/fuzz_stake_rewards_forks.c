@@ -34,7 +34,7 @@ typedef struct {
 
 /* expected metadata and reward entries for one fork. */
 typedef struct {
-  uchar fork_idx;
+  ushort fork_idx;
   ulong refcnt; /* references the model is holding on the fork */
   ulong epoch;
   ulong parent_slot;

@@ -587,7 +587,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   fd_memset( &bank->f, 0, sizeof(bank->f) );
   bank->f.alpenglow_migration_slot        = ULONG_MAX;
   fd_event_runtime_slot_diffs_reset( bank->idx );
-  bank->stake_rewards_fork_id             = UCHAR_MAX;
+  bank->stake_rewards_fork_id             = USHORT_MAX;
   bank->epoch_credits_fork_id             = 0;
   fd_banks_epoch_credits_acquire( banks, bank->epoch_credits_fork_id );
   bank->stake_delegations_fork_id         = USHORT_MAX;
@@ -640,7 +640,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   child_bank->collector_overrides_fork_id = parent_bank->collector_overrides_fork_id;
   child_bank->stake_rewards_fork_id       = parent_bank->stake_rewards_fork_id;
   child_bank->epoch_credits_fork_id       = parent_bank->epoch_credits_fork_id;
-  if( FD_UNLIKELY( child_bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+  if( FD_UNLIKELY( child_bank->stake_rewards_fork_id!=USHORT_MAX ) ) {
     fd_stake_rewards_acquire( fd_banks_get_stake_rewards( banks ), child_bank->stake_rewards_fork_id );
   }
   fd_banks_epoch_credits_acquire( banks, child_bank->epoch_credits_fork_id );
@@ -831,14 +831,14 @@ fd_banks_advance_root( fd_banks_t * banks,
         fd_collector_overrides_purge_child( fd_banks_get_collector_overrides( banks ), head->collector_overrides_fork_id );
       }
     }
-    if( FD_LIKELY( head->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+    if( FD_LIKELY( head->stake_rewards_fork_id!=USHORT_MAX ) ) {
       fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
     }
     if( FD_LIKELY( head->epoch_credits_fork_id!=USHORT_MAX ) ) {
       fd_banks_epoch_credits_release( banks, head->epoch_credits_fork_id );
       head->epoch_credits_fork_id = USHORT_MAX;
     }
-    head->stake_rewards_fork_id       = UCHAR_MAX;
+    head->stake_rewards_fork_id       = USHORT_MAX;
     head->collector_overrides_fork_id = USHORT_MAX;
 
     if( head->stake_delegations_fork_id!=USHORT_MAX ) {
@@ -984,7 +984,7 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->f.block_id  = (fd_hash_t){0};
 
   child_bank->collector_overrides_fork_id = USHORT_MAX;
-  child_bank->stake_rewards_fork_id       = UCHAR_MAX;
+  child_bank->stake_rewards_fork_id       = USHORT_MAX;
   child_bank->epoch_credits_fork_id       = USHORT_MAX;
   child_bank->stake_delegations_fork_id   = USHORT_MAX;
   child_bank->vote_stakes_fork_id         = ULONG_MAX;
@@ -1114,7 +1114,7 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
       fd_collector_overrides_purge_child( fd_banks_get_collector_overrides( banks ), bank->collector_overrides_fork_id );
     }
   }
-  if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+  if( FD_LIKELY( bank->stake_rewards_fork_id!=USHORT_MAX ) ) {
     fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
   }
   if( FD_LIKELY( bank->epoch_credits_fork_id!=USHORT_MAX ) ) {
@@ -1122,7 +1122,7 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
     bank->epoch_credits_fork_id = USHORT_MAX;
   }
   bank->collector_overrides_fork_id = USHORT_MAX;
-  bank->stake_rewards_fork_id       = UCHAR_MAX;
+  bank->stake_rewards_fork_id       = USHORT_MAX;
 
   if( FD_LIKELY( cancel ) ) {
     cancel->bank_idx = bank->idx;
@@ -1277,9 +1277,9 @@ fd_banks_clear_bank( fd_banks_t * banks,
   }
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
 
-  if( FD_UNLIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+  if( FD_UNLIKELY( bank->stake_rewards_fork_id!=USHORT_MAX ) ) {
     fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
-    bank->stake_rewards_fork_id = UCHAR_MAX;
+    bank->stake_rewards_fork_id = USHORT_MAX;
   }
 
   /* Resetting the override store invalidates any fork id the bank

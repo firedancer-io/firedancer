@@ -349,8 +349,8 @@ struct fd_event_block_completed {
   ushort                                accdb_fork_id;                             /* Account database fork handle held by the bank. See bank_idx for scope. */
   ulong                                 vote_stakes_fork_id;                       /* Vote stakes fork handle held by the bank. See bank_idx for scope. */
   ushort                                collector_overrides_fork_id;               /* Collector overrides fork handle held by the bank. See bank_idx for scope. */
-  uchar                                 stake_rewards_fork_id;                     /* Stake rewards fork handle held by the bank. See bank_idx for scope. */
-  uchar                                 epoch_credits_fork_id;                     /* Epoch credits fork handle held by the bank. See bank_idx for scope. */
+  ushort                                stake_rewards_fork_id;                     /* Stake rewards fork handle held by the bank. See bank_idx for scope. */
+  ushort                                epoch_credits_fork_id;                     /* Epoch credits fork handle held by the bank. See bank_idx for scope. */
   ushort                                stake_delegations_fork_id;                 /* Stake delegations fork handle held by the bank. See bank_idx for scope. */
   ulong                                 cost_tracker_pool_idx;                     /* Cost tracker pool index the bank held: snapshotted just before the freeze releases it on completed rows, read live on dead and abandoned rows; 0 if the block never began replay or production. See bank_idx for scope. */
   ulong                                 slot;                                      /* Slot number of the block. */

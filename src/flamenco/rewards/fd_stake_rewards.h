@@ -45,8 +45,7 @@
   and forking conditions, the pool capacity can exceed which would
   cause the validator to crash.  These conditions don't exist today. */
 
-#define FD_STAKE_REWARDS_ALIGN          (128UL)
-#define FD_STAKE_REWARDS_MAX_FORK_WIDTH (128UL)
+#define FD_STAKE_REWARDS_ALIGN (128UL)
 
 struct fd_stake_rewards;
 typedef struct fd_stake_rewards fd_stake_rewards_t;
@@ -92,7 +91,7 @@ fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards );
 
 void
 fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
-                        uchar                fork_idx );
+                        ushort               fork_idx );
 
 /* Each stake rewards fork idx must be refcnt'd since they are shared
    across banks.  fd_stake_rewards_acquire increments the reference
@@ -101,15 +100,15 @@ fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
 
 void
 fd_stake_rewards_acquire( fd_stake_rewards_t * stake_rewards,
-                          uchar                fork_idx );
+                          ushort               fork_idx );
 
 void
 fd_stake_rewards_release( fd_stake_rewards_t * stake_rewards,
-                          uchar                fork_idx );
+                          ushort               fork_idx );
 
 ulong
 fd_stake_rewards_refcnt( fd_stake_rewards_t const * stake_rewards,
-                         uchar                      fork_idx );
+                         ushort                     fork_idx );
 
 /* fd_stake_rewards_free_cnt returns how many forks can still be
    acquired.  A bank needs one whenever it computes rewards it does not
@@ -123,7 +122,7 @@ fd_stake_rewards_free_cnt( fd_stake_rewards_t const * stake_rewards );
    given fork.  It should be used at the start of epoch reward
    calculation or recalculation.  It returns a fork index. */
 
-uchar
+ushort
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        ulong                epoch,
                        fd_hash_t const *    parent_blockhash,
@@ -146,7 +145,7 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
 void
 fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
-                                 uchar                fork_idx,
+                                 ushort               fork_idx,
                                  fd_hash_t const *    parent_blockhash,
                                  uint                 win_lo,
                                  ulong                max_rewards_cnt );
@@ -158,11 +157,11 @@ fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
 
 uint
 fd_stake_rewards_window_lo( fd_stake_rewards_t const * stake_rewards,
-                            uchar                      fork_idx );
+                            ushort                     fork_idx );
 
 uint
 fd_stake_rewards_window_hi( fd_stake_rewards_t const * stake_rewards,
-                            uchar                      fork_idx );
+                            ushort                     fork_idx );
 
 /* fd_stake_rewards_insert inserts a new stake reward for a given fork.
    It hashes the reward into the appropriate partition.  The reward is
@@ -171,7 +170,7 @@ fd_stake_rewards_window_hi( fd_stake_rewards_t const * stake_rewards,
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
-                         uchar                fork_idx,
+                         ushort               fork_idx,
                          fd_pubkey_t const *  pubkey,
                          ulong                lamports,
                          ulong                credits_observed );
@@ -194,19 +193,19 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
 
 void
 fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
-                            uchar                fork_idx,
+                            ushort               fork_idx,
                             uint                 partition_idx );
 
 void
 fd_stake_rewards_iter_next( fd_stake_rewards_t * stake_rewards,
-                            uchar                fork_idx );
+                            ushort               fork_idx );
 
 int
 fd_stake_rewards_iter_done( fd_stake_rewards_t * stake_rewards );
 
 void
 fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
-                           uchar                fork_idx,
+                           ushort               fork_idx,
                            fd_pubkey_t *        pubkey_out,
                            ulong *              lamports_out,
                            ulong *              credits_observed_out );
@@ -215,19 +214,19 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
 
 ulong
 fd_stake_rewards_total_rewards( fd_stake_rewards_t const * stake_rewards,
-                                uchar                      fork_idx );
+                                ushort                     fork_idx );
 
 uint
 fd_stake_rewards_num_partitions( fd_stake_rewards_t const * stake_rewards,
-                                 uchar                      fork_idx );
+                                 ushort                     fork_idx );
 
 ulong
 fd_stake_rewards_starting_block_height( fd_stake_rewards_t const * stake_rewards,
-                                        uchar                      fork_idx );
+                                        ushort                     fork_idx );
 
 ulong
 fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t const * stake_rewards,
-                                                uchar                      fork_idx );
+                                                ushort                     fork_idx );
 
 FD_PROTOTYPES_END
 
