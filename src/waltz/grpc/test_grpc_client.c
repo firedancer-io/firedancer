@@ -16,6 +16,10 @@ main( int     argc,
 #include "fd_grpc_client_private.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
+#include <errno.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 typedef struct {
   uchar unused;
 } test_empty_msg_t;
@@ -32,7 +36,6 @@ static fd_grpc_client_t * client;
 
 static void
 test_grpc_client_mock_conn( fd_grpc_client_t * client ) {
-  client->ssl_hs_done = 1;
   client->h2_hs_done  = 1;
   client->conn->flags = 0;
 }
@@ -413,12 +416,211 @@ FD_UNIT_TEST( grpc_stream_error_releases_h2_quota ) {
   FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_INTERNAL );
 }
 
+FD_UNIT_TEST( tls_socket_eof_disconnects ) {
+  fd_grpc_client_reset( client );
+
+  fd_tls_t tls = {0};
+  fd_tlsrec_conn_t tls_conn[1];
+  fd_tlsrec_conn_init( tls_conn, &tls, 0 );
+  tls_conn->hs.base.state = FD_TLS_HS_CONNECTED;
+
+  int sock[2];
+  FD_TEST( !socketpair( AF_UNIX, SOCK_STREAM, 0, sock ) );
+  FD_TEST( !close( sock[1] ) );
+
+  int charge_busy = 0;
+  FD_TEST( fd_grpc_client_rxtx_tls( client, tls_conn, sock[0], fd_log_wallclock(), &charge_busy )==-1 );
+  FD_TEST( !close( sock[0] ) );
+}
+
+FD_UNIT_TEST( tls_record_error_disconnects_during_handshake ) {
+  fd_grpc_client_reset( client );
+
+  fd_tls_t tls = {0};
+  fd_tlsrec_conn_t tls_conn[1];
+  fd_tlsrec_conn_init( tls_conn, &tls, 0 );
+  tls_conn->hs.base.state = FD_TLS_HS_WAIT_SH;
+  FD_TEST( !fd_tlsrec_conn_is_ready( tls_conn ) );
+  FD_TEST( !fd_tlsrec_conn_is_failed( tls_conn ) );
+
+  int sock[2];
+  FD_TEST( !socketpair( AF_UNIX, SOCK_STREAM, 0, sock ) );
+
+  uchar const bad_record[] = { FD_TLS_REC_APPLICATION_DATA, 0x03, 0x03, 0x00, 0x00 };
+  FD_TEST( write( sock[1], bad_record, sizeof(bad_record) )==(long)sizeof(bad_record) );
+
+  int charge_busy = 0;
+  FD_TEST( fd_grpc_client_rxtx_tls( client, tls_conn, sock[0], fd_log_wallclock(), &charge_busy )==-1 );
+  FD_TEST( !close( sock[0] ) );
+  FD_TEST( !close( sock[1] ) );
+}
+
+FD_UNIT_TEST( tls_no_alpn_refuses_h2 ) {
+  fd_grpc_client_reset( client );
+
+  fd_tls_t tls = {0};
+  fd_tlsrec_conn_t tls_conn[1];
+  fd_tlsrec_conn_init( tls_conn, &tls, 0 );
+  tls_conn->hs.base.state = FD_TLS_HS_CONNECTED;
+  FD_TEST( fd_tlsrec_conn_is_ready( tls_conn ) );
+  FD_TEST( !tls_conn->hs.cli.alpn_negotiated );
+
+  int sock[2];
+  FD_TEST( !socketpair( AF_UNIX, SOCK_STREAM, 0, sock ) );
+
+  int charge_busy = 0;
+  FD_TEST( fd_grpc_client_rxtx_tls( client, tls_conn, sock[0], fd_log_wallclock(), &charge_busy )==-1 );
+
+  tls_conn->hs.cli.alpn_negotiated = 1;
+  FD_TEST( fd_grpc_client_rxtx_tls( client, tls_conn, sock[0], fd_log_wallclock(), &charge_busy )==0 );
+
+  FD_TEST( !close( sock[0] ) );
+  FD_TEST( !close( sock[1] ) );
+}
+
+/* test_tls_install_keys puts conn into the connected state with the
+   given application traffic secrets (RFC 8446 section 7.3), skipping
+   the handshake. */
+
+static void
+test_tls_install_keys( fd_tlsrec_conn_t * conn,
+                       uchar const        write_secret[ static 32 ],
+                       uchar const        read_secret [ static 32 ] ) {
+  fd_tlsrec_keys_t * keys = &conn->keys[1];
+  fd_memcpy( keys->write_secret, write_secret, 32UL );
+  fd_memcpy( keys->read_secret,  read_secret,  32UL );
+  fd_tls_hkdf_expand_label( keys->write_key, 16UL, keys->write_secret, "key", 3UL, NULL, 0UL );
+  fd_tls_hkdf_expand_label( keys->write_iv,  12UL, keys->write_secret, "iv",  2UL, NULL, 0UL );
+  fd_tls_hkdf_expand_label( keys->read_key,  16UL, keys->read_secret,  "key", 3UL, NULL, 0UL );
+  fd_tls_hkdf_expand_label( keys->read_iv,   12UL, keys->read_secret,  "iv",  2UL, NULL, 0UL );
+  fd_aes_gcm_init( &keys->write_gcm, keys->write_key, 16UL, keys->write_iv );
+  fd_aes_gcm_init( &keys->read_gcm,  keys->read_key,  16UL, keys->read_iv  );
+  conn->read_seq  = 0UL;
+  conn->write_seq = 0UL;
+  conn->hs.base.state = FD_TLS_HS_CONNECTED;
+}
+
+/* A send parked on EAGAIN must not stop RX: a KeyUpdate from the peer
+   is processed and its reply is appended behind the parked record. */
+
+FD_UNIT_TEST( tls_rx_continues_while_send_blocked ) {
+  fd_grpc_client_reset( client );
+
+  fd_tls_t tls = {0};
+  fd_tlsrec_conn_t cli[1];
+  fd_tlsrec_conn_t srv[1];
+  fd_tlsrec_conn_init( cli, &tls, 0 );
+  fd_tlsrec_conn_init( srv, &tls, 1 );
+  uchar secret_a[ 32 ]; uchar secret_b[ 32 ];
+  for( ulong i=0UL; i<32UL; i++ ) { secret_a[i] = (uchar)(0xa0+i); secret_b[i] = (uchar)(0xb0+i); }
+  test_tls_install_keys( cli, secret_a, secret_b );
+  test_tls_install_keys( srv, secret_b, secret_a );
+  cli->hs.cli.alpn_negotiated = 1;
+  FD_TEST( fd_tlsrec_conn_is_ready( cli ) );
+  FD_TEST( fd_tlsrec_conn_is_ready( srv ) );
+
+  int sock[2];
+  FD_TEST( !socketpair( AF_UNIX, SOCK_STREAM, 0, sock ) );
+  int sndbuf = 4096;
+  FD_TEST( !setsockopt( sock[0], SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(int) ) );
+
+  /* Fill the socket send buffer so the next send blocks */
+  static uchar junk[ 4096 ];
+  ulong filled = 0UL;
+  for(;;) {
+    long n = send( sock[0], junk, sizeof(junk), MSG_NOSIGNAL|MSG_DONTWAIT );
+    if( n<0L ) { FD_TEST( errno==EAGAIN || errno==EWOULDBLOCK ); break; }
+    filled += (ulong)n;
+  }
+  FD_TEST( filled );
+
+  /* Park an encrypted record */
+  fd_tlsrec_sock_t * tls_sock = client->tls_sock;
+  uchar const parked_msg[] = "parked";
+  ulong consumed;
+  FD_TEST( fd_tlsrec_sock_tx( tls_sock, cli, sock[0], parked_msg, sizeof(parked_msg)-1UL, &consumed )==0 );
+  FD_TEST( consumed==sizeof(parked_msg)-1UL );
+  ulong parked_sz = tls_sock->tx_sz;
+  FD_TEST( parked_sz );
+  FD_TEST( fd_grpc_client_tls_tx_pending( client ) );
+  FD_TEST( tls_sock->tx_off==0UL );
+
+  /* Peer requests a key update */
+  uchar ku[ 64 ];
+  ulong ku_sz = sizeof(ku);
+  FD_TEST( fd_tlsrec_conn_key_update( srv, ku, &ku_sz, 1 )==FD_TLSREC_SUCCESS );
+  FD_TEST( ku_sz );
+  FD_TEST( write( sock[1], ku, ku_sz )==(long)ku_sz );
+
+  int charge_busy = 0;
+  FD_TEST( fd_grpc_client_rxtx_tls( client, cli, sock[0], fd_log_wallclock(), &charge_busy )==0 );
+  FD_TEST( charge_busy );
+  FD_TEST( !fd_grpc_client_tls_rx_pending( client ) );
+  FD_TEST( tls_sock->tx_off==0UL );
+  FD_TEST( tls_sock->tx_sz==parked_sz+ku_sz );
+  FD_TEST( !cli->write_seq ); /* rotated */
+
+  /* The peer still is not reading.  A step that moves nothing is not
+     busy, even with HTTP/2 output queued behind the parked record;
+     otherwise the tile would spin on EAGAIN instead of waiting for
+     EPOLLOUT. */
+  static uchar const h2_junk[] = "h2";
+  fd_h2_rbuf_push( client->frame_tx, h2_junk, sizeof(h2_junk) );
+  charge_busy = 0;
+  FD_TEST( fd_grpc_client_rxtx_tls( client, cli, sock[0], fd_log_wallclock(), &charge_busy )==0 );
+  FD_TEST( !charge_busy );
+  FD_TEST( tls_sock->tx_off==0UL );
+  FD_TEST( tls_sock->tx_sz==parked_sz+ku_sz );
+  FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )>=sizeof(h2_junk) );
+
+  /* Peer drains; parked record then reply go out in order and decrypt
+     under the right keys */
+  ulong drained = 0UL;
+  while( drained<filled ) {
+    long n = recv( sock[1], junk, fd_ulong_min( sizeof(junk), filled-drained ), MSG_DONTWAIT );
+    FD_TEST( n>0L );
+    drained += (ulong)n;
+  }
+  FD_TEST( fd_grpc_client_tls_flush( client, sock[0] )==0 );
+  FD_TEST( !fd_grpc_client_tls_tx_pending( client ) );
+
+  uchar wire[ 256 ];
+  long wire_sz = recv( sock[1], wire, sizeof(wire), MSG_DONTWAIT );
+  FD_TEST( wire_sz==(long)( parked_sz+ku_sz ) );
+
+  fd_tlsrec_slice_t wire_slice[1];
+  fd_tlsrec_slice_init( wire_slice, wire, (ulong)wire_sz );
+  uchar srv_tx[ 64 ]; ulong srv_tx_sz = sizeof(srv_tx);
+  uchar app_rx[ 64 ]; ulong app_rx_sz = sizeof(app_rx);
+  FD_TEST( fd_tlsrec_conn_rx( srv, wire_slice, srv_tx, &srv_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+  FD_TEST( !srv_tx_sz );
+  FD_TEST( app_rx_sz==sizeof(parked_msg)-1UL );
+  FD_TEST( !memcmp( app_rx, parked_msg, app_rx_sz ) );
+  FD_TEST( !srv->read_seq ); /* rotated by the client's reply */
+
+  /* Next record uses the new client write key */
+  uchar const next_msg[] = "after";
+  fd_tlsrec_slice_t app_tx[1];
+  fd_tlsrec_slice_init( app_tx, (uchar *)next_msg, sizeof(next_msg)-1UL );
+  ulong next_sz = sizeof(wire);
+  FD_TEST( fd_tlsrec_conn_tx( cli, wire, &next_sz, app_tx )==FD_TLSREC_SUCCESS );
+  fd_tlsrec_slice_init( wire_slice, wire, next_sz );
+  srv_tx_sz = sizeof(srv_tx); app_rx_sz = sizeof(app_rx);
+  FD_TEST( fd_tlsrec_conn_rx( srv, wire_slice, srv_tx, &srv_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+  FD_TEST( app_rx_sz==sizeof(next_msg)-1UL );
+  FD_TEST( !memcmp( app_rx, next_msg, app_rx_sz ) );
+
+  FD_TEST( !close( sock[0] ) );
+  FD_TEST( !close( sock[1] ) );
+  fd_grpc_client_reset( client );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  static uchar client_mem[ 131072 ] __attribute__((aligned(128)));
+  static uchar client_mem[ 262144 ] __attribute__((aligned(128)));
   ulong const buf_max = 4096UL;
   FD_TEST( fd_grpc_client_footprint( buf_max )<=sizeof(client_mem) );
 

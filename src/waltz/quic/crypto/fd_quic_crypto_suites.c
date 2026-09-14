@@ -289,12 +289,11 @@ fd_quic_crypto_decrypt(
   fd_aes_gcm_t pkt_cipher[1];
   fd_aes_128_gcm_init( pkt_cipher, keys->pkt_key, nonce );
 
-  int decrypt_ok =
-   fd_aes_gcm_decrypt( pkt_cipher,
-                            out /* ciphertext */, out /* plaintext */,
-                            gcm_sz,      /* size of plaintext */
-                            hdr, hdr_sz, /* associated data */
-                            gcm_tag      /* auth tag */ );
+  int decrypt_ok = fd_aes_gcm_decrypt( pkt_cipher,
+                                       out /* ciphertext */, out /* plaintext */,
+                                       gcm_sz,      /* size of plaintext */
+                                       hdr, hdr_sz, /* associated data */
+                                       gcm_tag      /* auth tag */ );
   if( FD_UNLIKELY( !decrypt_ok ) ) {
    FD_DEBUG( FD_LOG_WARNING(( "fd_aes_gcm_decrypt failed" )) );
    return FD_QUIC_FAILED;

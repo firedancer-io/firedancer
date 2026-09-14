@@ -3,9 +3,10 @@
 
 #include "fd_sshttp.h"
 
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h>
-#endif
+#include "../../../waltz/tls/fd_tls.h"
+#include "../../../waltz/tlsrec/fd_tlsrec_sock.h"
+#include "../../../ballet/x509/fd_x509_ca_store.h"
+#include "../../../ballet/x509/fd_x509_verify.h"
 
 #define FD_SSHTTP_MAGIC (0xF17EDA2CE5811900) /* FIREDANCE HTTP V0 */
 
@@ -14,15 +15,13 @@
 #define FD_SSHTTP_STATE_REQ           (2) /* sending request */
 #define FD_SSHTTP_STATE_RESP          (3) /* receiving response headers */
 #define FD_SSHTTP_STATE_DL            (4) /* downloading response body */
-#define FD_SSHTTP_STATE_SHUTTING_DOWN (5) /* shutting down ssl */
-#define FD_SSHTTP_STATE_REDIRECT      (6) /* redirect after shutting down ssl */
-#define FD_SSHTTP_STATE_DONE          (7) /* done */
+#define FD_SSHTTP_STATE_REDIRECT      (5) /* following a redirect */
+#define FD_SSHTTP_STATE_DONE          (6) /* done */
 
 #define FD_SSHTTP_DEADLINE_NANOS (1L*1000L*1000L*1000L) /* 1 second  */
 
 struct fd_sshttp_private {
   int   state;
-  int   next_state; /* used for state transitions in https connection */
   long  deadline;
   ulong empty_recvs;
 
@@ -47,10 +46,14 @@ struct fd_sshttp_private {
   ulong resolved_slot;       /* effective slot from redirect filename */
   uchar resolved_hash[ 32 ]; /* binary hash from redirect filename */
 
-#if FD_HAS_OPENSSL
-  SSL_CTX * ssl_ctx;
-  SSL *     ssl;
-#endif
+  fd_tls_t          tls;
+  fd_chacha_rng_t   rng[1];
+  fd_tlsrec_conn_t  tls_conn;
+
+  fd_x509_ca_store_t ca_store;
+  int                ca_store_loaded;
+
+  fd_tlsrec_sock_t  tls_sock[1];
 
   ulong content_len;
   ulong content_read;

@@ -342,7 +342,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   development.bundle.ssl_key_log_file              );
   CFG_POP      ( uint,   development.bundle.buffer_size_kib               );
-  CFG_POP      ( uint,   development.bundle.ssl_heap_size_mib             );
 
   CFG_POP      ( bool,   development.event.report_shreds                  );
   CFG_POP      ( bool,   development.event.report_transactions            );
@@ -400,6 +399,20 @@ fd_config_extract_pod( uchar *       pod,
   CFG_RENAMED( tiles.repair.repair_intake_listen_port,   tiles.repair.repair_client_listen_port );
 
 # undef CFG_RENAMED
+
+# define CFG_DEPRECATED( path )                                        \
+  do {                                                                 \
+    char const * key = #path;                                          \
+    if( FD_UNLIKELY( !fd_pod_query( pod, key, NULL ) ) ) {             \
+      FD_LOG_WARNING(( "ignoring deprecated config option `%s`", key ));\
+      if( FD_UNLIKELY( fd_pod_remove( pod, key ) ) )                   \
+        FD_LOG_ERR(( "failed to remove deprecated key `%s`", key ));   \
+    }                                                                  \
+  } while(0)
+
+  CFG_DEPRECATED( development.bundle.ssl_heap_size_mib );
+
+# undef CFG_DEPRECATED
 
   if( FD_UNLIKELY( !fdctl_pod_find_leftover( pod ) ) ) return NULL;
   return config;

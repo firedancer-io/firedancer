@@ -20,6 +20,13 @@ fd_sshttp_new( void * shmem );
 fd_sshttp_t *
 fd_sshttp_join( void * sshttp );
 
+/* fd_sshttp_load_ca_store loads the system CA certificate bundle for
+   TLS certificate chain validation.  If no bundle is found, subsequent
+   fd_sshttp_init calls with is_https set fail before connecting. */
+
+void
+fd_sshttp_load_ca_store( fd_sshttp_t * http );
+
 char const *
 fd_sshttp_snapshot_name( fd_sshttp_t const * http );
 
