@@ -214,12 +214,14 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
   }
 
   mock_epoch_boundary_fork_cnt++;
-  bank->stake_rewards_fork_id = fd_stake_rewards_init( fd_bank_stake_rewards_modify( bank ),
-                                                       bank->f.epoch,
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  bank->stake_rewards_fork_id = fd_stake_rewards_init( stake_rewards,
                                                        &bank->f.prev_bank_hash,
                                                        bank->f.block_height,
                                                        1U,
+                                                       0U,
                                                        0UL );
+  fd_stake_rewards_fini( stake_rewards, bank->stake_rewards_fork_id );
 }
 
 #define fd_multi_epoch_leaders_get_next_slot mock_multi_epoch_leaders_next_slot_fn
@@ -1728,7 +1730,8 @@ test_epoch_boundary_fork_width_evict( fd_wksp_t * wksp ) {
 
   static fd_replay_tile_t ctx[ 1 ];
   ulong const max_fork_width = 4UL;
-  ulong const max_boundary_child_forks = max_fork_width - 1UL; /* stake rewards reserves one fork for root */
+  /* Leave one fork-width slot for the non-boundary sibling below. */
+  ulong const max_boundary_child_forks = max_fork_width - 1UL;
   setup_ctx_with_fork_width( ctx, wksp, max_fork_width );
 
   mock_epoch_boundary_enabled = 1;
