@@ -1444,6 +1444,9 @@ main( int argc, char ** argv ) {
   test_bank_clear( mem );
   test_bank_epoch_credits_singleton( mem );
 
+  FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )>0UL );
+  FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS+1UL )==0UL );
+
   FD_TEST( fd_stake_rewards_footprint( 1UL, FD_STAKE_REWARDS_MAX_FORK_WIDTH )>0UL );
   FD_TEST( fd_stake_rewards_footprint( 1UL, FD_STAKE_REWARDS_MAX_FORK_WIDTH+1UL )==0UL );
 
