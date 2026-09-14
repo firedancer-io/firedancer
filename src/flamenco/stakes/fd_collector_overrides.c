@@ -2,12 +2,15 @@
 #include "../fd_rwlock.h"
 #include "../../util/fd_hash32.h"
 
+#define FD_COLLECTOR_OVERRIDES_FORK_CNT      (FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH+1UL)
+#define FD_COLLECTOR_OVERRIDES_MASK_WORD_CNT ((FD_COLLECTOR_OVERRIDES_FORK_CNT+63UL)/64UL)
+
 struct override_ele {
   fd_pubkey_t pubkey;
   ulong       epoch;
   fd_pubkey_t inflation; /* valid iff has_inflation */
   fd_pubkey_t block;     /* valid iff has_block */
-  ulong       mask[2];   /* fork membership bits */
+  ulong       mask[ FD_COLLECTOR_OVERRIDES_MASK_WORD_CNT ]; /* fork membership bits */
   uint        next;      /* pool / map chain */
   uint        prev_multi;
   uint        next_multi;
@@ -43,7 +46,7 @@ struct fd_collector_overrides {
   ulong pool_off;
   ulong map_off;
 
-  ulong  forks_used[2]; /* allocated fork id bits */
+  ulong  forks_used[ FD_COLLECTOR_OVERRIDES_MASK_WORD_CNT ]; /* allocated fork id bits */
   ushort root_idx;
 
   fd_rwlock_t lock;
@@ -61,18 +64,29 @@ get_map( fd_collector_overrides_t const * co ) {
 }
 
 static inline int
-mask_test( ulong const mask[2], ushort idx ) {
+mask_test( ulong const mask[ FD_COLLECTOR_OVERRIDES_MASK_WORD_CNT ],
+           ushort     idx ) {
   return !!( mask[ idx>>6 ] & (1UL<<(idx&63UL)) );
 }
 
 static inline void
-mask_set( ulong mask[2], ushort idx ) {
+mask_set( ulong  mask[ FD_COLLECTOR_OVERRIDES_MASK_WORD_CNT ],
+          ushort idx ) {
   mask[ idx>>6 ] |= (1UL<<(idx&63UL));
 }
 
 static inline void
-mask_clear( ulong mask[2], ushort idx ) {
+mask_clear( ulong  mask[ FD_COLLECTOR_OVERRIDES_MASK_WORD_CNT ],
+            ushort idx ) {
   mask[ idx>>6 ] &= ~(1UL<<(idx&63UL));
+}
+
+static inline int
+mask_any( ulong const mask[ FD_COLLECTOR_OVERRIDES_MASK_WORD_CNT ] ) {
+  for( ulong i=0UL; i<FD_COLLECTOR_OVERRIDES_MASK_WORD_CNT; i++ ) {
+    if( mask[ i ] ) return 1;
+  }
+  return 0;
 }
 
 ulong
@@ -126,8 +140,8 @@ fd_collector_overrides_new( void * shmem,
 
   co->pool_off      = (ulong)pool - (ulong)shmem;
   co->map_off       = (ulong)map - (ulong)shmem;
+  fd_memset( co->forks_used, 0, sizeof(co->forks_used) );
   co->forks_used[0] = 1UL; /* root */
-  co->forks_used[1] = 0UL;
   co->root_idx      = 0;
 
   fd_rwlock_new( &co->lock );
@@ -160,12 +174,16 @@ ushort
 fd_collector_overrides_new_child( fd_collector_overrides_t * co ) {
   fd_rwlock_write( &co->lock );
 
-  ulong free0 = ~co->forks_used[0];
-  ulong free1 = ~co->forks_used[1];
-  ushort idx;
-  if( FD_LIKELY( free0 ) )      idx = (ushort)fd_ulong_find_lsb( free0 );
-  else if( FD_LIKELY( free1 ) ) idx = (ushort)( 64UL+(ulong)fd_ulong_find_lsb( free1 ) );
-  else                          FD_LOG_CRIT(( "no free collector override forks" ));
+  ushort idx = USHORT_MAX;
+  for( ulong word_idx=0UL; word_idx<FD_COLLECTOR_OVERRIDES_MASK_WORD_CNT; word_idx++ ) {
+    ulong free = ~co->forks_used[ word_idx ];
+    if( FD_UNLIKELY( !free ) ) continue;
+    ulong candidate = (word_idx<<6) + (ulong)fd_ulong_find_lsb( free );
+    if( FD_UNLIKELY( candidate>FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ) ) break;
+    idx = (ushort)candidate;
+    break;
+  }
+  if( FD_UNLIKELY( idx==USHORT_MAX ) ) FD_LOG_CRIT(( "no free collector override forks" ));
   mask_set( co->forks_used, idx );
 
   fd_rwlock_unwrite( &co->lock );
@@ -209,7 +227,7 @@ release_fork( fd_collector_overrides_t * co,
     iter = override_map_iter_next( iter, map, pool );
     if( !mask_test( ele->mask, fork_idx ) ) continue;
     mask_clear( ele->mask, fork_idx );
-    if( FD_UNLIKELY( !ele->mask[0] && !ele->mask[1] ) ) {
+    if( FD_UNLIKELY( !mask_any( ele->mask ) ) ) {
       FD_TEST( override_map_ele_remove_fast( map, ele, pool ) );
       override_pool_ele_release( pool, ele );
     }
@@ -228,8 +246,8 @@ fd_collector_overrides_advance_root( fd_collector_overrides_t * co,
     return;
   }
 
-  for( ushort i=0; i<=(ushort)FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH; i++ ) {
-    if( i!=root_idx && mask_test( co->forks_used, i ) ) release_fork( co, i );
+  for( ulong i=0UL; i<=FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH; i++ ) {
+    if( i!=(ulong)root_idx && mask_test( co->forks_used, (ushort)i ) ) release_fork( co, (ushort)i );
   }
   co->root_idx = root_idx;
 
@@ -257,8 +275,8 @@ fd_collector_overrides_reset( fd_collector_overrides_t * co ) {
 
   override_map_reset( get_map( co ) );
   override_pool_reset( get_pool( co ) );
+  fd_memset( co->forks_used, 0, sizeof(co->forks_used) );
   co->forks_used[0] = 1UL;
-  co->forks_used[1] = 0UL;
   co->root_idx      = 0;
 
   fd_rwlock_unwrite( &co->lock );
@@ -315,8 +333,7 @@ fd_collector_overrides_upsert( fd_collector_overrides_t * co,
   ele->has_block     = (uchar)!!has_block;
   ele->inflation     = has_inflation ? *inflation : (fd_pubkey_t){0};
   ele->block         = has_block ? *block : (fd_pubkey_t){0};
-  ele->mask[0]       = 0UL;
-  ele->mask[1]       = 0UL;
+  fd_memset( ele->mask, 0, sizeof(ele->mask) );
   mask_set( ele->mask, fork_idx );
   FD_TEST( override_map_ele_insert( map, ele, pool ) );
 

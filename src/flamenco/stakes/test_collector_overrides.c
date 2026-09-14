@@ -1,4 +1,5 @@
 #include "fd_collector_overrides.h"
+#include "../runtime/fd_bank.h"
 
 static fd_pubkey_t
 key( uchar b ) {
@@ -105,6 +106,23 @@ main( int     argc,
   /* Fork id reuse must not resurrect stale visibility. */
   ushort f4 = fd_collector_overrides_new_child( co );
   FD_TEST( !fd_collector_overrides_query( co, f4, 101UL, &vote_a, NULL, NULL ) );
+
+  /* The collector override store must support the full bank fork
+     width, including the root plus FD_BANKS_MAX_BANKS children. */
+  fd_collector_overrides_reset( co );
+  ushort max_fork = 0U;
+  for( ulong i=0UL; i<FD_BANKS_MAX_BANKS; i++ ) {
+    max_fork = fd_collector_overrides_new_child( co );
+  }
+  FD_TEST( max_fork==(ushort)FD_BANKS_MAX_BANKS );
+
+  fd_collector_overrides_upsert( co, max_fork, 102UL, &vote_a, 1, &coll_1, 0, NULL );
+  FD_TEST(  fd_collector_overrides_query( co, max_fork, 102UL, &vote_a, &out_infl, NULL )==FD_COLLECTOR_OVERRIDE_INFLATION );
+  FD_TEST( !fd_collector_overrides_query( co, root,     102UL, &vote_a, NULL,      NULL ) );
+
+  fd_collector_overrides_purge_child( co, max_fork );
+  FD_TEST( fd_collector_overrides_new_child( co )==max_fork );
+  FD_TEST( !fd_collector_overrides_query( co, max_fork, 102UL, &vote_a, NULL, NULL ) );
 
   /* Reset drops everything. */
   fd_collector_overrides_reset( co );
