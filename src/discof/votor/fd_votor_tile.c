@@ -346,11 +346,12 @@ FD_STATIC_ASSERT( FD_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
 static void
 sign_bls( void *         signer_ctx,
           fd_bls_sig_t * sig,
+          uchar const *  public_key,
           uchar const *  payload,
           ulong          payload_sz ) {
   fd_votor_tile_t * ctx = signer_ctx;
   uchar sig_bytes[ FD_BLS_SIG_SZ ];
-  fd_keyguard_client_sign( ctx->keyguard_client, sig_bytes, payload, payload_sz, FD_KEYGUARD_SIGN_TYPE_BLS );
+  fd_keyguard_client_bls_sign( ctx->keyguard_client, sig_bytes, public_key, payload, payload_sz );
   if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
 }
 
@@ -695,6 +696,11 @@ handle_epoch( fd_votor_tile_t *           ctx,
   ushort epoch_rank = fd_ushort_if( !!ctx->next_epoch_info, ctx->next_epoch_rank, ctx->curr_epoch_rank );
   ag_pool_advance_epoch( ctx->pool, epoch_info, epoch_rank, msg->start_slot );
   ag_votor_advance_epoch( ctx->votor, epoch_rank, msg->start_slot );
+  if( FD_LIKELY( epoch_rank!=USHORT_MAX ) ) {
+    uchar public_key[ FD_BLS_PUB_COMPRESSED_SZ ];
+    blst_p1_compress( public_key, &epoch_info->validators[ epoch_rank ].bls_key );
+    ag_votor_set_bls_pubkey( ctx->votor, public_key );
+  }
 
   /* update our leader schedule */
 

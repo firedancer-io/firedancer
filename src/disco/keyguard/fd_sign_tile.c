@@ -4,6 +4,7 @@
 #include "generated/fd_sign_tile_seccomp.h"
 
 #include "../keyguard/fd_keyguard.h"
+#include "../keyguard/fd_keyguard_bls.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../../discof/admin/fd_adminctl.h"
@@ -57,7 +58,7 @@ typedef struct {
   uchar *           public_key;
   uchar *           private_key;
 
-  uchar *           bls_private_key; /* alpenglow BLS voting key */
+  fd_keyguard_bls_key_t * bls_keys;
 
   uchar tip_payment_program     [32];
   uchar tip_distribution_program[32];
@@ -93,14 +94,7 @@ derive_fields( fd_sign_ctx_t * ctx ) {
   fd_base58_encode_32( ctx->public_key, &ctx->public_key_base58_sz, (char *)ctx->concat );
   ctx->concat[ ctx->public_key_base58_sz ] = '-';
 
-  /* Alpenglow BLS key derivation, matching
-     solana_bls_signatures::SecretKey::derive_from_signer: the BLS IKM
-     is the identity's ed25519 signature over a fixed message. */
-  static char const derive_msg[] = "bls-key-derive-alpenglow";
-  uchar ikm[ 64 ];
-  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL, ctx->public_key, ctx->private_key, ctx->sha512 );
-  fd_bls_sec_derive( (fd_bls_sec_t *)fd_type_pun( ctx->bls_private_key ), ikm, sizeof(ikm) );
-  fd_memzero_explicit( ikm, sizeof(ikm) );
+  fd_keyguard_bls_key_derive( &ctx->bls_keys[ 0 ], ctx->public_key, ctx->private_key, ctx->sha512 );
 }
 
 static void FD_FN_SENSITIVE
@@ -142,10 +136,15 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
       fd_memzero_explicit( ctx->av_keyswitch->bytes, 32UL );
       FD_COMPILER_MFENCE();
       memcpy( ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes + 32UL, 32UL );
+      fd_keyguard_bls_key_derive( &ctx->bls_keys[ ctx->authorized_voters_cnt+1UL ],
+                                 ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ],
+                                 ctx->authorized_voter_private_keys[ ctx->authorized_voters_cnt ],
+                                 ctx->sha512 );
       ctx->authorized_voters_cnt++;
     } else if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_CLEAR ) ) {
       fd_memzero_explicit( ctx->authorized_voter_private_keys, sizeof( ctx->authorized_voter_private_keys ) );
       fd_memzero_explicit( ctx->authorized_voter_pubkeys,      sizeof( ctx->authorized_voter_pubkeys      ) );
+      fd_memzero_explicit( ctx->bls_keys+1, sizeof(fd_keyguard_bls_key_t)*(FD_KEYGUARD_BLS_KEY_MAX-1UL) );
       ctx->authorized_voters_cnt = 0UL;
     } else {
       FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
@@ -275,7 +274,12 @@ after_frag_sensitive( void *              _ctx,
   }
   case FD_KEYGUARD_SIGN_TYPE_BLS: {
     fd_bls_sig_t bls_sig[1];
-    fd_bls_sec_sign( (fd_bls_sec_t const *)fd_type_pun_const( ctx->bls_private_key ), ctx->_data, sz, bls_sig );
+    if( FD_UNLIKELY( !fd_keyguard_bls_sign_request( ctx->bls_keys,
+                                                    ctx->authorized_voters_cnt+1UL,
+                                                    ctx->_data,
+                                                    sz,
+                                                    bls_sig ) ) )
+      FD_LOG_EMERG(( "votor requested an unknown BLS public key" ));
     fd_bls_sig_ser( dst, bls_sig );
     out_sz = FD_KEYGUARD_BLS_SIG_SZ;
     break;
@@ -314,8 +318,9 @@ privileged_init_sensitive( fd_topo_t const *      topo,
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-  ctx->bls_private_key = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+  ctx->bls_keys = fd_keyload_alloc_protected_pages( 1UL, 2UL );
 
+  FD_TEST( tile->sign.authorized_voter_paths_cnt<FD_KEYGUARD_BLS_KEY_MAX );
   ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
   for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
     uchar const * authorized_voter_key = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
@@ -364,6 +369,12 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   derive_fields( ctx );
+  for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
+    fd_keyguard_bls_key_derive( &ctx->bls_keys[ i+1UL ],
+                                ctx->authorized_voter_pubkeys[ i ],
+                                ctx->authorized_voter_private_keys[ i ],
+                                ctx->sha512 );
+  }
 
   if( FD_LIKELY( tile->av_keyswitch_obj_id!=ULONG_MAX ) ) {
     ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
