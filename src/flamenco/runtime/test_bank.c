@@ -959,6 +959,14 @@ test_bank_epoch_credits_singleton( void * mem ) {
   FD_TEST( *fd_bank_epoch_credits_len( child_b )==2UL );
 }
 
+static void
+test_bank_epoch_credits_fork_id_width( void ) {
+  fd_bank_t bank[ 1 ] = {0};
+  ushort fork_id = 256U;
+  bank->epoch_credits_fork_id = fork_id;
+  FD_TEST( bank->epoch_credits_fork_id==fork_id );
+}
+
 /* fd_banks_new must reject fork widths the collector override store
    cannot track (128-bit membership mask, one bit reserved for the
    root). */
@@ -1443,6 +1451,7 @@ main( int argc, char ** argv ) {
 
   test_bank_clear( mem );
   test_bank_epoch_credits_singleton( mem );
+  test_bank_epoch_credits_fork_id_width();
 
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )>0UL );
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS+1UL )==0UL );

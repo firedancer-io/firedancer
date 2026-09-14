@@ -100,13 +100,13 @@ fd_banks_epoch_credits_set_cnt( fd_banks_t const * banks_data ) {
 
 static void
 fd_banks_epoch_credits_acquire( fd_banks_t * banks_data,
-                                uchar        fork_id ) {
+                                ushort       fork_id ) {
   fd_banks_get_epoch_credits_refcnt( banks_data )[ fork_id ]++;
 }
 
 static void
 fd_banks_epoch_credits_release( fd_banks_t * banks_data,
-                                uchar        fork_id ) {
+                                ushort       fork_id ) {
   ulong * refcnt = fd_banks_get_epoch_credits_refcnt( banks_data ) + fork_id;
   FD_CHECK_CRIT( *refcnt, "invariant violation: releasing an unreferenced epoch credits set" );
   (*refcnt)--;
@@ -145,10 +145,10 @@ fd_bank_epoch_credits_new_fork( fd_bank_t * bank ) {
   }
   FD_CHECK_CRIT( free_id!=ULONG_MAX, "invariant violation: no free epoch credits sets" );
 
-  if( FD_LIKELY( bank->epoch_credits_fork_id!=UCHAR_MAX ) ) {
+  if( FD_LIKELY( bank->epoch_credits_fork_id!=USHORT_MAX ) ) {
     fd_banks_epoch_credits_release( banks_data, bank->epoch_credits_fork_id );
   }
-  bank->epoch_credits_fork_id = (uchar)free_id;
+  bank->epoch_credits_fork_id = (ushort)free_id;
   fd_banks_epoch_credits_acquire( banks_data, bank->epoch_credits_fork_id );
 
   *fd_bank_epoch_credits_len( bank ) = 0UL;
@@ -834,9 +834,9 @@ fd_banks_advance_root( fd_banks_t * banks,
     if( FD_LIKELY( head->stake_rewards_fork_id!=UCHAR_MAX ) ) {
       fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
     }
-    if( FD_LIKELY( head->epoch_credits_fork_id!=UCHAR_MAX ) ) {
+    if( FD_LIKELY( head->epoch_credits_fork_id!=USHORT_MAX ) ) {
       fd_banks_epoch_credits_release( banks, head->epoch_credits_fork_id );
-      head->epoch_credits_fork_id = UCHAR_MAX;
+      head->epoch_credits_fork_id = USHORT_MAX;
     }
     head->stake_rewards_fork_id       = UCHAR_MAX;
     head->collector_overrides_fork_id = USHORT_MAX;
@@ -985,7 +985,7 @@ fd_banks_new_bank( fd_banks_t * banks,
 
   child_bank->collector_overrides_fork_id = USHORT_MAX;
   child_bank->stake_rewards_fork_id       = UCHAR_MAX;
-  child_bank->epoch_credits_fork_id       = UCHAR_MAX;
+  child_bank->epoch_credits_fork_id       = USHORT_MAX;
   child_bank->stake_delegations_fork_id   = USHORT_MAX;
   child_bank->vote_stakes_fork_id         = ULONG_MAX;
   child_bank->parent_accdb_fork_id.val    = USHORT_MAX;
@@ -1117,9 +1117,9 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
   if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
     fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
   }
-  if( FD_LIKELY( bank->epoch_credits_fork_id!=UCHAR_MAX ) ) {
+  if( FD_LIKELY( bank->epoch_credits_fork_id!=USHORT_MAX ) ) {
     fd_banks_epoch_credits_release( banks, bank->epoch_credits_fork_id );
-    bank->epoch_credits_fork_id = UCHAR_MAX;
+    bank->epoch_credits_fork_id = USHORT_MAX;
   }
   bank->collector_overrides_fork_id = USHORT_MAX;
   bank->stake_rewards_fork_id       = UCHAR_MAX;

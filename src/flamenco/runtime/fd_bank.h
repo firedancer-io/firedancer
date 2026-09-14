@@ -276,8 +276,8 @@ struct fd_bank {
   ulong                  vote_stakes_fork_id;
   ushort                 collector_overrides_fork_id;
   uchar                  stake_rewards_fork_id;
-  uchar                  epoch_credits_fork_id;
   ushort                 stake_delegations_fork_id;
+  ushort                 epoch_credits_fork_id;
   ulong                  cost_tracker_pool_idx;
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
