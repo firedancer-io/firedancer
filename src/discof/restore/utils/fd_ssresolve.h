@@ -80,6 +80,18 @@ fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
 int
 fd_ssresolve_is_done( fd_ssresolve_t * ssresolve );
 
+/* fd_ssresolve_is_resolved returns whether the snapshot slot and hash
+   have been parsed.  An https ssresolve is not done at that point: it
+   still has a TLS close_notify to exchange. */
+int
+fd_ssresolve_is_resolved( fd_ssresolve_t * ssresolve );
+
+/* fd_ssresolve_finish gives up on that close_notify exchange and marks
+   the state machine done, for when the server hangs up first.  Only
+   valid once fd_ssresolve_is_resolved. */
+void
+fd_ssresolve_finish( fd_ssresolve_t * ssresolve );
+
 void
 fd_ssresolve_cancel( fd_ssresolve_t * ssresolve );
 

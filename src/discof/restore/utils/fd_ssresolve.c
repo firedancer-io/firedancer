@@ -25,6 +25,7 @@
 
 struct fd_ssresolve_private {
   int  state;
+  int  resolved; /* whether a valid resolve result has been parsed */
   long deadline;
 
   fd_ip4_port_t addr;
@@ -76,6 +77,7 @@ fd_ssresolve_new( void * shmem ) {
   fd_ssresolve_t * ssresolve = FD_SCRATCH_ALLOC_APPEND( l, FD_SSRESOLVE_ALIGN, sizeof(fd_ssresolve_t) );
 
   ssresolve->state        = FD_SSRESOLVE_STATE_REQ;
+  ssresolve->resolved     = 0;
   ssresolve->request_sent = 0UL;
   ssresolve->request_len  = 0UL;
   ssresolve->response_len = 0UL;
@@ -125,6 +127,7 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve,
   ssresolve->full   = full;
 
   ssresolve->state        = FD_SSRESOLVE_STATE_REQ;
+  ssresolve->resolved     = 0;
   ssresolve->request_sent = 0UL;
   ssresolve->request_len  = 0UL;
   ssresolve->response_len = 0UL;
@@ -145,6 +148,7 @@ fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
   ssresolve->full   = full;
 
   ssresolve->state        = FD_SSRESOLVE_CONNECT;
+  ssresolve->resolved     = 0;
   ssresolve->request_sent = 0UL;
   ssresolve->request_len  = 0UL;
   ssresolve->response_len = 0UL;
@@ -299,6 +303,7 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
     result->base_slot = full_entry_slot;
   }
 
+  ssresolve->resolved = 1;
   if( FD_UNLIKELY( ssresolve->is_https ) ) ssresolve->state = FD_SSRESOLVE_STATE_SHUTTING_DOWN;
   else                                     ssresolve->state = FD_SSRESOLVE_STATE_DONE;
   return FD_SSRESOLVE_ADVANCE_RESULT;
@@ -502,6 +507,17 @@ fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
 int
 fd_ssresolve_is_done( fd_ssresolve_t * ssresolve ) {
   return ssresolve->state==FD_SSRESOLVE_STATE_DONE;
+}
+
+int
+fd_ssresolve_is_resolved( fd_ssresolve_t * ssresolve ) {
+  return ssresolve->resolved;
+}
+
+void
+fd_ssresolve_finish( fd_ssresolve_t * ssresolve ) {
+  FD_TEST( ssresolve->resolved );
+  ssresolve->state = FD_SSRESOLVE_STATE_DONE;
 }
 
 void
