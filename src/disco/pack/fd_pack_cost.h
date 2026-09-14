@@ -502,7 +502,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #undef MAX_ALLOC
 #undef DEFAULT_ALLOC
 
-  ulong instr_data_cost = instr_data_sz / FD_PACK_INV_COST_PER_INSTR_DATA_BYTE; /* <= 320 */
+  ulong instr_data_cost = instr_data_sz / FD_PACK_INV_COST_PER_INSTR_DATA_BYTE; /* < FD_TPU_MTU/FD_PACK_INV_COST_PER_INSTR_DATA_BYTE == 1024 */
 
   ulong fee[1];
   uint execution_cost[1];
