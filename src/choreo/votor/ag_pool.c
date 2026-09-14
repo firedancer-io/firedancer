@@ -72,6 +72,9 @@ struct __attribute__((aligned(128UL))) ag_pool {
   ag_finality_tracker_t *     finality_tracker;
   s2n_waiting_parent_cert_t * s2n_waiting_parent_cert;
 
+  ag_epoch_info_t const * prev_epoch_info;
+  ulong                   prev_epoch_rank;
+  ulong                   prev_epoch_slot;
   ag_epoch_info_t const * curr_epoch_info;
   ulong                   curr_epoch_rank;
   ulong                   curr_epoch_slot;
@@ -192,6 +195,9 @@ ag_pool_new( void * mem,
   void *      implicitly_skipped_scratch   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                       sizeof(ulong)             * slot_max                    );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, ag_pool_align() ) == (ulong)mem + footprint );
 
+  pool->prev_epoch_info = NULL;
+  pool->prev_epoch_rank = 0UL;
+  pool->prev_epoch_slot = ULONG_MAX;
   pool->curr_epoch_info = NULL;
   pool->curr_epoch_rank = 0UL;
   pool->curr_epoch_slot = ULONG_MAX;
@@ -300,8 +306,8 @@ slot_state( ag_pool_t * self,
   slot_state_ele_t * ele = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
   if( FD_LIKELY( ele ) ) return &ele->slot_state;
 
-  ag_epoch_info_t const * info = fd_ptr_if  ( slot>=self->next_epoch_slot, self->next_epoch_info, self->curr_epoch_info );
-  ulong                   rank = fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, self->curr_epoch_rank );
+  ag_epoch_info_t const * info = fd_ptr_if  ( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if  ( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) );
+  ulong                   rank = fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, fd_ulong_if( slot>=self->curr_epoch_slot, self->curr_epoch_rank, self->prev_epoch_rank ) );
 
   FD_TEST( slot_state_pool_free( self->slot_states->pool ) );
 
@@ -430,6 +436,9 @@ ag_pool_advance_epoch( ag_pool_t *             self,
                        ulong                   epoch_rank,
                        ulong                   epoch_slot ) {
   if( FD_UNLIKELY( !self->curr_epoch_info ) ) {
+    self->prev_epoch_info = epoch_info;
+    self->prev_epoch_rank = epoch_rank;
+    self->prev_epoch_slot = epoch_slot;
     self->curr_epoch_info = epoch_info;
     self->curr_epoch_rank = epoch_rank;
     self->curr_epoch_slot = epoch_slot;
@@ -438,6 +447,10 @@ ag_pool_advance_epoch( ag_pool_t *             self,
     self->next_epoch_rank = epoch_rank;
     self->next_epoch_slot = epoch_slot;
   } else {
+    FD_TEST( fd_ulong_sat_sub( ag_finality_tracker_first_unpruned_slot( self->finality_tracker ), AG_REWARD_SLOT_DELTA )>=self->curr_epoch_slot );
+    self->prev_epoch_info = self->curr_epoch_info;
+    self->prev_epoch_slot = self->curr_epoch_slot;
+    self->prev_epoch_rank = self->curr_epoch_rank;
     self->curr_epoch_info = self->next_epoch_info;
     self->curr_epoch_slot = self->next_epoch_slot;
     self->curr_epoch_rank = self->next_epoch_rank;
@@ -469,7 +482,7 @@ ag_pool_add_cert( ag_pool_t *       self,
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
 
-  ag_epoch_info_t const * epoch_info = fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, self->curr_epoch_info );
+  ag_epoch_info_t const * epoch_info = fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) );
   if( FD_UNLIKELY( !epoch_info || !ag_cert_verify( cert, epoch_info ) ) ) return AG_POOL_ERR_CERT_VERIFY;
 
   add_valid_cert( self, cert, bad );
@@ -491,8 +504,8 @@ ag_pool_add_vote( ag_pool_t *       self,
   }
 
   ulong             voter       = ag_vote_rank( vote );
-  ulong             voter_stake = ag_epoch_info_validator( fd_ptr_if( slot >= self->next_epoch_slot, self->next_epoch_info, self->curr_epoch_info ), voter )->stake;
   ag_slot_state_t * slot_state_ = slot_state( self, slot );
+  ulong             voter_stake = ag_epoch_info_validator( slot_state_->epoch_info, voter )->stake;
 
   if       ( FD_UNLIKELY( ag_slot_state_check_slashable_offence( slot_state_, vote )!=AG_SLASHABLE_NONE ) ) {
     return AG_POOL_ERR_SLASHABLE;

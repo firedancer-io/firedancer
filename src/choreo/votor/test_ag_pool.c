@@ -41,7 +41,7 @@ s2n_waiting_child( ag_pool_t const *     pool,
 static ag_epoch_info_t const *
 epoch_info( ag_pool_t const * pool,
             ulong             slot ) {
-  return fd_ptr_if( slot>=pool->next_epoch_slot, pool->next_epoch_info, pool->curr_epoch_info );
+  return fd_ptr_if( slot>=pool->next_epoch_slot, pool->next_epoch_info, fd_ptr_if( slot>=pool->curr_epoch_slot, pool->curr_epoch_info, pool->prev_epoch_info ) );
 }
 
 static ulong
@@ -155,7 +155,7 @@ event( ulong i ) {
    test_retired_epoch_already_pruned.  They are ~281 KiB apiece and the
    tests compare them by address, so each needs its own storage. */
 
-#define EPOCH_INFO_MAX (3UL)
+#define EPOCH_INFO_MAX (4UL)
 
 static ag_epoch_info_t epoch_info_mem[ EPOCH_INFO_MAX ];
 
@@ -1413,6 +1413,7 @@ test_retired_epoch_already_pruned( void ) {
   ag_epoch_info_t * c = make_epoch_info( 2UL, g_info, NV );
   ag_pool_advance_epoch( pool, c, 0UL, EPOCH_B_HI+1UL );
 
+  FD_TEST( epoch_info( pool, EPOCH_B_LO-1UL )==a );
   FD_TEST( epoch_info( pool, EPOCH_B_LO     )==b );
   FD_TEST( epoch_info( pool, EPOCH_B_HI+1UL )==c );
   FD_TEST( contains_slot( pool, EPOCH_B_LO ) );
@@ -1420,6 +1421,19 @@ test_retired_epoch_already_pruned( void ) {
   ag_vote_t v_late = ag_vote_construct_final( sec_sign_fn, &g_sk[0], EPOCH_B_LO-1UL, (ushort)0, TEST_SHRED_VERSION );
   FD_TEST( ag_pool_add_vote( pool, &v_late, bad )==AG_POOL_SUCCESS );
   FD_TEST( ag_pool_slot_state( pool, EPOCH_B_LO-1UL )->epoch_info==a ); /* retained, verified against its own epoch */
+
+  for( ulong s=EPOCH_B_LO+1UL; s<=EPOCH_B_LO+AG_REWARD_SLOT_DELTA; s++ ) {
+    ag_block_hash_t hash; random_hash( hash );
+    add_notar_votes( pool, s, hash, 0UL, NV );
+  }
+  FD_TEST( !contains_slot( pool, EPOCH_B_LO-1UL ) ); /* nothing retained in a any more, so a may be retired */
+
+  ag_epoch_info_t * d = make_epoch_info( 3UL, g_info, NV );
+  ag_pool_advance_epoch( pool, d, 0UL, EPOCH_B_HI+1UL+(EPOCH_B_HI+1UL-EPOCH_B_LO) );
+
+  FD_TEST( epoch_info( pool, EPOCH_B_LO                                  )==b );
+  FD_TEST( epoch_info( pool, EPOCH_B_HI+1UL                              )==c );
+  FD_TEST( epoch_info( pool, EPOCH_B_HI+1UL+(EPOCH_B_HI+1UL-EPOCH_B_LO) )==d );
 
   teardown_pool_only( pool );
 }
