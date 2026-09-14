@@ -13,9 +13,14 @@
 
 static void
 test_sched_footprint( void ) {
-  /* Retain the per-block saving from compact shred lengths under the
-     default scheduler sizing. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL )==1122030976UL );
+  /* Retain the savings from compact shred lengths and 4992-byte
+     transactions under the default scheduler sizing. */
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1117355392UL );
+  /* Only the shred length array scales with the shred limit. */
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1117355392UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1117355392UL );
+  FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
+  FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
 
 static void
@@ -94,12 +99,12 @@ build_shred_test_txn( uchar * payload ) {
 
 static void
 run_interleaved_fec_residual_case( void ) {
-  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL );
+  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
 
   fd_rng_t rng[ 1 ]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 4UL, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
   fd_sched_set_bypass_poh_verify( sched, 1 );
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -223,9 +228,10 @@ run_interleaved_fec_residual_case( void ) {
         break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-        msg->mblk_idx = task->poh_hash->mblk_idx;
-        msg->hashcnt  = task->poh_hash->hashcnt;
-        repeat_hash( msg->hash, task->poh_hash->hash, task->poh_hash->hashcnt );
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
+          repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        }
         FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
         break;
       }
@@ -255,12 +261,12 @@ run_bad_tick_case( fd_hash_t const * start_poh,
      one spare slot. */
   ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
   ulong block_cnt_max = 4UL;
-  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem          = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
 
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -309,9 +315,10 @@ run_bad_tick_case( fd_hash_t const * start_poh,
         break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-        msg->mblk_idx = task->poh_hash->mblk_idx;
-        msg->hashcnt  = task->poh_hash->hashcnt;
-        repeat_hash( msg->hash, task->poh_hash->hash, task->poh_hash->hashcnt );
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
+          repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        }
         int rc = fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg );
         if( FD_UNLIKELY( rc!=FD_SCHED_DEAD_REASON_NONE ) ) seen_poh_fail = 1;
         break;
@@ -353,16 +360,156 @@ run_bad_tick_cases( void ) {
 }
 
 static void
-run_lane_policy_case( void ) {
-  /* This test only needs the root and a handful of synthetic branches. */
+run_poh_spread_case( ulong tick_cnt,
+                     ulong hashes_per_tick ) {
   ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
-  ulong block_cnt_max = 8UL;
-  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
+  ulong block_cnt_max = 4UL;
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem          = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  FD_TEST( sched );
+
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  fd_hash_t start_poh[ 1 ];
+  hash_from_seed( start_poh, 0x7c1e5d3a9b204f6dUL );
+  ulong tick_hashcnt[ 8 ];
+  FD_TEST( tick_cnt<=8UL );
+  for( ulong i=0UL; i<tick_cnt; i++ ) tick_hashcnt[ i ] = hashes_per_tick;
+
+  uchar encoded[ sizeof(ulong) + 8UL*sizeof(fd_microblock_hdr_t) ] = {0};
+  ulong encoded_sz = 0UL;
+  encode_tick_block( encoded, &encoded_sz, start_poh, tick_hashcnt, tick_cnt );
+
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  store_fec->data_sz       = encoded_sz;
+  store_fec->shred_offs[0] = (uint)encoded_sz;
+
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT + 1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec,
+    .data              = encoded,
+    .shred_cnt         = 1U,
+    .is_last_in_batch  = 1U,
+    .is_last_in_block  = 1U,
+    .is_first_in_block = 1U
+  }};
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+tick_cnt, hashes_per_tick, start_poh );
+
+  fd_sched_task_t task[ 1 ];
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( task->task_type==FD_SCHED_TT_BLOCK_START );
+  FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+
+  /* All exec tiles are idle and the block is fully ingested, so no
+     tile is held back for transaction execution. */
+  ulong min_cnt      = fd_sha256_simd_lane_min();
+  ulong lane_cnt     = fd_sha256_simd_lane_max();
+  ulong expect_cnt   = fd_ulong_min( (tick_cnt+TEST_EXEC_CNT-1UL)/TEST_EXEC_CNT, lane_cnt );
+  if( expect_cnt<min_cnt ) expect_cnt = 1UL; /* below the kernel's SIMD floor, batching is pointless */
+  ulong expect_tasks = fd_ulong_min( tick_cnt, TEST_EXEC_CNT );
+  /* If the lane width is too narrow to fit every tick in one round
+     (e.g. width 1 on non-AVX-512 x86), a round dispatches at most
+     TEST_EXEC_CNT*expect_cnt microblocks and the rest wait. */
+  int   overflow     = tick_cnt>TEST_EXEC_CNT*expect_cnt;
+
+  ulong round_cnt = 0UL;
+  int   saw_end   = 0;
+  for(;;) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+
+    /* Drain every dispatchable PoH task for this round without
+       completing any, so the whole batch of ticks is in flight at
+       once. */
+    fd_sched_task_t in_flight[ TEST_EXEC_CNT ];
+    ulong in_flight_cnt = 0UL;
+    ulong tile_mask     = 0UL;
+    ulong mblk_cnt      = 0UL;
+    while( fd_sched_task_next_ready( sched, task ) ) {
+      if( task->task_type==FD_SCHED_TT_BLOCK_END ) {
+        FD_TEST( !in_flight_cnt );
+        FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
+        saw_end = 1;
+        break;
+      }
+      FD_TEST( task->task_type==FD_SCHED_TT_POH_HASH );
+      FD_TEST( in_flight_cnt<TEST_EXEC_CNT );
+      FD_TEST( task->poh_hash->cnt<=expect_cnt );
+      FD_TEST( task->poh_hash->exec_idx<TEST_EXEC_CNT );
+      FD_TEST( !fd_ulong_extract_bit( tile_mask, (int)task->poh_hash->exec_idx ) );
+      tile_mask = fd_ulong_set_bit( tile_mask, (int)task->poh_hash->exec_idx );
+      mblk_cnt += task->poh_hash->cnt;
+      in_flight[ in_flight_cnt++ ] = *task;
+    }
+    if( saw_end ) break;
+
+    if( !overflow ) {
+      FD_TEST( in_flight_cnt==expect_tasks );
+      FD_TEST( mblk_cnt==tick_cnt );
+    } else {
+      FD_TEST( in_flight_cnt>=1UL );
+      FD_TEST( mblk_cnt<=TEST_EXEC_CNT*expect_cnt );
+    }
+    round_cnt++;
+
+    for( ulong t=0UL; t<in_flight_cnt; t++ ) {
+      fd_sched_poh_hash_t * ph = in_flight[ t ].poh_hash;
+      fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+      msg->cnt = ph->cnt;
+      for( ulong i=0UL; i<ph->cnt; i++ ) {
+        repeat_hash( msg->hash+i, ph->hash+i, ph->hashcnt );
+      }
+      FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, ph->exec_idx, msg ) );
+    }
+  }
+
+  /* Each tick needs more than one maximally sized task, so the spread
+     must have survived at least one re-dispatch of partially hashed
+     ticks. */
+  FD_TEST( round_cnt>=2UL );
+  FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_NONE );
+  FD_TEST( fd_sched_is_drained( sched ) );
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+
+  fd_sched_delete( fd_sched_leave( sched ) );
+  free( mem );
+}
+
+static void
+run_poh_spread_cases( void ) {
+  /* Fewer ticks than tiles: exactly one tick per task, one task per
+     tile. */
+  run_poh_spread_case( 1UL, 9000UL );
+  run_poh_spread_case( 3UL, 9000UL );
+  run_poh_spread_case( TEST_EXEC_CNT, 9000UL );
+  /* More ticks than tiles: at most ceil( tick_cnt/tile_cnt ) per task,
+     clamped to the SIMD lane width (so exactly one per task on builds
+     with a serial fallback), still using every tile. */
+  run_poh_spread_case( 6UL, 9000UL );
+  run_poh_spread_case( 8UL, 9000UL );
+}
+
+static void
+run_lane_policy_case( void ) {
+  /* This test only needs the root and a handful of synthetic branches. */
+  ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
+  ulong block_cnt_max = 8UL;
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  void * mem          = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
 
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -485,10 +632,10 @@ add_live_block( fd_sched_t * sched,
 static fd_sched_t *
 new_sched( fd_rng_t * rng, void ** mem_out, ulong block_cnt_max ) {
   ulong depth     = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
-  ulong footprint = fd_sched_footprint( depth, block_cnt_max );
+  ulong footprint = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem      = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
   FD_TEST( sched );
   *mem_out = mem;
   return sched;
@@ -638,6 +785,284 @@ run_late_ancestor_discard_case( void ) {
   fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
 }
 
+/* The per-block shred and transaction limits are runtime values.  A
+   block declaring more transactions than the limit is ruled invalid,
+   and shred lengths past the first FEC land in the block's own slice of
+   the shred length array. */
+/* A microblock whose header declares hash_cnt==1 and at least one
+   transaction has nothing left for PoH to hash.  It still dispatches,
+   as a degenerate zero-hashcnt task, so that it retires through
+   fd_sched_task_done and the block gets deactivated there.  Here such a
+   microblock is the only queued work, and it lands in mixin waiting on
+   transactions the FEC stream hasn't delivered yet, so the block is
+   exhausted the moment the task retires. */
+static void
+run_zero_hashcnt_mblk_case( void ) {
+  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  void * mem = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[ 1 ]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  FD_TEST( sched );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  uchar txn_payload[ FD_TXN_MTU ];
+  ulong txn_sz = build_shred_test_txn( txn_payload );
+
+  fd_hash_t start_poh[ 1 ];
+  fd_hash_t mblk_hash[ 1 ];
+  hash_from_seed( start_poh, 0x6d1f4c9a3b57e802UL );
+  hash_from_seed( mblk_hash, 0xc40a97e5182b6d3fUL );
+
+  /* First FEC: a complete single-transaction microblock.  The block
+     declares more microblocks than this, so it stays incomplete. */
+  uchar fec0[ 4096 ];
+  ulong fec0_sz = 0UL;
+  FD_STORE( ulong, fec0, 3UL );
+  fec0_sz += sizeof(ulong);
+  fd_microblock_hdr_t hdr_a = { .hash_cnt = 1UL, .txn_cnt = 1UL };
+  fd_memcpy( hdr_a.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( fec0+fec0_sz, &hdr_a, sizeof(hdr_a) );
+  fec0_sz += sizeof(hdr_a);
+  fd_memcpy( fec0+fec0_sz, txn_payload, txn_sz );
+  fec0_sz += txn_sz;
+
+  fd_store_fec_t store_fec0[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec0, 0, sizeof(fd_store_fec_t) );
+  store_fec0->data_sz         = fec0_sz;
+  store_fec0->shred_offs[ 0 ] = (uint)fec0_sz;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT+1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec0,
+    .data              = fec0,
+    .shred_cnt         = 1U,
+    .is_first_in_block = 1U,
+  }};
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+4UL, 64UL, start_poh );
+
+  /* Drain everything the first FEC made available. */
+  ulong exec_cnt = 0UL;
+  ulong poh_task_cnt = 0UL;
+  for( ulong step=0UL; step<100UL; step++ ) {
+    fd_sched_task_t task[ 1 ];
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    switch( task->task_type ) {
+      case FD_SCHED_TT_BLOCK_START:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_EXEC:
+        exec_cnt++;
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_SIGVERIFY:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_POH_HASH: {
+        poh_task_cnt++;
+        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+        break;
+      }
+      default:
+        FD_LOG_ERR(( "unexpected task type %lu draining first FEC", task->task_type ));
+    }
+  }
+  FD_TEST( exec_cnt==1UL );
+  /* The microblock had nothing to hash, but still went out as a task. */
+  FD_TEST( poh_task_cnt==1UL );
+
+  /* Second FEC: a microblock header declaring two transactions, but
+     only a fragment of the first.  No transaction gets parsed out, so
+     the only new work is a microblock with nothing left to hash. */
+  uchar fec1[ 4096 ];
+  ulong fec1_sz = 0UL;
+  fd_microblock_hdr_t hdr_b = { .hash_cnt = 1UL, .txn_cnt = 2UL };
+  fd_memcpy( hdr_b.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( fec1+fec1_sz, &hdr_b, sizeof(hdr_b) );
+  fec1_sz += sizeof(hdr_b);
+  fd_memcpy( fec1+fec1_sz, txn_payload, txn_sz/2UL );
+  fec1_sz += txn_sz/2UL;
+
+  fd_store_fec_t store_fec1[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec1, 0, sizeof(fd_store_fec_t) );
+  store_fec1->data_sz         = fec1_sz;
+  store_fec1->shred_offs[ 0 ] = (uint)fec1_sz;
+  fec->fec               = store_fec1;
+  fec->data              = fec1;
+  fec->is_first_in_block = 0U;
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+
+  /* The microblock dispatches with nothing to hash, and retiring it
+     exhausts the block.  Deactivation happens in fd_sched_task_done, so
+     the scheduler simply parks and idles until more of the block shows
+     up. */
+  fd_sched_task_t task[ 1 ];
+  FD_TEST( fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( task->task_type==FD_SCHED_TT_POH_HASH );
+  FD_TEST( task->poh_hash->cnt==1UL );
+  FD_TEST( !task->poh_hash->hashcnt );
+  {
+    fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+    msg->cnt = task->poh_hash->cnt;
+    for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+  }
+  FD_TEST( !fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( fd_sched_is_drained( sched ) );
+
+  /* Parked, not lost.  Delivering the rest of the transaction has to
+     bring the block back and get it replaying again. */
+  uchar fec2[ 4096 ];
+  ulong fec2_sz = txn_sz-txn_sz/2UL;
+  fd_memcpy( fec2, txn_payload+txn_sz/2UL, fec2_sz );
+
+  fd_store_fec_t store_fec2[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec2, 0, sizeof(fd_store_fec_t) );
+  store_fec2->data_sz         = fec2_sz;
+  store_fec2->shred_offs[ 0 ] = (uint)fec2_sz;
+  fec->fec  = store_fec2;
+  fec->data = fec2;
+  FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+
+  FD_TEST( fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( task->task_type==FD_SCHED_TT_TXN_EXEC );
+  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+
+  fd_sched_delete( fd_sched_leave( sched ) );
+  free( mem );
+}
+
+static void
+run_runtime_limit_case( void ) {
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
+  ulong block_cnt_max = 4UL;
+
+  /* Shred limit: a 3 shred block under a limit of 3 fits across two FEC
+     sets, and a sibling block gets its own shred slice. */
+  {
+    ulong footprint = fd_sched_footprint( depth, block_cnt_max, 3UL, FD_MAX_TXN_PER_SLOT );
+    void * mem = aligned_alloc( fd_sched_align(), footprint );
+    FD_TEST( mem );
+    fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, 3UL, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+    FD_TEST( sched );
+    fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx          = 2UL,
+      .parent_bank_idx   = 1UL,
+      .slot              = TEST_ROOT_SLOT+1UL,
+      .parent_slot       = TEST_ROOT_SLOT,
+      .fec               = store_fec,
+      .shred_cnt         = 2U,
+      .is_first_in_block = 1U
+    }};
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_get_shred_cnt( sched, 2UL )==2U );
+
+    fec->is_first_in_block = 0U;
+    fec->shred_cnt         = 1U;
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_get_shred_cnt( sched, 2UL )==3U );
+
+    fec->bank_idx          = 3UL;
+    fec->shred_cnt         = 3U;
+    fec->is_first_in_block = 1U;
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_get_shred_cnt( sched, 3UL )==3U );
+
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+  }
+
+  /* Transaction limit: a microblock header declaring more transactions
+     than the limit allows rules the block invalid at ingest. */
+  {
+    ulong footprint = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, 1UL );
+    void * mem = aligned_alloc( fd_sched_align(), footprint );
+    FD_TEST( mem );
+    fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, 1UL, TEST_EXEC_CNT, 0 ) );
+    FD_TEST( sched );
+    fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+    uchar encoded[ sizeof(ulong)+sizeof(fd_microblock_hdr_t) ] = {0};
+    FD_STORE( ulong, encoded, 1UL );
+    fd_microblock_hdr_t hdr = { .hash_cnt = 1UL, .txn_cnt = 2UL };
+    fd_memcpy( encoded+sizeof(ulong), &hdr, sizeof(hdr) );
+
+    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    store_fec->data_sz         = sizeof(encoded);
+    store_fec->shred_offs[ 0 ] = (uint)sizeof(encoded);
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx          = 2UL,
+      .parent_bank_idx   = 1UL,
+      .slot              = TEST_ROOT_SLOT+1UL,
+      .parent_slot       = TEST_ROOT_SLOT,
+      .fec               = store_fec,
+      .data              = encoded,
+      .shred_cnt         = 1U,
+      .is_first_in_block = 1U
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    FD_TEST( !fd_sched_fec_ingest( sched, fec ) );
+    FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_TOO_MANY_TXNS );
+
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+  }
+
+  /* Microblock limit scales with the shred limit: under 2x shreds a
+     batch declaring more microblocks than the 1x limit is accepted,
+     one declaring more than the 2x limit rules the block invalid. */
+  for( ulong mblk_cnt=FD_SCHED_MAX_MBLK_PER_SLOT+1UL; mblk_cnt<=2UL*FD_SCHED_MAX_MBLK_PER_SLOT+1UL; mblk_cnt+=FD_SCHED_MAX_MBLK_PER_SLOT ) {
+    ulong footprint = fd_sched_footprint( depth, block_cnt_max, 2UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+    void * mem = aligned_alloc( fd_sched_align(), footprint );
+    FD_TEST( mem );
+    fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, 2UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+    FD_TEST( sched );
+    fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+    uchar encoded[ sizeof(ulong) ] = {0};
+    FD_STORE( ulong, encoded, mblk_cnt );
+
+    fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    store_fec->data_sz         = sizeof(encoded);
+    store_fec->shred_offs[ 0 ] = (uint)sizeof(encoded);
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx          = 2UL,
+      .parent_bank_idx   = 1UL,
+      .slot              = TEST_ROOT_SLOT+1UL,
+      .parent_slot       = TEST_ROOT_SLOT,
+      .fec               = store_fec,
+      .data              = encoded,
+      .shred_cnt         = 1U,
+      .is_first_in_block = 1U
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    int too_many = mblk_cnt>2UL*FD_SCHED_MAX_MBLK_PER_SLOT;
+    FD_TEST( (!fd_sched_fec_ingest( sched, fec ))==too_many );
+    FD_TEST( (fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS)==too_many );
+
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -646,10 +1071,13 @@ main( int     argc,
   test_sched_footprint();
   run_lane_policy_case();
   run_bad_tick_cases();
+  run_poh_spread_cases();
   run_interleaved_fec_residual_case();
   run_abandon_flavor_case();
   run_root_notify_flavor_case();
   run_late_ancestor_discard_case();
+  run_runtime_limit_case();
+  run_zero_hashcnt_mblk_case();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

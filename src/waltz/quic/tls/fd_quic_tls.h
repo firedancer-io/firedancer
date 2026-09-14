@@ -11,6 +11,15 @@
    This defines an API for QUIC-TLS
 
    General operation:
+     // seed a CSPRNG
+     static fd_chacha_rng_t _rng[1];
+     fd_chacha_rng_t * rng = fd_chacha_rng_join(
+         fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_SHIFT ) );
+     uchar key[ FD_CHACHA_KEY_SZ ];
+     if( FD_UNLIKELY( !fd_rng_secure( key, sizeof(key) ) ) ) abort();
+     fd_chacha_rng_init( rng, key, FD_CHACHA_RNG_ALGO_CHACHA8 );
+     fd_memzero_explicit( key, sizeof(key) );
+
      // set up a quic-tls config object
      fd_quic_tls_cfg_t quic_tls_cfg = {
        .secret_cb             = my_secret_cb,        // callback for communicating secrets
@@ -19,6 +28,8 @@
 
        .max_concur_handshakes = 1234,                // number of handshakes this object can
                                                      // manage concurrently
+
+       .rng                   = rng,                 // required, see above
        };
 
      // create a quic-tls object to manage handshakes:
@@ -88,6 +99,10 @@ struct fd_quic_tls_cfg {
 
   /* Ed25519 public key */
   uchar const * cert_public_key;
+
+  /* rng is a seeded CSPRNG used to generate the TLS random of every
+     handshake.  caller-managed, outlives quic_tls. */
+  fd_chacha_rng_t * rng;
 
   /* alpn: either "solana-tpu" or "alpenglow-v1" */
   uchar const * alpn;

@@ -15,6 +15,9 @@ PB_BIND(FD_EXEC_TEST_COMPILED_INSTRUCTION, fd_exec_test_compiled_instruction_t, 
 PB_BIND(FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP, fd_exec_test_message_address_table_lookup_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_TRANSACTION_CONFIG, fd_exec_test_transaction_config_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_TRANSACTION_MESSAGE, fd_exec_test_transaction_message_t, AUTO)
 
 
@@ -34,6 +37,8 @@ PB_BIND(FD_EXEC_TEST_TXN_RESULT, fd_exec_test_txn_result_t, AUTO)
 
 
 PB_BIND(FD_EXEC_TEST_TXN_FIXTURE, fd_exec_test_txn_fixture_t, 2)
+
+
 
 
 

@@ -20,9 +20,14 @@ build.sh instead bakes -D__ADX__ from the build host's /proc/cpuinfo
 into the artifact; portable dispatch is safer for binaries deployed
 to heterogeneous CPUs at ~2x asm footprint.  On aarch64 assembly.S
 selects the armv8 bodies (build/elf/*-armv8.S); there is no variant
-dispatch.  -fno-builtin is required: without it the compiler
-pattern-matches blst's constant-time memory routines into libc
-memcpy/memset calls, silently breaking constant-time guarantees.
+dispatch.  Other machines (noarch, power9, riscv) build with
+-D__BLST_NO_ASM__ and without assembly.S, using the C fallback in
+src/no_asm.h.  no_asm.h only supports 32-bit limbs, but vect.h picks
+64-bit limbs when __x86_64__ or __aarch64__ is defined, so those
+macros are undefined on the command line.  -fno-builtin is required:
+without it the compiler pattern-matches blst's constant-time memory
+routines into libc memcpy/memset calls, silently breaking
+constant-time guarantees.
 
 For licensing information (Apache-2.0), see LICENSE in this
 directory and NOTICE in the root of this repo.

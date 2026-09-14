@@ -318,6 +318,17 @@ fd_quic_stream_init( fd_quic_stream_t * stream ) {
   stream->upd_pkt_number     = 0;
 }
 
+FD_FN_SENSITIVE void
+fd_quic_rng_reseed( fd_quic_state_t * state ) {
+  uchar key[ FD_CHACHA_KEY_SZ ];
+  if( FD_UNLIKELY( !fd_rng_secure( key, sizeof(key) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
+  fd_chacha_rng_init( state->_rng, key, FD_CHACHA_RNG_ALGO_CHACHA8 );
+  fd_memzero_explicit( key, sizeof(key) );
+  state->rng_reseed_at = state->now + FD_QUIC_RNG_RESEED_INTERVAL;
+}
+
 FD_QUIC_API fd_quic_t *
 fd_quic_join( void * shquic ) {
 
@@ -462,6 +473,13 @@ fd_quic_init( fd_quic_t * quic ) {
     return NULL;
   }
 
+  if( FD_UNLIKELY( !fd_chacha_rng_join( fd_chacha_rng_new( state->_rng, FD_CHACHA_RNG_MODE_SHIFT ) ) ) ) {
+    FD_LOG_WARNING(( "fd_chacha_rng_new failed" ));
+    return NULL;
+  }
+  fd_quic_rng_reseed( state );
+  state->rng_reseed_at = 0L;
+
   /* State: Initialize TLS */
 
   fd_quic_tls_cfg_t tls_cfg = {
@@ -478,6 +496,7 @@ fd_quic_init( fd_quic_t * quic ) {
     },
 
     .cert_public_key       = quic->config.identity_public_key,
+    .rng                   = state->_rng,
 
     .alpn                  = config->alpn,
     .alpn_sz               = config->alpn_sz,
@@ -511,14 +530,6 @@ fd_quic_init( fd_quic_t * quic ) {
     ulong stream_pool_laddr = (ulong)quic + layout.stream_pool_off;
     state->stream_pool = fd_quic_stream_pool_new( (void*)stream_pool_laddr, stream_pool_cnt, tx_buf_sz );
   }
-
-  /* generate a secure random number as seed for fd_rng */
-  uint rng_seed = 0;
-  int rng_seed_ok = !!fd_rng_secure( &rng_seed, sizeof(rng_seed) );
-  if( FD_UNLIKELY( !rng_seed_ok ) ) {
-    FD_LOG_ERR(( "fd_rng_secure failed" ));
-  }
-  fd_rng_new( state->_rng, rng_seed, 0UL );
 
   /* use rng to generate secret bytes for future RETRY token generation */
   int rng1_ok = !!fd_rng_secure( state->retry_secret, FD_QUIC_RETRY_SECRET_SZ );
@@ -1339,7 +1350,9 @@ fd_quic_send_retry( fd_quic_t *               quic,
 
   long  expire_at = state->now + quic->config.retry_ttl;
   uchar retry_pkt[ FD_QUIC_RETRY_LOCAL_SZ ];
-  ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, expire_at );
+  ulong nonce0 = fd_quic_rng_ulong( state );
+  ulong nonce1 = fd_quic_rng_ulong( state );
+  ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, nonce0, nonce1, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, expire_at );
 
   quic->metrics.retry_tx_cnt++;
 
@@ -1497,13 +1510,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         - No retry token, retry request:  generate new random ID
         - Retry token, accepted:          reuse SCID from retry token */
     if( !quic->config.retry ) {
-      scid = fd_rng_ulong( state->_rng );
+      scid = fd_quic_rng_ulong( state );
     } else { /* retry configured */
 
       /* Need to send retry? Do so before more work */
       if( initial->token_len != sizeof(fd_quic_retry_token_t) ) {
 
-        ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
+        ulong new_conn_id_u64 = fd_quic_rng_ulong( state );
         if( FD_UNLIKELY( fd_quic_send_retry(
               quic, pkt,
               dcid, peer_scid, new_conn_id_u64 ) ) ) {
@@ -1980,6 +1993,17 @@ fd_quic_handle_v1_retry(
     return FD_QUIC_PARSE_FAIL;
   }
 
+  /* RFC 9000 Section 17.2.5.2:
+     > A client MUST accept and process at most one Retry packet for
+     > each connection attempt.  After the client has received and
+     > processed an Initial or Retry packet from the server, it MUST
+     > discard any subsequent Retry packets that it receives. */
+  if( FD_UNLIKELY( conn->established | (conn->retry_src_conn_id.sz!=0) ) ) {
+    FD_DTRACE_PROBE_2( fd_quic_handle_v1_retry_late, state->now, conn->our_conn_id );
+    quic->metrics.conn_err_retry_fail_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   fd_quic_conn_id_t const * orig_dst_conn_id = &conn->peer_cids[0];
   uchar const *             retry_token      = NULL;
   ulong                     retry_token_sz   = 0UL;
@@ -1991,6 +2015,16 @@ fd_quic_handle_v1_retry(
       &retry_token, &retry_token_sz
   );
   if( FD_UNLIKELY( rc!=FD_QUIC_SUCCESS ) ) {
+    quic->metrics.conn_err_retry_fail_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  /* RFC 9000 Section 17.2.5.2:
+     > A client MUST discard a Retry packet that contains a SCID field
+     > that is identical to the DCID field of its Initial packet. */
+  if( FD_UNLIKELY( ( conn->retry_src_conn_id.sz==orig_dst_conn_id->sz ) &&
+                   ( 0==memcmp( conn->retry_src_conn_id.conn_id, orig_dst_conn_id->conn_id, orig_dst_conn_id->sz ) ) ) ) {
+    conn->retry_src_conn_id.sz = 0U;
     quic->metrics.conn_err_retry_fail_cnt++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -3914,15 +3948,24 @@ fd_quic_conn_tx( fd_quic_t      * quic,
       }
     }
 
-    /* first initial frame is padded to FD_QUIC_INITIAL_PAYLOAD_SZ_MIN
-       all short quic packets are padded so 16 bytes of sample are available */
+    /* initial padding */
     uint tot_frame_sz = (uint)( payload_ptr - frame_start );
     uint base_pkt_len = (uint)tot_frame_sz + pkt_num_len + FD_QUIC_CRYPTO_TAG_SZ;
-    uint padding      = ( initial_pkt && (base_pkt_len < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN) )
-                            ? FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - base_pkt_len : 0u;
+    ulong datagram_sz = (ulong)( conn->tx_ptr - conn->tx_buf_conn ) + hdr_sz + tot_frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
+    uint padding      = ( initial_pkt && (datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN) )
+                            ? (uint)( FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - datagram_sz ) : 0u;
 
     if( base_pkt_len + padding < FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START + FD_QUIC_CRYPTO_SAMPLE_SZ ) {
       padding = FD_QUIC_CRYPTO_SAMPLE_SZ + FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START - base_pkt_len;
+    }
+
+    if( FD_UNLIKELY( datagram_sz + padding > tx_max_datagram_sz ||
+                     (ulong)padding > (ulong)( payload_end - payload_ptr ) ) ) {
+      conn->tx_ptr = conn->tx_buf_conn;
+      fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
+      fd_quic_svc_prep_schedule_now( conn );
+      quic->metrics.conn_aborted_cnt++;
+      return;
     }
 
     /* this length includes the packet number length (pkt_number_len_enc+1),
@@ -4224,12 +4267,10 @@ fd_quic_connect( fd_quic_t * quic,
     }
   }
 
-  fd_rng_t * rng = state->_rng;
-
   /* create conn ids for us and them
      client creates connection id for the peer, peer immediately replaces it */
-  ulong our_conn_id_u64 = fd_rng_ulong( rng );
-  fd_quic_conn_id_t peer_conn_id;  fd_quic_conn_id_rand( &peer_conn_id, rng );
+  ulong our_conn_id_u64 = fd_quic_rng_ulong( state );
+  fd_quic_conn_id_t peer_conn_id;  fd_quic_conn_id_from_u64( &peer_conn_id, fd_quic_rng_ulong( state ) );
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       quic,

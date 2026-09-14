@@ -4,10 +4,6 @@
 #include <stdalign.h>
 #include <stddef.h>
 
-#if !FD_HAS_ZSTD
-#error "fd_compress requires Zstandard"
-#endif
-
 /* mem must be aligned */
 
 FD_STATIC_ASSERT( alignof ( fd_zstd_dstream_t      )==FD_ZSTD_DSTREAM_ALIGN, layout );

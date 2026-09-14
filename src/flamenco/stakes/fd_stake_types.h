@@ -26,9 +26,7 @@ struct __attribute__((packed)) fd_delegation {
   ulong       activation_epoch;
   ulong       deactivation_epoch;
   union {
-#   if FD_HAS_DOUBLE
     double    warmup_cooldown_rate;
-#   endif
     ulong     warmup_cooldown_rate_bits;
   };
 };

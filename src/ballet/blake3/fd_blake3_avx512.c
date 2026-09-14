@@ -744,3 +744,60 @@ fd_blake3_avx512_compress16_fast( uchar const * restrict msg,
   wb_st( out + (0xeUL<<FD_BLAKE3_OUTCHAIN_LG_SZ), _mm512_castsi512_si256( oE ) );
   wb_st( out + (0xfUL<<FD_BLAKE3_OUTCHAIN_LG_SZ), _mm512_castsi512_si256( oF ) );
 }
+
+void
+fd_blake3_avx512_xof16( uchar const * restrict root_msg,
+                        uchar const * restrict root_cv,
+                        ulong                  ctr0,
+                        uint                   block_sz,
+                        uint                   flags,
+                        uchar       * restrict out ) {
+  /* All lanes share the message and chaining value, only the counter
+     differs, so broadcast instead of loading and transposing. */
+  wwu_t m[16];
+  for( ulong j=0UL; j<16UL; j++ ) m[ j ] = wwu_bcast( FD_LOAD( uint, root_msg+4UL*j ) );
+
+  wwu_t h0 = wwu_bcast( FD_LOAD( uint, root_cv     ) ); wwu_t h1 = wwu_bcast( FD_LOAD( uint, root_cv+ 4 ) );
+  wwu_t h2 = wwu_bcast( FD_LOAD( uint, root_cv+ 8  ) ); wwu_t h3 = wwu_bcast( FD_LOAD( uint, root_cv+12 ) );
+  wwu_t h4 = wwu_bcast( FD_LOAD( uint, root_cv+16  ) ); wwu_t h5 = wwu_bcast( FD_LOAD( uint, root_cv+20 ) );
+  wwu_t h6 = wwu_bcast( FD_LOAD( uint, root_cv+24  ) ); wwu_t h7 = wwu_bcast( FD_LOAD( uint, root_cv+28 ) );
+
+  wwu_t ctr_add   = wwu( 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,
+                         0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf );
+  wwu_t ctr_lo    = wwu_add( wwu_bcast( ctr0 ), ctr_add );
+  int   ctr_carry = wwi_gt ( wwu_xor( ctr_add, wwu_bcast( 0x80000000 ) ),
+                             wwu_xor( ctr_lo,  wwu_bcast( 0x80000000 ) ) );
+  wwu_t ctr_hi    = wwu_add_if( ctr_carry, wwu_bcast( ctr0>>32 ), wwu_one(), wwu_bcast( ctr0>>32 ) );
+
+  /* Same block flag derivation as fd_blake3_avx512_compress16 for a
+     single last block with out_sz==64 */
+  uint block_flags = flags | fd_uint_if( !!(flags & FD_BLAKE3_FLAG_PARENT), 0U, FD_BLAKE3_FLAG_CHUNK_END );
+
+  wwu_t v[16] = {
+      h0,                           h1,                           h2,                           h3,
+      h4,                           h5,                           h6,                           h7,
+      wwu_bcast( FD_BLAKE3_IV[0] ), wwu_bcast( FD_BLAKE3_IV[1] ), wwu_bcast( FD_BLAKE3_IV[2] ), wwu_bcast( FD_BLAKE3_IV[3] ),
+      ctr_lo,                       ctr_hi,                       wwu_bcast( block_sz ),        wwu_bcast( block_flags ),
+  };
+
+  round_fn16( v, m, 0 );
+  round_fn16( v, m, 1 );
+  round_fn16( v, m, 2 );
+  round_fn16( v, m, 3 );
+  round_fn16( v, m, 4 );
+  round_fn16( v, m, 5 );
+  round_fn16( v, m, 6 );
+
+  wwu_t o0; wwu_t o1; wwu_t o2; wwu_t o3; wwu_t o4; wwu_t o5; wwu_t o6; wwu_t o7;
+  wwu_t o8; wwu_t o9; wwu_t oA; wwu_t oB; wwu_t oC; wwu_t oD; wwu_t oE; wwu_t oF;
+  wwu_transpose_16x16( wwu_xor( v[0x0], v[0x8] ), wwu_xor( v[0x1], v[0x9] ), wwu_xor( v[0x2], v[0xa] ), wwu_xor( v[0x3], v[0xb] ),
+                       wwu_xor( v[0x4], v[0xc] ), wwu_xor( v[0x5], v[0xd] ), wwu_xor( v[0x6], v[0xe] ), wwu_xor( v[0x7], v[0xf] ),
+                       wwu_xor( h0,     v[0x8] ), wwu_xor( h1,     v[0x9] ), wwu_xor( h2,     v[0xa] ), wwu_xor( h3,     v[0xb] ),
+                       wwu_xor( h4,     v[0xc] ), wwu_xor( h5,     v[0xd] ), wwu_xor( h6,     v[0xe] ), wwu_xor( h7,     v[0xf] ),
+                       o0, o1, o2, o3, o4, o5, o6, o7, o8, o9, oA, oB, oC, oD, oE, oF );
+
+  wwu_stu( out+0x000UL, o0 ); wwu_stu( out+0x040UL, o1 ); wwu_stu( out+0x080UL, o2 ); wwu_stu( out+0x0c0UL, o3 );
+  wwu_stu( out+0x100UL, o4 ); wwu_stu( out+0x140UL, o5 ); wwu_stu( out+0x180UL, o6 ); wwu_stu( out+0x1c0UL, o7 );
+  wwu_stu( out+0x200UL, o8 ); wwu_stu( out+0x240UL, o9 ); wwu_stu( out+0x280UL, oA ); wwu_stu( out+0x2c0UL, oB );
+  wwu_stu( out+0x300UL, oC ); wwu_stu( out+0x340UL, oD ); wwu_stu( out+0x380UL, oE ); wwu_stu( out+0x3c0UL, oF );
+}

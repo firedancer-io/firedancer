@@ -153,15 +153,16 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_2575
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_1322-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_696-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6960-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_1 -m 50000 -e 1795
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_1_boundary -m 2000000 -e 1850
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_tx_v1 -m 2000000 -e 637
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-closeslot -m 10000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-poison -m 10000 -e 562
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate -m 2000000 -e 840
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate_snapshot -m 2000000 -e 840
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_fee_payer_constraint -m 2000000 -e 400
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot-hard-fork -m 2000000 -e 162
 
 # Alpenglow
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs --alpenglow -m 2000000 -e 126
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-deactivated-stake --alpenglow -m 2000000 -e 810
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs --alpenglow --shred-version 40081 -m 2000000 -e 126
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-deactivated-stake --alpenglow --shred-version 14972 -m 2000000 -e 810
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-leader-credits --alpenglow --shred-version 49885 -m 2000000 -e 3915
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-alpenclock-lamports --alpenglow --shred-version 27708 -m 2000000 -e 280

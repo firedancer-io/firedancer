@@ -19,7 +19,7 @@
 #include "generated/fd_execle_tile_seccomp.h"
 
 #define REBATE_BATCH_IDLE_LOOPS      (128UL)
-#define REBATE_BATCH_MAX_MICROBLOCKS (4UL)
+#define REBATE_BATCH_MAX_MICROBLOCKS (16UL)
 
 FD_STATIC_ASSERT( REBATE_BATCH_MAX_MICROBLOCKS*FD_PACK_REBATE_MAX_ENTRIES<=FD_PACK_REBATE_SUM_CAPACITY,
                   rebate_batch_fits_rebater );
@@ -49,6 +49,7 @@ struct fd_execle_tile {
   fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
 
   ulong * busy_fseq;
+  ulong * pack_in_fseq;
 
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
@@ -85,9 +86,6 @@ struct fd_execle_tile {
   float ns_per_tick;
 
   struct {
-    ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
-    ulong txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_CNT ];
-
     /* Ticks spent loading txn accounts */
     ulong txn_load_cum_ticks;
 
@@ -101,8 +99,6 @@ struct fd_execle_tile {
     ulong txn_commit_cum_ticks;
   } metrics;
 
-  /* If non-zero, emit one runtime_txn event per dispatched txn */
-  int report_transaction_diffs;
 };
 
 typedef struct fd_execle_tile fd_execle_tile_t;
@@ -128,8 +124,8 @@ static inline void
 metrics_write( fd_execle_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
-  FD_MCNT_ENUM_COPY( EXECLE, TXN_RESULT, ctx->metrics.txn_result );
-  FD_MCNT_ENUM_COPY( EXECLE, TXN_LANDED, ctx->metrics.txn_landed );
+  FD_MCNT_SET( EXECLE, INSTRUCTION_EXECUTED, ctx->runtime->metrics.instr_cum );
+  FD_MCNT_SET( EXECLE, CPI_EXECUTED,         ctx->runtime->metrics.cpi_cum   );
 
   FD_MCNT_SET( EXECLE, CU_EXECUTED, ctx->runtime->metrics.cu_cum );
 
@@ -238,8 +234,15 @@ during_frag( fd_execle_tile_t * ctx,
   fd_txn_e_t const * src_txn_e = (fd_txn_e_t const *)src;
   fd_txn_p_t       * dst_txn_p = (fd_txn_p_t       *)dst;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_memcpy( dst_txn_p + i, src_txn_e[i].txnp, sizeof(fd_txn_p_t) );
-    ulong alt_cnt = fd_ulong_min( (ulong)TXN(src_txn_e[i].txnp)->addr_table_adtl_cnt, FD_TXN_ACCT_ADDR_MAX );
+    fd_txn_p_t const * s = src_txn_e[i].txnp;
+    fd_txn_p_t *       d = dst_txn_p + i;
+    fd_txn_t const *   t = TXN( s );
+    ulong payload_sz = fd_ulong_min( s->payload_sz, FD_TPU_MTU );
+    ulong txn_sz     = fd_ulong_min( fd_txn_footprint( t->instr_cnt, t->addr_table_lookup_cnt ), FD_TXN_MAX_SZ );
+    fd_memcpy( d->payload,     s->payload,     payload_sz );
+    fd_memcpy( &d->payload_sz, &s->payload_sz, offsetof(fd_txn_p_t, _)-offsetof(fd_txn_p_t, payload_sz) );
+    fd_memcpy( d->_,           s->_,           txn_sz );
+    ulong alt_cnt = fd_ulong_min( (ulong)t->addr_table_adtl_cnt, FD_TXN_ACCT_ADDR_MAX );
     fd_memcpy( ctx->_alt_accts[i], src_txn_e[i].alt_accts, alt_cnt * sizeof(fd_acct_addr_t) );
   }
 
@@ -284,9 +287,6 @@ handle_microblock( fd_execle_tile_t *  ctx,
                    ulong               sz,
                    ulong               begin_tspub,
                    fd_stem_context_t * stem ) {
-  long const exec_start_ticks       = fd_tickcount();
-  long const microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, exec_start_ticks );
-
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
@@ -300,8 +300,14 @@ handle_microblock( fd_execle_tile_t *  ctx,
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt        = (fd_txn_ns_dt_t){0};
   trailer->bank_seq         = bank->bank_seq;
-  trailer->exec_start_ticks = exec_start_ticks;
   trailer->exec_end_ticks   = LONG_MAX;
+
+  /* exec_start_ticks is the first transaction's load_start_ticks (an
+     empty microblock reads the clock itself); microblock_start_ticks
+     stays pack's publish time, decompressed against it. */
+  long exec_start_ticks       = txn_cnt ? 0L : fd_tickcount();
+  long microblock_start_ticks = txn_cnt ? 0L : fd_frag_meta_ts_decomp( begin_tspub, exec_start_ticks );
+  long last_ticks             = exec_start_ticks;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
@@ -324,6 +330,12 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 
+    if( FD_UNLIKELY( !i ) ) {
+      exec_start_ticks       = txn_out->details.load_start_ticks;
+      microblock_start_ticks = fd_frag_meta_ts_decomp( begin_tspub, exec_start_ticks );
+      last_ticks             = exec_start_ticks;
+    }
+
     /* Stash the result in the flags value so that pack can inspect it. */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
 
@@ -333,14 +345,17 @@ handle_microblock( fd_execle_tile_t *  ctx,
       txn_out->err.is_committable = 0;
     }
 
+    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( txn ) ) ]++;
+
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
-      fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
+      fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out );
       /* Use pre-resolved ALT accounts for rebates even for unlanded transactions */
       fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
-      ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-      ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+      last_ticks = fd_tickcount();
       continue;
     }
 
@@ -356,27 +371,28 @@ handle_microblock( fd_execle_tile_t *  ctx,
         FD_LOG_WARNING(( "FeesOnly txn actual CUs (%u+%u) exceed requested (%u), dropping",
                          fee_only_actual_exec_cus, fee_only_actual_data_cus, requested_exec_plus_acct_data_cus ));
         txn_out->err.is_committable = 0;
-        fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
+        fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out );
         /* txn->execle_cu already initialized to full rebate at top of loop */
         fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
         if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
-        ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-        ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
+        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
         /* FD_TXN_P_FLAGS_EXECUTE_SUCCESS = 0 ensures txn won't be
            mixed-in by POH */
+        last_ticks = fd_tickcount();
         continue;
       }
     }
 
-    if( FD_UNLIKELY( txn_out->err.is_fees_only ) ) ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FEES_ONLY_IDX ]++;
-    else if( FD_UNLIKELY( txn_out->err.txn_err ) ) ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FAILED_IDX    ]++;
-    else                                           ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX   ]++;
+    if( FD_UNLIKELY( txn_out->err.is_fees_only ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FEES_ONLY_IDX ]++;
+    else if( FD_UNLIKELY( txn_out->err.txn_err ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FAILED_IDX ]++;
+    else                                           fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
 
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
        transactions. */
     txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-    ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
 
     /* Commit must succeed so no failure path.  Once commit is called,
        the transactions MUST be mixed into the PoH otherwise we will
@@ -390,9 +406,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
+    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
 
     long const txn_end_ticks = fd_tickcount();
+    last_ticks = txn_end_ticks;
 
     ulong const load_ticks_dt   = fd_ulong_if( txn_out->details.check_start_ticks==LONG_MAX  || txn_out->details.load_start_ticks==LONG_MAX,   0UL, (ulong)( txn_out->details.check_start_ticks  - txn_out->details.load_start_ticks   ) );
     ulong const check_ticks_dt  = fd_ulong_if( txn_out->details.exec_start_ticks==LONG_MAX   || txn_out->details.check_start_ticks==LONG_MAX,  0UL, (ulong)( txn_out->details.exec_start_ticks   - txn_out->details.check_start_ticks  ) );
@@ -458,9 +475,6 @@ handle_microblock( fd_execle_tile_t *  ctx,
     if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
   }
 
-  /* Flush GUI-visible counters before releasing the execle to pack. */
-  metrics_write( ctx );
-
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
@@ -469,8 +483,9 @@ handle_microblock( fd_execle_tile_t *  ctx,
      (mixin) to the PoH hash.  This is done on the execle tile because
      it shards / scales horizontally here, while PoH does not. */
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
-  trailer->pack_txn_idx = ctx->_txn_idx;
-  trailer->tips         = ctx->txn_out[ 0 ].details.tips;
+  trailer->pack_txn_idx     = ctx->_txn_idx;
+  trailer->tips             = ctx->txn_out[ 0 ].details.tips;
+  trailer->exec_start_ticks = exec_start_ticks;
 
   /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_p_t to PoH,
      there's always extra bytes at the end to stash the trailer. */
@@ -481,9 +496,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks
-     it has seen. */
+     it has seen.  PoH ignores tspub and the GUI takes it as the end of
+     execution, which every path through the loop leaves in last_ticks. */
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
-  fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( last_ticks ) );
   ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
 }
 
@@ -521,7 +537,6 @@ handle_bundle( fd_execle_tile_t *  ctx,
     ctx->txn_in[ i ].bundle.is_bundle = 1;
     ctx->txn_in[ i ].index_in_slot    = ctx->_txn_idx + i;
   }
-
 
   int   execution_success = 1;
   ulong failed_idx        = ULONG_MAX;
@@ -578,7 +593,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
+      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
 
       txn_end_ticks[ i ] = fd_tickcount();
 
@@ -616,8 +631,9 @@ handle_bundle( fd_execle_tile_t *  ctx,
       txns[ i ].flags                        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       tips[ i ]                               = txn_out->details.tips;
 
-      ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
-      ctx->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX        ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
     }
   } else {
     FD_TEST( failed_idx != ULONG_MAX );
@@ -642,9 +658,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
       tips[ i ]                               = 0UL;
       txns[ i ].flags = fd_uint_if( !!(txns[ i ].flags>>24), txns[ i ].flags, txns[ i ].flags | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24) );
 
-      ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-      if( i==failed_idx ) ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out[ i ].err.txn_err ) ]++;
-      else                ctx->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX            ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
+      if( i==failed_idx ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( ctx->txn_out[ i ].err.txn_err ) ]++;
+      else                fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
     }
   }
 
@@ -660,9 +677,6 @@ handle_bundle( fd_execle_tile_t *  ctx,
     ctx->metrics.txn_exec_cum_ticks   += fd_ulong_if( txn_out->details.commit_start_ticks==LONG_MAX || txn_out->details.exec_start_ticks==LONG_MAX,   0UL, (ulong)( txn_out->details.commit_start_ticks - txn_out->details.exec_start_ticks   ) );
     ctx->metrics.txn_commit_cum_ticks += fd_ulong_if( txn_end_ticks[ i ]==LONG_MAX                  || txn_out->details.commit_start_ticks==LONG_MAX, 0UL, (ulong)( txn_end_ticks[ i ]                  - txn_out->details.commit_start_ticks ) );
   }
-
-  /* Flush GUI-visible counters before releasing the execle to pack. */
-  metrics_write( ctx );
 
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
@@ -738,6 +752,10 @@ after_frag( fd_execle_tile_t *  ctx,
     ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
     ctx->rebate_microblock_cnt += fd_ulong_if( ctx->_is_bundle, txn_cnt, 1UL );
   }
+
+  /* Return the pack_execle credit now rather than at housekeeping, so
+     the link can be shallow enough for pack to keep it in cache. */
+  fd_fseq_update( ctx->pack_in_fseq, seq+1UL );
 }
 
 static inline fd_execle_out_t
@@ -840,6 +858,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
   ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
+  ctx->pack_in_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->in_link_fseq_obj_id[ 0UL ] ) );
+  FD_TEST( ctx->pack_in_fseq );
   if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "execle tile %lu has no busy flag", tile->kind_id ));
 
   memset( &ctx->metrics,          0, sizeof( ctx->metrics )          );
@@ -855,8 +875,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->enable_rebates = ctx->out_pack->idx!=ULONG_MAX;
 
   ctx->ns_per_tick = 1.f / (float)fd_tempo_tick_per_ns( NULL );
-
-  ctx->report_transaction_diffs = tile->execle.report_transaction_diffs;
 
   fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 
@@ -919,7 +937,7 @@ static ulong
 max_event_sz( fd_topo_tile_t const * tile ) {
   /* execle emits accdb_partition_added, plus runtime_txn when diffs are on. */
   ulong sz = sizeof(fd_event_accdb_partition_added_t);
-  if( tile->execle.report_transaction_diffs && sizeof(fd_event_runtime_txn_t)>sz ) sz = sizeof(fd_event_runtime_txn_t);
+  if( tile->execle.report_runtime_diffs && sizeof(fd_event_runtime_txn_t)>sz ) sz = sizeof(fd_event_runtime_txn_t);
   return sz;
 }
 

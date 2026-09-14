@@ -201,7 +201,8 @@ ag_repair_shred_block_id( fd_repair_t *       repair,
 int
 ag_repair_response_de( ag_repair_response_t * response,
                        uchar const *          buf,
-                       ulong                  buf_sz ) {
+                       ulong                  buf_sz,
+                       ulong                  fec_set_max ) {
   uchar const * cur = buf;
   ulong         rem = buf_sz;
 
@@ -219,7 +220,7 @@ ag_repair_response_de( ag_repair_response_t * response,
       if( FD_UNLIKELY( rem < sizeof(uint) ) ) return -1;
       res->fec_set_count = fd_uint_load_4_fast( cur );
       cur += sizeof(uint); rem -= sizeof(uint);
-      if( FD_UNLIKELY( res->fec_set_count>FD_FEC_BLK_MAX ) ) return -1;
+      if( FD_UNLIKELY( res->fec_set_count>fec_set_max ) ) return -1;
 
       if( FD_UNLIKELY( rem < sizeof(ulong) ) ) return -1;
       res->parent_slot = fd_ulong_load_8_fast( cur );

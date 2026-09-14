@@ -58,7 +58,8 @@ ulong
 fd_quic_retry_create(
     uchar                     retry[FD_QUIC_RETRY_LOCAL_SZ], /* out */
     fd_quic_pkt_t const *     pkt,
-    fd_rng_t *                rng,
+    ulong                     nonce0,
+    ulong                     nonce1,
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
     fd_quic_conn_id_t const * orig_dst_conn_id,
@@ -95,7 +96,7 @@ fd_quic_retry_create(
   uint   src_ip4_addr = pkt->ip4->saddr;  /* net order */
   ushort src_udp_port = (ushort)fd_ushort_bswap( (ushort)pkt->udp->net_sport );
 
-  fd_quic_retry_data_new( &retry_token->data, rng );
+  fd_quic_retry_data_new( &retry_token->data, nonce0, nonce1 );
   fd_quic_retry_data_set_ip4( &retry_token->data, src_ip4_addr );
   retry_token->data.udp_port    = (ushort)src_udp_port;
   retry_token->data.expire_comp = (ulong)( expire_at >> FD_QUIC_RETRY_EXPIRE_SHIFT );

@@ -18,14 +18,15 @@
             eviction policy as dup_map.  Entries are also explicitly
             removed when equivocation is confirmed (proof constructed).
 
-   prf_map  (capacity per_vtr_max * vtr_max): maps (slot, voter_pubkey)
+   prf_map  (capacity per_vtr_max * vtr_max): maps (slot, voter index)
             -> in-progress proof ("chunks") assembly state, tracking
-            proofs per voter per slot.  Entries are LRU-evicted per
-            voter when that voter's in-progress proof count reaches
-            per_vtr_max.  Entries are also removed when proof assembly
-            completes (all chunks received), regardless of verification
-            outcome, or when the corresponding voter is removed from
-            vtr_map.
+            proofs per voter per slot.  The voter index refers into
+            vtr_pool; all of a voter's proofs are removed before that
+            index is reused.  Entries are LRU-evicted per voter when
+            that voter's in-progress proof count reaches per_vtr_max.
+            Entries are also removed when proof assembly completes (all
+            chunks received), regardless of verification outcome, or
+            when the corresponding voter is removed from vtr_map.
 
    vtr_map  (capacity vtr_max): maps voter pubkey -> per-voter proof-
             assembly state.  vtr entries are not evicted automatically;
@@ -53,13 +54,13 @@
      map[0] +--------------------+   map[0] +--------------------+
             | (vtr_t) {          |          | (prf_t) {          |
             |   .from = X,       |          |   .key.slot = 5,   |
-            |   ...              |          |   .key.from = Y,   |<-----+
+            |   ...              |          |   .key.vtr_idx = 1,|<-----+
             |   ...              |          |   ...              |      |
             | }                  |          | }                  |      |
      map[1] +--------------------+   map[1] +--------------------+      |
             | (vtr_t) {          |          | (prf_t) {          |      |
             |   .from = Y,       |          |   .key.slot = 6,   |      |
-            |   ...              |          |   .key.from = Y,   |<--+  |
+            |   ...              |          |   .key.vtr_idx = 1,|<--+  |
             |   .prf_dlist = +   |          |   ...              |   |  |
             | }              |   |          | }                  |   |  |
             +----------------|---+          +--------------------+   |  |
@@ -78,7 +79,7 @@
 
    Each vtr_t owns a prf_dlist of in-progress proofs (prf_t).
    prf_t elements are also in the global prf_map for lookup by
-   (slot, from).  When prf_dlist_cnt == per_vtr_max, the oldest
+   (slot, vtr_idx).  When prf_dlist_cnt == per_vtr_max, the oldest
    prf is evicted from both prf_dlist and prf_map. */
 
 typedef struct {
@@ -155,8 +156,8 @@ typedef struct {
 #include "../../util/tmpl/fd_dlist.c"
 
 typedef struct {
-  ulong       slot;
-  fd_pubkey_t from;
+  ulong slot;
+  uint  vtr_idx;
 } xid_t;
 
 struct prf {
@@ -170,9 +171,10 @@ struct prf {
     uint prev;
     uint next;
   } dlist;
-  uchar idxs; /* [0, 7]. bit vec encoding which of the chunk idxs have been received (at most FD_EQVOC_CHUNK_CNT = 3). */
-  ulong buf_sz;
-  uchar buf[2 * FD_SHRED_MAX_SZ + 2 * sizeof(ulong)];
+  uchar  chunk_cnt;
+  uchar  chunk_idx[ FD_EQVOC_CHUNK_CNT - 1 ];
+  ushort chunk_len[ FD_EQVOC_CHUNK_CNT - 1 ];
+  uchar  chunks   [ FD_EQVOC_CHUNK_CNT - 1 ][ FD_EQVOC_CHUNK_SZ ];
 };
 typedef struct prf prf_t;
 
@@ -188,8 +190,8 @@ typedef struct prf prf_t;
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
 #define MAP_IDX_T                          uint
-#define MAP_KEY_EQ(k0,k1)                  ((((k0)->slot)==((k1)->slot)) & !(memcmp(((k0)->from.uc),((k1)->from.uc),sizeof(fd_pubkey_t))))
-#define MAP_KEY_HASH(key,seed)             fd_ulong_hash( ((key)->slot) ^ ((key)->from.ul[0]) ^ (seed) )
+#define MAP_KEY_EQ(k0,k1)                  ((((k0)->slot)==((k1)->slot)) & (((k0)->vtr_idx)==((k1)->vtr_idx)))
+#define MAP_KEY_HASH(key,seed)             fd_ulong_hash( ((key)->slot) ^ ((key)->vtr_idx) ^ (seed) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -476,7 +478,7 @@ static prf_t *
 prf_query( fd_eqvoc_t * eqvoc,
            vtr_t *      vtr,
            ulong        slot ) {
-  xid_t   key = { .slot = slot, .from = vtr->from };
+  xid_t   key = { .slot = slot, .vtr_idx = (uint)vtr_pool_idx( eqvoc->vtr_pool, vtr ) };
   prf_t * prf = prf_map_ele_query( eqvoc->prf_map, &key, NULL, eqvoc->prf_pool );
   if( FD_LIKELY( prf ) ) {
     prf_dlist_ele_remove( vtr->prf_dlist, prf, eqvoc->prf_pool );
@@ -531,12 +533,9 @@ fec_insert( fd_eqvoc_t * eqvoc,
 }
 
 static prf_t *
-prf_insert( fd_eqvoc_t *        eqvoc,
-            ulong               slot,
-            fd_pubkey_t const * from ) {
-
-  vtr_t * vtr = vtr_map_ele_query( eqvoc->vtr_map, from, NULL, eqvoc->vtr_pool );
-  FD_TEST( vtr );
+prf_insert( fd_eqvoc_t * eqvoc,
+            vtr_t *      vtr,
+            ulong        slot ) {
 
   /* Each from pubkey in gossip is limited to per_vtr_max proofs.
      If we receive more than per_vtr_max from one pubkey, FIFO evict.
@@ -550,11 +549,10 @@ prf_insert( fd_eqvoc_t *        eqvoc,
     vtr->prf_dlist_cnt--;
   }
 
-  xid_t   key = { .slot = slot, .from = *from };
+  xid_t   key = { .slot = slot, .vtr_idx = (uint)vtr_pool_idx( eqvoc->vtr_pool, vtr ) };
   prf_t * prf = prf_pool_ele_acquire( eqvoc->prf_pool );
-  prf->key    = key;
-  prf->idxs   = 0;
-  prf->buf_sz = 0;
+  prf->key       = key;
+  prf->chunk_cnt = 0;
   prf_map_ele_insert( eqvoc->prf_map, prf, eqvoc->prf_pool );
   prf_dlist_ele_push_tail( vtr->prf_dlist, prf, eqvoc->prf_pool );
   vtr->prf_dlist_cnt++;
@@ -801,37 +799,51 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
   if( FD_UNLIKELY( dup_query( eqvoc, chunk->slot ) ) ) return FD_EQVOC_IGNORED; /* already verified an equivocation proof for this slot */
 
   prf_t * prf = prf_query( eqvoc, vtr, chunk->slot );
-  if( FD_UNLIKELY( !prf ) ) prf = prf_insert( eqvoc, chunk->slot, from );
-  if( FD_UNLIKELY( fd_uchar_extract_bit( prf->idxs, chunk->chunk_index ) ) ) return FD_EQVOC_IGNORED;
-  fd_memcpy( prf->buf + chunk->chunk_index * FD_EQVOC_CHUNK_SZ, chunk->chunk, chunk->chunk_len );
-  prf->buf_sz += chunk->chunk_len;
-  prf->idxs = fd_uchar_set_bit( prf->idxs, chunk->chunk_index );
-  if( FD_UNLIKELY( prf->idxs!=(1 << FD_EQVOC_CHUNK_CNT) - 1 ) ) return FD_EQVOC_IGNORED; /* not all chunks received yet */
+  if( FD_UNLIKELY( !prf ) ) prf = prf_insert( eqvoc, vtr, chunk->slot );
+  for( uchar i = 0U; i < prf->chunk_cnt; i++ ) {
+    if( FD_UNLIKELY( prf->chunk_idx[ i ]==chunk->chunk_index ) ) return FD_EQVOC_IGNORED;
+  }
+
+  if( FD_LIKELY( prf->chunk_cnt<FD_EQVOC_CHUNK_CNT-1 ) ) {
+    uchar i = prf->chunk_cnt++;
+    prf->chunk_idx[ i ] = chunk->chunk_index;
+    prf->chunk_len[ i ] = (ushort)chunk->chunk_len;
+    fd_memcpy( prf->chunks[ i ], chunk->chunk, chunk->chunk_len );
+    return FD_EQVOC_IGNORED;
+  }
+
+  uchar buf[ 2 * FD_SHRED_MAX_SZ + 2 * sizeof(ulong) ] __attribute__((aligned(8)));
+  fd_memcpy( buf + chunk->chunk_index * FD_EQVOC_CHUNK_SZ, chunk->chunk, chunk->chunk_len );
+  ulong buf_sz = chunk->chunk_len;
+  for( uchar i = 0U; i < prf->chunk_cnt; i++ ) {
+    fd_memcpy( buf + prf->chunk_idx[ i ] * FD_EQVOC_CHUNK_SZ, prf->chunks[ i ], prf->chunk_len[ i ] );
+    buf_sz += prf->chunk_len[ i ];
+  }
 
   int err = FD_EQVOC_ERR_SERDE; ulong off = 0;
 
-  if( FD_UNLIKELY( prf->buf_sz - off < sizeof(ulong) ) ) goto cleanup;
-  ulong shred1_sz = fd_ulong_load_8( prf->buf );
+  if( FD_UNLIKELY( buf_sz - off < sizeof(ulong) ) ) goto cleanup;
+  ulong shred1_sz = fd_ulong_load_8( buf );
   off += sizeof(ulong);
 
-  if( FD_UNLIKELY( prf->buf_sz - off < shred1_sz ) ) goto cleanup;
+  if( FD_UNLIKELY( buf_sz - off < shred1_sz ) ) goto cleanup;
   /* We use FD_SHRED_BLK_MAX as max_shred_idx because that is what
      Agave does here (Shred::new_from_serialized_shred in into_shreds):
      https://github.com/anza-xyz/agave/blob/v4.2/gossip/src/duplicate_shred.rs#L350-L351 */
-  fd_shred_t const * shred1 = fd_shred_parse( prf->buf + off, shred1_sz, FD_SHRED_BLK_MAX );
+  fd_shred_t const * shred1 = fd_shred_parse( buf + off, shred1_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( !shred1 || fd_shred_sz( shred1 )!=shred1_sz ) ) goto cleanup; /* check the sz matches parsed shred's type */
   off += shred1_sz;
 
-  if( FD_UNLIKELY( prf->buf_sz - off < sizeof(ulong) ) ) goto cleanup;
-  ulong shred2_sz = fd_ulong_load_8( prf->buf + off );
+  if( FD_UNLIKELY( buf_sz - off < sizeof(ulong) ) ) goto cleanup;
+  ulong shred2_sz = fd_ulong_load_8( buf + off );
   off += sizeof(ulong);
 
-  if( FD_UNLIKELY( prf->buf_sz - off < shred2_sz ) ) goto cleanup;
-  fd_shred_t const * shred2 = fd_shred_parse( prf->buf + off, shred2_sz, FD_SHRED_BLK_MAX );
+  if( FD_UNLIKELY( buf_sz - off < shred2_sz ) ) goto cleanup;
+  fd_shred_t const * shred2 = fd_shred_parse( buf + off, shred2_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( !shred2 || fd_shred_sz( shred2 )!=shred2_sz ) ) goto cleanup; /* check the sz matches parsed shred's type */
   off += shred2_sz;
 
-  if( FD_UNLIKELY( off!=prf->buf_sz ) ) goto cleanup;
+  if( FD_UNLIKELY( off!=buf_sz ) ) goto cleanup;
 
   if( FD_UNLIKELY( shred1->slot != chunk->slot || shred2->slot != chunk->slot ) ) goto cleanup;
 

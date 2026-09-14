@@ -23,6 +23,12 @@
 #define FD_TOPOB_UNRELIABLE 0
 #define FD_TOPOB_RELIABLE 1
 
+/* Affinity entries prefixed with 's' ("s2", "s2-3") are shared, the
+   tile is homed at that CPU but floats over the shared CPUs on the
+   same NUMA node.  The bit is set in the parsed CPU index, and only
+   callers passing allow_shared accept it. */
+#define FD_TOPOB_CPU_SHARED (0x8000UL)
+
 /* Tile priority types used by fd_topob_auto_layout to classify tiles
    into scheduling categories. */
 #define FD_TOPOB_PRIORITY_FLOATING (1)
@@ -187,7 +193,8 @@ fd_topob_validate_cpu_overlaps( fd_topo_t const * topo );
 ulong
 fd_topob_parse_affinity_cstr( char const * cstr,
                               ushort *     tile_to_cpu,
-                              int          allow_repeats );
+                              int          allow_repeats,
+                              int          allow_shared );
 
 FD_PROTOTYPES_END
 

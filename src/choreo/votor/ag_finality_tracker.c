@@ -93,7 +93,7 @@ status_hash( finalization_status_t const * status ) {
   case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED: return status->implicitly_finalized.hash;
   case AG_FINALIZATION_STATUS_FINAL_PENDING_NOTAR:  return NULL;
   case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:   return NULL;
-  default:                                          __builtin_unreachable();
+  default:                                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
 
@@ -143,7 +143,7 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
                              ag_finalization_event_t * event ) {
 
   ag_block_id_t const * parent = implicitly_finalized;
-  while( FD_LIKELY( parent ) ) {
+  while( parent ) {
     ag_block_id_t const * implicitly_finalized = parent; /* intentional shadowing */
 
     FD_TEST( source_slot > implicitly_finalized->slot );
@@ -163,7 +163,7 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
           case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
             FD_LOG_CRIT(( "consensus safety violation" ));
           default:
-            __builtin_unreachable();
+            FD_LOG_CRIT(( "unreachable" ));
         }
       }
       if( FD_UNLIKELY( !ele ) ) {
@@ -197,7 +197,7 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
         case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
           FD_LOG_CRIT(( "consensus safety violation" ));
         default:
-          __builtin_unreachable();
+          FD_LOG_CRIT(( "unreachable" ));
       }
     }
     ele->status.kind = AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED;
@@ -375,13 +375,13 @@ ag_finality_tracker_add_parent( ag_finality_tracker_t *   self,
     parent_map_ele_insert( self->parents.map, pe, pool );
   }
 
-  status_ele_t * se = status_map_ele_query( self->status.map, &block->slot, NULL, self->status.pool );
-  if( FD_UNLIKELY( !se ) ) return;
+  status_ele_t * ele  = status_map_ele_query( self->status.map, &block->slot, NULL, self->status.pool );
+  if( FD_UNLIKELY( !ele ) ) return;
 
-  switch( se->status.kind ) {
+  switch( ele->status.kind ) {
     case AG_FINALIZATION_STATUS_FINALIZED:
     case AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED:
-      if( 0==memcmp( block->hash, status_hash( &se->status ), sizeof(ag_block_hash_t) ) ) {
+      if( FD_LIKELY( 0==memcmp( block->hash, status_hash( &ele->status ), sizeof(ag_block_hash_t) ) ) ) {
         ag_block_id_t p = *parent;
         handle_implicitly_finalized( self, block->slot, &p, event );
         prune( self );
@@ -421,7 +421,7 @@ ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t *   self,
       case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
         FD_LOG_CRIT(( "consensus safety violation" ));
       default:
-        __builtin_unreachable();
+        FD_LOG_CRIT(( "unreachable" ));
     }
   }
   ele->status.kind = AG_FINALIZATION_STATUS_FINALIZED;
@@ -462,7 +462,7 @@ ag_finality_tracker_mark_notarized( ag_finality_tracker_t *   self,
       return;
     }
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unreachable" ));
   }
 }
 
@@ -496,7 +496,7 @@ ag_finality_tracker_mark_finalized( ag_finality_tracker_t *   self,
     case AG_FINALIZATION_STATUS_IMPLICITLY_SKIPPED:
       FD_LOG_CRIT(( "consensus safety violation" ));
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unreachable" ));
   }
 }
 
@@ -516,10 +516,10 @@ ag_finality_tracker_status( ag_finality_tracker_t const * self,
                             ag_block_hash_t               out_hash ) {
   status_ele_t const * e = status_map_ele_query_const( self->status.map, &slot, NULL, self->status.pool );
   if( FD_UNLIKELY( !e ) ) return -1;
-  if( out_hash ) {
+  if( FD_LIKELY( out_hash ) ) {
     uchar const * hash = status_hash( &e->status );
-    if( hash ) memcpy( out_hash, hash, sizeof(ag_block_hash_t) );
-    else       fd_memset( out_hash, 0,    sizeof(ag_block_hash_t) );
+    if( FD_LIKELY( hash ) ) memcpy( out_hash, hash, sizeof(ag_block_hash_t) );
+    else                    fd_memset( out_hash, 0,    sizeof(ag_block_hash_t) );
   }
   return e->status.kind;
 }

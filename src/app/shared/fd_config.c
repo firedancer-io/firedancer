@@ -9,6 +9,10 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/pack/fd_pack_cost.h"
+#include "../../disco/pack/fd_microblock.h"
+#include "../../ballet/shred/fd_shred.h"
+#include "../../ballet/txn/fd_txn.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
 
 #include <unistd.h>
@@ -398,11 +402,17 @@ fd_config_fill( fd_config_t * config,
   }
   fd_config_validate( config );
 
+  config->limits.max_cost_per_block   = fd_ulong_if( !!config->development.bench.max_cost_per_block,   config->development.bench.max_cost_per_block,   FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND );
+  config->limits.max_shreds_per_block = fd_ulong_if( !!config->development.bench.max_shreds_per_block, config->development.bench.max_shreds_per_block, FD_SHRED_BLK_MAX );
+  config->limits.max_txn_per_slot     = fd_ulong_min( config->limits.max_cost_per_block/FD_PACK_MIN_TXN_COST,
+                                                      (config->limits.max_shreds_per_block*FD_SHRED_DATA_PAYLOAD_MAX - 65UL*sizeof(fd_entry_batch_header_t))/FD_TXN_MIN_SERIALIZED_SZ ); /* 64 ticks + one giant microblock */
+  if( FD_LIKELY( !config->development.bench.max_cost_per_block && !config->development.bench.max_shreds_per_block ) ) FD_TEST( config->limits.max_txn_per_slot==FD_MAX_TXN_PER_SLOT );
+
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
     if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
-    if( FD_UNLIKELY( config->development.bench.larger_max_cost_per_block ) )     FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
-    if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) ) FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.max_cost_per_block ) )            FD_LOG_ERR(( "trying to join a live cluster, but configuration sets [development.bench.max_cost_per_block] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.max_shreds_per_block ) )          FD_LOG_ERR(( "trying to join a live cluster, but configuration sets [development.bench.max_shreds_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.disable_blockstore_from_slot ) )  FD_LOG_ERR(( "trying to join a live cluster, but configuration has a non-zero value for [development.bench.disable_blockstore_from_slot] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.disable_status_cache ) )          FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
   }
@@ -570,6 +580,21 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
   CFG_HAS_NON_ZERO( net.ingress_buffer_size );
+
+  ulong bench_cost   = config->development.bench.max_cost_per_block;
+  ulong bench_shreds = config->development.bench.max_shreds_per_block;
+  if( FD_UNLIKELY( bench_cost && (bench_cost<FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND || bench_cost>=UINT_MAX) ) ) /* fd_pack_limits_t: [0,UINT_MAX) */
+    FD_LOG_ERR(( "invalid [development.bench.max_cost_per_block]: must be 0 or in [%lu,%u)", FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND, UINT_MAX ));
+  if( FD_UNLIKELY( bench_shreds && (bench_shreds%FD_SHRED_BLK_MAX || bench_shreds>FD_SHRED_BLK_MAX_RAISED) ) )
+    FD_LOG_ERR(( "invalid [development.bench.max_shreds_per_block]: must be 0 or a multiple of %lu up to %lu", (ulong)FD_SHRED_BLK_MAX, FD_SHRED_BLK_MAX_RAISED ));
+  /* Frankendancer's Agave side only knows the booleans behind these
+     (18x block cost, 32x shreds), so it accepts exactly the values that
+     match what the Firedancer side used to hardcode for them. */
+  if( FD_UNLIKELY( !config->is_firedancer && bench_cost && bench_cost!=18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND ) )
+    FD_LOG_ERR(( "invalid [development.bench.max_cost_per_block]: Frankendancer supports 0 or %lu", 18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND ));
+  if( FD_UNLIKELY( !config->is_firedancer && bench_shreds && bench_shreds!=32UL*FD_SHRED_BLK_MAX ) )
+    FD_LOG_ERR(( "invalid [development.bench.max_shreds_per_block]: Frankendancer supports 0 or %lu", 32UL*FD_SHRED_BLK_MAX ));
+
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
         0!=strcmp( config->net.xdp.xdp_mode, "drv"     ) &&

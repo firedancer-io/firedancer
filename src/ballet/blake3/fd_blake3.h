@@ -373,11 +373,11 @@ fd_blake3_hash( void const * data,
    The outputs are reduced down to a single value using 'LtHash'
    group-add arithmetic.
 
-   batch_data[i] give a pointer to the input message.  batch_data is
-   assumed to be 64-byte aligned.  batch_data[i] does not have to be
-   aligned.  batch_sz[i] give the input size (in [0,1024]).  batch_sz is
-   assumed to be 64-byte aligned.  On return, 2048 bytes of output are
-   written to out_lthash.  out_lthash is assumed to be 64-byte aligned.
+   batch_data[i] gives a pointer to the input message and does not have
+   to be aligned.  batch_sz[i] gives the input size (in [0,1024]).  On
+   return, 2048 bytes of output are written to out_lthash.  batch_data,
+   batch_sz, and out_lthash are assumed to be 32-byte aligned for batch8
+   and 64-byte aligned for batch16.
 
    Execution time is bound by the largest batch_sz[i] input. */
 

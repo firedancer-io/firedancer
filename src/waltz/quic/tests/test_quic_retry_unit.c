@@ -102,13 +102,13 @@ bench_retry_create( void ) {
   uchar aes_iv [16] = {2};
   ulong ttl         = (ulong)3e9;
 
-  fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 7315969L+(long)ttl );
+  fd_quic_retry_create( retry, &pkt, fd_rng_ulong( rng ), fd_rng_ulong( rng ), aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 7315969L+(long)ttl );
   FD_LOG_HEXDUMP_INFO(( "Retry Token", retry+0x1f, sizeof(fd_quic_retry_token_t) ));
 
   long dt = -fd_log_wallclock();
   ulong iter = 1000000UL;
   for( ulong j=0UL; j<iter; j++ ) {
-    fd_quic_retry_create( retry, &pkt, rng, aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 1L+(long)ttl );
+    fd_quic_retry_create( retry, &pkt, fd_rng_ulong( rng ), fd_rng_ulong( rng ), aes_key, aes_iv, &orig_dst_conn_id, &peer_src_conn_id, retry_src_conn_id, 1L+(long)ttl );
     FD_COMPILER_UNPREDICTABLE( retry[0] );
   }
   dt += fd_log_wallclock();
@@ -132,9 +132,6 @@ bench_retry_server_verify( void ) {
     0x00, 0x00, 0x00, 0x00, 0x08, 0xc0, 0x2a, 0x34, 0xf1, 0x0d, 0x8d, 0x8c, 0x60, 0x5b, 0xe2, 0x28,
     0x27, 0x5e, 0xd0, 0x18, 0xc7
   };
-
-  fd_rng_t _rng[1];
-  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   fd_quic_pkt_t const pkt = {0};
 
@@ -161,8 +158,6 @@ bench_retry_server_verify( void ) {
   double ns   = (double)dt / (double)iter;
   FD_LOG_NOTICE(( "  ~%9.3f Mpps / core", mpps ));
   FD_LOG_NOTICE(( "  ~%9.3f ns / pkt",    ns   ));
-
-  fd_rng_delete( fd_rng_leave( rng ) );
 }
 
 /* bench_retry_client tests packet throughput for client-side retry

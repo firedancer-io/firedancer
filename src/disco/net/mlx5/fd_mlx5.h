@@ -19,6 +19,9 @@ fd_mlx5_rdma_dev_find( char         rdma_name[ FD_MLX5_RDMA_NAME_MAX ],
                        uint *       rdma_port,
                        char const * interface_name );
 
+int
+fd_mlx5_uverbs_avail( void );
+
 FD_PROTOTYPES_END
 
 #endif /* defined(__linux__) */

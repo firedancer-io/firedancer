@@ -139,6 +139,7 @@ struct fd_topo_tile {
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
+  int   floats;                 /* Scheduled by the kernel over the CPUs of the floating tiles on its NUMA node, never a pinned tile's CPU, instead of pinned to cpu_idx (efficient mode).  cpu_idx still places memory and isolation, and is the fallback when no such CPU remains. */
 
   ulong waker_client_idx;       /* Client slot in the fixed inherited fd range (inner epoll fd FD_WAKER_INNER_FD( idx )), or ULONG_MAX if not a waker client */
   ulong waker_fseq_obj_id;      /* fseq object holding the tile's waker readiness word or ULONG_MAX */
@@ -349,8 +350,9 @@ struct fd_topo_tile {
     struct {
       ulong max_pending_transactions;
       ulong execle_tile_count;
-      int   larger_max_cost_per_block;
-      int   larger_shred_limits_per_block;
+      ulong max_cost_per_block;
+      ulong max_shreds_per_block;
+      ulong bench_max_shreds_per_block; /* [development.bench], floors the leader's per-slot shred limit */
       int   use_consumed_cus;
       int   schedule_strategy;
       struct {
@@ -382,11 +384,13 @@ struct fd_topo_tile {
     struct {
       ulong execle_cnt;
       char  identity_key_path[ PATH_MAX ];
+      ulong max_txn_per_slot;
     } poh;
 
     struct {
       ulong execle_cnt;
       char  identity_key_path[ PATH_MAX ];
+      ulong max_txn_per_slot;
     } motor;
 
     struct {
@@ -394,7 +398,8 @@ struct fd_topo_tile {
       ulong             fec_resolver_depth;
       char              identity_key_path[ PATH_MAX ];
       ushort            shred_listen_port;
-      int               larger_shred_limits_per_block;
+      ulong             max_shreds_per_block;
+      ulong             bench_max_shreds_per_block; /* [development.bench], floors the chain's per-slot limit */
       ushort            expected_shred_version;
       ulong             adtl_dests_retransmit_cnt;
       fd_topo_ip_port_t adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ];
@@ -444,6 +449,7 @@ struct fd_topo_tile {
       ushort expected_shred_version;
       ulong  cache_size_gib;
       ulong  accdb_obj_id;
+      ulong  max_txn_per_slot;
     } gui;
 
     struct {
@@ -515,12 +521,14 @@ struct fd_topo_tile {
 
       char  genesis_path[ PATH_MAX ];
 
-      int   larger_max_cost_per_block;
+      ulong max_txn_per_slot;     /* config->limits */
+      ulong max_shreds_per_block;
 
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
+      int   report_runtime_diffs;
 
       struct {
         int   enabled;
@@ -548,7 +556,7 @@ struct fd_topo_tile {
       int   dump_txn_to_pb;
       int   dump_txn_as_fixture;
       int   dump_syscall_to_pb;
-      int   report_transaction_diffs;
+      int   report_runtime_diffs;
     } execrp;
 
     struct {
@@ -561,6 +569,7 @@ struct fd_topo_tile {
     struct {
       ushort rpc_port;
       uint   rpc_ip_addr;
+      ulong  duration_s;
     } bencho;
 
     struct {
@@ -575,6 +584,7 @@ struct fd_topo_tile {
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
       ulong   slot_max;
+      ulong   max_shreds_per_block;
 
       /* non-config */
 
@@ -586,6 +596,7 @@ struct fd_topo_tile {
       ushort  repair_client_listen_port;
       char    identity_key_path[ PATH_MAX ];
       ulong   slot_max;
+      ulong   max_shreds_per_block;
 
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;
@@ -595,6 +606,7 @@ struct fd_topo_tile {
       ushort repair_serve_listen_port;
       char   identity_key_path[ PATH_MAX ];
       ulong  ping_cache_entries;
+      ulong  max_shreds_per_block;
     } rserve;
 
     struct {
@@ -616,6 +628,7 @@ struct fd_topo_tile {
       ulong end_slot;
       ulong root_distance;
       int   alpenglow;
+      long  boot_timestamp_nanos;
     } backtest;
 
     struct {
@@ -636,12 +649,11 @@ struct fd_topo_tile {
       char  identity_key[ PATH_MAX ];
       char  vote_account[ PATH_MAX ];
       char  base_path[PATH_MAX];
+      ulong max_shreds_per_block;
     } tower;
 
     struct {
       char   identity_key_path[ PATH_MAX ];
-      ulong  authorized_voter_paths_cnt;
-      char   authorized_voter_paths[ 16 ][ PATH_MAX ];
       ushort quic_client_listen_port;
       ushort quic_server_listen_port;
       uint   ip_addr;
@@ -713,6 +725,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong banks_obj_id;
       int   alpenglow;
+      ulong max_txn_per_slot;
     } snapin;
 
     struct {
@@ -734,7 +747,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong accdb_obj_id;
-      int   report_transaction_diffs;
+      int   report_runtime_diffs;
     } execle;
 
     struct {
@@ -826,6 +839,8 @@ typedef struct {
 struct fd_topo {
   char           app_name[ 256UL ];
   uchar          props[ 32768UL ];
+
+  ulong          sleep_obj_id;
 
   ulong          wksp_cnt;
   ulong          link_cnt;

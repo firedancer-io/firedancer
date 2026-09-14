@@ -38,7 +38,6 @@ test_grpc_client_mock_conn( fd_grpc_client_t * client ) {
 }
 
 
-static void * g_cb_app_ctx;
 static ulong  g_cb_request_ctx;
 
 static ulong g_rx_start_cnt;
@@ -46,7 +45,7 @@ static ulong g_rx_start_cnt;
 static void
 cb_rx_start( void * app_ctx,
              ulong  request_ctx ) {
-  g_cb_app_ctx     = app_ctx;
+  (void)app_ctx;
   g_cb_request_ctx = request_ctx;
   g_rx_start_cnt++;
 }
@@ -58,13 +57,11 @@ static void
 cb_rx_end( void * app_ctx,
            ulong  request_ctx,
            fd_grpc_resp_hdrs_t * resp_hdrs ) {
-  g_cb_app_ctx     = app_ctx;
+  (void)app_ctx;
   g_cb_request_ctx = request_ctx;
   g_cb_resp_hdrs   = *resp_hdrs;
   g_rx_end_cnt++;
 }
-
-static ulong g_timeout_cnt;
 
 static struct {
   int    deadline_kind;
@@ -74,10 +71,9 @@ static void
 cb_rx_timeout( void * app_ctx,
                ulong  request_ctx,
                int    deadline_kind ) {
-  g_cb_app_ctx     = app_ctx;
+  (void)app_ctx;
   g_cb_request_ctx = request_ctx;
   g_timeout_details.deadline_kind = deadline_kind;
-  g_timeout_cnt++;
 }
 
 FD_UNIT_TEST( header_deadline ) {

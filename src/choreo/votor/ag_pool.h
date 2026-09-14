@@ -5,14 +5,15 @@
 #include "ag_cert.h"
 #include "ag_epoch_info.h"
 #include "ag_event.h"
+#include "ag_slot_state.h"
 #include "ag_vote.h"
 
 #define AG_POOL_SUCCESS                ( 0)
 #define AG_POOL_ERR_SLOT_OUT_OF_BOUNDS (-1)
 #define AG_POOL_ERR_DUPLICATE          (-2)
 #define AG_POOL_ERR_SLASHABLE          (-3)
-
-#define AG_POOL_ERR_HASH_CAPACITY      (-4)
+#define AG_POOL_ERR_CERT_VERIFY        (-4)
+#define AG_POOL_ERR_VOTE_VERIFY        (-5)
 
 typedef struct ag_pool ag_pool_t;
 
@@ -41,8 +42,6 @@ ag_pool_leave( ag_pool_t const * pool );
 void *
 ag_pool_delete( void * mem );
 
-/* init before any cert, vote or block is added; genesis is slot 0 */
-
 void
 ag_pool_init( ag_pool_t * self,
               ulong       slot );
@@ -58,16 +57,23 @@ ag_pool_advance_epoch( ag_pool_t *             self,
 
 int
 ag_pool_add_cert( ag_pool_t *       self,
-                  ag_cert_t const * cert );
+                  ag_cert_t const * cert,
+                  fd_bls_set_t *    bad );
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
-                  ag_vote_t const * vote );
+                  ag_vote_t const * vote,
+                  fd_bls_set_t *    bad );
 
-void
+int
 ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
-                   ag_block_id_t const * parent_id );
+                   ag_block_id_t const * parent_id,
+                   fd_bls_set_t *        bad );
+
+ag_slot_state_t const *
+ag_pool_slot_state( ag_pool_t const * self,
+                    ulong             slot );
 
 void
 ag_pool_recover_from_standstill( ag_pool_t * self );
@@ -88,10 +94,6 @@ ag_pool_parents_ready( ag_pool_t * self,
 ag_block_id_t
 ag_pool_wait_for_parent_ready( ag_pool_t * self,
                                ulong       slot );
-
-/* ag_pool_poll_pool_event and ag_pool_poll_repair_event drain the pool's
-   two outbound event streams.  Each dequeues at most one event per call,
-   returning 1 and writing it to event, or 0 if the stream is empty. */
 
 int
 ag_pool_poll_pool_event( ag_pool_t *       self,

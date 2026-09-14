@@ -177,7 +177,7 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->conn_cnt = 2;
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
-  limits->inflight_frame_cnt = 1500;
+  limits->inflight_frame_cnt = 1UL<<14;
   limits->tx_buf_sz = 1UL<<11;
   limits->stream_pool_cnt = 1UL<<16;
   limits->stream_id_cnt = 1UL<<16;
@@ -206,7 +206,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_benchs_ctx_t * ctx ) {
-  FD_MCNT_SET( BENCHS, TXN_TX, ctx->packet_cnt );
+  FD_MCNT_SET( BENCHS, TXN_TX,      ctx->packet_cnt );
+  FD_MCNT_SET( BENCHS, TXN_DROPPED, ctx->no_stream  );
 }
 
 static inline int
@@ -246,7 +247,7 @@ during_frag( fd_benchs_ctx_t * ctx,
     }
 
     if( FD_UNLIKELY( !ctx->quic_conn ) ) {
-      ctx->no_stream = 0;
+      ctx->no_stream++;
 
       /* try to connect */
       uint   dest_ip   = ctx->quic_ip;
@@ -317,7 +318,8 @@ privileged_init( fd_topo_t const *      topo,
   int no_quic = ctx->no_quic = tile->benchs.no_quic;
   ushort port = 12000;
 
-  ctx->conn_cnt = tile->benchs.conn_cnt;
+  ulong quic_cnt = tile->benchs.conn_cnt; /* [layout] quic_tile_count */
+  ctx->conn_cnt = quic_cnt;
   if( !no_quic ) ctx->conn_cnt = 1;
   FD_TEST( ctx->conn_cnt <=sizeof(ctx->conn_fd)/sizeof(*ctx->conn_fd) );
   ctx->quic_ip   = tile->benchs.send_to_ip_addr;
@@ -338,8 +340,10 @@ privileged_init( fd_topo_t const *      topo,
 	    FD_LOG_ERR(( "Error setting transmit buffer size. Error: %d %s", errno, strerror( errno ) ));
     }
 
+    ulong  quic_idx   = (tile->kind_id*ctx->conn_cnt + i)%quic_cnt;
     ushort found_port = 0;
-    for( ulong j=0UL; j<10UL; j++ ) {
+    for( ; port<65535; port++ ) {
+      if( fd_disco_netmux_sig_hash( fd_disco_netmux_sig( ctx->quic_ip, port, 0U, 0UL, 42UL ) )%quic_cnt!=quic_idx ) continue;
       struct sockaddr_in addr = {
         .sin_family = AF_INET,
         .sin_port = fd_ushort_bswap( port ),
@@ -350,9 +354,9 @@ privileged_init( fd_topo_t const *      topo,
         break;
       }
       if( FD_UNLIKELY( EADDRINUSE!=errno ) ) FD_LOG_ERR(( "bind() failed (%i-%s)", errno, fd_io_strerror( errno ) ) );
-      port = (ushort)(port + ctx->conn_cnt); /* Make sure it round robins to the same tile index */
     }
     if( FD_UNLIKELY( !found_port ) ) FD_LOG_ERR(( "bind() failed to find a src port" ));
+    FD_LOG_INFO(( "src port %hu -> quic tile %lu", found_port, quic_idx ));
 
     struct sockaddr_in addr = {
       .sin_family = AF_INET,

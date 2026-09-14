@@ -26,12 +26,10 @@
 #include "../topo/fd_topo.h"
 #include "../../util/fd_hash32.h"
 
-#if FD_HAS_ZSTD
 #define FD_GUI_GEOIP_ZSTD_COMPRESSION_LEVEL 19
 #define FD_GUI_GEOIP_ZSTD_WINDOW_LOG 23
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
-#endif
 
 #include <math.h>
 

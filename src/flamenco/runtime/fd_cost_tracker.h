@@ -57,7 +57,7 @@ struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
   ulong account_cost_limit;
   ulong data_size_limit;
 
-  int larger_max_cost_per_block;
+  ulong bench_max_cost_per_block; /* [development.bench], floors block_cost_limit */
 };
 
 typedef struct fd_cost_tracker fd_cost_tracker_t;
@@ -108,7 +108,7 @@ fd_cost_tracker_footprint( void );
 
 void *
 fd_cost_tracker_new( void * shmem,
-                     int    larger_max_cost_per_block,
+                     ulong  bench_max_cost_per_block,
                      ulong  seed );
 
 fd_cost_tracker_t *

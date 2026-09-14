@@ -158,6 +158,12 @@ FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD
 
 FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing this limit! );
 
+/* Largest [development.bench.max_shreds_per_block] a benchmark cluster
+   may raise the per-block shred limit to: the chainer's fec_set_idx is
+   28 bits.  Sizes what must hold any configurable limit (repair proof
+   depth). */
+#define FD_SHRED_BLK_MAX_RAISED (1UL<<28)
+
 /* 36,536,320 bytes per slot */
 #define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_BLK_MAX)
 

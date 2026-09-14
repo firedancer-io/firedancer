@@ -30,16 +30,6 @@ fd_quic_tls_secrets( void const * handshake,
                      void const * send_secret,
                      uint         encryption_level );
 
-/* fd_quic_tls_rand is the RNG provided to fd_tls.  Note: This is
-   a layering violation ... The user should pass the CSPRNG handle to
-   both fd_quic and fd_tls.  Currently, implemented via the getrandom()
-   syscall ... Inefficient! */
-
-void *
-fd_quic_tls_rand( void * ctx,
-                  void * buf,
-                  ulong  bufsz );
-
 /* fd_quic_tls_tp_self is called by fd_tls to retrieve fd_quic's QUIC
    transport parameters. */
 
@@ -63,7 +53,8 @@ fd_quic_tls_init( fd_tls_t *    tls,
                   fd_tls_sign_t signer,
                   uchar const   cert_public_key[ static 32 ],
                   uchar const * alpn,
-                  ulong         alpn_sz );
+                  ulong             alpn_sz,
+                  fd_chacha_rng_t * rng );
 
 fd_quic_tls_t *
 fd_quic_tls_new( fd_quic_tls_t *     self,
@@ -83,13 +74,17 @@ fd_quic_tls_new( fd_quic_tls_t *     self,
     FD_LOG_WARNING(( "Missing callbacks" ));
     return NULL;
   }
+  if( FD_UNLIKELY( !cfg->rng ) ) {
+    FD_LOG_WARNING(( "NULL rng" ));
+    return NULL;
+  }
 
   self->secret_cb             = cfg->secret_cb;
   self->handshake_complete_cb = cfg->handshake_complete_cb;
   self->peer_params_cb        = cfg->peer_params_cb;
 
   /* Initialize fd_tls */
-  fd_quic_tls_init( &self->tls, cfg->signer, cfg->cert_public_key, cfg->alpn, cfg->alpn_sz );
+  fd_quic_tls_init( &self->tls, cfg->signer, cfg->cert_public_key, cfg->alpn, cfg->alpn_sz, cfg->rng );
 
   return self;
 }
@@ -98,18 +93,16 @@ fd_quic_tls_new( fd_quic_tls_t *     self,
    the embedded fd_tls instance. */
 
 static void
-fd_quic_tls_init( fd_tls_t *    tls,
-                  fd_tls_sign_t signer,
-                  uchar const   cert_public_key[ static 32 ],
-                  uchar const * alpn,
-                  ulong         alpn_sz ) {
+fd_quic_tls_init( fd_tls_t *        tls,
+                  fd_tls_sign_t     signer,
+                  uchar const       cert_public_key[ static 32 ],
+                  uchar const *     alpn,
+                  ulong             alpn_sz,
+                  fd_chacha_rng_t * rng ) {
   tls = fd_tls_new( tls );
   *tls = (fd_tls_t) {
     .quic = 1,
-    .rand = {
-      .ctx     = NULL,
-      .rand_fn = fd_quic_tls_rand
-    },
+    .rng  = rng,
     .sign = signer,
     .secrets_fn = fd_quic_tls_secrets,
     .sendmsg_fn = fd_quic_tls_sendmsg,
@@ -393,15 +386,6 @@ void
 fd_quic_tls_clear_hs_data( fd_quic_tls_hs_t * self, uint enc_level ) {
   self->hs_data_pend_idx[enc_level] = FD_QUIC_TLS_HS_DATA_UNUSED;
   self->hs_data_pend_end_idx[enc_level] = FD_QUIC_TLS_HS_DATA_UNUSED;
-}
-
-void *
-fd_quic_tls_rand( void * ctx,
-                  void * buf,
-                  ulong  bufsz ) {
-  (void)ctx;
-  FD_TEST( fd_rng_secure( buf, bufsz ) );
-  return buf;
 }
 
 ulong

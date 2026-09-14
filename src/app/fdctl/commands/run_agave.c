@@ -215,8 +215,9 @@ agave_boot( config_t const * config ) {
   }
 
   /* Consensus-breaking development-only CU and/or shred limit increase. */
-  _fd_ext_larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
-  _fd_ext_larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+  /* The Agave patches only know a boolean: any raised limit selects their fixed benchmark limits. */
+  _fd_ext_larger_max_cost_per_block     = !!config->development.bench.max_cost_per_block;
+  _fd_ext_larger_shred_limits_per_block = !!config->development.bench.max_shreds_per_block;
   /* Consensus-breaking bench-only option to disable status cache */
   _fd_ext_disable_status_cache           = config->development.bench.disable_status_cache;
   FD_COMPILER_MFENCE();

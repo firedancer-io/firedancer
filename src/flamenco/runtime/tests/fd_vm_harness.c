@@ -1,4 +1,5 @@
 #include "fd_instr_harness.h"
+#include "fd_solfuzz_private.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
@@ -37,14 +38,12 @@ fd_solfuzz_vm_load_from_input_regions( fd_vm_input_region_t const *        input
                                        pb_size_t *                         output_count,
                                        void *                              output_buf,
                                        ulong                               output_bufsz ) {
-  /* pre-flight checks on output buffer size*/
-  ulong input_regions_total_sz = 0;
-  for( ulong i=0; i<input_count; i++ ) {
-    input_regions_total_sz += input[i].region_sz;
-  }
+  /* Each region emits a fixed-size record holding a hash of its contents,
+     so the output size depends on the region count, not their contents. */
+  ulong output_sz = input_count * sizeof(fd_exec_test_input_data_region_t)
+                    + alignof(fd_exec_test_input_data_region_t);
 
-  if( FD_UNLIKELY(   input_regions_total_sz == 0
-                  || output_bufsz < input_regions_total_sz ) ) {
+  if( FD_UNLIKELY( !input_count || output_bufsz < output_sz ) ) {
     *output = NULL;
     *output_count = 0;
     return 0;
@@ -62,15 +61,7 @@ fd_solfuzz_vm_load_from_input_regions( fd_vm_input_region_t const *        input
     out_region->is_writable = vm_region->is_writable;
     out_region->offset = vm_region->vaddr_offset;
 
-    if( vm_region->region_sz > 0 ) {
-      out_region->content = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                                 PB_BYTES_ARRAY_T_ALLOCSIZE(vm_region->region_sz) );
-      FD_TEST( out_region->content );
-      out_region->content->size = vm_region->region_sz;
-      fd_memcpy( out_region->content->bytes, (void *)vm_region->haddr, vm_region->region_sz );
-    } else {
-      out_region->content = NULL;
-    }
+    out_region->content_hash = fd_solfuzz_hash( (void *)vm_region->haddr, vm_region->region_sz );
   }
 
   ulong end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -292,37 +283,9 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   effects->r0 = instr_end_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
-  if( vm->heap_max ) {
-    effects->heap = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(uint), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
-    if( FD_UNLIKELY( _l > output_end ) ) {
-      goto error;
-    }
-    effects->heap->size = (uint)vm->heap_max;
-    fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
-  } else {
-    effects->heap = NULL;
-  }
-
-  effects->stack = FD_SCRATCH_ALLOC_APPEND(
-    l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
-    if( FD_UNLIKELY( _l > output_end ) ) {
-      goto error;
-    }
-  effects->stack->size = (uint)FD_VM_STACK_MAX;
-  fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
-
-  if( vm->rodata_sz ) {
-    effects->rodata = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( rodata_sz ) );
-    if( FD_UNLIKELY( _l > output_end ) ) {
-      goto error;
-    }
-    effects->rodata->size = (uint)rodata_sz;
-    fd_memcpy( effects->rodata->bytes, vm->rodata, rodata_sz );
-  } else {
-    effects->rodata = NULL;
-  }
+  effects->heap_hash   = fd_solfuzz_hash( vm->heap, vm->heap_max );
+  effects->stack_hash  = fd_solfuzz_hash( vm->stack, FD_VM_STACK_MAX );
+  effects->rodata_hash = fd_solfuzz_hash( vm->rodata, vm->rodata_sz ? rodata_sz : 0UL );
 
   effects->frame_count = vm->frame_cnt;
 

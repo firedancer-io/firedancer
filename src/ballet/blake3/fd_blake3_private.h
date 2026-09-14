@@ -197,6 +197,20 @@ fd_blake3_avx512_compress16_fast( uchar const * restrict batch_data,  /* align==
                                   ulong                  counter,
                                   uchar                  flags );
 
+/* fd_blake3_avx512_xof16 expands 16 consecutive 64 byte XOF output
+   blocks (counters ctr0..ctr0+15) of the root block root_msg (64 bytes,
+   zero padded past block_sz) with input chaining value root_cv.
+   Equivalent to fd_blake3_avx512_compress16 with out_sz=64, all lanes
+   sharing root_msg/root_cv, minus the per lane message transposes. */
+
+void
+fd_blake3_avx512_xof16( uchar const * restrict root_msg,  /* len==64 */
+                        uchar const * restrict root_cv,   /* len==32 */
+                        ulong                  ctr0,
+                        uint                   block_sz,
+                        uint                   flags,
+                        uchar       * restrict out );     /* len==16*64 */
+
 #endif /* FD_HAS_AVX512 */
 
 FD_PROTOTYPES_END

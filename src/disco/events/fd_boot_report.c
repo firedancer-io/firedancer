@@ -1259,9 +1259,9 @@ render_topology_json( fd_boot_report_t * r,
   PRINT( "{\"tiles\":[" );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    PRINT( "%s{\"kind\":\"%s\",\"kind_id\":%lu,\"cpu_idx\":%ld,\"in\":[",
+    PRINT( "%s{\"kind\":\"%s\",\"kind_id\":%lu,\"cpu_idx\":%ld,\"floats\":%s,\"in\":[",
            i ? "," : "", tile->name, tile->kind_id,
-           tile->cpu_idx<FD_TILE_MAX ? (long)tile->cpu_idx : -1L );
+           tile->cpu_idx<FD_TILE_MAX ? (long)tile->cpu_idx : -1L, tile->floats ? "true" : "false" );
     for( ulong in=0UL; in<tile->in_cnt; in++ ) PRINT( "%s%lu", in ? "," : "", tile->in_link_id[ in ] );
     PRINT( "],\"out\":[" );
     for( ulong out=0UL; out<tile->out_cnt; out++ ) PRINT( "%s%lu", out ? "," : "", tile->out_link_id[ out ] );

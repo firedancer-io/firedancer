@@ -14,6 +14,22 @@
     off += sizeof(T);                                     \
 } while(0)
 
+#define SER_SHORT_U16( name ) do {                        \
+    uchar tmp[3];                                         \
+    ulong n = ser_short_u16( tmp, serde->name );          \
+    if( FD_UNLIKELY( off+n>buf_max ) ) return -1;         \
+    fd_memcpy( buf+off, tmp, n );                         \
+    off += n;                                             \
+} while(0)
+
+#define SER_VAR_INT( name ) do {                          \
+    uchar tmp[10];                                        \
+    ulong n = ser_var_int( tmp, serde->name );            \
+    if( FD_UNLIKELY( off+n>buf_max ) ) return -1;         \
+    fd_memcpy( buf+off, tmp, n );                         \
+    off += n;                                             \
+} while(0)
+
 static int
 de_short_u16( ushort * dst, uchar const ** src, ulong * src_sz ) {
   uchar const * s = *src;
@@ -119,12 +135,12 @@ fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
                            uchar *                               buf,
                            ulong                                 buf_max,
                            ulong *                               buf_sz ) {
+  if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
   ulong off = 0;
   SER( ulong, root );
-  off += ser_short_u16( buf+off, serde->lockouts_cnt );
-  if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
+  SER_SHORT_U16( lockouts_cnt );
   for( ulong i = 0; i < serde->lockouts_cnt; i++ ) {
-    off += ser_var_int( buf+off, serde->lockouts[i].offset );
+    SER_VAR_INT( lockouts[i].offset );
     SER( uchar, lockouts[i].confirmation_count );
   }
   SER( fd_hash_t, hash             );

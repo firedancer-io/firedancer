@@ -1,6 +1,7 @@
 #include "fd_stake_delegations.h"
 #include "fd_stakes.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../events/fd_event_runtime.h"
 #include "../../util/fd_hash32.h"
 
 #define POOL_NAME  root_pool
@@ -423,17 +424,19 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
 
 #if FD_HAS_DOUBLE
 
-void
+ulong
 fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_delegations,
                                           ulong                      epoch,
                                           fd_stake_history_t const * stake_history,
                                           ulong *                    warmup_cooldown_rate_epoch,
-                                          int                        use_fixed_point_stake_math ) {
+                                          int                        use_fixed_point_stake_math,
+                                          fd_bank_t const *          emit_bank ) {
   fd_rwlock_write( &stake_delegations->lock );
 
   root_map_t *            map        = get_root_map( stake_delegations );
   fd_stake_delegation_t * pool       = get_root_pool( stake_delegations );
   ulong                   prev_epoch = epoch ? epoch-1UL : 0UL;
+  ulong                   pruned     = 0UL;
 
   for( ulong idx=0UL; idx<stake_delegations->pool_idx_wmk_; idx++ ) {
     fd_stake_delegation_t * delegation = pool+idx;
@@ -441,6 +444,9 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
 
     if( FD_LIKELY( !fd_stake_delegation_is_inactive( delegation, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math ) ||
                    !fd_stake_delegation_is_inactive( delegation, prev_epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math ) ) ) continue;
+
+    if( FD_UNLIKELY( emit_bank ) ) fd_event_runtime_stake_delegation_remove_emit( emit_bank, delegation->stake_account.uc );
+    pruned++;
 
     fd_pubkey_t stake_account = delegation->stake_account;
     root_map_idx_remove( map, &stake_account, (uint)idx, pool );
@@ -450,6 +456,8 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
   }
 
   fd_rwlock_unwrite( &stake_delegations->lock );
+
+  return pruned;
 }
 
 static void
@@ -728,12 +736,17 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
 }
 
 void
-fd_stake_delegations_apply_fork_delta( ulong                      epoch,
-                                       fd_stake_history_t const * stake_history,
-                                       ulong *                    warmup_cooldown_rate_epoch,
-                                       int                        use_fixed_point_stake_math,
-                                       fd_stake_delegations_t *   stake_delegations,
-                                       ushort                     fork_idx ) {
+fd_stake_delegations_apply_fork_delta( ulong                                epoch,
+                                       fd_stake_history_t const *           stake_history,
+                                       ulong *                              warmup_cooldown_rate_epoch,
+                                       int                                  use_fixed_point_stake_math,
+                                       fd_stake_delegations_t *             stake_delegations,
+                                       ushort                               fork_idx,
+                                       fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats ) {
+
+  ulong upserts = 0UL;
+  ulong removes = 0UL;
+
   fd_rwlock_write( &stake_delegations->lock );
 
   int history_contiguous = fd_sysvar_stake_history_is_contiguous( stake_history );
@@ -746,6 +759,7 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
        iter = fork_map_iter_next( iter, fork_map, delta_pool ) ) {
     fd_stake_delegation_t * stake_delegation = fork_map_iter_ele( iter, fork_map, delta_pool );
     if( FD_LIKELY( !stake_delegation->is_tombstone ) ) {
+      upserts++;
       /* If the acc in the delta is an update:
          - If the acc already exists, subtract the old version's stake
          - Insert/update the new version
@@ -786,6 +800,7 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
         }
       }
     } else {
+      removes++;
       /* If the stake delegation in the delta is a tombstone, just
          remove the stake delegation from the root map and subtract
          its stake from the totals. */
@@ -806,6 +821,11 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
     }
   }
   FD_LOG_DEBUG(( "effective_stake=%lu, activating_stake=%lu, deactivating_stake=%lu", stake_delegations->effective_stake, stake_delegations->activating_stake, stake_delegations->deactivating_stake ));
+
+  if( FD_UNLIKELY( stake_delegations_delta_stats ) ) {
+    stake_delegations_delta_stats->upserts += upserts;
+    stake_delegations_delta_stats->removes += removes;
+  }
 
   fd_rwlock_unwrite( &stake_delegations->lock );
 }

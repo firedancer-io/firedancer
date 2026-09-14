@@ -2,10 +2,15 @@
 #define HEADER_fd_src_discof_replay_fd_sched_h
 
 #include "fd_rdisp.h"
-#include "fd_block_marker.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../flamenco/accdb/fd_accdb.h"
+#include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
+
+/* Microblocks per slot at the production shred limit; scaled with
+   max_shreds_per_block at runtime. */
+#define FD_SCHED_MAX_MBLK_PER_SLOT (MAX_SKIPPED_TICKS)
 
 /* fd_sched wraps all the smarts and mechanical chores around scheduling
    transactions for replay execution.  It is built on top of the
@@ -166,12 +171,14 @@ struct fd_sched_txn_sigverify {
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
+#define FD_SCHED_POH_PARA 16
 struct fd_sched_poh_hash {
   ulong     bank_idx;
-  ulong     mblk_idx;
   ulong     exec_idx;
-  ulong     hashcnt;
-  fd_hash_t hash[ 1 ];
+  ulong     cnt;     /* In [1,FD_SCHED_POH_PARA] */
+  ulong     hashcnt; /* Same for every element of the batch */
+  ulong     mblk_idx[ FD_SCHED_POH_PARA ];
+  fd_hash_t hash    [ FD_SCHED_POH_PARA ];
 };
 typedef struct fd_sched_poh_hash fd_sched_poh_hash_t;
 
@@ -250,14 +257,20 @@ FD_PROTOTYPES_BEGIN
    depth controls the reorder buffer transaction count (~1 million
    recommended for live replay, ~10k recommended for async replay).
    block_cnt_max is the maximum number of blocks that will be tracked by
-   the scheduler. */
+   the scheduler.  max_shreds_per_block bounds the data shreds a block
+   may hold (the shred tile enforces the same limit upstream, sched
+   asserts it); a block declaring more than max_txn_per_slot
+   transactions is ruled invalid.  FD_SHRED_BLK_MAX and
+   FD_MAX_TXN_PER_SLOT in production. */
 
 ulong
 fd_sched_align( void );
 
 ulong
-fd_sched_footprint( ulong depth,           /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MAX_DEPTH] */
-                    ulong block_cnt_max ); /* >= 1 */
+fd_sched_footprint( ulong depth,                /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MAX_DEPTH] */
+                    ulong block_cnt_max,        /* >= 1 */
+                    ulong max_shreds_per_block, /* in [1,UINT_MAX] */
+                    ulong max_txn_per_slot );   /* in [1,UINT_MAX] */
 
 /* fd_sched_new creates a sched object backed by the given memory region
    (conforming to align() and footprint()).  Returns NULL if any
@@ -268,6 +281,8 @@ fd_sched_new( void *     mem,
               fd_rng_t * rng,
               ulong      depth,
               ulong      block_cnt_max,
+              ulong      max_shreds_per_block,
+              ulong      max_txn_per_slot,
               ulong      exec_cnt,
               int        is_alpenglow );
 
@@ -500,45 +515,12 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
 
-/* fd_sched_get_footer_bank_hash returns the bank hash in the block
-   footer, or NULL if no footer marker has been parsed for the block.
-   The hash stays valid until the block is pruned. */
-fd_hash_t const *
-fd_sched_get_footer_bank_hash( fd_sched_t * sched, ulong bank_idx );
-
-/* fd_sched_get_footer_producer_time_nanos returns the producer
-   timestamp in the block footer, or 0 if no footer marker has been
-   parsed for the block. */
-ulong
-fd_sched_get_footer_producer_time_nanos( fd_sched_t * sched, ulong bank_idx );
-
-/* fd_sched_get_{skip,notar}_reward_cert return the skip/notar reward
-   cert deserialized out of the block footer.  Returns NULL if the
-   footer carries none or no footer marker has been parsed for the
-   block.  The cert's shape was validated at parse time, but its
-   signature is not verified.  The cert stays valid until the block is
-   pruned. */
-fd_reward_cert_t const *
-fd_sched_get_skip_reward_cert( fd_sched_t * sched, ulong bank_idx );
-
-fd_reward_cert_t const *
-fd_sched_get_notar_reward_cert( fd_sched_t * sched, ulong bank_idx );
-
-/* fd_sched_get_{fast_final,final,final_notar}_cert return the
-   finalization cert deserialized out of the block footer.  A fast
-   finalization cert yields fast_final only; a slow one yields final +
-   final_notar.  Returns NULL if the footer carries none (of that kind)
-   or no footer marker has been parsed for the block.  The certs' shapes
-   were validated at parse time, but their signatures are not verified.
-   The certs stay valid until the block is pruned. */
-ag_cert_fast_final_t const *
-fd_sched_get_fast_final_cert( fd_sched_t * sched, ulong bank_idx );
-
-ag_cert_final_t const *
-fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx );
-
-ag_cert_notar_t const *
-fd_sched_get_final_notar_cert( fd_sched_t * sched, ulong bank_idx );
+/* fd_sched_get_footer returns the block footer, or NULL if no footer
+   marker has been parsed for the block.  The shapes were validated at
+   parse time; the signatures are not verified.  The footer stays valid
+   until the block is pruned. */
+fd_block_footer_t const *
+fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx );
 
 void
 fd_sched_metrics_write( fd_sched_t * sched );

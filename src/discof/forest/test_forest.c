@@ -87,9 +87,9 @@ test_publish( fd_wksp_t * wksp ) {
 
   for( ulong i = 0; i < sizeof(publish_test_cases) / sizeof(ulong); i++ ) {
     ulong ele_max = 8UL;
-    void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+    void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
     FD_TEST( mem );
-    fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+    fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
     FD_TEST( forest );
     fd_forest_publish( setup_preorder( forest ), publish_test_cases[i] );
@@ -106,9 +106,9 @@ test_publish_incremental( fd_wksp_t * wksp ){
      two incremental snapshots */
 
   ulong ele_max = 32UL;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
   //fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
@@ -257,9 +257,9 @@ ulong * consumed_arr( fd_wksp_t * wksp, fd_forest_t * forest ) {
 
 void test_out_of_order( fd_wksp_t * wksp ) {
   ulong ele_max = 8UL;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
   fd_forest_blk_data_shred_insert( forest, 6, 5, 0, 0, 0, 0 );
@@ -354,9 +354,9 @@ void
 test_forks( fd_wksp_t * wksp ){
 
   ulong ele_max = 32UL;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   // these slots all have 2 shreds, 0,1
   fd_forest_init( forest, 0 );
@@ -427,9 +427,9 @@ test_forks( fd_wksp_t * wksp ){
 void
 test_print_tree( fd_wksp_t *wksp ){
   ulong ele_max = 512UL;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 1568376 );
   fd_forest_blk_data_shred_insert( forest, 1568377, 1568376, 0, 0, 1, 1 );
@@ -462,9 +462,9 @@ test_large_print_tree( fd_wksp_t * wksp ){
                                                                                                                        └── [330091004, 330091007] ── [330091010, 330091048]
                                                                         └── [330090852, 330090855]*/
   ulong ele_max = 512UL;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 330090532 );
 
@@ -513,9 +513,9 @@ test_linear_forest_iterator( fd_wksp_t * wksp ) {
   /* Repar forest iterator for a linear chain (expected behavior for
      start up) */
   ulong ele_max = 512UL;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   /*
      0 - 1(-/1) - 2(-/2) - 3(0/?) - 4(-/?) - 5(-/5)
@@ -551,9 +551,9 @@ test_branched_forest_iterator( fd_wksp_t * wksp ) {
   /* Repair forest iterator for a branched chain (expected behavior for
      regular turbine) */
   ulong ele_max = 512UL;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
    /*
          slot 0
@@ -633,9 +633,9 @@ void
 test_frontier( fd_wksp_t * wksp ) {
   /* bug where we added ele to frontier but didn't remove from ancestry */
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
   fd_forest_blk_data_shred_insert( forest, 1, 0, 0, 0, 1, 1 );
@@ -675,9 +675,9 @@ test_invalid_frontier_insert( fd_wksp_t * wksp ) {
      *never get called*, because 108  ALREADY EXISTED.
   */
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
   fd_forest_blk_data_shred_insert( forest, 100, 0, 0, 0, 1, 1 );
@@ -717,9 +717,9 @@ test_invalid_frontier_insert( fd_wksp_t * wksp ) {
 void
 test_fec_clear( fd_wksp_t * wksp ) {
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
 
@@ -765,9 +765,9 @@ test_fec_clear( fd_wksp_t * wksp ) {
 void
 test_iter_publish( fd_wksp_t * wksp ) {
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
   fd_forest_blk_data_shred_insert( forest, 1, 0, 0, 0, 0, 0 );
@@ -871,9 +871,9 @@ test_iter_publish( fd_wksp_t * wksp ) {
 void
 test_iter_subtree( fd_wksp_t * wksp ) {
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   fd_forest_init( forest, 0 );
   fd_forest_blk_fec_insert       ( forest, 1, 0, 0, 0, 1    );
@@ -904,9 +904,9 @@ test_iter_subtree( fd_wksp_t * wksp ) {
 void
 test_orphan_requests( fd_wksp_t * wksp ) {
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 0 );
 
   fd_forest_iter_next( &forest->iter, forest );
@@ -929,9 +929,9 @@ test_orphan_requests( fd_wksp_t * wksp ) {
 void
 test_slot_clear( fd_wksp_t * wksp ) {
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
 
   /*
        2
@@ -1039,9 +1039,9 @@ print_orphan_requests( fd_forest_t * forest ) {
 void
 test_verify_orphans( fd_wksp_t * wksp ) {
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
     /*
        2
       | \
@@ -1095,9 +1095,9 @@ test_verify_orphans( fd_wksp_t * wksp ) {
 void
 test_eviction_simple( fd_wksp_t * wksp ) {
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 0 );
 
   fd_hash_t mr = (fd_hash_t){ .key = { 1 } };
@@ -1159,9 +1159,9 @@ test_eviction_simple( fd_wksp_t * wksp ) {
 void
 test_eviction_confirmations( fd_wksp_t * wksp ) {
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 0 );
 
   /* create forks 10 - 11 - 12 - 13 - 17 (confirmed)
@@ -1233,9 +1233,9 @@ test_eviction_confirmed_orphan_gca( fd_wksp_t * wksp ) {
      - gca(slot 4, slot 5) = slot 4 = latest_confirmed_leaf → evict confirmed_orphan */
 
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
   fd_forest_init( forest, 0 );
 
   fd_hash_t mr = (fd_hash_t){ .key = { 1 } };
@@ -1313,9 +1313,9 @@ test_eviction_confirmed_bid_orphan( fd_wksp_t * wksp ) {
      Orphan 20: confirmed_bid is set (should survive) */
 
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
   fd_forest_init( forest, 0 );
 
   fd_forest_blk_fec_insert( forest, 1, 0, 31, 0, 1 );
@@ -1348,9 +1348,9 @@ test_eviction_confirmed_bid_orphan( fd_wksp_t * wksp ) {
 void
 test_eviction_deep( fd_wksp_t * wksp ) {
   ulong ele_max = 512;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 1 );
 
   /* Scenario for DoS attack:
@@ -1414,9 +1414,9 @@ test_eviction_deep( fd_wksp_t * wksp ) {
 void
 test_sentinel_blocks( fd_wksp_t * wksp ) {
   ulong ele_max = 16;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 0 );
 
   fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
@@ -1441,9 +1441,9 @@ test_parent_update( fd_wksp_t * wksp ) {
         _ ` */
 
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 0 );
 
   fd_hash_t mr_1   = (fd_hash_t){ .ul = { 1 } };
@@ -1535,9 +1535,9 @@ void
 test_eqvoc_blk_wrong_parent( fd_wksp_t * wksp ) {
   /* initial block 3 version has slot 1 as parent. It also has multiple siblings 5 -> 4 -> 3, correct version has slot 2 as parent. */
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 0 );
   fd_forest_blk_data_shred_insert( forest, 1, 0, 31, 0, 0, 1 );
   fd_forest_blk_data_shred_insert( forest, 2, 1, 31, 0, 0, 1 );
@@ -1581,9 +1581,9 @@ test_buffered_idx_gt_complete_idx( fd_wksp_t * wksp ) {
        - iter_next (thinks slot is done, skips remaining shreds) */
 
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
   fd_forest_init( forest, 0 );
 
   /* Complete slot 1 so consumed frontier can advance */
@@ -1636,9 +1636,9 @@ test_verified_parent_update_stale_sibling( fd_wksp_t * wksp ) {
      with no sibling self-loops. */
 
   ulong ele_max = 16;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
   fd_forest_init( forest, 0 );
 
   fd_hash_t mr_1   = (fd_hash_t){ .ul = { 1 } };
@@ -1738,9 +1738,9 @@ test_eqvoc_different_slot_size( fd_wksp_t * wksp ) {
      This causes CORRECT shreds to be REJECTED. */
 
   ulong ele_max = 16;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 0 );
 
   fd_hash_t mr_0 = (fd_hash_t){ .key = { 0 } };
@@ -1799,7 +1799,7 @@ test_eqvoc_different_slot_size( fd_wksp_t * wksp ) {
   ele = fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, SHRED_SRC_REPAIR, &mr_3_0c, &mr_2c, fd_tickcount() );
   FD_TEST( ele );
   FD_TEST( ele->parent_slot == 2 ); /* parent_slot changes on shred in fec 0 */
-  FD_TEST( fd_hash_eq( &ele->merkle_roots[0].mr, &mr_3_0c ) );
+  FD_TEST( fd_hash_eq( &fd_forest_blk_mroots( forest, ele )[0].mr, &mr_3_0c ) );
 
   /* shred in the last FEC set doesn't do anything because we still don't know complete_idx */
   FD_TEST( fd_forest_data_shred_insert( forest, 3, 2, 94, 64, 0, 0, SHRED_SRC_REPAIR, &mr_3_2c, &mr_3_1c, fd_tickcount() ) );
@@ -1820,9 +1820,9 @@ test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
      already been chain-verified.  The merkle root metadata doesn't get
      overwritten. */
   ulong ele_max = 16;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
   fd_forest_init( forest, 0 );
 
   fd_hash_t mr_0   = (fd_hash_t){ .key = { 0 } };
@@ -1858,8 +1858,8 @@ test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
   FD_TEST( ele->chain_confirmed );
   FD_TEST( ele->lowest_verified_fec == 0 );
 
-  fd_hash_t saved_mr  = ele->merkle_roots[1].mr;
-  fd_hash_t saved_cmr = ele->merkle_roots[1].cmr;
+  fd_hash_t saved_mr  = fd_forest_blk_mroots( forest, ele )[1].mr;
+  fd_hash_t saved_cmr = fd_forest_blk_mroots( forest, ele )[1].cmr;
   FD_TEST( fd_hash_eq( &saved_mr, &mr_3_1 ) );
 
   /* Now a conflicting FEC_COMPLETE arrives for FEC 1 (fec_set_idx=32)
@@ -1868,8 +1868,8 @@ test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
   fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1_bad, &cmr_bad, fd_tickcount() );
 
   /* The verified merkle root must NOT have been overwritten */
-  FD_TEST( fd_hash_eq( &ele->merkle_roots[1].mr,  &saved_mr  ) );
-  FD_TEST( fd_hash_eq( &ele->merkle_roots[1].cmr, &saved_cmr ) );
+  FD_TEST( fd_hash_eq( &fd_forest_blk_mroots( forest, ele )[1].mr,  &saved_mr  ) );
+  FD_TEST( fd_hash_eq( &fd_forest_blk_mroots( forest, ele )[1].cmr, &saved_cmr ) );
 
   /* The block should still be chain-confirmed */
   FD_TEST( ele->chain_confirmed );
@@ -1903,9 +1903,9 @@ static void
 test_buffered_idx_oob( fd_wksp_t * wksp ) {
 
   ulong ele_max = 16;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 0 );
 
   ulong slot        = 2;
@@ -1957,7 +1957,7 @@ test_buffered_idx_oob( fd_wksp_t * wksp ) {
 
   /* buffered_idx should still be FD_SHRED_BLK_MAX - 1 */
   FD_TEST( blk->buffered_idx == FD_SHRED_BLK_MAX - 1 );
-  FD_TEST( blk->merkle_roots[0].mr.ul[0] == ULONG_MAX );
+  FD_TEST( fd_forest_blk_mroots( forest, blk )[0].mr.ul[0] == ULONG_MAX );
 
   /* no longer blocks consumed-frontier advancement and FEC chain verification. */
   FD_TEST( blk->buffered_idx == blk->complete_idx );
@@ -1970,9 +1970,9 @@ test_fec_insert_reject_oob_after_verify( fd_wksp_t * wksp ) {
      sends a FEC set with the maximum possible fec_set_idx (well beyond
      complete_idx).  The FEC is rejected because fec_set_idx > complete_idx. */
   ulong ele_max = 16;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
   fd_forest_init( forest, 0 );
 
   fd_hash_t mr_0   = (fd_hash_t){ .key = { 0 } };
@@ -2036,9 +2036,9 @@ test_fec_insert_dup_confirm_larger_complete_idx( fd_wksp_t * wksp ) {
   */
 
   ulong ele_max = 16;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
   fd_forest_init( forest, 0 );
 
   fd_hash_t mr_0    = (fd_hash_t){ .key = { 0 } };
@@ -2114,9 +2114,9 @@ test_sentinel_parent_update_orphreqs_leak( fd_wksp_t * wksp ) {
    other list - which only surfaces much later (e.g. during a publish) as
    a request-list entry pointing at a freed / reused pool slot. */
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 0UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 0UL ) );
   fd_forest_init( forest, 0 );
 
   fd_forest_blk_t      * pool     = fd_forest_pool( forest );
@@ -2153,6 +2153,59 @@ test_sentinel_parent_update_orphreqs_leak( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
+/* shred_max is a runtime value: a forest sized for 4x FD_SHRED_BLK_MAX
+   accepts a block that fills every extra FEC set, and rejects shred
+   idxs / fec_set_idxs at or beyond shred_max instead of aborting.  Also
+   checks the production footprint equals the pre-side-array layout
+   (blk 256 B + idxs 4 KiB + code 4 KiB + mroots 64 KiB = 73984 B/blk). */
+
+static void
+test_shred_max_runtime( fd_wksp_t * wksp ) {
+  ulong ele_max   = 4UL;
+  ulong shred_max = 4UL*FD_SHRED_BLK_MAX;
+  ulong fec_cnt   = shred_max/FD_FEC_SHRED_CNT;
+
+  ulong fp_prod = fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX );
+  ulong fp_big  = fd_forest_footprint( ele_max, shred_max );
+  FD_TEST( sizeof(fd_forest_blk_t)==256UL );
+  FD_TEST( fp_big-fp_prod==ele_max*3UL*(4096UL+4096UL+65536UL) );
+
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fp_big, 1UL );
+  FD_TEST( mem );
+  FD_TEST( !fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX+1UL, 0UL ) ); /* not a FEC multiple */
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, shred_max, 0UL ) );
+  FD_TEST( forest && forest->shred_max==shred_max );
+  fd_forest_init( forest, 0 );
+
+  fd_forest_blk_insert( forest, 1, 0, NULL );
+  fd_forest_blk_insert( forest, 2, 1, NULL );
+  fd_forest_blk_t * blk1 = fd_forest_query( forest, 1 );
+  fd_forest_blk_t * blk2 = fd_forest_query( forest, 2 );
+  FD_TEST( fd_forest_blk_idxs  ( forest, blk2 )-fd_forest_blk_idxs  ( forest, blk1 )==(long)(shred_max/64UL) );
+  FD_TEST( fd_forest_blk_mroots( forest, blk2 )-fd_forest_blk_mroots( forest, blk1 )==(long)fec_cnt );
+
+  /* A code shred past the limit only counts toward turbine_cnt. */
+  fd_hash_t mr = { .ul = { 1 } }; fd_hash_t cmr = { .ul = { 0 } };
+  FD_TEST( fd_forest_code_shred_insert( forest, 1, (uint)shred_max, 0L )==blk1 && blk1->turbine_cnt==1U );
+  FD_TEST( !fd_forest_blk_idxs_cnt( fd_forest_blk_code( forest, blk1 ), shred_max/64UL ) );
+
+  /* Fill every FEC set of slot 1 beyond the production bound. */
+  for( uint fec=0; fec<fec_cnt; fec++ ) {
+    uint fec_set_idx = fec*FD_FEC_SHRED_CNT;
+    mr.ul[0] = fec+1UL; cmr.ul[0] = fec;
+    FD_TEST( fd_forest_fec_insert( forest, 1, 0, fec_set_idx+FD_FEC_SHRED_CNT-1U, fec_set_idx, fec==fec_cnt-1U, 0, &mr, &cmr, 0L ) );
+  }
+  blk1 = fd_forest_query( forest, 1 );
+  FD_TEST( blk1->complete_idx==shred_max-1UL );
+  FD_TEST( blk1->buffered_idx==shred_max-1UL );
+  FD_TEST( fd_forest_blk_idxs_cnt( fd_forest_blk_idxs( forest, blk1 ), shred_max/64UL )==shred_max );
+  FD_TEST( fd_forest_blk_mroots( forest, blk1 )[ fec_cnt-1UL ].mr.ul[0]==fec_cnt );
+  FD_TEST( fd_forest_blk_mroots( forest, blk2 )[ 0 ].mr.ul[0]==0UL ); /* neighbor untouched */
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -2164,6 +2217,7 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_buffered_idx_oob( wksp );
+  test_shred_max_runtime( wksp );
   test_invalid_frontier_insert( wksp );
   test_publish( wksp );
   test_publish_incremental( wksp );

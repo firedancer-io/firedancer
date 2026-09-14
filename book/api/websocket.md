@@ -1700,7 +1700,7 @@ seconds. The Firedancer allocation breakdown is fixed at startup.
 | online      | `boolean`        | Whether the CPU was online at validator startup |
 | numa_node   | `number`         | NUMA node containing this CPU |
 | sibling_cpu | `number \| null` | Logical CPU ID of the other hyperthread on the same physical core, or `null` when there is no known sibling. This ID indexes the `cpus` array |
-| tile_idxs   | `number[]`       | Indices in `summary.tiles` of tiles configured to run on this CPU. Multiple entries indicate configured CPU sharing, for example between startup and post-start tiles |
+| tile_idxs   | `number[]`       | Indices in `summary.tiles` of tiles pinned to this CPU. Multiple entries indicate configured CPU sharing, for example between startup and post-start tiles. Tiles the kernel schedules across CPUs are not listed |
 
 **`SystemLiveMemory`**
 | Field           | Type                     | Description |

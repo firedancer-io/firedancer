@@ -1,3 +1,4 @@
+#include "../fd_executor.h"
 #include "fd_solfuzz_private.h"
 #include "fd_txn_harness.h"
 #include "generated/cost.pb.h"
@@ -24,7 +25,7 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
   ulong txn_sz = fd_solfuzz_pb_txn_serialize( txn_p->payload, &input->tx );
   if( FD_UNLIKELY( txn_sz==ULONG_MAX ) ) return 0UL;
 
-  txn_p->payload_sz = txn_sz;
+  txn_p->payload_sz = (ushort)txn_sz;
   if( FD_UNLIKELY( !fd_txn_parse( txn_p->payload, txn_p->payload_sz, TXN( txn_p ), NULL ) ) ) {
     return 0UL;
   }
@@ -38,7 +39,12 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
   txn_out->details.loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
   txn_out->details.is_simple_vote = fd_txn_is_simple_vote_transaction( TXN( txn_p ), txn_p->payload );
 
-  int err = fd_executor_compute_budget_program_execute_instructions( runner->bank, &txn_in, txn_out );
+  int err;
+  if( TXN( txn_p )->transaction_version==FD_TXN_V1 ) {
+    err = fd_executor_sanitize_txn_v1_config( &txn_in, txn_out );
+  } else {
+    err = fd_executor_compute_budget_program_execute_instructions( runner->bank, &txn_in, txn_out );
+  }
   if( FD_LIKELY( !err ) ) err = fd_sanitize_compute_unit_limits( txn_out );
   if( FD_UNLIKELY( err && input->mode==FD_EXEC_TEST_TXN_COST_MODE_ACTUAL ) ) return 0UL;
 

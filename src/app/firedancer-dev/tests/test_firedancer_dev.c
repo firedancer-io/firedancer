@@ -168,11 +168,26 @@ test_pack_execle_links( config_t const * config ) {
     ulong execle_idx = fd_topo_find_tile( &config->topo, "execle", i );
     FD_TEST( link_idx!=ULONG_MAX );
     FD_TEST( execle_idx!=ULONG_MAX );
-    FD_TEST( config->topo.links[ link_idx ].depth==256UL );
+    FD_TEST( config->topo.links[ link_idx ].depth==128UL );
     FD_TEST( fd_topo_find_tile_out_link( &config->topo, &config->topo.tiles[ pack_idx ], "pack_execle", i )!=ULONG_MAX );
     FD_TEST( fd_topo_find_tile_in_link( &config->topo, &config->topo.tiles[ execle_idx ], "pack_execle", i )!=ULONG_MAX );
   }
   FD_TEST( fd_topo_find_link( &config->topo, "pack_execle", execle_cnt )==ULONG_MAX );
+}
+
+static void
+test_rserve_shred_links( config_t const * config ) {
+  fd_topo_t const * topo       = &config->topo;
+  ulong             rserve_idx = fd_topo_find_tile( topo, "rserve", 0UL );
+  if( FD_UNLIKELY( rserve_idx==ULONG_MAX ) ) return;
+
+  fd_topo_tile_t const * rserve = &topo->tiles[ rserve_idx ];
+  ulong shred_cnt = fd_topo_tile_name_cnt( topo, "shred" );
+  for( ulong i=0UL; i<shred_cnt; i++ ) {
+    ulong in_idx = fd_topo_find_tile_in_link( topo, rserve, "shred_out", i );
+    FD_TEST( in_idx!=ULONG_MAX );
+    FD_TEST( rserve->in_link_reliable[ in_idx ] );
+  }
 }
 
 int
@@ -203,6 +218,7 @@ firedancer_dev_test_run( int     argc,
 
       fd_topo_initialize( config );
       test_pack_execle_links( config );
+      test_rserve_shred_links( config );
 
       ulong genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib<<20;
       ulong genesi_idx = fd_topo_find_tile( &config->topo, "genesi", 0UL );
@@ -348,6 +364,7 @@ main( int     argc,
     fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
     fd_topo_initialize( config );
     test_pack_execle_links( config );
+    test_rserve_shred_links( config );
     fd_halt();
     return 0;
   }

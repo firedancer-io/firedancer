@@ -12,6 +12,7 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../stakes/fd_collector_overrides.h"
+#include "../../stakes/fd_stake_types.h"
 #include "../program/fd_vote_program.h"
 
 /* Read the lamport balance of an account at a given fork.
@@ -441,6 +442,93 @@ test_simd0232_fee_vote_account_collector( fd_svm_mini_t * mini ) {
   FD_TEST( read_lamports( mini, fork_id, leader )==leader_before );
 
   FD_LOG_NOTICE(( "test_simd0232_fee_vote_account_collector: PASSED" ));
+}
+
+/* A scheduled leader's vote address can be closed and reused as a
+   delegated stake account.  The vote address remains a valid
+   self-collector, and the fee deposit must refresh the cached account
+   balance used by epoch rewards. */
+static void
+test_simd0232_fee_stake_account_collector_cache( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
+
+  ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 2UL );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+
+  fd_epoch_leaders_t const * leaders     = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
+  fd_pubkey_t const *        leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
+  FD_TEST( leader_vote );
+  fd_pubkey_t stake_key = *leader_vote;
+  fd_pubkey_t vote_key  = { .ul[0] = 0x53544B564F544531UL };
+
+  fd_collector_overrides_upsert( fd_bank_collector_overrides( bank ),
+                                 bank->collector_overrides_fork_id,
+                                 fd_ulong_sat_sub( bank->f.epoch, 1UL ),
+                                 &stake_key,
+                                 0, NULL,
+                                 1, &stake_key );
+
+  ulong stake_lamports = 2000000000UL;
+  ulong delegated_stake = 1000000000UL;
+  uchar stake_data[ FD_STAKE_STATE_SZ ] = {0};
+  FD_STORE( fd_stake_state_t, stake_data, ((fd_stake_state_t){
+    .stake_type = FD_STAKE_STATE_STAKE,
+    .stake = {
+      .meta = {
+        .rent_exempt_reserve = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_STAKE_STATE_SZ ),
+        .staker              = stake_key,
+        .withdrawer          = stake_key,
+      },
+      .stake = {
+        .delegation = {
+          .voter_pubkey         = vote_key,
+          .stake                = delegated_stake,
+          .activation_epoch     = 0UL,
+          .deactivation_epoch   = ULONG_MAX,
+          .warmup_cooldown_rate = 0.25,
+        },
+      },
+    },
+  }) );
+
+  fd_acc_t acc = fd_accdb_write_one( mini->runtime->accdb, fork_id, stake_key.uc );
+  fd_memcpy( acc.owner, fd_solana_stake_program_id.uc, 32UL );
+  fd_memcpy( acc.data, stake_data, sizeof(stake_data) );
+  acc.lamports = stake_lamports;
+  acc.data_len = sizeof(stake_data);
+  acc.commit   = 1;
+  fd_accdb_unwrite_one( mini->runtime->accdb, &acc );
+
+  fd_stake_delegations_fork_update( fd_bank_stake_delegations_modify( bank ),
+                                    bank->stake_delegations_fork_id,
+                                    &stake_key,
+                                    &vote_key,
+                                    delegated_stake,
+                                    0UL,
+                                    ULONG_MAX,
+                                    0UL,
+                                    stake_lamports,
+                                    (uint)sizeof(stake_data),
+                                    FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+
+  bank->f.execution_fees = SIMD0232_FEE_EXECUTION;
+  bank->f.priority_fees  = SIMD0232_FEE_PRIORITY;
+
+  fd_svm_mini_freeze( mini, child_idx );
+  FD_TEST( read_lamports( mini, fork_id, &stake_key )==stake_lamports+SIMD0232_FEE_REWARD );
+
+  fd_svm_mini_advance_root( mini, child_idx );
+  fd_stake_delegation_t const * delegation =
+      fd_stake_delegation_root_query( fd_banks_stake_delegations_root_query( mini->banks ), &stake_key );
+  FD_TEST( delegation );
+  FD_TEST( delegation->lamports==stake_lamports+SIMD0232_FEE_REWARD );
+
+  FD_LOG_NOTICE(( "test_simd0232_fee_stake_account_collector_cache: PASSED" ));
 }
 
 /* Override to a non-system-owned account: burned. */
@@ -893,6 +981,7 @@ main( int     argc,
   test_simd0232_fee_custom_collector( mini );
   test_simd0232_fee_collector_rent_exemption( mini );
   test_simd0232_fee_vote_account_collector( mini );
+  test_simd0232_fee_stake_account_collector_cache( mini );
   test_simd0232_fee_invalid_owner_burns( mini );
   test_simd0232_fee_reserved_collector_burns( mini );
   test_simd0232_fee_incinerator_collector( mini );

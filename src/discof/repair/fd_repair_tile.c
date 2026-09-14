@@ -435,7 +435,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                      );
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),         fd_repair_footprint     ()                                         );
-  l = FD_LAYOUT_APPEND( l, fd_forest_align(),         fd_forest_footprint     ( tile->repair.slot_max )                  );
+  l = FD_LAYOUT_APPEND( l, fd_forest_align(),         fd_forest_footprint     ( tile->repair.slot_max, tile->repair.max_shreds_per_block ) );
   l = FD_LAYOUT_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_REPAIR_PEER_MAX )                     );
   l = FD_LAYOUT_APPEND( l, fd_reqlim_align(),         fd_reqlim_footprint     ( FD_REQLIM_CACHE_MAX )                     );
   l = FD_LAYOUT_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                         );
@@ -802,8 +802,7 @@ after_shred( ctx_t      * ctx,
     if( FD_UNLIKELY( !blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) return;
 
     if( FD_LIKELY( fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr, rx_tick ) ) ) {
-      fd_hash_t match_block_id[1]; /* unused by the legacy repair path */
-      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_match( ctx->inflights, nonce, shred->slot, shred->idx, &peer, match_block_id ) ) > 0 ) ) {
+      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_shred_match( ctx->inflights, nonce, shred->slot, shred->idx, NULL, &peer, NULL, fd_clock_tile_now( ctx->clock ) ) ) > 0 ) ) {
         fd_policy_peer_response_update( ctx->policy, &peer, rtt );
         fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
         blk->response_cnt++;
@@ -839,11 +838,12 @@ check_confirmed( ctx_t           * ctx,
        early exit above. */
     FD_TEST( bad_fec_idx != UINT_MAX );
 
-    fd_hash_t const * expected = (bad_fec_idx == bad_blk->complete_idx - (FD_FEC_SHRED_CNT - 1)) ? &bad_blk->confirmed_bid : &bad_blk->merkle_roots[(bad_fec_idx / 32) + 1].cmr;
+    fd_forest_mr_t const * bad_mroots = fd_forest_blk_mroots( ctx->forest, bad_blk );
+    fd_hash_t const * expected = (bad_fec_idx == bad_blk->complete_idx - (FD_FEC_SHRED_CNT - 1)) ? &bad_blk->confirmed_bid : &bad_mroots[(bad_fec_idx / 32) + 1].cmr;
 
-    FD_BASE58_ENCODE_32_BYTES( confirmed_bid->uc,                             confirmed_bid_b58 );
-    FD_BASE58_ENCODE_32_BYTES( expected->uc,                                  expected_mr );
-    FD_BASE58_ENCODE_32_BYTES( bad_blk->merkle_roots[bad_fec_idx / 32].mr.uc, recorded_mr );
+    FD_BASE58_ENCODE_32_BYTES( confirmed_bid->uc,                  confirmed_bid_b58 );
+    FD_BASE58_ENCODE_32_BYTES( expected->uc,                       expected_mr );
+    FD_BASE58_ENCODE_32_BYTES( bad_mroots[bad_fec_idx / 32].mr.uc, recorded_mr );
 
     FD_LOG_WARNING(( "[%s] slot %lu block_id %s confirmation detected incorrect FECs. bad FEC is slot %lu fec set %u. expected mr (%s) != recorded mr (%s)",
                        __func__,
@@ -905,7 +905,7 @@ after_fec( ctx_t      * ctx,
     /* Note: this log does not imply that the slot is fully executable.
        It's possible that we have a slot that doesn't chain verify,
        which could be un-executable. */
-    FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[ele->complete_idx / 32].mr.uc, block_id );
+    FD_BASE58_ENCODE_32_BYTES( fd_forest_blk_mroots( ctx->forest, ele )[ele->complete_idx / 32].mr.uc, block_id );
     FD_BASE58_ENCODE_32_BYTES( mr->uc, fec_mr );
     FD_LOG_INFO(( "[%s] slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms. last recvd fec: %u, mr %s. current block_id: %s",
                     __func__,
@@ -1140,8 +1140,9 @@ after_frag( ctx_t *             ctx,
           m->blk_turbine_cnt         = blk->turbine_cnt;
           m->blk_repair_cnt          = blk->repair_cnt;
           m->blk_recovered_cnt       = blk->recovered_cnt;
-          m->blk_data_cnt            = (uint)fd_forest_blk_idxs_cnt( blk->idxs );
-          m->blk_parity_cnt          = (uint)fd_forest_blk_idxs_cnt( blk->code );
+          ulong word_cnt             = fd_forest_blk_idxs_word_cnt( ctx->forest->shred_max );
+          m->blk_data_cnt            = (uint)fd_forest_blk_idxs_cnt( fd_forest_blk_idxs( ctx->forest, blk ), word_cnt );
+          m->blk_parity_cnt          = (uint)fd_forest_blk_idxs_cnt( fd_forest_blk_code( ctx->forest, blk ), word_cnt );
           m->blk_lowest_verified_fec = blk->lowest_verified_fec;
           m->blk_chain_confirmed     = blk->chain_confirmed;
           m->blk_slot_complete       = (uchar)( blk->complete_idx!=UINT_MAX );
@@ -1177,18 +1178,19 @@ after_frag( ctx_t *             ctx,
    are not real requests made to the network, and cannot be matched
    by a shred response. */
 static void
-defer_inflight_request( ctx_t * ctx, ulong slot, ulong shred_idx ) {
+defer_inflight_request( ctx_t * ctx, ulong slot, ulong shred_idx, long now ) {
   fd_hash_t hash = { .ul[0] = 0 };
-  fd_inflight_key_t inflight_req = { .slot = slot, .shred_idx = shred_idx, .nonce = 0 };
-  if( FD_LIKELY( !fd_inflight_map_ele_query( ctx->inflights->map, &inflight_req, NULL, ctx->inflights->pool ) ) ) {
-    fd_inflights_request_insert( ctx->inflights, 0, &hash, slot, shred_idx, NULL );
+  fd_inflight_key_t inflight_req[1];
+  fd_inflight_key_init( inflight_req, FD_REPAIR_KIND_SHRED, slot, shred_idx, 0UL, NULL );
+  if( FD_LIKELY( !fd_inflight_map_ele_query( ctx->inflights->map, inflight_req, NULL, ctx->inflights->pool ) ) ) {
+    fd_inflights_shred_insert( ctx->inflights, 0, &hash, slot, shred_idx, NULL, NULL, now );
   }
 }
 
 /* Should be called for any regular FD_REPAIR_KIND_SHRED request made. */
 static void
-record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulong slot, ulong shred_idx ) {
-  fd_inflights_request_insert( ctx->inflights, nonce, peer, slot, shred_idx, NULL );
+record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulong slot, ulong shred_idx, long now ) {
+  fd_inflights_shred_insert( ctx->inflights, nonce, peer, slot, shred_idx, NULL, NULL, now );
   fd_policy_peer_request_update( ctx->policy, peer );
 }
 
@@ -1214,10 +1216,10 @@ record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulo
 
    There are two methods through which we make regular shred requests:
    1. policy_next
-   2. fd_inflights_request_pop
+   2. fd_inflights_pop
 
    In general, policy_next makes the first request for shred X, and
-   fd_inflights_request_pop makes all subsequent requests for shred X at
+   fd_inflights_pop makes all subsequent requests for shred X at
    DEDUP_TIMEOUT intervals.  This is to give each request a fair chance
    to be received, but also to avoid colliding nonces.  This is because
    we want to be as accurate as possible when tracking per-peer response
@@ -1225,7 +1227,7 @@ record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulo
 
    With eviction, it's possible for policy_next to make the same request
    for shred X multiple times, in short timeout intervals.  Therefore we
-   need to have both policy_next and fd_inflights_request_pop requests
+   need to have both policy_next and fd_inflights_pop requests
    pass through the same dedup cache.  At the point of eviction, we
    leave requests for that slot in the dedup cache and in the inflights
    table. If an old request from before eviction happens to
@@ -1266,24 +1268,27 @@ after_credit( ctx_t *             ctx,
   }
 
   if( FD_UNLIKELY( fd_inflights_should_drain( ctx->inflights, now ) ) ) {
-    ulong nonce; ulong slot; ulong shred_idx; fd_hash_t block_id;
+    fd_inflight_t req[1];
+    fd_inflights_pop( ctx->inflights, req );
     *charge_busy = 1;
-    fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &block_id, &shred_idx );
+    ulong nonce     = req->key.nonce;
+    ulong slot      = req->key.slot;
+    ulong shred_idx = req->key.idx;
 
     fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
-    if( FD_UNLIKELY( blk && shred_idx <= blk->complete_idx && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
+    if( FD_UNLIKELY( blk && shred_idx <= blk->complete_idx && !fd_forest_blk_idxs_test( fd_forest_blk_idxs( ctx->forest, blk ), shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
 
       if( FD_UNLIKELY( !peer || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
         /* No peers available, park the request in inflights. */
-        defer_inflight_request( ctx, slot, shred_idx );
+        defer_inflight_request( ctx, slot, shred_idx, now );
       } else {
         ctx->metrics->rerequest++;
         blk->req_retransmit_cnt++;
         nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, (uint)shred_idx, now );
         fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now/(ulong)1e6, (uint)nonce, slot, shred_idx );
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
-        record_inflight_request( ctx, nonce, peer, slot, shred_idx ); /* Request is definitely a regular shred request. */
+        record_inflight_request( ctx, nonce, peer, slot, shred_idx, now ); /* Request is definitely a regular shred request. */
         return;
       }
     }
@@ -1301,13 +1306,13 @@ after_credit( ctx_t *             ctx,
        removed and then readded. policy_next will re-request shred 0,
        but if we let it get dropped here, it's possible the request
        could get lost forever. */
-    defer_inflight_request( ctx, cout->shred.slot, cout->shred.shred_idx );
+    defer_inflight_request( ctx, cout->shred.slot, cout->shred.shred_idx, now );
     return;
   }
 
   /* finally, send the request made by policy */
   fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
-  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx );
+  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx, now );
 }
 
 static void
@@ -1408,7 +1413,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                 );
   ctx->protocol     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),         fd_repair_footprint()                                         );
-  ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint( tile->repair.slot_max )                  );
+  ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint( tile->repair.slot_max, tile->repair.max_shreds_per_block ) );
   ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint( FD_REPAIR_PEER_MAX )                     );
   ctx->dedup        = FD_SCRATCH_ALLOC_APPEND( l, fd_reqlim_align(),          fd_reqlim_footprint( FD_REQLIM_CACHE_MAX )                      );
   ctx->inflights    = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint()                                      );
@@ -1420,7 +1425,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->protocol     = fd_repair_join        ( fd_repair_new        ( ctx->protocol,  &ctx->identity_public_key                                                      ) );
-  ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,    tile->repair.slot_max, ctx->repair_seed                                        ) );
+  ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,    tile->repair.slot_max, tile->repair.max_shreds_per_block, ctx->repair_seed       ) );
   ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,    FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->dedup        = fd_reqlim_join        ( fd_reqlim_new        ( ctx->dedup,     FD_REQLIM_CACHE_MAX, ctx->repair_seed                      ) );
   ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( ctx->inflights, ctx->repair_seed+1234UL                                                       ) );
@@ -1581,7 +1586,7 @@ metrics_write( ctx_t * ctx ) {
 
   FD_MGAUGE_SET( REPAIR, SLOT_LAST_REQUESTED,   ctx->metrics->last_requested_slot );
   FD_MGAUGE_SET( REPAIR, ORPHAN_LAST_REQUESTED, ctx->metrics->last_requested_orphan );
-  FD_MGAUGE_SET( REPAIR, REQUEST_INFLIGHT,      fd_inflight_pool_used( ctx->inflights->pool ) - ctx->inflights->popped_cnt );
+  FD_MGAUGE_SET( REPAIR, REQUEST_INFLIGHT,      fd_inflights_outstanding_cnt( ctx->inflights ) );
 
   FD_MCNT_SET      ( REPAIR, PKT_TX,      ctx->metrics->send_pkt_cnt   );
   FD_MCNT_ENUM_COPY( REPAIR, REQUEST_TX, ctx->metrics->sent_pkt_types );

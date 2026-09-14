@@ -25,11 +25,18 @@ typedef struct fd_exec_test_acct_state {
     /* The account address.  (32 bytes) */
     pb_byte_t address[32];
     uint64_t lamports;
-    /* Account data is limited to 10 MiB on Solana mainnet as of 2024-Feb. */
-    pb_bytes_array_t *data;
     bool executable;
     /* Address of the program that owns this account.  (32 bytes) */
     pb_byte_t owner[32];
+    pb_size_t which_data_repr;
+    union {
+        /* 8-byte XXH64 hash (seed 0) of the account data, or 0 if empty.
+     Carried by effects. */
+        uint64_t data_hash;
+        /* Account data is limited to 10 MiB on Solana mainnet as of 2024-Feb.
+     Carried by inputs. */
+        pb_bytes_array_t *data;
+    } data_repr;
 } fd_exec_test_acct_state_t;
 
 /* Fee rate governor parameters */
@@ -54,11 +61,11 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT    {0, NULL}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, {0}}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, 0, {0}, 0, {0}}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_DEFAULT {{0}, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, {0}}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, 0, {0}, 0, {0}}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_ZERO {{0}, 0}
 
@@ -66,9 +73,10 @@ extern "C" {
 #define FD_EXEC_TEST_FEATURE_SET_FEATURES_TAG    1
 #define FD_EXEC_TEST_ACCT_STATE_ADDRESS_TAG      1
 #define FD_EXEC_TEST_ACCT_STATE_LAMPORTS_TAG     2
-#define FD_EXEC_TEST_ACCT_STATE_DATA_TAG         3
 #define FD_EXEC_TEST_ACCT_STATE_EXECUTABLE_TAG   4
 #define FD_EXEC_TEST_ACCT_STATE_OWNER_TAG        6
+#define FD_EXEC_TEST_ACCT_STATE_DATA_HASH_TAG    8
+#define FD_EXEC_TEST_ACCT_STATE_DATA_TAG         9
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_TARGET_LAMPORTS_PER_SIGNATURE_TAG 1
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_TARGET_SIGNATURES_PER_SLOT_TAG 2
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_MIN_LAMPORTS_PER_SIGNATURE_TAG 3
@@ -86,9 +94,10 @@ X(a, POINTER,  REPEATED, FIXED64,  features,          1)
 #define FD_EXEC_TEST_ACCT_STATE_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, address,           1) \
 X(a, STATIC,   SINGULAR, UINT64,   lamports,          2) \
-X(a, POINTER,  SINGULAR, BYTES,    data,              3) \
 X(a, STATIC,   SINGULAR, BOOL,     executable,        4) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             6)
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             6) \
+X(a, STATIC,   ONEOF,    FIXED64,  (data_repr,data_hash,data_repr.data_hash),   8) \
+X(a, POINTER,  ONEOF,    BYTES,    (data_repr,data,data_repr.data),   9)
 #define FD_EXEC_TEST_ACCT_STATE_CALLBACK NULL
 #define FD_EXEC_TEST_ACCT_STATE_DEFAULT NULL
 

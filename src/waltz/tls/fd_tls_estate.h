@@ -157,10 +157,9 @@ FD_PROTOTYPES_BEGIN
 fd_tls_estate_srv_t *
 fd_tls_estate_srv_new( void * mem );
 
-/* fd_tls_estate_srv_delete is currently a no-op. */
-
 static inline void *
 fd_tls_estate_srv_delete( fd_tls_estate_srv_t * estate ) {
+  if( FD_LIKELY( estate ) ) fd_memzero_explicit( estate, sizeof(fd_tls_estate_srv_t) );
   return (void *)estate;
 }
 
@@ -208,8 +207,14 @@ FD_PROTOTYPES_BEGIN
 fd_tls_estate_cli_t *
 fd_tls_estate_cli_new( void * mem );
 
+/* fd_tls_estate_cli_delete destroys the handshake state.  Securely
+   erases the object, which holds the handshake secrets, the master
+   secret, and the transcript hash state.  See
+   fd_tls_estate_srv_delete. */
+
 static inline void *
 fd_tls_estate_cli_delete( fd_tls_estate_cli_t * estate ) {
+  if( FD_LIKELY( estate ) ) fd_memzero_explicit( estate, sizeof(fd_tls_estate_cli_t) );
   return (void *)estate;
 }
 

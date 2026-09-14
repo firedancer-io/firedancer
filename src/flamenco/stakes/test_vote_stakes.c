@@ -20,7 +20,7 @@ epoch_rank( fd_vote_stakes_t const * vote_stakes,
        fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
     fd_pubkey_t pubkey;
     ushort     rank;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL );
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
     if( fd_pubkey_eq( &pubkey, vote_key ) ) return rank;
   }
   FD_LOG_ERR(( "vote account not found" ));
@@ -75,7 +75,7 @@ main( int argc, char ** argv ) {
        fd_vote_stakes_iter_next( vote_stakes, child, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
     fd_pubkey_t pubkey;
     fd_vote_stakes_iter_ele( vote_stakes, child, FD_VOTE_STAKES_ITER_T_2, iter, &pubkey, NULL, &stake,
-                             &last_vote_slot, &last_vote_ts, NULL, &is_valid, &alpenglow_rank, iter_bls );
+                             &last_vote_slot, &last_vote_ts, NULL, &is_valid, &alpenglow_rank, iter_bls, NULL );
     FD_TEST( fd_pubkey_eq( &pubkey, &vote_a ) && stake==100UL );
     FD_TEST( !last_vote_slot && !last_vote_ts && !is_valid );
     FD_TEST( alpenglow_rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
@@ -91,7 +91,7 @@ main( int argc, char ** argv ) {
     fd_pubkey_t pubkey;
     fd_pubkey_t node;
     fd_vote_stakes_iter_ele( vote_stakes, child, FD_VOTE_STAKES_ITER_T_3, iter, &pubkey, &node, &stake,
-                             NULL, NULL, &commission, NULL, &alpenglow_rank, iter_bls );
+                             NULL, NULL, &commission, NULL, &alpenglow_rank, iter_bls, NULL );
     FD_TEST( fd_pubkey_eq( &pubkey, &vote_b ) && fd_pubkey_eq( &node, &node_b ) );
     FD_TEST( stake==200UL && commission==20U );
     FD_TEST( alpenglow_rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
@@ -117,7 +117,7 @@ main( int argc, char ** argv ) {
        fd_vote_stakes_iter_next( vote_stakes, sibling, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     fd_pubkey_t pubkey;
     fd_vote_stakes_iter_ele( vote_stakes, sibling, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, NULL, NULL,
-                             NULL, NULL, NULL, NULL, NULL, NULL );
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL );
     FD_TEST( fd_pubkey_eq( &pubkey, &vote_c ) );
     iter_cnt++;
   }
@@ -205,13 +205,8 @@ main( int argc, char ** argv ) {
   fd_vote_stakes_snap_insert_t_3( vote_stakes, root, &invalid_vote, &node_a, 300UL, 0U, invalid_bls );
   fd_vote_stakes_snap_insert_t_3( vote_stakes, root, &valid_vote,   &node_b, 100UL, 0U, valid_bls[0] );
   fd_vote_stakes_finalize( vote_stakes, 2UL );
-#if FD_HAS_BLST
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &invalid_vote )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &valid_vote   )==0U );
-#else
-  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &invalid_vote )==0U );
-  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &valid_vote   )==1U );
-#endif
   fd_vote_stakes_purge_fork( vote_stakes, root );
 
   fd_vote_stakes_reset( vote_stakes );

@@ -13,6 +13,7 @@
 #include "fd_quic_svc_q.h"
 #include <math.h>
 
+#include "../../ballet/chacha/fd_chacha_rng.h"
 #include "../../util/log/fd_dtrace.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
@@ -83,7 +84,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
   fd_quic_pkt_meta_t    * pkt_meta_pool;
-  fd_rng_t                _rng[1];        /* random number generator */
+  fd_chacha_rng_t         _rng[1];        /* CSPRNG, see fd_quic_rng_ulong */
+  long                    rng_reseed_at;  /* rekey _rng at the first refill due at/after this timestamp */
 
   /* need to be able to access connections by index */
   ulong                   conn_base;      /* address of array of all connections */
@@ -153,6 +155,19 @@ fd_quic_get_state( fd_quic_t * quic ) {
 FD_FN_CONST static inline fd_quic_state_t const *
 fd_quic_get_state_const( fd_quic_t const * quic ) {
   return (fd_quic_state_t const *)( (ulong)quic + FD_QUIC_STATE_OFF );
+}
+
+#define FD_QUIC_RNG_RESEED_INTERVAL ((long)300e9) /* 5 minutes */
+
+FD_FN_SENSITIVE void
+fd_quic_rng_reseed( fd_quic_state_t * state );
+
+static inline ulong
+fd_quic_rng_ulong( fd_quic_state_t * state ) {
+  if( FD_UNLIKELY( state->now >= state->rng_reseed_at ) ) {
+    fd_quic_rng_reseed( state );
+  }
+  return fd_chacha_rng_ulong( state->_rng );
 }
 
 /* fd_quic_conn_service is called periodically to perform pending

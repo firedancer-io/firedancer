@@ -34,6 +34,8 @@ role_from_payload( int payload_lg_type ) {
     return FD_KEYGUARD_ROLE_BUNDLE;
   case FD_KEYGUARD_PAYLOAD_LG_EVENT:
     return FD_KEYGUARD_ROLE_EVENT;
+  case FD_KEYGUARD_PAYLOAD_LG_AG_VOTE:
+    return FD_KEYGUARD_ROLE_VOTOR;
   default:
     return -1;
   }

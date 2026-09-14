@@ -342,6 +342,9 @@ static void
 zip_flush( fd_snapzp_t * ctx ) {
   FD_CHECK_CRIT( !ctx->disk.active, "attempted to flush with active defrag op" );
 
+  /* Nothing buffered */
+  if( FD_UNLIKELY( !ctx->raw_buf.size ) ) return;
+
   /* Align input frame by 512 bytes (TAR file format) */
   ulong content_usz = ctx->raw_buf.size;
   ulong content_asz = fd_ulong_align_up( content_usz, 512UL );

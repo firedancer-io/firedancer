@@ -8,6 +8,7 @@ ag_epoch_info( ag_epoch_info_t *           self,
   for( ulong i=0UL; i<validator_cnt; i++ ) {
     FD_TEST( validators[i].id==i );
     self->validators[i] = validators[i];
+    self->pubkeys[i] = validators[i].bls_key;
     self->total_stake += validators[i].stake;
   }
   self->validator_cnt = validator_cnt;
@@ -41,23 +42,19 @@ ag_epoch_info_is_strong_quorum( ag_epoch_info_t const * self, ulong stake ) {
   return fraction_is_met( stake, self->total_stake, AG_STRONG_QUORUM_THRESHOLD_NUMER, AG_QUORUM_THRESHOLD_DENOM );
 }
 
-#if FD_HAS_BLST
-#include "../../ballet/bls/fd_bls12_381.h"
-#endif
-
-struct epoch_info_rank { ulong stake; uchar const * bls; uchar const * id; ulong src; ulong drop; ag_bls_pub_t pk; };
+struct epoch_info_rank { ulong stake; uchar const * bls; uchar const * id; ulong src; ulong drop; fd_bls_pub_t pk; };
 typedef struct epoch_info_rank epoch_info_rank_t;
 
 #define SORT_NAME        epoch_info_rank_sort
 #define SORT_KEY_T       epoch_info_rank_t
 #define SORT_BEFORE(a,b) ( (a).stake>(b).stake ||                                            \
                           ( (a).stake==(b).stake &&                                         \
-                            memcmp( (a).bls, (b).bls, AG_BLS_PUB_COMPRESSED_SZ )<0 ) )
+                            memcmp( (a).bls, (b).bls, FD_BLS_PUB_COMPRESSED_SZ )<0 ) )
 #include "../../util/tmpl/fd_sort.c"
 
 #define SORT_NAME        epoch_info_bls_sort
 #define SORT_KEY_T       epoch_info_rank_t
-#define SORT_BEFORE(a,b) ( memcmp( (a).bls, (b).bls, AG_BLS_PUB_COMPRESSED_SZ )<0 )
+#define SORT_BEFORE(a,b) ( memcmp( (a).bls, (b).bls, FD_BLS_PUB_COMPRESSED_SZ )<0 )
 #include "../../util/tmpl/fd_sort.c"
 
 #define SORT_NAME        epoch_info_id_sort
@@ -65,7 +62,7 @@ typedef struct epoch_info_rank epoch_info_rank_t;
 #define SORT_BEFORE(a,b) ( memcmp( (a).id, (b).id, sizeof(fd_pubkey_t) )<0 )
 #include "../../util/tmpl/fd_sort.c"
 
-FD_STATIC_ASSERT( sizeof(((fd_vote_stake_weight_t *)0)->bls_key)==AG_BLS_PUB_COMPRESSED_SZ, bls_key_sz );
+FD_STATIC_ASSERT( sizeof(((fd_vote_stake_weight_t *)0)->bls_key)==FD_BLS_PUB_COMPRESSED_SZ, bls_key_sz );
 
 ag_epoch_info_t *
 ag_epoch_info_rank( ag_epoch_info_t *              mem,
@@ -77,12 +74,7 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
   for( ulong i=0UL; i<in_cnt; i++ ) {
     if( FD_UNLIKELY( !stakes[i].stake ) ) continue; /* re-check nonzero stake, in case stakes came verbatim from a snapshot */
     uchar const * bls = stakes[i].bls_key;
-#if FD_HAS_BLST
-    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( rank[m].pk, bls, 1 ) ) ) continue; /* no / invalid BLS key */
-#else
-    memset( &rank[m].pk, 0, sizeof(ag_bls_pub_t) );
-    memcpy( rank[m].pk, bls, AG_BLS_PUB_COMPRESSED_SZ ); /* stub builds do not verify signatures */
-#endif
+    if( FD_UNLIKELY( fd_bls_pub_de( &rank[m].pk, bls, FD_BLS_PUB_COMPRESSED_SZ ) ) ) continue; /* no / invalid BLS key */
     rank[m].stake = stakes[i].stake;
     rank[m].bls   = bls;
     rank[m].id    = stakes[i].id_key.uc;
@@ -97,7 +89,7 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
 
   epoch_info_bls_sort_inplace( rank, m );
   for( ulong i=1UL; i<m; i++ ) {
-    if( FD_UNLIKELY( !memcmp( rank[i].bls, rank[i-1UL].bls, AG_BLS_PUB_COMPRESSED_SZ ) ) ) {
+    if( FD_UNLIKELY( !memcmp( rank[i].bls, rank[i-1UL].bls, FD_BLS_PUB_COMPRESSED_SZ ) ) ) {
       rank[i].drop = rank[i-1UL].drop = 1UL;
     }
   }
@@ -127,8 +119,8 @@ ag_epoch_info_rank( ag_epoch_info_t *              mem,
     vi->stake = stakes[src].stake;
     memcpy( vi->id_key,   stakes[src].id_key.uc,   sizeof(ag_id_key_t)   );
     memcpy( vi->vote_key, stakes[src].vote_key.uc, sizeof(ag_vote_key_t) );
-    memcpy( vi->bls_key,  rank[r].pk,              sizeof(ag_bls_pub_t)  );
-    memcpy( epoch_info->pubkeys[ r ], rank[r].pk,          sizeof(ag_bls_pub_t)  );
+    vi->bls_key            = rank[r].pk;
+    epoch_info->pubkeys[r] = rank[r].pk;
     total += vi->stake;
   }
   epoch_info->validator_cnt = k;

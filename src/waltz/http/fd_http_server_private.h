@@ -3,10 +3,8 @@
 
 #include "fd_http_server.h"
 
-#if FD_HAS_ZSTD
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
-#endif
 
 #define FD_HTTP_SERVER_MAGIC (0xF17EDA2CE50A11D0) /* FIREDANCER HTTP V0 */
 
@@ -100,11 +98,9 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   ulong   oring_sz;
 
   int compress_websocket;
-#if FD_HAS_ZSTD
   uchar * zstd_scratch;
   ulong   zstd_scratch_sz;
   ZSTD_CCtx * zstd_ctx;
-#endif
 
   int   stage_err;
   ulong stage_off;

@@ -84,7 +84,7 @@ txn_serialize( fd_txn_p_t *     out,
   ushort addr_table_cnt = 0;
   FD_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, addr_table_cnt );
 
-  out->payload_sz = (ulong)(txn_raw_cur_ptr - txn_raw_begin);
+  out->payload_sz = (ushort)(txn_raw_cur_ptr - txn_raw_begin);
 }
 
 static void
@@ -259,7 +259,7 @@ test_advance_nonce_fee( fd_svm_mini_t * mini ) {
 
   FD_TEST( txn_out->err.is_committable );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
-  fd_runtime_commit_txn( mini->runtime, env.bank, NULL, txn_out, 0 );
+  fd_runtime_commit_txn( mini->runtime, env.bank, NULL, txn_out );
 
   FD_TEST( read_nonce_fee( mini, env.fork_id, &nonce_key ) == FEE_A );
   FD_TEST( payer_before - read_lamports( mini, env.fork_id, &fee_payer_key ) == FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE );
@@ -309,7 +309,7 @@ test_initialize_nonce_fee( fd_svm_mini_t * mini ) {
 
   FD_TEST( txn_out->err.is_committable );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
-  fd_runtime_commit_txn( mini->runtime, env.bank, NULL, txn_out, 0 );
+  fd_runtime_commit_txn( mini->runtime, env.bank, NULL, txn_out );
 
   FD_TEST( read_nonce_fee( mini, env.fork_id, &nonce_key ) == FEE_A );
 

@@ -199,14 +199,15 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 
 static int
 fd_bundle_client_drive_io( fd_bundle_tile_t * ctx,
+                           long               now,
                            int *              charge_busy ) {
 # if FD_HAS_OPENSSL
   if( ctx->is_ssl ) {
-    return fd_grpc_client_rxtx_ossl( ctx->grpc_client, ctx->ssl, charge_busy );
+    return fd_grpc_client_rxtx_ossl( ctx->grpc_client, ctx->ssl, now, charge_busy );
   }
 # endif /* FD_HAS_OPENSSL */
 
-  return fd_grpc_client_rxtx_socket( ctx->grpc_client, ctx->tcp_sock, charge_busy );
+  return fd_grpc_client_rxtx_socket( ctx->grpc_client, ctx->tcp_sock, now, charge_busy );
 }
 
 static void
@@ -436,7 +437,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   }
 
   /* Drive I/O, SSL handshake, and any inflight requests */
-  if( FD_UNLIKELY( -1==fd_bundle_client_drive_io( ctx, charge_busy ) || ctx->defer_reset /* new error? */ ) ) {
+  if( FD_UNLIKELY( -1==fd_bundle_client_drive_io( ctx, check_ts, charge_busy ) || ctx->defer_reset /* new error? */ ) ) {
     fd_bundle_client_reset( ctx );
     ctx->metrics.transport_fail_cnt++;
     *charge_busy = 1;

@@ -322,19 +322,24 @@ typedef struct fd_done_packing fd_done_packing_t;
 
 #define FD_POH_MAGIC (0xF17EDA2CE580A000) /* FIREDANCE POH V0 */
 
-/* The maximum number of microblocks that pack is allowed to pack into a
-   single slot.  This is not consensus critical, and pack could, if we
-   let it, produce as many microblocks as it wants, and the slot would
-   still be valid.
+/* The maximum number of microblocks pack may put in a slot: one per
+   non-tick hash position (one per tick in low power mode), less the
+   phantom microblock PoH reserves for the done_packing message.  This
+   is not consensus critical; PoH reserves this many hashes so it never
+   runs out of positions to mixin microblocks still coming from pack.
+   Pack shrinks its live bound with the time left in the slot (see
+   compute_dynamic_max_microblocks in fd_pack_tile.c), so the reserve
+   is gone by the end of the slot rather than hashed through. */
 
-   We have this here instead so that PoH can estimate slot completion,
-   and keep the hashcnt up to date as pack progresses through packing
-   the slot.  If this upper bound was not enforced, PoH could tick to
-   the last hash of the slot and have no hashes left to mixin incoming
-   microblocks from pack, so this upper bound is a coordination
-   mechanism so that PoH can progress hashcnts while the slot is active,
-   and know that pack will not need those hashcnts later to do mixins. */
-#define MAX_MICROBLOCKS_PER_SLOT (131072UL)
+/* Alpenglow has one tick per block, so the hash budget does not bound
+   microblocks; pack is given this fixed budget instead. */
+#define FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT (131072UL)
+
+FD_FN_CONST static inline ulong
+fd_poh_max_microblocks_per_slot( ulong ticks_per_slot,
+                                 ulong hashcnt_per_tick ) {
+  return ticks_per_slot*(fd_ulong_max( hashcnt_per_tick, 2UL )-1UL)-1UL; /* low power genesis encodes hashes_per_tick as 0 or 1 */
+}
 
 /* When we are hashing in the background in case a prior leader skips
    their slot, we need to store the result of each tick hash so we can
@@ -365,15 +370,39 @@ typedef struct fd_leader_txn_timing_rec fd_leader_txn_timing_rec_t;
 
 FD_STATIC_ASSERT( sizeof(fd_leader_txn_timing_rec_t)==32UL, leader_txn_timing_rec );
 
+/* The ldr_tt object holds FD_LEADER_TXN_TIMING_TABLE_CNT tables back to
+   back, each with room for config->limits.max_txn_per_slot records, so
+   the table stride is a runtime value: index them with
+   fd_leader_txn_timing_table(). */
+
 struct fd_leader_txn_timing_table {
   ulong slot;
   ulong cnt;
-  fd_leader_txn_timing_rec_t rec[ FD_MAX_TXN_PER_SLOT ];
+  fd_leader_txn_timing_rec_t rec[]; /* max_txn_per_slot */
 };
 
 typedef struct fd_leader_txn_timing_table fd_leader_txn_timing_table_t;
 
 #define FD_LEADER_TXN_TIMING_TABLE_CNT (2UL)
+
+FD_FN_CONST static inline ulong
+fd_leader_txn_timing_table_footprint( ulong max_txn_per_slot ) {
+  return sizeof(fd_leader_txn_timing_table_t)+max_txn_per_slot*sizeof(fd_leader_txn_timing_rec_t);
+}
+
+FD_FN_CONST static inline fd_leader_txn_timing_table_t const *
+fd_leader_txn_timing_table_const( fd_leader_txn_timing_table_t const * tables,
+                                  ulong                                idx,
+                                  ulong                                max_txn_per_slot ) {
+  return (fd_leader_txn_timing_table_t const *)( (uchar const *)tables + idx*fd_leader_txn_timing_table_footprint( max_txn_per_slot ) );
+}
+
+FD_FN_CONST static inline fd_leader_txn_timing_table_t *
+fd_leader_txn_timing_table( fd_leader_txn_timing_table_t * tables,
+                            ulong                          idx,
+                            ulong                          max_txn_per_slot ) {
+  return (fd_leader_txn_timing_table_t *)fd_leader_txn_timing_table_const( tables, idx, max_txn_per_slot );
+}
 
 struct fd_poh_leader_slot_ended {
   int   completed;
@@ -497,9 +526,10 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
   long  pack_end_ns;
 
   /* Shared per-transaction timing tables or NULL when the topology does
-     not provide them. */
+     not provide them; timing_table_max records per table. */
   fd_leader_txn_timing_table_t * timing_tables;
   ulong                          timing_table_idx;
+  ulong                          timing_table_max;
 
   ulong magic;
 };
@@ -521,7 +551,8 @@ fd_poh_t *
 fd_poh_join( void *                         shpoh,
              fd_poh_out_t *                 shred_out,
              fd_poh_out_t *                 replay_out,
-             fd_leader_txn_timing_table_t * timing_tables );
+             fd_leader_txn_timing_table_t * timing_tables,
+             ulong                          timing_table_max ); /* records per table, config->limits.max_txn_per_slot */
 
 void
 fd_poh_reset( fd_poh_t *          poh,

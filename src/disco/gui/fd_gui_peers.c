@@ -41,14 +41,10 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
 
-#if FD_HAS_ZSTD
   l = FD_LAYOUT_APPEND( l, 16UL,                                    FD_GUI_GEOIP_BIN_MAX+fd_ulong_align_up( ZSTD_estimateDStreamSize( 1<<FD_GUI_GEOIP_ZSTD_WINDOW_LOG ), 16UL ) );
-#endif
 
   return FD_LAYOUT_FINI( l, fd_gui_peers_align() );
 }
-
-#if FD_HAS_ZSTD
 
 /* load_geoip decompresses the dbip database image into image (a
    single streaming decompress; the image is the on-disk format, see
@@ -127,8 +123,6 @@ load_geoip( ZSTD_DCtx *      dctx,
   ip_db->seg_city    = seg_city;
 }
 
-#endif
-
 void *
 fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
@@ -160,7 +154,6 @@ fd_gui_peers_new( void *             shmem,
   void * _pubkey_map       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_pubkey_map_align(),    fd_gui_peers_node_pubkey_map_footprint   ( pubkey_chain_cnt )           );
   void * _sock_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   ctx->client_viewports    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
-#if FD_HAS_ZSTD
   /* DCtx scratch is only needed during load_geoip below; it lives
      past the image so the image gets the full FD_GUI_GEOIP_BIN_MAX
      the generator enforces. */
@@ -168,7 +161,6 @@ fd_gui_peers_new( void *             shmem,
   ctx->dbip_image          = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                                    FD_GUI_GEOIP_BIN_MAX+fd_ulong_align_up( zstd_ctx_sz, 16UL )             );
   ZSTD_DCtx * zstd_dctx = ZSTD_initStaticDStream( ctx->dbip_image+FD_GUI_GEOIP_BIN_MAX, zstd_ctx_sz );
   FD_TEST( zstd_dctx );
-#endif
 
     for( ulong i = 0UL; i<max_ws_conn_cnt; i++ ) ctx->client_viewports[ i ].connected = 0;
 
@@ -206,11 +198,7 @@ fd_gui_peers_new( void *             shmem,
     ctx->node_pubkey_map = fd_gui_peers_node_pubkey_map_join( fd_gui_peers_node_pubkey_map_new( _pubkey_map, pubkey_chain_cnt, seed ) );
     ctx->node_sock_map   = fd_gui_peers_node_sock_map_join  ( fd_gui_peers_node_sock_map_new  ( _sock_map,   sock_chain_cnt,   seed ) );
 
-#if FD_HAS_ZSTD
     load_geoip( zstd_dctx, ctx->dbip_image, FD_GUI_GEOIP_BIN_MAX, dbip_f, dbip_f_sz, &ctx->dbip );
-#else
-    ctx->dbip.seg_cnt = 0UL;
-#endif
 
     ctx->wfs_peers_cnt = 0UL;
     ctx->wfs_peers_valid = 0;
@@ -541,8 +529,6 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
   fd_ptr_if( is_rx, (fd_gui_peers_metric_rate_t *)&peer->row.gossvf_rx_sum, (fd_gui_peers_metric_rate_t *)&peer->row.gossip_tx_sum )->cur += payload_sz;
 }
 
-#if FD_HAS_ZSTD
-
 /* geoip_lookup finds the segment covering ip_addr (network byte
    order) by binary search over the sorted disjoint segment starts.
    Returns the segment index, or ULONG_MAX if the database is empty. */
@@ -564,8 +550,6 @@ geoip_lookup( fd_gui_ip_db_t const * ip_db,
   }
   return lo;
 }
-
-#endif /* FD_HAS_ZSTD */
 
 #define SORT_NAME wfs_peer_sort
 #define SORT_KEY_T fd_gui_wfs_peer_t
@@ -696,16 +680,11 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           peer->row.wallclock_nanos  = FD_MILLI_TO_NANOSEC( update->wallclock );
           peer->row.update_time_nanos = now;
           /* fetch and set country code */
-#if FD_HAS_ZSTD
           uint ip4 = peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
           ulong dbip_seg = geoip_lookup( &peers->dbip, ip4 );
 
           peer->row.country_code_idx = dbip_seg!=ULONG_MAX ? peers->dbip.seg_country[ dbip_seg ] : UCHAR_MAX;
           peer->row.city_name_idx    = dbip_seg!=ULONG_MAX ? peers->dbip.seg_city   [ dbip_seg ] : UINT_MAX;
-#else
-          peer->row.country_code_idx = UCHAR_MAX;
-          peer->row.city_name_idx = UINT_MAX;
-#endif
 
           fd_gui_peers_live_table_idx_insert        ( peers->live_table,    update->contact_info->idx, peers->contact_info_table );
           fd_gui_peers_node_sock_map_idx_insert     ( peers->node_sock_map, update->contact_info->idx, peers->contact_info_table );
@@ -774,16 +753,11 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           peer->row.contact_info      = *update->contact_info->value;
 
           /* fetch and set country code */
-#if FD_HAS_ZSTD
           uint ip4 = peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : peer->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
           ulong dbip_seg = geoip_lookup( &peers->dbip, ip4 );
 
           peer->row.country_code_idx = dbip_seg!=ULONG_MAX ? peers->dbip.seg_country[ dbip_seg ] : UCHAR_MAX;
           peer->row.city_name_idx    = dbip_seg!=ULONG_MAX ? peers->dbip.seg_city   [ dbip_seg ] : UINT_MAX;
-#else
-          peer->row.country_code_idx = UCHAR_MAX;
-          peer->row.city_name_idx = UINT_MAX;
-#endif
 
           peer->row.valid = 1;
 

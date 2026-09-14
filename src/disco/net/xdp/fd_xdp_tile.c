@@ -342,10 +342,10 @@ typedef struct {
 } fd_net_ctx_t;
 
 fd_fib4_t *
-fd_net_tile_fib4_join( fd_fib4_t *              out,
-                       fd_topo_t const *         topo,
-                       fd_topo_tile_t const *    tile,
-                       int                      main_table ) {
+fd_xdp_tile_fib4_join( fd_fib4_t *            out,
+                       fd_topo_t const *      topo,
+                       fd_topo_tile_t const * tile,
+                       int                    main_table ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   (void)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );

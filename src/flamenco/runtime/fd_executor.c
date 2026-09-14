@@ -421,7 +421,7 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L98-L107
    https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L156-L176 */
-static inline int
+int
 fd_executor_sanitize_txn_v1_config( fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out ) {
   fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
@@ -718,8 +718,8 @@ fd_executor_load_transaction_accounts( fd_bank_t *         bank,
   /* Programdata accounts that are loaded by this transaction.
      We keep track of these to ensure they are not counted twice.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L559 */
-  fd_pubkey_t additional_loaded_account_keys[ FD_TXN_ACCT_ADDR_MAX ] = { 0 };
-  ulong       additional_loaded_account_keys_cnt                     = 0UL;
+  fd_pubkey_t additional_loaded_account_keys[ FD_TXN_ACCT_ADDR_MAX ];
+  ulong       additional_loaded_account_keys_cnt = 0UL;
 
   /* Charge a base fee for each address lookup table.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L570-L576 */
@@ -1183,6 +1183,9 @@ fd_execute_instr( fd_runtime_t *      runtime,
                   fd_txn_in_t const * txn_in,
                   fd_txn_out_t *      txn_out,
                   fd_instr_info_t *   instr ) {
+  if( FD_UNLIKELY( runtime->instr.stack_sz ) ) runtime->metrics.cpi_cum++;
+  else                                         runtime->metrics.instr_cum++;
+
   fd_sysvar_cache_t const * sysvar_cache = &bank->f.sysvar_cache;
   int instr_exec_result = fd_instr_stack_push( runtime, txn_in, txn_out, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
@@ -1202,7 +1205,10 @@ fd_execute_instr( fd_runtime_t *      runtime,
     .txn_out      = txn_out,
     .bank         = bank,
   };
-  fd_base58_encode_32( txn_out->accounts.keys[ instr->program_id ].uc, NULL, ctx->program_id_base58 );
+
+  if( FD_UNLIKELY( !runtime->log.log_collector->disabled ) ) {
+    fd_base58_encode_32( txn_out->accounts.keys[ instr->program_id ].uc, NULL, ctx->program_id_base58 );
+  }
 
   /* Look up the native program. We check for precompiles within the lookup function as well.
      https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/message_processor.rs#L88 */

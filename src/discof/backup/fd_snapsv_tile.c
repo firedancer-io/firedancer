@@ -870,6 +870,22 @@ conn_close( fd_snapsv_t *       ctx,
   }
 }
 
+/* conn_req_done finishes a response that has no more bytes to send.
+   Closes the conn if the client asked for a close, otherwise waits for
+   the next request. */
+
+static void
+conn_req_done( fd_snapsv_t *       ctx,
+               fd_stem_context_t * stem,
+               uint                conn_idx,
+               long                now ) {
+  if( FD_UNLIKELY( ctx->conn0[ conn_idx ].sick ) ) {
+    conn_close( ctx, stem, conn_idx, now );
+    return;
+  }
+  conn_req_next( ctx, conn_idx );
+}
+
 static ulong
 populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
@@ -1091,11 +1107,7 @@ shovel( fd_snapsv_t *       ctx,
     conn->res.close_kind = FD_SNAPSV_CLOSE_DONE;
     event_snap( ctx, stem, conn_idx, now, 0, 1 ); /* eom */
     conn->req.get_snap = 0;
-    if( FD_UNLIKELY( conn->sick ) ) {
-      conn_close( ctx, stem, conn_idx, now );
-      return;
-    }
-    conn_req_next( ctx, conn_idx );
+    conn_req_done( ctx, stem, conn_idx, now );
   }
 }
 
@@ -1453,21 +1465,17 @@ handle_write_hdr_comp( fd_snapsv_t *       ctx,
     prep_write_hdr( ctx, conn_idx );
     return;
   }
-  /* wrote response body */
+  /* wrote response header */
   iobuf_free( ctx, &conn->iobuf_idx );
-  if( FD_UNLIKELY( conn->sick ) ) {
-    conn_close( ctx, stem, conn_idx, now );
-    return;
-  }
   switch( conn->state ) {
   case CONN_STATE_RES_WRITE_ERR:
   case CONN_STATE_RES_REDIRECT:
     /* returned header-only response, handle the next request */
-    conn_req_next( ctx, conn_idx );
+    conn_req_done( ctx, stem, conn_idx, now );
     return;
   case CONN_STATE_RES_WRITE_HDR:
     if( conn->req.head || !conn->snap.slot ) {
-      conn_req_next( ctx, conn_idx );
+      conn_req_done( ctx, stem, conn_idx, now );
       return;
     }
     /* now serve the snapshot body */

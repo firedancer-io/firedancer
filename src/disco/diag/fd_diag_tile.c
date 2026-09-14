@@ -1349,7 +1349,7 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) ctx->cpu_to_tile[ i ] = USHORT_MAX;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     ulong cpu_idx = topo->tiles[ i ].cpu_idx;
-    if( cpu_idx>=FD_TILE_MAX ) continue;
+    if( cpu_idx>=FD_TILE_MAX || topo->tiles[ i ].floats ) continue;
     ctx->cpu_to_tile[ cpu_idx ] = (ushort)i;
   }
 

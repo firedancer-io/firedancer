@@ -16,10 +16,8 @@ static int server_done = 0;
 
 /* received count */
 static ulong rcvd                 = 0;
-static ulong tot_rcvd             = 0;
 static ulong tot_key_phase_change = 0;
 
-static int server_complete = 0;
 static int client_complete = 0;
 
 int
@@ -31,7 +29,6 @@ my_stream_rx_cb( fd_quic_conn_t * conn,
                  int              fin ) {
   (void)conn; (void)stream_id; (void)offset; (void)data; (void)data_sz; (void)fin;
   rcvd++;
-  tot_rcvd++;
   return FD_QUIC_SUCCESS;
 }
 
@@ -59,8 +56,6 @@ my_connection_new( fd_quic_conn_t * conn,
   (void)vp_context;
 
   FD_LOG_INFO(( "SERVER - handshake complete" ));
-
-  server_complete = 1;
 
   if( server_conn ) {
     FD_LOG_ERR(( "SERVER - Unexpected new connection" ));

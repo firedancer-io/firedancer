@@ -100,6 +100,12 @@ fd_cpu_isolation_format_list( char *              buf,
 
 static char const * const smt_sensitive_tiles[] = { "pack", "pohh", "poh", NULL };
 
+char const *
+fd_cpu_isolation_partition_type( fd_topo_t const * topo ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) if( topo->tiles[ i ].floats ) return "root";
+  return "isolated";
+}
+
 fd_cpuset_t *
 fd_cpu_isolation_partition_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
                                  fd_topo_t const * topo ) {
@@ -114,6 +120,7 @@ fd_cpu_isolation_partition_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word
 
     ulong cpu_idx = topo->tiles[ tile_idx ].cpu_idx;
     if( FD_UNLIKELY( cpu_idx>=fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ) ) ) continue;
+    if( FD_UNLIKELY( topo->tiles[ tile_idx ].floats ) ) continue; /* not alone on that core anyway */
 
     ulong sibling = cpus->cpu[ cpu_idx ].sibling;
     if( FD_UNLIKELY( sibling==ULONG_MAX || sibling>=FD_TILE_MAX ) ) continue;      /* no sibling */

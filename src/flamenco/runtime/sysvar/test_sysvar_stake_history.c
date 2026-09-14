@@ -53,7 +53,7 @@ write_stake_history_account( test_sysvar_cache_env_t * env,
                              ulong                     lamports ) {
   fd_accdb_svm_write( env->bank, env->accdb, NULL,
                       &fd_sysvar_stake_history_id, &fd_sysvar_owner_id,
-                      data, data_sz, lamports, 0 );
+                      data, data_sz, lamports, 0, 0 );
 }
 
 static void

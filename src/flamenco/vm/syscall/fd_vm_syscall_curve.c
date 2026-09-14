@@ -49,7 +49,6 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
     ret = (ulong)!fd_ristretto255_point_validate( point ); /* 0 if valid point, 1 if not */
     break;
 
-#if FD_HAS_BLST
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE:
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE: {
 
@@ -67,7 +66,6 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
     point = FD_VM_MEM_HADDR_LD( vm, point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
     ret = (ulong)!fd_bls12_381_g2_validate_syscall( point, big_endian ); /* 0 if valid point, 1 if not */
   } break;
-#endif
 
   default:
     /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L919-L928 */
@@ -170,7 +168,6 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     }
     break;
 
-#if FD_HAS_BLST
   /* BLS12-381 G1 */
   case BLS_G1_BE:
   case BLS_G1_LE:
@@ -226,7 +223,6 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto invalid_error;
     }
     break;
-#endif
 
   default:
     goto invalid_error;
@@ -241,9 +237,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
   uchar const * inputL = FD_VM_MEM_HADDR_LD( vm, left_input_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, inputL_sz );
   uchar const * inputR = FD_VM_MEM_HADDR_LD( vm, right_input_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, inputR_sz );
 
-#if FD_HAS_BLST
   int big_endian = ( curve_id & 0x80 ) ? 1 : 0;
-#endif
 
   switch( MATCH_ID_OP( curve_id, group_op ) ) {
 
@@ -343,7 +337,6 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     break;
   }
 
-#if FD_HAS_BLST
   /* BLS12-381 G1 */
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1453 */
@@ -425,7 +418,6 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     }
     break;
   }
-#endif
 
   default:
     /* COV: this can never happen because of the previous switch */
@@ -642,8 +634,6 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-#if FD_HAS_BLST
-
 int
 fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
                                     /**/            ulong   curve_id,
@@ -745,5 +735,3 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
   *_ret = ret;
   return FD_VM_SUCCESS;
 }
-
-#endif

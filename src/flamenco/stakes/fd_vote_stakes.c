@@ -6,10 +6,7 @@
 #include "../../util/bits/fd_bits.h"
 #include "../../util/fd_hash32.h"
 #include "../../util/log/fd_log.h"
-
-#if FD_HAS_BLST
 #include "../../ballet/bls/fd_bls12_381.h"
-#endif
 
 #define FD_VOTE_STAKES_MAGIC          (0xF17EDA2CE7601E70UL) /* FIREDANCER VOTE STAKES V0 */
 #define FD_VOTE_STAKES_MAX_FORK_WIDTH (128UL)
@@ -21,6 +18,7 @@ struct vacc {
   ushort      commission;
   ushort      alpenglow_rank;
   uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; /* zero if unregistered */
+  uchar       bls_key_uncompressed[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ]; /* decompressed by finalize, valid iff alpenglow_rank!=NULL */
   uint        left;
   uint        right;
   uint        next;
@@ -551,10 +549,7 @@ fd_vote_stakes_finalize( fd_vote_stakes_t * vote_stakes,
     vacc_t * vacc = vacc_map_iter_ele( iter, map, pool );
     vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
     if( FD_UNLIKELY( !vacc->stake ) ) continue;
-#if FD_HAS_BLST
-    uchar decompressed[ 96 ];
-    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( decompressed, vacc->bls_key, 1 ) ) ) continue;
-#endif
+    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( vacc->bls_key_uncompressed, vacc->bls_key, 1 ) ) ) continue;
     FD_TEST( rank_cnt<FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
     rank[ rank_cnt++ ] = (vacc_rank_t){ .vacc=vacc, .drop=0UL };
   }
@@ -649,6 +644,7 @@ fd_vote_stakes_new_fork( fd_vote_stakes_t * vote_stakes,
         dst->commission     = src->commission;
         dst->alpenglow_rank = src->alpenglow_rank;
         memcpy( dst->bls_key, src->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
+        memcpy( dst->bls_key_uncompressed, src->bls_key_uncompressed, FD_BLS_PUBKEY_UNCOMPRESSED_SZ );
         FD_TEST( vacc_map_ele_insert( t_2_map, dst, t_2_pool ) );
       }
       vote_stakes->t_2_epoch[ t_2_idx ] = epoch;
@@ -711,7 +707,7 @@ fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
     fd_pubkey_t pubkey;
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                             &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+                             &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
 
     fd_acc_t acc = fd_accdb_read_one( accdb, accdb_fork_id, pubkey.uc );
     if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
@@ -921,7 +917,8 @@ fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
                          ushort *                 commission_out_opt,
                          uchar *                  is_valid_out_opt,
                          ushort *                 alpenglow_rank_out_opt,
-                         uchar                    bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] ) {
+                         uchar                    bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                         uchar                    bls_key_uncomp_out_opt[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ] ) {
   vacc_t *     pool;
   vacc_map_t * map;
   if( FD_LIKELY( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) ) {
@@ -942,6 +939,7 @@ fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
   if( commission_out_opt )     *commission_out_opt     = vacc->commission;
   if( alpenglow_rank_out_opt ) *alpenglow_rank_out_opt = vacc->alpenglow_rank;
   if( bls_key_out_opt )        memcpy( bls_key_out_opt, vacc->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  if( bls_key_uncomp_out_opt ) memcpy( bls_key_uncomp_out_opt, vacc->bls_key_uncompressed, FD_BLS_PUBKEY_UNCOMPRESSED_SZ );
 
   if( last_vote_slot_out_opt || last_vote_ts_out_opt || is_valid_out_opt ) {
     FD_TEST( iter_kind==FD_VOTE_STAKES_ITER_T_2 );

@@ -140,6 +140,29 @@ main( int     argc,
 # undef DATA_MAX
 # undef BATCH_MAX
 
+  /* Every message size in [0,4096] in every lane of a full batch, with
+     the other lanes at different sizes so tail switching is exercised. */
+  do {
+    ulong const sz_max = 4096UL;
+    static uchar big[ 4096UL+64UL ] __attribute__((aligned(64)));
+    for( ulong idx=0UL; idx<sz_max+64UL; idx++ ) big[ idx ] = fd_rng_uchar( rng );
+    uchar out[ FD_SHA256_BATCH_MAX*32UL ];
+    for( ulong s=0UL; s<=sz_max; s++ ) {
+      ulong sz[ FD_SHA256_BATCH_MAX ]; uchar const * data[ FD_SHA256_BATCH_MAX ];
+      fd_sha256_batch_t * batch = fd_sha256_batch_init( batch_mem );
+      for( ulong lane=0UL; lane<FD_SHA256_BATCH_MAX; lane++ ) {
+        sz  [ lane ] = (s + 257UL*lane) % (sz_max+1UL); /* lane l sees every size once over the sweep */
+        data[ lane ] = big + (lane*7UL % 64UL);
+        fd_sha256_batch_add( batch, data[ lane ], sz[ lane ], out + 32UL*lane );
+      }
+      fd_sha256_batch_fini( batch );
+      for( ulong lane=0UL; lane<FD_SHA256_BATCH_MAX; lane++ ) {
+        uchar ref_hash[ 32 ];
+        FD_TEST( !memcmp( fd_sha256_hash( data[ lane ], sz[ lane ], ref_hash ), out + 32UL*lane, 32UL ) );
+      }
+    }
+  } while(0);
+
   uchar in_hash[32];
   /* test fd_sha256_hash_32_repeated */
   for( ulong k=0UL; k<1000000UL; k = (k<<1)|1UL ) {
@@ -148,6 +171,27 @@ main( int     argc,
     for( ulong iter=0UL; iter<k; iter++ ) fd_sha256_hash( hash, 32UL, hash );
     fd_sha256_hash_32_repeated( in_hash, in_hash, k );
     for( ulong b=0UL; b<32UL; b++ ) FD_TEST( in_hash[b]==hash[b] );
+  }
+
+  /* test fd_sha256_hash_32_repeated_batch */
+# define REPEATED_BATCH_MAX 32UL
+  ulong lane_max = fd_sha256_simd_lane_max();
+  FD_TEST( lane_max>=1UL && lane_max<=REPEATED_BATCH_MAX );
+  for( ulong trial=0UL; trial<1000UL; trial++ ) {
+    ulong batch_cnt  = fd_rng_ulong_roll( rng, lane_max+1UL ); /* In [0,lane_max] */
+    ulong batch_iter = fd_rng_uint_roll( rng, 4U ) ? 100UL : fd_rng_ulong_roll( rng, 200UL );
+
+    uchar batch_data[ REPEATED_BATCH_MAX*32UL ];
+    uchar batch_hash[ REPEATED_BATCH_MAX*32UL ];
+    uchar ref_hash  [ REPEATED_BATCH_MAX*32UL ];
+
+    for( ulong i=0UL; i<batch_cnt; i++ ) {
+      for( ulong b=0UL; b<32UL; b++ ) batch_data[ 32UL*i+b ] = fd_rng_uchar( rng );
+      fd_sha256_hash_32_repeated( batch_data+32UL*i, ref_hash+32UL*i, batch_iter );
+    }
+
+    fd_sha256_hash_32_repeated_batch( batch_data, batch_hash, batch_iter, batch_cnt );
+    for( ulong i=0UL; i<batch_cnt; i++ ) FD_TEST( !memcmp( batch_hash+32UL*i, ref_hash+32UL*i, 32UL ) );
   }
 
   if( bench ) {
@@ -178,6 +222,24 @@ main( int     argc,
       dt += fd_log_wallclock();
       float hashes_per_sec = ((float)iter * 1e-6f ) / ((float)dt * 1e-9f) ;
       FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core with fd_sha256_hash_32_repeated", (double)hashes_per_sec ));
+    }
+    {
+      uchar batch_in  [ REPEATED_BATCH_MAX*32UL ];
+      uchar batch_out [ REPEATED_BATCH_MAX*32UL ];
+
+      for( ulong b=0UL; b<REPEATED_BATCH_MAX*32UL; b++ ) batch_in[ b ] = fd_rng_uchar( rng );
+
+      for( ulong batch_cnt=1UL; batch_cnt<=lane_max; batch_cnt<<=1 ) {
+        fd_sha256_hash_32_repeated_batch( batch_in, batch_out, 10UL, batch_cnt );
+
+        ulong iter = 1000000UL;
+        long dt = -fd_log_wallclock();
+        fd_sha256_hash_32_repeated_batch( batch_in, batch_out, iter, batch_cnt );
+        dt += fd_log_wallclock();
+        float hashes_per_sec = ((float)(iter*batch_cnt) * 1e-6f ) / ((float)dt * 1e-9f) ;
+        FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core with fd_sha256_hash_32_repeated_batch (batch_cnt=%lu)",
+                        (double)hashes_per_sec, batch_cnt ));
+      }
     }
 
     /* do a quick benchmark of sha-256 on small and large UDP payload

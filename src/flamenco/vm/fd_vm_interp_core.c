@@ -218,14 +218,7 @@
      processed (and thus the number of compute units to bill for that
      segment) is thus:
 
-       pc - pc0 + 1 - ic_correction
-
-     IMPORTANT SAFETY TIP!  This implies the worst case interval before
-     checking the cu budget is the worst case text_cnt.  But since all
-     such instructions are cheap 1 cu instructions and processed fast
-     and text max is limited in size, this should be acceptable in
-     practice.  FIXME: DOUBLE CHECK THE MATH ABOVE AGAINST PROTOCOL
-     LIMITS. */
+       pc - pc0 + 1 - ic_correction */
 
   ulong pc0           = pc;
   ulong ic_correction = 0UL;

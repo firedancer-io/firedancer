@@ -81,10 +81,10 @@ FD_PROTOTYPES_END
 
    Security Note: This scheme relies on a 128-bit auth key and 96-bit
    unique nonces.  The encryption key is sourced from CSPRNG on startup
-   and stays secret.  Nonces are generated using fd_rng_t (fine if an
-   attacker can guess these nonces).  However, if fd_rng_t generates the
-   same 96-bit nonce twice, the retry token authentication mechanism
-   breaks down entirely (AES-GCM IV reuse). */
+   and stays secret.  Nonces only have to be unique, not unguessable,
+   but if the same 96-bit nonce is ever generated twice the retry token
+   authentication mechanism breaks down entirely (AES-GCM IV reuse).
+   Callers therefore source them from fd_quic_rng_ulong. */
 
 /* fd_quic_retry_data_t encodes data within the QUIC Retry token.
    It contains claims about the client. */
@@ -118,18 +118,17 @@ typedef struct fd_quic_retry_token fd_quic_retry_token_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_quic_retry_data_new initializes fd_quic_retry_data_t with a random
-   nonce.  Uses fd_rng_t because only random (unique) bytes are required
-   but it is not required that they are unguessable. */
+/* fd_quic_retry_data_new initializes fd_quic_retry_data_t with a
+   randomly generated 96-bit nonce. */
 
 static inline fd_quic_retry_data_t *
 fd_quic_retry_data_new( fd_quic_retry_data_t * data,
-                        fd_rng_t *             rng ) {
+                        ulong                  nonce0,    /* rand */
+                        ulong                  nonce1 ) { /* rand */
   memset( data, 0, sizeof(fd_quic_retry_data_t) );
   data->magic = FD_QUIC_RETRY_TOKEN_MAGIC;
-  FD_STORE( uint, data->token_id + 0, fd_rng_uint( rng ) );
-  FD_STORE( uint, data->token_id + 4, fd_rng_uint( rng ) );
-  FD_STORE( uint, data->token_id + 8, fd_rng_uint( rng ) );
+  FD_STORE( ulong, data->token_id + 0, nonce0         );
+  FD_STORE( uint,  data->token_id + 8, (uint)nonce1   );
   return data;
 }
 
@@ -202,13 +201,15 @@ FD_PROTOTYPES_BEGIN
 
    orig_dst_conn_id is the DCID chosen by the client in the Initial that
    triggered a Retry.  retry_src_conn_id is the SCID chosen by the server
-   in the Retry packet. */
+   in the Retry packet.  nonce0 and nonce1 are the two halves of the
+   token's single 96-bit AES-GCM nonce. */
 
 ulong
 fd_quic_retry_create(
     uchar                     retry[FD_QUIC_RETRY_LOCAL_SZ], /* out */
     fd_quic_pkt_t const *     pkt,
-    fd_rng_t *                rng,
+    ulong                     nonce0, /* rand */
+    ulong                     nonce1, /* rand */
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
     fd_quic_conn_id_t const * orig_dst_conn_id,

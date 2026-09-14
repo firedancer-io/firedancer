@@ -582,6 +582,11 @@
 | <span class="metrics-name">execle_&#8203;txn_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;fees_&#8203;only</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but was fees only and did not execute) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;failed</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but failed to execute) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">unlanded</span>"} | counter | Whether a transaction landed in the block or not (Transaction did not land) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">legacy</span>"} | counter | Number of transactions executed, broken down by transaction version (Legacy transaction format) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v0</span>"} | counter | Number of transactions executed, broken down by transaction version (Version 0 transaction format) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v1</span>"} | counter | Number of transactions executed, broken down by transaction version (Version 1 transaction format) |
+| <span class="metrics-name">execle_&#8203;instruction_&#8203;executed</span> | counter | Number of top-level instructions executed |
+| <span class="metrics-name">execle_&#8203;cpi_&#8203;executed</span> | counter | Number of cross-program invocations executed |
 | <span class="metrics-name">execle_&#8203;cu_&#8203;executed</span> | counter | Estimated compute units executed since tile start |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction setup) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction execution (includes VM setup/execution)) |
@@ -695,7 +700,7 @@
 | <span class="metrics-name">shred_&#8203;microblock_&#8203;per_&#8203;batch</span> | histogram | Microblocks in each microblock batch that is shredded |
 | <span class="metrics-name">shred_&#8203;shredding_&#8203;duration_&#8203;seconds</span> | histogram | Duration of producing one FEC set from the shredder |
 | <span class="metrics-name">shred_&#8203;add_&#8203;shred_&#8203;duration_&#8203;seconds</span> | histogram | Duration of verifying and processing one shred received from the network |
-| <span class="metrics-name">shred_&#8203;disk_&#8203;write_&#8203;seconds</span> | histogram | Duration of persisting one accepted data shred |
+| <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write_&#8203;seconds</span> | histogram | Duration of spilling one FEC payload from the shred tile |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">bad_&#8203;slot</span>"} | counter | Result of processing a shred from the network (Shred was for a slot for which we don't know the leader) |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">parse_&#8203;failed</span>"} | counter | Result of processing a shred from the network (Shred parsing failed) |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">equivocated</span>"} | counter | Result of processing a shred from the network (Shred was equivocated with another shred) |
@@ -713,9 +718,8 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with repair shreds, including network headers |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx</span> | counter | Turbine shreds received |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with turbine shreds, including network headers |
-| <span class="metrics-name">shred_&#8203;disk_&#8203;shred_&#8203;inserted</span> | counter | Data shreds persisted to the repair store |
-| <span class="metrics-name">shred_&#8203;disk_&#8203;write_&#8203;failed</span> | counter | Data shreds rejected by the repair store API |
-| <span class="metrics-name">shred_&#8203;disk_&#8203;write_&#8203;bytes</span> | counter | Bytes written by data shreds successfully indexed in the repair store |
+| <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write</span> | counter | FEC payloads synchronously spilled by the shred tile |
+| <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write_&#8203;bytes</span> | counter | FEC payload bytes synchronously spilled by the shred tile |
 
 </div>
 
@@ -1010,7 +1014,18 @@
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;current</span> | gauge | The number of shreds currently in the shreds database |
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;max</span> | gauge | Total capacity of shreds that can be stored in the shreds database |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;current_&#8203;bytes</span> | gauge | Logical bytes occupied by live wire shreds and spilled FEC payloads |
-| <span class="metrics-name">rserve_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Physical bytes reserved for the wire ring and allocated spill pages |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Logical wire-ring high-water plus allocated spill pages |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;write_&#8203;seconds</span> | histogram | Duration of persisting one accepted data shred |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;shred_&#8203;inserted</span> | counter | Data shreds persisted to the repair store |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;write_&#8203;failed</span> | counter | Data shreds rejected by the repair store API |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;write_&#8203;bytes</span> | counter | Bytes written by persisted data shreds |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;preevict_&#8203;write_&#8203;seconds</span> | histogram | Duration of pre-evicting one FEC payload |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;preevict_&#8203;write</span> | counter | FEC payloads pre-evicted by rserve |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;preevict_&#8203;write_&#8203;bytes</span> | counter | FEC payload bytes pre-evicted by rserve |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;cache_&#8203;free</span> | gauge | Immediately available FEC payload cache entries |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;cache_&#8203;max</span> | gauge | Total FEC payload cache entries |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;cache_&#8203;target</span> | gauge | Background preeviction target in free entries |
+| <span class="metrics-name">rserve_&#8203;fec_&#8203;cache_&#8203;low_&#8203;water</span> | gauge | Free entries that trigger background preeviction |
 | <span class="metrics-name">rserve_&#8203;ping_&#8203;cache_&#8203;entries</span> | counter | How many active entries do we have in the ping cache |
 | <span class="metrics-name">rserve_&#8203;ping_&#8203;cache_&#8203;evictions</span> | counter | How many entries we've evicted from the ping cache |
 
@@ -1213,8 +1228,13 @@
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;rent</span>"} | counter | Result of loading and executing a transaction (The transaction would leave an account with a lower balance than the rent-exempt minimum) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">unbalanced_&#8203;transaction</span>"} | counter | Result of loading and executing a transaction (The total referenced account lamports before and after the transaction was unbalanced) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Result of loading and executing a transaction (The transaction was part of a bundle and an earlier transaction in the bundle failed) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">legacy</span>"} | counter | Number of transactions executed, broken down by transaction version (Legacy transaction format) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v0</span>"} | counter | Number of transactions executed, broken down by transaction version (Version 0 transaction format) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v1</span>"} | counter | Number of transactions executed, broken down by transaction version (Version 1 transaction format) |
 | <span class="metrics-name">execrp_&#8203;signature_&#8203;verified</span> | counter | Ed25519 signature verification jobs executed |
 | <span class="metrics-name">execrp_&#8203;poh_&#8203;hashed</span> | counter | PoH SHA-256 calls executed |
+| <span class="metrics-name">execrp_&#8203;instruction_&#8203;executed</span> | counter | Number of top-level instructions executed |
+| <span class="metrics-name">execrp_&#8203;cpi_&#8203;executed</span> | counter | Number of cross-program invocations executed |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction execution (includes VM setup/execution)) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction result commit) |
@@ -1619,6 +1639,7 @@
 | <span class="metrics-name">event_&#8203;invalid_&#8203;message</span> | counter | Malformed messages received from the event service |
 | <span class="metrics-name">event_&#8203;conn_&#8203;attempt</span> | counter | Connection attempts to the event service |
 | <span class="metrics-name">event_&#8203;handshake_&#8203;timeout</span> | counter | Authentication handshake timeouts with the event service |
+| <span class="metrics-name">event_&#8203;credit_&#8203;stall</span> | counter | Reconnects forced because the event service stopped granting HTTP/2 flow-control credit while data was pending |
 
 </div>
 
@@ -2127,6 +2148,7 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">benchs_&#8203;txn_&#8203;tx</span> | counter | Benchmark transactions sent |
+| <span class="metrics-name">benchs_&#8203;txn_&#8203;dropped</span> | counter | Benchmark transactions dropped because the QUIC connection had no stream available |
 
 </div>
 
@@ -2174,5 +2196,42 @@
 | <span class="metrics-name">rotor_&#8203;fec_&#8203;root_&#8203;failed</span> | counter | Times we failed to verify a FEC root response |
 | <span class="metrics-name">rotor_&#8203;parent_&#8203;fec_&#8203;count_&#8203;failed</span> | counter | Times we failed to verify a parent FEC count response |
 | <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time it took to receive a repair request response, in nanoseconds |
+
+</div>
+
+## Votor Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">vote</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram carried a vote and was handed to vote rx) |
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">cert</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram carried a cert and was handed to cert rx) |
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;ready</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram arrived before the votor tile was initialized) |
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">too_&#8203;small</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram was too small to hold a version and a tag) |
+| <span class="metrics-name">votor_&#8203;datagram_&#8203;rx</span><br/>{datagram_&#8203;rx_&#8203;result="<span class="metrics-enum">unknown_&#8203;tag</span>"} | counter | Result of dispatching an inbound datagram (per datagram) (Datagram tag was neither a vote nor a cert) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of processing an inbound vote (per vote) (Vote was handed to the pool and accepted) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">bad_&#8203;size</span>"} | counter | Result of processing an inbound vote (per vote) (Vote was truncated or had trailing bytes) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">bad_&#8203;encoding</span>"} | counter | Result of processing an inbound vote (per vote) (Vote had an invalid version, tag, or signature encoding) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">shred_&#8203;version</span>"} | counter | Result of processing an inbound vote (per vote) (Vote was for a different shred version) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">unknown_&#8203;signer</span>"} | counter | Result of processing an inbound vote (per vote) (Sending connection had no authenticated identity) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;a_&#8203;peer</span>"} | counter | Result of processing an inbound vote (per vote) (Sender was not in the peer set) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;ranked</span>"} | counter | Result of processing an inbound vote (per vote) (Sender was not a ranked validator in the vote slot's epoch) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">slot_&#8203;out_&#8203;of_&#8203;bounds</span>"} | counter | Result of processing an inbound vote (per vote) (Vote slot was either too old or too far in the future) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Result of processing an inbound vote (per vote) (Voter had already cast this vote) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">slashable</span>"} | counter | Result of processing an inbound vote (per vote) (Vote constitutes a slashable offence) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">banned</span>"} | counter | Result of processing an inbound vote (per vote) (Sender is banned for a failed signature verification) |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;rx</span><br/>{vote_&#8203;rx_&#8203;result="<span class="metrics-enum">failed_&#8203;verify</span>"} | counter | Result of processing an inbound vote (per vote) (Vote's own signature failed the check and the vote was dropped) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was handed to the pool and accepted) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">bad_&#8203;size</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was truncated or had trailing bytes) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">bad_&#8203;encoding</span>"} | counter | Result of processing an inbound cert (per cert) (Cert had an invalid version, tag, bitmap, or signature encoding) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">shred_&#8203;version</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was for a different shred version) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">unknown_&#8203;signer</span>"} | counter | Result of processing an inbound cert (per cert) (Sending connection had no authenticated identity) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;a_&#8203;peer</span>"} | counter | Result of processing an inbound cert (per cert) (Sender was not in the peer set) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">not_&#8203;ranked</span>"} | counter | Result of processing an inbound cert (per cert) (Sender was not a ranked validator in the cert slot's epoch) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">slot_&#8203;out_&#8203;of_&#8203;bounds</span>"} | counter | Result of processing an inbound cert (per cert) (Cert slot was either too old or too far in the future) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was already in the pool) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">failed_&#8203;verify</span>"} | counter | Result of processing an inbound cert (per cert) (Cert failed the stake threshold or the aggregate signature check) |
+| <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">banned</span>"} | counter | Result of processing an inbound cert (per cert) (Sender is banned for a failed signature verification) |
 
 </div>

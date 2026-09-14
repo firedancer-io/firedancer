@@ -78,6 +78,9 @@ main( int     argc,
   fd_tls_test_sign_ctx_t sign_ctx[1];
   fd_tls_test_sign_ctx( sign_ctx, rng );
 
+  static fd_chacha_rng_t chacha[1];
+  fd_tls_test_rand( chacha, rng );
+
   // config parameters
   fd_quic_tls_cfg_t cfg = {
     .secret_cb             = my_secrets,
@@ -87,6 +90,7 @@ main( int     argc,
     .max_concur_handshakes = 16,
     .cert_public_key       = sign_ctx->public_key,
     .signer                = fd_tls_test_sign( &sign_ctx ),
+    .rng                   = chacha,
   };
 
   /* dump transport params */

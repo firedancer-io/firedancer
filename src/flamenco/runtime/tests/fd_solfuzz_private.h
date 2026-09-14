@@ -12,6 +12,30 @@
 
 FD_PROTOTYPES_BEGIN
 
+static inline ulong
+fd_solfuzz_hash( void const * data,
+                 ulong        data_sz ) {
+  return data_sz ? fd_hash( 0UL, data, data_sz ) : 0UL;
+}
+
+/* Returns the account data carried by an input account state, or NULL if
+   the account state carries a hash of its data instead. */
+static inline pb_bytes_array_t const *
+fd_solfuzz_acct_data( fd_exec_test_acct_state_t const * acct ) {
+  if( acct->which_data_repr!=FD_EXEC_TEST_ACCT_STATE_DATA_TAG ) return NULL;
+  return acct->data_repr.data;
+}
+
+/* Stores the hash of the given account data in an effects account
+   state. */
+static inline void
+fd_solfuzz_acct_set_data_hash( fd_exec_test_acct_state_t * acct,
+                               void const *                data,
+                               ulong                       data_sz ) {
+  acct->which_data_repr     = FD_EXEC_TEST_ACCT_STATE_DATA_HASH_TAG;
+  acct->data_repr.data_hash = fd_solfuzz_hash( data, data_sz );
+}
+
 /* Creates / overwrites an account in the accdb given an input account
    state.  On success, loads the account into acc.  Optionally, reject
    any zero-lamport accounts from being loaded in. */

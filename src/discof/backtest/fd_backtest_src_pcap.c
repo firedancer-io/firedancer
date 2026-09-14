@@ -13,11 +13,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if FD_HAS_ZSTD
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 #define FD_BACKT_ZSTD_WINDOW_SZ (1UL<<21UL)
-#endif
 
 extern fd_backt_src_vt_t const fd_backt_src_pcap_vt;
 
@@ -91,9 +89,7 @@ struct fd_backt_src_pcap {
   msgq_t *      msgq;
   msg_treap_t * treap;
 
-#if FD_HAS_ZSTD
   ZSTD_DStream * zstd;
-#endif
 };
 
 typedef struct fd_backt_src_pcap fd_backt_src_pcap_t;
@@ -246,7 +242,6 @@ static int
 fd_backt_src_pcap_rewind( fd_backt_src_pcap_t * src ) {
   fd_backt_src_pcap_fini_iter( src );
 
-#if FD_HAS_ZSTD
   if( FD_UNLIKELY( src->zstd ) ) {
     if( FD_UNLIKELY( fseek( src->file, 0L, SEEK_SET ) ) ) {
       FD_LOG_WARNING(( "fseek failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -254,7 +249,6 @@ fd_backt_src_pcap_rewind( fd_backt_src_pcap_t * src ) {
     }
     ZSTD_initDStream( src->zstd );
   }
-#endif
 
   if( src->format==FD_BACKT_SRC_FMT_PCAP ) {
     if( FD_UNLIKELY( fseek( src->file, 0L, SEEK_SET ) ) ) {
@@ -318,7 +312,6 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
     return NULL;
   }
 
-#if FD_HAS_ZSTD
   ZSTD_DStream * zstd = NULL;
   if( flags & FD_BACKT_SRC_FLAG_ZSTD ) {
     zstd = ZSTD_createDStream();
@@ -332,7 +325,6 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
     }
     file = zstd_file;
   }
-#endif
 
   fd_backt_src_pcap_t * src = calloc( 1UL, sizeof(fd_backt_src_pcap_t) );
   if( FD_UNLIKELY( !src ) ) FD_LOG_ERR(( "out of memory" ));
@@ -341,9 +333,7 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
     .src = {{ .vt = &fd_backt_src_pcap_vt }},
     .file = file,
     .format = format,
-#if FD_HAS_ZSTD
     .zstd = zstd,
-#endif
   };
 
   if( format==FD_BACKT_SRC_FMT_PCAP ) {
@@ -389,9 +379,7 @@ fd_backt_src_pcap_destroy( fd_backt_src_t * this ) {
 
   if( src->file ) fclose( src->file );
 
-#if FD_HAS_ZSTD
   if( src->zstd ) ZSTD_freeDStream( src->zstd );
-#endif
 
   free( src );
 }

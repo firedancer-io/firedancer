@@ -298,6 +298,10 @@ STEM_(run1)( ulong                        in_cnt,
   /* in frag stream init */
 
   in_seq = 0UL; /* First in to poll */
+#ifdef STEM_STICKY_POLL_MAX
+  fd_stem_tile_in_t * sticky_in  = NULL;
+  ulong               sticky_rem = 0UL;
+#endif
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   in = (fd_stem_tile_in_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stem_tile_in_t), in_cnt*sizeof(fd_stem_tile_in_t) );
@@ -518,6 +522,9 @@ STEM_(run1)( ulong                        in_cnt,
           in_tmp         = in[ swap_idx ];
           in[ swap_idx ] = in[ 0        ];
           in[ 0        ] = in_tmp;
+#ifdef STEM_STICKY_POLL_MAX
+          sticky_rem = 0UL; /* sticky_in is a slot, not a link */
+#endif
         }
       }
 
@@ -613,9 +620,23 @@ STEM_(run1)( ulong                        in_cnt,
     }
 #endif
 
-    fd_stem_tile_in_t * this_in = &in[ in_seq ];
+    fd_stem_tile_in_t * this_in;
+#ifdef STEM_STICKY_POLL_MAX
+    int this_in_rr = 0;
+    if( FD_LIKELY( sticky_rem ) ) {
+      this_in = sticky_in;
+      sticky_rem--;
+    } else {
+      this_in = &in[ in_seq ];
+      this_in_rr = 1;
+      in_seq++;
+      if( in_seq>=in_cnt ) in_seq = 0UL; /* cmov */
+    }
+#else
+    this_in = &in[ in_seq ];
     in_seq++;
     if( in_seq>=in_cnt ) in_seq = 0UL; /* cmov */
+#endif
 
     /* Check if this in has any new fragments to mux */
 
@@ -643,6 +664,9 @@ STEM_(run1)( ulong                        in_cnt,
 #endif
     long diff = fd_seq_diff( this_in_seq, seq_found );
     if( FD_UNLIKELY( diff ) ) { /* Caught up or overrun, optimize for new frag case */
+#ifdef STEM_STICKY_POLL_MAX
+      sticky_rem = 0UL;
+#endif
       ulong * housekeeping_regime = &metric_regime_ticks[0];
       ulong * prefrag_regime = &metric_regime_ticks[3];
       ulong * finish_regime = &metric_regime_ticks[6];
@@ -783,6 +807,11 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_OFF ]++;
     this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ] += (uint)sz;
 
+#ifdef STEM_STICKY_POLL_MAX
+    sticky_in  = this_in_rr ? this_in : sticky_in; /* cmov */
+    sticky_rem = fd_ulong_if( this_in_rr, STEM_STICKY_POLL_MAX, sticky_rem );
+#endif
+
     metric_regime_ticks[1] += housekeeping_ticks;
     metric_regime_ticks[4] += prefrag_ticks;
     long next = fd_tickcount();
@@ -898,6 +927,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_CONTEXT_TYPE
 #undef STEM_CALLBACK_CONTEXT_ALIGN
 #undef STEM_LAZY
+#undef STEM_STICKY_POLL_MAX
 #undef STEM_CALLBACK_SHOULD_SHUTDOWN
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
 #undef STEM_CALLBACK_METRICS_WRITE

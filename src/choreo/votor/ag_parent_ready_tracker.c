@@ -170,13 +170,13 @@ ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
 
   for( ulong slot_=slot+1; ; slot_++ ) {
     ag_parent_ready_state_t * state_ = slot_state( self, slot_ );
-    if( ag_is_start_of_window( slot_ ) ) {
+    if( FD_UNLIKELY( ag_is_start_of_window( slot_ ) ) ) {
       add_to_ready( state_, id );
       newly_certified[ *newly_certified_cnt ].slot   = slot_;
       newly_certified[ *newly_certified_cnt ].parent = *id;
       (*newly_certified_cnt)++;
     }
-    if( !state_->skip ) break;
+    if( FD_LIKELY( !state_->skip ) ) break;
   }
   return;
 }
@@ -207,7 +207,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
       }
     }
 
-    if( !state->skip ) break;
+    if( FD_LIKELY( !state->skip ) ) break;
 
     for( ulong i=0UL; i<state->ready_id_cnt; i++ ) {
       FD_TEST( potential_cnt < AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX );
@@ -218,7 +218,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
 
   for( ulong s=marked_slot+1UL; ; s++ ) {
     ag_parent_ready_state_t * fstate = slot_state( self, s );
-    if( ag_is_start_of_window( s ) ) {
+    if( FD_UNLIKELY( ag_is_start_of_window( s ) ) ) {
       for( ulong i=0UL; i<potential_cnt; i++ ) {
         add_to_ready( fstate, &potential_parents[i] );
         FD_TEST( *newly_certified_cnt < ag_parent_ready_state_pool_max( self->states.pool ) ); /* caller sized for slot_max */
@@ -227,7 +227,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
         (*newly_certified_cnt)++;
       }
     }
-    if( !fstate->skip ) break;
+    if( FD_LIKELY( !fstate->skip ) ) break;
   }
   return;
 }
@@ -237,7 +237,7 @@ keep_highest( ag_parent_ready_t *       best,
               ag_parent_ready_t const * ready,
               ulong                     ready_cnt ) {
   for( ulong i=0UL; i<ready_cnt; i++ ) {
-    if( best->slot==ULONG_MAX || ready[i].slot>=best->slot ) *best = ready[i];
+    if( FD_LIKELY( best->slot==ULONG_MAX || ready[i].slot>=best->slot ) ) *best = ready[i];
   }
 }
 
@@ -250,7 +250,7 @@ ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t *     sel
   fd_memset( &best, 0, sizeof(ag_parent_ready_t) );
   best.slot = ULONG_MAX;
 
-  if( event->finalized.slot!=ULONG_MAX ) {
+  if( FD_LIKELY( event->finalized.slot!=ULONG_MAX ) ) {
     ag_parent_ready_tracker_mark_notar_fallback( self, &event->finalized, newly_certified, newly_certified_cnt );
     keep_highest( &best, newly_certified, *newly_certified_cnt );
   }

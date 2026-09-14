@@ -29,9 +29,6 @@ endif
 endif
 
 include config/extra/with-s2nbignum.mk
-include config/extra/with-blst.mk
-include config/extra/with-zstd.mk
-include config/extra/with-lz4.mk
 
 ifneq ($(CROSS),1)
 include config/extra/with-openssl.mk

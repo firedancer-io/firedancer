@@ -4,7 +4,14 @@
 #include "../../../shared/fd_config.h"
 #include "../../../shared/fd_action.h"
 
+#define BENCHG_TRANSACTION_MODE_NOOP            0 /* compute budget only, executes no program */
+#define BENCHG_TRANSACTION_MODE_SOL_TRANSFER    1 /* system program lamport transfer */
+#define BENCHG_TRANSACTION_MODE_PTOKEN_TRANSFER 2 /* SPL Token (p-token) transfer */
+
 FD_PROTOTYPES_BEGIN
+
+int
+bench_transaction_mode( char const * name );
 
 void bench_topo( config_t * config );
 void bench_cmd_fn( args_t * args, config_t * config );

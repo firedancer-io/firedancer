@@ -4,6 +4,7 @@
 #include "../../../shared/commands/run/run.h"
 
 #include "../../../shared/commands/watch/watch.h"
+#include "../../../platform/fd_sys_util.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../disco/net/fd_net_tile.h"
@@ -13,6 +14,7 @@
 #include <sched.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <signal.h>
 #include <linux/capability.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
@@ -28,12 +30,22 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 void
 update_config_for_dev( config_t * config );
 
+int
+bench_transaction_mode( char const * name ) {
+  if( !strcmp( name, ""                ) ) return BENCHG_TRANSACTION_MODE_NOOP;
+  if( !strcmp( name, "noop"            ) ) return BENCHG_TRANSACTION_MODE_NOOP;
+  if( !strcmp( name, "sol-transfer"    ) ) return BENCHG_TRANSACTION_MODE_SOL_TRANSFER;
+  if( !strcmp( name, "ptoken-transfer" ) ) return BENCHG_TRANSACTION_MODE_PTOKEN_TRANSFER;
+  return -1;
+}
+
 void
 bench_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
   args->load.no_quic  = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
   args->load.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+  args->load.duration = fd_env_strip_cmdline_ulong( pargc, pargv, "--duration", NULL, 0UL );
 }
 
 void
@@ -65,15 +77,16 @@ add_bench_topo( fd_topo_t  * topo,
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_bench_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( affinity, parsed_tile_to_cpu, 0 );
+  if( FD_LIKELY( !is_bench_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( affinity, parsed_tile_to_cpu, 0, 1 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
-    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
+    ushort cpu_idx = (ushort)( parsed_tile_to_cpu[ i ] & ~FD_TOPOB_CPU_SHARED );
+    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && cpu_idx>=cpus->cpu_cnt ) )
       FD_LOG_ERR(( "The CPU affinity string in the configuration file under [development.bench.affinity] specifies a CPU index of %hu, but the system "
                    "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
                    "in the system.",
-                   parsed_tile_to_cpu[ i ], cpus->cpu_cnt ));
+                   cpu_idx, cpus->cpu_cnt ));
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
   if( FD_LIKELY( !is_bench_auto_affinity ) ) {
@@ -104,6 +117,9 @@ add_bench_topo( fd_topo_t  * topo,
   }
 
   fd_topob_tile_out( topo, "bencho", 0UL, "bencho_out", 0UL );
+  if( FD_LIKELY( fd_topo_find_link( topo, "replay_out", 0UL )!=ULONG_MAX ) ) {
+    fd_topob_tile_in( topo, "bencho", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); /* fseq in a wksp replay maps */
+  }
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
     fd_topob_tile_in( topo, "benchg", i, "bench", "bencho_out", 0, 1, 1 );
     fd_topob_tile_out( topo, "benchg", i, "benchg_s", i );
@@ -156,18 +172,29 @@ bench_topo( config_t * config ) {
     FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity], [layout.agave_affinity], and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
   }
 
+  int transaction_mode = bench_transaction_mode( config->development.bench.transaction_mode );
+  if( FD_UNLIKELY( transaction_mode<0 ) )
+    FD_LOG_ERR(( "unknown [development.bench.transaction_mode] `%s`", config->development.bench.transaction_mode ));
+
   add_bench_topo( &config->topo,
                   config->development.bench.affinity,
                   config->development.bench.benchg_tile_count,
                   config->development.bench.benchs_tile_count,
                   config->development.genesis.fund_initial_accounts,
-                  0, 0.0f, 0.0f,
+                  transaction_mode, 0.0f, 0.0f,
                   config->layout.quic_tile_count,
                   config->tiles.quic.quic_transaction_listen_port,
                   config->net.ip_addr,
                   rpc_port,
                   rpc_ip_addr,
                   !config->is_firedancer );
+}
+
+static pid_t bench_pid;
+
+static void
+bench_signal( int sig ) {
+  kill( bench_pid, sig );
 }
 
 void
@@ -184,6 +211,8 @@ bench_cmd_fn( args_t *   args,
     }
   }
 
+  config->topo.tiles[ fd_topo_find_tile( &config->topo, "bencho", 0UL ) ].bencho.duration_s = args->load.duration;
+
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
   };
@@ -191,6 +220,26 @@ bench_cmd_fn( args_t *   args,
   for( ulong i=0UL; STAGES[ i ]; i++ )
     configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
+
+  /* Everything past configure runs in a child: the tiles join the
+     cpuset cgroup and drop privileges, so only a root parent outside
+     it can dissolve the partition once they exit (or fail to boot) */
+  bench_pid = fork();
+  if( FD_UNLIKELY( bench_pid<0 ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( bench_pid ) ) {
+    struct sigaction sa = { .sa_handler = bench_signal };
+    if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) || sigaction( SIGTERM, &sa, NULL ) ) )
+      FD_LOG_ERR(( "sigaction() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    int wstatus;
+    while( FD_UNLIKELY( -1==waitpid( bench_pid, &wstatus, 0 ) ) ) {
+      if( FD_UNLIKELY( errno!=EINTR ) ) FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
+    configure_args = (args_t){ .configure.command = CONFIGURE_CMD_FINI, .configure.stages = { &fd_cfg_stage_cpuset } };
+    configure_cmd_fn( &configure_args, config );
+    fd_sys_util_exit_group( WIFSIGNALED( wstatus ) ? 128+WTERMSIG( wstatus ) : WEXITSTATUS( wstatus ) );
+  }
 
   update_config_for_dev( config );
 
@@ -201,6 +250,10 @@ bench_cmd_fn( args_t *   args,
   }
 
   initialize_accdb_fd( config );
+  initialize_store_fds( config );
+  if( FD_LIKELY( config->is_firedancer ) ) {
+    initialize_snapshot_fds( config );
+  }
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {

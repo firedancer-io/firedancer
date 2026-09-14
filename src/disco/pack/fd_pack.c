@@ -12,51 +12,14 @@
 
 #define FD_PACK_USE_NON_TEMPORAL_MEMCPY 1
 
-/* inline fd_hash and specialize for 32 bytes */
-static inline ulong
-fd_hash_32( ulong        seed,
-            void const * buf ) {
-#define ROTATE_LEFT(x,r) (((x)<<(r)) | ((x)>>(64-(r))))
-#define C1 (11400714785074694791UL)
-#define C2 (14029467366897019727UL)
-#define C3 ( 1609587929392839161UL)
-#define C4 ( 9650029242287828579UL)
-  uchar const * p    = ((uchar const *)buf);
-
-  ulong w = seed + (C1+C2);
-  ulong x = seed + C2;
-  ulong y = seed;
-  ulong z = seed - C1;
-
-  w += FD_LOAD( ulong, p    )*C2; w = ROTATE_LEFT( w, 31 ); w *= C1;
-  x += FD_LOAD( ulong, p+ 8 )*C2; x = ROTATE_LEFT( x, 31 ); x *= C1;
-  y += FD_LOAD( ulong, p+16 )*C2; y = ROTATE_LEFT( y, 31 ); y *= C1;
-  z += FD_LOAD( ulong, p+24 )*C2; z = ROTATE_LEFT( z, 31 ); z *= C1;
-
-  ulong h = ROTATE_LEFT( w, 1 ) + ROTATE_LEFT( x, 7 ) + ROTATE_LEFT( y, 12 ) + ROTATE_LEFT( z, 18 );
-
-  w *= C2; w = ROTATE_LEFT( w, 31 ); w *= C1; h ^= w; h = h*C1 + C4;
-  x *= C2; x = ROTATE_LEFT( x, 31 ); x *= C1; h ^= x; h = h*C1 + C4;
-  y *= C2; y = ROTATE_LEFT( y, 31 ); y *= C1; h ^= y; h = h*C1 + C4;
-  z *= C2; z = ROTATE_LEFT( z, 31 ); z *= C1; h ^= z; h = h*C1 + C4;
-
-  h += 32UL;
-
-  /* Final avalanche */
-  h ^= h >> 33;
-  h *= C2;
-  h ^= h >> 29;
-  h *= C3;
-  h ^= h >> 32;
-
-#undef C4
-#undef C3
-#undef C2
-#undef C1
-#undef ROTATE_LEFT
-
-  return h;
-}
+#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+#include "../../util/simd/fd_nt_memcpy.h"
+#define pack_memcpy_out  fd_memcpy_nt_nofence
+#define pack_memcpy_fini() _mm_sfence()
+#else
+#define pack_memcpy_out  fd_memcpy
+#define pack_memcpy_fini()
+#endif
 
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
@@ -440,7 +403,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key).b ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash32( (key).b, (s) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 #define MAP_NAME              wcost_map
@@ -451,7 +414,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_PREV              map_prev
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #define MAP_KEY_EQ(k0,k1)     (!memcmp((k0)->b,(k1)->b, FD_TXN_ACCT_ADDR_SZ))
-#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key)->b ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash32( (key)->b, (s) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME             wcost_pool
@@ -479,7 +442,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key).b ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash32( (key).b, (s) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
@@ -563,7 +526,7 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key).b ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash32( (key).b, (s) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 /* PENALTY_TREAP_THRESHOLD: How many references to an account do we
@@ -1529,7 +1492,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
     if( FD_UNLIKELY( q==NULL ) ) {
       q = penalty_map_insert( pack->penalty_treaps, penalty_acct );
-      treap_new( q->penalty_treap, pack->pack_depth );
+      treap_new( q->penalty_treap, trp_pool_max( pack->pool ) );
     }
     insert_into = q->penalty_treap;
     ord->root = FD_ORD_TXN_ROOT_PENALTY( penalty_idx[i] );
@@ -1901,7 +1864,8 @@ fd_pack_metrics_write( fd_pack_t const * pack ) {
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_VOTES,       pending_votes               );
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_CONFLICTING, conflicting                 );
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_BUNDLES,     pending_bundle              );
-  FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST_CU,      pack->pending_smallest->cus );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST_CU,   pack->pending_smallest->cus );
+  FD_MGAUGE_SET( PACK, BLOCK_CU_CONSUMED,         pack->cumulative_block_cost );
 
   FD_MCNT_ENUM_COPY( PACK, TXN_SCHEDULED, pack->sched_results );
 }
@@ -1960,6 +1924,10 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
                        fd_pack_smallest_t * smallest_in_treap,
                        ulong              * use_by_bank_txn,
                        fd_txn_e_t         * out ) {
+  if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) {
+    sched_return_t to_return = { .cus_scheduled = 0UL, .txns_scheduled = 0UL, .bytes_scheduled = 0UL };
+    return to_return;
+  }
 
   fd_pack_ord_txn_t   * pool         = pack->pool;
   fd_pack_addr_use_t  * acct_in_use  = pack->acct_in_use;
@@ -1996,11 +1964,6 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
   ulong min_cus   = ULONG_MAX;
   ulong min_bytes = ULONG_MAX;
-
-  if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) {
-    sched_return_t to_return = { .cus_scheduled = 0UL, .txns_scheduled = 0UL, .bytes_scheduled = 0UL };
-    return to_return;
-  }
 
   treap_rev_iter_t prev = treap_idx_null();
   for( treap_rev_iter_t _cur=treap_rev_iter_init( sched_from, pool ); !treap_rev_iter_done( _cur ); _cur=prev ) {
@@ -2128,45 +2091,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     FD_PACK_BITSET_OR( bitset_w_in_use,  cur->w_bitset  );
 
     fd_txn_p_t * out_txnp = out->txnp;
-    if(
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-        FD_LIKELY( cur->txn->payload_sz>=1024UL )
-#else
-        0
-#endif
-      ) {
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-      _mm512_stream_si512( (void*)(out_txnp->payload+   0UL), _mm512_load_epi64( cur->txn->payload+   0UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+  64UL), _mm512_load_epi64( cur->txn->payload+  64UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 128UL), _mm512_load_epi64( cur->txn->payload+ 128UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 192UL), _mm512_load_epi64( cur->txn->payload+ 192UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 256UL), _mm512_load_epi64( cur->txn->payload+ 256UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 320UL), _mm512_load_epi64( cur->txn->payload+ 320UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 384UL), _mm512_load_epi64( cur->txn->payload+ 384UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 448UL), _mm512_load_epi64( cur->txn->payload+ 448UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 512UL), _mm512_load_epi64( cur->txn->payload+ 512UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 576UL), _mm512_load_epi64( cur->txn->payload+ 576UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 640UL), _mm512_load_epi64( cur->txn->payload+ 640UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 704UL), _mm512_load_epi64( cur->txn->payload+ 704UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 768UL), _mm512_load_epi64( cur->txn->payload+ 768UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 832UL), _mm512_load_epi64( cur->txn->payload+ 832UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 896UL), _mm512_load_epi64( cur->txn->payload+ 896UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+ 960UL), _mm512_load_epi64( cur->txn->payload+ 960UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+1024UL), _mm512_load_epi64( cur->txn->payload+1024UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+1088UL), _mm512_load_epi64( cur->txn->payload+1088UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+1152UL), _mm512_load_epi64( cur->txn->payload+1152UL ) );
-      _mm512_stream_si512( (void*)(out_txnp->payload+1216UL), _mm512_load_epi64( cur->txn->payload+1216UL ) );
-
-      /* For V1 transactions, the payload can be up to 4096 bytes so we copy an additional 2816 bytes. */
-      if( FD_UNLIKELY( txn->transaction_version==FD_TXN_V1 ) ) {
-        for( ulong off=1280UL; off<FD_TPU_MTU; off+=64UL ) {
-          _mm512_stream_si512( (void*)(out_txnp->payload+off), _mm512_load_epi64( cur->txn->payload+off ) );
-        }
-      }
-#endif
-    } else {
-      fd_memcpy( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
-    }
+    if( FD_LIKELY( cur->txn->payload_sz>=1024UL ) ) pack_memcpy_out( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
+    else                                            fd_memcpy      ( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
 
     out_txnp->payload_sz                                = cur->txn->payload_sz;
     out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
@@ -2181,20 +2107,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     /* Copy the ALT accounts from the source fd_txn_e_t */
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-    /* In order to use non-temporal copies, we have to copy a full cache
-       line (which fits two pubkeys) at a time.  If alt_acct_cnt is odd,
-       this copies one extra address, but it touches the same number of
-       cache lines, since both the source and destination are aligned
-       to 64 bytes. The max is even, so this can never read out of bounds. */
-    fd_acct_addr_t       * dst = out->alt_accts;
-    fd_acct_addr_t const * src = cur->txn_e->alt_accts;
-    for( ulong i=0UL; i<alt_acct_cnt; i+=2UL ) {
-      _mm512_stream_si512( (void*)(dst+i), _mm512_load_epi64( src+i ) );
-    }
-#else
-    fd_memcpy( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt * sizeof(fd_acct_addr_t) );
-#endif
+    if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
     out++;
 
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
@@ -2632,7 +2545,8 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
     fd_txn_t const    * txn = TXN(cur->txn);
     fd_txn_p_t        * out_txnp = out->txnp;
-    fd_memcpy( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz                                           );
+    if( FD_LIKELY( cur->txn->payload_sz>=1024UL ) ) pack_memcpy_out( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
+    else                                            fd_memcpy      ( out_txnp->payload, cur->txn->payload, cur->txn->payload_sz );
     fd_memcpy( TXN(out_txnp),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
     out_txnp->payload_sz                      = cur->txn->payload_sz;
     out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
@@ -2645,7 +2559,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     out_txnp->flags                           = cur->txn->flags;
     /* Copy the ALT accounts from the source fd_txn_e_t */
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
-    fd_memcpy( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt * sizeof(fd_acct_addr_t) );
+    if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
     out++;
 
     pack->cumulative_block_cost += cur->compute_est;
@@ -2706,6 +2620,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   if( FD_UNLIKELY( is_ib ) ) {
     pack->initializer_bundle_state = FD_PACK_IB_STATE_PENDING;
   }
+  pack_memcpy_fini();
   return retval;
 }
 
@@ -2736,6 +2651,15 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   }
 
   ulong * use_by_bank_txn = pack->use_by_bank_txn[ bank_tile ];
+
+#if FD_HAS_X86
+  /* out is a cold dcache chunk.  Its payload is streamed, but the
+     metadata and TXN() lines are regular stores; start those reads for
+     ownership under the scheduling work. */
+  _mm_prefetch( (uchar *)out+FD_TPU_MTU,       _MM_HINT_ET0 );
+  _mm_prefetch( (uchar *)out+FD_TPU_MTU+ 64UL, _MM_HINT_ET0 );
+  _mm_prefetch( (uchar *)out+FD_TPU_MTU+128UL, _MM_HINT_ET0 );
+#endif
 
   ulong cu_limit    = total_cus - vote_cus;
   ulong txn_limit   = pack->lim->max_txn_per_microblock - vote_reserved_txns;
@@ -2793,17 +2717,10 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   pack->outstanding_microblock_mask |= nonempty << bank_tile;
   pack->data_bytes_consumed         += nonempty * MICROBLOCK_DATA_OVERHEAD;
 
-  /* Update metrics counters */
-  fd_pack_metrics_write( pack );
-  FD_MGAUGE_SET( PACK, BLOCK_CU_CONSUMED, pack->cumulative_block_cost );
-
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
 
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
-  _mm_sfence();
-#endif
-
+  pack_memcpy_fini();
   return scheduled;
 }
 

@@ -574,6 +574,65 @@ FD_UNIT_TEST( test_cpu_overlap_banned ) {
            ( WIFSIGNALED( status ) && WTERMSIG( status )==SIGABRT ) );
 }
 
+FD_UNIT_TEST( test_cpu_overlap_shared ) {
+  static fd_topo_t _topo[1];
+  fd_topo_t * topo = _topo;
+  fd_memset( topo, 0, sizeof(*topo) );
+
+  add_test_tile( topo, "pack",  0UL, 9UL )->floats = 1;
+  add_test_tile( topo, "shred", 0UL, 9UL )->floats = 1;
+
+  fd_topob_validate_cpu_overlaps( topo );
+}
+
+/* ---- Affinity string parsing ------------------------------------------- */
+
+FD_UNIT_TEST( test_parse_affinity_shared ) {
+  ushort cpu[ FD_TILE_MAX ];
+
+  FD_TEST( fd_topob_parse_affinity_cstr( "0,s1,2-3,s4-6/2", cpu, 0, 1 )==6UL );
+  FD_TEST( cpu[ 0 ]==0                       );
+  FD_TEST( cpu[ 1 ]==(1|FD_TOPOB_CPU_SHARED) );
+  FD_TEST( cpu[ 2 ]==2                       );
+  FD_TEST( cpu[ 3 ]==3                       );
+  FD_TEST( cpu[ 4 ]==(4|FD_TOPOB_CPU_SHARED) );
+  FD_TEST( cpu[ 5 ]==(6|FD_TOPOB_CPU_SHARED) );
+
+  /* a shared entry does not claim the cpu, so it may repeat */
+  FD_TEST( fd_topob_parse_affinity_cstr( "s1,s1,f,s1", cpu, 0, 1 )==4UL );
+  FD_TEST( cpu[ 2 ]==USHORT_MAX );
+}
+
+/* A malformed affinity string is a FD_LOG_ERR, so parse it in a child. */
+static void
+parse_affinity_fails( char const * cstr,
+                      int          allow_shared ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+
+  if( pid==0 ) {
+    fd_log_level_logfile_set( 6 );
+
+    ushort cpu[ FD_TILE_MAX ];
+    fd_topob_parse_affinity_cstr( cstr, cpu, 0, allow_shared );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( ( WIFEXITED( status ) && WEXITSTATUS( status )==1 ) ||
+           ( WIFSIGNALED( status ) && WTERMSIG( status )==SIGABRT ) );
+}
+
+FD_UNIT_TEST( test_parse_affinity_malformed ) {
+  parse_affinity_fails( "s",     1 ); /* shared prefix with no cpu */
+  parse_affinity_fails( "1,s",   1 );
+  parse_affinity_fails( "s1-",   1 );
+  parse_affinity_fails( "s1",    0 ); /* caller cannot handle shared */
+  parse_affinity_fails( "1,1",   1 ); /* a plain repeat is still banned */
+  parse_affinity_fails( "1024",  1 ); /* cpu index past the cpu_assigned bitset */
+}
+
 /* ======================================================================== */
 
 int

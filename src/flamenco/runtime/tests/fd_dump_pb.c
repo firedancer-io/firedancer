@@ -1,4 +1,5 @@
 #include "fd_dump_pb.h"
+#include "fd_solfuzz_private.h"
 #include "generated/block.pb.h"
 #include "generated/instr.pb.h"
 #include "generated/txn.pb.h"
@@ -152,9 +153,11 @@ dump_account_state( fd_acc_t const *            acc,
     output_account->lamports = (uint64_t)acc->lamports;
 
     // Data
-    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( acc->data_len ) );
-    output_account->data->size = (pb_size_t) acc->data_len;
-    fd_memcpy(output_account->data->bytes, acc->data, acc->data_len );
+    pb_bytes_array_t * data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( acc->data_len ) );
+    data->size = (pb_size_t) acc->data_len;
+    fd_memcpy( data->bytes, acc->data, acc->data_len );
+    output_account->which_data_repr = FD_EXEC_TEST_ACCT_STATE_DATA_TAG;
+    output_account->data_repr.data  = data;
 
     // Executable
     output_account->executable = (bool)acc->executable;
@@ -217,11 +220,16 @@ dump_executable_account_if_exists( fd_accdb_t *                      accdb,
     return;
   }
 
+  pb_bytes_array_t const * program_data = fd_solfuzz_acct_data( program_account );
+  if( FD_UNLIKELY( !program_data ) ) {
+    return;
+  }
+
   fd_bpf_state_t program_loader_state[1];
   if( FD_UNLIKELY( fd_bpf_state_decode(
       program_loader_state,
-      program_account->data->bytes,
-      program_account->data->size ) ) ) {
+      program_data->bytes,
+      program_data->size ) ) ) {
     return;
   }
   if( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) {
@@ -245,8 +253,22 @@ dump_sanitized_transaction( fd_accdb_t *                           accdb,
   sanitized_transaction->has_message = true;
   fd_exec_test_transaction_message_t * message = &sanitized_transaction->message;
 
-  /* Transaction Context -> tx -> message -> is_legacy */
-  message->is_legacy = txn_descriptor->transaction_version == FD_TXN_VLEGACY;
+  /* Transaction Context -> tx -> message -> version / v1_config */
+  int is_v1     = txn_descriptor->transaction_version==FD_TXN_V1;
+  int is_legacy = txn_descriptor->transaction_version==FD_TXN_VLEGACY;
+  message->version       = is_v1     ? FD_EXEC_TEST_TRANSACTION_VERSION_TRANSACTION_VERSION_V1
+                         : is_legacy ? FD_EXEC_TEST_TRANSACTION_VERSION_TRANSACTION_VERSION_LEGACY
+                         :             FD_EXEC_TEST_TRANSACTION_VERSION_TRANSACTION_VERSION_V0;
+  message->has_v1_config = (bool)is_v1;
+  if( is_v1 ) {
+    uint          mask = fd_uint_load_4( txn_payload+4UL );
+    uchar const * v    = txn_payload + txn_descriptor->v1_txn_config_values_off;
+    fd_exec_test_transaction_config_t * cfg = &message->v1_config;
+    if( mask & 0x01U ) { cfg->has_priority_fee = 1;                    cfg->priority_fee = FD_LOAD( ulong, v );                   v += 8UL; }
+    if( mask & 0x04U ) { cfg->has_compute_unit_limit = 1;              cfg->compute_unit_limit = FD_LOAD( uint, v );              v += 4UL; }
+    if( mask & 0x08U ) { cfg->has_loaded_accounts_data_size_limit = 1; cfg->loaded_accounts_data_size_limit = FD_LOAD( uint, v ); v += 4UL; }
+    if( mask & 0x10U ) { cfg->has_heap_size = 1;                       cfg->heap_size = FD_LOAD( uint, v );                                 }
+  }
 
   /* Transaction Context -> tx -> message -> header */
   message->has_header = true;
@@ -302,9 +324,9 @@ dump_sanitized_transaction( fd_accdb_t *                           accdb,
     memcpy( compiled_instruction->data->bytes, instr_data, instr.data_sz );
   }
 
-  /* ALUT stuff (non-legacy) */
+  /* ALUT stuff (V0 only: legacy and V1 have none) */
   message->address_table_lookups_count = 0;
-  if( !message->is_legacy ) {
+  if( !is_legacy && !is_v1 ) {
     /* Transaction Context -> tx -> message -> address_table_lookups */
     message->address_table_lookups_count = txn_descriptor->addr_table_lookup_cnt;
     message->address_table_lookups = fd_spad_alloc( spad,
@@ -661,7 +683,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_pubkey_t node;
     ushort      commission;
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node, &stake,
-                             NULL, NULL, &commission, NULL, NULL, NULL );
+                             NULL, NULL, &commission, NULL, NULL, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t1[ va_t1_cnt++ ];
@@ -696,7 +718,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_pubkey_t node;
     ushort      commission;
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, &pubkey, &node, &stake,
-                             NULL, NULL, &commission, NULL, NULL, NULL );
+                             NULL, NULL, &commission, NULL, NULL, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t2[ va_t2_cnt++ ];
@@ -1109,14 +1131,8 @@ write_account_to_result( fd_acc_t const *            acc,
   memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
   out_acct->lamports = acc->lamports;
 
-  if( acc->data_len>0UL ) {
-    pb_bytes_array_t * data = (pb_bytes_array_t *)fd_ulong_align_up( *scratch_cur, alignof(pb_bytes_array_t) );
-    *scratch_cur = (ulong)data + PB_BYTES_ARRAY_T_ALLOCSIZE( acc->data_len );
-    if( FD_UNLIKELY( *scratch_cur > scratch_end ) ) abort();
-    data->size = (pb_size_t)acc->data_len;
-    fd_memcpy( data->bytes, acc->data, acc->data_len );
-    out_acct->data = data;
-  }
+  fd_solfuzz_acct_set_data_hash( out_acct, acc->data, acc->data_len );
+  (void)scratch_cur; (void)scratch_end;
 
   out_acct->executable = acc->executable;
   memcpy( out_acct->owner, acc->owner, sizeof(fd_pubkey_t) );
@@ -1140,14 +1156,8 @@ write_account_to_result1( uchar const *               pubkey,
   memcpy( out_acct->address, pubkey, sizeof(fd_pubkey_t) );
   out_acct->lamports = lamports;
 
-  if( data_len>0UL ) {
-    pb_bytes_array_t * data = (pb_bytes_array_t *)fd_ulong_align_up( *scratch_cur, alignof(pb_bytes_array_t) );
-    *scratch_cur = (ulong)data + PB_BYTES_ARRAY_T_ALLOCSIZE( data_len );
-    if( FD_UNLIKELY( *scratch_cur > scratch_end ) ) abort();
-    data->size = (pb_size_t)data_len;
-    fd_memcpy( data->bytes, _data, data_len );
-    out_acct->data = data;
-  }
+  fd_solfuzz_acct_set_data_hash( out_acct, _data, data_len );
+  (void)scratch_cur; (void)scratch_end;
 
   out_acct->executable = executable;
   memcpy( out_acct->owner, owner, sizeof(fd_pubkey_t) );
@@ -1227,13 +1237,7 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
   txn_result->executed_units                 = txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter;
 
   /* Return data */
-  if( txn_out->details.return_data.len>0 ) {
-    txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                                       PB_BYTES_ARRAY_T_ALLOCSIZE( txn_out->details.return_data.len ) );
-    if( FD_UNLIKELY( _l > out_end ) ) abort();
-    txn_result->return_data->size = (pb_size_t)txn_out->details.return_data.len;
-    fd_memcpy( txn_result->return_data->bytes, txn_out->details.return_data.data, txn_out->details.return_data.len );
-  }
+  txn_result->return_data_hash = fd_solfuzz_hash( txn_out->details.return_data.data, txn_out->details.return_data.len );
 
   /* Modified accounts */
   txn_result->modified_accounts = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t), sizeof(fd_exec_test_acct_state_t) * txn_out->accounts.cnt );

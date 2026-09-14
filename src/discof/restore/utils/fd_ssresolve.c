@@ -309,6 +309,11 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
                             fd_ssresolve_result_t * result ) {
   FD_TEST( ssresolve->state==FD_SSRESOLVE_STATE_RESP );
 
+  if( FD_UNLIKELY( ssresolve->response_len>=sizeof(ssresolve->response) ) ) {
+    FD_LOG_WARNING(( "response headers too large" ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+
   long read = 0L;
   if( FD_LIKELY( ssresolve->is_https ) ) {
 #if FD_HAS_OPENSSL
@@ -333,6 +338,9 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
     if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
     else if( FD_UNLIKELY( -1==read ) ) {
       FD_LOG_WARNING(( "recvfrom() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      return FD_SSRESOLVE_ADVANCE_ERROR;
+    } else if( FD_UNLIKELY( !read ) ) {
+      FD_LOG_WARNING(( "peer closed the connection before sending the full response" ));
       return FD_SSRESOLVE_ADVANCE_ERROR;
     }
   }

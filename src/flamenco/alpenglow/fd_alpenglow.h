@@ -1,7 +1,7 @@
-#ifndef HEADER_fd_src_flamenco_rewards_fd_alpen_rewards_h
-#define HEADER_fd_src_flamenco_rewards_fd_alpen_rewards_h
+#ifndef HEADER_fd_src_flamenco_alpenglow_fd_alpenglow_h
+#define HEADER_fd_src_flamenco_alpenglow_fd_alpenglow_h
 
-/* fd_alpen_rewards provides APIS for applying the vote account side
+/* fd_alpenglow provides APIs for applying the vote account side
    effects of an Alpenglow block footer's certificates.
 
    see runtime/src/block_component_processor/vote_reward.rs:
@@ -14,21 +14,8 @@
    - The finalization cert signers get root_slot / votes /
      last_timestamp refreshed in their vote states. */
 
-#include "fd_reward_cert.h"
 #include "../runtime/fd_bank.h"
-#include "../../choreo/votor/ag_cert.h"
-
-/* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor-messages/src/reward_certificate.rs#L20 */
-#define NUM_SLOTS_FOR_REWARD (8UL)
-
-struct fd_footer_certs {
-  ag_cert_fast_final_t const * fast_final_cert;   /* fast BlockFinalizationCert */
-  ag_cert_final_t const *      final_cert;        /* slow BlockFinalizationCert */
-  ag_cert_notar_t const *      final_notar_cert;  /* notar aggregate accompanying final_cert */
-  fd_reward_cert_t const *     skip_reward_cert;  /* SkipRewardCertificate  */
-  fd_reward_cert_t const *     notar_reward_cert; /* NotarRewardCertificate */
-};
-typedef struct fd_footer_certs fd_footer_certs_t;
+#include "fd_block_marker.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -56,19 +43,33 @@ ulong
 fd_alpenglow_migration_slot( fd_bank_t *  bank,
                              fd_accdb_t * accdb );
 
-/* fd_alpen_rewards_apply applies the cert side effects to the bank's
-   accounts.  certs fields are NULL when the footer did not carry the
-   respective cert.  footer_time_nanos is the footer's producer
-   timestamp.
+/* fd_alpenglow_footer_verify verifies every cert's aggregate BLS
+   signature in the footer.  It also checks the following:
+
+   - the signer bitmap must fit the epoch's ranked validators
+   - the finalization certs must carry a quorum of stake
+   - does NOT check the reward certs stake threshold
+
+   Returns 0 if every cert verifies (or the footer carries none) and -1
+   if any cert fails or cannot be checked: shred_version is 0, or the
+   bank holds no ranked validators for the cert's epoch. */
+
+int
+fd_alpenglow_footer_verify( fd_bank_t const *         bank,
+                            fd_block_footer_t const * footer,
+                            ushort                    shred_version );
+
+/* fd_alpenglow_rewards_apply applies the side effects of the footer's
+   certs to the bank's accounts.  Only the slot and signer bitmap of
+   each cert are read; the signatures are not verified here.
    Returns 0 on success and -1 if processing of the bank should fail */
 
 int
-fd_alpen_rewards_apply( fd_bank_t *               bank,
-                         fd_accdb_t *              accdb,
-                         fd_capture_ctx_t *        capture_ctx,
-                         fd_footer_certs_t const * certs,
-                         ulong                     footer_time_nanos );
+fd_alpenglow_rewards_apply( fd_bank_t *               bank,
+                            fd_accdb_t *              accdb,
+                            fd_capture_ctx_t *        capture_ctx,
+                            fd_block_footer_t const * footer );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_rewards_fd_alpen_rewards_h */
+#endif /* HEADER_fd_src_flamenco_alpenglow_fd_alpenglow_h */

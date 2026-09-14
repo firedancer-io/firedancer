@@ -91,10 +91,9 @@ struct fd_execrp_tile {
     ulong txn_commit_cum_ticks;
 
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
+    ulong txn_version[ FD_METRICS_ENUM_TXN_VERSION_CNT ];
   } metrics;
 
-  /* If non-zero, emit one runtime_txn event per dispatched txn */
-  int report_transaction_diffs;
 };
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
@@ -134,6 +133,7 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET      ( EXECRP, SIGNATURE_VERIFIED,    ctx->metrics.sigverify_cnt );
   FD_MCNT_SET      ( EXECRP, POH_HASHED,     ctx->metrics.poh_hash_cnt  );
   FD_MCNT_ENUM_COPY( EXECRP, TXN_RESULT,   ctx->metrics.txn_result    );
+  FD_MCNT_ENUM_COPY( EXECRP, TXN_VERSION,  ctx->metrics.txn_version   );
 
   fd_progcache_metrics_t * pm = ctx->progcache->metrics;
   FD_MCNT_SET( EXECRP, PROGCACHE_LOOKUP,                 pm->lookup_cnt     );
@@ -165,10 +165,11 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
 
   FD_MCNT_SET( EXECRP, CU_EXECUTED, runtime->metrics.cu_cum );
+  FD_MCNT_SET( EXECRP, INSTRUCTION_EXECUTED, runtime->metrics.instr_cum );
+  FD_MCNT_SET( EXECRP, CPI_EXECUTED,         runtime->metrics.cpi_cum   );
 
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
-
 
 static void
 publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
@@ -296,11 +297,12 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
+        ctx->metrics.txn_version[ fd_execle_version_from_txn( TXN( ctx->txn_in.txn ) ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
+          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
         } else {
-          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
+          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
         }
 
         long const txn_end_ticks = fd_tickcount();
@@ -339,13 +341,13 @@ returnable_frag( fd_execrp_tile_t *  ctx,
       case FD_EXECRP_TT_POH_HASH: {
         fd_execrp_poh_hash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        out_msg->bank_idx           = msg->bank_idx;
-        out_msg->poh_hash->mblk_idx = msg->mblk_idx;
-        out_msg->poh_hash->hashcnt  = msg->hashcnt;
-        fd_sha256_hash_32_repeated( msg->hash, out_msg->poh_hash->hash, msg->hashcnt );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_POH_PARA, "invalid poh batch" );
+        out_msg->bank_idx      = msg->bank_idx;
+        out_msg->poh_hash->cnt = msg->cnt;
+        ctx->metrics.poh_hash_cnt += msg->hashcnt*msg->cnt;
+        fd_sha256_hash_32_repeated_batch( msg->hash, out_msg->poh_hash->hash, msg->hashcnt, msg->cnt );
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_POH_HASH<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
-        ctx->metrics.poh_hash_cnt += msg->hashcnt;
         break;
       }
       default: FD_LOG_CRIT(( "unexpected signature %lu", sig ));
@@ -415,7 +417,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
   FD_TEST( ctx->accdb );
 
-
   /* First find and setup the in-link from replay to exec. */
   ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", 0UL );
   FD_TEST( ctx->replay_in->idx!=ULONG_MAX );
@@ -433,7 +434,6 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->execrp_replay_out->wmark  = fd_dcache_compact_wmark( ctx->execrp_replay_out->mem, execrp_replay_link->dcache, execrp_replay_link->mtu );
     ctx->execrp_replay_out->chunk  = ctx->execrp_replay_out->chunk0;
   }
-
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -525,8 +525,6 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
-  ctx->report_transaction_diffs = tile->execrp.report_transaction_diffs;
-
   fd_wksp_oom_silent = 1;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
@@ -583,7 +581,7 @@ static ulong
 max_event_sz( fd_topo_tile_t const * tile ) {
   /* execrp emits accdb_partition_added, plus runtime_txn when diffs are on. */
   ulong sz = sizeof(fd_event_accdb_partition_added_t);
-  if( tile->execrp.report_transaction_diffs && sizeof(fd_event_runtime_txn_t)>sz ) sz = sizeof(fd_event_runtime_txn_t);
+  if( tile->execrp.report_runtime_diffs && sizeof(fd_event_runtime_txn_t)>sz ) sz = sizeof(fd_event_runtime_txn_t);
   return sz;
 }
 

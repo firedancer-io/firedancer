@@ -353,7 +353,7 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     FD_LOG_NOTICE(( "retrieved genesis %s%s%s from peer at %shttp://" FD_IP4_ADDR_FMT ":%hu/genesis.tar.bz2%s",
                     fd_log_style_dim(), ctx->genesis_path, fd_log_style_normal(),
-                    fd_log_style_dim(), FD_IP4_ADDR_FMT_ARGS( peer.addr ), peer.port, fd_log_style_normal() ));
+                    fd_log_style_dim(), FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), fd_log_style_normal() ));
 
     ctx->shutdown = 1;
   }

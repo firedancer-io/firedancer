@@ -285,7 +285,8 @@ fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
                          ushort *                 commission_out_opt,
                          uchar *                  is_valid_out_opt,
                          ushort *                 alpenglow_rank_out_opt,
-                         uchar                    bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ] );
+                         uchar                    bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                         uchar                    bls_key_uncompressed_out_opt[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ] );
 
 FD_PROTOTYPES_END
 

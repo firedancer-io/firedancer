@@ -218,9 +218,9 @@ exec_single( test_env_t * env, fd_txn_p_t * txn ) {
   env->txn_in.txn = txn;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   if( FD_LIKELY( env->txn_out[0].err.is_committable ) ) {
-    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0] );
   } else {
-    fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[0], 0 );
+    fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[0] );
   }
   return &env->txn_out[0];
 }
@@ -544,7 +544,7 @@ test_bundle_upgrade_gate( fd_svm_mini_t * mini ) {
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   assert_invoke_not_deployed( &env->txn_out[0] );
 
-  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0] );
   fd_runtime_fini_bundle( env->runtime );
   FD_LOG_NOTICE(( "bundle unlisted invoke after upgrade rejected... ok" ));
 }
@@ -585,7 +585,7 @@ test_bundle_deploy_size_counted( fd_svm_mini_t * mini ) {
                + env->pd_dlen;
   FD_TEST( env->txn_out[0].details.loaded_accounts_data_size==expect );
 
-  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0] );
   fd_runtime_fini_bundle( env->runtime );
   FD_LOG_NOTICE(( "bundle deploy-this-slot size counted... ok" ));
 }
@@ -693,8 +693,8 @@ run_pair( test_env_t *  env,
   pd_fields_capture( f, &env->txn_out[1] );
 
   for( ulong i=0UL; i<2UL; i++ ) {
-    if( FD_LIKELY( env->txn_out[i].err.is_committable ) ) fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[i], 0 );
-    else                                                  fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[i], 0 );
+    if( FD_LIKELY( env->txn_out[i].err.is_committable ) ) fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[i] );
+    else                                                  fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[i] );
   }
   fd_runtime_fini_bundle( env->runtime );
 }
@@ -1333,7 +1333,7 @@ test_bundle_invoke_baseline( fd_svm_mini_t * mini ) {
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   assert_invoke_success( &env->txn_out[0] );
 
-  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0] );
   fd_runtime_fini_bundle( env->runtime );
   FD_LOG_NOTICE(( "bundle invoke baseline... ok" ));
 }

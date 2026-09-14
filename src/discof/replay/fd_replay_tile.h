@@ -99,7 +99,7 @@
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
 #include "../../choreo/votor/ag_cert.h"
-#include "fd_block_marker.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)
@@ -217,6 +217,7 @@ struct fd_replay_root_advanced {
   ulong     bank_seq;  /* fork discriminator of the rooted bank */
   ulong     slot;
   fd_hash_t bank_hash;
+  fd_hash_t block_id;
 };
 typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 
@@ -289,14 +290,9 @@ struct fd_replay_final_cert {
 };
 typedef struct fd_replay_final_cert fd_replay_final_cert_t;
 
-/* Sized by the footer format itself rather than a guess: a footer that
-   carries certificates is ~1.8 KiB, well over the 512 this used to be. */
-#define FD_REPLAY_LEADER_FOOTER_MAX FD_BLOCK_FOOTER_SER_MAX
-
 struct fd_replay_leader_footer {
-  ulong slot;
-  ulong sz;
-  uchar footer[ FD_REPLAY_LEADER_FOOTER_MAX ];
+  ulong             slot;
+  fd_block_footer_t footer;
 };
 typedef struct fd_replay_leader_footer fd_replay_leader_footer_t;
 

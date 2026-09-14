@@ -98,3 +98,9 @@ exit: (eq (arg 0) 0)
 # other power saving tiles (snapsv).
 futex: (or (eq (arg 1) FUTEX_WAIT)
            (eq (arg 1) FUTEX_WAKE))
+
+# snapshot: out-of-order fixup writes to snapshot file
+#
+# arg 0 is the file descriptor to write to.
+pwrite64: (and (>= (arg 0) pool_min_fd)
+               (<= (arg 0) pool_max_fd))

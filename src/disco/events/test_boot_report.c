@@ -158,6 +158,7 @@ main( int     argc,
   topo->tile_cnt = 2UL;
   strcpy( topo->tiles[ 0 ].name, "net" );
   topo->tiles[ 0 ].cpu_idx = 1UL;
+  topo->tiles[ 0 ].floats  = 1;
   topo->tiles[ 0 ].out_cnt = 1UL;
   topo->tiles[ 0 ].out_link_id[ 0 ] = 0UL;
   strcpy( topo->tiles[ 1 ].name, "shred" );
@@ -179,6 +180,8 @@ main( int     argc,
 
   FD_TEST( report->topology_json_len );
   FD_LOG_NOTICE(( "topology_json %s", report->topology_json ));
+  FD_TEST( strstr( report->topology_json, "\"cpu_idx\":1,\"floats\":true" ) );
+  FD_TEST( strstr( report->topology_json, "\"cpu_idx\":-1,\"floats\":false" ) );
 
   ulong sz = 0UL;
   uchar const * msg = fd_circq_cursor_advance( circq, &sz );

@@ -27,7 +27,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp, ulong slot_max ) {
 
   FD_TEST( fd_rng_secure( ctx->repair_nonce_ss, sizeof(fd_rnonce_ss_t) ) );
 
-  void * forest_mem     = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * forest_mem     = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
   void * policy_mem     = fd_wksp_alloc_laddr( wksp, fd_policy_align(), fd_policy_footprint( peer_max ), 1UL );
   void * dedup_mem      = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( dedup_max ), 1UL );
   void * inflights_mem  = fd_wksp_alloc_laddr( wksp, fd_inflights_align(), fd_inflights_footprint(), 1UL );
@@ -36,7 +36,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp, ulong slot_max ) {
   void * repair_mem     = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(), 1UL );
   void * metrics_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_metrics_align(), fd_repair_metrics_footprint(), 1UL );
 
-  ctx->forest       = fd_forest_join        ( fd_forest_new        ( forest_mem, slot_max, 0UL ) );
+  ctx->forest       = fd_forest_join        ( fd_forest_new        ( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
   ctx->policy       = fd_policy_join        ( fd_policy_new        ( policy_mem, peer_max, 0UL, ctx->repair_nonce_ss ) );
   ctx->dedup        = fd_reqlim_join        ( fd_reqlim_new         ( dedup_mem, dedup_max, 0UL ) );
   ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( inflights_mem, 0UL ) );
@@ -842,8 +842,8 @@ test_parent_edge_mismatch_with_verified_fec0( fd_wksp_t * wksp ) {
    FD_TEST( slot10->parent_slot == 9 );
    FD_TEST( slot10->buffered_idx == slot10->complete_idx );
    FD_TEST( slot10->complete_idx == FD_FEC_SHRED_CNT - 1U );
-   FD_TEST( fd_hash_eq( &slot10->merkle_roots[0].mr,  &mr_10 ) );
-   FD_TEST( fd_hash_eq( &slot10->merkle_roots[0].cmr, &mr_9  ) );
+   FD_TEST( fd_hash_eq( &fd_forest_blk_mroots( ctx->forest, slot10 )[0].mr,  &mr_10 ) );
+   FD_TEST( fd_hash_eq( &fd_forest_blk_mroots( ctx->forest, slot10 )[0].cmr, &mr_9  ) );
 
    /* Slot 10 gets duplicate confirmed which triggers check_confirmed.
       The parent edge mismatch is detected and slot 8 is returned as the bad block.

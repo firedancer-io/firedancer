@@ -173,6 +173,59 @@ main( int     argc,
     FD_LOG_NOTICE(( "OK: 64-bit counter" ));
   }
 
+  /* Test fd_chacha_rng_read32 */
+
+  {
+    /* Reference stream: the first 8 blocks of ChaCha8 keystream */
+    uchar ref[ 8*FD_CHACHA_BLOCK_SZ ] __attribute__((aligned(64)));
+    for( ulong i=0UL; i<8UL; i++ ) {
+      uint idx_nonce[4] __attribute__((aligned(16))) = { (uint)i, 0U, 0U, 0U };
+      fd_chacha8_block( ref + i*FD_CHACHA_BLOCK_SZ, key, idx_nonce );
+    }
+
+    /* Sequential aligned reads walk the stream and advance the cursor
+       by 32 each, crossing at least one buffer refill */
+
+    FD_TEST( fd_chacha_rng_init( rng, key, FD_CHACHA_RNG_ALGO_CHACHA8 ) );
+    for( ulong i=0UL; i<sizeof(ref)/32UL; i++ ) {
+      uchar out[ 33 ]; /* read into an unaligned address */
+      fd_chacha_rng_read32( rng, out+1 );
+      FD_TEST( !memcmp( out+1, ref + i*32UL, 32UL ) );
+      FD_TEST( rng->buf_off==(i+1UL)*32UL );
+    }
+
+    /* A read32 following an 8 byte read aligns up, discarding the 24
+       bytes in between */
+
+    uchar out32[ 32 ];
+    FD_TEST( fd_chacha_rng_init( rng, key, FD_CHACHA_RNG_ALGO_CHACHA8 ) );
+    FD_TEST( fd_chacha_rng_ulong( rng )==FD_LOAD( ulong, ref ) );
+    FD_TEST( rng->buf_off==8UL );
+    fd_chacha_rng_read32( rng, out32 );
+    FD_TEST( !memcmp( out32, ref+32, 32UL ) );
+    FD_TEST( rng->buf_off==64UL );
+
+    /* An 8 byte read following a read32 continues at the next 8 bytes */
+
+    FD_TEST( fd_chacha_rng_ulong( rng )==FD_LOAD( ulong, ref+64 ) );
+    FD_TEST( rng->buf_off==72UL );
+
+    /* Read right up to the refill boundary, then across it */
+
+    FD_TEST( fd_chacha_rng_init( rng, key, FD_CHACHA_RNG_ALGO_CHACHA8 ) );
+    ulong fill = rng->buf_fill;
+    FD_TEST( fill && fd_ulong_is_aligned( fill, FD_CHACHA_BLOCK_SZ ) );
+    for( ulong off=0UL; off<fill; off+=32UL )
+      fd_chacha_rng_read32( rng, out32 );
+    FD_TEST( rng->buf_off ==fill ); /* buffer drained exactly */
+    FD_TEST( rng->buf_fill==fill );
+    fd_chacha_rng_read32( rng, out32 ); /* forces a refill */
+    FD_TEST( rng->buf_off ==fill+32UL );
+    FD_TEST( rng->buf_fill> fill      );
+
+    FD_LOG_NOTICE(( "OK: fd_chacha_rng_read32" ));
+  }
+
   /* Test leave/delete */
 
   FD_TEST( fd_chacha_rng_leave( NULL )==NULL ); /* invalid mem */

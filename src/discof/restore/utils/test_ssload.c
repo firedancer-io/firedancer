@@ -586,7 +586,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
                                                     max_stake, max_fallback_stake, max_vote,
-                                                    0 /* larger_max_cost_per_block */, seed ) );
+                                                    0UL /* max_cost_per_block */, seed ) );
   FD_TEST( banks );
 
   fd_bank_t * bank = fd_banks_init_bank( banks );
@@ -737,14 +737,14 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) );
   fd_pubkey_t iter_pubkey;
   fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                           &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL );
+                           &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL, NULL );
   FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_w ) && rank_out==0U );
 
   rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter_mem );
   FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter ) );
   fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter,
-                           &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL );
+                           &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL, NULL );
   FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_z ) && rank_out==0U );
 
   fd_wksp_free_laddr( banks_mem );

@@ -8,7 +8,7 @@
 #include <net/if.h>
 
 #define NAME_SZ                     (256UL)
-#define AFFINITY_SZ                 (256UL)
+#define AFFINITY_SZ                 (2048UL) /* FD_TOPO_MAX_TILES entries of "s1023," */
 #define CONFIGURE_STAGE_COUNT       ( 24UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX ( 16UL)
 #define IP4_PORT_STR_MAX            ( 22UL)
@@ -266,6 +266,19 @@ struct fd_config {
 
   long boot_timestamp_nanos;
 
+  /* Sizing ceilings for every per-slot structure, derived at load: the
+     largest values the consensus limits can take, or the raised
+     [development.bench] limits.  txn/slot is min-cost txns against the
+     cost ceiling and min-size txns against the shred ceiling, the same
+     two bounds as FD_MAX_TXN_PER_SLOT_{CU,SHRED}.  The chain's live
+     limits (cost tracker, shred and replay tiles) are floored by the raw
+     [development.bench] values, which are 0 in production. */
+  struct {
+    ulong max_cost_per_block;
+    ulong max_shreds_per_block;
+    ulong max_txn_per_slot;
+  } limits;
+
   fd_topo_t topo;
 
   char cluster[ 32 ];
@@ -381,8 +394,9 @@ struct fd_config {
       uint  benchg_tile_count;
       uint  benchs_tile_count;
       char  affinity[ AFFINITY_SZ ];
-      int   larger_max_cost_per_block;
-      int   larger_shred_limits_per_block;
+      char  transaction_mode[ 32 ];
+      ulong max_cost_per_block;
+      ulong max_shreds_per_block;
       ulong disable_blockstore_from_slot;
       int   disable_status_cache;
     } bench;
@@ -396,7 +410,7 @@ struct fd_config {
     struct {
       int report_shreds;
       int report_transactions;
-      int report_transaction_diffs;
+      int report_runtime_diffs;
     } event;
 
     struct {

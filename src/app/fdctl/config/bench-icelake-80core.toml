@@ -25,8 +25,8 @@ scratch_directory = "/dev/shm/fd1"
   benchg_tile_count = 12
   benchs_tile_count = 2
   affinity = "f1,0-26/2"
-  larger_max_cost_per_block = true
-  larger_shred_limits_per_block = true
+  max_cost_per_block = 540000000
+  max_shreds_per_block = 1048576
   disable_blockstore_from_slot = 1
 
 [rpc]

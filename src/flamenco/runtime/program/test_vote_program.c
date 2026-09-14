@@ -109,7 +109,7 @@ enable_mainnet_features( test_env_t * env ) {
 static void
 exec_txn_hex( test_env_t * env, char const * hex, int expect_ok, int expect_err ) {
   ulong txn_sz = strlen( hex ) / 2;
-  env->txn_p->payload_sz = txn_sz;
+  env->txn_p->payload_sz = (ushort)txn_sz;
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
   env->txn_in->txn              = env->txn_p;
@@ -126,7 +126,7 @@ exec_txn_hex( test_env_t * env, char const * hex, int expect_ok, int expect_err 
     FD_TEST( !txn_succeeded( env ) );
     FD_TEST( env->txn_out->err.exec_err==expect_err );
   }
-  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );
 }
 
 /* Account keys shared by the hand-crafted transactions below. */
@@ -264,7 +264,7 @@ setup_account_initialize_txn( test_env_t * env ) {
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
-  env->txn_p->payload_sz = txn_sz;
+  env->txn_p->payload_sz = (ushort)txn_sz;
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
 
@@ -329,7 +329,7 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
-  env->txn_p->payload_sz = txn_sz;
+  env->txn_p->payload_sz = (ushort)txn_sz;
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
 
@@ -385,7 +385,7 @@ setup_update_commission_collector_txn( test_env_t * env ) {
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
-  env->txn_p->payload_sz = txn_sz;
+  env->txn_p->payload_sz = (ushort)txn_sz;
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
 
@@ -478,7 +478,7 @@ test_update_commission_collector_feature_gate( fd_svm_mini_t * mini ) {
      transaction observes it. */
   fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
   FD_TEST( txn_succeeded( env ) );
-  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );
 
   setup_update_commission_collector_txn( env );
 
@@ -503,7 +503,7 @@ test_update_validator_identity_collector_sync( fd_svm_mini_t * mini, int feature
 
   fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
   FD_TEST( txn_succeeded( env ) );
-  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );
 
   /* With the feature active, first set a custom block revenue
      collector so the sync check below distinguishes "left untouched"
@@ -534,7 +534,7 @@ test_update_validator_identity_collector_sync( fd_svm_mini_t * mini, int feature
     strcat( hex, "01" ); strcat( hex, "02" ); strcat( hex, "02" );
     strcat( hex, "0100" ); strcat( hex, "04" ); strcat( hex, "04000000" );
     ulong txn_sz = strlen(hex) / 2;
-    env->txn_p->payload_sz = txn_sz;
+    env->txn_p->payload_sz = (ushort)txn_sz;
     fd_hex_decode( env->txn_p->payload, hex, txn_sz );
     FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
     env->txn_in->txn = env->txn_p;
@@ -574,7 +574,7 @@ test_update_commission_collector( fd_svm_mini_t * mini ) {
 
   fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
   FD_TEST( txn_succeeded( env ) );
-  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );
 
   setup_update_commission_collector_txn( env );
 
@@ -594,7 +594,7 @@ test_update_commission_collector( fd_svm_mini_t * mini ) {
   fd_pubkey_t node_pubkey[1];
   fd_hex_decode( node_pubkey, "0aa9bcc27d093d38fa5d85cedb7136a5f3ba615782b8c036a7a778563c3796a8", 32 );
   FD_TEST( fd_pubkey_eq( &vsv->v4.block_revenue_collector, node_pubkey ) );
-  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );
 
   /* Variant harness: rebuilds the txn with the given sig byte, header,
      collector key, instruction accounts, and data. */
@@ -610,14 +610,14 @@ test_update_commission_collector( fd_svm_mini_t * mini ) {
     strcat( hex, "01" ); strcat( hex, "03" ); strcat( hex, "03" );                                            \
     strcat( hex, (instr_accts) ); strcat( hex, "08" ); strcat( hex, (data_hex) );                             \
     ulong txn_sz = strlen(hex) / 2;                                                                           \
-    env->txn_p->payload_sz = txn_sz;                                                                          \
+    env->txn_p->payload_sz = (ushort)txn_sz;                                                                  \
     fd_hex_decode( env->txn_p->payload, hex, txn_sz );                                                        \
     FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );                          \
     env->txn_in->txn = env->txn_p;                                                                            \
     fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );           \
     if( expect_ok ) { FD_TEST( txn_succeeded( env ) ); }                                                      \
     else            { FD_TEST( !txn_succeeded( env ) ); FD_TEST( env->txn_out->err.exec_err==(expect_err) ); }\
-    fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );                            \
+    fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );                            \
   } while(0)
 
   /* BlockRevenue kind: block revenue collector updated. */
@@ -682,14 +682,14 @@ test_update_commission_collector( fd_svm_mini_t * mini ) {
     strcat( hex, "01" ); strcat( hex, "03" ); strcat( hex, "02" );
     strcat( hex, "0102" ); strcat( hex, "08" ); strcat( hex, "1100000000000000" );
     ulong txn_sz = strlen(hex) / 2;
-    env->txn_p->payload_sz = txn_sz;
+    env->txn_p->payload_sz = (ushort)txn_sz;
     fd_hex_decode( env->txn_p->payload, hex, txn_sz );
     FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
     env->txn_in->txn = env->txn_p;
     fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
     FD_TEST( !txn_succeeded( env ) );
     FD_TEST( env->txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
-    fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );
+    fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );
   }
 
   /* Full aliasing of all three accounts is allowed; this only fails
@@ -952,7 +952,7 @@ test_collectors_immutable( fd_svm_mini_t * mini ) {
 
   fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
   FD_TEST( txn_succeeded( env ) );
-  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );
 
   fd_pubkey_t collector[1]; fd_hex_decode( collector, HEX_COLLECTOR, 32 );
   create_simple_account( env, collector, 1000000000UL );

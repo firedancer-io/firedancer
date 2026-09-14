@@ -40,6 +40,10 @@ typedef struct {
   ulong             in_kind[ 64UL ];
   fd_dedup_in_ctx_t in[ 64UL ];
 
+  /* Dedup tag hashed early in during_frag, valid iff tag_ready */
+  int   tag_ready;
+  ulong tag;
+
   int   bundle_failed;
   ulong bundle_id;
   ulong bundle_idx;
@@ -109,6 +113,7 @@ during_frag( fd_dedup_ctx_t * ctx,
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
+  ctx->tag_ready = 0;
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     if( FD_UNLIKELY( sz>FD_TPU_RAW_MTU ) ) FD_LOG_ERR(( "received a gossip transaction that was too large" ));
     fd_memcpy( dst, src, sz );
@@ -130,6 +135,19 @@ during_frag( fd_dedup_ctx_t * ctx,
     FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
     (void)_is_dup;
   } else {
+    /* Hash the signature and warm its tcache map slot before copying,
+       so the map miss overlaps the copy misses. */
+    for( ulong off=0UL; off<sz; off+=64UL ) __builtin_prefetch( src+off, 0, 3 );
+    fd_txn_m_t const * txnm = (fd_txn_m_t const *)src;
+    if( FD_LIKELY( sz>=sizeof(fd_txn_m_t) && txnm->payload_sz<=FD_TPU_MTU && txnm->txn_t_sz ) ) {
+      fd_txn_t const * txn = fd_txn_m_txn_t_const( txnm );
+      if( FD_LIKELY( (ulong)((uchar const *)txn-src)+sizeof(fd_txn_t)<=sz &&
+                     (ulong)txn->signature_off+FD_TXN_SIGNATURE_SZ<=txnm->payload_sz ) ) {
+        ctx->tag       = fd_hash( ctx->hashmap_seed, fd_txn_m_payload_const( txnm )+txn->signature_off, FD_TXN_SIGNATURE_SZ );
+        ctx->tag_ready = 1;
+        __builtin_prefetch( ctx->tcache_map + fd_tcache_map_start( ctx->tag, ctx->tcache_map_cnt ), 1, 3 );
+      }
+    }
     fd_memcpy( dst, src, sz );
   }
 }
@@ -190,9 +208,13 @@ after_frag( fd_dedup_ctx_t *    ctx,
   int is_dup = 0;
   if( FD_LIKELY( !txnm->block_engine.bundle_id ) ) {
     /* Compute fd_hash(signature) for dedup. */
-    ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_m_payload( txnm )+txn->signature_off, 64UL );
+    ulong ha_dedup_tag = ctx->tag_ready ? ctx->tag : fd_hash( ctx->hashmap_seed, fd_txn_m_payload( txnm )+txn->signature_off, 64UL );
 
     FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
+
+    /* The next insert evicts ring[oldest], warm the map slot it probes */
+    ulong next_evict = ctx->tcache_ring[ *ctx->tcache_sync ];
+    __builtin_prefetch( ctx->tcache_map + fd_tcache_map_start( next_evict, ctx->tcache_map_cnt ), 1, 3 );
   } else {
     /* Make sure bundles don't contain a duplicate transaction inside
        the bundle, which would not be valid. */
@@ -247,6 +269,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(), fd_tcache_footprint( tile->dedup.tcache_depth, 0) ), tile->dedup.tcache_depth, 0 ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_new failed" ));
 
+  ctx->tag_ready     = 0;
   ctx->bundle_failed = 0;
   ctx->bundle_id     = 0UL;
   ctx->bundle_idx    = 0UL;

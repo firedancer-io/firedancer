@@ -42,8 +42,6 @@ typedef struct fd_exec_test_fec_set_parse_result {
     pb_byte_t merkle_root[32];
     /* Chained merkle root, if completed. Exactly 32 bytes. */
     pb_byte_t chained_merkle_root[32];
-    /* Concatenated data shred payloads if completed. */
-    pb_bytes_array_t *payload;
     /* Parsed header fields from shred */
     uint64_t slot;
     uint32_t fec_set_index;
@@ -51,6 +49,9 @@ typedef struct fd_exec_test_fec_set_parse_result {
     uint32_t shred_version;
     uint32_t num_data_shreds;
     uint32_t num_coding_shreds;
+    /* 8-byte XXH64 hash (seed 0) of the concatenated data shred payloads if
+ completed, or 0 if empty. */
+    uint64_t payload_hash;
 } fd_exec_test_fec_set_parse_result_t;
 
 typedef struct fd_exec_test_shred_parse_effects {
@@ -93,12 +94,12 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_SHRED_FEATURES_INIT_DEFAULT {0}
 #define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_DEFAULT {0, NULL, 0, 0, false, FD_EXEC_TEST_SHRED_FEATURES_INIT_DEFAULT}
-#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_INIT_DEFAULT {0, {0}, {0}, NULL, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_INIT_DEFAULT {0, {0}, {0}, 0, 0, 0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_DEFAULT {_FD_EXEC_TEST_BLOCK_PARSE_RESULT_MIN, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_SHRED_FEATURES_INIT_ZERO    {0}
 #define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_ZERO {0, NULL, 0, 0, false, FD_EXEC_TEST_SHRED_FEATURES_INIT_ZERO}
-#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_INIT_ZERO {0, {0}, {0}, NULL, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_INIT_ZERO {0, {0}, {0}, 0, 0, 0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_ZERO {_FD_EXEC_TEST_BLOCK_PARSE_RESULT_MIN, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_ZERO}
 
@@ -110,13 +111,13 @@ extern "C" {
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_COMPLETED_TAG 1
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_MERKLE_ROOT_TAG 2
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_CHAINED_MERKLE_ROOT_TAG 3
-#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_PAYLOAD_TAG 4
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_SLOT_TAG 5
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_FEC_SET_INDEX_TAG 6
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_PARENT_OFFSET_TAG 7
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_SHRED_VERSION_TAG 8
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_NUM_DATA_SHREDS_TAG 9
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_NUM_CODING_SHREDS_TAG 10
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_PAYLOAD_HASH_TAG 11
 #define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_BLOCK_PARSE_RESULT_TAG 1
 #define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_SHRED_RESULTS_TAG 2
 #define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_FEC_SET_RESULTS_TAG 3
@@ -143,13 +144,13 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  features,          4)
 X(a, STATIC,   SINGULAR, BOOL,     completed,         1) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, merkle_root,       2) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, chained_merkle_root,   3) \
-X(a, POINTER,  SINGULAR, BYTES,    payload,           4) \
 X(a, STATIC,   SINGULAR, UINT64,   slot,              5) \
 X(a, STATIC,   SINGULAR, UINT32,   fec_set_index,     6) \
 X(a, STATIC,   SINGULAR, UINT32,   parent_offset,     7) \
 X(a, STATIC,   SINGULAR, UINT32,   shred_version,     8) \
 X(a, STATIC,   SINGULAR, UINT32,   num_data_shreds,   9) \
-X(a, STATIC,   SINGULAR, UINT32,   num_coding_shreds,  10)
+X(a, STATIC,   SINGULAR, UINT32,   num_coding_shreds,  10) \
+X(a, STATIC,   SINGULAR, FIXED64,  payload_hash,     11)
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_CALLBACK NULL
 #define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_DEFAULT NULL
 
@@ -186,11 +187,11 @@ extern const pb_msgdesc_t fd_exec_test_shred_parse_fixture_t_msg;
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_ShredParseContext_size depends on runtime parameters */
-/* fd_exec_test_FECSetParseResult_size depends on runtime parameters */
 /* fd_exec_test_ShredParseEffects_size depends on runtime parameters */
 /* fd_exec_test_ShredParseFixture_size depends on runtime parameters */
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_SIZE   120
 #define FD_EXEC_TEST_SHRED_FEATURES_SIZE         0
-#define ORG_SOLANA_SEALEVEL_V1_SHRED_PB_H_MAX_SIZE FD_EXEC_TEST_SHRED_FEATURES_SIZE
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_PB_H_MAX_SIZE FD_EXEC_TEST_FEC_SET_PARSE_RESULT_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_BlockParseResult fd_exec_test_BlockParseResult

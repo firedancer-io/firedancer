@@ -18,13 +18,19 @@ netconf_cmd_fn( args_t *   args,
   (void)args;
 
   fd_topo_t * topo = &config->topo;
+  char const * provider = fd_pod_query_cstr( topo->props, "net.provider", "" );
+  if( FD_UNLIKELY( 0==strcmp( provider, "socket" ) ) ) {
+    FD_LOG_ERR(( "netconf is not supported with [net.provider] \"socket\"" ));
+  }
+  char const * net_name = fd_net_tile_name( provider );
+
   ulong wksp_id = fd_topo_find_wksp( topo, "netbase" );
   if( FD_UNLIKELY( wksp_id==ULONG_MAX ) ) {
     FD_LOG_ERR(( "netbase workspace not found" ));
   }
   fd_topo_wksp_t * netbase = &topo->workspaces[ wksp_id ];
-  ulong net_wksp_id = fd_topo_find_wksp( topo, "net" );
-  if( FD_UNLIKELY( net_wksp_id==ULONG_MAX ) ) FD_LOG_ERR(( "net workspace not found" ));
+  ulong net_wksp_id = fd_topo_find_wksp( topo, net_name );
+  if( FD_UNLIKELY( net_wksp_id==ULONG_MAX ) ) FD_LOG_ERR(( "%s workspace not found", net_name ));
   fd_topo_wksp_t * net_wksp = &topo->workspaces[ net_wksp_id ];
 
   ulong tile_id = fd_topo_find_tile( topo, "netlnk", 0UL );
@@ -32,8 +38,8 @@ netconf_cmd_fn( args_t *   args,
     FD_LOG_ERR(( "netlnk tile not found" ));
   }
   fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
-  ulong net_tile_id = fd_topo_find_tile( topo, "net", 0UL );
-  if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
+  ulong net_tile_id = fd_topo_find_tile( topo, net_name, 0UL );
+  if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "%s tile not found", net_name ));
   fd_topo_tile_t * net_tile = &topo->tiles[ net_tile_id ];
 
   fd_bootinfo_check_layout( config );

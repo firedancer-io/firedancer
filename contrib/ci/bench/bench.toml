@@ -1,0 +1,30 @@
+telemetry = false
+[hugetlbfs]
+    gigantic_page_threshold_mib = 64
+[net]
+    provider = "xdp"
+[layout]
+    quic_tile_count = 2
+    verify_tile_count = 32
+    execle_tile_count = 8
+    execrp_tile_count = 1
+[tiles]
+    [tiles.rpc]
+        enabled = true
+    [tiles.gui]
+        enabled = false
+[runtime]
+    max_live_slots = 256
+    max_fork_width = 8
+[accounts]
+    max_accounts = 4000000
+    cache_size_gib = 3
+[snapshots]
+    max_full_snapshots_to_keep = 1
+    max_incremental_snapshots_to_keep = 1
+[development]
+    [development.bench]
+        benchg_tile_count = 16
+        benchs_tile_count = 4
+        max_cost_per_block = 540000000
+        max_shreds_per_block = 131072

@@ -436,6 +436,11 @@ http_recv( fd_sshttp_t * http,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
+  } else if( FD_UNLIKELY( !read ) ) {
+    FD_LOG_WARNING(( "peer " FD_IP4_ADDR_FMT ":%hu closed the connection mid-response",
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+    fd_sshttp_cancel( http );
+    return FD_SSHTTP_ADVANCE_ERROR;
   }
   http->empty_recvs = 0UL;
 
@@ -602,6 +607,13 @@ read_response( fd_sshttp_t * http,
                long          now ) {
   if( FD_UNLIKELY( now>http->deadline ) ) {
     FD_LOG_WARNING(( "timeout reading response from " FD_IP4_ADDR_FMT ":%hu",
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+    fd_sshttp_cancel( http );
+    return FD_SSHTTP_ADVANCE_ERROR;
+  }
+
+  if( FD_UNLIKELY( http->response_len>=sizeof(http->response) ) ) {
+    FD_LOG_WARNING(( "response headers too large from " FD_IP4_ADDR_FMT ":%hu",
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;

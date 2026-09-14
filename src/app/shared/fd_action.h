@@ -134,6 +134,7 @@ union fdctl_args {
     ulong   benchs;
     int     no_quic;
     int     no_watch;
+    ulong   duration;
     int     transaction_mode;
     float   contending_fraction;
     float   cu_price_spread;

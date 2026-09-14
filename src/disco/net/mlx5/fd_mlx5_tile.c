@@ -1135,6 +1135,21 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( layout, scratch_align() );
 }
 
+fd_fib4_t *
+fd_mlx5_tile_fib4_join( fd_fib4_t *            out,
+                        fd_topo_t const *      topo,
+                        fd_topo_tile_t const * tile,
+                        int                    main_table ) {
+  FD_SCRATCH_ALLOC_INIT( scratch, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  (void)FD_SCRATCH_ALLOC_APPEND( scratch, alignof(fd_mlx5_tile_t), sizeof(fd_mlx5_tile_t) );
+  (void)FD_SCRATCH_ALLOC_APPEND( scratch, FD_MLX5_PAGE_SZ,         fd_mlx5_queue_footprint( tile->mlx5.rx_queue_size, tile->mlx5.tx_queue_size ) );
+  (void)FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),           tile->mlx5.tx_queue_size*sizeof(uint) );
+  (void)FD_SCRATCH_ALLOC_APPEND( scratch, fd_netdev_tbl_align(),   fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
+  void * local_mem = FD_SCRATCH_ALLOC_APPEND( scratch, fd_fib4_align(), fd_fib4_footprint( tile->mlx5.route_max, tile->mlx5.route_peer_max ) );
+  void * main_mem  = FD_SCRATCH_ALLOC_APPEND( scratch, fd_fib4_align(), fd_fib4_footprint( tile->mlx5.route_max, tile->mlx5.route_peer_max ) );
+  return fd_fib4_join( out, main_table ? main_mem : local_mem );
+}
+
 /* fd_mlx5_tile_rx_dst_port_add maps an IPv4 UDP destination port to the
    output link with the requested name and tile kind.  Published fragments
    encode dst_proto in their netmux signatures. */
@@ -1292,6 +1307,10 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
   }
 
   fd_mlx5_tile_t * first = ctxs[ 0 ];
+  if( FD_UNLIKELY( !fd_mlx5_uverbs_avail() ) ) {
+    FD_LOG_ERR(( "cannot run mlx5 tile: kernel does not provide uverbs API "
+                 "(ib_uverbs kernel module missing or NIC not Mellanox?)" ));
+  }
   FD_LOG_INFO(( "Opening direct mlx5 device `%s` port %u for %lu tiles",
                 rdma_device_name, rdma_port_num, tile_cnt ));
   if( FD_UNLIKELY( !fd_uverbs_init( &first->uverbs, queues, tile_cnt,
@@ -1463,7 +1482,10 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 
-  ulong net_netlnk_id = fd_topo_find_link( topo, "net_netlnk", 0UL );
+  ulong net_netlnk_id = ULONG_MAX;
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    if( !strcmp( topo->links[ tile->out_link_id[ i ] ].name, "net_netlnk" ) ) net_netlnk_id = tile->out_link_id[ i ];
+  }
   if( FD_LIKELY( net_netlnk_id!=ULONG_MAX ) ) {
     fd_topo_link_t const * net_netlnk = &topo->links[ net_netlnk_id ];
     if( FD_UNLIKELY( !net_netlnk->mcache ) ) FD_LOG_ERR(( "netlink request link not initialized" ));

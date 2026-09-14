@@ -75,14 +75,14 @@ fd_genesis_client_init( fd_genesis_client_t * client,
 
   for( ulong i=0UL; i<servers_len; i++ ) {
     fd_ip4_port_t server = servers[ i ];
-    server.port = 8899;  // TODO: SPECIFY IN CONFIG
+    server.port = fd_ushort_bswap( 8899 );  // TODO: SPECIFY IN CONFIG
 
     int sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
     if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
 
     struct sockaddr_in addr = {
       .sin_family = AF_INET,
-      .sin_port   = fd_ushort_bswap( server.port ),
+      .sin_port   = server.port,
       .sin_addr   = { .s_addr = server.addr }
     };
 

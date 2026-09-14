@@ -33,7 +33,8 @@ main( int     argc,
   /* Auto selects mlx5 only for a supported driver, kernel, RDMA port,
      and tile count.  Otherwise it falls back to XDP. */
 
-  fd_auto_info_t info1 = { .linux_major=7, .linux_minor=0, .driver="mlx5_core", .has_mlx5_rdma_port=1 };
+  fd_auto_info_t info1 = { .linux_major=7, .linux_minor=0, .driver="mlx5_core",
+                           .has_mlx5_rdma_port=1, .has_uverbs=1 };
 
   reset_provider_auto( 1U );
   fd_auto_net( config, &info1 );
@@ -57,6 +58,15 @@ main( int     argc,
   fd_auto_info_t info_no_rdma = info1;
   info_no_rdma.has_mlx5_rdma_port = 0;
   fd_auto_net( config, &info_no_rdma );
+  FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+
+  /* An RDMA device without the uverbs API (ib_uverbs not loaded) must
+     fall back to XDP -- the mlx5 tile cannot open the device. */
+
+  reset_provider_auto( 1U );
+  fd_auto_info_t info_no_uverbs = info1;
+  info_no_uverbs.has_uverbs = 0;
+  fd_auto_net( config, &info_no_uverbs );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
 
   /* Explicit providers bypass automatic provider requirements. */

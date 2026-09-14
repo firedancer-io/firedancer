@@ -5,10 +5,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include "../../util/net/fd_pcapng_private.h"
-#if FD_HAS_ZSTD
 #include <zstd.h>
 #include "fd_libc_zstd.h"
-#endif
 
 extern fd_backt_src_t *
 fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
@@ -47,10 +45,6 @@ detect_src_type( char const * path ) {
     return FD_BACKT_SRC_FMT_PCAPNG;
   }
 
-# if !FD_HAS_ZSTD
-  FD_LOG_WARNING(( "ledger auto detect: unsupported file type" ));
-  return FD_BACKT_SRC_INVAL;
-# else
   if( magic != ZSTD_MAGICNUMBER ) {
     FD_LOG_WARNING(( "ledger auto detect failed: file type of \"%s\" is not recognized", path ));
     return FD_BACKT_SRC_INVAL;
@@ -90,7 +84,6 @@ detect_src_type( char const * path ) {
     FD_LOG_WARNING(( "ledger auto detect failed: compressed content of \"%s\" is not recognized (magic number %08x)", path, fd_uint_bswap( magic ) ));
     return FD_BACKT_SRC_INVAL;
   }
-# endif
 }
 
 ulong

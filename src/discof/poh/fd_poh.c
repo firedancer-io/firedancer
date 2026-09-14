@@ -94,7 +94,8 @@ fd_poh_t *
 fd_poh_join( void *                         shpoh,
              fd_poh_out_t *                 shred_out,
              fd_poh_out_t *                 replay_out,
-             fd_leader_txn_timing_table_t * timing_tables ) {
+             fd_leader_txn_timing_table_t * timing_tables,
+             ulong                          timing_table_max ) {
   if( FD_UNLIKELY( !shpoh ) ) {
     FD_LOG_WARNING(( "NULL shpoh" ));
     return NULL;
@@ -117,6 +118,7 @@ fd_poh_join( void *                         shpoh,
 
   poh->timing_tables    = timing_tables;
   poh->timing_table_idx = 0UL;
+  poh->timing_table_max = timing_table_max;
 
   return poh;
 }
@@ -268,7 +270,7 @@ fd_poh_begin_leader( fd_poh_t * poh,
 
   if( FD_LIKELY( poh->timing_tables ) ) {
     poh->timing_table_idx ^= 1UL;
-    fd_leader_txn_timing_table_t * table = &poh->timing_tables[ poh->timing_table_idx ];
+    fd_leader_txn_timing_table_t * table = fd_leader_txn_timing_table( poh->timing_tables, poh->timing_table_idx, poh->timing_table_max );
     table->slot = slot;
     table->cnt  = 0UL;
   }
@@ -779,11 +781,11 @@ fd_poh1_mixin( fd_poh_t *                         poh,
   if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
 
   if( FD_LIKELY( poh->timing_tables ) ) {
-    fd_leader_txn_timing_table_t * table = &poh->timing_tables[ poh->timing_table_idx ];
+    fd_leader_txn_timing_table_t * table = fd_leader_txn_timing_table( poh->timing_tables, poh->timing_table_idx, poh->timing_table_max );
     long poh_mixed_ticks = fd_tickcount();
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       if( FD_UNLIKELY( !(txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
-      if( FD_UNLIKELY( table->cnt>=FD_MAX_TXN_PER_SLOT ) ) break;
+      if( FD_UNLIKELY( table->cnt>=poh->timing_table_max ) ) break;
 
       fd_leader_txn_timing_rec_t * rec = &table->rec[ table->cnt++ ];
       *rec = *timing;

@@ -64,7 +64,7 @@ fd_reward_epoch_stakes_set( fd_bank_t *                    bank,
     FD_TEST( entries_cnt<FD_REWARD_EPOCH_STAKE_MAX_CNT );
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
                              &entries[ entries_cnt ].vote_pubkey, NULL, NULL,
-                             NULL, NULL, NULL, NULL, NULL, NULL );
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL );
     fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
         map, &entries[ entries_cnt ].vote_pubkey, NULL, pool );
     FD_TEST( accumulated );

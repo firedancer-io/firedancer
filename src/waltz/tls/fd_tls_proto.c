@@ -500,8 +500,6 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
   }
   FD_TLS_DECODE_LIST_END
 
-  /* TODO Fail if trailing bytes detected? */
-
   return (long)( wire_laddr - (ulong)wire );
 }
 

@@ -497,7 +497,8 @@ test_fixture_replay( fd_wksp_t * wksp ) {
 
   static fd_topo_tile_t tile[1];
   memset( tile, 0, sizeof(*tile) );
-  tile->tower.max_live_slots = MOCK_SLOT_MAX;
+  tile->tower.max_live_slots       = MOCK_SLOT_MAX;
+  tile->tower.max_shreds_per_block = FD_SHRED_BLK_MAX;
 
   static fd_topo_t topo[1];
   mock_topo_with_accdb( wksp, topo, tile );
@@ -622,7 +623,8 @@ static fd_tower_tile_t *
 eqvoc_setup( fd_wksp_t * wksp ) {
   static fd_topo_tile_t tile[1];
   memset( tile, 0, sizeof(*tile) );
-  tile->tower.max_live_slots = MOCK_SLOT_MAX;
+  tile->tower.max_live_slots       = MOCK_SLOT_MAX;
+  tile->tower.max_shreds_per_block = FD_SHRED_BLK_MAX;
 
   static fd_topo_t topo[1];
   memset( topo, 0, sizeof(*topo) );

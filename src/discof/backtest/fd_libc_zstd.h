@@ -4,8 +4,6 @@
 /* fd_libc_zstd.h provides APIs for retro-fitting libc FILE-based apps
    with Zstandard compression support. */
 
-#if FD_HAS_ZSTD
-
 #include "../../util/fd_util_base.h"
 #include <stdio.h>
 #include <zstd.h>
@@ -45,7 +43,5 @@ FILE *
 fd_zstd_wstream_open( FILE * file,
                       int    level,
                       ulong  buf_sz );
-
-#endif /* FD_HAS_ZSTD */
 
 #endif /* HEADER_fd_src_discof_backtest_fd_libc_zstd_h */

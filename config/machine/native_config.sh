@@ -15,7 +15,12 @@ OUT="$1"
 shift
 mkdir -p "$(dirname "$OUT")"
 
-printf '\n' | "$@" -march=native -E -dM - | awk '
+case "$(uname -m)" in
+  aarch64|arm64) NATIVE_FLAGS="-mcpu=native" ;;
+  *)             NATIVE_FLAGS="-march=native -mtune=native" ;;
+esac
+
+"$@" $NATIVE_FLAGS -E -dM - </dev/null | awk -v native_flags="$NATIVE_FLAGS" '
   $1=="#define" { define[$2]=$3 }
 
   function emit_feature(var, macro) {
@@ -62,7 +67,7 @@ printf '\n' | "$@" -march=native -E -dM - | awk '
     print "FD_HAS_DOUBLE:=1"
     print ""
     print "CPPFLAGS_NATIVE:="
-    print "CPPFLAGS_NATIVE+=-march=native -mtune=native"
+    print "CPPFLAGS_NATIVE+=" native_flags
     print "CPPFLAGS_NATIVE+=-DFD_HAS_DOUBLE=1"
     printf "%s", cppflags
   }

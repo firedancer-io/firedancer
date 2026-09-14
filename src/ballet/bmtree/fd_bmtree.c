@@ -209,6 +209,66 @@ fd_bmtree_commit_init( void * mem,     /* Assumed unused with required alignment
 }
 
 
+/* Builds the tree of an empty commit from leaf_cnt leaves at once,
+   layer by layer, hashing each layer's merges as one SHA-256 batch.
+   Leaves the exact state the leaf-at-a-time loop below would: node i of
+   layer L at inclusion_proofs[ (i<<(L+1)) + (1<<L) - 1 ] and node_buf[L]
+   the last even-indexed node of layer L.  An odd node at a layer stays
+   unmerged, as in the loop; fini handles it. */
+
+#define FD_BMTREE_PRIVATE_BATCH_LEAF_MAX (64UL)
+
+static void
+fd_bmtree_private_commit_batch( fd_bmtree_commit_t *                 state,
+                                fd_bmtree_node_t const * FD_RESTRICT leaf,
+                                ulong                                leaf_cnt ) {
+  ulong hash_sz   = state->hash_sz;
+  ulong prefix_sz = state->prefix_sz;
+  ulong ip_sz     = state->inclusion_proof_sz;
+  ulong msg_sz    = prefix_sz + 2UL*hash_sz;
+
+  fd_bmtree_node_t * FD_RESTRICT ip       = state->inclusion_proofs;
+  fd_bmtree_node_t * FD_RESTRICT node_buf = state->node_buf;
+
+  for( ulong i=0UL; i<leaf_cnt; i++ ) ip[ fd_ulong_min( 2UL*i, ip_sz ) ] = leaf[ i ];
+  node_buf[ 0 ] = leaf[ (leaf_cnt-1UL) & ~1UL ];
+
+  fd_bmtree_node_t lvl[ 2 ][ FD_BMTREE_PRIVATE_BATCH_LEAF_MAX/2UL ];
+  uchar msg[ FD_SHA256_BATCH_MAX ][ 96 ] __attribute__((aligned(32)));
+  uchar batch_mem[ FD_SHA256_BATCH_FOOTPRINT ] __attribute__((aligned(FD_SHA256_BATCH_ALIGN)));
+
+  fd_bmtree_node_t const * cur = leaf;
+  ulong                    cnt = leaf_cnt;
+  for( ulong layer=1UL; cnt>=2UL; layer++ ) {
+    fd_bmtree_node_t * next = lvl[ layer & 1UL ];
+    ulong merge_cnt = cnt>>1;
+    for( ulong p0=0UL; p0<merge_cnt; p0+=FD_SHA256_BATCH_MAX ) {
+      ulong p1 = fd_ulong_min( p0+FD_SHA256_BATCH_MAX, merge_cnt );
+      fd_sha256_batch_t * batch = fd_sha256_batch_init( batch_mem );
+      for( ulong p=p0; p<p1; p++ ) {
+        uchar * m = msg[ p-p0 ];
+#       if FD_HAS_AVX
+        _mm256_store_si256 ( (__m256i *)(m),                   _mm256_load_si256 ( (__m256i const *)fd_bmtree_node_prefix ) );
+        _mm256_storeu_si256( (__m256i *)(m+prefix_sz),         _mm256_loadu_si256( (__m256i const *)(cur+2UL*p    ) ) );
+        _mm256_storeu_si256( (__m256i *)(m+prefix_sz+hash_sz), _mm256_loadu_si256( (__m256i const *)(cur+2UL*p+1UL) ) );
+#       else
+        fd_memcpy( m,                   fd_bmtree_node_prefix,   prefix_sz );
+        fd_memcpy( m+prefix_sz,         cur[ 2UL*p     ].hash,   hash_sz   );
+        fd_memcpy( m+prefix_sz+hash_sz, cur[ 2UL*p+1UL ].hash,   hash_sz   );
+#       endif
+        fd_sha256_batch_add( batch, m, msg_sz, next[ p ].hash );
+      }
+      fd_sha256_batch_fini( batch );
+    }
+    for( ulong p=0UL; p<merge_cnt; p++ ) ip[ fd_ulong_min( (p<<(layer+1UL)) + (1UL<<layer) - 1UL, ip_sz ) ] = next[ p ];
+    node_buf[ layer ] = next[ (merge_cnt-1UL) & ~1UL ];
+    cur = next;
+    cnt = merge_cnt;
+  }
+
+  state->leaf_cnt = leaf_cnt;
+}
+
 /* bmtree_commit_append appends a range of leaf nodes.  Assumes that
    leaf_cnt + new_leaf_cnt << 2^63 (which, unless planning on running
    for millennia, is always true). */
@@ -219,6 +279,11 @@ fd_bmtree_commit_append( fd_bmtree_commit_t *                 state,           /
                          ulong                                new_leaf_cnt ) {
   ulong                          leaf_cnt = state->leaf_cnt;
   fd_bmtree_node_t * FD_RESTRICT node_buf = state->node_buf;
+
+  if( FD_UNLIKELY( (!leaf_cnt) & (new_leaf_cnt>=8UL) & (new_leaf_cnt<=FD_BMTREE_PRIVATE_BATCH_LEAF_MAX) ) ) {
+    fd_bmtree_private_commit_batch( state, new_leaf, new_leaf_cnt );
+    return state;
+  }
 
   for( ulong new_leaf_idx=0UL; new_leaf_idx<new_leaf_cnt; new_leaf_idx++ ) {
 
@@ -331,6 +396,9 @@ fd_bmtree_get_proof( fd_bmtree_commit_t * state,
   ulong inc_idx   = leaf_idx * 2UL;
   ulong layer     = 0UL;
   ulong layer_cnt = state->leaf_cnt;
+# if FD_HAS_AVX512
+  __mmask32 hash_mask = (__mmask32)fd_ulong_mask_lsb( (int)hash_sz );
+# endif
 
   while( layer_cnt>1UL ) {
     ulong sibling_idx = inc_idx ^ (1UL<<(layer+1UL));
@@ -338,7 +406,11 @@ fd_bmtree_get_proof( fd_bmtree_commit_t * state,
     sibling_idx = fd_ulong_if( sibling_idx>max_idx_for_layer, inc_idx /* Double link */, sibling_idx );
 
     if( FD_UNLIKELY( sibling_idx>=state->inclusion_proof_sz ) ) return -1;
+# if FD_HAS_AVX512
+    _mm256_mask_storeu_epi8( dest + layer*hash_sz, hash_mask, _mm256_loadu_si256( (__m256i const *)(state->inclusion_proofs + sibling_idx) ) );
+# else
     fd_memcpy( dest + layer*hash_sz, state->inclusion_proofs + sibling_idx, hash_sz );
+# endif
 
     layer++; layer_cnt = (layer_cnt+1UL)>>1;
     inc_idx = fd_ulong_insert_lsb( inc_idx, (int)layer+1, (1UL<<layer)-1UL );

@@ -314,6 +314,9 @@ fd_rpc_client_service( fd_rpc_client_t * rpc,
       else if( FD_UNLIKELY( -1==read ) ) {
         fd_rpc_mark_error( rpc, i, FD_RPC_CLIENT_ERR_NETWORK );
         continue;
+      } else if( FD_UNLIKELY( !read ) ) {
+        fd_rpc_mark_error( rpc, i, FD_RPC_CLIENT_ERR_NETWORK );
+        continue;
       }
 
       request->sent.response_bytes_read += (ulong)read;

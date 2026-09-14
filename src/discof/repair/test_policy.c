@@ -288,13 +288,13 @@ new_policy( fd_wksp_t * wksp ) {
 static void
 test_orphan_due_prq( fd_wksp_t * wksp ) {
   ulong const slot_max = 16UL;
-  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
   void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
   void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
   FD_TEST( forest_mem && dedup_mem && repair_mem );
 
   fd_pubkey_t identity = {0};
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
   fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
   fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
   fd_policy_t * policy = new_policy( wksp );
@@ -359,13 +359,13 @@ next_msg( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_re
 static void
 test_shred_skip_memo( fd_wksp_t * wksp ) {
   ulong const slot_max = 16UL;
-  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
   void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
   void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
   FD_TEST( forest_mem && dedup_mem && repair_mem );
 
   fd_pubkey_t identity = {0};
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
   fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
   fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
   fd_policy_t * policy = new_policy( wksp );
@@ -443,13 +443,13 @@ test_shred_skip_memo( fd_wksp_t * wksp ) {
 static void
 test_orphan_dedup_reschedule( fd_wksp_t * wksp ) {
   ulong const slot_max = 16UL;
-  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
   void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
   void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
   FD_TEST( forest_mem && dedup_mem && repair_mem );
 
   fd_pubkey_t identity = {0};
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
   fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
   fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
   fd_policy_t * policy = new_policy( wksp );
@@ -485,13 +485,13 @@ test_orphan_dedup_reschedule( fd_wksp_t * wksp ) {
 static void
 test_orphan_reclaim_and_rehead( fd_wksp_t * wksp ) {
   ulong const slot_max = 4UL;
-  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
   void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( 64UL ),     1UL );
   void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
   FD_TEST( forest_mem && dedup_mem && repair_mem );
 
   fd_pubkey_t identity = {0};
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
   fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, 64UL, 0UL ) );
   fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
   fd_policy_t * policy = new_policy( wksp );
@@ -547,13 +547,13 @@ test_orphan_reclaim_and_rehead( fd_wksp_t * wksp ) {
 static void
 test_orphan_rehead_revival( fd_wksp_t * wksp ) {
   ulong const slot_max = 4UL;
-  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
   void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( 64UL ),     1UL );
   void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
   FD_TEST( forest_mem && dedup_mem && repair_mem );
 
   fd_pubkey_t identity = {0};
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, 0UL ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
   fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, 64UL, 0UL ) );
   fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
   fd_policy_t * policy = new_policy( wksp );

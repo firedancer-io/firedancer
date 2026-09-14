@@ -2,10 +2,6 @@
 #include "fd_zstd_private.h"
 #include "../../util/fd_util.h"
 
-#if !FD_HAS_ZSTD
-#error "fd_zstd requires libzstd"
-#endif
-
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 #include <errno.h>

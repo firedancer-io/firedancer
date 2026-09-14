@@ -133,10 +133,50 @@ test_inclusion( ulong leaf_cnt ) {
 
 
 
+/* Appending all leaves at once must leave the same commit state as
+   appending them one at a time. */
+static void
+test_append_batch( ulong leaf_cnt,
+                   ulong hash_sz,
+                   ulong prefix_sz ) {
+  static uchar _a[ FD_BMTREE_COMMIT_FOOTPRINT( 7UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  static uchar _b[ FD_BMTREE_COMMIT_FOOTPRINT( 7UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  fd_bmtree_node_t leaf[ 64 ];
+  for( ulong i=0UL; i<leaf_cnt; i++ ) { fd_memset( leaf[i].hash, (int)i+1, 32UL ); FD_STORE( ulong, leaf[i].hash, i*0x9e3779b97f4a7c15UL ); }
+
+  fd_bmtree_commit_t * a = fd_bmtree_commit_init( _a, hash_sz, prefix_sz, 7UL );
+  fd_bmtree_commit_t * b = fd_bmtree_commit_init( _b, hash_sz, prefix_sz, 7UL );
+  for( ulong i=0UL; i<leaf_cnt; i++ ) FD_TEST( fd_bmtree_commit_append( a, leaf+i, 1UL )==a );
+  FD_TEST( fd_bmtree_commit_append( b, leaf, leaf_cnt )==b );
+
+  ulong depth = fd_bmtree_depth( leaf_cnt );
+  FD_TEST( fd_bmtree_commit_leaf_cnt( b )==leaf_cnt );
+  FD_TEST( !memcmp( a->node_buf, b->node_buf, depth*sizeof(fd_bmtree_node_t) ) );
+  FD_TEST( !memcmp( a->inclusion_proofs, b->inclusion_proofs, a->inclusion_proof_sz*sizeof(fd_bmtree_node_t) ) );
+
+  uchar * ra = fd_bmtree_commit_fini( a );
+  uchar * rb = fd_bmtree_commit_fini( b );
+  FD_TEST( !memcmp( ra, rb, 32UL ) );
+  for( ulong i=0UL; i<leaf_cnt; i++ ) {
+    uchar pa[ 7*32 ]; uchar pb[ 7*32 ];
+    fd_memset( pa, 0xa5, sizeof(pa) ); fd_memset( pb, 0xa5, sizeof(pb) );
+    int da = fd_bmtree_get_proof( a, pa, i );
+    int db = fd_bmtree_get_proof( b, pb, i );
+    FD_TEST( (da==db) & (da==(int)depth-1) );
+    FD_TEST( !memcmp( pa, pb, sizeof(pa) ) );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  for( ulong leaf_cnt=1UL; leaf_cnt<=64UL; leaf_cnt++ ) {
+    test_append_batch( leaf_cnt, 20UL, 26UL );
+    test_append_batch( leaf_cnt, 20UL,  1UL );
+    test_append_batch( leaf_cnt, 32UL,  1UL );
+  }
 
   /* Internal checks */
   FD_TEST( fd_bmtree_commit_align()         ==FD_BMTREE_COMMIT_ALIGN            );

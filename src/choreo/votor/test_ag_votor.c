@@ -1,4 +1,5 @@
 #include "ag_votor.c"
+#include "test_ag_cert_builder.h"
 
 #define NV                 (2UL)
 #define TEST_SLOT_MAX      (64UL)
@@ -13,11 +14,11 @@
     FD_TEST( !try_recv( (votor), &unused_ ) ); \
   } while( 0 )
 
-#define SCRATCH_MAX (1UL<<18) /* 256 KiB */
+#define SCRATCH_MAX (1UL<<19) /* 512 KiB */
 
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
-static ag_bls_sec_t      g_sk  [ NV ];
+static fd_bls_sec_t      g_sk  [ NV ];
 static ag_validator_info_t g_info[ NV ];
 static ulong               g_hash_ctr = 0UL;
 
@@ -48,11 +49,11 @@ random_block_id( ulong slot ) {
 static void
 create_validators( void ) {
   for( ulong i=0UL; i<NV; i++ ) {
-    fd_memset( g_sk[i], (int)(i*7UL+1UL), AG_BLS_SEC_SZ );
+    fd_memset( &g_sk[i], (int)(i*7UL+1UL), FD_BLS_SEC_SZ );
     memset( &g_info[i], 0, sizeof(ag_validator_info_t) );
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
-    ag_bls_sec_to_pub( g_sk[i], g_info[i].bls_key );
+    fd_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
   }
 }
 
@@ -121,9 +122,8 @@ setup_votor( long now ) {
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init            ( votor, 0UL, now );
+  ag_votor_init            ( votor, 0UL, now, sec_sign_fn, &g_sk[0] );
   ag_votor_advance_epoch    ( votor, 0UL, 0UL );
-  ag_votor_set_bls_key      ( votor, g_sk[0] );
   ag_votor_set_shred_version( votor, TEST_SHRED_VERSION );
 
   g_epoch_info = &epoch_info_mem;
@@ -194,7 +194,7 @@ test_notar_and_final( void ) {
   ag_vote_t vote = send_block_and_expect_notar( votor, slot, &parent );
 
   /* vote finalize after seeing branch-certified */
-  ag_cert_t cert = ag_cert_construct_notar( &vote.notar, 1UL, g_epoch_info );
+  ag_cert_t cert = cert_build_notar( &vote.notar, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
 
@@ -314,7 +314,7 @@ test_safe_to_notar( void ) {
   ag_vote_t msg = recv( votor );
   FD_TEST( msg.kind==AG_VOTE_KIND_NOTAR_FALLBACK );
   FD_TEST( ag_vote_slot( &msg )==block.slot );
-  FD_TEST( !memcmp( ag_vote_notar_fallback_block_hash( &msg.notar_fallback ), block.hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( !memcmp( msg.notar_fallback.block_hash, block.hash, sizeof(ag_block_hash_t) ) );
 
   teardown_votor( votor );
 }
@@ -337,53 +337,6 @@ test_safe_to_skip( void ) {
   ag_vote_t msg = recv( votor );
   FD_TEST( msg.kind==AG_VOTE_KIND_SKIP_FALLBACK );
   FD_TEST( ag_vote_slot( &msg )==slot );
-
-  teardown_votor( votor );
-}
-
-static void
-test_bls_key_rotates_with_epoch( void ) {
-  ag_votor_t * votor = setup_votor( 0L );
-
-  ag_votor_advance_epoch( votor, 0UL, 2UL );
-  ag_votor_set_bls_key  ( votor, g_sk[1] );
-
-  ag_block_id_t parent = genesis_block_id();
-  ag_vote_t current_vote = send_block_and_expect_notar( votor, 1UL, &parent );
-  FD_TEST(  ag_vote_verify( &current_vote, g_info[0].bls_key, TEST_SHRED_VERSION ) );
-  FD_TEST( !ag_vote_verify( &current_vote, g_info[1].bls_key, TEST_SHRED_VERSION ) );
-
-  parent.slot = 1UL;
-  memcpy( parent.hash, ag_vote_notar_block_hash( &current_vote.notar ), sizeof(ag_block_hash_t) );
-  ag_vote_t next_vote = send_block_and_expect_notar( votor, 2UL, &parent );
-  FD_TEST( !ag_vote_verify( &next_vote, g_info[0].bls_key, TEST_SHRED_VERSION ) );
-  FD_TEST(  ag_vote_verify( &next_vote, g_info[1].bls_key, TEST_SHRED_VERSION ) );
-
-  teardown_votor( votor );
-}
-
-static void
-test_missing_bls_key_disables_voting( void ) {
-  ag_votor_t * votor = setup_votor( 0L );
-
-  ag_votor_advance_epoch( votor, 0UL, 2UL );
-
-  ag_block_id_t parent = genesis_block_id();
-  ag_vote_t current_vote = send_block_and_expect_notar( votor, 1UL, &parent );
-
-  parent.slot = 1UL;
-  memcpy( parent.hash, ag_vote_notar_block_hash( &current_vote.notar ), sizeof(ag_block_hash_t) );
-
-  ag_event_block_t first_shred = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = 2UL };
-  ag_votor_handle_block_event( votor, &first_shred );
-
-  ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
-  block.slot              = 2UL;
-  block.block_info.parent = parent;
-  random_hash( block.block_info.hash );
-  ag_votor_handle_replay_event( votor, &block );
-
-  FD_TEST_NO_MSG( votor );
 
   teardown_votor( votor );
 }
@@ -412,8 +365,8 @@ test_prunes_to_finalized_window( void ) {
 
   /* finalizing a mid-window slot should drop only the slots before its
      window */
-  ag_vote_t fv; fv = ag_vote_construct_final( finalized, g_sk[1], (ushort)1, TEST_SHRED_VERSION );
-  ag_cert_t cert = ag_cert_construct_final( &fv.final, 1UL, g_epoch_info );
+  ag_vote_t fv; fv = ag_vote_construct_final( sec_sign_fn, &g_sk[1], finalized, (ushort)1, TEST_SHRED_VERSION );
+  ag_cert_t cert = cert_build_final( &fv.final, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
   FD_TEST( votor->highest_final_cert_slot==finalized );
@@ -442,8 +395,6 @@ main( int     argc,
   test_pending_block_not_notarized_after_skip();
   test_safe_to_notar();
   test_safe_to_skip();
-  test_bls_key_rotates_with_epoch();
-  test_missing_bls_key_disables_voting();
   test_prunes_to_finalized_window();
 
   FD_LOG_NOTICE(( "pass" ));

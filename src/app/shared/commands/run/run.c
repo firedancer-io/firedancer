@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "run.h"
 #include "../../../../flamenco/accdb/fd_accdb.h"
+#include "../../../../disco/store/fd_store.h"
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
@@ -19,8 +20,10 @@
 #include "../../../../discof/backup/fd_snap_pool.h"
 #include "../../../../discof/restore/utils/fd_ssarchive.h"
 #include "../../../../disco/waker/fd_waker.h"
+#include "../../../../util/pod/fd_pod_format.h"
 
 #include "../configure/configure.h"
+#include "../configure/fd_cpu_isolation.h"
 
 #include <dirent.h>
 #include <sched.h>
@@ -247,6 +250,7 @@ leave_isolation_cgroup( struct spawn_cgroup * cg ) {
 static pid_t
 execve_tile( char const *           name,
              fd_topo_tile_t const * tile,
+             fd_cpuset_t const *    float_cpu_set,
              fd_cpuset_t const *    floating_cpu_set,
              int                    floating_priority,
              int                    config_memfd,
@@ -259,7 +263,14 @@ execve_tile( char const *           name,
        kernel first touch happens on the desired thread.  The child
        inherits both. */
     join_isolation_cgroup( name, cg );
-    fd_cpuset_insert( cpu_set, tile->cpu_idx );
+    if( FD_UNLIKELY( tile->floats ) ) {
+      /* the floating CPUs on this tile's NUMA node: memory was placed
+         by cpu_idx */
+      ulong numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
+      for( ulong cpu=0UL; cpu<FD_TILE_MAX; cpu++ )
+        if( fd_cpuset_test( float_cpu_set, cpu ) && fd_shmem_numa_idx( cpu )==numa_idx ) fd_cpuset_insert( cpu_set, cpu );
+    }
+    if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_cpuset_insert( cpu_set, tile->cpu_idx );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     leave_isolation_cgroup( cg );
@@ -328,6 +339,18 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  /* The CPUs of the floating tiles (efficient mode): floaters share
+     these among themselves and never a pinned tile's CPU */
+  FD_CPUSET_DECL( float_cpu_set );
+  int any_floats = 0;
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    if( FD_LIKELY( !config->topo.tiles[ i ].floats ) ) continue;
+    fd_cpuset_insert( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
+    any_floats = 1;
+  }
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ )
+    if( FD_LIKELY( !config->topo.tiles[ i ].floats && config->topo.tiles[ i ].cpu_idx!=ULONG_MAX ) ) fd_cpuset_remove( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
+
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
   ulong actual_pids[ FD_TOPO_MAX_TILES+1 ];
   for( ulong i=0UL; i<FD_TOPO_MAX_TILES+1; i++ ) actual_pids[ i ] = ULONG_MAX;
@@ -370,6 +393,9 @@ main_pid_namespace( void * _args ) {
   }
 
   initialize_accdb_fd( config );
+  initialize_store_fds( config );
+  ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
+  int   has_store     = store_obj_id!=ULONG_MAX;
   ulong snap_max                = 0UL;
   int   snapshot_upload_enabled = 0;
   int   snapshot_dio_enabled    = 0;
@@ -453,6 +479,20 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
+        if( FD_LIKELY( has_store ) ) {
+          int tile_uses_store = 0;
+          for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) tile_uses_store |= tile->uses_obj_id[ i ]==store_obj_id;
+          int tile_uses_store_rw = tile_uses_store &&
+                                   (!strcmp( tile->name, "shred" ) ||
+                                    !strcmp( tile->name, "backt" ) ||
+                                    !strcmp( tile->name, "rserve" ));
+          int tile_uses_store_ro = tile_uses_store && !strcmp( tile->name, "replay" );
+          if( FD_UNLIKELY( fcntl( FD_STORE_FD_RW, F_SETFD, tile_uses_store_rw ? 0 : FD_CLOEXEC )<0 ) )
+            FD_LOG_ERR(( "fcntl(FD_STORE_FD_RW,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( fcntl( FD_STORE_FD_RO, F_SETFD, tile_uses_store_ro ? 0 : FD_CLOEXEC )<0 ) )
+            FD_LOG_ERR(( "fcntl(FD_STORE_FD_RO,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+
         int tile_uses_snap_fd     = !strcmp( tile->name, "snapct" ) ||
                                     !strcmp( tile->name, "snapmk" );
         int tile_uses_snap_dio_fd = !strcmp( tile->name, "snapzp" );
@@ -482,7 +522,9 @@ main_pid_namespace( void * _args ) {
       int pipefd[ 2 ];
       if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
-      child_pids[ child_cnt ] = execve_tile( config->name, tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
+
+      int floating_priority = ( any_floats && !strcmp( tile->name, "waker" ) ) ? -19 : save_priority;
+      child_pids[ child_cnt ] = execve_tile( config->name, tile, float_cpu_set, floating_cpu_set, floating_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
       child_idxs[ child_cnt ] = i;
       if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       strncpy( child_names[ child_cnt ], tile->name, 32 );
@@ -513,6 +555,10 @@ main_pid_namespace( void * _args ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( has_store ) ) {
+      if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
     for( ulong j=0UL; j<snap_max; j++ ) {
       if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( snapshot_dio_enabled )
@@ -958,6 +1004,20 @@ fdctl_check_configure( config_t const * config ) {
                        "`%s configure init kworkers`.", check.message, FD_BINARY_NAME ));
   }
 
+  /* Floating tiles need a scheduler domain to be balanced across their
+     CPUs; isolcpus= removes it, and every floater would stay on the
+     CPU it was forked on. */
+  FD_CPUSET_DECL( isolated );
+  if( FD_LIKELY( fd_cpu_isolation_read_list( "/sys/devices/system/cpu/isolated", isolated ) ) ) {
+    for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+      fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+      if( FD_UNLIKELY( tile->floats && fd_cpuset_test( isolated, tile->cpu_idx ) ) )
+        FD_LOG_ERR(( "tile %s:%lu floats on CPU %lu, which the isolcpus= boot parameter removed from the kernel scheduler. "
+                     "Floating tiles need their CPUs scheduled: drop them from isolcpus= and isolate them with "
+                     "`%s configure init cpuset` instead.", tile->name, tile->kind_id, tile->cpu_idx, FD_BINARY_NAME ));
+    }
+  }
+
   if( FD_LIKELY( fd_cfg_stage_cpuset.enabled( config ) ) ) {
     check = fd_cfg_stage_cpuset.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result==CONFIGURE_PARTIALLY_CONFIGURED ) )
@@ -1021,6 +1081,45 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==accounts_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts.db read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( accounts_ro_fd, FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+void
+initialize_store_fds( config_t const * config ) {
+  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
+
+  fd_topo_t const * topo = &config->topo;
+  ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
+  if( FD_UNLIKELY( store_obj_id==ULONG_MAX ) ) return;
+
+  char const * path = fd_pod_queryf_cstr( topo->props, NULL, "obj.%lu.disk_path", store_obj_id );
+  ulong fec_max = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.fec_max", store_obj_id );
+  ulong fec_data_max = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.fec_data_max", store_obj_id );
+  ulong shred_storage_gib = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.shred_storage_gib", store_obj_id );
+  ulong payload_slot_sz = fd_store_payload_slot_sz( fec_data_max );
+  ulong wire_off;
+  if( FD_UNLIKELY( !path || !fec_max || !payload_slot_sz || shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ||
+                   __builtin_umull_overflow( fec_max, payload_slot_sz, &wire_off ) ) )
+    FD_LOG_ERR(( "invalid Store backing-file configuration" ));
+
+  int store_fd = fd_store_file_create( path, wire_off, fd_shredb_max_shreds( shred_storage_gib ) );
+  if( FD_UNLIKELY( store_fd<0 ) )
+    FD_LOG_ERR(( "failed to create Store backing file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( store_fd!=FD_STORE_FD_RW ) ) {
+    if( FD_UNLIKELY( dup2( store_fd, FD_STORE_FD_RW )<0 ) ) FD_LOG_ERR(( "dup2(Store RW) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( store_fd ) ) ) FD_LOG_ERR(( "close(Store RW source) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  /* Reopen through procfs so the read-only descriptor is guaranteed to
+     name the same inode even if the configured path is replaced. */
+  char proc_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( proc_path, sizeof(proc_path), NULL, "/proc/self/fd/%d", FD_STORE_FD_RW ) );
+  int store_ro_fd = open( proc_path, O_RDONLY|O_NOATIME );
+  if( FD_UNLIKELY( store_ro_fd<0 ) )
+    FD_LOG_ERR(( "failed to open Store backing file read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( store_ro_fd!=FD_STORE_FD_RO ) ) {
+    if( FD_UNLIKELY( dup2( store_ro_fd, FD_STORE_FD_RO )<0 ) ) FD_LOG_ERR(( "dup2(Store RO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( store_ro_fd ) ) ) FD_LOG_ERR(( "close(Store RO source) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 /* Snapshot production prep

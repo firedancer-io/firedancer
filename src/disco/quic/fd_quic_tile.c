@@ -356,6 +356,8 @@ quic_stream_rx( fd_quic_conn_t * conn,
     int is_oversz = reasm_res==FD_TPU_REASM_ERR_SZ;
     ctx->metrics.frag_gap_cnt       += (ulong)is_gap;
     ctx->metrics.quic_txn_too_large += (ulong)is_oversz;
+    ctx->metrics.reasm_active       -= is_oversz;
+    conn->srx->rx_streams_active    -= is_oversz;
     return is_gap ? FD_QUIC_FAILED : FD_QUIC_SUCCESS;
   }
   ctx->metrics.frag_ok_cnt++;

@@ -34,11 +34,11 @@ static inline int
 fd_bpf_map_get_next_key( int          map_fd,
                          void const * key,
                          void       * next_key ) {
-  union bpf_attr attr = {
-    .map_fd   = (uint)map_fd,
-    .key      = (ulong)key,
-    .next_key = (ulong)next_key
-  };
+  union bpf_attr attr;
+  memset( &attr, 0, sizeof(union bpf_attr) );
+  attr.map_fd   = (uint)map_fd;
+  attr.key      = (ulong)key;
+  attr.next_key = (ulong)next_key;
   return (int)bpf( BPF_MAP_GET_NEXT_KEY, &attr, sizeof(union bpf_attr) );
 }
 
@@ -57,12 +57,12 @@ fd_bpf_map_update_elem( int          map_fd,
                         void const * key,
                         void const * value,
                         ulong        flags ) {
-  union bpf_attr attr = {
-    .map_fd   = (uint)map_fd,
-    .key      = (ulong)key,
-    .value    = (ulong)value,
-    .flags    = flags
-  };
+  union bpf_attr attr;
+  memset( &attr, 0, sizeof(union bpf_attr) );
+  attr.map_fd = (uint)map_fd;
+  attr.key    = (ulong)key;
+  attr.value  = (ulong)value;
+  attr.flags  = flags;
   return (int)bpf( BPF_MAP_UPDATE_ELEM, &attr, sizeof(union bpf_attr) );
 }
 
@@ -76,10 +76,10 @@ fd_bpf_map_update_elem( int          map_fd,
 static inline int
 fd_bpf_map_delete_elem( int          map_fd,
                         void const * key ) {
-  union bpf_attr attr = {
-    .map_fd   = (uint)map_fd,
-    .key      = (ulong)key
-  };
+  union bpf_attr attr;
+  memset( &attr, 0, sizeof(union bpf_attr) );
+  attr.map_fd = (uint)map_fd;
+  attr.key    = (ulong)key;
   return (int)bpf( BPF_MAP_DELETE_ELEM, &attr, sizeof(union bpf_attr) );
 }
 
@@ -91,9 +91,9 @@ fd_bpf_map_delete_elem( int          map_fd,
 
 static inline int
 fd_bpf_obj_get( char const * pathname ) {
-  union bpf_attr attr = {
-    .pathname = (ulong)pathname
-  };
+  union bpf_attr attr;
+  memset( &attr, 0, sizeof(union bpf_attr) );
+  attr.pathname = (ulong)pathname;
   return (int)bpf( BPF_OBJ_GET, &attr, sizeof(union bpf_attr) );
 }
 
@@ -106,10 +106,10 @@ fd_bpf_obj_get( char const * pathname ) {
 static inline int
 fd_bpf_obj_pin( int          bpf_fd,
                 char const * pathname ) {
-  union bpf_attr attr = {
-    .bpf_fd   = (uint)bpf_fd,
-    .pathname = (ulong)pathname
-  };
+  union bpf_attr attr;
+  memset( &attr, 0, sizeof(union bpf_attr) );
+  attr.bpf_fd   = (uint)bpf_fd;
+  attr.pathname = (ulong)pathname;
   return (int)bpf( BPF_OBJ_PIN, &attr, sizeof(union bpf_attr) );
 }
 
