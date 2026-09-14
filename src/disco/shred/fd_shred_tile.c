@@ -959,6 +959,207 @@ send_shred( fd_shred_ctx_t                 * ctx,
   ctx->net_out_chunk = fd_dcache_compact_next( chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
+/* Send the set's received (or, if received is 0, its produced and
+   recovered) shreds to their turbine destinations: the leader's first
+   hop, or our children. */
+
+static void
+fan_out( fd_shred_ctx_t *     ctx,
+         fd_stem_context_t *  stem,
+         fd_fec_set_t const * set,
+         int                  is_leader,
+         int                  received,
+         ulong                tsorig ) {
+  ulong fanout = 200UL; /* Default Agave's DATA_PLANE_FANOUT = 200UL */
+  fd_shred_t const * shreds[ FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX ];
+  ulong k=0UL;
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ )
+    if( !!(set->data_shred_rcvd   & (1U<<i))==!!received ) shreds[ k++ ] = set->data_shreds  [ i ].s;
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ )
+    if( !!(set->parity_shred_rcvd & (1U<<i))==!!received ) shreds[ k++ ] = set->parity_shreds[ i ].s;
+
+  if( FD_UNLIKELY( !k ) ) return;
+  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shreds[ 0 ]->slot );
+  if( FD_UNLIKELY( !sdest ) ) return;
+
+  ulong out_stride;
+  ulong max_dest_cnt[1];
+  fd_shred_dest_idx_t * dests;
+  if( FD_LIKELY( !is_leader ) ) {
+    for( ulong i=0UL; i<k; i++ ) {
+      for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], ctx->adtl_dests_retransmit+j, tsorig );
+    }
+    out_stride = k;
+    dests = fd_shred_dest_compute_children( sdest, shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
+  } else {
+    for( ulong i=0UL; i<k; i++ ) {
+      for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], ctx->adtl_dests_leader+j, tsorig );
+    }
+    out_stride = 1UL;
+    *max_dest_cnt = 1UL;
+    dests = fd_shred_dest_compute_first( sdest, shreds, k, ctx->scratchpad_dests );
+  }
+  if( FD_UNLIKELY( !dests ) ) return;
+
+  for( ulong i=0UL; i<k; i++ ) {
+    for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), tsorig );
+  }
+}
+
+/* Finish a complete FEC set: fan it out to the network, copy it into
+   the store and tell repair and replay. */
+
+static void
+complete_fec_set( fd_shred_ctx_t *         ctx,
+                  fd_stem_context_t *      stem,
+                  ulong                    fec_set_idx,
+                  fd_bmtree_node_t const * merkle_root,
+                  int                      is_leader,
+                  ulong                    tsorig,
+                  ulong                    txn_cnt,
+                  void const *             leader_bank ) {
+  fd_fec_set_t * set = ctx->fec_sets + fec_set_idx;
+
+  fd_shred_t const * last = set->data_shreds[ FD_FEC_SHRED_CNT - 1 ].s;
+
+  /* Broadcast locally produced and recovered shreds before any disk
+     work. */
+  fan_out( ctx, stem, set, is_leader, 0, tsorig );
+
+  /* Compute merkle root and chained merkle root. */
+
+  int replay_fwd = 1;
+  if( FD_LIKELY( ctx->store ) ) { /* firedancer-only */
+
+    set->leader_bank = NULL; /* un-used by firedancer */
+
+    fd_hash_t const * mr = fd_type_pun_const( merkle_root );
+
+    fd_store_fec_t * fec;
+    int insert_err = fd_store_insert( ctx->store, ctx->map_join, mr, &fec );
+    if( FD_UNLIKELY( insert_err==FD_MAP_ERR_KEY ) ) {
+      replay_fwd = 0;
+    } else {
+      FD_TEST( !insert_err && fec );
+
+      fd_store_fec_spill_stats_t spill[1];
+      uchar * fec_data = fd_store_fec_data_acquire_ex( ctx->store, ctx->disk_fd, fec, spill );
+      if( FD_UNLIKELY( spill->write_cnt ) ) {
+        fd_histf_sample( ctx->metrics->fec_fallback_write_timing, spill->write_ticks );
+        ctx->metrics->fec_fallback_write_cnt   += spill->write_cnt;
+        ctx->metrics->fec_fallback_write_bytes += spill->write_bytes;
+      }
+      if( FD_UNLIKELY( !fec_data ) )
+        FD_LOG_CRIT(( "Store could not allocate a FEC payload" ));
+      for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+        fd_shred_t * data_shred = set->data_shreds[i].s;
+        ulong        payload_sz = fd_shred_payload_sz( data_shred );
+        if( FD_UNLIKELY( fec->data_sz + payload_sz > ctx->store->fec_data_max ) ) {
+
+          FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, ctx->store->fec_data_max ));
+        }
+        fd_memcpy_nt_nofence( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
+        fec->data_sz += payload_sz;
+        if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (uint)payload_sz +  (i==0UL ? 0U : fec->shred_offs[ i-1UL ]);
+      }
+      _mm_sfence();
+      fd_store_fec_data_publish( ctx->store, fec );
+    }
+  }
+
+  if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) { /* firedancer-only */
+
+    /* Send all of the data shreds we recovered (weren't received).
+       The chunks are all written before any is published, so the
+       link burst must cover them or a chunk could be reused while
+       an unreliable consumer still sees its old seq. */
+    FD_STATIC_ASSERT( FD_SHRED_STEM_BURST>=32UL, shred_out_burst );
+    ulong missing_chunk[ 32 ];
+    ulong missing_cnt = 0UL;
+    for( int i=0; i<32; i++ ) {
+      if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
+        fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
+
+        fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
+        fd_memcpy_nt_nofence( shred_msg->shred_, missing, fd_shred_sz( missing ) );
+        memcpy( &shred_msg->merkle_root, merkle_root->hash, sizeof(fd_hash_t) );
+
+        missing_chunk[ missing_cnt++ ] = ctx->shred_out_chunk;
+        ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_shred_base_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
+      }
+    }
+
+    if( FD_LIKELY( missing_cnt ) ) {
+      _mm_sfence();
+      ulong sig   = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | SHRED_SIG_SRC_RECONSTRUCTED;
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      for( ulong i=0UL; i<missing_cnt; i++ ) fd_stem_publish( stem, ctx->shred_out_idx, sig, missing_chunk[ i ], sizeof(fd_shred_base_t), 0UL, tsorig, tspub );
+    }
+
+    /* Replay requires the FEC payload before this notification.
+       Wire-shred persistence on rserve is asynchronous.
+
+       This message, the shred msg, and the FEC evict msg constitute
+       the max 3 possible messages to repair/replay per after_frag.
+       In reality, it is only possible to publish all 3 in the case
+       where we receive a coding shred first for a FEC set where
+       (N=1,K=18), which allows for the FEC set to be instantly
+       completed by the singular coding shred, and that also happens
+       to evict a FEC set from the curr_map.  When fix-32 arrives, the
+       link burst value can be lowered to 2. */
+    ulong sig = is_leader ? SHRED_SIG_FEC_COMPLETE_LEADER : SHRED_SIG_FEC_COMPLETE;
+
+    fd_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
+    complete_msg->last_shred_hdr = *last;
+    memcpy( &complete_msg->merkle_root, merkle_root->hash, sizeof(fd_hash_t) );
+    complete_msg->chained_merkle_root = *(fd_hash_t *)fd_type_pun((uchar *)last + fd_shred_chain_off( last->variant ));
+    if( FD_LIKELY( sig==SHRED_SIG_FEC_COMPLETE ) ) {
+      complete_msg->turbine_shred_cnt       = (ulong)fd_ulong_popcnt( set->turbine_shred_rcvd );
+      complete_msg->repair_shred_cnt        = (ulong)fd_ulong_popcnt( set->repair_shred_rcvd );
+      complete_msg->reconstructed_shred_cnt = 2U*(uint)FD_FEC_SHRED_CNT-(uint)(fd_uint_popcnt( set->data_shred_rcvd ) + fd_uint_popcnt( set->parity_shred_rcvd ));
+    } else {
+      complete_msg->turbine_shred_cnt       = 0U;
+      complete_msg->repair_shred_cnt        = 0U;
+      complete_msg->reconstructed_shred_cnt = 0U;
+    }
+
+    fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sizeof(fd_fec_complete_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_complete_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
+
+  } else if( FD_UNLIKELY( ctx->store_out_idx != ULONG_MAX ) ) { /* frankendancer-only */
+
+    /* Send to the blockstore */
+
+    /* If the low 32 bits of sig are 0, the store tile will do extra
+       checks */
+    ulong new_sig = txn_cnt<<32 | (ulong)(is_leader);
+
+    /* Attach the leader bank pointer and merkle root so that the
+       store tile can set the block_id for the slot.  Network
+       FEC sets have no leader bank. */
+    if( FD_LIKELY( is_leader ) ) {
+      set->leader_bank = leader_bank;
+      memcpy( set->merkle_root, merkle_root->hash, 32UL );
+    } else {
+      set->leader_bank = NULL;
+    }
+
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    /* The size is actually slightly larger than USHORT_MAX, but the store tile
+       knows to use sizeof(fd_fec_set_t) instead of the sz field.  Put
+       USHORT_MAX so that monitoring tools are at least close. */
+    ulong sz = fd_ulong_min( sizeof(fd_fec_set_t), USHORT_MAX );
+    fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, set ), sz, 0UL, tsorig, tspub );
+
+    /* Store tile will release the bank pointer when it sees
+       SLOT_COMPLETE FEC set.  So we reset our tracking. */
+    if( FD_UNLIKELY( is_leader &&
+                     (set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) ) ) {
+      ctx->leader_bank  = NULL;
+    }
+  }
+}
+
 static void
 after_frag( fd_shred_ctx_t *    ctx,
             ulong               in_idx,
@@ -1157,182 +1358,8 @@ after_frag( fd_shred_ctx_t *    ctx,
     repair and insert into the blockstore, as well as retransmit. */
 
   for( ulong fset_k=0; fset_k<ctx->send_fec_set_cnt; fset_k++ ) {
-
-    fd_fec_set_t * set = ctx->fec_sets + ctx->send_fec_set_idx[ fset_k ];
-
-    fd_shred_t const * last = set->data_shreds[ FD_FEC_SHRED_CNT - 1 ].s;
-
-    /* Broadcast locally produced and recovered shreds before any disk
-       work. */
-    do {
-      fd_shred_t const * new_shreds[ FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX ];
-      ulong k=0UL;
-      for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ )
-        if( !(set->data_shred_rcvd   & (1U<<i)) ) new_shreds[ k++ ] = set->data_shreds  [ i ].s;
-      for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ )
-        if( !(set->parity_shred_rcvd & (1U<<i)) ) new_shreds[ k++ ] = set->parity_shreds[ i ].s;
-
-      if( FD_UNLIKELY( !k ) ) break;
-      fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, new_shreds[ 0 ]->slot );
-      if( FD_UNLIKELY( !sdest ) ) break;
-
-      ulong out_stride;
-      ulong max_dest_cnt[1];
-      fd_shred_dest_idx_t * dests;
-      if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
-        for( ulong i=0UL; i<k; i++ ) {
-          for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, ctx->tsorig );
-        }
-        out_stride = k;
-        dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
-      } else {
-        for( ulong i=0UL; i<k; i++ ) {
-          for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
-        }
-        out_stride = 1UL;
-        *max_dest_cnt = 1UL;
-        dests = fd_shred_dest_compute_first( sdest, new_shreds, k, ctx->scratchpad_dests );
-      }
-      if( FD_UNLIKELY( !dests ) ) break;
-
-      for( ulong i=0UL; i<k; i++ ) {
-        for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
-      }
-    } while( 0 );
-
-    /* Compute merkle root and chained merkle root. */
-
-    int replay_fwd = 1;
-    if( FD_LIKELY( ctx->store ) ) { /* firedancer-only */
-
-      set->leader_bank = NULL; /* un-used by firedancer */
-
-      fd_hash_t * mr = (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] );
-
-      fd_store_fec_t * fec;
-      int insert_err = fd_store_insert( ctx->store, ctx->map_join, mr, &fec );
-      if( FD_UNLIKELY( insert_err==FD_MAP_ERR_KEY ) ) {
-        replay_fwd = 0;
-      } else {
-        FD_TEST( !insert_err && fec );
-
-        fd_store_fec_spill_stats_t spill[1];
-        uchar * fec_data = fd_store_fec_data_acquire_ex( ctx->store, ctx->disk_fd, fec, spill );
-        if( FD_UNLIKELY( spill->write_cnt ) ) {
-          fd_histf_sample( ctx->metrics->fec_fallback_write_timing, spill->write_ticks );
-          ctx->metrics->fec_fallback_write_cnt   += spill->write_cnt;
-          ctx->metrics->fec_fallback_write_bytes += spill->write_bytes;
-        }
-        if( FD_UNLIKELY( !fec_data ) )
-          FD_LOG_CRIT(( "Store could not allocate a FEC payload" ));
-        for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
-          fd_shred_t * data_shred = set->data_shreds[i].s;
-          ulong        payload_sz = fd_shred_payload_sz( data_shred );
-          if( FD_UNLIKELY( fec->data_sz + payload_sz > ctx->store->fec_data_max ) ) {
-
-            FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, ctx->store->fec_data_max ));
-          }
-          fd_memcpy_nt_nofence( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
-          fec->data_sz += payload_sz;
-          if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (uint)payload_sz +  (i==0UL ? 0U : fec->shred_offs[ i-1UL ]);
-        }
-        _mm_sfence();
-        fd_store_fec_data_publish( ctx->store, fec );
-      }
-    }
-
-    if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) { /* firedancer-only */
-
-      /* Send all of the data shreds we recovered (weren't received).
-         The chunks are all written before any is published, so the
-         link burst must cover them or a chunk could be reused while
-         an unreliable consumer still sees its old seq. */
-      FD_STATIC_ASSERT( FD_SHRED_STEM_BURST>=32UL, shred_out_burst );
-      ulong missing_chunk[ 32 ];
-      ulong missing_cnt = 0UL;
-      for( int i=0; i<32; i++ ) {
-        if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
-          fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
-
-          fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
-          fd_memcpy_nt_nofence( shred_msg->shred_, missing, fd_shred_sz( missing ) );
-          memcpy( &shred_msg->merkle_root, ctx->out_merkle_roots[fset_k].hash, sizeof(fd_hash_t) );
-
-          missing_chunk[ missing_cnt++ ] = ctx->shred_out_chunk;
-          ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_shred_base_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
-        }
-      }
-
-      if( FD_LIKELY( missing_cnt ) ) {
-        _mm_sfence();
-        ulong sig   = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | SHRED_SIG_SRC_RECONSTRUCTED;
-        ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        for( ulong i=0UL; i<missing_cnt; i++ ) fd_stem_publish( stem, ctx->shred_out_idx, sig, missing_chunk[ i ], sizeof(fd_shred_base_t), 0UL, ctx->tsorig, tspub );
-      }
-
-      /* Replay requires the FEC payload before this notification.
-         Wire-shred persistence on rserve is asynchronous.
-
-         This message, the shred msg, and the FEC evict msg constitute
-         the max 3 possible messages to repair/replay per after_frag.
-         In reality, it is only possible to publish all 3 in the case
-         where we receive a coding shred first for a FEC set where
-         (N=1,K=18), which allows for the FEC set to be instantly
-         completed by the singular coding shred, and that also happens
-         to evict a FEC set from the curr_map.  When fix-32 arrives, the
-         link burst value can be lowered to 2. */
-      ulong sig = ctx->in_kind[ in_idx ]==IN_KIND_POH ? SHRED_SIG_FEC_COMPLETE_LEADER : SHRED_SIG_FEC_COMPLETE;
-
-      fd_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
-      complete_msg->last_shred_hdr = *last;
-      memcpy( &complete_msg->merkle_root, ctx->out_merkle_roots[fset_k].hash, sizeof(fd_hash_t) );
-      complete_msg->chained_merkle_root = *(fd_hash_t *)fd_type_pun((uchar *)last + fd_shred_chain_off( last->variant ));
-      if( FD_LIKELY( sig==SHRED_SIG_FEC_COMPLETE ) ) {
-        complete_msg->turbine_shred_cnt       = (ulong)fd_ulong_popcnt( set->turbine_shred_rcvd );
-        complete_msg->repair_shred_cnt        = (ulong)fd_ulong_popcnt( set->repair_shred_rcvd );
-        complete_msg->reconstructed_shred_cnt = 2U*(uint)FD_FEC_SHRED_CNT-(uint)(fd_uint_popcnt( set->data_shred_rcvd ) + fd_uint_popcnt( set->parity_shred_rcvd ));
-      } else {
-        complete_msg->turbine_shred_cnt       = 0U;
-        complete_msg->repair_shred_cnt        = 0U;
-        complete_msg->reconstructed_shred_cnt = 0U;
-      }
-
-      fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sizeof(fd_fec_complete_t), 0UL, ctx->tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_complete_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
-
-    } else if( FD_UNLIKELY( ctx->store_out_idx != ULONG_MAX ) ) { /* frankendancer-only */
-
-      /* Send to the blockstore */
-
-      ulong txn_cnt = fd_ulong_if( fset_k==ctx->send_fec_set_cnt-1UL, shredded_txn_cnt_last_fec_set, shredded_txn_cnt_per_fec_set );
-      /* If the low 32 bits of sig are 0, the store tile will do extra
-         checks */
-      ulong new_sig = txn_cnt<<32 | (ulong)(ctx->in_kind[ in_idx ]!=IN_KIND_NET);
-
-      /* Attach the leader bank pointer and merkle root so that the
-         store tile can set the block_id for the slot.  Network
-         FEC sets have no leader bank. */
-      if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
-        set->leader_bank = ctx->leader_bank;
-        memcpy( set->merkle_root, ctx->out_merkle_roots[fset_k].hash, 32UL );
-      } else {
-        set->leader_bank = NULL;
-      }
-
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      /* The size is actually slightly larger than USHORT_MAX, but the store tile
-         knows to use sizeof(fd_fec_set_t) instead of the sz field.  Put
-         USHORT_MAX so that monitoring tools are at least close. */
-      ulong sz = fd_ulong_min( sizeof(fd_fec_set_t), USHORT_MAX );
-      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, set ), sz, 0UL, ctx->tsorig, tspub );
-
-      /* Store tile will release the bank pointer when it sees
-         SLOT_COMPLETE FEC set.  So we reset our tracking. */
-      if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH &&
-                       (set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) ) ) {
-        ctx->leader_bank  = NULL;
-      }
-    }
+    ulong txn_cnt = fd_ulong_if( fset_k==ctx->send_fec_set_cnt-1UL, shredded_txn_cnt_last_fec_set, shredded_txn_cnt_per_fec_set );
+    complete_fec_set( ctx, stem, ctx->send_fec_set_idx[ fset_k ], &ctx->out_merkle_roots[ fset_k ], ctx->in_kind[ in_idx ]==IN_KIND_POH, ctx->tsorig, txn_cnt, ctx->leader_bank );
   }
 }
 
