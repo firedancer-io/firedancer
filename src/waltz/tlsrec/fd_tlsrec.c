@@ -139,6 +139,21 @@ fd_tlsrec_send_key_update( fd_tlsrec_conn_t *  conn,
   return FD_TLSREC_SUCCESS;
 }
 
+/* fd_tlsrec_answer_key_update sends the one KeyUpdate that answers every
+   update the peer requested since the last one (RFC 8446 Section 4.6.3
+   lets a silent receiver collapse them).  Not having room in tcp_tx is
+   not an error: the reply stays pending. */
+
+static int
+fd_tlsrec_answer_key_update( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_tx ) {
+  if( !conn->key_update_pending ) return FD_TLSREC_SUCCESS;
+  int rc = fd_tlsrec_send_key_update( conn, tcp_tx, 0U );
+  if( rc==FD_TLSREC_ERR_OOM ) return FD_TLSREC_SUCCESS;
+  if( FD_UNLIKELY( rc ) ) return rc;
+  conn->key_update_pending = 0;
+  return FD_TLSREC_SUCCESS;
+}
+
 /* Handshake message reassembly *****************************************/
 
 static inline ulong
@@ -265,7 +280,7 @@ fd_tlsrec_post_hs_rx( fd_tlsrec_conn_t * conn, uchar const * msg, ulong msg_sz )
                                      keys->read_iv );
     conn->read_seq = 0UL;
 
-    if( msg[4] ) return fd_tlsrec_send_key_update( conn, &hs_tbuf.tcp_tx, 0U );
+    if( msg[4] ) conn->key_update_pending = 1;
     return FD_TLSREC_SUCCESS;
   }
 
@@ -633,6 +648,7 @@ fd_tlsrec_conn_rx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_rx,
   }
 
   if( !rc ) rc = hs_tbuf_flush( conn );
+  if( !rc ) rc = fd_tlsrec_answer_key_update( conn, &hs_tbuf.tcp_tx );
 
   /* Output (including a fatal alert) is reported even on error so the
      caller can send it before tearing down; plaintext is not. */
@@ -653,6 +669,17 @@ fd_tlsrec_conn_tx( fd_tlsrec_conn_t * conn, uchar * tcp_tx, ulong * tcp_tx_sz,
 
   ulong overhead = sizeof(fd_tlsrec_hdr_t) + 1 + FD_AES_GCM_TAG_SZ;
   if( FD_UNLIKELY( fd_tlsrec_slice_sz(tx) < overhead + 128 ) ) return FD_TLSREC_ERR_OOM;
+
+  /* RFC 8446 Section 4.6.3: a requested KeyUpdate goes out before the
+     next application data record */
+  if( FD_UNLIKELY( conn->key_update_pending ) ) {
+    int rc = fd_tlsrec_send_key_update( conn, tx, 0U );
+    if( FD_UNLIKELY( rc ) ) return rc;
+    conn->key_update_pending = 0;
+  } else if( FD_UNLIKELY( conn->write_seq >= FD_TLSREC_KEY_UPDATE_SEQ ) ) {
+    int rc = fd_tlsrec_send_key_update( conn, tx, 0U );
+    if( FD_UNLIKELY( rc ) ) return rc;
+  }
 
   ulong sz = fd_ulong_min( fd_tlsrec_slice_sz(tx) - overhead, FD_TLSREC_PLAINTEXT_MAX );
         sz = fd_ulong_min( sz, fd_tlsrec_slice_sz(app_tx) );

@@ -51,6 +51,13 @@ typedef struct fd_tlsrec_conn fd_tlsrec_conn_t;
 #define FD_TLSREC_ERR_STATE   (3)  /* unexpected state */
 #define FD_TLSREC_ERR_CRYPTO  (4)  /* crypto error */
 
+/* FD_TLSREC_KEY_UPDATE_SEQ is the number of records encrypted under one
+   application write key before fd_tlsrec_conn_tx rotates it with a
+   KeyUpdate.  RFC 8446 Section 5.5 bounds AES-GCM at ~2^24.5 full-size
+   records per key. */
+
+#define FD_TLSREC_KEY_UPDATE_SEQ (1UL<<24)
+
 /* fd_tlsrec_keys holds symmetric keys for a given encryption layer. */
 
 struct __attribute__((aligned(FD_AES_GCM_ALIGN))) fd_tlsrec_keys {
@@ -106,6 +113,8 @@ struct fd_tlsrec_conn {
 
   uchar rx_closed; /* 1 if peer sent close_notify: no more plaintext is
                       delivered (RFC 8446 Section 6.1), tx still works */
+  uchar key_update_pending; /* 1 if the peer requested a KeyUpdate that
+                               has not been answered yet */
   uchar tx_level;  /* FD_TLS_LEVEL_{INITIAL,HANDSHAKE,APPLICATION}: the
                       encryption level an alert sent now would use */
   uchar tx_closed; /* 1 once a fatal alert or close_notify went out: no
@@ -171,6 +180,11 @@ fd_tlsrec_conn_is_failed( fd_tlsrec_conn_t const * conn );
    the peer's close_notify has been received, remaining tcp_rx bytes are
    consumed and discarded and the call returns SUCCESS with no
    plaintext; check conn->rx_closed.
+
+   Post-handshake, one call writes at most one 27 byte record to tcp_tx:
+   a single KeyUpdate answering however many the peer requested (RFC
+   8446 Section 4.6.3).  If tcp_tx lacks room for it the reply waits
+   for the next fd_tlsrec_conn_rx or fd_tlsrec_conn_tx call.
 
    app_rx is also used as decrypt scratch, so bytes past the returned
    size are clobbered.  One call produces at most tcp_rx bytes consumed

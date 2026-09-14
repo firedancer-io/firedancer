@@ -250,6 +250,12 @@ LLVMFuzzerTestOneInput( uchar const * input,
       if( !fd_tlsrec_conn_is_ready( c ) ) break;
       ulong n = (ulong)script_u16( s ) % sizeof(app_tx) + 1UL;
       if( op & 16 ) n = FD_TLSREC_PLAINTEXT_MAX;
+      if( (op & 32) && w->head==w->tail ) {
+        /* Jump both ends to the record limit so this send is preceded
+           by a KeyUpdate.  Only valid with no ciphertext in flight. */
+        fd_tlsrec_conn_t * peer = (op & 8) ? client : server;
+        if( !peer->rec_buf.sz ) { c->write_seq = FD_TLSREC_KEY_UPDATE_SEQ; peer->read_seq = FD_TLSREC_KEY_UPDATE_SEQ; }
+      }
       for( ulong i=0UL; i<n; i++ ) app_tx[i] = (uchar)i;
       fd_tlsrec_slice_t app[1]; fd_tlsrec_slice_init( app, app_tx, n );
       uchar tcp_tx[ FD_TLSREC_CAP ];
