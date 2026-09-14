@@ -10,7 +10,6 @@
 #define bignum_tomont_p384     bignum_tomont_p384_alt
 #define p384_montjdouble       p384_montjdouble_alt
 #define p384_montjadd          p384_montjadd_alt
-#define p384_montjmixadd       p384_montjmixadd_alt
 #define p384_montjscalarmul    p384_montjscalarmul_alt
 #endif
 

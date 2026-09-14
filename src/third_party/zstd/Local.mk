@@ -1,5 +1,4 @@
 ZSTD_OBJS:=\
-  common/debug \
   common/entropy_common \
   common/error_private \
   common/fse_decompress \
