@@ -1,6 +1,7 @@
 #include "fd_vote_stakes.h"
 #include "../accdb/fd_accdb.h"
 #include "../fd_flamenco_base.h"
+#include "../runtime/fd_bank.h"
 #include "../runtime/fd_runtime_const.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../util/bits/fd_bits.h"
@@ -9,7 +10,6 @@
 #include "../../ballet/bls/fd_bls12_381.h"
 
 #define FD_VOTE_STAKES_MAGIC           (0xF17EDA2CE7601E70UL) /* FIREDANCER VOTE STAKES V0 */
-#define FD_VOTE_STAKES_MAX_FORK_WIDTH  (128UL)
 #define FD_VOTE_STAKES_EPOCH_CACHE_CNT (3UL)
 
 struct vacc {
@@ -213,7 +213,7 @@ ulong
 fd_vote_stakes_footprint( ulong max_live_slots,
                           ulong max_fork_width ) {
   if( FD_UNLIKELY( !max_live_slots || max_live_slots>USHORT_MAX ) ) return 0UL;
-  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_VOTE_STAKES_MAX_FORK_WIDTH ) ) return 0UL;
+  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_BANKS_MAX_BANKS ) ) return 0UL;
 
   ulong map_chain_cnt  = vacc_map_chain_cnt_est( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   ulong pool_footprint = vacc_pool_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
@@ -254,7 +254,7 @@ fd_vote_stakes_new( void * mem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_VOTE_STAKES_MAX_FORK_WIDTH ) ) {
+  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_BANKS_MAX_BANKS ) ) {
     FD_LOG_WARNING(( "invalid max_fork_width" ));
     return NULL;
   }
