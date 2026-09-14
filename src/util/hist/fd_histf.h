@@ -240,8 +240,8 @@ fd_histf_percentile( fd_histf_t const * hist, uchar percentile, ulong sentinel )
 static inline void
 fd_histf_subtract( fd_histf_t const * hist, fd_histf_t const * prefix_hist, fd_histf_t * out ) {
    out->sum = hist->sum - prefix_hist->sum;
-   for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) out->counts[ b ]    = hist->counts[ b ] - prefix_hist->counts[ b ];
-   for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) out->left_edge[ b ] = hist->left_edge[ b ];
+   for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ )  out->counts[ b ]    = hist->counts[ b ] - prefix_hist->counts[ b ];
+   for( ulong b=0UL; b<=FD_HISTF_BUCKET_CNT; b++ ) out->left_edge[ b ] = hist->left_edge[ b ];
 }
 
 FD_PROTOTYPES_END
