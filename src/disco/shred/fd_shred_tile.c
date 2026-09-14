@@ -34,6 +34,10 @@
 #include "../../discof/votor/fd_votor_rooted.h"
 #if FD_HAS_AVX
 #include "../../util/simd/fd_nt_memcpy.h"
+#else
+#define fd_memcpy_tn         fd_memcpy
+#define fd_memcpy_nt_nofence fd_memcpy
+#define _mm_sfence()         do {} while( 0 )
 #endif
 
 /* The shred tile handles shreds from two data sources: shreds generated
@@ -771,7 +775,7 @@ during_frag( fd_shred_ctx_t * ctx,
       if( FD_LIKELY( include_in_current_batch ) ) {
         if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
           /* Ugh, yet another memcpy */
-          fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
+          fd_memcpy_tn( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
         }
         ctx->pending_batch.pos            += entry_sz;
         ctx->pending_batch.microblock_cnt += 1UL;
@@ -848,7 +852,7 @@ alpenglow_marker:
            need to be removed (or adjusted). */
         if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
           /* Ugh, yet another memcpy */
-          fd_memcpy( is_marker ? ctx->pending_batch.raw : ctx->pending_batch.payload + 0UL /* verbose */, entry, entry_sz );
+          fd_memcpy_tn( is_marker ? ctx->pending_batch.raw : ctx->pending_batch.payload + 0UL /* verbose */, entry, entry_sz );
         }
         ctx->pending_batch.slot           = target_slot;
         ctx->pending_batch.pos            = fd_ulong_if( is_marker, entry_sz-sizeof(ulong), entry_sz );
@@ -1228,31 +1232,42 @@ after_frag( fd_shred_ctx_t *    ctx,
 
             FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, ctx->store->fec_data_max ));
           }
-          fd_memcpy( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
+          fd_memcpy_nt_nofence( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
           fec->data_sz += payload_sz;
           if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (uint)payload_sz +  (i==0UL ? 0U : fec->shred_offs[ i-1UL ]);
         }
+        _mm_sfence();
         fd_store_fec_data_publish( ctx->store, fec );
       }
     }
 
     if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) { /* firedancer-only */
 
-      /* Send all of the data shred headers we recovered (weren't received) */
+      /* Send all of the data shreds we recovered (weren't received).
+         The chunks are all written before any is published, so the
+         link burst must cover them or a chunk could be reused while
+         an unreliable consumer still sees its old seq. */
+      FD_STATIC_ASSERT( FD_SHRED_STEM_BURST>=32UL, shred_out_burst );
+      ulong missing_chunk[ 32 ];
+      ulong missing_cnt = 0UL;
       for( int i=0; i<32; i++ ) {
         if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
           fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
 
-          ulong sig = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | SHRED_SIG_SRC_RECONSTRUCTED;
-
           fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
-          memcpy(  shred_msg->shred_, missing, fd_shred_sz( missing ) );
+          fd_memcpy_nt_nofence( shred_msg->shred_, missing, fd_shred_sz( missing ) );
           memcpy( &shred_msg->merkle_root, ctx->out_merkle_roots[fset_k].hash, sizeof(fd_hash_t) );
 
-          ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-          fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sizeof(fd_shred_base_t), 0UL, ctx->tsorig, tspub );
+          missing_chunk[ missing_cnt++ ] = ctx->shred_out_chunk;
           ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_shred_base_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
         }
+      }
+
+      if( FD_LIKELY( missing_cnt ) ) {
+        _mm_sfence();
+        ulong sig   = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | SHRED_SIG_SRC_RECONSTRUCTED;
+        ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+        for( ulong i=0UL; i<missing_cnt; i++ ) fd_stem_publish( stem, ctx->shred_out_idx, sig, missing_chunk[ i ], sizeof(fd_shred_base_t), 0UL, ctx->tsorig, tspub );
       }
 
       /* Replay requires the FEC payload before this notification.
@@ -1594,6 +1609,9 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->shred_out_wmark       = fd_dcache_compact_wmark ( ctx->shred_out_mem, shred_out->dcache, shred_out->mtu );
     ctx->shred_out_chunk       = ctx->shred_out_chunk0;
     FD_TEST( fd_dcache_compact_is_safe( ctx->shred_out_mem, shred_out->dcache, shred_out->mtu, shred_out->depth ) );
+    /* An unreliable consumer ignores credits, so the dcache must hold
+       a full STEM_BURST beyond the mcache depth. */
+    FD_TEST( shred_out->burst>=FD_SHRED_STEM_BURST );
   }
 
   if( FD_LIKELY( ctx->store_out_idx!=ULONG_MAX ) ) { /* frankendancer-only */
