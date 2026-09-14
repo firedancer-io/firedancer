@@ -399,7 +399,10 @@ FD_UNIT_TEST( execrp_metrics_write ) {
   env->execrp->metrics.txn_exec_cum_ticks    = 11UL;
   env->execrp->metrics.txn_commit_cum_ticks  = 13UL;
   env->execrp->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ] = 1UL;
+  env->execrp->metrics.txn_version[ FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX ]        = 1UL;
   env->execrp->runtime->metrics.cu_cum       = 17UL;
+  env->execrp->runtime->metrics.instr_cum    = 23UL;
+  env->execrp->runtime->metrics.cpi_cum      = 29UL;
   env->execrp->runtime->metrics.vm_exec_cum_ticks = 19UL;
 
   metrics_write( env->execrp );
@@ -507,6 +510,10 @@ FD_UNIT_TEST( execrp_simple_ok ) {
   FD_TEST( !out_msg->txn_exec->tips );
   FD_TEST( test_read_lamports( env, &fee_payer )==payer_start-fee-transfer );
   FD_TEST( test_read_lamports( env, &recipient )==recipient_start+transfer );
+
+  FD_TEST( env->execrp->metrics.txn_version[ FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX ]==1UL );
+  FD_TEST( env->execrp->runtime->metrics.instr_cum==1UL );
+  FD_TEST( env->execrp->runtime->metrics.cpi_cum==0UL );
 
   test_env_destroy( env );
 }
@@ -670,6 +677,7 @@ FD_UNIT_TEST( execrp_cost_rejection_telemetry ) {
   FD_TEST( !out_msg->txn_exec->compute_units_consumed );
   FD_TEST( out_msg->txn_exec->tick_commit_start!=LONG_MAX );
   FD_TEST( out_msg->txn_exec->tick_commit_end>=out_msg->txn_exec->tick_commit_start );
+  FD_TEST( env->execrp->metrics.txn_version[ FD_METRICS_ENUM_TXN_VERSION_V_V0_IDX ]==1UL );
 
   test_env_destroy( env );
 }

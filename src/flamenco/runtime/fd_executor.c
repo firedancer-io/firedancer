@@ -1183,6 +1183,9 @@ fd_execute_instr( fd_runtime_t *      runtime,
                   fd_txn_in_t const * txn_in,
                   fd_txn_out_t *      txn_out,
                   fd_instr_info_t *   instr ) {
+  if( FD_UNLIKELY( runtime->instr.stack_sz ) ) runtime->metrics.cpi_cum++;
+  else                                         runtime->metrics.instr_cum++;
+
   fd_sysvar_cache_t const * sysvar_cache = &bank->f.sysvar_cache;
   int instr_exec_result = fd_instr_stack_push( runtime, txn_in, txn_out, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {

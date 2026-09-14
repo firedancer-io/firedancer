@@ -124,6 +124,9 @@ static inline void
 metrics_write( fd_execle_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
+  FD_MCNT_SET( EXECLE, INSTRUCTION_EXECUTED, ctx->runtime->metrics.instr_cum );
+  FD_MCNT_SET( EXECLE, CPI_EXECUTED,         ctx->runtime->metrics.cpi_cum   );
+
   FD_MCNT_SET( EXECLE, CU_EXECUTED, ctx->runtime->metrics.cu_cum );
 
   FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_SETUP,  ctx->metrics.txn_check_cum_ticks+ctx->metrics.txn_load_cum_ticks );
@@ -341,6 +344,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
     if( FD_UNLIKELY( txn_out->err.is_noop ) ) {
       txn_out->err.is_committable = 0;
     }
+
+    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( txn ) ) ]++;
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
@@ -628,6 +633,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
       fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
     }
   } else {
     FD_TEST( failed_idx != ULONG_MAX );
@@ -655,6 +661,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       if( i==failed_idx ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( ctx->txn_out[ i ].err.txn_err ) ]++;
       else                fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
     }
   }
 

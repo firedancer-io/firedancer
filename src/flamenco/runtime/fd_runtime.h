@@ -206,6 +206,8 @@ struct fd_runtime {
     ulong cpi_commit_cum_ticks;
 
     ulong cu_cum;
+    ulong instr_cum;
+    ulong cpi_cum;
   } metrics;
 
   struct {
