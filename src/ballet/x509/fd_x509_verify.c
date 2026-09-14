@@ -336,43 +336,53 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
   /* The presented list is leaf first; the issuers after it are in any
      order (RFC 8446 Section 4.4.2 tells clients to expect that).  path
      is built by picking, at each step, an unused presented cert whose
-     subject names the current issuer and whose key checks out.
-     Presented certs are parsed lazily; ones the walk never reaches are
-     not parsed at all. */
+     subject names the current issuer and whose key checks out.  A
+     branch that dead-ends short of a trust anchor is backed out of and
+     the next candidate at that level tried (a cross-signed CA is
+     presented twice under one subject).  The first dead end's error is
+     reported if no branch works out.  Presented certs are parsed
+     lazily.  sig_budget bounds the work on a chain of mutually valid
+     same-subject CAs; an honest chain needs one verify per cert. */
 
+  FD_STATIC_ASSERT( FD_X509_CHAIN_MAX<=64UL, bitset );
   fd_x509_cert_info_t path[ FD_X509_CHAIN_MAX ];
-  uchar parsed[ FD_X509_CHAIN_MAX ] = {0};
-  uchar used  [ FD_X509_CHAIN_MAX ] = {0};
-  path[0]   = certs[0];
-  parsed[0] = 1;
-  used[0]   = 1;
+  ulong parsed = 1UL;  /* bit j: certs[j] is parsed */
+  ulong used   = 1UL;  /* bit j: certs[j] is on path */
+  path[0] = certs[0];
 
+  ulong depth                  = 0UL;
+  ulong j_start                = 1UL;
   ulong non_self_issued_ca_cnt = 0UL;
-  for( ulong depth = 0UL; depth < chain_cnt; depth++ ) {
+  ulong sig_budget             = 4UL*FD_X509_CHAIN_MAX;
+  int   first_err              = FD_X509_VERIFY_OK;
+  for(;;) {
     fd_x509_cert_info_t const * cur = &path[ depth ];
 
     /* A trust anchor for this cert's issuer completes the path.  Peers
        routinely append cross-signatures leading up to some older root,
        so the certs beyond this point are not ours to walk: they chain to
-       an anchor we do not need and may not even hold. */
+       an anchor we do not need and may not even hold.  Skipped when
+       resuming after a backtrack: the anchors already failed here. */
 
-    ulong idx        = 0UL;
-    int   anchored   = 0;
-    int   anchor_err = FD_X509_VERIFY_OK;
-    for( fd_x509_ca_entry_t const * ca;
-         !!( ca = fd_x509_ca_store_find_next( ca_store, cur->issuer, cur->issuer_len, &idx ) ); ) {
-      anchored = 1;
+    int anchored   = 0;
+    int anchor_err = FD_X509_VERIFY_OK;
+    if( j_start==1UL ) {
+      ulong idx = 0UL;
+      for( fd_x509_ca_entry_t const * ca;
+           !!( ca = fd_x509_ca_store_find_next( ca_store, cur->issuer, cur->issuer_len, &idx ) ); ) {
+        anchored = 1;
 
-      /* A name match is not a key match, so keep trying the remaining
-         anchors sharing this subject.  An unsupported algorithm, on the
-         other hand, is a property of the cert and not of the anchor. */
+        /* A name match is not a key match, so keep trying the remaining
+           anchors sharing this subject. */
 
-      int sig_rc = fd_x509_verify_sig( cur, ca->pubkey, ca->pubkey_len, ca->key_type );
-      if( FD_UNLIKELY( sig_rc > 0 ) ) return FD_X509_VERIFY_ERR_UNSUPPORTED;
-      if( sig_rc )                    continue;
+        if( FD_UNLIKELY( !sig_budget-- ) ) return first_err ? first_err : FD_X509_VERIFY_ERR_CHAIN_BREAK;
+        int sig_rc = fd_x509_verify_sig( cur, ca->pubkey, ca->pubkey_len, ca->key_type );
+        if( FD_UNLIKELY( sig_rc > 0 ) ) { anchor_err = FD_X509_VERIFY_ERR_UNSUPPORTED; continue; }
+        if( sig_rc )                    continue;
 
-      anchor_err = fd_x509_check_anchor( ca, path, depth+1UL, non_self_issued_ca_cnt );
-      if( !anchor_err ) return FD_X509_VERIFY_OK;
+        anchor_err = fd_x509_check_anchor( ca, path, depth+1UL, non_self_issued_ca_cnt );
+        if( !anchor_err ) return FD_X509_VERIFY_OK;
+      }
     }
 
     /* Not anchored here, so find the issuer among the presented certs.
@@ -383,14 +393,14 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
     int   cand_err  = FD_X509_VERIFY_OK;
     int   any_left  = 0;
     ulong pick      = ULONG_MAX;
-    for( ulong j = 1UL; j < chain_cnt; j++ ) {
-      if( used[j] ) continue;
+    for( ulong j = j_start; j < chain_cnt; j++ ) {
+      if( used & (1UL<<j) ) continue;
       any_left = 1;
 
-      if( !parsed[j] ) {
+      if( !( parsed & (1UL<<j) ) ) {
         if( FD_UNLIKELY( fd_x509_cert_parse( chain_der[j], chain_der_sz[j], &certs[j] ) ) )
           return FD_X509_VERIFY_ERR_PARSE;
-        parsed[j] = 1;
+        parsed |= 1UL<<j;
       }
       fd_x509_cert_info_t const * cand = &certs[j];
 
@@ -418,6 +428,7 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
           path, depth+1UL );
 
       if( !err ) {
+        if( FD_UNLIKELY( !sig_budget-- ) ) return first_err ? first_err : FD_X509_VERIFY_ERR_CHAIN_BREAK;
         int sig_rc = fd_x509_verify_sig( cur, cand->pubkey, cand->pubkey_len, cand->key_type );
         if( sig_rc < 0 ) err = FD_X509_VERIFY_ERR_SIG;
         if( sig_rc > 0 ) err = FD_X509_VERIFY_ERR_UNSUPPORTED;
@@ -427,23 +438,40 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
       if( !cand_err ) cand_err = err;
     }
 
-    if( pick == ULONG_MAX ) {
-      if( cand_err )   return cand_err;
-      if( anchor_err ) return anchor_err;
-      if( anchored )   return FD_X509_VERIFY_ERR_SIG;
-      return any_left ? FD_X509_VERIFY_ERR_CHAIN_BREAK : FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR;
+    if( pick != ULONG_MAX ) {
+      used |= 1UL<<pick;
+      path[ depth+1 ] = certs[ pick ];
+
+      /* A self-issued rollover CA does not consume path length budget. */
+      if( !fd_x509_name_equal( certs[pick].issuer,  certs[pick].issuer_len,
+                               certs[pick].subject, certs[pick].subject_len ) )
+        non_self_issued_ca_cnt++;
+
+      depth++;
+      j_start = 1UL;
+      continue;
     }
 
-    used[ pick ]    = 1;
-    path[ depth+1 ] = certs[ pick ];
+    if( !first_err ) {
+      if(      cand_err   ) first_err = cand_err;
+      else if( anchor_err ) first_err = anchor_err;
+      else if( anchored   ) first_err = FD_X509_VERIFY_ERR_SIG;
+      else                  first_err = any_left ? FD_X509_VERIFY_ERR_CHAIN_BREAK : FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR;
+    }
+    if( !depth ) return first_err;
 
-    /* A self-issued rollover CA does not consume path length budget. */
-    if( !fd_x509_name_equal( certs[pick].issuer,  certs[pick].issuer_len,
-                             certs[pick].subject, certs[pick].subject_len ) )
-      non_self_issued_ca_cnt++;
+    /* Back up one level and release the cert picked there.  path holds
+       copies, so the pick is the used cert whose tbs pointer matches. */
+
+    depth--;
+    ulong prev = 1UL;
+    while( !( used & (1UL<<prev) ) || certs[prev].tbs!=path[depth+1].tbs ) prev++;
+    used &= ~(1UL<<prev);
+    if( !fd_x509_name_equal( certs[prev].issuer,  certs[prev].issuer_len,
+                             certs[prev].subject, certs[prev].subject_len ) )
+      non_self_issued_ca_cnt--;
+    j_start = prev+1UL;
   }
-
-  return FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR;  /* not reached */
 }
 
 int

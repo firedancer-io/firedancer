@@ -1080,6 +1080,84 @@ main( int     argc,
       ca_store.cnt = 1;
     }
 
+    /* A live cross-sign of inter under the untrusted root, and that
+       root self-signed.  Picking the cross-sign first is a dead end the
+       walk must back out of. */
+    uchar cross_ok[ 1024 ];
+    ulong cross_ok_len = mk_cert_signed( cross_ok, older_name, older_name_len,
+                                         inter_name, inter_name_len,
+                                         pub_inter, prv_old, exts, exts_len );
+    uchar pub_old[ 32 ]; fd_ed25519_public_from_private( pub_old, prv_old, sha );
+    uchar old_root[ 1024 ];
+    ulong old_root_len = mk_cert_signed( old_root, older_name, older_name_len,
+                                         older_name, older_name_len,
+                                         pub_old, prv_old, exts, exts_len );
+
+    {
+      uchar const * chain_der   [ 3 ] = { leaf, cross_ok, inter };
+      ulong         chain_der_sz[ 3 ] = { leaf_len, cross_ok_len, inter_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 3UL, &ca_store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_OK );
+    }
+    {
+      uchar const * chain_der   [ 3 ] = { leaf, inter, cross_ok };
+      ulong         chain_der_sz[ 3 ] = { leaf_len, inter_len, cross_ok_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 3UL, &ca_store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_OK );
+    }
+
+    /* The dead branch runs two deep before it is found wanting. */
+    {
+      uchar const * chain_der   [ 4 ] = { leaf, cross_ok, old_root, inter };
+      ulong         chain_der_sz[ 4 ] = { leaf_len, cross_ok_len, old_root_len, inter_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 4UL, &ca_store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_OK );
+    }
+
+    /* With no alternative, the first dead end is what gets reported. */
+    {
+      uchar const * chain_der   [ 3 ] = { leaf, cross_ok, old_root };
+      ulong         chain_der_sz[ 3 ] = { leaf_len, cross_ok_len, old_root_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 3UL, &ca_store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR );
+    }
+    {
+      uchar const * chain_der   [ 2 ] = { leaf, cross_ok };
+      ulong         chain_der_sz[ 2 ] = { leaf_len, cross_ok_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &ca_store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR );
+    }
+    {
+      uchar const * chain_der   [ 3 ] = { leaf, cross_ok, noise };
+      ulong         chain_der_sz[ 3 ] = { leaf_len, cross_ok_len, noise_len };
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 3UL, &ca_store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_ERR_CHAIN_BREAK );
+    }
+
+    /* Backtracking must not turn into a walk of every permutation.  A
+       leaf issued by inter and seven self-signed inter certs (all the
+       same key, hence all mutually valid issuers) with no anchor would
+       be 7! branches if unbounded. */
+    {
+      uchar self_inter[ 1024 ];
+      ulong self_inter_len = mk_cert_signed( self_inter, inter_name, inter_name_len,
+                                             inter_name, inter_name_len,
+                                             pub_inter, prv_inter, exts, exts_len );
+      uchar const * chain_der   [ FD_X509_CHAIN_MAX ];
+      ulong         chain_der_sz[ FD_X509_CHAIN_MAX ];
+      chain_der[0] = leaf; chain_der_sz[0] = leaf_len;
+      for( ulong i=1UL; i<FD_X509_CHAIN_MAX; i++ ) {
+        chain_der[i] = self_inter; chain_der_sz[i] = self_inter_len;
+      }
+      ca_store.cnt = 0;
+      long t0 = fd_log_wallclock();
+      FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, FD_X509_CHAIN_MAX, &ca_store, NULL, 0UL, TEST_NOW )
+               ==FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR );
+      long dt = fd_log_wallclock()-t0;
+      FD_TEST( dt < 100L*1000L*1000L );
+      ca_store.cnt = 1;
+    }
+
     FD_LOG_INFO(( "OK: out-of-order issuers are found" ));
   }
 
