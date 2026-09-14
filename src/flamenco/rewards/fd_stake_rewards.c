@@ -1,8 +1,11 @@
 #include "fd_stake_rewards.h"
 #include "fd_rewards_base.h"
 #include "../../ballet/siphash13/fd_siphash13.h"
+#include "../runtime/fd_bank.h"
 
 #define FD_STAKE_REWARDS_MAGIC (0xF17EDA2CE757A4E0) /* FIREDANCER STAKE V0 */
+
+FD_STATIC_ASSERT( FD_BANKS_MAX_BANKS<=USHORT_MAX, fork_idx_width );
 
 struct fork {
   int next;
@@ -39,7 +42,8 @@ typedef struct fork_info fork_info_t;
 struct fd_stake_rewards {
   ulong       magic;
   ulong       max_stake_accounts; /* entries a fork's storage can hold */
-  fork_info_t fork_info[ FD_STAKE_REWARDS_MAX_FORK_WIDTH ];
+  ulong       max_fork_width;
+  ulong       fork_info_offset;
   ulong       fork_pool_offset;
   ulong       partitions_offset;
   ulong       epoch;
@@ -55,9 +59,16 @@ get_fork_pool( fd_stake_rewards_t const * stake_rewards ) {
   return fd_type_pun( (uchar *)stake_rewards + stake_rewards->fork_pool_offset );
 }
 
+static inline fork_info_t *
+get_fork_info( fd_stake_rewards_t const * stake_rewards,
+               ushort                     fork_idx ) {
+  fork_info_t * fork_info = fd_type_pun( (uchar *)stake_rewards + stake_rewards->fork_info_offset );
+  return fork_info + fork_idx;
+}
+
 static inline partition_ele_t *
 get_partition_ele( fd_stake_rewards_t const * stake_rewards,
-                   uchar                      fork_idx,
+                   ushort                     fork_idx,
                    uint                       ele_cnt ) {
 
   return fd_type_pun( (uchar *)stake_rewards + stake_rewards->partitions_offset +
@@ -87,14 +98,14 @@ window_sz( ulong capacity,
 
 static void
 window_reset( fd_stake_rewards_t * stake_rewards,
-              uchar                fork_idx,
+              ushort               fork_idx,
               uint                 win_lo,
               ulong                max_rewards_cnt ) {
   /* reset the window to start at win_lo and drop whatever the window
      used to hold.  The win_hi will either be the end of rewards or the
      end of the partition window, whichever is smaller. */
 
-  fork_info_t * fork_info = &stake_rewards->fork_info[fork_idx];
+  fork_info_t * fork_info = get_fork_info( stake_rewards, fork_idx );
 
   uint remaining_cnt             = fd_uint_sat_sub( fork_info->partition_cnt, win_lo );
   uint win_sz                    = window_sz( stake_rewards->max_stake_accounts, remaining_cnt, max_rewards_cnt );
@@ -123,12 +134,13 @@ ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
                             ulong max_fork_width ) {
   if( FD_UNLIKELY( max_stake_accounts>=(ulong)UINT_MAX ) ) return 0UL;
-  if( FD_UNLIKELY( max_fork_width>FD_STAKE_REWARDS_MAX_FORK_WIDTH ) ) return 0UL;
+  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_BANKS_MAX_BANKS ) ) return 0UL;
 
   ulong partition_ele_cnt = fd_ulong_sat_mul( max_fork_width, max_stake_accounts );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fork_info_t),      fd_ulong_sat_mul( max_fork_width, sizeof(fork_info_t) ) );
   l = FD_LAYOUT_APPEND( l, fork_pool_align(),        fork_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( partition_ele_cnt, sizeof(partition_ele_t) ) );
   return FD_LAYOUT_FINI( l, fd_stake_rewards_align() );
@@ -152,15 +164,15 @@ fd_stake_rewards_new( void * shmem,
     FD_LOG_WARNING(( "max_stake_accounts is too large" ));
     return NULL;
   }
-  if( FD_UNLIKELY( max_fork_width>FD_STAKE_REWARDS_MAX_FORK_WIDTH ) ) {
-    FD_LOG_WARNING(( "max_fork_width %lu exceeds maximum %lu",
-                     max_fork_width, FD_STAKE_REWARDS_MAX_FORK_WIDTH ));
+  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_BANKS_MAX_BANKS ) ) {
+    FD_LOG_WARNING(( "max_fork_width must be in [1,%lu]", FD_BANKS_MAX_BANKS ));
     return NULL;
   }
   ulong partition_ele_cnt = fd_ulong_sat_mul( max_fork_width, max_stake_accounts );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_stake_rewards_t * stake_rewards   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
+  void *               fork_info_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fork_info_t),     fd_ulong_sat_mul( max_fork_width, sizeof(fork_info_t) ) );
   void *               fork_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),        fork_pool_footprint( max_fork_width ) );
   void *               partitions_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( partition_ele_cnt, sizeof(partition_ele_t) ) );
 
@@ -169,9 +181,11 @@ fd_stake_rewards_new( void * shmem,
     FD_LOG_WARNING(( "Failed to create fork pool" ));
     return NULL;
   }
+  stake_rewards->fork_info_offset   = (ulong)fork_info_mem - (ulong)shmem;
   stake_rewards->fork_pool_offset   = (ulong)fork_pool - (ulong)shmem;
   stake_rewards->partitions_offset  = (ulong)partitions_mem - (ulong)shmem;
   stake_rewards->max_stake_accounts = max_stake_accounts;
+  stake_rewards->max_fork_width     = max_fork_width;
   stake_rewards->epoch              = ULONG_MAX;
 
   FD_COMPILER_MFENCE();
@@ -204,39 +218,41 @@ fd_stake_rewards_join( void * shmem ) {
 void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
   fork_pool_reset( get_fork_pool( stake_rewards ) );
-  for( ulong i=0UL; i<FD_STAKE_REWARDS_MAX_FORK_WIDTH; i++ ) stake_rewards->fork_info[i].refcnt = 0UL;
+  for( ulong i=0UL; i<stake_rewards->max_fork_width; i++ ) get_fork_info( stake_rewards, (ushort)i )->refcnt = 0UL;
   stake_rewards->epoch = ULONG_MAX;
 }
 
 void
 fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
-                        uchar                fork_idx ) {
+                        ushort               fork_idx ) {
   fork_pool_idx_release( get_fork_pool( stake_rewards ), (ulong)fork_idx );
-  stake_rewards->fork_info[fork_idx].partition_cnt         = 0U;
-  stake_rewards->fork_info[fork_idx].starting_block_height = 0UL;
-  stake_rewards->fork_info[fork_idx].refcnt                = 0UL;
+  fork_info_t * fork_info = get_fork_info( stake_rewards, fork_idx );
+  fork_info->partition_cnt         = 0U;
+  fork_info->starting_block_height = 0UL;
+  fork_info->refcnt                = 0UL;
   window_reset( stake_rewards, fork_idx, 0U, 0UL );
 }
 
 void
 fd_stake_rewards_acquire( fd_stake_rewards_t * stake_rewards,
-                          uchar                fork_idx ) {
-  stake_rewards->fork_info[fork_idx].refcnt++;
+                          ushort               fork_idx ) {
+  get_fork_info( stake_rewards, fork_idx )->refcnt++;
 }
 
 void
 fd_stake_rewards_release( fd_stake_rewards_t * stake_rewards,
-                          uchar                fork_idx ) {
-  ulong refcnt = stake_rewards->fork_info[fork_idx].refcnt;
+                          ushort               fork_idx ) {
+  fork_info_t * fork_info = get_fork_info( stake_rewards, fork_idx );
+  ulong refcnt = fork_info->refcnt;
   if( FD_UNLIKELY( !refcnt ) ) return;
   if( FD_UNLIKELY( refcnt==1UL ) ) fd_stake_rewards_purge( stake_rewards, fork_idx );
-  else                             stake_rewards->fork_info[fork_idx].refcnt = refcnt-1UL;
+  else                             fork_info->refcnt = refcnt-1UL;
 }
 
 ulong
 fd_stake_rewards_refcnt( fd_stake_rewards_t const * stake_rewards,
-                         uchar                      fork_idx ) {
-  return stake_rewards->fork_info[fork_idx].refcnt;
+                         ushort                     fork_idx ) {
+  return get_fork_info( stake_rewards, fork_idx )->refcnt;
 }
 
 ulong
@@ -244,7 +260,7 @@ fd_stake_rewards_free_cnt( fd_stake_rewards_t const * stake_rewards ) {
   return (ulong)fork_pool_free( get_fork_pool( stake_rewards ) );
 }
 
-uchar
+ushort
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        ulong                epoch,
                        fd_hash_t const *    parent_blockhash,
@@ -262,13 +278,14 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
     FD_LOG_ERR(( "No free forks in the stake rewards pool.  This likely occurred due to extremely degenerate "
                  "network conditions. Please report this crash to the Firedancer team." ));
   }
-  uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
-  stake_rewards->fork_info[fork_idx].refcnt = 1UL;
+  ushort fork_idx = (ushort)fork_pool_idx_acquire( fork_pool );
+  fork_info_t * fork_info = get_fork_info( stake_rewards, fork_idx );
+  fork_info->refcnt = 1UL;
 
   prime_hasher( stake_rewards, parent_blockhash );
 
-  stake_rewards->fork_info[fork_idx].partition_cnt         = partitions_cnt;
-  stake_rewards->fork_info[fork_idx].starting_block_height = starting_block_height;
+  fork_info->partition_cnt         = partitions_cnt;
+  fork_info->starting_block_height = starting_block_height;
   window_reset( stake_rewards, fork_idx, 0U, max_rewards_cnt );
 
   return fork_idx;
@@ -276,7 +293,7 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
 void
 fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
-                                 uchar                fork_idx,
+                                 ushort               fork_idx,
                                  fd_hash_t const *    parent_blockhash,
                                  uint                 win_lo,
                                  ulong                max_rewards_cnt ) {
@@ -286,19 +303,19 @@ fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
 
 uint
 fd_stake_rewards_window_lo( fd_stake_rewards_t const * stake_rewards,
-                            uchar                      fork_idx ) {
-  return stake_rewards->fork_info[fork_idx].win_lo;
+                            ushort                     fork_idx ) {
+  return get_fork_info( stake_rewards, fork_idx )->win_lo;
 }
 
 uint
 fd_stake_rewards_window_hi( fd_stake_rewards_t const * stake_rewards,
-                            uchar                      fork_idx ) {
-  return stake_rewards->fork_info[fork_idx].win_hi;
+                            ushort                     fork_idx ) {
+  return get_fork_info( stake_rewards, fork_idx )->win_hi;
 }
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
-                         uchar                fork_idx,
+                         ushort               fork_idx,
                          fd_pubkey_t const *  pubkey,
                          ulong                lamports,
                          ulong                credits_observed ) {
@@ -306,7 +323,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   FD_STATIC_ASSERT( sizeof(fd_pubkey_t)==32UL, partition_hash_size );
   ulong hash64 = fd_siphash13_fini_x32( stake_rewards->primed_hasher, pubkey->uc );
 
-  fork_info_t * fork_info       = &stake_rewards->fork_info[fork_idx];
+  fork_info_t * fork_info       = get_fork_info( stake_rewards, fork_idx );
   ulong         partition_index = (ulong)((uint128)fork_info->partition_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 
   /* The total covers the whole epoch, not just the window, so that it
@@ -342,9 +359,9 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
 
 void
 fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
-                            uchar                fork_idx,
+                            ushort               fork_idx,
                             uint                 partition_idx ) {
-  fork_info_t const * fork_info = &stake_rewards->fork_info[fork_idx];
+  fork_info_t const * fork_info = get_fork_info( stake_rewards, fork_idx );
   if( FD_UNLIKELY( partition_idx<fork_info->win_lo || partition_idx>fork_info->win_hi ) ) {
     FD_LOG_CRIT(( "partition %u is outside of the valid window [%u,%u]", partition_idx, fork_info->win_lo, fork_info->win_hi ));
   }
@@ -353,7 +370,7 @@ fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
 
 void
 fd_stake_rewards_iter_next( fd_stake_rewards_t * stake_rewards,
-                            uchar                fork_idx ) {
+                            ushort               fork_idx ) {
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, stake_rewards->iter_curr_fork_idx );
   stake_rewards->iter_curr_fork_idx = partition_ele->next;
 }
@@ -365,7 +382,7 @@ fd_stake_rewards_iter_done( fd_stake_rewards_t * stake_rewards ) {
 
 void
 fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
-                           uchar                fork_idx,
+                           ushort               fork_idx,
                            fd_pubkey_t *        pubkey_out,
                            ulong *              lamports_out,
                            ulong *              credits_observed_out ) {
@@ -378,24 +395,25 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
 
 ulong
 fd_stake_rewards_total_rewards( fd_stake_rewards_t const * stake_rewards,
-                                uchar                      fork_idx ) {
-  return stake_rewards->fork_info[fork_idx].total_stake_rewards;
+                                ushort                     fork_idx ) {
+  return get_fork_info( stake_rewards, fork_idx )->total_stake_rewards;
 }
 
 uint
 fd_stake_rewards_num_partitions( fd_stake_rewards_t const * stake_rewards,
-                                 uchar                      fork_idx ) {
-  return stake_rewards->fork_info[fork_idx].partition_cnt;
+                                 ushort                     fork_idx ) {
+  return get_fork_info( stake_rewards, fork_idx )->partition_cnt;
 }
 
 ulong
 fd_stake_rewards_starting_block_height( fd_stake_rewards_t const * stake_rewards,
-                                        uchar                      fork_idx ) {
-  return stake_rewards->fork_info[fork_idx].starting_block_height;
+                                        ushort                     fork_idx ) {
+  return get_fork_info( stake_rewards, fork_idx )->starting_block_height;
 }
 
 ulong
 fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t const * stake_rewards,
-                                                uchar                      fork_idx ) {
-  return stake_rewards->fork_info[fork_idx].starting_block_height + stake_rewards->fork_info[fork_idx].partition_cnt;
+                                                ushort                     fork_idx ) {
+  fork_info_t const * fork_info = get_fork_info( stake_rewards, fork_idx );
+  return fork_info->starting_block_height + fork_info->partition_cnt;
 }

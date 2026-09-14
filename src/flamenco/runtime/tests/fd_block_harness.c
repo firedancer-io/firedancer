@@ -140,7 +140,7 @@ static void
 fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
-  runner->bank->stake_rewards_fork_id = UCHAR_MAX;
+  runner->bank->stake_rewards_fork_id = USHORT_MAX;
   fd_stake_rewards_clear( fd_bank_stake_rewards_modify( runner->bank ) );
 
   fd_progcache_reset( runner->progcache->join );

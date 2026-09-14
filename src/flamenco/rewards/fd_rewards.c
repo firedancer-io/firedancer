@@ -1268,7 +1268,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
                         fd_stake_history_t const *     stake_history,
                         fd_stake_delegations_t const * stake_delegations,
                         fd_runtime_stack_t *           runtime_stack,
-                        uchar                          fork_idx,
+                        ushort                         fork_idx,
                         ulong                          rewarded_epoch,
                         ulong                          total_rewards,
                         uint128                        total_points ) {
@@ -1459,13 +1459,13 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                                                 bank->f.slot_params.stake_account_stores_per_block );
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
-  uchar                fork_idx      = fd_stake_rewards_init( stake_rewards,
+  ushort               fork_idx      = fd_stake_rewards_init( stake_rewards,
                                                               bank->f.epoch,
                                                               parent_blockhash,
                                                               starting_block_height,
                                                               num_partitions,
                                                               runtime_stack->stakes.stake_rewards_cnt );
-  if( FD_UNLIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+  if( FD_UNLIKELY( bank->stake_rewards_fork_id!=USHORT_MAX ) ) {
     fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
   }
   bank->stake_rewards_fork_id = fork_idx;
@@ -1893,7 +1893,7 @@ fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
                                          fd_runtime_stack_t * runtime_stack,
                                          fd_capture_ctx_t *   capture_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L46-L48 */
-  if( FD_LIKELY( bank->stake_rewards_fork_id==UCHAR_MAX ) ) return;
+  if( FD_LIKELY( bank->stake_rewards_fork_id==USHORT_MAX ) ) return;
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
 
@@ -1925,7 +1925,7 @@ fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
 
     /* The rewards of this partition are only in memory if the window
        covers it.  If they are not, re-derive the window that does. */
-    uchar fork_id = bank->stake_rewards_fork_id;
+    ushort fork_id = bank->stake_rewards_fork_id;
     if( FD_UNLIKELY( partition_idx<(ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
                      partition_idx>(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id ) ) ) {
       FD_LOG_INFO(( "reward partition is not in the window, recalculating" ));
@@ -1941,7 +1941,7 @@ fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
   if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
     fd_sysvar_epoch_rewards_set_inactive( bank, accdb, capture_ctx );
     fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
-    bank->stake_rewards_fork_id = UCHAR_MAX;
+    bank->stake_rewards_fork_id = USHORT_MAX;
   }
 }
 
@@ -2186,7 +2186,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
      which were computed from their own delegations. */
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
-  uchar                fork_idx      = fd_stake_rewards_init( stake_rewards,
+  ushort               fork_idx      = fd_stake_rewards_init( stake_rewards,
                                                               bank->f.epoch,
                                                               &epoch_rewards_sysvar->parent_blockhash,
                                                               epoch_rewards_sysvar->distribution_starting_block_height,
@@ -2199,7 +2199,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
                                      win_lo,
                                      runtime_stack->stakes.stake_rewards_cnt );
   }
-  if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+  if( FD_LIKELY( bank->stake_rewards_fork_id!=USHORT_MAX ) ) {
     fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
   }
   bank->stake_rewards_fork_id = fork_idx;

@@ -188,8 +188,8 @@ fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
   msg->accdb_fork_id = USHORT_MAX;
   msg->vote_stakes_fork_id = ULONG_MAX;
   msg->collector_overrides_fork_id = USHORT_MAX;
-  msg->stake_rewards_fork_id = UCHAR_MAX;
-  msg->epoch_credits_fork_id = UCHAR_MAX;
+  msg->stake_rewards_fork_id = USHORT_MAX;
+  msg->epoch_credits_fork_id = USHORT_MAX;
   msg->stake_delegations_fork_id = USHORT_MAX;
   msg->cost_tracker_pool_idx = ULONG_MAX;
   msg->slot = ULONG_MAX;

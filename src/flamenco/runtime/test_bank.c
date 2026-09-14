@@ -851,12 +851,12 @@ test_bank_advance_root_preserves_inherited_stake_rewards( void * mem ) {
   fd_hash_t parent_blockhash = { 0 };
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank_A );
-  uchar fork_idx = fd_stake_rewards_init( stake_rewards,
-                                          fd_slot_to_epoch( &bank_A->f.epoch_schedule, bank_A->f.slot, NULL ),
-                                          &parent_blockhash,
-                                          starting_block_height,
-                                          partition_cnt,
-                                          0UL );
+  ushort fork_idx = fd_stake_rewards_init( stake_rewards,
+                                           fd_slot_to_epoch( &bank_A->f.epoch_schedule, bank_A->f.slot, NULL ),
+                                           &parent_blockhash,
+                                           starting_block_height,
+                                           partition_cnt,
+                                           0UL );
   bank_A->stake_rewards_fork_id = fork_idx;
 
   fd_bank_t * bank_B = fd_banks_new_bank( banks, bank_A->idx, 0L, 0 );
@@ -875,6 +875,37 @@ test_bank_advance_root_preserves_inherited_stake_rewards( void * mem ) {
   FD_TEST( fd_stake_rewards_num_partitions( stake_rewards, fork_idx )==partition_cnt );
 
   fd_banks_clear( banks );
+}
+
+static void
+test_stake_rewards_dynamic_metadata_footprint( void ) {
+  FD_TEST( fd_stake_rewards_footprint( 1UL, 1UL )<(1UL<<20) );
+  FD_TEST( fd_stake_rewards_footprint( 1UL, FD_BANKS_MAX_BANKS )>0UL );
+  FD_TEST( fd_stake_rewards_footprint( 1UL, FD_BANKS_MAX_BANKS+1UL )==0UL );
+}
+
+static void
+test_stake_rewards_wide_fork_ids( void ) {
+  ushort const max_forks = 257U;
+  ulong footprint = fd_stake_rewards_footprint( 1UL, max_forks );
+  FD_TEST( footprint );
+  void * mem = aligned_alloc( fd_stake_rewards_align(), footprint );
+  FD_TEST( mem );
+
+  fd_stake_rewards_t * stake_rewards =
+      fd_stake_rewards_join( fd_stake_rewards_new( mem, 1UL, max_forks ) );
+  FD_TEST( stake_rewards );
+
+  fd_hash_t parent_blockhash = {0};
+  for( ushort i=0U; i<max_forks; i++ ) {
+    ushort fork_idx = fd_stake_rewards_init( stake_rewards, 0UL, &parent_blockhash, 0UL, 1U, 0UL );
+    FD_TEST( fork_idx==i );
+  }
+  FD_TEST( !fd_stake_rewards_free_cnt( stake_rewards ) );
+
+  for( ushort i=0U; i<max_forks; i++ ) fd_stake_rewards_release( stake_rewards, i );
+  FD_TEST( fd_stake_rewards_free_cnt( stake_rewards )==max_forks );
+  free( mem );
 }
 
 static void
@@ -1447,6 +1478,8 @@ main( int argc, char ** argv ) {
   test_bank_stake_delegations_dynamic_sizing( mem );
 
   test_bank_advance_root_preserves_inherited_stake_rewards( mem );
+  test_stake_rewards_dynamic_metadata_footprint();
+  test_stake_rewards_wide_fork_ids();
   test_bank_advance_root_prunes_inactive_stakes( mem );
 
   test_bank_clear( mem );
@@ -1455,9 +1488,6 @@ main( int argc, char ** argv ) {
 
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )>0UL );
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS+1UL )==0UL );
-
-  FD_TEST( fd_stake_rewards_footprint( 1UL, FD_STAKE_REWARDS_MAX_FORK_WIDTH )>0UL );
-  FD_TEST( fd_stake_rewards_footprint( 1UL, FD_STAKE_REWARDS_MAX_FORK_WIDTH+1UL )==0UL );
 
   FD_LOG_NOTICE(( "pass" ));
 

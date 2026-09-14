@@ -275,7 +275,7 @@ struct fd_bank {
   fd_accdb_fork_id_t     parent_accdb_fork_id;
   ulong                  vote_stakes_fork_id;
   ushort                 collector_overrides_fork_id;
-  uchar                  stake_rewards_fork_id;
+  ushort                 stake_rewards_fork_id;
   ushort                 stake_delegations_fork_id;
   ushort                 epoch_credits_fork_id;
   ulong                  cost_tracker_pool_idx;
