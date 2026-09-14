@@ -107,12 +107,6 @@ https://github.com/facebook/zstd (`src/third_party/zstd`)
 
 Data compression library by Meta. Written in C.
 
-### LZ4
-
-https://github.com/lz4/lz4 (`src/third_party/lz4`)
-
-Data compression library. Written in C.
-
 ---
 
   [NOTICE]: https://raw.githubusercontent.com/firedancer-io/firedancer/refs/heads/main/NOTICE

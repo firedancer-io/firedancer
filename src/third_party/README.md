@@ -41,7 +41,7 @@ containing:
 - Only Apache-2.0-compatible permissive licenses may be vendored.
 - For dual-licensed upstreams, take the permissive branch only and do
   not import GPL license texts (e.g. zstd: LICENSE (BSD-3) yes,
-  COPYING (GPL-2) no; lz4: `lib/` only, never `programs/`).
+  COPYING (GPL-2) no).
 - Retain upstream per-file license headers verbatim.
 - Add a section to the root NOTICE file for every new dependency.  If
   the upstream ships a NOTICE file (Apache-2.0 §4(d)), reproduce its
@@ -75,5 +75,4 @@ containing:
 | `s2n-bignum/` | https://github.com/awslabs/s2n-bignum | Apache-2.0/ISC/MIT-0 |
 | `blst/` | https://github.com/supranational/blst | Apache-2.0 |
 | `zstd/` | https://github.com/facebook/zstd | BSD-3-Clause (of dual BSD/GPL-2) |
-| `lz4/` | https://github.com/lz4/lz4 (lib/ only) | BSD-2-Clause |
 | `zlib/` | https://github.com/madler/zlib (deflate side only) | zlib |
