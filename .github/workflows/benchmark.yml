@@ -38,6 +38,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
@@ -55,11 +57,18 @@ jobs:
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
         cp -r contrib/ci/bench $BENCH_DIR/tools
-        BASE_SHA=${{ github.event.pull_request.base.sha }}  # fixed per event, so all three jobs compare against the same main
-        [ -n "$BASE_SHA" ] || { git fetch --depth=1 origin main; BASE_SHA=$(git rev-parse FETCH_HEAD); }  # workflow_dispatch
-        echo BASE_SHA=$BASE_SHA >> $GITHUB_ENV
-        echo HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }} >> $GITHUB_ENV
         { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; sudo dmsetup table | sed 's/ [0-9a-f]\{32,\} / <key> /'; grep -m1 -A8 'name *: xts(aes)' /proc/crypto | grep driver; grep -H . /sys/block/nvme*/queue/max_sectors_kb; } > $BENCH_DIR/runner.txt 2>&1 || true
+
+    - name: Resolve commits
+      uses: actions/github-script@v9
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const pr = context.payload.pull_request;
+          const head = pr ? pr.head.sha : context.sha;
+          const cmp = await github.rest.repos.compareCommitsWithBasehead({ ...context.repo, basehead: `${pr ? pr.base.ref : 'main'}...${head}`, per_page: 1 });
+          core.exportVariable('HEAD_SHA', head);
+          core.exportVariable('BASE_SHA', cmp.data.merge_base_commit.sha);
 
     - name: Update PR comment (running)
       if: github.event_name == 'pull_request'
@@ -88,6 +97,7 @@ jobs:
     - name: Checkout PR
       uses: actions/checkout@v7
       with:
+        ref: ${{ env.HEAD_SHA }}
         clean: false
 
     # Publishes compile/binsize/mem rows before the replays run.
@@ -151,6 +161,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
@@ -165,11 +177,18 @@ jobs:
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
         cp -r contrib/ci/bench $BENCH_DIR/tools
-        BASE_SHA=${{ github.event.pull_request.base.sha }}  # fixed per event, so all three jobs compare against the same main
-        [ -n "$BASE_SHA" ] || { git fetch --depth=1 origin main; BASE_SHA=$(git rev-parse FETCH_HEAD); }  # workflow_dispatch
-        echo BASE_SHA=$BASE_SHA >> $GITHUB_ENV
-        echo HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }} >> $GITHUB_ENV
         { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; sudo dmsetup table | sed 's/ [0-9a-f]\{32,\} / <key> /'; grep -m1 -A8 'name *: xts(aes)' /proc/crypto | grep driver; grep -H . /sys/block/nvme*/queue/max_sectors_kb; } > $BENCH_DIR/runner.txt 2>&1 || true
+
+    - name: Resolve commits
+      uses: actions/github-script@v9
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const pr = context.payload.pull_request;
+          const head = pr ? pr.head.sha : context.sha;
+          const cmp = await github.rest.repos.compareCommitsWithBasehead({ ...context.repo, basehead: `${pr ? pr.base.ref : 'main'}...${head}`, per_page: 1 });
+          core.exportVariable('HEAD_SHA', head);
+          core.exportVariable('BASE_SHA', cmp.data.merge_base_commit.sha);
 
     - name: Update PR comment (running)
       if: github.event_name == 'pull_request'
@@ -198,6 +217,7 @@ jobs:
     - name: Checkout PR
       uses: actions/checkout@v7
       with:
+        ref: ${{ env.HEAD_SHA }}
         clean: false
 
     - run: contrib/ci/bench/bench.sh snapshot base
@@ -244,6 +264,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
@@ -258,11 +280,18 @@ jobs:
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
         cp -r contrib/ci/bench $BENCH_DIR/tools
-        BASE_SHA=${{ github.event.pull_request.base.sha }}  # fixed per event, so all three jobs compare against the same main
-        [ -n "$BASE_SHA" ] || { git fetch --depth=1 origin main; BASE_SHA=$(git rev-parse FETCH_HEAD); }  # workflow_dispatch
-        echo BASE_SHA=$BASE_SHA >> $GITHUB_ENV
-        echo HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }} >> $GITHUB_ENV
         { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; sudo dmsetup table | sed 's/ [0-9a-f]\{32,\} / <key> /'; grep -m1 -A8 'name *: xts(aes)' /proc/crypto | grep driver; grep -H . /sys/block/nvme*/queue/max_sectors_kb; } > $BENCH_DIR/runner.txt 2>&1 || true
+
+    - name: Resolve commits
+      uses: actions/github-script@v9
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const pr = context.payload.pull_request;
+          const head = pr ? pr.head.sha : context.sha;
+          const cmp = await github.rest.repos.compareCommitsWithBasehead({ ...context.repo, basehead: `${pr ? pr.base.ref : 'main'}...${head}`, per_page: 1 });
+          core.exportVariable('HEAD_SHA', head);
+          core.exportVariable('BASE_SHA', cmp.data.merge_base_commit.sha);
 
     - name: Update PR comment (running)
       if: github.event_name == 'pull_request'
@@ -291,6 +320,7 @@ jobs:
     - name: Checkout PR
       uses: actions/checkout@v7
       with:
+        ref: ${{ env.HEAD_SHA }}
         clean: false
 
     - run: contrib/ci/bench/bench.sh bench base
