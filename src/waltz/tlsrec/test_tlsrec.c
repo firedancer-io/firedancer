@@ -278,6 +278,59 @@ test_tlsrec_pair( fd_rng_t * rng ) {
                             client_tx, &client_tx_sz, app_rx, &app_rx_sz );
   FD_TEST( app_rx_sz==sizeof(server_msg)-1UL );
   FD_TEST( !memcmp( app_rx, server_msg, app_rx_sz ) );
+
+  /* Write key reaches the record limit: conn_tx rotates it with a
+     KeyUpdate before the next app data record. */
+  fd_tlsrec_slice_init( client_app, (uchar *)client_msg, sizeof(client_msg)-1UL );
+  client_tx_sz = sizeof(client_tx);
+  FD_TEST( fd_tlsrec_conn_tx( client, client_tx, &client_tx_sz, client_app )==FD_TLSREC_SUCCESS );
+  ulong plain_rec_sz = client_tx_sz;
+  server_tx_sz = sizeof(server_tx);
+  app_rx_sz    = sizeof(app_rx);
+  test_tlsrec_rx_fragments( server, client_tx, client_tx_sz, 1UL,
+                            server_tx, &server_tx_sz, app_rx, &app_rx_sz );
+  FD_TEST( app_rx_sz==sizeof(client_msg)-1UL );
+
+  client->write_seq = FD_TLSREC_KEY_UPDATE_SEQ-1UL;
+  server->read_seq  = FD_TLSREC_KEY_UPDATE_SEQ-1UL;
+  fd_tlsrec_slice_init( client_app, (uchar *)client_msg, sizeof(client_msg)-1UL );
+  client_tx_sz = sizeof(client_tx);
+  FD_TEST( fd_tlsrec_conn_tx( client, client_tx, &client_tx_sz, client_app )==FD_TLSREC_SUCCESS );
+  FD_TEST( client_tx_sz==plain_rec_sz );
+  FD_TEST( client->write_seq==FD_TLSREC_KEY_UPDATE_SEQ );
+  server_tx_sz = sizeof(server_tx);
+  app_rx_sz    = sizeof(app_rx);
+  test_tlsrec_rx_fragments( server, client_tx, client_tx_sz, 2UL,
+                            server_tx, &server_tx_sz, app_rx, &app_rx_sz );
+  FD_TEST( !server_tx_sz );
+  FD_TEST( app_rx_sz==sizeof(client_msg)-1UL );
+  FD_TEST( !memcmp( app_rx, client_msg, app_rx_sz ) );
+  FD_TEST( server->read_seq==FD_TLSREC_KEY_UPDATE_SEQ );
+
+  fd_tlsrec_slice_init( client_app, (uchar *)client_msg, sizeof(client_msg)-1UL );
+  client_tx_sz = sizeof(client_tx);
+  FD_TEST( fd_tlsrec_conn_tx( client, client_tx, &client_tx_sz, client_app )==FD_TLSREC_SUCCESS );
+  FD_TEST( client_tx_sz==plain_rec_sz+27UL );
+  FD_TEST( client->write_seq==1UL );
+  server_tx_sz = sizeof(server_tx);
+  app_rx_sz    = sizeof(app_rx);
+  test_tlsrec_rx_fragments( server, client_tx, client_tx_sz, 3UL,
+                            server_tx, &server_tx_sz, app_rx, &app_rx_sz );
+  FD_TEST( !server_tx_sz );
+  FD_TEST( app_rx_sz==sizeof(client_msg)-1UL );
+  FD_TEST( !memcmp( app_rx, client_msg, app_rx_sz ) );
+  FD_TEST( server->read_seq==1UL );
+
+  /* Server side is unaffected by the client's rotation */
+  fd_tlsrec_slice_init( server_app, (uchar *)server_msg, sizeof(server_msg)-1UL );
+  server_tx_sz = sizeof(server_tx);
+  FD_TEST( fd_tlsrec_conn_tx( server, server_tx, &server_tx_sz, server_app )==FD_TLSREC_SUCCESS );
+  client_tx_sz = sizeof(client_tx);
+  app_rx_sz    = sizeof(app_rx);
+  test_tlsrec_rx_fragments( client, server_tx, server_tx_sz, 1UL,
+                            client_tx, &client_tx_sz, app_rx, &app_rx_sz );
+  FD_TEST( app_rx_sz==sizeof(server_msg)-1UL );
+  FD_TEST( !memcmp( app_rx, server_msg, app_rx_sz ) );
 }
 
 /* Handshake messages larger than a record (e.g. a Certificate carrying
@@ -614,6 +667,93 @@ test_tlsrec_key_change_boundary( fd_rng_t * rng ) {
       FD_TEST( cli->read_seq==( cases[i].ct==FD_TLS_REC_HANDSHAKE ? 0UL : 1UL ) );
     }
   }
+}
+
+/* However many KeyUpdates the peer requests in one call, a single reply
+   answers them all (RFC 8446 Section 4.6.3), so a small tx buffer is
+   never a fatal condition.  Without room for even that, the reply waits
+   for the next call. */
+
+static void
+test_tlsrec_key_update_flood( fd_rng_t * rng ) {
+  fd_tls_test_sign_ctx_t sign_ctx[1];
+  fd_tls_test_sign_ctx( sign_ctx, rng );
+  fd_chacha_rng_t chacha[1];
+  fd_tls_t tls = {
+    .rng  = fd_tls_test_rand( chacha, rng ),
+    .sign = fd_tls_test_sign( sign_ctx ),
+  };
+  for( ulong j=0UL; j<32UL; j++ ) tls.kex_private_key[j] = fd_rng_uchar( rng );
+  fd_x25519_public( tls.kex_public_key, tls.kex_private_key );
+  fd_memcpy( tls.cert_public_key, sign_ctx->public_key, 32UL );
+  fd_x509_mock_cert( tls.cert_x509, tls.cert_public_key );
+  tls.cert_x509_sz = FD_X509_MOCK_CERT_SZ;
+
+  static fd_tlsrec_conn_t cli[1], srv[1];
+  static uchar wire[ 2*FD_TLSREC_CAP ], app_rx[ FD_TLSREC_CAP ];
+  test_tlsrec_connect( &tls, cli, srv );
+
+  ulong const n_updates = 40UL;
+  ulong wire_sz = 0UL;
+  for( ulong i=0UL; i<n_updates; i++ ) {
+    ulong sz = sizeof(wire)-wire_sz;
+    FD_TEST( fd_tlsrec_conn_key_update( srv, wire+wire_sz, &sz, 1 )==FD_TLSREC_SUCCESS );
+    FD_TEST( sz==27UL );
+    wire_sz += sz;
+  }
+
+  /* 40 requests need 1080 bytes of replies if answered one by one; the
+     socket adapter guarantees only 512 */
+  uchar tcp_tx[ 512 ];
+  fd_tlsrec_slice_t tcp_rx[1];
+  fd_tlsrec_slice_init( tcp_rx, wire, wire_sz );
+  ulong tcp_tx_sz = sizeof(tcp_tx), app_rx_sz = sizeof(app_rx);
+  FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+  FD_TEST( fd_tlsrec_slice_is_empty( tcp_rx ) );
+  FD_TEST( tcp_tx_sz==27UL );
+  FD_TEST( !app_rx_sz );
+  FD_TEST( !cli->key_update_pending );
+  FD_TEST( !cli->read_seq && !cli->write_seq );
+
+  /* The server processes the reply and both directions still work */
+  fd_tlsrec_slice_init( tcp_rx, tcp_tx, tcp_tx_sz );
+  ulong srv_tx_sz = sizeof(wire); app_rx_sz = sizeof(app_rx);
+  FD_TEST( fd_tlsrec_conn_rx( srv, tcp_rx, wire, &srv_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+  FD_TEST( !srv_tx_sz && !app_rx_sz );
+  FD_TEST( !srv->read_seq );
+
+  static uchar const ping[] = "ping";
+  fd_tlsrec_slice_t app_tx[1];
+  for( uint dir=0U; dir<2U; dir++ ) {
+    fd_tlsrec_conn_t * a = dir ? srv : cli;
+    fd_tlsrec_conn_t * b = dir ? cli : srv;
+    fd_tlsrec_slice_init( app_tx, (uchar *)ping, sizeof(ping) );
+    wire_sz = sizeof(wire);
+    FD_TEST( fd_tlsrec_conn_tx( a, wire, &wire_sz, app_tx )==FD_TLSREC_SUCCESS );
+    fd_tlsrec_slice_init( tcp_rx, wire, wire_sz );
+    tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( b, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( app_rx_sz==sizeof(ping) && !memcmp( app_rx, ping, sizeof(ping) ) );
+    FD_TEST( !tcp_tx_sz );
+  }
+
+  /* No room at all: the reply is deferred to the next tx */
+  wire_sz = sizeof(wire);
+  FD_TEST( fd_tlsrec_conn_key_update( srv, wire, &wire_sz, 1 )==FD_TLSREC_SUCCESS );
+  fd_tlsrec_slice_init( tcp_rx, wire, wire_sz );
+  tcp_tx_sz = 0UL; app_rx_sz = sizeof(app_rx);
+  FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+  FD_TEST( !tcp_tx_sz );
+  FD_TEST( cli->key_update_pending );
+  fd_tlsrec_slice_init( app_tx, (uchar *)ping, sizeof(ping) );
+  wire_sz = sizeof(wire);
+  FD_TEST( fd_tlsrec_conn_tx( cli, wire, &wire_sz, app_tx )==FD_TLSREC_SUCCESS );
+  FD_TEST( !cli->key_update_pending );
+  FD_TEST( wire_sz==27UL+sizeof(fd_tlsrec_hdr_t)+sizeof(ping)+1UL+FD_AES_GCM_TAG_SZ );
+  fd_tlsrec_slice_init( tcp_rx, wire, wire_sz );
+  tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
+  FD_TEST( fd_tlsrec_conn_rx( srv, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+  FD_TEST( app_rx_sz==sizeof(ping) && !memcmp( app_rx, ping, sizeof(ping) ) );
 }
 
 /* A failing endpoint tells the peer why with a fatal alert under the
@@ -1331,6 +1471,7 @@ main( int     argc,
   test_tlsrec_ccs( rng );
   test_tlsrec_hs_interleave( rng );
   test_tlsrec_key_change_boundary( rng );
+  test_tlsrec_key_update_flood( rng );
   test_tlsrec_alert_tx( rng );
   test_tlsrec_plaintext_alert( rng );
   test_tlsrec_close_notify( rng );
