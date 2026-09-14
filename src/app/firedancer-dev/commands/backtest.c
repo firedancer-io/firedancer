@@ -84,12 +84,13 @@ backtest_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 1, 0 );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 1, 1 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
-    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
-      FD_LOG_ERR(( "[layout.affinity] specifies CPU %hu but the system only has %lu CPUs", parsed_tile_to_cpu[ i ], cpus->cpu_cnt ));
+    ushort cpu = (ushort)( parsed_tile_to_cpu[ i ] & ~FD_TOPOB_CPU_SHARED );
+    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && cpu>=cpus->cpu_cnt ) )
+      FD_LOG_ERR(( "[layout.affinity] specifies CPU %hu but the system only has %lu CPUs", cpu, cpus->cpu_cnt ));
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
 
