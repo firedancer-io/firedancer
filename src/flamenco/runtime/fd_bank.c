@@ -13,6 +13,8 @@
 #define FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) \
   ( 3UL*FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS*(max_fork_width) )
 
+FD_STATIC_ASSERT( FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH==FD_BANKS_MAX_BANKS, collector_overrides_fork_width );
+
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank ) {
   fd_rwlock_read( &bank->lthash_lock );
@@ -328,9 +330,8 @@ fd_banks_new( void * shmem,
     FD_LOG_WARNING(( "max_fork_width is too large" ));
     return NULL;
   }
-  /* The collector override store tracks fork membership in a 128-bit
-     mask with one bit reserved for the root, so at most 127 concurrent
-     forks can hold override entries. */
+  /* The collector override store reserves one membership bit for the
+     root in addition to max_fork_width child fork bits. */
   if( FD_UNLIKELY( max_fork_width>FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ) ) {
     FD_LOG_WARNING(( "max_fork_width must be at most %lu", FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ));
     return NULL;

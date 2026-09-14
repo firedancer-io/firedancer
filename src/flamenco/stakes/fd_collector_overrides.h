@@ -26,8 +26,8 @@
 
 #define FD_COLLECTOR_OVERRIDES_ALIGN (128UL)
 
-/* Fork ids must fit in the 128-bit membership mask. */
-#define FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH (127UL)
+/* Maximum number of child forks represented alongside the root. */
+#define FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH (4096UL)
 
 /* Query result flags */
 #define FD_COLLECTOR_OVERRIDE_INFLATION (1)
