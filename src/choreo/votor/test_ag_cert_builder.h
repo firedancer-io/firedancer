@@ -10,16 +10,73 @@
 #include "ag_epoch_info.h"
 #include "ag_vote.h"
 
+static uchar const test_bls_public_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {0};
+
 /* sec_sign_fn is the fd_bls_sign_fn of a test that holds the secret
    key in memory; ctx points to the fd_bls_sec_t. */
 
 static void
 sec_sign_fn( void *         ctx,
              fd_bls_sig_t * sig,
+             uchar const *  public_key,
              uchar const *  msg,
              ulong          msg_sz ) {
+  (void)public_key;
   fd_bls_sec_sign( (fd_bls_sec_t const *)ctx, msg, msg_sz, sig );
 }
+
+static inline ag_vote_t
+test_ag_vote_construct_notar( fd_bls_sign_fn        sign_fn,
+                              void *                sign_ctx,
+                              ulong                 slot,
+                              ag_block_hash_t const hash,
+                              ushort                rank,
+                              ushort                shred_version ) {
+  return ag_vote_construct_notar( sign_fn, sign_ctx, test_bls_public_key, slot, hash, rank, shred_version );
+}
+
+static inline ag_vote_t
+test_ag_vote_construct_final( fd_bls_sign_fn sign_fn,
+                              void *         sign_ctx,
+                              ulong          slot,
+                              ushort         rank,
+                              ushort         shred_version ) {
+  return ag_vote_construct_final( sign_fn, sign_ctx, test_bls_public_key, slot, rank, shred_version );
+}
+
+static inline ag_vote_t
+test_ag_vote_construct_skip( fd_bls_sign_fn sign_fn,
+                             void *         sign_ctx,
+                             ulong          slot,
+                             ushort         rank,
+                             ushort         shred_version ) {
+  return ag_vote_construct_skip( sign_fn, sign_ctx, test_bls_public_key, slot, rank, shred_version );
+}
+
+static inline ag_vote_t
+test_ag_vote_construct_notar_fallback( fd_bls_sign_fn        sign_fn,
+                                       void *                sign_ctx,
+                                       ulong                 slot,
+                                       ag_block_hash_t const hash,
+                                       ushort                rank,
+                                       ushort                shred_version ) {
+  return ag_vote_construct_notar_fallback( sign_fn, sign_ctx, test_bls_public_key, slot, hash, rank, shred_version );
+}
+
+static inline ag_vote_t
+test_ag_vote_construct_skip_fallback( fd_bls_sign_fn sign_fn,
+                                      void *         sign_ctx,
+                                      ulong          slot,
+                                      ushort         rank,
+                                      ushort         shred_version ) {
+  return ag_vote_construct_skip_fallback( sign_fn, sign_ctx, test_bls_public_key, slot, rank, shred_version );
+}
+
+#define ag_vote_construct_notar          test_ag_vote_construct_notar
+#define ag_vote_construct_final          test_ag_vote_construct_final
+#define ag_vote_construct_skip           test_ag_vote_construct_skip
+#define ag_vote_construct_notar_fallback test_ag_vote_construct_notar_fallback
+#define ag_vote_construct_skip_fallback  test_ag_vote_construct_skip_fallback
 
 static inline void
 agg_add( fd_bls_agg_t *       agg,

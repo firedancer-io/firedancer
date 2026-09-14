@@ -1,5 +1,6 @@
 #include "fd_keyguard_client.h"
 #include "fd_keyguard.h"
+#include "fd_keyguard_bls.h"
 
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
@@ -99,8 +100,20 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          uchar const *          sign_data,
                          ulong                  sign_data_len,
                          int                    sign_type ) {
-  ulong signature_sz = fd_ulong_if( sign_type==FD_KEYGUARD_SIGN_TYPE_BLS, FD_KEYGUARD_BLS_SIG_SZ, 64UL );
-  fd_keyguard_client_sign_sz( client, signature, signature_sz, sign_data, sign_data_len, sign_type );
+  FD_TEST( sign_type!=FD_KEYGUARD_SIGN_TYPE_BLS );
+  fd_keyguard_client_sign_sz( client, signature, 64UL, sign_data, sign_data_len, sign_type );
+}
+
+void
+fd_keyguard_client_bls_sign( fd_keyguard_client_t * client,
+                             uchar *                signature,
+                             uchar const *          public_key,
+                             uchar const *          sign_data,
+                             ulong                  sign_data_len ) {
+  FD_TEST( sign_data_len<=FD_KEYGUARD_SIGN_REQ_MTU-FD_KEYGUARD_BLS_PUBKEY_SZ );
+  uchar request[ FD_KEYGUARD_SIGN_REQ_MTU ];
+  ulong request_sz = fd_keyguard_bls_request_encode( request, public_key, sign_data, sign_data_len );
+  fd_keyguard_client_sign_sz( client, signature, FD_KEYGUARD_BLS_SIG_SZ, request, request_sz, FD_KEYGUARD_SIGN_TYPE_BLS );
 }
 
 void

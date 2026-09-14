@@ -12,9 +12,14 @@
 
 #define AG_VOTE_CSTR_MAX (256UL)
 
+/* public_key is the canonical compressed BLS key selector.  payload is
+   the exact consensus preimage; the signer must not include public_key
+   in the signed bytes. */
+
 typedef void
 (* fd_bls_sign_fn)( void *         ctx,
                     fd_bls_sig_t * sig,
+                    uchar const *  public_key,
                     uchar const *  payload,
                     ulong          payload_sz );
 struct ag_vote_notar {
@@ -142,6 +147,7 @@ ag_vote_set_rank( ag_vote_t * self,
 ag_vote_t
 ag_vote_construct_notar( fd_bls_sign_fn        sign_fn,
                          void *                sign_ctx,
+                         uchar const *         public_key,
                          ulong                 slot,
                          ag_block_hash_t const hash,
                          ushort                rank,
@@ -150,6 +156,7 @@ ag_vote_construct_notar( fd_bls_sign_fn        sign_fn,
 ag_vote_t
 ag_vote_construct_final( fd_bls_sign_fn sign_fn,
                          void *         sign_ctx,
+                         uchar const *  public_key,
                          ulong          slot,
                          ushort         rank,
                          ushort         shred_version );
@@ -157,6 +164,7 @@ ag_vote_construct_final( fd_bls_sign_fn sign_fn,
 ag_vote_t
 ag_vote_construct_skip( fd_bls_sign_fn sign_fn,
                         void *         sign_ctx,
+                        uchar const *  public_key,
                         ulong          slot,
                         ushort         rank,
                         ushort         shred_version );
@@ -164,6 +172,7 @@ ag_vote_construct_skip( fd_bls_sign_fn sign_fn,
 ag_vote_t
 ag_vote_construct_notar_fallback( fd_bls_sign_fn        sign_fn,
                                   void *                sign_ctx,
+                                  uchar const *         public_key,
                                   ulong                 slot,
                                   ag_block_hash_t const hash,
                                   ushort                rank,
@@ -172,6 +181,7 @@ ag_vote_construct_notar_fallback( fd_bls_sign_fn        sign_fn,
 ag_vote_t
 ag_vote_construct_skip_fallback( fd_bls_sign_fn sign_fn,
                                  void *         sign_ctx,
+                                 uchar const *  public_key,
                                  ulong          slot,
                                  ushort         rank,
                                  ushort         shred_version );

@@ -1,4 +1,5 @@
 #include "fd_keyguard.h"
+#include "fd_keyguard_bls.h"
 #include "../../ballet/txn/fd_txn.h"
 
 static uchar v1_buf [ FD_TXN_MTU    ];
@@ -156,8 +157,10 @@ test_vote_txn_oob( void ) {
 static void
 test_ag_vote_authorize( void ) {
   fd_keyguard_authority_t authority = {0};
-  uchar skip[ 11 ]  = { 3 /* skip */ };
-  uchar notar[ 43 ] = { 1 /* notar */ };
+  uchar skip [ FD_KEYGUARD_BLS_PUBKEY_SZ+11UL ] = {0};
+  uchar notar[ FD_KEYGUARD_BLS_PUBKEY_SZ+43UL ] = {0};
+  skip [ FD_KEYGUARD_BLS_PUBKEY_SZ ] = 3; /* skip */
+  notar[ FD_KEYGUARD_BLS_PUBKEY_SZ ] = 1; /* notar */
 
   FD_TEST(  fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
   FD_TEST(  fd_keyguard_payload_authorize( &authority, notar, sizeof(notar), FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
@@ -169,11 +172,96 @@ test_ag_vote_authorize( void ) {
   /* hash-carrying tag with the short size and vice versa */
   FD_TEST( !fd_keyguard_payload_authorize( &authority, notar, sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
   FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(notar), FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  /* selector is mandatory */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, skip+FD_KEYGUARD_BLS_PUBKEY_SZ, 11UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_BLS ) );
   /* bad tag */
-  skip[ 0 ] = 6;
+  skip[ FD_KEYGUARD_BLS_PUBKEY_SZ ] = 6;
   FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
-  skip[ 0 ] = 0;
+  skip[ FD_KEYGUARD_BLS_PUBKEY_SZ ] = 0;
   FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+}
+
+static void
+test_bls_key_lookup( void ) {
+  fd_sha512_t sha[1];
+  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
+
+  /* Generated independently by Agave 4.1.0 `solana-keygen
+     bls_pubkey`.  The keypair is private seed followed by Ed25519
+     public key. */
+  static uchar const agave_keypair[ 64 ] = {
+    149, 138, 120, 246, 229, 211,  77, 206, 163,  78,  57, 172, 248,  93, 205, 236,
+     20,  90,   0,   7, 157, 121,  25,  54, 212, 189,  91,  26, 164, 253, 110, 203,
+     51, 129, 127, 165, 142,   4, 248, 195,  91,  93,  33,  19,  91, 130, 175,   9,
+    229, 142, 180, 156,  23, 173, 190, 249, 207,   5, 181,  31, 251,  76,   2, 208
+  };
+  static uchar const expected_selector[ FD_KEYGUARD_BLS_PUBKEY_SZ ] = {
+    149, 157, 254, 148, 170,  68,   3,  78,  50,  10,   2, 167,  49,  36, 104, 157,
+    220, 152, 181, 228,  47, 146, 210, 186, 254, 247,  17,  30, 130, 234, 224, 119,
+    213, 125,  40, 244,  22,  34,  81,   8, 254, 105, 239,  43, 186, 178, 113,   1
+  };
+
+  fd_keyguard_bls_key_t keys[ 2 ];
+  uchar other_private_key[ 32 ]; memset( other_private_key, 0x11, sizeof(other_private_key) );
+  uchar other_public_key [ 32 ]; fd_ed25519_public_from_private( other_public_key, other_private_key, sha );
+  fd_keyguard_bls_key_derive( &keys[ 0 ], other_public_key,     other_private_key, sha );
+  fd_keyguard_bls_key_derive( &keys[ 1 ], agave_keypair+32UL,  agave_keypair,     sha );
+  FD_TEST( !memcmp( keys[ 1 ].public_key, expected_selector, sizeof(expected_selector) ) );
+
+  fd_bls_pub_t expected_public[1];
+  FD_TEST( !fd_bls_pub_de( expected_public, expected_selector, sizeof(expected_selector) ) );
+
+  fd_keyguard_bls_key_t const * selected =
+      fd_keyguard_bls_key_query( keys, 2UL, expected_selector );
+  FD_TEST( selected==&keys[ 1 ] );
+
+  uchar payload[ 11 ] = { 3 /* skip */ };
+  fd_bls_sig_t sig[1];
+  fd_bls_sec_sign( &selected->secret_key, payload, sizeof(payload), sig );
+  FD_TEST(  fd_bls_agg_verify( payload, sizeof(payload), expected_public, sig ) );
+
+  fd_bls_pub_t wrong_public[1];
+  FD_TEST( !fd_bls_pub_de( wrong_public, keys[ 0 ].public_key, FD_KEYGUARD_BLS_PUBKEY_SZ ) );
+  FD_TEST( !fd_bls_agg_verify( payload, sizeof(payload), wrong_public, sig ) );
+
+  uchar unknown_selector[ FD_KEYGUARD_BLS_PUBKEY_SZ ];
+  memcpy( unknown_selector, expected_selector, sizeof(unknown_selector) );
+  unknown_selector[ 0 ] ^= 1U;
+  FD_TEST( !fd_keyguard_bls_key_query( keys, 2UL, unknown_selector ) );
+}
+
+static void
+test_bls_request_signing( void ) {
+  fd_sha512_t sha[1];
+  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
+  uchar private_key[ 32 ]; memset( private_key, 0x33, sizeof(private_key) );
+  uchar public_key [ 32 ]; fd_ed25519_public_from_private( public_key, private_key, sha );
+  fd_keyguard_bls_key_t key[1];
+  fd_keyguard_bls_key_derive( key, public_key, private_key, sha );
+
+  uchar payload[ 43 ];
+  for( ulong i=0UL; i<sizeof(payload); i++ ) payload[ i ] = (uchar)(0x20UL+i);
+  payload[ 0 ] = 1; /* notar */
+
+  uchar request[ FD_KEYGUARD_BLS_PUBKEY_SZ+sizeof(payload) ];
+  ulong request_sz = fd_keyguard_bls_request_encode( request, key->public_key, payload, sizeof(payload) );
+  FD_TEST( request_sz==sizeof(request) );
+  FD_TEST( !memcmp( request, key->public_key, FD_KEYGUARD_BLS_PUBKEY_SZ ) );
+  FD_TEST( !memcmp( request+FD_KEYGUARD_BLS_PUBKEY_SZ, payload, sizeof(payload) ) );
+  fd_keyguard_authority_t authority = {0};
+  FD_TEST( fd_keyguard_payload_authorize( &authority, request, request_sz, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_BLS ) );
+
+  fd_bls_sig_t sig[1];
+  FD_TEST( fd_keyguard_bls_sign_request( key, 1UL, request, request_sz, sig ) );
+
+  fd_bls_pub_t bls_public_key[1];
+  FD_TEST( !fd_bls_pub_de( bls_public_key, key->public_key, FD_KEYGUARD_BLS_PUBKEY_SZ ) );
+  FD_TEST(  fd_bls_agg_verify( payload, sizeof(payload), bls_public_key, sig ) );
+  FD_TEST( !fd_bls_agg_verify( request, request_sz, bls_public_key, sig ) );
+
+  request[ 0 ] ^= 1U;
+  FD_TEST( !fd_keyguard_bls_sign_request( key, 1UL, request, request_sz, sig ) );
+  FD_TEST( !fd_keyguard_bls_sign_request( key, 1UL, request, FD_KEYGUARD_BLS_PUBKEY_SZ-1UL, sig ) );
 }
 
 int
@@ -183,6 +271,8 @@ main( int     argc,
   test_vote_txn_oob();
   test_txn_v1_match();
   test_ag_vote_authorize();
+  test_bls_key_lookup();
+  test_bls_request_signing();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

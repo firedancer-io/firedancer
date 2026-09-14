@@ -25,6 +25,14 @@ ag_votor_advance_epoch( ag_votor_t * self,
                         ulong        epoch_rank,
                         ulong        epoch_slot );
 
+/* Sets the BLS public key selector for the most recently advanced
+   epoch.  If this is not called after advancing an epoch, the votor
+   does not vote in that epoch. */
+
+void
+ag_votor_set_bls_pubkey( ag_votor_t * self,
+                         uchar const  public_key[ static FD_BLS_PUB_COMPRESSED_SZ ] );
+
 void
 ag_votor_set_shred_version( ag_votor_t * self,
                             ushort       shred_version );

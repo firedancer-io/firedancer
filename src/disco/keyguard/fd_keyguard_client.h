@@ -85,10 +85,11 @@ fd_keyguard_client_delete( void * shclient ) { return shclient; }
     will abort the whole program with a critical error.
 
     The response is written into the signature buffer, which must be at
-    least that large: FD_KEYGUARD_BLS_SIG_SZ (192) bytes for
-    FD_KEYGUARD_SIGN_TYPE_BLS, 64 bytes for every other type.
+    least 64 bytes.
 
-    sign_type is in FD_KEYGUARD_SIGN_TYPE_{...}. */
+    sign_type is in FD_KEYGUARD_SIGN_TYPE_{...} and must not be
+    FD_KEYGUARD_SIGN_TYPE_BLS.  Use fd_keyguard_client_bls_sign for BLS
+    requests. */
 
 void
 fd_keyguard_client_sign( fd_keyguard_client_t * client,
@@ -96,6 +97,19 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          uchar const *          sign_data,
                          ulong                  sign_data_len,
                          int                    sign_type );
+
+/* fd_keyguard_client_bls_sign requests a BLS signature over
+   [sign_data,sign_data+sign_data_len).  public_key selects the
+   keyguard-owned BLS secret key and is sent alongside, but is not part
+   of the signed message.  signature must have room for
+   FD_KEYGUARD_BLS_SIG_SZ bytes. */
+
+void
+fd_keyguard_client_bls_sign( fd_keyguard_client_t * client,
+                             uchar *                signature,
+                             uchar const *          public_key,
+                             uchar const *          sign_data,
+                             ulong                  sign_data_len );
 
 /* fd_keyguard_client_vote_txn_sign sends a remote signing request to
    the signing server, and blocks (spins) until the response is
