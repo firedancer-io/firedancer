@@ -84,7 +84,7 @@ backtest_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 1 );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 1, 0 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
@@ -454,13 +454,14 @@ backtest_topo( config_t * config ) {
   if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
 
   // fd_topob_auto_layout( topo, 0 );
-  fd_topob_waker( topo );
   if( FD_UNLIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
       FD_LOG_ERR(( "topology has %lu tiles but [layout.affinity] only provides %lu entries", topo->tile_cnt, affinity_tile_cnt ));
     if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
       FD_LOG_WARNING(( "topology has %lu tiles but [layout.affinity] provides %lu entries, extra entries will be unused", topo->tile_cnt, affinity_tile_cnt ));
   }
+
+  fd_topob_waker( topo );
 
   fd_topob_finish( topo, CALLBACKS );
 }
