@@ -14,6 +14,8 @@ extern _Bool fd_sshttp_fuzz;
    if the request had just been written out, and returns the other end
    for the test to play the server on. */
 
+static fd_sshttp_t test_http[1];
+
 static int
 connect_pair( fd_sshttp_t * http ) {
   int sv[ 2 ];
@@ -58,8 +60,7 @@ advance_until_terminal( fd_sshttp_t * http ) {
 
 static void
 test_eof_during_body( void ) {
-  fd_sshttp_t _http[1];
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( _http ) );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http ) );
   FD_TEST( http );
 
   int server = connect_pair( http );
@@ -77,8 +78,7 @@ test_eof_during_body( void ) {
 
 static void
 test_eof_during_headers( void ) {
-  fd_sshttp_t _http[1];
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( _http ) );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http ) );
   FD_TEST( http );
 
   int server = connect_pair( http );
@@ -96,8 +96,7 @@ test_eof_during_headers( void ) {
 
 static void
 test_eof_immediate( void ) {
-  fd_sshttp_t _http[1];
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( _http ) );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http ) );
   FD_TEST( http );
 
   int server = connect_pair( http );
@@ -114,8 +113,7 @@ test_eof_immediate( void ) {
 
 static void
 test_headers_too_large( void ) {
-  fd_sshttp_t _http[1];
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( _http ) );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http ) );
   FD_TEST( http );
 
   int server = connect_pair( http );

@@ -1,27 +1,26 @@
+#include <linux/limits.h>  /* PATH_MAX — needed before fd_ssarchive.h */
 #include "fd_ssresolve.h"
 #include "fd_ssarchive.h"
 
 #include "../../../third_party/picohttpparser/picohttpparser.h"
-#include "../../../waltz/openssl/fd_openssl.h"
+#include "../../../waltz/tlsrec/fd_tlsrec_sock.h"
+#include "../../../ballet/ed25519/fd_x25519.h"
 #include "../../../util/log/fd_log.h"
 
 #include <unistd.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <strings.h>
+#include <limits.h>
 
 #include <sys/socket.h>
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
-/* TODO: consider refactoring the common http code in ssresolve and
-   sshttp into a common library */
-
-#define FD_SSRESOLVE_CONNECT             (0) /* connecting ssl */
+#define FD_SSRESOLVE_CONNECT             (0) /* TLS handshake in progress */
 #define FD_SSRESOLVE_STATE_REQ           (1) /* sending request for snapshot */
 #define FD_SSRESOLVE_STATE_RESP          (2) /* receiving snapshot response */
-#define FD_SSRESOLVE_STATE_SHUTTING_DOWN (3) /* shutting down ssl */
-#define FD_SSRESOLVE_STATE_DONE          (4) /* done */
+#define FD_SSRESOLVE_STATE_DONE          (3) /* done */
 
 struct fd_ssresolve_private {
   int  state;
@@ -40,12 +39,14 @@ struct fd_ssresolve_private {
   ulong response_len;
   char  response[ USHORT_MAX ];
 
-#if FD_HAS_OPENSSL
-  SSL * ssl;
-#endif
+  /* Native TLS state */
+  fd_tlsrec_conn_t tls_conn;
+  fd_tlsrec_sock_t tls_sock[1];
 
   ulong magic;
 };
+
+FD_STATIC_ASSERT( alignof(fd_ssresolve_t)==FD_SSRESOLVE_ALIGN, ssresolve_align );
 
 FD_FN_CONST ulong
 fd_ssresolve_align( void ) {
@@ -75,15 +76,12 @@ fd_ssresolve_new( void * shmem ) {
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_ssresolve_t * ssresolve = FD_SCRATCH_ALLOC_APPEND( l, FD_SSRESOLVE_ALIGN, sizeof(fd_ssresolve_t) );
 
-  ssresolve->state        = FD_SSRESOLVE_STATE_REQ;
-  ssresolve->request_sent = 0UL;
-  ssresolve->request_len  = 0UL;
-  ssresolve->response_len = 0UL;
-  ssresolve->sockfd       = -1;
-
-#if FD_HAS_OPENSSL
-  ssresolve->ssl = NULL;
-#endif
+  ssresolve->state           = FD_SSRESOLVE_STATE_REQ;
+  ssresolve->request_sent    = 0UL;
+  ssresolve->request_len     = 0UL;
+  ssresolve->response_len    = 0UL;
+  ssresolve->sockfd          = -1;
+  fd_tlsrec_sock_init( ssresolve->tls_sock );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( ssresolve->magic ) = FD_SSRESOLVE_MAGIC;
@@ -124,22 +122,23 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve,
   ssresolve->sockfd = sockfd;
   ssresolve->full   = full;
 
-  ssresolve->state        = FD_SSRESOLVE_STATE_REQ;
-  ssresolve->request_sent = 0UL;
-  ssresolve->request_len  = 0UL;
-  ssresolve->response_len = 0UL;
-  ssresolve->is_https     = 0;
-  ssresolve->hostname     = hostname;
+  ssresolve->state           = FD_SSRESOLVE_STATE_REQ;
+  ssresolve->request_sent    = 0UL;
+  ssresolve->request_len     = 0UL;
+  ssresolve->response_len    = 0UL;
+  ssresolve->is_https        = 0;
+  ssresolve->hostname        = hostname;
+  fd_tlsrec_sock_init( ssresolve->tls_sock );
 }
 
-#if FD_HAS_OPENSSL
 void
-fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
-                         fd_ip4_port_t    addr,
-                         int              sockfd,
-                         int              full,
-                         char const *     hostname,
-                         SSL_CTX *        ssl_ctx ) {
+fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
+                         fd_ip4_port_t              addr,
+                         int                        sockfd,
+                         int                        full,
+                         char const *               hostname,
+                         fd_tls_t const *           tls,
+                         fd_x509_ca_store_t const * ca_store ) {
   ssresolve->addr   = addr;
   ssresolve->sockfd = sockfd;
   ssresolve->full   = full;
@@ -151,31 +150,29 @@ fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
   ssresolve->is_https     = 1;
   ssresolve->hostname     = hostname;
 
-  ssresolve->ssl = SSL_new( ssl_ctx );
-  if( FD_UNLIKELY( !ssresolve->ssl ) ) {
-    FD_LOG_ERR(( "SSL_new failed" ));
-  }
+  /* Copy and configure fd_tls for this connection */
+  fd_tlsrec_conn_init( &ssresolve->tls_conn, tls, 0 );
 
-  static uchar const alpn_protos[] = { 8, 'h', 't', 't', 'p', '/', '1', '.', '1' };
-  int alpn_res = SSL_set_alpn_protos( ssresolve->ssl, alpn_protos, sizeof(alpn_protos) );
-  if( FD_UNLIKELY( alpn_res!=0 ) ) {
-    FD_LOG_ERR(( "SSL_set_alpn_protos failed (%d)", alpn_res ));
+  ulong hostname_len = hostname ? strlen( hostname ) : 0UL;
+  if( FD_UNLIKELY( !hostname_len ||
+                   hostname_len>=sizeof(ssresolve->tls_conn.tls.server_name) ) ) {
+    FD_LOG_ERR(( "Invalid HTTPS snapshot peer hostname (%lu bytes)", hostname_len ));
   }
+  fd_memcpy( ssresolve->tls_conn.tls.server_name, hostname, hostname_len );
+  ssresolve->tls_conn.tls.server_name[ hostname_len ] = '\0';
+  ssresolve->tls_conn.tls.server_name_len = (ushort)hostname_len;
 
-  /* set SNI and hostname verification */
-  FD_TEST( hostname && hostname[ 0 ]!='\0' );
-  long sni_res = SSL_set_tlsext_host_name( ssresolve->ssl, hostname );
-  if( FD_UNLIKELY( !sni_res ) ) {
-    FD_LOG_ERR(( "SSL_set_tlsext_host_name failed (%ld) for %s", sni_res, hostname ));
-  }
-  int set1_host_res = SSL_set1_host( ssresolve->ssl, hostname );
-  if( FD_UNLIKELY( !set1_host_res ) ) {
-    FD_LOG_ERR(( "SSL_set1_host failed (%d) for %s", set1_host_res, hostname ));
-  }
+  ssresolve->tls_conn.tls.ca_store = ca_store;
 
-  FD_TEST( fd_openssl_ssl_set_fd( ssresolve->ssl, ssresolve->sockfd ) );
+  /* Generate a fresh ephemeral X25519 key for this handshake */
+
+  if( FD_UNLIKELY( !fd_rng_secure( ssresolve->tls_conn.tls.kex_private_key, 32UL ) ) )
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  fd_x25519_public( ssresolve->tls_conn.tls.kex_public_key,
+                    ssresolve->tls_conn.tls.kex_private_key );
+
+  fd_tlsrec_sock_init( ssresolve->tls_sock );
 }
-#endif
 
 static void
 fd_ssresolve_render_req( fd_ssresolve_t * ssresolve ) {
@@ -200,6 +197,69 @@ fd_ssresolve_render_req( fd_ssresolve_t * ssresolve ) {
   }
 }
 
+/* Native TLS send/recv helpers */
+
+/* ssresolve_tls_tx_flush drains retained ciphertext.  Returns 1 if
+   the buffer is now empty, 0 if the socket could not take all of it,
+   and -1 on a hard send error. */
+
+
+static long
+ssresolve_send_tls( fd_ssresolve_t * ssresolve,
+                    void *           buf,
+                    ulong            bufsz ) {
+  int flush = fd_tlsrec_sock_flush( ssresolve->tls_sock, ssresolve->sockfd );
+  if( flush<0 ) {
+    FD_LOG_WARNING(( "send() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+  if( flush>0 ) return FD_SSRESOLVE_ADVANCE_AGAIN;
+
+  ulong consumed;
+  int err = fd_tlsrec_sock_tx( ssresolve->tls_sock, &ssresolve->tls_conn, ssresolve->sockfd, buf, bufsz, &consumed );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "TLS send failed (%d-%s)", err, fd_tlsrec_sock_strerror( err ) ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+  return (long)consumed;
+}
+
+static long
+ssresolve_recv_tls( fd_ssresolve_t * ssresolve,
+                    void *           buf,
+                    ulong            bufsz ) {
+  /* Drain buffered decrypted data */
+  ulong n = fd_tlsrec_sock_rx_pop( ssresolve->tls_sock, buf, bufsz );
+  if( n ) return (long)n;
+
+  /* Drain pending ciphertext before generating any new records */
+
+  int flush = fd_tlsrec_sock_flush( ssresolve->tls_sock, ssresolve->sockfd );
+  if( flush<0 ) {
+    FD_LOG_WARNING(( "send() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+  if( flush>0 ) return FD_SSRESOLVE_ADVANCE_AGAIN;
+
+  ulong tcp_rx_sz;
+  int err = fd_tlsrec_sock_rx( ssresolve->tls_sock, &ssresolve->tls_conn, ssresolve->sockfd, &tcp_rx_sz );
+  if( FD_UNLIKELY( err ) ) {
+    if( err==FD_TLSREC_SOCK_ERR_EOF ) {
+      FD_LOG_WARNING(( "peer closed the connection before sending the full response" ));
+    } else if( err==FD_TLSREC_SOCK_ERR_RECV || err==FD_TLSREC_SOCK_ERR_SEND ) {
+      FD_LOG_WARNING(( "%s (%d-%s)", fd_tlsrec_sock_strerror( err ), errno, fd_io_strerror( errno ) ));
+    } else {
+      FD_LOG_WARNING(( "TLS error (%d-%s)", err, fd_tlsrec_sock_strerror( err ) ));
+    }
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+  if( !tcp_rx_sz ) return FD_SSRESOLVE_ADVANCE_AGAIN;
+
+  n = fd_tlsrec_sock_rx_pop( ssresolve->tls_sock, buf, bufsz );
+  if( !n ) return FD_SSRESOLVE_ADVANCE_AGAIN;
+  return (long)n;
+}
+
 static int
 fd_ssresolve_send_request( fd_ssresolve_t * ssresolve ) {
   FD_TEST( ssresolve->state==FD_SSRESOLVE_STATE_REQ );
@@ -208,30 +268,17 @@ fd_ssresolve_send_request( fd_ssresolve_t * ssresolve ) {
     fd_ssresolve_render_req( ssresolve );
   }
 
-  long sent = 0L;
+  long sent;
   if( FD_LIKELY( ssresolve->is_https ) ) {
-#if FD_HAS_OPENSSL
-    int write_res = SSL_write( ssresolve->ssl, ssresolve->request+ssresolve->request_sent, (int)(ssresolve->request_len-ssresolve->request_sent) );
-    if( FD_UNLIKELY( write_res<=0 ) ) {
-      int ssl_err = SSL_get_error( ssresolve->ssl, write_res );
-
-      if( FD_UNLIKELY( ssl_err!=SSL_ERROR_WANT_READ && ssl_err!=SSL_ERROR_WANT_WRITE ) ) {
-        FD_LOG_WARNING(( "SSL_write failed (%d)", ssl_err ));
-        return FD_SSRESOLVE_ADVANCE_ERROR;
-      }
-
-      return FD_SSRESOLVE_ADVANCE_AGAIN;
-    }
-
-    sent = (long)write_res;
-#else
-    FD_LOG_ERR(( "cannot use HTTPS without OpenSSL" ));
-#endif
+    sent = ssresolve_send_tls( ssresolve,
+                               ssresolve->request + ssresolve->request_sent,
+                               ssresolve->request_len - ssresolve->request_sent );
+    if( FD_UNLIKELY( sent <= 0 ) ) return (int)sent;
   } else {
     sent = sendto( ssresolve->sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, MSG_NOSIGNAL, NULL, 0 );
     if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
     else if( FD_UNLIKELY( -1==sent ) ) {
-      FD_LOG_WARNING(( "sendto() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "send() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       return FD_SSRESOLVE_ADVANCE_ERROR;
     }
   }
@@ -299,8 +346,7 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
     result->base_slot = full_entry_slot;
   }
 
-  if( FD_UNLIKELY( ssresolve->is_https ) ) ssresolve->state = FD_SSRESOLVE_STATE_SHUTTING_DOWN;
-  else                                     ssresolve->state = FD_SSRESOLVE_STATE_DONE;
+  ssresolve->state = FD_SSRESOLVE_STATE_DONE;
   return FD_SSRESOLVE_ADVANCE_RESULT;
 }
 
@@ -316,23 +362,10 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
 
   long read = 0L;
   if( FD_LIKELY( ssresolve->is_https ) ) {
-#if FD_HAS_OPENSSL
-    int read_res = SSL_read( ssresolve->ssl, ssresolve->response+ssresolve->response_len, (int)(sizeof(ssresolve->response)-ssresolve->response_len) );
-    if( FD_UNLIKELY( read_res<=0 ) ) {
-      int ssl_err = SSL_get_error( ssresolve->ssl, read_res );
-
-      if( FD_UNLIKELY( ssl_err!=SSL_ERROR_WANT_READ && ssl_err!=SSL_ERROR_WANT_WRITE ) ) {
-        FD_LOG_WARNING(( "SSL_read failed (%d)", ssl_err ));
-        return FD_SSRESOLVE_ADVANCE_ERROR;
-      }
-
-      return FD_SSRESOLVE_ADVANCE_AGAIN;
-    }
-
-    read = (long)read_res;
-#else
-    FD_LOG_ERR(( "cannot use HTTPS without OpenSSL" ));
-#endif
+    read = ssresolve_recv_tls( ssresolve,
+                               ssresolve->response + ssresolve->response_len,
+                               sizeof(ssresolve->response) - ssresolve->response_len );
+    if( FD_UNLIKELY( read <= 0 ) ) return (int)read;
   } else {
     read = recvfrom( ssresolve->sockfd, ssresolve->response+ssresolve->response_len, sizeof(ssresolve->response)-ssresolve->response_len, 0, NULL, NULL );
     if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
@@ -387,78 +420,61 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
-  /* 200 without a redirect: the server did not provide the actual
-     snapshot filename, so we cannot determine the slot or hash. */
   return FD_SSRESOLVE_ADVANCE_ERROR;
 }
 
-#if FD_HAS_OPENSSL
 static int
-ssresolve_connect_ssl( fd_ssresolve_t * ssresolve ) {
-  FD_TEST( ssresolve->ssl );
-  int ssl_err = SSL_connect( ssresolve->ssl );
-  if( FD_UNLIKELY( ssl_err!=1 ) ) {
-    int ssl_err_code = SSL_get_error( ssresolve->ssl, ssl_err );
-    if( FD_UNLIKELY( ssl_err_code!=SSL_ERROR_WANT_READ && ssl_err_code!=SSL_ERROR_WANT_WRITE ) ) {
-      FD_LOG_WARNING(( "SSL_connect failed (%d)", ssl_err_code ));
-      SSL_free( ssresolve->ssl );
-      ssresolve->ssl = NULL;
-      return FD_SSRESOLVE_ADVANCE_ERROR;
+ssresolve_connect_tls( fd_ssresolve_t * ssresolve ) {
+  /* Drain pending ciphertext before generating any new records */
+
+  int flush = fd_tlsrec_sock_flush( ssresolve->tls_sock, ssresolve->sockfd );
+  if( flush<0 ) {
+    FD_LOG_WARNING(( "send() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+  if( flush>0 ) return FD_SSRESOLVE_ADVANCE_AGAIN;
+
+  /* Drive the TLS handshake */
+
+  int err = fd_tlsrec_sock_rx( ssresolve->tls_sock, &ssresolve->tls_conn, ssresolve->sockfd, NULL );
+  if( FD_UNLIKELY( err ) ) {
+    if( err==FD_TLSREC_SOCK_ERR_EOF ) {
+      FD_LOG_WARNING(( "peer closed the connection during TLS handshake with %s", ssresolve->hostname ));
+    } else {
+      FD_LOG_WARNING(( "TLS handshake failed (%d-%s) for %s",
+                       err, fd_tlsrec_sock_strerror( err ), ssresolve->hostname ));
     }
-    /* in progress */
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+
+  if( fd_tlsrec_conn_is_ready( &ssresolve->tls_conn ) ) {
+    ssresolve->state = FD_SSRESOLVE_STATE_REQ;
     return FD_SSRESOLVE_ADVANCE_AGAIN;
   }
 
-  ssresolve->state = FD_SSRESOLVE_STATE_REQ;
+  if( fd_tlsrec_conn_is_failed( &ssresolve->tls_conn ) ) return FD_SSRESOLVE_ADVANCE_ERROR;
   return FD_SSRESOLVE_ADVANCE_AGAIN;
 }
-
-static int
-ssresolve_shutdown_ssl( fd_ssresolve_t * ssresolve ) {
-  int res = SSL_shutdown( ssresolve->ssl );
-  if( FD_LIKELY( res<=0 ) ) {
-    int ssl_err_code = SSL_get_error( ssresolve->ssl, res );
-    if( FD_UNLIKELY( ssl_err_code!=SSL_ERROR_WANT_READ && ssl_err_code!=SSL_ERROR_WANT_WRITE && res!=0 ) ) {
-      FD_LOG_WARNING(( "SSL_shutdown failed (%d)", ssl_err_code ));
-      SSL_free( ssresolve->ssl );
-      ssresolve->ssl = NULL;
-      return FD_SSRESOLVE_ADVANCE_ERROR;
-    }
-
-    return FD_SSRESOLVE_ADVANCE_AGAIN;
-  }
-
-  ssresolve->state = FD_SSRESOLVE_STATE_DONE;
-  return FD_SSRESOLVE_ADVANCE_SUCCESS;
-}
-#endif
 
 int
 fd_ssresolve_advance_poll_out( fd_ssresolve_t * ssresolve ) {
   int res;
   switch( ssresolve->state ) {
-#if FD_HAS_OPENSSL
-    case FD_SSRESOLVE_CONNECT: {
-      res = ssresolve_connect_ssl( ssresolve );
+    case FD_SSRESOLVE_CONNECT:
+      res = ssresolve_connect_tls( ssresolve );
       break;
-    }
-    case FD_SSRESOLVE_STATE_SHUTTING_DOWN: {
-      res = ssresolve_shutdown_ssl( ssresolve );
-      break;
-    }
-#endif
-    case FD_SSRESOLVE_STATE_REQ: {
+    case FD_SSRESOLVE_STATE_REQ:
       res = fd_ssresolve_send_request( ssresolve );
       break;
-    }
-    case FD_SSRESOLVE_STATE_RESP: {
+    case FD_SSRESOLVE_STATE_RESP:
       res = FD_SSRESOLVE_ADVANCE_AGAIN;
+      if( ssresolve->is_https && fd_tlsrec_sock_flush( ssresolve->tls_sock, ssresolve->sockfd )<0 ) {
+        res = FD_SSRESOLVE_ADVANCE_ERROR;
+      }
       break;
-    }
-    default: {
+    default:
       FD_LOG_ERR(( "unexpected state %d", ssresolve->state ));
       return FD_SSRESOLVE_ADVANCE_ERROR;
-    }
   }
   return res;
 }
@@ -468,32 +484,21 @@ fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
                               fd_ssresolve_result_t * result ) {
   int res;
   switch( ssresolve->state ) {
-#if FD_HAS_OPENSSL
-    case FD_SSRESOLVE_CONNECT: {
-      res = ssresolve_connect_ssl( ssresolve );
+    case FD_SSRESOLVE_CONNECT:
+      res = ssresolve_connect_tls( ssresolve );
       break;
-    }
-    case FD_SSRESOLVE_STATE_SHUTTING_DOWN: {
-      res = ssresolve_shutdown_ssl( ssresolve );
-      break;
-    }
-#endif
-    case FD_SSRESOLVE_STATE_RESP: {
+    case FD_SSRESOLVE_STATE_RESP:
       res = fd_ssresolve_read_response( ssresolve, result );
       break;
-    }
-    case FD_SSRESOLVE_STATE_REQ: {
+    case FD_SSRESOLVE_STATE_REQ:
       res = FD_SSRESOLVE_ADVANCE_AGAIN;
       break;
-    }
-    case FD_SSRESOLVE_STATE_DONE: {
+    case FD_SSRESOLVE_STATE_DONE:
       res = FD_SSRESOLVE_ADVANCE_SUCCESS;
       break;
-    }
-    default: {
+    default:
       FD_LOG_ERR(( "unexpected state %d", ssresolve->state ));
       return FD_SSRESOLVE_ADVANCE_ERROR;
-    }
   }
 
   return res;
@@ -510,10 +515,5 @@ fd_ssresolve_cancel( fd_ssresolve_t * ssresolve ) {
     if( FD_UNLIKELY( -1==close( ssresolve->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     ssresolve->sockfd = -1;
   }
-#if FD_HAS_OPENSSL
-  if( FD_LIKELY( ssresolve->ssl ) ) {
-    SSL_free( ssresolve->ssl );
-    ssresolve->ssl = NULL;
-  }
-#endif
+  fd_tlsrec_sock_init( ssresolve->tls_sock );
 }

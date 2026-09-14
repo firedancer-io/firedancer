@@ -498,7 +498,6 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "bundle" );
       jw_path ( &w, "ssl_key_log_file",  config->development.bundle.ssl_key_log_file );
       jw_ulong( &w, "buffer_size_kib",   config->development.bundle.buffer_size_kib );
-      jw_ulong( &w, "ssl_heap_size_mib", config->development.bundle.ssl_heap_size_mib );
     jw_obj_close( &w );
     jw_obj_open( &w, "event" );
       jw_bool( &w, "report_shreds",            config->development.event.report_shreds );
