@@ -138,7 +138,6 @@ typedef struct peer peer_t;
 #include "../../util/tmpl/fd_map.c"
 
 #define CERT_SLOT_MAX (4UL*AG_SLOTS_PER_WINDOW)
-FD_STATIC_ASSERT( FD_NUM_SLOTS_FOR_REWARD==AG_NUM_SLOTS_FOR_REWARD, reward );
 
 struct final_notar_join {
   ulong           slot; /* ULONG_MAX when the entry holds no slot */
@@ -839,7 +838,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     if( FD_UNLIKELY( ctx->rooted_block_id.slot==ULONG_MAX ) ) {
       ctx->rooted_block_id = block_id;
       ag_pool_init ( ctx->pool,  block_id.slot );
-      ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock(), sign_bls, ctx );
+      ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
       ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
@@ -1140,7 +1139,6 @@ after_frag( fd_votor_tile_t *   ctx,
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
     ctx->shred_version = (ushort)sig;
-    ag_votor_set_shred_version( ctx->votor, ctx->shred_version );
     ctx->init = !!ctx->curr_epoch_info && ctx->rooted_block_id.slot!=ULONG_MAX;
     break;
   case IN_KIND_NET: {

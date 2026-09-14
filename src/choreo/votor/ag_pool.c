@@ -103,7 +103,7 @@ ag_pool_align( void ) {
 
 ulong
 ag_pool_footprint( ulong slot_max ) {
-  if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW+AG_NUM_SLOTS_FOR_REWARD ) ) return 0UL;
+  if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA ) ) return 0UL;
 
   ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
   ulong s2n_max        = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
@@ -269,6 +269,19 @@ ag_pool_delete( void * mem ) {
   return mem;
 }
 
+void
+ag_pool_init( ag_pool_t * self,
+              ulong       slot ) {
+  ag_finality_tracker_init( self->finality_tracker, slot );
+  self->parent_ready_tracker->root = slot;
+}
+
+void
+ag_pool_fini( ag_pool_t * self ) {
+  ag_finality_tracker_fini( self->finality_tracker );
+  self->parent_ready_tracker->root = ULONG_MAX;
+}
+
 FD_FN_CONST char const *
 ag_pool_strerror( int err ) {
   switch( err ) {
@@ -313,8 +326,8 @@ handle_finalization( ag_pool_t *                     self,
     pool_events_push( self->pool_events, event );
   }
   ulong first_unpruned_slot = ag_finality_tracker_first_unpruned_slot( self->finality_tracker );
-  ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, AG_NUM_SLOTS_FOR_REWARD );
-  for( ulong slot = fd_ulong_sat_sub( self->parent_ready_tracker->root, AG_NUM_SLOTS_FOR_REWARD ); slot<retained_slot; slot++ ) {
+  ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, AG_REWARD_SLOT_DELTA );
+  for( ulong slot = fd_ulong_sat_sub( self->parent_ready_tracker->root, AG_REWARD_SLOT_DELTA ); slot<retained_slot; slot++ ) {
     slot_state_ele_t * ele = slot_state_map_ele_remove( self->slot_states->map, &slot, NULL, self->slot_states->pool );
     if( FD_LIKELY( ele ) ) slot_state_pool_ele_release( self->slot_states->pool, ele );
   }
@@ -434,19 +447,6 @@ ag_pool_advance_epoch( ag_pool_t *             self,
   }
 }
 
-void
-ag_pool_init( ag_pool_t * self,
-              ulong       slot ) {
-  ag_finality_tracker_init( self->finality_tracker, slot );
-  self->parent_ready_tracker->root = slot;
-}
-
-void
-ag_pool_fini( ag_pool_t * self ) {
-  ag_finality_tracker_fini( self->finality_tracker );
-  self->parent_ready_tracker->root = ULONG_MAX;
-}
-
 int
 ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert,
@@ -454,7 +454,7 @@ ag_pool_add_cert( ag_pool_t *       self,
   ulong slot = ag_cert_slot( cert );
   fd_bls_set_null( bad );
 
-  ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_NUM_SLOTS_FOR_REWARD;
+  ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_REWARD_SLOT_DELTA;
   if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
 
   ag_slot_state_t * state = slot_state( self, slot );
@@ -483,8 +483,10 @@ ag_pool_add_vote( ag_pool_t *       self,
   ulong slot = ag_vote_slot( vote );
   fd_bls_set_null( bad );
 
-  ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_NUM_SLOTS_FOR_REWARD;
-  if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) {
+  ulong first_unpruned_slot = ag_finality_tracker_first_unpruned_slot( self->finality_tracker );
+  ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, AG_REWARD_SLOT_DELTA );
+  ulong slot_far_in_future  = first_unpruned_slot + self->slot_max - AG_REWARD_SLOT_DELTA;
+  if( FD_UNLIKELY( slot<retained_slot || slot>=slot_far_in_future ) ) {
     return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
   }
 
@@ -528,7 +530,7 @@ ag_pool_add_block( ag_pool_t *           self,
   ulong         parent_slot = parent_id->slot;
   uchar const * parent_hash = parent_id->hash;
 
-  ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_NUM_SLOTS_FOR_REWARD;
+  ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_REWARD_SLOT_DELTA;
   if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
 
   ag_finalization_event_t finalization_event = finalization_event_default( self );
