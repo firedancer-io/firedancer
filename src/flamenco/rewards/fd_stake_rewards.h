@@ -77,7 +77,7 @@
 #define FD_STAKE_REWARDS_OVF_EXTENTS (32UL)
 
 /* The spill file lives on the well-known fd below (see
-   initialize_accdb_fd; tests dup2 a memfd onto it).  123458/9 are
+   initialize_stake_rewards_fd; tests dup2 a memfd onto it).  123458/9 are
    Store, 123460/1 are accdb, and 123462 is reserved by XDP. */
 
 #define FD_STAKE_REWARDS_FD (123453)
