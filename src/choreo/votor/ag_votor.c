@@ -270,11 +270,13 @@ void
 ag_votor_init( ag_votor_t *   self,
                ulong          slot,
                long           now,
+               ushort         shred_version,
                fd_bls_sign_fn sign_fn,
                void *         sign_ctx ) {
   FD_TEST( sign_fn );
   self->now                     = now;
   self->root                    = slot;
+  self->shred_version           = shred_version;
   self->bls_sign_fn             = sign_fn;
   self->bls_sign_ctx            = sign_ctx;
   self->highest_final_cert_slot = slot;
@@ -294,30 +296,6 @@ void
 ag_votor_fini( ag_votor_t * self ) {
   self->root                    = ULONG_MAX;
   self->highest_final_cert_slot = ULONG_MAX;
-}
-
-void
-ag_votor_advance_epoch( ag_votor_t * self,
-                        ulong        epoch_rank,
-                        ulong        epoch_slot ) {
-  if( FD_UNLIKELY( self->curr_epoch_slot==ULONG_MAX ) ) {
-    self->curr_epoch_rank = epoch_rank;
-    self->curr_epoch_slot = epoch_slot;
-  } else if( FD_UNLIKELY( self->next_epoch_slot==ULONG_MAX ) ) {
-    self->next_epoch_rank = epoch_rank;
-    self->next_epoch_slot = epoch_slot;
-  } else {
-    self->curr_epoch_rank = self->next_epoch_rank;
-    self->curr_epoch_slot = self->next_epoch_slot;
-    self->next_epoch_rank = epoch_rank;
-    self->next_epoch_slot = epoch_slot;
-  }
-}
-
-void
-ag_votor_set_shred_version( ag_votor_t * self,
-                            ushort       shred_version ) {
-  self->shred_version = shred_version;
 }
 
 static ushort
@@ -349,7 +327,7 @@ received_shred( ag_votor_t const * self,
 
 FD_FN_PURE static ulong
 first_unpruned_slot( ag_votor_t const * self ) {
-  return ag_first_slot_in_window( self->highest_final_cert_slot );
+  return ag_first_slot_in_window( fd_ulong_sat_sub( self->highest_final_cert_slot, AG_REWARD_SLOT_DELTA ) );
 }
 
 FD_FN_PURE static ulong
@@ -531,6 +509,24 @@ handle_cert_created( ag_votor_t *      self,
 }
 
 void
+ag_votor_advance_epoch( ag_votor_t * self,
+                        ulong        epoch_rank,
+                        ulong        epoch_slot ) {
+  if( FD_UNLIKELY( self->curr_epoch_slot==ULONG_MAX ) ) {
+    self->curr_epoch_rank = epoch_rank;
+    self->curr_epoch_slot = epoch_slot;
+  } else if( FD_UNLIKELY( self->next_epoch_slot==ULONG_MAX ) ) {
+    self->next_epoch_rank = epoch_rank;
+    self->next_epoch_slot = epoch_slot;
+  } else {
+    self->curr_epoch_rank = self->next_epoch_rank;
+    self->curr_epoch_slot = self->next_epoch_slot;
+    self->next_epoch_rank = epoch_rank;
+    self->next_epoch_slot = epoch_slot;
+  }
+}
+
+void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,
                             long                    now ) {
@@ -625,7 +621,7 @@ void
 ag_votor_handle_replay_event( ag_votor_t *              self,
                               ag_event_replay_t const * event ) {
   ulong slot = event->slot;
-  if( FD_UNLIKELY( slot<=self->highest_final_cert_slot || is_retired( self, slot ) ) ) return;
+  if( FD_UNLIKELY( slot<first_unpruned_slot( self ) || is_retired( self, slot ) ) ) return;
 
   switch( event->kind ) {
   case AG_EVENT_REPLAY_COMPLETED:

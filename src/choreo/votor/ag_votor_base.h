@@ -4,7 +4,7 @@
 #include "../../util/fd_util.h"
 
 #define AG_SLOTS_PER_WINDOW        (4UL)
-#define AG_NUM_SLOTS_FOR_REWARD    (8UL)    /* Agave NUM_SLOTS_FOR_REWARD */
+#define AG_REWARD_SLOT_DELTA       (8UL)    /* Agave NUM_SLOTS_FOR_REWARD */
 #define AG_VAT_MAX                 (2000UL) /* Validator Admission Ticket caps at 2000 */
 #define AG_EQVOC_BLOCK_HASH_MAX    (7UL)    /* Corollary 50 */
 #define AG_NOTAR_FALLBACK_VOTE_MAX (3UL)    /* Definition 12 */

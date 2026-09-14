@@ -16,7 +16,7 @@
    footer reach: a leader producing slot s attests the voters of
    s-FD_NUM_SLOTS_FOR_REWARD. */
 
-#define FD_NUM_SLOTS_FOR_REWARD (8UL)
+#define FD_NUM_SLOTS_FOR_REWARD AG_REWARD_SLOT_DELTA
 
 struct fd_block_header {
   ulong     parent_slot;

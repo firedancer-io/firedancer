@@ -122,9 +122,8 @@ setup_votor( long now ) {
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init            ( votor, 0UL, now, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch    ( votor, 0UL, 0UL );
-  ag_votor_set_shred_version( votor, TEST_SHRED_VERSION );
+  ag_votor_init         ( votor, 0UL, now, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_advance_epoch( votor, 0UL, 0UL );
 
   g_epoch_info = &epoch_info_mem;
   ag_epoch_info( g_epoch_info, g_info, NV );
@@ -371,15 +370,16 @@ test_prunes_to_finalized_window( void ) {
   ag_votor_handle_pool_event( votor, &event, 0L );
   FD_TEST( votor->highest_final_cert_slot==finalized );
 
-  /* the whole finalized window is kept */
-  FD_TEST( min_live_slot( votor )>=window_start );
+  /* the finalized window and the reward buffer before it are kept */
+  ulong kept_start = ag_first_slot_in_window( fd_ulong_sat_sub( finalized, AG_REWARD_SLOT_DELTA ) );
+  FD_TEST( min_live_slot( votor )>=kept_start );
   for( ulong slot=window_start; slot<window_start+AG_SLOTS_PER_WINDOW; slot++ ) {
     FD_TEST( contains_slot( votor, slot ) );
   }
 
   /* earlier windows are dropped */
-  FD_TEST( !contains_slot( votor, 0UL              ) );
-  FD_TEST( !contains_slot( votor, window_start-1UL ) );
+  for( ulong slot=0UL; slot<kept_start; slot++ ) FD_TEST( !contains_slot( votor, slot ) );
+  for( ulong slot=kept_start; slot<=highest; slot++ ) FD_TEST( contains_slot( votor, slot ) );
 
   teardown_votor( votor );
 }

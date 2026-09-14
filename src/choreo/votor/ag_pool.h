@@ -18,9 +18,6 @@ typedef struct ag_pool ag_pool_t;
 
 FD_PROTOTYPES_BEGIN
 
-FD_FN_CONST char const *
-ag_pool_strerror( int err );
-
 FD_FN_CONST ulong
 ag_pool_align( void );
 
@@ -47,6 +44,9 @@ ag_pool_init( ag_pool_t * self,
 
 void
 ag_pool_fini( ag_pool_t * self );
+
+FD_FN_CONST char const *
+ag_pool_strerror( int err );
 
 void
 ag_pool_advance_epoch( ag_pool_t *             self,

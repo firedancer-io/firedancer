@@ -63,7 +63,7 @@ min_live_slot( ag_pool_t const * pool ) {
 }
 
 #define FD_TEST_PRUNED_TO_WATERMARK( pool ) \
-  FD_TEST( min_live_slot( pool )+AG_NUM_SLOTS_FOR_REWARD>=pool_first_unpruned_slot( pool ) )
+  FD_TEST( min_live_slot( pool )+AG_REWARD_SLOT_DELTA>=pool_first_unpruned_slot( pool ) )
 
 static int
 is_parent_ready( ag_pool_t *           pool,
@@ -388,15 +388,15 @@ test_reward_readback_window( void ) {
   msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, TEST_SHRED_VERSION, msg );
   FD_TEST( fd_bls_agg_verify( msg, msg_sz, &voted_stake->skip_agg.pub, &voted_stake->skip_agg.sig ) );
 
-  for( ulong s=slot+1UL; s<=slot+AG_NUM_SLOTS_FOR_REWARD; s++ ) {
+  for( ulong s=slot+1UL; s<=slot+AG_REWARD_SLOT_DELTA; s++ ) {
     ag_block_hash_t hash2; random_hash( hash2 );
     add_notar_votes( pool, s, hash2, 0UL, 7UL );
     add_final_votes( pool, s, 0UL, 7UL );
     FD_TEST( ag_pool_slot_state( pool, slot ) ); /* retained for the reward certs */
   }
   ag_block_hash_t hash2; random_hash( hash2 );
-  add_notar_votes( pool, slot+AG_NUM_SLOTS_FOR_REWARD+1UL, hash2, 0UL, 7UL );
-  add_final_votes( pool, slot+AG_NUM_SLOTS_FOR_REWARD+1UL, 0UL, 7UL );
+  add_notar_votes( pool, slot+AG_REWARD_SLOT_DELTA+1UL, hash2, 0UL, 7UL );
+  add_final_votes( pool, slot+AG_REWARD_SLOT_DELTA+1UL, 0UL, 7UL );
   FD_TEST( !ag_pool_slot_state( pool, slot ) );
 
   teardown_pool( pool );
@@ -776,7 +776,7 @@ test_pruning( void ) {
   ulong last_slot = 3UL*SLOTS_PER_WINDOW - 1UL;
   FD_TEST( ag_pool_finalized_slot( pool )==last_slot );
 
-  for( ulong s=0UL; s<last_slot; s++ ) FD_TEST( contains_slot( pool, s )==(s+AG_NUM_SLOTS_FOR_REWARD>=pool_first_unpruned_slot( pool )) );
+  for( ulong s=0UL; s<last_slot; s++ ) FD_TEST( contains_slot( pool, s )==(s+AG_REWARD_SLOT_DELTA>=pool_first_unpruned_slot( pool )) );
   FD_TEST( contains_slot( pool, last_slot ) );
   FD_TEST_PRUNED_TO_WATERMARK( pool );
 
@@ -797,7 +797,7 @@ test_pruning( void ) {
   }
   FD_TEST( ag_pool_finalized_slot( pool )==last_slot+10UL );
 
-  for( ulong s=0UL; s<10UL; s++ ) FD_TEST( contains_slot( pool, last_slot+s )==(last_slot+s+AG_NUM_SLOTS_FOR_REWARD>=pool_first_unpruned_slot( pool )) );
+  for( ulong s=0UL; s<10UL; s++ ) FD_TEST( contains_slot( pool, last_slot+s )==(last_slot+s+AG_REWARD_SLOT_DELTA>=pool_first_unpruned_slot( pool )) );
   FD_TEST( contains_slot( pool, last_slot+10UL ) );
   FD_TEST_PRUNED_TO_WATERMARK( pool );
 
@@ -861,11 +861,16 @@ test_out_of_bounds_votes( void ) {
   FD_TEST( ag_pool_finalized_slot( pool )==slot );
   FD_TEST( pool_first_unpruned_slot( pool )==slot );
 
-  for( ulong s=0UL; s<3UL*SLOTS_PER_WINDOW-1UL; s++ ) {
+  for( ulong s=0UL; s<slot-AG_REWARD_SLOT_DELTA; s++ ) {
     for( ulong v=0UL; v<11UL; v++ ) {
       ag_vote_t vote = ag_vote_construct_final( sec_sign_fn, &g_sk[v], s, (ushort)v, TEST_SHRED_VERSION );
       FD_TEST( ag_pool_add_vote( pool, &vote, bad )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
     }
+  }
+
+  for( ulong s=slot-AG_REWARD_SLOT_DELTA; s<slot; s++ ) {
+    ag_vote_t vote = ag_vote_construct_final( sec_sign_fn, &g_sk[0], s, (ushort)0, TEST_SHRED_VERSION );
+    FD_TEST( ag_pool_add_vote( pool, &vote, bad )==AG_POOL_SUCCESS );
   }
 
   ulong future = 5UL*TEST_SLOT_MAX;
@@ -934,11 +939,11 @@ test_slow_finalize_closing_gap_no_double_parent_ready( void ) {
   fast_finalize( pool, next_start, gh );
   FD_TEST( ag_pool_finalized_slot( pool )==next_start );
   FD_TEST( pool_first_unpruned_slot( pool )==watermark_slot );
-  FD_TEST( min_live_slot( pool )<=watermark_slot && min_live_slot( pool )+AG_NUM_SLOTS_FOR_REWARD>=watermark_slot );
+  FD_TEST( min_live_slot( pool )<=watermark_slot && min_live_slot( pool )+AG_REWARD_SLOT_DELTA>=watermark_slot );
 
   add_notar_votes( pool, gap_slot, gap_hash, 0UL, 7UL );
   FD_TEST( pool_first_unpruned_slot( pool )==next_start );
-  FD_TEST( min_live_slot( pool )<=next_start && min_live_slot( pool )+AG_NUM_SLOTS_FOR_REWARD>=next_start );
+  FD_TEST( min_live_slot( pool )<=next_start && min_live_slot( pool )+AG_REWARD_SLOT_DELTA>=next_start );
 
   ulong cnt; ag_pool_parents_ready( pool, next_start, &cnt );
   FD_TEST( cnt==1UL );
@@ -1403,7 +1408,7 @@ test_retired_epoch_already_pruned( void ) {
   FD_TEST( contains_slot( pool, EPOCH_B_LO-1UL ) ); /* retained for the reward certs */
   FD_TEST( contains_slot( pool, EPOCH_B_LO     ) );
   FD_TEST( pool_first_unpruned_slot( pool )==EPOCH_B_LO );
-  FD_TEST( min_live_slot( pool )<=EPOCH_B_LO && min_live_slot( pool )+AG_NUM_SLOTS_FOR_REWARD>=EPOCH_B_LO );
+  FD_TEST( min_live_slot( pool )<=EPOCH_B_LO && min_live_slot( pool )+AG_REWARD_SLOT_DELTA>=EPOCH_B_LO );
 
   ag_epoch_info_t * c = make_epoch_info( 2UL, g_info, NV );
   ag_pool_advance_epoch( pool, c, 0UL, EPOCH_B_HI+1UL );
@@ -1412,10 +1417,9 @@ test_retired_epoch_already_pruned( void ) {
   FD_TEST( epoch_info( pool, EPOCH_B_HI+1UL )==c );
   FD_TEST( contains_slot( pool, EPOCH_B_LO ) );
 
-  ag_vote_t v_below; ag_block_hash_t h_below; random_hash( h_below );
-  v_below = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], EPOCH_B_LO-1UL, h_below, (ushort)0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &v_below, bad )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
-  FD_TEST( contains_slot( pool, EPOCH_B_LO-1UL ) ); /* retained, untouched */
+  ag_vote_t v_late = ag_vote_construct_final( sec_sign_fn, &g_sk[0], EPOCH_B_LO-1UL, (ushort)0, TEST_SHRED_VERSION );
+  FD_TEST( ag_pool_add_vote( pool, &v_late, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_slot_state( pool, EPOCH_B_LO-1UL )->epoch_info==a ); /* retained, verified against its own epoch */
 
   teardown_pool_only( pool );
 }

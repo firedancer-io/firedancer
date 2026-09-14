@@ -20,25 +20,6 @@ ag_votor_new( void * mem,
               ulong  slot_max,
               ulong  seed );
 
-void
-ag_votor_advance_epoch( ag_votor_t * self,
-                        ulong        epoch_rank,
-                        ulong        epoch_slot );
-
-void
-ag_votor_set_shred_version( ag_votor_t * self,
-                            ushort       shred_version );
-
-void
-ag_votor_init( ag_votor_t *   self,
-               ulong          slot,
-               long           now,
-               fd_bls_sign_fn sign_fn,
-               void *         sign_ctx );
-
-void
-ag_votor_fini( ag_votor_t * self );
-
 ag_votor_t *
 ag_votor_join( void * mem );
 
@@ -47,6 +28,22 @@ ag_votor_leave( ag_votor_t const * votor );
 
 void *
 ag_votor_delete( void * mem );
+
+void
+ag_votor_init( ag_votor_t *   self,
+               ulong          slot,
+               long           now,
+               ushort         shred_version,
+               fd_bls_sign_fn sign_fn,
+               void *         sign_ctx );
+
+void
+ag_votor_fini( ag_votor_t * self );
+
+void
+ag_votor_advance_epoch( ag_votor_t * self,
+                        ulong        epoch_rank,
+                        ulong        epoch_slot );
 
 void
 ag_votor_handle_pool_event( ag_votor_t *            self,
