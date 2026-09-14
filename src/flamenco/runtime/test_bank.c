@@ -1,6 +1,5 @@
 #include "fd_bank.h"
 #include "../rewards/fd_stake_rewards.h"
-#include "sysvar/fd_sysvar_epoch_schedule.h"
 
 #include <stdlib.h> // ARM64: aligned_alloc(3)
 
@@ -852,7 +851,6 @@ test_bank_advance_root_preserves_inherited_stake_rewards( void * mem ) {
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank_A );
   uchar fork_idx = fd_stake_rewards_init( stake_rewards,
-                                          fd_slot_to_epoch( &bank_A->f.epoch_schedule, bank_A->f.slot, NULL ),
                                           &parent_blockhash,
                                           starting_block_height,
                                           partition_cnt,

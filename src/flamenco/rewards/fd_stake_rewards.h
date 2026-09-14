@@ -119,7 +119,6 @@ fd_stake_rewards_free_cnt( fd_stake_rewards_t const * stake_rewards );
 
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
-                       ulong                epoch,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt,
@@ -157,12 +156,12 @@ fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
    for( fd_stake_rewards_iter_init( stake_rewards, fork_idx,
                                     partition_idx );
         !fd_stake_rewards_iter_done( stake_rewards );
-        fd_stake_rewards_iter_next( stake_rewards, fork_idx ) ) {
+        fd_stake_rewards_iter_next( stake_rewards ) ) {
      fd_pubkey_t pubkey;
      ulong       lamports;
      ulong       credits_observed;
-     fd_stake_rewards_iter_ele( stake_rewards, fork_idx, &pubkey,
-                                &lamports, &credits_observed );
+     fd_stake_rewards_iter_ele( stake_rewards, &pubkey, &lamports,
+                                &credits_observed );
    }
 */
 
@@ -172,15 +171,13 @@ fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
                             uint                 partition_idx );
 
 void
-fd_stake_rewards_iter_next( fd_stake_rewards_t * stake_rewards,
-                            uchar                fork_idx );
+fd_stake_rewards_iter_next( fd_stake_rewards_t * stake_rewards );
 
 int
 fd_stake_rewards_iter_done( fd_stake_rewards_t * stake_rewards );
 
 void
 fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
-                           uchar                fork_idx,
                            fd_pubkey_t *        pubkey_out,
                            ulong *              lamports_out,
                            ulong *              credits_observed_out );

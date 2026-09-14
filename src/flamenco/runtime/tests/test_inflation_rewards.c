@@ -170,7 +170,6 @@ init_stake_rewards( fd_bank_t * bank,
                     uint num_partitions ) {
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
   uchar fork_idx = fd_stake_rewards_init( stake_rewards,
-                                          bank->f.epoch,
                                           blockhash,
                                           starting_block_height,
                                           num_partitions,
@@ -206,11 +205,11 @@ find_reward_partition( fd_stake_rewards_t *      stake_rewards,
   for( uint p=0U; p<num_partitions; p++ ) {
     for( fd_stake_rewards_iter_init( stake_rewards, fork_idx, p );
          !fd_stake_rewards_iter_done( stake_rewards );
-         fd_stake_rewards_iter_next( stake_rewards, fork_idx ) ) {
+         fd_stake_rewards_iter_next( stake_rewards ) ) {
       fd_pubkey_t cur;
       ulong       lamports;
       ulong       credits;
-      fd_stake_rewards_iter_ele( stake_rewards, fork_idx, &cur, &lamports, &credits );
+      fd_stake_rewards_iter_ele( stake_rewards, &cur, &lamports, &credits );
       if( !memcmp( cur.key, pubkey->key, 32 ) ) return p;
     }
   }
@@ -1580,7 +1579,7 @@ test_hash_rewards_into_partitions( void ) {
   memset( blockhash.hash, 0xCD, sizeof(blockhash.hash) );
 
   uint  num_partitions = 5U;
-  uchar fork_idx = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL, num_partitions, 0UL );
+  uchar fork_idx = fd_stake_rewards_init( sr, &blockhash, 100UL, num_partitions, 0UL );
 
   for( ulong i=0UL; i<12345UL; i++ ) {
     fd_pubkey_t pubkey = {{ 0 }};
@@ -1593,9 +1592,9 @@ test_hash_rewards_into_partitions( void ) {
   for( uint p=0U; p<num_partitions; p++ ) {
     for( fd_stake_rewards_iter_init( sr, fork_idx, p );
          !fd_stake_rewards_iter_done( sr );
-         fd_stake_rewards_iter_next( sr, fork_idx ) ) {
+         fd_stake_rewards_iter_next( sr ) ) {
       fd_pubkey_t pubkey; ulong lamports, credits_observed;
-      fd_stake_rewards_iter_ele( sr, fork_idx, &pubkey, &lamports, &credits_observed );
+      fd_stake_rewards_iter_ele( sr, &pubkey, &lamports, &credits_observed );
       total_count++;
       total_lamports += lamports;
     }
@@ -1625,9 +1624,9 @@ drain_partition( fd_stake_rewards_t * sr,
   ulong cnt = 0UL;
   for( fd_stake_rewards_iter_init( sr, fork_idx, partition_idx );
        !fd_stake_rewards_iter_done( sr );
-       fd_stake_rewards_iter_next( sr, fork_idx ) ) {
+       fd_stake_rewards_iter_next( sr ) ) {
     fd_pubkey_t pubkey; ulong lamports, credits_observed;
-    fd_stake_rewards_iter_ele( sr, fork_idx, &pubkey, &lamports, &credits_observed );
+    fd_stake_rewards_iter_ele( sr, &pubkey, &lamports, &credits_observed );
 
     ulong i = FD_LOAD( ulong, pubkey.key );
     FD_TEST( i<reward_cnt );
@@ -1682,22 +1681,22 @@ test_hash_rewards_overflow( void ) {
     void * ref_mem = aligned_alloc( fd_stake_rewards_align(), ref_footprint );
     FD_TEST( ref_mem );
     fd_stake_rewards_t * ref = fd_stake_rewards_join( fd_stake_rewards_new( ref_mem, reward_cnt, 1UL ) );
-    uchar ref_fork = fd_stake_rewards_init( ref, 1UL, &blockhash, 100UL, num_partitions, reward_cnt );
+    uchar ref_fork = fd_stake_rewards_init( ref, &blockhash, 100UL, num_partitions, reward_cnt );
     insert_encoded( ref, ref_fork, reward_cnt );
     fd_stake_rewards_fini( ref, ref_fork );
     for( uint p=0U; p<num_partitions; p++ ) {
       for( fd_stake_rewards_iter_init( ref, ref_fork, p );
            !fd_stake_rewards_iter_done( ref );
-           fd_stake_rewards_iter_next( ref, ref_fork ) ) {
+           fd_stake_rewards_iter_next( ref ) ) {
         fd_pubkey_t pubkey; ulong lamports, credits_observed;
-        fd_stake_rewards_iter_ele( ref, ref_fork, &pubkey, &lamports, &credits_observed );
+        fd_stake_rewards_iter_ele( ref, &pubkey, &lamports, &credits_observed );
         ref_partition[ FD_LOAD( ulong, pubkey.key ) ] = (uchar)p;
       }
     }
     free( ref_mem );
   }
 
-  uchar fork_idx = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL, num_partitions, reward_cnt );
+  uchar fork_idx = fd_stake_rewards_init( sr, &blockhash, 100UL, num_partitions, reward_cnt );
   insert_encoded( sr, fork_idx, reward_cnt );
   FD_TEST( fd_stake_rewards_total_rewards( sr, fork_idx )==reward_cnt*(reward_cnt+1UL)/2UL );
   fd_stake_rewards_fini( sr, fork_idx );
@@ -1708,9 +1707,9 @@ test_hash_rewards_overflow( void ) {
   for( uint p=0U; p<num_partitions; p++ ) {
     for( fd_stake_rewards_iter_init( sr, fork_idx, p );
          !fd_stake_rewards_iter_done( sr );
-         fd_stake_rewards_iter_next( sr, fork_idx ) ) {
+         fd_stake_rewards_iter_next( sr ) ) {
       fd_pubkey_t pubkey; ulong lamports, credits_observed;
-      fd_stake_rewards_iter_ele( sr, fork_idx, &pubkey, &lamports, &credits_observed );
+      fd_stake_rewards_iter_ele( sr, &pubkey, &lamports, &credits_observed );
       ulong i = FD_LOAD( ulong, pubkey.key );
       FD_TEST( i<reward_cnt );
       FD_TEST( ref_partition[ i ]==p );
@@ -1729,7 +1728,7 @@ test_hash_rewards_overflow( void ) {
 
   /* Purging returns the extents; the next fork can reuse them. */
   fd_stake_rewards_purge( sr, fork_idx );
-  fork_idx = fd_stake_rewards_init( sr, 2UL, &blockhash, 200UL, 1U, reward_cnt );
+  fork_idx = fd_stake_rewards_init( sr, &blockhash, 200UL, 1U, reward_cnt );
   insert_encoded( sr, fork_idx, reward_cnt );
   fd_stake_rewards_fini( sr, fork_idx );
   memset( seen, 0, sizeof(seen) );
@@ -1763,7 +1762,7 @@ test_hash_rewards_overflow_edges( void ) {
   memset( blockhash.hash, 0x5C, sizeof(blockhash.hash) );
 
   ulong reward_cnt = 3UL*capacity;
-  uchar fork_idx = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL, num_partitions, reward_cnt );
+  uchar fork_idx = fd_stake_rewards_init( sr, &blockhash, 100UL, num_partitions, reward_cnt );
   insert_encoded( sr, fork_idx, reward_cnt );
   fd_stake_rewards_fini( sr, fork_idx );
 
@@ -1773,7 +1772,7 @@ test_hash_rewards_overflow_edges( void ) {
   FD_TEST( total_count==reward_cnt );
 
   /* Over-announced, under-inserted: uses only in-memory storage. */
-  uchar small_fork = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL, num_partitions, 10UL*capacity );
+  uchar small_fork = fd_stake_rewards_init( sr, &blockhash, 100UL, num_partitions, 10UL*capacity );
   insert_encoded( sr, small_fork, capacity/2UL );
   fd_stake_rewards_fini( sr, small_fork );
   memset( seen, 0, sizeof(seen) );
@@ -1809,7 +1808,7 @@ test_hash_rewards_spill( void ) {
   uchar     fork[ 4 ];
   for( ulong f=0UL; f<3UL; f++ ) {
     memset( blockhash.hash, (int)(0x10UL+f), sizeof(blockhash.hash) );
-    fork[f] = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL+f, num_partitions, reward_cnt );
+    fork[f] = fd_stake_rewards_init( sr, &blockhash, 100UL+f, num_partitions, reward_cnt );
     insert_encoded( sr, fork[f], reward_cnt );
     fd_stake_rewards_fini( sr, fork[f] );
   }
@@ -1825,7 +1824,7 @@ test_hash_rewards_spill( void ) {
   /* Dropping a fork makes room for another sealed image. */
   fd_stake_rewards_release( sr, fork[1] );
   memset( blockhash.hash, 0x20, sizeof(blockhash.hash) );
-  fork[3] = fd_stake_rewards_init( sr, 1UL, &blockhash, 104UL, num_partitions, reward_cnt );
+  fork[3] = fd_stake_rewards_init( sr, &blockhash, 104UL, num_partitions, reward_cnt );
   insert_encoded( sr, fork[3], reward_cnt );
   fd_stake_rewards_fini( sr, fork[3] );
 
@@ -1845,7 +1844,7 @@ test_hash_rewards_spill( void ) {
   uchar all[ 6 ];
   for( ulong f=0UL; f<max_forks; f++ ) {
     memset( blockhash.hash, (int)(0x30UL+f), sizeof(blockhash.hash) );
-    all[f] = fd_stake_rewards_init( sr, 2UL, &blockhash, 200UL+f, num_partitions, reward_cnt );
+    all[f] = fd_stake_rewards_init( sr, &blockhash, 200UL+f, num_partitions, reward_cnt );
     insert_encoded( sr, all[f], reward_cnt );
     fd_stake_rewards_fini( sr, all[f] );
   }
@@ -1885,7 +1884,7 @@ test_hash_rewards_overflow_and_spill( void ) {
   ulong     cnts[ 3 ] = { reward_cnt, reward_cnt, 10UL };
   for( ulong f=0UL; f<3UL; f++ ) {
     memset( blockhash.hash, (int)(0x40UL+f), sizeof(blockhash.hash) );
-    fork[f] = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL+f, num_partitions, cnts[f] );
+    fork[f] = fd_stake_rewards_init( sr, &blockhash, 100UL+f, num_partitions, cnts[f] );
     insert_encoded( sr, fork[f], cnts[f] );
     fd_stake_rewards_fini( sr, fork[f] );
   }
@@ -1915,7 +1914,7 @@ test_hash_rewards_into_partitions_empty( void ) {
 
   fd_hash_t blockhash = {{ 0 }};
   uint  num_partitions = 5U;
-  uchar fork_idx = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL, num_partitions, 0UL );
+  uchar fork_idx = fd_stake_rewards_init( sr, &blockhash, 100UL, num_partitions, 0UL );
   fd_stake_rewards_fini( sr, fork_idx );
 
   for( uint p=0U; p<num_partitions; p++ ) {
@@ -1948,7 +1947,7 @@ test_hash_rewards_pubkeys_across_forks( void ) {
   for( ulong fork=0UL; fork<max_forks; fork++ ) {
     fd_hash_t blockhash = {{ 0 }};
     memset( blockhash.hash, (int)(0xA0UL + fork), sizeof(blockhash.hash) );
-    fork_idx[fork] = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL + fork, 2U, 0UL );
+    fork_idx[fork] = fd_stake_rewards_init( sr, &blockhash, 100UL + fork, 2U, 0UL );
 
     for( ulong i=0UL; i<max_accs; i++ ) {
       fd_pubkey_t pubkey = {{ 0 }};
@@ -1966,9 +1965,9 @@ test_hash_rewards_pubkeys_across_forks( void ) {
     for( uint p=0U; p<2U; p++ ) {
       for( fd_stake_rewards_iter_init( sr, fork_idx[fork], p );
            !fd_stake_rewards_iter_done( sr );
-           fd_stake_rewards_iter_next( sr, fork_idx[fork] ) ) {
+           fd_stake_rewards_iter_next( sr ) ) {
         fd_pubkey_t pubkey; ulong lamports, credits_observed;
-        fd_stake_rewards_iter_ele( sr, fork_idx[fork], &pubkey, &lamports, &credits_observed );
+        fd_stake_rewards_iter_ele( sr, &pubkey, &lamports, &credits_observed );
         ulong account_idx = pubkey.ul[0] - (fork & 1UL) * max_accs;
         FD_TEST( account_idx<max_accs );
         FD_TEST( pubkey.ul[1]==0xF00DUL );
@@ -1990,7 +1989,7 @@ test_hash_rewards_pubkeys_across_forks( void ) {
   for( ulong fork=0UL; fork<max_forks; fork++ ) fd_stake_rewards_purge( sr, fork_idx[fork] );
 
   fd_hash_t blockhash = {{ 0 }};
-  uchar next_epoch_fork_idx = fd_stake_rewards_init( sr, 2UL, &blockhash, 200UL, 1U, 0UL );
+  uchar next_epoch_fork_idx = fd_stake_rewards_init( sr, &blockhash, 200UL, 1U, 0UL );
   for( ulong i=0UL; i<max_accs; i++ ) {
     fd_pubkey_t pubkey = {{ 0 }};
     pubkey.ul[0] = max_accs + i;
@@ -2000,15 +1999,15 @@ test_hash_rewards_pubkeys_across_forks( void ) {
   ulong next_epoch_cnt = 0UL;
   for( fd_stake_rewards_iter_init( sr, next_epoch_fork_idx, 0U );
        !fd_stake_rewards_iter_done( sr );
-       fd_stake_rewards_iter_next( sr, next_epoch_fork_idx ) ) {
+       fd_stake_rewards_iter_next( sr ) ) {
     fd_pubkey_t pubkey; ulong lamports, credits_observed;
-    fd_stake_rewards_iter_ele( sr, next_epoch_fork_idx, &pubkey, &lamports, &credits_observed );
+    fd_stake_rewards_iter_ele( sr, &pubkey, &lamports, &credits_observed );
     next_epoch_cnt++;
   }
   FD_TEST( next_epoch_cnt==max_accs );
 
   blockhash.ul[0] = 1UL;
-  uchar next_epoch_second_fork_idx = fd_stake_rewards_init( sr, 2UL, &blockhash, 201UL, 1U, 0UL );
+  uchar next_epoch_second_fork_idx = fd_stake_rewards_init( sr, &blockhash, 201UL, 1U, 0UL );
   for( ulong i=0UL; i<max_accs; i++ ) {
     fd_pubkey_t pubkey = {{ 0 }};
     pubkey.ul[0] = 2UL*max_accs + i;
@@ -2019,9 +2018,9 @@ test_hash_rewards_pubkeys_across_forks( void ) {
   ulong next_epoch_second_seen = 0UL;
   for( fd_stake_rewards_iter_init( sr, next_epoch_second_fork_idx, 0U );
        !fd_stake_rewards_iter_done( sr );
-       fd_stake_rewards_iter_next( sr, next_epoch_second_fork_idx ) ) {
+       fd_stake_rewards_iter_next( sr ) ) {
     fd_pubkey_t pubkey; ulong lamports, credits_observed;
-    fd_stake_rewards_iter_ele( sr, next_epoch_second_fork_idx, &pubkey, &lamports, &credits_observed );
+    fd_stake_rewards_iter_ele( sr, &pubkey, &lamports, &credits_observed );
     ulong account_idx = pubkey.ul[0] - 2UL*max_accs;
     FD_TEST( account_idx<max_accs );
     FD_TEST( !(next_epoch_second_seen & (1UL<<account_idx)) );
@@ -2054,14 +2053,14 @@ test_hash_rewards_purge_first_fork( void ) {
   fd_hash_t blockhash = {{ 0 }};
   fd_pubkey_t pubkey = {{ 0 }};
 
-  uchar first_fork_idx = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL, 1U, 0UL );
+  uchar first_fork_idx = fd_stake_rewards_init( sr, &blockhash, 100UL, 1U, 0UL );
   fd_stake_rewards_insert( sr, first_fork_idx, &pubkey, 1UL, 1UL );
   pubkey.ul[0] = 1UL;
   fd_stake_rewards_insert( sr, first_fork_idx, &pubkey, 2UL, 2UL );
   fd_stake_rewards_purge( sr, first_fork_idx );
 
   blockhash.ul[0] = 1UL;
-  uchar second_fork_idx = fd_stake_rewards_init( sr, 1UL, &blockhash, 101UL, 1U, 0UL );
+  uchar second_fork_idx = fd_stake_rewards_init( sr, &blockhash, 101UL, 1U, 0UL );
   pubkey.ul[0] = 2UL;
   fd_stake_rewards_insert( sr, second_fork_idx, &pubkey, 3UL, 3UL );
   fd_stake_rewards_fini( sr, second_fork_idx );
@@ -2069,11 +2068,11 @@ test_hash_rewards_purge_first_fork( void ) {
   fd_stake_rewards_iter_init( sr, second_fork_idx, 0U );
   FD_TEST( !fd_stake_rewards_iter_done( sr ) );
   fd_pubkey_t actual_pubkey; ulong lamports, credits_observed;
-  fd_stake_rewards_iter_ele( sr, second_fork_idx, &actual_pubkey, &lamports, &credits_observed );
+  fd_stake_rewards_iter_ele( sr, &actual_pubkey, &lamports, &credits_observed );
   FD_TEST( !memcmp( &actual_pubkey, &pubkey, sizeof(fd_pubkey_t) ) );
   FD_TEST( lamports==3UL );
   FD_TEST( credits_observed==3UL );
-  fd_stake_rewards_iter_next( sr, second_fork_idx );
+  fd_stake_rewards_iter_next( sr );
   FD_TEST( fd_stake_rewards_iter_done( sr ) );
 
   free( mem );

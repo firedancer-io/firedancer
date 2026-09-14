@@ -157,11 +157,11 @@ validate_one_partition( model_t const *      m,
                         uchar *              seen ) {
   for( fd_stake_rewards_iter_init( m->stake_rewards, f->fork_idx, partition_idx );
        !fd_stake_rewards_iter_done( m->stake_rewards );
-       fd_stake_rewards_iter_next( m->stake_rewards, f->fork_idx ) ) {
+       fd_stake_rewards_iter_next( m->stake_rewards ) ) {
     fd_pubkey_t pubkey;
     ulong       lamports;
     ulong       credits_observed;
-    fd_stake_rewards_iter_ele( m->stake_rewards, f->fork_idx, &pubkey, &lamports, &credits_observed );
+    fd_stake_rewards_iter_ele( m->stake_rewards, &pubkey, &lamports, &credits_observed );
 
     ulong match = ULONG_MAX;
     for( ulong i=0UL; i<f->entry_cnt; i++ ) {
@@ -337,7 +337,6 @@ init_fork( model_t * m, fuzz_reader_t * r, int force_new_epoch ) {
   f->starting_block_height = starting_block_height;
   f->partition_cnt         = partition_cnt;
   f->fork_idx              = fd_stake_rewards_init( m->stake_rewards,
-                                                    m->epoch,
                                                     &parent_blockhash,
                                                     starting_block_height,
                                                     partition_cnt,

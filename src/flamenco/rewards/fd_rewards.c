@@ -1390,8 +1390,6 @@ setup_stake_partitions( fd_bank_t *                    bank,
     );
   }
 
-  /* Computation done: group the entries by partition into the fork's
-     sealed image. */
   fd_stake_rewards_fini( stake_rewards, fork_idx );
 }
 
@@ -1464,7 +1462,6 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
   uchar                fork_idx      = fd_stake_rewards_init( stake_rewards,
-                                                              bank->f.epoch,
                                                               parent_blockhash,
                                                               starting_block_height,
                                                               num_partitions,
@@ -1835,9 +1832,8 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
     /* Gather the next batch of rewards out of the partition. */
     ulong batch_cnt = 0UL;
     for( ; batch_cnt<STAKE_REWARD_ACC_BATCH_SZ && !fd_stake_rewards_iter_done( stake_rewards );
-         batch_cnt++, fd_stake_rewards_iter_next( stake_rewards, bank->stake_rewards_fork_id ) ) {
+         batch_cnt++, fd_stake_rewards_iter_next( stake_rewards ) ) {
       fd_stake_rewards_iter_ele( stake_rewards,
-                                 bank->stake_rewards_fork_id,
                                  &pubkeys         [ batch_cnt ],
                                  &reward_lamports [ batch_cnt ],
                                  &credits_observed[ batch_cnt ] );
@@ -2139,7 +2135,6 @@ recalculate_partitioned_rewards( fd_banks_t *         banks,
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
   uchar                fork_idx      = fd_stake_rewards_init( stake_rewards,
-                                                              bank->f.epoch,
                                                               &epoch_rewards_sysvar->parent_blockhash,
                                                               epoch_rewards_sysvar->distribution_starting_block_height,
                                                               (uint)epoch_rewards_sysvar->num_partitions,

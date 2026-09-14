@@ -215,7 +215,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 
   mock_epoch_boundary_fork_cnt++;
   bank->stake_rewards_fork_id = fd_stake_rewards_init( fd_bank_stake_rewards_modify( bank ),
-                                                       bank->f.epoch,
                                                        &bank->f.prev_bank_hash,
                                                        bank->f.block_height,
                                                        1U,

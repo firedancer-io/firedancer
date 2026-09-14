@@ -1,6 +1,7 @@
 #include "fd_stake_rewards.h"
 #include "fd_rewards_base.h"
 #include "../../ballet/siphash13/fd_siphash13.h"
+#include "../../util/math/fd_sqrt.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -102,7 +103,6 @@ struct fd_stake_rewards {
   ulong       staging_offset; /* partition_ele_t staging buffer */
   ulong       sealed_offset;  /* partition-grouped disk_ele_t buffers */
   ulong       iobuf_offset;   /* disk bounce buffer */
-  ulong       epoch;
   uint        staging_fork;   /* fork accepting inserts, or UINT_MAX */
 
   /* Owner of each sealed buffer, or UINT_MAX. */
@@ -257,18 +257,6 @@ ovf_io( fd_stake_rewards_t * stake_rewards,
   }
 }
 
-static ulong
-isqrt( ulong x ) {
-  if( FD_UNLIKELY( x<2UL ) ) return x;
-  /* Initial guess is at least sqrt(x). */
-  ulong r = 1UL<<( ((uint)fd_ulong_find_msb( x )/2U)+1U );
-  for(;;) {
-    ulong next = (r + x/r)/2UL;
-    if( next>=r ) return r;
-    r = next;
-  }
-}
-
 /* ovf_slot_cap sizes a fork's per-partition overflow slot.  It returns
    0 when the in-memory buffer can hold all rewards. */
 
@@ -289,7 +277,7 @@ ovf_slot_cap( ulong capacity,
      staging buffers flushed during insertion, never more than the
      total, so this bound is conservative. */
   ulong mean = (max_rewards_cnt+(ulong)partitions_cnt-1UL)/(ulong)partitions_cnt;
-  ulong slot = mean + 12UL*(isqrt( mean )+1UL);
+  ulong slot = mean + 12UL*(fd_ulong_sqrt( mean )+1UL);
   return (uint)fd_ulong_min( slot, (ulong)UINT_MAX-1UL );
 }
 
@@ -317,8 +305,9 @@ fork_reset_meta( fork_info_t * fork_info ) {
 
 static void
 chains_reset( fork_info_t * fork_info ) {
-  memset( fork_info->partition_idxs_head, 0xFF, sizeof(fork_info->partition_idxs_head) );
-  memset( fork_info->partition_idxs_tail, 0xFF, sizeof(fork_info->partition_idxs_tail) );
+  ulong sz = (ulong)fork_info->partition_cnt*sizeof(uint);
+  memset( fork_info->partition_idxs_head, 0xFF, sz );
+  memset( fork_info->partition_idxs_tail, 0xFF, sz );
 }
 
 static void
@@ -391,7 +380,6 @@ fd_stake_rewards_new( void * shmem,
   stake_rewards->max_stake_accounts = max_stake_accounts;
   stake_rewards->extent_cnt         = max_fork_width + FD_STAKE_REWARDS_OVF_EXTENTS;
 
-  for( ulong i=0UL; i<FD_STAKE_REWARDS_MAX_FORK_WIDTH; i++ ) fork_reset_meta( &stake_rewards->fork_info[i] );
   fd_stake_rewards_clear( stake_rewards );
 
   FD_COMPILER_MFENCE();
@@ -427,7 +415,6 @@ fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
   for( ulong i=0UL; i<FD_STAKE_REWARDS_MAX_FORK_WIDTH; i++ ) fork_reset_meta( &stake_rewards->fork_info[i] );
   for( ulong i=0UL; i<FD_STAKE_REWARDS_SEALED_BUF_CNT; i++ ) stake_rewards->sealed_buf_fork[i] = UINT_MAX;
   extent_free_list_reset( stake_rewards );
-  stake_rewards->epoch        = ULONG_MAX;
   stake_rewards->staging_fork = UINT_MAX;
   stake_rewards->seal_seq     = 0UL;
   stake_rewards->iter_seg     = 2;
@@ -481,7 +468,6 @@ fd_stake_rewards_free_cnt( fd_stake_rewards_t const * stake_rewards ) {
 
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
-                       ulong                epoch,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt,
@@ -497,11 +483,6 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
     fd_stake_rewards_fini( stake_rewards, (uchar)stake_rewards->staging_fork );
   }
 
-  /* Forks are not reclaimed wholesale when the epoch changes.  Every
-     fork is returned by the banks referencing it, so a new epoch has
-     nothing left over to clean up. */
-  stake_rewards->epoch = epoch;
-
   if( FD_UNLIKELY( !fork_pool_free( fork_pool ) ) ) {
     FD_LOG_ERR(( "No free forks in the stake rewards pool.  This likely occurred due to extremely degenerate "
                  "network conditions. Please report this crash to the Firedancer team." ));
@@ -510,11 +491,11 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
   fork_info_t * fork_info = &stake_rewards->fork_info[fork_idx];
 
   fork_reset_meta( fork_info );
-  chains_reset( fork_info );
   fork_info->refcnt                = 1UL;
   fork_info->partition_cnt         = partitions_cnt;
   fork_info->starting_block_height = starting_block_height;
   fork_info->ovf_slot_cap          = ovf_slot_cap( stake_rewards->max_stake_accounts, partitions_cnt, max_rewards_cnt );
+  chains_reset( fork_info );
 
   if( FD_UNLIKELY( fork_info->ovf_slot_cap &&
                    ovf_extents_needed( stake_rewards, fork_info )>FD_STAKE_REWARDS_OVF_EXTENTS ) ) {
@@ -608,22 +589,18 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   if( FD_UNLIKELY( (ulong)fork_info->ele_cnt>=stake_rewards->max_stake_accounts ) ) staging_flush( stake_rewards, fork_idx );
 
   uint              curr_fork_len = fork_info->ele_cnt;
-  partition_ele_t * partition_ele = get_staging( stake_rewards )+curr_fork_len;
+  partition_ele_t * staging       = get_staging( stake_rewards );
+  partition_ele_t * partition_ele = staging+curr_fork_len;
   partition_ele->pubkey           = *pubkey;
   partition_ele->lamports         = lamports;
   partition_ele->credits_observed = credits_observed;
   partition_ele->next             = UINT_MAX;
 
-  int is_first_ele = fork_info->partition_idxs_head[partition_index] == UINT_MAX;
-
-  if( FD_LIKELY( !is_first_ele ) ) {
-    partition_ele_t * prev_partition_ele = get_staging( stake_rewards )+fork_info->partition_idxs_tail[partition_index];
-    prev_partition_ele->next = curr_fork_len;
-    fork_info->partition_idxs_tail[partition_index] = curr_fork_len;
-  } else {
-    fork_info->partition_idxs_head[partition_index] = curr_fork_len;
-    fork_info->partition_idxs_tail[partition_index] = curr_fork_len;
-  }
+  uint * head = fork_info->partition_idxs_head + partition_index;
+  uint * tail = fork_info->partition_idxs_tail + partition_index;
+  if( FD_LIKELY( *head!=UINT_MAX ) ) staging[ *tail ].next = curr_fork_len;
+  else                               *head                 = curr_fork_len;
+  *tail = curr_fork_len;
 
   fork_info->ele_cnt++;
 }
@@ -804,9 +781,7 @@ iter_refill( fd_stake_rewards_t * stake_rewards ) {
 }
 
 void
-fd_stake_rewards_iter_next( fd_stake_rewards_t * stake_rewards,
-                            uchar                fork_idx ) {
-  (void)fork_idx;
+fd_stake_rewards_iter_next( fd_stake_rewards_t * stake_rewards ) {
   stake_rewards->iter_rem--;
   if( FD_LIKELY( stake_rewards->iter_resident ) ) stake_rewards->iter_res_idx++;
   else                                            stake_rewards->iter_buf_pos++;
@@ -820,11 +795,9 @@ fd_stake_rewards_iter_done( fd_stake_rewards_t * stake_rewards ) {
 
 void
 fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
-                           uchar                fork_idx,
                            fd_pubkey_t *        pubkey_out,
                            ulong *              lamports_out,
                            ulong *              credits_observed_out ) {
-  (void)fork_idx;
   disk_ele_t const * ele;
   if( FD_LIKELY( stake_rewards->iter_resident ) ) {
     ele = get_sealed( stake_rewards )+stake_rewards->iter_res_idx;
