@@ -111,11 +111,12 @@ typedef struct contact_info contact_info_t;
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 
-#define PEERS_LG_SLOT_CNT (13) /* 2*AG_VAT_MAX keys, fill ratio 0.5 */
+#define PEERS_LG_SLOT_CNT (13) /* 3*AG_VAT_MAX keys, fill ratio 0.73 */
 FD_STATIC_ASSERT( (1UL<<PEERS_LG_SLOT_CNT)>=4UL*AG_VAT_MAX, peers );
 
 struct peer {
   fd_pubkey_t      id_key;
+  ushort           prev_rank;
   ushort           curr_rank;
   ushort           next_rank;
   fd_quic_conn_t * tx_conn;
@@ -162,12 +163,12 @@ struct fd_votor_tile {
   int                        init;
   ag_block_id_t              rooted_block_id;
   ag_block_id_t              finalized_block_id;
+  ag_epoch_info_t *          prev_epoch_info;
+  ulong                      prev_epoch_slot;
   ag_epoch_info_t *          curr_epoch_info;
   ulong                      curr_epoch_slot;
-  ushort                     curr_epoch_rank;
   ag_epoch_info_t *          next_epoch_info;
   ulong                      next_epoch_slot;
-  ushort                     next_epoch_rank;
   fd_multi_epoch_leaders_t * mleaders;
   ulong                      next_leader_slot;
   final_notar_join_t         final_notar_join[CERT_SLOT_MAX];
@@ -228,6 +229,7 @@ struct fd_votor_tile {
       ag_event_vote_t     vote_event;
       ag_event_cert_t     cert_event;
     };
+    ag_epoch_info_t prev_epoch_info;
     ag_epoch_info_t curr_epoch_info;
     ag_epoch_info_t next_epoch_info;
 
@@ -321,7 +323,7 @@ static void
 ban_bad_ranks( fd_votor_tile_t *    ctx,
                fd_bls_set_t const * bad,
                ulong                slot_as_of ) {
-  ag_epoch_info_t const * epoch_info = fd_ptr_if( slot_as_of>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
+  ag_epoch_info_t const * epoch_info = fd_ptr_if( slot_as_of>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( slot_as_of>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
   long                    now        = fd_log_wallclock();
   for( ulong rank = fd_bls_set_const_iter_init( bad );
                    !fd_bls_set_const_iter_done( rank );
@@ -572,7 +574,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     }
 
     ulong  vote_slot = ag_vote_slot( vote  );
-    ushort rank      = fd_ushort_if( vote_slot >= ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
+    ushort rank      = fd_ushort_if( vote_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( vote_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_NOT_RANKED_IDX ]++; return; } /* peer is not ranked in their vote slot's epoch */
     ag_vote_set_rank( vote, rank );
 
@@ -608,7 +610,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     if( FD_UNLIKELY( fd_log_wallclock()<peer->ban_ts+BAN_TIMEOUT_NS ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BANNED_IDX ]++; fd_quic_conn_close( conn, CLOSE_CODE_BANNED ); return; }
 
     ulong  cert_slot = ag_cert_slot( &ctx->scratch.cert );
-    ushort rank      = fd_ushort_if( cert_slot>=ctx->next_epoch_slot, peer->next_rank, peer->curr_rank );
+    ushort rank      = fd_ushort_if( cert_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( cert_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_NOT_RANKED_IDX ]++; return; } /* peer is not ranked in this cert slot's epoch */
 
     switch( ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, ctx->scratch.bad ) ) {
@@ -636,18 +638,23 @@ handle_epoch( fd_votor_tile_t *           ctx,
               fd_epoch_info_msg_t const * msg ) {
 
   ag_epoch_info_t * epoch_info;
-  if     ( FD_UNLIKELY( !ctx->curr_epoch_info ) ) epoch_info = &ctx->scratch.curr_epoch_info;
-  else if( FD_UNLIKELY( !ctx->next_epoch_info ) ) epoch_info = &ctx->scratch.next_epoch_info;
-  else                                            epoch_info = ctx->curr_epoch_info;
+  if     ( FD_UNLIKELY( !ctx->curr_epoch_info ) )                      epoch_info = &ctx->scratch.curr_epoch_info;
+  else if( FD_UNLIKELY( !ctx->next_epoch_info ) )                      epoch_info = &ctx->scratch.next_epoch_info;
+  else if( FD_UNLIKELY( ctx->prev_epoch_info==ctx->curr_epoch_info ) ) epoch_info = &ctx->scratch.prev_epoch_info;
+  else                                                                 epoch_info = ctx->prev_epoch_info;
   ag_epoch_info_rank( epoch_info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt );
 
   /* swap pointers */
 
   if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) {
+    ctx->prev_epoch_info = epoch_info;
+    ctx->prev_epoch_slot = msg->start_slot;
     ctx->curr_epoch_info = epoch_info;
     ctx->curr_epoch_slot = msg->start_slot;
   } else {
     if( FD_LIKELY( ctx->next_epoch_info ) ) {
+      ctx->prev_epoch_info = ctx->curr_epoch_info;
+      ctx->prev_epoch_slot = ctx->curr_epoch_slot;
       ctx->curr_epoch_info = ctx->next_epoch_info;
       ctx->curr_epoch_slot = ctx->next_epoch_slot;
     }
@@ -660,19 +667,41 @@ handle_epoch( fd_votor_tile_t *           ctx,
   for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
     peer_t * peer = &ctx->peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
+    peer->prev_rank = USHORT_MAX;
     peer->curr_rank = USHORT_MAX;
     peer->next_rank = USHORT_MAX;
   }
 
-  /* unmark all ranked in curr epoch */
+  /* unmark all ranked in prev epoch */
 
-  for( ulong rank=0UL; rank<ctx->curr_epoch_info->validator_cnt; rank++ ) {
+  for( ulong rank=0UL; rank<ctx->prev_epoch_info->validator_cnt; rank++ ) {
     fd_pubkey_t id_key;
-    memcpy( id_key.uc, ctx->curr_epoch_info->validators[ rank ].id_key, sizeof(ag_id_key_t) );
+    memcpy( id_key.uc, ctx->prev_epoch_info->validators[ rank ].id_key, sizeof(ag_id_key_t) );
 
     peer_t * peer = peers_query( ctx->peers, id_key, NULL );
     if( FD_UNLIKELY( !peer ) ) {
       peer              = peers_insert( ctx->peers, id_key );
+      peer->curr_rank   = USHORT_MAX;
+      peer->next_rank   = USHORT_MAX;
+      peer->tx_conn     = NULL;
+      peer->rx_conn     = NULL;
+      peer->ban_ts      = 0L;
+    }
+    peer->prev_rank = (ushort)rank;
+  }
+
+  /* unmark all ranked in curr epoch */
+
+  ushort own_rank = USHORT_MAX; /* our own rank in the new epoch */
+  for( ulong rank=0UL; rank<ctx->curr_epoch_info->validator_cnt; rank++ ) {
+    fd_pubkey_t id_key;
+    memcpy( id_key.uc, ctx->curr_epoch_info->validators[ rank ].id_key, sizeof(ag_id_key_t) );
+    if( FD_UNLIKELY( ctx->curr_epoch_info==epoch_info && fd_pubkey_eq( &id_key, &ctx->id_key ) ) ) own_rank = (ushort)rank;
+
+    peer_t * peer = peers_query( ctx->peers, id_key, NULL );
+    if( FD_UNLIKELY( !peer ) ) {
+      peer              = peers_insert( ctx->peers, id_key );
+      peer->prev_rank   = USHORT_MAX;
       peer->next_rank   = USHORT_MAX;
       peer->tx_conn     = NULL;
       peer->rx_conn     = NULL;
@@ -687,10 +716,12 @@ handle_epoch( fd_votor_tile_t *           ctx,
   for( ulong rank=0UL; rank<next_cnt; rank++ ) {
     fd_pubkey_t id_key;
     memcpy( id_key.uc, ctx->next_epoch_info->validators[ rank ].id_key, sizeof(ag_id_key_t) );
+    if( FD_UNLIKELY( ctx->next_epoch_info==epoch_info && fd_pubkey_eq( &id_key, &ctx->id_key ) ) ) own_rank = (ushort)rank;
 
     peer_t * peer = peers_query( ctx->peers, id_key, NULL );
     if( FD_UNLIKELY( !peer ) ) {
       peer              = peers_insert( ctx->peers, id_key );
+      peer->prev_rank   = USHORT_MAX;
       peer->curr_rank   = USHORT_MAX;
       peer->tx_conn     = NULL;
       peer->rx_conn     = NULL;
@@ -723,7 +754,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   for( ulong slot=0UL; slot<peers_slot_cnt(); ) {
     peer_t * peer = &ctx->peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) )                            { slot++; continue; }
-    if( FD_LIKELY( peer->curr_rank!=USHORT_MAX || peer->next_rank!=USHORT_MAX ) ) { slot++; continue; }
+    if( FD_LIKELY( peer->prev_rank!=USHORT_MAX || peer->curr_rank!=USHORT_MAX || peer->next_rank!=USHORT_MAX ) ) { slot++; continue; }
     if( FD_LIKELY( peer->tx_conn ) ) {
       fd_quic_conn_set_context( peer->tx_conn, NULL );
       fd_quic_conn_close( peer->tx_conn, CLOSE_CODE_NOT_ADMITTED );
@@ -737,17 +768,10 @@ handle_epoch( fd_votor_tile_t *           ctx,
     peers_remove( ctx->peers, peer ); /* relocates, so reconsider the freed slot */
   }
 
-  /* update our own rank */
-
-  peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
-  ctx->curr_epoch_rank = self ? self->curr_rank : USHORT_MAX;
-  ctx->next_epoch_rank = self ? self->next_rank : USHORT_MAX;
-
   /* update structures */
 
-  ushort epoch_rank = fd_ushort_if( !!ctx->next_epoch_info, ctx->next_epoch_rank, ctx->curr_epoch_rank );
-  ag_pool_advance_epoch( ctx->pool, epoch_info, epoch_rank, msg->start_slot );
-  ag_votor_advance_epoch( ctx->votor, epoch_rank, msg->start_slot );
+  ag_pool_advance_epoch ( ctx->pool,  epoch_info, own_rank, msg->start_slot );
+  ag_votor_advance_epoch( ctx->votor, own_rank, msg->start_slot );
 
   /* update our leader schedule */
 
@@ -837,8 +861,8 @@ handle_replay( fd_votor_tile_t *           ctx,
     }
     if( FD_UNLIKELY( ctx->rooted_block_id.slot==ULONG_MAX ) ) {
       ctx->rooted_block_id = block_id;
-      ag_pool_init ( ctx->pool,  block_id.slot );
-      ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
+      ag_pool_init( ctx->pool, block_id.slot );
+      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
       ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
@@ -986,9 +1010,9 @@ after_credit( fd_votor_tile_t *   ctx,
 
   if( FD_UNLIKELY( ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) ) ) { /* our own vote */
     ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote_event.vote );
-    ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, ctx->curr_epoch_info );
+    ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote_event.vote );
-    if( FD_LIKELY( vote_slot>=ctx->curr_epoch_slot && epoch_info && rank<epoch_info->validator_cnt ) ) {
+    if( FD_LIKELY( vote_slot>=ctx->prev_epoch_slot && epoch_info && rank<epoch_info->validator_cnt ) ) {
       ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
 
@@ -1138,6 +1162,7 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
+    if( FD_UNLIKELY( !ctx->shred_version && ctx->rooted_block_id.slot!=ULONG_MAX ) ) ag_votor_init( ctx->votor, ctx->rooted_block_id.slot, fd_log_wallclock(), (ushort)sig, sign_bls, ctx );
     ctx->shred_version = (ushort)sig;
     ctx->init = !!ctx->curr_epoch_info && ctx->rooted_block_id.slot!=ULONG_MAX;
     break;
@@ -1213,12 +1238,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
 
+  ctx->prev_epoch_info = NULL;
+  ctx->prev_epoch_slot = ULONG_MAX;
   ctx->curr_epoch_info = NULL;
   ctx->curr_epoch_slot = ULONG_MAX;
-  ctx->curr_epoch_rank = USHORT_MAX;
   ctx->next_epoch_info = NULL;
   ctx->next_epoch_slot = ULONG_MAX;
-  ctx->next_epoch_rank = USHORT_MAX;
   memset( ctx->client_peer_id_keys, 0, sizeof(ctx->client_peer_id_keys) );
   memset( ctx->server_peer_id_keys, 0, sizeof(ctx->server_peer_id_keys) );
 

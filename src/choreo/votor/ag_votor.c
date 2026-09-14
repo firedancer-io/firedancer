@@ -30,8 +30,8 @@ struct slot_state_ele {
   long timeout;
   long timeout_crashed_leader;
 
-  struct { ulong prev; ulong next; } pending_link;
-  struct { ulong prev; ulong next; } timeout_link;
+  struct { ulong prev; ulong next; } pending_dlist;
+  struct { ulong prev; ulong next; } timeout_dlist;
 };
 typedef struct slot_state_ele slot_state_ele_t;
 
@@ -50,14 +50,14 @@ typedef struct slot_state_ele slot_state_ele_t;
 
 #define DLIST_NAME  pending_dlist
 #define DLIST_ELE_T slot_state_ele_t
-#define DLIST_PREV  pending_link.prev
-#define DLIST_NEXT  pending_link.next
+#define DLIST_PREV  pending_dlist.prev
+#define DLIST_NEXT  pending_dlist.next
 #include "../../util/tmpl/fd_dlist.c"
 
 #define DLIST_NAME  timeout_dlist
 #define DLIST_ELE_T slot_state_ele_t
-#define DLIST_PREV  timeout_link.prev
-#define DLIST_NEXT  timeout_link.next
+#define DLIST_PREV  timeout_dlist.prev
+#define DLIST_NEXT  timeout_dlist.next
 #include "../../util/tmpl/fd_dlist.c"
 
 struct slot_states {
@@ -83,6 +83,8 @@ struct __attribute__((aligned(128UL))) ag_votor {
   slot_states_t * slot_states;
   ulong           highest_final_cert_slot;
 
+  ulong        prev_epoch_rank;
+  ulong        prev_epoch_slot;
   ulong        curr_epoch_rank;
   ulong        curr_epoch_slot;
   ulong        next_epoch_rank;
@@ -217,6 +219,8 @@ ag_votor_new( void * mem,
   votor->slot_states->pool       = slot_state_pool_join( slot_state_pool_new( slot_state_pool, slot_max                  ) );
   votor->slot_states->map        = slot_state_map_join ( slot_state_map_new ( slot_state_map,  slot_state_chain_cnt, seed ) );
   votor->highest_final_cert_slot = ULONG_MAX;
+  votor->prev_epoch_rank         = 0UL;
+  votor->prev_epoch_slot         = ULONG_MAX;
   votor->curr_epoch_rank         = 0UL;
   votor->curr_epoch_slot         = ULONG_MAX;
   votor->next_epoch_rank         = 0UL;
@@ -301,7 +305,7 @@ ag_votor_fini( ag_votor_t * self ) {
 static ushort
 own_rank( ag_votor_t const * self,
           ulong              slot ) {
-  return (ushort)fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, self->curr_epoch_rank );
+  return (ushort)fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, fd_ulong_if( slot>=self->curr_epoch_slot, self->curr_epoch_rank, self->prev_epoch_rank ) );
 }
 
 FD_FN_PURE static int
@@ -513,12 +517,16 @@ ag_votor_advance_epoch( ag_votor_t * self,
                         ulong        epoch_rank,
                         ulong        epoch_slot ) {
   if( FD_UNLIKELY( self->curr_epoch_slot==ULONG_MAX ) ) {
+    self->prev_epoch_rank = epoch_rank;
+    self->prev_epoch_slot = epoch_slot;
     self->curr_epoch_rank = epoch_rank;
     self->curr_epoch_slot = epoch_slot;
   } else if( FD_UNLIKELY( self->next_epoch_slot==ULONG_MAX ) ) {
     self->next_epoch_rank = epoch_rank;
     self->next_epoch_slot = epoch_slot;
   } else {
+    self->prev_epoch_rank = self->curr_epoch_rank;
+    self->prev_epoch_slot = self->curr_epoch_slot;
     self->curr_epoch_rank = self->next_epoch_rank;
     self->curr_epoch_slot = self->next_epoch_slot;
     self->next_epoch_rank = epoch_rank;
