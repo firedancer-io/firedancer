@@ -314,7 +314,17 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_VOTE_COST_LIMIT             (24) /* A vote transaction pushed the block over its vote compute limit. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ACCOUNT_DATA_LIMIT          (25) /* A transaction pushed the block over its account data size limit. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_DUPLICATE_ACCOUNT           (26) /* A transaction referenced the same account more than once. */
-#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER                  (27) /* An Alpenglow block failed to parse its footer. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER                  (27) /* An Alpenglow block's footer could not be applied or declared a bank hash that did not match execution. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ALPENGLOW_HASH_CNT          (28) /* An Alpenglow block had an entry whose hash count was not exactly one. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MISSING_PARENT_MARKER       (29) /* An Alpenglow block carried an entry batch or footer before any block header. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MULTIPLE_BLOCK_HEADERS      (30) /* An Alpenglow block carried more than one block header. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER   (31) /* An Alpenglow genesis certificate marker did not immediately follow the block header. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MULTIPLE_BLOCK_FOOTERS      (32) /* An Alpenglow block carried more than one block footer. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER    (33) /* An Alpenglow block carried an entry batch other than the alpentick after its footer. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_INVALID_ALPENTICK_POSITION  (34) /* An Alpenglow block ended without the alpentick directly after its footer. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MISSING_BLOCK_FOOTER        (35) /* An Alpenglow block ended without a block footer. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (36) /* An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer. */
+#define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER            (37) /* An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind. */
 
 /* Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead. */
 #define FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED (1) /* Not abandoned; the block completed or was ruled invalid. */

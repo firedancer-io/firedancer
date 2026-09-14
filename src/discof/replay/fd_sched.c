@@ -210,11 +210,25 @@ struct fd_sched_block {
                                                              parseable after the next FEC set is ingested. */
 
   /* Alpenglow block footer, deserialized out of the marker batch at
-     parse time.  footer_present is set if the block carries a footer
+     parse time.  footer_seen is set if the block carries a footer
      marker and it is seen by sched; footer is only meaningful in that
      case. */
-  int               footer_present;
   fd_block_footer_t footer;
+
+  /* Alpenglow block structure, mirroring agave's BlockComponentStage
+     as a set of "seen" flags.  Only maintained when sched->is_alpenglow.
+     Together with mblk_cnt they determine what may come next:
+
+       agave stage               header footer alpentick mblk_cnt
+       PreParentMarker             0      0       0        0
+       AcceptingGenesisOrEntries   1      0       0        0     (and no genesis cert yet)
+       AcceptingEntriesOrFooter    1      0       0        *
+       AcceptingAlpentick          1      1       0        *
+       Done                        1      1       1        *      */
+  int header_seen;
+  int genesis_cert_seen;
+  int footer_seen;
+  int alpentick_seen;
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
@@ -337,6 +351,9 @@ verify_ticks_eager( fd_sched_block_t * block );
 
 static int
 verify_ticks_final( fd_sched_block_t * block );
+
+static int
+ag_on_final( fd_sched_block_t * block );
 
 static void
 add_block( fd_sched_t * sched,
@@ -1213,6 +1230,14 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
+  if( FD_UNLIKELY( block->fec_eos && sched->is_alpenglow ) ) {
+    int dead_reason = ag_on_final( block );
+    if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
+      handle_bad_block( sched, block, dead_reason );
+      return 0;
+    }
+  }
+
   /* We just received a FEC set, which may have made all transactions in
      a partially parsed microblock available.  If this were a malformed
      block that ends in a non-tick microblock, there's not going to be a
@@ -1963,7 +1988,7 @@ fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
-  return block->footer_present ? &block->footer : NULL;
+  return block->footer_seen ? &block->footer : NULL;
 }
 
 void
@@ -2088,7 +2113,10 @@ add_block( fd_sched_t * sched,
   block->inconsistent_hashes_per_tick = 0;
   block->zero_hash_tick               = 0;
 
-  block->footer_present = 0;
+  block->header_seen       = 0;
+  block->genesis_cert_seen = 0;
+  block->footer_seen       = 0;
+  block->alpentick_seen    = 0;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
@@ -2146,6 +2174,109 @@ add_block( fd_sched_t * sched,
     record_lineage_death( block, parent_block );
     block->dying = 1;
   }
+}
+
+/* Alpenglow block structure.  agave's BlockComponentProcessor rules
+   an Alpenglow block invalid unless its components are laid out as
+
+     header | [genesis cert] | entries* | footer | alpentick
+
+   with exactly one header and one footer, and the alpentick as the
+   final component.  The helpers below drive the same state machine off
+   the batches sched parses.
+
+   TODO feature gate FLH */
+
+static int
+ag_on_marker( fd_sched_t *              sched,
+              fd_sched_block_t *        block,
+              fd_block_marker_t const * marker ) {
+  (void)sched;
+  switch( marker->kind ) {
+
+  case FD_BLOCK_MARKER_KIND_HEADER:
+    if( FD_UNLIKELY( block->header_seen ) ) {
+      FD_LOG_INFO(( "bad block: MULTIPLE_BLOCK_HEADERS, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_MULTIPLE_BLOCK_HEADERS;
+    }
+    /* Checking for shred header and parent_slot mismatch occurs at the
+       rotor level, so it does not need to be checked in sched.  We do
+       this because currently replay tile never sees shred headers. */
+    block->header_seen = 1;
+    return FD_SCHED_DEAD_REASON_NONE;
+
+  case FD_BLOCK_MARKER_KIND_GENESIS_CERT:
+    if( FD_UNLIKELY( !block->header_seen ) ) {
+      FD_LOG_INFO(( "bad block: MISSING_PARENT_MARKER, slot %lu, parent slot %lu, genesis cert before header", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER;
+    }
+    if( FD_UNLIKELY( block->mblk_cnt || block->genesis_cert_seen || block->footer_seen ) ) {
+      FD_LOG_INFO(( "bad block: GENESIS_CERT_OUT_OF_ORDER, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER;
+    }
+    block->genesis_cert_seen = 1;
+    return FD_SCHED_DEAD_REASON_NONE;
+
+  case FD_BLOCK_MARKER_KIND_FOOTER:
+    if( FD_UNLIKELY( !block->header_seen ) ) {
+      FD_LOG_INFO(( "bad block: MISSING_PARENT_MARKER, slot %lu, parent slot %lu, footer before header", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER;
+    }
+    if( FD_UNLIKELY( block->footer_seen ) ) {
+      FD_LOG_INFO(( "bad block: MULTIPLE_BLOCK_FOOTERS, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_MULTIPLE_BLOCK_FOOTERS;
+    }
+    block->footer      = marker->footer;
+    block->footer_seen = 1;
+    return FD_SCHED_DEAD_REASON_NONE;
+
+  case FD_BLOCK_MARKER_KIND_UPDATE_PARENT:
+    if( FD_UNLIKELY( !block->header_seen || block->footer_seen ) ) {
+      FD_LOG_INFO(( "bad block: SPURIOUS_UPDATE_PARENT, slot %lu, parent slot %lu, header %d footer %d", block->slot, block->parent_slot, block->header_seen, block->footer_seen ));
+      return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
+    }
+    FD_LOG_INFO(( "bad block: SPURIOUS_UPDATE_PARENT, FLH not activated, slot %lu, parent slot %lu, new_parent_slot %lu", block->slot, block->parent_slot, marker->update_parent.new_parent_slot ));
+    return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
+
+  default:
+    FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, unknown block marker kind %u", block->slot, block->parent_slot, marker->kind ));
+    return FD_SCHED_DEAD_REASON_BAD_BLOCK_MARKER;
+  }
+}
+
+/* Called when a batch header declares one or more microblocks. */
+
+static int
+ag_on_entry_batch( fd_sched_block_t * block ) {
+  if( FD_UNLIKELY( !block->header_seen ) ) {
+    FD_LOG_INFO(( "bad block: MISSING_PARENT_MARKER, slot %lu, parent slot %lu, entries before header", block->slot, block->parent_slot ));
+    return FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER;
+  }
+  if( FD_UNLIKELY( block->alpentick_seen ) ) {
+    FD_LOG_INFO(( "bad block: ENTRY_AFTER_BLOCK_FOOTER, slot %lu, parent slot %lu, batch after alpentick", block->slot, block->parent_slot ));
+    return FD_SCHED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER;
+  }
+  /* Only the alpentick may follow the footer: a batch of exactly one
+     microblock which must turn out to be a tick (checked when its
+     header parses). */
+  if( FD_UNLIKELY( block->footer_seen && block->mblks_rem!=1UL ) ) {
+    FD_LOG_INFO(( "bad block: ENTRY_AFTER_BLOCK_FOOTER, slot %lu, parent slot %lu, batch of %lu microblocks after footer", block->slot, block->parent_slot, block->mblks_rem ));
+    return FD_SCHED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER;
+  }
+  return FD_SCHED_DEAD_REASON_NONE;
+}
+
+static int
+ag_on_final( fd_sched_block_t * block ) {
+  if( FD_UNLIKELY( !block->footer_seen ) ) {
+    FD_LOG_INFO(( "bad block: MISSING_BLOCK_FOOTER, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
+    return FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER;
+  }
+  if( FD_UNLIKELY( !block->alpentick_seen ) ) {
+    FD_LOG_INFO(( "bad block: INVALID_ALPENTICK_POSITION, slot %lu, parent slot %lu, block ended after footer without alpentick", block->slot, block->parent_slot ));
+    return FD_SCHED_DEAD_REASON_INVALID_ALPENTICK_POSITION;
+  }
+  return FD_SCHED_DEAD_REASON_NONE;
 }
 
 /* Agave invokes verify_ticks() anywhere between once per slot and once
@@ -2289,6 +2420,17 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         FD_LOG_INFO(( "bad block: TICK_HASHES_OVERFLOW_INGEST, slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
         return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST;
       }
+      if( FD_UNLIKELY( sched->is_alpenglow && hdr->hash_cnt!=1UL ) ) {
+        FD_LOG_INFO(( "bad block: ALPENGLOW_HASH_CNT, slot %lu, parent slot %lu, mblk idx %u declared hash_cnt %lu", block->slot, block->parent_slot, block->mblk_cnt, hdr->hash_cnt ));
+        return FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT;
+      }
+      if( FD_UNLIKELY( sched->is_alpenglow && block->footer_seen ) ) {
+        if( FD_UNLIKELY( hdr->txn_cnt ) ) {
+          FD_LOG_INFO(( "bad block: ENTRY_AFTER_BLOCK_FOOTER, slot %lu, parent slot %lu, transaction microblock after footer", block->slot, block->parent_slot ));
+          return FD_SCHED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER;
+        }
+        block->alpentick_seen = 1;
+      }
 
       block->mblks_rem--;
       block->txns_rem = hdr->txn_cnt;
@@ -2407,18 +2549,18 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       block->fec_sob = 0;
 
       if( FD_UNLIKELY( !block->mblks_rem && sched->is_alpenglow ) ) {
+        /* A zero-microblock batch is a block marker */
         fd_block_marker_t marker[1];
         int err = fd_block_marker_de( marker, block->fec_buf, (ulong)block->fec_buf_sz );
         if( FD_UNLIKELY( err ) ) {
-          FD_LOG_INFO(( "bad block: slot %lu, unable to parse footer marker (err %d)", block->slot, err ));
-          return FD_SCHED_DEAD_REASON_BAD_FOOTER;
+          FD_LOG_INFO(( "bad block: slot %lu, unable to parse block marker (err %d)", block->slot, err ));
+          return FD_SCHED_DEAD_REASON_BAD_BLOCK_MARKER;
         }
-        if( marker->kind==FD_BLOCK_MARKER_KIND_FOOTER ) {
-          block->footer         = marker->footer;
-          block->footer_present = 1;
-        } else if( marker->kind==FD_BLOCK_MARKER_KIND_UPDATE_PARENT ) {
-          FD_LOG_CRIT(( "UNHANDLED alpenglow update parent: slot %lu, new_parent_slot %lu", block->slot, marker->update_parent.new_parent_slot ));
-        }
+        int dead_reason = ag_on_marker( sched, block, marker );
+        if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
+      } else if( FD_UNLIKELY( block->mblks_rem && sched->is_alpenglow ) ) {
+        int dead_reason = ag_on_entry_batch( block );
+        if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
       } else if( FD_UNLIKELY( !block->mblks_rem && !sched->is_alpenglow ) ) {
         FD_LOG_INFO(( "bad block: ZERO_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks)", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));
         return FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS;

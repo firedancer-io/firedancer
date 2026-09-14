@@ -293,5 +293,6 @@
   {"name":"double_disinflation_rate","pubkey":"55oikhjJ2LUi1xdgJ17ueRyHFURZEw32asT3iAKfh7gg"},
   {"name":"remove_inactive_stakes","pubkey":"RMsTKfD6hZnBhhNvgGBeKNrqCNkeoP3DYYxNtcuWtRg"},
   {"name":"alpenglow","pubkey":"A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS","old":"A1PeNGc3D8SQmKwdYf4qj1XG7XgWVSuFQaiJSCQj775h"},
-  {"name":"relax_fee_payer_constraint","pubkey":"FEEXbxUuKobtrt1qNK5pjtzbPQhsppBTrNNG74xu4mai"}
+  {"name":"relax_fee_payer_constraint","pubkey":"FEEXbxUuKobtrt1qNK5pjtzbPQhsppBTrNNG74xu4mai"},
+  {"name":"alpenglow_fast_leader_handover","pubkey":"FLHoAWBDjNh6zwmJ5i1NKK4KyD8otAiv7XxvmnFnVnKH"}
 ]
