@@ -56,6 +56,8 @@ fi
 # FIXME: Needs a /tmp/test.pcap file
 #$UNIT_TEST/test_replay         --tile-cpus 38-42/2 --tx-pcap /tmp/test.pcap 2> $LOG_PATH/replay
 
+src/waltz/tlsrec/test_tls_openssl1.sh 2>&1 | tee $LOG_PATH/tls_openssl; [[ ${PIPESTATUS[0]} -eq 0 ]] || test_status=1
+
 wait
 
 for f in `ls $LOG_PATH`; do
