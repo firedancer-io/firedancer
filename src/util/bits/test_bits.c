@@ -1099,15 +1099,15 @@ main( int     argc,
       if( 1 ) {
         uchar * d = buf + i; uchar const * s = d;
         uchar ref; memcpy( &ref, s, 1UL ); uchar refb = (uchar)~ref;
-        FD_TEST( FD_STORE( uchar, d, refb )==(uchar *)d ); FD_TEST( FD_LOAD( uchar, s )==refb );
-        FD_TEST( FD_STORE( uchar, d, ref  )==(uchar *)d ); FD_TEST( FD_LOAD( uchar, s )==ref  );
+        FD_TEST( FD_STORE( uchar, d, refb )==(void *)d ); FD_TEST( FD_LOAD( uchar, s )==refb );
+        FD_TEST( FD_STORE( uchar, d, ref  )==(void *)d ); FD_TEST( FD_LOAD( uchar, s )==ref  );
         FD_TEST( fd_uchar_load_1( s )==ref ); FD_TEST( fd_uchar_load_1_fast( s )==ref );
       }
       if( (i+2UL)<=2048UL ) {
         uchar * d = buf + i; uchar const * s = d;
         ushort ref; memcpy( &ref, s, 2UL ); ushort refb = (ushort)~ref;
-        FD_TEST( FD_STORE( ushort, d, refb )==(ushort *)d ); FD_TEST( FD_LOAD( ushort, s )==refb );
-        FD_TEST( FD_STORE( ushort, d, ref  )==(ushort *)d ); FD_TEST( FD_LOAD( ushort, s )==ref  );
+        FD_TEST( FD_STORE( ushort, d, refb )==(void *)d ); FD_TEST( FD_LOAD( ushort, s )==refb );
+        FD_TEST( FD_STORE( ushort, d, ref  )==(void *)d ); FD_TEST( FD_LOAD( ushort, s )==ref  );
         ushort mask = (ushort)~(ushort)0;
         FD_TEST( fd_ushort_load_2( s )==ref ); FD_TEST( fd_ushort_load_2_fast( s )==ref ); mask >>= 8; ref &= mask;
         FD_TEST( fd_ushort_load_1( s )==ref ); FD_TEST( fd_ushort_load_1_fast( s )==ref );
@@ -1115,8 +1115,8 @@ main( int     argc,
       if( (i+4UL)<=2048UL ) {
         uchar * d = buf + i; uchar const * s = d;
         uint ref; memcpy( &ref, s, 4UL ); uint refb = ~ref;
-        FD_TEST( FD_STORE( uint, d, refb )==(uint *)d ); FD_TEST( FD_LOAD( uint, s )==refb );
-        FD_TEST( FD_STORE( uint, d, ref  )==(uint *)d ); FD_TEST( FD_LOAD( uint, s )==ref  );
+        FD_TEST( FD_STORE( uint, d, refb )==(void *)d ); FD_TEST( FD_LOAD( uint, s )==refb );
+        FD_TEST( FD_STORE( uint, d, ref  )==(void *)d ); FD_TEST( FD_LOAD( uint, s )==ref  );
         uint mask = ~0U;
         FD_TEST( fd_uint_load_4( s )==ref ); FD_TEST( fd_uint_load_4_fast( s )==ref ); mask >>= 8; ref &= mask;
         FD_TEST( fd_uint_load_3( s )==ref ); FD_TEST( fd_uint_load_3_fast( s )==ref ); mask >>= 8; ref &= mask;
@@ -1126,8 +1126,8 @@ main( int     argc,
       if( (i+8UL)<=2048UL ) {
         uchar * d = buf + i; uchar const * s = d;
         ulong ref; memcpy( &ref, s, 8UL ); ulong refb = ~ref;
-        FD_TEST( FD_STORE( ulong, d, refb )==(ulong *)d ); FD_TEST( FD_LOAD( ulong, s )==refb );
-        FD_TEST( FD_STORE( ulong, d, ref  )==(ulong *)d ); FD_TEST( FD_LOAD( ulong, s )==ref  );
+        FD_TEST( FD_STORE( ulong, d, refb )==(void *)d ); FD_TEST( FD_LOAD( ulong, s )==refb );
+        FD_TEST( FD_STORE( ulong, d, ref  )==(void *)d ); FD_TEST( FD_LOAD( ulong, s )==ref  );
         ulong mask = ~0UL;
         FD_TEST( fd_ulong_load_8( s )==ref ); FD_TEST( fd_ulong_load_8_fast( s )==ref ); mask >>= 8; ref &= mask;
         FD_TEST( fd_ulong_load_7( s )==ref ); FD_TEST( fd_ulong_load_7_fast( s )==ref ); mask >>= 8; ref &= mask;
@@ -1144,9 +1144,9 @@ main( int     argc,
          we only test uint128 FD_LOAD / FD_STORE under STYLE==0. */
       if( (i+16UL)<=2048UL ) {
         uchar * d = buf + i; uchar const * s = d;
-        uint128 ref; memcpy( &ref, s, 8UL ); uint128 refb = ~ref;
-        FD_TEST( FD_STORE( uint128, d, refb )==(uint128 *)d ); FD_TEST( FD_LOAD( uint128, s )==refb );
-        FD_TEST( FD_STORE( uint128, d, ref  )==(uint128 *)d ); FD_TEST( FD_LOAD( uint128, s )==ref  );
+        uint128 ref; memcpy( &ref, s, sizeof(ref) ); uint128 refb = ~ref;
+        FD_TEST( FD_STORE( uint128, d, refb )==(void *)d ); FD_TEST( FD_LOAD( uint128, s )==refb );
+        FD_TEST( FD_STORE( uint128, d, ref  )==(void *)d ); FD_TEST( FD_LOAD( uint128, s )==ref  );
         /* FIXME: Consider adding APIs for unaligned 128-bit access? */
       }
 #     endif

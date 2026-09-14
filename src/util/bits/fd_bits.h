@@ -614,11 +614,8 @@ fd_double_eq( double x,
      return (*(T const *)(src))
    but src can have arbitrary alignment.
 
-   FD_STORE( T, dst, val ) is equivalent to:
-     T * ptr = (T *)(dst);
-     *ptr = (val);
-     return ptr
-   but dst can have arbitrary alignment.
+   FD_STORE( T, dst, val ) stores val converted to T in sizeof(T) bytes
+   at dst and returns dst as a void *.  dst can have arbitrary alignment.
 
    Note: Ideally, we would infer the type T in FD_LOAD from src (e.g.
    use typeof(*(src)).  But there are some nasty linguistic and
@@ -681,7 +678,7 @@ fd_double_eq( double x,
   (__extension__({ T _fd_load_tmp; memcpy( &_fd_load_tmp, (void const *)(src), sizeof(T) ); _fd_load_tmp; }))
 
 #define FD_STORE( T, dst, val ) \
-  (__extension__({ T _fd_store_tmp = (val); (T *)memcpy( (T *)(dst), &_fd_store_tmp, sizeof(T) ); }))
+  (__extension__({ T _fd_store_tmp = (val); memcpy( (void *)(dst), &_fd_store_tmp, sizeof(T) ); }))
 
 FD_FN_PURE static inline uchar  fd_uchar_load_1      ( void const * p ) { return         *(uchar const *)p; }
 
@@ -733,7 +730,7 @@ FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { ulong 
     T * _fd_store_tmp = (T *)fd_type_pun( (void *)(dst) ); \
     *_fd_store_tmp = (val);                                \
     FD_COMPILER_MFENCE();                                  \
-    _fd_store_tmp;                                         \
+    (void *)_fd_store_tmp;                                 \
   }))
 
 FD_FN_PURE static inline uchar  fd_uchar_load_1      ( void const * p ) { FD_COMPILER_FORGET( p ) ; return (        *(uchar  const *)p); }
