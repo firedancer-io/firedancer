@@ -251,7 +251,7 @@ fd_event_runtime_stake_delegation_payout_emit( fd_bank_t const * bank,
                                                 activation_epoch, deactivation_epoch, credits_observed );
 }
 
-/* Boundary processing runs single-threaded; pieces of the runtime_epoch event computed 
+/* Boundary processing runs single-threaded; pieces of the runtime_epoch event computed
    at different points are stashed here and emitted together at the end of the boundary. */
 
 static FD_TL struct {
@@ -648,6 +648,7 @@ fd_event_runtime_block_emit( fd_bank_t const *             bank,
        !fd_blockhash_deq_iter_done_rev( bhq, iter ) && bh_cnt<FD_SYSVAR_RECENT_HASHES_CAP+1UL;
        iter = fd_blockhash_deq_iter_prev( bhq, iter ) ) {
     fd_blockhash_info_t const * info = fd_blockhash_deq_iter_ele_const( bhq, iter );
+    if( FD_UNLIKELY( !info->exists ) ) continue;
     if( FD_LIKELY( bh_cnt<FD_SYSVAR_RECENT_HASHES_CAP ) ) {
       fd_memcpy( ev.recent_blockhashes_sysvar[ bh_cnt ].blockhash, info->hash.uc, 32UL );
       ev.recent_blockhashes_sysvar[ bh_cnt ].lamports_per_signature = info->lamports_per_signature;

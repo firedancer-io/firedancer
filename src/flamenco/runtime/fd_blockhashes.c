@@ -8,7 +8,7 @@ fd_blockhashes_init( fd_blockhashes_t * mem,
     return NULL;
   }
   FD_TEST( fd_blockhash_deq_join( fd_blockhash_deq_new( &mem->d ) ) );
-  memset( mem->d.deque, 0x5a, sizeof(fd_blockhash_info_t) * FD_BLOCKHASHES_MAX );
+  memset( mem->d.deque, 0x5a, sizeof(fd_blockhash_info_t) * FD_BLOCKHASHES_SPAN_MAX );
   FD_TEST( fd_blockhash_map_join( fd_blockhash_map_new( mem, FD_BLOCKHASH_MAP_CHAIN_MAX, seed ) ) );
   return mem;
 }
@@ -17,16 +17,20 @@ static void
 fd_blockhashes_pop_old( fd_blockhashes_t * blockhashes ) {
   if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return;
   fd_blockhash_info_t * info = fd_blockhash_deq_pop_head_nocopy( blockhashes->d.deque );
-  info->exists = 0;
-  fd_blockhash_map_ele_remove( blockhashes->map, &info->hash, NULL, blockhashes->d.deque );
+  if( FD_LIKELY( info->exists ) ) {
+    info->exists = 0;
+    fd_blockhash_map_ele_remove( blockhashes->map, &info->hash, NULL, blockhashes->d.deque );
+  }
 }
 
 void
 fd_blockhashes_pop_new( fd_blockhashes_t * blockhashes ) {
   if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return;
   fd_blockhash_info_t * info = fd_blockhash_deq_pop_tail_nocopy( blockhashes->d.deque );
-  info->exists = 0;
-  fd_blockhash_map_ele_remove( blockhashes->map, &info->hash, NULL, blockhashes->d.deque );
+  if( FD_LIKELY( info->exists ) ) {
+    info->exists = 0;
+    fd_blockhash_map_ele_remove( blockhashes->map, &info->hash, NULL, blockhashes->d.deque );
+  }
 }
 
 fd_blockhash_info_t *

@@ -7,10 +7,10 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_ssload_manifest_validate checks the snapshot manifest for
    structural issues that the parser does not catch: epoch schedule
-   consistency, blockhash queue ordering (gaps, duplicates, wraparound),
-   array bounds (hard forks, stake delegations, vote accounts,
-   epoch stakes), epoch credits downcasting safety (epoch fits ushort,
-   credit deltas fit uint), and epoch stakes index bounds.
+   consistency, blockhash queue bounds (index span, duplicates,
+   wraparound), array bounds (hard forks, stake delegations, vote
+   accounts, epoch stakes), epoch credits downcasting safety (epoch fits
+   ushort, credit deltas fit uint), and epoch stakes index bounds.
    max_vote_accounts and max_stake_accounts must equal
    FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS and FD_RUNTIME_MAX_STAKE_ACCOUNTS
    respectively; mismatches are rejected as a configuration error.  The
@@ -19,8 +19,8 @@ FD_PROTOTYPES_BEGIN
    map, which covers every staked voter rather than only the admitted
    set, is capped by the larger FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS.
    Returns 0 on success, -1 on failure (corrupt manifest or
-   configuration mismatch).  This function only reads the manifest
-   and has no side effects. */
+   configuration mismatch).  This function only reads the manifest and
+   has no side effects. */
 int
 fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                              ulong                          max_vote_accounts,

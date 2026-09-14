@@ -78,26 +78,28 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
   }
 
   ulong seq_min = ULONG_MAX;
+  ulong seq_max = 0UL;
   for( ulong i=0UL; i<age_cnt; i++ ) {
     seq_min = fd_ulong_min( seq_min, ages[ i ].hash_index );
+    seq_max = fd_ulong_max( seq_max, ages[ i ].hash_index );
   }
-  ulong seq_max;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( seq_min, age_cnt, &seq_max ) ) ) {
-    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, age_cnt ));
+  if( FD_UNLIKELY( seq_max==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue sequence number wraparound (seq_max=%lu)", seq_max ));
+    return -1;
+  }
+  ulong span = seq_max-seq_min+1UL;
+  if( FD_UNLIKELY( span>FD_BLOCKHASHES_SPAN_MAX ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue index span %lu exceeds max %lu (seq=[%lu,%lu])",
+                     span, FD_BLOCKHASHES_SPAN_MAX, seq_min, seq_max ));
     return -1;
   }
 
-  /* Check for gaps and duplicates using a bitset (max 301 entries). */
+  /* Check for duplicate indices using a bitset (span<=512). */
 
-  ulong seen[ (FD_BLOCKHASHES_MAX+63UL)/64UL ];
+  ulong seen[ (FD_BLOCKHASHES_SPAN_MAX+63UL)/64UL ];
   fd_memset( seen, 0, sizeof(seen) );
   for( ulong i=0UL; i<age_cnt; i++ ) {
-    ulong idx;
-    if( FD_UNLIKELY( __builtin_usubl_overflow( ages[ i ].hash_index, seq_min, &idx ) || idx>=age_cnt ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: gap in blockhash queue (seq=[%lu,%lu) hash_index=%lu)",
-                       seq_min, seq_max, ages[ i ].hash_index ));
-      return -1;
-    }
+    ulong idx  = ages[ i ].hash_index-seq_min;
     ulong word = idx/64UL;
     ulong bit  = idx%64UL;
     if( FD_UNLIKELY( seen[ word ] & (1UL<<bit) ) ) {
@@ -275,8 +277,8 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
 
   /* The caller must guarantee that fd_ssload_manifest_validate has
      already been invoked, verifying that age_cnt is in the range
-     (0, FD_BLOCKHASHES_MAX], that there are no gaps or duplicates in
-     the sequence numbers, and that seq_min+age_cnt does not overflow. */
+     (0, FD_BLOCKHASHES_MAX], that the hash_index range spans at most
+     FD_BLOCKHASHES_SPAN_MAX values, and there are no duplicates. */
 
   if( FD_UNLIKELY( !fd_blockhashes_init( blockhashes, seed ) ) ) {
     FD_LOG_WARNING(( "failed to initialize blockhash queue" ));
@@ -284,13 +286,16 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
   }
 
   ulong seq_min = ULONG_MAX;
+  ulong seq_max = 0UL;
   for( ulong i=0UL; i<age_cnt; i++ ) {
     seq_min = fd_ulong_min( seq_min, ages[ i ].hash_index );
+    seq_max = fd_ulong_max( seq_max, ages[ i ].hash_index );
   }
+  ulong span = seq_max-seq_min+1UL;
 
   /* Reset */
 
-  for( ulong i=0UL; i<age_cnt; i++ ) {
+  for( ulong i=0UL; i<span; i++ ) {
     fd_blockhash_info_t * ele = fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque );
     fd_memset( ele, 0, sizeof(fd_blockhash_info_t) );
   }

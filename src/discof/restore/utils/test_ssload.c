@@ -256,13 +256,39 @@ test_blockhash_queue( fd_snapshot_manifest_t * manifest ) {
   }
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
-  /* Gap in sequence. */
+  /* Gap in sequence (valid: Agave drops the older index when a
+     blockhash is registered twice). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->blockhashes_len = 3UL;
   manifest->blockhashes[0].hash_index = 0UL;
   manifest->blockhashes[1].hash_index = 1UL;
   manifest->blockhashes[2].hash_index = 3UL; /* gap at 2 */
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+
+  /* Span past 301 is valid: Agave's purge is lazy, so with holes the
+     oldest entries linger (300 live entries over 302 indices is the
+     shape every other block after a create-snapshot restart). */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->blockhashes_len = 300UL;
+  for( ulong i=0UL; i<300UL; i++ ) manifest->blockhashes[i].hash_index = i<299UL ? i : 301UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+
+  /* Gap that keeps the span exactly at the deque capacity (valid). */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->blockhashes_len = 2UL;
+  manifest->blockhashes[0].hash_index = 0UL;
+  manifest->blockhashes[1].hash_index = FD_BLOCKHASHES_SPAN_MAX-1UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+
+  /* Gap that pushes the span past the deque capacity (invalid). */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->blockhashes_len = 2UL;
+  manifest->blockhashes[0].hash_index = 0UL;
+  manifest->blockhashes[1].hash_index = FD_BLOCKHASHES_SPAN_MAX;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Duplicate index. */
@@ -274,7 +300,7 @@ test_blockhash_queue( fd_snapshot_manifest_t * manifest ) {
   manifest->blockhashes[2].hash_index = 1UL; /* duplicate */
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* Sequence wraparound (seq_min+age_cnt overflows). */
+  /* Sequence wraparound (hash_index reaches ULONG_MAX). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->blockhashes_len = 2UL;
@@ -563,6 +589,95 @@ test_epoch_credits_migration_marker( fd_snapshot_manifest_t * manifest ) {
 }
 
 static void
+test_recover_blockhash_queue_gap( fd_wksp_t * wksp, fd_snapshot_manifest_t * manifest ) {
+  FD_LOG_NOTICE(( "testing recover with a gap in the blockhash queue" ));
+
+  ulong max_banks = 16UL;
+  ulong max_forks =  4UL;
+  ulong max_stake          = 64UL;
+  ulong max_fallback_stake = 1024UL;
+  ulong max_vote           = 64UL;
+  ulong seed               = 7UL;
+
+  ulong banks_footprint = fd_banks_footprint( max_banks, max_forks,
+                                              max_stake, max_fallback_stake, max_vote );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),
+                                          banks_footprint, 3UL );
+  FD_TEST( banks_mem );
+
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
+                                                    max_stake, max_fallback_stake, max_vote,
+                                                    0UL /* max_cost_per_block */, seed ) );
+  FD_TEST( banks );
+
+  fd_bank_t * bank = fd_banks_init_bank( banks );
+  FD_TEST( bank );
+
+  /* Model the shape agave-ledger-tool create-snapshot produces: the
+     synthetic child block re-registers the parent's blockhash, so the
+     parent's hash_index disappears from the ages and the hash shows up
+     once, at the newest index.  Indices 100,101,102 present, 103
+     missing, 104 present (the duplicate carries index 104). */
+
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->blockhashes_len = 4UL;
+  ulong const idxs[4] = { 100UL, 101UL, 102UL, 104UL };
+  for( ulong i=0UL; i<4UL; i++ ) {
+    manifest->blockhashes[i].hash_index = idxs[i];
+    manifest->blockhashes[i].lamports_per_signature = 5000UL+idxs[i];
+    fd_memset( manifest->blockhashes[i].hash, (int)(0x10+idxs[i]), 32 );
+  }
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+
+  fd_blockhashes_t * bhq = &bank->f.block_hash_queue;
+
+  /* Five deque slots (span), four live entries, one hole at 103. */
+  FD_TEST( fd_blockhash_deq_cnt( bhq->d.deque )==5UL );
+  FD_TEST( bhq->d.deque[ 3 ].exists==0 );
+
+  /* The newest hash is the one at index 104. */
+  fd_hash_t const * last = fd_blockhashes_peek_last_hash( bhq );
+  FD_TEST( last && last->uc[0]==(uchar)(0x10+104) );
+
+  /* Ages are measured by hash_index distance, holes included. */
+  fd_hash_t h; fd_memset( h.uc, 0x10+104, 32 ); FD_TEST( fd_blockhashes_check_age( bhq, &h, 0UL )==1 );
+  fd_memset( h.uc, 0x10+102, 32 ); FD_TEST( fd_blockhashes_check_age( bhq, &h, 1UL )==0 );
+  FD_TEST( fd_blockhashes_check_age( bhq, &h, 2UL )==1 );
+  fd_memset( h.uc, 0x10+100, 32 ); FD_TEST( fd_blockhashes_check_age( bhq, &h, 3UL )==0 );
+  FD_TEST( fd_blockhashes_check_age( bhq, &h, 4UL )==1 );
+
+  /* A hash that was never registered is not found. */
+  fd_memset( h.uc, 0x10+103, 32 ); FD_TEST( fd_blockhashes_check_age( bhq, &h, 300UL )==0 );
+
+  /* Push unique hashes until the deque is full, then four more so the
+     head evicts slots 0, 1, 2 (live: indices 100, 101, 102) and 3 (the
+     hole for index 103).  Evicting a hole must leave the map alone and
+     must not disturb the remaining live entry. */
+  ulong pushes = 0UL;
+  while( !fd_blockhash_deq_full( bhq->d.deque ) ) {
+    fd_hash_t u; fd_memset( u.uc, 0, 32 ); u.ul[0] = 0xF000UL+pushes;
+    fd_blockhashes_push_new( bhq, &u );
+    pushes++;
+  }
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_hash_t u; fd_memset( u.uc, 0, 32 ); u.ul[0] = 0xF000UL+pushes+i;
+    fd_blockhashes_push_new( bhq, &u );
+  }
+  FD_TEST( fd_blockhash_deq_full( bhq->d.deque ) );
+  fd_memset( h.uc, 0x10+104, 32 );
+  FD_TEST( fd_blockhashes_check_age( bhq, &h, ULONG_MAX )==1 ); /* survives the hole's eviction */
+  FD_TEST( fd_blockhashes_check_age( bhq, &h, FD_BLOCKHASHES_SPAN_MAX-1UL )==1 ); /* now the oldest slot */
+  fd_memset( h.uc, 0x10+102, 32 );
+  FD_TEST( fd_blockhashes_check_age( bhq, &h, ULONG_MAX )==0 ); /* genuinely evicted */
+
+  fd_wksp_free_laddr( banks_mem );
+
+  FD_LOG_NOTICE(( "... pass" ));
+}
+
+static void
 test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_manifest_t * manifest ) {
   FD_LOG_NOTICE(( "testing recover preserves snapin stake delegations" ));
 
@@ -777,6 +892,7 @@ main( int     argc,
   test_epoch_credits_downcasting( manifest );
   test_epoch_credits_migration_marker( manifest );
   test_recover_preserves_snapin_stake_delegations( wksp, manifest );
+  test_recover_blockhash_queue_gap( wksp, manifest );
 
   fd_wksp_free_laddr( manifest );
 

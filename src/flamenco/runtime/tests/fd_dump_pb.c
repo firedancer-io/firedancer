@@ -383,22 +383,33 @@ dump_blockhash_queue( fd_bank_t *                             bank,
   fd_blockhashes_t const * bhq      = &bank->f.block_hash_queue;
   ulong                    bhq_size = fd_ulong_min( FD_BLOCKHASHES_MAX, fd_blockhash_deq_cnt( bhq->d.deque ) );
 
+  ulong live = 0UL;
+  for( fd_blockhash_deq_iter_t iter=fd_blockhash_deq_iter_init_rev( bhq->d.deque );
+       !fd_blockhash_deq_iter_done_rev( bhq->d.deque, iter ) && live<bhq_size;
+       iter=fd_blockhash_deq_iter_prev( bhq->d.deque, iter ) ) {
+    fd_blockhash_info_t const * ele = fd_blockhash_deq_iter_ele_const( bhq->d.deque, iter );
+    if( FD_UNLIKELY( !ele->exists ) ) continue;
+    live++;
+  }
+
   fd_exec_test_blockhash_queue_entry_t * entries = fd_spad_alloc( spad,
       alignof(fd_exec_test_blockhash_queue_entry_t),
-      bhq_size * sizeof(fd_exec_test_blockhash_queue_entry_t) );
+      live * sizeof(fd_exec_test_blockhash_queue_entry_t) );
 
   ulong cnt = 0UL;
   for( fd_blockhash_deq_iter_t iter=fd_blockhash_deq_iter_init_rev( bhq->d.deque );
-       !fd_blockhash_deq_iter_done_rev( bhq->d.deque, iter ) && cnt<bhq_size;
-       iter=fd_blockhash_deq_iter_prev( bhq->d.deque, iter ), cnt++ ) {
-    fd_blockhash_info_t const * ele   = fd_blockhash_deq_iter_ele_const( bhq->d.deque, iter );
-    fd_exec_test_blockhash_queue_entry_t * entry = &entries[bhq_size-cnt-1UL];
+       !fd_blockhash_deq_iter_done_rev( bhq->d.deque, iter ) && cnt<live;
+       iter=fd_blockhash_deq_iter_prev( bhq->d.deque, iter ) ) {
+    fd_blockhash_info_t const * ele = fd_blockhash_deq_iter_ele_const( bhq->d.deque, iter );
+    if( FD_UNLIKELY( !ele->exists ) ) continue;
+    fd_exec_test_blockhash_queue_entry_t * entry = &entries[live-cnt-1UL];
     fd_memcpy( entry->blockhash, ele->hash.uc, sizeof(fd_hash_t) );
     entry->lamports_per_signature = ele->lamports_per_signature;
+    cnt++;
   }
 
   *entries_out = entries;
-  *count_out   = (pb_size_t)bhq_size;
+  *count_out   = (pb_size_t)live;
 }
 
 static void

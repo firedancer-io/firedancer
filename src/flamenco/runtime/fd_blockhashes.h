@@ -10,7 +10,27 @@
 
    See solana_accounts_db::blockhash_queue::BlockhashQueue. */
 
-#define FD_BLOCKHASHES_MAX (301UL)
+/* FD_BLOCKHASHES_MAX is the most live entries Agave's BlockhashQueue
+   ever holds: the purge keeps ages 0..300 inclusive.
+
+   FD_BLOCKHASHES_SPAN_MAX bounds the hash_index range those entries may
+   cover, which may be larger than FD_BLOCKHASHES_MAX.
+
+   A blockhash may be registered multiple times due to hard forks /
+   artificial slots with 0 hashes per tick -- which may happen during a
+   restart on an AG cluster.  So far there is no way for this to happen
+   during regular runtime operations.  In this case, only the newest
+   hash_index is kept. The index range may then exceed 301.
+
+   The block hash queue only purges once the map holds at least 300
+   entries, but duplicate registrations eject entries from the map and
+   not the deque (for purposes of maintaining the mapping from blockhash
+   to age/position).  Each hole therefore lets the span grow by one past
+   301 until the "holes" fall off the end.  512 covers more than 200
+   holes; anything beyond is rejected at snapshot load. */
+
+#define FD_BLOCKHASHES_MAX      (301UL)
+#define FD_BLOCKHASHES_SPAN_MAX (512UL)
 
 /* See solana_accounts_db::blockhash_queue::HashInfo. */
 
@@ -27,7 +47,7 @@ typedef struct fd_blockhash_info fd_blockhash_info_t;
 
 #define DEQUE_NAME fd_blockhash_deq
 #define DEQUE_T    fd_blockhash_info_t
-#define DEQUE_MAX  512 /* must be a power of 2 */
+#define DEQUE_MAX  FD_BLOCKHASHES_SPAN_MAX /* must be a power of 2 */
 #include "../../util/tmpl/fd_deque.c"
 
 /* Declare a separately chained hash map over the blockhash queue. */
@@ -55,7 +75,15 @@ typedef struct fd_blockhash_info fd_blockhash_info_t;
 
    Under the hood it is an array-backed double-ended queue, and a
    separately-chained hash index on top.  New entries are inserted to
-   the **tail** of the queue. */
+   the **tail** of the queue.
+
+   Deque slots with exists==0 are holes: the hash_index they stand for
+   has no live entry because it was absent from the snapshot manifest.
+   Holes are created only by snapshot load, never by the runtime (see
+   fd_blockhashes_push_new), and age out of the deque like any other
+   slot.  They keep the positions, and thus the ages, of the other
+   entries intact.  Iterators over the deque must skip them; the hash
+   map never references them. */
 
 struct fd_blockhashes {
 
@@ -76,12 +104,13 @@ fd_blockhashes_t *
 fd_blockhashes_init( fd_blockhashes_t * mem,
                      ulong              seed );
 
-/* fd_blockhashes_push_new adds a new slot to the blockhash queue.
-   The caller fills the returned pointer with blockhash queue info
+/* fd_blockhashes_push_new adds a new slot to the blockhash queue. The
+   caller fills the returned pointer with blockhash queue info
    (currently only lamports_per_signature).  Called as part of regular
    runtime processing.  Evicts the oldest entry if the queue is full
    (practically always the case except for the first few blocks after
-   genesis).  Always returns a valid pointer. */
+   genesis).  Aborts if hash is already present.  Always returns a valid
+   pointer. */
 
 fd_blockhash_info_t *
 fd_blockhashes_push_new( fd_blockhashes_t * blockhashes,
@@ -89,7 +118,7 @@ fd_blockhashes_push_new( fd_blockhashes_t * blockhashes,
 
 /* fd_blockhashes_push_old behaves like the above, but adding a new
    oldest entry instead.  Returns NULL if there is no more space.
-   Useful for testing. */
+   Aborts if hash is already present.  Useful for testing. */
 
 fd_blockhash_info_t *
 fd_blockhashes_push_old( fd_blockhashes_t * blockhashes,

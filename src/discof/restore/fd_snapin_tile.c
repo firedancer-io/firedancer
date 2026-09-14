@@ -795,16 +795,27 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   }
 
   ulong seq_min = ULONG_MAX;
-  for( ulong i=0UL; i<blockhashes_len; i++ ) seq_min = fd_ulong_min( seq_min, blockhashes[ i ].hash_index );
-
-  ulong seq_max;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( seq_min, blockhashes_len, &seq_max ) ) ) {
-    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, blockhashes_len ));
+  ulong seq_max = 0UL;
+  for( ulong i=0UL; i<blockhashes_len; i++ ) {
+    seq_min = fd_ulong_min( seq_min, blockhashes[ i ].hash_index );
+    seq_max = fd_ulong_max( seq_max, blockhashes[ i ].hash_index );
+  }
+  if( FD_UNLIKELY( seq_max==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue sequence number wraparound (seq_max=%lu)", seq_max ));
+    return 1;
+  }
+  ulong span = seq_max-seq_min+1UL;
+  if( FD_UNLIKELY( span>FD_BLOCKHASHES_SPAN_MAX ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue index span %lu exceeds max %lu (seq=[%lu,%lu])", span, FD_BLOCKHASHES_SPAN_MAX, seq_min, seq_max ));
     return 1;
   }
 
-  /* First let's construct the chain array as described above.  But
-     index 0 will be the root, index 1 the root's parent, etc. */
+  /* see fd_blockhashes.h.  There can be holes in the blockhash queue
+     that cannot be a link in the txncache chain. */
+
+  ushort bhq[ FD_BLOCKHASHES_SPAN_MAX ];
+  for( ulong i=0UL; i<span; i++ )            bhq[ i ] = USHORT_MAX;
+  for( ulong i=0UL; i<blockhashes_len; i++ ) bhq[ blockhashes[ i ].hash_index-seq_min ] = (ushort)i;
 
   struct {
     int exists;
@@ -813,31 +824,24 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     ulong txnhash_offset;
   } banks[ FD_BLOCKHASHES_MAX ] = {0};
 
-  for( ulong i=0UL; i<blockhashes_len; i++ ) {
-    fd_snapshot_manifest_blockhash_t const * elem = &blockhashes[ i ];
-    ulong idx;
-    if( FD_UNLIKELY( __builtin_usubl_overflow( elem->hash_index, seq_min, &idx ) ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: gap in blockhash queue (seq=[%lu,%lu) idx=%lu)", seq_min, seq_max, blockhashes[ i ].hash_index ));
-      return 1;
-    }
+  ulong chain_cnt  = 0UL;
+  ulong recent_cnt = 0UL;
+  for( ulong idx=span; idx>0UL; idx-- ) {
+    if( FD_UNLIKELY( bhq[ idx-1UL ]==USHORT_MAX ) ) continue; /* hole */
 
-    if( FD_UNLIKELY( idx>=blockhashes_len ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: blockhash queue index out of range (seq_min=%lu age_cnt=%lu idx=%lu)", seq_min, blockhashes_len, idx ));
-      return 1;
-    }
+    fd_snapshot_manifest_blockhash_t const * elem = &blockhashes[ bhq[ idx-1UL ] ];
+    banks[ chain_cnt ].fork_id.val    = USHORT_MAX;
+    banks[ chain_cnt ].txnhash_offset = ULONG_MAX;
+    banks[ chain_cnt ].exists         = 1;
+    memcpy( banks[ chain_cnt ].blockhash, elem->hash, 32UL );
 
-    if( FD_UNLIKELY( banks[ blockhashes_len-1UL-idx ].exists ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash hash_index %lu", elem->hash_index ));
-      return 1;
-    }
-
-    banks[ blockhashes_len-1UL-idx ].fork_id.val = USHORT_MAX;
-    banks[ blockhashes_len-1UL-idx ].txnhash_offset = ULONG_MAX;
-    memcpy( banks[ blockhashes_len-1UL-idx ].blockhash, elem->hash, 32UL );
-    banks[ blockhashes_len-1UL-idx ].exists = 1;
+    chain_cnt++;
+    if( FD_LIKELY( span-idx<151UL ) ) recent_cnt++;
   }
+  FD_TEST( chain_cnt==blockhashes_len );
+  FD_TEST( recent_cnt<=151UL );
 
-  ulong chain_len = fd_ulong_min( blockhashes_len, 151UL );
+  ulong chain_len = recent_cnt;
 
   /* Now we need a hashset of just the 151 most recent blockhashes,
      anything else is a nonce transaction which we do not insert, or an

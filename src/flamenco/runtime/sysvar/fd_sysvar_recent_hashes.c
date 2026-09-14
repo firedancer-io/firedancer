@@ -7,24 +7,22 @@ encode_rbh_from_blockhash_queue( fd_bank_t * bank,
                                  uchar       out_mem[ static FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
   fd_blockhashes_t const * bhq = &bank->f.block_hash_queue;
 
-  ulong queue_sz = fd_blockhash_deq_cnt( bhq->d.deque );
-  ulong out_max  = fd_ulong_min( queue_sz, FD_SYSVAR_RECENT_HASHES_CAP );
+  uchar * enc = out_mem + sizeof(ulong);
 
-  uchar * enc = out_mem;
-  fd_memcpy( enc, &out_max, sizeof(ulong) );
-
-  enc += sizeof(ulong);
-
-  ulong out_idx = 0UL;
+  ulong out_cnt = 0UL;
   for( fd_blockhash_deq_iter_t iter = fd_blockhash_deq_iter_init_rev( bhq->d.deque );
-       out_idx<FD_SYSVAR_RECENT_HASHES_CAP &&
+       out_cnt<FD_SYSVAR_RECENT_HASHES_CAP &&
           !fd_blockhash_deq_iter_done_rev( bhq->d.deque, iter );
-       out_idx++,   iter = fd_blockhash_deq_iter_prev( bhq->d.deque, iter ) ) {
+       iter = fd_blockhash_deq_iter_prev( bhq->d.deque, iter ) ) {
     fd_blockhash_info_t const * n = fd_blockhash_deq_iter_ele_const( bhq->d.deque, iter );
+    if( FD_UNLIKELY( !n->exists ) ) continue;
     fd_memcpy( enc, n->hash.uc, 32 );
     FD_STORE( ulong, enc+32, n->lamports_per_signature );
     enc += 40;
+    out_cnt++;
   }
+
+  fd_memcpy( out_mem, &out_cnt, sizeof(ulong) );
 }
 
 void

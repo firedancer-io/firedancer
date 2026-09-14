@@ -12,17 +12,22 @@ ENCODE_FN {
   case STATE_BLOCKHASH_QUEUE: {
     fd_blockhashes_t const *    bhq = &bank->f.block_hash_queue;
     fd_blockhash_info_t const * deq = bhq->d.deque;
-    ulong total    = fd_blockhash_deq_cnt( deq );
-    ulong to_write = fd_ulong_min( total, FD_BLOCKHASHES_MAX );
-    ulong to_skip  = total - to_write;
-    PUSH_VAL( ulong, to_write-1UL ); /* last hash index */
+    ulong total   = fd_blockhash_deq_cnt( deq );
+
+    ulong span    = fd_ulong_min( total, FD_BLOCKHASHES_MAX );
+    ulong to_skip = total - span;
+    ulong live    = 0UL;
+    for( ulong i=0UL; i<span; i++ ) live += !!fd_blockhash_deq_peek_index_const( deq, to_skip+i )->exists;
+
+    PUSH_VAL( ulong, span-1UL ); /* last hash index */
     fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
     PUSH_VAL( uchar, !!last_hash );
     if( last_hash ) PUSH_VAL( fd_hash_t, *last_hash );
 
-    PUSH_VAL( ulong, to_write );
-    for( ulong i=0UL; i<to_write; i++ ) {
+    PUSH_VAL( ulong, live );
+    for( ulong i=0UL; i<span; i++ ) {
       fd_blockhash_info_t const * ele = fd_blockhash_deq_peek_index_const( deq, to_skip+i );
+      if( FD_UNLIKELY( !ele->exists ) ) continue;
       PUSH_VAL( fd_hash_t, ele->hash );
       PUSH_VAL( ulong,     ele->lamports_per_signature );
       PUSH_VAL( ulong,     i );
