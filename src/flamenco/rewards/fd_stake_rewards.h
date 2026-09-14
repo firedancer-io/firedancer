@@ -250,18 +250,6 @@ ulong
 fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t const * stake_rewards,
                                                 uchar                      fork_idx );
 
-/* Introspection for tests: whether a sealed fork's RAM part currently
-   lives in a sealed buffer (1) or was spilled to disk (0), and how many
-   disk extents the fork holds for overflow. */
-
-int
-fd_stake_rewards_is_resident( fd_stake_rewards_t const * stake_rewards,
-                              uchar                      fork_idx );
-
-ulong
-fd_stake_rewards_ovf_extent_cnt( fd_stake_rewards_t const * stake_rewards,
-                                 uchar                      fork_idx );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_rewards_fd_stake_rewards_h */

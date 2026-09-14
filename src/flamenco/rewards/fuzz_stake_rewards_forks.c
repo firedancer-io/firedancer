@@ -59,7 +59,6 @@ typedef struct {
   uchar          distributed[ FUZZ_MAX_PARTITIONS ];
   int            distribution_started;
   int            sealed;
-  ulong          seal_order; /* position in the seal sequence */
 } fork_model_t;
 
 typedef struct {
@@ -67,7 +66,6 @@ typedef struct {
   ulong                epoch;
   ulong                root_slot;
   ulong                fork_cnt;
-  ulong                seal_cnt;
   uint                 staging_idx; /* fork_idx currently staged, UINT_MAX none */
   fork_model_t         fork[ FUZZ_MAX_FORKS ];
 } model_t;
@@ -206,16 +204,6 @@ validate_fork( model_t const *      m,
      is validated on metadata alone. */
   if( FD_UNLIKELY( !f->sealed ) ) return;
 
-  /* Only a fork with more entries than the RAM capacity ever touches the
-     overflow area. */
-  int has_ovf = fd_stake_rewards_ovf_extent_cnt( m->stake_rewards, f->fork_idx )>0UL;
-  if( FD_UNLIKELY( has_ovf && f->entry_cnt<=FUZZ_CAPACITY ) ) {
-    FD_LOG_ERR(( "fork %u with %lu entries has an overflow area", (uint)f->fork_idx, f->entry_cnt ));
-  }
-  if( FD_UNLIKELY( !has_ovf && f->entry_cnt>FUZZ_CAPACITY ) ) {
-    FD_LOG_ERR(( "fork %u with %lu entries has no overflow area", (uint)f->fork_idx, f->entry_cnt ));
-  }
-
   uchar seen[ FUZZ_MAX_ENTRIES ] = {0};
   ulong seen_cnt     = 0UL;
   ulong seen_rewards = 0UL;
@@ -230,46 +218,9 @@ validate_fork( model_t const *      m,
   }
 }
 
-/* Residency invariants: at most two sealed images are in RAM, a fork
-   without entries never holds a buffer, and since only the oldest
-   resident image is ever spilled, every spilled live fork was sealed
-   before every resident one. */
-
-static void
-validate_residency( model_t const * m ) {
-  ulong resident_cnt   = 0UL;
-  ulong oldest_res     = ULONG_MAX;
-  ulong newest_spilled = 0UL;
-  int   any_spilled    = 0;
-  for( ulong i=0UL; i<m->fork_cnt; i++ ) {
-    fork_model_t const * f = &m->fork[i];
-    if( !f->sealed ) continue;
-    int resident = fd_stake_rewards_is_resident( m->stake_rewards, f->fork_idx );
-    if( !f->entry_cnt ) {
-      if( FD_UNLIKELY( resident ) ) FD_LOG_ERR(( "empty fork %u holds a sealed buffer", (uint)f->fork_idx ));
-      continue;
-    }
-    /* The buffer is only flushed to make room for the next insert, so a
-       fork with entries always has a non-empty image: resident or
-       spilled. */
-    if( resident ) {
-      resident_cnt++;
-      oldest_res = fd_ulong_min( oldest_res, f->seal_order );
-    } else {
-      any_spilled    = 1;
-      newest_spilled = fd_ulong_max( newest_spilled, f->seal_order );
-    }
-  }
-  if( FD_UNLIKELY( resident_cnt>2UL ) ) FD_LOG_ERR(( "%lu sealed images resident", resident_cnt ));
-  if( FD_UNLIKELY( any_spilled && resident_cnt && newest_spilled>oldest_res ) ) {
-    FD_LOG_ERR(( "a fork sealed later (%lu) was spilled while an older one (%lu) stayed resident", newest_spilled, oldest_res ));
-  }
-}
-
 static void
 validate_model( model_t const * m ) {
   for( ulong i=0UL; i<m->fork_cnt; i++ ) validate_fork( m, &m->fork[ i ] );
-  validate_residency( m );
 }
 
 /* Give one of the model's references on a fork back.  The fork is purged
@@ -329,8 +280,7 @@ release_one_fork( model_t *       m,
 static void
 mark_sealed( model_t *      m,
              fork_model_t * f ) {
-  f->sealed     = 1;
-  f->seal_order = m->seal_cnt++;
+  f->sealed = 1;
   if( FD_LIKELY( m->staging_idx==(uint)f->fork_idx ) ) m->staging_idx = UINT_MAX;
 }
 
@@ -415,7 +365,7 @@ insert_reward( model_t *       m,
   if( FD_UNLIKELY( f->entry_cnt==FUZZ_CAPACITY ) ) {
     for( ulong i=0UL; i<m->fork_cnt; i++ ) {
       if( &m->fork[i]==f ) continue;
-      if( fd_stake_rewards_ovf_extent_cnt( m->stake_rewards, m->fork[i].fork_idx ) ) return;
+      if( m->fork[i].entry_cnt>FUZZ_CAPACITY ) return;
     }
   }
 

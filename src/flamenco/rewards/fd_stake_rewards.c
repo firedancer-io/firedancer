@@ -848,15 +848,3 @@ fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t const * stake
                                                 uchar                      fork_idx ) {
   return stake_rewards->fork_info[fork_idx].starting_block_height + stake_rewards->fork_info[fork_idx].partition_cnt;
 }
-
-int
-fd_stake_rewards_is_resident( fd_stake_rewards_t const * stake_rewards,
-                              uchar                      fork_idx ) {
-  return stake_rewards->fork_info[fork_idx].sealed_buf!=UINT_MAX;
-}
-
-ulong
-fd_stake_rewards_ovf_extent_cnt( fd_stake_rewards_t const * stake_rewards,
-                                 uchar                      fork_idx ) {
-  return (ulong)stake_rewards->fork_info[fork_idx].ovf_extent_cnt;
-}

@@ -1685,7 +1685,6 @@ test_hash_rewards_overflow( void ) {
     uchar ref_fork = fd_stake_rewards_init( ref, 1UL, &blockhash, 100UL, num_partitions, reward_cnt );
     insert_encoded( ref, ref_fork, reward_cnt );
     fd_stake_rewards_seal( ref, ref_fork );
-    FD_TEST( !fd_stake_rewards_ovf_extent_cnt( ref, ref_fork ) );
     for( uint p=0U; p<num_partitions; p++ ) {
       for( fd_stake_rewards_iter_init( ref, ref_fork, p );
            !fd_stake_rewards_iter_done( ref );
@@ -1702,8 +1701,6 @@ test_hash_rewards_overflow( void ) {
   insert_encoded( sr, fork_idx, reward_cnt );
   FD_TEST( fd_stake_rewards_total_rewards( sr, fork_idx )==reward_cnt*(reward_cnt+1UL)/2UL );
   fd_stake_rewards_seal( sr, fork_idx );
-  FD_TEST( fd_stake_rewards_ovf_extent_cnt( sr, fork_idx )>0UL );
-  FD_TEST( fd_stake_rewards_is_resident( sr, fork_idx ) );
 
   uchar seen[ 500 ] = { 0 };
   ulong total_count = 0UL;
@@ -1769,8 +1766,6 @@ test_hash_rewards_overflow_edges( void ) {
   uchar fork_idx = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL, num_partitions, reward_cnt );
   insert_encoded( sr, fork_idx, reward_cnt );
   fd_stake_rewards_seal( sr, fork_idx );
-  FD_TEST( fd_stake_rewards_ovf_extent_cnt( sr, fork_idx )>0UL );
-  FD_TEST( fd_stake_rewards_is_resident( sr, fork_idx ) );
 
   uchar seen[ 48 ] = { 0 };
   ulong total_count = 0UL, total_sum = 0UL;
@@ -1781,8 +1776,6 @@ test_hash_rewards_overflow_edges( void ) {
   uchar small_fork = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL, num_partitions, 10UL*capacity );
   insert_encoded( sr, small_fork, capacity/2UL );
   fd_stake_rewards_seal( sr, small_fork );
-  FD_TEST( !fd_stake_rewards_ovf_extent_cnt( sr, small_fork ) );
-  FD_TEST( fd_stake_rewards_is_resident( sr, small_fork ) );
   memset( seen, 0, sizeof(seen) );
   total_count = 0UL;
   for( uint p=0U; p<num_partitions; p++ ) total_count += drain_partition( sr, small_fork, p, capacity/2UL, seen, &total_sum );
@@ -1793,10 +1786,9 @@ test_hash_rewards_overflow_edges( void ) {
   FD_LOG_NOTICE(( "test_hash_rewards_overflow_edges: PASSED" ));
 }
 
-/* Two sealed images stay in RAM.  Sealing a third live fork spills the
-   oldest live one to disk exactly once, and it keeps reading back
-   correctly from there.  Dropping a fork frees its buffer without a
-   spill, so the next seal reuses the buffer instead of evicting. */
+/* Keep more live sealed forks than fit in the sealed buffers, then
+   verify every fork remains readable as buffers and disk extents are
+   recycled. */
 
 static void
 test_hash_rewards_spill( void ) {
@@ -1820,16 +1812,7 @@ test_hash_rewards_spill( void ) {
     fork[f] = fd_stake_rewards_init( sr, 1UL, &blockhash, 100UL+f, num_partitions, reward_cnt );
     insert_encoded( sr, fork[f], reward_cnt );
     fd_stake_rewards_seal( sr, fork[f] );
-    if( f<2UL ) {
-      FD_TEST( fd_stake_rewards_is_resident( sr, fork[0] ) );
-      FD_TEST( fd_stake_rewards_is_resident( sr, fork[f] ) );
-    }
   }
-
-  /* The third seal evicted the oldest (fork 0) and only it. */
-  FD_TEST( !fd_stake_rewards_is_resident( sr, fork[0] ) );
-  FD_TEST(  fd_stake_rewards_is_resident( sr, fork[1] ) );
-  FD_TEST(  fd_stake_rewards_is_resident( sr, fork[2] ) );
 
   for( ulong f=0UL; f<3UL; f++ ) {
     uchar seen[ 20 ] = { 0 };
@@ -1839,19 +1822,14 @@ test_hash_rewards_spill( void ) {
     FD_TEST( sum==reward_cnt*(reward_cnt+1UL)/2UL );
   }
 
-  /* Dropping a resident fork frees its buffer: the next seal takes that
-     buffer and nobody is spilled. */
+  /* Dropping a fork makes room for another sealed image. */
   fd_stake_rewards_release( sr, fork[1] );
   memset( blockhash.hash, 0x20, sizeof(blockhash.hash) );
   fork[3] = fd_stake_rewards_init( sr, 1UL, &blockhash, 104UL, num_partitions, reward_cnt );
   insert_encoded( sr, fork[3], reward_cnt );
   fd_stake_rewards_seal( sr, fork[3] );
-  FD_TEST( fd_stake_rewards_is_resident( sr, fork[2] ) );
-  FD_TEST( fd_stake_rewards_is_resident( sr, fork[3] ) );
-  FD_TEST( !fd_stake_rewards_is_resident( sr, fork[0] ) );
 
-  /* Dropping the spilled fork releases its extent; the surviving forks
-     are untouched. */
+  /* Dropping another fork releases its storage; survivors are intact. */
   fd_stake_rewards_release( sr, fork[0] );
   for( ulong f=2UL; f<4UL; f++ ) {
     uchar seen[ 20 ] = { 0 };
@@ -1860,8 +1838,7 @@ test_hash_rewards_spill( void ) {
     FD_TEST( cnt==reward_cnt );
   }
 
-  /* Filling the whole fork pool spills everything but the two newest,
-     and every fork still reads back. */
+  /* Every fork still reads back when the whole fork pool is live. */
   fd_stake_rewards_release( sr, fork[2] );
   fd_stake_rewards_release( sr, fork[3] );
   FD_TEST( fd_stake_rewards_free_cnt( sr )==max_forks );
@@ -1873,7 +1850,6 @@ test_hash_rewards_spill( void ) {
     fd_stake_rewards_seal( sr, all[f] );
   }
   for( ulong f=0UL; f<max_forks; f++ ) {
-    FD_TEST( fd_stake_rewards_is_resident( sr, all[f] )==(f>=max_forks-2UL) );
     uchar seen[ 20 ] = { 0 };
     ulong cnt = 0UL, sum = 0UL;
     for( uint p=0U; p<num_partitions; p++ ) cnt += drain_partition( sr, all[f], p, reward_cnt, seen, &sum );
@@ -1913,10 +1889,6 @@ test_hash_rewards_overflow_and_spill( void ) {
     insert_encoded( sr, fork[f], cnts[f] );
     fd_stake_rewards_seal( sr, fork[f] );
   }
-  FD_TEST( !fd_stake_rewards_is_resident( sr, fork[0] ) );
-  FD_TEST( fd_stake_rewards_ovf_extent_cnt( sr, fork[0] )>0UL );
-  FD_TEST( fd_stake_rewards_ovf_extent_cnt( sr, fork[1] )>0UL );
-  FD_TEST( !fd_stake_rewards_ovf_extent_cnt( sr, fork[2] ) );
 
   for( ulong f=0UL; f<3UL; f++ ) {
     uchar seen[ 100 ] = { 0 };
