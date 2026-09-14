@@ -18,22 +18,70 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-# define AVG2_INT_TEST(T) do {                          \
-    FD_TEST( fd_stat_avg2_##T( (T)  0, (T)0 )==(T) 0 );  \
-    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)2 )==(T) 1 );  \
-    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)0 )==(T) 0 );  \
-    FD_TEST( fd_stat_avg2_##T( (T)110, (T)0 )==(T)55 );  \
+  /* TMIN is 0 for unsigned T.  The TMIN/TMAX cases cover that the
+     intermediate sum does not overflow and that odd sums round toward
+     negative infinity. */
+
+# define AVG2_INT_TEST(T,TMIN,TMAX) do {                                          \
+    FD_TEST( fd_stat_avg2_##T( (T)  0, (T)0 )==(T) 0 );                           \
+    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)2 )==(T) 1 );                           \
+    FD_TEST( fd_stat_avg2_##T( (T)  1, (T)0 )==(T) 0 );                           \
+    FD_TEST( fd_stat_avg2_##T( (T)110, (T)0 )==(T)55 );                           \
+    FD_TEST( fd_stat_avg2_##T( (T)TMAX,     (T)TMAX     )==(T)TMAX );             \
+    FD_TEST( fd_stat_avg2_##T( (T)TMIN,     (T)TMIN     )==(T)TMIN );             \
+    FD_TEST( fd_stat_avg2_##T( (T)TMIN,     (T)TMAX     )==(T)((TMIN+TMAX)>>1) ); \
+    FD_TEST( fd_stat_avg2_##T( (T)(TMAX-1), (T)TMAX     )==(T)(TMAX-1) );         \
+    FD_TEST( fd_stat_avg2_##T( (T)TMIN,     (T)(TMIN+1) )==(T)TMIN );             \
   } while(0)
 
-  AVG2_INT_TEST( schar  );
-  AVG2_INT_TEST( uchar  );
-  AVG2_INT_TEST( short  );
-  AVG2_INT_TEST( ushort );
-  AVG2_INT_TEST( int    );
-  AVG2_INT_TEST( uint   );
-  AVG2_INT_TEST( long   );
-  AVG2_INT_TEST( ulong  );
+  /* Signed only: the average of negative values rounds toward negative
+     infinity too. */
+
+# define AVG2_SINT_TEST(T) do {                           \
+    FD_TEST( fd_stat_avg2_##T( (T)-1, (T) 0 )==(T)-1 );   \
+    FD_TEST( fd_stat_avg2_##T( (T)-1, (T) 1 )==(T) 0 );   \
+    FD_TEST( fd_stat_avg2_##T( (T)-5, (T)-4 )==(T)-5 );   \
+    FD_TEST( fd_stat_avg2_##T( (T)-4, (T)-4 )==(T)-4 );   \
+  } while(0)
+
+  AVG2_INT_TEST( schar,  SCHAR_MIN, SCHAR_MAX );
+  AVG2_INT_TEST( uchar,  0,         UCHAR_MAX );
+  AVG2_INT_TEST( short,  SHRT_MIN,  SHRT_MAX  );
+  AVG2_INT_TEST( ushort, 0,         USHRT_MAX );
+  AVG2_INT_TEST( int,    INT_MIN,   INT_MAX   );
+  AVG2_INT_TEST( uint,   0U,        UINT_MAX  );
+  AVG2_INT_TEST( long,   LONG_MIN,  LONG_MAX  );
+  AVG2_INT_TEST( ulong,  0UL,       ULONG_MAX );
+
+  AVG2_SINT_TEST( schar );
+  AVG2_SINT_TEST( short );
+  AVG2_SINT_TEST( int   );
+  AVG2_SINT_TEST( long  );
+# undef AVG2_SINT_TEST
 # undef AVG2_INT_TEST
+
+  /* An even cnt median averages the two middle elements, so it inherits
+     the fd_stat_avg2_T overflow behavior. */
+
+# define MEDIAN_INT_TEST(T,TMIN,TMAX) do {                            \
+    T x[4];                                                           \
+    x[0] = (T)TMAX; x[1] = (T)TMAX; x[2] = (T)TMAX; x[3] = (T)TMAX;   \
+    FD_TEST( fd_stat_median_##T( x, 4UL )==(T)TMAX );                 \
+    x[0] = (T)TMIN; x[1] = (T)TMIN; x[2] = (T)TMIN; x[3] = (T)TMIN;   \
+    FD_TEST( fd_stat_median_##T( x, 4UL )==(T)TMIN );                 \
+    x[0] = (T)TMAX; x[1] = (T)TMIN; x[2] = (T)TMIN; x[3] = (T)TMAX;   \
+    FD_TEST( fd_stat_median_##T( x, 4UL )==(T)((TMIN+TMAX)>>1) );     \
+  } while(0)
+
+  MEDIAN_INT_TEST( schar,  SCHAR_MIN, SCHAR_MAX );
+  MEDIAN_INT_TEST( uchar,  0,         UCHAR_MAX );
+  MEDIAN_INT_TEST( short,  SHRT_MIN,  SHRT_MAX  );
+  MEDIAN_INT_TEST( ushort, 0,         USHRT_MAX );
+  MEDIAN_INT_TEST( int,    INT_MIN,   INT_MAX   );
+  MEDIAN_INT_TEST( uint,   0U,        UINT_MAX  );
+  MEDIAN_INT_TEST( long,   LONG_MIN,  LONG_MAX  );
+  MEDIAN_INT_TEST( ulong,  0UL,       ULONG_MAX );
+# undef MEDIAN_INT_TEST
 
 
 # define FILT_TEST(T,UT)                             \
