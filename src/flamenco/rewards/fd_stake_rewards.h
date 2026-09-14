@@ -80,7 +80,7 @@
    initialize_accdb_fd; tests dup2 a memfd onto it).  123458/9 are
    Store, 123460/1 are accdb, and 123462 is reserved by XDP. */
 
-#define FD_STAKE_REWARDS_FD (123457)
+#define FD_STAKE_REWARDS_FD (123453)
 
 struct fd_stake_rewards;
 typedef struct fd_stake_rewards fd_stake_rewards_t;

@@ -52,12 +52,10 @@ futex: (and (eq (arg 1) FUTEX_WAKE)
             (eq (arg 2) 1))
 
 # store disk layer: rare reads of spilled FEC payloads
-# stake rewards: per-partition reads of a sealed reward set that is not
-# RAM resident, either spilled by a third concurrent boundary-crossing
-# fork or overflowing the RAM capacity of a single epoch.
+# stake rewards: rare reads of spilled stake rewards
 pread64: (or (eq (arg 0) store_fd)
              (eq (arg 0) rewards_spill_fd))
 
-# stake rewards: spilling a sealed reward set evicted from RAM, or
+# stake rewards: spilling a sealed reward set evicted from in-memory, or
 # flushing the staging buffer of an epoch with more rewards than fit.
 pwrite64: (eq (arg 0) rewards_spill_fd)

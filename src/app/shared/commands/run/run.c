@@ -494,8 +494,8 @@ main_pid_namespace( void * _args ) {
             FD_LOG_ERR(( "fcntl(FD_STORE_FD_RO,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
-        if( FD_UNLIKELY( -1==fcntl( FD_STAKE_REWARDS_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
-          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( fcntl( FD_STAKE_REWARDS_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC )<0 ) )
+          FD_LOG_ERR(( "fcntl(FD_STAKE_REWARDS_FD,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         int tile_uses_snap_fd     = !strcmp( tile->name, "snapct" ) ||
                                     !strcmp( tile->name, "snapmk" );
@@ -1092,10 +1092,14 @@ initialize_accdb_fd( config_t const * config ) {
   char spill_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s.stakerew", config->paths.accounts ) );
   int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
-  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==dup2( spill_fd, FD_STAKE_REWARDS_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( spill_fd<0 ) )
+    FD_LOG_ERR(( "failed to create stake rewards spill file `%s` (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( unlink( spill_path )<0 ) )
+    FD_LOG_ERR(( "unlink(stake rewards spill file `%s`) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( spill_fd!=FD_STAKE_REWARDS_FD ) ) {
+    if( FD_UNLIKELY( dup2( spill_fd, FD_STAKE_REWARDS_FD )<0 ) ) FD_LOG_ERR(( "dup2(stake rewards) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( spill_fd ) ) ) FD_LOG_ERR(( "close(stake rewards source) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 void
