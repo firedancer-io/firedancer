@@ -6,7 +6,9 @@ specific modifications.  Do not edit vendored files locally; update
 by re-running `vendor.sh` against a new pinned tag.
 
 The build mirrors upstream build.sh: exactly two objects,
-src/server.c (a unity build #including every other .c) and
+src/server.c (a unity build #including every other .c except the
+optional client_min_pk.c / client_min_sig.c min-pk/min-sig API
+variants, which are not imported) and
 build/assembly.S (which #includes the pre-generated per-arch .s
 bodies from build/elf/ at preprocess time).  The src/asm/*.pl
 perlasm generators that produce build/elf/ are not imported; the

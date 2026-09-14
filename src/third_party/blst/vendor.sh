@@ -4,7 +4,8 @@
 # upstream's build.sh performs (src/server.c unity build +
 # build/assembly.S, which #includes the pre-generated per-arch .s
 # bodies from build/elf/).  The src/asm/*.pl generators, non-ELF
-# platforms, and non-C bindings are not imported.
+# platforms, non-C bindings, and the optional client_min_pk.c /
+# client_min_sig.c min-pk/min-sig API variants) are not imported.
 
 set -euo pipefail
 
@@ -20,7 +21,13 @@ git clone --depth=1 --branch "$BLST_TAG" "$BLST_URL" "$tmp/blst"
 
 cp "$tmp/blst/LICENSE" LICENSE
 mkdir -p src build/elf bindings
-cp "$tmp/blst/src/"*.c "$tmp/blst/src/"*.h src/
+# src/*.c minus the unused client_min_pk.c / client_min_sig.c variants
+for f in "$tmp/blst/src/"*.c "$tmp/blst/src/"*.h; do
+  case "$( basename -- "$f" )" in
+    client_min_pk.c|client_min_sig.c) continue ;;
+  esac
+  cp "$f" src/
+done
 cp "$tmp/blst/build/assembly.S" build/
 cp "$tmp/blst/build/elf/"*-x86_64.s build/elf/
 cp "$tmp/blst/build/elf/"*-armv8.S build/elf/
