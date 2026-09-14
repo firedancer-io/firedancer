@@ -27,14 +27,18 @@ epoch_info_build( ag_epoch_info_t *           epoch_info,
   epoch_info->validator_cnt = validator_cnt;
 }
 
+static uchar const test_bls_public_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {0};
+
 /* sec_sign_fn is the fd_bls_sign_fn of a test that holds the secret
    key in memory; ctx points to the fd_bls_sec_t. */
 
 static inline void
 sec_sign_fn( void *         ctx,
              fd_bls_sig_t * sig,
+             uchar const *  public_key,
              uchar const *  msg,
              ulong          msg_sz ) {
+  (void)public_key;
   fd_bls_sec_sign( (fd_bls_sec_t const *)ctx, msg, msg_sz, sig );
 }
 

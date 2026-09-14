@@ -50,11 +50,15 @@ ag_votor_init( ag_votor_t *   self,
 void
 ag_votor_fini( ag_votor_t * self );
 
+/* Advances the epoch and copies its compressed BLS public key selector.
+   A NULL bls_pubkey disables voting in that epoch. */
+
 void
-ag_votor_advance_epoch( ag_votor_t * self,
-                        long         ns_per_slot,
-                        ulong        epoch_rank,
-                        ulong        epoch_slot );
+ag_votor_advance_epoch( ag_votor_t *  self,
+                        long          ns_per_slot,
+                        ulong         epoch_rank,
+                        ulong         epoch_slot,
+                        uchar const * bls_pubkey );
 
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 
