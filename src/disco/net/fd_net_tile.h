@@ -128,13 +128,26 @@ fd_topos_net_tile_finish( fd_topo_t * topo,
                           ulong       net_kind_id );
 
 /* fd_net_tile_fib4_join returns a pointer to the fib4 object a remote
-   net tile's address space.  Intended for diagnostics only. */
+   net tile's address space.  net_tile is an xdp ("net") or mlx5 tile.
+   Intended for diagnostics only. */
 
 fd_fib4_t *
 fd_net_tile_fib4_join( fd_fib4_t *                 out,
                        fd_topo_t const *           topo,
                        struct fd_topo_tile const * net_tile,
                        int                         main_table );
+
+fd_fib4_t *
+fd_xdp_tile_fib4_join( fd_fib4_t *                 out,
+                       fd_topo_t const *           topo,
+                       struct fd_topo_tile const * net_tile,
+                       int                         main_table );
+
+fd_fib4_t *
+fd_mlx5_tile_fib4_join( fd_fib4_t *                 out,
+                        fd_topo_t const *           topo,
+                        struct fd_topo_tile const * net_tile,
+                        int                         main_table );
 
 #if defined(__linux__)
 
