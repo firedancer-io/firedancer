@@ -302,7 +302,7 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
   ushort rank         = replay_voter_rank( ctx, bank, reward_epoch );
   *rank_out = rank;
 
-  fd_block_footer_t const * footer = fd_sched_get_footer( ctx->sched, bank->idx );
+  fd_block_footer_t const * footer = bank==ctx->leader_bank ? ctx->leader_footer : fd_sched_get_footer( ctx->sched, bank->idx );
   if( FD_LIKELY( !footer || ( !footer->has_skip_reward_cert && !footer->has_notar_reward_cert ) ) ) return 0;
 
   if( FD_UNLIKELY( rank==USHORT_MAX ) ) return 0;
@@ -1946,7 +1946,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
     ctx->leader_priority_fees  = ctx->leader_bank->f.priority_fees;
     ctx->leader_tips           = ctx->leader_bank->f.tips;
 
-    fd_block_footer_t footer[1];
+    fd_block_footer_t * footer = ctx->leader_footer;
     fd_memset( footer, 0, sizeof(fd_block_footer_t) );
     footer->block_producer_time_nanos = enforce_nanosecond_clock_bounds( ctx, ctx->leader_bank, (ulong)fd_clock_tile_now( ctx->clock ) );
 
