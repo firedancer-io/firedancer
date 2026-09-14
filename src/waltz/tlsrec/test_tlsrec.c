@@ -1,10 +1,13 @@
 #include "fd_tlsrec.h"
+#include "fd_tlsrec_sock.h"
 #include "../tls/test_tls_helper.h"
 #include "../../ballet/aes/fd_aes_gcm.h"
 #include "../../ballet/ed25519/fd_x25519.h"
 #include "../../ballet/x509/fd_x509_mock.h"
 
 #include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
 
 /* Reimplement IV generation logic for testing.
    TLS 1.3 per-record nonce: base_iv XOR big-endian sequence number
@@ -902,6 +905,75 @@ test_tlsrec_close_notify( fd_rng_t * rng ) {
   FD_TEST( !srv->rx_closed );
 }
 
+/* fd_tlsrec_sock_rx reports a close_notify as EOF once the plaintext
+   before it was consumed, even if the TCP connection stays open. */
+
+static void
+test_tlsrec_sock_close_notify( fd_rng_t * rng ) {
+  fd_tls_test_sign_ctx_t sign_ctx[1];
+  fd_tls_test_sign_ctx( sign_ctx, rng );
+  fd_chacha_rng_t chacha[1];
+  fd_tls_t tls = {
+    .rng  = fd_tls_test_rand( chacha, rng ),
+    .sign = fd_tls_test_sign( sign_ctx ),
+  };
+  for( ulong j=0UL; j<32UL; j++ ) tls.kex_private_key[j] = fd_rng_uchar( rng );
+  fd_x25519_public( tls.kex_public_key, tls.kex_private_key );
+  fd_memcpy( tls.cert_public_key, sign_ctx->public_key, 32UL );
+  fd_x509_mock_cert( tls.cert_x509, tls.cert_public_key );
+  tls.cert_x509_sz = FD_X509_MOCK_CERT_SZ;
+
+  static fd_tlsrec_conn_t cli[1], srv[1];
+  static fd_tlsrec_sock_t sock[1];
+  static uchar wire[ 2*FD_TLSREC_CAP ];
+  test_tlsrec_connect( &tls, cli, srv );
+  fd_tlsrec_sock_init( sock );
+
+  int fds[2];
+  FD_TEST( !socketpair( AF_UNIX, SOCK_STREAM, 0, fds ) );
+
+  static uchar const before[] = "before";
+  static uchar const close_ [] = { 0x01, 0x00 };
+  ulong sz  = test_tlsrec_send_raw( srv, wire,    before, sizeof(before), FD_TLS_REC_APPLICATION_DATA );
+        sz += test_tlsrec_send_raw( srv, wire+sz, close_, sizeof(close_), FD_TLS_REC_ALERT            );
+  FD_TEST( write( fds[1], wire, sz )==(long)sz );
+
+  ulong tcp_rx_sz;
+  FD_TEST( fd_tlsrec_sock_rx( sock, cli, fds[0], &tcp_rx_sz )==0 );
+  FD_TEST( tcp_rx_sz==sz );
+  FD_TEST( cli->rx_closed );
+  FD_TEST( fd_tlsrec_sock_rx_avail( sock )==sizeof(before) );
+  FD_TEST( 0==memcmp( fd_tlsrec_sock_rx_data( sock ), before, sizeof(before) ) );
+
+  /* Plaintext still held: no EOF yet */
+  FD_TEST( fd_tlsrec_sock_rx( sock, cli, fds[0], &tcp_rx_sz )==0 );
+  FD_TEST( fd_tlsrec_sock_rx_avail( sock )==sizeof(before) );
+
+  fd_tlsrec_sock_rx_consume( sock, sizeof(before) );
+  FD_TEST( fd_tlsrec_sock_rx( sock, cli, fds[0], &tcp_rx_sz )==FD_TLSREC_SOCK_ERR_EOF );
+
+  /* close_notify arriving in its own call with no plaintext is EOF immediately */
+  static fd_tlsrec_conn_t cli2[1], srv2[1];
+  test_tlsrec_connect( &tls, cli2, srv2 );
+  fd_tlsrec_sock_init( sock );
+  sz = test_tlsrec_send_raw( srv2, wire, close_, sizeof(close_), FD_TLS_REC_ALERT );
+  FD_TEST( write( fds[1], wire, sz )==(long)sz );
+  FD_TEST( fd_tlsrec_sock_rx( sock, cli2, fds[0], &tcp_rx_sz )==FD_TLSREC_SOCK_ERR_EOF );
+  FD_TEST( cli2->rx_closed );
+
+  /* fd_tlsrec_sock_close sends close_notify, which the peer sees as EOF */
+  static fd_tlsrec_sock_t srv_sock[1];
+  fd_tlsrec_sock_init( srv_sock );
+  FD_TEST( fd_tlsrec_sock_close( sock, cli2, fds[0] )==0 );
+  FD_TEST( cli2->tx_closed );
+  FD_TEST( fd_tlsrec_sock_close( sock, cli2, fds[0] )==FD_TLSREC_ERR_STATE );
+  FD_TEST( fd_tlsrec_sock_rx( srv_sock, srv2, fds[1], &tcp_rx_sz )==FD_TLSREC_SOCK_ERR_EOF );
+  FD_TEST( srv2->rx_closed );
+
+  FD_TEST( !close( fds[0] ) );
+  FD_TEST( !close( fds[1] ) );
+}
+
 /* Record header validation (RFC 8446 Section 5.1/5.2):
    legacy_record_version must be 0x0303 except on an initial ClientHello
    (0x0301 allowed) and on plaintext handshake alerts, and encrypted
@@ -1262,6 +1334,7 @@ main( int     argc,
   test_tlsrec_alert_tx( rng );
   test_tlsrec_plaintext_alert( rng );
   test_tlsrec_close_notify( rng );
+  test_tlsrec_sock_close_notify( rng );
   test_tlsrec_rec_hdr( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
