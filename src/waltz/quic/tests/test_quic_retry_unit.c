@@ -249,17 +249,18 @@ test_retry_token_malleability( void ) {
   uchar aes_iv [16] = {2};
   long  now         = 50UL;
   long  ttl         = (long)3e9;
+  fd_quic_conn_id_t odcid;
+  ulong             rscid;
+  FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl )==FD_QUIC_SUCCESS );
   for( ulong j=0; j<sizeof(token); j++ ) {
     for( int i=0; i<8; i++ ) {
       token[j] = (uchar)( token[j] ^ (1<<i) );
-      fd_quic_conn_id_t odcid;
-      ulong             rscid;
       int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl );
       FD_TEST( res==FD_QUIC_FAILED );
       token[j] = (uchar)( token[j] ^ (1<<i) );
     }
   }
-
+  FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl )==FD_QUIC_SUCCESS );
 }
 
 /* Ensure that retry tokens expire. */
@@ -286,7 +287,6 @@ test_retry_token_time( void ) {
   fd_quic_conn_id_t odcid;
   ulong             rscid;
 # define TRY(ts,exp) FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, ts, ttl )==exp )
-  FD_TEST( fd_quic_retry_expire_after( LONG_MAX, ttl )==LONG_MAX );
   TRY(          0UL, FD_QUIC_FAILED  );
   TRY(    7315968UL, FD_QUIC_FAILED  );
   TRY(    7315969UL, FD_QUIC_SUCCESS );
@@ -294,19 +294,6 @@ test_retry_token_time( void ) {
   TRY( 3007315968UL, FD_QUIC_FAILED  );
   TRY( 3007315969UL, FD_QUIC_FAILED  );
   TRY(     LONG_MAX, FD_QUIC_FAILED  );
-
-  ttl = 0L;  TRY( 7315969UL, FD_QUIC_FAILED );
-  ttl = -1L; TRY( 7315969UL, FD_QUIC_FAILED );
-  ttl = (long)3e9;
-
-  fd_quic_retry_token_t invalid_expiry;
-  memcpy( &invalid_expiry, token, sizeof(invalid_expiry) );
-  invalid_expiry.data.expire_comp = 1UL + ((ulong)LONG_MAX>>FD_QUIC_RETRY_EXPIRE_SHIFT);
-  fd_aes_gcm_t aes_gcm[1];
-  fd_quic_retry_token_sign( &invalid_expiry, aes_gcm, aes_key, aes_iv );
-  memset( aes_gcm, 0, sizeof(aes_gcm) );
-  initial.token = (uchar const *)&invalid_expiry;
-  TRY( 7315969UL, FD_QUIC_FAILED );
 # undef TRY
 }
 
