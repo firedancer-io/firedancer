@@ -104,8 +104,8 @@ _tls_valid_srv_hs_state[ 16 ] = {
   [FD_TLS_HS_CONNECTED    ] = 1,
   [FD_TLS_HS_START        ] = 1,
   [FD_TLS_HS_WAIT_CERT    ] = 1,
-  [FD_TLS_HS_WAIT_CV      ] = 1,
-  [FD_TLS_HS_WAIT_FINISHED] = 1
+  [FD_TLS_HS_WAIT_CV] = 1,
+  [FD_TLS_HS_WAIT_FINISHED  ] = 1
 };
 
 static uchar
@@ -114,10 +114,10 @@ _tls_valid_cli_hs_state[ 16 ] = {
   [FD_TLS_HS_CONNECTED    ] = 1,
   [FD_TLS_HS_START        ] = 1,
   [FD_TLS_HS_WAIT_SH      ] = 1,
-  [FD_TLS_HS_WAIT_EE      ] = 1,
+  [FD_TLS_HS_WAIT_EE ] = 1,
   [FD_TLS_HS_WAIT_CERT_CR ] = 1,
   [FD_TLS_HS_WAIT_CERT    ] = 1,
-  [FD_TLS_HS_WAIT_CV      ] = 1,
+  [FD_TLS_HS_WAIT_CV] = 1,
   [FD_TLS_HS_WAIT_FINISHED] = 1
 };
 
@@ -164,8 +164,8 @@ LLVMFuzzerTestOneInput( uchar const * input,
   } else {
     if( !_tls_valid_cli_hs_state[ hs_state ] ) return -1;
     fd_tls_estate_cli_t hs[1] = {{
-      .base        = base,
-      .client_cert = (uchar)(cli_cert&1),
+      .base         = base,
+      .client_cert  = (uchar)(cli_cert&1),
     }};
     fd_tls_client_handshake( tls, hs, payload, payload_sz, enc_lvl );
   }

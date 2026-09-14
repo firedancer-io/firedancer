@@ -40,7 +40,7 @@ main( int     argc,
     FD_TEST( fd_x509_ec_point_compress( uncompressed, 48UL, compressed )==-1 );
   }
 
-  /* Test v1 */
+  /* Agave-style Ed25519 certs */
 
   static uchar const cert_v1_1[] = {
     0x30, 0x81, 0xf6, 0x30, 0x81, 0xa9, 0xa0, 0x03, 0x02, 0x01, 0x02, 0x02, 0x08, 0x4c, 0x74, 0xcd,
@@ -60,8 +60,9 @@ main( int     argc,
     0x00, 0xd7, 0xa2, 0x7b, 0x26, 0xfd, 0x73, 0xfc, 0x28, 0x6a, 0xa0, 0x29, 0x43, 0x8c, 0x96, 0x8b,
     0x34, 0x75, 0xd1, 0xdc, 0x94, 0x2a, 0x1a, 0xc1, 0x08
   };
-  uchar const * pubkey = fd_x509_mock_pubkey( cert_v1_1, FD_X509_MOCK_CERT_SZ );
-  FD_TEST( pubkey && pubkey - cert_v1_1 == 122 );
+  uchar const * pubkey; ulong pubkey_len; uchar key_type;
+  FD_TEST( !fd_x509_extract_pubkey( cert_v1_1, sizeof(cert_v1_1), &pubkey, &pubkey_len, &key_type ) );
+  FD_TEST( pubkey - cert_v1_1 == 122 && pubkey_len==32UL && key_type==FD_X509_KEY_ED25519 );
 
   static uchar const cert_v1_2[] = {
     0x30, 0x81, 0xf7, 0x30, 0x81, 0xaa, 0xa0, 0x03, 0x02, 0x01, 0x02, 0x02, 0x09, 0x00, 0xac, 0x9f,
@@ -81,16 +82,15 @@ main( int     argc,
     0xa3, 0x3d, 0x90, 0x62, 0xe7, 0x6d, 0x8b, 0x19, 0x4a, 0xc0, 0x1f, 0xa1, 0x19, 0x7e, 0xf8, 0xaa,
     0x92, 0x0c, 0xef, 0xb4, 0x98, 0x2f, 0xa0, 0x9f, 0xfc, 0x03
   };
-  pubkey = fd_x509_mock_pubkey( cert_v1_2, FD_X509_MOCK_CERT_SZ );
-  FD_TEST( pubkey && pubkey - cert_v1_2 == 123 );
+  FD_TEST( !fd_x509_extract_pubkey( cert_v1_2, sizeof(cert_v1_2), &pubkey, &pubkey_len, &key_type ) );
+  FD_TEST( pubkey - cert_v1_2 == 123 && pubkey_len==32UL && key_type==FD_X509_KEY_ED25519 );
 
-  /* Test out-of-bounds key */
-  for( ulong j=0UL; j<32UL; j++ ) {
-    FD_TEST( !fd_x509_mock_pubkey( cert_v1_2, 123+j ) );
+  /* Truncated certs must fail */
+  for( ulong j=0UL; j<sizeof(cert_v1_2); j++ ) {
+    FD_TEST( fd_x509_extract_pubkey( cert_v1_2, j, &pubkey, &pubkey_len, &key_type ) );
   }
-  FD_TEST( fd_x509_mock_pubkey( cert_v1_2, 123+32 ) );
 
-  /* Test v2 */
+  /* fd_x509_mock_cert output */
 
   for( ulong j=0UL; j<100000UL; j++ ) {
 
@@ -105,22 +105,9 @@ main( int     argc,
 
     /* Ensure pubkey matches */
     FD_TEST( fd_hash( 0UL, public_key, 32UL )==hash );  /* orig same */
-    uchar const * extracted = fd_x509_mock_pubkey( cert, FD_X509_MOCK_CERT_SZ );
-    FD_TEST( 0==memcmp( extracted, public_key, 32UL ) );  /* extract same */
-
-    for( ulong k=0UL; k<64UL; k++ ) {
-
-      /* Corrupt some bytes */
-      uint off = fd_rng_uint_roll( rng, FD_X509_MOCK_CERT_SZ );
-      uint val = fd_rng_uchar( rng );
-      cert[ off ] = (uchar)( cert[ off ] ^ val );
-      extracted = fd_x509_mock_pubkey( cert, FD_X509_MOCK_CERT_SZ );
-
-      /* Extraction must fail if we flipped a bit in the template */
-      FD_TEST( (!extracted) == ( ( (off<0x64) | (off>=0x84) ) & (!!val) ) );
-      cert[ off ] = (uchar)( cert[ off ] ^ val );
-
-    }
+    FD_TEST( !fd_x509_extract_pubkey( cert, FD_X509_MOCK_CERT_SZ, &pubkey, &pubkey_len, &key_type ) );
+    FD_TEST( pubkey_len==32UL && key_type==FD_X509_KEY_ED25519 );
+    FD_TEST( 0==memcmp( pubkey, public_key, 32UL ) );  /* extract same */
 
   }
 
