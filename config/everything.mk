@@ -709,7 +709,6 @@ frontend: frontend-clean
 		compress_prefix=$$(echo "$$file" | sed "s|$(FRONTEND_DIR)/dist/|$(FRONTEND_DIR)/dist_cmp/|"); \
 		echo "FD_IMPORT_BINARY( file_$$counter, \"$$file\" );" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
 		echo "FD_IMPORT_BINARY( file_$${counter}_zstd, \"$${compress_prefix}.zst\" );" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
-		echo "FD_IMPORT_BINARY( file_$${counter}_gzip, \"$${compress_prefix}.gz\" );" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
 		counter=$$((counter + 1)); \
 	done; \
 	echo "" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
@@ -723,8 +722,6 @@ frontend: frontend-clean
 		echo "		.data_len = &file_$${counter}_sz," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
 		echo "		.zstd_data = file_$${counter}_zstd," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
 		echo "		.zstd_data_len = &file_$${counter}_zstd_sz," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
-		echo "		.gzip_data = file_$${counter}_gzip," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
-		echo "		.gzip_data_len = &file_$${counter}_gzip_sz," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
 		echo "	}," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
 		counter=$$((counter + 1)); \
 	done; \

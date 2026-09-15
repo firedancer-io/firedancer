@@ -135,7 +135,7 @@ typedef struct {
 
   fd_http_server_t * gui_server;
 
-  char index_html_etag[ 3 ][ 24 ]; /* plain, zstd, gzip */
+  char index_html_etag[ 2 ][ 24 ]; /* plain, zstd */
   char index_html_link[ 1024 ];
 
 
@@ -720,11 +720,6 @@ gui_http_request( fd_http_server_request_t const * request ) {
         accepts_zstd = !!strstr( request->headers.accept_encoding, "zstd" );
       }
 
-      int accepts_gzip = 0;
-      if( FD_LIKELY( request->headers.accept_encoding ) ) {
-        accepts_gzip = !!strstr( request->headers.accept_encoding, "gzip" );
-      }
-
       char const * content_encoding = NULL;
       ulong enc_idx = 0UL;
       if( FD_LIKELY( accepts_zstd && f->zstd_data ) ) {
@@ -732,11 +727,6 @@ gui_http_request( fd_http_server_request_t const * request ) {
         data = f->zstd_data;
         data_len = *(f->zstd_data_len);
         enc_idx = 1UL;
-      } else if( FD_LIKELY( accepts_gzip && f->gzip_data ) ) {
-        content_encoding = "gzip";
-        data = f->gzip_data;
-        data_len = *(f->gzip_data_len);
-        enc_idx = 2UL;
       }
 
       char const * etag = NULL;
@@ -886,9 +876,9 @@ unprivileged_init( fd_topo_t const *      topo,
   {
     fd_http_static_file_t const * f = index_html;
     uchar hash[ 32 ];
-    uchar const * rep_data[ 3 ]     = { f->data,     f->zstd_data,     f->gzip_data     };
-    ulong const * rep_data_len[ 3 ] = { f->data_len, f->zstd_data_len, f->gzip_data_len };
-    for( ulong e=0UL; e<3UL; e++ ) {
+    uchar const * rep_data[ 2 ]     = { f->data,     f->zstd_data     };
+    ulong const * rep_data_len[ 2 ] = { f->data_len, f->zstd_data_len };
+    for( ulong e=0UL; e<2UL; e++ ) {
       ctx->index_html_etag[ e ][ 0 ] = '\0';
       if( FD_UNLIKELY( !rep_data[ e ] ) ) continue;
       fd_sha256_hash( rep_data[ e ], *(rep_data_len[ e ]), hash );

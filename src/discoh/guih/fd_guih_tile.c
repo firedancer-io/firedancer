@@ -368,20 +368,11 @@ gui_http_request( fd_http_server_request_t const * request ) {
         accepts_zstd = !!strstr( request->headers.accept_encoding, "zstd" );
       }
 
-      int accepts_gzip = 0;
-      if( FD_LIKELY( request->headers.accept_encoding ) ) {
-        accepts_gzip = !!strstr( request->headers.accept_encoding, "gzip" );
-      }
-
       char const * content_encoding = NULL;
       if( FD_LIKELY( accepts_zstd && f->zstd_data ) ) {
         content_encoding = "zstd";
         data = f->zstd_data;
         data_len = *(f->zstd_data_len);
-      } else if( FD_LIKELY( accepts_gzip && f->gzip_data ) ) {
-        content_encoding = "gzip";
-        data = f->gzip_data;
-        data_len = *(f->gzip_data_len);
       }
 
       return (fd_http_server_response_t){
