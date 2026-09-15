@@ -72,6 +72,45 @@ fd_ed25519_sign( uchar         sig[ 64 ],
                  uchar const   private_key[ 32 ],
                  fd_sha512_t * sha );
 
+/* FD_ED25519_SIGN_BATCH_MSG_MAX is the largest supported per-message
+   size for the batched signing path below (covers the largest messages
+   the validator signs; shred and transaction MTUs are ~1.2 KiB). */
+
+#define FD_ED25519_SIGN_BATCH_MSG_MAX (2048UL)
+
+/* fd_ed25519_sign_batch8 signs n independent messages, n in [1,8]
+   (asserted).  Each signature is bit-identical to
+   fd_ed25519_sign of the same (msg, key) pair, all signed with the
+   single (public_key, private_key) identity.  For n>=2 the
+   signatures share batched SHA-512 computations and a single field
+   inversion for the point compressions, so per-signature cost is lower
+   than fd_ed25519_sign.
+
+   sig is assumed to point to the first byte of an n*64-byte memory
+   region which will hold the n signatures on return (signature i at
+   sig+64*i).
+
+   msg[i] is assumed to point to the first byte of a msg_sz[i] byte
+   memory region which holds message i (msg_sz[i]==0 fine, msg[i]==NULL
+   fine if msg_sz[i]==0, msg_sz[i] at most
+   FD_ED25519_SIGN_BATCH_MSG_MAX).
+
+   public_key and private_key are each a single 32-byte key, shared by
+   all n messages (this is a shared-identity batch signer).
+
+   Sanitizes internal state to minimize risk of leaking private key
+   info after return.  The caller takes a write interest in sig and a
+   read interest in the messages and keys for the duration the call.
+   Returns sig. */
+
+uchar * FD_FN_SENSITIVE
+fd_ed25519_sign_batch8( uchar               sig[],        /* n*64 */
+                        uchar const * const msg[],        /* n */
+                        ulong const         msg_sz[],     /* n */
+                        uchar const         public_key[ 32 ],
+                        uchar const         private_key[ 32 ],
+                        ulong               n );
+
 /* fd_ed25519_verify verifies message according to the ED25519 standard.
 
    msg is assumed to point to the first byte of a sz byte memory region
