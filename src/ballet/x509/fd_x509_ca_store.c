@@ -84,7 +84,8 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
 
   char const * p   = (char const *)file_buf;
   char const * end = p + file_sz;
-  ulong loaded = 0;
+  ulong loaded           = 0;
+  ulong unsupported_keys = 0;
 
   while( p < end ) {
     /* Find next PEM certificate block */
@@ -106,8 +107,18 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
     if( FD_UNLIKELY( -1L==der_sz ) ) continue;
 
     fd_x509_cert_info_t info;
+    int parse_err = fd_x509_cert_parse( der, (ulong)der_sz, &info );
+
+    /* Typical system CA bundles are dominated by RSA roots, which
+       fd_x509 does not support.  Skipping those is expected, so count
+       them and log a single summary line instead of one line each. */
+    if( parse_err==FD_X509_PARSE_UNSUPPORTED_KEY ) {
+      unsupported_keys++;
+      continue;
+    }
+
     char const * reason = NULL;
-    if(      fd_x509_cert_parse( der, (ulong)der_sz, &info ) )    reason = "parse failed";
+    if(      parse_err )                                          reason = "parse failed";
     else if( info.key_type != FD_X509_KEY_ED25519 &&
              info.key_type != FD_X509_KEY_ECDSA_P256 &&
              info.key_type != FD_X509_KEY_ECDSA_P384 )            reason = "unsupported public key algorithm";
@@ -153,6 +164,13 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
   }
 
   free( file_buf );
+
+  if( unsupported_keys ) {
+    FD_LOG_INFO(( "ignored %lu CA certs in %s with an unsupported public key "
+                  "algorithm (fd_x509 does not support RSA)",
+                  unsupported_keys, pem_path ));
+  }
+
   return (long)loaded;
 }
 

@@ -136,8 +136,17 @@ fd_x509_parse_spki( fd_der_cursor_t * c,
 
   /* TODO: RSA? */
 
-  /* Unknown. */
-  return -1;
+  /* Unrecognized algorithm (usually RSA).  The certificate itself is
+     well formed, so consume the subjectPublicKey and report an unknown
+     key instead of failing the parse.  Callers reject such certs by
+     looking at the key type. */
+  uchar const * bits; ulong bits_len;
+  FD_DER_READ_BITS( *c, bits, bits_len );
+  (void)bits; (void)bits_len;
+  *out_pk     = NULL;
+  *out_pk_len = 0UL;
+  *out_type   = FD_X509_KEY_UNKNOWN;
+  return FD_X509_PARSE_UNSUPPORTED_KEY;
 }
 
 static int
@@ -594,6 +603,7 @@ fd_x509_cert_parse( uchar const *         cert,
 
   uchar const * tbs_sig_alg     = NULL;
   ulong         tbs_sig_alg_len = 0UL;
+  int           spki_rc         = 0;
 
   FD_DER_CURSOR_FROM_BUF( c, cert, cert_sz );
 
@@ -647,10 +657,10 @@ fd_x509_cert_parse( uchar const *         cert,
 
       /* subjectPublicKeyInfo SEQUENCE */
       FD_DER_ENTER( tbs, FD_DER_TAG_SEQUENCE );
-        if( FD_UNLIKELY( fd_x509_parse_spki( &tbs, &out->pubkey,
-                                              &out->pubkey_len,
-                                              &out->key_type ) ) )
-          return -1;
+        spki_rc = fd_x509_parse_spki( &tbs, &out->pubkey,
+                                            &out->pubkey_len,
+                                            &out->key_type );
+        if( FD_UNLIKELY( spki_rc<0 ) ) return -1;
       FD_DER_LEAVE( tbs );
 
       /* issuerUniqueID [1]
@@ -702,7 +712,7 @@ fd_x509_cert_parse( uchar const *         cert,
   /* The supplied buffer is one DER Certificate, not a DER prefix. */
   if( FD_UNLIKELY( FD_DER_HAS_MORE( c ) ) ) return -1;
 
-  return 0;
+  return spki_rc;
 }
 
 /* Distinguished-name matching **********************************************/

@@ -743,6 +743,44 @@ main( int     argc,
     FD_TEST( fd_x509_cert_parse( p384_ca, sizeof(p384_ca), &p384_info ) );
     p384_ca[ y_off ] ^= 1U;
 
+    /* RSA CA certs are well formed, but carry an unsupported key.  They
+       parse with FD_X509_PARSE_UNSUPPORTED_KEY and the loader skips them
+       quietly. */
+    static char const rsa_ca_hex[] =
+      "30820315308201fda00302010202145520491bb2456a1c7e20335f56add120e1428dc6300d06092a864886f70d01010b"
+      "0500301a3118301606035504030c0f525341204c6f6164657220526f6f74301e170d3236303931353138313535375a17"
+      "0d3336303931323138313535375a301a3118301606035504030c0f525341204c6f6164657220526f6f7430820122300d"
+      "06092a864886f70d01010105000382010f003082010a0282010100c24216f2550b25e09e054a14fa25dd54d35cd2cb70"
+      "afc57cc3fd283c991f20c83ec101691a0f9f7c7c9398a97539e218b54e3a9c45b3cd2d2c45be001b806878106050a25c"
+      "724c3f376ca39fdc1643779470ebb4eedeb5d83f59d817aa0ae5d86af8d690b06a8fd463e99fa92381de6b4fa406243b"
+      "71a2f0f74d82a29cbadb172eece0e005fb15db5ffec7c828a4e437138224881aafcc60e660edaf166367fb0b66ba7281"
+      "8a9af23a8615997bcc35e783221c5dce22f2a0cef2bbd09f8450678ec50460bfbf68fcf7bd852c40b0daa7778d5cd4c1"
+      "a89aa1bf43dfee050950fbefe3d8407d040b29e46c04722bc0fa6d7b8d1e2aed7fff8c23408504fa793cbd0203010001"
+      "a3533051301d0603551d0e04160414401b9cc1a894bf58f15cb13267573215040845c0301f0603551d23041830168014"
+      "401b9cc1a894bf58f15cb13267573215040845c0300f0603551d130101ff040530030101ff300d06092a864886f70d01"
+      "010b05000382010100918a3d76ff622e4a2ae90968371e42a842d6721732bb680a37209f34d83dbd62f51b3d7be10531"
+      "9b48f0d135903fe3cba7891a3d45df51d7996a7dc44f8e8bcf2f274b4f8ecb2639b7484c45f37498fb729d552b89894c"
+      "91b481a2d54fc4c9bab46107dfb42bf20ba7ea4fbb25d515ca99415face00f0b4b889812164226b59d98820784f01d11"
+      "48d4746a2d8149e5d75f89b2e94b0590f9fde4850c0b7dbacfe0ade5efda59a9784c8375fd9b0b7e30eb5fa7ae2fe8aa"
+      "3732fd0a7704aa3cc727701e45516c3ac7cf6b1ee90533974114cca3ec28c6490c1319d44e8ce36fcf3858b720d4f23b"
+      "149c928861784e11a5ca076d1402e39abc07a84d98b03266b2";
+    uchar rsa_ca[ 793 ];
+    fd_hex_decode( rsa_ca, rsa_ca_hex, sizeof(rsa_ca) );
+    fd_x509_cert_info_t rsa_info;
+    FD_TEST( fd_x509_cert_parse( rsa_ca, sizeof(rsa_ca), &rsa_info )
+             ==FD_X509_PARSE_UNSUPPORTED_KEY );
+    FD_TEST( rsa_info.key_type==FD_X509_KEY_UNKNOWN );
+    FD_TEST( rsa_info.sig_alg ==FD_X509_SIG_UNKNOWN );
+    FD_TEST( !rsa_info.pubkey && !rsa_info.pubkey_len );
+    FD_TEST( rsa_info.is_ca && rsa_info.subject_len );
+    pem_len = append_pem_cert( pem, rsa_ca, sizeof(rsa_ca) );
+    rewrite_tmp_file( tmp_fd, pem, pem_len );
+    FD_TEST( fd_x509_ca_store_load( &ca_store, path )==0L );
+    FD_TEST( !ca_store.cnt );
+
+    /* A truncated RSA cert is malformed, not merely unsupported. */
+    FD_TEST( fd_x509_cert_parse( rsa_ca, sizeof(rsa_ca)-1UL, &rsa_info )==-1 );
+
     /* Subjects larger than the bounded store representation are skipped. */
     uchar name_content[ FD_X509_CA_SUBJECT_MAX+1UL ]; memset( name_content, 0, sizeof(name_content) );
     uchar large_name[ 600 ]; ulong large_name_len = der_tlv( large_name, FD_DER_TAG_SEQUENCE,
