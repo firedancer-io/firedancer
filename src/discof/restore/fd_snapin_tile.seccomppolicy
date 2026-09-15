@@ -25,6 +25,13 @@ fsync: (eq (arg 0) logfile_fd)
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)
 
+# accounts database: read feature accounts from the accounts database
+#
+# Feature restoration may need to read account data into the cache.
+#
+# arg 0 is the file descriptor to read from.
+preadv2: (eq (arg 0) accounts_fd)
+
 # accounts database: allocate more space from the disk
 #
 # The accounts database allocates more space from the underlying storage
