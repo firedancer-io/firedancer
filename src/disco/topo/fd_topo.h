@@ -723,7 +723,6 @@ struct fd_topo_tile {
       ulong accdb_obj_id;
       ulong txncache_obj_id;
       ulong banks_obj_id;
-      int   alpenglow;
       ulong max_txn_per_slot;
     } snapin;
 
@@ -786,6 +785,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong max_accounts;
       ulong max_live_slots;
+      ulong max_txn_per_slot;
       uint  max_full_snapshots_to_keep;
       char  snapshots_path[ PATH_MAX ];
       uint  max_incremental_snapshots_to_keep;
