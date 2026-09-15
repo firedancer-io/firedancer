@@ -18,6 +18,47 @@ fd_bundle_now( fd_bundle_tile_t const * ctx ) {
 
 static fd_wksp_t * wksp;
 
+FD_UNIT_TEST( bundle_backoff ) {
+  static fd_bundle_tile_t state[1];
+  fd_memset( state, 0, sizeof(state) );
+  FD_TEST( fd_rng_new( state->rng, 0U, 0UL ) );
+  fd_rng_t rng[1];
+  FD_TEST( fd_rng_new( rng, 0U, 0UL ) );
+
+  long now = 1L;
+  long window_ns = 2000000000L;
+  for( uint i=0U; i<100U; i++ ) {
+    long wait_ns = (long)fd_rng_ulong_roll( rng, (ulong)window_ns );
+    fd_bundle_tile_backoff( state, now );
+    FD_TEST( state->backoff_iter==fd_uint_min( i+1U, 6U ) );
+    FD_TEST( state->backoff_until==now+wait_ns );
+    FD_TEST( state->backoff_reset==now+2L*wait_ns );
+    FD_TEST( fd_bundle_tile_should_stall( state, state->backoff_until-1L ) );
+    FD_TEST( !fd_bundle_tile_should_stall( state, state->backoff_until ) );
+    now = state->backoff_until;
+    window_ns = fd_long_min( 2L*window_ns, 64000000000L );
+  }
+
+  /* Saturate the counter before incrementing, even at UINT_MAX. */
+  state->backoff_iter = UINT_MAX;
+  fd_bundle_tile_backoff( state, now );
+  FD_TEST( state->backoff_iter==6U );
+  FD_TEST( state->backoff_until==now+(long)fd_rng_ulong_roll( rng, 64000000000UL ) );
+
+  /* Keep backing off before the reset deadline; reset at or after it. */
+  for( long offset=-1L; offset<=1L; offset++ ) {
+    state->backoff_iter  = 6U;
+    state->backoff_reset = 1000000000000L;
+    now = state->backoff_reset+offset;
+    window_ns = offset<0L ? 64000000000L : 2000000000L;
+    long wait_ns = (long)fd_rng_ulong_roll( rng, (ulong)window_ns );
+    fd_bundle_tile_backoff( state, now );
+    FD_TEST( state->backoff_iter==(offset<0L ? 6U : 1U) );
+    FD_TEST( state->backoff_until==now+wait_ns );
+    FD_TEST( state->backoff_reset==now+2L*wait_ns );
+  }
+}
+
 /* Test that packets and bundles get forwarded correctly to Firedancer
    components. */
 

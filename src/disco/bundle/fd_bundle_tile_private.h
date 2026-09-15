@@ -256,8 +256,9 @@ fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                                 long                     now );
 
 /* fd_bundle_tile_backoff is called whenever an error occurs.  Stalls
-   forward progress for a randomized amount of time to prevent error
-   floods. */
+   forward progress with exponential backoff and full jitter to prevent
+   error floods.  The delay limit doubles from 2 seconds to a 64 second
+   cap.  Resets after twice the previous delay has elapsed. */
 
 void
 fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,

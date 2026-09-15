@@ -475,12 +475,10 @@ void
 fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
                         long               now ) {
   uint iter = ctx->backoff_iter;
-  if( now < ctx->backoff_reset ) iter = 0U;
-  iter++;
+  if( now >= ctx->backoff_reset ) iter = 0U;
+  iter = fd_uint_min( iter, 5U ) + 1U;
 
-  /* FIXME proper backoff */
-  long wait_ns = (long)2e9;
-  wait_ns = (long)( fd_rng_ulong( ctx->rng ) & ( (1UL<<fd_ulong_find_msb_w_default( (ulong)wait_ns, 0 ))-1UL ) );
+  long wait_ns = (long)fd_rng_ulong_roll( ctx->rng, 2000000000UL << (iter-1U) );
 
   ctx->backoff_until = now +   wait_ns;
   ctx->backoff_reset = now + 2*wait_ns;
