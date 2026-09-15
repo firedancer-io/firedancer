@@ -21,6 +21,27 @@ struct fd_test_ssarchive_env {
 typedef struct fd_test_ssarchive_env fd_test_ssarchive_env_t;
 
 static void
+test_ssarchive_parse_filename( void ) {
+  ulong full_slot;
+  ulong incremental_slot;
+  uchar hash[ FD_HASH_FOOTPRINT ];
+  int   is_zstd;
+
+  FD_TEST( fd_ssarchive_parse_filename( "snapshot-5-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar",
+                                        &full_slot, &incremental_slot, hash, &is_zstd )==0 );
+  FD_TEST( fd_ssarchive_parse_filename( "snapshot-+5-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar",
+                                        &full_slot, &incremental_slot, hash, &is_zstd )==-1 );
+  FD_TEST( fd_ssarchive_parse_filename( "snapshot-\t5-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar",
+                                        &full_slot, &incremental_slot, hash, &is_zstd )==-1 );
+  FD_TEST( fd_ssarchive_parse_filename( "incremental-snapshot-+5-6-J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN.tar.zst",
+                                        &full_slot, &incremental_slot, hash, &is_zstd )==-1 );
+  FD_TEST( fd_ssarchive_parse_filename( "incremental-snapshot-5-+6-J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN.tar.zst",
+                                        &full_slot, &incremental_slot, hash, &is_zstd )==-1 );
+  FD_TEST( fd_ssarchive_parse_filename( "incremental-snapshot-5-\t6-J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN.tar.zst",
+                                        &full_slot, &incremental_slot, hash, &is_zstd )==-1 );
+}
+
+static void
 test_ssarchive_init(fd_test_ssarchive_env_t * env) {
   char tmp_path_template[] = "/tmp/test_ssarchive.XXXXXX";
   char * tmp_path          = mkdtemp(tmp_path_template);
@@ -211,6 +232,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  test_ssarchive_parse_filename();
   test_ssarchive_latest_pair_basic();
   test_ssarchive_latest_pair_dangling_incr();
   test_ssarchive_latest_pair_over_capacity();
