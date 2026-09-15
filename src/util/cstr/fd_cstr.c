@@ -81,6 +81,7 @@ fd_cstr_to_ulong_seq( char const * cstr,
     while( ((seq_ele_0<=seq_ele) & (seq_ele<seq_ele_1)) ) {
       if( FD_LIKELY( seq_cnt<seq_max ) ) seq[ seq_cnt ] = seq_ele;
       seq_cnt++;
+      if( FD_UNLIKELY( seq_stride>seq_ele_1-seq_ele ) ) break;
       seq_ele += seq_stride;
     }
     if( seq_ele==seq_ele_1 ) {
