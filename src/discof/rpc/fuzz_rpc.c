@@ -30,10 +30,10 @@
 
 const fd_http_server_params_t http_params = {
   .max_connection_cnt    = 1024UL,
-  .max_ws_connection_cnt = 0UL,
+  .max_ws_connection_cnt = 1UL, /* one ws slot so rpc_ws_message( 0UL, ... ) reaches the subscribe handlers */
   .max_request_len       = FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN,
-  .max_ws_recv_frame_len = 0UL,
-  .max_ws_send_frame_cnt = 0UL,
+  .max_ws_recv_frame_len = FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN,
+  .max_ws_send_frame_cnt = 4UL,
   .outgoing_buffer_sz    = FUZZ_RPC_OUTGOING_BUFFER_SZ,
   .compress_websocket    = 0,
 };
@@ -44,6 +44,13 @@ static uchar * rpc_mem;
 
 static fd_topo_t *  topo;
 static fd_accdb_t * fuzz_accdb;
+static ZSTD_CCtx *  fuzz_zstd_cctx;
+
+/* A fork with two accounts (4 and 200 data bytes) so account requests
+   with a valid pubkey reach the encode / dataSlice / base58-limit paths */
+static fd_accdb_fork_id_t fuzz_fork_id;
+static char fuzz_addr_small_b58[ FD_BASE58_ENCODED_32_SZ ];
+static char fuzz_addr_large_b58[ FD_BASE58_ENCODED_32_SZ ];
 
 static fd_wksp_t *
 fd_wksp_new_lazy( ulong footprint ) {
@@ -100,6 +107,23 @@ setup_accdb( void ) {
   FD_TEST( accdb_mem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL ) );
   FD_TEST( accdb );
+
+  fd_accdb_fork_id_t sentinel  = { .val = USHORT_MAX };
+  fd_accdb_fork_id_t root_fork = fd_accdb_attach_child( accdb, sentinel );
+  fuzz_fork_id = fd_accdb_attach_child( accdb, root_fork );
+
+  uchar addr_small[ 32 ]; memset( addr_small, 0xAA, 32UL );
+  uchar addr_large[ 32 ]; memset( addr_large, 0xCC, 32UL );
+  uchar const * pks[ 2 ] = { addr_small, addr_large };
+  int wr[ 2 ] = { 1, 1 };
+  fd_acc_t acc[ 2 ]; memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fuzz_fork_id, 2UL, pks, wr, acc );
+  acc[0].lamports = 1000000UL; acc[0].data_len = 4UL;   memset( acc[0].owner, 0xBB, 32UL ); memset( acc[0].data, 0x01, 4UL   ); acc[0].commit = 1;
+  acc[1].lamports =  500000UL; acc[1].data_len = 200UL; memset( acc[1].owner, 0xDD, 32UL ); memset( acc[1].data, 0x02, 200UL ); acc[1].commit = 1;
+  fd_accdb_release( accdb, 2UL, acc );
+
+  fd_base58_encode_32( addr_small, NULL, fuzz_addr_small_b58 );
+  fd_base58_encode_32( addr_large, NULL, fuzz_addr_large_b58 );
   return accdb;
 }
 
@@ -117,6 +141,9 @@ LLVMFuzzerInitialize( int  *   argc,
   setenv( "FD_LOG_PATH", "", 0 );
   fd_boot( argc, argv );
   fd_log_level_core_set(5);  /* abort on FD_LOG_ERR */
+
+  static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );
 
   topo = aligned_alloc( alignof(fd_topo_t), sizeof(fd_topo_t) );
   FD_TEST( topo );
@@ -136,6 +163,12 @@ LLVMFuzzerInitialize( int  *   argc,
   topo_wksp->wksp = wksp;
 
   fuzz_accdb = setup_accdb();
+
+  ulong  zstd_wksp_sz = ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL );
+  void * zstd_wksp    = aligned_alloc( 16UL, fd_ulong_align_up( zstd_wksp_sz, 16UL ) );
+  FD_TEST( zstd_wksp );
+  fuzz_zstd_cctx = ZSTD_initStaticCCtx( zstd_wksp, zstd_wksp_sz );
+  FD_TEST( fuzz_zstd_cctx );
 
   void * shalloc = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL );
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( shalloc, 1UL ), 1UL );
@@ -189,7 +222,12 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( http_mem, http_params, (fd_http_server_callbacks_t){ 0 }, NULL ) );
   ctx->http = http;
 
-  ctx->accdb = fuzz_accdb;
+  ctx->accdb     = fuzz_accdb;
+  ctx->zstd_cctx = fuzz_zstd_cctx;
+
+  ulong ws_sub_vote[ 1 ], ws_sub_slot[ 1 ]; /* sized to max_ws_connection_cnt */
+  ctx->ws_subscribers_vote = ws_sub_vote;
+  ctx->ws_subscribers_slot = ws_sub_slot;
 
   ctx->cluster_nodes_dlist = fd_rpc_cluster_node_dlist_join( fd_rpc_cluster_node_dlist_new( nodes_dlist_mem ) );
   ctx->cluster_nodes[ 0 ].valid = 1;
@@ -203,8 +241,9 @@ LLVMFuzzerTestOneInput( uchar const * data,
   ctx->finalized_idx = FETCH_TYPE( uchar ) % 64 ? 2UL : ULONG_MAX;
 
   for( ulong j=0UL; j<3UL; j++ ) {
-    ctx->banks[ j ].slot = FETCH_TYPE( ulong );
-    ctx->banks[ j ].bank_idx = j;
+    ctx->banks[ j ].slot          = FETCH_TYPE( ulong );
+    ctx->banks[ j ].bank_idx      = j;
+    ctx->banks[ j ].accdb_fork_id = fuzz_fork_id;
   }
   ctx->has_genesis_hash = FETCH_TYPE( uchar ) % 2;
 
@@ -225,6 +264,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar req_body[ FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN ];
   ulong req_body_sz;
 
+  int transport_ws = FETCH_TYPE( uchar ) % 4 == 0; /* ws_conn_id 0, no socket: rpc_ws_message returns after the request */
+
   if( FETCH_TYPE( uchar ) % 2 ) {
     /* unstructured */
     req_body_sz = FETCH_TYPE( ushort ) % FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN;
@@ -242,7 +283,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
     { CHECKED_APPEND( cstr, "{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"" ); }
 
-    switch( FETCH_TYPE(uchar) % 53 ) {
+    switch( FETCH_TYPE(uchar) % 57 ) {
       case  0: { CHECKED_APPEND( cstr, "getAccountInfo"                    ); } break;
       case  1: { CHECKED_APPEND( cstr, "getBalance"                        ); } break;
       case  2: { CHECKED_APPEND( cstr, "getBlock"                          ); } break;
@@ -295,6 +336,10 @@ LLVMFuzzerTestOneInput( uchar const * data,
       case 49: { CHECKED_APPEND( cstr, "requestAirdrop"                    ); } break;
       case 50: { CHECKED_APPEND( cstr, "sendTransaction"                   ); } break;
       case 51: { CHECKED_APPEND( cstr, "simulateTransaction"               ); } break;
+      case 52: { CHECKED_APPEND( cstr, "slotSubscribe"                     ); } break;
+      case 53: { CHECKED_APPEND( cstr, "slotUnsubscribe"                   ); } break;
+      case 54: { CHECKED_APPEND( cstr, "voteSubscribe"                     ); } break;
+      case 55: { CHECKED_APPEND( cstr, "voteUnsubscribe"                   ); } break;
       default: { CHECKED_APPEND( cstr, "unknownMethod"                     ); } break;
     }
     { CHECKED_APPEND( cstr, "\",\"params\":[" ); }
@@ -303,15 +348,24 @@ LLVMFuzzerTestOneInput( uchar const * data,
     ulong num_params = FETCH_TYPE( uchar ) % 3UL;
     for( ulong p = 0UL; p < num_params; p++ ) {
       if( p > 0UL ) { CHECKED_APPEND( cstr, "," ); }
-      if( FETCH_TYPE( uchar ) % 2 ) {
-        ulong plen = FETCH_TYPE( uchar ) % 64UL;
-        char  pbuf[ 65 ];
-        for( ulong k = 0UL; k < plen; k++ )
-          pbuf[k] = (char)(0x20 + FETCH_TYPE( uchar ) % 95);
-        pbuf[ plen ] = '\0';
-        { CHECKED_APPEND( cstr, pbuf  ); }
-      } else {
-        { CHECKED_APPEND( cstr, "null" ); }
+      switch( FETCH_TYPE( uchar ) % 5 ) {
+        case 0: {
+          ulong plen = FETCH_TYPE( uchar ) % 64UL;
+          char  pbuf[ 65 ];
+          for( ulong k = 0UL; k < plen; k++ )
+            pbuf[k] = (char)(0x20 + FETCH_TYPE( uchar ) % 95);
+          pbuf[ plen ] = '\0';
+          { CHECKED_APPEND( cstr, pbuf  ); }
+          break;
+        }
+        case 1: { CHECKED_APPEND( cstr, "\"" ); } { CHECKED_APPEND( cstr, fuzz_addr_small_b58 ); } { CHECKED_APPEND( cstr, "\"" ); } break;
+        case 2: { CHECKED_APPEND( cstr, "\"" ); } { CHECKED_APPEND( cstr, fuzz_addr_large_b58 ); } { CHECKED_APPEND( cstr, "\"" ); } break;
+        case 3: {
+          { CHECKED_APPEND( cstr, "[\"" ); } { CHECKED_APPEND( cstr, fuzz_addr_small_b58 ); }
+          { CHECKED_APPEND( cstr, "\",\"" ); } { CHECKED_APPEND( cstr, fuzz_addr_large_b58 ); } { CHECKED_APPEND( cstr, "\"]" ); }
+          break;
+        }
+        default: { CHECKED_APPEND( cstr, "null" ); } break;
       }
     }
 
@@ -411,10 +465,16 @@ LLVMFuzzerTestOneInput( uchar const * data,
     req_body_sz = (ulong)cstr - (ulong)req_body;
   }
 
-  req->post.body     = req_body;
+  /* exact-size heap copy so a one-past-the-end read is visible to ASan */
+  uchar * body = malloc( fd_ulong_max( req_body_sz, 1UL ) );
+  FD_TEST( body );
+  fd_memcpy( body, req_body, req_body_sz );
+  req->post.body     = body;
   req->post.body_len = req_body_sz;
-  // FD_LOG_WARNING(("request:\n%.*s", (int)req_body_sz, req_body ));
-  rpc_http_request( req );
+  // FD_LOG_WARNING(("request:\n%.*s", (int)req_body_sz, body ));
+  if( transport_ws ) rpc_ws_message( 0UL, body, req_body_sz, ctx );
+  else               rpc_http_request( req );
+  free( body );
   FD_FUZZ_MUST_BE_COVERED;
   return 0;
 
