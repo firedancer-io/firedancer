@@ -50,8 +50,10 @@ struct __attribute__((aligned(32UL))) set_ctx {
 
   fd_bmtree_node_t      root;
   /* If this FEC set has resigned shreds, this is our signature of the
-     root of the Merkle tree */
+     root of the Merkle tree, once fd_fec_resolver_set_retransmitter_sig
+     has provided it; zero and sig_pending until then. */
   wrapped_sig_t         retransmitter_sig;
+  int                   sig_pending;
 
   union {
     fd_bmtree_commit_t  tree[1];
@@ -170,6 +172,7 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   ulong depth;
   ulong partial_depth;
   ulong complete_depth;
+  ulong signing_depth;
   ulong done_depth;
 
   /* expected_shred_version: discard all shreds with a shred version
@@ -212,6 +215,18 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   ctx_list_t  free_list[1];
   ctx_list_t  complete_list[1];
 
+  /* signing_list: complete FEC sets still awaiting their retransmitter
+     signature, at most signing_depth of them; each moves to
+     complete_list when fd_fec_resolver_set_retransmitter_sig provides
+     it.  They are found there by leader signature.  signing_free holds
+     the signing_depth spare contexts: parking a set moves one into
+     free_list in its place, so free_list sees a completion as usual,
+     and signing the set later sends the completed queue's head back
+     here instead of to free_list. */
+  ctx_list_t  signing_list[1];
+  ctx_list_t  signing_free[1];
+  ulong       signing_cnt;
+
   /* free_list_cnt: The number of items in free_list. */
   ulong free_list_cnt;
 
@@ -235,12 +250,6 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
      eviction in the unlikely case that we run out of elements in the
      done_map. */
   done_heap_t done_heap[1];
-
-  /* signer is used to sign shreds that require a retransmitter
-     signature.  sign_ctx is provided as the first argument to the
-     function. */
-  fd_fec_resolver_sign_fn * signer;
-  void                    * sign_ctx;
 
   /* slot_old: slot_old is the lowest slot for which shreds will be
      accepted.  That is any shred with slot<slot_old is rejected by
@@ -270,11 +279,12 @@ FD_FN_PURE ulong
 fd_fec_resolver_footprint( ulong depth,
                            ulong partial_depth,
                            ulong complete_depth,
+                           ulong signing_depth,
                            ulong done_depth ) {
-  if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (done_depth==0UL) ) ) return 0UL;
-  if( FD_UNLIKELY( (depth>UINT_MAX) | (partial_depth>UINT_MAX) | (complete_depth>UINT_MAX)         ) ) return 0UL;
+  if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (signing_depth==0UL) | (done_depth==0UL) ) ) return 0UL;
+  if( FD_UNLIKELY( (depth>UINT_MAX) | (partial_depth>UINT_MAX) | (complete_depth>UINT_MAX) | (signing_depth>UINT_MAX) ) ) return 0UL;
 
-  ulong depth_sum = depth + partial_depth + complete_depth;
+  ulong depth_sum = depth + partial_depth + complete_depth + signing_depth;
   if( FD_UNLIKELY( depth_sum>=UINT_MAX ) ) return 0UL;
 
   ulong ctx_chain_cnt  = ctx_map_chain_cnt_est ( depth      );
@@ -295,18 +305,17 @@ FD_FN_CONST ulong fd_fec_resolver_align( void ) { return FD_FEC_RESOLVER_ALIGN; 
 
 void *
 fd_fec_resolver_new( void                    * shmem,
-                     fd_fec_resolver_sign_fn * signer,
-                     void                    * sign_ctx,
                      ulong                     depth,
                      ulong                     partial_depth,
                      ulong                     complete_depth,
+                     ulong                     signing_depth,
                      ulong                     done_depth,
                      fd_fec_set_t            * sets,
                      ulong                     seed ) {
-  if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (done_depth==0UL) ) ) return NULL;
-  if( FD_UNLIKELY( (depth>UINT_MAX) | (partial_depth>UINT_MAX) | (complete_depth>UINT_MAX)         ) ) return NULL;
+  if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (signing_depth==0UL) | (done_depth==0UL) ) ) return NULL;
+  if( FD_UNLIKELY( (depth>UINT_MAX) | (partial_depth>UINT_MAX) | (complete_depth>UINT_MAX) | (signing_depth>UINT_MAX) ) ) return NULL;
 
-  ulong depth_sum = depth + partial_depth + complete_depth;
+  ulong depth_sum = depth + partial_depth + complete_depth + signing_depth;
   if( FD_UNLIKELY( depth_sum>=UINT_MAX ) ) return NULL;
 
   ulong ctx_chain_cnt  = ctx_map_chain_cnt_est ( depth      );
@@ -330,12 +339,16 @@ fd_fec_resolver_new( void                    * shmem,
   void * _ctx_treap     = resolver->ctx_treap;
   void * _free_list     = resolver->free_list;
   void * _complete_list = resolver->complete_list;
+  void * _signing_list  = resolver->signing_list;
+  void * _signing_free  = resolver->signing_free;
   void * _done_heap     = resolver->done_heap;
 
   if( FD_UNLIKELY( !ctx_map_new  ( _ctx_map, ctx_chain_cnt, seed0   ) ) ) { FD_LOG_WARNING(( "ctx_map_new fail"   )); return NULL; }
   if( FD_UNLIKELY( !ctx_treap_new( _ctx_treap, depth_sum            ) ) ) { FD_LOG_WARNING(( "ctx_treap_new fail" )); return NULL; }
   if( FD_UNLIKELY( !ctx_list_new ( _free_list                       ) ) ) { FD_LOG_WARNING(( "ctx_list_new fail"  )); return NULL; }
   if( FD_UNLIKELY( !ctx_list_new ( _complete_list                   ) ) ) { FD_LOG_WARNING(( "ctx_list_new fail"  )); return NULL; }
+  if( FD_UNLIKELY( !ctx_list_new ( _signing_list                    ) ) ) { FD_LOG_WARNING(( "ctx_list_new fail"  )); return NULL; }
+  if( FD_UNLIKELY( !ctx_list_new ( _signing_free                    ) ) ) { FD_LOG_WARNING(( "ctx_list_new fail"  )); return NULL; }
   if( FD_UNLIKELY( !done_pool_new( _done_pool, done_depth           ) ) ) { FD_LOG_WARNING(( "done_pool_new fail" )); return NULL; }
   if( FD_UNLIKELY( !done_map_new ( _done_map, done_chain_cnt, seed1 ) ) ) { FD_LOG_WARNING(( "done_map_new fail"  )); return NULL; }
   if( FD_UNLIKELY( !done_heap_new( _done_heap, done_depth           ) ) ) { FD_LOG_WARNING(( "done_heap_new fail" )); return NULL; }
@@ -349,22 +362,29 @@ fd_fec_resolver_new( void                    * shmem,
   ctx_list_t * free_list     = ctx_list_join( _free_list     );    FD_TEST( free_list    ==resolver->free_list     );
   ctx_list_t * complete_list = ctx_list_join( _complete_list );    FD_TEST( complete_list==resolver->complete_list );
 
-  for( ulong i=0UL;                 i<depth+partial_depth; i++ ) { ctx_list_idx_push_tail( free_list,     i, ctx_pool ); }
-  for( ulong i=depth+partial_depth; i<depth_sum;           i++ ) { ctx_list_idx_push_tail( complete_list, i, ctx_pool ); }
+  ctx_list_t * signing_free  = ctx_list_join( _signing_free  );    FD_TEST( signing_free ==resolver->signing_free  );
+
+  ulong free_cnt     = depth+partial_depth;
+  ulong complete_cnt = free_cnt+complete_depth;
+  for( ulong i=0UL;          i<free_cnt;     i++ ) { ctx_list_idx_push_tail( free_list,     i, ctx_pool ); }
+  for( ulong i=free_cnt;     i<complete_cnt; i++ ) { ctx_list_idx_push_tail( complete_list, i, ctx_pool ); }
+  for( ulong i=complete_cnt; i<depth_sum;    i++ ) { ctx_list_idx_push_tail( signing_free,  i, ctx_pool ); }
+  ctx_list_leave( signing_free  );
   ctx_list_leave( complete_list );
   ctx_list_leave( free_list     );
+  FD_TEST( ctx_list_join( _signing_list ) ); ctx_list_leave( resolver->signing_list );
 
   fd_sha512_new( resolver->sha512 );
 
   resolver->depth                  = depth;
   resolver->partial_depth          = partial_depth;
   resolver->complete_depth         = complete_depth;
+  resolver->signing_depth          = signing_depth;
+  resolver->signing_cnt            = 0UL;
   resolver->done_depth             = done_depth;
   resolver->expected_shred_version = 0;
   resolver->bypass_verify          = 0;
   resolver->free_list_cnt          = depth+partial_depth;
-  resolver->signer                 = signer;
-  resolver->sign_ctx               = sign_ctx;
   resolver->slot_old               = 0UL;
   resolver->seed                   = seed3;
   return shmem;
@@ -378,7 +398,7 @@ fd_fec_resolver_join( void * shmem ) {
   ulong complete_depth = resolver->complete_depth;
   ulong done_depth     = resolver->done_depth;
 
-  ulong depth_sum = depth + partial_depth + complete_depth;
+  ulong depth_sum = depth + partial_depth + complete_depth + resolver->signing_depth;
   if( FD_UNLIKELY( depth_sum>=UINT_MAX ) ) return NULL;
 
   ulong ctx_chain_cnt  = ctx_map_chain_cnt_est ( depth      );
@@ -399,6 +419,8 @@ fd_fec_resolver_join( void * shmem ) {
   if( FD_UNLIKELY(      ctx_treap_join( resolver->ctx_treap     )!=      resolver->ctx_treap     ) ) return NULL;
   if( FD_UNLIKELY(      ctx_list_join ( resolver->free_list     )!=      resolver->free_list     ) ) return NULL;
   if( FD_UNLIKELY(      ctx_list_join ( resolver->complete_list )!=      resolver->complete_list ) ) return NULL;
+  if( FD_UNLIKELY(      ctx_list_join ( resolver->signing_list  )!=      resolver->signing_list  ) ) return NULL;
+  if( FD_UNLIKELY(      ctx_list_join ( resolver->signing_free  )!=      resolver->signing_free  ) ) return NULL;
   if( FD_UNLIKELY(      done_heap_join( resolver->done_heap     )!=      resolver->done_heap     ) ) return NULL;
   if( FD_UNLIKELY(      fd_sha512_join( resolver->sha512        )!=      resolver->sha512        ) ) return NULL;
 
@@ -481,8 +503,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_fec_set_t const      * * out_fec_set,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
-                           fd_fec_resolver_spilled_t * out_spilled      ) {
+                           fd_fec_resolver_spilled_t * out_spilled,
+                           int                       * out_sig_pending ) {
   FD_TEST( source<=FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR );
+  *out_sig_pending = 0;
   int is_repair = source==FD_FEC_RESOLVER_SHRED_SRC_REPAIR;
 
   /* Unpack variables */
@@ -723,11 +747,9 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     ctx->total_rx_shred_cnt = 0UL;
     ctx->root               = *_root;
 
-    if( FD_UNLIKELY( fd_shred_is_resigned( shred_type ) & !!(resolver->signer) ) ) {
-      resolver->signer( resolver->sign_ctx, ctx->retransmitter_sig.u, _root->hash );
-    } else {
-      fd_memset( ctx->retransmitter_sig.u, 0, 64UL );
-    }
+    /* The retransmitter signature comes later, from the caller */
+    fd_memset( ctx->retransmitter_sig.u, 0, 64UL );
+    ctx->sig_pending = !!fd_shred_is_resigned( shred_type );
 
     /* Reset the FEC set */
     ctx->set->data_shred_rcvd    = 0U;
@@ -766,6 +788,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
     if( FD_UNLIKELY( shred_dup ) ) {
       *out_shred = is_data_shred ? ctx->set->data_shreds[ in_type_idx ].s : ctx->set->parity_shreds[ in_type_idx ].s;
+      *out_sig_pending = ctx->sig_pending;
       return FD_FEC_RESOLVER_SHRED_DUPLICATE;
     }
   }
@@ -793,7 +816,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   *out_shred = (fd_shred_t const *)dst;
 
   /* Do we have enough to begin reconstruction? */
-  if( FD_LIKELY( ctx->total_rx_shred_cnt < FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_OKAY;
+  if( FD_LIKELY( ctx->total_rx_shred_cnt < FD_FEC_SHRED_CNT ) ) {
+    *out_sig_pending = ctx->sig_pending;
+    return FD_FEC_RESOLVER_SHRED_OKAY;
+  }
 
   /* At this point, the FEC set is either valid or permanently invalid,
      so we can consider it done either way. */
@@ -980,20 +1006,85 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       memcpy( set->parity_shreds[i].b + fd_shred_retransmitter_sig_off( set->parity_shreds[i].s ), ctx->retransmitter_sig.u, 64UL );
   }
 
-  /* Finally... A valid FEC set.  Forward it along. */
-  ctx_list_ele_push_tail( complete_list, ctx, ctx_pool );
-  ctx_list_idx_push_tail( free_list, ctx_list_idx_pop_head( complete_list, ctx_pool ), ctx_pool );
+  /* Finally... A valid FEC set.  Forward it along.  One still waiting
+     for its retransmitter signature is kept out of the completed queue
+     until it arrives. */
+  if( FD_UNLIKELY( ctx->sig_pending ) ) {
+    FD_TEST( resolver->signing_cnt<resolver->signing_depth );
+    ctx_list_ele_push_tail( resolver->signing_list, ctx, ctx_pool );
+    ctx_list_idx_push_tail( free_list, ctx_list_idx_pop_head( resolver->signing_free, ctx_pool ), ctx_pool );
+    resolver->signing_cnt++;
+  } else {
+    ctx_list_ele_push_tail( complete_list, ctx, ctx_pool );
+    ctx_list_idx_push_tail( free_list, ctx_list_idx_pop_head( complete_list, ctx_pool ), ctx_pool );
+  }
   resolver->free_list_cnt++;
 
   *out_fec_set = set;
+  *out_sig_pending = ctx->sig_pending;
 
   return FD_FEC_RESOLVER_SHRED_COMPLETES;
 }
 
 
+fd_fec_set_t const *
+fd_fec_resolver_set_retransmitter_sig( fd_fec_resolver_t * resolver,
+                                       uchar const         leader_sig[ static 64 ],
+                                       uchar const         retransmitter_sig[ static 64 ] ) {
+  wrapped_sig_t const * w_sig = (wrapped_sig_t const *)leader_sig;
+  set_ctx_t * ctx_pool = resolver->ctx_pool;
+
+  /* Complete and parked: stamp every shred and let it age out of the
+     completed queue like any other.  This comes first because a repair
+     shred can reopen a completed set under the same leader signature
+     while its signature is still on the way. */
+  for( ulong n=resolver->signing_cnt; n; n-- ) {
+    set_ctx_t * ctx = ctx_list_ele_pop_head( resolver->signing_list, ctx_pool );
+    if( FD_LIKELY( memcmp( ctx->sig.u, leader_sig, 64UL ) ) ) {
+      ctx_list_ele_push_tail( resolver->signing_list, ctx, ctx_pool );
+      continue;
+    }
+
+    resolver->signing_cnt--;
+    ctx->sig_pending = 0;
+
+    for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+      memcpy( ctx->set->data_shreds[i].b   + fd_shred_retransmitter_sig_off( ctx->set->data_shreds[i].s   ), retransmitter_sig, 64UL );
+    }
+    for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+      memcpy( ctx->set->parity_shreds[i].b + fd_shred_retransmitter_sig_off( ctx->set->parity_shreds[i].s ), retransmitter_sig, 64UL );
+    }
+
+    ctx_list_ele_push_tail( resolver->complete_list, ctx, ctx_pool );
+    ctx_list_idx_push_tail( resolver->signing_free, ctx_list_idx_pop_head( resolver->complete_list, ctx_pool ), ctx_pool );
+    return ctx->set;
+  }
+
+  set_ctx_t * ctx = ctx_map_ele_query( resolver->ctx_map, w_sig, NULL, ctx_pool );
+  if( FD_UNLIKELY( !ctx ) ) return NULL;
+  FD_TEST( ctx->sig_pending );
+
+  memcpy( ctx->retransmitter_sig.u, retransmitter_sig, 64UL );
+  ctx->sig_pending = 0;
+
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+    if( ctx->set->data_shred_rcvd  &(1U<<i) ) {
+      memcpy( ctx->set->data_shreds[i].b   + fd_shred_retransmitter_sig_off( ctx->set->data_shreds[i].s   ), retransmitter_sig, 64UL );
+    }
+  }
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+    if( ctx->set->parity_shred_rcvd&(1U<<i) ) {
+      memcpy( ctx->set->parity_shreds[i].b + fd_shred_retransmitter_sig_off( ctx->set->parity_shreds[i].s ), retransmitter_sig, 64UL );
+    }
+  }
+  return ctx->set;
+}
+
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver ) {
   fd_sha512_leave( resolver->sha512        );
   done_heap_leave( resolver->done_heap     );
+  ctx_list_leave ( resolver->signing_free  );
+  ctx_list_leave ( resolver->signing_list  );
   ctx_list_leave ( resolver->complete_list );
   ctx_list_leave ( resolver->free_list     );
   ctx_treap_leave( resolver->ctx_treap     );
@@ -1009,9 +1100,10 @@ void * fd_fec_resolver_delete( void * shmem ) {
   ulong depth          = resolver->depth;
   ulong partial_depth  = resolver->partial_depth;
   ulong complete_depth = resolver->complete_depth;
+  ulong signing_depth  = resolver->signing_depth;
   ulong done_depth     = resolver->done_depth;
 
-  ulong depth_sum      = depth + partial_depth + complete_depth;
+  ulong depth_sum      = depth + partial_depth + complete_depth + signing_depth;
   ulong ctx_chain_cnt  = ctx_map_chain_cnt_est ( depth      );
   ulong done_chain_cnt = done_map_chain_cnt_est( done_depth );
 
@@ -1027,6 +1119,8 @@ void * fd_fec_resolver_delete( void * shmem ) {
   done_heap_delete( resolver->done_heap     );
   done_map_delete ( _done_map               );
   done_pool_delete( _done_pool              );
+  ctx_list_delete ( resolver->signing_free  );
+  ctx_list_delete ( resolver->signing_list  );
   ctx_list_delete ( resolver->complete_list );
   ctx_list_delete ( resolver->free_list     );
   ctx_treap_delete( resolver->ctx_treap     );

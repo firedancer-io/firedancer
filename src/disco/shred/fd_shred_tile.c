@@ -21,7 +21,6 @@
 #include "../store/fd_store.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyguard.h"
-#include "../keyguard/fd_keyguard_client.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../fd_disco.h"
 #include "../net/fd_net_tile.h"
@@ -148,6 +147,20 @@ typedef union {
   fd_net_rx_bounds_t net_rx;
 } fd_shred_in_ctx_t;
 
+/* A sign request sent on shred_sign and not yet answered: a leader FEC
+   set waiting for its signature, or the retransmitter signature of a
+   resigned FEC set the FEC resolver is receiving. */
+
+typedef struct {
+  int              resign;
+  ulong            fec_set_idx;
+  ulong            tsorig;
+  ulong            txn_cnt;
+  void const *     leader_bank;
+  fd_bmtree_node_t merkle_root;
+  uchar            leader_sig[ 64 ];
+} fd_shred_sign_pend_t;
+
 typedef struct {
   fd_shredder_t      * shredder;
   fd_fec_resolver_t  * resolver;
@@ -166,7 +179,6 @@ typedef struct {
   fd_rnonce_ss_t       repair_nonce_ss[1];
 
   fd_keyswitch_t *     keyswitch;
-  fd_keyguard_client_t keyguard_client[1];
 
   fd_fec_set_t       * fec_sets;
 
@@ -199,6 +211,23 @@ typedef struct {
   ulong send_fec_set_idx[ FD_SHRED_BATCH_FEC_SETS_MAX ];
   ulong send_fec_set_cnt;
   ulong tsorig;  /* timestamp of the last packet in compressed form */
+
+  /* Sign requests not yet answered, oldest first.  The sign tile
+     answers in order on sign_shred, so each response frag belongs to
+     the head.  Leader FEC sets wait here for their signature and are
+     finished by the response.  Shreds of a resigned FEC set are not
+     retransmitted until its retransmitter signature is back. */
+  fd_shred_sign_pend_t sign_pend[ FD_SHRED_SIGN_PEND_MAX ];
+
+  ulong sign_pend_head;
+  ulong sign_pend_cnt;
+  ulong sign_seq;
+  uchar signature[ 64 ] __attribute__((aligned(32UL)));
+
+  fd_wksp_t * sign_out_mem;
+  ulong       sign_out_chunk0;
+  ulong       sign_out_wmark;
+  ulong       sign_out_chunk;
 
   /* Includes Ethernet, IP, UDP headers */
   ulong shred_buffer_sz;
@@ -345,7 +374,7 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
 
-  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, tile->shred.fec_exposure+1UL,
+  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, tile->shred.fec_exposure+1UL, FD_SHRED_SIGN_PEND_MAX,
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
@@ -360,10 +389,11 @@ during_housekeeping( fd_shred_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ulong seq_must_complete = ctx->keyswitch->param;
 
-    if( FD_UNLIKELY( fd_seq_lt( ctx->poh_in_expect_seq, seq_must_complete ) ) ) {
+    if( FD_UNLIKELY( fd_seq_lt( ctx->poh_in_expect_seq, seq_must_complete ) || ctx->sign_pend_cnt ) ) {
       /* See fd_keyswitch.h, we need to flush any in-flight shreds from
-         the leader pipeline before switching key. */
-      FD_LOG_WARNING(( "Flushing in-flight unpublished shreds, must reach seq %lu, currently at %lu ...", seq_must_complete, ctx->poh_in_expect_seq ));
+         the leader pipeline before switching key.  Sets still awaiting
+         their signature were requested under the old key. */
+      FD_LOG_WARNING(( "Flushing in-flight unpublished shreds, must reach seq %lu, currently at %lu with %lu awaiting signature ...", seq_must_complete, ctx->poh_in_expect_seq, ctx->sign_pend_cnt ));
       return;
     }
 
@@ -393,6 +423,24 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MCNT_SET  ( SHRED, SHRED_UNCHAINED_REJECTED,   ctx->metrics->shred_rejected_unchained_cnt );
 
   FD_MCNT_ENUM_COPY( SHRED, SHRED_PROCESSED, ctx->metrics->shred_processing_result             );
+}
+
+
+static fd_shred_sign_pend_t *
+sign_request( fd_shred_ctx_t *    ctx,
+              fd_stem_context_t * stem,
+              uchar const         merkle_root[ static 32 ] ) {
+  FD_TEST( ctx->sign_pend_cnt<FD_SHRED_SIGN_PEND_MAX );
+  fd_shred_sign_pend_t * pend = ctx->sign_pend + (ctx->sign_pend_head+ctx->sign_pend_cnt++)%FD_SHRED_SIGN_PEND_MAX;
+  pend->resign      = 0;
+  pend->fec_set_idx = ULONG_MAX;
+  pend->tsorig      = ctx->tsorig;
+  memcpy( pend->merkle_root.hash, merkle_root, 32UL );
+
+  memcpy( fd_chunk_to_laddr( ctx->sign_out_mem, ctx->sign_out_chunk ), merkle_root, 32UL );
+  fd_stem_publish( stem, SIGN_OUT_IDX, FD_KEYGUARD_SIGN_TYPE_ED25519, ctx->sign_out_chunk, 32UL, 0UL, ctx->tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->sign_out_chunk = fd_dcache_compact_next( ctx->sign_out_chunk, 32UL, ctx->sign_out_chunk0, ctx->sign_out_wmark );
+  return pend;
 }
 
 static void
@@ -449,12 +497,16 @@ before_frag( fd_shred_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->shredder->shred_version ) ) return -1;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
+    if( FD_UNLIKELY( (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) &
+                     (ctx->sign_pend_cnt+FD_SHRED_BATCH_FEC_SETS_MAX>FD_SHRED_SIGN_PEND_MAX) ) ) return -1;
     ctx->poh_in_expect_seq = seq+1UL;
     return (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK) &
            (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_SHRED_EPOCH_MSG) &
            (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_LEADER_BANK);
   }
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+    /* A shred may open a resigned FEC set, which needs a request */
+    if( FD_UNLIKELY( ctx->sign_pend_cnt==FD_SHRED_SIGN_PEND_MAX ) ) return -1;
     return (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
   }
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ){
@@ -476,7 +528,7 @@ before_frag( fd_shred_ctx_t * ctx,
 static void
 during_frag( fd_shred_ctx_t * ctx,
              ulong            in_idx,
-             ulong            seq FD_PARAM_UNUSED,
+             ulong            seq,
              ulong            sig,
              ulong            chunk,
              ulong            sz,
@@ -597,6 +649,14 @@ during_frag( fd_shred_ctx_t * ctx,
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_stake_ci_stake_msg_init( ctx->stake_ci, fd_type_pun_const( dcache_entry ) );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SIGN ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=64UL ) ) FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+    if( FD_UNLIKELY( seq!=ctx->sign_seq ) ) FD_LOG_CRIT(( "sign response seq %lu, expected %lu", seq, ctx->sign_seq ));
+    fd_memcpy( ctx->signature, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), 64UL );
     return;
   }
 
@@ -959,6 +1019,212 @@ send_shred( fd_shred_ctx_t                 * ctx,
   ctx->net_out_chunk = fd_dcache_compact_next( chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
 
+/* Send the set's shreds received over turbine (or, if received is 0,
+   its produced and recovered ones) to their turbine destinations: the
+   leader's first hop, or our children.  Repaired shreds are never
+   relayed. */
+
+static void
+fan_out( fd_shred_ctx_t *     ctx,
+         fd_stem_context_t *  stem,
+         fd_fec_set_t const * set,
+         int                  is_leader,
+         int                  received,
+         ulong                tsorig ) {
+  ulong fanout = 200UL; /* Default Agave's DATA_PLANE_FANOUT = 200UL */
+  fd_shred_t const * shreds[ FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX ];
+  ulong k=0UL;
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+    int want = received ? !!(set->turbine_shred_rcvd & (1UL<<i)) : !(set->data_shred_rcvd & (1U<<i));
+    if( want ) shreds[ k++ ] = set->data_shreds[ i ].s;
+  }
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+    int want = received ? !!(set->turbine_shred_rcvd & (1UL<<(FD_FEC_SHRED_CNT+i))) : !(set->parity_shred_rcvd & (1U<<i));
+    if( want ) shreds[ k++ ] = set->parity_shreds[ i ].s;
+  }
+
+  if( FD_UNLIKELY( !k ) ) return;
+  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shreds[ 0 ]->slot );
+  if( FD_UNLIKELY( !sdest ) ) return;
+
+  ulong out_stride;
+  ulong max_dest_cnt[1];
+  fd_shred_dest_idx_t * dests;
+  if( FD_LIKELY( !is_leader ) ) {
+    for( ulong i=0UL; i<k; i++ ) {
+      for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], ctx->adtl_dests_retransmit+j, tsorig );
+    }
+    out_stride = k;
+    dests = fd_shred_dest_compute_children( sdest, shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
+  } else {
+    for( ulong i=0UL; i<k; i++ ) {
+      for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], ctx->adtl_dests_leader+j, tsorig );
+    }
+    out_stride = 1UL;
+    *max_dest_cnt = 1UL;
+    dests = fd_shred_dest_compute_first( sdest, shreds, k, ctx->scratchpad_dests );
+  }
+  if( FD_UNLIKELY( !dests ) ) return;
+
+  for( ulong i=0UL; i<k; i++ ) {
+    for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), tsorig );
+  }
+}
+
+/* Finish a complete FEC set: fan it out to the network, copy it into
+   the store and tell repair and replay. */
+
+static void
+complete_fec_set( fd_shred_ctx_t *         ctx,
+                  fd_stem_context_t *      stem,
+                  ulong                    fec_set_idx,
+                  fd_bmtree_node_t const * merkle_root,
+                  int                      is_leader,
+                  ulong                    tsorig,
+                  ulong                    txn_cnt,
+                  void const *             leader_bank ) {
+  fd_fec_set_t * set = ctx->fec_sets + fec_set_idx;
+
+  fd_shred_t const * last = set->data_shreds[ FD_FEC_SHRED_CNT - 1 ].s;
+
+  /* Broadcast locally produced and recovered shreds before any disk
+     work. */
+  fan_out( ctx, stem, set, is_leader, 0, tsorig );
+
+  /* Compute merkle root and chained merkle root. */
+
+  int replay_fwd = 1;
+  if( FD_LIKELY( ctx->store ) ) { /* firedancer-only */
+
+    set->leader_bank = NULL; /* un-used by firedancer */
+
+    fd_hash_t const * mr = fd_type_pun_const( merkle_root );
+
+    fd_store_fec_t * fec;
+    int insert_err = fd_store_insert( ctx->store, ctx->map_join, mr, &fec );
+    if( FD_UNLIKELY( insert_err==FD_MAP_ERR_KEY ) ) {
+      replay_fwd = 0;
+    } else {
+      FD_TEST( !insert_err && fec );
+
+      fd_store_fec_spill_stats_t spill[1];
+      uchar * fec_data = fd_store_fec_data_acquire_ex( ctx->store, ctx->disk_fd, fec, spill );
+      if( FD_UNLIKELY( spill->write_cnt ) ) {
+        fd_histf_sample( ctx->metrics->fec_fallback_write_timing, spill->write_ticks );
+        ctx->metrics->fec_fallback_write_cnt   += spill->write_cnt;
+        ctx->metrics->fec_fallback_write_bytes += spill->write_bytes;
+      }
+      if( FD_UNLIKELY( !fec_data ) )
+        FD_LOG_CRIT(( "Store could not allocate a FEC payload" ));
+      for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+        fd_shred_t * data_shred = set->data_shreds[i].s;
+        ulong        payload_sz = fd_shred_payload_sz( data_shred );
+        if( FD_UNLIKELY( fec->data_sz + payload_sz > ctx->store->fec_data_max ) ) {
+
+          FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, ctx->store->fec_data_max ));
+        }
+        fd_memcpy_nt_nofence( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
+        fec->data_sz += payload_sz;
+        if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (uint)payload_sz +  (i==0UL ? 0U : fec->shred_offs[ i-1UL ]);
+      }
+      _mm_sfence();
+      fd_store_fec_data_publish( ctx->store, fec );
+    }
+  }
+
+  if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) { /* firedancer-only */
+
+    /* Send all of the data shreds we recovered (weren't received).
+       The chunks are all written before any is published, so the
+       link burst must cover them or a chunk could be reused while
+       an unreliable consumer still sees its old seq. */
+    FD_STATIC_ASSERT( FD_SHRED_STEM_BURST>=32UL, shred_out_burst );
+    ulong missing_chunk[ 32 ];
+    ulong missing_cnt = 0UL;
+    for( int i=0; i<32; i++ ) {
+      if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
+        fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
+
+        fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
+        fd_memcpy_nt_nofence( shred_msg->shred_, missing, fd_shred_sz( missing ) );
+        memcpy( &shred_msg->merkle_root, merkle_root->hash, sizeof(fd_hash_t) );
+
+        missing_chunk[ missing_cnt++ ] = ctx->shred_out_chunk;
+        ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_shred_base_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
+      }
+    }
+
+    if( FD_LIKELY( missing_cnt ) ) {
+      _mm_sfence();
+      ulong sig   = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | SHRED_SIG_SRC_RECONSTRUCTED;
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      for( ulong i=0UL; i<missing_cnt; i++ ) fd_stem_publish( stem, ctx->shred_out_idx, sig, missing_chunk[ i ], sizeof(fd_shred_base_t), 0UL, tsorig, tspub );
+    }
+
+    /* Replay requires the FEC payload before this notification.
+       Wire-shred persistence on rserve is asynchronous.
+
+       This message, the shred msg, and the FEC evict msg constitute
+       the max 3 possible messages to repair/replay per after_frag.
+       In reality, it is only possible to publish all 3 in the case
+       where we receive a coding shred first for a FEC set where
+       (N=1,K=18), which allows for the FEC set to be instantly
+       completed by the singular coding shred, and that also happens
+       to evict a FEC set from the curr_map.  When fix-32 arrives, the
+       link burst value can be lowered to 2. */
+    ulong sig = is_leader ? SHRED_SIG_FEC_COMPLETE_LEADER : SHRED_SIG_FEC_COMPLETE;
+
+    fd_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
+    complete_msg->last_shred_hdr = *last;
+    memcpy( &complete_msg->merkle_root, merkle_root->hash, sizeof(fd_hash_t) );
+    complete_msg->chained_merkle_root = *(fd_hash_t *)fd_type_pun((uchar *)last + fd_shred_chain_off( last->variant ));
+    if( FD_LIKELY( sig==SHRED_SIG_FEC_COMPLETE ) ) {
+      complete_msg->turbine_shred_cnt       = (ulong)fd_ulong_popcnt( set->turbine_shred_rcvd );
+      complete_msg->repair_shred_cnt        = (ulong)fd_ulong_popcnt( set->repair_shred_rcvd );
+      complete_msg->reconstructed_shred_cnt = 2U*(uint)FD_FEC_SHRED_CNT-(uint)(fd_uint_popcnt( set->data_shred_rcvd ) + fd_uint_popcnt( set->parity_shred_rcvd ));
+    } else {
+      complete_msg->turbine_shred_cnt       = 0U;
+      complete_msg->repair_shred_cnt        = 0U;
+      complete_msg->reconstructed_shred_cnt = 0U;
+    }
+
+    fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sizeof(fd_fec_complete_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_complete_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
+
+  } else if( FD_UNLIKELY( ctx->store_out_idx != ULONG_MAX ) ) { /* frankendancer-only */
+
+    /* Send to the blockstore */
+
+    /* If the low 32 bits of sig are 0, the store tile will do extra
+       checks */
+    ulong new_sig = txn_cnt<<32 | (ulong)(is_leader);
+
+    /* Attach the leader bank pointer and merkle root so that the
+       store tile can set the block_id for the slot.  Network
+       FEC sets have no leader bank. */
+    if( FD_LIKELY( is_leader ) ) {
+      set->leader_bank = leader_bank;
+      memcpy( set->merkle_root, merkle_root->hash, 32UL );
+    } else {
+      set->leader_bank = NULL;
+    }
+
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    /* The size is actually slightly larger than USHORT_MAX, but the store tile
+       knows to use sizeof(fd_fec_set_t) instead of the sz field.  Put
+       USHORT_MAX so that monitoring tools are at least close. */
+    ulong sz = fd_ulong_min( sizeof(fd_fec_set_t), USHORT_MAX );
+    fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, set ), sz, 0UL, tsorig, tspub );
+
+    /* Store tile will release the bank pointer when it sees
+       SLOT_COMPLETE FEC set.  So we reset our tracking. */
+    if( FD_UNLIKELY( is_leader && ctx->leader_bank==leader_bank &&
+                     (set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) ) ) {
+      ctx->leader_bank  = NULL;
+    }
+  }
+}
+
 static void
 after_frag( fd_shred_ctx_t *    ctx,
             ulong               in_idx,
@@ -1021,8 +1287,46 @@ after_frag( fd_shred_ctx_t *    ctx,
     return;
   }
 
-  if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_POH) & (ctx->send_fec_set_cnt==0UL) ) ) {
-    /* Entry from PoH that didn't trigger a new FEC set to be made */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SIGN ) ) {
+    FD_TEST( ctx->sign_pend_cnt );
+
+    ctx->sign_seq++;
+    fd_shred_sign_pend_t * pend = ctx->sign_pend + ctx->sign_pend_head;
+    ctx->sign_pend_head = (ctx->sign_pend_head+1UL)%FD_SHRED_SIGN_PEND_MAX;
+    ctx->sign_pend_cnt--;
+
+    if( FD_UNLIKELY( pend->resign ) ) {
+      /* Retransmitter signature for a resigned set from the network.
+         The resolver stamps what it has, whether the set is still
+         coming in or completed meanwhile (it keeps such a set until
+         signed), and the shreds held back while waiting go out now;
+         a set that completed meanwhile is finished too. */
+      fd_fec_set_t const * set = fd_fec_resolver_set_retransmitter_sig( ctx->resolver, pend->leader_sig, ctx->signature );
+      if( FD_LIKELY( set ) ) {
+        fan_out( ctx, stem, set, 0, 1, pend->tsorig );
+        if( FD_UNLIKELY( pend->fec_set_idx!=ULONG_MAX ) ) {
+          FD_TEST( set==ctx->fec_sets+pend->fec_set_idx );
+          complete_fec_set( ctx, stem, pend->fec_set_idx, &pend->merkle_root, 0, pend->tsorig, 0UL, NULL );
+        }
+      }
+      return;
+    }
+
+    fd_fec_set_t * set = ctx->fec_sets + pend->fec_set_idx;
+    for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) fd_memcpy( set->data_shreds  [ i ].s->signature, ctx->signature, FD_ED25519_SIG_SZ );
+    for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) fd_memcpy( set->parity_shreds[ i ].s->signature, ctx->signature, FD_ED25519_SIG_SZ );
+    complete_fec_set( ctx, stem, pend->fec_set_idx, &pend->merkle_root, 1, pend->tsorig, pend->txn_cnt, pend->leader_bank );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
+    ulong txn_per_set = ctx->send_fec_set_cnt ? ctx->shredded_txn_cnt/ctx->send_fec_set_cnt : 0UL;
+    for( ulong k=0UL; k<ctx->send_fec_set_cnt; k++ ) {
+      fd_shred_sign_pend_t * pend = sign_request( ctx, stem, ctx->out_merkle_roots[ k ].hash );
+      pend->fec_set_idx = ctx->send_fec_set_idx[ k ];
+      pend->txn_cnt     = k+1UL<ctx->send_fec_set_cnt ? txn_per_set : ctx->shredded_txn_cnt-txn_per_set*(ctx->send_fec_set_cnt-1UL);
+      pend->leader_bank = ctx->leader_bank;
+    }
     return;
   }
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
@@ -1073,8 +1377,25 @@ after_frag( fd_shred_ctx_t *    ctx,
                       : FD_FEC_RESOLVER_SHRED_SRC_TURBINE;
 
     long add_shred_timing  = -fd_tickcount();
-    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, max_shred_idx, shred_source, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec );
+    int sig_pending = 0;
+    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, max_shred_idx, shred_source, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec, &sig_pending );
     add_shred_timing      +=  fd_tickcount();
+
+    fd_shred_sign_pend_t * resign = NULL;
+    sig_pending &= (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) | (rv==FD_FEC_RESOLVER_SHRED_DUPLICATE);
+    if( FD_UNLIKELY( sig_pending ) ) {
+      for( ulong i=0UL; i<ctx->sign_pend_cnt; i++ ) {
+        fd_shred_sign_pend_t * pend = ctx->sign_pend + (ctx->sign_pend_head+i)%FD_SHRED_SIGN_PEND_MAX;
+        if( pend->resign && !memcmp( pend->leader_sig, shred->signature, 64UL ) ) { resign = pend; break; }
+      }
+      /* Repair can reopen and complete a set already parked under the
+         outstanding request; the second copy gets its own. */
+      if( FD_LIKELY( !resign || (rv==FD_FEC_RESOLVER_SHRED_COMPLETES && resign->fec_set_idx!=ULONG_MAX ) ) ) {
+        resign = sign_request( ctx, stem, ctx->out_merkle_roots[0].hash );
+        resign->resign = 1;
+        memcpy( resign->leader_sig, shred->signature, 64UL );
+      }
+    }
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
     ctx->metrics->shred_processing_result[ rv + FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ]++;
@@ -1118,7 +1439,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_shred_base_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
     }
 
-    if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR &&
+    if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR && !sig_pending &&
                  ( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) ) ) {
       /* Relay this shred */
       ulong max_dest_cnt[1];
@@ -1139,200 +1460,8 @@ after_frag( fd_shred_ctx_t *    ctx,
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
 
     FD_TEST( ctx->fec_sets <= *out_fec_set );
-    ctx->send_fec_set_idx[ 0UL ] = (ulong)(*out_fec_set - ctx->fec_sets);
-    ctx->send_fec_set_cnt = 1UL;
-    ctx->shredded_txn_cnt = 0UL;
-  }
-
-  if( FD_UNLIKELY( ctx->send_fec_set_cnt==0UL ) ) return;
-
-  /* Try to distribute shredded txn count across the fec sets.
-     This is an approximation, but it is acceptable. */
-  ulong shredded_txn_cnt_per_fec_set  = ctx->shredded_txn_cnt / ctx->send_fec_set_cnt;
-  ulong shredded_txn_cnt_remain       = ctx->shredded_txn_cnt - shredded_txn_cnt_per_fec_set * ctx->send_fec_set_cnt;
-  ulong shredded_txn_cnt_last_fec_set = shredded_txn_cnt_per_fec_set + shredded_txn_cnt_remain;
-
-  /* If this shred completes a FEC set or is part of a microblock from
-    pack (ie. we're leader), we now have a full FEC set: so we notify
-    repair and insert into the blockstore, as well as retransmit. */
-
-  for( ulong fset_k=0; fset_k<ctx->send_fec_set_cnt; fset_k++ ) {
-
-    fd_fec_set_t * set = ctx->fec_sets + ctx->send_fec_set_idx[ fset_k ];
-
-    fd_shred_t const * last = set->data_shreds[ FD_FEC_SHRED_CNT - 1 ].s;
-
-    /* Broadcast locally produced and recovered shreds before any disk
-       work. */
-    do {
-      fd_shred_t const * new_shreds[ FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX ];
-      ulong k=0UL;
-      for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ )
-        if( !(set->data_shred_rcvd   & (1U<<i)) ) new_shreds[ k++ ] = set->data_shreds  [ i ].s;
-      for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ )
-        if( !(set->parity_shred_rcvd & (1U<<i)) ) new_shreds[ k++ ] = set->parity_shreds[ i ].s;
-
-      if( FD_UNLIKELY( !k ) ) break;
-      fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, new_shreds[ 0 ]->slot );
-      if( FD_UNLIKELY( !sdest ) ) break;
-
-      ulong out_stride;
-      ulong max_dest_cnt[1];
-      fd_shred_dest_idx_t * dests;
-      if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
-        for( ulong i=0UL; i<k; i++ ) {
-          for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, ctx->tsorig );
-        }
-        out_stride = k;
-        dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
-      } else {
-        for( ulong i=0UL; i<k; i++ ) {
-          for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
-        }
-        out_stride = 1UL;
-        *max_dest_cnt = 1UL;
-        dests = fd_shred_dest_compute_first( sdest, new_shreds, k, ctx->scratchpad_dests );
-      }
-      if( FD_UNLIKELY( !dests ) ) break;
-
-      for( ulong i=0UL; i<k; i++ ) {
-        for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
-      }
-    } while( 0 );
-
-    /* Compute merkle root and chained merkle root. */
-
-    int replay_fwd = 1;
-    if( FD_LIKELY( ctx->store ) ) { /* firedancer-only */
-
-      set->leader_bank = NULL; /* un-used by firedancer */
-
-      fd_hash_t * mr = (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] );
-
-      fd_store_fec_t * fec;
-      int insert_err = fd_store_insert( ctx->store, ctx->map_join, mr, &fec );
-      if( FD_UNLIKELY( insert_err==FD_MAP_ERR_KEY ) ) {
-        replay_fwd = 0;
-      } else {
-        FD_TEST( !insert_err && fec );
-
-        fd_store_fec_spill_stats_t spill[1];
-        uchar * fec_data = fd_store_fec_data_acquire_ex( ctx->store, ctx->disk_fd, fec, spill );
-        if( FD_UNLIKELY( spill->write_cnt ) ) {
-          fd_histf_sample( ctx->metrics->fec_fallback_write_timing, spill->write_ticks );
-          ctx->metrics->fec_fallback_write_cnt   += spill->write_cnt;
-          ctx->metrics->fec_fallback_write_bytes += spill->write_bytes;
-        }
-        if( FD_UNLIKELY( !fec_data ) )
-          FD_LOG_CRIT(( "Store could not allocate a FEC payload" ));
-        for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
-          fd_shred_t * data_shred = set->data_shreds[i].s;
-          ulong        payload_sz = fd_shred_payload_sz( data_shred );
-          if( FD_UNLIKELY( fec->data_sz + payload_sz > ctx->store->fec_data_max ) ) {
-
-            FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, ctx->store->fec_data_max ));
-          }
-          fd_memcpy_nt_nofence( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
-          fec->data_sz += payload_sz;
-          if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (uint)payload_sz +  (i==0UL ? 0U : fec->shred_offs[ i-1UL ]);
-        }
-        _mm_sfence();
-        fd_store_fec_data_publish( ctx->store, fec );
-      }
-    }
-
-    if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) { /* firedancer-only */
-
-      /* Send all of the data shreds we recovered (weren't received).
-         The chunks are all written before any is published, so the
-         link burst must cover them or a chunk could be reused while
-         an unreliable consumer still sees its old seq. */
-      FD_STATIC_ASSERT( FD_SHRED_STEM_BURST>=32UL, shred_out_burst );
-      ulong missing_chunk[ 32 ];
-      ulong missing_cnt = 0UL;
-      for( int i=0; i<32; i++ ) {
-        if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
-          fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
-
-          fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
-          fd_memcpy_nt_nofence( shred_msg->shred_, missing, fd_shred_sz( missing ) );
-          memcpy( &shred_msg->merkle_root, ctx->out_merkle_roots[fset_k].hash, sizeof(fd_hash_t) );
-
-          missing_chunk[ missing_cnt++ ] = ctx->shred_out_chunk;
-          ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_shred_base_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
-        }
-      }
-
-      if( FD_LIKELY( missing_cnt ) ) {
-        _mm_sfence();
-        ulong sig   = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | SHRED_SIG_SRC_RECONSTRUCTED;
-        ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        for( ulong i=0UL; i<missing_cnt; i++ ) fd_stem_publish( stem, ctx->shred_out_idx, sig, missing_chunk[ i ], sizeof(fd_shred_base_t), 0UL, ctx->tsorig, tspub );
-      }
-
-      /* Replay requires the FEC payload before this notification.
-         Wire-shred persistence on rserve is asynchronous.
-
-         This message, the shred msg, and the FEC evict msg constitute
-         the max 3 possible messages to repair/replay per after_frag.
-         In reality, it is only possible to publish all 3 in the case
-         where we receive a coding shred first for a FEC set where
-         (N=1,K=18), which allows for the FEC set to be instantly
-         completed by the singular coding shred, and that also happens
-         to evict a FEC set from the curr_map.  When fix-32 arrives, the
-         link burst value can be lowered to 2. */
-      ulong sig = ctx->in_kind[ in_idx ]==IN_KIND_POH ? SHRED_SIG_FEC_COMPLETE_LEADER : SHRED_SIG_FEC_COMPLETE;
-
-      fd_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
-      complete_msg->last_shred_hdr = *last;
-      memcpy( &complete_msg->merkle_root, ctx->out_merkle_roots[fset_k].hash, sizeof(fd_hash_t) );
-      complete_msg->chained_merkle_root = *(fd_hash_t *)fd_type_pun((uchar *)last + fd_shred_chain_off( last->variant ));
-      if( FD_LIKELY( sig==SHRED_SIG_FEC_COMPLETE ) ) {
-        complete_msg->turbine_shred_cnt       = (ulong)fd_ulong_popcnt( set->turbine_shred_rcvd );
-        complete_msg->repair_shred_cnt        = (ulong)fd_ulong_popcnt( set->repair_shred_rcvd );
-        complete_msg->reconstructed_shred_cnt = 2U*(uint)FD_FEC_SHRED_CNT-(uint)(fd_uint_popcnt( set->data_shred_rcvd ) + fd_uint_popcnt( set->parity_shred_rcvd ));
-      } else {
-        complete_msg->turbine_shred_cnt       = 0U;
-        complete_msg->repair_shred_cnt        = 0U;
-        complete_msg->reconstructed_shred_cnt = 0U;
-      }
-
-      fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sizeof(fd_fec_complete_t), 0UL, ctx->tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_complete_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
-
-    } else if( FD_UNLIKELY( ctx->store_out_idx != ULONG_MAX ) ) { /* frankendancer-only */
-
-      /* Send to the blockstore */
-
-      ulong txn_cnt = fd_ulong_if( fset_k==ctx->send_fec_set_cnt-1UL, shredded_txn_cnt_last_fec_set, shredded_txn_cnt_per_fec_set );
-      /* If the low 32 bits of sig are 0, the store tile will do extra
-         checks */
-      ulong new_sig = txn_cnt<<32 | (ulong)(ctx->in_kind[ in_idx ]!=IN_KIND_NET);
-
-      /* Attach the leader bank pointer and merkle root so that the
-         store tile can set the block_id for the slot.  Network
-         FEC sets have no leader bank. */
-      if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
-        set->leader_bank = ctx->leader_bank;
-        memcpy( set->merkle_root, ctx->out_merkle_roots[fset_k].hash, 32UL );
-      } else {
-        set->leader_bank = NULL;
-      }
-
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      /* The size is actually slightly larger than USHORT_MAX, but the store tile
-         knows to use sizeof(fd_fec_set_t) instead of the sz field.  Put
-         USHORT_MAX so that monitoring tools are at least close. */
-      ulong sz = fd_ulong_min( sizeof(fd_fec_set_t), USHORT_MAX );
-      fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, set ), sz, 0UL, ctx->tsorig, tspub );
-
-      /* Store tile will release the bank pointer when it sees
-         SLOT_COMPLETE FEC set.  So we reset our tracking. */
-      if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH &&
-                       (set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) ) ) {
-        ctx->leader_bank  = NULL;
-      }
-    }
+    if( FD_UNLIKELY( sig_pending ) ) { resign->fec_set_idx = (ulong)(*out_fec_set - ctx->fec_sets); return; } /* finished by the response */
+    complete_fec_set( ctx, stem, (ulong)(*out_fec_set - ctx->fec_sets), &ctx->out_merkle_roots[0], 0, ctx->tsorig, 0UL, NULL );
   }
 }
 
@@ -1375,13 +1504,6 @@ privileged_init( fd_topo_t const *      topo,
 }
 
 static void
-fd_shred_signer( void *        signer_ctx,
-                 uchar         signature[ static 64 ],
-                 uchar const   merkle_root[ static 32 ] ) {
-  fd_keyguard_client_sign( signer_ctx, signature, merkle_root, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-}
-
-static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
 
@@ -1421,7 +1543,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* If the default partial_depth is ever changed, correspondingly
      change the size of the fd_fec_intra_pool in fd_fec_repair. */
-  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, fec_exposure+1UL,
+  ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, fec_exposure+1UL, FD_SHRED_SIGN_PEND_MAX,
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong fec_set_cnt            = fd_shred_tile_fec_set_cnt( fec_exposure, tile->shred.fec_resolver_depth );
   ulong fec_sets_required_sz   = fec_set_cnt*sizeof(fd_fec_set_t);
@@ -1509,27 +1631,21 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->keyswitch );
 
   /* populate ctx */
-  ulong sign_in_idx = fd_topo_find_tile_in_link( topo, tile, "sign_shred", tile->kind_id );
-  FD_TEST( sign_in_idx!=ULONG_MAX );
-  fd_topo_link_t const * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
   fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
-  NONNULL( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
-                                                            sign_out->mcache,
-                                                            sign_out->dcache,
-                                                            sign_in->mcache,
-                                                            sign_in->dcache,
-                                                            sign_out->mtu,
-                                                            sign_in->mtu ) ) );
+  FD_TEST( sign_out->mtu==32UL );
+  ctx->sign_out_mem    = topo->workspaces[ topo->objs[ sign_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->sign_out_chunk0 = fd_dcache_compact_chunk0( ctx->sign_out_mem, sign_out->dcache );
+  ctx->sign_out_wmark  = fd_dcache_compact_wmark ( ctx->sign_out_mem, sign_out->dcache, sign_out->mtu );
+  ctx->sign_out_chunk  = ctx->sign_out_chunk0;
 
   ctx->bench_max_shred_idx           = tile->shred.bench_max_shreds_per_block;
   ulong shred_limit                  = tile->shred.max_shreds_per_block;
   ctx->shred_limit                   = shred_limit;
-  fd_fec_set_t * resolver_sets       = fec_sets + fec_exposure + FD_SHRED_BATCH_FEC_SETS_MAX;
-  ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client ) ) );
+  fd_fec_set_t * resolver_sets       = fec_sets + fec_exposure + FD_SHRED_SIGN_PEND_MAX;
+  ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
-                                                                        fd_shred_signer, ctx->keyguard_client,
                                                                         tile->shred.fec_resolver_depth, 1UL,
-                                                                        fec_exposure+1UL,
+                                                                        fec_exposure+1UL, FD_SHRED_SIGN_PEND_MAX,
                                                                         128UL * tile->shred.fec_resolver_depth, resolver_sets,
                                                                         ctx->resolver_seed ) ) );
 
@@ -1625,8 +1741,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->poh_in_expect_seq = 0UL;
 
+  ctx->sign_pend_head = 0UL;
+  ctx->sign_pend_cnt  = 0UL;
+  ctx->sign_seq       = 0UL;
+
   ctx->shredder_fec_set_idx = 0UL;
-  ctx->shredder_max_fec_set_idx = fec_exposure + FD_SHRED_BATCH_FEC_SETS_MAX;
+  ctx->shredder_max_fec_set_idx = fec_exposure + FD_SHRED_SIGN_PEND_MAX;
 
   ctx->chained_merkle_root = NULL;
   memset( ctx->out_merkle_roots, 0, sizeof(ctx->out_merkle_roots) );
@@ -1719,9 +1839,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* A leader batch can publish 32 data-shred headers and one completion
-   per FEC set to shred_out.  Network input publishes at most one such
-   FEC set, and Frankendancer publishes fewer reliable fragments. */
+/* One stem iteration finishes at most one FEC set on shred_out: 32
+   data shreds and a completion, after at most an eviction and a shred
+   on the network path.  PoH input only publishes sign requests. */
 #define STEM_BURST FD_SHRED_STEM_BURST
 
 /* See explanation in fd_pack */
