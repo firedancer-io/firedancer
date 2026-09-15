@@ -730,6 +730,80 @@ test_sysvar_validation( fd_wksp_t * wksp ) {
     FD_TEST( verify_sysvars( ctx )==-1 );
   }
 
+  for( ulong idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
+    ctx->sysvars = ctx->recovery.sysvars;
+    test_sysvar_account( ctx, idx, ctx->bank_slot, 0UL, data, 0UL, 1 );
+    int required = idx==FD_SYSVAR_clock_IDX || idx==FD_SYSVAR_rent_IDX || idx==FD_SYSVAR_slot_history_IDX;
+    FD_TEST( verify_sysvars( ctx )==(required ? -1 : 0) );
+  }
+
+  ctx->sysvars = ctx->recovery.sysvars;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ulong limit = i ? 879598564933UL : 1759197129867UL;
+    fd_rent_t rent = { .lamports_per_uint8_year=limit, .exemption_threshold=i ? 2.0 : 1.0, .burn_percent=255 };
+    test_sysvar_account( ctx, FD_SYSVAR_rent_IDX, ctx->bank_slot, 1UL, (uchar const *)&rent, sizeof(rent), 0 );
+    FD_TEST( !verify_sysvars( ctx ) );
+    rent.lamports_per_uint8_year++;
+    test_sysvar_account( ctx, FD_SYSVAR_rent_IDX, ctx->bank_slot, 1UL, (uchar const *)&rent, sizeof(rent), 1 );
+    FD_TEST( verify_sysvars( ctx )==-1 );
+    rent.lamports_per_uint8_year = 0UL;
+    test_sysvar_account( ctx, FD_SYSVAR_rent_IDX, ctx->bank_slot, 1UL, (uchar const *)&rent, sizeof(rent), 1 );
+    FD_TEST( !verify_sysvars( ctx ) );
+  }
+  fd_rent_t rent = { .lamports_per_uint8_year=ULONG_MAX };
+  ulong const thresholds[] = { 0UL, 0xbff0000000000000UL, 0x400c000000000000UL, 0x7ff0000000000000UL, 0x7ff8000000000000UL };
+  for( ulong i=0UL; i<sizeof(thresholds)/sizeof(thresholds[0]); i++ ) {
+    FD_STORE( ulong, (uchar *)&rent+8UL, thresholds[i] );
+    test_sysvar_account( ctx, FD_SYSVAR_rent_IDX, ctx->bank_slot, 1UL, (uchar const *)&rent, sizeof(rent), 1 );
+    FD_TEST( !verify_sysvars( ctx ) );
+  }
+
+  ctx->sysvars = ctx->recovery.sysvars;
+  fd_sysvar_epoch_rewards_t rewards = { .active=1, .num_partitions=1UL, .total_rewards=10UL, .distributed_rewards=10UL,
+                                       .distribution_starting_block_height=ULONG_MAX-1UL };
+  test_sysvar_account( ctx, FD_SYSVAR_epoch_rewards_IDX, ctx->bank_slot, 1UL, (uchar const *)&rewards, sizeof(rewards), 0 );
+  FD_TEST( !verify_sysvars( ctx ) ); /* zero points and future distribution */
+  rewards.distributed_rewards++;
+  test_sysvar_account( ctx, FD_SYSVAR_epoch_rewards_IDX, ctx->bank_slot, 1UL, (uchar const *)&rewards, sizeof(rewards), 1 );
+  FD_TEST( verify_sysvars( ctx )==-1 );
+  rewards.distributed_rewards--;
+  rewards.distribution_starting_block_height++;
+  test_sysvar_account( ctx, FD_SYSVAR_epoch_rewards_IDX, ctx->bank_slot, 1UL, (uchar const *)&rewards, sizeof(rewards), 0 );
+  FD_TEST( verify_sysvars( ctx )==-1 );
+  rewards.distribution_starting_block_height = 0UL;
+  ulong const partitions[] = { 0UL, MAX_PARTITIONS_PER_EPOCH, MAX_PARTITIONS_PER_EPOCH+1UL, ULONG_MAX };
+  for( ulong i=0UL; i<sizeof(partitions)/sizeof(partitions[0]); i++ ) {
+    rewards.num_partitions = partitions[i];
+    test_sysvar_account( ctx, FD_SYSVAR_epoch_rewards_IDX, ctx->bank_slot, 1UL, (uchar const *)&rewards, sizeof(rewards), 1 );
+    FD_TEST( verify_sysvars( ctx )==(i==1UL ? 0 : -1) );
+  }
+  rewards.num_partitions = 32UL;
+  FD_TEST( fd_epoch_schedule_derive( &ctx->epoch_schedule, 64UL, 64UL, 1 ) );
+  test_sysvar_account( ctx, FD_SYSVAR_epoch_rewards_IDX, ctx->bank_slot, 1UL, (uchar const *)&rewards, sizeof(rewards), 0 );
+  FD_TEST( verify_sysvars( ctx )==-1 );
+  rewards.num_partitions--;
+  test_sysvar_account( ctx, FD_SYSVAR_epoch_rewards_IDX, ctx->bank_slot, 1UL, (uchar const *)&rewards, sizeof(rewards), 1 );
+  FD_TEST( !verify_sysvars( ctx ) );
+  test_sysvar_account( ctx, FD_SYSVAR_stake_history_IDX, ctx->bank_slot, 0UL, data, 0UL, 1 );
+  FD_TEST( verify_sysvars( ctx )==-1 );
+  rewards.active = 0;
+  rewards.num_partitions = ULONG_MAX;
+  rewards.distributed_rewards = ULONG_MAX;
+  test_sysvar_account( ctx, FD_SYSVAR_epoch_rewards_IDX, ctx->bank_slot, 1UL, (uchar const *)&rewards, sizeof(rewards), 1 );
+  FD_TEST( !verify_sysvars( ctx ) );
+  FD_TEST( fd_epoch_schedule_derive( &ctx->epoch_schedule, 432000UL, 432000UL, 0 ) );
+
+  ctx->sysvars = ctx->recovery.sysvars;
+  fd_memset( data, 0, 72UL );
+  test_sysvar_account( ctx, FD_SYSVAR_slot_hashes_IDX, ctx->bank_slot, 1UL, data, 8UL, 1 );
+  FD_TEST( verify_sysvars( ctx )==-1 );
+  ctx->sysvars = ctx->recovery.sysvars;
+  FD_STORE( ulong, data, 2UL );
+  FD_STORE( ulong, data+8UL, 8UL );
+  FD_STORE( ulong, data+40UL, 6UL );
+  test_sysvar_account( ctx, FD_SYSVAR_stake_history_IDX, ctx->bank_slot, 1UL, data, 72UL, 1 );
+  FD_TEST( !verify_sysvars( ctx ) ); /* gaps and zero stake are allowed */
+
   for( ulong i=0UL; i<3UL; i++ ) {
     ctx->sysvars = ctx->recovery.sysvars;
     ctx->state  = FD_SNAPSHOT_STATE_FINISHING;

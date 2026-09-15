@@ -15,6 +15,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache_private.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../flamenco/rewards/fd_rewards_base.h"
 
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -445,10 +446,61 @@ static int
 verify_sysvars( fd_snapin_tile_t * ctx ) {
   fd_sysvar_cache_t const * cache = &ctx->sysvars.cache;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
+    /* Agave restore requires Rent; Firedancer also requires Clock. */
+    if( FD_UNLIKELY( (i==FD_SYSVAR_clock_IDX || i==FD_SYSVAR_rent_IDX) &&
+                    !ctx->sysvars.accounts[ i ].present ) ) {
+      FD_LOG_WARNING(( "missing %s sysvar account", fd_sysvar_pos_tbl[ i ].name ));
+      return -1;
+    }
     if( FD_UNLIKELY( ctx->sysvars.accounts[ i ].present &&
                     ( !ctx->sysvars.accounts[ i ].owner_valid ||
                       !(cache->desc[ i ].flags & FD_SYSVAR_FLAG_VALID) ) ) ) {
       FD_LOG_WARNING(( "invalid %s sysvar account", fd_sysvar_pos_tbl[ i ].name ));
+      return -1;
+    }
+  }
+
+  /* Rent::try_minimum_balance, solana-sdk rent@v4.4.0.  Other
+     threshold bit patterns use Rust's saturating float conversion. */
+  fd_rent_t rent;
+  fd_sysvar_cache_rent_read( cache, &rent );
+  ulong threshold = FD_LOAD( ulong, cache->bin_rent+8UL );
+  if( FD_UNLIKELY( (threshold==0x3ff0000000000000UL && rent.lamports_per_uint8_year>1759197129867UL) ||
+                  (threshold==0x4000000000000000UL && rent.lamports_per_uint8_year> 879598564933UL) ) ) {
+    FD_LOG_WARNING(( "rent sysvar lamports per byte exceed the minimum_balance limit" ));
+    return -1;
+  }
+
+  /* Firedancer's in-place SlotHashes updater needs the full backing
+     account, unlike Agave's deserialize/resize/serialize path. */
+  if( FD_UNLIKELY( ctx->sysvars.accounts[ FD_SYSVAR_slot_hashes_IDX ].present &&
+                  ctx->sysvars.accounts[ FD_SYSVAR_slot_hashes_IDX ].data_len<FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) ) {
+    FD_LOG_WARNING(( "slot hashes sysvar account is too small for updates" ));
+    return -1;
+  }
+
+  fd_sysvar_epoch_rewards_t rewards;
+  if( fd_sysvar_cache_epoch_rewards_read( cache, &rewards ) && rewards.active ) {
+    /* Agave partitioned_epoch_rewards/{distribution,sysvar}.rs checks
+       reward totals and the epoch bound.  Also bound FD's partition
+       storage before reconstruction and guard height arithmetic. */
+    if( FD_UNLIKELY( rewards.distributed_rewards>rewards.total_rewards ) ) {
+      FD_LOG_WARNING(( "epoch rewards sysvar distributed rewards exceed total rewards" ));
+      return -1;
+    }
+    if( FD_UNLIKELY( !rewards.num_partitions ||
+                    rewards.num_partitions>=fd_epoch_slot_cnt( &ctx->epoch_schedule, ctx->epoch ) ||
+                    rewards.num_partitions>MAX_PARTITIONS_PER_EPOCH ) ) {
+      FD_LOG_WARNING(( "epoch rewards sysvar has invalid partition count %lu", rewards.num_partitions ));
+      return -1;
+    }
+    if( FD_UNLIKELY( rewards.distribution_starting_block_height>ULONG_MAX-rewards.num_partitions ) ) {
+      FD_LOG_WARNING(( "epoch rewards sysvar distribution block height overflows" ));
+      return -1;
+    }
+    if( FD_UNLIKELY( ctx->sysvars.accounts[ FD_SYSVAR_epoch_rewards_IDX ].data_len!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ||
+                    !ctx->sysvars.accounts[ FD_SYSVAR_stake_history_IDX ].present ) ) {
+      FD_LOG_WARNING(( "sysvar accounts cannot reconstruct active epoch rewards" ));
       return -1;
     }
   }
@@ -1098,10 +1150,10 @@ snoop_sysvar_header( fd_snapin_tile_t * ctx,
                      uchar const *      owner ) {
   fd_pubkey_t key = FD_LOAD( fd_pubkey_t, pubkey );
   sysvar_tbl_t const * entry = sysvar_map_query( &key, NULL );
-  if( FD_LIKELY( !entry ) ) return 0;
+  if( FD_LIKELY( !entry ) ) return 0UL;
   ulong idx = entry->desc_idx;
   fd_snapin_sysvars_t * sysvars = &ctx->sysvars;
-  if( sysvars->accounts[ idx ].seen && slot<sysvars->accounts[ idx ].slot ) return 0;
+  if( sysvars->accounts[ idx ].seen && slot<sysvars->accounts[ idx ].slot ) return 0UL;
 
   sysvars->accounts[ idx ].seen        = 1;
   sysvars->accounts[ idx ].slot        = slot;
