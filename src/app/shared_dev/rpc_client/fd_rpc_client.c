@@ -3,8 +3,8 @@
 
 #include "../../../third_party/picohttpparser/picohttpparser.h"
 #include "../../../waltz/http/fd_http.h"
-#include "../../../third_party/cjson/cJSON.h"
 #include "../../../ballet/base58/fd_base58.h"
+#include "../../../ballet/json/fd_jtok.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -226,52 +226,38 @@ parse_response( char *                     response,
   if( FD_UNLIKELY( content_length+(ulong)http_len > MAX_REQUEST_LEN ) ) return FD_RPC_CLIENT_ERR_TOO_LARGE;
   if( FD_LIKELY( content_length+(ulong)http_len>response_len ) ) return FD_RPC_CLIENT_PENDING;
 
-  const char * parse_end;
-  cJSON * json = cJSON_ParseWithLengthOpts( response + http_len, content_length, &parse_end, 0 );
-  if( FD_UNLIKELY( !json ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
+  fd_jtok_t j[1];
+  fd_jtok_init( j, response+http_len, content_length );
+  fd_jtok_str_t key;
+  fd_jtok_obj_enter( j );
 
   switch( result->method ) {
     case FD_RPC_CLIENT_METHOD_TRANSACTION_COUNT: {
-      const cJSON * node = cJSON_GetObjectItemCaseSensitive( json, "result" );
-      if( FD_UNLIKELY( !cJSON_IsNumber( node ) || node->valueulong==ULONG_MAX ) ) {
-        cJSON_Delete( json );
-        return FD_RPC_CLIENT_ERR_MALFORMED;
+      ulong transaction_count = ULONG_MAX;
+      while( fd_jtok_obj_next( j, &key ) ) {
+        if( fd_jtok_str_eq( &key, "result" ) ) fd_jtok_ulong( j, &transaction_count );
       }
+      if( FD_UNLIKELY( fd_jtok_fini( j ) ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
+      if( FD_UNLIKELY( transaction_count==ULONG_MAX ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
 
-      result->result.transaction_count.transaction_count = node->valueulong;
-      cJSON_Delete( json );
+      result->result.transaction_count.transaction_count = transaction_count;
       return FD_RPC_CLIENT_SUCCESS;
     }
     case FD_RPC_CLIENT_METHOD_LATEST_BLOCK_HASH: {
-      const cJSON * node = cJSON_GetObjectItemCaseSensitive( json, "result" );
-      if( FD_UNLIKELY( !cJSON_IsObject( node ) ) ) {
-        cJSON_Delete( json );
-        return FD_RPC_CLIENT_ERR_MALFORMED;
+      char blockhash[ 45 ] = {0};
+      while( fd_jtok_obj_next( j, &key ) ) {
+        if( !fd_jtok_str_eq( &key, "result" ) ) continue;
+        fd_jtok_obj_enter( j );
+        while( fd_jtok_obj_next( j, &key ) ) {
+          if( !fd_jtok_str_eq( &key, "value" ) ) continue;
+          fd_jtok_obj_enter( j );
+          while( fd_jtok_obj_next( j, &key ) ) {
+            if( fd_jtok_str_eq( &key, "blockhash" ) ) fd_jtok_cstr( j, blockhash, sizeof(blockhash) );
+          }
+        }
       }
-
-      node = cJSON_GetObjectItemCaseSensitive( node, "value" );
-      if( FD_UNLIKELY( !cJSON_IsObject( node ) ) ) {
-        cJSON_Delete( json );
-        return FD_RPC_CLIENT_ERR_MALFORMED;
-      }
-
-      node = cJSON_GetObjectItemCaseSensitive( node, "blockhash" );
-      if( FD_UNLIKELY( !cJSON_IsString( node ) ) ) {
-        cJSON_Delete( json );
-        return FD_RPC_CLIENT_ERR_MALFORMED;
-      }
-
-      if( FD_UNLIKELY( strnlen( node->valuestring, 45UL )>44UL ) ) {
-        cJSON_Delete( json );
-        return FD_RPC_CLIENT_ERR_MALFORMED;
-      }
-
-      if( FD_UNLIKELY( !fd_base58_decode_32( node->valuestring, result->result.latest_block_hash.block_hash ) ) ) {
-        cJSON_Delete( json );
-        return FD_RPC_CLIENT_ERR_MALFORMED;
-      }
-
-      cJSON_Delete( json );
+      if( FD_UNLIKELY( fd_jtok_fini( j ) ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
+      if( FD_UNLIKELY( !fd_base58_decode_32( blockhash, result->result.latest_block_hash.block_hash ) ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
       return FD_RPC_CLIENT_SUCCESS;
     }
     default:

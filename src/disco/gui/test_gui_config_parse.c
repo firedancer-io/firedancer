@@ -30,30 +30,27 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   uchar account[ 1024UL ];
-  cJSON * json;
-  fd_pubkey_t pubkey;
   fd_gui_config_parse_info_t info[1];
 
   /* signed identity: accepted */
   ulong sz = build_account( account, sizeof(account), 1, "{\"name\":\"alice\",\"website\":\"https://example.com\"}" );
-  FD_TEST( fd_gui_config_parse_validator_info_check( account, sz, &json, &pubkey ) );
-  FD_TEST( pubkey.uc[ 0 ]==0x42 && pubkey.uc[ 31 ]==0x42 );
-  fd_gui_config_parse_validator_info( json, info );
+  FD_TEST( fd_gui_config_parse_validator_info( account, sz, info ) );
+  FD_TEST( info->pubkey.uc[ 0 ]==0x42 && info->pubkey.uc[ 31 ]==0x42 );
   FD_TEST( !strcmp( info->name, "alice" ) );
   FD_TEST( !strcmp( info->website, "https://example.com" ) );
   FD_TEST( !info->details[ 0 ] );
 
   /* unsigned identity: anyone could have written it, rejected */
   sz = build_account( account, sizeof(account), 0, "{\"name\":\"spoof\"}" );
-  FD_TEST( !fd_gui_config_parse_validator_info_check( account, sz, &json, &pubkey ) );
+  FD_TEST( !fd_gui_config_parse_validator_info( account, sz, info ) );
 
   /* malformed bool */
   sz = build_account( account, sizeof(account), 2, "{\"name\":\"spoof\"}" );
-  FD_TEST( !fd_gui_config_parse_validator_info_check( account, sz, &json, &pubkey ) );
+  FD_TEST( !fd_gui_config_parse_validator_info( account, sz, info ) );
 
   /* malformed JSON */
   sz = build_account( account, sizeof(account), 1, "{\"name\":" );
-  FD_TEST( !fd_gui_config_parse_validator_info_check( account, sz, &json, &pubkey ) );
+  FD_TEST( !fd_gui_config_parse_validator_info( account, sz, info ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

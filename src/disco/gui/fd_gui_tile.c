@@ -32,7 +32,6 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
-#include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/votor/fd_votor_tile.h"
@@ -166,7 +165,6 @@ scratch_align( void ) {
   a = fd_ulong_max( a, fd_http_server_align() );
   a = fd_ulong_max( a, fd_gui_peers_align() );
   a = fd_ulong_max( a, fd_gui_align() );
-  a = fd_ulong_max( a, fd_alloc_align() );
   return a;
 }
 
@@ -182,13 +180,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),    fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),        fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 128UL * (1UL<<20UL); /* 128MiB of heap space for the cJSON allocator */
 }
 
 static inline void
@@ -904,7 +896,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt) );
   void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
                        FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
-  void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
 
   fd_http_static_file_t const * index_html = index_html_etag_init( ctx );
 
@@ -982,11 +973,6 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
   ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
   FD_TEST( ctx->waker_fseq );
-
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
-  FD_TEST( alloc );
-  cJSON_alloc_install( alloc );
-
 
   ctx->idle_cnt = 0UL;
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
@@ -1114,7 +1100,6 @@ fd_topo_run_tile_t fd_tile_gui = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,

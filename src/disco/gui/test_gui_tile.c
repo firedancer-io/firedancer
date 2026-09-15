@@ -285,7 +285,7 @@ main( int     argc,
   free( ctx );
 
   (void)rlimit_file_cnt; (void)populate_allowed_seccomp; (void)populate_allowed_fds;
-  (void)scratch_align; (void)scratch_footprint; (void)loose_footprint;
+  (void)scratch_align; (void)scratch_footprint;
   (void)privileged_init; (void)unprivileged_init; (void)stem_run;
 
   FD_LOG_NOTICE(( "pass" ));

@@ -1,7 +1,6 @@
 #include "../../rpc_client/fd_rpc_client.h"
 #include "../../rpc_client/fd_rpc_client_private.h"
 #include "../../../../disco/topo/fd_topo.h"
-#include "../../../../third_party/cjson/cJSON_alloc.h"
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../discof/replay/fd_replay_tile.h"
 
@@ -42,23 +41,13 @@ typedef struct {
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  ulong a = alignof( fd_bencho_ctx_t );
-  a = fd_ulong_max( a, fd_alloc_align() );
-  return a;
+  return alignof(fd_bencho_ctx_t);
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_bencho_ctx_t ), sizeof( fd_bencho_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()      );
-  return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 256UL * (1UL<<20UL); /* 256MiB of heap space for the cJSON allocator */
+  return sizeof(fd_bencho_ctx_t);
 }
 
 static int
@@ -170,20 +159,10 @@ after_credit( fd_bencho_ctx_t *   ctx,
   *charge_busy = did_work_rpc | did_work_service_block_hash;
 }
 
-extern FD_TL fd_alloc_t * g_cjson_alloc_ctx;
-
 static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_bencho_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bencho_ctx_t ), sizeof( fd_bencho_ctx_t ) );
-  void * _alloc         = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),           fd_alloc_footprint() );
-
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
-  FD_TEST( alloc );
-  cJSON_alloc_install( alloc );
+  fd_bencho_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
@@ -209,10 +188,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->last_nanos  = 0L;
   ctx->slots       = 0UL;
   ctx->max_tps     = 0UL;
-
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
-    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 #define STEM_BURST (1UL)
@@ -229,7 +204,6 @@ fd_topo_run_tile_t fd_tile_bencho = {
   .name              = "bencho",
   .scratch_align     = scratch_align,
   .scratch_footprint = scratch_footprint,
-  .loose_footprint   = loose_footprint,
   .unprivileged_init = unprivileged_init,
   .run               = stem_run,
 };

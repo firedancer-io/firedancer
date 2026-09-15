@@ -3,6 +3,7 @@
 #include "fd_gui_config_parse.h"
 #include "fd_gui_metrics.h"
 #include "../../disco/metrics/fd_metrics_base.h"
+#include "../../ballet/json/fd_jtok.h"
 
 FD_IMPORT_BINARY( dbip_f, "src/disco/gui/dbip.bin.zst" );
 
@@ -1010,19 +1011,15 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
   }
   fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_pool_ele_acquire( peers->node_info_pool );
 
-  cJSON * json;
-  if( FD_UNLIKELY( !fd_gui_config_parse_validator_info_check( data, sz, &json, &node_info->pubkey ) ) ) {
+  if( FD_UNLIKELY( !fd_gui_config_parse_validator_info( data, sz, node_info ) ) ) {
     fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
     return;
   }
 
   if( FD_UNLIKELY( fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &node_info->pubkey, NULL, peers->node_info_pool ) ) ) {
     fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
-    cJSON_Delete( json );
     return; /* no duplicate entries */
   }
-
-  fd_gui_config_parse_validator_info( json, node_info ); /* calls cJSON_delete( json ) */
 
   /* Some nodes just clear all the fields instead of deleting their
      on-chain account, we can ignore those entries */
@@ -1148,16 +1145,21 @@ static int
 fd_gui_peers_request_scroll( fd_gui_peers_ctx_t * peers,
                              ulong                ws_conn_id,
                              ulong                request_id,
-                             cJSON const *        params ) {
+                             char const *         params,
+                             ulong                params_sz ) {
   if( FD_UNLIKELY( !peers->client_viewports[ ws_conn_id ].connected ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  const cJSON * start_row_param = cJSON_GetObjectItemCaseSensitive( params, "start_row" );
-  if( FD_UNLIKELY( !cJSON_IsNumber( start_row_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  ulong _start_row = start_row_param->valueulong;
+  ulong _start_row = 0UL; int has_start_row = 0;
+  ulong _row_cnt   = 0UL; int has_row_cnt   = 0;
 
-  const cJSON * row_cnt_param = cJSON_GetObjectItemCaseSensitive( params, "row_cnt" );
-  if( FD_UNLIKELY( !cJSON_IsNumber( row_cnt_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  ulong _row_cnt = row_cnt_param->valueulong;
+  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
+  fd_jtok_str_t key;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if(      fd_jtok_str_eq( &key, "start_row" ) ) { fd_jtok_ulong( j, &_start_row ); has_start_row = 1; }
+    else if( fd_jtok_str_eq( &key, "row_cnt"   ) ) { fd_jtok_ulong( j, &_row_cnt   ); has_row_cnt   = 1; }
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_start_row || !has_row_cnt ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
   if( FD_UNLIKELY( _row_cnt > FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ || _start_row > fd_gui_peers_live_table_ele_cnt( peers->live_table )-_row_cnt ) ) {
     fd_gui_printf_null_query_response( peers->http, "gossip", "query_scroll", request_id );
@@ -1183,42 +1185,51 @@ static int
 fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
                            ulong                ws_conn_id,
                            ulong                request_id,
-                           cJSON const *        params ) {
+                           char const *         params,
+                           ulong                params_sz ) {
   if( FD_UNLIKELY( !peers->client_viewports[ ws_conn_id ].connected ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  const cJSON * _col = cJSON_GetObjectItemCaseSensitive( params, "col" );
-  if( FD_UNLIKELY( !cJSON_IsArray( _col ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-
   fd_gui_peers_live_table_sort_key_t sort_key = {0};
+  int has_col = 0;
+  int has_dir = 0;
 
-  do {
-    cJSON * c;
-    ulong i;
-    for( c = _col->child, i=0UL; c; c = c->next, i++ ) {
-      if( FD_UNLIKELY( !cJSON_IsString( c ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-      if( FD_UNLIKELY( i >= fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-      sort_key.col[ i ] = fd_gui_peers_live_table_col_name_to_idx( peers->live_table, c->valuestring );
-      if( FD_UNLIKELY( sort_key.col[ i ]==ULONG_MAX ) ) {
-        FD_LOG_WARNING(( "unexpected column name %s", c->valuestring ));
-        return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
+  fd_jtok_str_t key;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if( fd_jtok_str_eq( &key, "col" ) ) {
+      has_col = 1;
+      ulong i = 0UL;
+      fd_jtok_arr_enter( j );
+      while( fd_jtok_arr_next( j ) ) {
+        if( FD_UNLIKELY( i>=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+        char col_name[ 32UL ];
+        fd_jtok_cstr( j, col_name, sizeof(col_name) );
+        if( FD_UNLIKELY( fd_jtok_err( j ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+        sort_key.col[ i ] = fd_gui_peers_live_table_col_name_to_idx( peers->live_table, col_name );
+        if( FD_UNLIKELY( sort_key.col[ i ]==ULONG_MAX ) ) {
+          FD_LOG_WARNING(( "unexpected column name %s", col_name ));
+          return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+        }
+        i++;
       }
+      if( FD_UNLIKELY( i!=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    } else if( fd_jtok_str_eq( &key, "dir" ) ) {
+      has_dir = 1;
+      ulong i = 0UL;
+      fd_jtok_arr_enter( j );
+      while( fd_jtok_arr_next( j ) ) {
+        if( FD_UNLIKELY( i>=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+        long dir = 0L;
+        fd_jtok_long( j, &dir );
+        if( FD_UNLIKELY( fd_jtok_err( j ) || dir<-1L || dir>1L ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+        sort_key.dir[ i ] = (int)dir;
+        i++;
+      }
+      if( FD_UNLIKELY( i!=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
     }
-    if( FD_UNLIKELY( i!=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  } while( 0 );
-
-  const cJSON * _dir = cJSON_GetObjectItemCaseSensitive( params, "dir" );
-  if( FD_UNLIKELY( !cJSON_IsArray( _dir ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-
-  do {
-    cJSON * c;
-    ulong i;
-    for( c = _dir->child, i=0UL; c; c = c->next, i++ ) {
-      if( FD_UNLIKELY( i >= fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-      if( FD_UNLIKELY( !cJSON_IsNumber( c ) || c->valuedouble!=(double)c->valueint || c->valueint<-1 || c->valueint>1 ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-      sort_key.dir[ i ] = c->valueint;
-    }
-    if( FD_UNLIKELY( i!=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  } while( 0 );
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_col || !has_dir ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
   if( FD_UNLIKELY( !fd_gui_peers_live_table_verify_sort_key( &sort_key ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
@@ -1236,56 +1247,34 @@ fd_gui_peers_ws_message( fd_gui_peers_ctx_t * peers,
                          ulong                ws_conn_id,
                          uchar const *        data,
                          ulong                data_len ) {
-  /* TODO: cJSON allocates, might fail SIGSYS due to brk(2)...
-     switch off this (or use wksp allocator) */
-  const char * parse_end;
-  cJSON * json = cJSON_ParseWithLengthOpts( (char *)data, data_len, &parse_end, 0 );
-  if( FD_UNLIKELY( !json ) ) {
-    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  }
+  ulong         id        = 0UL; int has_id = 0;
+  fd_jtok_str_t topic     = {0};
+  fd_jtok_str_t key       = {0};
+  char const *  params    = NULL;
+  ulong         params_sz = 0UL;
 
-  const cJSON * node = cJSON_GetObjectItemCaseSensitive( json, "id" );
-  if( FD_UNLIKELY( !cJSON_IsNumber( node ) ) ) {
-    cJSON_Delete( json );
-    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  }
-  ulong id = node->valueulong;
-
-  const cJSON * topic = cJSON_GetObjectItemCaseSensitive( json, "topic" );
-  if( FD_UNLIKELY( !cJSON_IsString( topic ) || topic->valuestring==NULL ) ) {
-    cJSON_Delete( json );
-    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  }
-
-  const cJSON * key = cJSON_GetObjectItemCaseSensitive( json, "key" );
-  if( FD_UNLIKELY( !cJSON_IsString( key ) || key->valuestring==NULL ) ) {
-    cJSON_Delete( json );
-    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  }
-
-  if( FD_LIKELY( !strcmp( topic->valuestring, "gossip" ) && !strcmp( key->valuestring, "query_sort" ) ) ) {
-    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
-    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
-      cJSON_Delete( json );
-      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  fd_jtok_t j[1]; fd_jtok_init( j, data, data_len );
+  fd_jtok_str_t member;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &member ) ) {
+    if(      fd_jtok_str_eq( &member, "id"     ) ) { fd_jtok_ulong( j, &id ); has_id = 1; }
+    else if( fd_jtok_str_eq( &member, "topic"  ) ) fd_jtok_str  ( j, &topic );
+    else if( fd_jtok_str_eq( &member, "key"    ) ) fd_jtok_str  ( j, &key );
+    else if( fd_jtok_str_eq( &member, "params" ) ) {
+      if( FD_UNLIKELY( fd_jtok_peek( j )!=FD_JTOK_OBJ ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+      fd_jtok_raw( j, &params, &params_sz );
     }
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_id || !topic.ptr || !key.ptr ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-    int result = fd_gui_peers_request_sort( peers, ws_conn_id, id, params );
-    cJSON_Delete( json );
-    return result;
-  } else if( FD_LIKELY( !strcmp( topic->valuestring, "gossip" ) && !strcmp( key->valuestring, "query_scroll" ) ) ) {
-    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
-    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
-      cJSON_Delete( json );
-      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    }
-
-    int result = fd_gui_peers_request_scroll( peers, ws_conn_id, id, params );
-    cJSON_Delete( json );
-    return result;
+  if( FD_LIKELY( fd_jtok_str_eq( &topic, "gossip" ) && fd_jtok_str_eq( &key, "query_sort" ) ) ) {
+    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_gui_peers_request_sort( peers, ws_conn_id, id, params, params_sz );
+  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "gossip" ) && fd_jtok_str_eq( &key, "query_scroll" ) ) ) {
+    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_gui_peers_request_scroll( peers, ws_conn_id, id, params, params_sz );
   }
 
-  cJSON_Delete( json );
   return FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD;
 }
 
