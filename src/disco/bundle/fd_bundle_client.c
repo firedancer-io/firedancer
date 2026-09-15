@@ -476,7 +476,7 @@ fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
                         long               now ) {
   uint iter = ctx->backoff_iter;
   if( now >= ctx->backoff_reset ) iter = 0U;
-  iter = fd_uint_min( iter, 5U ) + 1U;
+  iter = fd_uint_min( iter, 3U ) + 1U;
 
   long wait_ns = (long)fd_rng_ulong_roll( ctx->rng, 2000000000UL << (iter-1U) );
 
