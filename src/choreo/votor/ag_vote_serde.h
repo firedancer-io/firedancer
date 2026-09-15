@@ -3,9 +3,9 @@
 
 #include "ag_vote.h"
 
-#define AG_VOTE_DE_SUCCESS           ( 0)
-#define AG_VOTE_DE_ERR_SZ            (-1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */
-#define AG_VOTE_DE_ERR_INVAL         (-2) /* InvalidTagEncoding, InvalidValue                                                 */
+#define AG_VOTE_DE_SUCCESS   ( 0)
+#define AG_VOTE_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */
+#define AG_VOTE_DE_ERR_INVAL (-2) /* InvalidTagEncoding, InvalidValue                                                 */
 
 #define AG_VOTE_SERDE_TAG_NOTAR          (1)  /* WireConsensusMessageKind::NotarVote          #[wincode(tag = 1)] */
 #define AG_VOTE_SERDE_TAG_FINAL          (2)  /* WireConsensusMessageKind::FinalizeVote       #[wincode(tag = 2)] */
@@ -29,6 +29,11 @@ struct ag_vote_serde {
 };
 typedef struct ag_vote_serde ag_vote_serde_t;
 
+#define AG_VOTE_SIGNING_SER_MAX ( sizeof(uchar)           /* kind          */ + \
+                                  sizeof(ulong)           /* slot          */ + \
+                                  sizeof(ag_block_hash_t) /* block_id      */ + \
+                                  sizeof(ushort)          /* shred_version */ )
+
 #define AG_VOTE_SER_SZ( has_block_id ) ( sizeof(uchar)                                      /* version       */ + \
                                          sizeof(uchar)                                      /* kind          */ + \
                                          sizeof(ulong)                                      /* slot          */ + \
@@ -36,16 +41,13 @@ typedef struct ag_vote_serde ag_vote_serde_t;
                                          FD_BLS_SIG_SZ                                      /* signature     */ + \
                                          sizeof(ushort)                                     /* shred_version */ )
 
-#define AG_VOTE_SIGNING_SER_MAX ( sizeof(uchar)           /* kind          */ + \
-                                  sizeof(ulong)           /* slot          */ + \
-                                  sizeof(ag_block_hash_t) /* block_id      */ + \
-                                  sizeof(ushort)          /* shred_version */ )
+#define AG_VOTE_SER_MAX AG_VOTE_SER_SZ( 1 )
 
 FD_PROTOTYPES_BEGIN
 
 ulong
 ag_vote_ser( ag_vote_t const * self,
-             uchar             buf[ static AG_VOTE_SER_SZ( 1 ) ] );
+             uchar             buf[ static AG_VOTE_SER_MAX ] );
 
 int
 ag_vote_de( ag_vote_t *   self,

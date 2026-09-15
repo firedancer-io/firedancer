@@ -196,13 +196,13 @@ ag_pool_new( void * mem,
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, ag_pool_align() ) == (ulong)mem + footprint );
 
   pool->prev_epoch_info = NULL;
-  pool->prev_epoch_rank = 0UL;
+  pool->prev_epoch_rank = USHORT_MAX;
   pool->prev_epoch_slot = ULONG_MAX;
   pool->curr_epoch_info = NULL;
-  pool->curr_epoch_rank = 0UL;
+  pool->curr_epoch_rank = USHORT_MAX;
   pool->curr_epoch_slot = ULONG_MAX;
   pool->next_epoch_info = NULL;
-  pool->next_epoch_rank = 0UL;
+  pool->next_epoch_rank = USHORT_MAX;
   pool->next_epoch_slot = ULONG_MAX;
 
   pool->slot_states       = (slot_states_t *)slot_states;
@@ -309,6 +309,7 @@ slot_state( ag_pool_t * self,
   ag_epoch_info_t const * info = fd_ptr_if  ( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if  ( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) );
   ulong                   rank = fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, fd_ulong_if( slot>=self->curr_epoch_slot, self->curr_epoch_rank, self->prev_epoch_rank ) );
 
+  FD_TEST( info );
   FD_TEST( slot_state_pool_free( self->slot_states->pool ) );
 
   ele       = slot_state_pool_ele_acquire( self->slot_states->pool );
@@ -436,9 +437,6 @@ ag_pool_advance_epoch( ag_pool_t *             self,
                        ulong                   epoch_rank,
                        ulong                   epoch_slot ) {
   if( FD_UNLIKELY( !self->curr_epoch_info ) ) {
-    self->prev_epoch_info = epoch_info;
-    self->prev_epoch_rank = epoch_rank;
-    self->prev_epoch_slot = epoch_slot;
     self->curr_epoch_info = epoch_info;
     self->curr_epoch_rank = epoch_rank;
     self->curr_epoch_slot = epoch_slot;
@@ -470,6 +468,9 @@ ag_pool_add_cert( ag_pool_t *       self,
   ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_REWARD_SLOT_DELTA;
   if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
 
+  ag_epoch_info_t const * epoch_info = fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) );
+  if( FD_UNLIKELY( !epoch_info ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+
   ag_slot_state_t * state = slot_state( self, slot );
   int duplicate = 0;
   switch( cert->kind ) {
@@ -482,8 +483,7 @@ ag_pool_add_cert( ag_pool_t *       self,
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
 
-  ag_epoch_info_t const * epoch_info = fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) );
-  if( FD_UNLIKELY( !epoch_info || !ag_cert_verify( cert, epoch_info ) ) ) return AG_POOL_ERR_CERT_VERIFY;
+  if( FD_UNLIKELY( !ag_cert_verify( cert, epoch_info ) ) ) return AG_POOL_ERR_CERT_VERIFY;
 
   add_valid_cert( self, cert, bad );
   return AG_POOL_SUCCESS;
@@ -500,6 +500,9 @@ ag_pool_add_vote( ag_pool_t *       self,
   ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, AG_REWARD_SLOT_DELTA );
   ulong slot_far_in_future  = first_unpruned_slot + self->slot_max - AG_REWARD_SLOT_DELTA;
   if( FD_UNLIKELY( slot<retained_slot || slot>=slot_far_in_future ) ) {
+    return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  }
+  if( FD_UNLIKELY( !fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) ) ) ) {
     return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
   }
 
@@ -545,6 +548,7 @@ ag_pool_add_block( ag_pool_t *           self,
 
   ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_REWARD_SLOT_DELTA;
   if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  if( FD_UNLIKELY( !fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) ) ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
 
   ag_finalization_event_t finalization_event = finalization_event_default( self );
   ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id, &finalization_event );

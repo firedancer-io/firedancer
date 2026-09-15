@@ -4,9 +4,9 @@
 #include "ag_cert.h"
 #include "ag_bls_serde.h"
 
-#define AG_CERT_DE_SUCCESS           ( 0)
-#define AG_CERT_DE_ERR_SZ            (-1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */
-#define AG_CERT_DE_ERR_INVAL         (-2) /* InvalidTagEncoding, InvalidValue                                                 */
+#define AG_CERT_DE_SUCCESS   ( 0)
+#define AG_CERT_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */
+#define AG_CERT_DE_ERR_INVAL (-2) /* InvalidTagEncoding, InvalidValue                                                 */
 
 FD_STATIC_ASSERT( AG_BLS_DE_SUCCESS  ==AG_CERT_DE_SUCCESS,   ag_cert_serde );
 FD_STATIC_ASSERT( AG_BLS_DE_ERR_SZ   ==AG_CERT_DE_ERR_SZ,    ag_cert_serde );
@@ -43,16 +43,9 @@ typedef struct ag_cert_serde ag_cert_serde_t;
                                              FD_BLS_SIG_SZ                                      /* signature */ + \
                                              sizeof(ulong)                                      /* bitmap_sz */ )
 
-
-#define AG_CERT_SER_MIN ( AG_CERT_SER_HDR_SZ( 0 ) + \
-                          AG_BLS_AGG_HDR_SZ       + \
-                          sizeof(ushort) /* shred_version */ )
-
 #define AG_CERT_SER_MAX ( AG_CERT_SER_HDR_SZ( 1 ) + \
                           AG_BLS_AGG_PAIR_SER_MAX + \
                           sizeof(ushort) /* shred_version */ )
-
-FD_STATIC_ASSERT( AG_CERT_SER_MAX==647UL, ag_cert_serde );
 
 FD_PROTOTYPES_BEGIN
 

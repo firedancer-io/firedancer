@@ -4,14 +4,14 @@
 
 ulong
 ag_vote_ser( ag_vote_t const * self,
-             uchar             buf[ static AG_VOTE_SER_SZ( 1 ) ] ) {
-  ag_vote_serde_t vote;
-
-  vote.version       = (uchar)1;
-  vote.tag           = (uchar)( self->kind+AG_VOTE_SERDE_TAG_NOTAR );
-  vote.slot          = ag_vote_slot( self );
-  vote.block_id      = ag_vote_block_hash( self );
-  vote.shred_version = ag_vote_shred_version( self );
+             uchar             buf[ static AG_VOTE_SER_MAX ] ) {
+  ag_vote_serde_t vote = {
+    .version       = (uchar)1,
+    .tag           = (uchar)( self->kind+AG_VOTE_SERDE_TAG_NOTAR ),
+    .slot          = ag_vote_slot( self ),
+    .block_id      = ag_vote_block_hash( self ),
+    .shred_version = ag_vote_shred_version( self ),
+  };
 
   ulong off = 0UL;
   buf[ off ] = vote.version;                                                                    off += sizeof(uchar);
