@@ -22,9 +22,24 @@ FD_STATIC_ASSERT( FD_RPC_CLIENT_FOOTPRINT==sizeof (fd_rpc_client_t), unit_test )
 
 volatile int listening;
 
+static void
+send_all( int          fd,
+          char const * buf,
+          ulong        sz ) {
+  ulong sent = 0UL;
+  while( sent<sz ) {
+    long len = send( fd, buf+sent, sz-sent, 0 );
+    FD_TEST( len>=0 );
+    sent += (ulong)len;
+  }
+}
+
+/* args!=NULL: deliver the response body in a second segment after the
+   headers (regression for the phr_parse_response last_len hang) */
+
 void *
 fd_rpc_serve_one( void * args ) {
-  (void)args;
+  int split = !!args;
 
   int sock = socket( AF_INET, SOCK_STREAM, 0 );
   FD_TEST( sock>=0 );
@@ -69,7 +84,7 @@ fd_rpc_serve_one( void * args ) {
                                         &path, &path_len,
                                         &minor_version,
                                         headers, &num_headers,
-                                        bytes_read - (ulong)len );
+                                        0UL );
     FD_TEST( -1!=content_offset );
     if( -2==content_offset ) continue;
 
@@ -129,20 +144,22 @@ fd_rpc_serve_one( void * args ) {
   FD_TEST( printed>=0 && (ulong)printed<sizeof(response_content) );
 
   char response[ 1024 ];
+  ulong content_sz = (ulong)printed;
   printed = snprintf( response, sizeof(response), "HTTP/1.1 200 OK\r\n"
                                                   "Content-Type: application/json\r\n"
                                                   "Content-Length: %lu\r\n"
                                                   "\r\n"
                                                   "%s",
-                      (ulong)printed, response_content );
+                      content_sz, response_content );
   FD_TEST( printed>=0 && (ulong)printed<sizeof(response_content) );
 
-  ulong bytes_written = 0UL;
-  while( 1 ) {
-    long len = send( fd, response, (ulong)printed - bytes_written, 0 );
-    FD_TEST( len>=0 );
-    bytes_written += (ulong)len;
-    if( bytes_written >= (ulong)printed ) break;
+  if( split ) {
+    ulong first = (ulong)printed-content_sz+1UL; /* headers plus one body byte */
+    send_all( fd, response, first );
+    fd_log_sleep( (long)50e6 );
+    send_all( fd, response+first, (ulong)printed-first );
+  } else {
+    send_all( fd, response, (ulong)printed );
   }
 
   FD_TEST( close( fd )>=0 );
@@ -205,6 +222,24 @@ main( int     argc,
   char out[45];
   fd_base58_encode_32( response->result.latest_block_hash.block_hash, NULL, out );
   FD_TEST( !strcmp( out, "EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N" ) );
+
+  fd_rpc_client_close( rpc, request_id );
+
+  FD_TEST( !pthread_join( thread[0], NULL ) );
+
+  FD_LOG_NOTICE(( "Testing split response" ));
+
+  listening = 0;
+  pthread_create( thread, NULL, fd_rpc_serve_one, (void *)1UL );
+  while( !listening ) ;
+
+  request_id = fd_rpc_client_request_transaction_count( rpc );
+  FD_TEST( request_id>=0L );
+  response = fd_rpc_client_status( rpc, request_id, 1 );
+  FD_TEST( !!response );
+
+  FD_TEST( response->status==FD_RPC_CLIENT_SUCCESS );
+  FD_TEST( response->result.transaction_count.transaction_count==268UL );
 
   fd_rpc_client_close( rpc, request_id );
 

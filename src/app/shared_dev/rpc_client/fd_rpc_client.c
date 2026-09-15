@@ -204,7 +204,6 @@ fd_rpc_phr_content_length( struct phr_header * headers,
 static long
 parse_response( char *                     response,
                 ulong                      response_len,
-                ulong                      last_response_len,
                 fd_rpc_client_response_t * result ) {
   int minor_version;
   int status;
@@ -212,9 +211,11 @@ parse_response( char *                     response,
   ulong message_len;
   struct phr_header headers[ 32 ];
   ulong num_headers = 32UL;
+  /* last_len 0: a non-zero value after the headers completed makes
+     picohttpparser scan the body for CRLFCRLF and never finish */
   int http_len = phr_parse_response( response, response_len,
                                      &minor_version, &status, &message, &message_len,
-                                     headers, &num_headers, last_response_len );
+                                     headers, &num_headers, 0UL );
   if( FD_UNLIKELY( -2==http_len ) ) return FD_RPC_CLIENT_PENDING;
   else if( FD_UNLIKELY( -1==http_len ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
 
@@ -328,7 +329,6 @@ fd_rpc_client_service( fd_rpc_client_t * rpc,
       fd_rpc_client_response_t * response = &request->response;
       long status = parse_response( request->response_bytes,
                                     request->sent.response_bytes_read,
-                                    request->sent.response_bytes_read-(ulong)read,
                                     response );
       if( FD_LIKELY( status==FD_RPC_CLIENT_PENDING ) ) continue;
       else if( FD_UNLIKELY( status==FD_RPC_CLIENT_SUCCESS ) ) {
