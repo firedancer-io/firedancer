@@ -20,13 +20,13 @@ typedef fd_votor_rooted_t fd_votor_repair_t;
    reaching a given state.  A final cert names only its slot, so it is
    reported once the notarization of that slot has formed too.
 
-   kind            block_id  agg           agg2
-   --------------  --------  ------------  -------------------
-   final           ✓         final votes   notar votes
-   fast_final      ✓         notar votes   -
-   notar           ✓         notar votes   -
-   notar_fallback  ✓         notar votes   notar-fallback votes
-   skip            ✗         skip  votes   skip-fallback  votes */
+   kind           | block_id | agg         | agg2
+   ---------------|----------|-------------|---------------------
+   final          | ✓        | final votes | notar votes
+   fast_final     | ✓        | notar votes | -
+   notar          | ✓        | notar votes | -
+   notar_fallback | ✓        | notar votes | notar-fallback votes
+   skip           | ✗        | skip  votes | skip-fallback  votes */
 
 struct fd_votor_certed {
   uint         kind; /* AG_CERT_KIND_* */

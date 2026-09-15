@@ -37,11 +37,21 @@ struct update_parent_serde {
 };
 typedef struct update_parent_serde update_parent_serde_t;
 
+/* solana_signer_store base2 bitmap: one byte version tag, u16 bit count,
+   then the bits packed LSB first, bit i naming rank i.  Only base2 goes
+   in a footer; base3 pairs are a votor wire shape (ag_bls_serde.h). */
+
+struct bitmap_serde {
+  uchar         version;    /* solana_signer_store::Version  (u8 tag), base2 */
+  ushort        bit_cnt;    /* solana_signer_store::num_bits (u16)           */
+  uchar const * payload;    /* solana_signer_store::data_bytes               */
+  ulong         payload_sz; /* bit_cnt rounded up to a byte                  */
+};
+typedef struct bitmap_serde bitmap_serde_t;
+
 /* VotesAggregate: https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L324-L328
    Not the wire framing in ag_cert_serde.h: the signature is compressed
-   and the bitmap sits under a u16 byte count rather than a u64.  The
-   bitmap itself is the solana_signer_store encoding ag_bls_serde
-   handles. */
+   and the bitmap sits under a u16 byte count rather than a u64. */
 
 struct votes_aggregate_serde {
   uchar const * signature; /* VotesAggregate::signature  (BLSSignatureCompressed)         */
@@ -121,40 +131,33 @@ header_ser( fd_block_header_t const * header,
 }
 
 /* bitmap_ser writes the base2 bitmap naming the ranks in signer_set,
-   exactly nbits wide.  ag_bls_agg_ser packs the ranks but trims the
-   width to one past the highest, as agave does when it builds a cert;
-   a footer cert re-emits the width it carries, so one that came off the
-   wire goes back out byte for byte.  Returns the bytes written, or 0UL
-   if nbits passes AG_VAT_MAX (which sizes FD_BLOCK_FOOTER_SER_MAX) or a
-   rank sits at or past nbits. */
+   exactly nbits wide: a footer cert re-emits the width it carries, so
+   one that came off the wire goes back out byte for byte.  Returns the
+   bytes written, or 0UL if nbits passes AG_VAT_MAX (which sizes
+   FD_BLOCK_FOOTER_SER_MAX) or a rank sits at or past nbits. */
 
 static ulong
 bitmap_ser( ulong                nbits,
             fd_bls_set_t const * signer_set,
             uchar *              buf ) {
-  fd_bls_agg_t agg[1]; /* only the set is read */
-  fd_bls_set_copy( agg->set, signer_set );
   ulong bits = fd_ulong_min( FD_BLS_SET_MAX, fd_bls_set_last( signer_set )+1UL ); /* one past the highest rank, 0 when empty */
   if( FD_UNLIKELY( nbits>AG_VAT_MAX || bits>nbits ) ) return 0UL;
 
-  /* ag_bls_agg_ser packs bits<=nbits of them (none for an empty set);
-     the rest of the nbits-wide payload is zero filled */
-  uchar packed[ AG_BLS_AGG_SER_MAX ];
-  ulong packed_sz = ag_bls_agg_ser( agg, packed )-AG_BLS_AGG_HDR_SZ;
-
-  ag_bls_agg_serde_t bm;
+  bitmap_serde_t bm;
 
   bm.version    = (uchar)0; /* base2 */
   bm.bit_cnt    = (ushort)nbits;
-  bm.payload    = packed+AG_BLS_AGG_HDR_SZ;
-  bm.payload_sz = AG_BLS_AGG_SER_SZ( nbits )-AG_BLS_AGG_HDR_SZ;
+  bm.payload    = NULL; /* written straight into buf below */
+  bm.payload_sz = FD_BLOCK_BITMAP_SER_SZ( nbits )-FD_BLOCK_BITMAP_SER_HDR_SZ;
 
   ulong off = 0UL;
-  buf[ off ] = bm.version;                                    off += sizeof(uchar);
-  FD_STORE( ushort, buf+off, bm.bit_cnt );                    off += sizeof(ushort);
-  memcpy( buf+off, bm.payload, packed_sz );
-  fd_memset( buf+off+packed_sz, 0, bm.payload_sz-packed_sz ); off += bm.payload_sz; /* ranks past the packed width are unset */
-
+  buf[ off ] = bm.version;                 off += sizeof(uchar);
+  FD_STORE( ushort, buf+off, bm.bit_cnt ); off += sizeof(ushort);
+  fd_memset( buf+off, 0, bm.payload_sz );
+  for( ulong i=0UL; i<bits; i++ ) {
+    if( fd_bls_set_test( signer_set, i ) ) buf[ off+(i>>3) ] |= (uchar)( 1U << (i&7U) );
+  }
+                                           off += bm.payload_sz;
   return off;
 }
 
@@ -164,7 +167,7 @@ votes_aggregate_ser( fd_block_footer_cert_t const * cert,
   votes_aggregate_serde_t aggregate;
 
   aggregate.signature = cert->sig; /* already compressed */
-  aggregate.bitmap_sz = (ushort)AG_BLS_AGG_SER_SZ( cert->nbits );
+  aggregate.bitmap_sz = (ushort)FD_BLOCK_BITMAP_SER_SZ( cert->nbits );
   aggregate.bitmap    = NULL; /* written straight into buf by bitmap_ser below */
 
   ulong off = 0UL;
@@ -213,7 +216,7 @@ skip_reward_cert_ser( fd_block_footer_cert_t const * cert,
 
   reward.slot      = cert->slot;
   reward.signature = cert->sig; /* already compressed */
-  reward.bitmap_sz = (ushort)AG_BLS_AGG_SER_SZ( cert->nbits );
+  reward.bitmap_sz = (ushort)FD_BLOCK_BITMAP_SER_SZ( cert->nbits );
   reward.bitmap    = NULL; /* written straight into buf by bitmap_ser below */
 
   ulong off = 0UL;
@@ -234,7 +237,7 @@ notar_reward_cert_ser( fd_block_footer_cert_t const * cert,
   reward.slot      = cert->slot;
   reward.block_id  = cert->block_id.uc;
   reward.signature = cert->sig; /* already compressed */
-  reward.bitmap_sz = (ushort)AG_BLS_AGG_SER_SZ( cert->nbits );
+  reward.bitmap_sz = (ushort)FD_BLOCK_BITMAP_SER_SZ( cert->nbits );
   reward.bitmap    = NULL; /* written straight into buf by bitmap_ser below */
 
   ulong off = 0UL;
@@ -364,23 +367,32 @@ update_parent_de( fd_update_parent_t * update_parent,
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
 
-/* bitmap_de decodes the base2 bitmap at b into nbits and signer_set
-   through ag_bls_agg_de, which checks the version, the width against
-   FD_BLS_SET_MAX and the payload length against the width.  The
-   width is then kept verbatim, so a cert re-encodes at the width it came
-   with. */
+/* bitmap_de decodes the base2 bitmap at b into nbits and signer_set,
+   checking the version, the width against FD_BLS_SET_MAX and the
+   payload length against the width.  The width is kept verbatim, so a
+   cert re-encodes at the width it came with. */
 
 static int
 bitmap_de( ushort *       nbits,
            fd_bls_set_t * signer_set,
            uchar const *  b,
            ulong          b_sz ) {
-  fd_bls_agg_t agg[1];
-  int err = ag_bls_agg_de( agg, b, b_sz ); /* base2 only; AG_BLS_DE_ERR_* are FD_BLOCK_MARKER_DE_ERR_* */
-  if( FD_UNLIKELY( err ) ) return err;
+  FAIL( b_sz<FD_BLOCK_BITMAP_SER_HDR_SZ, SZ );
 
-  *nbits = FD_LOAD( ushort, b+sizeof(uchar) ); /* ag_bls_agg_de has sized and bounded this header */
-  fd_bls_set_copy( signer_set, agg->set );
+  bitmap_serde_t bm; ulong off = 0UL;
+  bm.version    = b[ off ];                 off += sizeof(uchar);
+  FAIL( bm.version!=0, INVAL ); /* base2 only */
+  bm.bit_cnt    = FD_LOAD( ushort, b+off ); off += sizeof(ushort);
+  FAIL( (ulong)bm.bit_cnt>FD_BLS_SET_MAX, SZ );
+  bm.payload    = b+off;
+  bm.payload_sz = b_sz-off;
+  FAIL( bm.payload_sz!=FD_BLOCK_BITMAP_SER_SZ( bm.bit_cnt )-FD_BLOCK_BITMAP_SER_HDR_SZ, INVAL );
+
+  fd_bls_set_null( signer_set );
+  for( ulong i=0UL; i<(ulong)bm.bit_cnt; i++ ) {
+    if( (bm.payload[ i>>3 ] >> (i&7U)) & 1U ) fd_bls_set_insert( signer_set, i );
+  }
+  *nbits = bm.bit_cnt;
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
 
