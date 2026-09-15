@@ -43,7 +43,7 @@ fd_topo_cpu_cnt( void ) {
   char * saveptr;
   char * token = strtok_r( line, "-", &saveptr );
   token = strtok_r( NULL, "-", &saveptr );
-  ulong end = fd_cstr_to_ulong( token );
+  ulong end = fd_cstr_to_ulong( token ? token : line );
 
   return end+1UL;
 }
