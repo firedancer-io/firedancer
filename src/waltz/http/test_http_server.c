@@ -1400,6 +1400,115 @@ test_etag_304( void ) {
   free( scratch );
 }
 
+/* test_accept_encoding covers the RFC 9110 s12.5.3 token/qvalue
+   matcher, the Accept-Encoding request plumbing regardless of header
+   order and across repeated field lines, and the Vary response header
+   (on 200 and 304). */
+
+static fd_http_server_t * ae_http;
+static char               ae_seen[ 256 ];
+static char               ct_seen[ 256 ];
+
+static fd_http_server_response_t
+request_ae( fd_http_server_request_t const * request ) {
+  strncpy( ae_seen, request->headers.accept_encoding, sizeof( ae_seen )-1UL );
+  strncpy( ct_seen, request->headers.content_type ? request->headers.content_type : "", sizeof( ct_seen )-1UL );
+  int zstd = fd_http_server_accept_encoding_q( request->headers.accept_encoding, "zstd" );
+  if( request->headers.if_none_match[ 0 ] ) {
+    return (fd_http_server_response_t){ .status = 304, .etag = "\"e\"", .vary = "Accept-Encoding" };
+  }
+  fd_http_server_printf( ae_http, zstd ? "z" : "raw" );
+  fd_http_server_response_t response = {
+    .status           = 200,
+    .content_type     = "text/plain",
+    .content_encoding = zstd ? "zstd" : NULL,
+    .vary             = "Accept-Encoding",
+  };
+  FD_TEST( !fd_http_server_stage_body( ae_http, &response ) );
+  return response;
+}
+
+static void
+test_accept_encoding( void ) {
+  FD_LOG_NOTICE(( "Testing Accept-Encoding matching and Vary" ));
+
+  /* matcher semantics */
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd",                        "zstd" )==1000 );
+  FD_TEST( fd_http_server_accept_encoding_q( "gzip, deflate, br, zstd",     "zstd" )==1000 );
+  FD_TEST( fd_http_server_accept_encoding_q( "ZSTD",                        "zstd" )==1000 );
+  FD_TEST( fd_http_server_accept_encoding_q( " zstd ;q=1",                  "zstd" )==1000 );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd;q=1.000",                "zstd" )==1000 );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd;q=0.5, gzip",            "zstd" )==500  );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd;foo=bar;q=0.001",        "zstd" )==1    );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd;q=0.25;foo",             "zstd" )==250  );
+  FD_TEST( fd_http_server_accept_encoding_q( "gzip;q=0, zstd",              "zstd" )==1000 );
+  FD_TEST( fd_http_server_accept_encoding_q( ",,zstd,",                     "zstd" )==1000 );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd;q=0.9999",               "zstd" )==999  );
+  FD_TEST( fd_http_server_accept_encoding_q( "",                            "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "gzip, deflate",               "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd;q=0",                    "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd; q=0.000, gzip",         "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "gzip, zstd;Q=0",              "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd;foo=bar;q=0;baz",        "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd;q=",                     "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "zstd;q=.5",                   "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "x-zstd, zstd2, notzstd",      "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "*",                           "zstd" )==0 );
+  FD_TEST( fd_http_server_accept_encoding_q( "zst",                         "zstd" )==0 );
+
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_ae,
+    .close   = close_capture,
+  };
+
+  fd_http_server_params_t params = default_test_params();
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  ae_http = http;
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
+
+  char buf[ 2048 ];
+
+  /* no header: callback sees empty, identity, Vary still sent */
+  ae_seen[ 0 ] = '\0';
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( !ae_seen[ 0 ] );
+  FD_TEST( strstr( buf, "200 OK" ) && strstr( buf, "Vary: Accept-Encoding\r\n" ) && !strstr( buf, "Content-Encoding" ) && strstr( buf, "\r\n\r\nraw" ) );
+
+  /* Accept-Encoding after Content-Type must still be seen */
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nContent-Type: text/plain\r\nAccept-Encoding: gzip, zstd\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( !strcmp( ae_seen, "gzip, zstd" ) && !strcmp( ct_seen, "text/plain" ) );
+  FD_TEST( strstr( buf, "Content-Encoding: zstd\r\n" ) && strstr( buf, "Vary: Accept-Encoding\r\n" ) && strstr( buf, "\r\n\r\nz" ) );
+
+  /* repeated field lines combine into one list; a shorter repeat
+     never leaves a stale tail */
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nAccept-Encoding: gzip\r\nAccept-Encoding: zstd;q=0\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( !strcmp( ae_seen, "gzip, zstd;q=0" ) && strstr( buf, "\r\n\r\nraw" ) );
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nContent-Type: text/plain;charset=utf-8\r\nContent-Type: text/x\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( !strcmp( ct_seen, "text/x" ) );
+
+  /* an oversize combined value rejects the request */
+  char big_req[ 512 ];
+  char big_ae[ 100 ];
+  memset( big_ae, 'a', sizeof( big_ae ) ); big_ae[ sizeof( big_ae )-1UL ] = '\0';
+  FD_TEST( fd_cstr_printf_check( big_req, sizeof( big_req ), NULL, "GET / HTTP/1.1\r\nAccept-Encoding: %s\r\nAccept-Encoding: %s\r\n\r\n", big_ae, big_ae ) );
+  etag_roundtrip( http, &state, big_req, buf, sizeof( buf ) );
+  FD_TEST( !strstr( buf, "HTTP/1.1" ) );
+  FD_TEST( state.last_reason==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+
+  /* 304 carries Vary (RFC 9110 s15.4.5) */
+  etag_roundtrip( http, &state, "GET / HTTP/1.1\r\nIf-None-Match: \"e\"\r\nConnection: close\r\n\r\n", buf, sizeof( buf ) );
+  FD_TEST( strstr( buf, "304 Not Modified" ) && strstr( buf, "Vary: Accept-Encoding\r\n" ) && strstr( buf, "ETag: \"e\"" ) );
+
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
 /* test_close_in_request_callback covers a close issued from inside the
    request callback: close_conn must release the still-reading
    connection without a treap removal, read_conn_http must return
@@ -1490,6 +1599,7 @@ main( int     argc,
   test_close_in_pipelined_callback();
   test_close_in_request_callback();
   test_etag_304();
+  test_accept_encoding();
   test_transfer_encoding_close();
   test_duplicate_content_length_different_close();
   test_ws_bad_key_close();

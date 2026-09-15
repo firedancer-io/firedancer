@@ -10,14 +10,16 @@ $(call make-unit-test,test_gui_store,test_gui_store,fd_disco fd_choreo fd_flamen
 $(call run-unit-test,test_gui_store)
 $(call make-unit-test,test_gui_hist_evict,test_gui_hist_evict,fd_disco fd_choreo fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_gui_hist_evict)
+$(call make-unit-test,test_gui_tile,test_gui_tile,fd_disco fd_discof fd_choreo fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_gui_tile)
 
-src/disco/gui/dist_cmp/%.zst: src/disco/gui/dist/% | $(OBJDIR)/bin/fd_zstd_pack
+src/disco/gui/dist_cmp/%.zst: src/disco/gui/dist/% src/ballet/zstd/fd_zstd_pack.c | $(OBJDIR)/bin/fd_zstd_pack
 	@echo -e "ZSTD\t$(notdir $@)"
 	$(Q)$(MKDIR) $(@D) && \
 $(OBJDIR)/bin/fd_zstd_pack 19 $< $@ && \
 $(TOUCH) $@
 
-src/disco/gui/dist_cmp/%.gz: src/disco/gui/dist/% | $(OBJDIR)/bin/fd_gzip_pack
+src/disco/gui/dist_cmp/%.gz: src/disco/gui/dist/% src/ballet/zstd/fd_gzip_pack.c | $(OBJDIR)/bin/fd_gzip_pack
 	@echo -e "GZIP\t$(notdir $@)"
 	$(Q)$(MKDIR) $(@D) && \
 $(OBJDIR)/bin/fd_gzip_pack 9 $< $@ && \
