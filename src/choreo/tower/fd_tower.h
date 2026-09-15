@@ -376,10 +376,6 @@
 #include "../votes/fd_votes.h"
 #include "../../disco/pack/fd_microblock.h"
 
-#define FD_TOWER_LOCKOS_MAX 31UL
-#define FD_TOWER_VOTE_MAX (FD_TOWER_LOCKOS_MAX)
-FD_STATIC_ASSERT( FD_TOWER_VOTE_MAX==FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX, FD_TOWER_VOTE_MAX );
-
 /* fd_tower is a representation of a validator's "vote tower" (described
    in detail in the preamble at the top of this file).  The votes in the
    tower are stored in an fd_deque.c ordered from lowest to highest vote

@@ -307,10 +307,10 @@ test_ser( void ) {
   fd_compact_tower_sync_serde_t s[1];
   memset( s, 0, sizeof(*s) );
   s->root         = 42UL;
-  s->lockouts_cnt = (ushort)FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX;
-  for( ulong i=0UL; i<FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX; i++ ) {
+  s->lockouts_cnt = (ushort)FD_TOWER_VOTE_MAX;
+  for( ulong i=0UL; i<FD_TOWER_VOTE_MAX; i++ ) {
     s->lockouts[i].offset             = ULONG_MAX; /* worst case VarInt */
-    s->lockouts[i].confirmation_count = (uchar)(FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX-i);
+    s->lockouts[i].confirmation_count = (uchar)(FD_TOWER_VOTE_MAX-i);
   }
   memset( &s->hash,     0xAA, sizeof(fd_hash_t) );
   memset( &s->block_id, 0xBB, sizeof(fd_hash_t) );
@@ -345,9 +345,9 @@ test_ser( void ) {
 
   /* Malformed serde structs */
 
-  s->lockouts_cnt = (ushort)( FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX+1UL );
+  s->lockouts_cnt = (ushort)( FD_TOWER_VOTE_MAX+1UL );
   FD_TEST( -1==fd_compact_tower_sync_ser( s, buf, sizeof(buf), &sz ) );
-  s->lockouts_cnt = (ushort)FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX;
+  s->lockouts_cnt = (ushort)FD_TOWER_VOTE_MAX;
 
   s->timestamp_option = 2;
   FD_TEST( -1==fd_compact_tower_sync_ser( s, buf, sizeof(buf), &sz ) );

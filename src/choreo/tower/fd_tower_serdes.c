@@ -114,7 +114,7 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           ulong                           buf_sz ) {
   DE( ulong, root );
   if( FD_UNLIKELY( de_short_u16( &serde->lockouts_cnt, &buf, &buf_sz ) ) ) return -1;
-  if( FD_UNLIKELY( serde->lockouts_cnt > FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX ) ) return -1;
+  if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
   for( ulong i = 0; i < serde->lockouts_cnt; i++ ) {
     if( FD_UNLIKELY( de_var_int( &serde->lockouts[i].offset, &buf, &buf_sz ) ) ) return -1;
     DE( uchar, lockouts[i].confirmation_count );
@@ -134,8 +134,8 @@ fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
                            uchar *                               buf,
                            ulong                                 buf_max,
                            ulong *                               buf_sz ) {
-  if( FD_UNLIKELY( serde->lockouts_cnt > FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX ) ) return -1;
-  if( FD_UNLIKELY( serde->timestamp_option>1                                 ) ) return -1;
+  if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
+  if( FD_UNLIKELY( serde->timestamp_option>1                ) ) return -1;
   ulong off = 0;
   SER( ulong, root );
   SER_SHORT_U16( lockouts_cnt );
@@ -182,7 +182,7 @@ fd_vote_acc_desc( fd_vote_acc_desc_t * desc,
   if( FD_UNLIKELY( (ulong)vote_cnt_p+sizeof(ulong) > (ulong)data+data_sz ) ) return NULL;
   ulong vote_cnt = FD_LOAD( ulong, vote_cnt_p );
   /* FIXME silent truncation is questionable behavior */
-  vote_cnt = fd_ulong_min( vote_cnt, FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX );
+  vote_cnt = fd_ulong_min( vote_cnt, FD_TOWER_VOTE_MAX );
   ulong vote_hi_p = (ulong)vote_cnt_p + sizeof(ulong) + vote_cnt*vote_stride;
   if( FD_UNLIKELY( vote_hi_p > (ulong)data+data_sz ) ) return NULL;
   /* Option<ulong> "root_slot" follows vote array */
