@@ -2,8 +2,9 @@
 #define HEADER_fd_src_discof_votor_fd_votor_tile_h
 
 #include "fd_votor_rooted.h"
-#include "../../choreo/votor/ag_cert.h"
+#include "../../ballet/bls/fd_bls.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../waltz/quic/tls/fd_quic_tls.h"
 
 // #define FD_VOTOR_SIG_ROOTED (0)  /* defined in fd_votor_rooted.h */
 #define FD_VOTOR_SIG_CERTED (1)
@@ -11,19 +12,21 @@
 #define FD_VOTOR_SIG_LEADER (3)
 #define FD_VOTOR_SIG_REWARD (4)
 
+#define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server */
+
 typedef fd_votor_rooted_t fd_votor_repair_t;
 
 /* fd_votor_certed notifies that we have a valid cert for the block
    reaching a given state.  A final cert names only its slot, so it is
    reported once the notarization of that slot has formed too.
 
-   kind            block_id  agg                  agg2
-   --------------  --------  -------------------  --------------------
-   final           ✓         final votes          notar votes
-   fast_final      ✓         notar votes          -
-   notar           ✓         notar votes          -
-   notar_fallback  ✓         notar votes          notar-fallback votes
-   skip            ✗         skip  votes          skip-fallback  votes */
+   kind            block_id  agg           agg2
+   --------------  --------  ------------  -------------------
+   final           ✓         final votes   notar votes
+   fast_final      ✓         notar votes   -
+   notar           ✓         notar votes   -
+   notar_fallback  ✓         notar votes   notar-fallback votes
+   skip            ✗         skip  votes   skip-fallback  votes */
 
 struct fd_votor_certed {
   uint         kind; /* AG_CERT_KIND_* */

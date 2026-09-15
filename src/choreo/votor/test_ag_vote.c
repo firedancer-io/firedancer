@@ -86,7 +86,7 @@ test_payload_distinct( void ) {
 static void
 check_wire( ag_vote_t const *    v,
             fd_bls_pub_t const * pk ) {
-  uchar out[ AG_VOTE_SER_SZ( 1 ) ];
+  uchar out[ AG_VOTE_SER_MAX ];
   ulong n;
   n = ag_vote_ser( v, out );
   FD_TEST( n>0UL );
