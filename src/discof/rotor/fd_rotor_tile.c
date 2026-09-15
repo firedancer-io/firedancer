@@ -171,6 +171,7 @@ struct ctx {
     ulong failed_parent_fec_count_cnt;
 
     ulong fecs_delivered; /* diagnostic: FECs pushed to replay via out_queue */
+    ulong chainer_events; /* diagnostic: repair events drained from the chainer, unused by this tile */
   } metrics[ 1 ];
 
   /* Slot-level metrics */
@@ -750,6 +751,19 @@ after_votor_block_repair( ctx_t *                   ctx,
   }
 }
 
+/* drain_chainer_events consumes the repair events the chainer queued
+   during its last call.  This tile does not act on them: its repair
+   walk reads the chainer's worklist treaps directly.  The queue must
+   still be drained before every chainer entry point so it never
+   overflows; rotor2's scheduler is the intended consumer. */
+
+static void
+drain_chainer_events( ctx_t * ctx ) {
+  long now = fd_clock_tile_now( ctx->clock );
+  fd_event_chainer_t event[1];
+  while( fd_chainer_event_poll( ctx->chainer, now, event ) ) ctx->metrics->chainer_events++;
+}
+
 static void
 after_frag( ctx_t *             ctx,
             ulong               in_idx,
@@ -760,6 +774,8 @@ after_frag( ctx_t *             ctx,
             ulong               tspub  FD_PARAM_UNUSED,
             fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
+
+  drain_chainer_events( ctx );
 
   ctx->stem = stem;
   in_ctx_t const * in_ctx  = &ctx->in_links[ in_idx ];
@@ -1056,7 +1072,7 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
     if( e->buffered_idx!=UINT_MAX && ( e->highest_requested==UINT_MAX || e->buffered_idx > e->highest_requested ) )
       e->highest_requested = e->buffered_idx;
 
-    if( FD_UNLIKELY( e->complete_idx==UINT_MAX ) ) {
+    if( FD_UNLIKELY( e->complete_idx==UINT_MAX && e->slot < ctx->metrics->current_slot ) ) {
       if( !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_HIGHEST_SHRED, slot, UINT_MAX ), now ) ) {
         uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 0, slot, 0U, now );
         fd_repair_msg_t * msg = fd_repair_highest_shred( ctx->protocol, peer, (ulong)now_ms, nonce, slot, 0 );
@@ -1221,6 +1237,8 @@ after_credit( ctx_t *             ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   long now = fd_clock_tile_now( ctx->clock );
+
+  drain_chainer_events( ctx );
 
   /* deliver_queue has FECs when replay has signaled a bank eviction,
      and we added the full path of FECs from root up until the next FEC
