@@ -66,8 +66,45 @@ fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
 }
 
 uchar *
+fd_ed25519_point_tobytes_batch8( uchar                      out[],  /* 32*n */
+                                 fd_ed25519_point_t const * pt,     /* n */
+                                 ulong                      n ) {   /* in [1,8] */
+  FD_TEST( 0UL<n && n<=8UL );
+
+  fd_f25519_t x[8], y[8], z[8], t[1];
+  for( ulong i=0UL; i<n; i++ ) fd_ed25519_point_to( &x[i], &y[i], &z[i], t, &pt[i] );
+
+  /* batch inv */
+
+  fd_f25519_t c[8], iz[8], u[1];
+  c[0] = z[0];
+  for( ulong i=1UL; i<n; i++ ) fd_f25519_mul( &c[i], &c[i-1], &z[i] );
+  fd_f25519_inv( u, &c[n-1UL] );
+  for( ulong i=n-1UL; i>0UL; i-- ) {
+    fd_f25519_mul( &iz[i], u, &c[i-1] );
+    fd_f25519_mul( u, u, &z[i] );
+  }
+  iz[0] = *u;
+
+  ulong i=0UL;
+  for( ; i+2UL<=n; i+=2UL ) fd_f25519_mul4( &x[i  ], &x[i  ], &iz[i  ],
+                                            &y[i  ], &y[i  ], &iz[i  ],
+                                            &x[i+1], &x[i+1], &iz[i+1],
+                                            &y[i+1], &y[i+1], &iz[i+1] );
+  if( i<n ) fd_f25519_mul2( &x[i], &x[i], &iz[i],
+                            &y[i], &y[i], &iz[i] );
+
+  for( ulong j=0UL; j<n; j++ ) {
+    fd_f25519_tobytes( out+32UL*j, &y[j] );
+    out[ 32UL*j+31UL ] ^= (uchar)(fd_f25519_sgn( &x[j] ) << 7);
+  }
+  return out;
+}
+
+uchar *
 fd_ed25519_point_tobytes( uchar                      out[ 32 ],
                           fd_ed25519_point_t const * a ) {
+  /* equivalent to: return fd_ed25519_point_tobytes_batch8( out, a, 1UL ) */
   fd_f25519_t x[1], y[1], z[1], t[1];
   fd_ed25519_point_to( x, y, z, t, a );
   fd_f25519_inv( t, z );
