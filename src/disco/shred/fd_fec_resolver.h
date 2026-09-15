@@ -85,6 +85,16 @@
    completed FEC sets, we've returned the same piece of memory twice in
    a row.
 
+   A resigned FEC set whose retransmitter signature has not been
+   provided (see fd_fec_resolver_set_retransmitter_sig) when it
+   completes goes to a signing queue instead of the completed queue,
+   and only joins the completed queue, as freshly completed, once the
+   signature arrives.  The signing queue holds signing_depth sets,
+   which must be at least the number of retransmitter signatures the
+   caller can have outstanding at once; overflowing it is fatal.  A
+   parked set is replaced in the free queue by a spare, so the free
+   and completed queues behave as if it had completed normally.
+
    While done_depth is independent of all these, it's worth including a
    note about it here too.  Once we return with COMPLETES, we don't want
    to process that FEC set again, which means we need some memory of FEC
@@ -100,41 +110,34 @@ struct fd_fec_resolver;
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 
 
-/* fd_fec_resolver_sign_fn: used to sign shreds that require a
-   retransmitter signature. */
-typedef void (fd_fec_resolver_sign_fn)( void * ctx, uchar * sig, uchar const * merkle_root );
-
 FD_PROTOTYPES_BEGIN
 /* fd_fec_resolver_footprint returns the required footprint (in bytes as
    always) required to create an FEC set resolver that can keep track of
    `depth` in progress FEC sets, will not reuse FEC sets for at least
    partial_depth shreds or for at least complete_depth complete FEC sets
-   (see above for more information).  Additionally, the FEC resolver
-   remembers done_depth FEC sets to recognize duplicates vs. new FEC
-   sets.  All depths must positive.
+   (see above for more information), and can hold signing_depth
+   complete FEC sets awaiting their retransmitter signature.
+   Additionally, the FEC resolver remembers done_depth FEC sets to
+   recognize duplicates vs. new FEC sets.  All depths must be positive.
 
    fd_fec_resolver_alignment returns the required alignment of a region
    of memory for it to be used as a FEC resolver. */
-FD_FN_PURE  ulong fd_fec_resolver_footprint( ulong depth, ulong partial_depth, ulong complete_depth, ulong done_depth );
+FD_FN_PURE  ulong fd_fec_resolver_footprint( ulong depth, ulong partial_depth, ulong complete_depth, ulong signing_depth, ulong done_depth );
 FD_FN_CONST ulong fd_fec_resolver_align    ( void );
 
 /* fd_fec_resolver_new formats a region of memory as a FEC resolver.
-   shmem must have the required alignment and footprint.  signer is a
-   function pointer used to sign any shreds that require a retransmitter
-   signature, and sign_ctx is an opaque pointer passed as the first
-   argument to the function.  It is okay to pass NULL for signer, in
-   which case, retransmission signatures will just be zeroed and
-   sign_ctx will be ignored. depth, partial_depth, complete_depth, and
-   done_depth are as defined above and must be positive.  The sum of
-   depth, partial_depth, and complete_depth must be less than UINT_MAX.
-   sets is a pointer to the first of depth+partial_depth+complete_depth
-   FEC sets that this resolver will take ownership of.  The FEC resolver
-   retains a write interest in these FEC sets and the shreds they point
-   to until the resolver is deleted.  These FEC sets and the memory for
-   the shreds they point to are the only values that will be returned in
-   the out_shred and out_fec_set output parameters of add_shred. seed
-   is an arbitrary ulong used to seed various data structures.  It
-   should be set to a validator independent value.
+   shmem must have the required alignment and footprint.  depth,
+   partial_depth, complete_depth, signing_depth and done_depth are as
+   defined above.  The sum of depth, partial_depth, complete_depth and
+   signing_depth must be less than UINT_MAX.  sets is a pointer to the
+   first of that many FEC sets that this resolver will take ownership
+   of.  The FEC resolver retains a write interest in these FEC sets and
+   the shreds they point to until the resolver is deleted.  These FEC
+   sets and the memory for the shreds they point to are the only values
+   that will be returned in the out_shred and out_fec_set output
+   parameters of add_shred. seed is an arbitrary ulong used to seed
+   various data structures.  It should be set to a validator independent
+   value.
 
    On success, the FEC resolver will be initialized with an expected
    shred version of 0, which causes it to reject all shreds, and a
@@ -143,11 +146,10 @@ FD_FN_CONST ulong fd_fec_resolver_align    ( void );
    Returns shmem on success and NULL on failure (logs details). */
 void *
 fd_fec_resolver_new( void                    * shmem,
-                     fd_fec_resolver_sign_fn * signer,
-                     void                    * sign_ctx,
                      ulong                     depth,
                      ulong                     partial_depth,
                      ulong                     complete_depth,
+                     ulong                     signing_depth,
                      ulong                     done_depth,
                      fd_fec_set_t            * sets,
                      ulong                     seed );
@@ -292,7 +294,16 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    evicted FEC set.  Similar to out_merkle_root, the caller owns and
    provides the memory for out_spilled_fec_set.  If
    out_spilled_fec_set is NULL, the evicted FEC set metadata will not be
-   written even if an in progress FEC set was evicted. */
+   written even if an in progress FEC set was evicted.
+
+   Resigned shreds carry a signature by the retransmitter of the FEC
+   set's Merkle root.  The FEC resolver does not sign; on SHRED_{OKAY,
+   COMPLETES,DUPLICATE} for a resigned FEC set whose retransmitter
+   signature it has not been given yet (see
+   fd_fec_resolver_set_retransmitter_sig), it writes 1 to
+   out_sig_pending, else 0.  Copies of such shreds have a zero
+   retransmitter signature until it is provided, including the shreds
+   reconstructed on SHRED_COMPLETES. */
 
 int
 fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
@@ -304,7 +315,25 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_fec_set_t const      * * out_fec_set,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
-                           fd_fec_resolver_spilled_t * out_spilled_fec_set );
+                           fd_fec_resolver_spilled_t * out_spilled_fec_set,
+                           int                       * out_sig_pending );
+
+/* fd_fec_resolver_set_retransmitter_sig provides the retransmitter
+   signature of the FEC set whose shreds carry the leader signature
+   leader_sig.  If the set is in progress it is written into every
+   shred received so far and every one added later; if the set is in
+   the signing queue (complete, see above) it is written into every
+   shred and the set moves to the completed queue; a parked set is
+   preferred to one in progress under the same leader signature (a
+   repair shred can reopen a completed set).  Returns the set, so the
+   caller can retransmit the shreds it held back, or NULL if the set is
+   neither (evicted, rejected, or never seen).  Providing a signature
+   twice to a set in progress is a caller bug and aborts. */
+
+fd_fec_set_t const *
+fd_fec_resolver_set_retransmitter_sig( fd_fec_resolver_t * resolver,
+                                       uchar const         leader_sig[ static 64 ],
+                                       uchar const         retransmitter_sig[ static 64 ] );
 
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
