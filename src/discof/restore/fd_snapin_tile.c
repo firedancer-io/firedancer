@@ -198,7 +198,7 @@ struct fd_snapin_tile {
   struct {
     ulong                        capitalization;
     fd_accdb_snapshot_recovery_t accdb_metadata;
-    fd_snapin_sysvars_t           sysvars;
+    fd_snapin_sysvars_t          sysvars;
   } recovery; /* stores state from the last full snapshot for incremental revert */
 
   blockhash_group_t *        blockhash_groups;
@@ -259,8 +259,8 @@ struct fd_snapin_tile {
   /* Snoop sysvars because snapwr may not have flushed account data yet.
      Match accdb's slot >= precedence, including deletions. */
   fd_snapin_sysvars_t sysvars;
-  ulong              sysvar_idx; /* index + 1 while capturing, otherwise 0 */
-  ulong              sysvar_write_pos;
+  ulong               sysvar_idx; /* index + 1 while capturing, otherwise 0 */
+  ulong               sysvar_write_pos;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -448,13 +448,13 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
     /* Agave restore requires Rent; Firedancer also requires Clock. */
     if( FD_UNLIKELY( (i==FD_SYSVAR_clock_IDX || i==FD_SYSVAR_rent_IDX) &&
-                    !ctx->sysvars.accounts[ i ].present ) ) {
+                     !ctx->sysvars.accounts[ i ].present ) ) {
       FD_LOG_WARNING(( "missing %s sysvar account", fd_sysvar_pos_tbl[ i ].name ));
       return -1;
     }
     if( FD_UNLIKELY( ctx->sysvars.accounts[ i ].present &&
-                    ( !ctx->sysvars.accounts[ i ].owner_valid ||
-                      !(cache->desc[ i ].flags & FD_SYSVAR_FLAG_VALID) ) ) ) {
+                     ( !ctx->sysvars.accounts[ i ].owner_valid ||
+                       !(cache->desc[ i ].flags & FD_SYSVAR_FLAG_VALID) ) ) ) {
       FD_LOG_WARNING(( "invalid %s sysvar account", fd_sysvar_pos_tbl[ i ].name ));
       return -1;
     }
@@ -466,7 +466,7 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
   fd_sysvar_cache_rent_read( cache, &rent );
   ulong threshold = FD_LOAD( ulong, cache->bin_rent+8UL );
   if( FD_UNLIKELY( (threshold==0x3ff0000000000000UL && rent.lamports_per_uint8_year>1759197129867UL) ||
-                  (threshold==0x4000000000000000UL && rent.lamports_per_uint8_year> 879598564933UL) ) ) {
+                   (threshold==0x4000000000000000UL && rent.lamports_per_uint8_year> 879598564933UL) ) ) {
     FD_LOG_WARNING(( "rent sysvar lamports per byte exceed the minimum_balance limit" ));
     return -1;
   }
@@ -474,7 +474,7 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
   /* Firedancer's in-place SlotHashes updater needs the full backing
      account, unlike Agave's deserialize/resize/serialize path. */
   if( FD_UNLIKELY( ctx->sysvars.accounts[ FD_SYSVAR_slot_hashes_IDX ].present &&
-                  ctx->sysvars.accounts[ FD_SYSVAR_slot_hashes_IDX ].data_len<FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) ) {
+                   ctx->sysvars.accounts[ FD_SYSVAR_slot_hashes_IDX ].data_len<FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) ) {
     FD_LOG_WARNING(( "slot hashes sysvar account is too small for updates" ));
     return -1;
   }
