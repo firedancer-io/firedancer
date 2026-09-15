@@ -141,6 +141,11 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, snapshot_root, &vote_b, &node, &stake, &commission ) );
   FD_TEST( fd_pubkey_eq( &node, &node_b ) && stake==200UL && commission==20U );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==200UL );
+  /* Crossing into E+1 must not evict E-1 while an epoch-E fork is
+     live. */
+  ulong next_epoch_child = fd_vote_stakes_new_fork( vote_stakes, snapshot_root, 3UL );
+  FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, snapshot_root, &vote_b, NULL, NULL, NULL ) );
+  fd_vote_stakes_purge_fork( vote_stakes, next_epoch_child );
   fd_vote_stakes_purge_fork( vote_stakes, snapshot_root );
 
   uchar valid_bls[3][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
