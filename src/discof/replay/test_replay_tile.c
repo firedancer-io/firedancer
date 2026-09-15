@@ -1973,6 +1973,91 @@ test_reused_parent_bank_idx_not_leader_bank( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_reused_parent_bank_idx_not_leader_bank" ));
 }
 
+static ulong
+replay_out_sig( fd_replay_tile_t * ctx,
+                ulong              seq );
+
+/* Backfilling an evicted block installs its block id mapping when the
+   slot-complete FEC is inserted, which is before sched runs BLOCK_START
+   and clones the bank from its parent.  A non-forward optimistic
+   confirmation arriving in that window resolves a mapping whose bank
+   holds no runtime state yet: vote_stakes_fork_id is still the
+   ULONG_MAX sentinel, and reading metrics off it indexes the t-1 vote
+   stakes pools at width id 65535, way past the max_fork_width+1
+   allocation.  The confirmation must be skipped until the bank has
+   completed replay, after SLOT_COMPLETED has been ordered ahead of it
+   on the replay output. */
+
+static void
+test_oc_skips_unfrozen_bank( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  static fd_node_info_box_t node_info_box[ 1 ];
+  ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( node_info_box ) );
+  FD_TEST( ctx->node_info );
+
+  fd_hash_t mr_root = { .ul = { 100UL } };
+  init_root_fec( ctx, &mr_root );
+
+  fd_bank_t * root_bank = fd_banks_root( ctx->banks );
+  fd_bank_t * bank      = fd_banks_new_bank( ctx->banks, root_bank->idx, 0L, 0 );
+  FD_TEST( bank );
+  FD_TEST( bank->state==FD_BANK_STATE_INIT );
+  FD_TEST( bank->vote_stakes_fork_id==ULONG_MAX );
+
+  fd_hash_t           block_id = { .ul = { 777UL } };
+  fd_block_id_ele_t * ele      = &ctx->block_id_arr[ bank->idx ];
+  ele->block_id_seen  = 1;
+  ele->slot           = 1UL;
+  ele->bank_seq       = bank->bank_seq;
+  ele->latest_fec_idx = 0U;
+  ele->latest_mr      = block_id;
+  ele->dmr            = block_id;
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, ele, ctx->block_id_arr ) );
+
+  ctx->rpc_enabled = 1;
+
+  fd_tower_slot_confirmed_t msg = {
+    .level    = FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC,
+    .fwd      = 0,
+    .slot     = 1UL,
+    .block_id = block_id
+  };
+
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+  ulong refcnt0 = bank->refcnt;
+
+  process_tower_optimistic_confirmed( ctx, test_stem, &msg );
+
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
+  FD_TEST( bank->refcnt==refcnt0 );
+
+  /* REPLAYABLE is also too early: RPC does not populate its bank
+     metadata until replay publishes SLOT_COMPLETED. */
+
+  bank->vote_stakes_fork_id = root_bank->vote_stakes_fork_id;
+  bank->state               = FD_BANK_STATE_REPLAYABLE;
+
+  process_tower_optimistic_confirmed( ctx, test_stem, &msg );
+
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
+  FD_TEST( bank->refcnt==refcnt0 );
+
+  /* Once the block is frozen the confirmation is published. */
+
+  bank->state = FD_BANK_STATE_FROZEN;
+
+  process_tower_optimistic_confirmed( ctx, test_stem, &msg );
+
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_OC_ADVANCED );
+  FD_TEST( bank->refcnt==refcnt0+1UL );
+
+  FD_LOG_NOTICE(( "pass: test_oc_skips_unfrozen_bank" ));
+}
+
 /* Out-queue misordering on eqvoc + confirm.
 
    Version A of slot 1 is fully replayed.  Then version B FEC 0 arrives
@@ -2878,6 +2963,7 @@ main( int     argc,
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
   test_reused_parent_bank_idx_not_leader_bank( wksp ); fd_wksp_reset( wksp, 42U );
+  test_oc_skips_unfrozen_bank( wksp );              fd_wksp_reset( wksp, 42U );
   test_banks_evict_backfill( wksp );                fd_wksp_reset( wksp, 42U );
   test_backfill_partial_sched_capacity( wksp );     fd_wksp_reset( wksp, 42U );
   test_double_confirm_backfill( wksp );             fd_wksp_reset( wksp, 42U );

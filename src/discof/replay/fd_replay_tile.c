@@ -3999,7 +3999,9 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
   ulong       bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
   fd_bank_t * bank     = fd_banks_bank_query( ctx->banks, bank_idx );
 
-  if( FD_UNLIKELY( !bank || bank->bank_seq!=block_id_ele->bank_seq || bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+  if( FD_UNLIKELY( !bank ||
+                   bank->bank_seq!=block_id_ele->bank_seq ||
+                   bank->state!=FD_BANK_STATE_FROZEN ) ) {
     FD_BASE58_ENCODE_32_BYTES( msg->block_id.key, block_id_cstr );
     FD_LOG_WARNING(( "failed to query optimistically confirmed bank for block id %s", block_id_cstr ));
     return;
