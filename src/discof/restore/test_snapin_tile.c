@@ -576,6 +576,174 @@ test_fail_supersedes_pending_controls( void ) {
 }
 
 static void
+test_sysvar_account( fd_snapin_tile_t * ctx,
+                     ulong              idx,
+                     ulong              slot,
+                     ulong              lamports,
+                     uchar const *      data,
+                     ulong              data_len,
+                     int                streaming ) {
+  fd_ssparse_advance_result_t result[1] = {0};
+  if( streaming ) {
+    result->account_header.pubkey   = fd_sysvar_key_tbl[ idx ].uc;
+    result->account_header.owner    = fd_sysvar_owner_id.uc;
+    result->account_header.slot     = slot;
+    result->account_header.lamports = lamports;
+    result->account_header.data_len = data_len;
+    FD_TEST( !process_account_header( ctx, result ) );
+    if( data_len ) {
+      result->account_data.data    = data;
+      result->account_data.data_sz = 1UL;
+      process_account_data( ctx, result );
+      result->account_data.data    = data+1UL;
+      result->account_data.data_sz = data_len-1UL;
+      process_account_data( ctx, result );
+    }
+  } else {
+    uchar entry[ 136UL+FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ+1UL ] = {0};
+    FD_TEST( data_len<=sizeof(entry)-136UL );
+    FD_STORE( ulong, entry+8UL, data_len );
+    memcpy( entry+16UL, fd_sysvar_key_tbl[ idx ].uc, 32UL );
+    FD_STORE( ulong, entry+48UL, lamports );
+    memcpy( entry+64UL, fd_sysvar_owner_id.uc, 32UL );
+    memcpy( entry+136UL, data, data_len );
+    result->account_batch.batch[0]  = entry;
+    result->account_batch.batch_cnt = 1UL;
+    result->account_batch.slot      = slot;
+    FD_TEST( !process_account_batch( ctx, result ) );
+  }
+}
+
+static void
+test_sysvar_capture( void ) {
+  fd_snapin_tile_t ctx[1];
+  uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ+1UL ] = {0};
+  for( int streaming=0; streaming<2; streaming++ ) {
+    for( ulong idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
+      sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_PROCESSING );
+      ulong data_len = fd_sysvar_pos_tbl[ idx ].data_max;
+      test_sysvar_account( ctx, idx, 10UL, 1UL, data, data_len, streaming );
+      FD_TEST( ctx->sysvars.accounts[ idx ].seen );
+      FD_TEST( ctx->sysvars.accounts[ idx ].present );
+      FD_TEST( ctx->sysvars.accounts[ idx ].owner_valid );
+      FD_TEST( ctx->sysvars.cache.desc[ idx ].flags==FD_SYSVAR_FLAG_VALID );
+      FD_TEST( !ctx->sysvar_idx );
+
+      test_sysvar_account( ctx, idx, 9UL, 0UL, data, 0UL, streaming );
+      FD_TEST( ctx->sysvars.accounts[ idx ].slot==10UL );
+      FD_TEST( ctx->sysvars.cache.desc[ idx ].flags==FD_SYSVAR_FLAG_VALID );
+      test_sysvar_account( ctx, idx, 10UL, 1UL, data, 0UL, streaming );
+      FD_TEST( !ctx->sysvars.cache.desc[ idx ].flags );
+
+      test_sysvar_account( ctx, idx, 11UL, 1UL, data, data_len+1UL, streaming );
+      FD_TEST( ctx->sysvars.accounts[ idx ].data_len==data_len+1UL );
+      FD_TEST( ctx->sysvars.cache.desc[ idx ].data_sz==data_len );
+      FD_TEST( ctx->sysvars.cache.desc[ idx ].flags==FD_SYSVAR_FLAG_VALID );
+      test_sysvar_account( ctx, idx, 12UL, 0UL, data, 0UL, streaming );
+      FD_TEST( !ctx->sysvars.accounts[ idx ].present );
+      FD_TEST( !ctx->sysvars.cache.desc[ idx ].flags );
+      test_sysvar_account( ctx, idx, 11UL, 1UL, data, data_len, streaming );
+      FD_TEST( !ctx->sysvars.accounts[ idx ].present );
+    }
+
+    ulong idx = FD_SYSVAR_slot_history_IDX;
+    test_sysvar_account( ctx, idx, 20UL, 1UL, data, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, streaming );
+    data[0] = 2;
+    test_sysvar_account( ctx, idx, 21UL, 1UL, data, sizeof(data), streaming );
+    FD_TEST( ctx->sysvars.accounts[ idx ].slot==21UL );
+    FD_TEST( !ctx->sysvars.cache.desc[ idx ].flags );
+    data[0] = 0;
+  }
+}
+
+static void
+test_sysvars_init( fd_snapin_tile_t * ctx,
+                   fd_wksp_t *        wksp ) {
+  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_FINISHING );
+  ctx->full      = 1;
+  ctx->bank_slot = 1000UL;
+  FD_TEST( fd_epoch_schedule_derive( &ctx->epoch_schedule, 432000UL, 432000UL, 0 ) );
+
+  void * parser_mem = fd_wksp_alloc_laddr( wksp, fd_slot_delta_parser_align(), fd_slot_delta_parser_footprint(), 1UL );
+  FD_TEST( parser_mem );
+  ctx->slot_delta_parser = fd_slot_delta_parser_join( fd_slot_delta_parser_new( parser_mem ) );
+  fd_slot_delta_parser_init( ctx->slot_delta_parser );
+  uchar deltas[25] = {0};
+  FD_STORE( ulong, deltas, 1UL );
+  FD_STORE( ulong, deltas+8UL, ctx->bank_slot );
+  deltas[16] = 1;
+  for( ulong off=0UL; off<sizeof(deltas); ) {
+    fd_slot_delta_parser_advance_result_t result[1];
+    FD_TEST( fd_slot_delta_parser_consume( ctx->slot_delta_parser, deltas+off, sizeof(deltas)-off, result )>=0 );
+    FD_TEST( result->bytes_consumed );
+    off += result->bytes_consumed;
+  }
+
+  uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
+  for( ulong idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
+    ulong data_len = fd_sysvar_pos_tbl[ idx ].data_max;
+    fd_memset( data, 0, data_len );
+    if( idx==FD_SYSVAR_clock_IDX ) {
+      fd_sol_sysvar_clock_t clock = { .slot=ctx->bank_slot, .leader_schedule_epoch=1UL };
+      memcpy( data, &clock, sizeof(clock) );
+    } else if( idx==FD_SYSVAR_epoch_schedule_IDX ) {
+      memcpy( data, &ctx->epoch_schedule, sizeof(ctx->epoch_schedule) );
+    } else if( idx==FD_SYSVAR_rent_IDX ) {
+      fd_rent_t rent = { .lamports_per_uint8_year=3480UL, .exemption_threshold=2.0, .burn_percent=50 };
+      memcpy( data, &rent, sizeof(rent) );
+    } else if( idx==FD_SYSVAR_slot_history_IDX ) {
+      data[0] = 1;
+      FD_STORE( ulong, data+1UL, FD_SLOT_HISTORY_MAX_ENTRIES/64UL );
+      FD_STORE( ulong, data+9UL+8UL*(ctx->bank_slot/64UL), 1UL<<(ctx->bank_slot%64UL) );
+      FD_STORE( ulong, data+data_len-16UL, FD_SLOT_HISTORY_MAX_ENTRIES );
+      FD_STORE( ulong, data+data_len-8UL, ctx->bank_slot+1UL );
+    }
+    test_sysvar_account( ctx, idx, ctx->bank_slot, 1UL, data, data_len, 0 );
+  }
+  FD_TEST( !verify_sysvars( ctx ) );
+  ctx->recovery.sysvars = ctx->sysvars;
+}
+
+static void
+test_sysvar_validation( fd_wksp_t * wksp ) {
+  fd_snapin_tile_t ctx[1];
+  test_sysvars_init( ctx, wksp );
+  uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
+  for( ulong idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
+    ctx->sysvars = ctx->recovery.sysvars;
+    test_sysvar_account( ctx, idx, ctx->bank_slot, 1UL, data, 0UL, 1 );
+    FD_TEST( verify_sysvars( ctx )==-1 );
+    ctx->sysvars = ctx->recovery.sysvars;
+    ctx->sysvars.accounts[ idx ].owner_valid = 0;
+    FD_TEST( verify_sysvars( ctx )==-1 );
+  }
+
+  ulong const bad_encoding_idx[] = {
+    FD_SYSVAR_epoch_schedule_IDX, FD_SYSVAR_epoch_rewards_IDX, FD_SYSVAR_slot_hashes_IDX,
+    FD_SYSVAR_slot_history_IDX, FD_SYSVAR_stake_history_IDX, FD_SYSVAR_recent_hashes_IDX
+  };
+  for( ulong i=0UL; i<sizeof(bad_encoding_idx)/sizeof(bad_encoding_idx[0]); i++ ) {
+    ulong idx = bad_encoding_idx[i];
+    fd_memset( data, 0xff, fd_sysvar_pos_tbl[ idx ].data_max );
+    ctx->sysvars = ctx->recovery.sysvars;
+    test_sysvar_account( ctx, idx, ctx->bank_slot, 1UL, data, fd_sysvar_pos_tbl[ idx ].data_max, 0 );
+    FD_TEST( verify_sysvars( ctx )==-1 );
+  }
+
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ctx->sysvars = ctx->recovery.sysvars;
+    ctx->state  = FD_SNAPSHOT_STATE_FINISHING;
+    ctx->full   = i!=2UL;
+    test_sysvar_account( ctx, FD_SYSVAR_rent_IDX, ctx->bank_slot, 1UL, data, 0UL, 1 );
+    test_pub_cnt = 0UL;
+    send_control( ctx, 0UL, i ? FD_SNAPSHOT_MSG_CTRL_DONE : FD_SNAPSHOT_MSG_CTRL_NEXT );
+    FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+    FD_TEST( test_pub_cnt==1UL );
+    FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
+  }
+}
+
+static void
 test_initialized_incremental_fail_rolls_back( void ) {
   fd_snapin_tile_t ctx[1];
   uchar init_mem[ 2UL ][ FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
@@ -590,6 +758,10 @@ test_initialized_incremental_fail_rolls_back( void ) {
   test_accdb_purge_cnt      = 0UL;
   test_accdb_revert_cnt     = 0UL;
 
+  fd_rent_t rent = { .lamports_per_uint8_year=3480UL, .exemption_threshold=2.0, .burn_percent=50 };
+  test_sysvar_account( ctx, FD_SYSVAR_rent_IDX, 10UL, 1UL, (uchar const *)&rent, sizeof(rent), 0 );
+  ctx->recovery.sysvars = ctx->sysvars;
+
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
@@ -597,6 +769,9 @@ test_initialized_incremental_fail_rolls_back( void ) {
   FD_TEST( !ctx->full );
   FD_TEST( test_accdb_attach_cnt==1UL );
   FD_TEST( ctx->accdb_incr_fork_id.val==7U );
+  FD_TEST( !memcmp( &ctx->sysvars, &ctx->recovery.sysvars, sizeof(ctx->sysvars) ) );
+  test_sysvar_account( ctx, FD_SYSVAR_rent_IDX, 20UL, 0UL, (uchar const *)&rent, 0UL, 1 );
+  FD_TEST( !ctx->sysvars.accounts[ FD_SYSVAR_rent_IDX ].present );
 
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR );
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL );
@@ -606,6 +781,11 @@ test_initialized_incremental_fail_rolls_back( void ) {
   FD_TEST( !test_accdb_reset_cnt );
   FD_TEST( test_accdb_purge_cnt==1UL );
   FD_TEST( test_accdb_revert_cnt==1UL );
+
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
+  send_control( ctx, 1UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
+  FD_TEST( !memcmp( &ctx->sysvars, &ctx->recovery.sysvars, sizeof(ctx->sysvars) ) );
+  FD_TEST( !ctx->sysvar_idx );
 }
 
 static void
@@ -1565,6 +1745,8 @@ main( int     argc,
   test_error_interrupts_incremental_init();
   test_partial_fail_survives_error();
   test_fail_supersedes_pending_controls();
+  test_sysvar_capture();
+  fd_wksp_reset( wksp, 1UL ); test_sysvar_validation( wksp );
   test_initialized_incremental_fail_rolls_back();
   test_error_fail_and_retry();
   test_frame_ordering();

@@ -12,6 +12,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_cache_private.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 
@@ -130,6 +131,18 @@ struct fd_snapin_out_link {
 };
 typedef struct fd_snapin_out_link fd_snapin_out_link_t;
 
+struct fd_snapin_sysvars {
+  fd_sysvar_cache_t cache;
+  struct {
+    ulong slot;
+    ulong data_len;
+    int   seen;
+    int   present;
+    int   owner_valid;
+  } accounts[ FD_SYSVAR_CACHE_ENTRY_CNT ];
+};
+typedef struct fd_snapin_sysvars fd_snapin_sysvars_t;
+
 struct fd_snapin_tile {
   int  state;
   uint full           : 1;  /* loading a full snapshot? */
@@ -184,6 +197,7 @@ struct fd_snapin_tile {
   struct {
     ulong                        capitalization;
     fd_accdb_snapshot_recovery_t accdb_metadata;
+    fd_snapin_sysvars_t           sysvars;
   } recovery; /* stores state from the last full snapshot for incremental revert */
 
   blockhash_group_t *        blockhash_groups;
@@ -241,27 +255,11 @@ struct fd_snapin_tile {
   ulong gui_config_acct_sz;   /* total expected account data length (0 when not accumulating) */
   ulong gui_config_acct_off;  /* bytes accumulated so far into the current gui_out link chunk */
 
-  /* In-memory copy of the SlotHistory sysvar account, captured by
-     snooping the account stream as the snapshot is loaded.  The accdb
-     read-back path is unsafe at the end of load because the snapwr
-     tile may not have flushed the bytes yet; the snoop path observes
-     the bytes directly.  The captured copy is then used by
-     verify_slot_deltas_with_slot_history.
-
-     Replacement uses the same precedence as fd_accdb_snapshot_write_*:
-     a write with slot >= captured.slot replaces the captured copy.
-     This handles the incremental snapshot superseding the full. */
-  struct {
-    int   captured;
-    int   capturing; /* streaming-path: currently appending data for this account */
-    ulong slot;
-    ulong lamports;
-    ulong data_len;
-    uchar owner[ 32UL ];
-    int   executable;
-    ulong write_pos; /* bytes written into buf during the current streaming capture */
-    uchar buf[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
-  } slot_history;
+  /* Snoop sysvars because snapwr may not have flushed account data yet.
+     Match accdb's slot >= precedence, including deletions. */
+  fd_snapin_sysvars_t sysvars;
+  ulong              sysvar_idx; /* index + 1 while capturing, otherwise 0 */
+  ulong              sysvar_write_pos;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -331,22 +329,19 @@ metrics_write( fd_snapin_tile_t * ctx ) {
 
 static int
 verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->slot_history.captured ) ) {
-    FD_LOG_WARNING(( "SlotHistory sysvar account was not present in the snapshot stream" ));
-    return -1;
-  }
-  if( FD_UNLIKELY( !ctx->slot_history.lamports || !ctx->slot_history.data_len ) ) {
+  fd_sysvar_cache_t const * cache = &ctx->sysvars.cache;
+  if( FD_UNLIKELY( !ctx->sysvars.accounts[ FD_SYSVAR_slot_history_IDX ].present ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account missing or empty" ));
     return -1;
   }
-  if( FD_UNLIKELY( !fd_memeq( ctx->slot_history.owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( ctx->slot_history.owner, owner_b58 );
-    FD_LOG_WARNING(( "SlotHistory sysvar owner is invalid: %s != sysvar_owner_id", owner_b58 ));
+  if( FD_UNLIKELY( !ctx->sysvars.accounts[ FD_SYSVAR_slot_history_IDX ].owner_valid ) ) {
+    FD_LOG_WARNING(( "SlotHistory sysvar owner is invalid" ));
     return -1;
   }
 
   fd_slot_history_view_t view[1];
-  if( FD_UNLIKELY( !fd_sysvar_slot_history_view( view, ctx->slot_history.buf, ctx->slot_history.data_len ) ) ) {
+  if( FD_UNLIKELY( !(cache->desc[ FD_SYSVAR_slot_history_IDX ].flags & FD_SYSVAR_FLAG_VALID) ||
+                   !fd_sysvar_slot_history_view( view, cache->bin_slot_history, cache->desc[ FD_SYSVAR_slot_history_IDX ].data_sz ) ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account data is corrupt" ));
     return -1;
   }
@@ -355,7 +350,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
      https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L586 */
 
   ulong newest_slot = view->next_slot - 1UL;
-  if( FD_UNLIKELY( newest_slot!=ctx->bank_slot ) ) {
+  if( FD_UNLIKELY( !view->next_slot || newest_slot!=ctx->bank_slot ) ) {
     /* VerifySlotHistoryError::InvalidNewestSlot
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L621 */
     FD_LOG_WARNING(( "SlotHistory sysvar has an invalid newest slot: %lu != bank slot: %lu", newest_slot, ctx->bank_slot ));
@@ -444,6 +439,20 @@ verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
   }
 
   return 0;
+}
+
+static int
+verify_sysvars( fd_snapin_tile_t * ctx ) {
+  fd_sysvar_cache_t const * cache = &ctx->sysvars.cache;
+  for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
+    if( FD_UNLIKELY( ctx->sysvars.accounts[ i ].present &&
+                    ( !ctx->sysvars.accounts[ i ].owner_valid ||
+                      !(cache->desc[ i ].flags & FD_SYSVAR_FLAG_VALID) ) ) ) {
+      FD_LOG_WARNING(( "invalid %s sysvar account", fd_sysvar_pos_tbl[ i ].name ));
+      return -1;
+    }
+  }
+  return verify_slot_deltas_with_slot_history( ctx );
 }
 
 static int
@@ -1080,6 +1089,48 @@ snoop_stake_delegation( fd_snapin_tile_t *  ctx,
       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 }
 
+static ulong
+snoop_sysvar_header( fd_snapin_tile_t * ctx,
+                     uchar const *      pubkey,
+                     ulong              slot,
+                     ulong              lamports,
+                     ulong              data_len,
+                     uchar const *      owner ) {
+  fd_pubkey_t key = FD_LOAD( fd_pubkey_t, pubkey );
+  sysvar_tbl_t const * entry = sysvar_map_query( &key, NULL );
+  if( FD_LIKELY( !entry ) ) return 0;
+  ulong idx = entry->desc_idx;
+  fd_snapin_sysvars_t * sysvars = &ctx->sysvars;
+  if( sysvars->accounts[ idx ].seen && slot<sysvars->accounts[ idx ].slot ) return 0;
+
+  sysvars->accounts[ idx ].seen        = 1;
+  sysvars->accounts[ idx ].slot        = slot;
+  sysvars->accounts[ idx ].data_len    = data_len;
+  sysvars->accounts[ idx ].present     = !!lamports;
+  sysvars->accounts[ idx ].owner_valid = !memcmp( owner, fd_sysvar_owner_id.uc, 32UL );
+  sysvars->cache.desc[ idx ].flags     = 0U;
+  sysvars->cache.desc[ idx ].data_sz   = (uint)fd_ulong_min( data_len, fd_sysvar_pos_tbl[ idx ].data_max );
+  return lamports && data_len ? idx+1UL : 0UL;
+}
+
+static void
+snoop_sysvar_data( fd_snapin_tile_t * ctx,
+                   uchar const *      data,
+                   ulong              data_sz ) {
+  if( FD_LIKELY( !ctx->sysvar_idx ) ) return;
+  ulong idx = ctx->sysvar_idx-1UL;
+  fd_sysvar_pos_t const * pos  = &fd_sysvar_pos_tbl[ idx ];
+  fd_sysvar_desc_t *      desc = &ctx->sysvars.cache.desc[ idx ];
+  uchar * buf = (uchar *)&ctx->sysvars.cache + pos->data_off;
+  ulong copy_sz = fd_ulong_min( data_sz, desc->data_sz-ctx->sysvar_write_pos );
+  memcpy( buf+ctx->sysvar_write_pos, data, copy_sz );
+  ctx->sysvar_write_pos += copy_sz;
+  if( ctx->sysvar_write_pos==desc->data_sz ) {
+    desc->flags = pos->validate( buf, desc->data_sz ) ? FD_SYSVAR_FLAG_VALID : 0U;
+    ctx->sysvar_idx = 0UL;
+  }
+}
+
 static int
 process_account_batch( fd_snapin_tile_t *            ctx,
                        fd_ssparse_advance_result_t * result ) {
@@ -1101,19 +1152,9 @@ process_account_batch( fd_snapin_tile_t *            ctx,
     data_lens[ i ]   = fd_ulong_load_8_fast( e+8UL );
     executables[ i ] = e[ 96UL ];
 
-    /* Snoop SlotHistory sysvar.  Account body in the batch path is
-       contiguous starting at e+136. */
-    if( FD_UNLIKELY( !memcmp( pubkeys[ i ], fd_sysvar_slot_history_id.uc, 32UL ) ) &&
-        ( !ctx->slot_history.captured || batch_slot>=ctx->slot_history.slot ) &&
-        data_lens[ i ]<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) {
-      ctx->slot_history.slot       = batch_slot;
-      ctx->slot_history.lamports   = lamports[ i ];
-      ctx->slot_history.data_len   = data_lens[ i ];
-      ctx->slot_history.executable = executables[ i ];
-      memcpy( ctx->slot_history.owner, e+64UL, 32UL );
-      memcpy( ctx->slot_history.buf, e+136UL, data_lens[ i ] );
-      ctx->slot_history.captured   = 1;
-    }
+    ctx->sysvar_idx = snoop_sysvar_header( ctx, pubkeys[ i ], batch_slot, lamports[ i ], data_lens[ i ], e+64UL );
+    ctx->sysvar_write_pos = 0UL;
+    snoop_sysvar_data( ctx, e+136UL, data_lens[ i ] );
 
     if( FD_UNLIKELY( lamports[ i ] &&
                      !memcmp( e+64UL, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
@@ -1174,20 +1215,10 @@ process_account_header( fd_snapin_tile_t * ctx,
     ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, result->account_header.lamports );
   }
 
-  /* Snoop SlotHistory sysvar.  Streaming path: arm the capture window
-     here; process_account_data appends bytes while armed. */
-  ctx->slot_history.capturing = 0;
-  if( FD_UNLIKELY( !memcmp( result->account_header.pubkey, fd_sysvar_slot_history_id.uc, 32UL ) ) &&
-      ( !ctx->slot_history.captured || result->account_header.slot>=ctx->slot_history.slot ) &&
-      result->account_header.data_len<=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) {
-    ctx->slot_history.slot       = result->account_header.slot;
-    ctx->slot_history.lamports   = result->account_header.lamports;
-    ctx->slot_history.data_len   = result->account_header.data_len;
-    ctx->slot_history.executable = result->account_header.executable;
-    memcpy( ctx->slot_history.owner, result->account_header.owner, 32UL );
-    ctx->slot_history.write_pos  = 0UL;
-    ctx->slot_history.capturing  = 1;
-  }
+  ctx->sysvar_idx = snoop_sysvar_header( ctx, result->account_header.pubkey, result->account_header.slot,
+                                       result->account_header.lamports, result->account_header.data_len,
+                                       result->account_header.owner );
+  ctx->sysvar_write_pos = 0UL;
   ctx->stake_reasm.capturing = 0;
   if( FD_UNLIKELY( account!=-1 &&
                    result->account_header.lamports &&
@@ -1206,16 +1237,7 @@ process_account_header( fd_snapin_tile_t * ctx,
 static void
 process_account_data( fd_snapin_tile_t *            ctx,
                       fd_ssparse_advance_result_t * result ) {
-  if( FD_UNLIKELY( ctx->slot_history.capturing ) ) {
-    ulong remaining = ctx->slot_history.data_len - ctx->slot_history.write_pos;
-    ulong copy_sz   = fd_ulong_min( result->account_data.data_sz, remaining );
-    memcpy( ctx->slot_history.buf + ctx->slot_history.write_pos, result->account_data.data, copy_sz );
-    ctx->slot_history.write_pos += copy_sz;
-    if( ctx->slot_history.write_pos==ctx->slot_history.data_len ) {
-      ctx->slot_history.captured  = 1;
-      ctx->slot_history.capturing = 0;
-    }
-  }
+  snoop_sysvar_data( ctx, result->account_data.data, result->account_data.data_sz );
 
   if( FD_UNLIKELY( ctx->stake_reasm.capturing ) ) {
     ulong remaining = sizeof(ctx->stake_reasm.buf) - ctx->stake_reasm.write_pos;
@@ -1471,6 +1493,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
+      ctx->sysvar_idx = 0UL;
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
@@ -1491,8 +1514,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
         fd_accdb_snapshot_load_begin( ctx->accdb );
 
-        ctx->slot_history.captured  = 0;
-        ctx->slot_history.capturing = 0;
+        fd_memset( &ctx->sysvars, 0, sizeof(ctx->sysvars) );
         ctx->stake_reasm.capturing  = 0;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
@@ -1503,9 +1525,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->capitalization     = ctx->recovery.capitalization;
         ctx->dup_capitalization = 0UL;
 
-        /* Discard stale capture so the retry's sysvar is snooped fresh */
-        ctx->slot_history.captured  = 0;
-        ctx->slot_history.capturing = 0;
+        ctx->sysvars = ctx->recovery.sysvars;
         ctx->stake_reasm.capturing  = 0;
 
         /* Create a child fork for incremental writes.  On failure,
@@ -1560,8 +1580,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-        FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+      if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
@@ -1575,6 +1594,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       ctx->recovery.capitalization = ctx->capitalization;
+      ctx->recovery.sysvars = ctx->sysvars;
       fd_accdb_snapshot_save_whead( ctx->accdb, &ctx->recovery.accdb_metadata );
 
       /* Backup metric counters */
@@ -1589,9 +1609,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-        if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
-        else            FD_LOG_WARNING(( "slot deltas verification failed for incremental snapshot" ));
+      if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
