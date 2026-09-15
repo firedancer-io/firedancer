@@ -62,12 +62,6 @@ https://github.com/h2o/picohttpparser (`src/third_party/picohttpparser`)
 
 HTTP/1.1 parser. Written in C.
 
-### cJSON
-
-https://github.com/DaveGamble/cJSON (`src/third_party/cjson`)
-
-JSON encoding library. Written in C.
-
 ### Fiat-Crypto
 
 https://github.com/mit-plv/fiat-crypto (`src/third_party/fiat-crypto`)

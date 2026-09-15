@@ -16,11 +16,6 @@ import cpp
 import filter
 import fd_memcpy
 
-predicate ignoredLocation(Location l) {
-  // we don't want to change vendored code if not really necessary
-  l.getFile().getBaseName() = "cJSON.c"
-}
-
 /**
  * The pointer types that are in scope for this query.
  * We exclude pointer to array types, as they are not directly assignable.
@@ -44,7 +39,6 @@ from FunctionCall call, MemcpyFunction memcpy, InScopeType t
 where
   included(call.getLocation()) and
   not call.isInMacroExpansion() and
-  not ignoredLocation(call.getLocation()) and
   call.getTarget() = memcpy and
   t = call.getArgument(0).getUnspecifiedType() and
   t = call.getArgument(1).getUnspecifiedType() and
