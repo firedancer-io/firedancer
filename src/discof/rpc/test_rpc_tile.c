@@ -971,13 +971,31 @@ main( int     argc,
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,4]}", res_buf );
 
     /* Floating-point tokens are not valid u64 values, even when their
-       values are integral. */
+       values are integral.  Echoed values are reprinted in serde's
+       style, not as they appeared in the request. */
     expect_rpc_response( ctx,
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1.0,0]}",
         "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1.0`, expected u64.\"},\"id\":1}" );
     expect_rpc_response( ctx,
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1e0,0]}",
-        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1e0`, expected u64.\"},\"id\":1}" );
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1.0`, expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1E16,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1e+16`, expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0.00001,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `0.00001`, expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[2.5e-10,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `2.5e-10`, expected u64.\"},\"id\":1}" );
+    /* Integer literals that overflow a u64 are floats to serde */
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[18446744073709551616,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1.8446744073709552e+19`, expected u64.\"},\"id\":1}" );
+    /* Literals that are not a finite double are echoed verbatim */
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1e999,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1e999`, expected u64.\"},\"id\":1}" );
 
     /* limit == 0 -> empty array, no error */
     expect_rpc_response( ctx,

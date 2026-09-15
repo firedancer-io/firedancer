@@ -28,6 +28,7 @@
 #include "../../waltz/http/fd_url.h"
 
 #include <stddef.h>
+#include <math.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <string.h>
@@ -1160,10 +1161,87 @@ fd_rpc_print_str( fd_rpc_tile_t *       ctx,
   if( span<p ) fd_http_server_memcpy( ctx->http, (uchar const *)span, (ulong)(p-span) );
 }
 
+/* fd_rpc_print_float appends a floating point number to the response in
+   the style Rust uses when serde echoes one: the shortest decimal that
+   round-trips, written in plain notation (with at least one fractional
+   digit) if the decimal exponent is in [-5,15] and in scientific
+   notation (with an explicit sign on positive exponents) otherwise.
+   Literals that are not a finite double (e.g. 1e999) are echoed as they
+   appeared in the request. */
+
+static void
+fd_rpc_print_float( fd_rpc_tile_t *      ctx,
+                    fd_rpc_val_t const * v ) {
+  char lit[ FD_JTOK_NUM_SZ_MAX+1UL ];
+  double d = 0.0;
+  if( FD_LIKELY( v->raw_sz<sizeof(lit) ) ) {
+    fd_memcpy( lit, v->raw, v->raw_sz );
+    lit[ v->raw_sz ] = '\0';
+    d = fd_cstr_to_double( lit );
+  }
+  if( FD_UNLIKELY( v->raw_sz>=sizeof(lit) || !isfinite( d ) ) ) {
+    fd_http_server_printf( ctx->http, "%.*s", (int)v->raw_sz, v->raw );
+    return;
+  }
+
+  /* %.*e rounds to the requested number of significant digits, so the
+     first precision that round-trips is the shortest representation. */
+
+  char sci[ 32 ];
+  for( int prec=0; prec<17; prec++ ) {
+    if( FD_UNLIKELY( !fd_cstr_printf_check( sci, sizeof(sci), NULL, "%.*e", prec, d ) ) ) {
+      fd_http_server_printf( ctx->http, "%.*s", (int)v->raw_sz, v->raw );
+      return;
+    }
+    if( fd_cstr_to_double( sci )==d ) break;
+  }
+
+  char const * p   = sci;
+  int          neg = p[0]=='-';
+  if( neg ) p++;
+  char  digits[ 32 ];
+  ulong digit_cnt = 0UL;
+  for( ; p[0] && p[0]!='e'; p++ ) if( p[0]!='.' ) digits[ digit_cnt++ ] = p[0];
+  digits[ digit_cnt ] = '\0';
+  p++; /* skip 'e' */
+  int exp_neg = p[0]=='-';
+  if( p[0]=='-' || p[0]=='+' ) p++;
+  int exp = 0;
+  for( ; p[0]>='0' && p[0]<='9'; p++ ) exp = exp*10 + ( p[0]-'0' ); /* %e caps the exponent at 3 digits */
+  if( exp_neg ) exp = -exp;
+
+  char   out[ 64 ];
+  char * o = fd_cstr_init( out );
+  if( neg ) o = fd_cstr_append_char( o, '-' );
+  if( exp>=-5 && exp<=15 ) {
+    if( exp>=0 ) {
+      ulong int_cnt = (ulong)exp+1UL;
+      for( ulong i=0UL; i<int_cnt; i++ ) o = fd_cstr_append_char( o, i<digit_cnt ? digits[ i ] : '0' );
+      o = fd_cstr_append_char( o, '.' );
+      o = fd_cstr_append_cstr( o, digit_cnt>int_cnt ? digits+int_cnt : "0" );
+    } else {
+      o = fd_cstr_append_cstr( o, "0." );
+      for( int i=0; i<(-exp)-1; i++ ) o = fd_cstr_append_char( o, '0' );
+      o = fd_cstr_append_cstr( o, digits );
+    }
+  } else {
+    o = fd_cstr_append_char( o, digits[ 0 ] );
+    if( digit_cnt>1UL ) {
+      o = fd_cstr_append_char( o, '.' );
+      o = fd_cstr_append_cstr( o, digits+1UL );
+    }
+    o = fd_cstr_append_printf( o, "e%s%i", exp<0 ? "" : "+", exp );
+  }
+  fd_cstr_fini( o );
+
+  fd_http_server_printf( ctx->http, "%s", out );
+}
+
 /* fd_rpc_err_invalid emits an "invalid type" / "invalid value" error
    for v in the style of serde.  Scalars are echoed as they appeared in
-   the request.  what is "type" or "value", expected is the name of the
-   expected type. */
+   the request, except for floating point numbers which serde reprints
+   from the parsed value.  what is "type" or "value", expected is the
+   name of the expected type. */
 
 static fd_http_server_response_t
 fd_rpc_err_invalid( fd_rpc_tile_t *      ctx,
@@ -1179,9 +1257,13 @@ fd_rpc_err_invalid( fd_rpc_tile_t *      ctx,
     fd_http_server_printf( ctx->http, "\\\"" );
     break;
   case FD_RPC_VAL_BOOL:
-  case FD_RPC_VAL_FLOAT:
   case FD_RPC_VAL_INT:
     fd_http_server_printf( ctx->http, " `%.*s`", (int)v->raw_sz, v->raw );
+    break;
+  case FD_RPC_VAL_FLOAT:
+    fd_http_server_printf( ctx->http, " `" );
+    fd_rpc_print_float( ctx, v );
+    fd_http_server_printf( ctx->http, "`" );
     break;
   default:
     break;
