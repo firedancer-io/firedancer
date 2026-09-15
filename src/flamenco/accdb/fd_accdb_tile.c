@@ -8,8 +8,12 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../tango/fseq/fd_fseq.h"
+#include "../../util/pod/fd_pod.h"
 
 #include "fd_accdb.h"
+#include "../progcache/fd_progcache.h"
+#include "../progcache/fd_progcache_clock.h"
+#include "../progcache/fd_progcache_user.h"
 
 #include <fcntl.h>
 
@@ -21,6 +25,10 @@
 
 struct fd_accdb_tile_ctx {
   fd_accdb_t * accdb;
+
+  int                    progcache_enabled;
+  fd_progcache_join_t    progcache[1];
+  fd_progcache_metrics_t progcache_metrics[1];
 
   fd_startup_gate_t startup_gate[1];
 
@@ -80,6 +88,10 @@ metrics_write( fd_accdb_tile_ctx_t * ctx ) {
   fd_accdb_cache_class_thresholds( ctx->accdb, cache_target_used, cache_lwm_used );
   FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_TARGET_USED,    cache_target_used );
   FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_LOW_WATER_USED, cache_lwm_used    );
+
+  FD_MCNT_SET( ACCDB, PROGCACHE_EVICTION,       ctx->progcache_metrics->evict_cnt    );
+  FD_MCNT_SET( ACCDB, PROGCACHE_EVICTION_BYTES, ctx->progcache_metrics->evict_tot_sz );
+  FD_MCNT_ENUM_COPY( ACCDB, PROGCACHE_CLASS_EVICTION, ctx->progcache_metrics->evict_per_class );
 }
 
 static inline void
@@ -90,6 +102,7 @@ before_credit( fd_accdb_tile_ctx_t * ctx,
      never be delayed by the boot gate; the gate only idles the spin
      while there is no work. */
   fd_accdb_background( ctx->accdb, charge_busy );
+  if( FD_LIKELY( ctx->progcache_enabled ) ) fd_progcache_housekeeping( ctx->progcache, ctx->progcache_metrics );
   if( FD_LIKELY( *charge_busy ) ) fd_startup_gate_busy( ctx->startup_gate );
   else                            fd_startup_gate_idle( ctx->startup_gate );
 }
@@ -152,6 +165,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots ) );
   FD_TEST( ctx->accdb );
+
+  ulong progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX );
+  ctx->progcache_enabled = ( progcache_obj_id!=ULONG_MAX );
+  if( FD_LIKELY( ctx->progcache_enabled ) ) FD_TEST( fd_progcache_shmem_join( ctx->progcache, fd_topo_obj_laddr( topo, progcache_obj_id ) ) );
+  memset( ctx->progcache_metrics, 0, sizeof(ctx->progcache_metrics) );
 
   fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 

@@ -38,7 +38,6 @@
 #include "../../../discof/repair/fd_repair_tile.h"
 #include "../../../flamenco/capture/fd_capture_ctx.h"
 #include "../../../disco/pack/fd_pack_cost.h"
-#include "../../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
 
 #include <errno.h>
@@ -117,12 +116,11 @@ backtest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "progcache" );
   setup_topo_progcache( topo, "progcache",
-      fd_progcache_est_rec_max( config->firedancer.runtime.program_cache.heap_size_mib<<20,
-                                config->firedancer.runtime.program_cache.mean_cache_entry_size ),
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.runtime.program_cache.heap_size_mib<<20 );
+      config->firedancer.runtime.program_cache_size_mib<<20 );
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ) )!=ULONG_MAX );
   fd_topob_tile_uses( topo, replay_tile, &topo->objs[ progcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, accdb_tile,  &topo->objs[ progcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topob_wksp( topo, "accdb_data" );
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",

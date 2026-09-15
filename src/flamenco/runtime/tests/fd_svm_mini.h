@@ -77,10 +77,6 @@ struct fd_svm_mini_limits {
      must set this to at least 2. */
   ulong accdb_joiner_cnt;
 
-  /* progcache */
-  ulong max_progcache_recs;
-  ulong max_progcache_heap_bytes;
-
   /* txn executor */
   ulong max_txn_write_locks;
   ulong max_txn_per_slot;
@@ -169,8 +165,6 @@ fd_svm_mini_limits_default( fd_svm_mini_limits_t * limits ) {
     .max_fallback_stake_accounts = 4096UL,
     .max_accounts             = 128UL,
     .max_account_space_bytes  = 32UL<<20,
-    .max_progcache_recs       = 256UL,
-    .max_progcache_heap_bytes = 65536UL,
     .max_txn_write_locks      = 0UL,
     .max_txn_per_slot         = 128UL
   };

@@ -13,6 +13,8 @@ typedef struct fd_progcache_join fd_progcache_join_t;
 
 typedef struct fd_progcache_rec fd_progcache_rec_t;
 
+typedef struct fd_progcache_metrics fd_progcache_metrics_t;
+
 typedef struct fd_progcache_txn fd_progcache_txn_t;
 
 #define FD_PROGCACHE_DEPTH_MAX (8192UL)
