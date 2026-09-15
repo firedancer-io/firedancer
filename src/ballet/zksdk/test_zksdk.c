@@ -7,20 +7,90 @@
 #include "../ed25519/fd_curve25519_scalar.h"
 
 #include "instructions/test_fd_zksdk_pubkey_validity.h"
+#include "instructions/test_fd_zksdk_bench_vectors.h"
 
-// turn on/off benches
-#define BENCH 0
-
-#if BENCH
 static void
 log_bench( char const * descr,
            ulong        iter,
            long         dt ) {
   float khz = 1e6f *(float)iter/(float)dt;
   float tau = (float)dt /(float)iter;
-  FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
+  FD_LOG_NOTICE(( "%-47s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
 }
-#endif
+
+typedef int
+(*zksdk_verify_fn_t)( void const * context, void const * proof );
+
+struct zksdk_bench_case {
+  char const *       descr;
+  uchar              instr;
+  uchar const *      data;
+  ulong              data_sz;
+  ulong              iter;
+  zksdk_verify_fn_t  verify;
+};
+typedef struct zksdk_bench_case zksdk_bench_case_t;
+
+static void
+bench_zksdk_instrs( void ) {
+  zksdk_bench_case_t cases[] = {
+    { "pubkey_validity", FD_ZKSDK_INSTR_VERIFY_PUBKEY_VALIDITY,
+      bench_pubkey_validity, sizeof(bench_pubkey_validity), 1000UL,
+      fd_zksdk_instr_verify_proof_pubkey_validity },
+    { "zero_ciphertext", FD_ZKSDK_INSTR_VERIFY_ZERO_CIPHERTEXT,
+      bench_zero_ciphertext, sizeof(bench_zero_ciphertext), 1000UL,
+      fd_zksdk_instr_verify_proof_zero_ciphertext },
+    { "ciphertext_ciphertext_equality", FD_ZKSDK_INSTR_VERIFY_CIPHERTEXT_CIPHERTEXT_EQUALITY,
+      bench_ciphertext_ciphertext_equality, sizeof(bench_ciphertext_ciphertext_equality), 1000UL,
+      fd_zksdk_instr_verify_proof_ciphertext_ciphertext_equality },
+    { "ciphertext_commitment_equality", FD_ZKSDK_INSTR_VERIFY_CIPHERTEXT_COMMITMENT_EQUALITY,
+      bench_ciphertext_commitment_equality, sizeof(bench_ciphertext_commitment_equality), 1000UL,
+      fd_zksdk_instr_verify_proof_ciphertext_commitment_equality },
+    { "percentage_with_cap", FD_ZKSDK_INSTR_VERIFY_PERCENTAGE_WITH_CAP,
+      bench_percentage_with_cap, sizeof(bench_percentage_with_cap), 1000UL,
+      fd_zksdk_instr_verify_proof_percentage_with_cap },
+    { "grouped_ciphertext_2_handles_validity", FD_ZKSDK_INSTR_VERIFY_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY,
+      bench_grouped_ciphertext_2_handles_validity, sizeof(bench_grouped_ciphertext_2_handles_validity), 1000UL,
+      fd_zksdk_instr_verify_proof_grouped_ciphertext_2_handles_validity },
+    { "batched_grouped_ciphertext_2_handles_validity", FD_ZKSDK_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY,
+      bench_batched_grouped_ciphertext_2_handles_validity, sizeof(bench_batched_grouped_ciphertext_2_handles_validity), 1000UL,
+      fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_2_handles_validity },
+    { "grouped_ciphertext_3_handles_validity", FD_ZKSDK_INSTR_VERIFY_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY,
+      bench_grouped_ciphertext_3_handles_validity, sizeof(bench_grouped_ciphertext_3_handles_validity), 1000UL,
+      fd_zksdk_instr_verify_proof_grouped_ciphertext_3_handles_validity },
+    { "batched_grouped_ciphertext_3_handles_validity", FD_ZKSDK_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY,
+      bench_batched_grouped_ciphertext_3_handles_validity, sizeof(bench_batched_grouped_ciphertext_3_handles_validity), 1000UL,
+      fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_3_handles_validity },
+    { "batched_range_proof_u64", FD_ZKSDK_INSTR_VERIFY_BATCHED_RANGE_PROOF_U64,
+      bench_batched_range_proof_u64, sizeof(bench_batched_range_proof_u64), 100UL,
+      fd_zksdk_instr_verify_proof_batched_range_proof_u64 },
+    { "batched_range_proof_u128", FD_ZKSDK_INSTR_VERIFY_BATCHED_RANGE_PROOF_U128,
+      bench_batched_range_proof_u128, sizeof(bench_batched_range_proof_u128), 100UL,
+      fd_zksdk_instr_verify_proof_batched_range_proof_u128 },
+    { "batched_range_proof_u256", FD_ZKSDK_INSTR_VERIFY_BATCHED_RANGE_PROOF_U256,
+      bench_batched_range_proof_u256, sizeof(bench_batched_range_proof_u256), 100UL,
+      fd_zksdk_instr_verify_proof_batched_range_proof_u256 },
+  };
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    zksdk_bench_case_t const * c = &cases[i];
+    ulong context_sz = fd_zksdk_context_sz[ c->instr ];
+    ulong proof_sz   = fd_zksdk_proof_sz  [ c->instr ];
+    FD_TEST( c->data_sz==context_sz+proof_sz );
+
+    uchar const * context = c->data;
+    uchar const * proof   = c->data + context_sz;
+    FD_TEST( c->verify( context, proof )==FD_ZKSDK_VERIFY_PROOF_SUCCESS );
+
+    long dt = fd_log_wallclock();
+    for( ulong rem=c->iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( proof ); FD_COMPILER_FORGET( context );
+      c->verify( context, proof );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( c->descr, c->iter, dt );
+  }
+}
 
 /* Regression test for the audit finding: when pubkey2 is the identity point
    (all-zero compressed), handle2 must still be included in the MSM.
@@ -142,17 +212,6 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
   proof[1 + context_sz] ^= 0xff;
 
   FD_LOG_NOTICE(( "test_pubkey_validity... ok" ));
-  /* Benchmarks */
-#if BENCH
-  ulong iter = 10000UL;
-  long dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) {
-    FD_COMPILER_FORGET( proof ); FD_COMPILER_FORGET( context );
-    fd_zksdk_instr_verify_proof_pubkey_validity( context, proof );
-  }
-  dt = fd_log_wallclock() - dt;
-  log_bench( "fd_zksdk_instr_verify_proof_pubkey_validity", iter, dt );
-#endif
 }
 
 int
@@ -163,6 +222,7 @@ main( int     argc,
 
   test_pubkey_validity( rng );
   test_grp_ciph_2h_validity_pubkey2_zero();
+  bench_zksdk_instrs();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );
