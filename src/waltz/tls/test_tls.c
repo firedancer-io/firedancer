@@ -34,7 +34,7 @@ test_client_hello_decode( void ) {
       .host_name_len = 7
     },
     .supported_groups = { .x25519 = 1 },
-    .signature_algorithms = { .ed25519 = 1, .ecdsa_secp256r1_sha256 = 1 },
+    .signature_algorithms = { .ed25519 = 1, .ecdsa_secp256r1_sha256 = 1, .ecdsa_secp384r1_sha384 = 1 },
     .key_share = {
       .has_x25519 = 1,
       .x25519 = {
@@ -647,6 +647,10 @@ test_tls_client_hello_sigalgs( fd_rng_t * rng ) {
 
     FD_TEST( ch.signature_algorithms.ed25519 );
     FD_TEST( ch.signature_algorithms.ecdsa_secp256r1_sha256 == !quic );
+    FD_TEST( !ch.signature_algorithms.ecdsa_secp384r1_sha384 );
+    FD_TEST( ch.signature_algorithms_cert.ed25519 == !quic );
+    FD_TEST( ch.signature_algorithms_cert.ecdsa_secp256r1_sha256 == !quic );
+    FD_TEST( ch.signature_algorithms_cert.ecdsa_secp384r1_sha384 == !quic );
     FD_TEST( ch.cipher_suites.aes_128_gcm_sha256 );
 
     test_record_reset( &test_client_out );

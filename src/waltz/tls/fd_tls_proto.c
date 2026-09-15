@@ -125,6 +125,9 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     case FD_TLS_EXT_SIGNATURE_ALGORITHMS:
       ext_parse_res = fd_tls_decode_ext_signature_algorithms( &out->signature_algorithms, ext_data, ext_sz );
       break;
+    case FD_TLS_EXT_SIGNATURE_ALGORITHMS_CERT:
+      ext_parse_res = fd_tls_decode_ext_signature_algorithms( &out->signature_algorithms_cert, ext_data, ext_sz );
+      break;
     case FD_TLS_EXT_KEY_SHARE:
       ext_parse_res = fd_tls_decode_key_share_list( &out->key_share, ext_data, ext_sz );
       break;
@@ -252,6 +255,26 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
     FIELD(17,  ext_sigalg,                        ushort, ext_sigalg_cnt )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
+
+  if( in->signature_algorithms_cert.ed25519 ||
+      in->signature_algorithms_cert.ecdsa_secp256r1_sha256 ||
+      in->signature_algorithms_cert.ecdsa_secp384r1_sha384 ) {
+    ushort schemes[3];
+    ulong  cnt = 0UL;
+    if( in->signature_algorithms_cert.ecdsa_secp256r1_sha256 ) schemes[cnt++] = FD_TLS_SIGNATURE_ECDSA_SECP256R1_SHA256;
+    if( in->signature_algorithms_cert.ecdsa_secp384r1_sha384 ) schemes[cnt++] = FD_TLS_SIGNATURE_ECDSA_SECP384R1_SHA384;
+    if( in->signature_algorithms_cert.ed25519                ) schemes[cnt++] = FD_TLS_SIGNATURE_ED25519;
+    ushort type    = FD_TLS_EXT_SIGNATURE_ALGORITHMS_CERT;
+    ushort list_sz = (ushort)(2UL*cnt);
+    ushort ext_sz  = (ushort)(list_sz+2U);
+#   define FIELDS( FIELD )                     \
+      FIELD( 0, &type,    ushort, 1   )        \
+      FIELD( 1, &ext_sz,  ushort, 1   )        \
+      FIELD( 2, &list_sz, ushort, 1   )        \
+      FIELD( 3, schemes,  ushort, cnt )
+      FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+#   undef FIELDS
+  }
 
   /* Add Server Name Indication (SNI) */
 
@@ -803,6 +826,8 @@ fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
 
   ulong wire_laddr = (ulong)wire;
 
+  if( FD_UNLIKELY( wire_sz<2UL || !FD_LOAD( ushort, wire ) ) )
+    return -FD_TLS_ALERT_DECODE_ERROR;
   FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(ushort) ) {
     ushort group;
     FD_TLS_DECODE_FIELD( &group, ushort );
@@ -812,6 +837,9 @@ fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
       break;
     case FD_TLS_SIGNATURE_ECDSA_SECP256R1_SHA256:
       out->ecdsa_secp256r1_sha256 = 1;
+      break;
+    case FD_TLS_SIGNATURE_ECDSA_SECP384R1_SHA384:
+      out->ecdsa_secp384r1_sha384 = 1;
       break;
     default:
       /* Ignore unsupported signature algorithms ... */
