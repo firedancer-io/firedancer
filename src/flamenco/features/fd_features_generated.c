@@ -2019,6 +2019,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "relax_fee_payer_constraint",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, raise_cpi_nesting_limit_to_8)>>3,
+    .id                        = {"\x51\x24\x7b\x81\x07\x76\x71\x7b\x32\x7a\x3a\x39\x52\x3b\x55\x90\x79\x36\x50\x59\x4c\xfb\xa8\x52\x5a\x52\xe7\xb5\x3c\x80\x92\x8a"},
+                                 /* 6TkHkRmP7JZy1fdM6fg5uXn76wChQBWGokHBJzrLB3mj */
+    .name                      = "raise_cpi_nesting_limit_to_8",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2330,6 +2336,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_292 0x3d030a2e7e893d06UL, .val = &ids[292]
 #define MAP_PERFECT_293 0xb2513619e40fef85UL, .val = &ids[293]
 #define MAP_PERFECT_294 0x1e7f253e967667d3UL, .val = &ids[294]
+#define MAP_PERFECT_295 0x7b717607817b2451UL, .val = &ids[295]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2635,4 +2642,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, double_disinflation_rate             
 FD_STATIC_ASSERT( offsetof( fd_features_t, remove_inactive_stakes                                  )>>3==292UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, alpenglow                                               )>>3==293UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, relax_fee_payer_constraint                              )>>3==294UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_cpi_nesting_limit_to_8                            )>>3==295UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

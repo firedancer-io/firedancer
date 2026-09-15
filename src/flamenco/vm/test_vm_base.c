@@ -53,8 +53,6 @@ FD_STATIC_ASSERT( FD_VM_COMPUTE_UNIT_LIMIT                       ==         1400
 FD_STATIC_ASSERT( FD_VM_LOG_64_UNITS                             ==             100UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_CREATE_PROGRAM_ADDRESS_UNITS             ==            1500UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_INVOKE_UNITS                             ==             946UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_MAX_INVOKE_STACK_HEIGHT                  ==               5UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_MAX_INSTRUCTION_TRACE_LENGTH             ==              64UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SHA256_BASE_COST                         ==              85UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SHA256_BYTE_COST                         ==               1UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SHA256_MAX_SLICES                        ==           20000UL, vm_cu );
