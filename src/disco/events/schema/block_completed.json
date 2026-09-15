@@ -58,7 +58,8 @@
                 "vote_cost_limit":             { "description": "A vote transaction pushed the block over its vote compute limit." },
                 "account_data_limit":          { "description": "A transaction pushed the block over its account data size limit." },
                 "duplicate_account":           { "description": "A transaction referenced the same account more than once." },
-                "bad_footer":                  { "description": "An Alpenglow block failed to parse its footer." }
+                "bad_footer":                  { "description": "An Alpenglow block failed to parse its footer." },
+                "invalid_last_tick":           { "description": "The block reached its max tick height, but the tick was not the last entry of the block." }
             }
         },
         "dead_time":                                 { "type": "DateTime64(9)",                                     "description": "When the block was ruled invalid; 0 if not dead." },
