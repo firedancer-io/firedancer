@@ -1351,7 +1351,7 @@ test_x509_chains( pki_t * p ) {
 
   /* Algorithms fd_x509 does not implement: OpenSSL accepts, fd rejects */
   { cert_t const * ch[] = { &p->srv_rsa };
-    x509_case( "x509: rsa leaf", ch, 1UL, r_p256, 1UL, "www.example.com", now, FD_X509_VERIFY_ERR_PARSE, 1 ); }
+    x509_case( "x509: rsa leaf", ch, 1UL, r_p256, 1UL, "www.example.com", now, FD_X509_VERIFY_ERR_UNSUPPORTED, 1 ); }
   { cert_t const * ch[] = { &p->srv_p384 };
     x509_case( "x509: p384 leaf", ch, 1UL, r_p384, 1UL, "www.example.com", now, FD_X509_VERIFY_OK, 1 ); }
   { cert_t root_rsa, leaf;

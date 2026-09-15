@@ -84,7 +84,8 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
 
   char const * p   = (char const *)file_buf;
   char const * end = p + file_sz;
-  ulong loaded = 0;
+  ulong loaded          = 0;
+  ulong unsupported_key = 0;
 
   while( p < end ) {
     /* Find next PEM certificate block */
@@ -108,9 +109,7 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
     fd_x509_cert_info_t info;
     char const * reason = NULL;
     if(      fd_x509_cert_parse( der, (ulong)der_sz, &info ) )    reason = "parse failed";
-    else if( info.key_type != FD_X509_KEY_ED25519 &&
-             info.key_type != FD_X509_KEY_ECDSA_P256 &&
-             info.key_type != FD_X509_KEY_ECDSA_P384 )            reason = "unsupported public key algorithm";
+    else if( info.key_type == FD_X509_KEY_UNKNOWN )               { unsupported_key++; continue; }
     else if( info.subject_len > FD_X509_CA_SUBJECT_MAX )          reason = "subject too long";
     else if( info.pubkey_len > sizeof(store->entries[0].pubkey) ) reason = "public key too long";
     else if( !info.is_ca )                                        reason = "not a CA";
@@ -153,6 +152,12 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
   }
 
   free( file_buf );
+
+  /* System bundles are mostly RSA roots.  One line for all of them. */
+  if( unsupported_key )
+    FD_LOG_INFO(( "ignored %lu CA certificates in %s with unsupported public key types (e.g. RSA)",
+                  unsupported_key, pem_path ));
+
   return (long)loaded;
 }
 
