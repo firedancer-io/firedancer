@@ -37,13 +37,20 @@ signer_ctx_init( signer_ctx_t * ctx,
   ctx->private_key = private_key;
 }
 
-static void
-test_signer( void *        _ctx,
-             uchar *       signature,
-             uchar const * merkle_root ) {
-  signer_ctx_t * ctx = (signer_ctx_t *)_ctx;
-
-  fd_ed25519_sign( signature, merkle_root, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+/* The shredder leaves the signature to its caller: sign the set's
+   root into every shred, as the shred tile does when the sign tile
+   answers. */
+static fd_fec_set_t *
+next_fec_set_signed( fd_shredder_t * shredder,
+                     fd_fec_set_t *  set,
+                     uchar *         chained_merkle_root,
+                     signer_ctx_t *  ctx ) {
+  if( FD_UNLIKELY( !fd_shredder_next_fec_set( shredder, set, chained_merkle_root ) ) ) return NULL;
+  uchar sig[ 64 ];
+  fd_ed25519_sign( sig, chained_merkle_root, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) memcpy( set->data_shreds  [ i ].s->signature, sig, 64UL );
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) memcpy( set->parity_shreds[ i ].s->signature, sig, 64UL );
+  return set;
 }
 
 #if FD_HAS_HOSTED
@@ -59,7 +66,7 @@ test_shredder_pcap( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
   fd_shredder_set_shred_version( shredder, (ushort)6051 );
 
@@ -86,7 +93,7 @@ test_shredder_pcap( void ) {
   for( ulong i=0UL; i<8UL; i++ ) {
     fd_fec_set_t _set[ 1 ];
 
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
+    fd_fec_set_t * set = next_fec_set_signed( shredder, _set, chained_merkle_root, signer_ctx );
     FD_TEST( set );
 
     uchar packet[ 2048UL ];
@@ -134,7 +141,7 @@ test_skip_batch( void ) {
   fd_shredder_t *  shredders[ SHREDDERS ];
   /* Initialize all the shredders */
   for( ulong i=0; i<SHREDDERS; i++ ) {
-    FD_TEST( &_shredders[ i ]==fd_shredder_new( &_shredders[ i ], test_signer, signer_ctx ) );
+    FD_TEST( &_shredders[ i ]==fd_shredder_new( &_shredders[ i ] ) );
     shredders[ i ] = fd_shredder_join( &_shredders[ i ] );
     FD_TEST( shredders[ i ] );
   }
@@ -165,7 +172,7 @@ test_skip_batch( void ) {
         FD_TEST( fd_shredder_init_batch( shredders[ i ], skip_test_data+idx, batch_sz, slot, meta ) );
         ulong fec_sets = fd_shredder_count_fec_sets( batch_sz, 0 );
         for( ulong j=0; j<fec_sets; j++ ) {
-          FD_TEST( fd_shredder_next_fec_set( shredders[ i ], _set, chained_merkle_root ) );
+          FD_TEST( next_fec_set_signed( shredders[ i ], _set, chained_merkle_root, signer_ctx ) );
           data_shred_cnt   += FD_FEC_SHRED_CNT;
           parity_shred_cnt += FD_FEC_SHRED_CNT;
         }
@@ -192,7 +199,7 @@ test_skip_batch( void ) {
   memset( _set, '\0', sizeof(fd_fec_set_t) );
   memset( chained_merkle_root, (char)0xCC, 32UL );
   FD_TEST( fd_shredder_init_batch( shredders[ 0 ], skip_test_data, idx, slot, meta ) );
-  FD_TEST( fd_shredder_next_fec_set( shredders[ 0 ], _set, chained_merkle_root ) );
+  FD_TEST( next_fec_set_signed( shredders[ 0 ], _set, chained_merkle_root, signer_ctx ) );
   FD_TEST( fd_shredder_fini_batch( shredders[ 0 ] ) );
 
   /* Make all the other shredders process the same data and compare the outputs. */
@@ -201,7 +208,7 @@ test_skip_batch( void ) {
     memset( _temp_set, '\0', sizeof(fd_fec_set_t) );
     memset( chained_merkle_root, (char)0xCC, 32UL );
     FD_TEST( fd_shredder_init_batch( shredders[ i ], skip_test_data, idx, slot, meta ) );
-    FD_TEST( fd_shredder_next_fec_set( shredders[ i ], _temp_set, chained_merkle_root ) );
+    FD_TEST( next_fec_set_signed( shredders[ i ], _temp_set, chained_merkle_root, signer_ctx ) );
     FD_TEST( fd_shredder_fini_batch( shredders[ i ] ) );
 
     FD_TEST( fd_memeq( _set, _temp_set, sizeof(fd_fec_set_t) ) );
@@ -261,7 +268,7 @@ _internal_test_shredder_count( int block_complete ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -280,13 +287,13 @@ _internal_test_shredder_count( int block_complete ) {
     ulong parity_shred_cnt = 0UL;
     ulong sets_cnt = fd_shredder_count_fec_sets( sz, block_complete );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
+      fd_fec_set_t * set = next_fec_set_signed( shredder, _set, chained_merkle_root, signer_ctx );
       FD_TEST( set );
 
       data_shred_cnt   += FD_FEC_SHRED_CNT;
       parity_shred_cnt += FD_FEC_SHRED_CNT;
     }
-    FD_TEST( !fd_shredder_next_fec_set( shredder, _set, chained_merkle_root ) );
+    FD_TEST( !next_fec_set_signed( shredder, _set, chained_merkle_root, signer_ctx ) );
     fd_shredder_fini_batch( shredder );
 
     FD_TEST( data_shred_cnt  ==fd_shredder_count_data_shreds  ( sz, block_complete ) );
@@ -332,7 +339,7 @@ test_chained_merkle_shreds( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
   fd_shredder_set_shred_version( shredder, (ushort)6051 );
 
@@ -369,7 +376,7 @@ test_chained_merkle_shreds( void ) {
          This should take care of numbering shreds correctly, updating chained_merkle_root,
          etc. */
       fd_shredder_init_batch( shredder, perf_test_entry_batch, data_sz, slot, meta );
-      set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
+      set = next_fec_set_signed( shredder, _set, chained_merkle_root, signer_ctx );
       fd_shredder_fini_batch( shredder );
 
       uchar null[32] = { 0 };
@@ -434,7 +441,7 @@ perf_test( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -447,7 +454,7 @@ perf_test( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ, FD_SHRED_TYPE_MERKLE_DATA );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
+      next_fec_set_signed( shredder, _set, chained_merkle_root, signer_ctx );
     }
     fd_shredder_fini_batch( shredder );
   }
@@ -474,7 +481,7 @@ perf_test2( void ) {
   signer_ctx_t signer_ctx[ 1 ];
   signer_ctx_init( signer_ctx, test_private_key );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   uchar chained_merkle_root[ 32 ] = { 0 };
@@ -487,7 +494,7 @@ perf_test2( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST2_SZ, FD_SHRED_TYPE_MERKLE_DATA );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
+      next_fec_set_signed( shredder, _set, chained_merkle_root, signer_ctx );
       bytes_produced += FD_FEC_SHRED_CNT * FD_SHRED_MIN_SZ + FD_FEC_SHRED_CNT * FD_SHRED_MAX_SZ;
     }
     fd_shredder_fini_batch( shredder );
