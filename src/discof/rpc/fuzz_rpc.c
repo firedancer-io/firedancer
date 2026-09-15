@@ -18,7 +18,6 @@
 
 #include "../../util/fd_util.h"
 #include "../../disco/topo/fd_topob.h"
-#include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../util/sanitize/fd_fuzz.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
@@ -169,11 +168,6 @@ LLVMFuzzerInitialize( int  *   argc,
   FD_TEST( zstd_wksp );
   fuzz_zstd_cctx = ZSTD_initStaticCCtx( zstd_wksp, zstd_wksp_sz );
   FD_TEST( fuzz_zstd_cctx );
-
-  void * shalloc = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( shalloc, 1UL ), 1UL );
-  FD_TEST( alloc );
-  cJSON_alloc_install( alloc );
 
   return 0;
 }
