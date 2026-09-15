@@ -6,6 +6,7 @@
 
 #include <stdlib.h> // ARM64: aligned_alloc(3)
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define TEST_BANK_STAKE_LAMPORTS (123456789UL)
@@ -1004,8 +1005,11 @@ test_bank_epoch_credits_singleton( void * mem ) {
 
   fd_bank_t * root = fd_banks_init_bank( banks );
   FD_TEST( root );
-  fd_bank_epoch_credits( root )[0].cnt = 1UL;
-  *fd_bank_epoch_credits_len( root ) = 1UL;
+  fd_bank_epoch_credits_view_t view[1];
+  FD_TEST( fd_bank_epoch_credits_view_init( view, root, 1 ) );
+  view->credits[0].cnt = 1U;
+  view->len            = 1UL;
+  fd_bank_epoch_credits_view_fini( view );
 
   fd_bank_t * child_a = fd_banks_new_bank( banks, root->idx, 0L, 0 );
   child_a = fd_banks_clone_from_parent( banks, child_a->idx );
@@ -1015,14 +1019,86 @@ test_bank_epoch_credits_singleton( void * mem ) {
   child_b = fd_banks_clone_from_parent( banks, child_b->idx );
   FD_TEST( child_b );
 
-  fd_bank_epoch_credits( child_a )[0].cnt = 2UL;
-  *fd_bank_epoch_credits_len( child_a ) = 2UL;
+  FD_TEST( fd_bank_epoch_credits_view_init( view, child_a, 1 ) );
+  view->credits[0].cnt = 2U;
+  view->len            = 2UL;
+  fd_bank_epoch_credits_view_fini( view );
 
-  FD_TEST( fd_bank_epoch_credits( root )[0].cnt==2UL );
-  FD_TEST( fd_bank_epoch_credits( child_b )[0].cnt==2UL );
-  FD_TEST( fd_bank_epoch_credits( child_a )[0].cnt==2UL );
-  FD_TEST( *fd_bank_epoch_credits_len( root )==2UL );
-  FD_TEST( *fd_bank_epoch_credits_len( child_b )==2UL );
+  fd_bank_t * shared_banks[] = { root, child_a, child_b };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    FD_TEST( fd_bank_epoch_credits_view_init( view, shared_banks[i], 0 ) );
+    FD_TEST( view->credits[0].cnt==2U );
+    FD_TEST( view->len==2UL );
+    fd_bank_epoch_credits_view_fini( view );
+  }
+}
+
+/* Logical epoch-credit capacity follows max_live_slots (max_total_banks),
+   not max_fork_width.  More than four live sets spill and reload without
+   evicting a pinned reader. */
+
+static void
+test_bank_epoch_credits_disk_cache( void * mem ) {
+  ulong const max_live_slots = 5UL;
+  FD_TEST( !ftruncate( FD_EPOCH_CREDITS_FD, 0L ) );
+  fd_banks_t * banks = fd_banks_join(
+      fd_banks_new( mem, max_live_slots, 1UL, 16UL, 256UL, 4UL, 0, 7778UL ) );
+  FD_TEST( banks );
+
+  fd_bank_t * chain[ max_live_slots ];
+  chain[0] = fd_banks_init_bank( banks );
+  FD_TEST( chain[0] );
+
+  for( ulong i=0UL; i<max_live_slots; i++ ) {
+    if( i ) {
+      if( i>1UL ) fd_banks_mark_bank_frozen( chain[i-1UL] );
+      fd_bank_t * child = fd_banks_new_bank( banks, chain[i-1UL]->idx, 0L, 0 );
+      chain[i] = fd_banks_clone_from_parent( banks, child->idx );
+      FD_TEST( chain[i] );
+      fd_bank_epoch_credits_new_fork( chain[i] );
+    }
+
+    fd_bank_epoch_credits_view_t view[1];
+    FD_TEST( fd_bank_epoch_credits_view_init( view, chain[i], 1 ) );
+    view->credits[0].base_credits = 1000UL+i;
+    view->credits[0].cnt          = (uchar)(i+1UL);
+    view->len                     = 1UL;
+    fd_bank_epoch_credits_view_fini( view );
+
+    struct stat spill_stat;
+    FD_TEST( !fstat( FD_EPOCH_CREDITS_FD, &spill_stat ) );
+    if( i<4UL ) FD_TEST( spill_stat.st_size==0L );
+    else        FD_TEST( spill_stat.st_size>0L );
+  }
+
+  fd_bank_epoch_credits_view_t pinned[1];
+  FD_TEST( fd_bank_epoch_credits_view_init( pinned, chain[0], 0 ) );
+  FD_TEST( pinned->credits[0].base_credits==1000UL );
+
+  for( ulong i=1UL; i<max_live_slots; i++ ) {
+    fd_bank_epoch_credits_view_t view[1];
+    FD_TEST( fd_bank_epoch_credits_view_init( view, chain[i], 0 ) );
+    FD_TEST( view->len==1UL );
+    FD_TEST( view->credits[0].base_credits==1000UL+i );
+    FD_TEST( view->credits[0].cnt==(uchar)(i+1UL) );
+    fd_bank_epoch_credits_view_fini( view );
+  }
+
+  FD_TEST( pinned->credits[0].base_credits==1000UL );
+  fd_bank_epoch_credits_view_fini( pinned );
+
+  /* All logical IDs are occupied.  Replacing a bank's uniquely held set
+     must release that ID before acquiring its replacement. */
+  fd_bank_t * tip = chain[max_live_slots-1UL];
+  fd_bank_epoch_credits_new_fork( tip );
+  fd_bank_epoch_credits_view_t view[1];
+  FD_TEST( fd_bank_epoch_credits_view_init( view, tip, 1 ) );
+  view->credits[0].base_credits = 2000UL;
+  view->len                     = 1UL;
+  fd_bank_epoch_credits_view_fini( view );
+  FD_TEST( fd_bank_epoch_credits_view_init( view, tip, 0 ) );
+  FD_TEST( view->credits[0].base_credits==2000UL );
+  fd_bank_epoch_credits_view_fini( view );
 }
 
 static void
@@ -1149,6 +1225,13 @@ main( int argc, char ** argv ) {
   if( spill_fd!=FD_STAKE_DELEGATIONS_FD ) {
     FD_TEST( dup2( spill_fd, FD_STAKE_DELEGATIONS_FD )==FD_STAKE_DELEGATIONS_FD );
     FD_TEST( !close( spill_fd ) );
+  }
+
+  int epoch_credits_fd = memfd_create( "bank_epoch_credits_spill", 0 );
+  FD_TEST( epoch_credits_fd>=0 );
+  if( epoch_credits_fd!=FD_EPOCH_CREDITS_FD ) {
+    FD_TEST( dup2( epoch_credits_fd, FD_EPOCH_CREDITS_FD )==FD_EPOCH_CREDITS_FD );
+    FD_TEST( !close( epoch_credits_fd ) );
   }
 
   fd_pubkey_t key_0 = { .ul[0] = 1 };
@@ -1503,6 +1586,7 @@ main( int argc, char ** argv ) {
 
   test_bank_clear( mem );
   test_bank_epoch_credits_singleton( mem );
+  test_bank_epoch_credits_disk_cache( mem );
   test_bank_epoch_credits_fork_id_width();
 
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )>0UL );

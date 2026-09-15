@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "run.h"
 #include "../../../../flamenco/accdb/fd_accdb.h"
+#include "../../../../flamenco/runtime/fd_bank.h"
 #include "../../../../flamenco/stakes/fd_stake_delegations.h"
 #include "../../../../disco/store/fd_store.h"
 
@@ -394,6 +395,7 @@ main_pid_namespace( void * _args ) {
   }
 
   initialize_accdb_fd( config );
+  initialize_epoch_credits_fd( config );
   initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
   ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
@@ -1089,6 +1091,21 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==accounts_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts.db read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( accounts_ro_fd, FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+void
+initialize_epoch_credits_fd( config_t const * config ) {
+  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
+
+  char spill_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s.epochcredits", config->paths.accounts ) );
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( spill_fd!=FD_EPOCH_CREDITS_FD ) ) {
+    if( FD_UNLIKELY( -1==dup2( spill_fd, FD_EPOCH_CREDITS_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 void
