@@ -1191,6 +1191,88 @@ FD_UNIT_TEST( quic_client_retry_scid_eq_dcid ) {
   FD_TEST( FD_LOAD( ulong, conn->peer_cids[0].conn_id )==(same_scid ^ 1UL) );
 }
 
+/* RFC 9000 Section 7.2: discard subsequent Initials with a different SCID. */
+
+static void
+test_quic_initial_scid( int role ) {
+  uchar const scid_sizes[] = { 0, FD_QUIC_CONN_ID_SZ, FD_QUIC_MAX_CONN_ID_SZ };
+  for( ulong i=0UL; i<sizeof(scid_sizes); i++ ) {
+    FD_TEST( fd_quic_sandbox_init( sandbox, role ) );
+    fd_quic_t *       quic  = sandbox->quic;
+    fd_quic_state_t * state = fd_quic_get_state( quic );
+    int server = role==FD_QUIC_ROLE_SERVER;
+
+    ulong our_conn_id = fd_rng_ulong( rng );
+    uchar scid_bytes[ FD_QUIC_MAX_CONN_ID_SZ ];
+    memset( scid_bytes, 0x42, sizeof(scid_bytes) );
+    fd_quic_conn_id_t scid = fd_quic_conn_id_new( scid_bytes, scid_sizes[i] );
+    fd_quic_conn_id_t dcid = fd_quic_conn_id_new( &our_conn_id, FD_QUIC_CONN_ID_SZ );
+    fd_quic_conn_t * conn = fd_quic_conn_create(
+        quic, our_conn_id, server ? &scid : &dcid,
+        FD_QUIC_SANDBOX_PEER_IP4, FD_QUIC_SANDBOX_PEER_PORT,
+        FD_QUIC_SANDBOX_SELF_IP4, FD_QUIC_SANDBOX_SELF_PORT, server );
+    FD_TEST( conn );
+    fd_quic_gen_initial_secrets( &conn->secrets, dcid.conn_id, dcid.sz, server );
+    fd_quic_crypto_keys_t * keys = &conn->keys[ fd_quic_enc_level_initial_id ][0];
+    fd_quic_gen_keys( keys, conn->secrets.secret[ fd_quic_enc_level_initial_id ][0] );
+
+    for( ulong pktnum=0UL; pktnum<6UL; pktnum++ ) {
+      if( pktnum==3UL && !scid.sz ) continue;
+      uchar payload[ FD_QUIC_INITIAL_PAYLOAD_SZ_MIN ] = { 0x01 }; /* PING + padding */
+      fd_quic_initial_t initial = {
+        .h0              = fd_quic_initial_h0( 3 ),
+        .version         = 1,
+        .dst_conn_id_len = dcid.sz,
+        .src_conn_id_len = scid.sz,
+        .len             = 4UL + sizeof(payload) + FD_QUIC_CRYPTO_TAG_SZ,
+        .pkt_num         = pktnum
+      };
+      memcpy( initial.dst_conn_id, dcid.conn_id, dcid.sz );
+      memcpy( initial.src_conn_id, scid.conn_id, scid.sz );
+      if( pktnum==3UL ) initial.src_conn_id[ scid.sz-1U ] ^= 1U;
+      if( pktnum==4UL ) initial.src_conn_id_len = (uchar)( scid.sz==FD_QUIC_MAX_CONN_ID_SZ ? scid.sz-1 : scid.sz+1 );
+
+      uchar buf[1500];
+      ulong hdr_sz = fd_quic_encode_initial( buf, sizeof(buf), &initial );
+      FD_TEST( hdr_sz!=FD_QUIC_ENCODE_FAIL );
+      ulong pkt_sz = sizeof(buf);
+      FD_TEST( fd_quic_crypto_encrypt( buf, &pkt_sz, buf, hdr_sz, payload, sizeof(payload),
+                                      keys, keys, pktnum )==FD_QUIC_SUCCESS );
+      if( pktnum==0UL ) buf[ pkt_sz-1UL ] ^= 1U; /* invalid authentication tag */
+
+      fd_quic_pkt_t pkt = {
+        .ip4 = {{ .saddr = FD_QUIC_SANDBOX_PEER_IP4, .daddr = FD_QUIC_SANDBOX_SELF_IP4 }},
+        .udp = {{ .net_sport = FD_QUIC_SANDBOX_PEER_PORT, .net_dport = FD_QUIC_SANDBOX_SELF_PORT }},
+        .datagram_sz = (uint)pkt_sz
+      };
+      ulong before_pktnum = conn->exp_pkt_number[0];
+      long  before_active = conn->last_activity;
+      ulong before_ping   = quic->metrics.frame_rx_cnt[ FD_METRICS_ENUM_QUIC_FRAME_TYPE_V_PING_IDX ];
+      state->now++;
+      int accept = pktnum==1UL || pktnum==2UL || pktnum==5UL;
+      ulong rc = fd_quic_process_quic_packet_v1( quic, &pkt, buf, pkt_sz );
+      FD_TEST( rc==(accept ? pkt_sz : FD_QUIC_PARSE_FAIL) );
+      FD_TEST( conn->state==FD_QUIC_CONN_STATE_HANDSHAKE );
+      FD_TEST( conn->exp_pkt_number[0]==(accept ? pktnum+1UL : before_pktnum) );
+      FD_TEST( conn->last_activity==(accept ? state->now : before_active) );
+      FD_TEST( quic->metrics.frame_rx_cnt[ FD_METRICS_ENUM_QUIC_FRAME_TYPE_V_PING_IDX ]==before_ping+(ulong)accept );
+      fd_quic_conn_id_t const * expected_scid = !server && pktnum==0UL ? &dcid : &scid;
+      FD_TEST( conn->peer_cids[0].sz==expected_scid->sz );
+      FD_TEST( !memcmp( conn->peer_cids[0].conn_id, expected_scid->conn_id, expected_scid->sz ) );
+      FD_TEST( conn->established==(uint)( !server && pktnum>0UL ) );
+    }
+    fd_quic_fini( quic );
+  }
+}
+
+FD_UNIT_TEST( quic_initial_scid_client ) {
+  test_quic_initial_scid( FD_QUIC_ROLE_CLIENT );
+}
+
+FD_UNIT_TEST( quic_initial_scid_server ) {
+  test_quic_initial_scid( FD_QUIC_ROLE_SERVER );
+}
+
 FD_UNIT_TEST( quic_initial_datagram_size ) {
   uint const token_lengths[] = { 0U, 46U };
   for( ulong i=0UL; i<sizeof(token_lengths)/sizeof(token_lengths[0]); i++ ) {
