@@ -279,7 +279,7 @@ test_control_barriers( void ) {
   ulong const lane_cnts[] = { 1UL, 2UL, 4UL };
   for( ulong n_idx=0UL; n_idx<sizeof(lane_cnts)/sizeof(lane_cnts[0]); n_idx++ ) {
     ulong lane_cnt = lane_cnts[ n_idx ];
-    fd_snapin_tile_t ctx[1];
+    static fd_snapin_tile_t ctx[1];
     sync_ctx_init( ctx, lane_cnt, FD_SNAPSHOT_STATE_FINISHING );
     test_pub_cnt = 0UL;
 
@@ -306,7 +306,7 @@ test_all_control_barriers_and_final_payload( void ) {
     FD_SNAPSHOT_MSG_CTRL_FINI,
   };
   for( ulong i=0UL; i<sizeof(controls)/sizeof(controls[0]); i++ ) {
-    fd_snapin_tile_t ctx[1];
+    static fd_snapin_tile_t ctx[1];
     sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_IDLE );
     test_pub_cnt = 0UL;
     send_control( ctx, 0UL, controls[i] );
@@ -317,7 +317,7 @@ test_all_control_barriers_and_final_payload( void ) {
     FD_TEST( !test_pub_cnt );
   }
 
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_PROCESSING );
   fd_ssctrl_meta_t meta[2];
   uchar meta_mem[2][ sizeof(fd_ssctrl_meta_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
@@ -358,7 +358,7 @@ test_all_control_barriers_and_final_payload( void ) {
 
 static void
 test_fast_lane_control_pipeline( void ) {
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   sync_ctx_init( ctx, 4UL, FD_SNAPSHOT_STATE_FINISHING );
   test_pub_cnt = 0UL;
 
@@ -379,7 +379,7 @@ data_ctx_init( fd_snapin_tile_t * ctx,
 static void
 test_pending_control_allows_lagging_data( void ) {
   uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   data_ctx_init( ctx, 2UL, lane_data );
   ctx->expected_frame = 1UL;
   lane_data[1][0]     = 0U;
@@ -415,7 +415,7 @@ test_pending_control_allows_lagging_data( void ) {
 static void
 test_pending_control_keeps_frame_order( void ) {
   uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   data_ctx_init( ctx, 3UL, lane_data );
   ctx->expected_frame = 1UL;
   lane_data[1][0]     = 0U;
@@ -450,7 +450,7 @@ test_pending_control_keeps_frame_order( void ) {
 
 static void
 test_error_interrupts_incremental_init( void ) {
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   uchar init_mem[ 2UL ][ FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_memset( init_mem, 0, sizeof(init_mem) );
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_IDLE );
@@ -498,7 +498,7 @@ test_error_interrupts_incremental_init( void ) {
 
 static void
 test_partial_fail_survives_error( void ) {
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   sync_ctx_init( ctx, 4UL, FD_SNAPSHOT_STATE_PROCESSING );
   test_pub_cnt = 0UL;
 
@@ -550,7 +550,7 @@ test_fail_supersedes_pending_controls( void ) {
   };
 
   for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
-    fd_snapin_tile_t ctx[1];
+    static fd_snapin_tile_t ctx[1];
     sync_ctx_init( ctx, 4UL, cases[i].state );
     test_pub_cnt = 0UL;
 
@@ -616,7 +616,7 @@ test_sysvar_account( fd_snapin_tile_t * ctx,
 
 static void
 test_sysvar_capture( void ) {
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ+1UL ] = {0};
   for( int streaming=0; streaming<2; streaming++ ) {
     for( ulong idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
@@ -706,7 +706,7 @@ test_sysvars_init( fd_snapin_tile_t * ctx,
 
 static void
 test_sysvar_validation( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   test_sysvars_init( ctx, wksp );
   uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
   for( ulong idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
@@ -819,7 +819,7 @@ test_sysvar_validation( fd_wksp_t * wksp ) {
 
 static void
 test_initialized_incremental_fail_rolls_back( void ) {
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   uchar init_mem[ 2UL ][ FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_memset( init_mem, 0, sizeof(init_mem) );
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_IDLE );
@@ -864,7 +864,7 @@ test_initialized_incremental_fail_rolls_back( void ) {
 
 static void
 test_error_fail_and_retry( void ) {
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   sync_ctx_init( ctx, 4UL, FD_SNAPSHOT_STATE_FINISHING );
   ctx->init_completed  = 1;
   test_pub_cnt         = 0UL;
@@ -922,7 +922,7 @@ test_frame_ordering( void ) {
   uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   for( ulong n_idx=0UL; n_idx<sizeof(lane_cnts)/sizeof(lane_cnts[0]); n_idx++ ) {
     ulong lane_cnt = lane_cnts[ n_idx ];
-    fd_snapin_tile_t ctx[1];
+    static fd_snapin_tile_t ctx[1];
     data_ctx_init( ctx, lane_cnt, lane_data );
 
     for( ulong frame=0UL; frame<2UL*lane_cnt; frame++ ) {
@@ -939,7 +939,7 @@ test_frame_ordering( void ) {
 static void
 test_frame_owner_and_raw_lane( void ) {
   uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
 
   data_ctx_init( ctx, 4UL, lane_data );
   test_pub_cnt = 0UL;
@@ -954,7 +954,7 @@ test_frame_owner_and_raw_lane( void ) {
 static void
 test_partial_and_zero_byte_eom( void ) {
   uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   data_ctx_init( ctx, 2UL, lane_data );
   fd_memcpy( lane_data[0], "abcd", 4UL );
   lane_data[0][0] = 2U;
@@ -989,7 +989,7 @@ test_partial_and_zero_byte_eom( void ) {
 
 static void
 test_malformed_stream_endings( void ) {
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_PROCESSING );
   test_pub_cnt = 0UL;
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FINI );
@@ -1012,7 +1012,7 @@ test_malformed_stream_endings( void ) {
 
 static void
 test_init_resets_lane_state( void ) {
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   uchar init_mem[ 2UL ][ FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_memset( init_mem, 0, sizeof(init_mem) );
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_IDLE );
@@ -1039,7 +1039,7 @@ test_init_resets_lane_state( void ) {
 static void
 test_nonempty_raw_data( void ) {
   uchar lane_data[ FD_TOPO_MAX_TILE_IN_LINKS ][ 64UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  fd_snapin_tile_t ctx[1];
+  static fd_snapin_tile_t ctx[1];
   data_ctx_init( ctx, 2UL, lane_data );
   lane_data[0][0]     = 0U;
   test_parser_script   = 2;
@@ -1107,7 +1107,10 @@ test_batch_stake_delegation( fd_wksp_t * wksp ) {
   fd_memcpy( entry+64UL,  &fd_solana_stake_program_id,  sizeof(fd_pubkey_t)      );
   fd_memcpy( entry+136UL, state,                        sizeof(fd_stake_state_t) );
 
-  fd_snapin_tile_t ctx = { .full = 1, .banks = banks };
+  static fd_snapin_tile_t ctx;
+  fd_memset( &ctx, 0, sizeof(ctx) );
+  ctx.full  = 1;
+  ctx.banks = banks;
   fd_ssparse_advance_result_t result = {
     .account_batch = {
       .batch     = { entry },
@@ -1130,7 +1133,10 @@ test_streaming_stake_delegation( fd_wksp_t * wksp ) {
   fd_stake_state_t state[1];
   make_stake_state( state, &vote_account );
 
-  fd_snapin_tile_t ctx = { .full = 1, .banks = banks };
+  static fd_snapin_tile_t ctx;
+  fd_memset( &ctx, 0, sizeof(ctx) );
+  ctx.full  = 1;
+  ctx.banks = banks;
   fd_ssparse_advance_result_t header = {
     .account_header = {
       .pubkey     = stake_account.uc,
@@ -1234,7 +1240,7 @@ test_txncache_staging_groups_fit_txncache_scratch( fd_wksp_t * wksp ) {
 
 static void
 test_txncache_staging_evicts_oldest_slot( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   ulong oldest_idx = ULONG_MAX;
@@ -1260,7 +1266,7 @@ test_txncache_staging_evicts_oldest_slot( fd_wksp_t * wksp ) {
 
 static void
 test_txncache_staging_evicted_slot_drops_groups( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   static uchar const blockhash_x[ 32UL ] = { 0x11 };
@@ -1306,7 +1312,7 @@ test_txncache_staging_evicted_slot_drops_groups( fd_wksp_t * wksp ) {
 
 static void
 test_txncache_staging_rejects_group_overflow( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   uchar blockhash[ 32UL ] = {0};
@@ -1331,7 +1337,7 @@ test_txncache_staging_rejects_group_overflow( fd_wksp_t * wksp ) {
    Firedancer-produced status caches look). */
 static void
 test_txncache_staging_rejects_entry_overflow( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   static uchar const blockhash[ 32UL ] = { 0x11 };
@@ -1349,7 +1355,7 @@ test_txncache_staging_rejects_entry_overflow( fd_wksp_t * wksp ) {
    slots, then stage more entries than were left over. */
 static void
 test_txncache_staging_reclaims_evicted_entries( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   static uchar const blockhash[ 32UL ] = { 0x11 };
@@ -1394,7 +1400,7 @@ test_txncache_staging_reclaims_evicted_entries( fd_wksp_t * wksp ) {
    discarded and do not consume the entry pool. */
 static void
 test_txncache_staging_evicted_entries_not_pooled( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   static uchar const blockhash[ 32UL ] = { 0x11 };
@@ -1430,7 +1436,7 @@ test_txncache_staging_recent_set( void *                 mem,
 
 static void
 test_txncache_staging_filters_recent_groups( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   static uchar const recent_a[ 32UL ] = { 0xA1 };
@@ -1487,7 +1493,7 @@ test_txncache_staging_filters_recent_groups( fd_wksp_t * wksp ) {
 
 static void
 test_txncache_staging_rejects_recent_group_overflow( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   static uchar const recent_a[ 32UL ] = { 0xA1 };
@@ -1521,7 +1527,7 @@ test_txncache_staging_fits_one_gigantic_page( void ) {
    max_txn_per_slot admits proportionally more before rejection. */
 static void
 test_txncache_staging_runtime_limits( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
   ctx->txncache_max_groups_per_slot  = 3UL;
   ctx->txncache_max_entries_per_slot = 6UL;
@@ -1571,7 +1577,7 @@ test_txncache_staging_populate( fd_snapin_tile_t * ctx,
 
 static void
 test_txncache_staging_rejects_conflicting_group_offsets( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   static uchar const blockhash[ 32UL ] = { 1U };
@@ -1585,7 +1591,7 @@ test_txncache_staging_rejects_conflicting_group_offsets( fd_wksp_t * wksp ) {
 
 static void
 test_txncache_staging_ignores_evicted_group_offsets( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_txncache_staging_ctx_init( ctx, wksp );
 
   static uchar const blockhash[ 32UL ] = { 1U };
@@ -1621,7 +1627,7 @@ test_populate_txncache_ctx_init( fd_snapin_tile_t * ctx,
 
 static void
 test_txncache_staging_populate_inserts_recent_only( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_populate_txncache_ctx_init( ctx, wksp );
 
   static uchar const root_parent_blockhash[ 32UL ] = { 0xA1 };
@@ -1699,7 +1705,7 @@ test_txnhash_init( uchar out[ static 32UL ],
 
 static void
 test_populate_txncache_slot_attribution( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_populate_txncache_ctx_init( ctx, wksp );
 
   fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {0};
@@ -1741,7 +1747,7 @@ test_populate_txncache_slot_attribution( fd_wksp_t * wksp ) {
 
 static void
 test_populate_txncache_rejects_invalid_blockhash_age( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_populate_txncache_ctx_init( ctx, wksp );
 
   fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {0};
@@ -1783,7 +1789,7 @@ test_populate_txncache_rejects_invalid_blockhash_age( fd_wksp_t * wksp ) {
 
 static void
 test_populate_txncache_requires_snapshot_slot_delta( fd_wksp_t * wksp ) {
-  fd_snapin_tile_t ctx[ 1 ];
+  static fd_snapin_tile_t ctx[ 1 ];
   test_populate_txncache_ctx_init( ctx, wksp );
 
   fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {0};
