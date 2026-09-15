@@ -173,7 +173,7 @@ enum {
 
 #define FD_METRICS_GAUGE_ACCDB_CACHE_CLASS_RESERVED_NAME "accdb_cache_class_reserved"
 #define FD_METRICS_GAUGE_ACCDB_CACHE_CLASS_RESERVED_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_ACCDB_CACHE_CLASS_RESERVED_DESC "Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class"
+#define FD_METRICS_GAUGE_ACCDB_CACHE_CLASS_RESERVED_DESC "Always ULONG_MAX: cache slots are no longer reserved ahead of use.  Kept while the frontend expects it"
 #define FD_METRICS_GAUGE_ACCDB_CACHE_CLASS_RESERVED_CVT  (FD_METRICS_CONVERTER_NONE)
 #define FD_METRICS_GAUGE_ACCDB_CACHE_CLASS_RESERVED_CNT  (8UL)
 

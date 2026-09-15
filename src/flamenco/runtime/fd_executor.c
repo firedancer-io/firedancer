@@ -1389,20 +1389,29 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   /* The hilariously poorly designed account loader semantics require a
      two phase acquire ... since the programdata accounts do not need to
      be declared in the transaction account keys.  We first have to
-     acquire all accounts expressly referenced in the transaction, and
-     overcommit the reservations by double the number of them that could
-     be executable.  This is because acquire must grab all locks it
-     needs atomically, if we went back to grab more locks later it could
-     deadlock with two threads both holding half the locks each and
-     unable to acquire.
+     acquire all accounts expressly referenced in the transaction, then
+     figure out which are executable and acquire their programdata.
+     Holding the first set while waiting for cache space for the second
+     could deadlock, two threads each holding half of a class and
+     waiting for the other's half, so the second phase does not wait:
+     it fails, we give the first set back, and start over.  Nothing has
+     executed yet, so everything below is recomputed. */
 
-     So first, just acquire and atomically reserve double the locks,
-     then figure out which accounts are executable, keep those
-     reservations, and release the extras back to the pool in the second
-     phase. */
+  ulong  account_cnt0 = runtime->accounts.account_cnt;
+  ushort skipped_cnt0 = txn_out->accounts.executable_skipped_cnt;
+  ushort executable_account_cnt;
+  ushort executable_acquire_cnt;
+  ushort executable_acquire_idx[ MAX_TX_ACCOUNT_LOCKS ];
+  fd_pubkey_t programdata_keys[ MAX_TX_ACCOUNT_LOCKS ];
+  int writable[ MAX_TX_ACCOUNT_LOCKS ];
+  uchar const * pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
+  fd_acc_t * acquire_base = &runtime->accounts.account[ runtime->accounts.account_cnt ];
+
+acquire:
+  runtime->accounts.account_cnt            = account_cnt0;
+  txn_out->accounts.executable_skipped_cnt = skipped_cnt0;
 
   if( FD_LIKELY( acquire_cnt ) ) {
-    fd_acc_t * acquire_base = &runtime->accounts.account[ runtime->accounts.account_cnt ];
     fd_accdb_acquire_a( runtime->accdb, bank->accdb_fork_id, acquire_cnt, acquire_pubkeys, acquire_writable, acquire_base );
 
     for( ulong i=0UL; i<acquire_cnt; i++ ) {
@@ -1416,12 +1425,8 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     runtime->accounts.account_cnt += acquire_cnt;
   }
 
-  ushort executable_account_cnt = 0;
-  ushort executable_acquire_cnt = 0;
-  ushort executable_acquire_idx[ MAX_TX_ACCOUNT_LOCKS ];
-  fd_pubkey_t programdata_keys[ MAX_TX_ACCOUNT_LOCKS ];
-  int writable[ MAX_TX_ACCOUNT_LOCKS ];
-  uchar const * pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
+  executable_account_cnt = 0;
+  executable_acquire_cnt = 0;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     fd_acc_t * acc = txn_out->accounts.account[ i ];
     if( FD_UNLIKELY( memcmp( acc->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
@@ -1471,16 +1476,17 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     executable_account_cnt++;
   }
 
-  /* acquire_b must refund exactly what acquire_a reserved.  acquire_a
-     ran over acquire_cnt pubkeys, so the reserved count is acquire_cnt
-     and not txn_out->accounts.cnt. */
   FD_TEST( runtime->accounts.executable_cnt+executable_acquire_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS );
-  fd_acc_t * acquire_base = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
-  fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, acquire_cnt, executable_acquire_cnt, pubkeys, writable, acquire_base );
+  fd_acc_t * exec_base = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
+  if( FD_UNLIKELY( !fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, executable_acquire_cnt, pubkeys, writable, exec_base ) ) ) {
+    fd_accdb_abort_a( runtime->accdb, acquire_cnt, acquire_base );
+    FD_SPIN_PAUSE();
+    goto acquire;
+  }
   int acquired_from_parent = bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val;
   for( ushort i=0; i<executable_acquire_cnt; i++ ) {
     ushort exe_idx = executable_acquire_idx[ i ];
-    txn_out->accounts.executable[ exe_idx ]             = &acquire_base[ i ];
+    txn_out->accounts.executable[ exe_idx ]             = &exec_base[ i ];
     txn_out->accounts.executable_from_parent[ exe_idx ] = acquired_from_parent;
     int   pd  = 0;
     ulong len = ULONG_MAX;

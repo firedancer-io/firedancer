@@ -2075,6 +2075,15 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     }
   }
 
+  fd_pubkey_t   programdata_keys[ FD_BUNDLE_ACCT_MAX ];
+  uchar const * pd_pubkeys      [ FD_BUNDLE_ACCT_MAX ];
+  int           pd_writable     [ FD_BUNDLE_ACCT_MAX ];
+  ulong         pd_cnt;
+
+  /* The programdata acquire below must not wait while the union is
+     held (see fd_accdb_acquire_b); if it cannot get its lines the
+     union is given back and both phases are redone. */
+acquire:
   if( FD_LIKELY( acquire_cnt ) ) {
     fd_accdb_acquire_a( runtime->accdb, bank->accdb_fork_id, acquire_cnt, acquire_pubkeys, acquire_writable, runtime->accounts.account );
     runtime->accounts.account_cnt = acquire_cnt;
@@ -2100,10 +2109,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     against all other executable-only accounts as well as ones that
     were already included. */
 
-  fd_pubkey_t   programdata_keys[ FD_BUNDLE_ACCT_MAX ];
-  uchar const * pd_pubkeys      [ FD_BUNDLE_ACCT_MAX ];
-  int           pd_writable     [ FD_BUNDLE_ACCT_MAX ];
-  ulong         pd_cnt = 0UL;
+  pd_cnt = 0UL;
 
   FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
 
@@ -2134,12 +2140,14 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     pd_cnt++;
   }
 
-  /* acquire_b refunds the per-class reservations acquire_a made for the
-    union (reserved_cnt==acquire_cnt) that did not turn out to be
-    programdata.  Skip it entirely for an empty bundle (nothing was
-    reserved and nothing is executable). */
+  /* Skip the second phase entirely for an empty bundle (nothing was
+    acquired and nothing is executable). */
   if( FD_LIKELY( acquire_cnt || pd_cnt ) ) {
-    fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, acquire_cnt, pd_cnt, pd_pubkeys, pd_writable, runtime->accounts.executable );
+    if( FD_UNLIKELY( !fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, pd_cnt, pd_pubkeys, pd_writable, runtime->accounts.executable ) ) ) {
+      fd_accdb_abort_a( runtime->accdb, acquire_cnt, runtime->accounts.account );
+      FD_SPIN_PAUSE();
+      goto acquire;
+    }
   }
   runtime->accounts.executable_cnt = pd_cnt;
 

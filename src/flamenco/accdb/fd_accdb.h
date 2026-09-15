@@ -41,13 +41,12 @@ struct fd_accdb_entry {
   ushort  _fork_id;
   uint    _generation;
   ulong   _acc_map_idx;
+  uint    _acc_idx;
 
   ulong   _original_size_class;
   ulong   _original_cache_idx;
 
-  struct {
-    ulong destination_cache_idx[ 8UL ];
-  } _write;
+  ulong   _staging_cache_idx;
 };
 
 typedef struct fd_accdb_entry fd_acc_t;
@@ -359,14 +358,28 @@ fd_accdb_acquire_a( fd_accdb_t *          accdb,
                     int *                 writable,
                     fd_acc_t *            out_accs );
 
-void
+/* fd_accdb_acquire_b acquires the programdata accounts found from the
+   accounts of fd_accdb_acquire_a.  Returns 1 with them acquired, or 0
+   if a cache class had nothing left: then nothing of this call is
+   held, phase A still is, and the caller must fd_accdb_abort_a and
+   redo both phases, since waiting here while holding phase A could
+   deadlock against another join doing the same. */
+
+int
 fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     fd_accdb_fork_id_t    fork_id,
-                    ulong                 reserved_cnt,
                     ulong                 pubkeys_cnt,
                     uchar const * const * pubkeys,
                     int *                 writable,
                     fd_acc_t *            out_accs );
+
+/* fd_accdb_abort_a releases the accounts of fd_accdb_acquire_a, none of
+   which may have commit set, after fd_accdb_acquire_b returned 0. */
+
+void
+fd_accdb_abort_a( fd_accdb_t * accdb,
+                  ulong        accs_cnt,
+                  fd_acc_t *   accs );
 
 /* fd_accdb_release releases previously acquired accounts back to the
    cache, and if any of the released writable accounts have their commit
