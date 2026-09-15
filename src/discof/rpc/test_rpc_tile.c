@@ -559,6 +559,12 @@ main( int     argc,
   metrics_write( ctx );
   FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_SLOT )==1UL );
   FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_VOTE )==0UL );
+  /* an unimplemented method over ws is -32601, not a closed socket */
+  expect_ws_rpc_response( ctx, 0UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"getBlockTime\",\"params\":[1]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":9}"
+  );
+  FD_TEST( ctx->ws_subscribers_slot_cnt==1UL );
   expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"slotSubscribe\"}",
       "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":2}"
@@ -784,8 +790,25 @@ main( int     argc,
     fd_accdb_release( writer_accdb, 1UL, acc );
   }
 
+  /* Account C: 200 bytes of data, over the 128 byte base58 limit */
+  fd_pubkey_t addr_c;
+  memset( addr_c.uc, 0xEE, 32 );
+  {
+    uchar const * pks[1] = { addr_c.uc };
+    int wr[1] = { 1 };
+    fd_acc_t acc[1]; memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, pks, wr, acc );
+    acc[0].lamports = 1UL;
+    acc[0].data_len = 200UL;
+    memcpy( acc[0].owner, owner_b, 32UL );
+    memset( acc[0].data, 0x5A, 200UL );
+    acc[0].commit = 1;
+    fd_accdb_release( writer_accdb, 1UL, acc );
+  }
+
   FD_BASE58_ENCODE_32_BYTES( addr_a.uc, addr_a_b58 );
   FD_BASE58_ENCODE_32_BYTES( addr_b.uc, addr_b_b58 );
+  FD_BASE58_ENCODE_32_BYTES( addr_c.uc, addr_c_b58 );
   FD_BASE58_ENCODE_32_BYTES( owner_a, owner_a_b58 );
   FD_BASE58_ENCODE_32_BYTES( owner_b, owner_b_b58 );
 
@@ -818,7 +841,7 @@ main( int     argc,
     fd_cstr_fini( p );
 
     expect_rpc_response( ctx, req_buf,
-        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Too many accounts provided; max 100\"},\"id\":1}" );
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Too many inputs provided; max 100\"},\"id\":1}" );
   }
 
   /* empty array */
@@ -862,6 +885,50 @@ main( int     argc,
     expect_rpc_response( ctx, req_buf,
         "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":1}" );
   }
+
+  /* getMultipleAccounts defaults to base64, so a >128 byte account is fine without a config */
+  {
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[\"%s\"]]}",
+        addr_c_b58 ) );
+
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"context\":{\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\",\"slot\":42},\"value\":["
+        "{\"executable\":false,\"lamports\":1,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":200,\"data\":[\"%s\",\"base64\"]}"
+        "]}}",
+        owner_b_b58, "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo=" ) );
+
+    expect_rpc_response( ctx, req_buf, res_buf );
+  }
+
+  /* getAccountInfo defaults to binary (base58), which rejects >128 bytes with -32600 like Agave */
+  {
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getAccountInfo\",\"params\":[\"%s\"]}",
+        addr_c_b58 ) );
+
+    expect_rpc_response( ctx, req_buf,
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Encoded binary (base 58) data should be less than 128 bytes, please use Base64 encoding.\"},\"id\":1}" );
+  }
+
+  /* -- Option<CommitmentConfig> handlers reject a missing or malformed commitment -- */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getInflationGovernor\",\"params\":[{}]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `commitment`.\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getInflationGovernor\",\"params\":[{\"commitment\":\"bogus\"}]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `bogus`, expected one of `processed`, `confirmed`, `finalized`.\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[0,{\"commitment\":5}]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: integer `5`, expected enum CommitmentLevel.\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[0,{\"commitment\":null}]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: null, expected enum CommitmentLevel.\"},\"id\":1}" );
+
+  /* Option<RpcContextConfig> handlers name the right struct in type errors */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlot\",\"params\":[true]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: boolean `true`, expected struct RpcContextConfig.\"},\"id\":1}" );
 
   /* -- getMinimumBalanceForRentExemption param validation (usize) -- */
   expect_rpc_response( ctx,

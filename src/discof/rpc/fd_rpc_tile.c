@@ -1102,6 +1102,40 @@ fd_rpc_base58_encode_128( char * b58, ulong * b58sz, const void *data, ulong bin
   return 1;
 }
 
+/* getInflationGovernor and getMinimumBalanceForRentExemption take a
+   bare Option<CommitmentConfig> in Agave, so unlike the flattened
+   configs serde rejects a missing or malformed commitment member. */
+
+static int
+fd_rpc_validate_commitment_strict( fd_rpc_tile_t *             ctx,
+                                   cJSON const *               id,
+                                   cJSON const *               config,
+                                   fd_http_server_response_t * res ) {
+  if( !cJSON_IsObject( config ) ) return 1; /* type errors are fd_rpc_validate_config's */
+  cJSON const * commitment = cJSON_GetObjectItemCaseSensitive( config, "commitment" );
+  if( FD_UNLIKELY( !commitment ) ) {
+    CSTR_JSON( id, id_cstr );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `commitment`.\"},\"id\":%s}\n", id_cstr );
+    return 0;
+  }
+  if( FD_UNLIKELY( cJSON_IsNumber( commitment ) || cJSON_IsBool( commitment ) ) ) {
+    CSTR_JSON( id, id_cstr ); CSTR_JSON( commitment, commitment_cstr );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected enum CommitmentLevel.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( commitment ), commitment_cstr, id_cstr );
+    return 0;
+  }
+  if( FD_UNLIKELY( !cJSON_IsString( commitment ) ) ) {
+    CSTR_JSON( id, id_cstr );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected enum CommitmentLevel.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( commitment ), id_cstr );
+    return 0;
+  }
+  if( FD_UNLIKELY( strcmp( commitment->valuestring, "processed" ) && strcmp( commitment->valuestring, "confirmed" ) && strcmp( commitment->valuestring, "finalized" ) ) ) {
+    CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( commitment, commitment_esc );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `processed`, `confirmed`, `finalized`.\"},\"id\":%s}\n", commitment_esc, id_cstr );
+    return 0;
+  }
+  return 1;
+}
+
 static inline int
 fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
                         cJSON const *               id,
@@ -1471,7 +1505,7 @@ fd_rpc_encode_account_data( fd_rpc_tile_t *             ctx,
 
   if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
     fd_http_server_unstage( ctx->http );
-    *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
+    *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Encoded binary (base 58) data should be less than 128 bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
     return 0;
   }
 
@@ -1879,6 +1913,7 @@ getInflationGovernor( fd_rpc_tile_t * ctx,
 
   ulong bank_idx = ULONG_MAX;
   cJSON const * config = cJSON_GetArrayItem( params, 0 );
+  if( FD_UNLIKELY( !fd_rpc_validate_commitment_strict( ctx, id, config, &response ) ) ) return response;
   int config_valid = fd_rpc_validate_config( ctx, id, config, "struct CommitmentConfig",
                                              1, /* has_commitment */
                                              0, /* has_encoding */
@@ -1922,7 +1957,7 @@ getLatestBlockhash( fd_rpc_tile_t * ctx,
 
   ulong bank_idx = ULONG_MAX;
   cJSON const * config = cJSON_GetArrayItem( params, 0 );
-  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct CommitmentConfig",
+  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct RpcContextConfig",
                                              1, /* has_commitment */
                                              0, /* has_encoding */
                                              0, /* has_data_slice */
@@ -2119,6 +2154,7 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
 
   ulong bank_idx = ULONG_MAX;
   cJSON const * config = cJSON_GetArrayItem( params, 1 );
+  if( FD_UNLIKELY( !fd_rpc_validate_commitment_strict( ctx, id, config, &response ) ) ) return response;
   int config_valid = fd_rpc_validate_config( ctx, id, config, "struct CommitmentConfig",
                                              1, /* has_commitment */
                                              0, /* has_encoding */
@@ -2177,7 +2213,7 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   int cnt = cJSON_GetArraySize( keys_arr );
   if( FD_UNLIKELY( cnt<0 || cnt>100 ) ) {
     CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Too many accounts provided; max 100\"},\"id\":%s}\n", id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Too many inputs provided; max 100\"},\"id\":%s}\n", id_cstr );
   }
 
   ulong bank_idx = ULONG_MAX;
@@ -2191,6 +2227,10 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
                                              &slice_length, &slice_offset,
                                              &response );
   if( FD_UNLIKELY( !config_valid ) ) return response;
+
+  /* Agave defaults getMultipleAccounts to base64 (getAccountInfo to binary) */
+  cJSON const * encoding = cJSON_GetObjectItemCaseSensitive( config, "encoding" );
+  if( !encoding || cJSON_IsNull( encoding ) ) encoding_cstr = "base64";
 
   bank_info_t * info = &ctx->banks[ bank_idx ];
 
@@ -2247,7 +2287,7 @@ getSlot( fd_rpc_tile_t * ctx,
 
   ulong bank_idx = ULONG_MAX;
   cJSON const * config = cJSON_GetArrayItem( params, 0 );
-  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct CommitmentConfig",
+  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct RpcContextConfig",
                                              1, /* has_commitment */
                                              0, /* has_encoding */
                                              0, /* has_data_slice */
@@ -2371,7 +2411,7 @@ getTransactionCount( fd_rpc_tile_t * ctx,
 
   ulong bank_idx = ULONG_MAX;
   cJSON const * config = cJSON_GetArrayItem( params, 0 );
-  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct CommitmentConfig",
+  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct RpcContextConfig",
                                              1, /* has_commitment */
                                              0, /* has_encoding */
                                              0, /* has_data_slice */
@@ -2716,6 +2756,13 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   else if( FD_LIKELY( !strcmp( _method->valuestring, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id, params );
   else {
     FD_MCNT_INC( RPC, REQUEST_SERVED_UNKNOWN, 1UL );
+    CSTR_JSON( id, id_cstr );
+    response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
+  }
+
+  /* Agave pubsub answers non-subscription methods with -32601 and
+     keeps the socket; a bare 501 would close it and drop subscriptions */
+  if( FD_UNLIKELY( ws_conn_id!=ULONG_MAX && response.status==501UL ) ) {
     CSTR_JSON( id, id_cstr );
     response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
   }
