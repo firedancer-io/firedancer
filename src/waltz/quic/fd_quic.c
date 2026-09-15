@@ -1405,6 +1405,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
+  /* RFC 9000 Section 7.2: the peer's Initial SCID cannot change. */
+  if( FD_UNLIKELY( conn && ( conn->server | conn->established ) &&
+                   ( peer_scid->sz!=conn->peer_cids[0].sz ||
+                     memcmp( peer_scid->conn_id, conn->peer_cids[0].conn_id, peer_scid->sz ) ) ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   fd_quic_state_t   * state   = fd_quic_get_state( quic );
   fd_quic_metrics_t * metrics = &quic->metrics;
 
