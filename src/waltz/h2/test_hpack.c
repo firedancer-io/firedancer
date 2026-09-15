@@ -176,6 +176,87 @@ test_hpack_rd_varint( void ) {
   }
 }
 
+/* Regression test for the fd_hpack_rd_varint mis-call in the Dynamic
+   Table Size Update loops of fd_hpack_rd_init / fd_hpack_rd_next_raw.
+   Before the fix, those loops peeked the prefix byte without
+   advancing rd->src, causing the varint helper to re-read the same
+   prefix byte as the first continuation byte.  For multi-byte
+   varints (DT size update value >= 31 with a 5-bit prefix) this
+   produced both a wrong decoded value AND a 1-byte cursor
+   misalignment that propagates into downstream HPACK parsing. */
+
+static void
+test_hpack_rd_dt_size_update( void ) {
+  /* DT size update value 0 (single-byte form: prefix 0x20, no
+     continuation).  rd->src must be advanced past the prefix byte. */
+  {
+    uchar const buf[] = { 0x20 };
+    fd_hpack_rd_t rd[1];
+    fd_hpack_rd_init( rd, buf, sizeof(buf) );
+    FD_TEST( rd->src == buf + sizeof(buf) );
+  }
+
+  /* DT size update value 31 (2-byte form: prefix 0x3f, single
+     continuation byte 0x00).  Pre-fix: varint mis-read 0x3f as the
+     continuation byte and returned 94, advancing rd->src by only 1
+     byte (leaving 0x00 unconsumed).  After fix: varint reads the
+     actual continuation byte 0x00 and returns 31, advancing rd->src
+     past both bytes. */
+  {
+    uchar const buf[] = { 0x3f, 0x00 };
+    fd_hpack_rd_t rd[1];
+    fd_hpack_rd_init( rd, buf, sizeof(buf) );
+    FD_TEST( rd->src == buf + sizeof(buf) );
+  }
+
+  /* DT size update value 1337 (3-byte form: prefix 0x3f, continuation
+     0x9a 0x0a — RFC 7541 §5.1 example).  rd->src must land past
+     all three bytes. */
+  {
+    uchar const buf[] = { 0x3f, 0x9a, 0x0a };
+    fd_hpack_rd_t rd[1];
+    fd_hpack_rd_init( rd, buf, sizeof(buf) );
+    FD_TEST( rd->src == buf + sizeof(buf) );
+  }
+
+  /* Mixed: a single-byte DT update (value 0) followed by a multi-byte
+     DT update (value 31) followed by a non-DT byte (0x80).  Loop must
+     consume both DT updates and break at the non-DT byte without
+     misaligning the cursor. */
+  {
+    uchar const buf[] = { 0x20, 0x3f, 0x00, 0x80 /* non-DT */ };
+    fd_hpack_rd_t rd[1];
+    fd_hpack_rd_init( rd, buf, sizeof(buf) );
+    FD_TEST( rd->src == buf + 3 );
+  }
+
+  /* Malformed / unterminated varint: prefix byte 0x3f followed by a
+     continuation byte 0x81 (top bit set => "more bytes follow") but
+     no further bytes.  fd_hpack_rd_varint returns ULONG_MAX.
+     fd_hpack_rd_init has no error return, so it must leave rd->src
+     at the prefix byte; the first fd_hpack_rd_next call then
+     consumes 0x3f as its first instruction byte, fails to match any
+     known HPACK encoding, and falls through to the "Unknown HPACK
+     instruction" return -> FD_H2_ERR_COMPRESSION.
+
+     Without the restore, rd->src would land mid-varint at 0x81,
+     which fd_hpack_rd_next_raw would mis-parse as a valid indexed
+     header (0x81 -> indexed entry 1 in the static table — :authority). */
+  {
+    uchar const buf[] = { 0x3f, 0x81 };
+    fd_hpack_rd_t rd[1];
+    fd_hpack_rd_init( rd, buf, sizeof(buf) );
+    FD_TEST( rd->src == buf ); /* restored to prefix */
+
+    fd_h2_hdr_t hdr[1];
+    uchar       scratch_buf[ 64 ];
+    uchar *     scratch     = scratch_buf;
+    uchar *     scratch_end = scratch_buf + sizeof(scratch_buf);
+    uint        err         = fd_hpack_rd_next( rd, hdr, &scratch, scratch_end );
+    FD_TEST( err == FD_H2_ERR_COMPRESSION );
+  }
+}
+
 static void
 test_hpack_wr_varint( void ) {
   for( test_hpack_case_t const * c=test_hpack_cases; c->bits; c++ ) {
@@ -199,5 +280,6 @@ FD_UNIT_TEST( hpack ) {
   test_hpack_rd( rfc7541_c51_bin, sizeof(rfc7541_c51_bin), rfc7541_c51_dec );
   test_hpack_rd( rfc7541_c61_bin, sizeof(rfc7541_c61_bin), rfc7541_c51_dec );
   test_hpack_rd_varint();
+  test_hpack_rd_dt_size_update();
   test_hpack_wr_varint();
 }
