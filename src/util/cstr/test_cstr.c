@@ -142,6 +142,28 @@ main( int     argc,
 
   } while(0);
 
+  do {
+    struct {
+      char const * cstr;
+      ulong        cnt;
+      ulong        ref[3];
+    } const cases[] = {
+      { "0-18446744073709551615/9223372036854775808", 2UL, { 0UL, 1UL<<63, 42UL } },
+      { "1-18446744073709551615:9223372036854775808", 2UL, { 1UL, (1UL<<63)+1UL, 42UL } },
+      { "0-18446744073709551615/18446744073709551615", 2UL, { 0UL, ULONG_MAX, 42UL } },
+      { "0-18446744073709551614/18446744073709551615", 1UL, { 0UL, 42UL, 42UL } },
+      { "0-18446744073709551615/9223372036854775808,7", 3UL, { 0UL, 1UL<<63, 7UL } },
+    };
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      FD_TEST( fd_cstr_to_ulong_seq( cases[i].cstr, NULL, 0UL )==cases[i].cnt );
+      for( ulong max=1UL; max<=3UL; max++ ) {
+        ulong seq[3] = { 42UL, 42UL, 42UL };
+        FD_TEST( fd_cstr_to_ulong_seq( cases[i].cstr, seq, max )==cases[i].cnt );
+        for( ulong j=0UL; j<3UL; j++ ) FD_TEST( seq[j]==(j<max ? cases[i].ref[j] : 42UL) );
+      }
+    }
+  } while(0);
+
   char const * text = "The quick brown fox jumps over the lazy dog.";
   ulong        sz   = strlen( text );
 
