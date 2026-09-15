@@ -532,6 +532,7 @@ fd_tile_private_cpus_parse( char const * cstr,
 
     for( ulong cpu=cpu0; cpu<cpu1; cpu+=stride ) {
       if( FD_UNLIKELY( cnt>=FD_TILE_MAX                    ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
+      if( FD_UNLIKELY( cpu>=FD_TILE_MAX                    ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (cpu index too large)" ));
       if( FD_UNLIKELY( fd_cpuset_test( assigned_set, cpu ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       tile_to_cpu[ cnt++ ] = (ushort)cpu;
       fd_cpuset_insert( assigned_set, cpu );

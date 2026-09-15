@@ -15,6 +15,7 @@
 
 #include "fd_topob.h"
 #include "fd_cpu_topo.h"
+#include "../../util/tile/fd_tile_private.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
 #include <signal.h>
@@ -605,13 +606,14 @@ FD_UNIT_TEST( test_parse_affinity_shared ) {
 
 /* A malformed affinity string is a FD_LOG_ERR, so parse it in a child. */
 static void
-parse_affinity_fails( char const * cstr,
-                      int          allow_shared ) {
+parse_affinity_topob_fails( char const * cstr,
+                            int          allow_shared ) {
   pid_t pid = fork();
   FD_TEST( pid>=0 );
 
   if( pid==0 ) {
     fd_log_level_logfile_set( 6 );
+    fd_log_level_core_set( 5 );
 
     ushort cpu[ FD_TILE_MAX ];
     fd_topob_parse_affinity_cstr( cstr, cpu, 0, allow_shared );
@@ -620,17 +622,64 @@ parse_affinity_fails( char const * cstr,
 
   int status = 0;
   FD_TEST( waitpid( pid, &status, 0 )==pid );
-  FD_TEST( ( WIFEXITED( status ) && WEXITSTATUS( status )==1 ) ||
-           ( WIFSIGNALED( status ) && WTERMSIG( status )==SIGABRT ) );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+}
+
+static void
+parse_affinity_tile_fails( char const * cstr ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+
+  if( pid==0 ) {
+    fd_log_level_logfile_set( 6 );
+    fd_log_level_core_set( 5 );
+
+    ushort cpu[ FD_TILE_MAX ];
+    fd_tile_private_cpus_parse( cstr, cpu );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
 }
 
 FD_UNIT_TEST( test_parse_affinity_malformed ) {
-  parse_affinity_fails( "s",     1 ); /* shared prefix with no cpu */
-  parse_affinity_fails( "1,s",   1 );
-  parse_affinity_fails( "s1-",   1 );
-  parse_affinity_fails( "s1",    0 ); /* caller cannot handle shared */
-  parse_affinity_fails( "1,1",   1 ); /* a plain repeat is still banned */
-  parse_affinity_fails( "1024",  1 ); /* cpu index past the cpu_assigned bitset */
+  parse_affinity_topob_fails( "s",   1 ); /* shared prefix with no cpu */
+  parse_affinity_topob_fails( "1,s", 1 );
+  parse_affinity_topob_fails( "s1-", 1 );
+  parse_affinity_topob_fails( "s1",  0 ); /* caller cannot handle shared */
+  parse_affinity_topob_fails( "1,1", 1 ); /* a plain repeat is still banned */
+}
+
+FD_UNIT_TEST( test_parse_affinity_bounds ) {
+  {
+    ushort cpu[ FD_TILE_MAX ];
+    ulong cnt = fd_topob_parse_affinity_cstr( "1022-1023,f", cpu, 0, 1 );
+    FD_TEST( cnt==3UL );
+    FD_TEST( cpu[ 0 ]==1022 && cpu[ 1 ]==1023 && cpu[ 2 ]==USHORT_MAX );
+
+    parse_affinity_topob_fails( "1024",                 1 );
+    parse_affinity_topob_fails( "1023-1024",            1 );
+    parse_affinity_topob_fails( "65536",                1 );
+    parse_affinity_topob_fails( "18446744073709551614", 1 );
+    parse_affinity_topob_fails( "18446744073709551615", 1 );
+  }
+
+  {
+    ushort cpu[ FD_TILE_MAX ];
+    ulong cnt = fd_tile_private_cpus_parse( "1022-1023,f", cpu );
+    FD_TEST( cnt==3UL );
+    FD_TEST( cpu[ 0 ]==1022 && cpu[ 1 ]==1023 && cpu[ 2 ]==USHORT_MAX );
+
+    parse_affinity_tile_fails( "1024"                 );
+    parse_affinity_tile_fails( "1023-1024"            );
+    parse_affinity_tile_fails( "65536"                );
+    parse_affinity_tile_fails( "18446744073709551614" );
+    parse_affinity_tile_fails( "18446744073709551615" );
+  }
+
+  parse_affinity_topob_fails( "s65536", 1 );
 }
 
 /* ======================================================================== */
