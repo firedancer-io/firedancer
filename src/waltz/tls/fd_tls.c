@@ -1283,8 +1283,13 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
       .supported_groups     = { .x25519=1 },
       /* TPU/QUIC peers always present Ed25519 identities.  Only the
          TCP-based TLS client talks to CAs issuing ECDSA certs. */
-      .signature_algorithms = { .ed25519=1,
-                                .ecdsa_secp256r1_sha256 = !client->quic },
+      .signature_algorithms =
+        { .ed25519 = 1,
+          .ecdsa_secp256r1_sha256 = !client->quic },
+      .signature_algorithms_cert =
+        { .ed25519                = !client->quic,
+          .ecdsa_secp256r1_sha256 = !client->quic,
+          .ecdsa_secp384r1_sha384 = !client->quic },
       .cipher_suites        = { .aes_128_gcm_sha256=1 },
       .key_share            = { .has_x25519=1 },
       .session_id = {
