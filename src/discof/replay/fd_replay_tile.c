@@ -477,7 +477,16 @@ sched_dead_reason_to_event( int sched_reason ) {
     case FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH:         return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_HASH_MISMATCH;
     case FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST:  return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST;
     case FD_SCHED_DEAD_REASON_DEAD_ANCESTOR:               return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_PARENT_DEAD;
-    case FD_SCHED_DEAD_REASON_BAD_FOOTER:                  return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER;
+    case FD_SCHED_DEAD_REASON_BAD_BLOCK_MARKER:            return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER;
+    case FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT:          return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ALPENGLOW_HASH_CNT;
+    case FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER:       return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MISSING_PARENT_MARKER;
+    case FD_SCHED_DEAD_REASON_MULTIPLE_BLOCK_HEADERS:      return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MULTIPLE_BLOCK_HEADERS;
+    case FD_SCHED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER:   return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER;
+    case FD_SCHED_DEAD_REASON_MULTIPLE_BLOCK_FOOTERS:      return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MULTIPLE_BLOCK_FOOTERS;
+    case FD_SCHED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER:    return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER;
+    case FD_SCHED_DEAD_REASON_INVALID_ALPENTICK_POSITION:  return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_INVALID_ALPENTICK_POSITION;
+    case FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER:        return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_MISSING_BLOCK_FOOTER;
+    case FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT:      return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
     default: FD_LOG_CRIT(( "unmapped scheduler dead reason %d", sched_reason ));
   }
 }
@@ -1065,15 +1074,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   ulong tips_pre_settle           = bank->f.tips;
 
   fd_block_footer_t const * footer = NULL;
-  if( FD_UNLIKELY( ctx->alpenglow ) ) {
-    footer = fd_sched_get_footer( ctx->sched, bank->idx );
-    if( FD_UNLIKELY( !footer ) ) {
-      FD_LOG_WARNING(( "slot %lu: no footer present at finalize; marking dead", bank->f.slot ));
-      mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
-      return 1;
-    }
-    // TODO missing cert verify - inline to replay or use new verify tiles
-  }
+  if( FD_UNLIKELY( ctx->alpenglow ) ) footer = fd_sched_get_footer( ctx->sched, bank->idx ); // guaranteed by sched
 
   /* Do hashing and other end-of-block processing. */
   if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer, shred_version( ctx ) ) ) ) {

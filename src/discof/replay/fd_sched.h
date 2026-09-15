@@ -221,7 +221,18 @@ typedef struct fd_sched_task fd_sched_task_t;
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH         (17) /* PoH hash of a transaction entry did not verify, detected when the entry's PoH hashing task completed. */
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST  (18) /* PoH hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions. */
 #define FD_SCHED_DEAD_REASON_DEAD_ANCESTOR               (19) /* The block went down with its lineage.  Whether the lineage was discarded or ruled invalid is distinguished by fd_sched_block_is_discarded. */
-#define FD_SCHED_DEAD_REASON_BAD_FOOTER                  (20) /* The block's footer was invalid. */
+#define FD_SCHED_DEAD_REASON_BAD_BLOCK_MARKER            (20) /* An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind. */
+#define FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT          (21) /* An Alpenglow block had an entry whose hash count was not exactly one, detected at FEC ingest. */
+/* Alpenglow block structure, mirroring agave's BlockComponentProcessor:
+   header | [genesis cert] | entries* | footer | alpentick */
+#define FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER       (22) /* An Alpenglow block carried an entry batch or footer before any block header. */
+#define FD_SCHED_DEAD_REASON_MULTIPLE_BLOCK_HEADERS      (23) /* An Alpenglow block carried more than one block header. */
+#define FD_SCHED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER   (24) /* An Alpenglow genesis certificate marker did not immediately follow the block header. */
+#define FD_SCHED_DEAD_REASON_MULTIPLE_BLOCK_FOOTERS      (25) /* An Alpenglow block carried more than one block footer. */
+#define FD_SCHED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER    (26) /* An Alpenglow block carried an entry batch other than the alpentick after its footer. */
+#define FD_SCHED_DEAD_REASON_INVALID_ALPENTICK_POSITION  (27) /* An Alpenglow block ended without the alpentick directly after its footer. */
+#define FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER        (28) /* An Alpenglow block ended without a block footer. */
+#define FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (29) /* An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer. */
 /* Cause to pass to fd_sched_block_abandon().  A block is considered
    invalid when it violates the protocol, so validity is a function of
    the block's content.  A block may be discarded (temporarily) because

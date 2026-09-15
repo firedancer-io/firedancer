@@ -58,7 +58,17 @@
                 "vote_cost_limit":             { "description": "A vote transaction pushed the block over its vote compute limit." },
                 "account_data_limit":          { "description": "A transaction pushed the block over its account data size limit." },
                 "duplicate_account":           { "description": "A transaction referenced the same account more than once." },
-                "bad_footer":                  { "description": "An Alpenglow block failed to parse its footer." }
+                "bad_footer":                  { "description": "An Alpenglow block's footer could not be applied or declared a bank hash that did not match execution." },
+                "alpenglow_hash_cnt":          { "description": "An Alpenglow block had an entry whose hash count was not exactly one." },
+                "missing_parent_marker":       { "description": "An Alpenglow block carried an entry batch or footer before any block header." },
+                "multiple_block_headers":      { "description": "An Alpenglow block carried more than one block header." },
+                "genesis_cert_out_of_order":   { "description": "An Alpenglow genesis certificate marker did not immediately follow the block header." },
+                "multiple_block_footers":      { "description": "An Alpenglow block carried more than one block footer." },
+                "entry_after_block_footer":    { "description": "An Alpenglow block carried an entry batch other than the alpentick after its footer." },
+                "invalid_alpentick_position":  { "description": "An Alpenglow block ended without the alpentick directly after its footer." },
+                "missing_block_footer":        { "description": "An Alpenglow block ended without a block footer." },
+                "spurious_update_parent":      { "description": "An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer." },
+                "bad_block_marker":            { "description": "An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind." }
             }
         },
         "dead_time":                                 { "type": "DateTime64(9)",                                     "description": "When the block was ruled invalid; 0 if not dead." },

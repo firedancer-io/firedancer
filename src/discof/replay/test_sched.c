@@ -6,6 +6,7 @@
 #include "fd_sched.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
+#include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 
 #define TEST_EXEC_CNT         4UL
 #define TEST_ROOT_SLOT        1000UL
@@ -254,6 +255,7 @@ run_bad_tick_case( fd_hash_t const * start_poh,
                    ulong             tick_cnt,
                    ulong             max_tick_height,
                    ulong             hashes_per_tick,
+                   int               alpenglow,
                    int               expect_mark_dead,
                    int               expect_poh_fail,
                    int               expect_dead_reason ) {
@@ -266,7 +268,7 @@ run_bad_tick_case( fd_hash_t const * start_poh,
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, alpenglow ) );
   FD_TEST( sched );
 
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -313,6 +315,9 @@ run_bad_tick_case( fd_hash_t const * start_poh,
         FD_TEST( task->mark_dead->bank_idx==2UL );
         seen_mark_dead = 1;
         break;
+      case FD_SCHED_TT_BLOCK_END: /* only reached when the block is valid */
+        FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
       case FD_SCHED_TT_POH_HASH: {
         fd_execrp_poh_hash_done_msg_t msg[ 1 ];
         msg->cnt = task->poh_hash->cnt;
@@ -338,6 +343,211 @@ run_bad_tick_case( fd_hash_t const * start_poh,
   free( mem );
 }
 
+
+
+/* Alpenglow block structure cases.  Each component is its own FEC set
+   (one batch per FEC set, as sched assumes).  Markers are serialized
+   with fd_block_marker_ser, which emits the whole zero-microblock
+   batch; a tick is a one-microblock batch chained from the running
+   PoH. */
+
+#define AG_COMP_HEADER        (0)
+#define AG_COMP_FOOTER        (1)
+#define AG_COMP_UPDATE_PARENT (2)
+#define AG_COMP_TICK          (3) /* alpentick: one hash */
+#define AG_COMP_TICK_0HASH    (4) /* tick declaring zero hashes: invalid under Alpenglow */
+#define AG_COMP_TICK_2HASH    (5) /* tick declaring two hashes: invalid under Alpenglow */
+
+static ulong
+encode_ag_component( uchar *     out,
+                     int         comp,
+                     fd_hash_t * prev_hash ) {
+  fd_block_marker_t marker[1];
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  switch( comp ) {
+  case AG_COMP_HEADER:
+    marker->kind               = FD_BLOCK_MARKER_KIND_HEADER;
+    marker->header.parent_slot = TEST_ROOT_SLOT;
+    return fd_block_marker_ser( marker, out );
+  case AG_COMP_FOOTER:
+    marker->kind = FD_BLOCK_MARKER_KIND_FOOTER;
+    return fd_block_marker_ser( marker, out );
+  case AG_COMP_UPDATE_PARENT: {
+    /* fd_block_marker_ser only produces headers and footers (nothing
+       Firedancer emits is an UpdateParent), so lay the wire format out
+       by hand: preamble (entry_cnt=0, version=1, tag, length) then a
+       V1 payload (version=1, new_parent_slot, new_parent_block_id). */
+    ulong off = 0UL;
+    FD_STORE( ulong,  out+off, 0UL );                                  off += sizeof(ulong);
+    FD_STORE( ushort, out+off, (ushort)1 );                            off += sizeof(ushort);
+    out[ off ] = (uchar)FD_BLOCK_MARKER_KIND_UPDATE_PARENT;            off += sizeof(uchar);
+    FD_STORE( ushort, out+off, (ushort)FD_UPDATE_PARENT_SER_SZ );      off += sizeof(ushort);
+    out[ off ] = (uchar)1;                                             off += sizeof(uchar);
+    FD_STORE( ulong,  out+off, TEST_ROOT_SLOT );                       off += sizeof(ulong);
+    fd_memset( out+off, 0, sizeof(fd_hash_t) );                        off += sizeof(fd_hash_t);
+    return off;
+  }
+  case AG_COMP_TICK:
+  case AG_COMP_TICK_0HASH:
+  case AG_COMP_TICK_2HASH: {
+    ulong hash_cnt = comp==AG_COMP_TICK ? 1UL : comp==AG_COMP_TICK_0HASH ? 0UL : 2UL;
+    FD_STORE( ulong, out, 1UL );
+    fd_hash_t end_hash[ 1 ];
+    repeat_hash( end_hash, prev_hash, hash_cnt );
+    fd_microblock_hdr_t hdr = { .hash_cnt = hash_cnt, .txn_cnt = 0UL };
+    fd_memcpy( hdr.hash, end_hash->hash, sizeof(fd_hash_t) );
+    fd_memcpy( out+sizeof(ulong), &hdr, sizeof(fd_microblock_hdr_t) );
+    fd_memcpy( prev_hash, end_hash, sizeof(fd_hash_t) );
+    return sizeof(ulong)+sizeof(fd_microblock_hdr_t);
+  }
+  default:
+    FD_LOG_ERR(( "bad component %d", comp ));
+  }
+}
+
+/* Feeds the components as consecutive FEC sets.  If expect_ingest_ok is
+   0, some FEC ingest must fail and the block must carry
+   expect_dead_reason.  Otherwise every ingest succeeds and the block is
+   driven to completion, ending with expect_dead_reason (NONE for a
+   valid block). */
+static void
+run_ag_structure_case( fd_hash_t const * start_poh,
+                       int const *       comps,
+                       ulong             comp_cnt,
+                       int               expect_ingest_ok,
+                       int               expect_dead_reason ) {
+  ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
+  ulong block_cnt_max = 4UL;
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  void * mem          = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 1 /* alpenglow */ ) );
+  FD_TEST( sched );
+
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  static uchar          encoded  [ 8 ][ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
+  static fd_store_fec_t store_fec[ 8 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  FD_TEST( comp_cnt<=8UL );
+
+  fd_hash_t prev_hash[ 1 ];
+  fd_memcpy( prev_hash, start_poh, sizeof(fd_hash_t) );
+
+  int ingest_ok = 1;
+  for( ulong i=0UL; i<comp_cnt; i++ ) {
+    ulong sz = encode_ag_component( encoded[ i ], comps[ i ], prev_hash );
+    FD_TEST( sz );
+    fd_memset( &store_fec[ i ], 0, sizeof(fd_store_fec_t) );
+    store_fec[ i ].data_sz       = sz;
+    store_fec[ i ].shred_offs[0] = (uint)sz;
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx          = 2UL,
+      .parent_bank_idx   = 1UL,
+      .slot              = TEST_ROOT_SLOT + 1UL,
+      .parent_slot       = TEST_ROOT_SLOT,
+      .fec               = &store_fec[ i ],
+      .data              = encoded[ i ],
+      .shred_cnt         = 1U,
+      .is_last_in_batch  = 1U,
+      .is_last_in_block  = i==comp_cnt-1UL,
+      .is_first_in_block = i==0UL,
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    if( FD_UNLIKELY( !fd_sched_fec_ingest( sched, fec ) ) ) { ingest_ok = 0; break; }
+    if( FD_UNLIKELY( i==0UL ) ) {
+      fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, 1UL, start_poh );
+    }
+  }
+  FD_TEST( ingest_ok==expect_ingest_ok );
+
+  if( FD_LIKELY( ingest_ok ) ) {
+    fd_sched_task_t task[ 1 ];
+    for(;;) {
+      while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+      if( FD_UNLIKELY( !fd_sched_task_next_ready( sched, task ) ) ) break;
+      switch( task->task_type ) {
+        case FD_SCHED_TT_BLOCK_START:
+          FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+          break;
+        case FD_SCHED_TT_BLOCK_END:
+          FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
+          break;
+        case FD_SCHED_TT_MARK_DEAD:
+          FD_TEST( task->mark_dead->bank_idx==2UL );
+          break;
+        case FD_SCHED_TT_POH_HASH: {
+          fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+          msg->cnt = task->poh_hash->cnt;
+          for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+          fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg );
+          break;
+        }
+        default:
+          FD_LOG_ERR(( "unexpected task_type %lu in alpenglow structure case", task->task_type ));
+      }
+    }
+  }
+
+  FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==expect_dead_reason );
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+
+  fd_sched_delete( fd_sched_leave( sched ) );
+  free( mem );
+}
+
+static void
+run_ag_structure_cases( void ) {
+  fd_hash_t start_poh[ 1 ];
+  hash_from_seed( start_poh, 0x2b7e151628aed2a6UL );
+
+  /* header | footer | alpentick: valid. */
+  { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 3UL, 1, FD_SCHED_DEAD_REASON_NONE ); }
+
+  /* Every Alpenglow entry advances exactly one hash.  A zero-hash
+     alpentick would verify trivially against the parent's PoH and hand
+     the leader control of the blockhash; agave rejects it, so must we,
+     and at ingest.  More than one hash is just as invalid. */
+  { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_TICK_0HASH };
+    run_ag_structure_case( start_poh, c, 3UL, 0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT ); }
+  { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_TICK_2HASH };
+    run_ag_structure_case( start_poh, c, 3UL, 0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT ); }
+
+  /* No header before the footer. */
+  { int c[] = { AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 2UL, 0, FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER ); }
+
+  /* No header before entries. */
+  { int c[] = { AG_COMP_TICK, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 3UL, 0, FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER ); }
+
+  /* Two headers. */
+  { int c[] = { AG_COMP_HEADER, AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 4UL, 0, FD_SCHED_DEAD_REASON_MULTIPLE_BLOCK_HEADERS ); }
+
+  /* Two footers. */
+  { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 4UL, 0, FD_SCHED_DEAD_REASON_MULTIPLE_BLOCK_FOOTERS ); }
+
+  /* Anything after the alpentick. */
+  { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_TICK, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 4UL, 0, FD_SCHED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER ); }
+
+  /* No footer at all: the layout is final once the last FEC lands, so
+     that ingest is what fails. */
+  { int c[] = { AG_COMP_HEADER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 2UL, 0, FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER ); }
+
+  /* UpdateParent before the header or after the footer.  A valid
+     position aborts (unhandled reparent) and cannot be tested here. */
+  { int c[] = { AG_COMP_UPDATE_PARENT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 3UL, 0, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT ); }
+  { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_UPDATE_PARENT, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 4UL, 0, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT ); }
+}
+
 static void
 run_bad_tick_cases( void ) {
   fd_hash_t start_poh[ 1 ];
@@ -345,17 +555,17 @@ run_bad_tick_cases( void ) {
 
   {
     ulong tick_hashcnt[ 1 ] = { 1UL };
-    run_bad_tick_case( start_poh, tick_hashcnt, 1UL, TEST_ROOT_TICK_HEIGHT + 2UL, 1UL, 1, 0, FD_SCHED_DEAD_REASON_TOO_FEW_TICKS );
+    run_bad_tick_case( start_poh, tick_hashcnt, 1UL, TEST_ROOT_TICK_HEIGHT + 2UL, 1UL, 0, 1, 0, FD_SCHED_DEAD_REASON_TOO_FEW_TICKS );
   }
 
   {
     ulong tick_hashcnt[ 2 ] = { 1UL, 1UL };
-    run_bad_tick_case( start_poh, tick_hashcnt, 2UL, TEST_ROOT_TICK_HEIGHT + 1UL, 1UL, 0, 1, FD_SCHED_DEAD_REASON_TOO_MANY_TICKS );
+    run_bad_tick_case( start_poh, tick_hashcnt, 2UL, TEST_ROOT_TICK_HEIGHT + 1UL, 1UL, 0, 0, 1, FD_SCHED_DEAD_REASON_TOO_MANY_TICKS );
   }
 
   {
     ulong tick_hashcnt[ 2 ] = { 1UL, 2UL };
-    run_bad_tick_case( start_poh, tick_hashcnt, 2UL, TEST_ROOT_TICK_HEIGHT + 2UL, 2UL, 0, 1, FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK );
+    run_bad_tick_case( start_poh, tick_hashcnt, 2UL, TEST_ROOT_TICK_HEIGHT + 2UL, 2UL, 0, 0, 1, FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK );
   }
 }
 
@@ -1071,6 +1281,7 @@ main( int     argc,
   test_sched_footprint();
   run_lane_policy_case();
   run_bad_tick_cases();
+  run_ag_structure_cases();
   run_poh_spread_cases();
   run_interleaved_fec_residual_case();
   run_abandon_flavor_case();
