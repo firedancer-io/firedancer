@@ -75,8 +75,8 @@ static void
 snapshot_load_topo( config_t * config ) {
   config->firedancer.layout.resolv_tile_count = 0;
   fd_topo_t * topo = &config->topo;
-  fd_topob_new( &config->topo, config->name );
-  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  fd_topob_new( &config->topo, FD_TOPO_STR( config->name ) );
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
 
   fd_topob_wksp( topo, "txncache" );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
@@ -395,7 +395,7 @@ fixup_config( config_t *     config,
               args_t const * args ) {
   fd_topo_t * topo = &config->topo;
   if( args->snapshot_load.snapshot_dir[0] ) {
-    fd_cstr_ncpy( config->paths.snapshots, args->snapshot_load.snapshot_dir, sizeof(config->paths.snapshots) );
+    FD_TEST( fd_config_str_set( config, &config->paths.snapshots, args->snapshot_load.snapshot_dir, strlen( args->snapshot_load.snapshot_dir ) ) );
   }
 
   if( args->snapshot_load.db_rec_max ) {

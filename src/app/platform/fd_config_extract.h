@@ -2,78 +2,36 @@
 #define HEADER_fd_src_app_platform_fd_config_extract_h
 
 #include "../../util/fd_util.h"
-#include "../../util/pod/fd_pod.h"
+#include "../../ballet/toml/fd_toml.h"
 
 FD_PROTOTYPES_BEGIN
 
-/* fdctl_pod_find_leftover recursively descends a pod and logs a
-   WARNING for each remaining leaf item.  Intended for warning the user
-   about unrecognized config options, after loading config files into a
-   pod. */
-
-int
-fdctl_pod_find_leftover( uchar * pod );
-
-/* Pod query utils ****************************************************/
+/* TOML node query utils **********************************************/
 
 static inline int
-fdctl_cfg_get_cstr_( char *                out,
-                     ulong                 out_sz,
-                     fd_pod_info_t const * info,
-                     char const *          path ) {
-  if( FD_UNLIKELY( info->val_type != FD_POD_VAL_TYPE_CSTR ) ) {
+fdctl_cfg_get_ulong( ulong *                out,
+                     fd_toml_doc_t const *  doc FD_PARAM_UNUSED,
+                     fd_toml_node_t const * node,
+                     char const *           path ) {
+  if( FD_UNLIKELY( node->type!=FD_TOML_NODE_INT ) ) {
     FD_LOG_WARNING(( "invalid value for `%s`", path ));
     return 0;
   }
-  char const * str = info->val;
-  ulong        sz  = strlen( str ) + 1;
-  if( FD_UNLIKELY( sz > out_sz ) ) {
-    FD_LOG_WARNING(( "`%s`: too long (max %ld)", path, (long)out_sz-1L ));
+  if( FD_UNLIKELY( node->i<0L ) ) {
+    FD_LOG_WARNING(( "`%s` cannot be negative", path ));
     return 0;
   }
-  fd_memcpy( out, str, sz );
-  return 1;
-}
-
-#define fdctl_cfg_get_cstr( out, out_sz, info, path ) \
-  fdctl_cfg_get_cstr_( *out, out_sz, info, path )
-
-static inline int
-fdctl_cfg_get_ulong( ulong *               out,
-                     ulong                 out_sz FD_PARAM_UNUSED,
-                     fd_pod_info_t const * info,
-                     char const *          path ) {
-
-  ulong num;
-  switch( info->val_type ) {
-  case FD_POD_VAL_TYPE_LONG:
-    fd_ulong_svw_dec( (uchar const *)info->val, &num );
-    long snum = fd_long_zz_dec( num );
-    if( snum < 0L ) {
-      FD_LOG_WARNING(( "`%s` cannot be negative", path ));
-      return 0;
-    }
-    num = (ulong)snum;
-    break;
-  case FD_POD_VAL_TYPE_ULONG:
-    fd_ulong_svw_dec( (uchar const *)info->val, &num );
-    break;
-  default:
-    FD_LOG_WARNING(( "invalid value for `%s`", path ));
-    return 0;
-  }
-
-  *out = num;
+  *out = (ulong)node->i;
   return 1;
 }
 
 static inline int
-fdctl_cfg_get_uint( uint *                out,
-                    ulong                 out_sz FD_PARAM_UNUSED,
-                    fd_pod_info_t const * info,
-                    char const *          path ) {
+fdctl_cfg_get_uint( uint *                 out,
+                    fd_toml_doc_t const *  doc,
+                    fd_toml_node_t const * node,
+                    char const *           path ) {
   ulong num;
-  if( FD_UNLIKELY( !fdctl_cfg_get_ulong( &num, sizeof(num), info, path ) ) ) return 0;
+  if( FD_UNLIKELY( !fdctl_cfg_get_ulong( &num, doc, node, path ) ) ) return 0;
   if( num > UINT_MAX ) {
     FD_LOG_WARNING(( "`%s` is out of bounds (%lx)", path, num ));
     return 0;
@@ -83,12 +41,12 @@ fdctl_cfg_get_uint( uint *                out,
 }
 
 static inline int
-fdctl_cfg_get_ushort( ushort *              out,
-                      ulong                 out_sz FD_PARAM_UNUSED,
-                      fd_pod_info_t const * info,
-                      char const *          path ) {
+fdctl_cfg_get_ushort( ushort *               out,
+                      fd_toml_doc_t const *  doc,
+                      fd_toml_node_t const * node,
+                      char const *           path ) {
   ulong num;
-  if( FD_UNLIKELY( !fdctl_cfg_get_ulong( &num, sizeof(num), info, path ) ) ) return 0;
+  if( FD_UNLIKELY( !fdctl_cfg_get_ulong( &num, doc, node, path ) ) ) return 0;
   if( num > USHORT_MAX ) {
     FD_LOG_WARNING(( "`%s` is out of bounds (%lx)", path, num ));
     return 0;
@@ -98,76 +56,63 @@ fdctl_cfg_get_ushort( ushort *              out,
 }
 
 static inline int
-fdctl_cfg_get_bool( int *                 out,
-                    ulong                 out_sz FD_PARAM_UNUSED,
-                    fd_pod_info_t const * info,
-                    char const *          path ) {
-  if( FD_UNLIKELY( info->val_type != FD_POD_VAL_TYPE_INT ) ) {
+fdctl_cfg_get_bool( int *                  out,
+                    fd_toml_doc_t const *  doc FD_PARAM_UNUSED,
+                    fd_toml_node_t const * node,
+                    char const *           path ) {
+  if( FD_UNLIKELY( node->type!=FD_TOML_NODE_BOOL ) ) {
     FD_LOG_WARNING(( "invalid value for `%s`", path ));
     return 0;
   }
-  ulong u; fd_ulong_svw_dec( (uchar const *)info->val, &u );
-  *out = fd_int_zz_dec( (uint)u );
+  *out = node->b;
   return 1;
 }
 
 /* Handles true, false, "true", "false" and "auto" */
 static inline int
-fdctl_cfg_get_boolau( int *                 out,
-                      ulong                 out_sz FD_PARAM_UNUSED,
-                      fd_pod_info_t const * info,
-                      char const *          path ) {
-  if( info->val_type==FD_POD_VAL_TYPE_CSTR ) {
-    char const * info_val = (char const *)info->val;
-    if( !strcmp( info_val, "auto"  ) ) {
+fdctl_cfg_get_boolau( int *                  out,
+                      fd_toml_doc_t const *  doc,
+                      fd_toml_node_t const * node,
+                      char const *           path ) {
+  if( node->type==FD_TOML_NODE_STRING ) {
+    char const * val = fd_toml_node_str( doc, node );
+    if( !strcmp( val, "auto"  ) ) {
       *out = 2;
       return 1;
-    } else if( !strcmp( info_val, "true"  ) ) {
+    } else if( !strcmp( val, "true"  ) ) {
       *out = 1;
       return 1;
-    } else if( !strcmp( info_val, "false" ) ) {
+    } else if( !strcmp( val, "false" ) ) {
       *out = 0;
       return 1;
     }
     FD_LOG_WARNING(( "invalid value of `%s` entered for `%s`, must be true, false or auto. ",
-                     info_val, path ));
+                     val, path ));
     return 0;
   }
-  return fdctl_cfg_get_bool( out, out_sz, info, path );
+  return fdctl_cfg_get_bool( out, doc, node, path );
 }
 
 static inline int
-fdctl_cfg_get_float( float *               out,
-                     ulong                 out_sz FD_PARAM_UNUSED,
-                     fd_pod_info_t const * info,
-                     char const *          path ) {
-
-  ulong unum;
-  float num;
-  switch( info->val_type ) {
-  case FD_POD_VAL_TYPE_LONG:
-    fd_ulong_svw_dec( (uchar const *)info->val, &unum );
-    long snum = fd_long_zz_dec( unum );
-    if( snum < 0L ) {
+fdctl_cfg_get_float( float *                out,
+                     fd_toml_doc_t const *  doc FD_PARAM_UNUSED,
+                     fd_toml_node_t const * node,
+                     char const *           path ) {
+  switch( node->type ) {
+  case FD_TOML_NODE_INT:
+    if( FD_UNLIKELY( node->i<0L ) ) {
       FD_LOG_WARNING(( "`%s` cannot be negative", path ));
       return 0;
     }
-    num = (float)snum;
-    break;
-  case FD_POD_VAL_TYPE_ULONG:
-    fd_ulong_svw_dec( (uchar const *)info->val, &unum );
-    num = (float)unum;
-    break;
-  case FD_POD_VAL_TYPE_FLOAT:
-    num = FD_LOAD( float, info->val );
-    break;
+    *out = (float)node->i;
+    return 1;
+  case FD_TOML_NODE_FLOAT:
+    *out = (float)node->f;
+    return 1;
   default:
     FD_LOG_WARNING(( "invalid value for `%s`", path ));
     return 0;
   }
-
-  *out = num;
-  return 1;
 }
 
 FD_PROTOTYPES_END

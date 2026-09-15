@@ -4,7 +4,6 @@ $(call make-lib,fdctl_platform)
 # Config parsing util
 
 $(call add-hdrs,fd_config_extract.h)
-$(call add-objs,fd_config_extract,fdctl_platform)
 
 # System utils
 

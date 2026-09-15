@@ -3,6 +3,7 @@
 #include "../../util/fd_util.h"
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdlib.h>
 
 int
@@ -20,14 +21,30 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
+  if( FD_UNLIKELY( size>1UL<<16 ) ) return -1;
 
-  static uchar pod_mem[ 1UL<<16 ];
-  uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  fd_toml_doc_t doc[1];
+  if( fd_config_toml_parse( doc, (char const *)data, size, NULL )!=FD_TOML_SUCCESS ) return 0;
 
-  static uchar scratch[ 4096 ];
-  (void)fd_toml_parse( data, size, pod, scratch, sizeof(scratch), NULL );
+  /* Zero everything but the (untouched) topology so no string ref from
+     a previous input survives */
+  static config_t config;
+  static ulong    iter;
+  fd_memset( &config, 0, offsetof( config_t, topo ) );
+  fd_memset( &config.cluster, 0, sizeof(config_t)-offsetof( config_t, cluster ) );
+  config.is_firedancer = (int)( iter++ & 1UL );
 
-  static config_t config = {0};
-  fd_config_extract_pod( pod, &config );
+  /* fd_config_check_configf exits the process on a relative snapshots
+     path, which is a config error rather than a bug */
+  fd_toml_node_t const * snapshots = fd_toml_get( doc, NULL, "paths.snapshots" );
+  if( snapshots && snapshots->type==FD_TOML_NODE_STRING && fd_toml_node_str( doc, snapshots )[0]!='/' ) config.is_firedancer = 0;
+  if( !fd_config_extract_toml( doc, &config ) ) return 0;
+
+  ulong sink = 0UL;
+  sink += strlen( FD_TOPO_STR( config.name ) );
+  sink += strlen( FD_TOPO_STR( config.paths.base ) );
+  sink += strlen( FD_TOPO_STR( config.tiles.bundle.url ) );
+  for( ulong i=0UL; i<config.gossip.entrypoints_cnt; i++ ) sink += strlen( FD_TOPO_STR( config.gossip.entrypoints[ i ] ) );
+  FD_COMPILER_FORGET( sink );
   return 0;
 }

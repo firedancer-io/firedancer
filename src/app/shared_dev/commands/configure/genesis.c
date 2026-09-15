@@ -122,28 +122,28 @@ create_genesis( config_t const * config,
 
   /* Read in keys */
 
-  uchar const * identity_pubkey_ = fd_keyload_load( config->paths.identity_key, 1 );
+  uchar const * identity_pubkey_ = fd_keyload_load( FD_TOPO_STR( config->paths.identity_key ), 1 );
   if( FD_UNLIKELY( !identity_pubkey_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
   memcpy( options->identity_pubkey.key, identity_pubkey_, 32 );
   fd_keyload_unload( identity_pubkey_, 1 );
 
   char file_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
+  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", FD_TOPO_STR( config->paths.base ) ) );
   uchar const * faucet_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !faucet_pubkey_ ) ) FD_LOG_ERR(( "Failed to load faucet key" ));
   memcpy( options->faucet_pubkey.key, faucet_pubkey_, 32 );
   fd_keyload_unload( faucet_pubkey_, 1 );
 
-  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/stake-account.json", config->paths.base ) );
+  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/stake-account.json", FD_TOPO_STR( config->paths.base ) ) );
   uchar const * stake_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !stake_pubkey_ ) ) FD_LOG_ERR(( "Failed to load stake account key" ));
   memcpy( options->stake_pubkey.key, stake_pubkey_, 32 );
   fd_keyload_unload( stake_pubkey_, 1 );
 
-  if( !strcmp( config->paths.vote_account, "" ) ) {
-    FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->paths.base ) );
+  if( !strcmp( FD_TOPO_STR( config->paths.vote_account ), "" ) ) {
+    FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", FD_TOPO_STR( config->paths.base ) ) );
   } else {
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->paths.vote_account, PATH_MAX-1UL ) );
+    FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s", FD_TOPO_STR( config->paths.vote_account ) ) );
   }
 
   uchar const * vote_pubkey_ = fd_keyload_load( file_path, 1 );
@@ -194,7 +194,7 @@ create_genesis( config_t const * config,
 
   options->token_program_elf    = NULL;
   options->token_program_elf_sz = 0UL;
-  if( BENCHG_TRANSACTION_MODE_PTOKEN_TRANSFER==bench_transaction_mode( config->development.bench.transaction_mode ) ) {
+  if( BENCHG_TRANSACTION_MODE_PTOKEN_TRANSFER==bench_transaction_mode( FD_TOPO_STR( config->development.bench.transaction_mode ) ) ) {
     options->token_program_elf    = ptoken_program_elf;
     options->token_program_elf_sz = ptoken_program_elf_sz;
   }
@@ -228,10 +228,10 @@ init( config_t const * config ) {
 
   char _genesis_path[ PATH_MAX ];
   char const * genesis_path;
-  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
+  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = FD_TOPO_STR( config->paths.genesis );
   else {
     genesis_path = _genesis_path;
-    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", FD_TOPO_STR( config->frankendancer.paths.ledger ) ) );
   }
 
   if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( genesis_path, config->uid, config->gid, 0 ) ) )
@@ -285,10 +285,10 @@ fini( config_t const * config,
 
   char _genesis_path[ PATH_MAX ];
   char const * genesis_path;
-  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
+  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = FD_TOPO_STR( config->paths.genesis );
   else {
     genesis_path = _genesis_path;
-    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", FD_TOPO_STR( config->frankendancer.paths.ledger ) ) );
   }
 
   if( FD_UNLIKELY( -1==unlink( genesis_path ) && errno!=ENOENT ) )
@@ -300,26 +300,26 @@ static configure_result_t
 check( config_t const * config,
        int              check_type FD_PARAM_UNUSED ) {
   if( FD_LIKELY( config->gossip.entrypoints_cnt ) ) {
-    if( FD_UNLIKELY( config->is_firedancer && strcmp( config->consensus.expected_genesis_hash, "" ) ) ) {
+    if( FD_UNLIKELY( config->is_firedancer && strcmp( FD_TOPO_STR( config->consensus.expected_genesis_hash ), "" ) ) ) {
       uchar expected_genesis_hash[ 32 ];
-      if( FD_UNLIKELY( !fd_base58_decode_32( config->consensus.expected_genesis_hash, expected_genesis_hash ) ) )
-        FD_LOG_ERR(( "failed to decode [consensus.expected_genesis_hash] \"%s\" as base58", config->consensus.expected_genesis_hash ));
+      if( FD_UNLIKELY( !fd_base58_decode_32( FD_TOPO_STR( config->consensus.expected_genesis_hash ), expected_genesis_hash ) ) )
+        FD_LOG_ERR(( "failed to decode [consensus.expected_genesis_hash] \"%s\" as base58", FD_TOPO_STR( config->consensus.expected_genesis_hash ) ));
       uchar genesis_hash[ 32 ];
-      int result = read_genesis_bin( config->paths.genesis, NULL, genesis_hash );
+      int result = read_genesis_bin( FD_TOPO_STR( config->paths.genesis ), NULL, genesis_hash );
       if( FD_UNLIKELY( -1==result && errno!=ENOENT ) )
-        FD_LOG_ERR(( "could not read genesis file at `%s` (%i-%s)", config->paths.genesis, errno, fd_io_strerror( errno ) ));
+        FD_LOG_ERR(( "could not read genesis file at `%s` (%i-%s)", FD_TOPO_STR( config->paths.genesis ), errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( !result && memcmp( genesis_hash, expected_genesis_hash, 32UL ) ) )
-        PARTIALLY_CONFIGURED( "genesis file at `%s` does not match [consensus.expected_genesis_hash]", config->paths.genesis );
+        PARTIALLY_CONFIGURED( "genesis file at `%s` does not match [consensus.expected_genesis_hash]", FD_TOPO_STR( config->paths.genesis ) );
     }
     CONFIGURE_OK();
   }
 
   char _genesis_path[ PATH_MAX ];
   char const * genesis_path;
-  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
+  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = FD_TOPO_STR( config->paths.genesis );
   else {
     genesis_path = _genesis_path;
-    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", FD_TOPO_STR( config->frankendancer.paths.ledger ) ) );
   }
 
   struct stat st;
@@ -327,7 +327,7 @@ check( config_t const * config,
   if( FD_UNLIKELY( -1==err && errno!=ENOENT ) ) FD_LOG_ERR(( "could not stat genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
   else if( FD_UNLIKELY( -1==err ) ) NOT_CONFIGURED( "`%s` does not exist", genesis_path );
 
-  if( FD_UNLIKELY( !config->is_firedancer ) ) CHECK( check_dir( config->frankendancer.paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
+  if( FD_UNLIKELY( !config->is_firedancer ) ) CHECK( check_dir( FD_TOPO_STR( config->frankendancer.paths.ledger ), config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
   static uchar disk_bin[ GENESIS_BUF_MAX ];

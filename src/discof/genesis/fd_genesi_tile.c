@@ -432,25 +432,26 @@ privileged_init( fd_topo_t const *      topo,
   fd_memset( ctx, 0, sizeof( fd_genesi_tile_t ) );
 
   ctx->local_genesis = 1;
-  ctx->in_fd = open( tile->genesi.genesis_path, O_RDONLY|O_CLOEXEC );
+  ctx->in_fd = open( FD_TOPO_STR( tile->genesi.genesis_path ), O_RDONLY|O_CLOEXEC );
   if( FD_UNLIKELY( -1==ctx->in_fd ) ) {
     if( FD_LIKELY( errno==ENOENT  ) ) {
-      FD_LOG_INFO(( "no local genesis.bin file found at `%s`", tile->genesi.genesis_path ));
+      FD_LOG_INFO(( "no local genesis.bin file found at `%s`", FD_TOPO_STR( tile->genesi.genesis_path ) ));
 
       if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) ) {
         FD_LOG_ERR(( "This node is bootstrapping the cluster as it has no gossip entrypoints provided, but "
                      "the genesis.bin file at `%s` does not exist.  Please provide a valid genesis.bin "
                      "file by running genesis, or join an existing cluster.",
-                     tile->genesi.genesis_path ));
+                     FD_TOPO_STR( tile->genesi.genesis_path ) ));
       } else {
         if( FD_UNLIKELY( !tile->genesi.allow_download ) ) {
           FD_LOG_ERR(( "There is no genesis.bin file at `%s` and automatic downloading is disabled as "
                        "genesis_download is false in your configuration file.  Please either provide a valid "
                        "genesis.bin file locally, or allow downloading from a gossip entrypoint.",
-                       tile->genesi.genesis_path ));
+                       FD_TOPO_STR( tile->genesi.genesis_path ) ));
         } else {
           char basename[ PATH_MAX ];
-          fd_cstr_ncpy( basename, tile->genesi.genesis_path, PATH_MAX );
+          if( FD_UNLIKELY( !fd_cstr_printf_check( basename, PATH_MAX, NULL, "%s", FD_TOPO_STR( tile->genesi.genesis_path ) ) ) )
+            FD_LOG_ERR(( "[paths.genesis] `%s` is too long", FD_TOPO_STR( tile->genesi.genesis_path ) ));
           char * last_slash = strrchr( basename, '/' );
           if( FD_LIKELY( last_slash ) ) *last_slash = '\0';
 
@@ -464,13 +465,13 @@ privileged_init( fd_topo_t const *      topo,
           if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->genesi.target_gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->genesi.target_uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-          char const * genesis_basename = strrchr( tile->genesi.genesis_path, '/' );
-          genesis_basename = genesis_basename ? genesis_basename+1UL : tile->genesi.genesis_path;
+          char const * genesis_basename = strrchr( FD_TOPO_STR( tile->genesi.genesis_path ), '/' );
+          genesis_basename = genesis_basename ? genesis_basename+1UL : FD_TOPO_STR( tile->genesi.genesis_path );
 
           char partialname[ PATH_MAX ];
           FD_TEST( fd_cstr_printf_check( partialname, PATH_MAX, NULL, "%s.partial", genesis_basename ) );
           ctx->out_fd = openat( ctx->out_dir_fd, partialname, O_CREAT|O_WRONLY|O_CLOEXEC|O_TRUNC, S_IRUSR|S_IWUSR );
-          if( FD_UNLIKELY( -1==ctx->out_fd ) ) FD_LOG_ERR(( "openat() failed for genesis file `%s.partial` (%i-%s)", tile->genesi.genesis_path, errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==ctx->out_fd ) ) FD_LOG_ERR(( "openat() failed for genesis file `%s.partial` (%i-%s)", FD_TOPO_STR( tile->genesi.genesis_path ), errno, fd_io_strerror( errno ) ));
 
           if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -479,14 +480,14 @@ privileged_init( fd_topo_t const *      topo,
           ctx->client = fd_genesis_client_join( fd_genesis_client_new( _client ) );
           FD_TEST( ctx->client );
 
-          fd_dns_resolve_peers( tile->genesi.entrypoints[ 0 ], sizeof(tile->genesi.entrypoints[ 0 ]), tile->genesi.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
+          fd_dns_resolve_peers( tile->genesi.entrypoints, tile->genesi.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
           ctx->entrypoints_cnt = tile->genesi.entrypoints_cnt;
 
           fd_genesis_client_init( ctx->client, ctx->entrypoints, ctx->entrypoints_cnt );
         }
       }
     } else {
-      FD_LOG_ERR(( "could not open genesis.bin file at `%s` (%i-%s)", tile->genesi.genesis_path, errno, fd_io_strerror( errno ) ));
+      FD_LOG_ERR(( "could not open genesis.bin file at `%s` (%i-%s)", FD_TOPO_STR( tile->genesi.genesis_path ), errno, fd_io_strerror( errno ) ));
     }
   }
 }
@@ -526,14 +527,15 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   if( FD_LIKELY( -1!=ctx->in_fd ) ) {
-    process_local_genesis( ctx, tile->genesi.genesis_path );
+    process_local_genesis( ctx, FD_TOPO_STR( tile->genesi.genesis_path ) );
     if( FD_UNLIKELY( ctx->bootstrap ) ) {
       initialize_accdb( ctx->accdb, ctx->genesis, ctx->genesis_blob, ctx->lthash );
       fd_accdb_flush_metrics( ctx->accdb );
     }
   }
 
-  FD_TEST( fd_cstr_printf_check( ctx->genesis_path, PATH_MAX, NULL, "%s", tile->genesi.genesis_path ) );
+  if( FD_UNLIKELY( !fd_cstr_printf_check( ctx->genesis_path, PATH_MAX, NULL, "%s", FD_TOPO_STR( tile->genesi.genesis_path ) ) ) )
+    FD_LOG_ERR(( "[paths.genesis] `%s` is too long", FD_TOPO_STR( tile->genesi.genesis_path ) ));
 
   FD_TEST( tile->out_cnt==1UL );
   fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ 0 ] ];

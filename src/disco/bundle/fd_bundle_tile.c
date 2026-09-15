@@ -384,7 +384,7 @@ fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
   fd_url_t url[1];
   _Bool is_ssl = 0;
   if( FD_UNLIKELY( fd_url_parse_endpoint( url,
-                                          tile->bundle.url,
+                                          FD_TOPO_STR( tile->bundle.url ),
                                           tile->bundle.url_len,
                                           &ctx->server_tcp_port,
                                           &is_ssl,
@@ -398,7 +398,7 @@ fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
   ctx->server_fqdn_len = url->host_len;
 
   if( FD_UNLIKELY( tile->bundle.sni_len ) ) {
-    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_sni ), tile->bundle.sni, tile->bundle.sni_len ) );
+    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_sni ), FD_TOPO_STR( tile->bundle.sni ), tile->bundle.sni_len ) );
     ctx->server_sni_len = tile->bundle.sni_len;
   } else {
     fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( ctx->server_sni ), url->host, url->host_len ) );
@@ -476,15 +476,15 @@ privileged_init( fd_topo_t const *      topo,
   ctx->pending_txns     = pending_txn_join( pending_txn_new( deque_mem, pending_max ) );
 
   fd_bundle_auther_init( &ctx->auther );
-  uchar const * public_key = fd_keyload_load( tile->bundle.identity_key_path, 1 /* public key only */ );
+  uchar const * public_key = fd_keyload_load( FD_TOPO_STR( tile->bundle.identity_key_path ), 1 /* public key only */ );
   fd_memcpy( ctx->auther.pubkey, public_key, 32UL );
 
   ctx->keylog_fd = -1;
 
-  if( FD_UNLIKELY( tile->bundle.key_log_path[0] ) ) {
-    ctx->keylog_fd = open( tile->bundle.key_log_path, O_WRONLY|O_APPEND|O_CREAT, 0644 );
+  if( FD_UNLIKELY( FD_TOPO_STR( tile->bundle.key_log_path )[0] ) ) {
+    ctx->keylog_fd = open( FD_TOPO_STR( tile->bundle.key_log_path ), O_WRONLY|O_APPEND|O_CREAT, 0644 );
     if( FD_UNLIKELY( ctx->keylog_fd < 0 ) ) {
-      FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->bundle.key_log_path, errno, fd_io_strerror( errno ) ));
+      FD_LOG_ERR(( "open(%s) failed (%i-%s)", FD_TOPO_STR( tile->bundle.key_log_path ), errno, fd_io_strerror( errno ) ));
     }
   }
 

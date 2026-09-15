@@ -181,8 +181,8 @@ check_hugepages( config_t const * config,
   char line[ 4096 ];
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
     if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-    if( FD_UNLIKELY( strstr( line, config->hugetlbfs.gigantic_page_mount_path ) ||
-                      strstr( line, config->hugetlbfs.huge_page_mount_path ) ) ) {
+    if( FD_UNLIKELY( strstr( line, FD_TOPO_STR( config->hugetlbfs.gigantic_page_mount_path ) ) ||
+                      strstr( line, FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path ) ) ) ) {
       result = KILL_HAS_WORKSPACE_FD;
       break;
     }

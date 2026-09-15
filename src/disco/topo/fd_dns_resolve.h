@@ -12,6 +12,7 @@
 
 #include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
 #include "../../waltz/fd_fqdn.h"           /* FD_FQDN_BUF_MAX */
+#include "fd_topo_str.h"
 
 #include <netdb.h> /* struct addrinfo */
 
@@ -42,8 +43,8 @@ fd_dns_resolve_addresses( char const *            address,
 #define FD_DNS_RESOLVE_PEERS_MAX (16UL)
 
 /* fd_dns_resolve_peers resolves peer_cnt (<=FD_DNS_RESOLVE_PEERS_MAX)
-   peer strings, stored in fixed peer_stride byte cstr slots starting at
-   peers, to one IPv4 address each in out[].  The lookups for all peers
+   peer strings (an array of topology strings) to one IPv4 address each
+   in out[].  The lookups for all peers
    run concurrently on one socket (fd_adns) rather than head-of-line
    blocking on each name in turn, so the wall clock cost is that of the
    slowest single lookup.  All fds opened for resolution are closed
@@ -51,11 +52,10 @@ fd_dns_resolve_addresses( char const *            address,
    on malformed entries or resolution failure. */
 
 void
-fd_dns_resolve_peers( char const *    peers,
-                      ulong           peer_stride,
-                      ulong           peer_cnt,
-                      char const *    config_str,
-                      fd_ip4_port_t * out );
+fd_dns_resolve_peers( fd_topo_str_t const * peers,
+                      ulong                 peer_cnt,
+                      char const *          config_str,
+                      fd_ip4_port_t *       out );
 
 /* fd_dns_peer_parse splits a peer string "[http(s)://]host[:port]"
    into hostname / port (network byte order; defaults to 443 for https

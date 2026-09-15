@@ -2799,10 +2799,10 @@ privileged_init( fd_topo_t const *      topo,
 
   fd_memset( ctx, 0, sizeof(fd_rpc_tile_t) );
 
-  if( FD_UNLIKELY( !strcmp( tile->rpc.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->rpc.identity_key_path ), "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  const uchar * identity_key = fd_keyload_load( tile->rpc.identity_key_path, /* pubkey only: */ 1 );
+  const uchar * identity_key = fd_keyload_load( FD_TOPO_STR( tile->rpc.identity_key_path ), /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_pubkey, identity_key, 32UL );
 
   fd_http_server_callbacks_t callbacks = {
@@ -2816,7 +2816,7 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_LIKELY( ctx->snapshot_server_enabled ) ) {
     FD_TEST( fd_cstr_printf_check(
         ctx->snapshot_server_url, sizeof(ctx->snapshot_server_url), NULL,
-        "http://%s:%u", tile->rpc.snapshot_server_host,
+        "http://%s:%u", FD_TOPO_STR( tile->rpc.snapshot_server_host ),
         tile->rpc.snapshot_server_port ) );
   }
   ctx->waker_client_idx = tile->waker_client_idx;

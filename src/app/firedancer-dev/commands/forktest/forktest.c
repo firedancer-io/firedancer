@@ -61,8 +61,8 @@ forktest_perm( args_t *         args FD_PARAM_UNUSED,
 static ushort
 forktest_recover_expected_shred_version( config_t const * config ) {
   fd_backtest_src_opts_t opts = {
-    .path   = config->firedancer.development.ledger_input.path,
-    .format = config->firedancer.development.ledger_input.format,
+    .path   = FD_TOPO_STR( config->firedancer.development.ledger_input.path ),
+    .format = FD_TOPO_STR( config->firedancer.development.ledger_input.format ),
   };
 
   uchar buf[ FD_SHRED_MAX_SZ ];
@@ -93,9 +93,9 @@ forktest_topo( config_t * config ) {
 
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
 
-  fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
+  fd_topo_t * topo = fd_topob_new( &config->topo, FD_TOPO_STR( config->name ) );
 
-  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
   /*             topo, name */
@@ -195,13 +195,13 @@ forktest_topo( config_t * config ) {
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
 
-  int is_auto_affinity = !strcmp( config->firedancer.development.forktest.affinity, "auto" );
+  int is_auto_affinity = !strcmp( FD_TOPO_STR( config->firedancer.development.forktest.affinity ), "auto" );
 
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->firedancer.development.forktest.affinity, parsed_tile_to_cpu, 0, 1 );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( FD_TOPO_STR( config->firedancer.development.forktest.affinity ), parsed_tile_to_cpu, 0, 1 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
@@ -347,7 +347,7 @@ forktest_topo( config_t * config ) {
                        topo->tile_cnt, affinity_tile_cnt ));
   } else {
     ushort blocklist_cores[ FD_TILE_MAX ];
-    topo->blocklist_cores_cnt = fd_topob_parse_affinity_cstr( config->layout.blocklist_cores, blocklist_cores, 0, 0 );
+    topo->blocklist_cores_cnt = fd_topob_parse_affinity_cstr( FD_TOPO_STR( config->layout.blocklist_cores ), blocklist_cores, 0, 0 );
     if( FD_UNLIKELY( topo->blocklist_cores_cnt>FD_TILE_MAX ) ) {
       FD_LOG_ERR(( "The CPU string in the configuration file under [layout.blocklist_cores] specifies more CPUs than Firedancer can use. "
                     "You should reduce the number of CPUs in the excluded cores string." ));
@@ -404,7 +404,7 @@ forktest_topo( config_t * config ) {
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
   ulong store_fec_max = config->firedancer.runtime.max_live_slots * fec_sets_per_slot + (shred_depth * shred_tile_cnt) + 1;
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.shred.shred_cache_size_mib, store_fec_set_cnt, config->limits.max_shreds_per_block, config->paths.shredb );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.shred.shred_cache_size_mib, store_fec_set_cnt, config->limits.max_shreds_per_block, FD_TOPO_STR( config->paths.shredb ) );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );

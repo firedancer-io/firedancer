@@ -58,7 +58,7 @@ setup_mlx5_tile( fd_topo_t *             topo,
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", tile_kind_id );
 
   FD_STATIC_ASSERT( sizeof(tile->mlx5.if_name)==IF_NAMESIZE, str_bounds );
-  fd_cstr_ncpy( tile->mlx5.if_name, net_cfg->interface, IF_NAMESIZE );
+  fd_cstr_ncpy( tile->mlx5.if_name, FD_TOPO_STR( net_cfg->interface ), IF_NAMESIZE );
 
   tile->mlx5.net.bind_address = net_cfg->bind_address_parsed;
   tile->mlx5.rx_queue_size    = net_cfg->mlx5.rx_queue_size;
@@ -96,7 +96,7 @@ setup_xdp_tile( fd_topo_t *             topo,
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", tile_kind_id );
 
   FD_STATIC_ASSERT( sizeof(tile->xdp.if_virt)==IF_NAMESIZE, str_bounds );
-  fd_cstr_ncpy( tile->xdp.if_virt, net_cfg->interface, IF_NAMESIZE );
+  fd_cstr_ncpy( tile->xdp.if_virt, FD_TOPO_STR( net_cfg->interface ), IF_NAMESIZE );
   tile->net.bind_address = net_cfg->bind_address_parsed;
 
   FD_STATIC_ASSERT( sizeof(tile->xdp.if_phys)==IF_NAMESIZE, str_bounds );
@@ -107,9 +107,9 @@ setup_xdp_tile( fd_topo_t *             topo,
   tile->xdp.xdp_rx_queue_size   = net_cfg->xdp.xdp_rx_queue_size;
   tile->xdp.xdp_tx_queue_size   = net_cfg->xdp.xdp_tx_queue_size;
   tile->xdp.zero_copy           = net_cfg->xdp.xdp_zero_copy;
-  fd_cstr_ncpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, sizeof(tile->xdp.xdp_mode) );
+  fd_cstr_ncpy( tile->xdp.xdp_mode, FD_TOPO_STR( net_cfg->xdp.xdp_mode ), sizeof(tile->xdp.xdp_mode) );
 
-  fd_cstr_ncpy( tile->xdp.poll_mode, net_cfg->xdp.poll_mode, sizeof(tile->xdp.poll_mode) );
+  fd_cstr_ncpy( tile->xdp.poll_mode, FD_TOPO_STR( net_cfg->xdp.poll_mode ), sizeof(tile->xdp.poll_mode) );
 
   tile->xdp.net.umem_dcache_obj_id = umem_obj->id;
   tile->xdp.netdev_tbl_obj_id      = netlink_tile->netlink.netdev_tbl_obj_id;
@@ -154,11 +154,11 @@ fd_topos_net_tiles( fd_topo_t *             topo,
   /* net_umem: Packet buffers */
   fd_topob_wksp( topo, "net_umem" );
 
-  fd_pod_insert_cstr( topo->props, "net.provider",  net_cfg->provider );
+  fd_pod_insert_cstr( topo->props, "net.provider",  FD_TOPO_STR( net_cfg->provider ) );
 
   /* Create workspaces */
 
-  if( 0==strcmp( net_cfg->provider, "xdp" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( net_cfg->provider ), "xdp" ) ) {
 
     /* net: private working memory of the net tiles */
     fd_topob_wksp( topo, "net" );
@@ -176,33 +176,33 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     ulong iproute_depth = fd_ulong_pow2_up( 4UL*(netlnk_max_routes+netlnk_max_peer_routes)+8UL );
     fd_topob_link( topo, "iproute_out", "iproute", iproute_depth, sizeof(fd_iproute_msg_t), 1UL );
     fd_topob_tile_out( topo, "netlnk", 0UL, "iproute_out", 0UL );
-    fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
+    fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, FD_TOPO_STR( net_cfg->interface ) );
 
     /* Enumerate network devices to attach to */
     uint devices[ FD_NET_BOND_SLAVE_MAX ] = {0};
     uint device_cnt = 1U;
-    if( net_cfg->xdp.native_bond && fd_bonding_is_master( net_cfg->interface ) ) {
+    if( net_cfg->xdp.native_bond && fd_bonding_is_master( FD_TOPO_STR( net_cfg->interface ) ) ) {
       fd_bonding_slave_iter_t iter_[1];
-      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, net_cfg->interface );
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( net_cfg->interface ) );
       uint slave_cnt;
       for( slave_cnt=0U;
            /*         */ !fd_bonding_slave_iter_done( iter );
            slave_cnt++,  fd_bonding_slave_iter_next( iter ) ) {
         if( FD_UNLIKELY( slave_cnt>=FD_NET_BOND_SLAVE_MAX ) ) {
           FD_LOG_ERR(( "bond interface %s has too many slave devices; max is %u (see [net.xdp.native_bond])",
-                       net_cfg->interface, FD_NET_BOND_SLAVE_MAX ));
+                       FD_TOPO_STR( net_cfg->interface ), FD_NET_BOND_SLAVE_MAX ));
         }
         uint if_idx = if_nametoindex( fd_bonding_slave_iter_ele( iter ) );
         if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", fd_bonding_slave_iter_ele( iter ) ));
         devices[ slave_cnt ] = if_idx;
       }
       if( slave_cnt==0 ) {
-        FD_LOG_ERR(( "no bond slave devices detected on interface %s (see [net.xdp.native_bond])", net_cfg->interface ));
+        FD_LOG_ERR(( "no bond slave devices detected on interface %s (see [net.xdp.native_bond])", FD_TOPO_STR( net_cfg->interface ) ));
       }
       device_cnt = (uint)slave_cnt;
     } else {
-      devices[ 0 ] = if_nametoindex( net_cfg->interface );
-      if( FD_UNLIKELY( !devices[ 0 ] ) ) FD_LOG_ERR(( "unsupported [net.interface]: `%s`", net_cfg->interface ));
+      devices[ 0 ] = if_nametoindex( FD_TOPO_STR( net_cfg->interface ) );
+      if( FD_UNLIKELY( !devices[ 0 ] ) ) FD_LOG_ERR(( "unsupported [net.interface]: `%s`", FD_TOPO_STR( net_cfg->interface ) ));
       device_cnt = 1U;
     }
 
@@ -225,7 +225,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     }
     FD_TEST( tile_kind_id==net_tile_cnt );
 
-  } else if( 0==strcmp( net_cfg->provider, "socket" ) ) {
+  } else if( 0==strcmp( FD_TOPO_STR( net_cfg->provider ), "socket" ) ) {
 
     /* sock: private working memory of the sock tiles */
     fd_topob_wksp( topo, "sock" );
@@ -233,7 +233,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
       setup_sock_tile( topo, tile_to_cpu, net_cfg );
     }
-  } else if( 0==strcmp( net_cfg->provider, "mlx5" ) ) {
+  } else if( 0==strcmp( FD_TOPO_STR( net_cfg->provider ), "mlx5" ) ) {
 
     /* mlx5: private working memory of the mlx5 tiles */
     fd_topob_wksp( topo, "mlx5" );
@@ -249,7 +249,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     ulong iproute_depth = fd_ulong_pow2_up( 4UL*(netlnk_max_routes+netlnk_max_peer_routes)+8UL );
     fd_topob_link( topo, "iproute_out", "iproute", iproute_depth, sizeof(fd_iproute_msg_t), 1UL );
     fd_topob_tile_out( topo, "netlnk", 0UL, "iproute_out", 0UL );
-    fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
+    fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, FD_TOPO_STR( net_cfg->interface ) );
 
     if( FD_UNLIKELY( !fd_ulong_is_pow2( net_tile_cnt ) ) ) {
       FD_LOG_ERR(( "net.provider=\"mlx5\" requires layout.net_tile_count to be a power of two" ));

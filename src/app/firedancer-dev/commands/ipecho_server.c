@@ -38,7 +38,7 @@ ipecho_topo( fd_topo_t *  topo,
 
 static void
 ipecho_server_cmd_topo( config_t * config ) {
-  ipecho_topo( &config->topo, config->name );
+  ipecho_topo( &config->topo, FD_TOPO_STR( config->name ) );
 }
 
 static args_t

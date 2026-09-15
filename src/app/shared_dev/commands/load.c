@@ -93,7 +93,7 @@ load_cmd_fn( args_t *   args,
     FD_LOG_ERR(( "Missing --rpc-port" ));
 
   if( FD_UNLIKELY( !strcmp( args->load.affinity, "" ) ) )
-    fd_cstr_append_cstr_safe( args->load.affinity, config->development.bench.affinity, sizeof( args->load.affinity )-1UL );
+    FD_TEST( fd_cstr_printf_check( args->load.affinity, sizeof(args->load.affinity), NULL, "%s", FD_TOPO_STR( config->development.bench.affinity ) ) );
 
   if( FD_UNLIKELY( !args->load.benchg ) )
     args->load.benchg      = config->development.bench.benchg_tile_count;
@@ -107,8 +107,8 @@ load_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( !args->load.connections ) )
     args->load.connections = config->layout.quic_tile_count;
 
-  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
-  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  fd_topo_t * topo = { fd_topob_new( &config->topo, FD_TOPO_STR( config->name ) ) };
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
   add_bench_topo( topo,
                   args->load.affinity,
                   args->load.benchg,

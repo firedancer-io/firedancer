@@ -2242,19 +2242,19 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pohh_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pohh_tile_t ), sizeof( fd_pohh_tile_t ) );
 
-  if( FD_UNLIKELY( !strcmp( tile->pohh.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->pohh.identity_key_path ), "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  const uchar * identity_key = fd_keyload_load( tile->pohh.identity_key_path, /* pubkey only: */ 1 );
+  const uchar * identity_key = fd_keyload_load( FD_TOPO_STR( tile->pohh.identity_key_path ), /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_key.uc, identity_key, 32UL );
 
   ctx->bundle.enabled = tile->pohh.bundle.enabled;
-  if( FD_UNLIKELY( !tile->pohh.bundle.vote_account_path[0] ) ) {
+  if( FD_UNLIKELY( !FD_TOPO_STR( tile->pohh.bundle.vote_account_path )[0] ) ) {
     ctx->bundle.enabled = 0;
   }
   if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
-    if( FD_UNLIKELY( !fd_base58_decode_32( tile->pohh.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
-      const uchar * vote_key = fd_keyload_load( tile->pohh.bundle.vote_account_path, /* pubkey only: */ 1 );
+    if( FD_UNLIKELY( !fd_base58_decode_32( FD_TOPO_STR( tile->pohh.bundle.vote_account_path ), ctx->bundle.vote_account.uc ) ) ) {
+      const uchar * vote_key = fd_keyload_load( FD_TOPO_STR( tile->pohh.bundle.vote_account_path ), /* pubkey only: */ 1 );
       fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
     }
   }

@@ -283,7 +283,8 @@ privileged_init( fd_topo_t const *      topo,
   memset( ctx, 0, sizeof(fd_snapmk_t) );
   fd_memset( ctx->pool_sz, 0, sizeof(ctx->pool_sz) );
 
-  fd_cstr_ncpy( ctx->snap_dir, tile->snapmk.snapshots_path, PATH_MAX );
+  if( FD_UNLIKELY( !fd_cstr_printf_check( ctx->snap_dir, sizeof(ctx->snap_dir), NULL, "%s", FD_TOPO_STR( tile->snapmk.snapshots_path ) ) ) )
+    FD_LOG_ERR(( "[paths.snapshots] `%s` is too long", FD_TOPO_STR( tile->snapmk.snapshots_path ) ));
 
   int dir_fd = open( ctx->snap_dir, O_RDONLY|O_DIRECTORY );
   if( FD_UNLIKELY( dir_fd<0 ) ) {

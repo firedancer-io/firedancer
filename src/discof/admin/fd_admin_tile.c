@@ -80,10 +80,10 @@ privileged_init( fd_topo_t const *      topo,
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
   fd_memset( ctx, 0, sizeof(fd_admin_tile_ctx_t) );
 
-  if( FD_UNLIKELY( !strcmp( tile->admin.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->admin.identity_key_path ), "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
+  fd_memcpy( ctx->identity_pubkey, fd_keyload_load( FD_TOPO_STR( tile->admin.identity_key_path ), /* pubkey only: */ 1 ), 32UL );
 }
 
 static void

@@ -1930,16 +1930,16 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
 
-  if( FD_UNLIKELY( !strcmp( tile->tower.identity_key, "" ) ) ) FD_LOG_ERR(( "missing [paths.identity_key]" ));
-  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.identity_key, /* pubkey only: */ 1 ) );
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->tower.identity_key ), "" ) ) ) FD_LOG_ERR(( "missing [paths.identity_key]" ));
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( FD_TOPO_STR( tile->tower.identity_key ), /* pubkey only: */ 1 ) );
 
   /* The vote key can be specified either directly as a base58 encoded
      pubkey, or as a file path.  We first try to decode as a pubkey. */
 
-  uchar * vote_key = fd_base58_decode_32( tile->tower.vote_account, ctx->vote_account->uc );
+  uchar * vote_key = fd_base58_decode_32( FD_TOPO_STR( tile->tower.vote_account ), ctx->vote_account->uc );
   if( FD_UNLIKELY( !vote_key ) ) {
-    if( FD_UNLIKELY( !strcmp( tile->tower.vote_account, "" ) ) ) FD_LOG_ERR(( "missing [paths.vote_account]" ));
-    ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.vote_account, /* pubkey only: */ 1 ) );
+    if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->tower.vote_account ), "" ) ) ) FD_LOG_ERR(( "missing [paths.vote_account]" ));
+    ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( FD_TOPO_STR( tile->tower.vote_account ), /* pubkey only: */ 1 ) );
   }
 
   ulong node_info_obj_id = fd_pod_query_ulong( topo->props, "node_info", ULONG_MAX ); FD_TEST( node_info_obj_id!=ULONG_MAX );
@@ -1950,7 +1950,7 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->auth_vtr = auth_vtr_join( auth_vtr_new( auth_vtr ) );
   for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
-    fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) );
+    fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( FD_TOPO_STR( tile->tower.authorized_voter_paths[ i ] ), /* pubkey only: */ 1 ) );
     if( FD_UNLIKELY( auth_vtr_query( ctx->auth_vtr, pubkey, NULL ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( pubkey.uc, pubkey_b58 );
       FD_LOG_ERR(( "authorized voter key duplicate %s", pubkey_b58 ));
@@ -1966,11 +1966,11 @@ privileged_init( fd_topo_t const *      topo,
 
   char path[ PATH_MAX ];
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin.new", tile->tower.base_path, identity_key_b58 ) );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin.new", FD_TOPO_STR( tile->tower.base_path ), identity_key_b58 ) );
   ctx->checkpt_fd = open( path, O_WRONLY|O_CREAT|O_TRUNC, 0600 );
   if( FD_UNLIKELY( -1==ctx->checkpt_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.base_path, identity_key_b58 ) );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", FD_TOPO_STR( tile->tower.base_path ), identity_key_b58 ) );
   ctx->restore_fd = open( path, O_RDONLY );
   if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }

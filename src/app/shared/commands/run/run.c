@@ -361,7 +361,7 @@ main_pid_namespace( void * _args ) {
   int config_memfd = fd_config_to_memfd( config );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int need_mlx5 = 0==strcmp( config->net.provider, "mlx5" );
+  int need_mlx5 = 0==strcmp( FD_TOPO_STR( config->net.provider ), "mlx5" );
   fd_mlx5_fds_t mlx5_fds = { .cmd_fd=-1, .async_fd=-1 };
   if( need_mlx5 ) {
     fd_topo_install_mlx5( (fd_topo_t *)&config->topo, &mlx5_fds );
@@ -385,7 +385,7 @@ main_pid_namespace( void * _args ) {
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int need_xdp = 0==strcmp( config->net.provider, "xdp" );
+  int need_xdp = 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" );
   fd_xdp_fds_t xdp_fds[ FD_TOPO_XDP_FDS_MAX ];
   uint         xdp_fds_cnt = FD_TOPO_XDP_FDS_MAX;
   if( need_xdp ) {
@@ -524,7 +524,7 @@ main_pid_namespace( void * _args ) {
       fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
 
       int floating_priority = ( any_floats && !strcmp( tile->name, "waker" ) ) ? -19 : save_priority;
-      child_pids[ child_cnt ] = execve_tile( config->name, tile, float_cpu_set, floating_cpu_set, floating_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
+      child_pids[ child_cnt ] = execve_tile( FD_TOPO_STR( config->name ), tile, float_cpu_set, floating_cpu_set, floating_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
       child_idxs[ child_cnt ] = i;
       if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       strncpy( child_names[ child_cnt ], tile->name, 32 );
@@ -727,19 +727,19 @@ workspace_path( config_t const *       config,
   char const * mount_path;
   switch( wksp->page_sz ) {
     case FD_SHMEM_HUGE_PAGE_SZ:
-      mount_path = config->hugetlbfs.huge_page_mount_path;
+      mount_path = FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path );
       break;
     case FD_SHMEM_GIGANTIC_PAGE_SZ:
-      mount_path = config->hugetlbfs.gigantic_page_mount_path;
+      mount_path = FD_TOPO_STR( config->hugetlbfs.gigantic_page_mount_path );
       break;
     case FD_SHMEM_NORMAL_PAGE_SZ:
-      mount_path = config->hugetlbfs.normal_page_mount_path;
+      mount_path = FD_TOPO_STR( config->hugetlbfs.normal_page_mount_path );
       break;
     default:
       FD_LOG_ERR(( "invalid page size %lu", wksp->page_sz ));
   }
 
-  FD_TEST( fd_cstr_printf_check( out, PATH_MAX, NULL, "%s/%s_%s.wksp", mount_path, config->name, wksp->name ) );
+  FD_TEST( fd_cstr_printf_check( out, PATH_MAX, NULL, "%s/%s_%s.wksp", mount_path, FD_TOPO_STR( config->name ), wksp->name ) );
 }
 
 static void
@@ -748,10 +748,10 @@ warn_unknown_files( config_t const * config,
   char const * mount_path;
   switch( mount_type ) {
     case 0UL:
-      mount_path = config->hugetlbfs.huge_page_mount_path;
+      mount_path = FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path );
       break;
     case 1UL:
-      mount_path = config->hugetlbfs.gigantic_page_mount_path;
+      mount_path = FD_TOPO_STR( config->hugetlbfs.gigantic_page_mount_path );
       break;
     default:
       FD_LOG_ERR(( "invalid mount type %lu", mount_type ));
@@ -792,7 +792,7 @@ warn_unknown_files( config_t const * config,
         fd_topo_tile_t const * tile = &config->topo.tiles [ i ];
 
         char expected_path[ PATH_MAX ];
-        FD_TEST( fd_cstr_printf_check( expected_path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+        FD_TEST( fd_cstr_printf_check( expected_path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path ), FD_TOPO_STR( config->name ), tile->name, tile->kind_id ) );
 
         if( !strcmp( entry_path, expected_path ) ) {
           known_file = 1;
@@ -897,7 +897,7 @@ initialize_stacks( config_t const * config ) {
     fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
 
     char path[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path ), FD_TOPO_STR( config->name ), tile->name, tile->kind_id ) );
 
     struct stat st;
     int result = stat( path, &st );
@@ -920,7 +920,7 @@ initialize_stacks( config_t const * config ) {
     if( FD_LIKELY( tile->cpu_idx<65535UL ) ) stack_cpu_idx = tile->cpu_idx;
 
     char name[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", config->name, tile->name, tile->kind_id ) );
+    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", FD_TOPO_STR( config->name ), tile->name, tile->kind_id ) );
 
     ulong sub_page_cnt[ 1 ] = { 6 };
     ulong sub_cpu_idx [ 1 ] = { stack_cpu_idx };
@@ -934,7 +934,7 @@ initialize_stacks( config_t const * config ) {
       warn_unknown_files( config, 0UL );
 
       char path[ PATH_MAX ];
-      FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+      FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path ), FD_TOPO_STR( config->name ), tile->name, tile->kind_id ) );
       FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create huge page stack for tile `%s` at `%s`. "
                    "Firedancer reserves enough memory for all of its stacks during the `hugetlbfs` configure "
                    "step, so it is likely you have unknown files left over in this directory which are "
@@ -955,7 +955,7 @@ fdctl_check_configure( config_t const * config ) {
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message, FD_BINARY_NAME ));
 
-  if( FD_LIKELY( 0==strcmp( config->net.provider, "xdp" ) ) ) {
+  if( FD_LIKELY( 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) ) {
     if( fd_cfg_stage_bonding.enabled( config ) ) {
       check = fd_cfg_stage_bonding.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
       if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
@@ -1035,15 +1035,15 @@ run_firedancer_init( config_t * config,
                      int        init_workspaces,
                      int        check_configure ) {
   struct stat st;
-  int err = stat( config->paths.identity_key, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
-  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
+  int err = stat( FD_TOPO_STR( config->paths.identity_key ), &st );
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", FD_TOPO_STR( config->paths.identity_key ), FD_BINARY_NAME, FD_TOPO_STR( config->paths.identity_key ) ));
+  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", FD_TOPO_STR( config->paths.identity_key ), errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
     for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ ) {
-      err = stat( config->frankendancer.paths.authorized_voter_paths[ i ], &st );
-      if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.authorized_voter_paths] key does not exist `%s`", config->frankendancer.paths.authorized_voter_paths[ i ] ));
-      else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.authorized_voter_paths] `%s` (%i-%s)", config->frankendancer.paths.authorized_voter_paths[ i ], errno, fd_io_strerror( errno ) ));
+      err = stat( FD_TOPO_STR( config->frankendancer.paths.authorized_voter_paths[ i ] ), &st );
+      if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.authorized_voter_paths] key does not exist `%s`", FD_TOPO_STR( config->frankendancer.paths.authorized_voter_paths[ i ] ) ));
+      else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.authorized_voter_paths] `%s` (%i-%s)", FD_TOPO_STR( config->frankendancer.paths.authorized_voter_paths[ i ] ), errno, fd_io_strerror( errno ) ));
     }
   }
 
@@ -1066,7 +1066,7 @@ initialize_accdb_fd( config_t const * config ) {
   int oflags = O_RDWR|O_CREAT|O_NOATIME;
   if( FD_LIKELY( !config->is_dev ) ) oflags |= O_TRUNC;
 
-  int accounts_fd = open( config->paths.accounts, oflags, S_IRUSR|S_IWUSR );
+  int accounts_fd = open( FD_TOPO_STR( config->paths.accounts ), oflags, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==accounts_fd ) ) FD_LOG_ERR(( "failed to open accounts.db (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( accounts_fd, FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1217,7 +1217,7 @@ initialize_snapshot_fds( config_t const * config ) {
   ulong snap_max          = layout.max;
   if( FD_UNLIKELY( !snap_max ) ) return 0UL;
 
-  char const * snap_dir = config->paths.snapshots;
+  char const * snap_dir = FD_TOPO_STR( config->paths.snapshots );
   int dir_fd = open( snap_dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
   if( FD_UNLIKELY( -1==dir_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
 
@@ -1447,7 +1447,7 @@ run_cmd_fn( args_t *   args FD_PARAM_UNUSED,
                  "to \"true\" in the configuration file." ));
 
   for( ulong i=0; i<config->gossip.entrypoints_cnt; i++ ) {
-    if( FD_UNLIKELY( !strcmp( config->gossip.entrypoints[ i ], "" ) ) )
+    if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( config->gossip.entrypoints[ i ] ), "" ) ) )
       FD_LOG_ERR(( "One of the entrypoints in your configuration file under [gossip.entrypoints] is "
                    "empty. Please remove the empty entrypoint or set it correctly. "));
   }

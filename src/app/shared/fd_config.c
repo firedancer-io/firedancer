@@ -17,33 +17,67 @@
 
 #include <unistd.h>
 #include <errno.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h> /* strtoul */
 #include <sys/utsname.h>
 #include <sys/mman.h>
 
-/* TODO: Rewrite this ... */
+int
+fd_config_str_set( fd_config_t *   config,
+                   fd_topo_str_t * s,
+                   char const *    str,
+                   ulong           len ) {
+  if( FD_UNLIKELY( len>=sizeof(config->strs)-config->strs_len ) ) return 0;
+  char * dst = config->strs + config->strs_len;
+  memmove( dst, str, len );
+  dst[ len ] = '\0';
+  config->strs_len += len+1UL;
+  s->rel = (int)( dst - (char *)s );
+  return 1;
+}
 
-static inline void
-replace( char *       in,
-         const char * pat,
-         const char * sub ) {
-  char * replace = strstr( in, pat );
-  if( FD_LIKELY( replace ) ) {
+int
+fd_config_str_printf( fd_config_t *   config,
+                      fd_topo_str_t * s,
+                      char const *    fmt, ... ) {
+  ulong cap = sizeof(config->strs)-config->strs_len;
+  if( FD_UNLIKELY( !cap ) ) return 0;
+  char * dst = config->strs + config->strs_len;
+  va_list ap;
+  va_start( ap, fmt );
+  int n = vsnprintf( dst, cap, fmt, ap );
+  va_end( ap );
+  if( FD_UNLIKELY( n<0 || (ulong)n>=cap ) ) return 0;
+  config->strs_len += (ulong)n+1UL;
+  s->rel = (int)( dst - (char *)s );
+  return 1;
+}
+
+/* replace substitutes the first occurrence of pat in *s with sub. */
+
+static void
+replace( fd_config_t *   config,
+         fd_topo_str_t * s,
+         const char *    pat,
+         const char *    sub ) {
+  char const * in  = fd_topo_str( s );
+  char const * hit = strstr( in, pat );
+  if( FD_LIKELY( hit ) ) {
+    ulong pre_len = (ulong)( hit - in );
     ulong pat_len = strlen( pat );
     ulong sub_len = strlen( sub );
     ulong in_len  = strlen( in );
-    if( FD_UNLIKELY( pat_len > in_len ) ) return;
 
     ulong total_len = in_len - pat_len + sub_len;
-    if( FD_UNLIKELY( total_len >= PATH_MAX ) )
-      FD_LOG_ERR(( "configuration scratch directory path too long: `%s`", in ));
+    if( FD_UNLIKELY( total_len>=sizeof(config->strs)-config->strs_len ) )
+      FD_LOG_ERR(( "configuration string storage exhausted while expanding `%s`", in ));
 
-    uchar after[PATH_MAX] = {0};
-    fd_memcpy( after, replace + pat_len, strlen( replace + pat_len ) );
-    fd_memcpy( replace, sub, sub_len );
-    ulong after_len = strlen( ( const char * ) after );
-    fd_memcpy( replace + sub_len, after, after_len );
-    in[ total_len ] = '\0';
+    char * out = config->strs + config->strs_len;
+    fd_memcpy( out,                 in,          pre_len );
+    fd_memcpy( out+pre_len,         sub,         sub_len );
+    fd_memcpy( out+pre_len+sub_len, hit+pat_len, in_len-pre_len-pat_len );
+    FD_TEST( fd_config_str_set( config, s, out, total_len ) );
   }
 }
 
@@ -70,27 +104,33 @@ parse_core_dump_level( char const * level ) {
   return -1;
 }
 
+#define FD_CONFIG_TOML_BUF_SZ   (1UL<<18)
+#define FD_CONFIG_TOML_NODE_MAX (8192UL)
+
+int
+fd_config_toml_parse( fd_toml_doc_t *      doc,
+                      char const *         buf,
+                      ulong                sz,
+                      fd_toml_err_info_t * opt_err ) {
+  static char           toml_buf  [ FD_CONFIG_TOML_BUF_SZ   ];
+  static fd_toml_node_t toml_nodes[ FD_CONFIG_TOML_NODE_MAX ];
+  if( FD_UNLIKELY( sz>sizeof(toml_buf) ) ) FD_LOG_ERR(( "config file too large (%lu bytes, max %lu)", sz, sizeof(toml_buf) ));
+  fd_memcpy( toml_buf, buf, sz );
+  return fd_toml_parse( doc, toml_buf, sz, toml_nodes, FD_CONFIG_TOML_NODE_MAX, opt_err );
+}
+
 void
 fd_config_load_buf( fd_config_t * out,
                     char const *  buf,
                     ulong         sz,
                     char const *  path ) {
-  static uchar pod_mem[ 1UL<<26 ];
-  uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
-
+  fd_toml_doc_t      doc[1];
   fd_toml_err_info_t toml_err[1];
-  uchar scratch[ 4096 ];
-  int toml_errc = fd_toml_parse( buf, sz, pod, scratch, sizeof(scratch), toml_err );
+  int toml_errc = fd_config_toml_parse( doc, buf, sz, toml_err );
   if( FD_UNLIKELY( toml_errc!=FD_TOML_SUCCESS ) ) {
     switch( toml_errc ) {
-    case FD_TOML_ERR_POD:
-      FD_LOG_ERR(( "Failed to parse config file (%s): ran out of buffer space while parsing", path ));
-      break;
-    case FD_TOML_ERR_SCRATCH:
-      FD_LOG_ERR(( "Failed to parse config file (%s) at line %lu: ran out of scratch space while parsing", path, toml_err->line ));
-      break;
-    case FD_TOML_ERR_KEY:
-      FD_LOG_ERR(( "Failed to parse config file (%s) at line %lu: oversize key", path, toml_err->line ));
+    case FD_TOML_ERR_NODE:
+      FD_LOG_ERR(( "Failed to parse config file (%s) at line %lu: too many keys", path, toml_err->line ));
       break;
     case FD_TOML_ERR_DUP:
       FD_LOG_ERR(( "Failed to parse config file (%s) at line %lu: duplicate key", path, toml_err->line ));
@@ -107,64 +147,71 @@ fd_config_load_buf( fd_config_t * out,
     }
   }
 
-  if( FD_UNLIKELY( !fd_config_extract_pod( pod, out ) ) ) FD_LOG_ERR(( "Failed to parse config file (%s): there are unrecognized keys logged above", path ));
-
-  fd_pod_delete( fd_pod_leave( pod ) );
+  if( FD_UNLIKELY( !fd_config_extract_toml( doc, out ) ) ) FD_LOG_ERR(( "Failed to parse config file (%s): there are unrecognized keys logged above", path ));
 }
 
 static void
 fd_config_fillf( fd_config_t * config ) {
-  if( FD_UNLIKELY( strcmp( config->paths.accounts, "" ) ) ) {
-    replace( config->paths.accounts, "{user}", config->user );
-    replace( config->paths.accounts, "{name}", config->name );
+  char const * user = FD_TOPO_STR( config->user );
+  char const * name = FD_TOPO_STR( config->name );
+  char const * base = FD_TOPO_STR( config->paths.base );
+
+  if( FD_UNLIKELY( FD_TOPO_STR( config->paths.accounts )[0] ) ) {
+    replace( config, &config->paths.accounts, "{user}", user );
+    replace( config, &config->paths.accounts, "{name}", name );
   } else {
-    FD_TEST( fd_cstr_printf_check( config->paths.accounts, sizeof(config->paths.accounts), NULL, "%s/accounts.db", config->paths.base ) );
+    FD_TEST( fd_config_str_printf( config, &config->paths.accounts, "%s/accounts.db", base ) );
   }
 
-  if( FD_UNLIKELY( strcmp( config->paths.shredb, "" ) ) ) {
-    replace( config->paths.shredb, "{user}", config->user );
-    replace( config->paths.shredb, "{name}", config->name );
+  if( FD_UNLIKELY( FD_TOPO_STR( config->paths.shredb )[0] ) ) {
+    replace( config, &config->paths.shredb, "{user}", user );
+    replace( config, &config->paths.shredb, "{name}", name );
   } else {
-    FD_TEST( fd_cstr_printf_check( config->paths.shredb, sizeof(config->paths.shredb), NULL, "%s/shreds.db", config->paths.base ) );
+    FD_TEST( fd_config_str_printf( config, &config->paths.shredb, "%s/shreds.db", base ) );
   }
 
-  if( FD_UNLIKELY( strcmp( config->paths.guidb, "" ) ) ) {
-    replace( config->paths.guidb, "{user}", config->user );
-    replace( config->paths.guidb, "{name}", config->name );
+  if( FD_UNLIKELY( FD_TOPO_STR( config->paths.guidb )[0] ) ) {
+    replace( config, &config->paths.guidb, "{user}", user );
+    replace( config, &config->paths.guidb, "{name}", name );
   } else {
-    FD_TEST( fd_cstr_printf_check( config->paths.guidb, sizeof(config->paths.guidb), NULL, "%s/gui.db", config->paths.base ) );
+    FD_TEST( fd_config_str_printf( config, &config->paths.guidb, "%s/gui.db", base ) );
   }
 
   for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
-    replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
-    replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
+    replace( config, &config->firedancer.paths.authorized_voter_paths[ i ], "{user}", user );
+    replace( config, &config->firedancer.paths.authorized_voter_paths[ i ], "{name}", name );
   }
 }
 
 static void
 fd_config_fillh( fd_config_t * config ) {
-  if( FD_UNLIKELY( strcmp( config->frankendancer.paths.accounts_path, "" ) ) ) {
-    replace( config->frankendancer.paths.accounts_path, "{user}", config->user );
-    replace( config->frankendancer.paths.accounts_path, "{name}", config->name );
+  char const * user = FD_TOPO_STR( config->user );
+  char const * name = FD_TOPO_STR( config->name );
+  char const * base = FD_TOPO_STR( config->paths.base );
+
+  if( FD_UNLIKELY( FD_TOPO_STR( config->frankendancer.paths.accounts_path )[0] ) ) {
+    replace( config, &config->frankendancer.paths.accounts_path, "{user}", user );
+    replace( config, &config->frankendancer.paths.accounts_path, "{name}", name );
   }
 
-  if( FD_UNLIKELY( strcmp( config->frankendancer.paths.ledger, "" ) ) ) {
-    replace( config->frankendancer.paths.ledger, "{user}", config->user );
-    replace( config->frankendancer.paths.ledger, "{name}", config->name );
+  if( FD_UNLIKELY( FD_TOPO_STR( config->frankendancer.paths.ledger )[0] ) ) {
+    replace( config, &config->frankendancer.paths.ledger, "{user}", user );
+    replace( config, &config->frankendancer.paths.ledger, "{name}", name );
   } else {
-    FD_TEST( fd_cstr_printf_check( config->frankendancer.paths.ledger, sizeof(config->frankendancer.paths.ledger), NULL, "%s/ledger", config->paths.base ) );
+    FD_TEST( fd_config_str_printf( config, &config->frankendancer.paths.ledger, "%s/ledger", base ) );
   }
 
-  if( FD_UNLIKELY( strcmp( config->frankendancer.snapshots.path, "" ) ) ) {
-    replace( config->frankendancer.snapshots.path, "{user}", config->user );
-    replace( config->frankendancer.snapshots.path, "{name}", config->name );
+  if( FD_UNLIKELY( FD_TOPO_STR( config->frankendancer.snapshots.path )[0] ) ) {
+    replace( config, &config->frankendancer.snapshots.path, "{user}", user );
+    replace( config, &config->frankendancer.snapshots.path, "{name}", name );
   } else {
-    strncpy( config->frankendancer.snapshots.path, config->frankendancer.paths.ledger, sizeof(config->frankendancer.snapshots.path) );
+    char const * ledger = FD_TOPO_STR( config->frankendancer.paths.ledger );
+    FD_TEST( fd_config_str_set( config, &config->frankendancer.snapshots.path, ledger, strlen( ledger ) ) );
   }
 
   for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ ) {
-    replace( config->frankendancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
-    replace( config->frankendancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
+    replace( config, &config->frankendancer.paths.authorized_voter_paths[ i ], "{user}", user );
+    replace( config, &config->frankendancer.paths.authorized_voter_paths[ i ], "{name}", name );
   }
 
   if( FD_UNLIKELY( config->tiles.quic.quic_transaction_listen_port!=config->tiles.quic.regular_transaction_listen_port+6 ) )
@@ -174,13 +221,16 @@ fd_config_fillh( fd_config_t * config ) {
                  config->tiles.quic.regular_transaction_listen_port ));
 
   char dynamic_port_range[ 32 ];
-  fd_memcpy( dynamic_port_range, config->frankendancer.dynamic_port_range, sizeof(dynamic_port_range) );
+  if( FD_UNLIKELY( !fd_cstr_printf_check( dynamic_port_range, sizeof(dynamic_port_range), NULL, "%s", FD_TOPO_STR( config->frankendancer.dynamic_port_range ) ) ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 FD_TOPO_STR( config->frankendancer.dynamic_port_range ) ));
 
   char * dash = strstr( dynamic_port_range, "-" );
   if( FD_UNLIKELY( !dash ) )
     FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
                  "This must be formatted like `<min>-<max>`",
-                 config->frankendancer.dynamic_port_range ));
+                 FD_TOPO_STR( config->frankendancer.dynamic_port_range ) ));
 
   *dash = '\0';
   char * endptr;
@@ -188,42 +238,42 @@ fd_config_fillh( fd_config_t * config ) {
   if( FD_UNLIKELY( *endptr != '\0' || agave_port_min > USHORT_MAX ) )
     FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
                  "This must be formatted like `<min>-<max>`",
-                 config->frankendancer.dynamic_port_range ));
+                 FD_TOPO_STR( config->frankendancer.dynamic_port_range ) ));
   ulong agave_port_max = strtoul( dash + 1, &endptr, 10 );
   if( FD_UNLIKELY( *endptr != '\0' || agave_port_max > USHORT_MAX ) )
     FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
                  "This must be formatted like `<min>-<max>`",
-                 config->frankendancer.dynamic_port_range ));
+                 FD_TOPO_STR( config->frankendancer.dynamic_port_range ) ));
   if( FD_UNLIKELY( agave_port_min > agave_port_max ) )
     FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
                  "The minimum port must be less than or equal to the maximum port",
-                 config->frankendancer.dynamic_port_range ));
+                 FD_TOPO_STR( config->frankendancer.dynamic_port_range ) ));
 
   if( FD_UNLIKELY( config->tiles.quic.regular_transaction_listen_port >= agave_port_min &&
                    config->tiles.quic.regular_transaction_listen_port < agave_port_max ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.transaction_listen_port] `%hu`. "
                  "This must be outside the dynamic port range `%s`",
                  config->tiles.quic.regular_transaction_listen_port,
-                 config->frankendancer.dynamic_port_range ));
+                 FD_TOPO_STR( config->frankendancer.dynamic_port_range ) ));
 
   if( FD_UNLIKELY( config->tiles.quic.quic_transaction_listen_port >= agave_port_min &&
                    config->tiles.quic.quic_transaction_listen_port < agave_port_max ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
                  "This must be outside the dynamic port range `%s`",
                  config->tiles.quic.quic_transaction_listen_port,
-                 config->frankendancer.dynamic_port_range ));
+                 FD_TOPO_STR( config->frankendancer.dynamic_port_range ) ));
 
   if( FD_UNLIKELY( config->tiles.shred.shred_listen_port >= agave_port_min &&
                    config->tiles.shred.shred_listen_port < agave_port_max ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.shred.shred_listen_port] `%hu`. "
                  "This must be outside the dynamic port range `%s`",
                  config->tiles.shred.shred_listen_port,
-                 config->frankendancer.dynamic_port_range ));
+                 FD_TOPO_STR( config->frankendancer.dynamic_port_range ) ));
 }
 
 static void
 fd_config_fill_net( fd_config_t * config ) {
-  if( FD_UNLIKELY( !strcmp( config->net.interface, "" ) ) ) {
+  if( FD_UNLIKELY( !FD_TOPO_STR( config->net.interface )[0] ) ) {
     uint ifindex;
     int result = fd_net_util_internet_ifindex( &ifindex );
     if( FD_UNLIKELY( -1==result && errno!=ENODEV ) ) FD_LOG_ERR(( "could not get network device index (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -235,23 +285,25 @@ fd_config_fill_net( fd_config_t * config ) {
                    "You can fix this error by specifying a network interface to bind to in "
                    "your configuration file under [net.interface]" ));
 
-    if( FD_UNLIKELY( !if_indextoname( ifindex, config->net.interface ) ) )
+    char interface[ IF_NAMESIZE ];
+    if( FD_UNLIKELY( !if_indextoname( ifindex, interface ) ) )
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
+    FD_TEST( fd_config_str_set( config, &config->net.interface, interface, strlen( interface ) ) );
   }
 
-  if( FD_UNLIKELY( !if_nametoindex( config->net.interface ) ) )
-    FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->net.interface ));
+  if( FD_UNLIKELY( !if_nametoindex( FD_TOPO_STR( config->net.interface ) ) ) )
+    FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", FD_TOPO_STR( config->net.interface ) ));
   uint iface_ip;
-  if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->net.interface, &iface_ip ) ) )
-    FD_LOG_ERR(( "could not get IP address for interface `%s`", config->net.interface ));
+  if( FD_UNLIKELY( -1==fd_net_util_if_addr( FD_TOPO_STR( config->net.interface ), &iface_ip ) ) )
+    FD_LOG_ERR(( "could not get IP address for interface `%s`", FD_TOPO_STR( config->net.interface ) ));
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
-    if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
+    if( FD_UNLIKELY( strcmp( FD_TOPO_STR( config->firedancer.gossip.host ), "" ) ) ) {
       uint gossip_ip_addr = iface_ip;
       int  has_gossip_ip4 = 0;
-      if( FD_UNLIKELY( strlen( config->firedancer.gossip.host )<=15UL ) ) {
+      if( FD_UNLIKELY( strlen( FD_TOPO_STR( config->firedancer.gossip.host ) )<=15UL ) ) {
         /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
-        has_gossip_ip4 = fd_cstr_to_ip4_addr( config->firedancer.gossip.host, &gossip_ip_addr );
+        has_gossip_ip4 = fd_cstr_to_ip4_addr( FD_TOPO_STR( config->firedancer.gossip.host ), &gossip_ip_addr );
       }
       if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
         FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
@@ -263,7 +315,7 @@ fd_config_fill_net( fd_config_t * config ) {
                    "and will not be routable for other Solana network nodes. If you are running "
                    "behind a NAT and this interface is publicly reachable, you can continue by "
                    "manually specifying the IP address to advertise in your configuration under "
-                   "[gossip.host].", config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+                   "[gossip.host].", FD_TOPO_STR( config->net.interface ), FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
     }
   }
 
@@ -280,92 +332,84 @@ fd_config_fill( fd_config_t * config,
   fd_cstr_ncpy( config->hostname, utsname.nodename, sizeof(config->hostname) ); /* Just truncate the name if it's too long to fit */
 
   ulong cluster;
-  if( FD_UNLIKELY( !config->is_firedancer ) ) cluster = fd_genesis_cluster_identify( config->frankendancer.consensus.expected_genesis_hash );
-  else                                        cluster = fd_genesis_cluster_identify( config->consensus.expected_genesis_hash );
+  if( FD_UNLIKELY( !config->is_firedancer ) ) cluster = fd_genesis_cluster_identify( FD_TOPO_STR( config->frankendancer.consensus.expected_genesis_hash ) );
+  else                                        cluster = fd_genesis_cluster_identify( FD_TOPO_STR( config->consensus.expected_genesis_hash ) );
   config->is_live_cluster = cluster!=FD_CLUSTER_UNKNOWN;
   strcpy( config->cluster, fd_genesis_cluster_name( cluster ) );
 
-  if( FD_UNLIKELY( !strcmp( config->user, "" ) ) ) {
+  if( FD_UNLIKELY( !FD_TOPO_STR( config->user )[0] ) ) {
     const char * user = fd_sys_util_login_user();
     if( FD_UNLIKELY( !user ) )                                                                 FD_LOG_ERR(( "could not automatically determine a user to run Firedancer as. You must specify a [user] in your configuration TOML file." ));
-    if( FD_UNLIKELY( strlen( user )>=sizeof( config->user ) ) )                                FD_LOG_ERR(( "user name `%s` is too long", user ));
-    strncpy( config->user, user, sizeof(config->user) );
+    if( FD_UNLIKELY( strlen( user )>=256UL ) )                                                 FD_LOG_ERR(( "user name `%s` is too long", user ));
+    FD_TEST( fd_config_str_set( config, &config->user, user, strlen( user ) ) );
   }
 
-  if( FD_UNLIKELY( -1==fd_sys_util_user_to_uid( config->user, &config->uid, &config->gid ) ) ) FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
+  if( FD_UNLIKELY( -1==fd_sys_util_user_to_uid( FD_TOPO_STR( config->user ), &config->uid, &config->gid ) ) ) FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", FD_TOPO_STR( config->user ) ));
   if( FD_UNLIKELY( !config->uid || !config->gid ) )                                            FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));
   if( FD_UNLIKELY( getuid()!=0U && config->uid!=getuid() ) )                                   FD_LOG_ERR(( "running as uid %u, but config specifies uid %u", getuid(), config->uid ));
   if( FD_UNLIKELY( getgid()!=0U && config->gid!=getgid() ) )                                   FD_LOG_ERR(( "running as gid %u, but config specifies gid %u", getgid(), config->gid ));
 
-  FD_TEST( fd_cstr_printf_check( config->hugetlbfs.gigantic_page_mount_path,
-    sizeof(config->hugetlbfs.gigantic_page_mount_path),
-    NULL,
-    "%s/.gigantic",
-    config->hugetlbfs.mount_path ) );
-  FD_TEST( fd_cstr_printf_check( config->hugetlbfs.huge_page_mount_path,
-    sizeof(config->hugetlbfs.huge_page_mount_path),
-    NULL,
-    "%s/.huge",
-    config->hugetlbfs.mount_path ) );
+  FD_TEST( fd_config_str_printf( config, &config->hugetlbfs.gigantic_page_mount_path, "%s/.gigantic", FD_TOPO_STR( config->hugetlbfs.mount_path ) ) );
+  FD_TEST( fd_config_str_printf( config, &config->hugetlbfs.huge_page_mount_path,      "%s/.huge",     FD_TOPO_STR( config->hugetlbfs.mount_path ) ) );
 
-  ulong max_page_sz = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  ulong max_page_sz = fd_cstr_to_shmem_page_sz( FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
   if( FD_UNLIKELY( max_page_sz!=FD_SHMEM_HUGE_PAGE_SZ && max_page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "[hugetlbfs.max_page_size] must be \"huge\" or \"gigantic\"" ));
 
-  replace( config->log.path, "{user}", config->user );
-  replace( config->log.path, "{name}", config->name );
+  char const * user = FD_TOPO_STR( config->user );
+  char const * name = FD_TOPO_STR( config->name );
 
-  if( FD_LIKELY( !strcmp( "auto", config->log.colorize ) ) )       config->log.colorize1 = 2;
-  else if( FD_LIKELY( !strcmp( "true", config->log.colorize ) ) )  config->log.colorize1 = 1;
-  else if( FD_LIKELY( !strcmp( "false", config->log.colorize ) ) ) config->log.colorize1 = 0;
+  replace( config, &config->log.path, "{user}", user );
+  replace( config, &config->log.path, "{name}", name );
+
+  if( FD_LIKELY( !strcmp( "auto", FD_TOPO_STR( config->log.colorize ) ) ) )       config->log.colorize1 = 2;
+  else if( FD_LIKELY( !strcmp( "true", FD_TOPO_STR( config->log.colorize ) ) ) )  config->log.colorize1 = 1;
+  else if( FD_LIKELY( !strcmp( "false", FD_TOPO_STR( config->log.colorize ) ) ) ) config->log.colorize1 = 0;
   else  FD_LOG_ERR(( "[log.colorize] must be one of \"auto\", \"true\", or \"false\"" ));
 
   if( FD_LIKELY( 2==config->log.colorize1 ) ) {
     config->log.colorize1 = fd_log_should_colorize();
   }
 
-  config->log.level_logfile1 = parse_log_level( config->log.level_logfile );
-  config->log.level_stderr1  = parse_log_level( config->log.level_stderr );
-  if( FD_UNLIKELY( !strcmp( config->log.level_flush, "NONE" ) ) ) config->log.level_flush1 = 8;
-  else                                                            config->log.level_flush1 = parse_log_level( config->log.level_flush );
-  if( FD_UNLIKELY( -1==config->log.level_logfile1 ) ) FD_LOG_ERR(( "unrecognized [log.level_logfile] `%s`", config->log.level_logfile ));
-  if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_stderr ));
-  if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_flush ));
+  config->log.level_logfile1 = parse_log_level( FD_TOPO_STR( config->log.level_logfile ) );
+  config->log.level_stderr1  = parse_log_level( FD_TOPO_STR( config->log.level_stderr ) );
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( config->log.level_flush ), "NONE" ) ) ) config->log.level_flush1 = 8;
+  else                                                            config->log.level_flush1 = parse_log_level( FD_TOPO_STR( config->log.level_flush ) );
+  if( FD_UNLIKELY( -1==config->log.level_logfile1 ) ) FD_LOG_ERR(( "unrecognized [log.level_logfile] `%s`", FD_TOPO_STR( config->log.level_logfile ) ));
+  if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", FD_TOPO_STR( config->log.level_stderr ) ));
+  if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", FD_TOPO_STR( config->log.level_flush ) ));
 
-  config->development.core_dump_level = parse_core_dump_level( config->development.core_dump );
-  if( FD_UNLIKELY( -1==config->development.core_dump_level ) ) FD_LOG_ERR(( "unrecognized [development.core_dump] `%s`", config->development.core_dump ));
+  config->development.core_dump_level = parse_core_dump_level( FD_TOPO_STR( config->development.core_dump ) );
+  if( FD_UNLIKELY( -1==config->development.core_dump_level ) ) FD_LOG_ERR(( "unrecognized [development.core_dump] `%s`", FD_TOPO_STR( config->development.core_dump ) ));
 
-  replace( config->paths.base, "{user}", config->user );
-  replace( config->paths.base, "{name}", config->name );
+  replace( config, &config->paths.base, "{user}", user );
+  replace( config, &config->paths.base, "{name}", name );
+  char const * base = FD_TOPO_STR( config->paths.base );
 
-  if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
+  if( FD_UNLIKELY( !FD_TOPO_STR( config->paths.identity_key )[0] ) ) {
     /* Development binaries generate an identity key on boot. */
     if( FD_UNLIKELY( config->is_live_cluster && !dev ) ) FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
 
-    FD_TEST( fd_cstr_printf_check( config->paths.identity_key,
-                                   sizeof(config->paths.identity_key),
-                                   NULL,
-                                   "%s/identity.json",
-                                   config->paths.base ) );
+    FD_TEST( fd_config_str_printf( config, &config->paths.identity_key, "%s/identity.json", base ) );
   } else {
-    replace( config->paths.identity_key, "{user}", config->user );
-    replace( config->paths.identity_key, "{name}", config->name );
+    replace( config, &config->paths.identity_key, "{user}", user );
+    replace( config, &config->paths.identity_key, "{name}", name );
   }
 
-  replace( config->paths.vote_account, "{user}", config->user );
-  replace( config->paths.vote_account, "{name}", config->name );
+  replace( config, &config->paths.vote_account, "{user}", user );
+  replace( config, &config->paths.vote_account, "{name}", name );
 
-  if( FD_UNLIKELY( strcmp( config->paths.snapshots, "" ) ) ) {
-    replace( config->paths.snapshots, "{user}", config->user );
-    replace( config->paths.snapshots, "{name}", config->name );
+  if( FD_UNLIKELY( FD_TOPO_STR( config->paths.snapshots )[0] ) ) {
+    replace( config, &config->paths.snapshots, "{user}", user );
+    replace( config, &config->paths.snapshots, "{name}", name );
   } else {
-    FD_TEST( fd_cstr_printf_check( config->paths.snapshots, sizeof(config->paths.snapshots), NULL, "%s/snapshots", config->paths.base ) );
+    FD_TEST( fd_config_str_printf( config, &config->paths.snapshots, "%s/snapshots", base ) );
   }
 
-  if( FD_UNLIKELY( strcmp( config->paths.genesis, "" ) ) ) {
-    replace( config->paths.genesis, "{user}", config->user );
-    replace( config->paths.genesis, "{name}", config->name );
+  if( FD_UNLIKELY( FD_TOPO_STR( config->paths.genesis )[0] ) ) {
+    replace( config, &config->paths.genesis, "{user}", user );
+    replace( config, &config->paths.genesis, "{name}", name );
   } else {
-    FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/genesis.bin", config->paths.base ) );
+    FD_TEST( fd_config_str_printf( config, &config->paths.genesis, "%s/genesis.bin", base ) );
   }
 
   long ts = -fd_log_wallclock();
@@ -375,18 +419,18 @@ fd_config_fill( fd_config_t * config,
                                : fd_tempo_tick_per_ns    ( &config->tick_per_ns_sigma );
   FD_LOG_INFO(( "calibrating fd_tempo tick_per_ns took %ld ms", (fd_log_wallclock()+ts)/(1000L*1000L) ));
 
-  if( 0!=strcmp( config->net.bind_address, "" ) ) {
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->net.bind_address, &config->net.bind_address_parsed ) ) ) {
+  if( 0!=strcmp( FD_TOPO_STR( config->net.bind_address ), "" ) ) {
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( FD_TOPO_STR( config->net.bind_address ), &config->net.bind_address_parsed ) ) ) {
       FD_LOG_ERR(( "`net.bind_address` is not a valid IPv4 address" ));
     }
   }
 
-  if(      FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "perf"     ) ) ) config->tiles.pack.schedule_strategy_enum = 0;
-  else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "balanced" ) ) ) config->tiles.pack.schedule_strategy_enum = 1;
-  else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "revenue"  ) ) ) {
+  if(      FD_LIKELY( !strcmp( FD_TOPO_STR( config->tiles.pack.schedule_strategy ), "perf"     ) ) ) config->tiles.pack.schedule_strategy_enum = 0;
+  else if( FD_LIKELY( !strcmp( FD_TOPO_STR( config->tiles.pack.schedule_strategy ), "balanced" ) ) ) config->tiles.pack.schedule_strategy_enum = 1;
+  else if( FD_LIKELY( !strcmp( FD_TOPO_STR( config->tiles.pack.schedule_strategy ), "revenue"  ) ) ) {
     FD_LOG_ERR(( "the revenue scheduler has been removed.  Please update [tiles.pack.schedule_strategy]" ));
   }
-  else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", config->tiles.pack.schedule_strategy ));
+  else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", FD_TOPO_STR( config->tiles.pack.schedule_strategy ) ));
 
   fd_config_fill_net( config );
 
@@ -397,7 +441,7 @@ fd_config_fill( fd_config_t * config,
   }
 
   fd_config_auto( config );
-  if( FD_UNLIKELY( !strcmp( config->net.provider, "auto" ) ) ) {
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( config->net.provider ), "auto" ) ) ) {
     FD_LOG_ERR(( "failed to resolve automatic network provider" ));
   }
   fd_config_validate( config );
@@ -421,12 +465,8 @@ fd_config_fill( fd_config_t * config,
      to make starting and running in development environments a little
      easier and less strict. */
   if( FD_UNLIKELY( is_local_cluster ) ) {
-    if( FD_LIKELY( !strcmp( config->paths.vote_account, "" ) ) ) {
-      FD_TEST( fd_cstr_printf_check( config->paths.vote_account,
-                                     sizeof( config->paths.vote_account ),
-                                     NULL,
-                                     "%s/vote-account.json",
-                                     config->paths.base ) );
+    if( FD_LIKELY( !FD_TOPO_STR( config->paths.vote_account )[0] ) ) {
+      FD_TEST( fd_config_str_printf( config, &config->paths.vote_account, "%s/vote-account.json", base ) );
     }
 
     strncpy( config->cluster, "development", sizeof(config->cluster) );
@@ -448,14 +488,14 @@ fd_config_fill( fd_config_t * config,
     }
   }
 
-  if( FD_UNLIKELY( config->is_firedancer && strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) && (!config->consensus.expected_shred_version || config->consensus.wait_for_vote_to_start_leader) ) ) {
+  if( FD_UNLIKELY( config->is_firedancer && strcmp( FD_TOPO_STR( config->firedancer.consensus.wait_for_supermajority_with_bank_hash ), "" ) && (!config->consensus.expected_shred_version || config->consensus.wait_for_vote_to_start_leader) ) ) {
     FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
   }
 
 }
 
 #define CFG_HAS_NON_EMPTY( key ) do {                  \
-  if( !strnlen( config->key, sizeof(config->key) ) ) { \
+  if( !FD_TOPO_STR( config->key )[0] ) {                \
     FD_LOG_ERR(( "missing `%s`", #key ));              \
   }                                                    \
 } while(0)
@@ -492,9 +532,9 @@ fd_config_validatef( fd_configf_t const * config ) {
   }
   for( ulong i=0UL; i<config->snapshots.sources.gossip.allow_list_cnt; i++ ) {
     for( ulong j=0UL; j<config->snapshots.sources.gossip.block_list_cnt; j++ ) {
-      if( FD_UNLIKELY( 0==strcmp( config->snapshots.sources.gossip.allow_list[ i ], config->snapshots.sources.gossip.block_list[ j ] ) ) ) {
+      if( FD_UNLIKELY( 0==strcmp( FD_TOPO_STR( config->snapshots.sources.gossip.allow_list[ i ] ), FD_TOPO_STR( config->snapshots.sources.gossip.block_list[ j ] ) ) ) ) {
         FD_LOG_ERR(( "`snapshots.sources.gossip` has repeated public key `%s` in both allow[%lu] and block[%lu] lists.  "
-                     "Please modify one of the two options and restart.", config->snapshots.sources.gossip.allow_list[ i ], i, j ));
+                     "Please modify one of the two options and restart.", FD_TOPO_STR( config->snapshots.sources.gossip.allow_list[ i ] ), i, j ));
 
       }
     }
@@ -595,31 +635,31 @@ fd_config_validate( fd_config_t const * config ) {
   if( FD_UNLIKELY( !config->is_firedancer && bench_shreds && bench_shreds!=32UL*FD_SHRED_BLK_MAX ) )
     FD_LOG_ERR(( "invalid [development.bench.max_shreds_per_block]: Frankendancer supports 0 or %lu", 32UL*FD_SHRED_BLK_MAX ));
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
-        0!=strcmp( config->net.xdp.xdp_mode, "drv"     ) &&
-        0!=strcmp( config->net.xdp.xdp_mode, "auto"    ) &&
-        0!=strcmp( config->net.xdp.xdp_mode, "default" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) {
+    if( 0!=strcmp( FD_TOPO_STR( config->net.xdp.xdp_mode ), "skb"     ) &&
+        0!=strcmp( FD_TOPO_STR( config->net.xdp.xdp_mode ), "drv"     ) &&
+        0!=strcmp( FD_TOPO_STR( config->net.xdp.xdp_mode ), "auto"    ) &&
+        0!=strcmp( FD_TOPO_STR( config->net.xdp.xdp_mode ), "default" ) ) {
       FD_LOG_ERR(( "invalid `net.xdp.xdp_mode`: \"%s\"; must be \"skb\", \"drv\", \"auto\" or \"default\"",
-                   config->net.xdp.xdp_mode ));
+                   FD_TOPO_STR( config->net.xdp.xdp_mode ) ));
     }
 
-    if( 0!=strcmp( config->net.xdp.poll_mode, "prefbusy" ) &&
-        0!=strcmp( config->net.xdp.poll_mode, "softirq"  ) &&
-        0!=strcmp( config->net.xdp.poll_mode, "auto"     ) ) {
+    if( 0!=strcmp( FD_TOPO_STR( config->net.xdp.poll_mode ), "prefbusy" ) &&
+        0!=strcmp( FD_TOPO_STR( config->net.xdp.poll_mode ), "softirq"  ) &&
+        0!=strcmp( FD_TOPO_STR( config->net.xdp.poll_mode ), "auto"     ) ) {
       FD_LOG_ERR(( "invalid `net.xdp.poll_mode`: \"%s\"; must be \"prefbusy\", \"softirq\" or \"auto\"",
-                   config->net.xdp.poll_mode ));
+                   FD_TOPO_STR( config->net.xdp.poll_mode ) ));
     }
 
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
-    if( 0!=strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) &&
-        0!=strcmp( config->net.xdp.rss_queue_mode, "simple"    ) &&
-        0!=strcmp( config->net.xdp.rss_queue_mode, "auto"      ) ) {
+    if( 0!=strcmp( FD_TOPO_STR( config->net.xdp.rss_queue_mode ), "dedicated" ) &&
+        0!=strcmp( FD_TOPO_STR( config->net.xdp.rss_queue_mode ), "simple"    ) &&
+        0!=strcmp( FD_TOPO_STR( config->net.xdp.rss_queue_mode ), "auto"      ) ) {
       FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\", \"dedicated\" or \"auto\"",
-                   config->net.xdp.rss_queue_mode ));
+                   FD_TOPO_STR( config->net.xdp.rss_queue_mode ) ));
     }
-  } else if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+  } else if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "mlx5" ) ) {
     CFG_HAS_POW2( net.mlx5.rx_queue_size );
     CFG_HAS_POW2( net.mlx5.tx_queue_size );
     if( FD_UNLIKELY( config->net.mlx5.rx_queue_size<=FD_MLX5_BATCH_SIZE ||
@@ -631,14 +671,14 @@ fd_config_validate( fd_config_t const * config ) {
                      config->net.mlx5.tx_queue_size>FD_MLX5_QUEUE_DEPTH_MAX ) ) {
       FD_LOG_ERR(( "invalid mlx5 queue depth: RX and TX must not exceed %u", FD_MLX5_QUEUE_DEPTH_MAX ));
     }
-  } else if( 0==strcmp( config->net.provider, "socket" ) ) {
+  } else if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
-  } else if( 0==strcmp( config->net.provider, "auto" ) ) {
+  } else if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "auto" ) ) {
     /* "auto" is resolved after interface discovery in fd_config_fill(). */
   } else {
     FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\" or \"mlx5\"",
-                 config->net.provider ));
+                 FD_TOPO_STR( config->net.provider ) ));
   }
 
   CFG_HAS_NON_ZERO( tiles.netlink.max_routes           );
@@ -712,7 +752,7 @@ fd_config_load( int           is_firedancer,
     fd_config_load_buf( config, user_config, user_config_sz, user_config_path );
     fd_config_validate( config );
     if( FD_UNLIKELY( user_config_sz>sizeof(config->user_config)-1UL ) ) {
-      if( FD_UNLIKELY( config->telemetry && config->tiles.event.url[ 0 ] ) ) {
+      if( FD_UNLIKELY( config->telemetry && FD_TOPO_STR( config->tiles.event.url )[ 0 ] ) ) {
         FD_LOG_ERR(( "config file (%s) is too large (%lu bytes, max %lu) to report in telemetry", user_config_path, user_config_sz, sizeof(config->user_config)-1UL ));
       }
     } else {

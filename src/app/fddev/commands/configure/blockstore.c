@@ -39,7 +39,7 @@ init( config_t const * config ) {
   ulong hashes_per_tick = config->development.genesis.hashes_per_tick;
 
   char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
+  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", FD_TOPO_STR( config->frankendancer.paths.ledger ) ) );
   uchar genesis_hash[ 32 ] = { 0 };
   ushort shred_version = 0;
   int result = read_genesis_bin( genesis_path, &shred_version, genesis_hash );
@@ -112,7 +112,7 @@ init( config_t const * config ) {
 
     umask( S_IRWXO | S_IRWXG );
 
-    fd_ext_blockstore_create_block0( config->frankendancer.paths.ledger, FD_FEC_SHRED_CNT, (uchar const *)fec.data_shreds, FD_SHRED_MIN_SZ, FD_SHRED_MIN_SZ );
+    fd_ext_blockstore_create_block0( FD_TOPO_STR( config->frankendancer.paths.ledger ), FD_FEC_SHRED_CNT, (uchar const *)fec.data_shreds, FD_SHRED_MIN_SZ, FD_SHRED_MIN_SZ );
 
     fd_sys_util_exit_group( 0 );
   } else {
@@ -129,10 +129,10 @@ init( config_t const * config ) {
 static int
 fini( config_t const * config,
       int              pre_init FD_PARAM_UNUSED ) {
-  DIR * dir = opendir( config->frankendancer.paths.ledger );
+  DIR * dir = opendir( FD_TOPO_STR( config->frankendancer.paths.ledger ) );
   if( FD_UNLIKELY( !dir ) ) {
     if( errno == ENOENT ) return 0;
-    FD_LOG_ERR(( "opendir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "opendir `%s` failed (%i-%s)", FD_TOPO_STR( config->frankendancer.paths.ledger ), errno, fd_io_strerror( errno ) ));
   }
 
   struct dirent * entry;
@@ -146,7 +146,7 @@ fini( config_t const * config,
     if( FD_LIKELY( !strcmp( entry->d_name, "genesis.bin" ) ) ) continue;
 
     char path1[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( path1, PATH_MAX, NULL, "%s/%s", config->frankendancer.paths.ledger, entry->d_name ) );
+    FD_TEST( fd_cstr_printf_check( path1, PATH_MAX, NULL, "%s/%s", FD_TOPO_STR( config->frankendancer.paths.ledger ), entry->d_name ) );
 
     struct stat st;
     if( FD_UNLIKELY( lstat( path1, &st ) ) ) {
@@ -162,8 +162,8 @@ fini( config_t const * config,
     }
   }
 
-  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", FD_TOPO_STR( config->frankendancer.paths.ledger ), errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", FD_TOPO_STR( config->frankendancer.paths.ledger ), errno, fd_io_strerror( errno ) ));
 
   return 1;
 }
@@ -173,10 +173,10 @@ check( config_t const * config,
        int              check_type FD_PARAM_UNUSED ) {
   int has_non_genesis = 0;
 
-  DIR * dir = opendir( config->frankendancer.paths.ledger );
+  DIR * dir = opendir( FD_TOPO_STR( config->frankendancer.paths.ledger ) );
   if( FD_UNLIKELY( !dir ) ) {
-    if( FD_UNLIKELY( errno==ENOENT ) ) NOT_CONFIGURED( "ledger directory does not exist at `%s`", config->frankendancer.paths.ledger );
-    FD_LOG_ERR(( "opendir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( errno==ENOENT ) ) NOT_CONFIGURED( "ledger directory does not exist at `%s`", FD_TOPO_STR( config->frankendancer.paths.ledger ) );
+    FD_LOG_ERR(( "opendir `%s` failed (%i-%s)", FD_TOPO_STR( config->frankendancer.paths.ledger ), errno, fd_io_strerror( errno ) ));
   }
 
   struct dirent * entry;
@@ -190,11 +190,11 @@ check( config_t const * config,
     if( FD_LIKELY( !strcmp( entry->d_name, "genesis.bin" ) ) ) continue;
     if( FD_LIKELY( !strcmp( entry->d_name, "rocksdb" ) ) ) {
       char rocksdb_path[ PATH_MAX ];
-      fd_cstr_printf_check( rocksdb_path, PATH_MAX, NULL, "%s/rocksdb", config->frankendancer.paths.ledger );
+      fd_cstr_printf_check( rocksdb_path, PATH_MAX, NULL, "%s/rocksdb", FD_TOPO_STR( config->frankendancer.paths.ledger ) );
 
       configure_result_t result = check_dir( rocksdb_path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR );
       if( FD_UNLIKELY( result.result != CONFIGURE_OK ) ) {
-        if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", FD_TOPO_STR( config->frankendancer.paths.ledger ), errno, fd_io_strerror( errno ) ));
         return result;
       }
     }
@@ -204,13 +204,13 @@ check( config_t const * config,
     break;
   }
 
-  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", FD_TOPO_STR( config->frankendancer.paths.ledger ), errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", FD_TOPO_STR( config->frankendancer.paths.ledger ), errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( has_non_genesis ) ) {
-    PARTIALLY_CONFIGURED( "rocksdb directory exists at `%s`", config->frankendancer.paths.ledger );
+    PARTIALLY_CONFIGURED( "rocksdb directory exists at `%s`", FD_TOPO_STR( config->frankendancer.paths.ledger ) );
   } else {
-    NOT_CONFIGURED( "rocksdb directory does not exist at `%s`", config->frankendancer.paths.ledger );
+    NOT_CONFIGURED( "rocksdb directory does not exist at `%s`", FD_TOPO_STR( config->frankendancer.paths.ledger ) );
   }
 }
 

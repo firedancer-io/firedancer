@@ -181,22 +181,23 @@ fd_main_init( int *                      pargc,
     config->log.log_fd  = -1;
     config->has_user_config = !!opt_user_config_path;
     thread = "main";
-    if( FD_UNLIKELY( log_path ) )
-      strncpy( config->log.path, log_path, sizeof( config->log.path ) - 1 );
+    if( FD_UNLIKELY( log_path ) ) {
+      if( FD_UNLIKELY( !fd_config_str_printf( config, &config->log.path, "%s", log_path ) ) ) FD_LOG_ERR(( "--log-path too long for config string storage" ));
+    }
   }
 
   char * shmem_args[ 3 ];
   /* pass in --shmem-path value from the config */
   shmem_args[ 0 ] = "--shmem-path";
-  shmem_args[ 1 ] = config->hugetlbfs.mount_path;
+  shmem_args[ 1 ] = (char *)FD_TOPO_STR( config->hugetlbfs.mount_path );
   shmem_args[ 2 ] = NULL;
   char ** argv = shmem_args;
   int     argc = 2;
 
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc since we might be in a PID namespace now */;
 
-  log_path = config->log.path;
-  if( FD_LIKELY( config->log.path[ 0 ]=='\0' ) ) log_path = NULL;
+  log_path = FD_TOPO_STR( config->log.path );
+  if( FD_LIKELY( FD_TOPO_STR( config->log.path )[ 0 ]=='\0' ) ) log_path = NULL;
 
   /* Switch to the sandbox uid/gid for log file creation, so it's always
      owned by that user. */
@@ -208,7 +209,7 @@ fd_main_init( int *                      pargc,
 
   int boot_silent = config_fd>=0;
   fd_log_private_boot_custom( 0UL,
-                              config->name,
+                              FD_TOPO_STR( config->name ),
                               0UL,    /* Thread ID will be initialized later */
                               thread, /* Thread will be initialized later */
                               0UL,
@@ -219,7 +220,7 @@ fd_main_init( int *                      pargc,
                               NULL,
                               pid,
                               config->uid,
-                              config->user,
+                              FD_TOPO_STR( config->user ),
                               1,
                               config->log.colorize1,
                               boot_silent ? 2 : config->log.level_logfile1,

@@ -1,7 +1,7 @@
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_THREADS
 ifdef FD_HAS_LINUX
-$(call add-hdrs,fd_topo.h fd_dns_resolve.h)
+$(call add-hdrs,fd_topo.h fd_topo_str.h fd_dns_resolve.h)
 $(call add-objs,fd_topo fd_topob fd_cpu_topo fd_topo_run fd_dns_resolve,fd_disco)
 $(call make-unit-test,test_topob,test_topob,fd_disco fd_ballet fd_tango fd_waltz fd_util)
 $(call make-unit-test,test_dns_resolve,test_dns_resolve,fd_disco fd_ballet fd_tango fd_waltz fd_util)

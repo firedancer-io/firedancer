@@ -1297,19 +1297,19 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   if( FD_LIKELY( !tile->pack.bundle.enabled ) ) return;
-  if( FD_UNLIKELY( !tile->pack.bundle.vote_account_path[0] ) ) {
+  if( FD_UNLIKELY( !FD_TOPO_STR( tile->pack.bundle.vote_account_path )[0] ) ) {
     FD_LOG_WARNING(( "Disabling bundle crank because no vote account was specified" ));
     return;
   }
 
-  if( FD_UNLIKELY( !strcmp( tile->pack.bundle.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->pack.bundle.identity_key_path ), "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  const uchar * identity_key = fd_keyload_load( tile->pack.bundle.identity_key_path, /* pubkey only: */ 1 );
+  const uchar * identity_key = fd_keyload_load( FD_TOPO_STR( tile->pack.bundle.identity_key_path ), /* pubkey only: */ 1 );
   fd_memcpy( ctx->crank->identity_pubkey->b, identity_key, 32UL );
 
-  if( FD_UNLIKELY( !fd_base58_decode_32( tile->pack.bundle.vote_account_path, ctx->crank->vote_pubkey->b ) ) ) {
-    const uchar * vote_key = fd_keyload_load( tile->pack.bundle.vote_account_path, /* pubkey only: */ 1 );
+  if( FD_UNLIKELY( !fd_base58_decode_32( FD_TOPO_STR( tile->pack.bundle.vote_account_path ), ctx->crank->vote_pubkey->b ) ) ) {
+    const uchar * vote_key = fd_keyload_load( FD_TOPO_STR( tile->pack.bundle.vote_account_path ), /* pubkey only: */ 1 );
     fd_memcpy( ctx->crank->vote_pubkey->b, vote_key, 32UL );
   }
 }

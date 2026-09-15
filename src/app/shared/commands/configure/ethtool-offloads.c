@@ -55,16 +55,16 @@ init_device( char const * device,
 
 static void
 init( fd_config_t const * config ) {
-  int const xdp = 0==strcmp( config->net.provider, "xdp" );
-  if( FD_UNLIKELY( fd_bonding_is_master( config->net.interface ) ) ) {
+  int const xdp = 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" );
+  if( FD_UNLIKELY( fd_bonding_is_master( FD_TOPO_STR( config->net.interface ) ) ) ) {
     fd_bonding_slave_iter_t iter_[1];
-    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( config->net.interface ) );
     for( ; !fd_bonding_slave_iter_done( iter );
          fd_bonding_slave_iter_next( iter ) ) {
       init_device( fd_bonding_slave_iter_ele( iter ), xdp );
     }
   } else {
-    init_device( config->net.interface, xdp );
+    init_device( FD_TOPO_STR( config->net.interface ), xdp );
   }
   init_device( "lo", xdp );
 }
@@ -113,16 +113,16 @@ check( fd_config_t const * config,
   int warn_gro = check_type==FD_CONFIGURE_CHECK_TYPE_PRE_INIT ||
                  check_type==FD_CONFIGURE_CHECK_TYPE_CHECK ||
                  check_type==FD_CONFIGURE_CHECK_TYPE_RUN;
-  int const xdp = 0==strcmp( config->net.provider, "xdp" );
-  if( FD_UNLIKELY( fd_bonding_is_master( config->net.interface ) ) ) {
+  int const xdp = 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" );
+  if( FD_UNLIKELY( fd_bonding_is_master( FD_TOPO_STR( config->net.interface ) ) ) ) {
     fd_bonding_slave_iter_t iter_[1];
-    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( config->net.interface ) );
     for( ; !fd_bonding_slave_iter_done( iter );
          fd_bonding_slave_iter_next( iter ) ) {
       CHECK( check_device( fd_bonding_slave_iter_ele( iter ), xdp, warn_gro ) );
     }
   } else {
-    CHECK( check_device( config->net.interface, xdp, warn_gro ) );
+    CHECK( check_device( FD_TOPO_STR( config->net.interface ), xdp, warn_gro ) );
   }
   CHECK( check_device( "lo", xdp, 0 ) );
 

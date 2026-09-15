@@ -7,6 +7,10 @@
 #define TEST_SELECTOR_SEED  (0x23456789abcdef01UL)
 #define TEST_BLACKLIST_SEED (0x3456789abcdef012UL)
 
+/* Tile config the test mutates; ctx->config points here (a real
+   tile points into its fd_topo_t). */
+static struct fd_topo_tile_snapct snapct_config[1];
+
 static void
 send_contact_info( fd_snapct_tile_t *           ctx,
                    fd_gossip_update_message_t * msg,
@@ -54,6 +58,7 @@ setup_gossip_only_snapct( void *                       scratch,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapct_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t)       );
   memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  ctx->config = snapct_config;
   gossip_ci_entry_t * ci_table = FD_SCRATCH_ALLOC_APPEND( l, alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX );
   void *              ci_map   = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
 
@@ -66,9 +71,10 @@ setup_gossip_only_snapct( void *                       scratch,
   ctx->gossip_in_mem = msg;
 
   ctx->gossip_enabled = 1;
-  ctx->config.sources.gossip.allow_any      = 0;
-  ctx->config.sources.gossip.allow_list_cnt = 0UL;
-  ctx->config.sources.gossip.block_list_cnt = 0UL;
+  memset( snapct_config, 0, sizeof(snapct_config) );
+  snapct_config->sources.gossip.allow_any      = 0;
+  snapct_config->sources.gossip.allow_list_cnt = 0UL;
+  snapct_config->sources.gossip.block_list_cnt = 0UL;
 
   *ctx_out = ctx;
 }
@@ -111,6 +117,7 @@ setup_blacklist_snapct( void *              scratch,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapct_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t), sizeof(fd_snapct_tile_t) );
   memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  ctx->config = snapct_config;
 
   void * _selector = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX )                  );
   void * _bl_pool  = FD_SCRATCH_ALLOC_APPEND( l, blacklist_pool_align(),     blacklist_pool_footprint( bl_max )                               );
@@ -139,6 +146,7 @@ setup_full_snapct( void *                       scratch,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapct_tile_t *  ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t)                                                   );
   memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  ctx->config = snapct_config;
   gossip_ci_entry_t * ci_table = FD_SCRATCH_ALLOC_APPEND( l, alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX                                 );
   void *              ci_map   = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
   void *              sel      = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX )                            );
@@ -160,9 +168,9 @@ setup_full_snapct( void *                       scratch,
 
   ctx->gossip_in_mem = msg;
   ctx->gossip_enabled = 1;
-  ctx->config.sources.gossip.allow_any      = 1;
-  ctx->config.sources.gossip.allow_list_cnt = 0UL;
-  ctx->config.sources.gossip.block_list_cnt = 0UL;
+  snapct_config->sources.gossip.allow_any      = 1;
+  snapct_config->sources.gossip.allow_list_cnt = 0UL;
+  snapct_config->sources.gossip.block_list_cnt = 0UL;
 
   *ctx_out = ctx;
 }
@@ -178,7 +186,7 @@ test_allow_any_contact_info_insert_and_update( void ) {
   ulong const idx = 3UL;
   fd_pubkey_t peer = test_pubkey( 0x11 );
 
-  ctx->config.sources.gossip.allow_any = 1;
+  snapct_config->sources.gossip.allow_any = 1;
 
   send_contact_info( ctx, msg, idx, &peer );
   FD_TEST( fd_pubkey_eq( &ctx->gossip.ci_table[ idx ].pubkey, &peer ) );
@@ -208,7 +216,7 @@ test_allow_any_contact_info_remove( void ) {
   ulong const idx = 4UL;
   fd_pubkey_t peer = test_pubkey( 0x22 );
 
-  ctx->config.sources.gossip.allow_any = 1;
+  snapct_config->sources.gossip.allow_any = 1;
 
   send_contact_info( ctx, msg, idx, &peer );
   FD_TEST( ctx->gossip.ci_table[ idx ].allowed );
@@ -234,9 +242,9 @@ test_allow_list_contact_info_insert( void ) {
   ulong const idx = 5UL;
   fd_pubkey_t peer = test_pubkey( 0x33 );
 
-  ctx->config.sources.gossip.allow_any = 0;
-  ctx->config.sources.gossip.allow_list_cnt = 1UL;
-  ctx->config.sources.gossip.allow_list[ 0 ] = peer;
+  snapct_config->sources.gossip.allow_any = 0;
+  snapct_config->sources.gossip.allow_list_cnt = 1UL;
+  snapct_config->sources.gossip.allow_list[ 0 ] = peer;
 
   send_contact_info( ctx, msg, idx, &peer );
   FD_TEST( fd_pubkey_eq( &ctx->gossip.ci_table[ idx ].pubkey, &peer ) );
@@ -259,9 +267,9 @@ test_block_list_contact_info_insert( void ) {
   ulong const idx = 6UL;
   fd_pubkey_t peer = test_pubkey( 0x44 );
 
-  ctx->config.sources.gossip.allow_any = 1;
-  ctx->config.sources.gossip.block_list_cnt = 1UL;
-  ctx->config.sources.gossip.block_list[ 0 ] = peer;
+  snapct_config->sources.gossip.allow_any = 1;
+  snapct_config->sources.gossip.block_list_cnt = 1UL;
+  snapct_config->sources.gossip.block_list[ 0 ] = peer;
 
   send_contact_info( ctx, msg, idx, &peer );
   FD_TEST( fd_pubkey_eq( &ctx->gossip.ci_table[ idx ].pubkey, &peer ) );
@@ -276,6 +284,7 @@ static void
 test_load_complete_signal( void ) {
   fd_snapct_tile_t ctx[1];
   memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  ctx->config = snapct_config;
 
   /* snapld_frag never dereferences stem in the paths below. */
 

@@ -15,7 +15,7 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 udpecho_topo( config_t * config ) {
-  char const * affinity = config->development.udpecho.affinity;
+  char const * affinity = FD_TOPO_STR( config->development.udpecho.affinity );
   int is_auto_affinity = !strcmp( affinity, "auto" );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
@@ -44,13 +44,13 @@ udpecho_topo( config_t * config ) {
 
   /* Reset topology from scratch */
   fd_topo_t * topo = &config->topo;
-  fd_topob_new( &config->topo, config->name );
-  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  fd_topob_new( &config->topo, FD_TOPO_STR( config->name ) );
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
 
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
   fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, 0, tile_to_cpu );
-  char const * net_tile_name = fd_net_tile_name( config->net.provider );
+  char const * net_tile_name = fd_net_tile_name( FD_TOPO_STR( config->net.provider ) );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 1 );
 
   fd_topob_wksp( topo, "l4swap" );
@@ -87,7 +87,7 @@ udpecho_cmd_fn( args_t *   args,
                 config_t * config ) {
   udpecho_topo( config );
   fd_topo_t *      topo        = &config->topo;
-  ulong            net_tile_id = fd_topo_find_tile( topo, fd_net_tile_name( config->net.provider ), 0UL );
+  ulong            net_tile_id = fd_topo_find_tile( topo, fd_net_tile_name( FD_TOPO_STR( config->net.provider ) ), 0UL );
   if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
   fd_topo_tile_t * net_tile    = &topo->tiles[ net_tile_id ];
   fd_topo_tile_t * metric_tile = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
@@ -95,8 +95,8 @@ udpecho_cmd_fn( args_t *   args,
   net_tile->net.legacy_transaction_listen_port = args->udpecho.listen_port;
   config->tiles.quic.regular_transaction_listen_port = args->udpecho.listen_port;
 
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
-    FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( FD_TOPO_STR( config->tiles.metric.prometheus_listen_address ), &metric_tile->metric.prometheus_listen_addr ) ) )
+    FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", FD_TOPO_STR( config->tiles.metric.prometheus_listen_address ) ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
@@ -111,11 +111,11 @@ udpecho_cmd_fn( args_t *   args,
   /* FIXME this allocates lots of memory unnecessarily */
   initialize_workspaces( config );
   initialize_stacks( config );
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
-  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "mlx5" ) ) {
     fd_topo_install_mlx5( topo, NULL );
   }
 

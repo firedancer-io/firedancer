@@ -678,10 +678,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->boot_time     = tile->backtest.boot_timestamp_nanos;
 
   ctx->src = NULL;
-  if( FD_LIKELY( tile->backtest.ledger_path[ 0 ] ) ) { /* empty path: load the snapshot, then exit */
+  if( FD_LIKELY( FD_TOPO_STR( tile->backtest.ledger_path )[ 0 ] ) ) { /* empty path: load the snapshot, then exit */
     fd_backtest_src_opts_t opts = {
-      .format      = tile->backtest.ledger_format,
-      .path        = tile->backtest.ledger_path,
+      .format      = FD_TOPO_STR( tile->backtest.ledger_format ),
+      .path        = FD_TOPO_STR( tile->backtest.ledger_path ),
       .rooted_only = 1,
       .code_shreds = 0,
     };

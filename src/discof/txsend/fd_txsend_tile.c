@@ -713,10 +713,10 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_txsend_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txsend_tile_t), sizeof(fd_txsend_tile_t) );
 
-  if( FD_UNLIKELY( !strcmp( tile->txsend.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->txsend.identity_key_path ), "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->txsend.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( FD_TOPO_STR( tile->txsend.identity_key_path ), /* pubkey only: */ 1 ) );
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
 }

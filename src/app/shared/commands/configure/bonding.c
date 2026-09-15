@@ -10,9 +10,9 @@
 
 static int
 enabled( fd_config_t const * config ) {
-  return 0==strcmp( config->net.provider, "xdp" ) &&
+  return 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) &&
          config->net.xdp.native_bond &&
-         fd_bonding_is_master( config->net.interface );
+         fd_bonding_is_master( FD_TOPO_STR( config->net.interface ) );
 }
 
 static void
@@ -24,7 +24,7 @@ init_perm( fd_cap_chk_t *      chk,
 static void
 init( fd_config_t const * config ) {
 
-  if( FD_UNLIKELY( !fd_bonding_is_master( config->net.interface ) ) ) {
+  if( FD_UNLIKELY( !fd_bonding_is_master( FD_TOPO_STR( config->net.interface ) ) ) ) {
     return;
   }
 
@@ -32,8 +32,8 @@ init( fd_config_t const * config ) {
   char * end = path+sizeof(path);
   char * p = fd_cstr_init( path );
   p = fd_cstr_append_cstr( p, "/sys/class/net/" );
-  FD_TEST( p+strlen( config->net.interface )<end );
-  p = fd_cstr_append_cstr( p, config->net.interface );
+  FD_TEST( p+strlen( FD_TOPO_STR( config->net.interface ) )<end );
+  p = fd_cstr_append_cstr( p, FD_TOPO_STR( config->net.interface ) );
   FD_TEST( p+strlen( "/bonding/" )+32<end );
   p = fd_cstr_append_cstr( p, "/bonding/" );
 
@@ -58,7 +58,7 @@ check( fd_config_t const * config,
        int                 check_type ) {
   (void)check_type;
 
-  if( FD_UNLIKELY( !fd_bonding_is_master( config->net.interface ) ) ) {
+  if( FD_UNLIKELY( !fd_bonding_is_master( FD_TOPO_STR( config->net.interface ) ) ) ) {
     CONFIGURE_OK();
   }
 
@@ -66,8 +66,8 @@ check( fd_config_t const * config,
   char * end = path+sizeof(path);
   char * p = fd_cstr_init( path );
   p = fd_cstr_append_cstr( p, "/sys/class/net/" );
-  FD_TEST( p+strlen( config->net.interface )<end );
-  p = fd_cstr_append_cstr( p, config->net.interface );
+  FD_TEST( p+strlen( FD_TOPO_STR( config->net.interface ) )<end );
+  p = fd_cstr_append_cstr( p, FD_TOPO_STR( config->net.interface ) );
   FD_TEST( p+strlen( "/bonding/" )+32<end );
   p = fd_cstr_append_cstr( p, "/bonding/" );
 
@@ -88,15 +88,15 @@ check( fd_config_t const * config,
 
   if( miimon<TARGET_DELAY_MS ) {
     NOT_CONFIGURED( "/sys/class/net/%s/bonding/miimon is %lums, want at least %lums",
-                    config->net.interface, miimon, TARGET_DELAY_MS );
+                    FD_TOPO_STR( config->net.interface ), miimon, TARGET_DELAY_MS );
   }
   if( downdelay<TARGET_DELAY_MS ) {
     NOT_CONFIGURED( "/sys/class/net/%s/bonding/downdelay is %lums, want at least %lums",
-                    config->net.interface, downdelay, TARGET_DELAY_MS );
+                    FD_TOPO_STR( config->net.interface ), downdelay, TARGET_DELAY_MS );
   }
   if( peer_notif_delay<TARGET_DELAY_MS ) {
     NOT_CONFIGURED( "/sys/class/net/%s/bonding/peer_notif_delay is %lums, want at least %lums",
-                    config->net.interface, peer_notif_delay, TARGET_DELAY_MS );
+                    FD_TOPO_STR( config->net.interface ), peer_notif_delay, TARGET_DELAY_MS );
   }
 
   CONFIGURE_OK();

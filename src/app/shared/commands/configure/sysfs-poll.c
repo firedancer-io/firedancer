@@ -30,8 +30,8 @@ static char const setting_gro_flush_timeout[]    = "gro_flush_timeout";
 
 static int
 enabled( config_t const * config ) {
-  return !strcmp( config->net.provider, "xdp" )
-      && !strcmp( config->net.xdp.poll_mode, "prefbusy" );
+  return !strcmp( FD_TOPO_STR( config->net.provider ), "xdp" )
+      && !strcmp( FD_TOPO_STR( config->net.xdp.poll_mode ), "prefbusy" );
 }
 
 /* get_interfaces returns the number of underlying interfaces in use,
@@ -92,16 +92,16 @@ sysfs_net_set( char const * device,
 
 static void
 init( config_t const * config ) {
-  sysfs_net_set( config->net.interface, setting_napi_defer_hard_irqs, NAPI_DEFER_HARD_IRQS, config->net.xdp.native_bond );
+  sysfs_net_set( FD_TOPO_STR( config->net.interface ), setting_napi_defer_hard_irqs, NAPI_DEFER_HARD_IRQS, config->net.xdp.native_bond );
 
-  sysfs_net_set( config->net.interface, setting_gro_flush_timeout,    GRO_FLUSH_TIMEOUT,    config->net.xdp.native_bond );
+  sysfs_net_set( FD_TOPO_STR( config->net.interface ), setting_gro_flush_timeout,    GRO_FLUSH_TIMEOUT,    config->net.xdp.native_bond );
 }
 
 static int
 fini( config_t const * config,
       int              pre_init FD_PARAM_UNUSED ) {
-  sysfs_net_set( config->net.interface, setting_napi_defer_hard_irqs, 0U, config->net.xdp.native_bond );
-  sysfs_net_set( config->net.interface, setting_gro_flush_timeout,    0U, config->net.xdp.native_bond );
+  sysfs_net_set( FD_TOPO_STR( config->net.interface ), setting_napi_defer_hard_irqs, 0U, config->net.xdp.native_bond );
+  sysfs_net_set( FD_TOPO_STR( config->net.interface ), setting_gro_flush_timeout,    0U, config->net.xdp.native_bond );
   return 1;
 }
 
@@ -109,7 +109,7 @@ static configure_result_t
 check( config_t const * config,
        int              check_type FD_PARAM_UNUSED ) {
   char  interfaces[ FD_NET_BOND_SLAVE_MAX ][ IF_NAMESIZE ];
-  ulong num_interfaces = get_interfaces( config->net.interface, config->net.xdp.native_bond, interfaces );
+  ulong num_interfaces = get_interfaces( FD_TOPO_STR( config->net.interface ), config->net.xdp.native_bond, interfaces );
 
   for( ulong i=0UL; i<num_interfaces; i++ ) {
     char path[ PATH_MAX ];

@@ -266,8 +266,8 @@ repair_topo( config_t * config ) {
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
   ulong gossvf_tile_cnt = config->firedancer.layout.gossvf_tile_count;
 
-  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
-  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  fd_topo_t * topo = { fd_topob_new( &config->topo, FD_TOPO_STR( config->name ) ) };
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
@@ -275,8 +275,8 @@ repair_topo( config_t * config ) {
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
 
-  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
-  int is_bench_auto_affinity = !strcmp( config->development.bench.affinity, "auto" );
+  int is_auto_affinity = !strcmp( FD_TOPO_STR( config->layout.affinity ), "auto" );
+  int is_bench_auto_affinity = !strcmp( FD_TOPO_STR( config->development.bench.affinity ), "auto" );
 
   if( FD_UNLIKELY( is_auto_affinity != is_bench_auto_affinity ) ) {
     FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
@@ -286,7 +286,7 @@ repair_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 0, 1 );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( FD_TOPO_STR( config->layout.affinity ), parsed_tile_to_cpu, 0, 1 );
 
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
     ushort cpu_idx = (ushort)( parsed_tile_to_cpu[ i ] & ~FD_TOPOB_CPU_SHARED );
@@ -847,13 +847,13 @@ repair_cmd_fn_catchup( args_t *   args,
     configure_args.configure.stages[ i ] = STAGES[ i ];
   }
   configure_cmd_fn( &configure_args, config );
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
   run_firedancer_init( config, 1, 0 );
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
-  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
 
@@ -890,7 +890,7 @@ repair_cmd_fn_catchup( args_t *   args,
   FD_TEST( repair_net_links );
   FD_TEST( net_shred_links  );
 
-  char const * net_tile_name = fd_net_tile_name( config->net.provider );
+  char const * net_tile_name = fd_net_tile_name( FD_TOPO_STR( config->net.provider ) );
   for( ulong i = 0UL; i < net_cnt; i++ ) {
     ulong tile_idx = fd_topo_find_tile( &config->topo, net_tile_name, i );
     if( FD_UNLIKELY( tile_idx == ULONG_MAX ) ) FD_LOG_ERR(( "net tile %lu not found", i ));
@@ -981,11 +981,11 @@ repair_cmd_fn_eqvoc( args_t *   args,
   args_t configure_args = { .configure.command = CONFIGURE_CMD_INIT, };
   for( ulong i=0UL; STAGES[ i ]; i++ ) configure_args.configure.stages[ i ] = STAGES[ i ];
   configure_cmd_fn( &configure_args, config );
-  if( 0==strcmp( config->net.provider, "xdp" ) ) fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
 
   run_firedancer_init( config, 1, 0 );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
-  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
   fd_topo_fill( &config->topo );
@@ -1062,7 +1062,7 @@ repair_cmd_fn_metrics( args_t *   args,
   FD_TEST( repair_net_links );
   FD_TEST( net_shred_links );
 
-  char const * net_tile_name = fd_net_tile_name( config->net.provider );
+  char const * net_tile_name = fd_net_tile_name( FD_TOPO_STR( config->net.provider ) );
   for( ulong i = 0UL; i < net_tile_cnt; i++ ) {
     /* process all repair_net links */
     ulong tile_idx = fd_topo_find_tile( &config->topo, net_tile_name, i );

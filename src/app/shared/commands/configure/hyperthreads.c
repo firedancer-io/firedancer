@@ -13,7 +13,7 @@ static int
 sibling_isolated_idle( config_t const * config,
                        ulong            cpu_idx ) {
   char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup/%s/cpuset.cpus", config->name ) );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup/%s/cpuset.cpus", FD_TOPO_STR( config->name ) ) );
 
   int fd = open( path, O_RDONLY );
   if( FD_UNLIKELY( fd<0 ) ) {

@@ -399,8 +399,8 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  if( FD_UNLIKELY( !strcmp( tile->event.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
-  const uchar * identity_key = fd_keyload_load( tile->event.identity_key_path, /* pubkey only: */ 1 );
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->event.identity_key_path ), "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
+  const uchar * identity_key = fd_keyload_load( FD_TOPO_STR( tile->event.identity_key_path ), /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_pubkey, identity_key, 32UL );
 
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
@@ -436,7 +436,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_url_t url[ 1UL ];
   ushort   port;
   _Bool    is_ssl = 0;
-  if( FD_UNLIKELY( fd_url_parse_endpoint( url, tile->event.url, strlen( tile->event.url ), &port, &is_ssl, "[tiles.event.url]" ) ) ) {
+  if( FD_UNLIKELY( fd_url_parse_endpoint( url, FD_TOPO_STR( tile->event.url ), strlen( FD_TOPO_STR( tile->event.url ) ), &port, &is_ssl, "[tiles.event.url]" ) ) ) {
     FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
   }
   ctx->use_tls = is_ssl;
@@ -503,7 +503,7 @@ unprivileged_init( fd_topo_t const *      topo,
                                                            ctx->circq,
                                                            FD_WAKER_INNER_FD( ctx->waker_client_idx ),
                                                            2*(1UL<<20UL) /* 2 MiB */,
-                                                           tile->event.url,
+                                                           FD_TOPO_STR( tile->event.url ),
                                                            ctx->identity_pubkey,
                                                            fd_version_cstr,
                                                            fd_commit_ref_cstr,

@@ -1,4 +1,5 @@
 #include "fd_config_json.h"
+#include "fd_config_private.h"
 
 #include "../../ballet/toml/fd_toml.h"
 
@@ -11,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22987008UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==3961960UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -46,16 +47,21 @@ jw_comma( jw_t * w ) {
 }
 
 static void
-jw_cstr( jw_t * w, char const * s ) {
+jw_cstr_n( jw_t * w, char const * s, ulong n ) {
   if( FD_UNLIKELY( w->fail ) ) return;
   jw_raw( w, "\"" );
-  for( ; *s && !w->fail; s++ ) {
-    uchar c = (uchar)*s;
+  for( ulong i=0UL; i<n && !w->fail; i++ ) {
+    uchar c = (uchar)s[ i ];
     if(      c=='"' || c=='\\' ) jw_raw( w, "\\%c", (char)c );
     else if( c<0x20 )            jw_raw( w, "\\u%04x", (uint)c );
     else                         jw_raw( w, "%c", (char)c );
   }
   jw_raw( w, "\"" );
+}
+
+static void
+jw_cstr( jw_t * w, char const * s ) {
+  jw_cstr_n( w, s, strlen( s ) );
 }
 
 static void jw_obj_open ( jw_t * w, char const * key ) { jw_comma( w ); if( key ) { jw_cstr( w, key ); jw_raw( w, ":" ); } jw_raw( w, "{" ); w->first = 1; }
@@ -79,9 +85,9 @@ static void jw_path ( jw_t * w, char const * key, char const * val ) { jw_str( w
 static void jw_url( jw_t * w, char const * key, char const * val ) { jw_path( w, key, val ); }
 
 static void
-jw_str_arr( jw_t * w, char const * key, char const * vals, ulong stride, ulong cnt ) {
+jw_str_arr( jw_t * w, char const * key, fd_topo_str_t const * vals, ulong cnt ) {
   jw_arr_open( w, key );
-  for( ulong i=0UL; i<cnt; i++ ) { jw_comma( w ); jw_cstr( w, vals+i*stride ); }
+  for( ulong i=0UL; i<cnt; i++ ) { jw_comma( w ); jw_cstr( w, fd_topo_str( &vals[ i ] ) ); }
   jw_arr_close( w );
 }
 
@@ -92,7 +98,7 @@ jw_path_arr( jw_t * w, char const * key, ulong cnt ) {
   jw_arr_close( w );
 }
 
-/* generic pod rendering for the user's override TOML: every
+/* generic rendering for the user's override TOML: every
    string-valued key must appear in exactly one of the lists below,
    either redacted (the value could identify the host or carry a
    secret) or reported verbatim.  A string key in neither list aborts,
@@ -186,76 +192,42 @@ jw_key_redacted( char const * path ) {
   FD_LOG_ERR(( "config key %s is not classified for telemetry redaction; add it to jw_redacted_keys or jw_reported_keys in fd_config_json.c", path ));
 }
 
-/* an empty toml array parses to an empty subpod, indistinguishable
-   from an empty table; the array-valued keys of the config vocabulary
-   are listed so they render as [] */
-
-static char const * const jw_array_keys[] = {
-  "paths.authorized_voter_paths",
-  "gossip.entrypoints",
-  "snapshots.sources.gossip.allow_list",
-  "snapshots.sources.gossip.block_list",
-  "snapshots.sources.servers",
-  "tiles.pack.account_blocklist",
-  "tiles.replay.enable_features",
-  "tiles.shred.additional_shred_destinations_retransmit",
-  "tiles.shred.additional_shred_destinations_leader",
-};
-
-static int
-jw_key_is_array( char const * path ) {
-  for( ulong i=0UL; i<sizeof(jw_array_keys)/sizeof(jw_array_keys[0]); i++ ) if( !strcmp( path, jw_array_keys[ i ] ) ) return 1;
-  return 0;
-}
-
-static int
-jw_key_is_index( char const * key ) {
-  for( ; *key; key++ ) if( *key<'0' || *key>'9' ) return 0;
-  return 1;
-}
-
 static void
-jw_pod( jw_t * w, uchar const * pod, char const * prefix ) {
-  fd_pod_iter_t head = fd_pod_iter_init( pod );
-  int arr = fd_pod_iter_done( head ) ? jw_key_is_array( prefix )
-                                     : !strcmp( fd_pod_iter_info( head ).key, "0" ); /* fd_toml keys arrays 0,1,... */
+jw_node( jw_t * w, fd_toml_doc_t const * doc, fd_toml_node_t const * node, char const * prefix ) {
+  int arr = node->type==FD_TOML_NODE_ARRAY;
   jw_raw( w, arr ? "[" : "{" );
   w->first = 1;
-  for( fd_pod_iter_t iter=fd_pod_iter_init( pod ); !fd_pod_iter_done( iter ); iter=fd_pod_iter_next( iter ) ) {
-    fd_pod_info_t info = fd_pod_iter_info( iter );
+  for( fd_toml_node_t const * child=fd_toml_child_first( doc, node ); child; child=fd_toml_child_next( doc, child ) ) {
+    ulong key_len;
+    char const * key = fd_toml_node_key( doc, child, &key_len );
     char path[ 512 ];
-    if( jw_key_is_index( info.key ) )   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s", prefix ) ); /* array elements classify as the array */
-    else if( prefix[ 0 ] )              FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s.%s", prefix, info.key ) );
-    else                                FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s", info.key ) );
+    if( arr )              FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s", prefix ) ); /* array elements classify as the array */
+    else if( prefix[ 0 ] ) FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s.%.*s", prefix, (int)key_len, key ) );
+    else                   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%.*s", (int)key_len, key ) );
     jw_comma( w );
-    if( !arr ) { jw_cstr( w, info.key ); jw_raw( w, ":" ); }
-    switch( info.val_type ) {
-      case FD_POD_VAL_TYPE_SUBPOD:
-        if( FD_UNLIKELY( jw_key_is_index( info.key ) ) ) FD_LOG_ERR(( "config array %s has a table or nested array element which cannot be classified for telemetry redaction", path ));
-        jw_pod( w, (uchar const *)info.val, path );
+    if( !arr ) { jw_cstr_n( w, key, key_len ); jw_raw( w, ":" ); }
+    switch( child->type ) {
+      case FD_TOML_NODE_TABLE:
+      case FD_TOML_NODE_ARRAY:
+        if( FD_UNLIKELY( arr ) ) FD_LOG_ERR(( "config array %s has a table or nested array element which cannot be classified for telemetry redaction", path ));
+        jw_node( w, doc, child, path );
         break;
-      case FD_POD_VAL_TYPE_CSTR: {
-        char const * val = info.val_sz ? (char const *)info.val : "";
+      case FD_TOML_NODE_STRING: {
+        char const * val = fd_toml_node_str( doc, child );
         jw_cstr( w, ( jw_key_redacted( path ) && val[ 0 ] ) ? REDACTED : val );
         break;
       }
-      case FD_POD_VAL_TYPE_LONG: { /* toml integer */
-        ulong u; fd_ulong_svw_dec( (uchar const *)info.val, &u );
-        jw_raw( w, "%ld", fd_long_zz_dec( u ) );
+      case FD_TOML_NODE_INT:
+        jw_raw( w, "%ld", child->i );
         break;
-      }
-      case FD_POD_VAL_TYPE_INT: { /* toml bool */
-        ulong u; fd_ulong_svw_dec( (uchar const *)info.val, &u );
-        jw_raw( w, "%s", fd_long_zz_dec( u ) ? "true" : "false" );
+      case FD_TOML_NODE_BOOL:
+        jw_raw( w, "%s", child->b ? "true" : "false" );
         break;
-      }
-      case FD_POD_VAL_TYPE_FLOAT: {
-        float val; memcpy( &val, info.val, sizeof(float) );
-        jw_raw( w, "%.9g", (double)val );
+      case FD_TOML_NODE_FLOAT:
+        jw_raw( w, "%.17g", child->f );
         break;
-      }
       default:
-        FD_LOG_ERR(( "unexpected pod value type %d for key %s", info.val_type, info.key ));
+        FD_LOG_ERR(( "unexpected toml node type %d for key %s", child->type, path ));
     }
   }
   jw_raw( w, arr ? "]" : "}" );
@@ -270,18 +242,12 @@ fd_config_user_toml_to_json( fd_config_t const * config,
   buf[ 0 ] = '\0';
   if( FD_UNLIKELY( !config->user_config_len ) ) return 0UL;
 
-  static uchar pod_mem[ 1UL<<20 ];
-  uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
-  FD_TEST( pod );
-
-  uchar scratch[ 4096 ];
-  int err = fd_toml_parse( config->user_config, config->user_config_len, pod, scratch, sizeof(scratch), NULL );
+  fd_toml_doc_t doc[1];
+  int err = fd_config_toml_parse( doc, config->user_config, config->user_config_len, NULL );
   if( FD_UNLIKELY( err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "failed to re-parse the user config (%i-%s)", err, fd_toml_strerror( err ) ));
 
   jw_t w = { .buf = buf, .cur = buf, .rem = buf_sz, .fail = 0, .first = 1 };
-  jw_pod( &w, pod, "" );
-
-  fd_pod_delete( fd_pod_leave( pod ) );
+  jw_node( &w, doc, fd_toml_root( doc ), "" );
 
   if( FD_UNLIKELY( w.fail ) ) FD_LOG_ERR(( "user config json does not fit in %lu bytes", buf_sz ));
   return (ulong)( w.cur-buf );
@@ -297,8 +263,8 @@ fd_config_to_json( fd_config_t const * config,
   jw_t w = { .buf = buf, .cur = buf, .rem = buf_sz, .fail = !buf_sz, .first = 1 };
 
   jw_raw( &w, "{" );
-  jw_str  ( &w, "name",              config->name );
-  jw_path ( &w, "user",              config->user );
+  jw_str  ( &w, "name",              FD_TOPO_STR( config->name ) );
+  jw_path ( &w, "user",              FD_TOPO_STR( config->user ) );
   jw_path ( &w, "hostname",          config->hostname );
   jw_bool ( &w, "telemetry",         config->telemetry );
   jw_f64  ( &w, "tick_per_ns_mu",    config->tick_per_ns_mu );
@@ -314,41 +280,41 @@ fd_config_to_json( fd_config_t const * config,
   jw_str  ( &w, "action",            config->action );
 
   jw_obj_open( &w, "paths" );
-    jw_path( &w, "base",         config->paths.base );
-    jw_path( &w, "identity_key", config->paths.identity_key );
-    jw_path( &w, "vote_account", config->paths.vote_account );
-    jw_path( &w, "snapshots",    config->paths.snapshots );
-    jw_path( &w, "genesis",      config->paths.genesis );
-    jw_path( &w, "accounts",     config->paths.accounts );
-    jw_path( &w, "shredb",       config->paths.shredb );
-    jw_path( &w, "guidb",        config->paths.guidb );
+    jw_path( &w, "base",         FD_TOPO_STR( config->paths.base ) );
+    jw_path( &w, "identity_key", FD_TOPO_STR( config->paths.identity_key ) );
+    jw_path( &w, "vote_account", FD_TOPO_STR( config->paths.vote_account ) );
+    jw_path( &w, "snapshots",    FD_TOPO_STR( config->paths.snapshots ) );
+    jw_path( &w, "genesis",      FD_TOPO_STR( config->paths.genesis ) );
+    jw_path( &w, "accounts",     FD_TOPO_STR( config->paths.accounts ) );
+    jw_path( &w, "shredb",       FD_TOPO_STR( config->paths.shredb ) );
+    jw_path( &w, "guidb",        FD_TOPO_STR( config->paths.guidb ) );
     jw_path_arr( &w, "authorized_voter_paths", f->paths.authorized_voter_paths_cnt );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "log" );
-    jw_path( &w, "path",          config->log.path );
-    jw_str ( &w, "colorize",      config->log.colorize );
-    jw_str ( &w, "level_logfile", config->log.level_logfile );
-    jw_str ( &w, "level_stderr",  config->log.level_stderr );
-    jw_str ( &w, "level_flush",   config->log.level_flush );
+    jw_path( &w, "path",          FD_TOPO_STR( config->log.path ) );
+    jw_str ( &w, "colorize",      FD_TOPO_STR( config->log.colorize ) );
+    jw_str ( &w, "level_logfile", FD_TOPO_STR( config->log.level_logfile ) );
+    jw_str ( &w, "level_stderr",  FD_TOPO_STR( config->log.level_stderr ) );
+    jw_str ( &w, "level_flush",   FD_TOPO_STR( config->log.level_flush ) );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "consensus" );
     jw_ulong( &w, "expected_shred_version",        config->consensus.expected_shred_version );
-    jw_str  ( &w, "expected_genesis_hash",         config->consensus.expected_genesis_hash );
+    jw_str  ( &w, "expected_genesis_hash",         FD_TOPO_STR( config->consensus.expected_genesis_hash ) );
     jw_bool ( &w, "wait_for_vote_to_start_leader", config->consensus.wait_for_vote_to_start_leader );
-    jw_str  ( &w, "wait_for_supermajority_with_bank_hash", f->consensus.wait_for_supermajority_with_bank_hash );
+    jw_str  ( &w, "wait_for_supermajority_with_bank_hash", FD_TOPO_STR( f->consensus.wait_for_supermajority_with_bank_hash ) );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "gossip" );
     jw_path_arr( &w, "entrypoints", config->gossip.entrypoints_cnt );
     jw_ulong( &w, "port", config->gossip.port );
-    jw_path ( &w, "host", f->gossip.host );
+    jw_path ( &w, "host", FD_TOPO_STR( f->gossip.host ) );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "layout" );
-    jw_str  ( &w, "affinity",          config->layout.affinity );
-    jw_str  ( &w, "blocklist_cores",   config->layout.blocklist_cores );
+    jw_str  ( &w, "affinity",          FD_TOPO_STR( config->layout.affinity ) );
+    jw_str  ( &w, "blocklist_cores",   FD_TOPO_STR( config->layout.blocklist_cores ) );
     jw_ulong( &w, "net_tile_count",    config->layout.net_tile_count );
     jw_ulong( &w, "quic_tile_count",   config->layout.quic_tile_count );
     jw_ulong( &w, "verify_tile_count", config->layout.verify_tile_count );
@@ -385,8 +351,8 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "max_local_incremental_age",    f->snapshots.sources.max_local_incremental_age );
       jw_obj_open( &w, "gossip" );
         jw_bool( &w, "allow_any", f->snapshots.sources.gossip.allow_any );
-        jw_str_arr( &w, "allow_list", f->snapshots.sources.gossip.allow_list[ 0 ], sizeof(f->snapshots.sources.gossip.allow_list[ 0 ]), f->snapshots.sources.gossip.allow_list_cnt );
-        jw_str_arr( &w, "block_list", f->snapshots.sources.gossip.block_list[ 0 ], sizeof(f->snapshots.sources.gossip.block_list[ 0 ]), f->snapshots.sources.gossip.block_list_cnt );
+        jw_str_arr( &w, "allow_list", f->snapshots.sources.gossip.allow_list, f->snapshots.sources.gossip.allow_list_cnt );
+        jw_str_arr( &w, "block_list", f->snapshots.sources.gossip.block_list, f->snapshots.sources.gossip.block_list_cnt );
       jw_obj_close( &w );
       jw_path_arr( &w, "servers", f->snapshots.sources.servers_cnt );
     jw_obj_close( &w );
@@ -402,7 +368,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "max_incremental_snapshot_accounts",   f->snapshots.max_incremental_snapshot_accounts );
     jw_obj_open( &w, "server" );
       jw_bool ( &w, "enabled",              f->snapshots.server.enabled );
-      jw_path ( &w, "http_listen_address",  f->snapshots.server.http_listen_address );
+      jw_path ( &w, "http_listen_address",  FD_TOPO_STR( f->snapshots.server.http_listen_address ) );
       jw_ulong( &w, "http_listen_port",     f->snapshots.server.http_listen_port );
       jw_ulong( &w, "max_http_connections", f->snapshots.server.max_http_connections );
       jw_ulong( &w, "idle_timeout_millis",  f->snapshots.server.idle_timeout_millis );
@@ -412,27 +378,27 @@ fd_config_to_json( fd_config_t const * config,
   jw_obj_close( &w );
 
   jw_obj_open( &w, "hugetlbfs" );
-    jw_path ( &w, "gigantic_page_mount_path",    config->hugetlbfs.gigantic_page_mount_path );
-    jw_path ( &w, "huge_page_mount_path",        config->hugetlbfs.huge_page_mount_path );
-    jw_path ( &w, "normal_page_mount_path",      config->hugetlbfs.normal_page_mount_path );
-    jw_path ( &w, "mount_path",                  config->hugetlbfs.mount_path );
-    jw_str  ( &w, "max_page_size",               config->hugetlbfs.max_page_size );
+    jw_path ( &w, "gigantic_page_mount_path",    FD_TOPO_STR( config->hugetlbfs.gigantic_page_mount_path ) );
+    jw_path ( &w, "huge_page_mount_path",        FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path ) );
+    jw_path ( &w, "normal_page_mount_path",      FD_TOPO_STR( config->hugetlbfs.normal_page_mount_path ) );
+    jw_path ( &w, "mount_path",                  FD_TOPO_STR( config->hugetlbfs.mount_path ) );
+    jw_str  ( &w, "max_page_size",               FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
     jw_ulong( &w, "gigantic_page_threshold_mib", config->hugetlbfs.gigantic_page_threshold_mib );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "net" );
-    jw_str  ( &w, "provider",            config->net.provider );
-    jw_str  ( &w, "interface",           config->net.interface );
-    jw_path ( &w, "bind_address",        config->net.bind_address );
+    jw_str  ( &w, "provider",            FD_TOPO_STR( config->net.provider ) );
+    jw_str  ( &w, "interface",           FD_TOPO_STR( config->net.interface ) );
+    jw_path ( &w, "bind_address",        FD_TOPO_STR( config->net.bind_address ) );
     jw_ulong( &w, "ingress_buffer_size", config->net.ingress_buffer_size );
     jw_obj_open( &w, "xdp" );
-      jw_str  ( &w, "xdp_mode",             config->net.xdp.xdp_mode );
+      jw_str  ( &w, "xdp_mode",             FD_TOPO_STR( config->net.xdp.xdp_mode ) );
       jw_bool ( &w, "xdp_zero_copy",        config->net.xdp.xdp_zero_copy );
-      jw_str  ( &w, "poll_mode",            config->net.xdp.poll_mode );
+      jw_str  ( &w, "poll_mode",            FD_TOPO_STR( config->net.xdp.poll_mode ) );
       jw_ulong( &w, "xdp_rx_queue_size",    config->net.xdp.xdp_rx_queue_size );
       jw_ulong( &w, "xdp_tx_queue_size",    config->net.xdp.xdp_tx_queue_size );
       jw_ulong( &w, "flush_timeout_micros", config->net.xdp.flush_timeout_micros );
-      jw_str  ( &w, "rss_queue_mode",       config->net.xdp.rss_queue_mode );
+      jw_str  ( &w, "rss_queue_mode",       FD_TOPO_STR( config->net.xdp.rss_queue_mode ) );
       jw_bool ( &w, "listen_gre",           config->net.xdp.listen_gre );
       jw_bool ( &w, "native_bond",          config->net.xdp.native_bond );
     jw_obj_close( &w );
@@ -451,7 +417,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_bool( &w, "no_clone",  config->development.no_clone );
     jw_bool( &w, "no_agave",  config->development.no_agave );
     jw_bool( &w, "bootstrap", config->development.bootstrap );
-    jw_str ( &w, "core_dump", config->development.core_dump );
+    jw_str ( &w, "core_dump", FD_TOPO_STR( config->development.core_dump ) );
     jw_bool( &w, "hard_fork_fatal", f->development.hard_fork_fatal );
     jw_bool( &w, "fixed_fec_sets",  f->development.fixed_fec_sets );
     jw_bool( &w, "alpenglow",       f->development.alpenglow );
@@ -474,29 +440,29 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "max_file_size_mib",            f->development.genesis.max_file_size_mib );
     jw_obj_close( &w );
     jw_obj_open( &w, "ledger_input" );
-      jw_str  ( &w, "format",   f->development.ledger_input.format );
-      jw_path ( &w, "path",     f->development.ledger_input.path );
+      jw_str  ( &w, "format",   FD_TOPO_STR( f->development.ledger_input.format ) );
+      jw_path ( &w, "path",     FD_TOPO_STR( f->development.ledger_input.path ) );
       jw_ulong( &w, "end_slot", f->development.ledger_input.end_slot );
     jw_obj_close( &w );
     jw_obj_open( &w, "backtest" );
-      jw_str  ( &w, "affinity",      f->development.backtest.affinity );
+      jw_str  ( &w, "affinity",      FD_TOPO_STR( f->development.backtest.affinity ) );
       jw_ulong( &w, "root_distance", f->development.backtest.root_distance );
     jw_obj_close( &w );
     jw_obj_open( &w, "forktest" );
-      jw_str( &w, "affinity", f->development.forktest.affinity );
+      jw_str( &w, "affinity", FD_TOPO_STR( f->development.forktest.affinity ) );
     jw_obj_close( &w );
     jw_obj_open( &w, "bench" );
       jw_ulong( &w, "benchg_tile_count",            config->development.bench.benchg_tile_count );
       jw_ulong( &w, "benchs_tile_count",            config->development.bench.benchs_tile_count );
-      jw_str  ( &w, "affinity",                     config->development.bench.affinity );
-      jw_str  ( &w, "transaction_mode",             config->development.bench.transaction_mode );
+      jw_str  ( &w, "affinity",                     FD_TOPO_STR( config->development.bench.affinity ) );
+      jw_str  ( &w, "transaction_mode",             FD_TOPO_STR( config->development.bench.transaction_mode ) );
       jw_ulong( &w, "max_cost_per_block",           config->development.bench.max_cost_per_block );
       jw_ulong( &w, "max_shreds_per_block",         config->development.bench.max_shreds_per_block );
       jw_ulong( &w, "disable_blockstore_from_slot", config->development.bench.disable_blockstore_from_slot );
       jw_bool ( &w, "disable_status_cache",         config->development.bench.disable_status_cache );
     jw_obj_close( &w );
     jw_obj_open( &w, "bundle" );
-      jw_path ( &w, "ssl_key_log_file",  config->development.bundle.ssl_key_log_file );
+      jw_path ( &w, "ssl_key_log_file",  FD_TOPO_STR( config->development.bundle.ssl_key_log_file ) );
       jw_ulong( &w, "buffer_size_kib",   config->development.bundle.buffer_size_kib );
     jw_obj_close( &w );
     jw_obj_open( &w, "event" );
@@ -505,14 +471,14 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool( &w, "report_runtime_diffs",      config->development.event.report_runtime_diffs );
     jw_obj_close( &w );
     jw_obj_open( &w, "pktgen" );
-      jw_str( &w, "affinity",    config->development.pktgen.affinity );
-      jw_str( &w, "fake_dst_ip", config->development.pktgen.fake_dst_ip );
+      jw_str( &w, "affinity",    FD_TOPO_STR( config->development.pktgen.affinity ) );
+      jw_str( &w, "fake_dst_ip", FD_TOPO_STR( config->development.pktgen.fake_dst_ip ) );
     jw_obj_close( &w );
     jw_obj_open( &w, "udpecho" );
-      jw_str( &w, "affinity", config->development.udpecho.affinity );
+      jw_str( &w, "affinity", FD_TOPO_STR( config->development.udpecho.affinity ) );
     jw_obj_close( &w );
     jw_obj_open( &w, "snapshot_load" );
-      jw_str( &w, "affinity", config->development.snapshot_load.affinity );
+      jw_str( &w, "affinity", FD_TOPO_STR( config->development.snapshot_load.affinity ) );
     jw_obj_close( &w );
     jw_obj_open( &w, "gui" );
       jw_bool( &w, "websocket_compression", config->development.gui.websocket_compression );
@@ -543,7 +509,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "idle_timeout_millis",             config->tiles.quic.idle_timeout_millis );
       jw_ulong( &w, "ack_delay_millis",                config->tiles.quic.ack_delay_millis );
       jw_bool ( &w, "retry",                           config->tiles.quic.retry );
-      jw_path ( &w, "ssl_key_log_file",                config->tiles.quic.ssl_key_log_file );
+      jw_path ( &w, "ssl_key_log_file",                FD_TOPO_STR( config->tiles.quic.ssl_key_log_file ) );
     jw_obj_close( &w );
     jw_obj_open( &w, "txsend" );
       jw_ulong( &w, "txsend_src_port", config->tiles.txsend.txsend_src_port );
@@ -558,11 +524,11 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_close( &w );
     jw_obj_open( &w, "bundle" );
       jw_bool ( &w, "enabled",                       config->tiles.bundle.enabled );
-      jw_url  ( &w, "url",                           config->tiles.bundle.url );
-      jw_str  ( &w, "tls_domain_name",               config->tiles.bundle.tls_domain_name );
-      jw_str  ( &w, "tip_distribution_program_addr", config->tiles.bundle.tip_distribution_program_addr );
-      jw_str  ( &w, "tip_payment_program_addr",      config->tiles.bundle.tip_payment_program_addr );
-      jw_str  ( &w, "tip_distribution_authority",    config->tiles.bundle.tip_distribution_authority );
+      jw_url  ( &w, "url",                           FD_TOPO_STR( config->tiles.bundle.url ) );
+      jw_str  ( &w, "tls_domain_name",               FD_TOPO_STR( config->tiles.bundle.tls_domain_name ) );
+      jw_str  ( &w, "tip_distribution_program_addr", FD_TOPO_STR( config->tiles.bundle.tip_distribution_program_addr ) );
+      jw_str  ( &w, "tip_payment_program_addr",      FD_TOPO_STR( config->tiles.bundle.tip_payment_program_addr ) );
+      jw_str  ( &w, "tip_distribution_authority",    FD_TOPO_STR( config->tiles.bundle.tip_distribution_authority ) );
       jw_ulong( &w, "commission_bps",                config->tiles.bundle.commission_bps );
       jw_ulong( &w, "keepalive_interval_millis",     config->tiles.bundle.keepalive_interval_millis );
       jw_bool ( &w, "tls_cert_verify",               config->tiles.bundle.tls_cert_verify );
@@ -570,8 +536,8 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "pack" );
       jw_ulong( &w, "max_pending_transactions", config->tiles.pack.max_pending_transactions );
       jw_bool ( &w, "use_consumed_cus",         config->tiles.pack.use_consumed_cus );
-      jw_str  ( &w, "schedule_strategy",        config->tiles.pack.schedule_strategy );
-      jw_str_arr( &w, "account_blocklist", config->tiles.pack.account_blocklist[ 0 ], sizeof(config->tiles.pack.account_blocklist[ 0 ]), config->tiles.pack.account_blocklist_cnt );
+      jw_str  ( &w, "schedule_strategy",        FD_TOPO_STR( config->tiles.pack.schedule_strategy ) );
+      jw_str_arr( &w, "account_blocklist", config->tiles.pack.account_blocklist, config->tiles.pack.account_blocklist_cnt );
     jw_obj_close( &w );
     jw_obj_open( &w, "poh" );
       jw_bool( &w, "lagged_consecutive_leader_start", config->tiles.pohh.lagged_consecutive_leader_start );
@@ -584,15 +550,15 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "shred_cache_size_mib",   config->tiles.shred.shred_cache_size_mib );
     jw_obj_close( &w );
     jw_obj_open( &w, "metric" );
-      jw_path ( &w, "prometheus_listen_address", config->tiles.metric.prometheus_listen_address );
+      jw_path ( &w, "prometheus_listen_address", FD_TOPO_STR( config->tiles.metric.prometheus_listen_address ) );
       jw_ulong( &w, "prometheus_listen_port",    config->tiles.metric.prometheus_listen_port );
     jw_obj_close( &w );
     jw_obj_open( &w, "event" );
-      jw_url( &w, "url", config->tiles.event.url );
+      jw_url( &w, "url", FD_TOPO_STR( config->tiles.event.url ) );
     jw_obj_close( &w );
     jw_obj_open( &w, "gui" );
       jw_bool ( &w, "enabled",                   config->tiles.gui.enabled );
-      jw_path ( &w, "gui_listen_address",        config->tiles.gui.gui_listen_address );
+      jw_path ( &w, "gui_listen_address",        FD_TOPO_STR( config->tiles.gui.gui_listen_address ) );
       jw_ulong( &w, "gui_listen_port",           config->tiles.gui.gui_listen_port );
       jw_ulong( &w, "max_http_connections",      config->tiles.gui.max_http_connections );
       jw_ulong( &w, "max_websocket_connections", config->tiles.gui.max_websocket_connections );
@@ -602,7 +568,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_close( &w );
     jw_obj_open( &w, "rpc" );
       jw_bool ( &w, "enabled",                   config->tiles.rpc.enabled );
-      jw_path ( &w, "rpc_listen_address",        config->tiles.rpc.rpc_listen_address );
+      jw_path ( &w, "rpc_listen_address",        FD_TOPO_STR( config->tiles.rpc.rpc_listen_address ) );
       jw_ulong( &w, "rpc_listen_port",           config->tiles.rpc.rpc_listen_port );
       jw_ulong( &w, "max_http_connections",      config->tiles.rpc.max_http_connections );
       jw_ulong( &w, "max_websocket_connections", config->tiles.rpc.max_websocket_connections );
@@ -624,16 +590,16 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_close( &w );
     jw_obj_open( &w, "replay" );
       jw_ulong( &w, "max_transaction_lookahead_buffer_size", config->tiles.replay.max_transaction_lookahead_buffer_size );
-      jw_str_arr( &w, "enable_features", config->tiles.replay.enable_features[ 0 ], sizeof(config->tiles.replay.enable_features[ 0 ]), config->tiles.replay.enable_features_cnt );
+      jw_str_arr( &w, "enable_features", config->tiles.replay.enable_features, config->tiles.replay.enable_features_cnt );
     jw_obj_close( &w );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "capture" );
     jw_ulong( &w, "capture_start_slot",           config->capture.capture_start_slot );
-    jw_path ( &w, "dump_proto_dir",               config->capture.dump_proto_dir );
-    jw_path ( &w, "dump_syscall_name_filter",     config->capture.dump_syscall_name_filter );
-    jw_str  ( &w, "dump_instr_program_id_filter", config->capture.dump_instr_program_id_filter );
-    jw_path ( &w, "solcap_capture",               config->capture.solcap_capture );
+    jw_path ( &w, "dump_proto_dir",               FD_TOPO_STR( config->capture.dump_proto_dir ) );
+    jw_path ( &w, "dump_syscall_name_filter",     FD_TOPO_STR( config->capture.dump_syscall_name_filter ) );
+    jw_str  ( &w, "dump_instr_program_id_filter", FD_TOPO_STR( config->capture.dump_instr_program_id_filter ) );
+    jw_path ( &w, "solcap_capture",               FD_TOPO_STR( config->capture.solcap_capture ) );
     jw_bool ( &w, "recent_only",                  config->capture.recent_only );
     jw_ulong( &w, "recent_slots_per_file",        config->capture.recent_slots_per_file );
     jw_bool ( &w, "dump_syscall_to_pb",           config->capture.dump_syscall_to_pb );
@@ -644,7 +610,7 @@ fd_config_to_json( fd_config_t const * config,
   jw_obj_close( &w );
 
   jw_obj_open( &w, "capctx" );
-    jw_path( &w, "path", f->capctx.path );
+    jw_path( &w, "path", FD_TOPO_STR( f->capctx.path ) );
   jw_obj_close( &w );
 
 

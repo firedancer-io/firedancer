@@ -117,10 +117,10 @@ main( int     argc,
   strcpy( topo->user_config_json, "{\"user\":true}" );
   topo->user_config_json_len = strlen( topo->user_config_json );
 
-  static fd_topo_tile_t event_tile[1];
-  strcpy( event_tile->event.accounts_path,  "/tmp" );
-  strcpy( event_tile->event.snapshots_path, "/tmp" );
-  strcpy( event_tile->event.log_path,       "/tmp" );
+  fd_topo_tile_t * event_tile = &topo->tiles[ 0 ];
+  fd_topo_str_set_cstr( topo, &event_tile->event.accounts_path,  "/tmp" );
+  fd_topo_str_set_cstr( topo, &event_tile->event.snapshots_path, "/tmp" );
+  fd_topo_str_set_cstr( topo, &event_tile->event.log_path,       "/tmp" );
 
   static fd_boot_report_t report[1];
   fd_boot_report_collect( report, topo, event_tile );

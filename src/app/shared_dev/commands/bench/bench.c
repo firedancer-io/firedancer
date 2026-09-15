@@ -154,30 +154,30 @@ bench_topo( config_t * config ) {
   } else {
     if( FD_UNLIKELY( !config->tiles.rpc.enabled ) ) FD_LOG_ERR(( "RPC tile must be enabled to run bench" ));
     rpc_port = config->tiles.rpc.rpc_listen_port;
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.rpc.rpc_listen_address, &rpc_ip_addr ) ) )
-      FD_LOG_ERR(( "failed to parse rpc listen address `%s`", config->tiles.rpc.rpc_listen_address ));
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( FD_TOPO_STR( config->tiles.rpc.rpc_listen_address ), &rpc_ip_addr ) ) )
+      FD_LOG_ERR(( "failed to parse rpc listen address `%s`", FD_TOPO_STR( config->tiles.rpc.rpc_listen_address ) ));
   }
 
-  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
+  int is_auto_affinity = !strcmp( FD_TOPO_STR( config->layout.affinity ), "auto" );
   int is_agave_auto_affinity;
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     is_agave_auto_affinity = is_auto_affinity;
   } else {
-    is_agave_auto_affinity = !strcmp( config->frankendancer.layout.agave_affinity, "auto" );
+    is_agave_auto_affinity = !strcmp( FD_TOPO_STR( config->frankendancer.layout.agave_affinity ), "auto" );
   }
-  int is_bench_auto_affinity = !strcmp( config->development.bench.affinity, "auto" );
+  int is_bench_auto_affinity = !strcmp( FD_TOPO_STR( config->development.bench.affinity ), "auto" );
 
   if( FD_UNLIKELY( is_auto_affinity != is_agave_auto_affinity ||
                    is_auto_affinity != is_bench_auto_affinity ) ) {
     FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity], [layout.agave_affinity], and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
   }
 
-  int transaction_mode = bench_transaction_mode( config->development.bench.transaction_mode );
+  int transaction_mode = bench_transaction_mode( FD_TOPO_STR( config->development.bench.transaction_mode ) );
   if( FD_UNLIKELY( transaction_mode<0 ) )
-    FD_LOG_ERR(( "unknown [development.bench.transaction_mode] `%s`", config->development.bench.transaction_mode ));
+    FD_LOG_ERR(( "unknown [development.bench.transaction_mode] `%s`", FD_TOPO_STR( config->development.bench.transaction_mode ) ));
 
   add_bench_topo( &config->topo,
-                  config->development.bench.affinity,
+                  FD_TOPO_STR( config->development.bench.affinity ),
                   config->development.bench.benchg_tile_count,
                   config->development.bench.benchs_tile_count,
                   config->development.genesis.fund_initial_accounts,
@@ -245,7 +245,7 @@ bench_cmd_fn( args_t *   args,
 
   run_firedancer_init( config, 1, 1 );
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
@@ -256,7 +256,7 @@ bench_cmd_fn( args_t *   args,
   }
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
-  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
 

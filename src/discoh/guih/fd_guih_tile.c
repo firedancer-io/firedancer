@@ -455,17 +455,17 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_LOG_NOTICE(( "gui server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->gui.listen_addr ), tile->gui.listen_port ));
 
-  if( FD_UNLIKELY( !strcmp( tile->gui.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->gui.identity_key_path ), "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_key = fd_keyload_load( tile->gui.identity_key_path, /* pubkey only: */ 1 );
+  ctx->identity_key = fd_keyload_load( FD_TOPO_STR( tile->gui.identity_key_path ), /* pubkey only: */ 1 );
 
-  if( FD_UNLIKELY( !strcmp( tile->gui.vote_key_path, "" ) ) ) {
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->gui.vote_key_path ), "" ) ) ) {
     ctx->has_vote_key = 0;
   } else {
     ctx->has_vote_key = 1;
-    if( FD_UNLIKELY( !fd_base58_decode_32( tile->gui.vote_key_path, (uchar *)ctx->vote_key->uc ) ) ) {
-      const uchar * vote_key = fd_keyload_load( tile->gui.vote_key_path, /* pubkey only: */ 1 );
+    if( FD_UNLIKELY( !fd_base58_decode_32( FD_TOPO_STR( tile->gui.vote_key_path ), (uchar *)ctx->vote_key->uc ) ) ) {
+      const uchar * vote_key = fd_keyload_load( FD_TOPO_STR( tile->gui.vote_key_path ), /* pubkey only: */ 1 );
       fd_memcpy( (uchar *)ctx->vote_key->uc, vote_key, 32UL );
     }
   }
@@ -486,7 +486,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_clock_tile_init( ctx->clock );
 
   ctx->topo = topo;
-  ctx->gui   = fd_guih_join( fd_guih_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, 0, 0, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, ctx->topo, fd_clock_tile_now( ctx->clock ) ) );
+  ctx->gui   = fd_guih_join( fd_guih_new( _gui, ctx->gui_server, fd_version_cstr, FD_TOPO_STR( tile->gui.cluster ), ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, 0, 0, tile->gui.is_voting, tile->gui.schedule_strategy, FD_TOPO_STR( tile->gui.wfs_bank_hash ), tile->gui.expected_shred_version, ctx->topo, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );

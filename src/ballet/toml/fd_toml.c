@@ -12,94 +12,200 @@
    possible by adding more speculative lookaheads that lead the CPU down
    "happy paths" such as long strings of ASCII.
 
-   The indexer into fd_pod blindly inserts using fd_pod_insert, which
-   may not be the most efficient allocation strategy. */
+   Strings are decoded in place.  While a string is being parsed, the
+   parser keeps a write cursor w in addition to the read cursor r.
+   Every string rule consumes at least as many bytes at r as it writes
+   at w (escape sequences only ever shrink), so start<=w<=r holds at all
+   times and bytes at or after r are never modified.  The terminating
+   NUL is written at w after the closing delimiter has been consumed,
+   which means it always lands on an already consumed byte.  Mutation
+   only starts after an opening quote has been consumed, and every
+   alternative that could run after a failed string rule rejects on the
+   first byte of the value, so a failed alternative can never change the
+   outcome of a later successful one. */
+
+#define FD_TOML_KEY_SEG_MAX (32UL)
 
 /* fd_toml_cur_t is a cursor object.  It is safe to copy this object via
    assignment to implement backtracking. */
 
 struct fd_toml_cur {
-  ulong        lineno;
-  char const * data;
+  ulong  lineno;
+  char * data;
 };
 
 typedef struct fd_toml_cur fd_toml_cur_t;
 
-/* fd_toml_parser_t is the internal parser state.  It implements the
-   lexer/parser itself, logic to unescape and buffer, and logic to
-   compose the data into an fd_pod_t. */
+/* fd_toml_parser_t is the internal parser state. */
 
 struct fd_toml_parser {
   fd_toml_cur_t c;
-  char const *  data_end;     /* points one past EOF */
-  uchar *       pod;          /* pod provided by user */
-  int           error;        /* hint: fatal pod error occurred */
+  char *        data_end;     /* points one past EOF */
+  char *        base;
+  int           error;        /* hint: fatal error occurred */
 
-  /* The current buffered string (either for both keys and values) */
+  /* The string currently being decoded */
 
-  uchar *       scratch;      /* base of scratch buf */
-  uchar *       scratch_cur;  /* next free byte in scratch buf */
-  uchar *       scratch_end;  /* points one past scratch buf */
+  char *        w;            /* write cursor */
+  char *        str_start;    /* first content byte */
+  uint          str_off;      /* last completed string */
+  uint          str_len;
 
-  /* Buffered keys */
+  /* Node storage */
 
-  uint          key_len;
-  char          key[ FD_TOML_PATH_MAX ];  /* cstr */
+  fd_toml_node_t * node;
+  uint             node_cnt;
+  uint             node_max;
+
+  uint          table;        /* node index that keyvals are added to */
+
+  /* Key segments of the key being parsed */
+
+  uint          key_off[ FD_TOML_KEY_SEG_MAX ];
+  uint          key_len[ FD_TOML_KEY_SEG_MAX ];
+  uint          key_cnt;
+
+  /* Slot that the next value node is attached to */
+
+  uint          val_parent;
+  uint          val_key_off;
+  uint          val_key_len;
+  uint          val_line;
 };
 
 typedef struct fd_toml_parser fd_toml_parser_t;
 
-/* Accumulate and insert data into fd_pod *****************************/
+/* Node tree construction ********************************************/
+
+static fd_toml_node_t *
+fd_toml_node_alloc( fd_toml_parser_t * parser,
+                    uint               parent,
+                    uint               type,
+                    uint               key_off,
+                    uint               key_len,
+                    uint               line ) {
+  if( FD_UNLIKELY( parser->node_cnt>=parser->node_max ) ) {
+    parser->error = FD_TOML_ERR_NODE;
+    return NULL;
+  }
+  uint idx = parser->node_cnt++;
+  fd_toml_node_t * node = parser->node + idx;
+  *node = (fd_toml_node_t) {
+    .type         = (ushort)type,
+    .line         = line,
+    .key_off      = key_off,
+    .key_len      = key_len,
+    .parent       = parent,
+    .next_sibling = FD_TOML_IDX_NULL,
+    .first_child  = FD_TOML_IDX_NULL,
+    .last_child   = FD_TOML_IDX_NULL,
+  };
+  if( FD_LIKELY( parent!=FD_TOML_IDX_NULL ) ) {
+    fd_toml_node_t * p = parser->node + parent;
+    if( p->last_child==FD_TOML_IDX_NULL ) p->first_child = idx;
+    else parser->node[ p->last_child ].next_sibling = idx;
+    p->last_child = idx;
+  }
+  return node;
+}
+
+static fd_toml_node_t *
+fd_toml_node_find( fd_toml_parser_t * parser,
+                   uint               parent,
+                   uint               key_off,
+                   uint               key_len ) {
+  char const * key = parser->base + key_off;
+  for( uint idx=parser->node[ parent ].first_child; idx!=FD_TOML_IDX_NULL; idx=parser->node[ idx ].next_sibling ) {
+    fd_toml_node_t * n = parser->node + idx;
+    if( n->key_len==key_len && 0==memcmp( parser->base + n->key_off, key, key_len ) ) return n;
+  }
+  return NULL;
+}
+
+/* fd_toml_emit allocates the value node for the pending slot. */
+
+static fd_toml_node_t *
+fd_toml_emit( fd_toml_parser_t * parser,
+              uint               type ) {
+  return fd_toml_node_alloc( parser, parser->val_parent, type, parser->val_key_off, parser->val_key_len, parser->val_line );
+}
 
 static void
-fd_toml_str_init( fd_toml_parser_t * parser ) {
-  parser->scratch_cur = parser->scratch;
+fd_toml_dup_warn( fd_toml_parser_t * parser,
+                  uint               key_off,
+                  uint               key_len ) {
+  FD_LOG_WARNING(( "TOML parse error: duplicate key: \"%.*s\"", (int)key_len, parser->base + key_off ));
+  parser->error = FD_TOML_ERR_DUP;
 }
 
-static int
-fd_toml_str_append( fd_toml_parser_t * parser,
-                    void const *       data,
-                    ulong              sz ) {
+/* fd_toml_table_walk descends from node idx through key segments
+   [seg_lo,seg_hi), creating tables as needed.  An array table
+   resolves to its last element.  Returns the final table index or
+   FD_TOML_IDX_NULL on error. */
 
-  if( FD_UNLIKELY( parser->scratch_cur + sz >= parser->scratch_end ) ) {
-    parser->error = FD_TOML_ERR_SCRATCH;
-    return 0;
+static uint
+fd_toml_table_walk( fd_toml_parser_t * parser,
+                    uint               idx,
+                    ulong              seg_lo,
+                    ulong              seg_hi ) {
+  for( ulong j=seg_lo; j<seg_hi; j++ ) {
+    uint key_off = parser->key_off[ j ];
+    uint key_len = parser->key_len[ j ];
+    fd_toml_node_t * n = fd_toml_node_find( parser, idx, key_off, key_len );
+    if( !n ) {
+      n = fd_toml_node_alloc( parser, idx, FD_TOML_NODE_TABLE, key_off, key_len, (uint)parser->c.lineno );
+      if( FD_UNLIKELY( !n ) ) return FD_TOML_IDX_NULL;
+    } else if( n->type==FD_TOML_NODE_ARRAY && n->last_child!=FD_TOML_IDX_NULL &&
+               parser->node[ n->last_child ].type==FD_TOML_NODE_TABLE ) {
+      n = parser->node + n->last_child;
+    } else if( n->type!=FD_TOML_NODE_TABLE ) {
+      fd_toml_dup_warn( parser, key_off, key_len );
+      return FD_TOML_IDX_NULL;
+    }
+    idx = (uint)( n - parser->node );
   }
-
-  fd_memcpy( parser->scratch_cur, data, sz );
-  parser->scratch_cur += sz;
-  return 1;
+  return idx;
 }
 
-static int
+/* String decoding ***************************************************/
+
+static inline void
+fd_toml_str_init( fd_toml_parser_t * parser ) {
+  parser->w         = parser->c.data;
+  parser->str_start = parser->c.data;
+}
+
+static inline void
 fd_toml_str_append_byte( fd_toml_parser_t * parser,
                          int                c ) {
+  *(parser->w++) = (char)c;
+}
 
-  if( FD_UNLIKELY( parser->scratch_cur >= parser->scratch_end ) ) {
-    parser->error = FD_TOML_ERR_SCRATCH;
-    return 0;
-  }
-
-  parser->scratch_cur[0] = (uchar)c;
-  parser->scratch_cur++;
-  return 1;
+static inline void
+fd_toml_str_append( fd_toml_parser_t * parser,
+                    char const *       data,
+                    ulong              sz ) {
+  for( ulong j=0UL; j<sz; j++ ) fd_toml_str_append_byte( parser, data[j] );
 }
 
 /* fd_toml_str_append_utf8 appends the UTF-8 encoding of the given
-   Unicode code point (<=UINT_MAX).  If rune is not a valid code point,
-   writes the replacement code point instead. */
+   Unicode code point.  If rune is not a valid code point, writes the
+   replacement code point instead. */
 
-static int
+static inline void
 fd_toml_str_append_utf8( fd_toml_parser_t * parser,
                          long               rune ) {
+  parser->w = fd_cstr_append_utf8( parser->w, (uint)rune );
+}
 
-  if( FD_UNLIKELY( parser->scratch_cur + 4 >= parser->scratch_end ) ) {
-    parser->error = FD_TOML_ERR_SCRATCH;
-    return 0;
-  }
+/* fd_toml_str_fini terminates the decoded string.  Must be called
+   after the closing delimiter was consumed. */
 
-  parser->scratch_cur = (uchar *)fd_cstr_append_utf8( (char *)parser->scratch_cur, (uint)rune );
-  return 1;
+static inline void
+fd_toml_str_fini( fd_toml_parser_t * parser ) {
+  parser->str_off = (uint)( parser->str_start - parser->base );
+  parser->str_len = (uint)( parser->w - parser->str_start );
+  *parser->w = '\0';
 }
 
 /* Backtracking recursive-descent parser ******************************/
@@ -125,27 +231,13 @@ fd_toml_advance( fd_toml_parser_t * parser,
   }
 
   parser->c.lineno += lines;
-  parser->c.data    = next;
+  parser->c.data   += n;
 }
 
 static inline void
 fd_toml_advance_inline( fd_toml_parser_t * parser,
                         ulong              n ) {
   parser->c.data += n;
-}
-
-static int
-fd_toml_upsert_empty_pod( fd_toml_parser_t * parser ) {
-  if( !fd_pod_query_subpod( parser->pod, parser->key ) ) {
-    uchar   subpod_mem[ FD_POD_FOOTPRINT_MIN ];
-    uchar * subpod = fd_pod_join( fd_pod_new( subpod_mem, FD_POD_FOOTPRINT_MIN ) );
-    if( FD_UNLIKELY( !fd_pod_insert( parser->pod, parser->key, FD_POD_VAL_TYPE_SUBPOD, FD_POD_FOOTPRINT_MIN, subpod ) ) ) {
-      parser->error = FD_TOML_ERR_POD;
-      return 0;
-    }
-    fd_pod_delete( fd_pod_leave( subpod ) );
-  }
-  return 1;
 }
 
 /* fd_toml_avail returns the number of bytes available for parsing. */
@@ -321,8 +413,8 @@ fd_toml_parse_escaped( fd_toml_parser_t * parser ) {
     rune |= ( fd_toml_xdigit( parser->c.data[1] )<< 8 );
     rune |= ( fd_toml_xdigit( parser->c.data[2] )<< 4 );
     rune |= ( fd_toml_xdigit( parser->c.data[3] )     );
-    if( FD_UNLIKELY( !fd_toml_str_append_utf8( parser, rune ) ) ) return 0;
     fd_toml_advance_inline( parser, 4UL );
+    fd_toml_str_append_utf8( parser, rune );
     return 1;
   case 'U':
     if( FD_UNLIKELY( fd_toml_avail( parser ) < 8UL ) ) return 0;
@@ -336,8 +428,8 @@ fd_toml_parse_escaped( fd_toml_parser_t * parser ) {
     rune |= ( fd_toml_xdigit( parser->c.data[5] )<< 8 );
     rune |= ( fd_toml_xdigit( parser->c.data[6] )<< 4 );
     rune |= ( fd_toml_xdigit( parser->c.data[7] )     );
-    if( FD_UNLIKELY( !fd_toml_str_append_utf8( parser, rune ) ) ) return 0;
     fd_toml_advance_inline( parser, 8UL );
+    fd_toml_str_append_utf8( parser, rune );
     return 1;
   default:
     return 0;
@@ -361,6 +453,7 @@ fd_toml_parse_basic_string( fd_toml_parser_t * parser ) {
   fd_toml_str_init( parser );
   while( SUB_PARSE( fd_toml_parse_basic_char( parser ) ) ) {}
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_quotation_mark( parser ) ) ) ) return 0;
+  fd_toml_str_fini( parser );
   return 1;
 }
 
@@ -403,6 +496,7 @@ fd_toml_parse_literal_string( fd_toml_parser_t * parser ) {
   fd_toml_str_init( parser );
   while( SUB_PARSE( fd_toml_parse_literal_char( parser ) ) ) {}
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_apostrophe( parser ) ) ) ) return 0;
+  fd_toml_str_fini( parser );
   return 1;
 }
 
@@ -415,7 +509,10 @@ fd_toml_parse_quoted_key( fd_toml_parser_t * parser ) {
   return 0;
 }
 
-/* unquoted-key = 1*( ALPHA / DIGIT / %x2D / %x5F ) ; A-Z / a-z / 0-9 / - / _ */
+/* unquoted-key = 1*( ALPHA / DIGIT / %x2D / %x5F ) ; A-Z / a-z / 0-9 / - / _
+
+   Unquoted keys are referenced in place and never modified: the byte
+   following the key is still needed by the parser. */
 
 static int
 fd_toml_is_unquoted_key_char( int c ) {
@@ -431,20 +528,20 @@ fd_toml_parse_unquoted_key( fd_toml_parser_t * parser ) {
   if( FD_UNLIKELY( !fd_toml_avail( parser )           ) ) return 0;
   int c = (uchar)parser->c.data[0];
   if( FD_UNLIKELY( !fd_toml_is_unquoted_key_char( c ) ) ) return 0;
-  fd_toml_str_init( parser );
-
-  fd_toml_str_append_byte( parser, c );
+  char const * start = parser->c.data;
   fd_toml_advance_inline( parser, 1UL );
 
   while( fd_toml_avail( parser ) ) {
     c = (uchar)parser->c.data[0];
     if( FD_LIKELY( fd_toml_is_unquoted_key_char( c ) ) ) {
-      fd_toml_str_append_byte( parser, c );
       fd_toml_advance_inline( parser, 1UL );
     } else {
       break;
     }
   }
+
+  parser->str_off = (uint)( start - parser->base );
+  parser->str_len = (uint)( parser->c.data - start );
   return 1;
 }
 
@@ -457,24 +554,15 @@ fd_toml_parse_simple_key( fd_toml_parser_t * parser ) {
   return 0;
 
 add:
-  do {
-    uint  old_key_len = parser->key_len;
-    ulong suffix_len  = (ulong)parser->scratch_cur - (ulong)parser->scratch;
-    ulong key_len     = (ulong)old_key_len + suffix_len + 1;
-    if( FD_UNLIKELY( key_len > sizeof(parser->key)  ) ) {
-      FD_LOG_WARNING(( "TOML parse error: key is too long: \"%.*s%.*s\"",
-                      (int)old_key_len, parser->key,
-                      (int)suffix_len,  (char *)parser->scratch ));
-      parser->error = FD_TOML_ERR_KEY;
-      return 0;
-    }
-
-    char * key_cur = fd_cstr_init( parser->key + old_key_len );
-    key_cur = fd_cstr_append_text( key_cur, (char const *)parser->scratch, suffix_len );
-    fd_cstr_fini( key_cur );
-    parser->key_len = (uint)( key_cur - parser->key );
-    return 1;
-  } while(0);
+  if( FD_UNLIKELY( parser->key_cnt>=FD_TOML_KEY_SEG_MAX ) ) {
+    FD_LOG_WARNING(( "TOML parse error: key has too many segments (max %lu)", FD_TOML_KEY_SEG_MAX ));
+    parser->error = FD_TOML_ERR_PARSE;
+    return 0;
+  }
+  parser->key_off[ parser->key_cnt ] = parser->str_off;
+  parser->key_len[ parser->key_cnt ] = parser->str_len;
+  parser->key_cnt++;
+  return 1;
 }
 
 /* dot-sep = ws %x2E ws  ; . Period */
@@ -491,18 +579,10 @@ fd_toml_parse_dot_sep( fd_toml_parser_t * parser ) {
 
 static int
 fd_toml_parse_dotted_key( fd_toml_parser_t * parser ) {
+  parser->key_cnt = 0U;
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_simple_key( parser ) ) ) ) return 0;
   while( fd_toml_avail( parser ) ) {
     if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_dot_sep( parser ) ) ) ) break;
-
-    /* Add trailing dot */
-    if( parser->key_len + 2 > sizeof(parser->key) ) {
-      parser->error = FD_TOML_ERR_KEY;
-      return 0;
-    }
-    parser->key[ parser->key_len++ ] = '.';
-    parser->key[ parser->key_len   ] = '\x00';
-
     if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_simple_key( parser ) ) ) ) return 0;
   }
   return 1;
@@ -641,6 +721,7 @@ fd_toml_parse_ml_basic_string( fd_toml_parser_t * parser ) {
   fd_toml_str_init( parser );
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_ml_basic_body        ( parser ) ) ) ) return 0;
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_ml_basic_string_delim( parser ) ) ) ) return 0;
+  fd_toml_str_fini( parser );
   return 1;
 }
 
@@ -690,7 +771,7 @@ fd_toml_parse_mll_content( fd_toml_parser_t * parser ) {
   } else {
     return 0;
   }
-  if( FD_UNLIKELY( !fd_toml_str_append_byte( parser, c ) ) ) return 0;
+  fd_toml_str_append_byte( parser, c );
 
   fd_toml_advance( parser, 1UL );
   return 1;
@@ -729,12 +810,13 @@ static int
 fd_toml_parse_ml_literal_string( fd_toml_parser_t * parser ) {
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_ml_literal_string_delim( parser ) ) ) ) return 0;
   if( FD_UNLIKELY( !fd_toml_avail( parser ) ) )                                      return 0;
-    if( parser->c.data[0] == '\n' ) {
+  if( parser->c.data[0] == '\n' ) {
     fd_toml_advance( parser, 1UL );
   }
   fd_toml_str_init( parser );
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_ml_literal_body        ( parser ) ) ) ) return 0;
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_ml_literal_string_delim( parser ) ) ) ) return 0;
+  fd_toml_str_fini( parser );
   return 1;
 }
 
@@ -748,15 +830,13 @@ fd_toml_parse_string( fd_toml_parser_t * parser ) {
   if( FD_LIKELY( SUB_PARSE( fd_toml_parse_literal_string   ( parser ) ) ) ) goto add;
   return 0;
 add:
-  if( FD_UNLIKELY( !fd_toml_str_append_byte( parser, 0 ) ) ) return 0;
-  if( FD_UNLIKELY( !fd_pod_insert(
-      parser->pod, parser->key, FD_POD_VAL_TYPE_CSTR,
-      (ulong)parser->scratch_cur - (ulong)parser->scratch,
-      (char *)parser->scratch ) ) ) {
-    parser->error = FD_TOML_ERR_POD;
-    return 0;
-  }
-  return 1;
+  do {
+    fd_toml_node_t * node = fd_toml_emit( parser, FD_TOML_NODE_STRING );
+    if( FD_UNLIKELY( !node ) ) return 0;
+    node->str.off = parser->str_off;
+    node->str.len = parser->str_len;
+    return 1;
+  } while(0);
 }
 
 /* boolean = true / false */
@@ -768,20 +848,17 @@ fd_toml_parse_boolean( fd_toml_parser_t * parser ) {
   if( 0==memcmp( parser->c.data, "true", 4 ) ) {
     fd_toml_advance_inline( parser, 4 );
     boolv = 1;
-    goto add;
-  }
-  if( parser->c.data + 5 > parser->data_end ) return 0;
-  if( 0==memcmp( parser->c.data, "false", 5 ) ) {
+  } else if( parser->c.data + 5 <= parser->data_end &&
+             0==memcmp( parser->c.data, "false", 5 ) ) {
     fd_toml_advance_inline( parser, 5 );
     boolv = 0;
-    goto add;
-  }
-  return 0;
-add:
-  if( FD_UNLIKELY( !fd_pod_insert_int( parser->pod, parser->key, boolv ) ) ) {
-    parser->error = FD_TOML_ERR_POD;
+  } else {
     return 0;
   }
+
+  fd_toml_node_t * node = fd_toml_emit( parser, FD_TOML_NODE_BOOL );
+  if( FD_UNLIKELY( !node ) ) return 0;
+  node->b = boolv;
   return 1;
 }
 
@@ -812,32 +889,24 @@ fd_toml_parse_ws_comment_newline( fd_toml_parser_t * parser ) {
    array-values =/ ws-comment-newline val ws-comment-newline [ array-sep ] */
 
 static int
-fd_toml_parse_array_values( fd_toml_parser_t * parser ) {
-
-  uint   old_len     = parser->key_len;
-  char * suffix_cstr = parser->key + parser->key_len;
-  if( FD_UNLIKELY( suffix_cstr + 22 > parser->key + sizeof(parser->key) ) ) {
-    /* array index might be OOB (see python3 -c 'print(len(str(1<<64)))') */
-    parser->error = FD_TOML_ERR_KEY;
-    return 0;
-  }
+fd_toml_parse_array_values( fd_toml_parser_t * parser,
+                            uint               array ) {
 
   /* Unrolled tail recursion with backtracking */
 
   fd_toml_cur_t backtrack = parser->c;
-  for( ulong j=0;; j++ ) {
-    char * child_key = fd_cstr_append_char( suffix_cstr, '.' );
-           child_key = fd_cstr_append_ulong_as_text( child_key, 0, 0, j, fd_ulong_base10_dig_cnt( j ) );
-    fd_cstr_fini( child_key );
-    parser->key_len = (uint)( child_key - parser->key );
-
+  for(;;) {
     fd_toml_parse_ws_comment_newline( parser );
+
+    parser->val_parent  = array;
+    parser->val_key_off = 0U;
+    parser->val_key_len = 0U;
+    parser->val_line    = (uint)parser->c.lineno;
+
     if( FD_UNLIKELY( !fd_toml_parse_val( parser ) ) ) {
       parser->c = backtrack;
       break;
     }
-
-    FD_LOG_DEBUG(( "Added key %s", parser->key ));
 
     fd_toml_parse_ws_comment_newline( parser );
 
@@ -850,10 +919,6 @@ fd_toml_parse_array_values( fd_toml_parser_t * parser ) {
     backtrack = parser->c;
   }
 
-  /* Undo array index */
-
-  fd_cstr_fini( suffix_cstr );
-  parser->key_len = old_len;
   return 1;
 }
 
@@ -864,17 +929,13 @@ fd_toml_parse_array_values( fd_toml_parser_t * parser ) {
 
 static int
 fd_toml_parse_array( fd_toml_parser_t * parser ) {
-  uint key_len = parser->key_len;
-
   EXPECT_CHAR( '[' );
-  fd_toml_upsert_empty_pod( parser );
-  SUB_PARSE( fd_toml_parse_array_values      ( parser ) );
+  fd_toml_node_t * node = fd_toml_emit( parser, FD_TOML_NODE_ARRAY );
+  if( FD_UNLIKELY( !node ) ) return 0;
+  uint array = (uint)( node - parser->node );
+  SUB_PARSE( fd_toml_parse_array_values      ( parser, array ) );
   SUB_PARSE( fd_toml_parse_ws_comment_newline( parser ) );
   EXPECT_CHAR( ']' );
-
-  parser->key_len        = key_len;
-  parser->key[ key_len ] = 0;
-
   return 1;
 }
 
@@ -922,25 +983,18 @@ fd_toml_parse_inline_table( fd_toml_parser_t * parser ) {
   EXPECT_CHAR( '{' );
   fd_toml_parse_ws( parser );
 
-  uint old_key_len = parser->key_len;
-  if( parser->key_len + 2 > sizeof(parser->key) ) {
-    parser->error = FD_TOML_ERR_KEY;
-    return 0;
-  }
+  fd_toml_node_t * node = fd_toml_emit( parser, FD_TOML_NODE_TABLE );
+  if( FD_UNLIKELY( !node ) ) return 0;
 
-  parser->key[ parser->key_len   ] = '\x00';
-  fd_toml_upsert_empty_pod( parser );
-
-  parser->key[ parser->key_len++ ] = '.';
-  parser->key[ parser->key_len   ] = '\x00';
+  uint old_table = parser->table;
+  parser->table = (uint)( node - parser->node );
 
   while( SUB_PARSE( fd_toml_parse_inline_table_keyvals( parser ) ) ) {}
 
   fd_toml_parse_ws( parser );
   EXPECT_CHAR( '}' );
 
-  parser->key_len            = old_key_len;
-  parser->key[ old_key_len ] = '\x00';
+  parser->table = old_table;
   return 1;
 }
 
@@ -1026,16 +1080,21 @@ fd_toml_parse_dec_int_( fd_toml_parser_t * parser,
 }
 
 static int
+fd_toml_emit_int( fd_toml_parser_t * parser,
+                  long               val ) {
+  fd_toml_node_t * node = fd_toml_emit( parser, FD_TOML_NODE_INT );
+  if( FD_UNLIKELY( !node ) ) return 0;
+  node->i = val;
+  return 1;
+}
+
+static int
 fd_toml_parse_dec_int( fd_toml_parser_t * parser ) {
   fd_toml_dec_t dec = {0};
   if( FD_UNLIKELY( !fd_toml_parse_dec_int_( parser, &dec ) ) ) return 0;
   long val = (long)dec.res;
        val = fd_long_if( dec.neg, -val, val );
-  if( FD_UNLIKELY( !fd_pod_insert_long( parser->pod, parser->key, val ) ) ) {
-    parser->error = FD_TOML_ERR_POD;
-    return 0;
-  }
-  return 1;
+  return fd_toml_emit_int( parser, val );
 }
 
 /* hex-int = hex-prefix HEXDIG *( HEXDIG / underscore HEXDIG ) */
@@ -1071,12 +1130,7 @@ fd_toml_parse_hex_int( fd_toml_parser_t * parser ) {
     }
   }
 
-  if( FD_UNLIKELY( !fd_pod_insert_long( parser->pod, parser->key, (long)res ) ) ) {
-    parser->error = FD_TOML_ERR_POD;
-    return 0;
-  }
-
-  return 1;
+  return fd_toml_emit_int( parser, (long)res );
 }
 
 /* oct-int = oct-prefix digit0-7 *( digit0-7 / underscore digit0-7 ) */
@@ -1117,12 +1171,7 @@ fd_toml_parse_oct_int( fd_toml_parser_t * parser ) {
     }
   }
 
-  if( FD_UNLIKELY( !fd_pod_insert_long( parser->pod, parser->key, (long)res ) ) ) {
-    parser->error = FD_TOML_ERR_POD;
-    return 0;
-  }
-
-  return 1;
+  return fd_toml_emit_int( parser, (long)res );
 }
 
 /* bin-int = bin-prefix digit0-1 *( digit0-1 / underscore digit0-1 ) */
@@ -1139,8 +1188,6 @@ fd_toml_parse_bin_int( fd_toml_parser_t * parser ) {
   if( FD_UNLIKELY( parser->c.data[1] != 'b'                ) ) return 0;
   if( FD_UNLIKELY( !fd_toml_is_bdigit( parser->c.data[2] ) ) ) return 0;  /* at least one digit */
   fd_toml_advance_inline( parser, 2UL );
-
-  /* TODO OVERFLOW DETECTION */
 
   ulong res = 0UL;
   int allow_underscore = 0;
@@ -1165,12 +1212,7 @@ fd_toml_parse_bin_int( fd_toml_parser_t * parser ) {
     }
   }
 
-  if( FD_UNLIKELY( !fd_pod_insert_long( parser->pod, parser->key, (long)res ) ) ) {
-    parser->error = FD_TOML_ERR_POD;
-    return 0;
-  }
-
-  return 1;
+  return fd_toml_emit_int( parser, (long)res );
 }
 
 /* integer = dec-int / hex-int / oct-int / bin-int */
@@ -1238,13 +1280,13 @@ fd_toml_parse_float_normal( fd_toml_parser_t * parser ) {
   fd_toml_dec_t stem = {0};
   if( FD_UNLIKELY( !fd_toml_parse_dec_int_( parser, &stem ) ) ) return 0;
   if( FD_UNLIKELY( !fd_toml_avail( parser )                 ) ) return 0;
-  float res = (float)stem.res;
+  double res = (double)stem.res;
 
   int ok = 0;
   fd_toml_dec_t frac_dec = {0};
   if( SUB_PARSE( fd_toml_parse_frac( parser, &frac_dec ) ) ) {
-    float frac = (float)frac_dec.res;
-    while( frac_dec.len-- ) frac /= 10.0f;  /* use pow? */
+    double frac = (double)frac_dec.res;
+    while( frac_dec.len-- ) frac /= 10.0;
     res += frac;
     ok   = 1;
   }
@@ -1255,16 +1297,16 @@ fd_toml_parse_float_normal( fd_toml_parser_t * parser ) {
     return 0;
   }
 
-  float exp = powf( exp_dec.neg ? 0.1f : 10.0f, (float)exp_dec.res );
-  res *= exp;
+  res *= pow( exp_dec.neg ? 0.1 : 10.0, (double)exp_dec.res );
 
 parsed:
   if( stem.neg ) res = -res;
-  if( FD_UNLIKELY( !fd_pod_insert_float( parser->pod, parser->key, res ) ) ) {
-    parser->error = FD_TOML_ERR_POD;
-    return 0;
-  }
-  return 1;
+  do {
+    fd_toml_node_t * node = fd_toml_emit( parser, FD_TOML_NODE_FLOAT );
+    if( FD_UNLIKELY( !node ) ) return 0;
+    node->f = res;
+    return 1;
+  } while(0);
 }
 
 /* special-float = [ minus / plus ] ( inf / nan )
@@ -1331,21 +1373,26 @@ fd_toml_parse_val( fd_toml_parser_t * parser ) {
 
 static int
 fd_toml_parse_keyval( fd_toml_parser_t * parser ) {
-  uint old_key_len = parser->key_len;
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_key( parser ) ) ) ) return 0;
 
-  if( FD_UNLIKELY( fd_pod_query( parser->pod, parser->key, NULL )==FD_POD_SUCCESS ) ) {
-    FD_LOG_WARNING(( "TOML parse error: duplicate key: \"%s\"", parser->key ));
-    parser->error = FD_TOML_ERR_DUP;
+  ulong last = parser->key_cnt-1UL;
+  uint parent = fd_toml_table_walk( parser, parser->table, 0UL, last );
+  if( FD_UNLIKELY( parent==FD_TOML_IDX_NULL ) ) return 0;
+
+  uint key_off = parser->key_off[ last ];
+  uint key_len = parser->key_len[ last ];
+  if( FD_UNLIKELY( fd_toml_node_find( parser, parent, key_off, key_len ) ) ) {
+    fd_toml_dup_warn( parser, key_off, key_len );
     return 0;
   }
 
+  parser->val_parent  = parent;
+  parser->val_key_off = key_off;
+  parser->val_key_len = key_len;
+  parser->val_line    = (uint)parser->c.lineno;
+
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_keyval_sep( parser ) ) ) ) return 0;
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_val       ( parser ) ) ) ) return 0;
-
-  FD_LOG_DEBUG(( "Added key %s", parser->key ));
-  parser->key[ old_key_len ] = 0;
-  parser->key_len            = old_key_len;
   return 1;
 }
 
@@ -1359,18 +1406,14 @@ fd_toml_parse_std_table( fd_toml_parser_t * parser ) {
   EXPECT_CHAR( '[' );
   fd_toml_parse_ws( parser );
 
-  parser->key[ parser->key_len = 0 ] = 0;
   if( FD_UNLIKELY( !fd_toml_parse_key( parser ) ) ) return 0;
-  // FIXME: consider blocking duplicate tables?
-  //if( FD_UNLIKELY( fd_pod_query( parser->pod, parser->key, NULL )==FD_POD_SUCCESS ) ) {
-  //  FD_LOG_WARNING(( "Duplicate table: \"%s\"", parser->key ));
-  //  parser->error = FD_TOML_ERR_DUP;
-  //  return 0;
-  //}
-  FD_LOG_DEBUG(( "Added table %.*s", (int)parser->key_len, parser->key ));
 
   fd_toml_parse_ws( parser );
   EXPECT_CHAR( ']' );
+
+  uint table = fd_toml_table_walk( parser, 0U, 0UL, parser->key_cnt );
+  if( FD_UNLIKELY( table==FD_TOML_IDX_NULL ) ) return 0;
+  parser->table = table;
   return 1;
 }
 
@@ -1388,35 +1431,7 @@ fd_toml_parse_array_table( fd_toml_parser_t * parser ) {
 
   fd_toml_parse_ws( parser );
 
-  /* Set parser->key to path to array */
-
-  parser->key[ parser->key_len = 0 ] = 0;
   if( FD_UNLIKELY( !SUB_PARSE( fd_toml_parse_key( parser ) ) ) ) return 0;
-
-  /* Count number of predecessors */
-
-  ulong idx = 0UL;
-  uchar const * subpod = fd_pod_query_subpod( parser->pod, parser->key );
-  if( subpod ) {
-    idx = fd_pod_cnt( subpod );
-  }
-
-  /* Append array index to path */
-
-  char * key_c = parser->key + parser->key_len;
-  if( FD_UNLIKELY( key_c + 22 > parser->key + sizeof(parser->key) ) ) {
-    /* array index might be OOB (see python3 -c 'print(len(str(1<<64)))') */
-    parser->error = FD_TOML_ERR_KEY;
-    return 0;
-  }
-  key_c = fd_cstr_append_char( key_c, '.' );
-  key_c = fd_cstr_append_ulong_as_text( key_c, 0, 0, idx, fd_ulong_base10_dig_cnt( idx ) );
-  fd_cstr_fini( key_c );
-  parser->key_len = (uint)( key_c - parser->key );
-
-  FD_LOG_DEBUG(( "Added array table %.*s", (int)parser->key_len, parser->key ));
-
-  /* Continue parsing */
 
   fd_toml_parse_ws( parser );
 
@@ -1424,6 +1439,25 @@ fd_toml_parse_array_table( fd_toml_parser_t * parser ) {
   if( FD_UNLIKELY( ( parser->c.data[0] != ']' ) |
                    ( parser->c.data[1] != ']' ) ) ) return 0;
   fd_toml_advance_inline( parser, 2UL );
+
+  ulong last = parser->key_cnt-1UL;
+  uint parent = fd_toml_table_walk( parser, 0U, 0UL, last );
+  if( FD_UNLIKELY( parent==FD_TOML_IDX_NULL ) ) return 0;
+
+  uint key_off = parser->key_off[ last ];
+  uint key_len = parser->key_len[ last ];
+  fd_toml_node_t * array = fd_toml_node_find( parser, parent, key_off, key_len );
+  if( !array ) {
+    array = fd_toml_node_alloc( parser, parent, FD_TOML_NODE_ARRAY, key_off, key_len, (uint)parser->c.lineno );
+    if( FD_UNLIKELY( !array ) ) return 0;
+  } else if( FD_UNLIKELY( array->type!=FD_TOML_NODE_ARRAY ) ) {
+    fd_toml_dup_warn( parser, key_off, key_len );
+    return 0;
+  }
+
+  fd_toml_node_t * table = fd_toml_node_alloc( parser, (uint)( array - parser->node ), FD_TOML_NODE_TABLE, 0U, 0U, (uint)parser->c.lineno );
+  if( FD_UNLIKELY( !table ) ) return 0;
+  parser->table = (uint)( table - parser->node );
   return 1;
 }
 
@@ -1431,19 +1465,9 @@ fd_toml_parse_array_table( fd_toml_parser_t * parser ) {
 
 static int
 fd_toml_parse_table( fd_toml_parser_t * parser ) {
-  if( SUB_PARSE( fd_toml_parse_array_table( parser ) ) ) goto add;
-  if( SUB_PARSE( fd_toml_parse_std_table  ( parser ) ) ) goto add;
+  if( SUB_PARSE( fd_toml_parse_array_table( parser ) ) ) return 1;
+  if( SUB_PARSE( fd_toml_parse_std_table  ( parser ) ) ) return 1;
   return 0;
-add:
-  fd_toml_upsert_empty_pod( parser );
-  /* Add trailing dot */
-  if( parser->key_len + 2 > sizeof(parser->key) ) {
-    parser->error = FD_TOML_ERR_KEY;
-    return 0;
-  }
-  parser->key[ parser->key_len++ ] = '.';
-  parser->key[ parser->key_len   ] = '\x00';
-  return 1;
 }
 
 /* expression =  ws [ comment ]
@@ -1485,21 +1509,28 @@ fd_toml_parse_toml( fd_toml_parser_t * parser ) {
 }
 
 int
-fd_toml_parse( void const *         toml,
+fd_toml_parse( fd_toml_doc_t *      doc,
+               char *               toml,
                ulong                toml_sz,
-               uchar *              pod,
-               uchar *              scratch,
-               ulong                scratch_sz,
+               fd_toml_node_t *     nodes,
+               ulong                node_max,
                fd_toml_err_info_t * opt_err ) {
 
   static fd_toml_err_info_t _dummy_err[1];
   if( !opt_err ) opt_err = _dummy_err;
   opt_err->line = 0UL;
 
-  if( FD_UNLIKELY( !toml_sz    ) ) return FD_TOML_SUCCESS;
-  if( FD_UNLIKELY( !scratch_sz ) ) {
-    FD_LOG_WARNING(( "zero scratch_sz" ));
-    return FD_TOML_ERR_SCRATCH;
+  *doc = (fd_toml_doc_t) {
+    .base     = toml,
+    .base_sz  = toml_sz,
+    .node     = nodes,
+    .node_cnt = 0UL,
+    .node_max = node_max,
+  };
+
+  if( FD_UNLIKELY( !node_max || node_max>UINT_MAX ) ) {
+    FD_LOG_WARNING(( "invalid node_max %lu", node_max ));
+    return FD_TOML_ERR_NODE;
   }
 
   fd_toml_parser_t parser[1] = {{
@@ -1507,15 +1538,19 @@ fd_toml_parse( void const *         toml,
       .data   = toml,
       .lineno = 1UL,
     },
-    .data_end    = (char const *)toml + toml_sz,
-    .pod         = pod,
-    .scratch     = scratch,
-    .scratch_cur = scratch,
-    .scratch_end = scratch + scratch_sz
+    .data_end = toml + toml_sz,
+    .base     = toml,
+    .node     = nodes,
+    .node_max = (uint)node_max,
+    .table    = 0U,
   }};
 
-  int ok = fd_toml_parse_toml( parser );
+  fd_toml_node_alloc( parser, FD_TOML_IDX_NULL, FD_TOML_NODE_TABLE, 0U, 0U, 1U );
+
+  int ok = 1;
+  if( FD_LIKELY( toml_sz ) ) ok = fd_toml_parse_toml( parser );
   opt_err->line = parser->c.lineno;
+  doc->node_cnt = parser->node_cnt;
 
   if( FD_UNLIKELY( (!ok) | (fd_toml_avail( parser ) > 0) ) ) {
     return fd_int_if( !!parser->error, parser->error, FD_TOML_ERR_PARSE );
@@ -1524,16 +1559,113 @@ fd_toml_parse( void const *         toml,
   return FD_TOML_SUCCESS;
 }
 
+/* Query API ***********************************************************/
+
+fd_toml_node_t *
+fd_toml_child( fd_toml_doc_t const *  doc,
+               fd_toml_node_t const * parent,
+               char const *           key,
+               ulong                  key_len ) {
+  for( fd_toml_node_t * n=fd_toml_child_first( doc, parent ); n; n=fd_toml_child_next( doc, n ) ) {
+    if( n->key_len==key_len && 0==memcmp( doc->base + n->key_off, key, key_len ) ) return n;
+  }
+  return NULL;
+}
+
+fd_toml_node_t *
+fd_toml_get( fd_toml_doc_t const *  doc,
+             fd_toml_node_t const * parent,
+             char const *           path ) {
+  fd_toml_node_t * node = parent ? (fd_toml_node_t *)parent : fd_toml_root( doc );
+  while( *path ) {
+    char const * dot = strchr( path, '.' );
+    ulong seg_len = dot ? (ulong)( dot - path ) : strlen( path );
+    node = fd_toml_child( doc, node, path, seg_len );
+    if( !node ) return NULL;
+    path += seg_len;
+    if( *path=='.' ) path++;
+  }
+  return node;
+}
+
+fd_toml_node_t *
+fd_toml_find_leftover( fd_toml_doc_t const * doc,
+                       fd_toml_node_t *      node ) {
+  if( node->consumed ) return NULL;
+  switch( node->type ) {
+  case FD_TOML_NODE_TABLE:
+    for( fd_toml_node_t * n=fd_toml_child_first( doc, node ); n; n=fd_toml_child_next( doc, n ) ) {
+      fd_toml_node_t * left = fd_toml_find_leftover( doc, n );
+      if( left ) return left;
+    }
+    return NULL;
+  case FD_TOML_NODE_ARRAY:
+    if( node->first_child==FD_TOML_IDX_NULL ) return node;
+    for( fd_toml_node_t * n=fd_toml_child_first( doc, node ); n; n=fd_toml_child_next( doc, n ) ) {
+      fd_toml_node_t * left = fd_toml_find_leftover( doc, n );
+      if( left ) return left;
+    }
+    return NULL;
+  default:
+    return node;
+  }
+}
+
+/* fd_toml_path_append copies up to sz bytes of text to p, truncating
+   at end. */
+
+static char *
+fd_toml_path_append( char *       p,
+                     char const * end,
+                     char const * text,
+                     ulong        sz ) {
+  sz = fd_ulong_min( sz, (ulong)( end-p ) );
+  return fd_cstr_append_text( p, text, sz );
+}
+
+static char *
+fd_toml_node_path_( fd_toml_doc_t const *  doc,
+                    fd_toml_node_t const * node,
+                    char *                 p,
+                    char const *           end ) {
+  if( node->parent==FD_TOML_IDX_NULL ) return p;
+  fd_toml_node_t const * parent = doc->node + node->parent;
+  p = fd_toml_node_path_( doc, parent, p, end );
+  if( parent->type==FD_TOML_NODE_ARRAY ) {
+    ulong idx = 0UL;
+    for( fd_toml_node_t const * n=fd_toml_child_first( doc, parent ); n && n!=node; n=fd_toml_child_next( doc, n ) ) idx++;
+    char idx_cstr[ 21 ];
+    fd_cstr_fini( fd_cstr_append_ulong_as_text( idx_cstr, 0, 0, idx, fd_ulong_base10_dig_cnt( idx ) ) );
+    p = fd_toml_path_append( p, end, "[", 1UL );
+    p = fd_toml_path_append( p, end, idx_cstr, strlen( idx_cstr ) );
+    p = fd_toml_path_append( p, end, "]", 1UL );
+  } else {
+    if( parent->parent!=FD_TOML_IDX_NULL ) p = fd_toml_path_append( p, end, ".", 1UL );
+    p = fd_toml_path_append( p, end, doc->base + node->key_off, node->key_len );
+  }
+  return p;
+}
+
+ulong
+fd_toml_node_path( fd_toml_doc_t const *  doc,
+                   fd_toml_node_t const * node,
+                   char *                 buf,
+                   ulong                  buf_sz ) {
+  if( FD_UNLIKELY( !buf_sz ) ) return 0UL;
+  char * end = buf + buf_sz - 1UL;
+  char * p   = fd_toml_node_path_( doc, node, buf, end );
+  *p = '\0';
+  return (ulong)( p - buf );
+}
+
 FD_FN_CONST char const *
 fd_toml_strerror( int err ) {
   switch( err ) {
-  case FD_TOML_SUCCESS:     return "success";
-  case FD_TOML_ERR_POD:     return "out of memory in output pod";
-  case FD_TOML_ERR_SCRATCH: return "out of memory in scratch region";
-  case FD_TOML_ERR_KEY:     return "oversize key";
-  case FD_TOML_ERR_DUP:     return "duplicate key";
-  case FD_TOML_ERR_RANGE:   return "integer overflow";
-  case FD_TOML_ERR_PARSE:   return "parse failure";
-  default:                  return "unknown error";
+  case FD_TOML_SUCCESS:   return "success";
+  case FD_TOML_ERR_NODE:  return "out of nodes";
+  case FD_TOML_ERR_DUP:   return "duplicate key";
+  case FD_TOML_ERR_RANGE: return "integer overflow";
+  case FD_TOML_ERR_PARSE: return "parse failure";
+  default:                return "unknown error";
   }
 }

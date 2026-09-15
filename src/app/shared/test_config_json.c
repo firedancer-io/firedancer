@@ -23,15 +23,21 @@ extractor_cstr_keys( char const * src,
   for( char const * p=strstr( src, "CFG_POP" ); p; p=strstr( p+1UL, "CFG_POP" ) ) {
     char const * q = p+7UL;
     int is_arr = 0;
-    while( ( *q>='A' && *q<='Z' ) || ( *q>='0' && *q<='9' ) || *q=='_' ) { is_arr |= !strncmp( q, "_ARRAY", 6UL ); q++; }
+    int is_str = 0;
+    while( ( *q>='A' && *q<='Z' ) || ( *q>='0' && *q<='9' ) || *q=='_' ) {
+      is_arr |= !strncmp( q, "_ARRAY", 6UL );
+      is_str |= !strncmp( q, "_STR",   4UL );
+      q++;
+    }
     while( *q==' ' ) q++;
     if( *q!='(' ) continue;
     q++;
     while( *q==' ' ) q++;
     /* boolau values are strings in toml ("auto"/"true"/"false") */
-    if(      !strncmp( q, "cstr,",   5UL ) || !strncmp( q, "cstr ",   5UL ) ) q += 4UL;
-    else if( !strncmp( q, "boolau,", 7UL ) || !strncmp( q, "boolau ", 7UL ) ) q += 6UL;
-    else continue;
+    if( !is_str ) {
+      if( !strncmp( q, "boolau,", 7UL ) || !strncmp( q, "boolau ", 7UL ) ) q += 6UL;
+      else continue;
+    }
     while( *q==' ' || *q==',' ) q++;
     ulong len = 0UL;
     while( q[ len ]!=',' && q[ len ]!=' ' && q[ len ]!=')' ) len++;
@@ -56,8 +62,8 @@ main( int     argc,
   static fd_config_t config[1];
   fd_config_load( 1, 0, default_config, strlen( default_config ), NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 );
 
-  strcpy( config->tiles.bundle.url, "https://user:hunter2@mainnet.example.com:443/v1/txns?api-key=SECRET#frag" );
-  strcpy( config->tiles.event.url,  "https://events.example.com/submit" );
+  FD_TEST( fd_config_str_set( config, &config->tiles.bundle.url, "https://user:hunter2@mainnet.example.com:443/v1/txns?api-key=SECRET#frag", 72UL ) );
+  FD_TEST( fd_config_str_set( config, &config->tiles.event.url, "https://events.example.com/submit", 33UL ) );
 
   static char json[ 262144 ];
   ulong len = fd_config_to_json( config, json, sizeof(json) );
@@ -82,7 +88,7 @@ main( int     argc,
 
   /* host identity and paths are redacted, settings are present */
   FD_TEST( !strstr( json, config->hostname ) );
-  FD_TEST( !strstr( json, config->paths.base ) );
+  FD_TEST( !strstr( json, FD_TOPO_STR( config->paths.base ) ) );
   FD_TEST(  strstr( json, "\"tick_per_ns_mu\"" ) );
   FD_TEST(  strstr( json, "\"max_live_slots\"" ) );
   FD_TEST(  strstr( json, "\"shred_listen_port\"" ) );
@@ -129,7 +135,7 @@ main( int     argc,
      classify, since the extractor vocabulary is wider than default.toml
      (e.g. the capture keys); a synthetic toml exercises all of them */
   static char keys[ 128 ][ 64 ]; static int is_arr[ 128 ];
-  char const * podf = strstr( config_parse_src, "fd_config_extract_podf" );
+  char const * podf = strstr( config_parse_src, "fd_config_extract_tomlf" );
   FD_TEST( podf );
   ulong key_cnt = extractor_cstr_keys( podf, keys, is_arr, 128UL );
   ulong off = 0UL;

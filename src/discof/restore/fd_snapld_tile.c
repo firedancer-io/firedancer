@@ -113,7 +113,7 @@ privileged_init( fd_topo_t const *      topo,
   /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
      of whether snapct may do the same, because this information is
      needed here during privileged_init. */
-  if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
+  if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( FD_TOPO_STR( tile->snapld.snapshots_path ),
                                                tile->snapld.incremental_snapshots,
                                                &full_slot,         &incr_slot,
                                                full_path,          incr_path,
@@ -188,7 +188,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
   FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()     );
 
-  fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
+  if( FD_UNLIKELY( !fd_cstr_printf_check( ctx->config.path, sizeof(ctx->config.path), NULL, "%s", FD_TOPO_STR( tile->snapld.snapshots_path ) ) ) )
+    FD_LOG_ERR(( "[paths.snapshots] `%s` is too long", FD_TOPO_STR( tile->snapld.snapshots_path ) ));
   ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
 
   ctx->state            = FD_SNAPSHOT_STATE_IDLE;

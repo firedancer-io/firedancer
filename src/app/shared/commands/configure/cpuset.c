@@ -62,7 +62,7 @@ cgroup_path( char             buf[ static PATH_MAX ],
              config_t const * config,
              char const *     file ) {
   FD_TEST( fd_cstr_printf_check( buf, PATH_MAX, NULL, CGROUP_ROOT "/%s%s%s",
-                                 config->name, file ? "/" : "", file ? file : "" ) );
+                                 FD_TOPO_STR( config->name ), file ? "/" : "", file ? file : "" ) );
   return buf;
 }
 

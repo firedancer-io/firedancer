@@ -613,7 +613,7 @@ privileged_init( fd_topo_t      const * topo,
       FD_LOG_ERR(( "store file descriptor was not inherited (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  uchar const * identity_public_key = fd_keyload_load( tile->rserve.identity_key_path, /* pubkey only: */ 1 );
+  uchar const * identity_public_key = fd_keyload_load( FD_TOPO_STR( tile->rserve.identity_key_path ), /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_public_key.uc, identity_public_key, sizeof(fd_pubkey_t) );
 }
 

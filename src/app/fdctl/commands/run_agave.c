@@ -63,29 +63,29 @@ agave_boot( config_t const * config ) {
 
   /* net */
   ADD1( "--no-xdp" );
-  if( FD_UNLIKELY( strcmp( config->frankendancer.dynamic_port_range, "" ) ) )
-    ADD( "--dynamic-port-range", config->frankendancer.dynamic_port_range );
+  if( FD_UNLIKELY( strcmp( FD_TOPO_STR( config->frankendancer.dynamic_port_range ), "" ) ) )
+    ADD( "--dynamic-port-range", FD_TOPO_STR( config->frankendancer.dynamic_port_range ) );
 
-  if( strcmp( config->net.bind_address, "" ) )
-    ADD( "--bind-address", config->net.bind_address );
+  if( strcmp( FD_TOPO_STR( config->net.bind_address ), "" ) )
+    ADD( "--bind-address", FD_TOPO_STR( config->net.bind_address ) );
   ADDU( "--firedancer-tpu-port", config->tiles.quic.regular_transaction_listen_port );
   ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 
   /* consensus */
-  ADD( "--identity", config->paths.identity_key );
-  if( strcmp( config->paths.vote_account, "" ) )
-    ADD( "--vote-account", config->paths.vote_account );
+  ADD( "--identity", FD_TOPO_STR( config->paths.identity_key ) );
+  if( strcmp( FD_TOPO_STR( config->paths.vote_account ), "" ) )
+    ADD( "--vote-account", FD_TOPO_STR( config->paths.vote_account ) );
   for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ )
-    ADD( "--authorized-voter", config->frankendancer.paths.authorized_voter_paths[ i ] );
+    ADD( "--authorized-voter", FD_TOPO_STR( config->frankendancer.paths.authorized_voter_paths[ i ] ) );
   if( !config->frankendancer.consensus.snapshot_fetch ) ADD1( "--no-snapshot-fetch" );
   if( !config->frankendancer.consensus.genesis_fetch  ) ADD1( "--no-genesis-fetch"  );
   if( !config->frankendancer.consensus.poh_speed_test ) ADD1( "--no-poh-speed-test" );
-  if( strcmp( config->frankendancer.consensus.expected_genesis_hash, "" ) )
-    ADD( "--expected-genesis-hash", config->frankendancer.consensus.expected_genesis_hash );
+  if( strcmp( FD_TOPO_STR( config->frankendancer.consensus.expected_genesis_hash ), "" ) )
+    ADD( "--expected-genesis-hash", FD_TOPO_STR( config->frankendancer.consensus.expected_genesis_hash ) );
   if( config->frankendancer.consensus.wait_for_supermajority_at_slot ) {
     ADDU( "--wait-for-supermajority", config->frankendancer.consensus.wait_for_supermajority_at_slot );
-    if( strcmp( config->frankendancer.consensus.expected_bank_hash, "" ) )
-      ADD( "--expected-bank-hash", config->frankendancer.consensus.expected_bank_hash );
+    if( strcmp( FD_TOPO_STR( config->frankendancer.consensus.expected_bank_hash ), "" ) )
+      ADD( "--expected-bank-hash", FD_TOPO_STR( config->frankendancer.consensus.expected_bank_hash ) );
   }
 
   if( config->consensus.expected_shred_version )
@@ -95,38 +95,38 @@ agave_boot( config_t const * config ) {
   for( ulong i=0; i<config->frankendancer.consensus.hard_fork_at_slots_cnt; i++ )
     ADDU( "--hard-fork", config->frankendancer.consensus.hard_fork_at_slots[ i ] );
   for( ulong i=0; i<config->frankendancer.consensus.known_validators_cnt; i++ )
-    ADD( "--known-validator", config->frankendancer.consensus.known_validators[ i ] );
+    ADD( "--known-validator", FD_TOPO_STR( config->frankendancer.consensus.known_validators[ i ] ) );
 
-  ADD( "--snapshot-archive-format", config->frankendancer.ledger.snapshot_archive_format );
+  ADD( "--snapshot-archive-format", FD_TOPO_STR( config->frankendancer.ledger.snapshot_archive_format ) );
   if( FD_UNLIKELY( config->frankendancer.ledger.require_tower ) ) ADD1( "--require-tower" );
 
   if( FD_UNLIKELY( !config->frankendancer.consensus.os_network_limits_test ) )
     ADD1( "--no-os-network-limits-test" );
 
   /* ledger */
-  ADD( "--ledger", config->frankendancer.paths.ledger );
+  ADD( "--ledger", FD_TOPO_STR( config->frankendancer.paths.ledger ) );
   ADDU( "--limit-ledger-size", config->frankendancer.ledger.limit_size );
-  if( strcmp( "", config->frankendancer.paths.accounts_path ) )
-    ADD( "--accounts", config->frankendancer.paths.accounts_path );
-  if( strcmp( "", config->frankendancer.ledger.accounts_index_path ) ) {
-    ADD( "--accounts-index-path", config->frankendancer.ledger.accounts_index_path );
+  if( strcmp( "", FD_TOPO_STR( config->frankendancer.paths.accounts_path ) ) )
+    ADD( "--accounts", FD_TOPO_STR( config->frankendancer.paths.accounts_path ) );
+  if( strcmp( "", FD_TOPO_STR( config->frankendancer.ledger.accounts_index_path ) ) ) {
+    ADD( "--accounts-index-path", FD_TOPO_STR( config->frankendancer.ledger.accounts_index_path ) );
     ADD1( "--enable-accounts-disk-index" );
   } else if( config->frankendancer.ledger.enable_accounts_disk_index )
     ADD1( "--enable-accounts-disk-index" );
-  if( strcmp( "", config->frankendancer.ledger.accounts_hash_cache_path ) )
-    ADD( "--accounts-hash-cache-path", config->frankendancer.ledger.accounts_hash_cache_path );
+  if( strcmp( "", FD_TOPO_STR( config->frankendancer.ledger.accounts_hash_cache_path ) ) )
+    ADD( "--accounts-hash-cache-path", FD_TOPO_STR( config->frankendancer.ledger.accounts_hash_cache_path ) );
   for( ulong i=0UL; i<config->frankendancer.ledger.account_indexes_cnt; i++ )
-    ADD( "--account-index", config->frankendancer.ledger.account_indexes[ i ] );
+    ADD( "--account-index", FD_TOPO_STR( config->frankendancer.ledger.account_indexes[ i ] ) );
   if( FD_LIKELY( !config->frankendancer.ledger.account_index_include_keys_cnt ) ) {
     for( ulong i=0UL; i<config->frankendancer.ledger.account_index_exclude_keys_cnt; i++ )
-      ADD( "--account-index-exclude-key", config->frankendancer.ledger.account_index_exclude_keys[ i ] );
+      ADD( "--account-index-exclude-key", FD_TOPO_STR( config->frankendancer.ledger.account_index_exclude_keys[ i ] ) );
   } else {
     for( ulong i=0UL; i<config->frankendancer.ledger.account_index_include_keys_cnt; i++ )
-      ADD( "--account-index-include-key", config->frankendancer.ledger.account_index_include_keys[ i ] );
+      ADD( "--account-index-include-key", FD_TOPO_STR( config->frankendancer.ledger.account_index_include_keys[ i ] ) );
   }
 
   /* gossip */
-  for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
+  for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", FD_TOPO_STR( config->gossip.entrypoints[ i ] ) );
   if( !config->frankendancer.gossip.port_check ) ADD1( "--no-port-check" );
   ADDH( "--gossip-port", config->gossip.port );
   if( config->development.gossip.allow_private_address ) {
@@ -137,8 +137,8 @@ agave_boot( config_t const * config ) {
   if( config->frankendancer.rpc.port ) ADDH( "--rpc-port", config->frankendancer.rpc.port );
   if( config->frankendancer.rpc.full_api ) ADD1( "--full-rpc-api" );
   if( config->frankendancer.rpc.private ) ADD1( "--private-rpc" );
-  if( strcmp( config->frankendancer.rpc.public_address, "" ) ) ADD( "--public-rpc-address", config->frankendancer.rpc.public_address );
-  if( strcmp( config->frankendancer.rpc.bind_address, "" ) ) ADD( "--rpc-bind-address", config->frankendancer.rpc.bind_address );
+  if( strcmp( FD_TOPO_STR( config->frankendancer.rpc.public_address ), "" ) ) ADD( "--public-rpc-address", FD_TOPO_STR( config->frankendancer.rpc.public_address ) );
+  if( strcmp( FD_TOPO_STR( config->frankendancer.rpc.bind_address ), "" ) ) ADD( "--rpc-bind-address", FD_TOPO_STR( config->frankendancer.rpc.bind_address ) );
   if( config->frankendancer.rpc.transaction_history ) ADD1( "--enable-rpc-transaction-history" );
   if( config->frankendancer.rpc.extended_tx_metadata_storage ) ADD1( "--enable-extended-tx-metadata-storage" );
   if( config->frankendancer.rpc.only_known ) ADD1( "--only-known-rpc" );
@@ -158,8 +158,8 @@ agave_boot( config_t const * config ) {
       ADDU( "--snapshot-interval-slots", config->frankendancer.snapshots.incremental_snapshot_interval_slots );
     }
   }
-  ADD( "--snapshots", config->frankendancer.snapshots.path );
-  if( strcmp( "", config->frankendancer.snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->frankendancer.snapshots.incremental_path );
+  ADD( "--snapshots", FD_TOPO_STR( config->frankendancer.snapshots.path ) );
+  if( strcmp( "", FD_TOPO_STR( config->frankendancer.snapshots.incremental_path ) ) ) ADD( "--incremental-snapshot-archive-path", FD_TOPO_STR( config->frankendancer.snapshots.incremental_path ) );
   ADDU( "--maximum-snapshots-to-retain", config->frankendancer.snapshots.maximum_full_snapshots_to_retain );
   ADDU( "--maximum-incremental-snapshots-to-retain", config->frankendancer.snapshots.maximum_incremental_snapshots_to_retain );
   ADDU( "--maximum-snapshot-download-abort", config->frankendancer.snapshots.maximum_snapshot_download_abort );
@@ -187,8 +187,8 @@ agave_boot( config_t const * config ) {
 
   argv[ idx ] = NULL;
 
-  if( FD_LIKELY( strcmp( config->frankendancer.reporting.solana_metrics_config, "" ) ) ) {
-    if( FD_UNLIKELY( setenv( "SOLANA_METRICS_CONFIG", config->frankendancer.reporting.solana_metrics_config, 1 ) ) )
+  if( FD_LIKELY( strcmp( FD_TOPO_STR( config->frankendancer.reporting.solana_metrics_config ), "" ) ) ) {
+    if( FD_UNLIKELY( setenv( "SOLANA_METRICS_CONFIG", FD_TOPO_STR( config->frankendancer.reporting.solana_metrics_config ), 1 ) ) )
       FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 

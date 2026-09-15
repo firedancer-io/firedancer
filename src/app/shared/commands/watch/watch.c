@@ -1079,7 +1079,7 @@ write_wfs( config_t const * config,
     shred_ver,
     peers_online,
     peers_total>peers_online ? peers_total-peers_online : 0UL,
-    config->firedancer.consensus.wait_for_supermajority_with_bank_hash );
+    FD_TOPO_STR( config->firedancer.consensus.wait_for_supermajority_with_bank_hash ) );
   return 1U;
 }
 

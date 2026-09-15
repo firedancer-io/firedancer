@@ -1222,19 +1222,19 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   ulong accdb_idx = fd_topo_find_tile( topo, "accdb", 0UL );
-  if( tile->diag.accounts_path[ 0 ] && accdb_idx!=ULONG_MAX )
-    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_ACCOUNTS, tile->diag.accounts_path, -1, ctx->metrics[ accdb_idx ] + FD_METRICS_GAUGE_ACCDB_DISK_ALLOCATED_BYTES_OFF );
+  if( FD_TOPO_STR( tile->diag.accounts_path )[ 0 ] && accdb_idx!=ULONG_MAX )
+    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_ACCOUNTS, FD_TOPO_STR( tile->diag.accounts_path ), -1, ctx->metrics[ accdb_idx ] + FD_METRICS_GAUGE_ACCDB_DISK_ALLOCATED_BYTES_OFF );
   ulong rserve_idx = fd_topo_find_tile( topo, "rserve", 0UL );
-  if( tile->diag.shreds_path[ 0 ] && rserve_idx!=ULONG_MAX )
-    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_SHREDS, tile->diag.shreds_path, -1, ctx->metrics[ rserve_idx ] + FD_METRICS_GAUGE_RSERVE_DISK_ALLOCATED_BYTES_OFF );
+  if( FD_TOPO_STR( tile->diag.shreds_path )[ 0 ] && rserve_idx!=ULONG_MAX )
+    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_SHREDS, FD_TOPO_STR( tile->diag.shreds_path ), -1, ctx->metrics[ rserve_idx ] + FD_METRICS_GAUGE_RSERVE_DISK_ALLOCATED_BYTES_OFF );
   ulong snapmk_idx = fd_topo_find_tile( topo, "snapmk", 0UL );
-  if( tile->diag.snapshots_path[ 0 ] && snapmk_idx!=ULONG_MAX )
-    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_SNAPSHOTS, tile->diag.snapshots_path, -1, ctx->metrics[ snapmk_idx ] + FD_METRICS_GAUGE_SNAPMK_DISK_ALLOCATED_BYTES_OFF );
+  if( FD_TOPO_STR( tile->diag.snapshots_path )[ 0 ] && snapmk_idx!=ULONG_MAX )
+    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_SNAPSHOTS, FD_TOPO_STR( tile->diag.snapshots_path ), -1, ctx->metrics[ snapmk_idx ] + FD_METRICS_GAUGE_SNAPMK_DISK_ALLOCATED_BYTES_OFF );
   ulong gui_idx = fd_topo_find_tile( topo, "gui", 0UL );
   if( gui_idx!=ULONG_MAX )
-    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_GUI, tile->diag.gui_path, -1, ctx->metrics[ gui_idx ] + FD_METRICS_GAUGE_GUI_DISK_ALLOCATED_BYTES_OFF );
+    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_GUI, FD_TOPO_STR( tile->diag.gui_path ), -1, ctx->metrics[ gui_idx ] + FD_METRICS_GAUGE_GUI_DISK_ALLOCATED_BYTES_OFF );
   int logfile_fd = fd_log_private_logfile_fd();
-  if( logfile_fd>=0 ) add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_LOGS, tile->diag.log_path, logfile_fd, NULL );
+  if( logfile_fd>=0 ) add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_LOGS, FD_TOPO_STR( tile->diag.log_path ), logfile_fd, NULL );
 }
 
 /* Read starttime (field 22) from stat file. Returns 0 on success, 1 if

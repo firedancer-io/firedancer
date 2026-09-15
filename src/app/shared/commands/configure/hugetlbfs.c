@@ -50,8 +50,8 @@ static char const * PAGE_NAMES[ 2 ] = {
 static void
 init( config_t const * config ) {
   char const * mount_path[ 2 ] = {
-    config->hugetlbfs.huge_page_mount_path,
-    config->hugetlbfs.gigantic_page_mount_path,
+    FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path ),
+    FD_TOPO_STR( config->hugetlbfs.gigantic_page_mount_path ),
   };
 
   ulong numa_node_cnt = fd_shmem_numa_cnt();
@@ -248,11 +248,11 @@ fini( config_t const * config,
      on the system. */
 
   char normal_page_mount_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( normal_page_mount_path, PATH_MAX, NULL, "%s/.normal", config->hugetlbfs.mount_path ) );
+  FD_TEST( fd_cstr_printf_check( normal_page_mount_path, PATH_MAX, NULL, "%s/.normal", FD_TOPO_STR( config->hugetlbfs.mount_path ) ) );
 
   const char * mount_path[ 3 ] = {
-    config->hugetlbfs.huge_page_mount_path,
-    config->hugetlbfs.gigantic_page_mount_path,
+    FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path ),
+    FD_TOPO_STR( config->hugetlbfs.gigantic_page_mount_path ),
     normal_page_mount_path,
   };
 
@@ -290,9 +290,9 @@ fini( config_t const * config,
       FD_LOG_ERR(( "error removing hugetlbfs mount at `%s` (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
   }
 
-  FD_LOG_NOTICE(( "%sRUN: `rmdir %s`%s", fd_log_style_dim(), config->hugetlbfs.mount_path , fd_log_style_normal() ));
-  if( FD_UNLIKELY( rmdir( config->hugetlbfs.mount_path ) && errno!=ENOENT ) )
-    FD_LOG_ERR(( "error removing hugetlbfs directory at `%s` (%i-%s)", config->hugetlbfs.mount_path, errno, fd_io_strerror( errno ) ));
+  FD_LOG_NOTICE(( "%sRUN: `rmdir %s`%s", fd_log_style_dim(), FD_TOPO_STR( config->hugetlbfs.mount_path ) , fd_log_style_normal() ));
+  if( FD_UNLIKELY( rmdir( FD_TOPO_STR( config->hugetlbfs.mount_path ) ) && errno!=ENOENT ) )
+    FD_LOG_ERR(( "error removing hugetlbfs directory at `%s` (%i-%s)", FD_TOPO_STR( config->hugetlbfs.mount_path ), errno, fd_io_strerror( errno ) ));
 
   return 1;
 }
@@ -301,8 +301,8 @@ static configure_result_t
 check( config_t const * config,
        int              check_type FD_PARAM_UNUSED ) {
   char const * mount_path[ 2 ] = {
-    config->hugetlbfs.huge_page_mount_path,
-    config->hugetlbfs.gigantic_page_mount_path,
+    FD_TOPO_STR( config->hugetlbfs.huge_page_mount_path ),
+    FD_TOPO_STR( config->hugetlbfs.gigantic_page_mount_path ),
   };
 
   static char const * MOUNT_PAGE_SIZE[ 2 ]  = {
@@ -332,7 +332,7 @@ check( config_t const * config,
   else if( FD_UNLIKELY( result2 ) )
     PARTIALLY_CONFIGURED( "mount `%s` does not exist", mount_path[ 1 ] );
 
-  CHECK( check_dir( config->hugetlbfs.mount_path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
+  CHECK( check_dir( FD_TOPO_STR( config->hugetlbfs.mount_path ), config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   for( ulong i=0UL; i<2UL; i++ ) {
     CHECK( check_dir( mount_path[ i ], config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
 

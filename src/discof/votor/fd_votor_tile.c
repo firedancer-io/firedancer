@@ -1194,10 +1194,10 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
 
-  if( FD_UNLIKELY( !strcmp( tile->votor.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->votor.identity_key_path ), "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->id_key = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->id_key = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( FD_TOPO_STR( tile->votor.identity_key_path ), /* pubkey only: */ 1 ) );
 
   fd_log_wallclock();
 }

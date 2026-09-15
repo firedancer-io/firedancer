@@ -111,11 +111,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
 
-  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
+  if( FD_UNLIKELY( strlen( FD_TOPO_STR( tile->execrp.solcap_capture ) ) ) ) {
     l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
   }
 
-  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
+  if( FD_UNLIKELY( strlen( FD_TOPO_STR( tile->execrp.dump_proto_dir ) ) ) ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t)                          );
     l = FD_LAYOUT_APPEND( l, fd_txn_dump_context_align(),  fd_txn_dump_context_footprint()                      );
     if( FD_UNLIKELY( tile->execrp.dump_instr_to_pb || tile->execrp.dump_syscall_to_pb || tile->execrp.dump_txn_to_pb ) ) {
@@ -373,14 +373,14 @@ unprivileged_init( fd_topo_t const *      topo,
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
 
   void * _capture_ctx = NULL;
-  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
+  if( FD_UNLIKELY( strlen( FD_TOPO_STR( tile->execrp.solcap_capture ) ) ) ) {
     _capture_ctx            = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
   }
 
   void * _dump_proto_ctx = NULL;
   void * _txn_dump_ctx = NULL;
   void * _dumping = NULL;
-  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
+  if( FD_UNLIKELY( strlen( FD_TOPO_STR( tile->execrp.dump_proto_dir ) ) ) ) {
     _dump_proto_ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t)                          );
     _txn_dump_ctx           = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_dump_context_align(),  fd_txn_dump_context_footprint()                      );
     if( FD_UNLIKELY( tile->execrp.dump_instr_to_pb || tile->execrp.dump_syscall_to_pb || tile->execrp.dump_txn_to_pb ) ) {
@@ -436,7 +436,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->capture_ctx = NULL;
-  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
+  if( FD_UNLIKELY( strlen( FD_TOPO_STR( tile->execrp.solcap_capture ) ) ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
     ctx->capture_ctx->solcap_start_slot = tile->execrp.capture_start_slot;
 
@@ -473,23 +473,23 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->dump_proto_ctx = NULL;
-  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
+  if( FD_UNLIKELY( strlen( FD_TOPO_STR( tile->execrp.dump_proto_dir ) ) ) ) {
     ctx->dump_proto_ctx = _dump_proto_ctx;
 
     /* General dumping config */
-    ctx->dump_proto_ctx->dump_proto_output_dir = tile->execrp.dump_proto_dir;
+    ctx->dump_proto_ctx->dump_proto_output_dir = FD_TOPO_STR( tile->execrp.dump_proto_dir );
     ctx->dump_proto_ctx->dump_proto_start_slot = tile->execrp.capture_start_slot;
 
     /* Syscall dumping config */
     ctx->dump_proto_ctx->dump_syscall_to_pb       = !!tile->execrp.dump_syscall_to_pb;
-    ctx->dump_proto_ctx->dump_syscall_name_filter = tile->execrp.dump_syscall_name_filter;
+    ctx->dump_proto_ctx->dump_syscall_name_filter = FD_TOPO_STR( tile->execrp.dump_syscall_name_filter );
 
     /* Instruction dumping config */
     ctx->dump_proto_ctx->dump_instr_to_pb                 = !!tile->execrp.dump_instr_to_pb;
-    ctx->dump_proto_ctx->has_dump_instr_program_id_filter = !!strlen(tile->execrp.dump_instr_program_id_filter);
+    ctx->dump_proto_ctx->has_dump_instr_program_id_filter = !!strlen(FD_TOPO_STR( tile->execrp.dump_instr_program_id_filter ));
     if( FD_UNLIKELY( ctx->dump_proto_ctx->has_dump_instr_program_id_filter &&
-                     !fd_base58_decode_32( tile->execrp.dump_instr_program_id_filter, ctx->dump_proto_ctx->dump_instr_program_id_filter ) ) ) {
-      FD_LOG_ERR(( "failed to parse [capture.dump_instr_program_id_filter] %s", tile->execrp.dump_instr_program_id_filter ));
+                     !fd_base58_decode_32( FD_TOPO_STR( tile->execrp.dump_instr_program_id_filter ), ctx->dump_proto_ctx->dump_instr_program_id_filter ) ) ) {
+      FD_LOG_ERR(( "failed to parse [capture.dump_instr_program_id_filter] %s", FD_TOPO_STR( tile->execrp.dump_instr_program_id_filter ) ));
     }
 
     /* Transaction dumping config */

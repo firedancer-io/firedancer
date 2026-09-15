@@ -51,8 +51,8 @@ send_test_topo( config_t * config ) {
   ulong const ingress_buf_sz = config->net.ingress_buffer_size;
 
   /* Setup topology */
-  fd_topo_t * topo    = fd_topob_new( &config->topo, config->name );
-  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  fd_topo_t * topo    = fd_topob_new( &config->topo, FD_TOPO_STR( config->name ) );
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
@@ -62,7 +62,7 @@ send_test_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( strcmp( config->layout.affinity, "auto" ) ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 0, 1 );
+  if( FD_LIKELY( strcmp( FD_TOPO_STR( config->layout.affinity ), "auto" ) ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( FD_TOPO_STR( config->layout.affinity ), parsed_tile_to_cpu, 0, 1 );
 
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
     ushort cpu_idx = (ushort)( parsed_tile_to_cpu[ i ] & ~FD_TOPOB_CPU_SHARED );
@@ -148,7 +148,7 @@ send_test_topo( config_t * config ) {
   }
 
   /* Finish topology setup */
-  if( FD_UNLIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) fd_topob_auto_layout( topo, 0 );
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( config->layout.affinity ), "auto" ) ) ) fd_topob_auto_layout( topo, 0 );
   fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
 }
@@ -202,8 +202,8 @@ init( send_test_ctx_t * ctx, config_t * config ) {
 
   int live_gossip = !strcmp( send_test_args.gossip_file, "live" );
 
-  ctx->identity_key  [ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( config->paths.identity_key, /* pubkey only: */ 1 ) );
-  ctx->vote_acct_addr[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( config->paths.vote_account, /* pubkey only: */ 1 ) );
+  ctx->identity_key  [ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( FD_TOPO_STR( config->paths.identity_key ), /* pubkey only: */ 1 ) );
+  ctx->vote_acct_addr[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( FD_TOPO_STR( config->paths.vote_account ), /* pubkey only: */ 1 ) );
 
   ctx->out_links[    MOCK_CI_IDX   ] = setup_test_out_link( topo, "gossip_out" );
   ctx->out_links[  MOCK_STAKE_IDX  ] = setup_test_out_link( topo, "replay_epoch" );
@@ -260,12 +260,12 @@ send_test_cmd_fn( args_t *   args ,
 
   run_firedancer_init( config, !args->dev.no_init_workspaces, 1 );
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
-  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );

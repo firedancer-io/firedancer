@@ -160,7 +160,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->expected_shred_version = tile->ipecho.expected_shred_version;
 
   ctx->entrypoints_cnt = tile->ipecho.entrypoints_cnt;
-  fd_dns_resolve_peers( tile->ipecho.entrypoints[ 0 ], sizeof(tile->ipecho.entrypoints[ 0 ]), tile->ipecho.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
+  fd_dns_resolve_peers( tile->ipecho.entrypoints, tile->ipecho.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
 
   ctx->retrieving = 1;
   if( FD_LIKELY( ctx->entrypoints_cnt ) ) {

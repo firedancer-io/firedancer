@@ -410,17 +410,17 @@ privileged_init( fd_topo_t const *      topo,
   ctx->recent_slots_per_file = tile->solcap.recent_slots_per_file ? tile->solcap.recent_slots_per_file : 128UL;
 
   struct stat path_stat;
-  int stat_result = stat( tile->solcap.solcap_capture, &path_stat );
+  int stat_result = stat( FD_TOPO_STR( tile->solcap.solcap_capture ), &path_stat );
 
   if( ctx->recent_only ) {
     /* recent_only=1: Ensure path is a directory, create if not exists */
     if( stat_result != 0 ) {
-      if( FD_UNLIKELY( mkdir(tile->solcap.solcap_capture, 0755) != 0 ) ) {
+      if( FD_UNLIKELY( mkdir(FD_TOPO_STR( tile->solcap.solcap_capture ), 0755) != 0 ) ) {
         FD_LOG_ERR(( "solcap_recent_only=1 but could not create directory: %s (%i-%s)",
-                   tile->solcap.solcap_capture, errno, strerror(errno) ));
+                   FD_TOPO_STR( tile->solcap.solcap_capture ), errno, strerror(errno) ));
       }
     } else if( FD_UNLIKELY( !S_ISDIR(path_stat.st_mode) ) ) {
-      FD_LOG_ERR(( "solcap_recent_only=1 but path is not a directory: %s", tile->solcap.solcap_capture ));
+      FD_LOG_ERR(( "solcap_recent_only=1 but path is not a directory: %s", FD_TOPO_STR( tile->solcap.solcap_capture ) ));
     }
 
     ctx->recent_current_idx = 0;
@@ -428,7 +428,7 @@ privileged_init( fd_topo_t const *      topo,
 
     for( ulong i = 0; i < 2; i++ ) {
       char filepath[PATH_MAX];
-      int ret = snprintf( filepath, PATH_MAX, "%s/recent_%lu.solcap", tile->solcap.solcap_capture, i );
+      int ret = snprintf( filepath, PATH_MAX, "%s/recent_%lu.solcap", FD_TOPO_STR( tile->solcap.solcap_capture ), i );
       if( FD_UNLIKELY( ret<0 || ret>=PATH_MAX ) ) {
         FD_LOG_ERR(( "snprintf failed or path too long for recent file %lu", i ));
       }
@@ -445,13 +445,13 @@ privileged_init( fd_topo_t const *      topo,
   } else {
     /* recent_only=0: Validate that path is a file*/
     if( FD_UNLIKELY( stat_result == 0 && S_ISDIR(path_stat.st_mode) ) ) {
-      FD_LOG_ERR(( "solcap_recent_only=0 but path is a directory: %s (should be a file path)", tile->solcap.solcap_capture ));
+      FD_LOG_ERR(( "solcap_recent_only=0 but path is a directory: %s (should be a file path)", FD_TOPO_STR( tile->solcap.solcap_capture ) ));
     }
 
-    ctx->fd = open( tile->solcap.solcap_capture, O_RDWR | O_CREAT | O_TRUNC, 0644 );
+    ctx->fd = open( FD_TOPO_STR( tile->solcap.solcap_capture ), O_RDWR | O_CREAT | O_TRUNC, 0644 );
     if( FD_UNLIKELY( ctx->fd == -1 ) ) {
       FD_LOG_ERR(( "failed to open or create solcap capture file %s (%i-%s)",
-                   tile->solcap.solcap_capture, errno, strerror(errno) ));
+                   FD_TOPO_STR( tile->solcap.solcap_capture ), errno, strerror(errno) ));
     }
   }
 

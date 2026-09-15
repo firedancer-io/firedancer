@@ -108,13 +108,13 @@ fd_auto_check_driver( fd_auto_info_t      const * info,
 static int
 xdp_check( fd_config_t    const * config,
            fd_auto_info_t const * info FD_PARAM_UNUSED ) {
-  if( strcmp( config->net.provider, "auto" ) ) return 0;
+  if( strcmp( FD_TOPO_STR( config->net.provider ), "auto" ) ) return 0;
   return 1;
 }
 
 static void
 xdp_apply( fd_config_t * config ) {
-  fd_memcpy( config->net.provider, "xdp", 4 );
+  FD_TEST( fd_config_str_set( config, &config->net.provider, "xdp", 3UL ) );
 }
 
 static int
@@ -138,9 +138,9 @@ xdp_listen_gre_apply( fd_config_t * config ) {
 
 static int
 is_xdp_rss_queue_mode_auto( fd_config_t * config ) {
-  if( strcmp( config->net.xdp.rss_queue_mode, "auto" ) ) return 0;
+  if( strcmp( FD_TOPO_STR( config->net.xdp.rss_queue_mode ), "auto" ) ) return 0;
   /* Set to default */
-  fd_memcpy( config->net.xdp.rss_queue_mode, "simple", 7 );
+  FD_TEST( fd_config_str_set( config, &config->net.xdp.rss_queue_mode, "simple", 6UL ) );
   return 1;
 }
 
@@ -159,7 +159,7 @@ xdp_rss_queue_mode_check( fd_config_t    const * config,
 
 static void
 xdp_rss_queue_mode_apply( fd_config_t * config ) {
-  fd_memcpy( config->net.xdp.rss_queue_mode, "auto", 5 );
+  FD_TEST( fd_config_str_set( config, &config->net.xdp.rss_queue_mode, "auto", 4UL ) );
 }
 
 static int
@@ -191,9 +191,9 @@ xdp_native_bond_apply( fd_config_t * config ) {
 
 static int
 is_xdp_mode_auto( fd_config_t * config ) {
-  if( strcmp( config->net.xdp.xdp_mode, "auto" ) ) return 0;
+  if( strcmp( FD_TOPO_STR( config->net.xdp.xdp_mode ), "auto" ) ) return 0;
   /* Set to default */
-  fd_memcpy( config->net.xdp.xdp_mode, "skb", 4 );
+  FD_TEST( fd_config_str_set( config, &config->net.xdp.xdp_mode, "skb", 3UL ) );
   return 1;
 }
 
@@ -207,27 +207,27 @@ xdp_drv_check( fd_config_t    const * config,
 
 static void
 xdp_drv_apply( fd_config_t * config ) {
-  fd_memcpy( config->net.xdp.xdp_mode, "drv", 4 );
+  FD_TEST( fd_config_str_set( config, &config->net.xdp.xdp_mode, "drv", 3UL ) );
 }
 
 static int
 is_xdp_prefbusy_auto( fd_config_t * config ) {
-  if( strcmp( config->net.xdp.poll_mode, "auto" ) ) return 0;
+  if( strcmp( FD_TOPO_STR( config->net.xdp.poll_mode ), "auto" ) ) return 0;
   /* Set to default */
-  fd_memcpy( config->net.xdp.poll_mode, "softirq", 8 );
+  FD_TEST( fd_config_str_set( config, &config->net.xdp.poll_mode, "softirq", 7UL ) );
   return 1;
 }
 
 static int
 xdp_prefbusy_check( fd_config_t    const * config,
                     fd_auto_info_t const * info FD_PARAM_UNUSED ) {
-  if( strcmp( config->net.xdp.xdp_mode, "drv") ) return 0;
+  if( strcmp( FD_TOPO_STR( config->net.xdp.xdp_mode ), "drv") ) return 0;
   return 1;
 }
 
 static void
 xdp_prefbusy_apply( fd_config_t * config ) {
-  fd_memcpy( config->net.xdp.poll_mode, "prefbusy", 9 );
+  FD_TEST( fd_config_str_set( config, &config->net.xdp.poll_mode, "prefbusy", 8UL ) );
 }
 
 static int
@@ -241,7 +241,7 @@ is_xdp_zc_auto( fd_config_t * config ) {
 static int
 xdp_zc_check( fd_config_t    const * config,
               fd_auto_info_t const * info   FD_PARAM_UNUSED ) {
-  if( strcmp( config->net.xdp.xdp_mode, "drv") ) return 0;
+  if( strcmp( FD_TOPO_STR( config->net.xdp.xdp_mode ), "drv") ) return 0;
   return 1;
 }
 
@@ -254,7 +254,7 @@ xdp_zc_apply( fd_config_t * config ) {
 static int
 mlx5_check( fd_config_t    const * config,
             fd_auto_info_t const * info ) {
-  if( strcmp( config->net.provider, "auto" ) ) return 0;
+  if( strcmp( FD_TOPO_STR( config->net.provider ), "auto" ) ) return 0;
   if( !info->has_mlx5_rdma_port ) return 0;
   if( !info->has_uverbs ) return 0;
   if( !fd_ulong_is_pow2( config->layout.net_tile_count ) ) return 0;
@@ -263,7 +263,7 @@ mlx5_check( fd_config_t    const * config,
 
 static void
 mlx5_apply( fd_config_t * config ) {
-  fd_memcpy( config->net.provider, "mlx5", 5 );
+  FD_TEST( fd_config_str_set( config, &config->net.provider, "mlx5", 4UL ) );
 }
 
 /* Each feature's supported Linux version matrix per driver decided
@@ -477,7 +477,7 @@ fd_auto_scrape_info( fd_config_t const * config ) {
   fd_auto_info_t info = {0};
 
   scrape_system    ( &info                        );
-  scrape_networking( &info, config->net.interface );
+  scrape_networking( &info, FD_TOPO_STR( config->net.interface ) );
 
   return info;
 }
@@ -489,13 +489,13 @@ static void
 fd_auto_net( fd_config_t          * config,
              fd_auto_info_t const * info ) {
   /* Providers are in order of priority with first being the highest */
-  int const is_provider_auto = !strcmp( config->net.provider, "auto" );
+  int const is_provider_auto = !strcmp( FD_TOPO_STR( config->net.provider ), "auto" );
   int is_provider_set = 0;
   for( ulong p=0UL; p<PROVIDER_CNT; p++ ) {
     fd_auto_provider_t const * provider = &NET_PROVIDERS[p];
 
     /* Check provider requirements */
-    int const is_explicit_provider = !is_provider_auto && !strcmp( config->net.provider, provider->name );
+    int const is_explicit_provider = !is_provider_auto && !strcmp( FD_TOPO_STR( config->net.provider ), provider->name );
     int is_chosen_provider = !is_provider_set &&
                              ( is_explicit_provider ||
                                ( is_provider_auto &&
@@ -542,13 +542,13 @@ fd_config_auto( fd_config_t * config ) {
 
   fd_cstr_printf( config->auto_config_log, sizeof(config->auto_config_log), NULL,
       "network auto configure system info: provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d listen_gre=%d rss_queue_mode=%s (driver=%s kernel=%lu.%lu gre=%d virtual_if=%d bonded_if=%d lacp_if=%d slaves=%u, net_tile_cnt=%u)",
-      config->net.provider,
-      config->net.xdp.xdp_mode,
-      config->net.xdp.poll_mode,
+      FD_TOPO_STR( config->net.provider ),
+      FD_TOPO_STR( config->net.xdp.xdp_mode ),
+      FD_TOPO_STR( config->net.xdp.poll_mode ),
       config->net.xdp.xdp_zero_copy,
       config->net.xdp.native_bond,
       config->net.xdp.listen_gre,
-      config->net.xdp.rss_queue_mode,
+      FD_TOPO_STR( config->net.xdp.rss_queue_mode ),
       info.driver[0] ? info.driver : "unknown",
       info.linux_major, info.linux_minor,
       info.is_using_gre,

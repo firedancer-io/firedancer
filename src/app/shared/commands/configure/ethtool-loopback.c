@@ -15,7 +15,7 @@ static int
 enabled( fd_config_t const * config ) {
 
   /* only enable if network stack is XDP */
-  if( 0!=strcmp( config->net.provider, "xdp" ) ) return 0;
+  if( 0!=strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) return 0;
 
   return 1;
 }

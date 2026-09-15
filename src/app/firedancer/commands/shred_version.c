@@ -24,7 +24,7 @@ shred_version_cmd_fn( args_t *   args,
   fd_topo_tile_t * tile = &config->topo.tiles[ tile_idx ];
 
   fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
-  fd_dns_resolve_peers( tile->gossip.entrypoints[ 0 ], sizeof(tile->gossip.entrypoints[ 0 ]), tile->gossip.entrypoints_cnt, "gossip.entrypoints", entrypoints );
+  fd_dns_resolve_peers( tile->gossip.entrypoints, tile->gossip.entrypoints_cnt, "gossip.entrypoints", entrypoints );
   fd_ipecho_client_init( client, entrypoints, tile->gossip.entrypoints_cnt );
 
   for(;;) {

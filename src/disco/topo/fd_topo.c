@@ -10,6 +10,20 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+void
+fd_topo_str_set( fd_topo_t *     topo,
+                 fd_topo_str_t * s,
+                 char const *    str,
+                 ulong           len ) {
+  if( FD_UNLIKELY( len>=sizeof(topo->strs)-topo->strs_len ) )
+    FD_LOG_ERR(( "topology string storage exhausted (%lu bytes used, %lu byte string does not fit)", topo->strs_len, len ));
+  char * dst = topo->strs + topo->strs_len;
+  memmove( dst, str, len );
+  dst[ len ] = '\0';
+  topo->strs_len += len+1UL;
+  s->rel = (int)( dst - (char *)s );
+}
+
 void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
                    ulong             obj_id ) {

@@ -1392,7 +1392,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
   fd_memset( ctx, 0, sizeof(ctx_t) );
 
-  uchar const * identity_key = fd_keyload_load( tile->repair.identity_key_path, /* pubkey only: */ 1 );
+  uchar const * identity_key = fd_keyload_load( FD_TOPO_STR( tile->repair.identity_key_path ), /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_public_key.uc, identity_key, sizeof(fd_pubkey_t) );
 
   FD_TEST( fd_rng_secure( &ctx->repair_seed, sizeof(ulong) ) );

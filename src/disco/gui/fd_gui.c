@@ -204,15 +204,18 @@ fd_gui_new( void *                   shmem,
   gui->summary.is_alpenglow                  = is_alpenglow;
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
-  fd_cstr_ncpy( gui->summary.accounts_database_path, accounts_database_path, sizeof(gui->summary.accounts_database_path) );
-  fd_cstr_ncpy( gui->summary.gui_database_path, gui_database_path, sizeof(gui->summary.gui_database_path) );
+  if( FD_UNLIKELY( !fd_cstr_printf_check( gui->summary.accounts_database_path, sizeof(gui->summary.accounts_database_path), NULL, "%s", accounts_database_path ) ) )
+    FD_LOG_ERR(( "[paths.accounts] `%s` is too long", accounts_database_path ));
+  if( FD_UNLIKELY( !fd_cstr_printf_check( gui->summary.gui_database_path, sizeof(gui->summary.gui_database_path), NULL, "%s", gui_database_path ) ) )
+    FD_LOG_ERR(( "[paths.guidb] `%s` is too long", gui_database_path ));
   gui->summary.startup_time_nanos            = gui->next_sample_200millis;
   gui->summary.expected_shred_version        = expected_shred_version;
   gui->summary.wfs_enabled          = 0;
   gui->summary.wfs_bank_hash[ 0UL ] = '\0';
 
   {
-    fd_cstr_ncpy( gui->summary.wfs_bank_hash, wfs_expected_bank_hash_cstr, sizeof(gui->summary.wfs_bank_hash) );
+    if( FD_UNLIKELY( !fd_cstr_printf_check( gui->summary.wfs_bank_hash, sizeof(gui->summary.wfs_bank_hash), NULL, "%s", wfs_expected_bank_hash_cstr ) ) )
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] `%s` is not a valid base58 hash", wfs_expected_bank_hash_cstr ));
     gui->summary.wfs_enabled = !!strcmp( wfs_expected_bank_hash_cstr, "" );
 
     if( FD_UNLIKELY( snapshots_enabled ) ) {

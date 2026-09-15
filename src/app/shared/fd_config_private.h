@@ -2,19 +2,30 @@
 #define HEADER_fd_src_app_shared_fd_config_private_h
 
 #include "fd_config.h"
+#include "../../ballet/toml/fd_toml.h"
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_config_extract_pod() extracts the configuration from the provided
-   pod to a typed config struct.  Logs errors to warning log.  Returns
-   config on success, NULL on error.  Does not zero initialize config
-   fields.
-
-   Not thread safe (uses global buffer).  */
+/* fd_config_extract_toml() extracts the configuration from the parsed
+   TOML document to a typed config struct.  Marks every node it handled
+   as consumed and rejects documents with unrecognized keys.  Logs
+   errors to warning log.  Returns config on success, NULL on error.
+   Does not zero initialize config fields. */
 
 config_t *
-fd_config_extract_pod( uchar *    pod,
-                       config_t * config );
+fd_config_extract_toml( fd_toml_doc_t * doc,
+                        config_t *      config );
+
+/* fd_config_toml_parse copies [buf,buf+sz) into a static transient
+   buffer and parses it into *doc.  The doc aliases that static storage
+   and is valid until the next call.  Returns an FD_TOML_* error code.
+   Not thread safe. */
+
+int
+fd_config_toml_parse( fd_toml_doc_t *      doc,
+                      char const *         buf,
+                      ulong                sz,
+                      fd_toml_err_info_t * opt_err );
 
 void
 fd_config_load_buf( config_t *   out,

@@ -67,24 +67,24 @@ backtest_topo( config_t * config ) {
   ulong snapdc_tile_cnt = config->firedancer.layout.snapdc_tile_count;
 
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
-  int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
-  int telemetry_enabled        = config->telemetry && strcmp( config->tiles.event.url, "" );
+  int solcap_enabled           = strlen( FD_TOPO_STR( config->capture.solcap_capture ) )>0;
+  int telemetry_enabled        = config->telemetry && strcmp( FD_TOPO_STR( config->tiles.event.url ), "" );
 
-  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
-  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  fd_topo_t * topo = { fd_topob_new( &config->topo, FD_TOPO_STR( config->name ) ) };
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
 
-  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
+  int is_auto_affinity = !strcmp( FD_TOPO_STR( config->layout.affinity ), "auto" );
 
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 1, 1 );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( FD_TOPO_STR( config->layout.affinity ), parsed_tile_to_cpu, 1, 1 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
@@ -195,9 +195,9 @@ backtest_topo( config_t * config ) {
 
     ushort shred_version = 0;
     uchar  genesis_hash[ 32 ] = {0};
-    if( FD_UNLIKELY( -1==read_genesis_bin( config->paths.genesis, &shred_version, genesis_hash ) ) ) {
+    if( FD_UNLIKELY( -1==read_genesis_bin( FD_TOPO_STR( config->paths.genesis ), &shred_version, genesis_hash ) ) ) {
       FD_LOG_ERR(( "could not read genesis `%s` for the event tile (%i-%s)",
-                       config->paths.genesis, errno, fd_io_strerror( errno ) ));
+                       FD_TOPO_STR( config->paths.genesis ), errno, fd_io_strerror( errno ) ));
     }
     fd_memcpy( event_tile->event.genesis_hash, genesis_hash, 32UL );
     event_tile->event.shred_version = shred_version;
@@ -403,7 +403,7 @@ backtest_topo( config_t * config ) {
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
   ulong store_fec_max = config->firedancer.runtime.max_live_slots * fec_sets_per_slot + repair_out_link->depth + 1UL;
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.shred.shred_cache_size_mib, 0UL, config->limits.max_shreds_per_block, config->paths.shredb );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.shred.shred_cache_size_mib, 0UL, config->limits.max_shreds_per_block, FD_TOPO_STR( config->paths.shredb ) );
   fd_topob_tile_uses( topo, backt_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
@@ -436,10 +436,10 @@ backtest_topo( config_t * config ) {
       tile->gui.tile_cnt = topo->tile_cnt;
 
       uchar genesis_hash[ 32 ] = {0};
-      if( FD_LIKELY( -1!=read_genesis_bin( config->paths.genesis, NULL, genesis_hash ) ) ) {
+      if( FD_LIKELY( -1!=read_genesis_bin( FD_TOPO_STR( config->paths.genesis ), NULL, genesis_hash ) ) ) {
         char genesis_hash_b58[ FD_BASE58_ENCODED_32_SZ ];
         fd_base58_encode_32( genesis_hash, NULL, genesis_hash_b58 );
-        strcpy( tile->gui.cluster, fd_genesis_cluster_name( fd_genesis_cluster_identify( genesis_hash_b58 ) ) );
+        fd_topo_str_set_cstr( topo, &tile->gui.cluster, fd_genesis_cluster_name( fd_genesis_cluster_identify( genesis_hash_b58 ) ) );
       }
     }
 
@@ -447,7 +447,7 @@ backtest_topo( config_t * config ) {
       tile->replay.fec_max = config->firedancer.runtime.max_live_slots * fec_sets_per_slot;
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
       for( ulong i = 0; i < tile->replay.enable_features_cnt; i++ ) {
-        fd_cstr_ncpy( tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(tile->replay.enable_features[i]) );
+        fd_topo_str_copy( topo, &tile->replay.enable_features[i], &config->tiles.replay.enable_features[i] );
       }
     }
   }

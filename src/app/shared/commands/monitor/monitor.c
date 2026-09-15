@@ -541,7 +541,7 @@ monitor_cmd_fn( args_t *   args,
 
   if( FD_UNLIKELY( args->monitor.with_bench ) ) {
     add_bench_topo( &config->topo,
-                    config->development.bench.affinity,
+                    FD_TOPO_STR( config->development.bench.affinity ),
                     config->development.bench.benchg_tile_count,
                     config->development.bench.benchs_tile_count,
                     0UL,

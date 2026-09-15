@@ -16,8 +16,8 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 static void
 bundle_client_topo( config_t *   config ) {
   fd_topo_t * topo = &config->topo;
-  fd_topob_new( &config->topo, config->name );
-  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  fd_topob_new( &config->topo, FD_TOPO_STR( config->name ) );
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( FD_TOPO_STR( config->hugetlbfs.max_page_size ) );
 
   fd_topob_wksp( topo, "metric_in" );
 
@@ -47,21 +47,21 @@ bundle_client_topo( config_t *   config ) {
 
   /* Tile config */
 
-  fd_cstr_ncpy( bundle_tile->bundle.url, config->tiles.bundle.url, sizeof(bundle_tile->bundle.url) );
-  bundle_tile->bundle.url_len = strnlen( bundle_tile->bundle.url, sizeof(bundle_tile->bundle.url)-1UL );
-  fd_cstr_ncpy( bundle_tile->bundle.sni, config->tiles.bundle.tls_domain_name, sizeof(bundle_tile->bundle.sni) );
-  bundle_tile->bundle.sni_len = strnlen( bundle_tile->bundle.sni, sizeof(bundle_tile->bundle.sni)-1UL );
-  fd_cstr_ncpy( bundle_tile->bundle.identity_key_path, config->paths.identity_key, sizeof(bundle_tile->bundle.identity_key_path) );
-  fd_cstr_ncpy( bundle_tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(bundle_tile->bundle.key_log_path) );
+  fd_topo_str_copy( topo, &bundle_tile->bundle.url, &config->tiles.bundle.url );
+  bundle_tile->bundle.url_len = strlen( FD_TOPO_STR( bundle_tile->bundle.url ) );
+  fd_topo_str_copy( topo, &bundle_tile->bundle.sni, &config->tiles.bundle.tls_domain_name );
+  bundle_tile->bundle.sni_len = strlen( FD_TOPO_STR( bundle_tile->bundle.sni ) );
+  fd_topo_str_copy( topo, &bundle_tile->bundle.identity_key_path, &config->paths.identity_key );
+  fd_topo_str_copy( topo, &bundle_tile->bundle.key_log_path, &config->development.bundle.ssl_key_log_file );
   bundle_tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
   bundle_tile->bundle.out_depth = config->tiles.verify.receive_buffer_size;
   bundle_tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
   bundle_tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
 
-  strncpy( sign_tile->sign.identity_key_path, config->paths.identity_key, sizeof(sign_tile->sign.identity_key_path) );
+  fd_topo_str_copy( topo, &sign_tile->sign.identity_key_path, &config->paths.identity_key );
 
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
-    FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( FD_TOPO_STR( config->tiles.metric.prometheus_listen_address ), &metric_tile->metric.prometheus_listen_addr ) ) )
+    FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", FD_TOPO_STR( config->tiles.metric.prometheus_listen_address ) ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
   /* Wrap up */

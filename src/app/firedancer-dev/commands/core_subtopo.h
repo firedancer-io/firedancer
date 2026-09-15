@@ -22,7 +22,7 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
     "sign",
   };
   for( int i=0; i<2; ++i) FD_TEST( fd_topo_find_tile( topo, tiles_to_add[i], 0UL ) == ULONG_MAX );
-  char const * net_tile_name = fd_net_tile_name( config->net.provider );
+  char const * net_tile_name = fd_net_tile_name( FD_TOPO_STR( config->net.provider ) );
   FD_TEST( fd_topo_find_tile( topo, net_tile_name, 0UL )==ULONG_MAX );
 
   ulong net_tile_cnt  = config->layout.net_tile_count;
@@ -31,8 +31,8 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
   fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
-  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
-    FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( FD_TOPO_STR( config->tiles.metric.prometheus_listen_address ), &metric_tile->metric.prometheus_listen_addr ) ) )
+    FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", FD_TOPO_STR( config->tiles.metric.prometheus_listen_address ) ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
   int xsk_core_dump = config->development.core_dump_level >= FD_TOPO_CORE_DUMP_LEVEL_REGULAR ? 1 : 0;
@@ -47,7 +47,7 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
   fd_topob_wksp( topo, "sign" );
   for( ulong i=0UL; i<sign_tile_cnt; i++ ) {
     fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1, 0, 0 );
-    fd_cstr_ncpy( sign_tile->sign.identity_key_path, config->paths.identity_key, sizeof(sign_tile->sign.identity_key_path) );
+    fd_topo_str_copy( topo, &sign_tile->sign.identity_key_path, &config->paths.identity_key );
   }
 }
 

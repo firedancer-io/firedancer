@@ -101,7 +101,8 @@ fd_bootinfo_write( config_t const * config ) {
   info.fd_version[ 0 ]       = fd_major_version;
   info.fd_version[ 1 ]       = fd_minor_version;
   info.fd_version[ 2 ]       = fd_patch_version;
-  fd_cstr_ncpy( info.name, config->name, sizeof(info.name) );
+  if( FD_UNLIKELY( !fd_cstr_printf_check( info.name, sizeof(info.name), NULL, "%s", FD_TOPO_STR( config->name ) ) ) )
+    FD_LOG_ERR(( "[name] `%s` is too long (max %lu characters)", FD_TOPO_STR( config->name ), sizeof(info.name)-1UL ));
   info.uid                   = config->uid;
   info.gid                   = config->gid;
   info.topo_layout_hash      = config->topo.layout_hash;
@@ -110,7 +111,7 @@ fd_bootinfo_write( config_t const * config ) {
   if( FD_LIKELY( adminctl_obj_id!=ULONG_MAX ) ) {
     fd_topo_obj_t const *  obj  = &config->topo.objs[ adminctl_obj_id ];
     fd_topo_wksp_t const * wksp = &config->topo.workspaces[ obj->wksp_id ];
-    FD_TEST( fd_cstr_printf_check( info.adminctl_wksp_file, sizeof(info.adminctl_wksp_file), NULL, "%s_%s.wksp", config->name, wksp->name ) );
+    FD_TEST( fd_cstr_printf_check( info.adminctl_wksp_file, sizeof(info.adminctl_wksp_file), NULL, "%s_%s.wksp", FD_TOPO_STR( config->name ), wksp->name ) );
     info.adminctl_page_sz = wksp->page_sz;
     info.adminctl_offset  = obj->offset;
   }
@@ -131,7 +132,7 @@ fd_bootinfo_write( config_t const * config ) {
   mut->user_config_len = 0UL;
 
   char blob_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( blob_path, sizeof(blob_path), NULL, "%s/%s.config", config->hugetlbfs.mount_path, config->name ) );
+  FD_TEST( fd_cstr_printf_check( blob_path, sizeof(blob_path), NULL, "%s/%s.config", FD_TOPO_STR( config->hugetlbfs.mount_path ), FD_TOPO_STR( config->name ) ) );
   int blob_err = write_file_atomic( blob_path, config, sizeof(config_t), S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH );
 
   fd_memcpy( mut->user_config, saved_toml, sizeof(saved_toml) );
@@ -140,12 +141,12 @@ fd_bootinfo_write( config_t const * config ) {
   if( FD_UNLIKELY( -1==blob_err ) ) {
     FD_LOG_WARNING(( "write(%s) failed (%i-%s), attaching to this validator will require --config", blob_path, errno, fd_io_strerror( errno ) ));
   } else {
-    FD_TEST( fd_cstr_printf_check( info.config_file, sizeof(info.config_file), NULL, "%s.config", config->name ) );
+    FD_TEST( fd_cstr_printf_check( info.config_file, sizeof(info.config_file), NULL, "%s.config", FD_TOPO_STR( config->name ) ) );
     info.config_sz = sizeof(config_t);
   }
 
   char path[ PATH_MAX ];
-  bootinfo_path( config->hugetlbfs.mount_path, config->name, path );
+  bootinfo_path( FD_TOPO_STR( config->hugetlbfs.mount_path ), FD_TOPO_STR( config->name ), path );
 
   if( FD_UNLIKELY( -1==write_file_atomic( path, &info, sizeof(info), S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH ) ) )
     FD_LOG_WARNING(( "write(%s) failed (%i-%s), validator discovery will be unavailable", path, errno, fd_io_strerror( errno ) ));
@@ -165,7 +166,7 @@ fd_bootinfo_write( config_t const * config ) {
                   info.pid,
                   c_bold, config->topo.tile_cnt, c_normal,
                   c_bold, mem_gib, c_normal,
-                  c_dim, config->hugetlbfs.mount_path, c_normal ));
+                  c_dim, FD_TOPO_STR( config->hugetlbfs.mount_path ), c_normal ));
 }
 
 void
@@ -173,7 +174,7 @@ fd_bootinfo_unlink( config_t const * config ) {
   char const * suffix[ 4 ] = { "bootinfo", "bootinfo.partial", "config", "config.partial" };
   for( ulong i=0UL; i<4UL; i++ ) {
     char path[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/%s.%s", config->hugetlbfs.mount_path, config->name, suffix[ i ] ) );
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/%s.%s", FD_TOPO_STR( config->hugetlbfs.mount_path ), FD_TOPO_STR( config->name ), suffix[ i ] ) );
     if( FD_UNLIKELY( -1==unlink( path ) && errno!=ENOENT ) )
       FD_LOG_WARNING(( "unlink(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
@@ -420,7 +421,7 @@ fd_bootinfo_adopt( config_t * config ) {
        the validator's.  Adopt the running validator's, else zero it so
        consumers report no uptime rather than a wrong one. */
     char path[ PATH_MAX ];
-    bootinfo_path( config->hugetlbfs.mount_path, config->name, path );
+    bootinfo_path( FD_TOPO_STR( config->hugetlbfs.mount_path ), FD_TOPO_STR( config->name ), path );
 
     fd_bootinfo_t info;
     config->boot_timestamp_nanos = 0L;
@@ -497,9 +498,9 @@ fd_bootinfo_adopt( config_t * config ) {
      before adoption. */
   fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
 
-  ulong base_len = strlen( config->hugetlbfs.mount_path );
+  ulong base_len = strlen( FD_TOPO_STR( config->hugetlbfs.mount_path ) );
   if( FD_UNLIKELY( !base_len || base_len>=FD_SHMEM_PRIVATE_BASE_MAX ) ) FD_LOG_ERR(( "adopted invalid mount path" ));
-  memcpy( fd_shmem_private_base, config->hugetlbfs.mount_path, base_len+1UL );
+  memcpy( fd_shmem_private_base, FD_TOPO_STR( config->hugetlbfs.mount_path ), base_len+1UL );
   fd_shmem_private_base_len = base_len;
 
   /* Permissions were checked against the default topology, which may
@@ -514,7 +515,7 @@ fd_bootinfo_adopt( config_t * config ) {
 void
 fd_bootinfo_check_layout( config_t const * config ) {
   char path[ PATH_MAX ];
-  bootinfo_path( config->hugetlbfs.mount_path, config->name, path );
+  bootinfo_path( FD_TOPO_STR( config->hugetlbfs.mount_path ), FD_TOPO_STR( config->name ), path );
 
   fd_bootinfo_t info;
   if( FD_UNLIKELY( -1==fd_bootinfo_path_read( path, &info ) ) ) return; /* no or unreadable descriptor, older validator */

@@ -309,8 +309,8 @@ fd_gossip_diag_init( fd_gossip_diag_ctx_t * ctx,
   memset( ctx, 0, sizeof(*ctx) );
   ctx->topo   = topo;
   ctx->config = config;
-  if(      !strcmp( config->net.provider, "xdp"  ) ) ctx->net_provider = FD_GOSSIP_DIAG_NET_XDP;
-  else if( !strcmp( config->net.provider, "mlx5" ) ) ctx->net_provider = FD_GOSSIP_DIAG_NET_MLX5;
+  if(      !strcmp( FD_TOPO_STR( config->net.provider ), "xdp"  ) ) ctx->net_provider = FD_GOSSIP_DIAG_NET_XDP;
+  else if( !strcmp( FD_TOPO_STR( config->net.provider ), "mlx5" ) ) ctx->net_provider = FD_GOSSIP_DIAG_NET_MLX5;
   else                                               ctx->net_provider = FD_GOSSIP_DIAG_NET_SOCKET;
 
   /* Find gossip tile */
@@ -341,7 +341,7 @@ fd_gossip_diag_init( fd_gossip_diag_ctx_t * ctx,
   ctx->net_tile_cnt = config->layout.net_tile_count;
   ctx->net_metrics  = aligned_alloc( 8UL, ctx->net_tile_cnt * sizeof(volatile ulong const *) );
   FD_TEST( ctx->net_metrics );
-  char const * net_tile_name = fd_net_tile_name( config->net.provider );
+  char const * net_tile_name = fd_net_tile_name( FD_TOPO_STR( config->net.provider ) );
   for( ulong i=0UL; i<ctx->net_tile_cnt; i++ ) {
     ulong net_tile_idx = fd_topo_find_tile( topo, net_tile_name, i );
     if( FD_UNLIKELY( net_tile_idx==ULONG_MAX ) ) {

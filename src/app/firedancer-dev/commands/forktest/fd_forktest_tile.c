@@ -268,8 +268,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memset( ctx, 0, sizeof(fd_forkt_tile_t) );
 
   struct fd_backtest_src_opts src_opts = {
-    .path        = tile->forktest.ledger_path,
-    .format      = tile->forktest.ledger_format,
+    .path        = FD_TOPO_STR( tile->forktest.ledger_path ),
+    .format      = FD_TOPO_STR( tile->forktest.ledger_format ),
     .code_shreds = 1
   };
   ctx->src = fd_backtest_src_create( &src_opts );

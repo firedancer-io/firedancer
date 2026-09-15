@@ -4520,30 +4520,30 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
 
-  if( FD_UNLIKELY( !strcmp( tile->replay.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->replay.identity_key_path ), "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( FD_TOPO_STR( tile->replay.identity_key_path ), /* pubkey only: */ 1 ) );
   ctx->identity_idx         = 0UL;
   ctx->identity_dirty       = 0;
 
   ctx->metrics.voted_slot = ULONG_MAX;
 
-  ctx->has_vote_account = tile->replay.alpenglow && !!tile->replay.vote_account_path[ 0 ];
+  ctx->has_vote_account = tile->replay.alpenglow && !!FD_TOPO_STR( tile->replay.vote_account_path )[ 0 ];
   if( FD_LIKELY( ctx->has_vote_account ) ) {
-    if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.vote_account_path, ctx->vote_account->uc ) ) ) {
-      uchar const * vote_key = fd_keyload_load( tile->replay.vote_account_path, /* pubkey only: */ 1 );
+    if( FD_UNLIKELY( !fd_base58_decode_32( FD_TOPO_STR( tile->replay.vote_account_path ), ctx->vote_account->uc ) ) ) {
+      uchar const * vote_key = fd_keyload_load( FD_TOPO_STR( tile->replay.vote_account_path ), /* pubkey only: */ 1 );
       fd_memcpy( ctx->vote_account->uc, vote_key, sizeof(fd_pubkey_t) );
     }
   }
 
   ctx->bundle.enabled = tile->replay.bundle.enabled;
-  if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
+  if( FD_UNLIKELY( !FD_TOPO_STR( tile->replay.bundle.vote_account_path )[0] ) ) {
     ctx->bundle.enabled = 0;
   }
 
   if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
-    if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
-      const uchar * vote_key = fd_keyload_load( tile->replay.bundle.vote_account_path, /* pubkey only: */ 1 );
+    if( FD_UNLIKELY( !fd_base58_decode_32( FD_TOPO_STR( tile->replay.bundle.vote_account_path ), ctx->bundle.vote_account.uc ) ) ) {
+      const uchar * vote_key = fd_keyload_load( FD_TOPO_STR( tile->replay.bundle.vote_account_path ), /* pubkey only: */ 1 );
       fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
     }
   }
@@ -4650,7 +4650,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->expected_shred_version = tile->replay.expected_shred_version;
   ctx->ipecho_shred_version = 0;
   ctx->shred_version        = 0;
-  fd_memcpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
+  if( FD_UNLIKELY( !fd_cstr_printf_check( ctx->genesis_path, sizeof(ctx->genesis_path), NULL, "%s", FD_TOPO_STR( tile->replay.genesis_path ) ) ) )
+    FD_LOG_ERR(( "[paths.genesis] `%s` is too long", FD_TOPO_STR( tile->replay.genesis_path ) ));
   ctx->has_genesis_hash = 0;
   ctx->has_cluster_type = 0;
   ctx->has_genesis_timestamp          = 0;
@@ -4672,7 +4673,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( tile->replay.enable_features_cnt<=sizeof(ctx->enable_features)/sizeof(ctx->enable_features[0]) );
   ctx->enable_features_cnt = tile->replay.enable_features_cnt;
   for( ulong i=0UL; i<tile->replay.enable_features_cnt; i++ ) {
-    fd_memcpy( ctx->enable_features[ i ], tile->replay.enable_features[ i ], FD_BASE58_ENCODED_32_SZ );
+    if( FD_UNLIKELY( !fd_cstr_printf_check( ctx->enable_features[ i ], sizeof(ctx->enable_features[ i ]), NULL, "%s", FD_TOPO_STR( tile->replay.enable_features[ i ] ) ) ) )
+      FD_LOG_ERR(( "[tiles.replay.enable_features] entry `%s` is not a valid base58 pubkey", FD_TOPO_STR( tile->replay.enable_features[ i ] ) ));
   }
 
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ) )!=ULONG_MAX );
@@ -4695,7 +4697,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->accdb );
 
   ctx->capture_ctx = NULL;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
+  if( FD_UNLIKELY( strcmp( "", FD_TOPO_STR( tile->replay.solcap_capture ) ) ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
     ctx->capture_ctx->capture_solcap = 1;
@@ -4711,9 +4713,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->backfill_path = backfill_path_mem;
 
   ctx->dump_proto_ctx = NULL;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
+  if( FD_UNLIKELY( strcmp( "", FD_TOPO_STR( tile->replay.dump_proto_dir ) ) ) ) {
     ctx->dump_proto_ctx                        = dump_proto_ctx_mem;
-    ctx->dump_proto_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
+    ctx->dump_proto_ctx->dump_proto_output_dir = FD_TOPO_STR( tile->replay.dump_proto_dir );
     if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) {
       ctx->dump_proto_ctx->dump_block_to_pb = !!tile->replay.dump_block_to_pb;
     }
@@ -4871,7 +4873,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
 
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
+  if( FD_UNLIKELY( strcmp( "", FD_TOPO_STR( tile->replay.solcap_capture ) ) ) ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_repl", 0UL );
     FD_TEST( idx!=ULONG_MAX );
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ idx ] ];

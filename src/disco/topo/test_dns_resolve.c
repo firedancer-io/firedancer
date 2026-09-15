@@ -1,4 +1,5 @@
 #include "fd_dns_resolve.h"
+#include "fd_topo.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
 
@@ -15,16 +16,17 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   ulong peer_cnt = fd_ulong_min( (ulong)( argc-1 ), FD_DNS_RESOLVE_PEERS_MAX );
-  static char peers[ FD_DNS_RESOLVE_PEERS_MAX ][ FD_HOSTPORT_BUF_MAX ];
-  for( ulong i=0UL; i<peer_cnt; i++ ) fd_cstr_ncpy( peers[ i ], argv[ 1+i ], sizeof(peers[ i ]) );
+  static fd_topo_t topo[1];
+  static fd_topo_str_t peers[ FD_DNS_RESOLVE_PEERS_MAX ];
+  for( ulong i=0UL; i<peer_cnt; i++ ) fd_topo_str_set_cstr( topo, &peers[ i ], argv[ 1+i ] );
 
   fd_ip4_port_t out[ FD_DNS_RESOLVE_PEERS_MAX ];
   long t0 = fd_log_wallclock();
-  fd_dns_resolve_peers( peers[ 0 ], sizeof(peers[ 0 ]), peer_cnt, "gossip.entrypoints", out );
+  fd_dns_resolve_peers( peers, peer_cnt, "gossip.entrypoints", out );
   long t1 = fd_log_wallclock();
 
   for( ulong i=0UL; i<peer_cnt; i++ )
-    printf( "%s -> " FD_IP4_ADDR_FMT ":%hu\n", peers[ i ], FD_IP4_ADDR_FMT_ARGS( out[ i ].addr ), fd_ushort_bswap( out[ i ].port ) );
+    printf( "%s -> " FD_IP4_ADDR_FMT ":%hu\n", FD_TOPO_STR( peers[ i ] ), FD_IP4_ADDR_FMT_ARGS( out[ i ].addr ), fd_ushort_bswap( out[ i ].port ) );
   printf( "elapsed %.1f ms\n", (double)( t1-t0 )/1e6 );
 
   /* No stray fds may survive (callers enter a sandbox next) */

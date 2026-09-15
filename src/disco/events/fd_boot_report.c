@@ -1203,11 +1203,11 @@ collect_filesystems( fd_boot_report_t *     r,
      unresolved rather than a wrong ancestor */
   if( FD_UNLIKELY( truncated ) ) mount_cnt = 0UL;
 
-  r->accounts_fs_idx  = fs_idx_for_path( r, tile->event.accounts_path,  mounts, mount_cnt );
-  r->snapshots_fs_idx = fs_idx_for_path( r, tile->event.snapshots_path, mounts, mount_cnt );
-  r->log_fs_idx       = fs_idx_for_path( r, tile->event.log_path,       mounts, mount_cnt );
-  r->shredb_fs_idx    = fs_idx_for_path( r, tile->event.shredb_path,    mounts, mount_cnt );
-  r->guidb_fs_idx     = fs_idx_for_path( r, tile->event.guidb_path,     mounts, mount_cnt );
+  r->accounts_fs_idx  = fs_idx_for_path( r, FD_TOPO_STR( tile->event.accounts_path ),  mounts, mount_cnt );
+  r->snapshots_fs_idx = fs_idx_for_path( r, FD_TOPO_STR( tile->event.snapshots_path ), mounts, mount_cnt );
+  r->log_fs_idx       = fs_idx_for_path( r, FD_TOPO_STR( tile->event.log_path ),       mounts, mount_cnt );
+  r->shredb_fs_idx    = fs_idx_for_path( r, FD_TOPO_STR( tile->event.shredb_path ),    mounts, mount_cnt );
+  r->guidb_fs_idx     = fs_idx_for_path( r, FD_TOPO_STR( tile->event.guidb_path ),     mounts, mount_cnt );
 }
 
 void

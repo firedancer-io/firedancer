@@ -1,114 +1,83 @@
-/* Macros for extracting config values out of a pod */
+/* Macros for extracting config values out of a parsed TOML document.
+   doc is the fd_toml_doc_t, config the struct being filled and cfg the
+   fd_config_t that owns the string arena.  Strings are only bounded by
+   the arena capacity (FD_CONFIG_STRS_SZ); any semantic length limit is
+   checked by the consumer of the value. */
 
-#define CFG_POP( type, cfg_path )                                      \
-  do {                                                                 \
-    char const * key = #cfg_path;                                      \
-    fd_pod_info_t info[1];                                             \
-    if( fd_pod_query( pod, key, info ) ) break;                        \
-    if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path, sizeof(config->cfg_path), \
-        info, key ) ) )                                                \
-      return NULL;                                                     \
-    fd_pod_remove( pod, key );                                         \
-  } while(0)
-
-#define CFG_POP1( type, toml_path, cfg_path )                          \
-  do {                                                                 \
-    char const * key = #toml_path;                                      \
-    fd_pod_info_t info[1];                                             \
-    if( fd_pod_query( pod, key, info ) ) break;                        \
-    if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path, sizeof(config->cfg_path), \
-        info, key ) ) )                                                \
-      return NULL;                                                     \
-    fd_pod_remove( pod, key );                                         \
-  } while(0)
-
-#define CFG_POP_ARRAY( type, cfg_path )                                \
-  do {                                                                 \
-    char const * key = #cfg_path;                                      \
-    fd_pod_info_t info[1];                                             \
-    if( fd_pod_query( pod, key, info ) ) break;                        \
-    if( FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) {      \
-      FD_LOG_WARNING(( "`%s`: expected array", key ));                 \
-      return NULL;                                                     \
-    }                                                                  \
-    ulong  arr_len = sizeof( config->cfg_path ) / sizeof( config->cfg_path[ 0 ] ); \
-    ulong  j       = 0UL;                                              \
-    for( fd_pod_iter_t iter = fd_pod_iter_init( info->val ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) { \
-      if( FD_UNLIKELY( j>=arr_len ) ) {                                \
-        FD_LOG_WARNING(( "`%s`: too many values (max %lu)", key, arr_len )); \
-        return NULL;                                                   \
-      }                                                                \
-      fd_pod_info_t sub_info = fd_pod_iter_info( iter );               \
-      if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path[j], sizeof(config->cfg_path[j]), &sub_info, key ) ) ) \
-        return NULL;                                                    \
-      j++;                                                             \
-    }                                                                  \
-    config->cfg_path ## _cnt = j;                                      \
-    fd_pod_remove( pod, key );                                         \
-  } while(0)
-
-#define CFG_POP1_ARRAY( type, toml_path, cfg_path )                    \
+#define CFG_POP1( vtype, toml_path, cfg_path )                          \
   do {                                                                 \
     char const * key = #toml_path;                                     \
-    fd_pod_info_t info[1];                                             \
-    if( fd_pod_query( pod, key, info ) ) break;                        \
-    if( FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) {      \
+    fd_toml_node_t * node = fd_toml_get( doc, NULL, key );             \
+    if( !node ) break;                                                 \
+    if( FD_UNLIKELY( !fdctl_cfg_get_##vtype( &config->cfg_path, doc, node, key ) ) ) \
+      return NULL;                                                     \
+    fd_toml_node_consume( node );                                      \
+  } while(0)
+
+#define CFG_POP( vtype, cfg_path ) CFG_POP1( vtype, cfg_path, cfg_path )
+
+#define CFG_POP1_ARRAY( vtype, toml_path, cfg_path )                    \
+  do {                                                                 \
+    char const * key = #toml_path;                                     \
+    fd_toml_node_t * node = fd_toml_get( doc, NULL, key );             \
+    if( !node ) break;                                                 \
+    if( FD_UNLIKELY( node->type!=FD_TOML_NODE_ARRAY ) ) {              \
       FD_LOG_WARNING(( "`%s`: expected array", key ));                 \
       return NULL;                                                     \
     }                                                                  \
-    ulong  arr_len = sizeof( config->cfg_path ) / sizeof( config->cfg_path[ 0 ] ); \
-    ulong  j       = 0UL;                                              \
-    for( fd_pod_iter_t iter = fd_pod_iter_init( info->val ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) { \
+    ulong arr_len = sizeof( config->cfg_path ) / sizeof( config->cfg_path[ 0 ] ); \
+    ulong j       = 0UL;                                               \
+    for( fd_toml_node_t * elem=fd_toml_child_first( doc, node ); elem; elem=fd_toml_child_next( doc, elem ) ) { \
       if( FD_UNLIKELY( j>=arr_len ) ) {                                \
         FD_LOG_WARNING(( "`%s`: too many values (max %lu)", key, arr_len )); \
         return NULL;                                                   \
       }                                                                \
-      fd_pod_info_t sub_info = fd_pod_iter_info( iter );               \
-      if( FD_UNLIKELY( !fdctl_cfg_get_##type( &config->cfg_path[j], sizeof(config->cfg_path[j]), &sub_info, key ) ) ) \
-        return NULL;                                                    \
+      if( FD_UNLIKELY( !fdctl_cfg_get_##vtype( &config->cfg_path[j], doc, elem, key ) ) ) \
+        return NULL;                                                   \
+      fd_toml_node_consume( elem );                                    \
       j++;                                                             \
     }                                                                  \
     config->cfg_path ## _cnt = j;                                      \
-    fd_pod_remove( pod, key );                                         \
+    fd_toml_node_consume( node );                                      \
   } while(0)
 
-#define CFG_POP_TABLE( type, toml_path, cfg_path, cfg_field, field_idx )              \
-  do {                                                                                \
-    char const * key = #toml_path;                                                    \
-    fd_pod_info_t info[1];                                                            \
-    if( fd_pod_query( pod, key, info ) ) break;                                       \
-    if( FD_UNLIKELY( info->val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) {                     \
-      FD_LOG_WARNING(( "`%s`: expected table", key ));                                \
-      return NULL;                                                                    \
-    }                                                                                 \
-    ulong table_len = fd_pod_cnt( info->val );                                        \
-    ulong j         = 0UL;                                                            \
-    for( fd_pod_iter_t iter = fd_pod_iter_init( info->val ); !fd_pod_iter_done( iter ); iter = fd_pod_iter_next( iter ) ) { \
-      if( FD_UNLIKELY( j>=table_len ) ) {                                             \
-        FD_LOG_WARNING(( "`%s`: too many values (max %lu)", key, table_len ));        \
-        return NULL;                                                                  \
-      }                                                                               \
-      fd_pod_info_t sub_info = fd_pod_iter_info( iter );                              \
-      if( FD_UNLIKELY( sub_info.val_type!=FD_POD_VAL_TYPE_SUBPOD ) ) continue;        \
-      fd_pod_info_t list[ 256UL ];                                                    \
-      ulong fields_cnt         = fd_pod_cnt( sub_info.val );                          \
-      if( FD_UNLIKELY( fields_cnt>256UL ) ) {                                         \
-        FD_LOG_WARNING(( "`%s`: Too many subpods (%lu) in table", sub_info.key, fields_cnt )); \
-        return NULL;                                                                  \
-      }                                                                               \
-      fd_pod_info_t * fields   = fd_pod_list( sub_info.val, list );                   \
-      FD_TEST( field_idx<fields_cnt );                                                \
-      fd_pod_info_t field_info = fields[ field_idx ];                                 \
-      char table_toml_path[ PATH_MAX ];                                               \
-      char const * cfg_field_str = #cfg_field;                                        \
-      FD_TEST( fd_cstr_printf_check( table_toml_path, PATH_MAX, NULL, "%s.%lu.%s", key, j, cfg_field_str ) ); \
-      fdctl_cfg_get_##type( &config->cfg_path[j].cfg_field, sizeof(config->cfg_path[j].cfg_field), &field_info, table_toml_path ); \
-      j++;                                                                            \
-    }                                                                                 \
-    config->cfg_path ## _cnt = j;                                                     \
+#define CFG_POP_ARRAY( vtype, cfg_path ) CFG_POP1_ARRAY( vtype, cfg_path, cfg_path )
+
+#define CFG_POP1_STR( toml_path, cfg_path )                            \
+  do {                                                                 \
+    char const * key = #toml_path;                                     \
+    fd_toml_node_t * node = fd_toml_get( doc, NULL, key );             \
+    if( !node ) break;                                                 \
+    if( FD_UNLIKELY( !fdctl_cfg_get_str( cfg, &config->cfg_path, doc, node, key ) ) ) \
+      return NULL;                                                     \
+    fd_toml_node_consume( node );                                      \
   } while(0)
 
-#define CFG_POP_TABLE_FINI( toml_path ) \
-  do {                                  \
-    fd_pod_remove( pod, #toml_path );   \
+#define CFG_POP_STR( cfg_path ) CFG_POP1_STR( cfg_path, cfg_path )
+
+#define CFG_POP1_STR_ARRAY( toml_path, cfg_path )                      \
+  do {                                                                 \
+    char const * key = #toml_path;                                     \
+    fd_toml_node_t * node = fd_toml_get( doc, NULL, key );             \
+    if( !node ) break;                                                 \
+    if( FD_UNLIKELY( node->type!=FD_TOML_NODE_ARRAY ) ) {              \
+      FD_LOG_WARNING(( "`%s`: expected array", key ));                 \
+      return NULL;                                                     \
+    }                                                                  \
+    ulong arr_len = sizeof( config->cfg_path ) / sizeof( config->cfg_path[ 0 ] ); \
+    ulong j       = 0UL;                                               \
+    for( fd_toml_node_t * elem=fd_toml_child_first( doc, node ); elem; elem=fd_toml_child_next( doc, elem ) ) { \
+      if( FD_UNLIKELY( j>=arr_len ) ) {                                \
+        FD_LOG_WARNING(( "`%s`: too many values (max %lu)", key, arr_len )); \
+        return NULL;                                                   \
+      }                                                                \
+      if( FD_UNLIKELY( !fdctl_cfg_get_str( cfg, &config->cfg_path[j], doc, elem, key ) ) ) \
+        return NULL;                                                   \
+      fd_toml_node_consume( elem );                                    \
+      j++;                                                             \
+    }                                                                  \
+    config->cfg_path ## _cnt = j;                                      \
+    fd_toml_node_consume( node );                                      \
   } while(0)
+
+#define CFG_POP_STR_ARRAY( cfg_path ) CFG_POP1_STR_ARRAY( cfg_path, cfg_path )

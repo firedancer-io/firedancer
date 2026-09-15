@@ -117,17 +117,16 @@ fd_dns_peer_parse( char const * peer,
 }
 
 void
-fd_dns_resolve_peers( char const *    peers,
-                      ulong           peer_stride,
-                      ulong           peer_cnt,
-                      char const *    config_str,
-                      fd_ip4_port_t * out ) {
+fd_dns_resolve_peers( fd_topo_str_t const * peers,
+                      ulong                 peer_cnt,
+                      char const *          config_str,
+                      fd_ip4_port_t *       out ) {
   if( FD_UNLIKELY( peer_cnt>FD_DNS_RESOLVE_PEERS_MAX ) ) FD_LOG_ERR(( "too many [%s] entries (%lu)", config_str, peer_cnt ));
   if( FD_UNLIKELY( !peer_cnt ) ) return;
 
   char hostname[ FD_DNS_RESOLVE_PEERS_MAX ][ FD_FQDN_BUF_MAX ];
   for( ulong i=0UL; i<peer_cnt; i++ ) {
-    fd_dns_peer_parse( peers+i*peer_stride, config_str, hostname[ i ], &out[ i ].port, NULL );
+    fd_dns_peer_parse( fd_topo_str( &peers[ i ] ), config_str, hostname[ i ], &out[ i ].port, NULL );
   }
 
   /* All queries in flight concurrently on one socket, so the wall
@@ -153,7 +152,7 @@ fd_dns_resolve_peers( char const *    peers,
     fd_adns_result_t res[ 1 ];
     while( fd_adns_advance( adns, now, res ) ) {
       if( FD_UNLIKELY( res->err ) )
-        FD_LOG_ERR(( "failed to resolve [%s] entry \"%s\" (%s)", config_str, peers+res->req_id*peer_stride, fd_gai_strerror( res->err ) ));
+        FD_LOG_ERR(( "failed to resolve [%s] entry \"%s\" (%s)", config_str, fd_topo_str( &peers[ res->req_id ] ), fd_gai_strerror( res->err ) ));
       out[ res->req_id ].addr = res->addrs[ 0 ];
       resolved_cnt++;
     }

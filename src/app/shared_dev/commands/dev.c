@@ -88,8 +88,8 @@ update_config_for_dev( fd_config_t * config ) {
      exists and we don't know it.  If it doesn't exist, we'll keep it
      set to zero and get from gossip. */
   char genesis_path[ PATH_MAX ];
-  if( FD_LIKELY( config->is_firedancer ) ) fd_memcpy( genesis_path, config->paths.genesis, PATH_MAX );
-  else FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
+  if( FD_LIKELY( config->is_firedancer ) ) FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s",             FD_TOPO_STR( config->paths.genesis ) ) );
+  else                                     FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", FD_TOPO_STR( config->frankendancer.paths.ledger ) ) );
 
   ushort shred_version = 0;
   int result = read_genesis_bin( genesis_path, &shred_version, NULL );
@@ -118,7 +118,7 @@ run_firedancer_threaded( config_t * config,
 
   run_firedancer_init( config, init_workspaces, 1 );
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
@@ -135,7 +135,7 @@ run_firedancer_threaded( config_t * config,
      name, when it should be (name, mode)). */
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, config->development.core_dump_level );
-  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+  if( 0==strcmp( FD_TOPO_STR( config->net.provider ), "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );

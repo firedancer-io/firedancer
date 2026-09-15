@@ -14,7 +14,7 @@ static int
 enabled( fd_config_t const * config ) {
 
   /* only enable if network stack is XDP */
-  if( 0!=strcmp( config->net.provider, "xdp" ) ) return 0;
+  if( 0!=strcmp( FD_TOPO_STR( config->net.provider ), "xdp" ) ) return 0;
 
   return 1;
 }
@@ -190,16 +190,16 @@ init_device( char const *        device,
 static void
 init( fd_config_t const * config ) {
   int only_dedicated =
-    (0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ));
+    (0==strcmp( FD_TOPO_STR( config->net.xdp.rss_queue_mode ), "dedicated" ));
   int try_dedicated = only_dedicated ||
-    (0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
+    (0==strcmp( FD_TOPO_STR( config->net.xdp.rss_queue_mode ), "auto" ) );
 
   /* if using a bonded device, we need to set channels on the
      underlying devices. */
-  int  is_bonded  = fd_bonding_is_master( config->net.interface );
+  int  is_bonded  = fd_bonding_is_master( FD_TOPO_STR( config->net.interface ) );
   uint device_cnt = 1U;
   if( is_bonded && config->net.xdp.native_bond ) {
-    device_cnt = fd_bonding_slave_cnt( config->net.interface );
+    device_cnt = fd_bonding_slave_cnt( FD_TOPO_STR( config->net.interface ) );
   }
 
   int listen_gre = config->net.xdp.listen_gre;
@@ -211,42 +211,42 @@ init( fd_config_t const * config ) {
     int failed = 0;
     if( is_bonded ) {
       fd_bonding_slave_iter_t iter_[1];
-      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( config->net.interface ) );
       for( ; !failed && !fd_bonding_slave_iter_done( iter );
           fd_bonding_slave_iter_next( iter ) ) {
         failed = init_device( fd_bonding_slave_iter_ele( iter ), config, 1, listen_gre, only_dedicated, device_cnt );
       }
     } else {
-      failed = init_device( config->net.interface, config, 1, listen_gre, only_dedicated, device_cnt );
+      failed = init_device( FD_TOPO_STR( config->net.interface ), config, 1, listen_gre, only_dedicated, device_cnt );
     }
     if( !failed ) return;
     FD_TEST( !only_dedicated );
     FD_LOG_WARNING(( "error configuring network device (%s), rss_queue_mode \"auto\" attempted"
-                     " \"dedicated\" configuration but falling back to \"simple\".", config->net.interface ));
+                     " \"dedicated\" configuration but falling back to \"simple\".", FD_TOPO_STR( config->net.interface ) ));
     /* Wipe partial dedicated configuration before simple init */
     if( is_bonded ) {
       fd_bonding_slave_iter_t iter_[1];
-      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( config->net.interface ) );
       for( ; !fd_bonding_slave_iter_done( iter );
           fd_bonding_slave_iter_next( iter ) ) {
         fini_device( fd_bonding_slave_iter_ele( iter ) );
       }
     }
     else {
-      fini_device( config->net.interface );
+      fini_device( FD_TOPO_STR( config->net.interface ) );
     }
   }
 
   /* Require success for simple mode, either configured or as fallback */
   if( is_bonded ) {
     fd_bonding_slave_iter_t iter_[1];
-    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( config->net.interface ) );
     for( ; !fd_bonding_slave_iter_done( iter );
         fd_bonding_slave_iter_next( iter ) ) {
       init_device( fd_bonding_slave_iter_ele( iter ), config, 0, listen_gre, 1, device_cnt );
     }
   } else {
-    init_device( config->net.interface, config, 0, listen_gre, 1, device_cnt );
+    init_device( FD_TOPO_STR( config->net.interface ), config, 0, listen_gre, 1, device_cnt );
   }
 }
 
@@ -339,27 +339,27 @@ static configure_result_t
 check( fd_config_t const * config,
        int                 check_type FD_PARAM_UNUSED ) {
   int only_dedicated =
-    (0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ));
+    (0==strcmp( FD_TOPO_STR( config->net.xdp.rss_queue_mode ), "dedicated" ));
   int check_dedicated = only_dedicated ||
-    (0==strcmp( config->net.xdp.rss_queue_mode, "auto" ));
+    (0==strcmp( FD_TOPO_STR( config->net.xdp.rss_queue_mode ), "auto" ));
 
-  int  is_bonded  = fd_bonding_is_master( config->net.interface );
+  int  is_bonded  = fd_bonding_is_master( FD_TOPO_STR( config->net.interface ) );
   uint device_cnt = 1U;
   if( is_bonded && config->net.xdp.native_bond ) {
-    device_cnt = fd_bonding_slave_cnt( config->net.interface );
+    device_cnt = fd_bonding_slave_cnt( FD_TOPO_STR( config->net.interface ) );
   }
 
   if( check_dedicated ) {
     int is_configured = 1;
     if( is_bonded ) {
       fd_bonding_slave_iter_t iter_[1];
-      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( config->net.interface ) );
       for( ; is_configured && !fd_bonding_slave_iter_done( iter );
           fd_bonding_slave_iter_next( iter ) ) {
         is_configured = check_device_is_configured( fd_bonding_slave_iter_ele( iter ), config, 1, device_cnt );
       }
     } else {
-      is_configured = check_device_is_configured( config->net.interface, config, 1, device_cnt );
+      is_configured = check_device_is_configured( FD_TOPO_STR( config->net.interface ), config, 1, device_cnt );
     }
     if( is_configured ) CONFIGURE_OK();
   }
@@ -368,13 +368,13 @@ check( fd_config_t const * config,
     int is_configured = 1;
     if( is_bonded ) {
       fd_bonding_slave_iter_t iter_[1];
-      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( config->net.interface ) );
       for( ; is_configured && !fd_bonding_slave_iter_done( iter );
           fd_bonding_slave_iter_next( iter ) ) {
         is_configured = check_device_is_configured( fd_bonding_slave_iter_ele( iter ), config, 0, device_cnt );
       }
     } else {
-      is_configured = check_device_is_configured( config->net.interface, config, 0, device_cnt );
+      is_configured = check_device_is_configured( FD_TOPO_STR( config->net.interface ), config, 0, device_cnt );
     }
     if( is_configured ) CONFIGURE_OK();
   }
@@ -382,18 +382,18 @@ check( fd_config_t const * config,
   int is_modified = 0;
   if( is_bonded ) {
     fd_bonding_slave_iter_t iter_[1];
-    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( config->net.interface ) );
     for( ; !is_modified && !fd_bonding_slave_iter_done( iter );
         fd_bonding_slave_iter_next( iter ) ) {
       is_modified = check_device_is_modified( fd_bonding_slave_iter_ele( iter ) );
     }
   } else {
-    is_modified = check_device_is_modified( config->net.interface );
+    is_modified = check_device_is_modified( FD_TOPO_STR( config->net.interface ) );
   }
   if( is_modified )
-    PARTIALLY_CONFIGURED( "device `%s` has partial ethtool-channels network configuration", config->net.interface );
+    PARTIALLY_CONFIGURED( "device `%s` has partial ethtool-channels network configuration", FD_TOPO_STR( config->net.interface ) );
 
-  NOT_CONFIGURED( "device `%s` missing ethtool-channels network configuration", config->net.interface );
+  NOT_CONFIGURED( "device `%s` missing ethtool-channels network configuration", FD_TOPO_STR( config->net.interface ) );
 }
 
 static int
@@ -467,15 +467,15 @@ static int
 fini( fd_config_t const * config,
       int                 pre_init FD_PARAM_UNUSED ) {
   int done = 0;
-  if( FD_UNLIKELY( fd_bonding_is_master( config->net.interface ) ) ) {
+  if( FD_UNLIKELY( fd_bonding_is_master( FD_TOPO_STR( config->net.interface ) ) ) ) {
     fd_bonding_slave_iter_t iter_[1];
-    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+    fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, FD_TOPO_STR( config->net.interface ) );
     for( ; !fd_bonding_slave_iter_done( iter );
          fd_bonding_slave_iter_next( iter ) ) {
       done |= fini_device( fd_bonding_slave_iter_ele( iter ) );
     }
   } else {
-    done = fini_device( config->net.interface );
+    done = fini_device( FD_TOPO_STR( config->net.interface ) );
   }
   return done;
 }

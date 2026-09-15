@@ -1016,17 +1016,17 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->seed, 8U ) );
   FD_TEST( fd_rng_secure( ctx->dedup_key, 16U ) );
 
-  if( FD_UNLIKELY( !strcmp( tile->gossvf.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->gossvf.identity_key_path ), "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->gossvf.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( FD_TOPO_STR( tile->gossvf.identity_key_path ), /* pubkey only: */ 1 ) );
 
   ctx->entrypoints_cnt = tile->gossvf.entrypoints_cnt;
-  fd_dns_resolve_peers( tile->gossvf.entrypoints[ 0 ], sizeof(tile->gossvf.entrypoints[ 0 ]), tile->gossvf.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
+  fd_dns_resolve_peers( tile->gossvf.entrypoints, tile->gossvf.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
 
   ctx->gossip_addr = tile->gossvf.gossip_addr;
-  if( tile->gossvf.gossip_host[ 0 ]!='\0' ) {
-    if( FD_UNLIKELY( !fd_dns_resolve_address( tile->gossvf.gossip_host, &ctx->gossip_addr.addr ) ) ) {
-      FD_LOG_ERR(( "could not resolve [gossip.host] %s", tile->gossvf.gossip_host ));
+  if( FD_TOPO_STR( tile->gossvf.gossip_host )[ 0 ]!='\0' ) {
+    if( FD_UNLIKELY( !fd_dns_resolve_address( FD_TOPO_STR( tile->gossvf.gossip_host ), &ctx->gossip_addr.addr ) ) ) {
+      FD_LOG_ERR(( "could not resolve [gossip.host] %s", FD_TOPO_STR( tile->gossvf.gossip_host ) ));
     }
   }
 }

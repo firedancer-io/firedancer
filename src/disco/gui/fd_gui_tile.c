@@ -835,20 +835,20 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_LOG_NOTICE(( "gui server listening at %shttp://" FD_IP4_ADDR_FMT ":%u%s", fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( tile->gui.listen_addr ), tile->gui.listen_port, fd_log_style_normal() ));
 
-  ctx->db = fd_gui_store_join( fd_gui_store_new( _db, tile->gui.gui_database_path, tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), ctx->seed, fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
-  if( FD_UNLIKELY( !ctx->db ) ) FD_LOG_ERR(( "fd_gui_store_new(%s) failed; gui tile cannot start", tile->gui.gui_database_path ));
+  ctx->db = fd_gui_store_join( fd_gui_store_new( _db, FD_TOPO_STR( tile->gui.gui_database_path ), tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), ctx->seed, fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
+  if( FD_UNLIKELY( !ctx->db ) ) FD_LOG_ERR(( "fd_gui_store_new(%s) failed; gui tile cannot start", FD_TOPO_STR( tile->gui.gui_database_path ) ));
 
-  if( FD_UNLIKELY( !strcmp( tile->gui.identity_key_path, "" ) ) )
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->gui.identity_key_path ), "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_key = fd_keyload_load( tile->gui.identity_key_path, /* pubkey only: */ 1 );
+  ctx->identity_key = fd_keyload_load( FD_TOPO_STR( tile->gui.identity_key_path ), /* pubkey only: */ 1 );
 
-  if( FD_UNLIKELY( !strcmp( tile->gui.vote_key_path, "" ) ) ) {
+  if( FD_UNLIKELY( !strcmp( FD_TOPO_STR( tile->gui.vote_key_path ), "" ) ) ) {
     ctx->has_vote_key = 0;
   } else {
     ctx->has_vote_key = 1;
-    if( FD_UNLIKELY( !fd_base58_decode_32( tile->gui.vote_key_path, (uchar *)ctx->vote_key->uc ) ) ) {
-      const uchar * vote_key = fd_keyload_load( tile->gui.vote_key_path, /* pubkey only: */ 1 );
+    if( FD_UNLIKELY( !fd_base58_decode_32( FD_TOPO_STR( tile->gui.vote_key_path ), (uchar *)ctx->vote_key->uc ) ) ) {
+      const uchar * vote_key = fd_keyload_load( FD_TOPO_STR( tile->gui.vote_key_path ), /* pubkey only: */ 1 );
       fd_memcpy( (uchar *)ctx->vote_key->uc, vote_key, 32UL );
     }
   }
@@ -949,7 +949,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_clock_tile_init( ctx->clock );
 
   ctx->topo = topo;
-  ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, ctx->seed, fd_clock_tile_now( ctx->clock ) ) );
+  ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, FD_TOPO_STR( tile->gui.wfs_bank_hash ), ctx->seed, fd_clock_tile_now( ctx->clock ) ) );
   /* The accounts database is a full-client (Firedancer) feature only.
      Frankendancer has no accdb, so its topology leaves accdb_obj_id
      unset (ULONG_MAX) and the gui tile joins no accdb shmem.  The gui
@@ -962,7 +962,7 @@ unprivileged_init( fd_topo_t const *      topo,
     accdb_shmem = fd_accdb_shmem_join( accdb_shmem_raw );
     FD_TEST( accdb_shmem );
   }
-  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, tile->gui.is_alpenglow, tile->gui.max_live_slots, tile->gui.max_txn_per_slot, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
+  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, FD_TOPO_STR( tile->gui.cluster ), ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, tile->gui.is_alpenglow, tile->gui.max_live_slots, tile->gui.max_txn_per_slot, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, FD_TOPO_STR( tile->gui.wfs_bank_hash ), tile->gui.expected_shred_version, FD_TOPO_STR( tile->gui.accounts_database_path ), FD_TOPO_STR( tile->gui.gui_database_path ), ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
   FD_TEST( ctx->db );
 

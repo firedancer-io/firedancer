@@ -11,35 +11,39 @@
 #define AFFINITY_SZ                 (2048UL) /* FD_TOPO_MAX_TILES entries of "s1023," */
 #define CONFIGURE_STAGE_COUNT       ( 24UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX ( 16UL)
-#define IP4_PORT_STR_MAX            ( 22UL)
+
+/* FD_CONFIG_STRS_SZ is the size of the string arena that all
+   fd_topo_str_t fields of fd_config_t point into. */
+
+#define FD_CONFIG_STRS_SZ           (1UL<<18)
 
 struct fd_configh {
-  char dynamic_port_range[ 32 ];
+  fd_topo_str_t dynamic_port_range;
 
   struct {
-    char  ledger[ PATH_MAX ];
-    char  accounts_path[ PATH_MAX ];
+    fd_topo_str_t ledger;
+    fd_topo_str_t accounts_path;
     ulong authorized_voter_paths_cnt;
-    char  authorized_voter_paths[ 16 ][ PATH_MAX ];
+    fd_topo_str_t authorized_voter_paths[ 16 ];
   } paths;
 
   struct {
-    char solana_metrics_config[ 512 ];
+    fd_topo_str_t solana_metrics_config;
   } reporting;
 
   struct {
     uint  limit_size;
     ulong account_indexes_cnt;
-    char  account_indexes[ 4 ][ 32 ];
+    fd_topo_str_t account_indexes[ 4 ];
     ulong account_index_include_keys_cnt;
-    char  account_index_include_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
+    fd_topo_str_t account_index_include_keys[ 32 ];
     ulong account_index_exclude_keys_cnt;
-    char  account_index_exclude_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
+    fd_topo_str_t account_index_exclude_keys[ 32 ];
     int   enable_accounts_disk_index;
-    char  accounts_index_path[ PATH_MAX ];
-    char  accounts_hash_cache_path[ PATH_MAX ];
+    fd_topo_str_t accounts_index_path;
+    fd_topo_str_t accounts_hash_cache_path;
     int   require_tower;
-    char  snapshot_archive_format[ 10 ];
+    fd_topo_str_t snapshot_archive_format;
   } ledger;
 
   struct {
@@ -50,14 +54,14 @@ struct fd_configh {
     int    snapshot_fetch;
     int    genesis_fetch;
     int    poh_speed_test;
-    char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
+    fd_topo_str_t expected_genesis_hash;
     uint   wait_for_supermajority_at_slot;
-    char   expected_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+    fd_topo_str_t expected_bank_hash;
     int    wait_for_vote_to_start_leader;
     ulong  hard_fork_at_slots_cnt;
     uint   hard_fork_at_slots[ 32 ];
     ulong  known_validators_cnt;
-    char   known_validators[ 16 ][ 256 ];
+    fd_topo_str_t known_validators[ 16 ];
     int    os_network_limits_test;
   } consensus;
 
@@ -66,8 +70,8 @@ struct fd_configh {
     int    extended_tx_metadata_storage;
     int    full_api;
     int    private;
-    char   bind_address[ 16 ];
-    char   public_address[ IP4_PORT_STR_MAX ];
+    fd_topo_str_t bind_address;
+    fd_topo_str_t public_address;
     int    transaction_history;
     int    only_known;
     int    pubsub_enable_block_subscription;
@@ -84,14 +88,14 @@ struct fd_configh {
     uint maximum_snapshot_download_abort;
     uint maximum_full_snapshots_to_retain;
     uint maximum_incremental_snapshots_to_retain;
-    char path[ PATH_MAX ];
-    char incremental_path[ PATH_MAX ];
+    fd_topo_str_t path;
+    fd_topo_str_t incremental_path;
   } snapshots;
 
   struct {
     uint bank_tile_count;
     uint resolh_tile_count;
-    char agave_affinity[ AFFINITY_SZ ];
+    fd_topo_str_t agave_affinity;
     uint agave_unified_scheduler_handler_threads;
   } layout;
 };
@@ -129,11 +133,11 @@ struct fd_configf {
   } runtime;
 
   struct {
-    char host[ FD_FQDN_BUF_MAX ];
+    fd_topo_str_t host;
   } gossip;
 
   struct {
-    char wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+    fd_topo_str_t wait_for_supermajority_with_bank_hash;
   } consensus;
 
   struct {
@@ -144,13 +148,13 @@ struct fd_configf {
       struct {
         int   allow_any;
         ulong allow_list_cnt;
-        char  allow_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+        fd_topo_str_t allow_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ];
         ulong block_list_cnt;
-        char  block_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+        fd_topo_str_t block_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ];
       } gossip;
 
       ulong servers_cnt;
-      char  servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ FD_URL_MAX ];
+      fd_topo_str_t servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ];
     } sources;
 
     int  incremental_snapshots;
@@ -166,7 +170,7 @@ struct fd_configf {
 
     struct {
       int enabled;
-      char http_listen_address[ 64 ];
+      fd_topo_str_t http_listen_address;
       uint http_listen_port;
       ulong max_http_connections;
       ulong idle_timeout_millis;
@@ -191,28 +195,28 @@ struct fd_configf {
     } genesis;
 
     struct {
-      char  format[ 16 ];
-      char  path[ PATH_MAX ];
+      fd_topo_str_t format;
+      fd_topo_str_t path;
       ulong end_slot;
     } ledger_input;
 
     struct {
-      char  affinity[ AFFINITY_SZ ];
+      fd_topo_str_t affinity;
       ulong root_distance;
     } backtest;
 
     struct {
-      char affinity[ AFFINITY_SZ ];
+      fd_topo_str_t affinity;
     } forktest;
   } development;
 
   struct {
-    char path[ PATH_MAX ];
+    fd_topo_str_t path;
   } capctx;
 
   struct {
     ulong authorized_voter_paths_cnt;
-    char  authorized_voter_paths[ 16 ][ PATH_MAX ];
+    fd_topo_str_t authorized_voter_paths[ 16 ];
   } paths;
 
 };
@@ -220,24 +224,24 @@ struct fd_configf {
 typedef struct fd_configf fd_configf_t;
 
 struct fd_config_net {
-  char provider[ 8 ]; /* "auto", "xdp", "socket" or "mlx5" */
+  fd_topo_str_t provider; /* "auto", "xdp", "socket" or "mlx5" */
 
-  char interface[ IF_NAMESIZE ];
-  char bind_address[ 16 ];
+  fd_topo_str_t interface;
+  fd_topo_str_t bind_address;
   uint bind_address_parsed;
   uint ip_addr;
 
   uint ingress_buffer_size;
 
   struct {
-    char xdp_mode[ 8 ]; /* "drv", "skb" or "auto" */
+    fd_topo_str_t xdp_mode; /* "drv", "skb" or "auto" */
     int  xdp_zero_copy; /* true/false or "auto" */
-    char poll_mode[ 16 ]; /* "prefbusy", "softirq" or "auto" */
+    fd_topo_str_t poll_mode; /* "prefbusy", "softirq" or "auto" */
 
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
-    char rss_queue_mode[ 16 ]; /* "simple", "dedicated" or "auto" */
+    fd_topo_str_t rss_queue_mode; /* "simple", "dedicated" or "auto" */
     int  listen_gre; /* true/false or "auto" */
     int  native_bond; /* true/false or "auto" */
   } xdp;
@@ -255,8 +259,8 @@ struct fd_config_net {
 typedef struct fd_config_net fd_config_net_t;
 
 struct fd_config {
-  char name[ NAME_SZ ];
-  char user[ 256 ];
+  fd_topo_str_t name;
+  fd_topo_str_t user;
   char hostname[ FD_LOG_NAME_MAX ];
 
   int telemetry;
@@ -303,25 +307,25 @@ struct fd_config {
   char action[ 16 ];
 
   struct {
-    char base[ PATH_MAX ];
-    char identity_key[ PATH_MAX ];
-    char vote_account[ PATH_MAX ];
-    char snapshots[ PATH_MAX ];
-    char genesis[ PATH_MAX ];
-    char accounts[ PATH_MAX ];
-    char shredb[ PATH_MAX ];
-    char guidb[ PATH_MAX ];
+    fd_topo_str_t base;
+    fd_topo_str_t identity_key;
+    fd_topo_str_t vote_account;
+    fd_topo_str_t snapshots;
+    fd_topo_str_t genesis;
+    fd_topo_str_t accounts;
+    fd_topo_str_t shredb;
+    fd_topo_str_t guidb;
   } paths;
 
   struct {
-    char path[ PATH_MAX ];
-    char colorize[ 6 ];
+    fd_topo_str_t path;
+    fd_topo_str_t colorize;
     int  colorize1;
-    char level_logfile[ 8 ];
+    fd_topo_str_t level_logfile;
     int  level_logfile1;
-    char level_stderr[ 8 ];
+    fd_topo_str_t level_stderr;
     int  level_stderr1;
-    char level_flush[ 8 ];
+    fd_topo_str_t level_flush;
     int  level_flush1;
 
     /* File descriptor used for logging to the log file.  Stashed
@@ -335,20 +339,20 @@ struct fd_config {
 
   struct {
     ushort expected_shred_version;
-    char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
+    fd_topo_str_t expected_genesis_hash;
 
     int wait_for_vote_to_start_leader;
   } consensus;
 
   struct {
     ulong         entrypoints_cnt;
-    char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
+    fd_topo_str_t entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
     ushort        port;
   } gossip;
 
   struct {
-    char affinity[ AFFINITY_SZ ];
-    char blocklist_cores[ AFFINITY_SZ ];
+    fd_topo_str_t affinity;
+    fd_topo_str_t blocklist_cores;
 
     uint net_tile_count;
     uint quic_tile_count;
@@ -357,11 +361,11 @@ struct fd_config {
   } layout;
 
   struct {
-    char  gigantic_page_mount_path[ PATH_MAX ];
-    char  huge_page_mount_path[ PATH_MAX ];
-    char  normal_page_mount_path[ PATH_MAX ];
-    char  mount_path[ PATH_MAX ];
-    char  max_page_size[ 16 ];
+    fd_topo_str_t gigantic_page_mount_path;
+    fd_topo_str_t huge_page_mount_path;
+    fd_topo_str_t normal_page_mount_path;
+    fd_topo_str_t mount_path;
+    fd_topo_str_t max_page_size;
     ulong gigantic_page_threshold_mib;
   } hugetlbfs;
 
@@ -373,7 +377,7 @@ struct fd_config {
     int no_agave;
     int bootstrap;
 
-    char core_dump[ 16 ];
+    fd_topo_str_t core_dump;
     int core_dump_level;
 
     struct {
@@ -393,8 +397,8 @@ struct fd_config {
     struct {
       uint  benchg_tile_count;
       uint  benchs_tile_count;
-      char  affinity[ AFFINITY_SZ ];
-      char  transaction_mode[ 32 ];
+      fd_topo_str_t affinity;
+      fd_topo_str_t transaction_mode;
       ulong max_cost_per_block;
       ulong max_shreds_per_block;
       ulong disable_blockstore_from_slot;
@@ -402,7 +406,7 @@ struct fd_config {
     } bench;
 
     struct {
-      char ssl_key_log_file[ PATH_MAX ];
+      fd_topo_str_t ssl_key_log_file;
       uint buffer_size_kib;
     } bundle;
 
@@ -413,16 +417,16 @@ struct fd_config {
     } event;
 
     struct {
-      char affinity[ AFFINITY_SZ ];
-      char fake_dst_ip[ 16 ];
+      fd_topo_str_t affinity;
+      fd_topo_str_t fake_dst_ip;
     } pktgen;
 
     struct {
-      char affinity[ AFFINITY_SZ ];
+      fd_topo_str_t affinity;
     } udpecho;
 
     struct {
-      char affinity[ AFFINITY_SZ ];
+      fd_topo_str_t affinity;
     } snapshot_load;
 
     struct {
@@ -460,7 +464,7 @@ struct fd_config {
       uint ack_delay_millis;
       int  retry;
 
-      char ssl_key_log_file[ PATH_MAX ];
+      fd_topo_str_t ssl_key_log_file;
     } quic;
 
     struct {
@@ -479,11 +483,11 @@ struct fd_config {
 
     struct {
       int  enabled;
-      char url[ FD_URL_MAX ];
-      char tls_domain_name[ FD_SNI_BUF_MAX ];
-      char tip_distribution_program_addr[ FD_BASE58_ENCODED_32_SZ ];
-      char tip_payment_program_addr[ FD_BASE58_ENCODED_32_SZ ];
-      char tip_distribution_authority[ FD_BASE58_ENCODED_32_SZ ];
+      fd_topo_str_t url;
+      fd_topo_str_t tls_domain_name;
+      fd_topo_str_t tip_distribution_program_addr;
+      fd_topo_str_t tip_payment_program_addr;
+      fd_topo_str_t tip_distribution_authority;
       uint commission_bps;
       ulong keepalive_interval_millis;
       int   tls_cert_verify;
@@ -492,10 +496,10 @@ struct fd_config {
     struct {
       uint  max_pending_transactions;
       int   use_consumed_cus;
-      char  schedule_strategy[ 16 ];
+      fd_topo_str_t schedule_strategy;
       int   schedule_strategy_enum;
       ulong account_blocklist_cnt;
-      char  account_blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+      fd_topo_str_t account_blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX ];
     } pack;
 
     struct {
@@ -506,24 +510,24 @@ struct fd_config {
       uint   max_pending_shred_sets;
       ushort shred_listen_port;
       ulong  additional_shred_destinations_retransmit_cnt;
-      char   additional_shred_destinations_retransmit[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
+      fd_topo_str_t additional_shred_destinations_retransmit[ FD_TOPO_ADTL_DESTS_MAX ];
       ulong  additional_shred_destinations_leader_cnt;
-      char   additional_shred_destinations_leader[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
+      fd_topo_str_t additional_shred_destinations_leader[ FD_TOPO_ADTL_DESTS_MAX ];
       ulong  shred_cache_size_mib;
     } shred;
 
     struct {
-      char   prometheus_listen_address[ 16 ];
+      fd_topo_str_t prometheus_listen_address;
       ushort prometheus_listen_port;
     } metric;
 
     struct {
-      char url[ FD_URL_MAX ];
+      fd_topo_str_t url;
     } event;
 
     struct {
       int    enabled;
-      char   gui_listen_address[ 16 ];
+      fd_topo_str_t gui_listen_address;
       ushort gui_listen_port;
       ulong  max_http_connections;
       ulong  max_websocket_connections;
@@ -534,7 +538,7 @@ struct fd_config {
 
     struct {
       int    enabled;
-      char   rpc_listen_address[ 64 ];
+      fd_topo_str_t rpc_listen_address;
       ushort rpc_listen_port;
       ulong  max_http_connections;
       ulong  max_websocket_connections;
@@ -561,16 +565,16 @@ struct fd_config {
     struct {
       ulong max_transaction_lookahead_buffer_size;
       ulong enable_features_cnt;
-      char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
+      fd_topo_str_t enable_features[ 16 ];
     } replay;
 
   } tiles;
   struct {
     ulong capture_start_slot;
-    char  dump_proto_dir[ PATH_MAX ];
-    char  dump_syscall_name_filter[ PATH_MAX ];
-    char  dump_instr_program_id_filter[ FD_BASE58_ENCODED_32_SZ ];
-    char  solcap_capture[ PATH_MAX ];
+    fd_topo_str_t dump_proto_dir;
+    fd_topo_str_t dump_syscall_name_filter;
+    fd_topo_str_t dump_instr_program_id_filter;
+    fd_topo_str_t solcap_capture;
     int   recent_only;
     ulong recent_slots_per_file;
     int   dump_syscall_to_pb;
@@ -579,6 +583,9 @@ struct fd_config {
     int   dump_txn_as_fixture;
     int   dump_block_to_pb;
   } capture;
+
+  ulong strs_len;
+  char  strs[ FD_CONFIG_STRS_SZ ];
 };
 
 typedef struct fd_config fd_config_t;
@@ -626,6 +633,25 @@ fd_config_load( int           is_firedancer,
 
 int
 fd_config_to_memfd( fd_config_t const * config );
+
+/* fd_config_str_set appends [str,str+len) plus a NUL to the config string
+   arena and points s at it.  str may alias the arena.  Returns 1 on
+   success and 0 if the arena is full (s is left unchanged). */
+
+int
+fd_config_str_set( fd_config_t *   config,
+                   fd_topo_str_t * s,
+                   char const *    str,
+                   ulong           len );
+
+/* fd_config_str_printf formats into the config string arena and points
+   s at the result.  Returns 1 on success and 0 if the arena is full
+   (s is left unchanged). */
+
+int
+fd_config_str_printf( fd_config_t *   config,
+                      fd_topo_str_t * s,
+                      char const *    fmt, ... ) __attribute__((format(printf,3,4)));
 
 FD_PROTOTYPES_END
 

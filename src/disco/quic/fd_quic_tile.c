@@ -475,14 +475,14 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->reasm_seed, sizeof(ctx->reasm_seed) ) );
   ctx->keylog_fd = -1;
 
-  if( 0!=strcmp( tile->quic.key_log_path, "" ) ) {
-    ctx->keylog_fd = open( tile->quic.key_log_path, O_WRONLY|O_CREAT|O_APPEND, 0644 );
+  if( 0!=strcmp( FD_TOPO_STR( tile->quic.key_log_path ), "" ) ) {
+    ctx->keylog_fd = open( FD_TOPO_STR( tile->quic.key_log_path ), O_WRONLY|O_CREAT|O_APPEND, 0644 );
     if( FD_UNLIKELY( ctx->keylog_fd<0 ) ) {
       FD_LOG_ERR(( "open(%s, O_WRONLY|O_CREAT|O_APPEND, 0644) failed (%i-%s)",
-                   tile->quic.key_log_path, errno, fd_io_strerror( errno ) ));
+                   FD_TOPO_STR( tile->quic.key_log_path ), errno, fd_io_strerror( errno ) ));
     }
     fd_io_buffered_ostream_init( &ctx->keylog_stream, ctx->keylog_fd, ctx->keylog_buf, sizeof(ctx->keylog_buf) );
-    FD_LOG_WARNING(( "Logging QUIC encryption keys to %s", tile->quic.key_log_path ));
+    FD_LOG_WARNING(( "Logging QUIC encryption keys to %s", FD_TOPO_STR( tile->quic.key_log_path ) ));
   }
 
   /* The fd_quic implementation calls fd_log_wallclock() internally
