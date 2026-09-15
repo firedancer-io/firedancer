@@ -2,7 +2,7 @@
 #define HEADER_fd_src_choreo_votor_ag_cert_serde_h
 
 #include "ag_cert.h"
-#include "ag_bls_serde.h"
+#include "../../ballet/bls/ag_bls_serde.h"
 
 #define AG_CERT_DE_SUCCESS           ( 0)
 #define AG_CERT_DE_ERR_SZ            (-1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */

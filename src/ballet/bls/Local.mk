@@ -1,4 +1,6 @@
-$(call add-hdrs,fd_bls12_381.h fd_bls.h fd_bls_err.h)
-$(call add-objs,fd_bls12_381 fd_bls,fd_ballet)
+$(call add-hdrs,fd_bls12_381.h fd_bls.h fd_bls_err.h ag_bls_serde.h)
+$(call add-objs,fd_bls12_381 fd_bls ag_bls_serde,fd_ballet)
 $(call make-unit-test,test_bls12_381,test_bls12_381,fd_ballet fd_util,$(BLST_LIBS))
+$(call make-unit-test,test_ag_bls,test_ag_bls,fd_ballet fd_util,$(BLST_LIBS))
 $(call run-unit-test,test_bls12_381)
+$(call run-unit-test,test_ag_bls)

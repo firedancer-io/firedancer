@@ -1,7 +1,7 @@
-#ifndef HEADER_fd_src_choreo_votor_ag_bls_serde_h
-#define HEADER_fd_src_choreo_votor_ag_bls_serde_h
+#ifndef HEADER_fd_src_ballet_bls_ag_bls_serde_h
+#define HEADER_fd_src_ballet_bls_ag_bls_serde_h
 
-#include "../../ballet/bls/fd_bls.h"
+#include "fd_bls.h"
 
 #define AG_BLS_DE_SUCCESS   ( 0)
 #define AG_BLS_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit */
@@ -58,4 +58,4 @@ ag_bls_agg_pair_de( fd_bls_agg_t * agg,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_choreo_votor_ag_bls_serde_h */
+#endif /* HEADER_fd_src_ballet_bls_ag_bls_serde_h */

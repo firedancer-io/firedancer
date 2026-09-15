@@ -12,7 +12,7 @@
 #include "votor/ag_votor_base.h"
 
 #include "../ballet/bls/fd_bls.h"
-#include "votor/ag_bls_serde.h"
+#include "../ballet/bls/ag_bls_serde.h"
 #include "votor/ag_cert.h"
 #include "votor/ag_cert_serde.h"
 #include "votor/ag_epoch_info.h"
