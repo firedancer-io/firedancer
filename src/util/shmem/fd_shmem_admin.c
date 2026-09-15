@@ -84,6 +84,7 @@ static ulong  fd_shmem_private_numa_cnt;                      /* 0UL at thread g
 static ulong  fd_shmem_private_cpu_cnt;                       /* " */
 static ushort fd_shmem_private_numa_idx[ FD_SHMEM_CPU_MAX  ]; /* " */
 static ushort fd_shmem_private_cpu_idx [ FD_SHMEM_NUMA_MAX ]; /* " */
+static int    fd_shmem_private_numa_avail;                    /* 0   at thread group start, initialized at boot */
 
 ulong fd_shmem_numa_cnt( void ) { return fd_shmem_private_numa_cnt; }
 ulong fd_shmem_cpu_cnt ( void ) { return fd_shmem_private_cpu_cnt;  }
@@ -232,7 +233,7 @@ fd_shmem_create_multi_flags( char const *  name,
 
   /* Save this thread's numa node mempolicy */
 
-  if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
+  if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL, fd_shmem_private_numa_avail ) ) ) {
     FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     ERROR( done );
   }
@@ -300,7 +301,7 @@ fd_shmem_create_multi_flags( char const *  name,
     fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
-    if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
+    if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX, fd_shmem_private_numa_avail ) ) ) {
       FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
@@ -346,7 +347,7 @@ fd_shmem_create_multi_flags( char const *  name,
     fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
-    if( FD_UNLIKELY( fd_numa_mbind( sub_shmem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
+    if( FD_UNLIKELY( fd_numa_mbind( sub_shmem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT, fd_shmem_private_numa_avail ) ) ) {
       FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(\"%s\",%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
                        sub_idx, path, sub_sz>>10, sub_numa_idx, errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
@@ -379,7 +380,7 @@ close:
     FD_LOG_ERR(( "close(\"%s\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
 restore:
-  if( FD_UNLIKELY( fd_numa_set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
+  if( FD_UNLIKELY( fd_numa_set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, fd_shmem_private_numa_avail ) ) )
     FD_LOG_ERR(( "fd_numa_set_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
 done:
@@ -542,7 +543,7 @@ fd_shmem_acquire_multi( ulong         page_sz,
 
   ulong  sz = page_cnt*page_sz;
 
-  if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL ) ) ) {
+  if( FD_UNLIKELY( fd_numa_get_mempolicy( &orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL, fd_shmem_private_numa_avail ) ) ) {
     FD_LOG_WARNING(( "fd_numa_get_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     ERROR( done );
   }
@@ -574,7 +575,7 @@ fd_shmem_acquire_multi( ulong         page_sz,
     fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
-    if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX ) ) ) {
+    if( FD_UNLIKELY( fd_numa_set_mempolicy( MPOL_BIND | MPOL_F_STATIC_NODES, nodemask, FD_SHMEM_NUMA_MAX, fd_shmem_private_numa_avail ) ) ) {
       FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
     }
@@ -591,7 +592,7 @@ fd_shmem_acquire_multi( ulong         page_sz,
     fd_memset( nodemask, 0, 8UL*((FD_SHMEM_NUMA_MAX+63UL)/64UL) );
     nodemask[ sub_numa_idx >> 6 ] = 1UL << (sub_numa_idx & 63UL);
 
-    if( FD_UNLIKELY( fd_numa_mbind( sub_mem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT ) ) ) {
+    if( FD_UNLIKELY( fd_numa_mbind( sub_mem, sub_sz, MPOL_BIND, nodemask, FD_SHMEM_NUMA_MAX, MPOL_MF_MOVE|MPOL_MF_STRICT, fd_shmem_private_numa_avail ) ) ) {
       FD_LOG_WARNING(( "sub[%lu]: fd_numa_mbind(anon,%lu KiB,MPOL_BIND,1UL<<%lu,MPOL_MF_MOVE|MPOL_MF_STRICT) failed (%i-%s)",
                        sub_idx, sub_sz>>10, sub_numa_idx, errno, fd_io_strerror( errno ) ));
       ERROR( unmap );
@@ -615,7 +616,7 @@ unmap:
                      sz>>10, errno, fd_io_strerror( errno ) ));
 
 restore:
-  if( FD_UNLIKELY( fd_numa_set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX ) ) )
+  if( FD_UNLIKELY( fd_numa_set_mempolicy( orig_mempolicy, orig_nodemask, FD_SHMEM_NUMA_MAX, fd_shmem_private_numa_avail ) ) )
     FD_LOG_WARNING(( "fd_numa_set_mempolicy failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));
 
 done:
@@ -700,10 +701,25 @@ fd_shmem_private_boot( int *    pargc,
     FD_LOG_WARNING(( "fd_shmem: pthread_mutexattr_destroy failed; attempting to continue" ));
 # endif /* FD_HAS_THREADS */
 
+  /* Detect whether NUMA policy syscalls are available by probing
+     get_mempolicy.  ENOSYS is an unambiguous signal that the kernel
+     has no NUMA support (e.g. Linux containers in Docker on macOS).
+     This result gates subsequent sysfs queries: ENOENT on the node
+     directory is only treated as "single NUMA node" when NUMA syscalls
+     are confirmed unavailable; otherwise it is an error. */
+
+  int probe_mode;
+  ulong probe_nodemask[ (FD_SHMEM_NUMA_MAX+63UL)/64UL ];
+  long probe_rc = fd_numa_get_mempolicy( &probe_mode, probe_nodemask, FD_SHMEM_NUMA_MAX, NULL, 0UL, 1 );
+  int numa_avail = !(probe_rc && errno==ENOSYS);
+  if( FD_UNLIKELY( !numa_avail ) )
+    FD_LOG_WARNING(( "fd_shmem: NUMA policy syscalls not available; running without NUMA memory binding" ));
+  fd_shmem_private_numa_avail = numa_avail;
+
   /* Cache the numa topology for this thread group's host for
      subsequent fast use by the application. */
 
-  ulong numa_cnt = fd_numa_node_cnt();
+  ulong numa_cnt = fd_numa_node_cnt( numa_avail );
   if( FD_UNLIKELY( !((1UL<=numa_cnt) & (numa_cnt<=FD_SHMEM_NUMA_MAX)) ) )
     FD_LOG_ERR(( "fd_shmem: unexpected numa_cnt %lu (expected in [1,%lu])", numa_cnt, FD_SHMEM_NUMA_MAX ));
   fd_shmem_private_numa_cnt = numa_cnt;
@@ -715,7 +731,7 @@ fd_shmem_private_boot( int *    pargc,
 
   for( ulong cpu_rem=cpu_cnt; cpu_rem; cpu_rem-- ) {
     ulong cpu_idx  = cpu_rem-1UL;
-    ulong numa_idx = fd_numa_node_idx( cpu_idx );
+    ulong numa_idx = fd_numa_node_idx( cpu_idx, numa_avail );
     if( FD_UNLIKELY( numa_idx>=FD_SHMEM_NUMA_MAX) )
       FD_LOG_ERR(( "fd_shmem: unexpected numa idx (%lu) for cpu idx %lu", numa_idx, cpu_idx ));
     fd_shmem_private_numa_idx[ cpu_idx  ] = (ushort)numa_idx;
@@ -746,8 +762,9 @@ fd_shmem_private_halt( void ) {
 
   /* At this point, shared memory is offline */
 
-  fd_shmem_private_numa_cnt = 0;
-  fd_shmem_private_cpu_cnt  = 0;
+  fd_shmem_private_numa_cnt  = 0;
+  fd_shmem_private_cpu_cnt   = 0;
+  fd_shmem_private_numa_avail = 0;
   fd_memset( fd_shmem_private_numa_idx, 0, FD_SHMEM_CPU_MAX );
 
   fd_shmem_private_base[0] = '\0';
