@@ -172,14 +172,14 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
 
   /* Build a resolver configured for the fixture's shred version/root
      context. */
-  ulong const resolver_set_cnt = RESOLVER_DEPTH + RESOLVER_PARTIAL_DEPTH + RESOLVER_COMPLETE_DEPTH;
+  ulong const resolver_set_cnt = RESOLVER_DEPTH + RESOLVER_PARTIAL_DEPTH + RESOLVER_COMPLETE_DEPTH + 1UL /* signing */;
 
   fd_fec_set_t * resolver_sets =
       fd_spad_alloc( runner->spad, alignof(fd_fec_set_t), sizeof(fd_fec_set_t)*resolver_set_cnt );
 
   ulong  resolver_footprint = fd_fec_resolver_footprint( RESOLVER_DEPTH,
                                                          RESOLVER_PARTIAL_DEPTH,
-                                                         RESOLVER_COMPLETE_DEPTH,
+                                                         RESOLVER_COMPLETE_DEPTH, 1UL,
                                                          RESOLVER_DONE_DEPTH );
   void * resolver_mem       = fd_spad_alloc( runner->spad, fd_fec_resolver_align(), resolver_footprint );
 
@@ -188,10 +188,9 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
      from any of these constructors is a harness setup bug. */
   fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new(
       resolver_mem,
-      NULL, NULL,
       RESOLVER_DEPTH,
       RESOLVER_PARTIAL_DEPTH,
-      RESOLVER_COMPLETE_DEPTH,
+      RESOLVER_COMPLETE_DEPTH, 1UL,
       RESOLVER_DONE_DEPTH,
       resolver_sets,
       0UL ) );
@@ -256,6 +255,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
     fd_fec_set_t const * out_fec_set = NULL;
     fd_shred_t const *   out_shred   = NULL;
     fd_bmtree_node_t     out_merkle_root[1];
+    int sig_pending = 0;
     int rc = fd_fec_resolver_add_shred(
       resolver,
       shred,
@@ -266,9 +266,17 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       &out_fec_set,
       &out_shred,
       out_merkle_root,
-      NULL
+      NULL,
+      &sig_pending
     );
     (void)out_shred;
+
+    /* The harness does not sign as retransmitter: give a resigned set
+       a zero signature as soon as it is reported pending. */
+    if( sig_pending ) {
+      static uchar const zero_sig[ 64 ] = { 0 };
+      fd_fec_resolver_set_retransmitter_sig( resolver, shred->signature, zero_sig );
+    }
 
     /* We only want to replay the FEC set once it's complete. */
     if( rc!=FD_FEC_RESOLVER_SHRED_COMPLETES ) continue;

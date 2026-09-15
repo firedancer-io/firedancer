@@ -2,9 +2,7 @@
 #include "../../ballet/shred/fd_shred.h"
 
 void *
-fd_shredder_new( void *                mem,
-                 fd_shredder_sign_fn * signer,
-                 void *                signer_ctx ) {
+fd_shredder_new( void * mem ) {
   fd_shredder_t * shredder = (fd_shredder_t *)mem;
 
   if( FD_UNLIKELY( !mem ) ) {
@@ -26,9 +24,6 @@ fd_shredder_new( void *                mem,
   shredder->slot              = ULONG_MAX;
   shredder->data_idx_offset   = 0UL;
   shredder->parity_idx_offset = 0UL;
-
-  shredder->signer     = signer;
-  shredder->signer_ctx = signer_ctx;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shredder->magic ) = FD_SHREDDER_MAGIC;
@@ -137,8 +132,6 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   uchar const * entry_batch = shredder->entry_batch;
   ulong         offset      = shredder->offset;
   ulong         entry_sz    = shredder->sz;
-
-  fd_ed25519_sig_t __attribute__((aligned(32UL))) root_signature;
 
   if( FD_UNLIKELY( (offset==entry_sz) ) ) return NULL;
 
@@ -256,13 +249,9 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   fd_bmtree_commit_append( bmtree, leaves, data_shred_cnt+parity_shred_cnt );
   uchar * root = fd_bmtree_commit_fini( bmtree );
 
-  /* Sign Merkle Root */
-  shredder->signer( shredder->signer_ctx, root_signature, root );
-
-  /* Write signature and Merkle proof */
+  /* Write Merkle proofs; the caller signs the root */
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {
     fd_shred_t * shred = result->data_shreds[ i ].s;
-    fd_memcpy( shred->signature, root_signature, FD_ED25519_SIG_SZ );
 
     uchar * merkle = result->data_shreds[ i ].b + fd_shred_merkle_off( shred );
     fd_bmtree_get_proof( bmtree, merkle, i );
@@ -277,7 +266,6 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
   for( ulong j=0UL; j<parity_shred_cnt; j++ ) {
     fd_shred_t * shred = result->parity_shreds[ j ].s;
-    fd_memcpy( shred->signature, root_signature, FD_ED25519_SIG_SZ );
 
     uchar * merkle = result->parity_shreds[ j ].b + fd_shred_merkle_off( shred );
     fd_bmtree_get_proof( bmtree, merkle, data_shred_cnt+j );
