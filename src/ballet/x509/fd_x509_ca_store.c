@@ -161,6 +161,7 @@ fd_x509_ca_store_load_system( fd_x509_ca_store_t * store ) {
   static char const * const ca_paths[] = {
     "/etc/ssl/certs/ca-certificates.crt", /* Debian/Ubuntu */
     "/etc/pki/tls/certs/ca-bundle.crt",   /* RHEL/Fedora */
+    "/etc/ssl/ca-bundle.pem",             /* openSUSE/SLES */
     "/etc/ssl/cert.pem",                  /* Alpine */
     NULL
   };
