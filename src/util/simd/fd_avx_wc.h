@@ -10,8 +10,8 @@
 
 /* A wc_t is a vector conditional.  This is, it is a vector of integers
    where each 32-bit wide lane is either 0 (all zero bits), indicating
-   the condition is true for that lane or -1 (all one bits), indicating
-   the condition is false for that lane.  This allows fast bit
+   the condition is false for that lane or -1 (all one bits), indicating
+   the condition is true for that lane.  This allows fast bit
    operations to mask other types of vectors.  If this API is used on
    vectors that aren't proper vector conditionals, results are
    undefined.  When vector conditional are applied to vector doubles,
@@ -108,9 +108,9 @@ wc_exch_adj_quad( wc_t c ) { /* [ c4 c5 c6 c7 c0 c1 c2 c3 ] */
    location p as a proper vector conditional (see above note about
    c-style logicals).  wc_ldu is the same but p does not have to be
    aligned.  In the fast variants, the caller promises that p already
-   holds a proper vector conditions (e.g. 0/-1 for true/false).  wc_st
+   holds a proper vector conditions (e.g. 0/-1 for false/true).  wc_st
    writes the vector conditional c at the 32-byte aligned / 32-byte size
-   location p (0/-1 for true/false).  wc_stu is the same but p does not
+   location p (0/-1 for false/true).  wc_stu is the same but p does not
    have to be aligned.  Lane l will be at p[l].  FIXME: USE ATTRIBUTES
    ON P PASSED TO THESE?
 
@@ -140,8 +140,8 @@ static inline void wc_stu( void * p, wc_t c ) { _mm256_storeu_si256( (__m256i *)
    leaves p[n] unchanged otherwise.  Undefined behavior if c is not a
    proper vector conditional. */
 
-#define wc_ldif(c,p)      _mm256_xor_si128( _mm256_set1_epi32(-1), _mm256_cmpeq_epi32( _mm256_maskload_epi32( (p), (c) ), \
-                                                                                       _mm256_setzero_si128()) )
+#define wc_ldif(c,p)      _mm256_xor_si256( _mm256_set1_epi32(-1), _mm256_cmpeq_epi32( _mm256_maskload_epi32( (p), (c) ), \
+                                                                                       _mm256_setzero_si256()) )
 #define wc_ldif_fast(c,p) _mm256_maskload_epi32((p),(c))
 #define wc_stif(c,p,x)    _mm256_maskstore_epi32((p),(c),(x))
 
@@ -161,7 +161,7 @@ static inline void wc_stu( void * p, wc_t c ) { _mm256_storeu_si256( (__m256i *)
 #define wc_extract_variable(c,n) ((_mm256_movemask_ps( _mm256_castsi256_ps( (c) ) ) >> (n)  ) & 1)
 #define wc_insert_variable(a,n,c)                                                                                             \
   _mm256_cmpgt_epi32( _mm256_and_si256( _mm256_set1_epi32( (_mm256_movemask_ps( _mm256_castsi256_ps( (a) ) ) & (~(1<<(n)))) | \
-                                                           ((!!(c))<<n) ),                                                    \
+                                                           ((!!(c))<<(n)) ),                                                  \
                                         _mm256_setr_epi32( 1<<0, 1<<1, 1<<2, 1<<3, 1<<4, 1<<5, 1<<6, 1<<7 ) ),                \
                       _mm256_setzero_si256() )
 
