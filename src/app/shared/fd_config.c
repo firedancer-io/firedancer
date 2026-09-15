@@ -339,7 +339,7 @@ fd_config_fill( fd_config_t * config,
 
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
     /* Development binaries generate an identity key on boot. */
-    if( FD_UNLIKELY( config->is_live_cluster && !dev ) ) FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
+    if( FD_UNLIKELY( config->is_live_cluster && !dev ) ) FD_LOG_ERR(( "configuration file must specify [paths.identity_key] when joining a live cluster" ));
 
     FD_TEST( fd_cstr_printf_check( config->paths.identity_key,
                                    sizeof(config->paths.identity_key),
