@@ -369,7 +369,11 @@ fd_slot_delta_parser_consume( fd_slot_delta_parser_t *                parser,
                               fd_slot_delta_parser_advance_result_t * result ) {
   uchar const * data    = buf;
   ulong         data_sz = bufsz;
-  while( data_sz ) {
+  /* Some states consume zero bytes (an empty BorshIoError string, as
+     serialized by Agave).  Such a state must be processed even when no
+     input bytes remain, otherwise the parser stalls on it and reports
+     an unexpected EOF when the caller finalizes. */
+  while( data_sz || parser->dst_cur==parser->dst_sz ) {
     if( FD_UNLIKELY( parser->state==STATE_DONE ) ) break;
 
     ulong consume = fd_ulong_min( data_sz, parser->dst_sz-parser->dst_cur );

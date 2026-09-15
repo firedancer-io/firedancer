@@ -408,6 +408,74 @@ test_unexpected_eof_in_instr_borsh_io_error( fd_slot_delta_parser_t * parser ) {
   FD_TEST( result->bytes_consumed==0UL );
 }
 
+/* Agave serializes InstructionError::BorshIoError with an empty string
+   in the status cache.  The zero-length string state must be processed
+   even when no further input bytes are available, otherwise the parser
+   reports an unexpected EOF when the empty string is the last field in
+   the slot deltas. */
+static void
+test_empty_instr_borsh_io_error_at_eof( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 114UL ];
+  fd_slot_delta_parser_init( parser );
+
+  mock_one_input( input, sizeof(input), 1, 1000UL );
+  uchar * p = input + 93UL;
+
+  FD_STORE( uint, p, 1U );
+  p += sizeof(uint);
+  FD_STORE( uint, p, 8U );
+  p += sizeof(uint);
+  *p = 0U; /* instr idx */
+  p += sizeof(uchar);
+  FD_STORE( uint, p, 44U );
+  p += sizeof(uint);
+  FD_STORE( ulong, p, 0UL ); /* empty borsh io error string */
+  p += sizeof(ulong);
+  FD_TEST( (ulong)(p - input)==sizeof(input) );
+
+  fd_slot_delta_parser_advance_result_t result[1];
+  uchar const * input_cur = input;
+  ulong         remaining = sizeof(input);
+
+  int res = fd_slot_delta_parser_consume( parser, input_cur, remaining, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_SLOT );
+  input_cur += result->bytes_consumed;
+  remaining -= result->bytes_consumed;
+
+  res = fd_slot_delta_parser_consume( parser, input_cur, remaining, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP );
+  input_cur += result->bytes_consumed;
+  remaining -= result->bytes_consumed;
+
+  /* The empty string state is completed by the same call that reads
+     its length; the entry must be reported with all bytes consumed. */
+  res = fd_slot_delta_parser_consume( parser, input_cur, remaining, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY );
+  FD_TEST( result->bytes_consumed==remaining );
+  entry_cb_with_instr_borsh_io_err( result->entry );
+  input_cur += result->bytes_consumed;
+
+  res = fd_slot_delta_parser_consume( parser, input_cur, 0UL, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE );
+  FD_TEST( result->bytes_consumed==0UL );
+
+  /* Same input fed byte by byte: the entry must still be produced. */
+  fd_slot_delta_parser_init( parser );
+  int saw_entry = 0;
+  for( ulong i=0UL; i<sizeof(input); i++ ) {
+    res = fd_slot_delta_parser_consume( parser, input+i, 1UL, result );
+    FD_TEST( res>=0 );
+    FD_TEST( result->bytes_consumed==1UL );
+    if( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) {
+      entry_cb_with_instr_borsh_io_err( result->entry );
+      saw_entry = 1;
+    }
+  }
+  FD_TEST( saw_entry );
+  res = fd_slot_delta_parser_consume( parser, input+sizeof(input), 0UL, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE );
+}
+
 static void
 test_multiple_entries( fd_slot_delta_parser_t * parser ) {
   uchar input[ 627UL ];
@@ -537,6 +605,7 @@ int main( int     argc,
   test_one_entry_with_instr_custom_error( slot_delta_parser );
   test_one_entry_with_instr_borsh_io_error( slot_delta_parser );
   test_unexpected_eof_in_instr_borsh_io_error( slot_delta_parser );
+  test_empty_instr_borsh_io_error_at_eof( slot_delta_parser );
 
   test_multiple_entries( slot_delta_parser );
   test_multiple_entries_v2( slot_delta_parser );
