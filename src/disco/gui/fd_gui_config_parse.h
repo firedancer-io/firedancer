@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_disco_gui_fd_gui_config_parse_h
 #define HEADER_fd_src_disco_gui_fd_gui_config_parse_h
 
-#include "../../third_party/cjson/cJSON.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/master/account-decoder/src/validator_info.rs */
@@ -32,14 +31,17 @@ typedef struct fd_gui_config_parse_info fd_gui_config_parse_info_t;
 
 FD_PROTOTYPES_BEGIN
 
-int
-fd_gui_config_parse_validator_info_check( uchar const * data,
-                                          ulong         sz,
-                                          cJSON **      out_json,
-                                          fd_pubkey_t * out_pubkey );
+/* fd_gui_config_parse_validator_info parses the sz bytes at data as a
+   ConfigProgram account holding a ValidatorInfo.  Returns 1 on success
+   with info->pubkey and the string fields populated (a field that is
+   absent, not a string, or longer than its max is set to the empty
+   string).  Returns 0 if the account is not a ValidatorInfo or the
+   JSON is malformed. */
 
-void
-fd_gui_config_parse_validator_info( cJSON * json, fd_gui_config_parse_info_t * node_info );
+int
+fd_gui_config_parse_validator_info( uchar const *                data,
+                                    ulong                        sz,
+                                    fd_gui_config_parse_info_t * info );
 
 FD_PROTOTYPES_END
 

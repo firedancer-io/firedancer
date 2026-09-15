@@ -68,7 +68,6 @@ containing:
 | Dir | Upstream | License |
 |---|---|---|
 | `bzip2/` | https://gitlab.com/bzip2/bzip2 (via github.com/libarchive/bzip2) | bzip2-1.0.8 |
-| `cjson/` | https://github.com/DaveGamble/cJSON | MIT |
 | `fiat-crypto/` | https://github.com/mit-plv/fiat-crypto (generated output) | MIT/Apache-2.0/BSD-1-Clause |
 | `nanopb/` | https://github.com/nanopb/nanopb | zlib |
 | `picohttpparser/` | https://github.com/h2o/picohttpparser | MIT/Perl |

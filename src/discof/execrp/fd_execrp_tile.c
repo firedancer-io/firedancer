@@ -588,7 +588,6 @@ max_event_sz( fd_topo_tile_t const * tile ) {
 fd_topo_run_tile_t fd_tile_execrp = {
   .name                     = "execrp",
   .max_event_sz             = max_event_sz,
-  .loose_footprint          = 0UL,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

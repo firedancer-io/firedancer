@@ -4,9 +4,8 @@
 #include "../tests/fd_svm_mini.h"
 #include "../../accdb/fd_accdb.h"
 #include "../../fd_flamenco_base.h"
-#include "../../../third_party/cjson/cJSON.h"
-#include "../../../third_party/cjson/cJSON_alloc.h"
 #include "../../../ballet/base64/fd_base64.h"
+#include "../../../ballet/json/fd_jtok.h"
 #include <stdio.h>
 
 #define MM_INPUT_START 0x400000000UL
@@ -168,16 +167,6 @@ check_acc_meta( fd_vm_acc_region_meta_t const * got,
   return 1;
 }
 
-static long
-decode_base64( char const * str, uchar * out, ulong out_max ) {
-  if( FD_UNLIKELY( !str || !out ) ) return -1;
-  ulong len = strlen( str );
-  if( !len ) return 0;
-  long decoded = fd_base64_decode( out, str, len );
-  if( FD_UNLIKELY( decoded<0 || (ulong)decoded>out_max ) ) return -1;
-  return decoded;
-}
-
 static uchar *
 read_file( fd_alloc_t * alloc, char const * path, ulong * out_sz ) {
   FILE * f = fopen( path, "rb" );
@@ -201,151 +190,249 @@ read_file( fd_alloc_t * alloc, char const * path, ulong * out_sz ) {
   return buf;
 }
 
-static int
-parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
-  cJSON * root = cJSON_Parse( json_str );
-  if( FD_UNLIKELY( !root ) ) return -1;
+static uchar b64_scratch[ 128UL<<10 ];
+static ulong b64_scratch_used;
 
+/* b64_decode consumes the pending base64 string, decodes it into
+   b64_scratch and stores it in *out / *out_len.  An empty string
+   yields NULL / 0.  Returns 0 on success, -1 on failure. */
+
+static int
+b64_decode( fd_jtok_t * j,
+            uchar **    out,
+            ulong *     out_len ) {
+  fd_jtok_str_t v = { NULL, 0UL };
+  fd_jtok_str( j, &v );
+  if( FD_UNLIKELY( fd_jtok_err( j ) ) ) return -1;
+  if( FD_UNLIKELY( memchr( v.ptr, '\\', v.sz ) ) ) return -1;
+  if( !v.sz ) { *out = NULL; *out_len = 0UL; return 0; }
+  if( FD_UNLIKELY( FD_BASE64_DEC_SZ( v.sz ) > sizeof(b64_scratch)-b64_scratch_used ) ) return -1;
+  uchar * buf = b64_scratch + b64_scratch_used;
+  long len = fd_base64_decode( buf, v.ptr, v.sz );
+  if( FD_UNLIKELY( len<0L ) ) return -1;
+  b64_scratch_used += (ulong)len;
+  *out     = buf;
+  *out_len = (ulong)len;
+  return 0;
+}
+
+/* b64_pubkey consumes the pending base64 string which must decode to
+   exactly 32 bytes.  Returns 0 on success, -1 on failure. */
+
+static int
+b64_pubkey( fd_jtok_t *   j,
+            fd_pubkey_t * out ) {
+  uchar * buf = NULL; ulong len = 0UL;
+  if( FD_UNLIKELY( b64_decode( j, &buf, &len ) || len!=32UL ) ) return -1;
+  fd_memcpy( out->key, buf, 32UL );
+  return 0;
+}
+
+static int
+parse_bool( fd_jtok_t * j,
+            uchar *     out ) {
+  int b = 0;
+  fd_jtok_bool( j, &b );
+  *out = (uchar)b;
+  return fd_jtok_err( j ) ? -1 : 0;
+}
+
+/* alloc_arr consumes the pending array from j, allocates one zeroed
+   el_sz byte element per array entry (NULL if the array is empty) and
+   re-tokenizes the array with j2, which is left positioned inside it
+   ready for fd_jtok_arr_next.  Stores the allocation in *out_arr and
+   the element count in *out_cnt.  Returns 0 on success, -1 on
+   failure. */
+
+static int
+alloc_arr( fd_alloc_t * alloc,
+           fd_jtok_t *  j,
+           fd_jtok_t *  j2,
+           ulong        el_align,
+           ulong        el_sz,
+           void *       out_arr,
+           ulong *      out_cnt ) {
+  char const * raw = NULL; ulong raw_sz = 0UL;
+  fd_jtok_raw( j, &raw, &raw_sz );
+  if( FD_UNLIKELY( fd_jtok_err( j ) ) ) return -1;
+
+  ulong cnt = 0UL;
+  fd_jtok_init( j2, raw, raw_sz );
+  fd_jtok_arr_enter( j2 );
+  while( fd_jtok_arr_next( j2 ) ) cnt++;
+  if( FD_UNLIKELY( fd_jtok_fini( j2 ) ) ) return -1;
+
+  void * arr = NULL;
+  if( cnt ) {
+    arr = fd_alloc_malloc( alloc, el_align, el_sz * cnt );
+    if( FD_UNLIKELY( !arr ) ) return -1;
+    fd_memset( arr, 0, el_sz * cnt );
+  }
+
+  fd_jtok_init( j2, raw, raw_sz );
+  fd_jtok_arr_enter( j2 );
+  *(void **)out_arr = arr;
+  *out_cnt          = cnt;
+  return 0;
+}
+
+static int
+parse_accounts( fd_alloc_t *      alloc,
+                fd_jtok_t *       j,
+                fixture_input_t * in ) {
+  fd_jtok_t j2[1];
+  if( FD_UNLIKELY( alloc_arr( alloc, j, j2, alignof(fixture_account_t), sizeof(fixture_account_t), &in->accounts, &in->num_accounts ) ) ) return -1;
+  for( ulong i=0UL; fd_jtok_arr_next( j2 ); i++ ) {
+    fixture_account_t * a = &in->accounts[i];
+    fd_jtok_str_t k;
+    fd_jtok_obj_enter( j2 );
+    while( fd_jtok_obj_next( j2, &k ) ) {
+      if(      fd_jtok_str_eq( &k, "pubkey"     ) ) { if( FD_UNLIKELY( b64_pubkey( j2, &a->pubkey ) ) ) return -1; }
+      else if( fd_jtok_str_eq( &k, "owner"      ) ) { if( FD_UNLIKELY( b64_pubkey( j2, &a->owner  ) ) ) return -1; }
+      else if( fd_jtok_str_eq( &k, "lamports"   ) ) fd_jtok_ulong( j2, &a->lamports   );
+      else if( fd_jtok_str_eq( &k, "rent_epoch" ) ) fd_jtok_ulong( j2, &a->rent_epoch );
+      else if( fd_jtok_str_eq( &k, "executable" ) ) { if( FD_UNLIKELY( parse_bool( j2, &a->executable ) ) ) return -1; }
+      else if( fd_jtok_str_eq( &k, "data"       ) ) { if( FD_UNLIKELY( b64_decode( j2, &a->data, &a->data_len ) ) ) return -1; }
+    }
+  }
+  return fd_jtok_fini( j2 ) ? -1 : 0;
+}
+
+static int
+parse_instr_accounts( fd_alloc_t *      alloc,
+                      fd_jtok_t *       j,
+                      fixture_input_t * in ) {
+  fd_jtok_t j2[1];
+  if( FD_UNLIKELY( alloc_arr( alloc, j, j2, alignof(fixture_instr_account_t), sizeof(fixture_instr_account_t), &in->instr_accounts, &in->num_instr_accounts ) ) ) return -1;
+  for( ulong i=0UL; fd_jtok_arr_next( j2 ); i++ ) {
+    fixture_instr_account_t * ia = &in->instr_accounts[i];
+    fd_jtok_str_t k;
+    fd_jtok_obj_enter( j2 );
+    while( fd_jtok_obj_next( j2, &k ) ) {
+      if( fd_jtok_str_eq( &k, "index_in_transaction" ) ) {
+        ulong idx = 0UL;
+        fd_jtok_ulong( j2, &idx );
+        if( FD_UNLIKELY( idx>USHORT_MAX ) ) return -1;
+        ia->index_in_transaction = (ushort)idx;
+      }
+      else if( fd_jtok_str_eq( &k, "is_signer"   ) ) { if( FD_UNLIKELY( parse_bool( j2, &ia->is_signer   ) ) ) return -1; }
+      else if( fd_jtok_str_eq( &k, "is_writable" ) ) { if( FD_UNLIKELY( parse_bool( j2, &ia->is_writable ) ) ) return -1; }
+    }
+  }
+  return fd_jtok_fini( j2 ) ? -1 : 0;
+}
+
+static int
+parse_input( fd_alloc_t *      alloc,
+             fd_jtok_t *       j,
+             fixture_input_t * in ) {
+  fd_jtok_str_t k;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &k ) ) {
+    if(      fd_jtok_str_eq( &k, "accounts"             ) ) { if( FD_UNLIKELY( parse_accounts      ( alloc, j, in ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "instruction_accounts" ) ) { if( FD_UNLIKELY( parse_instr_accounts( alloc, j, in ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "instruction_data"     ) ) { if( FD_UNLIKELY( b64_decode( j, &in->instr_data, &in->instr_data_len ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "program_id"           ) ) { if( FD_UNLIKELY( b64_pubkey( j, &in->program_id ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "virtual_address_space_adjustments"        ) ) { if( FD_UNLIKELY( parse_bool( j, &in->virtual_address_space_adj                ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "account_data_direct_mapping"              ) ) { if( FD_UNLIKELY( parse_bool( j, &in->direct_mapping                           ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "direct_account_pointers_in_program_input" ) ) { if( FD_UNLIKELY( parse_bool( j, &in->direct_account_pointers_in_program_input ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "is_deprecated_loader"                     ) ) { if( FD_UNLIKELY( parse_bool( j, &in->is_deprecated                            ) ) ) return -1; }
+  }
+  return fd_jtok_err( j ) ? -1 : 0;
+}
+
+static int
+parse_regions( fd_alloc_t *       alloc,
+               fd_jtok_t *        j,
+               fixture_output_t * out ) {
+  fd_jtok_t j2[1];
+  if( FD_UNLIKELY( alloc_arr( alloc, j, j2, alignof(fixture_region_t), sizeof(fixture_region_t), &out->regions, &out->num_regions ) ) ) return -1;
+  for( ulong i=0UL; fd_jtok_arr_next( j2 ); i++ ) {
+    fixture_region_t * reg = &out->regions[i];
+    fd_jtok_str_t k;
+    fd_jtok_obj_enter( j2 );
+    while( fd_jtok_obj_next( j2, &k ) ) {
+      if(      fd_jtok_str_eq( &k, "vm_addr"     ) ) fd_jtok_ulong( j2, &reg->vm_addr );
+      else if( fd_jtok_str_eq( &k, "is_writable" ) ) { if( FD_UNLIKELY( parse_bool( j2, &reg->is_writable ) ) ) return -1; }
+      else if( fd_jtok_str_eq( &k, "data"        ) ) { if( FD_UNLIKELY( b64_decode( j2, &reg->data, &reg->data_len ) ) ) return -1; }
+    }
+  }
+  return fd_jtok_fini( j2 ) ? -1 : 0;
+}
+
+static int
+parse_acc_metas( fd_alloc_t *       alloc,
+                 fd_jtok_t *        j,
+                 fixture_output_t * out ) {
+  fd_jtok_t j2[1];
+  if( FD_UNLIKELY( alloc_arr( alloc, j, j2, alignof(fixture_acc_meta_t), sizeof(fixture_acc_meta_t), &out->acc_metas, &out->num_acc_metas ) ) ) return -1;
+  for( ulong i=0UL; fd_jtok_arr_next( j2 ); i++ ) {
+    fixture_acc_meta_t * m = &out->acc_metas[i];
+    fd_jtok_str_t k;
+    fd_jtok_obj_enter( j2 );
+    while( fd_jtok_obj_next( j2, &k ) ) {
+      if(      fd_jtok_str_eq( &k, "original_data_len" ) ) fd_jtok_ulong( j2, &m->original_data_len );
+      else if( fd_jtok_str_eq( &k, "vm_key_addr"       ) ) fd_jtok_ulong( j2, &m->vm_key_addr       );
+      else if( fd_jtok_str_eq( &k, "vm_lamports_addr"  ) ) fd_jtok_ulong( j2, &m->vm_lamports_addr  );
+      else if( fd_jtok_str_eq( &k, "vm_owner_addr"     ) ) fd_jtok_ulong( j2, &m->vm_owner_addr     );
+      else if( fd_jtok_str_eq( &k, "vm_data_addr"      ) ) fd_jtok_ulong( j2, &m->vm_data_addr      );
+      else if( fd_jtok_str_eq( &k, "vm_addr"           ) ) { fd_jtok_ulong( j2, &m->vm_addr ); m->vm_addr_present = 1; }
+    }
+  }
+  return fd_jtok_fini( j2 ) ? -1 : 0;
+}
+
+static int
+parse_output( fd_alloc_t *       alloc,
+              fd_jtok_t *        j,
+              fixture_output_t * out ) {
+  fd_jtok_str_t k;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &k ) ) {
+    if( fd_jtok_str_eq( &k, "result" ) ) {
+      long result = 0L;
+      fd_jtok_long( j, &result );
+      if( FD_UNLIKELY( result<INT_MIN || result>INT_MAX ) ) return -1;
+      out->result = (int)result;
+    }
+    else if( fd_jtok_str_eq( &k, "buffer"                  ) ) { if( FD_UNLIKELY( b64_decode( j, &out->buffer, &out->buffer_len ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "regions"                 ) ) { if( FD_UNLIKELY( parse_regions  ( alloc, j, out ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "accounts_metadata"       ) ) { if( FD_UNLIKELY( parse_acc_metas( alloc, j, out ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "instruction_data_offset" ) ) fd_jtok_ulong( j, &out->instr_data_offset );
+  }
+  return fd_jtok_err( j ) ? -1 : 0;
+}
+
+/* parse_fixture consumes the pending fixture object from j into fix.
+   Returns 0 on success, -1 on failure. */
+
+static int
+parse_fixture( fd_alloc_t * alloc,
+               fd_jtok_t *  j,
+               fixture_t *  fix ) {
   fixture_input_t *  in  = &fix->input;
   fixture_output_t * out = &fix->output;
+  int has_name = 0;
 
-  cJSON * name = cJSON_GetObjectItemCaseSensitive( root, "name" );
-  if( FD_UNLIKELY( !name || !cJSON_IsString( name ) ) ) { cJSON_Delete( root ); return -1; }
-  ulong name_len = strlen( name->valuestring );
-  in->name = fd_alloc_malloc( alloc, 1UL, name_len + 1UL );
-  fd_memcpy( in->name, name->valuestring, name_len + 1UL );
-
-  cJSON * input = cJSON_GetObjectItemCaseSensitive( root, "input" );
-  if( FD_UNLIKELY( !input ) ) { cJSON_Delete( root ); return -1; }
-
-  cJSON * accounts = cJSON_GetObjectItemCaseSensitive( input, "accounts" );
-  if( FD_UNLIKELY( !accounts || !cJSON_IsArray( accounts ) ) ) { cJSON_Delete( root ); return -1; }
-
-  in->num_accounts = (ulong)cJSON_GetArraySize( accounts );
-  in->accounts = fd_alloc_malloc( alloc, alignof(fixture_account_t), sizeof(fixture_account_t) * in->num_accounts );
-
-  for( ulong i=0; i<in->num_accounts; i++ ) {
-    cJSON * acc = cJSON_GetArrayItem( accounts, (int)i );
-    fixture_account_t * a = &in->accounts[i];
-
-    if( decode_base64( cJSON_GetObjectItemCaseSensitive( acc, "pubkey" )->valuestring, a->pubkey.key, 32 )!=32 ||
-        decode_base64( cJSON_GetObjectItemCaseSensitive( acc, "owner"  )->valuestring, a->owner.key,  32 )!=32 ) {
-      cJSON_Delete( root ); return -1;
+  fd_jtok_str_t k;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &k ) ) {
+    if( fd_jtok_str_eq( &k, "name" ) ) {
+      fd_jtok_str_t v = { NULL, 0UL };
+      fd_jtok_str( j, &v );
+      if( FD_UNLIKELY( fd_jtok_err( j ) ) ) return -1;
+      in->name = fd_alloc_malloc( alloc, 1UL, v.sz + 1UL );
+      if( FD_UNLIKELY( !in->name ) ) return -1;
+      fd_memcpy( in->name, v.ptr, v.sz );
+      in->name[ v.sz ] = '\0';
+      has_name = 1;
     }
-
-    a->lamports   = (ulong)cJSON_GetObjectItemCaseSensitive( acc, "lamports"   )->valuedouble;
-    a->rent_epoch = (ulong)cJSON_GetObjectItemCaseSensitive( acc, "rent_epoch" )->valuedouble;
-    a->executable = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( acc, "executable" ) ) ? 1U : 0U;
-
-    char const * data_str = cJSON_GetObjectItemCaseSensitive( acc, "data" )->valuestring;
-    if( data_str && strlen( data_str ) ) {
-      ulong max_len = strlen( data_str );
-      a->data = fd_alloc_malloc( alloc, 1UL, max_len );
-      long len = decode_base64( data_str, a->data, max_len );
-      if( FD_UNLIKELY( len<0 ) ) { cJSON_Delete( root ); return -1; }
-      a->data_len = (ulong)len;
-    } else {
-      a->data = NULL;
-      a->data_len = 0UL;
-    }
+    else if( fd_jtok_str_eq( &k, "input"  ) ) { if( FD_UNLIKELY( parse_input ( alloc, j, in  ) ) ) return -1; }
+    else if( fd_jtok_str_eq( &k, "output" ) ) { if( FD_UNLIKELY( parse_output( alloc, j, out ) ) ) return -1; }
   }
+  if( FD_UNLIKELY( fd_jtok_err( j ) || !has_name ) ) return -1;
 
-  cJSON * instr_accs = cJSON_GetObjectItemCaseSensitive( input, "instruction_accounts" );
-  in->num_instr_accounts = (ulong)cJSON_GetArraySize( instr_accs );
-  in->instr_accounts = fd_alloc_malloc( alloc, alignof(fixture_instr_account_t),
-                                        sizeof(fixture_instr_account_t) * in->num_instr_accounts );
-
-  for( ulong i=0; i<in->num_instr_accounts; i++ ) {
-    cJSON * ia = cJSON_GetArrayItem( instr_accs, (int)i );
-    in->instr_accounts[i].index_in_transaction = (ushort)cJSON_GetObjectItemCaseSensitive( ia, "index_in_transaction" )->valueint;
-    in->instr_accounts[i].is_signer   = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( ia, "is_signer"   ) ) ? 1U : 0U;
-    in->instr_accounts[i].is_writable = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( ia, "is_writable" ) ) ? 1U : 0U;
-  }
-
-  char const * idata_str = cJSON_GetObjectItemCaseSensitive( input, "instruction_data" )->valuestring;
-  if( idata_str && strlen( idata_str ) ) {
-    ulong max_len = strlen( idata_str );
-    in->instr_data = fd_alloc_malloc( alloc, 1UL, max_len );
-    long len = decode_base64( idata_str, in->instr_data, max_len );
-    if( FD_UNLIKELY( len<0 ) ) { cJSON_Delete( root ); return -1; }
-    in->instr_data_len = (ulong)len;
-  } else {
-    in->instr_data = NULL;
-    in->instr_data_len = 0UL;
-  }
-
-  if( decode_base64( cJSON_GetObjectItemCaseSensitive( input, "program_id" )->valuestring, in->program_id.key, 32 )!=32 ) {
-    cJSON_Delete( root ); return -1;
-  }
-
-  in->virtual_address_space_adj                = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "virtual_address_space_adjustments"        ) ) ? 1U : 0U;
-  in->direct_mapping                           = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"              ) ) ? 1U : 0U;
-  in->direct_account_pointers_in_program_input = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "direct_account_pointers_in_program_input" ) ) ? 1U : 0U;
-  in->is_deprecated                            = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                     ) ) ? 1U : 0U;
-
-  cJSON * output = cJSON_GetObjectItemCaseSensitive( root, "output" );
-  out->result = cJSON_GetObjectItemCaseSensitive( output, "result" )->valueint;
-
-  if( out->result==0 ) {
-    char const * buf_str = cJSON_GetObjectItemCaseSensitive( output, "buffer" )->valuestring;
-    if( buf_str && strlen( buf_str ) ) {
-      ulong max_len = strlen( buf_str );
-      out->buffer = fd_alloc_malloc( alloc, 1UL, max_len );
-      long len = decode_base64( buf_str, out->buffer, max_len );
-      if( FD_UNLIKELY( len<0 ) ) { cJSON_Delete( root ); return -1; }
-      out->buffer_len = (ulong)len;
-    } else {
-      out->buffer = NULL;
-      out->buffer_len = 0UL;
-    }
-
-    cJSON * regions = cJSON_GetObjectItemCaseSensitive( output, "regions" );
-    out->num_regions = (ulong)cJSON_GetArraySize( regions );
-    out->regions = fd_alloc_malloc( alloc, alignof(fixture_region_t), sizeof(fixture_region_t) * out->num_regions );
-
-    for( ulong i=0; i<out->num_regions; i++ ) {
-      cJSON * r = cJSON_GetArrayItem( regions, (int)i );
-      fixture_region_t * reg = &out->regions[i];
-
-      reg->vm_addr     = (ulong)cJSON_GetObjectItemCaseSensitive( r, "vm_addr" )->valuedouble;
-      reg->is_writable = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( r, "is_writable" ) ) ? 1U : 0U;
-
-      char const * data_str = cJSON_GetObjectItemCaseSensitive( r, "data" )->valuestring;
-      if( data_str && strlen( data_str ) ) {
-        ulong max_len = strlen( data_str );
-        reg->data = fd_alloc_malloc( alloc, 1UL, max_len );
-        long len = decode_base64( data_str, reg->data, max_len );
-        if( FD_UNLIKELY( len<0 ) ) { cJSON_Delete( root ); return -1; }
-        reg->data_len = (ulong)len;
-      } else {
-        reg->data = NULL;
-        reg->data_len = 0UL;
-      }
-    }
-
-    cJSON * acc_metas = cJSON_GetObjectItemCaseSensitive( output, "accounts_metadata" );
-    out->num_acc_metas = (ulong)cJSON_GetArraySize( acc_metas );
-    out->acc_metas = fd_alloc_malloc( alloc, alignof(fixture_acc_meta_t), sizeof(fixture_acc_meta_t) * out->num_acc_metas );
-
-    for( ulong i=0; i<out->num_acc_metas; i++ ) {
-      cJSON * m = cJSON_GetArrayItem( acc_metas, (int)i );
-      out->acc_metas[i].original_data_len  = (ulong)cJSON_GetObjectItemCaseSensitive( m, "original_data_len"  )->valuedouble;
-      out->acc_metas[i].vm_key_addr        = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_key_addr"        )->valuedouble;
-      out->acc_metas[i].vm_lamports_addr   = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_lamports_addr"   )->valuedouble;
-      out->acc_metas[i].vm_owner_addr      = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_owner_addr"      )->valuedouble;
-      out->acc_metas[i].vm_data_addr       = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_data_addr"       )->valuedouble;
-      cJSON * vm_addr_item                 = cJSON_GetObjectItemCaseSensitive( m, "vm_addr" );
-      if( vm_addr_item ) {
-        out->acc_metas[i].vm_addr         = (ulong)vm_addr_item->valuedouble;
-        out->acc_metas[i].vm_addr_present = 1;
-      } else {
-        out->acc_metas[i].vm_addr         = 0UL;
-        out->acc_metas[i].vm_addr_present = 0;
-      }
-    }
-
-    out->instr_data_offset = (ulong)cJSON_GetObjectItemCaseSensitive( output, "instruction_data_offset" )->valuedouble;
-  } else {
+  if( out->result!=0 ) {
     out->buffer        = NULL;
     out->buffer_len    = 0UL;
     out->regions       = NULL;
@@ -353,8 +440,6 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
     out->acc_metas     = NULL;
     out->num_acc_metas = 0UL;
   }
-
-  cJSON_Delete( root );
   return 0;
 }
 
@@ -552,7 +637,7 @@ main( int argc, char ** argv ) {
   FD_FEATURE_SET_ACTIVE( &bank->f.features, remove_accounts_executable_flag_checks, 0UL );
 
   /* Stand up a private wksp and fd_alloc for fixture data — the
-     1.3MB JSON file plus per-fixture buffers don't fit in the svm_mini
+     multi-MB JSON file plus per-fixture buffers don't fit in the svm_mini
      wksp, which is sized exactly for runtime objects. */
   fd_wksp_t * fix_wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 16384UL,
                                                 fd_shmem_cpu_idx( 0UL ), "fix_wksp", 0UL );
@@ -565,32 +650,27 @@ main( int argc, char ** argv ) {
   char const * fixtures_path = "src/flamenco/runtime/program/test_bpf_loader_serialization_fixtures.json";
   FD_LOG_NOTICE(( "Loading fixtures from: %s", fixtures_path ));
 
-  cJSON_alloc_install( alloc );
-
   ulong   sz   = 0;
   uchar * data = read_file( alloc, fixtures_path, &sz );
   if( FD_UNLIKELY( !data ) ) {
     FD_LOG_ERR(( "Failed to read fixtures file: %s", fixtures_path ));
   }
 
-  cJSON * root = cJSON_Parse( (char const *)data );
-  if( FD_UNLIKELY( !root || !cJSON_IsArray( root ) ) ) {
+  fd_jtok_t j[1]; fd_jtok_init( j, data, sz );
+  fd_jtok_arr_enter( j );
+  if( FD_UNLIKELY( fd_jtok_err( j ) ) ) {
     FD_LOG_ERR(( "Failed to parse fixtures file as JSON array" ));
   }
 
-  int fixture_cnt = cJSON_GetArraySize( root );
-  FD_LOG_NOTICE(( "Found %d fixtures", fixture_cnt ));
-
-  for( int i=0; i<fixture_cnt; i++ ) {
-    cJSON * item = cJSON_GetArrayItem( root, i );
-    char * json_str = cJSON_PrintUnformatted( item );
-
+  ulong fixture_cnt = 0UL;
+  while( fd_jtok_arr_next( j ) ) {
     fixture_t fix[1];
     fd_memset( fix, 0, sizeof(fixture_t) );
-    if( FD_UNLIKELY( parse_fixture( alloc, json_str, fix ) ) ) {
-      FD_LOG_ERR(( "Failed to parse fixture %d", i ));
+    b64_scratch_used = 0UL;
+    if( FD_UNLIKELY( parse_fixture( alloc, j, fix ) ) ) {
+      FD_LOG_ERR(( "Failed to parse fixture %lu (json err %d at offset %lu)", fixture_cnt, fd_jtok_err( j ), fd_jtok_err_off( j ) ));
     }
-    cJSON_free( json_str );
+    fixture_cnt++;
 
     FD_LOG_NOTICE(( "Testing: %s", fix->input.name ));
     int result = run_fixture( mini, alloc, fix );
@@ -601,8 +681,11 @@ main( int argc, char ** argv ) {
       FD_LOG_ERR(( "  FAIL" ));
     }
   }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) ) ) {
+    FD_LOG_ERR(( "Failed to parse fixtures file (json err %d at offset %lu)", fd_jtok_err( j ), fd_jtok_err_off( j ) ));
+  }
+  FD_LOG_NOTICE(( "Ran %lu fixtures", fixture_cnt ));
 
-  cJSON_Delete( root );
   fd_alloc_free( alloc, data );
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
   fd_wksp_delete_anonymous( fix_wksp );

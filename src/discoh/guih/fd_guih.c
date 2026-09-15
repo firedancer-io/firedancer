@@ -8,7 +8,7 @@
 #include "../../disco/bundle/fd_bundle_tile.h"
 
 #include "../../ballet/base58/fd_base58.h"
-#include "../../third_party/cjson/cJSON.h"
+#include "../../ballet/json/fd_jtok.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
@@ -1312,11 +1312,17 @@ int
 fd_guih_request_slot( fd_guih_t *    gui,
                      ulong         ws_conn_id,
                      ulong         request_id,
-                     cJSON const * params ) {
-  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "slot" );
-  if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+                     char const *  params,
+                     ulong         params_sz ) {
+  ulong _slot = 0UL; int has_slot = 0;
+  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
+  fd_jtok_str_t key;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if( fd_jtok_str_eq( &key, "slot" ) ) { fd_jtok_ulong( j, &_slot ); has_slot = 1; }
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_slot ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  ulong _slot = slot_param->valueulong;
   fd_guih_slot_t const * slot = fd_guih_get_slot_const( gui, _slot );
   if( FD_UNLIKELY( !slot ) ) {
     fd_guih_printf_null_query_response( gui->http, "slot", "query", request_id );
@@ -1333,11 +1339,17 @@ int
 fd_guih_request_slot_transactions( fd_guih_t *    gui,
                                   ulong         ws_conn_id,
                                   ulong         request_id,
-                                  cJSON const * params ) {
-  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "slot" );
-  if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+                                  char const *  params,
+                                  ulong         params_sz ) {
+  ulong _slot = 0UL; int has_slot = 0;
+  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
+  fd_jtok_str_t key;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if( fd_jtok_str_eq( &key, "slot" ) ) { fd_jtok_ulong( j, &_slot ); has_slot = 1; }
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_slot ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  ulong _slot = slot_param->valueulong;
   fd_guih_slot_t const * slot = fd_guih_get_slot_const( gui, _slot );
   if( FD_UNLIKELY( !slot ) ) {
     fd_guih_printf_null_query_response( gui->http, "slot", "query_transactions", request_id );
@@ -1354,11 +1366,17 @@ int
 fd_guih_request_slot_detailed( fd_guih_t *    gui,
                               ulong         ws_conn_id,
                               ulong         request_id,
-                              cJSON const * params ) {
-  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "slot" );
-  if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+                              char const *  params,
+                              ulong         params_sz ) {
+  ulong _slot = 0UL; int has_slot = 0;
+  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
+  fd_jtok_str_t key;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if( fd_jtok_str_eq( &key, "slot" ) ) { fd_jtok_ulong( j, &_slot ); has_slot = 1; }
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_slot ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  ulong _slot = slot_param->valueulong;
   fd_guih_slot_t const * slot = fd_guih_get_slot_const( gui, _slot );
   if( FD_UNLIKELY( !slot ) ) {
     fd_guih_printf_null_query_response( gui->http, "slot", "query_detailed", request_id );
@@ -1454,11 +1472,17 @@ int
 fd_guih_request_slot_rankings( fd_guih_t *    gui,
                               ulong         ws_conn_id,
                               ulong         request_id,
-                              cJSON const * params ) {
-  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "mine" );
-  if( FD_UNLIKELY( !cJSON_IsBool( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+                              char const *  params,
+                              ulong         params_sz ) {
+  int mine = 0; int has_mine = 0;
+  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
+  fd_jtok_str_t key;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if( fd_jtok_str_eq( &key, "mine" ) ) { fd_jtok_bool( j, &mine ); has_mine = 1; }
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_mine ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  int mine = !!(slot_param->type & cJSON_True);
   fd_guih_update_slot_rankings( gui );
   fd_guih_printf_slot_rankings_request( gui, request_id, mine );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
@@ -1469,11 +1493,16 @@ int
 fd_guih_request_slot_shreds( fd_guih_t *    gui,
                             ulong         ws_conn_id,
                             ulong         request_id,
-                            cJSON const * params ) {
-  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "slot" );
-  if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-
-  ulong _slot = slot_param->valueulong;
+                            char const *  params,
+                            ulong         params_sz ) {
+  ulong _slot = 0UL; int has_slot = 0;
+  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
+  fd_jtok_str_t key;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if( fd_jtok_str_eq( &key, "slot" ) ) { fd_jtok_ulong( j, &_slot ); has_slot = 1; }
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_slot ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
   fd_guih_slot_t const * slot = fd_guih_get_slot_const( gui, _slot );
   if( FD_UNLIKELY( !slot || slot->shreds.start_offset==ULONG_MAX || slot->shreds.end_offset==ULONG_MAX || gui->shreds.history_tail >= slot->shreds.end_offset + FD_GUIH_SHREDS_HISTORY_SZ ) ) {
@@ -1488,96 +1517,51 @@ fd_guih_request_slot_shreds( fd_guih_t *    gui,
 }
 
 int
-fd_guih_ws_message( fd_guih_t *    gui,
-                   ulong         ws_conn_id,
-                   uchar const * data,
-                   ulong         data_len ) {
-  /* TODO: cJSON allocates, might fail SIGSYS due to brk(2)...
-     switch off this (or use wksp allocator) */
-  const char * parse_end;
-  cJSON * json = cJSON_ParseWithLengthOpts( (char *)data, data_len, &parse_end, 0 );
-  if( FD_UNLIKELY( !json ) ) {
-    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+fd_guih_ws_message( fd_guih_t *   gui,
+                    ulong         ws_conn_id,
+                    uchar const * data,
+                    ulong         data_len ) {
+  ulong         id        = 0UL; int has_id = 0;
+  fd_jtok_str_t topic     = {0};
+  fd_jtok_str_t key       = {0};
+  char const *  params    = NULL;
+  ulong         params_sz = 0UL;
+
+  fd_jtok_t j[1]; fd_jtok_init( j, data, data_len );
+  fd_jtok_str_t member;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &member ) ) {
+    if(      fd_jtok_str_eq( &member, "id"     ) ) { fd_jtok_ulong( j, &id ); has_id = 1; }
+    else if( fd_jtok_str_eq( &member, "topic"  ) ) fd_jtok_str( j, &topic );
+    else if( fd_jtok_str_eq( &member, "key"    ) ) fd_jtok_str( j, &key );
+    else if( fd_jtok_str_eq( &member, "params" ) ) {
+      if( FD_UNLIKELY( fd_jtok_peek( j )!=FD_JTOK_OBJ ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+      fd_jtok_raw( j, &params, &params_sz );
+    }
   }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_id || !topic.ptr || !key.ptr ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  const cJSON * node = cJSON_GetObjectItemCaseSensitive( json, "id" );
-  if( FD_UNLIKELY( !cJSON_IsNumber( node ) ) ) {
-    cJSON_Delete( json );
-    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  }
-  ulong id = node->valueulong;
-
-  const cJSON * topic = cJSON_GetObjectItemCaseSensitive( json, "topic" );
-  if( FD_UNLIKELY( !cJSON_IsString( topic ) || topic->valuestring==NULL ) ) {
-    cJSON_Delete( json );
-    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  }
-
-  const cJSON * key = cJSON_GetObjectItemCaseSensitive( json, "key" );
-  if( FD_UNLIKELY( !cJSON_IsString( key ) || key->valuestring==NULL ) ) {
-    cJSON_Delete( json );
-    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  }
-
-  if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query" ) ) ) {
-    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
-    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
-      cJSON_Delete( json );
-      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    }
-
-    int result = fd_guih_request_slot( gui, ws_conn_id, id, params );
-    cJSON_Delete( json );
-    return result;
-  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_detailed" ) ) ) {
-    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
-    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
-      cJSON_Delete( json );
-      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    }
-
-    int result = fd_guih_request_slot_detailed( gui, ws_conn_id, id, params );
-    cJSON_Delete( json );
-    return result;
-  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_transactions" ) ) ) {
-    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
-    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
-      cJSON_Delete( json );
-      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    }
-
-    int result = fd_guih_request_slot_transactions( gui, ws_conn_id, id, params );
-    cJSON_Delete( json );
-    return result;
-  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_rankings" ) ) ) {
-    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
-    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
-      cJSON_Delete( json );
-      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    }
-
-    int result = fd_guih_request_slot_rankings( gui, ws_conn_id, id, params );
-    cJSON_Delete( json );
-    return result;
-  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_shreds" ) ) ) {
-    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
-    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
-      cJSON_Delete( json );
-      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    }
-
-    int result = fd_guih_request_slot_shreds( gui, ws_conn_id, id, params );
-    cJSON_Delete( json );
-    return result;
-  } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
+  if( FD_LIKELY( fd_jtok_str_eq( &topic, "slot" ) && fd_jtok_str_eq( &key, "query" ) ) ) {
+    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_guih_request_slot( gui, ws_conn_id, id, params, params_sz );
+  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "slot" ) && fd_jtok_str_eq( &key, "query_detailed" ) ) ) {
+    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_guih_request_slot_detailed( gui, ws_conn_id, id, params, params_sz );
+  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "slot" ) && fd_jtok_str_eq( &key, "query_transactions" ) ) ) {
+    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_guih_request_slot_transactions( gui, ws_conn_id, id, params, params_sz );
+  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "slot" ) && fd_jtok_str_eq( &key, "query_rankings" ) ) ) {
+    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_guih_request_slot_rankings( gui, ws_conn_id, id, params, params_sz );
+  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "slot" ) && fd_jtok_str_eq( &key, "query_shreds" ) ) ) {
+    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_guih_request_slot_shreds( gui, ws_conn_id, id, params, params_sz );
+  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "summary" ) && fd_jtok_str_eq( &key, "ping" ) ) ) {
     fd_guih_printf_summary_ping( gui, id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
-
-    cJSON_Delete( json );
     return 0;
   }
 
-  cJSON_Delete( json );
   return FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD;
 }
 

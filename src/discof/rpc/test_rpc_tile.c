@@ -84,6 +84,97 @@ create_link( fd_topo_t *  topo,
   return link;
 }
 
+/* json_value_eq compares the pending values of a and b structurally:
+   same kind, same members in the same order, strings compared decoded,
+   numbers compared as text if both are integers and as doubles
+   otherwise. */
+
+static int
+json_value_eq( fd_jtok_t * a,
+               fd_jtok_t * b ) {
+  int ka = fd_jtok_peek( a );
+  int kb = fd_jtok_peek( b );
+  if( FD_UNLIKELY( !ka || !kb ) ) return 0;
+
+  int num_a = ka==FD_JTOK_INT || ka==FD_JTOK_NUM;
+  int num_b = kb==FD_JTOK_INT || kb==FD_JTOK_NUM;
+  if( num_a && num_b ) {
+    if( ka==FD_JTOK_INT && kb==FD_JTOK_INT ) {
+      char const * ra; ulong ra_sz; fd_jtok_raw( a, &ra, &ra_sz );
+      char const * rb; ulong rb_sz; fd_jtok_raw( b, &rb, &rb_sz );
+      return !fd_jtok_err( a ) && !fd_jtok_err( b ) && ra_sz==rb_sz && !memcmp( ra, rb, ra_sz );
+    }
+    double da, db;
+    fd_jtok_double( a, &da );
+    fd_jtok_double( b, &db );
+    return !fd_jtok_err( a ) && !fd_jtok_err( b ) && da==db;
+  }
+  if( ka!=kb ) return 0;
+
+  switch( ka ) {
+  case FD_JTOK_OBJ: {
+    fd_jtok_obj_enter( a );
+    fd_jtok_obj_enter( b );
+    for(;;) {
+      fd_jtok_str_t key_a, key_b;
+      int na = fd_jtok_obj_next( a, &key_a );
+      int nb = fd_jtok_obj_next( b, &key_b );
+      if( na!=nb ) return 0;
+      if( !na ) return !fd_jtok_err( a ) && !fd_jtok_err( b );
+      char ka_dec[ 4096 ], kb_dec[ 4096 ];
+      if( fd_jtok_str_decode( &key_a, ka_dec, sizeof(ka_dec) )<0L ) return 0;
+      if( fd_jtok_str_decode( &key_b, kb_dec, sizeof(kb_dec) )<0L ) return 0;
+      if( strcmp( ka_dec, kb_dec ) ) return 0;
+      if( !json_value_eq( a, b ) ) return 0;
+    }
+  }
+  case FD_JTOK_ARR: {
+    fd_jtok_arr_enter( a );
+    fd_jtok_arr_enter( b );
+    for(;;) {
+      int na = fd_jtok_arr_next( a );
+      int nb = fd_jtok_arr_next( b );
+      if( na!=nb ) return 0;
+      if( !na ) return !fd_jtok_err( a ) && !fd_jtok_err( b );
+      if( !json_value_eq( a, b ) ) return 0;
+    }
+  }
+  case FD_JTOK_STR: {
+    char sa[ 4096 ], sb[ 4096 ];
+    fd_jtok_cstr( a, sa, sizeof(sa) );
+    fd_jtok_cstr( b, sb, sizeof(sb) );
+    return !fd_jtok_err( a ) && !fd_jtok_err( b ) && !strcmp( sa, sb );
+  }
+  case FD_JTOK_BOOL: {
+    int va, vb;
+    fd_jtok_bool( a, &va );
+    fd_jtok_bool( b, &vb );
+    return !fd_jtok_err( a ) && !fd_jtok_err( b ) && va==vb;
+  }
+  case FD_JTOK_NULL:
+    fd_jtok_null( a );
+    fd_jtok_null( b );
+    return !fd_jtok_err( a ) && !fd_jtok_err( b );
+  default:
+    return 0;
+  }
+}
+
+static int
+json_eq( char const * a, ulong a_sz,
+         char const * b, ulong b_sz ) {
+  fd_jtok_t ja[1]; fd_jtok_init( ja, a, a_sz );
+  fd_jtok_t jb[1]; fd_jtok_init( jb, b, b_sz );
+  int eq = json_value_eq( ja, jb );
+  return eq && !fd_jtok_fini( ja ) && !fd_jtok_fini( jb );
+}
+
+static int
+json_eq_cstr( char const * a,
+              char const * b ) {
+  return json_eq( a, strlen( a ), b, strlen( b ) );
+}
+
 static void
 expect_rpc_response( fd_rpc_tile_t * ctx,
                      char const *    rpc_req,
@@ -116,24 +207,11 @@ expect_rpc_response( fd_rpc_tile_t * ctx,
   uchar const * got_json    = ctx->http->oring + (http_res._body_off % ctx->http->oring_sz);
   ulong         got_json_sz = http_res._body_len;
 
-  cJSON * got = cJSON_ParseWithLength( (char const *)got_json, got_json_sz );
-  FD_TEST( got );
-
-  cJSON * expected = cJSON_Parse( rpc_res );
-  FD_TEST( expected );
-
-  char * got_reserialized = cJSON_Print( got      ); FD_TEST( got_reserialized );
-  char * exp_reserialized = cJSON_Print( expected ); FD_TEST( exp_reserialized );
-  if( 0!=strcmp( got_reserialized, exp_reserialized ) ) {
-    FD_LOG_WARNING(( "Expected RPC response:\n---\n%s\n---", exp_reserialized ));
-    FD_LOG_WARNING(( "Got RPC response:\n---\n%s\n---", got_reserialized ));
+  if( FD_UNLIKELY( !json_eq( (char const *)got_json, got_json_sz, rpc_res, strlen( rpc_res ) ) ) ) {
+    FD_LOG_WARNING(( "Expected RPC response:\n---\n%s\n---", rpc_res ));
+    FD_LOG_WARNING(( "Got RPC response:\n---\n%.*s\n---", (int)got_json_sz, (char const *)got_json ));
     FD_LOG_ERR(( "RPC response did not match expected" ));
   }
-
-  cJSON_free( got_reserialized );
-  cJSON_free( exp_reserialized );
-  cJSON_Delete( expected );
-  cJSON_Delete( got );
 }
 
 static void
@@ -252,24 +330,11 @@ expect_ws_rpc_response( fd_rpc_tile_t * ctx,
   uchar const * got_json    = ctx->http->oring + (frame->off % ctx->http->oring_sz);
   ulong         got_json_sz = frame->len;
 
-  cJSON * got = cJSON_ParseWithLength( (char const *)got_json, got_json_sz );
-  FD_TEST( got );
-
-  cJSON * expected = cJSON_Parse( rpc_res );
-  FD_TEST( expected );
-
-  char * got_reserialized = cJSON_Print( got      ); FD_TEST( got_reserialized );
-  char * exp_reserialized = cJSON_Print( expected ); FD_TEST( exp_reserialized );
-  if( 0!=strcmp( got_reserialized, exp_reserialized ) ) {
-    FD_LOG_WARNING(( "Expected websocket RPC response:\n---\n%s\n---", exp_reserialized ));
-    FD_LOG_WARNING(( "Got websocket RPC response:\n---\n%s\n---", got_reserialized ));
+  if( FD_UNLIKELY( !json_eq( (char const *)got_json, got_json_sz, rpc_res, strlen( rpc_res ) ) ) ) {
+    FD_LOG_WARNING(( "Expected websocket RPC response:\n---\n%s\n---", rpc_res ));
+    FD_LOG_WARNING(( "Got websocket RPC response:\n---\n%.*s\n---", (int)got_json_sz, (char const *)got_json ));
     FD_LOG_ERR(( "websocket RPC response did not match expected" ));
   }
-
-  cJSON_free( got_reserialized );
-  cJSON_free( exp_reserialized );
-  cJSON_Delete( expected );
-  cJSON_Delete( got );
 }
 
 static void
@@ -376,58 +441,36 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  cJSON * integer      = cJSON_Parse( "1" );
-  cJSON * decimal      = cJSON_Parse( "1.0" );
-  cJSON * exponent     = cJSON_Parse( "1e0" );
-  cJSON * u64_max      = cJSON_Parse( "18446744073709551615" );
-  cJSON * u64_overflow = cJSON_Parse( "18446744073709551616" );
-  cJSON * i64_min      = cJSON_Parse( "-9223372036854775808" );
-  cJSON * i64_overflow = cJSON_Parse( "-9223372036854775809" );
-  FD_TEST( cJSON_IsInteger( integer      ) );
-  FD_TEST( !cJSON_IsInteger( decimal      ) );
-  FD_TEST( !cJSON_IsInteger( exponent     ) );
-  FD_TEST( cJSON_IsInteger( u64_max      ) );
-  FD_TEST( !cJSON_IsInteger( u64_overflow ) );
-  FD_TEST( cJSON_IsInteger( i64_min      ) );
-  FD_TEST( !cJSON_IsInteger( i64_overflow ) );
+  /* Number classification: integer literals that fit a u64 or i64 are
+     integers, anything else (fraction, exponent, overflow) is treated
+     as floating point. */
+  struct { char const * lit; int kind; int neg; ulong u; } const nums[] = {
+    { "1",                    FD_RPC_VAL_INT,   0, 1UL       },
+    { "1.0",                  FD_RPC_VAL_FLOAT, 0, 0UL       },
+    { "1e0",                  FD_RPC_VAL_FLOAT, 0, 0UL       },
+    { "18446744073709551615", FD_RPC_VAL_INT,   0, ULONG_MAX },
+    { "18446744073709551616", FD_RPC_VAL_FLOAT, 0, 0UL       },
+    { "-9223372036854775808", FD_RPC_VAL_INT,   1, 0UL       },
+    { "-9223372036854775809", FD_RPC_VAL_FLOAT, 0, 0UL       },
+    { "-0",                   FD_RPC_VAL_INT,   0, 0UL       },
+  };
+  for( ulong i=0UL; i<sizeof(nums)/sizeof(nums[0]); i++ ) {
+    fd_jtok_t j[1];
+    fd_rpc_val_t v[1];
+    fd_rpc_val_read( fd_jtok_init( j, nums[i].lit, strlen( nums[i].lit ) ), v );
+    FD_TEST( !fd_jtok_fini( j ) );
+    FD_TEST( v->kind==nums[i].kind );
+    FD_TEST( v->neg ==nums[i].neg  );
+    FD_TEST( v->u   ==nums[i].u    );
+    FD_TEST( v->raw_sz==strlen( nums[i].lit ) && !memcmp( v->raw, nums[i].lit, v->raw_sz ) );
+  }
 
-  FD_TEST( cJSON_SetNumberValue( integer, 1.5 )==1.5 );
-  FD_TEST( !cJSON_IsInteger( integer ) );
-  FD_TEST( integer->valueulong==ULONG_MAX );
-  FD_TEST( cJSON_SetNumberValue( integer, 2.0 )==2.0 );
-  FD_TEST( cJSON_IsInteger( integer ) );
-  FD_TEST( integer->valueulong==2UL );
-
-  FD_TEST( cJSON_SetIntValue( decimal, 3 )==3 );
-  FD_TEST( cJSON_IsInteger( decimal ) );
-  FD_TEST( decimal->valueulong==3UL );
-  cJSON * assigned = NULL;
-  FD_TEST( cJSON_SetIntValue( assigned = decimal, 3/2 )==1 );
-  FD_TEST( assigned==decimal );
-  FD_TEST( cJSON_IsInteger( decimal ) );
-  FD_TEST( decimal->valueulong==1UL );
-  FD_TEST( cJSON_SetIntValue( decimal, 4.5 )==4 );
-  FD_TEST( !cJSON_IsInteger( decimal ) );
-  FD_TEST( decimal->valueulong==ULONG_MAX );
-
-  cJSON * created_integer = cJSON_CreateNumber( 5.0 );
-  cJSON * created_decimal = cJSON_CreateNumber( 5.5 );
-  FD_TEST( created_integer );
-  FD_TEST( created_decimal );
-  FD_TEST( cJSON_IsInteger( created_integer ) );
-  FD_TEST( created_integer->valueulong==5UL );
-  FD_TEST( !cJSON_IsInteger( created_decimal ) );
-  FD_TEST( created_decimal->valueulong==ULONG_MAX );
-  cJSON_Delete( created_integer );
-  cJSON_Delete( created_decimal );
-
-  cJSON_Delete( integer      );
-  cJSON_Delete( decimal      );
-  cJSON_Delete( exponent     );
-  cJSON_Delete( u64_max      );
-  cJSON_Delete( u64_overflow );
-  cJSON_Delete( i64_min      );
-  cJSON_Delete( i64_overflow );
+  FD_TEST(  json_eq_cstr( "{\"a\":[1,1.0,\"x\",true,null]}", " { \"a\" : [ 1 , 1e0 , \"\\u0078\" , true , null ] } " ) );
+  FD_TEST(  json_eq_cstr( "{\"a\":1}", "{\"\\u0061\":1}" ) );
+  FD_TEST( !json_eq_cstr( "{\"a\":1}", "{\"\\u0062\":1}" ) );
+  FD_TEST( !json_eq_cstr( "{\"a\":1}", "{\"a\":2}" ) );
+  FD_TEST( !json_eq_cstr( "{\"a\":1,\"b\":2}", "{\"b\":2,\"a\":1}" ) );
+  FD_TEST( !json_eq_cstr( "[1]", "[1] x" ) );
 
   uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );
@@ -806,6 +849,12 @@ main( int     argc,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[\"not-an-array\"]}",
       "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"not-an-array\\\", expected a sequence.\"},\"id\":1}" );
 
+  /* Whitespace and control character escapes in an echoed string are
+     collapsed into a single space; other escapes are kept verbatim. */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[\"a  \\n\\r\\t \\u0001b\\\"c\\u0041\"]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"a b\\\"c\\u0041\\\", expected a sequence.\"},\"id\":1}" );
+
   /* too many accounts (101) */
   {
     char * p = fd_cstr_init( req_buf );
@@ -922,13 +971,31 @@ main( int     argc,
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,4]}", res_buf );
 
     /* Floating-point tokens are not valid u64 values, even when their
-       values are integral. */
+       values are integral.  Echoed values are reprinted in serde's
+       style, not as they appeared in the request. */
     expect_rpc_response( ctx,
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1.0,0]}",
         "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1.0`, expected u64.\"},\"id\":1}" );
     expect_rpc_response( ctx,
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1e0,0]}",
         "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1.0`, expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1E16,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1e+16`, expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0.00001,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `0.00001`, expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[2.5e-10,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `2.5e-10`, expected u64.\"},\"id\":1}" );
+    /* Integer literals that overflow a u64 are floats to serde */
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[18446744073709551616,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1.8446744073709552e+19`, expected u64.\"},\"id\":1}" );
+    /* Literals that are not a finite double are echoed verbatim */
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1e999,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1e999`, expected u64.\"},\"id\":1}" );
 
     /* limit == 0 -> empty array, no error */
     expect_rpc_response( ctx,
