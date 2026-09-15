@@ -10,8 +10,8 @@
 
 /* A vc_t is a vector conditional.  This is, it is a vector of integers
    where each 32-bit wide lane is either 0 (all zero bits), indicating
-   the condition is true for that lane or -1 (all one bits), indicating
-   the condition is false for that lane.  This allows fast bit
+   the condition is false for that lane or -1 (all one bits), indicating
+   the condition is true for that lane.  This allows fast bit
    operations to mask other types of vectors.  If this API is used on
    vectors that aren't proper vector conditionals, results are
    undefined.  When vector conditional are applied to vector doubles,
@@ -79,9 +79,9 @@ vc_bcast_wide( int c0, int c1 ) {
    location p as a proper vector conditional (see above note about
    c-style logicals).  vc_ldu is the same but p does not have to be
    aligned.  In the fast variants, the caller promises that p already
-   holds a proper vector conditions (e.g. 0/-1 for true/false).  vc_st
+   holds a proper vector conditions (e.g. 0/-1 for false/true).  vc_st
    writes the vector conditional c at the 16-byte aligned / 16-byte size
-   location p (0/-1 for true/false).  vc_stu is the same but p does not
+   location p (0/-1 for false/true).  vc_stu is the same but p does not
    have to be aligned.  Lane l will be at p[l].  FIXME: USE ATTRIBUTES
    ON P PASSED TO THESE?
 
@@ -127,8 +127,8 @@ static inline void vc_stu( void * p, vc_t c ) { _mm_storeu_si128( (__m128i *)p, 
 #define vc_insert(a,imm,c) _mm_insert_epi32( (a), -!!(c), (imm) )
 
 #define vc_extract_variable(c,n) ((_mm_movemask_ps( _mm_castsi128_ps( (c) ) ) >> (n)  ) & 1)
-#define vc_insert_variable(a,n,c)                                                                                              \
-  _mm_cmpgt_epi32( _mm_and_si128( _mm_set1_epi32( (_mm_movemask_ps( _mm_castsi128_ps( (a) ) ) & (~(1<<(n)))) | ((!!(c))<<n) ), \
+#define vc_insert_variable(a,n,c)                                                                                                \
+  _mm_cmpgt_epi32( _mm_and_si128( _mm_set1_epi32( (_mm_movemask_ps( _mm_castsi128_ps( (a) ) ) & (~(1<<(n)))) | ((!!(c))<<(n)) ), \
                                   _mm_setr_epi32( 1<<0, 1<<1, 1<<2, 1<<3 ) ), _mm_setzero_si128() )
 
 /* Given [ a0 a1 a2 a3 ] and/or [ b0 b1 b2 b3 ], return ... */
