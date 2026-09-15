@@ -1447,6 +1447,46 @@ test_banks_full_prune_leaf( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_banks_full_prune_leaf" ));
 }
 
+static void
+test_reused_parent_bank_idx_not_leader_bank( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t mr_root   = { .ul = { 100UL } };
+  fd_hash_t mr_parent = { .ul = { 200UL } };
+  fd_hash_t mr_child  = { .ul = { 300UL } };
+  init_root_fec( ctx, &mr_root );
+
+  ingest_fec_complete( ctx, &mr_parent, &mr_root, 1UL, 0U, 1U, 32U, 1, 1 );
+  fd_reasm_fec_t * parent = drive_one_fec( ctx, 1UL, 0U );
+  fd_bank_t *      bank   = fd_banks_bank_query( ctx->banks, parent->bank_idx );
+  FD_TEST( bank );
+  bank->refcnt = 0UL;
+
+  fd_reasm_fec_t * child = ingest_fec_complete( ctx, &mr_child, &mr_parent, 2UL, 0U, 1U, 32U, 1, 1 );
+  FD_TEST( fd_reasm_parent( ctx->reasm, child )==parent );
+
+  ulong old_bank_idx = parent->bank_idx;
+  ulong old_bank_seq = parent->bank_seq;
+  FD_TEST( fd_banks_get_evictable_bank( ctx->banks, NULL )==old_bank_idx );
+  fd_banks_prune_cancel_info_t cancel[ 1 ];
+  FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
+
+  fd_bank_t * leader_bank = fd_banks_new_bank( ctx->banks, fd_banks_root( ctx->banks )->idx, 0L, 1 );
+  FD_TEST( leader_bank->idx==old_bank_idx );
+  FD_TEST( leader_bank->bank_seq!=old_bank_seq );
+  ctx->leader_bank = leader_bank;
+  ctx->is_leader   = 1;
+
+  ulong leader_bid_wait = ctx->metrics.leader_bid_wait;
+  int   evict_banks     = 0;
+  FD_TEST( can_process_fec( ctx, &evict_banks ) );
+  FD_TEST( ctx->metrics.leader_bid_wait==leader_bid_wait );
+  FD_TEST( !evict_banks );
+
+  FD_LOG_NOTICE(( "pass: test_reused_parent_bank_idx_not_leader_bank" ));
+}
+
 /* Out-queue misordering on eqvoc + confirm.
 
    Version A of slot 1 is fully replayed.  Then version B FEC 0 arrives
@@ -1724,6 +1764,7 @@ main( int     argc,
   test_consensus_root_notification_handoff( wksp );
   test_epoch_boundary_fork_width_evict( wksp );
   test_banks_full_prune_leaf( wksp );
+  test_reused_parent_bank_idx_not_leader_bank( wksp );
   test_banks_evict_backfill( wksp );
   test_backfill_partial_sched_capacity( wksp );
   test_double_confirm_backfill( wksp );
