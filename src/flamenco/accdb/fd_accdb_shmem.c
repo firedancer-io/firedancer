@@ -361,6 +361,7 @@ fd_accdb_shmem_new( void * shmem,
     for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_free_cnt[ j ].val[ c ] = 0UL;
   }
   memset( accdb->cache_free_have, 0, sizeof(accdb->cache_free_have) );
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) accdb->cache_hazard[ j ].cnt = 0UL;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     ulong max_c       = cache_class_max[ c ];
@@ -433,6 +434,8 @@ fd_accdb_shmem_new( void * shmem,
       line->acc_idx        = UINT_MAX;
       line->refcnt         = 0U;
       line->referenced     = 0;
+      line->hazard_pending = 0;
+      line->hazard_read    = 0;
       line->persisted      = 1;
     }
   }

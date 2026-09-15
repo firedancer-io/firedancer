@@ -318,6 +318,14 @@ struct fd_accdb_cache_line {
   uint  refcnt;
   uchar persisted;
   uchar referenced;
+  /* Claimed for eviction but still in a reader's hazard list; a later
+     sweep takes it once the list is clear. */
+  uchar hazard_pending;
+  /* Some reader has held this line through its hazard list since the
+     line was last taken, so a reclaim has to scan the lists.  Set by
+     the reader before it fences and re-checks the account, so a reader
+     whose check passed is always seen. */
+  uchar hazard_read;
 
   uint next;
 
@@ -404,6 +412,16 @@ struct fd_accdb_shmem_private {
      Summed over joiners by the background pre-eviction loop to decide
      when to refill. */
   struct __attribute__((aligned(64))) { ulong val[ FD_ACCDB_CACHE_CLASS_CNT ]; } cache_free_cnt[ FD_ACCDB_MAX_JOINERS ];
+
+  /* Per-joiner hazard lists: the packed cidx of every line a join is
+     reading without a pin.  A reader stores the cidx, fences, then
+     re-checks that the account still names the line; an evictor first
+     makes the line unreachable (clears the account's cache_idx), then
+     scans every list, and a line found in one stays claimed
+     (hazard_pending) until a later sweep finds the lists clear.  A join
+     fills from slot 0 and resets cnt when it releases; slots below cnt
+     holding FD_ACCDB_ACC_CIDX_INVAL are ones a reader gave up on. */
+  struct __attribute__((aligned(64))) { ulong cnt; uint cidx[ 2UL*FD_ACCDB_MAX_ACQUIRE_CNT ]; } cache_hazard[ FD_ACCDB_MAX_JOINERS ];
 
   /* Per-class hint of which joiners' lists may be non-empty, so a
      steal does not walk every joiner.  Set by a push into an empty

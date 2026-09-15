@@ -37,6 +37,7 @@ struct fd_accdb_entry {
 
   int     _writable;
   int     _overwrite;
+  int     _hazard;     /* read without a pin, under this join's hazard list */
 
   ushort  _fork_id;
   uint    _generation;

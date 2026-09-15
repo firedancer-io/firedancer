@@ -71,8 +71,11 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      deferred frees are safe. */
   ulong * my_epoch_slot;
 
-  /* Index of this join's free lists in shmem->cache_free */
+  /* Index of this join's free lists in shmem->cache_free and hazard
+     list in shmem->cache_hazard, and the published length of the
+     latter. */
   ulong   joiner_idx;
+  ulong   hazard_cnt;
 
   /* Read-only pointers to external epoch slots (e.g. fseqs owned by
      RO consumer tiles like the rpc tile).  Scanned in addition to
@@ -316,6 +319,7 @@ fd_accdb_new( void *              ljoin,
   accdb->my_epoch_slot = &shmem->joiner_epochs[ epoch_idx ].val;
   accdb->joiner_idx    = FD_ATOMIC_FETCH_AND_ADD( &shmem->free_owner_cnt, 1UL );
   FD_TEST( accdb->joiner_idx<FD_ACCDB_MAX_JOINERS );
+  accdb->hazard_cnt    = 0UL;
 
   accdb->external_epoch_slots = external_epoch_slots;
   accdb->external_epoch_cnt   = external_epoch_cnt;
@@ -402,9 +406,12 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
       line->acc_idx        = UINT_MAX;
       line->refcnt         = 0U;
       line->referenced     = 0;
+      line->hazard_pending = 0;
+      line->hazard_read    = 0;
       line->persisted      = 1;
     }
   }
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) shmem->cache_hazard[ j ].cnt = 0UL;
 
   /* Epoch system: reset epoch and all slot values to idle, but
      preserve joiner_cnt and each tile's my_epoch_slot pointer so that
@@ -735,8 +742,10 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->my_epoch_slot = my_epoch_slot_rw;
 
   /* A readonly join never touches the cache (see the header), so it
-     owns no free list, and claiming one would write the shmem. */
+     owns no free list or hazard list, and claiming one would write
+     the shmem. */
   accdb->joiner_idx = ULONG_MAX;
+  accdb->hazard_cnt = 0UL;
 
   /* Readonly joiners do not own external slots themselves; only the
      compaction tile / writer joiners do. */
@@ -1005,6 +1014,47 @@ cache_free_total( fd_accdb_shmem_t const * shmem,
   return total;
 }
 
+/* hazard_scan returns whether any join is reading the line cidx
+   without a pin.  Only meaningful once the line is unreachable, so
+   that no reader can publish it afterwards. */
+
+static int
+hazard_scan( fd_accdb_t * accdb,
+             uint         cidx ) {
+  ulong owner_cnt = FD_VOLATILE_CONST( accdb->shmem->free_owner_cnt );
+  for( ulong j=0UL; j<owner_cnt; j++ ) {
+    ulong cnt = FD_VOLATILE_CONST( accdb->shmem->cache_hazard[ j ].cnt );
+    for( ulong k=0UL; k<cnt; k++ ) {
+      if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->cache_hazard[ j ].cidx[ k ] )==cidx ) ) return 1;
+    }
+  }
+  return 0;
+}
+
+/* cache_line_discard frees a line claimed for eviction whose account
+   no longer names it and whose contents are persisted: to the free
+   list, unless a reader still has it in its hazard list, in which case
+   it stays claimed, with its contents and metadata intact for that
+   reader, until a later sweep finds the lists clear. */
+
+static inline void
+cache_line_discard( fd_accdb_t *            accdb,
+                    ulong                   size_class,
+                    fd_accdb_cache_line_t * line ) {
+  line->persisted = 1;
+  FD_COMPILER_MFENCE();
+  if( FD_UNLIKELY( line->hazard_read && hazard_scan( accdb, FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)cache_line_idx( accdb, size_class, line ) ) ) ) ) {
+    line->hazard_pending = 1;
+    return;
+  }
+  line->hazard_read    = 0;
+  line->acc_idx        = UINT_MAX;
+  line->key.generation = UINT_MAX;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( line->refcnt ) = 0;
+  cache_free_push( accdb, size_class, line );
+}
+
 /* cache_try_pin attempts a lock-free pin of a cache-hit line.  Returns
    the line if successfully pinned, or NULL if the line is being evicted
    or was recycled (ABA). */
@@ -1029,7 +1079,7 @@ cache_try_pin( fd_accdb_cache_line_t * line,
         FD_ATOMIC_FETCH_AND_SUB( &line->refcnt, 1U );
         return NULL;
       }
-      line->referenced = 1;
+      if( FD_LIKELY( !line->referenced ) ) line->referenced = 1;
       fd_racesan_hook( "cache_try_pin:pinned" );
       return line;
     }
@@ -1256,13 +1306,7 @@ acc_unlink( fd_accdb_t * accdb,
          between our read of cache_idx and the CAS). */
       if( FD_LIKELY( stale->key.generation==accmeta->key.generation &&
                      !memcmp( stale->key.pubkey, accmeta->key.pubkey, 32UL ) ) ) {
-        ulong sc = FD_ACCDB_ACC_CIDX_CLASS( cidx );
-        stale->key.generation = UINT_MAX;
-        stale->persisted = 1;
-        stale->acc_idx   = UINT_MAX;
-        FD_COMPILER_MFENCE();
-        FD_VOLATILE( stale->refcnt ) = 0;
-        cache_free_push( accdb, sc, stale );
+        cache_line_discard( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), stale );
       } else {
         /* Wrong line (ABA).  Release claim. */
         FD_VOLATILE( stale->refcnt ) = 0;
@@ -1616,129 +1660,6 @@ fd_accdb_purge( fd_accdb_t *       accdb,
 
   wait_cmd( accdb );
   submit_cmd( accdb, FD_ACCDB_CMD_PURGE, fork_id.val );
-}
-
-/* acquire_cache_line takes a line of the class: one from this join's
-   own free list, a never used one, one stolen from another join's
-   list, or one evicted by a CLOCK sweep.  Returns NULL if two full
-   sweeps found nothing evictable, i.e. every line is pinned; the
-   caller then gives back what it holds and waits, so that a class
-   which is only full of in-flight pins drains.
-
-   Never used lines come before stealing so that, while there are any,
-   every join ends up owning the lines it cycles through (a staging
-   line is popped at acquire and pushed back at release, on the same
-   list).  Stealing first leaves joins short: a stolen line makes its
-   owner steal in turn, and the shuffle never settles into ownership
-   because a class only grows when every list is empty at once. */
-
-static inline fd_accdb_cache_line_t *
-acquire_cache_line( fd_accdb_t * accdb,
-                    ulong        size_class,
-                    uint *       out_evicted_acc_idx ) {
-  fd_accdb_cache_line_t * result = cache_free_pop_from( accdb, accdb->joiner_idx, size_class, 0 );
-  if( FD_LIKELY( result ) ) goto popped;
-
-  /* A plain read first: once the class is full the counter never
-     changes again, and the RMW would contend for nothing. */
-  ulong max_c = accdb->shmem->cache_class_max[ size_class ];
-  if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->cache_class_init[ size_class ].val )<max_c ) ) {
-    ulong old_init = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->cache_class_init[ size_class ].val, 1UL );
-    if( FD_LIKELY( old_init<max_c ) ) {
-      result = cache_line( accdb, size_class, old_init );
-      result->refcnt         = 1;
-      result->persisted      = 1;
-      result->referenced     = 0;
-      result->acc_idx        = UINT_MAX;
-      result->key.generation = UINT_MAX;
-      *out_evicted_acc_idx   = UINT_MAX;
-      return result;
-    }
-    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_init[ size_class ].val, 1UL );
-  }
-
-  result = cache_free_steal( accdb, size_class );
-  if( FD_LIKELY( result ) ) {
-popped:
-    /* Free lines are already invalidated: persisted==1 and
-       generation==UINT_MAX.  A reader that raced the invalidation may
-       hold a stray pin until its ABA check fails. */
-    while( FD_UNLIKELY( FD_ATOMIC_CAS( &result->refcnt, 0U, 1U )!=0U ) ) {
-      fd_racesan_hook( "accdb_freepop:refcnt_wait" );
-      FD_SPIN_PAUSE();
-    }
-    result->referenced = 0;
-    *out_evicted_acc_idx = UINT_MAX;
-    return result;
-  }
-
-  /* CLOCK sweep ... scan forward giving second chances.
-     One sweep may spend every second chance and a second then find
-     the lines pinned, so give up after two. */
-  for( ulong step=0UL; step<2UL*max_c; step++ ) {
-    ulong hand = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->clock_hand[ size_class ].val, 1UL ) % max_c;
-    fd_accdb_cache_line_t * line = cache_line( accdb, size_class, hand );
-
-    if( FD_UNLIKELY( line->key.generation==UINT_MAX && line->acc_idx==UINT_MAX ) ) continue;
-
-    fd_racesan_hook( "accdb_clock:pre_refcnt" );
-    uint rc = FD_VOLATILE_CONST( line->refcnt );
-    if( FD_UNLIKELY( rc!=0U ) ) continue; /* Pinned or being evicted */
-
-    if( FD_UNLIKELY( line->referenced ) ) {
-      line->referenced = 0;
-      continue; /* Second chance */
-    }
-
-    if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) continue;
-
-    if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX ) ) {
-      FD_VOLATILE( line->refcnt ) = 0;
-      continue;
-    }
-
-    /* The line is now claimed for eviction (refcnt==EVICT_SENTINEL).  A
-       concurrent acc_unlink that targets this same line's accmeta will
-       observe the sentinel here and take its do-nothing branch — see the
-       test_accdb_racesan SENTINEL case. */
-    fd_racesan_hook( "clock_evict:post_sentinel" );
-
-    if( FD_LIKELY( line->acc_idx!=UINT_MAX ) ) {
-      evict_clear_acc_cache_ref( &accdb->acc_pool[ line->acc_idx ], size_class, hand );
-    }
-    *out_evicted_acc_idx    = line->persisted ? UINT_MAX : line->acc_idx;
-    line->key.generation    = UINT_MAX;
-    line->refcnt            = 1;
-    line->referenced        = 0;
-    return line;
-  }
-
-  return NULL;
-}
-
-/* release_cache_line gives back a line taken with acquire_cache_line
-   that ended up unused.  Anything dirty it evicted must have been
-   written back already. */
-
-static inline void
-release_cache_line( fd_accdb_t *            accdb,
-                    ulong                   size_class,
-                    fd_accdb_cache_line_t * line ) {
-  /* acquire_cache_line via CLOCK leaves line->acc_idx pointing at
-     the prior owner.  cache_free_push consumers (CLOCK,
-     background_preevict) skip lines only when acc_idx==UINT_MAX AND
-     gen==UINT_MAX; if we leave the stale acc_idx, a future CLOCK pick
-     would clear the wrong acc's cache_idx/valid.  CAS on refcnt
-     because a reader holding a stale acc->cache_idx from this line's
-     previous life may hold a transient cache_try_pin pin. */
-  line->acc_idx        = UINT_MAX;
-  line->key.generation = UINT_MAX;
-  line->persisted      = 1;
-  while( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 1U, 0U )!=1U ) ) {
-    fd_racesan_hook( "accdb_release:dest_refcnt_wait" );
-    FD_SPIN_PAUSE();
-  }
-  cache_free_push( accdb, size_class, line );
 }
 
 static inline void
@@ -2178,6 +2099,202 @@ background_compact( fd_accdb_t * accdb,
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
 }
 
+/* writeback_line persists the dirty account acc_idx still held in a
+   line that was just claimed from it, and publishes the new offset. */
+static void
+writeback_line( fd_accdb_t *            accdb,
+                fd_accdb_cache_line_t * line,
+                uint                    acc_idx ) {
+  fd_accdb_shmem_t *   shmem   = accdb->shmem;
+  fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
+  ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+
+  accdb->metrics->accounts_evicted++;
+  accdb->metrics->accounts_evicted_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmeta->executable_size ) ) ]++;
+
+  ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
+  if( FD_LIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
+    fd_accdb_shmem_bytes_freed( shmem, old_offset, entry_sz );
+    FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, entry_sz );
+  }
+
+  fd_accdb_disk_meta_t meta;
+  fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
+  meta.size       = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+  meta.generation = accmeta->key.generation;
+  fd_memcpy( meta.owner, line->owner, 32UL );
+
+  struct iovec iovs[ 2UL ] = {
+    { .iov_base = &meta,              .iov_len = sizeof(fd_accdb_disk_meta_t) },
+    { .iov_base = (void *)(line+1UL), .iov_len = FD_ACCDB_SIZE_DATA( accmeta->executable_size ) }
+  };
+  ulong file_off = allocate_next_write( accdb, entry_sz );
+  ulong written  = 0UL;
+  while( written<entry_sz ) {
+    long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );
+    if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
+    else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    written += (ulong)result;
+    accdb->metrics->bytes_written += (ulong)result;
+    accdb->metrics->write_ops++;
+    for( int v=0; v<2; v++ ) {
+      if( (ulong)result>=iovs[ v ].iov_len ) { result -= (long)iovs[ v ].iov_len; iovs[ v ].iov_len = 0UL; }
+      else { iovs[ v ].iov_base = (uchar *)iovs[ v ].iov_base + result; iovs[ v ].iov_len -= (ulong)result; break; }
+    }
+  }
+  FD_COMPILER_MFENCE();
+  accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_off, fd_accdb_acc_fork_id(accmeta) );
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, entry_sz );
+  line->persisted = 1;
+}
+
+/* acquire_cache_line takes a line of the class: one from this join's
+   own free list, a never used one, one stolen from another join's
+   list, or one evicted by a CLOCK sweep.  Returns NULL if two full
+   sweeps found nothing evictable, i.e. every line is pinned; the
+   caller then gives back what it holds and waits, so that a class
+   which is only full of in-flight pins drains.
+
+   Never used lines come before stealing so that, while there are any,
+   every join ends up owning the lines it cycles through (a staging
+   line is popped at acquire and pushed back at release, on the same
+   list).  Stealing first leaves joins short: a stolen line makes its
+   owner steal in turn, and the shuffle never settles into ownership
+   because a class only grows when every list is empty at once. */
+
+static inline fd_accdb_cache_line_t *
+acquire_cache_line( fd_accdb_t * accdb,
+                    ulong        size_class,
+                    uint *       out_evicted_acc_idx ) {
+  fd_accdb_cache_line_t * result = cache_free_pop_from( accdb, accdb->joiner_idx, size_class, 0 );
+  if( FD_LIKELY( result ) ) goto popped;
+
+  /* A plain read first: once the class is full the counter never
+     changes again, and the RMW would contend for nothing. */
+  ulong max_c = accdb->shmem->cache_class_max[ size_class ];
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->cache_class_init[ size_class ].val )<max_c ) ) {
+    ulong old_init = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->cache_class_init[ size_class ].val, 1UL );
+    if( FD_LIKELY( old_init<max_c ) ) {
+      result = cache_line( accdb, size_class, old_init );
+      result->refcnt         = 1;
+      result->persisted      = 1;
+      result->referenced     = 0;
+      result->hazard_pending = 0;
+      result->hazard_read    = 0;
+      result->acc_idx        = UINT_MAX;
+      result->key.generation = UINT_MAX;
+      *out_evicted_acc_idx   = UINT_MAX;
+      return result;
+    }
+    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_init[ size_class ].val, 1UL );
+  }
+
+  result = cache_free_steal( accdb, size_class );
+  if( FD_LIKELY( result ) ) {
+popped:
+    /* Free lines are already invalidated: persisted==1 and
+       generation==UINT_MAX.  A reader that raced the invalidation may
+       hold a stray pin until its ABA check fails. */
+    while( FD_UNLIKELY( FD_ATOMIC_CAS( &result->refcnt, 0U, 1U )!=0U ) ) {
+      fd_racesan_hook( "accdb_freepop:refcnt_wait" );
+      FD_SPIN_PAUSE();
+    }
+    result->referenced = 0;
+    *out_evicted_acc_idx = UINT_MAX;
+    return result;
+  }
+
+  /* CLOCK sweep ... scan forward giving second chances.
+     One sweep may spend every second chance and a second then find
+     the lines pinned, so give up after two. */
+  for( ulong step=0UL; step<2UL*max_c; step++ ) {
+    ulong hand = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->clock_hand[ size_class ].val, 1UL ) % max_c;
+    fd_accdb_cache_line_t * line = cache_line( accdb, size_class, hand );
+    uint cidx = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)hand );
+
+    /* Claimed by an earlier sweep that found a reader on it. */
+    if( FD_UNLIKELY( line->hazard_pending ) ) {
+      if( FD_UNLIKELY( hazard_scan( accdb, cidx ) ) ) continue;
+      line->hazard_pending = 0;
+      goto claimed;
+    }
+
+    if( FD_UNLIKELY( line->key.generation==UINT_MAX && line->acc_idx==UINT_MAX ) ) continue;
+
+    fd_racesan_hook( "accdb_clock:pre_refcnt" );
+    uint rc = FD_VOLATILE_CONST( line->refcnt );
+    if( FD_UNLIKELY( rc!=0U ) ) continue; /* Pinned or being evicted */
+
+    if( FD_UNLIKELY( line->referenced ) ) {
+      line->referenced = 0;
+      continue; /* Second chance */
+    }
+
+    if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) continue;
+
+    if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX ) ) {
+      FD_VOLATILE( line->refcnt ) = 0;
+      continue;
+    }
+
+    /* The line is now claimed for eviction (refcnt==EVICT_SENTINEL).  A
+       concurrent acc_unlink that targets this same line's accmeta will
+       observe the sentinel here and take its do-nothing branch — see the
+       test_accdb_racesan SENTINEL case. */
+    fd_racesan_hook( "clock_evict:post_sentinel" );
+
+    if( FD_LIKELY( line->acc_idx!=UINT_MAX ) ) {
+      evict_clear_acc_cache_ref( &accdb->acc_pool[ line->acc_idx ], size_class, hand );
+    }
+    /* Unreachable now.  A reader that already had it published its
+       hazard before re-checking the account, so the scan sees it.  If
+       one has, the line waits for a later sweep, but the account does
+       not: it is written back now, since a cold load of it is waiting
+       on the offset that publishes. */
+    if( FD_UNLIKELY( line->hazard_read && hazard_scan( accdb, cidx ) ) ) {
+      if( FD_UNLIKELY( !line->persisted && line->acc_idx!=UINT_MAX ) ) writeback_line( accdb, line, line->acc_idx );
+      line->hazard_pending = 1;
+      continue;
+    }
+
+  claimed:
+    *out_evicted_acc_idx    = line->persisted ? UINT_MAX : line->acc_idx;
+    line->key.generation    = UINT_MAX;
+    line->refcnt            = 1;
+    line->referenced        = 0;
+    line->hazard_read       = 0;
+    return line;
+  }
+
+  return NULL;
+}
+
+/* release_cache_line gives back a line taken with acquire_cache_line
+   that ended up unused.  Anything dirty it evicted must have been
+   written back already. */
+
+static inline void
+release_cache_line( fd_accdb_t *            accdb,
+                    ulong                   size_class,
+                    fd_accdb_cache_line_t * line ) {
+  /* acquire_cache_line via CLOCK leaves line->acc_idx pointing at
+     the prior owner.  cache_free_push consumers (CLOCK,
+     background_preevict) skip lines only when acc_idx==UINT_MAX AND
+     gen==UINT_MAX; if we leave the stale acc_idx, a future CLOCK pick
+     would clear the wrong acc's cache_idx/valid.  CAS on refcnt
+     because a reader holding a stale acc->cache_idx from this line's
+     previous life may hold a transient cache_try_pin pin. */
+  line->acc_idx        = UINT_MAX;
+  line->key.generation = UINT_MAX;
+  line->persisted      = 1;
+  line->hazard_read    = 0;
+  while( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 1U, 0U )!=1U ) ) {
+    fd_racesan_hook( "accdb_release:dest_refcnt_wait" );
+    FD_SPIN_PAUSE();
+  }
+  cache_free_push( accdb, size_class, line );
+}
+
 /* cold_load_acc resolves the cache slot for `acc` when STEP 1's
    cache_try_pin failed.  It uses bit 29 of executable_size as a
    single-claimer lock so that two concurrent acquirers cannot each
@@ -2279,55 +2396,6 @@ cold_load_acc( fd_accdb_t *            accdb,
   }
 }
 
-/* writeback_line persists the dirty account acc_idx still held in a
-   line that was just claimed from it, and publishes the new offset. */
-static void
-writeback_line( fd_accdb_t *            accdb,
-                fd_accdb_cache_line_t * line,
-                uint                    acc_idx ) {
-  fd_accdb_shmem_t *   shmem   = accdb->shmem;
-  fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
-  ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( accmeta->executable_size );
-
-  accdb->metrics->accounts_evicted++;
-  accdb->metrics->accounts_evicted_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmeta->executable_size ) ) ]++;
-
-  ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
-  if( FD_LIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
-    fd_accdb_shmem_bytes_freed( shmem, old_offset, entry_sz );
-    FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, entry_sz );
-  }
-
-  fd_accdb_disk_meta_t meta;
-  fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
-  meta.size       = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
-  meta.generation = accmeta->key.generation;
-  fd_memcpy( meta.owner, line->owner, 32UL );
-
-  struct iovec iovs[ 2UL ] = {
-    { .iov_base = &meta,              .iov_len = sizeof(fd_accdb_disk_meta_t) },
-    { .iov_base = (void *)(line+1UL), .iov_len = FD_ACCDB_SIZE_DATA( accmeta->executable_size ) }
-  };
-  ulong file_off = allocate_next_write( accdb, entry_sz );
-  ulong written  = 0UL;
-  while( written<entry_sz ) {
-    long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );
-    if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
-    else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-    written += (ulong)result;
-    accdb->metrics->bytes_written += (ulong)result;
-    accdb->metrics->write_ops++;
-    for( int v=0; v<2; v++ ) {
-      if( (ulong)result>=iovs[ v ].iov_len ) { result -= (long)iovs[ v ].iov_len; iovs[ v ].iov_len = 0UL; }
-      else { iovs[ v ].iov_base = (uchar *)iovs[ v ].iov_base + result; iovs[ v ].iov_len -= (ulong)result; break; }
-    }
-  }
-  FD_COMPILER_MFENCE();
-  accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_off, fd_accdb_acc_fork_id(accmeta) );
-  FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, entry_sz );
-  line->persisted = 1;
-}
-
 /* fd_accdb_acquire_inner is the acquire proper.  When a class has
    nothing left to take it gives back everything this call took and
    waits, then starts over, unless may_fail: then it returns 0 with
@@ -2369,6 +2437,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   uint                    taken_evicted[ 2UL*FD_ACCDB_MAX_ACQUIRE_CNT ];
   int                     taken_spare  [ 2UL*FD_ACCDB_MAX_ACQUIRE_CNT ];
   ulong                   taken_cnt;
+
+  ulong hazard_cnt_base = accdb->hazard_cnt; /* acquire_b appends to acquire_a's */
 
 retry:
   FD_COMPILER_MFENCE();
@@ -2464,20 +2534,62 @@ retry:
   //   Pin the accounts that are in cache and take a line for every
   //   one that is not, and a staging line for every writable one.
   //   Nothing is published yet, so this can all be undone.
+  //
+  //   A read-only hit is not pinned: its line goes into this join's
+  //   hazard list, after which the account is checked to still name
+  //   the line.  An evictor makes a line unreachable before it scans
+  //   the hazard lists, so a reader whose check passed is seen, and
+  //   one whose check failed never used the line.  That keeps every
+  //   executor's reads of the same hot program off its refcnt.
+  //   Writable hits are pinned: the commit needs the line to itself.
 
   taken_cnt = 0UL;
   int taken_failed = 0;
   ulong load_taken_idx[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong hazard_slot   [ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  int   hazard_hit    [ FD_ACCDB_MAX_ACQUIRE_CNT ];
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     original_cache_line[ i ] = NULL;
     staging_line       [ i ] = NULL;
     load_taken_idx     [ i ] = ULONG_MAX;
+    hazard_slot        [ i ] = ULONG_MAX;
+    hazard_hit         [ i ] = 0;
   }
+
+  ulong * hazard_cnt_pub = &accdb->shmem->cache_hazard[ accdb->joiner_idx ].cnt;
+  uint *  hazard_cidx    =  accdb->shmem->cache_hazard[ accdb->joiner_idx ].cidx;
+  for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
+    if( FD_LIKELY( writable[ i ] || !accmetas[ i ] ) ) continue;
+    if( FD_UNLIKELY( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( accmetas[ i ]->executable_size ) ) ) ) continue;
+    uint cidx = FD_VOLATILE_CONST( accmetas[ i ]->cache_idx );
+    if( FD_UNLIKELY( cidx==FD_ACCDB_ACC_CIDX_INVAL ) ) continue;
+    hazard_slot[ i ] = accdb->hazard_cnt++;
+    FD_VOLATILE( hazard_cidx[ hazard_slot[ i ] ] ) = cidx;
+    fd_accdb_cache_line_t * hit = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
+    if( FD_UNLIKELY( !hit->hazard_read ) ) hit->hazard_read = 1;
+  }
+  FD_VOLATILE( *hazard_cnt_pub ) = accdb->hazard_cnt;
+  FD_HW_MFENCE(); /* StoreLoad: the hazards and the marks must be
+                     visible before the accounts are re-read below */
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] && !writable[ i ] ) ) continue;
 
-    if( FD_LIKELY( accmetas[ i ] ) ) {
+    if( FD_UNLIKELY( hazard_slot[ i ]!=ULONG_MAX ) ) {
+      uint cidx = FD_VOLATILE_CONST( hazard_cidx[ hazard_slot[ i ] ] );
+      fd_accdb_cache_line_t * hit = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
+      fd_racesan_hook( "accdb_acquire:pre_hazard_check" );
+      if( FD_LIKELY( FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( accmetas[ i ]->executable_size ) ) &&
+                     FD_VOLATILE_CONST( accmetas[ i ]->cache_idx )==cidx &&
+                     FD_VOLATILE_CONST( hit->key.generation )==accmetas[ i ]->key.generation &&
+                     !memcmp( hit->key.pubkey, pubkeys[ i ], 32UL ) ) ) {
+        if( FD_LIKELY( !hit->referenced ) ) hit->referenced = 1;
+        original_cache_line[ i ] = hit;
+        hazard_hit[ i ] = 1;
+      } else {
+        FD_VOLATILE( hazard_cidx[ hazard_slot[ i ] ] ) = FD_ACCDB_ACC_CIDX_INVAL;
+      }
+    } else if( FD_LIKELY( accmetas[ i ] && writable[ i ] ) ) {
       if( FD_LIKELY( FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( accmetas[ i ]->executable_size ) ) ) ) {
         /* Concurrent evict_clear_acc_cache_ref clears VALID then stores
            cache_idx=INVAL.  We may have observed VALID=1 just before the
@@ -2529,8 +2641,10 @@ retry:
       release_cache_line( accdb, taken_class[ k ], taken_line[ k ] );
     }
     for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
-      if( FD_LIKELY( original_cache_line[ i ] ) ) FD_ATOMIC_FETCH_AND_SUB( &original_cache_line[ i ]->refcnt, 1U );
+      if( FD_LIKELY( original_cache_line[ i ] && !hazard_hit[ i ] ) ) FD_ATOMIC_FETCH_AND_SUB( &original_cache_line[ i ]->refcnt, 1U );
     }
+    accdb->hazard_cnt = hazard_cnt_base;
+    FD_VOLATILE( *hazard_cnt_pub ) = hazard_cnt_base;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
     fd_racesan_hook( "accdb_acquire:backout" );
@@ -2696,6 +2810,7 @@ retry:
     out_accs[ i ].commit = 0;
     out_accs[ i ].pd_write = 0;
     out_accs[ i ]._writable = writable[ i ];
+    out_accs[ i ]._hazard   = hazard_hit[ i ];
     if( FD_UNLIKELY( writable[ i ] && accmetas[ i ] ) ) out_accs[ i ]._overwrite = accdb->fork_pool[ fork_id.val ].shmem->generation==accmetas[ i ]->key.generation;
     else                                            out_accs[ i ]._overwrite = 0;
 
@@ -3074,9 +3189,10 @@ release_inner( fd_accdb_t * accdb,
       pinned_orig[ i ] = original_cache_line;
     } else {
       /* Mark as recently used so the CLOCK algorithm gives it a
-         second chance before eviction. */
-      original_cache_line->referenced = 1;
-      FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
+         second chance before eviction.  A hazard read holds no pin;
+         its list entry goes with the others when the bracket closes. */
+      if( FD_LIKELY( !original_cache_line->referenced ) ) original_cache_line->referenced = 1;
+      if( FD_LIKELY( !accs[ i ]._hazard ) ) FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
     }
   }
 
@@ -3264,11 +3380,7 @@ release_inner( fd_accdb_t * accdb,
         original_cache_line->persisted = 1;
         fd_racesan_hook( "accdb_release:pre_discard_claim" );
         if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
-          original_cache_line->acc_idx   = UINT_MAX;
-          original_cache_line->key.generation = UINT_MAX;
-          FD_COMPILER_MFENCE();
-          FD_VOLATILE( original_cache_line->refcnt ) = 0;
-          cache_free_push( accdb, original_size_class, original_cache_line );
+          cache_line_discard( accdb, original_size_class, original_cache_line );
         } else {
           FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
         }
@@ -3310,11 +3422,7 @@ release_inner( fd_accdb_t * accdb,
           original_cache_line->persisted = 1;
           fd_racesan_hook( "accdb_release:pre_discard_claim" );
           if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )==1U ) ) {
-            original_cache_line->acc_idx   = UINT_MAX;
-            original_cache_line->key.generation = UINT_MAX;
-            FD_COMPILER_MFENCE();
-            FD_VOLATILE( original_cache_line->refcnt ) = 0;
-            cache_free_push( accdb, original_size_class, original_cache_line );
+            cache_line_discard( accdb, original_size_class, original_cache_line );
           } else {
             FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
           }
@@ -3487,6 +3595,8 @@ fd_accdb_release( fd_accdb_t * accdb,
                   fd_acc_t *   accs ) {
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_OPEN );
   release_inner( accdb, accs_cnt, accs );
+  accdb->hazard_cnt = 0UL;
+  FD_VOLATILE( accdb->shmem->cache_hazard[ accdb->joiner_idx ].cnt ) = 0UL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
 }
 
@@ -3502,6 +3612,8 @@ fd_accdb_release_ab( fd_accdb_t * accdb,
      group does not wait while holding those pins. */
   if( FD_LIKELY( execs_cnt ) ) release_inner( accdb, execs_cnt, execs );
   release_inner( accdb, accs_cnt, accs );
+  accdb->hazard_cnt = 0UL;
+  FD_VOLATILE( accdb->shmem->cache_hazard[ accdb->joiner_idx ].cnt ) = 0UL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
 }
 
@@ -3513,6 +3625,8 @@ fd_accdb_abort_a( fd_accdb_t * accdb,
   for( ulong i=0UL; i<accs_cnt; i++ ) FD_TEST( !accs[ i ].commit );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_OPEN;
   release_inner( accdb, accs_cnt, accs );
+  accdb->hazard_cnt = 0UL;
+  FD_VOLATILE( accdb->shmem->cache_hazard[ accdb->joiner_idx ].cnt ) = 0UL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
 }
 
@@ -3912,6 +4026,15 @@ background_preevict( fd_accdb_t * accdb,
 
       fd_accdb_cache_line_t * line = cache_line( accdb, c, hand );
 
+      /* Claimed earlier with a reader still on it: finish once the
+         reader is gone.  The account was already unlinked; if it was
+         written back, persisted says so. */
+      if( FD_UNLIKELY( line->hazard_pending ) ) {
+        if( FD_UNLIKELY( hazard_scan( accdb, FD_ACCDB_ACC_CIDX_PACK( (uint)c, (uint)hand ) ) ) ) continue;
+        line->hazard_pending = 0;
+        goto claimed;
+      }
+
       if( FD_UNLIKELY( line->key.generation==UINT_MAX && line->acc_idx==UINT_MAX ) ) continue;
 
       uint rc = FD_VOLATILE_CONST( line->refcnt );
@@ -3923,6 +4046,7 @@ background_preevict( fd_accdb_t * accdb,
       }
 
       if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) continue;
+    claimed:;
 
       if( FD_UNLIKELY( line->acc_idx==UINT_MAX && line->key.generation==UINT_MAX ) ) {
         FD_VOLATILE( line->refcnt ) = 0;
@@ -4009,12 +4133,7 @@ background_preevict( fd_accdb_t * accdb,
         FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
       }
 
-      line->persisted      = 1;
-      line->acc_idx        = UINT_MAX;
-      line->key.generation = UINT_MAX;
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( line->refcnt ) = 0;
-      cache_free_push( accdb, c, line );
+      cache_line_discard( accdb, c, line );
       evicted++;
     }
   }
@@ -4578,12 +4697,7 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
      never recycled while we are here. */
   if( FD_UNLIKELY( evicted_acc_idx!=UINT_MAX ) ) writeback_line( accdb, line, evicted_acc_idx );
 
-  line->persisted      = 1;
-  line->acc_idx        = UINT_MAX;
-  line->key.generation = UINT_MAX;
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( line->refcnt ) = 0;
-  cache_free_push( accdb, size_class, line );
+  cache_line_discard( accdb, size_class, line );
   return evicted_acc_idx;
 }
 
