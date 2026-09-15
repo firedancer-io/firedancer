@@ -224,7 +224,7 @@ fd_tls_send_cert_verify( fd_tls_t const *       this,
   /* Export current transcript hash
      And create message to be signed */
 
-  uchar sign_msg[ 130 ];
+  uchar sign_msg[ FD_TLS_CV_SIGN_SZ ];
   fd_memcpy( sign_msg,
              is_client ? fd_tls13_cli_sign_prefix : fd_tls13_srv_sign_prefix,
              98UL );
@@ -234,7 +234,7 @@ fd_tls_send_cert_verify( fd_tls_t const *       this,
 
   /* Sign certificate */
 
-  uchar cert_verify_sig[ 64UL ];
+  uchar cert_verify_sig[ FD_ED25519_SIG_SZ ];
   fd_tls_sign( &this->sign, cert_verify_sig, sign_msg );
 
   /* Create CertificateVerify message */
@@ -260,7 +260,7 @@ fd_tls_send_cert_verify( fd_tls_t const *       this,
       .algorithm = FD_TLS_SIGNATURE_ED25519,
       .signature_len = 64,
     };
-    fd_memcpy( cv.signature, cert_verify_sig, 64UL );
+    fd_memcpy( cv.signature, cert_verify_sig, FD_ED25519_SIG_SZ );
 
     /* Encode CertificateVerify */
 
@@ -949,7 +949,7 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t *    hs,
   /* Export transcript hash ClientHello..server Certificate
      And recover message that was signed */
 
-  uchar sign_msg[ 130 ];
+  uchar sign_msg[ FD_TLS_CV_SIGN_SZ ];
   fd_memcpy( sign_msg,
              is_client ? fd_tls13_cli_sign_prefix : fd_tls13_srv_sign_prefix,
              98UL );
@@ -967,7 +967,7 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t *    hs,
     if( FD_UNLIKELY( key_type != FD_TLS_KEY_ED25519 ) )
       return fd_tls_alert( hs, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CV_SIGALG );
     fd_sha512_t sha512[1];
-    int sig_err = fd_ed25519_verify( sign_msg, 130UL, vfy->signature, pubkey, sha512 );
+    int sig_err = fd_ed25519_verify( sign_msg, FD_TLS_CV_SIGN_SZ, vfy->signature, pubkey, sha512 );
     if( FD_UNLIKELY( sig_err != FD_ED25519_SUCCESS ) )
       return fd_tls_alert( hs, FD_TLS_ALERT_DECRYPT_ERROR, FD_TLS_REASON_ED25519_FAIL );
     break;
