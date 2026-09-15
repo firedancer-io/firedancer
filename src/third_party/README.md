@@ -75,4 +75,3 @@ containing:
 | `s2n-bignum/` | https://github.com/awslabs/s2n-bignum | Apache-2.0/ISC/MIT-0 |
 | `blst/` | https://github.com/supranational/blst | Apache-2.0 |
 | `zstd/` | https://github.com/facebook/zstd | BSD-3-Clause (of dual BSD/GPL-2) |
-| `zlib/` | https://github.com/madler/zlib (deflate side only) | zlib |
