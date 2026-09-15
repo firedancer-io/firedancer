@@ -1898,6 +1898,81 @@ test_banks_full_prune_leaf( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_banks_full_prune_leaf" ));
 }
 
+static void
+test_reused_parent_bank_idx_not_leader_bank( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t mr_root   = { .ul = { 100UL } };
+  fd_hash_t mr_parent = { .ul = { 200UL } };
+  fd_hash_t mr_child  = { .ul = { 300UL } };
+  init_root_fec( ctx, &mr_root );
+
+  ingest_fec_complete( ctx, &mr_parent, &mr_root, 1UL, 0U, 1U, 32U, 1, 1 );
+  fd_reasm_fec_t * parent = drive_one_fec( ctx, 1UL, 0U );
+  fd_bank_t *      bank   = fd_banks_bank_query( ctx->banks, parent->bank_idx );
+  FD_TEST( bank );
+  bank->refcnt = 0UL;
+
+  fd_reasm_fec_t * child = ingest_fec_complete( ctx, &mr_child, &mr_parent, 2UL, 0U, 1U, 32U, 1, 1 );
+  FD_TEST( fd_reasm_parent( ctx->reasm, child )==parent );
+
+  uint  old_bank_idx = parent->bank_idx;
+  ulong old_bank_seq = parent->bank_seq;
+  FD_TEST( fd_banks_get_evictable_bank( ctx->banks, NULL )==old_bank_idx );
+  fd_banks_prune_cancel_info_t cancel[ 1 ];
+  FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
+
+  fd_bank_t * leader_bank = fd_banks_new_bank( ctx->banks, fd_banks_root( ctx->banks )->idx, 0L, 1 );
+  FD_TEST( leader_bank->idx==old_bank_idx );
+  FD_TEST( leader_bank->bank_seq!=old_bank_seq );
+  ctx->leader_bank = leader_bank;
+  ctx->is_leader   = 1;
+
+  ulong leader_bid_wait = ctx->metrics.leader_bid_wait;
+  int   evict_banks     = 0;
+  FD_TEST( can_process_fec( ctx, &evict_banks ) );
+  FD_TEST( ctx->metrics.leader_bid_wait==leader_bid_wait );
+  FD_TEST( !evict_banks );
+
+  /* The rotor path resolves the same stale parent through the Alpenglow
+     block-id map.  It must detect the recycled generation and drop the
+     FEC instead of treating the current leader as its parent. */
+
+  ulong  chain_cnt  = fd_ag_block_id_map_chain_cnt_est( TEST_BANKS_MAX );
+  void * ag_map_mem = fd_wksp_alloc_laddr( wksp, fd_ag_block_id_map_align(), fd_ag_block_id_map_footprint( chain_cnt ), 1UL );
+  FD_TEST( ag_map_mem );
+  ctx->ag_block_id_map_seed = 7UL;
+  ctx->ag_block_id_map      = fd_ag_block_id_map_join( fd_ag_block_id_map_new( ag_map_mem, chain_cnt, ctx->ag_block_id_map_seed ) );
+  FD_TEST( ctx->ag_block_id_map );
+
+  fd_block_id_ele_t * parent_ele = &ctx->block_id_arr[ old_bank_idx ];
+  parent_ele->block_info = ag_block_id( 1UL, mr_parent.uc );
+  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, parent_ele, ctx->block_id_arr ) );
+
+  ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
+  fd_rotor_replay_fec_t * rotor_fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  *rotor_fec = (fd_rotor_replay_fec_t) {
+    .slot            = 2UL,
+    .fec_set_idx     = 0U,
+    .parent_slot     = 1UL,
+    .parent_block_id = mr_parent
+  };
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ROTOR_SIG_FEC_REPLAY, chunk,
+                             sizeof(fd_rotor_replay_fec_t), 0UL, 0UL,
+                             fd_frag_meta_ts_comp( fd_tickcount() ), test_stem ) );
+  FD_TEST( ctx->drain_rotor_fecs );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0, test_stem_depths[ out_idx ] );
+  FD_TEST( m->sig==REPLAY_SIG_MISSING_FEC );
+  FD_TEST( ctx->metrics.leader_bid_wait==leader_bid_wait );
+  FD_TEST( !evict_banks );
+
+  FD_LOG_NOTICE(( "pass: test_reused_parent_bank_idx_not_leader_bank" ));
+}
+
 /* Out-queue misordering on eqvoc + confirm.
 
    Version A of slot 1 is fully replayed.  Then version B FEC 0 arrives
@@ -2802,6 +2877,7 @@ main( int     argc,
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
+  test_reused_parent_bank_idx_not_leader_bank( wksp ); fd_wksp_reset( wksp, 42U );
   test_banks_evict_backfill( wksp );                fd_wksp_reset( wksp, 42U );
   test_backfill_partial_sched_capacity( wksp );     fd_wksp_reset( wksp, 42U );
   test_double_confirm_backfill( wksp );             fd_wksp_reset( wksp, 42U );

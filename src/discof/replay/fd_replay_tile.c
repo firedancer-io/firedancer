@@ -2454,7 +2454,10 @@ can_process_fec( fd_replay_tile_t * ctx,
     return 0;
   }
 
-  if( FD_UNLIKELY( ctx->is_leader && fec->fec_set_idx==0U && parent->bank_idx==ctx->leader_bank->idx ) ) {
+  if( FD_UNLIKELY( ctx->is_leader &&
+                   fec->fec_set_idx==0U &&
+                   parent->bank_idx==ctx->leader_bank->idx &&
+                   parent->bank_seq==ctx->leader_bank->bank_seq ) ) {
     /* This guards against a rare race where we receive the FEC set for
        the slot right after our leader rotation before we freeze the
        bank for the last slot in our leader rotation.  Leader slot
@@ -2466,7 +2469,8 @@ can_process_fec( fd_replay_tile_t * ctx,
        path for the poh hash.  To mitigate this race, we must block on
        ingesting the FEC set for the ensuing slot before the leader
        bank freezes, because that would violate ordering invariants in
-       banks and sched. */
+       banks and sched.  Both the bank index and sequence must match
+       because bank indices are recycled after eviction. */
     FD_TEST( ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen );
     FD_TEST( !ctx->recv_poh );
     ctx->metrics.leader_bid_wait++;
@@ -2594,7 +2598,10 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
     return PROCESS_FEC_WAIT;
   }
 
-  if( FD_UNLIKELY( ctx->is_leader && fec->fec_set_idx==0U && parent_bank_idx==ctx->leader_bank->idx ) ) {
+  if( FD_UNLIKELY( ctx->is_leader &&
+                   fec->fec_set_idx==0U &&
+                   parent_bank_idx==ctx->leader_bank->idx &&
+                   parent->bank_seq==ctx->leader_bank->bank_seq ) ) {
     /* This guards against a rare race where we receive the FEC set for
        the slot right after our leader rotation before we freeze the
        bank for the last slot in our leader rotation.  Leader slot
@@ -2606,7 +2613,8 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
        path for the poh hash.  To mitigate this race, we must block on
        ingesting the FEC set for the ensuing slot before the leader
        bank freezes, because that would violate ordering invariants in
-       banks and sched. */
+       banks and sched.  Both the bank index and sequence must match
+       because bank indices are recycled after eviction. */
     FD_TEST( ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen );
     FD_TEST( !ctx->recv_poh );
     ctx->metrics.leader_bid_wait++;
