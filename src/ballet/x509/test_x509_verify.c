@@ -2552,6 +2552,16 @@ main( int     argc,
       { ".example.com", NULL,          "example.com",     FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
       { ".example.com", NULL,          "www.example.com", FD_X509_VERIFY_OK                  },
       { ".example.com", NULL,          "*.example.com",   FD_X509_VERIFY_OK                  },
+      { "example.com",     "foo.example.com",     "*.example.com",     FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
+      { "foo.example.com", NULL,                  "*.example.com",     FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
+      { NULL,              "FOO.EXAMPLE.COM",     "*.example.com",     FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
+      { NULL,              "com",                 "*.example.com",     FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
+      { NULL,              "example.com",         "*.example.com",     FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
+      { NULL,              ".example.com",        "*.example.com",     FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
+      { NULL,              ".foo.example.com",    "*.example.com",     FD_X509_VERIFY_OK                  },
+      { NULL,              "bar.foo.example.com", "*.example.com",     FD_X509_VERIFY_OK                  },
+      { NULL,              "foo.other.com",       "*.example.com",     FD_X509_VERIFY_OK                  },
+      { NULL,              "foo.example.com",     "*.foo.example.com", FD_X509_VERIFY_ERR_NAME_CONSTRAINT },
     };
 
     for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {

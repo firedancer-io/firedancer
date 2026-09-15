@@ -112,7 +112,18 @@ static int
 fd_x509_dns_constraint_matches( uchar const * constraint,
                                 ulong         constraint_len,
                                 uchar const * name,
-                                ulong         name_len ) {
+                                ulong         name_len,
+                                int           excluded ) {
+  /* Excluded subtrees reject any overlapping wildcard expansion. */
+  if( excluded && name_len>2UL && name[0]=='*' && name[1]=='.' ) {
+    uchar const * dot = memchr( constraint, '.', constraint_len );
+    if( dot ) {
+      ulong tail_len = constraint_len-(ulong)( dot+1-constraint );
+      if( tail_len==name_len-2UL &&
+          fd_x509_dns_eq_ci( (char const *)name+2, (char const *)dot+1, tail_len ) ) return 1;
+    }
+  }
+
   int subdomains_only = constraint[0]=='.';
   if( subdomains_only ) {
     if( name_len<=constraint_len ) return 0;
@@ -151,7 +162,8 @@ fd_x509_subtrees_match( uchar const * trees,
                         ulong         trees_len,
                         int           tag,
                         uchar const * name,
-                        ulong         name_len ) {
+                        ulong         name_len,
+                        int           excluded ) {
   int found = 0;
   fd_der_cursor_t c = { .p=trees, .end=trees+trees_len };
   while( FD_DER_HAS_MORE( c ) ) {
@@ -167,7 +179,7 @@ fd_x509_subtrees_match( uchar const * trees,
     int match;
     switch( tag ) {
     case FD_DER_TAG_CONTEXT_PRIM(2):
-      match = fd_x509_dns_constraint_matches( t.p, base_len, name, name_len );
+      match = fd_x509_dns_constraint_matches( t.p, base_len, name, name_len, excluded );
       break;
     case FD_DER_TAG_CONTEXT_PRIM(7):
       match = fd_x509_ip_constraint_matches( t.p, base_len, name, name_len );
@@ -197,11 +209,11 @@ fd_x509_name_constrained( uchar const * permitted,
                           uchar const * name,
                           ulong         name_len ) {
   if( excluded_len ) {
-    int match = fd_x509_subtrees_match( excluded, excluded_len, tag, name, name_len );
+    int match = fd_x509_subtrees_match( excluded, excluded_len, tag, name, name_len, 1 );
     if( match==1 || match==-2 ) return FD_X509_VERIFY_ERR_NAME_CONSTRAINT;
   }
   if( permitted_len ) {
-    int match = fd_x509_subtrees_match( permitted, permitted_len, tag, name, name_len );
+    int match = fd_x509_subtrees_match( permitted, permitted_len, tag, name, name_len, 0 );
     if( match==0 || match==-2 ) return FD_X509_VERIFY_ERR_NAME_CONSTRAINT;
   }
   return FD_X509_VERIFY_OK;
