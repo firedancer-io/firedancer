@@ -544,6 +544,37 @@ FD_UNIT_TEST( h2_server_stream_accounting ) {
   test_h2_srv_seq_expect_tx_empty( harness );
 }
 
+FD_UNIT_TEST( h2_server_conn_window_update_overflow ) {
+  test_h2_srv_seq_harness_t harness[1];
+  test_h2_srv_seq_harness_init( harness );
+  test_h2_srv_seq_handshake( harness );
+
+  uint increment = fd_uint_bswap( 0x7fffffffU-65535U );
+  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_WINDOW_UPDATE, 0U, 0U, &increment, sizeof(increment) );
+  test_h2_srv_seq_service_rx( harness );
+  test_h2_srv_seq_expect_rx_empty( harness );
+  test_h2_srv_seq_expect_tx_empty( harness );
+  FD_TEST( !harness->conn->flags );
+  FD_TEST( harness->conn->tx_wnd==0x7fffffffU );
+
+  increment = fd_uint_bswap( 1U );
+  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_WINDOW_UPDATE, 0U, 0U, &increment, sizeof(increment) );
+  test_h2_srv_seq_service_rx( harness );
+  test_h2_srv_seq_expect_rx_empty( harness );
+  FD_TEST( harness->conn->flags & FD_H2_CONN_FLAGS_SEND_GOAWAY );
+  FD_TEST( harness->conn->conn_error==FD_H2_ERR_FLOW_CONTROL );
+  FD_TEST( harness->conn->tx_wnd==0x7fffffffU );
+
+  fd_h2_tx_control( harness->conn, harness->rbuf_tx, harness->cb );
+  FD_TEST( harness->conn->flags & FD_H2_CONN_FLAGS_DEAD );
+  FD_TEST( fd_h2_rbuf_used_sz( harness->rbuf_tx )==sizeof(fd_h2_goaway_t) );
+  fd_h2_goaway_t goaway;
+  fd_h2_rbuf_pop_copy( harness->rbuf_tx, &goaway, sizeof(goaway) );
+  FD_TEST( fd_h2_frame_type( goaway.hdr.typlen )==FD_H2_FRAME_TYPE_GOAWAY );
+  FD_TEST( fd_uint_bswap( goaway.error_code )==FD_H2_ERR_FLOW_CONTROL );
+  test_h2_srv_seq_expect_tx_empty( harness );
+}
+
 FD_UNIT_TEST( h2_server_stream_error_releases_quota ) {
   test_h2_srv_seq_harness_t harness[1];
   test_h2_srv_seq_harness_init( harness );
@@ -556,14 +587,16 @@ FD_UNIT_TEST( h2_server_stream_error_releases_quota ) {
   FD_TEST( harness->fixture->stream->stream_id==1U );
   FD_TEST( harness->conn->stream_active_cnt[0]==1U );
 
-  uint increment = fd_uint_bswap( 0x7fffffffU );
+  uint increment = fd_uint_bswap( 0x7fffffffU-65535U );
   test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_WINDOW_UPDATE, 0U, 1U, &increment, sizeof(increment) );
   test_h2_srv_seq_service_rx( harness );
   test_h2_srv_seq_expect_rx_empty( harness );
   test_h2_srv_seq_expect_tx_empty( harness );
   FD_TEST( harness->fixture->stream->stream_id==1U );
+  FD_TEST( harness->fixture->stream->tx_wnd==0x7fffffffU );
   FD_TEST( harness->conn->stream_active_cnt[0]==1U );
 
+  increment = fd_uint_bswap( 1U );
   test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_WINDOW_UPDATE, 0U, 1U, &increment, sizeof(increment) );
   test_h2_srv_seq_service_rx( harness );
   test_h2_srv_seq_expect_rx_empty( harness );
@@ -571,7 +604,8 @@ FD_UNIT_TEST( h2_server_stream_error_releases_quota ) {
   FD_TEST( harness->fixture->rst_stream_err==FD_H2_ERR_FLOW_CONTROL );
   FD_TEST( harness->fixture->rst_stream_closed_by==0 );
   FD_TEST( harness->fixture->stream->stream_id==0U );
-  FD_TEST( !( harness->conn->flags & FD_H2_CONN_FLAGS_DEAD ) );
+  FD_TEST( !harness->conn->flags );
+  FD_TEST( harness->conn->tx_wnd==65535U );
   FD_TEST( harness->conn->stream_active_cnt[0]==0U );
 
   uint rst_err = fd_uint_bswap( FD_H2_ERR_FLOW_CONTROL );
