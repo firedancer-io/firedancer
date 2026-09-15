@@ -601,6 +601,7 @@ accept_conns( fd_http_server_t * http ) {
     http->conns[ conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
     http->conns[ conn_id ].request_bytes_read     = 0UL;
     http->conns[ conn_id ].request_bytes_off      = 0UL;
+    http->conns[ conn_id ].request_expected_len   = 0UL;
     http->conns[ conn_id ].response_bytes_written = 0UL;
 
     if( FD_UNLIKELY( http->callbacks.open ) ) {
@@ -613,6 +614,10 @@ accept_conns( fd_http_server_t * http ) {
 #endif
   }
 }
+
+/* last_len is the request length at the previous parse that returned
+   incomplete, or 0: picohttpparser then only scans the new bytes for
+   the end of the headers (its slowloris countermeasure). */
 
 static void
 parse_conn_http( fd_http_server_t * http,
@@ -696,7 +701,8 @@ parse_conn_http( fd_http_server_t * http,
 
 
   if( FD_UNLIKELY( conn->request_bytes_read-conn->request_bytes_off<(ulong)result+content_len ) ) {
-    return; /* Request still partial, wait for more data */
+    conn->request_expected_len = (ulong)result+content_len; /* body pending, no need to reparse until it is all here */
+    return;
   }
 
   char content_type_nul_terminated[ 128 ] = {0};
@@ -833,8 +839,9 @@ parse_conn_http( fd_http_server_t * http,
     }
   }
 
-  conn->keep_alive       = minor_version==1 && !connection_close && !conn->upgrade_websocket;
-  conn->request_consumed = conn->request_bytes_off+(ulong)result+content_len;
+  conn->keep_alive           = minor_version==1 && !connection_close && !conn->upgrade_websocket;
+  conn->request_consumed     = conn->request_bytes_off+(ulong)result+content_len;
+  conn->request_expected_len = 0UL;
 
   fd_http_server_request_t request = {
     .connection_id             = conn_idx,
@@ -910,7 +917,14 @@ read_conn_http( fd_http_server_t * http,
   http->metrics.bytes_read += (ulong)sz;
   conn->request_bytes_read += (ulong)sz;
 
-  parse_conn_http( http, conn_idx, conn->request_bytes_read-(ulong)sz );
+  /* Once the headers parsed, a non-zero last_len would make
+     picohttpparser scan the body for their terminator and never finish */
+  if( conn->request_expected_len ) {
+    if( conn->request_bytes_read<conn->request_expected_len ) return;
+    parse_conn_http( http, conn_idx, 0UL );
+  } else {
+    parse_conn_http( http, conn_idx, conn->request_bytes_read-(ulong)sz );
+  }
 
   /* A full buffer may hold multiple valid pipelined requests, so it is
      only oversized if parsing left it full and still incomplete */
