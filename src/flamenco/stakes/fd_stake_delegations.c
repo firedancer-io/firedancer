@@ -282,12 +282,13 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->max_pubkeys_             = pubkey_max;
   stake_delegations->pubkey_idx_wmk_          = 0UL;
 
-  stake_delegations->effective_stake    = 0UL;
-  stake_delegations->activating_stake   = 0UL;
-  stake_delegations->deactivating_stake = 0UL;
-  stake_delegations->pool_idx_wmk_      = 0UL;
-  stake_delegations->pubkey_fallback    = 0;
-  stake_delegations->fp_warmed_awarded  = 0;
+  stake_delegations->effective_stake      = 0UL;
+  stake_delegations->activating_stake     = 0UL;
+  stake_delegations->deactivating_stake   = 0UL;
+  stake_delegations->frontier_query_epoch = ULONG_MAX;
+  stake_delegations->pool_idx_wmk_        = 0UL;
+  stake_delegations->pubkey_fallback      = 0;
+  stake_delegations->fp_warmed_awarded    = 0;
 
   fd_rwlock_new( &stake_delegations->lock );
 
@@ -334,13 +335,14 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
   fork_pool_reset( fork_pool );
   pubkey_pool_reset( get_pubkey_pool( stake_delegations ) );
   pubkey_map_reset( get_pubkey_map( stake_delegations ) );
-  stake_delegations->effective_stake    = 0UL;
-  stake_delegations->activating_stake   = 0UL;
-  stake_delegations->deactivating_stake = 0UL;
-  stake_delegations->pool_idx_wmk_      = 0UL;
-  stake_delegations->pubkey_idx_wmk_    = 0UL;
-  stake_delegations->pubkey_fallback    = 0;
-  stake_delegations->fp_warmed_awarded  = 0;
+  stake_delegations->effective_stake      = 0UL;
+  stake_delegations->activating_stake     = 0UL;
+  stake_delegations->deactivating_stake   = 0UL;
+  stake_delegations->frontier_query_epoch = ULONG_MAX;
+  stake_delegations->pool_idx_wmk_        = 0UL;
+  stake_delegations->pubkey_idx_wmk_      = 0UL;
+  stake_delegations->pubkey_fallback      = 0;
+  stake_delegations->fp_warmed_awarded    = 0;
   fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
@@ -1065,14 +1067,15 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
 }
 
 void
-fd_stake_delegations_mark_fork_deltas( fd_stake_delegations_t *   stake_delegations,
-                                       ulong                      epoch,
-                                       fd_stake_history_t const * stake_history,
-                                       ulong *                    warmup_cooldown_rate_epoch,
-                                       int                        use_fixed_point_stake_math,
-                                       ushort const *             fork_ids,
-                                       ulong                      fork_id_cnt ) {
+fd_stake_delegations_frontier_query_begin( fd_stake_delegations_t *   stake_delegations,
+                                           ulong                      epoch,
+                                           fd_stake_history_t const * stake_history,
+                                           ulong *                    warmup_cooldown_rate_epoch,
+                                           int                        use_fixed_point_stake_math,
+                                           ushort const *             fork_ids,
+                                           ulong                      fork_id_cnt ) {
   fd_rwlock_write( &stake_delegations->lock );
+  stake_delegations->frontier_query_epoch = epoch;
   for( ulong i=0UL; i<fork_id_cnt; i++ ) {
     fd_stake_delegations_mark_delta( stake_delegations,
                                      epoch,
@@ -1084,8 +1087,7 @@ fd_stake_delegations_mark_fork_deltas( fd_stake_delegations_t *   stake_delegati
 }
 
 void
-fd_stake_delegations_unmark_fork_deltas( fd_stake_delegations_t *   stake_delegations,
-                                         ulong                      epoch,
+fd_stake_delegations_frontier_query_end( fd_stake_delegations_t *   stake_delegations,
                                          fd_stake_history_t const * stake_history,
                                          ulong *                    warmup_cooldown_rate_epoch,
                                          int                        use_fixed_point_stake_math,
@@ -1093,12 +1095,13 @@ fd_stake_delegations_unmark_fork_deltas( fd_stake_delegations_t *   stake_delega
                                          ulong                      fork_id_cnt ) {
   for( ulong i=0UL; i<fork_id_cnt; i++ ) {
     fd_stake_delegations_unmark_delta( stake_delegations,
-                                       epoch,
+                                       stake_delegations->frontier_query_epoch,
                                        stake_history,
                                        warmup_cooldown_rate_epoch,
                                        use_fixed_point_stake_math,
                                        fork_ids[ i ] );
   }
+  stake_delegations->frontier_query_epoch = ULONG_MAX;
   fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
