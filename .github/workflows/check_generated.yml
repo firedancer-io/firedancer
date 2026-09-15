@@ -1,7 +1,7 @@
-# Checks that manually-regenerated code (metrics, events, features) is in
-# sync with its sources.  Protobufs are excluded (regeneration is not
-# hermetic).  Breaking-change checks on the events schema live in
-# proto_check.yml.
+# Checks that manually-regenerated code (metrics, events, features,
+# frontend asset table) is in sync with its sources.  Protobufs are
+# excluded (regeneration is not hermetic).  Breaking-change checks on
+# the events schema live in proto_check.yml.
 
 name: Check Generated Code
 on:
@@ -20,6 +20,11 @@ on:
       - 'src/flamenco/features/gen_features.py'
       - 'src/flamenco/features/fd_features_generated.h'
       - 'src/flamenco/features/fd_features_generated.c'
+      - 'src/disco/gui/dist/**'
+      - 'src/disco/gui/generated/**'
+      - 'src/discoh/guih/dist/**'
+      - 'src/discoh/guih/generated/**'
+      - 'config/everything.mk'
       - '.github/workflows/check_generated.yml'
 
 concurrency:
@@ -52,6 +57,8 @@ jobs:
           make -C src/disco/metrics metrics
           python3 src/disco/events/gen_events.py --skip-check
           python3 src/flamenco/features/gen_features.py
+          make frontend-generated
+          make FRONTEND_CLIENT=Frankendancer frontend-generated
 
       - name: Check generated files are up to date
         run: |

@@ -715,24 +715,25 @@ gui_http_request( fd_http_server_request_t const * request ) {
       const uchar * data = f->data;
       ulong data_len = *(f->data_len);
 
-      int accepts_zstd = 0;
+      int q_zstd = 0;
+      int q_gzip = 0;
       if( FD_LIKELY( request->headers.accept_encoding ) ) {
-        accepts_zstd = !!strstr( request->headers.accept_encoding, "zstd" );
+        q_zstd = fd_http_server_accept_encoding_q( request->headers.accept_encoding, "zstd" );
+        q_gzip = fd_http_server_accept_encoding_q( request->headers.accept_encoding, "gzip" );
       }
 
-      int accepts_gzip = 0;
-      if( FD_LIKELY( request->headers.accept_encoding ) ) {
-        accepts_gzip = !!strstr( request->headers.accept_encoding, "gzip" );
-      }
-
+      /* the client's preferred acceptable coding, zstd on a tie; a
+         variant that did not shrink is not worth the decode */
+      int zstd_ok = q_zstd && f->zstd_data && *(f->zstd_data_len)<data_len;
+      int gzip_ok = q_gzip && f->gzip_data && *(f->gzip_data_len)<data_len;
       char const * content_encoding = NULL;
       ulong enc_idx = 0UL;
-      if( FD_LIKELY( accepts_zstd && f->zstd_data ) ) {
+      if( FD_LIKELY( zstd_ok && (q_zstd>=q_gzip || !gzip_ok) ) ) {
         content_encoding = "zstd";
         data = f->zstd_data;
         data_len = *(f->zstd_data_len);
         enc_idx = 1UL;
-      } else if( FD_LIKELY( accepts_gzip && f->gzip_data ) ) {
+      } else if( FD_LIKELY( gzip_ok ) ) {
         content_encoding = "gzip";
         data = f->gzip_data;
         data_len = *(f->gzip_data_len);
@@ -749,6 +750,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
           return (fd_http_server_response_t){
             .status        = 304,
             .cache_control = cache_control,
+            .vary          = "Accept-Encoding",
             .etag          = etag,
             .link          = link,
           };
@@ -762,6 +764,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
         .content_type      = content_type,
         .cache_control     = cache_control,
         .content_encoding  = content_encoding,
+        .vary              = "Accept-Encoding",
         .etag              = etag,
         .link              = link,
         .upgrade_websocket = 0,
@@ -863,6 +866,32 @@ index_html_refs( fd_http_static_file_t const * html,
   return 0;
 }
 
+/* One ETag per index.html representation (plain, zstd, gzip).  Returns
+   the index.html static file. */
+
+static fd_http_static_file_t const *
+index_html_etag_init( fd_gui_ctx_t * ctx ) {
+  fd_http_static_file_t const * index_html = NULL;
+  for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
+    if( FD_UNLIKELY( !strcmp( f->name, "/index.html" ) ) ) index_html = f;
+  }
+  FD_TEST( index_html );
+
+  fd_http_static_file_t const * f = index_html;
+  uchar hash[ 32 ];
+  uchar const * rep_data[ 3 ]     = { f->data,     f->zstd_data,     f->gzip_data     };
+  ulong const * rep_data_len[ 3 ] = { f->data_len, f->zstd_data_len, f->gzip_data_len };
+  for( ulong e=0UL; e<3UL; e++ ) {
+    ctx->index_html_etag[ e ][ 0 ] = '\0';
+    if( FD_UNLIKELY( !rep_data[ e ] ) ) continue;
+    fd_sha256_hash( rep_data[ e ], *(rep_data_len[ e ]), hash );
+    char b64[ FD_BASE64_ENC_SZ( 9UL )+1UL ];
+    b64[ fd_base64_encode( b64, hash, 9UL ) ] = '\0';
+    FD_TEST( fd_cstr_printf_check( ctx->index_html_etag[ e ], sizeof(ctx->index_html_etag[ e ]), NULL, "\"%s\"", b64 ) );
+  }
+  return index_html;
+}
+
 static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
@@ -877,26 +906,7 @@ unprivileged_init( fd_topo_t const *      topo,
                        FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
 
-  fd_http_static_file_t const * index_html = NULL;
-  for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
-    if( FD_UNLIKELY( !strcmp( f->name, "/index.html" ) ) ) index_html = f;
-  }
-  FD_TEST( index_html );
-
-  {
-    fd_http_static_file_t const * f = index_html;
-    uchar hash[ 32 ];
-    uchar const * rep_data[ 3 ]     = { f->data,     f->zstd_data,     f->gzip_data     };
-    ulong const * rep_data_len[ 3 ] = { f->data_len, f->zstd_data_len, f->gzip_data_len };
-    for( ulong e=0UL; e<3UL; e++ ) {
-      ctx->index_html_etag[ e ][ 0 ] = '\0';
-      if( FD_UNLIKELY( !rep_data[ e ] ) ) continue;
-      fd_sha256_hash( rep_data[ e ], *(rep_data_len[ e ]), hash );
-      char b64[ FD_BASE64_ENC_SZ( 9UL )+1UL ];
-      b64[ fd_base64_encode( b64, hash, 9UL ) ] = '\0';
-      FD_TEST( fd_cstr_printf_check( ctx->index_html_etag[ e ], sizeof(ctx->index_html_etag[ e ]), NULL, "\"%s\"", b64 ) );
-    }
-  }
+  fd_http_static_file_t const * index_html = index_html_etag_init( ctx );
 
   char const * preload_js     = NULL;
   char const * preload_css    = NULL;
@@ -1096,6 +1106,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #include "../../disco/stem/fd_stem.c"
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_gui = {
   .name                     = "gui",
   .rlimit_file_cnt_fn       = rlimit_file_cnt,
@@ -1108,3 +1119,4 @@ fd_topo_run_tile_t fd_tile_gui = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
+#endif

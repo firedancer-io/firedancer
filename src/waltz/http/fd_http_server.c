@@ -405,6 +405,41 @@ fd_http_server_etag_matches( char const * if_none_match,
   return matched;
 }
 
+int
+fd_http_server_accept_encoding_q( char const * accept_encoding,
+                                  char const * coding ) {
+  ulong coding_len = strlen( coding );
+  char const * p = accept_encoding;
+  while( *p ) {
+    while( *p==' ' || *p=='\t' || *p==',' ) p++;
+    if( !*p ) break;
+    char const * tok = p;
+    while( *p && *p!=',' && *p!=';' && *p!=' ' && *p!='\t' ) p++;
+    ulong tok_len = (ulong)(p-tok);
+    char const * end = strchr( p, ',' );
+    if( !end ) end = p+strlen( p );
+    if( tok_len==coding_len && !strncasecmp( tok, coding, coding_len ) ) {
+      char const * q = p;
+      while( q<end ) { /* ;name=value parameters */
+        if( *q++!=';' ) continue;
+        while( q<end && (*q==' ' || *q=='\t') ) q++;
+        if( end-q<2L || (*q!='q' && *q!='Q') || q[ 1 ]!='=' ) continue;
+        q += 2;
+        /* qvalue = ( "0" [ "." 0*3DIGIT ] ) / ( "1" [ "." 0*3"0" ] ) */
+        int weight = 0;
+        if(      q<end && *q=='1' ) { weight = 1000; q++; }
+        else if( q<end && *q=='0' ) q++;
+        else return 0;
+        if( q<end && *q=='.' ) for( int scale=100; ++q<end && *q>='0' && *q<='9' && scale; scale/=10 ) weight += (*q-'0')*scale;
+        return fd_int_min( weight, 1000 );
+      }
+      return 1000;
+    }
+    p = end;
+  }
+  return 0;
+}
+
 static void
 close_conn( fd_http_server_t * http,
             ulong              conn_idx,
@@ -666,6 +701,7 @@ parse_conn_http( fd_http_server_t * http,
 
   char content_type_nul_terminated[ 128 ] = {0};
   char accept_encoding_nul_terminated[ 128 ] = {0};
+  ulong accept_encoding_len = 0UL;
   for( ulong i=0UL; i<num_headers; i++ ) {
     if( FD_LIKELY( headers[ i ].name_len==12UL && !strncasecmp( headers[ i ].name, "Content-Type", 12UL ) ) ) {
       if( FD_UNLIKELY( headers[ i ].value_len>(sizeof(content_type_nul_terminated)-1UL) ) ) {
@@ -673,15 +709,17 @@ parse_conn_http( fd_http_server_t * http,
         return;
       }
       memcpy( content_type_nul_terminated, headers[ i ].value, headers[ i ].value_len );
-      break;
-    }
-
-    if( FD_LIKELY( headers[ i ].name_len==15UL && !strncasecmp( headers[ i ].name, "Accept-Encoding", 15UL ) ) ) {
-      if( FD_UNLIKELY( headers[ i ].value_len>(sizeof(accept_encoding_nul_terminated)-1UL) ) ) {
+      content_type_nul_terminated[ headers[ i ].value_len ] = '\0';
+    } else if( FD_LIKELY( headers[ i ].name_len==15UL && !strncasecmp( headers[ i ].name, "Accept-Encoding", 15UL ) ) ) {
+      /* repeated list fields combine (RFC 9110 s5.3) */
+      ulong sep_len = accept_encoding_len ? 2UL : 0UL;
+      if( FD_UNLIKELY( accept_encoding_len+sep_len+headers[ i ].value_len>sizeof(accept_encoding_nul_terminated)-1UL ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
         return;
       }
-      memcpy( accept_encoding_nul_terminated, headers[ i ].value, headers[ i ].value_len );
+      if( FD_LIKELY( sep_len ) ) { memcpy( accept_encoding_nul_terminated+accept_encoding_len, ", ", 2UL ); accept_encoding_len += 2UL; }
+      memcpy( accept_encoding_nul_terminated+accept_encoding_len, headers[ i ].value, headers[ i ].value_len );
+      accept_encoding_len += headers[ i ].value_len;
     }
   }
 
@@ -1147,6 +1185,11 @@ write_conn_http( fd_http_server_t * http,
         ulong content_encoding_len;
         FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &content_encoding_len, "Content-Encoding: %s\r\n", conn->response.content_encoding ) );
         response_len += content_encoding_len;
+      }
+      if( FD_LIKELY( conn->response.vary ) ) {
+        ulong vary_len;
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &vary_len, "Vary: %s\r\n", conn->response.vary ) );
+        response_len += vary_len;
       }
       if( FD_LIKELY( conn->response.location[ 0 ] ) ) {
         ulong location_len;

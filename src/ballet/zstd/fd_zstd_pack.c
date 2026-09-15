@@ -23,6 +23,8 @@ main( int     argc,
   ZSTD_CCtx * cctx = ZSTD_createCCtx();
   if( !cctx ) DIE( "ZSTD_createCCtx failed" );
   ZSTD_CCtx_setParameter( cctx, ZSTD_c_compressionLevel, level );
+  ZSTD_CCtx_setParameter( cctx, ZSTD_c_windowLog,        23    ); /* RFC 9659: browsers reject windows >8 MiB */
+  ZSTD_CCtx_setParameter( cctx, ZSTD_c_checksumFlag,     1     );
 
   static unsigned char ibuf[ 1<<17 ];
   static unsigned char obuf[ 1<<17 ];

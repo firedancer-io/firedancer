@@ -154,6 +154,7 @@ struct fd_http_server_response {
   char const * cache_control;    /* Cache-Control to set in the HTTP response */
   char const * link;             /* Link to set in the HTTP response */
   char const * content_encoding; /* Content-Encoding to set in the HTTP response */
+  char const * vary;             /* Vary to set in the HTTP response */
   char const * etag;             /* ETag to set in the HTTP response */
   char const * location[2];      /* Location to set in the HTTP response (concatenated) */
   ulong        location_len[2];  /* Lengths of the two location fragments */
@@ -345,6 +346,16 @@ fd_http_server_close( fd_http_server_t * http,
 int
 fd_http_server_etag_matches( char const * if_none_match,
                              char const * etag );
+
+/* fd_http_server_accept_encoding_q returns the qvalue, in thousandths
+   (0..1000), that the NUL terminated Accept-Encoding header value gives
+   content coding `coding` (whole token, case-insensitive, RFC 9110
+   s12.5.3); 0 if the coding is absent or has q=0.  "*" is not honored;
+   a request that accepts nothing on offer is served identity. */
+
+int
+fd_http_server_accept_encoding_q( char const * accept_encoding,
+                                  char const * coding );
 
 /* Close an active WebSocket connection.  The connection ID must be an
    open WebSocket connection ID in [0, max_ws_connection_cnt).  The
