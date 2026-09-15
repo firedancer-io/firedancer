@@ -489,8 +489,8 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
       return -1;
     }
     if( FD_UNLIKELY( !rewards.num_partitions ||
-                    rewards.num_partitions>=fd_epoch_slot_cnt( &ctx->epoch_schedule, ctx->epoch ) ||
-                    rewards.num_partitions>MAX_PARTITIONS_PER_EPOCH ) ) {
+                     rewards.num_partitions>=fd_epoch_slot_cnt( &ctx->epoch_schedule, ctx->epoch ) ||
+                     rewards.num_partitions>MAX_PARTITIONS_PER_EPOCH ) ) {
       FD_LOG_WARNING(( "epoch rewards sysvar has invalid partition count %lu", rewards.num_partitions ));
       return -1;
     }
@@ -499,7 +499,7 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
       return -1;
     }
     if( FD_UNLIKELY( ctx->sysvars.accounts[ FD_SYSVAR_epoch_rewards_IDX ].data_len!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ||
-                    !ctx->sysvars.accounts[ FD_SYSVAR_stake_history_IDX ].present ) ) {
+                     !ctx->sysvars.accounts[ FD_SYSVAR_stake_history_IDX ].present ) ) {
       FD_LOG_WARNING(( "sysvar accounts cannot reconstruct active epoch rewards" ));
       return -1;
     }
