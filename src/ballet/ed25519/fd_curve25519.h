@@ -210,6 +210,15 @@ uchar *
 fd_ed25519_point_tobytes( uchar                      out[ 32 ],
                           fd_ed25519_point_t const * a );
 
+/* fd_ed25519_point_tobytes_batch8 serializes n points pt[0..n), n in
+   [1,8], into out (32 bytes each, point i at out+32*i), sharing one
+   field inversion across the n points.  n is asserted to be in
+   [1,8].  Returns out. */
+uchar *
+fd_ed25519_point_tobytes_batch8( uchar                      out[],  /* 32*n */
+                                 fd_ed25519_point_t const * pt,     /* n */
+                                 ulong                      n );
+
 /* fd_ed25519_affine_tobytes serializes a point a into
    a 32-byte buffer out, and returns out.
    out is in little endian form, according to RFC 8032.

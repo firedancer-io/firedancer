@@ -944,6 +944,66 @@ test_sign( fd_rng_t *    rng,
 }
 
 void
+test_sign_batch( fd_rng_t *    rng,
+                 fd_sha512_t * sha ) {
+  ulong const msg_row = 1024UL;
+  uchar msg_mem[ 8UL*1024UL ];
+  uchar prv [ 8UL*32UL ];
+  uchar pub [ 8UL*32UL ];
+  uchar sig1[ 8UL*64UL ];
+  uchar sign[ 8UL*64UL ];
+
+  uchar const * msg   [ 8UL ];
+  ulong         msg_sz[ 8UL ];
+
+  for( ulong b=0UL; b<8UL*msg_row; b++ ) msg_mem[b] = fd_rng_uchar( rng );
+  for( ulong i=0UL; i<8UL; i++ ) {
+    msg[i] = msg_mem + msg_row*i;
+    fd_ed25519_public_from_private( pub+32UL*i, fd_rng_b256( rng, prv+32UL*i ), sha );
+  }
+
+  /* correctness: mixed sizes (empty and oversize included), all n in
+     [1,8], vs sequential sign */
+
+  for( ulong trial=0UL; trial<16UL; trial++ ) {
+    ulong n = 1UL+(trial%8UL);
+    for( ulong i=0UL; i<n; i++ ) {
+      msg_sz[i] = fd_rng_ulong_roll( rng, 1025UL );
+      if( FD_UNLIKELY( (trial==0UL) | (i==0UL) ) ) msg_sz[i] = 0UL;
+      fd_ed25519_sign( sig1+64UL*i, msg[i], msg_sz[i], pub+32UL*i, prv+32UL*i, sha );
+    }
+    fd_ed25519_sign_batch8( sign, msg, msg_sz, pub, prv, n );
+    FD_TEST( fd_memeq( sig1, sign, n*64UL ) );
+  }
+  FD_LOG_NOTICE(( "fd_ed25519_sign_batch8: ok" ));
+
+  /* bench: per-signature rate, sequential vs batched at each n */
+
+  if( !g_bench ) return;
+  ulong iter = 10000UL;
+  char cstr[128];
+
+  for( ulong sz=128UL; sz<=1024UL; sz*=8UL ) {
+    for( ulong i=0UL; i<8UL; i++ ) msg_sz[i] = sz;
+    for( ulong n=1UL; n<=8UL; n++ ) {
+      long dt = fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) {
+        for( ulong i=0UL; i<n; i++ ) fd_ed25519_sign( sign+64UL*i, msg[i], msg_sz[i], pub+32UL*i, prv+32UL*i, sha );
+      }
+      dt = fd_log_wallclock() - dt;
+      log_bench( fd_cstr_printf( cstr, 128UL, NULL, "seq fd_ed25519_sign(%lu) x%lu/sig", sz, n ), iter*n, dt );
+
+      dt = fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) {
+        fd_ed25519_sign_batch8( sign, msg, msg_sz, pub, prv, n );
+      }
+      dt = fd_log_wallclock() - dt;
+      log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_sign_batch8(%lu) n=%lu", sz, n ), iter*n, dt );
+    }
+  }
+}
+
+void
 test_verify( fd_rng_t *    rng,
              fd_sha512_t * sha ) {
   uchar _msg[ 1024 ]; uchar * msg = _msg;
@@ -1215,6 +1275,7 @@ main( int     argc,
 
   test_public_from_private( rng, sha );
   test_sign               ( rng, sha );
+  test_sign_batch         ( rng, sha );
   test_verify             ( rng, sha );
 
   test_wycheproofs( sha );
