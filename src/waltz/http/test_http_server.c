@@ -315,6 +315,69 @@ test_content_length_overflow_close( void ) {
   fd_http_server_delete( fd_http_server_leave( http ) );
 }
 
+/* A POST whose headers and body each straddle a read must still be
+   delivered (regression: last_len reuse after the headers completed
+   made picohttpparser scan the body for their end and never finish). */
+
+static void
+test_split_body( void ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 0UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1024UL,
+  };
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_count,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = server_addr.sin_port,
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  char const req[] = "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nhello";
+  ulong split0 = 20UL;                 /* inside the headers */
+  ulong split1 = sizeof( req )-1UL-4UL; /* headers plus the first body byte */
+
+  request_cnt = 0UL;
+  send_all( client_fd, req, split0 );
+  FD_TEST( wait_work( http ) ); /* accept */
+  FD_TEST( wait_work( http ) ); /* partial headers */
+  FD_TEST( request_cnt==0UL );
+
+  send_all( client_fd, req+split0, split1-split0 );
+  FD_TEST( wait_work( http ) ); /* headers done, partial body */
+  FD_TEST( request_cnt==0UL );
+
+  send_all( client_fd, req+split1, sizeof( req )-1UL-split1 );
+  FD_TEST( wait_work( http ) );
+  FD_TEST( request_cnt==1UL );
+
+  FD_TEST( !close( client_fd ) );
+  FD_TEST( !close( fd_http_server_fd( http ) ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
 static void
 test_poll_conn_max( void ) {
   fd_http_server_params_t params = {
@@ -1590,6 +1653,7 @@ main( int     argc,
   test_oring();
   test_content_length_overflow_close();
   test_poll_conn_max();
+  test_split_body();
   test_treap_seed();
   test_poll_interest();
   test_ws_send_after_staging_eviction();

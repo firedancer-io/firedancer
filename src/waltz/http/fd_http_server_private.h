@@ -32,6 +32,7 @@ struct fd_http_server_connection {
   ulong  request_bytes_read;
   ulong  request_bytes_off;
   ulong  request_consumed;
+  ulong  request_expected_len; /* header+body length once the headers parsed, 0 while incomplete */
 
   fd_http_server_response_t response;
   ulong response_bytes_written;
