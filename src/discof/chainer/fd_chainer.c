@@ -30,6 +30,7 @@ fd_chainer_new( void * shmem,
   ulong fec_max       = blk_max * fec_blk_max;
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
   ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );
+  ulong event_max     = blk_max * FD_CHAINER_EVENT_PER_SLOTV;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   chainer             = FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(),      sizeof(fd_chainer_t)                       );
@@ -44,6 +45,7 @@ fd_chainer_new( void * shmem,
   void * orphan_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_work_orphan_align(),  fd_work_orphan_footprint ( blk_max       ) );
   void * bfs          = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( blk_max       ) );
   void * out_queue    = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),       out_queue_footprint      ( fec_max       ) );
+  void * event_queue  = FD_SCRATCH_ALLOC_APPEND( l, event_queue_align(),     event_queue_footprint    ( event_max     ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_chainer_align() ) == (ulong)shmem + footprint );
 
   chainer->root             = ULONG_MAX;
@@ -61,6 +63,8 @@ fd_chainer_new( void * shmem,
   chainer->orphan_treap     = fd_work_orphan_join ( fd_work_orphan_new ( orphan_treap, blk_max             ) );
   chainer->bfs              = bfs_join            ( bfs_new            ( bfs,          blk_max             ) );
   chainer->out_queue        = out_queue_join      ( out_queue_new      ( out_queue,    fec_max             ) );
+  chainer->event_queue      = event_queue_join    ( event_queue_new    ( event_queue,  event_max           ) );
+  chainer->event_seq        = 0UL;
 
   fd_work_repair_seed( chainer->work_pool, blk_max, seed        );
   fd_work_orphan_seed( chainer->work_pool, blk_max, seed ^ 0x9eUL );
@@ -80,6 +84,36 @@ fd_chainer_join( void * shchainer ) {
     return NULL;
   }
   return chainer;
+}
+
+/* Events */
+
+/* event_emit queues an fd_event_chainer_t for the version {slot,
+   block_id}.  fec_set_idx is UINT_MAX for slot-level kinds */
+
+static inline void
+event_emit( fd_chainer_t *    chainer,
+            int               kind,
+            ulong             slot,
+            fd_hash_t const * block_id ) {
+  fd_event_chainer_t * event_queue = chainer->event_queue;
+  if( FD_UNLIKELY( event_queue_full( event_queue ) ) ) FD_LOG_CRIT(( "chainer event_queue full" ));
+  event_queue_push_tail( event_queue, (fd_event_chainer_t){ .seq         = chainer->event_seq++,
+                                                            .ts          = 0L, /* stamped at poll */
+                                                            .kind        = kind,
+                                                            .slot        = slot,
+                                                            .block_id    = *block_id } );
+}
+
+int
+fd_chainer_event_poll( fd_chainer_t *       chainer,
+                       long                 now,
+                       fd_event_chainer_t * event ) {
+  fd_event_chainer_t * event_queue = chainer->event_queue;
+  if( FD_LIKELY( event_queue_empty( event_queue ) ) ) return 0;
+  *event    = event_queue_pop_head( event_queue );
+  event->ts = now;
+  return 1;
 }
 
 /* slotv_iter_{init,next} iterate the versions of a slot via the
@@ -104,12 +138,14 @@ slotv_iter_ele( fd_chainer_t * chainer, ulong idx ) {
   return fd_slotv_pool_ele( chainer->slotv_pool, idx );
 }
 
-/* acquire_slotv allocates, initializes, and map-inserts a fresh
-   (turbine, i.e. all-zero block_id) version of slot.  Callers that know
-   the version's block_id (notar-fallback, parent discovery) set it after. */
+/* acquire_slotv allocates, initializes, and map-inserts a fresh version
+   of slot with block_id (NULL for the turbine version, whose block_id
+   is all-zero until the block is whole).  The block_id is set here,
+   before SLOT_ADDED is emitted, because {slot, block_id} is the
+   version's identity to event consumers. */
 
 static fd_chainer_slotv_t *
-acquire_slotv( fd_chainer_t * chainer, ulong slot ) {
+acquire_slotv( fd_chainer_t * chainer, ulong slot, fd_hash_t const * block_id ) {
   fd_slotv_map_t     * slotv_map  = chainer->slotv_map;
   fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
   FD_TEST( fd_slotv_pool_free( slotv_pool ) );
@@ -133,11 +169,13 @@ acquire_slotv( fd_chainer_t * chainer, ulong slot ) {
   slotv->connected         = 0;
   slotv->highest_requested = UINT_MAX;
 
-  fd_memset( &slotv->block_id,        0, sizeof(fd_hash_t) );
+  if( FD_LIKELY( block_id ) ) slotv->block_id = *block_id;
+  else                        fd_memset( &slotv->block_id, 0, sizeof(fd_hash_t) );
   fd_memset( &slotv->parent_block_id, 0, sizeof(fd_hash_t) );
   fd_memset( fd_chainer_slotv_fecs( chainer, slotv ), 0xff, chainer->fec_blk_max*sizeof(uint) ); /* UINT_MAX pool_idx sentinel */
 
   fd_slotv_map_ele_insert( slotv_map, slotv, slotv_pool );
+  event_emit( chainer, FD_EVENT_CHAINER_SLOT_ADDED, slotv->slot, &slotv->block_id );
   fd_chainer_repair_add( chainer, slotv ); /* new slotv -> has un-requested shreds */
   fd_chainer_orphan_add( chainer, slotv ); /* new slotv -> ancestry unknown until parent confirmed present */
   return slotv;
@@ -160,7 +198,7 @@ void
 fd_chainer_init( fd_chainer_t *    chainer,
                  ulong             slot,
                  fd_hash_t const * block_id ) {
-  fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot );
+  fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot, block_id );
   slotv->parent_slot       = slot;
   slotv->complete_idx      = 0;
   slotv->buffered_idx      = 0;
@@ -170,9 +208,9 @@ fd_chainer_init( fd_chainer_t *    chainer,
   slotv->buffered_fec_idx  = UINT_MAX; /* no complete FEC set buffered; must
                                           be one-below a FD_FEC_SHRED_CNT
                                           multiple, which UINT_MAX satisfies */
-  slotv->block_id          = *block_id;
   fd_chainer_repair_remove( chainer, slotv );
   fd_chainer_orphan_remove( chainer, slotv );
+  event_emit( chainer, FD_EVENT_CHAINER_SLOT_RETIRED, slotv->slot, &slotv->block_id ); /* the root needs no repair */
 
   chainer->root             = slot;
   chainer->highest_repaired = slot;
@@ -182,7 +220,7 @@ fd_chainer_init( fd_chainer_t *    chainer,
    it holds none there (or fec_set_idx is beyond max_shreds_per_block). */
 
 static fd_chainer_fec_t *
-slotv_fec( fd_chainer_t * chainer, fd_chainer_slotv_t const * slotv, uint fec_set_idx ) {
+slotv_fec( fd_chainer_t const * chainer, fd_chainer_slotv_t const * slotv, uint fec_set_idx ) {
   ulong k = fec_set_idx / FD_FEC_SHRED_CNT;
   if( FD_UNLIKELY( k>=chainer->fec_blk_max ) ) return NULL;
   uint idx = fd_chainer_slotv_fecs( chainer, slotv )[ k ];
@@ -191,10 +229,10 @@ slotv_fec( fd_chainer_t * chainer, fd_chainer_slotv_t const * slotv, uint fec_se
 }
 
 fd_chainer_fec_t *
-fd_chainer_fec_query( fd_chainer_t *    chainer,
-                      ulong             slot,
-                      uint              fec_set_idx,
-                      fd_hash_t const * block_id ) {
+fd_chainer_fec_query( fd_chainer_t const * chainer,
+                      ulong                slot,
+                      uint                 fec_set_idx,
+                      fd_hash_t const *    block_id ) {
   fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( chainer, slot, block_id );
   if( FD_UNLIKELY( !slotv ) ) return NULL;
   return slotv_fec( chainer, slotv, fec_set_idx );
@@ -239,11 +277,12 @@ fec_join( fd_chainer_t *       chainer,
     fd_fec_map_ele_insert( fec_map, fec, fec_pool );
   }
   fd_chainer_slotv_fecs( chainer, slotv )[ k ] = (uint)fd_fec_pool_idx( fec_pool, fec );
+  event_emit( chainer, FD_EVENT_CHAINER_FEC_ADDED, slotv->slot, &slotv->block_id );
   return fec;
 }
 
 int
-fd_chainer_shred_test( fd_chainer_t *             chainer,
+fd_chainer_shred_test( fd_chainer_t const *       chainer,
                        fd_chainer_slotv_t const * slotv,
                        uint                       shred_idx ) {
   fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U ) );
@@ -261,6 +300,7 @@ slotv_abandon( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv ) {
   fd_chainer_repair_remove( chainer, slotv );
   fd_chainer_orphan_remove( chainer, slotv );
   slotv->abandoned = 1;
+  event_emit( chainer, FD_EVENT_CHAINER_SLOT_RETIRED, slotv->slot, &slotv->block_id );
 }
 
 /* abandon_turbine abandons slot's turbine version, if one exists. */
@@ -284,7 +324,7 @@ turbine_slotv_query( fd_chainer_t * chainer, ulong slot ) {
     fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, i );
     if( FD_LIKELY( slotv->turbine ) ) return slotv;
   }
-  fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot );
+  fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot, NULL );
   slotv->turbine = 1;
   return slotv;
 }
@@ -478,6 +518,7 @@ chainer_advance( fd_chainer_t * chainer, fd_chainer_slotv_t * root ) {
       if( FD_UNLIKELY( fec->slot_complete ) ) {
         chainer->highest_repaired = fd_ulong_max( chainer->highest_repaired, slotv->slot );
         fd_chainer_repair_remove( chainer, slotv ); /* nothing left to repair */
+        event_emit( chainer, FD_EVENT_CHAINER_SLOT_RETIRED, slotv->slot, &slotv->block_id );
         FD_TEST( !fd_hash_check_zero( &slotv->block_id ) );
 
         /* Scan for children. TODO could index children by
@@ -532,6 +573,7 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
     fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, _i );
     if( FD_UNLIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ k ]!=fec_idx || slotv->abandoned ) ) continue;
 
+    uint prev_buffered_fec_idx = slotv->buffered_fec_idx;
     for(;;) {
       fd_chainer_fec_t * next = slotv_fec( chainer, slotv, slotv->buffered_fec_idx + 1U );
       if( !next || !next->complete ) break;
@@ -542,6 +584,13 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
     if( FD_UNLIKELY( slotv->complete_idx!=UINT_MAX && slotv->buffered_fec_idx!=UINT_MAX &&
                      slotv->buffered_fec_idx>slotv->complete_idx ) ) slotv->buffered_fec_idx = slotv->complete_idx;
 
+    /* The block became whole on this call: every FEC set is
+       reconstructable.  Reported once per version, under the key it
+       has right now (a turbine version is renamed just below). */
+    if( FD_UNLIKELY( slotv->complete_idx!=UINT_MAX && slotv->buffered_fec_idx==slotv->complete_idx && prev_buffered_fec_idx!=slotv->complete_idx ) ) {
+      event_emit( chainer, FD_EVENT_CHAINER_SLOT_COMPLETE, slotv->slot, &slotv->block_id );
+    }
+
     if( FD_LIKELY( slotv->turbine ) ) {
       /* slot is complete implies we can record the block_id.  Only the
          turbine version needs its block_id computed. */
@@ -549,7 +598,16 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
       if( FD_UNLIKELY( turbine->complete_idx!=UINT_MAX &&
                        turbine->buffered_fec_idx==turbine->complete_idx &&
                        fd_hash_check_zero( &turbine->block_id ) ) ) {
-        if( FD_LIKELY( finalize_block_id( chainer, turbine ) ) ) orphans_resolve( chainer ); /* children waiting on this block_id */
+        if( FD_LIKELY( finalize_block_id( chainer, turbine ) ) ) {
+          /* The version's identity changes from {slot, 0} to {slot,
+             block_id}.  Report it as a retire of the old key and an add
+             of the new one so consumers keyed by version follow along;
+             the new key still has work if its parent is absent. */
+          fd_hash_t zero = {0};
+          event_emit( chainer, FD_EVENT_CHAINER_SLOT_RETIRED, turbine->slot, &zero );
+          event_emit( chainer, FD_EVENT_CHAINER_SLOT_ADDED,   turbine->slot, &turbine->block_id );
+          orphans_resolve( chainer ); /* children waiting on this block_id */
+        }
         else FD_LOG_WARNING(( "failed to finalize block_id for slot %lu, parent_slot %lu parent_bid is zero %d", slot, turbine->parent_slot, fd_hash_check_zero( &turbine->parent_block_id ) ));
       }
     }
@@ -594,7 +652,10 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
     if( FD_UNLIKELY( slotv->highest_requested!=UINT_MAX && slotv->highest_requested>=fec_set_idx ) ) {
       slotv->highest_requested = fec_set_idx - 1U;
     }
-    if( FD_LIKELY( !slotv->abandoned ) ) fd_chainer_repair_add( chainer, slotv ); /* abandoned versions stay off the worklists */
+    if( FD_LIKELY( !slotv->abandoned ) ) { /* abandoned versions stay off the worklists and are already retired */
+      fd_chainer_repair_add( chainer, slotv );
+      event_emit( chainer, FD_EVENT_CHAINER_FEC_EVICTED, slotv->slot, &slotv->block_id );
+    }
   }
 }
 
@@ -619,10 +680,10 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
       /* Names a parent that is a dead fork. */
       fd_chainer_orphan_remove( chainer, slotv );
       fd_chainer_repair_remove( chainer, slotv );
+      event_emit( chainer, FD_EVENT_CHAINER_SLOT_RETIRED, slotv->slot, &slotv->block_id );
       return NULL;
     }
-    parent_slotv = acquire_slotv( chainer, parent_slot );
-    parent_slotv->block_id = *parent_block_id;
+    parent_slotv = acquire_slotv( chainer, parent_slot, parent_block_id );
     abandon_turbine( chainer, parent_slot );
     orphans_resolve( chainer ); /* siblings waiting on this parent */
   }
@@ -702,6 +763,7 @@ fec_rekey( fd_chainer_t *     chainer,
     uint *               fecs  = fd_chainer_slotv_fecs( chainer, slotv );
     if( FD_LIKELY( fecs[ k ]!=sentinel_idx ) ) continue;
     fecs[ k ] = existing_idx;
+    event_emit( chainer, FD_EVENT_CHAINER_FEC_ADDED, slotv->slot, &slotv->block_id );
     repointed[ repointed_cnt++ ] = slotv;
   }
   fd_fec_map_ele_remove_fast( chainer->fec_map, sentinel, chainer->fec_pool );
@@ -725,8 +787,7 @@ fd_chainer_verified_block_insert( fd_chainer_t * chainer,
 
   if( FD_LIKELY( fd_chainer_slot_version_query( chainer, slot, &block_id ) ) ) return;
 
-  fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot );
-  slotv->block_id = block_id;
+  acquire_slotv( chainer, slot, &block_id );
   orphans_resolve( chainer );
 
   fd_chainer_slotv_t * turbine = turbine_slotv_query( chainer, slot );
@@ -795,6 +856,7 @@ fd_chainer_publish( fd_chainer_t *    chainer,
 
       fd_chainer_orphan_remove( chainer, s );
       fd_chainer_repair_remove( chainer, s );
+      event_emit( chainer, FD_EVENT_CHAINER_SLOT_RETIRED, s->slot, &s->block_id ); /* before release: the consumer sees it while the idx is still valid */
 
       int survives = slot==new_root && ( !canonical || s==canonical );
       if( FD_LIKELY( !survives ) ) {

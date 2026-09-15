@@ -76,6 +76,7 @@
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../disco/store/fd_store.h"
+#include "../rotor2/fd_rotor_event.h"
 
 #define FD_CHAINER_MAGIC (0xf17eda2ce7c4a112UL) /* firedancer chainer v1 */
 
@@ -246,6 +247,45 @@ typedef struct out_ele out_ele_t;
 #define DEQUE_T    out_ele_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
+/* Events
+
+   The chainer reports changes to what is repairable as
+   fd_event_chainer_t on event_queue, in the order they happened (see
+   fd_rotor_event.h for the kinds).  They are wake-ups for the repair
+   scheduler, not truth: a consumer reads the chainer to decide what to
+   do.  Emission sites:
+
+   Events name a version by {slot, block_id}, the same key
+   fd_chainer_slot_version_query takes.  A turbine version is {slot, 0}
+   until its block is whole; finalizing the block_id is reported as
+   SLOT_RETIRED of {slot, 0} then SLOT_ADDED of {slot, block_id}, so a
+   consumer keyed by version follows the rename.  Keys are never reused
+   before publish.
+
+   - SLOT_ADDED    every version acquired (turbine or verified) and
+                   every turbine version renamed at finalization
+   - FEC_ADDED     a FEC entry attached to a version: first turbine
+                   shred, getFecRoot sentinel, or repoint on rekey
+   - FEC_EVICTED   one of a version's FEC sets lost its shreds
+   - SLOT_COMPLETE every FEC set of the version became reconstructable,
+                   once per version, before any rename at finalization
+   - SLOT_RETIRED  the version needs no more repair: rooted at init,
+                   abandoned, renamed at finalization, slot-complete FEC
+                   delivered, parent is a dead fork, or pruned by
+                   publish.  May repeat for one version.
+
+   The queue must be drained with fd_chainer_event_poll between
+   top-level chainer calls; it is sized for the worst single call,
+   publish, at one event per slotv plus slack.  The repair worklist
+   treaps below are maintained alongside for the legacy rotor tile and
+   go away once the scheduler consumes these events. */
+
+#define FD_CHAINER_EVENT_PER_SLOTV (2UL)
+
+#define DEQUE_NAME event_queue
+#define DEQUE_T    fd_event_chainer_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
 struct fd_chainer {
   ulong root;             /* root slot, ULONG_MAX if unset */
   ulong highest_repaired; /* max slot ever marked fully_delivered (contiguous-from-root repaired tip) */
@@ -266,8 +306,10 @@ struct fd_chainer {
   fd_work_repair_t  * repair_treap;
   fd_work_orphan_t  * orphan_treap;
 
-  ulong     * bfs;       /* bfs queue */
-  out_ele_t * out_queue; /* delivered FEC pool idxs awaiting publish to replay */
+  ulong              * bfs;         /* bfs queue */
+  out_ele_t          * out_queue;   /* delivered FEC pool idxs awaiting publish to replay */
+  fd_event_chainer_t * event_queue; /* repair events awaiting the scheduler, see "Events" above */
+  ulong                event_seq;   /* seq of the next event emitted */
 
   ulong magic; /* ==FD_CHAINER_MAGIC */
 };
@@ -298,7 +340,9 @@ fd_chainer_footprint( ulong ele_max,
   if( FD_UNLIKELY( !fd_fec_pool_footprint( fec_max ) ) ) return 0UL;
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
   ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );
+  ulong event_max     = blk_max * FD_CHAINER_EVENT_PER_SLOTV;
   return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -324,6 +368,7 @@ fd_chainer_footprint( ulong ele_max,
       fd_work_orphan_align(),  fd_work_orphan_footprint ( blk_max       ) ),
       bfs_align(),             bfs_footprint            ( blk_max       ) ),
       out_queue_align(),       out_queue_footprint      ( fec_max       ) ),
+      event_queue_align(),     event_queue_footprint    ( event_max     ) ),
     fd_chainer_align() );
 }
 
@@ -437,10 +482,10 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
    identified by block_id owns at fec_set_idx, or NULL. */
 
 fd_chainer_fec_t *
-fd_chainer_fec_query( fd_chainer_t *    chainer,
-                      ulong             slot,
-                      uint              fec_set_idx,
-                      fd_hash_t const * block_id );
+fd_chainer_fec_query( fd_chainer_t const * chainer,
+                      ulong                slot,
+                      uint                 fec_set_idx,
+                      fd_hash_t const *    block_id );
 
 /* fd_chainer_shred_test returns 1 if slotv has data shred shred_idx --
    i.e. it owns the FEC at shred_idx's position and that FEC's presence
@@ -449,7 +494,7 @@ fd_chainer_fec_query( fd_chainer_t *    chainer,
    Returns 0 for shred_idx at or beyond max_shreds_per_block. */
 
 int
-fd_chainer_shred_test( fd_chainer_t *             chainer,
+fd_chainer_shred_test( fd_chainer_t const *       chainer,
                        fd_chainer_slotv_t const * slotv,
                        uint                       shred_idx );
 
@@ -470,9 +515,9 @@ fd_chainer_publish( fd_chainer_t *    chainer,
                     fd_store_t *      store );
 
 static inline fd_chainer_slotv_t *
-fd_chainer_slot_version_query( fd_chainer_t *    chainer,
-                               ulong             slot,
-                               fd_hash_t const * block_id ) {
+fd_chainer_slot_version_query( fd_chainer_t const * chainer,
+                               ulong                slot,
+                               fd_hash_t const *    block_id ) {
   fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
   fd_slotv_map_t     * slotv_map  = chainer->slotv_map;
   for( ulong idx = fd_slotv_map_idx_query_const( slotv_map, &slot, ULONG_MAX, slotv_pool );
@@ -505,6 +550,15 @@ fd_chainer_slot_query( fd_chainer_t * chainer, ulong slot ) {
   ulong idx = fd_slotv_map_idx_query_const( slotv_map, &slot, ULONG_MAX, slotv_pool );
   return idx==ULONG_MAX ? NULL : fd_slotv_pool_ele( slotv_pool, idx );
 }
+
+/* fd_chainer_event_poll pops the oldest pending event into *event,
+   stamps it with now (the caller's tile clock) and returns 1, or
+   returns 0 if no event is pending.  See "Events" above. */
+
+int
+fd_chainer_event_poll( fd_chainer_t *       chainer,
+                       long                 now,
+                       fd_event_chainer_t * event );
 
 /* fd_chainer_{repair,orphan}_{add,remove} add/removes an slotv from the
    repair/orphan worklist treap.  Idempotent.  _add is called by the

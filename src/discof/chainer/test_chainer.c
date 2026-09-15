@@ -199,6 +199,45 @@ expect_out( fd_chainer_t * chainer, out_rec_t const * exp, ulong exp_cnt ) {
   }
 }
 
+/* drain_events pops the chainer's entire event_queue into events in
+   emission order and returns the count.  Empties the queue. */
+
+static ulong
+drain_events( fd_chainer_t * chainer, fd_event_chainer_t * events, ulong events_max ) {
+  ulong cnt = 0UL;
+  fd_event_chainer_t event[1];
+  while( fd_chainer_event_poll( chainer, 0L, event ) ) {
+    FD_TEST( cnt<events_max );
+    events[ cnt++ ] = *event;
+  }
+  return cnt;
+}
+
+/* expect_events drains the event_queue and asserts it matches
+   exp[0..exp_cnt) exactly, in order, on kind, slot and block_id.  seq
+   must be contiguous. */
+
+static void
+expect_events( fd_chainer_t * chainer, fd_event_chainer_t const * exp, ulong exp_cnt ) {
+  fd_event_chainer_t events[ 64 ];
+  ulong cnt = drain_events( chainer, events, 64UL );
+  if( FD_UNLIKELY( cnt!=exp_cnt ) ) {
+    FD_LOG_WARNING(( "event_queue cnt=%lu exp=%lu", cnt, exp_cnt ));
+    for( ulong i=0UL; i<cnt; i++ ) FD_LOG_WARNING(( "  got[%lu] kind=%d slot=%lu", i, events[i].kind, events[i].slot ));
+  }
+  FD_TEST( cnt==exp_cnt );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    FD_TEST( events[ i ].kind       ==exp[ i ].kind        );
+    FD_TEST( events[ i ].slot       ==exp[ i ].slot        );
+    FD_TEST( fd_hash_eq( &events[ i ].block_id, &exp[ i ].block_id ) );
+    if( i ) FD_TEST( events[ i ].seq==events[ i-1UL ].seq+1UL );
+  }
+}
+
+static fd_hash_t const ZERO_BID = {0};
+
+#define EV( k, s, b ) { .kind = FD_EVENT_CHAINER_##k, .slot = (s), .block_id = *(b) }
+
 /* (a) A single-version turbine block: shreds and FEC completions arrive
    in order, the shred bitmap and the buffered / complete / delivered
    indices advance, and the block_id is finalized once the block is
@@ -1244,6 +1283,132 @@ test_shred_limit( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: the last legal shred position and FEC count are accepted" ));
 }
 
+/* Every repair-relevant state change is mirrored on the event queue in
+   the order the chainer made it.  Walks each emission site: init,
+   turbine slotv creation and first shred, slot-complete delivery,
+   votor-driven version creation with the turbine version abandoned, a
+   new sentinel, a FEC eviction, and publish. */
+
+static void
+test_events( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup( wksp );
+  expect_events( chainer, NULL, 0UL ); /* nothing before init */
+
+  /* init: the root is acquired then immediately retired */
+
+  fd_hash_t bid0 = mkhash( 100UL );
+  fd_chainer_init( chainer, 10UL, &bid0 );
+  {
+    fd_event_chainer_t exp[] = { EV( SLOT_ADDED, 10UL, &bid0 ), EV( SLOT_RETIRED, 10UL, &bid0 ) };
+    expect_events( chainer, exp, 2UL );
+  }
+
+  /* first turbine shred of slot 11: the slotv is created and its first
+     FEC entry attached */
+
+  fd_hash_t r0 = mkhash( 1UL );
+  fd_chainer_shred_insert( chainer, 11UL, 0U, 0, &r0, 10UL, &bid0 );
+  fd_chainer_slotv_t * s11 = slotv_at( chainer, 11UL, 0UL );
+  {
+    fd_event_chainer_t events[ 8 ];
+    FD_TEST( drain_events( chainer, events, 8UL )==2UL );
+    FD_TEST( events[ 0 ].kind==FD_EVENT_CHAINER_SLOT_ADDED && events[ 0 ].slot==11UL );
+    FD_TEST( events[ 1 ].kind==FD_EVENT_CHAINER_FEC_ADDED  && events[ 1 ].slot==11UL );
+    FD_TEST( fd_hash_check_zero( &events[ 0 ].block_id ) ); /* the turbine version is {slot, 0} until whole */
+    FD_TEST( fd_hash_check_zero( &events[ 1 ].block_id ) );
+    FD_TEST( s11 && s11->turbine );
+  }
+
+  /* more shreds into an existing FEC entry: silent */
+
+  for( uint i=1U; i<FD_FEC_SHRED_CNT; i++ ) fd_chainer_shred_insert( chainer, 11UL, i, 0, &r0, AG_UNKNOWN_SLOT, NULL );
+  expect_events( chainer, NULL, 0UL );
+
+  /* completing a non-final FEC set delivers it: silent, still repairing */
+
+  fd_hash_t mr = r0;
+  FD_TEST( !fd_chainer_fec_complete( chainer, 11UL, 0U, 0, 0, 0, &mr ) );
+  expect_events( chainer, NULL, 0UL );
+
+  /* the slot-complete FEC set: its entry is attached on the first
+     shred; completing it makes the block whole (SLOT_COMPLETE) and
+     finalizes the block_id, which renames the version from {11, 0} to
+     {11, block_id} (retire then add), and then delivery of the whole
+     block retires the renamed version */
+
+  fd_hash_t r1 = mkhash( 2UL );
+  FD_TEST( !feed_fec( chainer, 11UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL ) );
+  FD_TEST( !fd_hash_check_zero( &s11->block_id ) );
+  fd_hash_t bid11 = s11->block_id;
+  {
+    fd_event_chainer_t exp[] = { EV( FEC_ADDED, 11UL, &ZERO_BID ),
+                                 EV( SLOT_COMPLETE, 11UL, &ZERO_BID ), /* whole, under the turbine key */
+                                 EV( SLOT_RETIRED, 11UL, &ZERO_BID ), /* renamed ... */
+                                 EV( SLOT_ADDED, 11UL, &bid11 ), /* ... to the finalized key */
+                                 EV( SLOT_RETIRED, 11UL, &bid11 ) }; /* delivered */
+    expect_events( chainer, exp, 5UL );
+  }
+
+  /* a votor-driven version of slot 12: the verified version is added,
+     then the insert materializes the slot's turbine version and
+     abandons it on the spot */
+
+  fd_hash_t bid12 = mkhash( 200UL );
+  fd_chainer_verified_block_insert( chainer, 12UL, bid12 );
+  fd_chainer_slotv_t * v12 = fd_chainer_slot_version_query( chainer, 12UL, &bid12 );
+  FD_TEST( v12 );
+  {
+    fd_event_chainer_t events[ 8 ];
+    FD_TEST( drain_events( chainer, events, 8UL )==3UL );
+    FD_TEST( events[ 0 ].kind==FD_EVENT_CHAINER_SLOT_ADDED   && events[ 0 ].slot==12UL );
+    FD_TEST( events[ 1 ].kind==FD_EVENT_CHAINER_SLOT_ADDED   && events[ 1 ].slot==12UL );
+    FD_TEST( events[ 2 ].kind==FD_EVENT_CHAINER_SLOT_RETIRED && events[ 2 ].slot==12UL );
+    FD_TEST( fd_hash_eq( &events[ 0 ].block_id, &bid12 ) );  /* the verified version */
+    FD_TEST( fd_hash_check_zero( &events[ 1 ].block_id ) );  /* the turbine version ... */
+    FD_TEST( fd_hash_check_zero( &events[ 2 ].block_id ) );  /* ... is the one retired */
+  }
+
+  /* getParentAndFecSetCount naming a present parent changes only
+     worklist membership: silent */
+
+  FD_TEST( fd_chainer_verified_parent_fec_count( chainer, 12UL, &bid12, 1U, 11UL, &bid11 )==s11 );
+  expect_events( chainer, NULL, 0UL );
+
+  /* a sentinel from getFecRoot attaches a FEC entry */
+
+  fd_hash_t r12 = mkhash( 3UL );
+  mr = r12; fd_chainer_verified_hash_insert( chainer, 12UL, &bid12, 0U, &mr );
+  {
+    fd_event_chainer_t exp[] = { EV( FEC_ADDED, 12UL, &bid12 ) };
+    expect_events( chainer, exp, 1UL );
+  }
+
+  /* eviction of that FEC set */
+
+  mr = r12; fd_chainer_fec_evicted( chainer, 12UL, 0U, &mr );
+  {
+    fd_event_chainer_t exp[] = { EV( FEC_EVICTED, 12UL, &bid12 ) };
+    expect_events( chainer, exp, 1UL );
+  }
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  /* publish retires every pruned version in slot order, before it is
+     released */
+
+  out_ele_t * out_queue = chainer->out_queue;
+  while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
+  fd_chainer_publish( chainer, 11UL, &bid11, NULL );
+  {
+    fd_event_chainer_t exp[] = { EV( SLOT_RETIRED, 10UL, &bid0 ), EV( SLOT_RETIRED, 11UL, &bid11 ) };
+    expect_events( chainer, exp, 2UL );
+  }
+  FD_TEST( !slotv_at( chainer, 10UL, 0UL ) ); /* released after its event */
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: repair state changes are mirrored on the event queue" ));
+}
+
 /* Under bench limits a block holds 4x the FEC sets: the per-version FEC
    table is sized at runtime, so positions above FD_FEC_BLK_MAX are
    owned per version, shared, equivocated and pruned like any other. */
@@ -1338,6 +1503,7 @@ main( int argc, char ** argv ) {
   test_equivocation_drop                 ( wksp );
   test_verify_detects                    ( wksp );
   test_shred_limit                       ( wksp );
+  test_events                            ( wksp );
   test_bench_shred_limit                 ( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
