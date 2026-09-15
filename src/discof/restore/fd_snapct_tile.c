@@ -227,12 +227,6 @@ download_enabled( fd_topo_tile_t const * tile ) {
   return gossip_enabled( tile ) || tile->snapct.sources.servers_cnt>0UL;
 }
 
-FD_FN_CONST static inline ulong
-loose_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-  return 0UL;
-}
-
 #define ADNS_REQS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX+FD_TOPO_GOSSIP_ENTRYPOINTS_MAX)
 
 static ulong
@@ -2234,7 +2228,6 @@ fd_topo_run_tile_t fd_tile_snapct = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,

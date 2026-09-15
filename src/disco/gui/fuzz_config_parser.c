@@ -24,14 +24,8 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  cJSON * json;
   fd_gui_config_parse_info_t validator_info[1];
-  fd_pubkey_t pubkey;
-  int valid = fd_gui_config_parse_validator_info_check( data, size, &json, &pubkey );
-
-  if( valid ) {
-    fd_gui_config_parse_validator_info( json, validator_info );
-
+  if( fd_gui_config_parse_validator_info( data, size, validator_info ) ) {
     assert( fd_utf8_verify( validator_info->name,             strlen( validator_info->name )             ) );
     assert( fd_utf8_verify( validator_info->website,          strlen( validator_info->website )          ) );
     assert( fd_utf8_verify( validator_info->details,          strlen( validator_info->details )          ) );

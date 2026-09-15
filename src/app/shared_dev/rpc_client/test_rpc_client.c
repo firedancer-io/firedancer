@@ -5,8 +5,8 @@
 #include "../../../util/net/fd_ip4.h"
 #include "../../../third_party/picohttpparser/picohttpparser.h"
 #include "../../../waltz/http/fd_http.h"
-#include "../../../third_party/cjson/cJSON.h"
 #include "../../../ballet/base58/fd_base58.h"
+#include "../../../ballet/json/fd_jtok.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -108,24 +108,29 @@ fd_rpc_serve_one( void * args ) {
     break;
   }
 
-  const char * parse_end;
-  cJSON * json = cJSON_ParseWithLengthOpts( buf + content_offset, content_length, &parse_end, 0 );
-  FD_TEST( json );
+  fd_jtok_t j[1];
+  fd_jtok_init( j, buf+content_offset, content_length );
+  fd_jtok_str_t key;
+  char  method[ 32 ] = {0};
+  ulong id           = ULONG_MAX;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if(      fd_jtok_str_eq( &key, "method" ) ) fd_jtok_cstr ( j, method, sizeof(method) );
+    else if( fd_jtok_str_eq( &key, "id"     ) ) fd_jtok_ulong( j, &id );
+  }
+  FD_TEST( !fd_jtok_fini( j ) );
+  FD_TEST( id!=ULONG_MAX );
 
   char response_content[ 1024 ];
   int printed;
-  char * method = cJSON_GetObjectItem( json, "method" )->valuestring;
   if( !strcmp( method, "getLatestBlockhash" ) ) {
-    printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\": { \"value\": { \"blockhash\": \"EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N\" } } }",
-                        cJSON_GetObjectItem( json, "id" )->valueulong );
+    printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\": { \"value\": { \"blockhash\": \"EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N\" } } }", id );
   } else if( !strcmp( method, "getTransactionCount" ) ) {
-    printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\": 268 }",
-                        cJSON_GetObjectItem( json, "id" )->valueulong );
+    printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\": 268 }", id );
   } else {
     FD_LOG_WARNING(( "%s", method ));
     FD_TEST( 0 );
   }
-  cJSON_Delete( json );
   FD_TEST( printed>=0 && (ulong)printed<sizeof(response_content) );
 
   char response[ 1024 ];

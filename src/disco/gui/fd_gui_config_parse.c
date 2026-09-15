@@ -1,12 +1,31 @@
 #include "fd_gui_config_parse.h"
 
-#include "../../ballet/utf8/fd_utf8.h"
+#include "../../ballet/json/fd_jtok.h"
+
+/* parse_field consumes the pending string value of j into out (out_sz
+   bytes).  A value that is not a string, or a string whose decoded
+   form does not fit, leaves out empty and does not error j. */
+
+static void
+parse_field( fd_jtok_t * j,
+             char *      out,
+             ulong       out_sz ) {
+  out[ 0 ] = '\0';
+  if( FD_UNLIKELY( fd_jtok_peek( j )!=FD_JTOK_STR ) ) return;
+
+  char const * raw = NULL; ulong raw_sz = 0UL;
+  fd_jtok_raw( j, &raw, &raw_sz );
+  if( FD_UNLIKELY( !raw ) ) return;
+
+  fd_jtok_t s[1]; fd_jtok_init( s, raw, raw_sz );
+  fd_jtok_cstr( s, out, out_sz );
+  if( FD_UNLIKELY( fd_jtok_fini( s ) ) ) out[ 0 ] = '\0';
+}
 
 int
-fd_gui_config_parse_validator_info_check( uchar const * data,
-                                          ulong         sz,
-                                          cJSON **      out_json,
-                                          fd_pubkey_t * out_pubkey ) {
+fd_gui_config_parse_validator_info( uchar const *                data,
+                                    ulong                        sz,
+                                    fd_gui_config_parse_info_t * info ) {
   /*
     pub struct ConfigKeys {
         #[cfg_attr(feature = "serde", serde(with = "short_vec"))]
@@ -31,9 +50,6 @@ fd_gui_config_parse_validator_info_check( uchar const * data,
       "details": "<validator details>",
       "iconUrl": "<icon url>"
     }
-
-    Since accounts are at most 10MB, we should be safely within cJSON's
-    allocator limits.
 */
   ulong i = 0UL;
 
@@ -67,54 +83,28 @@ fd_gui_config_parse_validator_info_check( uchar const * data,
   CHECK_LEFT( sizeof(ulong) ); ulong json_str_sz = FD_LOAD( ulong, data+i ); i += sizeof(ulong);
 
   CHECK_LEFT( json_str_sz );
-  cJSON * json = cJSON_ParseWithLengthOpts( (char *)(data+i), json_str_sz, NULL, 0 );
-  if( FD_UNLIKELY( !json ) ) return 0;
 
 #undef CHECK
 #undef CHECK_LEFT
 
-  *out_json = json;
-  fd_memcpy( out_pubkey->uc, data_config_keys[1].pubkey.uc, sizeof(fd_pubkey_t) );
+  info->name            [ 0 ] = '\0';
+  info->website         [ 0 ] = '\0';
+  info->details         [ 0 ] = '\0';
+  info->icon_uri        [ 0 ] = '\0';
+  info->keybase_username[ 0 ] = '\0';
+
+  fd_jtok_t j[1]; fd_jtok_init( j, data+i, json_str_sz );
+  fd_jtok_str_t key;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &key ) ) {
+    if(      fd_jtok_str_eq( &key, "name"            ) ) parse_field( j, info->name,             sizeof(info->name)             );
+    else if( fd_jtok_str_eq( &key, "website"         ) ) parse_field( j, info->website,          sizeof(info->website)          );
+    else if( fd_jtok_str_eq( &key, "details"         ) ) parse_field( j, info->details,          sizeof(info->details)          );
+    else if( fd_jtok_str_eq( &key, "iconUrl"         ) ) parse_field( j, info->icon_uri,         sizeof(info->icon_uri)         );
+    else if( fd_jtok_str_eq( &key, "keybaseUsername" ) ) parse_field( j, info->keybase_username, sizeof(info->keybase_username) );
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) ) ) return 0;
+
+  fd_memcpy( info->pubkey.uc, data_config_keys[1].pubkey.uc, sizeof(fd_pubkey_t) );
   return 1;
-}
-
-void
-fd_gui_config_parse_validator_info( cJSON * json, fd_gui_config_parse_info_t * node_info ) {
-  const cJSON * name = cJSON_GetObjectItemCaseSensitive( json, "name" );
-  /* cJSON guarantees name->valuestring is NULL terminated */
-  int missing_name = !cJSON_IsString( name )
-                  || strlen(name->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ
-                  || !fd_cstr_printf_check( node_info->name, strlen(name->valuestring)+1UL, NULL, "%s", name->valuestring )
-                  || !fd_utf8_verify( node_info->name, strlen(node_info->name) );
-  if( FD_UNLIKELY( missing_name ) ) node_info->name[ 0 ] = '\0';
-
-  const cJSON * website = cJSON_GetObjectItemCaseSensitive( json, "website" );
-  int missing_website = !cJSON_IsString( website )
-                     || strlen(website->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_WEBSITE_SZ
-                     || !fd_cstr_printf_check( node_info->website, strlen(website->valuestring)+1UL, NULL, "%s", website->valuestring )
-                     || !fd_utf8_verify( node_info->website, strlen(node_info->website) );
-  if( FD_UNLIKELY( missing_website ) ) node_info->website[ 0 ] = '\0';
-
-  const cJSON * details = cJSON_GetObjectItemCaseSensitive( json, "details" );
-  int missing_details = !cJSON_IsString( details )
-                     || strlen(details->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_DETAILS_SZ
-                     || !fd_cstr_printf_check( node_info->details, strlen(details->valuestring)+1UL, NULL, "%s", details->valuestring )
-                     || !fd_utf8_verify( node_info->details, strlen(node_info->details) );
-  if( FD_UNLIKELY( missing_details ) ) node_info->details[ 0 ] = '\0';
-
-  const cJSON * icon_uri = cJSON_GetObjectItemCaseSensitive( json, "iconUrl" );
-  int missing_icon_uri = !cJSON_IsString( icon_uri )
-                      || strlen(icon_uri->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_ICON_URI_SZ
-                      || !fd_cstr_printf_check( node_info->icon_uri, strlen(icon_uri->valuestring)+1UL, NULL, "%s", icon_uri->valuestring )
-                      || !fd_utf8_verify( node_info->icon_uri, strlen(node_info->icon_uri) );
-  if( FD_UNLIKELY( missing_icon_uri ) ) node_info->icon_uri[ 0 ] = '\0';
-
-  const cJSON * keybase_username = cJSON_GetObjectItemCaseSensitive( json, "keybaseUsername" );
-  int missing_keybase_username = !cJSON_IsString( keybase_username )
-                      || strlen(keybase_username->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_KEYBASE_USERNAME_SZ
-                      || !fd_cstr_printf_check( node_info->keybase_username, strlen(keybase_username->valuestring)+1UL, NULL, "%s", keybase_username->valuestring )
-                      || !fd_utf8_verify( node_info->keybase_username, strlen(node_info->keybase_username) );
-  if( FD_UNLIKELY( missing_keybase_username ) ) node_info->keybase_username[ 0 ] = '\0';
-
-  cJSON_Delete( json );
 }

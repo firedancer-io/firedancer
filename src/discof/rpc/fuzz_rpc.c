@@ -18,7 +18,6 @@
 
 #include "../../util/fd_util.h"
 #include "../../disco/topo/fd_topob.h"
-#include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../util/sanitize/fd_fuzz.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
@@ -118,6 +117,9 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_boot( argc, argv );
   fd_log_level_core_set(5);  /* abort on FD_LOG_ERR */
 
+  static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );
+
   topo = aligned_alloc( alignof(fd_topo_t), sizeof(fd_topo_t) );
   FD_TEST( topo );
 
@@ -136,11 +138,6 @@ LLVMFuzzerInitialize( int  *   argc,
   topo_wksp->wksp = wksp;
 
   fuzz_accdb = setup_accdb();
-
-  void * shalloc = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( shalloc, 1UL ), 1UL );
-  FD_TEST( alloc );
-  cJSON_alloc_install( alloc );
 
   return 0;
 }
