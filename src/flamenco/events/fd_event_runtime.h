@@ -219,7 +219,7 @@ fd_event_runtime_slot_diffs_init( void * mem,      /* bank_max*FD_EVENT_RUNTIME_
 void
 fd_event_runtime_slot_diffs_reset( ulong bank_idx );
 
-/* Build the runtime_epoch event from bank and publish it on the calling tile's event link. 
+/* Build the runtime_epoch event from bank and publish it on the calling tile's event link.
    No-op when the tile has no event link. */
 
 void
