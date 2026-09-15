@@ -34,29 +34,13 @@ fd_gui_footprint( ulong tile_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_ag_slot_t),         max_live_slots*sizeof(fd_gui_ag_slot_t) );
   l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() ); /* ingress_maxq */
   l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() ); /* egress_maxq  */
+  l = FD_LAYOUT_APPEND( l, fd_gui_shred_event_pool_align(),   fd_gui_shred_event_pool_footprint( FD_GUI_SHRED_EVENT_POOL_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_shred_event_dlist_align(),  fd_gui_shred_event_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_gui_hist_align(),               fd_gui_hist_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_start_t), max_txn_per_slot*sizeof(fd_gui_store_txn_start_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
   return FD_LAYOUT_FINI( l, fd_gui_align() );
-}
-
-static inline int
-fd_gui_shreds_window_is_empty( fd_gui_t * gui,
-                               long       after_ns,
-                               long       before_ns ) {
-  if( FD_UNLIKELY( !gui->db ) ) return 1;
-
-  fd_gui_hist_iter_t it;
-  if( FD_UNLIKELY( fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_SHRED_EVENTS, after_ns, before_ns, NULL, NULL ) ) ) return 1;
-  while( fd_gui_hist_range_next( &it ) ) {
-    fd_gui_slot_history_shred_event_t const * e = (fd_gui_slot_history_shred_event_t const *)it.rec;
-    if( FD_UNLIKELY( e->timestamp<after_ns || e->timestamp>before_ns ) ) continue;
-    fd_gui_hist_range_end( &it );
-    return 0;
-  }
-  fd_gui_hist_range_end( &it );
-  return 1;
 }
 
 static inline void
@@ -134,6 +118,8 @@ fd_gui_new( void *                   shmem,
   void *     ag_slot_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_ag_slot_t),         max_live_slots*sizeof(fd_gui_ag_slot_t) );
   void *     ingress_maxq_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() );
   void *     egress_maxq_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() );
+  void *     shred_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_shred_event_pool_align(),   fd_gui_shred_event_pool_footprint( FD_GUI_SHRED_EVENT_POOL_MAX ) );
+  void *     shred_list_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_shred_event_dlist_align(),  fd_gui_shred_event_dlist_footprint() );
   void *     hist_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_hist_align(),               fd_gui_hist_footprint() );
   void *     txn_starts_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_start_t), max_txn_per_slot*sizeof(fd_gui_store_txn_start_t) );
   void *     txn_ends_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
@@ -159,6 +145,13 @@ fd_gui_new( void *                   shmem,
 
   gui->summary.ingress_maxq = fd_gui_rate_deque_join( fd_gui_rate_deque_new( ingress_maxq_mem ) );
   gui->summary.egress_maxq  = fd_gui_rate_deque_join( fd_gui_rate_deque_new( egress_maxq_mem  ) );
+
+  gui->shreds.shred_event_pool = fd_gui_shred_event_pool_join( fd_gui_shred_event_pool_new( shred_pool_mem, FD_GUI_SHRED_EVENT_POOL_MAX ) );
+  gui->shreds.shred_event_list = fd_gui_shred_event_dlist_join( fd_gui_shred_event_dlist_new( shred_list_mem ) );
+  if( FD_UNLIKELY( !gui->shreds.shred_event_pool || !gui->shreds.shred_event_list ) ) {
+    FD_LOG_WARNING(( "shred event staging initialization failed" ));
+    return NULL;
+  }
 
   gui->summary.network_stats_has_prev = 0;
   gui->summary.net_rate_prev_ts       = 0L;
@@ -428,6 +421,7 @@ fd_gui_new( void *                   shmem,
 
   gui->shreds.leader_shred_cnt        = 0UL;
   gui->shreds.leader_shred_slot       = ULONG_MAX;
+  gui->shreds.dropped_event_cnt       = 0UL;
   gui->shreds.broadcast_watermark_ns  = now;
   gui->summary.catch_up_repair_sz     = 0UL;
   gui->summary.catch_up_turbine_sz    = 0UL;
@@ -611,7 +605,7 @@ fd_gui_ws_open( fd_gui_t * gui,
 
   /* rebroadcast 10s of historical shred data */
   long const shred_history_start = now-10L*1000L*1000L*1000L;
-  if( FD_LIKELY( !fd_gui_shreds_window_is_empty( gui, shred_history_start, now ) ) ) {
+  if( FD_LIKELY( !fd_gui_shred_window_is_empty( gui, shred_history_start, now ) ) ) {
     fd_gui_printf_shred_rebroadcast( gui, shred_history_start, now );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
@@ -742,7 +736,7 @@ fd_gui_scheduler_counts_snap( fd_gui_t * gui, long now ) {
   cur->conflicting = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_CONFLICTING ) ];
   cur->bundles     = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_BUNDLES ) ];
 
-  fd_gui_hist_ts_append( gui, FD_GUI_HIST_SCHEDULER_COUNTS, now, now, cur );
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_SCHEDULER_COUNTS, cur );
 }
 
 static void
@@ -1540,7 +1534,7 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
 
   stats->bank_txn_exec_cnt = waterfall->out.block_fail + waterfall->out.block_success;
 
-  fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_STATS, now, now, stats );
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_STATS, stats );
 }
 
 static void
@@ -1819,7 +1813,7 @@ fd_gui_sample_repair_slot( fd_gui_t * gui, long now ) {
 
 void
 fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long now ) {
-  fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, now, now, &(fd_gui_slot_history_shred_event_t){ .slot = (uint)slot, .timestamp = now, .shred_idx = (ushort)shred_idx, .event = FD_GUI_SLOT_SHRED_REPAIR_REQUEST } );
+  fd_gui_shred_event_staged_append( gui, slot, shred_idx, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, now );
 }
 
 static void
@@ -1866,7 +1860,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_gui_hist_evict_step( gui );
 
     for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
-      fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_TIMERS, now, now, &gui->summary.tile_timers_packed[ i ] );
+      fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_TIMERS, &gui->summary.tile_timers_packed[ i ] );
     }
 
     gui->next_sample_1sec += 1000L*1000L*1000L;
@@ -1880,7 +1874,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
     if( FD_LIKELY( !gui->leader_active ) ) {
       for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
-        fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_TIMERS, now, now, &gui->summary.tile_timers_packed[ i ] );
+        fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_TIMERS, &gui->summary.tile_timers_packed[ i ] );
       }
     }
 
@@ -1895,7 +1889,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
     if( FD_LIKELY( gui->leader_active ) ) {
       gui->summary.txn_waterfall_current->sample_time_nanos = now;
-      fd_gui_hist_ts_append( gui, FD_GUI_HIST_TXN_WATERFALL, now, now, gui->summary.txn_waterfall_current );
+      fd_gui_hist_ts_append( gui, FD_GUI_HIST_TXN_WATERFALL, gui->summary.txn_waterfall_current );
     }
 
     fd_gui_network_stats_snap( gui, gui->summary.network_stats_current );
@@ -1948,7 +1942,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
   }
 
   if( FD_LIKELY( now>gui->next_sample_50millis ) ) {
-    if( FD_LIKELY( !fd_gui_shreds_window_is_empty( gui, gui->shreds.broadcast_watermark_ns, now ) ) ) {
+    if( FD_LIKELY( !fd_gui_shred_window_is_empty( gui, gui->shreds.broadcast_watermark_ns, now ) ) ) {
       fd_gui_printf_shred_updates( gui, gui->shreds.broadcast_watermark_ns, now );
       fd_http_server_ws_broadcast( gui->http );
     }
@@ -1982,7 +1976,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
     if( FD_LIKELY( gui->leader_active ) ) {
       for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
-        fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_TIMERS, now, now, &gui->summary.tile_timers_packed[ i ] );
+        fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_TIMERS, &gui->summary.tile_timers_packed[ i ] );
       }
     }
 
@@ -2162,19 +2156,22 @@ fd_gui_request_slot_rankings( fd_gui_t *    gui,
 
 static inline int
 fd_gui_cjson_parse_ns( cJSON const * param,
-                          long *        out ) {
-  if( FD_UNLIKELY( !param ) ) return -1;
-  if( cJSON_IsNumber( param ) ) {
-    double v = param->valuedouble;
-    if( FD_UNLIKELY( !(v>=0.0 && v<(double)LONG_MAX) ) ) return -1;
-    *out = (long)v;
-    return 0;
+                       long *        out ) {
+  if( FD_UNLIKELY( !cJSON_IsString( param ) || !param->valuestring ) ) return -1;
+
+  char const * value     = param->valuestring;
+  ulong        value_len = fd_cstr_nlen( value, 20UL );
+  if( FD_UNLIKELY( !value_len || value_len>19UL ) ) return -1;
+  if( FD_UNLIKELY( value_len>1UL && value[ 0 ]=='0' ) ) return -1;
+
+  for( ulong i=0UL; i<value_len; i++ ) {
+    if( FD_UNLIKELY( value[ i ]<'0' || value[ i ]>'9' ) ) return -1;
   }
-  if( cJSON_IsString( param ) && param->valuestring ) {
-    *out = fd_cstr_to_long( param->valuestring );
-    return 0;
-  }
-  return -1;
+
+  long parsed = fd_cstr_to_long( value );
+  if( FD_UNLIKELY( parsed==LONG_MAX ) ) return -1;
+  *out = parsed;
+  return 0;
 }
 
 static int
@@ -2189,7 +2186,6 @@ fd_gui_request_timeline_shreds( fd_gui_t *    gui,
   long start_ns, end_ns;
   if( FD_UNLIKELY( fd_gui_cjson_parse_ns( start_param, &start_ns ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   if( FD_UNLIKELY( fd_gui_cjson_parse_ns( end_param,   &end_ns   ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  if( FD_UNLIKELY( !(start_ns>=0L && start_ns<LONG_MAX) || !(end_ns>=0L && end_ns<LONG_MAX) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   if( FD_UNLIKELY( end_ns<start_ns ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   if( FD_UNLIKELY( end_ns-start_ns>60L*1000L*1000L*1000L ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST; /* TODO: tune/remove */
 
@@ -2461,7 +2457,7 @@ fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      shred_idx,
                      int        is_turbine,
                      long       tsorig,
-                     long       now ) {
+                     long       now FD_PARAM_UNUSED ) {
   int was_sent = fd_gui_ephemeral_slots_contains( gui->summary.slots_max_turbine, FD_GUI_TURBINE_SLOT_HISTORY_SZ, slot );
   if( FD_LIKELY( is_turbine ) ) fd_gui_try_insert_ephemeral_slot( gui->summary.slots_max_turbine, FD_GUI_TURBINE_SLOT_HISTORY_SZ, slot, tsorig );
 
@@ -2501,7 +2497,8 @@ fd_gui_handle_shred( fd_gui_t * gui,
     if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_run_length_slot( gui->summary.catch_up_turbine, FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_turbine_sz, slot );
   }
 
-  fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, now, tsorig, &(fd_gui_slot_history_shred_event_t){ .slot = (uint)slot, .timestamp = tsorig, .shred_idx = (ushort)shred_idx, .event = fd_uchar_if( is_turbine, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR ) } );
+  uchar event = fd_uchar_if( is_turbine, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR );
+  fd_gui_shred_event_staged_append( gui, slot, shred_idx, event, tsorig );
 }
 
 void
@@ -2510,7 +2507,7 @@ fd_gui_handle_leader_fec( fd_gui_t * gui,
                           ulong      fec_shred_cnt,
                           int        is_end_of_slot,
                           long       tsorig,
-                          long       now ) {
+                          long       now FD_PARAM_UNUSED ) {
   /* Abandoned block detected */
   if( FD_UNLIKELY( gui->summary.is_alpenglow && gui->shreds.leader_shred_slot!=slot ) ) {
     gui->shreds.leader_shred_cnt  = 0UL;
@@ -2518,7 +2515,7 @@ fd_gui_handle_leader_fec( fd_gui_t * gui,
   }
 
   for( ulong i=gui->shreds.leader_shred_cnt; i<gui->shreds.leader_shred_cnt+fec_shred_cnt; i++ ) {
-    fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, now, tsorig, &(fd_gui_slot_history_shred_event_t){ .slot = (uint)slot, .timestamp = tsorig, .shred_idx = (ushort)i, .event = FD_GUI_SLOT_SHRED_SHRED_PUBLISHED } );
+    fd_gui_shred_event_staged_append( gui, slot, i, FD_GUI_SLOT_SHRED_SHRED_PUBLISHED, tsorig );
   }
   gui->shreds.leader_shred_cnt += fec_shred_cnt;
   if( FD_UNLIKELY( is_end_of_slot ) ) gui->shreds.leader_shred_cnt = 0UL;
@@ -2531,17 +2528,17 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
                              ulong      end_shred_idx,
                              long       tsorig_ns FD_PARAM_UNUSED,
                              long       tspub_ns,
-                             long       now ) {
+                             long       now FD_PARAM_UNUSED ) {
   for( ulong i = start_shred_idx; i<end_shred_idx; i++ ) {
     /*
       We're leaving this state transition out due to its proximity to
       FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, but if we ever wanted
       to send this data to the frontend we could.
 
-      fd_gui_shred_event_append( gui, slot, i, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START, tsorig_ns );
+      fd_gui_shred_event_staged_append( gui, slot, i, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START, tsorig_ns );
     */
 
-    fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, now, tspub_ns, &(fd_gui_slot_history_shred_event_t){ .slot = (uint)slot, .timestamp = tspub_ns, .shred_idx = (ushort)i, .event = FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE } );
+    fd_gui_shred_event_staged_append( gui, slot, i, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, tspub_ns );
   }
 }
 
@@ -2610,6 +2607,8 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
 
   /* Rooting only ever advances. */
   if( FD_UNLIKELY( gui->summary.slot_rooted!=ULONG_MAX && _slot<=gui->summary.slot_rooted ) ) return;
+
+  fd_gui_shred_event_staged_prune( gui, _slot );
 
   ulong prev_rooted = gui->summary.slot_rooted;
 
@@ -3377,8 +3376,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
     if( FD_LIKELY( epoch ) ) fd_gui_broadcast_skip_rate( gui, epoch->epoch );
   }
 
-  /* Add a "slot complete" event for all of the shreds in this slot */
-  fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, now, slot_completed->completion_time_nanos, &(fd_gui_slot_history_shred_event_t){ .slot = (uint)slot_completed->slot, .timestamp = slot_completed->completion_time_nanos, .shred_idx = USHORT_MAX, .event = FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE } );
+  fd_gui_shred_event_slot_complete( gui, slot_completed->slot, slot_completed->completion_time_nanos, now );
 
   /* Set skip status based on the current tower-derived canonical fork. */
   fd_gui_slot_t * canon = fd_gui_slot_get_canon( gui, slot_completed->slot );
@@ -3542,6 +3540,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     fd_gui_store_txn_start_t rec = {
       .slot                    = _slot,
       .bank_seq                = bank_seq,
+      .insert_time_ns          = now,
       .txn_idx                 = txn_idx,
       .transaction_fee         = sig_rewards,
       .priority_fee            = priority_rewards,
@@ -3554,14 +3553,21 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
       .flags                   = flags
     };
     fd_memcpy( rec.signature, txn_payload->payload + txn->signature_off, FD_SHA512_HASH_SZ );
-    fd_gui_hist_ts_append( gui, FD_GUI_HIST_TXN_START, now, tspub_ns, &rec );
+    if( FD_LIKELY( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_TXN_START, &rec ) ) ) {
+      lslot = fd_gui_slot_leader_get( gui, _slot, bank_seq );
+      if( FD_LIKELY( lslot ) ) {
+        lslot->txn_insert_time_min_ns = fd_long_min( lslot->txn_insert_time_min_ns, now );
+        lslot->txn_insert_time_max_ns = fd_long_max( lslot->txn_insert_time_max_ns, now );
+      }
+    }
   }
 
   /* At the moment, bank publishes at most 1 transaction per microblock,
      even if it received microblocks with multiple transactions
      (i.e. a bundle). This means that we need to calculate microblock
      count here based on the transaction count. */
-  lslot->begin_microblocks += (uint)txn_cnt;
+  lslot = fd_gui_slot_leader_get( gui, _slot, bank_seq );
+  if( FD_LIKELY( lslot ) ) lslot->begin_microblocks += (uint)txn_cnt;
 }
 
 static void
@@ -3617,6 +3623,7 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
     fd_gui_store_txn_end_t rec = {
       .slot                    = _slot,
       .bank_seq                = bank_seq,
+      .insert_time_ns          = now,
       .txn_idx                 = txn_idx,
       .timestamp_arrival_nanos = txn_p->scheduler_arrival_time_nanos,
       .microblock_end_ns       = tspub_ns,
@@ -3627,11 +3634,18 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
       .error_code              = (uint)((txn_p->flags >> 24) & 0x3FU),
       .flags                   = flags
     };
-    fd_gui_hist_ts_append( gui, FD_GUI_HIST_TXN_END, now, tspub_ns, &rec );
+    if( FD_LIKELY( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_TXN_END, &rec ) ) ) {
+      lslot = fd_gui_slot_leader_get( gui, _slot, bank_seq );
+      if( FD_LIKELY( lslot ) ) {
+        lslot->txn_insert_time_min_ns = fd_long_min( lslot->txn_insert_time_min_ns, now );
+        lslot->txn_insert_time_max_ns = fd_long_max( lslot->txn_insert_time_max_ns, now );
+      }
+    }
 
     /* Record our own votes that land in our own leader block. */
     fd_gui_stage_leader_block_votes( gui, _slot, bank_seq, txn_p );
   }
 
-  lslot->end_microblocks = lslot->end_microblocks + (uint)txn_cnt;
+  lslot = fd_gui_slot_leader_get( gui, _slot, bank_seq );
+  if( FD_LIKELY( lslot ) ) lslot->end_microblocks += (uint)txn_cnt;
 }
