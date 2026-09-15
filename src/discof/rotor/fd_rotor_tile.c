@@ -1072,7 +1072,7 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
     if( e->buffered_idx!=UINT_MAX && ( e->highest_requested==UINT_MAX || e->buffered_idx > e->highest_requested ) )
       e->highest_requested = e->buffered_idx;
 
-    if( FD_UNLIKELY( e->complete_idx==UINT_MAX && e->slot < ctx->metrics->current_slot ) ) {
+    if( FD_UNLIKELY( e->complete_idx==UINT_MAX ) ) {
       if( !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_HIGHEST_SHRED, slot, UINT_MAX ), now ) ) {
         uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 0, slot, 0U, now );
         fd_repair_msg_t * msg = fd_repair_highest_shred( ctx->protocol, peer, (ulong)now_ms, nonce, slot, 0 );
