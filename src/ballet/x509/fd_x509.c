@@ -87,58 +87,61 @@ fd_x509_parse_spki( fd_der_cursor_t * c,
                     ulong *           out_pk_len,
                     uchar *           out_type ) {
 
-  /* algorithm AlgorithmIdentifier SEQUENCE */
+  /* algorithm AlgorithmIdentifier ::= SEQUENCE {
+       algorithm  OBJECT IDENTIFIER,
+       parameters ANY DEFINED BY algorithm OPTIONAL } */
   uchar const * alg_ptr; ulong alg_len;
   FD_DER_READ( *c, FD_DER_TAG_SEQUENCE, alg_ptr, alg_len );
+  fd_der_cursor_t alg = { .p = alg_ptr, .end = alg_ptr+alg_len };
 
-  /* Ed25519? */
-  if( alg_len == sizeof(oid_ed25519) &&
-      0 == memcmp( alg_ptr, oid_ed25519, sizeof(oid_ed25519) ) ) {
-    uchar const * bits; ulong bits_len;
-    FD_DER_READ_BITS( *c, bits, bits_len );
-    if( FD_UNLIKELY( bits_len != 32 ) ) return -1;
-    *out_pk     = bits;
-    *out_pk_len = 32;
-    *out_type   = FD_X509_KEY_ED25519;
-    return 0;
+  uchar const * oid; ulong oid_len;
+  FD_DER_READ_RAW( alg, FD_DER_TAG_OID, oid, oid_len );
+
+  uchar type = FD_X509_KEY_UNKNOWN;
+  if( fd_der_oid_match( oid, oid_len, oid_ed25519, sizeof(oid_ed25519) ) ) {
+    /* RFC 8410 Section 3: parameters MUST be absent */
+    type = FD_X509_KEY_ED25519;
+  } else if( fd_der_oid_match( oid, oid_len, oid_ec_pubkey, sizeof(oid_ec_pubkey) ) ) {
+    /* RFC 5480 Section 2.1.1: parameters is a namedCurve OID */
+    uchar const * curve; ulong curve_len;
+    FD_DER_READ_RAW( alg, FD_DER_TAG_OID, curve, curve_len );
+    if(      fd_der_oid_match( curve, curve_len, oid_prime256v1, sizeof(oid_prime256v1) ) ) type = FD_X509_KEY_ECDSA_P256;
+    else if( fd_der_oid_match( curve, curve_len, oid_secp384r1,  sizeof(oid_secp384r1)  ) ) type = FD_X509_KEY_ECDSA_P384;
+  } else if( FD_DER_HAS_MORE( alg ) ) {
+    FD_DER_SKIP( alg );
   }
+  if( FD_UNLIKELY( FD_DER_HAS_MORE( alg ) ) ) return -1;
 
-  /* ECDSA P-256? */
-  if( alg_len == sizeof(oid_ec_pubkey) + sizeof(oid_prime256v1) &&
-      0 == memcmp( alg_ptr, oid_ec_pubkey, sizeof(oid_ec_pubkey) ) &&
-      0 == memcmp( alg_ptr + sizeof(oid_ec_pubkey), oid_prime256v1, sizeof(oid_prime256v1) ) ) {
-    uchar const * bits; ulong bits_len;
-    FD_DER_READ_BITS( *c, bits, bits_len );
+  /* subjectPublicKey BIT STRING */
+  uchar const * bits; ulong bits_len;
+  FD_DER_READ_BITS( *c, bits, bits_len );
+
+  switch( type ) {
+  case FD_X509_KEY_ED25519:
+    if( FD_UNLIKELY( bits_len != 32 ) ) return -1;
+    break;
+  case FD_X509_KEY_ECDSA_P256: {
     if( FD_UNLIKELY( bits_len != 65 ) ) return -1;
     uchar compressed[ 33 ];
     if( FD_UNLIKELY( fd_secp256r1_public_key_compress( compressed, bits )
                      !=FD_SECP256R1_SUCCESS ) ) return -1;
-    *out_pk     = bits;
-    *out_pk_len = 65;
-    *out_type   = FD_X509_KEY_ECDSA_P256;
-    return 0;
+    break;
   }
-
-  /* ECDSA P-384? */
-  if( alg_len == sizeof(oid_ec_pubkey) + sizeof(oid_secp384r1) &&
-      0 == memcmp( alg_ptr, oid_ec_pubkey, sizeof(oid_ec_pubkey) ) &&
-      0 == memcmp( alg_ptr + sizeof(oid_ec_pubkey), oid_secp384r1, sizeof(oid_secp384r1) ) ) {
-    uchar const * bits; ulong bits_len;
-    FD_DER_READ_BITS( *c, bits, bits_len );
+  case FD_X509_KEY_ECDSA_P384: {
     if( FD_UNLIKELY( bits_len != 97 ) ) return -1;
     uchar compressed[ 49 ];
     if( FD_UNLIKELY( fd_secp384r1_public_key_compress( compressed, bits )
                      !=FD_SECP384R1_SUCCESS ) ) return -1;
-    *out_pk     = bits;
-    *out_pk_len = 97;
-    *out_type   = FD_X509_KEY_ECDSA_P384;
-    return 0;
+    break;
+  }
+  default: /* well-formed but unsupported (e.g. RSA) */
+    break;
   }
 
-  /* TODO: RSA? */
-
-  /* Unknown. */
-  return -1;
+  *out_pk     = bits;
+  *out_pk_len = bits_len;
+  *out_type   = type;
+  return 0;
 }
 
 static int
@@ -981,8 +984,8 @@ fd_x509_extract_pubkey( uchar const *  cert,
                         uchar *        out_key_type ) {
   if( FD_UNLIKELY( !cert || !out_pubkey || !out_pubkey_len || !out_key_type ) ) return -1;
   fd_x509_cert_info_t info;
-  int err = fd_x509_cert_parse( cert, cert_sz, &info );
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( fd_x509_cert_parse( cert, cert_sz, &info ) ) ) return -1;
+  if( FD_UNLIKELY( info.key_type==FD_X509_KEY_UNKNOWN ) ) return -1;
   *out_pubkey     = info.pubkey;
   *out_pubkey_len = info.pubkey_len;
   *out_key_type   = info.key_type;

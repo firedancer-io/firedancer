@@ -46,7 +46,7 @@
 #define FD_X509_VERIFY_ERR_CA_FLAG         (4)  /* intermediate missing CA flag */
 #define FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR (5)  /* root not found in CA store */
 #define FD_X509_VERIFY_ERR_HOSTNAME        (6)  /* SAN doesn't match hostname */
-#define FD_X509_VERIFY_ERR_UNSUPPORTED     (7)  /* unsupported signature algorithm */
+#define FD_X509_VERIFY_ERR_UNSUPPORTED     (7)  /* unsupported signature algorithm or leaf key type */
 #define FD_X509_VERIFY_ERR_CHAIN_TOO_LONG  (8)  /* chain exceeds FD_X509_CHAIN_MAX */
 #define FD_X509_VERIFY_ERR_TIME_PARSE      (9)  /* malformed validity period */
 #define FD_X509_VERIFY_ERR_NOT_YET_VALID  (10)  /* now_unix < notBefore */
