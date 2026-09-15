@@ -11,6 +11,9 @@ struct fd_genesis_client_peer {
   int writing;
   ulong request_bytes_sent;
   ulong response_bytes_read;
+  ulong response_bytes_parsed;
+  ulong header_len;
+  ulong content_length;
   uchar response[ 10UL*1024UL*1024UL ]; /* 10 MiB max response */
 };
 
