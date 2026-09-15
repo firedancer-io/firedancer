@@ -82,6 +82,11 @@ test_stem_publish( fd_stem_context_t * stem,
 
 #include <stdlib.h>
 
+#if FD_HAS_ASAN && defined(__clang__)
+/* Keep large tile contexts in separate test frames. */
+#pragma clang attribute push (__attribute__((noinline)), apply_to=function)
+#endif
+
 /* Production per-slot limits (tile->snapin.max_txn_per_slot and its
    derived staging bounds). */
 #define TEST_MAX_GROUPS_PER_SLOT  (FD_MAX_TXN_PER_SLOT)
@@ -1856,3 +1861,7 @@ main( int     argc,
   fd_halt();
   return 0;
 }
+
+#if FD_HAS_ASAN && defined(__clang__)
+#pragma clang attribute pop
+#endif
