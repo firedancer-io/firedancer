@@ -1073,9 +1073,11 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ulong ctl         = umem_off & 0x3fUL;
 
   /* Filter for UDP/IPv4 packets. */
-  ulong ipver = FD_IP4_GET_VERSION( *iphdr );
-  ulong iplen = FD_IP4_GET_LEN    ( *iphdr );
+  ulong ipver   = FD_IP4_GET_VERSION( *iphdr );
+  ulong iplen   = FD_IP4_GET_LEN    ( *iphdr );
+  ulong iptotal = fd_ushort_bswap( iphdr->net_tot_len );
   if( FD_UNLIKELY( ipver!=0x4 || iplen<20 ||
+                   iptotal<iplen || sizeof(fd_eth_hdr_t)+iptotal>sz ||
                    iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) {
     FD_DTRACE_PROBE( net_tile_err_rx_noip );
     ctx->metrics.rx_undersz_cnt++; /* drop IPv6 packets */
