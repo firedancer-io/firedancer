@@ -343,7 +343,6 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_ALERT_PARSE      (1104)  /* malformed alert record */
 #define FD_TLS_REASON_PEER_ALERT       (1105)  /* peer sent a fatal alert */
 #define FD_TLS_REASON_HS_INTERLEAVED   (1106)  /* record interleaved with a fragmented handshake message */
-#define FD_TLS_REASON_REC_VERSION      (1107)  /* bad record layer legacy_record_version */
 #define FD_TLS_REASON_REC_TYPE         (1108)  /* unexpected record layer content type */
 #define FD_TLS_REASON_REC_OVERFLOW     (1109)  /* record larger than the protocol allows */
 #define FD_TLS_REASON_HS_KEY_CHANGE    (1110)  /* handshake data follows a key change in the same record */

@@ -159,7 +159,7 @@ LLVMFuzzerTestOneInput( uchar const * input,
   int   alpn_neg    = !!( state & (1UL<<18) );
   int   cert_verify = !!( state & (1UL<<19) );
   int   no_signer   = !!( state & (1UL<<21) );
-  int   ccs_seen    = !!( state & (1UL<<22) );
+  int   cert_empty  = !!( state & (1UL<<22) );
 
   fd_tls_t tls[1]; fd_memcpy( tls, tls_tmpl, sizeof(fd_tls_t) );
   fd_chacha_rng_t chacha[1];
@@ -179,7 +179,6 @@ LLVMFuzzerTestOneInput( uchar const * input,
   fd_tls_estate_base_t base = {
     .state    = hs_state,
     .server   = (uchar)( is_server&1 ),
-    .ccs_seen = (uchar)( ccs_seen&1 ),
   };
   for( ulong b=0; b<32UL; b++ ) base.client_random[b] = fd_rng_uchar( rng );
 
@@ -197,6 +196,7 @@ LLVMFuzzerTestOneInput( uchar const * input,
     fd_tls_estate_cli_t hs[1] = {{
       .base              = base,
       .client_cert       = (uchar)(cli_cert&1),
+      .client_cert_empty = (uchar)(cert_empty&1),
       .server_pubkey_pin = (uchar)(pubkey_pin&1),
       .alpn_negotiated   = (uchar)(alpn_neg&1),
     }};

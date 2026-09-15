@@ -132,7 +132,7 @@ struct fd_tlsrec_conn {
 
 struct __attribute__((packed)) fd_tlsrec_hdr {
   uchar  content_type;           /* FD_TLS_REC_{...} */
-  ushort legacy_record_version;  /* ==0x0303 */
+  ushort legacy_record_version;  /* sent as 0x0303, ignored on receive */
   ushort length;
 };
 

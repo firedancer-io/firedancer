@@ -479,7 +479,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   /* Check for cryptographic compatibility */
 
   if( FD_UNLIKELY( !ch.supported_versions.tls13 ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_NEG_VER );
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_PROTOCOL_VERSION, FD_TLS_REASON_CH_NEG_VER );
   if( FD_UNLIKELY( !ch.supported_groups.x25519 ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_NEG_KX );
   if( FD_UNLIKELY( !ch.signature_algorithms.ed25519 ) )
@@ -1539,6 +1539,11 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
 
   /* QUIC mode */
 
+  if( FD_UNLIKELY( ( ee->server_name && !client->server_name_len ) ||
+                   ( ee->quic_tp.buf && !client->quic            ) ||
+                   ( ee->alpn.buf && !client->alpn_sz            ) ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_EXTENSION, FD_TLS_REASON_EE_PARSE );
+
   if( client->quic ) {
     /* QUIC transport parameters are mandatory in QUIC mode */
     if( FD_UNLIKELY( !ee->quic_tp.buf ) )
@@ -1576,10 +1581,12 @@ fd_tls_client_handle_cert_req( fd_tls_estate_cli_t * const handshake,
                                uchar const *         const req,
                                ulong                 const req_sz ) {
 
-  /* For now, just ignore the content of the certificate request.
-     TODO: This is obviously not compliant. */
-  (void)req;
+  fd_tls_ext_signature_algorithms_t sigalgs = {0};
+  long res = fd_tls_decode_cert_req( &sigalgs, req, req_sz );
+  if( FD_UNLIKELY( res<0L ) ) return res;
+  if( FD_UNLIKELY( (ulong)res != req_sz ) ) return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
+  handshake->client_cert_empty = !sigalgs.ed25519;
   handshake->client_cert = 1;
   handshake->base.state  = FD_TLS_HS_WAIT_CERT;
 
@@ -1871,7 +1878,7 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
                       /* write secret */ client_app_secret,
                       FD_TLS_LEVEL_APPLICATION );
 
-  if( hs->client_cert && ( !client->cert_x509_sz || !client->sign.sign_fn ) ) {
+  if( hs->client_cert && ( hs->client_cert_empty || !client->cert_x509_sz || !client->sign.sign_fn ) ) {
 
     /* RFC 8446 Section 4.4.2: a client that was asked for a certificate
        but has none to offer sends a Certificate message with an empty
@@ -1899,18 +1906,10 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
     /* Send client Certificate ****************************************/
 
     /* Message buffer */
-#   define MSG_BUFSZ 512UL
-    uchar msg_buf[ MSG_BUFSZ ];
-
-    /* TODO: fd_tls does not support certificate_request_context.
-       It is an opaque string that the server may send in the cert
-       request.  The client is supposed to echo it back in its cert
-       message.  However, the server is not supposed to send it in the
-       first place, unless post-handshake auth is used (which is not
-       the case) */
-
-    long cert_msg_sz = fd_tls_encode_cert_x509( client->cert_x509, client->cert_x509_sz, msg_buf, MSG_BUFSZ );
-    FD_TEST( cert_msg_sz>=0L );
+    uchar msg_buf[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];
+    long cert_msg_sz = fd_tls_encode_cert_x509( client->cert_x509, client->cert_x509_sz, msg_buf, sizeof(msg_buf) );
+    if( FD_UNLIKELY( cert_msg_sz<0L ) )
+      return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
 
     /* Send certificate message */
 
@@ -1929,8 +1928,6 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
 
     long cvfy_res = fd_tls_send_cert_verify( client, &hs->base, &hs->transcript, 1 );
     if( FD_UNLIKELY( !!cvfy_res ) ) return cvfy_res;
-
-#   undef MSG_BUFSZ
 
   }
 
@@ -2150,8 +2147,6 @@ fd_tls_reason_cstr( uint reason ) {
     return "peer sent a fatal alert";
   case FD_TLS_REASON_HS_INTERLEAVED:
     return "record interleaved with a fragmented handshake message";
-  case FD_TLS_REASON_REC_VERSION:
-    return "bad record layer version";
   case FD_TLS_REASON_REC_TYPE:
     return "unexpected record layer content type";
   case FD_TLS_REASON_REC_OVERFLOW:

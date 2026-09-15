@@ -155,6 +155,7 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
 struct fd_tls_enc_ext {
   fd_tls_ext_quic_tp_t quic_tp;
   fd_tls_ext_alpn_t    alpn;
+  uint                 server_name:1;
 };
 
 typedef struct fd_tls_enc_ext fd_tls_enc_ext_t;
@@ -314,9 +315,9 @@ FD_PROTOTYPES_BEGIN
 
 #define STATIC_SERDE( NAME, TYPE_T )                                   \
   static inline long                                                   \
-  fd_tls_decode_##NAME ( TYPE_T *     out,                             \
-                         uchar const * wire,                            \
-                         ulong        wire_sz ) {                      \
+  fd_tls_decode_##NAME( TYPE_T *      out,                             \
+                        uchar const * wire,                            \
+                        ulong         wire_sz ) {                      \
     if( FD_UNLIKELY( wire_sz < sizeof(TYPE_T) ) )                      \
       return -(long)FD_TLS_ALERT_DECODE_ERROR;                         \
     memcpy( out, wire, sizeof(TYPE_T) );                               \
@@ -426,6 +427,10 @@ fd_tls_encode_cert_x509( uchar const * x509,
                          uchar *       wire,
                          ulong         wire_sz );
 
+long
+fd_tls_decode_cert_req( fd_tls_ext_signature_algorithms_t * out,
+                        uchar const *                       wire,
+                        ulong                               wire_sz );
 
 long
 fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
@@ -498,8 +503,11 @@ fd_tls_encode_ext_alpn( fd_tls_ext_alpn_t const * in,
                         uchar *                   wire,
                         ulong                     wire_sz );
 
-/* fd_tls_extract_cert_pubkey extracts the public key of a TLS cert
-   message. */
+/* fd_tls_extract_cert_pubkey validates the initial-handshake Certificate
+   envelope and extracts its leaf public key.  Requires an empty request
+   context and a nonempty, exactly framed certificate_list.  Rejects
+   CertificateEntry extensions, which our CH and CR do not solicit.
+   Does not authenticate the X.509 chain or establish trust. */
 
 struct fd_tls_extract_cert_pubkey_res {
   uchar const * pubkey;

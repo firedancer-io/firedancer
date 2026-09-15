@@ -389,12 +389,6 @@ test_tlsrec_large_hs_msg( fd_rng_t * rng ) {
   }
 }
 
-/* RFC 8446 Appendix D.4: a peer may send exactly one ChangeCipherSpec
-   record (1 byte payload 0x01) between ClientHello and its Finished.
-   Anything else is fatal.  A CCS record is not encrypted, so a lax
-   check would let an on-path attacker inject unlimited plaintext
-   records without consuming a sequence number. */
-
 /* test_tlsrec_connect runs a full handshake between a fresh client and
    server that both use tls, leaving both sides in the CONNECTED state. */
 
@@ -424,28 +418,62 @@ test_tlsrec_connect( fd_tls_t const *   tls,
    pick the content type. */
 
 static ulong
-test_tlsrec_send_raw( fd_tlsrec_conn_t * conn,
-                      uchar *            out,
-                      uchar const *      payload,
-                      ulong              payload_sz,
-                      uchar              content_type ) {
-  ulong inner_sz = payload_sz + 1UL + FD_AES_GCM_TAG_SZ;
+test_tlsrec_send_raw_ex( fd_tlsrec_conn_t * conn,
+                         uchar *            out,
+                         uchar const *      payload,
+                         ulong              payload_sz,
+                         uchar              content_type,
+                         ulong              padding_sz,
+                         ushort             version,
+                         uint               key_idx ) {
+  ulong pt_sz    = payload_sz + 1UL + padding_sz;
+  ulong inner_sz = pt_sz + FD_AES_GCM_TAG_SZ;
   fd_tlsrec_hdr_t * hdr = fd_type_pun( out );
   *hdr = (fd_tlsrec_hdr_t){
     .content_type          = FD_TLS_REC_APPLICATION_DATA,
-    .legacy_record_version = fd_ushort_bswap( 0x0303 ),
+    .legacy_record_version = fd_ushort_bswap( version ),
     .length                = fd_ushort_bswap( (ushort)inner_sz ),
   };
   uchar * c = out + sizeof(fd_tlsrec_hdr_t);
   fd_memcpy( c, payload, payload_sz );
   c[ payload_sz ] = content_type;
+  fd_memset( c+payload_sz+1UL, 0, padding_sz );
 
-  uchar iv[12]; test_gen_iv( iv, conn->keys[1].write_iv, conn->write_seq );
+  uchar iv[12]; test_gen_iv( iv, conn->keys[key_idx].write_iv, conn->write_seq );
   fd_aes_gcm_t gcm[1];
-  fd_aes_gcm_init( gcm, conn->keys[1].write_key, 16UL, iv );
-  fd_aes_gcm_encrypt( gcm, c, c, payload_sz+1UL, out, sizeof(fd_tlsrec_hdr_t), c+payload_sz+1UL );
-  conn->write_seq++;
+  fd_aes_gcm_init( gcm, conn->keys[key_idx].write_key, 16UL, iv );
+  fd_aes_gcm_encrypt( gcm, c, c, pt_sz, out, sizeof(fd_tlsrec_hdr_t), c+pt_sz );
+  if( conn->write_seq!=ULONG_MAX ) conn->write_seq++;
   return sizeof(fd_tlsrec_hdr_t) + inner_sz;
+}
+
+static ulong
+test_tlsrec_send_raw( fd_tlsrec_conn_t * conn,
+                      uchar *            out,
+                      uchar const *      payload,
+                      ulong              payload_sz,
+                      uchar              content_type ) {
+  return test_tlsrec_send_raw_ex( conn, out, payload, payload_sz, content_type, 0UL, 0x0303, 1U );
+}
+
+static void
+test_tlsrec_check_alert( fd_tlsrec_conn_t const * conn,
+                         uchar const *           rec,
+                         ulong                   rec_sz,
+                         uchar                   desc ) {
+  if( conn->tx_level==FD_TLS_LEVEL_INITIAL ) {
+    uchar const expected[] = { 21, 3, 3, 0, 2, 2, desc };
+    FD_TEST( rec_sz==sizeof(expected) && !memcmp( rec, expected, sizeof(expected) ) );
+    return;
+  }
+  FD_TEST( rec_sz==24UL && rec[0]==FD_TLS_REC_APPLICATION_DATA );
+  fd_tlsrec_keys_t const * keys = &conn->keys[ conn->tx_level==FD_TLS_LEVEL_APPLICATION ];
+  uchar iv[12]; test_gen_iv( iv, keys->write_iv, conn->write_seq-1UL );
+  fd_aes_gcm_t gcm[1];
+  fd_aes_gcm_init( gcm, keys->write_key, 16UL, iv );
+  uchar pt[3];
+  FD_TEST( fd_aes_gcm_decrypt( gcm, rec+5UL, pt, 3UL, rec, 5UL, rec+8UL ) );
+  FD_TEST( pt[0]==2U && pt[1]==desc && pt[2]==FD_TLS_REC_ALERT );
 }
 
 static void
@@ -486,14 +514,28 @@ test_tlsrec_ccs( fd_rng_t * rng ) {
 
   for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
     static fd_tlsrec_conn_t server[1];
+    static fd_tlsrec_conn_t waiting_client[1];
+    *waiting_client = *client;
     FD_TEST( fd_tlsrec_conn_init( server, &tls, 1 )==server );
 
     fd_tlsrec_slice_t tcp_rx[1];
     ulong tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
 
+    /* A client has already sent ClientHello while waiting for SH. */
+    fd_tlsrec_slice_init( tcp_rx, (uchar *)cases[i].rec, cases[i].sz );
+    int client_rc = fd_tlsrec_conn_rx( waiting_client, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz );
+    FD_TEST( client_rc==(cases[i].ok ? FD_TLSREC_SUCCESS : FD_TLSREC_ERR_PROTO) );
+    if( cases[i].ok ) {
+      FD_TEST( !tcp_tx_sz && waiting_client->tx_level==FD_TLS_LEVEL_INITIAL );
+    } else {
+      test_tlsrec_check_alert( waiting_client, tcp_tx, tcp_tx_sz, FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+    }
+
     /* CCS before ClientHello is always an error */
     fd_tlsrec_slice_init( tcp_rx, (uchar *)cases[i].rec, cases[i].sz );
+    tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
     FD_TEST( fd_tlsrec_conn_rx( server, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_ERR_PROTO );
+    test_tlsrec_check_alert( server, tcp_tx, tcp_tx_sz, FD_TLS_ALERT_UNEXPECTED_MESSAGE );
 
     FD_TEST( fd_tlsrec_conn_init( server, &tls, 1 )==server );
     fd_tlsrec_slice_init( tcp_rx, client_hello, client_hello_sz );
@@ -508,19 +550,34 @@ test_tlsrec_ccs( fd_rng_t * rng ) {
       FD_TEST( rc==FD_TLSREC_ERR_PROTO );
       FD_TEST( fd_tlsrec_conn_is_failed( server ) );
       FD_TEST( server->hs.base.reason==FD_TLS_REASON_CCS );
+      test_tlsrec_check_alert( server, tcp_tx, tcp_tx_sz, FD_TLS_ALERT_UNEXPECTED_MESSAGE );
       continue;
     }
     FD_TEST( rc==FD_TLSREC_SUCCESS );
     FD_TEST( fd_tlsrec_slice_is_empty( tcp_rx ) );
     FD_TEST( !fd_tlsrec_conn_is_failed( server ) );
-    FD_TEST( server->hs.base.ccs_seen );
+    FD_TEST( !tcp_tx_sz && !app_rx_sz && !server->read_seq );
 
-    /* A second CCS, even a well-formed one, is fatal */
+    /* Repeated compatibility CCS records are discarded. */
     fd_tlsrec_slice_init( tcp_rx, (uchar *)ccs_ok, sizeof(ccs_ok) );
     tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
-    FD_TEST( fd_tlsrec_conn_rx( server, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_ERR_PROTO );
-    FD_TEST( server->hs.base.reason==FD_TLS_REASON_CCS );
+    FD_TEST( fd_tlsrec_conn_rx( server, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( !tcp_tx_sz && !app_rx_sz && !server->read_seq );
   }
+
+  /* A server awaiting a retry ClientHello remains inside the window. */
+  do {
+    static fd_tlsrec_conn_t server[1];
+    FD_TEST( fd_tlsrec_conn_init( server, &tls, 1 )==server );
+    server->hs.srv.hello_retry = 1;
+    fd_tlsrec_slice_t tcp_rx[1];
+    for( ulong i=0UL; i<2UL; i++ ) {
+      fd_tlsrec_slice_init( tcp_rx, (uchar *)ccs_ok, sizeof(ccs_ok) );
+      ulong tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
+      FD_TEST( fd_tlsrec_conn_rx( server, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+      FD_TEST( !tcp_tx_sz && !app_rx_sz && !server->read_seq );
+    }
+  } while(0);
 
   /* CCS after the handshake completed is fatal */
   do {
@@ -534,17 +591,166 @@ test_tlsrec_ccs( fd_rng_t * rng ) {
     srv_tx_sz = sizeof(srv_tx); app_rx_sz = sizeof(app_rx);
     FD_TEST( fd_tlsrec_conn_rx( srv, tcp_rx, srv_tx, &srv_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_ERR_PROTO );
     FD_TEST( srv->hs.base.reason==FD_TLS_REASON_CCS );
+    test_tlsrec_check_alert( srv, srv_tx, srv_tx_sz, FD_TLS_ALERT_UNEXPECTED_MESSAGE );
     fd_tlsrec_slice_init( tcp_rx, (uchar *)ccs_ok, sizeof(ccs_ok) );
     cli_tx_sz = sizeof(cli_tx); app_rx_sz = sizeof(app_rx);
     FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, cli_tx, &cli_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_ERR_PROTO );
     FD_TEST( cli->hs.base.reason==FD_TLS_REASON_CCS );
+    test_tlsrec_check_alert( cli, cli_tx, cli_tx_sz, FD_TLS_ALERT_UNEXPECTED_MESSAGE );
   } while(0);
+}
+
+/* Split each flight record inside its first handshake header, with
+   repeated compatibility CCS before and between the fragments. */
+
+static void
+test_tlsrec_ccs_flight( fd_tlsrec_conn_t const * sender,
+                        fd_tlsrec_conn_t *       receiver,
+                        uchar const *            flight,
+                        ulong                    flight_sz,
+                        uchar *                  reply,
+                        ulong *                  reply_sz ) {
+  static fd_tlsrec_conn_t emitter[1];
+  *emitter = *sender;
+  emitter->write_seq = 0UL;
+  ulong seq = 0UL;
+  ulong reply_cap = *reply_sz;
+  *reply_sz = 0UL;
+  static uchar pt[ FD_TLSREC_CAP ], rec[ FD_TLSREC_CAP ], app[ FD_TLSREC_CAP ];
+  static uchar const ccs[] = { 20, 0, 0, 0, 1, 1 };
+  while( flight_sz ) {
+    fd_tlsrec_hdr_t const * hdr = fd_type_pun_const( flight );
+    ulong payload_sz = fd_ushort_bswap( hdr->length );
+    ulong rec_sz = 5UL+payload_sz;
+    FD_TEST( rec_sz<=flight_sz );
+    int encrypted = hdr->content_type==FD_TLS_REC_APPLICATION_DATA;
+    if( encrypted ) {
+      FD_TEST( payload_sz>FD_AES_GCM_TAG_SZ+1UL );
+      payload_sz -= FD_AES_GCM_TAG_SZ;
+      uchar iv[12]; test_gen_iv( iv, sender->keys[0].write_iv, seq++ );
+      fd_aes_gcm_t gcm[1];
+      fd_aes_gcm_init( gcm, sender->keys[0].write_key, 16UL, iv );
+      FD_TEST( fd_aes_gcm_decrypt( gcm, flight+5UL, pt, payload_sz, flight, 5UL, flight+5UL+payload_sz ) );
+      FD_TEST( pt[--payload_sz]==FD_TLS_REC_HANDSHAKE );
+    } else {
+      FD_TEST( hdr->content_type==FD_TLS_REC_HANDSHAKE );
+      fd_memcpy( pt, flight+5UL, payload_sz );
+    }
+    FD_TEST( payload_sz>1UL );
+    for( ulong part=0UL; part<2UL; part++ ) {
+      for( ulong repeat=0UL; repeat<2UL; repeat++ ) {
+        ulong out_sz = reply_cap-*reply_sz, app_sz = sizeof(app);
+        ulong read_seq = receiver->read_seq, hs_sz = receiver->hs_rbuf.sz;
+        uchar tx_level = receiver->tx_level;
+        test_tlsrec_rx_fragments( receiver, ccs, sizeof(ccs), 1UL, reply+*reply_sz, &out_sz, app, &app_sz );
+        FD_TEST( !out_sz && !app_sz && receiver->read_seq==read_seq && receiver->hs_rbuf.sz==hs_sz );
+        FD_TEST( receiver->tx_level==tx_level );
+      }
+      ulong off = part ? 1UL : 0UL;
+      ulong len = part ? payload_sz-1UL : 1UL;
+      ulong sz;
+      if( encrypted ) {
+        sz = test_tlsrec_send_raw_ex( emitter, rec, pt+off, len, FD_TLS_REC_HANDSHAKE, 0UL, 0x0303, 0U );
+      } else {
+        fd_memcpy( rec, flight, 5UL );
+        ((fd_tlsrec_hdr_t *)rec)->length = fd_ushort_bswap( (ushort)len );
+        fd_memcpy( rec+5UL, pt+off, len );
+        sz = 5UL+len;
+      }
+      ulong out_sz = reply_cap-*reply_sz, app_sz = sizeof(app);
+      test_tlsrec_rx_fragments( receiver, rec, sz, 3UL, reply+*reply_sz, &out_sz, app, &app_sz );
+      *reply_sz += out_sz;
+      FD_TEST( !app_sz );
+    }
+    flight += rec_sz;
+    flight_sz -= rec_sz;
+  }
+}
+
+static void
+test_tlsrec_handshake_epochs( fd_rng_t * rng ) {
+  fd_tls_test_sign_ctx_t sign_ctx[1];
+  fd_tls_test_sign_ctx( sign_ctx, rng );
+  fd_chacha_rng_t chacha[1];
+  fd_tls_t tls = {
+    .rng  = fd_tls_test_rand( chacha, rng ),
+    .sign = fd_tls_test_sign( sign_ctx ),
+  };
+  for( ulong j=0UL; j<32UL; j++ ) tls.kex_private_key[j] = fd_rng_uchar( rng );
+  fd_x25519_public( tls.kex_public_key, tls.kex_private_key );
+  fd_memcpy( tls.cert_public_key, sign_ctx->public_key, 32UL );
+  fd_x509_mock_cert( tls.cert_x509, tls.cert_public_key );
+  tls.cert_x509_sz = FD_X509_MOCK_CERT_SZ;
+
+  static fd_tlsrec_conn_t cli[1], srv[1];
+  static uchar client_flight[ FD_TLSREC_CAP ], server_flight[ FD_TLSREC_CAP ];
+  static uchar rec[ FD_TLSREC_CAP ], tcp_tx[ FD_TLSREC_CAP ], app_rx[ FD_TLSREC_CAP ];
+  fd_tlsrec_slice_t tcp_rx[1];
+  for( int fail=0; fail<3; fail++ ) {
+    FD_TEST( fd_tlsrec_conn_init( cli, &tls, 0 )==cli );
+    FD_TEST( fd_tlsrec_conn_init( srv, &tls, 1 )==srv );
+    fd_memcpy( cli->hs.cli.server_pubkey, tls.cert_public_key, 32UL );
+    ulong cli_sz = sizeof(client_flight), srv_sz = sizeof(server_flight), app_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( cli, NULL, client_flight, &cli_sz, app_rx, &app_sz )==FD_TLSREC_SUCCESS );
+    fd_tlsrec_slice_init( tcp_rx, client_flight, cli_sz );
+    app_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( srv, tcp_rx, server_flight, &srv_sz, app_rx, &app_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( srv->hs.base.state==FD_TLS_HS_WAIT_CERT );
+    FD_TEST( srv->tx_level==FD_TLS_LEVEL_APPLICATION && !srv->write_seq && !srv->read_seq );
+    cli_sz = sizeof(client_flight);
+    test_tlsrec_ccs_flight( srv, cli, server_flight, srv_sz, client_flight, &cli_sz );
+    FD_TEST( fd_tlsrec_conn_is_ready( cli ) && cli_sz );
+
+    if( fail ) {
+      /* The server has sent Finished, but the client authentication
+         flight is invalid.  Its fatal alert must use application keys. */
+      if( fail==1 ) {
+        client_flight[cli_sz-1UL] ^= 1U;
+      } else {
+        /* Encrypted CCS is forbidden even inside the legal window. */
+        uchar ccs[] = { 1 };
+        cli_sz = test_tlsrec_send_raw_ex( cli, client_flight, ccs, sizeof(ccs),
+                                          FD_TLS_REC_CHANGE_CIPHER_SPEC, 0UL, 0x0303, 0U );
+      }
+      fd_tlsrec_slice_init( tcp_rx, client_flight, cli_sz );
+      ulong tx_sz = sizeof(tcp_tx); app_sz = sizeof(app_rx);
+      FD_TEST( fd_tlsrec_conn_rx( srv, tcp_rx, tcp_tx, &tx_sz, app_rx, &app_sz )==
+               (fail==1 ? FD_TLSREC_ERR_CRYPTO : FD_TLSREC_ERR_PROTO) );
+      test_tlsrec_check_alert( srv, tcp_tx, tx_sz, fail==1 ? FD_TLS_ALERT_BAD_RECORD_MAC : FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+      fd_tlsrec_slice_init( tcp_rx, tcp_tx, tx_sz );
+      ulong rec_sz = sizeof(rec); app_sz = sizeof(app_rx);
+      FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, rec, &rec_sz, app_rx, &app_sz )==FD_TLSREC_ERR_PROTO );
+      FD_TEST( cli->hs.base.reason==FD_TLS_REASON_PEER_ALERT && !rec_sz );
+      continue;
+    }
+
+    /* An application-epoch alert before the client Finished consumes
+       sequence zero.  Receiving Finished must not reset that counter. */
+    uchar cancel[] = { 1, FD_TLS_ALERT_USER_CANCELED };
+    ulong rec_sz = test_tlsrec_send_raw( srv, rec, cancel, sizeof(cancel), FD_TLS_REC_ALERT );
+    fd_tlsrec_slice_init( tcp_rx, rec, rec_sz );
+    ulong tx_sz = sizeof(tcp_tx); app_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tx_sz, app_rx, &app_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( cli->read_seq==1UL );
+    srv_sz = sizeof(server_flight);
+    test_tlsrec_ccs_flight( cli, srv, client_flight, cli_sz, server_flight, &srv_sz );
+    FD_TEST( fd_tlsrec_conn_is_ready( srv ) && !srv_sz && srv->write_seq==1UL );
+    uchar data[] = { 'x' };
+    fd_tlsrec_slice_t app_tx[1];
+    fd_tlsrec_slice_init( app_tx, data, sizeof(data) );
+    rec_sz = sizeof(rec);
+    FD_TEST( fd_tlsrec_conn_tx( srv, rec, &rec_sz, app_tx )==FD_TLSREC_SUCCESS );
+    fd_tlsrec_slice_init( tcp_rx, rec, rec_sz );
+    tx_sz = sizeof(tcp_tx); app_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tx_sz, app_rx, &app_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( !tx_sz && app_sz==1UL && app_rx[0]=='x' && cli->read_seq==2UL );
+  }
 }
 
 /* RFC 8446 Section 5.1: handshake messages must not be interleaved
    with other record types.  A handshake message split across records
-   must be completed before any application_data, alert or CCS record
-   arrives, otherwise the connection fails. */
+   must be completed before application_data or alert records arrive.
+   CCS is independently rejected outside its compatibility window. */
 
 static void
 test_tlsrec_hs_interleave( fd_rng_t * rng ) {
@@ -606,7 +812,7 @@ test_tlsrec_hs_interleave( fd_rng_t * rng ) {
     } else {
       FD_TEST( rc==FD_TLSREC_ERR_PROTO );
       FD_TEST( fd_tlsrec_conn_is_failed( cli ) );
-      FD_TEST( cli->hs.base.reason==FD_TLS_REASON_HS_INTERLEAVED );
+      FD_TEST( cli->hs.base.reason==(cases[i].plaintext ? FD_TLS_REASON_CCS : FD_TLS_REASON_HS_INTERLEAVED) );
       FD_TEST( !app_rx_sz );
     }
   }
@@ -810,7 +1016,7 @@ test_tlsrec_alert_tx( fd_rng_t * rng ) {
   fd_tlsrec_slice_init( tcp_rx, tcp_tx, tcp_tx_sz );
   srv_tx_sz = sizeof(wire); app_rx_sz = sizeof(app_rx);
   FD_TEST( fd_tlsrec_conn_rx( srv, tcp_rx, wire, &srv_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
-  FD_TEST( srv->tx_level==FD_TLS_LEVEL_HANDSHAKE );  /* its flight is out */
+  FD_TEST( srv->tx_level==FD_TLS_LEVEL_APPLICATION );  /* its Finished is out */
   /* corrupt the last byte of the server flight (inside Finished) */
   wire[ srv_tx_sz-1UL ] ^= 1U;
   fd_tlsrec_slice_init( tcp_rx, wire, srv_tx_sz );
@@ -887,6 +1093,8 @@ test_tlsrec_plaintext_alert( fd_rng_t * rng ) {
   static uchar const alert_version [] = { 0x15, 0x03, 0x01, 0x00, 0x02, 0x02, 70 };
   static uchar const alert_warn    [] = { 0x15, 0x03, 0x03, 0x00, 0x02, 0x01, 40 };
   static uchar const alert_close   [] = { 0x15, 0x03, 0x03, 0x00, 0x02, 0x01,  0 };
+  static uchar const alert_cancel  [] = { 0x15, 0x03, 0x03, 0x00, 0x02, 0x01, 90 };
+  static uchar const alert_cancel2 [] = { 0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 90 };
   static uchar const alert_short   [] = { 0x15, 0x03, 0x03, 0x00, 0x01, 0x02 };
   static uchar const alert_long    [] = { 0x15, 0x03, 0x03, 0x00, 0x04, 0x02, 40, 0x02, 40 };
   static uchar const alert_empty   [] = { 0x15, 0x03, 0x03, 0x00, 0x00 };
@@ -895,6 +1103,8 @@ test_tlsrec_plaintext_alert( fd_rng_t * rng ) {
     { alert_version, sizeof(alert_version), FD_TLSREC_ERR_PROTO, FD_TLS_REASON_PEER_ALERT  },
     { alert_warn,    sizeof(alert_warn),    FD_TLSREC_ERR_PROTO, FD_TLS_REASON_PEER_ALERT  },
     { alert_close,   sizeof(alert_close),   FD_TLSREC_SUCCESS,   0                         },
+    { alert_cancel,  sizeof(alert_cancel),  FD_TLSREC_SUCCESS,   0                         },
+    { alert_cancel2, sizeof(alert_cancel2), FD_TLSREC_SUCCESS,   0                         },
     { alert_short,   sizeof(alert_short),   FD_TLSREC_ERR_PROTO, FD_TLS_REASON_ALERT_PARSE },
     { alert_long,    sizeof(alert_long),    FD_TLSREC_ERR_PROTO, FD_TLS_REASON_ALERT_PARSE },
     { alert_empty,   sizeof(alert_empty),   FD_TLSREC_ERR_PROTO, FD_TLS_REASON_ALERT_PARSE },
@@ -925,7 +1135,7 @@ test_tlsrec_plaintext_alert( fd_rng_t * rng ) {
       FD_TEST( app_rx_sz==0UL );
       if( cases[i].rc==FD_TLSREC_SUCCESS ) {
         FD_TEST( !fd_tlsrec_conn_is_failed( client ) );
-        FD_TEST( client->rx_closed );
+        FD_TEST( client->rx_closed==(cases[i].rec[6]==FD_TLS_ALERT_CLOSE_NOTIFY) );
         FD_TEST( client->hs.base.state==FD_TLS_HS_WAIT_SH );
       } else {
         FD_TEST( fd_tlsrec_conn_is_failed( client ) );
@@ -1114,12 +1324,8 @@ test_tlsrec_sock_close_notify( fd_rng_t * rng ) {
   FD_TEST( !close( fds[1] ) );
 }
 
-/* Record header validation (RFC 8446 Section 5.1/5.2):
-   legacy_record_version must be 0x0303 except on an initial ClientHello
-   (0x0301 allowed) and on plaintext handshake alerts, and encrypted
-   records must have outer type application_data.  Both checks run
-   before decryption, so a tampered header fails with a protocol error
-   rather than a bad MAC. */
+/* RFC 8446 Sections 5.1-5.2: ignore the legacy version, but authenticate
+   it as AAD.  Encrypted records must have outer type application_data. */
 
 static void
 test_tlsrec_rec_hdr( fd_rng_t * rng ) {
@@ -1147,9 +1353,9 @@ test_tlsrec_rec_hdr( fd_rng_t * rng ) {
     { FD_TLS_REC_HANDSHAKE,          0x0303, FD_TLS_REASON_REC_TYPE    },
     { FD_TLS_REC_ALERT,              0x0303, FD_TLS_REASON_REC_TYPE    },
     { FD_TLS_REC_CHANGE_CIPHER_SPEC, 0x0303, FD_TLS_REASON_CCS         },
-    { FD_TLS_REC_APPLICATION_DATA,   0x0301, FD_TLS_REASON_REC_VERSION },
-    { FD_TLS_REC_APPLICATION_DATA,   0x0304, FD_TLS_REASON_REC_VERSION },
-    { FD_TLS_REC_ALERT,              0x0301, FD_TLS_REASON_REC_VERSION },
+    { FD_TLS_REC_APPLICATION_DATA,   0x0301, FD_TLS_REASON_REC_MAC     },
+    { FD_TLS_REC_APPLICATION_DATA,   0x0304, FD_TLS_REASON_REC_MAC     },
+    { FD_TLS_REC_ALERT,              0x0301, FD_TLS_REASON_REC_TYPE    },
   };
   for( ulong i=0UL; i<sizeof(enc_cases)/sizeof(enc_cases[0]); i++ ) {
     test_tlsrec_connect( &tls, cli, srv );
@@ -1159,40 +1365,42 @@ test_tlsrec_rec_hdr( fd_rng_t * rng ) {
     hdr->legacy_record_version = fd_ushort_bswap( enc_cases[i].ver );
     fd_tlsrec_slice_init( tcp_rx, rec, rec_sz );
     tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
-    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_ERR_PROTO );
+    int mac = enc_cases[i].reason==FD_TLS_REASON_REC_MAC;
+    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==
+             (mac ? FD_TLSREC_ERR_CRYPTO : FD_TLSREC_ERR_PROTO) );
+    test_tlsrec_check_alert( cli, tcp_tx, tcp_tx_sz, mac ? FD_TLS_ALERT_BAD_RECORD_MAC : FD_TLS_ALERT_UNEXPECTED_MESSAGE );
     FD_TEST( fd_tlsrec_conn_is_failed( cli ) );
     FD_TEST( cli->hs.base.reason==enc_cases[i].reason );
     FD_TEST( !app_rx_sz );
     FD_TEST( cli->read_seq==0UL );
   }
 
-  /* Plaintext ClientHello: server accepts 0x0301 and 0x0303 only */
-  struct { ushort ver; int ok; } const ch_cases[] = {
-    { 0x0301, 1 }, { 0x0303, 1 }, { 0x0300, 0 }, { 0x0302, 0 }, { 0x0304, 0 },
+  /* Both plaintext and authenticated ciphertext ignore every version. */
+  ushort const versions[] = {
+    0x0301, 0x0303, 0x0300, 0x0302, 0x0304, 0x0000, 0xffff
   };
-  for( ulong i=0UL; i<sizeof(ch_cases)/sizeof(ch_cases[0]); i++ ) {
+  for( ulong i=0UL; i<sizeof(versions)/sizeof(versions[0]); i++ ) {
+    test_tlsrec_connect( &tls, cli, srv );
+    ulong enc_sz = test_tlsrec_send_raw_ex( srv, rec, app, sizeof(app), FD_TLS_REC_APPLICATION_DATA,
+                                           0UL, versions[i], 1U );
+    tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
+    test_tlsrec_rx_fragments( cli, rec, enc_sz, 3UL, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz );
+    FD_TEST( !tcp_tx_sz && app_rx_sz==sizeof(app) && !memcmp( app_rx, app, sizeof(app) ) );
+
     FD_TEST( fd_tlsrec_conn_init( cli, &tls, 0 )==cli );
     FD_TEST( fd_tlsrec_conn_init( srv, &tls, 1 )==srv );
     ulong rec_sz = sizeof(rec); app_rx_sz = sizeof(app_rx);
     FD_TEST( fd_tlsrec_conn_rx( cli, NULL, rec, &rec_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
     fd_tlsrec_hdr_t * hdr = fd_type_pun( rec );
-    hdr->legacy_record_version = fd_ushort_bswap( ch_cases[i].ver );
+    hdr->legacy_record_version = fd_ushort_bswap( versions[i] );
     fd_tlsrec_slice_init( tcp_rx, rec, rec_sz );
     tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
     int rc = fd_tlsrec_conn_rx( srv, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz );
-    if( ch_cases[i].ok ) {
-      FD_TEST( rc==FD_TLSREC_SUCCESS );
-      FD_TEST( tcp_tx_sz );  /* ServerHello flight */
-    } else {
-      FD_TEST( rc==FD_TLSREC_ERR_PROTO );
-      FD_TEST( srv->hs.base.reason==FD_TLS_REASON_REC_VERSION );
-      /* fatal decode_error alert, in plaintext since no keys exist yet */
-      static uchar const alert[] = { 0x15, 0x03, 0x03, 0x00, 0x02, 0x02, FD_TLS_ALERT_DECODE_ERROR };
-      FD_TEST( tcp_tx_sz==sizeof(alert) && !memcmp( tcp_tx, alert, sizeof(alert) ) );
-    }
+    FD_TEST( rc==FD_TLSREC_SUCCESS );
+    FD_TEST( tcp_tx_sz );  /* ServerHello flight */
   }
 
-  /* Plaintext ServerHello: client requires 0x0303 */
+  /* Plaintext ServerHello ignores the legacy version too. */
   do {
     FD_TEST( fd_tlsrec_conn_init( cli, &tls, 0 )==cli );
     FD_TEST( fd_tlsrec_conn_init( srv, &tls, 1 )==srv );
@@ -1208,9 +1416,167 @@ test_tlsrec_rec_hdr( fd_rng_t * rng ) {
     hdr->legacy_record_version = fd_ushort_bswap( 0x0301 );
     fd_tlsrec_slice_init( tcp_rx, srv_tx, srv_tx_sz );
     tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
-    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_ERR_PROTO );
-    FD_TEST( cli->hs.base.reason==FD_TLS_REASON_REC_VERSION );
+    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( fd_tlsrec_conn_is_ready( cli ) );
   } while(0);
+}
+
+static void
+test_tlsrec_inner_plaintext( fd_rng_t * rng ) {
+  fd_tls_test_sign_ctx_t sign_ctx[1];
+  fd_tls_test_sign_ctx( sign_ctx, rng );
+  fd_chacha_rng_t chacha[1];
+  fd_tls_t tls = {
+    .rng  = fd_tls_test_rand( chacha, rng ),
+    .sign = fd_tls_test_sign( sign_ctx ),
+  };
+  for( ulong j=0UL; j<32UL; j++ ) tls.kex_private_key[j] = fd_rng_uchar( rng );
+  fd_x25519_public( tls.kex_public_key, tls.kex_private_key );
+  fd_memcpy( tls.cert_public_key, sign_ctx->public_key, 32UL );
+  fd_x509_mock_cert( tls.cert_x509, tls.cert_public_key );
+  tls.cert_x509_sz = FD_X509_MOCK_CERT_SZ;
+
+  static uchar const ku_bad_value[] = { 24, 0, 0, 1, 2 };
+  static uchar const ku_bad_size [] = { 24, 0, 0, 2, 0, 0 };
+  static uchar const ku_empty    [] = { 24, 0, 0, 0 };
+  static uchar const ccs         [] = { 1 };
+  static uchar big[ FD_TLSREC_PLAINTEXT_MAX ];
+  memset( big, 'b', sizeof(big) );
+  struct {
+    uchar const * payload;
+    ulong         sz;
+    ulong         padding;
+    uchar         ct;
+    uchar         alert;
+  } const cases[] = {
+    { big,          sizeof(big),  0UL,     FD_TLS_REC_APPLICATION_DATA,   0                               },
+    { big,          sizeof(big),  1UL,     FD_TLS_REC_APPLICATION_DATA,   FD_TLS_ALERT_RECORD_OVERFLOW    },
+    { big,          1UL,          16383UL, FD_TLS_REC_APPLICATION_DATA,   0                               },
+    { big,          1UL,          16384UL, FD_TLS_REC_APPLICATION_DATA,   FD_TLS_ALERT_RECORD_OVERFLOW    },
+    { big,          0UL,          16384UL, FD_TLS_REC_APPLICATION_DATA,   0                               },
+    { big,          0UL,          16385UL, FD_TLS_REC_APPLICATION_DATA,   FD_TLS_ALERT_RECORD_OVERFLOW    },
+    { big,          0UL,          0UL,     FD_TLS_REC_APPLICATION_DATA,   0                               },
+    { big,          0UL,          0UL,     FD_TLS_REC_HANDSHAKE,          FD_TLS_ALERT_UNEXPECTED_MESSAGE },
+    { big,          0UL,          8UL,     FD_TLS_REC_HANDSHAKE,          FD_TLS_ALERT_UNEXPECTED_MESSAGE },
+    { big,          0UL,          8UL,     0,                             FD_TLS_ALERT_UNEXPECTED_MESSAGE },
+    { ccs,          sizeof(ccs),  0UL,     FD_TLS_REC_CHANGE_CIPHER_SPEC, FD_TLS_ALERT_UNEXPECTED_MESSAGE },
+    { ku_bad_value, sizeof(ku_bad_value), 0UL, FD_TLS_REC_HANDSHAKE,       FD_TLS_ALERT_ILLEGAL_PARAMETER  },
+    { ku_bad_size,  sizeof(ku_bad_size),  0UL, FD_TLS_REC_HANDSHAKE,       FD_TLS_ALERT_DECODE_ERROR       },
+    { ku_empty,     sizeof(ku_empty),     0UL, FD_TLS_REC_HANDSHAKE,       FD_TLS_ALERT_DECODE_ERROR       },
+  };
+  static fd_tlsrec_conn_t cli[1], srv[1];
+  static uchar rec[ FD_TLSREC_CAP ], tcp_tx[ FD_TLSREC_CAP ], app_rx[ FD_TLSREC_CAP ];
+  fd_tlsrec_slice_t tcp_rx[1];
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    test_tlsrec_connect( &tls, cli, srv );
+    ulong sz = test_tlsrec_send_raw_ex( srv, rec, cases[i].payload, cases[i].sz,
+                                       cases[i].ct, cases[i].padding, 0x0303, 1U );
+    fd_tlsrec_slice_init( tcp_rx, rec, sz );
+    ulong tcp_tx_sz = sizeof(tcp_tx), app_rx_sz = sizeof(app_rx);
+    int rc = fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz );
+    FD_TEST( rc==(cases[i].alert ? FD_TLSREC_ERR_PROTO : FD_TLSREC_SUCCESS) );
+    if( cases[i].alert ) {
+      FD_TEST( !app_rx_sz && fd_tlsrec_conn_is_failed( cli ) );
+      test_tlsrec_check_alert( cli, tcp_tx, tcp_tx_sz, cases[i].alert );
+    } else {
+      FD_TEST( !tcp_tx_sz && app_rx_sz==cases[i].sz );
+      FD_TEST( !memcmp( app_rx, cases[i].payload, app_rx_sz ) );
+    }
+  }
+
+  /* Empty handshake records are forbidden before keys exist too. */
+  FD_TEST( fd_tlsrec_conn_init( srv, &tls, 1 )==srv );
+  uchar empty[] = { 22, 3, 3, 0, 0 };
+  fd_tlsrec_slice_init( tcp_rx, empty, sizeof(empty) );
+  ulong tcp_tx_sz = sizeof(tcp_tx), app_rx_sz = sizeof(app_rx);
+  FD_TEST( fd_tlsrec_conn_rx( srv, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_ERR_PROTO );
+  test_tlsrec_check_alert( srv, tcp_tx, tcp_tx_sz, FD_TLS_ALERT_UNEXPECTED_MESSAGE );
+
+  /* user_canceled does not close either direction, irrespective of the
+     legacy level byte.  A warning-level error alert is still fatal. */
+  for( uchar level=1U; level<=2U; level++ ) {
+    test_tlsrec_connect( &tls, cli, srv );
+    uchar cancel[] = { level, FD_TLS_ALERT_USER_CANCELED };
+    ulong sz = test_tlsrec_send_raw( srv, rec, cancel, sizeof(cancel), FD_TLS_REC_ALERT );
+    sz += test_tlsrec_send_raw( srv, rec+sz, big, 1UL, FD_TLS_REC_APPLICATION_DATA );
+    fd_tlsrec_slice_init( tcp_rx, rec, sz );
+    tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( !tcp_tx_sz && app_rx_sz==1UL && app_rx[0]=='b' );
+    FD_TEST( !cli->rx_closed && !cli->tx_closed && fd_tlsrec_conn_is_ready( cli ) );
+    cancel[1] = FD_TLS_ALERT_HANDSHAKE_FAILURE;
+    sz = test_tlsrec_send_raw( srv, rec, cancel, sizeof(cancel), FD_TLS_REC_ALERT );
+    fd_tlsrec_slice_init( tcp_rx, rec, sz );
+    tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_ERR_PROTO );
+    FD_TEST( !tcp_tx_sz && cli->hs.base.reason==FD_TLS_REASON_PEER_ALERT );
+  }
+}
+
+static void
+test_tlsrec_seq_and_closed_update( fd_rng_t * rng ) {
+  fd_tls_test_sign_ctx_t sign_ctx[1];
+  fd_tls_test_sign_ctx( sign_ctx, rng );
+  fd_chacha_rng_t chacha[1];
+  fd_tls_t tls = {
+    .rng  = fd_tls_test_rand( chacha, rng ),
+    .sign = fd_tls_test_sign( sign_ctx ),
+  };
+  for( ulong j=0UL; j<32UL; j++ ) tls.kex_private_key[j] = fd_rng_uchar( rng );
+  fd_x25519_public( tls.kex_public_key, tls.kex_private_key );
+  fd_memcpy( tls.cert_public_key, sign_ctx->public_key, 32UL );
+  fd_x509_mock_cert( tls.cert_x509, tls.cert_public_key );
+  tls.cert_x509_sz = FD_X509_MOCK_CERT_SZ;
+
+  static fd_tlsrec_conn_t cli[1], srv[1];
+  static uchar rec[ FD_TLSREC_CAP ], tcp_tx[ FD_TLSREC_CAP ], app_rx[ FD_TLSREC_CAP ];
+  uchar const data[] = { 'x' };
+  fd_tlsrec_slice_t tcp_rx[1], app_tx[1];
+  ulong sz, tcp_tx_sz, app_rx_sz;
+
+  /* A pending or newly requested update cannot reopen the write side. */
+  for( int pending=0; pending<2; pending++ ) {
+    test_tlsrec_connect( &tls, cli, srv );
+    sz = sizeof(rec);
+    FD_TEST( fd_tlsrec_conn_key_update( srv, rec, &sz, 1 )==FD_TLSREC_SUCCESS );
+    if( pending ) {
+      fd_tlsrec_slice_init( tcp_rx, rec, sz );
+      tcp_tx_sz = 0UL; app_rx_sz = sizeof(app_rx);
+      FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+      FD_TEST( cli->key_update_pending );
+    }
+    tcp_tx_sz = sizeof(tcp_tx);
+    FD_TEST( fd_tlsrec_conn_close( cli, tcp_tx, &tcp_tx_sz )==FD_TLSREC_SUCCESS );
+    ulong write_seq = cli->write_seq;
+    fd_tlsrec_slice_init( tcp_rx, rec, pending ? 0UL : sz );
+    tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( !tcp_tx_sz && !cli->key_update_pending && cli->write_seq==write_seq );
+    sz = test_tlsrec_send_raw( srv, rec, data, sizeof(data), FD_TLS_REC_APPLICATION_DATA );
+    fd_tlsrec_slice_init( tcp_rx, rec, sz );
+    tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( cli, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( !tcp_tx_sz && app_rx_sz==sizeof(data) );
+  }
+
+  /* The final usable sequence can carry a KeyUpdate and reset both
+     sides without wrapping.  Automatic rotation takes the same path. */
+  for( int automatic=0; automatic<2; automatic++ ) {
+    test_tlsrec_connect( &tls, cli, srv );
+    cli->write_seq = srv->read_seq = ULONG_MAX-1UL;
+    sz = sizeof(rec);
+    if( automatic ) {
+      fd_tlsrec_slice_init( app_tx, (uchar *)data, sizeof(data) );
+      FD_TEST( fd_tlsrec_conn_tx( cli, rec, &sz, app_tx )==FD_TLSREC_SUCCESS );
+    } else {
+      FD_TEST( fd_tlsrec_conn_key_update( cli, rec, &sz, 0 )==FD_TLSREC_SUCCESS );
+    }
+    FD_TEST( cli->write_seq==(ulong)automatic );
+    fd_tlsrec_slice_init( tcp_rx, rec, sz );
+    tcp_tx_sz = sizeof(tcp_tx); app_rx_sz = sizeof(app_rx);
+    FD_TEST( fd_tlsrec_conn_rx( srv, tcp_rx, tcp_tx, &tcp_tx_sz, app_rx, &app_rx_sz )==FD_TLSREC_SUCCESS );
+    FD_TEST( srv->read_seq==(ulong)automatic && app_rx_sz==(ulong)automatic );
+  }
 }
 
 int
@@ -1469,6 +1835,7 @@ main( int     argc,
   test_tlsrec_pair( rng );
   test_tlsrec_large_hs_msg( rng );
   test_tlsrec_ccs( rng );
+  test_tlsrec_handshake_epochs( rng );
   test_tlsrec_hs_interleave( rng );
   test_tlsrec_key_change_boundary( rng );
   test_tlsrec_key_update_flood( rng );
@@ -1477,6 +1844,8 @@ main( int     argc,
   test_tlsrec_close_notify( rng );
   test_tlsrec_sock_close_notify( rng );
   test_tlsrec_rec_hdr( rng );
+  test_tlsrec_inner_plaintext( rng );
+  test_tlsrec_seq_and_closed_update( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
