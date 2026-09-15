@@ -274,6 +274,22 @@ cpuinfo_field( char const * cpuinfo,
   return out;
 }
 
+static int
+read_msr( uint    cpu,
+          ulong   msr,
+          ulong * value ) {
+  char path[ 64 ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/dev/cpu/%u/msr", cpu ) );
+  int fd = open( path, O_RDONLY|O_CLOEXEC );
+  if( FD_UNLIKELY( fd<0 ) ) return -1;
+  ulong tmp;
+  long n = pread( fd, &tmp, sizeof(tmp), (off_t)msr );
+  close( fd );
+  if( FD_UNLIKELY( n!=(long)sizeof(tmp) ) ) return -1;
+  *value = tmp;
+  return 0;
+}
+
 static void
 collect_cpu( fd_boot_report_t * r ) {
   struct utsname un;
@@ -304,6 +320,16 @@ collect_cpu( fd_boot_report_t * r ) {
     r->cpu_family   = (ushort)( base_family + fd_uint_if( base_family==0xFU, ext_family, 0U ) );
     r->cpu_model_id = (ushort)( base_model | fd_uint_if( base_family==0x6U || base_family==0xFU, ext_model<<4, 0U ) );
     r->cpu_stepping = (uchar)( eax&0xFU );
+  }
+
+  r->msr_x86_spec_ctrl_present = !read_msr( 0U, 0x00000048UL, &r->msr_x86_spec_ctrl );
+  if( r->cpu_vendor==2 ) { /* AMD specific */
+    r->msr_x86_amd_syscfg_present       = !read_msr( 0U, 0xC0010010UL, &r->msr_x86_amd_syscfg );
+    r->msr_x86_amd_bp_cfg_present       = !read_msr( 0U, 0xC001102EUL, &r->msr_x86_amd_bp_cfg );
+    r->msr_x86_amd_hwcr_present         = !read_msr( 0U, 0xC0010015UL, &r->msr_x86_amd_hwcr );
+    r->msr_x86_amd_prefetch_ctl_present = !read_msr( 0U, 0xC0000108UL, &r->msr_x86_amd_prefetch_ctl );
+    r->msr_x86_amd_de_cfg_present       = !read_msr( 0U, 0xC0011029UL, &r->msr_x86_amd_de_cfg );
+    r->msr_x86_amd_cppc_cap1_present    = !read_msr( 0U, 0xC00102B0UL, &r->msr_x86_amd_cppc_cap1 );
   }
 # endif /* defined(__x86_64__) */
 
@@ -1512,6 +1538,13 @@ fd_boot_report_publish( fd_boot_report_t *  r,
   if( r->memory_normal_pages )     ok &= !!fd_pb_push_uint64( encoder, 73U, r->memory_normal_pages );
   if( r->process_start_time_nanos ) ok &= !!fd_pb_push_uint64( encoder, 74U, r->process_start_time_nanos );
   if( r->feature_set_id )           ok &= !!fd_pb_push_uint32( encoder, 75U, r->feature_set_id );
+  if( r->msr_x86_amd_syscfg_present       ) ok &= !!fd_pb_push_uint64( encoder, 76U, r->msr_x86_amd_syscfg );
+  if( r->msr_x86_amd_bp_cfg_present       ) ok &= !!fd_pb_push_uint64( encoder, 77U, r->msr_x86_amd_bp_cfg );
+  if( r->msr_x86_amd_hwcr_present         ) ok &= !!fd_pb_push_uint64( encoder, 78U, r->msr_x86_amd_hwcr );
+  if( r->msr_x86_amd_prefetch_ctl_present ) ok &= !!fd_pb_push_uint64( encoder, 79U, r->msr_x86_amd_prefetch_ctl );
+  if( r->msr_x86_amd_de_cfg_present       ) ok &= !!fd_pb_push_uint64( encoder, 80U, r->msr_x86_amd_de_cfg );
+  if( r->msr_x86_amd_cppc_cap1_present    ) ok &= !!fd_pb_push_uint64( encoder, 81U, r->msr_x86_amd_cppc_cap1 );
+  if( r->msr_x86_spec_ctrl_present        ) ok &= !!fd_pb_push_uint64( encoder, 82U, r->msr_x86_spec_ctrl );
 
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
