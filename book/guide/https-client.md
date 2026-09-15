@@ -1,8 +1,7 @@
 # HTTPS client
 
 Firedancer uses a small embedded TLS library (`fd_tls`) for creating HTTPS
-connections (approx ~5000 lines of C code as of August 2026, excluding
-assembly code for cryptographic algorithms).
+connections.
 
 `fd_tls` supports only the exact HTTPS client functionality needed for
 Firedancer to connect to modern web servers (e.g. a self-hosted NGINX
@@ -32,17 +31,20 @@ parameters.
 - Signature algorithms:
   - `Ed25519` (modern, fastest)
   - `ECDSA-P256-SHA256`
-  - `ECDSA-P384-SHA384` (certificates only)
+  - `ECDSA-P384-SHA384` (certificate chains only, not as a client)
 
 ## System compatibility
 
-Firedancer loads CA certificates on startup from the following paths:
+Firedancer loads CA certificates on startup from the first of the
+following paths:
 
 - `/etc/ssl/certs/ca-certificates.crt`
 - `/etc/pki/tls/certs/ca-bundle.crt`
+- `/etc/ssl/ca-bundle.pem`
 - `/etc/ssl/cert.pem`
 
-Up to 512 CA certs are loaded.
+Up to 512 CA certs are loaded.  Certificates with unsupported keys
+(e.g. RSA) are skipped.
 
 ## Usage
 
@@ -54,13 +56,23 @@ Firedancer runs HTTPS clients for the following tasks:
 
 ## Limitations
 
-### Missing protocol features
+- No RSA certs
+- No FFDHE key exchange (only ECDH)
+- No revocation checking (no CRL, no OCSP)
+- No session resumption
 
-- no RSA certificate support
-- no IPv6 SAN support
-- no CRL support
-- no OCSP support
-- no session resumption support (`NewSessionTicket` messages ignored)
+## Spec deviations
+
+Firedancer intentionally violates the TLS and X.509 IETF RFCs in certain
+select areas to improve robustness and system compatibility.  (So do
+popular TLS libraries in some of these areas.)
+
+- fd_tls accepts popular root CA certs that violate specs
+- No IPv6 SANs (subject alternative names)
+- No e-mail CA certificate constraints (extremely rare in the wild)
+- No distinguished name Unicode normalization
+- Lax checks for duplicate extensions (more permissive validation of TLS
+  messages to bound CPU usage)
 
 ### Post-quantum support
 
