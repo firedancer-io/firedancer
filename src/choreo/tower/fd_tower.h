@@ -378,6 +378,7 @@
 
 #define FD_TOWER_LOCKOS_MAX 31UL
 #define FD_TOWER_VOTE_MAX (FD_TOWER_LOCKOS_MAX)
+FD_STATIC_ASSERT( FD_TOWER_VOTE_MAX==FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX, FD_TOWER_VOTE_MAX );
 
 /* fd_tower is a representation of a validator's "vote tower" (described
    in detail in the preamble at the top of this file).  The votes in the

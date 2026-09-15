@@ -15,6 +15,12 @@
 #define FD_VOTE_IX_KIND_TOWER_SYNC        (14)
 #define FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH (15)
 
+/* FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX is the max number of lockouts in a
+   CompactTowerSync.  Equals FD_TOWER_VOTE_MAX (static asserted in
+   fd_tower.h, which cannot be included from here). */
+
+#define FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX (31UL)
+
 /* fd_compact_tower_sync_serde describes the serialization /
    deserialization schema of a CompactTowerSync vote instruction.  There
    are various legacy instructions for vote transactions, but current
@@ -27,7 +33,7 @@ struct fd_compact_tower_sync_serde { /* CompactTowerSync */
     struct {
       ulong offset;                  /* VarInt           */
       uchar confirmation_count;      /* u8               */
-    } lockouts[31];
+    } lockouts[FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX];
   };
   fd_hash_t hash;                    /* [u8; 32]         */
   struct {
@@ -39,10 +45,11 @@ struct fd_compact_tower_sync_serde { /* CompactTowerSync */
 typedef struct fd_compact_tower_sync_serde fd_compact_tower_sync_serde_t;
 
 /* fd_compact_tower_sync_ser serializes fd_compact_tower_sync_serde_t
-   into a buffer.  Returns 0 on success, -1 if the lockouts_cnt is
-   greater than FD_TOWER_VOTE_MAX or buf_max is too small to fit the
-   serialized data.  On success, sets *buf_sz to the number of bytes
-   written if buf_sz is non-NULL. */
+   into a buffer.  Returns 0 on success, -1 if serde is malformed
+   (lockouts_cnt greater than FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX or
+   timestamp_option other than 0 or 1) or buf_max is too small to fit
+   the serialized data.  buf may be clobbered on failure.  On success,
+   sets *buf_sz to the number of bytes written if buf_sz is non-NULL. */
 
 int
 fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,

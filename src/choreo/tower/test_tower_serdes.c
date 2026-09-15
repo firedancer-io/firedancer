@@ -299,6 +299,62 @@ test_de_attacker( void ) {
   FD_LOG_NOTICE(( "pass: test_de_attacker" ));
 }
 
+/* Tests for fd_compact_tower_sync_ser: malformed serde structs are
+   rejected, and no write ever goes past buf_max. */
+
+static void
+test_ser( void ) {
+  fd_compact_tower_sync_serde_t s[1];
+  memset( s, 0, sizeof(*s) );
+  s->root         = 42UL;
+  s->lockouts_cnt = (ushort)FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX;
+  for( ulong i=0UL; i<FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX; i++ ) {
+    s->lockouts[i].offset             = ULONG_MAX; /* worst case VarInt */
+    s->lockouts[i].confirmation_count = (uchar)(FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX-i);
+  }
+  memset( &s->hash,     0xAA, sizeof(fd_hash_t) );
+  memset( &s->block_id, 0xBB, sizeof(fd_hash_t) );
+  s->timestamp_option = 1;
+  s->timestamp        = 1234567890L;
+
+  /* Serializing must never write past buf_max.  Repeat with every
+     buf_max up to the full message size, guarding the tail with a
+     canary. */
+
+  uchar buf[1024];
+  ulong sz = 0;
+  FD_TEST( 0==fd_compact_tower_sync_ser( s, buf, sizeof(buf), &sz ) );
+  FD_TEST( sz && sz<sizeof(buf) );
+
+  for( ulong buf_max=0UL; buf_max<=sz; buf_max++ ) {
+    memset( buf, 0xCD, sizeof(buf) );
+    ulong out_sz = ULONG_MAX;
+    int   err    = fd_compact_tower_sync_ser( s, buf, buf_max, &out_sz );
+    FD_TEST( err == ( buf_max<sz ? -1 : 0 ) );
+    if( !err ) FD_TEST( out_sz==sz );
+    for( ulong i=buf_max; i<sizeof(buf); i++ ) FD_TEST( buf[i]==0xCD );
+  }
+
+  /* Round-trip */
+
+  fd_compact_tower_sync_serde_t de[1];
+  memset( de, 0, sizeof(*de) ); /* so padding matches s */
+  FD_TEST( 0==fd_compact_tower_sync_ser( s, buf, sizeof(buf), &sz ) );
+  FD_TEST( 0==fd_compact_tower_sync_de( de, buf, sz ) );
+  FD_TEST( !memcmp( de, s, sizeof(*s) ) );
+
+  /* Malformed serde structs */
+
+  s->lockouts_cnt = (ushort)( FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX+1UL );
+  FD_TEST( -1==fd_compact_tower_sync_ser( s, buf, sizeof(buf), &sz ) );
+  s->lockouts_cnt = (ushort)FD_COMPACT_TOWER_SYNC_LOCKOUT_MAX;
+
+  s->timestamp_option = 2;
+  FD_TEST( -1==fd_compact_tower_sync_ser( s, buf, sizeof(buf), &sz ) );
+
+  FD_LOG_NOTICE(( "pass: test_ser" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -308,6 +364,7 @@ main( int     argc,
   test_voter_v3();
   test_voter_v4();
   test_de_attacker();
+  test_ser();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
