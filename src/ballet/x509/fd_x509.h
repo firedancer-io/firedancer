@@ -51,7 +51,9 @@ struct fd_x509_cert_info {
   /* TBSCertificate version: 0=v1, 1=v2, 2=v3 */
   uchar         version;
 
-  /* Subject Public Key Info */
+  /* Subject Public Key Info.  pubkey is the subjectPublicKey BIT
+     STRING content: a raw Ed25519 key or an uncompressed EC point for
+     the supported key types, opaque for FD_X509_KEY_UNKNOWN. */
   uchar const * pubkey;
   ulong         pubkey_len;
   uchar         key_type;     /* FD_X509_KEY_{...} */
@@ -120,7 +122,8 @@ FD_PROTOTYPES_BEGIN
    ECDSA P-384.  *out_pubkey aliases cert and remains valid only while cert
    remains valid.  cert and all output arguments must be non-NULL.
 
-   Returns 0 on success and -1 on failure. */
+   Returns 0 on success and -1 if cert is malformed or its key type is
+   unsupported. */
 
 int
 fd_x509_extract_pubkey( uchar const *  cert,
@@ -157,7 +160,10 @@ fd_x509_ec_point_compress( uchar const * uncompressed,
 
 /* fd_x509_cert_parse fully parses a DER-encoded X.509 cert.
 
-   Returns 0 on success, non-zero on failure.
+   Returns 0 on success and -1 if cert is malformed.  An unsupported
+   public key or signature algorithm is not malformed: out->key_type is
+   then FD_X509_KEY_UNKNOWN or out->sig_alg is FD_X509_SIG_UNKNOWN, and
+   the cert can be inspected but not used to verify anything.
 
    All pointers in *out refer into the [cert, cert+cert_sz) buffer. */
 

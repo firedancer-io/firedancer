@@ -333,6 +333,8 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
 
   if( FD_UNLIKELY( fd_x509_cert_parse( chain_der[0], chain_der_sz[0], &certs[0] ) ) )
     return FD_X509_VERIFY_ERR_PARSE;
+  if( FD_UNLIKELY( certs[0].key_type==FD_X509_KEY_UNKNOWN ) )
+    return FD_X509_VERIFY_ERR_UNSUPPORTED;
 
   int time_err = fd_x509_check_validity( &certs[0], unix_seconds );
   if( FD_UNLIKELY( time_err ) ) return time_err;

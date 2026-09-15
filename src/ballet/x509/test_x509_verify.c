@@ -738,10 +738,70 @@ main( int     argc,
 
     /* An off-curve P-384 subject key must not parse, even though its y
        parity bit (the only part the compressed form retains) is intact. */
-    ulong y_off = (ulong)( p384_info.pubkey - p384_ca ) + 49UL;
+    ulong p384_pk_off = (ulong)( p384_info.pubkey - p384_ca );
+    ulong y_off = p384_pk_off + 49UL;
     p384_ca[ y_off ] ^= 1U;
     FD_TEST( fd_x509_cert_parse( p384_ca, sizeof(p384_ca), &p384_info ) );
     p384_ca[ y_off ] ^= 1U;
+
+    /* ecPublicKey with an unknown named curve is well-formed but
+       unsupported.  Any other parameters encoding is malformed. */
+    ulong curve_oid_off = p384_pk_off - 10UL;
+    FD_TEST( !memcmp( p384_ca+curve_oid_off, "\x06\x05\x2b\x81\x04\x00\x22", 7UL ) );
+    p384_ca[ curve_oid_off+6UL ] ^= 1U;
+    FD_TEST( !fd_x509_cert_parse( p384_ca, sizeof(p384_ca), &p384_info ) );
+    FD_TEST( p384_info.key_type==FD_X509_KEY_UNKNOWN );
+    FD_TEST( p384_info.pubkey_len==97UL );
+    pem_len = append_pem_cert( pem, p384_ca, sizeof(p384_ca) );
+    rewrite_tmp_file( tmp_fd, pem, pem_len );
+    FD_TEST( fd_x509_ca_store_load( &ca_store, path )==0L );
+    p384_ca[ curve_oid_off+6UL ] ^= 1U;
+    p384_ca[ curve_oid_off ] = FD_DER_TAG_NULL;
+    FD_TEST( fd_x509_cert_parse( p384_ca, sizeof(p384_ca), &p384_info ) );
+    p384_ca[ curve_oid_off ] = FD_DER_TAG_OID;
+
+    /* RSA keys are not supported.  Self-signed CA generated with
+         openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+           -subj "/CN=RSA Loader Root" \
+           -addext "basicConstraints=critical,CA:TRUE" \
+           -addext "keyUsage=critical,keyCertSign" */
+    static char const rsa_ca_hex[] =
+      "308203253082020da00302010202147ae7e054097c8133bf03b9e2aa2c76cae8b7f840300d06092a864886f70d01010b0500"
+      "301a3118301606035504030c0f525341204c6f6164657220526f6f74301e170d3236303931353230343834355a170d333630"
+      "3931323230343834355a301a3118301606035504030c0f525341204c6f6164657220526f6f7430820122300d06092a864886"
+      "f70d01010105000382010f003082010a0282010100a539a0eefe8c0201cc98cdf74643c3959f6691652d2b97b6b40d4a6d27"
+      "d80d49df88f3d3bdbdd98d9583d9f837d4f2d2f204dfafa0c3c76c471b213de9c663aa336b288aba46dde5ee515bf20f0075"
+      "37a2061d4c87da2b7f230723d3814d65e826da6d7dfee9efcefd1896fed16052eb7ce6fbedd62c9b438584f6011b490c02f1"
+      "186ded09c063ca18a76513088a27a60d6da8feac0c260f80b70e270fe02c793ae5f0da10a79c3d2d75d46dd0882e4852d977"
+      "96fc15d8871a4d1fcda876070234e0e7d4698d1a77e844fb4ba7381a3e6f44b7ebf186ffefe4474d126e4539bb23acb4712a"
+      "8445fade9399773114455b207fc6776be1a12ab6d9e8584f2a29890203010001a3633061301d0603551d0e04160414ebadaa"
+      "081cd1681e59c6f810e8ebdc77054410cf301f0603551d23041830168014ebadaa081cd1681e59c6f810e8ebdc77054410cf"
+      "300f0603551d130101ff040530030101ff300e0603551d0f0101ff040403020204300d06092a864886f70d01010b05000382"
+      "010100a3c945b42e2f58815e9cf7d5130989751a22f23b4ddae7eee9da88b36fca5810c1ea0414e4d69233b26c5f7d74a25e"
+      "1e62e7e3b4b939d1c42d38113635d77f48498ebdbe4e78854efc9a7f9339edaf69bf1041894baa3237991699b4e566e4f73d"
+      "d69c3ccd67d58dd46de9a5a778d103934e00302221c28188f9470c334f408775ae52b431cfe0e5cde2002e5c00b8fe326762"
+      "05bfb47198236ad1ec396e2ce4158926c3e508dedd9a6f2b19894711c19e087f5d6837c84e5aa32d9a422faac4a28464e41f"
+      "0a6985d5e8483050bc49a31fdc70e3b5e407d275b2f8c4fe43f43a92501eb762afb8bbde63b5dc6b4e77535a79e808f2671a"
+      "e8e4165a7cba25715b";
+    uchar rsa_ca[ 809 ];
+    fd_hex_decode( rsa_ca, rsa_ca_hex, sizeof(rsa_ca) );
+    fd_x509_cert_info_t rsa_info;
+    FD_TEST( !fd_x509_cert_parse( rsa_ca, sizeof(rsa_ca), &rsa_info ) );
+    FD_TEST( rsa_info.key_type==FD_X509_KEY_UNKNOWN );
+    FD_TEST( rsa_info.sig_alg ==FD_X509_SIG_UNKNOWN );
+    FD_TEST( rsa_info.pubkey_len==270UL );  /* RSAPublicKey SEQUENCE */
+    FD_TEST( rsa_info.is_ca );
+    FD_TEST( fd_x509_cert_parse( rsa_ca, sizeof(rsa_ca)-1UL, &rsa_info ) );
+    uchar const * pk; ulong pk_len; uchar pk_type;
+    FD_TEST( fd_x509_extract_pubkey( rsa_ca, sizeof(rsa_ca), &pk, &pk_len, &pk_type ) );
+    pem_len = append_pem_cert( pem, rsa_ca, sizeof(rsa_ca) );
+    rewrite_tmp_file( tmp_fd, pem, pem_len );
+    FD_TEST( fd_x509_ca_store_load( &ca_store, path )==0L );
+    FD_TEST( !ca_store.cnt );
+    uchar const * rsa_chain   [ 1 ] = { rsa_ca };
+    ulong         rsa_chain_sz[ 1 ] = { sizeof(rsa_ca) };
+    FD_TEST( fd_x509_verify_chain( rsa_chain, rsa_chain_sz, 1UL, &ca_store, NULL, 0UL, TEST_NOW )
+             ==FD_X509_VERIFY_ERR_UNSUPPORTED );
 
     /* Subjects larger than the bounded store representation are skipped. */
     uchar name_content[ FD_X509_CA_SUBJECT_MAX+1UL ]; memset( name_content, 0, sizeof(name_content) );
@@ -932,7 +992,8 @@ main( int     argc,
     }
     FD_TEST( oid_cnt==2UL );
     fd_x509_cert_info_t unsupported_info;
-    FD_TEST( fd_x509_cert_parse( cross_unsupported, cross_len, &unsupported_info )!=0 );
+    FD_TEST( !fd_x509_cert_parse( cross_unsupported, cross_len, &unsupported_info ) );
+    FD_TEST( unsupported_info.key_type==FD_X509_KEY_UNKNOWN );
     chain_der[1] = cross_unsupported;
     FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &ca_store, NULL, 0UL, TEST_NOW )
              ==FD_X509_VERIFY_OK );
@@ -1494,6 +1555,11 @@ main( int     argc,
     der_bump_len( bad,      2UL );
     fd_x509_cert_info_t info;
     FD_TEST( fd_x509_cert_parse( bad, cert_len+2UL, &info )!=0 );
+
+    /* A non-canonical SPKI algorithm OID is malformed, not unsupported. */
+    memcpy( bad, cert, cert_len );
+    bad[ spki_oid_off+sizeof(oid_ed25519_alg)-1UL ] |= 0x80U;
+    FD_TEST( fd_x509_cert_parse( bad, cert_len, &info )!=0 );
 
     /* Outer and TBSCertificate signatureAlgorithm fields must match. */
     memcpy( bad, cert, cert_len );
