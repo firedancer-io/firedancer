@@ -941,6 +941,32 @@ main( int     argc,
   FD_TEST( ctx->metrics.rx_src_addr_invalid_cnt==src_invalid_before+1UL );
   FD_TEST( ctx->shred_out->seq==seq_before );
 
+  /* GRE packets whose inner IP total length overruns the frame are
+     dropped after decapsulation */
+  {
+    ulong undersz_before = ctx->metrics.rx_undersz_cnt;
+    seq_before           = ctx->shred_out->seq;
+
+    FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
+    ulong const frame_off = fr_frame_ring[ xdp_fr_ring_cons & (ring_fr_depth-1) ];
+    xdp_fr_ring_cons++;
+
+    rx_pkt_gre.outer_ip4.saddr       = gre0_outer_dst_ip;
+    rx_pkt_gre.outer_ip4.daddr       = gre0_outer_src_ip;
+    rx_pkt_gre.inner_ip4.net_tot_len = fd_ushort_bswap( 100 );
+    fd_memcpy( (uchar *)ctx->umem + frame_off, &rx_pkt_gre, sizeof(rx_pkt_gre) );
+
+    xsk->ring_rx.packet_ring[ xdp_rx_ring_prod ].addr = frame_off;
+    xsk->ring_rx.packet_ring[ xdp_rx_ring_prod ].len  = (uint)sizeof(rx_pkt_gre);
+    xdp_rx_ring_prod++;
+
+    before_credit( ctx, stem, &charge_busy );
+    FD_TEST( ctx->metrics.rx_undersz_cnt==undersz_before+1UL );
+    FD_TEST( ctx->shred_out->seq==seq_before );
+
+    rx_pkt_gre.inner_ip4.net_tot_len = fd_ushort_bswap( 28 );
+  }
+
   /* Test invalid network headers */
 
   typedef struct __attribute__((packed)) {
