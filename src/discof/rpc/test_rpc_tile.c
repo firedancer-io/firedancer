@@ -140,7 +140,7 @@ static void
 ingest_test_epoch( fd_multi_epoch_leaders_t * mleaders,
                    ulong                      epoch,
                    uchar                      leader_byte ) {
-  uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+  uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) + sizeof(fd_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
   fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_msg_buf );
   memset( emsg, 0, sizeof(epoch_msg_buf) );
   emsg->epoch           = epoch;
@@ -498,6 +498,7 @@ main( int     argc,
   (void)link_rpc_replay;
   fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_out", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
   fd_topo_link_t * link_shred_out  = create_link( topo, wksp, "shred_out",  4UL, sizeof(fd_shred_message_t), 3UL );
+  fd_topo_link_t * link_epoch      = create_link( topo, wksp, "replay_epoch", 2UL, FD_EPOCH_OUT_MTU, 1UL );
 
   fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0, 1 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
@@ -515,6 +516,7 @@ main( int     argc,
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "shred_out",  0UL, 0, 1 );
+  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "replay_epoch", 0UL, 0, 1 );
 
   void * waker_fseq_mem = fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL );
   FD_TEST( waker_fseq_mem );
@@ -738,6 +740,59 @@ main( int     argc,
     );
   }
 
+  /* -- getEpochSchedule -- */
+
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getEpochSchedule\"}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32008,\"message\":\"Firedancer Error: No epoch schedule\"},\"id\":1}"
+  );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getEpochSchedule\",\"params\":[1]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":1}"
+  );
+  {
+    ulong epoch_in_idx = ctx->in_cnt;
+    for( ulong in_idx=0UL; in_idx<ctx->in_cnt; in_idx++ ) {
+      if( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) { epoch_in_idx = in_idx; break; }
+    }
+    FD_TEST( epoch_in_idx<ctx->in_cnt );
+
+    fd_epoch_info_msg_t * epoch_info = fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_epoch->dcache ) );
+    ulong epoch_info_sz = fd_epoch_info_msg_sz( 1UL, 1UL );
+    memset( epoch_info, 0, epoch_info_sz );
+    epoch_info->epoch           = 0UL;
+    epoch_info->start_slot      = 0UL;
+    epoch_info->slot_cnt        = 32UL;
+    epoch_info->staked_vote_cnt = 1UL;
+    epoch_info->staked_id_cnt   = 1UL;
+    epoch_info->epoch_schedule.slots_per_epoch             = 432000UL;
+    epoch_info->epoch_schedule.leader_schedule_slot_offset = 432000UL;
+    epoch_info->epoch_schedule.warmup                      = 1;
+    epoch_info->epoch_schedule.first_normal_epoch          = 14UL;
+    epoch_info->epoch_schedule.first_normal_slot           = 524256UL;
+    fd_vote_stake_weight_t * epoch_w = fd_epoch_info_msg_stake_weights( epoch_info );
+    memset( epoch_w->vote_key.uc, 0x11, sizeof(fd_pubkey_t) );
+    memset( epoch_w->id_key.uc,   0x22, sizeof(fd_pubkey_t) );
+    epoch_w->stake = 1000000UL;
+    FD_TEST( !returnable_frag( ctx, epoch_in_idx, 0UL, 4UL /* replay's epoch_info_sig */, fd_laddr_to_chunk( wksp, epoch_info ), epoch_info_sz, 0UL, 0UL, 0UL, NULL ) );
+    FD_TEST( ctx->has_epoch_schedule );
+
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getEpochSchedule\"}",
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"slotsPerEpoch\":432000,\"leaderScheduleSlotOffset\":432000,\"warmup\":true,\"firstNormalEpoch\":14,\"firstNormalSlot\":524256},\"id\":1}"
+    );
+
+    /* A later replay_epoch frag overwrites the copy */
+    epoch_info->epoch_schedule.warmup             = 0;
+    epoch_info->epoch_schedule.first_normal_epoch = 0UL;
+    epoch_info->epoch_schedule.first_normal_slot  = 0UL;
+    FD_TEST( !returnable_frag( ctx, epoch_in_idx, 1UL, 4UL, fd_laddr_to_chunk( wksp, epoch_info ), epoch_info_sz, 0UL, 0UL, 0UL, NULL ) );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getEpochSchedule\"}",
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"slotsPerEpoch\":432000,\"leaderScheduleSlotOffset\":432000,\"warmup\":false,\"firstNormalEpoch\":0,\"firstNormalSlot\":0},\"id\":1}"
+    );
+  }
+
   /* -- getMultipleAccounts -- */
 
   ctx->banks[0].slot          = 42UL;
@@ -885,7 +940,7 @@ main( int     argc,
     fd_pubkey_t leader_vk; memset( leader_vk.uc, 0x88, 32 );
     FD_BASE58_ENCODE_32_BYTES( leader_id.uc, leader_id_b58 );
 
-    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) + sizeof(fd_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
     fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)epoch_msg_buf;
     memset( emsg, 0, sizeof(epoch_msg_buf) );
     emsg->epoch           = 0UL;
@@ -1039,7 +1094,7 @@ main( int     argc,
     fd_pubkey_t vote_b;    memset( vote_b.uc,    0xb2, 32 );
     FD_BASE58_ENCODE_32_BYTES( leader_id.uc, dup_id_b58 );
 
-    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + 2UL*sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + 2UL*sizeof(fd_vote_stake_weight_t) + sizeof(fd_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
     fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)epoch_msg_buf;
     memset( emsg, 0, sizeof(epoch_msg_buf) );
     emsg->epoch           = 0UL;

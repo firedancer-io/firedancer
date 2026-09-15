@@ -142,6 +142,11 @@ LLVMFuzzerInitialize( int  *   argc,
   FD_TEST( alloc );
   cJSON_alloc_install( alloc );
 
+  /* FD_MCNT_INC in every handler derefs fd_metrics_tl, NULL until
+     registered. */
+  static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );
+
   return 0;
 }
 
@@ -152,7 +157,7 @@ seed_mleaders( fd_rpc_tile_t * ctx,
   ulong start_slot = ( base_slot / epoch_len ) * epoch_len;
   ulong epoch      = start_slot / epoch_len;
 
-  uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+  uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) + sizeof(fd_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
   fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_msg_buf );
   memset( emsg, 0, sizeof(epoch_msg_buf) );
   emsg->epoch           = epoch;
@@ -206,7 +211,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
     ctx->banks[ j ].slot = FETCH_TYPE( ulong );
     ctx->banks[ j ].bank_idx = j;
   }
-  ctx->has_genesis_hash = FETCH_TYPE( uchar ) % 2;
+  ctx->has_genesis_hash   = FETCH_TYPE( uchar ) % 2;
+  ctx->has_epoch_schedule = FETCH_TYPE( uchar ) % 2;
 
   fd_rpc_mleaders_init( ctx->mleaders );
 
