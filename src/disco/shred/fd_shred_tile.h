@@ -2,23 +2,25 @@
 #define HEADER_fd_src_disco_shred_fd_shred_tile_h
 
 #include "../tiles.h"
-#include "../keyguard/fd_keyguard_client.h"
 #include "fd_fec_resolver.h"
 #include "fd_shred_batch.h"
 
 #define FD_SHRED_STEM_BURST ( FD_SHRED_BATCH_FEC_SETS_MAX*(FD_FEC_SHRED_CNT+1UL) )
 #define FD_SHRED_FIREDANCER_FEC_EXPOSURE ( FD_SHRED_BATCH_FEC_SETS_MAX )
 
+/* Leader FEC sets wait for the sign tile in a queue of up to
+   FD_SHRED_SIGN_PEND_MAX. */
+#define FD_SHRED_SIGN_PEND_MAX ( 2UL*FD_SHRED_BATCH_FEC_SETS_MAX )
+
 FD_FN_CONST static inline ulong
 fd_shred_tile_fec_set_cnt( ulong fec_exposure,
                            ulong fec_resolver_depth ) {
-  return 2UL*fec_exposure + fec_resolver_depth + FD_SHRED_BATCH_FEC_SETS_MAX + 2UL;
+  return 2UL*fec_exposure + fec_resolver_depth + FD_SHRED_SIGN_PEND_MAX + 2UL;
 }
 
 /* Forward declarations */
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 typedef struct fd_keyswitch_private fd_keyswitch_t;
-typedef struct fd_keyguard_client fd_keyguard_client_t;
 
 /* Shred tile context structure */
 typedef struct {

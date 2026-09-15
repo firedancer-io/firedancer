@@ -215,6 +215,9 @@ unprivileged_init( fd_topo_t const *      topo,
            authentication challenge from the bundle server.
        (e) Rserve.  The rserve tile uses the identity key to sign
            outgoing pings.
+       (f) Shred.  The shred tile has the sign tile sign FEC sets
+           asynchronously; it waits for its outstanding requests to be
+           answered under the old key before switching.
         */
 #define FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED   (4UL)
 
@@ -367,12 +370,14 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
             strcmp( tile->name, "bundle" ) &&
-            strcmp( tile->name, "rserve" ) ) {
+            strcmp( tile->name, "rserve" ) &&
+            strcmp( tile->name, "shred"  ) ) {
           continue;
         }
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         if( !strcmp( tile->name, "gossip" ) ) tile_ks->param = identity_outset;
+        if( !strcmp( tile->name, "shred"  ) ) tile_ks->param = 0UL; /* the leader pipeline is halted, nothing more to reach */
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
@@ -391,7 +396,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
             strcmp( tile->name, "bundle" ) &&
-            strcmp( tile->name, "rserve" ) ) {
+            strcmp( tile->name, "rserve" ) &&
+            strcmp( tile->name, "shred"  ) ) {
           continue;
         }
 
@@ -455,7 +461,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
                        !strcmp( tile->name, "txsend" ) ||
                        !strcmp( tile->name, "tower" ) ||
                        !strcmp( tile->name, "bundle" ) ||
-                       !strcmp( tile->name, "rserve" ) ) ) continue;
+                       !strcmp( tile->name, "rserve" ) ||
+                       !strcmp( tile->name, "shred"  ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         if( !strcmp( tile->name, "gossvf" ) ) tile_ks->param = identity_outset;
@@ -478,9 +485,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
                        !strcmp( tile->name, "repair" ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
-                       !strcmp( tile->name, "tower" ) ||
+                       !strcmp( tile->name, "tower"  ) ||
                        !strcmp( tile->name, "bundle" ) ||
-                       !strcmp( tile->name, "rserve" ) ) ) continue;
+                       !strcmp( tile->name, "rserve" ) ||
+                       !strcmp( tile->name, "shred"  ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {

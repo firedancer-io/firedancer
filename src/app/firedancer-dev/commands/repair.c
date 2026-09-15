@@ -430,14 +430,16 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_tile_out( topo, "repair",  0UL,                       "repair_net",    0UL                                                  );
 
-  /* Sign links don't need to be reliable because they are synchronous,
-    so there's at most one fragment in flight at a time anyway.  The
-    sign links are also not polled by the mux, instead the tiles will
-    read the sign responses out of band in a dedicated spin loop. */
+  /* Sign links don't need to be reliable because each requester has a
+     small bounded number of requests in flight: one for the tiles that
+     sign synchronously and read the response out of band in a spin
+     loop (their response link is not polled by fd_stem), and up to
+     FD_SHRED_SIGN_PEND_MAX for shred, which takes its responses as
+     ordinary polled frags. */
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_out( topo, "shred",  i,                          "shred_sign",    i                                                    );
-    /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",    i                                                    );
   }
   FOR(gossvf_tile_cnt) fd_topob_tile_in ( topo, "gossvf",   i,           "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );

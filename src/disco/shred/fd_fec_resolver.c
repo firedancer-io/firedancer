@@ -49,9 +49,6 @@ struct __attribute__((aligned(32UL))) set_ctx {
   fd_fec_set_t *        set;
 
   fd_bmtree_node_t      root;
-  /* If this FEC set has resigned shreds, this is our signature of the
-     root of the Merkle tree */
-  wrapped_sig_t         retransmitter_sig;
 
   union {
     fd_bmtree_commit_t  tree[1];
@@ -236,12 +233,6 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
      done_map. */
   done_heap_t done_heap[1];
 
-  /* signer is used to sign shreds that require a retransmitter
-     signature.  sign_ctx is provided as the first argument to the
-     function. */
-  fd_fec_resolver_sign_fn * signer;
-  void                    * sign_ctx;
-
   /* slot_old: slot_old is the lowest slot for which shreds will be
      accepted.  That is any shred with slot<slot_old is rejected by
      add_shred with IGNORED.  slot_old can only increase. */
@@ -295,8 +286,6 @@ FD_FN_CONST ulong fd_fec_resolver_align( void ) { return FD_FEC_RESOLVER_ALIGN; 
 
 void *
 fd_fec_resolver_new( void                    * shmem,
-                     fd_fec_resolver_sign_fn * signer,
-                     void                    * sign_ctx,
                      ulong                     depth,
                      ulong                     partial_depth,
                      ulong                     complete_depth,
@@ -363,8 +352,6 @@ fd_fec_resolver_new( void                    * shmem,
   resolver->expected_shred_version = 0;
   resolver->bypass_verify          = 0;
   resolver->free_list_cnt          = depth+partial_depth;
-  resolver->signer                 = signer;
-  resolver->sign_ctx               = sign_ctx;
   resolver->slot_old               = 0UL;
   resolver->seed                   = seed3;
   return shmem;
@@ -723,12 +710,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     ctx->total_rx_shred_cnt = 0UL;
     ctx->root               = *_root;
 
-    if( FD_UNLIKELY( fd_shred_is_resigned( shred_type ) & !!(resolver->signer) ) ) {
-      resolver->signer( resolver->sign_ctx, ctx->retransmitter_sig.u, _root->hash );
-    } else {
-      fd_memset( ctx->retransmitter_sig.u, 0, 64UL );
-    }
-
     /* Reset the FEC set */
     ctx->set->data_shred_rcvd    = 0U;
     ctx->set->parity_shred_rcvd  = 0U;
@@ -778,9 +759,11 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   uchar * dst = is_data_shred ? ctx->set->data_shreds[ in_type_idx ].b : ctx->set->parity_shreds[ in_type_idx ].b;
   fd_memcpy( dst, shred, fd_shred_sz( shred ) );
 
-  /* If the shred needs a retransmitter signature, set it */
+  /* Resigned shreds are relayed with a zero retransmitter signature:
+     nothing verifies it (verify_retransmitter_signature never activated
+     and is superseded by Alpenglow) */
   if( FD_UNLIKELY( fd_shred_is_resigned( shred_type ) ) ) {
-    memcpy( dst + fd_shred_retransmitter_sig_off( (fd_shred_t *)dst ), ctx->retransmitter_sig.u, 64UL );
+    memset( dst + fd_shred_retransmitter_sig_off( (fd_shred_t *)dst ), 0, 64UL );
   }
 
   ctx->set->data_shred_rcvd   |= (uint)(!!is_data_shred)<<in_type_idx;
@@ -971,13 +954,13 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) if( !( set->parity_shred_rcvd&(1U<<i) ) )
     fd_bmtree_get_proof( tree, set->parity_shreds[i].b + fd_shred_merkle_off( set->parity_shreds[i].s ), FD_FEC_SHRED_CNT+i );
 
-  /* Set the retransmitter signature for shreds that need one */
+  /* Zero retransmitter signature on the recovered shreds too */
   if( FD_UNLIKELY( fd_shred_is_resigned( shred_type ) ) ) {
     for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++   ) if( !( set->data_shred_rcvd&(1U<<i) ) )
-      memcpy( set->data_shreds[i].b   + fd_shred_retransmitter_sig_off( set->data_shreds[i].s   ), ctx->retransmitter_sig.u, 64UL );
+      memset( set->data_shreds[i].b   + fd_shred_retransmitter_sig_off( set->data_shreds[i].s   ), 0, 64UL );
 
     for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) if( !( set->parity_shred_rcvd&(1U<<i) ) )
-      memcpy( set->parity_shreds[i].b + fd_shred_retransmitter_sig_off( set->parity_shreds[i].s ), ctx->retransmitter_sig.u, 64UL );
+      memset( set->parity_shreds[i].b + fd_shred_retransmitter_sig_off( set->parity_shreds[i].s ), 0, 64UL );
   }
 
   /* Finally... A valid FEC set.  Forward it along. */
