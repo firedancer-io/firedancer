@@ -749,11 +749,13 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      reward calculation).  Needed for the harness to correctly
      recalculate partitioned epoch rewards. */
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  fd_bank_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, parent_bank, 0 ) );
   for( pb_size_t i=0U; i<va_t1_cnt; i++ ) {
     fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
     if( idx==UINT_MAX ) continue;
-    fd_epoch_credits_t const * ec = &fd_bank_epoch_credits( parent_bank )[idx];
+    fd_epoch_credits_t const * ec = &epoch_credits_view->credits[idx];
     ulong cnt  = ec->cnt;
     ulong base = ec->base_credits;
     va_t1[i].epoch_credits_count = (pb_size_t)cnt;
@@ -764,6 +766,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
       va_t1[i].epoch_credits[j].prev_credits = base + ec->prev_credits_delta[j];
     }
   }
+  fd_bank_epoch_credits_view_fini( epoch_credits_view );
 
   /* BlockContext -> acct_states
      Iterate over the set and dump all the account keys in one pass. */
