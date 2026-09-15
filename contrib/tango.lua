@@ -42,10 +42,13 @@ local tango_link_name = ProtoField.string("fd_tango.linkname", "Link Name")
 local tango_contents = ProtoField.bytes("fd_tango.contents", "DCache Contents")
 
 local tpu_payload_sz = ProtoField.uint16("fd_tpu.payload_sz", "Payload Size")
-local tpu_txn = ProtoField.bytes("fd_tpu.txn_t", "fd_txn_t")
+local tpu_txn = ProtoField.bytes("fd_tpu.txn_t", "Packed Transaction")
+local tpu_non_execution_cus = ProtoField.uint32("fd_tpu.non_execution_cus", "Non-execution CUs")
 local tpu_requested_cus = ProtoField.uint32("fd_tpu.requested_cus", "Requested CUs")
+local tpu_rebated_cus = ProtoField.uint32("fd_tpu.rebated_cus", "Rebated CUs")
 local tpu_executed_cus = ProtoField.uint32("fd_tpu.executed_cus", "Executed CUs")
 local sched_arrival_ns = ProtoField.int64("fd_tpu.sched_arrival_ns", "Arrival Time (ns)")
+local tpu_first_seen_nanos = ProtoField.int64("fd_tpu.first_seen_nanos", "First Seen (ns)")
 local tpu_flags = ProtoField.uint32("fd_tpu.flags", "Flags")
 
 local yesno_types = {
@@ -99,14 +102,9 @@ local tpu_bundle = ProtoField.uint32("fd_tpu.flags.bundle", "Bundle", base.DEC, 
 local tpu_initializer = ProtoField.uint32("fd_tpu.flags.initializer_bundle", "Initializer Bundle", base.DEC, yesno_types, 0x4)
 local tpu_sanitized = ProtoField.uint32("fd_tpu.flags.sanitized", "Sanitize Success", base.DEC, yesno_types, 0x8)
 local tpu_executed = ProtoField.uint32("fd_tpu.flags.executed", "Execute Success", base.DEC, yesno_types, 0x10)
-local tpu_nonce = ProtoField.uint32("fd_tpu.flags.is_nonce", "Durable Nonce", base.DEC, yesno_types, 0x20)
+local tpu_fees_only = ProtoField.uint32("fd_tpu.flags.fees_only", "Fees Only", base.DEC, yesno_types, 0x20)
+local tpu_nonce = ProtoField.uint32("fd_tpu.flags.is_nonce", "Durable Nonce", base.DEC, yesno_types, 0x40)
 local tpu_status   = ProtoField.uint32("fd_tpu.flags.status", "Status", base.DEC, status_codes, 0xFF000000)
-
--- local tpu_simple_vote = ProtoField.uint32("fd_tpu.flags.simple_vote", "Simple Vote")
--- local tpu_bundle      = ProtoField.uint32("fd_tpu.flags.bundle", "Bundle")
--- local tpu_initializer = ProtoField.uint32("fd_tpu.flags.init_bundle", "Initializer Bundle")
--- local tpu_sanitized   = ProtoField.uint32("fd_tpu.flags.sanitized", "Sanitize Success")
--- local tpu_executed    = ProtoField.uint32("fd_tpu.flags.executed", "Execute Success")
 
 tango.fields = {
   tango_link,
@@ -126,9 +124,12 @@ tango.fields = {
 
   tpu_payload_sz,
   tpu_txn,
+  tpu_non_execution_cus,
   tpu_requested_cus,
+  tpu_rebated_cus,
   tpu_executed_cus,
   sched_arrival_ns,
+  tpu_first_seen_nanos,
   tpu_flags,
 
   tpu_simple_vote,
@@ -136,6 +137,7 @@ tango.fields = {
   tpu_initializer,
   tpu_sanitized,
   tpu_executed,
+  tpu_fees_only,
   tpu_nonce,
   tpu_status
 }
@@ -144,70 +146,68 @@ local link_hashes = {
   [0x18a945] = "shred_net",
   [0x2aabab] = "quic_verify",
   [0x1efba0] = "verify_dedup",
-  [0x59ac4d] = "dedup_pack",
-  [0x9e5973] = "gossip_dedup",
-  [0x27193a] = "stake_out",
   [0x59bd91] = "resolv_pack",
-  [0x7b8342] = "pack_bank",
-  [0xfe7bbf] = "bank_poh",
+  [0xe959ef] = "pack_execle",
+  [0x458b11] = "execle_poh",
   [0xdb6a44] = "poh_shred",
-  [0xb8e9a5] = "crds_shred",
-  [0x6e5d41] = "shred_store",
-  [0x3845f5] = "shred_storei",
+  [0x1eb6fd] = "shred_out",
   [0xc650c9] = "shred_sign",
   [0xd408b5] = "sign_shred",
   [0x0d274e] = "quic_net",
   [0xf680c5] = "net_quic",
-  [0xee5444] = "poh_pack",
   [0x6f928b] = "net_shred",
-  [0x9e5973] = "gossip_dedup",
   [0x409d3f] = "dedup_resolv",
-  [0x3fb62b] = "replay_resol",
-  [0x8c8ec7] = "plugin_out"  ,
-  [0x7277f4] = "replay_plugi",
-  [0x95c8b9] = "gossip_plugi",
-  [0xff8c5d] = "poh_plugin"  ,
-  [0x016c76] = "startp_plugi",
-  [0x875140] = "votel_plugin",
+  [0x01a062] = "replay_out",
+  [0xbfa307] = "replay_epoch",
+  [0x8b0b77] = "poh_replay",
+  [0x1f1be9] = "txsend_out",
+  [0xef3ca0] = "gossip_out",
+  [0x02a21a] = "tower_out",
   [0x9e4bf4] = "bundle_verif",
   [0xc7e9e7] = "bundle_sign" ,
   [0x81114e] = "sign_bundle" ,
-  [0x8ebf3e] = "bundle_status",
+  [0x2259d5] = "bundle_status",
   [0x06c577] = "pack_sign",
   [0x6a974e] = "sign_pack",
-  [0x2080d6] = "bank_pack",
+  [0x257632] = "execle_pack",
   [0x534f91] = "pack_poh",
   [0xd5cc48] = "net_repair",
-  [0xf005bb] = "repair_net"
+  [0xf005bb] = "repair_net",
+  [0x629712] = "repair_out",
+  [0xfb0d59] = "net_gossvf",
+  [0x287af8] = "net_txsend",
+  [0x6a2cc7] = "net_rserve",
+  [0xc52ff4] = "net_votor",
+  [0x3c9510] = "gossip_net",
+  [0xf7b150] = "txsend_net",
+  [0x6a67d3] = "rserve_net",
+  [0xd607e8] = "votor_net"
 }
 
-
-
 function tango.dissector (tvb, pinfo, tree)
-    local subtree = tree:add(tango, tvb())
-  packet_len = tvb:len()
+  local subtree = tree:add(tango, tvb())
+  local packet_len = tvb:len()
 
-    if packet_len == 0 then
+  if packet_len < 36 then
     return
   end
 
   local link_hash = tvb(packet_len-4, 4):le_uint()
-  local link_name = link_hashes[bit.rshift(link_hash, 8)]
+  local link_name = link_hashes[bit.rshift(link_hash, 8)] or "unknown"
+  local sig = tvb(8, 8):le_uint64()
 
-  local link_element = subtree:add_le(tango_link, tvb(packet_len-4, 4)):append_text( " (" .. link_name .. ")" )
+  subtree:add_le(tango_link, tvb(packet_len-4, 4)):append_text( " (" .. link_name .. ")" )
   subtree:add(tango_link_name, tvb(packet_len-4, 4), link_name)
 
   subtree:add_le(tango_seq, tvb(0, 8))
   subtree:add_le(tango_sig, tvb(8, 8))
   subtree:add_le(tango_chunk, tvb(16, 4))
   subtree:add_le(tango_sz, tvb(20, 2))
-  local ctl_node = subtree:add(tango_ctl, tvb(22, 2))
-  local ctl = tvb(22,2):le_uint()
-
-  ctl_node:add(tango_ctl_som, tvb(22,2), bit.band(ctl, 1))
-  ctl_node:add(tango_ctl_eom, tvb(22,2), bit.band(ctl, 2))
-  ctl_node:add(tango_ctl_err, tvb(22,2), bit.band(ctl, 4))
-  ctl_node:add(tango_ctl_orig, tvb(22,2), bit.band(ctl, 0xFFF8))
+  local ctl_node = subtree:add_le(tango_ctl, tvb(22, 2))
+  ctl_node:add_le(tango_ctl_som, tvb(22,2))
+  ctl_node:add_le(tango_ctl_eom, tvb(22,2))
+  ctl_node:add_le(tango_ctl_err, tvb(22,2))
+  ctl_node:add_le(tango_ctl_orig, tvb(22,2))
 
   subtree:add_le(tango_tsorig, tvb(24, 4))
   subtree:add_le(tango_tspub, tvb(28, 4))
@@ -215,54 +215,65 @@ function tango.dissector (tvb, pinfo, tree)
 
   local dcache_contents = tvb:range(32, packet_len-36):tvb()
   local dcache_tree = subtree:add(tango_contents, tvb(32, packet_len-36))
+  if dcache_contents:len() == 0 then
+    return
+  end
 
   if link_name:match("^net_") or link_name:match("_net$") then
     local dissector = Dissector.get("eth_withoutfcs")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "gossip_verif" or link_name == "txsend_out" or link_name == "gossip_dedup" then
+  elseif link_name == "verify_dedup" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "txsend_out" then
     local dissector = Dissector.get("fd_txn_m_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
   elseif link_name == "poh_shred" then
     local dissector = Dissector.get("fd_poh_shred")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "bank_pack" then
+  elseif link_name == "execle_pack" then
     local dissector = Dissector.get("fd_pack_rebate_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "pack_bank" or link_name == "bank_poh" then
+  elseif link_name == "pack_execle" or link_name == "execle_poh" then
     local dissector = Dissector.get("solana.tpu.udp")
     local dissector2 = Dissector.get("fd_txn_t")
+    local stride = link_name == "pack_execle" and 7040 or 4992
+    local trailer_sz = link_name == "pack_execle" and 56 or 96
 
-    for j=1,dcache_contents:len()-2111,2112 do
-      local txn_tree = dcache_tree:add(tpu_txn, dcache_contents(j-1,2112))
-
-      dissector:call(dcache_contents(j-1,1232):tvb(), pinfo, txn_tree)
-      txn_tree:add_le(tpu_payload_sz, dcache_contents(j+1231, 2))
-      txn_tree:add_le(tpu_requested_cus, dcache_contents(j+1239, 4))
-      txn_tree:add_le(tpu_executed_cus, dcache_contents(j+1243, 4))
-      txn_tree:add_le(sched_arrival_ns, dcache_contents(j+1247, 8))
-      local flag_tvb = dcache_contents(j+1255,4)
-      local flag_val = flag_tvb:le_uint()
-      local flag_node = txn_tree:add_le(tpu_flags, dcache_contents(j+1255, 4))
+    for offset=0,dcache_contents:len()-trailer_sz-stride,stride do
+      local txn = dcache_contents(offset, stride):tvb()
+      local txn_tree = dcache_tree:add(tpu_txn, txn())
+      local payload_sz = txn(4096, 2):le_uint()
+      if payload_sz > 4096 then return end
+      dissector:call(txn(0, payload_sz):tvb(), pinfo, txn_tree)
+      txn_tree:add_le(tpu_payload_sz, txn(4096, 2))
+      if link_name == "pack_execle" then
+        txn_tree:add_le(tpu_non_execution_cus, txn(4104, 4))
+        txn_tree:add_le(tpu_requested_cus, txn(4108, 4))
+      else
+        txn_tree:add_le(tpu_rebated_cus, txn(4104, 4))
+        txn_tree:add_le(tpu_executed_cus, txn(4108, 4))
+      end
+      txn_tree:add_le(sched_arrival_ns, txn(4112, 8))
+      txn_tree:add_le(tpu_first_seen_nanos, txn(4120, 8))
+      local flag_tvb = txn(4132,4)
+      local flag_node = txn_tree:add_le(tpu_flags, flag_tvb)
       flag_node:add_le(tpu_simple_vote, flag_tvb)
       flag_node:add_le(tpu_bundle,flag_tvb)
       flag_node:add_le(tpu_initializer,flag_tvb)
       flag_node:add_le(tpu_sanitized,  flag_tvb)
       flag_node:add_le(tpu_executed, flag_tvb)
+      flag_node:add_le(tpu_fees_only, flag_tvb)
       flag_node:add_le(tpu_nonce, flag_tvb)
       flag_node:add_le(tpu_status, flag_tvb)
 
-      local txn_t_tvb = dcache_contents(j+1259, 852):tvb()
+      local txn_t_tvb = txn(4136, 854):tvb()
       dissector2:call(txn_t_tvb, pinfo, txn_tree)
     end
-    -- If bank_poh, the trailer
-  elseif link_name == "shred_store" or link_name == "shred_storei" then
-    local dissector = Dissector.get("fd_shred34_t")
-    dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "poh_pack" then
+  elseif link_name == "replay_out" and sig == UInt64(4) then
     local dissector = Dissector.get("fd_became_leader_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
   elseif link_name == "pack_poh" then
-    if dcache_contents:len() ~= 0 then
+    if sig == UInt64(0xfffffffe, 0xffffffff) then
+      dcache_tree:append_text(" (Reduced Microblock Bound)")
+    elseif sig ~= UInt64(0xffffffff, 0xffffffff) then
       local dissector = Dissector.get("fd_done_packing_t")
       dissector:call(dcache_contents, pinfo, dcache_tree)
     end
@@ -287,6 +298,7 @@ f.recent_blockhash_off = ProtoField.uint16("fd_txn.recent_blockhash_off", "Recen
 f.addr_table_lookup_cnt = ProtoField.uint8("fd_txn.addr_table_lookup_cnt", "Address Table Lookup Count", base.DEC)
 f.addr_table_adtl_writable_cnt = ProtoField.uint8("fd_txn.addr_table_adtl_writable_cnt", "Additional Writable Count", base.DEC)
 f.addr_table_adtl_cnt = ProtoField.uint8("fd_txn.addr_table_adtl_cnt", "Additional Address Count", base.DEC)
+f.v1_txn_config_values_off = ProtoField.uint16("fd_txn.v1_txn_config_values_off", "V1 Config Values Offset", base.DEC)
 f.instr_cnt = ProtoField.uint16("fd_txn.instr_cnt", "Instruction Count", base.DEC)
 
 f.instrs = ProtoField.none("fd_txn.instr", "Instructions")
@@ -327,6 +339,7 @@ function p_fd_txn.dissector(buffer, pinfo, tree)
   subtree:add_le(f.addr_table_lookup_cnt, buffer(offset, 1)); offset = offset + 1
   subtree:add_le(f.addr_table_adtl_writable_cnt, buffer(offset, 1)); offset = offset + 1
   subtree:add_le(f.addr_table_adtl_cnt, buffer(offset, 1)); offset = offset + 2
+  subtree:add_le(f.v1_txn_config_values_off, buffer(offset, 2)); offset = offset + 2
   local instr_cnt = buffer(offset,2):le_uint()
   subtree:add_le(f.instr_cnt, buffer(offset, 2)); offset = offset + 2
 
@@ -385,38 +398,32 @@ local f_hash = ProtoField.bytes("fd_poh_shred.hash", "Hash")
 local f_txn_cnt = ProtoField.uint64("fd_poh_shred.txn_cnt", "Transaction Count")
 local f_txns = ProtoField.none("fd_poh_shred.txns", "Transactions")
 
-local f_slot_start_ns = ProtoField.int64("fd_poh_shred.slot_start_ns", "Slot Start Time (ns)")
-local f_bank_ptr = ProtoField.uint64("fd_poh_shred.bank", "Bank", base.HEX)
-
 -- Add the fields to the protocol
-poh_shred.fields = { f_parent_offset, f_reference_tick, f_block_complete, f_parent_block_id, f_parent_block_id_valid, f_hashcnt_delta, f_hash, f_txn_cnt, f_txns, f_slot_start_ns, f_bank_ptr }
+poh_shred.fields = { f_parent_offset, f_reference_tick, f_block_complete, f_parent_block_id, f_parent_block_id_valid, f_hashcnt_delta, f_hash, f_txn_cnt, f_txns }
 
 function poh_shred.dissector(buffer, pinfo, tree)
-  if buffer:len() < 64 then
-    -- Became leader.  This should use the sig field, but we don't have it here
-    tree:set_text("Became Leader")
-    tree:add_le(f_slot_start_ns, buffer(0, 8))
-    tree:add_le(f_bank_ptr, buffer(8, 8))
-  else
-    local txn_cnt = buffer(96, 4):le_uint()
-    -- Add fields to the tree
-    tree:add_le(f_parent_offset, buffer(0, 8))
-    tree:add_le(f_reference_tick, buffer(8, 8))
-    tree:add_le(f_block_complete, buffer(16, 4))
-    tree:add_le(f_parent_block_id, buffer(20, 32))
-    tree:add_le(f_parent_block_id_valid, buffer(52, 1))
-    tree:add_le(f_hashcnt_delta, buffer(56, 8))
-    tree:add_le(f_hash, buffer(64, 32))
-    tree:add_le(f_txn_cnt, buffer(96, 8))
+  if buffer:len() < 104 then return end
+  local txn_cnt = buffer(96, 8):le_uint64():tonumber()
+  tree:add_le(f_parent_offset, buffer(0, 8))
+  tree:add_le(f_reference_tick, buffer(8, 8))
+  tree:add_le(f_block_complete, buffer(16, 4))
+  tree:add_le(f_parent_block_id, buffer(20, 32))
+  tree:add_le(f_parent_block_id_valid, buffer(52, 1))
+  tree:add_le(f_hashcnt_delta, buffer(56, 8))
+  tree:add_le(f_hash, buffer(64, 32))
+  tree:add_le(f_txn_cnt, buffer(96, 8))
 
-    if txn_cnt>0 then
-      local tvb = buffer(104)
-      local subtree = tree:add(f_txns, tvb)
-      local dissector = Dissector.get("solana.tpu.udp")
-      for i=1,txn_cnt,1 do
-        dissector:call(tvb:tvb(), pinfo, subtree)
-        tvb = tvb(tonumber(pinfo.private.bytes_consumed))
-      end
+  if txn_cnt>0 then
+    local tvb = buffer(104)
+    local subtree = tree:add(f_txns, tvb)
+    local dissector = Dissector.get("solana.tpu.udp")
+    for i=1,txn_cnt,1 do
+      if tvb:len() == 0 then return end
+      pinfo.private.bytes_consumed = nil
+      dissector:call(tvb:tvb(), pinfo, subtree)
+      local consumed = tonumber(pinfo.private.bytes_consumed)
+      if not consumed or consumed <= 0 or consumed > tvb:len() then return end
+      tvb = tvb(consumed)
     end
   end
 end
@@ -430,6 +437,7 @@ local f_total_cost_rebate = ProtoField.uint64("fd_pack_rebate_t.total_cost_rebat
 local f_vote_cost_rebate = ProtoField.uint64("fd_pack_rebate_t.vote_cost_rebate", "Vote Cost Rebate")
 local f_data_bytes_rebate= ProtoField.uint64("fd_pack_rebate_t.data_bytes_rebate", "Data Bytes Rebate")
 local f_microblock_cnt_rebate= ProtoField.uint64("fd_pack_rebate_t.microblock_cnt_rebate", "Microblock Count Rebate")
+local f_alloc_rebate = ProtoField.uint64("fd_pack_rebate_t.alloc_rebate", "Allocation Rebate")
 
 local f_ib_result= ProtoField.int32("fd_pack_rebate_t.ib_result", "IB Result")
 local f_writer_cnt= ProtoField.uint32("fd_pack_rebate_t.writer_cnt", "Writer Count")
@@ -441,20 +449,22 @@ local f_rebate_cus= ProtoField.uint64("fd_pack_rebate_t.rebate_cus", "Rebate CUs
 
 
 -- Add the fields to the protocol
-rebate.fields = { f_total_cost_rebate, f_vote_cost_rebate, f_data_bytes_rebate, f_microblock_cnt_rebate, f_ib_result, f_writer_cnt, f_pubkey, f_rebate_cus, f_writers, f_writer }
+rebate.fields = { f_total_cost_rebate, f_vote_cost_rebate, f_data_bytes_rebate, f_microblock_cnt_rebate, f_alloc_rebate, f_ib_result, f_writer_cnt, f_pubkey, f_rebate_cus, f_writers, f_writer }
 
 function rebate.dissector(buffer, pinfo, tree)
-    local writer_cnt = buffer(36, 4):le_uint()
+    if buffer:len() < 48 then return end
+    local writer_cnt = buffer(44, 4):le_uint()
     -- Add fields to the tree
     tree:add_le(f_total_cost_rebate, buffer(0, 8))
     tree:add_le(f_vote_cost_rebate, buffer(8, 8))
     tree:add_le(f_data_bytes_rebate, buffer(16, 8))
     tree:add_le(f_microblock_cnt_rebate, buffer(24, 8))
-    tree:add_le(f_ib_result, buffer(32, 4))
-    tree:add_le(f_writer_cnt, buffer(36, 4))
+    tree:add_le(f_alloc_rebate, buffer(32, 8))
+    tree:add_le(f_ib_result, buffer(40, 4))
+    tree:add_le(f_writer_cnt, buffer(44, 4))
 
     if writer_cnt>0 then
-      local tvb = buffer(40)
+      local tvb = buffer(48)
       local subtree = tree:add(f_writers, tvb)
       for i=1,writer_cnt,1 do
         local s2 = subtree:add(f_writer, tvb(i*40-40, 40))
@@ -463,77 +473,37 @@ function rebate.dissector(buffer, pinfo, tree)
       end
     end
 end
-
-
-
-
 -- Define a new protocol
-local fd_shred34 = Proto("fd_shred34_t", "FD Shred to Store Message")
+local fd_became_leader = Proto("fd_became_leader_t", "FD Replay Became Leader Message")
 
 -- Define fields
-local f_shred_cnt = ProtoField.uint64("fd_shred34_t.shred_cnt", "Shred Count")
-local f_est_txn_cnt = ProtoField.uint64("fd_shred34_t.est_txn_cnt", "Estimated Transaction Count")
-local f_stride = ProtoField.uint64("fd_shred34_t.stride", "Stride")
-local f_offset = ProtoField.uint64("fd_shred34_t.offset", "Offset")
-local f_shred_sz = ProtoField.uint64("fd_shred34_t.shred_sz", "Shred Size")
-local f_shred_payload = ProtoField.bytes("fd_shred34_t.shred_payload", "Shred Payload")
-
--- Add the fields to the protocol
-fd_shred34.fields = { f_shred_cnt, f_est_txn_cnt, f_stride, f_offset, f_shred_sz, f_shred_payload }
-
-function fd_shred34.dissector(buffer, pinfo, tree)
-  local subtree = tree:add(fd_shred34, buffer(), "fd_shred34_t")
-
-  -- Extract fields from buffer
-  local shred_cnt = buffer(0, 4):le_uint()
-  local est_txn_cnt = buffer(8, 4):le_uint()
-  local stride = buffer(16, 4):le_uint()
-  local offset = buffer(24, 4):le_uint()
-  local shred_sz = buffer(32, 4):le_uint()
-
-  -- Add fields to the tree
-  subtree:add_le(f_shred_cnt, buffer(0, 8))
-  subtree:add_le(f_est_txn_cnt, buffer(8, 8))
-  subtree:add_le(f_stride, buffer(16, 8))
-  subtree:add_le(f_offset, buffer(24, 8))
-  subtree:add_le(f_shred_sz, buffer(32, 8))
-
-  local dissector = Dissector.get("solana.shreds")
-  -- Process each shred
-  local shred_start = 32
-  for i = 0, shred_cnt-1 do
-    local tvb = buffer(i * stride + offset, shred_sz):tvb()
-    dissector:call(tvb, pinfo, subtree)
-  end
-end
-
-
--- Define a new protocol
-local fd_became_leader = Proto("fd_became_leader_t", "FD PoH to Pack Became Leader Message")
-
--- Define fields
+local f_slot = ProtoField.uint64("fd_became_leader_t.slot", "Slot")
 local f_slot_start = ProtoField.absolute_time("fd_became_leader_t.slot_start", "Slot start time", base.UTC)
 local f_slot_end   = ProtoField.absolute_time("fd_became_leader_t.slot_end", "Slot end time", base.UTC)
-local f_bank_ptr   = ProtoField.uint64("fd_became_leader_t.bank", "Bank Pointer")
+local f_bank_idx   = ProtoField.uint64("fd_became_leader_t.bank_idx", "Bank Index")
+local f_bank_seq   = ProtoField.uint64("fd_became_leader_t.bank_seq", "Bank Sequence")
 local f_max_microblocks_in_slot = ProtoField.uint64("fd_became_leader_t.max_microblocks_in_slot", "Maximum allowed microblocks in slot")
 local f_ticks_per_slot = ProtoField.uint64("fd_became_leader_t.ticks_per_slot", "Ticks per slot")
 
 -- Add the fields to the protocol
-fd_became_leader.fields = { f_slot_start, f_slot_end, f_bank_ptr, f_max_microblocks_in_slot, f_ticks_per_slot }
+fd_became_leader.fields = { f_slot, f_slot_start, f_slot_end, f_bank_idx, f_bank_seq, f_max_microblocks_in_slot, f_ticks_per_slot }
 
 function fd_became_leader.dissector(buffer, pinfo, tree)
+  if buffer:len() < 64 then return end
   local subtree = tree:add(fd_became_leader, buffer(), "fd_became_leader_t")
 
   -- Extract fields from buffer
-  local slot_start = buffer(0, 8):le_int64()
-  local slot_end   = buffer(8, 8):le_int64()
+  local slot_start = buffer(8, 8):le_int64()
+  local slot_end   = buffer(16, 8):le_int64()
 
   -- Add fields to the tree
-  subtree:add(f_slot_start, buffer(0, 8), NSTime.new( (slot_start/1000000000):tonumber(), (slot_start%1000000000):lower()) )
-  subtree:add(f_slot_end,   buffer(8, 8), NSTime.new( (slot_end  /1000000000):tonumber(), (slot_end  %1000000000):lower()) )
-  subtree:add_le(f_bank_ptr, buffer(16, 8))
-  subtree:add_le(f_max_microblocks_in_slot, buffer(24, 8))
-  subtree:add_le(f_ticks_per_slot, buffer(32, 8))
+  subtree:add_le(f_slot, buffer(0, 8))
+  subtree:add(f_slot_start, buffer(8, 8), NSTime.new( (slot_start/1000000000):tonumber(), (slot_start%1000000000):lower()) )
+  subtree:add(f_slot_end,   buffer(16, 8), NSTime.new( (slot_end  /1000000000):tonumber(), (slot_end  %1000000000):lower()) )
+  subtree:add_le(f_bank_idx, buffer(32, 8))
+  subtree:add_le(f_bank_seq, buffer(40, 8))
+  subtree:add_le(f_max_microblocks_in_slot, buffer(48, 8))
+  subtree:add_le(f_ticks_per_slot, buffer(56, 8))
 end
 
 
@@ -561,12 +531,13 @@ local f_source_ipv4 = ProtoField.ipv4("fd_txn_m_t.source_ipv4",       "IP Addres
 local source_tpu_enum = {
     [1] = "QUIC",
     [2] = "UDP",
-    [4] = "GOSSIP",
-    [8] = "BUNDLE",
-    [16] = "TXSEND"
+    [3] = "GOSSIP",
+    [4] = "BUNDLE",
+    [5] = "TXSEND"
 }
 local f_source_tpu = ProtoField.uint8("fd_txn_m_t.source_tpu",       "Source TPU", base.DEC, source_tpu_enum)
 local f_payload_sz = ProtoField.uint16("fd_txn_m_t.payload_sz",       "Size of payload")
+local f_first_seen_nanos = ProtoField.int64("fd_txn_m_t.first_seen_nanos", "First Seen (ns)")
 local f_bundle_id = ProtoField.uint64("fd_txn_m_t.bundle_id",       "Bundle ID")
 local f_bundle_txn_cnt = ProtoField.uint64("fd_txn_m_t.bundle_txn_cnt",       "Bundle Transaction Count")
 local f_bundle_commission = ProtoField.uint8("fd_txn_m_t.bundle_commission",       "Bundle Commission")
@@ -574,9 +545,11 @@ local f_bundle_pubkey = ProtoField.bytes("fd_txn_m_t.bundle_commission_pubkey", 
 local f_alt_entry = ProtoField.bytes("fd_txn_m_t.alt_entry",       "Address Lookup Table Account Address")
 
 -- Add the fields to the protocol
-fd_txnm.fields = { f_ref_slot, f_txn_t_sz, f_source_ipv4, f_source_tpu, f_payload_sz, f_bundle_id, f_bundle_txn_cnt, f_bundle_commission, f_bundle_pubkey, f_alt_entry }
+fd_txnm.fields = { f_ref_slot, f_txn_t_sz, f_source_ipv4, f_source_tpu, f_payload_sz, f_first_seen_nanos, f_bundle_id, f_bundle_txn_cnt, f_bundle_commission, f_bundle_pubkey, f_alt_entry }
 
 function fd_txnm.dissector(buffer, pinfo, tree)
+  local payload_start = 88 -- sizeof(fd_txn_m_t)
+  if buffer:len() < payload_start then return end
   local subtree = tree:add(fd_txnm, buffer(), "fd_txn_m_t")
 
   local payload_sz   = buffer(8,2):le_uint()
@@ -588,11 +561,12 @@ function fd_txnm.dissector(buffer, pinfo, tree)
   subtree:add(f_source_ipv4, buffer(12, 4))
   subtree:add_le(f_source_tpu, buffer(16, 1))
 
-  subtree:add_le(f_bundle_id, buffer(24, 8))
-  subtree:add_le(f_bundle_txn_cnt, buffer(32, 8))
-  subtree:add_le(f_bundle_commission, buffer(40, 1))
-  subtree:add(f_bundle_pubkey, buffer(41, 32))
-  local payload_start = 80
+  subtree:add_le(f_first_seen_nanos, buffer(24, 8))
+  subtree:add_le(f_bundle_id, buffer(32, 8))
+  subtree:add_le(f_bundle_txn_cnt, buffer(40, 8))
+  subtree:add_le(f_bundle_commission, buffer(48, 1))
+  subtree:add(f_bundle_pubkey, buffer(49, 32))
+  if payload_start + payload_sz > buffer:len() then return end
 
   local payload_tree = tree:add(buffer(payload_start,payload_sz), "Solana Transaction")
   local udp_dissector = Dissector.get("solana.tpu.udp")
@@ -600,8 +574,8 @@ function fd_txnm.dissector(buffer, pinfo, tree)
 
   local offset = payload_start + payload_sz
 
-  -- pre-dedup frags don't have fields after the payload
-  if offset == buffer:len() then
+  -- Pre-verify frags don't have fields after the payload.
+  if offset == buffer:len() or txn_t_sz == 0 then
     return
   end
 
@@ -609,17 +583,14 @@ function fd_txnm.dissector(buffer, pinfo, tree)
   if offset % 2 == 1 then
     offset = offset+1
   end
+  if txn_t_sz < 22 or offset + txn_t_sz > buffer:len() then return end
 
   local txn_dissector = Dissector.get("fd_txn_t")
   local parsed_tree = tree:add(buffer(offset,txn_t_sz), "fd_txn_t")
   txn_dissector:call(buffer(offset,txn_t_sz):tvb(), pinfo, parsed_tree)
 
   offset = offset + txn_t_sz
-  -- Align to 8
-  if offset % 8 > 0 then
-    offset = offset + 8 - (offset % 8)
-  end
-  local alt_addr = buffer(offset):len() / 32
+  local alt_addr = math.floor((buffer:len() - offset) / 32)
   if alt_addr > 0 then
     local alt_subtree = tree:add(buffer(offset, alt_addr*32), "Expanded Address Lookup Tables")
     for i=0, alt_addr-1 do
