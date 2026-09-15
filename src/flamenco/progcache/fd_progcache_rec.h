@@ -61,6 +61,27 @@ struct __attribute__((aligned(64))) fd_progcache_rec {
 
 FD_STATIC_ASSERT( sizeof(fd_progcache_rec_t)==128, layout );
 
+/* fd_progcache_rec_reset clears all record state except lock */
+
+static inline fd_progcache_rec_t *
+fd_progcache_rec_reset( fd_progcache_rec_t * rec ) {
+  FD_TEST( atomic_load_explicit( &rec->lock.value, memory_order_relaxed )==FD_RWLOCK_WRITE_LOCK );
+  memset( rec,            0, offsetof(fd_progcache_rec_t, txn_idx)                              );
+  memset( &rec->next_idx, 0, offsetof(fd_progcache_rec_t, lock)-offsetof(fd_progcache_rec_t, next_idx) );
+  atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_relaxed );
+  rec->reclaim_next = UINT_MAX;
+  return rec;
+}
+
+/* fd_progcache_rec_new formats a descriptor into the free, write-locked
+   state.  Only valid when the descriptor is not concurrently visible. */
+
+static inline fd_progcache_rec_t *
+fd_progcache_rec_new( fd_progcache_rec_t * rec ) {
+  atomic_store_explicit( &rec->lock.value, FD_RWLOCK_WRITE_LOCK, memory_order_relaxed );
+  return fd_progcache_rec_reset( rec );
+}
+
 FD_PROTOTYPES_BEGIN
 
 /* Accessors */

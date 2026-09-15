@@ -395,8 +395,7 @@ fd_progcache_spill_open( fd_progcache_t *        cache,
   uint rec_idx = shmem->spill.rec_used++;
   shmem->spill.spad_off[ rec_idx ] = shmem->spill.spad_used;
   fd_progcache_rec_t * rec = &shmem->spill.rec[ rec_idx ];
-  memset( rec, 0, sizeof(fd_progcache_rec_t) );
-  rec->lock.value   = 1; /* read lock; no concurrency, don't need CAS */
+  fd_progcache_rec_new( rec );
   rec->exists       = 1;
   rec->feature_slot = params->feature_slot;
   rec->deploy_slot  = params->deploy_slot;
@@ -430,6 +429,7 @@ fd_progcache_spill_open( fd_progcache_t *        cache,
   cache->metrics->spill_cnt++;
   cache->metrics->spill_tot_sz += rec->rodata_sz;
 
+  fd_rwlock_demote( &rec->lock );
   FD_TEST( rec->exists );
   return rec;
 }
@@ -466,12 +466,11 @@ fd_progcache_insert( fd_progcache_t *        cache,
       return fd_progcache_spill_open( cache, params );
     }
   }
-  memset( rec, 0, sizeof(fd_progcache_rec_t) );
+  fd_progcache_rec_reset( rec );
   rec->exists       = 1;
   rec->feature_slot = feature_slot;
   rec->deploy_slot  = params->deploy_slot;
-  rec->txn_idx      = UINT_MAX;
-  rec->reclaim_next = UINT_MAX;
+  fd_racesan_hook( "prog_insert:post_reset" );
 
   if( FD_LIKELY( peek_err==FD_SBPF_ELF_SUCCESS ) ) {
     ulong val_align     = fd_progcache_val_align();
@@ -492,10 +491,7 @@ fd_progcache_insert( fd_progcache_t *        cache,
 
   /* Publish cache entry to index */
 
-  /* Acquires rec->lock before txn.rwlock (inverse of the documented
-     lock order).  Safe because the record was just allocated and is not
-     yet visible to other threads. */
-  fd_rwlock_write( &rec->lock );
+  /* rec->lock was inherited write locked from the record pool. */
   fd_racesan_hook( "prog_insert:pre_push" );
   fd_rwlock_read( &ljoin->shmem->txn.rwlock );
   ulong txn_idx = cache->lineage->tip_txn_idx;
@@ -506,7 +502,6 @@ fd_progcache_insert( fd_progcache_t *        cache,
   fd_rwlock_unwrite( &txn->lock );
   if( FD_UNLIKELY( !push_ok ) ) {
     fd_rwlock_unread( &ljoin->shmem->txn.rwlock );
-    fd_rwlock_unwrite( &rec->lock );
     fd_progcache_val_free( rec, ljoin );
     fd_prog_recp_release( ljoin->rec.pool, rec );
     return NULL;
