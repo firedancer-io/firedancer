@@ -50,6 +50,7 @@ fd_ssarchive_parse_filename( char const * _name,
   if( FD_UNLIKELY( !next ) ) return -1;
   *next = '\0';
   char * endptr;
+  if( FD_UNLIKELY( *ptr<'0' || *ptr>'9' ) ) return -1;
   *full_slot = strtoul( ptr, &endptr, 10 );
   if( FD_UNLIKELY( *endptr!='\0' || endptr==ptr || *full_slot==ULONG_MAX ) ) return -1;
 
@@ -58,6 +59,7 @@ fd_ssarchive_parse_filename( char const * _name,
     next = strchr( ptr, '-' );
     if( FD_UNLIKELY( !next ) ) return -1;
     *next = '\0';
+    if( FD_UNLIKELY( *ptr<'0' || *ptr>'9' ) ) return -1;
     *incremental_slot = strtoul( ptr, &endptr, 10 );
     if( FD_UNLIKELY( *endptr!='\0' || endptr==ptr || *incremental_slot==ULONG_MAX ) ) return -1;
   } else {
