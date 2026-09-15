@@ -89,64 +89,84 @@ fd_x509_parse_spki( fd_der_cursor_t * c,
   /* algorithm AlgorithmIdentifier SEQUENCE */
   uchar const * alg_ptr; ulong alg_len;
   FD_DER_READ( *c, FD_DER_TAG_SEQUENCE, alg_ptr, alg_len );
+  fd_der_cursor_t alg = { .p = alg_ptr, .end = alg_ptr + alg_len };
+
+  uchar const * alg_oid = alg.p;
+  int oid_tag; ulong oid_len;
+  if( FD_UNLIKELY( fd_der_read_tl( &alg, &oid_tag, &oid_len ) || oid_tag!=(int)FD_DER_TAG_OID ) )
+    return FD_X509_PARSE_ERR_MALFORMED;
+  alg.p += oid_len;
+  ulong alg_oid_len = (ulong)( alg.p - alg_oid );
 
   /* Ed25519? */
-  if( alg_len == sizeof(oid_ed25519) &&
-      0 == memcmp( alg_ptr, oid_ed25519, sizeof(oid_ed25519) ) ) {
+  if( alg_oid_len == sizeof(oid_ed25519) &&
+      0 == memcmp( alg_oid, oid_ed25519, sizeof(oid_ed25519) ) ) {
+    if( FD_UNLIKELY( FD_DER_HAS_MORE( alg ) ) ) return FD_X509_PARSE_ERR_MALFORMED;
     uchar const * bits; ulong bits_len;
     FD_DER_READ_BITS( *c, bits, bits_len );
-    if( FD_UNLIKELY( bits_len != 32 ) ) return -1;
+    if( FD_UNLIKELY( bits_len != 32 ) ) return FD_X509_PARSE_ERR_MALFORMED;
     *out_pk     = bits;
     *out_pk_len = 32;
     *out_type   = FD_X509_KEY_ED25519;
-    return 0;
+    return FD_X509_PARSE_OK;
   }
 
-  /* ECDSA P-256? */
-  if( alg_len == sizeof(oid_ec_pubkey) + sizeof(oid_prime256v1) &&
-      0 == memcmp( alg_ptr, oid_ec_pubkey, sizeof(oid_ec_pubkey) ) &&
-      0 == memcmp( alg_ptr + sizeof(oid_ec_pubkey), oid_prime256v1, sizeof(oid_prime256v1) ) ) {
-    uchar const * bits; ulong bits_len;
-    FD_DER_READ_BITS( *c, bits, bits_len );
-    if( FD_UNLIKELY( bits_len != 65 ) ) return -1;
-    uchar compressed[ 33 ];
-    if( FD_UNLIKELY( fd_secp256r1_public_key_compress( compressed, bits )
-                     !=FD_SECP256R1_SUCCESS ) ) return -1;
-    *out_pk     = bits;
-    *out_pk_len = 65;
-    *out_type   = FD_X509_KEY_ECDSA_P256;
-    return 0;
-  }
+  if( alg_oid_len == sizeof(oid_ec_pubkey) &&
+      0 == memcmp( alg_oid, oid_ec_pubkey, sizeof(oid_ec_pubkey) ) ) {
+    uchar const * curve_oid = alg.p;
+    if( FD_UNLIKELY( fd_der_read_tl( &alg, &oid_tag, &oid_len ) || oid_tag!=(int)FD_DER_TAG_OID ) )
+      return FD_X509_PARSE_ERR_MALFORMED;
+    alg.p += oid_len;
+    ulong curve_oid_len = (ulong)( alg.p - curve_oid );
+    if( FD_UNLIKELY( FD_DER_HAS_MORE( alg ) ) ) return FD_X509_PARSE_ERR_MALFORMED;
 
-  /* ECDSA P-384? */
-  if( alg_len == sizeof(oid_ec_pubkey) + sizeof(oid_secp384r1) &&
-      0 == memcmp( alg_ptr, oid_ec_pubkey, sizeof(oid_ec_pubkey) ) &&
-      0 == memcmp( alg_ptr + sizeof(oid_ec_pubkey), oid_secp384r1, sizeof(oid_secp384r1) ) ) {
-    uchar const * bits; ulong bits_len;
-    FD_DER_READ_BITS( *c, bits, bits_len );
-    if( FD_UNLIKELY( bits_len != 97 ) ) return -1;
-    uchar compressed[ 49 ];
-    if( FD_UNLIKELY( fd_secp384r1_public_key_compress( compressed, bits )
-                     !=FD_SECP384R1_SUCCESS ) ) return -1;
-    *out_pk     = bits;
-    *out_pk_len = 97;
-    *out_type   = FD_X509_KEY_ECDSA_P384;
-    return 0;
+    /* ECDSA P-256? */
+    if( curve_oid_len == sizeof(oid_prime256v1) &&
+        0 == memcmp( curve_oid, oid_prime256v1, sizeof(oid_prime256v1) ) ) {
+      uchar const * bits; ulong bits_len;
+      FD_DER_READ_BITS( *c, bits, bits_len );
+      if( FD_UNLIKELY( bits_len != 65 ) ) return FD_X509_PARSE_ERR_MALFORMED;
+      uchar compressed[ 33 ];
+      if( FD_UNLIKELY( fd_secp256r1_public_key_compress( compressed, bits )
+                       !=FD_SECP256R1_SUCCESS ) ) return FD_X509_PARSE_ERR_MALFORMED;
+      *out_pk     = bits;
+      *out_pk_len = 65;
+      *out_type   = FD_X509_KEY_ECDSA_P256;
+      return FD_X509_PARSE_OK;
+    }
+
+    /* ECDSA P-384? */
+    if( curve_oid_len == sizeof(oid_secp384r1) &&
+        0 == memcmp( curve_oid, oid_secp384r1, sizeof(oid_secp384r1) ) ) {
+      uchar const * bits; ulong bits_len;
+      FD_DER_READ_BITS( *c, bits, bits_len );
+      if( FD_UNLIKELY( bits_len != 97 ) ) return FD_X509_PARSE_ERR_MALFORMED;
+      uchar compressed[ 49 ];
+      if( FD_UNLIKELY( fd_secp384r1_public_key_compress( compressed, bits )
+                       !=FD_SECP384R1_SUCCESS ) ) return FD_X509_PARSE_ERR_MALFORMED;
+      *out_pk     = bits;
+      *out_pk_len = 97;
+      *out_type   = FD_X509_KEY_ECDSA_P384;
+      return FD_X509_PARSE_OK;
+    }
+  } else if( FD_DER_HAS_MORE( alg ) ) {
+    /* Unknown OID allows one optional parameters field. */
+    if( FD_UNLIKELY( fd_der_read_tl( &alg, &oid_tag, &oid_len ) ) )
+      return FD_X509_PARSE_ERR_MALFORMED;
+    alg.p += oid_len;
+    if( FD_UNLIKELY( FD_DER_HAS_MORE( alg ) ) ) return FD_X509_PARSE_ERR_MALFORMED;
   }
 
   /* TODO: RSA? */
 
-  /* Unrecognized algorithm (usually RSA).  The certificate itself is
-     well formed, so consume the subjectPublicKey and report an unknown
-     key instead of failing the parse.  Callers reject such certs by
-     looking at the key type. */
+  /* Unrecognized algorithm (usually RSA). */
   uchar const * bits; ulong bits_len;
   FD_DER_READ_BITS( *c, bits, bits_len );
   (void)bits; (void)bits_len;
   *out_pk     = NULL;
   *out_pk_len = 0UL;
   *out_type   = FD_X509_KEY_UNKNOWN;
-  return FD_X509_PARSE_UNSUPPORTED_KEY;
+  return FD_X509_PARSE_ERR_UNSUPPORTED_KEY;
 }
 
 static int

@@ -109,10 +109,7 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
     fd_x509_cert_info_t info;
     int parse_err = fd_x509_cert_parse( der, (ulong)der_sz, &info );
 
-    /* Typical system CA bundles are dominated by RSA roots, which
-       fd_x509 does not support.  Skipping those is expected, so count
-       them and log a single summary line instead of one line each. */
-    if( parse_err==FD_X509_PARSE_UNSUPPORTED_KEY ) {
+    if( parse_err==FD_X509_PARSE_ERR_UNSUPPORTED_KEY ) {
       unsupported_keys++;
       continue;
     }
@@ -166,8 +163,7 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
   free( file_buf );
 
   if( unsupported_keys ) {
-    FD_LOG_INFO(( "ignored %lu CA certs in %s with an unsupported public key "
-                  "algorithm (fd_x509 does not support RSA)",
+    FD_LOG_INFO(( "ignored %lu CA certificates in %s with unsupported public key types (e.g. RSA)",
                   unsupported_keys, pem_path ));
   }
 

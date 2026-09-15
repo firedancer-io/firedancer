@@ -18,11 +18,12 @@
 #define FD_X509_KEY_ECDSA_P384 ((uchar)2)
 #define FD_X509_KEY_UNKNOWN    ((uchar)0xFF)
 
-/* FD_X509_PARSE_UNSUPPORTED_KEY is returned by fd_x509_cert_parse if the
-   certificate is well formed, but carries a subject public key of an
-   unsupported algorithm (usually RSA). */
+/* fd_x509_cert_parse return codes */
 
-#define FD_X509_PARSE_UNSUPPORTED_KEY (1)
+#define FD_X509_PARSE_OK                  (0)
+#define FD_X509_PARSE_ERR_MALFORMED       (-1)
+#define FD_X509_PARSE_ERR_UNSUPPORTED_KEY (1)
+#define FD_X509_PARSE_UNSUPPORTED_KEY FD_X509_PARSE_ERR_UNSUPPORTED_KEY
 
 /* Signature algorithm identifiers */
 
@@ -164,11 +165,12 @@ fd_x509_ec_point_compress( uchar const * uncompressed,
 
 /* fd_x509_cert_parse fully parses a DER-encoded X.509 cert.
 
-   Returns 0 on success, -1 if the cert is malformed, and
-   FD_X509_PARSE_UNSUPPORTED_KEY if the cert is well formed, but carries
-   a subject public key of an unsupported algorithm (usually RSA).  In
-   the latter case, out->key_type is FD_X509_KEY_UNKNOWN, out->pubkey is
-   NULL, and all other fields are populated as usual.
+   Returns FD_X509_PARSE_OK on success.
+   Returns FD_X509_PARSE_ERR_UNSUPPORTED_KEY for a well-formed cert whose
+   subjectPublicKey algorithm is unsupported (e.g. RSA).  In this case,
+   out->key_type is FD_X509_KEY_UNKNOWN and out->pubkey/out->pubkey_len
+   are NULL/0.
+   Returns FD_X509_PARSE_ERR_MALFORMED if the cert is malformed.
 
    All pointers in *out refer into the [cert, cert+cert_sz) buffer. */
 

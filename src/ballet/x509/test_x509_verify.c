@@ -743,9 +743,7 @@ main( int     argc,
     FD_TEST( fd_x509_cert_parse( p384_ca, sizeof(p384_ca), &p384_info ) );
     p384_ca[ y_off ] ^= 1U;
 
-    /* RSA CA certs are well formed, but carry an unsupported key.  They
-       parse with FD_X509_PARSE_UNSUPPORTED_KEY and the loader skips them
-       quietly. */
+    /* RSA certs not supported.  Blob sourced from local test fixture. */
     static char const rsa_ca_hex[] =
       "30820315308201fda00302010202145520491bb2456a1c7e20335f56add120e1428dc6300d06092a864886f70d01010b"
       "0500301a3118301606035504030c0f525341204c6f6164657220526f6f74301e170d3236303931353138313535375a17"
@@ -768,7 +766,7 @@ main( int     argc,
     fd_hex_decode( rsa_ca, rsa_ca_hex, sizeof(rsa_ca) );
     fd_x509_cert_info_t rsa_info;
     FD_TEST( fd_x509_cert_parse( rsa_ca, sizeof(rsa_ca), &rsa_info )
-             ==FD_X509_PARSE_UNSUPPORTED_KEY );
+             ==FD_X509_PARSE_ERR_UNSUPPORTED_KEY );
     FD_TEST( rsa_info.key_type==FD_X509_KEY_UNKNOWN );
     FD_TEST( rsa_info.sig_alg ==FD_X509_SIG_UNKNOWN );
     FD_TEST( !rsa_info.pubkey && !rsa_info.pubkey_len );
@@ -779,7 +777,8 @@ main( int     argc,
     FD_TEST( !ca_store.cnt );
 
     /* A truncated RSA cert is malformed, not merely unsupported. */
-    FD_TEST( fd_x509_cert_parse( rsa_ca, sizeof(rsa_ca)-1UL, &rsa_info )==-1 );
+    FD_TEST( fd_x509_cert_parse( rsa_ca, sizeof(rsa_ca)-1UL, &rsa_info )
+             ==FD_X509_PARSE_ERR_MALFORMED );
 
     /* Subjects larger than the bounded store representation are skipped. */
     uchar name_content[ FD_X509_CA_SUBJECT_MAX+1UL ]; memset( name_content, 0, sizeof(name_content) );
@@ -1531,7 +1530,8 @@ main( int     argc,
     der_bump_len( tbs,      2UL );
     der_bump_len( bad,      2UL );
     fd_x509_cert_info_t info;
-    FD_TEST( fd_x509_cert_parse( bad, cert_len+2UL, &info )!=0 );
+    FD_TEST( fd_x509_cert_parse( bad, cert_len+2UL, &info )
+             ==FD_X509_PARSE_ERR_MALFORMED );
 
     /* Outer and TBSCertificate signatureAlgorithm fields must match. */
     memcpy( bad, cert, cert_len );
