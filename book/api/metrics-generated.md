@@ -605,7 +605,7 @@
 | <span class="metrics-name">execle_&#8203;progcache_&#8203;eviction</span> | counter | Program cache slots reclaimed by a fill's eviction sweep (housekeeping evictions are not counted) |
 | <span class="metrics-name">execle_&#8203;progcache_&#8203;eviction_&#8203;bytes</span> | counter | Bytes evicted from program cache |
 | <span class="metrics-name">execle_&#8203;progcache_&#8203;duration_&#8203;seconds</span> | counter | Time spent on program cache operations, in seconds |
-| <span class="metrics-name">execle_&#8203;progcache_&#8203;load</span> | counter | Programs loaded and verified for insertion into the program cache |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;load</span> | counter | Program ELF load and verification attempts for insertion into the program cache (counts failed verifications and spill-backed loads) |
 | <span class="metrics-name">execle_&#8203;progcache_&#8203;load_&#8203;duration_&#8203;seconds</span> | counter | Time spent loading programs, in seconds |
 | <span class="metrics-name">execle_&#8203;progcache_&#8203;class_&#8203;hit</span><br/>{progcache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Program cache hits, broken down by size class (<=128 KiB) |
 | <span class="metrics-name">execle_&#8203;progcache_&#8203;class_&#8203;hit</span><br/>{progcache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Program cache hits, broken down by size class (128-512 KiB) |
@@ -1282,7 +1282,7 @@
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;eviction</span> | counter | Program cache slots reclaimed by a fill's eviction sweep (housekeeping evictions are not counted) |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;eviction_&#8203;bytes</span> | counter | Bytes evicted from program cache |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;duration_&#8203;seconds</span> | counter | Time spent on program cache operations, in seconds |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;load</span> | counter | Programs loaded and verified for insertion into the program cache |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;load</span> | counter | Program ELF load and verification attempts for insertion into the program cache (counts failed verifications and spill-backed loads) |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;load_&#8203;duration_&#8203;seconds</span> | counter | Time spent loading programs, in seconds |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;class_&#8203;hit</span><br/>{progcache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Program cache hits, broken down by size class (<=128 KiB) |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;class_&#8203;hit</span><br/>{progcache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Program cache hits, broken down by size class (128-512 KiB) |

@@ -278,7 +278,7 @@ enum {
 
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_LOAD_NAME "execrp_progcache_load"
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_LOAD_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_EXECRP_PROGCACHE_LOAD_DESC "Programs loaded and verified for insertion into the program cache"
+#define FD_METRICS_COUNTER_EXECRP_PROGCACHE_LOAD_DESC "Program ELF load and verification attempts for insertion into the program cache (counts failed verifications and spill-backed loads)"
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_LOAD_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_EXECRP_PROGCACHE_LOAD_DURATION_SECONDS_NAME "execrp_progcache_load_duration_seconds"

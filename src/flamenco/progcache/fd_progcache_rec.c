@@ -62,12 +62,12 @@ free_push( fd_progcache_join_t * join,
     __atomic_store_n( &rec->free_next, old_top, __ATOMIC_RELAXED );
     FD_COMPILER_MFENCE();
     ulong new_vt = ( (ulong)(uint)( old_ver+1U ) << 32 ) | (ulong)(uint)idx;
+    fd_racesan_hook( "prog_free_push:pre_cas" );
     if( FD_LIKELY( __atomic_compare_exchange_n( &pc->cache.free_top[ c ].ver_top, &old_vt, new_vt,
                                                 0, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED ) ) ) {
       __atomic_fetch_add( &pc->cache.free_cnt[ c ].val, 1UL, __ATOMIC_RELAXED );
       return;
     }
-    fd_racesan_hook( "prog_free_push:cas_retry" );
     FD_SPIN_PAUSE();
   }
 }
@@ -83,12 +83,12 @@ free_pop( fd_progcache_join_t * join,
     uint  old_ver = (uint)( old_vt >> 32 );
     uint  next    = __atomic_load_n( &join->rec.ele[ old_top ].free_next, __ATOMIC_RELAXED );
     ulong new_vt  = ( (ulong)(uint)( old_ver+1U ) << 32 ) | (ulong)next;
+    fd_racesan_hook( "prog_free_pop:pre_cas" );
     if( FD_LIKELY( __atomic_compare_exchange_n( &pc->cache.free_top[ c ].ver_top, &old_vt, new_vt,
                                                 0, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED ) ) ) {
       __atomic_fetch_sub( &pc->cache.free_cnt[ c ].val, 1UL, __ATOMIC_RELAXED );
       return old_top;
     }
-    fd_racesan_hook( "prog_free_pop:cas_retry" );
     FD_SPIN_PAUSE();
   }
 }

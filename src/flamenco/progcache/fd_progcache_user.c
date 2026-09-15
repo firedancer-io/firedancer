@@ -502,7 +502,9 @@ fd_progcache_insert( fd_progcache_t *        cache,
     /* fd_progcache_push returns rec, the winner of a same-revision race, or
        NULL for another revision of this key, which delayed visibility excludes. */
     if( FD_UNLIKELY( !mapped ) ) {
-      FD_LOG_CRIT(( "progcache insert found another revision of this program mapped" ));
+      FD_BASE58_ENCODE_32_BYTES( params->prog_addr.uc, prog_b58 );
+      FD_LOG_CRIT(( "progcache insert found another revision of this program mapped (prog=%s fork_id=%lu feature_slot=%lu deploy_slot=%lu)",
+                    prog_b58, (ulong)cache->lineage->fork[ 0 ], params->feature_slot, params->deploy_slot ));
 
     } else if( FD_UNLIKELY( mapped!=rec ) ) {
       /* Another thread published this revision first and may still be loading.
@@ -510,7 +512,7 @@ fd_progcache_insert( fd_progcache_t *        cache,
       fd_progcache_rec_abandon( ljoin, rec );
       cache->metrics->miss_cnt--;
       cache->metrics->hit_cnt++;
-      progcache_metric_per_class( cache->metrics->hit_per_class, mapped->size_class );
+      progcache_metric_per_class( cache->metrics->hit_per_class, size_class );
       return fd_prog_wait_if_loading( cache, mapped );
 
     } else {

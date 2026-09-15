@@ -22,6 +22,9 @@ There exist two kinds of users:
   - evicts old records lazily (when out of space)
 - replay thread (replay tile):
   - advances the root and cancels dead forks, deleting their records
+- account database thread (accdb tile):
+  - background pre-eviction: keeps a small per-class reserve of free
+    slots topped up, so fills rarely run an eviction sweep inline
 
 ## Terminology
 

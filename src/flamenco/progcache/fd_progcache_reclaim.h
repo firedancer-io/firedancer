@@ -15,12 +15,12 @@ FD_PROTOTYPES_BEGIN
    unmapped, still LIVE; once detached from its fork and unheld, an eviction
    sweep hands its slot over (or fd_prog_reclaim_work frees it).
 
-   The key is re-read from rec, so the caller must hold the record stable
-   against slot reuse: own it on a fork's record list, or hold txn.rwlock (a
-   reused slot's key is zeroed until fd_progcache_push, which runs under
-   txn.rwlock, republishes it -- a zeroed key is never mapped, so the delete is
-   a -1 no-op).  A caller that decided on a key without holding the record
-   stable must use fd_prog_delete_rec_claim and pass that key. */
+   The key is re-read from rec, so the caller must either own the record on a
+   fork's record list (under its txn lock), or hold txn.rwlock: the latter does
+   not prevent a sweep from recycling the slot, but it does block
+   fd_progcache_push from republishing it, so a recycled slot's delete is a -1
+   no-op.  A caller that decided on a key without either guarantee must use
+   fd_prog_delete_rec_claim and pass that key. */
 
 long
 fd_prog_delete_rec( fd_progcache_join_t * cache,

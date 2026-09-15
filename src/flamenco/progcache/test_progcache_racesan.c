@@ -112,9 +112,12 @@ fiber_pull( fiber_t *                  fiber,
   fiber->pull.prog_addr = FD_LOAD( fd_pubkey_t, prog_addr );
   fiber->pull.load_env  = *load_env;
   fiber->pull.prog_ro   = prog_ro;
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_pull_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_pull_exec, fiber );
   return fiber->async;
 }
+
+/* peek hits observed; weaves assert their peek fiber reached a record */
+static ulong g_peek_hit_cnt;
 
 static void
 fiber_peek_exec( void * _ctx ) {
@@ -122,7 +125,10 @@ fiber_peek_exec( void * _ctx ) {
   fd_progcache_rec_t * res = fd_progcache_peek(
       f->peek.cache, f->peek.fork_id, &f->peek.prog_addr,
       f->peek.feature_slot, f->peek.deploy_slot );
-  if( res ) fd_progcache_rec_close( f->peek.cache, res );
+  if( res ) {
+    g_peek_hit_cnt++;
+    fd_progcache_rec_close( f->peek.cache, res );
+  }
 }
 
 static fd_racesan_async_t *
@@ -135,8 +141,8 @@ fiber_peek( fiber_t *              fiber,
   fiber->peek.fork_id      = fork_id;
   fiber->peek.prog_addr    = FD_LOAD( fd_pubkey_t, prog_addr );
   fiber->peek.feature_slot = 0UL;
-  fiber->peek.deploy_slot  = 1UL;
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_peek_exec, fiber );
+  fiber->peek.deploy_slot  = 0UL;
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_peek_exec, fiber );
   return fiber->async;
 }
 
@@ -154,7 +160,7 @@ fiber_evict( fiber_t * fiber,
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->evict.cache = fiber->cache;
   fiber->evict.sz    = sz;
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_evict_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_evict_exec, fiber );
   return fiber->async;
 }
 
@@ -171,7 +177,7 @@ fiber_advance_root( fiber_t *              fiber,
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->advance_root.cache   = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
   fiber->advance_root.fork_id = fork_id;
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_advance_root_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_advance_root_exec, fiber );
   return fiber->async;
 }
 
@@ -188,7 +194,7 @@ fiber_cancel( fiber_t *              fiber,
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->cancel.cache   = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
   fiber->cancel.fork_id = fork_id;
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_cancel_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_cancel_exec, fiber );
   return fiber->async;
 }
 
@@ -206,7 +212,7 @@ fiber_delete_rec( fiber_t *            fiber,
   fiber->delete_rec.cache  = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
   fiber->delete_rec.rec    = rec;
   fiber->delete_rec.result = -2L;
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_delete_rec_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_delete_rec_exec, fiber );
   return fiber->async;
 }
 
@@ -311,6 +317,7 @@ FD_UNIT_TEST( pull_pull ) {
 /* test_pull_peek races a cache fill against a read-only cache lookup */
 
 FD_UNIT_TEST( pull_peek ) {
+  ulong peek_hits0 = g_peek_hit_cnt;
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key = test_key( 42UL );
@@ -345,6 +352,7 @@ FD_UNIT_TEST( pull_peek ) {
   }
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  FD_TEST( g_peek_hit_cnt>peek_hits0 );
   test_progcache_shmem_delete( shmem );
 }
 
@@ -571,6 +579,7 @@ FD_UNIT_TEST( peek_failed_load ) {
    Pre-populates cache under xid0, then races cancel(xid1) vs peek(xid0). */
 
 FD_UNIT_TEST( cancel_peek ) {
+  ulong peek_hits0 = g_peek_hit_cnt;
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
@@ -615,6 +624,7 @@ FD_UNIT_TEST( cancel_peek ) {
   }
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  FD_TEST( g_peek_hit_cnt>peek_hits0 );
   test_progcache_shmem_delete( shmem );
 }
 
@@ -721,6 +731,7 @@ FD_UNIT_TEST( publish_evict ) {
 /* test_peek_root races a peek against advance_root */
 
 FD_UNIT_TEST( peek_root ) {
+  ulong peek_hits0 = g_peek_hit_cnt;
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
@@ -762,12 +773,14 @@ FD_UNIT_TEST( peek_root ) {
   }
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  FD_TEST( g_peek_hit_cnt>peek_hits0 );
   test_progcache_shmem_delete( shmem );
 }
 
 /* test_peek_cancel_new races a peek against cancel */
 
 FD_UNIT_TEST( peek_cancel ) {
+  ulong peek_hits0 = g_peek_hit_cnt;
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
@@ -809,12 +822,14 @@ FD_UNIT_TEST( peek_cancel ) {
   }
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  FD_TEST( g_peek_hit_cnt>peek_hits0 );
   test_progcache_shmem_delete( shmem );
 }
 
 /* test_peek_peek races two peeks for the same program */
 
 FD_UNIT_TEST( peek_peek ) {
+  ulong peek_hits0 = g_peek_hit_cnt;
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key = test_key( 42UL );
@@ -857,6 +872,7 @@ FD_UNIT_TEST( peek_peek ) {
   }
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  FD_TEST( g_peek_hit_cnt>peek_hits0 );
   test_progcache_shmem_delete( shmem );
 }
 
@@ -864,6 +880,7 @@ FD_UNIT_TEST( peek_peek ) {
    advance_root of another sibling */
 
 FD_UNIT_TEST( peek_root_sibling ) {
+  ulong peek_hits0 = g_peek_hit_cnt;
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
@@ -907,12 +924,14 @@ FD_UNIT_TEST( peek_root_sibling ) {
   }
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  FD_TEST( g_peek_hit_cnt>peek_hits0 );
   test_progcache_shmem_delete( shmem );
 }
 
 /* test_peek_peek_root races two peeks against advance_root */
 
 FD_UNIT_TEST( peek_peek_root ) {
+  ulong peek_hits0 = g_peek_hit_cnt;
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
@@ -958,6 +977,7 @@ FD_UNIT_TEST( peek_peek_root ) {
   }
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  FD_TEST( g_peek_hit_cnt>peek_hits0 );
   test_progcache_shmem_delete( shmem );
 }
 
@@ -1500,6 +1520,7 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
    reinitializing the same record. */
 
 FD_UNIT_TEST( peek_evict ) {
+  ulong peek_hits0 = g_peek_hit_cnt;
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key = test_key( 42UL );
@@ -1547,6 +1568,7 @@ FD_UNIT_TEST( peek_evict ) {
   }
 
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  FD_TEST( g_peek_hit_cnt>peek_hits0 );
   test_progcache_shmem_delete( shmem );
 }
 
