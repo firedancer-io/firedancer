@@ -408,6 +408,49 @@ test_one_entry_with_instr_borsh_io_error( fd_slot_delta_parser_t * parser ) {
 }
 
 static void
+test_final_empty_instr_borsh_io_error( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 114UL ];
+  fd_slot_delta_parser_init( parser );
+
+  mock_one_input( input, sizeof(input), 1, 1000UL );
+  uchar * p = input + 93UL;
+
+  FD_STORE( uint, p, 1U );
+  p += sizeof(uint);
+  FD_STORE( uint, p, 8U );
+  p += sizeof(uint);
+  *p = 0U; /* instr idx */
+  p += sizeof(uchar);
+  FD_STORE( uint, p, 44U );
+  p += sizeof(uint);
+  FD_STORE( ulong, p, 0UL );
+  p += sizeof(ulong);
+  FD_TEST( (ulong)(p - input)==sizeof(input) );
+
+  fd_slot_delta_parser_advance_result_t result[1];
+  uchar const * input_cur = input;
+  ulong input_rem = sizeof(input);
+
+  int res = fd_slot_delta_parser_consume( parser, input_cur, input_rem, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_SLOT );
+  input_cur += result->bytes_consumed;
+  input_rem -= result->bytes_consumed;
+
+  res = fd_slot_delta_parser_consume( parser, input_cur, input_rem, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP );
+  input_cur += result->bytes_consumed;
+  input_rem -= result->bytes_consumed;
+
+  res = fd_slot_delta_parser_consume( parser, input_cur, input_rem, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY );
+  FD_TEST( result->bytes_consumed==input_rem );
+  entry_cb_with_instr_borsh_io_err( result->entry );
+
+  res = fd_slot_delta_parser_consume( parser, input+sizeof(input), 0UL, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE );
+}
+
+static void
 test_unexpected_eof_in_instr_borsh_io_error( fd_slot_delta_parser_t * parser ) {
   uchar input[ 114UL ];
   fd_slot_delta_parser_init( parser );
@@ -577,6 +620,7 @@ int main( int     argc,
   test_one_entry_with_instr_error( slot_delta_parser );
   test_one_entry_with_instr_custom_error( slot_delta_parser );
   test_one_entry_with_instr_borsh_io_error( slot_delta_parser );
+  test_final_empty_instr_borsh_io_error( slot_delta_parser );
   test_unexpected_eof_in_instr_borsh_io_error( slot_delta_parser );
 
   test_multiple_entries( slot_delta_parser );
