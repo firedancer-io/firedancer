@@ -50,6 +50,16 @@ fd_tlsrec_tx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_tx,
               uchar const * payload, ulong payload_sz,
               uint content_type, uint enc_level ) {
 
+  if( FD_UNLIKELY( conn->tx_closed ) ) return FD_TLSREC_ERR_STATE;
+  /* Reserve the final counter value as exhaustion, rather than wrapping
+     and reusing a nonce (RFC 8446 Section 5.3). */
+  if( FD_UNLIKELY( enc_level!=FD_TLS_LEVEL_INITIAL && conn->write_seq==ULONG_MAX ) ) {
+    conn->hs.base.state  = FD_TLS_HS_FAIL;
+    conn->hs.base.reason = FD_TLS_REASON_REC_SEQ;
+    conn->tx_closed      = 1;
+    return FD_TLSREC_ERR_CRYPTO;
+  }
+
   /* Size checks precede the first write so that on ERR_OOM tcp_tx is
      untouched and the caller can retry later. */
 
@@ -146,7 +156,7 @@ fd_tlsrec_send_key_update( fd_tlsrec_conn_t *  conn,
 
 static int
 fd_tlsrec_answer_key_update( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_tx ) {
-  if( !conn->key_update_pending ) return FD_TLSREC_SUCCESS;
+  if( conn->tx_closed || !conn->key_update_pending ) return FD_TLSREC_SUCCESS;
   int rc = fd_tlsrec_send_key_update( conn, tcp_tx, 0U );
   if( rc==FD_TLSREC_ERR_OOM ) return FD_TLSREC_SUCCESS;
   if( FD_UNLIKELY( rc ) ) return rc;
@@ -204,12 +214,10 @@ hs_tbuf_flush( fd_tlsrec_conn_t * conn ) {
     if( FD_UNLIKELY( rc ) ) { hs_tbuf.sz = 0; return rc; }
     off += sz;
   }
-  /* Once a record went out under handshake keys, so does everything
-     after it (this is how the server, which sends ServerHello and the
-     encrypted flight from within one fd_tls call, moves off plaintext).
-     The level only ever rises: a client flushing its Finished is
-     already connected and writing at the application level. */
-  if( hs_tbuf.enc_level==FD_TLS_LEVEL_HANDSHAKE && conn->tx_level<FD_TLS_LEVEL_HANDSHAKE )
+  /* The server moves off plaintext when its encrypted flight goes out.
+     Never lower the write epoch or advance it on an empty flush, such
+     as when discarding CCS before ServerHello. */
+  if( hs_tbuf.sz && hs_tbuf.enc_level==FD_TLS_LEVEL_HANDSHAKE && conn->tx_level<FD_TLS_LEVEL_HANDSHAKE )
     conn->tx_level = FD_TLS_LEVEL_HANDSHAKE;
   hs_tbuf.sz = 0;
   return FD_TLSREC_SUCCESS;
@@ -224,6 +232,7 @@ fd_tlsrec_send_alert( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_tx, uchar
   int rc = fd_tlsrec_tx( conn, tcp_tx, alert, sizeof(alert), FD_TLS_REC_ALERT, conn->tx_level );
   if( FD_UNLIKELY( rc ) ) return rc;
   conn->tx_closed = 1;
+  conn->key_update_pending = 0;
   return FD_TLSREC_SUCCESS;
 }
 
@@ -247,8 +256,8 @@ fd_tlsrec_fail( fd_tlsrec_conn_t * conn, uint alert, ushort reason ) {
 /* fd_tlsrec_alert_rx handles an alert record payload (plaintext or
    decrypted).  RFC 8446 Section 5.1: alerts may not be fragmented or
    coalesced, so the payload is exactly two bytes.  close_notify marks
-   the receive side closed (RFC 8446 Section 6.1).  Every other alert is
-   fatal in TLS 1.3 regardless of the level byte. */
+   the receive side closed (RFC 8446 Section 6.1).  user_canceled is
+   ignored; every other alert is fatal regardless of the level byte. */
 
 static int
 fd_tlsrec_alert_rx( fd_tlsrec_conn_t * conn, uchar const * pt, ulong p_sz ) {
@@ -260,6 +269,7 @@ fd_tlsrec_alert_rx( fd_tlsrec_conn_t * conn, uchar const * pt, ulong p_sz ) {
     conn->rx_closed = 1;
     return FD_TLSREC_SUCCESS;
   }
+  if( desc==FD_TLS_ALERT_USER_CANCELED ) return FD_TLSREC_SUCCESS;
   FD_LOG_WARNING(( "TLS peer sent alert (level %u; alert %u-%s)",
                    level, desc, fd_tls_alert_cstr( desc ) ));
   conn->hs.base.state  = FD_TLS_HS_FAIL;
@@ -272,15 +282,17 @@ fd_tlsrec_post_hs_rx( fd_tlsrec_conn_t * conn, uchar const * msg, ulong msg_sz )
   switch( msg[0] ) {
 
   case FD_TLS_MSG_KEY_UPDATE: {
-    if( FD_UNLIKELY( msg_sz!=sizeof(fd_tls_msg_hdr_t)+1UL || msg[4]>1U ) )
+    if( FD_UNLIKELY( msg_sz!=sizeof(fd_tls_msg_hdr_t)+1UL ) )
       return fd_tlsrec_fail( conn, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_KEY_UPDATE_PARSE );
+    if( FD_UNLIKELY( msg[4]>1U ) )
+      return fd_tlsrec_fail( conn, FD_TLS_ALERT_ILLEGAL_PARAMETER, FD_TLS_REASON_KEY_UPDATE_PARSE );
 
     fd_tlsrec_keys_t * keys = &conn->keys[1];
     fd_tlsrec_update_traffic_secret( &keys->read_gcm, keys->read_secret, keys->read_key,
                                      keys->read_iv );
     conn->read_seq = 0UL;
 
-    if( msg[4] ) conn->key_update_pending = 1;
+    if( msg[4] && !conn->tx_closed ) conn->key_update_pending = 1;
     return FD_TLSREC_SUCCESS;
   }
 
@@ -349,8 +361,11 @@ fd_tlsrec_hs_rx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * rx, uint enc_level
   if( FD_UNLIKELY( (ulong)rc != msg_sz ) )
     return fd_tlsrec_fail( conn, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_HS_MSG_SIZE );
   if( conn->hs.base.state == FD_TLS_HS_CONNECTED ) {
-    conn->read_seq = conn->write_seq = 0;
-    conn->tx_level = FD_TLS_LEVEL_APPLICATION;
+    conn->read_seq = 0;
+    if( !conn->hs.base.server ) {
+      conn->write_seq = 0;
+      conn->tx_level = FD_TLS_LEVEL_APPLICATION;
+    }
     *key_change = 1;
   }
   if( plaintext_0 != fd_tlsrec_read_keys_plaintext( conn ) ) *key_change = 1;
@@ -361,6 +376,8 @@ fd_tlsrec_hs_rx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * rx, uint enc_level
 
 static int
 fd_tlsrec_hs_rx_record( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * payload, uint enc_level ) {
+  if( FD_UNLIKELY( fd_tlsrec_slice_is_empty(payload) ) )
+    return fd_tlsrec_fail( conn, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_HS_MSG_SIZE );
   while( !fd_tlsrec_slice_is_empty(payload) ) {
     int key_change;
     int rc = fd_tlsrec_hs_rx( conn, payload, enc_level, &key_change );
@@ -393,11 +410,14 @@ cb_secrets( void const * hs, void const * rx_secret, void const * tx_secret, uin
   fd_tlsrec_derive_traffic_key( &out->read_gcm,  out->read_key,  out->read_iv,  rx_secret );
   fd_tlsrec_derive_traffic_key( &out->write_gcm, out->write_key, out->write_iv, tx_secret );
 
-  /* A client encrypts under handshake keys from here on (the server
-     from its encrypted flight going out, see hs_tbuf_flush).  Writes
-     move to the application level only once connected: the client still
-     has its Finished to send under handshake keys. */
+  /* The server has sent Finished before deriving application secrets,
+     so its write epoch changes now, independently of the read epoch.
+     The client still has its own Finished to send with handshake keys. */
   if( level==FD_TLS_LEVEL_HANDSHAKE && !conn->hs.base.server ) conn->tx_level = FD_TLS_LEVEL_HANDSHAKE;
+  if( level==FD_TLS_LEVEL_APPLICATION && conn->hs.base.server ) {
+    conn->tx_level  = FD_TLS_LEVEL_APPLICATION;
+    conn->write_seq = 0UL;
+  }
 
   if( conn->secrets_fn ) conn->secrets_fn( hs, rx_secret, tx_secret, level );
 }
@@ -464,36 +484,22 @@ fd_tlsrec_rx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_rx, fd_tlsrec_sli
   fd_tlsrec_hdr_t *      hdr = fd_type_pun( rec );
   fd_tls_estate_base_t * hs  = &conn->hs.base;
 
-  /* RFC 8446 Section 5.1: legacy_record_version is 0x0303, except that
-     an initial ClientHello (not one answering a HelloRetryRequest) may
-     carry 0x0301.  Plaintext handshake alerts are exempt: a pre-1.3
-     peer rejecting the ClientHello stamps its own version on them. */
+  /* RFC 8446 Sections 5.1-5.2: ignore legacy_record_version on receive,
+     but preserve its wire bytes for AEAD additional data. */
   int plaintext      = fd_tlsrec_read_keys_plaintext( conn );
   int peer_plaintext = hs->server ? hs->state!=FD_TLS_HS_CONNECTED : plaintext;
 
-  ushort ver = fd_ushort_bswap( hdr->legacy_record_version );
-  int ver_ok = ver==0x0303 ||
-               ( ver==0x0301 && hs->server && hs->state==FD_TLS_HS_START && !conn->hs.srv.hello_retry ) ||
-               ( hdr->content_type==FD_TLS_REC_ALERT && peer_plaintext );
-  if( FD_UNLIKELY( !ver_ok ) )
-    return fd_tlsrec_fail( conn, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_REC_VERSION );
-
-  /* RFC 8446 Appendix D.4: a peer may send a single ChangeCipherSpec
-     record with a one byte 0x01 payload after its first ClientHello
-     and before its Finished.  Anything else is an unexpected record.
-     A server sees it in plaintext when it precedes the second
-     ClientHello answering a HelloRetryRequest. */
+  /* RFC 8446 Section 5: discard compatibility CCS throughout the
+     window after the first ClientHello and before the peer Finished,
+     even between fragments of a handshake message. */
   if( FD_UNLIKELY( hdr->content_type == FD_TLS_REC_CHANGE_CIPHER_SPEC ) ) {
     int allowed = hs->server
       ? ( hs->state!=FD_TLS_HS_CONNECTED && ( hs->state!=FD_TLS_HS_START || conn->hs.srv.hello_retry ) )
-      : ( hs->state!=FD_TLS_HS_CONNECTED && hs->state!=FD_TLS_HS_START && hs->state!=FD_TLS_HS_WAIT_SH );
-    if( FD_UNLIKELY( conn->hs_rbuf.sz ) )
-      return fd_tlsrec_fail( conn, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_HS_INTERLEAVED );
-    if( FD_UNLIKELY( !allowed || hs->ccs_seen ||
+      : ( hs->state!=FD_TLS_HS_CONNECTED && hs->state!=FD_TLS_HS_START );
+    if( FD_UNLIKELY( !allowed ||
                      rec_sz != sizeof(fd_tlsrec_hdr_t)+1UL ||
                      rec[ sizeof(fd_tlsrec_hdr_t) ] != 0x01 ) )
       return fd_tlsrec_fail( conn, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_CCS );
-    hs->ccs_seen = 1;
     return FD_TLSREC_SUCCESS;
   }
 
@@ -538,6 +544,9 @@ fd_tlsrec_rx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_rx, fd_tlsrec_sli
   uchar *       c    = rec + sizeof(fd_tlsrec_hdr_t);
   ulong         c_sz = (ulong)(tag - c);
 
+  if( FD_UNLIKELY( conn->read_seq==ULONG_MAX ) )
+    return fd_tlsrec_fail( conn, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_REC_SEQ );
+
   /* Decrypt into app_rx if it fits (content type is only known after
      decrypting; non-app records don't advance the cursor).  Otherwise
      decrypt in place in rec_buf. */
@@ -558,15 +567,17 @@ fd_tlsrec_rx( fd_tlsrec_conn_t * conn, fd_tlsrec_slice_t * tcp_rx, fd_tlsrec_sli
   }
   conn->read_seq++;
 
+  /* RFC 8446 Section 5.4: the entire TLSInnerPlaintext, including
+     content type and padding, must fit in 2^14+1 bytes. */
+  if( FD_UNLIKELY( c_sz > FD_TLSREC_PLAINTEXT_MAX+1UL ) )
+    return fd_tlsrec_fail( conn, FD_TLS_ALERT_RECORD_OVERFLOW, FD_TLS_REASON_REC_OVERFLOW );
+
   /* Strip padding and content type (RFC 8446 §5.4) */
   ulong p_sz = c_sz;
   while( p_sz > 0 && pt[p_sz-1] == 0 ) p_sz--;
   if( FD_UNLIKELY( !p_sz ) )
     return fd_tlsrec_fail( conn, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_REC_PADDING );
   uint ct = pt[--p_sz];
-  /* RFC 8446 Section 5.4: TLSInnerPlaintext.content is at most 2^14 */
-  if( FD_UNLIKELY( p_sz > FD_TLSREC_PLAINTEXT_MAX ) )
-    return fd_tlsrec_fail( conn, FD_TLS_ALERT_RECORD_OVERFLOW, FD_TLS_REASON_REC_OVERFLOW );
   if( FD_UNLIKELY( conn->hs_rbuf.sz && ct != FD_TLS_REC_HANDSHAKE ) )
     return fd_tlsrec_fail( conn, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_HS_INTERLEAVED );
 

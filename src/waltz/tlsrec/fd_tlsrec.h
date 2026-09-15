@@ -108,8 +108,8 @@ struct fd_tlsrec_conn {
   fd_tlsrec_buf_t     rec_buf; /* reassembly of TLS records */
   fd_tlsrec_hs_rbuf_t hs_rbuf; /* reassembly of TLS handshake messages */
 
-  ulong read_seq;  /* Incoming encrypted record counter */
-  ulong write_seq; /* Outgoing encrypted record counter */
+  ulong read_seq;  /* Incoming encrypted record counter; ULONG_MAX fails */
+  ulong write_seq; /* Outgoing encrypted record counter; ULONG_MAX fails */
 
   uchar rx_closed; /* 1 if peer sent close_notify: no more plaintext is
                       delivered (RFC 8446 Section 6.1), tx still works */
@@ -132,7 +132,7 @@ struct fd_tlsrec_conn {
 
 struct __attribute__((packed)) fd_tlsrec_hdr {
   uchar  content_type;           /* FD_TLS_REC_{...} */
-  ushort legacy_record_version;  /* ==0x0303 */
+  ushort legacy_record_version;  /* sent as 0x0303, ignored on receive */
   ushort length;
 };
 

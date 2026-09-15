@@ -60,6 +60,7 @@ typedef struct fd_tls_ext_supported_groups fd_tls_ext_supported_groups_t;
 struct fd_tls_ext_signature_algorithms {
   uchar ed25519                : 1;
   uchar ecdsa_secp256r1_sha256 : 1;
+  uchar ecdsa_secp384r1_sha384 : 1;
 };
 
 typedef struct fd_tls_ext_signature_algorithms fd_tls_ext_signature_algorithms_t;
@@ -127,6 +128,7 @@ struct fd_tls_client_hello {
   fd_tls_ext_server_name_t          server_name;
   fd_tls_ext_supported_groups_t     supported_groups;
   fd_tls_ext_signature_algorithms_t signature_algorithms;
+  fd_tls_ext_signature_algorithms_t signature_algorithms_cert;
   fd_tls_key_share_t                key_share;
   fd_tls_ext_quic_tp_t              quic_tp;
   fd_tls_ext_alpn_t                 alpn;
@@ -153,6 +155,7 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
 struct fd_tls_enc_ext {
   fd_tls_ext_quic_tp_t quic_tp;
   fd_tls_ext_alpn_t    alpn;
+  uchar               server_name;
 };
 
 typedef struct fd_tls_enc_ext fd_tls_enc_ext_t;
@@ -199,6 +202,7 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 #define FD_TLS_EXT_CLIENT_CERT_TYPE      ((ushort)19)
 #define FD_TLS_EXT_SERVER_CERT_TYPE      ((ushort)20)
 #define FD_TLS_EXT_SUPPORTED_VERSIONS    ((ushort)43)
+#define FD_TLS_EXT_SIGNATURE_ALGORITHMS_CERT ((ushort)50)
 #define FD_TLS_EXT_KEY_SHARE             ((ushort)51)
 #define FD_TLS_EXT_QUIC_TRANSPORT_PARAMS ((ushort)57)
 
@@ -239,6 +243,7 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 /* TLS signature scheme IDs */
 
 #define FD_TLS_SIGNATURE_ECDSA_SECP256R1_SHA256 ((ushort)0x0403)
+#define FD_TLS_SIGNATURE_ECDSA_SECP384R1_SHA384 ((ushort)0x0503)
 #define FD_TLS_SIGNATURE_ED25519                ((ushort)0x0807)
 
 /* TLS supported_groups extension */
@@ -302,6 +307,17 @@ typedef struct fd_tls_finished fd_tls_finished_t;
    on success (can be 0).  On failure, returns a negated TLS error code. */
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_tls_decode_cert_req decodes an initial-handshake CertificateRequest
+   and returns its signature_algorithms offer.  Unknown extensions are
+   ignored; CA-name and OID-filter hint bodies remain opaque.  The
+   signature_algorithms_cert vector is validated but does not constrain
+   credential selection.  Returns the body size or a negated TLS alert
+   on failure. */
+long
+fd_tls_decode_cert_req( fd_tls_ext_signature_algorithms_t * out,
+                        uchar const *                       wire,
+                        ulong                               wire_sz );
 
 /* Methods for static layout types */
 
@@ -494,8 +510,11 @@ fd_tls_encode_ext_alpn( fd_tls_ext_alpn_t const * in,
                         uchar *                   wire,
                         ulong                     wire_sz );
 
-/* fd_tls_extract_cert_pubkey extracts the public key of a TLS cert
-   message. */
+/* fd_tls_extract_cert_pubkey validates the initial-handshake Certificate
+   envelope and extracts its leaf public key.  Requires an empty request
+   context and a nonempty, exactly framed certificate_list.  Rejects
+   CertificateEntry extensions, which our CH and CR do not solicit.
+   Does not authenticate the X.509 chain or establish trust. */
 
 struct fd_tls_extract_cert_pubkey_res {
   uchar const * pubkey;

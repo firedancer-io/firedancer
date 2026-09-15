@@ -15,7 +15,6 @@
 struct fd_tls_estate_base {
   uchar  state;
   uchar  server   : 1;  /* 1 if server, 0 if client */
-  uchar  ccs_seen : 1;  /* 1 if peer sent its one permitted ChangeCipherSpec (RFC 8446 D.4) */
   ushort reason;      /* FD_TLS_REASON_{...} */
 
   /* Sadly required for SSLKEYLOGFILE */
@@ -203,6 +202,7 @@ struct fd_tls_estate_cli {
   uchar master_secret   [ 32 ];
 
   uchar client_cert       : 1;  /* 0=anon  1=client auth */
+  uchar client_cert_empty : 1;  /* no compatible CertificateVerify scheme */
   uchar server_pubkey_pin : 1;  /* if 1, require cert to match server_pubkey */
   uchar alpn_negotiated   : 1;  /* if 1, server selected the offered ALPN */
   uchar cert_verify_err;         /* FD_X509_VERIFY_{...} if ca_store is set, else 0 */

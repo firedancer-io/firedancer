@@ -350,6 +350,7 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_HS_MSG_SIZE      (1111)  /* handshake message length invalid */
 #define FD_TLS_REASON_REC_MAC          (1112)  /* record failed authentication */
 #define FD_TLS_REASON_REC_PADDING      (1113)  /* record has no content type byte */
+#define FD_TLS_REASON_REC_SEQ          (1114)  /* record sequence exhausted */
 
 FD_PROTOTYPES_BEGIN
 

@@ -1157,7 +1157,7 @@ test_fd_server_failures( pki_t * p, fd_rng_t * rng ) {
     { .name="p256 client cert",        .cli_cert=&p->cli_p256,
       .expect_reason=FD_TLS_REASON_CERT_CHAIN_EMPTY, .expect_reason_alt=FD_TLS_REASON_CERT_KEY_TYPE, .expect_ossl_alert_tx=-1 },
     { .name="client tls1.2 only",      .cli_cert=&p->cli_ed25519, .max_version=TLS1_2_VERSION,
-      .expect_reason=FD_TLS_REASON_CH_NEG_VER, .expect_ossl_alert_tx=-1 },
+      .expect_reason=FD_TLS_REASON_CH_PARSE, .expect_ossl_alert_tx=-1 },
     { .name="client p256 group only",  .cli_cert=&p->cli_ed25519, .groups="P-256",
       .expect_reason=FD_TLS_REASON_CH_NEG_KX, .expect_ossl_alert_tx=-1 },
     { .name="client ecdsa sigalg only", .cli_cert=&p->cli_ed25519, .sigalgs="ECDSA+SHA256",

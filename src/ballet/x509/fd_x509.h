@@ -47,6 +47,9 @@
 
 #define FD_X509_TIME_INVALID (LONG_MIN)
 
+/* Bound extension uniqueness checking and parser stack usage. */
+#define FD_X509_EXT_MAX (64UL)
+
 struct fd_x509_cert_info {
   /* TBSCertificate version: 0=v1, 1=v2, 2=v3 */
   uchar         version;

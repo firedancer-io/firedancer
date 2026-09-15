@@ -1230,6 +1230,11 @@ main( int     argc,
       { { FD_DER_TAG_CONTEXT_PRIM(8), 0x01, 0x80 }, 3UL },
       { { FD_DER_TAG_CONTEXT_PRIM(2), 0x01, 0x80 }, 3UL },
       { { FD_DER_TAG_CONTEXT_PRIM(9), 0x00 },       2UL },
+      { { FD_DER_TAG_CONTEXT_PRIM(1), 0x00 },       2UL },
+      { { FD_DER_TAG_CONTEXT_PRIM(2), 0x00 },       2UL },
+      { { FD_DER_TAG_CONTEXT_PRIM(6), 0x00 },       2UL },
+      { { FD_DER_TAG_CONTEXT_PRIM(2), 0x01, 0x00 }, 3UL },
+      { { FD_DER_TAG_CONTEXT_PRIM(2), 0x02, '.', '.' }, 4UL },
     };
 
     for( ulong i=0UL; i<sizeof(bad)/sizeof(bad[0]); i++ ) {
@@ -1262,6 +1267,7 @@ main( int     argc,
   /* RFC 5280 requires a critical subjectAltName when subject is empty. */
   {
     uchar key[ 32 ] = {0};
+    uchar issuer[ 64 ]; ulong issuer_len = mk_name( issuer, "Issuer" );
     uchar san_val[ 64 ];
     ulong san_val_len = der_tlv( san_val, FD_DER_TAG_SEQUENCE,
                                  gn_example, sizeof(gn_example) );
@@ -1271,7 +1277,7 @@ main( int     argc,
 
     ulong exts_len = mk_ext( exts, oid_san_tlv, sizeof(oid_san_tlv),
                              san_val, san_val_len );
-    ulong cert_len = mk_cert_signed( cert, NULL, 0UL, NULL, 0UL,
+    ulong cert_len = mk_cert_signed( cert, issuer, issuer_len, NULL, 0UL,
                                      key, key, exts, exts_len );
     FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
 
@@ -1281,16 +1287,59 @@ main( int     argc,
     FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &ca_store,
                                    "example.com", 11UL, TEST_NOW )==FD_X509_VERIFY_ERR_PARSE );
 
-    cert_len = mk_cert_signed( cert, NULL, 0UL, NULL, 0UL,
+    cert_len = mk_cert_signed( cert, issuer, issuer_len, NULL, 0UL,
                                key, key, NULL, 0UL );
     FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
 
     exts_len = mk_ext_critical( exts, oid_san_tlv, sizeof(oid_san_tlv),
                                 0xFF, san_val, san_val_len );
-    cert_len = mk_cert_signed( cert, NULL, 0UL, NULL, 0UL,
+    cert_len = mk_cert_signed( cert, issuer, issuer_len, NULL, 0UL,
                                key, key, exts, exts_len );
     FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+
+    cert_len = mk_cert_signed( cert, NULL, 0UL, issuer, issuer_len,
+                               key, key, exts, exts_len );
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+
+    exts_len += mk_ext_critical( exts+exts_len, oid_bc_tlv, sizeof(oid_bc_tlv),
+                                 0xFF, bc_ca_true_val, sizeof(bc_ca_true_val) );
+    cert_len = mk_cert_signed( cert, issuer, issuer_len, NULL, 0UL,
+                               key, key, exts, exts_len );
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
     FD_LOG_INFO(( "OK: empty subject requires critical subjectAltName" ));
+  }
+
+  /* Name string encodings must be valid before directoryName constraints
+     compare them.  Unicode normalization is deliberately not implemented. */
+  {
+    static struct {
+      uchar tag;
+      uchar value[4];
+      int   ok;
+    } const cases[] = {
+      { FD_DER_TAG_UTF8_STRING,      { 0xf0,0x90,0x80,0x80 }, 1 },
+      { FD_DER_TAG_UTF8_STRING,      { 0xf0,0x80,0x80,0x80 }, 0 },
+      { FD_DER_TAG_UTF8_STRING,      { 0xed,0xa0,0x80,'x'  }, 0 },
+      { FD_DER_TAG_UTF8_STRING,      { 'x', 'x', 'x',0xc2 }, 0 },
+      { FD_DER_TAG_BMP_STRING,       { 0x00,'x', 0x00,'y' }, 1 },
+      { FD_DER_TAG_BMP_STRING,       { 0xd8,0x00,0xdc,0x00 }, 0 },
+      { FD_DER_TAG_UNIVERSAL_STRING, { 0x00,0x10,0xff,0xff }, 1 },
+      { FD_DER_TAG_UNIVERSAL_STRING, { 0x00,0x11,0x00,0x00 }, 0 },
+      { FD_DER_TAG_UNIVERSAL_STRING, { 0x00,0x00,0xd8,0x00 }, 0 },
+      { FD_DER_TAG_IA5_STRING,       { 'a', 'b', 'c',0x80 }, 0 },
+      { FD_DER_TAG_PRINTABLE_STR,    { 'A', '1', '+', '?' }, 1 },
+      { FD_DER_TAG_PRINTABLE_STR,    { 'a', 'b', 'c', '@' }, 0 },
+    };
+    uchar issuer[64]; ulong issuer_len = mk_name( issuer, "Issuer" );
+    uchar key[32] = {0};
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      uchar name[64]; ulong name_len = mk_name_tag( name, "xxxx", cases[i].tag );
+      memcpy( name+name_len-4UL, cases[i].value, 4UL );
+      uchar cert[1024];
+      ulong cert_len = mk_cert_signed( cert, issuer, issuer_len, name, name_len, key, key, NULL, 0UL );
+      fd_x509_cert_info_t info;
+      FD_TEST( (fd_x509_cert_parse( cert, cert_len, &info )==0)==cases[i].ok );
+    }
   }
 
   /* Matching walks all GeneralNames, including dNSNames beyond the
@@ -1521,11 +1570,15 @@ main( int     argc,
                                             (uchar const *)"example.com", 11UL );
     uchar exts[ 128 ]; ulong exts_len = mk_san( exts, gn, gn_len );
     uchar zero[ 64 ]; memset( zero, 0, sizeof(zero) );
+    uchar name[ 64 ]; ulong name_len = mk_name( name, "Issuer" );
     uchar tbs[ 1200 ];
-    ulong tbs_len = mk_tbs( tbs, NULL, 0UL, NULL, 0UL, zero,
+    ulong tbs_len = mk_tbs( tbs, name, name_len, name, name_len, zero,
                             "750101000000Z", FD_DER_TAG_UTC_TIME,
                             "40960101000000Z", FD_DER_TAG_GENERALIZED_TIME,
                             exts, exts_len );
+    uchar cert[ 1400 ]; ulong cert_len = wrap_cert( cert, tbs, tbs_len, zero );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
 
     uchar ext_seq[ 160 ]; ulong ext_seq_len = der_tlv( ext_seq, FD_DER_TAG_SEQUENCE,
                                                        exts, exts_len );
@@ -1543,8 +1596,7 @@ main( int     argc,
     memcpy( tbs+tbs_len, duplicate, duplicate_len );
     tbs_len += duplicate_len;
 
-    uchar cert[ 1400 ]; ulong cert_len = wrap_cert( cert, tbs, tbs_len, zero );
-    fd_x509_cert_info_t info;
+    cert_len = wrap_cert( cert, tbs, tbs_len, zero );
     FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
     FD_LOG_INFO(( "OK: duplicate Extensions containers rejected" ));
   }
@@ -1779,6 +1831,40 @@ main( int     argc,
     FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
 
     FD_LOG_INFO(( "OK: unsupported critical extensions fail parse" ));
+  }
+
+  /* Name constraints must be critical and belong to a CA, independently
+     of extension order. */
+  {
+    uchar nc[ 128 ]; ulong nc_len = mk_name_constraints( nc, "example.com", NULL );
+    for( int ca=0; ca<2; ca++ ) for( int reverse=0; reverse<2; reverse++ ) {
+      uchar exts[ 256 ]; ulong exts_len = 0UL;
+      if( !reverse ) { memcpy( exts, nc, nc_len ); exts_len = nc_len; }
+      if( ca ) exts_len += mk_ext_critical( exts+exts_len, oid_bc_tlv, sizeof(oid_bc_tlv),
+                                           0xFF, bc_ca_true_val, sizeof(bc_ca_true_val) );
+      if( reverse ) { memcpy( exts+exts_len, nc, nc_len ); exts_len += nc_len; }
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      FD_TEST( (fd_x509_cert_parse( cert, cert_len, &info )==0)==ca );
+    }
+    /* Rewrap the same populated value as a noncritical extension. */
+    uchar exts[ 256 ];
+    ulong exts_len = mk_ext_critical( exts, oid_bc_tlv, sizeof(oid_bc_tlv),
+                                      0xFF, bc_ca_true_val, sizeof(bc_ca_true_val) );
+    fd_der_cursor_t c = { .p=nc, .end=nc+nc_len };
+    FD_DER_ENTER( c, FD_DER_TAG_SEQUENCE );
+      uchar const * oid; ulong oid_len;
+      uchar const * critical; ulong critical_len;
+      uchar const * val; ulong val_len;
+      FD_DER_READ_RAW( c, FD_DER_TAG_OID, oid, oid_len );
+      FD_DER_READ( c, FD_DER_TAG_BOOLEAN, critical, critical_len );
+      FD_TEST( critical_len==1UL && *critical==0xff );
+      FD_DER_READ( c, FD_DER_TAG_OCTET_STRING, val, val_len );
+      exts_len += mk_ext( exts+exts_len, oid, oid_len, val, val_len );
+    FD_DER_LEAVE( c );
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
   }
 
   /* Test 21b: basicConstraints value must be a well-formed BasicConstraints */
@@ -2042,6 +2128,8 @@ main( int     argc,
       uchar exts[ 256 ];
       ulong exts_len = mk_ext( exts, oid_ku_tlv, sizeof(oid_ku_tlv),
                                cases[i].val, cases[i].val_len );
+      exts_len += mk_ext_critical( exts+exts_len, oid_bc_tlv, sizeof(oid_bc_tlv),
+                                   0xFF, bc_ca_true_val, sizeof(bc_ca_true_val) );
       uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
       fd_x509_cert_info_t info;
       int rc = fd_x509_cert_parse( cert, cert_len, &info );
@@ -2075,6 +2163,54 @@ main( int     argc,
     }
 
     FD_LOG_INFO(( "OK: keyUsage parsing" ));
+  }
+
+  /* Duplicate unknown noncritical extensions are forbidden too.  Bound
+     the number of extensions so uniqueness checking has bounded cost. */
+  {
+    uchar oid[] = { 0x06,0x03,0x2a,0x03,0x00 };
+    uchar exts[ 768 ]; ulong exts_len = 0UL;
+    for( ulong i=0UL; i<=FD_X509_EXT_MAX; i++ ) {
+      oid[4] = (uchar)i;
+      exts_len += mk_ext( exts+exts_len, oid, sizeof(oid), NULL, 0UL );
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      FD_TEST( (fd_x509_cert_parse( cert, cert_len, &info )==0)==(i<FD_X509_EXT_MAX) );
+    }
+    static uchar const oid_ski[] = { 0x06,0x03,0x55,0x1d,0x0e };
+    static uchar const oid_aki[] = { 0x06,0x03,0x55,0x1d,0x23 };
+    uchar const * oids[] = { oid, oid_ski, oid_aki };
+    for( ulong i=0UL; i<3UL; i++ ) {
+      exts_len = mk_ext( exts, oids[i], sizeof(oid), NULL, 0UL );
+      exts_len += mk_san( exts+exts_len, gn_example, sizeof(gn_example) );
+      exts_len += mk_ext( exts+exts_len, oids[i], sizeof(oid), NULL, 0UL );
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    }
+  }
+
+  /* keyCertSign requires cA, and an explicit KU must allow certificate
+     signing when pathLenConstraint is present.  Absent KU is allowed. */
+  {
+    static uchar const bc_path[] = { 0x30,0x06,0x01,0x01,0xff,0x02,0x01,0x00 };
+    static uchar const ku_dsig[] = { 0x03,0x02,0x07,0x80 };
+    static uchar const ku_both[] = { 0x03,0x02,0x02,0x84 };
+    for( int ca=0; ca<3; ca++ ) for( int ku=0; ku<3; ku++ ) for( int reverse=0; reverse<2; reverse++ ) {
+      uchar bc[ 64 ]; ulong bc_len = 0UL;
+      if( ca ) bc_len = mk_ext_critical( bc, oid_bc_tlv, sizeof(oid_bc_tlv), 0xff,
+                                         ca==1 ? bc_ca_true_val : bc_path,
+                                         ca==1 ? sizeof(bc_ca_true_val) : sizeof(bc_path) );
+      uchar exts[ 256 ]; ulong exts_len = 0UL;
+      if( !reverse ) { memcpy( exts, bc, bc_len ); exts_len = bc_len; }
+      if( ku ) exts_len += mk_ext( exts+exts_len, oid_ku_tlv, sizeof(oid_ku_tlv),
+                                   ku==1 ? ku_dsig : ku_both, sizeof(ku_dsig) );
+      if( reverse ) { memcpy( exts+exts_len, bc, bc_len ); exts_len += bc_len; }
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      int ok = !( (!ca && ku==2) || (ca==2 && ku==1) );
+      FD_TEST( (fd_x509_cert_parse( cert, cert_len, &info )==0)==ok );
+    }
   }
 
   /* Test 23: extKeyUsage parsing.  Unrecognized key purposes are ignored,
@@ -2254,8 +2390,7 @@ main( int     argc,
       { "cA without keyCertSign",  ku_dsig,sizeof(ku_dsig),         NULL,0UL,                      1, FD_X509_VERIFY_ERR_KEY_USAGE     },
       { "cA with serverAuth",      ku_certsign,sizeof(ku_certsign), eku_server,sizeof(eku_server), 1, FD_X509_VERIFY_OK                },
       { "cA with clientAuth only", ku_certsign,sizeof(ku_certsign), eku_client,sizeof(eku_client), 1, FD_X509_VERIFY_ERR_EXT_KEY_USAGE },
-      /* the cA flag is the more common misconfiguration, so it reports first */
-      { "keyCertSign but no cA",   ku_certsign,sizeof(ku_certsign), NULL,0UL,                      0, FD_X509_VERIFY_ERR_CA_FLAG       },
+      { "keyCertSign but no cA",   ku_certsign,sizeof(ku_certsign), NULL,0UL,                      0, FD_X509_VERIFY_ERR_PARSE         },
     };
 
     for( ulong i=0UL; i<sizeof(inter_cases)/sizeof(inter_cases[0]); i++ ) {

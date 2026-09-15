@@ -1285,6 +1285,9 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
          TCP-based TLS client talks to CAs issuing ECDSA certs. */
       .signature_algorithms = { .ed25519=1,
                                 .ecdsa_secp256r1_sha256 = !client->quic },
+      .signature_algorithms_cert = { .ed25519 = !client->quic,
+                                     .ecdsa_secp256r1_sha256 = !client->quic,
+                                     .ecdsa_secp384r1_sha384 = !client->quic },
       .cipher_suites        = { .aes_128_gcm_sha256=1 },
       .key_share            = { .has_x25519=1 },
       .session_id = {
@@ -1534,6 +1537,11 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
 
   /* QUIC mode */
 
+  if( FD_UNLIKELY( (ee->server_name && !client->server_name_len) ||
+                   (ee->quic_tp.buf && !client->quic) ||
+                   (ee->alpn.buf && !client->alpn_sz) ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_EXTENSION, FD_TLS_REASON_EE_PARSE );
+
   if( client->quic ) {
     /* QUIC transport parameters are mandatory in QUIC mode */
     if( FD_UNLIKELY( !ee->quic_tp.buf ) )
@@ -1571,10 +1579,11 @@ fd_tls_client_handle_cert_req( fd_tls_estate_cli_t * const handshake,
                                uchar const *         const req,
                                ulong                 const req_sz ) {
 
-  /* For now, just ignore the content of the certificate request.
-     TODO: This is obviously not compliant. */
-  (void)req;
+  fd_tls_ext_signature_algorithms_t sigalgs = {0};
+  long res = fd_tls_decode_cert_req( &sigalgs, req, req_sz );
+  if( FD_UNLIKELY( res<0L ) ) return res;
 
+  handshake->client_cert_empty = !sigalgs.ed25519;
   handshake->client_cert = 1;
   handshake->base.state  = FD_TLS_HS_WAIT_CERT;
 
@@ -1866,7 +1875,7 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
                       /* write secret */ client_app_secret,
                       FD_TLS_LEVEL_APPLICATION );
 
-  if( hs->client_cert && ( !client->cert_x509_sz || !client->sign.sign_fn ) ) {
+  if( hs->client_cert && ( hs->client_cert_empty || !client->cert_x509_sz || !client->sign.sign_fn ) ) {
 
     /* RFC 8446 Section 4.4.2: a client that was asked for a certificate
        but has none to offer sends a Certificate message with an empty
@@ -1894,18 +1903,12 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
     /* Send client Certificate ****************************************/
 
     /* Message buffer */
-#   define MSG_BUFSZ 512UL
+#   define MSG_BUFSZ FD_TLS_SERVER_CERT_MSG_SZ_MAX
     uchar msg_buf[ MSG_BUFSZ ];
 
-    /* TODO: fd_tls does not support certificate_request_context.
-       It is an opaque string that the server may send in the cert
-       request.  The client is supposed to echo it back in its cert
-       message.  However, the server is not supposed to send it in the
-       first place, unless post-handshake auth is used (which is not
-       the case) */
-
     long cert_msg_sz = fd_tls_encode_cert_x509( client->cert_x509, client->cert_x509_sz, msg_buf, MSG_BUFSZ );
-    FD_TEST( cert_msg_sz>=0L );
+    if( FD_UNLIKELY( cert_msg_sz<0L ) )
+      return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
 
     /* Send certificate message */
 
@@ -2159,6 +2162,8 @@ fd_tls_reason_cstr( uint reason ) {
     return "record failed authentication";
   case FD_TLS_REASON_REC_PADDING:
     return "record has no content type byte";
+  case FD_TLS_REASON_REC_SEQ:
+    return "record sequence exhausted";
   default:
     FD_LOG_WARNING(( "Missing fd_tls_reason_cstr code for %u (memory corruption?)", reason ));
     __attribute__((fallthrough));

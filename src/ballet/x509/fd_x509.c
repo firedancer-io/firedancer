@@ -3,6 +3,7 @@
 #include "../../util/net/fd_ip4.h"
 #include "../secp256r1/fd_secp256r1.h"
 #include "../secp384r1/fd_secp384r1.h"
+#include "../utf8/fd_utf8.h"
 #include <string.h>
 
 /* Bounds on distinguished names this parser accepts: attributes per
@@ -227,6 +228,17 @@ fd_x509_name_valid( uchar const * p,
       if( FD_UNLIKELY( fd_der_read_tl( &atv, &tag, &val_len ) ) ) return 0;
       ulong width = fd_x509_dn_string_width( tag );
       if( width && FD_UNLIKELY( val_len%width || val_len/width>FD_X509_DN_VALUE_MAX ) ) return 0;
+      if( tag==(int)FD_DER_TAG_UTF8_STRING &&
+          FD_UNLIKELY( !fd_utf8_verify( (char const *)atv.p, val_len ) ) ) return 0;
+      for( ulong i=0UL; width && i<val_len; i+=width ) {
+        uint cp = 0U;
+        for( ulong k=0UL; k<width; k++ ) cp = (cp<<8) | atv.p[i+k];
+        if( width>1UL && FD_UNLIKELY( cp>0x10ffffU || (cp>=0xd800U && cp<=0xdfffU) ) ) return 0;
+        if( tag==(int)FD_DER_TAG_IA5_STRING && FD_UNLIKELY( cp>0x7fU ) ) return 0;
+        if( tag==(int)FD_DER_TAG_PRINTABLE_STR &&
+            FD_UNLIKELY( !( (cp>='a' && cp<='z') || (cp>='A' && cp<='Z') ||
+                            (cp>='0' && cp<='9') || (cp && strchr( " '()+,-./:=?", (int)cp )) ) ) ) return 0;
+      }
       atv.p += val_len;
       if( FD_UNLIKELY( atv.p!=atv.end ) ) return 0;
     }
@@ -247,11 +259,15 @@ fd_x509_general_name_valid( int           tag,
   case FD_DER_TAG_CONTEXT(4): /* directoryName: a Name SEQUENCE */
     return fd_x509_name_valid( p, len );
   case FD_DER_TAG_CONTEXT_PRIM(1): /* rfc822Name */
-  case FD_DER_TAG_CONTEXT_PRIM(2): /* dNSName */
   case FD_DER_TAG_CONTEXT_PRIM(6): /* uniformResourceIdentifier */
+    if( FD_UNLIKELY( !len ) ) return 0;
     for( ulong i=0UL; i<len; i++ )
       if( FD_UNLIKELY( p[i] & 0x80U ) ) return 0;
     return 1;
+  case FD_DER_TAG_CONTEXT_PRIM(2): { /* dNSName */
+    ulong off = len>2UL && p[0]=='*' && p[1]=='.' ? 2UL : 0UL;
+    return fd_x509_dns_name_valid( (char const *)p+off, len-off );
+  }
   case FD_DER_TAG_CONTEXT_PRIM(7): /* iPAddress */
     return len==4UL || len==16UL;
   case FD_DER_TAG_CONTEXT_PRIM(8): /* registeredID */
@@ -314,6 +330,10 @@ static int
 fd_x509_parse_extensions( fd_der_cursor_t *     c,
                           fd_x509_cert_info_t * out ) {
 
+  uchar const * seen_oid[ FD_X509_EXT_MAX ];
+  ulong         seen_len[ FD_X509_EXT_MAX ];
+  ulong         seen_cnt = 0UL;
+
   while( FD_DER_HAS_MORE( *c ) ) {
     /* Each Extension is a SEQUENCE { OID, BOOLEAN?, OCTET STRING } */
     uchar const * ext_ptr; ulong ext_len;
@@ -323,6 +343,14 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
 
     uchar const * oid_raw; ulong oid_raw_len;
     FD_DER_READ_RAW( ext, FD_DER_TAG_OID, oid_raw, oid_raw_len );
+
+    /* Uniqueness applies even to ignored noncritical extensions. */
+    if( FD_UNLIKELY( seen_cnt==FD_X509_EXT_MAX ) ) return -1;
+    for( ulong i=0UL; i<seen_cnt; i++ ) {
+      if( FD_UNLIKELY( fd_der_oid_match( oid_raw, oid_raw_len, seen_oid[i], seen_len[i] ) ) ) return -1;
+    }
+    seen_oid[ seen_cnt ] = oid_raw;
+    seen_len[ seen_cnt++ ] = oid_raw_len;
 
     int critical = 0;
     if( ext.p<ext.end && *ext.p==FD_DER_TAG_BOOLEAN ) {
@@ -475,7 +503,7 @@ fd_x509_parse_extensions( fd_der_cursor_t *     c,
     /* nameConstraints (2.5.29.30) */
     if( fd_der_oid_match( oid_raw, oid_raw_len,
                           oid_name_constraints, sizeof(oid_name_constraints) ) ) {
-      if( FD_UNLIKELY( out->has_name_constraints ) ) return -1;
+      if( FD_UNLIKELY( out->has_name_constraints || !critical ) ) return -1;
 
       fd_der_cursor_t val = { .p=val_ptr, .end=val_ptr+val_len };
       FD_DER_ENTER( val, FD_DER_TAG_SEQUENCE );
@@ -631,7 +659,8 @@ fd_x509_cert_parse( uchar const *         cert,
 
       /* issuer Name SEQUENCE */
       FD_DER_READ_RAW( tbs, FD_DER_TAG_SEQUENCE, out->issuer, out->issuer_len );
-      if( FD_UNLIKELY( !fd_x509_name_valid( out->issuer, out->issuer_len ) ) ) return -1;
+      if( FD_UNLIKELY( out->issuer_len==2UL ||
+                       !fd_x509_name_valid( out->issuer, out->issuer_len ) ) ) return -1;
 
       /* validity SEQUENCE { notBefore, notAfter } */
       FD_DER_ENTER( tbs, FD_DER_TAG_SEQUENCE );
@@ -685,7 +714,13 @@ fd_x509_cert_parse( uchar const *         cert,
         }
       }
 
-      if( FD_UNLIKELY( out->subject_len==2UL && !out->has_subject_alt_name ) ) return -1;
+      if( FD_UNLIKELY( out->subject_len==2UL && (out->is_ca || !out->has_subject_alt_name) ) ) return -1;
+      /* RFC 5280 Sections 4.2.1.3, 4.2.1.9 and 4.2.1.10.  Check after
+         parsing every extension so their order cannot affect the result. */
+      if( FD_UNLIKELY( !out->is_ca &&
+                       (out->has_name_constraints || (out->key_usage & FD_X509_KU_KEY_CERT_SIGN)) ) ) return -1;
+      if( FD_UNLIKELY( out->has_path_len_constraint && out->has_key_usage &&
+                       !(out->key_usage & FD_X509_KU_KEY_CERT_SIGN) ) ) return -1;
     }
 
     /* signatureAlgorithm must match the TBSCertificate field exactly. */
