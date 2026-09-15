@@ -276,7 +276,7 @@ jobs:
 
     - name: Prepare
       run: |
-        sudo rm -f $DUMP_DIR/accounts.db            # left by a job that died mid-backtest
+        sudo rm -f $DUMP_DIR/accounts.db /dev/shm/fd-bench-shreds.db  # left by a job that died mid-bench
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
         cp -r contrib/ci/bench $BENCH_DIR/tools
