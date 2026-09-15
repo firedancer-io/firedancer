@@ -605,29 +605,9 @@ FD_UNIT_TEST( test_parse_affinity_shared ) {
 }
 
 /* A malformed affinity string is a FD_LOG_ERR, so parse it in a child. */
-typedef ulong (* fd_affinity_parse_fn_t)( char const * cstr,
-                                          ushort *      cpu,
-                                          int           allow_shared );
-
-static ulong
-parse_affinity_topob( char const * cstr,
-                      ushort *      cpu,
-                      int           allow_shared ) {
-  return fd_topob_parse_affinity_cstr( cstr, cpu, 0, allow_shared );
-}
-
-static ulong
-parse_affinity_tile( char const * cstr,
-                     ushort *      cpu,
-                     int           allow_shared ) {
-  (void)allow_shared;
-  return fd_tile_private_cpus_parse( cstr, cpu );
-}
-
 static void
-parse_affinity_fails( char const * cstr,
-                      int          allow_shared,
-                      fd_affinity_parse_fn_t parse_affinity ) {
+parse_affinity_topob_fails( char const * cstr,
+                            int          allow_shared ) {
   pid_t pid = fork();
   FD_TEST( pid>=0 );
 
@@ -636,7 +616,26 @@ parse_affinity_fails( char const * cstr,
     fd_log_level_core_set( 5 );
 
     ushort cpu[ FD_TILE_MAX ];
-    parse_affinity( cstr, cpu, allow_shared );
+    fd_topob_parse_affinity_cstr( cstr, cpu, 0, allow_shared );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+}
+
+static void
+parse_affinity_tile_fails( char const * cstr ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+
+  if( pid==0 ) {
+    fd_log_level_logfile_set( 6 );
+    fd_log_level_core_set( 5 );
+
+    ushort cpu[ FD_TILE_MAX ];
+    fd_tile_private_cpus_parse( cstr, cpu );
     _exit( 0 );
   }
 
@@ -646,28 +645,41 @@ parse_affinity_fails( char const * cstr,
 }
 
 FD_UNIT_TEST( test_parse_affinity_malformed ) {
-  parse_affinity_fails( "s",   1, parse_affinity_topob ); /* shared prefix with no cpu */
-  parse_affinity_fails( "1,s", 1, parse_affinity_topob );
-  parse_affinity_fails( "s1-", 1, parse_affinity_topob );
-  parse_affinity_fails( "s1",  0, parse_affinity_topob ); /* caller cannot handle shared */
-  parse_affinity_fails( "1,1", 1, parse_affinity_topob ); /* a plain repeat is still banned */
+  parse_affinity_topob_fails( "s",   1 ); /* shared prefix with no cpu */
+  parse_affinity_topob_fails( "1,s", 1 );
+  parse_affinity_topob_fails( "s1-", 1 );
+  parse_affinity_topob_fails( "s1",  0 ); /* caller cannot handle shared */
+  parse_affinity_topob_fails( "1,1", 1 ); /* a plain repeat is still banned */
 }
 
 FD_UNIT_TEST( test_parse_affinity_bounds ) {
-  fd_affinity_parse_fn_t parse_affinity[ 2 ] = { parse_affinity_topob, parse_affinity_tile };
-  for( int i=0; i<2; i++ ) {
+  {
     ushort cpu[ FD_TILE_MAX ];
-    ulong cnt = parse_affinity[ i ]( "1022-1023,f", cpu, 1 );
+    ulong cnt = fd_topob_parse_affinity_cstr( "1022-1023,f", cpu, 0, 1 );
     FD_TEST( cnt==3UL );
     FD_TEST( cpu[ 0 ]==1022 && cpu[ 1 ]==1023 && cpu[ 2 ]==USHORT_MAX );
 
-    parse_affinity_fails( "1024",                 1, parse_affinity[ i ] );
-    parse_affinity_fails( "1023-1024",            1, parse_affinity[ i ] );
-    parse_affinity_fails( "65536",                1, parse_affinity[ i ] );
-    parse_affinity_fails( "18446744073709551614", 1, parse_affinity[ i ] );
-    parse_affinity_fails( "18446744073709551615", 1, parse_affinity[ i ] );
+    parse_affinity_topob_fails( "1024",                 1 );
+    parse_affinity_topob_fails( "1023-1024",            1 );
+    parse_affinity_topob_fails( "65536",                1 );
+    parse_affinity_topob_fails( "18446744073709551614", 1 );
+    parse_affinity_topob_fails( "18446744073709551615", 1 );
   }
-  parse_affinity_fails( "s65536", 1, parse_affinity_topob );
+
+  {
+    ushort cpu[ FD_TILE_MAX ];
+    ulong cnt = fd_tile_private_cpus_parse( "1022-1023,f", cpu );
+    FD_TEST( cnt==3UL );
+    FD_TEST( cpu[ 0 ]==1022 && cpu[ 1 ]==1023 && cpu[ 2 ]==USHORT_MAX );
+
+    parse_affinity_tile_fails( "1024"                 );
+    parse_affinity_tile_fails( "1023-1024"            );
+    parse_affinity_tile_fails( "65536"                );
+    parse_affinity_tile_fails( "18446744073709551614" );
+    parse_affinity_tile_fails( "18446744073709551615" );
+  }
+
+  parse_affinity_topob_fails( "s65536", 1 );
 }
 
 /* ======================================================================== */
