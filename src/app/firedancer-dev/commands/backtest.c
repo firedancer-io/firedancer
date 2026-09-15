@@ -97,6 +97,7 @@ backtest_topo( config_t * config ) {
       config->firedancer.runtime.program_cache_size_mib<<20 );
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ) )!=ULONG_MAX );
   fd_topob_tile_uses( topo, replay_tile, &topo->objs[ progcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, accdb_tile,  &topo->objs[ progcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topob_wksp( topo, "accdb_data" );
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",

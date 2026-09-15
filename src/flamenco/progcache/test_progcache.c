@@ -743,7 +743,7 @@ FD_UNIT_TEST( housekeeping ) {
 
   ulong evicts0 = env->progcache->metrics->evict_cnt;
   for( ulong round=1UL; round<=3UL; round++ ) {
-    for( ulong c=0UL; c<FD_PROGCACHE_CACHE_CLASS_CNT; c++ ) fd_progcache_housekeeping( join );
+    for( ulong c=0UL; c<FD_PROGCACHE_CACHE_CLASS_CNT; c++ ) fd_progcache_housekeeping( join, NULL );
     FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==fd_ulong_min( round, 2UL ) );
   }
   FD_TEST( env->progcache->metrics->evict_cnt==evicts0 );
@@ -779,11 +779,11 @@ FD_UNIT_TEST( preevict ) {
 
 #if !FD_PROGCACHE_EVICT_UNROOTED
   /* Attached records are not victims: the sweep comes up empty. */
-  FD_TEST( fd_prog_preevict( join, 0UL, free0+1UL )==0UL );
+  FD_TEST( fd_prog_preevict( join, NULL, 0UL, free0+1UL )==0UL );
   FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==free0 );
 #else
   /* Attached records are victims: one sweep claims one and frees its slot. */
-  FD_TEST( fd_prog_preevict( join, 0UL, free0+1UL )==1UL );
+  FD_TEST( fd_prog_preevict( join, NULL, 0UL, free0+1UL )==1UL );
   FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==free0+1UL );
   free0++;
 #endif
@@ -791,11 +791,11 @@ FD_UNIT_TEST( preevict ) {
   xid = test_root( join, xid ); /* detach the rest */
 
   /* Free list already at target: no sweep. */
-  FD_TEST( fd_prog_preevict( join, 0UL, free0 )==0UL );
+  FD_TEST( fd_prog_preevict( join, NULL, 0UL, free0 )==0UL );
   FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==free0 );
 
   /* Below target: one sweep claims a rooted victim and frees its slot. */
-  FD_TEST( fd_prog_preevict( join, 0UL, free0+1UL )==1UL );
+  FD_TEST( fd_prog_preevict( join, NULL, 0UL, free0+1UL )==1UL );
   FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==free0+1UL );
 
   /* The admin sweep bumped no metrics. */
@@ -809,7 +809,7 @@ FD_UNIT_TEST( preevict ) {
   FD_TEST( env->progcache->metrics->evict_cnt==evicts0 );
 
   /* Back at target: no further sweep. */
-  FD_TEST( fd_prog_preevict( join, 0UL, free0+1UL )==0UL );
+  FD_TEST( fd_prog_preevict( join, NULL, 0UL, free0+1UL )==0UL );
 
   FD_TEST( !fd_progcache_verify( join ) );
   fd_progcache_cancel_fork( join, xid );
@@ -840,7 +840,7 @@ FD_UNIT_TEST( preevict_zombie ) {
 
   /* Aim the hand at the zombie: the sweep hands it over, preevict frees it. */
   shmem->cache.clock_hand[ 0 ].val = (ulong)( rec - join->rec.ele ) - shmem->cache.rec_base[ 0 ];
-  FD_TEST( fd_prog_preevict( join, 0UL, free0+1UL )==1UL );
+  FD_TEST( fd_prog_preevict( join, NULL, 0UL, free0+1UL )==1UL );
   FD_TEST( fd_progcache_class_free_cnt( shmem, 0UL )==free0+1UL );
   FD_TEST( __atomic_load_n( &rec->state, __ATOMIC_RELAXED )==0 );
   FD_TEST( env->progcache->metrics->evict_cnt==evicts0 );

@@ -77,7 +77,6 @@ struct fd_progcache_metrics {
   ulong spill_per_class[ FD_PROGCACHE_CACHE_CLASS_CNT ];
 };
 
-typedef struct fd_progcache_metrics fd_progcache_metrics_t;
 
 /* fd_progcache_t is a thread-local client to a program cache instance.
    This struct is quite large and therefore not local/stack

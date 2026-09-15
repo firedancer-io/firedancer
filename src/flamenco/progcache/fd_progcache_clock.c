@@ -128,19 +128,21 @@ fd_prog_evict( fd_progcache_t * cache,
 }
 
 ulong
-fd_prog_preevict( fd_progcache_join_t * join,
-                  ulong                 class_idx,
-                  ulong                 free_target ) {
+fd_prog_preevict( fd_progcache_join_t *    join,
+                  fd_progcache_metrics_t * metrics,
+                  ulong                    class_idx,
+                  ulong                    free_target ) {
   FD_TEST( class_idx<FD_PROGCACHE_CACHE_CLASS_CNT );
   if( FD_LIKELY( fd_progcache_class_free_cnt( join->shmem, class_idx )>=free_target ) ) return 0UL;
-  fd_progcache_rec_t * rec = evict_inner( join, NULL, class_idx );
+  fd_progcache_rec_t * rec = evict_inner( join, metrics, class_idx );
   if( FD_UNLIKELY( !rec ) ) return 0UL;
   fd_progcache_rec_abandon( join, rec );
   return 1UL;
 }
 
 void
-fd_progcache_housekeeping( fd_progcache_join_t * join ) {
+fd_progcache_housekeeping( fd_progcache_join_t *    join,
+                           fd_progcache_metrics_t * metrics ) {
   ulong ticket = __atomic_fetch_add( &join->shmem->cache.housekeep_hand.val, 1UL, __ATOMIC_RELAXED );
-  fd_prog_preevict( join, ticket % FD_PROGCACHE_CACHE_CLASS_CNT, 2UL );
+  fd_prog_preevict( join, metrics, ticket % FD_PROGCACHE_CACHE_CLASS_CNT, 2UL );
 }

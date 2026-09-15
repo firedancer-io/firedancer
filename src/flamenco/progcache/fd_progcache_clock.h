@@ -112,16 +112,17 @@ fd_prog_evict( fd_progcache_t * progcache,
                ulong            sz );
 
 /* fd_prog_preevict tops up class class_idx's free list toward free_target: if
-   the list is shorter, it runs one eviction sweep -- the fd_prog_evict scan in
-   its admin variant, which bumps no metrics -- and releases the claimed
-   victim's slot to the free list.  Returns the number of slots freed (0 or 1).
-   Safe from any thread concurrently with everything; bounded by the sweep's
-   2*class_max draw budget. */
+   the list is shorter, it runs one eviction sweep and releases the claimed
+   victim's slot to the free list.  Evictions count into metrics (standard
+   eviction counters) unless metrics is NULL.  Returns the number of slots
+   freed (0 or 1).  Safe from any thread concurrently with everything;
+   bounded by the sweep's 2*class_max draw budget. */
 
 ulong
-fd_prog_preevict( fd_progcache_join_t * join,
-                  ulong                 class_idx,
-                  ulong                 free_target );
+fd_prog_preevict( fd_progcache_join_t *    join,
+                  fd_progcache_metrics_t * metrics,
+                  ulong                    class_idx,
+                  ulong                    free_target );
 
 /* fd_progcache_housekeeping is one background maintenance tick: tops the next
    size class (round robin) toward 2 free slots via fd_prog_preevict, at most
@@ -130,7 +131,8 @@ fd_prog_preevict( fd_progcache_join_t * join,
    collection pass.  Safe from any thread concurrently with everything. */
 
 void
-fd_progcache_housekeeping( fd_progcache_join_t * join );
+fd_progcache_housekeeping( fd_progcache_join_t *    join,
+                           fd_progcache_metrics_t * metrics );
 
 FD_PROTOTYPES_END
 
