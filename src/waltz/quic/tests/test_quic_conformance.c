@@ -929,6 +929,70 @@ FD_UNIT_TEST( quic_ack_unsent_future_pktnum ) {
   FD_TEST( conn->highest_acked[ 2 ] == 0UL );
 }
 
+static ulong test_ack_range_cnt;
+static ulong test_ack_range_lo[ 16 ];
+static ulong test_ack_range_hi[ 16 ];
+
+static void
+test_cb_ack_range( fd_quic_conn_t * conn FD_PARAM_UNUSED,
+                   ulong            pkt_num_lo,
+                   ulong            pkt_num_hi,
+                   void *           quic_ctx FD_PARAM_UNUSED ) {
+  if( test_ack_range_cnt < 16UL ) {
+    test_ack_range_lo[ test_ack_range_cnt ] = pkt_num_lo;
+    test_ack_range_hi[ test_ack_range_cnt ] = pkt_num_hi;
+  }
+  test_ack_range_cnt++;
+}
+
+FD_UNIT_TEST( quic_ack_ranges_callback ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  quic->cb.ack_range      = test_cb_ack_range;
+
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->tx_max_data                    = 1UL<<20;
+  conn->tx_initial_max_stream_data_uni = 1UL<<15;
+  conn->idle_timeout_ns                = (long)60e9;
+
+  /* Send 10 packets (pkt numbers 0..9) */
+  for( uint j = 0; j < 10; j++ ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock  += (long)10e6;
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
+    fd_quic_service( quic, sandbox->wallclock );
+  }
+  FD_TEST( conn->pkt_number[2] == 10UL );
+
+  /* Craft an ACK frame with multiple ack ranges:
+     Largest ACK: 9, first_ack_range: 2  -> acks [7, 9]
+     Gap: 1, length: 1                   -> gap covers 5..6 (gap+1=2 unacked), length=1 acks [3, 4]
+     Gap: 0, length: 1                   -> gap covers 2..2 (gap+1=1 unacked), length=1 acks [0, 1] */
+  test_ack_range_cnt = 0UL;
+  uchar ack_buf[ 64 ];
+  uchar * p = ack_buf;
+  *p++ = 0x02; /* ACK frame type */
+  *p++ = 0x09; /* Largest Acked: 9 */
+  *p++ = 0x00; /* Ack Delay: 0 */
+  *p++ = 0x02; /* Ack Range Count: 2 */
+  *p++ = 0x02; /* First Ack Range: 2 -> 9-2 = 7..9 */
+  *p++ = 0x01; /* Range 1 Gap: 1 (skips 1+2 = 3 packets: 6, 5 unacked, next is 4) */
+  *p++ = 0x01; /* Range 1 Length: 1 -> 4-1 = 3..4 */
+  *p++ = 0x00; /* Range 2 Gap: 0 (skips 0+2 = 2 packets: 2 unacked, next is 1) */
+  *p++ = 0x01; /* Range 2 Length: 1 -> 1-1 = 0..1 */
+  ulong ack_buf_sz = (ulong)( p - ack_buf );
+
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, ack_buf, ack_buf_sz );
+
+  FD_TEST( test_ack_range_cnt == 3UL );
+  FD_TEST( test_ack_range_lo[ 0 ] == 7UL && test_ack_range_hi[ 0 ] == 9UL );
+  FD_TEST( test_ack_range_lo[ 1 ] == 3UL && test_ack_range_hi[ 1 ] == 4UL );
+  FD_TEST( test_ack_range_lo[ 2 ] == 0UL && test_ack_range_hi[ 2 ] == 1UL );
+}
+
 static ulong datagram_rx_cnt;
 static uchar datagram_rx_buf[ 64 ];
 static ulong datagram_rx_sz;

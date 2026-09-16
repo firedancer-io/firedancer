@@ -468,7 +468,18 @@ quic_client_conn_hs_complete( fd_quic_conn_t * conn,
   }
 }
 
-static void
+/* quic_client_datagram_tx sends out a QUIC/UDP packet carrying a single
+   QUIC datagram payload.  Returns the QUIC packet number (a sequence
+   number) of the generated packet.  This packet number is typically
+   acknowledged quickly by the peer (approx RTT + ~1-10ms ACK delay).
+   RFC 9002 defines the rules for when a QUIC packet is considered lost.
+
+   Returns ULONG_MAX if no packet was sent (conn is not ready, peer does
+   not accept datagrams, or buf_sz exceeds some MTU).  Otherwise, never
+   returns the same packet number twice for the same conn, and the
+   return value across a conn is strictly increasing. */
+
+static ulong
 quic_client_datagram_tx( fd_votor_tile_t * ctx,
                          fd_quic_conn_t *  conn,
                          uchar const *     buf,
@@ -476,8 +487,9 @@ quic_client_datagram_tx( fd_votor_tile_t * ctx,
   uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   uchar * payload   = packet_l2 + sizeof(fd_ip4_udp_hdrs_t);
 
-  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, payload, FD_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz );
-  if( FD_UNLIKELY( !pkt_sz ) ) return;
+  ulong pkt_num = conn->pkt_number[ 2 ];
+  ulong pkt_sz  = fd_quic_conn_tx_dgram( conn, payload, FD_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz );
+  if( FD_UNLIKELY( !pkt_sz ) ) return ULONG_MAX;
 
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)fd_type_pun( packet_l2 );
   *hdr = *ctx->hdr;
@@ -497,6 +509,7 @@ quic_client_datagram_tx( fd_votor_tile_t * ctx,
   ulong sz_l2  = sizeof(fd_ip4_udp_hdrs_t) + pkt_sz;
   fd_stem_publish( ctx->stem, OUT_IDX_NET, sig, ctx->net_out_chunk, sz_l2, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+  return pkt_num;
 }
 
 static void
