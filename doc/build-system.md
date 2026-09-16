@@ -59,20 +59,13 @@ eBPF programs and large text files (e.g. command-line help text).
 
 ### System Dependencies
 
-Firedancer depends on the GNU C Library (glibc) and the C++ standard library.
-Both are linked dynamically.
+Firedancer executables statically link libc (`-static -static-pie`).
 
 ```
-$ ldd build/fdctl
-        linux-vdso.so.1 (0x00007ffce652e000)
-        librt.so.1 => /lib64/librt.so.1 (0x00007f0d0398c000)
-        libdl.so.2 => /lib64/libdl.so.2 (0x00007f0d03788000)
-        libstdc++.so.6 => /lib64/libstdc++.so.6 (0x00007f0d033f3000)
-        libm.so.6 => /lib64/libm.so.6 (0x00007f0d03071000)
-        libgcc_s.so.1 => /lib64/libgcc_s.so.1 (0x00007f0d02e59000)
-        libpthread.so.0 => /lib64/libpthread.so.0 (0x00007f0d02c39000)
-        libc.so.6 => /lib64/libc.so.6 (0x00007f0d02874000)
-        /lib64/ld-linux-x86-64.so.2 (0x00007f0d097e0000)
+$ file build/firedancer
+build/firedancer: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, not stripped
+$ ldd build/firedancer
+	statically linked
 ```
 
 ### ABI stability

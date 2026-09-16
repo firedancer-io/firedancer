@@ -57,6 +57,7 @@ check_fedora_pkgs () {
   local REQUIRED_RPMS=(
     make               # build system
     gcc                # C compiler
+    glibc-static       # C compiler
 
     curl               # Agave (rustup)
     cmake              # Agave (RocksDB)

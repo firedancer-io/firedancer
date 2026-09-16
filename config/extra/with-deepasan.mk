@@ -14,3 +14,6 @@ ifdef FD_USING_GCC
 CPPFLAGS+=-Wno-stringop-truncation -Wno-array-bounds -Wno-maybe-uninitialized -fno-stack-protector
 LDFLAGS+=-fno-stack-protector
 endif
+
+# AddressSanitizer does not support static linking
+LDFLAGS_EXE:=$(filter-out -static -static-pie,$(LDFLAGS_EXE)) -pie
