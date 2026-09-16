@@ -35,15 +35,10 @@ extern uchar const fd_reedsol_arith_consts_gfni_mul[]  __attribute__((aligned(12
 
 #if FD_USING_CLANG || (GCC_VERSION >= 100000)
 
-#define GF_MUL( a, c ) (__extension__({                                                            \
-    wb_t _a = (a);                                                                                 \
-    int  _c = (c);                                                                                 \
-    /* c is known at compile time, so this is not a runtime branch */                              \
-    ((_c==0) ? wb_zero() : ((_c==1) ? _a :                                                         \
-     _mm256_gf2p8affine_epi64_epi8( _a, wb_ld( fd_reedsol_arith_consts_gfni_mul + 32*_c ), 0 ) )); \
-  }))
-
 #define GF_MUL_VAR( a, c ) (_mm256_gf2p8affine_epi64_epi8( (a), wb_ld( fd_reedsol_arith_consts_gfni_mul + 32*(c) ), 0 ))
+
+/* c is a compile-time constant: a plain conditional folds while parsing (no statement-expr temporaries) */
+#define GF_MUL( a, c ) ( ((c)==0) ? wb_zero() : ( ((c)==1) ? (a) : GF_MUL_VAR( (a), (c) ) ) )
 
 #else
 
