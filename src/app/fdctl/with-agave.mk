@@ -11,9 +11,10 @@ AGAVE_PRERELEASE_BITS_OFFSET := 14
 
 AGAVE_PRERELEASE_TAG := $(AGAVE_ENCODE_TAG_STABLE)
 
-# get the agave version
+# get the agave version (empty when the submodule is not checked out)
+ifneq ($(wildcard agave/Cargo.toml),)
 AGAVE_VERSION := $(shell $(GREP) -Po "(?<=^version = \").*(?=\")" "agave/Cargo.toml")
-# If the Agave submodule is not checked out, the above command fails
+endif
 ifeq ($(AGAVE_VERSION),)
 AGAVE_VERSION := 9.9.99
 endif
