@@ -861,36 +861,23 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   return (long)read_sz;
 }
 
+/* fd_tls_handle_cert_chain validates a Certificate message body and
+   extracts the leaf public key into *extract.  Returns the number of
+   bytes consumed, or a negated alert. */
+
 static long
-fd_tls_handle_cert_chain( fd_tls_estate_base_t * const base,
-                          uchar const *          const cert_chain,
-                          ulong                  const cert_chain_sz,
-                          uchar const *          const expected_pubkey,
-                          uchar *                const out_pubkey,
-                          ulong                  const pubkey_bufsz,
-                          ulong *                const out_pubkey_len,
-                          uchar *                const out_key_type ) {
+fd_tls_handle_cert_chain( fd_tls_estate_base_t *             const base,
+                          uchar const *                      const cert_chain,
+                          ulong                              const cert_chain_sz,
+                          fd_tls_extract_cert_pubkey_res_t * const extract ) {
 
-  fd_tls_extract_cert_pubkey_res_t extract =
-  fd_tls_extract_cert_pubkey( cert_chain, cert_chain_sz );
+  *extract = fd_tls_extract_cert_pubkey( cert_chain, cert_chain_sz );
 
-  if( FD_UNLIKELY( !extract.pubkey ) ) {
-    uint   alert  = extract.alert  ? extract.alert  : FD_TLS_ALERT_DECODE_ERROR;
-    ushort reason = extract.reason ? extract.reason : FD_TLS_REASON_CERT_PARSE;
+  if( FD_UNLIKELY( !extract->pubkey ) ) {
+    uint   alert  = extract->alert  ? extract->alert  : FD_TLS_ALERT_DECODE_ERROR;
+    ushort reason = extract->reason ? extract->reason : FD_TLS_REASON_CERT_PARSE;
     return fd_tls_alert( base, alert, reason );
   }
-
-  if( FD_UNLIKELY( extract.pubkey_len > pubkey_bufsz ) )
-    return fd_tls_alert( base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_KEY_TYPE );
-  if( expected_pubkey )
-    if( FD_UNLIKELY( 0!=memcmp( extract.pubkey, expected_pubkey, extract.pubkey_len ) ) )
-      return fd_tls_alert( base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_WRONG_PUBKEY );
-  if( out_pubkey )
-    fd_memcpy( out_pubkey, extract.pubkey, extract.pubkey_len );
-  if( out_pubkey_len )
-    *out_pubkey_len = extract.pubkey_len;
-  if( out_key_type )
-    *out_key_type = extract.key_type;
 
   /* Skip extensions */
   /* Skip remaining certificate chain */
@@ -994,6 +981,27 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t *    hs,
     break;
   }
 
+#if FD_HAS_INT128
+  case FD_TLS_SIGNATURE_RSA_PSS_RSAE_SHA256:
+  case FD_TLS_SIGNATURE_RSA_PSS_RSAE_SHA384:
+  case FD_TLS_SIGNATURE_RSA_PSS_RSAE_SHA512: {
+    if( FD_UNLIKELY( key_type != FD_TLS_KEY_RSA ) )
+      return fd_tls_alert( hs, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CV_SIGALG );
+
+    fd_rsa_pubkey_t key[1];
+    if( FD_UNLIKELY( fd_x509_decode_rsa_pubkey( pubkey, pubkey_len, key ) ) )
+      return fd_tls_alert( hs, FD_TLS_ALERT_DECRYPT_ERROR, FD_TLS_REASON_CV_PARSE );
+
+    int hash = vfy->algorithm==FD_TLS_SIGNATURE_RSA_PSS_RSAE_SHA256 ? FD_RSA_HASH_SHA256 :
+               vfy->algorithm==FD_TLS_SIGNATURE_RSA_PSS_RSAE_SHA384 ? FD_RSA_HASH_SHA384 :
+                                                                      FD_RSA_HASH_SHA512;
+    int sig_err = fd_rsa_verify_pss( key, vfy->signature, vfy->signature_len, sign_msg, 130UL, hash );
+    if( FD_UNLIKELY( sig_err != FD_RSA_SUCCESS ) )
+      return fd_tls_alert( hs, FD_TLS_ALERT_DECRYPT_ERROR, FD_TLS_REASON_RSA_FAIL );
+    break;
+  }
+#endif
+
   default:
     return fd_tls_alert( hs, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CV_SIGALG );
   }
@@ -1037,12 +1045,13 @@ fd_tls_server_hs_wait_cert( fd_tls_t const *      server,
 
     /* Decode Certificate */
 
-    decode_res = fd_tls_handle_cert_chain( &handshake->base, wire, msg_sz, NULL,
-                                           handshake->client_pubkey,
-                                           sizeof(handshake->client_pubkey),
-                                           NULL, NULL );
+    fd_tls_extract_cert_pubkey_res_t extract;
+    decode_res = fd_tls_handle_cert_chain( &handshake->base, wire, msg_sz, &extract );
     if( FD_UNLIKELY( decode_res<0L ) )
       return fd_tls_alert( &handshake->base, (uint)(-decode_res), FD_TLS_REASON_CERT_PARSE );
+    if( FD_UNLIKELY( extract.key_type!=FD_TLS_KEY_ED25519 || extract.pubkey_len!=32UL ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_KEY_TYPE );
+    fd_memcpy( handshake->client_pubkey, extract.pubkey, 32UL );
     wire += (ulong)decode_res;
 
     read_sz = (ulong)(wire - record);
@@ -1285,11 +1294,17 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
          TCP-based TLS client talks to CAs issuing ECDSA certs. */
       .signature_algorithms =
         { .ed25519 = 1,
-          .ecdsa_secp256r1_sha256 = !client->quic },
+          .ecdsa_secp256r1_sha256 = !client->quic,
+          .rsa_pss_rsae_sha256    = !client->quic && FD_HAS_INT128,
+          .rsa_pss_rsae_sha384    = !client->quic && FD_HAS_INT128,
+          .rsa_pss_rsae_sha512    = !client->quic && FD_HAS_INT128 },
       .signature_algorithms_cert =
         { .ed25519                = !client->quic,
           .ecdsa_secp256r1_sha256 = !client->quic,
-          .ecdsa_secp384r1_sha384 = !client->quic },
+          .ecdsa_secp384r1_sha384 = !client->quic,
+          .rsa_pkcs1_sha256       = !client->quic && FD_HAS_INT128,
+          .rsa_pkcs1_sha384       = !client->quic && FD_HAS_INT128,
+          .rsa_pkcs1_sha512       = !client->quic && FD_HAS_INT128 },
       .cipher_suites        = { .aes_128_gcm_sha256=1 },
       .key_share            = { .has_x25519=1 },
       .session_id = {
@@ -1598,20 +1613,30 @@ fd_tls_client_handle_cert_chain( fd_tls_t const *      const client,
                                  fd_tls_estate_cli_t * const hs,
                                  uchar const *         const cert_chain,
                                  ulong                 const cert_chain_sz ) {
+  fd_tls_extract_cert_pubkey_res_t extract;
+  long res = fd_tls_handle_cert_chain( &hs->base, cert_chain, cert_chain_sz, &extract );
+  if( FD_UNLIKELY( res < 0L ) ) return res;
+
+  /* QUIC mode offers Ed25519 only, so a P-256 or RSA cert is not
+     acceptable. */
+  if( FD_UNLIKELY( client->quic && extract.key_type!=FD_TLS_KEY_ED25519 ) )
+    return fd_tls_alert( &hs->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_KEY_TYPE );
+
+  if( FD_UNLIKELY( extract.pubkey_len > sizeof(hs->server_pubkey) ) )
+    return fd_tls_alert( &hs->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_KEY_TYPE );
+
   /* pubkey pinning is ...
        ... enabled  => check that public key matches cert
        ... disabled => update the handshake's public key value based on cert */
-  uchar const * expected_pubkey = ( hs->server_pubkey_pin) ? (hs->server_pubkey) : NULL;
-  uchar *       out_pubkey      = (!hs->server_pubkey_pin) ? (hs->server_pubkey) : NULL;
-  long res = fd_tls_handle_cert_chain( &hs->base, cert_chain, cert_chain_sz,
-                                       expected_pubkey, out_pubkey,
-                                       sizeof(hs->server_pubkey),
-                                       &hs->server_pubkey_len, &hs->server_key_type );
-  if( FD_UNLIKELY( res < 0L ) ) return res;
-
-  /* QUIC mode offers Ed25519 only, so a P-256 cert is not acceptable. */
-  if( FD_UNLIKELY( client->quic && hs->server_key_type!=FD_TLS_KEY_ED25519 ) )
-    return fd_tls_alert( &hs->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_KEY_TYPE );
+  if( hs->server_pubkey_pin ) {
+    if( FD_UNLIKELY( extract.pubkey_len!=hs->server_pubkey_len ||
+                     0!=memcmp( extract.pubkey, hs->server_pubkey, extract.pubkey_len ) ) )
+      return fd_tls_alert( &hs->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_WRONG_PUBKEY );
+  } else {
+    fd_memcpy( hs->server_pubkey, extract.pubkey, extract.pubkey_len );
+  }
+  hs->server_pubkey_len = extract.pubkey_len;
+  hs->server_key_type   = extract.key_type;
 
   /* Verify the chain against the trust store and the SNI we sent */
   if( client->ca_store ) {
@@ -2075,6 +2100,8 @@ fd_tls_reason_cstr( uint reason ) {
     return "Ed25519 signature verification failed";
   case FD_TLS_REASON_SECP256R1_FAIL:
     return "ECDSA P-256 signature verification failed";
+  case FD_TLS_REASON_RSA_FAIL:
+    return "RSA-PSS signature verification failed";
   case FD_TLS_REASON_FINI_FAIL:
     return "unexpected 'Finished' data (transcript hash fail)";
   case FD_TLS_REASON_QUIC_TP_OVERSZ:

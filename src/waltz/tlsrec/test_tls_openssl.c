@@ -734,13 +734,13 @@ ossl_peer_key_is( ossl_peer_t * o, uchar const * raw_ed25519_pubkey ) {
   return 0==memcmp( raw, raw_ed25519_pubkey, 32UL );
 }
 
-static void
+FD_FN_UNUSED static void
 ossl_cert_raw_ed25519( cert_t const * c, uchar out[ static 32 ] ) {
   size_t len = 32UL;
   OSSL_TEST( EVP_PKEY_get_raw_public_key( c->key, out, &len )==1 && len==32UL );
 }
 
-static void
+FD_FN_UNUSED static void
 ossl_cert_p256_uncompressed( cert_t const * c, uchar out[ static 65 ] ) {
   size_t len = 0UL;
   OSSL_TEST( EVP_PKEY_get_octet_string_param( c->key, OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY, out, 65UL, &len )==1 && len==65UL );
@@ -857,6 +857,9 @@ test_fd_client_matrix( pki_t * p, fd_rng_t * rng ) {
     { "p256 leaf / p256 int / p384 root", &p->srv_chain, chain_p256, 1UL, KEY_P256 },
     { "ed25519 leaf / ed25519 int",       &p->srv_chain2, chain_ed, 1UL, KEY_ED25519 },
     { "ed25519 leaf / int / root sent",   &p->srv_chain2, chain_ed_root, 2UL, KEY_ED25519 },
+#if FD_HAS_INT128
+    { "rsa leaf / p256 root",             &p->srv_rsa,    NULL,          0UL, KEY_RSA     },
+#endif
   };
 
   cert_t const * trust[] = { &p->root_ed25519 };
@@ -888,10 +891,11 @@ test_fd_client_matrix( pki_t * p, fd_rng_t * rng ) {
       fd_cert = &cli_cert;
     }
 
-    uchar pin[ 65 ]; ulong pin_len = 0UL;
+    uchar pin[ FD_X509_PUBKEY_MAX ]; ulong pin_len = 0UL;
     if( verify==VERIFY_PIN ) {
-      if( v->leaf_key==KEY_ED25519 ) { ossl_cert_raw_ed25519( v->leaf, pin ); pin_len = 32UL; }
-      else                           { ossl_cert_p256_uncompressed( v->leaf, pin ); pin_len = 65UL; }
+      uchar const * pk = NULL; uchar pk_type = 0;
+      FD_TEST( 0==fd_x509_extract_pubkey( v->leaf->der, v->leaf->der_sz, &pk, &pin_len, &pk_type ) );
+      fd_memcpy( pin, pk, pin_len );
     }
 
     ossl_peer_init( o, &(ossl_cfg_t){
@@ -913,8 +917,12 @@ test_fd_client_matrix( pki_t * p, fd_rng_t * rng ) {
     CASE_TEST( ossl_alpn_selected_is( o, alpn ? "http/1.1" : NULL ) );
     CASE_TEST( f->conn->hs.cli.alpn_negotiated==alpn );
     CASE_TEST( f->conn->hs.cli.client_cert==!!client_auth );
-    CASE_TEST( f->conn->hs.cli.server_key_type==( v->leaf_key==KEY_ED25519 ? FD_TLS_KEY_ED25519 : FD_TLS_KEY_ECDSA_P256 ) );
-    CASE_TEST( f->conn->hs.cli.server_pubkey_len==( v->leaf_key==KEY_ED25519 ? 32UL : 65UL ) );
+    CASE_TEST( f->conn->hs.cli.server_key_type==( v->leaf_key==KEY_ED25519 ? FD_TLS_KEY_ED25519 :
+                                                  v->leaf_key==KEY_P256    ? FD_TLS_KEY_ECDSA_P256 :
+                                                                             FD_TLS_KEY_RSA ) );
+    CASE_TEST( f->conn->hs.cli.server_pubkey_len==( v->leaf_key==KEY_ED25519 ? 32UL :
+                                                    v->leaf_key==KEY_P256    ? 65UL :
+                                                                               270UL ) );
     int sig_nid = 0;
     CASE_TEST( SSL_get_peer_signature_type_nid( o->ssl, &sig_nid )==( client_auth==1 ) );
     if( client_auth==1 ) {
@@ -972,9 +980,11 @@ test_fd_client_failures( pki_t * p, fd_rng_t * rng ) {
     { .name="ip san vs dns host",       .leaf=&p->srv_ip,         .host="www.example.com", .fd_x509=1,
       .expect_reason=FD_TLS_REASON_CERT_VERIFY, .expect_verify_err=FD_X509_VERIFY_ERR_HOSTNAME, .expect_ossl_alert_tx=-1 },
     /* A conforming server never sends a cert it cannot sign with one
-       of our offered schemes (Ed25519, ECDSA-P256): it fails early */
+       of our offered schemes: it fails early */
+#if !FD_HAS_INT128
     { .name="rsa leaf",                 .leaf=&p->srv_rsa,        .host="www.example.com", .fd_x509=1,
       .expect_reason=FD_TLS_REASON_PEER_ALERT, .expect_verify_err=-1, .expect_ossl_alert_tx=FD_TLS_ALERT_HANDSHAKE_FAILURE },
+#endif
     { .name="p384 leaf",                .leaf=&p->srv_p384,       .host="www.example.com", .fd_x509=1,
       .expect_reason=FD_TLS_REASON_PEER_ALERT, .expect_verify_err=-1, .expect_ossl_alert_tx=FD_TLS_ALERT_HANDSHAKE_FAILURE },
     { .name="pin mismatch",             .leaf=&p->srv_ed25519,    .host="www.example.com", .pin_wrong=1,
@@ -1349,18 +1359,27 @@ test_x509_chains( pki_t * p ) {
     x509_case( "x509: ip san, other ip",      ch, 1UL, r_ed, 1UL, "192.0.2.2",      now, FD_X509_VERIFY_ERR_HOSTNAME, 0 );
     x509_case( "x509: ip literal vs dns san", ch, 1UL, r_ed, 1UL, "www.example.com", now, FD_X509_VERIFY_ERR_HOSTNAME, 0 ); }
 
-  /* Algorithms fd_x509 does not implement: OpenSSL accepts, fd rejects */
+#if FD_HAS_INT128
   { cert_t const * ch[] = { &p->srv_rsa };
-    x509_case( "x509: rsa leaf", ch, 1UL, r_p256, 1UL, "www.example.com", now, FD_X509_VERIFY_ERR_UNSUPPORTED, 1 ); }
-  { cert_t const * ch[] = { &p->srv_p384 };
-    x509_case( "x509: p384 leaf", ch, 1UL, r_p384, 1UL, "www.example.com", now, FD_X509_VERIFY_OK, 1 ); }
+    x509_case( "x509: rsa leaf", ch, 1UL, r_p256, 1UL, "www.example.com", now, FD_X509_VERIFY_OK, 1 ); }
   { cert_t root_rsa, leaf;
     cert_gen( &root_rsa, &(cert_spec_t){ .cn="rsa root", .key=KEY_RSA, .ca=1, .path_len=-1 } );
     cert_gen( &leaf, &(cert_spec_t){ .cn="www.example.com", .san="DNS:www.example.com", .key=KEY_P256, .issuer=&root_rsa, .path_len=-1 } );
     cert_t const * ch[] = { &leaf }; cert_t const * roots[] = { &root_rsa };
-    /* an RSA root is skipped by the CA store loader */
+    x509_case( "x509: p256 leaf / rsa root", ch, 1UL, roots, 1UL, "www.example.com", now, FD_X509_VERIFY_OK, 1 );
+    cert_free( &leaf ); cert_free( &root_rsa ); }
+#else
+  { cert_t const * ch[] = { &p->srv_rsa };
+    x509_case( "x509: rsa leaf", ch, 1UL, r_p256, 1UL, "www.example.com", now, FD_X509_VERIFY_ERR_UNSUPPORTED, 1 ); }
+  { cert_t root_rsa, leaf;
+    cert_gen( &root_rsa, &(cert_spec_t){ .cn="rsa root", .key=KEY_RSA, .ca=1, .path_len=-1 } );
+    cert_gen( &leaf, &(cert_spec_t){ .cn="www.example.com", .san="DNS:www.example.com", .key=KEY_P256, .issuer=&root_rsa, .path_len=-1 } );
+    cert_t const * ch[] = { &leaf }; cert_t const * roots[] = { &root_rsa };
     x509_case( "x509: p256 leaf / rsa root", ch, 1UL, roots, 1UL, "www.example.com", now, FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR, 1 );
     cert_free( &leaf ); cert_free( &root_rsa ); }
+#endif
+  { cert_t const * ch[] = { &p->srv_p384 };
+    x509_case( "x509: p384 leaf", ch, 1UL, r_p384, 1UL, "www.example.com", now, FD_X509_VERIFY_OK, 1 ); }
 
   /* Wildcards */
   { cert_t leaf;

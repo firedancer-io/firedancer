@@ -3,9 +3,14 @@
 
 #include "../fd_waltz_base.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/x509/fd_x509.h"
+
+/* Peer key types, same values as FD_X509_KEY_{...} */
 
 #define FD_TLS_KEY_ED25519    ((uchar)0)
 #define FD_TLS_KEY_ECDSA_P256 ((uchar)1)
+#define FD_TLS_KEY_ECDSA_P384 ((uchar)2)
+#define FD_TLS_KEY_RSA        ((uchar)3)
 
 /* Base ***************************************************************/
 
@@ -194,9 +199,9 @@ struct fd_tls_estate_cli {
    Type of handshake object depends on is_server. */
   fd_tls_estate_base_t base;
 
-  uchar server_pubkey   [ 65 ];  /* {32,65} for {Ed25519,P256} uncompressed */
+  uchar server_pubkey[ FD_X509_PUBKEY_MAX ]; /* leaf cert subjectPublicKey */
   ulong server_pubkey_len;
-  uchar server_key_type;         /* FD_TLS_KEY_{...} */
+  uchar server_key_type; /* FD_TLS_KEY_{...} */
   uchar server_hs_secret[ 32 ];
   uchar client_hs_secret[ 32 ];
   uchar master_secret   [ 32 ];

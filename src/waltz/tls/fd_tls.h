@@ -20,6 +20,11 @@
    public keys.  Client cert authentication is optional for
    fd_tls_client_t and mandatory for fd_tls_server_t.
 
+   Outside of QUIC mode, the client additionally accepts servers with
+   ECDSA P-256 and RSA (2048 to 4096 bit) leaf keys, signing the
+   handshake with ecdsa_secp256r1_sha256 or rsa_pss_rsae_sha{256,384,
+   512}, so that it can talk to Web PKI servers.
+
    ### Key Exchange
 
    Peers exchange symmetric keys using X25519, an Elliptic Curve Diffie-
@@ -288,6 +293,7 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_WRONG_PUBKEY    (11)  /* peer cert has different pubkey than expected */
 #define FD_TLS_REASON_ED25519_FAIL    (12)  /* Ed25519 signature validation failed */
 #define FD_TLS_REASON_SECP256R1_FAIL  (14)  /* ECDSA P-256 signature validation failed */
+#define FD_TLS_REASON_RSA_FAIL        (15)  /* RSA-PSS signature validation failed */
 
 #define FD_TLS_REASON_CH_EXPECTED    (101)  /* wanted ClientHello, got another msg type */
 #define FD_TLS_REASON_CH_PARSE       (103)  /* failed to parse ClientHello */
