@@ -333,6 +333,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Use epoch_credits from the proto if available (captured at epoch
      boundary time), otherwise fall back to the vote account in accdb. */
   ulong epoch_credits_len = 0UL;
+  fd_bank_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, bank, 1 ) );
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
     fd_exec_test_prev_vote_account_t const * prev_vote_accs = &block_bank->vote_accounts_t_1[i];
 
@@ -340,7 +342,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                                 NULL, NULL, NULL ) ) ) continue;
 
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
-    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len++];
+    fd_epoch_credits_t * ec = &epoch_credits_view->credits[epoch_credits_len++];
     fd_memcpy( ec->pubkey, prev_vote_accs->address, sizeof(fd_pubkey_t) );
 
     /* Alpenglow migration markers are not credits records: skip them so
@@ -361,7 +363,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     ec->cnt          = (uchar)cnt; /* <=FD_EPOCH_CREDITS_MAX tested above */
     ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
   }
-  *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;
+  epoch_credits_view->len = epoch_credits_len;
+  fd_bank_epoch_credits_view_fini( epoch_credits_view );
 
   /* Update leader schedule */
   fd_runtime_update_leaders( bank, runtime_stack );
@@ -634,11 +637,13 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     /* Capture cost tracker */
-    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( runner->bank );
+    fd_bank_cost_tracker_view_t view[1];
+    FD_TEST( fd_bank_cost_tracker_view_init( view, runner->bank, 0 ) );
     effects->has_cost_tracker = 1;
     effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
-      .block_cost = cost_tracker ? cost_tracker->block_cost : 0UL,
+      .block_cost = view->tracker->block_cost,
     };
+    fd_bank_cost_tracker_view_fini( view );
 
     /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */
     fd_solfuzz_pb_build_leader_schedule_effects( runner, effects );

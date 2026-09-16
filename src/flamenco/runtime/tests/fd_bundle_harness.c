@@ -86,8 +86,10 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( runner->bank, accdb );
 
   /* Initialize cost tracker */
-  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( runner->bank );
-  fd_cost_tracker_init( cost_tracker, &runner->bank->f.features, &runner->bank->f.slot_params, slot );
+  fd_bank_cost_tracker_view_t view[1];
+  FD_TEST( fd_bank_cost_tracker_view_init( view, runner->bank, 1 ) );
+  fd_cost_tracker_init( view->tracker, &runner->bank->f.features, &runner->bank->f.slot_params, slot );
+  fd_bank_cost_tracker_view_fini( view );
 
   fd_txn_p_t * txns = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt*sizeof(fd_txn_p_t) );
   fd_memset( txns, 0, txn_cnt*sizeof(fd_txn_p_t) );

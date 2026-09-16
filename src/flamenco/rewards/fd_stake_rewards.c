@@ -79,7 +79,7 @@ get_fork_info( fd_stake_rewards_t const * stake_rewards,
 
 static inline uint
 get_buf_cnt( fd_stake_rewards_t const * stake_rewards ) {
-  return stake_rewards->cache_cnt+1U;
+  return stake_rewards->cache_cnt;
 }
 
 static inline uint *
@@ -157,7 +157,20 @@ buf_acquire( fd_stake_rewards_t * stake_rewards,
       return buf_idx;
     }
   }
-  FD_LOG_CRIT(( "invariant violation: no free stake rewards construction buffer" ));
+  /* All buffers are completed windows. Reuse the least recently
+     finished one for construction, retaining its fork metadata. */
+  ulong * buf_seqs = get_buf_seqs( stake_rewards );
+  uint victim_idx = 0U;
+  for( uint i=1U; i<buf_cnt; i++ )
+    if( buf_seqs[i]<buf_seqs[victim_idx] ) victim_idx = i;
+  ushort victim_fork = (ushort)buf_forks[victim_idx];
+  fork_info_t * victim = get_fork_info( stake_rewards, victim_fork );
+  FD_CHECK_CRIT( victim->ready && victim->buf_idx==victim_idx,
+                 "reward buffer owner mismatch" );
+  fork_drop_buf( stake_rewards, victim_fork );
+  victim->ready = 0U;
+  buf_forks[victim_idx] = (uint)fork_idx;
+  return victim_idx;
 }
 
 static void
@@ -205,7 +218,7 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
   if( FD_UNLIKELY( !max_bank_cnt || max_bank_cnt>FD_BANKS_MAX_BANKS ) ) return 0UL;
   if( FD_UNLIKELY( !cache_cnt || cache_cnt>max_bank_cnt+1UL ) ) return 0UL;
   ulong fork_cnt = max_bank_cnt+1UL;
-  ulong buf_cnt  = cache_cnt+1UL;
+  ulong buf_cnt  = cache_cnt;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
@@ -248,7 +261,7 @@ fd_stake_rewards_new( void * shmem,
     return NULL;
   }
   ulong fork_cnt = max_bank_cnt+1UL;
-  ulong buf_cnt  = cache_cnt+1UL;
+  ulong buf_cnt  = cache_cnt;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_stake_rewards_t * stake_rewards = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
@@ -471,38 +484,6 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   fork_info->ele_cnt++;
 }
 
-static void
-buf_trim( fd_stake_rewards_t * stake_rewards,
-          uint                 keep_buf_idx ) {
-  uint *  buf_forks = get_buf_forks( stake_rewards );
-  ulong * buf_seqs  = get_buf_seqs( stake_rewards );
-  uint    buf_cnt   = get_buf_cnt( stake_rewards );
-
-  uint resident_cnt = 0U;
-  uint victim_idx   = UINT_MAX;
-  for( uint buf_idx=0U; buf_idx<buf_cnt; buf_idx++ ) {
-    if( buf_forks[buf_idx]==UINT_MAX ) continue;
-    resident_cnt++;
-    if( buf_idx==keep_buf_idx ) continue;
-    if( victim_idx==UINT_MAX || buf_seqs[buf_idx]<buf_seqs[victim_idx] )
-      victim_idx = buf_idx;
-  }
-  if( FD_LIKELY( resident_cnt<=stake_rewards->cache_cnt ) ) return;
-
-  FD_CHECK_CRIT( resident_cnt==stake_rewards->cache_cnt+1U,
-                 "invalid resident stake rewards buffer count" );
-  FD_CHECK_CRIT( victim_idx!=UINT_MAX,
-                 "missing resident stake rewards buffer eviction candidate" );
-  ushort victim_fork = (ushort)buf_forks[victim_idx];
-  fork_info_t * fork_info = get_fork_info( stake_rewards, victim_fork );
-  FD_CHECK_CRIT( fork_info->ready && fork_info->buf_idx==victim_idx,
-                 "reward buffer owner mismatch" );
-  fork_info->buf_idx      = UINT_MAX;
-  fork_info->ready        = 0U;
-  buf_forks[victim_idx]   = UINT_MAX;
-  buf_seqs[victim_idx]    = 0UL;
-}
-
 void
 fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
                        ushort               fork_idx ) {
@@ -524,7 +505,6 @@ fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
   get_buf_seqs( stake_rewards )[buf_idx] = stake_rewards->finish_seq++;
   fork_info->ready                       = 1U;
   stake_rewards->staging_fork            = UINT_MAX;
-  buf_trim( stake_rewards, buf_idx );
 }
 
 void

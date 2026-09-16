@@ -114,7 +114,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, fd_progcache_shmem_min_sz( txn_max ) );
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
-  ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts );
+  ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_stake_accounts, limits->max_vote_accounts );
   ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
@@ -153,7 +153,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, progcache_sz );
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
-  ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width,
+  ulong banks_sz         = fd_banks_footprint( txn_max,
                                                limits->max_stake_accounts, limits->max_vote_accounts );
   ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
@@ -211,7 +211,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   mini->txncache_shmem = shtxncache;
   FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache ) )) );
 
-  mini->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, txn_max, limits->max_fork_width,
+  mini->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, txn_max,
                                limits->max_stake_accounts, limits->max_disk_records,
                                limits->max_vote_accounts, 0, 8888UL ) );
   FD_TEST( mini->banks );
@@ -307,6 +307,9 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
   fd_accdb_t *       accdb   = mini->runtime->accdb;
   fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
 
+  fd_bank_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, bank, 1 ) );
+
   for( ulong i=0UL; i<N; i++ ) {
 
     /* Generate deterministic pubkeys */
@@ -397,7 +400,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls );
     fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_key, 0UL, 0L, 1 );
 
-    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ i ];
+    fd_epoch_credits_t * epoch_credits = &epoch_credits_view->credits[i];
     fd_memcpy( epoch_credits->pubkey, &vote_key, sizeof(fd_pubkey_t) );
     epoch_credits->cnt          = 0UL;
     epoch_credits->base_credits = 0UL;
@@ -418,7 +421,8 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
       .stake    = uniform_stake,
     };
   }
-  *fd_bank_epoch_credits_len( bank ) = N;
+  epoch_credits_view->len = N;
+  fd_bank_epoch_credits_view_fini( epoch_credits_view );
 
   /* Create leader schedule */
 
@@ -640,7 +644,10 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
   }
 
-  *fd_bank_epoch_credits_len( bank ) = 0UL;
+  fd_bank_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, bank, 1 ) );
+  epoch_credits_view->len = 0UL;
+  fd_bank_epoch_credits_view_fini( epoch_credits_view );
 
   if( params->mock_validator_cnt ) {
     fd_svm_mini_init_mock_validators( mini, bank, params );

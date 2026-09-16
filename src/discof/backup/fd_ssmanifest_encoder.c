@@ -176,7 +176,10 @@ ENCODE_FN {
       vote_cnt = (uint)fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
       fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, enc->vote_stakes_iter_mem );
     } else {
-      vote_cnt = (uint)*fd_bank_epoch_credits_len( enc->bank );
+      fd_bank_epoch_credits_view_t view[1];
+      FD_TEST( fd_bank_epoch_credits_view_init( view, enc->bank, 0 ) );
+      vote_cnt = (uint)view->len;
+      fd_bank_epoch_credits_view_fini( view );
     }
     enc->vote_cnt    = vote_cnt;
     enc->vote_idx    = 0;
@@ -199,6 +202,8 @@ ENCODE_FN {
     ushort      commission   = 0;
     ulong       ec_cnt       = 0UL;
     fd_epoch_credits_t const * ec = NULL;
+    fd_bank_epoch_credits_view_t epoch_credits_view[1];
+    int epoch_credits_view_active = 0;
     uchar bls_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {0};
 
     fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
@@ -212,7 +217,9 @@ ENCODE_FN {
       FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) );
       fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
                                NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
-      ec = find_epoch_credits( enc->bank, &pubkey );
+      FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, enc->bank, 0 ) );
+      epoch_credits_view_active = 1;
+      ec = find_epoch_credits( epoch_credits_view, &pubkey );
       FD_TEST( ec );
       ec_cnt = ec->cnt;
       co_epoch = bank->f.epoch;
@@ -232,7 +239,9 @@ ENCODE_FN {
          will still produce a correct commission for the purposes of
          rewards.  That is to say that the commission for each vote
          account will be accurate. */
-      ec = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
+      FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, enc->bank, 0 ) );
+      epoch_credits_view_active = 1;
+      ec = &epoch_credits_view->credits[ enc->vote_idx ];
       fd_memcpy( &pubkey, ec->pubkey, 32UL );
       commission = ec->commission;
     }
@@ -299,6 +308,8 @@ ENCODE_FN {
     PUSH_VAL( fd_pubkey_t, fd_solana_vote_program_id ); /* owner */
     PUSH_VAL( uchar,       1                         ); /* executable */
     PUSH_VAL( ulong,       0UL                       ); /* rent_epoch */
+
+    if( epoch_credits_view_active ) fd_bank_epoch_credits_view_fini( epoch_credits_view );
 
     enc->vote_idx++;
     if( entry_type==2U ) {

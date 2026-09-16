@@ -124,7 +124,6 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
     max_accounts = 4000000
 [runtime]
     max_live_slots = 64
-    max_fork_width = 4
 [log]
     level_stderr = "NOTICE"
     path = "/tmp/ledger_log_solcap"

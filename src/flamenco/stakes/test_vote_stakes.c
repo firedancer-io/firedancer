@@ -30,11 +30,11 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong footprint = fd_vote_stakes_footprint( 16UL, 4UL );
+  ulong footprint = fd_vote_stakes_footprint( 16UL );
   void * mem = aligned_alloc( fd_vote_stakes_align(), footprint );
   FD_TEST( mem );
 
-  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( mem, 16UL, 4UL, 1234UL ) );
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( mem, 16UL, 1234UL ) );
   FD_TEST( vote_stakes );
 
   fd_pubkey_t vote_a = key( 1UL );

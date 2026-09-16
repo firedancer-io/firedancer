@@ -101,7 +101,6 @@ typedef struct vacc_states vacc_states_t;
 
 struct fd_vote_stakes {
   ulong magic;
-  ulong max_fork_width;
   ulong max_live_slots;
   ulong min_stake_wmark;
 
@@ -113,7 +112,7 @@ struct fd_vote_stakes {
 
   /* (pubkey, stake) pairs for the t-1 epoch.  These can be different
      for every fork across the epoch boundary.  These must be sized to
-     the max fork width of the running system.  These are keyed by fork
+     the live-bank limit plus one replacement entry.  These are keyed by fork
      idx. */
   uint vacc_fork_pool_off;
   uint t_1_vacc_pools_off;
@@ -210,15 +209,13 @@ fd_vote_stakes_align( void ) {
 }
 
 ulong
-fd_vote_stakes_footprint( ulong max_live_slots,
-                          ulong max_fork_width ) {
-  if( FD_UNLIKELY( !max_live_slots || max_live_slots>USHORT_MAX ) ) return 0UL;
-  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_BANKS_MAX_BANKS ) ) return 0UL;
+fd_vote_stakes_footprint( ulong max_live_slots ) {
+  if( FD_UNLIKELY( !max_live_slots || max_live_slots>FD_BANKS_MAX_BANKS ) ) return 0UL;
 
   ulong map_chain_cnt  = vacc_map_chain_cnt_est( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   ulong pool_footprint = vacc_pool_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   ulong map_footprint  = vacc_map_footprint( map_chain_cnt );
-  ulong width_cnt      = max_fork_width + 1UL;
+  ulong width_cnt      = max_live_slots + 1UL;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(), sizeof(fd_vote_stakes_t) );
@@ -237,7 +234,6 @@ fd_vote_stakes_footprint( ulong max_live_slots,
 void *
 fd_vote_stakes_new( void * mem,
                     ulong  max_live_slots,
-                    ulong  max_fork_width,
                     ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -249,20 +245,15 @@ fd_vote_stakes_new( void * mem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !max_live_slots || max_live_slots>USHORT_MAX ) ) {
+  if( FD_UNLIKELY( !max_live_slots || max_live_slots>FD_BANKS_MAX_BANKS ) ) {
     FD_LOG_WARNING(( "invalid max_live_slots" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !max_fork_width || max_fork_width>FD_BANKS_MAX_BANKS ) ) {
-    FD_LOG_WARNING(( "invalid max_fork_width" ));
     return NULL;
   }
 
   ulong map_chain_cnt  = vacc_map_chain_cnt_est( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   ulong pool_footprint = vacc_pool_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   ulong map_footprint  = vacc_map_footprint( map_chain_cnt );
-  ulong width_cnt      = max_fork_width + 1UL;
+  ulong width_cnt      = max_live_slots + 1UL;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_vote_stakes_t * vote_stakes = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(), sizeof(fd_vote_stakes_t) );
@@ -278,7 +269,7 @@ fd_vote_stakes_new( void * mem,
   void * vacc_heap_mem        = FD_SCRATCH_ALLOC_APPEND( l, vacc_heap_align(),       vacc_heap_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
   void * vacc_states_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, vacc_state_pool_align(), vacc_state_pool_footprint( max_live_slots ) );
 
-  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_vote_stakes_align() )!=(ulong)mem+fd_vote_stakes_footprint( max_live_slots, max_fork_width ) ) ) {
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_vote_stakes_align() )!=(ulong)mem+fd_vote_stakes_footprint( max_live_slots ) ) ) {
     FD_LOG_WARNING(( "fd_vote_stakes_new: bad layout" ));
     return NULL;
   }
@@ -338,7 +329,6 @@ fd_vote_stakes_new( void * mem,
   }
 
   vote_stakes->max_live_slots       = max_live_slots;
-  vote_stakes->max_fork_width       = max_fork_width;
   vote_stakes->min_stake_wmark      = 0UL;
   vote_stakes->vacc_heap_off        = (uint)((ulong)heap - (ulong)mem);
   vote_stakes->vacc_states_pool_off = (uint)((ulong)vacc_states_pool - (ulong)mem);
@@ -406,7 +396,7 @@ fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes ) {
     vote_stakes->t_2_epoch[ i ] = ULONG_MAX;
   }
 
-  ulong width_cnt = vote_stakes->max_fork_width + 1UL;
+  ulong width_cnt = vote_stakes->max_live_slots + 1UL;
   for( ulong i=0UL; i<width_cnt; i++ ) {
     vacc_map_reset( t_1_vacc_map( vote_stakes, i ) );
     vacc_pool_reset( t_1_vacc_pool( vote_stakes, i ) );

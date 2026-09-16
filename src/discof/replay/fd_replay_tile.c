@@ -439,7 +439,9 @@ replay_block_start( fd_replay_tile_t * ctx,
 static void
 cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
   if( FD_LIKELY( bank->cost_tracker_pool_idx!=ULONG_MAX ) ) {
-    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
+    fd_bank_cost_tracker_view_t view[1];
+    FD_TEST( fd_bank_cost_tracker_view_init( view, bank, 0 ) );
+    fd_cost_tracker_t const * cost_tracker = view->tracker;
     if( FD_UNLIKELY( cost_tracker->block_cost_limit==0UL ) ) {
       memset( &slot_info->cost_tracker, -1 /* ULONG_MAX */, sizeof(slot_info->cost_tracker) );
     } else {
@@ -448,6 +450,7 @@ cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
       slot_info->cost_tracker.block_cost_limit             = cost_tracker->block_cost_limit;
       slot_info->cost_tracker.account_cost_limit           = cost_tracker->account_cost_limit;
     }
+    fd_bank_cost_tracker_view_fini( view );
   } else {
     memset( &slot_info->cost_tracker, -1 /* ULONG_MAX */, sizeof(slot_info->cost_tracker) );
   }
@@ -582,11 +585,14 @@ block_completed_event_fill_bank( fd_replay_tile_t *           ctx,
   ev->parent_block_completed_time      = parent_bank ? (ulong)parent_bank->block_completed_nanos : 0UL;
 
   if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=ULONG_MAX ) ) {
-    fd_cost_tracker_t const * ct = fd_bank_cost_tracker_query( bank );
+    fd_bank_cost_tracker_view_t view[1];
+    FD_TEST( fd_bank_cost_tracker_view_init( view, bank, 0 ) );
+    fd_cost_tracker_t const * ct = view->tracker;
     ev->cost_tracker_block_cost                   = ct->block_cost;
     ev->cost_tracker_allocated_accounts_data_size = ct->allocated_accounts_data_size;
     ev->cost_tracker_block_cost_limit             = ct->block_cost_limit;
     ev->cost_tracker_account_cost_limit           = ct->account_cost_limit;
+    fd_bank_cost_tracker_view_fini( view );
   }
 
   ev->bank_idx = bank->idx;
@@ -1350,12 +1356,13 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   msg->total_skipped_ticks = 0UL; /* even when slots are skipped, ticks increment by exactly one for every block */
   msg->epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->next_leader_slot, NULL );
 
-  fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
-
-  msg->limits.slot_max_cost                     = cost_tracker->block_cost_limit;
+  fd_bank_cost_tracker_view_t view[1];
+  FD_TEST( fd_bank_cost_tracker_view_init( view, bank, 0 ) );
+  msg->limits.slot_max_cost                     = view->tracker->block_cost_limit;
   msg->limits.slot_max_vote_cost                = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND;
-  msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
-  msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
+  msg->limits.slot_max_write_cost_per_acct      = view->tracker->account_cost_limit;
+  msg->limits.slot_max_allocated_data_per_block = view->tracker->data_size_limit;
+  fd_bank_cost_tracker_view_fini( view );
   msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_BECAME_LEADER, ctx->replay_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -1842,12 +1849,13 @@ try_become_leader( fd_replay_tile_t *  ctx,
   msg->total_skipped_ticks = msg->ticks_per_slot*(ctx->next_leader_slot-ctx->reset_slot);
   msg->epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->next_leader_slot, NULL );
 
-  fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
-
-  msg->limits.slot_max_cost                     = cost_tracker->block_cost_limit;
+  fd_bank_cost_tracker_view_t view[1];
+  FD_TEST( fd_bank_cost_tracker_view_init( view, bank, 0 ) );
+  msg->limits.slot_max_cost                     = view->tracker->block_cost_limit;
   msg->limits.slot_max_vote_cost                = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND;
-  msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
-  msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
+  msg->limits.slot_max_write_cost_per_acct      = view->tracker->account_cost_limit;
+  msg->limits.slot_max_allocated_data_per_block = view->tracker->data_size_limit;
+  fd_bank_cost_tracker_view_fini( view );
   msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
 
   if( FD_UNLIKELY( msg->ticks_per_slot+msg->total_skipped_ticks>USHORT_MAX ) ) {
@@ -3533,8 +3541,10 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
 
       txn_info->compute_units_consumed = msg->txn_exec->compute_units_consumed;
       if( FD_LIKELY( bank->cost_tracker_pool_idx!=ULONG_MAX ) ) {
-        fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
-        txn_info->max_compute_units = cost_tracker->block_cost_limit ? cost_tracker->block_cost_limit : ULONG_MAX;
+        fd_bank_cost_tracker_view_t view[1];
+        FD_TEST( fd_bank_cost_tracker_view_init( view, bank, 0 ) );
+        txn_info->max_compute_units = view->tracker->block_cost_limit ? view->tracker->block_cost_limit : ULONG_MAX;
+        fd_bank_cost_tracker_view_fini( view );
       }
       txn_info->transaction_fee        = msg->txn_exec->transaction_fee;
       txn_info->priority_fee           = msg->txn_exec->priority_fee;
@@ -4963,7 +4973,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD, FD_EPOCH_CREDITS_FD, FD_COST_TRACKER_FD, FD_COLLECTOR_OVERRIDES_FD );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 
@@ -4975,7 +4985,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -4983,6 +4993,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
+  out_fds[ out_cnt++ ] = FD_EPOCH_CREDITS_FD; /* epoch credits disk spill */
+  out_fds[ out_cnt++ ] = FD_COLLECTOR_OVERRIDES_FD; /* collector overrides disk spill */
+  out_fds[ out_cnt++ ] = FD_COST_TRACKER_FD; /* cost tracker disk spill */
   if( FD_LIKELY( ctx->store_disk_fd>=0 ) )
     out_fds[ out_cnt++ ] = ctx->store_disk_fd;
 

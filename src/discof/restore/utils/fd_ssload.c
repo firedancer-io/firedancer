@@ -491,6 +491,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
   fd_bank_epoch_credits_new_fork( bank );
   ulong epoch_credits_len = 0UL;
+  fd_bank_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, bank, 1 ) );
 
   /* Populate the top votes for the end of the T-1 epoch if the
      snapshot is in epoch T. */
@@ -518,9 +520,10 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
     if( FD_UNLIKELY( epoch_credits_len>=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "corrupt snapshot: more vote accounts than the epoch credits store holds (%lu)", FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ));
+      fd_bank_epoch_credits_view_fini( epoch_credits_view );
       return -1;
     }
-    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
+    fd_epoch_credits_t * ec = &epoch_credits_view->credits[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
 
     ulong cnt        = 0UL;
@@ -540,7 +543,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     FD_TEST( ec->fast_path_ok ); /* manifest validation enforces all three invariants */
     epoch_credits_len++;
   }
-  *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;
+  epoch_credits_view->len = epoch_credits_len;
+  fd_bank_epoch_credits_view_fini( epoch_credits_view );
 
   /* Populate the top votes for the end of the T-2 epoch if the
      snapshot is in epoch T. */

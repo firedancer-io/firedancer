@@ -6,7 +6,6 @@ max_accounts = 1048576
 
 [runtime.limits]
 max_live_slots = 512
-max_fork_width = 16
 
 [layout]
 verify_tile_count = 1

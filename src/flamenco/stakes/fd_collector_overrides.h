@@ -14,15 +14,17 @@
    E; block revenue collection during E queries tag E-1, the state
    its leader schedule was derived from.
 
-   Vote account state can differ across forks crossing the boundary,
-   so entries carry a fork membership bitmask.  Fork ids rotate at
-   every boundary.  Entry content is immutable after creation: forks
-   capturing identical state share an entry via their fork bit;
-   divergent state gets a distinct entry.
+   Each fork owns a compact set of entries.  Two sets are cached in
+   shared memory; additional sets spill to a boot-created, unlinked
+   file.  Inheritance copies the retained epochs into the child set.
+   Fork ids rotate at every boundary.
 
-   Concurrent queries are allowed; mutating operations take an
-   exclusive lock internally.  The structure is only modified during
-   boot and at epoch boundaries. */
+   All operations lock internally.  Queries may load a spilled set
+   and evict a dirty set, so readers also require the spill descriptor
+   and write access to shared memory. */
+
+#define FD_COLLECTOR_OVERRIDES_FD        (123454)
+#define FD_COLLECTOR_OVERRIDES_CACHE_CNT (2UL)
 
 #define FD_COLLECTOR_OVERRIDES_ALIGN (128UL)
 
@@ -41,21 +43,11 @@ FD_PROTOTYPES_BEGIN
 ulong
 fd_collector_overrides_align( void );
 
-/* fd_collector_overrides_footprint returns the footprint for at most
-   max_overrides entries.  Entries per epoch tag are bounded by the
-   VAT-admitted vote account set (FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS):
-   the admitted-set capture path enforces the bound directly, and the
-   pre-VAT capture path creates no entries because non-default
-   collectors require the custom_commission_collector feature, which
-   is assumed inactive before the validator admission ticket.  Up to
-   three tags can be live at once across the fork tree: forks that
-   have not crossed the epoch boundary still query tags E-2/E-1 while
-   forks past it hold E-1/E.  Boundary forks that captured divergent
-   state add one entry per distinct content, at most one per
-   boundary-crossing fork (max_fork_width).  Size for the product of
-   the three; exhaustion is a fail-stop (FD_LOG_CRIT in
-   fd_collector_overrides_upsert) rather than a silent fallback to
-   default collectors. */
+/* max_overrides bounds entries in each fork set.  Reserve room for
+   three epoch tags times FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, independent
+   of fork width.  Only two full sets are resident; per-fork counts and
+   disk-valid bits remain in memory.  Exhaustion fails closed rather
+   than silently falling back to default collectors. */
 
 ulong
 fd_collector_overrides_footprint( ulong max_overrides );
@@ -114,8 +106,7 @@ fd_collector_overrides_get_root_idx( fd_collector_overrides_t * co );
 /* fd_collector_overrides_upsert records the non-default collectors
    for (pubkey, epoch) on the given fork.  Pass has_inflation /
    has_block=0 for a collector that is default (at least one must be
-   set).  A fork joins an existing identical entry, else a new entry
-   is created. */
+   set).  Repeating an identical capture within a fork is a no-op. */
 
 void
 fd_collector_overrides_upsert( fd_collector_overrides_t * co,
@@ -142,7 +133,8 @@ fd_collector_overrides_query( fd_collector_overrides_t * co,
                               fd_pubkey_t *              block_out_opt );
 
 /* fd_collector_overrides_ele_cnt returns the number of live entries
-   (across all forks and epochs).  Intended for tests and metrics. */
+   (summed across all forks and epochs, including inherited copies
+   and spilled sets).  Intended for tests and metrics. */
 
 ulong
 fd_collector_overrides_ele_cnt( fd_collector_overrides_t * co );

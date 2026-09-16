@@ -100,7 +100,6 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "banks" );
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks",
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.runtime.max_fork_width,
       config->development.bench.max_cost_per_block );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
@@ -451,6 +450,7 @@ snapshot_load_cmd_fn( args_t *   args,
   run_firedancer_init( config, 1, 0 );
 
   initialize_accdb_fd( config );
+  initialize_bank_cache_fds( config );
   initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
   initialize_snapshot_fds( config );

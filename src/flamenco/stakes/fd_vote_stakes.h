@@ -18,7 +18,7 @@
    - t-2/t-3: these are caches used for the vote account states at the
      end of the t-2 epoch and the t-3 epoch assuming you are currently
      in the t epoch.  These caches are shared across all forks.
-   - t-1: these are sized to max_fork_width and are computed at the
+   - t-1: these are sized to max_live_slots + 1 and are computed at the
      most recent epoch boundary.  These caches are ref-cnt'd and fork
      specific.  After the epoch boundary slot is rooted, then there will
      only be 1 active t-1 cache.
@@ -51,13 +51,11 @@ ulong
 fd_vote_stakes_align( void );
 
 ulong
-fd_vote_stakes_footprint( ulong max_live_slots,
-                          ulong max_fork_width );
+fd_vote_stakes_footprint( ulong max_live_slots );
 
 void *
 fd_vote_stakes_new( void * mem,
                     ulong  max_live_slots,
-                    ulong  max_fork_width,
                     ulong  seed );
 
 fd_vote_stakes_t *

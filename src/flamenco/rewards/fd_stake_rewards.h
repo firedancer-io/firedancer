@@ -20,14 +20,13 @@
   rewards slots.  There is no limit on the number of stake rewards paid
   out per slot.
 
-  Reward entries use cache_cnt+1 equivalent buffers: up to cache_cnt
-  completed windows and one window under construction.  Entries are
-  built directly in the buffer that becomes resident, so finishing a
-  window does not move them.  Per-bank metadata is dynamically sized
-  and does not multiply reward-entry storage.  Finishing a fork when
-  the completed-window cache is full evicts the least recently finished
-  window, but keeps that fork's metadata.  If an evicted window is
-  needed, the caller recalculates it.
+  Reward entries use cache_cnt equivalent buffers shared between
+  completed windows and construction.  All buffers may hold completed
+  windows.  Starting a calculation when all buffers are occupied evicts
+  the least recently finished window and reuses its buffer, retaining
+  the evicted fork's metadata.  Finishing a window does not move entries
+  or evict another window.  If an evicted window is needed, the caller
+  recalculates it.  Per-bank metadata does not multiply entry storage.
 
   As a note, the structure is also only partially fork-aware.  It safely
   assumes that the epoch boundary of a second epoch will not happen
@@ -56,9 +55,9 @@ fd_stake_rewards_align( void );
    number of stake accounts and banks.  max_stake_accounts is the
    capacity of each in-memory window, not a bound on the rewards in an
    epoch.  max_bank_cnt sizes metadata, not reward-entry buffers.
-   cache_cnt is the number of completed windows retained in memory and
-   must be in [1,max_bank_cnt+1].  Storage includes one additional
-   construction buffer.  An ancestor bank can retain an older evicted
+   cache_cnt is the total number of buffers, shared between completed
+   windows and construction, and must be in [1,max_bank_cnt+1]. There
+   is no additional construction buffer.  An ancestor bank can retain an older evicted
    generation, so there is one metadata slot per bank.  An additional
    slot allows a cached window to be replaced before its old shared
    handle is released. */
@@ -116,8 +115,10 @@ fd_stake_rewards_free_cnt( fd_stake_rewards_t const * stake_rewards );
 
 /* fd_stake_rewards_init starts reward calculation for a new fork and
    returns its index.  win_lo is the first partition to retain.  The
-   fork claims the free construction buffer.  No other fork may be
-   staged. */
+   fork claims a free buffer or evicts the least recently finished
+   window when all buffers are occupied. No other fork may be staged.
+   Eviction occurs at init even if construction is later canceled or
+   finishes with an empty window. */
 
 ushort
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
@@ -154,8 +155,8 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ulong                credits_observed );
 
 /* fd_stake_rewards_fini makes the construction buffer resident without
-   moving its entries.  An empty window releases its buffer.  The oldest
-   resident window is evicted when the completed-window cache is full. */
+   moving its entries or evicting other completed windows.  An empty
+   window releases its buffer. */
 
 void
 fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
