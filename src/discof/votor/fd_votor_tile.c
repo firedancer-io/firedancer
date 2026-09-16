@@ -549,7 +549,11 @@ quic_client_conn_hs_complete( fd_quic_conn_t * conn,
   }
 }
 
-static void
+/* quic_client_datagram_tx sends a QUIC packet carrying a single
+   DATAGRAM frame.  Returns the packet number, or ULONG_MAX if nothing
+   was sent. */
+
+static ulong
 quic_client_datagram_tx( fd_votor_tile_t *   ctx,
                          fd_stem_context_t * stem,
                          fd_quic_conn_t *    conn,
@@ -558,8 +562,9 @@ quic_client_datagram_tx( fd_votor_tile_t *   ctx,
   uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   uchar * payload   = packet_l2 + sizeof(fd_ip4_udp_hdrs_t);
 
-  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, payload, FD_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz );
-  if( FD_UNLIKELY( !pkt_sz ) ) return;
+  ulong pkt_num;
+  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, payload, FD_NET_MTU-sizeof(fd_ip4_udp_hdrs_t), buf, buf_sz, &pkt_num );
+  if( FD_UNLIKELY( !pkt_sz ) ) return ULONG_MAX;
 
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)fd_type_pun( packet_l2 );
   *hdr = *ctx->hdr;
@@ -579,6 +584,7 @@ quic_client_datagram_tx( fd_votor_tile_t *   ctx,
   ulong sz_l2  = sizeof(fd_ip4_udp_hdrs_t) + pkt_sz;
   fd_stem_publish( stem, OUT_IDX_NET, sig, ctx->net_out_chunk, sz_l2, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+  return pkt_num;
 }
 
 static void
