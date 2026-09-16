@@ -67,7 +67,7 @@ GCS access uses the `firedancer-scratch@isol-firedancer` service account.
 3. Download genesis, `rocksdb.tar.zst`, and the lowest rooted snapshot
    within the rocksdb bounds.
 4. Build the latest Firedancer on `$FD_BRANCH` with
-   `EXTRAS=offline-replay`.
+   `EXTRAS=handholding`.
 5. Convert the rocksdb into a shredcap capture
    (`blockstore2shredcap`) covering the replay range; the backtest
    ingests the capture, while the rocksdb directory is kept for the
