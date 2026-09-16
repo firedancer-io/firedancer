@@ -12,7 +12,8 @@ LDFLAGS:=-lm -ldl
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
 AR:=ar
-ARFLAGS:=rcs
+# thin archives; BSD/cctools ar (macOS) has no T (it truncates names)
+ARFLAGS:=$(if $(findstring darwin,$(MAKE_HOST)),rcs,rcsT)
 RANLIB:=ranlib
 CP:=cp -p
 RM:=rm -f
