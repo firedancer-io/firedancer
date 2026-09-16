@@ -408,11 +408,12 @@ $(2): publish-$(1)
 endef
 
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin,$(4) $(LDFLAGS_EXE)))$(eval $(call _publish-bin,$(1),bin))
-make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin,$(4) $(LDFLAGS_EXE)))$(eval $(call _publish-bin,$(1),rust))
+make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin,$(4) $(filter-out -static -static-pie,$(LDFLAGS_EXE)) -pie))$(eval $(call _publish-bin,$(1),rust))
 make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,$(4) $(LDFLAGS_SO)))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test,$(4) $(LDFLAGS_EXE)))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
 make-integration-test = $(eval $(call _make-exe,$(1),$(2),$(3),integration-test,integration-test,$(4) $(LDFLAGS_EXE)))
+make-integration-test-rust = $(eval $(call _make-exe,$(1),$(2),$(3),integration-test,integration-test,$(4) $(filter-out -static -static-pie,$(LDFLAGS_EXE)) -pie))
 run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3),$(4) $(LDFLAGS_EXE)))
 

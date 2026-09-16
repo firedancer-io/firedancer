@@ -7,3 +7,5 @@ CPPFLAGS+=-fsanitize=memory
 LDFLAGS+=-fsanitize=memory
 #LDFLAGS+=-fsanitize-memory-track-origins
 
+# MemorySanitizer does not support static linking
+LDFLAGS_EXE:=$(filter-out -static -static-pie,$(LDFLAGS_EXE)) -pie

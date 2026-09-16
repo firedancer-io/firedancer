@@ -14,5 +14,5 @@ $(call run-unit-test,test_ristretto255)
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_ed25519_verify,fuzz_ed25519_verify,fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_ed25519_sigverify,fuzz_ed25519_sigverify,fd_ballet fd_util)
-$(call make-fuzz-test,fuzz_ed25519_sigverify_diff,fuzz_ed25519_sigverify_diff,fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_ed25519_sigverify_diff,fuzz_ed25519_sigverify_diff,fd_ballet fd_util,-ldl)
 endif

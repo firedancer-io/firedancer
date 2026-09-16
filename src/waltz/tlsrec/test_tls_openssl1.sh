@@ -26,6 +26,9 @@ CPPFLAGS=$(awk -F'|' '{ print $4 }' "$OBJDIR/.flags"  )
 CFLAGS=$(  awk -F'|' '{ print $5 }' "$OBJDIR/.flags"  )
 LDFLAGS=$( awk -F'|' '{ print $2 }' "$OBJDIR/.ldflags")
 LDFLAGS_EXE=$(awk -F'|' '{ print $3 }' "$OBJDIR/.ldflags")
+# Interop test links dynamically against system OpenSSL
+LDFLAGS_EXE=$(echo " $LDFLAGS_EXE " | sed 's/ -static-pie / /g; s/ -static / /g')
+[[ " $LDFLAGS_EXE " =~ [[:space:]]-pie[[:space:]] ]] || LDFLAGS_EXE="$LDFLAGS_EXE -pie"
 CC=${CC:-gcc}
 
 OUT=$OBJDIR/unit-test/test_tls_openssl

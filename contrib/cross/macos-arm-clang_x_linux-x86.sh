@@ -46,6 +46,7 @@ sysroot () {
     clang-libs # C17 headers
     glibc
     glibc-devel # libc headers
+    glibc-static
     gcc # crtBeginS.o
     gcc-c++ # /usr/lib/gcc/x86_64-redhat-linux/15/libstdc++.so
     libgcc
