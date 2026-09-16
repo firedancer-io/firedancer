@@ -1277,6 +1277,13 @@ main( int argc, char ** argv ) {
     FD_TEST( !close( epoch_credits_fd ) );
   }
 
+  int collector_fd = memfd_create( "bank_collector_spill", 0 );
+  FD_TEST( collector_fd>=0 );
+  if( collector_fd!=FD_COLLECTOR_OVERRIDES_FD ) {
+    FD_TEST( dup2( collector_fd, FD_COLLECTOR_OVERRIDES_FD )==FD_COLLECTOR_OVERRIDES_FD );
+    FD_TEST( !close( collector_fd ) );
+  }
+
   int cost_tracker_fd = memfd_create( "bank_cost_tracker_spill", 0 );
   FD_TEST( cost_tracker_fd>=0 );
   if( cost_tracker_fd!=FD_COST_TRACKER_FD ) {

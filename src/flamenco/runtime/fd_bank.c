@@ -8,13 +8,9 @@
 #include <errno.h>
 #include <unistd.h>
 
-/* SIMD-0232 collector override capacity: at most
-   FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS entries per epoch tag, three tags
-   live at once across the fork tree, and at most one entry variant
-   per boundary-crossing fork.  See the sizing note on
-   fd_collector_overrides_footprint. */
-#define FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) \
-  ( 3UL*FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS*(max_fork_width) )
+/* Each collector override set retains at most three epoch tags.
+   Fork width controls logical forks, not the two-set RAM cache. */
+#define FD_COLLECTOR_OVERRIDES_MAX (3UL*FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS)
 
 FD_STATIC_ASSERT( FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH==FD_BANKS_MAX_BANKS, collector_overrides_fork_width );
 #define FD_BANKS_STAKE_REWARDS_CACHE_CNT (2UL)
@@ -693,7 +689,7 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                    sizeof(ulong) * max_total_banks );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                    sizeof(ulong) * max_total_banks );
   l = FD_LAYOUT_APPEND( l, alignof(uchar),                    sizeof(uchar) * max_total_banks );
-  l = FD_LAYOUT_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
+  l = FD_LAYOUT_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
@@ -750,7 +746,7 @@ fd_banks_new( void * shmem,
   void *       epoch_credits_len_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * max_total_banks );
   void *       epoch_credits_rc_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * max_total_banks );
   void *       epoch_credits_valid_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                    sizeof(uchar) * max_total_banks );
-  void *       collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
+  void *       collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width, max_stake_accounts, max_vote_accounts ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -851,7 +847,7 @@ fd_banks_new( void * shmem,
   }
   banks_data->stake_rewards_offset = (ulong)stake_rewards - (ulong)banks_data;
 
-  fd_collector_overrides_t * collector_overrides = fd_collector_overrides_join( fd_collector_overrides_new( collector_overrides_mem, FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ), seed ) );
+  fd_collector_overrides_t * collector_overrides = fd_collector_overrides_join( fd_collector_overrides_new( collector_overrides_mem, FD_COLLECTOR_OVERRIDES_MAX, seed ) );
   if( FD_UNLIKELY( !collector_overrides ) ) {
     FD_LOG_WARNING(( "Failed to create collector overrides" ));
     return NULL;
@@ -928,7 +924,7 @@ fd_banks_join( void * banks_data_mem ) {
   void * epoch_credits_len_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * banks_data->max_total_banks );
   void * epoch_credits_rc_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * banks_data->max_total_banks );
   void * epoch_credits_valid_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                  sizeof(uchar) * banks_data->max_total_banks );
-  void * collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),  fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( banks_data->max_fork_width ) ) );
+  void * collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),  fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX ) );
   (void)epoch_credits_len_mem;
   (void)epoch_credits_rc_mem;
   (void)epoch_credits_valid_mem;

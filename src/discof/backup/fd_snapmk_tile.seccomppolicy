@@ -13,7 +13,8 @@
 #
 # epoch_credits_fd: Disk backing for epoch-credit sets beyond the
 #                   in-memory cache.
-uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint epoch_credits_fd
+# collector_overrides_fd: Disk backing for sets beyond the two-entry cache.
+uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint epoch_credits_fd, uint collector_overrides_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -102,6 +103,8 @@ exit: (eq (arg 0) 0)
 futex: (or (eq (arg 1) FUTEX_WAIT)
            (eq (arg 1) FUTEX_WAKE))
 
-# epoch credits: cold fork sets are loaded from and evicted to disk.
-pread64:  (eq (arg 0) epoch_credits_fd)
-pwrite64: (eq (arg 0) epoch_credits_fd)
+# Epoch credits and collector overrides: load and evict cold fork sets.
+pread64: (or (eq (arg 0) epoch_credits_fd)
+             (eq (arg 0) collector_overrides_fd))
+pwrite64: (or (eq (arg 0) epoch_credits_fd)
+              (eq (arg 0) collector_overrides_fd))

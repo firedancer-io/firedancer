@@ -808,15 +808,16 @@ test_assert_txn_ns_dt_ordered( fd_txn_ns_dt_t const * dt ) {
 }
 
 FD_UNIT_TEST( execle_seccomp ) {
-  int   out_fds[5];
-  ulong nfds = populate_allowed_fds( NULL, NULL, 5UL, out_fds );
-  FD_TEST( nfds>=4 && nfds<=5 );
+  int   out_fds[6];
+  ulong nfds = populate_allowed_fds( NULL, NULL, 6UL, out_fds );
+  FD_TEST( nfds>=5 && nfds<=6 );
   FD_TEST( out_fds[0]==STDERR_FILENO );
-  /* logfile fd is optional; the cost tracker spill fd is always last */
-  FD_TEST( out_fds[ nfds-3UL ]==FD_ACCDB_FD_RW );
-  FD_TEST( out_fds[ nfds-2UL ]==FD_STAKE_DELEGATIONS_FD );
-  FD_TEST( out_fds[ nfds-1UL ]==FD_COST_TRACKER_FD );
-  if( nfds==5 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
+  /* logfile fd is optional; the collector override spill fd is always last */
+  FD_TEST( out_fds[ nfds-4UL ]==FD_ACCDB_FD_RW );
+  FD_TEST( out_fds[ nfds-3UL ]==FD_STAKE_DELEGATIONS_FD );
+  FD_TEST( out_fds[ nfds-2UL ]==FD_COST_TRACKER_FD );
+  FD_TEST( out_fds[ nfds-1UL ]==FD_COLLECTOR_OVERRIDES_FD );
+  if( nfds==6 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
 
   struct sock_filter filter[ sock_filter_policy_fd_execle_tile_instr_cnt ];
   populate_allowed_seccomp( NULL, NULL, sock_filter_policy_fd_execle_tile_instr_cnt, filter );

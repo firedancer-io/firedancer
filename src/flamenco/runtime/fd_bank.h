@@ -23,7 +23,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_BANKS_ALIGN     (128UL)
 
 /* Cost trackers and epoch-credit sets beyond their four-entry in-memory
-   caches spill to boot-created, unlinked files.  123457 is the
+   caches spill to boot-created, unlinked files.  Collector overrides
+   use a two-set cache and descriptor 123454.  123457 is the
    stake-delegation spill, 123458/123459 are store, 123460/123461 are
    accdb, and 123462+ are reserved by XDP. */
 

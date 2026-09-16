@@ -8,7 +8,8 @@
 #
 # epoch_credits_fd: Disk backing for epoch-credit sets beyond the
 #                   in-memory cache.
-uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint epoch_credits_fd, uint cost_tracker_fd
+# collector_overrides_fd: Disk backing for sets beyond the two-entry cache.
+uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint epoch_credits_fd, uint cost_tracker_fd, uint collector_overrides_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -61,9 +62,11 @@ futex: (and (eq (arg 1) FUTEX_WAKE)
 pread64: (or (eq (arg 0) store_fd)
              (eq (arg 0) stake_spill_fd)
              (eq (arg 0) epoch_credits_fd)
-             (eq (arg 0) cost_tracker_fd))
+             (eq (arg 0) cost_tracker_fd)
+              (eq (arg 0) collector_overrides_fd))
 
 # stake delegations, epoch credits, and cost trackers: disk spill
 pwrite64: (or (eq (arg 0) stake_spill_fd)
               (eq (arg 0) epoch_credits_fd)
-              (eq (arg 0) cost_tracker_fd))
+              (eq (arg 0) cost_tracker_fd)
+              (eq (arg 0) collector_overrides_fd))

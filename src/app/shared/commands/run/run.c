@@ -502,6 +502,12 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_COST_TRACKER_FD, F_SETFD, tile_uses_cost_tracker ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+        int tile_uses_collector_overrides = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "snapin" ) ||
+                                           !strcmp( tile->name, "snapmk" ) || !strcmp( tile->name, "execle" ) ||
+                                           !strcmp( tile->name, "execrp" );
+        if( FD_UNLIKELY( -1==fcntl( FD_COLLECTOR_OVERRIDES_FD, F_SETFD, tile_uses_collector_overrides ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         int tile_uses_epoch_credits = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "snapin" ) ||
                                       !strcmp( tile->name, "snapmk" );
         if( FD_UNLIKELY( -1==fcntl( FD_EPOCH_CREDITS_FD, F_SETFD, tile_uses_epoch_credits ? 0 : FD_CLOEXEC ) ) )
@@ -578,6 +584,7 @@ main_pid_namespace( void * _args ) {
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
+    if( FD_UNLIKELY( -1==close( FD_COLLECTOR_OVERRIDES_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_COST_TRACKER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_EPOCH_CREDITS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1123,6 +1130,7 @@ initialize_bank_cache_fd( config_t const * config,
 void
 initialize_bank_cache_fds( config_t const * config ) {
   if( FD_UNLIKELY( !config->is_firedancer ) ) return;
+  initialize_bank_cache_fd( config, "collectors", FD_COLLECTOR_OVERRIDES_FD );
   initialize_bank_cache_fd( config, "costtracker", FD_COST_TRACKER_FD  );
   initialize_bank_cache_fd( config, "epochcredits", FD_EPOCH_CREDITS_FD );
 }
