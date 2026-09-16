@@ -79,15 +79,14 @@ FD_MF1:=$(firstword $(MAKEFLAGS))
 FD_MF1:=$(if $(findstring =,$(FD_MF1))$(filter -%,$(FD_MF1)),,$(FD_MF1))
 FD_DRYRUN:=$(findstring n,$(FD_MF1))$(findstring q,$(FD_MF1))$(findstring t,$(FD_MF1))
 # Member-list stamps and manifests are written while the fragments parse:
-# $(call stamp,file,content) stages a rewrite only when content changed;
-# staged files are published atomically after the includes.  Dry runs
+# $(call stamp,file,content) rewrites only when content changed.  Dry runs
 # instead mark a changed stamp phony so -n/-q report the pending work.
 # A LOCAL_MKS subset parse sees partial member lists: no stamps then.
 ifeq ($(filter $(AUX_RULES) $(DRY_RULES),$(MAKECMDGOALS))$(FD_DRYRUN)$(filter-out file,$(origin LOCAL_MKS)),)
 FD_STAMPS:=1
 $(shell mkdir -p $(addprefix $(OBJDIR)/,bin lib unit-test integration-test fuzz-test))
 endif
-stamp = $(if $(subst |$(strip $(file <$(1))),,|$(strip $(2))),$(if $(FD_STAMPS),$(file >$(1).tmp,$(2))$(eval STAMPED+=$(1)),$(if $(FD_DRYRUN),$(eval .PHONY: $(1)))))
+stamp = $(if $(subst |$(strip $(file <$(1))),,|$(strip $(2))),$(if $(FD_STAMPS),$(file >$(1),$(2)),$(if $(FD_DRYRUN),$(eval .PHONY: $(1)))))
 # per-target link-flag stamp name (see the .ldflags.d rule)
 ldstamp = $(OBJDIR)/.ldflags.d/$(1)_$(2)@$(subst /,_,$(subst $(space),_,$(strip $(subst $(OBJDIR)/,,$(subst $(CURDIR)/,,$(3))))))
 
@@ -520,7 +519,6 @@ ifdef FD_STAMPS
 ALL_OBJS:=$(sort $(DEPFILES:.d=.o) $(ASM_DEPFILES:.d=.o) $(THIRDPARTY_DEPFILES:.d=.o))
 $(call stamp,$(OBJDIR)/obj.manifest,$(subst $(space),$(newline),$(ALL_OBJS)))
 $(call stamp,$(OBJDIR)/exe.manifest,$(subst $(space),$(newline),$(sort $(ALL_EXES))))
-$(if $(STAMPED),$(shell for f in $(STAMPED); do mv -f $$f.tmp $$f 2>/dev/null; done))
 endif
 
 # Parse-time code above owns the stamps; never remake them as targets
