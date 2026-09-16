@@ -1,4 +1,5 @@
 #include "fd_vote_state_v4.h"
+#include "fd_vote_codec_tmpl.h"
 #include "fd_authorized_voters.h"
 #include "fd_vote_state_versioned.h"
 #include "fd_vote_utils.h"

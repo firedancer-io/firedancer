@@ -24,7 +24,7 @@
 #include "../../../discof/restore/utils/fd_ssmanifest_parser.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../../flamenco/stakes/fd_stake_weight.h"
+#include "../../../flamenco/stakes/fd_stake_weight_sort.h"
 #include "../../../flamenco/leaders/fd_leaders_base.h"
 #include "../../../discof/repair/fd_repair_tile.c"
 

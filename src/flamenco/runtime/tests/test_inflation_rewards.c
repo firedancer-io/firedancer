@@ -5,7 +5,7 @@
 #include "../../rewards/fd_stake_rewards.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../program/fd_vote_program.h"
-#include "../program/vote/fd_vote_codec.h"
+#include "../program/vote/fd_vote_codec_tmpl.h"
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../fd_system_ids.h"

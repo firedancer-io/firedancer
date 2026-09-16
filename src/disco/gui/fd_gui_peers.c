@@ -4,6 +4,7 @@
 #include "fd_gui_metrics.h"
 #include "../../disco/metrics/fd_metrics_base.h"
 #include "../../ballet/json/fd_jtok.h"
+#include "../../flamenco/stakes/fd_stake_weight_sort.h"
 
 FD_IMPORT_BINARY( dbip_f, "src/disco/gui/dbip.bin.zst" );
 

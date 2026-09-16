@@ -1,4 +1,9 @@
 #include "fd_bank.h"
+
+#define POOL_NAME fd_banks_pool
+#define POOL_T    fd_bank_t
+#include "../../util/tmpl/fd_pool.c"
+
 #include "../rewards/fd_stake_rewards.h"
 
 #include <stdlib.h> // ARM64: aligned_alloc(3)

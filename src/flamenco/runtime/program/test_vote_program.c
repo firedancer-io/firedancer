@@ -6,7 +6,7 @@
 #include "fd_vote_program.h"
 #include "../../features/fd_features.h"
 #include "../../../ballet/hex/fd_hex.h"
-#include "vote/fd_vote_codec.h"
+#include "vote/fd_vote_codec_tmpl.h"
 #include "vote/fd_vote_state_versioned.h"
 #include "../../../disco/fd_txn_p.h"
 

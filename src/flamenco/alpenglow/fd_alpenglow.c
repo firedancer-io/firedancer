@@ -4,6 +4,7 @@
 #include "../runtime/fd_accdb_svm.h"
 #include "../runtime/fd_pubkey_utils.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
+#include "../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );

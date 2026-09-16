@@ -23,7 +23,7 @@
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
-#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../util/fd_hash32.h"
 

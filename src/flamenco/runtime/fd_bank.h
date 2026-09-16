@@ -212,10 +212,6 @@ struct fd_bank_cost_tracker {
 };
 typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 
-#define POOL_NAME fd_bank_cost_tracker_pool
-#define POOL_T    fd_bank_cost_tracker_t
-#include "../../util/tmpl/fd_pool.c"
-
 /* The banks follow a state machine that generally transitions forward:
    All banks start off as INACTIVE.  Once a bank is provisioned (when
    the first FEC is received from the reassembler), it is in the state
@@ -368,20 +364,11 @@ fd_bank_stake_delegations_modify( fd_bank_t * bank );
    The data is laid out contiguously in memory starting from fd_banks_t;
    this can be seen in fd_banks_footprint(). */
 
-#define POOL_NAME fd_banks_pool
-#define POOL_T    fd_bank_t
-#include "../../util/tmpl/fd_pool.c"
-
 struct fd_bank_idx_seq {
   ulong idx;
   ulong seq;
 };
 typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
-
-#define DEQUE_NAME fd_banks_dead
-#define DEQUE_T    fd_bank_idx_seq_t
-#define DEQUE_MAX  FD_BANKS_MAX_BANKS
-#include "../../util/tmpl/fd_deque.c"
 
 struct fd_banks {
   ulong magic;                       /* ==FD_BANKS_MAGIC */
