@@ -1872,9 +1872,10 @@ test_stake_rewards_two_buffer_cache( void ) {
     fd_pubkey_t pubkey = { .ul={ i } };
     fd_stake_rewards_insert( sr, fork_idx[i], &pubkey, 10UL+i, 20UL+i );
 
-    /* A construction buffer must coexist with a full resident cache. */
+    /* Starting a third window reuses the oldest completed buffer. */
     if( i==2U ) {
-      for( ushort j=0U; j<2U; j++ ) {
+      FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx[0] )==UINT_MAX );
+      for( ushort j=1U; j<2U; j++ ) {
         FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx[j] )==0U );
         fd_stake_rewards_iter_init( sr, fork_idx[j], 0U );
         FD_TEST( !fd_stake_rewards_iter_done( sr ) );
@@ -1967,7 +1968,7 @@ test_stake_rewards_four_buffer_cache( void ) {
 }
 
 static void
-test_stake_rewards_empty_fini_does_not_evict( void ) {
+test_stake_rewards_empty_fini_releases_reused_buffer( void ) {
   ulong footprint = fd_stake_rewards_footprint( 1UL, 3UL, 2UL );
   void * mem = aligned_alloc( fd_stake_rewards_align(), footprint );
   FD_TEST( mem );
@@ -1991,14 +1992,17 @@ test_stake_rewards_empty_fini_does_not_evict( void ) {
       sr, &parent_blockhash, 102UL, 1U, 0U, 0UL );
   fd_stake_rewards_fini( sr, fork_idx[2] );
 
-  for( ushort i=0U; i<3U; i++ )
+  /* Acquisition already evicted the oldest window. Empty completion
+     frees that buffer without evicting the other completed window. */
+  FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx[0] )==UINT_MAX );
+  for( ushort i=1U; i<3U; i++ )
     FD_TEST( fd_stake_rewards_window_lo( sr, fork_idx[i] )==0U );
   fd_stake_rewards_iter_init( sr, fork_idx[2], 0U );
   FD_TEST( fd_stake_rewards_iter_done( sr ) );
 
   free( mem );
 
-  FD_LOG_NOTICE(( "test_stake_rewards_empty_fini_does_not_evict: PASSED" ));
+  FD_LOG_NOTICE(( "test_stake_rewards_empty_fini_releases_reused_buffer: PASSED" ));
 }
 
 static void
@@ -3293,7 +3297,7 @@ main( int     argc,
   test_hash_rewards_into_partitions_empty();
   test_stake_rewards_two_buffer_cache();
   test_stake_rewards_four_buffer_cache();
-  test_stake_rewards_empty_fini_does_not_evict();
+  test_stake_rewards_empty_fini_releases_reused_buffer();
   test_hash_rewards_pubkeys_across_forks();
   test_hash_rewards_release_staged_fork();
   test_distribute_rewards_capitalization( mini );

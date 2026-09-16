@@ -13,6 +13,7 @@
 #define FD_COLLECTOR_OVERRIDES_MAX (3UL*FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS)
 
 FD_STATIC_ASSERT( FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH==FD_BANKS_MAX_BANKS, collector_overrides_fork_width );
+/* Two buffers shared between completed windows and construction. */
 #define FD_BANKS_STAKE_REWARDS_CACHE_CNT (2UL)
 
 FD_STATIC_ASSERT( FD_BANKS_MAX_BANKS<USHORT_MAX, epoch_credits_fork_id_width );

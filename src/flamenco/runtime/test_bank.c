@@ -887,7 +887,12 @@ test_stake_rewards_metadata_survives_three_fork_thrash( void * mem ) {
         stake_rewards, &parent_blockhash, 0UL, 1U, 0U, 1UL );
     fd_stake_rewards_insert(
         stake_rewards, branch[i], &pubkey, 1UL, 1UL );
+    /* The newer completed window survives construction and completion. */
+    if( i ) FD_TEST( fd_stake_rewards_window_lo( stake_rewards, branch[i-1U] )==0U );
+    if( i==2U ) FD_TEST( fd_stake_rewards_window_lo( stake_rewards, branch[0] )==UINT_MAX );
     fd_stake_rewards_fini( stake_rewards, branch[i] );
+    if( i ) FD_TEST( fd_stake_rewards_window_lo( stake_rewards, branch[i-1U] )==0U );
+    FD_TEST( fd_stake_rewards_window_lo( stake_rewards, branch[i] )==0U );
   }
 
   for( ulong generation=3UL; generation<max_total_banks; generation++ ) {
