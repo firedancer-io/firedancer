@@ -8,9 +8,8 @@ $(OBJDIR)/lib/libfd_waltz.a: $(OBJDIR)/obj/third_party/picohttpparser/picohttppa
 PICOHTTP_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS)))
 
 $(OBJDIR)/obj/third_party/picohttpparser/picohttpparser.o : src/third_party/picohttpparser/picohttpparser.c $(OBJDIR)/.flags src/third_party/picohttpparser/Local.mk
-	@printf 'CC\t%s\n' $(notdir $@)
-	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(PICOHTTP_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
+	@$(info CC$(TAB)$(notdir $@))
+	$(Q)$(CC) $(PICOHTTP_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 THIRDPARTY_DEPFILES+=$(OBJDIR)/obj/third_party/picohttpparser/picohttpparser.d
 
