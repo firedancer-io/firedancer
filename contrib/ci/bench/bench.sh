@@ -34,8 +34,10 @@ backtest() { # ledger, then run_ledger_backtest.sh args
 case $what in
   build)
     make --silent clean
+    cpus=$(getconf _NPROCESSORS_ONLN)
+    sync; find src config "$(dirname "$(gcc -print-prog-name=cc1)")" /usr/include -type f -print0 | xargs -0 cat > /dev/null  # the first build follows the previous job's drop_caches
     TIMEFORMAT='%R %U %S'
-    { time make -j"$(nproc)" firedancer > "$out.log" 2>&1 ; } 2> "$out.time"
+    { time taskset -c "$(cat /sys/devices/system/cpu/online)" make -j"$cpus" firedancer > "$out.log" 2>&1 ; } 2> "$out.time"
     make -j"$(nproc)" firedancer-dev >> "$out.log" 2>&1
     cp "$(make --silent objdir)"/bin/{firedancer,firedancer-dev} "$bin/"
     cp contrib/ci/bench/bench.toml "$BENCH_DIR/$side/"  # each side runs the config its checkout knows
