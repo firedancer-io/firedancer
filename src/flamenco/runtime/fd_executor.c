@@ -5,6 +5,7 @@
 
 #include "tests/fd_dump_pb.h"
 #include "fd_system_ids.h"
+#include "fd_system_ids_pp.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_compute_budget_program.h"
 #include "program/fd_precompiles.h"

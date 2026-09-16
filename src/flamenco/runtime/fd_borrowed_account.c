@@ -1,6 +1,54 @@
 #include "fd_borrowed_account.h"
 #include "fd_runtime.h"
 
+#if FD_HAS_AVX512
+#include "../../util/simd/fd_avx512.h"
+#elif FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
+
+FD_FN_PURE int
+fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
+  uchar const * data    = borrowed_acct->acc->data;
+  ulong         data_sz = borrowed_acct->acc->data_len;
+
+  /* Peel the loop to avoid unaligned accesses. */
+  while( data_sz && ( (ulong)data & 0x3fUL ) ) {
+    if( FD_UNLIKELY( *data ) ) return 0;
+    data++;
+    data_sz--;
+  }
+
+#if FD_HAS_AVX512
+  while( data_sz>=512UL ) {
+    wwv_t x0 = wwv_or( wwv_ldu( data       ), wwv_ldu( data+ 64UL ) );
+    wwv_t x1 = wwv_or( wwv_ldu( data+128UL ), wwv_ldu( data+192UL ) );
+    wwv_t x2 = wwv_or( wwv_ldu( data+256UL ), wwv_ldu( data+320UL ) );
+    wwv_t x3 = wwv_or( wwv_ldu( data+384UL ), wwv_ldu( data+448UL ) );
+    wwv_t x  = wwv_or( wwv_or( x0, x1 ), wwv_or( x2, x3 ) );
+    if( FD_UNLIKELY( _mm512_test_epi64_mask( x, x ) ) ) return 0;
+    data    += 512UL;
+    data_sz -= 512UL;
+  }
+#elif FD_HAS_AVX
+  while( data_sz>=256UL ) {
+    wv_t x0 = wv_or( wv_ldu( data       ), wv_ldu( data+ 32UL ) );
+    wv_t x1 = wv_or( wv_ldu( data+ 64UL ), wv_ldu( data+ 96UL ) );
+    wv_t x2 = wv_or( wv_ldu( data+128UL ), wv_ldu( data+160UL ) );
+    wv_t x3 = wv_or( wv_ldu( data+192UL ), wv_ldu( data+224UL ) );
+    wv_t x  = wv_or( wv_or( x0, x1 ), wv_or( x2, x3 ) );
+    if( FD_UNLIKELY( !_mm256_testz_si256( x, x ) ) ) return 0;
+    data    += 256UL;
+    data_sz -= 256UL;
+  }
+#endif
+
+  for( ulong i=0UL; i<data_sz; i++ )
+    if( FD_UNLIKELY( data[i] ) ) return 0;
+
+  return 1;
+}
+
 int
 fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
                                   uchar * *               data_out,

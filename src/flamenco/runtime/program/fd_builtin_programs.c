@@ -1,6 +1,7 @@
 #include "fd_builtin_programs.h"
 #include "fd_precompiles.h"
 #include "../fd_system_ids.h"
+#include "../fd_system_ids_pp.h"
 #include "../fd_accdb_svm.h"
 
 #define BUILTIN_PROGRAM(program_id, name, feature_offset, migration_config) \

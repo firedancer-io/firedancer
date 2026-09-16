@@ -9,7 +9,7 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../util/net/fd_ip6.h"
-#include "../pack/fd_pack.h" /* for FD_PACK_ACCT_BLOCKLIST_MAX */
+#include "../pack/fd_pack_acct_blocklist.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS         (256UL)

@@ -11,6 +11,7 @@
 #include "fd_est_tbl.h"
 #include "fd_microblock.h"
 #include "fd_pack_rebate_sum.h"
+#include "fd_pack_acct_blocklist.h"
 #include "../metrics/generated/fd_metrics_enums.h"
 
 #define FD_PACK_ALIGN     (128UL)
@@ -36,15 +37,6 @@
 #define FD_TXN_P_FLAGS_DURABLE_NONCE      (64U)
 
 #define FD_TXN_P_FLAGS_RESULT_MASK  (0xFF000000U)
-
-/* A bundle is a sequence of between 1 and FD_PACK_MAX_TXN_PER_BUNDLE
-   transactions (both inclusive) that executes and commits atomically.
- */
-#define FD_PACK_MAX_TXN_PER_BUNDLE      5UL
-FD_STATIC_ASSERT( FD_PACK_MAX_TXN_PER_BUNDLE<=MAX_TXN_PER_MICROBLOCK, bundle_fits_microblock );
-
-#define FD_PACK_ACCT_BLOCKLIST_LG_MAX   4
-#define FD_PACK_ACCT_BLOCKLIST_MAX      (1UL<<FD_PACK_ACCT_BLOCKLIST_LG_MAX)
 
 /* The percentage of the transaction fees that are burned */
 #define FD_PACK_TXN_FEE_BURN_PCT        50UL

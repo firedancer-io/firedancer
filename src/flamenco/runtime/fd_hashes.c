@@ -1,5 +1,6 @@
 #include "fd_hashes.h"
 #include "fd_bank.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include "../capture/fd_capture_ctx.h"
 
 void

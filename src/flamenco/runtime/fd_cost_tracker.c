@@ -7,7 +7,15 @@
 #include "../features/fd_features.h"
 #include "../vm/fd_vm_base.h"
 #include "program/fd_system_program.h"
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../util/fd_hash32.h"
+
+FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT +
+                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+63UL)/64UL)<=87500000UL,
+                  max_writable_accounts_per_slot_fits );
+FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*(FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+1UL) +
+                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+64UL)/64UL)>87500000UL,
+                  max_writable_accounts_per_slot_is_tight );
 
 struct account_cost {
   fd_pubkey_t account;

@@ -26,6 +26,7 @@
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../backup/fd_snapmk_tile.h"
 #include "../reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"

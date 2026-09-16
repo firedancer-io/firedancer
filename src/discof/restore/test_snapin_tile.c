@@ -68,6 +68,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_ssparse_advance            test_ssparse_advance
 #define fd_txncache_attach_child      record_txncache_attach_child
 #include "fd_snapin_tile.c"
+#include "../../disco/pack/fd_pack_cost.h"
 #undef fd_txncache_attach_child
 #undef fd_ssparse_advance
 #undef fd_stem_publish
