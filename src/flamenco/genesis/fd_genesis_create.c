@@ -5,7 +5,7 @@
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/program/fd_bpf_loader_program.h"
-#include "../runtime/program/vote/fd_vote_codec.h"
+#include "../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../../ballet/sha256/fd_sha256.h"
 

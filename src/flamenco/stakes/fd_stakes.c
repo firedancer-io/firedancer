@@ -1,4 +1,5 @@
 #include "fd_stakes.h"
+#include "fd_stake_weight_sort.h"
 #include "../events/fd_event_runtime.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"

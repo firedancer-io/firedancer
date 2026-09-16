@@ -13,6 +13,7 @@
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../runtime/program/fd_vote_program.h"
+#include "../../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../../stakes/fd_stake_delegations.h"
 #include "../../stakes/fd_vote_stakes.h"

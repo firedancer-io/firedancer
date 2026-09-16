@@ -1,4 +1,4 @@
-#include "fd_vote_codec.h"
+#include "fd_vote_codec_tmpl.h"
 #include "../../../../ballet/utf8/fd_utf8.h"
 #include "../../../../ballet/txn/fd_compact_u16.h"
 #include "../../../../ballet/txn/fd_txn.h"

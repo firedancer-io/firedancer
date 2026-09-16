@@ -370,7 +370,195 @@ below for more details. */
 
 #define FD_MP_CHOOSE_NONZERO(...) FD_EXPAND_THEN_CONCAT2( FD_MP_NONZERO_ELE_, FD_MP_HAS_COMMA(__VA_ARGS__) )(__VA_ARGS__)
 
-#if FD_MP_RECURSE4( MAP_PERFECT_, , FD_MP_AND, FD_MP_EMPTY(), 0, FD_MP_CHOOSE_NONZERO)
+/* only scan candidates 100..999 when something is defined there: probing all 1000 is
+   ~55 ms of preprocessing per instantiation and the expansion is identical */
+
+#if defined(MAP_PERFECT_100) || defined(MAP_PERFECT_101) || defined(MAP_PERFECT_102) || defined(MAP_PERFECT_103) || defined(MAP_PERFECT_104) || \
+    defined(MAP_PERFECT_105) || defined(MAP_PERFECT_106) || defined(MAP_PERFECT_107) || defined(MAP_PERFECT_108) || defined(MAP_PERFECT_109) || \
+    defined(MAP_PERFECT_110) || defined(MAP_PERFECT_111) || defined(MAP_PERFECT_112) || defined(MAP_PERFECT_113) || defined(MAP_PERFECT_114) || \
+    defined(MAP_PERFECT_115) || defined(MAP_PERFECT_116) || defined(MAP_PERFECT_117) || defined(MAP_PERFECT_118) || defined(MAP_PERFECT_119) || \
+    defined(MAP_PERFECT_120) || defined(MAP_PERFECT_121) || defined(MAP_PERFECT_122) || defined(MAP_PERFECT_123) || defined(MAP_PERFECT_124) || \
+    defined(MAP_PERFECT_125) || defined(MAP_PERFECT_126) || defined(MAP_PERFECT_127) || defined(MAP_PERFECT_128) || defined(MAP_PERFECT_129) || \
+    defined(MAP_PERFECT_130) || defined(MAP_PERFECT_131) || defined(MAP_PERFECT_132) || defined(MAP_PERFECT_133) || defined(MAP_PERFECT_134) || \
+    defined(MAP_PERFECT_135) || defined(MAP_PERFECT_136) || defined(MAP_PERFECT_137) || defined(MAP_PERFECT_138) || defined(MAP_PERFECT_139) || \
+    defined(MAP_PERFECT_140) || defined(MAP_PERFECT_141) || defined(MAP_PERFECT_142) || defined(MAP_PERFECT_143) || defined(MAP_PERFECT_144) || \
+    defined(MAP_PERFECT_145) || defined(MAP_PERFECT_146) || defined(MAP_PERFECT_147) || defined(MAP_PERFECT_148) || defined(MAP_PERFECT_149) || \
+    defined(MAP_PERFECT_150) || defined(MAP_PERFECT_151) || defined(MAP_PERFECT_152) || defined(MAP_PERFECT_153) || defined(MAP_PERFECT_154) || \
+    defined(MAP_PERFECT_155) || defined(MAP_PERFECT_156) || defined(MAP_PERFECT_157) || defined(MAP_PERFECT_158) || defined(MAP_PERFECT_159) || \
+    defined(MAP_PERFECT_160) || defined(MAP_PERFECT_161) || defined(MAP_PERFECT_162) || defined(MAP_PERFECT_163) || defined(MAP_PERFECT_164) || \
+    defined(MAP_PERFECT_165) || defined(MAP_PERFECT_166) || defined(MAP_PERFECT_167) || defined(MAP_PERFECT_168) || defined(MAP_PERFECT_169) || \
+    defined(MAP_PERFECT_170) || defined(MAP_PERFECT_171) || defined(MAP_PERFECT_172) || defined(MAP_PERFECT_173) || defined(MAP_PERFECT_174) || \
+    defined(MAP_PERFECT_175) || defined(MAP_PERFECT_176) || defined(MAP_PERFECT_177) || defined(MAP_PERFECT_178) || defined(MAP_PERFECT_179) || \
+    defined(MAP_PERFECT_180) || defined(MAP_PERFECT_181) || defined(MAP_PERFECT_182) || defined(MAP_PERFECT_183) || defined(MAP_PERFECT_184) || \
+    defined(MAP_PERFECT_185) || defined(MAP_PERFECT_186) || defined(MAP_PERFECT_187) || defined(MAP_PERFECT_188) || defined(MAP_PERFECT_189) || \
+    defined(MAP_PERFECT_190) || defined(MAP_PERFECT_191) || defined(MAP_PERFECT_192) || defined(MAP_PERFECT_193) || defined(MAP_PERFECT_194) || \
+    defined(MAP_PERFECT_195) || defined(MAP_PERFECT_196) || defined(MAP_PERFECT_197) || defined(MAP_PERFECT_198) || defined(MAP_PERFECT_199) || \
+    defined(MAP_PERFECT_200) || defined(MAP_PERFECT_201) || defined(MAP_PERFECT_202) || defined(MAP_PERFECT_203) || defined(MAP_PERFECT_204) || \
+    defined(MAP_PERFECT_205) || defined(MAP_PERFECT_206) || defined(MAP_PERFECT_207) || defined(MAP_PERFECT_208) || defined(MAP_PERFECT_209) || \
+    defined(MAP_PERFECT_210) || defined(MAP_PERFECT_211) || defined(MAP_PERFECT_212) || defined(MAP_PERFECT_213) || defined(MAP_PERFECT_214) || \
+    defined(MAP_PERFECT_215) || defined(MAP_PERFECT_216) || defined(MAP_PERFECT_217) || defined(MAP_PERFECT_218) || defined(MAP_PERFECT_219) || \
+    defined(MAP_PERFECT_220) || defined(MAP_PERFECT_221) || defined(MAP_PERFECT_222) || defined(MAP_PERFECT_223) || defined(MAP_PERFECT_224) || \
+    defined(MAP_PERFECT_225) || defined(MAP_PERFECT_226) || defined(MAP_PERFECT_227) || defined(MAP_PERFECT_228) || defined(MAP_PERFECT_229) || \
+    defined(MAP_PERFECT_230) || defined(MAP_PERFECT_231) || defined(MAP_PERFECT_232) || defined(MAP_PERFECT_233) || defined(MAP_PERFECT_234) || \
+    defined(MAP_PERFECT_235) || defined(MAP_PERFECT_236) || defined(MAP_PERFECT_237) || defined(MAP_PERFECT_238) || defined(MAP_PERFECT_239) || \
+    defined(MAP_PERFECT_240) || defined(MAP_PERFECT_241) || defined(MAP_PERFECT_242) || defined(MAP_PERFECT_243) || defined(MAP_PERFECT_244) || \
+    defined(MAP_PERFECT_245) || defined(MAP_PERFECT_246) || defined(MAP_PERFECT_247) || defined(MAP_PERFECT_248) || defined(MAP_PERFECT_249) || \
+    defined(MAP_PERFECT_250) || defined(MAP_PERFECT_251) || defined(MAP_PERFECT_252) || defined(MAP_PERFECT_253) || defined(MAP_PERFECT_254) || \
+    defined(MAP_PERFECT_255) || defined(MAP_PERFECT_256) || defined(MAP_PERFECT_257) || defined(MAP_PERFECT_258) || defined(MAP_PERFECT_259) || \
+    defined(MAP_PERFECT_260) || defined(MAP_PERFECT_261) || defined(MAP_PERFECT_262) || defined(MAP_PERFECT_263) || defined(MAP_PERFECT_264) || \
+    defined(MAP_PERFECT_265) || defined(MAP_PERFECT_266) || defined(MAP_PERFECT_267) || defined(MAP_PERFECT_268) || defined(MAP_PERFECT_269) || \
+    defined(MAP_PERFECT_270) || defined(MAP_PERFECT_271) || defined(MAP_PERFECT_272) || defined(MAP_PERFECT_273) || defined(MAP_PERFECT_274) || \
+    defined(MAP_PERFECT_275) || defined(MAP_PERFECT_276) || defined(MAP_PERFECT_277) || defined(MAP_PERFECT_278) || defined(MAP_PERFECT_279) || \
+    defined(MAP_PERFECT_280) || defined(MAP_PERFECT_281) || defined(MAP_PERFECT_282) || defined(MAP_PERFECT_283) || defined(MAP_PERFECT_284) || \
+    defined(MAP_PERFECT_285) || defined(MAP_PERFECT_286) || defined(MAP_PERFECT_287) || defined(MAP_PERFECT_288) || defined(MAP_PERFECT_289) || \
+    defined(MAP_PERFECT_290) || defined(MAP_PERFECT_291) || defined(MAP_PERFECT_292) || defined(MAP_PERFECT_293) || defined(MAP_PERFECT_294) || \
+    defined(MAP_PERFECT_295) || defined(MAP_PERFECT_296) || defined(MAP_PERFECT_297) || defined(MAP_PERFECT_298) || defined(MAP_PERFECT_299) || \
+    defined(MAP_PERFECT_300) || defined(MAP_PERFECT_301) || defined(MAP_PERFECT_302) || defined(MAP_PERFECT_303) || defined(MAP_PERFECT_304) || \
+    defined(MAP_PERFECT_305) || defined(MAP_PERFECT_306) || defined(MAP_PERFECT_307) || defined(MAP_PERFECT_308) || defined(MAP_PERFECT_309) || \
+    defined(MAP_PERFECT_310) || defined(MAP_PERFECT_311) || defined(MAP_PERFECT_312) || defined(MAP_PERFECT_313) || defined(MAP_PERFECT_314) || \
+    defined(MAP_PERFECT_315) || defined(MAP_PERFECT_316) || defined(MAP_PERFECT_317) || defined(MAP_PERFECT_318) || defined(MAP_PERFECT_319) || \
+    defined(MAP_PERFECT_320) || defined(MAP_PERFECT_321) || defined(MAP_PERFECT_322) || defined(MAP_PERFECT_323) || defined(MAP_PERFECT_324) || \
+    defined(MAP_PERFECT_325) || defined(MAP_PERFECT_326) || defined(MAP_PERFECT_327) || defined(MAP_PERFECT_328) || defined(MAP_PERFECT_329) || \
+    defined(MAP_PERFECT_330) || defined(MAP_PERFECT_331) || defined(MAP_PERFECT_332) || defined(MAP_PERFECT_333) || defined(MAP_PERFECT_334) || \
+    defined(MAP_PERFECT_335) || defined(MAP_PERFECT_336) || defined(MAP_PERFECT_337) || defined(MAP_PERFECT_338) || defined(MAP_PERFECT_339) || \
+    defined(MAP_PERFECT_340) || defined(MAP_PERFECT_341) || defined(MAP_PERFECT_342) || defined(MAP_PERFECT_343) || defined(MAP_PERFECT_344) || \
+    defined(MAP_PERFECT_345) || defined(MAP_PERFECT_346) || defined(MAP_PERFECT_347) || defined(MAP_PERFECT_348) || defined(MAP_PERFECT_349) || \
+    defined(MAP_PERFECT_350) || defined(MAP_PERFECT_351) || defined(MAP_PERFECT_352) || defined(MAP_PERFECT_353) || defined(MAP_PERFECT_354) || \
+    defined(MAP_PERFECT_355) || defined(MAP_PERFECT_356) || defined(MAP_PERFECT_357) || defined(MAP_PERFECT_358) || defined(MAP_PERFECT_359) || \
+    defined(MAP_PERFECT_360) || defined(MAP_PERFECT_361) || defined(MAP_PERFECT_362) || defined(MAP_PERFECT_363) || defined(MAP_PERFECT_364) || \
+    defined(MAP_PERFECT_365) || defined(MAP_PERFECT_366) || defined(MAP_PERFECT_367) || defined(MAP_PERFECT_368) || defined(MAP_PERFECT_369) || \
+    defined(MAP_PERFECT_370) || defined(MAP_PERFECT_371) || defined(MAP_PERFECT_372) || defined(MAP_PERFECT_373) || defined(MAP_PERFECT_374) || \
+    defined(MAP_PERFECT_375) || defined(MAP_PERFECT_376) || defined(MAP_PERFECT_377) || defined(MAP_PERFECT_378) || defined(MAP_PERFECT_379) || \
+    defined(MAP_PERFECT_380) || defined(MAP_PERFECT_381) || defined(MAP_PERFECT_382) || defined(MAP_PERFECT_383) || defined(MAP_PERFECT_384) || \
+    defined(MAP_PERFECT_385) || defined(MAP_PERFECT_386) || defined(MAP_PERFECT_387) || defined(MAP_PERFECT_388) || defined(MAP_PERFECT_389) || \
+    defined(MAP_PERFECT_390) || defined(MAP_PERFECT_391) || defined(MAP_PERFECT_392) || defined(MAP_PERFECT_393) || defined(MAP_PERFECT_394) || \
+    defined(MAP_PERFECT_395) || defined(MAP_PERFECT_396) || defined(MAP_PERFECT_397) || defined(MAP_PERFECT_398) || defined(MAP_PERFECT_399) || \
+    defined(MAP_PERFECT_400) || defined(MAP_PERFECT_401) || defined(MAP_PERFECT_402) || defined(MAP_PERFECT_403) || defined(MAP_PERFECT_404) || \
+    defined(MAP_PERFECT_405) || defined(MAP_PERFECT_406) || defined(MAP_PERFECT_407) || defined(MAP_PERFECT_408) || defined(MAP_PERFECT_409) || \
+    defined(MAP_PERFECT_410) || defined(MAP_PERFECT_411) || defined(MAP_PERFECT_412) || defined(MAP_PERFECT_413) || defined(MAP_PERFECT_414) || \
+    defined(MAP_PERFECT_415) || defined(MAP_PERFECT_416) || defined(MAP_PERFECT_417) || defined(MAP_PERFECT_418) || defined(MAP_PERFECT_419) || \
+    defined(MAP_PERFECT_420) || defined(MAP_PERFECT_421) || defined(MAP_PERFECT_422) || defined(MAP_PERFECT_423) || defined(MAP_PERFECT_424) || \
+    defined(MAP_PERFECT_425) || defined(MAP_PERFECT_426) || defined(MAP_PERFECT_427) || defined(MAP_PERFECT_428) || defined(MAP_PERFECT_429) || \
+    defined(MAP_PERFECT_430) || defined(MAP_PERFECT_431) || defined(MAP_PERFECT_432) || defined(MAP_PERFECT_433) || defined(MAP_PERFECT_434) || \
+    defined(MAP_PERFECT_435) || defined(MAP_PERFECT_436) || defined(MAP_PERFECT_437) || defined(MAP_PERFECT_438) || defined(MAP_PERFECT_439) || \
+    defined(MAP_PERFECT_440) || defined(MAP_PERFECT_441) || defined(MAP_PERFECT_442) || defined(MAP_PERFECT_443) || defined(MAP_PERFECT_444) || \
+    defined(MAP_PERFECT_445) || defined(MAP_PERFECT_446) || defined(MAP_PERFECT_447) || defined(MAP_PERFECT_448) || defined(MAP_PERFECT_449) || \
+    defined(MAP_PERFECT_450) || defined(MAP_PERFECT_451) || defined(MAP_PERFECT_452) || defined(MAP_PERFECT_453) || defined(MAP_PERFECT_454) || \
+    defined(MAP_PERFECT_455) || defined(MAP_PERFECT_456) || defined(MAP_PERFECT_457) || defined(MAP_PERFECT_458) || defined(MAP_PERFECT_459) || \
+    defined(MAP_PERFECT_460) || defined(MAP_PERFECT_461) || defined(MAP_PERFECT_462) || defined(MAP_PERFECT_463) || defined(MAP_PERFECT_464) || \
+    defined(MAP_PERFECT_465) || defined(MAP_PERFECT_466) || defined(MAP_PERFECT_467) || defined(MAP_PERFECT_468) || defined(MAP_PERFECT_469) || \
+    defined(MAP_PERFECT_470) || defined(MAP_PERFECT_471) || defined(MAP_PERFECT_472) || defined(MAP_PERFECT_473) || defined(MAP_PERFECT_474) || \
+    defined(MAP_PERFECT_475) || defined(MAP_PERFECT_476) || defined(MAP_PERFECT_477) || defined(MAP_PERFECT_478) || defined(MAP_PERFECT_479) || \
+    defined(MAP_PERFECT_480) || defined(MAP_PERFECT_481) || defined(MAP_PERFECT_482) || defined(MAP_PERFECT_483) || defined(MAP_PERFECT_484) || \
+    defined(MAP_PERFECT_485) || defined(MAP_PERFECT_486) || defined(MAP_PERFECT_487) || defined(MAP_PERFECT_488) || defined(MAP_PERFECT_489) || \
+    defined(MAP_PERFECT_490) || defined(MAP_PERFECT_491) || defined(MAP_PERFECT_492) || defined(MAP_PERFECT_493) || defined(MAP_PERFECT_494) || \
+    defined(MAP_PERFECT_495) || defined(MAP_PERFECT_496) || defined(MAP_PERFECT_497) || defined(MAP_PERFECT_498) || defined(MAP_PERFECT_499) || \
+    defined(MAP_PERFECT_500) || defined(MAP_PERFECT_501) || defined(MAP_PERFECT_502) || defined(MAP_PERFECT_503) || defined(MAP_PERFECT_504) || \
+    defined(MAP_PERFECT_505) || defined(MAP_PERFECT_506) || defined(MAP_PERFECT_507) || defined(MAP_PERFECT_508) || defined(MAP_PERFECT_509) || \
+    defined(MAP_PERFECT_510) || defined(MAP_PERFECT_511) || defined(MAP_PERFECT_512) || defined(MAP_PERFECT_513) || defined(MAP_PERFECT_514) || \
+    defined(MAP_PERFECT_515) || defined(MAP_PERFECT_516) || defined(MAP_PERFECT_517) || defined(MAP_PERFECT_518) || defined(MAP_PERFECT_519) || \
+    defined(MAP_PERFECT_520) || defined(MAP_PERFECT_521) || defined(MAP_PERFECT_522) || defined(MAP_PERFECT_523) || defined(MAP_PERFECT_524) || \
+    defined(MAP_PERFECT_525) || defined(MAP_PERFECT_526) || defined(MAP_PERFECT_527) || defined(MAP_PERFECT_528) || defined(MAP_PERFECT_529) || \
+    defined(MAP_PERFECT_530) || defined(MAP_PERFECT_531) || defined(MAP_PERFECT_532) || defined(MAP_PERFECT_533) || defined(MAP_PERFECT_534) || \
+    defined(MAP_PERFECT_535) || defined(MAP_PERFECT_536) || defined(MAP_PERFECT_537) || defined(MAP_PERFECT_538) || defined(MAP_PERFECT_539) || \
+    defined(MAP_PERFECT_540) || defined(MAP_PERFECT_541) || defined(MAP_PERFECT_542) || defined(MAP_PERFECT_543) || defined(MAP_PERFECT_544) || \
+    defined(MAP_PERFECT_545) || defined(MAP_PERFECT_546) || defined(MAP_PERFECT_547) || defined(MAP_PERFECT_548) || defined(MAP_PERFECT_549) || \
+    defined(MAP_PERFECT_550) || defined(MAP_PERFECT_551) || defined(MAP_PERFECT_552) || defined(MAP_PERFECT_553) || defined(MAP_PERFECT_554) || \
+    defined(MAP_PERFECT_555) || defined(MAP_PERFECT_556) || defined(MAP_PERFECT_557) || defined(MAP_PERFECT_558) || defined(MAP_PERFECT_559) || \
+    defined(MAP_PERFECT_560) || defined(MAP_PERFECT_561) || defined(MAP_PERFECT_562) || defined(MAP_PERFECT_563) || defined(MAP_PERFECT_564) || \
+    defined(MAP_PERFECT_565) || defined(MAP_PERFECT_566) || defined(MAP_PERFECT_567) || defined(MAP_PERFECT_568) || defined(MAP_PERFECT_569) || \
+    defined(MAP_PERFECT_570) || defined(MAP_PERFECT_571) || defined(MAP_PERFECT_572) || defined(MAP_PERFECT_573) || defined(MAP_PERFECT_574) || \
+    defined(MAP_PERFECT_575) || defined(MAP_PERFECT_576) || defined(MAP_PERFECT_577) || defined(MAP_PERFECT_578) || defined(MAP_PERFECT_579) || \
+    defined(MAP_PERFECT_580) || defined(MAP_PERFECT_581) || defined(MAP_PERFECT_582) || defined(MAP_PERFECT_583) || defined(MAP_PERFECT_584) || \
+    defined(MAP_PERFECT_585) || defined(MAP_PERFECT_586) || defined(MAP_PERFECT_587) || defined(MAP_PERFECT_588) || defined(MAP_PERFECT_589) || \
+    defined(MAP_PERFECT_590) || defined(MAP_PERFECT_591) || defined(MAP_PERFECT_592) || defined(MAP_PERFECT_593) || defined(MAP_PERFECT_594) || \
+    defined(MAP_PERFECT_595) || defined(MAP_PERFECT_596) || defined(MAP_PERFECT_597) || defined(MAP_PERFECT_598) || defined(MAP_PERFECT_599) || \
+    defined(MAP_PERFECT_600) || defined(MAP_PERFECT_601) || defined(MAP_PERFECT_602) || defined(MAP_PERFECT_603) || defined(MAP_PERFECT_604) || \
+    defined(MAP_PERFECT_605) || defined(MAP_PERFECT_606) || defined(MAP_PERFECT_607) || defined(MAP_PERFECT_608) || defined(MAP_PERFECT_609) || \
+    defined(MAP_PERFECT_610) || defined(MAP_PERFECT_611) || defined(MAP_PERFECT_612) || defined(MAP_PERFECT_613) || defined(MAP_PERFECT_614) || \
+    defined(MAP_PERFECT_615) || defined(MAP_PERFECT_616) || defined(MAP_PERFECT_617) || defined(MAP_PERFECT_618) || defined(MAP_PERFECT_619) || \
+    defined(MAP_PERFECT_620) || defined(MAP_PERFECT_621) || defined(MAP_PERFECT_622) || defined(MAP_PERFECT_623) || defined(MAP_PERFECT_624) || \
+    defined(MAP_PERFECT_625) || defined(MAP_PERFECT_626) || defined(MAP_PERFECT_627) || defined(MAP_PERFECT_628) || defined(MAP_PERFECT_629) || \
+    defined(MAP_PERFECT_630) || defined(MAP_PERFECT_631) || defined(MAP_PERFECT_632) || defined(MAP_PERFECT_633) || defined(MAP_PERFECT_634) || \
+    defined(MAP_PERFECT_635) || defined(MAP_PERFECT_636) || defined(MAP_PERFECT_637) || defined(MAP_PERFECT_638) || defined(MAP_PERFECT_639) || \
+    defined(MAP_PERFECT_640) || defined(MAP_PERFECT_641) || defined(MAP_PERFECT_642) || defined(MAP_PERFECT_643) || defined(MAP_PERFECT_644) || \
+    defined(MAP_PERFECT_645) || defined(MAP_PERFECT_646) || defined(MAP_PERFECT_647) || defined(MAP_PERFECT_648) || defined(MAP_PERFECT_649) || \
+    defined(MAP_PERFECT_650) || defined(MAP_PERFECT_651) || defined(MAP_PERFECT_652) || defined(MAP_PERFECT_653) || defined(MAP_PERFECT_654) || \
+    defined(MAP_PERFECT_655) || defined(MAP_PERFECT_656) || defined(MAP_PERFECT_657) || defined(MAP_PERFECT_658) || defined(MAP_PERFECT_659) || \
+    defined(MAP_PERFECT_660) || defined(MAP_PERFECT_661) || defined(MAP_PERFECT_662) || defined(MAP_PERFECT_663) || defined(MAP_PERFECT_664) || \
+    defined(MAP_PERFECT_665) || defined(MAP_PERFECT_666) || defined(MAP_PERFECT_667) || defined(MAP_PERFECT_668) || defined(MAP_PERFECT_669) || \
+    defined(MAP_PERFECT_670) || defined(MAP_PERFECT_671) || defined(MAP_PERFECT_672) || defined(MAP_PERFECT_673) || defined(MAP_PERFECT_674) || \
+    defined(MAP_PERFECT_675) || defined(MAP_PERFECT_676) || defined(MAP_PERFECT_677) || defined(MAP_PERFECT_678) || defined(MAP_PERFECT_679) || \
+    defined(MAP_PERFECT_680) || defined(MAP_PERFECT_681) || defined(MAP_PERFECT_682) || defined(MAP_PERFECT_683) || defined(MAP_PERFECT_684) || \
+    defined(MAP_PERFECT_685) || defined(MAP_PERFECT_686) || defined(MAP_PERFECT_687) || defined(MAP_PERFECT_688) || defined(MAP_PERFECT_689) || \
+    defined(MAP_PERFECT_690) || defined(MAP_PERFECT_691) || defined(MAP_PERFECT_692) || defined(MAP_PERFECT_693) || defined(MAP_PERFECT_694) || \
+    defined(MAP_PERFECT_695) || defined(MAP_PERFECT_696) || defined(MAP_PERFECT_697) || defined(MAP_PERFECT_698) || defined(MAP_PERFECT_699) || \
+    defined(MAP_PERFECT_700) || defined(MAP_PERFECT_701) || defined(MAP_PERFECT_702) || defined(MAP_PERFECT_703) || defined(MAP_PERFECT_704) || \
+    defined(MAP_PERFECT_705) || defined(MAP_PERFECT_706) || defined(MAP_PERFECT_707) || defined(MAP_PERFECT_708) || defined(MAP_PERFECT_709) || \
+    defined(MAP_PERFECT_710) || defined(MAP_PERFECT_711) || defined(MAP_PERFECT_712) || defined(MAP_PERFECT_713) || defined(MAP_PERFECT_714) || \
+    defined(MAP_PERFECT_715) || defined(MAP_PERFECT_716) || defined(MAP_PERFECT_717) || defined(MAP_PERFECT_718) || defined(MAP_PERFECT_719) || \
+    defined(MAP_PERFECT_720) || defined(MAP_PERFECT_721) || defined(MAP_PERFECT_722) || defined(MAP_PERFECT_723) || defined(MAP_PERFECT_724) || \
+    defined(MAP_PERFECT_725) || defined(MAP_PERFECT_726) || defined(MAP_PERFECT_727) || defined(MAP_PERFECT_728) || defined(MAP_PERFECT_729) || \
+    defined(MAP_PERFECT_730) || defined(MAP_PERFECT_731) || defined(MAP_PERFECT_732) || defined(MAP_PERFECT_733) || defined(MAP_PERFECT_734) || \
+    defined(MAP_PERFECT_735) || defined(MAP_PERFECT_736) || defined(MAP_PERFECT_737) || defined(MAP_PERFECT_738) || defined(MAP_PERFECT_739) || \
+    defined(MAP_PERFECT_740) || defined(MAP_PERFECT_741) || defined(MAP_PERFECT_742) || defined(MAP_PERFECT_743) || defined(MAP_PERFECT_744) || \
+    defined(MAP_PERFECT_745) || defined(MAP_PERFECT_746) || defined(MAP_PERFECT_747) || defined(MAP_PERFECT_748) || defined(MAP_PERFECT_749) || \
+    defined(MAP_PERFECT_750) || defined(MAP_PERFECT_751) || defined(MAP_PERFECT_752) || defined(MAP_PERFECT_753) || defined(MAP_PERFECT_754) || \
+    defined(MAP_PERFECT_755) || defined(MAP_PERFECT_756) || defined(MAP_PERFECT_757) || defined(MAP_PERFECT_758) || defined(MAP_PERFECT_759) || \
+    defined(MAP_PERFECT_760) || defined(MAP_PERFECT_761) || defined(MAP_PERFECT_762) || defined(MAP_PERFECT_763) || defined(MAP_PERFECT_764) || \
+    defined(MAP_PERFECT_765) || defined(MAP_PERFECT_766) || defined(MAP_PERFECT_767) || defined(MAP_PERFECT_768) || defined(MAP_PERFECT_769) || \
+    defined(MAP_PERFECT_770) || defined(MAP_PERFECT_771) || defined(MAP_PERFECT_772) || defined(MAP_PERFECT_773) || defined(MAP_PERFECT_774) || \
+    defined(MAP_PERFECT_775) || defined(MAP_PERFECT_776) || defined(MAP_PERFECT_777) || defined(MAP_PERFECT_778) || defined(MAP_PERFECT_779) || \
+    defined(MAP_PERFECT_780) || defined(MAP_PERFECT_781) || defined(MAP_PERFECT_782) || defined(MAP_PERFECT_783) || defined(MAP_PERFECT_784) || \
+    defined(MAP_PERFECT_785) || defined(MAP_PERFECT_786) || defined(MAP_PERFECT_787) || defined(MAP_PERFECT_788) || defined(MAP_PERFECT_789) || \
+    defined(MAP_PERFECT_790) || defined(MAP_PERFECT_791) || defined(MAP_PERFECT_792) || defined(MAP_PERFECT_793) || defined(MAP_PERFECT_794) || \
+    defined(MAP_PERFECT_795) || defined(MAP_PERFECT_796) || defined(MAP_PERFECT_797) || defined(MAP_PERFECT_798) || defined(MAP_PERFECT_799) || \
+    defined(MAP_PERFECT_800) || defined(MAP_PERFECT_801) || defined(MAP_PERFECT_802) || defined(MAP_PERFECT_803) || defined(MAP_PERFECT_804) || \
+    defined(MAP_PERFECT_805) || defined(MAP_PERFECT_806) || defined(MAP_PERFECT_807) || defined(MAP_PERFECT_808) || defined(MAP_PERFECT_809) || \
+    defined(MAP_PERFECT_810) || defined(MAP_PERFECT_811) || defined(MAP_PERFECT_812) || defined(MAP_PERFECT_813) || defined(MAP_PERFECT_814) || \
+    defined(MAP_PERFECT_815) || defined(MAP_PERFECT_816) || defined(MAP_PERFECT_817) || defined(MAP_PERFECT_818) || defined(MAP_PERFECT_819) || \
+    defined(MAP_PERFECT_820) || defined(MAP_PERFECT_821) || defined(MAP_PERFECT_822) || defined(MAP_PERFECT_823) || defined(MAP_PERFECT_824) || \
+    defined(MAP_PERFECT_825) || defined(MAP_PERFECT_826) || defined(MAP_PERFECT_827) || defined(MAP_PERFECT_828) || defined(MAP_PERFECT_829) || \
+    defined(MAP_PERFECT_830) || defined(MAP_PERFECT_831) || defined(MAP_PERFECT_832) || defined(MAP_PERFECT_833) || defined(MAP_PERFECT_834) || \
+    defined(MAP_PERFECT_835) || defined(MAP_PERFECT_836) || defined(MAP_PERFECT_837) || defined(MAP_PERFECT_838) || defined(MAP_PERFECT_839) || \
+    defined(MAP_PERFECT_840) || defined(MAP_PERFECT_841) || defined(MAP_PERFECT_842) || defined(MAP_PERFECT_843) || defined(MAP_PERFECT_844) || \
+    defined(MAP_PERFECT_845) || defined(MAP_PERFECT_846) || defined(MAP_PERFECT_847) || defined(MAP_PERFECT_848) || defined(MAP_PERFECT_849) || \
+    defined(MAP_PERFECT_850) || defined(MAP_PERFECT_851) || defined(MAP_PERFECT_852) || defined(MAP_PERFECT_853) || defined(MAP_PERFECT_854) || \
+    defined(MAP_PERFECT_855) || defined(MAP_PERFECT_856) || defined(MAP_PERFECT_857) || defined(MAP_PERFECT_858) || defined(MAP_PERFECT_859) || \
+    defined(MAP_PERFECT_860) || defined(MAP_PERFECT_861) || defined(MAP_PERFECT_862) || defined(MAP_PERFECT_863) || defined(MAP_PERFECT_864) || \
+    defined(MAP_PERFECT_865) || defined(MAP_PERFECT_866) || defined(MAP_PERFECT_867) || defined(MAP_PERFECT_868) || defined(MAP_PERFECT_869) || \
+    defined(MAP_PERFECT_870) || defined(MAP_PERFECT_871) || defined(MAP_PERFECT_872) || defined(MAP_PERFECT_873) || defined(MAP_PERFECT_874) || \
+    defined(MAP_PERFECT_875) || defined(MAP_PERFECT_876) || defined(MAP_PERFECT_877) || defined(MAP_PERFECT_878) || defined(MAP_PERFECT_879) || \
+    defined(MAP_PERFECT_880) || defined(MAP_PERFECT_881) || defined(MAP_PERFECT_882) || defined(MAP_PERFECT_883) || defined(MAP_PERFECT_884) || \
+    defined(MAP_PERFECT_885) || defined(MAP_PERFECT_886) || defined(MAP_PERFECT_887) || defined(MAP_PERFECT_888) || defined(MAP_PERFECT_889) || \
+    defined(MAP_PERFECT_890) || defined(MAP_PERFECT_891) || defined(MAP_PERFECT_892) || defined(MAP_PERFECT_893) || defined(MAP_PERFECT_894) || \
+    defined(MAP_PERFECT_895) || defined(MAP_PERFECT_896) || defined(MAP_PERFECT_897) || defined(MAP_PERFECT_898) || defined(MAP_PERFECT_899) || \
+    defined(MAP_PERFECT_900) || defined(MAP_PERFECT_901) || defined(MAP_PERFECT_902) || defined(MAP_PERFECT_903) || defined(MAP_PERFECT_904) || \
+    defined(MAP_PERFECT_905) || defined(MAP_PERFECT_906) || defined(MAP_PERFECT_907) || defined(MAP_PERFECT_908) || defined(MAP_PERFECT_909) || \
+    defined(MAP_PERFECT_910) || defined(MAP_PERFECT_911) || defined(MAP_PERFECT_912) || defined(MAP_PERFECT_913) || defined(MAP_PERFECT_914) || \
+    defined(MAP_PERFECT_915) || defined(MAP_PERFECT_916) || defined(MAP_PERFECT_917) || defined(MAP_PERFECT_918) || defined(MAP_PERFECT_919) || \
+    defined(MAP_PERFECT_920) || defined(MAP_PERFECT_921) || defined(MAP_PERFECT_922) || defined(MAP_PERFECT_923) || defined(MAP_PERFECT_924) || \
+    defined(MAP_PERFECT_925) || defined(MAP_PERFECT_926) || defined(MAP_PERFECT_927) || defined(MAP_PERFECT_928) || defined(MAP_PERFECT_929) || \
+    defined(MAP_PERFECT_930) || defined(MAP_PERFECT_931) || defined(MAP_PERFECT_932) || defined(MAP_PERFECT_933) || defined(MAP_PERFECT_934) || \
+    defined(MAP_PERFECT_935) || defined(MAP_PERFECT_936) || defined(MAP_PERFECT_937) || defined(MAP_PERFECT_938) || defined(MAP_PERFECT_939) || \
+    defined(MAP_PERFECT_940) || defined(MAP_PERFECT_941) || defined(MAP_PERFECT_942) || defined(MAP_PERFECT_943) || defined(MAP_PERFECT_944) || \
+    defined(MAP_PERFECT_945) || defined(MAP_PERFECT_946) || defined(MAP_PERFECT_947) || defined(MAP_PERFECT_948) || defined(MAP_PERFECT_949) || \
+    defined(MAP_PERFECT_950) || defined(MAP_PERFECT_951) || defined(MAP_PERFECT_952) || defined(MAP_PERFECT_953) || defined(MAP_PERFECT_954) || \
+    defined(MAP_PERFECT_955) || defined(MAP_PERFECT_956) || defined(MAP_PERFECT_957) || defined(MAP_PERFECT_958) || defined(MAP_PERFECT_959) || \
+    defined(MAP_PERFECT_960) || defined(MAP_PERFECT_961) || defined(MAP_PERFECT_962) || defined(MAP_PERFECT_963) || defined(MAP_PERFECT_964) || \
+    defined(MAP_PERFECT_965) || defined(MAP_PERFECT_966) || defined(MAP_PERFECT_967) || defined(MAP_PERFECT_968) || defined(MAP_PERFECT_969) || \
+    defined(MAP_PERFECT_970) || defined(MAP_PERFECT_971) || defined(MAP_PERFECT_972) || defined(MAP_PERFECT_973) || defined(MAP_PERFECT_974) || \
+    defined(MAP_PERFECT_975) || defined(MAP_PERFECT_976) || defined(MAP_PERFECT_977) || defined(MAP_PERFECT_978) || defined(MAP_PERFECT_979) || \
+    defined(MAP_PERFECT_980) || defined(MAP_PERFECT_981) || defined(MAP_PERFECT_982) || defined(MAP_PERFECT_983) || defined(MAP_PERFECT_984) || \
+    defined(MAP_PERFECT_985) || defined(MAP_PERFECT_986) || defined(MAP_PERFECT_987) || defined(MAP_PERFECT_988) || defined(MAP_PERFECT_989) || \
+    defined(MAP_PERFECT_990) || defined(MAP_PERFECT_991) || defined(MAP_PERFECT_992) || defined(MAP_PERFECT_993) || defined(MAP_PERFECT_994) || \
+    defined(MAP_PERFECT_995) || defined(MAP_PERFECT_996) || defined(MAP_PERFECT_997) || defined(MAP_PERFECT_998) || defined(MAP_PERFECT_999)
+#  define FD_MP_RECURSE_ALL FD_MP_RECURSE4
+#else
+#  define FD_MP_RECURSE_ALL FD_MP_RECURSE3
+#endif
+
+#if FD_MP_RECURSE_ALL( MAP_PERFECT_, , FD_MP_AND, FD_MP_EMPTY(), 0, FD_MP_CHOOSE_NONZERO)
 #define FD_MP_ZERO_KEY_VAL_1( ... ) \
   {  . MAP_PERFECT_KEY = FD_MP_FORMAT_KEY( FD_MP_KEY(__VA_ARGS__) ), \
     FD_MP_VAL(__VA_ARGS__)  }
@@ -381,7 +569,7 @@ below for more details. */
 #endif
 
 static const MAP_PERFECT_T MAP_PERFECT_(tbl)[ 1<<MAP_PERFECT_LG_TBL_SZ ] = {
-  FD_MP_RECURSE4( MAP_PERFECT_, , FD_MP_EMPTY, FD_MP_EMPTY(), 0, FD_MP_CHOOSE_MAKE )
+  FD_MP_RECURSE_ALL( MAP_PERFECT_, , FD_MP_EMPTY, FD_MP_EMPTY(), 0, FD_MP_CHOOSE_MAKE )
   FD_MP_ZERO_KEY_ELE
 };
 
@@ -424,6 +612,7 @@ MAP_PERFECT_(hash_or_default)( MAP_PERFECT_KEY_T key ) {
 #undef FD_MP_EAT_PARENS
 #undef FD_MP_AND
 #undef FD_MP_EMPTY
+#undef FD_MP_RECURSE_ALL
 #undef FD_MP_RECURSE_1
 #undef FD_MP_RECURSE_2
 #undef FD_MP_RECURSE_3

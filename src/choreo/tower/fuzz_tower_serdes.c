@@ -8,7 +8,7 @@
 
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
-#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "fd_tower.h"
 #include "fd_tower_serdes.h"
 

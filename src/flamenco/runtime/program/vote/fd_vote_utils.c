@@ -1,5 +1,5 @@
 #include "fd_vote_utils.h"
-#include "fd_vote_codec.h"
+#include "fd_vote_codec_tmpl.h"
 #include "../fd_vote_program.h"
 #include "../fd_program_util.h"
 

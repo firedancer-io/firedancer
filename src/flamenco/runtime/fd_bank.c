@@ -5,6 +5,19 @@
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 
+#define POOL_NAME fd_bank_cost_tracker_pool
+#define POOL_T    fd_bank_cost_tracker_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define POOL_NAME fd_banks_pool
+#define POOL_T    fd_bank_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define DEQUE_NAME fd_banks_dead
+#define DEQUE_T    fd_bank_idx_seq_t
+#define DEQUE_MAX  FD_BANKS_MAX_BANKS
+#include "../../util/tmpl/fd_deque.c"
+
 /* SIMD-0232 collector override capacity: at most
    FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS entries per epoch tag, three tags
    live at once across the fork tree, and at most one entry variant

@@ -9,6 +9,7 @@
 #include "../fd_system_ids.h"
 #include "vote/fd_authorized_voters.h"
 #include "vote/fd_vote_utils.h"
+#include "vote/fd_vote_codec_tmpl.h"
 #include "vote/fd_vote_codec.h"
 #include "vote/fd_vote_state_versioned.h"
 #include "vote/fd_vote_state_v4.h"

@@ -8,6 +8,7 @@
 #include "../../flamenco/features/fd_features.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/shred/fd_stake_ci.h"
+#include "../../flamenco/stakes/fd_stake_weight_sort.h"
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/fd_txn_m.h"
 #include "../tower/fd_tower_tile.h"
