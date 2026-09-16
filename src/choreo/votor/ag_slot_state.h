@@ -40,16 +40,6 @@ struct ag_block_hash_set {
 };
 typedef struct ag_block_hash_set ag_block_hash_set_t;
 
-struct ag_slot_votes {
-  ag_vote_notar_t          notar             [AG_VAT_MAX];
-  ag_vote_notar_fallback_t notar_fallback    [AG_VAT_MAX][AG_NOTAR_FALLBACK_VOTE_MAX];
-  uchar                    notar_fallback_cnt[AG_VAT_MAX];
-  ag_vote_skip_t           skip              [AG_VAT_MAX];
-  ag_vote_skip_fallback_t  skip_fallback     [AG_VAT_MAX];
-  ag_vote_final_t          finalize          [AG_VAT_MAX];
-};
-typedef struct ag_slot_votes ag_slot_votes_t;
-
 struct ag_slot_voted_stake {
   ag_slot_voted_stake_hash_t notar[AG_VAT_MAX];
   ulong                      notar_cnt;
@@ -57,6 +47,8 @@ struct ag_slot_voted_stake {
   ag_slot_voted_stake_hash_t notar_fallback[AG_VAT_MAX * AG_NOTAR_FALLBACK_VOTE_MAX];
   ulong                      notar_fallback_cnt;
   fd_bls_sig_t               notar_fallback_sig[ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
+  ag_block_hash_t            notar_fallback_sig_hash[ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
+  uchar                      notar_fallback_sig_cnt[ AG_VAT_MAX ];
   ulong                      skip;
   fd_bls_sig_t               skip_sig[ AG_VAT_MAX ];
   fd_bls_agg_t               skip_agg;
@@ -83,7 +75,6 @@ struct ag_slot_certs {
 typedef struct ag_slot_certs ag_slot_certs_t;
 
 struct __attribute__((aligned(128UL))) ag_slot_state {
-  ag_slot_votes_t       votes;
   ag_slot_voted_stake_t voted_stakes;
   ag_slot_certs_t       certs;
 
@@ -94,8 +85,12 @@ struct __attribute__((aligned(128UL))) ag_slot_state {
   ag_block_hash_set_t sent_safe_to_notar;
   int                 sent_safe_to_skip;
 
-  ulong slot;
-  ulong own_rank;
+  ulong  slot;
+  ulong  own_rank;
+  ushort shred_version;
+
+  ag_vote_t own_votes[ AG_NOTAR_FALLBACK_VOTE_MAX + 1UL /* skip */ ];
+  ulong     own_votes_cnt;
 
   ag_epoch_info_t const * epoch_info;
 };

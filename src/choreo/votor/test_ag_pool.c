@@ -553,25 +553,22 @@ test_reward_wire_cert_base( void ) {
 
 static void
 test_finalized_block_hash( void ) {
-  ag_pool_t *     pool = setup_pool();
-  ag_block_hash_t hash;
+  ag_pool_t * pool = setup_pool();
 
-  FD_TEST( !ag_pool_finalized_block_hash( pool, ag_pool_finalized_slot( pool ), hash ) ); /* nothing finalized */
+  FD_TEST( !ag_pool_finalized_block_hash( pool ) ); /* nothing finalized */
 
   ag_block_hash_t hash1; random_hash( hash1 );
   add_notar_votes( pool, 1UL, hash1, 0UL, 7UL );
   add_final_votes( pool, 1UL, 0UL, 7UL );
   FD_TEST( ag_pool_finalized_slot( pool )==1UL );
-  FD_TEST( ag_pool_finalized_block_hash( pool, ag_pool_finalized_slot( pool ), hash ) );
-  FD_TEST( !memcmp( hash, hash1, sizeof(ag_block_hash_t) ) );
+  FD_TEST( !memcmp( ag_pool_finalized_block_hash( pool ), hash1, sizeof(ag_block_hash_t) ) );
 
   /* the hash tracks the finalized slot as it advances */
 
   ag_block_hash_t hash2; random_hash( hash2 );
   add_notar_votes( pool, 2UL, hash2, 0UL, 11UL ); /* fast finalize */
   FD_TEST( ag_pool_finalized_slot( pool )==2UL );
-  FD_TEST( ag_pool_finalized_block_hash( pool, ag_pool_finalized_slot( pool ), hash ) );
-  FD_TEST( !memcmp( hash, hash2, sizeof(ag_block_hash_t) ) );
+  FD_TEST( !memcmp( ag_pool_finalized_block_hash( pool ), hash2, sizeof(ag_block_hash_t) ) );
 
   teardown_pool( pool );
 }
@@ -990,12 +987,20 @@ test_standstill_recovery( void ) {
     else FD_TEST( 0 );
   }
 
+  ag_vote_t final2 = ag_vote_construct_final( sec_sign_fn, &g_sk[0], slot2,        (ushort)0, TEST_SHRED_VERSION );
+  ag_vote_t notar3 = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], slot3, hash3, (ushort)0, TEST_SHRED_VERSION );
   FD_TEST( votes_cnt==2UL );
   for( ulong i=0UL; i<votes_cnt; i++ ) {
     FD_TEST( ag_vote_rank( &votes[i] )==0UL );
-    if( votes[i].kind==AG_VOTE_KIND_FINAL )      FD_TEST( ag_vote_slot( &votes[i] )==slot2 );
-    else if( votes[i].kind==AG_VOTE_KIND_NOTAR ) FD_TEST( ag_vote_slot( &votes[i] )==slot3 );
-    else FD_TEST( 0 );
+    FD_TEST( ag_vote_shred_version( &votes[i] )==TEST_SHRED_VERSION );
+    if( votes[i].kind==AG_VOTE_KIND_FINAL ) {
+      FD_TEST( ag_vote_slot( &votes[i] )==slot2 );
+      FD_TEST( !memcmp( ag_vote_sig( &votes[i] ), ag_vote_sig( &final2 ), sizeof(fd_bls_sig_t) ) );
+    } else if( votes[i].kind==AG_VOTE_KIND_NOTAR ) {
+      FD_TEST( ag_vote_slot( &votes[i] )==slot3 );
+      FD_TEST( !memcmp( votes[i].notar.block_hash, hash3, sizeof(ag_block_hash_t) ) );
+      FD_TEST( !memcmp( ag_vote_sig( &votes[i] ), ag_vote_sig( &notar3 ), sizeof(fd_bls_sig_t) ) );
+    } else FD_TEST( 0 );
   }
 
   for( ulong i=0UL; i<certs_cnt; i++ ) {

@@ -505,6 +505,13 @@ ag_finality_tracker_highest_finalized_slot( ag_finality_tracker_t const * self )
   return self->highest_finalized_slot;
 }
 
+FD_FN_PURE uchar const *
+ag_finality_tracker_highest_finalized_block_hash( ag_finality_tracker_t const * self ) {
+  status_ele_t const * e = status_map_ele_query_const( self->status.map, &self->highest_finalized_slot, NULL, self->status.pool );
+  if( FD_UNLIKELY( !e || ( e->status.kind!=AG_FINALIZATION_STATUS_FINALIZED && e->status.kind!=AG_FINALIZATION_STATUS_IMPLICITLY_FINALIZED ) ) ) return NULL;
+  return status_hash( &e->status );
+}
+
 ulong
 ag_finality_tracker_first_unpruned_slot( ag_finality_tracker_t const * self ) {
   return self->first_unpruned_slot;
