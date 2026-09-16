@@ -4,7 +4,6 @@ BUILDDIR:=$(BUILDDIR1)
 endif
 
 VERBOSE?=0
-SHELL:=bash
 CPPFLAGS:=
 RUSTFLAGS:=-C force-frame-pointers=yes
 CFLAGS=-std=c17 -fwrapv

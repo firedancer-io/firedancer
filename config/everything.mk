@@ -293,9 +293,9 @@ EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)),$(OBJDIR)/$(5)/
 $(1): $(OBJDIR)/$(5)/$(1)
 
 $(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a) $(OBJDIR)/.ldflags $(call ldstamp,$(5),$(1),$(6)) $(OBJDIR)/$(5)/$(1).mlist
-	@echo -e "LD\t$$(notdir $$@) ($(5))"
+	@printf 'LD\t%s (%s)\n' $$(notdir $$@) $(5)
 	$(Q)$(MKDIR) $$(dir $$@) && \
-$(if $(filter bin,$(5)),{ echo 'char const fd_bin_build_info[] ='; echo "  \"# date     $$$$(date +'%Y-%m-%d %H:%M:%S %z')\\n\""; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $$@.buildinfo.c && $$(CC) -c -o $$@.buildinfo.o $$@.buildinfo.c && ) \
+$(if $(filter bin,$(5)),{ echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $$@.buildinfo.c && $$(CC) -c -o $$@.buildinfo.o $$@.buildinfo.c && ) \
 $$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@.tmp && mv -f $$@.tmp $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
@@ -398,13 +398,10 @@ make-proof = $(eval $(call _make-proof,$(1),$(2)))
 ## GENERIC RULES
 
 $(OBJDIR)/info :
-	@echo -e "INFO\t$(notdir $@)"
+	@printf 'INFO\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(dir $@) && \
-echo -e \
-"# date     `date +'%Y-%m-%d %H:%M:%S %z'`\n"\
-"# source   `whoami`@`hostname`:`pwd`\n"\
-"# machine  $(MACHINE)\n"\
-"# extras   $(EXTRAS)" > $@.tmp && \
+printf '# date     %s\n# source   %s@%s:%s\n# machine  %s\n# extras   %s\n' \
+"`date +'%Y-%m-%d %H:%M:%S %z'`" "`whoami`" "`hostname`" "`pwd`" '$(MACHINE)' '$(EXTRAS)' > $@.tmp && \
 { git status --porcelain=2 --branch 2>/dev/null || echo '# git      unavailable'; } >> $@.tmp && \
 mv -f $@.tmp $@
 
@@ -421,12 +418,12 @@ DEPFLAGS=-MD -MP -MF $@.dtmp -MT "$(basename $@).o" -MT "$(basename $@).S" -MT "
 DEPFIX=mv -f $@.dtmp $(basename $@).d
 
 $(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/.flags
-	@echo -e "CC\t$(notdir $@)"
+	@printf 'CC\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 $(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/.flags
-	@echo -e "AS\t$(notdir $@)"
+	@printf 'AS\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
@@ -447,7 +444,7 @@ $(OBJDIR)/obj/%.check : src/%.S
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
 
 $(OBJDIR)/lib/%.a :
-	@echo -e "AR\t$(notdir $@)"
+	@printf 'AR\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(dir $@) && \
 $(RM) $@.tmp && \
 $(AR) $(ARFLAGS) $@.tmp $(filter %.o,$^) && \

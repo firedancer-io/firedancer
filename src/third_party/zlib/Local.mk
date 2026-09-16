@@ -11,7 +11,7 @@ lib: $(OBJDIR)/lib/libfd_zlib.a
 ZLIB_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS))) -DZ_SOLO
 
 $(OBJDIR)/obj/third_party/zlib/%.o : src/third_party/zlib/%.c $(OBJDIR)/.flags src/third_party/zlib/Local.mk
-	@echo -e "CC\t$(notdir $@)"
+	@printf 'CC\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(ZLIB_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
