@@ -76,16 +76,19 @@
    For G1, k1 >= 0 always, k2 may be negative.
    For G2, both k1 and k2 may be negative. */
 
-/* Const definitions live in fd_bn254_g1.c. */
-
-/* beta in Montgomery form.
+/* beta (defined in fd_bn254_g1.c) in Montgomery form.
    0x30644e72e131a0295e6dd9e7e0acccb0c28f069fbb966e3de4bd44e5607cfd48 */
 extern const fd_bn254_fp_t fd_bn254_const_beta_mont[1];
 
-/* Lattice constants, see glv.py */
+/* Lattice constants, see glv.py. Defined in fd_bn254_field.c. */
 extern const ulong na[ 2 ];
 extern const ulong nb[ 1 ];
 extern const ulong nc[ 2 ];
+
+/* g1 = round(2^256 * N_C / r) for G1, round(2^256 * N_A / r) for G2
+   (3 limbs). */
+extern const ulong g1_const_g1[ 3 ];
+extern const ulong g1_const_g2[ 3 ];
 
 /* g2 = round(2^256 * N_B / r), 66-bit (2 limbs). Same for G1 and G2. */
 extern const ulong g2_const[ 2 ];
