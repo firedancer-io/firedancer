@@ -503,8 +503,6 @@ static char const * CRITICAL_TILES[] = {
   "poh",
   "motor",
   "pohh",
-  "gui",
-  "guih",
   NULL
 };
 
