@@ -1,6 +1,8 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
 #include "../../runtime/fd_bank.h"
+#include "../../../ballet/murmur3/fd_murmur3.h"
+#include "../../features/fd_features.h"
 
 #include <stdlib.h> // ARM64: malloc(3), free(3)
 
@@ -267,6 +269,72 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
 
   test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
+}
+
+static void
+test_vm_syscall_sol_get_leader( fd_vm_t * vm ) {
+  ulong ret = 12345UL;
+
+  /* Test insufficient compute budget: cost is 228 CU */
+  vm->cu = 227UL;
+  int err = fd_vm_syscall_sol_get_leader( vm, FD_VM_MEM_MAP_HEAP_REGION_START, 0, 0, 0, 0, &ret );
+  FD_TEST( err==FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+  /* Test CU consumption: should consume exactly 228 CU */
+  vm->cu = 1000UL;
+  set_memory_region( vm->heap, vm->heap_max );
+  err = fd_vm_syscall_sol_get_leader( vm, FD_VM_MEM_MAP_HEAP_REGION_START, 0, 0, 0, 0, &ret );
+  FD_TEST( err==FD_VM_SUCCESS );
+  FD_TEST( ret==0UL );
+  FD_TEST( vm->cu==1000UL - (FD_VM_SYSVAR_BASE_COST + 128UL) );
+  /* Since mock bank has no banks_data_offset, all 128 bytes should be 0 */
+  uchar zeros[128] = {0};
+  FD_TEST( !memcmp( vm->heap, zeros, 128UL ) );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+  /* Test deprecated loader: should fail with unaligned pointer */
+  vm->is_deprecated = 1;
+  vm->cu = 1000UL;
+  err = fd_vm_syscall_sol_get_leader( vm, FD_VM_MEM_MAP_HEAP_REGION_START, 0, 0, 0, 0, &ret );
+  FD_TEST( err==FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+  vm->is_deprecated = 0;
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+  /* Test input region parameter address restrictions */
+  vm->syscall_parameter_address_restrictions = 1;
+  vm->cu = 1000UL;
+  err = fd_vm_syscall_sol_get_leader( vm, FD_VM_MEM_MAP_INPUT_REGION_START, 0, 0, 0, 0, &ret );
+  FD_TEST( err==FD_VM_ERR_INVAL );
+  vm->syscall_parameter_address_restrictions = 0;
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+  /* Test unmapped pointer: SIGSEGV */
+  vm->cu = 1000UL;
+  err = fd_vm_syscall_sol_get_leader( vm, 0x1000UL, 0, 0, 0, 0, &ret );
+  FD_TEST( err==FD_VM_SYSCALL_ERR_SEGFAULT );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+  /* Test feature gating via register_slot */
+  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ] = {0};
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
+  FD_TEST( syscalls );
+
+  fd_features_t features;
+  fd_features_disable_all( &features );
+
+  /* Feature disabled: sol_get_leader not registered */
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 1UL, &features, 0 )==FD_VM_SUCCESS );
+  FD_TEST( !fd_sbpf_syscalls_query( syscalls, (ulong)fd_murmur3_32( "sol_get_leader", 14, 0 ), NULL ) );
+
+  /* Feature enabled: sol_get_leader is registered */
+  FD_FEATURE_SET_ACTIVE( &features, enable_get_leader_syscall, 1UL );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 1UL, &features, 0 )==FD_VM_SUCCESS );
+  FD_TEST( fd_sbpf_syscalls_query( syscalls, (ulong)fd_murmur3_32( "sol_get_leader", 14, 0 ), NULL ) );
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
+
+  FD_LOG_NOTICE(( "Passed test_vm_syscall_sol_get_leader" ));
 }
 
 static void
@@ -885,6 +953,8 @@ main( int     argc,
                                 0UL, FD_VM_SUCCESS, expected_log, expected_log_sz );
 
 # undef APPEND
+
+  test_vm_syscall_sol_get_leader( vm );
 
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
