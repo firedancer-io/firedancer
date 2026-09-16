@@ -1553,11 +1553,12 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->idx, bank->f.slot, bank->refcnt ));
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-  msg->bank_idx  = bank->idx;
-  msg->bank_seq  = bank->bank_seq;
+  /* f.* first: gcc 11 SLP otherwise materialises the 27 KB idx..f.slot gap element-wise */
   msg->slot      = bank->f.slot;
   msg->bank_hash = bank->f.bank_hash;
   msg->block_id  = bank->f.block_id;
+  msg->bank_idx  = bank->idx;
+  msg->bank_seq  = bank->bank_seq;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_ROOT_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
