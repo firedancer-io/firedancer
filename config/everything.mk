@@ -559,13 +559,9 @@ show-deps:
 check: $(DEPFILES:.d=.check)
 
 ifeq ($(filter $(AUX_RULES) $(DRY_RULES),$(MAKECMDGOALS)),)
-# Include dependency files emitted as a side effect of C/C++ object builds.
-# The leading dash avoids the old up-front dependency generation pass on clean
-# trees, which kept make busy before it could start compiling objects.
--include $(DEPFILES)
--include $(ASM_DEPFILES)
-# vendored third_party TUs track deps separately (kept out of make check)
--include $(THIRDPARTY_DEPFILES)
+# Header edges from each object's last compile; the wildcard skips absent
+# ones. Vendored third_party TUs track deps separately (kept out of make check).
+include $(wildcard $(DEPFILES) $(ASM_DEPFILES) $(THIRDPARTY_DEPFILES))
 endif
 
 # Define the asm target.  Must be after the make fragments include so that
