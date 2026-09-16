@@ -268,9 +268,10 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 
 # Note: The library arguments require customization of each target
 
-# Libs with the slowest compiles; prepended to exe prerequisites (link
-# order unaffected) so parallel make starts them first
-SCHED_HOT_LIBS?=fd_reedsol fd_disco fd_ballet fd_discof fd_flamenco fd_quic
+# slowest objects first: make -j spawns in prerequisite order, so a slow TU
+# listed late runs alone in the tail; patterns under $(OBJDIR)/obj/, no .o
+SCHED_HOT_OBJS?=third_party/zstd/lib/compress/% discof/%_tile ballet/reedsol/% disco/gui/% third_party/blst/% flamenco/vm/% disco/%_tile disco/pack/% waltz/quic/fd_quic flamenco/accdb/fd_accdb discof/replay/% discof/forest/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat third_party/zstd/lib/decompress/% disco/events/% disco/topo/% ballet/blake3/% app/shared/commands/watch/% app/firedancer/topology discof/chainer/% flamenco/rewards/% choreo/tower/% disco/shred/%
+sched-hot-objs = $(filter $(addprefix $(OBJDIR)/obj/,$(addsuffix .o,$(SCHED_HOT_OBJS))),$(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(lib))))
 
 # _make-exe usage:
 #
@@ -292,7 +293,7 @@ EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)),$(OBJDIR)/$(5)/
 .PHONY: $(1)
 $(1): $(OBJDIR)/$(5)/$(1)
 
-$(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a) $(OBJDIR)/.ldflags $(call ldstamp,$(5),$(1),$(6)) $(OBJDIR)/$(5)/$(1).mlist
+$(OBJDIR)/$(5)/$(1): $$$$(call sched-hot-objs,$(3)) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a) $(OBJDIR)/.ldflags $(call ldstamp,$(5),$(1),$(6)) $(OBJDIR)/$(5)/$(1).mlist
 	@printf 'LD\t%s (%s)\n' $$(notdir $$@) $(5)
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $(if $(filter bin,$(5)),{ echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $$@.buildinfo.c && $$(CC) -c -o $$@.buildinfo.o $$@.buildinfo.c && ) \
