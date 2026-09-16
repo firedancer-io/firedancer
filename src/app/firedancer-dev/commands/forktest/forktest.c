@@ -446,8 +446,7 @@ forktest_fn( args_t *   args,
   initialize_workspaces( config );
   initialize_stacks( config );
   initialize_accdb_fd( config );
-  initialize_cost_tracker_fd( config );
-  initialize_epoch_credits_fd( config );
+  initialize_bank_cache_fds( config );
   initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
   initialize_snapshot_fds( config );
