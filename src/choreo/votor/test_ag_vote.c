@@ -109,7 +109,6 @@ check_wire( ag_vote_t const *    v,
   FD_TEST( rt.kind==v->kind );
   FD_TEST( ag_vote_shred_version( &rt )==TEST_SHRED_VERSION );
   FD_TEST( ag_vote_slot  ( &rt )==ag_vote_slot  ( v ) );
-  FD_TEST( ag_vote_rank( &rt )==USHORT_MAX ); /* rank is not on the wire */
   uchar const * rt_h = block_hash( &rt );
   FD_TEST( !rt_h==!h );
   if( h ) FD_TEST( !memcmp( rt_h, h, sizeof(ag_block_hash_t) ) );

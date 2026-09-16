@@ -583,7 +583,14 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     ulong  vote_slot = ag_vote_slot( vote  );
     ushort rank      = fd_ushort_if( vote_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( vote_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_NOT_RANKED_IDX ]++; return; } /* peer is not ranked in their vote slot's epoch */
-    ag_vote_set_rank( vote, rank );
+    switch( vote->kind ) {
+    case AG_VOTE_KIND_NOTAR:          vote->notar.rank          = rank; break;
+    case AG_VOTE_KIND_FINAL:          vote->final.rank          = rank; break;
+    case AG_VOTE_KIND_SKIP:           vote->skip.rank           = rank; break;
+    case AG_VOTE_KIND_NOTAR_FALLBACK: vote->notar_fallback.rank = rank; break;
+    case AG_VOTE_KIND_SKIP_FALLBACK:  vote->skip_fallback.rank  = rank; break;
+    default:                          FD_LOG_CRIT(( "unreachable" ));
+    }
 
     switch( ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad ) ) {
     case AG_POOL_SUCCESS:                ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SUCCESS_IDX            ]++; break;
@@ -1045,11 +1052,10 @@ after_credit( fd_votor_tile_t *   ctx,
       quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
     }
 
-    uint            kind           = ctx->scratch.cert_event.cert.kind;
-    ulong           finalized_slot = ag_pool_finalized_slot( ctx->pool );
-    ag_block_hash_t finalized_hash;
-    if( FD_LIKELY( ( kind==AG_CERT_KIND_FINAL || kind==AG_CERT_KIND_FAST_FINAL ) && ag_pool_finalized_block_hash( ctx->pool, finalized_slot, finalized_hash ) ) ) {
-      try_advance_root( ctx, ag_block_id( finalized_slot, finalized_hash ) );
+    uint          kind           = ctx->scratch.cert_event.cert.kind;
+    uchar const * finalized_hash = ag_pool_finalized_block_hash( ctx->pool );
+    if( FD_LIKELY( ( kind==AG_CERT_KIND_FINAL || kind==AG_CERT_KIND_FAST_FINAL ) && finalized_hash ) ) {
+      try_advance_root( ctx, ag_block_id( ag_pool_finalized_slot( ctx->pool ), finalized_hash ) );
     }
     *charge_busy = 1;
   }

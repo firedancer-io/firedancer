@@ -32,7 +32,8 @@ ag_vote_de( ag_vote_t *   self,
             ulong         buf_sz ) {
   FAIL( buf_sz<2 /* version + tag */, SZ );
 
-  ag_vote_serde_t vote; ulong off = 0UL;
+  ulong off = 0UL;
+  ag_vote_serde_t vote;
   vote.version       = buf[ off ];                 off += sizeof(uchar);
   vote.tag           = buf[ off ];                 off += sizeof(uchar);
   FAIL( vote.version!=1, INVAL );
@@ -59,8 +60,6 @@ ag_vote_de( ag_vote_t *   self,
 
   fd_memset( self, 0, sizeof(ag_vote_t) );
   self->kind = kind;
-
-  ag_vote_set_rank( self, USHORT_MAX ); /* FIXME */
 
   switch( kind ) {
   case AG_VOTE_KIND_NOTAR:

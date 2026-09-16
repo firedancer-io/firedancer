@@ -106,9 +106,9 @@ test_add_vote( void ) {
 
   for( ulong i=0UL; i<n; i++ ) {
     ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[i], slot, hash, (ushort)i, TEST_SHRED_VERSION );
-    FD_TEST( ss->votes.notar[i].slot==ULONG_MAX );
+    FD_TEST( !fd_bls_set_test( ss->voted_stakes.notar[0].agg.set, i ) );
     add_vote_helper( ss, &vote, epoch_info, &t );
-    FD_TEST( ss->votes.notar[i].slot==slot );
+    FD_TEST( fd_bls_set_test( ss->voted_stakes.notar[0].agg.set, i ) );
     FD_TEST(  ag_slot_state_stake( ss->voted_stakes.notar, ss->voted_stakes.notar_cnt, hash )==i+1UL );
   }
 
@@ -370,7 +370,7 @@ test_poisoned_notar_aggregate( void ) {
   ag_vote_t v6 = ag_vote_construct_notar( sec_sign_fn, &g_sk[6], slot, hash, 6UL, TEST_SHRED_VERSION );
   add_vote_helper( ss, &v6, epoch_info, &t );
   FD_TEST( t.o.certs_cnt==0UL && t.ok && fd_bls_set_cnt( t.o.bad )==1UL && fd_bls_set_test( t.o.bad, 3UL ) );
-  FD_TEST( ss->voted_stakes.notar_cnt==1UL && ss->voted_stakes.notar[0].stake==6UL && !fd_bls_set_test( ss->voted_stakes.notar[0].agg.set, 3UL ) && ss->votes.notar[3].slot==ULONG_MAX );
+  FD_TEST( ss->voted_stakes.notar_cnt==1UL && ss->voted_stakes.notar[0].stake==6UL && !fd_bls_set_test( ss->voted_stakes.notar[0].agg.set, 3UL ) );
   ag_vote_t v7 = ag_vote_construct_notar( sec_sign_fn, &g_sk[7], slot, hash, 7UL, TEST_SHRED_VERSION );
   add_vote_helper( ss, &v7, epoch_info, &t );
   { int has_notar = 0; for( ulong i=0UL; i<t.o.certs_cnt; i++ ) has_notar |= t.o.certs[i].cert.kind==AG_CERT_KIND_NOTAR; FD_TEST( has_notar && t.ok ); }
@@ -391,7 +391,7 @@ test_poisoned_notar_aggregate( void ) {
   ag_vote_t bad6 = ag_vote_construct_notar( sec_sign_fn, &g_sk[4], slot, hash, 6UL, TEST_SHRED_VERSION );
   add_vote_helper( ss, &bad6, epoch_info, &t );
   FD_TEST( t.o.certs_cnt==0UL && !t.ok && fd_bls_set_cnt( t.o.bad )==1UL && fd_bls_set_test( t.o.bad, 6UL ) );
-  FD_TEST( ss->voted_stakes.notar[0].stake==6UL && !fd_bls_set_test( ss->voted_stakes.notar[0].agg.set, 6UL ) && ss->votes.notar[6].slot==ULONG_MAX );
+  FD_TEST( ss->voted_stakes.notar[0].stake==6UL && !fd_bls_set_test( ss->voted_stakes.notar[0].agg.set, 6UL ) );
   add_vote_helper( ss, &v7, epoch_info, &t );
   has_notar = 0; for( ulong i=0UL; i<t.o.certs_cnt; i++ ) has_notar |= t.o.certs[i].cert.kind==AG_CERT_KIND_NOTAR;
   FD_TEST( has_notar && t.ok && fd_bls_set_is_null( t.o.bad ) );
@@ -722,13 +722,13 @@ test_notar_fallback_stake_tally( void ) {
   for( ulong i=0UL; i<AG_NOTAR_FALLBACK_VOTE_MAX; i++ ) {
     random_hash( own[i] );
     ag_vote_t v = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[0], slot, own[i], 0UL, TEST_SHRED_VERSION );
-    FD_TEST( ss->votes.notar_fallback_cnt[ 0 ]<AG_NOTAR_FALLBACK_VOTE_MAX );
+    FD_TEST( ss->voted_stakes.notar_fallback_sig_cnt[ 0 ]<AG_NOTAR_FALLBACK_VOTE_MAX );
     add_vote_helper( ss, &v, epoch_info, &t );
     FD_TEST( ss->voted_stakes.notar_fallback_cnt==i+1UL );
   }
 
   /* the cap itself is enforced in ag_pool_add_vote; see test_ag_pool */
-  FD_TEST( ss->votes.notar_fallback_cnt[ 0 ]==AG_NOTAR_FALLBACK_VOTE_MAX );
+  FD_TEST( ss->voted_stakes.notar_fallback_sig_cnt[ 0 ]==AG_NOTAR_FALLBACK_VOTE_MAX );
 
   for( ulong i=0UL; i<2UL; i++ ) {
     ag_vote_t v = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[1UL+i], slot, own[2], (ushort)(1UL+i), TEST_SHRED_VERSION );

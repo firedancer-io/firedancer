@@ -84,6 +84,9 @@ ag_finality_tracker_mark_finalized( ag_finality_tracker_t *   self,
 FD_FN_PURE ulong
 ag_finality_tracker_highest_finalized_slot( ag_finality_tracker_t const * self );
 
+FD_FN_PURE uchar const *
+ag_finality_tracker_highest_finalized_block_hash( ag_finality_tracker_t const * self );
+
 FD_FN_PURE ulong
 ag_finality_tracker_first_unpruned_slot( ag_finality_tracker_t const * self );
 

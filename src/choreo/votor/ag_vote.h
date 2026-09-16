@@ -78,43 +78,11 @@ FD_FN_PURE static inline ulong
 ag_vote_slot( ag_vote_t const * self ) {
   switch( self->kind ) {
   case AG_VOTE_KIND_NOTAR:          return self->notar.slot;
+  case AG_VOTE_KIND_FINAL:          return self->final.slot;
   case AG_VOTE_KIND_SKIP:           return self->skip.slot;
   case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.slot;
   case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.slot;
-  default:                          return self->final.slot;
-  }
-}
-
-FD_FN_PURE static inline fd_bls_sig_t const *
-ag_vote_sig( ag_vote_t const * self ) {
-  switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          return &self->notar.sig;
-  case AG_VOTE_KIND_SKIP:           return &self->skip.sig;
-  case AG_VOTE_KIND_NOTAR_FALLBACK: return &self->notar_fallback.sig;
-  case AG_VOTE_KIND_SKIP_FALLBACK:  return &self->skip_fallback.sig;
-  default:                          return &self->final.sig;
-  }
-}
-
-FD_FN_PURE static inline ushort
-ag_vote_rank( ag_vote_t const * self ) {
-  switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          return self->notar.rank;
-  case AG_VOTE_KIND_SKIP:           return self->skip.rank;
-  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.rank;
-  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.rank;
-  default:                          return self->final.rank;
-  }
-}
-
-FD_FN_PURE static inline ushort
-ag_vote_shred_version( ag_vote_t const * self ) {
-  switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          return self->notar.shred_version;
-  case AG_VOTE_KIND_SKIP:           return self->skip.shred_version;
-  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.shred_version;
-  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.shred_version;
-  default:                          return self->final.shred_version;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
 
@@ -122,20 +90,47 @@ FD_FN_PURE static inline uchar const *
 ag_vote_block_hash( ag_vote_t const * self ) {
   switch( self->kind ) {
   case AG_VOTE_KIND_NOTAR:          return self->notar.block_hash;
+  case AG_VOTE_KIND_FINAL:          return NULL;
+  case AG_VOTE_KIND_SKIP:           return NULL;
   case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.block_hash;
-  default:                          return NULL;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return NULL;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
 
-static inline void
-ag_vote_set_rank( ag_vote_t * self,
-                  ushort      rank ) {
+FD_FN_PURE static inline fd_bls_sig_t const *
+ag_vote_sig( ag_vote_t const * self ) {
   switch( self->kind ) {
-  case AG_VOTE_KIND_NOTAR:          self->notar.rank          = rank; break;
-  case AG_VOTE_KIND_SKIP:           self->skip.rank           = rank; break;
-  case AG_VOTE_KIND_NOTAR_FALLBACK: self->notar_fallback.rank = rank; break;
-  case AG_VOTE_KIND_SKIP_FALLBACK:  self->skip_fallback.rank  = rank; break;
-  default:                          self->final.rank          = rank; break;
+  case AG_VOTE_KIND_NOTAR:          return &self->notar.sig;
+  case AG_VOTE_KIND_FINAL:          return &self->final.sig;
+  case AG_VOTE_KIND_SKIP:           return &self->skip.sig;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return &self->notar_fallback.sig;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return &self->skip_fallback.sig;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+}
+
+FD_FN_PURE static inline ushort
+ag_vote_rank( ag_vote_t const * self ) {
+  switch( self->kind ) {
+  case AG_VOTE_KIND_NOTAR:          return self->notar.rank;
+  case AG_VOTE_KIND_FINAL:          return self->final.rank;
+  case AG_VOTE_KIND_SKIP:           return self->skip.rank;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.rank;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.rank;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+}
+
+FD_FN_PURE static inline ushort
+ag_vote_shred_version( ag_vote_t const * self ) {
+  switch( self->kind ) {
+  case AG_VOTE_KIND_NOTAR:          return self->notar.shred_version;
+  case AG_VOTE_KIND_FINAL:          return self->final.shred_version;
+  case AG_VOTE_KIND_SKIP:           return self->skip.shred_version;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.shred_version;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.shred_version;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
 
