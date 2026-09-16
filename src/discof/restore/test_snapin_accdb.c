@@ -2,6 +2,7 @@
 
 #include "../../util/archive/fd_tar.h"
 
+#include <stdlib.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
