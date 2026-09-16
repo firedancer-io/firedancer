@@ -581,7 +581,6 @@ write_snapshots( config_t const * config,
                  ulong const *    cur_tile,
                  ulong const *    prev_tile ) {
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
-  ulong snapin_idx = fd_topo_find_tile( &config->topo, "snapin", 0UL );
   ulong snapdc_tile_cnt = fd_topo_tile_name_cnt( &config->topo, "snapdc" );
   ulong snapin_tile_cnt = fd_topo_tile_name_cnt( &config->topo, "snapin" );
   ulong state = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, STATE ) ];
@@ -614,7 +613,11 @@ write_snapshots( config_t const * config,
          downloaded by snapct. */
       ulong consumed, dc_in, dc_out, size_bytes;
       if( FD_UNLIKELY( incremental ) ) {
-        consumed   = cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ];
+        consumed   = ULONG_MAX;
+        for( ulong i=0UL; i<snapin_tile_cnt; i++ ) {
+          ulong snapin_idx = fd_topo_find_tile( &config->topo, "snapin", i );
+          consumed = fd_ulong_min( consumed, cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ] );
+        }
         dc_in      = 0UL;
         dc_out     = 0UL;
         for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
@@ -624,7 +627,11 @@ write_snapshots( config_t const * config,
         }
         size_bytes = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ];
       } else {
-        consumed   = cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ];
+        consumed   = ULONG_MAX;
+        for( ulong i=0UL; i<snapin_tile_cnt; i++ ) {
+          ulong snapin_idx = fd_topo_find_tile( &config->topo, "snapin", i );
+          consumed = fd_ulong_min( consumed, cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ] );
+        }
         dc_in      = 0UL;
         dc_out     = 0UL;
         for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {

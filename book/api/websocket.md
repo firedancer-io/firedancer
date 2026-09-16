@@ -1971,7 +1971,7 @@ since process start.
 | compaction        | `Compaction`     | Aggregate compaction activity (see below) |
 | cache             | `Cache`          | In-memory cache occupancy and per-size-class metrics (see below) |
 | io                | `Io`             | Aggregate IO counters and rates across all accdb joiners (see below) |
-| tiles             | `Tile[]`         | Per-tile breakdown of accdb activity, one entry per consumer tile in stable order |
+| tiles             | `Tile[]`         | Per-tile breakdown of accdb activity in stable order. Snapshot-loader `snapin` rows disappear after shutdown |
 | partitions        | `Partition[]`    | Per-partition snapshot. Partitions that have never been written and are not being compacted are omitted |
 
 **`Disk`**

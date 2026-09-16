@@ -500,7 +500,6 @@ snapshot_load_cmd_fn( args_t *   args,
 
   fd_topo_tile_t * snapct_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapct", 0UL ) ];
   fd_topo_tile_t * snapld_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapld", 0UL ) ];
-  fd_topo_tile_t * snapin_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ];
   ulong snapdc_tile_cnt = config->firedancer.layout.snapdc_tile_count;
   ulong snapin_tile_cnt = config->firedancer.layout.snapin_tile_count;
   FD_TEST( snapin_tile_cnt<=FD_TOPO_MAX_TILE_IN_LINKS );
@@ -513,7 +512,6 @@ snapshot_load_cmd_fn( args_t *   args,
 
   ulong volatile * const snapct_metrics = fd_metrics_tile( snapct_tile->metrics );
   ulong volatile * const snapld_metrics = fd_metrics_tile( snapld_tile->metrics );
-  ulong volatile * const snapin_metrics = fd_metrics_tile( snapin_tile->metrics );
   ulong volatile *       snapin_all_metrics[ FD_TOPO_MAX_TILE_IN_LINKS ];
   for( ulong i=0UL; i<snapin_tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ];
@@ -599,7 +597,8 @@ snapshot_load_cmd_fn( args_t *   args,
     char const * phase = phase_cstr( snapct_metrics[ MIDX( GAUGE, SNAPCT, STATE ) ] );
     ulong consumed, dc_in, dc_out, size_bytes;
     if( FD_UNLIKELY( !strcmp( phase, "incr" ) ) ) {
-      consumed   = snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ];
+      consumed   = ULONG_MAX;
+      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ] );
       dc_in      = 0UL;
       dc_out     = 0UL;
       for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
@@ -608,7 +607,8 @@ snapshot_load_cmd_fn( args_t *   args,
       }
       size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ];
     } else {
-      consumed   = snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ];
+      consumed   = ULONG_MAX;
+      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ] );
       dc_in      = 0UL;
       dc_out     = 0UL;
       for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
