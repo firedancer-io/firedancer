@@ -270,8 +270,8 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 
 # slowest objects first: make -j spawns in prerequisite order, so a slow TU
 # listed late runs alone in the tail; patterns under $(OBJDIR)/obj/, no .o
-SCHED_HOT_OBJS?=third_party/zstd/lib/compress/% discof/%_tile ballet/reedsol/% disco/gui/% third_party/blst/% flamenco/vm/% disco/%_tile disco/pack/% waltz/quic/fd_quic flamenco/accdb/fd_accdb discof/replay/% discof/forest/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat third_party/zstd/lib/decompress/% disco/events/% disco/topo/% ballet/blake3/% app/shared/commands/watch/% app/firedancer/topology discof/chainer/% flamenco/rewards/% choreo/tower/% disco/shred/%
-sched-hot-objs = $(filter $(addprefix $(OBJDIR)/obj/,$(addsuffix .o,$(SCHED_HOT_OBJS))),$(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(lib))))
+SCHED_HOT_OBJS?=third_party/blst/% discof/replay/% discof/rpc/% disco/gui/% ballet/reedsol/% flamenco/vm/% third_party/zstd/lib/compress/% disco/pack/% waltz/quic/fd_quic app/firedancer/topology app/shared/commands/watch/% discof/forest/% discof/%_tile disco/%_tile flamenco/accdb/fd_accdb third_party/zstd/lib/decompress/% ballet/sha256/% ballet/sha512/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat disco/events/% disco/topo/% ballet/blake3/% discof/chainer/% flamenco/rewards/% choreo/tower/% disco/shred/%
+sched-hot-objs = $(filter $(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(lib))),$(SCHED_HOT_ALL))
 
 # _make-exe usage:
 #
@@ -469,6 +469,9 @@ endef
 
 # Include all of the Local.mk files we found earlier
 $(foreach mk,$(LOCAL_MKS),$(eval $(call _include-mk,$(mk))))
+
+# registered members matching SCHED_HOT_OBJS, pattern-major
+SCHED_HOT_ALL:=$(foreach p,$(SCHED_HOT_OBJS),$(filter $(OBJDIR)/obj/$(p).o,$(foreach l,$(sort $(LIB_NAMES)),$(LIB_OBJS_$(l)))))
 
 # Flavor stamps: objects depend on $(OBJDIR)/.flags (compiler+flags),
 # links on $(OBJDIR)/.ldflags (linker+global link flags) plus a per-target
