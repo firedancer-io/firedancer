@@ -47,18 +47,26 @@ GENHTML=genhtml
 # Parameters passed to libFuzzer tests
 FUZZFLAGS:=-max_total_time=600 -timeout=10 -runs=10
 
-# Obtain compiler version so that decisions can be made on disabling/enabling
-# certain flags
-CC_MAJOR_VERSION:=$(shell $(CC) -dumpversion | cut -f1 -d.)
+# $(call which,name): first executable on PATH; a name with a slash resolves as-is
+which = $(if $(findstring /,$(1)),$(1),$(shell command -v $(1) 2>/dev/null))
+
+# Compiler version keys the default build dir and gates version-specific
+# flags.
+cc-version = $(or $(shell $(1) -dumpfullversion -dumpversion 2>/dev/null | head -1),unknown)
+CC_VERSION:=$(call cc-version,$(CC))
+CC_VERSION_OF:=$(CC)
+CC_MAJOR_VERSION:=$(firstword $(subst ., ,$(filter-out unknown,$(CC_VERSION))))
 
 # Default _FORTIFY_SOURCE level
 FORTIFY_SOURCE?=2
 
 # Prefer LLD when available
 ifeq ($(CROSS),)
-ifneq ($(shell command -v ld.lld 2>/dev/null),)
-ifeq ($(shell test $(CC_MAJOR_VERSION) -ge 9 2>/dev/null && echo ok),ok)
+ifneq ($(call which,ld.lld),)
+ifneq ($(CC_MAJOR_VERSION),)
+ifeq ($(filter 0 1 2 3 4 5 6 7 8,$(CC_MAJOR_VERSION)),)
 LDFLAGS+=-fuse-ld=lld
+endif
 endif
 endif
 endif

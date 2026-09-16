@@ -17,7 +17,7 @@ src/discoh/guih/dist_cmp/%.gz: src/discoh/guih/dist/% src/ballet/zstd/fd_gzip_pa
 $(OBJDIR)/bin/fd_gzip_pack 9 $< $@ && \
 $(TOUCH) $@
 
-FD_GUIH_FRONTEND_FILES := $(shell $(FIND) src/discoh/guih/dist -type f)
+FD_GUIH_FRONTEND_FILES := $(call rfiles,src/discoh/guih/dist/)
 FD_GUIH_FRONTEND_GZ_FILES := $(patsubst src/discoh/guih/dist/%, src/discoh/guih/dist_cmp/%.gz, $(FD_GUIH_FRONTEND_FILES))
 FD_GUIH_FRONTEND_ZST_FILES := $(patsubst src/discoh/guih/dist/%, src/discoh/guih/dist_cmp/%.zst, $(FD_GUIH_FRONTEND_FILES))
 

@@ -6,11 +6,13 @@
 # OBJDIR; explicit BUILDDIR overrides rely on the flavor stamps alone.
 empty:=
 space:=$(empty) $(empty)
-CC_VERSION:=$(or $(shell $(CC) -dumpfullversion -dumpversion 2>/dev/null | head -1),unknown)
+ifneq ($(CC),$(CC_VERSION_OF))
+CC_VERSION:=$(call cc-version,$(CC))
+endif
 # name + resolved binary + inline args: same-version toolchains at
 # different installs, or CC='gcc -mX' variants, must not share objects
-CC_ID:=$(notdir $(firstword $(CC))) $(realpath $(shell command -v $(firstword $(CC)) 2>/dev/null)) $(wordlist 2,$(words $(CC)),$(CC))
-LD_ID:=$(notdir $(firstword $(LD))) $(realpath $(shell command -v $(firstword $(LD)) 2>/dev/null)) $(wordlist 2,$(words $(LD)),$(LD))
+CC_ID:=$(notdir $(firstword $(CC))) $(realpath $(call which,$(firstword $(CC)))) $(wordlist 2,$(words $(CC)),$(CC))
+LD_ID:=$(notdir $(firstword $(LD))) $(realpath $(call which,$(firstword $(LD)))) $(wordlist 2,$(words $(LD)),$(LD))
 CLEANDIR:=$(BASEDIR)/$(BUILDDIR)
 ifeq ($(BUILDDIR1)$(filter-out file,$(origin BUILDDIR)),)
 BUILDDIR:=$(BUILDDIR)/$(CC_VERSION)$(if $(EXTRAS),-$(subst $(space),-,$(sort $(EXTRAS))))
@@ -392,6 +394,11 @@ run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3),$(4) $(LDFLAGS_EXE)))
 
 ##############################
+# Usage: $(call rfiles,dir/)  (regular files below dir, dotfiles included)
+
+rfiles = $(filter-out $(patsubst %/,%,$(wildcard $(1)*/ $(1).[!.]*/ $(1)..?*/)),$(wildcard $(1)* $(1).[!.]* $(1)..?*)) $(foreach d,$(wildcard $(1)*/ $(1).[!.]*/ $(1)..?*/),$(call rfiles,$(d)))
+
+##############################
 # Usage: $(call make-proof,name,source_file)
 
 define _make-proof
@@ -665,8 +672,10 @@ endif
 
 # llvm-cov step 2.1
 # Merge multiple lcov files together
+ifneq ($(filter dist-cov-report $(BASEDIR)/cov/%,$(MAKECMDGOALS)),)
 $(BASEDIR)/cov/cov.lcov: $(shell $(FIND) $(BASEDIR) -name 'cov.lcov' -print)
 	$(MKDIR) $(BASEDIR)/cov && $(LCOV) -o $@ $(addprefix -a ,$^)
+endif
 
 # llvm-cov step 1.6, 2.2
 # Create HTML coverage report using lcov genhtml
