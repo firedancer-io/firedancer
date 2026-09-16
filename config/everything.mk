@@ -417,6 +417,27 @@ run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3),$(4) $(LDFLAGS_EXE)))
 
 ##############################
+# Usage: $(call make-tool,name,objs,libs)
+# build-time host tool: libc + the listed libs only (the global vendor archives are dropped
+# from LDFLAGS on the archive fallback too, so it has no edge on them)
+
+define _make-tool
+
+DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
+ALL_EXES+=$(OBJDIR)/bin/$(1)
+$(call stamp,$(OBJDIR)/bin/$(1).mlist,$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(3))
+.PHONY: $(1)
+$(1) bin: $(OBJDIR)/bin/$(1)
+
+$(OBJDIR)/bin/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(call exe-lib-deps,$(3)) $(OBJDIR)/.ldflags $(OBJDIR)/bin/$(1).mlist
+	@printf 'LD\t%s (tool)\n' $$(notdir $$@)
+	$(Q)$(MKDIR) $$(dir $$@) && $$(LD) -L$(OBJDIR)/lib $$(filter %.o,$$^) $$(call exe-lib-args,$(3)) $$(filter-out $(OBJDIR)/lib/%.a,$$(LDFLAGS)) $$(LDFLAGS_EXE) -o $$@.tmp && mv -f $$@.tmp $$@
+
+endef
+
+make-tool = $(eval $(call _make-tool,$(1),$(2),$(3)))
+
+##############################
 # Usage: $(call rfiles,dir/)  (regular files below dir, dotfiles included)
 
 rfiles = $(filter-out $(patsubst %/,%,$(wildcard $(1)*/ $(1).[!.]*/ $(1)..?*/)),$(wildcard $(1)* $(1).[!.]* $(1)..?*)) $(foreach d,$(wildcard $(1)*/ $(1).[!.]*/ $(1)..?*/),$(call rfiles,$(d)))
