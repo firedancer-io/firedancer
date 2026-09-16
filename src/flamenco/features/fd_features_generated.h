@@ -299,10 +299,10 @@ union fd_features {
     /* 0x2bc8c7833f988c0a */ ulong reduce_slot_time_to_200ms;
     /* 0xf2d71f1fc49f0d35 */ ulong set_lamports_per_byte_to_6333;
     /* 0x805cef511fbe564a */ ulong set_lamports_per_byte_to_5080;
-    /* 0x413e7499321753dd */ ulong set_lamports_per_byte_to_2575;
-    /* 0xb8e3d94b5613cdeb */ ulong set_lamports_per_byte_to_1322;
-    /* 0x078408ee87746a0b */ ulong set_lamports_per_byte_to_696;
-    /* 0x0b606154993bf43d */ ulong set_lamports_per_byte_to_6960;
+    /* 0x2c05ce7fe856c10c */ ulong set_lamports_per_byte_to_2575;
+    /* 0xdbc6433ff156c10c */ ulong set_lamports_per_byte_to_1322;
+    /* 0x0c7d6b2d3358c10c */ ulong set_lamports_per_byte_to_696;
+    /* 0x542d5add8c56c10c */ ulong set_lamports_per_byte_to_6960;
     /* 0x4153c63f859c899c */ ulong relax_post_exec_min_balance_check;
     /* 0xe8f8dc2ca192d30c */ ulong upgrade_bpf_stake_program_to_v5_1;
     /* 0x1dd8741ccebef821 */ ulong custom_commission_collector;
