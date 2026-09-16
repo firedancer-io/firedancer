@@ -1,4 +1,5 @@
 #include "fd_wksp_private.h"
+#include "../tpool/fd_tpool.h"
 
 #include <errno.h>
 #include <unistd.h>

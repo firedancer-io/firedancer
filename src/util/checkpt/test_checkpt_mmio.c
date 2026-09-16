@@ -1,4 +1,5 @@
 #include "../fd_util.h"
+#include "fd_checkpt.h"
 
 FD_STATIC_ASSERT( FD_CHECKPT_SUCCESS  == 0, unit_test );
 FD_STATIC_ASSERT( FD_CHECKPT_ERR_INVAL==-1, unit_test );

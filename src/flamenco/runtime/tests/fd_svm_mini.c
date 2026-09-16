@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_svm_mini.h"
+#include "../fd_runtime_stack_tmpl.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../../runtime/fd_bank.h"

@@ -3,7 +3,7 @@
 #define _GNU_SOURCE
 #include "fd_solfuzz.h"
 #include "../fd_bank.h"
-#include "../fd_runtime_stack.h"
+#include "../fd_runtime_stack_tmpl.h"
 #include "../fd_runtime.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include <errno.h>

@@ -1,5 +1,5 @@
 #include "../../util/fd_util.h"
-#include "fd_gossip_purged.h"
+#include "fd_gossip_purged_private.h"
 
 #include <stdlib.h>
 

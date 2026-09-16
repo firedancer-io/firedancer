@@ -11,6 +11,7 @@
    - Multi-session use */
 
 #include "../../capture/fd_solcap_writer.h"
+#include "../../../util/spad/fd_spad.h"
 #include "../../accdb/fd_accdb.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../fd_bank.h"

@@ -54,6 +54,9 @@
 
 typedef fd_votes_blk_t blk_t;
 
+#define SET_NAME slot_vtrs
+#include "../../util/tmpl/fd_set_dynamic.c"
+
 #define POOL_NAME blk_pool
 #define POOL_LAZY 1
 #define POOL_T    blk_t

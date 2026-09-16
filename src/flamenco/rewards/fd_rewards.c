@@ -13,7 +13,7 @@
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/fd_system_ids.h"
 #include "../capture/fd_capture_ctx.h"
-#include "../runtime/fd_runtime_stack.h"
+#include "../runtime/fd_runtime_stack_tmpl.h"
 #include "../runtime/fd_accdb_svm.h"
 #include "fd_rewards_base.h"
 #include "../events/fd_event_runtime.h"

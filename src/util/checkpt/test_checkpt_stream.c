@@ -1,4 +1,5 @@
 #include "../fd_util.h"
+#include "fd_checkpt.h"
 
 #include <stdlib.h>
 #include <errno.h>

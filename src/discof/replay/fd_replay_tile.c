@@ -42,7 +42,7 @@
 #include "../repair/fd_repair_tile.h"
 #include "../rotor/fd_rotor_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_stack.h"
+#include "../../flamenco/runtime/fd_runtime_stack_tmpl.h"
 
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
