@@ -9,6 +9,7 @@ struct fd_topo_cpu {
   int   online;
   ulong numa_node;
   ulong sibling;
+  ulong die_idx;
 };
 
 typedef struct fd_topo_cpu fd_topo_cpu_t;

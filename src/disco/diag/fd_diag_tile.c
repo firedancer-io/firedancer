@@ -1175,11 +1175,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_topo_cpus_init( cpus );
   ctx->system_resources.cpu_cnt = (uint)fd_ulong_min( cpus->cpu_cnt, FD_DIAG_SYSTEM_CPU_MAX );
   for( ulong i=0UL; i<ctx->system_resources.cpu_cnt; i++ ) {
-    fd_diag_system_cpu_t * cpu = &ctx->system_resources.cpu[ i ];
-    cpu->cpu_idx     = (ushort)i;
-    cpu->numa_idx    = (ushort)cpus->cpu[ i ].numa_node;
-    cpu->sibling_idx = cpus->cpu[ i ].sibling==ULONG_MAX ? USHORT_MAX : (ushort)cpus->cpu[ i ].sibling;
-    cpu->online      = (uchar)cpus->cpu[ i ].online;
+    fd_diag_system_cpu_init( &ctx->system_resources.cpu[ i ], &cpus->cpu[ i ] );
   }
 
   for( ulong numa_idx=0UL; numa_idx<cpus->numa_node_cnt && ctx->numa.cnt<FD_DIAG_SYSTEM_NUMA_MAX; numa_idx++ ) {

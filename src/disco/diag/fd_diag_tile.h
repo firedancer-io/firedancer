@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_diag_fd_diag_tile_h
 
 #include "../fd_disco_base.h"
+#include "../topo/fd_cpu_topo.h"
 
 #define FD_DIAG_BUNDLE_STATUS_DISABLED     (0UL) /* No bundle tiles configured */
 #define FD_DIAG_BUNDLE_STATUS_DISCONNECTED (1UL) /* All bundle tiles disconnected */
@@ -41,9 +42,20 @@ struct fd_diag_system_cpu {
   ushort cpu_idx;
   ushort numa_idx;
   ushort sibling_idx; /* USHORT_MAX when unavailable/offline */
+  ushort die_idx;
   uchar  online;
 };
 typedef struct fd_diag_system_cpu fd_diag_system_cpu_t;
+
+static inline void
+fd_diag_system_cpu_init( fd_diag_system_cpu_t * cpu,
+                         fd_topo_cpu_t const *  topo_cpu ) {
+  cpu->cpu_idx     = (ushort)topo_cpu->idx;
+  cpu->numa_idx    = (ushort)topo_cpu->numa_node;
+  cpu->sibling_idx = topo_cpu->sibling==ULONG_MAX ? USHORT_MAX : (ushort)topo_cpu->sibling;
+  cpu->die_idx     = topo_cpu->die_idx==ULONG_MAX ? USHORT_MAX : (ushort)topo_cpu->die_idx;
+  cpu->online      = (uchar)topo_cpu->online;
+}
 
 struct fd_diag_system_numa_mem {
   ushort numa_idx;
