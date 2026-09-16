@@ -3042,7 +3042,8 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
                        uchar *          pkt,
                        ulong            pkt_sz,
                        uchar const *    dgram,
-                       ulong            dgram_sz ) {
+                       ulong            dgram_sz,
+                       ulong *          opt_pkt_num ) {
   if( FD_UNLIKELY( !conn || !pkt || (!dgram && dgram_sz) ) ) return 0UL;
   if( FD_UNLIKELY( conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return 0UL;
   if( FD_UNLIKELY( !fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_appdata_id ) ) ) return 0UL;
@@ -3124,6 +3125,7 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
 #endif
 
   conn->pkt_number[ pn_space ] = pkt_num + 1UL;
+  if( opt_pkt_num ) *opt_pkt_num = pkt_num;
   return out_sz;
 }
 
@@ -4929,6 +4931,8 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
   }
 
   conn->used_pkt_meta -= fd_quic_pkt_meta_remove_range( sent, pool, lo, hi );
+
+  if( enc_level==fd_quic_enc_level_appdata_id ) fd_quic_cb_ack_range( conn->quic, conn, lo, hi );
 }
 
 static ulong

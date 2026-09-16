@@ -220,7 +220,7 @@ main( int argc, char ** argv ) {
   uchar * laddr = (uchar*)wksp;
   ulong footprint = fd_quic_footprint( &limits );
   FD_TEST( footprint );
-  quic            = (fd_quic_t*)laddr;
+  quic = fd_quic_join( fd_quic_new( laddr, &limits ) );
   laddr += footprint;
   FD_TEST( quic );
   fd_quic_state_t * state = fd_quic_get_state( quic );
