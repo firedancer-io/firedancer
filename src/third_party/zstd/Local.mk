@@ -23,6 +23,8 @@ ZSTD_OBJS:=\
   decompress/zstd_decompress_block
 
 ZSTD_CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS))) -DZSTD_TRACE=0 -DDEBUGLEVEL=0 -DZSTD_LEGACY_SUPPORT=0 -DZSTD_ASAN_DONT_POISON_WORKSPACE=1 -DZSTD_MSAN_DONT_POISON_WORKSPACE=1
+# levels 4-15 (zstd_lazy.c) unused: callers use 1, 3, 19; an excluded level cascades to dfast
+ZSTD_CFLAGS_NOWARN+=-DZSTD_EXCLUDE_GREEDY_BLOCK_COMPRESSOR -DZSTD_EXCLUDE_LAZY_BLOCK_COMPRESSOR -DZSTD_EXCLUDE_LAZY2_BLOCK_COMPRESSOR -DZSTD_EXCLUDE_BTLAZY2_BLOCK_COMPRESSOR
 # huf_decompress_amd64.S is the only asm; keep the C path for machines
 # without FD_HAS_X86 (noarch etc.) so it stays exercised.
 ifndef FD_HAS_X86

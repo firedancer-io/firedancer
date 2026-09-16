@@ -74,6 +74,8 @@ fd_rpc_genesis_tar_bz_max_sz( ulong max_message_size ) {
 
 #define FD_RPC_BASE58_ENCODED_128_LEN (175UL) /* ceil(128*log58(256)) */
 #define FD_RPC_ZSTD_LEVEL 1
+/* levels 4-15 are compiled out of libfd_zstd (third_party/zstd/Local.mk) */
+FD_STATIC_ASSERT( FD_RPC_ZSTD_LEVEL<=3 || FD_RPC_ZSTD_LEVEL>=16, zstd_level );
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
