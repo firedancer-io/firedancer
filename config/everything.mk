@@ -104,6 +104,10 @@ endif
 
 all: info bin include lib unit-test fuzz-test
 
+# first prerequisite of bin, so every build-info job is walked before any exe
+.PHONY: buildinfo
+bin: buildinfo
+
 help:
 	# Configuration
 	# MACHINE         = $(MACHINE)
@@ -288,15 +292,22 @@ DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR
 ALL_EXES+=$(OBJDIR)/$(5)/$(1)
 # member list: resolved objs + libs (arg 6 has its own .ldflags.d stamp)
 $(call stamp,$(OBJDIR)/$(5)/$(1).mlist,$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(3))
-EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)),$(OBJDIR)/$(5)/$(1).buildinfo.c $(OBJDIR)/$(5)/$(1).buildinfo.o $(BASEDIR)/$(1))
+EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)),$(OBJDIR)/$(5)/$(1).buildinfo.c $(OBJDIR)/$(5)/$(1).buildinfo.o $(OBJDIR)/$(5)/$(1).buildinfo.o.new $(BASEDIR)/$(1))
 
 .PHONY: $(1)
+ifeq ($(5),bin)
+# build info captured by its own early job; the link installs it
+$(OBJDIR)/bin/$(1).buildinfo.o.new: FORCE
+	@$(MKDIR) $$(dir $$@) && { echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $(OBJDIR)/bin/$(1).buildinfo.c && $$(CC) -c -o $$@ $(OBJDIR)/bin/$(1).buildinfo.c
+$(1) buildinfo: $(OBJDIR)/bin/$(1).buildinfo.o.new
+$(OBJDIR)/bin/$(1): | $(OBJDIR)/bin/$(1).buildinfo.o.new
+endif
 $(1): $(OBJDIR)/$(5)/$(1)
 
 $(OBJDIR)/$(5)/$(1): $$$$(call sched-hot-objs,$(3)) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a) $(OBJDIR)/.ldflags $(call ldstamp,$(5),$(1),$(6)) $(OBJDIR)/$(5)/$(1).mlist
 	@printf 'LD\t%s (%s)\n' $$(notdir $$@) $(5)
 	$(Q)$(MKDIR) $$(dir $$@) && \
-$(if $(filter bin,$(5)),{ echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $$@.buildinfo.c && $$(CC) -c -o $$@.buildinfo.o $$@.buildinfo.c && ) \
+$(if $(filter bin,$(5)),mv -f $$@.buildinfo.o.new $$@.buildinfo.o && ) \
 $$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@.tmp && mv -f $$@.tmp $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
