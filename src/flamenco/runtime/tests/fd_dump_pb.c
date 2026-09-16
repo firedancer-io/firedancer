@@ -10,7 +10,7 @@
 #include "../fd_alut.h"
 #include "../program/fd_precompiles.h"
 #include "../../../third_party/nanopb/pb_encode.h"
-#include "../fd_runtime_stack.h"
+#include "../fd_runtime_stack_tmpl.h"
 #include "../../../util/fd_hash32.h"
 
 #include <stdio.h> /* fopen */

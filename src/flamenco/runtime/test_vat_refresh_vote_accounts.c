@@ -4,7 +4,7 @@
 
 #define _GNU_SOURCE
 #include "fd_runtime.h"
-#include "fd_runtime_stack.h"
+#include "fd_runtime_stack_tmpl.h"
 #include "fd_bank.h"
 #include "fd_system_ids.h"
 #include "program/fd_vote_program.h"

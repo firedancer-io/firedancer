@@ -1,4 +1,5 @@
 #include "../fd_util.h"
+#include "fd_spad.h"
 
 /* Use the debug variant for extra code coverage and test strictness */
 

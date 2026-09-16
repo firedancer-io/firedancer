@@ -104,9 +104,6 @@
 #define FD_VOTES_PARANOID 1
 #endif
 
-#define SET_NAME slot_vtrs
-#include "../../util/tmpl/fd_set_dynamic.c"
-
 struct fd_votes_blk_key {
   ulong     slot;
   fd_hash_t block_id;

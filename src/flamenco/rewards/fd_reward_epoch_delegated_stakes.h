@@ -5,7 +5,7 @@
 #include "../runtime/fd_accdb_svm.h"
 #include "../runtime/fd_bank.h"
 #include "../runtime/fd_pubkey_utils.h"
-#include "../runtime/fd_runtime_stack.h"
+#include "../runtime/fd_runtime_stack_tmpl.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 

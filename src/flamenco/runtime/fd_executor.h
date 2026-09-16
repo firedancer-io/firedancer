@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
 #include "info/fd_instr_info.h"
+#include "../../util/spad/fd_spad.h"
 #include "../../disco/fd_txn_p.h"
 #include "sysvar/fd_sysvar_rent.h"
 

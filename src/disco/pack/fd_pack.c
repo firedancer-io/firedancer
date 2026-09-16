@@ -1,5 +1,12 @@
 #define FD_UNALIGNED_ACCESS_STYLE 0
 #include "fd_pack.h"
+
+#define SORT_NAME        fd_pack_writer_cost_sort
+#define SORT_KEY_T       fd_pack_addr_use_t
+#define SORT_BEFORE(a,b) (FD_PACK_TOP_WRITERS_SORT_BEFORE(a,b))
+#define SORT_FN_ATTR     __attribute__((no_sanitize("address", "undefined"))) /* excessive ASan slowdown */
+#include "../../util/tmpl/fd_sort.c"
+
 #include "fd_pack_cost.h"
 #include "fd_pack_bitset.h"
 #include "fd_pack_unwritable.h"

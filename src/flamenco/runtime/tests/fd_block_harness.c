@@ -5,7 +5,7 @@
 #include "../fd_runtime.h"
 #include "../fd_runtime_helpers.h"
 #include "../fd_system_ids.h"
-#include "../fd_runtime_stack.h"
+#include "../fd_runtime_stack_tmpl.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../progcache/fd_progcache_admin.h"

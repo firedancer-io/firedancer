@@ -1,4 +1,4 @@
-#include "fd_gossip_purged.h"
+#include "fd_gossip_purged_private.h"
 #include "../../util/rng/fd_rng.h"
 
 struct fd_gossip_purged_private {

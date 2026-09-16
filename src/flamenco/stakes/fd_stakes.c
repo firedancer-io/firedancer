@@ -5,7 +5,7 @@
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/program/fd_vote_program.h"
-#include "../runtime/fd_runtime_stack.h"
+#include "../runtime/fd_runtime_stack_tmpl.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/fd_accdb_svm.h"
 #include "../../util/bits/fd_sat.h"

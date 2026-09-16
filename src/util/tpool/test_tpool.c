@@ -1,4 +1,5 @@
 #include "../fd_util.h"
+#include "fd_tpool.h"
 
 FD_STATIC_ASSERT( FD_TPOOL_OPT_SLEEP   == 1UL, unit_test );
 FD_STATIC_ASSERT( FD_TPOOL_TASK_ARG_MAX==43UL, unit_test );

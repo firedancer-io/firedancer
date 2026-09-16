@@ -1,8 +1,11 @@
 #ifndef HEADER_fd_src_util_wksp_fd_wksp_h
 #define HEADER_fd_src_util_wksp_fd_wksp_h
 
-#include "../tpool/fd_tpool.h"
-#include "../checkpt/fd_checkpt.h"
+#include "../scratch/fd_scratch.h"
+
+/* opaque; the tpool API is in tpool/fd_tpool.h */
+struct fd_tpool_private;
+typedef struct fd_tpool_private fd_tpool_t;
 
 /* API for creating NUMA-aware and TLB-efficient workspaces used for
    complex inter-thread and inter-process shared memory communication

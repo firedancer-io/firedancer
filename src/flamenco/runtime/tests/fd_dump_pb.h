@@ -74,6 +74,7 @@
               cases */
 
 #include "../info/fd_instr_info.h"
+#include "../../../util/spad/fd_spad.h"
 #include "../../vm/fd_vm.h"
 #include "generated/block.pb.h"
 #include "../../../disco/fd_txn_p.h"
