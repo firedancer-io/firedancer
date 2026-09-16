@@ -173,6 +173,19 @@
 
      myele_t * mypool_acquire_nolock( mypool_t * join );
 
+     // mypool_acquire_batch acquires exactly cnt elements from a mypool
+     // and stores pointers to them in out[0,cnt).  Assumes join is a
+     // current local join and out has room for cnt pointers.  cnt==0 is
+     // a no-op that returns NULL.  Elements come from the free stack
+     // first (LIFO), then, if POOL_LAZY, from the lazy region
+     // (ascending).  On success, returns out.  If the pool runs
+     // short, returns acquired elements to the pool and returns NULL.
+     //
+     // Acquired elements are independent: any subset can be handed back
+     // with mypool_release.
+
+     myele_t ** mypool_acquire_batch( mypool_t * join, ulong cnt, myele_t * out[] );
+
      // mypool_release releases an element to a mypoool.  Assumes join
      // is a current local join, ele is a pointer in the caller's
      // address space to the element, and the element is currently not
@@ -507,6 +520,8 @@ POOL_STATIC POOL_ELE_T * POOL_(acquire)( POOL_(t) * join );
 
 POOL_STATIC POOL_ELE_T * POOL_(acquire_nolock)( POOL_(t) * join );
 
+POOL_STATIC POOL_ELE_T ** POOL_(acquire_batch)( POOL_(t) * join, ulong cnt, POOL_ELE_T * out[] );
+
 POOL_STATIC void POOL_(release)( POOL_(t) * join, POOL_ELE_T * ele );
 
 POOL_STATIC void POOL_(release_chain)( POOL_(t) * join, POOL_ELE_T * head, POOL_ELE_T * tail );
@@ -650,13 +665,20 @@ POOL_(delete)( void * shpool ) {
 
 #if POOL_LAZY
 
-static inline POOL_ELE_T *
-POOL_(acquire_lazy)( POOL_(t) * join ) {
+/* pool_acquire_lazy acquires up to cnt elements from the lazy region in
+   a single CAS, storing them in out[0,n) in ascending index order.
+   Returns n in [0,cnt]; n<cnt iff the lazy region ran out.  Assumes
+   cnt>0. */
+
+static inline ulong
+POOL_(acquire_lazy)( POOL_(t) *   join,
+                     ulong        cnt,
+                     POOL_ELE_T * out[] ) {
   POOL_ELE_T *     ele0    = join->ele;
   ulong            ele_max = join->ele_max;
   ulong volatile * _l      = (ulong volatile *)&join->pool->ver_lazy;
 
-  POOL_ELE_T * ele = NULL;
+  ulong n = 0UL;
 
   FD_COMPILER_MFENCE();
 
@@ -676,12 +698,13 @@ POOL_(acquire_lazy)( POOL_(t) * join ) {
         FD_LOG_CRIT(( "corruption detected (ele_idx=%lu ele_max=%lu)", ele_idx, ele_max ));
       }
 
-      ulong ele_nxt = ele_idx+1UL;
+      ulong ele_cnt = fd_ulong_min( cnt, ele_max-ele_idx );
+      ulong ele_nxt = ele_idx+ele_cnt;
       if( FD_UNLIKELY( ele_nxt>=ele_max ) ) ele_nxt = POOL_(idx_null)();
 
       ulong new_ver_lazy = POOL_(private_vidx)( ver+2UL, ele_nxt );
       if( FD_LIKELY( POOL_(private_cas)( _l, ver_lazy, new_ver_lazy )==ver_lazy ) ) { /* opt for low contention */
-        ele = ele0 + ele_idx;
+        for( ; n<ele_cnt; n++ ) out[ n ] = ele0 + ele_idx + n;
         break;
       }
     }
@@ -691,7 +714,7 @@ POOL_(acquire_lazy)( POOL_(t) * join ) {
 
   FD_COMPILER_MFENCE();
 
-  return ele;
+  return n;
 }
 
 #endif /* POOL_LAZY */
@@ -716,7 +739,7 @@ POOL_(acquire)( POOL_(t) * join ) {
 
       if( FD_UNLIKELY( POOL_(idx_is_null)( ele_idx ) ) ) { /* opt for not empty */
 #       if POOL_LAZY
-        return POOL_(acquire_lazy)( join );
+        POOL_(acquire_lazy)( join, 1UL, &ele );
 #       endif
         break;
       }
@@ -827,6 +850,104 @@ POOL_(acquire_nolock)( POOL_(t) * join ) {
   }
 
   return ele;
+}
+
+POOL_STATIC POOL_ELE_T **
+POOL_(acquire_batch)( POOL_(t) *   join,
+                      ulong        cnt,
+                      POOL_ELE_T * out[] ) {
+  if( FD_UNLIKELY( !cnt ) ) return NULL;
+
+  POOL_ELE_T *     ele0    = join->ele;
+  ulong            ele_max = join->ele_max;
+  ulong volatile * _v      = (ulong volatile *)&join->pool->ver_top;
+
+  ulong acq_cnt = 0UL; /* elements acquired so far, in out[0,acq_cnt) */
+
+# if POOL_LAZY
+  int lazy_empty = 0; /* 1 once the lazy region is known empty */
+# else
+  int lazy_empty = 1; /* no lazy region: an empty stack is an empty pool */
+# endif
+
+  FD_COMPILER_MFENCE();
+
+  for(;;) {
+
+    /* Pop up to rem elements off the free stack with one CAS.  Exits
+       with all acquired or with the stack observed empty. */
+
+    ulong         rem = cnt - acq_cnt;
+    POOL_ELE_T ** dst = out + acq_cnt;
+
+    for(;;) {
+      ulong ver_top = *_v;
+
+      ulong ver     = POOL_(private_vidx_ver)( ver_top );
+      ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
+
+      if( FD_LIKELY( !(ver & 1UL) ) ) { /* opt for unlocked */
+
+        if( FD_UNLIKELY( POOL_(idx_is_null)( ele_idx ) ) ) break; /* stack empty, opt for not empty */
+
+        if( FD_UNLIKELY( ele_idx>=ele_max ) ) {
+          FD_LOG_CRIT(( "corruption detected (ele_idx=%lu ele_max=%lu)", ele_idx, ele_max ));
+        }
+
+        /* Walk up to rem links from the top.  ele_nxt becomes the new
+           top (null if we drained the stack).  Another thread may have
+           acquired an element below us and repurposed its POOL_NEXT,
+           so links are bounds checked before use and the CAS below
+           fails if ver_top changed under us. */
+
+        ulong n       = 0UL;
+        ulong ele_nxt = ele_idx;
+        do {
+          dst[ n++ ] = ele0 + ele_nxt;
+          ele_nxt = POOL_(private_idx)( ele0[ ele_nxt ].POOL_NEXT );
+        } while( FD_LIKELY( (n<rem) & (ele_nxt<ele_max) ) );
+
+        if( FD_UNLIKELY( (ele_nxt>=ele_max) & (!POOL_(idx_is_null)( ele_nxt )) ) ) { /* ele_nxt is invalid, opt for valid */
+
+          /* As in acquire: only corruption if the stack did not change */
+
+          if( FD_UNLIKELY( POOL_(private_vidx_ver)( *_v )==ver ) ) {
+            FD_LOG_CRIT(( "corruption detected (ele_nxt=%lu ele_max=%lu)", ele_nxt, ele_max ));
+          }
+        } else { /* ele_nxt is valid */
+          ulong new_ver_top = POOL_(private_vidx)( ver+2UL, ele_nxt );
+
+          if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top )==ver_top ) ) { /* opt for low contention */
+            acq_cnt += n;
+            break;
+          }
+        }
+      }
+
+      FD_SPIN_PAUSE();
+    }
+
+    if( FD_LIKELY( acq_cnt==cnt ) ) break;
+
+    /* Stack was just seen empty.  If the lazy region was already seen
+       empty, the pool was empty while we still needed elements.  Else
+       take from the lazy region and, if still short, recheck the stack
+       once (it may have been refilled meanwhile). */
+
+    if( FD_UNLIKELY( lazy_empty ) ) {
+      while( acq_cnt ) POOL_(release)( join, out[ --acq_cnt ] );
+      return NULL;
+    }
+
+#   if POOL_LAZY
+    acq_cnt += POOL_(acquire_lazy)( join, cnt-acq_cnt, out+acq_cnt );
+    if( FD_LIKELY( acq_cnt==cnt ) ) break;
+    lazy_empty = 1;
+#   endif
+  }
+
+  FD_COMPILER_MFENCE();
+  return out;
 }
 
 POOL_STATIC void

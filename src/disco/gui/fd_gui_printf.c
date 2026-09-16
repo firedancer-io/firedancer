@@ -1581,17 +1581,14 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
         jsonp_close_array( gui->http );
       jsonp_close_object( gui->http );
 
-      /* Per-tile breakdown.  Iterate the slot table built at init.
-         snapwr's row disappears when it has reached the shutdown
-         status (matching how snapwr drops out of the overview tiles
-         table). */
+      /* Per-tile breakdown.  Iterate the slot table built at init. */
       jsonp_open_array( gui->http, "tiles" );
         for( ulong s=0UL; s<gui->summary.accdb->accdb_tile_cnt; s++ ) {
           ulong t_idx = (ulong)gui->summary.accdb->accdb_tile_topo_idx[ s ];
           fd_topo_tile_t const * tile = &gui->topo->tiles[ t_idx ];
           uchar kind = gui->summary.accdb->accdb_tile_kind[ s ];
 
-          if( kind==FD_GUI_ACCDB_TILE_KIND_SNAPWR && gui->summary.accdb->tile_cur_status[ s ]==2U ) continue;
+          if( kind==FD_GUI_ACCDB_TILE_KIND_SNAPIN && gui->summary.accdb->tile_cur_status[ s ]==2U ) continue;
 
           double t_acq_rate    = WRATE( gui->summary.accdb->tile_acquired_win         [ s ] );
           double t_acq_wr_rate = WRATE( gui->summary.accdb->tile_acquired_writable_win[ s ] );
@@ -1608,7 +1605,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
           char const * joiner;
           switch( kind ) {
             case FD_GUI_ACCDB_TILE_KIND_RW:     joiner = "RW"; break;
-            case FD_GUI_ACCDB_TILE_KIND_SNAPWR: joiner = "RW"; break;
+            case FD_GUI_ACCDB_TILE_KIND_SNAPIN: joiner = "RW"; break;
             case FD_GUI_ACCDB_TILE_KIND_ACCDB:  joiner = "RW"; break;
             default:                            joiner = "RO"; break;
           }
@@ -2826,9 +2823,6 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
         jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_bytes_compressed",      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_bytes_compressed                          ); \
         jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes_decompressed",        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes_decompressed                            ); \
         jsonp_ulong       ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts",                  gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current                              ); \
-        jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_snapwr_in_bytes_decompressed",     gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].snapwr_in_bytes_decompressed                         ); \
-        jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_snapwr_out_bytes_decompressed",    gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].snapwr_out_bytes_decompressed                        ); \
-        jsonp_ulong       ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_snapwr_accounts",                  gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].snapwr_accounts_current                              ); \
       } else { \
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_elapsed_seconds"                  ); \
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_reset_count"                      ); \
@@ -2840,9 +2834,6 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_bytes_compressed"      ); \
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes_decompressed"        ); \
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts"                  ); \
-        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_snapwr_in_bytes_decompressed"     ); \
-        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_snapwr_out_bytes_decompressed"    ); \
-        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_snapwr_accounts"                  ); \
       } \
     }
 

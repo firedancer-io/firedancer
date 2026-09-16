@@ -69,6 +69,7 @@ feed_all( fd_ssparse_t * parser,
     fd_ssparse_advance_result_t result[1];
     int res = fd_ssparse_advance( parser, data, data_sz, result );
     if( res==FD_SSPARSE_ADVANCE_DONE || res==FD_SSPARSE_ADVANCE_ERROR ) return res;
+    if( res==FD_SSPARSE_ADVANCE_APPENDVEC ) fd_ssparse_appendvec_parse( parser );
     FD_TEST( result->bytes_consumed<=data_sz );
     if( FD_UNLIKELY( result->bytes_consumed==0UL ) ) {
       FD_TEST( ++zero_progress<1024UL ); /* detect stuck parser */
@@ -92,6 +93,7 @@ feed_bytewise( fd_ssparse_t * parser,
     fd_ssparse_advance_result_t result[1];
     int res = fd_ssparse_advance( parser, data, 1UL, result );
     if( res==FD_SSPARSE_ADVANCE_DONE || res==FD_SSPARSE_ADVANCE_ERROR ) return res;
+    if( res==FD_SSPARSE_ADVANCE_APPENDVEC ) fd_ssparse_appendvec_parse( parser );
     ulong consumed = result->bytes_consumed;
     FD_TEST( consumed<=1UL );
     if( FD_UNLIKELY( consumed==0UL ) ) {
@@ -702,6 +704,196 @@ FD_UNIT_TEST( test_parse_name_edge_cases ) {
     off = append_tar_entry( tar_buf, sizeof(tar_buf), off, bad_names[i],    dummy, 144UL );
     FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
   }
+}
+
+FD_UNIT_TEST( test_appendvec_skip ) {
+  /* The parser must deliver exactly one ADVANCE_APPENDVEC per
+     accounts/ entry and no ACCOUNT_* results unless selected.
+     The stream must still be byte-exact consumed through DONE. */
+  fd_ssparse_t p[1];
+  uchar acc[512];
+  ulong dl1 = 5UL, dl2 = 3UL;
+  ulong a1  = fd_ulong_align_up( 136UL+dl1, 8UL );
+  ulong av0 = a1 + 136UL + dl2;
+  ulong av1 = 136UL + 16UL;
+
+  fd_memset( acc, 0, sizeof(acc) );
+  build_account_header( acc, dl1, 0 );
+  build_account_header( acc+a1, dl2, 1 );
+
+  ulong off = 0UL;
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",                (uchar const *)"1.2.0", 5UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100",          (uchar const *)"\xAB",  1UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/123.7",         acc, av0 );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/456.9",         acc, av1 );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
+  off = append_eof( tar_buf, sizeof(tar_buf), off );
+
+  ulong av_cnt = 0UL;
+  ulong av_slots[ 4 ]; ulong av_szs[ 4 ];
+
+  fd_ssparse_init( p );
+
+  uchar const * data    = tar_buf;
+  ulong         data_sz = off;
+  int           done    = 0;
+  ulong zero_progress   = 0UL;
+  while( data_sz>0UL ) {
+    fd_ssparse_advance_result_t result[1];
+    int res = fd_ssparse_advance( p, data, data_sz, result );
+    FD_TEST( res!=FD_SSPARSE_ADVANCE_ERROR );
+    FD_TEST( res!=FD_SSPARSE_ADVANCE_ACCOUNT_HEADER );
+    FD_TEST( res!=FD_SSPARSE_ADVANCE_ACCOUNT_DATA   );
+    FD_TEST( res!=FD_SSPARSE_ADVANCE_ACCOUNT_BATCH  );
+    if( res==FD_SSPARSE_ADVANCE_DONE ) { done = 1; break; }
+    if( res==FD_SSPARSE_ADVANCE_APPENDVEC ) {
+      FD_TEST( av_cnt<4UL );
+      av_slots[ av_cnt ] = result->appendvec.slot;
+      av_szs[ av_cnt ]   = result->appendvec.data_sz;
+      av_cnt++;
+    }
+    FD_TEST( result->bytes_consumed<=data_sz );
+    if( FD_UNLIKELY( result->bytes_consumed==0UL ) ) FD_TEST( ++zero_progress<1024UL );
+    else zero_progress = 0UL;
+    data    += result->bytes_consumed;
+    data_sz -= result->bytes_consumed;
+  }
+  FD_TEST( done );
+  FD_TEST( av_cnt==2UL );
+  FD_TEST( av_slots[0]==123UL && av_szs[0]==av0 );
+  FD_TEST( av_slots[1]==456UL && av_szs[1]==av1 );
+}
+
+FD_UNIT_TEST( test_appendvec_parse ) {
+  /* Calling fd_ssparse_appendvec_parse right after an APPENDVEC result
+     must parse that one appendvec's accounts in-stream, while
+     appendvecs left alone are skipped arithmetically.  The stream must
+     still end in DONE with byte-exact consumption. */
+  fd_ssparse_t p[1];
+  uchar acc[512];
+  ulong dl1 = 5UL, dl2 = 3UL;
+  ulong a1  = fd_ulong_align_up( 136UL+dl1, 8UL );
+  ulong av0 = a1 + 136UL + dl2;   /* two accounts, parsed */
+  ulong av1 = 136UL + 16UL;       /* one account, skipped */
+
+  fd_memset( acc, 0, sizeof(acc) );
+  build_account_header( acc, dl1, 0 );
+  fd_memset( acc+136, 0xAA, dl1 );
+  build_account_header( acc+a1, dl2, 1 );
+  fd_memset( acc+a1+136, 0xBB, dl2 );
+
+  ulong off = 0UL;
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",                (uchar const *)"1.2.0", 5UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100",          (uchar const *)"\xAB",  1UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/123.7",         acc, av0 );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/456.9",         acc, av1 );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
+  off = append_eof( tar_buf, sizeof(tar_buf), off );
+
+  for( int bytewise=0; bytewise<2; bytewise++ ) {
+    fd_ssparse_init( p );
+
+    ulong av_cnt    = 0UL;
+    ulong hdr_cnt   = 0UL;
+    ulong data_seen = 0UL;
+    ulong hdr_slots[ 4 ]; ulong hdr_lens[ 4 ];
+    uchar const * data    = tar_buf;
+    ulong         data_sz = off;
+    int           done    = 0;
+    ulong zero_progress   = 0UL;
+    while( data_sz>0UL ) {
+      fd_ssparse_advance_result_t result[1];
+      ulong feed = bytewise ? 1UL : data_sz;
+      int res = fd_ssparse_advance( p, data, feed, result );
+      FD_TEST( res!=FD_SSPARSE_ADVANCE_ERROR );
+      if( res==FD_SSPARSE_ADVANCE_DONE ) { done = 1; break; }
+      if( res==FD_SSPARSE_ADVANCE_APPENDVEC ) {
+        /* Own only the first appendvec (idx 0). */
+        if( av_cnt==0UL ) fd_ssparse_appendvec_parse( p );
+        av_cnt++;
+      }
+      if( res==FD_SSPARSE_ADVANCE_ACCOUNT_HEADER ) {
+        FD_TEST( hdr_cnt<4UL );
+        hdr_slots[ hdr_cnt ] = result->account_header.slot;
+        hdr_lens[ hdr_cnt ]  = result->account_header.data_len;
+        hdr_cnt++;
+      } else if( res==FD_SSPARSE_ADVANCE_ACCOUNT_DATA ) {
+        data_seen += result->account_data.data_sz;
+      }
+      FD_TEST( result->bytes_consumed<=data_sz );
+      if( FD_UNLIKELY( result->bytes_consumed==0UL ) ) FD_TEST( ++zero_progress<1024UL );
+      else zero_progress = 0UL;
+      data    += result->bytes_consumed;
+      data_sz -= result->bytes_consumed;
+    }
+    FD_TEST( done );
+    FD_TEST( av_cnt==2UL );
+    /* Only the owned (first) appendvec's accounts were delivered. */
+    FD_TEST( hdr_cnt==2UL );
+    FD_TEST( hdr_slots[0]==123UL && hdr_lens[0]==dl1 );
+    FD_TEST( hdr_slots[1]==123UL && hdr_lens[1]==dl2 );
+    FD_TEST( data_seen==dl1+dl2 );
+  }
+}
+
+FD_UNIT_TEST( test_appendvec_parse_batch_garbage ) {
+  /* Parse-hooked appendvec with batch mode enabled and a garbage tail
+     (partial trailing header), followed by a skipped appendvec:
+     exercises the ACCOUNT_HEADER -> SCROLL_ACCOUNT_GARBAGE tail path
+     and next-header discovery after a hooked entry. */
+  fd_ssparse_t p[1];
+  ulong n    = FD_SSPARSE_ACC_BATCH_MAX;
+  ulong bsz  = n*136UL;
+  ulong av0  = bsz + 4UL;      /* 8 zero-data accounts + 4 garbage bytes */
+  ulong av1  = 136UL + 8UL;    /* skipped */
+  uchar body[ 8*136UL + 4UL ];
+
+  fd_memset( body, 0, sizeof(body) );
+  for( ulong i=0UL; i<n; i++ ) build_account_header( body+i*136UL, 0UL, 0 );
+  fd_memset( body+bsz, 0xFF, 4UL );
+
+  ulong off = 0UL;
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",                (uchar const *)"1.2.0", 5UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100",          (uchar const *)"\xAB",  1UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/42.1",          body, av0 );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/43.2",          body, av1 );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
+  off = append_eof( tar_buf, sizeof(tar_buf), off );
+
+  fd_ssparse_init( p );
+  fd_ssparse_batch_enable( p, 1 );
+
+  ulong av_cnt     = 0UL;
+  ulong batch_accs = 0UL;
+  uchar const * data    = tar_buf;
+  ulong         data_sz = off;
+  int           done    = 0;
+  ulong zero_progress   = 0UL;
+  while( data_sz>0UL ) {
+    fd_ssparse_advance_result_t result[1];
+    int res = fd_ssparse_advance( p, data, data_sz, result );
+    FD_TEST( res!=FD_SSPARSE_ADVANCE_ERROR );
+    if( res==FD_SSPARSE_ADVANCE_DONE ) { done = 1; break; }
+    if( res==FD_SSPARSE_ADVANCE_APPENDVEC ) {
+      if( av_cnt==0UL ) fd_ssparse_appendvec_parse( p );
+      av_cnt++;
+    }
+    if( res==FD_SSPARSE_ADVANCE_ACCOUNT_BATCH ) {
+      FD_TEST( result->account_batch.slot==42UL );
+      batch_accs += result->account_batch.batch_cnt;
+    } else if( res==FD_SSPARSE_ADVANCE_ACCOUNT_HEADER ) {
+      FD_TEST( result->account_header.slot==42UL );
+      batch_accs += 1UL;
+    }
+    FD_TEST( result->bytes_consumed<=data_sz );
+    if( FD_UNLIKELY( result->bytes_consumed==0UL ) ) FD_TEST( ++zero_progress<1024UL );
+    else zero_progress = 0UL;
+    data    += result->bytes_consumed;
+    data_sz -= result->bytes_consumed;
+  }
+  FD_TEST( done );
+  FD_TEST( av_cnt==2UL );
+  FD_TEST( batch_accs==n );
 }
 
 int

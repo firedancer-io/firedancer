@@ -81,63 +81,315 @@ test_acquire_nolock( mypool_t * pool,
   FD_TEST( !mypool_verify( pool ) );
 }
 
+static myele_t canary[1]; /* sentinel for out[cnt] */
+
+/* acquire_batch with a canary at out[cnt] */
+
+static void
+batch( mypool_t * pool,
+       ulong      cnt,
+       myele_t ** out ) {
+  out[ cnt ] = canary;
+  myele_t ** result = mypool_acquire_batch( pool, cnt, out );
+  FD_TEST( result==(cnt ? out : NULL) );
+  FD_TEST( out[ cnt ]==canary );
+}
+
+static void
+test_acquire_batch( mypool_t * pool,
+                    myele_t *  ele,
+                    ulong      ele_max,
+                    fd_rng_t * rng ) {
+  ulong      save = shmem_cnt;
+  myele_t ** out  = shmem_alloc( alignof(myele_t *), (ele_max+1UL)*sizeof(myele_t *) );
+  myele_t ** out2 = shmem_alloc( alignof(myele_t *), (ele_max+1UL)*sizeof(myele_t *) );
+
+  mypool_reset( pool );
+
+  /* cnt==0 is a no-op, even on an empty element store */
+
+  ulong top0  = pool->pool->ver_top;
+  ulong lazy0 = pool->pool->ver_lazy;
+  batch( pool, 0UL, out );
+  FD_TEST( pool->pool->ver_top ==top0  );
+  FD_TEST( pool->pool->ver_lazy==lazy0 );
+
+  if( FD_UNLIKELY( !ele_max ) ) { shmem_cnt = save; return; }
+
+  /* Lazy only: ascending, one CAS on ver_lazy, ver_top untouched */
+
+  ulong k = fd_ulong_min( ele_max, 3UL );
+  batch( pool, k, out );
+  for( ulong i=0UL; i<k; i++ ) FD_TEST( out[ i ]==ele+i );
+  FD_TEST( pool->pool->ver_top==top0 );
+  FD_TEST( mypool_private_vidx_ver( pool->pool->ver_lazy )==mypool_private_vidx_ver( lazy0 )+2UL );
+  FD_TEST( mypool_private_vidx_idx( pool->pool->ver_lazy )==(k<ele_max ? k : mypool_idx_null()) );
+
+  /* Stack only: LIFO, one CAS on ver_top, ver_lazy untouched */
+
+  for( ulong i=0UL; i<k; i++ ) mypool_release( pool, ele+i );
+  ulong top1  = pool->pool->ver_top;
+  ulong lazy1 = pool->pool->ver_lazy;
+  FD_TEST( mypool_private_vidx_idx( top1 )==k-1UL );
+
+  /* cnt==0 is also a no-op on a non-empty free stack */
+
+  batch( pool, 0UL, out2 );
+  FD_TEST( pool->pool->ver_top ==top1  );
+  FD_TEST( pool->pool->ver_lazy==lazy1 );
+
+  batch( pool, k, out );
+  for( ulong i=0UL; i<k; i++ ) FD_TEST( out[ i ]==ele+(k-1UL-i) );
+  FD_TEST( mypool_private_vidx_ver( pool->pool->ver_top )==mypool_private_vidx_ver( top1 )+2UL );
+  FD_TEST( mypool_private_vidx_idx( pool->pool->ver_top )==mypool_idx_null() );
+  FD_TEST( pool->pool->ver_lazy==lazy1 );
+
+  /* Split: stack first (LIFO) then lazy (ascending), one CAS each */
+
+  ulong m = fd_ulong_min( ele_max-k, 2UL );
+  if( m ) {
+    for( ulong i=0UL; i<k; i++ ) mypool_release( pool, ele+i );
+    ulong top2  = pool->pool->ver_top;
+    ulong lazy2 = pool->pool->ver_lazy;
+    batch( pool, k+m, out );
+    for( ulong i=0UL; i<k; i++ ) FD_TEST( out[ i   ]==ele+(k-1UL-i) );
+    for( ulong i=0UL; i<m; i++ ) FD_TEST( out[ k+i ]==ele+k+i        );
+    FD_TEST( mypool_private_vidx_ver( pool->pool->ver_top  )==mypool_private_vidx_ver( top2  )+2UL );
+    FD_TEST( mypool_private_vidx_idx( pool->pool->ver_top  )==mypool_idx_null() );
+    FD_TEST( mypool_private_vidx_ver( pool->pool->ver_lazy )==mypool_private_vidx_ver( lazy2 )+2UL );
+    FD_TEST( mypool_private_vidx_idx( pool->pool->ver_lazy )==(k+m<ele_max ? k+m : mypool_idx_null()) );
+  }
+
+  /* Any subset can go back with release and comes back LIFO */
+
+  ulong held = k+m;
+  ulong rel  = 0UL;
+  for( ulong i=1UL; i<held; i+=2UL ) { mypool_release( pool, out[ i ] ); rel++; }
+  FD_TEST( !mypool_verify( pool ) );
+  if( rel ) {
+    batch( pool, rel, out2 );
+    for( ulong i=0UL; i<rel; i++ ) FD_TEST( out2[ i ]==out[ 1UL+2UL*(rel-1UL-i) ] );
+  }
+  for( ulong i=0UL; i<held; i++ ) mypool_release( pool, out[ i ] );
+  FD_TEST( !mypool_verify( pool ) );
+
+  /* Full drain from reset: all lazy, ascending, pool then empty */
+
+  mypool_reset( pool );
+  batch( pool, ele_max, out );
+  for( ulong i=0UL; i<ele_max; i++ ) FD_TEST( out[ i ]==ele+i );
+  FD_TEST(  mypool_is_empty( pool ) );
+  FD_TEST( !mypool_peek    ( pool ) );
+
+  /* Failure returns any partially acquired elements */
+
+  if( ele_max>1UL ) {
+    mypool_release( pool, out[ 0 ] );
+    FD_TEST( !mypool_acquire_batch( pool, 2UL, out2 ) );
+    FD_TEST( mypool_acquire( pool )==out[ 0 ] );
+  } else {
+    FD_TEST( !mypool_acquire_batch( pool, 1UL, out2 ) );
+  }
+
+  /* Long random chain: one batch returns it in reverse release order */
+
+  for( ulong i=ele_max-1UL; i>0UL; i-- ) {
+    ulong j = fd_rng_ulong_roll( rng, i+1UL );
+    myele_t * tmp = out[ i ]; out[ i ] = out[ j ]; out[ j ] = tmp;
+  }
+  for( ulong i=0UL; i<ele_max; i++ ) mypool_release( pool, out[ i ] );
+  FD_TEST( !mypool_verify( pool ) );
+  ulong top3  = pool->pool->ver_top;
+  ulong lazy3 = pool->pool->ver_lazy;
+  FD_TEST( mypool_private_vidx_idx( lazy3 )==mypool_idx_null() );
+  batch( pool, ele_max, out2 );
+  for( ulong i=0UL; i<ele_max; i++ ) FD_TEST( out2[ i ]==out[ ele_max-1UL-i ] );
+  FD_TEST( mypool_private_vidx_ver( pool->pool->ver_top )==mypool_private_vidx_ver( top3 )+2UL );
+  FD_TEST( mypool_private_vidx_idx( pool->pool->ver_top )==mypool_idx_null() );
+  FD_TEST( pool->pool->ver_lazy==lazy3 );
+  for( ulong i=0UL; i<ele_max; i++ ) mypool_release( pool, out2[ i ] );
+  FD_TEST( !mypool_verify( pool ) );
+
+  shmem_cnt = save;
+}
+
+/* test_acquire_batch_refill: a batch sees an empty stack, then another
+   thread releases an element while a third drains the lazy region.
+   The batch must recheck the stack instead of CRITing.  The batch tile
+   is frozen between its phases with the lazy lock bit. */
+
+static mypool_t * refill_pool;
+static myele_t *  refill_out[ 3 ]; /* 2 elements + canary */
+
+static int
+refill_tile_main( int     argc,
+                  char ** argv ) {
+  (void)argc; (void)argv;
+  batch( refill_pool, 2UL, refill_out );
+  return 0;
+}
+
+static void
+test_acquire_batch_refill( mypool_t * pool,
+                           myele_t *  ele,
+                           ulong      ele_max,
+                           int        argc,
+                           char **    argv ) {
+  if( FD_UNLIKELY( (ele_max<3UL) | (fd_tile_cnt()<2UL) ) ) {
+    FD_LOG_NOTICE(( "Skipping batch refill test (needs --ele-max>=3 and at least 2 tiles)" ));
+    return;
+  }
+
+  mypool_reset( pool );
+  myele_t * x = mypool_acquire( pool ); FD_TEST( x==ele     ); /* lazy now starts at 1 */
+  myele_t * y = mypool_acquire( pool ); FD_TEST( y==ele+1UL ); /* lazy now starts at 2 */
+  mypool_release( pool, x );                                   /* free stack is {x} */
+
+  /* Lock lazy so the batch tile stops after its stack phase */
+
+  ulong ver_lazy = pool->pool->ver_lazy;
+  FD_TEST( mypool_private_vidx_idx( ver_lazy )==2UL );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( pool->pool->ver_lazy ) = mypool_private_vidx( mypool_private_vidx_ver( ver_lazy )|1UL, 2UL );
+  FD_COMPILER_MFENCE();
+
+  refill_pool = pool;
+  fd_tile_exec_new( 1UL, refill_tile_main, argc, argv );
+
+  /* Wait for the batch tile to pop x and drain the stack */
+
+  while( !mypool_idx_is_null( mypool_private_vidx_idx( FD_VOLATILE_CONST( pool->pool->ver_top ) ) ) ) FD_SPIN_PAUSE();
+
+  /* Second thread releases y ... */
+
+  mypool_release( pool, y );
+
+  /* ... third thread drains lazy, then unlock */
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( pool->pool->ver_lazy ) = mypool_private_vidx( mypool_private_vidx_ver( ver_lazy )+2UL, mypool_idx_null() );
+  FD_COMPILER_MFENCE();
+
+  fd_tile_exec_delete( fd_tile_exec( 1UL ), NULL );
+
+  FD_TEST( refill_out[ 0 ]==x );
+  FD_TEST( refill_out[ 1 ]==y );
+
+  /* Hand back what the third thread and the batch took */
+
+  for( ulong i=2UL; i<ele_max; i++ ) mypool_release( pool, ele+i );
+  mypool_release( pool, x );
+  mypool_release( pool, y );
+  FD_TEST( !mypool_verify( pool ) );
+}
+
+/* tile_batch_max: 0 for acquire / release only (pool may run dry), else
+   the largest batch to request (per tile quota applies).
+   tile_active_cnt: tiles in this round (fd_tile_cnt() is the configured
+   count). */
+
 static mypool_t * tile_pool;
 static ulong      tile_ele_max;
 static ulong      tile_iter_cnt;
+static ulong      tile_batch_max;
+static ulong      tile_active_cnt;
 static ulong      tile_go;
+
+/* tile_owner[i]: 0 if free, tile_idx+1 if held.  Atomic claims catch an
+   element handed to two tiles at once. */
+
+static ulong * tile_owner;
+
+static void
+tile_claim( mypool_t * pool,
+            myele_t *  ele,
+            ulong      tile_idx ) {
+  ulong idx = mypool_idx( pool, ele );
+  FD_TEST( idx<tile_ele_max );
+  FD_TEST( FD_ATOMIC_CAS( &tile_owner[ idx ], 0UL, tile_idx+1UL )==0UL );
+}
+
+static void
+tile_unclaim( mypool_t * pool,
+              myele_t *  ele,
+              ulong      tile_idx ) {
+  ulong idx = mypool_idx( pool, ele );
+  FD_TEST( FD_ATOMIC_CAS( &tile_owner[ idx ], tile_idx+1UL, 0UL )==tile_idx+1UL );
+}
+
+/* Repurpose a held element's next (out of bounds or random in bounds)
+   like a real user would.  A stale walker must retry, not trust it.
+   release rewrites next. */
+
+static void
+tile_scribble( myele_t *  ele,
+               ulong      ele_max,
+               fd_rng_t * rng ) {
+  ele->mynext = (fd_rng_uint( rng ) & 1U) ? (uint)ele_max : (uint)fd_rng_ulong_roll( rng, ele_max );
+}
+
+/* Mixes acquire, release and (if tile_batch_max) acquire_batch.  Without
+   batches the pool may run dry.  With batches each tile holds at most
+   ele_max/tile_cnt so acquire_batch can never run short. */
 
 static int
 tile_main( int     argc,
            char ** argv ) {
   (void)argc; (void)argv;
-  mypool_t * pool     = tile_pool;
-  ulong      ele_max  = tile_ele_max;
-  ulong      iter_cnt = tile_iter_cnt;
-  ulong      tile_idx = fd_tile_idx();
-  ulong      tile_cnt = fd_tile_cnt();
+  mypool_t * pool      = tile_pool;
+  ulong      ele_max   = tile_ele_max;
+  ulong      iter_cnt  = tile_iter_cnt;
+  ulong      batch_max = tile_batch_max;
+  ulong      tile_idx  = fd_tile_idx();
+  ulong      tile_cnt  = tile_active_cnt;
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_idx, 0UL ) );
 
-  ulong       save    = shmem_cnt;
-  myele_t **  acq_ele = shmem_alloc( alignof(myele_t *), ele_max*sizeof(myele_t *) );
-  ulong       acq_cnt = 0UL;
+  ulong      quota   = batch_max ? ele_max/tile_cnt : ULONG_MAX;
+  ulong      save    = shmem_cnt;
+  myele_t ** acq_ele = shmem_alloc( alignof(myele_t *), ele_max*sizeof(myele_t *) );
+  ulong      acq_cnt = 0UL;
+
+  batch_max = fd_ulong_min( batch_max, quota );
 
   while( !FD_VOLATILE_CONST( tile_go ) ) FD_SPIN_PAUSE();
 
-  ulong diag_rem = 0UL;
   for( ulong iter_idx=0UL; iter_idx<iter_cnt; iter_idx++ ) {
-    if( FD_UNLIKELY( !diag_rem ) ) {
-      if( !tile_idx ) FD_LOG_NOTICE(( "Iteration %lu of %lu (acq_cnt %lu)", iter_idx, iter_cnt, acq_cnt ));
-      diag_rem = 10000UL;
-    }
-    diag_rem--;
+    switch( fd_rng_uint_roll( rng, batch_max ? 3U : 2U ) ) {
 
-    uint r = fd_rng_uint( rng );
-
-    int op = (int)(r & 1U); r>>=1;
-
-    myele_t * ele;
-
-    switch( op ) {
-
-    case 0: { /* acquire */
-      ele = mypool_acquire( pool );
-      if( ele ) {
-        FD_TEST( mypool_idx( pool, ele )<ele_max );
-        /* FIXME: Ideally would check unique cross thread */
-        for( ulong acq_idx=0UL; acq_idx<acq_cnt; acq_idx++ ) FD_TEST( ele!=acq_ele[ acq_idx ] );
+    case 0: { /* acquire one */
+      if( FD_UNLIKELY( acq_cnt>=quota ) ) break;
+      myele_t * ele = mypool_acquire( pool );
+      if( FD_LIKELY( ele ) ) {
+        tile_claim( pool, ele, tile_idx );
+        tile_scribble( ele, ele_max, rng );
         acq_ele[ acq_cnt++ ] = ele;
       } else {
-        if( tile_cnt==1UL ) FD_TEST( acq_cnt==ele_max );
+        FD_TEST( !batch_max );                           /* never runs dry under quota */
+        if( tile_cnt==1UL ) FD_TEST( acq_cnt==ele_max ); /* a lone tile only runs dry when it holds everything */
       }
       break;
     }
 
-    case 1: { /* release */
+    case 1: { /* release one */
       if( acq_cnt ) {
         ulong acq_idx = fd_rng_ulong_roll( rng, acq_cnt );
+        tile_unclaim( pool, acq_ele[ acq_idx ], tile_idx );
         mypool_release( pool, acq_ele[ acq_idx ] );
         acq_ele[ acq_idx ] = acq_ele[ --acq_cnt ];
+      }
+      break;
+    }
+
+    case 2: { /* acquire batch */
+      ulong n = fd_ulong_min( 1UL+fd_rng_ulong_roll( rng, batch_max ), quota-acq_cnt );
+      if( FD_LIKELY( n ) ) {
+        FD_TEST( mypool_acquire_batch( pool, n, acq_ele+acq_cnt )==acq_ele+acq_cnt );
+        for( ulong j=0UL; j<n; j++ ) {
+          tile_claim( pool, acq_ele[ acq_cnt+j ], tile_idx );
+          tile_scribble( acq_ele[ acq_cnt+j ], ele_max, rng );
+        }
+        acq_cnt += n;
       }
       break;
     }
@@ -147,7 +399,10 @@ tile_main( int     argc,
     }
   }
 
-  for( ulong acq_idx=0UL; acq_idx<acq_cnt; acq_idx++ ) mypool_release( pool, acq_ele[ acq_idx ] );
+  for( ulong acq_idx=0UL; acq_idx<acq_cnt; acq_idx++ ) {
+    tile_unclaim( pool, acq_ele[ acq_idx ], tile_idx );
+    mypool_release( pool, acq_ele[ acq_idx ] );
+  }
   shmem_cnt = save;
 
   fd_rng_delete( fd_rng_leave( rng ) );
@@ -243,32 +498,56 @@ main( int     argc,
   FD_LOG_NOTICE(( "Testing nolock acquire" ));
   test_acquire_nolock( pool, shele, ele_max );
 
+  FD_LOG_NOTICE(( "Testing batch acquire" ));
+  test_acquire_batch( pool, shele, ele_max, rng );
+
+  FD_LOG_NOTICE(( "Testing batch acquire refill" ));
+  test_acquire_batch_refill( pool, shele, ele_max, argc, argv );
+
   /* FIXME: use tpool here */
 
   tile_pool     = pool;
   tile_ele_max  = ele_max;
   tile_iter_cnt = iter_cnt;
+  tile_owner    = shmem_alloc( alignof(ulong), ele_max*sizeof(ulong) );
+  fd_memset( tile_owner, 0, ele_max*sizeof(ulong) );
 
   ulong tile_max = fd_tile_cnt();
-  for( ulong tile_cnt=1UL; tile_cnt<=tile_max; tile_cnt++ ) {
+  for( ulong pass=0UL; pass<2UL; pass++ ) {
+    ulong batch_max = pass ? 16UL : 0UL;
 
-    FD_LOG_NOTICE(( "Testing concurrent acquire / release on %lu tiles", tile_cnt ));
+    for( ulong tile_cnt=1UL; tile_cnt<=tile_max; tile_cnt++ ) {
 
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( tile_go ) = 0;
-    FD_COMPILER_MFENCE();
+      if( batch_max && ele_max<tile_cnt ) {
+        FD_LOG_NOTICE(( "Skipping concurrent batch acquire / release on %lu tiles (ele_max %lu leaves no per tile quota)", tile_cnt, ele_max ));
+        continue;
+      }
 
-    for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_exec_new( tile_idx, tile_main, argc, argv );
+      FD_LOG_NOTICE(( "Testing concurrent %sacquire / release on %lu tiles", batch_max ? "batch " : "", tile_cnt ));
 
-    fd_log_sleep( (long)0.1e9 );
+      mypool_reset( pool ); /* refill the lazy region so both regions are hit under contention */
+      tile_batch_max  = batch_max;
+      tile_active_cnt = tile_cnt;
 
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( tile_go ) = 1;
-    FD_COMPILER_MFENCE();
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( tile_go ) = 0;
+      FD_COMPILER_MFENCE();
 
-    tile_main( argc, argv );
-    for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_exec_delete( fd_tile_exec( tile_idx ), NULL );
+      for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_exec_new( tile_idx, tile_main, argc, argv );
 
+      fd_log_sleep( (long)0.1e9 );
+
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( tile_go ) = 1;
+      FD_COMPILER_MFENCE();
+
+      tile_main( argc, argv );
+      for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_exec_delete( fd_tile_exec( tile_idx ), NULL );
+
+      FD_TEST( !mypool_verify( pool ) );
+      for( ulong ele_idx=0UL; ele_idx<ele_max; ele_idx++ ) FD_TEST( !tile_owner[ ele_idx ] );
+
+    }
   }
 
   FD_LOG_NOTICE(( "Testing destruction" ));

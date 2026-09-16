@@ -101,14 +101,6 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   fd_accdb_metrics_t metrics[1];
 
-  /* Set by fd_accdb_snapshot_load_begin/end.  When non-zero, layer-0
-     partition handoffs (in change_partition) re-tier the partitions
-     that fell out of the snapshot-load working set: P-2 to Warm and
-     P-3 to Cold.  This backfills tiering for snapshot-loaded data
-     that never gets a second write (and therefore would otherwise
-     never be promoted by compaction). */
-  int snapshot_loading;
-
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
      snapshot (including tombstones for accounts no longer present in
@@ -122,13 +114,14 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
     } scratch[ FD_ACCDB_MAX_ACQUIRE_CNT ];
   } delta;
 
-  /* Write counters that are not published yet.  Metrics are aggregated
-     in batches to avoid expensive atomic operations on each write.
-     64-byte aligned to fit in a single cache line. */
+  /* Batch metric updates to avoid shared atomics per write. */
   struct {
-    ulong bytes;         /* bytes reserved on partition_idx */
-    ulong num_ops;       /* reservations behind those bytes */
-    ulong partition_idx; /* set while num_ops>0 */
+    ulong bytes;                /* bytes reserved on partition_idx */
+    ulong num_ops;              /* reservations behind those bytes */
+    ulong partition_idx;        /* set while num_ops>0 */
+    ulong disk_used_added;
+    ulong disk_used_removed;
+    ulong accounts_total_added;
   } write_stats __attribute__((aligned(64)));
 };
 
@@ -180,16 +173,23 @@ fd_accdb_partition_write_bump( fd_accdb_t * accdb,
 
 void
 fd_accdb_flush_metrics( fd_accdb_t * accdb ) {
-  ulong bytes    = accdb->write_stats.bytes;
-  ulong num_ops  = accdb->write_stats.num_ops;
-  ulong part_idx = accdb->write_stats.partition_idx;
-
-  if( !num_ops ) return;
+  ulong bytes                = accdb->write_stats.bytes;
+  ulong num_ops              = accdb->write_stats.num_ops;
+  ulong part_idx             = accdb->write_stats.partition_idx;
+  ulong disk_used_added      = accdb->write_stats.disk_used_added;
+  ulong disk_used_removed    = accdb->write_stats.disk_used_removed;
+  ulong accounts_total_added = accdb->write_stats.accounts_total_added;
 
   memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 
-  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, bytes );
-  fd_accdb_partition_write_bump( accdb, part_idx, bytes, num_ops );
+  if( num_ops ) {
+    FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, bytes );
+    fd_accdb_partition_write_bump( accdb, part_idx, bytes, num_ops );
+  }
+
+  if( disk_used_added      ) FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_used_bytes, disk_used_added      );
+  if( disk_used_removed    ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, disk_used_removed    );
+  if( accounts_total_added ) FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->accounts_total,  accounts_total_added );
 }
 
 static inline ulong
@@ -281,7 +281,6 @@ fd_accdb_new( void *              ljoin,
 
   accdb->fd = fd;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
-  accdb->snapshot_loading = 0;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -368,6 +367,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->root_fork_id   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   shmem->generation     = 0U;
   shmem->partition_lock = 0;
+  fd_memset( shmem->snapshot_stripe_locks, 0, sizeof(shmem->snapshot_stripe_locks) );
   shmem->partition_max  = 0UL;
 
   /* Write heads: sentinel values that force partition-switch on first
@@ -439,7 +439,6 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   accdb->deferred_fork_head  = NULL;
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
-  accdb->snapshot_loading    = 0;
   accdb->acquire_state       = FD_ACCDB_ACQUIRE_STATE_IDLE;
   memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 }
@@ -448,7 +447,6 @@ void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
   FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE,
                  "snapshot load started while snapshot production active" );
-  accdb->snapshot_loading = 1;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
 }
 
@@ -479,7 +477,6 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
     FD_VOLATILE( newp->layer ) = 0;
   }
 
-  accdb->snapshot_loading = 0;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 0;
 
   /* Sweep all partitions written during the load — any that crossed
@@ -597,8 +594,8 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
 
      Release in descending index order so that the LIFO free list
      re-acquires them in ascending order (P, P+1, P+2, ...).  This
-     keeps reserve_next_write in sync with snapwr, which advances
-     its flat file offset sequentially. */
+     preserves the ascending partition index order expected when the
+     released suffix is allocated again. */
   spin_lock_acquire( &shmem->partition_lock );
   for( ulong p=cur_partition_max; p>recover->partition_max; p-- ) {
     fd_accdb_partition_t * part = partition_pool_ele( accdb->partition_pool, p-1UL );
@@ -1698,7 +1695,7 @@ change_partition( fd_accdb_t *           accdb,
      compaction tile and represent the live Cold write head, which is
      independent of snapshot-loaded partitions that happen to be
      labeled Cold. */
-  if( FD_UNLIKELY( accdb->snapshot_loading && layer==0 ) ) {
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->snapshot_loading ) && layer==0 ) ) {
     FD_VOLATILE( partition->layer ) = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
   }
 
@@ -1800,6 +1797,13 @@ allocate_next_write( fd_accdb_t * accdb,
   accdb->write_stats.bytes         += sz;
   accdb->write_stats.num_ops++;
   return file_offset;
+}
+
+ulong
+fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
+                                 ulong        sz ) {
+  FD_TEST( sz && sz<=accdb->shmem->partition_sz );
+  return allocate_next_write( accdb, sz );
 }
 
 /* Compaction write allocation.  Single-threaded: only the compaction
@@ -3949,111 +3953,6 @@ background_preevict( fd_accdb_t * accdb,
 }
 
 int
-fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
-                             fd_accdb_fork_id_t fork_id,
-                             uchar const *      pubkey,
-                             ulong              slot,
-                             ulong              lamports,
-                             ulong              data_len,
-                             int                executable,
-                             ulong *            out_replaced_lamports ) {
-  /* Snapshot slots are stored in the 32-bit cache_idx scratch field
-     during loading.  Reject anything that would truncate. */
-  if( FD_UNLIKELY( slot>UINT_MAX ) ) FD_LOG_ERR(( "snapshot slot %lu exceeds 2^32-1, accdb format must be widened", slot ));
-
-  int incremental = fork_id.val!=USHORT_MAX;
-
-  fd_accdb_fork_t * fork     = NULL;
-  uint              fork_gen = 0U;
-  if( FD_UNLIKELY( incremental ) ) {
-    fork     = &accdb->fork_pool[ fork_id.val ];
-    fork_gen = fork->shmem->generation;
-  }
-
-  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-
-  *out_replaced_lamports = 0UL;
-
-  fd_accdb_accmeta_t * accmeta = NULL;
-  int cross_fork = 0; /* incremental only: existing entry from different fork */
-
-  ulong next_acc = accdb->acc_map[ hash ];
-  while( next_acc!=UINT_MAX ) {
-    fd_accdb_accmeta_t * candidate_acc = &accdb->acc_pool[ next_acc ];
-    if( FD_UNLIKELY( !memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) ) {
-      if( FD_LIKELY( (ulong)candidate_acc->cache_idx>slot ) ) {
-        /* Still advance the write head so snapwr and snapin stay in
-           sync — snapwr unconditionally writes every account to disk.
-           Mark the space as immediately freed since it is dead on
-           arrival. */
-        ulong dead_sz  = sizeof(fd_accdb_disk_meta_t)+data_len;
-        ulong dead_off = allocate_next_write( accdb, dead_sz );
-        fd_accdb_shmem_bytes_freed( accdb->shmem, dead_off, dead_sz );
-        return -1;
-      }
-      if( FD_UNLIKELY( incremental ) && candidate_acc->key.generation!=fork_gen ) {
-        /* Cross-snapshot override: don't replace in-place; insert a
-           new entry alongside the old one so purge can revert. */
-        cross_fork = 1;
-        *out_replaced_lamports = candidate_acc->lamports;
-      } else {
-        /* Same-fork duplicate (or full-snapshot mode): replace in-place */
-        accmeta = candidate_acc;
-      }
-      break;
-    }
-    next_acc = candidate_acc->map.next;
-  }
-
-  int replace = !!accmeta;
-
-  if( FD_UNLIKELY( !accmeta ) ) {
-    accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
-    if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
-
-    uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
-
-    fd_memcpy( accmeta->key.pubkey, pubkey, 32UL );
-    if( FD_UNLIKELY( !incremental && accdb->shmem->root_fork_id.val==USHORT_MAX ) ) {
-      FD_LOG_ERR(( "snapshot_write_one called without a root fork attached" ));
-    }
-    accmeta->key.generation = incremental ? fork_gen : accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
-    accmeta->map.next = accdb->acc_map[ hash ];
-    accdb->acc_map[ hash ] = acc_idx;
-
-    /* In incremental mode, record this insert in the fork's txn list
-       so purge can find and unlink it on failure. */
-    if( FD_UNLIKELY( incremental ) ) {
-      fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
-      if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
-      txn->acc_pool_idx = acc_idx;
-      uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
-      txn->fork.next          = fork->shmem->txn_head;
-      fork->shmem->txn_head   = txn_idx;
-    }
-  }
-
-  if( FD_UNLIKELY( replace ) ) {
-    /* The old version's disk space is now dead. */
-    ulong old_sz = sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( accmeta->executable_size );
-    fd_accdb_shmem_bytes_freed( accdb->shmem, fd_accdb_acc_offset( accmeta ), old_sz );
-    accdb->shmem->shmetrics->disk_used_bytes -= old_sz;
-    *out_replaced_lamports = accmeta->lamports;
-  }
-
-  accmeta->cache_idx = (uint)slot;
-  accmeta->lamports = lamports;
-  accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_len, executable );
-  ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
-  ulong file_off = allocate_next_write( accdb, entry_sz );
-  accmeta->offset_fork = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
-  accdb->shmem->shmetrics->disk_used_bytes += entry_sz;
-  if( !replace ) accdb->shmem->shmetrics->accounts_total++;
-
-  return ( replace || cross_fork ) ? 2 : 1;
-}
-
-int
 fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                fd_accdb_fork_id_t  fork_id,
                                ulong               cnt,
@@ -4062,11 +3961,14 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong  const        lamports[],
                                ulong  const        data_lens[],
                                int    const        executables[],
+                               ulong const         file_offsets[],
                                ulong *             accounts_ignored,
                                ulong *             accounts_replaced,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
                                ulong *             out_ignored_lamports ) {
+  FD_TEST( cnt>0UL && cnt<=8UL );
+
   int incremental = fork_id.val!=USHORT_MAX;
 
   fd_accdb_fork_t * fork     = NULL;
@@ -4083,12 +3985,13 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   }
   uint  gen       = incremental ? 0U : accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
 
-  ulong ignored          = 0UL;
-  ulong replaced         = 0UL;
-  ulong loaded           = 0UL;
-  ulong cross_replaced   = 0UL; /* cross-fork overrides (subset of replaced) */
+  ulong ignored           = 0UL;
+  ulong replaced          = 0UL;
+  ulong loaded            = 0UL;
+  ulong cross_replaced    = 0UL; /* cross-fork overrides (subset of replaced) */
   ulong replaced_lamports = 0UL;
   ulong ignored_lamports  = 0UL;
+  int   result            = 0;
 
   /* Snapshot slots are stored in the 32-bit cache_idx scratch field
      during loading.  Reject anything that would truncate. */
@@ -4098,63 +4001,14 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
   /* Phase 1: compute hashes and prefetch chain heads. */
 
-  ulong                hashes[ 8 ];
-  fd_accdb_accmeta_t * existing[ 8 ];       /* same-fork dup or full-snapshot replace */
-  fd_accdb_accmeta_t * cross_existing[ 8 ]; /* cross-fork dup (incremental only) */
-  int                  skip[ 8 ];
-
+  ulong hashes[ 8 ];
   for( ulong i=0UL; i<cnt; i++ ) {
-    hashes[ i ]          = fd_hash32( pubkeys[ i ], seed ) & chain_msk;
-    existing[ i ]        = NULL;
-    cross_existing[ i ]  = NULL;
-    skip[ i ]            = 0;
-
-    /* Prefetch the chain head and first pool element on the chain */
+    hashes[ i ] = fd_hash32( pubkeys[ i ], seed ) & chain_msk;
     __builtin_prefetch( &accdb->acc_map[ hashes[ i ] ], 1, 1 );
   }
 
-  /* Phase 2: walk chains looking for duplicates.  By now the chain
-     heads prefetched above should be warm in L1/L2.  If the existing
-     entry has a higher slot, mark skip.  Otherwise, save the existing
-     entry pointer for in-place update (matching write_one semantics).
-     In incremental mode, cross-fork entries are saved separately so
-     they can be left in place while a new entry is inserted. */
-
-  for( ulong i=0UL; i<cnt; i++ ) {
-    ulong next_acc = accdb->acc_map[ hashes[ i ] ];
-
-    if( FD_LIKELY( next_acc!=UINT_MAX ) ) {
-      __builtin_prefetch( &accdb->acc_pool[ next_acc ], 0, 1 );
-    }
-
-    while( next_acc!=UINT_MAX ) {
-      fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ next_acc ];
-
-      if( FD_LIKELY( candidate->map.next!=UINT_MAX ) ) {
-        __builtin_prefetch( &accdb->acc_pool[ candidate->map.next ], 0, 1 );
-      }
-
-      if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {
-        if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] ) ) {
-          skip[ i ] = 1;
-        } else if( FD_UNLIKELY( incremental ) && candidate->key.generation!=fork_gen ) {
-          cross_existing[ i ] = candidate;
-        } else {
-          existing[ i ] = candidate;
-        }
-        break;
-      }
-      next_acc = candidate->map.next;
-    }
-  }
-
-  /* Phase 2b: reject intra-batch duplicate pubkeys.  Snapin always
-     populates a batch from a single AppendVec, so every slot in the
-     batch is identical and a duplicate pubkey means the same account
-     appears twice at the same slot — i.e. a corrupt snapshot per the
-     Agave spec.  We have no principled way to pick a winner; return
-     -1 so the caller can flag the snapshot malformed.  Batches are
-     bounded (<=8) so the O(n^2) scan is trivial. */
+  /* Phase 1b: reject intra-batch duplicate pubkeys (single appendvec,
+     same slot: corrupt snapshot per the Agave spec). */
 
   for( ulong i=1UL; i<cnt; i++ ) {
     for( ulong j=0UL; j<i; j++ ) {
@@ -4166,41 +4020,69 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     }
   }
 
-  /* Phase 3: commit.  For each account either update the existing
-     entry in-place (replace), allocate and insert at the chain head
-     (new), or skip entirely (ignore).  This matches the
-     insert/replace/ignore semantics of write_one. */
+  fd_accdb_accmeta_t * acquired[ 8 ];
+  FD_TEST( acc_pool_acquire_batch( accdb->acc_pool_join, cnt, acquired ) );
+
+  /* Phase 2: walk and commit under the account stripe. */
 
   ulong used_bytes_added   = 0UL;
   ulong used_bytes_removed = 0UL;
+  ulong acquired_used      = 0UL;
 
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( FD_UNLIKELY( skip[ i ] ) ) {
-      /* Still advance the write head so snapwr and snapin stay in
-         sync — snapwr unconditionally writes every account to disk.
-         Mark the space as immediately freed since it is dead on
-         arrival. */
-      ulong dead_sz  = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-      ulong dead_off = allocate_next_write( accdb, dead_sz );
-      fd_accdb_shmem_bytes_freed( accdb->shmem, dead_off, dead_sz );
-      ignored_lamports += lamports[ i ];
+    ulong entry_sz  = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
+    int * stripe    = &accdb->shmem->snapshot_stripe_locks[ hashes[ i ] & FD_ACCDB_SNAPSHOT_STRIPE_MSK ];
+    int   skip      = 0;
+
+    spin_lock_acquire( stripe );
+
+    fd_accdb_accmeta_t * existing       = NULL;
+    fd_accdb_accmeta_t * cross_existing = NULL; /* cross-fork dup (incremental only) */
+    uint next_acc = FD_VOLATILE_CONST( accdb->acc_map[ hashes[ i ] ] );
+    while( next_acc!=UINT_MAX ) {
+      fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ next_acc ];
+
+      if( FD_LIKELY( candidate->map.next!=UINT_MAX ) ) {
+        __builtin_prefetch( &accdb->acc_pool[ candidate->map.next ], 0, 1 );
+      }
+
+      if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {
+        if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] ) ) {
+          skip = 1;
+        } else if( FD_UNLIKELY( (ulong)candidate->cache_idx==slots[ i ] ) ) {
+          FD_LOG_WARNING(( "corrupt snapshot: duplicate account at slot %lu", slots[ i ] ));
+          spin_lock_release( stripe );
+          result = -1;
+          goto fini;
+        } else if( FD_UNLIKELY( incremental ) && candidate->key.generation!=fork_gen ) {
+          cross_existing = candidate;
+        } else {
+          existing = candidate;
+        }
+        break;
+      }
+      next_acc = candidate->map.next;
+    }
+
+    if( FD_UNLIKELY( skip ) ) {
+      spin_lock_release( stripe );
+      fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
+      ignored_lamports  += lamports[ i ];
       ignored++;
       continue;
     }
 
     fd_accdb_accmeta_t * accmeta;
 
-    if( FD_UNLIKELY( existing[ i ] ) ) {
-      accmeta = existing[ i ];
-      /* The old version's disk space is now dead. */
+    if( FD_UNLIKELY( existing ) ) {
+      accmeta = existing;
       ulong old_sz = sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( accmeta->executable_size );
       fd_accdb_shmem_bytes_freed( accdb->shmem, fd_accdb_acc_offset( accmeta ), old_sz );
       used_bytes_removed += old_sz;
       replaced_lamports += accmeta->lamports;
       replaced++;
     } else {
-      accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
-      if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading" ));
+      accmeta = acquired[ acquired_used++ ];
 
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
 
@@ -4214,12 +4096,16 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
         if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
         txn->acc_pool_idx = acc_idx;
         uint txn_idx      = (uint)txn_pool_idx( accdb->txn_pool, txn );
-        txn->fork.next          = fork->shmem->txn_head;
-        fork->shmem->txn_head   = txn_idx;
+        for(;;) {
+          uint old_head  = FD_VOLATILE_CONST( fork->shmem->txn_head );
+          txn->fork.next = old_head;
+          if( FD_LIKELY( FD_ATOMIC_CAS( &fork->shmem->txn_head, old_head, txn_idx )==old_head ) ) break;
+          FD_SPIN_PAUSE();
+        }
       }
 
-      if( cross_existing[ i ] ) {
-        replaced_lamports += cross_existing[ i ]->lamports;
+      if( FD_UNLIKELY( cross_existing ) ) {
+        replaced_lamports += cross_existing->lamports;
         replaced++;
         cross_replaced++;
       } else {
@@ -4230,21 +4116,22 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     accmeta->cache_idx       = (uint)slots[ i ];
     accmeta->lamports        = lamports[ i ];
     accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] );
-    ulong entry_sz       = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-    ulong file_off       = allocate_next_write( accdb, entry_sz );
-    accmeta->offset_fork = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
-    used_bytes_added    += entry_sz;
+    ulong file_off           = file_offsets[ i ];
+    accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
+
+    spin_lock_release( stripe );
+
+    used_bytes_added += entry_sz;
   }
 
-  accdb->shmem->shmetrics->disk_used_bytes += used_bytes_added;
-  accdb->shmem->shmetrics->disk_used_bytes -= used_bytes_removed;
+fini:
+  for( ulong i=acquired_used; i<cnt; i++ ) {
+    acc_pool_release( accdb->acc_pool_join, acquired[ i ] );
+  }
 
-  /* accounts_total tracks acc_pool entries: increment for every new
-     allocation (both genuinely new accounts and cross-fork overrides
-     that insert a second pool entry).  The output counter
-     *accounts_loaded excludes cross-fork overrides to match
-     snapshot_write_one semantics (cross-fork returns 2 = replaced). */
-  accdb->shmem->shmetrics->accounts_total += loaded + cross_replaced;
+  accdb->write_stats.disk_used_added      += used_bytes_added;
+  accdb->write_stats.disk_used_removed    += used_bytes_removed;
+  accdb->write_stats.accounts_total_added += loaded + cross_replaced;
 
   *accounts_ignored      = ignored;
   *accounts_replaced     = replaced;
@@ -4252,7 +4139,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   *out_replaced_lamports = replaced_lamports;
   *out_ignored_lamports  = ignored_lamports;
 
-  return 0;
+  return result;
 }
 
 static void
