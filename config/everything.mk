@@ -24,14 +24,15 @@ OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 # builds accept as up to date
 .DELETE_ON_ERROR:
 
-# lld/mold: exes link object lists in --start-lib groups (archive semantics, no ar first).
-# Decided on the final LDFLAGS so a fragment that resets them (cross builds) falls back to archives.
+# lld/mold: exes link object lists in --start-lib groups (archive semantics, no ar first);
+# -Wl,<obj> skips the driver's realpath() per input.  Decided on the final LDFLAGS so a
+# fragment that resets them (cross builds) falls back to archives.
 comma:=,
 FD_LD_START_LIB:=$(filter -fuse-ld=lld -fuse-ld=mold -B$(MOLD_DIR)/ --ld-path=%lld,$(LDFLAGS))
 ifneq ($(FD_LD_START_LIB),)
 # a few tests' explicit extra-lib arg: redundant here, and exes have no archive edge
 BLST_LIBS:=
-exe-lib-args = $(foreach lib,$(1),$(if $(LIB_OBJS_$(lib)),-Wl$(comma)--start-lib $(LIB_OBJS_$(lib)) -Wl$(comma)--end-lib,-l$(lib)))
+exe-lib-args = $(foreach lib,$(1),$(if $(LIB_OBJS_$(lib)),-Wl$(comma)--start-lib $(addprefix -Wl$(comma),$(LIB_OBJS_$(lib))) -Wl$(comma)--end-lib,-l$(lib)))
 exe-lib-deps = $(foreach lib,$(1),$(OBJDIR)/lib/lib$(lib).objs)
 # archives stay outputs of the meta target (bin, unit-test, ...) as before,
 # beside the exe rather than in front of its link
