@@ -30,19 +30,19 @@ ZSTD_CFLAGS_NOWARN+=-DZSTD_DISABLE_ASM
 endif
 
 $(OBJDIR)/obj/third_party/zstd/lib/%.o : src/third_party/zstd/lib/%.c $(OBJDIR)/.flags src/third_party/zstd/Local.mk
-	@echo -e "CC\t$(notdir $@)"
+	@printf 'CC\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(ZSTD_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 # upstream builds this TU with -fno-tree-vectorize
 $(OBJDIR)/obj/third_party/zstd/lib/decompress/zstd_decompress_block.o : src/third_party/zstd/lib/decompress/zstd_decompress_block.c $(OBJDIR)/.flags src/third_party/zstd/Local.mk
-	@echo -e "CC\t$(notdir $@)"
+	@printf 'CC\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(ZSTD_CFLAGS_NOWARN) $(DEPFLAGS) -fno-tree-vectorize -c $< -o $@ && $(DEPFIX)
 
 # self-gated on __x86_64__/ZSTD_ASM_SUPPORTED; empty object elsewhere
 $(OBJDIR)/obj/third_party/zstd/lib/decompress/huf_decompress_amd64.o : src/third_party/zstd/lib/decompress/huf_decompress_amd64.S $(OBJDIR)/.flags src/third_party/zstd/Local.mk
-	@echo -e "AS\t$(notdir $@)"
+	@printf 'AS\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(ZSTD_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 

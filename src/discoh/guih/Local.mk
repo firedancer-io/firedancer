@@ -6,13 +6,13 @@ $(OBJDIR)/obj/discoh/guih/fd_guih_tile.o: book/public/fire.svg
 endif
 
 src/discoh/guih/dist_cmp/%.zst: src/discoh/guih/dist/% src/ballet/zstd/fd_zstd_pack.c | $(OBJDIR)/bin/fd_zstd_pack
-	@echo -e "ZSTD\t$(notdir $@)"
+	@printf 'ZSTD\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(@D) && \
 $(OBJDIR)/bin/fd_zstd_pack 19 $< $@ && \
 $(TOUCH) $@
 
 src/discoh/guih/dist_cmp/%.gz: src/discoh/guih/dist/% src/ballet/zstd/fd_gzip_pack.c | $(OBJDIR)/bin/fd_gzip_pack
-	@echo -e "GZIP\t$(notdir $@)"
+	@printf 'GZIP\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(@D) && \
 $(OBJDIR)/bin/fd_gzip_pack 9 $< $@ && \
 $(TOUCH) $@
