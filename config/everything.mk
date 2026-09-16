@@ -273,7 +273,8 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 
 # slowest objects first: make -j spawns in prerequisite order, so a slow TU
 # listed late runs alone in the tail; patterns under $(OBJDIR)/obj/, no .o
-SCHED_HOT_OBJS?=third_party/blst/% discof/replay/% discof/rpc/% disco/gui/% ballet/reedsol/% flamenco/vm/% third_party/zstd/lib/compress/% disco/pack/% waltz/quic/fd_quic app/firedancer/topology app/shared/commands/watch/% discof/forest/% discof/%_tile disco/%_tile flamenco/accdb/fd_accdb third_party/zstd/lib/decompress/% ballet/sha256/% ballet/sha512/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat disco/events/% disco/topo/% ballet/blake3/% discof/chainer/% flamenco/rewards/% choreo/tower/% disco/shred/%
+SCHED_HOT_OBJS?=third_party/blst/% discof/replay/% discof/rpc/% disco/gui/% ballet/reedsol/% flamenco/vm/% third_party/zstd/lib/compress/% disco/pack/% waltz/quic/fd_quic app/firedancer/topology app/shared/commands/watch/% discof/forest/% discof/%_tile disco/%_tile flamenco/accdb/fd_accdb third_party/zstd/lib/decompress/% ballet/sha256/% ballet/sha512/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat disco/events/% disco/topo/% ballet/blake3/% discof/chainer/% flamenco/rewards/% choreo/tower/% disco/shred/% \
+  waltz/http/fd_http_server flamenco/runtime/tests/fd_dump_pb ballet/x509/fd_x509 ballet/toml/fd_toml third_party/cjson/% ballet/zksdk/rangeproofs/% util/log/fd_log util/alloc/fd_alloc util/pod/fd_pod util/wksp/fd_wksp_restore_v2 util/shmem/fd_shmem_admin util/sandbox/fd_sandbox util/tpool/fd_tpool util/wksp/fd_wksp_helper util/wksp/fd_wksp_admin
 sched-hot-objs = $(filter $(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(lib))),$(SCHED_HOT_ALL))
 
 # _make-exe usage:
@@ -298,7 +299,7 @@ ifeq ($(5),bin)
 # build info captured by its own early job; the link installs it
 $(OBJDIR)/bin/$(1).buildinfo.o.new: FORCE
 	@$(MKDIR) $$(dir $$@) && { echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $(OBJDIR)/bin/$(1).buildinfo.c && $$(CC) -c -o $$@ $(OBJDIR)/bin/$(1).buildinfo.c
-$(1) buildinfo: $(OBJDIR)/bin/$(1).buildinfo.o.new
+$(1) buildinfo: $(OBJDIR)/bin/$(1).buildinfo.o.new $(OBJDIR)/info
 $(OBJDIR)/bin/$(1): | $(OBJDIR)/bin/$(1).buildinfo.o.new
 endif
 $(1): $(OBJDIR)/$(5)/$(1)
