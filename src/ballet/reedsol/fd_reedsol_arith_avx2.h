@@ -47,17 +47,6 @@ static uchar const fd_reedsol_arith_scale4[ 256UL ] = {
 
 #define GF_OR  wb_or
 
-#define GF_MUL( a, c ) (__extension__({                                                                                 \
-    wb_t _a  = (a);                                                                                                     \
-    int  _c  = (c);                                                                                                     \
-    wb_t _lo = wb_and( _a, wb_bcast( 0x0F ) );                                                                          \
-    wb_t _hi = wb_shr( _a, 4 );                                                                                         \
-    wb_t _p0 = _mm256_shuffle_epi8( wb_ld( fd_reedsol_arith_consts_avx_mul + 32*_c                            ), _lo ); \
-    wb_t _p1 = _mm256_shuffle_epi8( wb_ld( fd_reedsol_arith_consts_avx_mul + 32*fd_reedsol_arith_scale4[ _c ] ), _hi ); \
-    /* c is known at compile time, so this is not a runtime branch */                                                   \
-    (_c==0) ? wb_zero() : ( (_c==1) ? _a : wb_xor( _p0, _p1 ) );                                                        \
-  }))
-
 #define GF_MUL_VAR( a, c ) (__extension__({                                                                             \
     wb_t _a  = (a);                                                                                                     \
     int  _c  = (c);                                                                                                     \
@@ -67,6 +56,9 @@ static uchar const fd_reedsol_arith_scale4[ 256UL ] = {
     wb_t _p1 = _mm256_shuffle_epi8( wb_ld( fd_reedsol_arith_consts_avx_mul + 32*fd_reedsol_arith_scale4[ _c ] ), _hi ); \
     wb_xor( _p0, _p1 );                                                                                                 \
   }))
+
+/* c is a compile-time constant: a plain conditional folds while parsing (no statement-expr temporaries) */
+#define GF_MUL( a, c ) ( ((c)==0) ? wb_zero() : ( ((c)==1) ? (a) : GF_MUL_VAR( (a), (c) ) ) )
 
 #define GF_ANY( x ) (0 != _mm256_movemask_epi8( wb_ne( (x), wb_zero() ) ))
 
