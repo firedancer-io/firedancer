@@ -1,5 +1,5 @@
 name: cpusonline
-description: 'Dissolve cpuset partitions left behind by a previous job'
+description: 'Dissolve cpuset partitions left behind by a previous job and give the runner its CPUs back'
 inputs: {}
 outputs: {}
 runs:
@@ -22,3 +22,16 @@ runs:
           done < "$dir/cgroup.procs"
           sudo rmdir "$dir" || true
         done
+
+        # Dissolving is not enough for the runner itself: CoreCLR re-applies
+        # a thread's affinity when it creates it (CPalThread::ThreadEntry),
+        # and the kernel keeps that requested mask through later cpuset
+        # changes (user_cpus_ptr), so Runner.Listener/Worker threads born
+        # while a partition existed stay narrowed for good and every step
+        # they fork inherits it (nproc 77 instead of 96, builds on fewer
+        # cores).  Re-request the full mask on every thread of the runner's
+        # cgroup.
+        while read -r pid; do
+          sudo taskset -a -pc "$(cat /sys/devices/system/cpu/online)" "$pid" > /dev/null 2>&1 || true
+        done < "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/cgroup.procs"
+        nproc
