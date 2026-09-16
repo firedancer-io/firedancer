@@ -1,5 +1,6 @@
-import argparse
 import json
+import os
+import sys
 from typing import Any, Callable, Dict, List, Optional
 
 import pytest
@@ -9,8 +10,10 @@ from deepdiff.helper import COLORED_COMPACT_VIEW
 
 ### Formatted with Black ###
 
-SERVER1_URL = "http://localhost:8899"
-SERVER2_URL = "http://solana-testnet-rpc.jumpisolated.com:8899"
+SERVER1_URL = os.environ.get("SERVER1_URL", "http://localhost:8899")
+SERVER2_URL = os.environ.get(
+    "SERVER2_URL", "http://solana-testnet-rpc.jumpisolated.com:8899"
+)
 
 
 class RPCTester:
@@ -74,88 +77,6 @@ class RPCTester:
 
         return (len(diff) == 0, diff if len(diff) > 0 else None)
 
-    def test_rpc_method(
-        self,
-        payload: Dict[str, Any],
-        exclude_paths: Optional[List[str]] = None,
-        prediff: Optional[Callable] = None,
-        description: str = "",
-    ) -> bool:
-        """
-        Test a single RPC method against both servers
-
-        Args:
-            payload: The JSON-RPC request payload
-            ignore_keys: Keys to ignore when comparing responses
-            description: Test description for logging
-
-        Returns:
-            True if responses match, False otherwise
-        """
-
-        print(f"-- {description} --")
-
-        resp1 = self.make_rpc_call(self.server1_url, payload)
-        resp2 = self.make_rpc_call(self.server2_url, payload)
-
-        # Compare responses
-        is_equal, diff = self.compare_responses(resp1, resp2, exclude_paths, prediff)
-
-        if not is_equal:
-            print(f"\n{'=' * 60}")
-            print(f"Test: {description}")
-            print(f"{'=' * 60}")
-            print(f"Payload: {json.dumps(payload, indent=2)}")
-
-            print(diff)
-
-            print("\n✗ FAIL: Responses differ")
-
-        return is_equal
-
-
-def run_test_suite(
-    tester: RPCTester, test_cases: List[Dict[str, Any]], only_first: int
-):
-    """
-    Run a batch of test cases
-
-    Args:
-        tester: tester object
-        test_cases: List of test case dictionaries with keys:
-            - payload: The RPC request
-            - exclude_paths: Optional paths to ignore
-            - description: Optional test description
-            - prediff: function to preprocess response before diff
-        only_first: quit test suite early after first failing only_first tests
-    """
-    results = []
-    failed_cnt = 0
-
-    for i, test_case in enumerate(test_cases, 1):
-        payload = test_case["payload"]
-        description = test_case.get("description", f"Test case {i}")
-        exclude_paths = test_case.get("exclude_paths")
-        prediff = test_case.get("prediff")
-
-        result = tester.test_rpc_method(payload, exclude_paths, prediff, description)
-        results.append({"test": description, "passed": result})
-
-        failed_cnt += int(not result)
-
-        if only_first is not None and failed_cnt >= only_first:
-            break
-
-    print(f"\n{'=' * 60}")
-    print("TEST SUMMARY")
-    print(f"{'=' * 60}")
-    passed = sum(1 for r in results if r["passed"])
-    print(
-        f"<# passed>/<# failed>/<# tests available> {passed}/{len(results) - passed}/{len(test_cases)}"
-    )
-
-    return results
-
 
 ALL_TYPES = [
     0,
@@ -195,7 +116,14 @@ def get_rpc_result(url: str, method: str, params=None):
     return msg["result"]
 
 
-def get_current_slot_epoch():
+_CURRENT_SLOT_EPOCH: Optional[Dict[str, int]] = None
+
+
+def get_current_slot_epoch() -> Dict[str, int]:
+    global _CURRENT_SLOT_EPOCH
+    if _CURRENT_SLOT_EPOCH is not None:
+        return _CURRENT_SLOT_EPOCH
+
     params = [{"commitment": "finalized"}]
     epoch_info1 = get_rpc_result(SERVER1_URL, "getEpochInfo", params)
     epoch_info2 = get_rpc_result(SERVER2_URL, "getEpochInfo", params)
@@ -212,12 +140,26 @@ def get_current_slot_epoch():
         f"server2={slot2}/{epoch2}, using={slot}/{epoch}"
     )
 
-    return {"slot": slot, "epoch": epoch}
+    _CURRENT_SLOT_EPOCH = {"slot": slot, "epoch": epoch}
+    return _CURRENT_SLOT_EPOCH
 
-# okay to perform RPC tests on import since this is a test file
-CURRENT_SLOT_EPOCH = get_current_slot_epoch()
-CURRENT_SLOT = CURRENT_SLOT_EPOCH["slot"]
-CURRENT_EPOCH = CURRENT_SLOT_EPOCH["epoch"]
+
+def get_current_slot() -> int:
+    return get_current_slot_epoch()["slot"]
+
+
+def get_current_epoch() -> int:
+    return get_current_slot_epoch()["epoch"]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "CURRENT_SLOT_EPOCH":
+        return get_current_slot_epoch()
+    elif name == "CURRENT_SLOT":
+        return get_current_slot()
+    elif name == "CURRENT_EPOCH":
+        return get_current_epoch()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 MISC = [
@@ -908,13 +850,13 @@ GET_LEADER_SCHEDULE = [
         "exclude_paths": ["root['msg']['result']"],
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getLeaderSchedule",
-            "params": [CURRENT_SLOT],
+            "params": [get_current_slot()],
         },
-        "description": f"getLeaderSchedule params=[{CURRENT_SLOT}]",
+        "description": "getLeaderSchedule params=[CURRENT_SLOT]",
         "exclude_paths": ["root['msg']['result']"],
     },
     {
@@ -1045,16 +987,16 @@ GET_LEADER_SCHEDULE = [
 
 GET_CURRENT_SLOT_EPOCH = [
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getSlotLeaders",
-            "params": [CURRENT_SLOT, 1],
+            "params": [get_current_slot(), 1],
         },
-        "description": f"getSlotLeaders live startSlot={CURRENT_SLOT} limit=1",
+        "description": "getSlotLeaders live startSlot=CURRENT_SLOT limit=1",
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getAccountInfo",
@@ -1063,44 +1005,44 @@ GET_CURRENT_SLOT_EPOCH = [
                 {
                     "encoding": "base64",
                     "commitment": "finalized",
-                    "minContextSlot": CURRENT_SLOT,
+                    "minContextSlot": get_current_slot(),
                 },
             ],
         },
-        "description": f"getAccountInfo live minContextSlot={CURRENT_SLOT}",
+        "description": "getAccountInfo live minContextSlot=CURRENT_SLOT",
         "exclude_paths": ["root['msg']['result']['context']['slot']"],
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getBalance",
             "params": [
                 "SysvarRent111111111111111111111111111111111",
-                {"commitment": "finalized", "minContextSlot": CURRENT_SLOT},
+                {"commitment": "finalized", "minContextSlot": get_current_slot()},
             ],
         },
-        "description": f"getBalance live minContextSlot={CURRENT_SLOT}",
+        "description": "getBalance live minContextSlot=CURRENT_SLOT",
         "exclude_paths": ["root['msg']['result']['context']['slot']"],
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getBlockHeight",
-            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+            "params": [{"commitment": "finalized", "minContextSlot": get_current_slot()}],
         },
-        "description": f"getBlockHeight live minContextSlot={CURRENT_SLOT}",
+        "description": "getBlockHeight live minContextSlot=CURRENT_SLOT",
         "exclude_paths": ["root['msg']['result']"],
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getEpochInfo",
-            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+            "params": [{"commitment": "finalized", "minContextSlot": get_current_slot()}],
         },
-        "description": f"getEpochInfo live epoch={CURRENT_EPOCH} minContextSlot={CURRENT_SLOT}",
+        "description": "getEpochInfo live epoch=CURRENT_EPOCH minContextSlot=CURRENT_SLOT",
         "exclude_paths": [
             "root['msg']['result']['absoluteSlot']",
             "root['msg']['result']['blockHeight']",
@@ -1109,50 +1051,50 @@ GET_CURRENT_SLOT_EPOCH = [
         ],
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getLatestBlockhash",
-            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+            "params": [{"commitment": "finalized", "minContextSlot": get_current_slot()}],
         },
-        "description": f"getLatestBlockhash live minContextSlot={CURRENT_SLOT}",
+        "description": "getLatestBlockhash live minContextSlot=CURRENT_SLOT",
         "exclude_paths": [
             "root['msg']['result']['context']['slot']",
             "root['msg']['result']['value']",
         ],
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getSlot",
-            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+            "params": [{"commitment": "finalized", "minContextSlot": get_current_slot()}],
         },
-        "description": f"getSlot live minContextSlot={CURRENT_SLOT}",
+        "description": "getSlot live minContextSlot=CURRENT_SLOT",
         "exclude_paths": ["root['msg']['result']"],
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getSlotLeader",
-            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+            "params": [{"commitment": "finalized", "minContextSlot": get_current_slot()}],
         },
-        "description": f"getSlotLeader live minContextSlot={CURRENT_SLOT}",
+        "description": "getSlotLeader live minContextSlot=CURRENT_SLOT",
         "exclude_paths": ["root['msg']['result']"],
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getTransactionCount",
-            "params": [{"commitment": "finalized", "minContextSlot": CURRENT_SLOT}],
+            "params": [{"commitment": "finalized", "minContextSlot": get_current_slot()}],
         },
-        "description": f"getTransactionCount live minContextSlot={CURRENT_SLOT}",
+        "description": "getTransactionCount live minContextSlot=CURRENT_SLOT",
         "exclude_paths": ["root['msg']['result']"],
     },
     {
-        "payload": {
+        "payload": lambda: {
             "jsonrpc": "2.0",
             "id": 0,
             "method": "getMultipleAccounts",
@@ -1164,11 +1106,11 @@ GET_CURRENT_SLOT_EPOCH = [
                 {
                     "encoding": "base64",
                     "commitment": "finalized",
-                    "minContextSlot": CURRENT_SLOT,
+                    "minContextSlot": get_current_slot(),
                 },
             ],
         },
-        "description": f"getMultipleAccounts live minContextSlot={CURRENT_SLOT}",
+        "description": "getMultipleAccounts live minContextSlot=CURRENT_SLOT",
         "exclude_paths": ["root['msg']['result']['context']['slot']"],
     },
 ]
@@ -1330,39 +1272,68 @@ GET_MULTIPLE_ACCOUNTS = [
     },
 ]
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process some data")
-    parser.add_argument(
-        "--only-first", type=int, default=None, help="Only process the first item"
-    )
-    args = parser.parse_args()
+TEST_SUITE = [
+    *MISC,
+    *GET_HEALTH,
+    *GET_VERSION,
+    *GET_IDENTITY,
+    *GET_ACCOUNT_INFO,
+    *GET_BALANCE,
+    *GET_HEIGHT,
+    *GET_GENESIS_HASH,
+    *GET_INFLATION_GOVERNOR,
+    *GET_LATEST_BLOCKHASH,
+    *GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION,
+    *GET_SLOT,
+    *GET_SLOT_LEADER,
+    *GET_SLOT_LEADERS,
+    *GET_LEADER_SCHEDULE,
+    *GET_CURRENT_SLOT_EPOCH,
+    *GET_TRANSACTION_COUNT,
+    *GET_CLUSTER_NODES,
+    *GET_EPOCH_INFO,
+    *GET_MULTIPLE_ACCOUNTS,
+]
 
-    tester = RPCTester(
+test_suite = TEST_SUITE
+
+
+@pytest.fixture(scope="session")
+def tester():
+    return RPCTester(
         server1_url=SERVER1_URL,
         server2_url=SERVER2_URL,
     )
 
-    test_suite = [
-        *MISC,
-        *GET_HEALTH,
-        *GET_VERSION,
-        *GET_IDENTITY,
-        *GET_ACCOUNT_INFO,
-        *GET_BALANCE,
-        *GET_HEIGHT,
-        *GET_GENESIS_HASH,
-        *GET_INFLATION_GOVERNOR,
-        *GET_LATEST_BLOCKHASH,
-        *GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION,
-        *GET_SLOT,
-        *GET_SLOT_LEADER,
-        *GET_SLOT_LEADERS,
-        *GET_LEADER_SCHEDULE,
-        *GET_CURRENT_SLOT_EPOCH,
-        *GET_TRANSACTION_COUNT,
-        *GET_CLUSTER_NODES,
-        *GET_EPOCH_INFO,
-        *GET_MULTIPLE_ACCOUNTS,
-    ]
 
-    run_test_suite(tester, test_suite, args.only_first)
+@pytest.mark.parametrize(
+    "test_case",
+    TEST_SUITE,
+    ids=[tc.get("description", f"test_{i}") for i, tc in enumerate(TEST_SUITE)],
+)
+def test_rpc(tester: RPCTester, test_case: Dict[str, Any]):
+    payload = test_case["payload"]
+    if callable(payload):
+        payload = payload()
+    exclude_paths = test_case.get("exclude_paths")
+    prediff = test_case.get("prediff")
+    description = test_case.get("description", "")
+
+    resp1 = tester.make_rpc_call(tester.server1_url, payload)
+    resp2 = tester.make_rpc_call(tester.server2_url, payload)
+
+    is_equal, diff = tester.compare_responses(resp1, resp2, exclude_paths, prediff)
+
+    assert is_equal, (
+        f"\n{'=' * 60}\n"
+        f"Test: {description}\n"
+        f"{'=' * 60}\n"
+        f"Payload: {json.dumps(payload, indent=2, default=str)}\n\n"
+        f"Diff:\n{diff}\n\n"
+        f"Server 1 ({tester.server1_url}):\n{json.dumps(resp1, indent=2, default=str)}\n\n"
+        f"Server 2 ({tester.server2_url}):\n{json.dumps(resp2, indent=2, default=str)}\n"
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, *sys.argv[1:]]))
