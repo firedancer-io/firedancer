@@ -92,10 +92,13 @@
    that control message until all tiles forward it on, or an ERROR
    message is triggered by any of the tiles and forwarded. */
 
-/* Parameters for the snapshot data stream links (snapld_dc,
-   snapdc_in).  Producers adapt to the link MTU, which just needs to
-   exceed the control structs. */
+/* Snapshot data MTU and snapld-to-snapdc link depth. */
 #define FD_SNAPSHOT_DATA_DEPTH                 (1024UL)
+
+/* Every snapin is a reliable consumer on every snapdc lane.  This
+   runway keeps one stalled snapin from blocking all decompressors. */
+#define FD_SNAPSHOT_DC_IN_DEPTH                (2048UL)
+
 #define FD_SNAPSHOT_DATA_MTU                   (65408UL)
 
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
