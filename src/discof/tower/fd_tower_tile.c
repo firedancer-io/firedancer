@@ -300,6 +300,7 @@ struct fd_tower_tile {
   ulong       out_wmark;
   ulong       out_chunk;
   ulong       out_seq;
+  ulong       replay_in_seq;
 
   /* metrics */
 
@@ -1751,13 +1752,18 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+    ulong seq_must_complete = fd_keyswitch_param_query( ctx->identity_keyswitch );
+    if( FD_UNLIKELY( fd_seq_lt( ctx->replay_in_seq, seq_must_complete ) ) ) return;
+
+    if( FD_LIKELY( !ctx->halt_signing ) ) FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+    ctx->halt_signing = 1;
+    if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
+
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
     FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
-    fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->halt_signing               = 1;
     ctx->identity_keyswitch->result = ctx->out_seq;
+    fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
 
@@ -1817,7 +1823,7 @@ after_credit( fd_tower_tile_t *   ctx,
 static inline int
 returnable_frag( fd_tower_tile_t *   ctx,
                  ulong               in_idx,
-                 ulong               seq FD_PARAM_UNUSED,
+                 ulong               seq,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
@@ -1884,7 +1890,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
       break;
     case REPLAY_SIG_SLOT_DEAD:;
       fd_replay_slot_dead_t * slot_dead = (fd_replay_slot_dead_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( slot_dead->slot < ctx->tower->root ) ) return 0; /* ignore dead slots before root */
+      if( FD_UNLIKELY( slot_dead->slot < ctx->tower->root ) ) break; /* ignore dead slots before root */
       fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, slot_dead->slot );
       FD_TEST( lsched );
       FD_TEST( lsched->epoch==ctx->root_epoch || lsched->epoch==ctx->root_epoch + 1 );
@@ -1895,12 +1901,13 @@ returnable_frag( fd_tower_tile_t *   ctx,
     case REPLAY_SIG_TXN_EXECUTED:;
       FD_TEST( ctx->init ); /* replay_txn_executed should never be received before replay_slot_completed, which sets init to 1. */
       fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk ) );
-      if( FD_UNLIKELY( !txn_executed->is_committable || txn_executed->is_fees_only || txn_executed->txn_err ) ) return 0;
+      if( FD_UNLIKELY( !txn_executed->is_committable || txn_executed->is_fees_only || txn_executed->txn_err ) ) break;
       count_vote_txn( ctx, TXN(txn_executed->txn), txn_executed->txn->payload );
       break;
     default:
       break;
     }
+    ctx->replay_in_seq = seq+1UL;
     return 0;
   }
   case IN_KIND_SHRED: {
@@ -2017,11 +2024,12 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
-  ctx->out_seq    = 0UL;
+  ctx->out_mem       = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0    = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->out_wmark     = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
+  ctx->out_chunk     = ctx->out_chunk0;
+  ctx->out_seq       = 0UL;
+  ctx->replay_in_seq = 0UL;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->vote_account->uc, vote_account_b58 );
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
