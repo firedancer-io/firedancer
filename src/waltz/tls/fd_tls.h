@@ -3,6 +3,7 @@
 
 #include "fd_tls_estate.h"
 #include "../../ballet/chacha/fd_chacha_rng.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/x509/fd_x509_ca_store.h"
 
 /* fd_tls implements a subset of the TLS v1.3 (RFC 8446) handshake
@@ -62,6 +63,15 @@
 
      RFC 5288: AES Galois Counter Mode (GCM) Cipher Suites for TLS
      https://datatracker.ietf.org/doc/html/rfc5288 */
+
+/* Constants **********************************************************/
+
+/* FD_TLS_CV_SIGN_SZ is the size of the TLS 1.3 CertificateVerify
+   signing payload: 64 bytes of 0x20 padding, the 33 byte context
+   string, a zero separator and the 32 byte transcript hash (RFC 8446,
+   Section 4.4.3). */
+
+#define FD_TLS_CV_SIGN_SZ (130UL)
 
 /* Callbacks **********************************************************/
 
@@ -126,8 +136,9 @@ typedef void
 
    ctx is an arbitrary pointer that is provided as a callback argument.
    sig points to a 64 byte buffer where the implementor should store the
-   ed25519 signature of the payload.  Payload will point to a 130 byte
-   buffer containing the TLS 1.3 CertificateVerify payload.
+   ed25519 signature of the payload.  Payload will point to a
+   FD_TLS_CV_SIGN_SZ byte buffer containing the TLS 1.3 CertificateVerify
+   payload.
 
    This function must not fail.  Lifetime of the payload buffer ends at
    return.
@@ -142,8 +153,8 @@ typedef void
 
 typedef void
 (* fd_tls_sign_fn_t)( void *        ctx,
-                      uchar         sig[ static 64 ],
-                      uchar const   payload[ static 130 ] );
+                      uchar         sig[ static FD_ED25519_SIG_SZ ],
+                      uchar const   payload[ static FD_TLS_CV_SIGN_SZ ] );
 
 struct fd_tls_sign_vt {
   void *           ctx;
@@ -154,8 +165,8 @@ typedef struct fd_tls_sign_vt fd_tls_sign_t;
 
 static inline void
 fd_tls_sign( fd_tls_sign_t const * sign,
-             uchar                 sig[ static 64 ],
-             uchar const           payload[ static 130 ] ) {
+             uchar                 sig[ static FD_ED25519_SIG_SZ ],
+             uchar const           payload[ static FD_TLS_CV_SIGN_SZ ] ) {
   sign->sign_fn( sign->ctx, sig, payload );
 }
 

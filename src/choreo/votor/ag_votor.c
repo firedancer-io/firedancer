@@ -83,12 +83,12 @@ struct __attribute__((aligned(128UL))) ag_votor {
   slot_states_t * slot_states;
   ulong           highest_final_cert_slot;
 
-  ulong        prev_epoch_rank;
-  ulong        prev_epoch_slot;
-  ulong        curr_epoch_rank;
-  ulong        curr_epoch_slot;
-  ulong        next_epoch_rank;
-  ulong        next_epoch_slot;
+  ulong prev_epoch_rank;
+  ulong prev_epoch_slot;
+  ulong curr_epoch_rank;
+  ulong curr_epoch_slot;
+  ulong next_epoch_rank;
+  ulong next_epoch_slot;
 
   ag_event_vote_t * vote_events;
   ag_event_cert_t * cert_events;
@@ -219,11 +219,11 @@ ag_votor_new( void * mem,
   votor->slot_states->pool       = slot_state_pool_join( slot_state_pool_new( slot_state_pool, slot_max                  ) );
   votor->slot_states->map        = slot_state_map_join ( slot_state_map_new ( slot_state_map,  slot_state_chain_cnt, seed ) );
   votor->highest_final_cert_slot = ULONG_MAX;
-  votor->prev_epoch_rank         = 0UL;
+  votor->prev_epoch_rank         = USHORT_MAX;
   votor->prev_epoch_slot         = ULONG_MAX;
-  votor->curr_epoch_rank         = 0UL;
+  votor->curr_epoch_rank         = USHORT_MAX;
   votor->curr_epoch_slot         = ULONG_MAX;
-  votor->next_epoch_rank         = 0UL;
+  votor->next_epoch_rank         = USHORT_MAX;
   votor->next_epoch_slot         = ULONG_MAX;
   votor->vote_events             = vote_events_join( vote_events_new( vote_events, events_max ) );
   votor->cert_events             = cert_events_join( cert_events_new( cert_events, events_max ) );
@@ -517,8 +517,6 @@ ag_votor_advance_epoch( ag_votor_t * self,
                         ulong        epoch_rank,
                         ulong        epoch_slot ) {
   if( FD_UNLIKELY( self->curr_epoch_slot==ULONG_MAX ) ) {
-    self->prev_epoch_rank = epoch_rank;
-    self->prev_epoch_slot = epoch_slot;
     self->curr_epoch_rank = epoch_rank;
     self->curr_epoch_slot = epoch_slot;
   } else if( FD_UNLIKELY( self->next_epoch_slot==ULONG_MAX ) ) {

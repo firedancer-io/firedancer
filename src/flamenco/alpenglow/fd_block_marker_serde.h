@@ -2,16 +2,11 @@
 #define HEADER_fd_src_flamenco_alpenglow_fd_block_marker_serde_h
 
 #include "fd_block_marker.h"
-#include "../../choreo/votor/ag_bls_serde.h"
 
 #define FD_BLOCK_MARKER_DE_SUCCESS         ( 0)
 #define FD_BLOCK_MARKER_DE_ERR_SZ          (-1) /* Io(ReadSizeLimit), PreallocationSizeLimit, Custom("LengthPrefixed: inner serialized size does not match length prefix") */
 #define FD_BLOCK_MARKER_DE_ERR_INVAL       (-2) /* InvalidTagEncoding, InvalidValue                                                                                         */
 #define FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED (-3) /* no wincode error: BlockMarkerV1::GenesisCertificate decodes in agave but fd_block_marker_t cannot carry it              */
-
-FD_STATIC_ASSERT( AG_BLS_DE_SUCCESS  ==FD_BLOCK_MARKER_DE_SUCCESS,   fd_block_marker_serde );
-FD_STATIC_ASSERT( AG_BLS_DE_ERR_SZ   ==FD_BLOCK_MARKER_DE_ERR_SZ,    fd_block_marker_serde );
-FD_STATIC_ASSERT( AG_BLS_DE_ERR_INVAL==FD_BLOCK_MARKER_DE_ERR_INVAL, fd_block_marker_serde );
 
 /* BlockMarkerV1: https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L380-L386 */
 
@@ -38,11 +33,16 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
                                   sizeof(ulong)     /* new_parent_slot     */ + \
                                   sizeof(fd_hash_t) /* new_parent_block_id */ )
 
+#define FD_BLOCK_BITMAP_SER_HDR_SZ ( sizeof(uchar)  /* version */ + \
+                                     sizeof(ushort) /* bit_cnt */ )
+
+#define FD_BLOCK_BITMAP_SER_SZ( bit_cnt ) ( FD_BLOCK_BITMAP_SER_HDR_SZ + ((bit_cnt)+7UL)/8UL /* base2 payload */ )
+
 #define FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ ( FD_BLS_SIG_COMPRESSED_SZ /* signature */ + \
                                               sizeof(ushort)           /* bitmap_sz */ )
 
 #define FD_BLOCK_VOTES_AGGREGATE_SER_SZ( bit_cnt ) ( FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ + \
-                                                     AG_BLS_AGG_SER_SZ( bit_cnt ) /* bitmap */ )
+                                                     FD_BLOCK_BITMAP_SER_SZ( bit_cnt ) /* bitmap */ )
 
 #define FD_BLOCK_VOTES_AGGREGATE_SER_MAX ( FD_BLOCK_VOTES_AGGREGATE_SER_SZ( AG_VAT_MAX ) )
 
@@ -61,7 +61,7 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
 
 #define FD_BLOCK_SKIP_REWARD_CERT_SER_MAX ( FD_BLOCK_SKIP_REWARD_CERT_SER_HDR_SZ /* slot, signature */ + \
                                             FD_BLOCK_REWARD_CERT_SER_CU16_MAX    /* bitmap_sz       */ + \
-                                            AG_BLS_AGG_SER_SZ( AG_VAT_MAX )      /* bitmap          */ )
+                                            FD_BLOCK_BITMAP_SER_SZ( AG_VAT_MAX ) /* bitmap          */ )
 
 #define FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ ( sizeof(ulong)            /* slot      */ + \
                                                 sizeof(fd_hash_t)        /* block_id  */ + \
@@ -69,7 +69,7 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
 
 #define FD_BLOCK_NOTAR_REWARD_CERT_SER_MAX ( FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ /* slot, block_id, signature */ + \
                                              FD_BLOCK_REWARD_CERT_SER_CU16_MAX     /* bitmap_sz                 */ + \
-                                             AG_BLS_AGG_SER_SZ( AG_VAT_MAX )       /* bitmap                    */ )
+                                             FD_BLOCK_BITMAP_SER_SZ( AG_VAT_MAX )  /* bitmap                    */ )
 
 #define FD_BLOCK_FOOTER_SER_HDR_SZ ( sizeof(uchar)     /* version                   */ + \
                                      sizeof(fd_hash_t) /* bank_hash                 */ + \
@@ -91,6 +91,8 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
 FD_STATIC_ASSERT( FD_BLOCK_MARKER_PREAMBLE_SZ          ==  13UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_HEADER_SER_SZ               ==  41UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_UPDATE_PARENT_SER_SZ              ==  41UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_BITMAP_SER_HDR_SZ           ==   3UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_BITMAP_SER_SZ( AG_VAT_MAX ) == 253UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_VOTES_AGGREGATE_SER_HDR_SZ  ==  98UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_VOTES_AGGREGATE_SER_MAX     == 351UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_FINAL_CERT_SER_HDR_SZ       ==  40UL, fd_block_marker_serde );
