@@ -16,6 +16,8 @@ main( int     argc,
 
   int level = atoi( argv[1] );
   if( level<ZSTD_minCLevel() || level>ZSTD_maxCLevel() ) DIE( "bad level %s", argv[1] );
+  /* levels 4-15 are compiled out of libfd_zstd (third_party/zstd/Local.mk) */
+  if( level>=4 && level<=15 ) DIE( "level %s not built (see third_party/zstd/Local.mk)", argv[1] );
 
   FILE * in  = fopen( argv[2], "rb" );  if( !in  ) DIE( "open %s failed", argv[2] );
   FILE * out = fopen( argv[3], "wb" );  if( !out ) DIE( "open %s failed", argv[3] );

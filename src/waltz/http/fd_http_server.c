@@ -20,6 +20,8 @@
 #include <netinet/tcp.h>
 
 #define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
+/* levels 4-15 are compiled out of libfd_zstd (third_party/zstd/Local.mk) */
+FD_STATIC_ASSERT( FD_HTTP_ZSTD_COMPRESSION_LEVEL<=3 || FD_HTTP_ZSTD_COMPRESSION_LEVEL>=16, zstd_level );
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 
