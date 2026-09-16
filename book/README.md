@@ -16,6 +16,3 @@ started guide at https://vitepress.dev/guide/getting-started.
 > `bun run dev --host` to expose the endpoint.
 
 This will serve a local docs site.
-
-When updating dependencies, run `bun install` and commit `package.json`
-and `bun.lock` together. The Pages build requires an up-to-date lockfile.
