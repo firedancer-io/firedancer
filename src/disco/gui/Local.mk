@@ -15,27 +15,35 @@ $(call run-unit-test,test_gui_hist_evict)
 $(call make-unit-test,test_gui_tile,test_gui_tile,fd_disco fd_discof fd_choreo fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_gui_tile)
 
-src/disco/gui/dist_cmp/%.zst: src/disco/gui/dist/% src/ballet/zstd/fd_zstd_pack.c
-	@printf 'ZSTD\t%s\n' $(notdir $@)
-	$(Q)$(MKDIR) $(@D) && \
-$(OBJDIR)/bin/fd_zstd_pack 19 $< $@ && \
-$(TOUCH) $@
-
-src/disco/gui/dist_cmp/%.gz: src/disco/gui/dist/% src/ballet/zstd/fd_gzip_pack.c
-	@printf 'GZIP\t%s\n' $(notdir $@)
-	$(Q)$(MKDIR) $(@D) && \
-$(OBJDIR)/bin/fd_gzip_pack 9 $< $@ && \
-$(TOUCH) $@
-
 FD_GUI_FRONTEND_FILES := $(call rfiles,src/disco/gui/dist/)
-FD_GUI_FRONTEND_GZ_FILES := $(patsubst src/disco/gui/dist/%, src/disco/gui/dist_cmp/%.gz, $(FD_GUI_FRONTEND_FILES))
-FD_GUI_FRONTEND_ZST_FILES := $(patsubst src/disco/gui/dist/%, src/disco/gui/dist_cmp/%.zst, $(FD_GUI_FRONTEND_FILES))
+FD_GUI_FRONTEND_CMP := $(patsubst src/disco/gui/dist/%,src/disco/gui/dist_cmp/%,$(FD_GUI_FRONTEND_FILES))
+FD_GUI_FRONTEND_CMP_FILES := $(addsuffix .zst,$(FD_GUI_FRONTEND_CMP)) $(addsuffix .gz,$(FD_GUI_FRONTEND_CMP))
 
-# packer edge only on compressed files whose recipe will run (-nt is strict, as is make)
-FD_GUI_STALE_CMP := $(shell set -- $(FD_GUI_FRONTEND_ZST_FILES); for f in $(FD_GUI_FRONTEND_FILES); do [ $$1 -nt $$f ] && [ $$1 -nt src/ballet/zstd/fd_zstd_pack.c ] || echo $$1; shift; done; set -- $(FD_GUI_FRONTEND_GZ_FILES); for f in $(FD_GUI_FRONTEND_FILES); do [ $$1 -nt $$f ] && [ $$1 -nt src/ballet/zstd/fd_gzip_pack.c ] || echo $$1; shift; done)
-$(filter %.zst,$(FD_GUI_STALE_CMP)): | $(OBJDIR)/bin/fd_zstd_pack
-$(filter %.gz,$(FD_GUI_STALE_CMP)):  | $(OBJDIR)/bin/fd_gzip_pack
+# stale compressed files (older than their input or any compressor input: packer sources, the
+# vendored zstd/zlib sources and headers, their Local.mk, assets.mk; -nt is strict, as is make) are
+# made by one source-only-prerequisite sub-make (assets.mk) so it starts in the first pass;
+# http_import_dist.o depends on the phony job, not the files (their mtimes are cached before the
+# job runs).  Each packer's newest input is found once: files newer than it must be newer than
+# every input.
+FD_GUI_ZSTD_INPUTS := src/ballet/zstd/fd_zstd_pack.c src/disco/gui/assets.mk src/third_party/zstd/Local.mk $(wildcard src/third_party/zstd/lib/*.h src/third_party/zstd/lib/common/* src/third_party/zstd/lib/compress/*)
+FD_GUI_GZIP_INPUTS := src/ballet/zstd/fd_gzip_pack.c src/disco/gui/assets.mk src/third_party/zlib/Local.mk $(wildcard src/third_party/zlib/*.c src/third_party/zlib/*.h)
+# member-list stamps (rewritten only on change): a removed source is an input change too
+ifdef FD_STAMPS
+$(shell mkdir -p $(OBJDIR)/tool)
+$(call stamp,$(OBJDIR)/tool/zstd.mlist,$(filter %.c,$(FD_GUI_ZSTD_INPUTS)))
+$(call stamp,$(OBJDIR)/tool/zlib.mlist,$(filter %.c,$(FD_GUI_GZIP_INPUTS)))
+endif
+FD_GUI_ZSTD_INPUTS += $(wildcard $(OBJDIR)/tool/zstd.mlist)
+FD_GUI_GZIP_INPUTS += $(wildcard $(OBJDIR)/tool/zlib.mlist)
+FD_GUI_STALE_CMP := $(shell zn=$$(ls -t $(FD_GUI_ZSTD_INPUTS) | head -1); gn=$$(ls -t $(FD_GUI_GZIP_INPUTS) | head -1); set -- $(FD_GUI_FRONTEND_CMP); for f in $(FD_GUI_FRONTEND_FILES); do [ $$1.zst -nt $$f ] && [ $$1.zst -nt $$zn ] || echo $$1.zst; [ $$1.gz -nt $$f ] && [ $$1.gz -nt $$gn ] || echo $$1.gz; shift; done)
+.PHONY: gui-assets
+ifneq ($(FD_GUI_STALE_CMP),)
+gui-assets:
+	$(Q)$(MAKE) --no-print-directory -f src/disco/gui/assets.mk CC='$(CC)' OBJDIR=$(OBJDIR) Q=$(Q) FD_GUI_DIST=src/disco/gui/dist ZSTD_DEFS='$(ZSTD_DEFS)' ZLIB_DEFS='$(ZLIB_DEFS)' $(FD_GUI_STALE_CMP)
+else
+gui-assets: ;
+endif
 
-$(OBJDIR)/obj/disco/gui/generated/http_import_dist.o: $(FD_GUI_FRONTEND_GZ_FILES) $(FD_GUI_FRONTEND_ZST_FILES)
+$(OBJDIR)/obj/disco/gui/generated/http_import_dist.o: $(FD_GUI_FRONTEND_FILES) $(filter-out $(FD_GUI_STALE_CMP),$(FD_GUI_FRONTEND_CMP_FILES)) $(if $(FD_GUI_STALE_CMP),gui-assets)
 $(OBJDIR)/obj/disco/gui/fd_gui.o: src/disco/gui/dbip.bin.zst
 endif
