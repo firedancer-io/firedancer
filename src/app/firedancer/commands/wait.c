@@ -5,6 +5,7 @@
 #include "../../../disco/topo/fd_topo.h"
 #include "../../../disco/wait_info/fd_wait_info.h"
 #include "../../../util/pod/fd_pod.h"
+#include "../../../util/rng/fd_rng.h"
 #include "../../../flamenco/rewards/fd_rewards_base.h"
 #include "generated/wait_seccomp.h"
 
@@ -213,6 +214,9 @@ wait_for_safe_window( fd_wait_info_box_t const * wait_info_box,
   long start_time  = fd_log_wallclock();
   int  first_frame = 1;
 
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)fd_log_wallclock(), 0UL ) );
+
   while( FD_LIKELY( g_running ) ) {
 
     /* 0. Verify the validator is still alive (pidfd becomes readable
@@ -235,8 +239,12 @@ wait_for_safe_window( fd_wait_info_box_t const * wait_info_box,
 
     fd_wait_info_t info;
     if( FD_UNLIKELY( !fd_wait_info_try_read( &info, wait_info_box ) ) ) {
-      fd_log_sleep( poll_interval_ns );
-      continue;
+      FD_SPIN_PAUSE();
+      fd_log_sleep( (long)fd_rng_ulong_roll( rng, 1000000UL ) ); /* 0-1ms jitter to break synchronization */
+      if( !fd_wait_info_try_read( &info, wait_info_box ) ) {
+        fd_log_sleep( poll_interval_ns );
+        continue;
+      }
     }
 
     /* 1. Health check: replay tile caught_up flag. */

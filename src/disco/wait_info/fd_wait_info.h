@@ -4,14 +4,10 @@
 /* fd_wait_info provides a shared topology object that holds the data
    the `wait` command needs to determine a safe restart window.
 
-   The replay tile is the sole writer.  The wait command reads it in a
-   lock-free manner via the seqlock helpers below. */
+   Expects a single producer and one or more consumers.  Reads are
+   lock-free via the seqlock helpers below. */
 
 #include "../../util/log/fd_log.h"
-
-FD_STATIC_ASSERT( FD_HAS_ATOMIC, fd_wait_info requires atomics );
-
-#include <stdatomic.h>
 
 #define FD_WAIT_INFO_MAGIC (0xf17eda2c57490000UL) /* firedancer wi ver 0 */
 
@@ -40,8 +36,8 @@ struct fd_wait_info {
 typedef struct fd_wait_info fd_wait_info_t;
 
 struct fd_wait_info_box {
-  ulong        magic;     /* ==FD_WAIT_INFO_MAGIC */
-  _Atomic uint seq_lock;  /* lsb==1 implies active write */
+  ulong magic;     /* ==FD_WAIT_INFO_MAGIC */
+  uint  seq;       /* lsb==1 implies active write */
 
   fd_wait_info_t info;
 };
@@ -76,41 +72,37 @@ fd_wait_info_box_join( void * shwi ) {
   return wi;
 }
 
-#if FD_HAS_ATOMIC
-
-/* fd_wait_info_try_read attempts a single consistent read of the
-   seqlock.  Returns dst on success, NULL if a write was in progress. */
+/* fd_wait_info_try_read attempts a single consistent read.
+   Returns dst on success, NULL if a write was in progress. */
 
 static inline fd_wait_info_t *
 fd_wait_info_try_read( fd_wait_info_t *           dst,
                        fd_wait_info_box_t const * src ) {
-  uint lock0 = atomic_load_explicit( &src->seq_lock, memory_order_acquire );
+  FD_COMPILER_MFENCE();
+  uint seq0 = FD_VOLATILE_CONST( src->seq );
+  FD_COMPILER_MFENCE();
+  if( FD_UNLIKELY( seq0 & 1U ) ) return NULL;
   memcpy( dst, &src->info, sizeof(fd_wait_info_t) );
-  atomic_thread_fence( memory_order_acquire );
-  uint lock1 = atomic_load_explicit( &src->seq_lock, memory_order_relaxed );
-  if( FD_LIKELY( lock0==lock1 && !(lock0 & 1U) ) ) return dst;
+  FD_COMPILER_MFENCE();
+  uint seq1 = FD_VOLATILE_CONST( src->seq );
+  FD_COMPILER_MFENCE();
+  if( FD_LIKELY( seq0==seq1 ) ) return dst;
   return NULL;
 }
 
 static inline void
 fd_wait_info_write_begin( fd_wait_info_box_t * dst ) {
-  for(;;) {
-    uint lock = atomic_load_explicit( &dst->seq_lock, memory_order_relaxed );
-    if( FD_LIKELY( !(lock & 1U) &&
-        atomic_compare_exchange_weak_explicit( &dst->seq_lock, &lock, lock+1U,
-                                               memory_order_acquire, memory_order_relaxed ) ) ) {
-      break;
-    }
-    FD_SPIN_PAUSE();
-  }
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( dst->seq ) = dst->seq + 1U;
+  FD_COMPILER_MFENCE();
 }
 
 static inline void
 fd_wait_info_write_end( fd_wait_info_box_t * dst ) {
-  atomic_fetch_add_explicit( &dst->seq_lock, 1U, memory_order_release );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( dst->seq ) = dst->seq + 1U;
+  FD_COMPILER_MFENCE();
 }
-
-#endif /* FD_HAS_ATOMIC */
 
 FD_PROTOTYPES_END
 

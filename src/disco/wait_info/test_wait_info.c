@@ -46,7 +46,7 @@ test_new_join_ok( void ) {
   FD_TEST( box->info.snap_active==0 );
   FD_TEST( box->info.snap_finished_full==0UL );
   FD_TEST( box->info.snap_finished_incr==0UL );
-  FD_TEST( atomic_load_explicit( &box->seq_lock, memory_order_relaxed )==0U );
+  FD_TEST( box->seq==0U );
   FD_LOG_NOTICE(( "... pass" ));
 }
 
@@ -56,17 +56,17 @@ test_write_cycle_seq( void ) {
   uchar mem[ sizeof(fd_wait_info_box_t) ] __attribute__((aligned(64)));
   fd_wait_info_box_t * box = fd_wait_info_box_join( fd_wait_info_box_new( mem ) );
   FD_TEST( box );
-  FD_TEST( atomic_load_explicit( &box->seq_lock, memory_order_relaxed )==0U );
+  FD_TEST( box->seq==0U );
 
   fd_wait_info_write_begin( box );
-  FD_TEST( atomic_load_explicit( &box->seq_lock, memory_order_relaxed )==1U );
+  FD_TEST( box->seq==1U );
   fd_wait_info_write_end( box );
-  FD_TEST( atomic_load_explicit( &box->seq_lock, memory_order_relaxed )==2U );
+  FD_TEST( box->seq==2U );
 
   fd_wait_info_write_begin( box );
-  FD_TEST( atomic_load_explicit( &box->seq_lock, memory_order_relaxed )==3U );
+  FD_TEST( box->seq==3U );
   fd_wait_info_write_end( box );
-  FD_TEST( atomic_load_explicit( &box->seq_lock, memory_order_relaxed )==4U );
+  FD_TEST( box->seq==4U );
   FD_LOG_NOTICE(( "... pass" ));
 }
 
@@ -110,24 +110,24 @@ test_try_read_during_write( void ) {
 }
 
 static void
-test_seq_lock_uint_wrap( void ) {
-  FD_LOG_NOTICE(( "testing seq lock uint wrap" ));
+test_seq_uint_wrap( void ) {
+  FD_LOG_NOTICE(( "testing seq uint wrap" ));
   uchar mem[ sizeof(fd_wait_info_box_t) ] __attribute__((aligned(64)));
   fd_wait_info_box_t * box = fd_wait_info_box_join( fd_wait_info_box_new( mem ) );
   FD_TEST( box );
 
-  /* Seed seq_lock to UINT_MAX-1 (even) */
-  atomic_store_explicit( &box->seq_lock, UINT_MAX-1U, memory_order_relaxed );
-  FD_TEST( atomic_load_explicit( &box->seq_lock, memory_order_relaxed )==UINT_MAX-1U );
+  /* Seed seq to UINT_MAX-1 (even) */
+  box->seq = UINT_MAX-1U;
+  FD_TEST( box->seq==UINT_MAX-1U );
 
   box->info.reset_slot = 99UL;
 
   /* write_begin: UINT_MAX-1 -> UINT_MAX (odd) */
   fd_wait_info_write_begin( box );
-  FD_TEST( atomic_load_explicit( &box->seq_lock, memory_order_relaxed )==UINT_MAX );
+  FD_TEST( box->seq==UINT_MAX );
   /* write_end: UINT_MAX -> 0 (wraps, even) */
   fd_wait_info_write_end( box );
-  FD_TEST( atomic_load_explicit( &box->seq_lock, memory_order_relaxed )==0U );
+  FD_TEST( box->seq==0U );
 
   fd_wait_info_t dst;
   FD_TEST( fd_wait_info_try_read( &dst, box ) );
@@ -155,6 +155,7 @@ writer_thread( void * arg ) {
     box->info.snap_finished_full            = gen;
     box->info.snap_finished_incr            = gen;
     fd_wait_info_write_end( box );
+    FD_SPIN_PAUSE();
   }
   return NULL;
 }
@@ -207,7 +208,7 @@ main( int     argc,
   test_write_cycle_seq();
   test_try_read_quiescent();
   test_try_read_during_write();
-  test_seq_lock_uint_wrap();
+  test_seq_uint_wrap();
   test_hammer_no_torn_reads();
 
   FD_LOG_NOTICE(( "pass" ));
