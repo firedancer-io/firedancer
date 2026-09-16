@@ -43,6 +43,7 @@ readonly -a S2N_FILES=(
   x86/fastmul/bignum_mul_6_12_alt.S
   x86/generic/bignum_demont.S
   x86/generic/bignum_modinv.S
+  x86/generic/bignum_montifier.S
   x86/generic/bignum_montmul.S
   x86/generic/bignum_sub.S
   x86/p256/bignum_add_p256.S
@@ -108,6 +109,7 @@ readonly -a S2N_FILES=(
   arm/fastmul/bignum_mul_6_12_alt.S
   arm/generic/bignum_demont.S
   arm/generic/bignum_modinv.S
+  arm/generic/bignum_montifier.S
   arm/generic/bignum_montmul.S
   arm/generic/bignum_sub.S
   arm/p256/bignum_add_p256.S

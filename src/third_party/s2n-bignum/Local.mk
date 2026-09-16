@@ -11,6 +11,7 @@ S2N_BIGNUM_ASMS:=\
   x86/fastmul/bignum_mul_6_12_alt \
   x86/generic/bignum_demont \
   x86/generic/bignum_modinv \
+  x86/generic/bignum_montifier \
   x86/generic/bignum_montmul \
   x86/generic/bignum_sub \
   x86/p256/bignum_add_p256 \
@@ -82,6 +83,7 @@ S2N_BIGNUM_ASMS:=\
   arm/fastmul/bignum_mul_6_12_alt \
   arm/generic/bignum_demont \
   arm/generic/bignum_modinv \
+  arm/generic/bignum_montifier \
   arm/generic/bignum_montmul \
   arm/generic/bignum_sub \
   arm/p256/bignum_add_p256 \
