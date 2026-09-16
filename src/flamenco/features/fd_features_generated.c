@@ -1948,26 +1948,26 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_2575)>>3,
-    .id                        = {"\xdd\x53\x17\x32\x99\x74\x3e\x41\x0a\x19\xc8\x8e\xd1\x45\xa8\x4d\x09\x52\x91\xc3\x27\xcb\x1a\x8a\x9b\x6e\xee\xaf\x46\x36\x97\xd7"},
-                                 /* Ftxb3ZKq7aNqgxDBbP7EonvR2RszZk9ctjdsTX38kQaz */
+    .id                        = {"\x0c\xc1\x56\xe8\x7f\xce\x05\x2c\xf8\xc7\xc3\x23\xf6\xd9\x99\x2a\x1c\xf8\x7e\x2b\xb4\x44\xac\x3c\x41\x23\x17\xc5\xf6\xdc\xdc\x9e"},
+                                 /* rntCigrTppP5JdZz7K8TyN9sMzLdAcXp8SejYpVpX6D */
     .name                      = "set_lamports_per_byte_to_2575",
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_1322)>>3,
-    .id                        = {"\xeb\xcd\x13\x56\x4b\xd9\xe3\xb8\x77\x18\x7f\x80\x49\x2a\x74\x92\x7e\x4b\xf9\x66\xd1\x95\xe7\x0e\xbc\x56\xda\x25\x84\x7b\x3e\x7e"},
-                                 /* GsUBNYNDPdMLHPD37TToHzrzcNcjpC9w5n1EcJk5iTaM */
+    .id                        = {"\x0c\xc1\x56\xf1\x3f\x43\xc6\xdb\xc2\x1d\x27\x8d\xb3\x30\x54\x0f\x6b\xe0\x4b\x14\x9f\xc1\xb3\x5d\x14\x83\x46\x4b\x78\x37\x96\xd5"},
+                                 /* rntD7invRBswCAdKtRsh1G4psKjrPdS3BKqtnA78C7N */
     .name                      = "set_lamports_per_byte_to_1322",
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_696)>>3,
-    .id                        = {"\x0b\x6a\x74\x87\xee\x08\x84\x07\x1d\xd4\xe9\xe7\x97\x29\x50\x32\x5d\x96\x72\x7c\x04\x04\x24\xe2\xc1\xf6\x4e\x90\x3a\x78\xda\xfb"},
-                                 /* mZdnRh9T2EbDNvqKjkCR3bvo5c816tJaojtE9Xs7iuY */
+    .id                        = {"\x0c\xc1\x58\x33\x2d\x6b\x7d\x0c\xd7\x44\xcd\x9c\xc9\xfb\x94\xaa\x58\x2a\xb4\x2f\x72\x52\x63\xdd\xbe\xd4\xde\x0b\x17\x4f\x0b\x88"},
+                                 /* rntTjNZ9boq8owDxjGVFHPfWNQPDaKiM5JcjxmDGg47 */
     .name                      = "set_lamports_per_byte_to_696",
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_6960)>>3,
-    .id                        = {"\x3d\xf4\x3b\x99\x54\x61\x60\x0b\xf2\x9a\xa8\xf3\xab\xd8\x14\x37\x0d\xd1\x17\xce\x0e\xc4\xd2\xcc\x9a\xb3\x43\x29\xf1\xe4\xb9\xbb"},
-                                 /* 5AqsUgSb6cgLizSaNiFn3o9XB7VUtKDtDZfcKEjEDmni */
+    .id                        = {"\x0c\xc1\x56\x8c\xdd\x5a\x2d\x54\xa2\x5f\x84\x78\x94\xac\xe9\xee\xf6\x03\xa8\x39\xaf\xfa\x4b\xfd\x32\x99\x8f\xb8\x39\x30\x78\x15"},
+                                 /* rnt8ZQpz2HYhX3DkYBDGjJS1a36mYq69oXka7JrhEdi */
     .name                      = "set_lamports_per_byte_to_6960",
     .cleaned_up                = 0 },
 
@@ -2318,10 +2318,10 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_280 0x2bc8c7833f988c0aUL, .val = &ids[280]
 #define MAP_PERFECT_281 0xf2d71f1fc49f0d35UL, .val = &ids[281]
 #define MAP_PERFECT_282 0x805cef511fbe564aUL, .val = &ids[282]
-#define MAP_PERFECT_283 0x413e7499321753ddUL, .val = &ids[283]
-#define MAP_PERFECT_284 0xb8e3d94b5613cdebUL, .val = &ids[284]
-#define MAP_PERFECT_285 0x078408ee87746a0bUL, .val = &ids[285]
-#define MAP_PERFECT_286 0x0b606154993bf43dUL, .val = &ids[286]
+#define MAP_PERFECT_283 0x2c05ce7fe856c10cUL, .val = &ids[283]
+#define MAP_PERFECT_284 0xdbc6433ff156c10cUL, .val = &ids[284]
+#define MAP_PERFECT_285 0x0c7d6b2d3358c10cUL, .val = &ids[285]
+#define MAP_PERFECT_286 0x542d5add8c56c10cUL, .val = &ids[286]
 #define MAP_PERFECT_287 0x4153c63f859c899cUL, .val = &ids[287]
 #define MAP_PERFECT_288 0xe8f8dc2ca192d30cUL, .val = &ids[288]
 #define MAP_PERFECT_289 0x1dd8741ccebef821UL, .val = &ids[289]
