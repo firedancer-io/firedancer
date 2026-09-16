@@ -24,7 +24,29 @@ OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 # builds accept as up to date
 .DELETE_ON_ERROR:
 
+# lld/mold: exes link object lists in --start-lib groups (archive semantics, no ar first).
+# Decided on the final LDFLAGS so a fragment that resets them (cross builds) falls back to archives.
+comma:=,
+FD_LD_START_LIB:=$(filter -fuse-ld=lld -fuse-ld=mold -B$(MOLD_DIR)/ --ld-path=%lld,$(LDFLAGS))
+ifneq ($(FD_LD_START_LIB),)
+# a few tests' explicit extra-lib arg: redundant here, and exes have no archive edge
+BLST_LIBS:=
+exe-lib-args = $(foreach lib,$(1),$(if $(LIB_OBJS_$(lib)),-Wl$(comma)--start-lib $(LIB_OBJS_$(lib)) -Wl$(comma)--end-lib,-l$(lib)))
+exe-lib-deps = $(foreach lib,$(1),$(OBJDIR)/lib/lib$(lib).objs)
+# archives stay outputs of the meta target (bin, unit-test, ...) as before,
+# beside the exe rather than in front of its link
+exe-meta-deps = $(foreach lib,$(1),$(OBJDIR)/lib/lib$(lib).a)
+EXE_VENDOR_LIBS:=$(VENDOR_LINK_LIBS)
+# unregistered libs (cargo archives): the stamp follows the archive
+$(OBJDIR)/lib/%.objs: $(OBJDIR)/lib/%.a
+	@$(if $(FD_DRYRUN),,$(file >$@,))
+else
+exe-lib-args = $(foreach lib,$(1),-l$(lib))
+exe-lib-deps = $(foreach lib,$(1),$(OBJDIR)/lib/lib$(lib).a)
+exe-meta-deps =
+EXE_VENDOR_LIBS:=
 LDFLAGS+=$(foreach l,$(VENDOR_LINK_LIBS),$(OBJDIR)/lib/lib$(l).a)
+endif
 
 # Grab all the Local.mk files in the source tree, save to a variable so that
 # other rules can depend on this list. We will include these files later on.
@@ -306,13 +328,13 @@ $(OBJDIR)/bin/$(1): | $(OBJDIR)/bin/$(1).buildinfo.o.new
 endif
 $(1): $(OBJDIR)/$(5)/$(1)
 
-$(OBJDIR)/$(5)/$(1): $$$$(call sched-hot-objs,$(3)) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a) $(OBJDIR)/.ldflags $(call ldstamp,$(5),$(1),$(6)) $(OBJDIR)/$(5)/$(1).mlist
+$(OBJDIR)/$(5)/$(1): $$$$(call sched-hot-objs,$(3)) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(call exe-lib-deps,$(3) $(EXE_VENDOR_LIBS)) $(OBJDIR)/.ldflags $(call ldstamp,$(5),$(1),$(6)) $(OBJDIR)/$(5)/$(1).mlist
 	@printf 'LD\t%s (%s)\n' $$(notdir $$@) $(5)
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $(if $(filter bin,$(5)),mv -f $$@.buildinfo.o.new $$@.buildinfo.o && ) \
-$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@.tmp && mv -f $$@.tmp $$@
+$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $$(call exe-lib-args,$(3)) $(6) $$(LDFLAGS) $$(call exe-lib-args,$(EXE_VENDOR_LIBS)) -o $$@.tmp && mv -f $$@.tmp $$@
 
-$(4): $(OBJDIR)/$(5)/$(1)
+$(4): $(OBJDIR)/$(5)/$(1) $(call exe-meta-deps,$(3))
 
 endef
 
@@ -524,6 +546,14 @@ $(OBJDIR)/.ldflags.d/%:
 # (delete/rename/move) or an archiver flag change must re-archive/relink
 # even when no member is newer
 $(foreach l,$(sort $(LIB_NAMES)),$(call stamp,$(OBJDIR)/lib/lib$(l).a.mlist,$(AR) $(ARFLAGS:%v=%) | $(sort $(LIB_OBJS_$(l))))$(eval $(OBJDIR)/lib/lib$(l).a: $(OBJDIR)/lib/lib$(l).a.mlist))
+# lib<name>.objs: the exe's per-lib edge; follows the objects, or the archive for unregistered libs
+ifneq ($(FD_LD_START_LIB),)
+define _lib-objs-stamp
+$(OBJDIR)/lib/lib$(1).objs: $(or $(LIB_OBJS_$(1)),$(OBJDIR)/lib/lib$(1).a) $(OBJDIR)/lib/lib$(1).a.mlist
+	@$$(if $$(FD_DRYRUN),,$$(file >$$@,))
+endef
+$(foreach l,$(sort $(LIB_NAMES)),$(eval $(call _lib-objs-stamp,$(l))))
+endif
 ifdef FD_STAMPS
 ALL_OBJS:=$(sort $(DEPFILES:.d=.o) $(ASM_DEPFILES:.d=.o) $(THIRDPARTY_DEPFILES:.d=.o))
 $(call stamp,$(OBJDIR)/obj.manifest,$(subst $(space),$(newline),$(ALL_OBJS)))
@@ -546,7 +576,7 @@ ifneq ($(filter-out file,$(origin LOCAL_MKS)),)
 $(error prune needs the full fragment set; unset LOCAL_MKS)
 endif
 # everything a registered rule produces in the dirs prune sweeps
-$(file >$(OBJDIR)/prune.keep,$(subst $(space),$(newline),$(sort $(ALL_OBJS) $(ALL_OBJS:.o=.d) $(DEPFILES:.d=.S) $(DEPFILES:.d=.i) $(ALL_EXES) $(ALL_EXES:=.mlist) $(EXE_KEEP) $(foreach l,$(LIB_NAMES),$(OBJDIR)/lib/lib$(l).a $(OBJDIR)/lib/lib$(l).a.mlist) $(HDR_EXPORTS) $(OBJDIR)/unit-test/automatic.txt $(OBJDIR)/integration-test/automatic.txt $(PRUNE_KEEP))))
+$(file >$(OBJDIR)/prune.keep,$(subst $(space),$(newline),$(sort $(ALL_OBJS) $(ALL_OBJS:.o=.d) $(DEPFILES:.d=.S) $(DEPFILES:.d=.i) $(ALL_EXES) $(ALL_EXES:=.mlist) $(EXE_KEEP) $(foreach l,$(LIB_NAMES),$(OBJDIR)/lib/lib$(l).a $(OBJDIR)/lib/lib$(l).a.mlist $(OBJDIR)/lib/lib$(l).objs) $(HDR_EXPORTS) $(OBJDIR)/unit-test/automatic.txt $(OBJDIR)/integration-test/automatic.txt $(PRUNE_KEEP))))
 endif
 .PHONY: prune
 prune:
