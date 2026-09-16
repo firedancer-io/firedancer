@@ -502,8 +502,9 @@ $(OBJDIR)/.ldflags.d/%:
 	@$(MKDIR) $(dir $@) && $(RM) "$(dir $@)$(firstword $(subst @, ,$(notdir $@)))@"* && $(TOUCH) $@
 
 # Member-list stamps: an archive/exe whose registered member set changed
-# (delete/rename/move) must re-archive/relink even when no member is newer
-$(foreach l,$(sort $(LIB_NAMES)),$(call stamp,$(OBJDIR)/lib/lib$(l).a.mlist,$(sort $(LIB_OBJS_$(l))))$(eval $(OBJDIR)/lib/lib$(l).a: $(OBJDIR)/lib/lib$(l).a.mlist))
+# (delete/rename/move) or an archiver flag change must re-archive/relink
+# even when no member is newer
+$(foreach l,$(sort $(LIB_NAMES)),$(call stamp,$(OBJDIR)/lib/lib$(l).a.mlist,$(AR) $(ARFLAGS:%v=%) | $(sort $(LIB_OBJS_$(l))))$(eval $(OBJDIR)/lib/lib$(l).a: $(OBJDIR)/lib/lib$(l).a.mlist))
 ifdef FD_STAMPS
 ALL_OBJS:=$(sort $(DEPFILES:.d=.o) $(ASM_DEPFILES:.d=.o) $(THIRDPARTY_DEPFILES:.d=.o))
 $(call stamp,$(OBJDIR)/obj.manifest,$(subst $(space),$(newline),$(ALL_OBJS)))

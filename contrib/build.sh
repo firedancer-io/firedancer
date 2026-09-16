@@ -187,7 +187,6 @@ CUSTOM_TARGETS+=( ["macos_clang_m1"]="${OTHER_TARGETS[@]}" )
 CUSTOM_TARGETS+=( ["linux_clang_minimal"]="${OTHER_TARGETS[@]}" )
 CUSTOM_TARGETS+=( ["linux_clang_noarch64"]="${OTHER_TARGETS[@]}" )
 CUSTOM_TARGETS+=( ["linux_clang_noarch128"]="${OTHER_TARGETS[@]}" )
-CUSTOM_TARGETS+=( ["freebsd_clang_noarch128"]="${OTHER_TARGETS[@]}" )
 
 FAIL=0
 START=$(date +%s)
