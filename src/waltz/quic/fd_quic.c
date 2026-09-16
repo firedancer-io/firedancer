@@ -4929,6 +4929,8 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
   }
 
   conn->used_pkt_meta -= fd_quic_pkt_meta_remove_range( sent, pool, lo, hi );
+
+  fd_quic_cb_ack_range( conn->quic, conn, lo, hi );
 }
 
 static ulong

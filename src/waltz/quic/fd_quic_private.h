@@ -299,6 +299,15 @@ fd_quic_cb_stream_notify( fd_quic_t *        quic,
   quic->cb.stream_notify( stream, stream_ctx, event );
 }
 
+static inline void
+fd_quic_cb_ack_range( fd_quic_t *      quic,
+                      fd_quic_conn_t * conn,
+                      ulong            pkt_num_lo,
+                      ulong            pkt_num_hi ) {
+  if( !quic->cb.ack_range ) return;
+  quic->cb.ack_range( conn, pkt_num_lo, pkt_num_hi, quic->cb.quic_ctx );
+}
+
 
 FD_FN_CONST ulong
 fd_quic_reconstruct_pkt_num( ulong pktnum_comp,

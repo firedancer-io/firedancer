@@ -289,6 +289,14 @@ typedef void
 (* fd_quic_cb_tls_keylog_t)( void *       quic_ctx,
                              char const * line );
 
+/* fd_quic_cb_ack_range_t: called when an ACK frame acknowledges a
+   range of packet numbers [pkt_num_lo, pkt_num_hi] (inclusive). */
+typedef void
+(* fd_quic_cb_ack_range_t)( fd_quic_conn_t * conn,
+                            ulong            pkt_num_lo,
+                            ulong            pkt_num_hi,
+                            void *           quic_ctx );
+
 /* fd_quic_callbacks_t defines the set of user-provided callbacks that
    are invoked by the QUIC library.  Resets on leave. */
 
@@ -305,6 +313,7 @@ struct fd_quic_callbacks {
   fd_quic_cb_stream_rx_t               stream_rx;         /* non-NULL, with stream_ctx */
   fd_quic_cb_datagram_rx_t             datagram_rx;       /* nullable, with quic_ctx   */
   fd_quic_cb_tls_keylog_t              tls_keylog;        /* nullable, with quic_ctx   */
+  fd_quic_cb_ack_range_t               ack_range;         /* nullable, with quic_ctx   */
 
 };
 typedef struct fd_quic_callbacks fd_quic_callbacks_t;
