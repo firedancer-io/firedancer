@@ -20,6 +20,8 @@
 
 /* Consts defined in fd_bn254_field.c */
 extern const fd_bn254_fp_t     fd_bn254_const_zero            [1];
+extern const fd_bn254_fp_t     fd_bn254_const_one             [1];
+extern const fd_bn254_fp_t     fd_bn254_const_rr              [1];
 extern const fd_bn254_fp_t     fd_bn254_const_p               [1];
 extern const fd_bn254_scalar_t fd_bn254_const_x               [1];
 extern const fd_bn254_fp_t     fd_bn254_const_b_mont          [1];
@@ -87,20 +89,6 @@ static inline int
 fd_bn254_fp_eq( fd_bn254_fp_t const * r,
                 fd_bn254_fp_t const * a ) {
   return fd_uint256_eq( r, a );
-}
-
-static inline fd_bn254_fp_t *
-fd_bn254_fp_from_mont( fd_bn254_fp_t * r,
-                       fd_bn254_fp_t const * a ) {
-  fiat_bn254_from_montgomery( r->limbs, a->limbs );
-  return r;
-}
-
-static inline fd_bn254_fp_t *
-fd_bn254_fp_to_mont( fd_bn254_fp_t * r,
-                     fd_bn254_fp_t const * a ) {
-  fiat_bn254_to_montgomery( r->limbs, a->limbs );
-  return r;
 }
 
 static inline fd_bn254_fp_t *
@@ -242,6 +230,23 @@ fd_bn254_fp_sqr( fd_bn254_fp_t * r,
   return fd_bn254_fp_mul( r, a, a );
 }
 
+/* Montgomery conversions via fp_mul rather than fiat's
+   from/to_montgomery (their literal limbs are slow to compile). */
+
+/* r = a * R^-1 */
+static inline fd_bn254_fp_t *
+fd_bn254_fp_from_mont( fd_bn254_fp_t * r,
+                       fd_bn254_fp_t const * a ) {
+  return fd_bn254_fp_mul( r, a, fd_bn254_const_one );
+}
+
+/* r = a * R */
+static inline fd_bn254_fp_t *
+fd_bn254_fp_to_mont( fd_bn254_fp_t * r,
+                     fd_bn254_fp_t const * a ) {
+  return fd_bn254_fp_mul( r, a, fd_bn254_const_rr );
+}
+
 /* r = 1 / a mod p. a MUST not be 0. */
 static inline fd_bn254_fp_t *
 fd_bn254_fp_inv( fd_bn254_fp_t * r,
@@ -253,10 +258,10 @@ fd_bn254_fp_inv( fd_bn254_fp_t * r,
      We can apply to_montgomery twice, each time multiplying by R, giving:
       r = a^{-1} * R^{-1} * R * R = a^{-1} * R = (a^{-1})' */
   ulong tmp[12];
-  ulong z[4];
-  bignum_modinv( 4, z, a->limbs, fd_bn254_const_p->limbs, tmp );
-  fiat_bn254_to_montgomery( r->limbs, z );
-  fiat_bn254_to_montgomery( r->limbs, r->limbs );
+  fd_bn254_fp_t z[1];
+  bignum_modinv( 4, z->limbs, a->limbs, fd_bn254_const_p->limbs, tmp );
+  fd_bn254_fp_to_mont( r, z );
+  fd_bn254_fp_to_mont( r, r );
   return r;
 #else
   fd_uint256_t p_minus_2[1];

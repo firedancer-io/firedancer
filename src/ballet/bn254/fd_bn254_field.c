@@ -5,6 +5,17 @@ const fd_bn254_fp_t fd_bn254_const_zero[1] = {{{
   0x0UL, 0x0UL, 0x0UL, 0x0UL,
 }}};
 
+/* const 1. NOT Montgomery. mul(a, 1) = a*R^-1 = from_mont(a). */
+const fd_bn254_fp_t fd_bn254_const_one[1] = {{{
+  0x1UL, 0x0UL, 0x0UL, 0x0UL,
+}}};
+
+/* const R^2 mod p, R=2^256. mul(a, R^2) = a*R = to_mont(a).
+   0x06d89f71cab8351f47ab1eff0a417ff6b5e71911d44501fbf32cfc5b538afa89 */
+const fd_bn254_fp_t fd_bn254_const_rr[1] = {{{
+  0xf32cfc5b538afa89, 0xb5e71911d44501fb, 0x47ab1eff0a417ff6, 0x06d89f71cab8351f,
+}}};
+
 /* const p, used to validate a field element. NOT Montgomery.
    0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47 */
 const fd_bn254_fp_t fd_bn254_const_p[1] = {{{
@@ -48,6 +59,16 @@ const fd_bn254_fp_t fd_bn254_const_p_minus_one_half[1] = {{{
 const fd_uint256_t fd_bn254_const_sqrt_exp[1] = {{{
   0x4f082305b61f3f51, 0x65e05aa45a1c72a3, 0x6e14116da0605617, 0x0c19139cb84c680a,
 }}};
+
+/* GLV lattice constants (fd_bn254_glv.h), defined here so the G1/G2
+   TUs see no literals: gcc's SLP synth_mult on a 128-bit product by a
+   literal is very slow to compile. */
+const ulong na[ 2 ] = { 0x8211bbeb7d4f1128UL, 0x6f4d8248eeb859fcUL };
+const ulong nb[ 1 ] = { 0x89d3256894d213e3UL };
+const ulong nc[ 2 ] = { 0x0be4e1541221250bUL, 0x6f4d8248eeb859fdUL };
+const ulong g1_const_g1[ 3 ] = { 0x5398fd0300ff6565UL, 0x4ccef014a773d2d2UL, 0x0000000000000002UL };
+const ulong g1_const_g2[ 3 ] = { 0x7a7bd9d4391eb18eUL, 0x4ccef014a773d2cfUL, 0x0000000000000002UL };
+const ulong g2_const   [ 2 ] = { 0xd91d232ec7e0b3d7UL, 0x0000000000000002UL };
 
 fd_bn254_fp_t *
 fd_bn254_fp_pow( fd_bn254_fp_t * restrict r,
