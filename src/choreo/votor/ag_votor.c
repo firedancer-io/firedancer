@@ -153,7 +153,7 @@ ag_votor_align( void ) {
 ulong
 ag_votor_footprint( ulong slot_max ) {
   if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW ) ) return 0UL;
-  ulong events_max = 2UL*slot_max;
+  ulong events_max = slot_max*( AG_NOTAR_FALLBACK_CERT_MAX + 1UL /* notar */ + 1UL /* skip */ ); /* a standstill bundle, see ag_pool_footprint */
   ulong slot_state_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
@@ -197,7 +197,7 @@ ag_votor_new( void * mem,
   }
   fd_memset( mem, 0, footprint );
 
-  ulong events_max           = 2UL*slot_max;
+  ulong events_max           = slot_max*( AG_NOTAR_FALLBACK_CERT_MAX + 1UL /* notar */ + 1UL /* skip */ );
   ulong slot_state_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );

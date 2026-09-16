@@ -10,10 +10,27 @@
 #include "ag_epoch_info.h"
 #include "ag_vote.h"
 
+/* epoch_info_build fills epoch_info from an already ranked validator
+   list.  Production ranks in the votor tile (rank_voters). */
+
+static inline void
+epoch_info_build( ag_epoch_info_t *           epoch_info,
+                  ag_validator_info_t const * validators,
+                  ulong                       validator_cnt ) {
+  epoch_info->total_stake = 0UL;
+  for( ulong i=0UL; i<validator_cnt; i++ ) {
+    FD_TEST( validators[i].id==i );
+    epoch_info->validators[i] = validators[i];
+    epoch_info->pubkeys[i]    = validators[i].bls_key;
+    epoch_info->total_stake  += validators[i].stake;
+  }
+  epoch_info->validator_cnt = validator_cnt;
+}
+
 /* sec_sign_fn is the fd_bls_sign_fn of a test that holds the secret
    key in memory; ctx points to the fd_bls_sec_t. */
 
-static void
+static inline void
 sec_sign_fn( void *         ctx,
              fd_bls_sig_t * sig,
              uchar const *  msg,

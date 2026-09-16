@@ -3,6 +3,19 @@
 #include "ag_cert_serde.h"
 #include "ag_vote_serde.h"
 
+static ulong
+notar_cnt( ag_slot_voted_stake_t const * voted_stake ) {
+  ulong cnt = 0UL;
+  for( ulong slot_idx=0UL; slot_idx<notar_map_slot_cnt(); slot_idx++ ) cnt += !notar_map_key_inval( voted_stake->notar[ slot_idx ].hash );
+  return cnt;
+}
+
+static ag_slot_voted_stake_hash_t const *
+notar_for( ag_slot_voted_stake_t const * voted_stake,
+           ag_block_hash_t const         hash ) {
+  return notar_map_query_const( voted_stake->notar, FD_LOAD( ag_block_hash_key_t, hash ), NULL );
+}
+
 static int
 has_notar_cert( ag_pool_t const * pool,
                 ulong             slot ) {
@@ -165,7 +178,7 @@ make_epoch_info( ulong                       idx,
                  ulong                       cnt ) {
   FD_TEST( idx<EPOCH_INFO_MAX );
   ag_epoch_info_t * epoch_info = &epoch_info_mem[ idx ];
-  ag_epoch_info( epoch_info, info, cnt );
+  epoch_info_build( epoch_info, info, cnt );
   return epoch_info;
 }
 
@@ -377,14 +390,14 @@ test_reward_readback_window( void ) {
 
   ag_slot_state_t const * state = ag_pool_slot_state( pool, slot );
   FD_TEST( state );
-  ag_slot_voted_stake_t const * voted_stake = &state->voted_stakes;
-  FD_TEST( voted_stake->notar_cnt==1UL );
-  FD_TEST( fd_bls_set_cnt( voted_stake->notar[0].agg.set )==10UL );
+  ag_slot_voted_stake_t const * voted_stake = &state->votes;
+  FD_TEST( notar_cnt( voted_stake )==1UL );
+  FD_TEST( fd_bls_set_cnt( notar_for( voted_stake, hash )->agg.set )==10UL );
   FD_TEST( fd_bls_set_cnt( voted_stake->skip_agg.set )==1UL );
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, hash, TEST_SHRED_VERSION, msg );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &voted_stake->notar[0].agg.pub, &voted_stake->notar[0].agg.sig ) );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &notar_for( voted_stake, hash )->agg.pub, &notar_for( voted_stake, hash )->agg.sig ) );
   msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, TEST_SHRED_VERSION, msg );
   FD_TEST( fd_bls_agg_verify( msg, msg_sz, &voted_stake->skip_agg.pub, &voted_stake->skip_agg.sig ) );
 
@@ -416,12 +429,12 @@ test_reward_late_skip_unverified( void ) {
 
   ag_slot_state_t const * state = ag_pool_slot_state( pool, slot );
   FD_TEST( state );
-  FD_TEST( fd_bls_set_cnt( state->voted_stakes.skip_agg.set )==8UL );
+  FD_TEST( fd_bls_set_cnt( state->votes.skip_agg.set )==8UL );
   FD_TEST( fd_bls_set_cnt( state->certs.skip.agg_skip.set )==7UL );
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, TEST_SHRED_VERSION, msg );
-  FD_TEST( !fd_bls_agg_verify( msg, msg_sz, &state->voted_stakes.skip_agg.pub, &state->voted_stakes.skip_agg.sig ) );
+  FD_TEST( !fd_bls_agg_verify( msg, msg_sz, &state->votes.skip_agg.pub, &state->votes.skip_agg.sig ) );
 
   fd_bls_agg_t base = state->certs.skip.agg_skip;
   memset( &base.pub, 0, sizeof(fd_bls_pub_t) );
@@ -431,13 +444,13 @@ test_reward_late_skip_unverified( void ) {
     blst_p1_add_or_double( &base.pub, &base.pub, g_epoch_info->pubkeys+rank );
   }
   fd_bls_agg_t extra = { 0 };
-  for( ulong rank = fd_bls_set_const_iter_init( state->voted_stakes.skip_agg.set );
+  for( ulong rank = fd_bls_set_const_iter_init( state->votes.skip_agg.set );
                    !fd_bls_set_const_iter_done( rank );
-             rank = fd_bls_set_const_iter_next( state->voted_stakes.skip_agg.set, rank ) ) {
+             rank = fd_bls_set_const_iter_next( state->votes.skip_agg.set, rank ) ) {
     if( FD_UNLIKELY( fd_bls_set_test( base.set, rank ) ) ) continue;
     fd_bls_set_insert( extra.set, rank );
     blst_p1_add_or_double( &extra.pub, &extra.pub, g_epoch_info->pubkeys       +rank );
-    blst_p2_add_or_double( &extra.sig, &extra.sig, state->voted_stakes.skip_sig+rank );
+    blst_p2_add_or_double( &extra.sig, &extra.sig, state->votes.skip_sig+rank );
   }
   FD_TEST( fd_bls_set_cnt( extra.set )==1UL && fd_bls_set_test( extra.set, 8UL ) );
   fd_bls_agg_t agg = base;
@@ -447,13 +460,13 @@ test_reward_late_skip_unverified( void ) {
   FD_TEST( fd_bls_set_cnt( agg.set )==8UL );
   FD_TEST( !fd_bls_agg_verify( msg, msg_sz, &agg.pub, &agg.sig ) );
 
-  fd_bls_agg_verify_bisect( &extra, msg, msg_sz, g_epoch_info->pubkeys, state->voted_stakes.skip_sig, bad );
+  fd_bls_agg_verify_bisect( &extra, msg, msg_sz, g_epoch_info->pubkeys, state->votes.skip_sig, bad );
   FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 8UL ) );
   for( ulong rank = fd_bls_set_const_iter_init( bad );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( bad, rank ) ) {
     fd_bls_pub_t neg_pub = g_epoch_info->pubkeys       [ rank ]; blst_p1_cneg( &neg_pub, 1 );
-    fd_bls_sig_t neg_sig = state->voted_stakes.skip_sig[ rank ]; blst_p2_cneg( &neg_sig, 1 );
+    fd_bls_sig_t neg_sig = state->votes.skip_sig[ rank ]; blst_p2_cneg( &neg_sig, 1 );
     blst_p1_add_or_double( &agg.pub, &agg.pub, &neg_pub );
     blst_p2_add_or_double( &agg.sig, &agg.sig, &neg_sig );
     fd_bls_set_remove( agg.set, rank );
@@ -469,9 +482,9 @@ test_reward_late_skip_unverified( void ) {
   FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 8UL ) );
   drain_events( pool );
   state = ag_pool_slot_state( pool, slot+1UL );
-  FD_TEST( state && state->voted_stakes.notar_cnt==1UL && fd_bls_set_cnt( state->voted_stakes.notar[0].agg.set )==7UL );
+  FD_TEST( state && notar_cnt( &state->votes )==1UL && fd_bls_set_cnt( notar_for( &state->votes, hash )->agg.set )==7UL );
   msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot+1UL, hash, TEST_SHRED_VERSION, msg );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &state->voted_stakes.notar[0].agg.pub, &state->voted_stakes.notar[0].agg.sig ) );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &notar_for( &state->votes, hash )->agg.pub, &notar_for( &state->votes, hash )->agg.sig ) );
 
   teardown_pool( pool );
 }
@@ -497,7 +510,7 @@ test_reward_wire_cert_base( void ) {
   ag_slot_state_t const * state = ag_pool_slot_state( pool, slot );
   FD_TEST( state );
   FD_TEST( fd_bls_set_cnt( state->certs.skip.agg_skip.set )==5UL && fd_bls_set_cnt( state->certs.skip.agg_skip_fallback.set )==4UL );
-  FD_TEST( fd_bls_set_cnt( state->voted_stakes.skip_agg.set )==5UL );
+  FD_TEST( fd_bls_set_cnt( state->votes.skip_agg.set )==5UL );
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, TEST_SHRED_VERSION, msg );
@@ -512,13 +525,13 @@ test_reward_wire_cert_base( void ) {
 
   memset( &base, 0, sizeof(fd_bls_agg_t) );
   fd_bls_agg_t extra = { 0 };
-  for( ulong rank = fd_bls_set_const_iter_init( state->voted_stakes.skip_agg.set );
+  for( ulong rank = fd_bls_set_const_iter_init( state->votes.skip_agg.set );
                    !fd_bls_set_const_iter_done( rank );
-             rank = fd_bls_set_const_iter_next( state->voted_stakes.skip_agg.set, rank ) ) {
+             rank = fd_bls_set_const_iter_next( state->votes.skip_agg.set, rank ) ) {
     if( FD_UNLIKELY( fd_bls_set_test( base.set, rank ) ) ) continue;
     fd_bls_set_insert( extra.set, rank );
     blst_p1_add_or_double( &extra.pub, &extra.pub, g_epoch_info->pubkeys       +rank );
-    blst_p2_add_or_double( &extra.sig, &extra.sig, state->voted_stakes.skip_sig+rank );
+    blst_p2_add_or_double( &extra.sig, &extra.sig, state->votes.skip_sig+rank );
   }
   fd_bls_agg_t agg = base;
   blst_p1_add_or_double( &agg.pub, &agg.pub, &extra.pub );
@@ -536,7 +549,7 @@ test_reward_wire_cert_base( void ) {
   FD_TEST( ag_pool_add_cert( pool, &cert, bad )==AG_POOL_SUCCESS );
   drain_events( pool );
   state = ag_pool_slot_state( pool, slot+1UL );
-  FD_TEST( state && state->voted_stakes.notar_cnt==0UL && state->certs.notar.slot==slot+1UL );
+  FD_TEST( state && notar_cnt( &state->votes )==0UL && state->certs.notar.slot==slot+1UL );
   base = state->certs.notar.agg;
   FD_TEST( blst_p1_is_inf( &base.pub ) );
   for( ulong rank = fd_bls_set_const_iter_init( base.set );

@@ -1,4 +1,5 @@
 #include "ag_epoch_info.h"
+#include "test_ag_cert_builder.h"
 #include <stdlib.h>
 
 static ag_epoch_info_t *
@@ -15,7 +16,7 @@ make_epoch( ulong   n,
   }
   ag_epoch_info_t * epoch_info = aligned_alloc( alignof(ag_epoch_info_t), sizeof(ag_epoch_info_t) );
   FD_TEST( epoch_info );
-  ag_epoch_info( epoch_info, v, n );
+  epoch_info_build( epoch_info, v, n );
   free( v );
   *out_mem = epoch_info;
   return epoch_info;

@@ -14,7 +14,7 @@
     FD_TEST( !try_recv( (votor), &unused_ ) ); \
   } while( 0 )
 
-#define SCRATCH_MAX (1UL<<19) /* 512 KiB */
+#define SCRATCH_MAX (1UL<<21) /* 2 MiB */
 
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
@@ -126,7 +126,7 @@ setup_votor( long now ) {
   ag_votor_advance_epoch( votor, 0UL, 0UL );
 
   g_epoch_info = &epoch_info_mem;
-  ag_epoch_info( g_epoch_info, g_info, NV );
+  epoch_info_build( g_epoch_info, g_info, NV );
   return votor;
 }
 
