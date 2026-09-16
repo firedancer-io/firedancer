@@ -40,7 +40,7 @@
 
 #include "generated/fd_rpc_tile_seccomp.h"
 
-#define FD_RPC_AGAVE_API_VERSION "4.2.0-rc.0"
+#define FD_RPC_AGAVE_API_VERSION "4.3.0-rc.0"
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN       8192UL
 
@@ -1938,15 +1938,21 @@ getClusterNodes( fd_rpc_tile_t *         ctx,
 
     char const * client_id;
     switch( ele->ci->version.client ) {
-      case FD_GOSSIP_CONTACT_INFO_CLIENT_SOLANA_LABS:   client_id = "SolanaLabs";     break;
-      case FD_GOSSIP_CONTACT_INFO_CLIENT_JITO_LABS:     client_id = "JitoLabs";       break;
-      case FD_GOSSIP_CONTACT_INFO_CLIENT_FRANKENDANCER: client_id = "Frankendancer";  break;
-      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE:         client_id = "Agave";          break;
-      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE_PALADIN: client_id = "AgavePaladin";   break;
-      case FD_GOSSIP_CONTACT_INFO_CLIENT_FIREDANCER:    client_id = "Firedancer";     break;
-      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE_BAM:     client_id = "AgaveBam";       break;
-      case FD_GOSSIP_CONTACT_INFO_CLIENT_SIG:           client_id = "Sig";            break;
-      default:                                          client_id = NULL;             break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_SOLANA_LABS:            client_id = "SolanaLabs";              break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_JITO_LABS:              client_id = "JitoLabs";                break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_FRANKENDANCER:          client_id = "Frankendancer";           break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE:                  client_id = "Agave";                   break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE_PALADIN:          client_id = "AgavePaladin";            break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_FIREDANCER:             client_id = "Firedancer";              break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE_BAM:              client_id = "AgaveBam";                break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_SIG:                    client_id = "Sig";                     break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_RAKURAI:                client_id = "Rakurai";                 break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_HARMONIC_FIREDANCER:    client_id = "HarmonicFiredancer";      break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_HARMONIC_AGAVE:         client_id = "HarmonicAgave";           break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_HARMONIC_FRANKENDANCER: client_id = "HarmonicFrankendancer";  break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_FIRE_BAM:               client_id = "FireBAM";                 break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_RAIKU:                  client_id = "Raiku";                   break;
+      default:                                                   client_id = NULL;                      break;
     }
     if( FD_LIKELY( client_id ) ) fd_http_server_printf( ctx->http, "\"clientId\":\"%s\"", client_id );
     else                         fd_http_server_printf( ctx->http, "\"clientId\":\"Unknown(%hu)\"", ele->ci->version.client );
