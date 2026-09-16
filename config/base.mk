@@ -7,7 +7,7 @@ VERBOSE?=0
 CPPFLAGS:=
 RUSTFLAGS:=-C force-frame-pointers=yes
 CFLAGS=-std=c17 -fwrapv
-LDFLAGS:=-lm -ldl
+LDFLAGS:=-lm
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
 AR:=ar
