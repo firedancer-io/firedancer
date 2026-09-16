@@ -20,14 +20,12 @@ BLST_CFLAGS_NOWARN+=-D__BLST_NO_ASM__ -U__x86_64__ -U__aarch64__ -ffreestanding
 endif
 
 $(OBJDIR)/obj/third_party/blst/server.o : src/third_party/blst/src/server.c $(OBJDIR)/.flags src/third_party/blst/Local.mk
-	@printf 'CC\t%s\n' $(notdir $@)
-	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(BLST_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
+	@$(info CC$(TAB)$(notdir $@))
+	$(Q)$(CC) $(BLST_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 $(OBJDIR)/obj/third_party/blst/assembly.o : src/third_party/blst/build/assembly.S $(OBJDIR)/.flags src/third_party/blst/Local.mk
-	@printf 'AS\t%s\n' $(notdir $@)
-	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(BLST_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
+	@$(info AS$(TAB)$(notdir $@))
+	$(Q)$(CC) $(BLST_CFLAGS_NOWARN) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 ASM_DEPFILES+=$(OBJDIR)/obj/third_party/blst/assembly.d
 

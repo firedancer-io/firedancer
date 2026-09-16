@@ -429,15 +429,14 @@ $(OBJDIR)/info: $(OBJDIR)/.flags
 DEPFLAGS=-MD -MP -MF $@.dtmp -MT "$(basename $@).o" -MT "$(basename $@).S" -MT "$(basename $@).i" -MT "$(basename $@).d"
 DEPFIX=mv -f $@.dtmp $(basename $@).d
 
+TAB:=$(empty)	$(empty)
 $(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/.flags
-	@printf 'CC\t%s\n' $(notdir $@)
-	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
+	@$(info CC$(TAB)$(notdir $@))
+	$(Q)$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 $(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/.flags
-	@printf 'AS\t%s\n' $(notdir $@)
-	$(Q)$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
+	@$(info AS$(TAB)$(notdir $@))
+	$(Q)$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@ && $(DEPFIX)
 
 $(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/.flags
 	$(MKDIR) $(dir $@) && \
@@ -493,13 +492,15 @@ SCHED_HOT_ALL:=$(foreach p,$(SCHED_HOT_OBJS),$(filter $(OBJDIR)/obj/$(p).o,$(for
 FLAVOR:=$(MACHINE) | $(sort $(EXTRAS)) | $(CC_ID) $(CC_VERSION) | $(CPPFLAGS) | $(CFLAGS)
 LINK_FLAVOR:=$(LD_ID) | $(LDFLAGS) | $(LDFLAGS_EXE) | $(LDFLAGS_SO) | $(LDFLAGS_FUZZ)
 ifeq ($(filter $(DRY_RULES),$(MAKECMDGOALS))$(FD_DRYRUN),)
-$(shell mkdir -p $(OBJDIR))
-$(file >$(OBJDIR)/.flags.tmp,$(strip $(FLAVOR)))
-$(file >$(OBJDIR)/.ldflags.tmp,$(strip $(LINK_FLAVOR)))
-$(shell for f in .flags .ldflags; do cmp -s $(OBJDIR)/$$f.tmp $(OBJDIR)/$$f || mv -f $(OBJDIR)/$$f.tmp $(OBJDIR)/$$f 2>/dev/null; rm -f $(OBJDIR)/$$f.tmp; done)
+OBJ_DIRS:=$(sort $(dir $(DEPFILES) $(ASM_DEPFILES) $(THIRDPARTY_DEPFILES)))
+$(shell mkdir -p $(OBJDIR) $(OBJ_DIRS))
+ifneq ($(strip $(file <$(OBJDIR)/.flags)),$(strip $(FLAVOR)))
+$(file >$(OBJDIR)/.flags,$(strip $(FLAVOR)))
 endif
-# strip both sides: make 4.3's $(file <) does not reliably drop the
-# trailing newline
+ifneq ($(strip $(file <$(OBJDIR)/.ldflags)),$(strip $(LINK_FLAVOR)))
+$(file >$(OBJDIR)/.ldflags,$(strip $(LINK_FLAVOR)))
+endif
+endif
 ifneq ($(FD_DRYRUN),)
 ifneq ($(strip $(file <$(OBJDIR)/.flags)),$(strip $(FLAVOR)))
 .PHONY: $(OBJDIR)/.flags
