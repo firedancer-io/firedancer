@@ -29,5 +29,7 @@ rm lib/compress/zstdmt_compress.c lib/compress/zstdmt_compress.h \
    lib/common/pool.c lib/common/pool.h \
    lib/common/threading.c lib/common/threading.h
 rm lib/common/debug.c
+# compression levels 4-15 disabled
+rm lib/compress/zstd_lazy.c
 
 echo "[+] Vendored zstd files from $ZSTD_TAG"

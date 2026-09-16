@@ -13,7 +13,6 @@ ZSTD_OBJS:=\
   compress/zstd_compress_superblock \
   compress/zstd_double_fast \
   compress/zstd_fast \
-  compress/zstd_lazy \
   compress/zstd_ldm \
   compress/zstd_opt \
   compress/zstd_preSplit \
