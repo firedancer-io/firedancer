@@ -113,16 +113,10 @@ fd_accdb_join_readonly( void *             ljoin,
                         ulong *            my_epoch_slot_rw,
                         int                fd_ro );
 
-/* fd_accdb_snapshot_load_{begin,end} toggle a mode on this writer
-   joiner that causes layer-0 partition handoffs to backfill tiering
-   for older snapshot-loaded partitions.  Specifically, when a new
-   partition P is opened at layer 0, the partition at P-2 is retiered
-   to Warm (layer 1) and the partition at P-3 is retiered to Cold
-   (layer 2).  This compensates for the fact that snapshot-loaded
-   accounts never get a second write and therefore never get promoted
-   by normal compaction-driven tiering.
-
-   The snapshot loader has exclusive write access to acc_pool. */
+/* fd_accdb_snapshot_load_{begin,end} suspend compaction while snapshot
+   writers build the index.  New layer-0 partitions are tagged Cold;
+   load_end opens a fresh Hot partition for runtime writes.  Call begin
+   before any writer starts and end after all writers stop. */
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
@@ -499,7 +493,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
 /* fd_accdb_reset reinitializes the accdb to the state immediately after
    fd_accdb_new.  All in-memory index state is cleared and all pool
    joins are re-established.  The caller is responsible for truncating
-   the on-disk file separately (e.g. via the snapwr tile).
+   the on-disk file separately (e.g. via the snapin tiles).
 
    The caller must guarantee that no other thread is concurrently
    accessing the accdb (no outstanding acquires, no background work). */
@@ -507,17 +501,34 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
 void
 fd_accdb_reset( fd_accdb_t * accdb );
 
-/* fd_accdb_snapshot_write_one inserts or replaces an account during
-   snapshot loading.  Returns -1 if the write was ignored (an existing
-   acc has a higher slot), 1 if a new acc was inserted, 2 if an
-   existing acc was replaced.  When 2 is returned, *out_replaced_lamports
-   is set to the lamports of the replaced acc.  Otherwise it is set to
-   0.  out_replaced_lamports must be non-NULL.
+/* Reserves one contiguous range in the layer-0 account log. */
 
-   slot must be <= UINT_MAX.  The slot is held in a 32-bit scratch field
-   during snapshot loading; the accdb format must be widened before
-   Solana reaches slot 2^32.  Passing a larger slot crashes the
-   process.
+ulong
+fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
+                                 ulong        sz );
+
+/* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
+   using software prefetching to overlap hash chain memory latency with
+   useful work.  This function is thread safe.  Each pubkey's internal
+   stripe is held across its hash chain lookup and commit.  Each
+   pubkey[i] points to a 32-byte public key.
+   *out_replaced_lamports is set to the sum of the lamports of all
+   accounts replaced by this batch (i.e. the previous lamports value
+   of each account whose acc was overwritten).  *out_ignored_lamports
+   is set to the sum of the lamports of all accounts ignored by this
+   batch (i.e. the lamports of each input account whose write was
+   dropped because an acc with a higher slot already exists).
+   Returns 0 on success, -1 if the batch contains a duplicate pubkey or
+   encounters an account already loaded at the same slot (a
+   corrupt-snapshot signal — the caller should flag the snapshot
+   malformed).  Output counters are not meaningful when -1 is returned.
+
+   Each slots[i] must be <= UINT_MAX.  Slots are held in a 32-bit
+   scratch field during snapshot loading; the accdb format must be
+   widened before Solana reaches slot 2^32.  Passing a larger slot
+   crashes the process.
+
+   file_offsets[i] is the pre-reserved on-disk location for pubkeys[i].
 
    fork_id controls recovery behavior:
 
@@ -526,43 +537,10 @@ fd_accdb_reset( fd_accdb_t * accdb );
                  created.
 
      other,      incremental-snapshot mode.  Cross-snapshot overrides
-                 (existing entry from a different fork) insert a NEW
-                 acc_pool entry alongside the old one and create a txn
-                 record on fork_id, so fd_accdb_purge can revert the
-                 incremental writes on failure.  Intra-fork duplicates
-                 (same pubkey from the same fork) are still replaced
-                 in-place. */
-
-int
-fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
-                             fd_accdb_fork_id_t fork_id,
-                             uchar const *      pubkey,
-                             ulong              slot,
-                             ulong              lamports,
-                             ulong              data_len,
-                             int                executable,
-                             ulong *            out_replaced_lamports );
-
-/* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
-   using software prefetching to overlap hash chain memory latency with
-   useful work.  This function is not thread safe and must not be called
-   concurrently.  Each pubkey[i] points to a 32-byte public key.
-   *out_replaced_lamports is set to the sum of the lamports of all
-   accounts replaced by this batch (i.e. the previous lamports value of
-   each account whose acc was overwritten).  *out_ignored_lamports is
-   set to the sum of the lamports of all accounts ignored by this batch
-   (i.e. the lamports of each input account whose write was dropped
-   because an acc with a higher slot already exists).  Returns 0 on
-   success, -1 if the batch contained two entries with the same pubkey
-   (a corrupt-snapshot signal — the caller should flag the snapshot
-   malformed).  Output counters are not meaningful when -1 is returned.
-
-   Each slots[i] must be <= UINT_MAX (see fd_accdb_snapshot_write_one
-   for the rationale).  Passing a larger slot crashes the process.
-
-   fork_id has the same semantics as in fd_accdb_snapshot_write_one:
-   USHORT_MAX for full-snapshot mode, otherwise incremental mode with
-   txn tracking on the specified fork. */
+                 insert a new acc_pool entry alongside the old one and
+                 create a txn record on fork_id, so fd_accdb_purge can
+                 revert the incremental writes on failure.  Intra-fork
+                 duplicates are replaced in-place. */
 
 int
 fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
@@ -573,6 +551,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong  const        lamports[],
                                ulong  const        data_lens[],
                                int    const        executables[],
+                               ulong const         file_offsets[],
                                ulong *             accounts_ignored,
                                ulong *             accounts_replaced,
                                ulong *             accounts_loaded,

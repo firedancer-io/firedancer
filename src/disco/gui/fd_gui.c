@@ -66,7 +66,7 @@ fd_gui_build_tile_order( fd_gui_t * gui ) {
   uchar placed[ FD_DIAG_SYSTEM_TILE_MAX ] = {0};
 
   char const * const tile_display_order[] = {
-    "gossvf", "gossip", "snapct", "snapld", "snapdc", "snapin", "snapwr",
+    "gossvf", "gossip", "snapct", "snapld", "snapdc", "snapin",
     "net", "shred", "repair", "rotor", "replay", "execrp", "tower", "votor", "txsend", "sign",
     "quic", "verify", "dedup", "pack", "execle", "poh"
   };
@@ -347,7 +347,7 @@ fd_gui_new( void *                   shmem,
 
   /* Build the per-tile accdb slot table from the topology.  Order
      matters only for stable JSON ordering: RW joiners first, RO
-     joiners, then snapwr at the end. */
+     joiners, then snapin and accdb. */
   gui->summary.accdb->accdb_tile_cnt = 0UL;
   static const struct { char const * name; uchar kind; } accdb_kinds[] = {
     { "execle", FD_GUI_ACCDB_TILE_KIND_RW     },
@@ -356,7 +356,7 @@ fd_gui_new( void *                   shmem,
     { "tower",  FD_GUI_ACCDB_TILE_KIND_RW     },
     { "rpc",    FD_GUI_ACCDB_TILE_KIND_RO     },
     { "resolv", FD_GUI_ACCDB_TILE_KIND_RO     },
-    { "snapwr", FD_GUI_ACCDB_TILE_KIND_SNAPWR },
+    { "snapin", FD_GUI_ACCDB_TILE_KIND_SNAPIN },
     { "accdb",  FD_GUI_ACCDB_TILE_KIND_ACCDB  },
   };
   for( ulong k=0UL; k<sizeof(accdb_kinds)/sizeof(accdb_kinds[0]); k++ ) {
@@ -1020,7 +1020,7 @@ fd_gui_accounts_stats_snap( fd_gui_t *                gui,
   }
 
   /* Walk the per-tile slot table built at init.  Each slot reads its
-     tile's accdb counters according to its kind (RW, RO, or SNAPWR),
+     tile's accdb counters according to its kind (RW, RO, or ACCDB),
      accumulates into the aggregate (cur->*), and stashes the per-tile
      cumulative values into gui->summary.accdb->tile_cur_* for the
      per-tile rate window pushes done later in
@@ -1097,12 +1097,10 @@ fd_gui_accounts_stats_snap( fd_gui_t *                gui,
         break;
 #   undef DO_RO
 
-      case FD_GUI_ACCDB_TILE_KIND_SNAPWR:
-        /* snapwr writes account data to disk directly during snapshot
-           load.  It does not declare the accdb counter surface, only a
-           BytesWritten gauge.  Include in the aggregate so the IO panel
-           reflects load-time disk activity. */
-        t_bytes_written = m[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
+      case FD_GUI_ACCDB_TILE_KIND_SNAPIN:
+        /* snapin writes account data to disk directly during snapshot
+           load. */
+        t_bytes_written = m[ MIDX( COUNTER, SNAPIN, DISK_BYTES_WRITTEN ) ];
         cur->bytes_written += t_bytes_written;
         break;
 
@@ -1549,12 +1547,9 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   volatile ulong * snapct_metrics = fd_metrics_tile( snapct->metrics );
 
   ulong snapdc_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "snapdc" );
-
+  ulong snapin_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "snapin" );
   fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", 0UL ) ];
   volatile ulong * snapin_metrics = fd_metrics_tile( snapin->metrics );
-
-  fd_topo_tile_t const * snapwr = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapwr", 0UL ) ];
-  volatile ulong * snapwr_metrics = fd_metrics_tile( snapwr->metrics );
 
   /* Backtest topologies have no gossip tile; treat wait-for-supermajority
      as done. */
@@ -1657,19 +1652,10 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       ulong _decompress_decompressed_bytes = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapdc", snapdc_tile_cnt, fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ), MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ) );
       ulong _decompress_compressed_bytes   = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapdc", snapdc_tile_cnt, fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ),      MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ )      ) );
       ulong _insert_bytes                  = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],                 snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ]                 );
-      ulong _snapwr_in_bytes               = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapwr_metrics[ MIDX( GAUGE, SNAPWR, FULL_BYTES_READ ) ],                 snapwr_metrics[ MIDX( GAUGE, SNAPWR, INCREMENTAL_BYTES_READ ) ]                 );
 
-      ulong _insert_accounts_total         = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) ];
+      ulong _insert_accounts_total         = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapin", snapin_tile_cnt, MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) );
       ulong _insert_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].insert_accounts_current );
       ulong _insert_accounts               = fd_ulong_sat_sub( _insert_accounts_total, _insert_accounts_baseline );
-
-      ulong _snapwr_accounts_total         = snapwr_metrics[ MIDX( GAUGE, SNAPWR, ACCOUNTS_WRITTEN ) ];
-      ulong _snapwr_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].snapwr_accounts_current );
-      ulong _snapwr_accounts               = fd_ulong_sat_sub( _snapwr_accounts_total, _snapwr_accounts_baseline );
-
-      ulong _snapwr_out_total              = snapwr_metrics[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
-      ulong _snapwr_out_baseline           = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].snapwr_out_bytes_decompressed );
-      ulong _snapwr_out_bytes              = fd_ulong_sat_sub( _snapwr_out_total, _snapwr_out_baseline );
 
       /* metadata */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes_compressed = _total_bytes;
@@ -1685,11 +1671,6 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       /* insert stage */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes_decompressed = _insert_bytes;
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current   = _insert_accounts;
-
-      /* snapwr (snapshot write) stage */
-      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].snapwr_in_bytes_decompressed  = _snapwr_in_bytes;
-      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].snapwr_out_bytes_decompressed = _snapwr_out_bytes;
-      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].snapwr_accounts_current       = _snapwr_accounts;
 
       break;
     }

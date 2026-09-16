@@ -352,6 +352,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->generation = 0U;
 
   accdb->partition_lock   = 0;
+  fd_memset( accdb->snapshot_stripe_locks, 0, sizeof(accdb->snapshot_stripe_locks) );
   accdb->snapshot_loading = 0;
   accdb->bundle_enabled   = bundle_enabled;
 

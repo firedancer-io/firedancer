@@ -32,12 +32,10 @@ extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
 
 static int
-genesis_max_file_size_is_valid( config_t * config,
-                                ulong      max_file_size_mib ) {
+config_is_valid( config_t * config ) {
   int pid = fork();
   FD_TEST( pid>=0 );
   if( FD_UNLIKELY( !pid ) ) {
-    config->firedancer.development.genesis.max_file_size_mib = max_file_size_mib;
     fd_config_validate( config );
     _exit( 0 );
   }
@@ -131,6 +129,7 @@ main( int     argc,
   config->firedancer.layout.resolv_tile_count        = 1U;
   config->firedancer.layout.execle_tile_count        = 1U;
   config->firedancer.layout.snapdc_tile_count        = 1U;
+  config->firedancer.layout.snapin_tile_count        = 4U;
   config->firedancer.layout.snapzp_tile_count        = 1U;
   config->firedancer.layout.snapsv_tile_count        = 1U;
   config->firedancer.layout.snapsv_io_worker_count   = 1U;
@@ -140,11 +139,19 @@ main( int     argc,
   config->firedancer.accounts.max_accounts                     = 1UL;
   config->firedancer.accounts.cache_size_gib                   = 1UL;
   config->firedancer.runtime.program_cache_size_mib            = 32UL;
+  config->firedancer.development.genesis.max_file_size_mib       = 4055UL;
   config->tiles.repair.slot_max                                   = 1UL;
   config->tiles.rotor.slot_max                                    = 1UL;
 
-  FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
-  FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
+  FD_TEST( config_is_valid( config ) );
+  config->firedancer.development.genesis.max_file_size_mib = 4056UL;
+  FD_TEST( !config_is_valid( config ) );
+  config->firedancer.development.genesis.max_file_size_mib = 4055UL;
+  config->firedancer.layout.snapin_tile_count = 10U;
+  FD_TEST( config_is_valid( config ) );
+  config->firedancer.layout.snapin_tile_count = 0U;
+  FD_TEST( !config_is_valid( config ) );
+  config->firedancer.layout.snapin_tile_count = 4U;
 
   /* Ensure we can selectively override a field */
 

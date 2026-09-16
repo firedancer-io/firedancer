@@ -579,9 +579,6 @@ Some interesting transitions are,
         "loading_full_snapshot_decompress_bytes_compressed": "826495323",
         "loading_full_snapshot_insert_bytes_decompressed": "4864409599",
         "loading_full_snapshot_insert_accounts": 10634591,
-        "loading_full_snapshot_snapwr_in_bytes_decompressed": "4864409599",
-        "loading_full_snapshot_snapwr_out_bytes_decompressed": "4892160000",
-        "loading_full_snapshot_snapwr_accounts": 10634591,
         "loading_incremental_snapshot_elapsed_seconds": null,
         "loading_incremental_snapshot_reset_count": null,
         "loading_incremental_snapshot_slot": null,
@@ -592,9 +589,6 @@ Some interesting transitions are,
         "loading_incremental_snapshot_decompress_bytes_compressed": null,
         "loading_incremental_snapshot_insert_bytes_decompressed": null,
         "loading_incremental_snapshot_insert_accounts": null,
-        "loading_incremental_snapshot_snapwr_in_bytes_decompressed": null,
-        "loading_incremental_snapshot_snapwr_out_bytes_decompressed": null,
-        "loading_incremental_snapshot_snapwr_accounts": null,
         "wait_for_supermajority_bank_hash": "2CeCyRoYmcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5dGFi",
         "wait_for_supermajority_shred_version": "37500",
         "wait_for_supermajority_attempt": 1,
@@ -627,9 +621,6 @@ Some interesting transitions are,
 | loading_{full\|incremental}_snapshot_decompress_bytes_compressed      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (compressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_bytes_decompressed        | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes processed from the snapshot by the snapshot insert time so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of accounts inserted into the validator's accounts database from this snapshot. Otherwise, `null` |
-| loading_{full\|incremental}_snapshot_snapwr_in_bytes_decompressed     | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes consumed from the snapshot by the snapshot write (snapwr) stage so far. Otherwise, `null` |
-| loading_{full\|incremental}_snapshot_snapwr_out_bytes_decompressed    | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the number of bytes written to the on-disk account database by the snapshot write (snapwr) stage for this snapshot so far. Otherwise, `null` |
-| loading_{full\|incremental}_snapshot_snapwr_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of accounts written to the on-disk account database by the snapshot write (snapwr) stage for this snapshot so far. Otherwise, `null` |
 | wait_for_supermajority_bank_hash                                      | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected bank hash of the snapshot bank.  This ensures all validators join the cluster with the same starting state. `null` if wait for supermajority is not enabled |
 | wait_for_supermajority_shred_version                                  | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected shred version it was configured with.  Shred version is functionally a hash of (genesis_hash, cluster_restart_history) which ensures only nodes which explicitly agree on the restart slot and restart attempt count can communicate with each other. `null` if wait for supermajority is not configured |
 | wait_for_supermajority_attempt                                        | `number\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the number of times this cluster has been restarted onto the snapshot slot, including the current attempt. `null` if wait for supermajority is not configured |
@@ -1980,7 +1971,7 @@ since process start.
 | compaction        | `Compaction`     | Aggregate compaction activity (see below) |
 | cache             | `Cache`          | In-memory cache occupancy and per-size-class metrics (see below) |
 | io                | `Io`             | Aggregate IO counters and rates across all accdb joiners (see below) |
-| tiles             | `Tile[]`         | Per-tile breakdown of accdb activity, one entry per consumer tile in stable order. The snapshot-loader `snapwr` row disappears once it reaches the shutdown status |
+| tiles             | `Tile[]`         | Per-tile breakdown of accdb activity, one entry per consumer tile in stable order |
 | partitions        | `Partition[]`    | Per-partition snapshot. Partitions that have never been written and are not being compacted are omitted |
 
 **`Disk`**
@@ -2061,23 +2052,23 @@ to 128 B, `1` covers 129 B - 512 B, `2` covers 513 B - 2 KiB, `3` covers
 **`Tile`**
 | Field                       | Type     | Description |
 |-----------------------------|----------|-------------|
-| name                        | `string` | Tile kind name, e.g. `execle`, `execrp`, `replay`, `tower`, `rpc`, `resolv`, or `snapwr` |
+| name                        | `string` | Tile kind name, e.g. `execle`, `execrp`, `replay`, `tower`, `rpc`, `resolv`, or `accdb` |
 | kind_id                     | `number` | Instance index within this tile kind |
-| joiner_type                 | `string` | `RW` if the tile reads and writes accounts (`execle`, `execrp`, `replay`, `tower`, `snapwr`), `RO` if it only reads (`rpc`, `resolv`) |
+| joiner_type                 | `string` | `RW` if the tile reads and writes accounts (`execle`, `execrp`, `replay`, `tower`, `accdb`), `RO` if it only reads (`rpc`, `resolv`) |
 | status                      | `number` | `1` if the tile is running, `2` if it has gracefully shut down |
 | acquired                    | `number` | Cumulative count of accounts this tile has acquired since startup |
 | bytes_read                  | `number` | Cumulative bytes this tile has read from disk since startup |
 | bytes_written               | `number` | Cumulative bytes this tile has written to disk since startup |
 | acquired_per_sec            | `number` | Recent acquire rate for this tile, in accounts per second |
-| acquired_writable_per_sec   | `number` | Recent writable acquire rate for this tile, in accounts per second (always `0` for `RO` tiles and `snapwr`) |
+| acquired_writable_per_sec   | `number` | Recent writable acquire rate for this tile, in accounts per second (always `0` for `RO` tiles and `accdb`) |
 | bytes_read_per_sec          | `number` | Recent disk read throughput for this tile, in bytes per second |
 | bytes_copied_per_sec        | `number` | Recent cache-hit copy throughput for this tile, in bytes per second |
 | bytes_written_per_sec       | `number` | Recent disk write throughput for this tile, in bytes per second |
 | read_ops_per_sec            | `number` | Recent disk read operation rate for this tile |
 | write_ops_per_sec           | `number` | Recent disk write operation rate for this tile |
 | not_found_per_sec           | `number` | Recent rate of cache misses (account had to be read from disk) for this tile |
-| evicted_per_sec             | `number` | Recent rate at which this tile's commits evicted lines from the cache (always `0` for `RO` tiles and `snapwr`) |
-| committed_per_sec           | `number` | Recent rate of account version commits (new + overwrite) by this tile (always `0` for `RO` tiles and `snapwr`) |
+| evicted_per_sec             | `number` | Recent rate at which this tile's commits evicted lines from the cache (always `0` for `RO` tiles) |
+| committed_per_sec           | `number` | Recent rate of account version commits (new + overwrite) by this tile (always `0` for `RO` tiles and `accdb`) |
 | acquire_calls_per_sec       | `number` | Recent rate of accounts database acquire calls (account lookups) by this tile |
 | hit_rate_ema                | `number` | Recent cache hit rate for this tile, in the range `[0, 1]` |
 

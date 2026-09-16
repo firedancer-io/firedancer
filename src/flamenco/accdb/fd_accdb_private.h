@@ -364,6 +364,9 @@ packed_partition_file_offset( accdb_offset_t const * offset,
    field, 256 joiners is well within range. */
 #define FD_ACCDB_MAX_JOINERS (256UL)
 
+#define FD_ACCDB_SNAPSHOT_STRIPE_CNT (1UL<<12)
+#define FD_ACCDB_SNAPSHOT_STRIPE_MSK (FD_ACCDB_SNAPSHOT_STRIPE_CNT-1UL)
+
 /* EVICT_SENTINEL: stored in refcnt to indicate a cache line is being
    claimed by an eviction scan.  Any thread seeing this value must treat
    the line as unavailable. */
@@ -371,6 +374,11 @@ packed_partition_file_offset( accdb_offset_t const * offset,
 
 struct fd_accdb_shmem_private {
   int partition_lock  __attribute__((aligned(64)));
+
+  /* Prevent snapshot workers from updating the same hash chain at once.
+     Each lock covers many hash chains to save memory while preserving
+     concurrency. */
+  int snapshot_stripe_locks[ FD_ACCDB_SNAPSHOT_STRIPE_CNT ] __attribute__((aligned(64)));
 
   /* Set non-zero by the snapin tile while a snapshot is being loaded.
      Suppresses compaction enqueue so the compaction tile does not race
