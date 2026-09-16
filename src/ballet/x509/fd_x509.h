@@ -7,22 +7,33 @@
    - Ed25519 (OID 1.3.101.112)
    - ECDSA P-256 with SHA-256
    - ECDSA P-384 with SHA-384
-   - TODO?: RSA */
+   - RSA with PKCS#1 v1.5 and SHA-{256,384,512} */
 
-#include "../../util/fd_util_base.h"
+#include "../rsa/fd_rsa.h"
 
 /* Key type identifiers */
 
 #define FD_X509_KEY_ED25519    ((uchar)0)
 #define FD_X509_KEY_ECDSA_P256 ((uchar)1)
 #define FD_X509_KEY_ECDSA_P384 ((uchar)2)
+#define FD_X509_KEY_RSA        ((uchar)3)
 #define FD_X509_KEY_UNKNOWN    ((uchar)0xFF)
+
+/* FD_X509_PUBKEY_MAX is the max size of the subjectPublicKey content
+   of a supported key type.  The largest is the DER RSAPublicKey of an
+   RSA-4096 key with a 64 bit exponent: SEQUENCE header (4), modulus
+   INTEGER (5+512), exponent INTEGER (2+9). */
+
+#define FD_X509_PUBKEY_MAX (532UL)
 
 /* Signature algorithm identifiers */
 
 #define FD_X509_SIG_ED25519            ((uchar)0)
 #define FD_X509_SIG_ECDSA_SHA256       ((uchar)1)
 #define FD_X509_SIG_ECDSA_SHA384       ((uchar)2)
+#define FD_X509_SIG_RSA_SHA256         ((uchar)3)  /* RSASSA-PKCS1-v1_5 */
+#define FD_X509_SIG_RSA_SHA384         ((uchar)4)
+#define FD_X509_SIG_RSA_SHA512         ((uchar)5)
 #define FD_X509_SIG_UNKNOWN            ((uchar)0xFF)
 
 /* keyUsage bits (RFC 5280 Section 4.2.1.3), big endian */
@@ -54,8 +65,9 @@ struct fd_x509_cert_info {
   uchar         version;
 
   /* Subject Public Key Info.  pubkey is the subjectPublicKey BIT
-     STRING content: a raw Ed25519 key or an uncompressed EC point for
-     the supported key types, opaque for FD_X509_KEY_UNKNOWN. */
+     STRING content: a raw Ed25519 key, an uncompressed EC point, or a
+     DER RSAPublicKey (see fd_x509_decode_rsa_pubkey) for the supported
+     key types, opaque for FD_X509_KEY_UNKNOWN. */
   uchar const * pubkey;
   ulong         pubkey_len;
   uchar         key_type;     /* FD_X509_KEY_{...} */
@@ -120,9 +132,10 @@ typedef struct fd_x509_cert_info fd_x509_cert_info_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_x509_extract_pubkey parses cert and returns its subject public key and
-   FD_X509_KEY_* type.  Supported key types are Ed25519, ECDSA P-256, and
-   ECDSA P-384.  *out_pubkey aliases cert and remains valid only while cert
-   remains valid.  cert and all output arguments must be non-NULL.
+   FD_X509_KEY_* type.  Supported key types are Ed25519, ECDSA P-256,
+   ECDSA P-384, and RSA.  *out_pubkey aliases cert and remains valid only
+   while cert remains valid.  cert and all output arguments must be
+   non-NULL.
 
    Returns 0 on success and -1 if cert is malformed or its key type is
    unsupported. */
@@ -146,6 +159,18 @@ fd_x509_decode_ecdsa_sig( uchar const * der,
                           ulong         der_len,
                           uchar *       raw_sig,
                           ulong         scalar_sz );
+
+/* fd_x509_decode_rsa_pubkey decodes the subjectPublicKey content of
+   an FD_X509_KEY_RSA key, a DER RSAPublicKey ::= SEQUENCE { modulus
+   INTEGER, publicExponent INTEGER }, into key.  Returns 0 on success
+   and -1 if pubkey is malformed or the key is outside the range fd_rsa
+   supports (never the case for pubkey taken from a cert that parsed
+   with key_type FD_X509_KEY_RSA). */
+
+int
+fd_x509_decode_rsa_pubkey( uchar const *     pubkey,
+                           ulong             pubkey_len,
+                           fd_rsa_pubkey_t * key );
 
 /* fd_x509_ec_point_compress compresses a supported
    uncompressed EC point (04 || x || y) into compressed form (02/03 || x).

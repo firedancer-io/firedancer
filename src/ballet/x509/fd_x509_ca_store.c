@@ -153,9 +153,8 @@ fd_x509_ca_store_load( fd_x509_ca_store_t * store,
 
   free( file_buf );
 
-  /* System bundles are mostly RSA roots.  One line for all of them. */
   if( unsupported_key )
-    FD_LOG_INFO(( "ignored %lu CA certificates in %s with unsupported public key types (e.g. RSA)",
+    FD_LOG_INFO(( "ignored %lu CA certificates in %s with unsupported public key types",
                   unsupported_key, pem_path ));
 
   return (long)loaded;
@@ -175,8 +174,7 @@ fd_x509_ca_store_load_system( fd_x509_ca_store_t * store ) {
     long loaded = fd_x509_ca_store_load( store, ca_paths[i] );
     if( loaded<0L ) continue;
     if( FD_UNLIKELY( !loaded ) ) {
-      FD_LOG_WARNING(( "CA bundle %s holds no usable trust anchor (fd_tls only supports "
-                       "Ed25519 and ECDSA P-256/P-384 CA keys); ignoring it", ca_paths[i] ));
+      FD_LOG_WARNING(( "CA bundle %s holds no usable trust anchor; ignoring it", ca_paths[i] ));
       continue;
     }
     FD_LOG_INFO(( "Loaded %ld CA certificates from %s", loaded, ca_paths[i] ));

@@ -1,6 +1,6 @@
 /* test_tls_web: live TLS v1.3 client handshake against public servers.
 
-   fd_tls is TLS1.3/X25519/AES_128_GCM only, ECDSA/Ed25519 chains only.
+   fd_tls is TLS1.3/X25519/AES_128_GCM only.
 
    This test needs network egress and is NOT part of the automatic
    unit-test set.  Run it by hand:
@@ -42,7 +42,7 @@ static char const * const hosts[] = {
   "github.com",
   "www.fastly.com",
   "stackoverflow.com",
-  "nginx.org",
+  /* "nginx.org", */ // Only supports TLSv1.2
   "www.openssl.org",
   "acme-v02.api.letsencrypt.org",
 };
@@ -319,9 +319,7 @@ fd_tls_web_outcome_str( int o ) {
   }
 }
 
-/* fd_tls_web_why formats the most specific failure cause we have.
-   Most real-world failures come down to one thing: fd_tls / fd_x509
-   have no RSA, so say that in plain words rather than "parse error". */
+/* fd_tls_web_why formats the most specific failure cause we have. */
 
 static char const *
 fd_tls_web_why( struct fd_tls_web_result const * r,
@@ -333,9 +331,8 @@ fd_tls_web_why( struct fd_tls_web_result const * r,
   /* Chain rejected by fd_x509 */
   if( r->verify_called && r->verify_err!=FD_X509_VERIFY_OK ) {
     switch( r->verify_err ) {
-    case FD_X509_VERIFY_ERR_PARSE:
     case FD_X509_VERIFY_ERR_UNSUPPORTED:
-      fd_cstr_printf( buf, buf_sz, NULL, "cert verify failed (x509 err %d): a cert in the chain has an RSA key or RSA signature; fd_x509 does not support RSA", r->verify_err );
+      fd_cstr_printf( buf, buf_sz, NULL, "cert verify failed (x509 err %d): a cert in the chain has an unsupported key or signature algorithm", r->verify_err );
       break;
     default:
       fd_cstr_printf( buf, buf_sz, NULL, "cert verify failed (x509 err %d)", r->verify_err );
@@ -345,12 +342,12 @@ fd_tls_web_why( struct fd_tls_web_result const * r,
   }
 
   /* Server refused our ClientHello before sending a certificate.  We
-     offer only TLS 1.3, X25519, AES-128-GCM, and Ed25519 / ECDSA-P256
-     signatures, so the usual causes are known. */
+     offer only TLS 1.3, X25519, AES-128-GCM, and Ed25519 / ECDSA-P256 /
+     RSA-PSS signatures, so the usual causes are known. */
   if( r->peer_alert>=0 ) {
     switch( r->peer_alert ) {
     case FD_TLS_ALERT_HANDSHAKE_FAILURE:
-      fd_cstr_printf( buf, buf_sz, NULL, "server alert handshake_failure: no Ed25519/ECDSA-P256 certificate for our sigalgs (RSA-only site?) or X25519 not accepted" );
+      fd_cstr_printf( buf, buf_sz, NULL, "server alert handshake_failure: no certificate for our sigalgs or X25519 not accepted" );
       return buf;
     case FD_TLS_ALERT_PROTOCOL_VERSION:
       fd_cstr_printf( buf, buf_sz, NULL, "server alert protocol_version: server does not speak TLS 1.3" );
@@ -367,17 +364,17 @@ fd_tls_web_why( struct fd_tls_web_result const * r,
   case FD_TLS_REASON_CERT_PARSE:
   case FD_TLS_REASON_X509_PARSE:
     /* fd_tls rejects the leaf before chain verification when its key
-       is not Ed25519 / P-256 / P-384.  On the public web that is RSA. */
+       is not Ed25519 / P-256 / P-384 / RSA-2048..4096. */
     if( !r->verify_called ) {
-      fd_cstr_printf( buf, buf_sz, NULL, "server certificate rejected before verification (hs reason %u): leaf key is not Ed25519/P-256/P-384, i.e. RSA; fd_tls does not support RSA", r->hs_reason );
+      fd_cstr_printf( buf, buf_sz, NULL, "server certificate rejected before verification (hs reason %u): leaf key type unsupported", r->hs_reason );
       return buf;
     }
     break;
   case FD_TLS_REASON_CERT_KEY_TYPE:
-    fd_cstr_printf( buf, buf_sz, NULL, "server certificate key type unsupported (RSA); fd_tls supports Ed25519, P-256, P-384 only" );
+    fd_cstr_printf( buf, buf_sz, NULL, "server certificate key type unsupported; fd_tls supports Ed25519, P-256, P-384, RSA only" );
     return buf;
   case FD_TLS_REASON_CV_SIGALG:
-    fd_cstr_printf( buf, buf_sz, NULL, "server signed CertificateVerify with an unsupported scheme (P-384 or RSA-PSS); fd_tls accepts Ed25519 and ECDSA-P256 only" );
+    fd_cstr_printf( buf, buf_sz, NULL, "server signed CertificateVerify with an unsupported scheme; fd_tls accepts Ed25519, ECDSA-P256 and RSA-PSS" );
     return buf;
   case FD_TLS_REASON_SH_NEG_CIPHER:
     fd_cstr_printf( buf, buf_sz, NULL, "server picked a cipher suite we did not offer (we offer TLS_AES_128_GCM_SHA256 only)" );
@@ -388,9 +385,9 @@ fd_tls_web_why( struct fd_tls_web_result const * r,
   }
 
   if( r->tlsrec_err==FD_TLSREC_ERR_PROTO && r->hs_state<=FD_TLS_HS_WAIT_SH ) {
-    fd_cstr_printf( buf, buf_sz, NULL, "server answered our ClientHello with a non-handshake record (encrypted alert) instead of ServerHello: no compatible certificate for our sigalgs (RSA-only site?)" );
+    fd_cstr_printf( buf, buf_sz, NULL, "server answered our ClientHello with a non-handshake record (encrypted alert) instead of ServerHello: no compatible certificate for our sigalgs" );
   } else if( r->io_err==ECONNRESET && !r->tlsrec_err ) {
-    fd_cstr_printf( buf, buf_sz, NULL, "server closed the connection after our ClientHello without an alert (RSA-only site or X25519 not accepted?)" );
+    fd_cstr_printf( buf, buf_sz, NULL, "server closed the connection after our ClientHello without an alert (X25519 not accepted?)" );
   } else if( r->tlsrec_err ) {
     fd_cstr_printf( buf, buf_sz, NULL, "tlsrec %d-%s", r->tlsrec_err, fd_tlsrec_strerror( r->tlsrec_err ) );
   } else if( r->timed_out ) {

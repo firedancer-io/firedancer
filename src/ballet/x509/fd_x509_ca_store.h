@@ -14,7 +14,7 @@ struct fd_x509_ca_entry {
   uchar subject[ FD_X509_CA_SUBJECT_MAX ];
   ulong subject_len;
 
-  uchar pubkey[ 97 ];   /* {32,65,97} for {Ed25519,P256,P384} */
+  uchar pubkey[ FD_X509_PUBKEY_MAX ];
   ulong pubkey_len;
   uchar key_type;        /* FD_X509_KEY_{...} */
 

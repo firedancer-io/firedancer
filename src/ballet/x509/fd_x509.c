@@ -48,6 +48,21 @@ static uchar const oid_ecdsa_sha256[] = { 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x
 /* ecdsa-with-SHA384: 1.2.840.10045.4.3.3 */
 static uchar const oid_ecdsa_sha384[] = { 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x03 };
 
+/* rsaEncryption: 1.2.840.113549.1.1.1 */
+static uchar const oid_rsa_encryption[] = { 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01 };
+
+/* sha256WithRSAEncryption: 1.2.840.113549.1.1.11 */
+static uchar const oid_rsa_sha256[] = { 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b };
+
+/* sha384WithRSAEncryption: 1.2.840.113549.1.1.12 */
+static uchar const oid_rsa_sha384[] = { 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0c };
+
+/* sha512WithRSAEncryption: 1.2.840.113549.1.1.13 */
+static uchar const oid_rsa_sha512[] = { 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0d };
+
+/* DER NULL, the parameters of every RSA AlgorithmIdentifier */
+static uchar const der_null[] = { 0x05, 0x00 };
+
 /* subjectAltName: 2.5.29.17 */
 static uchar const oid_san[] = { 0x06, 0x03, 0x55, 0x1d, 0x11 };
 
@@ -70,6 +85,20 @@ static uchar const oid_kp_server_auth[] = { 0x06, 0x08, 0x2b, 0x06, 0x01, 0x05, 
 static uchar const oid_kp_any[] = { 0x06, 0x04, 0x55, 0x1d, 0x25, 0x00 };
 
 
+/* fd_x509_rsa_alg_match matches an AlgorithmIdentifier content against
+   an RSA OID.  RFC 4055 Section 5 requires the parameters to be NULL
+   but tells implementations to accept them absent as well. */
+
+static int
+fd_x509_rsa_alg_match( uchar const * alg,
+                       ulong         alg_len,
+                       uchar const * oid,
+                       ulong         oid_len ) {
+  if( alg_len!=oid_len && alg_len!=oid_len+sizeof(der_null) ) return 0;
+  if( memcmp( alg, oid, oid_len ) ) return 0;
+  return alg_len==oid_len || !memcmp( alg+oid_len, der_null, sizeof(der_null) );
+}
+
 static uchar
 fd_x509_parse_sig_alg( uchar const * alg, ulong alg_len ) {
   if( fd_der_oid_match( alg, alg_len, oid_ed25519, sizeof(oid_ed25519) ) )
@@ -78,7 +107,65 @@ fd_x509_parse_sig_alg( uchar const * alg, ulong alg_len ) {
     return FD_X509_SIG_ECDSA_SHA256;
   if( fd_der_oid_match( alg, alg_len, oid_ecdsa_sha384, sizeof(oid_ecdsa_sha384) ) )
     return FD_X509_SIG_ECDSA_SHA384;
+  if( fd_x509_rsa_alg_match( alg, alg_len, oid_rsa_sha256, sizeof(oid_rsa_sha256) ) )
+    return FD_X509_SIG_RSA_SHA256;
+  if( fd_x509_rsa_alg_match( alg, alg_len, oid_rsa_sha384, sizeof(oid_rsa_sha384) ) )
+    return FD_X509_SIG_RSA_SHA384;
+  if( fd_x509_rsa_alg_match( alg, alg_len, oid_rsa_sha512, sizeof(oid_rsa_sha512) ) )
+    return FD_X509_SIG_RSA_SHA512;
   return FD_X509_SIG_UNKNOWN;
+}
+
+/* fd_x509_positive_integer checks that a DER INTEGER content is a
+   positive value in minimal two's complement encoding (RFC 8017 Appendix
+   A.1.1 requires positive modulus and exponent). */
+
+static int
+fd_x509_positive_integer( uchar const * p,
+                          ulong         len ) {
+  if( FD_UNLIKELY( !len || (p[0] & 0x80U) ) ) return 0;
+  if( p[0]==0x00 ) {
+    if( FD_UNLIKELY( len==1UL || !(p[1] & 0x80U) ) ) return 0;
+  }
+  return 1;
+}
+
+/* fd_x509_parse_rsa_pubkey parses a DER RSAPublicKey.  Returns 0 on
+   success, -1 if malformed, and 1 if well-formed but outside the range
+   fd_rsa supports.  key may be NULL to only validate. */
+
+static int
+fd_x509_parse_rsa_pubkey( uchar const *     p,
+                          ulong             len,
+                          fd_rsa_pubkey_t * key ) {
+  fd_der_cursor_t c = { .p=p, .end=p+len };
+  uchar const * n; ulong n_len;
+  uchar const * e; ulong e_len;
+  FD_DER_ENTER( c, FD_DER_TAG_SEQUENCE );
+    FD_DER_READ( c, FD_DER_TAG_INTEGER, n, n_len );
+    FD_DER_READ( c, FD_DER_TAG_INTEGER, e, e_len );
+    if( FD_UNLIKELY( !fd_x509_positive_integer( n, n_len ) ||
+                     !fd_x509_positive_integer( e, e_len ) ) ) return -1;
+  FD_DER_LEAVE( c );
+  if( FD_UNLIKELY( FD_DER_HAS_MORE( c ) ) ) return -1;
+
+#if FD_HAS_INT128
+  fd_rsa_pubkey_t tmp[1];
+  if( !key ) key = tmp;
+  if( FD_UNLIKELY( !fd_rsa_pubkey_init( key, n, n_len, e, e_len ) ) ) return 1;
+  return 0;
+#else
+  (void)key;
+  return 1;
+#endif
+}
+
+int
+fd_x509_decode_rsa_pubkey( uchar const *     pubkey,
+                           ulong             pubkey_len,
+                           fd_rsa_pubkey_t * key ) {
+  if( FD_UNLIKELY( !pubkey || !key ) ) return -1;
+  return fd_x509_parse_rsa_pubkey( pubkey, pubkey_len, key ) ? -1 : 0;
 }
 
 static int
@@ -107,6 +194,16 @@ fd_x509_parse_spki( fd_der_cursor_t * c,
     FD_DER_READ_RAW( alg, FD_DER_TAG_OID, curve, curve_len );
     if(      fd_der_oid_match( curve, curve_len, oid_prime256v1, sizeof(oid_prime256v1) ) ) type = FD_X509_KEY_ECDSA_P256;
     else if( fd_der_oid_match( curve, curve_len, oid_secp384r1,  sizeof(oid_secp384r1)  ) ) type = FD_X509_KEY_ECDSA_P384;
+  } else if( fd_der_oid_match( oid, oid_len, oid_rsa_encryption, sizeof(oid_rsa_encryption) ) ) {
+    /* RFC 3279 Section 2.3.1: parameters MUST be NULL.  Absent is
+       tolerated, matching the RFC 4055 rule for the signature OIDs. */
+    if( FD_DER_HAS_MORE( alg ) ) {
+      uchar const * params; ulong params_len;
+      FD_DER_READ( alg, FD_DER_TAG_NULL, params, params_len );
+      (void)params;
+      if( FD_UNLIKELY( params_len ) ) return -1;
+    }
+    type = FD_X509_KEY_RSA;
   } else if( FD_DER_HAS_MORE( alg ) ) {
     FD_DER_SKIP( alg );
   }
@@ -134,7 +231,13 @@ fd_x509_parse_spki( fd_der_cursor_t * c,
                      !=FD_SECP384R1_SUCCESS ) ) return -1;
     break;
   }
-  default: /* well-formed but unsupported (e.g. RSA) */
+  case FD_X509_KEY_RSA: {
+    int err = fd_x509_parse_rsa_pubkey( bits, bits_len, NULL );
+    if( FD_UNLIKELY( err<0 ) ) return -1;
+    if( err ) type = FD_X509_KEY_UNKNOWN;  /* e.g. RSA-1024 */
+    break;
+  }
+  default: /* well-formed but unsupported */
     break;
   }
 

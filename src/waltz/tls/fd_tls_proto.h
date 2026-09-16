@@ -61,6 +61,12 @@ struct fd_tls_ext_signature_algorithms {
   uchar ed25519                : 1;
   uchar ecdsa_secp256r1_sha256 : 1;
   uchar ecdsa_secp384r1_sha384 : 1;
+  uchar rsa_pkcs1_sha256       : 1;
+  uchar rsa_pkcs1_sha384       : 1;
+  uchar rsa_pkcs1_sha512       : 1;
+  uchar rsa_pss_rsae_sha256    : 1;
+  uchar rsa_pss_rsae_sha384    : 1;
+  uchar rsa_pss_rsae_sha512    : 1;
 };
 
 typedef struct fd_tls_ext_signature_algorithms fd_tls_ext_signature_algorithms_t;
@@ -161,13 +167,15 @@ struct fd_tls_enc_ext {
 typedef struct fd_tls_enc_ext fd_tls_enc_ext_t;
 
 /* fd_tls_cert_verify_t describes a CertificateVerify (RFC 8446, Section
-   4.4.3).  Supports Ed25519 (64 byte sig) and ECDSA-P256 (DER encoded,
-   up to 73 bytes). */
+   4.4.3).  Supports Ed25519 (64 byte sig), ECDSA-P256 (DER encoded,
+   up to 73 bytes), and RSA-PSS (modulus size, up to 512 bytes). */
+
+#define FD_TLS_CV_SIG_SZ_MAX (512UL)
 
 struct fd_tls_cert_verify {
   ushort algorithm;      /* FD_TLS_SIGNATURE_{...} */
   ushort signature_len;
-  uchar  signature[ 73 ];
+  uchar  signature[ FD_TLS_CV_SIG_SZ_MAX ];
 };
 
 typedef struct fd_tls_cert_verify fd_tls_cert_verify_t;
@@ -242,8 +250,14 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 
 /* TLS signature scheme IDs */
 
+#define FD_TLS_SIGNATURE_RSA_PKCS1_SHA256       ((ushort)0x0401)
 #define FD_TLS_SIGNATURE_ECDSA_SECP256R1_SHA256 ((ushort)0x0403)
+#define FD_TLS_SIGNATURE_RSA_PKCS1_SHA384       ((ushort)0x0501)
 #define FD_TLS_SIGNATURE_ECDSA_SECP384R1_SHA384 ((ushort)0x0503)
+#define FD_TLS_SIGNATURE_RSA_PKCS1_SHA512       ((ushort)0x0601)
+#define FD_TLS_SIGNATURE_RSA_PSS_RSAE_SHA256    ((ushort)0x0804)
+#define FD_TLS_SIGNATURE_RSA_PSS_RSAE_SHA384    ((ushort)0x0805)
+#define FD_TLS_SIGNATURE_RSA_PSS_RSAE_SHA512    ((ushort)0x0806)
 #define FD_TLS_SIGNATURE_ED25519                ((ushort)0x0807)
 
 /* TLS supported_groups extension */
@@ -510,9 +524,9 @@ fd_tls_encode_ext_alpn( fd_tls_ext_alpn_t const * in,
    Does not authenticate the X.509 chain or establish trust. */
 
 struct fd_tls_extract_cert_pubkey_res {
-  uchar const * pubkey;
-  ulong         pubkey_len;  /* 32 for Ed25519, 65 for ECDSA P-256 uncompressed */
-  uchar         key_type;    /* FD_TLS_KEY_ED25519 or FD_TLS_KEY_ECDSA_P256 */
+  uchar const * pubkey;      /* see fd_x509_cert_info_t.pubkey */
+  ulong         pubkey_len;
+  uchar         key_type;    /* FD_TLS_KEY_{...} */
   uint          alert;
   ushort        reason;
 };

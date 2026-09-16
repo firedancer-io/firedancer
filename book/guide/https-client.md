@@ -32,6 +32,7 @@ parameters.
   - `Ed25519` (modern, fastest)
   - `ECDSA-P256-SHA256`
   - `ECDSA-P384-SHA384` (certificate chains only, not as a client)
+  - `RSA-{PKCS1,PSS-RSAE}-SHA{256,384,512}` (2048-4096 bits)
 
 ## System compatibility
 
@@ -43,8 +44,7 @@ following paths:
 - `/etc/ssl/ca-bundle.pem`
 - `/etc/ssl/cert.pem`
 
-Up to 512 CA certs are loaded.  Certificates with unsupported keys
-(e.g. RSA) are skipped.
+Up to 512 CA certs are loaded.
 
 ## Usage
 
@@ -56,7 +56,8 @@ Firedancer runs HTTPS clients for the following tasks:
 
 ## Limitations
 
-- No RSA certs
+- No support for RSA-1024 cert signatures (insecure)
+- No RSA-PSS for cert signatures (rare in the wild)
 - No FFDHE key exchange (only ECDH)
 - No revocation checking (no CRL, no OCSP)
 - No session resumption
