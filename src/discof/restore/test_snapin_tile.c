@@ -800,9 +800,9 @@ test_nonempty_raw_data( void ) {
 
 static fd_banks_t *
 new_banks( fd_wksp_t * wksp ) {
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 4UL, 16UL, 16UL ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 16UL, 16UL ), 1UL );
   FD_TEST( mem );
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 16UL, 64UL, 16UL, 0, 42UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 16UL, 64UL, 16UL, 0, 42UL ) );
   FD_TEST( banks );
   return banks;
 }

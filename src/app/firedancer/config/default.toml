@@ -720,21 +720,6 @@ telemetry = true
     # or test environments to decrease memory usage or test edge cases.
     max_live_slots = 2048
 
-    # Similar to max live slots, max fork width bounds the maximum
-    # number of live slots which can be simultaneously crossing an epoch
-    # boundary (a child of a slot in the prior epoch).  This bound
-    # exists separately because crossing an epoch boundary is expensive
-    # and requires large dedicated memory.
-    #
-    # On hitting this limit, the validator will begin evicting less
-    # important epoch-crossing slots from memory, meaning their state
-    # will be lost and may need to be re-requested and re-replayed again
-    # in future as needed.
-    #
-    # It is not recommended to change this value, except in development
-    # or test environments to decrease memory usage or test edge cases.
-    max_fork_width = 32
-
     # Total size of the program cache workspace in MiB.
     #
     # The program cache pre-loads frequently executed programs for

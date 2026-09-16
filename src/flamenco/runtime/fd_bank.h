@@ -122,8 +122,8 @@ FD_PROTOTYPES_BEGIN
   is completely abstracted away from the caller as callers have to
   query/modify fields using specific APIs.
 
-  The memory for the banks is based off of the max number of unrooted
-  blocks and the max number of forks that execute through any one block.
+  The memory for the banks is based on the maximum number of live
+  banks, which also bounds the number of forks.
   Epoch-credit set metadata is bounded by the former, while only four
   full sets are cached in memory and the remainder spill to disk.  See
   fd_banks_footprint() for details.
@@ -395,7 +395,6 @@ struct fd_banks {
   ulong magic;                       /* ==FD_BANKS_MAGIC */
   int   report_runtime_diffs;        /* telemetry: emit the runtime events; report_runtime_diffs flag */
   ulong max_total_banks;             /* Maximum number of banks */
-  ulong max_fork_width;              /* Maximum fork width executing through any given slot. */
   ulong max_stake_accounts;          /* Maximum number of stake accounts */
   ulong max_vote_accounts;           /* Maximum number of vote accounts */
   ulong root_idx;                    /* root idx */
@@ -605,32 +604,19 @@ fd_banks_root( fd_banks_t * banks );
 ulong
 fd_banks_align( void );
 
-/* fd_banks_footprint() returns the footprint of fd_banks_t.  This
-   includes the struct itself but also the footprint for all of the
-   pools.
-
-   The footprint of fd_banks_t is determined by the total number
-   of banks that the bank manages.  This is an analog for the max number
-   of unrooted blocks the bank can manage at any given time.
-
-   We can also further bound the memory footprint of the banks by the
-   max width of forks that can exist at any given time.  The reason for
-   this is that there are several large CoW structs that are only
-   written to during the epoch boundary (e.g. epoch_stakes, etc.).
-   These structs are read-only afterwards.  This
-   means if we also bound the max number of forks that can execute
-   through the epoch boundary, we can bound the memory footprint of
-   the banks. */
+/* fd_banks_footprint returns the shared-memory size for max_total_banks
+   live banks. Vote-stakes fork pools and logical cost trackers use the
+   same limit. Reward, collector, cost-tracker, and epoch-credit entry
+   caches have bounded counts independent of the number of forks. */
 
 ulong
 fd_banks_footprint( ulong max_total_banks,
-                    ulong max_fork_width,
                     ulong max_stake_accounts,
                     ulong max_vote_accounts );
 
 /* fd_banks_new() creates a new fd_banks_t struct.  This function
    lays out the memory for all of the constituent fd_bank_t structs
-   and pools depending on the max_total_banks and the max_fork_width for
+   and pools depending on max_total_banks for
    a given block.  stake_delegations_fd identifies the backing file for
    this instance's stake delegation store. */
 
@@ -638,7 +624,6 @@ void *
 fd_banks_new( void * mem,
               int    stake_delegations_fd,
               ulong  max_total_banks,
-              ulong  max_fork_width,
               ulong  max_stake_accounts,
               ulong  max_disk_records,
               ulong  max_vote_accounts,
@@ -810,9 +795,7 @@ fd_banks_get_evictable_bank( fd_banks_t *      banks,
                              fd_bank_t const * protected_bank );
 
 /* fd_banks_can_start_bank returns 1 if banks has capacity to start
-   preparing another child bank.  This check is currently conservative,
-   if the max fork width is reached, it will return 0 even if the new
-   bank doesn't exceed the max fork width. */
+   preparing another child bank in the live-bank pool. */
 
 int
 fd_banks_can_start_bank( fd_banks_t * banks );
