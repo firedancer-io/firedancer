@@ -60,10 +60,23 @@ CC_MAJOR_VERSION:=$(firstword $(subst ., ,$(filter-out unknown,$(CC_VERSION))))
 # Default _FORTIFY_SOURCE level
 FORTIFY_SOURCE?=2
 
-# Prefer LLD when available
+# linker: mold, else lld (compiler >= 9), else the toolchain default
 ifeq ($(CROSS),)
-ifneq ($(call which,ld.lld),)
+MOLD:=$(call which,mold)
 ifneq ($(CC_MAJOR_VERSION),)
+ifneq ($(MOLD),)
+ifeq ($(filter 0 1 2 3 4 5 6 7 8 9 10 11,$(CC_MAJOR_VERSION)),)
+LDFLAGS+=-fuse-ld=mold
+else
+MOLD_DIR:=$(firstword $(wildcard $(realpath $(dir $(realpath $(MOLD)))../libexec/mold)))
+ifeq ($(MOLD_DIR),)
+MOLD_DIR:=$(BASEDIR)/mold-ld
+_:=$(shell mkdir -p $(MOLD_DIR) && ln -sfn $(realpath $(MOLD)) $(MOLD_DIR)/ld)
+endif
+LDFLAGS+=-B$(MOLD_DIR)/
+endif
+LDFLAGS+=-Wl,-X
+else ifneq ($(call which,ld.lld),)
 ifeq ($(filter 0 1 2 3 4 5 6 7 8,$(CC_MAJOR_VERSION)),)
 LDFLAGS+=-fuse-ld=lld
 endif
