@@ -7,5 +7,8 @@
     "dev": "vitepress dev",
     "build": "vitepress build",
     "preview": "vitepress preview"
+  },
+  "overrides": {
+    "vite": "6.4.3"
   }
 }

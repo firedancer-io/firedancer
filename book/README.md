@@ -8,7 +8,7 @@ started guide at https://vitepress.dev/guide/getting-started.
 1. Install bun, `curl -fsSL https://bun.sh/install | bash`
 2. Make it available in `PATH`, `source ~/.bashrc`
 3. Make sure the working directory is `firedancer/book`
-4. `bun install`
+4. `bun install --frozen-lockfile`
 5. `bun run dev`
 
 > [!NOTE]
@@ -16,3 +16,6 @@ started guide at https://vitepress.dev/guide/getting-started.
 > `bun run dev --host` to expose the endpoint.
 
 This will serve a local docs site.
+
+When updating dependencies, run `bun install` and commit `package.json`
+and `bun.lock` together. The Pages build requires an up-to-date lockfile.

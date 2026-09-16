@@ -38,7 +38,9 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v6
       - name: Install dependencies
-        run: bun install --cwd ./book # or pnpm install / yarn install / bun install
+        run: |
+          test -f ./book/bun.lock
+          bun install --frozen-lockfile --cwd ./book
       - name: Build with VitePress
         run: |
           bun run --cwd ./book build # or pnpm docs:build / yarn docs:build / bun run docs:build
