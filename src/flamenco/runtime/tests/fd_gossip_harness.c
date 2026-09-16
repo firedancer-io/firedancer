@@ -2,6 +2,7 @@
 #include "fd_gossip_harness.h"
 #include "../../gossip/fd_gossip_message.h"
 #include "../../../ballet/txn/fd_compact_u16.h"
+#include "../../../disco/fd_disco_base.h"
 #include "generated/gossip.pb.h"
 
 /* alloc_bytes allocates a pb_bytes_array_t on the spad and copies

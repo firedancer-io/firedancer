@@ -12,6 +12,7 @@
 #include "../fd_flamenco_base.h"
 #include "../accdb/fd_accdb.h"
 #include "../alpenglow/fd_alpenglow.h"
+#include "../../disco/pack/fd_microblock.h"
 
 /* The general structure for executing transactions in Firedancer can
    be thought of as a state machine where transaction execution is a

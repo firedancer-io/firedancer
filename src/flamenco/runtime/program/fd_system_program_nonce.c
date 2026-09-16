@@ -4,6 +4,7 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
 #include "../../log_collector/fd_log_collector.h"
+#include "../../../ballet/sha256/fd_sha256.h"
 
 static int
 require_acct( fd_exec_instr_ctx_t * ctx,

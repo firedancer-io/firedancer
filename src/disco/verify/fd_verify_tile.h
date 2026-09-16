@@ -6,6 +6,8 @@
    invalid signatures are filtered out of the frag stream. */
 
 #include "../topo/fd_topo.h"
+#include "../../ballet/txn/fd_txn.h"
+#include "../../ballet/sha512/fd_sha512.h"
 #include "../metrics/generated/fd_metrics_enums.h"
 
 #define FD_TXN_VERIFY_SUCCESS  0
