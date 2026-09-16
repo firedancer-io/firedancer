@@ -42,7 +42,10 @@ case $what in
     cp "$(make --silent objdir)"/bin/{firedancer,firedancer-dev} "$bin/"
     cp contrib/ci/bench/bench.toml "$BENCH_DIR/$side/"  # each side runs the config its checkout knows
     size -A -d "$bin/firedancer" > "$out.size"
-    for c in mainnet testnet; do "$bin/firedancer-dev" mem --$c --json > "$out.mem.$c.json"; done
+    for c in mainnet testnet; do
+      "$bin/firedancer-dev" mem --$c --json > "$out.mem.$c.json"
+      "$bin/firedancer-dev" mem --$c --alpenglow --json > "$out.mem.ag.$c.json"
+    done
     ;;
   replay)   backtest "${BENCH_LEDGER:-mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat}" \
                      -e "${BENCH_END_SLOT:-424669200}" -m 4000000 ;;
