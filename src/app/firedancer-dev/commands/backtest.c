@@ -41,6 +41,7 @@
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
 
 #include <errno.h>
+#include <stdlib.h> /* getenv */
 #include <unistd.h>
 #include <fcntl.h>
 
@@ -478,10 +479,16 @@ configure_args( void ) {
     .configure.command = CONFIGURE_CMD_INIT,
   };
 
+  /* FD_BACKTEST_SHARED_HOST skips the host-global stages (irq-affinity,
+     kworkers) so multiple backtest instances can share a host. */
+  int shared_host = !!getenv( "FD_BACKTEST_SHARED_HOST" );
+
   ulong stage_idx = 0UL;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
-  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_irq_affinity;
-  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_kworkers;
+  if( FD_LIKELY( !shared_host ) ) {
+    args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_irq_affinity;
+    args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_kworkers;
+  }
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_cpuset;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_keys;
