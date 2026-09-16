@@ -78,6 +78,87 @@ fd_banks_get_cost_tracker_pool( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
 }
 
+static uchar *
+fd_banks_get_cost_tracker_cache( fd_banks_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->cost_tracker_cache_offset );
+}
+
+static inline ulong
+fd_banks_cost_tracker_cache_cnt( fd_banks_t const * banks_data ) {
+  return fd_ulong_min( banks_data->max_fork_width, FD_BANKS_COST_TRACKER_CACHE_CNT );
+}
+
+static void
+fd_banks_cost_tracker_disk_read( void * dst,
+                                 ulong  pool_idx ) {
+  ulong off = pool_idx * FD_COST_TRACKER_FOOTPRINT;
+  ulong got = 0UL;
+  while( got<FD_COST_TRACKER_FOOTPRINT ) {
+    long n = pread( FD_COST_TRACKER_FD, (uchar *)dst+got, FD_COST_TRACKER_FOOTPRINT-got, (long)(off+got) );
+    if( FD_UNLIKELY( n<0L ) ) {
+      if( FD_LIKELY( errno==EINTR ) ) continue;
+      FD_LOG_CRIT(( "pread(cost tracker spill file, fd=%d) failed (%i-%s)", FD_COST_TRACKER_FD, errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( !n ) ) {
+      FD_LOG_CRIT(( "unexpected EOF in cost tracker spill file (tracker=%lu offset=%lu size=%lu)",
+                    pool_idx, off+got, FD_COST_TRACKER_FOOTPRINT-got ));
+    }
+    got += (ulong)n;
+  }
+}
+
+static void
+fd_banks_cost_tracker_disk_write( void const * src,
+                                  ulong        pool_idx ) {
+  ulong off = pool_idx * FD_COST_TRACKER_FOOTPRINT;
+  ulong put = 0UL;
+  while( put<FD_COST_TRACKER_FOOTPRINT ) {
+    long n = pwrite( FD_COST_TRACKER_FD, (uchar const *)src+put, FD_COST_TRACKER_FOOTPRINT-put, (long)(off+put) );
+    if( FD_LIKELY( n>0L ) ) {
+      put += (ulong)n;
+      continue;
+    }
+    if( FD_UNLIKELY( n<0L && errno==EINTR ) ) continue;
+    if( FD_UNLIKELY( !n ) ) errno = EIO;
+    FD_LOG_CRIT(( "pwrite(cost tracker spill file, fd=%d) failed (%i-%s)", FD_COST_TRACKER_FD, errno, fd_io_strerror( errno ) ));
+  }
+}
+
+static ulong
+fd_banks_cost_tracker_acquire( fd_banks_t * banks_data ) {
+  fd_bank_cost_tracker_t * pool = fd_banks_get_cost_tracker_pool( banks_data );
+  fd_rwlock_write( &banks_data->cost_tracker_cache_lock );
+  FD_CHECK_CRIT( fd_bank_cost_tracker_pool_free( pool ),
+                 "invariant violation: no free cost tracker pool elements" );
+  ulong pool_idx = fd_bank_cost_tracker_pool_idx_acquire( pool );
+  fd_bank_cost_tracker_pool_ele( pool, pool_idx )->disk_valid = 0U;
+  fd_rwlock_unwrite( &banks_data->cost_tracker_cache_lock );
+  return pool_idx;
+}
+
+static void
+fd_banks_cost_tracker_release( fd_banks_t * banks_data,
+                               ulong        pool_idx ) {
+  fd_bank_cost_tracker_t * pool = fd_banks_get_cost_tracker_pool( banks_data );
+  FD_CHECK_CRIT( pool_idx!=fd_bank_cost_tracker_pool_idx_null( pool ),
+                 "invariant violation: releasing null cost tracker" );
+
+  fd_rwlock_write( &banks_data->cost_tracker_cache_lock );
+  ulong cache_cnt = fd_banks_cost_tracker_cache_cnt( banks_data );
+  for( ulong i=0UL; i<cache_cnt; i++ ) {
+    if( banks_data->cost_tracker_cache_pool_idx[i]!=pool_idx ) continue;
+    FD_CHECK_CRIT( !banks_data->cost_tracker_cache_pin_cnt[i],
+                   "invariant violation: releasing pinned cost tracker" );
+    banks_data->cost_tracker_cache_pool_idx[i] = ULONG_MAX;
+    banks_data->cost_tracker_cache_lru_slot[i] = 0UL;
+    banks_data->cost_tracker_cache_dirty[i]    = 0U;
+    break;
+  }
+  fd_bank_cost_tracker_pool_ele( pool, pool_idx )->disk_valid = 0U;
+  fd_bank_cost_tracker_pool_idx_release( pool, pool_idx );
+  fd_rwlock_unwrite( &banks_data->cost_tracker_cache_lock );
+}
+
 static fd_collector_overrides_t *
 fd_banks_get_collector_overrides( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->collector_overrides_offset );
@@ -432,22 +513,102 @@ fd_bank_vote_stakes( fd_bank_t const * bank ) {
   return fd_banks_get_vote_stakes( banks_data );
 }
 
-fd_cost_tracker_t *
-fd_bank_cost_tracker_modify( fd_bank_t * bank ) {
+fd_bank_cost_tracker_view_t *
+fd_bank_cost_tracker_view_init( fd_bank_cost_tracker_view_t * view,
+                                fd_bank_t *                   bank,
+                                int                           write ) {
+  if( FD_UNLIKELY( !view || !bank ) ) return NULL;
+
   fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
-  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
-  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
-  return fd_type_pun( cost_tracker_mem );
+  fd_bank_cost_tracker_t * pool = fd_banks_get_cost_tracker_pool( banks_data );
+  ulong pool_idx = bank->cost_tracker_pool_idx;
+  FD_CHECK_CRIT( pool_idx!=fd_bank_cost_tracker_pool_idx_null( pool ),
+                 "invariant violation: viewing null cost tracker" );
+
+  for(;;) {
+    fd_rwlock_write( &banks_data->cost_tracker_cache_lock );
+
+    ulong cache_cnt = fd_banks_cost_tracker_cache_cnt( banks_data );
+    ulong cache_idx = ULONG_MAX;
+    for( ulong i=0UL; i<cache_cnt; i++ ) {
+      if( banks_data->cost_tracker_cache_pool_idx[i]==pool_idx ) {
+        cache_idx = i;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( cache_idx==ULONG_MAX ) ) {
+      ulong oldest_lru = ULONG_MAX;
+      for( ulong i=0UL; i<cache_cnt; i++ ) {
+        if( banks_data->cost_tracker_cache_pin_cnt[i] ) continue;
+        if( banks_data->cost_tracker_cache_pool_idx[i]==ULONG_MAX ) {
+          cache_idx = i;
+          break;
+        }
+        if( banks_data->cost_tracker_cache_lru_slot[i]<oldest_lru ) {
+          oldest_lru = banks_data->cost_tracker_cache_lru_slot[i];
+          cache_idx  = i;
+        }
+      }
+
+      if( FD_UNLIKELY( cache_idx==ULONG_MAX ) ) {
+        fd_rwlock_unwrite( &banks_data->cost_tracker_cache_lock );
+        FD_SPIN_PAUSE();
+        continue;
+      }
+
+      uchar * cache = fd_banks_get_cost_tracker_cache( banks_data ) + cache_idx*FD_COST_TRACKER_FOOTPRINT;
+      ulong evicted_pool_idx = banks_data->cost_tracker_cache_pool_idx[cache_idx];
+      if( FD_LIKELY( evicted_pool_idx!=ULONG_MAX ) ) {
+        if( banks_data->cost_tracker_cache_dirty[cache_idx] ) {
+          fd_banks_cost_tracker_disk_write( cache, evicted_pool_idx );
+          fd_bank_cost_tracker_pool_ele( pool, evicted_pool_idx )->disk_valid = 1U;
+        }
+      }
+
+      if( fd_bank_cost_tracker_pool_ele( pool, pool_idx )->disk_valid ) {
+        fd_banks_cost_tracker_disk_read( cache, pool_idx );
+      }
+      FD_CHECK_CRIT( fd_cost_tracker_join( cache ),
+                     "invariant violation: invalid cost tracker cache entry" );
+
+      banks_data->cost_tracker_cache_pool_idx[cache_idx] = pool_idx;
+      banks_data->cost_tracker_cache_dirty[cache_idx]    = 0U;
+    }
+
+    banks_data->cost_tracker_cache_pin_cnt[cache_idx]++;
+    banks_data->cost_tracker_cache_lru_slot[cache_idx] = ++banks_data->cost_tracker_cache_lru;
+
+    *view = (fd_bank_cost_tracker_view_t) {
+      .tracker   = fd_cost_tracker_join( fd_banks_get_cost_tracker_cache( banks_data ) + cache_idx*FD_COST_TRACKER_FOOTPRINT ),
+      .banks     = banks_data,
+      .pool_idx  = pool_idx,
+      .cache_idx = cache_idx,
+      .write     = !!write
+    };
+
+    fd_rwlock_unwrite( &banks_data->cost_tracker_cache_lock );
+    return view;
+  }
 }
 
-fd_cost_tracker_t const *
-fd_bank_cost_tracker_query( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
-  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
-  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
-  return fd_type_pun_const( cost_tracker_mem );
+void
+fd_bank_cost_tracker_view_fini( fd_bank_cost_tracker_view_t * view ) {
+  if( FD_UNLIKELY( !view || !view->tracker ) ) return;
+
+  fd_banks_t * banks_data = view->banks;
+  fd_rwlock_write( &banks_data->cost_tracker_cache_lock );
+  FD_CHECK_CRIT( view->cache_idx<fd_banks_cost_tracker_cache_cnt( banks_data ) &&
+                 banks_data->cost_tracker_cache_pool_idx[view->cache_idx]==view->pool_idx &&
+                 banks_data->cost_tracker_cache_pin_cnt[view->cache_idx],
+                 "invariant violation: invalid cost tracker view" );
+
+  if( view->write ) banks_data->cost_tracker_cache_dirty[view->cache_idx] = 1U;
+  banks_data->cost_tracker_cache_pin_cnt[view->cache_idx]--;
+  fd_rwlock_unwrite( &banks_data->cost_tracker_cache_lock );
+
+  view->tracker = NULL;
+  view->banks   = NULL;
 }
 
 fd_bank_t *
@@ -515,6 +676,7 @@ fd_banks_footprint( ulong max_total_banks,
   /* max_fork_width is used in the macro below. */
 
   ulong epoch_leaders_footprint = FD_EPOCH_LEADERS_FOOTPRINT( max_vote_accounts, FD_RUNTIME_SLOTS_PER_EPOCH );;
+  ulong cost_tracker_cache_cnt  = fd_ulong_min( max_fork_width, FD_BANKS_COST_TRACKER_CACHE_CNT );
   ulong epoch_credits_cache_cnt = fd_ulong_min( max_total_banks, FD_BANKS_EPOCH_CREDITS_CACHE_CNT );
 
   ulong l = FD_LAYOUT_INIT;
@@ -525,6 +687,7 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_cost_tracker_align(),           fd_ulong_sat_mul( FD_COST_TRACKER_FOOTPRINT, cost_tracker_cache_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( fd_banks_epoch_credits_set_sz(), epoch_credits_cache_cnt ) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                    sizeof(ulong) * max_total_banks );
@@ -570,6 +733,7 @@ fd_banks_new( void * shmem,
   }
 
   ulong epoch_leaders_footprint = FD_EPOCH_LEADERS_FOOTPRINT( max_vote_accounts, FD_RUNTIME_SLOTS_PER_EPOCH );
+  ulong cost_tracker_cache_cnt  = fd_ulong_min( max_fork_width, FD_BANKS_COST_TRACKER_CACHE_CNT );
   ulong epoch_credits_cache_cnt = fd_ulong_min( max_total_banks, FD_BANKS_EPOCH_CREDITS_CACHE_CNT );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
@@ -580,6 +744,7 @@ fd_banks_new( void * shmem,
   void *       pool_mem                = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
   void *       dead_banks_deque_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
   void *       cost_tracker_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  void *       cost_tracker_cache_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_align(),           fd_ulong_sat_mul( FD_COST_TRACKER_FOOTPRINT, cost_tracker_cache_cnt ) );
   void *       stake_rewards_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
   void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( fd_banks_epoch_credits_set_sz(), epoch_credits_cache_cnt ) );
   void *       epoch_credits_len_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * max_total_banks );
@@ -658,8 +823,22 @@ fd_banks_new( void * shmem,
   banks_data->cost_tracker_pool_offset = (ulong)cost_tracker_pool - (ulong)banks_data;
 
   for( ulong i=0UL; i<max_fork_width; i++ ) {
-    fd_bank_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i );
-    if( FD_UNLIKELY( !fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, bench_max_cost_per_block, seed ) ) ) ) {
+    fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i )->disk_valid = 0U;
+  }
+
+  banks_data->cost_tracker_cache_offset = (ulong)cost_tracker_cache_mem - (ulong)banks_data;
+  fd_rwlock_new( &banks_data->cost_tracker_cache_lock );
+  banks_data->cost_tracker_cache_lru = 0UL;
+  for( ulong i=0UL; i<FD_BANKS_COST_TRACKER_CACHE_CNT; i++ ) {
+    banks_data->cost_tracker_cache_pool_idx[i] = ULONG_MAX;
+    banks_data->cost_tracker_cache_pin_cnt[i]  = 0UL;
+    banks_data->cost_tracker_cache_lru_slot[i] = 0UL;
+    banks_data->cost_tracker_cache_dirty[i]    = 0U;
+  }
+  for( ulong i=0UL; i<cost_tracker_cache_cnt; i++ ) {
+    void * cost_tracker_mem = (uchar *)cost_tracker_cache_mem + i*FD_COST_TRACKER_FOOTPRINT;
+    fd_memset( cost_tracker_mem, 0, FD_COST_TRACKER_FOOTPRINT );
+    if( FD_UNLIKELY( !fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker_mem, bench_max_cost_per_block, seed ) ) ) ) {
       FD_LOG_WARNING(( "Failed to create cost tracker" ));
       return NULL;
     }
@@ -743,6 +922,7 @@ fd_banks_join( void * banks_data_mem ) {
   void * pool_mem              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( banks_data->max_total_banks ) );
   void * dead_banks_deque_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
   void * cost_tracker_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
+  void * cost_tracker_cache_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_align(),          fd_ulong_sat_mul( FD_COST_TRACKER_FOOTPRINT, fd_banks_cost_tracker_cache_cnt( banks_data ) ) );
   void * stake_rewards_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
   void * epoch_credits_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( fd_banks_epoch_credits_set_sz(), fd_banks_epoch_credits_cache_cnt( banks_data ) ) );
   void * epoch_credits_len_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * banks_data->max_total_banks );
@@ -800,6 +980,16 @@ fd_banks_join( void * banks_data_mem ) {
   if( FD_UNLIKELY( cost_tracker_pool!=fd_bank_cost_tracker_pool_join( cost_tracker_pool_mem ) ) ) {
     FD_LOG_WARNING(( "Failed to join cost tracker pool" ));
     return NULL;
+  }
+  if( FD_UNLIKELY( cost_tracker_cache_mem!=(void *)fd_banks_get_cost_tracker_cache( banks_data ) ) ) {
+    FD_LOG_WARNING(( "Failed to join cost tracker cache" ));
+    return NULL;
+  }
+  for( ulong i=0UL; i<fd_banks_cost_tracker_cache_cnt( banks_data ); i++ ) {
+    if( FD_UNLIKELY( !fd_cost_tracker_join( (uchar *)cost_tracker_cache_mem + i*FD_COST_TRACKER_FOOTPRINT ) ) ) {
+      FD_LOG_WARNING(( "Failed to join cost tracker cache entry" ));
+      return NULL;
+    }
   }
 
   if( FD_UNLIKELY( epoch_credits_mem!=(void *)fd_banks_get_epoch_credits_cache( banks_data ) ) ) {
@@ -884,9 +1074,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   fd_bank_t * parent_bank = fd_banks_pool_ele( bank_pool, child_bank->parent_idx );
   FD_CHECK_CRIT( parent_bank->state==FD_BANK_STATE_FROZEN || parent_bank->state==FD_BANK_STATE_PRUNABLE, "invariant violation: parent bank is not frozen or prunable" );
 
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
-  FD_CHECK_CRIT( fd_bank_cost_tracker_pool_free( cost_tracker_pool )!=0UL, "invariant violation: no free cost tracker pool elements" );
-  child_bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
+  child_bank->cost_tracker_pool_idx = fd_banks_cost_tracker_acquire( banks );
 
   child_bank->f                           = parent_bank->f;
   child_bank->vote_stakes_fork_id         = fd_vote_stakes_new_fork( fd_banks_get_vote_stakes( banks ), parent_bank->vote_stakes_fork_id, parent_bank->f.epoch );
@@ -1071,7 +1259,7 @@ fd_banks_advance_root( fd_banks_t * banks,
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
     if( head->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) {
       FD_LOG_DEBUG(( "releasing cost tracker pool element for bank at index %lu", head->idx ));
-      fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, head->cost_tracker_pool_idx );
+      fd_banks_cost_tracker_release( banks, head->cost_tracker_pool_idx );
       head->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool );
     }
 
@@ -1351,7 +1539,7 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
   }
 
   if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=null_idx ) ) {
-    fd_bank_cost_tracker_pool_idx_release( fd_banks_get_cost_tracker_pool( banks ), bank->cost_tracker_pool_idx );
+    fd_banks_cost_tracker_release( banks, bank->cost_tracker_pool_idx );
     bank->cost_tracker_pool_idx = null_idx;
   }
 
@@ -1441,7 +1629,7 @@ fd_banks_mark_bank_frozen( fd_bank_t * bank ) {
   bank->state = FD_BANK_STATE_FROZEN;
 
   FD_CHECK_CRIT( bank->cost_tracker_pool_idx!=ULONG_MAX, "invariant violation: cost tracker pool index is null" );
-  fd_bank_cost_tracker_pool_idx_release( fd_banks_get_cost_tracker_pool( banks ), bank->cost_tracker_pool_idx );
+  fd_banks_cost_tracker_release( banks, bank->cost_tracker_pool_idx );
   bank->cost_tracker_pool_idx = ULONG_MAX;
 }
 
@@ -1529,9 +1717,9 @@ fd_banks_clear_bank( fd_banks_t * banks,
   /* We need to acquire a cost tracker element. */
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
   if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) ) {
-    fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, bank->cost_tracker_pool_idx );
+    fd_banks_cost_tracker_release( banks, bank->cost_tracker_pool_idx );
   }
-  bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
+  bank->cost_tracker_pool_idx = fd_banks_cost_tracker_acquire( banks );
 
   if( FD_UNLIKELY( bank->stake_rewards_fork_id!=USHORT_MAX ) ) {
     fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
@@ -1562,7 +1750,20 @@ fd_banks_clear( fd_banks_t * banks ) {
   }
 
   fd_banks_pool_reset( bank_pool );
+  fd_rwlock_write( &banks->cost_tracker_cache_lock );
   fd_bank_cost_tracker_pool_reset( cost_tracker_pool );
+  for( ulong i=0UL; i<banks->max_fork_width; i++ ) {
+    fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i )->disk_valid = 0U;
+  }
+  banks->cost_tracker_cache_lru = 0UL;
+  for( ulong i=0UL; i<FD_BANKS_COST_TRACKER_CACHE_CNT; i++ ) {
+    FD_CHECK_CRIT( !banks->cost_tracker_cache_pin_cnt[i],
+                   "invariant violation: clearing pinned cost tracker cache" );
+    banks->cost_tracker_cache_pool_idx[i] = ULONG_MAX;
+    banks->cost_tracker_cache_lru_slot[i] = 0UL;
+    banks->cost_tracker_cache_dirty[i]    = 0U;
+  }
+  fd_rwlock_unwrite( &banks->cost_tracker_cache_lock );
   fd_banks_dead_remove_all( fd_banks_get_dead_banks_deque( banks ) );
   banks->evict_rr_idx = 0UL;
   banks->prunable_idx = fd_banks_pool_idx_null( bank_pool );

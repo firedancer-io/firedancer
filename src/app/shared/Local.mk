@@ -12,6 +12,8 @@ $(call make-unit-test,test_config_auto,test_config_auto,fd_fdctl fdctl_shared fd
 $(call run-unit-test,test_config_auto)
 $(call make-unit-test,test_config_json,test_config_json,fd_fdctl fdctl_shared fdctl_platform fd_disco fd_waltz fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_config_json)
+$(call make-unit-test,test_run_spill_fds,test_run_spill_fds commands/run/fd_spill,fd_util)
+$(call run-unit-test,test_run_spill_fds)
 $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fdctl_shared fdctl_platform fd_disco fd_waltz fd_ballet fd_tango fd_util)
 
 $(call add-objs,boot/fd_boot,fdctl_shared)
@@ -48,7 +50,7 @@ ifdef FD_HAS_ALLOCA
 $(call add-objs,commands/monitor/monitor commands/monitor/helper,fdctl_shared)
 $(call add-objs,commands/watch/watch,fdctl_shared)
 endif # FD_HAS_ALLOCA
-$(call add-objs,commands/run/run commands/run/run1,fdctl_shared)
+$(call add-objs,commands/run/run commands/run/run1 commands/run/fd_spill,fdctl_shared)
 
 endif
 endif

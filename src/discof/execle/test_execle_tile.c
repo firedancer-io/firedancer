@@ -808,14 +808,15 @@ test_assert_txn_ns_dt_ordered( fd_txn_ns_dt_t const * dt ) {
 }
 
 FD_UNIT_TEST( execle_seccomp ) {
-  int   out_fds[4];
-  ulong nfds = populate_allowed_fds( NULL, NULL, 4UL, out_fds );
-  FD_TEST( nfds>=3 && nfds<=4 );
+  int   out_fds[5];
+  ulong nfds = populate_allowed_fds( NULL, NULL, 5UL, out_fds );
+  FD_TEST( nfds>=4 && nfds<=5 );
   FD_TEST( out_fds[0]==STDERR_FILENO );
-  /* logfile fd is optional; the stake spill fd is always last */
-  FD_TEST( out_fds[ nfds-2UL ]==FD_ACCDB_FD_RW );
-  FD_TEST( out_fds[ nfds-1UL ]==FD_STAKE_DELEGATIONS_FD );
-  if( nfds==4 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
+  /* logfile fd is optional; the cost tracker spill fd is always last */
+  FD_TEST( out_fds[ nfds-3UL ]==FD_ACCDB_FD_RW );
+  FD_TEST( out_fds[ nfds-2UL ]==FD_STAKE_DELEGATIONS_FD );
+  FD_TEST( out_fds[ nfds-1UL ]==FD_COST_TRACKER_FD );
+  if( nfds==5 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
 
   struct sock_filter filter[ sock_filter_policy_fd_execle_tile_instr_cnt ];
   populate_allowed_seccomp( NULL, NULL, sock_filter_policy_fd_execle_tile_instr_cnt, filter );
@@ -1246,7 +1247,10 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail_relaxed ) {
   FD_TEST( test_read_lamports( env, &data_acct )==data_acct_start );
   FD_TEST( !bank->f.txn_count       );
   FD_TEST( !bank->f.signature_count );
-  FD_TEST( fd_bank_cost_tracker_query( bank )->block_cost==0UL );
+  fd_bank_cost_tracker_view_t cost_tracker_view[1];
+  FD_TEST( fd_bank_cost_tracker_view_init( cost_tracker_view, bank, 0 ) );
+  FD_TEST( cost_tracker_view->tracker->block_cost==0UL );
+  fd_bank_cost_tracker_view_fini( cost_tracker_view );
   FD_TEST( out_txn->execle_cu.actual_consumed_cus==0U );
   FD_TEST( out_txn->execle_cu.rebated_cus==
            txn->pack_cu.non_execution_cus + txn->pack_cu.requested_exec_plus_acct_data_cus );

@@ -22,12 +22,14 @@ FD_PROTOTYPES_BEGIN
 #define FD_BANKS_MAX_BANKS (4096UL)
 #define FD_BANKS_ALIGN     (128UL)
 
-/* Epoch-credit sets beyond the four-set in-memory cache spill to this
-   boot-created, unlinked file.  123457 is the stake-delegation spill,
-   123458/123459 are store, 123460/123461 are accdb, and 123462+ are
-   reserved by XDP. */
+/* Cost trackers and epoch-credit sets beyond their four-entry in-memory
+   caches spill to boot-created, unlinked files.  123457 is the
+   stake-delegation spill, 123458/123459 are store, 123460/123461 are
+   accdb, and 123462+ are reserved by XDP. */
 
+#define FD_COST_TRACKER_FD               (123455)
 #define FD_EPOCH_CREDITS_FD              (123456)
+#define FD_BANKS_COST_TRACKER_CACHE_CNT  (4UL)
 #define FD_BANKS_EPOCH_CREDITS_CACHE_CNT (4UL)
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
@@ -213,7 +215,7 @@ FD_PROTOTYPES_BEGIN
 
 struct fd_bank_cost_tracker {
   ulong next;
-  uchar data[FD_COST_TRACKER_FOOTPRINT] __attribute__((aligned(FD_COST_TRACKER_ALIGN)));
+  uchar disk_valid;
 };
 typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 
@@ -404,7 +406,15 @@ struct fd_banks {
 
   ulong pool_offset;        /* offset of pool from banks */
 
-  ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
+  ulong cost_tracker_pool_offset; /* offset of logical cost tracker pool from banks */
+  ulong cost_tracker_cache_offset;
+
+  fd_rwlock_t cost_tracker_cache_lock;
+  ulong       cost_tracker_cache_lru;
+  ulong       cost_tracker_cache_pool_idx[ FD_BANKS_COST_TRACKER_CACHE_CNT ];
+  ulong       cost_tracker_cache_pin_cnt [ FD_BANKS_COST_TRACKER_CACHE_CNT ];
+  ulong       cost_tracker_cache_lru_slot[ FD_BANKS_COST_TRACKER_CACHE_CNT ];
+  uchar       cost_tracker_cache_dirty   [ FD_BANKS_COST_TRACKER_CACHE_CNT ];
 
   ulong collector_overrides_offset;
 
@@ -515,11 +525,26 @@ fd_bank_epoch_leaders_modify( fd_bank_t * bank,
 fd_vote_stakes_t *
 fd_bank_vote_stakes( fd_bank_t const * bank );
 
-fd_cost_tracker_t *
-fd_bank_cost_tracker_modify( fd_bank_t * bank );
+/* A cost-tracker view pins the bank's logical tracker in the four-entry
+   memory cache.  write must be nonzero when the tracker will be modified.
+   Every successful init must be paired with fini promptly. */
 
-fd_cost_tracker_t const *
-fd_bank_cost_tracker_query( fd_bank_t * bank );
+struct fd_bank_cost_tracker_view {
+  fd_cost_tracker_t * tracker;
+  fd_banks_t *        banks;
+  ulong               pool_idx;
+  ulong               cache_idx;
+  int                 write;
+};
+typedef struct fd_bank_cost_tracker_view fd_bank_cost_tracker_view_t;
+
+fd_bank_cost_tracker_view_t *
+fd_bank_cost_tracker_view_init( fd_bank_cost_tracker_view_t * view,
+                                fd_bank_t *                   bank,
+                                int                           write );
+
+void
+fd_bank_cost_tracker_view_fini( fd_bank_cost_tracker_view_t * view );
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );

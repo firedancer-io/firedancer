@@ -419,18 +419,23 @@ handle_microblock( fd_execle_tile_t *  ctx,
       /* If the transaction failed to fit into the block, we need to
          updated the transaction flag with the error code. */
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
-      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
+      fd_bank_cost_tracker_view_t cost_tracker_view[1];
+      FD_TEST( fd_bank_cost_tracker_view_init( cost_tracker_view, bank, 1 ) );
+      fd_cost_tracker_t * cost_tracker = cost_tracker_view->tracker;
       uchar * signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
       int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
+      ulong block_cost                   = cost_tracker->block_cost;
+      ulong allocated_accounts_data_size = cost_tracker->allocated_accounts_data_size;
+      ulong block_cost_limit             = cost_tracker->block_cost_limit;
+      ulong account_cost_limit           = cost_tracker->account_cost_limit;
+      fd_bank_cost_tracker_view_fini( cost_tracker_view );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
       FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                     "(res=%d) [block_cost=%lu, allocated_accounts_data_size=%lu, "
                     "block_cost_limit=%lu, account_cost_limit=%lu]",
-                    signature_b58, err, cost_tracker->block_cost,
-                    cost_tracker->allocated_accounts_data_size,
-                    cost_tracker->block_cost_limit,
-                    cost_tracker->account_cost_limit ));
+                    signature_b58, err, block_cost, allocated_accounts_data_size,
+                    block_cost_limit, account_cost_limit ));
     }
 
     uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
@@ -443,13 +448,18 @@ handle_microblock( fd_execle_tile_t *  ctx,
     if( FD_UNLIKELY( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
       uchar * _signature = (uchar *)txn->payload + TXN( txn )->signature_off;
       FD_BASE58_ENCODE_64_BYTES( _signature, _signature_b58 );
-      fd_cost_tracker_t const * _ct = fd_bank_cost_tracker_query( bank );
+      fd_bank_cost_tracker_view_t cost_tracker_view[1];
+      FD_TEST( fd_bank_cost_tracker_view_init( cost_tracker_view, bank, 0 ) );
+      ulong block_cost         = cost_tracker_view->tracker->block_cost;
+      ulong block_cost_limit   = cost_tracker_view->tracker->block_cost_limit;
+      ulong account_cost_limit = cost_tracker_view->tracker->account_cost_limit;
+      fd_bank_cost_tracker_view_fini( cost_tracker_view );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would fit "
                    "[is_simple_vote=%i, is_fees_only=%i, block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",
                    _signature_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus,
                    fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ),
-                   txn_out->err.is_fees_only, _ct->block_cost, _ct->block_cost_limit, _ct->account_cost_limit ));
+                   txn_out->err.is_fees_only, block_cost, block_cost_limit, account_cost_limit ));
     }
 
     txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
@@ -586,16 +596,22 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
-        fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
+        fd_bank_cost_tracker_view_t cost_tracker_view[1];
+        FD_TEST( fd_bank_cost_tracker_view_init( cost_tracker_view, bank, 1 ) );
+        fd_cost_tracker_t * cost_tracker = cost_tracker_view->tracker;
         int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
+        ulong block_cost                   = cost_tracker->block_cost;
+        ulong allocated_accounts_data_size = cost_tracker->allocated_accounts_data_size;
+        ulong block_cost_limit             = cost_tracker->block_cost_limit;
+        ulong account_cost_limit           = cost_tracker->account_cost_limit;
+        fd_bank_cost_tracker_view_fini( cost_tracker_view );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
         FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
                       "(res=%d) [block_cost=%lu, allocated_accounts_data_size=%lu, "
                       "block_cost_limit=%lu, account_cost_limit=%lu]",
-                      signature_b58, err, cost_tracker->block_cost,
-                      cost_tracker->allocated_accounts_data_size,
-                      cost_tracker->block_cost_limit, cost_tracker->account_cost_limit ));
+                      signature_b58, err, block_cost, allocated_accounts_data_size,
+                      block_cost_limit, account_cost_limit ));
       }
 
       uint actual_execution_cus              = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
@@ -605,12 +621,17 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       if( FD_UNLIKELY( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
         FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
-        fd_cost_tracker_t const * _ct = fd_bank_cost_tracker_query( bank );
+        fd_bank_cost_tracker_view_t cost_tracker_view[1];
+        FD_TEST( fd_bank_cost_tracker_view_init( cost_tracker_view, bank, 0 ) );
+        ulong block_cost         = cost_tracker_view->tracker->block_cost;
+        ulong block_cost_limit   = cost_tracker_view->tracker->block_cost_limit;
+        ulong account_cost_limit = cost_tracker_view->tracker->account_cost_limit;
+        fd_bank_cost_tracker_view_fini( cost_tracker_view );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would "
                      "fit [block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",
                      signature_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus,
-                     _ct->block_cost, _ct->block_cost_limit, _ct->account_cost_limit ));
+                     block_cost, block_cost_limit, account_cost_limit ));
       }
       txns[ i ].execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
       txns[ i ].execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
@@ -878,7 +899,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, FD_COST_TRACKER_FD );
   return sock_filter_policy_fd_execle_tile_instr_cnt;
 }
 
@@ -890,7 +911,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -898,6 +919,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
+  out_fds[ out_cnt++ ] = FD_COST_TRACKER_FD; /* cost tracker disk spill */
 
   return out_cnt;
 }

@@ -395,6 +395,7 @@ main_pid_namespace( void * _args ) {
   }
 
   initialize_accdb_fd( config );
+  initialize_cost_tracker_fd( config );
   initialize_epoch_credits_fd( config );
   initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
@@ -497,6 +498,11 @@ main_pid_namespace( void * _args ) {
             FD_LOG_ERR(( "fcntl(FD_STORE_FD_RO,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
+        int tile_uses_cost_tracker = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
+                                     !strcmp( tile->name, "execrp" );
+        if( FD_UNLIKELY( -1==fcntl( FD_COST_TRACKER_FD, F_SETFD, tile_uses_cost_tracker ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         int tile_uses_epoch_credits = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "snapin" ) ||
                                       !strcmp( tile->name, "snapmk" );
         if( FD_UNLIKELY( -1==fcntl( FD_EPOCH_CREDITS_FD, F_SETFD, tile_uses_epoch_credits ? 0 : FD_CLOEXEC ) ) )
@@ -573,6 +579,7 @@ main_pid_namespace( void * _args ) {
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
+    if( FD_UNLIKELY( -1==close( FD_COST_TRACKER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_EPOCH_CREDITS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     for( ulong j=0UL; j<snap_max; j++ ) {

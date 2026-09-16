@@ -1109,6 +1109,49 @@ test_bank_epoch_credits_fork_id_width( void ) {
   FD_TEST( bank->epoch_credits_fork_id==fork_id );
 }
 
+/* Five live fork trackers exercise the four-slot memory cache.  The
+   fifth spills the LRU tracker, and pinned readers survive later reloads. */
+
+static void
+test_bank_cost_tracker_disk_cache( void * mem ) {
+  FD_TEST( !ftruncate( FD_COST_TRACKER_FD, 0L ) );
+
+  fd_banks_t * banks = fd_banks_join(
+      fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 6UL, 5UL, 16UL, 256UL, 4UL, 0, 7779UL ) );
+  FD_TEST( banks );
+  fd_bank_t * root = fd_banks_init_bank( banks );
+  FD_TEST( root );
+
+  fd_bank_t * forks[5];
+  for( ulong i=0UL; i<5UL; i++ ) {
+    fd_bank_t * child = fd_banks_new_bank( banks, root->idx, 0L, 0 );
+    forks[i] = fd_banks_clone_from_parent( banks, child->idx );
+    FD_TEST( forks[i] );
+
+    fd_bank_cost_tracker_view_t view[1];
+    FD_TEST( fd_bank_cost_tracker_view_init( view, forks[i], 1 ) );
+    view->tracker->block_cost = 1000UL+i;
+    fd_bank_cost_tracker_view_fini( view );
+
+    struct stat spill_stat;
+    FD_TEST( !fstat( FD_COST_TRACKER_FD, &spill_stat ) );
+    if( i<4UL ) FD_TEST( spill_stat.st_size==0L );
+    else        FD_TEST( spill_stat.st_size>0L );
+  }
+
+  fd_bank_cost_tracker_view_t pinned[1];
+  FD_TEST( fd_bank_cost_tracker_view_init( pinned, forks[0], 0 ) );
+  FD_TEST( pinned->tracker->block_cost==1000UL );
+  for( ulong i=1UL; i<5UL; i++ ) {
+    fd_bank_cost_tracker_view_t view[1];
+    FD_TEST( fd_bank_cost_tracker_view_init( view, forks[i], 0 ) );
+    FD_TEST( view->tracker->block_cost==1000UL+i );
+    fd_bank_cost_tracker_view_fini( view );
+  }
+  FD_TEST( pinned->tracker->block_cost==1000UL );
+  fd_bank_cost_tracker_view_fini( pinned );
+}
+
 /* fd_banks_new must reject fork widths above the bank limit. */
 
 static void
@@ -1232,6 +1275,13 @@ main( int argc, char ** argv ) {
   if( epoch_credits_fd!=FD_EPOCH_CREDITS_FD ) {
     FD_TEST( dup2( epoch_credits_fd, FD_EPOCH_CREDITS_FD )==FD_EPOCH_CREDITS_FD );
     FD_TEST( !close( epoch_credits_fd ) );
+  }
+
+  int cost_tracker_fd = memfd_create( "bank_cost_tracker_spill", 0 );
+  FD_TEST( cost_tracker_fd>=0 );
+  if( cost_tracker_fd!=FD_COST_TRACKER_FD ) {
+    FD_TEST( dup2( cost_tracker_fd, FD_COST_TRACKER_FD )==FD_COST_TRACKER_FD );
+    FD_TEST( !close( cost_tracker_fd ) );
   }
 
   fd_pubkey_t key_0 = { .ul[0] = 1 };
@@ -1588,6 +1638,7 @@ main( int argc, char ** argv ) {
   test_bank_epoch_credits_singleton( mem );
   test_bank_epoch_credits_disk_cache( mem );
   test_bank_epoch_credits_fork_id_width();
+  test_bank_cost_tracker_disk_cache( mem );
 
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )>0UL );
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS+1UL )==0UL );

@@ -869,9 +869,10 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, capture_ctx, runtime_stack, is_epoch_boundary );
 
   if( FD_LIKELY( bank->f.slot ) ) {
-    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
-    FD_TEST( cost_tracker );
-    fd_cost_tracker_init( cost_tracker, &bank->f.features, &bank->f.slot_params, bank->f.slot );
+    fd_bank_cost_tracker_view_t view[1];
+    FD_TEST( fd_bank_cost_tracker_view_init( view, bank, 1 ) );
+    fd_cost_tracker_init( view->tracker, &bank->f.features, &bank->f.slot_params, bank->f.slot );
+    fd_bank_cost_tracker_view_fini( view );
   }
 
   fd_features_prepopulate_upcoming( bank, accdb );
@@ -1202,8 +1203,10 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( txn_out->err.exec_err ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.failed_txn_count, 1 );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.total_compute_units_used, txn_out->details.compute_budget.compute_unit_limit-txn_out->details.compute_budget.compute_meter );
 
-  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
-  int res = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
+  fd_bank_cost_tracker_view_t view[1];
+  FD_TEST( fd_bank_cost_tracker_view_init( view, bank, 1 ) );
+  int res = fd_cost_tracker_try_add_cost( view->tracker, txn_out );
+  fd_bank_cost_tracker_view_fini( view );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
     txn_out->err.is_committable = 0;
