@@ -1,5 +1,5 @@
 // Benchmark PR comment upsert for actions/github-script.
-//   await require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`)({github, context, core, exec}, {rowsFile})
+//   await require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`)({github, context, core, exec}, {rowsFile, issue_number})
 'use strict';
 const fs   = require('fs');
 const os   = require('os');
@@ -44,12 +44,16 @@ module.exports = async ({github, context, core, exec}, opts) => {
     await core.summary.addRaw(summary).write();
   };
 
+  // A fork PR's run has a read-only token: benchmark_comment.yml posts its rows afterwards and names the PR.
   const pr = context.payload && context.payload.pull_request;
-  if (!pr) return finish((await render(null)).summary, 'not a pull_request event, summary only');
-  if (!pr.head || !pr.head.repo || pr.head.repo.fork) return finish((await render(null)).summary, 'fork PR, summary only');
+  let issue_number = opts.issue_number;
+  if (!issue_number) {
+    if (!pr) return finish((await render(null)).summary, 'not a pull_request event, summary only');
+    if (!pr.head || !pr.head.repo || pr.head.repo.fork) return finish((await render(null)).summary, 'fork PR, summary only');
+    issue_number = pr.number;
+  }
 
   const {owner, repo} = context.repo;
-  const issue_number = pr.number;
 
   // Oldest marker comment by the workflow's own identity wins (anyone can post the marker text; only our
   // comments carry trusted state); extras come from jobs that raced on the first create.
