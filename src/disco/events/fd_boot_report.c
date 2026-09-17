@@ -20,13 +20,16 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#if __has_include(<gnu/libc-version.h>)
 #include <gnu/libc-version.h>
+#endif
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/statvfs.h>
+#include <sys/syscall.h>
 #include <sys/utsname.h>
 
 static int
@@ -206,8 +209,13 @@ collect_os( fd_boot_report_t * r ) {
     }
   }
 
-  r->libc_kind = 1; /* glibc: the only supported libc */
+#if __has_include(<gnu/libc-version.h>)
+  r->libc_kind = 1; /* glibc */
   fd_cstr_printf( r->libc_version, sizeof(r->libc_version), NULL, "%s", gnu_get_libc_version() );
+#else
+  r->libc_kind = 2; /* musl */
+  r->libc_version[ 0 ] = '\0';
+#endif
 
   static char const * const machine_tbl[] = {
     "native", "linux_gcc_x86_64", "linux_gcc_zen2", "linux_gcc_zen3", "linux_gcc_zen4",
@@ -982,7 +990,7 @@ collect_nvme( fd_boot_report_t * r ) {
       .data_len = 512U,
       .cdw10    = 0x02U | ( ( 512U/4U-1U )<<16 ), /* smart / health, numdl */
     };
-    if( 0==ioctl( fd, NVME_IOCTL_ADMIN_CMD_, &cmd ) ) {
+    if( 0==syscall( SYS_ioctl, fd, NVME_IOCTL_ADMIN_CMD_, &cmd ) ) {
       d->critical_warning    = log[ 0 ];
       d->available_spare_pct = log[ 3 ];
       d->percentage_used     = log[ 5 ];

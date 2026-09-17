@@ -30,6 +30,17 @@
    Must be aligned by alignof(struct cmsghdr) */
 #define FD_SOCK_CMSG_MAX (64UL)
 
+/* Musl's CMSG_NXTHDR macro compares size_t against ptrdiff_t,
+   triggering -Wsign-compare.  Wrap it here with diagnostics disabled. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare"
+static inline struct cmsghdr *
+fd_cmsg_nxthdr( struct msghdr *   mhdr,
+                struct cmsghdr * cmsg ) {
+  return CMSG_NXTHDR( mhdr, cmsg );
+}
+#pragma GCC diagnostic pop
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -396,7 +407,7 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
           struct in_pktinfo const * pi = (struct in_pktinfo const *)CMSG_DATA( cmsg );
           daddr = pi->ipi_addr.s_addr;
         }
-        cmsg = CMSG_NXTHDR( &ctx->batch_msg[ j ].msg_hdr, cmsg );
+        cmsg = fd_cmsg_nxthdr( &ctx->batch_msg[ j ].msg_hdr, cmsg );
       } while( FD_UNLIKELY( cmsg ) ); /* optimize for 1 cmsg */
     }
     if( FD_UNLIKELY( daddr<0L ) ) {
