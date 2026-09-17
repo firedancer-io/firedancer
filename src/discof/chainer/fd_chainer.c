@@ -446,6 +446,7 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
     /* Stamped once, when the version first becomes contiguous */
     if( FD_UNLIKELY( rx_ts && !slotv->metrics.last_shred_ts && slotv->complete_idx!=UINT_MAX && slotv->buffered_idx==slotv->complete_idx ) ) {
       slotv->metrics.last_shred_ts = rx_ts;
+      FD_LOG_NOTICE(( "slot %lu complete in %ld ms. complete_idx %u, turbine %u repair %u recovered %u code %u", slot, ( rx_ts - slotv->metrics.first_shred_ts )/1000000L, slotv->complete_idx, slotv->metrics.turbine_cnt, slotv->metrics.repair_cnt, slotv->metrics.recovered_cnt, slotv->metrics.parity_cnt ));
     }
 
     /* parent_slot_batch tracks which batch the information came from

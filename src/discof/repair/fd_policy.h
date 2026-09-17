@@ -128,6 +128,13 @@ fd_policy_skip( fd_policy_t * policy, ulong slot ) {
   return &policy->skip[ slot & (FD_POLICY_SKIP_CNT-1UL) ];
 }
 
+/* fd_policy_peer_cnt returns how many repair peers are known. */
+
+FD_FN_PURE static inline ulong
+fd_policy_peer_cnt( fd_policy_t const * policy ) {
+  return fd_policy_peer_pool_used( policy->peers.pool );
+}
+
 /* Constructors */
 
 /* fd_policy_{align,footprint} return the required alignment and
