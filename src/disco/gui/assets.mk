@@ -1,10 +1,13 @@
 # compressed frontend assets (dist_cmp/) and the tools that make them, run as one sub-make by
 # src/disco/gui/Local.mk with the stale files as goals.  The tools are built from their own -O1
 # objects (compressed output is independent of the level) so this job depends on sources only.
-# Caller variables: CC OBJDIR ZSTD_DEFS ZLIB_DEFS Q FD_GUI_DIST
+# Caller variables: CC OBJDIR ZSTD_DEFS ZLIB_DEFS Q FD_GUI_DIST TOOL_LDFLAGS
 
 TOOL_DIR:=$(OBJDIR)/tool
 TOOL_CFLAGS:=-O1 -std=c17 -fwrapv -pipe -w
+# the parent's linker choice (-fuse-ld/-B) and -static-libgcc: gcc 16's libgcc_s.so is an
+# INPUT(AS_NEEDED(...)) script that mold cannot read, and the product never opens it either
+TOOL_LDFLAGS?=-static-libgcc
 TAB:=$(empty)	$(empty)
 
 ZSTD_SRCS:=$(wildcard src/third_party/zstd/lib/common/*.c src/third_party/zstd/lib/compress/*.c)
@@ -22,7 +25,7 @@ $(shell mkdir -p $(sort $(dir $(MAKECMDGOALS) $(ZSTD_OBJS) $(ZLIB_OBJS))))
 endif
 .DELETE_ON_ERROR:
 # parse-time stamps of the parent (see src/disco/gui/Local.mk); never remade here
-$(OBJDIR)/.flags: ;@:
+$(OBJDIR)/.flags $(OBJDIR)/.ldflags: ;@:
 $(TOOL_DIR)/%.mlist: ;@:
 
 # header edges from each object's last compile (depfile written to a tmp, published after success)
@@ -37,13 +40,13 @@ $(TOOL_DIR)/zlib/%.o: src/third_party/zlib/%.c src/third_party/zlib/Local.mk src
 	@$(info CC$(TAB)$(notdir $@))
 	$(Q)$(CC) $(TOOL_CFLAGS) -MD -MP -MF $@.dtmp $(ZLIB_DEFS) -c $< -o $@ && mv -f $@.dtmp $(@:.o=.d)
 
-$(TOOL_DIR)/fd_zstd_pack: src/ballet/zstd/fd_zstd_pack.c $(ZSTD_OBJS) $(TOOL_DIR)/zstd.mlist
+$(TOOL_DIR)/fd_zstd_pack: src/ballet/zstd/fd_zstd_pack.c $(ZSTD_OBJS) $(TOOL_DIR)/zstd.mlist $(OBJDIR)/.ldflags
 	@$(info LD$(TAB)$(notdir $@) (tool))
-	$(Q)$(CC) $(TOOL_CFLAGS) -isystem src/third_party/zstd/lib $(filter %.c %.o,$^) -o $@
+	$(Q)$(CC) $(TOOL_CFLAGS) -isystem src/third_party/zstd/lib $(filter %.c %.o,$^) $(TOOL_LDFLAGS) -o $@
 
-$(TOOL_DIR)/fd_gzip_pack: src/ballet/zstd/fd_gzip_pack.c $(ZLIB_OBJS) $(TOOL_DIR)/zlib.mlist
+$(TOOL_DIR)/fd_gzip_pack: src/ballet/zstd/fd_gzip_pack.c $(ZLIB_OBJS) $(TOOL_DIR)/zlib.mlist $(OBJDIR)/.ldflags
 	@$(info LD$(TAB)$(notdir $@) (tool))
-	$(Q)$(CC) $(TOOL_CFLAGS) $(filter %.c %.o,$^) -o $@
+	$(Q)$(CC) $(TOOL_CFLAGS) $(filter %.c %.o,$^) $(TOOL_LDFLAGS) -o $@
 
 $(FD_GUI_DIST)_cmp/%.zst: $(FD_GUI_DIST)/% $(TOOL_DIR)/fd_zstd_pack src/disco/gui/assets.mk
 	@$(info ZSTD$(TAB)$(notdir $@))
