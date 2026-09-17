@@ -3,7 +3,6 @@
 
 #include "fd_vote_tracker.h"
 #include "../../disco/fd_clock_tile.h"
-#include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/keyguard/fd_keyswitch.h"

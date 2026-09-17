@@ -1,4 +1,3 @@
-# wrappers only test_reedsol calls are its objects (../Local.mk), not library members
 $(call add-objs,fd_reedsol_ppt_impl_33,fd_reedsol)
 $(call add-objs,fd_reedsol_ppt_impl_40,fd_reedsol)
 $(call add-objs,fd_reedsol_ppt_impl_45,fd_reedsol)
