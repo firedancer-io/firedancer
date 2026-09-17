@@ -573,8 +573,8 @@ fd_gui_printf_block_engine( fd_gui_t * gui ) {
 }
 
 static char const *
-fd_gui_tile_priority_cstr( char const * tile_name ) {
-  switch( fd_topob_tile_priority_type( tile_name ) ) {
+fd_gui_tile_priority_cstr( fd_topo_tile_t const * tile ) {
+  switch( fd_topob_tile_priority_type( tile ) ) {
     case FD_TOPOB_PRIORITY_FLOATING: return "floating";
     case FD_TOPOB_PRIORITY_STARTUP:  return "startup";
     case FD_TOPOB_PRIORITY_NORMAL:   return "normal";
@@ -599,7 +599,7 @@ fd_gui_printf_tiles( fd_gui_t * gui ) {
           jsonp_string( gui->http, "kind",     tile->name );
           jsonp_ulong(  gui->http, "kind_id",  tile->kind_id );
           jsonp_ulong(  gui->http, "pid",      fd_metrics_tile( tile->metrics )[ MIDX( GAUGE, TILE, PID ) ] );
-          jsonp_string( gui->http, "priority", fd_gui_tile_priority_cstr( tile->name ) );
+          jsonp_string( gui->http, "priority", fd_gui_tile_priority_cstr( tile ) );
         jsonp_close_object( gui->http );
       }
     jsonp_close_array( gui->http );
@@ -1029,7 +1029,7 @@ fd_gui_printf_tile_metrics( fd_gui_t *                        gui,
   jsonp_open_array( gui->http, "priority" );
     for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
       fd_topo_tile_t const * tile = &gui->topo->tiles[ gui->summary.tile[ i ] ];
-      jsonp_string( gui->http, NULL, fd_gui_tile_priority_cstr( tile->name ) );
+      jsonp_string( gui->http, NULL, fd_gui_tile_priority_cstr( tile ) );
     }
   jsonp_close_array( gui->http );
 }

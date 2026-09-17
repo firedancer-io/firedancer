@@ -505,11 +505,25 @@ static char const * CRITICAL_TILES[] = {
   NULL
 };
 
-int
-fd_topob_tile_priority_type( char const * name ) {
-  for( char const ** p = FLOATING; *p; p++ ) {
-    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_FLOATING;
+static int
+tile_name_in( char const *         name,
+              char const * const * names ) {
+  for( char const * const * p = names; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return 1;
   }
+  return 0;
+}
+
+static int
+tile_is_floating( fd_topo_tile_t const * tile ) {
+  return tile_name_in( tile->name, FLOATING ) ||
+         ( 0==strcmp( tile->name, "sock" ) && tile->sock.only_recv_lo );
+}
+
+int
+fd_topob_tile_priority_type( fd_topo_tile_t const * tile ) {
+  char const * name = tile->name;
+  if( tile_is_floating( tile ) ) return FD_TOPOB_PRIORITY_FLOATING;
   for( char const ** p = STARTUP; *p; p++ ) {
     if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_STARTUP;
   }
@@ -622,15 +636,6 @@ fd_topob_parse_affinity_cstr( char const * cstr,
   }
 
   return cnt;
-}
-
-static int
-tile_name_in( char const *         name,
-              char const * const * names ) {
-  for( char const * const * p = names; *p; p++ ) {
-    if( !strcmp( name, *p ) ) return 1;
-  }
-  return 0;
 }
 
 #define FD_TOPOB_LIVE_ALWAYS    (1)
@@ -795,7 +800,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
       }
     }
     for( char const ** p = ALWAYS; *p; p++ ) {
-      if( !strcmp( topo->tiles[ j ].name, *p ) ) {
+      if( !strcmp( topo->tiles[ j ].name, *p ) && !tile_is_floating( &topo->tiles[ j ] ) ) {
         always_tiles_to_assign++;
         break;
       }
@@ -823,6 +828,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
   for( char const ** p = ALWAYS; *p; p++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
+      if( tile_is_floating( tile ) ) continue;
       if( !strcmp( tile->name, *p ) ) {
         auto_tile_cpu( tile, cpus, &cpu_idx, cpu_assigned, cpu_ordering, skip_ht_pairs );
       }
@@ -855,15 +861,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     if( tile->cpu_idx!=ULONG_MAX ) continue;
 
-    int found = 0;
-    for( char const ** p = FLOATING; *p; p++ ) {
-      if( !strcmp( tile->name, *p ) ) {
-        found = 1;
-        break;
-      }
-    }
-
-    if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
+    if( FD_UNLIKELY( !tile_is_floating( tile ) ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
 
   topo->agave_affinity_cnt = 0UL;

@@ -1225,7 +1225,7 @@ main( int     argc,
   FD_EXPECT_LOG_ERR( after_frag( tile, 0UL, tx_seq, tx_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem ) );
   tile->tx_qp.sq_prod = sq_prod;
 
-  /* Loopback applies the RX bind address without submitting a WQE. */
+  /* Another local bind address uses the kernel without submitting a WQE. */
   ulong const loopback_sig = fd_disco_netmux_sig( 0U, 0U, FD_IP4_ADDR( 127,0,0,1 ), DST_PROTO_OUTGOING, 0UL );
   tile->router.bind_address = public_ip4_addr;
   FD_TEST( before_frag( tile, 0UL, tx_seq, loopback_sig )==0 );
@@ -1248,8 +1248,8 @@ main( int     argc,
   after_frag( tile, 0UL, tx_seq, loopback_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem );
 
   FD_TEST( tile->metrics.rx_pkt_cnt==loopback_rx_pkt_cnt );
-  FD_TEST( tile->metrics.tx_pkt_cnt==loopback_tx_pkt_cnt+1UL );
-  FD_TEST( tile->metrics.rx_route_fail_cnt==loopback_route_fail_cnt+1UL );
+  FD_TEST( tile->metrics.tx_pkt_cnt==loopback_tx_pkt_cnt );
+  FD_TEST( tile->metrics.rx_route_fail_cnt==loopback_route_fail_cnt );
   FD_TEST( fd_seq_ne( fd_frag_meta_seq_query( loopback_mline ), rx_seq ) );
   FD_TEST( tile->sq_wqe_buf_chunk[ loopback_sq_idx ]==loopback_tx_chunk );
 
@@ -1261,7 +1261,7 @@ main( int     argc,
 
   FD_TEST( test_tx_wq_cnt( mock, tile )==loopback_wq_cnt );
   FD_TEST( tile->metrics.rx_pkt_cnt==loopback_rx_pkt_cnt+1UL );
-  FD_TEST( tile->metrics.tx_pkt_cnt==loopback_tx_pkt_cnt+2UL );
+  FD_TEST( tile->metrics.tx_pkt_cnt==loopback_tx_pkt_cnt+1UL );
   FD_TEST( loopback_mline->chunk==loopback_tx_chunk );
   FD_TEST( tile->sq_wqe_buf_chunk[ loopback_sq_idx ]==loopback_freed_chunk );
   FD_TEST( fd_disco_netmux_sig_ip( loopback_mline->sig )==FD_IP4_ADDR( 127,0,0,1 ) );
