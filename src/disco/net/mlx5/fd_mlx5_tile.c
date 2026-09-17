@@ -1,3 +1,4 @@
+#define _GNU_SOURCE /* sendmmsg */
 /* The mlx5 tile translates Ethernet frames between mlx5 work/completion
    queues and fd_tango traffic.
 
@@ -45,6 +46,7 @@
 #define FD_MLX5_FLOW_CAP            (64UL)
 #define FD_MLX5_GRE_MAX             (4UL)
 #define FD_MLX5_TX_FLUSH_TIMEOUT_NS (20000L) /* 20us */
+#define FD_MLX5_LO_TX_TIMEOUT_NS    (500000L) /* 500us */
 
 /* FD_MLX5_SQ_* are options in a SQ WQE to request certain NIC behaviour.
    SEND requests packet transmission.  CQ_UPDATE requests a CQE. */
@@ -156,6 +158,16 @@ struct fd_mlx5_tile {
   /* SQ batching */
   long sq_flush_timeout_ticks;
   long sq_flush_deadline_ticks;
+
+  /* Local socket TX, used only by mlx5:0. */
+  int                lo_tx_sock;
+  uint               lo_tx_cnt;
+  long               lo_tx_timeout_ticks;
+  long               lo_tx_deadline_ticks;
+  struct mmsghdr     lo_tx_msg [ FD_MLX5_BATCH_SIZE ];
+  struct iovec       lo_tx_iov [ FD_MLX5_BATCH_SIZE ];
+  struct sockaddr_in lo_tx_addr[ FD_MLX5_BATCH_SIZE ];
+  uchar              lo_tx_buf [ FD_MLX5_BATCH_SIZE ][ FD_NET_MTU ];
 
   /* Packet buffer addressing */
   uchar * pkt_buf_wksp_base;
@@ -766,11 +778,60 @@ fd_mlx5_tile_poll_tx( fd_mlx5_tile_t * ctx ) {
   return busy;
 }
 
+/* fd_mlx5_tile_lo_tx_flush makes one nonblocking send attempt per batch,
+   unsent packets are dropped. */
+static void
+fd_mlx5_tile_lo_tx_flush( fd_mlx5_tile_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->lo_tx_cnt ) ) return;
+  int const send_cnt = sendmmsg( ctx->lo_tx_sock, ctx->lo_tx_msg, ctx->lo_tx_cnt, MSG_DONTWAIT );
+  uint const sent_cnt = send_cnt<0 ? 0U : (uint)send_cnt;
+  for( uint i=0U; i<sent_cnt; i++ ) ctx->metrics.tx_bytes_total += sizeof(fd_eth_hdr_t)+ctx->lo_tx_iov[ i ].iov_len;
+  ctx->metrics.tx_pkt_cnt += sent_cnt;
+  ctx->lo_tx_cnt = 0U;
+}
+
+static void
+fd_mlx5_tile_lo_tx_enqueue( fd_mlx5_tile_t *      ctx,
+                            fd_ip4_hdr_t const * ip4,
+                            ulong                ip_sz ) {
+  uint const batch_idx = ctx->lo_tx_cnt;
+  struct mmsghdr *     msg = ctx->lo_tx_msg  + batch_idx;
+  struct sockaddr_in * sa  = ctx->lo_tx_addr + batch_idx;
+  struct iovec *       iov = ctx->lo_tx_iov  + batch_idx;
+  uchar *              buf = ctx->lo_tx_buf[ batch_idx ];
+
+  *iov = (struct iovec) {
+    .iov_base = buf,
+    .iov_len  = ip_sz,
+  };
+  sa->sin_family      = AF_INET;
+  sa->sin_addr.s_addr = ip4->daddr;
+  sa->sin_port        = 0; /* ignored */
+
+  *msg = (struct mmsghdr) {
+    .msg_hdr = {
+      .msg_name    = sa,
+      .msg_namelen = sizeof(struct sockaddr_in),
+      .msg_iov     = iov,
+      .msg_iovlen  = 1UL
+    }
+  };
+
+  fd_memcpy( buf, ip4, ip_sz );
+  ctx->lo_tx_cnt++;
+  if( ctx->lo_tx_cnt==FD_MLX5_BATCH_SIZE ) fd_mlx5_tile_lo_tx_flush( ctx );
+  else if( ctx->lo_tx_cnt==1U ) ctx->lo_tx_deadline_ticks = fd_tickcount()+ctx->lo_tx_timeout_ticks;
+}
+
 static inline void
 before_credit( fd_mlx5_tile_t *    ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
+  if( FD_UNLIKELY( ctx->lo_tx_cnt && fd_tickcount()>=ctx->lo_tx_deadline_ticks ) ) {
+    fd_mlx5_tile_lo_tx_flush( ctx );
+    *charge_busy = 1;
+  }
   fd_mlx5_tx_qp_t * tx_qp          = &ctx->tx_qp;
   uint const        sq_pending_cnt = tx_qp->sq_prod-tx_qp->sq_posted;
 
@@ -984,6 +1045,34 @@ after_frag( fd_mlx5_tile_t *    ctx,
   }
 
   if( FD_UNLIKELY( ctx->tx_route.use_loopback ) ) {
+    fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)(eth_hdr+1);
+    ulong const ip_hdr_sz = FD_IP4_GET_LEN( *ip4 );
+    ulong const ip_sz     = fd_ushort_bswap( ip4->net_tot_len );
+    if( FD_UNLIKELY( ip4->protocol!=FD_IP4_HDR_PROTOCOL_UDP ||
+                     ip4->daddr!=fd_disco_netmux_sig_ip( sig ) ||
+                     (fd_ushort_bswap( ip4->net_frag_off ) & ~FD_IP4_HDR_FRAG_OFF_DF) ||
+                     ip_sz<ip_hdr_sz+sizeof(fd_udp_hdr_t) ||
+                     ip_sz>frame_sz-sizeof(fd_eth_hdr_t) ) ) {
+      ctx->metrics.tx_invalid_cnt++;
+      return;
+    }
+    fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)((uchar const *)ip4+ip_hdr_sz);
+    ulong const udp_sz = fd_ushort_bswap( udp->net_len );
+    if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) || udp_sz>ip_sz-ip_hdr_sz ) ) {
+      ctx->metrics.tx_invalid_cnt++;
+      return;
+    }
+
+    int owned = 0;
+    if( !ctx->router.bind_address || ctx->router.bind_address==ip4->daddr ) {
+      ushort const dst_port = fd_ushort_bswap( udp->net_dport );
+      for( uint i=0U; i<ctx->dst_port_cnt; i++ ) owned |= ctx->dst_ports[ i ]==dst_port;
+    }
+    if( !owned ) {
+      fd_mlx5_tile_lo_tx_enqueue( ctx, ip4, ip_sz );
+      return;
+    }
+
     ulong freed_chunk;
     if( fd_mlx5_tile_rx_pkt( ctx, stem, chunk, frame_sz, (ulong)fd_frag_meta_ts_comp( fd_tickcount() ), &freed_chunk ) ) {
       ctx->sq_wqe_buf_chunk[ ctx->tx_qp.sq_prod & (ctx->tx_qp.tx_depth-1U) ] = (uint)freed_chunk;
@@ -1107,6 +1196,20 @@ fd_mlx5_tile_if_ip4_addr( char const * if_name ) {
   }
 
   return ip4_addr;
+}
+
+/* fd_mlx5_tile_lo_tx_socket uses IPPROTO_RAW for send only IP_HDRINCL
+   transmission, preserving the source address and UDP source port. */
+static int
+fd_mlx5_tile_lo_tx_socket( void ) {
+  int sock = socket( AF_INET, SOCK_RAW|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_RAW );
+  if( FD_UNLIKELY( sock<0 ) ) {
+    FD_LOG_ERR(( "socket(AF_INET,SOCK_RAW,IPPROTO_RAW) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( 0!=setsockopt( sock, SOL_SOCKET, SO_BINDTODEVICE, "lo", sizeof("lo") ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SO_BINDTODEVICE,lo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  return sock;
 }
 
 static ulong
@@ -1389,6 +1492,7 @@ privileged_init( fd_topo_t const *      topo,
   }
   ctx->router.if_virt         = interface_idx;
   ctx->router.default_address = fd_mlx5_tile_if_ip4_addr( tile->mlx5.if_name );
+  ctx->lo_tx_sock = tile->kind_id==0UL ? fd_mlx5_tile_lo_tx_socket() : -1;
 }
 
 FD_FN_UNUSED static void
@@ -1402,6 +1506,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->sq_wqe_buf_chunk       = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint), tile->mlx5.tx_queue_size*sizeof(uint) );
   ctx->batch_size             = tile->mlx5.batch_size;
   ctx->sq_flush_timeout_ticks = (long)( FD_MLX5_TX_FLUSH_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
+  ctx->lo_tx_timeout_ticks    = (long)( FD_MLX5_LO_TX_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
+  ctx->lo_tx_cnt              = 0U;
   ctx->net_tile_id            = (uint)tile->kind_id;
   ctx->net_tile_cnt           = (uint)fd_topo_tile_name_cnt( topo, tile->name );
 
@@ -1515,7 +1621,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_mlx5_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   populate_sock_filter_policy_fd_mlx5_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(),
-                                            (uint)ctx->uverbs.async_fd, UINT_MAX );
+                                            (uint)ctx->uverbs.async_fd, UINT_MAX, (uint)ctx->lo_tx_sock );
   return sock_filter_policy_fd_mlx5_tile_instr_cnt;
 }
 
@@ -1525,12 +1631,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_mlx5_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   out_fds[ out_cnt++ ] = ctx->uverbs.cmd_fd;
   out_fds[ out_cnt++ ] = ctx->uverbs.async_fd;
+  if( ctx->lo_tx_sock>=0 ) out_fds[ out_cnt++ ] = ctx->lo_tx_sock;
   return out_cnt;
 }
 

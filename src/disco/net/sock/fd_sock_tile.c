@@ -13,6 +13,8 @@
 #include <fcntl.h> /* fcntl */
 #include <unistd.h> /* dup3, close */
 #include <netinet/in.h> /* sockaddr_in */
+#include <net/if.h> /* if_nametoindex */
+#include <linux/filter.h> /* SO_ATTACH_FILTER */
 #include <sys/socket.h> /* socket */
 #include "../../metrics/fd_metrics.h"
 
@@ -62,7 +64,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
-  out_fds[ out_cnt++ ] = ctx->tx_sock;
+  if( -1!=ctx->tx_sock ) out_fds[ out_cnt++ ] = ctx->tx_sock;
   for( ulong j=0UL; j<sock_cnt; j++ ) {
     out_fds[ out_cnt++ ] = ctx->pollfd[ j ].fd;
   }
@@ -80,14 +82,14 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_sock_tile_t),     sizeof(fd_sock_tile_t)                );
   l = FD_LAYOUT_APPEND( l, alignof(struct iovec),       STEM_BURST*sizeof(struct iovec)       );
   l = FD_LAYOUT_APPEND( l, alignof(struct cmsghdr),     STEM_BURST*FD_SOCK_CMSG_MAX           );
   l = FD_LAYOUT_APPEND( l, alignof(struct sockaddr_in), STEM_BURST*sizeof(struct sockaddr_in) );
   l = FD_LAYOUT_APPEND( l, alignof(struct mmsghdr),     STEM_BURST*sizeof(struct mmsghdr)     );
-  l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,              tx_scratch_footprint()                );
+  if( !tile->sock.only_recv_lo ) l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN, tx_scratch_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -98,7 +100,8 @@ static void
 create_udp_socket( int    sock_fd,
                    uint   bind_addr,
                    ushort udp_port,
-                   int    so_rcvbuf ) {
+                   int    so_rcvbuf,
+                   uint   lo_ifindex ) {
 
   if( fcntl( sock_fd, F_GETFD, 0 )!=-1 ) {
     FD_LOG_ERR(( "file descriptor %d already exists", sock_fd ));
@@ -130,23 +133,38 @@ create_udp_socket( int    sock_fd,
     .sin_addr.s_addr = bind_addr,
     .sin_port        = fd_ushort_bswap( udp_port ),
   };
+  if( lo_ifindex ) {
+    /* SKF_AD_IFINDEX identifies the receive device, including local
+       traffic addressed to a non loopback interface's IP address. */
+    struct sock_filter filter[] = {
+      BPF_STMT( BPF_LD|BPF_W|BPF_ABS, (uint)(SKF_AD_OFF+SKF_AD_IFINDEX) ),
+      BPF_JUMP( BPF_JMP|BPF_JEQ|BPF_K, lo_ifindex, 0, 1 ),
+      BPF_STMT( BPF_RET|BPF_K, UINT_MAX ),
+      BPF_STMT( BPF_RET|BPF_K, 0 )
+    };
+    struct sock_fprog prog = { .len = 4, .filter = filter };
+    if( FD_UNLIKELY( 0!=setsockopt( orig_fd, SOL_SOCKET, SO_ATTACH_FILTER, &prog, sizeof(prog) ) ) ) {
+      FD_LOG_ERR(( "setsockopt(SO_ATTACH_FILTER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
   if( FD_UNLIKELY( 0!=bind( orig_fd, fd_type_pun_const( &saddr ), sizeof(struct sockaddr_in) ) ) ) {
     FD_LOG_ERR(( "bind(0.0.0.0:%i) failed (%i-%s)", udp_port, errno, fd_io_strerror( errno ) ));
   }
 
-# if defined(__linux__)
+  if( orig_fd==sock_fd ) {
+    if( FD_UNLIKELY( fcntl( sock_fd, F_SETFD, FD_CLOEXEC ) ) ) {
+      FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    return;
+  }
   int dup_res = dup3( orig_fd, sock_fd, O_CLOEXEC );
-# else
-  int dup_res = dup2( orig_fd, sock_fd );
-# endif
   if( FD_UNLIKELY( dup_res!=sock_fd ) ) {
-    FD_LOG_ERR(( "dup2 returned %i (%i-%s)", sock_fd, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "dup3 returned %i (%i-%s)", dup_res, errno, fd_io_strerror( errno ) ));
   }
 
   if( FD_UNLIKELY( 0!=close( orig_fd ) ) ) {
     FD_LOG_ERR(( "close(%d) failed (%i-%s)", orig_fd, errno, fd_io_strerror( errno ) ));
   }
-
 }
 
 static void
@@ -159,7 +177,8 @@ privileged_init( fd_topo_t const *      topo,
   void *               batch_cmsg = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct cmsghdr),     STEM_BURST*FD_SOCK_CMSG_MAX           );
   struct sockaddr_in * batch_sa   = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct sockaddr_in), STEM_BURST*sizeof(struct sockaddr_in) );
   struct mmsghdr *     batch_msg  = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct mmsghdr),     STEM_BURST*sizeof(struct mmsghdr)     );
-  uchar *              tx_scratch = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN,              tx_scratch_footprint()                );
+  ulong                tx_sz      = tile->sock.only_recv_lo ? 0UL : tx_scratch_footprint();
+  uchar *              tx_scratch = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN,              tx_sz );
   FD_DCHECK_CRIT( scratch==ctx, "invalid layout" );
 
   fd_memset( ctx,       0, sizeof(fd_sock_tile_t)                );
@@ -173,9 +192,17 @@ privileged_init( fd_topo_t const *      topo,
   ctx->batch_sa    = batch_sa;
   ctx->batch_msg   = batch_msg;
   ctx->tx_scratch0 = tx_scratch;
-  ctx->tx_scratch1 = tx_scratch + tx_scratch_footprint();
+  ctx->tx_scratch1 = tx_scratch + tx_sz;
   ctx->tx_ptr      = tx_scratch;
   ctx->repair_shred_sock_idx = UINT_MAX;
+  ctx->tx_sock = -1;
+  ctx->bind_address = tile->sock.net.bind_address;
+  if( tile->sock.only_recv_lo ) {
+    ctx->lo_ifindex = if_nametoindex( "lo" );
+    if( FD_UNLIKELY( !ctx->lo_ifindex ) ) {
+      FD_LOG_ERR(( "if_nametoindex(lo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
 
   /* Create receive sockets.  Incrementally assign them to file
      descriptors starting at sock_fd_min. */
@@ -243,11 +270,13 @@ privileged_init( fd_topo_t const *      topo,
       ctx->repair_shred_sock_idx = sock_idx;
 
     int sock_fd = sock_fd_min + (int)sock_idx;
-    create_udp_socket( sock_fd, tile->sock.net.bind_address, port, tile->sock.so_rcvbuf );
+    create_udp_socket( sock_fd, tile->sock.net.bind_address, port, tile->sock.so_rcvbuf, ctx->lo_ifindex );
     ctx->pollfd[ sock_idx ].fd     = sock_fd;
     ctx->pollfd[ sock_idx ].events = POLLIN;
     ctx->sock_cnt++;
   }
+
+  if( tile->sock.only_recv_lo ) return;
 
   /* Create transmit socket */
 
@@ -278,6 +307,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "sock tile has %lu out links which exceeds the max (%lu)", tile->out_cnt, MAX_NET_OUTS ));
   }
 
+  ctx->link_rx_cnt = tile->out_cnt;
   ctx->repair_rx = 0xFF;
   for( ulong i=0UL; i<(tile->out_cnt); i++ ) {
     if( 0!=strncmp( topo->links[ tile->out_link_id[ i ] ].name, "net_", 4 ) ) {
@@ -362,6 +392,7 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
 
   int msg_cnt = recvmmsg( sock_fd, ctx->batch_msg, STEM_BURST, MSG_DONTWAIT, NULL );
   if( FD_UNLIKELY( msg_cnt<0 ) ) {
+    if( FD_UNLIKELY( errno==EINTR ) ) return 0UL;
     if( FD_LIKELY( errno==EAGAIN ) ) return 0UL;
     /* unreachable if socket is in a valid state */
     FD_LOG_ERR(( "recvmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -381,6 +412,9 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong   payload_sz      = ctx->batch_msg[ j ].msg_len;
     struct sockaddr_in * sa = ctx->batch_msg[ j ].msg_hdr.msg_name;
     ulong frame_sz          = payload_sz + hdr_sz;
+    last_chunk = fd_laddr_to_chunk( base, payload-hdr_sz );
+    if( FD_UNLIKELY( ctx->lo_ifindex &&
+                     (ctx->batch_msg[ j ].msg_hdr.msg_flags & (MSG_TRUNC|MSG_CTRUNC)) ) ) continue;
     ctx->metrics.rx_bytes_total += frame_sz;
     if( FD_UNLIKELY( sa->sin_family!=AF_INET ) ) {
       /* unreachable */
@@ -462,10 +496,11 @@ poll_rx( fd_sock_tile_t *    ctx,
     FD_LOG_ERR(( "Batch is not clean" ));
   }
   ctx->tx_idle_cnt = 0; /* restart TX polling */
-  if( FD_UNLIKELY( fd_syscall_poll( ctx->pollfd, ctx->sock_cnt, 0 )<0 ) ) {
+  if( FD_UNLIKELY( fd_syscall_poll( ctx->pollfd, ctx->sock_cnt, ctx->lo_ifindex ? -1 : 0 )<0 ) ) {
+    if( FD_UNLIKELY( errno==EINTR ) ) return 0UL;
     FD_LOG_ERR(( "fd_syscall_poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-  for( uint j=0UL; j<ctx->sock_cnt; j++ ) {
+  for( uint j=0U; j<ctx->sock_cnt; j++ ) {
     if( ctx->pollfd[ j ].revents & (POLLIN|POLLERR) ) {
       pkt_cnt += poll_rx_socket(
         ctx,
@@ -684,6 +719,17 @@ after_frag( fd_sock_tile_t *    ctx,
 
 /* End TX path ********************************************************/
 
+static void
+metrics_write( fd_sock_tile_t * ctx ) {
+  FD_MCNT_SET( SOCK, SYSCALL_RX,              ctx->metrics.sys_recvmmsg_cnt     );
+  FD_MCNT_ENUM_COPY( SOCK, SYSCALL_TX,        ctx->metrics.sys_sendmmsg_cnt     );
+  FD_MCNT_SET( SOCK, PKT_RX,                  ctx->metrics.rx_pkt_cnt           );
+  FD_MCNT_SET( SOCK, PKT_TX,                  ctx->metrics.tx_pkt_cnt           );
+  FD_MCNT_SET( SOCK, PKT_TX_FAILED,           ctx->metrics.tx_drop_cnt          );
+  FD_MCNT_SET( SOCK, PKT_TX_BYTES,            ctx->metrics.tx_bytes_total       );
+  FD_MCNT_SET( SOCK, PKT_RX_BYTES,            ctx->metrics.rx_bytes_total       );
+}
+
 /* after_credit is called every stem iteration when there are enough
    flow control credits to publish a burst of fragments. */
 
@@ -692,6 +738,18 @@ after_credit( fd_sock_tile_t *    ctx,
               fd_stem_context_t * stem,
               int *               poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
+  if( ctx->lo_ifindex ) {
+    /* Housekeeping cannot publish progress while the tile sleeps. */
+    FD_COMPILER_MFENCE();
+    metrics_write( ctx );
+    FD_MGAUGE_SET( TILE, HEARTBEAT_TIMESTAMP_NANOS, (ulong)fd_log_wallclock() );
+    for( ulong i=0UL; i<ctx->link_rx_cnt; i++ ) {
+      fd_mcache_seq_update( fd_mcache_seq_laddr( stem->mcaches[ i ] ), stem->seqs[ i ] );
+    }
+    FD_COMPILER_MFENCE();
+    *charge_busy |= poll_rx( ctx, stem )!=0UL;
+    return;
+  }
   if( ctx->tx_idle_cnt > 512 ) {
     if( ctx->batch_cnt ) {
       flush_tx_batch( ctx );
@@ -700,17 +758,6 @@ after_credit( fd_sock_tile_t *    ctx,
     *charge_busy = pkt_cnt!=0;
   }
   ctx->tx_idle_cnt++;
-}
-
-static void
-metrics_write( fd_sock_tile_t * ctx ) {
-  FD_MCNT_SET( SOCK, SYSCALL_RX,              ctx->metrics.sys_recvmmsg_cnt     );
-  FD_MCNT_ENUM_COPY( SOCK, SYSCALL_TX,        ctx->metrics.sys_sendmmsg_cnt     );
-  FD_MCNT_SET( SOCK, PKT_RX,                  ctx->metrics.rx_pkt_cnt           );
-  FD_MCNT_SET( SOCK, PKT_TX,                  ctx->metrics.tx_pkt_cnt           );
-  FD_MCNT_SET( SOCK, PKT_TX_FAILED,          ctx->metrics.tx_drop_cnt          );
-  FD_MCNT_SET( SOCK, PKT_TX_BYTES,            ctx->metrics.tx_bytes_total       );
-  FD_MCNT_SET( SOCK, PKT_RX_BYTES,            ctx->metrics.rx_bytes_total       );
 }
 
 static ulong

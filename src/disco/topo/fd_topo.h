@@ -231,6 +231,7 @@ struct fd_topo_tile {
       /* sock specific options */
       int so_sndbuf;
       int so_rcvbuf;
+      int only_recv_lo;
     } sock;
 
     struct {

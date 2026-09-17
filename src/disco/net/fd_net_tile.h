@@ -127,6 +127,14 @@ void
 fd_topos_net_tile_finish( fd_topo_t * topo,
                           ulong       net_kind_id );
 
+/* fd_topos_sock_lo adds a receive-only loopback sock tile with the same
+   RX consumers as net_tile. Call once after wiring the network links and
+   their consumers. */
+void
+fd_topos_sock_lo( fd_topo_t *                 topo,
+                  fd_config_net_t const *     net_cfg,
+                  struct fd_topo_tile const * net_tile );
+
 /* fd_net_tile_fib4_join returns a pointer to the fib4 object a remote
    net tile's address space.  net_tile is an xdp ("net") or mlx5 tile.
    Intended for diagnostics only. */

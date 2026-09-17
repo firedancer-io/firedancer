@@ -403,6 +403,11 @@ fd_topo_initialize( config_t * config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, pohh_shred_obj->id, "pohh_shred" ) );
 
+  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+    ulong net_tile_id = fd_topo_find_tile( topo, fd_net_tile_name( config->net.provider ), 0UL );
+    FD_TEST( net_tile_id!=ULONG_MAX );
+    fd_topos_sock_lo( topo, &config->net, &topo->tiles[ net_tile_id ] );
+  }
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
 
   fd_topob_waker( topo );
