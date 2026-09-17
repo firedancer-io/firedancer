@@ -3,7 +3,7 @@ $(call add-hdrs,fd_spad.h)
 ifneq ($(FD_HAS_HANDHOLDING)$(FD_HAS_DEEPASAN)$(FD_HAS_MSAN),)
 $(call add-objs,fd_spad,fd_util)
 else
-$(call add-objs,fd_spad,fd_util_extra)
+$(call add-objs,fd_spad,fd_util_test)
 endif
-$(call make-unit-test,test_spad,test_spad,fd_util_extra fd_util)
+$(call make-unit-test,test_spad,test_spad,fd_util_test fd_util)
 $(call run-unit-test,test_spad)

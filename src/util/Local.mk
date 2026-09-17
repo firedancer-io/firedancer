@@ -1,6 +1,8 @@
 $(call make-lib,fd_util)
-# tool/test-only util: nothing firedancer links needs it
+# dev/tool-only util the dev validators link: nothing firedancer needs
 $(call make-lib,fd_util_extra)
+# util only the ctl tools and tests link
+$(call make-lib,fd_util_test)
 $(call add-hdrs,fd_util_base.h fd_util.h)
 $(call add-hdrs,fd_hash32.h)
 $(call add-objs,fd_hash fd_util,fd_util)
