@@ -40,7 +40,7 @@ enum {
 
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_NAME "snapin_account_loaded"
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_DESC "Accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_DESC "New accounts loaded during snapshot loading. Excludes replaced and ignored duplicates. Resets if snapshot load restarts"
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_REPLACED_NAME "snapin_account_replaced"
