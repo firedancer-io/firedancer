@@ -1231,13 +1231,13 @@ test_init_gate_holds_data( void ) {
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
   FD_TEST( ctx->waiting_for_tile0 );
   FD_TEST( ctx->incr_fork==ULONG_MAX );
-  FD_TEST( !cl->shmem->next_appendvec );
+  FD_TEST( !cl->shmem->next_appendvec_ticket );
   FD_TEST( test_pub_cnt==1UL && test_pub_sig[ 0 ]==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
 
   test_cur_tile = ctx->tile_idx;
   FD_TEST( before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_DATA )==-1 );
   FD_TEST( ctx->waiting_for_tile0 );
-  FD_TEST( !cl->shmem->next_appendvec );
+  FD_TEST( !cl->shmem->next_appendvec_ticket );
   FD_TEST( !ctx->appendvec_seq );
   FD_TEST( before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR )==0 );
   FD_TEST( before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL  )==0 );
@@ -1249,7 +1249,7 @@ test_init_gate_holds_data( void ) {
   FD_TEST( tile_step( ctx )==0UL );
   FD_TEST( !ctx->waiting_for_tile0 );
   FD_TEST( ctx->incr_fork==(ulong)USHORT_MAX );
-  FD_TEST( cl->shmem->next_appendvec==2UL );  /* the eager claim, then its replacement */
+  FD_TEST( cl->shmem->next_appendvec_ticket==2UL );  /* the eager claim, then its replacement */
   FD_TEST( test_pub_cnt==1UL );             /* still just the INIT ack */
 
   test_cluster_delete( cl );
@@ -1315,7 +1315,7 @@ test_init_aborted_barrier_retries( void ) {
   for( ulong t=0UL; t<n; t++ ) FD_TEST( !cl->ctx[ t ].waiting_for_tile0 );
 
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
-  FD_TEST( cl->shmem->next_appendvec==T+n );
+  FD_TEST( cl->shmem->next_appendvec_ticket==T+n );
 
   test_cluster_delete( cl );
 }
@@ -1354,7 +1354,7 @@ test_init_gate_rejects_stale_generation( void ) {
 
 /* Every appendvec in the stream is claimed by exactly one tile, no
    matter how the tiles interleave; every tile ends the attempt holding
-   exactly one unmatched claim, so next_appendvec lands on T+N. */
+   exactly one unmatched claim, so next_appendvec_ticket lands on T+N. */
 static void
 test_eager_claim_coverage( void ) {
   ulong const tile_cnts[] = { 1UL, 2UL, 3UL, 4UL, 5UL, 6UL, 7UL, 8UL, 9UL };
@@ -1372,7 +1372,7 @@ test_eager_claim_coverage( void ) {
       /* Only tile 0 claims at INIT (it publishes the slot its own gate
          waits on); every other tile draws its claim when its first data
          frag opens its gate. */
-      FD_TEST( cl->shmem->next_appendvec==1UL );
+      FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
       FD_TEST( cl->ctx[ 0 ].claimed_appendvec==0UL );
       for( ulong t=1UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].waiting_for_tile0 );
 
@@ -1388,7 +1388,7 @@ test_eager_claim_coverage( void ) {
       }
 
       cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
-      FD_TEST( cl->shmem->next_appendvec==T+n ); /* T consumed claims + N unmatched */
+      FD_TEST( cl->shmem->next_appendvec_ticket==T+n ); /* T consumed claims + N unmatched */
 
       test_cluster_delete( cl );
     }
@@ -2339,13 +2339,13 @@ test_retry_resets( void ) {
   test_stream_init( T );
 
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-  FD_TEST( cl->shmem->next_appendvec==1UL );
+  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
 
   /* Partial walk: every tile gets three events in. */
   for( ulong step=0UL; step<3UL; step++ ) {
     for( ulong t=0UL; t<n; t++ ) (void)tile_step( &cl->ctx[ t ] );
   }
-  ulong mid_claims = cl->shmem->next_appendvec;
+  ulong mid_claims = cl->shmem->next_appendvec_ticket;
   FD_TEST( mid_claims>n );
   cl->ctx[ 0 ].writer.buf[ 0 ] = 1U;
   cl->ctx[ 0 ].writer.buf_used = 1UL;
@@ -2362,7 +2362,7 @@ test_retry_resets( void ) {
   FD_TEST( cl->ctx[ 0 ].lead.rollback.full );
   /* The claim counter is deliberately NOT reset by FAIL: only tile 0's
      next INIT re-zeroes it. */
-  FD_TEST( cl->shmem->next_appendvec==mid_claims );
+  FD_TEST( cl->shmem->next_appendvec_ticket==mid_claims );
   cl->shmem->totals.input_lamports = 5678UL;
 
   /* Retry.  Tile 0 rolls back first, then re-zeroes and republishes. */
@@ -2377,7 +2377,7 @@ test_retry_resets( void ) {
   for( ulong t=0UL; t<n; t++ ) FD_TEST( !cl->ctx[ t ].writer.buf_used );
 
   FD_TEST( !cl->shmem->totals.input_lamports );
-  FD_TEST( cl->shmem->next_appendvec==1UL );   /* claim sequence restarted at 0 */
+  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );   /* claim sequence restarted at 0 */
   FD_TEST( cl->ctx[ 0 ].claimed_appendvec==0UL );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].attempt_number==2UL );
   for( ulong t=1UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].waiting_for_tile0 );
@@ -2388,7 +2388,7 @@ test_retry_resets( void ) {
   cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
 
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
-  FD_TEST( cl->shmem->next_appendvec==T+n );
+  FD_TEST( cl->shmem->next_appendvec_ticket==T+n );
 
   test_cluster_delete( cl );
 }
@@ -2537,7 +2537,7 @@ test_full_lifecycle_9_tiles( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
   FD_TEST( test_accdb_reset_cnt==1UL );
   FD_TEST( test_accdb_load_begin_cnt==1UL );
-  FD_TEST( cl->shmem->next_appendvec==1UL );
+  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
   FD_TEST( cl->ctx[ 0 ].incr_fork==(ulong)USHORT_MAX );
 
   cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
@@ -2562,7 +2562,7 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( test_accdb_attach_cnt==1UL );          /* child fork for the incremental writes */
   FD_TEST( cl->shmem->attempt.fork_id==7UL );
   FD_TEST( cl->ctx[ 0 ].incr_fork==7UL );
-  FD_TEST( cl->shmem->next_appendvec==1UL );
+  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
 
   for( ulong step=0UL; step<4UL; step++ ) {
     for( ulong t=0UL; t<n; t++ ) (void)tile_step( &cl->ctx[ t ] );
@@ -2579,11 +2579,11 @@ test_full_lifecycle_9_tiles( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   FD_TEST( test_accdb_purge_cnt==1UL );                    /* failed fork purged */
   FD_TEST( test_accdb_revert_whead_cnt==1UL );
-  FD_TEST( cl->shmem->next_appendvec==1UL );
+  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
 
   cluster_stream( cl, TEST_ORDER_REVERSE, owner );
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
-  FD_TEST( cl->shmem->next_appendvec==T+n );
+  FD_TEST( cl->shmem->next_appendvec_ticket==T+n );
   FD_TEST( !test_accdb_read_one_cnt );
 
   /* An incremental load's capitalization starts from the full

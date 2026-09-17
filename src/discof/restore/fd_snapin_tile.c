@@ -230,7 +230,7 @@ struct fd_snapin_shmem {
   } totals;
 
   /* Atomic index of the next unclaimed appendvec. */
-  ulong next_appendvec __attribute__((aligned(128)));
+  ulong next_appendvec_ticket __attribute__((aligned(128)));
 };
 
 typedef struct fd_snapin_shmem fd_snapin_shmem_t;
@@ -1370,7 +1370,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         /* Parse only this tile's claimed appendvecs. */
         ulong appendvec_idx = ctx->appendvec_seq++;
         if( FD_UNLIKELY( appendvec_idx==ctx->claimed_appendvec ) ) {
-          ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec, 1UL );
+          ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec_ticket, 1UL );
           fd_ssparse_appendvec_parse( ctx->ssparse );
         }
         break;
@@ -1553,7 +1553,7 @@ start_processing_attempt( fd_snapin_tile_t * ctx ) {
   }
 
   /* Claim before the first data fragment. */
-  ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec, 1UL );
+  ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec_ticket, 1UL );
   ctx->waiting_for_tile0 = 0;
 }
 
@@ -1664,7 +1664,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       /* Reset shared state before publishing the attempt slot. */
       fd_memset( &ctx->shmem->totals, 0, sizeof(ctx->shmem->totals) );
-      FD_VOLATILE( ctx->shmem->next_appendvec ) = 0UL;
+      FD_VOLATILE( ctx->shmem->next_appendvec_ticket ) = 0UL;
       FD_COMPILER_MFENCE();
 
       /* Publish last. Other tiles wait for this. */
