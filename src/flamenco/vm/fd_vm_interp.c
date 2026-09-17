@@ -3,6 +3,8 @@
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/tests/fd_dump_pb.h"
 
+typedef ulong __attribute__((aligned(1), may_alias)) fd_vm_text_word_t;
+
 /* FIXME: MAKE DIFFERENT VERSIONS FOR EACH COMBO OF CHECK_ALIGN/TRACE? */
 /* TODO: factor out common unpacking code */
 
@@ -15,10 +17,10 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
   /* Pull out variables needed for the fd_vm_interp_core template */
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
 
-  ulong const * FD_RESTRICT text          = vm->text;
-  ulong                     text_cnt      = vm->text_cnt;
-  ulong                     entry_pc      = vm->entry_pc;
-  ulong const * FD_RESTRICT calldests     = vm->calldests;
+  fd_vm_text_word_t const * FD_RESTRICT text = (fd_vm_text_word_t const *)vm->text; /* see fd_vm_text_word_t */
+  ulong                     text_cnt  = vm->text_cnt;
+  ulong                     entry_pc  = vm->entry_pc;
+  ulong const * FD_RESTRICT calldests = vm->calldests;
 
   fd_sbpf_syscalls_t const * FD_RESTRICT syscalls = vm->syscalls;
 
@@ -47,10 +49,11 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
   /* Pull out variables needed for the fd_vm_interp_core template */
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
 
-  ulong const * FD_RESTRICT text          = vm->text;
-  ulong                     text_cnt      = vm->text_cnt;
-  ulong                     entry_pc      = vm->entry_pc;
-  ulong const * FD_RESTRICT calldests     = vm->calldests;
+  /* regular 'uchar *' has worse code gen on clang */
+  fd_vm_text_word_t const * FD_RESTRICT text = (fd_vm_text_word_t const *)vm->text; /* see fd_vm_text_word_t */
+  ulong                     text_cnt  = vm->text_cnt;
+  ulong                     entry_pc  = vm->entry_pc;
+  ulong const * FD_RESTRICT calldests = vm->calldests;
 
   fd_sbpf_syscalls_t const * FD_RESTRICT syscalls = vm->syscalls;
 
