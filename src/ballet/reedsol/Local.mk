@@ -14,6 +14,11 @@ $(call add-objs,fd_reedsol_recover_128,fd_reedsol)
 $(call add-objs,fd_reedsol_recover_256,fd_reedsol)
 $(call add-objs,fd_reedsol_pi,fd_reedsol)
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_reedsol,test_reedsol,fd_reedsol fd_util)
+TEST_REEDSOL_OBJS:=test_reedsol \
+  wrapped_impl/fd_reedsol_ppt_impl_17 wrapped_impl/fd_reedsol_ppt_impl_25 \
+  wrapped_impl/fd_reedsol_fft_impl_64_0 wrapped_impl/fd_reedsol_fft_impl_64_64 wrapped_impl/fd_reedsol_fft_impl_64_128 \
+  wrapped_impl/fd_reedsol_ifft_impl_64_0 wrapped_impl/fd_reedsol_ifft_impl_64_64 wrapped_impl/fd_reedsol_ifft_impl_64_128 \
+  wrapped_impl/fd_reedsol_ifft_impl_128_128
+$(call make-unit-test,test_reedsol,$(TEST_REEDSOL_OBJS),fd_reedsol fd_util)
 $(call make-fuzz-test,fuzz_reedsol,fuzz_reedsol,fd_reedsol fd_util)
 endif

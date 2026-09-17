@@ -1,4 +1,5 @@
 # Enable debug assertions
+FD_HAS_HANDHOLDING:=1
 CPPFLAGS+=-DFD_DCHECK_STYLE=1
 # Enable heavy checks
 CPPFLAGS+=-DFD_TMPL_USE_HANDHOLDING=1

@@ -11,15 +11,17 @@ $(call run-unit-test,test_chacha)
 # ChaCha-RNG support (Rust rand_chacha compatible)
 $(call add-hdrs,fd_chacha_rng.h)
 $(call add-objs,fd_chacha_rng,fd_ballet)
+TEST_CHACHA_RNG_OBJS:=test_chacha_rng
 ifdef FD_HAS_AVX512
 $(call add-objs,fd_chacha_rng_avx512,fd_ballet)
-endif
-ifdef FD_HAS_AVX
+# avx refill is superseded by avx512 in production; test_chacha_rng still checks it
+TEST_CHACHA_RNG_OBJS+=fd_chacha_rng_avx
+else ifdef FD_HAS_AVX
 $(call add-objs,fd_chacha_rng_avx,fd_ballet)
 endif
 ifdef FD_HAS_SVE2
 $(call add-objs,fd_chacha_rng_sve2,fd_ballet)
 endif
-$(call make-unit-test,test_chacha_rng,test_chacha_rng,fd_ballet fd_util)
+$(call make-unit-test,test_chacha_rng,$(TEST_CHACHA_RNG_OBJS),fd_ballet fd_util)
 $(call make-unit-test,test_chacha_rng_roll,test_chacha_rng_roll,fd_ballet fd_util)
 $(call run-unit-test,test_chacha_rng)

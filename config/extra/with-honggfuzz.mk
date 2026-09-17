@@ -8,6 +8,7 @@ LDFLAGS+=-fsanitize-coverage=trace-pc-guard,inline-8bit-counters,pc-table
 LDFLAGS+=-fno-sanitize-coverage=stack-depth
 
 FD_HAS_FUZZ:=1
+FD_HAS_HONGGFUZZ:=1
 
 # The patched honggfuzz (master-patches) instrument.c references
 # hfuzz_metrics_register_module and hfuzz_metrics_register_pc_table.
