@@ -109,6 +109,17 @@ snap_key_hash( snap_key_t const * key,
 
 #define RES_HDR_MAX (256UL)
 
+#define SERVE_WINDOW_S       (10UL)
+/* download progress in each serve_window_s second window must be at
+   min_serve_speed_mibs * serve_window_s or higher.  Catches possible
+   DoS attempts */
+#define SERVE_WINDOW_NS      (SERVE_WINDOW_S*1000L*1000L*1000L)
+/* TODO: What should be the threshold for DoS on snapsv ?  3 mb is
+   placeholder */
+/* TODO: is it needs to be configurable? */
+#define MIN_SERVE_SPEED_MIBS (3UL)
+#define MIN_BYTES_IN_WINDOW  (SERVE_WINDOW_S * MIN_SERVE_SPEED_MIBS * ( 1024 * 1024 )) /* Per conn  */
+
 /* conn state */
 
 #define CONN_STATE_FREE          (0U) /* conn slot is unused */
@@ -158,6 +169,8 @@ struct snapsv_conn {
     ulong req_cur;  /* next file offset to read */
     ulong req_sent; /* payload bytes handed to the socket */
     uint  range:1;  /* range request? */
+    long  window_deadline;
+    ulong bytes_in_window;
   } snap;
 
   fd_kernel_timespec_t idle_timeout;
@@ -1154,6 +1167,34 @@ shovel_comp_disk( fd_snapsv_t *       ctx,
   conn->rdbuf_len     = (uint)res;
   shovel( ctx, stem, conn_idx, now );
 }
+/* check_speed_threshold validates the avg. speed inside the window is
+   higher than treshold.  Doing this check on every x bytes or setting
+   a global threshold will result in possibly longer DoS durations per
+   connection. */
+static int
+check_speed_threshold( fd_snapsv_t *       ctx,
+                       fd_stem_context_t * stem,
+                       uint                conn_idx,
+                       long                now ) {
+  snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
+  if( FD_UNLIKELY( now >= conn->snap.window_deadline ) ) {
+    if( FD_UNLIKELY( conn->snap.bytes_in_window < MIN_BYTES_IN_WINDOW ) ) {
+      FD_IP6_ADDR_CSTR( addr_cstr, &conn->peer_ip );
+      FD_LOG_WARNING(( "snapshot download peer %s:%u: speed %lu MiB is "
+                       "below the minimum threshold %lu MiB/s",
+                       addr_cstr, conn->peer_port,
+                       ( conn->snap.bytes_in_window / ( 1024 * 1024 ) ) / SERVE_WINDOW_S,
+                       MIN_SERVE_SPEED_MIBS ));
+      conn->closing = 1U;
+      conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
+      shovel( ctx, stem, conn_idx, now );
+      return 1;
+    }
+    conn->snap.window_deadline = now + (long)SERVE_WINDOW_NS;
+    conn->snap.bytes_in_window = 0UL;
+  }
+  return 0;
+}
 
 /* shovel_comp_net reacts to a snapshot streaming network write
    completion. */
@@ -1180,6 +1221,8 @@ shovel_comp_net( fd_snapsv_t *       ctx,
     shovel( ctx, stem, conn_idx, now );
     return;
   }
+  conn->snap.bytes_in_window += (ulong)res;
+  if( FD_UNLIKELY( check_speed_threshold( ctx, stem, conn_idx, now ) ) ) return;
 
   conn->res.sent      += (uint)res;
   conn->snap.req_sent += (ulong)res;
@@ -1454,11 +1497,8 @@ handle_write_hdr_comp( fd_snapsv_t *       ctx,
                        long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   if( FD_UNLIKELY( res<0 ) ) {
-    if( res<0 ) {
-      FD_IP6_ADDR_CSTR( addr_cstr, &conn->peer_ip );
-      FD_LOG_INFO(( "snapshot download peer %s:%u: response header send error (%i-%s)",
-                    addr_cstr, conn->peer_port, -res, fd_io_strerror( -res ) ));
-    }
+    FD_IP6_ADDR_CSTR( addr_cstr, &conn->peer_ip );
+    FD_LOG_INFO(( "snapshot download peer %s:%u: response header send error (%i-%s)", addr_cstr, conn->peer_port, -res, fd_io_strerror( -res ) ));
     conn_close( ctx, stem, conn_idx, now );
     return;
   }
@@ -1482,6 +1522,8 @@ handle_write_hdr_comp( fd_snapsv_t *       ctx,
     }
     /* now serve the snapshot body */
     conn->req.get_snap = 1; /* streaming begin */
+    conn->snap.window_deadline = now + (long)SERVE_WINDOW_NS;
+    conn->snap.bytes_in_window = 0UL;
     event_snap( ctx, stem, conn_idx, now, 1, 0 ); /* som */
     conn->state = CONN_STATE_RES_SHOVEL;
     shovel( ctx, stem, conn_idx, now );
@@ -1962,6 +2004,7 @@ after_credit_pre( fd_snapsv_t *       ctx,
     for( uint i=0U; i<conn_max; i++ ) {
       snapsv_conn_t * conn = &ctx->conn0[ i ];
       if( conn->req.get_snap ) {
+        if( FD_UNLIKELY( check_speed_threshold( ctx, stem, i, now ) ) ) continue;
         event_snap( ctx, stem, i, now, 0, 0 );
       }
     }

@@ -1022,7 +1022,38 @@ shoveling_conn( fd_snapsv_t * ctx ) {
   }
   return NULL;
 }
+FD_UNIT_TEST( snap_connection_too_slow ) {
+  char name[ FD_SNAP_NAME_MAX ];
+  snapsv_env_t * env = snap_env( name, 0 );
+  fake_client_t fake;
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", name );
+  fake_client_req( &fake, req );
+  uint iter = 0U;
+  snapsv_conn_t * conn;
+  for( ulong i = 0 ; i <= 64 ;iter++, i++ ){
+    snapsv_step( env, &fake, iter );
+    conn = shoveling_conn( env->ctx );
+    if(conn != NULL ) break;
+    /* QUESTION: Is there anything I should use here instead of 64 ? I'm confused after all that
+    for( ; iter<64U && fake.res_sz<=4096U; iter++ ) snapsv_step( env, &fake, iter ); loops on other tests. Conn is found at 4th iteration. */
+      };
+  FD_TEST( env->ctx->conn_cnt );
+  FD_TEST( conn );
+  /* TODO: Test speed calculation  */
+  /* Test slow peer  */
+  /* TODO: shovel_comp_net is not even called because ready at after_credit_pre
+     is 0.
+   */
+  FD_TEST( !conn->closing );
+  long now = iter * STEP_NANOS;
+  now += SERVE_WINDOW_NS;
+  int charge_busy = 0;
+  after_credit_pre( env->ctx, env->stem, &charge_busy, now );
+  FD_TEST( conn->closing );
 
+  snapsv_env_destroy( env );
+}
 /* A snapshot read that is already submitted when the snapshot is
    deleted may land after snapmk recycled the file.  Those bytes must
    not reach the client. */
