@@ -1,11 +1,20 @@
 user = "{user}"
+# {name}/{affinity}/{mount_path}/{gui_port}/{metric_port} are filled per-instance
+# by the offline-replay harness so multiple backtests can share a host.
+name = "{name}"
+[layout]
+    affinity = "{affinity}"
+[hugetlbfs]
+    mount_path = "{mount_path}"
 [tiles]
     [tiles.gui]
         enabled = true
         gui_listen_address = "0.0.0.0"
+        gui_listen_port = {gui_port}
         db_size_gib = 10
     [tiles.metric]
         prometheus_listen_address = "0.0.0.0"
+        prometheus_listen_port = {metric_port}
 [accounts]
     max_accounts = {index_max}
 [runtime]
