@@ -4,7 +4,7 @@
 
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared_dev/commands/dev.h"
-#include "../../../discof/tower/fd_tower_tile.c"
+#include "../../../discof/tower/fd_tower_tile_private.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -13,8 +13,6 @@ fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
 extern action_t fd_action_tower;
-
-/* fd_tower_tile_t is defined in fd_tower_tile.c, we just need to access it */
 
 static void
 tower_ctx_wksp( args_t *           args,
