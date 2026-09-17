@@ -55,6 +55,7 @@ main( int     argc,
 
   static fd_config_t config[1];
   fd_config_load( 1, 0, default_config, strlen( default_config ), NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 );
+  FD_TEST( config->firedancer.runtime.transaction_cache_size_mib==640UL );
   char expected_stake_delegations[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( expected_stake_delegations,
                                  sizeof(expected_stake_delegations),
@@ -62,6 +63,13 @@ main( int     argc,
                                  "%s/stakedelegations.db",
                                  config->paths.base ) );
   FD_TEST( !strcmp( config->paths.stake_delegations, expected_stake_delegations ) );
+  char expected_txncache[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( expected_txncache,
+                                 sizeof(expected_txncache),
+                                 NULL,
+                                 "%s/txncache.db",
+                                 config->paths.base ) );
+  FD_TEST( !strcmp( config->paths.txncache, expected_txncache ) );
 
   strcpy( config->tiles.bundle.url, "https://user:hunter2@mainnet.example.com:443/v1/txns?api-key=SECRET#frag" );
   strcpy( config->tiles.event.url,  "https://events.example.com/submit" );
@@ -109,6 +117,7 @@ main( int     argc,
     "  port = 8001\n"
     "[paths]\n"
     "  accounts = \"/data/accounts\"\n"
+    "  txncache = \"/data/txncache\"\n"
     "[tiles.pack]\n"
     "  account_blocklist = []\n";
   strcpy( config->user_config, user_toml );
@@ -119,6 +128,7 @@ main( int     argc,
   FD_TEST( user_len && user_len==strlen( user_json ) );
   FD_TEST( !strstr( user_json, "SECRET" ) );
   FD_TEST( !strstr( user_json, "/data/accounts" ) );
+  FD_TEST( !strstr( user_json, "/data/txncache" ) );
   FD_TEST(  strstr( user_json, "\"port\":8001" ) );
   FD_TEST( !strstr( user_json, "entrypoint.mainnet-beta.solana.com" ) );
   FD_TEST(  strstr( user_json, "\"name\":\"fd1\"" ) );
@@ -170,6 +180,22 @@ main( int     argc,
       p = q;
     }
   }
+
+  /* Custom spill paths use the same substitutions as the other paths. */
+  static char const spill_toml[] = "[paths]\n  txncache = \"/data/{user}/{name}/spill.db\"\n";
+  fd_config_load( 1, 0, default_config, strlen( default_config ), NULL, NULL, 0UL, spill_toml, strlen( spill_toml ), "spill.toml", config, 0 );
+  FD_TEST( fd_cstr_printf_check( expected_txncache,
+                                 sizeof(expected_txncache),
+                                 NULL,
+                                 "/data/%s/%s/spill.db",
+                                 config->user, config->name ) );
+  FD_TEST( !strcmp( config->paths.txncache, expected_txncache ) );
+
+  static char const cache_toml[] = "[runtime]\n  transaction_cache_size_mib = 3072\n";
+  fd_config_load( 1, 0, default_config, strlen( default_config ), NULL, NULL, 0UL, cache_toml, strlen( cache_toml ), "cache.toml", config, 0 );
+  FD_TEST( config->firedancer.runtime.transaction_cache_size_mib==3072UL );
+  FD_TEST( fd_config_to_json( config, json, sizeof(json) ) );
+  FD_TEST( strstr( json, "\"transaction_cache_size_mib\":3072" ) );
 
   FD_LOG_NOTICE(( "rendered %lu bytes", len ));
   FD_LOG_NOTICE(( "pass" ));

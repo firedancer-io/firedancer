@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22991104UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22995200UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -111,6 +111,7 @@ static char const * const jw_redacted_keys[] = {
   "paths.genesis",
   "paths.accounts",
   "paths.stake_delegations",
+  "paths.txncache",
   "paths.shredb",
   "paths.guidb",
   "log.path",
@@ -322,6 +323,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_path( &w, "genesis",                 config->paths.genesis );
     jw_path( &w, "accounts",                config->paths.accounts );
     jw_path( &w, "stake_delegations",       config->paths.stake_delegations );
+    jw_path( &w, "txncache",                config->paths.txncache );
     jw_path( &w, "shredb",                  config->paths.shredb );
     jw_path( &w, "guidb",                   config->paths.guidb );
     jw_path_arr( &w, "authorized_voter_paths", f->paths.authorized_voter_paths_cnt );
@@ -376,6 +378,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "max_live_slots", f->runtime.max_live_slots );
     jw_ulong( &w, "max_fork_width", f->runtime.max_fork_width );
     jw_ulong( &w, "program_cache_size_mib", f->runtime.program_cache_size_mib );
+    jw_ulong( &w, "transaction_cache_size_mib", f->runtime.transaction_cache_size_mib );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "snapshots" );

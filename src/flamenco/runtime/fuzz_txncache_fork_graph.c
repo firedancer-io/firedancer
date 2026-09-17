@@ -4,6 +4,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../../util/fd_util.h"
 #include "fd_txncache.h"
@@ -37,10 +38,6 @@ struct fd_txncache_private {
   fuzz_blockcache_private_t *      blockcache_pool;
   blockhash_map_t *                blockhash_map;
   ushort *                         txnpages_free;
-  fd_txncache_txnpage_t *          txnpages;
-  ushort *                         scratch_pages;
-  uint *                           scratch_heads;
-  fd_txncache_txnpage_t *          scratch_txnpage;
 };
 
 typedef struct {
@@ -124,12 +121,14 @@ fuzz_bounded( fuzz_cursor_t * cur,
   return x % bound;
 }
 
+static int fuzz_spill_fd = -1;
+
 static fd_txncache_t *
 setup( ulong max_live_slots, ulong max_txn_per_slot ) {
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0UL, 2UL*sizeof(fd_txncache_txnpage_t) ) );
   FD_TEST( shtc );
 
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc, fuzz_spill_fd ) );
   FD_TEST( tc );
   return tc;
 }
@@ -383,7 +382,7 @@ blockcache_txn_cnt( model_t const * m,
   for( ulong i=0UL; i<bc->shmem->pages_cnt; i++ ) {
     ushort page = bc->pages[ i ];
     FD_TEST( page<tc->shmem->max_txnpages );
-    cnt += FD_TXNCACHE_TXNS_PER_PAGE - tc->txnpages[ page ].free;
+    cnt += fd_txncache_page_txn_cnt( tc, page );
   }
   return cnt;
 }
@@ -399,7 +398,7 @@ blockcache_needs_purge_for_insert( model_t const * m,
 
   ushort tail_page = bc->pages[ bc->shmem->pages_cnt-1UL ];
   FD_TEST( tail_page<tc->shmem->max_txnpages );
-  return !tc->txnpages[ tail_page ].free;
+  return fd_txncache_page_txn_cnt( tc, tail_page )==FD_TXNCACHE_TXNS_PER_PAGE;
 }
 
 static int
@@ -412,9 +411,10 @@ blockcache_has_stale_txn( model_t const * m,
     ushort page = bc->pages[ i ];
     FD_TEST( page<tc->shmem->max_txnpages );
 
-    ulong txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE - tc->txnpages[ page ].free;
+    ulong txn_cnt = fd_txncache_page_txn_cnt( tc, page );
     for( ulong j=0UL; j<txn_cnt; j++ ) {
-      fd_txncache_single_txn_t const * txn = tc->txnpages[ page ].txns[ j ];
+      fd_txncache_single_txn_t txn[1];
+      fd_txncache_txn_copy( tc, (uint)((ulong)page*FD_TXNCACHE_TXNS_PER_PAGE+j), txn );
       ushort txn_fork = txn->fork_id.val;
       FD_TEST( txn_fork<tc->shmem->active_slots_max );
 
@@ -1126,6 +1126,7 @@ op_extend_root( model_t *       m,
 
 static void
 fuzz_cleanup( void ) {
+  if( fuzz_spill_fd>=0 ) FD_TEST( !close( fuzz_spill_fd ) );
   free( fuzz_shmem );
   free( fuzz_ljoin );
 }
@@ -1141,7 +1142,10 @@ LLVMFuzzerInitialize( int *    argc,
   fd_log_level_logfile_set( 4 );
   atexit( fd_halt );
 
-  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT );
+  char path[] = "/tmp/fd-txncache-fuzz-XXXXXX";
+  fuzz_spill_fd = mkstemp( path );
+  FD_TEST( fuzz_spill_fd>=0 ); FD_TEST( !unlink( path ) );
+  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT, 2UL*sizeof(fd_txncache_txnpage_t) );
   fuzz_ljoin_fp = fd_txncache_footprint( FUZZ_MAX_LIVE_SLOTS );
   FD_TEST( fuzz_shmem_fp );
   FD_TEST( fuzz_ljoin_fp );

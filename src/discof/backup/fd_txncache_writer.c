@@ -4,8 +4,8 @@
 #include "../../util/fd_util.h"
 
 /* Mirror of blockcache_t and fd_txncache_private from fd_txncache.c.
-   Needed to access the hash chain heads, the descends sets and the
-   txnpages. */
+   Needed to access the hash chain heads and the descends sets.
+   Transaction contents are copied through the pinned core accessor. */
 
 struct fd_txncache_writer_blockcache {
   fd_txncache_blockcache_shmem_t * shmem;
@@ -21,8 +21,6 @@ struct fd_txncache_writer_tc {
   fd_txncache_blockcache_shmem_t *      blockcache_shmem_pool;
   fd_txncache_writer_blockcache_t *     blockcache_pool;
   blockhash_map_t *                     blockhash_map;
-  void *                                txnpages_free;
-  fd_txncache_txnpage_t *               txnpages;
 };
 
 typedef struct fd_txncache_writer_tc fd_txncache_writer_tc_t;
@@ -88,12 +86,6 @@ txncache_chain_head( fd_txncache_writer_tc_t const * tc,
                      ulong                           blockcache_idx,
                      ulong                           bucket ) {
   return __atomic_load_n( &tc->blockcache_pool[ blockcache_idx ].heads[ bucket ], __ATOMIC_ACQUIRE );
-}
-
-static inline fd_txncache_single_txn_t const *
-txncache_chain_txn( fd_txncache_writer_tc_t const * tc,
-                    uint                            idx ) {
-  return tc->txnpages[ idx/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ idx%FD_TXNCACHE_TXNS_PER_PAGE ];
 }
 
 /* txncache_blockhash_check verifies that the txncache root list still
@@ -198,7 +190,8 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
 
   for( ulong bucket=0UL; bucket<bucket_cnt; bucket++ ) {
     for( uint head=txncache_chain_head( tc, blockhash_desc->blockcache_idx, bucket ); head!=UINT_MAX; ) {
-      fd_txncache_single_txn_t const * txn = txncache_chain_txn( tc, head );
+      fd_txncache_single_txn_t txn[1];
+      fd_txncache_txn_copy( writer->tc, head, txn );
       visited++;
       if( FD_LIKELY( txncache_txn_live_and_on_ancestry( tc, writer->snapshot_root_idx, txn ) ) ) {
         ulong slot_i = writer->fork_id_to_slot_i[ txn->fork_id.val ];

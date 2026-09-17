@@ -122,6 +122,7 @@ struct fd_configf {
     ulong max_live_slots;
     ulong max_fork_width;
     ulong program_cache_size_mib;
+    ulong transaction_cache_size_mib;
   } runtime;
 
   struct {
@@ -306,6 +307,7 @@ struct fd_config {
     char genesis[ PATH_MAX ];
     char accounts[ PATH_MAX ];
     char stake_delegations[ PATH_MAX ];
+    char txncache[ PATH_MAX ];
     char shredb[ PATH_MAX ];
     char guidb[ PATH_MAX ];
   } paths;

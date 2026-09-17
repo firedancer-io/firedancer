@@ -127,21 +127,22 @@ main( int     argc,
 
   config->is_firedancer = 1;
   memset( &config->firedancer, 0, sizeof(config->firedancer) );
-  config->firedancer.layout.sign_tile_count          = 2U;
-  config->firedancer.layout.resolv_tile_count        = 1U;
-  config->firedancer.layout.execle_tile_count        = 1U;
-  config->firedancer.layout.snapdc_tile_count        = 1U;
-  config->firedancer.layout.snapzp_tile_count        = 1U;
-  config->firedancer.layout.snapsv_tile_count        = 1U;
-  config->firedancer.layout.snapsv_io_worker_count   = 1U;
-  config->firedancer.snapshots.wait_for_peers_timeout_seconds = 1UL;
-  config->firedancer.snapshots.server.idle_timeout_millis      = 100UL;
-  config->firedancer.snapshots.server.send_timeout_millis      = 100UL;
-  config->firedancer.accounts.max_accounts                     = 1UL;
-  config->firedancer.accounts.cache_size_gib                   = 1UL;
-  config->firedancer.runtime.program_cache_size_mib            = 32UL;
-  config->tiles.repair.slot_max                                   = 1UL;
-  config->tiles.rotor.slot_max                                    = 1UL;
+  config->firedancer.layout.sign_tile_count                        = 2U;
+  config->firedancer.layout.resolv_tile_count                      = 1U;
+  config->firedancer.layout.execle_tile_count                      = 1U;
+  config->firedancer.layout.snapdc_tile_count                      = 1U;
+  config->firedancer.layout.snapzp_tile_count                      = 1U;
+  config->firedancer.layout.snapsv_tile_count                      = 1U;
+  config->firedancer.layout.snapsv_io_worker_count                 = 1U;
+  config->firedancer.snapshots.wait_for_peers_timeout_seconds      = 1UL;
+  config->firedancer.snapshots.server.idle_timeout_millis          = 100UL;
+  config->firedancer.snapshots.server.send_timeout_millis          = 100UL;
+  config->firedancer.accounts.max_accounts                         = 1UL;
+  config->firedancer.accounts.cache_size_gib                       = 1UL;
+  config->firedancer.runtime.program_cache_size_mib                = 32UL;
+  config->firedancer.runtime.transaction_cache_size_mib            = 640UL;
+  config->tiles.repair.slot_max                                    = 1UL;
+  config->tiles.rotor.slot_max                                     = 1UL;
 
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );

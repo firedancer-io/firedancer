@@ -81,7 +81,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "txncache" );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
-      2UL*config->limits.max_txn_per_slot );
+      2UL*config->limits.max_txn_per_slot, config->firedancer.runtime.transaction_cache_size_mib<<20 );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_wksp( topo, "accdb" );
@@ -452,6 +452,7 @@ snapshot_load_cmd_fn( args_t *   args,
 
   initialize_accdb_fd( config );
   initialize_stake_delegations_fd( config );
+  initialize_txncache_fd( config );
   initialize_store_fds( config );
   initialize_snapshot_fds( config );
 

@@ -121,6 +121,17 @@ typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
 #define SET_NAME descends_set
 #include "../../util/tmpl/fd_set_dynamic.c"
 
+/* state packs frame+1 in the high 32 bits and pin count in the low
+   32 bits.  Zero is absent, ULONG_MAX is owned by the miss path.
+   dirty is set before releasing a writer pin.  disk_valid and frame
+   ownership are protected by spill_lock and the structural lock. */
+struct fd_txncache_page_meta {
+  ulong state;
+  uint  dirty;
+  uint  disk_valid;
+};
+typedef struct fd_txncache_page_meta fd_txncache_page_meta_t;
+
 struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_private {
   /* The txncache is a concurrent structure and will be accessed by multiple threads
      concurrently.  Insertion and querying only take a read lock as they can be done
@@ -147,11 +158,27 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
                               most recently added root, the head is the oldest root.  This is used to identify
                               which forks can be pruned when a new root is added. */
 
+  ulong resident_pages;
+  ulong spill_hand;
+  uint  spill_lock;
+
   ulong seed;
   ulong magic; /* ==FD_TXNCACHE_SHMEM_MAGIC */
 };
 
 FD_PROTOTYPES_BEGIN
+
+struct fd_txncache_private;
+
+/* Caller holds the structural read or write lock.  No frame pointer
+   escapes; copying protects a traversal from concurrent eviction. */
+ulong
+fd_txncache_page_txn_cnt( struct fd_txncache_private * tc,
+                          ulong                        page );
+void
+fd_txncache_txn_copy( struct fd_txncache_private * tc,
+                      uint                         idx,
+                      fd_txncache_single_txn_t *   out );
 
 /* fd_txncache_max_txnpages{,_per_blockhash} return the txnpage pool
    size and the per blockcache page cap for the given parameters.  The

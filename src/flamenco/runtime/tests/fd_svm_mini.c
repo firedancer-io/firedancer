@@ -114,7 +114,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong joiner_cnt  = fd_ulong_max( limits->accdb_joiner_cnt, 1UL );
 
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, fd_progcache_shmem_min_sz( txn_max ) );
-  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
+  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot, ULONG_MAX );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
   ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts );
   ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
@@ -153,11 +153,11 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
 
   ulong progcache_sz      = fd_progcache_shmem_min_sz( txn_max );
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, progcache_sz );
-  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
+  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot, ULONG_MAX );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
-  ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width,
-                                               limits->max_stake_accounts, limits->max_vote_accounts );
-  ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
+  ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width,
+                                                limits->max_stake_accounts, limits->max_vote_accounts );
+  ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
@@ -183,7 +183,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   fd_memset( mini, 0, sizeof(fd_svm_mini_t) );
   mini->wksp = wksp;
 
-  fd_txncache_shmem_t * shtxncache = fd_txncache_shmem_join( fd_txncache_shmem_new( txncache_shmem, txn_max, limits->max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtxncache = fd_txncache_shmem_join( fd_txncache_shmem_new( txncache_shmem, txn_max, limits->max_txn_per_slot, 0UL, ULONG_MAX ) );
   if( FD_UNLIKELY( !shtxncache ) ) FD_LOG_ERR(( "fd_txncache_shmem_new failed" ));
 
   /* Create accdb backed by memfd */
@@ -211,7 +211,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
 
   FD_TEST( fd_progcache_join( mini->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
   mini->txncache_shmem = shtxncache;
-  FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache ) )) );
+  FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache, -1 ) )) );
 
   mini->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, txn_max, limits->max_fork_width,
                                limits->max_stake_accounts, limits->max_disk_records,

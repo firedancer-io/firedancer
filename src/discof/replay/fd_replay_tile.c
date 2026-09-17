@@ -4721,7 +4721,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
-  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( ctx->txncache );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->replay.accdb_obj_id );
@@ -4965,7 +4965,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD, (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 
@@ -4977,7 +4977,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -4985,6 +4985,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
+  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* transaction cache spill */
   if( FD_LIKELY( ctx->store_disk_fd>=0 ) )
     out_fds[ out_cnt++ ] = ctx->store_disk_fd;
 

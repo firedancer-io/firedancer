@@ -1,3 +1,4 @@
+#define _GNU_SOURCE /* MAP_ANONYMOUS */
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "utils/fd_ssparse.h"
@@ -82,6 +83,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #undef fd_accdb_reset
 
 #include <stdlib.h>
+#include <sys/mman.h>
 #include "../../flamenco/stakes/test_stake_delegations_util.h"
 
 /* Production per-slot limits (tile->snapin.max_txn_per_slot and its
@@ -944,14 +946,15 @@ test_txncache_staging_ctx_init( fd_snapin_tile_t * ctx,
 static fd_txncache_t *
 new_txncache( fd_wksp_t * wksp,
               ulong       max_txn_per_slot ) {
-  void * shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(), fd_txncache_shmem_footprint( 1UL, max_txn_per_slot ), 1UL );
+  ulong cache_footprint = FD_TXNCACHE_MAX_SLOT_DELTAS*((max_txn_per_slot+1UL)/2UL)*sizeof(blockhash_group_t)+alignof(blockhash_group_t)-1UL;
+  void * shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(), fd_txncache_shmem_footprint( 1UL, max_txn_per_slot, cache_footprint ), 1UL );
   FD_TEST( shmem );
-  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem, 1UL, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem, 1UL, max_txn_per_slot, 0UL, cache_footprint ) );
   FD_TEST( txncache_shmem );
 
   void * local = fd_wksp_alloc_laddr( wksp, fd_txncache_align(), fd_txncache_footprint( 1UL ), 1UL );
   FD_TEST( local );
-  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( local, txncache_shmem ) );
+  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( local, txncache_shmem, -1 ) );
   FD_TEST( txncache );
   return txncache;
 }
@@ -975,6 +978,31 @@ test_txncache_staging_groups_fit_txncache_scratch( fd_wksp_t * wksp ) {
   FD_TEST( !txncache_staging_groups_join( (void *)64UL, ring_sz-1UL, TEST_MAX_STAGED_GROUPS ) );
   FD_TEST( !txncache_staging_groups_join( (void *)66UL, ring_sz,     TEST_MAX_STAGED_GROUPS ) );
   FD_TEST(  txncache_staging_groups_join( (void *)66UL, ring_sz+2UL, TEST_MAX_STAGED_GROUPS ) );
+}
+
+/* The caller-provided cache budget must fit blockhash-group staging.
+   An exact page multiple also needs room for group-alignment padding. */
+static void
+test_txncache_staging_bench_scratch( ulong max_txn_per_slot,
+                                    ulong cache_footprint ) {
+  ulong shmem_sz = fd_txncache_shmem_footprint( 4UL, 2UL*max_txn_per_slot, cache_footprint );
+  ulong local_sz = fd_txncache_footprint( 4UL );
+  ulong sz = shmem_sz+local_sz;
+  uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( mem!=MAP_FAILED );
+  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 2UL*max_txn_per_slot, 0UL, cache_footprint ) );
+  FD_TEST( shmem );
+  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( mem+shmem_sz, shmem, -1 ) );
+  FD_TEST( txncache );
+
+  ulong scratch_sz;
+  void * scratch = fd_txncache_snapin_scratch( txncache, &scratch_sz );
+  ulong groups_max = FD_TXNCACHE_MAX_SLOT_DELTAS*max_txn_per_slot;
+  blockhash_group_t * groups = txncache_staging_groups_join( scratch, scratch_sz, groups_max );
+  FD_TEST( groups );
+  groups[ groups_max-1UL ].txncache_entry_cnt = 2U;
+  FD_TEST( groups[ groups_max-1UL ].txncache_entry_cnt==2U );
+  FD_TEST( !munmap( mem, sz ) );
 }
 
 static void
@@ -1623,6 +1651,8 @@ main( int     argc,
   test_nonempty_raw_data();
   fd_wksp_reset( wksp, 1UL ); test_batch_stake_delegation( wksp );
   fd_wksp_reset( wksp, 1UL ); test_streaming_stake_delegation( wksp );
+  test_txncache_staging_bench_scratch( 529411UL, 3072UL<<20 ); /* benchmark TOML budget */
+  test_txncache_staging_bench_scratch( 122881UL, FD_TXNCACHE_MAX_SLOT_DELTAS*122881UL*sizeof(blockhash_group_t)+alignof(blockhash_group_t)-1UL ); /* exact page multiple */
   test_txncache_staging_entry_size();
   test_txncache_staging_group_record_size();
   fd_wksp_reset( wksp, 1UL ); test_txncache_staging_groups_fit_txncache_scratch( wksp );
