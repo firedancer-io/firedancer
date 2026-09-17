@@ -92,10 +92,13 @@
    that control message until all tiles forward it on, or an ERROR
    message is triggered by any of the tiles and forwarded. */
 
-/* Parameters for the snapshot data stream links (snapld_dc,
-   snapdc_in).  Producers adapt to the link MTU, which just needs to
-   exceed the control structs. */
-#define FD_SNAPSHOT_DATA_DEPTH                 (256UL)
+/* Snapshot data MTU and snapld-to-snapdc link depth. */
+#define FD_SNAPSHOT_DATA_DEPTH                 (1024UL)
+
+/* Every snapin is a reliable consumer on every snapdc lane.  This
+   runway keeps one stalled snapin from blocking all decompressors. */
+#define FD_SNAPSHOT_DC_IN_DEPTH                (2048UL)
+
 #define FD_SNAPSHOT_DATA_MTU                   (65408UL)
 
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
@@ -109,7 +112,7 @@
 
 #define FD_SNAPSHOT_MSG_CTRL_INIT_FULL         (2UL) /* Pipeline should start processing a full snapshot */
 #define FD_SNAPSHOT_MSG_CTRL_INIT_INCR         (3UL) /* Pipeline should start processing an incremental snapshot */
-#define FD_SNAPSHOT_MSG_CTRL_FAIL              (4UL) /* Current snapshot failed, undo work and reset to idle state */
+#define FD_SNAPSHOT_MSG_CTRL_FAIL              (4UL) /* Current snapshot failed, queue rollback and reset to idle */
 #define FD_SNAPSHOT_MSG_CTRL_NEXT              (5UL) /* Current snapshot succeeded, commit work, go idle, and expect another snapshot */
 #define FD_SNAPSHOT_MSG_CTRL_DONE              (6UL) /* Current snapshot succeeded, commit work, go idle, and expect shutdown */
 #define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* Snapshot load successful, no work left to do, perform final cleanup and shut down*/
