@@ -5,32 +5,25 @@ Files are copied exactly from tag v0.3.13, with no Firedancer
 specific modifications.  Do not edit vendored files locally; update
 by re-running `vendor.sh` against a new pinned tag.
 
-The build mirrors upstream build.sh: exactly two objects,
-src/server.c (a unity build #including every other .c except the
-optional client_min_pk.c / client_min_sig.c min-pk/min-sig API
-variants and the opt-in pentaroot.c (BLST_FR_PENTAROOT) module,
-none of which are imported) and
-build/assembly.S (which #includes the pre-generated per-arch .s
-bodies from build/elf/ at preprocess time).  The src/asm/*.pl
-perlasm generators that produce build/elf/ are not imported; the
-checked-in .s files are upstream's own pre-generated output, the
-same ones build.sh consumes.
+Upstream build.sh compiles exactly two objects: src/server.c (a
+unity build #including every other .c except the optional
+client_min_pk.c / client_min_sig.c min-pk/min-sig API variants and
+the opt-in pentaroot.c (BLST_FR_PENTAROOT) module, none of which
+are imported) and build/assembly.S (which #includes the
+pre-generated per-arch .s bodies from build/elf/ at preprocess
+time).  The src/asm/*.pl perlasm generators that produce build/elf/
+are not imported; the checked-in .s files are upstream's own
+pre-generated output, the same ones build.sh consumes.
 
-On x86-64 Firedancer compiles with -D__BLST_PORTABLE__: both the
-ADX (mulx/adcx/adox) and portable asm bodies are assembled and
-selected at runtime via cpuid (__blst_platform_cap).  Upstream's
-build.sh instead bakes -D__ADX__ from the build host's /proc/cpuinfo
-into the artifact; portable dispatch is safer for binaries deployed
-to heterogeneous CPUs at ~2x asm footprint.  On aarch64 assembly.S
-selects the armv8 bodies (build/elf/*-armv8.S); there is no variant
-dispatch.  Other machines (noarch, power9, riscv) build with
--D__BLST_NO_ASM__ and without assembly.S, using the C fallback in
-src/no_asm.h.  no_asm.h only supports 32-bit limbs, but vect.h picks
-64-bit limbs when __x86_64__ or __aarch64__ is defined, so those
-macros are undefined on the command line.  -fno-builtin is required:
-without it the compiler pattern-matches blst's constant-time memory
-routines into libc memcpy/memset calls, silently breaking
-constant-time guarantees.
-
-For licensing information (Apache-2.0), see LICENSE in this
-directory and NOTICE in the root of this repo.
+Firedancer compiles assembly.S as is, but in place of server.c it
+compiles two unity TUs of its own, fd_blst_curve.c and
+fd_blst_field.c, which #include the same src/*.c files (server.c
+stays vendored, unused).  point.h and fields.h forward-declare the
+point, sqrt/recip and fp12 helpers static, so every file calling them
+shares fd_blst_curve.c; keygen.c, exports.c and rb_tree.c only need
+reciprocal_fr, which fd_blst_field.c defines via the identical export
+blst_fr_inverse.  bulk_addition.c and multi_scalar.c (blst_p1s_* /
+blst_p2s_*: batch addition and Pippenger multi-scalar multiplication)
+are not compiled: nothing in Firedancer uses them.  A new use fails at
+link time; add both files to fd_blst_curve.c.  When re-vendoring, diff
+the new server.c against the two include lists.
