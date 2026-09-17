@@ -40,19 +40,13 @@ kernel, at least v4.18 to build.
 ```console
 $ git clone https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
-$ ./deps.sh
-$ source activate  # enter build environment
-$ make -j
-
-# Run a new development cluster
-$ firedancer-dev
-
-# Join Solana testnet
-$ firedancer-dev --testnet
+$ ./deps.sh                        # install system dependencies
+$ make -j                          # build `firedancer-dev`
+$ ./build/firedancer-dev --testnet # join testnet
 ```
 
 `firedancer-dev` (without args) configures your system for validator
-operation and creates a new lcoal development cluster. First it creates
+operation and creates a new local development cluster. First it creates
 a genesis block, some keys, a faucet, and then it starts a validator on
 the local machine. `firedancer-dev` will use `sudo` to make privileged
 changes to system configuration where needed. If `sudo` is not available,

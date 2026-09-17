@@ -17,7 +17,8 @@ Tiles: `src/disco`, `src/discof`.
 
 ## Building
 
-`make -j` - builds everything
+`make -j` - builds firedancer and firedancer-dev
+`make -j all` - builds everything
 `make -j firedancer-dev` - builds dev validator
 `make -j test_blake3` - builds a test
 
@@ -27,8 +28,8 @@ The default make parameters are:
 - EXTRAS=''
 
 Always isolate build dirs when changing Make params, e.g.:
-- `make -j BUILDDIR=clang-fuzz-asan CC=clang EXTRAS="fuzz asan"`
-- `make -j BUILDDIR=clang-cov CC=clang EXTRAS=cov`
+- `make -j BUILDDIR=clang-fuzz-asan CC=clang EXTRAS="fuzz asan" all`
+- `make -j BUILDDIR=clang-cov CC=clang EXTRAS=cov all`
 
 For Firedancer builds:
 - keep a single flat name for BUILDDIR

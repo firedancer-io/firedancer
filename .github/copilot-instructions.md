@@ -58,17 +58,17 @@ Example:
 
 ### Building and Testing
 ```bash
-# Build (no output implies success)
-make -j 2>&1 | grep error:
+# Build everything (no output implies success)
+make -j all 2>&1 | grep error:
 
 # Build with Clang
-make CC=clang
+make -j CC=clang all
 
 # Build libFuzzer harnesses
-make BUILDDIR=clang-fuzz CC=clang EXTRAS=fuzz
+make -j BUILDDIR=clang-fuzz CC=clang EXTRAS=fuzz all
 
 # Build with fuzzing and ASan
-make BUILDDIR=clang-fuzz-asan CC=clang EXTRAS="fuzz asan"
+make -j BUILDDIR=clang-fuzz-asan CC=clang EXTRAS="fuzz asan" all
 
 # Run unit tests
 $(make --silent objdir)/unit-test/<test_name>

@@ -22,7 +22,7 @@ Assuming system is configured and dependencies are installed:
 
 ```
 sudo src/util/shmem/fd_shmem_cfg alloc 2 gigantic 0
-make -j
+make -j all
 make run-unit-test
 ```
 
@@ -75,11 +75,11 @@ endif
 
 In order to find new test inputs, a fuzz engine is required.
 
-| Engine    | Compile command                                         |
-|-----------|---------------------------------------------------------|
-| libFuzzer | `make CC=clang EXTRAS=fuzz`                             |
-| AFL++     | `make CC=clang EXTRAS=afl++ AFL_LIB=/usr/local/lib/afl` |
-| Honggfuzz | `make MACHINE=linux_clang_haswell EXTRAS=honggfuzz`     |
+| Engine    | Compile command                                                   |
+|-----------|-------------------------------------------------------------------|
+| libFuzzer | `make CC=clang EXTRAS=fuzz fuzz-test`                             |
+| AFL++     | `make CC=clang EXTRAS=afl++ AFL_LIB=/usr/local/lib/afl fuzz-test` |
+| Honggfuzz | `make MACHINE=linux_clang_haswell EXTRAS=honggfuzz fuzz-test`     |
 
 The **[libFuzzer]** engine is part of recent versions of LLVM, making
 it the most convenient way to get started. It requires Clang.

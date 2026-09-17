@@ -5,7 +5,7 @@
 #
 # Usage:
 #
-#  make -j BUILDDIR=clang-cov CC=clang EXTRAS=llvm-cov
+#  make -j BUILDDIR=clang-cov CC=clang EXTRAS=llvm-cov all
 #  ./contrib/test/single_test_cov.sh build/clang-cov/unit-test/test_xxx ... test-arguments ...
 
 BINARY="$1"
@@ -20,7 +20,7 @@ print_error() {
 
 if [[ ! -f "default.profraw" ]]; then
   print_error "No default.profraw file generated. Make sure binary is compiled with coverage instrumentation."
-  print_error "Compile with: make -j BUILDDIR=clang-cov CC=clang EXTRAS=llvm-cov"
+  print_error "Compile with: make -j BUILDDIR=clang-cov CC=clang EXTRAS=llvm-cov all"
   exit 1
 fi
 

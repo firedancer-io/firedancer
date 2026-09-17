@@ -6,8 +6,8 @@
       $(call make-unit-test,fd_curve25519_tables,fd_curve25519_tables,fd_ballet fd_util)
 
    2. Compile for each target backend, this will create a unit-test called fd_curve25519_tables
-      $ MACHINE=linux_gcc_icelake make -j
-      $ MACHINE=linux_gcc_noarch64 make -j
+      $ MACHINE=linux_gcc_icelake make -j all
+      $ MACHINE=linux_gcc_noarch64 make -j all
 
    3. Run the scripts:
       $ $(MACHINE=linux_gcc_icelake make --silent objdir)/unit-test/fd_curve25519_tables
