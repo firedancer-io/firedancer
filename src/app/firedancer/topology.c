@@ -820,6 +820,8 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( !alpenglow_enabled ) {
     FOR(shred_tile_cnt)  fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "tower_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  } else {
+    FOR(shred_tile_cnt)  fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "replay_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
   FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_net",     i                                                  );
 
@@ -1137,7 +1139,6 @@ fd_topo_initialize( config_t * config ) {
 
     /**/               fd_topob_tile_in (   topo, "rotor",  0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   ); /* certified blocks to repair */
     /**/               fd_topob_tile_in (   topo, "replay", 0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-    FOR(shred_tile_cnt) fd_topob_tile_in (   topo, "shred",  i,            "metric_in", "votor_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     if( config->tiles.gui.enabled ) {
       /**/             fd_topob_tile_in (   topo, "gui",    0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     }

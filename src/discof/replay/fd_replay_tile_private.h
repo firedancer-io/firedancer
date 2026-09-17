@@ -350,13 +350,17 @@ struct fd_replay_tile {
      node, that is chaining off of the rooted fork, because the
      consensus root is always an ancestor of the actively replaying tip.
      */
-  fd_hash_t consensus_root;          /* The most recent block to have reached max lockout in the tower. */
+  fd_hash_t consensus_root;          /* The most recent block to have reached max lockout in the tower, or been finalized and replayed under Alpenglow. */
   ulong     consensus_root_slot;     /* slot number of the above. */
   fd_hash_t notified_root;           /* The most recent consensus root sent to sched, RPC, and resolv. */
   ulong     notified_root_slot;      /* slot number of the above. */
   fd_bank_t * notified_root_bank;    /* bank held by sched, RPC, and resolv for the notified root. */
   ulong     published_root_slot;     /* slot number of the published root. */
   ulong     published_root_bank_idx; /* bank index of the published root. */
+
+  /* ALPENGLOW-ONLY.  finalized_block_id caches a finalization that ran
+     ahead of replay, slot ULONG_MAX if none. */
+  ag_block_id_t finalized_block_id;
 
   /* Randomly generated block id for the initial genesis/snapshot slot.
      Used as a fallback when the snapshot manifest does not contain a

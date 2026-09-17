@@ -12,6 +12,7 @@
    will be a no-op. ---- */
 
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_helpers.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -243,6 +244,17 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_rewards_recalculate_partitioned_rewards(b,k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(b,k,a,s,c); } while(0)
 #define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
 #define fd_runtime_block_execute_prepare     mock_runtime_block_execute_prepare_fn
+
+/* Isolate footer rooting from scheduler storage and runtime settlement. */
+static int               mock_footer_finalize;
+static fd_block_footer_t mock_footer[ 1 ];
+static fd_hash_t         mock_footer_poh;
+
+#define fd_sched_get_poh(s,b)        (mock_footer_finalize ? &mock_footer_poh : (fd_sched_get_poh)(s,b))
+#define fd_sched_get_shred_cnt(s,b)  (mock_footer_finalize ? 0U : (fd_sched_get_shred_cnt)(s,b))
+#define fd_sched_get_footer(s,b)     (mock_footer_finalize ? mock_footer : (fd_sched_get_footer)(s,b))
+#define fd_runtime_block_execute_finalize(b,a,c,f,s) (mock_footer_finalize ? 0 : (fd_runtime_block_execute_finalize)(b,a,c,f,s))
+#define fd_txncache_finalize_fork(t,f,o,h) do { if( !mock_footer_finalize ) (fd_txncache_finalize_fork)(t,f,o,h); } while(0)
 
 /* ---- Include the tile under test ---- */
 
@@ -1054,6 +1066,321 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
 
   child->refcnt = 0UL;
   FD_LOG_NOTICE(( "pass: test_consensus_root_notification_handoff" ));
+}
+
+/* ---- Alpenglow rooting: a block is rooted once finalized AND replayed ---- */
+
+#define TEST_VOTOR_IN_IDX 2UL
+
+static void
+setup_votor_input( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
+  ulong const depth = 128UL;
+  ulong const mtu   = sizeof(fd_votor_msg_t);
+  ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
+
+  void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+  FD_TEST( dcache_mem );
+  void * dcache = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) );
+  FD_TEST( dcache );
+
+  ctx->in_kind[ TEST_VOTOR_IN_IDX ] = IN_KIND_VOTOR;
+  ctx->in[ TEST_VOTOR_IN_IDX ].mem    = wksp;
+  ctx->in[ TEST_VOTOR_IN_IDX ].chunk0 = fd_dcache_compact_chunk0( wksp, dcache );
+  ctx->in[ TEST_VOTOR_IN_IDX ].wmark  = fd_dcache_compact_wmark ( wksp, dcache, mtu );
+  ctx->in[ TEST_VOTOR_IN_IDX ].mtu    = mtu;
+}
+
+/* deliver_certed drives a finalization cert through the votor input,
+   as votor's CERTED frag would. */
+
+static void
+deliver_certed( fd_replay_tile_t * ctx,
+                uint               kind,
+                ulong              slot,
+                fd_hash_t const *  block_id ) {
+  ulong chunk = ctx->in[ TEST_VOTOR_IN_IDX ].chunk0;
+  fd_votor_certed_t * certed = fd_chunk_to_laddr( ctx->in[ TEST_VOTOR_IN_IDX ].mem, chunk );
+  memset( certed, 0, sizeof(fd_votor_certed_t) );
+  certed->kind     = kind;
+  certed->slot     = slot;
+  certed->block_id = *block_id;
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_CERTED, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+}
+
+/* setup_rooting_ctx boots an Alpenglow ctx rooted at a frozen slot 0
+   bank, with the block id map and rooting state replay would have. */
+
+static fd_bank_t *
+setup_rooting_ctx( fd_replay_tile_t * ctx,
+                   fd_wksp_t *        wksp,
+                   fd_hash_t const *  root_id ) {
+  memset( ctx, 0, sizeof(*ctx) );
+  setup_timing( ctx, wksp );
+  setup_stem( ctx, wksp );
+  setup_votor_input( ctx, wksp );
+  ctx->alpenglow = 1;
+
+  ulong const bank_cnt = 8UL;
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
+  FD_TEST( banks_mem );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 0, 43UL ) );
+  FD_TEST( ctx->banks );
+
+  fd_bank_t * root = fd_banks_init_bank( ctx->banks );
+  FD_TEST( root );
+  root->f.slot     = 0UL;
+  root->f.block_id = *root_id;
+  fd_epoch_schedule_derive( &root->f.epoch_schedule, 128UL, 128UL, 0 );
+
+  ctx->block_id_arr = fd_wksp_alloc_laddr( wksp, alignof(fd_block_id_ele_t), sizeof(fd_block_id_ele_t)*bank_cnt, 1UL );
+  FD_TEST( ctx->block_id_arr );
+  memset( ctx->block_id_arr, 0, sizeof(fd_block_id_ele_t)*bank_cnt );
+  ulong  chain_cnt  = fd_ag_block_id_map_chain_cnt_est( bank_cnt );
+  void * ag_map_mem = fd_wksp_alloc_laddr( wksp, fd_ag_block_id_map_align(), fd_ag_block_id_map_footprint( chain_cnt ), 1UL );
+  FD_TEST( ag_map_mem );
+  ctx->ag_block_id_map_seed = 7UL;
+  ctx->ag_block_id_map      = fd_ag_block_id_map_join( fd_ag_block_id_map_new( ag_map_mem, chain_cnt, ctx->ag_block_id_map_seed ) );
+  FD_TEST( ctx->ag_block_id_map );
+  ctx->block_id_len   = bank_cnt;
+  ctx->max_live_slots = bank_cnt;
+
+  ctx->block_id_arr[ root->idx ].block_info = ag_block_id( 0UL, root_id->uc );
+  ctx->block_id_arr[ root->idx ].bank_seq   = root->bank_seq;
+
+  ctx->consensus_root          = *root_id;
+  ctx->consensus_root_slot     = 0UL;
+  ctx->notified_root           = *root_id;
+  ctx->notified_root_slot      = 0UL;
+  ctx->notified_root_bank      = root;
+  ctx->published_root_slot     = 0UL;
+  ctx->published_root_bank_idx = root->idx;
+  ctx->finalized_block_id.slot = ULONG_MAX;
+  ctx->votor_final->slot       = ULONG_MAX;
+
+  mock_sched_root_notify_cnt = 0UL;
+  mock_sched_root_notify_idx = ULONG_MAX;
+  return root;
+}
+
+/* Give slot a replayable bank chained off parent, with its block id
+   already known.  The footer test freezes it through replay. */
+
+static fd_bank_t *
+add_replayable_block( fd_replay_tile_t * ctx,
+                      fd_bank_t *        parent,
+                      ulong              slot,
+                      fd_hash_t const *  block_id ) {
+  fd_bank_t * bank = fd_banks_new_bank( ctx->banks, parent->idx, 0L, 0 );
+  FD_TEST( bank );
+  bank = fd_banks_clone_from_parent( ctx->banks, bank->idx );
+  FD_TEST( bank );
+  bank->f.slot        = slot;
+  bank->f.parent_slot = parent->f.slot;
+  bank->f.block_id    = *block_id;
+
+  fd_block_id_ele_t * ele = &ctx->block_id_arr[ bank->idx ];
+  ele->dmr           = *block_id;
+  ele->block_info    = ag_block_id( slot, block_id->uc );
+  ele->slot          = slot;
+  ele->bank_seq      = bank->bank_seq;
+  ele->block_id_seen = 1;
+  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, ele, ctx->block_id_arr ) );
+  return bank;
+}
+
+/* add_block gives the root walk an already replayed block. */
+
+static fd_bank_t *
+add_block( fd_replay_tile_t * ctx,
+           fd_bank_t *        parent,
+           ulong              slot,
+           fd_hash_t const *  block_id ) {
+  fd_bank_t * bank = add_replayable_block( ctx, parent, slot, block_id );
+  fd_banks_mark_bank_frozen( bank );
+  return bank;
+}
+
+/* expect_rooted checks the root try_advance_root_ag left behind, unsent,
+   and that after_credit hands it off as one REPLAY_SIG_ROOT_ADVANCED. */
+
+static void
+expect_rooted( fd_replay_tile_t * ctx,
+               fd_wksp_t *        wksp,
+               ulong              seq,
+               fd_bank_t const *  bank ) {
+  ulong out_idx = ctx->replay_out->idx;
+  FD_TEST( ctx->consensus_root_slot==bank->f.slot && fd_hash_eq( &ctx->consensus_root, &bank->f.block_id ) );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq );
+  FD_TEST( try_notify_consensus_root( ctx, test_stem ) );
+  FD_TEST( mock_sched_root_notify_idx==bank->idx );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq+1UL );
+  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq, test_stem_depths[ out_idx ] );
+  FD_TEST( m->sig==REPLAY_SIG_ROOT_ADVANCED && m->sz==sizeof(fd_replay_root_advanced_t) );
+  fd_replay_root_advanced_t const * rooted = fd_chunk_to_laddr_const( wksp, m->chunk );
+  FD_TEST( rooted->slot==bank->f.slot && fd_hash_eq( &rooted->block_id, &bank->f.block_id ) && rooted->bank_idx==bank->idx );
+  FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
+}
+
+static void
+test_root_from_votor_cert( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
+  fd_bank_t * b2   = add_block( ctx, b1,   2UL, &id2 );
+
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+
+  /* A fast final cert for the replayed tip roots it and its unrooted
+     ancestor in one step, and the root hands off exactly as a tower
+     root does. */
+  deliver_certed( ctx, AG_CERT_KIND_FAST_FINAL, 2UL, &id2 );
+  FD_TEST( ctx->votor_final->slot==2UL && ctx->votor_final->kind==AG_CERT_KIND_FAST_FINAL );
+  expect_rooted( ctx, wksp, seq0, b2 );
+  FD_TEST( mock_sched_root_notify_cnt==1UL );
+
+  /* A cert for an already rooted block roots nothing. */
+  deliver_certed( ctx, AG_CERT_KIND_FINAL, 1UL, &id1 );
+  FD_TEST( ctx->consensus_root_slot==2UL );
+  FD_TEST( ctx->finalized_block_id.slot==ULONG_MAX );
+  FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+
+  FD_LOG_NOTICE(( "pass: test_root_from_votor_cert" ));
+}
+
+static void
+test_root_waits_for_replay( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
+
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+
+  /* Finalized ahead of replay: cached, nothing rooted. */
+  deliver_certed( ctx, AG_CERT_KIND_FINAL, 2UL, &id2 );
+  FD_TEST( ctx->finalized_block_id.slot==2UL && !memcmp( ctx->finalized_block_id.hash, id2.uc, sizeof(fd_hash_t) ) );
+  FD_TEST( ctx->consensus_root_slot==0UL );
+  FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
+
+  /* Its slot completing roots it, and the ancestor replay got to first. */
+  fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
+  try_advance_root_ag( ctx, ctx->finalized_block_id );
+  expect_rooted( ctx, wksp, seq0, b2 );
+
+  /* A finalization of a block replay already completed roots at once. */
+  fd_bank_t * b3 = add_block( ctx, b2, 3UL, &id3 );
+  deliver_certed( ctx, AG_CERT_KIND_FAST_FINAL, 3UL, &id3 );
+  expect_rooted( ctx, wksp, seq0+1UL, b3 );
+
+  FD_LOG_NOTICE(( "pass: test_root_waits_for_replay" ));
+}
+
+static void
+test_root_out_of_order_certs( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
+
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+
+  /* Newer finality replaces the pending block, but an older cert
+     arriving afterwards must not discard it.  Both await replay. */
+  deliver_certed( ctx, AG_CERT_KIND_FINAL, 2UL, &id2 );
+  deliver_certed( ctx, AG_CERT_KIND_FAST_FINAL, 3UL, &id3 );
+  FD_TEST( ctx->finalized_block_id.slot==3UL && !memcmp( ctx->finalized_block_id.hash, id3.uc, sizeof(fd_hash_t) ) );
+  deliver_certed( ctx, AG_CERT_KIND_FAST_FINAL, 2UL, &id2 );
+  FD_TEST( ctx->finalized_block_id.slot==3UL && !memcmp( ctx->finalized_block_id.hash, id3.uc, sizeof(fd_hash_t) ) );
+  FD_TEST( ctx->consensus_root_slot==0UL );
+  FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
+
+  /* An older cert can still advance root once its block is replayed,
+     without replacing the newer block waiting for replay. */
+  fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
+  deliver_certed( ctx, AG_CERT_KIND_FINAL, 2UL, &id2 );
+  expect_rooted( ctx, wksp, seq0, b2 );
+  FD_TEST( ctx->finalized_block_id.slot==3UL && !memcmp( ctx->finalized_block_id.hash, id3.uc, sizeof(fd_hash_t) ) );
+
+  /* Certs below and at the current root must leave the pending block
+     intact and publish no additional root notification. */
+  deliver_certed( ctx, AG_CERT_KIND_FINAL, 1UL, &id1 );
+  FD_TEST( ctx->finalized_block_id.slot==3UL && !memcmp( ctx->finalized_block_id.hash, id3.uc, sizeof(fd_hash_t) ) );
+  deliver_certed( ctx, AG_CERT_KIND_FAST_FINAL, 2UL, &id2 );
+  FD_TEST( ctx->finalized_block_id.slot==3UL && !memcmp( ctx->finalized_block_id.hash, id3.uc, sizeof(fd_hash_t) ) );
+  FD_TEST( ctx->consensus_root_slot==2UL && fd_hash_eq( &ctx->consensus_root, &id2 ) );
+  FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+
+  /* Replay catches up using the retained finality, without another cert. */
+  fd_bank_t * b3 = add_block( ctx, b2, 3UL, &id3 );
+  try_advance_root_ag( ctx, ctx->finalized_block_id );
+  expect_rooted( ctx, wksp, seq0+1UL, b3 );
+  FD_TEST( mock_sched_root_notify_cnt==2UL );
+
+  FD_LOG_NOTICE(( "pass: test_root_out_of_order_certs" ));
+}
+
+static void
+test_root_from_footer( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_blockhashes_init( &root->f.block_hash_queue, 42UL );
+  FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
+
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+
+  mock_footer_finalize = 1;
+  memset( mock_footer, 0, sizeof(fd_block_footer_t) );
+
+  /* A footer without a finalization cert completes replay but roots nothing. */
+  fd_bank_t * b1 = add_replayable_block( ctx, root, 1UL, &id1 );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b1 ) );
+  FD_TEST( b1->state==FD_BANK_STATE_FROZEN );
+  FD_TEST( ctx->consensus_root_slot==0UL && ctx->finalized_block_id.slot==ULONG_MAX );
+  FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+
+  /* A slow final cert names its slot; the notar cert beside it names
+     the block.  Completing slot 2 roots slot 1 without a votor frag. */
+  mock_footer->has_final_cert      = 1;
+  mock_footer->final_cert.slot     = 1UL;
+  mock_footer->notar_cert.slot     = 1UL;
+  mock_footer->notar_cert.block_id = id1;
+  fd_bank_t * b2 = add_replayable_block( ctx, b1, 2UL, &id2 );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b2 ) );
+  expect_rooted( ctx, wksp, seq0+2UL, b1 );
+
+  /* A fast final cert names its block, and wins over a slow cert beside it. */
+  mock_footer->has_fast_final_cert      = 1;
+  mock_footer->fast_final_cert.slot     = 2UL;
+  mock_footer->fast_final_cert.block_id = id2;
+  fd_bank_t * b3 = add_replayable_block( ctx, b2, 3UL, &id3 );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b3 ) );
+  expect_rooted( ctx, wksp, seq0+4UL, b2 );
+  FD_TEST( ctx->votor_final->slot==ULONG_MAX );
+  mock_footer_finalize = 0;
+
+  FD_LOG_NOTICE(( "pass: test_root_from_footer" ));
 }
 
 static void
@@ -2968,6 +3295,10 @@ main( int     argc,
   test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );
   test_snapshot_intervals_use_block_height();
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
+  test_root_from_votor_cert( wksp );                fd_wksp_reset( wksp, 42U );
+  test_root_waits_for_replay( wksp );               fd_wksp_reset( wksp, 42U );
+  test_root_out_of_order_certs( wksp );             fd_wksp_reset( wksp, 42U );
+  test_root_from_footer( wksp );                    fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
   test_reused_parent_bank_idx_not_leader_bank( wksp ); fd_wksp_reset( wksp, 42U );
