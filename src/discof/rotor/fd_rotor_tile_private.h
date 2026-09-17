@@ -86,12 +86,4 @@ typedef struct sign_pending sign_pending_t;
 #define QUEUE_MAX        (2*FD_REPAIR_PEER_MAX)
 #include "../../util/tmpl/fd_queue.c"
 
-/* ag_req_queue stores alpenglow metadata repair requests.  We can cap
-   this queue at 1024 requests, as long as after_credit drains all
-   meta requests. */
-
-#define QUEUE_NAME       meta_queue
-#define QUEUE_T          fd_repair_msg_t
-#include "../../util/tmpl/fd_queue_dynamic.c"
-
 #endif /* HEADER_fd_src_discof_rotor_fd_rotor_tile_private_h */
