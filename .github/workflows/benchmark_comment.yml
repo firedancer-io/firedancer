@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 5
     env:
       RUN_ID: ${{ github.event.workflow_run.id || inputs.run-id }}
-      BENCH_DIR: ${{ runner.temp }}/bench
+      BENCH_DIR: ${{ github.workspace }}/../bench
     steps:
     - uses: actions/checkout@v7  # main, never the fork
     - uses: actions/download-artifact@v8
