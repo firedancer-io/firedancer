@@ -606,7 +606,7 @@ after_alpen_meta_repair( ctx_t *                ctx,
         meta_queue_push_safe( ctx, ag_repair_parent_and_fec_set_count( ctx->protocol, &to, now_ms, ctx->ag_nonce++, slot, &block_id ), now );
         return;
       }
-
+      if( FD_UNLIKELY( parent_fec_set_res->parent_slot < ctx->chainer->root ) ) return;
       int should_repair = !!fd_chainer_verified_parent_fec_count( ctx->chainer, slot, &block_id, parent_fec_set_res->fec_set_count, parent_fec_set_res->parent_slot, &parent_fec_set_res->parent_block_id );
       if( FD_UNLIKELY( !should_repair ) ) return;
 
@@ -722,9 +722,9 @@ after_alpen_fec( ctx_t *      ctx,
 
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   int data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
-  if( fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, mr ) ) {
-    fd_store_remove( ctx->store, ctx->store_map, mr );
-  };
+  int rejected;
+  fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, mr, &rejected );
+  if( FD_UNLIKELY( rejected ) ) fd_store_remove( ctx->store, ctx->store_map, mr );
 }
 
 static inline void
@@ -733,6 +733,7 @@ after_votor_block_repair( ctx_t *                   ctx,
   fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( ctx->chainer, nf->slot, &nf->block_id );
   if( FD_LIKELY( slotv ) ) return; /* we already have this NF version recorded, no need for action */
 
+  if( FD_LIKELY( fd_chainer_slot_version_query( ctx->chainer, nf->slot, &nf->block_id ) ) ) return;
   fd_chainer_verified_block_insert( ctx->chainer, nf->slot, nf->block_id );
 
   uint                nonce = ctx->ag_nonce++;
