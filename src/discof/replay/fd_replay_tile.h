@@ -185,6 +185,7 @@ struct fd_replay_slot_completed {
 
   int    voted;           /* our vote was in the reward cert this block carried */
   ushort voted_rank;      /* our rank in the reward slot's epoch, USHORT_MAX if we are not a voter */
+  ushort vote_count;      /* distinct reward cert signers for slot-FD_NUM_SLOTS_FOR_REWARD, USHORT_MAX if unknown */
   ulong  vote_balance;    /* ULONG_MAX if not sampled */
   ushort vote_commission; /* USHORT_MAX if not sampled */
 

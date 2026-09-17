@@ -2346,6 +2346,7 @@ fd_gui_slot_get_canon_safe( fd_gui_t * gui, ulong _slot ) {
       .vote_latency_exact = FD_GUI_VOTE_LATENCY_NOT_VOTED,
       .is_voter         = FD_GUI_IS_VOTER_UNKNOWN,
       .vote_rewarded    = fd_gui_slot_vote_rewarded_state( gui, _slot ),
+      .vote_count       = fd_gui_slot_vote_count( gui, _slot ),
       .vote_success     = UINT_MAX,
       .vote_failed      = UINT_MAX,
       .nonvote_success  = UINT_MAX,
@@ -2402,6 +2403,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
     memset( epoch->is_voter,      is_voter_default,                  sizeof(epoch->is_voter)      );
     memset( epoch->skipped,       0,                                 sizeof(epoch->skipped)       );
     memset( epoch->vote_rewarded, FD_GUI_VOTE_REWARDED_UNKNOWN,      sizeof(epoch->vote_rewarded) );
+    memset( epoch->vote_count,    UCHAR_MAX,                         sizeof(epoch->vote_count)    );
     epoch->epoch_schedule = epoch_info->epoch_schedule;
     epoch->pub_cnt        = lsched->pub_cnt;
     epoch->stakes_cnt     = epoch_info->staked_vote_cnt;
@@ -2834,7 +2836,8 @@ static void
 fd_gui_handle_ag_reward( fd_gui_t * gui,
                          ulong      slot,
                          int        voted,
-                         ushort     voted_rank ) {
+                         ushort     voted_rank,
+                         ushort     vote_count ) {
   if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
 
   uchar vote_rewarded = fd_uchar_if( !!voted, FD_GUI_VOTE_REWARDED_YES, FD_GUI_VOTE_REWARDED_NO );
@@ -2844,11 +2847,12 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
   fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, slot );
   if( FD_LIKELY( epoch ) ) {
     ulong idx = slot - epoch->start_slot;
-    if( FD_LIKELY( idx<epoch->slot_cnt && ( epoch->vote_rewarded[ idx ]!=vote_rewarded || epoch->is_voter[ idx ]!=is_voter ) ) ) {
+    if( FD_LIKELY( idx<epoch->slot_cnt && ( epoch->vote_rewarded[ idx ]!=vote_rewarded || epoch->is_voter[ idx ]!=is_voter || epoch->vote_count[ idx ]!=vote_count ) ) ) {
       int was_missed = epoch->vote_rewarded[ idx ]==FD_GUI_VOTE_REWARDED_NO && epoch->is_voter[ idx ]==FD_GUI_IS_VOTER_YES;
       epoch_changed = 1;
       epoch->vote_rewarded[ idx ] = vote_rewarded;
       epoch->is_voter[ idx ]      = is_voter;
+      epoch->vote_count[ idx ]    = vote_count;
       int is_missed = vote_rewarded==FD_GUI_VOTE_REWARDED_NO && is_voter==FD_GUI_IS_VOTER_YES;
 
       if( FD_UNLIKELY( was_missed!=is_missed ) ) {
@@ -2870,8 +2874,9 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
     return;
   }
 
-  int changed = rec->vote_rewarded!=vote_rewarded || rec->is_voter!=is_voter || epoch_changed;
+  int changed = rec->vote_rewarded!=vote_rewarded || rec->is_voter!=is_voter || rec->vote_count!=vote_count || epoch_changed;
   rec->vote_rewarded = vote_rewarded;
+  rec->vote_count    = vote_count;
   fd_gui_slot_set_voter_state( rec, is_voter );
   if( FD_UNLIKELY( !changed ) ) return;
   fd_gui_printf_slot( gui, slot, rec );
@@ -3398,7 +3403,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
     }
 
     if( FD_LIKELY( slot_completed->slot>=FD_NUM_SLOTS_FOR_REWARD ) ) {
-      fd_gui_handle_ag_reward( gui, slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank );
+      fd_gui_handle_ag_reward( gui, slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank, slot_completed->vote_count );
     }
 
     int frontier_updated = handle_tower_slot( gui, slot_completed->slot, slot_completed->bank_seq, now );

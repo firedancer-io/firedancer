@@ -2988,6 +2988,7 @@ and the validator changes which block it associates with the slot.
 | finalization_kind       | `string\|null`  | Strongest finality proof known for this slot: `fast`, `slow`, `implicit`, or `null`. `fast` supersedes `slow`, and either direct proof supersedes `implicit`. A terminal `rooted` or `skipped` level always has a non-null value; `skipped` uses `implicit` |
 | vote_slot               | `number\|null`  | Latest slot for which this validator's vote was included in a reward certificate, as of this slot's replay. It is the slot voted on, not the slot which carried the certificate. It is `null` when this validator has no recorded reward-certificate participation yet |
 | vote_rewarded           | `boolean\|null` | Whether this validator's ordinary notarize or skip vote for this slot was included in the reward certificate carried by `slot + 8`. It is `null` until the reward outcome is known, or when `is_voter` for this slot is false. Once resolved, the server republishes this slot with `true` or `false`. |
+| vote_count              | `number\|null`  | Number of distinct validators that voted for this slot, counting each signer once across the notarize and skip reward certificates carried by `slot + 8`. It is `null` before those certificates are replayed |
 
 #### `slot.skipped_history`
 | frequency | type       | example |
@@ -3264,7 +3265,8 @@ explicitly mentioned, skipped slots are not included.
             "tips": "0",
             "is_voter": true,
             "vote_slot": 289245043,
-            "vote_rewarded": true
+            "vote_rewarded": true,
+            "vote_count": 115
         }
     }
 }
@@ -3320,7 +3322,8 @@ explicitly mentioned, skipped slots are not included.
             "tips": "0",
             "is_voter": true,
             "vote_slot": 289245043,
-            "vote_rewarded": true
+            "vote_rewarded": true,
+            "vote_count": 115
         },
         "waterfall": {
             "in": {
@@ -3486,7 +3489,8 @@ explicitly mentioned, skipped slots are not included.
             "tips": "0",
             "is_voter": true,
             "vote_slot": 289245043,
-            "vote_rewarded": true
+            "vote_rewarded": true,
+            "vote_count": 115
         },
         "limits": {
             "used_total_block_cost": 10000000,

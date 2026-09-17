@@ -2059,6 +2059,12 @@ fd_gui_printf_slot_proofs( fd_gui_t *            gui,
   } else {
     jsonp_bool( gui->http, "vote_rewarded", vote_rewarded==FD_GUI_VOTE_REWARDED_YES );
   }
+
+  ushort vote_count = slot->vote_count;
+  ushort epoch_vote_count = fd_gui_slot_vote_count( gui, slot->slot );
+  if( FD_LIKELY( epoch_vote_count!=USHORT_MAX ) ) vote_count = epoch_vote_count;
+  if( FD_UNLIKELY( vote_count==USHORT_MAX ) ) jsonp_null ( gui->http, "vote_count" );
+  else                                        jsonp_ulong( gui->http, "vote_count", vote_count );
 }
 
 static void

@@ -480,6 +480,7 @@ struct __attribute__((packed)) fd_gui_slot {
   uchar     notarization_kind; /* Alpenglow: one of FD_GUI_AG_NOTAR_* */
   uchar     finalization_kind; /* Alpenglow: one of FD_GUI_AG_FINAL_* */
   uchar     vote_rewarded;     /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
+  ushort    vote_count;        /* Alpenglow: distinct reward cert signers, USHORT_MAX if unknown */
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
@@ -554,10 +555,11 @@ struct fd_gui_epoch {
   fd_gui_slot_rankings_t rankings   [ 1 ]; /* global slot rankings */
   fd_gui_slot_rankings_t my_rankings[ 1 ]; /* my slots only */
 
-  uchar latency_exact[ MAX_SLOTS_PER_EPOCH ]; /* skip-discounted latency or FD_GUI_VOTE_LATENCY_* */
-  uchar is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_IS_VOTER_* */
-  uchar skipped      [ MAX_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
-  uchar vote_rewarded[ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
+  uchar  latency_exact[ MAX_SLOTS_PER_EPOCH ]; /* skip-discounted latency or FD_GUI_VOTE_LATENCY_* */
+  uchar  is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_IS_VOTER_* */
+  uchar  skipped      [ MAX_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
+  uchar  vote_rewarded[ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
+  ushort vote_count   [ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: distinct reward cert signers, USHORT_MAX if unknown */
 
   fd_epoch_schedule_t epoch_schedule;    /* slot<->epoch conversion (fd_slot_to_epoch) */
   ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
@@ -1657,6 +1659,14 @@ fd_gui_slot_vote_rewarded_state( fd_gui_t * gui, ulong _slot ) {
   return idx<epoch->slot_cnt ? epoch->vote_rewarded[ idx ] : FD_GUI_VOTE_REWARDED_UNKNOWN;
 }
 
+static inline ushort
+fd_gui_slot_vote_count( fd_gui_t * gui, ulong _slot ) {
+  fd_gui_epoch_t const * epoch = fd_gui_get_epoch_by_slot( gui, _slot );
+  if( FD_UNLIKELY( !epoch || _slot<epoch->start_slot ) ) return USHORT_MAX;
+  ulong idx = _slot-epoch->start_slot;
+  return idx<epoch->slot_cnt ? epoch->vote_count[ idx ] : USHORT_MAX;
+}
+
 /* fd_gui_get_slot_leader returns the leader pubkey scheduled for
    `_slot`, or NULL if `epoch` is NULL, `_slot` is outside the epoch,
    or the schedule index is indeterminate. */
@@ -1717,6 +1727,7 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
   meta->notarization_kind = FD_GUI_AG_NOTAR_NONE;
   meta->finalization_kind = FD_GUI_AG_FINAL_NONE;
   meta->vote_rewarded     = FD_GUI_VOTE_REWARDED_UNKNOWN;
+  meta->vote_count        = USHORT_MAX;
   meta->vote_failed       = UINT_MAX;
   meta->vote_success      = UINT_MAX;
   meta->nonvote_success   = UINT_MAX;
