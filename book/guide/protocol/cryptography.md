@@ -3,7 +3,7 @@
 Below is a list of all of the cryptographic algorithms that Firedancer
 implements:
 
-## AES-128-GCM
+## AES-GCM
 
 An authenticated encryption scheme. Used for securing traffic send through
 TLS.
@@ -24,24 +24,22 @@ written by hand from scratch.
 A pairing-friendly elliptic curve that allows for efficient batching of
 signature verifications.
 
-Used in the following syscalls:
-- `sol_curve_group_op`
-- `sol_curve_validate_point`
-- `sol_curve_pairing_map`
+Used in the following SVM syscalls:
 - `sol_curve_decompress`
+- `sol_curve_group_op`
+- `sol_curve_pairing_map`
+- `sol_curve_validate_point`
 
-Used in V4 vote accounts, and will be used in Alpenglow for voting
-and certificate signatures.
+Also used for Alpenglow (consensus) votes and certificates.
 
 [Implementation](https://github.com/firedancer-io/firedancer/tree/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/bls)
 wraps the [blst](https://github.com/supranational/blst) library.
 
-## BN-254
+## BN254
 
-Also known as `alt_bn128`. A pairing-friendly elliptic curve, generally
-considered to be superseded by [BLS12-381](#bls12-381).
+Also known as `alt_bn128`. A pairing-friendly elliptic curve.
 
-Used in the following syscalls:
+Used in the following SVM syscalls:
 - `sol_alt_bn128_group_op`
 - `sol_alt_bn128_compression`
 
@@ -49,12 +47,17 @@ Used in the following syscalls:
 written by hand, with the core field operations provided by
 [fiat-crypto](https://github.com/firedancer-io/firedancer/blob/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/fiat-crypto/bn254_64.c).
 
-## ChaCha
+## Poseidon
 
-Used for computing the turbine tree and the leader schedule.
+A SNARK-friendly cryptographic hash function.
 
-Turbine uses 8 rounds of ChaCha, following the activation of
-`switch_to_chacha8_turbine`. The leader schedule uses 20 rounds.
+Used in the `sol_poseidon` syscall.
+
+[Implementation](https://github.com/firedancer-io/firedancer/tree/main/src/ballet/bn254) handwritten targeting the BN254 curve.
+
+## ChaCha (ChaCha8 & ChaCha20)
+
+Used for computing shred distribution trees and the leader schedule.
 
 [Implementation](https://github.com/firedancer-io/firedancer/tree/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/chacha)
 written by hand, providing both scalar and SIMD optimized variants.
@@ -66,72 +69,120 @@ An EdDSA signature scheme that operates on the Edwards25519 curve.
 Used for verifying ownership of transactions, accounts, shreds,
 repair requests, and gossip messages.
 
-[Reference implementation](https://github.com/firedancer-io/firedancer/tree/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/ed25519/ref)
-is implemented through the formally verified [s2n-bignum implementation](https://github.com/awslabs/s2n-bignum/tree/0b7acbefa447f2d1253d17bacd39c4c7ffd21f6d/x86/curve25519).
+Used to sign various consensus and p2p messages.
 
-An AVX-512 optimized [implementation](https://github.com/firedancer-io/firedancer/tree/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/ed25519/avx512)
-is implemented by hand.
+[Implementation](https://github.com/firedancer-io/firedancer/tree/main/src/ballet/ed25519) consists of multiple backends:
+- A reference implementation using [fiat-crypto](https://github.com/firedancer-io/firedancer/blob/main/src/third_party/fiat-crypto/curve25519_64.c)
+- Handwritten constant-time signing routines (`fd_curve25519_secure.c`).
+- Handwritten high-performance AVX512-IFMA backend for Intel/AMD CPUs
+- Hardware-accelerated signature verification via FPGA offload ([Wiredancer](https://github.com/firedancer-io/firedancer/tree/main/src/wiredancer))
+
+## Curve25519
+
+An elliptic curve.
+
+Used in the following SVM syscalls:
+- `sol_curve_multiscalar_mul`
+- `sol_curve_group_op`
+- `sol_curve_validate_point`
+
+## Ristretto255
+
+A prime-order group constructed over Curve25519 using the Ristretto group abstraction (RFC 9496).
+
+Used in the following SVM syscalls:
+- `sol_curve_multiscalar_mul`
+- `sol_curve_group_op`
+- `sol_curve_validate_point`
+
+Also used in the Solana ZK SDK.
+
+[Implementation](https://github.com/firedancer-io/firedancer/tree/main/src/ballet/ed25519) implemented in `fd_ristretto255.c` on top of Firedancer's Curve25519 arithmetic.
+
+## X25519
+
+An Elliptic Curve Diffie-Hellman (ECDH) key agreement scheme over Curve25519 in Montgomery form (RFC 7748).
+
+Used for TLS 1.3 and QUIC key establishment.
+
+[Implementation](https://github.com/firedancer-io/firedancer/tree/main/src/ballet/ed25519) provides:
+- Assembly routines from AWS [s2n-bignum](https://github.com/awslabs/s2n-bignum) on x86-64.
+- A portable constant-time Montgomery ladder reference backend built on `fiat-crypto`.
 
 ## Secp256k1
 
-An elliptic curve used in ECDSA and `ecrecover`, chosen for its endomorphic
-properties that allow for faster signature verification and recovery.
+A Koblitz elliptic curve defined in SEC 2.
 
-Used for the `KeccakSecp256k11111111111111111111111111111` precompile
-as well as the `sol_secp256k1_recover` syscall.
+Used in Solana for:
+- The `KeccakSecp256k11111111111111111111111111111` native precompile.
+- The `sol_secp256k1_recover` syscall.
 
-[Implementation](https://github.com/firedancer-io/firedancer/tree/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/secp256k1)
-wraps the formally verified [s2n-bignum implementation](https://github.com/awslabs/s2n-bignum/tree/0b7acbefa447f2d1253d17bacd39c4c7ffd21f6d/x86/secp256k1).
+[Implementation](https://github.com/firedancer-io/firedancer/tree/main/src/ballet/secp256k1) provides:
+- Assembly routines from AWS [s2n-bignum](https://github.com/awslabs/s2n-bignum) on x86-64.
+- A portable reference backend using [fiat-crypto](https://github.com/firedancer-io/firedancer/blob/main/src/third_party/fiat-crypto/secp256k1_montgomery_64.c).
 
-## Secp256r1
+## Secp256r1 (NIST P-256)
 
-Used for the `Secp256r1SigVerify1111111111111111111111111` precompile.
+A prime Weierstrass elliptic curve (FIPS 186-4).
 
-[Implementation](https://github.com/firedancer-io/firedancer/tree/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/secp256r1)
-wraps the formally verified [s2n-bignum implementation](https://github.com/awslabs/s2n-bignum/tree/0b7acbefa447f2d1253d17bacd39c4c7ffd21f6d/x86/p256).
+Used in Solana for:
+- The `Secp256r1SigVerify1111111111111111111111111` native precompile.
+- TLS 1.3 client and server authentication (`ECDSA_SECP256R1_SHA256`).
+- X.509 certificate validation.
 
-## SHA-256
+[Implementation](https://github.com/firedancer-io/firedancer/tree/main/src/ballet/secp256r1) uses:
+- Assembly routines from AWS [s2n-bignum](https://github.com/awslabs/s2n-bignum) on x86-64.
+- A portable reference backend generated by [fiat-crypto](https://github.com/firedancer-io/firedancer/blob/main/src/third_party/fiat-crypto/p256_64.c).
 
-A cryptographic hashing function.
+Secp384r1 (NIST P-384) is similarly provided.
 
-Used for computing PoH, computing PDAs, and generally any
-hashing requirements.
+## SHA-2
+
+A family of cryptographic hash functions.
+
+SHA-256 is used for computing PoH, computing PDAs, and generally any
+Solana protocol hashing requirements, and also the SVM `sol_sha256` syscall.
+
+SHA-384 and SHA-512 are used for ECDSA in X.509/TLS and Ed25519.
 
 [Implementation](https://github.com/firedancer-io/firedancer/tree/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/sha256)
-written by hand, providing both scalar and SIMD/SHA-NI optimized variants.
+written by hand, providing both scalar and SIMD/SHA-NI batched optimized variants.
 
-## SHA-512
-
-A cryptographic hashing function.
-
-Used for verifying and signing Ed25519 signatures along with [Ed25519](#ed25519).
-
-[Implementation](https://github.com/firedancer-io/firedancer/tree/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/sha512)
-written by hand, providing both scalar and SIMD optimized variants.
-
-## Keccak256
+## Keccak-256
 
 A cryptographic hashing function.
 
-Used in the `sol_keccak256` syscall and the Secp256k1 precompile.
+Used in Solana for:
+- The `sol_keccak256` syscall.
+- Secp256k1 recovery precompile.
+- Internal sponge permutation primitives for Strobe-128 and Merlin.
 
-[Implementation](https://github.com/firedancer-io/firedancer/tree/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/keccak256)
-wraps the formally verified [s2n-bignum implementation](https://github.com/awslabs/s2n-bignum/blob/0b7acbefa447f2d1253d17bacd39c4c7ffd21f6d/x86/sha3/sha3_keccak_f1600.S).
+[Implementation](https://github.com/firedancer-io/firedancer/tree/main/src/ballet/keccak256) provides:
+- Assembly routines from AWS [s2n-bignum](https://github.com/awslabs/s2n-bignum) (`sha3_keccak_f1600.S`).
+- A portable C reference implementation (`fd_keccak256_private.h`).
 
-## Strobe128
-
+## Strobe-128
 A sponge construction used to build non-interactive protocols.
 
 Used for [Merlin](https://merlin.cool/use/protocol.html) in the Zk El-Gamal
 native program. Follows the [spec](https://strobe.sourceforge.io/specs/).
 
 [Implementation](https://github.com/firedancer-io/firedancer/blob/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/merlin/fd_merlin.c)
-written by hand, using the [core Keccak256](#keccak256) provided by
+written by hand, using the [core Keccak-256](#keccak-256) provided by
 `s2n-bignum`.
 
-## X25519
+## LtHash (LtHash16-1024)
 
-An elliptic curve used for ECDH. Used for TLS key exchange.
+A homomorphic hashing scheme based on BLAKE3.
 
-[Implementation](https://github.com/firedancer-io/firedancer/blob/89ed44b4c521e314487b8f0145532dc1aa43953e/src/ballet/ed25519/fd_x25519.c)
-wraps the formally verified [s2n-bignum implementation](https://github.com/awslabs/s2n-bignum/blob/0b7acbefa447f2d1253d17bacd39c4c7ffd21f6d/x86/curve25519/curve25519_x25519.S).
+Used as a live hash over the Solana account database.
+
+## RSA
+
+A digital signature scheme.
+
+RSASSA-PSS and RSASSA-PKCS1-v1.5 are used for X.509 certificate
+verification and TLS connections.
+
+Big integer modular exponentiation is also used in the Solana SVM
+`big_mod_exp` syscall.
