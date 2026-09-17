@@ -213,6 +213,7 @@ for N in (256, 128, 64, 32, 16, 8, 4):
 
     if N>=64:
         for shift in range(0, 67*2, N):
+            if (N, shift)==(64, 128): continue # no caller
             print(f"void fd_reedsol_ifft_{N}_{shift:<2}( " + ', '.join(['gf_t*']*N) + " );", file=outf)
 
     macro_lines = [ ]
@@ -242,12 +243,14 @@ for N in (256, 128, 64, 32, 16, 8, 4):
 
     if N>=64:
         for shift in range(0, 67*2, N):
+            if (N, shift)==(64, 128): continue # no caller
             print(f"void fd_reedsol_fft_{N}_{shift:<2}( " + ', '.join(['gf_t*']*N) + " );", file=outf)
 
 print("#endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_fft_h */", file=outf)
 
 for N in (256, 128, 64):
     for shift in range(0, 67*2, N):
+        if (N, shift)==(64, 128): continue # no caller
         with open(f'wrapped_impl/fd_reedsol_fft_impl_{N}_{shift}.c', "wt") as outf:
             print('/* Note: This file is auto generated. */', file=outf)
             print('#include "../fd_reedsol_fft.h"', file=outf)

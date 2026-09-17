@@ -29,19 +29,4 @@ fd_zstd_rstream_open( FILE *         file,
                       ZSTD_DStream * dstream,
                       ulong          buf_sz );
 
-/* fd_zstd_wstream_open returns a compressing libc FILE handle.  The
-   returned file supports append-only fwrite(), fclose(), and ftell().
-   Writing to the returned FILE lazily compresses output bytes.
-   fflush() does NOT behave correctly.
-
-   The ownership of file is moved (closing the returned FILE handle also
-   closes the provided underlying file handle).
-
-   Calls malloc().  Logs to FD_LOG_WARNING on I/O error. */
-
-FILE *
-fd_zstd_wstream_open( FILE * file,
-                      int    level,
-                      ulong  buf_sz );
-
 #endif /* HEADER_fd_src_discof_backtest_fd_libc_zstd_h */
