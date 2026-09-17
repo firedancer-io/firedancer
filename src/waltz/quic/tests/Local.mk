@@ -2,7 +2,7 @@ ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_quic_sandbox.h fd_quic_test_helpers.h)
 $(call add-objs,fd_quic_stream_spam fd_quic_sandbox fd_quic_test_helpers,fd_quic)
 
-QUIC_TEST_LIBS:=fd_quic fd_tls fd_tango fd_ballet fd_waltz fd_util
+QUIC_TEST_LIBS:=fd_quic fd_tls fd_tango fd_ballet fd_waltz fd_util_extra fd_util
 
 # fd_quic unit tests
 $(call make-unit-test,test_quic_proto,      test_quic_proto,      fd_quic fd_util)
