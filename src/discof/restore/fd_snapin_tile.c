@@ -353,7 +353,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),         sizeof(fd_snapin_tile_t)                                          );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->snapin.max_live_slots ) );
 
-  /* Only tile 0 can handle the manifest */
+  /* Only tile 0 publishes the manifest */
   if( FD_LIKELY( !tile->kind_id ) ) {
     l = FD_LAYOUT_APPEND( l, fd_txncache_align(),               fd_txncache_footprint( tile->snapin.max_live_slots )         );
     l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),      fd_ssmanifest_parser_footprint()                             );

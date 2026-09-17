@@ -688,8 +688,8 @@ static void
 log_completion( fd_snapct_tile_t * ctx,
                 int                full ) {
   double elapsed = (double)(fd_log_wallclock() - ctx->snapshot_start_timestamp_ns) / 1e9;
-  if( full ) FD_LOG_NOTICE(( "full snapshot load completed in %.3f seconds", elapsed ));
-  else       FD_LOG_INFO  (( "incremental snapshot load completed in %.3f seconds", elapsed ));
+  if( full ) FD_LOG_INFO(( "full snapshot load completed in %.3f seconds", elapsed ));
+  else       FD_LOG_INFO(( "incremental snapshot load completed in %.3f seconds", elapsed ));
 }
 
 /* Blacklist the current peer: invalidate in ssping, remove from the

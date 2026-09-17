@@ -987,11 +987,15 @@ telemetry = true
     # this parallelism supported by the accounts database.
     execrp_tile_count = 10
 
-    # How many snapshot decompressor tiles to run.
+    # CPU cores used to decompress snapshots during startup. Multiple tiles
+    # help only for multi-frame snapshots. Increase if decompression is slow.
+    # Testing on an NVMe SSD capable of about 5 GB/s sequential writes found
+    # 2 decompressor and 5 loader tiles gave the best load time.
     snapdc_tile_count = 2
 
-    # How many parallel snapshot loader tiles to run.
-    snapin_tile_count = 4
+    # CPU cores used to load snapshot accounts during startup. Increase if
+    # account loading is slow; decompression or disk speed may limit scaling.
+    snapin_tile_count = 5
 
     # How many snapshot compressor tiles to run.  These tiles do not
     # consume CPU when idle.  If set to 0, snapshot creation and all
