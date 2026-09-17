@@ -211,6 +211,28 @@ struct fd_configf {
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
 
+  struct {
+    int    enabled;
+    int    dial_peer;
+    char   bind_address[ 64 ];
+    ushort bind_port;
+    char   peer_address[ 64 ];
+    ushort peer_port;
+    char   peer_junk_pubkey[ 45 ];
+    char   junk_identity_path[ PATH_MAX ];
+    char   staked_identity_path[ PATH_MAX ];
+    int    accept_peer_requests;
+    ulong  status_interval_millis;
+    ulong  min_slots_to_leader;
+    ulong  deadline_slots;
+    ulong  catchup_gap_slots;
+    ulong  replication_lag_slots;
+    ulong  peer_silence_intervals;
+    ulong  retry_backoff_min_millis;
+    ulong  retry_backoff_max_millis;
+    int    tower_file;
+  } failover;
+
 };
 
 typedef struct fd_configf fd_configf_t;
@@ -297,6 +319,10 @@ struct fd_config {
   /* The name of the action being executed (e.g. "run", "dev",
      "backtest").  Populated by fd_main before topo_init runs. */
   char action[ 16 ];
+
+  /* One-time authorization, not to be loaded from TOML.  Passed onto
+     to children tiles only in this launch's config-fd. */
+  char failover_first_use[ 45 ];
 
   struct {
     char base[ PATH_MAX ];

@@ -8,6 +8,9 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 
+struct fd_tower_vote;
+typedef struct fd_tower_vote fd_tower_vote_t;
+
 /* FD_VOTE_IX_KIND_* give vote program instruction discriminants (first
    four bytes of instruction data).  Older instruction types are ignored
    by tower. */
@@ -63,6 +66,19 @@ int
 fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           uchar const *                   buf,
                           ulong                           buf_sz );
+
+int
+fd_compact_tower_sync_de_exact( fd_compact_tower_sync_serde_t * serde,
+                                uchar const *                   buf,
+                                ulong                           buf_sz );
+
+/* Validates a compact tower and expands its slot deltas.
+   Upon success, it writes the ascending votes, count, and root. */
+int
+fd_compact_tower_sync_to_votes( fd_compact_tower_sync_serde_t const * serde,
+                                fd_tower_vote_t *                     out,
+                                ulong *                              out_cnt,
+                                ulong *                              out_root );
 
 /* A buffer with capacity FD_VOTE_STATE_DATA_MAX can fit any valid vote
    account supported by tower (v2, v3, and v4). */

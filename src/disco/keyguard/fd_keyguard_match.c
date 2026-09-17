@@ -16,6 +16,7 @@
    - Merkle shred roots
    - TLS CertificateVerify challenges
    - Gossip message signed payloads (CrdsData)
+   - Tower file digests
 
    ### Fake Signing Attacks
 
@@ -49,8 +50,8 @@
      be parsed as transactions.
    - fd_keyguard_match_txn_harness verifies that the txn fingerprinting
      logic is free of false negatives.
-   - fd_keyguard_ambiguity_proof verifies that any input up to 2048 byte
-     size are unambiguous, i.e. either detected by one or none of the
+   - fd_keyguard_ambiguity_proof verifies that bounded inputs are
+     unambiguous, i.e. either detected by one or none of the
      fingerprinting functions.
 
    Under the hood, CBMC executes the keyguard logic with all possible
@@ -170,10 +171,12 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
       return 1;
     }
 
+    if( sz>FD_TXN_MTU_V0 ) return 0;
     sig_cnt = *cursor;
     cursor++;
   } else {
     /* Legacy message */
+    if( sz>FD_TXN_MTU_V0 ) return 0;
     sig_cnt = header_b0;
   }
 
@@ -225,6 +228,7 @@ fd_keyguard_payload_matches_prune_data( uchar const * data,
                                         ulong         sz,
                                         int           sign_type ) {
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz > FD_GOSSIP_MTU ) return 0;
 
   ulong const static_sz = 106UL;
   if( sz < static_sz ) return 0;
@@ -248,6 +252,7 @@ fd_keyguard_payload_matches_gossip( uchar const * data,
 
   /* All gossip messages except pings use raw signing */
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz > 1188UL-64UL ) return 0;
 
   /* Every gossip message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
@@ -266,6 +271,7 @@ fd_keyguard_payload_matches_repair( uchar const * data,
 
   /* All repair messages except pings use raw signing */
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz > FD_REPAIR_MAX_PREIMAGE_SZ ) return 0;
 
   /* Every repair message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
@@ -379,6 +385,19 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
+/* The tower tile hashes the saved tower file body and requests
+   ed25519_sign(sha256(digest)).  No other payload is 32 bytes with
+   SHA256_ED25519 (pong is 48), and the signed message is a hash of the
+   request, so it cannot double as a shred signature. */
+
+static int
+fd_keyguard_payload_matches_tower_file( uchar const * data,
+                                        ulong         sz,
+                                        int           sign_type ) {
+  (void)data;
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 && sz==32UL;
+}
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
@@ -395,5 +414,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_bundle    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE,  0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,   0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_tower_file( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,   0 );
   return res;
 }

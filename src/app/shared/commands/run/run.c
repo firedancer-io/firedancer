@@ -69,6 +69,8 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+  if( FD_UNLIKELY( config->firedancer.failover.enabled && !config->firedancer.failover.dial_peer && config->firedancer.failover.bind_port<1024 ) )
+    fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for the failover listener" );
 }
 
 struct pidns_clone_args {
@@ -1488,6 +1490,14 @@ action_t fd_action_run1 = {
   .args_help   = run1_args_help,
 };
 
+static void
+run_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--failover-first-use", "<staked-pubkey>",
+                      "Authorize one launch of a genuinely new failover voter without a tower file.\n"
+                      "Does not override an invalid file or known voting history. Do not use this\n"
+                      "option to recover a lost tower." );
+}
+
 action_t fd_action_run = {
   .name           = "run",
   .args           = NULL,
@@ -1500,6 +1510,7 @@ action_t fd_action_run = {
                     "sufficient privileges to perform boot-time setup, after which it drops\n"
                     "privileges to the configured user.",
   .usage          = "run [OPTIONS]",
+  .args_help      = run_args_help,
   .permission_err = "insufficient permissions to execute command `%s`. It is recommended "
                     "to start Firedancer as the root user, but you can also start it "
                     "with the missing capabilities listed above. The program only needs "
