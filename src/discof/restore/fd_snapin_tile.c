@@ -221,13 +221,13 @@ struct fd_snapin_shmem {
     ulong fork_id;
   } attempt;
 
-  /* Per-tile attempt totals. */
+  /* Per-tile attempt values. */
   struct __attribute__((aligned(128))) {
     ulong loaded;
     ulong duplicates;
     ulong input_lamports;
     ulong duplicate_lamports;
-  } totals[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  } values[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   /* Atomic index of the next unclaimed appendvec. */
   ulong next_appendvec_ticket __attribute__((aligned(128)));
@@ -1193,10 +1193,10 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     ctx->metrics.accounts_ignored  += accounts_ignored;
     ctx->metrics.accounts_replaced += accounts_replaced;
     ctx->metrics.accounts_loaded   += accounts_loaded;
-    ctx->shmem->totals[ tile_idx ].loaded            += accounts_loaded;
-    ctx->shmem->totals[ tile_idx ].duplicates        += accounts_ignored + accounts_replaced;
-    ctx->shmem->totals[ tile_idx ].input_lamports     = fd_ulong_sat_add( ctx->shmem->totals[ tile_idx ].input_lamports, input_lamports );
-    ctx->shmem->totals[ tile_idx ].duplicate_lamports = fd_ulong_sat_add( ctx->shmem->totals[ tile_idx ].duplicate_lamports,
+    ctx->shmem->values[ tile_idx ].loaded            += accounts_loaded;
+    ctx->shmem->values[ tile_idx ].duplicates        += accounts_ignored + accounts_replaced;
+    ctx->shmem->values[ tile_idx ].input_lamports     = fd_ulong_sat_add( ctx->shmem->values[ tile_idx ].input_lamports, input_lamports );
+    ctx->shmem->values[ tile_idx ].duplicate_lamports = fd_ulong_sat_add( ctx->shmem->values[ tile_idx ].duplicate_lamports,
                                                                           fd_ulong_sat_add( replaced_lamports, ignored_lamports ) );
   }
 
@@ -1556,8 +1556,8 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
   ulong duplicate_lamports = 0UL;
   FD_COMPILER_MFENCE();
   for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
-    input_lamports      = fd_ulong_sat_add( input_lamports,     ctx->shmem->totals[ i ].input_lamports     );
-    duplicate_lamports  = fd_ulong_sat_add( duplicate_lamports, ctx->shmem->totals[ i ].duplicate_lamports );
+    input_lamports      = fd_ulong_sat_add( input_lamports,     ctx->shmem->values[ i ].input_lamports     );
+    duplicate_lamports  = fd_ulong_sat_add( duplicate_lamports, ctx->shmem->values[ i ].duplicate_lamports );
   }
 
   ulong capitalization = fd_ulong_if( ctx->full, 0UL, ctx->lead.recovery.capitalization );
@@ -1576,8 +1576,8 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
 static void
 fold_account_counts( fd_snapin_tile_t * ctx ) {
   for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
-    ctx->lead.account_counts.loaded     += ctx->shmem->totals[ i ].loaded;
-    ctx->lead.account_counts.duplicates += ctx->shmem->totals[ i ].duplicates;
+    ctx->lead.account_counts.loaded     += ctx->shmem->values[ i ].loaded;
+    ctx->lead.account_counts.duplicates += ctx->shmem->values[ i ].duplicates;
   }
 }
 
@@ -1672,7 +1672,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->lead.init_completed = 1;
 
       /* Reset shared state before publishing the attempt slot. */
-      fd_memset( &ctx->shmem->totals, 0, sizeof(ctx->shmem->totals) );
+      fd_memset( &ctx->shmem->values, 0, sizeof(ctx->shmem->values) );
       FD_VOLATILE( ctx->shmem->next_appendvec_ticket ) = 0UL;
       FD_COMPILER_MFENCE();
 
