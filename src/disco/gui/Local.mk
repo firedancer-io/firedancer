@@ -30,8 +30,8 @@ FD_GUI_GZIP_INPUTS := src/ballet/zstd/fd_gzip_pack.c src/disco/gui/assets.mk src
 # member-list stamps (rewritten only on change): a removed source is an input change too
 ifdef FD_STAMPS
 $(shell mkdir -p $(OBJDIR)/tool)
-$(call stamp,$(OBJDIR)/tool/zstd.mlist,$(filter %.c,$(FD_GUI_ZSTD_INPUTS)))
-$(call stamp,$(OBJDIR)/tool/zlib.mlist,$(filter %.c,$(FD_GUI_GZIP_INPUTS)))
+$(call manifest,$(OBJDIR)/tool/zstd.mlist,$(filter %.c,$(FD_GUI_ZSTD_INPUTS)))
+$(call manifest,$(OBJDIR)/tool/zlib.mlist,$(filter %.c,$(FD_GUI_GZIP_INPUTS)))
 endif
 FD_GUI_ZSTD_INPUTS += $(wildcard $(OBJDIR)/tool/zstd.mlist)
 FD_GUI_GZIP_INPUTS += $(wildcard $(OBJDIR)/tool/zlib.mlist)
