@@ -358,7 +358,7 @@ Make sure to handle `EINTR` correctly.
 To generate an HTML coverage report for a single test:
 
 ```bash
-make -j CC=clang EXTRAS=llvm-cov BUILDDIR=clang-cov
+make -j CC=clang EXTRAS=llvm-cov BUILDDIR=clang-cov all
 ./contrib/test/single_test_cov.sh build/clang-cov/unit-test/test_xxx
 ```
 

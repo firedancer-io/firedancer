@@ -1,4 +1,4 @@
-.PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps proof
+.PHONY: default all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps proof
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
 .PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-generated frontend-clean env objdir
 
@@ -132,6 +132,7 @@ RMDIR+=-v
 endif
 
 all: info bin include lib unit-test fuzz-test
+default: $$(notdir $$(filter %/bin/firedancer %/bin/firedancer-dev,$$(ALL_EXES)))
 
 # first prerequisite of bin, so every build-info job is walked before any exe
 .PHONY: buildinfo
@@ -164,7 +165,8 @@ help:
 	# SCRUB           = $(SCRUB)
 	# FUZZFLAGS       = $(FUZZFLAGS)
 	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
-	# Explicit goals are: all bin include lib unit-test integration-test help clean distclean asm ppp
+	# Explicit goals are: default all bin include lib unit-test integration-test help clean distclean asm ppp
+	# "make" (default) is equivalent to "make firedancer firedancer-dev"
 	# "make all" is equivalent to "make bin include lib unit-test fuzz-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make check" quickly checks for obvious compile errors

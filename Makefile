@@ -2,7 +2,9 @@
 #
 #  make -j
 #
-# will do a parallel make all targets for the native machine.
+# will do a parallel make of the firedancer and firedancer-dev binaries
+# for the native machine; "make -j all" also makes the libraries,
+# headers, unit tests and fuzz tests.
 #
 # The environment variable MACHINE allows building for different
 # machines.  As such, the above is equivalent to running:
@@ -74,7 +76,7 @@ endif
 override EXTRAS:=$(sort $(EXTRAS))
 
 # Default target
-all:
+default:
 
 include $(wildcard $(addprefix config/extra/with-,$(addsuffix -pre.mk,$(EXTRAS))))
 include config/machine/$(MACHINE).mk

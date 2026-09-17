@@ -117,7 +117,7 @@ PATH=/opt/rh/gcc-toolset-12/root/usr/bin:$PATH
 export PATH
 PKG_CONFIG_PATH=/usr/lib64/pkgconfig:$PKG_CONFIG_PATH
 echo "y"|./deps.sh
-make -j
+make -j all
 FD_OBJDIR=$(make --silent --no-print-directory objdir 2>/dev/null || true)
 : "${FD_OBJDIR:?cannot determine OBJDIR (make objdir failed)}"
 FD_OBJDIR=$(realpath -m "$FD_OBJDIR")   # cwd is FIREDANCER_REPO; absolute either way
