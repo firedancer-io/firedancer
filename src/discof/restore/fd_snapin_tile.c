@@ -221,13 +221,13 @@ struct fd_snapin_shmem {
     ulong fork_id;
   } attempt;
 
-  /* Workers atomically add per-attempt totals before FINI ACK. */
-  struct {
+  /* Per-tile attempt totals. */
+  struct __attribute__((aligned(128))) {
     ulong loaded;
     ulong duplicates;
     ulong input_lamports;
     ulong duplicate_lamports;
-  } totals;
+  } totals[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   /* Atomic index of the next unclaimed appendvec. */
   ulong next_appendvec_ticket __attribute__((aligned(128)));
@@ -294,14 +294,6 @@ struct fd_snapin_tile {
   ulong appendvec_seq;      /* next appendvec number */
   ulong claimed_appendvec;  /* current claim */
   ulong incr_fork;          /* insert fork; USHORT_MAX for full */
-
-  /* Added to shared totals at FINI. */
-  struct {
-    ulong loaded;
-    ulong duplicates;
-    ulong input_lamports;
-    ulong duplicate_lamports;
-  } worker;
 
   struct {
     uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(64)));
@@ -1153,6 +1145,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
 
   fd_accdb_fork_id_t fork_id = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
   fd_snapin_account_batch_t * batch = &ctx->writer.batch;
+  ulong tile_idx = ctx->tile_idx;
 
   uchar const * pubkeys[ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong slots          [ FD_SSPARSE_ACC_BATCH_MAX ];
@@ -1200,10 +1193,11 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     ctx->metrics.accounts_ignored  += accounts_ignored;
     ctx->metrics.accounts_replaced += accounts_replaced;
     ctx->metrics.accounts_loaded   += accounts_loaded;
-    ctx->worker.loaded             += accounts_loaded;
-    ctx->worker.duplicates         += accounts_ignored + accounts_replaced;
-    ctx->worker.input_lamports      = fd_ulong_sat_add( ctx->worker.input_lamports, input_lamports );
-    ctx->worker.duplicate_lamports  = fd_ulong_sat_add( ctx->worker.duplicate_lamports, fd_ulong_sat_add( replaced_lamports, ignored_lamports ) );
+    ctx->shmem->totals[ tile_idx ].loaded            += accounts_loaded;
+    ctx->shmem->totals[ tile_idx ].duplicates        += accounts_ignored + accounts_replaced;
+    ctx->shmem->totals[ tile_idx ].input_lamports     = fd_ulong_sat_add( ctx->shmem->totals[ tile_idx ].input_lamports, input_lamports );
+    ctx->shmem->totals[ tile_idx ].duplicate_lamports = fd_ulong_sat_add( ctx->shmem->totals[ tile_idx ].duplicate_lamports,
+                                                                          fd_ulong_sat_add( replaced_lamports, ignored_lamports ) );
   }
 
   FD_TEST( buf_off==ctx->writer.buf_used );
@@ -1535,7 +1529,6 @@ reset_attempt_state( fd_snapin_tile_t * ctx ) {
   ctx->staged.data_len        = 0UL;
   ctx->staged.bytes_received  = 0UL;
 
-  fd_memset( &ctx->worker, 0, sizeof(ctx->worker) );
   fd_ssparse_init( ctx->ssparse );
   fd_ssparse_batch_enable( ctx->ssparse, 1 );
 }
@@ -1559,9 +1552,17 @@ start_processing_attempt( fd_snapin_tile_t * ctx ) {
 
 static int
 validate_capitalization( fd_snapin_tile_t * ctx ) {
+  ulong input_lamports = 0UL;
+  ulong duplicate_lamports = 0UL;
+  FD_COMPILER_MFENCE();
+  for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
+    input_lamports      = fd_ulong_sat_add( input_lamports,     ctx->shmem->totals[ i ].input_lamports     );
+    duplicate_lamports  = fd_ulong_sat_add( duplicate_lamports, ctx->shmem->totals[ i ].duplicate_lamports );
+  }
+
   ulong capitalization = fd_ulong_if( ctx->full, 0UL, ctx->lead.recovery.capitalization );
-  capitalization = fd_ulong_sat_add( capitalization, ctx->shmem->totals.input_lamports     );
-  capitalization = fd_ulong_sat_sub( capitalization, ctx->shmem->totals.duplicate_lamports );
+  capitalization = fd_ulong_sat_add( capitalization, input_lamports     );
+  capitalization = fd_ulong_sat_sub( capitalization, duplicate_lamports );
   if( FD_UNLIKELY( capitalization!=ctx->lead.manifest_capitalization ) ) {
     /* SnapshotError::MismatchedCapitalization
         https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
@@ -1570,6 +1571,14 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
     return -1;
   }
   return 0;
+}
+
+static void
+fold_account_counts( fd_snapin_tile_t * ctx ) {
+  for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
+    ctx->lead.account_counts.loaded     += ctx->shmem->totals[ i ].loaded;
+    ctx->lead.account_counts.duplicates += ctx->shmem->totals[ i ].duplicates;
+  }
 }
 
 static void
@@ -1716,11 +1725,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       fd_accdb_flush_metrics( ctx->accdb );
 
-      /* Add this tile's totals before the FINI ack. */
-      FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->totals.loaded,             ctx->worker.loaded             );
-      FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->totals.duplicates,         ctx->worker.duplicates         );
-      FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->totals.input_lamports,     ctx->worker.input_lamports     );
-      FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->totals.duplicate_lamports, ctx->worker.duplicate_lamports );
+      /* Publish prior total updates before the FINI ack. */
       FD_COMPILER_MFENCE(); /* publish before ack */
 
       /* Keep per-tile gauges. Dashboards sum them. */
@@ -1747,14 +1752,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
+      if( FD_UNLIKELY( validate_capitalization( ctx ) ) ) {
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
       }
 
-      ctx->lead.account_counts.loaded     += ctx->shmem->totals.loaded;
-      ctx->lead.account_counts.duplicates += ctx->shmem->totals.duplicates;
+      fold_account_counts( ctx );
       ctx->lead.recovery.capitalization    = ctx->lead.manifest_capitalization;
       fd_accdb_snapshot_save_whead( ctx->accdb, &ctx->lead.recovery.accdb_metadata );
       ctx->lead.init_completed = 0;
@@ -1774,14 +1778,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
+      if( FD_UNLIKELY( validate_capitalization( ctx ) ) ) {
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
       }
 
-      ctx->lead.account_counts.loaded     += ctx->shmem->totals.loaded;
-      ctx->lead.account_counts.duplicates += ctx->shmem->totals.duplicates;
+      fold_account_counts( ctx );
       if( !ctx->full ) {
         fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->lead.accdb_incr_fork_id );
         /* ensure that snapin tile sees all delta changes before rooting */

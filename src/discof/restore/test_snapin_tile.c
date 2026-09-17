@@ -2363,7 +2363,7 @@ test_retry_resets( void ) {
   /* The claim counter is deliberately NOT reset by FAIL: only tile 0's
      next INIT re-zeroes it. */
   FD_TEST( cl->shmem->next_appendvec_ticket==mid_claims );
-  cl->shmem->totals.input_lamports = 5678UL;
+  cl->shmem->totals[ FD_TOPO_MAX_TILE_IN_LINKS-1UL ].input_lamports = 5678UL;
 
   /* Retry.  Tile 0 rolls back first, then re-zeroes and republishes. */
   test_counters_reset();
@@ -2376,7 +2376,7 @@ test_retry_resets( void ) {
   FD_TEST( !test_accdb_revert_whead_cnt );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( !cl->ctx[ t ].writer.buf_used );
 
-  FD_TEST( !cl->shmem->totals.input_lamports );
+  FD_TEST( !cl->shmem->totals[ FD_TOPO_MAX_TILE_IN_LINKS-1UL ].input_lamports );
   FD_TEST( cl->shmem->next_appendvec_ticket==1UL );   /* claim sequence restarted at 0 */
   FD_TEST( cl->ctx[ 0 ].claimed_appendvec==0UL );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].attempt_number==2UL );
@@ -2413,24 +2413,18 @@ test_accumulator_fold( void ) {
   ulong exp_loaded=0UL, exp_duplicates=0UL;
   ulong exp_input=0UL, exp_duplicate_lamports=0UL;
   for( ulong t=0UL; t<n; t++ ) {
-    fd_snapin_tile_t * ctx = &cl->ctx[ t ];
-    ctx->worker.loaded             = 100UL+t;
-    ctx->worker.duplicates         =  11UL+2UL*t;
-    ctx->worker.input_lamports     = 1000000UL*(t+1UL);
-    ctx->worker.duplicate_lamports =    5700UL*(t+1UL);
+    cl->shmem->totals[ t ].loaded             = 100UL+t;
+    cl->shmem->totals[ t ].duplicates         =  11UL+2UL*t;
+    cl->shmem->totals[ t ].input_lamports     = 1000000UL*(t+1UL);
+    cl->shmem->totals[ t ].duplicate_lamports =    5700UL*(t+1UL);
 
-    exp_loaded             += ctx->worker.loaded;
-    exp_duplicates         += ctx->worker.duplicates;
-    exp_input              += ctx->worker.input_lamports;
-    exp_duplicate_lamports += ctx->worker.duplicate_lamports;
+    exp_loaded             += cl->shmem->totals[ t ].loaded;
+    exp_duplicates         += cl->shmem->totals[ t ].duplicates;
+    exp_input              += cl->shmem->totals[ t ].input_lamports;
+    exp_duplicate_lamports += cl->shmem->totals[ t ].duplicate_lamports;
   }
 
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
-
-  FD_TEST( cl->shmem->totals.loaded             ==exp_loaded             );
-  FD_TEST( cl->shmem->totals.duplicates         ==exp_duplicates         );
-  FD_TEST( cl->shmem->totals.input_lamports     ==exp_input              );
-  FD_TEST( cl->shmem->totals.duplicate_lamports ==exp_duplicate_lamports );
 
   /* Tile 0 reads the fold at NEXT. */
   test_stamp_slot_history( cl, bank_slot );
@@ -2695,6 +2689,8 @@ test_writer_flush( void ) {
   FD_TEST( !ctx->writer.buf_used && !ctx->writer.batch.cnt );
   FD_TEST( ctx->metrics.accounts_loaded==1UL );
   FD_TEST( ctx->metrics.disk_bytes_written==entry_sz );
+  FD_TEST( ctx->shmem->totals[ ctx->tile_idx ].loaded==1UL );
+  FD_TEST( ctx->shmem->totals[ ctx->tile_idx ].input_lamports==7UL );
 }
 
 static void
