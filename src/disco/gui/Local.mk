@@ -27,11 +27,16 @@ FD_GUI_FRONTEND_CMP_FILES := $(addsuffix .zst,$(FD_GUI_FRONTEND_CMP)) $(addsuffi
 # every input.
 FD_GUI_ZSTD_INPUTS := src/ballet/zstd/fd_zstd_pack.c src/disco/gui/assets.mk src/third_party/zstd/Local.mk $(wildcard src/third_party/zstd/lib/*.h src/third_party/zstd/lib/common/* src/third_party/zstd/lib/compress/*)
 FD_GUI_GZIP_INPUTS := src/ballet/zstd/fd_gzip_pack.c src/disco/gui/assets.mk src/third_party/zlib/Local.mk $(wildcard src/third_party/zlib/*.c src/third_party/zlib/*.h)
-# member-list stamps (rewritten only on change): a removed source is an input change too
+# member-list stamps (rewritten only on change): a removed source is an
+# input change too.  In a fresh OBJDIR (no .flags yet) the first lists
+# are not; date them like the packer sources.
 ifdef FD_STAMPS
 $(shell mkdir -p $(OBJDIR)/tool)
 $(call manifest,$(OBJDIR)/tool/zstd.mlist,$(filter %.c,$(FD_GUI_ZSTD_INPUTS)))
 $(call manifest,$(OBJDIR)/tool/zlib.mlist,$(filter %.c,$(FD_GUI_GZIP_INPUTS)))
+ifeq ($(wildcard $(OBJDIR)/.flags),)
+$(shell touch -r src/ballet/zstd/fd_zstd_pack.c $(OBJDIR)/tool/zstd.mlist; touch -r src/ballet/zstd/fd_gzip_pack.c $(OBJDIR)/tool/zlib.mlist)
+endif
 endif
 FD_GUI_ZSTD_INPUTS += $(wildcard $(OBJDIR)/tool/zstd.mlist)
 FD_GUI_GZIP_INPUTS += $(wildcard $(OBJDIR)/tool/zlib.mlist)
