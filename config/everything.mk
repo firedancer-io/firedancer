@@ -103,15 +103,20 @@ endef
 FD_MF1:=$(firstword $(MAKEFLAGS))
 FD_MF1:=$(if $(findstring =,$(FD_MF1))$(filter -%,$(FD_MF1)),,$(FD_MF1))
 FD_DRYRUN:=$(findstring n,$(FD_MF1))$(findstring q,$(FD_MF1))$(findstring t,$(FD_MF1))
-# Member-list stamps and manifests are written while the fragments parse:
-# $(call stamp,file,content) rewrites only when content changed.  Dry runs
-# instead mark a changed stamp phony so -n/-q report the pending work.
-# A LOCAL_MKS subset parse sees partial member lists: no stamps then.
+FD_PRUNE:=$(filter prune,$(MAKECMDGOALS))
+# Member-list stamps: $(call stamp,file,content) compares at parse and, on change, gives the
+# stamp a recipe so make writes it only when its archive/exe is walked; dry runs mark it phony
+# instead.  Manifests have no dependents and are written in place ($(call manifest)).  A
+# LOCAL_MKS subset parse sees partial member lists: no stamps then.
 ifeq ($(filter $(AUX_RULES) $(DRY_RULES),$(MAKECMDGOALS))$(FD_DRYRUN)$(filter-out file,$(origin LOCAL_MKS)),)
 FD_STAMPS:=1
-$(shell mkdir -p $(addprefix $(OBJDIR)/,bin lib unit-test integration-test fuzz-test))
 endif
-stamp = $(if $(subst |$(strip $(file <$(1))),,|$(strip $(2))),$(if $(FD_STAMPS),$(file >$(1),$(2)),$(if $(FD_DRYRUN),$(eval .PHONY: $(1)))))
+define _stamp-rule
+$(1): FORCE
+	@$$(file >$$@,$(2))
+endef
+stamp = $(if $(subst |$(strip $(file <$(1))),,|$(strip $(2))),$(if $(FD_STAMPS),$(eval $(call _stamp-rule,$(1),$(2))),$(if $(FD_DRYRUN),$(eval .PHONY: $(1)))))
+manifest = $(if $(subst |$(strip $(file <$(1))),,|$(strip $(2))),$(if $(FD_STAMPS),$(file >$(1),$(2))))
 # per-target link-flag stamp name (see the .ldflags.d rule)
 ldstamp = $(OBJDIR)/.ldflags.d/$(1)_$(2)@$(subst /,_,$(subst $(space),_,$(strip $(subst $(OBJDIR)/,,$(subst $(CURDIR)/,,$(3))))))
 
@@ -209,7 +214,7 @@ run-integration-test:
 define _make-lib
 
 # registered here too, so a lib whose last member is dropped still re-archives
-LIB_NAMES+=$(1)
+LIB_NAMES+=$(filter-out $(LIB_NAMES),$(1))
 lib: $(OBJDIR)/lib/lib$(1).a
 
 endef
@@ -221,9 +226,9 @@ make-lib = $(eval $(call _make-lib,$(1)))
 
 define _add-objs
 
-DEPFILES+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
+DEPFILES_$(MKPATH)+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
-LIB_NAMES+=$(2)
+LIB_NAMES+=$(filter-out $(LIB_NAMES),$(2))
 LIB_OBJS_$(2)+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
 
 $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
@@ -240,7 +245,7 @@ define _add-asms
 # separate from DEPFILES: asm objects have no .S/.i/.check-from-.c targets
 ASM_DEPFILES+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
-LIB_NAMES+=$(2)
+LIB_NAMES+=$(filter-out $(LIB_NAMES),$(2))
 LIB_OBJS_$(2)+=$(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
 
 $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o))
@@ -301,6 +306,10 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 SCHED_HOT_OBJS?=third_party/blst/% discof/replay/% discof/rpc/% disco/gui/% ballet/reedsol/% flamenco/vm/% third_party/zstd/lib/compress/% disco/pack/% waltz/quic/fd_quic app/firedancer/topology app/shared/commands/watch/% discof/forest/% discof/%_tile disco/%_tile flamenco/accdb/fd_accdb third_party/zstd/lib/decompress/% ballet/sha256/% ballet/sha512/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat disco/events/% disco/topo/% ballet/blake3/% discof/chainer/% flamenco/rewards/% choreo/tower/% disco/shred/% \
   waltz/http/fd_http_server flamenco/runtime/tests/fd_dump_pb ballet/x509/fd_x509 ballet/toml/fd_toml third_party/cjson/% ballet/zksdk/rangeproofs/% util/log/fd_log util/alloc/fd_alloc util/pod/fd_pod util/wksp/fd_wksp_restore_v2 util/shmem/fd_shmem_admin util/sandbox/fd_sandbox util/tpool/fd_tpool util/wksp/fd_wksp_helper util/wksp/fd_wksp_admin
 sched-hot-objs = $(filter $(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(lib))),$(SCHED_HOT_ALL))
+# make 4.3 second-expands every rule at parse: the exe-level hot edge stays on bins and
+# goal tests only; each meta gets one over its exes' lib union, declared first so it leads
+EXE_METAS:=bin rust lib unit-test integration-test fuzz-test
+$(EXE_METAS): $$(if $$(META_LIBS_$$@),$$(call sched-hot-objs,$$(sort $$(META_LIBS_$$@))))
 
 # _make-exe usage:
 #
@@ -312,14 +321,15 @@ sched-hot-objs = $(filter $(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(li
 #   $(6): Extra LDFLAGS
 define _make-exe
 
-DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
+DEPFILES_$(MKPATH)+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
 ALL_EXES+=$(OBJDIR)/$(5)/$(1)
+EXE_NAMES+=$(1)
+META_LIBS_$(4)+=$(filter-out $(META_LIBS_$(4)),$(3))
 # member list: resolved objs + libs (arg 6 has its own .ldflags.d stamp)
 $(call stamp,$(OBJDIR)/$(5)/$(1).mlist,$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(3))
-EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)),$(OBJDIR)/$(5)/$(1).buildinfo.c $(OBJDIR)/$(5)/$(1).buildinfo.o $(OBJDIR)/$(5)/$(1).buildinfo.o.new $(BASEDIR)/$(1))
+$(if $(FD_PRUNE),EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)),$(OBJDIR)/$(5)/$(1).buildinfo.c $(OBJDIR)/$(5)/$(1).buildinfo.o $(OBJDIR)/$(5)/$(1).buildinfo.o.new $(BASEDIR)/$(1)))
 
-.PHONY: $(1)
 ifeq ($(5),bin)
 # build info captured by its own early job; the link installs it
 $(OBJDIR)/bin/$(1).buildinfo.o.new: FORCE
@@ -329,13 +339,13 @@ $(OBJDIR)/bin/$(1): | $(OBJDIR)/bin/$(1).buildinfo.o.new
 endif
 $(1): $(OBJDIR)/$(5)/$(1)
 
-$(OBJDIR)/$(5)/$(1): $$$$(call sched-hot-objs,$(3)) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(call exe-lib-deps,$(3) $(EXE_VENDOR_LIBS)) $(OBJDIR)/.ldflags $(call ldstamp,$(5),$(1),$(6)) $(OBJDIR)/$(5)/$(1).mlist
+$(OBJDIR)/$(5)/$(1): $(if $(filter bin,$(5))$(filter $(1) $(OBJDIR)/$(5)/$(1),$(MAKECMDGOALS)),$$$$(call sched-hot-objs,$(3))) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(call exe-lib-deps,$(3) $(EXE_VENDOR_LIBS)) $(OBJDIR)/.ldflags $(call ldstamp,$(5),$(1),$(6)) $(OBJDIR)/$(5)/$(1).mlist
 	@printf 'LD\t%s (%s)\n' $$(notdir $$@) $(5)
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $(if $(filter bin,$(5)),mv -f $$@.buildinfo.o.new $$@.buildinfo.o && ) \
 $$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $$(call exe-lib-args,$(3)) $(6) $$(LDFLAGS) $$(call exe-lib-args,$(EXE_VENDOR_LIBS)) -o $$@.tmp && mv -f $$@.tmp $$@
 
-$(4): $(OBJDIR)/$(5)/$(1) $(call exe-meta-deps,$(3))
+$(4): $(OBJDIR)/$(5)/$(1)
 
 endef
 
@@ -423,10 +433,10 @@ make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3),$(4) $(LDFLAGS_EXE)))
 
 define _make-tool
 
-DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
+DEPFILES_$(MKPATH)+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 ALL_EXES+=$(OBJDIR)/bin/$(1)
+EXE_NAMES+=$(1)
 $(call stamp,$(OBJDIR)/bin/$(1).mlist,$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(3))
-.PHONY: $(1)
 $(1) bin: $(OBJDIR)/bin/$(1)
 
 $(OBJDIR)/bin/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(call exe-lib-deps,$(3)) $(OBJDIR)/.ldflags $(OBJDIR)/bin/$(1).mlist
@@ -524,6 +534,7 @@ ifeq ($(filter $(AUX_RULES),$(MAKECMDGOALS)),)
 
 define _include-mk
 MKPATH:=$(dir $(1))
+MK_DIRS+=$(dir $(1))
 include $(1)
 MKPATH:=
 endef
@@ -531,6 +542,11 @@ endef
 # Include all of the Local.mk files we found earlier
 $(foreach mk,$(LOCAL_MKS),$(eval $(call _include-mk,$(mk))))
 
+# += copies the whole value per eval: DEPFILES accumulates per fragment, joined once here
+DEPFILES:=$(strip $(foreach d,$(MK_DIRS),$(DEPFILES_$(d))) $(DEPFILES_))
+.PHONY: $(EXE_NAMES)
+# archives stay outputs of the meta targets (see exe-meta-deps), once per meta
+$(foreach m,$(EXE_METAS),$(eval $(m): $(call exe-meta-deps,$(sort $(META_LIBS_$(m))))))
 # registered members matching SCHED_HOT_OBJS, pattern-major
 SCHED_HOT_ALL:=$(foreach p,$(SCHED_HOT_OBJS),$(filter $(OBJDIR)/obj/$(p).o,$(foreach l,$(sort $(LIB_NAMES)),$(LIB_OBJS_$(l)))))
 
@@ -542,9 +558,16 @@ SCHED_HOT_ALL:=$(foreach p,$(SCHED_HOT_OBJS),$(filter $(OBJDIR)/obj/$(p).o,$(for
 # Written after the fragments (any of them may extend the flags).
 FLAVOR:=$(MACHINE) | $(sort $(EXTRAS)) | $(CC_ID) $(CC_VERSION) | $(CPPFLAGS) | $(CFLAGS)
 LINK_FLAVOR:=$(LD_ID) | $(LDFLAGS) | $(LDFLAGS_EXE) | $(LDFLAGS_SO) | $(LDFLAGS_FUZZ)
+# fresh OBJDIR (no .flags yet): no depfile can exist
+FD_FRESH_OBJDIR:=$(if $(wildcard $(OBJDIR)/.flags),,1)
 ifeq ($(filter $(DRY_RULES),$(MAKECMDGOALS))$(FD_DRYRUN),)
-OBJ_DIRS:=$(sort $(dir $(DEPFILES) $(ASM_DEPFILES) $(THIRDPARTY_DEPFILES)))
-$(shell mkdir -p $(OBJDIR) $(OBJ_DIRS))
+# every dir a recipe or stamp writes into, with ancestors; one plain mkdir of the missing ones
+parent-dirs = $(sort $(filter-out ./ /,$(dir $(patsubst %/,%,$(1)))))
+dir-tree = $(if $(1),$(1) $(call dir-tree,$(call parent-dirs,$(1))))
+OBJ_DIRS:=$(sort $(dir $(DEPFILES) $(ASM_DEPFILES) $(THIRDPARTY_DEPFILES)) $(addprefix $(OBJDIR)/,bin/ lib/ unit-test/ integration-test/ fuzz-test/))
+OBJ_DIRS:=$(sort $(call dir-tree,$(OBJ_DIRS)))
+NEW_DIRS:=$(filter-out $(wildcard $(OBJ_DIRS)),$(OBJ_DIRS))
+$(if $(NEW_DIRS),$(shell mkdir $(NEW_DIRS)))
 ifneq ($(strip $(file <$(OBJDIR)/.flags)),$(strip $(FLAVOR)))
 $(file >$(OBJDIR)/.flags,$(strip $(FLAVOR)))
 endif
@@ -578,8 +601,8 @@ $(foreach l,$(sort $(LIB_NAMES)),$(eval $(call _lib-objs-stamp,$(l))))
 endif
 ifdef FD_STAMPS
 ALL_OBJS:=$(sort $(DEPFILES:.d=.o) $(ASM_DEPFILES:.d=.o) $(THIRDPARTY_DEPFILES:.d=.o))
-$(call stamp,$(OBJDIR)/obj.manifest,$(subst $(space),$(newline),$(ALL_OBJS)))
-$(call stamp,$(OBJDIR)/exe.manifest,$(subst $(space),$(newline),$(sort $(ALL_EXES))))
+$(call manifest,$(OBJDIR)/obj.manifest,$(subst $(space),$(newline),$(ALL_OBJS)))
+$(call manifest,$(OBJDIR)/exe.manifest,$(subst $(space),$(newline),$(sort $(ALL_EXES))))
 endif
 
 # Parse-time code above owns the stamps; never remake them as targets
@@ -619,9 +642,8 @@ show-deps:
 check: $(DEPFILES:.d=.check)
 
 ifeq ($(filter $(AUX_RULES) $(DRY_RULES),$(MAKECMDGOALS)),)
-# Header edges from each object's last compile; the wildcard skips absent
-# ones. Vendored third_party TUs track deps separately (kept out of make check).
-include $(wildcard $(DEPFILES) $(ASM_DEPFILES) $(THIRDPARTY_DEPFILES))
+# header edges from each object's last compile; none can exist on a fresh OBJDIR
+include $(if $(FD_FRESH_OBJDIR),,$(wildcard $(DEPFILES) $(ASM_DEPFILES) $(THIRDPARTY_DEPFILES)))
 endif
 
 # Define the asm target.  Must be after the make fragments include so that

@@ -52,9 +52,11 @@ which = $(if $(findstring /,$(1)),$(1),$(shell command -v $(1) 2>/dev/null))
 
 # Compiler version keys the default build dir and gates version-specific
 # flags.
-cc-version = $(or $(shell $(1) -dumpfullversion -dumpversion 2>/dev/null | head -1),unknown)
+cc-version = $(or $(firstword $(shell $(1) -dumpfullversion -dumpversion)),unknown)
+ifneq ($(CC),$(CC_VERSION_OF))
 CC_VERSION:=$(call cc-version,$(CC))
 CC_VERSION_OF:=$(CC)
+endif
 CC_MAJOR_VERSION:=$(firstword $(subst ., ,$(filter-out unknown,$(CC_VERSION))))
 
 # Default _FORTIFY_SOURCE level
