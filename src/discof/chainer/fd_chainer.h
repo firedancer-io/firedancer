@@ -358,33 +358,44 @@ fd_chainer_init( fd_chainer_t *    chainer,
                  ulong             slot,
                  fd_hash_t const * block_id );
 
+/* Mutators that can create a slotv return it, or NULL if everything
+   they touched already existed; no call creates more than one.
+   shred_insert, fec_complete and verified_hash_insert can create the
+   slot's turbine version, verified_block_insert the version named.
+   (verified_parent_fec_count keeps its own contract, below.)  Pointers
+   stay valid until the next fd_chainer_publish. */
+
 /* fd_chainer_shred_insert inserts a shred into the chainer.  If the
    parent_slot is provided, parent_block_id must also be provided.
    Otherwise caller should pass AG_UNKNOWN_SLOT for parent_slot.
 
-   The shred may be rejected. */
+   The shred may be rejected (unauthorized equivocation); the caller
+   does not need to know.  Returns the turbine version if this call
+   created it, else NULL. */
 
-void
-fd_chainer_shred_insert( fd_chainer_t *    chainer,
-                         ulong             slot,
-                         uint              shred_idx,
-                         int               slot_complete,
-                         fd_hash_t const * mr,
-                         ulong             parent_slot,
-                         fd_hash_t const * parent_block_id );
+fd_chainer_slotv_t *
+fd_chainer_shred_insert( fd_chainer_t *        chainer,
+                         ulong                 slot,
+                         uint                  shred_idx,
+                         int                   slot_complete,
+                         fd_hash_t const *     mr,
+                         ulong                 parent_slot,
+                         fd_hash_t const *     parent_block_id );
 
-/* fd_chainer_fec_complete returns 0 if the FEC was accepted, 1 if
-   rejected (unauthorized equivocating root, or fec_set_idx beyond
-   max_shreds_per_block). */
+/* fd_chainer_fec_complete returns the turbine version if this call
+   created it, else NULL.  If opt_rejected is non-NULL it is set to 1
+   when the set was rejected (unauthorized equivocating root: dropped,
+   nothing completed) and 0 otherwise. */
 
-int
-fd_chainer_fec_complete( fd_chainer_t * chainer,
-                         ulong          slot,
-                         uint           fec_set_idx,
-                         int            slot_complete,
-                         int            data_complete,
-                         int            is_leader,
-                         fd_hash_t    * mr );
+fd_chainer_slotv_t *
+fd_chainer_fec_complete( fd_chainer_t *        chainer,
+                         ulong                 slot,
+                         uint                  fec_set_idx,
+                         int                   slot_complete,
+                         int                   data_complete,
+                         int                   is_leader,
+                         fd_hash_t *           mr,
+                         int *                 opt_rejected );
 
 /* fd_chainer_fec_evicted clears out the received shreds for a given
    FEC set, and also updates shred tracking for slots that have this FEC
@@ -396,8 +407,12 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
                         uint           fec_set_idx,
                         fd_hash_t    * merkle_root );
 
+/* fd_chainer_verified_block_insert records {slot, block_id} as a
+   verified version, abandoning the slot's turbine version if its
+   block_id is still unknown.  Returns the new version, or NULL if it
+   already existed. */
 
-void
+fd_chainer_slotv_t *
 fd_chainer_verified_block_insert( fd_chainer_t * chainer,
                                   ulong          slot,
                                   fd_hash_t      block_id );
@@ -424,14 +439,17 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
    repair type getFecSetRoot.  The information should be verified before
    calling this function; chainer does no verification.  Will CRIT if
    {slot, block_id} does not exist in the chainer yet, otherwise creates
-   the FEC entry if it doesn't exist yet and updates bookkeeping. */
+   the FEC entry if it doesn't exist yet and updates bookkeeping.  If
+   the root was already complete under another version the completion
+   is replayed, which can create the slot's turbine version (returned);
+   otherwise returns NULL. */
 
-void
-fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
-                                 ulong          slot,
-                                 fd_hash_t    * block_id,
-                                 uint           fec_set_idx,
-                                 fd_hash_t    * mr );
+fd_chainer_slotv_t *
+fd_chainer_verified_hash_insert( fd_chainer_t *        chainer,
+                                 ulong                 slot,
+                                 fd_hash_t *           block_id,
+                                 uint                  fec_set_idx,
+                                 fd_hash_t *           mr );
 
 /* fd_chainer_fec_query returns the FEC that the version of slot
    identified by block_id owns at fec_set_idx, or NULL. */
