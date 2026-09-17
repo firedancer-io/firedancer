@@ -2273,29 +2273,38 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">rotor_&#8203;pkt_&#8203;tx</span> | counter | Network packets sent, including reqs, pings, pongs, etc |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | Client messages sent, by type (Need Window) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | Client messages sent, by type (Need Highest Window) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | Client messages sent, by type (Need Orphans) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">parent_&#8203;fec_&#8203;count</span>"} | counter | Client messages sent, by type (Parent Fec Count) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">fec_&#8203;root</span>"} | counter | Client messages sent, by type (Fec Root) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">shred_&#8203;block_&#8203;id</span>"} | counter | Client messages sent, by type (Shred Block Id) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">pong</span>"} | counter | Client messages sent, by type (Pong) |
+| <span class="metrics-name">rotor_&#8203;pkt_&#8203;tx</span> | counter | Network packets sent, including requests, pings and pongs |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | Repair requests sent, by type (Need Window) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | Repair requests sent, by type (Need Highest Window) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | Repair requests sent, by type (Need Orphans) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">parent_&#8203;fec_&#8203;count</span>"} | counter | Repair requests sent, by type (Parent Fec Count) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">fec_&#8203;root</span>"} | counter | Repair requests sent, by type (Fec Root) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">shred_&#8203;block_&#8203;id</span>"} | counter | Repair requests sent, by type (Shred Block Id) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">pong</span>"} | counter | Repair requests sent, by type (Pong) |
 | <span class="metrics-name">rotor_&#8203;slot_&#8203;highest_&#8203;repaired</span> | gauge | Highest slot up to which we have fully repaired |
 | <span class="metrics-name">rotor_&#8203;slot_&#8203;current</span> | gauge | Our view of the current cluster slot, max slot received |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;old</span> | counter | Shreds received that were older than the root |
-| <span class="metrics-name">rotor_&#8203;slot_&#8203;last_&#8203;requested</span> | gauge | Last slot we requested a single shred for |
-| <span class="metrics-name">rotor_&#8203;orphan_&#8203;last_&#8203;requested</span> | gauge | Last slot we requested an orphan for |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;inflight</span> | gauge | Requests currently in the inflight queue, excluding orphans and highest window requests |
-| <span class="metrics-name">rotor_&#8203;peer_&#8203;requested</span> | counter | Peers requested |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;rerequested</span> | counter | Times we re-requested a shred from the inflights queue |
+| <span class="metrics-name">rotor_&#8203;slot_&#8203;turbine_&#8203;first</span> | gauge | First turbine slot seen, the catchup target |
+| <span class="metrics-name">rotor_&#8203;block_&#8203;check_&#8203;queued</span> | gauge | Blocks queued in the schedulor awaiting a repair check |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;inflight</span> | gauge | Requests sent whose response has not been matched |
+| <span class="metrics-name">rotor_&#8203;fec_&#8203;delivered</span> | counter | FEC sets published to replay |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;old</span> | counter | Shreds received that were at or below the root |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx</span> | counter | Data shreds received as repair responses |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx_&#8203;block_&#8203;id</span> | counter | Repair response shreds credited to a ShredForBlockId request |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx_&#8203;positional</span> | counter | Repair response shreds credited to a positional Shred request |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx_&#8203;unmatched</span> | counter | Repair response shreds matching no outstanding request |
+| <span class="metrics-name">rotor_&#8203;meta_&#8203;rx</span> | counter | Alpenglow repair metadata responses received |
+| <span class="metrics-name">rotor_&#8203;meta_&#8203;malformed</span> | counter | Metadata responses that failed to decode |
+| <span class="metrics-name">rotor_&#8203;meta_&#8203;unsolicited</span> | counter | Metadata responses matching no outstanding request |
+| <span class="metrics-name">rotor_&#8203;parent_&#8203;fec_&#8203;count_&#8203;ok</span> | counter | getParentAndFecSetCount responses accepted |
+| <span class="metrics-name">rotor_&#8203;parent_&#8203;fec_&#8203;count_&#8203;failed</span> | counter | getParentAndFecSetCount responses that failed verification |
+| <span class="metrics-name">rotor_&#8203;fec_&#8203;root_&#8203;ok</span> | counter | getFecSetRoot responses accepted |
+| <span class="metrics-name">rotor_&#8203;fec_&#8203;root_&#8203;failed</span> | counter | getFecSetRoot responses that failed verification |
+| <span class="metrics-name">rotor_&#8203;replay_&#8203;root_&#8203;advanced</span> | counter | Root advanced messages received from replay |
+| <span class="metrics-name">rotor_&#8203;replay_&#8203;missing_&#8203;fec</span> | counter | Missing FEC messages received from replay, each arming a from-root redelivery |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;malformed</span> | counter | Malformed pings received |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;unknown_&#8203;peer</span> | counter | Pings received from an unknown peer |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;signature_&#8203;failed</span> | counter | Pings whose signature we failed to verify |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;block_&#8203;id_&#8203;failed</span> | counter | Times we failed to verify a shred for block id response |
-| <span class="metrics-name">rotor_&#8203;fec_&#8203;root_&#8203;failed</span> | counter | Times we failed to verify a FEC root response |
-| <span class="metrics-name">rotor_&#8203;parent_&#8203;fec_&#8203;count_&#8203;failed</span> | counter | Times we failed to verify a parent FEC count response |
-| <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time it took to receive a repair request response, in nanoseconds |
+| <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time from sending a repair request to receiving its response, in nanoseconds |
 
 </div>
 

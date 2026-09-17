@@ -203,6 +203,13 @@ union fdctl_args {
   } tower;
 
   struct {
+    int metrics;
+    int once;
+    int chainer;
+    int schedulor;
+  } rotor;
+
+  struct {
     ulong ready_slot;
   } ready;
 

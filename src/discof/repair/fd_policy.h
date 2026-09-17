@@ -113,6 +113,13 @@ struct fd_policy {
 };
 typedef struct fd_policy fd_policy_t;
 
+/* fd_policy_peer_cnt returns how many repair peers are known. */
+
+FD_FN_PURE static inline ulong
+fd_policy_peer_cnt( fd_policy_t const * policy ) {
+  return fd_policy_peer_pool_used( policy->peers.pool );
+}
+
 /* Constructors */
 
 /* fd_policy_{align,footprint} return the required alignment and
