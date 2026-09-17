@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Detect native compiler features.
 # Writes a Make include fragment to the given output path.
 #
