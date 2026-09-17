@@ -1,5 +1,5 @@
 /* The rotor command attaches to a running validator's rotor tile and
-   prints the alpenglow chainer's orphan/repair worklist state. */
+   prints the alpenglow chainer's block state. */
 
 #include "../../../disco/topo/fd_topob.h"
 #include "../../shared/fd_config.h" /* config_t */
@@ -33,10 +33,6 @@ rotor_chainer_reloc( void * chainer_laddr, ulong ele_max, ulong max_shreds_per_b
   c.slotv_pool   = fd_slotv_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( blk_max )        ) );
   c.fec_tbl      =                       FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),           fec_max*sizeof(uint)                        );
   c.slotv_map    = fd_slotv_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( blk_chain_cnt ) ) );
-  c.work_pool    = fd_work_pool_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_work_pool_align(),    fd_work_pool_footprint   ( blk_max )        ) );
-  c.work_map     = fd_work_map_join    ( FD_SCRATCH_ALLOC_APPEND( l, fd_work_map_align(),     fd_work_map_footprint    ( blk_chain_cnt )) );
-  c.repair_treap = fd_work_repair_join ( FD_SCRATCH_ALLOC_APPEND( l, fd_work_repair_align(),  fd_work_repair_footprint ( blk_max )        ) );
-  c.orphan_treap = fd_work_orphan_join ( FD_SCRATCH_ALLOC_APPEND( l, fd_work_orphan_align(),  fd_work_orphan_footprint ( blk_max )        ) );
   c.bfs          = bfs_join            ( FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( blk_max )        ) );
   c.out_queue    = out_queue_join      ( FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),       out_queue_footprint      ( fec_max )        ) );
 
@@ -86,6 +82,6 @@ action_t fd_action_rotor = {
   .args        = rotor_cmd_args,
   .fn          = rotor_cmd_fn,
   .perm        = dev_cmd_perm,
-  .description = "Print the alpenglow rotor tile's chainer worklist state",
+  .description = "Print the alpenglow rotor tile's chainer block state",
   .usage       = "rotor",
 };
