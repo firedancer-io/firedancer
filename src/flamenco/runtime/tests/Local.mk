@@ -14,7 +14,9 @@ $(call add-objs,fd_block_harness,fd_flamenco_test)
 $(call add-objs,fd_sol_compat,fd_flamenco_test)
 
 $(call add-hdrs,generated/context.pb.h generated/instr.pb.h generated/txn.pb.h generated/bundle.pb.h generated/block.pb.h generated/vm.pb.h generated/vm_serialization.pb.h generated/metadata.pb.h generated/gossip.pb.h generated/cost.pb.h generated/elf.pb.h generated/shred.pb.h)
-$(call add-objs,generated/context.pb generated/instr.pb generated/txn.pb generated/bundle.pb generated/block.pb generated/vm.pb generated/vm_serialization.pb generated/metadata.pb generated/gossip.pb generated/cost.pb generated/elf.pb generated/shred.pb,fd_flamenco)
+$(call add-objs,generated/context.pb generated/instr.pb generated/txn.pb generated/block.pb generated/vm.pb generated/metadata.pb,fd_flamenco)
+# harness-only messages
+$(call add-objs,generated/bundle.pb generated/vm_serialization.pb generated/gossip.pb generated/cost.pb generated/elf.pb generated/shred.pb,fd_flamenco_test)
 
 ifdef FD_HAS_HOSTED
 SOL_COMPAT_FLAGS:=-Wl,--version-script=src/flamenco/runtime/tests/libfd_exec_sol_compat.map

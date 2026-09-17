@@ -3,9 +3,9 @@ $(call add-objs,fd_vm fd_vm_interp fd_vm_disasm fd_vm_trace,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
 $(call add-hdrs,test_vm_util.h)
-$(call add-objs,test_vm_util,fd_flamenco)
+$(call add-objs,test_vm_util,fd_flamenco_test)
 
-$(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_ballet fd_util fd_disco,$(BLST_LIBS))
+$(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco_test fd_flamenco fd_ballet fd_util fd_disco,$(BLST_LIBS))
 $(call run-unit-test,test_vm_interp)
 
 $(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_ballet fd_util)
