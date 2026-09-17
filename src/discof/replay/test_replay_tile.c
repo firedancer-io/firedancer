@@ -963,6 +963,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( root );
   root->f.slot                        = 0UL;
   root->f.parent_slot                 = 0UL;
+  root->f.ticks_per_slot              = 64UL;
   root->f.slot_params                 = FD_SLOT_PARAMS_400MS;
   root->f.slot_params.hashes_per_tick = 4UL;
   root->f.slot_params_default         = FD_SLOT_PARAMS_400MS;
@@ -3290,9 +3291,9 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
   setup_stem( ctx, wksp );
 
   ulong const bank_cnt = 4UL;
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 128UL, 8UL ), 1UL );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
   FD_TEST( banks_mem );
-  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 0, 43UL ) );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 0, 43UL ) );
   FD_TEST( ctx->banks );
 
   fd_bank_t * root = fd_banks_init_bank( ctx->banks );
@@ -3300,6 +3301,7 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
   fd_features_disable_all( &root->f.features );
   root->f.slot                        = snapshot_slot;
   root->f.parent_slot                 = snapshot_slot ? (snapshot_slot - 1UL) : 0UL;
+  root->f.ticks_per_slot              = 64UL;
   root->f.slot_params                 = FD_SLOT_PARAMS_400MS;
   root->f.slot_params.hashes_per_tick = 4UL;
   root->f.slot_params_default         = FD_SLOT_PARAMS_400MS;
@@ -3504,6 +3506,36 @@ test_wfs_leader_gate( fd_wksp_t * wksp ) {
 }
 
 static void
+test_wfs_snapshot_poh_reset( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t   ctx[1];
+  static fd_runtime_stack_t stack[1];
+
+  /* snapshot_done sets reset_cmr to manifest_block_id and publishes
+     REPLAY_SIG_RESET directly so PoH exits STATE_UNINIT before WFS
+     completes. */
+  memset( ctx, 0, sizeof(*ctx) );
+  fd_bank_t * root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
+  ctx->wfs_enabled                    = 1;
+  ctx->wfs_hash_is_zero               = 0;
+  ctx->expected_bank_hash             = root->f.bank_hash;
+  ctx->wait_for_supermajority_at_slot = 100UL;
+  ctx->expected_shred_version         = 1234;
+  ctx->wait_for_vote_to_start_leader  = FD_BOOLAU_AUTO;
+
+  snapshot_done( ctx );
+
+  /* reset_cmr must equal manifest_block_id. */
+  FD_TEST( fd_hash_eq( &ctx->reset_cmr, &root->f.block_id ) );
+
+  /* snapshot_done publishes: SLOT_COMPLETED, ROOT_ADVANCED, REPLAY_SIG_RESET. */
+  ulong out_idx = ctx->replay_out->idx;
+  FD_TEST( test_stem_seqs[ out_idx ]==3UL );
+  FD_TEST( replay_out_sig( ctx, 2UL )==REPLAY_SIG_RESET );
+
+  FD_LOG_NOTICE(( "pass: test_wfs_snapshot_poh_reset" ));
+}
+
+static void
 test_wfs_shred_version_deferral( void ) {
   static fd_replay_tile_t ctx[1];
   memset( ctx, 0, sizeof(*ctx) );
@@ -3549,6 +3581,7 @@ main( int     argc,
   test_wfs_auto_override( wksp );                   fd_wksp_reset( wksp, 42U );
   test_wfs_done_idempotency( wksp );                fd_wksp_reset( wksp, 42U );
   test_wfs_leader_gate( wksp );                     fd_wksp_reset( wksp, 42U );
+  test_wfs_snapshot_poh_reset( wksp );              fd_wksp_reset( wksp, 42U );
   test_wfs_shred_version_deferral();
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
   test_root_from_votor_cert( wksp );                fd_wksp_reset( wksp, 42U );
