@@ -12,7 +12,7 @@
 #define FD_VOTOR_SIG_LEADER (3)
 #define FD_VOTOR_SIG_REWARD (4)
 
-#define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server */
+#define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
 
 typedef fd_votor_rooted_t fd_votor_repair_t;
 

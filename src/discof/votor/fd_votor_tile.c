@@ -85,6 +85,8 @@ struct publish {
 };
 typedef struct publish publish_t;
 
+/* Root notifications can cover an entire replayed lineage.  Drain them
+   separately so each callback stays within the output burst. */
 #define QUEUE_NAME publishes
 #define QUEUE_T    publish_t
 #include "../../util/tmpl/fd_queue_dynamic.c"
@@ -245,7 +247,8 @@ struct fd_votor_tile {
 
   /* Links */
 
-  int in_kind[ 32 ];
+  fd_stem_context_t * stem;
+  int                 in_kind[ 32 ];
   struct {
     fd_wksp_t * mem;
     ulong       chunk0;
@@ -388,8 +391,9 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
 }
 
 static void
-publish_reward_certs( fd_votor_tile_t * ctx,
-                      ulong             slot ) {
+publish_reward_certs( fd_votor_tile_t *   ctx,
+                      fd_stem_context_t * stem,
+                      ulong               slot ) {
   publish_t           pub    = { .sig = FD_VOTOR_SIG_REWARD };
   fd_votor_reward_t * reward = &pub.msg.reward;
   memset( reward, 0, sizeof(fd_votor_reward_t) );
@@ -397,8 +401,9 @@ publish_reward_certs( fd_votor_tile_t * ctx,
 
   ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, slot );
   if( FD_UNLIKELY( !state ) ) {
-    FD_TEST( !publishes_full( ctx->publishes ) );
-    publishes_push( ctx->publishes, pub );
+    memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
+    fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     return;
   }
   ag_epoch_info_t const *       epoch_info  = state->epoch_info;
@@ -436,8 +441,9 @@ publish_reward_certs( fd_votor_tile_t * ctx,
     }
   }
 
-  FD_TEST( !publishes_full( ctx->publishes ) );
-  publishes_push( ctx->publishes, pub );
+  memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
+  fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 }
 
 static void
@@ -1048,6 +1054,7 @@ after_credit( fd_votor_tile_t *   ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
 
+  ctx->stem    = stem;
   long now     = fd_log_wallclock();
   *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
   for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
@@ -1058,8 +1065,8 @@ after_credit( fd_votor_tile_t *   ctx,
     memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
     fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
-    *opt_poll_in         = 0; /* drain the publishes */
-    *charge_busy         = 1;
+    *opt_poll_in = 0; /* drain root notifications before processing more input */
+    *charge_busy = 1;
     return;
   }
 
@@ -1111,8 +1118,9 @@ after_credit( fd_votor_tile_t *   ctx,
         FD_LOG_CRIT(( "unreachable" ));
       }
       if( FD_LIKELY( cert->kind!=AG_CERT_KIND_FINAL ) ) {
-        FD_TEST( !publishes_full( ctx->publishes ) );
-        publishes_push( ctx->publishes, pub );
+        memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
+        fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
       }
 
       if( FD_UNLIKELY( cs->has_final && cs->has_notar ) ) {
@@ -1123,8 +1131,9 @@ after_credit( fd_votor_tile_t *   ctx,
         certed->agg2 = cs->notar;
         memcpy( certed->block_id.uc, cs->notar_block_hash, sizeof(fd_hash_t) );
         cs->has_final = 0;
-        FD_TEST( !publishes_full( ctx->publishes ) );
-        publishes_push( ctx->publishes, pub );
+        memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
+        fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
       }
     }
     *charge_busy = 1;
@@ -1134,8 +1143,9 @@ after_credit( fd_votor_tile_t *   ctx,
     publish_t pub = { .sig = FD_VOTOR_SIG_REPAIR };
     pub.msg.repair.slot = ctx->scratch.repair_event.block.slot;
     memcpy( &pub.msg.repair.block_id, ctx->scratch.repair_event.block.hash, sizeof(fd_hash_t) );
-    FD_TEST( !publishes_full( ctx->publishes ) );
-    publishes_push( ctx->publishes, pub );
+    memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
+    fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     *charge_busy = 1;
   }
 
@@ -1182,6 +1192,12 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
+  /* Deliver newly queued roots before any leader notification. */
+  if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) {
+    *opt_poll_in = 0;
+    return;
+  }
+
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* never will be leader */
 
   /* Check if it's time to become leader. */
@@ -1196,14 +1212,15 @@ after_credit( fd_votor_tile_t *   ctx,
   if( FD_UNLIKELY( parent.slot==ULONG_MAX ) ) return; /* the pool has not granted parent ready yet */
 
   ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
-  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_certs( ctx, reward_slot+i );
+  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_certs( ctx, stem, reward_slot+i );
 
   publish_t pub = { .sig = FD_VOTOR_SIG_LEADER };
   pub.msg.leader.slot        = ctx->next_leader_slot;
   pub.msg.leader.parent_slot = parent.slot;
   memcpy( pub.msg.leader.parent_block_id.uc, parent.hash, sizeof(fd_hash_t) );
-  FD_TEST( !publishes_full( ctx->publishes ) );
-  publishes_push( ctx->publishes, pub );
+  memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
+  fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
   *charge_busy = 1;
@@ -1552,7 +1569,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( VOTOR, CERT_RX,     ctx->metrics.cert_rx     );
 }
 
-#define STEM_BURST (2UL)
+#define STEM_BURST (2UL+1UL+AG_SLOTS_PER_WINDOW+1UL) /* votor_out: 2 certed + 1 repair + 4 reward + 1 leader, or 1 queued root. EXCLUDES VOTOR_NET (has no reliable consumers) */
 #define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_votor_tile_t
