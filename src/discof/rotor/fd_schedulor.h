@@ -1,18 +1,18 @@
-#ifndef HEADER_fd_src_discof_rotor2_fd_schedulor_h
-#define HEADER_fd_src_discof_rotor2_fd_schedulor_h
+#ifndef HEADER_fd_src_discof_rotor_fd_schedulor_h
+#define HEADER_fd_src_discof_rotor_fd_schedulor_h
 
 /* fd_schedulor is a timeout queue of blocks awaiting a repair check.
    It is a data structure, not a state machine: the tile decides when a
    block needs checking and how long it should sleep.
 
    A block is identified by {slot, block_id}, the chainer's identity for
-   a slot version, and its check carries the time it is due.  insert on
-   a block with a check already queued only ever pulls its time earlier,
-   so any caller may ask for a recheck without knowing whether one is
-   pending, and nothing a caller does can push a due check out.  pop
-   removes and returns the earliest check whose time has come; the
-   schedulor then knows nothing about that block until it is inserted
-   again.
+   a slot version, and its check carries the time it is due.  A block
+   has at most one queued check: insert on a block with a check already
+   queued is a no-op, so any caller may ask for a check without knowing
+   whether one is pending, and nothing a caller does can move a queued
+   check.  pop removes and returns the earliest check whose time has
+   come; the schedulor then knows nothing about that block until it is
+   inserted again.
 
    Times are floored to FD_SCHEDULOR_QUANTUM_NS so checks due in the
    same quantum are served lowest slot first, which keeps repair
@@ -21,8 +21,8 @@
 #include "../../flamenco/fd_flamenco_base.h" /* fd_hash_t */
 
 #define FD_SCHEDULOR_QUANTUM_NS         ( 10000000L) /* 10 ms: timeout granularity, ties served lowest slot first        */
-#define FD_SCHEDULOR_PARENT_TIMEOUT_NS  ( 50000000L) /* 50 ms: recheck after a parent was requested                       */
-#define FD_SCHEDULOR_REQUEST_TIMEOUT_NS ( 80000000L) /* 80 ms: recheck after a fill pass, matches the legacy dedup window */
+#define FD_SCHEDULOR_PARENT_TIMEOUT_NS  ( 100000000L) /* 100 ms: recheck after a parent was requested                       */
+#define FD_SCHEDULOR_REQUEST_TIMEOUT_NS ( 100000000L) /* 100 ms: recheck after a fill pass, matches the legacy dedup window */
 
 typedef struct fd_schedulor fd_schedulor_t;
 
@@ -53,8 +53,7 @@ void *
 fd_schedulor_delete( void * mem );
 
 /* fd_schedulor_block_insert queues a check of block {slot, block_id} at
-   timeout.  If one is already queued its time is pulled to timeout if
-   that is earlier, and left alone otherwise. */
+   timeout.  If one is already queued this is a no-op. */
 
 void
 fd_schedulor_block_insert( fd_schedulor_t *  self,
@@ -108,4 +107,4 @@ fd_schedulor_verify( fd_schedulor_t const * self );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_rotor2_fd_schedulor_h */
+#endif /* HEADER_fd_src_discof_rotor_fd_schedulor_h */

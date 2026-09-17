@@ -180,26 +180,19 @@ task_release( fd_schedulor_t * self,
   pool_ele_release( self->pool, task );
 }
 
-/* schedule asks for version key to be checked at timeout. If the key
-   is not queued a task is created. If queued the timeout is pulled
-   earlier. */
+/* schedule asks for version key to be checked at timeout.  If the key
+   is already queued this is a no-op: the queued check keeps its time. */
 
 static void
 schedule( fd_schedulor_t *   self,
           task_key_t const * key,
           long               timeout ) {
-  timeout = quantize( timeout );
-  task_t * task = map_ele_query( self->map, key, NULL, self->pool );
-  if( FD_LIKELY( task ) ) {
-    if( FD_LIKELY( timeout>=task->timeout ) ) return;
-    treap_ele_remove( self->treap, task, self->pool );
-  } else {
-    if( FD_UNLIKELY( !pool_free( self->pool ) ) ) FD_LOG_CRIT(( "schedulor task pool full (%lu tasks)", self->task_max ));
-    task      = pool_ele_acquire( self->pool );
-    task->key = *key;
-    map_ele_insert( self->map, task, self->pool );
-  }
-  task->timeout = timeout;
+  if( FD_UNLIKELY( map_ele_query( self->map, key, NULL, self->pool ) ) ) return;
+  if( FD_UNLIKELY( !pool_free( self->pool ) ) ) FD_LOG_CRIT(( "schedulor task pool full (%lu tasks)", self->task_max ));
+  task_t * task = pool_ele_acquire( self->pool );
+  task->key     = *key;
+  task->timeout = quantize( timeout );
+  map_ele_insert( self->map, task, self->pool );
   treap_ele_insert( self->treap, task, self->pool );
 }
 
