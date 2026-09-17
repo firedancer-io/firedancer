@@ -26,7 +26,8 @@
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../flamenco/stakes/fd_stake_weight_sort.h"
 #include "../../../flamenco/leaders/fd_leaders_base.h"
-#include "../../../discof/repair/fd_repair_tile.c"
+#include "../../../discof/repair/fd_repair_tile_private.h"
+#include "../../../discof/tower/fd_tower_tile.h"
 
 #include "gossip.h"
 #include "core_subtopo.h"
