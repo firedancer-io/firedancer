@@ -51,11 +51,11 @@ endif
 
 # Grab all the Local.mk files in the source tree, save to a variable so that
 # other rules can depend on this list. We will include these files later on.
-# Don't use "-L" if source code directory structure has symlink loops.
+# No -L: busybox find lacks it and src/ has no symlinked directories.
 #
 # Use ?= so that users can (optionally) perform partial compilation in special
 # circumstances.
-LOCAL_MKS?=$(shell $(FIND) -L src -type f -name Local.mk)
+LOCAL_MKS?=$(shell $(FIND) src -type f -name Local.mk)
 
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
