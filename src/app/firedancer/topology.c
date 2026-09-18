@@ -1520,21 +1520,27 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
         FD_LOG_ERR(( "[failover.member_junk_pubkeys] entry %lu is not a base58 public key", i ));
       }
     }
+    tile->failov.accept_peer_requests     = config->firedancer.failover.accept_peer_requests;
+    tile->failov.min_slots_to_leader      = config->firedancer.failover.min_slots_to_leader;
+    tile->failov.deadline_slots           = config->firedancer.failover.deadline_slots;
+    tile->failov.catchup_gap_slots        = config->firedancer.failover.catchup_gap_slots;
     tile->failov.status_interval_millis   = config->firedancer.failover.status_interval_millis;
     tile->failov.replication_lag_slots    = config->firedancer.failover.replication_lag_slots;
     tile->failov.peer_silence_intervals   = config->firedancer.failover.peer_silence_intervals;
     tile->failov.retry_backoff_min_millis = config->firedancer.failover.retry_backoff_min_millis;
     tile->failov.retry_backoff_max_millis = config->firedancer.failover.retry_backoff_max_millis;
     /* HELLO rejects a peer whose safety config differs.  The hash covers
-       what every member must agree on: the tower persistence switch and
-       the ordered member list, both pins and addresses, so machines with
-       different lists do not end up both dialing, both listening, or
-       dialing a port nobody binds.  Timing values stay local and out of
-       it.  Only the listed members are hashed, so raising the member cap
-       leaves existing pools paired. */
+       what every member must agree on: the tower persistence switch,
+       whether a spare may ask for a handoff, and the ordered member list
+       with both keys and addresses, so machines with different lists do
+       not end up both dialing, both listening, or dialing a port nobody
+       binds.  Timing values stay local and out of it.  Only the listed
+       members are hashed, so raising the member cap leaves existing pools
+       paired. */
     struct __attribute__((packed)) {
       ulong layout;
       uchar tower_file;
+      uchar accept_peer_requests;
       ulong member_cnt;
       struct __attribute__((packed)) {
         uchar  junk[ 32 ];
@@ -1542,9 +1548,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
         ushort port;
       } member[ FD_TOPO_FAILOVER_MEMBER_MAX ];
     } cfg = {
-      .layout     = 1UL,
-      .tower_file = (uchar)!!config->firedancer.failover.tower_file,
-      .member_cnt = tile->failov.member_cnt,
+      .layout               = 1UL,
+      .tower_file           = (uchar)!!config->firedancer.failover.tower_file,
+      .accept_peer_requests = (uchar)!!config->firedancer.failover.accept_peer_requests,
+      .member_cnt           = tile->failov.member_cnt,
     };
     for( ulong i=0UL; i<tile->failov.member_cnt; i++ ) {
       fd_memcpy( cfg.member[ i ].junk, tile->failov.member_junk_pubkey[ i ], 32UL );

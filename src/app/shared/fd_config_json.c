@@ -425,6 +425,10 @@ fd_config_to_json( fd_config_t const * config,
     jw_path    ( &w, "bind_address",             f->failover.bind_address );
     jw_path    ( &w, "junk_identity_path",       f->failover.junk_identity_path );
     jw_path ( &w, "staked_identity_path",     f->failover.staked_identity_path );
+    jw_bool ( &w, "accept_peer_requests",     f->failover.accept_peer_requests );
+    jw_ulong( &w, "min_slots_to_leader",      f->failover.min_slots_to_leader );
+    jw_ulong( &w, "deadline_slots",           f->failover.deadline_slots );
+    jw_ulong( &w, "catchup_gap_slots",        f->failover.catchup_gap_slots );
     jw_ulong( &w, "status_interval_millis",   f->failover.status_interval_millis );
     jw_ulong( &w, "replication_lag_slots",    f->failover.replication_lag_slots );
     jw_ulong( &w, "peer_silence_intervals",   f->failover.peer_silence_intervals );

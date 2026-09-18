@@ -1910,6 +1910,20 @@ telemetry = true
     junk_identity_path = ""
     staked_identity_path = ""
 
+    # Whether this machine will hand off when the spare asks it to.  Both
+    # machines must have the same value here, it is checked in HELLO.
+    accept_peer_requests = false
+
+    # Do not start a handoff if our next leader slot is closer than this.
+    min_slots_to_leader = 150
+
+    # Give up on a handoff that has not finished after this many slots.
+    deadline_slots = 64
+
+    # A spare more than this many slots behind the cluster is not
+    # considered caught up.
+    catchup_gap_slots = 8
+
     # Channel timing parameters.
     status_interval_millis = 800
     replication_lag_slots = 8

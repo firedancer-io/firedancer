@@ -269,6 +269,10 @@ struct fd_topo_tile {
       ulong             member_cnt;
       fd_topo_ip_port_t member[ FD_TOPO_FAILOVER_MEMBER_MAX ];
       uchar             member_junk_pubkey[ FD_TOPO_FAILOVER_MEMBER_MAX ][ 32 ];
+      int               accept_peer_requests;
+      ulong             min_slots_to_leader;
+      ulong             deadline_slots;
+      ulong             catchup_gap_slots;
       ulong             status_interval_millis;
       ulong             replication_lag_slots;
       ulong             peer_silence_intervals;
