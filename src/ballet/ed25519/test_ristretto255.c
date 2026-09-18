@@ -196,51 +196,6 @@ test_point_compress( fd_rng_t * rng ) {
   log_bench( "fd_ristretto255_point_compress", iter, dt );
 }
 
-void
-test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
-  uchar                   _s[64]; uchar *                   s = _s;
-  uchar                   _e[32]; uchar *                   e = _e;
-  fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
-  fd_ristretto255_point_t _g[1];  fd_ristretto255_point_t * g = _g;
-
-  /* sha512("Ristretto is traditionally a short shot of espresso coffee") */
-  fd_hex_decode( s, "5d1be09e3d0c82fc538112490e35701979d99e06ca3e2b5b54bffe8b4dc772c14d98b696a1bbfb5ca32c436cc61c16563790306c79eaca7705668b47dffe5bb6", 64 );
-  fd_hex_decode( e, "3066f82a1a747d45120d1740f14358531a8f04bbffe6a819f86dfe50f44a0a46", 32 );
-  fd_ristretto255_point_decompress( g, e );
-
-  fd_ristretto255_hash_to_curve( h, s );
-  FD_TEST( fd_ristretto255_point_eq( h, g ) );
-  FD_TEST( !fd_ed25519_point_eq( h, g ) );
-
-  uchar t[32];
-  fd_ristretto255_point_compress( t, h );
-  if( FD_UNLIKELY( !!memcmp( e, t, 32 ) ) ) {
-    FD_LOG_ERR(( "FAIL"
-                  "\n\tfd_ristretto255_hash_to_curve returned incorrect result:"
-                  "\n\t\tExpected" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
-                  "\n\t\tGot     " FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-                  FD_LOG_HEX16_FMT_ARGS( e ), FD_LOG_HEX16_FMT_ARGS( e+16 ),
-                  FD_LOG_HEX16_FMT_ARGS( t ), FD_LOG_HEX16_FMT_ARGS( t+16 ) ));
-  }
-
-  /* Benchmarks */
-  ulong iter = 10000UL;
-
-  {
-    long dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_hash_to_curve( h, s ); }
-    dt = fd_log_wallclock() - dt;
-    log_bench( "fd_ristretto255_hash_to_curve", iter, dt );
-  }
-
-  {
-    long dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_map_to_curve( h, s ); }
-    dt = fd_log_wallclock() - dt;
-    log_bench( "fd_ristretto255_map_to_curve", iter, dt );
-  }
-}
-
 static void
 test_point_add_sub( FD_FN_UNUSED fd_rng_t * rng ) {
   fd_ristretto255_point_t _f[1]; fd_ristretto255_point_t * f = _f;
@@ -468,6 +423,24 @@ test_multiscalar_mul( fd_rng_t * rng ) {
     FD_TEST( fd_ristretto255_point_eq( h, t ) );
   }
 
+  {
+#define MSM_LARGE_N 256
+    fd_ristretto255_point_t f[ MSM_LARGE_N ];
+    uchar a[ MSM_LARGE_N ][ 32 ];
+    fd_ristretto255_point_t expected[1];
+
+    for( ulong i=0UL; i<MSM_LARGE_N; i++ ) {
+      fd_rng_b256( rng, a[i] );
+      a[i][31] &= 0x01;
+      fd_ristretto255_point_decompress( &f[i], base_point_multiples[ i%15UL + 1UL ] );
+    }
+
+    fd_ed25519_multi_scalar_mul( expected, (uchar *)a, f, MSM_LARGE_N );
+    FD_TEST( fd_ristretto255_multi_scalar_mul( h, (uchar *)a, f, MSM_LARGE_N )==h );
+    FD_TEST( fd_ristretto255_point_eq( h, expected ) );
+#undef MSM_LARGE_N
+  }
+
   /* Benchmarks */
   ulong iter = 10000UL;
 
@@ -484,6 +457,13 @@ test_multiscalar_mul( fd_rng_t * rng ) {
     fd_rng_b256(rng, _a[i]); _a[i][31] &= 0x01;
     if (i < 15) { fd_ristretto255_point_decompress( &f[i], base_point_multiples[i % 15 + 1] ); }
     else if (i % 15 == 0) { memcpy( &f[i], &f[0], sizeof(fd_ristretto255_point_t)*15 ); }
+  }
+
+  for( ulong sz=512UL; sz<=MSM_N; sz*=2UL ) {
+    fd_ristretto255_point_t expected[1];
+    fd_ed25519_multi_scalar_mul( expected, a, f, sz );
+    FD_TEST( fd_ristretto255_multi_scalar_mul( h, a, f, sz )==h );
+    FD_TEST( fd_ristretto255_point_eq( h, expected ) );
   }
 
   for( ulong sz=32; sz<=MSM_N; sz*=2 )
@@ -541,8 +521,6 @@ main( int     argc,
 
   test_point_decompress ( rng );
   test_point_compress   ( rng );
-
-  test_hash_to_curve    ( rng );
 
   test_point_neg        ( rng );
   test_point_add_sub    ( rng );
