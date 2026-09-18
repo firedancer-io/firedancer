@@ -37,6 +37,7 @@
 #define FD_ADMINCTL_CMD_GET_IDENTITY           (3UL)
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
+#define FD_ADMINCTL_CMD_FAILOVER               (6UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
@@ -61,6 +62,19 @@
 #define FD_SNAPSHOT_CREATE_RESULT_SLOT_IN_PAST              (0x2004UL)
 
 #define FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH             (0x3001UL)
+
+#define FD_FAILOVER_CONTROL_RESULT_BUSY              (0x4001UL) /* another failover command is waiting on the failover tile */
+#define FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE      (0x4002UL) /* the failover tile did not respond in time */
+#define FD_FAILOVER_CONTROL_RESULT_BAD_ROLE          (0x4003UL) /* handoff or promote on the active, demote on a standby */
+#define FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS       (0x4004UL) /* a transition or key switch is running */
+#define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY      (0x4006UL) /* the bound peer cannot complete this handoff */
+#define FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE       (0x4007UL) /* the authenticated peer holds the identity */
+#define FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING   (0x4008UL) /* the peer has not responded to our handoff */
+#define FD_FAILOVER_CONTROL_RESULT_TAKEN             (0x4009UL) /* the peer took our handoff, only a new local tenure clears this */
+#define FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN       (0x400AUL) /* gossip has a fresh contact info for the staked identity from another host */
+#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER    (0x400CUL) /* active has no eligible final vote state, see its local voting diagnostics */
+#define FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS (0x400EUL) /* gossip has no address for the active */
+#define FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED   (0x400FUL) /* unilateral promote cannot verify the peer, explicit fencing required */
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -102,6 +116,111 @@ struct fd_adminctl_remove_all_auth_voters_v1 {
 };
 typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth_voters_t;
 #define FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION (1UL)
+
+/* Failover commands, forwarded to the failover tile. */
+#define FD_ADMINCTL_FAILOVER_CMD_HANDOFF (0UL)
+#define FD_ADMINCTL_FAILOVER_CMD_DEMOTE  (1UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PROMOTE (2UL)
+#define FD_ADMINCTL_FAILOVER_CMD_STATUS  (3UL)
+#define FD_ADMINCTL_FAILOVER_CMD_CNT     (4UL)
+
+static inline char const *
+fd_adminctl_failover_cmd_name( ulong cmd ) {
+  switch( cmd ) {
+    case FD_ADMINCTL_FAILOVER_CMD_HANDOFF: return "handoff";
+    case FD_ADMINCTL_FAILOVER_CMD_DEMOTE:  return "demote";
+    case FD_ADMINCTL_FAILOVER_CMD_PROMOTE: return "promote";
+    case FD_ADMINCTL_FAILOVER_CMD_STATUS:  return "status";
+    default:                               return "unknown";
+  }
+}
+
+#define FD_ADMINCTL_FAILOVER_FLAG_YES   (1UL) /* confirmation only, does not authorize peer or history overrides */
+#define FD_ADMINCTL_FAILOVER_FLAG_FORCE (2UL) /* --force, bypass peer guards and accept incomplete or empty vote history */
+
+struct fd_adminctl_failover_req_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
+  ulong cmd;     /* FD_ADMINCTL_FAILOVER_CMD_* */
+  ulong flags;   /* FD_ADMINCTL_FAILOVER_FLAG_* */
+};
+typedef struct fd_adminctl_failover_req_v1 fd_adminctl_failover_req_t;
+
+struct fd_adminctl_failover_control_resp_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
+  uchar role;    /* FD_FAILOVER_ROLE_* after the command */
+  uchar action;  /* controller action after the command */
+  uchar reserved[ 6 ];
+};
+typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control_resp_t;
+#define FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION (1UL)
+
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t         )==24UL, failover_req_v1_layout          );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==16UL, failover_control_resp_v1_layout );
+
+/* What the failover controller is doing right now.  It lives only in
+   memory, a restart boots a standby with nothing in flight. */
+#define FD_FAILOVER_ACTION_IDLE                (0UL)
+#define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
+#define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* DEMOTED sent, waiting for the peer */
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the tower tip */
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for the tower tile to adopt */
+#define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the active's final tower */
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL) /* waiting for the old active to record our response */
+#define FD_FAILOVER_ACTION_CNT                 (8UL)
+
+/* Where a promotion takes its tower from, best first */
+#define FD_FAILOVER_SOURCE_PEER         (0UL) /* the tower the peer's DEMOTED gave us */
+#define FD_FAILOVER_SOURCE_VOTE_ACCOUNT (1UL) /* automatic fallback to the vote account, or forced empty history */
+#define FD_FAILOVER_SOURCE_CNT          (2UL)
+
+/* How our last DEMOTED ended */
+#define FD_FAILOVER_HANDOFF_NONE      (0UL)
+#define FD_FAILOVER_HANDOFF_PENDING   (1UL)
+#define FD_FAILOVER_HANDOFF_TAKEN     (2UL) /* the peer acked it */
+#define FD_FAILOVER_HANDOFF_DECLINED  (3UL) /* the peer refused it */
+#define FD_FAILOVER_HANDOFF_RESTARTED (4UL) /* the peer came back with a new boot_id */
+#define FD_FAILOVER_HANDOFF_CANCELLED (5UL) /* promote --force stopped waiting for the peer */
+#define FD_FAILOVER_HANDOFF_CNT       (6UL)
+
+/* failover status, provided by the failover tile.  Only what the
+   failover controller knows, nothing RPC, gossip, metrics or the logs
+   already show. */
+struct fd_adminctl_failover_status_resp_v1 {
+  ulong  version;         /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
+  uchar  enabled;         /* 0 when failover is off, nothing else is set then */
+  uchar  role;            /* FD_FAILOVER_ROLE_* */
+  uchar  action;          /* FD_FAILOVER_ACTION_* */
+  uchar  stuck;           /* a transition failed or is overdue */
+  uchar  link_state;      /* FD_FAILOVER_SESSION_* */
+  uchar  peer_role_valid; /* the open handoff authenticated a peer */
+  uchar  peer_role;       /* FD_FAILOVER_ROLE_* from HELLO or the handoff result */
+  uchar  handoff_result;  /* FD_FAILOVER_HANDOFF_* of our last handoff */
+  ulong  peer_boot_id;    /* boot_id of the last peer we paired with, 0 none */
+  uint   peer_addr;       /* the address we dial, [failover.peer_address] or the active's from gossip, 0 none */
+  ushort peer_port;       /* the failover port we dial it on */
+  uchar  promote_source;  /* FD_FAILOVER_SOURCE_* a promote would adopt now */
+  uchar  peer_addr_cfg;   /* peer_addr is [failover.peer_address], else it came from gossip */
+  ulong  handoff_id;      /* id of our last handoff, 0 none */
+  ulong  promote_floor;   /* coverage floor a promote has to reach, ULONG_MAX none */
+  ulong  promote_result;  /* FD_ADMINCTL_RESULT_SUCCESS, or the refusal a promote would get now */
+};
+typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_resp_t;
+
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)==56UL, failover_status_resp_v1_layout );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_resp_fits );
+
+/* fd_adminctl_failover_status_resp_init stamps the version and every
+   unknown field.  The admin tile, for a validator with failover off,
+   and the failover tile, before it fills the live values, both start
+   here. */
+
+static inline void
+fd_adminctl_failover_status_resp_init( fd_adminctl_failover_status_resp_t * resp ) {
+  fd_memset( resp, 0, sizeof(*resp) );
+  resp->version       = FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION;
+  resp->promote_floor = ULONG_MAX;
+}
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 
