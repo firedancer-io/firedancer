@@ -13,6 +13,7 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../discof/failover/fd_failover_bus.h"
+#include "../../discof/failover/fd_failover_proto.h"
 #include "../../discof/backup/fd_snapmk_tile.h"
 #include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
@@ -316,6 +317,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "failov" )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
     fd_topob_wksp( topo, "admin_failov" );
     fd_topob_wksp( topo, "failov_admin" );
+    if( !alpenglow_enabled ) fd_topob_wksp( topo, "failov_tower" );
   }
 
   if( leader_enabled ) {
@@ -508,6 +510,10 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( failover_enabled ) ) {
     /**/               fd_topob_link( topo, "admin_failov",  "admin_failov",  32UL,                                     FD_FAILOVER_BUS_MTU,           1UL );
     /**/               fd_topob_link( topo, "failov_admin",  "failov_admin",  32UL,                                     FD_FAILOVER_BUS_MTU,           1UL );
+    if( !alpenglow_enabled ) {
+    /**/               fd_topob_link( topo, "failov_tower",  "failov_tower",  32UL,                                     FD_FAILOVER_TOWER_STATE_MAX,   1UL );
+    /**/               fd_topob_link( topo, "tower_failov",  "failov_tower",  32UL,                                     sizeof(fd_tower_adopt_result_t), 1UL );
+    }
   }
   if( leader_enabled ) {
     /**/                   fd_topob_link( topo, "dedup_resolv",  "dedup_resolv",  16384UL,                                  FD_TPU_PARSED_MTU,             1UL );
@@ -767,6 +773,11 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "admin",   0UL,          "metric_in", "replay_admin",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( !alpenglow_enabled && failover_enabled ) {
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /* Adoption is a request and an answer, so both ends are reliable.
+       The tower side is wired after its own output below, which has to
+       stay the tower tile's first output link. */
+    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_tower",  0UL                                                );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "tower_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
   if( FD_UNLIKELY( failover_enabled ) ) {
     /* Command bus between the admin tile and the failover tile.  The admin
@@ -789,6 +800,10 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "tower",   0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_out",     0UL                                                );
+  if( !alpenglow_enabled && failover_enabled ) {
+    /**/               fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "failov_tower",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_failov",  0UL                                                );
+  }
   }
 
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );

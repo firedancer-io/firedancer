@@ -13,6 +13,21 @@
 #define FD_TOWER_SIG_SLOT_IGNORED   (3)
 // #define FD_TOWER_SIG_SLOT_ROOTED (4)  /* defined in fd_tower_slot_rooted.h */
 
+#define FD_TOWER_ADOPT_SUCCESS             (0UL)
+#define FD_TOWER_ADOPT_ERR_DECODE          (1UL)
+#define FD_TOWER_ADOPT_ERR_INVALID         (2UL)
+#define FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT (3UL)
+#define FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH  (4UL)
+#define FD_TOWER_ADOPT_ERR_STALE           (5UL) /* older than the newest tower this identity signed here */
+#define FD_TOWER_ADOPT_RESULT_CNT          (6UL)
+
+struct fd_tower_adopt_result {
+  ulong result;
+  ulong root;
+  ulong vote_slot;
+};
+typedef struct fd_tower_adopt_result fd_tower_adopt_result_t;
+
 /* fd_tower_slot_confirmed describes a Tower frag that notifies protocol
    confirmations.  There are multiple confirmation levels:
 
