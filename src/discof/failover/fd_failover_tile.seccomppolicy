@@ -4,7 +4,10 @@
 # listen_fd: The pool listener socket, or UINT_MAX when this member only
 #            dials.  Such a member never calls accept4, and the pinned
 #            descriptor is never a socket, so the call would fail anyway.
-uint logfile_fd, uint listen_fd
+# role_dir_fd: the directory holding the durable role record
+#
+# role_file_fd: stable descriptor used for each temporary role file
+uint logfile_fd, uint listen_fd, uint role_dir_fd, uint role_file_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -13,13 +16,31 @@ uint logfile_fd, uint listen_fd
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
 # that descriptor 2 is always STDERR.
+# the role file is written through its reserved descriptor
 write: (or (eq (arg 0) 2)
-           (eq (arg 0) logfile_fd))
+           (eq (arg 0) logfile_fd)
+           (eq (arg 0) role_file_fd))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
+# role: the record and its directory are synced before the state acts
 #
 # arg 0 is the file descriptor to fsync.
-fsync: (eq (arg 0) logfile_fd)
+fsync: (or (eq (arg 0) logfile_fd)
+           (eq (arg 0) role_file_fd)
+           (eq (arg 0) role_dir_fd))
+
+# role: the store writes a temporary file and renames it over the record
+#
+# O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, mode 0600
+openat: (and (eq (arg 0) role_dir_fd)
+             (eq (arg 2) 0x000a00c1)
+             (eq (arg 3) 0x00000180))
+
+unlinkat: (and (eq (arg 0) role_dir_fd)
+               (eq (arg 2) 0))
+
+renameat: (and (eq (arg 0) role_dir_fd)
+               (eq (arg 2) role_dir_fd))
 
 # dialer: open a nonblocking TCP socket toward a member listed after us
 # every pool connection draws its X25519 key share from the kernel
@@ -38,7 +59,10 @@ accept4: (and (eq (arg 0) listen_fd)
 recvfrom
 sendto
 
-# Candidate sockets come and go, the log and the listener stay open.
+# Candidate sockets come and go, and the role store closes its reserved
+# descriptor before reopening it.  The log, the listener and the role
+# directory stay open.
 close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) logfile_fd)
-                (eq (arg 0) listen_fd)))
+                (eq (arg 0) listen_fd)
+                (eq (arg 0) role_dir_fd)))

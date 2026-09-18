@@ -82,10 +82,12 @@ test_seccomp( void ) {
     if( dial ) {
       /* A member that only dials has no listener, so accept4 can never
          match its descriptor argument. */
-      populate_sock_filter_policy_fd_failover_tile( 128UL, filter, (uint)fd_log_private_logfile_fd(), UINT_MAX );
+      /* No listener and no role file in this child, so both are pinned to
+         descriptors it never uses. */
+      populate_sock_filter_policy_fd_failover_tile( 128UL, filter, (uint)fd_log_private_logfile_fd(), UINT_MAX, UINT_MAX, UINT_MAX );
       instr_cnt = (ushort)sock_filter_policy_fd_failover_tile_instr_cnt;
     } else {
-      populate_sock_filter_policy_fd_failover_tile( 128UL, filter, (uint)fd_log_private_logfile_fd(), (uint)listen_fd );
+      populate_sock_filter_policy_fd_failover_tile( 128UL, filter, (uint)fd_log_private_logfile_fd(), (uint)listen_fd, UINT_MAX, UINT_MAX );
       instr_cnt = (ushort)sock_filter_policy_fd_failover_tile_instr_cnt;
     }
     FD_TEST( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );

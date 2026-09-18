@@ -261,6 +261,10 @@ struct fd_topo_tile {
       char              junk_identity_path[ PATH_MAX ];
       char              staked_identity_path[ PATH_MAX ];
       char              vote_account_path[ PATH_MAX ];
+      char              base_path[ PATH_MAX ];
+      uint              target_uid;
+      uint              target_gid;
+      int               role_file_sandboxed; /* the reserved descriptor number is fixed by seccomp */
       uint              bind_addr;
       ulong             member_cnt;
       fd_topo_ip_port_t member[ FD_TOPO_FAILOVER_MEMBER_MAX ];

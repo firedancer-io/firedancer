@@ -1490,6 +1490,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->failov.junk_identity_path,   config->firedancer.failover.junk_identity_path,   sizeof(tile->failov.junk_identity_path) );
     fd_cstr_ncpy( tile->failov.staked_identity_path, config->firedancer.failover.staked_identity_path, sizeof(tile->failov.staked_identity_path) );
     fd_cstr_ncpy( tile->failov.vote_account_path,    config->paths.vote_account,                       sizeof(tile->failov.vote_account_path) );
+    fd_cstr_ncpy( tile->failov.base_path,            config->paths.base,                               sizeof(tile->failov.base_path) );
+    tile->failov.target_uid          = config->uid;
+    tile->failov.target_gid          = config->gid;
+    tile->failov.role_file_sandboxed = config->development.sandbox;
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->firedancer.failover.bind_address, &tile->failov.bind_addr ) ) ) {
       FD_LOG_ERR(( "[failover.bind_address] is not a valid IPv4 address" ));
     }
