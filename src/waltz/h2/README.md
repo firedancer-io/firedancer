@@ -23,15 +23,13 @@ HTTP/2 priority hints are ignored.
 
 **HPACK dynamic table**
 
-The HPACK dynamic table is not supported (disabled via SETTINGS).
+The decoder implements the HPACK dynamic table (`fd_hpack_dtable_t`,
+embedded in `fd_h2_conn_t` as `rx_hpack`).  The encoder only uses the
+static table.
 
-This may cause compatibility issues when running as a server.  The
-dynamic table provides stateful HTTP header compression.  Unfortunately,
-there is a race condition between disabling the dynamic table and the
-client's first few requests.  A conforming client may generate multiple
-requests before seeing our SETTINGS.  The second request might reuse a
-header from the first request via HPACK, but fd_h2 does not understand
-this.
+It is enabled on the server, which advertises the HTTP/2 default
+`SETTINGS_HEADER_TABLE_SIZE` of 4096, and disabled on the client,
+which advertises 0.
 
 **END_STREAM / CONTINUATION state**
 
