@@ -235,6 +235,11 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
        key material. */
     key_pages += 5UL;
   }
+  if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
+    /* Two public key loads at boot are held at once, each a page and its
+       guards.  The sign tile signs the pair TLS, so no key page stays. */
+    key_pages += 10UL;
+  }
 
   if( !strcmp( tile->name, "net" ) ) {
       /* net tile uses normal pages to hold xsk rings */
