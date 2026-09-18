@@ -209,12 +209,13 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "this machine's junk identity %s must appear exactly once in [failover.member_junk_pubkeys]", junk_b58 ));
   }
 
-  int is_junk   = fd_memeq( ctx->identity_pubkey, ctx->hello.junk_pubkey,   32UL );
-  int is_staked = fd_memeq( ctx->identity_pubkey, ctx->hello.staked_pubkey, 32UL );
-  if( FD_UNLIKELY( is_junk==is_staked ) ) {
-    FD_LOG_ERR(( "`paths.identity_key` must match exactly one failover identity" ));
+  /* Every failover machine restarts as a spare under its junk identity,
+     whatever it was before, so the identity the validator loaded has to
+     be this machine's junk key. */
+  if( FD_UNLIKELY( !fd_memeq( ctx->identity_pubkey, ctx->hello.junk_pubkey, 32UL ) ) ) {
+    FD_LOG_ERR(( "a failover machine must boot under [failover.junk_identity_path]" ));
   }
-  ctx->role       = is_staked ? FD_FAILOVER_ROLE_ACTIVE : FD_FAILOVER_ROLE_STANDBY;
+  ctx->role       = FD_FAILOVER_ROLE_STANDBY;
   ctx->hello.role = (uchar)ctx->role;
   uchar const * vote_account = fd_keyload_load( tile->failov.vote_account_path, 1 );
   fd_memcpy( ctx->hello.vote_account, vote_account, 32UL );
