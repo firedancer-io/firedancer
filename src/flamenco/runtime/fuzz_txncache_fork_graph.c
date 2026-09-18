@@ -382,7 +382,9 @@ blockcache_txn_cnt( model_t const * m,
   for( ulong i=0UL; i<bc->shmem->pages_cnt; i++ ) {
     ushort page = bc->pages[ i ];
     FD_TEST( page<tc->shmem->max_txnpages );
-    cnt += fd_txncache_page_txn_cnt( tc, page );
+    ushort txnpage_free;
+    page_io( tc, page, offsetof(fd_txncache_txnpage_t, free), &txnpage_free, sizeof(txnpage_free), 0 );
+    cnt += FD_TXNCACHE_TXNS_PER_PAGE-txnpage_free;
   }
   return cnt;
 }
@@ -398,7 +400,9 @@ blockcache_needs_purge_for_insert( model_t const * m,
 
   ushort tail_page = bc->pages[ bc->shmem->pages_cnt-1UL ];
   FD_TEST( tail_page<tc->shmem->max_txnpages );
-  return fd_txncache_page_txn_cnt( tc, tail_page )==FD_TXNCACHE_TXNS_PER_PAGE;
+  ushort txnpage_free;
+  page_io( tc, tail_page, offsetof(fd_txncache_txnpage_t, free), &txnpage_free, sizeof(txnpage_free), 0 );
+  return !txnpage_free;
 }
 
 static int
@@ -411,7 +415,9 @@ blockcache_has_stale_txn( model_t const * m,
     ushort page = bc->pages[ i ];
     FD_TEST( page<tc->shmem->max_txnpages );
 
-    ulong txn_cnt = fd_txncache_page_txn_cnt( tc, page );
+    ushort txnpage_free;
+    page_io( tc, page, offsetof(fd_txncache_txnpage_t, free), &txnpage_free, sizeof(txnpage_free), 0 );
+    ulong txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE-txnpage_free;
     for( ulong j=0UL; j<txn_cnt; j++ ) {
       fd_txncache_single_txn_t txn[1];
       page_io( tc, page, offsetof(fd_txncache_txnpage_t, txns)+j*sizeof(*txn), txn, sizeof(*txn), 0 );

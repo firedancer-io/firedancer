@@ -168,11 +168,6 @@ page_io( struct fd_txncache_private * tc,
          ulong                        sz,
          int                          write );
 
-/* Caller holds the structural read or write lock. */
-ulong
-fd_txncache_page_txn_cnt( struct fd_txncache_private * tc,
-                          ulong                        page );
-
 /* fd_txncache_max_txnpages{,_per_blockhash} return the txnpage pool
    size and the per blockcache page cap for the given parameters.  The
    result is not bounded; callers compare against

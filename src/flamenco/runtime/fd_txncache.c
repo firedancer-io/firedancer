@@ -186,14 +186,6 @@ page_io( fd_txncache_t * tc,
   }
 }
 
-ulong
-fd_txncache_page_txn_cnt( fd_txncache_t * tc,
-                          ulong           idx ) {
-  ushort free;
-  page_io( tc, idx, offsetof(fd_txncache_txnpage_t, free), &free, sizeof(free), 0 );
-  return FD_TXNCACHE_TXNS_PER_PAGE-free;
-}
-
 void
 fd_txncache_reset( fd_txncache_t * tc ) {
   fd_rwlock_write( tc->shmem->lock );
@@ -308,7 +300,7 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
   }
 }
 
-static inline __attribute__((always_inline)) int
+static inline int
 fd_txncache_insert_txn( fd_txncache_t *         tc,
                         blockcache_t *          blockcache,
                         fd_txncache_txnpage_t * txnpage,
@@ -557,7 +549,9 @@ purge_stale_on_blockcache( fd_txncache_t * tc,
   tc->scratch_txnpage->free = 0;
   for( ulong i=0UL; i<blockcache->shmem->pages_cnt; i++ ) {
     ulong curr_txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, blockcache->shmem->pages_cnt-i-1UL );
-    ulong curr_txn_cnt = fd_txncache_page_txn_cnt( tc, curr_txnpage_idx );
+    ushort txnpage_free;
+    page_io( tc, curr_txnpage_idx, offsetof(fd_txncache_txnpage_t, free), &txnpage_free, sizeof(txnpage_free), 0 );
+    ulong curr_txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE-txnpage_free;
     for( ulong j=0UL; j<curr_txn_cnt; j++ ) {
       fd_txncache_single_txn_t curr_txn[1];
       page_io( tc, curr_txnpage_idx, offsetof(fd_txncache_txnpage_t, txns)+(curr_txn_cnt-j-1UL)*sizeof(*curr_txn), curr_txn, sizeof(*curr_txn), 0 );
