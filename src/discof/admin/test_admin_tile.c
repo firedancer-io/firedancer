@@ -1,5 +1,8 @@
 #include "fd_admin_tile.c"
 
+#include <stdio.h>
+#include <unistd.h>
+
 static fd_admin_tile_ctx_t ctx;
 static uchar ctl_mem[ 2048 ] __attribute__((aligned(FD_ADMINCTL_ALIGN)));
 static uchar bus_mem[ 4096 ] __attribute__((aligned(128)));
@@ -190,6 +193,68 @@ test_identity_guard( void ) {
   FD_LOG_NOTICE(( "pass: failover and tower-file identity guards" ));
 }
 
+/* read_switch_key loads a key file only for a switch, checks it is the
+   identity recorded at boot, and never keeps it. */
+static void
+test_switch_key_on_demand( void ) {
+  static uchar copy_mem[ 4096 ] __attribute__((aligned(4096)));
+  ctx.failover_key_copy = copy_mem;
+
+  uchar kp[ 64 ];
+  fd_memset( kp, 0, sizeof(kp) );
+  for( ulong i=0UL; i<32UL; i++ ) kp[ i ] = (uchar)( i+1UL );
+  fd_ed25519_public_from_private( kp+32UL, kp, ctx.sha512 );
+
+  char dir[] = "/tmp/fd-admin-key-XXXXXX";
+  FD_TEST( mkdtemp( dir ) );
+  char path[ 256 ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/staked.json", dir ) );
+  FILE * f = fopen( path, "w" );
+  FD_TEST( f );
+  fputc( '[', f );
+  for( ulong i=0UL; i<64UL; i++ ) fprintf( f, "%s%u", i?",":"", (uint)kp[ i ] );
+  fputc( ']', f );
+  FD_TEST( !fclose( f ) );
+
+  /* The file is opened before the sandbox and preadd for a switch, so the
+     switch never opens a path. */
+  int key_fd = open( path, O_RDONLY|O_CLOEXEC );
+  FD_TEST( key_fd>=0 );
+
+  /* The right identity loads and lands in the copy. */
+  FD_TEST( !read_switch_key( &ctx, key_fd, kp+32UL ) );
+  FD_TEST( fd_memeq( ctx.failover_key_copy+32UL, kp+32UL, 32UL ) );
+  fd_memzero_explicit( ctx.failover_key_copy, 64UL );
+
+  /* A pread does not consume the descriptor, a second switch still works. */
+  FD_TEST( !read_switch_key( &ctx, key_fd, kp+32UL ) );
+  fd_memzero_explicit( ctx.failover_key_copy, 64UL );
+
+  /* A file that is not the identity recorded at boot is refused and the
+     copy is left clean. */
+  uchar other[ 32 ];
+  fd_memset( other, 0xAB, sizeof(other) );
+  FD_TEST( read_switch_key( &ctx, key_fd, other )==EPERM );
+  for( ulong i=0UL; i<64UL; i++ ) FD_TEST( !ctx.failover_key_copy[ i ] );
+
+  /* A malformed file returns an error rather than terminating the tile. */
+  char bad_path[ 256 ];
+  FD_TEST( fd_cstr_printf_check( bad_path, sizeof(bad_path), NULL, "%s/bad.json", dir ) );
+  FILE * bf = fopen( bad_path, "w" );
+  FD_TEST( bf && fputs( "[]", bf )>=0 && !fclose( bf ) );
+  int bad_fd = open( bad_path, O_RDONLY|O_CLOEXEC );
+  FD_TEST( bad_fd>=0 );
+  FD_TEST( read_switch_key( &ctx, bad_fd, kp+32UL ) );
+  for( ulong i=0UL; i<64UL; i++ ) FD_TEST( !ctx.failover_key_copy[ i ] );
+  FD_TEST( !close( bad_fd ) && !unlink( bad_path ) );
+
+  FD_TEST( !close( key_fd ) );
+  FD_TEST( !unlink( path ) );
+  FD_TEST( !rmdir( dir ) );
+  ctx.failover_key_copy = NULL;
+  FD_LOG_NOTICE(( "pass: a switch preads and checks the key, rejects malformed input, never holds it resident" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -204,6 +269,7 @@ main( int argc, char ** argv ) {
   test_status_abi();
   test_bus_forwarding();
   test_bus_unresponsive();
+  test_switch_key_on_demand();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

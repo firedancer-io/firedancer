@@ -1,0 +1,15 @@
+# The admin tile with failover reads a key from disk only for the moment
+# of a switch, so it never holds a private key resident.  The two key
+# files are opened before the sandbox and preadd here, never reopened.
+uint logfile_fd, uint junk_key_fd, uint staked_key_fd
+
+# logging: all log messages are written to a file and/or the STDERR pipe.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately.
+fsync: (eq (arg 0) logfile_fd)
+
+# read a key file for a switch, from a descriptor opened before the sandbox.
+pread64: (or (eq (arg 0) junk_key_fd)
+             (eq (arg 0) staked_key_fd))

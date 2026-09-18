@@ -1842,9 +1842,11 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
     FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
+    /* The admin tile reads the result as soon as it sees COMPLETED, so it
+       has to be written first. */
+    ctx->identity_keyswitch->result = ctx->out_seq;
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     ctx->halt_signing               = 1;
-    ctx->identity_keyswitch->result = ctx->out_seq;
   }
 }
 
