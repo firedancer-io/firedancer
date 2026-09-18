@@ -664,6 +664,13 @@ fd_txncache_insert( fd_txncache_t *       tc,
   blockcache = blockhash_on_fork( tc, fork, blockhash );
   FD_TEST( blockcache );
   txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
+  /* Because of sizing invariants when creating the structure, it is
+     not typically possible to fill it, unless there are stale
+     transactions from minority forks that were purged floating
+     around, in which case we can purge them here and try again.
+     Under the write lock there are no concurrent allocators, so a
+     page still unavailable after the purge means the cache is
+     undersized for the caller's usage. */
   if( FD_UNLIKELY( !txnpage ) ) {
     purge_stale( tc );
     txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
