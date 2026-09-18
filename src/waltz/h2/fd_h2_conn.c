@@ -78,6 +78,22 @@ fd_h2_gen_settings( fd_h2_settings_t const * settings,
   fd_h2_setting_encode( buf+39, FD_H2_SETTINGS_MAX_HEADER_LIST_SIZE,   settings->max_header_list_size   );
 }
 
+/* fd_h2_stream_is_idle returns 1 if stream_id was never opened, i.e. it
+   is below the next unused stream ID of its own parity.  RFC 9113
+   Section 5.1 requires a connection error for frames other than HEADERS
+   or PRIORITY on an idle stream, and forbids RST_STREAM on one.  A
+   lower unused ID is not idle: opening a stream implicitly closes every
+   idle stream below it (RFC 9113 Section 5.1.1). */
+
+FD_FN_PURE static inline int
+fd_h2_stream_is_idle( fd_h2_conn_t const * conn,
+                      uint                 stream_id ) {
+  uint stream_next = ( (stream_id&1)==(conn->rx_stream_next&1) )
+                   ? conn->rx_stream_next
+                   : conn->tx_stream_next;
+  return stream_id >= stream_next;
+}
+
 /* fd_h2_rx_data handles a partial DATA frame. */
 
 static void
@@ -97,25 +113,60 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   uint  fin_flag   = conn->rx_frame_flags & FD_H2_FLAG_END_STREAM;
   if( rbuf_avail<frame_rem ) fin_flag = 0;
 
+  /* The Pad Length and Padding fields count against the flow control
+     windows too (RFC 9113 Section 6.9.1), but are not delivered to the
+     app.  They are charged along with the first chunk. */
+  uint fc_sz = chunk_sz + conn->rx_fc_debt;
+
+  /* Connection level flow control applies to every DATA frame,
+     including frames on streams that the app already released.  Charge
+     it before looking up the stream so that the window is always
+     refunded by the WINDOW_UPDATE below. */
+  if( FD_UNLIKELY( fc_sz > conn->rx_wnd ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
+    return;
+  }
+  conn->rx_wnd -= fc_sz;
+  conn->rx_fc_debt = 0U;
+
   fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( FD_UNLIKELY( !stream ||
-                   ( stream->state!=FD_H2_STREAM_STATE_OPEN        &&
-                     stream->state!=FD_H2_STREAM_STATE_CLOSING_TX ) ) ) {
+  if( FD_UNLIKELY( !stream ) ) {
+    if( FD_UNLIKELY( fd_h2_stream_is_idle( conn, stream_id ) ) ) {
+      fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+      return;
+    }
+    /* The stream was opened before and the app has released it */
     fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
     goto skip_frame;
   }
 
-  if( FD_UNLIKELY( chunk_sz > conn->rx_wnd ) ) {
-    fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
-    return;
-  }
-  conn->rx_wnd -= chunk_sz;
-
-  if( FD_UNLIKELY( chunk_sz > stream->rx_wnd ) ) {
-    fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_FLOW_CONTROL );
+  /* A stream error closes the stream on both sides, so the app has to
+     hear about it as well.  stream points to freed memory afterwards. */
+  if( FD_UNLIKELY( ( stream->state!=FD_H2_STREAM_STATE_OPEN        ) &
+                   ( stream->state!=FD_H2_STREAM_STATE_CLOSING_TX  ) ) ) {
+    fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_STREAM_CLOSED );
+    cb->rst_stream( conn, stream, FD_H2_ERR_STREAM_CLOSED, 0 );
     goto skip_frame;
   }
-  stream->rx_wnd -= chunk_sz;
+
+  if( FD_UNLIKELY( fc_sz > stream->rx_wnd ) ) {
+    fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_FLOW_CONTROL );
+    cb->rst_stream( conn, stream, FD_H2_ERR_FLOW_CONTROL, 0 );
+    goto skip_frame;
+  }
+  stream->rx_wnd -= fc_sz;
+
+  /* The stream receive window is kept above half its initial size, so
+     the peer always has credit to send on.  The bytes are consumed from
+     rbuf_rx no matter what the data callbacks below do, so the credit
+     can be returned right away. */
+  uint stream_wnd_max = conn->self_settings.initial_window_size;
+  if( FD_UNLIKELY( ( !fin_flag                             ) &
+                   ( stream->rx_wnd < stream_wnd_max/2U     ) &
+                   ( stream_wnd_max <= 0x7fffffffU          ) ) ) {
+    fd_h2_tx_window_update( rbuf_tx, stream_id, stream_wnd_max - stream->rx_wnd );
+    stream->rx_wnd = stream_wnd_max;
+  }
 
   fd_h2_stream_rx_data( stream, conn, fin_flag ? FD_H2_FLAG_END_STREAM : 0U );
   if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
@@ -166,15 +217,38 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
   }
 
   fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( !stream ) {
-    if( FD_UNLIKELY( (  stream_id    <   conn->rx_stream_next    ) |
-                     ( (stream_id&1) != (conn->rx_stream_next&1) ) ) ) {
-      /* FIXME should send RST_STREAM instead if the user deallocated
-         stream state but we receive a HEADERS frame for a stream that
-         we started ourselves. */
-      fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+  if( FD_UNLIKELY( !stream &&
+                   ( (  stream_id    <   conn->rx_stream_next    ) |
+                     ( (stream_id&1) != (conn->rx_stream_next&1) ) ) ) ) {
+    /* FIXME should send RST_STREAM instead if the user deallocated
+       stream state but we receive a HEADERS frame for a stream that
+       we started ourselves. */
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    return 0;
+  }
+
+  if( FD_UNLIKELY( frame_flags & FD_H2_FLAG_PRIORITY ) ) {
+    if( FD_UNLIKELY( payload_sz<5UL ) ) {
+      fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
       return 0;
     }
+    payload    += 5UL;
+    payload_sz -= 5UL;
+  }
+
+  /* Start tracking the field block before the stream is accepted, so
+     that the CONTINUATION frames of a refused stream are still
+     recognized as part of this block. */
+  conn->rx_stream_id = stream_id;
+  if( FD_UNLIKELY( !( frame_flags & FD_H2_FLAG_END_HEADERS ) ) ) {
+    conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
+  }
+
+  if( !stream ) {
+    /* RFC 9113 Section 5.1.1: the peer spends a stream ID by opening
+       it, whether or not this end accepts the stream. */
+    conn->rx_stream_next = stream_id+2;
+
     if( FD_UNLIKELY( conn->stream_active_cnt[0] >= conn->self_settings.max_concurrent_streams ) ) {
       fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
       return 1;
@@ -186,22 +260,6 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
     }
     fd_h2_stream_open( stream, conn, stream_id );
     stream->tx_wnd = conn->peer_settings.initial_window_size;
-    conn->rx_stream_next = stream_id+2;
-  }
-
-  conn->rx_stream_id = stream_id;
-
-  if( FD_UNLIKELY( frame_flags & FD_H2_FLAG_PRIORITY ) ) {
-    if( FD_UNLIKELY( payload_sz<5UL ) ) {
-      fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
-      return 0;
-    }
-    payload    += 5UL;
-    payload_sz -= 5UL;
-  }
-
-  if( FD_UNLIKELY( !( frame_flags & FD_H2_FLAG_END_HEADERS ) ) ) {
-    conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
   }
 
   fd_h2_stream_rx_headers( stream, conn, frame_flags );
@@ -232,7 +290,6 @@ fd_h2_rx_priority( fd_h2_conn_t * conn,
 
 static int
 fd_h2_rx_continuation( fd_h2_conn_t *            conn,
-                       fd_h2_rbuf_t *            rbuf_tx,
                        uchar *                   payload,
                        ulong                     payload_sz,
                        fd_h2_callbacks_t const * cb,
@@ -250,11 +307,10 @@ fd_h2_rx_continuation( fd_h2_conn_t *            conn,
     conn->flags &= (uchar)~FD_H2_CONN_FLAGS_CONTINUATION;
   }
 
+  /* The stream was refused or reset while the field block was still in
+     flight.  The peer was already told, so drop the rest of the block. */
   fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( FD_UNLIKELY( !stream ) ) {
-    fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_INTERNAL );
-    return 1;
-  }
+  if( FD_UNLIKELY( !stream ) ) return 1;
 
   fd_h2_stream_rx_headers( stream, conn, frame_flags );
   if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
@@ -591,7 +647,7 @@ fd_h2_rx_frame( fd_h2_conn_t *            conn,
   case FD_H2_FRAME_TYPE_PUSH_PROMISE:
     return fd_h2_rx_push_promise( conn );
   case FD_H2_FRAME_TYPE_CONTINUATION:
-    return fd_h2_rx_continuation( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
+    return fd_h2_rx_continuation( conn, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_PING:
     return fd_h2_rx_ping( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_GOAWAY:
@@ -672,6 +728,12 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
 
   /* Special case: Process data incrementally */
   if( frame_type==FD_H2_FRAME_TYPE_DATA ) {
+    /* fd_h2_rx1 only resumes a DATA frame while rx_data_cnt_rem!=0, so a
+       zero-payload frame that cannot be handled now (no room for the
+       control response) must not consume its header, or its END_STREAM
+       and flow-control accounting would be lost. */
+    ulong tx_reserve = fd_ulong_max( sizeof(fd_h2_rst_stream_t), 2UL*sizeof(fd_h2_window_update_t) );
+    if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<tx_reserve ) ) return;
     /* The amount of data is the remainder of the
       frame payload after subtracting the length of the other fields
       that are present [that is, padding length and padding]. */
@@ -679,6 +741,7 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     conn->rx_frame_flags = hdr.flags;
     conn->rx_stream_id   = fd_h2_frame_stream_id( hdr.r_stream_id );
     conn->rx_pad_rem     = (uchar)pad_sz;
+    conn->rx_fc_debt     = frame_sz - payload_sz;
     *rbuf_rx = rx_peek;
     if( FD_UNLIKELY( !conn->rx_stream_id ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
