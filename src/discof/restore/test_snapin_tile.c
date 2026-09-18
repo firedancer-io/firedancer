@@ -949,7 +949,7 @@ new_txncache( fd_wksp_t * wksp,
   ulong cache_footprint = FD_TXNCACHE_MAX_SLOT_DELTAS*((max_txn_per_slot+1UL)/2UL)*sizeof(blockhash_group_t)+alignof(blockhash_group_t)-1UL;
   void * shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(), fd_txncache_shmem_footprint( 1UL, max_txn_per_slot, cache_footprint ), 1UL );
   FD_TEST( shmem );
-  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem, 1UL, max_txn_per_slot, 0UL, cache_footprint ) );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem, 1UL, max_txn_per_slot, cache_footprint, 0UL ) );
   FD_TEST( txncache_shmem );
 
   void * local = fd_wksp_alloc_laddr( wksp, fd_txncache_align(), fd_txncache_footprint( 1UL ), 1UL );
@@ -990,7 +990,7 @@ test_txncache_staging_bench_scratch( ulong max_txn_per_slot,
   ulong sz = shmem_sz+local_sz;
   uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
   FD_TEST( mem!=MAP_FAILED );
-  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 2UL*max_txn_per_slot, 0UL, cache_footprint ) );
+  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 2UL*max_txn_per_slot, cache_footprint, 0UL ) );
   FD_TEST( shmem );
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( mem+shmem_sz, shmem, -1 ) );
   FD_TEST( txncache );

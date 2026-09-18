@@ -32,7 +32,7 @@ test_spill( void ) {
   uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
   FD_TEST( mem!=MAP_FAILED );
   FD_TEST( !fd_txncache_shmem_new( mem, live, txns, 0UL, 0UL ) );
-  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, live, txns, 0UL, 1UL*sizeof(fd_txncache_txnpage_t) ) );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, live, txns, 1UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
   FD_TEST( sh->resident_pages==1UL );
   char path[] = "/tmp/fd-txncache-test-XXXXXX";
   int fd = mkstemp( path );
@@ -80,7 +80,7 @@ test_spill_prefers_free_frame( void ) {
   ulong sz = shsz+fd_txncache_footprint( 4UL );
   uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
   FD_TEST( mem!=MAP_FAILED );
-  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, 0UL, 2UL*sizeof(fd_txncache_txnpage_t) ) );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, 2UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
   char path[] = "/tmp/fd-txncache-free-XXXXXX";
   int fd = mkstemp( path );
   FD_TEST( fd>=0 );
@@ -114,7 +114,7 @@ test_spill_io_failure( int read_failure ) {
     ulong sz = shsz+fd_txncache_footprint( 4UL );
     uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
     FD_TEST( mem!=MAP_FAILED );
-    fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, 0UL, 1UL*sizeof(fd_txncache_txnpage_t) ) );
+    fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, 1UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
     char path[] = "/tmp/fd-txncache-error-XXXXXX";
     int fd = mkstemp( path );
     FD_TEST( fd>=0 );
@@ -159,13 +159,13 @@ spill_thread_run( void * arg ) {
 }
 
 static void
-test_spill_concurrent( void ) {
-  ulong shsz = fd_txncache_shmem_footprint( 4UL, 256UL, 2UL*sizeof(fd_txncache_txnpage_t) );
+test_spill_concurrent( ulong resident_pages ) {
+  ulong shsz = fd_txncache_shmem_footprint( 4UL, 256UL, resident_pages*sizeof(fd_txncache_txnpage_t) );
   ulong lsz = fd_txncache_footprint( 4UL );
   ulong sz = shsz+4UL*lsz;
   uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0 );
   FD_TEST( mem!=MAP_FAILED );
-  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, 0UL, 2UL*sizeof(fd_txncache_txnpage_t) ) );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, resident_pages*sizeof(fd_txncache_txnpage_t), 0UL ) );
   char path[] = "/tmp/fd-txncache-threads-XXXXXX";
   int fd = mkstemp( path );
   FD_TEST( fd>=0 );
@@ -245,7 +245,7 @@ test_bench_sizing( ulong max_live_slots,
   FD_TEST( mem!=MAP_FAILED );
   FD_TEST( fd_ulong_is_aligned( (ulong)mem, FD_TXNCACHE_SHMEM_ALIGN ) );
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, max_live_slots, max_txn_per_slot, 0UL, ULONG_MAX ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, max_live_slots, max_txn_per_slot, ULONG_MAX, 0UL ) );
   FD_TEST( shtc );
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+fd_ulong_align_up( footprint_shmem, FD_TXNCACHE_ALIGN ), shtc, -1 ) );
   FD_TEST( tc );
@@ -293,7 +293,7 @@ test_shmem_new( void * mem,
                 ulong  txns,
                 ulong  seed ) {
   ulong cache_footprint = test_spill_fd>=0 ? sizeof(fd_txncache_txnpage_t) : ULONG_MAX;
-  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, live, txns, seed, cache_footprint ) );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, live, txns, cache_footprint, seed ) );
   return sh;
 }
 
@@ -336,18 +336,18 @@ void
 test_new_join( uchar * scratch0 ) {
   FD_LOG_NOTICE(( "TEST NEW" ));
 
-  FD_TEST( fd_txncache_shmem_new( NULL, 1UL, 1UL, 0UL, ULONG_MAX )==NULL );          /* null shmem         */
-  FD_TEST( fd_txncache_shmem_new( (void *)0x1UL, 1UL, 1UL, 0UL, ULONG_MAX )==NULL ); /* misaligned shmem   */
-  FD_TEST( fd_txncache_shmem_new( scratch0, 0UL, 1UL, 0UL, ULONG_MAX )==NULL );  /* 0 max_live_slots */
-  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 0UL, 0UL, ULONG_MAX )==NULL );  /* 0 max_txn_per_slot */
+  FD_TEST( fd_txncache_shmem_new( NULL, 1UL, 1UL, ULONG_MAX, 0UL )==NULL );          /* null shmem         */
+  FD_TEST( fd_txncache_shmem_new( (void *)0x1UL, 1UL, 1UL, ULONG_MAX, 0UL )==NULL ); /* misaligned shmem   */
+  FD_TEST( fd_txncache_shmem_new( scratch0, 0UL, 1UL, ULONG_MAX, 0UL )==NULL );  /* 0 max_live_slots */
+  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 0UL, ULONG_MAX, 0UL )==NULL );  /* 0 max_txn_per_slot */
 
-  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, 0UL, ULONG_MAX ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, 0UL, ULONG_MAX ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, 0UL, ULONG_MAX ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 4096UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), 0UL, ULONG_MAX ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), 0UL, ULONG_MAX ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, 1UL, 0UL, ULONG_MAX ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, 0UL, ULONG_MAX ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 4096UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, 1UL, ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, ULONG_MAX, 0UL ) );
 
   FD_LOG_NOTICE(( "TEST JOIN" ));
 
@@ -835,7 +835,9 @@ main( int     argc,
   test_spill_io_failure( 0 );
   test_spill_io_failure( 1 );
   test_spill();
-  test_spill_concurrent();
+  test_spill_concurrent( 1UL );
+  test_spill_concurrent( 2UL );
+  test_spill_concurrent( 3UL );
   test_bucket_cnt();
   test_page_sizing();
 

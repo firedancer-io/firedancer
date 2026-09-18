@@ -125,7 +125,7 @@ static int fuzz_spill_fd = -1;
 
 static fd_txncache_t *
 setup( ulong max_live_slots, ulong max_txn_per_slot ) {
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0UL, 2UL*sizeof(fd_txncache_txnpage_t) ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 2UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
   FD_TEST( shtc );
 
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc, fuzz_spill_fd ) );

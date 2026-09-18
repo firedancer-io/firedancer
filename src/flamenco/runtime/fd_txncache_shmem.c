@@ -125,8 +125,8 @@ void *
 fd_txncache_shmem_new( void * shmem,
                        ulong  max_live_slots,
                        ulong  max_txn_per_slot,
-                       ulong  seed,
-                       ulong  cache_footprint ) {
+                       ulong  cache_footprint,
+                       ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -171,10 +171,11 @@ fd_txncache_shmem_new( void * shmem,
   void * _page_meta           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_page_meta_t), _max_txnpages*sizeof(fd_txncache_page_meta_t)                );
   void * _frame_owner         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                   resident_pages*sizeof(ulong)                                 );
   memset( _page_meta, 0, _max_txnpages*sizeof(fd_txncache_page_meta_t) );
+  for( ulong i=0UL; i<_max_txnpages; i++ ) ((fd_txncache_page_meta_t *)_page_meta)[ i ].frame = UINT_MAX;
   memset( _frame_owner, 0xFF, resident_pages*sizeof(ulong) );
   tc->resident_pages = resident_pages;
   tc->spill_hand     = 0UL;
-  tc->spill_lock     = 0U;
+  fd_rwlock_new( &tc->spill_lock );
 
   fd_txncache_blockcache_shmem_t * blockcache_pool = blockcache_pool_join( blockcache_pool_new( _blockcache_pool, max_active_slots ) );
   FD_TEST( blockcache_pool );

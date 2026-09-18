@@ -177,29 +177,21 @@ page_io( fd_txncache_t *         tc,
   }
 }
 
-/* A pin CAS acquires both the mapping and the frame contents.  Eviction
-   can take ownership only when the pin count is zero.  Fast resident
-   hits never take spill_lock.  Misses hold no pins while waiting, which
-   lets even a one-frame cache make progress. */
+/* spill_lock protects mappings, pin counts, and spill I/O.  Callers
+   hold at most one pin.  If every frame is pinned, release the lock
+   before retrying so other callers can unpin their pages. */
 static fd_txncache_txnpage_t *
 page_pin( fd_txncache_t * tc,
           ulong           page ) {
   fd_txncache_page_meta_t * meta = &tc->page_meta[ page ];
   for(;;) {
-    ulong state = __atomic_load_n( &meta->state, __ATOMIC_ACQUIRE );
-    if( FD_LIKELY( state && state!=ULONG_MAX ) ) {
-      FD_TEST( (uint)state<UINT_MAX-1U );
-      if( __atomic_compare_exchange_n( &meta->state, &state, state+1UL, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED ) )
-        return &tc->txnpages[ (state>>32)-1UL ];
-      continue;
-    }
-    if( __atomic_exchange_n( &tc->shmem->spill_lock, 1U, __ATOMIC_ACQUIRE ) ) {
-      FD_SPIN_PAUSE();
-      continue;
-    }
-    if( __atomic_load_n( &meta->state, __ATOMIC_ACQUIRE ) ) {
-      __atomic_store_n( &tc->shmem->spill_lock, 0U, __ATOMIC_RELEASE );
-      continue;
+    fd_rwlock_write( &tc->shmem->spill_lock );
+    if( FD_LIKELY( meta->frame!=UINT_MAX ) ) {
+      FD_TEST( meta->pin_cnt<UINT_MAX );
+      meta->pin_cnt++;
+      fd_txncache_txnpage_t * frame = &tc->txnpages[ meta->frame ];
+      fd_rwlock_unwrite( &tc->shmem->spill_lock );
+      return frame;
     }
     ulong frame = ULONG_MAX;
     /* Pruning can leave holes anywhere in the clock ring.  Reuse every
@@ -216,27 +208,27 @@ page_pin( fd_txncache_t * tc,
       ulong f = tc->shmem->spill_hand++ % tc->shmem->resident_pages;
       ulong owner = tc->frame_owner[ f ];
       fd_txncache_page_meta_t * old = &tc->page_meta[ owner ];
-      ulong expected = (f+1UL)<<32;
-      if( !__atomic_compare_exchange_n( &old->state, &expected, ULONG_MAX, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED ) ) continue;
-      if( __atomic_load_n( &old->dirty, __ATOMIC_RELAXED ) ) {
+      if( old->pin_cnt ) continue;
+      if( old->dirty ) {
         page_io( tc, owner, &tc->txnpages[ f ], 1 );
         old->disk_valid = 1U;
-        __atomic_store_n( &old->dirty, 0U, __ATOMIC_RELAXED );
+        old->dirty      = 0U;
       }
-      __atomic_store_n( &old->state, 0UL, __ATOMIC_RELEASE );
+      old->frame = UINT_MAX;
       frame = f;
       break;
     }
     if( frame==ULONG_MAX ) {
-      __atomic_store_n( &tc->shmem->spill_lock, 0U, __ATOMIC_RELEASE );
+      fd_rwlock_unwrite( &tc->shmem->spill_lock );
       FD_SPIN_PAUSE();
       continue;
     }
     if( meta->disk_valid ) page_io( tc, page, &tc->txnpages[ frame ], 0 );
     else memset( &tc->txnpages[ frame ], 0, sizeof(fd_txncache_txnpage_t) );
     tc->frame_owner[ frame ] = page;
-    __atomic_store_n( &meta->state, ((frame+1UL)<<32)|1UL, __ATOMIC_RELEASE );
-    __atomic_store_n( &tc->shmem->spill_lock, 0U, __ATOMIC_RELEASE );
+    meta->frame   = (uint)frame;
+    meta->pin_cnt = 1U;
+    fd_rwlock_unwrite( &tc->shmem->spill_lock );
     return &tc->txnpages[ frame ];
   }
 }
@@ -245,9 +237,12 @@ static void
 page_unpin( fd_txncache_t *         tc,
             fd_txncache_txnpage_t * frame,
             int                     dirty ) {
+  fd_rwlock_write( &tc->shmem->spill_lock );
   fd_txncache_page_meta_t * meta = &tc->page_meta[ tc->frame_owner[ (ulong)(frame-tc->txnpages) ] ];
-  if( dirty ) __atomic_store_n( &meta->dirty, 1U, __ATOMIC_RELAXED );
-  __atomic_fetch_sub( &meta->state, 1UL, __ATOMIC_RELEASE );
+  FD_TEST( meta->pin_cnt );
+  if( dirty ) meta->dirty = 1U;
+  meta->pin_cnt--;
+  fd_rwlock_unwrite( &tc->shmem->spill_lock );
 }
 
 /* Structural write lock excludes all page users and the miss owner. */
@@ -255,10 +250,10 @@ static void
 page_discard( fd_txncache_t * tc,
               ulong           page ) {
   fd_txncache_page_meta_t * meta = &tc->page_meta[ page ];
-  ulong state = meta->state;
-  FD_TEST( !((uint)state) );
-  if( state ) tc->frame_owner[ (state>>32)-1UL ] = ULONG_MAX;
+  FD_TEST( !meta->pin_cnt );
+  if( meta->frame!=UINT_MAX ) tc->frame_owner[ meta->frame ] = ULONG_MAX;
   memset( meta, 0, sizeof(*meta) );
+  meta->frame = UINT_MAX;
 }
 
 ulong
@@ -754,8 +749,10 @@ fd_txncache_query( fd_txncache_t *       tc,
                    fd_txncache_fork_id_t fork_id,
                    uchar const *         blockhash,
                    uchar const *         txnhash ) {
+  /* Prevent fork removal and pruning while allowing inserts. */
   fd_rwlock_read( tc->shmem->lock );
 
+  /* Find the blockhash cache visible from the requested fork. */
   blockcache_t const * fork = &tc->blockcache_pool[ fork_id.val ];
   FD_TEST( fork->shmem->frozen>=0 );
   blockcache_t const * blockcache = blockhash_on_fork( tc, fork, blockhash );
@@ -764,15 +761,22 @@ fd_txncache_query( fd_txncache_t *       tc,
 
   int found = 0;
 
+  /* Select the bucket using the stored portion of the transaction hash. */
   ulong txnhash_offset = blockcache->shmem->txnhash_offset;
   ulong head_hash = fd_txncache_bucket( tc, txnhash+txnhash_offset );
-  for( uint head=__atomic_load_n( &blockcache->heads[ head_hash ], __ATOMIC_ACQUIRE ); head!=UINT_MAX; ) {
+  /* Walk the bucket's list.  UINT_MAX marks the end. */
+  for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; ) {
+    /* Load and pin the page, copy the record, then unpin.  The local
+       copy remains valid if the page is evicted. */
     fd_txncache_single_txn_t txn[1];
     fd_txncache_txn_copy( tc, head, txn );
     head = txn->blockcache_next;
 
+    /* Accept transactions from this fork or its ancestors.  Reject
+       removed forks and old records whose fork ID has been reused. */
     blockcache_t const * txn_fork = &tc->blockcache_pool[ txn->fork_id.val ];
     int descends = (txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val )) && txn_fork->shmem->frozen>=0 && txn_fork->shmem->generation==txn->generation;
+    /* Different hashes can share a bucket, so compare the stored hash. */
     if( FD_LIKELY( descends && !memcmp( txnhash+txnhash_offset, txn->txnhash, 20UL ) ) ) {
       found = 1;
       break;

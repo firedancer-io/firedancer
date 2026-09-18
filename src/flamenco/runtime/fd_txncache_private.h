@@ -121,12 +121,12 @@ typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
 #define SET_NAME descends_set
 #include "../../util/tmpl/fd_set_dynamic.c"
 
-/* state packs frame+1 in the high 32 bits and pin count in the low
-   32 bits.  Zero is absent, ULONG_MAX is owned by the miss path.
-   dirty is set before releasing a writer pin.  disk_valid and frame
-   ownership are protected by spill_lock and the structural lock. */
+/* spill_lock protects page metadata and frame ownership.  A pinned
+   frame cannot be evicted.  The structural write lock excludes all
+   page users when discarding pages. */
 struct fd_txncache_page_meta {
-  ulong state;
+  uint  frame;      /* UINT_MAX if absent from RAM */
+  uint  pin_cnt;
   uint  dirty;
   uint  disk_valid;
 };
@@ -134,8 +134,9 @@ typedef struct fd_txncache_page_meta fd_txncache_page_meta_t;
 
 struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_private {
   /* The txncache is a concurrent structure and will be accessed by multiple threads
-     concurrently.  Insertion and querying only take a read lock as they can be done
-     lockless but all other operations will take a write lock internally.
+     concurrently.  Insertion and querying take a structural read lock
+     and use spill_lock for page pinning.  All other operations take a
+     structural write lock internally.
 
      The lock needs to be aligned to 128 bytes to avoid false sharing with other
      data that might be on the same cache line. */
@@ -158,9 +159,9 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
                               most recently added root, the head is the oldest root.  This is used to identify
                               which forks can be pruned when a new root is added. */
 
-  ulong resident_pages;
-  ulong spill_hand;
-  uint  spill_lock;
+  ulong       resident_pages;
+  ulong       spill_hand;
+  fd_rwlock_t spill_lock;
 
   ulong seed;
   ulong magic; /* ==FD_TXNCACHE_SHMEM_MAGIC */
