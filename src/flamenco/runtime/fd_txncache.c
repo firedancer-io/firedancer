@@ -645,45 +645,48 @@ fd_txncache_insert( fd_txncache_t *       tc,
   FD_TEST( blockcache );
 
   ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
-  fd_txncache_txnpage_t * txnpage;
   for(;;) {
-    txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 0 );
-    if( FD_UNLIKELY( !txnpage ) ) break;
-    ulong txnpage_idx = (ulong)(txnpage-tc->txnpages)+disk_pages;
-    if( FD_LIKELY( fd_txncache_insert_txn( tc, blockcache, txnpage, txnpage_idx, fork_id, txnhash ) ) ) {
+    fd_txncache_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 0 );
+    if( FD_UNLIKELY( !txnpage ) ) {
+      /* Disk access, free-stack rearrangement, and pruning need exclusive
+         access.  Recheck after changing locks. */
       fd_rwlock_unread( tc->shmem->lock );
-      return;
+      fd_rwlock_write( tc->shmem->lock );
+      blockcache = blockhash_on_fork( tc, fork, blockhash );
+      FD_TEST( blockcache );
+      txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
+      /* Because of sizing invariants when creating the structure, it is
+         not typically possible to fill it, unless there are stale
+         transactions from minority forks that were purged floating
+         around, in which case we can purge them here and try again.
+         Under the write lock there are no concurrent allocators, so a
+         page still unavailable after the purge means the cache is
+         undersized for the caller's usage. */
+      if( FD_UNLIKELY( !txnpage ) ) {
+        purge_stale( tc );
+        txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
+        if( FD_UNLIKELY( !txnpage ) )
+          FD_LOG_ERR(( "txncache full after purging stale entries: blockcache holds %lu of %lu txnpages, pool has %lu of %lu free (active_slots_max=%lu txn_per_slot_max=%lu)",
+                       blockcache->shmem->pages_cnt, tc->shmem->txnpages_per_blockhash_max,
+                       tc->shmem->txnpages_free_cnt, tc->shmem->max_txnpages,
+                       tc->shmem->active_slots_max,  tc->shmem->txn_per_slot_max ));
+      }
+      ulong txnpage_idx = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, blockcache->pages, blockcache->shmem->pages_cnt-1UL );
+      FD_TEST( fd_txncache_insert_txn( tc, blockcache, txnpage, txnpage_idx, fork_id, txnhash ) );
+      if( FD_UNLIKELY( txnpage_idx<disk_pages ) ) page_io( tc, txnpage_idx, 0UL, txnpage, sizeof(*txnpage), 1 );
+      fd_rwlock_unwrite( tc->shmem->lock );
+      fd_rwlock_read( tc->shmem->lock );
+      break;
     }
+
+    ulong txnpage_idx = (ulong)(txnpage-tc->txnpages)+disk_pages;
+    int success = fd_txncache_insert_txn( tc, blockcache, txnpage, txnpage_idx, fork_id, txnhash );
+    if( FD_LIKELY( success ) ) break;
+
     FD_SPIN_PAUSE();
   }
 
-  /* Disk access, free-stack rearrangement, and pruning need exclusive
-     access.  Recheck after changing locks. */
   fd_rwlock_unread( tc->shmem->lock );
-  fd_rwlock_write( tc->shmem->lock );
-  blockcache = blockhash_on_fork( tc, fork, blockhash );
-  FD_TEST( blockcache );
-  txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
-  /* Because of sizing invariants when creating the structure, it is
-     not typically possible to fill it, unless there are stale
-     transactions from minority forks that were purged floating
-     around, in which case we can purge them here and try again.
-     Under the write lock there are no concurrent allocators, so a
-     page still unavailable after the purge means the cache is
-     undersized for the caller's usage. */
-  if( FD_UNLIKELY( !txnpage ) ) {
-    purge_stale( tc );
-    txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
-    if( FD_UNLIKELY( !txnpage ) )
-      FD_LOG_ERR(( "txncache full after purging stale entries: blockcache holds %lu of %lu txnpages, pool has %lu of %lu free (active_slots_max=%lu txn_per_slot_max=%lu)",
-                   blockcache->shmem->pages_cnt, tc->shmem->txnpages_per_blockhash_max,
-                   tc->shmem->txnpages_free_cnt, tc->shmem->max_txnpages,
-                   tc->shmem->active_slots_max,  tc->shmem->txn_per_slot_max ));
-  }
-  ulong txnpage_idx = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, blockcache->pages, blockcache->shmem->pages_cnt-1UL );
-  FD_TEST( fd_txncache_insert_txn( tc, blockcache, txnpage, txnpage_idx, fork_id, txnhash ) );
-  if( FD_UNLIKELY( txnpage_idx<disk_pages ) ) page_io( tc, txnpage_idx, 0UL, txnpage, sizeof(*txnpage), 1 );
-  fd_rwlock_unwrite( tc->shmem->lock );
 }
 
 int
