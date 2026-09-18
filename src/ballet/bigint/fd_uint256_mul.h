@@ -19,12 +19,6 @@
 
 #define INLINE static inline __attribute__((always_inline))
 
-#ifdef FD_USING_GCC
-#define OPTIMIZE __attribute__((optimize("unroll-loops")))
-#else
-#define OPTIMIZE
-#endif
-
 #if FD_HAS_X86
 #if defined(__GNUC__) && !defined(__clang__)
 #include <x86gprintrin.h>
@@ -157,13 +151,10 @@ fd_uint256_add(fd_uint256_t *       r,
    In go lang, bits.Add64 has carry 0, 1.
    We allow the carry to be a uchar, so we can dp a single add chain after each mul.
 
-   This function is intended to be wrapped into a fd_<field>_mul( r, a, b ).
-   Experimentally we found that:
-   1. We have to force inlining for this function, otherwise compilers tend to reuse
-      the function, introducing overhead.
-   2. In GCC, we have to force loop unrolling optimization *in the outer fd_<field>_mul()*
-      function, otherwise performance degrades significantly.
-      For this we added the macro FD_UINT256_FP_MUL_IMPL. */
+   This function is intended to be wrapped into a fd_<field>_mul( r, a, b )
+   via the macro FD_UINT256_FP_MUL_IMPL.
+   Inlining is forced, otherwise compilers tend to reuse the function,
+   introducing overhead. */
 
 #if FD_HAS_X86 && defined(__BMI2__) && defined(__ADX__)
 __asm__( ".include \"src/ballet/bigint/fd_uint256_mul.inc\"" );
@@ -231,10 +222,9 @@ fd_uint256_mul_mod_p( fd_uint256_t *       r,
 }
 
 /* FD_UINT256_FP_MUL_IMPL macro to properly implement Fp mul based on
-   fd_uint256_mul_mod_p().
-   In GCC we need to explicitly force loop unroll. */
+   fd_uint256_mul_mod_p(). */
 #define FD_UINT256_FP_MUL_IMPL(fp, p, p_inv)          \
-  static inline fp ## _t * OPTIMIZE                   \
+  static inline fp ## _t *                            \
   fp ## _mul( fp ## _t * r,                           \
               fp ## _t const * a,                     \
               fp ## _t const * b ) {                  \
