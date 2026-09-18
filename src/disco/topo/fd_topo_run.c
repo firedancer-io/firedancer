@@ -229,7 +229,9 @@ fd_topo_tile_stack_join( char const * app_name,
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", app_name, tile_name, tile_kind_id ) );
 
-  int dump = strcmp( tile_name, "sign" ) ? 1 : 0; /* avoid core dumps of sign tile stacks */
+  /* avoid core dumps of sign tile stacks, and of failov ones, which hold
+     TLS session secrets */
+  int dump = strcmp( tile_name, "sign" ) && strcmp( tile_name, "failov" ) ? 1 : 0;
   uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, dump, NULL, NULL, NULL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
 
