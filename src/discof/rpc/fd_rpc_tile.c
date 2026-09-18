@@ -349,6 +349,9 @@ typedef struct fd_rpc_out fd_rpc_out_t;
 struct bank_info {
   ulong slot; /* default ULONG_MAX */
   ulong bank_idx;
+  ulong bank_seq;
+  ulong parent_bank_idx;
+  ulong parent_bank_seq;
   fd_accdb_fork_id_t accdb_fork_id;
   ulong epoch;
   ulong slot_in_epoch;
@@ -457,6 +460,8 @@ struct fd_rpc_tile {
   ulong max_retransmit_slot;
   ulong shred_slot; /* copied in during_frag, shred_out is unreliable */
 
+  /* Each non-null index owns one replay bank reference, even when
+     multiple commitment levels refer to the same bank. */
   ulong processed_idx;
   ulong confirmed_idx;
   ulong finalized_idx;
@@ -706,6 +711,21 @@ metrics_write( fd_rpc_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE_RO( RPC, fd_accdb_metrics( ctx->accdb ) );
 }
 
+/* finalized_idx currently holds replay's local consensus root.  Use
+   that existing reference when a selected bank is unavailable, matching
+   Agave's processed fallback to BankForks::root_bank().  This root also
+   satisfies confirmed commitment. */
+
+static inline ulong
+processed_bank_idx( fd_rpc_tile_t const * ctx ) {
+  return ctx->processed_idx==ULONG_MAX ? ctx->finalized_idx : ctx->processed_idx;
+}
+
+static inline ulong
+confirmed_bank_idx( fd_rpc_tile_t const * ctx ) {
+  return ctx->confirmed_idx==ULONG_MAX ? ctx->finalized_idx : ctx->confirmed_idx;
+}
+
 static void
 before_credit( fd_rpc_tile_t *     ctx,
                fd_stem_context_t * stem,
@@ -716,7 +736,7 @@ before_credit( fd_rpc_tile_t *     ctx,
   if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
   ctx->idle_cnt = 0UL;
 
-  int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
+  int replay_ready = ctx->finalized_idx!=ULONG_MAX;
   if( FD_UNLIKELY( ctx->delay_startup && !replay_ready ) ) return;
 
   if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
@@ -739,7 +759,8 @@ before_frag( fd_rpc_tile_t *   ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
     return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_OC_ADVANCED &&
-           sig!=REPLAY_SIG_ROOT_ADVANCED  && sig!=REPLAY_SIG_DROP_BANK_REF;
+           sig!=REPLAY_SIG_ROOT_ADVANCED  && sig!=REPLAY_SIG_DROP_BANK_REF &&
+           sig!=REPLAY_SIG_PROCESSED_ADVANCED;
   }
 
   if( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) {
@@ -905,6 +926,33 @@ fd_rpc_publish_slot_event( fd_rpc_tile_t *                    ctx,
   FD_MCNT_INC( RPC, WEBSOCKET_EVENT_SENT_SLOT,          sent_cnt );
 }
 
+/* bank_is_rooted accepts the finalized bank and its descendants.  A
+   reference to an older ancestor also needs releasing so storage can
+   advance to the consensus root.  Replay publishes parent completion
+   before child completion, and a live reference protects its ancestry
+   from pruning.  Stop at the finalized slot: older ancestors of the
+   finalized bank may already have been pruned and their indices reused. */
+
+static int
+bank_is_rooted( fd_rpc_tile_t const * ctx,
+                ulong                 bank_idx ) {
+  FD_TEST( bank_idx<ctx->max_live_slots );
+  bank_info_t const * bank = &ctx->banks[ bank_idx ];
+  FD_TEST( bank->slot!=ULONG_MAX );
+  if( FD_UNLIKELY( ctx->finalized_idx==ULONG_MAX ) ) return 1;
+
+  bank_info_t const * root = &ctx->banks[ ctx->finalized_idx ];
+  while( bank->slot>root->slot ) {
+    FD_TEST( bank->parent_bank_idx<ctx->max_live_slots );
+    bank_info_t const * parent = &ctx->banks[ bank->parent_bank_idx ];
+    FD_TEST( parent->slot<bank->slot );
+    FD_TEST( parent->bank_seq==bank->parent_bank_seq );
+    bank_idx = bank->parent_bank_idx;
+    bank = parent;
+  }
+  return bank_idx==ctx->finalized_idx && bank->bank_seq==root->bank_seq;
+}
+
 static inline int
 returnable_frag( fd_rpc_tile_t *     ctx,
                  ulong               in_idx,
@@ -927,6 +975,10 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         FD_TEST( slot_completed->bank_idx<ctx->max_live_slots );
         bank_info_t * bank = &ctx->banks[ slot_completed->bank_idx ];
         bank->slot = slot_completed->slot;
+        bank->bank_idx = slot_completed->bank_idx;
+        bank->bank_seq = slot_completed->bank_seq;
+        bank->parent_bank_idx = slot_completed->parent_bank_idx;
+        bank->parent_bank_seq = slot_completed->parent_bank_seq;
         bank->accdb_fork_id = slot_completed->accdb_fork_id;
         bank->epoch = slot_completed->epoch;
         bank->slot_in_epoch = slot_completed->slot_in_epoch;
@@ -947,40 +999,55 @@ returnable_frag( fd_rpc_tile_t *     ctx,
 
         fd_rpc_publish_slot_event( ctx, slot_completed );
 
-        /* In Agave, "processed" confirmation is the bank we've just
-           voted for (handle_votable_bank), which is also guaranteed to
-           have been replayed.
-
-           Right now tower is not really built out to replicate this
-           exactly, so we use the latest replayed slot, which is
-           slightly more eager than Agave but shouldn't really affect
-           end-users, since any use-cases that assume "processed" means
-           "voted-for" would fail in Agave in cases where a cast vote
-           does not land.
-
-           Due to bank eviction semantics, it is possible that the RPC
-           can return data about a slot that is not the most recently
-           replayed slot (since slots can be re-replayed).
-
-           tldr: This isn't strictly conformant with Agave, but doesn't
-           need to be since Agave doesn't provide any guarantees
-           anyways. */
+        break;
+      }
+      case REPLAY_SIG_PROCESSED_ADVANCED: {
+        fd_replay_processed_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        FD_TEST( msg->bank_idx<ctx->max_live_slots );
+        FD_TEST( ctx->banks[ msg->bank_idx ].slot==msg->slot );
+        FD_TEST( ctx->banks[ msg->bank_idx ].bank_seq==msg->bank_seq );
+        if( FD_UNLIKELY( !bank_is_rooted( ctx, msg->bank_idx ) ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, msg->bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          break;
+        }
+        /* Match Agave's handle_votable_bank: processed follows the local
+           vote decision, not completion order or reset-only changes. */
         if( FD_LIKELY( ctx->processed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-        ctx->processed_idx = slot_completed->bank_idx;
+        ctx->processed_idx = msg->bank_idx;
         break;
       }
       case REPLAY_SIG_OC_ADVANCED: {
         fd_replay_oc_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
+        FD_TEST( ctx->banks[ msg->bank_idx ].slot!=ULONG_MAX );
+        FD_TEST( ctx->banks[ msg->bank_idx ].bank_seq==msg->bank_seq );
+        if( FD_UNLIKELY( !bank_is_rooted( ctx, msg->bank_idx ) ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, msg->bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          break;
+        }
+        if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->confirmed_idx = msg->bank_idx;
         break;
       }
       case REPLAY_SIG_ROOT_ADVANCED: {
         fd_replay_root_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        if( FD_LIKELY( ctx->finalized_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
+        FD_TEST( ctx->banks[ msg->bank_idx ].slot==msg->slot );
+        FD_TEST( ctx->banks[ msg->bank_idx ].bank_seq==msg->bank_seq );
+        if( FD_LIKELY( ctx->finalized_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->finalized_idx = msg->bank_idx;
+
+        /* Release excluded forks even if no further slots complete.
+           Otherwise these references can indefinitely pin storage root
+           advancement, in particular after a late leader completion. */
+        if( FD_UNLIKELY( ctx->processed_idx!=ULONG_MAX && !bank_is_rooted( ctx, ctx->processed_idx ) ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->processed_idx = ULONG_MAX;
+        }
+        if( FD_UNLIKELY( ctx->confirmed_idx!=ULONG_MAX && !bank_is_rooted( ctx, ctx->confirmed_idx ) ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->confirmed_idx = ULONG_MAX;
+        }
         break;
       }
       case REPLAY_SIG_DROP_BANK_REF: {
@@ -1401,8 +1468,8 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     fd_rpc_val_t const * commitment = &cfg->commitment;
     char commitment_cstr[ 16 ];
     if( FD_UNLIKELY( !fd_rpc_val_cstr( commitment, commitment_cstr, sizeof(commitment_cstr) ) ) ) _bank_idx = ctx->finalized_idx;
-    else if( FD_LIKELY( !strcmp( commitment_cstr, "processed" ) ) ) _bank_idx = ctx->processed_idx;
-    else if( FD_LIKELY( !strcmp( commitment_cstr, "confirmed" ) ) ) _bank_idx = ctx->confirmed_idx;
+    else if( FD_LIKELY( !strcmp( commitment_cstr, "processed" ) ) ) _bank_idx = processed_bank_idx( ctx );
+    else if( FD_LIKELY( !strcmp( commitment_cstr, "confirmed" ) ) ) _bank_idx = confirmed_bank_idx( ctx );
     else if( FD_LIKELY( !strcmp( commitment_cstr, "finalized" ) ) ) _bank_idx = ctx->finalized_idx;
     else _bank_idx = ctx->finalized_idx;
   } else {
@@ -2062,10 +2129,11 @@ _getHealth( fd_rpc_tile_t * ctx ) {
   FD_MCNT_INC( RPC, REQUEST_SERVED_GET_HEALTH, 1UL );
 
   /* fd_http_server_listen is not called until after RPC has initialized banks */
-  if( FD_UNLIKELY( ctx->confirmed_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
+  ulong bank_idx = confirmed_bank_idx( ctx );
+  if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
   if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
 
-  ulong slots_behind = fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot );
+  ulong slots_behind = fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ bank_idx ].slot );
   if( FD_LIKELY( slots_behind<=FD_RPC_HEALTH_CHECK_SLOT_DISTANCE ) ) return FD_RPC_HEALTH_STATUS_OK;
   else                                                               return FD_RPC_HEALTH_STATUS_BEHIND;
 }
@@ -2084,7 +2152,7 @@ getHealth( fd_rpc_tile_t *         ctx,
 
   switch( health_status ) {
     case FD_RPC_HEALTH_STATUS_UNKNOWN: return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, id_cstr );
-    case FD_RPC_HEALTH_STATUS_BEHIND:  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot ), id_cstr );
+    case FD_RPC_HEALTH_STATUS_BEHIND:  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ confirmed_bank_idx( ctx ) ].slot ), id_cstr );
     case FD_RPC_HEALTH_STATUS_OK:      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%s}\n", id_cstr );
     default: FD_LOG_ERR(( "unknown health status" ));
   }
@@ -2150,7 +2218,7 @@ getLatestBlockhash( fd_rpc_tile_t *         ctx,
                     fd_rpc_params_t const * params ) {
   FD_MCNT_INC( RPC, REQUEST_SERVED_GET_LATEST_BLOCKHASH, 1UL );
 
-  if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( processed_bank_idx( ctx )==ULONG_MAX ) ) {
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
   }
 

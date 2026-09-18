@@ -24,6 +24,8 @@ struct slot_state_ele {
   ulong           parents_ready_cnt;
   int             received_shred;
   int             pending_block;
+  int             pending_available;
+  int             restore_requested;
   ag_block_info_t pending_block_info;
   int             retired;
 
@@ -75,10 +77,15 @@ struct __attribute__((aligned(128UL))) ag_votor {
   long           now;
   ulong          seq;
   ulong          root;
+  ulong          replay_root;
   ulong          slot_max;
   ushort         shred_version;
   fd_bls_sign_fn bls_sign_fn;
   void *         bls_sign_ctx;
+  ag_votor_bank_fn bank_callback;
+  void *          bank_callback_ctx;
+  ag_block_id_t   restore_block;
+  int            restore_active;
 
   slot_states_t * slot_states;
   ulong           highest_final_cert_slot;
@@ -280,6 +287,7 @@ ag_votor_init( ag_votor_t *   self,
   FD_TEST( sign_fn );
   self->now                     = now;
   self->root                    = slot;
+  self->replay_root             = slot;
   self->shred_version           = shred_version;
   self->bls_sign_fn             = sign_fn;
   self->bls_sign_ctx            = sign_ctx;
@@ -384,6 +392,7 @@ try_notar( ag_votor_t *            self,
            ag_block_info_t const * block_info ) {
   FD_TEST( slot>=first_unpruned_slot( self ) );
   if( FD_UNLIKELY( has_voted( self, slot ) ) ) return 0;
+  if( FD_UNLIKELY( slot<=self->replay_root ) ) return 0;
 
   ag_block_hash_t hash;
   memcpy( hash, block_info->hash, sizeof(ag_block_hash_t) );
@@ -405,16 +414,32 @@ try_notar( ag_votor_t *            self,
     if( FD_UNLIKELY( memcmp( parent_state->voted_notar_hash, parent.hash, sizeof(ag_block_hash_t) )!=0 ) ) return 0;
   }
 
+  slot_state_ele_t * state = state_mut( self, slot );
+  if( FD_UNLIKELY( state->pending_block && !state->pending_available ) ) {
+    if( !state->restore_requested && !self->restore_active && self->bank_callback ) {
+      ag_block_id_t block = ag_block_id( slot, hash );
+      self->restore_block = block;
+      self->restore_active = 1;
+      self->bank_callback( self->bank_callback_ctx, &block, 1 );
+      state->restore_requested = 1;
+    }
+    return 0;
+  }
+
   ag_vote_t vote = ag_vote_construct_notar( self->bls_sign_fn, self->bls_sign_ctx, slot, hash, own_rank( self, slot ), self->shred_version );
   FD_TEST( !vote_events_full( self->vote_events ) );
   vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .vote = vote } );
 
-  slot_state_ele_t * state = state_mut( self, slot );
   if( FD_UNLIKELY( state->pending_block ) ) pending_dlist_ele_remove( self->pending_dlist, state, self->slot_states->pool );
   state->voted         = 1;
   state->voted_notar   = 1;
   state->pending_block = 0;
   memcpy( state->voted_notar_hash, hash, sizeof(ag_block_hash_t) );
+
+  if( self->bank_callback ) {
+    ag_block_id_t block = ag_block_id( slot, hash );
+    self->bank_callback( self->bank_callback_ctx, &block, 0 );
+  }
 
   try_final( self, slot, hash );
   return 1;
@@ -441,6 +466,7 @@ try_skip_window( ag_votor_t * self,
 
 static void
 check_pending_blocks( ag_votor_t * self ) {
+  if( self->restore_active && !ag_votor_block_pending( self, &self->restore_block ) ) self->restore_active = 0;
   slot_state_map_t * map   = self->slot_states->map;
   slot_state_ele_t * pool  = self->slot_states->pool;
   ulong *            slots = self->scratch.slots;
@@ -600,6 +626,7 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
   default:
     FD_LOG_ERR(( "invalid pool event kind %d", event->kind ));
   }
+  if( self->restore_active && !ag_votor_block_pending( self, &self->restore_block ) ) check_pending_blocks( self );
 }
 
 void
@@ -621,6 +648,7 @@ ag_votor_handle_block_event( ag_votor_t *             self,
   default:
     FD_LOG_ERR(( "invalid block event kind %d", event->kind ));
   }
+  if( self->restore_active && !ag_votor_block_pending( self, &self->restore_block ) ) check_pending_blocks( self );
 }
 
 void
@@ -631,10 +659,14 @@ ag_votor_handle_replay_event( ag_votor_t *              self,
 
   switch( event->kind ) {
   case AG_EVENT_REPLAY_COMPLETED:
+    if( self->restore_active && self->restore_block.slot==slot &&
+        !memcmp( self->restore_block.hash, event->block_info.hash, sizeof(ag_block_hash_t) ) ) self->restore_active = 0;
     if( FD_UNLIKELY( has_voted( self, slot ) ) ) {
       FD_LOG_WARNING(( "not voting for block in slot %lu, already voted", slot ));
       return;
     }
+    state_mut( self, slot )->pending_available = 1;
+    state_mut( self, slot )->restore_requested = 0;
     if( FD_LIKELY( try_notar( self, slot, &event->block_info ) ) ) {
       check_pending_blocks( self );
     } else {
@@ -642,12 +674,14 @@ ag_votor_handle_replay_event( ag_votor_t *              self,
       if( FD_LIKELY( !state->pending_block ) ) pending_dlist_ele_push_tail( self->pending_dlist, state, self->slot_states->pool );
       state->pending_block      = 1;
       state->pending_block_info = event->block_info;
+      if( self->restore_active && !ag_votor_block_pending( self, &self->restore_block ) ) check_pending_blocks( self );
     }
     break;
 
   case AG_EVENT_REPLAY_DEAD:
     FD_LOG_WARNING(( "replay marked slot %lu dead, skipping window", slot ));
     try_skip_window( self, slot );
+    check_pending_blocks( self );
     break;
 
   default:
@@ -673,6 +707,7 @@ ag_votor_handle_timeout_event( ag_votor_t *               self,
   default:
     FD_LOG_ERR(( "invalid timeout kind %d", event->kind ));
   }
+  if( self->restore_active && !ag_votor_block_pending( self, &self->restore_block ) ) check_pending_blocks( self );
 }
 
 int
@@ -717,4 +752,32 @@ ag_votor_poll_cert_event( ag_votor_t *      self,
   if( FD_LIKELY( cert_events_empty( self->cert_events ) ) ) return 0;
   *event = cert_events_pop( self->cert_events );
   return 1;
+}
+
+void
+ag_votor_set_bank_callback( ag_votor_t * self, ag_votor_bank_fn callback, void * ctx ) {
+  self->bank_callback = callback;
+  self->bank_callback_ctx = ctx;
+}
+
+int
+ag_votor_block_pending( ag_votor_t const * self, ag_block_id_t const * block ) {
+  slot_state_ele_t const * state = slot_state_map_ele_query_const( self->slot_states->map, &block->slot, NULL, self->slot_states->pool );
+  return block->slot>self->replay_root && state && !state->voted && !state->retired &&
+         state->pending_block && !memcmp( state->pending_block_info.hash, block->hash, sizeof(ag_block_hash_t) );
+}
+
+void
+ag_votor_forget_block( ag_votor_t * self, ag_block_id_t const * block ) {
+  if( !ag_votor_block_pending( self, block ) ) return;
+  slot_state_ele_t * state = state_mut( self, block->slot );
+  state->pending_available = 0;
+  state->restore_requested = 0;
+}
+
+void
+ag_votor_set_root( ag_votor_t * self, ulong slot ) {
+  FD_TEST( slot>=self->replay_root );
+  self->replay_root = slot;
+  if( self->restore_active && !ag_votor_block_pending( self, &self->restore_block ) ) check_pending_blocks( self );
 }

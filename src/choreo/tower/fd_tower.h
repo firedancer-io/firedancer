@@ -581,7 +581,9 @@ fd_tower_count_vote( fd_tower_t *        tower,
    roots result from votes, so the same applies for root_slot (there is
    not always a new root).  However there is always a reset block, so
    reset_slot, reset_block_id and reset_bank_seq will always be populated
-   on return.  The implementation contains detailed documentation of the
+   on return.  If the selected reset block has runtime_available==0,
+   no vote is recorded and the caller must restore its runtime bank
+   before applying that reset.  The implementation contains detailed documentation of the
    tower rules. */
 
 uchar

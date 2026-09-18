@@ -139,6 +139,8 @@ struct fd_tower_tile {
   fd_hfork_t * hfork;
   fd_votes_t * votes;
   fd_tower_t * tower;
+  fd_hash_t    reset_block_id; /* last reset actually sent to replay */
+  fd_hash_t    restore_block_id; /* preferred bank awaiting runtime restoration */
 
   fd_vote_instruction_t scratch_ix;
   fd_tower_vote_t *     scratch_tower; /* spare deque used during vote txn processing */

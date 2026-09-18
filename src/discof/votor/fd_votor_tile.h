@@ -9,6 +9,17 @@
 #define FD_VOTOR_SIG_REPAIR (1)
 #define FD_VOTOR_SIG_LEADER (2)
 #define FD_VOTOR_SIG_REWARD (3)
+#define FD_VOTOR_SIG_PROCESSED (4)
+#define FD_VOTOR_SIG_BANK_RELEASE (5)
+#define FD_VOTOR_SIG_BANK_EVICT_ACK (6)
+#define FD_VOTOR_SIG_BANK_RESTORE (7)
+
+/* PROCESSED names the first local normal notarization.  Its completion
+   lease remains held until the following BANK_RELEASE; replay acquires
+   the RPC reference before releasing that lease. */
+typedef struct { ulong slot; ulong bank_idx; ulong bank_seq; } fd_votor_processed_t;
+typedef struct { ulong bank_idx; ulong bank_seq; } fd_votor_bank_release_t;
+typedef struct { ulong bank_idx; ulong bank_seq; int cancel; } fd_votor_bank_evict_ack_t;
 
 #define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
 
@@ -66,6 +77,9 @@ struct fd_votor_reward {
 typedef struct fd_votor_reward fd_votor_reward_t;
 
 union fd_votor_msg {
+  fd_votor_processed_t processed;
+  fd_votor_bank_release_t bank_release;
+  fd_votor_bank_evict_ack_t bank_evict_ack;
   fd_votor_certed_t certed;
   fd_votor_repair_t repair;
   fd_votor_leader_t leader;

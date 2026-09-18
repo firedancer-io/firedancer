@@ -664,6 +664,11 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->protocol      = fd_repair_join        ( fd_repair_new        ( repair_mem,     &ctx->identity_public_key                             ) );
   ctx->slot_metrics  = fd_repair_metrics_join( fd_repair_metrics_new( metrics_mem                                                           ) );
   ctx->deliver_queue = out_queue_join        ( out_queue_new        ( deliver_q_mem, (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ) );
+  ctx->restore_max = (ulong)TEST_SLOT_MAX*FD_CHAINER_SLOT_VER_MAX;
+  ctx->restore_cnt = 0UL;
+  ctx->restore_slot = ULONG_MAX;
+  ctx->restores = fd_wksp_alloc_laddr( wksp, alignof(struct rotor_restore), sizeof(struct rotor_restore)*ctx->restore_max, 1UL );
+  FD_TEST( ctx->restores );
   FD_TEST( ctx->chainer && ctx->policy && ctx->dedup && ctx->inflights && ctx->signs_map && ctx->toss_queue && ctx->meta_queue && ctx->protocol && ctx->slot_metrics && ctx->deliver_queue );
 
   /* Out links.  fd_chunk_to_laddr( mem, 0 )==mem, so chunk0=0 with mem
@@ -2624,6 +2629,52 @@ test_slot_complete_before_trailing_fec( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_slot_complete_before_trailing_fec" ));
 }
 
+static void
+test_votor_bank_restore( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+  blk_t parent[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  parent->fec_root[0] = mkhash( 0xEF00UL );
+  parent->fec_root[1] = mkhash( 0xEF01UL );
+  blk_build( parent );
+  blk_t child[1] = {{ .slot = SNAP_SLOT+2UL, .parent_slot = parent->slot, .parent_block_id = parent->block_id, .fec_cnt = 1U }};
+  child->fec_root[0] = mkhash( 0xEF02UL );
+  blk_build( child );
+  deliver_turbine_block( ctx, parent );
+  deliver_turbine_block( ctx, child );
+  pump( ctx );
+  ulong base = rep_cnt;
+
+  deliver_votor( ctx, FD_VOTOR_SIG_REPAIR, child->slot, &child->block_id );
+  pump( ctx );
+  FD_TEST( rep_cnt==base ); /* ordinary cert repair does not replay known blocks */
+  deliver_votor( ctx, FD_VOTOR_SIG_BANK_RESTORE, child->slot, &child->block_id );
+  deliver_votor( ctx, FD_VOTOR_SIG_BANK_RESTORE, child->slot, &child->block_id );
+  FD_TEST( ctx->restore_cnt==1UL );
+  int poll_in = 1;
+  int charge_busy = 0;
+  after_credit( ctx, NULL, &poll_in, &charge_busy );
+  drain( ctx );
+  FD_TEST( !poll_in && charge_busy && !out_queue_empty( ctx->deliver_queue ) );
+  pump( ctx );
+  FD_TEST( !ctx->restore_cnt );
+  FD_TEST( rep_cnt==base+3UL );
+  FD_TEST( rep_log[base].slot==parent->slot && rep_log[base].fec_set_idx==0U );
+  FD_TEST( rep_log[base+1UL].slot==parent->slot && rep_log[base+1UL].fec_set_idx==FD_FEC_SHRED_CNT );
+  FD_TEST( rep_log[base+2UL].slot==child->slot );
+  FD_TEST( fd_hash_eq( &rep_log[base].block_id, &parent->block_id ) );
+  FD_TEST( fd_hash_eq( &rep_log[base+2UL].block_id, &child->block_id ) );
+  for( ulong i=0UL; i<base; i++ ) FD_TEST( rep_log[i].restore_slot==ULONG_MAX );
+  for( ulong i=base; i<rep_cnt; i++ ) {
+    FD_TEST( rep_log[i].restore_slot==child->slot );
+    FD_TEST( fd_hash_eq( &rep_log[i].restore_block_id, &child->block_id ) );
+  }
+  FD_TEST( ctx->restore_slot==ULONG_MAX );
+
+  deliver_votor( ctx, FD_VOTOR_SIG_BANK_RESTORE, SNAP_SLOT, &snap_bid );
+  FD_TEST( !ctx->restore_cnt );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -2678,6 +2729,9 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_slot_complete_before_trailing_fec( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_votor_bank_restore( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

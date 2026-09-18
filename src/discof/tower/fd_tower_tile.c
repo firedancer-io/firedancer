@@ -519,9 +519,14 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   msg->replay_slot           = slot_completed->slot;
   msg->active_fork_cnt       = fd_ghost_width( ctx->ghost );
   msg->vote_slot             = out->vote_slot;
+  if( FD_LIKELY( out->vote_slot!=ULONG_MAX ) ) {
+    FD_TEST( out->vote_slot==out->reset_slot );
+    FD_TEST( fd_hash_eq( &out->vote_block_id, &out->reset_block_id ) );
+  }
   msg->reset_slot            = out->reset_slot;
   msg->reset_block_id        = out->reset_block_id;
   msg->reset_bank_seq        = out->reset_bank_seq;
+  ctx->reset_block_id        = out->reset_block_id;
   msg->root_slot             = out->root_slot;
   msg->root_block_id         = out->root_block_id;
   msg->replay_bank_idx       = slot_completed->bank_idx;
@@ -572,7 +577,7 @@ publish_slot_ignored( fd_tower_tile_t *            ctx,
                       fd_stem_context_t *          stem FD_PARAM_UNUSED ) {
   publishes_push_head( ctx->publishes, (publish_t){
     .sig = FD_TOWER_SIG_SLOT_IGNORED,
-    .msg = { .slot_ignored = { .slot = slot_completed->slot, .bank_idx = slot_completed->bank_idx } }
+    .msg = { .slot_ignored = { .slot = slot_completed->slot, .bank_idx = slot_completed->bank_idx, .bank_seq = slot_completed->bank_seq } }
   });
 }
 
@@ -1055,14 +1060,24 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
                        ulong                        tsorig,
                        fd_stem_context_t *          stem ) {
 
-  /* If the slot has already been replayed, we can just ignore it (but
-     refresh bank_seq so confirmations reference the surviving row, and
-     release the bank ref). */
+  /* A restored bank keeps its consensus identity.  Refresh its runtime
+     generation and retry fork choice without inserting a duplicate. */
   fd_ghost_blk_t * replayed = fd_ghost_query( ctx->ghost, &slot_completed->block_id );
+  fd_ghost_blk_t * ghost_blk;
   if( FD_UNLIKELY( replayed ) ) {
+    int restored = !replayed->runtime_available || fd_hash_eq( &ctx->restore_block_id, &replayed->id );
     replayed->bank_seq = slot_completed->bank_seq;
-    publish_slot_ignored( ctx, slot_completed, tsorig, stem );
-    return;
+    replayed->runtime_available = 1;
+    if( !restored ) {
+      publish_slot_ignored( ctx, slot_completed, tsorig, stem );
+      return;
+    }
+    ghost_blk = replayed;
+    fd_tower_stakes_remove( ctx->tower, slot_completed->slot );
+    fd_tower_lockos_remove( ctx->tower, slot_completed->slot );
+    fd_tower_vtr_remove_all( ctx->tower->vtrs );
+    ctx->vtr_cnt = 0;
+    goto query_towers;
   }
 
   /* Sanity checks. */
@@ -1076,7 +1091,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   /* Insert into ghost. */
 
-  fd_ghost_blk_t * ghost_blk;
   if( FD_UNLIKELY( !ctx->init ) ) {
 
     /* This is the first replay_slot_completed (ie. the snapshot or
@@ -1232,6 +1246,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   /* Count the vote accounts and reconcile our own vote account. */
 
+query_towers:;
   ulong  our_vote_acct_bal = ULONG_MAX;
   ushort our_vote_acct_com = USHORT_MAX;
   int    found             = 0;
@@ -1267,6 +1282,18 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
                                        &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
                                        &out.vote_slot,  &out.vote_block_id,  &out.vote_bank_hash,
                                        &out.root_slot,  &out.root_block_id );
+  fd_ghost_blk_t * reset_blk = fd_ghost_query( ctx->ghost, &out.reset_block_id );
+  FD_TEST( reset_blk );
+  if( FD_UNLIKELY( !reset_blk->runtime_available ) ) {
+    FD_TEST( out.vote_slot==ULONG_MAX && out.root_slot==ULONG_MAX );
+    ctx->restore_block_id = reset_blk->id;
+    publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
+    pub->sig = FD_TOWER_SIG_BANK_RESTORE;
+    pub->msg.bank_restore = (fd_tower_bank_restore_t){ .slot=reset_blk->slot, .block_id=reset_blk->id, .bank_seq=reset_blk->bank_seq };
+    publish_slot_ignored( ctx, slot_completed, tsorig, stem );
+    return;
+  }
+  ctx->restore_block_id = (fd_hash_t){0};
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) { /* if there is a vote slot we record it. */
     fd_tower_blk_t * vote_tower_blk = fd_tower_blocks_query( ctx->tower, out.vote_slot );
     vote_tower_blk->voted           = 1;
@@ -1493,6 +1520,8 @@ init_choreo( void                 * scratch,
   ctx->wfs             = tile->tower.wait_for_supermajority;
   ctx->shred_version   = 0;
   ctx->init            = 0;
+  ctx->reset_block_id   = (fd_hash_t){0};
+  ctx->restore_block_id = (fd_hash_t){0};
   ctx->root_epoch      = ULONG_MAX;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
@@ -1614,6 +1643,34 @@ after_credit( fd_tower_tile_t *   ctx,
   }
 }
 
+static void
+process_bank_eviction( fd_tower_tile_t *              ctx,
+                       fd_replay_bank_eviction_t const * msg,
+                       int                            available ) {
+  fd_ghost_blk_t * blk = fd_ghost_query( ctx->ghost, &msg->block_id );
+  if( available ) {
+    if( blk && blk->bank_seq==msg->bank_seq ) blk->runtime_available = 1;
+    return;
+  }
+
+  int cancel = 0;
+  if( blk && blk->bank_seq==msg->bank_seq ) {
+    cancel = blk==fd_ghost_root( ctx->ghost ) || fd_hash_eq( &ctx->reset_block_id, &blk->id );
+    if( !fd_tower_vote_empty( ctx->tower->votes ) ) {
+      fd_tower_blk_t * voted = fd_tower_blocks_query( ctx->tower, fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot );
+      FD_TEST( voted );
+      cancel |= fd_hash_eq( &voted->voted_block_id, &blk->id );
+    }
+    if( !cancel ) blk->runtime_available = 0;
+  }
+  /* Existing publications use a stack to reverse ancestry walks.  An
+     eviction acknowledgement must follow every previously queued decision. */
+  publishes_push_tail( ctx->publishes, (publish_t){
+    .sig = FD_TOWER_SIG_BANK_EVICT_ACK,
+    .msg.bank_evict_ack = { .bank_idx=msg->bank_idx, .bank_seq=msg->bank_seq, .cancel=cancel }
+  } );
+}
+
 static inline int
 returnable_frag( fd_tower_tile_t *   ctx,
                  ulong               in_idx,
@@ -1672,6 +1729,10 @@ returnable_frag( fd_tower_tile_t *   ctx,
   }
   case IN_KIND_REPLAY: {
     switch( sig ) {
+    case REPLAY_SIG_BANK_EVICT_REQUEST:
+    case REPLAY_SIG_BANK_AVAILABLE:
+      process_bank_eviction( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sig==REPLAY_SIG_BANK_AVAILABLE );
+      break;
     case REPLAY_SIG_SLOT_COMPLETED:;
       if( FD_UNLIKELY( ctx->halt_signing ) ) return 1; /* backpressure replay_slot_completed during halt_signing. */
       fd_replay_slot_completed_t * slot_completed = (fd_replay_slot_completed_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );

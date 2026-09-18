@@ -384,6 +384,87 @@ test_prunes_to_finalized_window( void ) {
   teardown_votor( votor );
 }
 
+typedef struct {
+  ulong slots[8];
+  int restore[8];
+  ulong cnt;
+} bank_events_t;
+
+static void
+record_bank_event( void * ctx, ag_block_id_t const * block, int restore ) {
+  bank_events_t * events = ctx;
+  FD_TEST( events->cnt<8UL );
+  events->slots[events->cnt] = block->slot;
+  events->restore[events->cnt++] = restore;
+}
+
+static void
+test_pending_bank_eviction( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  bank_events_t events = {0};
+  ag_votor_set_bank_callback( votor, record_bank_event, &events );
+  ag_block_id_t parent = random_block_id( 1UL );
+  ag_block_id_t child = random_block_id( 2UL );
+  ag_event_replay_t replay = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = child.slot, .block_info.parent = parent };
+  memcpy( replay.block_info.hash, child.hash, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( votor, &replay );
+  FD_TEST( ag_votor_block_pending( votor, &child ) );
+  ag_votor_forget_block( votor, &child );
+  FD_TEST( !events.cnt );
+
+  ag_event_replay_t parent_replay = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = parent.slot, .block_info.parent = genesis_block_id() };
+  memcpy( parent_replay.block_info.hash, parent.hash, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( votor, &parent_replay );
+  FD_TEST( events.cnt==2UL );
+  FD_TEST( events.slots[0]==1UL && !events.restore[0] );
+  FD_TEST( events.slots[1]==2UL && events.restore[1] );
+  FD_TEST( !has_voted( votor, child.slot ) );
+  check_pending_blocks( votor );
+  FD_TEST( events.cnt==2UL ); /* one restoration request */
+
+  ag_votor_handle_replay_event( votor, &replay );
+  FD_TEST( events.cnt==3UL && events.slots[2]==2UL && !events.restore[2] );
+  FD_TEST( !ag_votor_block_pending( votor, &child ) );
+  ag_votor_handle_replay_event( votor, &replay );
+  FD_TEST( events.cnt==3UL ); /* replays and rebroadcasts cannot select again */
+
+  ag_event_pool_t fallback = { .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = random_block_id( 4UL ) };
+  ag_votor_handle_pool_event( votor, &fallback, 0L );
+  FD_TEST( events.cnt==3UL );
+  teardown_votor( votor );
+}
+
+static void
+test_serial_bank_restore( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  bank_events_t events = {0};
+  ag_votor_set_bank_callback( votor, record_bank_event, &events );
+  ag_event_replay_t blocks[3];
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ulong slot = (i+1UL)*AG_SLOTS_PER_WINDOW;
+    blocks[i] = (ag_event_replay_t){ .kind = AG_EVENT_REPLAY_COMPLETED, .slot = slot, .block_info.parent = random_block_id( slot-1UL ) };
+    random_hash( blocks[i].block_info.hash );
+    ag_votor_handle_replay_event( votor, &blocks[i] );
+    ag_block_id_t block = ag_block_id( slot, blocks[i].block_info.hash );
+    ag_votor_forget_block( votor, &block );
+    ag_event_pool_t ready = { .kind = AG_EVENT_POOL_PARENT_READY, .parent_ready = { .slot = slot, .parent = blocks[i].block_info.parent } };
+    ag_votor_handle_pool_event( votor, &ready, 0L );
+  }
+  FD_TEST( events.cnt==1UL && events.slots[0]==blocks[0].slot && events.restore[0] );
+  ag_votor_handle_replay_event( votor, &blocks[0] );
+  FD_TEST( events.cnt==3UL );
+  FD_TEST( events.slots[1]==blocks[0].slot && !events.restore[1] );
+  FD_TEST( events.slots[2]==blocks[1].slot && events.restore[2] );
+
+  ag_event_timeout_t timeout = { .kind=AG_EVENT_TIMEOUT, .slot=blocks[1].slot };
+  ag_votor_handle_timeout_event( votor, &timeout );
+  FD_TEST( events.cnt==4UL && events.slots[3]==blocks[2].slot && events.restore[3] );
+  FD_TEST( votor->restore_active && votor->restore_block.slot==blocks[2].slot );
+  ag_votor_handle_replay_event( votor, &blocks[2] );
+  FD_TEST( events.cnt==5UL && !events.restore[4] && !votor->restore_active );
+  teardown_votor( votor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -396,6 +477,8 @@ main( int     argc,
   test_safe_to_notar();
   test_safe_to_skip();
   test_prunes_to_finalized_window();
+  test_pending_bank_eviction();
+  test_serial_bank_restore();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

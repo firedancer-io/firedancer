@@ -436,6 +436,227 @@ test_genesis_static_body( fd_rpc_tile_t * ctx ) {
   ctx->genesis_tar_bz_sz = ULONG_MAX;
 }
 
+struct bank_ref_test {
+  fd_rpc_tile_t * ctx;
+  fd_wksp_t * wksp;
+  void * msg;
+  ulong in_idx;
+  fd_stem_context_t stem[1];
+  ulong refs[16];
+};
+
+/* Only commitment notifications transfer a reference.  Consume RPC's
+   actual release messages and reconcile every bank against its three
+   independently owned commitment references after each input. */
+
+static ulong
+bank_ref_deliver( struct bank_ref_test * test,
+                  ulong                  sig,
+                  void const *           msg,
+                  ulong                  msg_sz,
+                  ulong                  bank_idx ) {
+  fd_rpc_tile_t * ctx = test->ctx;
+  FD_TEST( bank_idx<ctx->max_live_slots || (sig==REPLAY_SIG_PROCESSED_ADVANCED && bank_idx==ULONG_MAX) );
+  if( (sig==REPLAY_SIG_PROCESSED_ADVANCED && bank_idx!=ULONG_MAX) || sig==REPLAY_SIG_OC_ADVANCED || sig==REPLAY_SIG_ROOT_ADVANCED ) test->refs[ bank_idx ]++;
+  fd_memcpy( test->msg, msg, msg_sz );
+  ulong seq = test->stem->seqs[0];
+  FD_TEST( !before_frag( ctx, test->in_idx, 0UL, sig ) );
+  FD_TEST( !returnable_frag( ctx, test->in_idx, 0UL, sig, fd_laddr_to_chunk( test->wksp, test->msg ), msg_sz, 0UL, 0UL, 0UL, test->stem ) );
+  ulong release_cnt = test->stem->seqs[0]-seq;
+  FD_TEST( release_cnt<=3UL );
+  for( ulong i=0UL; i<release_cnt; i++ ) {
+    fd_frag_meta_t const * frag = &test->stem->mcaches[0][ fd_mcache_line_idx( seq+i, test->stem->depths[0] ) ];
+    FD_TEST( frag->seq==seq+i );
+    FD_TEST( frag->sig<ctx->max_live_slots );
+    FD_TEST( test->refs[ frag->sig ] );
+    test->refs[ frag->sig ]--;
+  }
+  for( ulong i=0UL; i<ctx->max_live_slots; i++ ) {
+    ulong owned = (ulong)(ctx->processed_idx==i) + (ulong)(ctx->confirmed_idx==i) + (ulong)(ctx->finalized_idx==i);
+    FD_TEST( test->refs[i]==owned );
+  }
+  return release_cnt;
+}
+
+static ulong
+bank_ref_complete( struct bank_ref_test * test,
+                   ulong                  bank_idx,
+                   ulong                  bank_seq,
+                   ulong                  slot,
+                   ulong                  parent_bank_idx ) {
+  fd_replay_slot_completed_t msg = {
+    .bank_idx        = bank_idx,
+    .bank_seq        = bank_seq,
+    .slot            = slot,
+    .parent_bank_idx = parent_bank_idx,
+    .parent_bank_seq = parent_bank_idx==ULONG_MAX ? ULONG_MAX : test->ctx->banks[ parent_bank_idx ].bank_seq,
+    .parent_slot     = parent_bank_idx==ULONG_MAX ? ULONG_MAX : test->ctx->banks[ parent_bank_idx ].slot,
+  };
+  return bank_ref_deliver( test, REPLAY_SIG_SLOT_COMPLETED, &msg, sizeof(msg), bank_idx );
+}
+
+static ulong
+bank_ref_process( struct bank_ref_test * test,
+                  ulong                  bank_idx ) {
+  fd_replay_processed_advanced_t msg = { .bank_idx = bank_idx, .bank_seq = test->ctx->banks[ bank_idx ].bank_seq, .slot = test->ctx->banks[ bank_idx ].slot };
+  return bank_ref_deliver( test, REPLAY_SIG_PROCESSED_ADVANCED, &msg, sizeof(msg), bank_idx );
+}
+
+static ulong
+bank_ref_confirm( struct bank_ref_test * test,
+                  ulong                  bank_idx ) {
+  fd_replay_oc_advanced_t msg = { .bank_idx = bank_idx, .bank_seq = test->ctx->banks[ bank_idx ].bank_seq, .slot = test->ctx->banks[ bank_idx ].slot };
+  return bank_ref_deliver( test, REPLAY_SIG_OC_ADVANCED, &msg, sizeof(msg), bank_idx );
+}
+
+static ulong
+bank_ref_root( struct bank_ref_test * test,
+               ulong                  bank_idx ) {
+  fd_replay_root_advanced_t msg = { .bank_idx = bank_idx, .bank_seq = test->ctx->banks[ bank_idx ].bank_seq, .slot = test->ctx->banks[ bank_idx ].slot };
+  return bank_ref_deliver( test, REPLAY_SIG_ROOT_ADVANCED, &msg, sizeof(msg), bank_idx );
+}
+
+static ulong
+bank_ref_drop( struct bank_ref_test * test,
+               ulong                  bank_idx ) {
+  fd_replay_drop_bank_ref_t msg = { .bank_idx = bank_idx };
+  return bank_ref_deliver( test, REPLAY_SIG_DROP_BANK_REF, &msg, sizeof(msg), bank_idx );
+}
+
+static void
+test_bank_refs( fd_rpc_tile_t * ctx,
+                fd_wksp_t *     wksp,
+                fd_frag_meta_t * mcache ) {
+  ulong seq = 0UL;
+  ulong depth = fd_mcache_depth( mcache );
+  int reliable = 0;
+  struct bank_ref_test test = {
+    .ctx    = ctx,
+    .wksp   = wksp,
+    .msg    = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, sizeof(fd_replay_slot_completed_t), 1UL ),
+    .in_idx = ctx->in_cnt,
+    .stem   = {{ .mcaches = &mcache, .seqs = &seq, .depths = &depth, .out_reliable = &reliable }},
+  };
+  FD_TEST( test.msg );
+  FD_TEST( ctx->max_live_slots<=16UL );
+  FD_TEST( ctx->replay_out->idx==0UL );
+  FD_TEST( test.in_idx<sizeof(ctx->in)/sizeof(ctx->in[0]) );
+  ctx->in[ test.in_idx ].mem = wksp;
+  ctx->in_kind[ test.in_idx ] = IN_KIND_REPLAY;
+
+  /* Startup completion only caches metadata.  Replay separately grants
+     the initial processed reference before any Tower vote selection. */
+  FD_TEST( !bank_ref_complete( &test, 0UL, 1000UL, 100UL, ULONG_MAX ) );
+  FD_TEST( ctx->processed_idx==ULONG_MAX && !test.refs[0] );
+  FD_TEST( !bank_ref_process( &test, 0UL ) );
+  FD_TEST( !bank_ref_confirm( &test, 0UL ) );
+  FD_TEST( ctx->processed_idx==0UL && ctx->confirmed_idx==0UL && ctx->finalized_idx==ULONG_MAX );
+  FD_TEST( !bank_ref_root( &test, 0UL ) );
+  FD_TEST( !bank_ref_complete( &test, 1UL, 1001UL, 104UL, 0UL ) );
+  FD_TEST( bank_ref_process( &test, 1UL )==1UL );
+
+  /* Both branches still descend from the root.  Completing a newer
+     unselected leader must not replace the bank chosen by Tower. */
+  FD_TEST( !bank_ref_complete( &test, 2UL, 1002UL, 106UL, 0UL ) );
+  FD_TEST( !bank_ref_complete( &test, 3UL, 1003UL, 110UL, 2UL ) );
+  FD_TEST( ctx->processed_idx==1UL && !test.refs[2] && !test.refs[3] );
+  FD_TEST( before_frag( ctx, test.in_idx, 0UL, REPLAY_SIG_RESET ) );
+  FD_TEST( ctx->processed_idx==1UL );
+  FD_TEST( bank_ref_process( &test, 2UL )==1UL );
+  FD_TEST( ctx->processed_idx==2UL ); /* Selection need not be the latest completion. */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlot\",\"params\":[{\"commitment\":\"processed\"}]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":106,\"id\":1}" );
+  FD_TEST( bank_ref_process( &test, 3UL )==1UL );
+  FD_TEST( bank_ref_confirm( &test, 3UL )==1UL );
+
+  /* Root exclusion releases owned references even without another
+     completion or selection. */
+  FD_TEST( bank_ref_root( &test, 1UL )==3UL );
+  FD_TEST( ctx->processed_idx==ULONG_MAX && ctx->confirmed_idx==ULONG_MAX && ctx->finalized_idx==1UL );
+  FD_TEST( !test.refs[0] && !test.refs[2] && !test.refs[3] && test.refs[1]==1UL );
+
+  /* Fallback uses the finalized reference without acquiring duplicate
+     ownership.  Exercise config selection, health and blockhash's early
+     banks-initialized check through the HTTP request path. */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlot\",\"params\":[{\"commitment\":\"processed\"}]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":104,\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlot\",\"params\":[{\"commitment\":\"confirmed\"}]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":104,\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlot\",\"params\":[{\"commitment\":\"processed\",\"minContextSlot\":105}]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32016,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":104}},\"id\":1}" );
+  ctx->cluster_confirmed_slot = 104UL;
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}",
+      "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":1}" );
+  ctx->cluster_confirmed_slot = 10000UL;
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32005,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":9896}},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLatestBlockhash\",\"params\":[{\"commitment\":\"processed\"}]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":104,\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\"},\"value\":{\"blockhash\":\"11111111111111111111111111111111\",\"lastValidBlockHeight\":150}},\"id\":1}" );
+  FD_TEST( ctx->processed_idx==ULONG_MAX && ctx->confirmed_idx==ULONG_MAX && test.refs[1]==1UL );
+
+  /* Late completions carry no reference.  Late selections on excluded
+     branches immediately return their incoming reference.  Also reject
+     same-slot siblings and ancestors older than the root. */
+  FD_TEST( !bank_ref_complete( &test, 4UL, 1004UL, 112UL, 3UL ) );
+  FD_TEST( bank_ref_process( &test, 4UL )==1UL );
+  FD_TEST( bank_ref_confirm( &test, 4UL )==1UL );
+  FD_TEST( !bank_ref_complete( &test, 5UL, 1005UL, 104UL, 0UL ) );
+  FD_TEST( bank_ref_process( &test, 5UL )==1UL );
+  FD_TEST( !bank_ref_complete( &test, 6UL, 1006UL, 102UL, 0UL ) );
+  FD_TEST( bank_ref_process( &test, 6UL )==1UL );
+  FD_TEST( bank_ref_confirm( &test, 0UL )==1UL );
+  FD_TEST( ctx->processed_idx==ULONG_MAX && ctx->confirmed_idx==ULONG_MAX );
+
+  /* Keep valid descendants across skipped slots and root jumps.  A late
+     excluded completion or confirmation must preserve the valid role. */
+  FD_TEST( !bank_ref_complete( &test, 7UL, 1007UL, 108UL, 1UL ) );
+  FD_TEST( !bank_ref_process( &test, 7UL ) );
+  FD_TEST( !bank_ref_confirm( &test, 7UL ) );
+  FD_TEST( !bank_ref_complete( &test, 8UL, 1008UL, 120UL, 7UL ) );
+  FD_TEST( ctx->processed_idx==7UL );
+  FD_TEST( bank_ref_process( &test, 8UL )==1UL );
+  FD_TEST( bank_ref_confirm( &test, 8UL )==1UL );
+  FD_TEST( !bank_ref_complete( &test, 9UL, 1009UL, 118UL, 3UL ) );
+  FD_TEST( bank_ref_process( &test, 9UL )==1UL );
+  FD_TEST( bank_ref_confirm( &test, 9UL )==1UL );
+  FD_TEST( ctx->processed_idx==8UL && ctx->confirmed_idx==8UL );
+  FD_TEST( bank_ref_root( &test, 7UL )==1UL );
+  FD_TEST( ctx->processed_idx==8UL && ctx->confirmed_idx==8UL );
+
+  /* Reuse an index only after all of its old references are gone.  A
+     root leap releases a confirmed ancestor even on the winning fork. */
+  FD_TEST( !bank_ref_complete( &test, 2UL, 2002UL, 130UL, 8UL ) );
+  FD_TEST( ctx->processed_idx==8UL && !test.refs[2] );
+  FD_TEST( bank_ref_process( &test, 2UL )==1UL );
+  FD_TEST( bank_ref_root( &test, 2UL )==2UL );
+  FD_TEST( ctx->processed_idx==2UL && ctx->confirmed_idx==ULONG_MAX && ctx->finalized_idx==2UL );
+  FD_TEST( !bank_ref_confirm( &test, 2UL ) );
+  FD_TEST( bank_ref_root( &test, 2UL )==1UL );
+  FD_TEST( test.refs[2]==3UL );
+
+  FD_TEST( bank_ref_drop( &test, 2UL )==3UL );
+  FD_TEST( !bank_ref_drop( &test, 2UL ) );
+  FD_TEST( ctx->processed_idx==ULONG_MAX && ctx->confirmed_idx==ULONG_MAX && ctx->finalized_idx==ULONG_MAX );
+  FD_TEST( processed_bank_idx( ctx )==ULONG_MAX && confirmed_bank_idx( ctx )==ULONG_MAX );
+
+  for( ulong i=0UL; i<ctx->max_live_slots; i++ ) {
+    FD_TEST( !test.refs[i] );
+    fd_memset( &ctx->banks[i], 0, sizeof(bank_info_t) );
+    ctx->banks[i].slot = ULONG_MAX;
+  }
+  ctx->cluster_confirmed_slot = ULONG_MAX;
+  ctx->in_kind[ test.in_idx ] = 0;
+  fd_memset( &ctx->in[ test.in_idx ], 0, sizeof(ctx->in[0]) );
+  fd_wksp_free_laddr( test.msg );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -587,6 +808,8 @@ main( int     argc,
   ctx->http->epoll_fd = epoll_create1( 0 );
   FD_TEST( -1!=ctx->http->epoll_fd );
   unprivileged_init( topo, tile );
+
+  test_bank_refs( ctx, wksp, link_rpc_replay->mcache );
 
   test_genesis_static_body( ctx );
   test_snapshot_redirect( ctx );

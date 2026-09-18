@@ -742,6 +742,25 @@ ulong
 fd_banks_get_evictable_bank( fd_banks_t *      banks,
                              fd_bank_t const * protected_bank );
 
+/* fd_banks_select_evictable_bank selects an evictable leaf using the
+   policy above and advances evict_rr_idx, without changing bank state
+   or prunable_idx.  Selection does not reserve the bank: callers that
+   defer eviction must retain its reference and prevent new children,
+   or recheck eligibility before marking it prunable. */
+
+ulong
+fd_banks_select_evictable_bank( fd_banks_t *      banks,
+                               fd_bank_t const * protected_bank );
+
+/* fd_banks_mark_bank_prunable commits eviction of a live, non-root,
+   non-leader leaf in INIT, REPLAYABLE, or FROZEN state.  Asserts those
+   preconditions and that no other bank is pending pruning.  The caller
+   must also ensure the bank is not protected by its eviction policy. */
+
+void
+fd_banks_mark_bank_prunable( fd_banks_t * banks,
+                             ulong        bank_idx );
+
 /* fd_banks_can_start_bank returns 1 if banks has capacity to start
    preparing another child bank.  This check is currently conservative,
    if the max fork width is reached, it will return 0 even if the new
