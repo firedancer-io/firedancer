@@ -132,15 +132,16 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
 
     uint  name_word = *(rd->src++);
     ulong name_len  = fd_hpack_rd_varint( rd, name_word, 0x7f );
-    if( FD_UNLIKELY( name_len==ULONG_MAX     ) ) return FD_H2_ERR_COMPRESSION;
-    if( FD_UNLIKELY( rd->src+name_len >= end ) ) return FD_H2_ERR_COMPRESSION;
+    if( FD_UNLIKELY( name_len==ULONG_MAX ) ) return FD_H2_ERR_COMPRESSION;
+    if( FD_UNLIKELY( name_len>USHORT_MAX ) ) return FD_H2_ERR_COMPRESSION;
+    if( FD_UNLIKELY( name_len>=(ulong)( end-rd->src ) ) ) return FD_H2_ERR_COMPRESSION;
     uchar const * name_p = rd->src;
     rd->src += name_len;
 
     uint  value_word = *(rd->src++);
     ulong value_len  = fd_hpack_rd_varint( rd, value_word, 0x7f );
-    if( FD_UNLIKELY( value_len==ULONG_MAX    ) ) return FD_H2_ERR_COMPRESSION;
-    if( FD_UNLIKELY( rd->src+value_len > end ) ) return FD_H2_ERR_COMPRESSION;
+    if( FD_UNLIKELY( value_len==ULONG_MAX ) ) return FD_H2_ERR_COMPRESSION;
+    if( FD_UNLIKELY( value_len>(ulong)( end-rd->src ) ) ) return FD_H2_ERR_COMPRESSION;
     uchar const * value_p = rd->src;
     rd->src += value_len;
 
@@ -161,8 +162,8 @@ fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
     if( FD_UNLIKELY( rd->src >= end ) ) return FD_H2_ERR_COMPRESSION;
     uint  value_word = *(rd->src++);
     ulong value_len  = fd_hpack_rd_varint( rd, value_word, 0x7f );
-    if( FD_UNLIKELY( value_len==ULONG_MAX    ) ) return FD_H2_ERR_COMPRESSION;
-    if( FD_UNLIKELY( rd->src+value_len > end ) ) return FD_H2_ERR_COMPRESSION;
+    if( FD_UNLIKELY( value_len==ULONG_MAX ) ) return FD_H2_ERR_COMPRESSION;
+    if( FD_UNLIKELY( value_len>(ulong)( end-rd->src ) ) ) return FD_H2_ERR_COMPRESSION;
     uchar const * value_p = rd->src;
     rd->src += value_len;
 
@@ -226,6 +227,7 @@ fd_hpack_rd_next( fd_hpack_rd_t * hpack_rd,
     nghttp2_hd_huff_decode_context_init( ctx );
     nghttp2_buf buf = { .last = scratch_ };
     if( FD_UNLIKELY( nghttp2_hd_huff_decode( ctx, &buf, (uchar const *)hdr->name, hdr->name_len, 1 )<0 ) ) return FD_H2_ERR_COMPRESSION;
+    if( FD_UNLIKELY( buf.last-scratch_>USHORT_MAX ) ) return FD_H2_ERR_COMPRESSION;
     hdr->name     = (char const *)scratch_;
     hdr->name_len = (ushort)( buf.last-scratch_ );
     scratch_      = buf.last;

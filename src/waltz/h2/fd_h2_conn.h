@@ -36,6 +36,7 @@ struct fd_h2_conn {
   ulong   rx_suppress;    /* skip frame handlers until this RX offset */
 
   uint  rx_data_cnt_rem; /* current RX frame: "Application data" remaining in DATA frame */
+  uint  rx_fc_debt;      /* current RX frame: flow control bytes not yet charged */
   uint  rx_stream_id;    /* current RX frame: stream ID */
   uint  rx_stream_next;  /* next unused RX stream ID */
 
@@ -81,7 +82,11 @@ struct fd_h2_conn {
    preface was received, a SETTINGS frame was sent, a SETTINGS frame was
    received, a SETTINGS ACK was sent, and a SETTINGS ACK was received. */
 
-#define FD_H2_CONN_FLAGS_HANDSHAKING (0xf0)
+#define FD_H2_CONN_FLAGS_HANDSHAKING           \
+    ( FD_H2_CONN_FLAGS_CLIENT_INITIAL      |   \
+      FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 |   \
+      FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     |   \
+      FD_H2_CONN_FLAGS_SERVER_INITIAL )
 
 FD_PROTOTYPES_BEGIN
 
@@ -264,6 +269,27 @@ fd_h2_tx_rst_stream( fd_h2_rbuf_t * rbuf_tx,
     .error_code = fd_uint_bswap( h2_err )
   };
   fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+}
+
+/* fd_h2_tx_window_update writes a WINDOW_UPDATE frame for sending.
+   stream_id is 0 for the connection-level window.  increment is in
+   [1,2^31).  rbuf_tx must have at least
+   sizeof(fd_h2_window_update_t) free space.  (This is a low-level
+   API) */
+
+static inline void
+fd_h2_tx_window_update( fd_h2_rbuf_t * rbuf_tx,
+                        uint           stream_id,
+                        uint           increment ) {
+  fd_h2_window_update_t window_update = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_WINDOW_UPDATE, 4UL ),
+      .flags       = 0U,
+      .r_stream_id = fd_uint_bswap( stream_id )
+    },
+    .increment = fd_uint_bswap( increment )
+  };
+  fd_h2_rbuf_push( rbuf_tx, &window_update, sizeof(fd_h2_window_update_t) );
 }
 
 FD_PROTOTYPES_END
