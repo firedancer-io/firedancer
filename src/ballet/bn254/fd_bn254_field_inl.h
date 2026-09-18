@@ -3,9 +3,10 @@
 
 /* Shared static-inline Fp/Fp2/Fp6/Fp12 ops for the bn254 TUs.
    Do not include outside src/ballet/bn254.
-   Heavy helpers are marked noinline: they get one local copy per TU
-   (same codegen as the old amalgamated build) instead of being inlined
-   into every caller, which would bloat compile time and code size. */
+   The additive Fp2 ops are force-inlined into every caller. fp2_mul,
+   fp2_sqr, fp2_inv and fp6_mul are kept out of line, one copy per TU:
+   inlining those bloats their callers enough to cost both compile time
+   and runtime. */
 
 #include "./fd_bn254_internal.h"
 #include "../../third_party/fiat-crypto/bn254_64.c"
@@ -392,7 +393,7 @@ fd_bn254_fp2_neg_nm( fd_bn254_fp2_t * r,
 }
 
 /* fd_bn254_fp2_neg sets r = -a in Fp2. */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_neg( fd_bn254_fp2_t * r,
                   fd_bn254_fp2_t const * a ) {
   fd_bn254_fp_neg( &r->el[0], &a->el[0] );
@@ -410,7 +411,7 @@ fd_bn254_fp2_halve( fd_bn254_fp2_t * r,
 }
 
 /* fd_bn254_fp2_add computes r = a + b in Fp2. */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_add( fd_bn254_fp2_t * r,
                   fd_bn254_fp2_t const * a,
                   fd_bn254_fp2_t const * b ) {
@@ -420,7 +421,7 @@ fd_bn254_fp2_add( fd_bn254_fp2_t * r,
 }
 
 /* fd_bn254_fp2_sub computes r = a - b in Fp2. */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_sub( fd_bn254_fp2_t * r,
                   fd_bn254_fp2_t const * a,
                   fd_bn254_fp2_t const * b ) {
@@ -431,7 +432,7 @@ fd_bn254_fp2_sub( fd_bn254_fp2_t * r,
 
 /* fd_bn254_fp2_conj computes r = conj(a) in Fp2.
    If a = a0 + a1*i, conj(a) = a0 - a1*i. */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_conj( fd_bn254_fp2_t * r,
                    fd_bn254_fp2_t const * a ) {
   fd_bn254_fp_set( &r->el[0], &a->el[0] );
@@ -575,7 +576,7 @@ fd_bn254_fp2_sqrt( fd_bn254_fp2_t * r,
 /* fd_bn254_fp2_mul_by_xi computes r = a * (9+i) in Fp2.
    xi = (9+i) is the const used to build Fp6.
    Note: this can probably be optimized (less reductions mod p). */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_mul_by_xi( fd_bn254_fp2_t * r,
                         fd_bn254_fp2_t const * a ) {
   /* xi = 9 + i
