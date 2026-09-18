@@ -288,9 +288,14 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "tower_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "backt", 0UL, "tower_out", 0UL );
 
+  /* Under Alpenglow the votor tile is likewise replaced by the backtest
+     tile, which certifies each rooted slot as fast finalized so replay
+     roots it.  Replay keys blocks by the synthetic ids the backtest tile
+     feeds it, so the finalization certs in the ledger's footers can not
+     root anything here. */
   if( FD_UNLIKELY( config->firedancer.development.alpenglow ) ) {
     fd_topob_wksp( topo, "votor_out" );
-    fd_topob_link( topo, "votor_out", "votor_out", 1024UL, sizeof(fd_votor_msg_t), 2UL );
+    fd_topob_link( topo, "votor_out", "votor_out", 1024UL, sizeof(fd_votor_msg_t), 1UL );
     fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "votor_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "backt", 0UL, "votor_out", 0UL );
   }

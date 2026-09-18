@@ -30,7 +30,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/fd_slot_params.h"
 #include "../../discof/tower/fd_tower_slot_rooted.h"
-#include "../../discof/votor/fd_votor_rooted.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #if FD_HAS_AVX
 #include "../../util/simd/fd_nt_memcpy.h"
 #else
@@ -106,7 +106,7 @@
 #define IN_KIND_GOSSIP  ( 8UL)
 #define IN_KIND_ROOTED  ( 9UL)
 #define IN_KIND_ROOTEDH (10UL)
-#define IN_KIND_ROOTEDV (11UL) /* Alpenglow */
+#define IN_KIND_ROOTEDR (11UL) /* Alpenglow */
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
@@ -496,8 +496,8 @@ before_frag( fd_shred_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTED ) ) {
     return sig!=FD_TOWER_SIG_SLOT_ROOTED; /* only care about slot_confirmed messages */
   }
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDV ) ) {
-    return sig!=FD_VOTOR_SIG_ROOTED; /* only care about rooted messages */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDR ) ) {
+    return sig!=REPLAY_SIG_ROOT_ADVANCED; /* only care about root_advanced messages */
   }
   return 0;
 }
@@ -555,11 +555,11 @@ during_frag( fd_shred_ctx_t * ctx,
   }
 
   /* Firedancer only (Alpenglow) */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDV ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_votor_rooted_t) ) )
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDR ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_replay_root_advanced_t) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
                    ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    fd_votor_rooted_t const * rooted_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_replay_root_advanced_t const * rooted_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     ctx->new_root = rooted_msg->slot;
     return;
   }
@@ -1228,7 +1228,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     return;
   }
 
-  if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_ROOTED) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDH) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDV) ) ) {
+  if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_ROOTED) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDH) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDR) ) ) {
     if( FD_LIKELY( (ctx->new_root > 0UL) & (ctx->new_root<ULONG_MAX) ) ) fd_fec_resolver_advance_slot_old( ctx->resolver, ctx->new_root );
     return;
   }
@@ -1636,7 +1636,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) )   ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTED;
     else if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDH;
-    else if( FD_LIKELY( !strcmp( link->name, "votor_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDV;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDR;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_CONTACT;
       if( FD_UNLIKELY( has_contact_info_in ) ) FD_LOG_ERR(( "shred tile has multiple contact info in link types, can only be either gossip_out or crds_shred" ));
       has_contact_info_in = 1;

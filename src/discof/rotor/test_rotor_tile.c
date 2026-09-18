@@ -2145,8 +2145,8 @@ test_deliver_from_root_arming( fd_wksp_t * wksp ) {
   FD_TEST( !before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_MISSING_FEC    )    );
   FD_TEST( !before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_ROOT_ADVANCED  )    );
 
-  /* votor ROOTED no longer reaches rotor at all. */
-  FD_TEST(  before_frag( ctx, IN_IDX_VOTOR, 0UL, FD_VOTOR_SIG_ROOTED )!=0 );
+  /* only REPAIR passes from votor. */
+  FD_TEST(  before_frag( ctx, IN_IDX_VOTOR, 0UL, FD_VOTOR_SIG_CERTED )!=0 );
   FD_TEST( !before_frag( ctx, IN_IDX_VOTOR, 0UL, FD_VOTOR_SIG_REPAIR )    );
 
   /* after_frag for the MISSING_FEC frag arms the one-shot.  The frag is

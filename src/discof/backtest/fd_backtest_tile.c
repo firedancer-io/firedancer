@@ -8,7 +8,8 @@
 #include "../../discof/rotor/fd_rotor_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
-#include "../../discof/votor/fd_votor_rooted.h"
+#include "../../discof/votor/fd_votor_tile.h"
+#include "../../choreo/votor/ag_cert.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
@@ -563,15 +564,17 @@ returnable_frag( fd_backt_tile_t *   ctx,
       int root_advanced = root_slot!=ctx->prev_root;
       ctx->prev_root    = root_slot;
 
-      /* If we are in Alpenglow mode, send votor rooted frags to
-         advance replay. */
+      /* Under Alpenglow the backtest tile stands in for votor and
+         certifies the root slot fast finalized so replay roots it. */
       if( ctx->alpenglow ) {
         if( FD_LIKELY( root_advanced ) ) {
-          fd_votor_rooted_t * rooted = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
-          rooted->slot     = root_slot;
-          rooted->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
-          fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_ROOTED, ctx->votor_out->chunk, sizeof(fd_votor_rooted_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-          ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_rooted_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
+          fd_votor_certed_t * certed = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
+          memset( certed, 0, sizeof(fd_votor_certed_t) );
+          certed->kind     = AG_CERT_KIND_FAST_FINAL;
+          certed->slot     = root_slot;
+          certed->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
+          fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_CERTED, ctx->votor_out->chunk, sizeof(fd_votor_msg_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+          ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_msg_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
         }
         break;
       }
