@@ -17,11 +17,9 @@
          anything twice.  The replay stage queries to make sure that
          blocks do not contain duplicate transactions.
 
-   Both of these operations are concurrent and lockless, assuming there
-   are no other (non-insert/query) operations occurring on the txn
-   cache. Most other operations lock the entire structure and will
-   prevent both insertion and query from proceeding, but are rare
-   (once per slot) so it's OK.
+   Queries, RAM inserts, and ordinary RAM page allocation can run
+   concurrently under the shared lock.  Disk inserts, rearranging the
+   free-page stack, and structural operations take the exclusive lock.
 
    The txn cache is somewhat CPU and memory sensitive.  To store message
    hashes requires 20 bytes (only the first 20 of the 32 bytes of the
@@ -149,6 +147,9 @@ FD_PROTOTYPES_BEGIN
    lifetime.  Pass -1 when no disk access is needed; accessing a spilled
    page then fails.  I/O errors terminate rather than return a false
    cache miss.
+
+   Each local join includes one page of scratch for disk inserts.
+   RAM pages remain in RAM; overflow pages remain on disk until freed.
 
    fd_txncache_join joins the caller to a txn cache.  Assumes ljoin
    points to the first byte of the local join region holding the state.

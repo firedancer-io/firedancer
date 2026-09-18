@@ -1083,8 +1083,8 @@ main( int     argc,
   test_txncache_roundtrip_many_roots();
   test_txncache_writer_rejects_excess_descriptors();
 
-  /* Repeat serialization/parse checks with only one resident frame,
-     forcing pages from different blockhashes through disk. */
+  /* Repeat serialization/parse checks with only one RAM page,
+     placing the remaining pages on disk. */
   char spill_path[] = "/tmp/fd-txncache-roundtrip-XXXXXX";
   spill_test_fd = mkstemp( spill_path );
   FD_TEST( spill_test_fd>=0 );

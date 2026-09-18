@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN==128UL, unit_test );
 
@@ -92,15 +93,74 @@ test_spill_prefers_free_frame( void ) {
   fd_txncache_fork_id_t a = fd_txncache_attach_child( tc, root );
   fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(2UL) );
   fd_txncache_fork_id_t b = fd_txncache_attach_child( tc, a );
-  fd_txncache_insert( tc, b, BLOCKHASH(1UL), TXNHASH(1UL) );
-  fd_txncache_insert( tc, b, BLOCKHASH(2UL), TXNHASH(2UL) );
-  fd_txncache_cancel_fork( tc, a ); /* releases frame 1 */
+  fd_txncache_finalize_fork( tc, b, 0UL, BLOCKHASH(4UL) );
+  fd_txncache_fork_id_t child = fd_txncache_attach_child( tc, b );
+  /* RAM page allocation must work while another reader holds the lock. */
+  fd_rwlock_read( sh->lock );
+  fd_txncache_insert( tc, child, BLOCKHASH(1UL), TXNHASH(1UL) );
+  fd_txncache_insert( tc, child, BLOCKHASH(2UL), TXNHASH(2UL) );
+  fd_rwlock_unread( sh->lock );
+  fd_txncache_insert( tc, child, BLOCKHASH(4UL), TXNHASH(4UL) );
+  long spill_sz = lseek( fd, 0, SEEK_END );
+  FD_TEST( spill_sz>0L );
+  FD_TEST( !close( fd ) );
+  fd_txncache_cancel_fork( tc, a ); /* releases a RAM page */
   a = fd_txncache_attach_child( tc, root );
   fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(3UL) );
   b = fd_txncache_attach_child( tc, a );
   fd_txncache_insert( tc, b, BLOCKHASH(3UL), TXNHASH(3UL) );
   FD_TEST( fd_txncache_query( tc, b, BLOCKHASH(3UL), TXNHASH(3UL) ) );
-  FD_TEST( lseek( fd, 0, SEEK_END )==0 );
+  FD_TEST( !munmap( mem, sz ) );
+}
+
+/* RAM pages stay resident; disk updates are visible through other joins. */
+static void
+test_spill_query_read_only( void ) {
+  ulong shsz = fd_txncache_shmem_footprint( 4UL, 4UL, sizeof(fd_txncache_txnpage_t) );
+  ulong lsz = fd_txncache_footprint( 4UL );
+  ulong sz = shsz+2UL*lsz;
+  uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( mem!=MAP_FAILED );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 4UL, sizeof(fd_txncache_txnpage_t), 0UL ) );
+  char path[] = "/tmp/fd-txncache-query-XXXXXX";
+  int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
+  int read_fd = open( path, O_RDONLY );
+  FD_TEST( read_fd>=0 );
+  FD_TEST( !unlink( path ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+shsz, sh, fd ) );
+  fd_txncache_t * reader = fd_txncache_join( fd_txncache_new( mem+shsz+lsz, sh, read_fd ) );
+
+  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
+  fd_txncache_fork_id_t a = fd_txncache_attach_child( tc, root );
+  fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(2UL) );
+  fd_txncache_fork_id_t b = fd_txncache_attach_child( tc, a );
+  fd_txncache_insert( tc, b, BLOCKHASH(1UL), TXNHASH(1UL) );
+  fd_txncache_insert( tc, b, BLOCKHASH(1UL), TXNHASH(2UL) );
+  fd_txncache_insert( tc, b, BLOCKHASH(2UL), TXNHASH(3UL) );
+
+  /* Blockhash 1 keeps the sole RAM page; blockhash 2 is on disk.
+     A RAM-only join must still read and append to blockhash 1. */
+  fd_txncache_t * ram_only = fd_txncache_join( fd_txncache_new( mem+shsz+lsz, sh, -1 ) );
+  FD_TEST( fd_txncache_query( ram_only, b, BLOCKHASH(1UL), TXNHASH(1UL) ) );
+  fd_txncache_insert( ram_only, b, BLOCKHASH(1UL), TXNHASH(4UL) );
+  reader = fd_txncache_join( fd_txncache_new( mem+shsz+lsz, sh, read_fd ) );
+  /* All hashes share one bucket, exercising nonzero record offsets
+     and traversal to both an older record and the end of the list. */
+  FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(1UL), TXNHASH(1UL) ) );
+  FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(1UL), TXNHASH(2UL) ) );
+  FD_TEST( !fd_txncache_query( reader, b, BLOCKHASH(1UL), TXNHASH(99UL) ) );
+  FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(2UL), TXNHASH(3UL) ) );
+
+  /* Disk inserts write back before another join can read the record. */
+  fd_txncache_insert( tc, b, BLOCKHASH(2UL), TXNHASH(5UL) );
+  FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(2UL), TXNHASH(5UL) ) );
+  FD_TEST( !fd_txncache_query( reader, b, BLOCKHASH(2UL), TXNHASH(99UL) ) );
+  FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(1UL), TXNHASH(4UL) ) );
+  FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(2UL), TXNHASH(3UL) ) );
+  FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(1UL), TXNHASH(4UL) ) );
+  FD_TEST( !close( read_fd ) );
   FD_TEST( !close( fd ) );
   FD_TEST( !munmap( mem, sz ) );
 }
@@ -131,7 +191,7 @@ test_spill_io_failure( int read_failure ) {
     fd_txncache_insert( tc, b, BLOCKHASH(2UL), TXNHASH(2UL) );
     if( read_failure ) {
       FD_TEST( !ftruncate( fd, 0 ) );
-      (void)fd_txncache_query( tc, b, BLOCKHASH(1UL), TXNHASH(1UL) );
+      (void)fd_txncache_query( tc, b, BLOCKHASH(2UL), TXNHASH(2UL) );
     }
     _exit( 0 ); /* A disk failure must never return to its caller. */
   }
@@ -211,7 +271,7 @@ test_page_sizing( void ) {
   FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot )==32118UL );
   FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot )==32118UL );
   FD_TEST( fd_txncache_txnpage_idx_sz( 32118UL )==sizeof(ushort) );
-  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot, ULONG_MAX )==8252417792UL );
+  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot, ULONG_MAX )==8251646848UL );
 
   /* development.bench.max_cost_per_block = 540M: 2*529,411 txns per
      slot.  The pool exceeds the ushort range, so page indices widen to
@@ -221,7 +281,7 @@ test_page_sizing( void ) {
   FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, bench_txn_per_slot )==163762UL );
   FD_TEST( fd_txncache_txnpage_idx_sz( 163762UL )==sizeof(uint) );
   FD_TEST( 163762UL<=FD_TXNCACHE_MAX_TXNPAGES );
-  FD_TEST( fd_txncache_shmem_footprint( 2048UL, bench_txn_per_slot, ULONG_MAX )==42858065536UL );
+  FD_TEST( fd_txncache_shmem_footprint( 2048UL, bench_txn_per_slot, ULONG_MAX )==42854135168UL );
 
   FD_TEST( fd_txncache_txnpage_idx_sz( USHORT_MAX-2UL )==sizeof(ushort) );
   FD_TEST( fd_txncache_txnpage_idx_sz( USHORT_MAX-1UL )==sizeof(uint)   );
@@ -284,8 +344,8 @@ test_bench_sizing( ulong max_live_slots,
   FD_TEST( !munmap( mem, sz ) );
 }
 
-/* Run the existing pruning/compaction regressions with one resident
-   frame as well as the fully resident configuration. */
+/* Run the existing pruning/compaction regressions with one RAM page
+   as well as the fully resident configuration. */
 static int test_spill_fd = -1;
 static fd_txncache_shmem_t *
 test_shmem_new( void * mem,
@@ -832,6 +892,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   test_spill_prefers_free_frame();
+  test_spill_query_read_only();
   test_spill_io_failure( 0 );
   test_spill_io_failure( 1 );
   test_spill();

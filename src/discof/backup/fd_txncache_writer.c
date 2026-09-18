@@ -5,7 +5,7 @@
 
 /* Mirror of blockcache_t and fd_txncache_private from fd_txncache.c.
    Needed to access the hash chain heads and the descends sets.
-   Transaction contents are copied through the pinned core accessor. */
+   Transaction contents are read under the shared txncache lock. */
 
 struct fd_txncache_writer_blockcache {
   fd_txncache_blockcache_shmem_t * shmem;
@@ -191,7 +191,7 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
   for( ulong bucket=0UL; bucket<bucket_cnt; bucket++ ) {
     for( uint head=txncache_chain_head( tc, blockhash_desc->blockcache_idx, bucket ); head!=UINT_MAX; ) {
       fd_txncache_single_txn_t txn[1];
-      fd_txncache_txn_copy( writer->tc, head, txn );
+      page_io( writer->tc, head/FD_TXNCACHE_TXNS_PER_PAGE, offsetof(fd_txncache_txnpage_t, txns)+(head%FD_TXNCACHE_TXNS_PER_PAGE)*sizeof(*txn), txn, sizeof(*txn), 0 );
       visited++;
       if( FD_LIKELY( txncache_txn_live_and_on_ancestry( tc, writer->snapshot_root_idx, txn ) ) ) {
         ulong slot_i = writer->fork_id_to_slot_i[ txn->fork_id.val ];

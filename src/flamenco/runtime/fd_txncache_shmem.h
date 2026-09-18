@@ -32,6 +32,7 @@ fd_txncache_shmem_align( void );
 
    cache_footprint specifies the in-memory transaction-page budget in
    bytes, rounded up to whole pages and capped at logical capacity.
+   Pages keep their RAM or disk placement for their lifetime.
    Pass ULONG_MAX for a fully in-memory cache.  footprint and new must
    receive the same budget.  If pages can spill, all local joins must
    use the same spill file.  Callers using snapin scratch must provide

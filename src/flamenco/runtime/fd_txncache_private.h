@@ -121,22 +121,11 @@ typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
 #define SET_NAME descends_set
 #include "../../util/tmpl/fd_set_dynamic.c"
 
-/* spill_lock protects page metadata and frame ownership.  A pinned
-   frame cannot be evicted.  The structural write lock excludes all
-   page users when discarding pages. */
-struct fd_txncache_page_meta {
-  uint  frame;      /* UINT_MAX if absent from RAM */
-  uint  pin_cnt;
-  uint  dirty;
-  uint  disk_valid;
-};
-typedef struct fd_txncache_page_meta fd_txncache_page_meta_t;
-
 struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_private {
   /* The txncache is a concurrent structure and will be accessed by multiple threads
-     concurrently.  Insertion and querying take a structural read lock
-     and use spill_lock for page pinning.  All other operations take a
-     structural write lock internally.
+     concurrently.  Queries, RAM inserts, and ordinary RAM allocation
+     take a read lock.  Disk inserts, free-stack rearrangement, and
+     structural changes take a write lock.
 
      The lock needs to be aligned to 128 bytes to avoid false sharing with other
      data that might be on the same cache line. */
@@ -159,9 +148,7 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
                               most recently added root, the head is the oldest root.  This is used to identify
                               which forks can be pruned when a new root is added. */
 
-  ulong       resident_pages;
-  ulong       spill_hand;
-  fd_rwlock_t spill_lock;
+  ulong resident_pages; /* Highest page IDs are permanently backed by RAM. */
 
   ulong seed;
   ulong magic; /* ==FD_TXNCACHE_SHMEM_MAGIC */
@@ -171,15 +158,20 @@ FD_PROTOTYPES_BEGIN
 
 struct fd_txncache_private;
 
-/* Caller holds the structural read or write lock.  No frame pointer
-   escapes; copying protects a traversal from concurrent eviction. */
+/* Transfer a byte range from a logical page in RAM or on disk.
+   Caller holds the shmem read lock for reads, write lock for writes. */
+void
+page_io( struct fd_txncache_private * tc,
+         ulong                        page,
+         ulong                        off,
+         void *                       buf,
+         ulong                        sz,
+         int                          write );
+
+/* Caller holds the structural read or write lock. */
 ulong
 fd_txncache_page_txn_cnt( struct fd_txncache_private * tc,
                           ulong                        page );
-void
-fd_txncache_txn_copy( struct fd_txncache_private * tc,
-                      uint                         idx,
-                      fd_txncache_single_txn_t *   out );
 
 /* fd_txncache_max_txnpages{,_per_blockhash} return the txnpage pool
    size and the per blockcache page cap for the given parameters.  The

@@ -39,8 +39,7 @@ struct fd_txncache_private {
   void *                    scratch_pages;
   uint *                    scratch_heads;
   fd_txncache_txnpage_t *   scratch_txnpage;
-  fd_txncache_page_meta_t * page_meta;
-  ulong *                   frame_owner;
+  fd_txncache_txnpage_t *   local_txnpage;
   int                       spill_fd;
 };
 
@@ -55,8 +54,9 @@ fd_txncache_footprint( ulong max_live_slots ) {
 
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN, sizeof(fd_txncache_t)                 );
-  l = FD_LAYOUT_APPEND( l, alignof(blockcache_t),   max_active_slots*sizeof(blockcache_t) );
+  l = FD_LAYOUT_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,        sizeof(fd_txncache_t)                 );
+  l = FD_LAYOUT_APPEND( l, alignof(blockcache_t),          max_active_slots*sizeof(blockcache_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), sizeof(fd_txncache_txnpage_t)          );
   return FD_LAYOUT_FINI( l, FD_TXNCACHE_ALIGN );
 }
 
@@ -103,12 +103,11 @@ fd_txncache_new( void *                ljoin,
   void * _scratch_pages       = FD_SCRATCH_ALLOC_APPEND( l, _txnpage_idx_sz,                  _max_txnpages_per_blockhash*_txnpage_idx_sz                  );
   void * _scratch_heads       = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    bucket_cnt*sizeof(uint)                                      );
   void * _scratch_txnpage     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),   sizeof(fd_txncache_txnpage_t)                                );
-  void * _page_meta           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_page_meta_t), _max_txnpages*sizeof(fd_txncache_page_meta_t)                );
-  void * _frame_owner         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                   shmem->resident_pages*sizeof(ulong)                          );
 
   FD_SCRATCH_ALLOC_INIT( l2, ljoin );
-  fd_txncache_t * ltc           = FD_SCRATCH_ALLOC_APPEND( l2, FD_TXNCACHE_ALIGN,     sizeof(fd_txncache_t)                 );
-  void * _local_blockcache_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(blockcache_t), max_active_slots*sizeof(blockcache_t) );
+  fd_txncache_t * ltc           = FD_SCRATCH_ALLOC_APPEND( l2, FD_TXNCACHE_ALIGN,                sizeof(fd_txncache_t)                 );
+  void * _local_blockcache_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(blockcache_t),          max_active_slots*sizeof(blockcache_t) );
+  void * _local_txnpage         = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_txncache_txnpage_t), sizeof(fd_txncache_txnpage_t)          );
 
   ltc->shmem = tc;
 
@@ -133,8 +132,7 @@ fd_txncache_new( void *                ljoin,
   ltc->scratch_pages   = _scratch_pages;
   ltc->scratch_heads   = _scratch_heads;
   ltc->scratch_txnpage = _scratch_txnpage;
-  ltc->page_meta       = _page_meta;
-  ltc->frame_owner     = _frame_owner;
+  ltc->local_txnpage   = _local_txnpage;
   ltc->spill_fd        = spill_fd;
 
   return (void *)ltc;
@@ -157,19 +155,30 @@ fd_txncache_join( void * ljoin ) {
   return tc;
 }
 
-/* Only the miss owner accesses disk.  Short I/O is completed, EINTR is
-   retried, and EOF/errors terminate instead of becoming false misses. */
-static void
-page_io( fd_txncache_t *         tc,
-         ulong                   page,
-         fd_txncache_txnpage_t * frame,
-         int                     write ) {
+/* Caller holds the shmem read lock for reads or write lock for writes.
+   Transfer sz bytes at offset off within the page.  Short I/O is
+   completed, EINTR is retried, and EOF/errors terminate instead of
+   becoming false misses. */
+void
+page_io( fd_txncache_t * tc,
+         ulong           page,
+         ulong           off,
+         void *          buf,
+         ulong           sz,
+         int             write ) {
+  ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
+  if( FD_LIKELY( page>=disk_pages ) ) {
+    uchar * data = (uchar *)&tc->txnpages[ page-disk_pages ]+off;
+    if( write ) memcpy( data, buf, sz );
+    else        memcpy( buf, data, sz );
+    return;
+  }
   FD_TEST( tc->spill_fd>=0 );
-  ulong off  = page*sizeof(*frame);
+  off += page*sizeof(fd_txncache_txnpage_t);
   ulong done = 0UL;
-  while( done<sizeof(*frame) ) {
-    long n = write ? pwrite( tc->spill_fd, (uchar *)frame+done, sizeof(*frame)-done, (off_t)(off+done) )
-                   : pread ( tc->spill_fd, (uchar *)frame+done, sizeof(*frame)-done, (off_t)(off+done) );
+  while( done<sz ) {
+    long n = write ? pwrite( tc->spill_fd, (uchar *)buf+done, sz-done, (off_t)(off+done) )
+                   : pread ( tc->spill_fd, (uchar *)buf+done, sz-done, (off_t)(off+done) );
     if( FD_UNLIKELY( n<0L && errno==EINTR ) ) continue;
     if( FD_UNLIKELY( n<0L ) ) FD_LOG_ERR(( "txncache spill %s failed for page %lu at offset %lu (%ld, errno %d)", write ? "write" : "read", page, off+done, n, errno ));
     if( FD_UNLIKELY( !n ) ) FD_LOG_ERR(( "txncache spill %s for page %lu at offset %lu", write ? "write made no progress" : "read reached unexpected EOF", page, off+done ));
@@ -177,101 +186,12 @@ page_io( fd_txncache_t *         tc,
   }
 }
 
-/* spill_lock protects mappings, pin counts, and spill I/O.  Callers
-   hold at most one pin.  If every frame is pinned, release the lock
-   before retrying so other callers can unpin their pages. */
-static fd_txncache_txnpage_t *
-page_pin( fd_txncache_t * tc,
-          ulong           page ) {
-  fd_txncache_page_meta_t * meta = &tc->page_meta[ page ];
-  for(;;) {
-    fd_rwlock_write( &tc->shmem->spill_lock );
-    if( FD_LIKELY( meta->frame!=UINT_MAX ) ) {
-      FD_TEST( meta->pin_cnt<UINT_MAX );
-      meta->pin_cnt++;
-      fd_txncache_txnpage_t * frame = &tc->txnpages[ meta->frame ];
-      fd_rwlock_unwrite( &tc->shmem->spill_lock );
-      return frame;
-    }
-    ulong frame = ULONG_MAX;
-    /* Pruning can leave holes anywhere in the clock ring.  Reuse every
-       free frame before considering eviction of a live owner. */
-    for( ulong i=0UL; i<tc->shmem->resident_pages; i++ ) {
-      ulong f = (tc->shmem->spill_hand+i) % tc->shmem->resident_pages;
-      if( tc->frame_owner[ f ]==ULONG_MAX ) {
-        frame = f;
-        tc->shmem->spill_hand = f+1UL;
-        break;
-      }
-    }
-    for( ulong i=0UL; frame==ULONG_MAX && i<tc->shmem->resident_pages; i++ ) {
-      ulong f = tc->shmem->spill_hand++ % tc->shmem->resident_pages;
-      ulong owner = tc->frame_owner[ f ];
-      fd_txncache_page_meta_t * old = &tc->page_meta[ owner ];
-      if( old->pin_cnt ) continue;
-      if( old->dirty ) {
-        page_io( tc, owner, &tc->txnpages[ f ], 1 );
-        old->disk_valid = 1U;
-        old->dirty      = 0U;
-      }
-      old->frame = UINT_MAX;
-      frame = f;
-      break;
-    }
-    if( frame==ULONG_MAX ) {
-      fd_rwlock_unwrite( &tc->shmem->spill_lock );
-      FD_SPIN_PAUSE();
-      continue;
-    }
-    if( meta->disk_valid ) page_io( tc, page, &tc->txnpages[ frame ], 0 );
-    else memset( &tc->txnpages[ frame ], 0, sizeof(fd_txncache_txnpage_t) );
-    tc->frame_owner[ frame ] = page;
-    meta->frame   = (uint)frame;
-    meta->pin_cnt = 1U;
-    fd_rwlock_unwrite( &tc->shmem->spill_lock );
-    return &tc->txnpages[ frame ];
-  }
-}
-
-static void
-page_unpin( fd_txncache_t *         tc,
-            fd_txncache_txnpage_t * frame,
-            int                     dirty ) {
-  fd_rwlock_write( &tc->shmem->spill_lock );
-  fd_txncache_page_meta_t * meta = &tc->page_meta[ tc->frame_owner[ (ulong)(frame-tc->txnpages) ] ];
-  FD_TEST( meta->pin_cnt );
-  if( dirty ) meta->dirty = 1U;
-  meta->pin_cnt--;
-  fd_rwlock_unwrite( &tc->shmem->spill_lock );
-}
-
-/* Structural write lock excludes all page users and the miss owner. */
-static void
-page_discard( fd_txncache_t * tc,
-              ulong           page ) {
-  fd_txncache_page_meta_t * meta = &tc->page_meta[ page ];
-  FD_TEST( !meta->pin_cnt );
-  if( meta->frame!=UINT_MAX ) tc->frame_owner[ meta->frame ] = ULONG_MAX;
-  memset( meta, 0, sizeof(*meta) );
-  meta->frame = UINT_MAX;
-}
-
 ulong
 fd_txncache_page_txn_cnt( fd_txncache_t * tc,
                           ulong           idx ) {
-  fd_txncache_txnpage_t * page = page_pin( tc, idx );
-  ulong cnt = FD_TXNCACHE_TXNS_PER_PAGE-page->free;
-  page_unpin( tc, page, 0 );
-  return cnt;
-}
-
-void
-fd_txncache_txn_copy( fd_txncache_t *            tc,
-                      uint                       idx,
-                      fd_txncache_single_txn_t * out ) {
-  fd_txncache_txnpage_t * page = page_pin( tc, idx/FD_TXNCACHE_TXNS_PER_PAGE );
-  memcpy( out, page->txns[ idx%FD_TXNCACHE_TXNS_PER_PAGE ], sizeof(*out) );
-  page_unpin( tc, page, 0 );
+  ushort free;
+  page_io( tc, idx, offsetof(fd_txncache_txnpage_t, free), &free, sizeof(free), 0 );
+  return FD_TXNCACHE_TXNS_PER_PAGE-free;
 }
 
 void
@@ -283,8 +203,6 @@ fd_txncache_reset( fd_txncache_t * tc ) {
 
   tc->shmem->txnpages_free_cnt = tc->shmem->max_txnpages;
   for( ulong i=0UL; i<tc->shmem->max_txnpages; i++ ) fd_txncache_txnpage_idx_st( tc->shmem->txnpage_idx_sz, tc->txnpages_free, i, i );
-
-  for( ulong i=0UL; i<tc->shmem->max_txnpages; i++ ) page_discard( tc, i );
 
   blockcache_pool_reset( tc->blockcache_shmem_pool );
   blockhash_map_reset( tc->blockhash_map );
@@ -306,19 +224,28 @@ fd_txncache_bucket( fd_txncache_t const * tc,
   return fd_ulong_hash( FD_LOAD( ulong, txnhash )^tc->shmem->seed )%tc->shmem->bucket_cnt;
 }
 
+/* Caller holds the shmem lock.  With only a read lock, return NULL if
+   disk access or rearranging the free stack requires exclusive access. */
 static fd_txncache_txnpage_t *
 fd_txncache_ensure_txnpage( fd_txncache_t * tc,
-                            blockcache_t *  blockcache ) {
+                            blockcache_t *  blockcache,
+                            int             write ) {
+  ulong txnpage_idx;
   ulong page_cnt = blockcache->shmem->pages_cnt;
   if( FD_UNLIKELY( page_cnt>tc->shmem->txnpages_per_blockhash_max ) ) return NULL;
 
   ulong idx_sz = tc->shmem->txnpage_idx_sz;
+  ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
   if( FD_LIKELY( page_cnt ) ) {
-    ulong txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, page_cnt-1UL );
-    fd_txncache_txnpage_t * page = page_pin( tc, txnpage_idx );
-    ushort txnpage_free = page->free;
-    if( FD_LIKELY( txnpage_free ) ) return page;
-    page_unpin( tc, page, 0 );
+    txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, page_cnt-1UL );
+    fd_txncache_txnpage_t * page;
+    if( FD_LIKELY( txnpage_idx>=disk_pages ) ) page = &tc->txnpages[ txnpage_idx-disk_pages ];
+    else {
+      if( FD_LIKELY( !write ) ) return NULL;
+      page = tc->local_txnpage;
+      page_io( tc, txnpage_idx, 0UL, page, sizeof(*page), 0 );
+    }
+    if( FD_LIKELY( page->free ) ) return page;
   }
 
   if( FD_UNLIKELY( page_cnt==tc->shmem->txnpages_per_blockhash_max ) ) return NULL;
@@ -333,40 +260,61 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
         FD_COMPILER_MFENCE();
         return NULL;
       }
+      txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, txnpages_free_cnt-1UL );
+      if( FD_UNLIKELY( txnpage_idx<disk_pages ) ) {
+        if( FD_LIKELY( !write ) ) {
+          fd_txncache_txnpage_idx_st( idx_sz, blockcache->pages, page_cnt, idx_null );
+          FD_COMPILER_MFENCE();
+          return NULL;
+        }
+        /* Pruning can return RAM pages below disk pages in the stack.
+           Under the write lock, move a free RAM page to the top. */
+        for( ulong i=txnpages_free_cnt-1UL; i; i-- ) {
+          ulong candidate = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, i-1UL );
+          if( candidate<disk_pages ) continue;
+          fd_txncache_txnpage_idx_st( idx_sz, tc->txnpages_free, i-1UL, txnpage_idx );
+          txnpage_idx = candidate;
+          fd_txncache_txnpage_idx_st( idx_sz, tc->txnpages_free, txnpages_free_cnt-1UL, candidate );
+          break;
+        }
+      }
       ulong old_txnpages_free_cnt = FD_ATOMIC_CAS( &tc->shmem->txnpages_free_cnt, txnpages_free_cnt, txnpages_free_cnt-1UL );
       if( FD_LIKELY( old_txnpages_free_cnt==txnpages_free_cnt ) ) break;
       txnpages_free_cnt = old_txnpages_free_cnt;
       FD_SPIN_PAUSE();
     }
 
-    ulong txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, txnpages_free_cnt-1UL );
-    fd_txncache_txnpage_t * txnpage = page_pin( tc, txnpage_idx );
-    txnpage->free = FD_TXNCACHE_TXNS_PER_PAGE;
+    fd_txncache_txnpage_t * page;
+    if( FD_LIKELY( txnpage_idx>=disk_pages ) ) page = &tc->txnpages[ txnpage_idx-disk_pages ];
+    else {
+      page = tc->local_txnpage;
+      memset( page, 0, sizeof(*page) );
+    }
+    page->free = FD_TXNCACHE_TXNS_PER_PAGE;
     FD_COMPILER_MFENCE();
     fd_txncache_txnpage_idx_st( idx_sz, blockcache->pages, page_cnt, txnpage_idx );
     FD_COMPILER_MFENCE();
     blockcache->shmem->pages_cnt = page_cnt+1UL;
-    return txnpage;
+    return page;
   } else {
-    ulong txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, page_cnt );
+    txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, page_cnt );
     while( FD_UNLIKELY( txnpage_idx==idx_null-1UL ) ) {
       txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, page_cnt );
       FD_SPIN_PAUSE();
     }
     if( FD_UNLIKELY( txnpage_idx==idx_null ) ) return NULL;
-    return page_pin( tc, txnpage_idx );
+    FD_TEST( txnpage_idx>=disk_pages );
+    return &tc->txnpages[ txnpage_idx-disk_pages ];
   }
 }
 
-static int
+static inline __attribute__((always_inline)) int
 fd_txncache_insert_txn( fd_txncache_t *         tc,
                         blockcache_t *          blockcache,
                         fd_txncache_txnpage_t * txnpage,
+                        ulong                   txnpage_idx,
                         fd_txncache_fork_id_t   fork_id,
                         uchar const *           txnhash ) {
-  ulong frame_idx   = (ulong)(txnpage - tc->txnpages);
-  ulong txnpage_idx = tc->frame_owner[ frame_idx ];
-
   for(;;) {
     ushort txnpage_free = txnpage->free;
     if( FD_UNLIKELY( !txnpage_free ) ) return 0;
@@ -482,11 +430,6 @@ remove_blockcache( fd_txncache_t * tc,
                    blockcache_t *  blockcache ) {
   FD_TEST( blockcache->shmem->frozen>=0 );
   ulong idx_sz = tc->shmem->txnpage_idx_sz;
-  /* Reclaim deleted fork pages before any subsequent spill; stale
-     entries in surviving owners are compacted under the write lock
-     when logical capacity is exhausted.  Eviction holds only a read
-     lock, so it must preserve their hash-chain links. */
-  for( ulong i=0UL; i<blockcache->shmem->pages_cnt; i++ ) page_discard( tc, fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, i ) );
   memcpy( (uchar *)tc->txnpages_free+tc->shmem->txnpages_free_cnt*idx_sz, blockcache->pages, blockcache->shmem->pages_cnt*idx_sz );
   tc->shmem->txnpages_free_cnt += blockcache->shmem->pages_cnt;
 
@@ -617,16 +560,14 @@ purge_stale_on_blockcache( fd_txncache_t * tc,
     ulong curr_txn_cnt = fd_txncache_page_txn_cnt( tc, curr_txnpage_idx );
     for( ulong j=0UL; j<curr_txn_cnt; j++ ) {
       fd_txncache_single_txn_t curr_txn[1];
-      fd_txncache_txn_copy( tc, (uint)(curr_txnpage_idx*FD_TXNCACHE_TXNS_PER_PAGE+curr_txn_cnt-j-1UL), curr_txn );
+      page_io( tc, curr_txnpage_idx, offsetof(fd_txncache_txnpage_t, txns)+(curr_txn_cnt-j-1UL)*sizeof(*curr_txn), curr_txn, sizeof(*curr_txn), 0 );
       blockcache_t const * txn_fork = &tc->blockcache_pool[ curr_txn->fork_id.val ];
       if( FD_LIKELY( txn_fork->shmem->frozen>=0 && txn_fork->shmem->generation==curr_txn->generation ) ) {
         /* Valid transaction.  Keep. */
         if( FD_UNLIKELY( !tc->scratch_txnpage->free ) ) {
           FD_TEST( scratch_txnpage_idx!=curr_txnpage_idx );
           if( FD_LIKELY( scratch_txnpage_idx!=ULONG_MAX ) ) {
-            fd_txncache_txnpage_t * txnpage = page_pin( tc, scratch_txnpage_idx );
-            memcpy( txnpage, tc->scratch_txnpage, sizeof(*txnpage) );
-            page_unpin( tc, txnpage, 1 );
+            page_io( tc, scratch_txnpage_idx, 0UL, tc->scratch_txnpage, sizeof(fd_txncache_txnpage_t), 1 );
           }
           scratch_txnpage_idx = curr_txnpage_idx;
           tc->scratch_txnpage->free = FD_TXNCACHE_TXNS_PER_PAGE;
@@ -649,15 +590,12 @@ purge_stale_on_blockcache( fd_txncache_t * tc,
     }
     if( FD_UNLIKELY( curr_txnpage_idx!=scratch_txnpage_idx ) ) {
       /* The txnpage is not being used for compaction, free it up. */
-      page_discard( tc, curr_txnpage_idx );
       fd_txncache_txnpage_idx_st( idx_sz, tc->txnpages_free, tc->shmem->txnpages_free_cnt, curr_txnpage_idx );
       tc->shmem->txnpages_free_cnt++;
     }
   }
   if( FD_LIKELY( scratch_txnpage_idx!=ULONG_MAX ) ) {
-    fd_txncache_txnpage_t * txnpage = page_pin( tc, scratch_txnpage_idx );
-    memcpy( txnpage, tc->scratch_txnpage, sizeof(*txnpage) );
-    page_unpin( tc, txnpage, 1 );
+    page_io( tc, scratch_txnpage_idx, 0UL, tc->scratch_txnpage, sizeof(fd_txncache_txnpage_t), 1 );
   }
   blockcache->shmem->pages_cnt = scratch_pages_cnt;
   memcpy( blockcache->pages, tc->scratch_pages, tc->shmem->txnpages_per_blockhash_max*idx_sz );
@@ -706,42 +644,39 @@ fd_txncache_insert( fd_txncache_t *       tc,
   blockcache_t * blockcache = blockhash_on_fork( tc, fork, blockhash );
   FD_TEST( blockcache );
 
+  ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
+  fd_txncache_txnpage_t * txnpage;
   for(;;) {
-    fd_txncache_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
-    if( FD_UNLIKELY( !txnpage ) ) {
-      /* Because of sizing invariants when creating the structure, it is
-         not typically possible to fill it, unless there are stale
-         transactions from minority forks that were purged floating
-         around, in which case we can purge them here and try again.
-         Under the write lock there are no concurrent allocators, so a
-         page still unavailable after the purge means the cache is
-         undersized for the caller's usage. */
+    txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 0 );
+    if( FD_UNLIKELY( !txnpage ) ) break;
+    ulong txnpage_idx = (ulong)(txnpage-tc->txnpages)+disk_pages;
+    if( FD_LIKELY( fd_txncache_insert_txn( tc, blockcache, txnpage, txnpage_idx, fork_id, txnhash ) ) ) {
       fd_rwlock_unread( tc->shmem->lock );
-      fd_rwlock_write( tc->shmem->lock );
-      txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
-      if( FD_LIKELY( !txnpage ) ) {
-        purge_stale( tc );
-        txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
-        if( FD_UNLIKELY( !txnpage ) )
-          FD_LOG_ERR(( "txncache full after purging stale entries: blockcache holds %lu of %lu txnpages, pool has %lu of %lu free (active_slots_max=%lu txn_per_slot_max=%lu)",
-                       blockcache->shmem->pages_cnt, tc->shmem->txnpages_per_blockhash_max,
-                       tc->shmem->txnpages_free_cnt, tc->shmem->max_txnpages,
-                       tc->shmem->active_slots_max,  tc->shmem->txn_per_slot_max ));
-      }
-      page_unpin( tc, txnpage, 1 );
-      fd_rwlock_unwrite( tc->shmem->lock );
-      fd_rwlock_read( tc->shmem->lock );
-      continue;
+      return;
     }
-
-    int success = fd_txncache_insert_txn( tc, blockcache, txnpage, fork_id, txnhash );
-    page_unpin( tc, txnpage, 1 );
-    if( FD_LIKELY( success ) ) break;
-
     FD_SPIN_PAUSE();
   }
 
+  /* Disk access, free-stack rearrangement, and pruning need exclusive
+     access.  Recheck after changing locks. */
   fd_rwlock_unread( tc->shmem->lock );
+  fd_rwlock_write( tc->shmem->lock );
+  blockcache = blockhash_on_fork( tc, fork, blockhash );
+  FD_TEST( blockcache );
+  txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
+  if( FD_UNLIKELY( !txnpage ) ) {
+    purge_stale( tc );
+    txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
+    if( FD_UNLIKELY( !txnpage ) )
+      FD_LOG_ERR(( "txncache full after purging stale entries: blockcache holds %lu of %lu txnpages, pool has %lu of %lu free (active_slots_max=%lu txn_per_slot_max=%lu)",
+                   blockcache->shmem->pages_cnt, tc->shmem->txnpages_per_blockhash_max,
+                   tc->shmem->txnpages_free_cnt, tc->shmem->max_txnpages,
+                   tc->shmem->active_slots_max,  tc->shmem->txn_per_slot_max ));
+  }
+  ulong txnpage_idx = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, blockcache->pages, blockcache->shmem->pages_cnt-1UL );
+  FD_TEST( fd_txncache_insert_txn( tc, blockcache, txnpage, txnpage_idx, fork_id, txnhash ) );
+  if( FD_UNLIKELY( txnpage_idx<disk_pages ) ) page_io( tc, txnpage_idx, 0UL, txnpage, sizeof(*txnpage), 1 );
+  fd_rwlock_unwrite( tc->shmem->lock );
 }
 
 int
@@ -763,13 +698,22 @@ fd_txncache_query( fd_txncache_t *       tc,
 
   /* Select the bucket using the stored portion of the transaction hash. */
   ulong txnhash_offset = blockcache->shmem->txnhash_offset;
+  ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
   ulong head_hash = fd_txncache_bucket( tc, txnhash+txnhash_offset );
   /* Walk the bucket's list.  UINT_MAX marks the end. */
   for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; ) {
-    /* Load and pin the page, copy the record, then unpin.  The local
-       copy remains valid if the page is evicted. */
-    fd_txncache_single_txn_t txn[1];
-    fd_txncache_txn_copy( tc, head, txn );
+    /* Read this record from its fixed RAM or disk location.  The shmem
+       read lock excludes disk updates, page reuse, and pruning. */
+    fd_txncache_single_txn_t disk_txn[1];
+    fd_txncache_single_txn_t const * txn;
+    ulong page = head/FD_TXNCACHE_TXNS_PER_PAGE;
+    ulong idx  = head%FD_TXNCACHE_TXNS_PER_PAGE;
+    if( FD_LIKELY( page>=disk_pages ) ) {
+      txn = tc->txnpages[ page-disk_pages ].txns[ idx ];
+    } else {
+      page_io( tc, page, offsetof(fd_txncache_txnpage_t, txns)+idx*sizeof(*disk_txn), disk_txn, sizeof(*disk_txn), 0 );
+      txn = disk_txn;
+    }
     head = txn->blockcache_next;
 
     /* Accept transactions from this fork or its ancestors.  Reject

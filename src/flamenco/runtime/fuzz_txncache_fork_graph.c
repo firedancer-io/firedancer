@@ -414,7 +414,7 @@ blockcache_has_stale_txn( model_t const * m,
     ulong txn_cnt = fd_txncache_page_txn_cnt( tc, page );
     for( ulong j=0UL; j<txn_cnt; j++ ) {
       fd_txncache_single_txn_t txn[1];
-      fd_txncache_txn_copy( tc, (uint)((ulong)page*FD_TXNCACHE_TXNS_PER_PAGE+j), txn );
+      page_io( tc, page, offsetof(fd_txncache_txnpage_t, txns)+j*sizeof(*txn), txn, sizeof(*txn), 0 );
       ushort txn_fork = txn->fork_id.val;
       FD_TEST( txn_fork<tc->shmem->active_slots_max );
 
