@@ -632,6 +632,18 @@ fd_tower_reconcile( fd_tower_t      * tower,
                     fd_tower_vote_t * onchain_votes,
                     ulong             onchain_root );
 
+/* fd_tower_adopt installs a received tower even when its last vote is
+   behind the local shadow tower.  It truncates votes at the first slot
+   local replay has not completed.  It returns -1 when local replay is
+   not initialized or the received root is ahead, -2 when the received
+   slots do not form one descendant chain, and zero on success.  Errors
+   do not modify tower. */
+
+int
+fd_tower_adopt( fd_tower_t      * tower,
+                fd_tower_vote_t * adopt_votes,
+                ulong             adopt_root );
+
 /* fd_tower_blocks_{query,insert,remove} provide convenient wrappers for
    {querying,inserting,removing} blocks into the tower's block map. */
 
