@@ -62,6 +62,13 @@ union fdctl_args {
   } get_identity;
 
   struct {
+    char name[ 64UL ];
+    int  cmd;
+    int  yes;
+    int  force;
+  } failover;
+
+  struct {
     int clean;
   } ps;
 
