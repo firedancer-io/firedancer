@@ -1,4 +1,5 @@
 #include "fd_topob.h"
+#include "../net/fd_net_tile.h"
 #include "../waker/fd_waker.h"
 
 #include "../../util/pod/fd_pod_format.h"
@@ -516,8 +517,9 @@ tile_name_in( char const *         name,
 
 static int
 tile_is_floating( fd_topo_tile_t const * tile ) {
-  return tile_name_in( tile->name, FLOATING ) ||
-         ( 0==strcmp( tile->name, "sock" ) && tile->sock.only_recv_lo );
+  /* RX only loopback sock copies its associated net tile's CPU affinity,
+     so no extra CPU is needed for pinning. */
+  return tile_name_in( tile->name, FLOATING ) || sock_lo_net_tile_id( tile )!=ULONG_MAX;
 }
 
 int
@@ -652,6 +654,7 @@ fd_topob_tile_live_phase( char const * name ) {
 static int
 fd_topob_cpu_overlap_allowed( fd_topo_tile_t const * a,
                               fd_topo_tile_t const * b ) {
+  if( sock_lo_net_tile_id( a )==b->id || sock_lo_net_tile_id( b )==a->id ) return 1;
   if( a->floats && b->floats ) return 1;
 
   int a_phase = fd_topob_tile_live_phase( a->name );
@@ -960,6 +963,8 @@ initialize_numa_assignments( fd_topo_t * topo ) {
 void
 fd_topob_finish( fd_topo_t *                topo,
                  fd_topo_obj_callbacks_t ** callbacks ) {
+  sock_lo_set_affinity( topo );
+
   for( ulong z=0UL; z<topo->tile_cnt; z++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ z ];
 

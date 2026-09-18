@@ -478,6 +478,7 @@ fd_topos_sock_lo( fd_topo_t *             topo,
   sock->net = net_tile->net;
   sock->sock.only_recv_lo = 1;
   sock->sock.so_rcvbuf    = (int)net_cfg->socket.receive_buffer_size;
+  sock->sock.net_tile_id  = net_tile->id;
 
   for( ulong i=0UL; i<net_tile->out_cnt; i++ ) {
     fd_topo_link_t const * net_out_link = &topo->links[ net_tile->out_link_id[ i ] ];
@@ -502,6 +503,25 @@ fd_topos_sock_lo( fd_topo_t *             topo,
                           consumer->in_link_reliable[ k ], consumer->in_link_poll[ k ] );
       }
     }
+  }
+}
+
+ulong
+sock_lo_net_tile_id( fd_topo_tile_t const * tile ) {
+  if( 0==strcmp( tile->name, "sock" ) && tile->sock.only_recv_lo ) return tile->sock.net_tile_id;
+  return ULONG_MAX;
+}
+
+void
+sock_lo_set_affinity( fd_topo_t * topo ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    ulong net_tile_id = sock_lo_net_tile_id( tile );
+    if( net_tile_id==ULONG_MAX ) continue;
+    FD_TEST( net_tile_id<topo->tile_cnt );
+    fd_topo_tile_t const * net_tile = &topo->tiles[ net_tile_id ];
+    tile->cpu_idx = net_tile->cpu_idx;
+    tile->floats  = net_tile->floats;
   }
 }
 
