@@ -1383,6 +1383,52 @@ test_eqvoc_xid_evict( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_eqvoc_xid_evict passed" ));
 }
 
+static void
+test_pop_fec( fd_wksp_t * wksp ) {
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( 32UL ), 1UL );
+  fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, 32UL, 0UL ) );
+  fd_reasm_fec_t * ev[1];
+  fd_hash_t root = { .ul = { 100UL } };
+  fd_hash_t a = { .ul = { 1UL } };
+  fd_hash_t b = { .ul = { 2UL } };
+  fd_hash_t c = { .ul = { 3UL } };
+  fd_hash_t d = { .ul = { 4UL } };
+  fd_reasm_init( reasm, &root, 0UL );
+  fd_reasm_fec_t * fa = fd_reasm_insert( reasm, &a, &root, 1UL, 0U, 1U, 32U, 1, 1, 0, NULL, NULL, ev );
+  fd_reasm_fec_t * fb = fd_reasm_insert( reasm, &b, &root, 2UL, 0U, 2U, 32U, 1, 0, 1, NULL, NULL, ev );
+  fd_reasm_fec_t * fc = fd_reasm_insert( reasm, &c, &b,    2UL, 32U,2U, 32U, 1, 1, 1, NULL, NULL, ev );
+  fd_reasm_fec_t * fd = fd_reasm_insert( reasm, &d, &root, 3UL, 0U, 3U, 32U, 1, 1, 0, NULL, NULL, ev );
+
+  /* Consume the leader chain without disturbing the ordinary FIFO. */
+  FD_TEST( fd_reasm_peek( reasm )==fa );
+  FD_TEST( fd_reasm_pop_fec( reasm, fb )==fb );
+  FD_TEST( !fb->in_out && fb->popped );
+  FD_TEST( !fd_reasm_pop_fec( reasm, fb ) );
+  fd_reasm_confirm( reasm, &b );
+  FD_TEST( !fb->in_out );
+  FD_TEST( fd_reasm_pop_fec( reasm, fc )==fc );
+  verify_out_invariants( reasm );
+  FD_TEST( fd_reasm_pop( reasm )==fa );
+  FD_TEST( fd_reasm_pop( reasm )==fd );
+  FD_TEST( !fd_reasm_pop( reasm ) );
+
+  /* A queued equivocating FEC still requires confirmation. */
+  fd_hash_t e = { .ul = { 5UL } };
+  fd_hash_t f = { .ul = { 6UL } };
+  fd_reasm_fec_t * fe = fd_reasm_insert( reasm, &e, &d, 4UL, 0U, 1U, 32U, 1, 1, 1, NULL, NULL, ev );
+  fd_reasm_insert( reasm, &f, &d, 4UL, 0U, 1U, 32U, 1, 1, 0, NULL, NULL, ev );
+  FD_TEST( fe->eqvoc );
+  FD_TEST( !fd_reasm_pop_fec( reasm, fe ) );
+  FD_TEST( fe->in_out && !fe->popped );
+  fd_reasm_confirm( reasm, &e );
+  FD_TEST( fd_reasm_pop_fec( reasm, fe )==fe );
+  FD_TEST( fd_reasm_publish( reasm, &e, NULL, NULL ) );
+  verify_out_invariants( reasm );
+  FD_TEST( !fd_reasm_pop( reasm ) );
+  fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  FD_LOG_NOTICE(( "test_pop_fec passed" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1401,6 +1447,7 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_insert( wksp );
+  test_pop_fec( wksp );
   test_store_release( wksp );
   test_publish( wksp );
   test_eqvoc( wksp );
