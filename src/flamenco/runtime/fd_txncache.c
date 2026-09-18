@@ -2,42 +2,6 @@
 #include "fd_txncache_private.h"
 #include "../../util/log/fd_log.h"
 
-struct blockcache {
-  fd_txncache_blockcache_shmem_t * shmem;
-
-  uint * heads;          /* The hash table for the blockhash.  Each entry is a pointer to the head of a linked list of
-                            transactions that reference this blockhash.  As we add transactions to the bucket, the head
-                            pointer is updated to the new item, and the new item is pointed to the previous head. */
-  void * pages;          /* A list of the txnpages containing the transactions for this blockcache, elements of
-                            shmem->txnpage_idx_sz bytes (see fd_txncache_txnpage_idx_ld). */
-
-  descends_set_t * descends; /* Each fork can descend from other forks in the txncache, and this bit vector contains one
-                                value for each fork in the txncache.  If this fork descends from some other fork F, then
-                                the bit at index F in descends[] is set. */
-};
-
-typedef struct blockcache blockcache_t;
-
-struct fd_txncache_private {
-  fd_txncache_shmem_t * shmem;
-
-  fd_txncache_blockcache_shmem_t * blockcache_shmem_pool;
-  blockcache_t * blockcache_pool;
-  blockhash_map_t * blockhash_map;
-
-  void * txnpages_free;             /* The index in the txnpages array that is free, for each of the free pages.
-                                       Elements are shmem->txnpage_idx_sz bytes, as are scratch_pages below. */
-
-  fd_txncache_txnpage_t * txnpages; /* The actual storage for the transactions.  The blockcache points to these
-                                       pages when storing transactions.  Transaction are grouped into pages of
-                                       size 16384 to make certain allocation and deallocation operations faster
-                                       (just the pages are acquired/released, rather than each txn). */
-
-  void * scratch_pages;
-  uint * scratch_heads;
-  fd_txncache_txnpage_t * scratch_txnpage;
-};
-
 FD_FN_CONST ulong
 fd_txncache_align( void ) {
   return FD_TXNCACHE_ALIGN;
@@ -149,6 +113,8 @@ fd_txncache_join( void * ljoin ) {
 void
 fd_txncache_reset( fd_txncache_t * tc ) {
   fd_rwlock_write( tc->shmem->lock );
+  fd_txncache_mutation_begin( tc->shmem );
+  __atomic_store_n( &tc->shmem->root_gen, tc->shmem->root_gen+1UL, __ATOMIC_RELAXED );
 
   tc->shmem->root_cnt = 0UL;
   root_slist_remove_all( tc->shmem->root_ll, tc->blockcache_shmem_pool );
@@ -159,6 +125,7 @@ fd_txncache_reset( fd_txncache_t * tc ) {
   blockcache_pool_reset( tc->blockcache_shmem_pool );
   blockhash_map_reset( tc->blockhash_map );
 
+  fd_txncache_mutation_end( tc->shmem );
   fd_rwlock_unwrite( tc->shmem->lock );
 }
 
@@ -423,6 +390,9 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
                  parent_blockhash_b58,
                  fork_blockhash_b58 ));
 
+  fd_txncache_mutation_begin( tc->shmem );
+  __atomic_store_n( &tc->shmem->root_gen, tc->shmem->root_gen+1UL, __ATOMIC_RELAXED );
+
   /* When a fork is rooted, any competing forks can be immediately
      removed as they will not be needed again.  This includes child
      forks of the pruned siblings as well. */
@@ -446,6 +416,7 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
     tc->shmem->root_cnt--;
   }
 
+  fd_txncache_mutation_end( tc->shmem );
   fd_rwlock_unwrite( tc->shmem->lock );
 }
 
@@ -547,7 +518,9 @@ purge_stale( fd_txncache_t * tc ) {
      transactions in any blockcache descending from that.
      Unfortunately, frontier eviction means that any blockcache in the
      fork tree can have stale transactions. */
+  fd_txncache_mutation_begin( tc->shmem );
   purge_stale_on_fork( tc, root );
+  fd_txncache_mutation_end( tc->shmem );
   FD_LOG_WARNING(( "purge_stale: txnpages_free %lu -> %lu", free_before, tc->shmem->txnpages_free_cnt ));
 }
 
