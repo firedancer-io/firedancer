@@ -487,6 +487,9 @@ fd_sched_pruned_block_next( fd_sched_t * sched );
 void
 fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );
 
+void
+fd_sched_set_flh_params( fd_sched_t * sched, fd_bank_t * bank );
+
 /* fd_sched_block_verify_ticks sets the tick window and verifies
    ticks on bank_idx (shred fuzz harness, no exec).  Returns
    FD_SCHED_DEAD_REASON_NONE (0) if valid, else the

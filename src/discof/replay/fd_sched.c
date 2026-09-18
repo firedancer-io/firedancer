@@ -214,6 +214,7 @@ struct fd_sched_block {
      marker and it is seen by sched; footer is only meaningful in that
      case. */
   fd_block_footer_t footer;
+  int               flh;
 
   /* Alpenglow block structure, mirroring agave's BlockComponentStage
      as a set of "seen" flags.  Only maintained when sched->is_alpenglow.
@@ -1937,6 +1938,12 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
 }
 
 void
+fd_sched_set_flh_params( fd_sched_t * sched, fd_bank_t * bank ) {
+  fd_sched_block_t * block = block_pool_ele( sched, bank->idx );
+  block->flh = FD_FEATURE_ACTIVE( block->slot, &bank->f.features, alpenglow_fast_leader_handover );
+}
+
+void
 fd_sched_set_bypass_poh_verify( fd_sched_t * sched, int bypass_poh_verify ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   sched->bypass_poh_verify = !!bypass_poh_verify;
@@ -2176,6 +2183,8 @@ add_block( fd_sched_t * sched,
     record_lineage_death( block, parent_block );
     block->dying = 1;
   }
+
+  block->flh = -1; /* unknown, set later by fd_sched_set_flh_params */
 }
 
 /* Alpenglow block structure.  agave's BlockComponentProcessor rules
@@ -2231,8 +2240,18 @@ ag_on_marker( fd_sched_t *              sched,
     return FD_SCHED_DEAD_REASON_NONE;
 
   case FD_BLOCK_MARKER_KIND_UPDATE_PARENT:
+    if( FD_UNLIKELY( !block->header_seen ) ) {
+      FD_LOG_INFO(( "bad block: MISSING_PARENT_MARKER, slot %lu, parent slot %lu, footer before header", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER;
+    }
+    FD_CHECK_CRIT( block->flh != -1, "fd_sched_set_flh_params MUST have been called by replay_block_start at this point, because the header was processed" );
+    if( FD_UNLIKELY( !block->flh ) ) {
+      FD_LOG_INFO(( "bad block: UPDATE_PARENT, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
+      return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
+    }
+    FD_LOG_CRIT(( "TODO FLH" )); /* TODO FLH */
     block->update_parent_seen = 1;
-    return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
+    return FD_SCHED_DEAD_REASON_NONE;
 
   default:
     FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, unknown block marker kind %u", block->slot, block->parent_slot, marker->kind ));

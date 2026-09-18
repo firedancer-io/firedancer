@@ -433,6 +433,7 @@ replay_block_start( fd_replay_tile_t * ctx,
     bank->f.slot_params.hashes_per_tick = 1UL;
   }
   fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.slot_params.hashes_per_tick, &parent_bank->f.poh );
+  fd_sched_set_flh_params( ctx->sched, bank );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
