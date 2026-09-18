@@ -34,11 +34,29 @@ test_wrong_staked_key( void ) {
   FD_TEST( fd_failover_hello_check( &active, &standby )==FD_FAILOVER_HELLO_ERR_STAKED );
 }
 
+/* test_handoff_decode: requests and results need their exact size and
+   nonzero ids. */
+static void
+test_handoff_decode( void ) {
+  fd_failover_handoff_request_t request = { .handoff_id=5UL, .target_boot_id=6UL }, request_out;
+  FD_TEST( fd_failover_handoff_request_decode( &request_out, (uchar const *)&request, sizeof(request) ) && request_out.handoff_id==5UL );
+  FD_TEST( !fd_failover_handoff_request_decode( &request_out, (uchar const *)&request, sizeof(request)-1UL ) );
+  request.target_boot_id = 0UL;
+  FD_TEST( !fd_failover_handoff_request_decode( &request_out, (uchar const *)&request, sizeof(request) ) );
+
+  fd_failover_handoff_result_t result = { .handoff_id=5UL }, result_out;
+  FD_TEST( fd_failover_handoff_result_decode( &result_out, (uchar const *)&result, sizeof(result) ) && result_out.handoff_id==5UL );
+  FD_TEST( !fd_failover_handoff_result_decode( &result_out, (uchar const *)&result, sizeof(result)+1UL ) );
+  result.handoff_id = 0UL;
+  FD_TEST( !fd_failover_handoff_result_decode( &result_out, (uchar const *)&result, sizeof(result) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   test_hello();
   test_wrong_staked_key();
+  test_handoff_decode();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

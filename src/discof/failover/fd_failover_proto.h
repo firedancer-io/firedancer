@@ -82,6 +82,59 @@ struct __attribute__((packed)) fd_failover_hello {
 typedef struct fd_failover_hello fd_failover_hello_t;
 FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==192UL, wire_layout );
 
+/* Sent by the demoter once it runs the junk key, the final tower
+   follows it. */
+struct __attribute__((packed)) fd_failover_demoted {
+  ulong  handoff_id;     /* demoter's id for this handoff */
+  ulong  target_boot_id; /* peer boot_id the handoff is for */
+  ulong  last_vote_slot; /* tip of the final tower */
+  uchar  mode;           /* FD_FAILOVER_MODE_* encoding */
+  ushort state_len;      /* the final tower follows this struct */
+};
+typedef struct fd_failover_demoted fd_failover_demoted_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_demoted_t)==27UL, wire_layout );
+
+#define FD_FAILOVER_DEMOTED_PAYLOAD_MAX (sizeof(fd_failover_demoted_t)+FD_FAILOVER_TOWER_STATE_MAX)
+
+struct __attribute__((packed)) fd_failover_promote_ack {
+  ulong handoff_id;
+};
+typedef struct fd_failover_promote_ack fd_failover_promote_ack_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_promote_ack_t)==8UL, wire_layout );
+
+struct __attribute__((packed)) fd_failover_promote_rejected {
+  ulong handoff_id;
+  uchar reason; /* FD_FAILOVER_REJECT_* */
+};
+typedef struct fd_failover_promote_rejected fd_failover_promote_rejected_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_promote_rejected_t)==9UL, wire_layout );
+
+/* The standby asks the active it authenticated to hand over. */
+struct __attribute__((packed)) fd_failover_handoff_request {
+  ulong handoff_id;
+  ulong target_boot_id;
+};
+typedef struct fd_failover_handoff_request fd_failover_handoff_request_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_handoff_request_t)==16UL, wire_layout );
+
+/* Ends the exchange, result is an admin control result. */
+struct __attribute__((packed)) fd_failover_handoff_result {
+  ulong handoff_id;
+  ulong result;
+};
+typedef struct fd_failover_handoff_result fd_failover_handoff_result_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_handoff_result_t)==16UL, wire_layout );
+
+/* PROMOTE_REJECTED reasons */
+#define FD_FAILOVER_REJECT_NONE              (0U)
+#define FD_FAILOVER_REJECT_BUSY              (1U)
+#define FD_FAILOVER_REJECT_HOLDS_IDENTITY    (2U)
+#define FD_FAILOVER_REJECT_REPLAY_BEHIND     (3U)
+#define FD_FAILOVER_REJECT_ADOPTION_MISMATCH (4U)
+#define FD_FAILOVER_REJECT_ADOPTION_FAILED   (5U)
+#define FD_FAILOVER_REJECT_SWITCH_FAILED     (6U)
+#define FD_FAILOVER_REJECT_CNT               (7U)
+
 FD_PROTOTYPES_BEGIN
 
 /* Checks a peer's HELLO against ours and returns FD_FAILOVER_HELLO_OK or
@@ -121,6 +174,63 @@ ulong
 fd_failover_session_step( ulong state,
                           int   dial_peer,
                           int   event );
+
+/* Validate a handoff request or result.  Both have exact wire sizes.
+   Handoff ids and target boot ids must be nonzero.  The controller binds
+   replies to an outstanding request and treats an unknown result as a
+   refusal.  Return 0 on failure without changing out. */
+int
+fd_failover_handoff_request_decode( fd_failover_handoff_request_t * out,
+                                    uchar const *                   payload,
+                                    ulong                           payload_sz );
+
+int
+fd_failover_handoff_result_decode( fd_failover_handoff_result_t * out,
+                                   uchar const *                  payload,
+                                   ulong                          payload_sz );
+
+/* Writes a DEMOTED payload, the header and then the tower, into out,
+   which holds FD_FAILOVER_DEMOTED_PAYLOAD_MAX bytes.  Returns the payload
+   size, 0 for an empty or oversized tower. */
+ulong
+fd_failover_demoted_encode( uchar *       out,
+                            ulong         handoff_id,
+                            ulong         target_boot_id,
+                            ulong         last_vote_slot,
+                            uchar const * state,
+                            ulong         state_sz );
+
+/* Validates a DEMOTED payload.  The tower has to decode exactly and end
+   at last_vote_slot.  Returns 1 on success, the tower is then at
+   payload+sizeof(fd_failover_demoted_t).  Returns 0 on failure with out
+   left unchanged. */
+int
+fd_failover_demoted_decode( fd_failover_demoted_t * out,
+                            uchar const *           payload,
+                            ulong                   payload_sz );
+
+/* Write a PROMOTE_ACK or PROMOTE_REJECTED payload into out and return
+   its size.  The reject encoder returns 0 for an unknown reason. */
+ulong
+fd_failover_promote_ack_encode( uchar * out,
+                                ulong   handoff_id );
+
+ulong
+fd_failover_promote_rejected_encode( uchar * out,
+                                     ulong   handoff_id,
+                                     uchar   reason );
+
+/* Validate a PROMOTE_ACK or PROMOTE_REJECTED payload.  Return 1 on
+   success, 0 on failure with out left unchanged. */
+int
+fd_failover_promote_ack_decode( fd_failover_promote_ack_t * out,
+                                uchar const *               payload,
+                                ulong                       payload_sz );
+
+int
+fd_failover_promote_rejected_decode( fd_failover_promote_rejected_t * out,
+                                     uchar const *                    payload,
+                                     ulong                            payload_sz );
 
 FD_PROTOTYPES_END
 
