@@ -220,6 +220,10 @@ struct fd_configf {
     char   bind_address[ 64 ];
     char   junk_identity_path[ PATH_MAX ];
     char   staked_identity_path[ PATH_MAX ];
+    int    accept_peer_requests;
+    ulong  min_slots_to_leader;
+    ulong  deadline_slots;
+    ulong  catchup_gap_slots;
     ulong  status_interval_millis;
     ulong  replication_lag_slots;
     ulong  peer_silence_intervals;

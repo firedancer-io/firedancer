@@ -137,6 +137,10 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   failover.bind_address                               );
   CFG_POP      ( cstr,   failover.junk_identity_path                         );
   CFG_POP      ( cstr,   failover.staked_identity_path                       );
+  CFG_POP      ( bool,   failover.accept_peer_requests                       );
+  CFG_POP      ( ulong,  failover.min_slots_to_leader                        );
+  CFG_POP      ( ulong,  failover.deadline_slots                             );
+  CFG_POP      ( ulong,  failover.catchup_gap_slots                          );
   CFG_POP      ( ulong,  failover.status_interval_millis                     );
   CFG_POP      ( ulong,  failover.replication_lag_slots                      );
   CFG_POP      ( ulong,  failover.peer_silence_intervals                     );
