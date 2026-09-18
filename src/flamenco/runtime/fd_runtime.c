@@ -1637,6 +1637,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
                                NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
       fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &pubkey, &node_account, stake, commission, bls_key );
     }
+    fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
     fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );
   }
 

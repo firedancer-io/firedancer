@@ -151,7 +151,7 @@ ENCODE_FN {
     PUSH_VAL( uchar, 0 ); /* unused_epoch_accounts_hash */
 
     ulong epoch = bank->f.epoch;
-    ulong epoch_cnt = (epoch > 0UL) ? 3UL : 2UL;
+    ulong epoch_cnt = fd_ulong_min( epoch, 3UL ) + 2UL; /* keys max(E-3,0)..E+1, as agave retains */
     PUSH_VAL( ulong, epoch_cnt );
     enc->epoch_cnt = (uchar)epoch_cnt;
     enc->epoch_idx = 0;
@@ -160,24 +160,19 @@ ENCODE_FN {
   }
   case STATE_EPOCH_STAKES: {
     ulong epoch = bank->f.epoch;
-    ulong epoch_stakes_base = (epoch > 0UL) ? (epoch - 1UL) : 0UL;
+    ulong epoch_stakes_base = (epoch > 3UL) ? (epoch - 3UL) : 0UL;
     ulong epoch_key = epoch_stakes_base + (ulong)enc->epoch_idx;
 
-    /* entry_type: 0=T-3 commission, 1=T-2 stakes, 2=T-1 stakes+credits */
-    uint entry_type = (epoch > 0UL) ? enc->epoch_idx : (uint)(enc->epoch_idx + 1U);
+    /* key E+1 is the t-1 set with credits, E the t-2 set, E-1..E-3 the t-3..t-5 sets */
+    int iter_kind = (int)(epoch + 2UL - epoch_key);
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
 
-    uint vote_cnt;
-    if( entry_type==2U ) {
-      vote_cnt = (uint)fd_vote_stakes_cnt_t_1( vote_stakes, fork_id );
-      fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, enc->vote_stakes_iter_mem );
-    } else if( entry_type==1U ) {
-      vote_cnt = (uint)fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
-      fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, enc->vote_stakes_iter_mem );
-    } else {
-      vote_cnt = (uint)*fd_bank_epoch_credits_len( enc->bank );
-    }
+    uint vote_cnt = 0U;
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, enc->vote_stakes_iter_mem );
+         !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
+         fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) vote_cnt++;
+    fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, enc->vote_stakes_iter_mem );
     enc->vote_cnt    = vote_cnt;
     enc->vote_idx    = 0;
     enc->total_stake = 0UL;
@@ -191,7 +186,8 @@ ENCODE_FN {
   }
   case STATE_EPOCH_STAKES_STAKES: {
     ulong epoch = bank->f.epoch;
-    uint entry_type = (epoch > 0UL) ? enc->epoch_idx : (uint)(enc->epoch_idx + 1U);
+    ulong epoch_stakes_base = (epoch > 3UL) ? (epoch - 3UL) : 0UL;
+    int   iter_kind = (int)(epoch + 2UL - epoch_stakes_base - (ulong)enc->epoch_idx);
 
     fd_pubkey_t pubkey       = {0};
     ulong       stake        = 0UL;
@@ -207,35 +203,19 @@ ENCODE_FN {
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
 
-    if( entry_type==2U ) {
-      fd_vote_stakes_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
-      FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) );
-      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
-                               NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
+    fd_vote_stakes_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
+    FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter ) );
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &pubkey, &node_account, &stake,
+                             NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
+    if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) {
       ec = find_epoch_credits( enc->bank, &pubkey );
       FD_TEST( ec );
       ec_cnt = ec->cnt;
       co_epoch = bank->f.epoch;
-    } else if( entry_type==1U ) {
-      fd_vote_stakes_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
-      FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) );
-      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, &pubkey, &node_account, &stake,
-                               NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
+    } else if( iter_kind==FD_VOTE_STAKES_ITER_T_2 ) {
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
-    } else {
-      /* The bank epoch credits will have the resolved commission for
-         the vote account.  This means that the commission stored will
-         be the t-3 commission if it existed or the t-2/t-1 commission
-         otherwise as the fallback (see delay_commission_update feature
-         for more details).  This means that the serialized commission
-         for the epoch may be inaccurate but the commission produced
-         will still produce a correct commission for the purposes of
-         rewards.  That is to say that the commission for each vote
-         account will be accurate. */
-      ec = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
-      fd_memcpy( &pubkey, ec->pubkey, 32UL );
-      commission = ec->commission;
     }
+    /* t-3..t-5 collectors are never consulted on reload; encoded as zero */
 
     /* SIMD-0232 collectors: defaults unless overridden. */
     fd_pubkey_t inflation_collector = {0};
@@ -301,17 +281,13 @@ ENCODE_FN {
     PUSH_VAL( ulong,       0UL                       ); /* rent_epoch */
 
     enc->vote_idx++;
-    if( entry_type==2U ) {
-      fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, fd_type_pun( enc->vote_stakes_iter_mem ) );
-    } else if( entry_type==1U ) {
-      fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, fd_type_pun( enc->vote_stakes_iter_mem ) );
-    }
+    fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter );
     if( enc->vote_idx >= enc->vote_cnt ) enc->state = STATE_EPOCH_STAKES_EPOCH;
     break;
   }
   case STATE_EPOCH_STAKES_EPOCH: {
     ulong epoch = bank->f.epoch;
-    ulong epoch_stakes_base = (epoch > 0UL) ? (epoch - 1UL) : 0UL;
+    ulong epoch_stakes_base = (epoch > 3UL) ? (epoch - 3UL) : 0UL;
     ulong epoch_key = epoch_stakes_base + (ulong)enc->epoch_idx;
 
     PUSH_VAL( ulong, 0UL       ); /* stake_delegations_length = 0 */
@@ -323,8 +299,10 @@ ENCODE_FN {
   }
   case STATE_EPOCH_STAKE_HISTORY: { __builtin_unreachable(); }
   case STATE_EPOCH_TOTAL_STAKE: {
-    uint entry_type = (bank->f.epoch > 0UL) ? enc->epoch_idx : (uint)(enc->epoch_idx + 1U);
-    ulong total_stake = (entry_type==2U) ? bank->f.total_epoch_stake : enc->total_stake;
+    ulong epoch = bank->f.epoch;
+    ulong epoch_stakes_base = (epoch > 3UL) ? (epoch - 3UL) : 0UL;
+    int   iter_kind = (int)(epoch + 2UL - epoch_stakes_base - (ulong)enc->epoch_idx);
+    ulong total_stake = (iter_kind==FD_VOTE_STAKES_ITER_T_1) ? bank->f.total_epoch_stake : enc->total_stake;
     PUSH_VAL( ulong, total_stake );
     enc->state = STATE_NODE_VOTE_ACCOUNTS;
     break;

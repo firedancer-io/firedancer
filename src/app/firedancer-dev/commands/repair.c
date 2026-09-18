@@ -222,7 +222,7 @@ repair_load_manifest( fd_topo_t *  topo,
   fd_epoch_schedule_t const * schedule = &schedule_local;
   ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
 
-  ulong epoch_stakes_base      = epoch > 0UL ? epoch - 1UL : 0UL;
+  ulong epoch_stakes_base      = epoch > 3UL ? epoch - 3UL : 0UL;
   ulong leader_schedule_epoch  = fd_slot_to_leader_schedule_epoch( schedule, manifest->slot );
   ulong cur_idx = epoch - epoch_stakes_base;
   FD_TEST( cur_idx < FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN );

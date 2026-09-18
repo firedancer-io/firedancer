@@ -15,13 +15,16 @@
    during execution.
 
    The underlying data structure is a tiered set of caches:
-   - t-2/t-3: these are caches used for the vote account states at the
-     end of the t-2 epoch and the t-3 epoch assuming you are currently
+   - t-2..t-5: these are caches used for the vote account states at
+     the end of the t-2 through t-5 epochs assuming you are currently
      in the t epoch.  These caches are shared across all forks.
    - t-1: these are sized to max_fork_width and are computed at the
      most recent epoch boundary.  These caches are ref-cnt'd and fork
      specific.  After the epoch boundary slot is rooted, then there will
-     only be 1 active t-1 cache.
+     only be 1 active t-1 cache.  Once filled, a t-1 cache is ranked
+     and never changes again, so a fork in epoch t verifies epoch t+1
+     certs against it (Agave's epoch_stakes[t+1]); the next boundary
+     rotates it, ranks included, into t-2.
    - state: each bank has its own view of the t-2 state of vote
      accounts.  This is what is actually used for clock calculations
      which is a stake weighted median of the last vote slot and
@@ -39,8 +42,9 @@
    but only one epoch boundary can be crossed at a time.  This means
    that there can be multiple t-1 forks after an epoch boundary, but
    only one will be active when the first fork crosses into an epoch
-   boundary.  Similarly, this means that there will be 2 t-2 sets active
-   during an epoch boundary crossing and 1 most of the time. */
+   boundary.  Similarly, this means that live forks address 5 epoch
+   sets during an epoch boundary crossing and 4 most of the time:
+   crossing into t+1 evicts the t-6 set, which no live fork addresses. */
 
 struct fd_vote_stakes;
 typedef struct fd_vote_stakes fd_vote_stakes_t;
@@ -106,13 +110,15 @@ fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
                                 ushort              commission,
                                 uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
-/* fd_vote_stakes_snap_insert_t_3 inserts a new vote account into the
-   t-3 set.  This skips over any vote account validation and should
-   only be used when loading in vote accounts from a snapshot. */
+/* fd_vote_stakes_snap_insert_t_n inserts a new vote account into the
+   t-n set, n in 3..5, and marks that set resident.  This skips over
+   any vote account validation and should only be used when loading in
+   vote accounts from a snapshot. */
 
 void
-fd_vote_stakes_snap_insert_t_3( fd_vote_stakes_t *  vote_stakes,
+fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *  vote_stakes,
                                 ulong               fork_id,
+                                ulong               n,
                                 fd_pubkey_t const * pubkey,
                                 fd_pubkey_t const * node_account,
                                 ulong               stake,
@@ -134,15 +140,16 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
                        ushort              commission,
                        uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
 
-/* fd_vote_stakes_finalize assigns Alpenglow ranks to the resident
-   epoch-stakes set for epoch.  Accounts with invalid BLS keys or
-   duplicate BLS/identity keys retain
+/* fd_vote_stakes_finalize assigns Alpenglow ranks to the set that
+   iter_kind addresses for fork_id.  Accounts with invalid or infinity
+   BLS keys or duplicate BLS/identity keys retain
    FD_VOTE_STAKES_ALPENGLOW_RANK_NULL but remain in the set.  This is a
    no-op if the set is not resident. */
 
 void
 fd_vote_stakes_finalize( fd_vote_stakes_t * vote_stakes,
-                         ulong              epoch );
+                         ulong              fork_id,
+                         int                iter_kind );
 
 /* fd_vote_stakes_purge_fork removes a t-1 set.  This should be called
    when the banks are evicting a bank or during root advancement. */
@@ -229,8 +236,8 @@ fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
 
 /* fd_vote_stakes_total_stake returns the total stake of the epoch
    stakes set for epoch.
-   epoch must be the current (the t-2 set) or the one before it
-   (the t-3 set); returns 0 if that epoch's set is not resident. */
+   epoch must be one of the t-2 through t-5 sets; returns 0 if that
+   epoch's set is not resident. */
 
 ulong
 fd_vote_stakes_total_stake( fd_vote_stakes_t const * vote_stakes,
@@ -246,13 +253,15 @@ fd_vote_stakes_total_stake( fd_vote_stakes_t const * vote_stakes,
 #define FD_VOTE_STAKES_ITER_T_1           (1)
 #define FD_VOTE_STAKES_ITER_T_2           (2)
 #define FD_VOTE_STAKES_ITER_T_3           (3)
+#define FD_VOTE_STAKES_ITER_T_4           (4)
+#define FD_VOTE_STAKES_ITER_T_5           (5)
 
 struct vacc_map_iter;
 typedef struct vacc_map_iter fd_vote_stakes_iter_t;
 
-/* The iterator accesses the fork's t-1, t-2, or t-3 set according to
-   iter_kind.  Fork-local vote state outputs may only be requested for
-   FD_VOTE_STAKES_ITER_T_2. */
+/* The iterator accesses the fork's t-1 or t-2 through t-5 set
+   according to iter_kind.  Fork-local vote state outputs may only be
+   requested for FD_VOTE_STAKES_ITER_T_2. */
 
 fd_vote_stakes_iter_t *
 fd_vote_stakes_iter_init( fd_vote_stakes_t const * vote_stakes,
