@@ -6,6 +6,7 @@
 
 #include "fd_failover_bus.h"
 #include "fd_failover_channel.h"
+#include "fd_failover_role.h"
 #include "fd_failover_stream.h"
 #include "fd_failover_tls.h"
 #include "../tower/fd_tower_tile.h"
@@ -13,6 +14,10 @@
 #include "../../ballet/txn/fd_txn.h"
 
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "generated/fd_failover_tile_seccomp.h"
 
@@ -57,6 +62,13 @@ struct fd_failover_tile_ctx {
   uchar               identity_pubkey[ 32UL ];
   ulong               role;
   fd_failover_hello_t hello;
+
+  /* The role file and its descriptors.  A role change is written here
+     before it takes effect. */
+  int                     role_dir_fd;
+  int                     role_file_fd;   /* reserved for each temporary file */
+  int                     role_sandboxed; /* the reserved number is fixed by seccomp */
+  fd_failover_role_file_t role_file;
 
   ulong              member_cnt;
   ulong              self_idx;
@@ -173,6 +185,81 @@ pool_listen_fd( fd_failover_tile_ctx_t const * ctx ) {
   return -1;
 }
 
+/* role_dir_open creates and opens `<base>/failover`, owned by the
+   validator user with no access for anyone else, and removes a temporary
+   file left by a crash. */
+static int
+role_dir_open( char const * base_path,
+               uint         owner_uid,
+               uint         owner_gid ) {
+  int base_fd = open( base_path, O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW );
+  if( FD_UNLIKELY( base_fd<0 ) )
+    FD_LOG_ERR(( "open(%s) failed (%i-%s)", base_path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( mkdirat( base_fd, "failover", 0700 ) && errno!=EEXIST ) )
+    FD_LOG_ERR(( "mkdirat(failover) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  int dir_fd = openat( base_fd, "failover", O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW );
+  if( FD_UNLIKELY( dir_fd<0 ) )
+    FD_LOG_ERR(( "openat(failover) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  struct stat st;
+  if( FD_UNLIKELY( fstat( dir_fd, &st ) ) )
+    FD_LOG_ERR(( "fstat(failover) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( (st.st_uid!=(uid_t)owner_uid || st.st_gid!=(gid_t)owner_gid) &&
+                   fchown( dir_fd, (uid_t)owner_uid, (gid_t)owner_gid ) ) )
+    FD_LOG_ERR(( "fchown(failover) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( (st.st_mode & 07777U)!=0700U && fchmod( dir_fd, 0700 ) ) )
+    FD_LOG_ERR(( "fchmod(failover) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( unlinkat( dir_fd, FD_FAILOVER_ROLE_TMP_PATH, 0 ) && errno!=ENOENT ) )
+    FD_LOG_ERR(( "unlinkat(%s) failed (%i-%s)", FD_FAILOVER_ROLE_TMP_PATH, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fsync( dir_fd ) ) )
+    FD_LOG_ERR(( "fsync(failover) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( base_fd ) ) )
+    FD_LOG_ERR(( "close(%s) failed (%i-%s)", base_path, errno, fd_io_strerror( errno ) ));
+  return dir_fd;
+}
+
+/* role_file_read loads the role file into ctx, or leaves the default
+   standby record at term zero when the file is missing, unreadable or
+   for another staked identity.  Returns zero or an errno value. */
+static int
+role_file_read( fd_failover_tile_ctx_t * ctx ) {
+  fd_memset( &ctx->role_file, 0, sizeof(ctx->role_file) );
+  ctx->role_file.version = FD_FAILOVER_ROLE_VERSION;
+  ctx->role_file.role    = (uchar)FD_FAILOVER_ROLE_FILE_STANDBY;
+  fd_memcpy( ctx->role_file.staked_pubkey, ctx->hello.staked_pubkey, 32UL );
+
+  fd_failover_role_file_t rf;
+  int err = fd_failover_role_load( ctx->role_dir_fd, &rf );
+  if( FD_LIKELY( !err ) ) {
+    if( FD_UNLIKELY( !fd_memeq( rf.staked_pubkey, ctx->role_file.staked_pubkey, 32UL ) ) ) {
+      FD_LOG_WARNING(( "%s is for a different staked identity, booting as a spare", FD_FAILOVER_ROLE_PATH ));
+      return EPROTO;
+    }
+    ctx->role_file  = rf;
+    ctx->hello.term = rf.term;
+    return 0;
+  }
+  if( FD_UNLIKELY( err!=ENOENT ) ) {
+    FD_LOG_WARNING(( "%s is unreadable (%i-%s), booting as a spare", FD_FAILOVER_ROLE_PATH, err, fd_io_strerror( err ) ));
+  }
+  return err ? err : 0;
+}
+
+/* role_file_write stores the record before the new state takes effect.
+   A write failure stops the tile.  Only the write at boot passes an
+   owner, it runs before the uid switch, see fd_failover_role_store. */
+static void
+role_file_write( fd_failover_tile_ctx_t * ctx,
+                 uint                     owner_uid,
+                 uint                     owner_gid ) {
+  int err = fd_failover_role_store( ctx->role_dir_fd, ctx->role_file_fd, ctx->role_sandboxed, owner_uid, owner_gid, &ctx->role_file );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "could not write %s (%i-%s)", FD_FAILOVER_ROLE_PATH, err, fd_io_strerror( err ) ));
+  }
+}
+
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -180,6 +267,8 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_failover_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_failover_tile_ctx_t), sizeof(fd_failover_tile_ctx_t) );
   fd_memset( ctx, 0, sizeof(fd_failover_tile_ctx_t) );
+  ctx->role_dir_fd    = -1;
+  ctx->role_file_fd   = -1;
   ctx->replay_slot        = FD_FAILOVER_SLOT_NULL;
   ctx->root_slot          = FD_FAILOVER_SLOT_NULL;
   ctx->last_vote_slot     = FD_FAILOVER_SLOT_NULL;
@@ -224,6 +313,27 @@ privileged_init( fd_topo_t const *      topo,
              fd_ulong_min( sizeof(ctx->hello.commit), strlen( fd_commit_ref_cstr ) ) );
   ctx->hello.cfg_hash = tile->failov.cfg_hash;
   ctx->hello.status_interval_millis = (uint)fd_ulong_min( tile->failov.status_interval_millis, UINT_MAX );
+
+  /* The role file sits beside the tower file under the base path and is
+     opened before the sandbox, which allows no further opens. */
+  ctx->role_dir_fd = role_dir_open( tile->failov.base_path, tile->failov.target_uid, tile->failov.target_gid );
+
+  /* The store path reopens this descriptor number, so reserve it now.
+     Under seccomp openat must return the same number, which holds only
+     if no lower number is free, and the launcher closes stdin before
+     starting tiles.  Fail at boot rather than at the first transition. */
+  ctx->role_file_fd   = fcntl( ctx->role_dir_fd, F_DUPFD_CLOEXEC, 0 );
+  if( FD_UNLIKELY( -1==ctx->role_file_fd ) )
+    FD_LOG_ERR(( "fcntl(F_DUPFD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ctx->role_sandboxed = tile->failov.role_file_sandboxed;
+  if( FD_UNLIKELY( ctx->role_sandboxed && ctx->role_file_fd!=0 ) ) {
+    FD_LOG_ERR(( "reserved role file descriptor is %i, expected 0: another descriptor was open when the failover tile started", ctx->role_file_fd ));
+  }
+
+  int had_role = !role_file_read( ctx );
+  /* A machine with no record writes one now, so its first transition
+     does not have to create the file under seccomp. */
+  if( FD_UNLIKELY( !had_role ) ) role_file_write( ctx, tile->failov.target_uid, tile->failov.target_gid );
   FD_TEST( fd_rng_secure( &ctx->hello.boot_id, 8UL ) );
 
   /* One session object per peer, each pinned to that member's junk key.
@@ -770,7 +880,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
      listener, so accept4 is pinned to a descriptor that is never a socket
      and would fail with EBADF.  The channel never calls accept4 on a
      dialing peer anyway. */
-  populate_sock_filter_policy_fd_failover_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)pool_listen_fd( ctx ) );
+  populate_sock_filter_policy_fd_failover_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)pool_listen_fd( ctx ),
+                                               (uint)ctx->role_dir_fd, (uint)ctx->role_file_fd );
   return sock_filter_policy_fd_failover_tile_instr_cnt;
 }
 
@@ -783,6 +894,14 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return FD_FAILOVER_CHANNEL_CANDIDATE_MAX*peer_cnt + peer_cnt + 8UL;
 }
 
+/* Landlock confines writes to the role file directory. */
+static int
+populate_allowed_write_path_fd( fd_topo_t const *      topo,
+                                fd_topo_tile_t const * tile ) {
+  fd_failover_tile_ctx_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  return ctx->role_dir_fd;
+}
+
 static ulong
 populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
@@ -792,13 +911,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
   int logfile_fd = fd_log_private_logfile_fd();
   int listen_fd  = pool_listen_fd( ctx );
 
-  ulong required_fds = 1UL + (ulong)(-1!=logfile_fd) + (ulong)(-1!=listen_fd);
+  ulong required_fds = 3UL + (ulong)(-1!=logfile_fd) + (ulong)(-1!=listen_fd);
   if( FD_UNLIKELY( out_fds_cnt<required_fds ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY(   -1!=logfile_fd ) ) out_fds[ out_cnt++ ] = logfile_fd; /* logfile */
   if( FD_UNLIKELY( -1!=listen_fd  ) ) out_fds[ out_cnt++ ] = listen_fd;  /* pool listener */
+  out_fds[ out_cnt++ ] = ctx->role_dir_fd;  /* role file directory */
+  out_fds[ out_cnt++ ] = ctx->role_file_fd; /* reserved role file descriptor */
   return out_cnt;
 }
 
@@ -823,6 +944,7 @@ fd_topo_run_tile_t fd_tile_failov = {
   .rlimit_file_cnt_fn       = rlimit_file_cnt,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_write_path_fd = populate_allowed_write_path_fd,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
