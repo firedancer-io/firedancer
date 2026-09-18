@@ -253,6 +253,17 @@ struct fd_topo_tile {
       int  failover_enabled;
     } admin;
 
+    struct {
+      char   identity_key_path[ PATH_MAX ];   /* this machine's junk key */
+      char   staked_key_path[ PATH_MAX ];     /* we read only its public half */
+      char   vote_account_path[ PATH_MAX ];
+      ushort port;
+      char   peer_address[ FD_FQDN_BUF_MAX ]; /* empty to find the active through gossip */
+
+      char          gossip_host[ FD_FQDN_BUF_MAX ];
+      fd_ip4_port_t gossip_addr; /* our own gossip socket, gossip_host overrides the address */
+    } failov;
+
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
 
     struct {

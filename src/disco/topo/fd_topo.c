@@ -234,6 +234,10 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
        key material. */
     key_pages += 5UL;
   }
+  if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
+    /* The key loads at boot and the page for the TLS junk key. */
+    key_pages += 5UL;
+  }
 
   if( !strcmp( tile->name, "net" ) ) {
       /* net tile uses normal pages to hold xsk rings */
