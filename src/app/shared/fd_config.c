@@ -588,6 +588,14 @@ fd_config_validatef( fd_configf_t const * config ) {
       FD_LOG_ERR(( "[failover.bind_address] is not a valid IPv4 address" ));
     CFG_HAS_NON_EMPTY( failover.junk_identity_path );
     CFG_HAS_NON_EMPTY( failover.staked_identity_path );
+    CFG_HAS_NON_ZERO ( failover.min_slots_to_leader );
+    CFG_HAS_NON_ZERO ( failover.deadline_slots );
+    CFG_HAS_NON_ZERO ( failover.catchup_gap_slots );
+    /* The handoff deadline has to be shorter than the distance to this
+       machine's next leader slot. */
+    if( FD_UNLIKELY( config->failover.deadline_slots>=config->failover.min_slots_to_leader ) ) {
+      FD_LOG_ERR(( "[failover.deadline_slots] must be smaller than [failover.min_slots_to_leader]" ));
+    }
     CFG_HAS_NON_ZERO ( failover.status_interval_millis );
     CFG_HAS_NON_ZERO ( failover.peer_silence_intervals );
     CFG_HAS_NON_ZERO ( failover.retry_backoff_min_millis );

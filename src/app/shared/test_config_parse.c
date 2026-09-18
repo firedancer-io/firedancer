@@ -80,13 +80,16 @@ failover_pool_is_valid( config_t *   config,
   FD_TEST( pid>=0 );
   if( FD_UNLIKELY( !pid ) ) {
     config->firedancer.development.genesis.max_file_size_mib = 4055UL;
-    config->firedancer.failover.enabled                  = 1;
-    config->firedancer.failover.tower_file               = 1;
-    config->firedancer.failover.status_interval_millis   = 800UL;
-    config->firedancer.failover.replication_lag_slots    = 8UL;
-    config->firedancer.failover.peer_silence_intervals   = 5UL;
-    config->firedancer.failover.retry_backoff_min_millis = 800UL;
-    config->firedancer.failover.retry_backoff_max_millis = 12800UL;
+    config->firedancer.failover.enabled                      = 1;
+    config->firedancer.failover.tower_file                   = 1;
+    config->firedancer.failover.min_slots_to_leader          = 150UL;
+    config->firedancer.failover.deadline_slots               = 64UL;
+    config->firedancer.failover.catchup_gap_slots            = 8UL;
+    config->firedancer.failover.status_interval_millis       = 800UL;
+    config->firedancer.failover.replication_lag_slots        = 8UL;
+    config->firedancer.failover.peer_silence_intervals       = 5UL;
+    config->firedancer.failover.retry_backoff_min_millis     = 800UL;
+    config->firedancer.failover.retry_backoff_max_millis     = 12800UL;
     config->firedancer.failover.members_cnt             = members_cnt;
     config->firedancer.failover.member_junk_pubkeys_cnt = members_cnt;
     fd_cstr_ncpy( config->firedancer.failover.members[ 0 ], member_a, sizeof(config->firedancer.failover.members[ 0 ]) );
@@ -96,6 +99,43 @@ failover_pool_is_valid( config_t *   config,
     fd_cstr_ncpy( config->firedancer.failover.bind_address,         "0.0.0.0",           sizeof(config->firedancer.failover.bind_address) );
     fd_cstr_ncpy( config->firedancer.failover.junk_identity_path,   "/keys/junk.json",   sizeof(config->firedancer.failover.junk_identity_path) );
     fd_cstr_ncpy( config->firedancer.failover.staked_identity_path, "/keys/staked.json", sizeof(config->firedancer.failover.staked_identity_path) );
+    fd_config_validate( config );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
+/* Validates the handoff thresholds against each other. */
+static int
+failover_threshold_is_valid( config_t * config,
+                             ulong      min_slots_to_leader,
+                             ulong      deadline_slots ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    config->firedancer.development.genesis.max_file_size_mib = 4055UL;
+    config->firedancer.failover.enabled                      = 1;
+    config->firedancer.failover.tower_file                   = 1;
+    config->firedancer.failover.members_cnt                  = 2UL;
+    config->firedancer.failover.member_junk_pubkeys_cnt      = 2UL;
+    strcpy( config->firedancer.failover.members[ 0 ], "10.0.0.1:9700" );
+    strcpy( config->firedancer.failover.members[ 1 ], "10.0.0.2:9700" );
+    strcpy( config->firedancer.failover.member_junk_pubkeys[ 0 ], "11111111111111111111111111111111" );
+    strcpy( config->firedancer.failover.member_junk_pubkeys[ 1 ], "Vote111111111111111111111111111111111111111" );
+    strcpy( config->firedancer.failover.bind_address, "0.0.0.0" );
+    strcpy( config->firedancer.failover.junk_identity_path, "/keys/junk.json" );
+    strcpy( config->firedancer.failover.staked_identity_path, "/keys/staked.json" );
+    config->firedancer.failover.min_slots_to_leader      = min_slots_to_leader;
+    config->firedancer.failover.deadline_slots           = deadline_slots;
+    config->firedancer.failover.catchup_gap_slots        = 8UL;
+    config->firedancer.failover.status_interval_millis   = 800UL;
+    config->firedancer.failover.replication_lag_slots    = 8UL;
+    config->firedancer.failover.peer_silence_intervals   = 5UL;
+    config->firedancer.failover.retry_backoff_min_millis = 800UL;
+    config->firedancer.failover.retry_backoff_max_millis = 12800UL;
     fd_config_validate( config );
     _exit( 0 );
   }
@@ -223,8 +263,11 @@ main( int     argc,
   strcpy( config->firedancer.failover.bind_address, "127.0.0.1" );
   strcpy( config->firedancer.failover.junk_identity_path, "junk.json" );
   strcpy( config->firedancer.failover.staked_identity_path, "staked.json" );
-  config->firedancer.failover.status_interval_millis = 800UL;
-  config->firedancer.failover.peer_silence_intervals = 5UL;
+  config->firedancer.failover.min_slots_to_leader      = 150UL;
+  config->firedancer.failover.deadline_slots           = 64UL;
+  config->firedancer.failover.catchup_gap_slots        = 8UL;
+  config->firedancer.failover.status_interval_millis   = 800UL;
+  config->firedancer.failover.peer_silence_intervals   = 5UL;
   config->firedancer.failover.retry_backoff_min_millis = 800UL;
   config->firedancer.failover.retry_backoff_max_millis = 12800UL;
   FD_TEST( !tower_file_config_is_valid( config, 0, 0 ) );
@@ -254,6 +297,12 @@ main( int     argc,
   FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:9700junk",junk_a, junk_b ) );
   FD_TEST( !failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:",        junk_a, junk_b ) );
   FD_TEST(  failover_pool_is_valid( config, 2UL, "10.0.0.1:9700", "10.0.0.2:65535",   junk_a, junk_b ) );
+
+  /* A handoff deadline longer than the distance to the next leader slot
+     can never be met. */
+  FD_TEST( !failover_threshold_is_valid( config, 150UL, 150UL ) );
+  FD_TEST( !failover_threshold_is_valid( config, 64UL,  64UL  ) );
+  FD_TEST(  failover_threshold_is_valid( config, 150UL, 64UL  ) );
 
   /* Ensure we can selectively override a field */
 
