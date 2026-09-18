@@ -36,11 +36,11 @@ struct fd_txncache_private {
                                        size FD_TXNCACHE_TXNS_PER_PAGE to make allocation and deallocation faster
                                        (just the pages are acquired/released, rather than each txn). */
 
-  void *                    scratch_pages;
-  uint *                    scratch_heads;
-  fd_txncache_txnpage_t *   scratch_txnpage;
-  fd_txncache_txnpage_t *   local_txnpage;
-  int                       spill_fd;
+  void *                  scratch_pages;
+  uint *                  scratch_heads;
+  fd_txncache_txnpage_t * scratch_txnpage;
+  fd_txncache_txnpage_t * local_txnpage;
+  int                     spill_fd;
 };
 
 FD_FN_CONST ulong
@@ -175,14 +175,16 @@ page_io( fd_txncache_t * tc,
   }
   FD_TEST( tc->spill_fd>=0 );
   off += page*sizeof(fd_txncache_txnpage_t);
-  ulong done = 0UL;
-  while( done<sz ) {
-    long n = write ? pwrite( tc->spill_fd, (uchar *)buf+done, sz-done, (off_t)(off+done) )
-                   : pread ( tc->spill_fd, (uchar *)buf+done, sz-done, (off_t)(off+done) );
+  uchar * data = buf;
+  while( sz ) {
+    long n = write ? pwrite( tc->spill_fd, data, sz, (off_t)off )
+                   : pread ( tc->spill_fd, data, sz, (off_t)off );
     if( FD_UNLIKELY( n<0L && errno==EINTR ) ) continue;
-    if( FD_UNLIKELY( n<0L ) ) FD_LOG_ERR(( "txncache spill %s failed for page %lu at offset %lu (%ld, errno %d)", write ? "write" : "read", page, off+done, n, errno ));
-    if( FD_UNLIKELY( !n ) ) FD_LOG_ERR(( "txncache spill %s for page %lu at offset %lu", write ? "write made no progress" : "read reached unexpected EOF", page, off+done ));
-    done += (ulong)n;
+    if( FD_UNLIKELY( n<0L ) ) FD_LOG_ERR(( "txncache spill %s failed for page %lu at offset %lu (%ld, errno %d)", write ? "write" : "read", page, off, n, errno ));
+    if( FD_UNLIKELY( !n ) ) FD_LOG_ERR(( "txncache spill %s for page %lu at offset %lu", write ? "write made no progress" : "read reached unexpected EOF", page, off ));
+    data += (ulong)n;
+    off  += (ulong)n;
+    sz   -= (ulong)n;
   }
 }
 
