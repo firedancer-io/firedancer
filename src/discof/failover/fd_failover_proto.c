@@ -91,3 +91,111 @@ fd_failover_session_step( ulong state,
   return state;
 }
 
+int
+fd_failover_handoff_request_decode( fd_failover_handoff_request_t * out,
+                                    uchar const *                   payload,
+                                    ulong                           payload_sz ) {
+  if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_handoff_request_t) ) ) return 0;
+  fd_failover_handoff_request_t request;
+  fd_memcpy( &request, payload, sizeof(request) );
+  if( FD_UNLIKELY( !request.handoff_id || !request.target_boot_id ) ) return 0;
+  *out = request;
+  return 1;
+}
+
+int
+fd_failover_handoff_result_decode( fd_failover_handoff_result_t * out,
+                                   uchar const *                  payload,
+                                   ulong                          payload_sz ) {
+  if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_handoff_result_t) ) ) return 0;
+  fd_memcpy( out, payload, sizeof(fd_failover_handoff_result_t) );
+  return 1;
+}
+
+ulong
+fd_failover_demoted_encode( uchar *       out,
+                            ulong         handoff_id,
+                            ulong         target_boot_id,
+                            ulong         last_vote_slot,
+                            uchar const * state,
+                            ulong         state_sz ) {
+  if( FD_UNLIKELY( !state_sz || state_sz>FD_FAILOVER_TOWER_STATE_MAX ) ) return 0UL;
+
+  fd_failover_demoted_t demoted = {
+    .handoff_id     = handoff_id,
+    .target_boot_id = target_boot_id,
+    .last_vote_slot = last_vote_slot,
+    .mode           = (uchar)FD_FAILOVER_MODE_TOWER,
+    .state_len      = (ushort)state_sz,
+  };
+  fd_memcpy( out, &demoted, sizeof(demoted) );
+  fd_memcpy( out+sizeof(demoted), state, state_sz );
+  return sizeof(demoted)+state_sz;
+}
+
+int
+fd_failover_demoted_decode( fd_failover_demoted_t * out,
+                            uchar const *           payload,
+                            ulong                   payload_sz ) {
+  if( FD_UNLIKELY( payload_sz<sizeof(fd_failover_demoted_t) ||
+                   payload_sz>FD_FAILOVER_DEMOTED_PAYLOAD_MAX ) ) return 0;
+
+  fd_failover_demoted_t demoted;
+  fd_memcpy( &demoted, payload, sizeof(demoted) );
+
+  ulong state_sz = payload_sz-sizeof(fd_failover_demoted_t);
+  if( FD_UNLIKELY( (ulong)demoted.state_len!=state_sz ||
+                   !state_sz ||
+                   demoted.mode!=(uchar)FD_FAILOVER_MODE_TOWER ||
+                   demoted.last_vote_slot==FD_FAILOVER_SLOT_NULL ) ) return 0;
+
+  fd_compact_tower_sync_serde_t serde;
+  fd_tower_vote_t               votes[ FD_TOWER_VOTE_MAX ];
+  ulong                         vote_cnt;
+  ulong                         root;
+  if( FD_UNLIKELY( fd_compact_tower_sync_de_exact( &serde, payload+sizeof(fd_failover_demoted_t), state_sz ) ||
+                   fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ||
+                   !vote_cnt || votes[ vote_cnt-1UL ].slot!=demoted.last_vote_slot ) ) return 0;
+
+  *out = demoted;
+  return 1;
+}
+
+ulong
+fd_failover_promote_ack_encode( uchar * out,
+                                ulong   handoff_id ) {
+  fd_failover_promote_ack_t ack = { .handoff_id=handoff_id };
+  fd_memcpy( out, &ack, sizeof(ack) );
+  return sizeof(ack);
+}
+
+ulong
+fd_failover_promote_rejected_encode( uchar * out,
+                                     ulong   handoff_id,
+                                     uchar   reason ) {
+  if( FD_UNLIKELY( reason==(uchar)FD_FAILOVER_REJECT_NONE || reason>=(uchar)FD_FAILOVER_REJECT_CNT ) ) return 0UL;
+  fd_failover_promote_rejected_t rej = { .handoff_id=handoff_id, .reason=reason };
+  fd_memcpy( out, &rej, sizeof(rej) );
+  return sizeof(rej);
+}
+
+int
+fd_failover_promote_ack_decode( fd_failover_promote_ack_t * out,
+                                uchar const *               payload,
+                                ulong                       payload_sz ) {
+  if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_promote_ack_t) ) ) return 0;
+  fd_memcpy( out, payload, sizeof(fd_failover_promote_ack_t) );
+  return 1;
+}
+
+int
+fd_failover_promote_rejected_decode( fd_failover_promote_rejected_t * out,
+                                     uchar const *                    payload,
+                                     ulong                            payload_sz ) {
+  if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_promote_rejected_t) ) ) return 0;
+  fd_failover_promote_rejected_t rej;
+  fd_memcpy( &rej, payload, sizeof(rej) );
+  if( FD_UNLIKELY( rej.reason==(uchar)FD_FAILOVER_REJECT_NONE || rej.reason>=(uchar)FD_FAILOVER_REJECT_CNT ) ) return 0;
+  *out = rej;
+  return 1;
+}
