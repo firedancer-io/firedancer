@@ -50,6 +50,7 @@ struct fd_admin_tile_ctx {
   ulong                 failov_in_chunk0;
   ulong                 failov_in_wmark;
   fd_failover_bus_msg_t failov_resp;                /* response frame being consumed */
+  ulong                 failover_slot_cmd;          /* which failover command is parked, or IDLE */
   ulong                 failover_status_slot_idx;   /* adminctl slot parked on the bus */
   ulong                 failover_status_nonce;      /* nonce of the parked request */
   ulong                 failover_status_start_time; /* command start retained until the tile responds */
@@ -225,6 +226,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->failov_out_idx           = ULONG_MAX;
   ctx->failov_in_idx            = ULONG_MAX;
   ctx->failover_status_slot_idx = ULONG_MAX;
+  ctx->failover_slot_cmd        = FD_ADMINCTL_CMD_IDLE;
   ctx->failover_enabled         = tile->admin.failover_enabled;
   ctx->tower_file_enabled       = tile->admin.tower_file_enabled;
   ctx->topo = topo;
@@ -1419,14 +1421,18 @@ failover_status_complete( fd_admin_tile_ctx_t * ctx,
                           ulong                 result,
                           void const *          resp,
                           ulong                 resp_sz ) {
+  int is_control = ctx->failover_slot_cmd==FD_ADMINCTL_CMD_FAILOVER_CONTROL;
   fd_event_admin_command_t event = {
-    .type                = FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS,
+    .type                = is_control ? FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL
+                                      : FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS,
     .args_json           = { '{', '}' },
     .args_json_len       = 2UL,
     .start_time          = ctx->failover_status_start_time,
-    .payload_version     = FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION,
+    .payload_version     = is_control ? FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION
+                                      : FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION,
     .has_payload_version = 1,
-    .payload_size        = sizeof(fd_adminctl_failover_status_req_t),
+    .payload_size        = is_control ? sizeof(fd_adminctl_failover_control_t)
+                                      : sizeof(fd_adminctl_failover_status_req_t),
   };
   switch( result ) {
     case FD_ADMINCTL_RESULT_SUCCESS:
@@ -1438,6 +1444,33 @@ failover_status_complete( fd_admin_tile_ctx_t * ctx,
     case FD_FAILOVER_STATUS_RESULT_NO_SUCH_PEER:
       report_admin_command_custom_result( &event, "no_such_peer" );
       break;
+    case FD_FAILOVER_CONTROL_RESULT_DISABLED:
+      report_admin_command_custom_result( &event, "disabled" );
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:
+      report_admin_command_custom_result( &event, "bad_role" );
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED:
+      report_admin_command_custom_result( &event, "not_paired" );
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_BUSY:
+      report_admin_command_custom_result( &event, "busy" );
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_PAUSED:
+      report_admin_command_custom_result( &event, "paused" );
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE:
+      report_admin_command_custom_result( &event, "no_evidence" );
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY:
+      report_admin_command_custom_result( &event, "bad_identity" );
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED:
+      report_admin_command_custom_result( &event, "unsupported" );
+      break;
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:
+      report_admin_command_custom_result( &event, "peer_unready" );
+      break;
     default:
       FD_LOG_WARNING(( "unexpected failover-status result %lu", result ));
       report_admin_command_custom_result( &event, "unexpected" );
@@ -1445,6 +1478,7 @@ failover_status_complete( fd_admin_tile_ctx_t * ctx,
   }
   fd_adminctl_complete_response( ctx->adminctl, ctx->failover_status_slot_idx, result, resp, resp_sz );
   ctx->failover_status_slot_idx   = ULONG_MAX;
+  ctx->failover_slot_cmd          = FD_ADMINCTL_CMD_IDLE;
   ctx->failover_status_start_time = 0UL;
   ctx->failover_status_deadline   = 0L;
 }
@@ -1512,6 +1546,7 @@ failover_status( fd_admin_tile_ctx_t * ctx,
   ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*msg), ctx->failov_out_chunk0, ctx->failov_out_wmark );
 
   ctx->failover_status_slot_idx   = slot_idx;
+  ctx->failover_slot_cmd          = FD_ADMINCTL_CMD_FAILOVER_STATUS;
   ctx->failover_status_start_time = event.start_time;
   ctx->failover_status_deadline   = fd_failover_clock()+FD_FAILOVER_BUS_DEADLINE_NANOS;
 }
@@ -1565,11 +1600,80 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*out), ctx->failov_out_chunk0, ctx->failov_out_wmark );
 }
 
+/* Forward a failover command to the failover tile.  We only check the ABI
+   here, the failover tile decides whether the command is allowed. */
+static void
+failover_control( fd_admin_tile_ctx_t * ctx,
+                  fd_stem_context_t *   stem,
+                  ulong                 slot_idx,
+                  void *                data,
+                  ulong                 data_sz ) {
+
+  fd_adminctl_t * adminctl = ctx->adminctl;
+  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL,
+                                                          data, data_sz );
+
+  if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
+    FD_LOG_WARNING(( "unexpected adminctl failover-control payload_sz %lu", data_sz ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
+    return;
+  }
+
+  ulong version = FD_LOAD( ulong, data );
+  if( FD_UNLIKELY( version!=FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION ) ) {
+    FD_LOG_WARNING(( "unsupported adminctl failover-control payload version %lu", version ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
+    return;
+  }
+
+  if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_failover_control_t) ) ) {
+    FD_LOG_WARNING(( "unexpected adminctl failover-control payload_sz %lu", data_sz ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
+    return;
+  }
+
+  fd_adminctl_failover_control_t const * req = fd_type_pun_const( data );
+  if( FD_UNLIKELY( req->cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT ) ) {
+    FD_LOG_WARNING(( "unknown failover command %lu", req->cmd ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
+    return;
+  }
+
+  if( FD_UNLIKELY( !ctx->failover_enabled || ctx->failov_out_idx==ULONG_MAX ) ) {
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
+    fd_adminctl_complete( adminctl, slot_idx, FD_FAILOVER_CONTROL_RESULT_DISABLED );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->failover_status_slot_idx!=ULONG_MAX ) ) {
+    report_admin_command_custom_result( &event, "busy" );
+    fd_adminctl_complete( adminctl, slot_idx, FD_FAILOVER_STATUS_RESULT_BUSY );
+    return;
+  }
+
+  fd_failover_bus_msg_t * msg = fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk );
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->nonce = ++ctx->failover_status_nonce;
+  fd_memcpy( msg->payload, data, data_sz );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->failov_out_idx, FD_FAILOVER_BUS_CONTROL_REQ, ctx->failov_out_chunk, sizeof(*msg), 0UL, tspub, tspub );
+  ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*msg), ctx->failov_out_chunk0, ctx->failov_out_wmark );
+
+  ctx->failover_status_slot_idx   = slot_idx;
+  ctx->failover_slot_cmd          = FD_ADMINCTL_CMD_FAILOVER_CONTROL;
+  ctx->failover_status_start_time = event.start_time;
+  ctx->failover_status_deadline   = fd_failover_clock()+FD_FAILOVER_BUS_DEADLINE_NANOS;
+}
+
 static void
 failover_status_response( fd_admin_tile_ctx_t * ctx,
                           ulong                 sig ) {
   fd_failover_bus_msg_t const * msg = &ctx->failov_resp;
-  if( FD_UNLIKELY( sig!=FD_FAILOVER_BUS_STATUS_RESP ) ) {
+  if( FD_UNLIKELY( sig!=FD_FAILOVER_BUS_STATUS_RESP && sig!=FD_FAILOVER_BUS_CONTROL_RESP ) ) {
     FD_LOG_WARNING(( "unexpected failover bus response %lu", sig ));
     return;
   }
@@ -1579,8 +1683,12 @@ failover_status_response( fd_admin_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "dropping a stale failover status response" ));
     return;
   }
+  /* Control responses have their own payload.  Both kinds can also come
+     back with just a result code. */
+  ulong resp_sz = sig==FD_FAILOVER_BUS_CONTROL_RESP ? sizeof(fd_adminctl_failover_control_resp_t)
+                                                    : sizeof(fd_adminctl_failover_status_resp_t);
   if( FD_LIKELY( msg->result==FD_ADMINCTL_RESULT_SUCCESS ) ) {
-    failover_status_complete( ctx, FD_ADMINCTL_RESULT_SUCCESS, msg->payload, sizeof(fd_adminctl_failover_status_resp_t) );
+    failover_status_complete( ctx, FD_ADMINCTL_RESULT_SUCCESS, msg->payload, resp_sz );
   } else {
     failover_status_complete( ctx, msg->result, NULL, 0UL );
   }
@@ -1624,6 +1732,11 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       break;
     case FD_ADMINCTL_CMD_FAILOVER_STATUS:
       failover_status( ctx, stem, slot_idx, payload, payload_sz );
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+      break;
+    case FD_ADMINCTL_CMD_FAILOVER_CONTROL:
+      failover_control( ctx, stem, slot_idx, payload, payload_sz );
       *charge_busy = 1;
       *opt_poll_in = 0;
       break;
