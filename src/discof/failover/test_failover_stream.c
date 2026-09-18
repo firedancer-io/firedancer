@@ -82,12 +82,14 @@ test_status_decode( void ) {
   FD_TEST( !fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
   status.role = FD_FAILOVER_ROLE_ACTIVE;
   status.term = 8UL;
+  FD_TEST( fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
+  status.term = 6UL;
   FD_TEST( !fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
   status.term  = 7UL;
   status.flags = 8U;
   FD_TEST( !fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
   status.flags  = 0U;
-  /* Busy is accepted although nothing sends it yet, bit 5 is not. */
+  /* A transition sets busy, and bit 5 is still not a status bit. */
   status.status = FD_FAILOVER_STATUS_BUSY;
   FD_TEST(  fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
   status.status = 32U;
@@ -239,12 +241,61 @@ test_consensus_decode( void ) {
   FD_TEST( fd_failover_replication_lag( 1, &status, 12UL, &empty )==FD_FAILOVER_SLOT_NULL );
 }
 
+static void
+test_consensus_final_check( void ) {
+  uchar state_a[ FD_FAILOVER_TOWER_STATE_MAX ];
+  uchar state_b[ FD_FAILOVER_TOWER_STATE_MAX ];
+  ulong state_a_sz = make_tower( state_a, 100UL, 5UL, 2UL );
+  ulong state_b_sz = make_tower( state_b, 100UL, 5UL, 4UL );
+
+  fd_failover_consensus_cache_t cache = {0};
+  FD_TEST( fd_failover_consensus_final_check( &cache, 11UL, 8UL, 20UL, 109UL,
+                                              state_b, state_b_sz ) );
+
+  cache.valid            = 1;
+  cache.peer_boot_id     = 11UL;
+  cache.msg.term         = 7UL;
+  cache.msg.link_seq     = 19UL;
+  cache.msg.vote_slot    = 107UL;
+  cache.msg.state_len    = (ushort)state_a_sz;
+  fd_memcpy( cache.state, state_a, state_a_sz );
+
+  FD_TEST(  fd_failover_consensus_final_check( &cache, 11UL, 8UL, 20UL, 109UL,
+                                               state_b, state_b_sz ) );
+  FD_TEST( !fd_failover_consensus_final_check( &cache, 11UL, 6UL, 20UL, 109UL,
+                                               state_b, state_b_sz ) );
+  FD_TEST( !fd_failover_consensus_final_check( &cache, 11UL, 8UL, 20UL, 106UL,
+                                               state_b, state_b_sz ) );
+  FD_TEST( !fd_failover_consensus_final_check( &cache, 11UL, 8UL, 20UL, 107UL,
+                                               state_b, state_b_sz ) );
+  FD_TEST(  fd_failover_consensus_final_check( &cache, 11UL, 8UL, 20UL, 107UL,
+                                               state_a, state_a_sz ) );
+  FD_TEST( !fd_failover_consensus_final_check( &cache, 11UL, 8UL, 19UL, 109UL,
+                                               state_b, state_b_sz ) );
+
+  cache.msg.link_seq = ULONG_MAX-1UL;
+  FD_TEST( fd_failover_consensus_final_check( &cache, 11UL, 8UL, 0UL, 109UL,
+                                              state_b, state_b_sz ) );
+
+  FD_TEST( fd_failover_consensus_final_check( &cache, 12UL, 7UL, 0UL, 109UL,
+                                              state_b, state_b_sz ) );
+  FD_TEST( fd_failover_consensus_final_check( &cache, 12UL, 7UL, 0UL, 107UL,
+                                              state_a, state_a_sz ) );
+  FD_TEST( !fd_failover_consensus_final_check( &cache, 12UL, 7UL, 0UL, 107UL,
+                                               state_b, state_b_sz ) );
+  FD_TEST( fd_failover_consensus_final_check( &cache, 12UL, 8UL, 0UL, 109UL,
+                                              state_b, state_b_sz ) );
+  FD_TEST( !fd_failover_consensus_final_check( &cache, 12UL, 8UL, 0UL, 106UL,
+                                               state_b, state_b_sz ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   test_status_decode();
   test_consensus_decode();
+  test_consensus_final_check();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

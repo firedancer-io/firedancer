@@ -39,6 +39,18 @@ fd_failover_replication_lag( int                                  peer_status_va
                              ulong                                peer_boot_id,
                              fd_failover_consensus_cache_t const * cache );
 
+/* Checks that a final tower is not older than the latest streamed one.
+   link_seq is compared only when both came from the same peer boot. */
+
+int
+fd_failover_consensus_final_check( fd_failover_consensus_cache_t const * cache,
+                                   ulong                                 peer_boot_id,
+                                   ulong                                 term,
+                                   ulong                                 link_seq,
+                                   ulong                                 vote_slot,
+                                   uchar const *                         state,
+                                   ulong                                 state_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_failover_fd_failover_stream_h */

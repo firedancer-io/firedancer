@@ -17,7 +17,7 @@ fd_failover_status_decode( fd_failover_status_t *      out,
   fd_failover_status_t status;
   fd_memcpy( &status, payload, sizeof(status) );
   if( FD_UNLIKELY( status.role!=peer->role ||
-                   status.term!=peer->term ||
+                   status.term<peer->term ||
                    ( status.ack_seq!=ULONG_MAX && status.ack_seq>=tx_seq ) ||
                    ( status.flags & (uchar)~( FD_FAILOVER_FLAG_VOTE_ROOTED |
                                               FD_FAILOVER_FLAG_IS_LEADER   |
@@ -108,4 +108,22 @@ fd_failover_replication_lag( int                                   peer_status_v
   return ( peer_status->last_vote_slot>cache->msg.vote_slot )
     ? peer_status->last_vote_slot-cache->msg.vote_slot
     : 0UL;
+}
+
+int
+fd_failover_consensus_final_check( fd_failover_consensus_cache_t const * cache,
+                                   ulong                                 peer_boot_id,
+                                   ulong                                 term,
+                                   ulong                                 link_seq,
+                                   ulong                                 vote_slot,
+                                   uchar const *                         state,
+                                   ulong                                 state_sz ) {
+  if( FD_LIKELY( !cache->valid ) ) return 1;
+  if( FD_UNLIKELY( term<cache->msg.term || vote_slot<cache->msg.vote_slot ) ) return 0;
+  if( FD_UNLIKELY( vote_slot==cache->msg.vote_slot &&
+                   (state_sz!=(ulong)cache->msg.state_len ||
+                    !fd_memeq( state, cache->state, state_sz )) ) ) return 0;
+  if( FD_UNLIKELY( peer_boot_id==cache->peer_boot_id &&
+                   !fd_seq_gt( link_seq, cache->msg.link_seq ) ) ) return 0;
+  return 1;
 }
