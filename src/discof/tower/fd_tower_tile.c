@@ -1838,10 +1838,22 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    /* Stop new votes now, then let the ones the last replay queued publish,
+       so the halt watermark the failover tile waits on sits past them.  The
+       voter clear above does the same before it records out_seq. */
+    if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+      ctx->halt_signing = 1;
+      if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
+    }
     FD_LOG_DEBUG(( "keyswitch: halting signing" ));
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
     FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
+    /* We are a standby unless we were just switched to the staked key. */
+    if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+      ctx->failover_standby = !fd_pubkey_eq( ctx->identity_key, &ctx->failover_staked_identity );
+      FD_LOG_NOTICE(( "failover: this machine is now %s", ctx->failover_standby ? "a hot spare" : "the active voter" ));
+    }
     /* The admin tile reads the result as soon as it sees COMPLETED, so it
        has to be written first. */
     ctx->identity_keyswitch->result = ctx->out_seq;
@@ -2161,6 +2173,8 @@ privileged_init( fd_topo_t const *      topo,
     uchar const * staked = fd_keyload_load( tile->tower.failover_staked_identity_path, 1 );
     fd_memcpy( &checkpoint_identity, staked, 32UL );
     fd_keyload_unload( staked, 1 );
+    ctx->failover_enabled         = 1;
+    ctx->failover_staked_identity = checkpoint_identity;
     ctx->failover_standby         = !fd_pubkey_eq( ctx->identity_key, &checkpoint_identity );
     if( tile->tower.failover_first_use[ 0 ] ) {
       fd_pubkey_t authorized;

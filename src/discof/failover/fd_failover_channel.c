@@ -176,6 +176,12 @@ fd_failover_channel_set_silence( fd_failover_channel_t * ch, long silence ) {
   ch->silence_timeout = silence;
 }
 
+void
+fd_failover_channel_set_role( fd_failover_channel_t * ch, ulong role, ulong term ) {
+  ch->self_hello.role = (uchar)role;
+  ch->self_hello.term = term;
+}
+
 FD_FN_PURE ulong fd_failover_channel_state( fd_failover_channel_t const * ch ) { return ch->state; }
 FD_FN_PURE int fd_failover_channel_listen_fd( fd_failover_channel_t const * ch ) { return ch->listen_fd; }
 FD_FN_PURE ulong fd_failover_channel_ack_seq( fd_failover_channel_t const * ch ) {

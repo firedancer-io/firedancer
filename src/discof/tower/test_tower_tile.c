@@ -347,6 +347,67 @@ test_recovery_unhalt( void ) {
   FD_LOG_NOTICE(( "pass: identity and voter unhalt cannot bypass tower recovery" ));
 }
 
+/* The standby flag is set at boot and only a switch to the staked key
+   clears it. */
+static void
+test_failover_standby_follows_the_key( void ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static fd_keyswitch_t identity[ 1 ];
+  static fd_keyswitch_t voter[ 1 ];
+  fd_pubkey_t staked, junk;
+  fd_memset( &staked, 0x5A, sizeof(staked) );
+  fd_memset( &junk,   0x11, sizeof(junk) );
+
+  static uchar publishes_mem[ 65536 ] __attribute__((aligned(128)));
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->identity_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( identity, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx->auth_vtr_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( voter, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx->publishes                = publishes_join( publishes_new( publishes_mem, 2UL ) );
+  FD_TEST( ctx->publishes );
+  ctx->failover_enabled         = 1;
+  ctx->failover_staked_identity = staked;
+  *ctx->identity_key            = junk;
+  ctx->failover_standby         = 1;
+
+  /* Promotion installs the staked key, so this machine is the voter. */
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !ctx->failover_standby && ctx->halt_signing );
+
+  /* Demotion installs the junk key, so it is a hot spare again. */
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( ctx );
+  fd_memcpy( identity->bytes, junk.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( ctx->failover_standby );
+
+  /* A vote the last replay queued holds the switch until it drains, so the
+     halt watermark sits past it. */
+  ctx->out_seq = 5UL;
+  publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_DONE } );
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_SWITCH_PENDING && ctx->halt_signing );
+  publishes_pop_head_nocopy( ctx->publishes );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED && ctx->identity_keyswitch->result==5UL );
+
+  /* Without failover the identity switch does not touch the flag. */
+  ctx->failover_enabled = 0;
+  ctx->failover_standby = 0;
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( ctx );
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( !ctx->failover_standby );
+  FD_LOG_NOTICE(( "pass: the hot spare latch follows the identity the switch installs" ));
+}
+
 static void
 test_publish_slot_done_identity_mismatch( void ) {
   static fd_tower_tile_t ctx[1];
@@ -1359,6 +1420,7 @@ main( int     argc,
   test_tower_file_load();
   test_first_use_history();
   test_recovery_unhalt();
+  test_failover_standby_follows_the_key();
   test_publish_slot_done_identity_mismatch();
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();

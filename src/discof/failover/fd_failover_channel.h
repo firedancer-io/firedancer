@@ -104,6 +104,16 @@ void
 fd_failover_channel_set_silence( fd_failover_channel_t * channel,
                                  long                    silence_nanos );
 
+/* Update the role and term we put in HELLO.  The peer checks every frame
+   against the HELLO it paired on, so the channel has to know when either
+   changes.  The identity and config hash are set once at setup and not
+   touched here.  Safe to call while paired, the HELLO is only read during
+   a handshake. */
+void
+fd_failover_channel_set_role( fd_failover_channel_t * channel,
+                              ulong                   role,
+                              ulong                   term );
+
 /* Drives the channel, now is the caller's clock in nanos.  Sets
    *charge_busy when it made progress.  Returns 1 with *out_type,
    out_payload and *out_payload_sz filled when a verified post HELLO frame

@@ -137,6 +137,8 @@ struct fd_tower_tile {
   int              recovery_initialized;
   ulong            recovery_onchain_root;  /* our root in the vote account at the last replayed slot */
   int              first_use_pending;
+  int              failover_enabled;
+  fd_pubkey_t      failover_staked_identity; /* the one identity of the pool */
   int              failover_standby;
   fd_pubkey_t      identity_key[1];
   fd_pubkey_t      vote_account[1];

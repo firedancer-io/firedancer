@@ -4,6 +4,8 @@
 #include "fd_failover_tile.c"
 #include "../../util/net/fd_ip4.h"
 #include "../../choreo/tower/fd_tower.h"
+#include <stdlib.h>
+#include <sys/stat.h>
 
 static uchar ch_mem[ 8UL<<20 ] __attribute__((aligned(128)));
 static fd_topo_tile_t         tile[1];
@@ -133,6 +135,39 @@ test_slot_done_bookkeeping( void ) {
   peer->lag_slots = FD_FAILOVER_SLOT_NULL;
   status = local_status( ctx, peer );
   FD_TEST( !(status.status & FD_FAILOVER_STATUS_REPLAG) );
+
+  /* If we sent a slot view that cannot be right the peer would drop the
+     session, so we clamp it first.  Here the restored last vote is ahead
+     of replay, as it is right after a restart. */
+  fd_failover_hello_t self = { .role=FD_FAILOVER_ROLE_STANDBY, .term=0UL };
+  fd_failover_status_t decoded;
+  ctx->replay_slot    = 1000UL;
+  ctx->last_vote_slot = 1200UL;
+  ctx->root_slot      = 900UL;
+  status = local_status( ctx, peer );
+  FD_TEST( ( status.status & FD_FAILOVER_STATUS_CATCHUP ) &&
+           status.last_vote_slot==FD_FAILOVER_SLOT_NULL && status.root_slot==900UL );
+  status.ack_seq = ULONG_MAX;
+  FD_TEST( fd_failover_status_decode( &decoded, &self, 1UL, (uchar const *)&status, sizeof(status) ) );
+
+  /* Here the root is past the last vote, as on a machine that stopped
+     voting but keeps rooting.  The decoder rejects that too. */
+  ctx->replay_slot    = 1400UL;
+  ctx->last_vote_slot = 1000UL;
+  ctx->root_slot      = 1300UL;
+  status = local_status( ctx, peer );
+  FD_TEST( !( status.status & FD_FAILOVER_STATUS_CATCHUP ) &&
+           status.last_vote_slot==1000UL && status.root_slot==FD_FAILOVER_SLOT_NULL );
+  status.ack_seq = ULONG_MAX;
+  FD_TEST( fd_failover_status_decode( &decoded, &self, 1UL, (uchar const *)&status, sizeof(status) ) );
+
+  /* A consistent view goes out unchanged. */
+  ctx->replay_slot    = 1400UL;
+  ctx->last_vote_slot = 1300UL;
+  ctx->root_slot      = 1200UL;
+  status = local_status( ctx, peer );
+  FD_TEST( !( status.status & FD_FAILOVER_STATUS_CATCHUP ) &&
+           status.last_vote_slot==1300UL && status.root_slot==1200UL );
   fd_failover_channel_fini( peer->channel );
   FD_LOG_NOTICE(( "pass: slot bookkeeping and the local status view" ));
 }
@@ -448,6 +483,531 @@ test_before_frag_admits( void ) {
   FD_LOG_NOTICE(( "pass: before_frag admits every frame the tile acts on" ));
 }
 
+/* Set up a controller with a real role directory so the file writes
+   actually happen. */
+static char ctl_dir[] = "/tmp/fd_failover_ctl.XXXXXX";
+
+static void
+controller_init( ulong saved_state,
+                 ulong saved_term ) {
+  stem_init();
+  fd_memset( ctx, 0, sizeof(ctx) );
+  ctx->member_cnt            = 2UL;
+  ctx->self_idx              = 0UL;
+  ctx->peer_cnt              = 1UL;
+  ctx->status_interval       = 800L*1000000L;
+  ctx->replication_lag_limit = 8UL;
+  ctx->min_slots_to_leader   = 150UL;
+  ctx->deadline_slots        = 64UL;
+  ctx->catchup_gap_limit     = 8UL;
+  ctx->accept_peer_requests  = 1;
+  ctx->replay_slot           = 100UL;
+  ctx->last_vote_slot        = 99UL;
+  ctx->root_slot             = 90UL;
+  ctx->switch_pending_key    = FD_FAILOVER_SWITCH_KEY_CNT;
+  ctx->demoted_accept_term   = ULONG_MAX;
+  ctx->deadline_slot         = FD_FAILOVER_SLOT_NULL;
+  ctx->handoff_code          = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
+  ctx->admin_out_idx         = 0UL;
+  ctx->admin_out_mem         = (fd_wksp_t *)bus_mem;
+  ctx->adopt_out_idx         = 0UL;
+  ctx->adopt_out_mem         = (fd_wksp_t *)bus_mem;
+  fd_memset( ctx->hello.staked_pubkey, 0x5A, 32UL );
+
+  ctx->role_dir_fd  = open( ctl_dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
+  FD_TEST( ctx->role_dir_fd>=0 );
+  ctx->role_file_fd = fcntl( ctx->role_dir_fd, F_DUPFD_CLOEXEC, 0 );
+  FD_TEST( ctx->role_file_fd>=0 );
+  ctx->role_sandboxed = 0;
+
+  ctx->role_file.version = FD_FAILOVER_ROLE_VERSION;
+  ctx->state             = saved_state;
+  ctx->action            = FD_FAILOVER_ACTION_IDLE;
+  ctx->action_term       = saved_term;
+  ctx->hello.term        = saved_term;
+  ctx->role              = saved_state==FD_FAILOVER_STATE_ACTIVE ? FD_FAILOVER_ROLE_ACTIVE : FD_FAILOVER_ROLE_STANDBY;
+  ctx->hello.role        = (uchar)ctx->role;
+  persist( ctx, saved_state, saved_term );
+
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  peer->member_idx = 1UL;
+  peer->dial       = 1;
+  peer->channel    = fd_failover_channel_join( fd_failover_channel_new( ch_mem ) );
+  FD_TEST( peer->channel );
+}
+
+static void
+controller_fini( void ) {
+  fd_failover_channel_fini( ctx->peers[ 0 ].channel );
+  FD_TEST( !close( ctx->role_file_fd ) );
+  FD_TEST( !close( ctx->role_dir_fd ) );
+  (void)unlink( "/tmp/unused" );
+}
+
+/* Test that we only tell the peer to promote after we have actually
+   given up the identity. */
+static void
+test_demotion_order( void ) {
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+
+  /* Start as the active with a tower to hand over. */
+  fd_failover_consensus_state_t hdr = { .vote_slot=99UL, .mode=(uchar)FD_FAILOVER_MODE_TOWER, .state_len=16U };
+  fd_memcpy( ctx->cs_buf, &hdr, sizeof(hdr) );
+  ctx->cs_valid = 1;
+  ctx->cs_sz    = sizeof(fd_failover_consensus_state_t)+16UL;
+  fd_memset( ctx->cs_buf+sizeof(fd_failover_consensus_state_t), 0xC5, 16UL );
+
+  start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1 );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING && ctx->role_file.role==(uchar)FD_FAILOVER_STATE_DEMOTING );
+  FD_TEST( ctx->role_file.term==5UL && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
+  /* Nothing has been sent to the peer yet. */
+  FD_TEST( !ctx->pending_valid && !ctx->demoted_valid );
+
+  /* If the switch fails we still have the identity, so nothing goes to the
+     peer and we flag stuck. */
+  ctx->switch_result.result = FD_FAILOVER_SWITCH_ERR_DISABLED;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->stuck );
+  FD_TEST( !ctx->pending_valid && !ctx->demoted_valid );
+
+  /* When the switch succeeds we write the record and send the
+     confirmation, with the watermark the switch gave us. */
+  start_demotion( ctx, stem, 6UL, ctx->deadline_slots, 1 );
+  ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
+  ctx->switch_result.tower_watermark = 777UL;
+  ctx->tower_seen_seq                = 776UL; /* the stream reached the halt */
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->role==FD_FAILOVER_ROLE_STANDBY );
+  FD_TEST( ctx->demoted_valid && ctx->demoted_record.demoted.term==6UL );
+  FD_TEST( ctx->demoted_record.demoted.watermark==777UL );
+  FD_TEST( ctx->demoted_record.demoted.last_vote_slot==99UL );
+  FD_TEST( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_DEMOTED );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
+
+  /* The record is on disk and comes back after a restart. */
+  fd_failover_demoted_record_t loaded;
+  FD_TEST( !fd_failover_demoted_load( ctx->role_dir_fd, &loaded ) );
+  FD_TEST( loaded.demoted.term==6UL && loaded.demoted.watermark==777UL );
+
+  /* A cached tower that is not the one of our last vote confirms nothing. */
+  ctx->pending_valid = 0;
+  hdr.vote_slot = 98UL;
+  fd_memcpy( ctx->cs_buf, &hdr, sizeof(hdr) );
+  start_demotion( ctx, stem, 7UL, ctx->deadline_slots, 1 );
+  ctx->switch_result.result = FD_FAILOVER_SWITCH_OK;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->stuck );
+  FD_TEST( !ctx->demoted_valid && !ctx->pending_valid );
+
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a demotion confirms only after the identity is gone" ));
+}
+
+/* Test that a demotion takes the final tower only once the tower stream
+   has reached the halt watermark, and confirms nothing when it never gets
+   there or a frag was skipped. */
+static void
+test_demotion_drain( void ) {
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+  fd_failover_consensus_state_t hdr = { .vote_slot=99UL, .mode=(uchar)FD_FAILOVER_MODE_TOWER, .state_len=16U };
+  fd_memcpy( ctx->cs_buf, &hdr, sizeof(hdr) );
+  ctx->cs_valid = 1;
+  ctx->cs_sz    = sizeof(fd_failover_consensus_state_t)+16UL;
+  fd_memset( ctx->cs_buf+sizeof(fd_failover_consensus_state_t), 0xC5, 16UL );
+
+  /* The junk key is in, the stream is three frags short of the halt. */
+  start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1 );
+  ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
+  ctx->switch_result.tower_watermark = 800UL;
+  ctx->tower_seen_seq                = 796UL;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
+  FD_TEST( !ctx->demoted_valid && !ctx->pending_valid && !ctx->stuck );
+
+  /* The last frag before the halt arrives, the confirmation goes out. */
+  ctx->tower_seen_seq = 799UL;
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
+  FD_TEST( ctx->demoted_valid && ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_DEMOTED );
+
+  /* A stream that never reaches the halt confirms nothing at the deadline. */
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 6UL );
+  fd_memcpy( ctx->cs_buf, &hdr, sizeof(hdr) );
+  ctx->cs_valid = 1;
+  ctx->cs_sz    = sizeof(fd_failover_consensus_state_t)+16UL;
+  start_demotion( ctx, stem, 7UL, ctx->deadline_slots, 1 );
+  ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
+  ctx->switch_result.tower_watermark = 800UL;
+  ctx->tower_seen_seq                = 700UL;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING );
+  ctx->replay_slot = 1000UL;
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->stuck );
+  FD_TEST( !ctx->demoted_valid && !ctx->pending_valid );
+
+  /* A skipped tower frag since the cached tower confirms nothing either. */
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 8UL );
+  fd_memcpy( ctx->cs_buf, &hdr, sizeof(hdr) );
+  ctx->cs_valid  = 1;
+  ctx->cs_sz     = sizeof(fd_failover_consensus_state_t)+16UL;
+  ctx->tower_gap = 1;
+  start_demotion( ctx, stem, 9UL, ctx->deadline_slots, 1 );
+  ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
+  ctx->switch_result.tower_watermark = 800UL;
+  ctx->tower_seen_seq                = 799UL;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->stuck && !ctx->demoted_valid && !ctx->pending_valid );
+
+  /* A slot done counts once after_frag has it, one the stem abandons to
+     an overrun never does.  Other frags count at once, and a skipped one
+     is noticed either way. */
+  ctx->tower_seen_seq = ULONG_MAX;
+  ctx->tower_gap      = 0;
+  ctx->tower_in_idx   = 3UL;
+  FD_TEST(  before_frag( ctx, 3UL, 10UL, FD_TOWER_SIG_SLOT_DONE+1UL ) && ctx->tower_seen_seq==10UL && !ctx->tower_gap );
+  FD_TEST( !before_frag( ctx, 3UL, 11UL, FD_TOWER_SIG_SLOT_DONE ) && ctx->tower_seen_seq==10UL && !ctx->tower_gap );
+  after_frag( ctx, 3UL, 11UL, FD_TOWER_SIG_SLOT_DONE, sizeof(fd_tower_msg_t), 0UL, 0UL, stem );
+  FD_TEST( ctx->tower_seen_seq==11UL && !ctx->tower_gap );
+  ctx->slot_done_fresh = 0;
+  FD_TEST( !before_frag( ctx, 3UL, 12UL, FD_TOWER_SIG_SLOT_DONE ) && ctx->tower_seen_seq==11UL && !ctx->tower_gap );
+  FD_TEST(  before_frag( ctx, 3UL, 14UL, FD_TOWER_SIG_SLOT_DONE+1UL ) && ctx->tower_seen_seq==14UL && ctx->tower_gap );
+
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: the final tower waits for the halt watermark" ));
+}
+
+/* Test that a switch whose answer is overdue is waited for, on both
+   sides.  Standing down would tell the peer nobody promoted while the
+   staked key may be installed. */
+static void
+test_switch_overdue( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 6UL );
+
+  fd_failover_demoted_record_t record;
+  fd_memset( &record, 0, sizeof(record) );
+  record.demoted.term           = 7UL;
+  record.demoted.last_vote_slot = 99UL;
+  record.demoted.watermark      = 5UL;
+  record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  record.demoted.state_len      = 16U;
+  fd_memset( record.state, 0xD7, 16UL );
+  fd_sha256_hash( record.state, 16UL, record.digest );
+
+  /* Adopt the tower, then ask for the staked key. */
+  start_promotion( ctx, &record, 7UL );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
+  ctx->adopt_result.result    = FD_TOWER_ADOPT_SUCCESS;
+  ctx->adopt_result.vote_slot = 99UL;
+  ctx->adopt_result_id        = ctx->adopt_expected_id;
+  ctx->adopt_result_fresh     = 1;
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED );
+
+  /* Replay runs past the deadline with no answer.  We stay PROMOTING, keep
+     the request open, send nothing to the peer and raise stuck. */
+  ctx->replay_slot = 1000UL;
+  step_controller( ctx, stem, 1000L );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH );
+  FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED && ctx->stuck && ctx->switch_overdue );
+  FD_TEST( !ctx->pending_valid && ctx->demoted_valid );
+
+  /* The late answer is consumed, not dropped, and finishes the promotion. */
+  ctx->switch_result.result = FD_FAILOVER_SWITCH_OK;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->role==FD_FAILOVER_ROLE_ACTIVE && !ctx->stuck );
+  FD_TEST( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_PROMOTE_ACK );
+
+  /* Same on the demotion side: an overdue switch to the junk key is waited
+     for and the late answer completes the demotion. */
+  ctx->pending_valid = 0;
+  fd_failover_consensus_state_t hdr = { .vote_slot=99UL, .mode=(uchar)FD_FAILOVER_MODE_TOWER, .state_len=16U };
+  fd_memcpy( ctx->cs_buf, &hdr, sizeof(hdr) );
+  ctx->cs_valid      = 1;
+  ctx->cs_sz         = sizeof(fd_failover_consensus_state_t)+16UL;
+  fd_memset( ctx->cs_buf+sizeof(fd_failover_consensus_state_t), 0xC5, 16UL );
+  start_demotion( ctx, stem, 8UL, ctx->deadline_slots, 1 );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
+  ctx->replay_slot = 2000UL;
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
+  FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_JUNK && ctx->stuck && !ctx->pending_valid );
+  ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
+  ctx->switch_result.tower_watermark = 9UL;
+  ctx->tower_seen_seq                = 8UL;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
+  FD_TEST( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_DEMOTED );
+
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: an overdue switch is waited for, not abandoned" ));
+}
+
+/* Test that a promotion whose tower cannot be adopted stands down at a
+   new term and tells the peer. */
+static void
+test_promotion_reject( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 6UL );
+
+  fd_failover_demoted_record_t record;
+  fd_memset( &record, 0, sizeof(record) );
+  record.demoted.term           = 7UL;
+  record.demoted.last_vote_slot = 99UL;
+  record.demoted.watermark      = 5UL;
+  record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  record.demoted.state_len      = 16U;
+  fd_memset( record.state, 0xD7, 16UL );
+  fd_sha256_hash( record.state, 16UL, record.digest );
+
+  start_promotion( ctx, &record, 7UL );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
+  FD_TEST( ctx->adopt_state_len==16UL && ctx->demoted_valid );
+
+  /* Replay is past the final vote, so we hand the tower to the tower tile. */
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT && ctx->adopt_expected_id );
+
+  /* The tower tile refuses it, so we do not take the identity and we tell
+     the peer. */
+  ctx->adopt_result.result = FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH;
+  ctx->adopt_result_id     = ctx->adopt_expected_id;
+  ctx->adopt_result_fresh  = 1;
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->role==FD_FAILOVER_ROLE_STANDBY );
+  FD_TEST( ctx->hello.term==8UL && ctx->stuck && !ctx->demoted_valid );
+  FD_TEST( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED );
+
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a promotion that cannot adopt stands down and says why" ));
+}
+
+/* Test the checks on an incoming confirmation. */
+static void
+test_demoted_payload( void ) {
+  uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
+
+  /* A real one vote tower ending at slot 42. */
+  fd_compact_tower_sync_serde_t serde;
+  fd_memset( &serde, 0, sizeof(serde) );
+  serde.root                             = 40UL;
+  serde.lockouts_cnt                     = 1;
+  serde.lockouts[ 0 ].offset             = 2UL;
+  serde.lockouts[ 0 ].confirmation_count = 1;
+  ulong state_sz;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, payload+sizeof(fd_failover_demoted_t), FD_FAILOVER_TOWER_STATE_MAX, &state_sz ) );
+
+  fd_failover_demoted_t msg;
+  fd_memset( &msg, 0, sizeof(msg) );
+  msg.term           = 3UL;
+  msg.last_vote_slot = 42UL;
+  msg.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  msg.state_len      = (ushort)state_sz;
+  fd_memcpy( payload, &msg, sizeof(msg) );
+
+  fd_failover_demoted_record_t out;
+  FD_TEST( !demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  FD_TEST( out.demoted.term==3UL && out.demoted.state_len==state_sz );
+
+  /* Wrong length, empty tower, unknown mode, a sentinel vote, a tower that
+     ends at another slot and a tower that does not decode must all be
+     rejected. */
+  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz-1UL, &out ) );
+  msg.state_len = 0U;
+  fd_memcpy( payload, &msg, sizeof(msg) );
+  FD_TEST( demoted_payload_decode( payload, sizeof(msg), &out ) );
+  msg.state_len = (ushort)state_sz;
+  msg.mode      = 9U;
+  fd_memcpy( payload, &msg, sizeof(msg) );
+  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  msg.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  msg.last_vote_slot = FD_FAILOVER_SLOT_NULL;
+  fd_memcpy( payload, &msg, sizeof(msg) );
+  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  msg.last_vote_slot = 43UL;
+  fd_memcpy( payload, &msg, sizeof(msg) );
+  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  msg.last_vote_slot = 42UL;
+  fd_memcpy( payload, &msg, sizeof(msg) );
+  fd_memset( payload+sizeof(msg), 0xAB, state_sz );
+  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  FD_LOG_NOTICE(( "pass: a demotion confirmation is validated before it is believed" ));
+}
+
+
+/* A final tower older than the one the peer streamed is refused, a
+   replayed or regressed confirmation must not overwrite newer lockouts. */
+static void
+test_final_tower_regression( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  peer->channel->state              = FD_FAILOVER_SESSION_PAIRED;
+  peer->channel->peer_hello.role    = (uchar)FD_FAILOVER_ROLE_STANDBY;
+  peer->channel->peer_hello.term    = 5UL;
+  peer->channel->peer_hello.boot_id = 7UL;
+
+  /* We already streamed a newer tower from this peer, ending at slot 100. */
+  peer->consensus.valid         = 1;
+  peer->consensus.peer_boot_id  = 7UL;
+  peer->consensus.msg.term      = 5UL;
+  peer->consensus.msg.vote_slot = 100UL;
+
+  /* A real DEMOTED whose final tower ends at 50, older than the stream. */
+  uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
+  fd_compact_tower_sync_serde_t serde;
+  fd_memset( &serde, 0, sizeof(serde) );
+  serde.root                             = 48UL;
+  serde.lockouts_cnt                     = 1;
+  serde.lockouts[ 0 ].offset             = 2UL;
+  serde.lockouts[ 0 ].confirmation_count = 1;
+  ulong state_sz;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, payload+sizeof(fd_failover_demoted_t), FD_FAILOVER_TOWER_STATE_MAX, &state_sz ) );
+  fd_failover_demoted_t msg;
+  fd_memset( &msg, 0, sizeof(msg) );
+  msg.term           = 5UL;
+  msg.last_vote_slot = 50UL;
+  msg.watermark      = 90UL;
+  msg.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  msg.state_len      = (ushort)state_sz;
+  fd_memcpy( payload, &msg, sizeof(msg) );
+  fd_memcpy( ctx->rx, payload, sizeof(msg)+state_sz );
+
+  ulong dropped = peer->channel->metrics.wire_fatal_cnt;
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_DEMOTED, sizeof(msg)+state_sz, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->action==FD_FAILOVER_ACTION_IDLE ); /* did not promote */
+  FD_TEST( peer->channel->metrics.wire_fatal_cnt==dropped+1UL );                            /* session dropped */
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a final tower older than the streamed one is refused" ));
+}
+
+/* Test that a role or term change reaches the channel.  The peer checks
+   every frame against the HELLO it paired on and drops the session on a
+   mismatch. */
+static void
+test_hello_refresh( void ) {
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+  fd_failover_channel_t * ch = ctx->peers[ 0 ].channel;
+  ch->self_hello = ctx->hello;
+  FD_TEST( ch->self_hello.role==FD_FAILOVER_ROLE_ACTIVE && ch->self_hello.term==4UL );
+
+  persist( ctx, FD_FAILOVER_STATE_DEMOTING, 5UL );
+  FD_TEST( ch->self_hello.term==5UL );
+
+  set_role( ctx, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  FD_TEST( ch->self_hello.role==FD_FAILOVER_ROLE_STANDBY && ch->self_hello.term==5UL );
+
+  /* A status built now must decode fine against the updated HELLO. */
+  fd_failover_status_t status = local_status( ctx, &ctx->peers[ 0 ] );
+  status.ack_seq = ULONG_MAX;
+  fd_failover_status_t out;
+  FD_TEST( fd_failover_status_decode( &out, &ch->self_hello, 1UL, (uchar const *)&status, sizeof(status) ) );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a role or term change reaches the advertised HELLO" ));
+}
+
+/* Test that a wait started before the first replay slot still times out. */
+static void
+test_deadline_arms_late( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  ctx->replay_slot   = FD_FAILOVER_SLOT_NULL;
+  ctx->deadline_slot = FD_FAILOVER_SLOT_NULL;
+  ctx->action        = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
+  ctx->action_term   = 4UL;
+
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->deadline_slot==FD_FAILOVER_SLOT_NULL && ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
+
+  ctx->replay_slot = 500UL;
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->deadline_slot==500UL+ctx->deadline_slots );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
+
+  ctx->replay_slot = 500UL+ctx->deadline_slots+1UL;
+  step_controller( ctx, stem, 1000L );
+  /* The confirmation is still owed, so we stay in the wait and keep
+     retrying while flagging stuck, rather than give up. */
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && ctx->stuck );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a wait started before replay reported still reaches its deadline" ));
+}
+
+/* Test that a refusal bumps the term on both sides and drops the
+   confirmation for the old term. */
+static void
+test_promotion_refused_term( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  peer->channel->state = FD_FAILOVER_SESSION_PAIRED;
+
+  ctx->demoted_valid                         = 1;
+  ctx->send_demoted                          = 1;
+  ctx->action                                = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
+  ctx->action_term                           = 4UL;
+  ctx->demoted_record.demoted.term           = 4UL;
+  ctx->demoted_record.demoted.state_len      = 8U;
+  ctx->demoted_record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  ctx->demoted_record.demoted.last_vote_slot = 99UL;
+  fd_memset( ctx->demoted_record.state, 0xE1, 8UL );
+  fd_sha256_hash( ctx->demoted_record.state, 8UL, ctx->demoted_record.digest );
+
+  /* A refusal for a different attempt is ignored and does not drop the
+     session. */
+  ulong dropped = peer->channel->metrics.wire_fatal_cnt;
+  fd_failover_promote_rejected_t rej = { .term=6UL, .reason=FD_FAILOVER_REJECT_ADOPTION_MISMATCH };
+  fd_memcpy( ctx->rx, &rej, sizeof(rej) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, sizeof(rej), 1000L );
+  FD_TEST( ctx->send_demoted && ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
+  FD_TEST( peer->channel->metrics.wire_fatal_cnt==dropped );
+
+  rej.term = 5UL;
+  fd_memcpy( ctx->rx, &rej, sizeof(rej) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, sizeof(rej), 1000L );
+  FD_TEST( !ctx->send_demoted && ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->stuck );
+  FD_TEST( ctx->hello.term==5UL && ctx->role_file.term==5UL );
+  FD_TEST( !ctx->demoted_valid );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a refusal takes its term to both sides and retires the confirmation" ));
+}
+
+/* Test that an ack arriving after we stopped waiting is still accepted. */
+static void
+test_late_promote_ack( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  peer->channel->state = FD_FAILOVER_SESSION_PAIRED;
+  ulong dropped = peer->channel->metrics.wire_fatal_cnt;
+
+  ctx->demoted_valid                    = 1;
+  ctx->send_demoted                     = 1;
+  ctx->action                           = FD_FAILOVER_ACTION_IDLE; /* the deadline fired */
+  ctx->stuck                            = 1;
+  ctx->action_term                      = 4UL;
+  ctx->demoted_record.demoted.term      = 4UL;
+  ctx->demoted_record.demoted.state_len = 8U;
+
+  fd_failover_promote_ack_t ack = { .term=4UL };
+  fd_memcpy( ctx->rx, &ack, sizeof(ack) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_PROMOTE_ACK, sizeof(ack), 1000L );
+  FD_TEST( !ctx->send_demoted && !ctx->demoted_valid && !ctx->stuck );
+  FD_TEST( peer->channel->metrics.wire_fatal_cnt==dropped );
+
+  /* We are not waiting for an ack, so this one is ignored. */
+  fd_memcpy( ctx->rx, &ack, sizeof(ack) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_PROMOTE_ACK, sizeof(ack), 1000L );
+  FD_TEST( peer->channel->metrics.wire_fatal_cnt==dropped );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a late acknowledgement is acted on and an unowed one is ignored" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -462,6 +1022,17 @@ main( int     argc,
   test_bus_request();
   test_switch_request();
   test_before_frag_admits();
+  FD_TEST( mkdtemp( ctl_dir ) );
+  test_demoted_payload();
+  test_final_tower_regression();
+  test_demotion_order();
+  test_promotion_reject();
+  test_switch_overdue();
+  test_demotion_drain();
+  test_hello_refresh();
+  test_deadline_arms_late();
+  test_promotion_refused_term();
+  test_late_promote_ack();
 
   ulong  page_cnt = 2UL;
   ulong  numa_idx = fd_shmem_numa_idx( 0UL );
