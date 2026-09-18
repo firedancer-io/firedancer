@@ -648,13 +648,6 @@ fd_txncache_insert( fd_txncache_t *       tc,
   for(;;) {
     fd_txncache_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 0 );
     if( FD_UNLIKELY( !txnpage ) ) {
-      /* Disk access, free-stack rearrangement, and pruning need exclusive
-         access.  Recheck after changing locks. */
-      fd_rwlock_unread( tc->shmem->lock );
-      fd_rwlock_write( tc->shmem->lock );
-      blockcache = blockhash_on_fork( tc, fork, blockhash );
-      FD_TEST( blockcache );
-      txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
       /* Because of sizing invariants when creating the structure, it is
          not typically possible to fill it, unless there are stale
          transactions from minority forks that were purged floating
@@ -662,7 +655,16 @@ fd_txncache_insert( fd_txncache_t *       tc,
          Under the write lock there are no concurrent allocators, so a
          page still unavailable after the purge means the cache is
          undersized for the caller's usage. */
+      /* Slow path: there is no usage in-memory txnpage. */
+      fd_rwlock_unread( tc->shmem->lock );
+      fd_rwlock_write( tc->shmem->lock );
+      blockcache = blockhash_on_fork( tc, fork, blockhash );
+      FD_TEST( blockcache );
+      txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
       if( FD_UNLIKELY( !txnpage ) ) {
+        /* Slow path: there is no available txnpage in-memory or on
+           dist.  Try to purge any stale entries and try one more time.
+           If that fails, capacity has been reached. */
         purge_stale( tc );
         txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
         if( FD_UNLIKELY( !txnpage ) )
@@ -671,14 +673,16 @@ fd_txncache_insert( fd_txncache_t *       tc,
                        tc->shmem->txnpages_free_cnt, tc->shmem->max_txnpages,
                        tc->shmem->active_slots_max,  tc->shmem->txn_per_slot_max ));
       }
+      /* We have a page, insert the transaction and write-back to disk
+         if needed. */
       ulong txnpage_idx = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, blockcache->pages, blockcache->shmem->pages_cnt-1UL );
       FD_TEST( fd_txncache_insert_txn( tc, blockcache, txnpage, txnpage_idx, fork_id, txnhash ) );
       if( FD_UNLIKELY( txnpage_idx<disk_pages ) ) page_io( tc, txnpage_idx, 0UL, txnpage, sizeof(*txnpage), 1 );
       fd_rwlock_unwrite( tc->shmem->lock );
-      fd_rwlock_read( tc->shmem->lock );
-      break;
+      return;
     }
 
+    /* Fast path: insert the transaction into an in-memory page.  */
     ulong txnpage_idx = (ulong)(txnpage-tc->txnpages)+disk_pages;
     int success = fd_txncache_insert_txn( tc, blockcache, txnpage, txnpage_idx, fork_id, txnhash );
     if( FD_LIKELY( success ) ) break;
