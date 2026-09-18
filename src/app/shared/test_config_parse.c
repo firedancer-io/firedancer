@@ -1,8 +1,40 @@
 #include "fd_config_private.h"
 #include "../../ballet/toml/fd_toml.h"
 
+#include <netdb.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+static struct sockaddr_in test_resolver_addr[ 2 ] = {
+  { .sin_family = AF_INET, .sin_addr.s_addr = FD_IP4_ADDR( 192, 0, 2, 10 ) },
+  { .sin_family = AF_INET, .sin_addr.s_addr = FD_IP4_ADDR( 192, 0, 2, 11 ) },
+};
+static struct addrinfo test_resolver_result[ 2 ] = {
+  { .ai_family = AF_INET, .ai_addrlen = sizeof(struct sockaddr_in), .ai_addr = (struct sockaddr *)&test_resolver_addr[ 0 ], .ai_next = &test_resolver_result[ 1 ] },
+  { .ai_family = AF_INET, .ai_addrlen = sizeof(struct sockaddr_in), .ai_addr = (struct sockaddr *)&test_resolver_addr[ 1 ] },
+};
+static ulong test_resolver_call_cnt;
+static ulong test_resolver_free_cnt;
+
+int
+getaddrinfo( char const * restrict            node,
+             char const * restrict            service,
+             struct addrinfo const * restrict hints,
+             struct addrinfo ** restrict      result ) {
+  FD_TEST( !service );
+  FD_TEST( hints && hints->ai_family==AF_INET );
+  test_resolver_call_cnt++;
+  if( !strcmp( node, "missing.test" ) ) return EAI_NONAME;
+  FD_TEST( !strcmp( node, "123.123.123.123.example" ) );
+  *result = test_resolver_result;
+  return 0;
+}
+
+void
+freeaddrinfo( struct addrinfo * result ) {
+  FD_TEST( result==test_resolver_result );
+  test_resolver_free_cnt++;
+}
 
 static char const cfg_str_1[] =
   "[gossip]\n"
@@ -66,7 +98,7 @@ main( int     argc,
   FD_TEST( config->gossip.entrypoints_cnt == 1 );
   FD_TEST( 0==strcmp( config->gossip.entrypoints[0], "208.91.106.45:8080" ) );
 
-  /* Maximum-sized URL values survive config extraction. */
+  /* Maximum-sized URLs and shred destinations survive config extraction. */
 
   char endpoint[ FD_URL_MAX ];
   fd_memcpy( endpoint, "https://", 8UL );
@@ -80,8 +112,11 @@ main( int     argc,
                                 "[snapshots.sources]\n"
                                 "servers = [\"%s\"]\n"
                                 "[tiles.bundle]\n"
-                                "url = \"%s\"\n",
-                                endpoint, endpoint ) );
+                                "url = \"%s\"\n"
+                                "[tiles.shred]\n"
+                                "additional_shred_destinations_retransmit = [\"%s\"]\n"
+                                "additional_shred_destinations_leader = [\"%s\"]\n",
+                                endpoint, endpoint, endpoint+8UL, endpoint+8UL ) );
 
   memset( config, 0, sizeof(config_t) );
   config->is_firedancer = 1;
@@ -91,6 +126,10 @@ main( int     argc,
   FD_TEST( config->firedancer.snapshots.sources.servers_cnt==1UL );
   FD_TEST( !strcmp( config->firedancer.snapshots.sources.servers[0], endpoint ) );
   FD_TEST( !strcmp( config->tiles.bundle.url, endpoint ) );
+  FD_TEST( config->tiles.shred.additional_shred_destinations_retransmit_cnt==1UL );
+  FD_TEST( config->tiles.shred.additional_shred_destinations_leader_cnt==1UL );
+  FD_TEST( !strcmp( config->tiles.shred.additional_shred_destinations_retransmit[ 0 ], endpoint+8UL ) );
+  FD_TEST( !strcmp( config->tiles.shred.additional_shred_destinations_leader[ 0 ], endpoint+8UL ) );
 
   /* Reject invalid direct and aliased array elements. */
 
@@ -103,6 +142,52 @@ main( int     argc,
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_invalid_aliased_array, sizeof(cfg_str_invalid_aliased_array)-1UL, pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
   FD_TEST( !fd_config_extract_pod( pod, config ) );
+
+  /* Endpoint parsing is strict.  The test resolver returns two IPv4
+     records.  The hostname's IPv4 prefix must not bypass the resolver. */
+
+  fd_topo_ip_port_t resolved_endpoint;
+  FD_TEST( fd_config_resolve_ip4_endpoint( "198.51.100.42:1", &resolved_endpoint ) );
+  FD_TEST( resolved_endpoint.ip==FD_IP4_ADDR( 198, 51, 100, 42 ) );
+  FD_TEST( resolved_endpoint.port==1U );
+  FD_TEST( !test_resolver_call_cnt );
+
+  config->tiles.shred.additional_shred_destinations_retransmit_cnt = 1UL;
+  config->tiles.shred.additional_shred_destinations_leader_cnt     = 1UL;
+  strcpy( config->tiles.shred.additional_shred_destinations_retransmit[ 0 ], "123.123.123.123.example:65535" );
+  strcpy( config->tiles.shred.additional_shred_destinations_leader[ 0 ],     "198.51.100.42:12000" );
+  fd_memset( &config->topo, 0, sizeof(config->topo) );
+  config->topo.tile_cnt = 3UL;
+  strcpy( config->topo.tiles[ 0 ].name, "metric" );
+  for( ulong i=1UL; i<3UL; i++ ) strcpy( config->topo.tiles[ i ].name, "shred" );
+  fd_config_apply_shred_destinations( config );
+
+  FD_TEST( test_resolver_call_cnt==1UL );
+  FD_TEST( test_resolver_free_cnt==1UL );
+  for( ulong i=1UL; i<3UL; i++ ) {
+    FD_TEST( config->topo.tiles[ i ].shred.adtl_dests_retransmit_cnt==1UL );
+    FD_TEST( config->topo.tiles[ i ].shred.adtl_dests_retransmit[ 0 ].ip==FD_IP4_ADDR( 192, 0, 2, 10 ) );
+    FD_TEST( config->topo.tiles[ i ].shred.adtl_dests_retransmit[ 0 ].port==65535U );
+    FD_TEST( config->topo.tiles[ i ].shred.adtl_dests_leader_cnt==1UL );
+    FD_TEST( config->topo.tiles[ i ].shred.adtl_dests_leader[ 0 ].ip==FD_IP4_ADDR( 198, 51, 100, 42 ) );
+    FD_TEST( config->topo.tiles[ i ].shred.adtl_dests_leader[ 0 ].port==12000U );
+  }
+
+  char const * invalid_endpoints[] = {
+    "127.0.0.1:0", "127.0.0.1:65536", "127.0.0.1:12x", ":1234", "127.0.0.1:", "127.0.0.1",
+    "127.0.0.1:+1", "127.0.0.1:-18446744073709551615", "127.0.0.1: 1", "127.0.0.1:18446744073709551616",
+    "::ffff:127.0.0.1:12000", "[::1]:12000", "host:extra:12000"
+  };
+  for( ulong i=0UL; i<sizeof(invalid_endpoints)/sizeof(*invalid_endpoints); i++ ) {
+    FD_TEST( !fd_config_resolve_ip4_endpoint( invalid_endpoints[ i ], &resolved_endpoint ) );
+  }
+  char oversized_hostname[ 259UL ];
+  memset( oversized_hostname, 'a', 256UL );
+  fd_memcpy( oversized_hostname+256UL, ":1", 3UL );
+  FD_TEST( !fd_config_resolve_ip4_endpoint( oversized_hostname, &resolved_endpoint ) );
+  FD_TEST( test_resolver_call_cnt==1UL );
+  FD_TEST( !fd_config_resolve_ip4_endpoint( "missing.test:1234", &resolved_endpoint ) );
+  FD_TEST( test_resolver_call_cnt==2UL && test_resolver_free_cnt==1UL );
 
   /* Reject unrecognized config keys */
 

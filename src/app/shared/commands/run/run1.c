@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "run.h"
+#include "../../fd_config_private.h"
 
 #include "../../../../util/tile/fd_tile_private.h"
 
@@ -64,6 +65,12 @@ run1_cmd_fn( args_t *   args,
   ulong tile_id = fd_topo_find_tile( &config->topo, args->run1.tile_name, args->run1.kind_id );
   if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu not found", args->run1.tile_name, args->run1.kind_id ));
   fd_topo_tile_t * tile = &config->topo.tiles[ tile_id ];
+
+  /* Internal --config-fd children retain their parent's action and
+     already have resolved destinations.  Standalone run1 does not. */
+  if( !strcmp( config->action, NAME ) && !strcmp( tile->name, "shred" ) ) {
+    fd_config_apply_shred_destinations( config );
+  }
 
   char thread_name[ FD_LOG_NAME_MAX ] = {0};
   FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "%s:%lu", tile->name, tile->kind_id ) );
