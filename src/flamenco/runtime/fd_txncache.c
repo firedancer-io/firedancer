@@ -2,10 +2,8 @@
 #include "fd_txncache_private.h"
 #include "../../util/log/fd_log.h"
 
-#if FD_HAS_HOSTED
 #include <unistd.h>
 #include <errno.h>
-#endif
 
 struct blockcache {
   fd_txncache_blockcache_shmem_t * shmem;
@@ -166,7 +164,6 @@ page_io( fd_txncache_t *         tc,
          ulong                   page,
          fd_txncache_txnpage_t * frame,
          int                     write ) {
-#if FD_HAS_HOSTED
   FD_TEST( tc->spill_fd>=0 );
   ulong off  = page*sizeof(*frame);
   ulong done = 0UL;
@@ -174,13 +171,10 @@ page_io( fd_txncache_t *         tc,
     long n = write ? pwrite( tc->spill_fd, (uchar *)frame+done, sizeof(*frame)-done, (off_t)(off+done) )
                    : pread ( tc->spill_fd, (uchar *)frame+done, sizeof(*frame)-done, (off_t)(off+done) );
     if( FD_UNLIKELY( n<0L && errno==EINTR ) ) continue;
-    if( FD_UNLIKELY( n<=0L ) ) FD_LOG_ERR(( "txncache spill %s failed for page %lu at offset %lu (%ld, errno %d)", write ? "write" : "read", page, off+done, n, errno ));
+    if( FD_UNLIKELY( n<0L ) ) FD_LOG_ERR(( "txncache spill %s failed for page %lu at offset %lu (%ld, errno %d)", write ? "write" : "read", page, off+done, n, errno ));
+    if( FD_UNLIKELY( !n ) ) FD_LOG_ERR(( "txncache spill %s for page %lu at offset %lu", write ? "write made no progress" : "read reached unexpected EOF", page, off+done ));
     done += (ulong)n;
   }
-#else
-  (void)tc; (void)page; (void)frame; (void)write;
-  FD_LOG_ERR(( "txncache spill requires hosted I/O" ));
-#endif
 }
 
 /* A pin CAS acquires both the mapping and the frame contents.  Eviction
