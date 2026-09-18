@@ -66,3 +66,178 @@ fd_failover_session_step( ulong state,
   }
   return state;
 }
+
+ulong
+fd_failover_state_boot( ulong saved_state ) {
+  switch( saved_state ) {
+  case FD_FAILOVER_STATE_ACTIVE:
+  case FD_FAILOVER_STATE_RECLAIMING:
+    return FD_FAILOVER_STATE_RECLAIMING;
+  case FD_FAILOVER_STATE_DEMOTING:
+  case FD_FAILOVER_STATE_STANDBY:
+  case FD_FAILOVER_STATE_PROMOTING:
+  default:
+    return FD_FAILOVER_STATE_STANDBY;
+  }
+}
+
+int
+fd_failover_demoted_term_check( ulong demoted_term,
+                                ulong local_term,
+                                ulong peer_term,
+                                ulong peer_role,
+                                int   same_term_authorized ) {
+  if( FD_UNLIKELY( demoted_term>=ULONG_MAX-1UL ||
+                   peer_role!=FD_FAILOVER_ROLE_STANDBY ) ) return 0;
+
+  int local_term_valid = ( demoted_term==local_term && same_term_authorized ) ||
+                         ( local_term!=ULONG_MAX && demoted_term==local_term+1UL );
+  int peer_term_valid  = demoted_term==peer_term ||
+                         ( peer_term!=ULONG_MAX && demoted_term==peer_term+1UL );
+  return local_term_valid && peer_term_valid;
+}
+
+uchar
+fd_failover_handoff_req_check( fd_failover_handoff_req_t const * req,
+                               fd_failover_status_t const *      target,
+                               int                               local_request,
+                               ulong                             min_slots_to_leader,
+                               ulong                             deadline_slots,
+                               uchar *                           reason ) {
+  *reason = FD_FAILOVER_REJECT_NONE;
+
+  if( FD_UNLIKELY( !req->proposed_term || req->baton_slot || req->attempt ||
+                   !req->deadline_slots || req->deadline_slots!=deadline_slots ||
+                   deadline_slots>=min_slots_to_leader ||
+                   req->drill>1U || req->reason>=FD_FAILOVER_HANDOFF_REASON_CNT ||
+                   req->reason!=( req->drill
+                                  ? FD_FAILOVER_HANDOFF_REASON_DRILL
+                                  : ( local_request ? FD_FAILOVER_HANDOFF_REASON_OPERATOR
+                                                    : FD_FAILOVER_HANDOFF_REASON_STANDBY ) ) ) ) {
+    *reason = FD_FAILOVER_REJECT_BAD_REQUEST;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( target->term>=ULONG_MAX-2UL ) ) {
+    *reason = FD_FAILOVER_REJECT_TERM_EXHAUSTED;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( req->proposed_term<target->term ||
+                   ( req->proposed_term==target->term &&
+                     target->role!=FD_FAILOVER_ROLE_STANDBY ) ) )
+    return FD_FAILOVER_HANDOFF_STALE_TERM;
+  if( FD_UNLIKELY( req->proposed_term>target->term+1UL ) ) {
+    *reason = FD_FAILOVER_REJECT_BAD_REQUEST;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  return FD_FAILOVER_HANDOFF_PROCEED;
+}
+
+uchar
+fd_failover_handoff_peer_check( fd_failover_status_t const * local,
+                                fd_failover_status_t const * peer,
+                                int                          peer_fresh ) {
+  if( FD_UNLIKELY( !peer_fresh ) )                                                    return FD_FAILOVER_REJECT_STATUS_STALE;
+  if( FD_UNLIKELY( peer->role!=FD_FAILOVER_ROLE_STANDBY || peer->term!=local->term ) ) return FD_FAILOVER_REJECT_STATE_MISMATCH;
+  if( FD_UNLIKELY( ( local->status|peer->status )&FD_FAILOVER_STATUS_BUSY ) )         return FD_FAILOVER_REJECT_BUSY;
+  if( FD_UNLIKELY( ( local->status|peer->status )&FD_FAILOVER_STATUS_PAUSED ) )       return FD_FAILOVER_REJECT_PAUSED;
+  if( FD_UNLIKELY( peer->status & ~FD_FAILOVER_STATUS_REPLAG ) )                      return FD_FAILOVER_REJECT_PEER_UNHEALTHY;
+  if( FD_UNLIKELY( ( local->status|peer->status )&FD_FAILOVER_STATUS_REPLAG ) )       return FD_FAILOVER_REJECT_PEER_BEHIND;
+  return FD_FAILOVER_REJECT_NONE;
+}
+
+uchar
+fd_failover_handoff_check( fd_failover_handoff_req_t const * req,
+                           fd_failover_status_t const *      local,
+                           fd_failover_status_t const *      peer,
+                           int                               peer_fresh,
+                           int                               tower_replicated,
+                           int                               accept_peer_requests,
+                           int                               local_request,
+                           ulong                             min_slots_to_leader,
+                           ulong                             deadline_slots,
+                           uchar *                           reason ) {
+  uchar code = fd_failover_handoff_req_check( req, local, local_request,
+                                              min_slots_to_leader, deadline_slots,
+                                              reason );
+  if( FD_UNLIKELY( code!=FD_FAILOVER_HANDOFF_PROCEED ) ) return code;
+  if( FD_UNLIKELY( local->role==FD_FAILOVER_ROLE_STANDBY ) )
+    return FD_FAILOVER_HANDOFF_ALREADY_STANDBY;
+  if( FD_UNLIKELY( local->role!=FD_FAILOVER_ROLE_ACTIVE ) ) {
+    *reason = FD_FAILOVER_REJECT_STATE_MISMATCH;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( !local_request && !req->drill && !accept_peer_requests ) ) {
+    *reason = FD_FAILOVER_REJECT_REQUESTS_DISABLED;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( !peer_fresh ) ) {
+    *reason = FD_FAILOVER_REJECT_STATUS_STALE;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( peer->role!=FD_FAILOVER_ROLE_STANDBY || peer->term!=local->term ) ) {
+    *reason = FD_FAILOVER_REJECT_STATE_MISMATCH;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( ( local->status|peer->status )&FD_FAILOVER_STATUS_BUSY ) ) {
+    *reason = FD_FAILOVER_REJECT_BUSY;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( ( local->status|peer->status )&FD_FAILOVER_STATUS_PAUSED ) ) {
+    *reason = FD_FAILOVER_REJECT_PAUSED;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( local->status & ~FD_FAILOVER_STATUS_REPLAG ) ) {
+    *reason = FD_FAILOVER_REJECT_LOCAL_UNHEALTHY;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( peer->status & ~FD_FAILOVER_STATUS_REPLAG ) ) {
+    *reason = FD_FAILOVER_REJECT_PEER_UNHEALTHY;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( !( local->flags&FD_FAILOVER_FLAG_CAUGHT_UP ) ) ) {
+    *reason = FD_FAILOVER_REJECT_LOCAL_UNHEALTHY;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( ( ( local->status|peer->status )&FD_FAILOVER_STATUS_REPLAG ) ||
+                   !( peer->flags&FD_FAILOVER_FLAG_CAUGHT_UP ) || !tower_replicated ) ) {
+    *reason = FD_FAILOVER_REJECT_PEER_BEHIND;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  if( FD_UNLIKELY( local->flags&FD_FAILOVER_FLAG_IS_LEADER ) ) {
+    *reason = FD_FAILOVER_REJECT_LEADER_ACTIVE;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  ulong current_slot = local->replay_slot;
+  if( FD_LIKELY( local->turbine_slot!=FD_FAILOVER_SLOT_NULL &&
+                 ( current_slot==FD_FAILOVER_SLOT_NULL || local->turbine_slot>current_slot ) ) )
+    current_slot = local->turbine_slot;
+  if( FD_UNLIKELY( local->next_leader_slot!=FD_FAILOVER_SLOT_NULL &&
+                   ( current_slot==FD_FAILOVER_SLOT_NULL ||
+                     local->next_leader_slot<=current_slot ||
+                     local->next_leader_slot-current_slot<min_slots_to_leader ) ) ) {
+    *reason = FD_FAILOVER_REJECT_LEADER_NEAR;
+    return FD_FAILOVER_HANDOFF_REJECTED;
+  }
+  return FD_FAILOVER_HANDOFF_PROCEED;
+}
+
+int
+fd_failover_handoff_resp_check( fd_failover_handoff_resp_t const * resp,
+                                fd_failover_handoff_req_t const *  req ) {
+  return !req->baton_slot  && !req->attempt  &&
+         !resp->baton_slot && !resp->attempt &&
+         resp->proposed_term==req->proposed_term   &&
+         resp->baton_slot==req->baton_slot         &&
+         resp->attempt==req->attempt               &&
+         resp->deadline_slots==req->deadline_slots &&
+         resp->drill==req->drill                   &&
+         resp->code<FD_FAILOVER_HANDOFF_CODE_CNT   &&
+         resp->reason<FD_FAILOVER_REJECT_CNT       &&
+         ( ( resp->code==FD_FAILOVER_HANDOFF_PROCEED &&
+             resp->reason==FD_FAILOVER_REJECT_NONE ) ||
+           ( resp->code==FD_FAILOVER_HANDOFF_REJECTED &&
+             resp->reason!=FD_FAILOVER_REJECT_NONE ) ||
+           ( ( resp->code==FD_FAILOVER_HANDOFF_ALREADY_STANDBY ||
+               resp->code==FD_FAILOVER_HANDOFF_STALE_TERM ) &&
+             resp->reason==FD_FAILOVER_REJECT_NONE ) );
+}

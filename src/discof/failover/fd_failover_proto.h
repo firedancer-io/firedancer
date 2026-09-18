@@ -9,10 +9,17 @@
 #define FD_FAILOVER_VERSION (1U)
 
 /* Message types */
-#define FD_FAILOVER_MSG_HELLO           (0U)
-#define FD_FAILOVER_MSG_STATUS          (1U)
-#define FD_FAILOVER_MSG_CONSENSUS_STATE (2U)
-#define FD_FAILOVER_MSG_RESERVED        (3U)
+#define FD_FAILOVER_MSG_HELLO            (0U)
+#define FD_FAILOVER_MSG_STATUS           (1U)
+#define FD_FAILOVER_MSG_CONSENSUS_STATE  (2U)
+#define FD_FAILOVER_MSG_HANDOFF_REQ      (3U)
+#define FD_FAILOVER_MSG_HANDOFF_RESP     (4U)
+#define FD_FAILOVER_MSG_DEMOTED          (5U)
+#define FD_FAILOVER_MSG_PROMOTE_ACK      (6U)
+#define FD_FAILOVER_MSG_PROMOTE_REJECTED (7U)
+#define FD_FAILOVER_MSG_PAUSE            (8U)
+#define FD_FAILOVER_MSG_RESUME           (9U)
+#define FD_FAILOVER_MSG_RESERVED         (10U)
 
 /* Sentinel for a slot field with no value */
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
@@ -45,6 +52,14 @@
 #define FD_FAILOVER_EV_LINK_LOST      (5)
 #define FD_FAILOVER_EV_RETRY          (6)
 #define FD_FAILOVER_EV_CNT            (7)
+
+/* Persistent controller states */
+#define FD_FAILOVER_STATE_STANDBY    (0UL)
+#define FD_FAILOVER_STATE_ACTIVE     (1UL)
+#define FD_FAILOVER_STATE_DEMOTING   (2UL)
+#define FD_FAILOVER_STATE_PROMOTING  (3UL)
+#define FD_FAILOVER_STATE_RECLAIMING (4UL)
+#define FD_FAILOVER_STATE_CNT        (5UL)
 
 /* HELLO pairing outcomes */
 #define FD_FAILOVER_HELLO_OK             (0)
@@ -107,7 +122,7 @@ FD_STATIC_ASSERT( sizeof(fd_failover_status_t)==94UL, wire_layout );
 #define FD_FAILOVER_STATUS_REPLAG  (2U)
 #define FD_FAILOVER_STATUS_STUCK   (4U)
 #define FD_FAILOVER_STATUS_PAUSED  (8U)
-#define FD_FAILOVER_STATUS_BUSY    (16U) /* transitional role state during a handoff */
+#define FD_FAILOVER_STATUS_BUSY    (16U) /* a transition is in flight */
 
 struct __attribute__((packed)) fd_failover_consensus_state {
   ulong  term;      /* sender must be active at this term */
@@ -120,6 +135,106 @@ struct __attribute__((packed)) fd_failover_consensus_state {
 typedef struct fd_failover_consensus_state fd_failover_consensus_state_t;
 
 FD_STATIC_ASSERT( sizeof(fd_failover_consensus_state_t)==27UL, wire_layout );
+
+/* Handoff request, either side to the active.  baton_slot and attempt
+   are reserved and must be zero. */
+
+struct __attribute__((packed)) fd_failover_handoff_req {
+  ulong proposed_term;
+  ulong baton_slot;
+  uint  attempt;
+  uchar reason;
+  uint  deadline_slots;
+  uchar drill;
+};
+
+typedef struct fd_failover_handoff_req fd_failover_handoff_req_t;
+
+#define FD_FAILOVER_HANDOFF_REASON_OPERATOR (0U)
+#define FD_FAILOVER_HANDOFF_REASON_STANDBY  (1U)
+#define FD_FAILOVER_HANDOFF_REASON_DRILL    (2U)
+#define FD_FAILOVER_HANDOFF_REASON_CNT      (3U)
+
+#define FD_FAILOVER_HANDOFF_PROCEED         (0U)
+#define FD_FAILOVER_HANDOFF_REJECTED        (1U)
+#define FD_FAILOVER_HANDOFF_ALREADY_STANDBY (2U)
+#define FD_FAILOVER_HANDOFF_STALE_TERM      (3U)
+#define FD_FAILOVER_HANDOFF_CODE_CNT        (4U)
+
+#define FD_FAILOVER_REJECT_NONE              (0U)
+#define FD_FAILOVER_REJECT_BAD_REQUEST       (1U)
+#define FD_FAILOVER_REJECT_BUSY              (2U)
+#define FD_FAILOVER_REJECT_REQUESTS_DISABLED (3U)
+#define FD_FAILOVER_REJECT_STATUS_STALE      (4U)
+#define FD_FAILOVER_REJECT_PAUSED            (5U)
+#define FD_FAILOVER_REJECT_LOCAL_UNHEALTHY   (6U)
+#define FD_FAILOVER_REJECT_PEER_UNHEALTHY    (7U)
+#define FD_FAILOVER_REJECT_PEER_BEHIND       (8U)
+#define FD_FAILOVER_REJECT_LEADER_ACTIVE     (9U)
+#define FD_FAILOVER_REJECT_LEADER_NEAR       (10U)
+#define FD_FAILOVER_REJECT_DEADLINE          (11U)
+#define FD_FAILOVER_REJECT_REPLAY_BEHIND     (12U)
+#define FD_FAILOVER_REJECT_TOWER_INVALID     (13U)
+#define FD_FAILOVER_REJECT_TOWER_DIGEST      (14U)
+#define FD_FAILOVER_REJECT_ADOPTION_FAILED   (15U)
+#define FD_FAILOVER_REJECT_ADOPTION_MISMATCH (16U)
+#define FD_FAILOVER_REJECT_STATE_MISMATCH    (17U)
+#define FD_FAILOVER_REJECT_TERM_EXHAUSTED    (18U)
+#define FD_FAILOVER_REJECT_CNT               (19U)
+
+struct __attribute__((packed)) fd_failover_handoff_resp {
+  ulong proposed_term;
+  ulong baton_slot;
+  uint  attempt;
+  uint  deadline_slots;
+  uchar code;
+  uchar reason;
+  uchar drill;
+};
+
+typedef struct fd_failover_handoff_resp fd_failover_handoff_resp_t;
+
+/* Demotion confirmation, sent only from the identity switch's terminal
+   state.  The final tower follows it so the peer can adopt it. */
+
+struct __attribute__((packed)) fd_failover_demoted {
+  ulong  term;
+  ulong  last_vote_slot;
+  ulong  watermark;
+  uchar  mode;
+  ushort state_len;      /* the final tower follows this struct */
+};
+
+typedef struct fd_failover_demoted fd_failover_demoted_t;
+
+struct __attribute__((packed)) fd_failover_promote_ack {
+  ulong term;
+};
+
+typedef struct fd_failover_promote_ack fd_failover_promote_ack_t;
+
+struct __attribute__((packed)) fd_failover_promote_rejected {
+  ulong term;
+  uchar reason;
+};
+
+typedef struct fd_failover_promote_rejected fd_failover_promote_rejected_t;
+
+struct __attribute__((packed)) fd_failover_control {
+  ulong term;
+};
+
+typedef struct fd_failover_control fd_failover_control_t;
+
+FD_STATIC_ASSERT( sizeof(fd_failover_handoff_req_t)==26UL, wire_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_handoff_resp_t)==27UL, wire_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_demoted_t)==27UL, wire_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_promote_ack_t)==8UL, wire_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_promote_rejected_t)==9UL, wire_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_control_t)==8UL, wire_layout );
+
+#define FD_FAILOVER_DEMOTED_DIGEST_SZ   (32UL)
+#define FD_FAILOVER_DEMOTED_PAYLOAD_MAX (sizeof(fd_failover_demoted_t)+FD_FAILOVER_TOWER_STATE_MAX+FD_FAILOVER_DEMOTED_DIGEST_SZ)
 
 FD_PROTOTYPES_BEGIN
 
@@ -146,6 +261,68 @@ ulong
 fd_failover_session_step( ulong state,
                           int   dial_peer,
                           int   event );
+
+/* fd_failover_state_boot returns the safe controller state for a
+   process that has started on its junk identity. */
+
+ulong
+fd_failover_state_boot( ulong saved_state );
+
+/* Validates the term and sender role of a demotion confirmation.  The
+   caller sets same_term_authorized when recovering an interrupted
+   exchange, to accept a replay at the local term. */
+
+int
+fd_failover_demoted_term_check( ulong demoted_term,
+                                ulong local_term,
+                                ulong peer_term,
+                                ulong peer_role,
+                                int   same_term_authorized );
+
+/* fd_failover_handoff_req_check validates the request fields and term. */
+
+uchar
+fd_failover_handoff_req_check( fd_failover_handoff_req_t const * req,
+                               fd_failover_status_t const *      target,
+                               int                               local_request,
+                               ulong                             min_slots_to_leader,
+                               ulong                             deadline_slots,
+                               uchar *                           reason );
+
+/* fd_failover_handoff_peer_check is the part of fd_failover_handoff_check
+   that looks at the spare, for an active handing off on its operator's
+   word.  It reads the spare's last status: fresh, standby at our term,
+   not busy, not paused, no unhealthy bit, not behind.  Returns a
+   FD_FAILOVER_REJECT_* reason, NONE when the spare can take the identity
+   as far as that status tells. */
+
+uchar
+fd_failover_handoff_peer_check( fd_failover_status_t const * local,
+                                fd_failover_status_t const * peer,
+                                int                          peer_fresh );
+
+/* fd_failover_handoff_check applies the protocol preconditions for a
+   sequential handoff.  It returns an FD_FAILOVER_HANDOFF_* code and
+   writes an FD_FAILOVER_REJECT_* reason. */
+
+uchar
+fd_failover_handoff_check( fd_failover_handoff_req_t const * req,
+                           fd_failover_status_t const *      local,
+                           fd_failover_status_t const *      peer,
+                           int                               peer_fresh,
+                           int                               tower_replicated,
+                           int                               accept_peer_requests,
+                           int                               local_request,
+                           ulong                             min_slots_to_leader,
+                           ulong                             deadline_slots,
+                           uchar *                           reason );
+
+/* fd_failover_handoff_resp_check validates a response against the
+   request it acknowledges. */
+
+int
+fd_failover_handoff_resp_check( fd_failover_handoff_resp_t const * resp,
+                                fd_failover_handoff_req_t const *  req );
 
 FD_PROTOTYPES_END
 
