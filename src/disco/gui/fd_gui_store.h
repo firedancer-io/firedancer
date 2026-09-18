@@ -354,14 +354,19 @@ fd_gui_store_ts_scan_next( fd_gui_store_ts_iter_t * iter );
 void
 fd_gui_store_ts_scan_end( fd_gui_store_ts_iter_t * iter );
 
-/* fd_gui_store_ts_oldest_window returns, in *out_window, the time
-   window for the oldest record in TS ring `ring_idx`.  Returns 1 if the
-   ring holds any record, 0 if it is empty or not a TS ring. */
+/* fd_gui_store_ts_live_timestamp_bounds returns the timestamps of the
+   first and last live records in physical append order in TS ring
+   `ring_idx`.  These are the minimum and maximum live timestamps when
+   appends have nondecreasing timestamps.
+
+   Returns 1 if the ring holds
+   any record, 0 if it is empty or not a TS ring. */
 
 int
-fd_gui_store_ts_oldest_window( fd_gui_store_t * db,
-                               ulong            ring_idx,
-                               ulong *          out_window );
+fd_gui_store_ts_live_timestamp_bounds( fd_gui_store_t * db,
+                                       ulong            ring_idx,
+                                       long *           out_first_timestamp,
+                                       long *           out_last_timestamp );
 
 /* ---- TS ring: eviction ---------------------------------------------- */
 
