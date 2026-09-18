@@ -5,10 +5,14 @@
 #include "../../flamenco/runtime/tests/fd_svm_mini.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
+#include "../../flamenco/runtime/fd_txncache_private.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+static int spill_test_fd = -1;
 
 #define MAX_LIVE_SLOTS      16UL
 #define MAX_TXN_PER_SLOT    4096UL
@@ -71,16 +75,17 @@ typedef struct {
 
 static test_txncache_t
 create_txncache( void ) {
-  ulong shmem_fp = fd_txncache_shmem_footprint( MAX_LIVE_SLOTS, MAX_TXN_PER_SLOT );
+  ulong cache_footprint = spill_test_fd>=0 ? sizeof(fd_txncache_txnpage_t) : ULONG_MAX;
+  ulong shmem_fp = fd_txncache_shmem_footprint( MAX_LIVE_SLOTS, MAX_TXN_PER_SLOT, cache_footprint );
   void * shmem_raw = aligned_alloc( fd_txncache_shmem_align(), shmem_fp );
   FD_TEST( shmem_raw );
-  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem_raw, MAX_LIVE_SLOTS, MAX_TXN_PER_SLOT, 1UL ) );
+  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem_raw, MAX_LIVE_SLOTS, MAX_TXN_PER_SLOT, cache_footprint, 1UL ) );
   FD_TEST( shmem );
 
   ulong ljoin_fp = fd_txncache_footprint( MAX_LIVE_SLOTS );
   void * ljoin_raw = aligned_alloc( fd_txncache_align(), ljoin_fp );
   FD_TEST( ljoin_raw );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( ljoin_raw, shmem ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( ljoin_raw, shmem, spill_test_fd ) );
   FD_TEST( tc );
   return (test_txncache_t){ .tc = tc, .shmem = shmem_raw, .ljoin = ljoin_raw };
 }
@@ -1077,6 +1082,20 @@ main( int     argc,
   test_txncache_roundtrip_large();
   test_txncache_roundtrip_many_roots();
   test_txncache_writer_rejects_excess_descriptors();
+
+  /* Repeat serialization/parse checks with only one RAM page,
+     placing the remaining pages on disk. */
+  char spill_path[] = "/tmp/fd-txncache-roundtrip-XXXXXX";
+  spill_test_fd = mkstemp( spill_path );
+  FD_TEST( spill_test_fd>=0 );
+  FD_TEST( !unlink( spill_path ) );
+  test_txncache_roundtrip_empty();
+  test_txncache_roundtrip_genesis_blockhash();
+  test_txncache_roundtrip();
+  test_txncache_roundtrip_slot_history();
+  test_txncache_roundtrip_large();
+  test_txncache_roundtrip_many_roots();
+  FD_TEST( !close( spill_test_fd ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

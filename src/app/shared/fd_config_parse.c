@@ -103,6 +103,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
 
   CFG_POP      ( ulong,  runtime.program_cache_size_mib                      );
+  CFG_POP      ( ulong,  runtime.transaction_cache_size_mib                  );
 
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
 
@@ -175,8 +176,9 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.genesis                                    );
     CFG_POP    ( cstr,   paths.accounts                                   );
     CFG_POP    ( cstr,   paths.stake_delegations                          );
-    CFG_POP    ( cstr,   paths.shredb                                 );
-    CFG_POP    ( cstr,   paths.guidb                                  );
+    CFG_POP    ( cstr,   paths.txncache                                   );
+    CFG_POP    ( cstr,   paths.shredb                                     );
+    CFG_POP    ( cstr,   paths.guidb                                      );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1   ( cstr,   ledger.path,                 frankendancer.paths.ledger );

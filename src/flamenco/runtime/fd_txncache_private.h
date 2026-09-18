@@ -123,8 +123,9 @@ typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
 
 struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_private {
   /* The txncache is a concurrent structure and will be accessed by multiple threads
-     concurrently.  Insertion and querying only take a read lock as they can be done
-     lockless but all other operations will take a write lock internally.
+     concurrently.  Queries, RAM inserts, and ordinary RAM allocation
+     take a read lock.  Disk inserts, free-stack rearrangement, and
+     structural changes take a write lock.
 
      The lock needs to be aligned to 128 bytes to avoid false sharing with other
      data that might be on the same cache line. */
@@ -147,11 +148,25 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
                               most recently added root, the head is the oldest root.  This is used to identify
                               which forks can be pruned when a new root is added. */
 
+  ulong resident_pages; /* Highest page IDs are permanently backed by RAM. */
+
   ulong seed;
   ulong magic; /* ==FD_TXNCACHE_SHMEM_MAGIC */
 };
 
 FD_PROTOTYPES_BEGIN
+
+struct fd_txncache_private;
+
+/* Transfer a byte range from a logical page in RAM or on disk.
+   Caller holds the shmem read lock for reads, write lock for writes. */
+void
+page_io( struct fd_txncache_private * tc,
+         ulong                        page,
+         ulong                        off,
+         void *                       buf,
+         ulong                        sz,
+         int                          write );
 
 /* fd_txncache_max_txnpages{,_per_blockhash} return the txnpage pool
    size and the per blockcache page cap for the given parameters.  The

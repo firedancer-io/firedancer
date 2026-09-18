@@ -2,6 +2,7 @@
 #include "run.h"
 #include "../../../../flamenco/accdb/fd_accdb.h"
 #include "../../../../flamenco/stakes/fd_stake_delegations.h"
+#include "../../../../flamenco/runtime/fd_txncache.h"
 #include "../../../../disco/store/fd_store.h"
 
 #include <sys/wait.h>
@@ -395,6 +396,7 @@ main_pid_namespace( void * _args ) {
 
   initialize_accdb_fd( config );
   initialize_stake_delegations_fd( config );
+  initialize_txncache_fd( config );
   initialize_store_fds( config );
   ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
   int   has_store     = store_obj_id!=ULONG_MAX;
@@ -481,6 +483,12 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
+        ulong txncache_obj_id   = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
+        int   tile_uses_txncache = 0;
+        for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) tile_uses_txncache |= tile->uses_obj_id[ i ]==txncache_obj_id;
+        if( FD_UNLIKELY( fcntl( FD_TXNCACHE_FD, F_SETFD, tile_uses_txncache ? 0 : FD_CLOEXEC )<0 ) )
+          FD_LOG_ERR(( "fcntl(FD_TXNCACHE_FD,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         if( FD_LIKELY( has_store ) ) {
           int tile_uses_store = 0;
           for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) tile_uses_store |= tile->uses_obj_id[ i ]==store_obj_id;
@@ -562,6 +570,7 @@ main_pid_namespace( void * _args ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( has_store ) ) {
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1060,6 +1069,28 @@ run_firedancer_init( config_t * config,
             require networking.  Hack around that here for now. */
   if( check_configure ) fdctl_check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
+  else if( config->is_firedancer ) {
+    /* Even when development reuses workspace allocations, the spill
+       file is truncated for this run.  Rebuild the cache before any tile
+       can observe page mappings left by the previous run.  Snapshot/genesis
+       startup reconstructs its contents.  Commands such as send-test
+       also reuse this initializer with a topology without txncache. */
+    ulong obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
+    if( FD_LIKELY( obj_id!=ULONG_MAX ) ) {
+      fd_topo_obj_t * obj = &config->topo.objs[ obj_id ];
+      fd_topo_wksp_t * wksp = &config->topo.workspaces[ obj->wksp_id ];
+      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
+      int initialized = 0;
+      for( ulong i=0UL; CALLBACKS[ i ]; i++ ) {
+        if( strcmp( CALLBACKS[ i ]->name, "txncache" ) ) continue;
+        CALLBACKS[ i ]->new( &config->topo, obj );
+        initialized = 1;
+        break;
+      }
+      FD_TEST( initialized );
+      fd_topo_leave_workspace( &config->topo, wksp );
+    }
+  }
   initialize_stacks( config );
   fd_bootinfo_write( config );
 }
@@ -1102,6 +1133,21 @@ initialize_stake_delegations_fd( config_t const * config ) {
 
   if( FD_LIKELY( spill_fd!=FD_STAKE_DELEGATIONS_FD ) ) {
     if( FD_UNLIKELY( -1==dup2( spill_fd, FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+void
+initialize_txncache_fd( config_t const * config ) {
+  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
+
+  char const * spill_path = config->paths.txncache;
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_LIKELY( spill_fd!=FD_TXNCACHE_FD ) ) {
+    if( FD_UNLIKELY( -1==dup2( spill_fd, FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }

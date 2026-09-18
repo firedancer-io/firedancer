@@ -204,15 +204,23 @@ telemetry = true
     # Firedancer instance.
     accounts = ""
 
-    # File path used to create the temporary stake-delegation spill
-    # file.  If no path is provided, it defaults to the
-    # `stakedelegations.db` path within the base directory above.
+    # Temporary spill file for stake delegations and fork updates.  This
+    # file will not be used by the running validator except in
+    # pathological cases when the network is running in a degraded
+    # state.
     #
-    # Two substitutions will be performed on this string.  If "{user}"
-    # is present it will be replaced with the user running Firedancer,
-    # as above, and "{name}" will be replaced with the name of the
-    # Firedancer instance.
+    # Defaults to stakedelegations.db under paths.base.
+    # Supports {user} and {name} substitutions.
     stake_delegations = ""
+
+    # Temporary spill file for recent transactions used to detect
+    # duplicates.  This file will not be used by the running validator
+    # except in pathological cases when the network is running in a
+    # degraded state.
+    #
+    # Defaults to txncache.db under paths.base.
+    # Supports {user} and {name} substitutions.
+    txncache = ""
 
     # File path to the shreds database file.
     #
@@ -740,6 +748,12 @@ telemetry = true
     # The program cache pre-loads frequently executed programs for
     # faster transaction execution.
     program_cache_size_mib = 2048
+
+    # Memory budget for cached transactions in MiB, excluding metadata.
+    # When full, the cache spills to paths.txncache.  This value has
+    # been chosen and tuned around mainnet network behavior.  Lowering
+    # this value risks introducing performance regressions.
+    transaction_cache_size_mib = 640
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
