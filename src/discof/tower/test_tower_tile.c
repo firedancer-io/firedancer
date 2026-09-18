@@ -1201,6 +1201,154 @@ test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_eqvoc_cre_diff" ));
 }
 
+static void
+test_failover_adopt_tower( fd_wksp_t * wksp ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static uchar scratch_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  void * tower_mem   = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
+  ctx->tower         = fd_tower_join( fd_tower_new( tower_mem, 64UL, 2UL, 0UL ) );
+  ctx->scratch_tower = fd_tower_vote_join( fd_tower_vote_new( scratch_mem ) );
+  FD_TEST( ctx->tower && ctx->scratch_tower );
+  ctx->tower->root = 1UL;
+
+  for( ulong slot=2UL; slot<=3UL; slot++ ) {
+    fd_tower_blk_t * blk  = fd_tower_blocks_insert( ctx->tower, slot, slot-1UL );
+    blk->replayed          = 1;
+    blk->replayed_block_id = (fd_hash_t){ .ul={ slot } };
+    blk->bank_hash         = (fd_hash_t){ .ul={ slot+10UL } };
+  }
+
+  /* The tile advances the fork choice root alongside the tower root, so
+     give the test a ghost that matches the replayed chain 1 -> 2 -> 3. */
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( 64UL, 2UL ), 1UL );
+  ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( ctx->ghost );
+  fd_ghost_init( ctx->ghost, 0UL, 1UL, &(fd_hash_t){ .ul={ 1UL } } );
+  for( ulong slot=2UL; slot<=3UL; slot++ )
+    FD_TEST( fd_ghost_insert( ctx->ghost, 0UL, slot, &(fd_hash_t){ .ul={ slot } }, &(fd_hash_t){ .ul={ slot-1UL } } ) );
+
+  fd_compact_tower_sync_serde_t serde;
+  fd_memset( &serde, 0, sizeof(serde) );
+  serde.root         = 1UL;
+  serde.lockouts_cnt = 2U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=2U };
+  serde.lockouts[ 1 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash     = fd_tower_blocks_query( ctx->tower, 3UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
+
+  uchar buf[ 512UL ];
+  ulong buf_sz;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  fd_tower_adopt_result_t result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==1UL && result.vote_slot==3UL );
+
+  serde.block_id.uc[ 0 ] ^= 1U;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH );
+  FD_TEST( result.root==1UL && result.vote_slot==3UL );
+
+  serde.block_id.uc[ 0 ] ^= 1U;
+  serde.hash.uc[ 0 ] ^= 1U;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH );
+  FD_TEST( result.root==1UL && result.vote_slot==3UL );
+
+  serde.hash.uc[ 0 ] ^= 1U;
+  serde.lockouts[ 1 ].offset = 2UL;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+
+  fd_tower_blk_t * blk4  = fd_tower_blocks_insert( ctx->tower, 4UL, 1UL );
+  blk4->replayed          = 1;
+  blk4->replayed_block_id = (fd_hash_t){ .ul={ 4UL } };
+  blk4->bank_hash         = (fd_hash_t){ .ul={ 14UL } };
+  serde.hash              = blk4->bank_hash;
+  serde.block_id          = blk4->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH );
+  FD_TEST( result.root==1UL && result.vote_slot==2UL );
+
+  serde.root = 9UL;
+  serde.lockouts_cnt = 1U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT );
+  FD_TEST( result.root==1UL && result.vote_slot==2UL );
+
+  result = failover_adopt_tower( ctx, buf, buf_sz-1UL );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_DECODE );
+  FD_TEST( result.root==1UL && result.vote_slot==2UL );
+
+  serde.root = 1UL;
+  serde.lockouts[ 0 ].confirmation_count = 0U;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_INVALID );
+  FD_TEST( result.root==1UL && result.vote_slot==2UL );
+
+  /* The votes the local tower holds were cast under the junk identity, so
+     a tower that ends before them is still taken.  Take the tower back to
+     slot 3, then offer one that ends at 2. */
+  serde.root          = 1UL;
+  serde.lockouts_cnt  = 2U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=2U };
+  serde.lockouts[ 1 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash     = fd_tower_blocks_query( ctx->tower, 3UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==3UL );
+  serde.lockouts_cnt  = 1U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash     = fd_tower_blocks_query( ctx->tower, 2UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 2UL )->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+
+  /* One that ends before the signed file verified at boot is refused, the
+     identity signed past it here.  A file that ends at the same slot is
+     no objection, and neither is a file that was not verified. */
+  ctx->tower_file_loaded         = 1;
+  ctx->recovery.saved.votes_cnt  = 1UL;
+  ctx->recovery.saved.votes[ 0 ] = (fd_tower_vote_t){ .slot=5UL, .conf=1UL };
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_STALE && result.vote_slot==2UL );
+  ctx->recovery.saved.votes[ 0 ].slot = 2UL;
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+  ctx->recovery.saved.votes[ 0 ].slot = 5UL;
+  ctx->tower_file_loaded = 0;
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+
+  /* A promotion whose tower root is ahead of ours advances the fork choice
+     root too.  Without it a later replay would walk ghost ancestry the
+     tower has already dropped and the tile would stop. */
+  serde.root          = 2UL;
+  serde.lockouts_cnt  = 1U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash     = fd_tower_blocks_query( ctx->tower, 3UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  FD_TEST( fd_ghost_root( ctx->ghost )->slot==1UL );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==2UL && result.vote_slot==3UL );
+  FD_TEST( fd_ghost_root( ctx->ghost )->slot==2UL );    /* the fork choice root advanced with the tower root */
+  FD_TEST( !fd_tower_blocks_query( ctx->tower, 1UL ) ); /* tower ancestry below the new root is gone */
+  FD_TEST( ctx->epoch_refresh_pending );                /* the epoch voter caches refresh on the next completed slot */
+
+  fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ctx->ghost ) ) );
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( ctx->tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_failover_adopt_tower" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1221,7 +1369,8 @@ main( int     argc,
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_fixture_replay( wksp, 0 );
+  test_failover_adopt_tower( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_fixture_replay( wksp, 0 );
   fd_wksp_reset( wksp, 1UL ); test_fixture_replay( wksp, 1 );
 
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_same( wksp );

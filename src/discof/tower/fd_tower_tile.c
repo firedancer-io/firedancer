@@ -139,8 +139,7 @@
 #define IN_KIND_GOSSIP (3)
 #define IN_KIND_IPECHO (4)
 #define IN_KIND_SHRED  (5)
-
-#define OUT_IDX 0 /* only a single out link tower_out */
+#define IN_KIND_FAILOV (6)
 
 #include "fd_tower_tile_private.h"
 
@@ -1035,6 +1034,11 @@ count_vote_txn( fd_tower_tile_t * ctx,
                 fd_txn_t const *  txn,
                 uchar const *     payload ) {
 
+  /* An adoption advanced the root but the epoch voter caches have not been
+     refreshed yet, so skip until the next completed slot does it, rather
+     than judge a vote against a stale root epoch. */
+  if( FD_UNLIKELY( ctx->epoch_refresh_pending ) ) return;
+
   /* We are a little stricter than Agave here because Agave only does
      the is_simple_vote check on replay vote txns, whereas we are doing
      the check on both replay and gossip / TPU vote txns.
@@ -1506,6 +1510,17 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     QUERY_VOTERS( ctx, slot_completed, slot_completed->epoch );
   }
 
+  /* An adoption advanced the root with no bank at hand to refresh the
+     epoch voter caches, so do it here on the next completed slot, before
+     any vote or dead slot in the new epoch is judged against them.  Key
+     off the root block's epoch, not this slot's, since the adopted root
+     may sit an epoch behind where replay has reached. */
+  if( FD_UNLIKELY( ctx->epoch_refresh_pending ) ) {
+    ctx->epoch_refresh_pending = 0;
+    fd_tower_blk_t const * root_blk = fd_tower_blocks_query( ctx->tower, ctx->tower->root );
+    QUERY_VOTERS( ctx, slot_completed, root_blk ? root_blk->epoch : slot_completed->epoch );
+  }
+
   /* Give a restored vote its block identity once replay produces it.
      After the first vote every surviving restored vote is an ancestor
      of it and already bound. */
@@ -1892,12 +1907,84 @@ after_credit( fd_tower_tile_t *   ctx,
       tower_file_store( ctx, &ctx->tower_file_identity, ctx->tower_file_buf, ctx->tower_file_sz );
     }
     memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), &pub->msg, sizeof(fd_tower_msg_t) );
-    fd_stem_publish( stem, OUT_IDX, pub->sig, ctx->out_chunk, sizeof(fd_tower_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_stem_publish( stem, ctx->out_idx, pub->sig, ctx->out_chunk, sizeof(fd_tower_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_msg_t), ctx->out_chunk0, ctx->out_wmark );
-    ctx->out_seq   = stem->seqs[ OUT_IDX ];
+    ctx->out_seq   = stem->seqs[ ctx->out_idx ];
     *opt_poll_in   = 0; /* drain the publishes */
     *charge_busy   = 1;
   }
+}
+
+/* failover_adopt_tower installs a tower streamed by the outgoing active.
+   Its tip must be the block this validator replayed for that slot.  The
+   result reports the root and last vote held afterwards. */
+static fd_tower_adopt_result_t
+failover_adopt_tower( fd_tower_tile_t * ctx,
+                      uchar const *     data,
+                      ulong             data_sz ) {
+  fd_tower_adopt_result_t result = { .result=FD_TOWER_ADOPT_ERR_DECODE,
+                                     .root=ctx->tower->root,
+                                     .vote_slot=fd_tower_vote_empty( ctx->tower->votes )
+                                                ? ULONG_MAX
+                                                : fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot };
+  fd_compact_tower_sync_serde_t serde;
+  if( FD_UNLIKELY( fd_compact_tower_sync_de_exact( &serde, data, data_sz ) ) ) return result;
+
+  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+  ulong vote_cnt;
+  ulong root;
+  result.result = FD_TOWER_ADOPT_ERR_INVALID;
+  if( FD_UNLIKELY( fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ) ) return result;
+
+  /* Never adopt a tower older than the signed file verified at boot.  A
+     crash between the key install and the ACTIVE record leaves such a
+     file behind, and taking the peer's older confirmation over it would
+     drop lockouts.  The votes the local tower holds do not count, a spare
+     casts them under the junk identity, so nothing in them was signed as
+     the staked one, and they are usually ahead of the tower handed over. */
+  result.result = FD_TOWER_ADOPT_ERR_STALE;
+  if( FD_UNLIKELY( ctx->tower_file_loaded && ctx->recovery.saved.votes_cnt ) ) {
+    ulong signed_tip = ctx->recovery.saved.votes[ ctx->recovery.saved.votes_cnt-1UL ].slot;
+    if( FD_UNLIKELY( !vote_cnt || votes[ vote_cnt-1UL ].slot<signed_tip ) ) return result;
+  }
+
+  result.result = FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH;
+  if( FD_LIKELY( vote_cnt && votes[ vote_cnt-1UL ].slot>ctx->tower->root ) ) {
+    fd_tower_blk_t const * blk = fd_tower_blocks_query( ctx->tower, votes[ vote_cnt-1UL ].slot );
+    if( FD_UNLIKELY( blk && blk->replayed &&
+                     (!fd_memeq( &blk->replayed_block_id, &serde.block_id, sizeof(fd_hash_t) ) ||
+                      !fd_memeq( &blk->bank_hash,          &serde.hash,     sizeof(fd_hash_t) )) ) ) return result;
+  }
+
+  fd_tower_vote_remove_all( ctx->scratch_tower );
+  for( ulong i=0UL; i<vote_cnt; i++ ) fd_tower_vote_push_tail( ctx->scratch_tower, votes[ i ] );
+  int err = fd_tower_adopt( ctx->tower, ctx->scratch_tower, root );
+  result.result = err==-2 ? FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH :
+                  err     ? FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT :
+                            FD_TOWER_ADOPT_SUCCESS;
+  if( FD_LIKELY( !err ) ) {
+    /* fd_tower_adopt advanced the tower root and dropped tower ancestry
+       below it.  The fork choice root is separate, so advance it to match,
+       the way the normal root publish does.  Otherwise a later replay walks
+       ghost ancestry the tower no longer has and the tile stops on the
+       missing block. */
+    fd_ghost_blk_t * ghost_root = fd_ghost_root( ctx->ghost );
+    if( FD_UNLIKELY( ctx->tower->root > ghost_root->slot ) ) {
+      fd_tower_blk_t const * root_blk = fd_tower_blocks_query( ctx->tower, ctx->tower->root );
+      fd_ghost_blk_t *       newr     = ( root_blk && root_blk->replayed )
+                                        ? fd_ghost_query( ctx->ghost, &root_blk->replayed_block_id )
+                                        : NULL;
+      FD_TEST( newr ); /* the adopted root was required to be replayed, so ghost holds it */
+      fd_ghost_publish( ctx->ghost, newr );
+      /* The epoch voter caches key off the root epoch, refresh them on the
+         next completed slot since there is no bank here to do it now. */
+      ctx->epoch_refresh_pending = 1;
+    }
+  }
+  result.root = ctx->tower->root;
+  if( FD_LIKELY( !fd_tower_vote_empty( ctx->tower->votes ) ) )
+    result.vote_slot = fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot;
+  return result;
 }
 
 static inline int
@@ -1971,6 +2058,10 @@ returnable_frag( fd_tower_tile_t *   ctx,
     case REPLAY_SIG_SLOT_DEAD:;
       fd_replay_slot_dead_t * slot_dead = (fd_replay_slot_dead_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( slot_dead->slot < ctx->tower->root ) ) return 0; /* ignore dead slots before root */
+      /* An adoption advanced the root but the epoch voter caches are not
+         refreshed until the next completed slot, and the epoch check below
+         keys off them, so skip this dead slot until then. */
+      if( FD_UNLIKELY( ctx->epoch_refresh_pending ) ) break;
       fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, slot_dead->slot );
       FD_TEST( lsched );
       FD_TEST( lsched->epoch==ctx->root_epoch || lsched->epoch==ctx->root_epoch + 1 );
@@ -1997,6 +2088,19 @@ returnable_frag( fd_tower_tile_t *   ctx,
       update_metrics_eqvoc( ctx, eqvoc_err );
       if( FD_UNLIKELY( eqvoc_err==FD_EQVOC_SUCCESS ) ) publish_slot_duplicate( ctx, ctx->duplicate_chunks, shred->slot );
     }
+    return 0;
+  }
+  case IN_KIND_FAILOV: {
+    /* The reply echoes the request's sequence number, the failover tile
+       waits for it. */
+    fd_tower_adopt_result_t result = failover_adopt_tower( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+
+    FD_TEST( ctx->failov_out_idx!=ULONG_MAX );
+    fd_memcpy( fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk ), &result, sizeof(result) );
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, ctx->failov_out_idx, sig, ctx->failov_out_chunk, sizeof(result), 0UL, tspub, tspub );
+    ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(result),
+                                                    ctx->failov_out_chunk0, ctx->failov_out_wmark );
     return 0;
   }
   default: FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));
@@ -2084,7 +2188,8 @@ privileged_init( fd_topo_t const *      topo,
       FD_LOG_ERR(( "cannot read or verify signed tower file." ));
     if( FD_UNLIKELY( !loaded && tile->tower.failover_enabled && !ctx->failover_standby && !first_use ) )
       FD_LOG_ERR(( "failover active startup requires its latest signed tower file." ));
-    ctx->recovery_pending = loaded && !ctx->failover_standby;
+    ctx->recovery_pending  = loaded && !ctx->failover_standby;
+    ctx->tower_file_loaded = loaded;
     ctx->first_use_pending = !loaded && first_use;
     if( ctx->recovery_pending ) FD_LOG_NOTICE(( "loaded signed tower through slot %lu, it is reconciled with the snapshot's rooted history at the first replayed slot", ctx->recovery.saved.votes[ ctx->recovery.saved.votes_cnt-1UL ].slot ));
     if( ctx->first_use_pending ) FD_LOG_NOTICE(( "first-use authorization accepted for this launch." ));
@@ -2135,6 +2240,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
+    else if( FD_LIKELY( !strcmp( link->name, "failov_tower"  ) ) ) ctx->in_kind[ i ] = IN_KIND_FAILOV;
     else if( FD_LIKELY( !strcmp( link->name, "sign_tower"    ) ) ) continue; /* unpolled keyguard responses */
     else FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 
@@ -2159,11 +2265,23 @@ unprivileged_init( fd_topo_t const *      topo,
                                                               sign_out->mtu,    sign_in->mtu ) ) );
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
+  ctx->out_idx    = fd_topo_find_tile_out_link( topo, tile, "tower_out", 0UL );
+  FD_TEST( ctx->out_idx!=ULONG_MAX );
+  fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ ctx->out_idx ] ];
+  ctx->out_mem    = topo->workspaces[ topo->objs[ out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, out_link->dcache );
+  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, out_link->dcache, out_link->mtu );
   ctx->out_chunk  = ctx->out_chunk0;
   ctx->out_seq    = 0UL;
+
+  ctx->failov_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_failov", 0UL );
+  if( FD_LIKELY( ctx->failov_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->failov_out_idx ] ];
+    ctx->failov_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->failov_out_chunk0 = fd_dcache_compact_chunk0( ctx->failov_out_mem, link->dcache );
+    ctx->failov_out_wmark  = fd_dcache_compact_wmark ( ctx->failov_out_mem, link->dcache, link->mtu );
+    ctx->failov_out_chunk  = ctx->failov_out_chunk0;
+  }
 
   FD_BASE58_ENCODE_32_BYTES( ctx->vote_account->uc, vote_account_b58 );
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );

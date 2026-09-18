@@ -96,6 +96,21 @@ struct fd_failover_tile_ctx {
   fd_failover_bus_msg_t bus_req;
   int                   bus_req_fresh;
 
+  /* Adoption request to the tower tile and its answer. */
+  ulong                   adopt_out_idx;
+  fd_wksp_t *             adopt_out_mem;
+  ulong                   adopt_out_chunk0;
+  ulong                   adopt_out_wmark;
+  ulong                   adopt_out_chunk;
+  ulong                   adopt_request_id;
+  ulong                   adopt_in_idx;
+  fd_wksp_t *             adopt_in_mem;
+  ulong                   adopt_in_chunk0;
+  ulong                   adopt_in_wmark;
+  fd_tower_adopt_result_t adopt_result;
+  ulong                   adopt_result_id;
+  int                     adopt_result_fresh;
+
   ulong       tower_in_idx;
   fd_wksp_t * tower_in_mem;
   ulong       tower_in_chunk0;
@@ -374,8 +389,17 @@ unprivileged_init( fd_topo_t const *      topo,
   void *                   scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_failover_tile_ctx_t * ctx     = (fd_failover_tile_ctx_t *)scratch;
 
-  ctx->tower_in_idx = ULONG_MAX;
-  ctx->admin_in_idx = ULONG_MAX;
+  ctx->tower_in_idx  = ULONG_MAX;
+  ctx->admin_in_idx  = ULONG_MAX;
+  ctx->adopt_in_idx  = ULONG_MAX;
+  ctx->adopt_out_idx = fd_topo_find_tile_out_link( topo, tile, "failov_tower", 0UL );
+  if( FD_LIKELY( ctx->adopt_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->adopt_out_idx ] ];
+    ctx->adopt_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->adopt_out_chunk0 = fd_dcache_compact_chunk0( ctx->adopt_out_mem, link->dcache );
+    ctx->adopt_out_wmark  = fd_dcache_compact_wmark ( ctx->adopt_out_mem, link->dcache, link->mtu );
+    ctx->adopt_out_chunk  = ctx->adopt_out_chunk0;
+  }
   ctx->admin_out_idx = fd_topo_find_tile_out_link( topo, tile, "failov_admin", 0UL );
   if( FD_LIKELY( ctx->admin_out_idx!=ULONG_MAX ) ) {
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->admin_out_idx ] ];
@@ -386,6 +410,13 @@ unprivileged_init( fd_topo_t const *      topo,
   }
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_LIKELY( !strcmp( link->name, "tower_failov" ) ) ) {
+      ctx->adopt_in_idx    = i;
+      ctx->adopt_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->adopt_in_chunk0 = fd_dcache_compact_chunk0( ctx->adopt_in_mem, link->dcache );
+      ctx->adopt_in_wmark  = fd_dcache_compact_wmark ( ctx->adopt_in_mem, link->dcache, link->mtu );
+      continue;
+    }
     if( FD_LIKELY( !strcmp( link->name, "admin_failov" ) ) ) {
       ctx->admin_in_idx    = i;
       ctx->admin_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -742,6 +773,29 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
   }
 }
 
+/* publish_adopt sends the tower retained from the outgoing active to the
+   tower tile.  The answer echoes the request id, which tells a late reply
+   from an abandoned attempt apart.  Returns the id, or ULONG_MAX when
+   there is nothing to adopt. */
+FD_FN_UNUSED static ulong
+publish_adopt( fd_failover_tile_ctx_t * ctx,
+               fd_stem_context_t *      stem ) {
+  fd_failover_peer_t const * peer = NULL;
+  for( ulong i=0UL; i<ctx->peer_cnt; i++ ) {
+    if( FD_LIKELY( ctx->peers[ i ].consensus.valid ) ) { peer = &ctx->peers[ i ]; break; }
+  }
+  if( FD_UNLIKELY( ctx->adopt_out_idx==ULONG_MAX || !peer ) ) return ULONG_MAX;
+
+  ulong state_sz = (ulong)peer->consensus.msg.state_len;
+  if( FD_UNLIKELY( !++ctx->adopt_request_id ) ) ctx->adopt_request_id++;
+  fd_memcpy( fd_chunk_to_laddr( ctx->adopt_out_mem, ctx->adopt_out_chunk ), peer->consensus.state, state_sz );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->adopt_out_idx, ctx->adopt_request_id, ctx->adopt_out_chunk, state_sz, 0UL, tspub, tspub );
+  ctx->adopt_out_chunk    = fd_dcache_compact_next( ctx->adopt_out_chunk, state_sz, ctx->adopt_out_chunk0, ctx->adopt_out_wmark );
+  ctx->adopt_result_fresh = 0;
+  return ctx->adopt_request_id;
+}
+
 /* Answer one bus request.  The admin tile validated the ABI already, so
    only the peer selection can fail here. */
 static void
@@ -837,6 +891,13 @@ during_frag( fd_failover_tile_ctx_t * ctx,
              ulong                    chunk,
              ulong                    sz,
              ulong                    ctl FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( in_idx==ctx->adopt_in_idx ) ) {
+    if( FD_UNLIKELY( chunk<ctx->adopt_in_chunk0 || chunk>ctx->adopt_in_wmark || sz!=sizeof(fd_tower_adopt_result_t) ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->adopt_in_chunk0, ctx->adopt_in_wmark ));
+    }
+    fd_memcpy( &ctx->adopt_result, fd_chunk_to_laddr_const( ctx->adopt_in_mem, chunk ), sizeof(fd_tower_adopt_result_t) );
+    return;
+  }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
     if( FD_UNLIKELY( chunk<ctx->admin_in_chunk0 || chunk>ctx->admin_in_wmark || sz!=sizeof(fd_failover_bus_msg_t) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->admin_in_chunk0, ctx->admin_in_wmark ));
@@ -860,6 +921,11 @@ after_frag( fd_failover_tile_ctx_t * ctx,
             ulong                    tsorig FD_PARAM_UNUSED,
             ulong                    tspub FD_PARAM_UNUSED,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( in_idx==ctx->adopt_in_idx ) ) {
+    ctx->adopt_result_id    = sig;
+    ctx->adopt_result_fresh = 1;
+    return;
+  }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
     /* Answered from after_credit, where a publish credit is available. */
     ctx->bus_req_fresh = 1;
