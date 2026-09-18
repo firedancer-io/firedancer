@@ -1,6 +1,7 @@
 #include "fd_vm_syscall.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/fd_system_ids.h"
+#include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_vm_syscall_macros.h"
 
 /* The VM structs for sysvars that are exposed by the VM are represented
@@ -407,6 +408,94 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   *_ret = stake;
 
+  return FD_VM_SUCCESS;
+}
+
+struct fd_leader_info {
+  fd_pubkey_t leader_id;
+  fd_pubkey_t next_leader_id;
+  fd_pubkey_t leader_vote;
+  fd_pubkey_t next_leader_vote;
+};
+typedef struct fd_leader_info fd_leader_info_t;
+
+FD_STATIC_ASSERT( sizeof(fd_leader_info_t)==128UL, "leader info size mismatch" );
+FD_STATIC_ASSERT( offsetof( fd_leader_info_t, leader_id        )== 0UL, "leader info layout mismatch" );
+FD_STATIC_ASSERT( offsetof( fd_leader_info_t, next_leader_id   )==32UL, "leader info layout mismatch" );
+FD_STATIC_ASSERT( offsetof( fd_leader_info_t, leader_vote      )==64UL, "leader info layout mismatch" );
+FD_STATIC_ASSERT( offsetof( fd_leader_info_t, next_leader_vote )==96UL, "leader info layout mismatch" );
+
+int
+fd_vm_syscall_sol_get_leader( /**/            void *  _vm,
+                              /**/            ulong   out_vaddr,
+                              FD_PARAM_UNUSED ulong   r2,
+                              FD_PARAM_UNUSED ulong   r3,
+                              FD_PARAM_UNUSED ulong   r4,
+                              FD_PARAM_UNUSED ulong   r5,
+                              /**/            ulong * _ret ) {
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+  fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
+
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_leader_info_t) ) );
+
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
+
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+    return FD_VM_ERR_INVAL;
+  }
+
+  fd_vm_haddr_query_t var_query = {
+    .vaddr    = out_vaddr,
+    .align    = 1UL,
+    .sz       = sizeof(fd_leader_info_t),
+    .is_slice = 0,
+  };
+
+  fd_vm_haddr_query_t * queries[] = { &var_query };
+  FD_VM_TRANSLATE_MUT( vm, queries );
+
+  fd_leader_info_t leader_info;
+  memset( &leader_info, 0, sizeof(fd_leader_info_t) );
+
+  fd_bank_t * bank = instr_ctx->bank;
+  if( FD_LIKELY( bank && bank->banks_data_offset ) ) {
+    ulong epoch = bank->f.epoch;
+    fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, epoch );
+    if( FD_LIKELY( leaders && leaders->epoch==epoch && leaders->slot_cnt>0UL ) ) {
+      fd_pubkey_t const * leader_id = fd_epoch_leaders_get( leaders, bank->f.slot );
+      if( leader_id ) leader_info.leader_id = *leader_id;
+      fd_pubkey_t const * leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
+      if( leader_vote ) leader_info.leader_vote = *leader_vote;
+    }
+
+    ulong next_slot = bank->f.slot + 1UL;
+    ulong next_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, next_slot, NULL );
+    if( FD_LIKELY( next_epoch==epoch ) ) {
+      if( FD_LIKELY( leaders && leaders->epoch==epoch && leaders->slot_cnt>0UL ) ) {
+        fd_pubkey_t const * next_leader_id = fd_epoch_leaders_get( leaders, next_slot );
+        if( next_leader_id ) leader_info.next_leader_id = *next_leader_id;
+        fd_pubkey_t const * next_leader_vote = fd_epoch_leaders_get_vote( leaders, next_slot );
+        if( next_leader_vote ) leader_info.next_leader_vote = *next_leader_vote;
+      }
+    } else if( next_epoch==epoch+1UL ) {
+      fd_epoch_leaders_t const * next_leaders = fd_bank_epoch_leaders_query( bank, next_epoch );
+      if( FD_LIKELY( next_leaders && next_leaders->epoch==next_epoch && next_leaders->slot_cnt>0UL ) ) {
+        fd_pubkey_t const * next_leader_id = fd_epoch_leaders_get( next_leaders, next_slot );
+        if( next_leader_id ) leader_info.next_leader_id = *next_leader_id;
+        fd_pubkey_t const * next_leader_vote = fd_epoch_leaders_get_vote( next_leaders, next_slot );
+        if( next_leader_vote ) leader_info.next_leader_vote = *next_leader_vote;
+      }
+    }
+  }
+
+  fd_memcpy( var_query.haddr, &leader_info, sizeof(fd_leader_info_t) );
+  *_ret = 0UL;
   return FD_VM_SUCCESS;
 }
 

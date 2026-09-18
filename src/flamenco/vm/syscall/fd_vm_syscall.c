@@ -27,12 +27,14 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_get_epoch_stake_syscall   = 0;
   int enable_bls12_381_syscall         = 0;
   int enable_sha512_syscall            = 0;
+  int enable_get_leader_syscall        = 0;
 
   if( slot ) {
     enable_get_sysvar_syscall        = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
     enable_get_epoch_stake_syscall   = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
     enable_bls12_381_syscall         = FD_FEATURE_ACTIVE( slot, features, enable_bls12_381_syscall );
     enable_sha512_syscall            = FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall );
+    enable_get_leader_syscall        = FD_FEATURE_ACTIVE( slot, features, enable_get_leader_syscall );
 
   } else { /* enable ALL */
 
@@ -40,6 +42,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_get_epoch_stake_syscall   = 1;
     enable_bls12_381_syscall         = 1;
     enable_sha512_syscall            = 1;
+    enable_get_leader_syscall        = 1;
 
   }
 
@@ -95,6 +98,10 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
   if( enable_get_epoch_stake_syscall ) {
     REGISTER( "sol_get_epoch_stake",                 fd_vm_syscall_sol_get_epoch_stake );
+  }
+
+  if( enable_get_leader_syscall ) {
+    REGISTER( "sol_get_leader",                      fd_vm_syscall_sol_get_leader );
   }
 
   REGISTER( "sol_memcpy_",                           fd_vm_syscall_sol_memcpy );
