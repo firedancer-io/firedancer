@@ -1076,7 +1076,8 @@ rdisp_mirror_ingest_block( mirror_t * mirror,
                                       fd_type_pun_const( meta ),
                                       block->txn[ local_txn_idx ].payload,
                                       NULL,
-                                      0 );
+                                      0,
+                                      NULL );
     FD_TEST( txn_idx!=0UL );
     mirror->txn_idx[ slot ][ local_txn_idx ] = txn_idx;
     mirror->txn_added_cnt[ slot ]++;
