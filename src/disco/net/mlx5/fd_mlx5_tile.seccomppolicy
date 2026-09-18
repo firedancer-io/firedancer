@@ -7,7 +7,13 @@
 #
 # qp_stats_fd: This is the file descriptor for the RDMA netlink socket
 # we use to check QP specific hardware counters (namely out-of-buffer).
-uint logfile_fd, uint async_fd, uint qp_stats_fd
+# lo_tx_fd: Send-only raw IPv4 socket bound to lo, owned by mlx5:0.
+uint logfile_fd, uint async_fd, uint qp_stats_fd, uint lo_tx_fd
+
+# Allow mlx5 to send loopback packets with sendmmsg.
+sendmmsg: (and (eq (arg 0) lo_tx_fd)
+               (<= (arg 2) 64)
+               (eq (arg 3) MSG_DONTWAIT))
 
 # logging: all log messages are written to a file and/or pipe
 #

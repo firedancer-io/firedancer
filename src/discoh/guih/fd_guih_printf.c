@@ -1069,7 +1069,7 @@ fd_guih_printf_tile_metrics( fd_guih_t *                   gui,
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "priority" );
     for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
-      int priority = fd_topob_tile_priority_type( gui->topo->tiles[ i ].name );
+      int priority = fd_topob_tile_priority_type( &gui->topo->tiles[ i ] );
 
       char const * priority_type_str = "unknown";
       switch( priority ) {

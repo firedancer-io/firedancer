@@ -60,6 +60,7 @@ struct fd_sock_tile {
   /* RX SOCK_DGRAM sockets */
   struct pollfd pollfd[ FD_SOCK_TILE_MAX_SOCKETS ];
   uint          sock_cnt;
+  uint          lo_ifindex;
   uchar         proto_id[ FD_SOCK_TILE_MAX_SOCKETS ];
 
   /* TX SOCK_RAW socket */
@@ -80,6 +81,7 @@ struct fd_sock_tile {
   uchar             link_rx_map [ FD_SOCK_TILE_MAX_SOCKETS ];
   uchar             repair_rx;
   uint              repair_shred_sock_idx;
+  ulong             link_rx_cnt;
   fd_sock_link_rx_t link_rx[ MAX_NET_OUTS ];
 
   /* TX links */

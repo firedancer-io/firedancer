@@ -466,9 +466,68 @@ fd_topo_install_xdp( fd_topo_t const * topo,
 
 # undef ADD_IF_IDX
 
+void
+fd_topos_sock_lo( fd_topo_t *             topo,
+                  fd_config_net_t const * net_cfg,
+                  fd_topo_tile_t const *  net_tile ) {
+  if( FD_UNLIKELY( net_cfg->socket.receive_buffer_size>INT_MAX ) )
+    FD_LOG_ERR(( "invalid [net.socket.receive_buffer_size]" ));
+
+  fd_topob_wksp( topo, "sock" );
+  fd_topo_tile_t * sock = fd_topob_tile( topo, "sock", "sock", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
+  sock->net = net_tile->net;
+  sock->sock.only_recv_lo = 1;
+  sock->sock.so_rcvbuf    = (int)net_cfg->socket.receive_buffer_size;
+  sock->sock.net_tile_id  = net_tile->id;
+
+  for( ulong i=0UL; i<net_tile->out_cnt; i++ ) {
+    fd_topo_link_t const * net_out_link = &topo->links[ net_tile->out_link_id[ i ] ];
+
+    /* Which links of net to duplicate */
+    if( 0!=strncmp( net_out_link->name, "net_", 4UL ) || 0==strcmp( net_out_link->name, "net_netlnk" ) ) continue;
+
+    /* Duplicate link */
+    fd_topo_link_t * sock_out_link = fd_topob_link( topo, net_out_link->name, "sock", net_out_link->depth, FD_NET_MTU, 64UL );
+    fd_topob_tile_out( topo, "sock", sock->kind_id, sock_out_link->name, sock_out_link->kind_id );
+
+    /* Loop through all tiles, check their in links for net */
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t * consumer = &topo->tiles[ j ];
+      ulong const in_cnt = consumer->in_cnt;
+      for( ulong k=0UL; k<in_cnt; k++ ) {
+        if( consumer->in_link_id[ k ]!=net_out_link->id ) continue;
+
+        /* Add as sock link consumer */
+        char const * fseq_wksp = topo->workspaces[ topo->objs[ consumer->in_link_fseq_obj_id[ k ] ].wksp_id ].name;
+        fd_topob_tile_in( topo, consumer->name, consumer->kind_id, fseq_wksp, sock_out_link->name, sock_out_link->kind_id,
+                          consumer->in_link_reliable[ k ], consumer->in_link_poll[ k ] );
+      }
+    }
+  }
+}
+
+ulong
+sock_lo_net_tile_id( fd_topo_tile_t const * tile ) {
+  if( 0==strcmp( tile->name, "sock" ) && tile->sock.only_recv_lo ) return tile->sock.net_tile_id;
+  return ULONG_MAX;
+}
+
+void
+sock_lo_set_affinity( fd_topo_t * topo ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    ulong net_tile_id = sock_lo_net_tile_id( tile );
+    if( net_tile_id==ULONG_MAX ) continue;
+    FD_TEST( net_tile_id<topo->tile_cnt );
+    fd_topo_tile_t const * net_tile = &topo->tiles[ net_tile_id ];
+    tile->cpu_idx = net_tile->cpu_idx;
+    tile->floats  = net_tile->floats;
+  }
+}
+
 static void
 fd_topos_mlx5_setup_mem( fd_topo_t *      topo,
-                            fd_topo_tile_t * mlx5_tile ) {
+                         fd_topo_tile_t * mlx5_tile ) {
   ulong cum_frame_cnt = 0UL;
 
   ulong const rx_depth = mlx5_tile->mlx5.rx_queue_size;

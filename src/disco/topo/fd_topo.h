@@ -229,8 +229,10 @@ struct fd_topo_tile {
     struct {
       fd_topo_net_tile_t net;
       /* sock specific options */
-      int so_sndbuf;
-      int so_rcvbuf;
+      int   so_sndbuf;
+      int   so_rcvbuf;
+      int   only_recv_lo;
+      ulong net_tile_id;
     } sock;
 
     struct {
