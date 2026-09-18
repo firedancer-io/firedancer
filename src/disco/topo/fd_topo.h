@@ -723,6 +723,9 @@ struct fd_topo_tile {
       char snapshots_path[ PATH_MAX ];
       int  incremental_snapshots;
       uint min_download_speed_mibs;
+      ulong  wfs_slot;
+      int    wfs_hash_is_zero;
+      ushort wfs_shred_version;
     } snapld;
 
     struct {

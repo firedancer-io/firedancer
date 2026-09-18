@@ -3,6 +3,7 @@
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_sshttp.h"
 #include "utils/fd_sspeer_selector.h"
+#include "utils/fd_wfs.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -113,8 +114,10 @@ privileged_init( fd_topo_t const *      topo,
   /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
      of whether snapct may do the same, because this information is
      needed here during privileged_init. */
+  int needs_incr = tile->snapld.incremental_snapshots ||
+                   fd_wfs_configured( tile->snapld.wfs_slot, tile->snapld.wfs_hash_is_zero, (ulong)tile->snapld.wfs_shred_version );
   if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
-                                               tile->snapld.incremental_snapshots,
+                                               needs_incr,
                                                &full_slot,         &incr_slot,
                                                full_path,          incr_path,
                                                &full_is_zstd,      &incr_is_zstd,

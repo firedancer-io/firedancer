@@ -1526,6 +1526,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_memcpy( tile->snapld.snapshots_path, config->paths.snapshots, PATH_MAX );
     tile->snapld.incremental_snapshots             = config->firedancer.snapshots.incremental_snapshots;
     tile->snapld.min_download_speed_mibs           = config->firedancer.snapshots.min_download_speed_mibs;
+    tile->snapld.wfs_slot                          = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    tile->snapld.wfs_hash_is_zero                  = !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
+    tile->snapld.wfs_shred_version                 = config->consensus.expected_shred_version;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {
 
