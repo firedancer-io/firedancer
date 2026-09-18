@@ -1214,6 +1214,7 @@ fd_banks_get_evictable_private( fd_banks_t *      banks,
                                 fd_bank_t *       bank_pool,
                                 ulong             bank_idx,
                                 fd_bank_t const * protected_bank,
+                                fd_bank_t const * protected_bank2,
                                 ulong *           evictable_cnt,
                                 ulong *           target ) {
   /* Return any leaf node that is eligible for eviction.  We consider
@@ -1230,7 +1231,7 @@ fd_banks_get_evictable_private( fd_banks_t *      banks,
 
   ulong child_idx = bank->child_idx;
   while( child_idx!=null_idx ) {
-    fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, child_idx, protected_bank, evictable_cnt, target );
+    fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, child_idx, protected_bank, protected_bank2, evictable_cnt, target );
     if( FD_LIKELY( evictable ) ) return evictable;
     fd_bank_t * child = fd_banks_pool_ele( bank_pool, child_idx );
     child_idx = child->sibling_idx;
@@ -1238,7 +1239,7 @@ fd_banks_get_evictable_private( fd_banks_t *      banks,
 
   if( bank->child_idx!=null_idx ) return NULL;
   if( bank->idx==banks->root_idx ) return NULL;
-  if( bank==protected_bank ) return NULL;
+  if( bank==protected_bank || bank==protected_bank2 ) return NULL;
   if( bank->is_leader ) return NULL;
   if( bank->state==FD_BANK_STATE_INACTIVE || bank->state==FD_BANK_STATE_DEAD || bank->state==FD_BANK_STATE_PRUNABLE ) return NULL;
 
@@ -1252,8 +1253,9 @@ fd_banks_get_evictable_private( fd_banks_t *      banks,
 }
 
 ulong
-fd_banks_get_evictable_bank( fd_banks_t *      banks,
-                             fd_bank_t const * protected_bank ) {
+fd_banks_get_evictable_bank_excluding( fd_banks_t *      banks,
+                                       fd_bank_t const * protected_bank,
+                                       fd_bank_t const * protected_bank2 ) {
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
   ulong       null_idx  = fd_banks_pool_idx_null( bank_pool );
 
@@ -1263,11 +1265,11 @@ fd_banks_get_evictable_bank( fd_banks_t *      banks,
   if( FD_UNLIKELY( root->child_idx==null_idx ) ) return ULONG_MAX;
 
   ulong evictable_cnt = 0UL;
-  fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, protected_bank, &evictable_cnt, NULL );
+  fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, protected_bank, protected_bank2, &evictable_cnt, NULL );
   if( FD_UNLIKELY( !evictable_cnt ) ) return ULONG_MAX;
 
   ulong target = banks->evict_rr_idx++ % evictable_cnt;
-  fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, protected_bank, NULL, &target );
+  fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, protected_bank, protected_bank2, NULL, &target );
   if( FD_UNLIKELY( !evictable ) ) FD_LOG_CRIT(( "invariant violation: evictable bank not found" ));
 
   /* Eviction only selects leaves, and prunable_idx is a single pending
@@ -1276,6 +1278,12 @@ fd_banks_get_evictable_bank( fd_banks_t *      banks,
   evictable->state = FD_BANK_STATE_PRUNABLE;
   banks->prunable_idx = evictable->idx;
   return evictable->idx;
+}
+
+ulong
+fd_banks_get_evictable_bank( fd_banks_t *      banks,
+                             fd_bank_t const * protected_bank ) {
+  return fd_banks_get_evictable_bank_excluding( banks, protected_bank, NULL );
 }
 
 void

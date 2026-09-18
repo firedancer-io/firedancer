@@ -2522,6 +2522,75 @@ try_replay( fd_replay_tile_t *  ctx,
   return charge_busy;
 }
 
+/* Recompute the oldest missing slot from the retained target.  Only
+   retain pointers within this callback: reasm owns queued work and
+   removes it when its fork is pruned or its FECs are evicted. */
+static ulong
+prepare_backfill( fd_replay_tile_t * ctx,
+                  fd_reasm_fec_t *   reasm_fec,
+                  fd_bank_t **       base_bank_out,
+                  fd_reasm_fec_t **  base_fec_out ) {
+  fd_reasm_fec_t ** path      = ctx->backfill_path;
+  ulong             path_max  = ctx->max_shreds_per_block/FD_FEC_SHRED_CNT;
+  ulong             path_cnt  = 0UL;
+  ulong             path_slot = reasm_fec->slot;
+
+  /* Walk backward from the candidate FEC until we find one with an
+     associated bank that we consider 'valid'.  A FEC is considered
+     valid to backfill off of if the bank matches the seq we expect and
+     if its latest mr matches.  We must check the latest MR in the case
+     of equivocation. */
+  fd_bank_t * base_bank = NULL;
+  for( fd_reasm_fec_t * curr = reasm_fec;; ) {
+    fd_bank_t *         curr_bank    = curr->bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, curr->bank_idx );
+    fd_block_id_ele_t * block_id_ele = curr_bank ? &ctx->block_id_arr[ curr_bank->idx ] : NULL;
+    if( FD_UNLIKELY( curr_bank && curr_bank->bank_seq==curr->bank_seq && curr_bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+      *base_bank_out = curr_bank;
+      *base_fec_out  = curr;
+      return path_cnt;
+    }
+    if( FD_LIKELY( curr_bank &&
+                   curr_bank->bank_seq==curr->bank_seq &&
+                   block_id_ele->bank_seq==curr->bank_seq &&
+                   fd_hash_eq( &block_id_ele->latest_mr, &curr->key ) ) ) { base_bank = curr_bank; *base_fec_out = curr; break; }
+
+    if( FD_UNLIKELY( curr->slot!=path_slot ) ) {
+      path_cnt  = 0UL;
+      path_slot = curr->slot;
+    }
+
+    FD_TEST( path_cnt<path_max );
+    path[ path_cnt++ ] = curr;
+
+    curr = fd_reasm_parent( ctx->reasm, curr );
+    FD_TEST( curr );
+  }
+
+  *base_bank_out = base_bank;
+  return path_cnt;
+}
+
+/* Return the actual next FEC needed by target, including reconstruction
+   of an evicted ancestor.  NULL means target is already ingested. */
+static fd_reasm_fec_t *
+next_backfill_fec( fd_replay_tile_t * ctx,
+                   fd_reasm_fec_t *   target,
+                   fd_bank_t **       base_bank_out ) {
+  fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, target );
+  FD_TEST( parent );
+  fd_bank_t * bank = parent->bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
+  if( bank && bank->bank_seq==parent->bank_seq &&
+      ctx->block_id_arr[bank->idx].bank_seq==bank->bank_seq &&
+      fd_hash_eq( &ctx->block_id_arr[bank->idx].latest_mr, &parent->key ) &&
+      !( target->fec_set_idx && target->eqvoc && !parent->eqvoc ) ) {
+    *base_bank_out = bank;
+    return target;
+  }
+  fd_reasm_fec_t * base_fec;
+  ulong cnt = prepare_backfill( ctx, target, base_bank_out, &base_fec );
+  return cnt ? ctx->backfill_path[cnt-1UL] : NULL;
+}
+
 static int
 can_process_fec( fd_replay_tile_t * ctx,
                  int *              evict_banks_out ) {
@@ -2541,6 +2610,16 @@ can_process_fec( fd_replay_tile_t * ctx,
     ctx->metrics.reasm_empty++;
     return 0;
   }
+
+  fd_reasm_fec_t * target = fec;
+  fd_reasm_fec_t * target_parent = fd_reasm_parent( ctx->reasm, target );
+  FD_TEST( target_parent );
+  if( target_parent->bank_dead ) return 1;
+  fd_bank_t * base_bank;
+  fec = next_backfill_fec( ctx, target, &base_bank );
+  if( base_bank->state==FD_BANK_STATE_PRUNABLE ) return 0;
+  if( !fec || base_bank->state==FD_BANK_STATE_DEAD ) return 1;
+  if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return 1;
 
   fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, fec );
   FD_TEST( parent ); /* FEC must be connected */
@@ -2579,33 +2658,16 @@ can_process_fec( fd_replay_tile_t * ctx,
     return 0;
   }
 
-  /* Should we evict banks if there are no more free banks?  The answer
-     is it depends.  Eviction should only happen if we can make no
-     forward replay progress.  This can only happen if:
-     1. banks are full
-     2. sched is drained: pending txns could complete a block and
-        eventually advance the root.
-     AND
-     3. next reasm FEC needs a new bank.  A fec that chains off of a
-        bank that is already allocated can be processed.  A FEC can
-        require a new bank in three ways:
-        - fec_set_idx==0: we don't have any free banks to provision a
-          new bank for this FEC.
-        - equivocation: a FEC may be in the middle of a block, but if
-          it's the first equivocating FEC detected, we need to allocate
-          a new bank for the version of the block.
-        - backfill: the parent FEC's bank was never created or has been
-          evicted and must be reconstructed. */
-
-  int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
-  if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
-    int is_new_block = fec->fec_set_idx==0U;
-    int is_eqvoc     = fec->eqvoc && !parent->eqvoc;
-    if( FD_UNLIKELY( is_new_block || is_eqvoc || invalid_parent ) ) {
-      ctx->metrics.banks_full++;
-      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
-      return 0;
-    }
+  /* Admission applies to the next missing FEC, not the original
+     target.  Backfill has already resolved equivocation and evicted
+     ancestry to a live base.  Only FEC 0 allocates a new bank; a
+     continuation must progress even when the pool is full. */
+  FD_TEST( parent_fec_bank==base_bank );
+  FD_TEST( parent->bank_seq==base_bank->bank_seq );
+  if( FD_UNLIKELY( fec->fec_set_idx==0U && !fd_banks_can_start_bank( ctx->banks ) ) ) {
+    ctx->metrics.banks_full++;
+    if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
+    return 0;
   }
 
   /* Otherwise, banks may not be full, so we can always create a new
@@ -2938,45 +3000,21 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   return 0;
 }
 
-static void
+/* Returns true only when the target was ingested or its work can be
+   discarded.  Partial reconstruction leaves the target queued. */
+static int
 backfill_fec_sets( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem,
                    fd_reasm_fec_t *    reasm_fec ) {
   fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
   FD_TEST( !!parent );
 
-  fd_reasm_fec_t ** path     = ctx->backfill_path;
-  ulong             path_max = ctx->max_shreds_per_block/FD_FEC_SHRED_CNT;
-  ulong             path_cnt = 0UL;
-  ulong             path_slot = reasm_fec->slot;
-
-  /* Walk backward from the candidate FEC until we find one with an
-     associated bank that we consider 'valid'.  A FEC is considered
-     valid to backfill off of if the bank matches the seq we expect and
-     if its latest mr matches.  We must check the latest MR in the case
-     of equivocation. */
-  fd_bank_t *      base_bank = NULL;
-  fd_reasm_fec_t * base_fec  = NULL;
-  for( fd_reasm_fec_t * curr = reasm_fec;; ) {
-    fd_bank_t *         curr_bank    = curr->bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, curr->bank_idx );
-    fd_block_id_ele_t * block_id_ele = curr_bank ? &ctx->block_id_arr[ curr_bank->idx ] : NULL;
-    if( FD_LIKELY( curr_bank &&
-                   curr_bank->bank_seq==curr->bank_seq &&
-                   curr_bank->state!=FD_BANK_STATE_PRUNABLE &&
-                   block_id_ele->bank_seq==curr->bank_seq &&
-                   fd_hash_eq( &block_id_ele->latest_mr, &curr->key ) ) ) { base_bank = curr_bank; base_fec = curr; break; }
-
-    if( FD_UNLIKELY( curr->slot!=path_slot ) ) {
-      path_cnt  = 0UL;
-      path_slot = curr->slot;
-    }
-
-    FD_TEST( path_cnt<path_max );
-    path[ path_cnt++ ] = curr;
-
-    curr = fd_reasm_parent( ctx->reasm, curr );
-    FD_TEST( curr );
-  }
+  fd_reasm_fec_t ** path = ctx->backfill_path;
+  fd_bank_t * base_bank;
+  fd_reasm_fec_t * base_fec;
+  ulong path_cnt = prepare_backfill( ctx, reasm_fec, &base_bank, &base_fec );
+  FD_TEST( base_bank->state!=FD_BANK_STATE_PRUNABLE );
+  if( !path_cnt ) return 1;
 
   if( FD_UNLIKELY( base_bank->state==FD_BANK_STATE_DEAD ) ) {
     uchar bank_dead = fd_uchar_if( base_fec->bank_dead==2U, 2U, 1U );
@@ -2993,7 +3031,7 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
                                abandoned ? FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
       reasm_fec->dead_reported = 1UL;
     }
-    return;
+    return 1;
   }
 
   /* Now that we have queued up the potential path of FECs to backfill,
@@ -3005,11 +3043,20 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
   ulong sched_capacity = fd_sched_can_ingest_cnt( ctx->sched );
   ulong path_idx_min   = path_cnt - fd_ulong_min( sched_capacity, path_cnt );
   for( ulong i=path_cnt; i>path_idx_min; i-- ) {
-    if( FD_UNLIKELY( insert_fec_set( ctx, stem, path[ i-1UL ] ) ) ) return;
+    fd_reasm_fec_t * fec = path[ i-1UL ];
+    /* A leader FEC from abandoned leadership cannot be reconstructed
+       by this path.  Retire the trigger rather than retrying that
+       no-op indefinitely. */
+    if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return 1;
+    int discarded = insert_fec_set( ctx, stem, fec );
+    if( fec->in_out ) FD_TEST( fd_reasm_pop_fec( ctx->reasm, fec )==fec );
+    fec->popped = 1;
+    if( FD_UNLIKELY( discarded ) ) return 1;
   }
+  return !path_idx_min && last==reasm_fec;
 }
 
-static void
+static int
 process_fec_set( fd_replay_tile_t *  ctx,
                  fd_stem_context_t * stem,
                  fd_reasm_fec_t *    reasm_fec ) {
@@ -3032,7 +3079,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
       }
     }
     FD_LOG_DEBUG(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because parent bank is marked dead", reasm_fec->slot, reasm_fec->fec_set_idx ));
-    return;
+    return 1;
   }
 
   /* An invariant from reasm is that if we receive a FEC set that is
@@ -3049,7 +3096,9 @@ process_fec_set( fd_replay_tile_t *  ctx,
      parent is marked eqvoc (and not replayed), but the child gets
      confirmed and delivered. */
   fd_bank_t * parent_fec_bank = parent->bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
-  int parent_bank_invalid = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
+  int parent_bank_invalid = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq ||
+                            ctx->block_id_arr[parent_fec_bank->idx].bank_seq!=parent->bank_seq ||
+                            !fd_hash_eq( &ctx->block_id_arr[parent_fec_bank->idx].latest_mr, &parent->key );
 
   /* If the upcoming FEC is either the start of an equivocating chain,
      chains off of a bank that was evicted, OR is the child of an
@@ -3059,8 +3108,9 @@ process_fec_set( fd_replay_tile_t *  ctx,
      corresponding to a valid bank. */
   if( FD_LIKELY( !parent_bank_invalid && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
+    return 1;
   } else {
-    backfill_fec_sets( ctx, stem, reasm_fec );
+    return backfill_fec_sets( ctx, stem, reasm_fec );
   }
 }
 
@@ -3430,8 +3480,11 @@ try_process_fec( fd_replay_tile_t *  ctx,
   int evict_banks = 0;
   if( FD_LIKELY( (ctx->execrp_idle_cnt>=2UL*ctx->in_cnt || ctx->is_leader || fd_reasm_free( ctx->reasm )<=1UL) &&
                  can_process_fec( ctx, &evict_banks ) ) ) {
-    fd_reasm_fec_t * fec = fd_reasm_pop( ctx->reasm );
-    process_fec_set( ctx, stem, fec );
+    fd_reasm_fec_t * fec = fd_reasm_peek( ctx->reasm );
+    FD_TEST( fec );
+    if( process_fec_set( ctx, stem, fec ) && !fec->popped ) {
+      FD_TEST( fd_reasm_pop( ctx->reasm )==fec );
+    }
     ctx->execrp_idle_cnt = 0UL;
     return 1;
   }
@@ -3440,7 +3493,11 @@ try_process_fec( fd_replay_tile_t *  ctx,
      marked prunable by fd_banks_get_evictable_bank and pruned once refs
      drain. */
   if( FD_UNLIKELY( evict_banks ) ) {
-    ulong evictable_bank_idx = fd_banks_get_evictable_bank( ctx->banks, ctx->notified_root_bank );
+    fd_bank_t * base_bank;
+    fd_reasm_fec_t * target = fd_reasm_peek( ctx->reasm );
+    FD_TEST( target );
+    next_backfill_fec( ctx, target, &base_bank );
+    ulong evictable_bank_idx = fd_banks_get_evictable_bank_excluding( ctx->banks, ctx->notified_root_bank, base_bank );
     if( FD_UNLIKELY( evictable_bank_idx==ULONG_MAX ) ) {
       FD_LOG_DEBUG(( "replay has no banks to mark as prunable, it's possible that there is one bank already marked as prunable" ));
       return 0;

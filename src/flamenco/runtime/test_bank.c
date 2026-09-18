@@ -688,17 +688,36 @@ test_bank_evictable_protected( void * mem ) {
   protected->f.slot = 1UL;
   fd_banks_mark_bank_frozen( protected );
 
+  fd_bank_t * backfill = fd_banks_new_bank( banks, root->idx, 0L, 0 );
+  backfill = fd_banks_clone_from_parent( banks, backfill->idx );
+  FD_TEST( backfill );
+  backfill->f.slot = 2UL;
+  fd_banks_mark_bank_frozen( backfill );
+
   fd_bank_t * sibling = fd_banks_new_bank( banks, root->idx, 0L, 0 );
   ulong sibling_idx = sibling->idx;
   sibling = fd_banks_clone_from_parent( banks, sibling_idx );
   FD_TEST( sibling );
-  sibling->f.slot = 2UL;
+  sibling->f.slot = 3UL;
   fd_banks_mark_bank_frozen( sibling );
 
-  FD_TEST( fd_banks_get_evictable_bank( banks, protected )==sibling_idx );
-  FD_TEST( protected->state!=FD_BANK_STATE_PRUNABLE );
+  /* Both the notified root and the live backfill ancestor must survive
+     victim selection, even when both happen to be leaves. */
+  FD_TEST( fd_banks_get_evictable_bank_excluding( banks, protected, backfill )==sibling_idx );
+  FD_TEST( protected->state==FD_BANK_STATE_FROZEN );
+  FD_TEST( backfill->state==FD_BANK_STATE_FROZEN );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
 
+  /* If every remaining leaf is protected, waiting preserves progress;
+     evicting backfill would immediately discard the work just rebuilt. */
+  FD_TEST( fd_banks_get_evictable_bank_excluding( banks, protected, backfill )==ULONG_MAX );
+  FD_TEST( banks->prunable_idx==ULONG_MAX );
+  FD_TEST( protected->state==FD_BANK_STATE_FROZEN );
+  FD_TEST( backfill->state==FD_BANK_STATE_FROZEN );
+
+  /* Releasing only the backfill protection makes that bank eligible. */
+  FD_TEST( fd_banks_get_evictable_bank( banks, protected )==backfill->idx );
+  FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
   FD_TEST( fd_banks_get_evictable_bank( banks, protected )==ULONG_MAX );
 
   FD_TEST( fd_banks_get_evictable_bank( banks, NULL )==protected->idx );

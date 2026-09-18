@@ -742,6 +742,18 @@ ulong
 fd_banks_get_evictable_bank( fd_banks_t *      banks,
                              fd_bank_t const * protected_bank );
 
+/* fd_banks_get_evictable_bank_excluding additionally excludes
+   protected_bank2 from eviction.  Replay uses this to preserve the
+   live ancestor needed by pending backfill while also protecting its
+   notified root.  Either protected bank may be NULL.  Protection only
+   applies to this selection; the caller must revalidate bank identity
+   before subsequent calls if bank indices can have been recycled. */
+
+ulong
+fd_banks_get_evictable_bank_excluding( fd_banks_t *      banks,
+                                       fd_bank_t const * protected_bank,
+                                       fd_bank_t const * protected_bank2 );
+
 /* fd_banks_can_start_bank returns 1 if banks has capacity to start
    preparing another child bank.  This check is currently conservative,
    if the max fork width is reached, it will return 0 even if the new
