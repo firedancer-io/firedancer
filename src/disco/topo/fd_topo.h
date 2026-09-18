@@ -266,6 +266,7 @@ struct fd_topo_tile {
 
       ushort shred_version;
       int allow_private_address;
+      int failover_enabled;
 
       char          gossip_host[ FD_FQDN_BUF_MAX ];
       fd_ip4_port_t gossip_addr;

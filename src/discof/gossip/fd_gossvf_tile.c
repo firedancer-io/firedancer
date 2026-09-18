@@ -127,6 +127,7 @@ struct fd_gossvf_tile_ctx {
   ushort shred_version;
 
   int allow_private_address;
+  int failover_enabled; /* the duplicate may be the other failover machine */
 
   fd_ip4_port_t gossip_addr;
   fd_ip4_port_t src_addr;
@@ -570,7 +571,8 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
     if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ) ) continue;
     if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) continue;
 
-    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ));
+    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns%s", ctx->instance_creation_wallclock_nanos, FD_MICRO_TO_NANOSEC( value->contact_info->outset ),
+                 ctx->failover_enabled ? ", with failover on check that the two failover machines do not share [paths.base]/junk-identity.json and that only one holds the staked identity" : "" ));
   }
 }
 
@@ -1057,6 +1059,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->round_robin_idx = tile->kind_id;
 
   ctx->allow_private_address = tile->gossvf.allow_private_address;
+  ctx->failover_enabled      = tile->gossvf.failover_enabled;
   ctx->src_addr              = tile->gossvf.src_addr;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
