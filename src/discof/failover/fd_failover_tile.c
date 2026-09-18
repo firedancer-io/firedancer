@@ -96,6 +96,16 @@ struct fd_failover_tile_ctx {
   fd_failover_bus_msg_t bus_req;
   int                   bus_req_fresh;
 
+  /* State of the identity switch we asked the admin tile for.  It holds
+     both keys and does the switch, and a success means the old key is
+     gone from every tile. */
+  ulong                     switch_request_id;
+  ulong                     switch_pending_key; /* FD_FAILOVER_SWITCH_KEY_*, or CNT when idle */
+  fd_failover_switch_resp_t switch_result;
+  ulong                     switch_answer_nonce; /* nonce of the frame being consumed */
+  ulong                     switch_result_id;
+  int                       switch_result_fresh;
+
   /* Adoption request to the tower tile and its answer. */
   ulong                   adopt_out_idx;
   fd_wksp_t *             adopt_out_mem;
@@ -282,8 +292,9 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_failover_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_failover_tile_ctx_t), sizeof(fd_failover_tile_ctx_t) );
   fd_memset( ctx, 0, sizeof(fd_failover_tile_ctx_t) );
-  ctx->role_dir_fd    = -1;
-  ctx->role_file_fd   = -1;
+  ctx->role_dir_fd        = -1;
+  ctx->role_file_fd       = -1;
+  ctx->switch_pending_key = FD_FAILOVER_SWITCH_KEY_CNT;
   ctx->replay_slot        = FD_FAILOVER_SLOT_NULL;
   ctx->root_slot          = FD_FAILOVER_SLOT_NULL;
   ctx->last_vote_slot     = FD_FAILOVER_SLOT_NULL;
@@ -773,6 +784,46 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
   }
 }
 
+/* Asks the admin tile to switch to the given key.  Only one request can
+   be in flight, and the reply comes back with the same id so a late reply
+   can be told apart. */
+FD_FN_UNUSED static ulong
+request_switch( fd_failover_tile_ctx_t * ctx,
+                fd_stem_context_t *      stem,
+                ulong                    key ) {
+  if( FD_UNLIKELY( ctx->admin_out_idx==ULONG_MAX ||
+                   ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) ) return ULONG_MAX;
+
+  if( FD_UNLIKELY( !++ctx->switch_request_id ) ) ctx->switch_request_id++;
+  fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
+  fd_memset( out, 0, sizeof(*out) );
+  out->nonce = ctx->switch_request_id;
+  fd_failover_switch_req_t req = { .key=key };
+  fd_memcpy( out->payload, &req, sizeof(req) );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_SWITCH_REQ, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
+  ctx->admin_out_chunk      = fd_dcache_compact_next( ctx->admin_out_chunk, sizeof(*out), ctx->admin_out_chunk0, ctx->admin_out_wmark );
+  ctx->switch_pending_key   = key;
+  ctx->switch_result_fresh  = 0;
+  return ctx->switch_request_id;
+}
+
+/* Records the result of the switch we asked for.  A reply for some other
+   request is dropped, otherwise an old reply could be mistaken for a
+   finished demotion. */
+static void
+switch_answer( fd_failover_tile_ctx_t * ctx,
+               ulong                    nonce ) {
+  if( FD_UNLIKELY( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT ||
+                   nonce!=ctx->switch_request_id ) ) {
+    FD_LOG_WARNING(( "dropping a stale identity switch answer" ));
+    return;
+  }
+  ctx->switch_pending_key  = FD_FAILOVER_SWITCH_KEY_CNT;
+  ctx->switch_result_id    = nonce;
+  ctx->switch_result_fresh = 1;
+}
+
 /* publish_adopt sends the tower retained from the outgoing active to the
    tower tile.  The answer echoes the request id, which tells a late reply
    from an abandoned attempt apart.  Returns the id, or ULONG_MAX when
@@ -879,7 +930,12 @@ before_frag( fd_failover_tile_ctx_t * ctx,
              ulong                    seq FD_PARAM_UNUSED,
              ulong                    sig ) {
   if( FD_LIKELY( in_idx==ctx->tower_in_idx ) ) return sig!=FD_TOWER_SIG_SLOT_DONE;
-  if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) return sig!=FD_FAILOVER_BUS_STATUS_REQ;
+  if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
+    /* Let through status requests and switch replies.  If a switch reply
+       were filtered here the switch would hang forever. */
+    return sig!=FD_FAILOVER_BUS_STATUS_REQ &&
+           sig!=FD_FAILOVER_BUS_SWITCH_RESP;
+  }
   return 0;
 }
 
@@ -902,7 +958,13 @@ during_frag( fd_failover_tile_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->admin_in_chunk0 || chunk>ctx->admin_in_wmark || sz!=sizeof(fd_failover_bus_msg_t) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->admin_in_chunk0, ctx->admin_in_wmark ));
     }
-    fd_memcpy( &ctx->bus_req, fd_chunk_to_laddr_const( ctx->admin_in_mem, chunk ), sizeof(fd_failover_bus_msg_t) );
+    fd_failover_bus_msg_t const * msg = fd_chunk_to_laddr_const( ctx->admin_in_mem, chunk );
+    if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_RESP ) ) {
+      fd_memcpy( &ctx->switch_result, msg->payload, sizeof(ctx->switch_result) );
+      ctx->switch_answer_nonce = msg->nonce;
+      return;
+    }
+    fd_memcpy( &ctx->bus_req, msg, sizeof(fd_failover_bus_msg_t) );
     return;
   }
   if( FD_UNLIKELY( in_idx!=ctx->tower_in_idx ) ) return;
@@ -916,7 +978,7 @@ static void
 after_frag( fd_failover_tile_ctx_t * ctx,
             ulong                    in_idx,
             ulong                    seq,
-            ulong                    sig FD_PARAM_UNUSED,
+            ulong                    sig,
             ulong                    sz FD_PARAM_UNUSED,
             ulong                    tsorig FD_PARAM_UNUSED,
             ulong                    tspub FD_PARAM_UNUSED,
@@ -927,6 +989,10 @@ after_frag( fd_failover_tile_ctx_t * ctx,
     return;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
+    if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_RESP ) ) {
+      switch_answer( ctx, ctx->switch_answer_nonce );
+      return;
+    }
     /* Answered from after_credit, where a publish credit is available. */
     ctx->bus_req_fresh = 1;
     return;

@@ -1,5 +1,5 @@
-/* The channel internals are reached directly so a session can be posed
-   as paired without a socket. */
+/* The tests reach into the channel so a session can be marked paired
+   without a socket. */
 #include "fd_failover_channel.c"
 #include "fd_failover_tile.c"
 #include "../../util/net/fd_ip4.h"
@@ -63,7 +63,7 @@ test_listen_fd( void ) {
   int fd = fd_failover_channel_listen_fd( ch );
   FD_TEST( fd!=-1 && pool_listen_fd( ctx )==fd );
 
-  /* A dialing peer never contributes a listener, whatever its channel holds. */
+  /* A dialing peer has no listener even if its channel has a socket. */
   ctx->peers[ 0 ].channel = ch;
   ctx->peers[ 1 ].channel = NULL;
   FD_TEST( pool_listen_fd( ctx )==-1 );
@@ -100,14 +100,14 @@ test_slot_done_bookkeeping( void ) {
   consume_slot_done( ctx, &done );
   FD_TEST( ctx->replay_slot==100UL && ctx->root_slot==FD_FAILOVER_SLOT_NULL && ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL );
 
-  /* A fork can report an older slot, the replay slot never regresses. */
+  /* The replay slot does not go backwards when a fork reports an older slot. */
   done.replay_slot = 90UL;
   done.root_slot   = 60UL;
   consume_slot_done( ctx, &done );
   FD_TEST( ctx->replay_slot==100UL && ctx->root_slot==60UL );
 
-  /* Without a vote transaction the vote slot is ignored, a standby never
-     prepares a consensus frame. */
+  /* The vote slot is ignored without a vote transaction, and a standby
+     does not build a consensus frame. */
   done.replay_slot  = 101UL;
   done.vote_slot    = 101UL;
   done.has_vote_txn = 0;
@@ -117,8 +117,8 @@ test_slot_done_bookkeeping( void ) {
   consume_slot_done( ctx, &done );
   FD_TEST( ctx->last_vote_slot==101UL && !ctx->cs_valid );
 
-  /* The local STATUS mirrors the slot view and raises the lag bit only
-     past the configured limit. */
+  /* The local STATUS copies the slot view and sets the lag bit only above
+     the configured limit. */
   ctx->replication_lag_limit = 8UL;
   ctx->peer_cnt              = 1UL;
   fd_failover_peer_t * peer  = &ctx->peers[ 0 ];
@@ -137,8 +137,8 @@ test_slot_done_bookkeeping( void ) {
   FD_LOG_NOTICE(( "pass: slot bookkeeping and the local status view" ));
 }
 
-/* A stem stand-in so the bus response path can be driven without a
-   topology: publishing records the frag instead of touching an mcache. */
+/* A fake stem for driving the bus response path without a topology.
+   Publishing records the frag instead of writing an mcache. */
 static fd_frag_meta_t    pub_mcache[ 8 ];
 static ulong             pub_cr_avail;
 static ulong             pub_min_cr_avail;
@@ -165,7 +165,7 @@ stem_init( void ) {
   };
 }
 
-/* One peer, paired, with a fresh authenticated status from it. */
+/* Set up one paired peer with a fresh status from it. */
 static fd_failover_peer_t *
 healthy_peer( long now ) {
   fd_memset( ctx, 0, sizeof(ctx) );
@@ -189,8 +189,8 @@ healthy_peer( long now ) {
   peer->lag_slots    = 2UL;
   peer->status.role  = FD_FAILOVER_ROLE_STANDBY;
   peer->status.term  = 0UL;
-  /* The channel reports PAIRED only with a live session, so the tests
-     that need a paired verdict set the state directly. */
+  /* The channel only reports PAIRED with a live session, so tests that
+     need one set the state directly. */
   peer->channel->state = FD_FAILOVER_SESSION_PAIRED;
   return peer;
 }
@@ -209,8 +209,8 @@ test_status_snapshot( void ) {
   FD_TEST( resp.replication_lag_slots==2UL && resp.link_state==FD_FAILOVER_SESSION_PAIRED );
   FD_TEST( resp.pool_healthy && resp.readiness_reason==FD_FAILOVER_READINESS_POOL_HEALTHY );
 
-  /* A stale peer status, a role conflict and a down link each have their
-     own verdict, and none of them is healthy. */
+  /* A stale peer status, a role conflict and a down link each get their
+     own reason, and none of them counts as healthy. */
   status_snapshot( ctx, 0UL, now+10L*ctx->status_interval, &resp );
   FD_TEST( !resp.pool_healthy && resp.readiness_reason==FD_FAILOVER_READINESS_STATUS_STALE );
   peer->status.role = FD_FAILOVER_ROLE_ACTIVE;
@@ -238,8 +238,8 @@ test_status_snapshot( void ) {
 
 static void
 test_status_metrics( void ) {
-  /* metrics_write reads the real monotonic clock, so the peer status is
-     stamped from it to stay inside the freshness window. */
+  /* metrics_write uses the real monotonic clock, so stamp the peer status
+     with it to stay inside the freshness window. */
   long now = fd_failover_clock();
   fd_failover_peer_t * peer = healthy_peer( now );
   peer->channel->metrics = (fd_failover_channel_metrics_t){
@@ -247,7 +247,7 @@ test_status_metrics( void ) {
     .tls_fail_cnt=19UL, .admission_drop_cnt=23UL, .handshake_timeout_cnt=29UL,
     .wire_fatal_cnt=31UL, .hello_reject_cnt=37UL
   };
-  /* Synthetic descriptors are inspected only, never passed to I/O. */
+  /* Fake descriptors, only inspected and never used for I/O. */
   peer->channel->candidates[0].fd = INT_MAX;
   peer->channel->candidates[1].fd = INT_MAX;
   peer->channel->candidates[2].fd = INT_MAX;
@@ -286,8 +286,8 @@ test_bus_request( void ) {
   ctx->admin_out_wmark  = 0UL;
   ctx->admin_out_chunk  = 0UL;
 
-  /* A request for the one peer is answered with its snapshot, and the
-     nonce is echoed so a late answer can be recognized. */
+  /* A request for the one peer gets its snapshot back, with the nonce
+     echoed so a late answer can be told apart. */
   fd_memset( &ctx->bus_req, 0, sizeof(ctx->bus_req) );
   ctx->bus_req.nonce = 42UL;
   ((fd_adminctl_failover_status_req_t *)ctx->bus_req.payload)->version  = FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION;
@@ -310,17 +310,16 @@ test_bus_request( void ) {
   FD_LOG_NOTICE(( "pass: a bus request is answered for one peer, an unknown peer is refused" ));
 }
 
-/* The active side turns the tower's vote transaction into the frame every
-   spare receives.  Encode a real vote and require the decoder on the
-   other side to accept it, so producer and consumer cannot drift. */
+/* The active encodes the tower's vote transaction into the frame the
+   spares receive.  Encode a real vote and check that the decoder on the
+   other side accepts it, so the two sides cannot drift apart. */
 static void
 test_consensus_producer( fd_wksp_t * wksp ) {
   void *       tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 2, 2 ), 1UL );
   FD_TEST( tower_mem );
   fd_tower_t * tower     = fd_tower_join( fd_tower_new( tower_mem, 2, 2, 0 ) );
   FD_TEST( tower );
-  /* Confirmation counts decrease toward the tip, the way a real tower
-     stacks them. */
+  /* Confirmation counts decrease toward the tip, as in a real tower. */
   for( ulong i=1UL; i<=31UL; i++ ) {
     fd_tower_vote_t vote = { .slot=i, .conf=32UL-i };
     fd_tower_vote_push_tail( tower->votes, vote );
@@ -377,7 +376,7 @@ test_consensus_producer( fd_wksp_t * wksp ) {
   consume_slot_done( ctx, &done );
   FD_TEST( ctx->cs_valid && ctx->cs_sz==good_sz );
 
-  /* A standby never produces a frame at all. */
+  /* A standby does not produce a frame. */
   ctx->cs_valid = 0;
   ctx->role     = FD_FAILOVER_ROLE_STANDBY;
   done.vote_txn_sz = txnp->payload_sz;
@@ -386,6 +385,67 @@ test_consensus_producer( fd_wksp_t * wksp ) {
 
   fd_wksp_free_laddr( tower_mem );
   FD_LOG_NOTICE(( "pass: the active encodes a tower frame the standby decoder accepts" ));
+}
+
+/* request_switch publishes one request at a time and switch_answer
+   accepts only the matching nonce. */
+static void
+test_switch_request( void ) {
+  stem_init(); /* the frag lands on the first mcache line again */
+  fd_memset( ctx, 0, sizeof(ctx) );
+  ctx->switch_pending_key = FD_FAILOVER_SWITCH_KEY_CNT;
+  ctx->admin_out_idx      = 0UL;
+  ctx->admin_out_mem      = (fd_wksp_t *)bus_mem; /* chunk 0 maps to bus_mem */
+  ctx->admin_out_chunk0   = 0UL;
+  ctx->admin_out_wmark    = 0UL;
+  ctx->admin_out_chunk    = 0UL;
+
+  ulong id = request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_STAKED );
+  FD_TEST( id==1UL && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED );
+  fd_failover_bus_msg_t * out = (fd_failover_bus_msg_t *)bus_mem;
+  FD_TEST( pub_mcache[ 0 ].sig==FD_FAILOVER_BUS_SWITCH_REQ && out->nonce==1UL );
+  fd_failover_switch_req_t req;
+  fd_memcpy( &req, out->payload, sizeof(req) );
+  FD_TEST( req.key==FD_FAILOVER_SWITCH_KEY_STAKED );
+
+  /* Only one request at a time, a second is refused while one is out. */
+  FD_TEST( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_JUNK )==ULONG_MAX );
+
+  /* A stale answer is dropped and the request stays outstanding. */
+  switch_answer( ctx, 99UL );
+  FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED && !ctx->switch_result_fresh );
+
+  /* The matching answer completes it and frees the slot. */
+  switch_answer( ctx, id );
+  FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
+  FD_TEST( ctx->switch_result_fresh && ctx->switch_result_id==id );
+
+  /* An answer with nothing outstanding is dropped. */
+  ctx->switch_result_fresh = 0;
+  switch_answer( ctx, id );
+  FD_TEST( !ctx->switch_result_fresh );
+  FD_LOG_NOTICE(( "pass: an identity switch picks a resident key and only its own answer counts" ));
+}
+
+
+/* before_frag must let switch replies through.  If one were dropped the
+   switch would never finish and no new one could start. */
+static void
+test_before_frag_admits( void ) {
+  fd_memset( ctx, 0, sizeof(ctx) );
+  ctx->tower_in_idx = 0UL;
+  ctx->admin_in_idx = 1UL;
+  ctx->adopt_in_idx = ULONG_MAX;
+
+  FD_TEST( !before_frag( ctx, 0UL, 0UL, FD_TOWER_SIG_SLOT_DONE ) );
+  FD_TEST(  before_frag( ctx, 0UL, 0UL, FD_TOWER_SIG_SLOT_DONE+1UL ) );
+
+  FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_STATUS_REQ ) );
+  FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_RESP ) );
+  /* This tile publishes these two, it never receives them. */
+  FD_TEST(  before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_STATUS_RESP ) );
+  FD_TEST(  before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_REQ ) );
+  FD_LOG_NOTICE(( "pass: before_frag admits every frame the tile acts on" ));
 }
 
 int
@@ -400,6 +460,8 @@ main( int     argc,
   test_status_snapshot();
   test_status_metrics();
   test_bus_request();
+  test_switch_request();
+  test_before_frag_admits();
 
   ulong  page_cnt = 2UL;
   ulong  numa_idx = fd_shmem_numa_idx( 0UL );
