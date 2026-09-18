@@ -227,6 +227,7 @@ struct fd_sched_block {
        Done                        1      1       1        *      */
   int header_seen;
   int genesis_cert_seen;
+  int update_parent_seen;
   int footer_seen;
   int alpentick_seen;
 };
@@ -2113,10 +2114,11 @@ add_block( fd_sched_t * sched,
   block->inconsistent_hashes_per_tick = 0;
   block->zero_hash_tick               = 0;
 
-  block->header_seen       = 0;
-  block->genesis_cert_seen = 0;
-  block->footer_seen       = 0;
-  block->alpentick_seen    = 0;
+  block->header_seen        = 0;
+  block->genesis_cert_seen  = 0;
+  block->update_parent_seen = 0;
+  block->footer_seen        = 0;
+  block->alpentick_seen     = 0;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
@@ -2179,13 +2181,11 @@ add_block( fd_sched_t * sched,
 /* Alpenglow block structure.  agave's BlockComponentProcessor rules
    an Alpenglow block invalid unless its components are laid out as
 
-     header | [genesis cert] | entries* | footer | alpentick
+     header | [genesis cert] | entries* | [update parent] | entries* | footer | alpentick
 
    with exactly one header and one footer, and the alpentick as the
    final component.  The helpers below drive the same state machine off
-   the batches sched parses.
-
-   TODO feature gate FLH */
+   the batches sched parses. */
 
 static int
 ag_on_marker( fd_sched_t *              sched,
@@ -2231,11 +2231,7 @@ ag_on_marker( fd_sched_t *              sched,
     return FD_SCHED_DEAD_REASON_NONE;
 
   case FD_BLOCK_MARKER_KIND_UPDATE_PARENT:
-    if( FD_UNLIKELY( !block->header_seen || block->footer_seen ) ) {
-      FD_LOG_INFO(( "bad block: SPURIOUS_UPDATE_PARENT, slot %lu, parent slot %lu, header %d footer %d", block->slot, block->parent_slot, block->header_seen, block->footer_seen ));
-      return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
-    }
-    FD_LOG_INFO(( "bad block: SPURIOUS_UPDATE_PARENT, FLH not activated, slot %lu, parent slot %lu, new_parent_slot %lu", block->slot, block->parent_slot, marker->update_parent.new_parent_slot ));
+    block->update_parent_seen = 1;
     return FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT;
 
   default:
