@@ -121,6 +121,13 @@ struct fd_tower_tile {
   ulong            seed; /* map seed */
   int              checkpt_fd;
   int              restore_fd;
+  int              epoch_refresh_pending; /* an adoption advanced the root, refresh the epoch voter caches on the next completed slot */
+  int              tower_adopted;         /* a confirmed tower was adopted before this switch */
+  int              no_vote_authority;     /* shadow votes do not authorize vote publication */
+  int              adoption_required;
+  fd_pubkey_t      voting_identity;       /* identity authorized to publish votes after adoption */
+  int              shadow;
+  ulong            vote_acct_slot;        /* slot of the bank our_vote_acct was last read from */
   fd_pubkey_t      identity_key[1];
   fd_pubkey_t      vote_account[1];
   ulong            auth_vtr_path_cnt;  /* number of authorized voter paths passed to tile */
@@ -189,6 +196,13 @@ struct fd_tower_tile {
   ulong       out_wmark;
   ulong       out_chunk;
   ulong       out_seq;
+
+  /* Adoption responses use a separate output link. */
+  ulong       adopt_out_idx;
+  fd_wksp_t * adopt_out_mem;
+  ulong       adopt_out_chunk0;
+  ulong       adopt_out_wmark;
+  ulong       adopt_out_chunk;
 
   /* metrics */
 
