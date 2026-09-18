@@ -443,15 +443,15 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   if( use_t_3 ) {
     fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 200UL, 0U, valid_bls[1] );
     fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 100UL, 0U, valid_bls[0] );
-    fd_vote_stakes_finalize( vote_stakes, bank->f.epoch );
+    fd_vote_stakes_finalize( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2 );
 
-    fd_vote_stakes_snap_insert_t_3( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 200UL, 0U, valid_bls[0] );
-    fd_vote_stakes_snap_insert_t_3( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 100UL, 0U, valid_bls[1] );
-    fd_vote_stakes_finalize( vote_stakes, bank->f.epoch-1UL );
+    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_a, &identity_a, 200UL, 0U, valid_bls[0] );
+    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_b, &identity_b, 100UL, 0U, valid_bls[1] );
+    fd_vote_stakes_finalize( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3 );
   } else {
     fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 200UL, 0U, valid_bls[0] );
     fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 100UL, 0U, valid_bls[1] );
-    fd_vote_stakes_finalize( vote_stakes, bank->f.epoch );
+    fd_vote_stakes_finalize( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2 );
   }
 
   fd_block_footer_t footer[1];
@@ -594,7 +594,7 @@ test_alpenglow_reward_uses_vote_credits( fd_svm_mini_t * mini ) {
   uchar no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
   fd_vote_stakes_snap_insert_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls );
   fd_vote_stakes_snap_insert_t_2( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls );
-  fd_vote_stakes_snap_insert_t_3( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL, 1234U, no_bls );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, epoch_bank->vote_stakes_fork_id, 3UL, &vote_key, &identity_key, 1000000000UL, 1234U, no_bls );
 
   FD_FEATURE_SET_ACTIVE( &epoch_bank->f.features, delay_commission_updates, 0UL );
   fd_stake_rewards_clear( fd_bank_stake_rewards_modify( epoch_bank ) );

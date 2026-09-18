@@ -136,7 +136,7 @@ main( int argc, char ** argv ) {
 
   fd_vote_stakes_reset( vote_stakes );
   ulong snapshot_root = fd_vote_stakes_init( vote_stakes, 2UL );
-  fd_vote_stakes_snap_insert_t_3( vote_stakes, snapshot_root, &vote_b, &node_b, 200UL, 20U, bls_b );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, snapshot_root, 3UL, &vote_b, &node_b, 200UL, 20U, bls_b );
   fd_pubkey_t node;
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, snapshot_root, &vote_b, &node, &stake, &commission ) );
   FD_TEST( fd_pubkey_eq( &node, &node_b ) && stake==200UL && commission==20U );
@@ -148,18 +148,62 @@ main( int argc, char ** argv ) {
   fd_vote_stakes_purge_fork( vote_stakes, next_epoch_child );
   fd_vote_stakes_purge_fork( vote_stakes, snapshot_root );
 
+  /* An epoch-E fork addresses E-3..E as t-5..t-2; crossing into E+1
+     evicts E-4, which no live fork addresses. */
+  fd_vote_stakes_reset( vote_stakes );
+  ulong forks[ 6 ];
+  forks[0] = fd_vote_stakes_init( vote_stakes, 0UL );
+  FD_TEST( fd_vote_stakes_iter_done( vote_stakes, forks[0], FD_VOTE_STAKES_ITER_T_5, fd_vote_stakes_iter_init( vote_stakes, forks[0], FD_VOTE_STAKES_ITER_T_5, epoch_iter_mem ) ) );
+  for( ulong e=0UL; e<5UL; e++ ) {
+    fd_pubkey_t vote = key( 100UL+e );
+    fd_vote_stakes_insert( vote_stakes, forks[e], &vote, &node_a, 100UL*(e+1UL), 0U, bls_a );
+    forks[e+1UL] = fd_vote_stakes_new_fork( vote_stakes, forks[e], e+1UL );
+    if( e<4UL ) fd_vote_stakes_purge_fork( vote_stakes, forks[e] );
+  }
+  for( int kind=FD_VOTE_STAKES_ITER_T_2; kind<=FD_VOTE_STAKES_ITER_T_5; kind++ ) {
+    ulong       epoch = 4UL-(ulong)(kind-FD_VOTE_STAKES_ITER_T_2);
+    fd_pubkey_t want  = key( 99UL+epoch );
+    epoch_iter_cnt = 0UL;
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, forks[4], kind, epoch_iter_mem );
+         !fd_vote_stakes_iter_done( vote_stakes, forks[4], kind, iter );
+         fd_vote_stakes_iter_next( vote_stakes, forks[4], kind, iter ) ) {
+      fd_pubkey_t pubkey;
+      fd_vote_stakes_iter_ele( vote_stakes, forks[4], kind, iter, &pubkey, NULL, &stake, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+      FD_TEST( fd_pubkey_eq( &pubkey, &want ) && stake==100UL*epoch );
+      epoch_iter_cnt++;
+    }
+    FD_TEST( epoch_iter_cnt==1UL );
+  }
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==100UL );
+  fd_vote_stakes_purge_fork( vote_stakes, forks[4] );
+  ulong evicting_child = fd_vote_stakes_new_fork( vote_stakes, forks[5], 6UL );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==0UL );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 2UL )==200UL );
+  FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, forks[5],       FD_VOTE_STAKES_ITER_T_5, fd_vote_stakes_iter_init( vote_stakes, forks[5],       FD_VOTE_STAKES_ITER_T_5, epoch_iter_mem ) ) );
+  FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, evicting_child, FD_VOTE_STAKES_ITER_T_5, fd_vote_stakes_iter_init( vote_stakes, evicting_child, FD_VOTE_STAKES_ITER_T_5, epoch_iter_mem ) ) );
+  fd_vote_stakes_purge_fork( vote_stakes, evicting_child );
+  fd_vote_stakes_purge_fork( vote_stakes, forks[5] );
+
   uchar valid_bls[3][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
   fd_hex_decode( valid_bls[0], "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb", sizeof(valid_bls[0]) );
   fd_hex_decode( valid_bls[1], "af9ff5448e60bc9a718f463ac102bd6f8772e6460c19076a6c89d5806e5a8ef44b6f3b8af09e37a4e564987a26b9deda", sizeof(valid_bls[1]) );
-  fd_hex_decode( valid_bls[2], "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", sizeof(valid_bls[2]) );
+  fd_hex_decode( valid_bls[2], "8160635a65d58a24c1b50ea84d957f16f54f4ff7deab3cc8b1858cd18f6ad72c479886092b9d53ebc47deb2660aea3d6", sizeof(valid_bls[2]) );
 
+  /* An epoch-1 fork's t-1 set is epoch 2's set, ranked once fixed;
+     the boundary rotates it, ranks included, into epoch 2's t-2. */
   fd_vote_stakes_reset( vote_stakes );
   root = fd_vote_stakes_init( vote_stakes, 1UL );
   fd_pubkey_t rotated_vote_a = key( 10UL );
   fd_pubkey_t rotated_vote_b = key( 11UL );
   fd_vote_stakes_insert( vote_stakes, root, &rotated_vote_a, &node_a, 100UL, 0U, valid_bls[2] );
   fd_vote_stakes_insert( vote_stakes, root, &rotated_vote_b, &node_b, 200UL, 0U, valid_bls[1] );
+  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_1, &rotated_vote_b )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
+  fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_1 );
+  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_1, &rotated_vote_b )==0U );
+  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_1, &rotated_vote_a )==1U );
   child = fd_vote_stakes_new_fork( vote_stakes, root, 2UL );
+  FD_TEST( fd_vote_stakes_cnt_t_2( vote_stakes, child )==fd_vote_stakes_cnt_t_1( vote_stakes, root ) );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 2UL )==300UL );
   FD_TEST( epoch_rank( vote_stakes, child, FD_VOTE_STAKES_ITER_T_2, &rotated_vote_b )==0U );
   FD_TEST( epoch_rank( vote_stakes, child, FD_VOTE_STAKES_ITER_T_2, &rotated_vote_a )==1U );
   fd_vote_stakes_purge_fork( vote_stakes, child );
@@ -173,7 +217,7 @@ main( int argc, char ** argv ) {
   fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_a, &node_a, 100UL, 0U, valid_bls[2] );
   fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_b, &node_b, 200UL, 0U, valid_bls[1] );
   fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_c, &node_c, 200UL, 0U, valid_bls[0] );
-  fd_vote_stakes_finalize( vote_stakes, 2UL );
+  fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2 );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_c )==0U );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_b )==1U );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_a )==2U );
@@ -181,7 +225,7 @@ main( int argc, char ** argv ) {
   fd_pubkey_t rank_vote_dup = key( 23UL );
   fd_pubkey_t node_dup      = key( 24UL );
   fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_dup, &node_dup, 300UL, 0U, valid_bls[0] );
-  fd_vote_stakes_finalize( vote_stakes, 2UL );
+  fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2 );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_c   )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_dup )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_b   )==0U );
@@ -197,21 +241,25 @@ main( int argc, char ** argv ) {
   fd_pubkey_t identity_vote_b    = key( 32UL );
   fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &identity_vote_a, &duplicate_identity, 100UL, 0U, valid_bls[0] );
   fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &identity_vote_b, &duplicate_identity, 200UL, 0U, valid_bls[1] );
-  fd_vote_stakes_finalize( vote_stakes, 2UL );
+  fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2 );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &identity_vote_a )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &identity_vote_b )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   fd_vote_stakes_purge_fork( vote_stakes, root );
 
   fd_vote_stakes_reset( vote_stakes );
   root = fd_vote_stakes_init( vote_stakes, 3UL );
-  fd_pubkey_t invalid_vote = key( 40UL );
-  fd_pubkey_t valid_vote   = key( 41UL );
-  uchar invalid_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
-  fd_vote_stakes_snap_insert_t_3( vote_stakes, root, &invalid_vote, &node_a, 300UL, 0U, invalid_bls );
-  fd_vote_stakes_snap_insert_t_3( vote_stakes, root, &valid_vote,   &node_b, 100UL, 0U, valid_bls[0] );
-  fd_vote_stakes_finalize( vote_stakes, 2UL );
-  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &invalid_vote )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
-  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &valid_vote   )==0U );
+  fd_pubkey_t invalid_vote  = key( 40UL );
+  fd_pubkey_t valid_vote    = key( 41UL );
+  fd_pubkey_t infinity_vote = key( 42UL );
+  uchar invalid_bls [ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
+  uchar infinity_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0xc0};
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &invalid_vote,  &node_a, 300UL, 0U, invalid_bls );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &valid_vote,    &node_b, 100UL, 0U, valid_bls[0] );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &infinity_vote, &node_c, 200UL, 0U, infinity_bls );
+  fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3 );
+  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &invalid_vote  )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
+  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &infinity_vote )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
+  FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &valid_vote    )==0U );
   fd_vote_stakes_purge_fork( vote_stakes, root );
 
   fd_vote_stakes_reset( vote_stakes );

@@ -206,7 +206,7 @@ test_epoch_schedule( fd_snapshot_manifest_t * manifest ) {
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_schedule_params.slots_per_epoch             = 432000UL;
-  manifest->epoch_schedule_params.leader_schedule_slot_offset = 432000UL * 3UL;
+  manifest->epoch_schedule_params.leader_schedule_slot_offset = 432000UL * 5UL;
   manifest->slot = 432000UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
@@ -681,18 +681,21 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST(  fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_y, NULL, &stake_out, NULL ) );
   FD_TEST( stake_out==7000UL );
 
-  /* Manifest C: an epoch-2 snapshot with a T-3 vote stake that is not
-     present in T-1. */
+  /* Manifest C: an epoch-2 snapshot carrying only E-1..E+1, as
+     snapshots did before E-3..E+1 were loaded, with a T-3 vote stake
+     that is not present in T-1.  With slot=2*slots_per_epoch, epoch=2,
+     leader_schedule_epoch=3, epoch_stakes_base=0, t_1_idx=3; E-2 is
+     absent and stays non-resident. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->slot = 2UL*manifest->epoch_schedule_params.slots_per_epoch;
 
-  manifest->epoch_stakes[2].vote_stakes_len = 1UL;
-  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].vote,     pubkey_x, 32UL );
-  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].identity, ident_x,  32UL );
-  manifest->epoch_stakes[2].vote_stakes[0].stake      = 5000UL;
-  manifest->epoch_stakes[2].vote_stakes[0].commission = 10U;
-  manifest->epoch_stakes[2].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[3].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[3].vote_stakes[0].vote,     pubkey_x, 32UL );
+  fd_memcpy( manifest->epoch_stakes[3].vote_stakes[0].identity, ident_x,  32UL );
+  manifest->epoch_stakes[3].vote_stakes[0].stake      = 5000UL;
+  manifest->epoch_stakes[3].vote_stakes[0].commission = 10U;
+  manifest->epoch_stakes[3].vote_stakes[0].has_identity_bls = 1;
 
   uchar valid_bls[2][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
   fd_hex_decode( valid_bls[0], "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb", sizeof(valid_bls[0]) );
@@ -700,25 +703,25 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
 
   uchar pubkey_w[32]; fd_memset( pubkey_w, 0xEF, 32UL );
   uchar ident_w[32];  fd_memset( ident_w,  0xE2, 32UL );
-  manifest->epoch_stakes[1].vote_stakes_len = 1UL;
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].vote,         pubkey_w,     32UL );
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity,     ident_w,      32UL );
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity_bls, valid_bls[1], sizeof(valid_bls[1]) );
-  manifest->epoch_stakes[1].vote_stakes[0].stake            = 4000UL;
-  manifest->epoch_stakes[1].vote_stakes[0].commission       = 11U;
-  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
-  manifest->epoch_stakes[1].total_stake                     = 4000UL;
+  manifest->epoch_stakes[2].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].vote,         pubkey_w,     32UL );
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].identity,     ident_w,      32UL );
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].identity_bls, valid_bls[1], sizeof(valid_bls[1]) );
+  manifest->epoch_stakes[2].vote_stakes[0].stake            = 4000UL;
+  manifest->epoch_stakes[2].vote_stakes[0].commission       = 11U;
+  manifest->epoch_stakes[2].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[2].total_stake                     = 4000UL;
 
   uchar pubkey_z[32]; fd_memset( pubkey_z, 0xEE, 32UL );
   uchar ident_z[32];  fd_memset( ident_z,  0xE1, 32UL );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].vote,         pubkey_z,     32UL );
-  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity,     ident_z,      32UL );
-  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity_bls, valid_bls[0], sizeof(valid_bls[0]) );
-  manifest->epoch_stakes[0].vote_stakes[0].stake            = 3000UL;
-  manifest->epoch_stakes[0].vote_stakes[0].commission       = 17U;
-  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
-  manifest->epoch_stakes[0].total_stake                     = 3000UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].vote,         pubkey_z,     32UL );
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity,     ident_z,      32UL );
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity_bls, valid_bls[0], sizeof(valid_bls[0]) );
+  manifest->epoch_stakes[1].vote_stakes[0].stake            = 3000UL;
+  manifest->epoch_stakes[1].vote_stakes[0].commission       = 17U;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[1].total_stake                     = 3000UL;
 
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
   FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
@@ -729,7 +732,9 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
                                      &node_out, &stake_out, &commission_out ) );
   FD_TEST( fd_pubkey_eq( &node_out, (fd_pubkey_t *)ident_z ) );
   FD_TEST( stake_out==3000UL && commission_out==17U );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 2UL )==4000UL );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==3000UL );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 0UL )==0UL );
 
   ushort rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
@@ -746,6 +751,143 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter,
                            &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL, NULL );
   FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_z ) && rank_out==0U );
+
+  iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter_mem );
+  FD_TEST( fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter ) );
+
+  /* Manifest D: an epoch-4 snapshot carrying E-3..E+1 as Agave
+     serializes them.  With slot=4*slots_per_epoch, epoch=4,
+     leader_schedule_epoch=5, epoch_stakes_base=1, t_1_idx=4; E-2 and
+     E-3 land in the t-4 and t-5 sets. */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->slot = 4UL*manifest->epoch_schedule_params.slots_per_epoch;
+
+  manifest->epoch_stakes[4].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[4].vote_stakes[0].vote,     pubkey_x, 32UL );
+  fd_memcpy( manifest->epoch_stakes[4].vote_stakes[0].identity, ident_x,  32UL );
+  manifest->epoch_stakes[4].vote_stakes[0].stake      = 5000UL;
+  manifest->epoch_stakes[4].vote_stakes[0].commission = 10U;
+  manifest->epoch_stakes[4].vote_stakes[0].has_identity_bls = 1;
+
+  manifest->epoch_stakes[3].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[3].vote_stakes[0].vote,         pubkey_w,     32UL );
+  fd_memcpy( manifest->epoch_stakes[3].vote_stakes[0].identity,     ident_w,      32UL );
+  fd_memcpy( manifest->epoch_stakes[3].vote_stakes[0].identity_bls, valid_bls[1], sizeof(valid_bls[1]) );
+  manifest->epoch_stakes[3].vote_stakes[0].stake            = 4000UL;
+  manifest->epoch_stakes[3].vote_stakes[0].commission       = 11U;
+  manifest->epoch_stakes[3].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[3].total_stake                     = 4000UL;
+
+  manifest->epoch_stakes[2].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].vote,         pubkey_z,     32UL );
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].identity,     ident_z,      32UL );
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].identity_bls, valid_bls[0], sizeof(valid_bls[0]) );
+  manifest->epoch_stakes[2].vote_stakes[0].stake            = 3000UL;
+  manifest->epoch_stakes[2].vote_stakes[0].commission       = 17U;
+  manifest->epoch_stakes[2].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[2].total_stake                     = 3000UL;
+
+  uchar pubkey_v[32]; fd_memset( pubkey_v, 0xED, 32UL );
+  uchar ident_v[32];  fd_memset( ident_v,  0xE3, 32UL );
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].vote,         pubkey_v,     32UL );
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity,     ident_v,      32UL );
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity_bls, valid_bls[1], sizeof(valid_bls[1]) );
+  manifest->epoch_stakes[1].vote_stakes[0].stake            = 2000UL;
+  manifest->epoch_stakes[1].vote_stakes[0].commission       = 13U;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[1].total_stake                     = 2000UL;
+
+  uchar pubkey_u[32]; fd_memset( pubkey_u, 0xEC, 32UL );
+  uchar ident_u[32];  fd_memset( ident_u,  0xE4, 32UL );
+  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].vote,         pubkey_u,     32UL );
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity,     ident_u,      32UL );
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity_bls, valid_bls[0], sizeof(valid_bls[0]) );
+  manifest->epoch_stakes[0].vote_stakes[0].stake            = 1000UL;
+  manifest->epoch_stakes[0].vote_stakes[0].commission       = 19U;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[0].total_stake                     = 1000UL;
+
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 4UL )==4000UL );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 3UL )==3000UL );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 2UL )==2000UL );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==1000UL );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 0UL )==0UL );
+
+  rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
+  iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter_mem );
+  FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter ) );
+  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter,
+                           &iter_pubkey, &node_out, &stake_out, NULL, NULL, &commission_out, NULL, &rank_out, NULL, NULL );
+  FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_v ) && rank_out==0U );
+  FD_TEST( fd_pubkey_eq( &node_out, (fd_pubkey_t *)ident_v ) && stake_out==2000UL && commission_out==13U );
+
+  rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
+  iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_5, iter_mem );
+  FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_5, iter ) );
+  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_5, iter,
+                           &iter_pubkey, &node_out, &stake_out, NULL, NULL, &commission_out, NULL, &rank_out, NULL, NULL );
+  FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_u ) && rank_out==0U );
+  FD_TEST( fd_pubkey_eq( &node_out, (fd_pubkey_t *)ident_u ) && stake_out==1000UL && commission_out==19U );
+
+  /* Manifest E: an epoch-1 snapshot whose leader_schedule_slot_offset
+     spans two epochs, so leader_schedule_epoch=3 and the manifest
+     carries keys 0..3.  T-1 is key 3 and T-2 is key 1, the current
+     epoch, not the key below T-1. */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->epoch_schedule_params.leader_schedule_slot_offset = 2UL*manifest->epoch_schedule_params.slots_per_epoch;
+  manifest->slot = manifest->epoch_schedule_params.slots_per_epoch;
+
+  manifest->epoch_stakes[3].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[3].vote_stakes[0].vote,     pubkey_x, 32UL );
+  fd_memcpy( manifest->epoch_stakes[3].vote_stakes[0].identity, ident_x,  32UL );
+  manifest->epoch_stakes[3].vote_stakes[0].stake      = 5000UL;
+  manifest->epoch_stakes[3].vote_stakes[0].commission = 10U;
+  manifest->epoch_stakes[3].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[3].total_stake               = 5000UL;
+
+  manifest->epoch_stakes[2].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].vote,         pubkey_w,     32UL );
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].identity,     ident_w,      32UL );
+  fd_memcpy( manifest->epoch_stakes[2].vote_stakes[0].identity_bls, valid_bls[1], sizeof(valid_bls[1]) );
+  manifest->epoch_stakes[2].vote_stakes[0].stake            = 4000UL;
+  manifest->epoch_stakes[2].vote_stakes[0].commission       = 11U;
+  manifest->epoch_stakes[2].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[2].total_stake                     = 4000UL;
+
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].vote,         pubkey_z,     32UL );
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity,     ident_z,      32UL );
+  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity_bls, valid_bls[0], sizeof(valid_bls[0]) );
+  manifest->epoch_stakes[1].vote_stakes[0].stake            = 3000UL;
+  manifest->epoch_stakes[1].vote_stakes[0].commission       = 17U;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[1].total_stake                     = 3000UL;
+
+  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].vote,         pubkey_v,     32UL );
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity,     ident_v,      32UL );
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity_bls, valid_bls[1], sizeof(valid_bls[1]) );
+  manifest->epoch_stakes[0].vote_stakes[0].stake            = 2000UL;
+  manifest->epoch_stakes[0].vote_stakes[0].commission       = 13U;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[0].total_stake                     = 2000UL;
+
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+
+  FD_TEST( bank->f.epoch==1UL && bank->f.total_epoch_stake==5000UL );
+  FD_TEST(  fd_vote_stakes_query_t_2( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_z, &node_out, &stake_out, NULL, NULL, &commission_out, NULL ) );
+  FD_TEST( fd_pubkey_eq( &node_out, (fd_pubkey_t *)ident_z ) && stake_out==3000UL && commission_out==17U );
+  FD_TEST( !fd_vote_stakes_query_t_2( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_w, NULL, NULL, NULL, NULL, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==3000UL );
+  FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 0UL )==2000UL );
 
   fd_wksp_free_laddr( banks_mem );
 

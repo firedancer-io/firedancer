@@ -55,10 +55,12 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS (40200UL)
 
 /* The maximum number of epoch stakes that are needed to be parsed out
-   from the manifest.  Agave produced snapshots include 5 epoch stakes,
-   but only 3 are required for consensus. */
+   from the manifest.  Agave produced snapshots include 5 epoch stakes
+   (MAX_LEADER_SCHEDULE_STAKES), E-3..E+1 for a snapshot in epoch E, and
+   a block footer may carry a finalization cert from any of E-3..E, so
+   all 5 are loaded. */
 
-#define FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN (3UL)
+#define FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN (5UL)
 
 #define FD_RUNTIME_SLOTS_PER_EPOCH (432000UL)
 

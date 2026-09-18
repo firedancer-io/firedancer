@@ -21,7 +21,7 @@
 #define MAX_LIVE_SLOTS      16UL
 #define MAX_TXN_PER_SLOT    4096UL
 #define VALIDATOR_CNT       3UL
-#define ROOT_SLOT           474UL /* epoch 1 with 432 slots/epoch */
+#define ROOT_SLOT           1770UL /* epoch 4 with 432 slots/epoch */
 #define EPOCH_CREDITS_CNT   3UL
 
 #define TEST_WKSP_TAG           43UL
@@ -230,24 +230,44 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
   bank->f.parent_txn_count = 1234UL;
   bank->f.txn_count        =   56UL;
 
-  /* Select two existing vote accounts, then set non-default SIMD-0232
-     collectors: distinct inflation and block collectors for vote0 on
-     the t_1 tag (epoch), and a block-only override for vote1 on the
-     t_2 tag (epoch-1). */
-  FD_TEST( bank->f.epoch>=1UL );
+  /* svm_mini opens the vote stakes fork at epoch 0, so reopen it at
+     the bank's epoch and reseed the mock validators into the t_1 and
+     t_2 sets, plus the t_3..t_5 sets with a per-set stake and
+     commission so each encoded key can be told apart. */
+  FD_TEST( bank->f.epoch>3UL );
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ulong              fork_id     = bank->vote_stakes_fork_id;
+  fd_pubkey_t votes     [ VALIDATOR_CNT ];
+  fd_pubkey_t identities[ VALIDATOR_CNT ];
+  ulong       vote_cnt = 0UL;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter_mem );
-  FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) );
-  fd_pubkey_t vote0;
-  fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &vote0, NULL, NULL,
-                           NULL, NULL, NULL, NULL, NULL, NULL, NULL );
-  fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
-  FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) );
-  fd_pubkey_t vote1;
-  fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &vote1, NULL, NULL,
-                           NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
+    FD_TEST( vote_cnt<VALIDATOR_CNT );
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &votes[ vote_cnt ], &identities[ vote_cnt ], NULL,
+                             NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    vote_cnt++;
+  }
+  FD_TEST( vote_cnt==VALIDATOR_CNT );
+
+  fd_vote_stakes_reset( vote_stakes );
+  bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
+  fork_id = bank->vote_stakes_fork_id;
+  uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
+  for( ulong i=0UL; i<VALIDATOR_CNT; i++ ) {
+    fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls );
+    for( ulong n=3UL; n<=5UL; n++ ) {
+      fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, n, &votes[i], &identities[i], 1000000UL*n, (ushort)(100UL*n), no_bls );
+    }
+  }
+
+  /* Set non-default SIMD-0232 collectors: distinct inflation and block
+     collectors for vote0 on the t_1 tag (epoch), and a block-only
+     override for vote1 on the t_2 tag (epoch-1). */
+  fd_pubkey_t vote0 = votes[0];
+  fd_pubkey_t vote1 = votes[1];
 
   fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
   fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };
@@ -368,18 +388,16 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
 
   /* Collector round-trip: the encoder tags t_1 entries (epoch_stakes
      key epoch+1) with the epoch override tag and t_2 entries (key
-     epoch) with the epoch-1 tag; t_3 entries (key epoch-1) are encoded
-     with zero collectors. */
+     epoch) with the epoch-1 tag; t_3..t_5 entries (keys epoch-1..
+     epoch-3) are encoded with zero collectors. */
   {
     fd_snapshot_manifest_epoch_stakes_t const * t1 = NULL;
     fd_snapshot_manifest_epoch_stakes_t const * t2 = NULL;
-    fd_snapshot_manifest_epoch_stakes_t const * t3 = NULL;
-    for( ulong i=0UL; i<3UL; i++ ) {
+    for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
       if( manifest->epoch_stakes[i].epoch==bank->f.epoch+1UL ) t1 = &manifest->epoch_stakes[i];
       if( manifest->epoch_stakes[i].epoch==bank->f.epoch     ) t2 = &manifest->epoch_stakes[i];
-      if( manifest->epoch_stakes[i].epoch==bank->f.epoch-1UL ) t3 = &manifest->epoch_stakes[i];
     }
-    FD_TEST( t1 && t2 && t3 );
+    FD_TEST( t1 && t2 );
 
     static uchar const zero32[ 32UL ] = {0};
     int seen_t1_vote0 = 0; int seen_t1_vote1 = 0;
@@ -417,34 +435,43 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
     }
     FD_TEST( seen_t2_vote1 && seen_t2_vote0 );
 
-    for( ulong i=0UL; i<t3->vote_stakes_len; i++ ) {
-      fd_snapshot_manifest_vote_stakes_t const * vs = &t3->vote_stakes[i];
-      FD_TEST( !memcmp( vs->commission_inflation, zero32, 32UL ) );
-      FD_TEST( !memcmp( vs->commission_block,     zero32, 32UL ) );
-      FD_TEST( !vs->epoch_credits_history_len );
-
-      int found = 0;
-      for( ulong j=0UL; j<*fd_bank_epoch_credits_len( bank ); j++ ) {
-        fd_epoch_credits_t const * ec = &fd_bank_epoch_credits( bank )[ j ];
-        if( memcmp( vs->vote, ec->pubkey, 32UL ) ) continue;
-        FD_TEST( vs->commission==ec->commission );
-        found = 1;
-        break;
+    /* The t_3..t_5 entries carry the stake and commission of their own
+       set, no credits and no collectors. */
+    for( ulong n=3UL; n<=5UL; n++ ) {
+      fd_snapshot_manifest_epoch_stakes_t const * tn = NULL;
+      for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+        if( manifest->epoch_stakes[i].epoch==bank->f.epoch+2UL-n ) tn = &manifest->epoch_stakes[i];
       }
-      FD_TEST( found );
+      FD_TEST( tn );
+      FD_TEST( tn->vote_stakes_len==VALIDATOR_CNT );
+      FD_TEST( tn->total_stake==VALIDATOR_CNT*1000000UL*n );
+      for( ulong i=0UL; i<tn->vote_stakes_len; i++ ) {
+        fd_snapshot_manifest_vote_stakes_t const * vs = &tn->vote_stakes[i];
+        FD_TEST( !memcmp( vs->commission_inflation, zero32, 32UL ) );
+        FD_TEST( !memcmp( vs->commission_block,     zero32, 32UL ) );
+        FD_TEST( !vs->epoch_credits_history_len );
+        FD_TEST( vs->stake==1000000UL*n && vs->commission==100UL*n );
+
+        int found = 0;
+        for( ulong j=0UL; j<VALIDATOR_CNT; j++ ) {
+          found |= !memcmp( vs->vote, &votes[j], 32UL ) && !memcmp( vs->identity, &identities[j], 32UL );
+        }
+        FD_TEST( found );
+      }
     }
   }
 
-  ulong expected_epoch_cnt = (bank->f.epoch > 0UL) ? 3UL : 2UL;
-  for( ulong i=0UL; i<expected_epoch_cnt; i++ ) {
+  /* Every key E-3..E+1 is present, in order; only the t_1 and t_2
+     entries carry the mock validators' commission. */
+  for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
     FD_LOG_NOTICE(( "epoch_stakes[%lu]: epoch=%lu total_stake=%lu vote_stakes_len=%lu",
                     i,
                     manifest->epoch_stakes[i].epoch,
                     manifest->epoch_stakes[i].total_stake,
                     manifest->epoch_stakes[i].vote_stakes_len ));
-    ulong expected_vote_cnt = VALIDATOR_CNT;
-    FD_TEST( manifest->epoch_stakes[i].vote_stakes_len==expected_vote_cnt );
-    if( manifest->epoch_stakes[i].epoch!=bank->f.epoch-1UL ) {
+    FD_TEST( manifest->epoch_stakes[i].epoch==bank->f.epoch-3UL+i );
+    FD_TEST( manifest->epoch_stakes[i].vote_stakes_len==VALIDATOR_CNT );
+    if( manifest->epoch_stakes[i].epoch>=bank->f.epoch ) {
       for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
         FD_TEST( manifest->epoch_stakes[i].vote_stakes[j].commission==1234U );
       }
@@ -1614,9 +1641,10 @@ main( int     argc,
   params->mock_validator_cnt = VALIDATOR_CNT;
   params->root_slot          = ROOT_SLOT;
   params->slots_per_epoch    = 432UL;
-  /* Place the bank in epoch 1 so the t_1 (epoch) and t_2 (epoch-1)
-     collector override tags are distinct. */
-  fd_sol_sysvar_clock_t clock = { .slot = ROOT_SLOT, .epoch = 1UL, .leader_schedule_epoch = 2UL };
+  /* Place the bank in epoch 4 so the manifest carries every key
+     E-3..E+1 and the t_1 (epoch) and t_2 (epoch-1) collector override
+     tags are distinct. */
+  fd_sol_sysvar_clock_t clock = { .slot = ROOT_SLOT, .epoch = 4UL, .leader_schedule_epoch = 5UL };
   params->clock              = &clock;
   ulong bank_idx = fd_svm_mini_reset( mini, params );
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
