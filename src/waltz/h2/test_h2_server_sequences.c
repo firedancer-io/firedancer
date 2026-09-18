@@ -702,13 +702,13 @@ test_h2_srv2_headers( fd_h2_conn_t *   conn,
   if( !( flags & FD_H2_FLAG_END_HEADERS ) ) return;
 
   fd_hpack_rd_t rd[1];
-  if( FD_UNLIKELY( !fd_hpack_rd_init( rd, ctx->blk, ctx->blk_len ) ) ) {
+  if( FD_UNLIKELY( !fd_hpack_rd_init_dtable( rd, ctx->blk, ctx->blk_len, &conn->rx_hpack ) ) ) {
     ctx->hdr_err = FD_H2_ERR_COMPRESSION;
     fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
     return;
   }
   while( !fd_hpack_rd_done( rd ) ) {
-    uchar   buf[ 8192 ];
+    uchar   buf[ 2*FD_HPACK_DTABLE_SZ_MAX ];
     uchar * bufp = buf;
     fd_h2_hdr_t hdr[1];
     uint err = fd_hpack_rd_next( rd, hdr, &bufp, buf+sizeof(buf) );
@@ -857,6 +857,15 @@ test_h2_srv2_handshake( test_h2_srv2_t * ctx ) {
   return header_table_size;
 }
 
+static void
+test_h2_srv2_expect_hdrs( test_h2_srv2_t * ctx,
+                          char const *     expected ) {
+  ulong len = strlen( expected );
+  FD_TEST( ctx->hdr_err==0U );
+  FD_TEST( ctx->hdr_txt_len==len );
+  FD_TEST( fd_memeq( ctx->hdr_txt, expected, len ) );
+  ctx->hdr_txt_len = 0UL;
+}
 
 /* A request field block that adds ':authority: www.example.com' to the
    dynamic table (RFC 7541 Appendix C.3.1, last two records dropped). */
@@ -867,6 +876,112 @@ static uchar const test_h2_srv2_req1[] = {
 
 /* A request field block that indexes the entry that req1 added */
 static uchar const test_h2_srv2_req2[] = { 0x84, 0xbe };
+
+FD_UNIT_TEST( h2_server_hpack_dynamic_table ) {
+  test_h2_srv2_t ctx[1];
+  test_h2_srv2_init( ctx );
+
+  /* A client that has not read our SETTINGS yet assumes the HTTP/2
+     default table size, so that is what we advertise. */
+  FD_TEST( test_h2_srv2_handshake( ctx )==FD_HPACK_DTABLE_SZ_MAX );
+  FD_TEST( ctx->conn->rx_hpack.limit_sz==FD_HPACK_DTABLE_SZ_MAX );
+
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS,
+                     FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM,
+                     1U, test_h2_srv2_req1, sizeof(test_h2_srv2_req1) );
+  test_h2_srv2_rx( ctx );
+  test_h2_srv2_expect_hdrs( ctx, ":method: GET\n:authority: www.example.com\n" );
+  FD_TEST( ctx->conn->rx_hpack.entry_cnt==1U );
+  FD_TEST( ctx->conn->rx_hpack.used_sz  ==57U );
+
+  /* The table is connection state: a later stream may index it */
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS,
+                     FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM,
+                     3U, test_h2_srv2_req2, sizeof(test_h2_srv2_req2) );
+  test_h2_srv2_rx( ctx );
+  test_h2_srv2_expect_hdrs( ctx, ":path: /\n:authority: www.example.com\n" );
+  FD_TEST( !( ctx->conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) );
+
+  /* An out of bounds dynamic index is a connection error */
+  static uchar const bad[] = { 0xbf };
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS,
+                     FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM,
+                     5U, bad, sizeof(bad) );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( ctx->hdr_err==FD_H2_ERR_COMPRESSION );
+  FD_TEST( ctx->conn->conn_error==FD_H2_ERR_COMPRESSION );
+}
+
+FD_UNIT_TEST( h2_server_continuation ) {
+  test_h2_srv2_t ctx[1];
+  test_h2_srv2_init( ctx );
+  test_h2_srv2_handshake( ctx );
+
+  /* Split the block in the middle of the ':authority' record */
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS, 0U, 1U,
+                     test_h2_srv2_req1, 5UL );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( ctx->conn->flags & FD_H2_CONN_FLAGS_CONTINUATION );
+  FD_TEST( ctx->hdr_txt_len==0UL );
+
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_CONTINUATION, 0U, 1U,
+                     test_h2_srv2_req1+5, 6UL );
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_CONTINUATION, FD_H2_FLAG_END_HEADERS, 1U,
+                     test_h2_srv2_req1+11, sizeof(test_h2_srv2_req1)-11UL );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( !( ctx->conn->flags & FD_H2_CONN_FLAGS_CONTINUATION ) );
+  FD_TEST( ctx->hdrs_cb_cnt        ==3UL );
+  test_h2_srv2_expect_hdrs( ctx, ":method: GET\n:authority: www.example.com\n" );
+  FD_TEST( ctx->conn->rx_hpack.entry_cnt==1U );
+
+  /* A HEADERS frame may carry END_STREAM without END_HEADERS: the
+     CONTINUATION frames that finish the field block arrive after the
+     stream stopped receiving */
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_STREAM, 3U,
+                     test_h2_srv2_req2, 1UL );
+  test_h2_srv2_rx( ctx );
+  fd_h2_stream_t * stream = test_h2_srv2_stream_query( ctx->conn, 3U );
+  FD_TEST( stream && stream->state==FD_H2_STREAM_STATE_CLOSING_RX );
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_CONTINUATION, FD_H2_FLAG_END_HEADERS, 3U,
+                     test_h2_srv2_req2+1, sizeof(test_h2_srv2_req2)-1UL );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( stream->state==FD_H2_STREAM_STATE_CLOSING_RX );
+  FD_TEST( stream->hdrs_seq==1                          );
+  FD_TEST( !( ctx->conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) );
+  test_h2_srv2_expect_hdrs( ctx, ":path: /\n:authority: www.example.com\n" );
+
+  /* Any other frame type in the middle of a field block is a connection
+     error */
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS, 0U, 5U,
+                     test_h2_srv2_req1, 5UL );
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_PING, 0U, 0U, "01234567", 8UL );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( ctx->conn->flags & FD_H2_CONN_FLAGS_SEND_GOAWAY );
+  FD_TEST( ctx->conn->conn_error==FD_H2_ERR_PROTOCOL );
+}
+
+FD_UNIT_TEST( h2_server_hdrs_limit ) {
+  test_h2_srv2_t ctx[1];
+  test_h2_srv2_init( ctx );
+  ctx->conn->self_settings.max_header_list_size = 64U;
+  test_h2_srv2_handshake( ctx );
+
+  uchar payload[ 40 ] = {0};
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS, 0U, 1U, test_h2_srv2_req1, sizeof(test_h2_srv2_req1) );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( !( ctx->conn->flags & FD_H2_CONN_FLAGS_SEND_GOAWAY ) );
+  FD_TEST( ctx->conn->rx_hdrs_sz==sizeof(test_h2_srv2_req1) );
+
+  /* 18 + 40 + 40 > 64 */
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_CONTINUATION, 0U, 1U, payload, sizeof(payload) );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( !( ctx->conn->flags & FD_H2_CONN_FLAGS_SEND_GOAWAY ) );
+
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_CONTINUATION, 0U, 1U, payload, sizeof(payload) );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( ctx->conn->flags & FD_H2_CONN_FLAGS_SEND_GOAWAY );
+  FD_TEST( ctx->conn->conn_error==FD_H2_ERR_ENHANCE_YOUR_CALM );
+}
 
 FD_UNIT_TEST( h2_server_stream_window_refill ) {
   test_h2_srv2_t ctx[1];
@@ -1019,6 +1134,58 @@ FD_UNIT_TEST( h2_server_padded_data_flow_control ) {
   FD_TEST( !( ctx->conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) );
 }
 
+FD_UNIT_TEST( h2_server_trailers ) {
+  test_h2_srv2_t ctx[1];
+  test_h2_srv2_init( ctx );
+  test_h2_srv2_handshake( ctx );
+
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS,
+                     FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, 1U,
+                     test_h2_srv2_req1, sizeof(test_h2_srv2_req1) );
+  test_h2_srv2_rx( ctx );
+  fd_h2_stream_t * stream = test_h2_srv2_stream_query( ctx->conn, 1U );
+  FD_TEST( stream && stream->state==FD_H2_STREAM_STATE_CLOSING_RX );
+  FD_TEST( ctx->conn->stream_active_cnt[0]==1U );
+
+  /* Response: HEADERS, DATA, then a trailing field block that ends the
+     stream */
+  static uchar const status_200[] = { 0x88 };
+  fd_h2_tx( ctx->rbuf_tx, status_200, sizeof(status_200),
+            FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, stream->stream_id );
+
+  fd_h2_tx_op_t tx_op[1];
+  fd_h2_tx_op_init( tx_op, "hello", 5UL, 0U );
+  fd_h2_tx_op_copy( ctx->conn, stream, ctx->rbuf_tx, tx_op );
+  FD_TEST( tx_op->chunk_sz==0UL );
+  FD_TEST( stream->state==FD_H2_STREAM_STATE_CLOSING_RX );
+
+  uchar trailers[ 64 ];
+  fd_h2_rbuf_t trailers_rbuf[1];
+  fd_h2_rbuf_init( trailers_rbuf, trailers, sizeof(trailers) );
+  FD_TEST( fd_hpack_wr_trailers( trailers_rbuf ) );
+  ulong trailers_sz = fd_h2_rbuf_used_sz( trailers_rbuf );
+
+  fd_h2_tx( ctx->rbuf_tx, trailers, trailers_sz,
+            FD_H2_FRAME_TYPE_HEADERS,
+            FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, stream->stream_id );
+  fd_h2_stream_close_tx( stream, ctx->conn );
+  FD_TEST( stream->state==FD_H2_STREAM_STATE_CLOSED );
+  FD_TEST( ctx->conn->stream_active_cnt[0]==0U );
+
+  fd_h2_frame_hdr_t hdr;
+  uchar payload[ 64 ];
+  FD_TEST( test_h2_srv2_pop( ctx, &hdr, payload, sizeof(payload) )==1UL );
+  FD_TEST( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_HEADERS );
+  FD_TEST( hdr.flags==FD_H2_FLAG_END_HEADERS );
+  FD_TEST( test_h2_srv2_pop( ctx, &hdr, payload, sizeof(payload) )==5UL );
+  FD_TEST( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_DATA );
+  FD_TEST( hdr.flags==0 );
+  FD_TEST( test_h2_srv2_pop( ctx, &hdr, payload, sizeof(payload) )==trailers_sz );
+  FD_TEST( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_HEADERS );
+  FD_TEST( hdr.flags==( FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM ) );
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_tx )==0UL );
+}
+
 FD_UNIT_TEST( h2_server_rst_stream_both_ways ) {
   test_h2_srv2_t ctx[1];
   test_h2_srv2_init( ctx );
@@ -1056,6 +1223,63 @@ FD_UNIT_TEST( h2_server_rst_stream_both_ways ) {
   FD_TEST( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_RST_STREAM );
   FD_TEST( fd_h2_frame_stream_id( hdr.r_stream_id )==3U );
   FD_TEST( fd_uint_bswap( FD_LOAD( uint, payload ) )==FD_H2_ERR_CANCEL );
+}
+
+FD_UNIT_TEST( h2_server_goaway_last_stream_id ) {
+  test_h2_srv2_t ctx[1];
+  test_h2_srv2_init( ctx );
+  test_h2_srv2_handshake( ctx );
+
+  for( uint stream_id=1U; stream_id<=5U; stream_id+=2U ) {
+    test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS,
+                       FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, stream_id,
+                       stream_id==1U ? test_h2_srv2_req1 : test_h2_srv2_req2,
+                       stream_id==1U ? sizeof(test_h2_srv2_req1) : sizeof(test_h2_srv2_req2) );
+    test_h2_srv2_rx( ctx );
+  }
+  ctx->hdr_txt_len = 0UL;
+
+  fd_h2_conn_error( ctx->conn, FD_H2_ERR_PROTOCOL );
+  fd_h2_tx_control( ctx->conn, ctx->rbuf_tx, ctx->cb );
+
+  fd_h2_goaway_t goaway;
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_tx )==sizeof(goaway) );
+  fd_h2_rbuf_pop_copy( ctx->rbuf_tx, &goaway, sizeof(goaway) );
+  FD_TEST( fd_h2_frame_type( goaway.hdr.typlen )==FD_H2_FRAME_TYPE_GOAWAY );
+  /* Streams above last_stream_id are the ones the client may retry */
+  FD_TEST( fd_uint_bswap( goaway.last_stream_id )==5U );
+  FD_TEST( fd_uint_bswap( goaway.error_code )==FD_H2_ERR_PROTOCOL );
+  FD_TEST( ctx->conn_final_cnt==1UL );
+  FD_TEST( ctx->conn_final_err==FD_H2_ERR_PROTOCOL );
+  FD_TEST( ctx->conn->flags==FD_H2_CONN_FLAGS_DEAD );
+}
+
+FD_UNIT_TEST( h2_server_settings_sent_before_rx ) {
+  test_h2_srv2_t ctx[1];
+  test_h2_srv2_init( ctx );
+
+  /* The client pipelined its preface, SETTINGS and a request without
+     waiting for ours.  Ours must still go out first. */
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_SETTINGS, 0U, 0U, NULL, 0UL );
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_SETTINGS, FD_H2_FLAG_ACK, 0U, NULL, 0UL );
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS,
+                     FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, 1U,
+                     test_h2_srv2_req1, sizeof(test_h2_srv2_req1) );
+  test_h2_srv2_rx( ctx );
+
+  fd_h2_frame_hdr_t hdr;
+  uchar payload[ 256 ];
+  FD_TEST( test_h2_srv2_pop( ctx, &hdr, payload, sizeof(payload) )==36UL );
+  FD_TEST( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_SETTINGS );
+  FD_TEST( hdr.flags==0 );
+  FD_TEST( test_h2_srv2_pop( ctx, &hdr, payload, sizeof(payload) )==0UL );
+  FD_TEST( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_SETTINGS );
+  FD_TEST( hdr.flags==FD_H2_FLAG_ACK );
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_tx )==0UL );
+
+  FD_TEST( ctx->conn_established_cnt==1UL );
+  FD_TEST( ctx->conn->flags==0U );
+  test_h2_srv2_expect_hdrs( ctx, ":method: GET\n:authority: www.example.com\n" );
 }
 
 FD_UNIT_TEST( h2_server_refused_stream_continuation ) {
@@ -1128,7 +1352,7 @@ FD_UNIT_TEST( h2_server_data_flow_control_violation ) {
   /* DATA after the peer half-closed the stream is a stream error too */
   test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS,
                      FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, 3U,
-                     test_h2_srv2_req1, sizeof(test_h2_srv2_req1) );
+                     test_h2_srv2_req2, sizeof(test_h2_srv2_req2) );
   test_h2_srv2_rx( ctx );
   FD_TEST( test_h2_srv2_stream_query( ctx->conn, 3U ) );
   FD_TEST( ctx->conn->stream_active_cnt[0]==1U );

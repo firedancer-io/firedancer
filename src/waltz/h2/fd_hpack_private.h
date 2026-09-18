@@ -22,6 +22,13 @@ struct fd_hpack_static_entry {
 
 typedef struct fd_hpack_static_entry fd_hpack_static_entry_t;
 
+/* FD_HPACK_HINT_INSERT marks a header field representation that adds
+   the field to the dynamic table (RFC 7541 Section 6.2.1).  This bit is
+   internal to the decoder and is cleared before fd_hpack_rd_next
+   returns. */
+
+#define FD_HPACK_HINT_INSERT ((ushort)0x0100)
+
 FD_PROTOTYPES_BEGIN
 
 extern fd_hpack_static_entry_t const
