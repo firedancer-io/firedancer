@@ -1283,6 +1283,94 @@ test_reconcile_ha_eqvoc( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_reconcile_ha_eqvoc" ));
 }
 
+static void
+test_adopt_check( fd_wksp_t * wksp ) {
+  ulong blk_max = 64;
+  ulong vtr_max = 2;
+
+  void *       tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, vtr_max ), 1UL );
+  fd_tower_t * tower     = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 0UL ) );
+  FD_TEST( tower );
+  tower->root = 1UL;
+
+  fd_tower_blk_t * blk;
+  for( ulong slot=1UL; slot<=4UL; slot++ ) {
+    blk                    = fd_tower_blocks_insert( tower, slot, slot-1UL );
+    blk->replayed          = 1;
+    blk->replayed_block_id = ( fd_hash_t ){ .ul = { slot } };
+  }
+  /* 5 is on a fork off 2, 6 is not replayed */
+  blk                    = fd_tower_blocks_insert( tower, 5UL, 2UL );
+  blk->replayed          = 1;
+  blk->replayed_block_id = ( fd_hash_t ){ .ul = { 5UL } };
+  fd_tower_blocks_insert( tower, 6UL, 4UL );
+
+  /* Local tower has voted up to slot 4. */
+  push_vote( tower, 2UL );
+  push_vote( tower, 3UL );
+  push_vote( tower, 4UL );
+  FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot==4UL );
+
+  /* A tower that ends at slot 3, behind our last vote at 4. */
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) adopt_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * adopt = fd_tower_vote_join( fd_tower_vote_new( adopt_mem ) );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=2UL, .conf=2UL } );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=3UL, .conf=1UL } );
+  FD_TEST( !fd_tower_adopt_check( tower, adopt, 1UL ) );
+
+  /* Votes that are not one chain, a vote on an unreplayed block. */
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=5UL, .conf=1UL } );
+  FD_TEST( fd_tower_adopt_check( tower, adopt, 1UL )==-2 );
+  fd_tower_vote_pop_tail( adopt );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=6UL, .conf=1UL } );
+  FD_TEST( fd_tower_adopt_check( tower, adopt, 1UL )==-3 );
+
+  /* A root on a fork off ours. */
+  fd_tower_vote_remove_all( adopt );
+  tower->root = 3UL;
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=5UL, .conf=1UL } );
+  FD_TEST( fd_tower_adopt_check( tower, adopt, 5UL )==-2 );
+  tower->root = 1UL;
+
+  /* Nothing changed. */
+  FD_TEST( fd_tower_vote_cnt( tower->votes )==3UL );
+  FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot==4UL );
+
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_adopt_check" ));
+}
+
+static void
+test_adopt_rejects_unreplayed_root( fd_wksp_t * wksp ) {
+  ulong blk_max = 64UL;
+  ulong vtr_max = 2UL;
+
+  void *       tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, vtr_max ), 1UL );
+  fd_tower_t * tower     = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 0UL ) );
+  FD_TEST( tower );
+  tower->root = 1UL;
+
+  fd_tower_blk_t * blk = fd_tower_blocks_insert( tower, 2UL, 1UL );
+  blk->replayed          = 1;
+  blk->replayed_block_id = (fd_hash_t){ .ul = { 2UL } };
+  blk->voted             = 1;
+  blk->voted_block_id    = blk->replayed_block_id;
+  push_vote( tower, 2UL );
+
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) adopt_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * adopt = fd_tower_vote_join( fd_tower_vote_new( adopt_mem ) );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=10UL, .conf=1UL } );
+
+  FD_TEST( fd_tower_adopt_check( tower, adopt, 9UL )==-1 );
+  FD_TEST( tower->root==1UL );
+  FD_TEST( fd_tower_vote_cnt( tower->votes )==1UL );
+  FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot==2UL );
+  FD_TEST( blk->voted );
+
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_adopt_rejects_unreplayed_root" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1317,6 +1405,9 @@ main( int argc, char ** argv ) {
   test_reconcile_boot( wksp );
   test_reconcile_ha( wksp );
   test_reconcile_ha_eqvoc( wksp );
+
+  test_adopt_check( wksp );
+  test_adopt_rejects_unreplayed_root( wksp );
 
   test_vtr_valid_join( wksp );
 
