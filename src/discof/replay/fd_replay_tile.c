@@ -3354,6 +3354,54 @@ try_evict_reasm( fd_replay_tile_t *  ctx,
 }
 
 static int
+try_process_leader_fec( fd_replay_tile_t *  ctx,
+                        fd_stem_context_t * stem ) {
+  if( FD_LIKELY( !ctx->is_leader ) ) return 0;
+
+  fd_bank_t * leader_bank = ctx->leader_bank;
+  FD_TEST( leader_bank );
+  fd_block_id_ele_t * leader_id = &ctx->block_id_arr[ leader_bank->idx ];
+  FD_TEST( leader_id->bank_seq==leader_bank->bank_seq );
+  if( FD_UNLIKELY( leader_id->block_id_seen ) ) return 0;
+
+  /* Follow only the next link in our own chain.  Searching the entire
+     delivery queue here would be expensive precisely when replay is
+     behind.  Before FEC 0, the chain starts at the frozen parent bank. */
+  int first = fd_hash_check_zero( &leader_id->latest_mr );
+  ulong parent_idx = first ? leader_bank->parent_idx : leader_bank->idx;
+  fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, parent_idx );
+  FD_TEST( parent_bank );
+  FD_TEST( parent_bank->state!=FD_BANK_STATE_PRUNABLE );
+  FD_TEST( parent_bank->state!=FD_BANK_STATE_DEAD );
+
+  fd_block_id_ele_t * parent_id = &ctx->block_id_arr[ parent_idx ];
+  FD_TEST( parent_id->bank_seq==parent_bank->bank_seq );
+  fd_reasm_fec_t * parent = fd_reasm_query( ctx->reasm, &parent_id->latest_mr );
+  FD_TEST( parent );
+  FD_TEST( !parent->bank_dead );
+  FD_TEST( parent->bank_idx==parent_idx );
+  FD_TEST( parent->bank_seq==parent_bank->bank_seq );
+
+  for( fd_reasm_fec_t * fec=fd_reasm_child( ctx->reasm, parent ); fec; fec=fd_reasm_sibling( ctx->reasm, fec ) ) {
+    if( FD_LIKELY( !fec->is_leader || fec->slot!=leader_bank->f.slot ) ) continue;
+    FD_TEST( (fec->fec_set_idx==0U)==first );
+    if( FD_UNLIKELY( !first && fec->eqvoc && !parent->eqvoc ) ) continue;
+    if( FD_UNLIKELY( !fec->in_out || fec->popped || (fec->eqvoc && !fec->confirmed) ) ) continue;
+    FD_TEST( fd_reasm_pop_fec( ctx->reasm, fec )==fec );
+
+    ctx->metrics.reasm_latest_slot    = fec->slot;
+    ctx->metrics.reasm_latest_fec_idx = fec->fec_set_idx;
+
+    /* The leader bank already exists and these FECs never enter sched.
+       Neither bank exhaustion nor scheduler capacity may delay the
+       block id needed to finish leadership and release that bank. */
+    FD_TEST( !insert_fec_set( ctx, stem, fec ) );
+    return 1;
+  }
+  return 0;
+}
+
+static int
 try_process_fec( fd_replay_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
 
@@ -3374,6 +3422,11 @@ try_process_fec( fd_replay_tile_t *  ctx,
      can get to the leader FEC sets asap and freeze the leader bank on
      time.  In the reasm full case, this is so we don't prematurely
      trigger eviction. */
+  if( FD_UNLIKELY( try_process_leader_fec( ctx, stem ) ) ) {
+    ctx->execrp_idle_cnt = 0UL;
+    return 1;
+  }
+
   int evict_banks = 0;
   if( FD_LIKELY( (ctx->execrp_idle_cnt>=2UL*ctx->in_cnt || ctx->is_leader || fd_reasm_free( ctx->reasm )<=1UL) &&
                  can_process_fec( ctx, &evict_banks ) ) ) {

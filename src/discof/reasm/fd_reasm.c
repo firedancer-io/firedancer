@@ -191,6 +191,16 @@ fd_reasm_pop( fd_reasm_t * reasm ) {
 }
 
 fd_reasm_fec_t *
+fd_reasm_pop_fec( fd_reasm_t *     reasm,
+                  fd_reasm_fec_t * fec ) {
+  if( FD_UNLIKELY( !fec->in_out || fec->popped || ( fec->eqvoc && !fec->confirmed ) ) ) return NULL;
+  out_ele_remove( reasm->out, fec, reasm_pool( reasm ) );
+  fec->in_out = 0;
+  fec->popped = 1;
+  return fec;
+}
+
+fd_reasm_fec_t *
 fd_reasm_query( fd_reasm_t       * reasm,
                 fd_hash_t  const * merkle_root ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
