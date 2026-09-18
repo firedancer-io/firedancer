@@ -606,6 +606,57 @@ test_demotion_order( void ) {
   FD_LOG_NOTICE(( "pass: a demotion confirms only after the identity is gone" ));
 }
 
+/* Test that a handoff asked on the active reads the spare's last status
+   before giving the identity up. */
+static void
+test_active_handoff_checks( void ) {
+  fd_adminctl_failover_control_t req;
+  fd_memset( &req, 0, sizeof(req) );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_HANDOFF;
+
+  /* A healthy spare at our term, the demotion starts. */
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  peer->channel->state = FD_FAILOVER_SESSION_PAIRED;
+  peer->status_valid   = 1;
+  peer->status.role    = (uchar)FD_FAILOVER_ROLE_STANDBY;
+  peer->status.term    = 4UL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
+  controller_fini();
+
+  /* A spare that is stuck, behind, or at another term is refused and the
+     identity stays put.  A paused pool answers paused, as before. */
+  uint   statuses[] = { FD_FAILOVER_STATUS_STUCK, FD_FAILOVER_STATUS_REPLAG, 0U,   FD_FAILOVER_STATUS_PAUSED };
+  ulong  terms[]    = { 4UL,                      4UL,                       5UL,  4UL };
+  ulong  expected[] = { FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY, FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY,
+                        FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY, FD_FAILOVER_CONTROL_RESULT_PAUSED };
+  for( ulong i=0UL; i<4UL; i++ ) {
+    controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+    peer = &ctx->peers[ 0 ];
+    peer->channel->state  = FD_FAILOVER_SESSION_PAIRED;
+    peer->status_valid    = 1;
+    peer->status.role     = (uchar)FD_FAILOVER_ROLE_STANDBY;
+    peer->status.term     = terms[ i ];
+    peer->status.status   = statuses[ i ];
+    FD_TEST( apply_control( ctx, stem, &req, 1000L )==expected[ i ] );
+    FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE );
+    controller_fini();
+  }
+  /* A status older than two intervals is stale, whatever it says. */
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+  peer = &ctx->peers[ 0 ];
+  peer->channel->state = FD_FAILOVER_SESSION_PAIRED;
+  peer->status_valid   = 1;
+  peer->status_time    = 1000L-3L*ctx->status_interval;
+  peer->status.role    = (uchar)FD_FAILOVER_ROLE_STANDBY;
+  peer->status.term    = 4UL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: the active asks the spare's status before handing off" ));
+}
+
 /* Test that a demotion takes the final tower only once the tower stream
    has reached the halt watermark, and confirms nothing when it never gets
    there or a frag was skipped. */
@@ -1062,6 +1113,28 @@ test_pause_stops_pending_promotion( void ) {
   FD_LOG_NOTICE(( "pass: a pause stands a pending promotion down before the key switch" ));
 }
 
+/* A pause or resume queued on a down link coalesces to the latest intent,
+   so the peer never receives a stale one after the link recovers. */
+static void
+test_pause_resume_coalesce( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  ctx->peers[ 0 ].channel->state = FD_FAILOVER_SESSION_PAIRED;
+  fd_adminctl_failover_control_t req;
+  fd_memset( &req, 0, sizeof(req) );
+
+  /* A pause fills the slot but the link cannot flush it. */
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_PAUSE;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->paused && ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_PAUSE );
+
+  /* A later resume replaces the queued pause rather than being dropped. */
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_RESUME;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( !ctx->paused && ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_RESUME );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a queued pause or resume coalesces to the latest intent" ));
+}
+
 /* A final tower older than the one the peer streamed is refused, a
    replayed or regressed confirmation must not overwrite newer lockouts. */
 static void
@@ -1229,6 +1302,211 @@ test_late_promote_ack( void ) {
   FD_LOG_NOTICE(( "pass: a late acknowledgement is acted on and an unowed one is ignored" ));
 }
 
+/* Refused commands report why, and nothing that moves the identity works
+   without the peer's confirmation. */
+static void
+test_operator_commands( void ) {
+  fd_adminctl_failover_control_t req;
+
+  /* promote without a confirmation on disk, and --force without a pubkey. */
+  controller_init( FD_FAILOVER_STATE_STANDBY, 3UL );
+  fd_memset( &req, 0, sizeof(req) );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_PROMOTE;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+
+  /* A full confirmation with tower and digest, as the peer would send it. */
+  ctx->demoted_valid                         = 1;
+  ctx->demoted_record.demoted.term           = 4UL;
+  ctx->demoted_record.demoted.state_len      = 8U;
+  ctx->demoted_record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  ctx->demoted_record.demoted.last_vote_slot = 99UL;
+  fd_memset( ctx->demoted_record.state, 0xE1, 8UL );
+  fd_sha256_hash( ctx->demoted_record.state, 8UL, ctx->demoted_record.digest );
+  req.force = 1U;
+  fd_memset( req.staked_pubkey, 0x11, 32UL );
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY );
+  fd_memcpy( req.staked_pubkey, ctx->hello.staked_pubkey, 32UL );
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING );
+
+  /* Everything is refused while a transition is in flight. */
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BUSY );
+  controller_fini();
+
+  /* pause gets written to disk and sent to the peer, and blocks anything
+     that moves the identity. */
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 5UL );
+  fd_memset( &req, 0, sizeof(req) );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_PAUSE;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->paused && ctx->role_file.paused );
+  FD_TEST( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_PAUSE );
+  ctx->pending_valid = 0;
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_DEMOTE;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PAUSED );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_RESUME;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( !ctx->paused && !ctx->role_file.paused );
+  ctx->pending_valid = 0;
+
+  /* demote on the active bumps the term and drops the identity, nobody is
+     asked to promote. */
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_DEMOTE;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING && ctx->role_file.term==6UL && !ctx->send_demoted );
+  controller_fini();
+
+  /* A spare cannot demote, and cannot send a handoff request without a
+     paired peer. */
+  controller_init( FD_FAILOVER_STATE_STANDBY, 7UL );
+  fd_memset( &req, 0, sizeof(req) );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_DEMOTE;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BAD_ROLE );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_HANDOFF;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED );
+
+  /* Once paired the request goes out, with the drill flag set for drill. */
+  ctx->peers[ 0 ].channel->state = FD_FAILOVER_SESSION_PAIRED;
+  ctx->peers[ 0 ].status_valid   = 1;
+  ctx->peers[ 0 ].status.term    = 7UL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_HANDOFF_REQ );
+  fd_failover_handoff_req_t sent;
+  fd_memcpy( &sent, ctx->pending, sizeof(sent) );
+  FD_TEST( sent.proposed_term==8UL && !sent.drill );
+  ctx->pending_valid = 0;
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_DRILL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  fd_memcpy( &sent, ctx->pending, sizeof(sent) );
+  FD_TEST( sent.drill );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: refused commands report why" ));
+}
+
+
+/* The switch request and the command response share a link, make sure
+   they land in different chunks. */
+static void
+test_bus_control_ordering( void ) {
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+  ctx->admin_out_chunk0 = 0UL;
+  ctx->admin_out_wmark  = 16UL;
+  ctx->admin_out_chunk  = 0UL;
+  ctx->cs_valid = 1;
+  ctx->cs_sz    = sizeof(fd_failover_consensus_state_t)+8UL;
+
+  fd_memset( &ctx->bus_req, 0, sizeof(ctx->bus_req) );
+  ctx->bus_req.nonce = 77UL;
+  fd_adminctl_failover_control_t * req = (fd_adminctl_failover_control_t *)ctx->bus_req.payload;
+  req->version = FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION;
+  req->cmd    = FD_ADMINCTL_FAILOVER_CMD_DEMOTE;
+  ctx->bus_req_sig = FD_FAILOVER_BUS_CONTROL_REQ;
+  serve_bus_request( ctx, stem, 1000L );
+
+  /* Two frames, switch request then response, different chunks. */
+  FD_TEST( pub_mcache[ 0 ].sig==FD_FAILOVER_BUS_SWITCH_REQ );
+  FD_TEST( pub_mcache[ 1 ].sig==FD_FAILOVER_BUS_CONTROL_RESP );
+  FD_TEST( pub_mcache[ 0 ].chunk!=pub_mcache[ 1 ].chunk );
+
+  fd_failover_bus_msg_t const * sw = fd_chunk_to_laddr_const( ctx->admin_out_mem, pub_mcache[ 0 ].chunk );
+  fd_failover_switch_req_t sreq;
+  fd_memcpy( &sreq, sw->payload, sizeof(sreq) );
+  FD_TEST( sreq.key==FD_FAILOVER_SWITCH_KEY_JUNK );
+  FD_TEST( sw->nonce==ctx->switch_request_id );
+
+  fd_failover_bus_msg_t const * ans = fd_chunk_to_laddr_const( ctx->admin_out_mem, pub_mcache[ 1 ].chunk );
+  FD_TEST( ans->nonce==77UL && ans->result==FD_ADMINCTL_RESULT_SUCCESS );
+  fd_adminctl_failover_control_resp_t answer;
+  fd_memcpy( &answer, ans->payload, sizeof(answer) );
+  FD_TEST( answer.version==FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION );
+  FD_TEST( answer.state==(uchar)FD_FAILOVER_STATE_DEMOTING && answer.term==5UL );
+  controller_fini();
+  stem_init();
+  FD_LOG_NOTICE(( "pass: a command's switch request and its answer take different frames" ));
+}
+
+/* Handoff answers get matched against our outstanding request and never
+   count as unknown frames. */
+static void
+test_handoff_response( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 7UL );
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  peer->channel->state = FD_FAILOVER_SESSION_PAIRED;
+  peer->status_valid   = 1;
+  peer->status.term    = 7UL;
+  ulong dropped = peer->channel->metrics.wire_fatal_cnt;
+
+  /* Answer with no request outstanding, ignored. */
+  fd_failover_handoff_resp_t resp = {
+    .proposed_term  = 8UL,
+    .deadline_slots = (uint)ctx->deadline_slots,
+    .code           = FD_FAILOVER_HANDOFF_REJECTED,
+    .reason         = FD_FAILOVER_REJECT_PEER_BEHIND,
+  };
+  fd_memcpy( ctx->rx, &resp, sizeof(resp) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_HANDOFF_RESP, sizeof(resp), 1000L );
+  FD_TEST( ctx->handoff_code==(uchar)FD_FAILOVER_HANDOFF_CODE_CNT );
+  FD_TEST( peer->channel->metrics.wire_fatal_cnt==dropped );
+
+  /* Matching answer, accepted. */
+  fd_adminctl_failover_control_t req;
+  fd_memset( &req, 0, sizeof(req) );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_HANDOFF;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->handoff_pending && ctx->handoff_req.proposed_term==8UL );
+  ctx->pending_valid = 0;
+
+  fd_memcpy( ctx->rx, &resp, sizeof(resp) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_HANDOFF_RESP, sizeof(resp), 1000L );
+  FD_TEST( ctx->handoff_code==FD_FAILOVER_HANDOFF_REJECTED );
+  FD_TEST( ctx->handoff_reason==FD_FAILOVER_REJECT_PEER_BEHIND );
+  FD_TEST( ctx->handoff_term==8UL && !ctx->handoff_pending );
+  FD_TEST( peer->channel->metrics.wire_fatal_cnt==dropped );
+
+  /* Mismatched answer, ignored, session stays up. */
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  ctx->pending_valid = 0;
+  resp.proposed_term = 9UL;
+  fd_memcpy( ctx->rx, &resp, sizeof(resp) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_HANDOFF_RESP, sizeof(resp), 1000L );
+  FD_TEST( ctx->handoff_pending && ctx->handoff_term==8UL );
+  FD_TEST( peer->channel->metrics.wire_fatal_cnt==dropped );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a handoff answer is matched to its request and never dropped as unknown" ));
+}
+
+/* Our own unsent confirmation must not count for promote.  It only
+   proves we stopped, not that the peer did. */
+static void
+test_promote_evidence( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  ctx->demoted_valid                         = 1;
+  ctx->send_demoted                          = 1;
+  ctx->action_term                           = 4UL;
+  ctx->stuck                                 = 1; /* the wait timed out */
+  ctx->demoted_record.demoted.term           = 4UL;
+  ctx->demoted_record.demoted.state_len      = 8U;
+  ctx->demoted_record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  ctx->demoted_record.demoted.last_vote_slot = 99UL;
+  fd_memset( ctx->demoted_record.state, 0xE1, 8UL );
+  fd_sha256_hash( ctx->demoted_record.state, 8UL, ctx->demoted_record.digest );
+
+  fd_adminctl_failover_control_t req;
+  fd_memset( &req, 0, sizeof(req) );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_PROMOTE;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+  req.force = 1U;
+  fd_memcpy( req.staked_pubkey, ctx->hello.staked_pubkey, 32UL );
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+
+  /* The same record coming from the peer is fine. */
+  ctx->send_demoted = 0;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: promote needs the peer's confirmation" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1247,10 +1525,16 @@ main( int     argc,
   test_demoted_payload();
   test_final_tower_regression();
   test_pause_stops_pending_promotion();
+  test_pause_resume_coalesce();
   test_demotion_order();
   test_promotion_reject();
   test_switch_overdue();
   test_demotion_drain();
+  test_active_handoff_checks();
+  test_operator_commands();
+  test_bus_control_ordering();
+  test_handoff_response();
+  test_promote_evidence();
   test_hello_refresh();
   test_deadline_arms_late();
   test_promotion_refused_term();
