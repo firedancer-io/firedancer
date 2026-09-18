@@ -146,6 +146,11 @@ fd_config_fillf( fd_config_t * config ) {
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
   }
+
+  replace( config->firedancer.failover.junk_identity_path,   "{user}", config->user );
+  replace( config->firedancer.failover.junk_identity_path,   "{name}", config->name );
+  replace( config->firedancer.failover.staked_identity_path, "{user}", config->user );
+  replace( config->firedancer.failover.staked_identity_path, "{name}", config->name );
 }
 
 static void

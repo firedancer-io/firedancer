@@ -11,6 +11,7 @@ struct fd_admin_tile_ctx {
   fd_topo_t const * topo;
   fd_adminctl_t *   adminctl;
   uchar             identity_pubkey[ 32UL ];
+  uchar             failover_staked_pubkey[ 32 ]; /* recorded at boot for the safety checks and to verify the file at a switch */
   fd_keyswitch_t *  tower_av_keyswitch;
   fd_keyswitch_t *  txsend_av_keyswitch;
   fd_keyswitch_t *  sign_av_keyswitch[ FD_TOPO_MAX_TILES ];
@@ -103,7 +104,36 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !strcmp( tile->admin.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
+  uchar const * identity = fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 );
+  fd_memcpy( ctx->identity_pubkey, identity, 32UL );
+  fd_keyload_unload( identity, 1 );
+
+  if( FD_UNLIKELY( tile->admin.failover_enabled ) ) {
+    /* Passive boot keeps the staked private key on disk.  Record only its
+       public key here, for the safety checks and to verify the file at a
+       switch. */
+    uchar const * staked_pk = fd_keyload_load( tile->admin.failover_staked_identity_path, 1 );
+    fd_memcpy( ctx->failover_staked_pubkey, staked_pk, 32UL );
+    int same_as_junk = fd_memeq( staked_pk, ctx->identity_pubkey, 32UL );
+    fd_keyload_unload( staked_pk, 1 );
+    if( FD_UNLIKELY( same_as_junk ) ) {
+      FD_LOG_ERR(( "[failover.staked_identity_path] and [failover.junk_identity_path] hold the same key, a spare must not boot under the staked identity" ));
+    }
+
+    /* With the staked key as an authorized voter a spare could sign
+       votes without being promoted. */
+    ulong sign_idx = fd_topo_find_tile( topo, "sign", 0UL );
+    FD_TEST( sign_idx!=ULONG_MAX );
+    fd_topo_tile_t const * sign_tile = &topo->tiles[ sign_idx ];
+    for( ulong i=0UL; i<sign_tile->sign.authorized_voter_paths_cnt; i++ ) {
+      uchar const * voter = fd_keyload_load( sign_tile->sign.authorized_voter_paths[ i ], 1 );
+      int matches = fd_memeq( voter, ctx->failover_staked_pubkey, 32UL );
+      fd_keyload_unload( voter, 1 );
+      if( FD_UNLIKELY( matches ) ) {
+        FD_LOG_ERR(( "authorized voter `%s` must differ from [failover.staked_identity_path]", sign_tile->sign.authorized_voter_paths[ i ] ));
+      }
+    }
+  }
 }
 
 static void
