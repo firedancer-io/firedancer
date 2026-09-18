@@ -134,9 +134,13 @@ test_cb_headers( fd_h2_conn_t *   conn,
   FD_LOG_HEXDUMP_DEBUG(( "Header field block", data, data_sz ));
 
   fd_hpack_rd_t hpack_rd[1];
-  fd_hpack_rd_init( hpack_rd, data, data_sz );
+  if( FD_UNLIKELY( !fd_hpack_rd_init_dtable( hpack_rd, data, data_sz, &conn->rx_hpack ) ) ) {
+    FD_LOG_WARNING(( "Error reading headers (bad HPACK table size update)" ));
+    fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
+    return;
+  }
   while( !fd_hpack_rd_done( hpack_rd ) )  {
-    static uchar scratch_buf[ 4096 ];
+    static uchar scratch_buf[ 2*FD_HPACK_DTABLE_SZ_MAX ];
     uchar * scratch = scratch_buf;
     fd_h2_hdr_t hdr[1];
     uint err = fd_hpack_rd_next( hpack_rd, hdr, &scratch, scratch_buf+sizeof(scratch_buf) );

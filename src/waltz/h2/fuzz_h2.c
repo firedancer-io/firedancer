@@ -101,9 +101,15 @@ cb_headers( fd_h2_conn_t *   conn,
             ulong            data_sz,
             ulong            flags ) {
   fd_hpack_rd_t hpack_rd[1];
-  fd_hpack_rd_init( hpack_rd, data, data_sz );
+  if( FD_UNLIKELY( !fd_hpack_rd_init_dtable( hpack_rd, data, data_sz, &conn->rx_hpack ) ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
+    return;
+  }
+  assert( conn->rx_hpack.used_sz   <= conn->rx_hpack.max_sz   );
+  assert( conn->rx_hpack.max_sz    <= conn->rx_hpack.limit_sz );
+  assert( conn->rx_hpack.entry_cnt <= FD_HPACK_DTABLE_ENTRY_MAX );
   while( !fd_hpack_rd_done( hpack_rd ) )  {
-    static FD_TL uchar scratch_buf[ 4096 ];
+    static FD_TL uchar scratch_buf[ 2*FD_HPACK_DTABLE_SZ_MAX ];
     uchar * scratch = scratch_buf;
     fd_h2_hdr_t hdr[1];
     uint err = fd_hpack_rd_next( hpack_rd, hdr, &scratch, scratch_buf+sizeof(scratch_buf) );
@@ -111,6 +117,7 @@ cb_headers( fd_h2_conn_t *   conn,
       fd_h2_conn_error( conn, err );
       return;
     }
+    assert( conn->rx_hpack.used_sz <= conn->rx_hpack.max_sz );
   }
   if( flags & FD_H2_FLAG_END_STREAM ) {
     test_response_init( conn, stream );

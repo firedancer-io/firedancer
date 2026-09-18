@@ -6,6 +6,7 @@
 
 #include "fd_h2_rbuf.h"
 #include "fd_h2_proto.h"
+#include "fd_hpack.h"
 
 /* fd_h2_settings_t contains HTTP/2 settings that fd_h2 understands. */
 
@@ -14,6 +15,7 @@ struct fd_h2_settings {
   uint max_frame_size;
   uint max_header_list_size;
   uint max_concurrent_streams;
+  uint header_table_size;
 };
 
 typedef struct fd_h2_settings fd_h2_settings_t;
@@ -39,6 +41,7 @@ struct fd_h2_conn {
   uint  rx_fc_debt;      /* current RX frame: flow control bytes not yet charged */
   uint  rx_stream_id;    /* current RX frame: stream ID */
   uint  rx_stream_next;  /* next unused RX stream ID */
+  uint  rx_hdrs_sz;      /* current RX field block: bytes received so far */
 
   uint  rx_wnd_wmark;    /* receive window refill threshold */
   uint  rx_wnd_max;      /* receive window max size */
@@ -55,6 +58,8 @@ struct fd_h2_conn {
   uchar  rx_frame_flags;  /* current RX frame: flags */
   uchar  rx_pad_rem;      /* current RX frame: pad bytes remaining */
   uchar  ping_tx;         /* no of sent PING frames pending their ACK */
+
+  fd_hpack_dtable_t rx_hpack; /* HPACK dynamic table for inbound field blocks */
 };
 
 /* FD_H2_CONN_FLAGS_* give flags related to conn lifecycle */
@@ -269,6 +274,46 @@ fd_h2_tx_rst_stream( fd_h2_rbuf_t * rbuf_tx,
     .error_code = fd_uint_bswap( h2_err )
   };
   fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+}
+
+/* fd_h2_tx_goaway writes a GOAWAY frame for sending.  The conn stays
+   usable: streams at or below last_stream_id continue, and the peer is
+   expected to open no new ones (RFC 9113 Section 6.8).  The caller
+   refuses streams above last_stream_id, typically by returning NULL
+   from the stream_create callback, and closes the conn once the open
+   streams are done.  rbuf_tx must have at least sizeof(fd_h2_goaway_t)
+   free space.  (This is a low-level API) */
+
+static inline void
+fd_h2_tx_goaway( fd_h2_rbuf_t * rbuf_tx,
+                 uint           last_stream_id,
+                 uint           err_code ) {
+  fd_h2_goaway_t goaway = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_GOAWAY, 8UL ),
+      .flags       = 0U,
+      .r_stream_id = 0U
+    },
+    .last_stream_id = fd_uint_bswap( last_stream_id ),
+    .error_code     = fd_uint_bswap( err_code )
+  };
+  fd_h2_rbuf_push( rbuf_tx, &goaway, sizeof(fd_h2_goaway_t) );
+}
+
+/* fd_h2_conn_rx_wnd_set sets the connection receive window to wnd_max
+   bytes.  wnd_max is in [65535,2^31).  RFC 9113 Section 6.9.2 fixes the
+   initial connection window at 65535 bytes and provides no setting to
+   change it, so the extra credit is granted by a WINDOW_UPDATE frame.
+   The conn requests one whenever the remaining window drops below the
+   refill threshold; the caller grants the initial increment by setting
+   FD_H2_CONN_FLAGS_WINDOW_UPDATE once the handshake is done. */
+
+static inline void
+fd_h2_conn_rx_wnd_set( fd_h2_conn_t * conn,
+                       uint           wnd_max ) {
+  conn->rx_wnd_max   = wnd_max;
+  conn->rx_wnd       = fd_uint_min( conn->rx_wnd, wnd_max );
+  conn->rx_wnd_wmark = (uint)( 0.7f * (float)wnd_max );
 }
 
 /* fd_h2_tx_window_update writes a WINDOW_UPDATE frame for sending.
