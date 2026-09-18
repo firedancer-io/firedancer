@@ -62,6 +62,15 @@ union fdctl_args {
   } get_identity;
 
   struct {
+    char   name[ 64UL ];
+    int    cmd;
+    int    yes;
+    int    force;
+    uint   addr; /* --address, network byte order, 0 to find the active in gossip */
+    ushort port; /* --port, 0 for the validator's own listen port */
+  } failover;
+
+  struct {
     int clean;
   } ps;
 
