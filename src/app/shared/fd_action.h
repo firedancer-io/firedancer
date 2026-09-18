@@ -64,6 +64,10 @@ union fdctl_args {
   struct {
     char  name[ 64UL ];
     ulong peer_idx;
+    int   cmd;           /* FD_ADMINCTL_FAILOVER_CMD_*, or -1 for status */
+    int   force;
+    int   yes;
+    char  staked_pubkey[ 64UL ];
   } failover;
 
   struct {

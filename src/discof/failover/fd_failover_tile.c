@@ -147,6 +147,7 @@ struct fd_failover_tile_ctx {
   ulong                 admin_out_wmark;
   ulong                 admin_out_chunk;
   fd_failover_bus_msg_t bus_req;
+  ulong                 bus_req_sig;
   int                   bus_req_fresh;
 
   /* State of the identity switch we asked the admin tile for.  It holds
@@ -1666,6 +1667,126 @@ start_promotion( fd_failover_tile_ctx_t *             ctx,
   ctx->action = FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY;
 }
 
+/* Run an operator command.  If we refuse it we say why.  Anything that
+   moves the identity needs the peer's confirmation first. */
+static ulong
+apply_control( fd_failover_tile_ctx_t *               ctx,
+               fd_stem_context_t *                    stem,
+               fd_adminctl_failover_control_t const * req,
+               long                                   now ) {
+  fd_failover_peer_t * peer = ctx->peer_cnt ? &ctx->peers[ 0 ] : NULL;
+  if( FD_UNLIKELY( !peer ) ) return FD_FAILOVER_CONTROL_RESULT_DISABLED;
+
+  int paired = fd_failover_channel_state( peer->channel )==FD_FAILOVER_SESSION_PAIRED;
+
+  switch( req->cmd ) {
+
+  case FD_ADMINCTL_FAILOVER_CMD_PAUSE:
+  case FD_ADMINCTL_FAILOVER_CMD_RESUME: {
+    /* pause has to survive a restart, so write it to the role file first.
+       Tell the peer too so it shows up on both sides. */
+    ctx->paused = req->cmd==FD_ADMINCTL_FAILOVER_CMD_PAUSE;
+    persist( ctx, ctx->state, ctx->hello.term );
+    fd_failover_control_t msg = { .term=ctx->hello.term };
+    ushort type = (ushort)( ctx->paused ? FD_FAILOVER_MSG_PAUSE : FD_FAILOVER_MSG_RESUME );
+    /* Coalesce with a pause or resume already waiting on a down link, so the
+       peer gets the latest intent rather than a stale one stuck in the slot. */
+    if( FD_UNLIKELY( ctx->pending_valid &&
+                     ( ctx->pending_type==(ushort)FD_FAILOVER_MSG_PAUSE ||
+                       ctx->pending_type==(ushort)FD_FAILOVER_MSG_RESUME ) ) ) {
+      ctx->pending_type = type;
+      ctx->pending_sz   = (ushort)sizeof(msg);
+      fd_memcpy( ctx->pending, &msg, sizeof(msg) );
+    } else {
+      (void)queue_control( ctx, type, &msg, sizeof(msg) );
+    }
+    return FD_ADMINCTL_RESULT_SUCCESS;
+  }
+
+  case FD_ADMINCTL_FAILOVER_CMD_DEMOTE: {
+    /* Drop the identity without promoting anyone.  Used to take the active
+       out of service. */
+    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    if( FD_UNLIKELY( ctx->state!=FD_FAILOVER_STATE_ACTIVE ) ) return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
+    if( FD_UNLIKELY( ctx->paused ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
+    if( FD_UNLIKELY( ctx->hello.term>=ULONG_MAX-1UL ) ) return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
+    /* No confirmation, nobody is supposed to promote. */
+    start_demotion( ctx, stem, ctx->hello.term+1UL, ctx->deadline_slots, 0 );
+    return FD_ADMINCTL_RESULT_SUCCESS;
+  }
+
+  case FD_ADMINCTL_FAILOVER_CMD_HANDOFF:
+  case FD_ADMINCTL_FAILOVER_CMD_DRILL: {
+    /* Ask the active to hand over.  A drill goes through all the checks but
+       stops short of switching. */
+    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->pending_valid ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    if( FD_UNLIKELY( !paired || !peer->status_valid ) ) return FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED;
+    if( FD_UNLIKELY( ctx->paused ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
+    if( FD_UNLIKELY( ctx->hello.term>=ULONG_MAX-1UL ) ) return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
+
+    int drill = req->cmd==FD_ADMINCTL_FAILOVER_CMD_DRILL;
+    if( FD_UNLIKELY( ctx->state==FD_FAILOVER_STATE_ACTIVE ) ) {
+      /* If we are the active, handoff means demote ourselves and let the spare
+         promote, so first ask its last status whether it can.  Giving the
+         identity up to a spare that is paused, stuck or behind leaves nobody
+         voting. */
+      if( FD_UNLIKELY( drill ) ) return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
+      fd_failover_status_t local  = local_status( ctx, peer );
+      uchar                reason = fd_failover_handoff_peer_check( &local, &peer->status, peer_status_fresh( ctx, peer, now ) );
+      if( FD_UNLIKELY( reason==FD_FAILOVER_REJECT_PAUSED ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
+      if( FD_UNLIKELY( reason==FD_FAILOVER_REJECT_BUSY   ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+      if( FD_UNLIKELY( reason!=FD_FAILOVER_REJECT_NONE ) ) {
+        FD_LOG_WARNING(( "handoff refused, the spare's status does not allow it (reason %u)", (uint)reason ));
+        return FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
+      }
+      start_demotion( ctx, stem, ctx->hello.term+1UL, ctx->deadline_slots, 1 );
+      return FD_ADMINCTL_RESULT_SUCCESS;
+    }
+
+    ulong term = fd_ulong_max( ctx->hello.term, peer->status.term )+1UL;
+    fd_failover_handoff_req_t msg = {
+      .proposed_term  = term,
+      .baton_slot     = 0UL,
+      .attempt        = 0U,
+      .reason         = (uchar)( drill ? FD_FAILOVER_HANDOFF_REASON_DRILL
+                                       : FD_FAILOVER_HANDOFF_REASON_STANDBY ),
+      .deadline_slots = (uint)ctx->deadline_slots,
+      .drill          = (uchar)!!drill,
+    };
+    if( FD_UNLIKELY( queue_control( ctx, (ushort)FD_FAILOVER_MSG_HANDOFF_REQ, &msg, sizeof(msg) ) ) ) {
+      return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    }
+    /* Keep the request around, the answer gets matched against it. */
+    ctx->handoff_req     = msg;
+    ctx->handoff_pending = 1;
+    ctx->handoff_code    = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
+    ctx->handoff_reason  = FD_FAILOVER_REJECT_NONE;
+    return FD_ADMINCTL_RESULT_SUCCESS;
+  }
+
+  case FD_ADMINCTL_FAILOVER_CMD_PROMOTE: {
+    /* Take the identity.  This needs the peer's demotion confirmation on
+       disk.  --force does not skip that, it only requires the operator to
+       spell out the pubkey. */
+    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    if( FD_UNLIKELY( ctx->state!=FD_FAILOVER_STATE_STANDBY ) ) return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
+    if( FD_UNLIKELY( ctx->paused ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
+    /* Our own outgoing confirmation does not count.  It says we stopped, it
+       says nothing about whether the peer promoted, and using it could put
+       the identity on both machines. */
+    if( FD_UNLIKELY( !ctx->demoted_valid || ctx->demoted_historical ||
+                     ctx->send_demoted ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
+    if( FD_UNLIKELY( req->force && !fd_memeq( req->staked_pubkey, ctx->hello.staked_pubkey, 32UL ) ) )
+      return FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY;
+    start_promotion( ctx, &ctx->demoted_record, ctx->demoted_record.demoted.term );
+    return FD_ADMINCTL_RESULT_SUCCESS;
+  }
+
+  default: break;
+  }
+  return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
+}
+
 /* Answer one bus request.  The admin tile validated the ABI already, so
    only the peer selection can fail here. */
 static void
@@ -1673,20 +1794,45 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
                    fd_stem_context_t *      stem,
                    long                     now ) {
   fd_failover_bus_msg_t const * req = &ctx->bus_req;
-  fd_failover_bus_msg_t *       out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
-  fd_memset( out, 0, sizeof(*out) );
-  out->nonce = req->nonce;
 
-  fd_adminctl_failover_status_req_t const * status_req = (fd_adminctl_failover_status_req_t const *)req->payload;
-  if( FD_UNLIKELY( status_req->peer_idx>=ctx->peer_cnt ) ) {
-    out->result = FD_FAILOVER_STATUS_RESULT_NO_SUCH_PEER;
+  /* Run the command before grabbing the response chunk.  The command itself
+     may publish a switch request on this link, which would advance the
+     chunk under us. */
+  ulong resp_sig = FD_FAILOVER_BUS_STATUS_RESP;
+  ulong result   = FD_ADMINCTL_RESULT_SUCCESS;
+  fd_adminctl_failover_control_resp_t answer;
+  int   control_req = ( ctx->bus_req_sig==FD_FAILOVER_BUS_CONTROL_REQ );
+  if( FD_UNLIKELY( control_req ) ) {
+    fd_adminctl_failover_control_t control;
+    fd_memcpy( &control, req->payload, sizeof(control) );
+    result = apply_control( ctx, stem, &control, now );
+    answer = (fd_adminctl_failover_control_resp_t){
+      .version = FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION,
+      .term    = ctx->hello.term,
+      .state   = (uchar)ctx->state,
+      .role    = (uchar)ctx->role,
+      .paused  = (uchar)!!ctx->paused,
+    };
+    resp_sig = FD_FAILOVER_BUS_CONTROL_RESP;
+  }
+
+  fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
+  fd_memset( out, 0, sizeof(*out) );
+  out->nonce  = req->nonce;
+  out->result = result;
+  if( FD_UNLIKELY( control_req ) ) {
+    fd_memcpy( out->payload, &answer, sizeof(answer) );
   } else {
-    out->result = FD_ADMINCTL_RESULT_SUCCESS;
-    status_snapshot( ctx, status_req->peer_idx, now, (fd_adminctl_failover_status_resp_t *)out->payload );
+    fd_adminctl_failover_status_req_t const * status_req = (fd_adminctl_failover_status_req_t const *)req->payload;
+    if( FD_UNLIKELY( status_req->peer_idx>=ctx->peer_cnt ) ) {
+      out->result = FD_FAILOVER_STATUS_RESULT_NO_SUCH_PEER;
+    } else {
+      status_snapshot( ctx, status_req->peer_idx, now, (fd_adminctl_failover_status_resp_t *)out->payload );
+    }
   }
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_STATUS_RESP, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
+  fd_stem_publish( stem, ctx->admin_out_idx, resp_sig, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
   ctx->admin_out_chunk = fd_dcache_compact_next( ctx->admin_out_chunk, sizeof(*out), ctx->admin_out_chunk0, ctx->admin_out_wmark );
 }
 
@@ -1766,9 +1912,10 @@ before_frag( fd_failover_tile_ctx_t * ctx,
     return 0;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
-    /* Let through status requests and switch replies.  If a switch reply
-       were filtered here the switch would hang forever. */
+    /* Status and control requests, and switch replies.  Dropping a switch
+       reply here would leave the switch hanging forever. */
     return sig!=FD_FAILOVER_BUS_STATUS_REQ &&
+           sig!=FD_FAILOVER_BUS_CONTROL_REQ &&
            sig!=FD_FAILOVER_BUS_SWITCH_RESP;
   }
   return 0;
@@ -1800,6 +1947,7 @@ during_frag( fd_failover_tile_ctx_t * ctx,
       return;
     }
     fd_memcpy( &ctx->bus_req, msg, sizeof(fd_failover_bus_msg_t) );
+    ctx->bus_req_sig = sig;
     return;
   }
   if( FD_UNLIKELY( in_idx!=ctx->tower_in_idx ) ) return;
@@ -1893,7 +2041,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+/* Worst case per iteration is an adopt request, a switch request and a
+   bus response, so the burst is 3. */
+#define STEM_BURST (3UL)
 #define STEM_LAZY  ((long)1e6) /* 1ms */
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_failover_tile_ctx_t

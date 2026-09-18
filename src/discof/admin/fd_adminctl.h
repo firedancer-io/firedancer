@@ -38,6 +38,7 @@
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
 #define FD_ADMINCTL_CMD_FAILOVER_STATUS        (6UL)
+#define FD_ADMINCTL_CMD_FAILOVER_CONTROL       (7UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
@@ -167,6 +168,55 @@ typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_r
 #define FD_FAILOVER_READINESS_CNT               (8U)
 
 #define FD_FAILOVER_READINESS_DISABLED          (7U)
+
+/* handoff and drill talk to the peer, demote and promote are local, pause
+   and resume block and unblock transitions. */
+#define FD_ADMINCTL_FAILOVER_CMD_HANDOFF (0UL)
+#define FD_ADMINCTL_FAILOVER_CMD_DRILL   (1UL)
+#define FD_ADMINCTL_FAILOVER_CMD_DEMOTE  (2UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PROMOTE (3UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PAUSE   (4UL)
+#define FD_ADMINCTL_FAILOVER_CMD_RESUME  (5UL)
+#define FD_ADMINCTL_FAILOVER_CMD_CNT     (6UL)
+
+struct fd_adminctl_failover_control_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION */
+  ulong cmd;     /* FD_ADMINCTL_FAILOVER_CMD_* */
+  uchar force;   /* promote even if the peer is unreachable, still needs its
+                    demotion confirmation */
+  uchar reserved[ 7 ];
+  uchar staked_pubkey[ 32 ]; /* required with force, as a safety check */
+};
+
+typedef struct fd_adminctl_failover_control_v1 fd_adminctl_failover_control_t;
+
+struct fd_adminctl_failover_control_resp_v1 {
+  ulong version;
+  ulong term;
+  uchar state; /* FD_FAILOVER_STATE_* after the command was applied */
+  uchar role;  /* FD_FAILOVER_ROLE_* */
+  uchar paused;
+  uchar reserved[ 5 ];
+};
+
+typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control_resp_t;
+#define FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION (1UL)
+
+/* failover-control result codes, they say why a command was refused. */
+#define FD_FAILOVER_CONTROL_RESULT_DISABLED      (0x5001UL)
+#define FD_FAILOVER_CONTROL_RESULT_BAD_ROLE      (0x5002UL)
+#define FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED    (0x5003UL)
+#define FD_FAILOVER_CONTROL_RESULT_BUSY          (0x5004UL)
+#define FD_FAILOVER_CONTROL_RESULT_PAUSED        (0x5005UL)
+#define FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE   (0x5006UL)
+#define FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY  (0x5007UL)
+#define FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED   (0x5008UL)
+#define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY  (0x5009UL) /* the spare's last status says it cannot take the identity */
+
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_t     )<=FD_ADMINCTL_PAYLOAD_MAX, failover_control_req_fits  );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_control_resp_fits );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_t     )==56UL, failover_control_req_v1_layout  );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_control_resp_v1_layout );
 
 #define FD_FAILOVER_STATUS_RESULT_BUSY          (0x4001UL)
 #define FD_FAILOVER_STATUS_RESULT_UNRESPONSIVE  (0x4002UL)
