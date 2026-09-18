@@ -310,6 +310,16 @@ fd_reasm_peek( fd_reasm_t * reasm );
 fd_reasm_fec_t *
 fd_reasm_pop( fd_reasm_t * reasm );
 
+/* fd_reasm_pop_fec consumes a specific queued FEC without consuming the
+   FECs ahead of it.  fec must be a non-NULL element of this reasm.
+   Returns NULL if it is not queued or is not eligible for delivery.
+   The caller must ensure that its parent has already
+   been processed before bypassing the normal delivery order. */
+
+fd_reasm_fec_t *
+fd_reasm_pop_fec( fd_reasm_t *     reasm,
+                  fd_reasm_fec_t * fec );
+
 /* fd_reasm_init initializes the reasm with the initial block id and a
    given slot.  Returns the new root FEC set. */
 
