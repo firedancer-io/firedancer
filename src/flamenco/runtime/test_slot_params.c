@@ -91,6 +91,16 @@ test_default_only( void ) {
 }
 
 static void
+test_genesis_activation( void ) {
+  fd_epoch_schedule_t es = test_epoch_schedule();
+  fd_features_t       f  = no_features();
+  f.reduce_slot_time_to_200ms = 0UL;
+
+  EXPECT_REGIME( &f, &es, 0UL,  FD_SLOT_PARAMS_200MS );
+  EXPECT_REGIME( &f, &es, 31UL, FD_SLOT_PARAMS_200MS );
+}
+
+static void
 test_in_order_activation( void ) {
   fd_epoch_schedule_t es = test_epoch_schedule();
   fd_features_t       f  = no_features();
@@ -339,6 +349,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   test_default_only();
+  test_genesis_activation();
   test_in_order_activation();
   test_range_integration();
   test_out_of_order_normalization();
