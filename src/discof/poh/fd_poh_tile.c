@@ -119,8 +119,11 @@ before_frag( fd_poh_tile_t * ctx,
              ulong           in_idx,
              ulong           seq FD_PARAM_UNUSED,
              ulong           sig ) {
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) )
-    return sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_BECAME_LEADER && sig!=REPLAY_SIG_WFS_DONE;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    int filter = sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_BECAME_LEADER && sig!=REPLAY_SIG_WFS_DONE;
+    if( FD_LIKELY( filter && !fd_poh_have_leader_bank( ctx->poh ) ) ) ctx->idle_cnt = 0UL;
+    return filter;
+  }
   return 0;
 }
 
