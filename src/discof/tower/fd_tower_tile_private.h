@@ -132,6 +132,8 @@ struct fd_tower_tile {
   uchar            tower_file_buf[ FD_TOWER_FILE_MAX ];
   fd_tower_recover_t recovery;
   int              recovery_pending;
+  int              tower_file_loaded;      /* the signed file for the staked identity was verified at boot */
+  int              epoch_refresh_pending;  /* an adoption advanced the root, refresh the epoch voter caches on the next completed slot */
   int              recovery_initialized;
   ulong            recovery_onchain_root;  /* our root in the vote account at the last replayed slot */
   int              first_use_pending;
@@ -202,8 +204,16 @@ struct fd_tower_tile {
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
   ulong       out_wmark;
+  ulong       out_idx;
   ulong       out_chunk;
   ulong       out_seq;
+
+  /* Adoption results go back to the failover tile on their own link. */
+  ulong       failov_out_idx;
+  fd_wksp_t * failov_out_mem;
+  ulong       failov_out_chunk0;
+  ulong       failov_out_wmark;
+  ulong       failov_out_chunk;
 
   /* metrics */
 
