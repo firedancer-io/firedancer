@@ -7,7 +7,24 @@
 
 typedef struct ag_votor ag_votor_t;
 
+/* Local replay residency is independent of certificate validity.  The
+   callback reports a first normal notarization, or requests restoration
+   of an unavailable replayed block once it becomes eligible to notarize. */
+typedef void (*ag_votor_bank_fn)( void * ctx, ag_block_id_t const * block, int restore );
+
 FD_PROTOTYPES_BEGIN
+
+void
+ag_votor_set_bank_callback( ag_votor_t * self, ag_votor_bank_fn callback, void * ctx );
+
+int
+ag_votor_block_pending( ag_votor_t const * self, ag_block_id_t const * block );
+
+void
+ag_votor_forget_block( ag_votor_t * self, ag_block_id_t const * block );
+
+void
+ag_votor_set_root( ag_votor_t * self, ulong slot );
 
 FD_FN_CONST ulong
 ag_votor_align( void );

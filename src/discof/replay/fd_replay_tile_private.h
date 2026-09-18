@@ -63,6 +63,7 @@ struct fd_block_id_ele {
   int           block_id_seen;
   ulong         slot;
   ulong         bank_seq;
+  ulong         votor_lease_seq; /* nonzero while Votor owns this bank's completion reference */
   ulong         next_;
   ulong         ag_next_;
   uint          fec_cnt;
@@ -137,6 +138,20 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
 
 struct fd_replay_tile {
+  /* One revocation handshake at a time.  Its reference protects the
+     candidate until all preceding consensus decisions are consumed. */
+  int                         bank_evict_pending;
+  fd_replay_bank_eviction_t    bank_evict;
+  int                         bank_restore_pending;
+  fd_hash_t                   bank_restore_id;
+  ulong                       bank_restore_slot;
+  ulong                       bank_restore_wait_seq;
+  ulong                       bank_restore_ref_idx;
+  ulong                       bank_restore_tip_idx;
+  ulong                       bank_restore_tip_seq;
+  ulong                       rotor_parent_idx;
+  ulong                       rotor_parent_seq;
+
   fd_wksp_t * wksp;
 
   uint rng_seed;

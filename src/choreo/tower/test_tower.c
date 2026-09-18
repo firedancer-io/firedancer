@@ -1268,6 +1268,49 @@ test_reconcile_ha_eqvoc( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_reconcile_ha_eqvoc" ));
 }
 
+static void
+test_runtime_bank_availability( fd_wksp_t * wksp ) {
+  void * tm = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 8UL, 2UL ), 1UL );
+  void * gm = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( 8UL, 2UL ), 1UL );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tm, 8UL, 2UL, 0UL ) );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( gm, 8UL, 2UL, 0UL ) );
+  FD_TEST( tower && ghost );
+  fd_hash_t root = { .ul={100UL} }, one = { .ul={101UL} }, two = { .ul={102UL} };
+  mock( ghost, fd_tower_blocks_insert( tower, 0UL, ULONG_MAX ), 1UL, &root, NULL );
+  mock( ghost, fd_tower_blocks_insert( tower, 1UL, 0UL ), 2UL, &one, &root );
+  tower->root = 0UL;
+  fd_ghost_blk_t * best = fd_ghost_query( ghost, &one );
+  FD_TEST( best->runtime_available );
+  best->runtime_available = 0;
+  fd_tower_out_t out;
+  fd_tower_vote_and_reset( tower, ghost, NULL,
+      &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
+      &out.vote_slot, &out.vote_block_id, &out.vote_bank_hash,
+      &out.root_slot, &out.root_block_id );
+  FD_TEST( out.reset_slot==1UL && fd_hash_eq( &out.reset_block_id, &one ) );
+  FD_TEST( out.vote_slot==ULONG_MAX && out.root_slot==ULONG_MAX );
+  FD_TEST( fd_tower_vote_empty( tower->votes ) );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )==best );
+  best->runtime_available = 1;
+  fd_tower_vote_and_reset( tower, ghost, NULL,
+      &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
+      &out.vote_slot, &out.vote_block_id, &out.vote_bank_hash,
+      &out.root_slot, &out.root_block_id );
+  FD_TEST( out.vote_slot==1UL );
+
+  mock( ghost, fd_tower_blocks_insert( tower, 2UL, 1UL ), 3UL, &two, &one );
+  best = fd_ghost_query( ghost, &two );
+  best->runtime_available = 0;
+  fd_tower_vote_and_reset( tower, ghost, NULL,
+      &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
+      &out.vote_slot, &out.vote_block_id, &out.vote_bank_hash,
+      &out.root_slot, &out.root_block_id );
+  FD_TEST( out.reset_slot==2UL && out.reset_bank_seq==3UL );
+  FD_TEST( out.vote_slot==ULONG_MAX && out.root_slot==ULONG_MAX );
+  FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot==1UL );
+  FD_LOG_NOTICE(( "pass: test_runtime_bank_availability" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1297,6 +1340,7 @@ main( int argc, char ** argv ) {
 
   test_case_1c_switch_pass( wksp );
   test_case_1c_switch_fail( wksp );
+  test_runtime_bank_availability( wksp );
 
   test_reconcile_boot( wksp );
   test_reconcile_ha( wksp );

@@ -695,7 +695,22 @@ test_bank_evictable_protected( void * mem ) {
   sibling->f.slot = 2UL;
   fd_banks_mark_bank_frozen( sibling );
 
-  FD_TEST( fd_banks_get_evictable_bank( banks, protected )==sibling_idx );
+  ulong evict_rr_idx = banks->evict_rr_idx;
+  FD_TEST( fd_banks_select_evictable_bank( banks, protected )==sibling_idx );
+  FD_TEST( banks->evict_rr_idx==evict_rr_idx+1UL );
+  FD_TEST( banks->prunable_idx==ULONG_MAX );
+  FD_TEST( sibling->state==FD_BANK_STATE_FROZEN );
+
+  /* Keep the candidate alive while consumers acknowledge its eviction.
+     Selection alone must neither prune it nor change its bank state. */
+  sibling->refcnt++;
+  FD_TEST( !fd_banks_prune_one_bank( banks, NULL ) );
+  FD_TEST( fd_banks_bank_query( banks, sibling_idx )==sibling );
+  fd_banks_mark_bank_prunable( banks, sibling_idx );
+  FD_TEST( banks->prunable_idx==sibling_idx );
+  FD_TEST( fd_banks_select_evictable_bank( banks, NULL )==ULONG_MAX );
+  FD_TEST( !fd_banks_prune_one_bank( banks, NULL ) );
+  sibling->refcnt--;
   FD_TEST( protected->state!=FD_BANK_STATE_PRUNABLE );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
 

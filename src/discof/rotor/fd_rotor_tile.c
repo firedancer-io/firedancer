@@ -87,6 +87,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, meta_queue_align(),        meta_queue_footprint       ( fec_blk_max )                                            );
   l = FD_LAYOUT_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                                         );
   l = FD_LAYOUT_APPEND( l, out_queue_align(),         out_queue_footprint        ( (ulong)tile->rotor.slot_max * FD_CHAINER_SLOT_VER_MAX * fec_blk_max ) );
+  l = FD_LAYOUT_APPEND( l, alignof(struct rotor_restore), sizeof(struct rotor_restore)*(ulong)tile->rotor.slot_max*FD_CHAINER_SLOT_VER_MAX );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -241,7 +242,7 @@ before_frag( ctx_t * ctx,
   }
   if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) return sig!=REPLAY_SIG_MISSING_FEC &&
                                                       sig!=REPLAY_SIG_ROOT_ADVANCED;
-  if( FD_UNLIKELY( in_kind==IN_KIND_VOTOR ) ) return sig!=FD_VOTOR_SIG_REPAIR;
+  if( FD_UNLIKELY( in_kind==IN_KIND_VOTOR ) ) return sig!=FD_VOTOR_SIG_REPAIR && sig!=FD_VOTOR_SIG_BANK_RESTORE;
   return 0;
 }
 
@@ -698,6 +699,12 @@ after_frag( ctx_t *             ctx,
     case IN_KIND_VOTOR: {
       fd_votor_repair_t const * nf = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
       if( FD_UNLIKELY( nf->slot <= ctx->chainer->root ) ) return;
+      if( sig==FD_VOTOR_SIG_BANK_RESTORE ) {
+        for( ulong i=0UL; i<ctx->restore_cnt; i++ )
+          if( ctx->restores[i].slot==nf->slot && fd_hash_eq( &ctx->restores[i].block_id, &nf->block_id ) ) return;
+        FD_TEST( ctx->restore_cnt<ctx->restore_max );
+        ctx->restores[ctx->restore_cnt++] = (struct rotor_restore){ .slot = nf->slot, .block_id = nf->block_id };
+      }
       after_votor_block_repair( ctx, nf );
       break;
     }
@@ -1001,6 +1008,8 @@ publish_fec( ctx_t *              ctx,
   fd_hash_t null_hash = {0};
 
   fd_rotor_replay_fec_t * msg = fd_chunk_to_laddr( ctx->repair_out_ctx->mem, ctx->repair_out_ctx->chunk );
+  msg->restore_slot = ctx->restore_slot;
+  msg->restore_block_id = ctx->restore_block_id;
   msg->slot            = fec->slot;
   msg->fec_set_idx     = fec->fec_set_idx;
   msg->mr              = fec->merkle_root;
@@ -1102,6 +1111,29 @@ after_credit( ctx_t *             ctx,
               int *               charge_busy ) {
   long now = fd_clock_tile_now( ctx->clock );
 
+  /* Restore known blocks even when no new FEC arrives.  Queue at most
+     one full ancestry at a time; ordinary input resumes while an
+     incomplete requested block is repaired. */
+  if( out_queue_empty( ctx->deliver_queue ) ) {
+    for( ulong i=0UL; i<ctx->restore_cnt; ) {
+      struct rotor_restore * restore = &ctx->restores[i];
+      if( restore->slot<=ctx->chainer->root ) {
+        ctx->restores[i] = ctx->restores[--ctx->restore_cnt];
+        continue;
+      }
+      fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( ctx->chainer, restore->slot, &restore->block_id );
+      if( !slotv || !slotv->connected || slotv->complete_idx==UINT_MAX ||
+          slotv->buffered_fec_idx==UINT_MAX || slotv->buffered_fec_idx<slotv->complete_idx ) { i++; continue; }
+      uint fec_idx = fd_chainer_slotv_fecs( ctx->chainer, slotv )[slotv->complete_idx/(uint)FD_FEC_SHRED_CNT];
+      FD_TEST( fec_idx!=UINT_MAX );
+      ctx->restore_slot = restore->slot;
+      ctx->restore_block_id = restore->block_id;
+      full_fec_path_queue( ctx, slotv, fd_fec_pool_ele( ctx->chainer->fec_pool, fec_idx ) );
+      ctx->restores[i] = ctx->restores[--ctx->restore_cnt];
+      break;
+    }
+  }
+
   /* deliver_queue has FECs when replay has signaled a bank eviction,
      and we added the full path of FECs from root up until the next FEC
      we need to deliver. */
@@ -1110,6 +1142,10 @@ after_credit( ctx_t *             ctx,
     fd_chainer_slotv_t * slotv = fd_slotv_pool_ele( ctx->chainer->slotv_pool, e.slotv_idx );
     fd_chainer_fec_t   * fec   = fd_fec_pool_ele  ( ctx->chainer->fec_pool,   e.fec_idx   );
     publish_fec( ctx, stem, slotv, fec, 1 /* from_root: always populate block_id */ );
+    if( out_queue_empty( ctx->deliver_queue ) ) {
+      ctx->restore_slot = ULONG_MAX;
+      ctx->restore_block_id = (fd_hash_t){0};
+    }
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1286,6 +1322,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->meta_queue    = FD_SCRATCH_ALLOC_APPEND( l, meta_queue_align(),        meta_queue_footprint( fec_blk_max )                                            );
   ctx->slot_metrics  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                                  );
   ctx->deliver_queue = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),         out_queue_footprint( (ulong)tile->rotor.slot_max * FD_CHAINER_SLOT_VER_MAX * fec_blk_max ) );
+  ctx->restores = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct rotor_restore), sizeof(struct rotor_restore)*(ulong)tile->rotor.slot_max*FD_CHAINER_SLOT_VER_MAX );
+  ctx->restore_cnt = 0UL;
+  ctx->restore_slot = ULONG_MAX;
+  ctx->restore_block_id = (fd_hash_t){0};
+  ctx->restore_max = (ulong)tile->rotor.slot_max*FD_CHAINER_SLOT_VER_MAX;
   ulong scratch_top  = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));

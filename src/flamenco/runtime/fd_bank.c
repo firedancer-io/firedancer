@@ -1252,8 +1252,8 @@ fd_banks_get_evictable_private( fd_banks_t *      banks,
 }
 
 ulong
-fd_banks_get_evictable_bank( fd_banks_t *      banks,
-                             fd_bank_t const * protected_bank ) {
+fd_banks_select_evictable_bank( fd_banks_t *      banks,
+                               fd_bank_t const * protected_bank ) {
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
   ulong       null_idx  = fd_banks_pool_idx_null( bank_pool );
 
@@ -1268,14 +1268,36 @@ fd_banks_get_evictable_bank( fd_banks_t *      banks,
 
   ulong target = banks->evict_rr_idx++ % evictable_cnt;
   fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, protected_bank, NULL, &target );
-  if( FD_UNLIKELY( !evictable ) ) FD_LOG_CRIT(( "invariant violation: evictable bank not found" ));
+  FD_TEST( evictable );
+  return evictable->idx;
+}
+
+void
+fd_banks_mark_bank_prunable( fd_banks_t * banks,
+                             ulong        bank_idx ) {
+  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
+  ulong       null_idx  = fd_banks_pool_idx_null( bank_pool );
+  FD_TEST( bank_idx<fd_banks_pool_max( bank_pool ) );
+  fd_bank_t * bank      = fd_banks_bank_query( banks, bank_idx );
 
   /* Eviction only selects leaves, and prunable_idx is a single pending
      victim.  Non-leaf prunables would break both invariants. */
-  FD_TEST( evictable->child_idx==null_idx );
-  evictable->state = FD_BANK_STATE_PRUNABLE;
-  banks->prunable_idx = evictable->idx;
-  return evictable->idx;
+  FD_TEST( bank );
+  FD_TEST( banks->prunable_idx==null_idx );
+  FD_TEST( bank->child_idx==null_idx );
+  FD_TEST( bank->idx!=banks->root_idx );
+  FD_TEST( !bank->is_leader );
+  FD_TEST( bank->state==FD_BANK_STATE_INIT || bank->state==FD_BANK_STATE_REPLAYABLE || bank->state==FD_BANK_STATE_FROZEN );
+  bank->state = FD_BANK_STATE_PRUNABLE;
+  banks->prunable_idx = bank->idx;
+}
+
+ulong
+fd_banks_get_evictable_bank( fd_banks_t *      banks,
+                            fd_bank_t const * protected_bank ) {
+  ulong bank_idx = fd_banks_select_evictable_bank( banks, protected_bank );
+  if( FD_LIKELY( bank_idx!=ULONG_MAX ) ) fd_banks_mark_bank_prunable( banks, bank_idx );
+  return bank_idx;
 }
 
 void

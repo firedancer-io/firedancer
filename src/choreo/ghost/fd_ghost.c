@@ -397,6 +397,7 @@ insert( fd_ghost_t      * ghost,
   blk->stake       = 0;
   blk->total_stake = 0;
   blk->valid       = 1;
+  blk->runtime_available = 1;
   blk->bank_seq    = bank_seq;
   blk_map_ele_insert( blk_map( ghost ), blk, pool );
   return blk;

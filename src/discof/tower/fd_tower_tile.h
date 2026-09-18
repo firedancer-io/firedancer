@@ -11,6 +11,8 @@
 #define FD_TOWER_SIG_SLOT_DONE      (1)
 #define FD_TOWER_SIG_SLOT_DUPLICATE (2)
 #define FD_TOWER_SIG_SLOT_IGNORED   (3)
+#define FD_TOWER_SIG_BANK_EVICT_ACK (5)
+#define FD_TOWER_SIG_BANK_RESTORE   (6)
 // #define FD_TOWER_SIG_SLOT_ROOTED (4)  /* defined in fd_tower_slot_rooted.h */
 
 /* fd_tower_slot_confirmed describes a Tower frag that notifies protocol
@@ -110,9 +112,11 @@ struct fd_tower_slot_done {
 
   /* The slot being voted on.  There is not always a vote slot (locked
      out, failed switch threshold, etc.) and will be set to ULONG_MAX
-     when there is no slot to vote on.  When set, the vote slot is used
-     by the vote sending tile to do some internal book-keeping related
-     to leader targeting. */
+     when there is no slot to vote on.  When set, vote and reset
+     identify the same bank (including block id and bank sequence).
+     This local decision drives RPC processed commitment even if no vote
+     is sent. The vote slot is also used by the vote sending tile to do
+     some internal book-keeping related to leader targeting. */
 
   ulong vote_slot;
 
@@ -178,10 +182,26 @@ typedef struct fd_tower_slot_duplicate fd_tower_slot_duplicate_t;
 struct fd_tower_slot_ignored {
   ulong slot;
   ulong bank_idx;
+  ulong bank_seq;
 };
 typedef struct fd_tower_slot_ignored fd_tower_slot_ignored_t;
 
+/* Ordered after all decisions that may reference this bank generation. */
+typedef struct {
+  ulong bank_idx;
+  ulong bank_seq;
+  int   cancel;
+} fd_tower_bank_evict_ack_t;
+
+typedef struct {
+  ulong     slot;
+  fd_hash_t block_id;
+  ulong     bank_seq;
+} fd_tower_bank_restore_t;
+
 union fd_tower_msg {
+  fd_tower_bank_evict_ack_t bank_evict_ack;
+  fd_tower_bank_restore_t   bank_restore;
   fd_tower_slot_confirmed_t slot_confirmed;
   fd_tower_slot_done_t      slot_done;
   fd_tower_slot_duplicate_t slot_duplicate;

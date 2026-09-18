@@ -2312,6 +2312,341 @@ static ulong
 replay_out_sig( fd_replay_tile_t * ctx,
                 ulong              seq );
 
+static void
+deliver_votor_bank_message( fd_replay_tile_t * ctx, ulong sig, fd_votor_msg_t const * msg ) {
+  ulong chunk = ctx->in[TEST_VOTOR_IN_IDX].chunk0;
+  fd_memcpy( fd_chunk_to_laddr( ctx->in[TEST_VOTOR_IN_IDX].mem, chunk ), msg, sizeof(*msg) );
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, sig, chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+}
+
+static void
+test_votor_processed_reference_handoff( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[1];
+  fd_hash_t root_id = { .ul={100UL} }, id = { .ul={200UL} }, child_id = { .ul={300UL} };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_bank_t * bank = add_block( ctx, root, 1UL, &id );
+  fd_bank_t * child = add_block( ctx, root, 2UL, &child_id );
+  ctx->rpc_enabled = 1;
+  bank->refcnt = 1UL;
+  ctx->block_id_arr[bank->idx].votor_lease_seq = bank->bank_seq;
+  ulong out = ctx->replay_out->idx;
+  ulong seq = test_stem_seqs[out];
+
+  /* A root on a competing fork cannot reclaim the selected bank while Votor's local
+     notarization and release messages are waiting to be consumed. */
+  ulong advanceable;
+  FD_TEST( !fd_banks_advance_root_prepare( ctx->banks, child->idx, &advanceable ) );
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_PROCESSED, &(fd_votor_msg_t){
+    .processed={ .slot=bank->f.slot, .bank_idx=bank->idx, .bank_seq=bank->bank_seq } } );
+  FD_TEST( bank->refcnt==2UL );
+  FD_TEST( test_stem_seqs[out]==seq+1UL );
+  fd_frag_meta_t const * meta = test_stem_mcaches[out]+fd_mcache_line_idx( seq, test_stem_depths[out] );
+  FD_TEST( meta->sig==REPLAY_SIG_PROCESSED_ADVANCED );
+  fd_replay_processed_advanced_t const * processed = fd_chunk_to_laddr_const( wksp, meta->chunk );
+  FD_TEST( processed->bank_idx==bank->idx && processed->bank_seq==bank->bank_seq && processed->slot==bank->f.slot );
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_RELEASE, &(fd_votor_msg_t){
+    .bank_release={ .bank_idx=bank->idx, .bank_seq=bank->bank_seq } } );
+  FD_TEST( bank->refcnt==1UL && !ctx->block_id_arr[bank->idx].votor_lease_seq );
+  FD_TEST( !fd_banks_advance_root_prepare( ctx->banks, child->idx, &advanceable ) );
+  bank->refcnt--; /* RPC returns its owned selection. */
+  FD_TEST( fd_banks_advance_root_prepare( ctx->banks, child->idx, &advanceable ) );
+  FD_LOG_NOTICE(( "pass: test_votor_processed_reference_handoff" ));
+}
+
+static void
+test_votor_eviction_restore_handoff( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[1];
+  fd_hash_t root_id = { .ul={100UL} }, id = { .ul={200UL} };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_bank_t * bank = add_block( ctx, root, 1UL, &id );
+  ctx->rpc_enabled = 1;
+  bank->refcnt = 1UL;
+  ctx->block_id_arr[bank->idx].votor_lease_seq = bank->bank_seq;
+  ulong out = ctx->replay_out->idx;
+  FD_TEST( request_bank_eviction( ctx, test_stem ) );
+  FD_TEST( bank->refcnt==2UL && bank->state==FD_BANK_STATE_FROZEN );
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_RELEASE, &(fd_votor_msg_t){
+    .bank_release={ .bank_idx=bank->idx, .bank_seq=bank->bank_seq } } );
+  FD_TEST( bank->refcnt==1UL ); /* eviction request still pins the bank */
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_EVICT_ACK, &(fd_votor_msg_t){
+    .bank_evict_ack={ .bank_idx=bank->idx, .bank_seq=bank->bank_seq, .cancel=1 } } );
+  FD_TEST( !ctx->bank_evict_pending && bank->refcnt==1UL );
+  FD_TEST( bank->state==FD_BANK_STATE_FROZEN );
+  FD_TEST( ctx->block_id_arr[bank->idx].votor_lease_seq==bank->bank_seq );
+  ulong seq = test_stem_seqs[out];
+  FD_TEST( replay_out_sig( ctx, seq-1UL )==REPLAY_SIG_BANK_AVAILABLE );
+
+  /* The canceled eviction already regranted a lease.  A queued restore
+     request, including repeats, must not grant a second one. */
+  fd_votor_msg_t restore = { .repair={ .slot=1UL, .block_id=id } };
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_RESTORE, &restore );
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_RESTORE, &restore );
+  FD_TEST( test_stem_seqs[out]==seq && bank->refcnt==1UL );
+  FD_TEST( ctx->bank_restore_pending && bank_eviction_protected( ctx, bank ) );
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_PROCESSED, &(fd_votor_msg_t){
+    .processed={ .slot=1UL, .bank_idx=bank->idx, .bank_seq=bank->bank_seq } } );
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_RELEASE, &(fd_votor_msg_t){
+    .bank_release={ .bank_idx=bank->idx, .bank_seq=bank->bank_seq } } );
+  FD_TEST( !ctx->bank_restore_pending && bank->refcnt==1UL );
+
+  /* An available bank whose previous lease was returned can be granted
+     again, exactly once, in response to a later restore request. */
+  seq = test_stem_seqs[out];
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_RESTORE, &restore );
+  FD_TEST( bank->refcnt==2UL && test_stem_seqs[out]==seq+1UL );
+  FD_TEST( replay_out_sig( ctx, seq )==REPLAY_SIG_BANK_AVAILABLE );
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_RESTORE, &restore );
+  FD_TEST( bank->refcnt==2UL && test_stem_seqs[out]==seq+1UL );
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_RELEASE, &(fd_votor_msg_t){
+    .bank_release={ .bank_idx=bank->idx, .bank_seq=bank->bank_seq } } );
+  FD_TEST( bank->refcnt==1UL && !ctx->bank_restore_pending );
+
+  /* Restoration markers protect the reconstructed ancestry tip, even
+     before the requested descendant has a runtime bank. */
+  fd_hash_t descendant_id = { .ul={300UL} };
+  restore.repair = (fd_votor_repair_t){ .slot=2UL, .block_id=descendant_id };
+  deliver_votor_bank_message( ctx, FD_VOTOR_SIG_BANK_RESTORE, &restore );
+  FD_TEST( ctx->bank_restore_pending );
+  fd_rotor_replay_fec_t fec = { .slot=1UL, .block_id=id, .restore_slot=2UL, .restore_block_id=descendant_id };
+  protect_restored_fec( ctx, &fec );
+  FD_TEST( ctx->bank_restore_tip_idx==bank->idx && ctx->bank_restore_tip_seq==bank->bank_seq );
+  FD_TEST( bank_eviction_protected( ctx, bank ) );
+  clear_bank_restore( ctx );
+  FD_TEST( !ctx->bank_restore_tip_seq );
+  FD_LOG_NOTICE(( "pass: test_votor_eviction_restore_handoff" ));
+}
+
+static void
+test_bank_eviction_handshake( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[1];
+  setup_ctx( ctx, wksp );
+  fd_hash_t root_id = { .ul={100UL} }, id = { .ul={200UL} };
+  init_root_fec( ctx, &root_id );
+  fd_bank_t * root = fd_banks_root( ctx->banks );
+  fd_bank_t * bank = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
+  bank = fd_banks_clone_from_parent( ctx->banks, bank->idx );
+  FD_TEST( bank );
+  bank->f.slot = 1UL;
+  bank->f.block_id = id;
+  fd_banks_mark_bank_frozen( bank );
+  fd_block_id_ele_t * ele = &ctx->block_id_arr[ bank->idx ];
+  ele->latest_mr = id;
+  ele->slot = 1UL;
+  ele->bank_seq = bank->bank_seq;
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, ele, ctx->block_id_arr ) );
+  ulong out = ctx->replay_out->idx;
+  ulong seq = test_stem_seqs[out];
+  FD_TEST( request_bank_eviction( ctx, test_stem ) );
+  FD_TEST( ctx->bank_evict_pending );
+  FD_TEST( bank->state==FD_BANK_STATE_FROZEN && bank->refcnt==1UL );
+  FD_TEST( replay_out_sig( ctx, seq )==REPLAY_SIG_BANK_EVICT_REQUEST );
+  FD_TEST( !request_bank_eviction( ctx, test_stem ) );
+  process_bank_evict_ack( ctx, test_stem, bank->idx, bank->bank_seq, 1 );
+  FD_TEST( !ctx->bank_evict_pending && !bank->refcnt );
+  FD_TEST( bank->state==FD_BANK_STATE_FROZEN );
+  FD_TEST( replay_out_sig( ctx, seq+1UL )==REPLAY_SIG_BANK_AVAILABLE );
+
+  /* The bank can gain a child while Tower's acknowledgement is queued. */
+  FD_TEST( request_bank_eviction( ctx, test_stem ) );
+  fd_bank_t * child = fd_banks_new_bank( ctx->banks, bank->idx, 0L, 0 );
+  FD_TEST( child );
+  process_bank_evict_ack( ctx, test_stem, bank->idx, bank->bank_seq, 0 );
+  FD_TEST( bank->state==FD_BANK_STATE_FROZEN && !bank->refcnt );
+  FD_TEST( replay_out_sig( ctx, seq+3UL )==REPLAY_SIG_BANK_AVAILABLE );
+  FD_TEST( fd_banks_get_evictable_bank( ctx->banks, NULL )==child->idx );
+  fd_banks_prune_cancel_info_t cancel[1];
+  FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
+
+  bank->refcnt = 1UL; /* existing RPC owner */
+  FD_TEST( request_bank_eviction( ctx, test_stem ) );
+  FD_TEST( bank->state==FD_BANK_STATE_FROZEN && bank->refcnt==2UL );
+  process_bank_evict_ack( ctx, test_stem, bank->idx, bank->bank_seq, 0 );
+  FD_TEST( bank->state==FD_BANK_STATE_PRUNABLE && bank->refcnt==1UL );
+  FD_TEST( replay_out_sig( ctx, seq+5UL )==REPLAY_SIG_DROP_BANK_REF );
+  FD_TEST( !fd_banks_prune_one_bank( ctx->banks, cancel ) );
+  bank->refcnt--;
+  FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
+  FD_LOG_NOTICE(( "pass: test_bank_eviction_handshake" ));
+}
+
+static void
+test_bank_restore_replays_retained_fecs( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[1];
+  setup_ctx( ctx, wksp );
+  fd_hash_t root_id = { .ul={100UL} }, first = { .ul={200UL} }, last = { .ul={201UL} };
+  init_root_fec( ctx, &root_id );
+  ingest_fec_complete( ctx, &first, &root_id, 1UL, 0U, 1U, 32U, 1, 0 );
+  ingest_fec_complete( ctx, &last, &first, 1UL, 32U, 1U, 32U, 1, 1 );
+  drive_one_fec( ctx, 1UL, 0U );
+  fd_reasm_fec_t * target = drive_one_fec( ctx, 1UL, 32U );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, target->bank_idx );
+  bank = fd_banks_clone_from_parent( ctx->banks, bank->idx );
+  bank->f.slot = 1UL;
+  bank->f.block_id = last;
+  fd_banks_mark_bank_frozen( bank );
+  bank->refcnt = 0UL; /* scheduler drained the original incarnation */
+  ulong old_seq = bank->bank_seq;
+  FD_TEST( request_bank_eviction( ctx, test_stem ) );
+  process_bank_evict_ack( ctx, test_stem, bank->idx, bank->bank_seq, 0 );
+  fd_banks_prune_cancel_info_t cancel[1];
+  FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
+  FD_TEST( target->popped && !fd_reasm_peek( ctx->reasm ) );
+  ctx->consensus_root_slot = 0UL;
+  ctx->consensus_root = root_id;
+  ctx->bank_restore_pending = 1;
+  ctx->bank_restore_slot = 1UL;
+  ctx->bank_restore_id = last;
+  mock_sched_capacity = 1UL;
+  ulong ingested = mock_sched_fec_ingest_cnt;
+  FD_TEST( try_restore_bank( ctx, test_stem ) );
+  FD_TEST( mock_sched_fec_ingest_cnt==ingested+1UL );
+  FD_TEST( try_restore_bank( ctx, test_stem ) );
+  FD_TEST( mock_sched_fec_ingest_cnt==ingested+2UL );
+  bank = fd_banks_bank_query( ctx->banks, target->bank_idx );
+  FD_TEST( bank && bank->bank_seq!=old_seq );
+  FD_TEST( !try_restore_bank( ctx, test_stem ) ); /* final FEC already scheduled */
+  bank = fd_banks_clone_from_parent( ctx->banks, bank->idx );
+  bank->f.slot = 1UL;
+  bank->f.block_id = last;
+  fd_banks_mark_bank_frozen( bank );
+  bank->refcnt = 0UL;
+  FD_TEST( try_restore_bank( ctx, test_stem ) );
+  FD_TEST( ctx->bank_restore_wait_seq==bank->bank_seq );
+  FD_TEST( bank->refcnt==2UL ); /* restore lease and Tower completion input */
+  FD_TEST( !try_restore_bank( ctx, test_stem ) );
+  FD_TEST( bank_eviction_protected( ctx, bank ) );
+  bank->refcnt--; /* Tower returns completion input */
+  clear_bank_restore( ctx );
+  FD_TEST( !bank->refcnt && !ctx->bank_restore_pending );
+  FD_LOG_NOTICE(( "pass: test_bank_restore_replays_retained_fecs" ));
+}
+
+static void
+test_processed_completion_handoff( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_hash_t root_id = { .ul = { 100UL } };
+  init_root_fec( ctx, &root_id );
+  fd_bank_t * root = fd_banks_root( ctx->banks );
+  ctx->rpc_enabled = 1;
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+  ulong refs0   = root->refcnt;
+  publish_slot_completed( ctx, test_stem, root, 1, 0, 0UL, 0UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+2UL );
+  FD_TEST( replay_out_sig( ctx, seq0    )==REPLAY_SIG_SLOT_COMPLETED );
+  FD_TEST( replay_out_sig( ctx, seq0+1UL )==REPLAY_SIG_PROCESSED_ADVANCED );
+  FD_TEST( root->refcnt==refs0+2UL ); /* tower input and RPC processed */
+
+  fd_bank_t * bank = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
+  FD_TEST( bank );
+  bank = fd_banks_clone_from_parent( ctx->banks, bank->idx );
+  FD_TEST( bank );
+  bank->f.slot = 1UL;
+  fd_banks_mark_bank_frozen( bank );
+  fd_block_id_ele_t * ele = &ctx->block_id_arr[ bank->idx ];
+  ele->latest_mr = (fd_hash_t){ .ul = { 200UL } };
+  ele->dmr      = ele->latest_mr;
+  ele->bank_seq = bank->bank_seq;
+  ele->slot     = bank->f.slot;
+  mock_footer_finalize = 1; /* no transaction-cache backing in this fixture */
+  seq0  = test_stem_seqs[ out_idx ];
+  refs0 = bank->refcnt;
+  publish_slot_completed( ctx, test_stem, bank, 0, 1, 0UL, 0UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_SLOT_COMPLETED );
+  FD_TEST( bank->refcnt==refs0+1UL ); /* leader completion only owns tower input */
+
+  /* Alpenglow transfers its completion reference to Votor; processed
+     selection waits for consensus instead of following completion. */
+  ctx->alpenglow = 1;
+  seq0  = test_stem_seqs[ out_idx ];
+  refs0 = bank->refcnt;
+  publish_slot_completed( ctx, test_stem, bank, 0, 0, 0UL, 0UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_SLOT_COMPLETED );
+  FD_TEST( bank->refcnt==refs0+1UL );
+  mock_footer_finalize = 0;
+
+  FD_LOG_NOTICE(( "pass: test_processed_completion_handoff" ));
+}
+
+/* A vote can become possible after PoH has already reset to that bank.
+   The selection must reach RPC even when the reset block is unchanged,
+   and it need not name the bank whose replay triggered tower's update. */
+static void
+test_processed_bank_selection( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t vote_id = { .ul = { 200UL } };
+  init_root_fec( ctx, &root_id );
+  fd_bank_t * root = fd_banks_root( ctx->banks );
+  fd_bank_t * bank = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
+  FD_TEST( bank );
+  bank = fd_banks_clone_from_parent( ctx->banks, bank->idx );
+  FD_TEST( bank );
+  bank->f.slot     = 1UL;
+  bank->f.block_id = vote_id;
+  fd_banks_mark_bank_frozen( bank );
+  fd_block_id_ele_t * ele = &ctx->block_id_arr[ bank->idx ];
+  ele->latest_mr     = vote_id;
+  ele->slot          = bank->f.slot;
+  ele->bank_seq      = bank->bank_seq;
+  ele->block_id_seen = 1;
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, ele, ctx->block_id_arr ) );
+  ctx->rpc_enabled = 1;
+  ctx->reset_cmr   = vote_id;
+  ctx->reset_slot  = bank->f.slot;
+
+  fd_tower_slot_done_t msg = {
+    .replay_slot     = root->f.slot,
+    .replay_bank_idx = root->idx,
+    .replay_bank_seq = root->bank_seq,
+    .vote_slot       = ULONG_MAX,
+    .reset_slot      = bank->f.slot,
+    .reset_block_id  = vote_id,
+    .reset_bank_seq  = bank->bank_seq,
+    .root_slot       = ULONG_MAX
+  };
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+  ulong refs0   = bank->refcnt;
+
+  /* A reset without a vote returns tower's input reference only. */
+  root->refcnt = 1UL;
+  process_tower_slot_done( ctx, test_stem, &msg, 0UL );
+  FD_TEST( !root->refcnt );
+  FD_TEST( bank->refcnt==refs0 );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
+
+  /* No vote transaction is required: nonvoting RPC nodes still select
+     a bank through their local tower. */
+  msg.vote_slot = bank->f.slot;
+  root->refcnt = 1UL;
+  process_tower_slot_done( ctx, test_stem, &msg, 1UL );
+  FD_TEST( !root->refcnt );
+  FD_TEST( bank->refcnt==refs0+1UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+  fd_frag_meta_t const * meta = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0, test_stem_depths[ out_idx ] );
+  FD_TEST( meta->sig==REPLAY_SIG_PROCESSED_ADVANCED );
+  FD_TEST( meta->sz==sizeof(fd_replay_processed_advanced_t) );
+  fd_replay_processed_advanced_t const * processed = fd_chunk_to_laddr_const( wksp, meta->chunk );
+  FD_TEST( processed->slot==bank->f.slot );
+  FD_TEST( processed->bank_idx==bank->idx );
+  FD_TEST( processed->bank_seq==bank->bank_seq );
+
+  /* Disabling RPC must not acquire an unconsumed reference. */
+  ctx->rpc_enabled = 0;
+  root->refcnt = 1UL;
+  process_tower_slot_done( ctx, test_stem, &msg, 2UL );
+  FD_TEST( !root->refcnt );
+  FD_TEST( bank->refcnt==refs0+1UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+
+  FD_LOG_NOTICE(( "pass: test_processed_bank_selection" ));
+}
+
 /* Backfilling an evicted block installs its block id mapping when the
    slot-complete FEC is inserted, which is before sched runs BLOCK_START
    and clones the bank from its parent.  A non-forward optimistic
@@ -3303,6 +3638,12 @@ main( int     argc,
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
   test_reused_parent_bank_idx_not_leader_bank( wksp ); fd_wksp_reset( wksp, 42U );
   test_oc_skips_unfrozen_bank( wksp );              fd_wksp_reset( wksp, 42U );
+  test_processed_bank_selection( wksp );            fd_wksp_reset( wksp, 42U );
+  test_processed_completion_handoff( wksp );        fd_wksp_reset( wksp, 42U );
+  test_bank_eviction_handshake( wksp );              fd_wksp_reset( wksp, 42U );
+  test_bank_restore_replays_retained_fecs( wksp );    fd_wksp_reset( wksp, 42U );
+  test_votor_processed_reference_handoff( wksp );    fd_wksp_reset( wksp, 42U );
+  test_votor_eviction_restore_handoff( wksp );       fd_wksp_reset( wksp, 42U );
   test_banks_evict_backfill( wksp );                fd_wksp_reset( wksp, 42U );
   test_backfill_partial_sched_capacity( wksp );     fd_wksp_reset( wksp, 42U );
   test_double_confirm_backfill( wksp );             fd_wksp_reset( wksp, 42U );

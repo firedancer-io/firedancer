@@ -140,6 +140,11 @@ struct ctx {
      deliver_queue and drained one FEC per after_credit. */
   int         deliver_from_root;
   out_ele_t * deliver_queue; /* sized to the chainer's FEC capacity */
+  struct rotor_restore { ulong slot; fd_hash_t block_id; } * restores;
+  ulong restore_cnt;
+  ulong restore_max;
+  ulong restore_slot;
+  fd_hash_t restore_block_id;
 
   fd_keyswitch_t * keyswitch;
   int              halt_signing;

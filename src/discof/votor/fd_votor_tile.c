@@ -178,6 +178,13 @@ struct final_notar_join {
 };
 typedef struct final_notar_join final_notar_join_t;
 
+typedef struct {
+  ulong bank_seq;
+  ag_block_id_t block;
+  ag_block_id_t parent;
+  int held;
+} bank_lease_t;
+
 struct fd_votor_tile {
 
   /* Metadata */
@@ -203,6 +210,8 @@ struct fd_votor_tile {
   ag_pool_t *                pool;
   ag_votor_t *               votor;
   publish_t *                publishes;
+  bank_lease_t *             bank_leases;
+  ulong                     bank_lease_cnt;
 
   /* Networking */
 
@@ -905,15 +914,64 @@ handle_gossip( fd_votor_tile_t *                  ctx,
 }
 
 static void
+release_bank_lease( fd_votor_tile_t * ctx, ulong idx ) {
+  bank_lease_t * lease = &ctx->bank_leases[idx];
+  FD_TEST( lease->held );
+  FD_TEST( !publishes_full( ctx->publishes ) );
+  publish_t pub = { .sig = FD_VOTOR_SIG_BANK_RELEASE, .msg.bank_release = { .bank_idx = idx, .bank_seq = lease->bank_seq } };
+  publishes_push( ctx->publishes, pub );
+  lease->held = 0;
+}
+
+static void
+bank_decision( void * arg, ag_block_id_t const * block, int restore ) {
+  fd_votor_tile_t * ctx = arg;
+  publish_t pub;
+  if( restore ) {
+    pub = (publish_t){ .sig = FD_VOTOR_SIG_BANK_RESTORE, .msg.repair.slot = block->slot };
+    memcpy( pub.msg.repair.block_id.uc, block->hash, sizeof(fd_hash_t) );
+    FD_TEST( !publishes_full( ctx->publishes ) );
+    publishes_push( ctx->publishes, pub );
+    return;
+  }
+  for( ulong i=0UL; i<ctx->bank_lease_cnt; i++ ) {
+    bank_lease_t * lease = &ctx->bank_leases[i];
+    if( !lease->held || !ag_block_id_eq( &lease->block, block ) ) continue;
+    pub = (publish_t){ .sig = FD_VOTOR_SIG_PROCESSED, .msg.processed = { .slot = block->slot, .bank_idx = i, .bank_seq = lease->bank_seq } };
+    FD_TEST( !publishes_full( ctx->publishes ) );
+    publishes_push( ctx->publishes, pub );
+    release_bank_lease( ctx, i );
+    return;
+  }
+  FD_LOG_CRIT(( "normal notarization has no replay bank lease (slot=%lu)", block->slot ));
+}
+
+static void
+release_resolved_banks( fd_votor_tile_t * ctx ) {
+  for( ulong i=0UL; i<ctx->bank_lease_cnt; i++ ) {
+    bank_lease_t * lease = &ctx->bank_leases[i];
+    if( lease->held && !ag_votor_block_pending( ctx->votor, &lease->block ) ) release_bank_lease( ctx, i );
+  }
+}
+
+static void
 handle_replay( fd_votor_tile_t *           ctx,
                ulong                       sig,
                fd_replay_message_t const * replay ) {
 
   switch( sig ) {
+  case REPLAY_SIG_ROOT_ADVANCED:
+    ag_votor_set_root( ctx->votor, replay->root_advanced.slot );
+    release_resolved_banks( ctx );
+    break;
   case REPLAY_SIG_SLOT_COMPLETED: {
     fd_replay_slot_completed_t const * slot_completed  = &replay->slot_completed;
     ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
+    FD_TEST( slot_completed->bank_idx<ctx->bank_lease_cnt );
+    bank_lease_t * lease = &ctx->bank_leases[slot_completed->bank_idx];
+    FD_TEST( !lease->held );
+    *lease = (bank_lease_t){ .bank_seq = slot_completed->bank_seq, .block = block_id, .parent = parent_block_id, .held = 1 };
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ag_pool_init( ctx->pool, block_id.slot );
       if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
@@ -925,12 +983,36 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
     memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
     ag_votor_handle_replay_event( ctx->votor, &completed );
+    release_resolved_banks( ctx );
+    break;
+  }
+  case REPLAY_SIG_BANK_EVICT_REQUEST:
+  case REPLAY_SIG_BANK_AVAILABLE: {
+    fd_replay_bank_eviction_t const * msg = (fd_replay_bank_eviction_t const *)replay;
+    FD_TEST( msg->bank_idx<ctx->bank_lease_cnt );
+    bank_lease_t * lease = &ctx->bank_leases[msg->bank_idx];
+    FD_TEST( lease->bank_seq==msg->bank_seq );
+    if( sig==REPLAY_SIG_BANK_AVAILABLE ) {
+      FD_TEST( !lease->held );
+      lease->held = 1;
+      ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = lease->block.slot, .block_info = { .parent = lease->parent } };
+      memcpy( completed.block_info.hash, lease->block.hash, sizeof(ag_block_hash_t) );
+      ag_votor_handle_replay_event( ctx->votor, &completed );
+      release_resolved_banks( ctx );
+    } else {
+      ag_votor_forget_block( ctx->votor, &lease->block );
+      if( lease->held ) release_bank_lease( ctx, msg->bank_idx );
+      publish_t pub = { .sig = FD_VOTOR_SIG_BANK_EVICT_ACK, .msg.bank_evict_ack = { .bank_idx = msg->bank_idx, .bank_seq = msg->bank_seq, .cancel = 0 } };
+      FD_TEST( !publishes_full( ctx->publishes ) );
+      publishes_push( ctx->publishes, pub );
+    }
     break;
   }
   case REPLAY_SIG_SLOT_DEAD: {
     fd_replay_slot_dead_t const * slot_dead = &replay->slot_dead;
     ag_event_replay_t             dead      = { .kind = AG_EVENT_REPLAY_DEAD, .slot = slot_dead->slot };
     ag_votor_handle_replay_event( ctx->votor, &dead );
+    release_resolved_banks( ctx );
     break;
   }
   default:
@@ -951,7 +1033,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
   l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
   l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
-  l = FD_LAYOUT_APPEND( l, publishes_align(),              publishes_footprint( tile->votor.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, publishes_align(),              publishes_footprint( 4UL*tile->votor.max_live_slots+4UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(bank_lease_t), sizeof(bank_lease_t)*tile->votor.max_live_slots );
   l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                 );
   l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
   l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
@@ -984,6 +1067,7 @@ after_credit( fd_votor_tile_t *   ctx,
 
   if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
     ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
+    release_resolved_banks( ctx );
     ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
     if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_CERT_CREATED ) ) {
       ulong                slot = ag_cert_slot( cert );
@@ -1061,6 +1145,7 @@ after_credit( fd_votor_tile_t *   ctx,
 
   if( FD_UNLIKELY( ag_votor_poll_timeout_event( ctx->votor, now, &ctx->scratch.timeout_event ) ) ) { /* a timeout we set on ParentReady */
     ag_votor_handle_timeout_event( ctx->votor, &ctx->scratch.timeout_event );
+    release_resolved_banks( ctx );
     *charge_busy = 1;
   }
 
@@ -1149,7 +1234,8 @@ before_frag( fd_votor_tile_t * ctx,
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
-    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD;
+    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD &&
+           sig!=REPLAY_SIG_BANK_EVICT_REQUEST && sig!=REPLAY_SIG_BANK_AVAILABLE && sig!=REPLAY_SIG_ROOT_ADVANCED;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -1270,7 +1356,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
   void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
   void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
-  void *            publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),              publishes_footprint( tile->votor.max_live_slots ) );
+  void *            publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),              publishes_footprint( 4UL*tile->votor.max_live_slots+4UL ) );
+  bank_lease_t * bank_leases = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_lease_t), sizeof(bank_lease_t)*tile->votor.max_live_slots );
   void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                 );
   void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
   void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
@@ -1290,6 +1377,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
+  ctx->bank_leases = bank_leases;
+  ctx->bank_lease_cnt = tile->votor.max_live_slots;
+  memset( bank_leases, 0, sizeof(bank_lease_t)*ctx->bank_lease_cnt );
+  ag_votor_set_bank_callback( ctx->votor, bank_decision, ctx );
 
   ctx->prev_epoch_info = NULL;
   ctx->prev_epoch_slot = ULONG_MAX;
@@ -1312,7 +1403,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_id                  = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->hdr, FD_NET_MTU, ctx->src_ip_addr, ctx->quic_client_listen_port );
 
-  ctx->publishes = publishes_join( publishes_new( publishes, tile->votor.max_live_slots ) );
+  ctx->publishes = publishes_join( publishes_new( publishes, 4UL*tile->votor.max_live_slots+4UL ) );
   FD_TEST( ctx->publishes );
 
   ctx->peers = peers_join( peers_new( peers ) );

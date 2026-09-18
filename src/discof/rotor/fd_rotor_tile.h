@@ -134,6 +134,8 @@
 #define ROTOR_SIG_FEC_REPLAY  (3UL)
 
 struct fd_rotor_replay_fec {
+   ulong     restore_slot; /* ULONG_MAX for ordinary delivery */
+   fd_hash_t restore_block_id; /* target whose ancestry is being restored */
    ulong     slot;
    uint      fec_set_idx;
    fd_hash_t mr;

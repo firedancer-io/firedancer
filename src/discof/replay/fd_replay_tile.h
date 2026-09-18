@@ -101,20 +101,23 @@
 #include "../../choreo/votor/ag_cert.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
 
-#define REPLAY_SIG_SLOT_COMPLETED (0)
-#define REPLAY_SIG_SLOT_DEAD      (1)
-#define REPLAY_SIG_ROOT_ADVANCED  (2)
-#define REPLAY_SIG_RESET          (3)
-#define REPLAY_SIG_BECAME_LEADER  (4)
-#define REPLAY_SIG_OC_ADVANCED    (5)
-#define REPLAY_SIG_TXN_EXECUTED   (6)
-#define REPLAY_SIG_REASM_EVICTED  (7)
-#define REPLAY_SIG_WFS_DONE       (8)
-#define REPLAY_SIG_DROP_BANK_REF  (9)
-#define REPLAY_SIG_SNAP_START     (10)
-#define REPLAY_SIG_FINAL_CERT     (11)
-#define REPLAY_SIG_LEADER_FOOTER  (12)
-#define REPLAY_SIG_MISSING_FEC    (13)
+#define REPLAY_SIG_SLOT_COMPLETED     (0)
+#define REPLAY_SIG_SLOT_DEAD          (1)
+#define REPLAY_SIG_ROOT_ADVANCED      (2)
+#define REPLAY_SIG_RESET              (3)
+#define REPLAY_SIG_BECAME_LEADER      (4)
+#define REPLAY_SIG_OC_ADVANCED        (5)
+#define REPLAY_SIG_TXN_EXECUTED       (6)
+#define REPLAY_SIG_REASM_EVICTED      (7)
+#define REPLAY_SIG_WFS_DONE           (8)
+#define REPLAY_SIG_DROP_BANK_REF      (9)
+#define REPLAY_SIG_SNAP_START         (10)
+#define REPLAY_SIG_FINAL_CERT         (11)
+#define REPLAY_SIG_LEADER_FOOTER      (12)
+#define REPLAY_SIG_MISSING_FEC        (13)
+#define REPLAY_SIG_PROCESSED_ADVANCED (14)
+#define REPLAY_SIG_BANK_EVICT_REQUEST (15)
+#define REPLAY_SIG_BANK_AVAILABLE     (16)
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -204,6 +207,30 @@ struct fd_replay_slot_dead {
   fd_hash_t block_id;
 };
 typedef struct fd_replay_slot_dead fd_replay_slot_dead_t;
+
+/* Advance the "processed" slot, which is used for RPC requests at the
+   processed commitment.  Under Tower this is the locally selected vote
+   bank, regardless of whether a vote transaction is sent.  A ULONG_MAX
+   bank_idx means the selected bank was evicted before the decision
+   reached replay; no reference is transferred and RPC should fall back to its local root. */
+struct fd_replay_processed_advanced {
+  ulong slot;
+  ulong bank_idx;
+  ulong bank_seq;
+};
+typedef struct fd_replay_processed_advanced fd_replay_processed_advanced_t;
+
+/* Request revocation of consensus's permission to select this bank.
+   Replay retains the bank until the ordered acknowledgement arrives.
+   BANK_AVAILABLE cancels a request if the bank acquired a child or
+   became protected while the acknowledgement was in flight. */
+struct fd_replay_bank_eviction {
+  ulong     bank_idx;
+  ulong     bank_seq;
+  ulong     slot;
+  fd_hash_t block_id;
+};
+typedef struct fd_replay_bank_eviction fd_replay_bank_eviction_t;
 
 struct fd_replay_oc_advanced {
   ulong slot;
@@ -297,16 +324,18 @@ struct fd_replay_leader_footer {
 typedef struct fd_replay_leader_footer fd_replay_leader_footer_t;
 
 union fd_replay_message {
-  fd_replay_slot_completed_t  slot_completed;
-  fd_replay_slot_dead_t       slot_dead;
-  fd_replay_root_advanced_t   root_advanced;
-  fd_replay_oc_advanced_t     oc_advanced;
-  fd_poh_reset_t              reset;
-  fd_became_leader_t          became_leader;
-  fd_replay_txn_executed_t    txn_executed;
-  fd_replay_fec_evicted_t     reasm_evicted;
-  fd_replay_drop_bank_ref_t   drop_bank_ref;
-  fd_replay_leader_footer_t   leader_footer;
+  fd_replay_bank_eviction_t bank_eviction;
+  fd_replay_processed_advanced_t processed_advanced;
+  fd_replay_slot_completed_t     slot_completed;
+  fd_replay_slot_dead_t          slot_dead;
+  fd_replay_root_advanced_t      root_advanced;
+  fd_replay_oc_advanced_t        oc_advanced;
+  fd_poh_reset_t                 reset;
+  fd_became_leader_t             became_leader;
+  fd_replay_txn_executed_t       txn_executed;
+  fd_replay_fec_evicted_t        reasm_evicted;
+  fd_replay_drop_bank_ref_t      drop_bank_ref;
+  fd_replay_leader_footer_t      leader_footer;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

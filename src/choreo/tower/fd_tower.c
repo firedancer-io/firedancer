@@ -851,18 +851,21 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
 
   /* Case 0a: on boot, tower->root is set to the snapshot slot before
      any votes are recorded. In this case, lockout_check returns 0 for
-     slot <= root, preventing a vote on the snapshot slot itself. */
+     slot <= root, preventing a vote on the snapshot slot itself.  Also
+     defer the initial vote if replay must restore the preferred bank. */
 
   /* TODO refactor: 0a is a tile-concern not logic-concern */
 
-  if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) && !lockout_check( tower, best_blk->slot ) ) ) {
+  if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) &&
+                   ( !best_blk->runtime_available || !lockout_check( tower, best_blk->slot ) ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( best_blk->id.uc, best_blk_id );
-    FD_LOG_DEBUG(( "[%s] case 0a: not recent (slot %lu <= root %lu). reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, best_blk->slot, tower->root, best_blk->slot, best_blk_id ));
+    FD_LOG_DEBUG(( "[%s] case 0a: initial vote deferred (slot %lu, root %lu, runtime available %d). reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, best_blk->slot, tower->root, best_blk->runtime_available, best_blk->slot, best_blk_id ));
     *reset_slot     = best_blk->slot;
     *reset_block_id = best_blk->id;
     *reset_bank_seq = best_blk->bank_seq;
     *vote_slot      = ULONG_MAX;
     *vote_block_id  = (fd_hash_t){0};
+    *vote_bank_hash = (fd_hash_t){0};
     *root_slot      = ULONG_MAX;
     *root_block_id  = (fd_hash_t){0};
     return flags;
@@ -1023,6 +1026,22 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
       FD_BASE58_ENCODE_32_BYTES( reset_blk->id.uc, reset_blk_id );
       FD_LOG_DEBUG(( "[%s] case 4b: switch fail, no invalid ancestor. prev_vote_slot: %lu. reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, prev_vote_slot, reset_blk->slot, reset_blk_id ));
     }
+  }
+
+  /* Preserve consensus fork choice while replay restores its preferred
+     bank.  Do not mutate the local tower until the runtime bank exists. */
+  FD_TEST( reset_blk );
+  FD_TEST( !vote_blk || vote_blk==reset_blk );
+  if( FD_UNLIKELY( !reset_blk->runtime_available ) ) {
+    *reset_slot     = reset_blk->slot;
+    *reset_block_id = reset_blk->id;
+    *reset_bank_seq = reset_blk->bank_seq;
+    *vote_slot      = ULONG_MAX;
+    *vote_block_id  = (fd_hash_t){0};
+    *vote_bank_hash = (fd_hash_t){0};
+    *root_slot      = ULONG_MAX;
+    *root_block_id  = (fd_hash_t){0};
+    return flags;
   }
 
   /* If there is a block to vote for, there are a few additional checks

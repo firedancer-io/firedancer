@@ -121,7 +121,8 @@ test_publish_slot_done_identity_mismatch( void ) {
   out.vote_slot       = 1UL;
   out.vote_block_id   = (fd_hash_t){ .ul = { 0x33UL } };
   out.vote_bank_hash  = (fd_hash_t){ .ul = { 0x44UL } };
-  out.reset_slot      = ULONG_MAX;
+  out.reset_slot      = out.vote_slot;
+  out.reset_block_id  = out.vote_block_id;
   out.root_slot       = ULONG_MAX;
 
   /* Matching identity produces votes */
@@ -883,6 +884,59 @@ test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_eqvoc_cre_diff" ));
 }
 
+static void
+test_bank_eviction_handshake( fd_wksp_t * wksp ) {
+  fd_tower_tile_t * ctx = eqvoc_setup( wksp );
+  while( !publishes_empty( ctx->publishes ) ) publishes_pop_head( ctx->publishes );
+  ulong slot = EQVOC_START_SLOT+EQVOC_BOOT_CNT-1UL;
+  fd_hash_t id = { .ul={slot} };
+  fd_ghost_blk_t * tip = fd_ghost_query( ctx->ghost, &id );
+  FD_TEST( tip && tip->runtime_available );
+  fd_replay_bank_eviction_t request = { .bank_idx=slot, .bank_seq=tip->bank_seq, .block_id=id };
+  process_bank_eviction( ctx, &request, 0 );
+  publish_t pub = publishes_pop_head( ctx->publishes );
+  FD_TEST( pub.sig==FD_TOWER_SIG_BANK_EVICT_ACK && pub.msg.bank_evict_ack.cancel );
+  FD_TEST( tip->runtime_available );
+
+  /* Another completed branch may be evicted, but the acknowledgement
+     must follow every older decision still queued for replay. */
+  fd_hash_t sibling_id = { .ul={999999UL} };
+  fd_ghost_blk_t * sibling = fd_ghost_insert( ctx->ghost, 99UL, slot+1UL, &sibling_id, &id );
+  FD_TEST( sibling );
+  request = (fd_replay_bank_eviction_t){ .bank_idx=9UL, .bank_seq=99UL, .block_id=sibling_id };
+  publishes_push_head( ctx->publishes, (publish_t){ .sig=FD_TOWER_SIG_SLOT_DONE } );
+  process_bank_eviction( ctx, &request, 0 );
+  FD_TEST( !sibling->runtime_available && sibling->valid );
+  FD_TEST( publishes_pop_head( ctx->publishes ).sig==FD_TOWER_SIG_SLOT_DONE );
+  pub = publishes_pop_head( ctx->publishes );
+  FD_TEST( pub.sig==FD_TOWER_SIG_BANK_EVICT_ACK && !pub.msg.bank_evict_ack.cancel );
+  FD_TEST( pub.msg.bank_evict_ack.bank_idx==9UL && pub.msg.bank_evict_ack.bank_seq==99UL );
+  request.bank_seq = 98UL;
+  process_bank_eviction( ctx, &request, 1 );
+  FD_TEST( !sibling->runtime_available );
+  request.bank_seq = 99UL;
+  process_bank_eviction( ctx, &request, 1 );
+  FD_TEST( sibling->runtime_available );
+
+  /* Retry a restored known completion without reinserting its tower
+     block or erasing the local vote already recorded on it. */
+  sibling->valid = 0;
+  tip->runtime_available = 0;
+  ctx->restore_block_id = tip->id;
+  fd_replay_slot_completed_t sc = {
+    .slot=slot, .parent_slot=slot-1UL, .block_id=id,
+    .parent_block_id={ .ul={slot-1UL} }, .bank_hash={ .ul={slot} },
+    .block_hash={ .ul={slot} }, .bank_idx=slot, .bank_seq=100UL
+  };
+  replay_slot_completed( ctx, &sc, 0UL, NULL );
+  FD_TEST( tip->runtime_available && tip->bank_seq==100UL );
+  pub = publishes_pop_head( ctx->publishes );
+  FD_TEST( pub.sig==FD_TOWER_SIG_SLOT_DONE );
+  FD_TEST( pub.msg.slot_done.reset_bank_seq==100UL );
+  FD_TEST( fd_tower_blocks_query( ctx->tower, slot )->voted );
+  FD_LOG_NOTICE(( "pass: test_bank_eviction_handshake" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -906,6 +960,7 @@ main( int     argc,
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_diff( wksp );
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_erc_diff( wksp );
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_cre_diff( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_bank_eviction_handshake( wksp );
 
   fd_halt();
 }
