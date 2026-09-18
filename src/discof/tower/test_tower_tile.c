@@ -987,6 +987,66 @@ test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_eqvoc_cre_diff" ));
 }
 
+static void
+test_adopt_tower( fd_wksp_t * wksp ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static uchar           scratch_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  void * tower_mem   = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
+  ctx->tower         = fd_tower_join( fd_tower_new( tower_mem, 64UL, 2UL, 0UL ) );
+  ctx->scratch_tower = fd_tower_vote_join( fd_tower_vote_new( scratch_mem ) );
+  FD_TEST( ctx->tower && ctx->scratch_tower );
+  void * publishes_mem = fd_wksp_alloc_laddr( wksp, publishes_align(), publishes_footprint( 16UL ), 1UL );
+  ctx->publishes       = publishes_join( publishes_new( publishes_mem, 16UL ) );
+  FD_TEST( ctx->publishes );
+  ctx->tower->root = 1UL;
+
+  for( ulong slot=2UL; slot<=3UL; slot++ ) {
+    fd_tower_blk_t * blk  = fd_tower_blocks_insert( ctx->tower, slot, slot-1UL );
+    blk->replayed          = 1;
+    blk->replayed_block_id = (fd_hash_t){ .ul={ slot } };
+    blk->bank_hash         = (fd_hash_t){ .ul={ slot+10UL } };
+  }
+
+  /* The tile advances the fork choice root alongside the tower root, so
+     give the test a ghost that matches the replayed chain 1 -> 2 -> 3. */
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( 64UL, 2UL ), 1UL );
+  ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( ctx->ghost );
+  fd_ghost_init( ctx->ghost, 0UL, 1UL, &(fd_hash_t){ .ul={ 1UL } } );
+  for( ulong slot=2UL; slot<=3UL; slot++ )
+    FD_TEST( fd_ghost_insert( ctx->ghost, 0UL, slot, &(fd_hash_t){ .ul={ slot } }, &(fd_hash_t){ .ul={ slot-1UL } } ) );
+
+  fd_compact_tower_sync_serde_t serde;
+  fd_memset( &serde, 0, sizeof(serde) );
+  serde.root          = 1UL;
+  serde.lockouts_cnt  = 2U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=2U };
+  serde.lockouts[ 1 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash          = fd_tower_blocks_query( ctx->tower, 3UL )->bank_hash;
+  serde.block_id      = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
+
+  uchar buf[ 512UL ];
+  ulong buf_sz;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  fd_tower_adopt_result_t result = adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==1UL && result.vote_slot==3UL );
+  FD_TEST( ctx->tower_adopted );
+
+  /* A mismatched tip is refused without replacing the adopted votes. */
+  serde.block_id.uc[ 0 ] ^= 1U;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH );
+  FD_TEST( result.root==1UL && result.vote_slot==3UL && !ctx->tower_adopted );
+  FD_TEST( fd_tower_vote_cnt( ctx->tower->votes )==2UL );
+
+  fd_wksp_free_laddr( publishes_delete( publishes_leave( ctx->publishes ) ) );
+  fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ctx->ghost ) ) );
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( ctx->tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_adopt_tower" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1005,7 +1065,8 @@ main( int     argc,
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_fixture_replay( wksp );
+  test_adopt_tower( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_fixture_replay( wksp );
 
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_same( wksp );
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_rec_same( wksp );

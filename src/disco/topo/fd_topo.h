@@ -661,6 +661,8 @@ struct fd_topo_tile {
       char  vote_account[ PATH_MAX ];
       char  base_path[PATH_MAX];
       ulong max_shreds_per_block;
+      int   adoption_required;
+      char  voting_identity_path[ PATH_MAX ];
     } tower;
 
     struct {
