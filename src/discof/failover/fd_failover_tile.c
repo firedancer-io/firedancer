@@ -252,7 +252,7 @@ static int
 role_file_read( fd_failover_tile_ctx_t * ctx ) {
   fd_memset( &ctx->role_file, 0, sizeof(ctx->role_file) );
   ctx->role_file.version = FD_FAILOVER_ROLE_VERSION;
-  ctx->role_file.role    = (uchar)FD_FAILOVER_ROLE_FILE_STANDBY;
+  ctx->role_file.role    = (uchar)FD_FAILOVER_STATE_STANDBY;
   fd_memcpy( ctx->role_file.staked_pubkey, ctx->hello.staked_pubkey, 32UL );
 
   fd_failover_role_file_t rf;

@@ -5,13 +5,6 @@
 
 #define FD_FAILOVER_ROLE_VERSION (1U)
 
-#define FD_FAILOVER_ROLE_FILE_STANDBY   (0U)
-#define FD_FAILOVER_ROLE_FILE_ACTIVE    (1U)
-#define FD_FAILOVER_ROLE_FILE_DEMOTING  (2U)
-#define FD_FAILOVER_ROLE_FILE_PROMOTING (3U)
-#define FD_FAILOVER_ROLE_FILE_RECLAIM   (4U)
-#define FD_FAILOVER_ROLE_FILE_CNT       (5U)
-
 struct fd_failover_role_file {
   uint  version;
   ulong term;
@@ -29,6 +22,21 @@ typedef struct fd_failover_role_file fd_failover_role_file_t;
 
 #define FD_FAILOVER_ROLE_PATH     "failover-role"
 #define FD_FAILOVER_ROLE_TMP_PATH "failover-role.new"
+
+#define FD_FAILOVER_DEMOTED_VERSION  (1U)
+#define FD_FAILOVER_DEMOTED_PATH     "failover-demoted"
+#define FD_FAILOVER_DEMOTED_TMP_PATH "failover-demoted.new"
+
+struct fd_failover_demoted_record {
+  fd_failover_demoted_t demoted;
+  uchar                  state[ FD_FAILOVER_TOWER_STATE_MAX ];
+  uchar                  digest[ FD_FAILOVER_DEMOTED_DIGEST_SZ ];
+};
+
+typedef struct fd_failover_demoted_record fd_failover_demoted_record_t;
+
+#define FD_FAILOVER_DEMOTED_FILE_BODY_MIN (4UL+sizeof(fd_failover_demoted_t)+FD_FAILOVER_DEMOTED_DIGEST_SZ)
+#define FD_FAILOVER_DEMOTED_FILE_MAX      (FD_FAILOVER_DEMOTED_FILE_BODY_MIN+FD_FAILOVER_TOWER_STATE_MAX+32UL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -71,6 +79,27 @@ fd_failover_role_store( int                             dir_fd,
                         uint                            owner_uid,
                         uint                            owner_gid,
                         fd_failover_role_file_t const * role );
+
+ulong
+fd_failover_demoted_ser( fd_failover_demoted_record_t const * record,
+                         uchar *                               buf );
+
+int
+fd_failover_demoted_de( uchar const *                   buf,
+                        ulong                           buf_sz,
+                        fd_failover_demoted_record_t * out );
+
+int
+fd_failover_demoted_load( int                             dir_fd,
+                          fd_failover_demoted_record_t * out );
+
+int
+fd_failover_demoted_store( int                                   dir_fd,
+                           int                                   file_fd,
+                           int                                   sandboxed,
+                           uint                                  owner_uid,
+                           uint                                  owner_gid,
+                           fd_failover_demoted_record_t const * record );
 
 FD_PROTOTYPES_END
 
