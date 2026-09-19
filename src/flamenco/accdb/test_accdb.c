@@ -1717,7 +1717,7 @@ test_snapshot_equal_slot_rejected( void ) {
 }
 
 static void
-test_snapshot_striped_writers( void ) {
+test_snapshot_chain_locked_writers( void ) {
   int fd;
   ulong psz = 11UL<<20UL;
   ulong max_accounts = 16384UL;
@@ -1805,7 +1805,7 @@ test_snapshot_striped_writers( void ) {
   test_teardown( accdb, fd );
 }
 
-/* Incremental extension of the striped-writer contract. */
+/* Incremental extension of the chain-lock contract. */
 
 #define PAR_INCR_KEYS     (PAR_KEYS+16UL) /* 16 brand-new keys in the incr phase */
 #define PAR_INCR_LAMPORTS( t, k ) ( 2000000UL + (t)*1000UL + (k) )
@@ -1844,7 +1844,7 @@ par_incr_writer_main( void * _ctx ) {
 
 /* Test concurrent incremental snapshot writes and rollback. */
 static void
-test_snapshot_striped_writers_incremental( void ) {
+test_snapshot_chain_locked_writers_incremental( void ) {
   int fd;
   ulong psz = 11UL<<20UL;
   ulong max_accounts = 4096UL;
@@ -2278,14 +2278,14 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_deferred_write_stats_two_joiners ..." ));
   test_deferred_write_stats_two_joiners();
 
-  FD_LOG_NOTICE(( "test_snapshot_striped_writers ..." ));
-  test_snapshot_striped_writers();
+  FD_LOG_NOTICE(( "test_snapshot_chain_locked_writers ..." ));
+  test_snapshot_chain_locked_writers();
 
   FD_LOG_NOTICE(( "test_snapshot_equal_slot_rejected ..." ));
   test_snapshot_equal_slot_rejected();
 
-  FD_LOG_NOTICE(( "test_snapshot_striped_writers_incremental ..." ));
-  test_snapshot_striped_writers_incremental();
+  FD_LOG_NOTICE(( "test_snapshot_chain_locked_writers_incremental ..." ));
+  test_snapshot_chain_locked_writers_incremental();
 
   FD_LOG_NOTICE(( "test_incremental_cross_fork_override ..." ));
   test_incremental_cross_fork_override();

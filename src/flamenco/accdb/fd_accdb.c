@@ -367,7 +367,6 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->root_fork_id   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   shmem->generation     = 0U;
   shmem->partition_lock = 0;
-  fd_memset( shmem->snapshot_stripe_locks, 0, sizeof(shmem->snapshot_stripe_locks) );
   shmem->partition_max  = 0UL;
 
   /* Write heads: sentinel values that force partition-switch on first
@@ -3967,6 +3966,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
                                ulong *             out_ignored_lamports ) {
+#define CHAIN_LOCKED (UINT_MAX-1U)
+
   FD_TEST( cnt>0UL && cnt<=8UL );
 
   int incremental = fork_id.val!=USHORT_MAX;
@@ -4022,22 +4023,32 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   fd_accdb_accmeta_t * acquired[ 8 ];
   FD_TEST( acc_pool_acquire_batch( accdb->acc_pool_join, cnt, acquired ) );
 
-  /* Phase 2: walk and commit under the account stripe. */
+  /* Phase 2: walk and commit under the account chain lock. */
 
   ulong used_bytes_added   = 0UL;
   ulong used_bytes_removed = 0UL;
   ulong acquired_used      = 0UL;
 
   for( ulong i=0UL; i<cnt; i++ ) {
-    ulong entry_sz  = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-    int * stripe    = &accdb->shmem->snapshot_stripe_locks[ hashes[ i ] & FD_ACCDB_SNAPSHOT_STRIPE_MSK ];
-    int   skip      = 0;
+    ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
+    int   skip     = 0;
 
-    spin_lock_acquire( stripe );
+    uint chain_head;
+    for(;;) {
+      chain_head = FD_VOLATILE_CONST( accdb->acc_map[ hashes[ i ] ] );
+      if( FD_UNLIKELY( chain_head==CHAIN_LOCKED ) ) {
+        FD_SPIN_PAUSE();
+        continue;
+      }
+      if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_map[ hashes[ i ] ], chain_head, CHAIN_LOCKED )==chain_head ) ) {
+        break;
+      }
+      FD_SPIN_PAUSE();
+    }
 
     fd_accdb_accmeta_t * existing       = NULL;
     fd_accdb_accmeta_t * cross_existing = NULL; /* cross-fork dup (incremental only) */
-    uint next_acc = FD_VOLATILE_CONST( accdb->acc_map[ hashes[ i ] ] );
+    uint next_acc = chain_head;
     while( next_acc!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ next_acc ];
 
@@ -4050,7 +4061,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
           skip = 1;
         } else if( FD_UNLIKELY( (ulong)candidate->cache_idx==slots[ i ] ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: duplicate account at slot %lu", slots[ i ] ));
-          spin_lock_release( stripe );
+          FD_COMPILER_MFENCE();
+          FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
           result = -1;
           goto fini;
         } else if( FD_UNLIKELY( incremental ) && candidate->key.generation!=fork_gen ) {
@@ -4064,7 +4076,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     }
 
     if( FD_UNLIKELY( skip ) ) {
-      spin_lock_release( stripe );
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
       fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
       ignored_lamports  += lamports[ i ];
       ignored++;
@@ -4072,6 +4085,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     }
 
     fd_accdb_accmeta_t * accmeta;
+    uint new_head = chain_head;
 
     if( FD_UNLIKELY( existing ) ) {
       accmeta = existing;
@@ -4087,8 +4101,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
       fd_memcpy( accmeta->key.pubkey, pubkeys[ i ], 32UL );
       accmeta->key.generation = incremental ? fork_gen : gen;
-      accmeta->map.next = accdb->acc_map[ hashes[ i ] ];
-      accdb->acc_map[ hashes[ i ] ] = acc_idx;
+      accmeta->map.next = chain_head;
+      new_head = acc_idx;
 
       if( FD_UNLIKELY( incremental ) ) {
         fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
@@ -4118,7 +4132,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     ulong file_off           = file_offsets[ i ];
     accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
 
-    spin_lock_release( stripe );
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = new_head;
 
     used_bytes_added += entry_sz;
   }
@@ -4139,7 +4154,10 @@ fini:
   *out_ignored_lamports  = ignored_lamports;
 
   return result;
+
+#undef CHAIN_LOCKED
 }
+
 
 static void
 delta_reset( fd_accdb_t * accdb ) {
