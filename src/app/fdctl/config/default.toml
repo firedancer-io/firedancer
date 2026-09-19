@@ -1478,12 +1478,14 @@ dynamic_port_range = "8900-9000"
         # example to run an unstaked RPC or for archiving.  Each new, valid
         # shred that the validator receives will be forwarded to the
         # addresses specified in additional_shred_destinations_retransmit.
-        # Each shred that the validor produced when it is leader will be
+        # Each shred that the validator produced when it is leader will be
         # sent to the addresses specified in
-        # additional_shred_destinations_leader.  Destinations must be in the
-        # form "ip:port", for example "1.2.3.4:5566".  Shreds will
-        # be sent to these destinations first, prior to sending to other
-        # validators.
+        # additional_shred_destinations_leader.  Destinations use "host:port";
+        # hosts may be IPv4 addresses, /etc/hosts entries, or DNS names.  Each
+        # shred tile resolves names once at startup to the first IPv4 answer;
+        # failure prevents startup and DNS changes require restart.  IPv6 is
+        # unsupported.  Use a numeric IP or stable single-address name when one
+        # receiver needs the complete stream.  Shreds are sent here first.
         additional_shred_destinations_retransmit = []
         additional_shred_destinations_leader = []
 

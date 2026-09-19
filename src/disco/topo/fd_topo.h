@@ -96,12 +96,6 @@ typedef struct {
   uint permit_no_producers : 1;  /* Permit a topology where this link has no producers */
 } fd_topo_link_t;
 
-/* Be careful: ip and host are in different byte order */
-typedef struct {
-  uint   ip;   /* in network byte order */
-  ushort port; /* in host byte order */
-} fd_topo_ip_port_t;
-
 struct fd_topo_net_tile {
   ulong umem_dcache_obj_id;  /* dcache for network UMEM frames */
   uint  bind_address;
@@ -400,10 +394,10 @@ struct fd_topo_tile {
       ulong             max_shreds_per_block;
       ulong             bench_max_shreds_per_block; /* [development.bench], floors the chain's per-slot limit */
       ushort            expected_shred_version;
-      ulong             adtl_dests_retransmit_cnt;
-      fd_topo_ip_port_t adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ];
-      ulong             adtl_dests_leader_cnt;
-      fd_topo_ip_port_t adtl_dests_leader[ FD_TOPO_ADTL_DESTS_MAX ];
+      ulong adtl_dests_retransmit_cnt;
+      char  adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
+      ulong adtl_dests_leader_cnt;
+      char  adtl_dests_leader[ FD_TOPO_ADTL_DESTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
     } shred;
 
     struct {
