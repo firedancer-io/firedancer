@@ -11,7 +11,8 @@
 #define FD_SSPARSE_ADVANCE_ACCOUNT_HEADER ( 4)
 #define FD_SSPARSE_ADVANCE_ACCOUNT_DATA   ( 5)
 #define FD_SSPARSE_ADVANCE_ACCOUNT_BATCH  ( 6)
-#define FD_SSPARSE_ADVANCE_DONE           ( 7)
+#define FD_SSPARSE_ADVANCE_APPENDVEC      ( 7)
+#define FD_SSPARSE_ADVANCE_DONE           ( 8)
 
 /* fd_ssparse_t is a solana snapshot parser.  It is designed to parse a
    snapshot in streaming fashion, chunk by chunk. */
@@ -92,6 +93,12 @@ struct fd_ssparse_advance_result {
       ulong         batch_cnt;
       ulong         slot;
     } account_batch;
+
+    /* Returned after an appendvec header. */
+    struct {
+      ulong slot;
+      ulong data_sz; /* tar entry size in bytes */
+    } appendvec;
   };
 };
 
@@ -122,6 +129,11 @@ fd_ssparse_advance( fd_ssparse_t *                ssparse,
 void
 fd_ssparse_batch_enable( fd_ssparse_t * ssparse,
                          int            enabled );
+
+/* Parse the current appendvec after fd_ssparse_advance returns
+   FD_SSPARSE_ADVANCE_APPENDVEC. */
+void
+fd_ssparse_appendvec_parse( fd_ssparse_t * ssparse );
 
 FD_PROTOTYPES_END
 

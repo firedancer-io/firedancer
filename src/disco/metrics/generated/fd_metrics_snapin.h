@@ -10,6 +10,7 @@ enum {
   FD_METRICS_GAUGE_SNAPIN_STATE_OFF = FD_METRICS_TILE_OFF,
   FD_METRICS_GAUGE_SNAPIN_FULL_BYTES_READ_OFF,
   FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_OFF,
+  FD_METRICS_COUNTER_SNAPIN_DISK_BYTES_WRITTEN_OFF,
   FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_OFF,
   FD_METRICS_GAUGE_SNAPIN_ACCOUNT_REPLACED_OFF,
   FD_METRICS_GAUGE_SNAPIN_ACCOUNT_IGNORED_OFF,
@@ -32,9 +33,14 @@ enum {
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_DESC "Bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPIN_INCREMENTAL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
 
+#define FD_METRICS_COUNTER_SNAPIN_DISK_BYTES_WRITTEN_NAME "snapin_disk_bytes_written"
+#define FD_METRICS_COUNTER_SNAPIN_DISK_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_SNAPIN_DISK_BYTES_WRITTEN_DESC "Bytes this tile has written to the accounts database file"
+#define FD_METRICS_COUNTER_SNAPIN_DISK_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
+
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_NAME "snapin_account_loaded"
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_DESC "Accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts"
+#define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_DESC "New accounts loaded during snapshot loading. Excludes replaced and ignored duplicates. Resets if snapshot load restarts"
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_LOADED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPIN_ACCOUNT_REPLACED_NAME "snapin_account_replaced"
@@ -57,7 +63,7 @@ enum {
 #define FD_METRICS_COUNTER_SNAPIN_ACCOUNT_BATCH_PROCESSED_DESC "Account batches processed across all snapshots (parallelism indicator)"
 #define FD_METRICS_COUNTER_SNAPIN_ACCOUNT_BATCH_PROCESSED_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_SNAPIN_TOTAL (8UL)
+#define FD_METRICS_SNAPIN_TOTAL (9UL)
 extern const fd_metrics_meta_t FD_METRICS_SNAPIN[FD_METRICS_SNAPIN_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_snapin_h */

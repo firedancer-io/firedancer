@@ -37,7 +37,6 @@
 #define IN_KIND_ACK    (0)
 #define IN_KIND_SNAPLD (1)
 #define IN_KIND_GOSSIP (2)
-#define MAX_IN_LINKS   (4)
 
 struct fd_snapct_out_link {
   ulong       idx;
@@ -163,7 +162,7 @@ struct fd_snapct_tile {
 
   void const * gossip_in_mem;
   void const * snapld_in_mem;
-  uchar        in_kind[ MAX_IN_LINKS ];
+  uchar        in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   struct {
     ulong full_slot;
@@ -689,7 +688,8 @@ static void
 log_completion( fd_snapct_tile_t * ctx,
                 int                full ) {
   double elapsed = (double)(fd_log_wallclock() - ctx->snapshot_start_timestamp_ns) / 1e9;
-  FD_LOG_INFO(( "%s snapshot load completed in %.3f seconds", full ? "full" : "incremental", elapsed ));
+  if( full ) FD_LOG_INFO(( "full snapshot load completed in %.3f seconds", elapsed ));
+  else       FD_LOG_INFO(( "incremental snapshot load completed in %.3f seconds", elapsed ));
 }
 
 /* Blacklist the current peer: invalidate in ssping, remove from the
@@ -2166,7 +2166,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->gossip_in_mem = NULL;
   int has_snapld_dc = 0, ack_cnt = 0;
-  FD_TEST( tile->in_cnt<=MAX_IN_LINKS );
+  FD_TEST( tile->in_cnt<=FD_TOPO_MAX_TILE_IN_LINKS );
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
     if( 0==strcmp( in_link->name, "gossip_out" ) ) {
@@ -2177,7 +2177,7 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->snapld_in_mem = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
       FD_TEST( !has_snapld_dc );
       has_snapld_dc = 1;
-    } else if( 0==strcmp( in_link->name, "snapin_ct" ) || 0==strcmp( in_link->name, "snapwr_ct" ) ){
+    } else if( 0==strcmp( in_link->name, "snapin_ct" ) ) {
       ctx->in_kind[ i ] = IN_KIND_ACK;
       ack_cnt++;
     }

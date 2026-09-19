@@ -130,24 +130,12 @@
 | <span class="metrics-name">snapin_&#8203;state</span> | gauge | 0=idle, 1=processing, 2=finishing, 3=error, 4=shutdown |
 | <span class="metrics-name">snapin_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapin_&#8203;account_&#8203;loaded</span> | gauge | Accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts |
+| <span class="metrics-name">snapin_&#8203;disk_&#8203;bytes_&#8203;written</span> | counter | Bytes this tile has written to the accounts database file |
+| <span class="metrics-name">snapin_&#8203;account_&#8203;loaded</span> | gauge | New accounts loaded during snapshot loading. Excludes replaced and ignored duplicates. Resets if snapshot load restarts |
 | <span class="metrics-name">snapin_&#8203;account_&#8203;replaced</span> | gauge | Previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts |
 | <span class="metrics-name">snapin_&#8203;account_&#8203;ignored</span> | gauge | Stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
 | <span class="metrics-name">snapin_&#8203;account_&#8203;processed</span> | counter | Accounts processed across all snapshots (inserted or otherwise) |
 | <span class="metrics-name">snapin_&#8203;account_&#8203;batch_&#8203;processed</span> | counter | Account batches processed across all snapshots (parallelism indicator) |
-
-</div>
-
-## Snapwr Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwr_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of decompressed snapshot bytes consumed from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapwr_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of decompressed snapshot bytes consumed from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapwr_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written to the accounts database on disk. Monotonically increasing across snapshot loads. |
-| <span class="metrics-name">snapwr_&#8203;accounts_&#8203;written</span> | gauge | Number of accounts written to the accounts database on disk. Might decrease if snapshot load is aborted and restarted |
 
 </div>
 

@@ -25,9 +25,9 @@ fsync: (eq (arg 0) logfile_fd)
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)
 
-# accounts database: read feature accounts from the accounts database
+# accounts database: read accounts after workers finish
 #
-# Feature restoration may need to read account data into the cache.
+# Tile 0 reads SlotHistory and feature accounts from the database.
 #
 # arg 0 is the file descriptor to read from.
 preadv2: (eq (arg 0) accounts_fd)
@@ -43,5 +43,13 @@ fallocate: (and (eq (arg 0) accounts_fd)
 # the in-memory delegation pools.
 pread64: (eq (arg 0) stake_spill_fd)
 
-# stake delegations: full-record disk spill
-pwrite64: (eq (arg 0) stake_spill_fd)
+# accounts database: write account records at explicit offsets
+#
+# Parallel snapshot loader tiles write the packed account records
+# directly into their own partitions of the accounts file.
+#
+# Stake delegations may also spill full records to disk.
+#
+# arg 0 is the file descriptor to write to.
+pwrite64: (or (eq (arg 0) accounts_fd)
+              (eq (arg 0) stake_spill_fd))
