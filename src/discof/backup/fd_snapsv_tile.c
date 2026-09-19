@@ -109,17 +109,6 @@ snap_key_hash( snap_key_t const * key,
 
 #define RES_HDR_MAX (256UL)
 
-#define SERVE_WINDOW_S       (10UL)
-/* download progress in each serve_window_s second window must be at
-   min_serve_speed_mibs * serve_window_s or higher.  Catches possible
-   DoS attempts */
-#define SERVE_WINDOW_NS      (SERVE_WINDOW_S*1000L*1000L*1000L)
-/* TODO: What should be the threshold for DoS on snapsv ?  3 mb is
-   placeholder */
-/* TODO: is it needs to be configurable? */
-#define MIN_SERVE_SPEED_MIBS (3UL)
-#define MIN_BYTES_IN_WINDOW  (SERVE_WINDOW_S * MIN_SERVE_SPEED_MIBS * ( 1024 * 1024 )) /* Per conn  */
-
 /* conn state */
 
 #define CONN_STATE_FREE          (0U) /* conn slot is unused */
@@ -255,6 +244,13 @@ struct fd_snapsv {
     ulong       chunk;
     long        next_heartbeat; /* nanos */
   } out;
+
+  /* Server peer thresholds */
+  double min_serve_speed_mibs;
+  ulong min_bytes_in_window;
+  ulong serve_window_s;
+  ulong serve_window_ns;
+
 
 };
 
@@ -588,6 +584,12 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<iobuf_cnt; i++ ) {
     iobuf_free[ i ] = (uint)iobuf_cnt-1U-(uint)i;
   }
+
+  /* Server peer thresholds  */
+  ctx->serve_window_s = 10UL;
+  ctx->serve_window_ns = ctx->serve_window_s * 1000L * 1000L * 1000L;
+  ctx->min_serve_speed_mibs = 3UL;
+  ctx->min_bytes_in_window = ( (ulong)ctx->min_serve_speed_mibs * ctx->serve_window_s ) * ( 1024 * 1024 );
 
   /* kick off main async op */
 
@@ -1176,19 +1178,19 @@ check_speed_threshold( fd_snapsv_t *       ctx,
                        long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   if( FD_UNLIKELY( now >= conn->snap.window_deadline ) ) {
-    if( FD_UNLIKELY( conn->snap.bytes_in_window < MIN_BYTES_IN_WINDOW ) ) {
+    if( FD_UNLIKELY( conn->snap.bytes_in_window < ctx->min_bytes_in_window ) ) {
       FD_IP6_ADDR_CSTR( addr_cstr, &conn->peer_ip );
-      FD_LOG_WARNING(( "snapshot download peer %s:%u: speed %lu MiB is "
-                       "below the minimum threshold %lu MiB/s",
+      FD_LOG_WARNING(( "snapshot download peer %s:%u: speed %.3f MiB/s is "
+                       "below the minimum threshold %.3f MiB/s",
                        addr_cstr, conn->peer_port,
-                       ( conn->snap.bytes_in_window / ( 1024 * 1024 ) ) / SERVE_WINDOW_S,
-                       MIN_SERVE_SPEED_MIBS ));
+                       ( (double)conn->snap.bytes_in_window / ( 1024 * 1024 ) ) / (double)ctx->serve_window_s,
+                       ctx->min_serve_speed_mibs ));
       conn->closing = 1U;
       conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
       shovel( ctx, stem, conn_idx, now );
       return 1;
     }
-    conn->snap.window_deadline = now + (long)SERVE_WINDOW_NS;
+    conn->snap.window_deadline = now + (long)ctx->serve_window_ns;
     conn->snap.bytes_in_window = 0UL;
   }
   return 0;
@@ -1520,7 +1522,7 @@ handle_write_hdr_comp( fd_snapsv_t *       ctx,
     }
     /* now serve the snapshot body */
     conn->req.get_snap = 1; /* streaming begin */
-    conn->snap.window_deadline = now + (long)SERVE_WINDOW_NS;
+    conn->snap.window_deadline = now + (long)ctx->serve_window_ns;
     conn->snap.bytes_in_window = 0UL;
     event_snap( ctx, stem, conn_idx, now, 1, 0 ); /* som */
     conn->state = CONN_STATE_RES_SHOVEL;
