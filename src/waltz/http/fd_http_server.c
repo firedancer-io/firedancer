@@ -1456,7 +1456,7 @@ write_conn_ws( fd_http_server_t * http,
 
   struct msghdr msg = {0};
   msg.msg_iov = iovecs;
-  msg.msg_iovlen = out_idx;
+  msg.msg_iovlen = (__typeof__(msg.msg_iovlen))out_idx;
 
   long sz = sendmsg( http->pollfds[ conn_idx ].fd, &msg, MSG_NOSIGNAL );
   if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data was written, continue. */
