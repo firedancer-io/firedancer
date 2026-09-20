@@ -231,7 +231,7 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     }
   }
 
-  ulong epoch_stakes_base = epoch>0UL ? epoch-1UL : 0UL;
+  ulong epoch_stakes_base = epoch>3UL ? epoch-3UL : 0UL;
 
   if( FD_UNLIKELY( leader_schedule_epoch<epoch_stakes_base ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: leader_schedule_epoch %lu < epoch_stakes_base %lu",
@@ -251,9 +251,10 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
 
-  if( FD_UNLIKELY( t_1_idx>0UL && manifest->epoch_stakes[t_1_idx-1UL].vote_stakes_len>max_vote_accounts ) ) {
+  ulong t_2_idx = epoch-epoch_stakes_base;
+  if( FD_UNLIKELY( manifest->epoch_stakes[t_2_idx].vote_stakes_len>max_vote_accounts ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: T-2 epoch stakes length %lu exceeds max_vote_accounts %lu",
-                     manifest->epoch_stakes[t_1_idx-1UL].vote_stakes_len, max_vote_accounts ));
+                     manifest->epoch_stakes[t_2_idx].vote_stakes_len, max_vote_accounts ));
     return -1;
   }
 
@@ -481,11 +482,9 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   ulong vote_stakes_fork_id = bank->vote_stakes_fork_id;
 
   ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, manifest->slot );
-  ulong epoch_stakes_base     = epoch > 0UL ? epoch - 1UL : 0UL;
+  ulong epoch_stakes_base     = epoch > 3UL ? epoch - 3UL : 0UL;
   ulong t_1_idx = leader_schedule_epoch - epoch_stakes_base;
-
-  int   has_t_2 = (t_1_idx > 0UL);
-  ulong t_2_idx = has_t_2 ? t_1_idx - 1UL : 0UL;
+  ulong t_2_idx = epoch - epoch_stakes_base;
 
   bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
 
@@ -541,36 +540,39 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     epoch_credits_len++;
   }
   *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;
+  fd_vote_stakes_finalize( vote_stakes, vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_1 );
 
   /* Populate the top votes for the end of the T-2 epoch if the
      snapshot is in epoch T. */
-  if( has_t_2 ) {
-    for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
-      fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
-      fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
+  for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
+    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
 
-      /* Record SIMD-0232 collector overrides for the t_2 set (tag
-         bank->f.epoch-1, the leader schedule source state). */
-      {
-        int has_inflation = !!memcmp( elem->commission_inflation, elem->vote,     32UL );
-        int has_block     = !!memcmp( elem->commission_block,     elem->identity, 32UL );
-        if( FD_UNLIKELY( has_inflation | has_block ) ) {
-          fd_collector_overrides_upsert( overrides, co_root, fd_ulong_sat_sub( bank->f.epoch, 1UL ), (fd_pubkey_t const *)elem->vote,
-                                         has_inflation, (fd_pubkey_t const *)elem->commission_inflation,
-                                         has_block, (fd_pubkey_t const *)elem->commission_block );
-        }
+    /* Record SIMD-0232 collector overrides for the t_2 set (tag
+       bank->f.epoch-1, the leader schedule source state). */
+    {
+      int has_inflation = !!memcmp( elem->commission_inflation, elem->vote,     32UL );
+      int has_block     = !!memcmp( elem->commission_block,     elem->identity, 32UL );
+      if( FD_UNLIKELY( has_inflation | has_block ) ) {
+        fd_collector_overrides_upsert( overrides, co_root, fd_ulong_sat_sub( bank->f.epoch, 1UL ), (fd_pubkey_t const *)elem->vote,
+                                       has_inflation, (fd_pubkey_t const *)elem->commission_inflation,
+                                       has_block, (fd_pubkey_t const *)elem->commission_block );
       }
     }
-    fd_vote_stakes_finalize( vote_stakes, epoch );
   }
+  fd_vote_stakes_finalize( vote_stakes, vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2 );
 
-  /* Populate the top votes for the end of the T-3 epoch if the
-     snapshot is in epoch T. */
-  for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
-    fd_vote_stakes_snap_insert_t_3( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
+  /* Populate the top votes for the end of the T-3 through T-5 epochs
+     if the snapshot is in epoch T.  Entries the snapshot does not
+     carry stay non-resident. */
+  for( ulong n=3UL; n<=5UL && epoch>=n-2UL; n++ ) {
+    fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes = &manifest->epoch_stakes[t_2_idx-(n-2UL)];
+    for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * elem = &epoch_stakes->vote_stakes[i];
+      fd_vote_stakes_snap_insert_t_n( vote_stakes, vote_stakes_fork_id, n, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
+    }
+    fd_vote_stakes_finalize( vote_stakes, vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2+(int)(n-2UL) );
   }
-  if( FD_LIKELY( epoch ) ) fd_vote_stakes_finalize( vote_stakes, epoch-1UL );
 
   bank->accdb_fork_id        = (fd_accdb_fork_id_t){ .val = manifest->accdb_fork_id };
   bank->parent_accdb_fork_id = bank->accdb_fork_id;

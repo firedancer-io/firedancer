@@ -1741,7 +1741,7 @@ state_process( fd_ssmanifest_parser_t * parser ) {
     parser->leader_schedule_epoch    = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
     ulong const epoch_stakes_ele_cnt = FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN;
 
-    ulong const epoch_stakes_base = parser->epoch>0UL ? parser->epoch-1UL : 0UL;
+    ulong const epoch_stakes_base = parser->epoch>3UL ? parser->epoch-3UL : 0UL;
     if( FD_UNLIKELY( parser->leader_schedule_epoch-epoch_stakes_base>=epoch_stakes_ele_cnt ) ) {
       FD_LOG_WARNING(( "fd_ssmanifest_parser only supports up to %lu epoch_stakes entries, but leader schedule epoch is %lu epochs after base epoch",
                        epoch_stakes_ele_cnt, parser->leader_schedule_epoch-epoch_stakes_base ));
@@ -1760,7 +1760,7 @@ state_process( fd_ssmanifest_parser_t * parser ) {
       return -1;
     }
 
-    ulong const epoch_stakes_base = parser->epoch>0UL ? parser->epoch-1UL : 0UL;
+    ulong const epoch_stakes_base = parser->epoch>3UL ? parser->epoch-3UL : 0UL;
     if( parser->epoch_stakes_epoch>=epoch_stakes_base && parser->epoch_stakes_epoch<=parser->leader_schedule_epoch ) {
       parser->epoch_idx = parser->epoch_stakes_epoch-epoch_stakes_base;
       parser->manifest->epoch_stakes[ parser->epoch_idx ].epoch = parser->epoch_stakes_epoch;

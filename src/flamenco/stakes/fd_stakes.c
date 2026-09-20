@@ -667,6 +667,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_accdb_unread_one( accdb, &acc );
   }
 
+  /* The t-1 set is fixed from here on: rank it for Alpenglow. */
+  fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1 );
+
   /* Capture SIMD-0232 collector overrides for the admitted t-1 set.
      Only admitted vote accounts can be scheduled as leaders or earn
      inflation rewards, so collectors of accounts outside the set are
