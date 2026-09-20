@@ -524,7 +524,6 @@ struct fd_config {
       ushort gui_listen_port;
       ulong  max_http_connections;
       ulong  max_websocket_connections;
-      ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
       ulong  db_size_gib;
     } gui;
@@ -535,7 +534,6 @@ struct fd_config {
       ushort rpc_listen_port;
       ulong  max_http_connections;
       ulong  max_websocket_connections;
-      ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
       int    delay_startup;
     } rpc;

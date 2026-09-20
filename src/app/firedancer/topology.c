@@ -1844,7 +1844,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->gui.gui_database_path, config->paths.guidb, sizeof(tile->gui.gui_database_path) );
     tile->gui.max_http_connections      = config->tiles.gui.max_http_connections;
     tile->gui.max_websocket_connections = config->tiles.gui.max_websocket_connections;
-    tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;
     tile->gui.send_buffer_size_mb       = config->tiles.gui.send_buffer_size_mb;
     tile->gui.db_size_gib               = config->tiles.gui.db_size_gib;
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
@@ -1863,7 +1862,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rpc.delay_startup = config->tiles.rpc.delay_startup;
     tile->rpc.max_http_connections      = config->tiles.rpc.max_http_connections;
     tile->rpc.max_websocket_connections = config->tiles.rpc.max_websocket_connections;
-    tile->rpc.max_http_request_length   = config->tiles.rpc.max_http_request_length;
     tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;
 
     tile->rpc.max_live_slots           = config->firedancer.runtime.max_live_slots;

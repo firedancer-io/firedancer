@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22991104UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22991088UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -595,7 +595,6 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "gui_listen_port",           config->tiles.gui.gui_listen_port );
       jw_ulong( &w, "max_http_connections",      config->tiles.gui.max_http_connections );
       jw_ulong( &w, "max_websocket_connections", config->tiles.gui.max_websocket_connections );
-      jw_ulong( &w, "max_http_request_length",   config->tiles.gui.max_http_request_length );
       jw_ulong( &w, "send_buffer_size_mb",       config->tiles.gui.send_buffer_size_mb );
       jw_ulong( &w, "db_size_gib",               config->tiles.gui.db_size_gib );
     jw_obj_close( &w );
@@ -605,7 +604,6 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "rpc_listen_port",           config->tiles.rpc.rpc_listen_port );
       jw_ulong( &w, "max_http_connections",      config->tiles.rpc.max_http_connections );
       jw_ulong( &w, "max_websocket_connections", config->tiles.rpc.max_websocket_connections );
-      jw_ulong( &w, "max_http_request_length",   config->tiles.rpc.max_http_request_length );
       jw_ulong( &w, "send_buffer_size_mb",       config->tiles.rpc.send_buffer_size_mb );
       jw_bool ( &w, "delay_startup",             config->tiles.rpc.delay_startup );
     jw_obj_close( &w );
