@@ -358,6 +358,7 @@ add_valid_cert( ag_pool_t *       self,
     ag_finalization_event_t finalization_event = finalization_event_default( self );
     ag_finality_tracker_mark_fast_finalized( self->finality_tracker, &block_id, &finalization_event );
     handle_finalization( self, &finalization_event );
+    repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = block_id } );
     break;
   }
 
