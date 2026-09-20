@@ -1022,6 +1022,7 @@ shoveling_conn( fd_snapsv_t * ctx ) {
   }
   return NULL;
 }
+
 FD_UNIT_TEST( snap_connection_too_slow ) {
   char name[ FD_SNAP_NAME_MAX ];
   snapsv_env_t * env = snap_env( name, 0 );
@@ -1030,37 +1031,38 @@ FD_UNIT_TEST( snap_connection_too_slow ) {
   fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", name );
   fake_client_req( &fake, req );
   uint iter = 0U;
-  snapsv_conn_t * conn;
-  for( ulong i = 0 ; i <= 64 ;iter++, i++ ){
+  snapsv_conn_t * conn = NULL;
+  for( ; iter<64U; iter++ ) {
     snapsv_step( env, &fake, iter );
     conn = shoveling_conn( env->ctx );
-    if(conn != NULL ) break;
-    };
+    if( conn ) break;
+  }
   FD_TEST( env->ctx->conn_cnt );
   FD_TEST( conn );
 
-  /* Legitimate peer  */
-  env->ctx->min_bytes_in_window = SNAP_FILE_SZ / 2;
-  env->ctx->min_serve_speed_mibs = (double)env->ctx->min_bytes_in_window / ( 1024 * 1024 );
-  for( ; iter<64U && fake.res_sz<= env->ctx->min_bytes_in_window + 1 ; iter++ ) snapsv_step( env, &fake, iter );
-  ulong now = iter * STEP_NANOS;
-  now += env->ctx->serve_window_ns;
-  int charge_busy = 0;
-  FD_TEST( conn->snap.bytes_in_window >= SNAP_FILE_SZ / 2 );
+  /* Legitimate peer */
+
+  env->ctx->min_bytes_in_window  = SNAP_FILE_SZ / 2UL;
+  env->ctx->min_serve_speed_mibs = (double)env->ctx->min_bytes_in_window / (double)( 1UL<<20 );
+  for( ; iter<64U && fake.res_sz<=env->ctx->min_bytes_in_window+1UL; iter++ ) snapsv_step( env, &fake, iter );
+  ulong now         = iter*STEP_NANOS + env->ctx->serve_window_ns;
+  int   charge_busy = 0;
+  FD_TEST( conn->snap.bytes_in_window>=SNAP_FILE_SZ/2UL );
   FD_TEST( !conn->closing );
   after_credit_pre( env->ctx, env->stem, &charge_busy, (long)now );
   FD_TEST( !conn->closing );
-  FD_TEST( conn->snap.bytes_in_window == 0 );
-  iter = (uint)(now / STEP_NANOS);
+  FD_TEST( !conn->snap.bytes_in_window );
+  iter = (uint)( now / STEP_NANOS );
 
-  /* Slow peer  */
-  ulong res_available = fake.res_sz;
-  for( uint end = iter + 64U ; iter < end && fake.res_sz<= res_available + ( env->ctx->min_bytes_in_window / 2 ) ; iter++ ) snapsv_step( env, &fake, iter );
+  /* Slow peer */
+
+  ulong res_sz0 = fake.res_sz;
+  ulong limit   = res_sz0 + ( env->ctx->min_bytes_in_window / 2UL );
+  for( uint end=iter+64U; iter<end && fake.res_sz<=limit; iter++ ) snapsv_step( env, &fake, iter );
   now += env->ctx->serve_window_ns;
   after_credit_pre( env->ctx, env->stem, &charge_busy, (long)now );
   FD_TEST( conn->closing );
-  FD_TEST( conn->res.close_kind == FD_SNAPSV_CLOSE_ABORT );
-
+  FD_TEST( conn->res.close_kind==FD_SNAPSV_CLOSE_ABORT );
 
   snapsv_env_destroy( env );
 }

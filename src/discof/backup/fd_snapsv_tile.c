@@ -247,11 +247,9 @@ struct fd_snapsv {
 
   /* Server peer thresholds */
   double min_serve_speed_mibs;
-  ulong min_bytes_in_window;
-  ulong serve_window_s;
-  ulong serve_window_ns;
-
-
+  ulong  min_bytes_in_window;
+  ulong  serve_window_s;
+  ulong  serve_window_ns;
 };
 
 typedef struct fd_snapsv fd_snapsv_t;
@@ -585,11 +583,12 @@ unprivileged_init( fd_topo_t const *      topo,
     iobuf_free[ i ] = (uint)iobuf_cnt-1U-(uint)i;
   }
 
-  /* Server peer thresholds  */
-  ctx->serve_window_s = 10UL;
-  ctx->serve_window_ns = ctx->serve_window_s * 1000L * 1000L * 1000L;
-  ctx->min_serve_speed_mibs = 3UL;
-  ctx->min_bytes_in_window = ( (ulong)ctx->min_serve_speed_mibs * ctx->serve_window_s ) * ( 1024 * 1024 );
+  /* Server peer thresholds */
+
+  ctx->serve_window_s       = 10UL;
+  ctx->serve_window_ns      = ctx->serve_window_s * (ulong)1e9;
+  ctx->min_serve_speed_mibs = 3.0;
+  ctx->min_bytes_in_window  = (ulong)( ctx->min_serve_speed_mibs * (double)ctx->serve_window_s * (double)( 1UL<<20 ) );
 
   /* kick off main async op */
 
@@ -1168,25 +1167,26 @@ shovel_comp_disk( fd_snapsv_t *       ctx,
   shovel( ctx, stem, conn_idx, now );
 }
 /* check_speed_threshold validates the avg. speed inside the window is
-   higher than treshold.  Doing this check on every x bytes or setting
+   higher than threshold.  Doing this check on every x bytes or setting
    a global threshold will result in possibly longer DoS durations per
    connection. */
+
 static int
 check_speed_threshold( fd_snapsv_t *       ctx,
                        fd_stem_context_t * stem,
                        uint                conn_idx,
                        long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
-  if( FD_UNLIKELY( conn->closing )) return 0;
-  if( FD_UNLIKELY( now >= conn->snap.window_deadline ) ) {
-    if( FD_UNLIKELY( conn->snap.bytes_in_window < ctx->min_bytes_in_window ) ) {
+  if( FD_UNLIKELY( conn->closing ) ) return 0;
+  if( FD_UNLIKELY( now>=conn->snap.window_deadline ) ) {
+    if( FD_UNLIKELY( conn->snap.bytes_in_window<ctx->min_bytes_in_window ) ) {
       FD_IP6_ADDR_CSTR( addr_cstr, &conn->peer_ip );
       FD_LOG_WARNING(( "snapshot download peer %s:%u: speed %.3f MiB/s is "
                        "below the minimum threshold %.3f MiB/s",
                        addr_cstr, conn->peer_port,
-                       ( (double)conn->snap.bytes_in_window / ( 1024 * 1024 ) ) / (double)ctx->serve_window_s,
+                       ( (double)conn->snap.bytes_in_window / (double)( 1UL<<20 ) ) / (double)ctx->serve_window_s,
                        ctx->min_serve_speed_mibs ));
-      conn->closing = 1U;
+      conn->closing        = 1U;
       conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
       shovel( ctx, stem, conn_idx, now );
       return 1;
