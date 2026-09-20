@@ -1035,12 +1035,9 @@ FD_UNIT_TEST( snap_connection_too_slow ) {
     snapsv_step( env, &fake, iter );
     conn = shoveling_conn( env->ctx );
     if(conn != NULL ) break;
-    /* QUESTION: Is there anything I should use here instead of 64 ? I'm confused after all that
-    for( ; iter<64U && fake.res_sz<=4096U; iter++ ) snapsv_step( env, &fake, iter ); loops on other tests. Conn is found at 4th iteration. */
-      };
+    };
   FD_TEST( env->ctx->conn_cnt );
   FD_TEST( conn );
-  FD_TEST( !conn->closing );
 
   /* Legitimate peer  */
   env->ctx->min_bytes_in_window = SNAP_FILE_SZ / 2;
@@ -1050,14 +1047,15 @@ FD_UNIT_TEST( snap_connection_too_slow ) {
   now += env->ctx->serve_window_ns;
   int charge_busy = 0;
   FD_TEST( conn->snap.bytes_in_window >= SNAP_FILE_SZ / 2 );
+  FD_TEST( !conn->closing );
   after_credit_pre( env->ctx, env->stem, &charge_busy, (long)now );
   FD_TEST( !conn->closing );
   FD_TEST( conn->snap.bytes_in_window == 0 );
-  iter = STEP_NANOS / now;
+  iter = (uint)(now / STEP_NANOS);
 
   /* Slow peer  */
   ulong res_available = fake.res_sz;
-  for( ; iter<64U && fake.res_sz<= res_available + ( env->ctx->min_bytes_in_window / 2 ) ; iter++ ) snapsv_step( env, &fake, iter );
+  for( uint end = iter + 64U ; iter < end && fake.res_sz<= res_available + ( env->ctx->min_bytes_in_window / 2 ) ; iter++ ) snapsv_step( env, &fake, iter );
   now += env->ctx->serve_window_ns;
   after_credit_pre( env->ctx, env->stem, &charge_busy, (long)now );
   FD_TEST( conn->closing );

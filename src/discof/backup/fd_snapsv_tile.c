@@ -1177,6 +1177,7 @@ check_speed_threshold( fd_snapsv_t *       ctx,
                        uint                conn_idx,
                        long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
+  if( FD_UNLIKELY( conn->closing )) return 0;
   if( FD_UNLIKELY( now >= conn->snap.window_deadline ) ) {
     if( FD_UNLIKELY( conn->snap.bytes_in_window < ctx->min_bytes_in_window ) ) {
       FD_IP6_ADDR_CSTR( addr_cstr, &conn->peer_ip );
