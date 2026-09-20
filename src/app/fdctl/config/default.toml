@@ -1537,9 +1537,6 @@ dynamic_port_range = "8900-9000"
         # created but no connections are free, the oldest one is closed.
         max_websocket_connections = 1024
 
-        # Maximum length of an HTTP request including headers.
-        max_http_request_length = 8192
-
         # All GUI connections share buffer space for outgoing GUI
         # WebSocket updates and HTTP response headers.  If this buffer
         # runs out, the connections with the slowest recipients are
