@@ -335,7 +335,14 @@ $(if $(FD_PRUNE),EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)
 ifeq ($(5),bin)
 # build info captured by its own early job; the link installs it
 $(OBJDIR)/bin/$(1).buildinfo.o.new: FORCE
-	@$(MKDIR) $$(dir $$@) && { echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $(OBJDIR)/bin/$(1).buildinfo.c && $$(CC) -c -o $$@ $(OBJDIR)/bin/$(1).buildinfo.c
+	@$(MKDIR) $$(dir $$@) && { echo 'char const fd_bin_build_info[] ='; \
+	  if [ "$$$${FD_REPRODUCIBLE_BUILD}" = 1 ]; then \
+	    printf '  "# date     %s\\n"\n' "$$$$(date -u -d @$$$${SOURCE_DATE_EPOCH:?SOURCE_DATE_EPOCH must be set} +'%Y-%m-%d %H:%M:%S UTC')"; \
+	    printf '  "# source   reproducible\\n"'; \
+	  else \
+	    printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; \
+	    [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; \
+	  fi; echo ';'; } > $(OBJDIR)/bin/$(1).buildinfo.c && $$(CC) -c -o $$@ $(OBJDIR)/bin/$(1).buildinfo.c
 $(1) buildinfo: $(OBJDIR)/bin/$(1).buildinfo.o.new $(OBJDIR)/info
 $(OBJDIR)/bin/$(1): | $(OBJDIR)/bin/$(1).buildinfo.o.new
 endif
@@ -475,10 +482,14 @@ make-proof = $(eval $(call _make-proof,$(1),$(2)))
 $(OBJDIR)/info :
 	@printf 'INFO\t%s\n' $(notdir $@)
 	$(Q)$(MKDIR) $(dir $@) && \
-printf '# date     %s\n# source   %s@%s:%s\n# machine  %s\n# extras   %s\n' \
-"`date +'%Y-%m-%d %H:%M:%S %z'`" "`whoami`" "`hostname`" "`pwd`" '$(MACHINE)' '$(EXTRAS)' > $@.tmp && \
-{ git status --porcelain=2 --branch 2>/dev/null || echo '# git      unavailable'; } >> $@.tmp && \
-mv -f $@.tmp $@
+if [ "$(FD_REPRODUCIBLE_BUILD)" = 1 ]; then \
+  printf '# date     %s\n# source   reproducible\n# machine  %s\n# extras   %s\n' \
+  "`date -u -d @$(SOURCE_DATE_EPOCH) +'%Y-%m-%d %H:%M:%S UTC'`" '$(MACHINE)' '$(EXTRAS)' > $@.tmp; \
+else \
+  printf '# date     %s\n# source   %s@%s:%s\n# machine  %s\n# extras   %s\n' \
+  "`date +'%Y-%m-%d %H:%M:%S %z'`" "`whoami`" "`hostname`" "`pwd`" '$(MACHINE)' '$(EXTRAS)' > $@.tmp && \
+  { git status --porcelain=2 --branch 2>/dev/null || echo '# git      unavailable'; }; \
+fi && mv -f $@.tmp $@
 
 $(OBJDIR)/obj/util/log/fd_log.o: $(OBJDIR)/info
 $(OBJDIR)/info: $(OBJDIR)/.flags
