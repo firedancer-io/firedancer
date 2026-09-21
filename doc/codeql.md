@@ -29,7 +29,7 @@ Alternatively, you can create your own CodeQL database from scratch.
 You will have to re-create the database whenever you change the source.
 
 ```
-BUILDDIR=codeql codeql database create --language=c --command='make -j' ../db-path
+BUILDDIR=codeql codeql database create --language=c --command='make -j all' ../db-path
 ```
 
 Objects will be at `build/codeql`

@@ -126,6 +126,16 @@ teardown( fd_chainer_t * chainer ) {
   fd_wksp_free_laddr( chainer );
 }
 
+/* fec_complete wraps fd_chainer_fec_complete and returns its rejected
+   flag (0 accepted, 1 rejected), which is what these tests check. */
+
+static int
+fec_complete( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, int slot_complete, int data_complete, int is_leader, fd_hash_t * mr ) {
+  int rejected;
+  fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, data_complete, is_leader, mr, &rejected );
+  return rejected;
+}
+
 /* feed_fec drives one FEC set through the chainer the way the shred tile
    does: a shred_insert per shred, then one fec_insert once the set is
    complete.  Parent information rides on the first shred only (pass
@@ -149,7 +159,7 @@ feed_fec( fd_chainer_t *    chainer,
     FD_TEST( !fd_chainer_verify( chainer ) );
   }
   fd_hash_t mr_ = *mr;
-  int rc = fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, 0, &mr_ );
+  int rc = fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, 0, &mr_ );
   FD_TEST( !fd_chainer_verify( chainer ) );
   return rc;
 }
@@ -256,7 +266,7 @@ test_basic( fd_wksp_t * wksp ) {
   /* FEC completion for set 0 */
 
   fd_hash_t mr = r0;
-  FD_TEST( !fd_chainer_fec_complete( chainer, 11UL, 0U, 0, 0, 0, &mr ) );
+  FD_TEST( !fec_complete( chainer, 11UL, 0U, 0, 0, 0, &mr ) );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   fd_chainer_fec_t * f0 = fec_at( chainer, 11UL, 0U, 0UL );
@@ -604,7 +614,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
     FD_TEST( !fd_chainer_verify( chainer ) );
   }
   fd_hash_t mr = r1;
-  int rc = fd_chainer_fec_complete( chainer, 51UL, 32U, 1, 1, 0, &mr );
+  int rc = fec_complete( chainer, 51UL, 32U, 1, 1, 0, &mr );
 
   /* The honest block's shreds are still accepted.  The old guard dropped
      any shred whose root no version held as soon as a second version

@@ -435,7 +435,6 @@ struct fd_topo_tile {
 
       ulong  max_http_connections;
       ulong  max_websocket_connections;
-      ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
       ulong  db_size_gib;
       int    schedule_strategy;
@@ -458,7 +457,6 @@ struct fd_topo_tile {
       ulong max_http_connections;
       ulong max_websocket_connections;
       ulong send_buffer_size_mb;
-      ulong max_http_request_length;
 
       ulong max_live_slots;
       ulong genesis_max_message_size;

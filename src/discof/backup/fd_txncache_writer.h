@@ -6,7 +6,9 @@
    Vec<SlotDelta>), shaped the way Agave writes it: one slot delta per
    recent rooted slot with a block, holding the transactions that
    executed in that slot, grouped by the blockhash they referenced.
-   Holds txncache read locks while walking the txncache. */
+   Takes the txncache read lock during initial setup.  RAM-only walks
+   are lock free and retry when they race a mutation.  With disk-backed
+   pages, walks also take the read lock for each bucket. */
 
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
@@ -34,13 +36,19 @@
 
 #define FD_TXNCACHE_WRITER_BUF_MIN (4096UL)
 
-#define FD_TXNCACHE_WRITER_RELOCK_THRESH (1UL<<16)
+/* How many chain entries a walk visits between re-reads of the txncache
+   mutation generation.  RAM-only walks hold no lock.  A concurrent
+   compaction or root advancement is detected through the generation
+   number. */
+
+#define FD_TXNCACHE_WRITER_CHECK_INTERVAL (1024UL)
 
 struct fd_txncache_writer_blockhash_desc {
-  ulong blockcache_idx; /* blockcache pool index */
-  uint  generation;     /* blockcache generation at init, detects reuse */
-  uchar blockhash[ 32UL ];
-  ulong txnhash_offset;
+  ulong  blockcache_idx; /* blockcache pool index */
+  uint   generation;     /* blockcache generation at init, detects reuse */
+  ushort slot_i;         /* execution slot index, or USHORT_MAX for genesis */
+  uchar  blockhash[ 32UL ];
+  ulong  txnhash_offset;
 };
 
 typedef struct fd_txncache_writer_blockhash_desc fd_txncache_writer_blockhash_desc_t;
@@ -65,8 +73,6 @@ struct fd_txncache_writer {
   uint              state;
   fd_txncache_t *   tc;
   ulong             snapshot_slot;
-  ulong             snapshot_root_idx;
-  uint              snapshot_root_generation;
 
   /* SlotDeltas (ascending). */
   ulong             slots[ FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS ];
@@ -76,7 +82,11 @@ struct fd_txncache_writer {
   /* Referenced blockhash descriptors, oldest rooted blockcache first. */
   fd_txncache_writer_blockhash_desc_t blockhash_descs[ FD_TXNCACHE_WRITER_MAX_BLOCKHASHES ];
   ulong                               blockhash_cnt;
-  ushort                              fork_id_to_slot_i[ USHORT_MAX+1UL ];
+  ushort                              fork_id_to_blockhash_i[ USHORT_MAX+1UL ];
+
+  /* The txncache's root generation captured at init.  Must not move
+     during snapshot production. */
+  ulong             root_gen;
 
   /* Groups in wire order (slot ascending, then blockhash descriptor ascending). */
   uint                       entry_cnt_by_key[ FD_TXNCACHE_WRITER_MAX_GROUPS ];

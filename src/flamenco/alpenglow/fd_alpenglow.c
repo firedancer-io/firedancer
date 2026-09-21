@@ -12,10 +12,9 @@ FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );
 static int
 vote_stakes_iter_kind_for_epoch( ulong fork_id,
                                  ulong epoch ) {
-  ulong fork_epoch = (ulong)fd_vote_stakes_fork_epoch( fork_id );
-  if( FD_LIKELY( epoch==fork_epoch ) ) return FD_VOTE_STAKES_ITER_T_2;
-  if( FD_LIKELY( fork_epoch && epoch==fork_epoch-1UL ) ) return FD_VOTE_STAKES_ITER_T_3;
-  return 0;
+  ulong t_1_epoch = (ulong)fd_vote_stakes_fork_epoch( fork_id )+1UL;
+  if( FD_UNLIKELY( epoch>t_1_epoch || t_1_epoch-epoch>(ulong)(FD_VOTE_STAKES_ITER_T_5-FD_VOTE_STAKES_ITER_T_1) ) ) return 0;
+  return FD_VOTE_STAKES_ITER_T_1+(int)(t_1_epoch-epoch);
 }
 
 /* Footer cert verification */
@@ -53,23 +52,24 @@ struct validator_set {
 typedef struct validator_set validator_set_t;
 
 /* validator_set_for_slot makes set hold the validators of slot's epoch,
-   rebuilding it only when the epoch differs from the one it holds.
-   Returns 1 on success, 0 if the bank holds no ranked validators for
-   the epoch. */
+   rebuilding it only when the epoch differs from the one it holds.  A
+   set built from the t-1 tier is never reused: t-1 is fork specific,
+   so two banks in the same epoch can hold different t-1 sets.  Returns
+   1 on success, 0 if the fork cannot address the epoch or the bank
+   holds no ranked validators for it. */
 
 static int
 validator_set_for_slot( validator_set_t * set,
                         fd_bank_t const * bank,
                         ulong             slot ) {
-  ulong epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, slot, NULL );
-  if( FD_LIKELY( set->validator_cnt && set->epoch==epoch ) ) return 1;
-
+  ulong epoch     = fd_slot_to_epoch( &bank->f.epoch_schedule, slot, NULL );
   ulong fork_id   = bank->vote_stakes_fork_id;
   int   iter_kind = vote_stakes_iter_kind_for_epoch( fork_id, epoch );
   if( FD_UNLIKELY( !iter_kind ) ) {
-    FD_LOG_WARNING(( "slot %lu: cert epoch %lu is not t-2 or t-3", bank->f.slot, epoch ));
+    FD_LOG_WARNING(( "slot %lu: cert epoch %lu is not t-1 through t-5", bank->f.slot, epoch ));
     return 0;
   }
+  if( FD_LIKELY( iter_kind!=FD_VOTE_STAKES_ITER_T_1 && set->validator_cnt && set->epoch==epoch ) ) return 1;
 
   set->validator_cnt = 0UL;
   fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
@@ -101,7 +101,7 @@ validator_set_for_slot( validator_set_t * set,
     FD_LOG_WARNING(( "slot %lu: epoch %lu has %lu ranked validators, highest rank %lu", bank->f.slot, epoch, cnt, max_rank ));
     return 0;
   }
-  set->epoch         = epoch;
+  set->epoch         = iter_kind==FD_VOTE_STAKES_ITER_T_1 ? ULONG_MAX : epoch;
   set->validator_cnt = cnt;
   set->total_stake   = total;
   return 1;
@@ -176,7 +176,7 @@ fd_alpenglow_footer_verify( fd_bank_t const *         bank,
   }
 
   /* ~200 KiB, kept across calls: consecutive blocks' certs almost
-     always share an epoch */
+     always share a ring epoch; a fork specific t-1 set is not reused */
   static FD_TL validator_set_t set[1];
 
   if( footer->has_fast_final_cert ) {
@@ -484,7 +484,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
     fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
     int iter_kind = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, reward_epoch );
     if( FD_UNLIKELY( !iter_kind ) ) {
-      FD_LOG_WARNING(( "slot %lu: reward epoch %lu is not t-2 or t-3", bank_slot, reward_epoch ));
+      FD_LOG_WARNING(( "slot %lu: reward epoch %lu is not t-1 through t-5", bank_slot, reward_epoch ));
       return -1;
     }
     uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
@@ -555,7 +555,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
     fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
     int iter_kind = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, final_epoch );
     if( FD_UNLIKELY( !iter_kind ) ) {
-      FD_LOG_WARNING(( "slot %lu: finalization epoch %lu is not t-2 or t-3", bank_slot, final_epoch ));
+      FD_LOG_WARNING(( "slot %lu: finalization epoch %lu is not t-1 through t-5", bank_slot, final_epoch ));
       return -1;
     }
     uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];

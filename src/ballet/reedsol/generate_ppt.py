@@ -1,6 +1,7 @@
 import galois
 import numpy as np
 import numpy.linalg
+import re
 
 # file 1: fd_reedsol_ppt.h
 header = """/* Note: This file is auto generated. */
@@ -286,11 +287,31 @@ def print_macro(macro_name, args, lines, indent=2):
     print(" "*indent + "} while( 0 )", file=outf)
     print("", file=outf)
 
-print_macro("GF_MUL22", ["inout0", "inout1", "c00", "c01", "c10", "c11"], [
-    "gf_t temp = GF_ADD( GF_MUL( inout0, c00 ), GF_MUL( inout1, c01 ) );",
-    "inout1 = GF_ADD( GF_MUL( inout0, c10 ), GF_MUL( inout1, c11 ) );",
-    "inout0 = temp;"
-    ])
+# fold multiplies by 0 and 1 here; most PPT constants are trivial
+def gf_mul(var, const):
+    const = int(const)
+    if const == 0: return None # zero
+    if const == 1: return var
+    return f"GF_MUL( {var}, {const} )"
+
+def gf_add(a, b):
+    if a is None: return b
+    if b is None: return a
+    return f"GF_ADD( {a}, {b} )"
+
+def uses(expr, var):
+    return re.search(r"\b" + var + r"\b", expr) is not None
+
+def mm22_lines(in0, in1, matr):
+    e0 = gf_add( gf_mul(in0, matr[0,0]), gf_mul(in1, matr[0,1]) ) or "gf_zero()"
+    e1 = gf_add( gf_mul(in0, matr[1,0]), gf_mul(in1, matr[1,1]) ) or "gf_zero()"
+    if e0 == in0 and e1 == in1: return []
+    if e0 == in0:              return [ f"{in1} = {e1};" ]
+    if e1 == in1:              return [ f"{in0} = {e0};" ]
+    if e0 == e1:               return [ f"{in0} = {e0};", f"{in1} = {in0};" ]
+    if not uses(e1, in0):      return [ f"{in0} = {e0};", f"{in1} = {e1};" ]
+    if not uses(e0, in1):      return [ f"{in1} = {e1};", f"{in0} = {e0};" ]
+    return [ "{", f"  gf_t temp = {e0};", f"  {in1} = {e1};", f"  {in0} = temp;", "}" ]
 
 for mink,maxk, N in ((1,16,16), (17,32,32), (33,64,64), (65,69,128)):
     for k in range(mink, maxk):
@@ -299,6 +320,7 @@ for mink,maxk, N in ((1,16,16), (17,32,32), (33,64,64), (65,69,128)):
         macro_lines = [ ]
         operations = principal_pivot_transform_k_no_x(int(np.log2(N)), k, 0)
 
+        scratch_used = set( f"scratch_{op[2]}" for op in operations if op[0]=="MULACC_SCRATCH" and int(op[3])!=0 )
         scratch_to_declare = set()
 
         for op in operations:
@@ -310,21 +332,28 @@ for mink,maxk, N in ((1,16,16), (17,32,32), (33,64,64), (65,69,128)):
                 macro_lines.append(f"FD_REEDSOL_GENERATE_FFT( {n}, {shift}, {', '.join(inputs[shift:shift+n])} );")
             if op[0] == "COPY_SCRATCH":
                 src, dest = op[1:]
+                if f"scratch_{dest}" not in scratch_used: continue
                 scratch_to_declare.add(f"scratch_{dest}")
                 macro_lines.append(f"scratch_{dest} = {inputs[src]};")
             if op[0] == "SCALE":
                 srcdest, const = op[1:]
-                macro_lines.append(f"{inputs[srcdest]} = GF_MUL( {inputs[srcdest]}, {int(const)} );")
+                e = gf_mul(inputs[srcdest], const) or "gf_zero()"
+                if e != inputs[srcdest]:
+                    macro_lines.append(f"{inputs[srcdest]} = {e};")
             if op[0] == "MM22":
                 srcdest0, srcdest1, matr = op[1:]
-                macro_lines.append(f"GF_MUL22( {inputs[srcdest0]}, {inputs[srcdest1]}, {int(matr[0,0])}, {int(matr[0,1])}, {int(matr[1,0])}, {int(matr[1,1])} );")
+                macro_lines.extend( mm22_lines(inputs[srcdest0], inputs[srcdest1], matr) )
             if op[0] == "MULACC":
                 dest, src, const = op[1:]
-                macro_lines.append(f"{inputs[dest]} = GF_ADD( GF_MUL( {inputs[src]}, {int(const)} ), {inputs[dest]} );")
+                e = gf_mul(inputs[src], const)
+                if e is not None:
+                    macro_lines.append(f"{inputs[dest]} = GF_ADD( {e}, {inputs[dest]} );")
             if op[0] == "MULACC_SCRATCH":
                 dest, src_scratch, const = op[1:]
-                assert f"scratch_{src_scratch}" in scratch_to_declare
-                macro_lines.append(f"{inputs[dest]} = GF_ADD( GF_MUL( scratch_{src_scratch}, {int(const)} ), {inputs[dest]} );")
+                e = gf_mul(f"scratch_{src_scratch}", const)
+                if e is not None:
+                    assert f"scratch_{src_scratch}" in scratch_to_declare
+                    macro_lines.append(f"{inputs[dest]} = GF_ADD( {e}, {inputs[dest]} );")
 
         scratch_lines = []
         scratch_to_declare = sorted(list(scratch_to_declare))

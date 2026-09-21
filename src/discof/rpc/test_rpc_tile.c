@@ -548,7 +548,6 @@ main( int     argc,
   tile->rpc.max_live_slots            = max_live_slots;
   tile->rpc.genesis_max_message_size  = 10UL<<20;
   tile->rpc.max_http_connections      = 2UL;
-  tile->rpc.max_http_request_length   = FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN;
   tile->rpc.max_websocket_connections = 2UL;
   tile->rpc.send_buffer_size_mb       = 64UL;
   tile->rpc.accdb_obj_id              = accdb_shmem_obj->id;

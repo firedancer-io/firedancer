@@ -143,6 +143,46 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
   uint  blockcache_generation; /* Incremented for every blockcache. */
   ulong txnpages_free_cnt; /* The number of pages in the txnpages that are not currently in use. */
 
+  /* Helps the snapshot producer walk the txncache lock-free and detect
+     relevant changes to the txncache.  mutation_gen covers transaction
+     storage, and root_gen covers the root history.  mutation_gen is odd
+     when the storage is being modified in ways that could affect the
+     snapshot, such as during reset, root advancement, and compaction,
+     and bumped once the mutation is done.  root_gen increments on root
+     advancement and reset.
+
+     For the snapshot producer, fd_txncache_writer, mutation_gen changes
+     trigger retry in the writer, and root_gen changes are treated as
+     fatal invariant violation because the replay tile is expected to
+     pause root history changes while a snapshot is in progress.
+
+     Note that attach/cancel of the unrooted frontier does not bump
+     mutation_gen.  Suppose an unrooted child executed transaction T
+     referencing an old rooted blockhash.  Before cancellation, T is
+     unrooted, so the writer skips it.  After cancellation, T is stale,
+     so the writer still skips it.  So the desired snapshot did not
+     change.
+
+     A note on concurrency ... Accesses to the two generation numbers
+     are race free under C11.  Every store after initialization is
+     atomic and pairs with an atomic load in the snapshot producer tile.
+     The loads in the write locked mutators need no atomicity because
+     every store is made under the write lock so said loads are already
+     ordered properly with respect to the writes.  In contrast, the
+     transaction entries the snapshot walker loads and the txncache
+     stores are plain on both sides, and the blockcache bucket heads are
+     stored plainly by compaction while the walker loads them with an
+     acquire load.  Both are data races under C11.  The walker is
+     nevertheless correct, given that the compiler emits the plain entry
+     accesses as ordinary loads and stores.  FD_HW_MFENCE_ST in
+     fd_txncache_mutation_begin orders the odd store before the entry
+     stores and FD_HW_MFENCE_LD in the walker orders the entry loads
+     before the generation re-check, so an entry load that observed a
+     store made inside a mutation section is followed by a re-check that
+     fails, and whatever was read, torn or otherwise, is discarded. */
+  ulong mutation_gen;
+  ulong root_gen;
+
   ulong root_cnt;
   root_slist_t root_ll[1]; /* A singly linked list of the forks that are roots of fork chains.  The tail is the
                               most recently added root, the head is the oldest root.  This is used to identify
@@ -154,9 +194,45 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
   ulong magic; /* ==FD_TXNCACHE_SHMEM_MAGIC */
 };
 
-FD_PROTOTYPES_BEGIN
+struct blockcache {
+  fd_txncache_blockcache_shmem_t * shmem;
 
-struct fd_txncache_private;
+  uint * heads;          /* The hash table for the blockhash.  Each entry is a pointer to the head of a linked list of
+                            transactions that reference this blockhash.  As we add transactions to the bucket, the head
+                            pointer is updated to the new item, and the new item is pointed to the previous head. */
+  void * pages;          /* A list of the txnpages containing the transactions for this blockcache, elements of
+                            shmem->txnpage_idx_sz bytes (see fd_txncache_txnpage_idx_ld). */
+
+  descends_set_t * descends; /* Each fork can descend from other forks in the txncache, and this bit vector contains one
+                                value for each fork in the txncache.  If this fork descends from some other fork F, then
+                                the bit at index F in descends[] is set. */
+};
+
+typedef struct blockcache blockcache_t;
+
+struct fd_txncache_private {
+  fd_txncache_shmem_t * shmem;
+
+  fd_txncache_blockcache_shmem_t * blockcache_shmem_pool;
+  blockcache_t * blockcache_pool;
+  blockhash_map_t * blockhash_map;
+
+  void * txnpages_free;             /* The index in the txnpages array that is free, for each of the free pages.
+                                       Elements are shmem->txnpage_idx_sz bytes, as are scratch_pages below. */
+
+  fd_txncache_txnpage_t * txnpages; /* The actual storage for the transactions.  The blockcache points to these
+                                       pages when storing transactions.  Transaction are grouped into pages of
+                                       size FD_TXNCACHE_TXNS_PER_PAGE to make allocation and deallocation faster
+                                       (just the pages are acquired/released, rather than each txn). */
+
+  void *                  scratch_pages;
+  uint *                  scratch_heads;
+  fd_txncache_txnpage_t * scratch_txnpage;
+  fd_txncache_txnpage_t * local_txnpage;
+  int                     spill_fd;
+};
+
+FD_PROTOTYPES_BEGIN
 
 /* Transfer a byte range from a logical page in RAM or on disk.
    Caller holds the shmem read lock for reads, write lock for writes. */
@@ -167,6 +243,33 @@ page_io( struct fd_txncache_private * tc,
          void *                       buf,
          ulong                        sz,
          int                          write );
+
+/* Use these to bracket a write locked change that is visible to the
+   lock-free snapshot chain walker (fd_txncache_writer).  mutation_gen
+   is odd while a change is in progress.  The walker uses an acquire
+   load of the generation before starting its chain reads and a LoadLoad
+   barrier before each re-check. */
+
+static inline void
+fd_txncache_mutation_begin( fd_txncache_shmem_t * shmem ) {
+  /* Plain load is fine because the write lock holder is the only writer. */
+  ulong gen = shmem->mutation_gen;
+  FD_TEST_CRIT( !(gen&1UL) );
+  __atomic_store_n( &shmem->mutation_gen, gen+1UL, __ATOMIC_RELAXED );
+
+  /* The walker does not write/publish any shared state visible to the
+     txncache.  So no need for a StoreLoad barrier here.  Just
+     StoreStore. */
+  FD_HW_MFENCE_ST();
+}
+
+static inline void
+fd_txncache_mutation_end( fd_txncache_shmem_t * shmem ) {
+  /* Plain load is fine because the write lock holder is the only writer. */
+  ulong gen = shmem->mutation_gen;
+  FD_TEST_CRIT( gen&1UL );
+  __atomic_store_n( &shmem->mutation_gen, gen+1UL, __ATOMIC_RELEASE );
+}
 
 /* fd_txncache_max_txnpages{,_per_blockhash} return the txnpage pool
    size and the per blockcache page cap for the given parameters.  The

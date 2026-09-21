@@ -180,7 +180,9 @@ fd_txncache_shmem_new( void * shmem,
     FD_TEST( descends_set );
   }
 
-  tc->root_cnt = 0UL;
+  tc->root_cnt     = 0UL;
+  tc->mutation_gen = 0UL;
+  tc->root_gen     = 0UL;
   FD_TEST( root_slist_join( root_slist_new( tc->root_ll ) ) );
 
   tc->lock->value = 0;

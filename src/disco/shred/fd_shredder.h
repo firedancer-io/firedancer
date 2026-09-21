@@ -16,8 +16,6 @@
 
 #define FD_SHREDDER_MAGIC (0xF17EDA2547EDDE70UL) /* FIREDAN SHREDDER V0 */
 
-typedef void (fd_shredder_sign_fn)( void * ctx, uchar * sig, uchar const * merkle_root );
-
 #define FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT      (3UL)
 #define FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED (ULONG_MAX)
 
@@ -71,9 +69,6 @@ struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
   ulong        sz;
   ulong        offset;
 
-  void *                signer_ctx;
-  fd_shredder_sign_fn * signer;
-
   fd_entry_batch_meta_t meta;
   ulong slot;
   ulong data_idx_offset;
@@ -86,11 +81,9 @@ FD_FN_CONST static inline ulong fd_shredder_align    ( void ) { return FD_SHREDD
 FD_FN_CONST static inline ulong fd_shredder_footprint( void ) { return sizeof(fd_shredder_t); }
 
 /* fd_shredder_new formats a region of memory as a shredder object.
-   pubkey must point to the first byte of 32 bytes containing the public
-   key of the validator that will sign the shreds this shredder
-   produces.  The value provided for shred_version will be stored in the
-   shred_version field of each shred that this shredder produces. */
-void          * fd_shredder_new(  void * mem, fd_shredder_sign_fn * signer, void * signer_ctx );
+   The shredder does not sign: the caller writes the signature field
+   of every shred it produces. */
+void          * fd_shredder_new(  void * mem );
 fd_shredder_t * fd_shredder_join( void * mem );
 void *          fd_shredder_leave(  fd_shredder_t * shredder );
 void *          fd_shredder_delete( void *          mem      );
@@ -182,10 +175,12 @@ fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
 
 /* fd_shredder_next_fec_set extracts the next FEC set from the in
    progress batch.  Computes the entirety of both data and parity
-   shreds, including the parity information, Merkle proofs, and
-   signatures.  Stores the generated FEC set in result, which is
-   clobbered.  Populates all fields of result except for
-   {data,parity}_shred_present (which is only used for reconstruction).
+   shreds, including the parity information and Merkle proofs; the
+   signature field of each shred is clobbered (its tail holds the
+   Merkle leaf prefix) and must be overwritten by the caller.  Stores
+   the generated FEC set in result, which is clobbered.  Populates all
+   fields of result except for {data,parity}_shred_present (which is
+   only used for reconstruction).
 
    shredder must be a valid local join.  chained_merkle_root is a
    pointer to a 32-byte buffer containing the chained merkle root (the

@@ -25,21 +25,6 @@
 #define FORK_HASHED (1)
 #define FORK_FINAL  (2)
 
-typedef struct fuzz_blockcache_private {
-  fd_txncache_blockcache_shmem_t * shmem;
-  uint *                           heads;
-  ushort *                         pages;
-  descends_set_t *                 descends;
-} fuzz_blockcache_private_t;
-
-struct fd_txncache_private {
-  fd_txncache_shmem_t *            shmem;
-  fd_txncache_blockcache_shmem_t * blockcache_shmem_pool;
-  fuzz_blockcache_private_t *      blockcache_pool;
-  blockhash_map_t *                blockhash_map;
-  ushort *                         txnpages_free;
-};
-
 typedef struct {
   uchar const * cur;
   ulong         rem;
@@ -376,11 +361,11 @@ static ulong
 blockcache_txn_cnt( model_t const * m,
                     ushort          block_fork ) {
   fd_txncache_t * tc = m->tc;
-  fuzz_blockcache_private_t const * bc = &tc->blockcache_pool[ block_fork ];
+  blockcache_t const * bc = &tc->blockcache_pool[ block_fork ];
 
   ulong cnt = 0UL;
   for( ulong i=0UL; i<bc->shmem->pages_cnt; i++ ) {
-    ushort page = bc->pages[ i ];
+    ulong page = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, bc->pages, i );
     FD_TEST( page<tc->shmem->max_txnpages );
     ushort txnpage_free;
     page_io( tc, page, offsetof(fd_txncache_txnpage_t, free), &txnpage_free, sizeof(txnpage_free), 0 );
@@ -393,12 +378,12 @@ static int
 blockcache_needs_purge_for_insert( model_t const * m,
                                    ushort          block_fork ) {
   fd_txncache_t * tc = m->tc;
-  fuzz_blockcache_private_t const * bc = &tc->blockcache_pool[ block_fork ];
+  blockcache_t const * bc = &tc->blockcache_pool[ block_fork ];
 
   if( FD_UNLIKELY( !bc->shmem->pages_cnt ) ) return 0;
   if( FD_UNLIKELY( bc->shmem->pages_cnt!=tc->shmem->txnpages_per_blockhash_max ) ) return 0;
 
-  ushort tail_page = bc->pages[ bc->shmem->pages_cnt-1UL ];
+  ulong tail_page = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, bc->pages, bc->shmem->pages_cnt-1UL );
   FD_TEST( tail_page<tc->shmem->max_txnpages );
   ushort txnpage_free;
   page_io( tc, tail_page, offsetof(fd_txncache_txnpage_t, free), &txnpage_free, sizeof(txnpage_free), 0 );
@@ -409,10 +394,10 @@ static int
 blockcache_has_stale_txn( model_t const * m,
                           ushort          block_fork ) {
   fd_txncache_t * tc = m->tc;
-  fuzz_blockcache_private_t const * bc = &tc->blockcache_pool[ block_fork ];
+  blockcache_t const * bc = &tc->blockcache_pool[ block_fork ];
 
   for( ulong i=0UL; i<bc->shmem->pages_cnt; i++ ) {
-    ushort page = bc->pages[ i ];
+    ulong page = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, bc->pages, i );
     FD_TEST( page<tc->shmem->max_txnpages );
 
     ushort txnpage_free;
@@ -424,7 +409,7 @@ blockcache_has_stale_txn( model_t const * m,
       ushort txn_fork = txn->fork_id.val;
       FD_TEST( txn_fork<tc->shmem->active_slots_max );
 
-      fuzz_blockcache_private_t const * fork = &tc->blockcache_pool[ txn_fork ];
+      blockcache_t const * fork = &tc->blockcache_pool[ txn_fork ];
       if( FD_UNLIKELY( fork->shmem->frozen<0 || fork->shmem->generation!=txn->generation ) ) return 1;
     }
   }
@@ -592,29 +577,31 @@ check_invariants( model_t const * m ) {
   uchar page_seen[ 512 ];
   memset( page_seen, 0, sizeof(page_seen) );
   ulong used_pages = 0UL;
+  ulong idx_sz     = tc->shmem->txnpage_idx_sz;
+  ulong null_idx   = idx_sz==sizeof(uint) ? UINT_MAX : USHORT_MAX;
 
   for( ulong i=0UL; i<FUZZ_MAX_ACTIVE_SLOTS; i++ ) {
     if( FD_UNLIKELY( !m->fork[ i ].alive ) ) continue;
 
-    fuzz_blockcache_private_t const * bc = &tc->blockcache_pool[ i ];
+    blockcache_t const * bc = &tc->blockcache_pool[ i ];
     FD_TEST( bc->shmem->generation==m->fork[ i ].generation );
     FD_TEST( bc->shmem->pages_cnt<=tc->shmem->txnpages_per_blockhash_max );
     FD_TEST( bc->shmem->frozen==m->fork[ i ].frozen );
 
     for( ulong j=0UL; j<bc->shmem->pages_cnt; j++ ) {
-      ushort page = bc->pages[ j ];
+      ulong page = fd_txncache_txnpage_idx_ld( idx_sz, bc->pages, j );
       FD_TEST( page<tc->shmem->max_txnpages );
       FD_TEST( !page_seen[ page ] );
       page_seen[ page ] = 1U;
       used_pages++;
     }
     for( ulong j=bc->shmem->pages_cnt; j<tc->shmem->txnpages_per_blockhash_max; j++ ) {
-      FD_TEST( bc->pages[ j ]==USHORT_MAX );
+      FD_TEST( fd_txncache_txnpage_idx_ld( idx_sz, bc->pages, j )==null_idx );
     }
   }
 
   for( ulong i=0UL; i<tc->shmem->txnpages_free_cnt; i++ ) {
-    ushort page = tc->txnpages_free[ i ];
+    ulong page = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, i );
     FD_TEST( page<tc->shmem->max_txnpages );
     FD_TEST( !page_seen[ page ] );
     page_seen[ page ] = 1U;
@@ -668,7 +655,7 @@ check_invariants( model_t const * m ) {
   for( ulong i=0UL; i<FUZZ_MAX_ACTIVE_SLOTS; i++ ) {
     if( FD_UNLIKELY( !m->fork[ i ].alive ) ) continue;
 
-    fuzz_blockcache_private_t const * bc = &tc->blockcache_pool[ i ];
+    blockcache_t const * bc = &tc->blockcache_pool[ i ];
     for( ulong j=0UL; j<tc->shmem->active_slots_max; j++ ) {
       int expect = m->fork[ j ].alive && model_descends( m, (ushort)i, (ushort)j );
       int actual = descends_set_test( bc->descends, j );
@@ -697,7 +684,7 @@ check_invariants( model_t const * m ) {
     if( FD_UNLIKELY( !m->fork[ i ].alive || m->fork[ i ].frozen<FORK_HASHED ) ) continue;
     blockhash_model_cnt++;
 
-    fuzz_blockcache_private_t const * bc = &tc->blockcache_pool[ i ];
+    blockcache_t const * bc = &tc->blockcache_pool[ i ];
     fd_txncache_blockcache_shmem_t const * ele =
       blockhash_map_ele_query_const( tc->blockhash_map, &bc->shmem->blockhash, NULL, tc->blockcache_shmem_pool );
 
@@ -764,7 +751,7 @@ check_invariants( model_t const * m ) {
     for( ulong depth=0UL; child_id!=USHORT_MAX; depth++ ) {
       FD_TEST( depth<FUZZ_MAX_ACTIVE_SLOTS );
       FD_TEST( child_id<FUZZ_MAX_ACTIVE_SLOTS );
-      fuzz_blockcache_private_t const * child = &tc->blockcache_pool[ child_id ];
+      blockcache_t const * child = &tc->blockcache_pool[ child_id ];
       ushort next_child_id = child->shmem->sibling_id.val;
       if( FD_UNLIKELY( !m->fork[ child_id ].alive ||
                        child->shmem->frozen<0     ||

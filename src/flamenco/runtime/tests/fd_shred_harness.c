@@ -188,7 +188,6 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
      from any of these constructors is a harness setup bug. */
   fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new(
       resolver_mem,
-      NULL, NULL,
       RESOLVER_DEPTH,
       RESOLVER_PARTIAL_DEPTH,
       RESOLVER_COMPLETE_DEPTH,

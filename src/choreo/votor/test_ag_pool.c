@@ -611,6 +611,27 @@ test_fast_finalize_block( void ) {
   teardown_pool( pool );
 }
 
+/* votor/src/event_handler.rs::Finalized request_repair */
+
+static void
+test_fast_final_cert_requests_repair( void ) {
+  ag_pool_t * pool = setup_pool();
+  ag_block_hash_t hash; random_hash( hash );
+
+  ag_vote_notar_t nv[ NV ];
+  for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], 1UL, hash, (ushort)v, TEST_SHRED_VERSION ).notar;
+  ag_cert_t c = cert_build_fast_final( nv, NV, g_epoch_info );
+  FD_TEST( ag_pool_add_cert( pool, &c, bad )==AG_POOL_SUCCESS );
+
+  ag_event_repair_t repair;
+  FD_TEST( ag_pool_poll_repair_event( pool, &repair ) );
+  FD_TEST( repair.block.slot==1UL );
+  FD_TEST( !memcmp( repair.block.hash, hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( !ag_pool_poll_repair_event( pool, &repair ) );
+
+  teardown_pool( pool );
+}
+
 /* src/consensus/pool.rs::simple_branch_certified */
 
 static void
@@ -1542,6 +1563,7 @@ main( int     argc,
   test_reward_late_skip_unverified();
   test_reward_wire_cert_base();
   test_fast_finalize_block();
+  test_fast_final_cert_requests_repair();
   test_finalized_block_hash();
   test_simple_branch_certified();
   test_branch_certified_notar_fallback();

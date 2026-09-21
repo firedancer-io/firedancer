@@ -3,9 +3,10 @@
 
 /* Shared static-inline Fp/Fp2/Fp6/Fp12 ops for the bn254 TUs.
    Do not include outside src/ballet/bn254.
-   Heavy helpers are marked noinline: they get one local copy per TU
-   (same codegen as the old amalgamated build) instead of being inlined
-   into every caller, which would bloat compile time and code size. */
+   The additive Fp2 ops are force-inlined into every caller. fp2_mul,
+   fp2_sqr, fp2_inv and fp6_mul are kept out of line, one copy per TU:
+   inlining those bloats their callers enough to cost both compile time
+   and runtime. */
 
 #include "./fd_bn254_internal.h"
 #include "../../third_party/fiat-crypto/bn254_64.c"
@@ -20,6 +21,8 @@
 
 /* Consts defined in fd_bn254_field.c */
 extern const fd_bn254_fp_t     fd_bn254_const_zero            [1];
+extern const fd_bn254_fp_t     fd_bn254_const_one             [1];
+extern const fd_bn254_fp_t     fd_bn254_const_rr              [1];
 extern const fd_bn254_fp_t     fd_bn254_const_p               [1];
 extern const fd_bn254_scalar_t fd_bn254_const_x               [1];
 extern const fd_bn254_fp_t     fd_bn254_const_b_mont          [1];
@@ -87,20 +90,6 @@ static inline int
 fd_bn254_fp_eq( fd_bn254_fp_t const * r,
                 fd_bn254_fp_t const * a ) {
   return fd_uint256_eq( r, a );
-}
-
-static inline fd_bn254_fp_t *
-fd_bn254_fp_from_mont( fd_bn254_fp_t * r,
-                       fd_bn254_fp_t const * a ) {
-  fiat_bn254_from_montgomery( r->limbs, a->limbs );
-  return r;
-}
-
-static inline fd_bn254_fp_t *
-fd_bn254_fp_to_mont( fd_bn254_fp_t * r,
-                     fd_bn254_fp_t const * a ) {
-  fiat_bn254_to_montgomery( r->limbs, a->limbs );
-  return r;
 }
 
 static inline fd_bn254_fp_t *
@@ -242,6 +231,23 @@ fd_bn254_fp_sqr( fd_bn254_fp_t * r,
   return fd_bn254_fp_mul( r, a, a );
 }
 
+/* Montgomery conversions via fp_mul rather than fiat's
+   from/to_montgomery (their literal limbs are slow to compile). */
+
+/* r = a * R^-1 */
+static inline fd_bn254_fp_t *
+fd_bn254_fp_from_mont( fd_bn254_fp_t * r,
+                       fd_bn254_fp_t const * a ) {
+  return fd_bn254_fp_mul( r, a, fd_bn254_const_one );
+}
+
+/* r = a * R */
+static inline fd_bn254_fp_t *
+fd_bn254_fp_to_mont( fd_bn254_fp_t * r,
+                     fd_bn254_fp_t const * a ) {
+  return fd_bn254_fp_mul( r, a, fd_bn254_const_rr );
+}
+
 /* r = 1 / a mod p. a MUST not be 0. */
 static inline fd_bn254_fp_t *
 fd_bn254_fp_inv( fd_bn254_fp_t * r,
@@ -253,10 +259,10 @@ fd_bn254_fp_inv( fd_bn254_fp_t * r,
      We can apply to_montgomery twice, each time multiplying by R, giving:
       r = a^{-1} * R^{-1} * R * R = a^{-1} * R = (a^{-1})' */
   ulong tmp[12];
-  ulong z[4];
-  bignum_modinv( 4, z, a->limbs, fd_bn254_const_p->limbs, tmp );
-  fiat_bn254_to_montgomery( r->limbs, z );
-  fiat_bn254_to_montgomery( r->limbs, r->limbs );
+  fd_bn254_fp_t z[1];
+  bignum_modinv( 4, z->limbs, a->limbs, fd_bn254_const_p->limbs, tmp );
+  fd_bn254_fp_to_mont( r, z );
+  fd_bn254_fp_to_mont( r, r );
   return r;
 #else
   fd_uint256_t p_minus_2[1];
@@ -387,7 +393,7 @@ fd_bn254_fp2_neg_nm( fd_bn254_fp2_t * r,
 }
 
 /* fd_bn254_fp2_neg sets r = -a in Fp2. */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_neg( fd_bn254_fp2_t * r,
                   fd_bn254_fp2_t const * a ) {
   fd_bn254_fp_neg( &r->el[0], &a->el[0] );
@@ -405,7 +411,7 @@ fd_bn254_fp2_halve( fd_bn254_fp2_t * r,
 }
 
 /* fd_bn254_fp2_add computes r = a + b in Fp2. */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_add( fd_bn254_fp2_t * r,
                   fd_bn254_fp2_t const * a,
                   fd_bn254_fp2_t const * b ) {
@@ -415,7 +421,7 @@ fd_bn254_fp2_add( fd_bn254_fp2_t * r,
 }
 
 /* fd_bn254_fp2_sub computes r = a - b in Fp2. */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_sub( fd_bn254_fp2_t * r,
                   fd_bn254_fp2_t const * a,
                   fd_bn254_fp2_t const * b ) {
@@ -426,7 +432,7 @@ fd_bn254_fp2_sub( fd_bn254_fp2_t * r,
 
 /* fd_bn254_fp2_conj computes r = conj(a) in Fp2.
    If a = a0 + a1*i, conj(a) = a0 - a1*i. */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_conj( fd_bn254_fp2_t * r,
                    fd_bn254_fp2_t const * a ) {
   fd_bn254_fp_set( &r->el[0], &a->el[0] );
@@ -570,7 +576,7 @@ fd_bn254_fp2_sqrt( fd_bn254_fp2_t * r,
 /* fd_bn254_fp2_mul_by_xi computes r = a * (9+i) in Fp2.
    xi = (9+i) is the const used to build Fp6.
    Note: this can probably be optimized (less reductions mod p). */
-static __attribute__((noinline,unused)) fd_bn254_fp2_t *
+INLINE fd_bn254_fp2_t *
 fd_bn254_fp2_mul_by_xi( fd_bn254_fp2_t * r,
                         fd_bn254_fp2_t const * a ) {
   /* xi = 9 + i

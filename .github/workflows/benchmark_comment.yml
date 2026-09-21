@@ -1,0 +1,75 @@
+name: Benchmark Comment
+# A pull_request run from a fork has a read-only token, so its benchmark jobs
+# only leave their rows in the bench-* artifacts.  This runs afterwards in the
+# base repository, on main's scripts, and posts those rows to the PR.
+on:
+  workflow_run:
+    workflows: [On Pull Request]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run-id:
+        type: string
+        required: true
+        description: 'On Pull Request run whose bench-* artifacts to post'
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.fork)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUN_ID: ${{ github.event.workflow_run.id || inputs.run-id }}
+      BENCH_DIR: ${{ github.workspace }}/../bench
+    steps:
+    - uses: actions/checkout@v7  # main, never the fork
+    - uses: actions/download-artifact@v8
+      with:
+        run-id: ${{ env.RUN_ID }}
+        github-token: ${{ github.token }}
+        pattern: bench-*-${{ env.RUN_ID }}
+        merge-multiple: true  # a single match would otherwise land at a different depth
+        path: ${{ env.BENCH_DIR }}
+    - uses: actions/github-script@v9
+      with:
+        script: |
+          const fs = require('fs');
+          const run = (await github.rest.actions.getWorkflowRun({...context.repo, run_id: Number(process.env.RUN_ID)})).data;
+          // The artifacts were written by the fork's run: keep only validated fields under the row ids the renderer knows.
+          const rowJob = JSON.parse((await exec.getExecOutput('python3', ['-c', "import json, sys; sys.path.insert(0, 'contrib/ci/bench'); import benchmark_comment as b; print(json.dumps({r[0]: r[2] for r in b.ROWS}))"])).stdout);
+          const num = v => v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0);
+          const valid = [];
+          let base;
+          for (const job of ['replay', 'snapshot', 'bench']) {
+            const rowsFile = `${process.env.BENCH_DIR}/rows.${job}.json`;
+            let r;
+            try { r = JSON.parse(fs.readFileSync(rowsFile, 'utf8')); } catch (e) { core.info(`benchmark comment [${job}]: no usable rows (${e.message})`); continue; }
+            const ok = r.job === job && r.head === run.head_sha && /^[0-9a-f]{40}$/.test(r.base) && (base === undefined || r.base === base)
+                    && r.run_id === run.id && ['running', 'partial', 'done', 'failed'].includes(r.status) && r.rows && typeof r.rows === 'object'
+                    && Object.entries(r.rows).every(([k, m]) => rowJob[k] === job && m && num(m.base) && num(m.new));
+            if (!ok) { core.info(`benchmark comment [${job}]: rows are not from this run`); continue; }
+            const rows = Object.fromEntries(Object.entries(r.rows).map(([k, m]) => [k, {base: m.base, new: m.new}]));
+            fs.writeFileSync(rowsFile, JSON.stringify({job, head: r.head, base: r.base, run_id: r.run_id, status: r.status, rows}));
+            valid.push(rowsFile);
+            base = r.base;
+          }
+          if (!valid.length) return core.info('no rows from this run');
+          // run.pull_requests is empty for a fork.  The rows describe head against one merge base, so they go to
+          // every open PR still at this head whose merge base with its own base branch is that one (the same
+          // branch may be open against several bases; each such PR's run posts the same measurement).
+          const head = `${run.head_repository.owner.login}:${run.head_branch}`;
+          const prs = [];
+          for (const p of await github.paginate(github.rest.pulls.list, {...context.repo, state: 'open', head, per_page: 100})) {
+            if (p.head.sha !== run.head_sha) continue;
+            const cmp = await github.rest.repos.compareCommitsWithBasehead({...context.repo, basehead: `${p.base.ref}...${run.head_sha}`, per_page: 1});
+            if (cmp.data.merge_base_commit.sha === base) prs.push(p);
+          }
+          if (!prs.length) return core.info(`no open PR at ${head}@${run.head_sha.slice(0, 7)} with merge base ${base.slice(0, 7)}`);
+          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
+          for (const p of prs) for (const rowsFile of valid) await upsert({github, context, core, exec}, {rowsFile, issue_number: p.number});

@@ -14,9 +14,8 @@ fd_bn254_g2_scalar_mul( fd_bn254_g2_t *           r,
     return fd_bn254_g2_set_zero( r );
   }
 
-  const ulong g1_const[ 3 ] = { 0x7a7bd9d4391eb18eUL, 0x4ccef014a773d2cfUL, 0x0000000000000002UL };
   ulong b1[ 3 ], b2[ 2 ];
-  fd_bn254_glv_sxg3( b1, s, g1_const );
+  fd_bn254_glv_sxg3( b1, s, g1_const_g2 );
   fd_bn254_glv_sxg2( b2, s, g2_const );
 
   /* k1 = s - b1*N_C - b2*N_B (may be negative for G2) */

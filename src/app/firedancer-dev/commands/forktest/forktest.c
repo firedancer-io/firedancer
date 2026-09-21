@@ -326,7 +326,7 @@ forktest_topo( config_t * config ) {
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     /**/               fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "shred_sign",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_out(   topo, "shred",   i,                         "shred_sign",   i                                                    );
-    /**/               fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "sign_shred",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "sign_shred",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_shred",   i                                                    );
   }
 

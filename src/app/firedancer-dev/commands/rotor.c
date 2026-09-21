@@ -5,7 +5,7 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared_dev/commands/dev.h" /* dev_cmd_perm */
 
-#include "../../../discof/rotor/fd_rotor_tile.c" /* ctx_t + chainer layout helpers */
+#include "../../../discof/rotor/fd_rotor_tile_private.h"
 
 #include <stdio.h>
 

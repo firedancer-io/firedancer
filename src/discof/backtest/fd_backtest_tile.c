@@ -8,7 +8,10 @@
 #include "../../discof/rotor/fd_rotor_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
-#include "../../discof/votor/fd_votor_rooted.h"
+#include "../../discof/votor/fd_votor_tile.h"
+#include "../../choreo/votor/ag_cert.h"
+#include "../../discof/genesis/fd_genesi_tile.h"
+#include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
 
 #include <stdlib.h> /* exit(2) */
@@ -101,6 +104,12 @@ struct fd_backt_tile {
   fd_backt_out_t repair_out[ 1 ];
   fd_backt_out_t tower_out[ 1 ];
   fd_backt_out_t votor_out[ 1 ];
+
+  ulong          ipecho_out_idx; /* ULONG if no event tile */
+  int            has_genesis_hash;
+  fd_hash_t      genesis_hash;
+  ulong          hard_fork_cnt;
+  fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
 
   ulong shreds_idx;
   ulong shreds_cnt;
@@ -325,6 +334,18 @@ after_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }
 
+/* Publish the shred version to the event tile once the genesis hash
+   and snapshot hard forks are both known. */
+static void
+publish_shred_version( fd_backt_tile_t *   ctx,
+                       fd_stem_context_t * stem ) {
+  if( FD_LIKELY( ctx->ipecho_out_idx==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( !ctx->has_genesis_hash || !ctx->snapshot_done ) ) return;
+
+  ushort shred_version = compute_shred_version( ctx->genesis_hash.uc, ctx->hard_forks, ctx->hard_fork_cnt );
+  fd_stem_publish( stem, ctx->ipecho_out_idx, shred_version, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+}
+
 /* Log the run summary, drain telemetry and exit the process. */
 
 static void
@@ -414,10 +435,15 @@ returnable_frag( fd_backt_tile_t *   ctx,
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
         ctx->snapshot_done = 1;
+        publish_shred_version( ctx, stem );
         return 0;
       }
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+
+      FD_TEST( manifest->hard_fork_cnt<=FD_HARD_FORKS_MAX );
+      ctx->hard_fork_cnt = manifest->hard_fork_cnt;
+      fd_memcpy( ctx->hard_forks, manifest->hard_forks, manifest->hard_fork_cnt*sizeof(fd_hard_fork_t) );
 
       ctx->initialized = 1;
       ctx->reading_slot = manifest->slot;
@@ -427,6 +453,9 @@ returnable_frag( fd_backt_tile_t *   ctx,
       break;
     }
     case IN_KIND_GENESI: {
+      fd_genesis_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      ctx->genesis_hash     = meta->genesis_hash;
+      ctx->has_genesis_hash = 1;
       if( FD_UNLIKELY( ctx->genesis ) ) {
         ctx->snapshot_done = 1;
         ctx->initialized = 1;
@@ -438,6 +467,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         ctx->publish_time = -fd_log_wallclock();
         FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
       }
+      publish_shred_version( ctx, stem );
       break;
     }
     case IN_KIND_REPLAY: {
@@ -534,15 +564,17 @@ returnable_frag( fd_backt_tile_t *   ctx,
       int root_advanced = root_slot!=ctx->prev_root;
       ctx->prev_root    = root_slot;
 
-      /* If we are in Alpenglow mode, send votor rooted frags to
-         advance replay. */
+      /* Under Alpenglow the backtest tile stands in for votor and
+         certifies the root slot fast finalized so replay roots it. */
       if( ctx->alpenglow ) {
         if( FD_LIKELY( root_advanced ) ) {
-          fd_votor_rooted_t * rooted = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
-          rooted->slot     = root_slot;
-          rooted->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
-          fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_ROOTED, ctx->votor_out->chunk, sizeof(fd_votor_rooted_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-          ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_rooted_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
+          fd_votor_certed_t * certed = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
+          memset( certed, 0, sizeof(fd_votor_certed_t) );
+          certed->kind     = AG_CERT_KIND_FAST_FINAL;
+          certed->slot     = root_slot;
+          certed->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
+          fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_CERTED, ctx->votor_out->chunk, sizeof(fd_votor_msg_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+          ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_msg_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
         }
         break;
       }
@@ -718,6 +750,7 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->repair_out = out1( topo, tile, "repair_out" );
   *ctx->tower_out  = out1( topo, tile, "tower_out" );
   if( ctx->alpenglow ) *ctx->votor_out = out1( topo, tile, "votor_out" );
+  ctx->ipecho_out_idx = fd_topo_find_tile_out_link( topo, tile, "ipecho_out", 0UL );
 
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "store", ULONG_MAX ) ) );
 

@@ -1818,9 +1818,6 @@ telemetry = true
         # created but no connections are free, the oldest one is closed.
         max_websocket_connections = 1024
 
-        # Maximum length of an HTTP request including headers.
-        max_http_request_length = 8192
-
         # All GUI connections share buffer space for outgoing GUI
         # WebSocket updates and HTTP response headers.  If this buffer
         # runs out, the connections with the slowest recipients are
@@ -1865,9 +1862,6 @@ telemetry = true
         # Maximum number of simultaneous WebSocket connections which can
         # be open.
         max_websocket_connections = 128
-
-        # Maximum length of an HTTP request including headers.
-        max_http_request_length = 8192
 
         # All RPC connections share buffer space for outgoing RPC
         # response data.  If this buffer runs out, the connections with
@@ -2008,7 +2002,7 @@ telemetry = true
         # The maximum size of the genesis file that is either loaded
         # from the disk or downloaded from the network.
         # Must be in [1, 4055].
-        max_file_size_mib = 10
+        max_file_size_mib = 16
 
         # When creating a new chain from genesis during development,
         # this option can be used to specify the number of hashes in

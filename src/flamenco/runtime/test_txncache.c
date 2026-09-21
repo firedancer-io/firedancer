@@ -271,7 +271,7 @@ test_page_sizing( void ) {
   FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot )==32118UL );
   FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot )==32118UL );
   FD_TEST( fd_txncache_txnpage_idx_sz( 32118UL )==sizeof(ushort) );
-  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot, ULONG_MAX )==8251646848UL );
+  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot, ULONG_MAX )==8251646976UL ); /* production, ushort page indices */
 
   /* development.bench.max_cost_per_block = 540M: 2*529,411 txns per
      slot.  The pool exceeds the ushort range, so page indices widen to
@@ -281,7 +281,7 @@ test_page_sizing( void ) {
   FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, bench_txn_per_slot )==163762UL );
   FD_TEST( fd_txncache_txnpage_idx_sz( 163762UL )==sizeof(uint) );
   FD_TEST( 163762UL<=FD_TXNCACHE_MAX_TXNPAGES );
-  FD_TEST( fd_txncache_shmem_footprint( 2048UL, bench_txn_per_slot, ULONG_MAX )==42854135168UL );
+  FD_TEST( fd_txncache_shmem_footprint( 2048UL, bench_txn_per_slot, ULONG_MAX )==42854135296UL );
 
   FD_TEST( fd_txncache_txnpage_idx_sz( USHORT_MAX-2UL )==sizeof(ushort) );
   FD_TEST( fd_txncache_txnpage_idx_sz( USHORT_MAX-1UL )==sizeof(uint)   );
@@ -309,6 +309,8 @@ test_bench_sizing( ulong max_live_slots,
   FD_TEST( shtc );
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+fd_ulong_align_up( footprint_shmem, FD_TXNCACHE_ALIGN ), shtc, -1 ) );
   FD_TEST( tc );
+  ulong mutation_gen = shtc->mutation_gen;
+  ulong root_gen     = shtc->root_gen;
 
   ulong const max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
   FD_TEST( shtc->max_txnpages==fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot ) );
@@ -332,6 +334,7 @@ test_bench_sizing( ulong max_live_slots,
 
   fd_txncache_cancel_fork( tc, a );
   FD_TEST( shtc->txnpages_free_cnt==shtc->max_txnpages );
+  FD_TEST( shtc->mutation_gen==mutation_gen && shtc->root_gen==root_gen ); /* unrooted attach, finalize, insert and cancel bump neither */
 
   fd_txncache_fork_id_t c = fd_txncache_attach_child( tc, root );
   fd_txncache_insert( tc, c, BLOCKHASH(1UL), TXNHASH(7UL) );
@@ -411,6 +414,12 @@ test_new_join( uchar * scratch0 ) {
 
   FD_LOG_NOTICE(( "TEST JOIN" ));
 
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( scratch0 );
+  FD_TEST( shtc );
+  FD_VOLATILE( shtc->magic ) = ~FD_TXNCACHE_SHMEM_MAGIC;
+  FD_TEST( !fd_txncache_shmem_join( scratch0 ) );
+  FD_VOLATILE( shtc->magic ) = FD_TXNCACHE_SHMEM_MAGIC;
+
   FD_TEST( fd_txncache_join( NULL )==NULL );          /* null shtc       */
   FD_TEST( fd_txncache_join( (void *)0x1UL )==NULL ); /* misaligned shtc */
   FD_TEST( fd_txncache_join( scratch0 ) );
@@ -440,7 +449,10 @@ test_scratch( uchar * scratch0,
 
   FD_TEST( sz>=FD_TXNCACHE_MAX_SLOT_DELTAS*max_txn_per_slot*sizeof(fd_txncache_single_txn_t) );
 
+  ulong mutation_gen = shtc->mutation_gen;
+  ulong root_gen     = shtc->root_gen;
   fd_txncache_reset( tc );
+  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen+1UL );
   fd_memset( scratch, 0xFF, sz );
 
   fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
@@ -455,9 +467,15 @@ test_scratch( uchar * scratch0,
   FD_TEST( !fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(2UL) ) );
   FD_TEST(  fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(5UL) ) );
 
+  mutation_gen = shtc->mutation_gen;
+  root_gen     = shtc->root_gen;
   fd_txncache_reset( tc );
+  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen+1UL );
   fd_memset( scratch, 0xA5, 4096UL );
+  mutation_gen = shtc->mutation_gen;
+  root_gen     = shtc->root_gen;
   fd_txncache_reset( tc );
+  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen+1UL );
   for( ulong i=0UL; i<4096UL; i++ ) FD_TEST( scratch[ i ]==0xA5 );
 
   ulong sz2 = 0UL;
@@ -477,12 +495,17 @@ test_advance_root( uchar * scratch0,
 
   fd_txncache_fork_id_t slot = fd_txncache_attach_child( tc, NULL_FORK );
   fd_txncache_finalize_fork( tc, slot, 0UL, BLOCKHASH(0UL) );
+  ulong mutation_gen = shtc->mutation_gen;
+  ulong root_gen     = shtc->root_gen;
 
   for( ulong i=0UL; i<8192UL; i++ ) {
     slot = fd_txncache_attach_child( tc, slot );
     fd_txncache_insert( tc, slot, BLOCKHASH(i), TXNHASH(i) );
     fd_txncache_finalize_fork( tc, slot, 0UL, BLOCKHASH(i+1UL) );
     fd_txncache_advance_root( tc, slot );
+    mutation_gen += 2UL;
+    root_gen++;
+    FD_TEST( shtc->mutation_gen==mutation_gen && shtc->root_gen==root_gen );
   }
 
   FD_TEST( !fd_txncache_query( tc, slot, BLOCKHASH(8191UL), TXNHASH(8190UL) ) );
@@ -496,6 +519,7 @@ test_advance_root( uchar * scratch0,
   slot = fd_txncache_attach_child( tc, slot );
   fd_txncache_finalize_fork( tc, slot, 0UL, BLOCKHASH(8193UL) );
   fd_txncache_advance_root( tc, slot );
+  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen+1UL );
 }
 
 void
@@ -598,7 +622,10 @@ test_purge_stale( uchar * scratch0,
      retries and succeeds. */
 
   FD_LOG_NOTICE(( "inserting trigger txn (should trigger purge_stale)" ));
+  ulong mutation_gen = shtc->mutation_gen;
+  ulong root_gen     = shtc->root_gen;
   fd_txncache_insert( tc, query_fork, BLOCKHASH(0UL), TXNHASH(valid_pre_purge) );
+  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen );
 
   FD_TEST( (ulong)shtc->txnpages_free_cnt==max_txnpages-1UL );
 

@@ -7,6 +7,6 @@ ifdef FD_HAS_RACESAN
 $(call add-objs,fd_racesan fd_racesan_async fd_racesan_weave,fd_util)
 $(call make-unit-test,test_racesan,test_racesan,fd_util)
 else
-$(call add-objs,fd_racesan fd_racesan_async fd_racesan_weave,fd_util_extra)
+$(call add-objs,fd_racesan fd_racesan_async fd_racesan_weave,fd_util_test)
 endif
 endif

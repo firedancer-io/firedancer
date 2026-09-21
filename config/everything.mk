@@ -1,4 +1,4 @@
-.PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps proof
+.PHONY: default all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps proof
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
 .PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-generated frontend-clean env objdir
 
@@ -132,6 +132,7 @@ RMDIR+=-v
 endif
 
 all: info bin include lib unit-test fuzz-test
+default: $$(notdir $$(filter %/bin/firedancer %/bin/firedancer-dev,$$(ALL_EXES)))
 
 # first prerequisite of bin, so every build-info job is walked before any exe
 .PHONY: buildinfo
@@ -164,7 +165,8 @@ help:
 	# SCRUB           = $(SCRUB)
 	# FUZZFLAGS       = $(FUZZFLAGS)
 	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
-	# Explicit goals are: all bin include lib unit-test integration-test help clean distclean asm ppp
+	# Explicit goals are: default all bin include lib unit-test integration-test help clean distclean asm ppp
+	# "make" (default) is equivalent to "make firedancer firedancer-dev"
 	# "make all" is equivalent to "make bin include lib unit-test fuzz-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make check" quickly checks for obvious compile errors
@@ -304,7 +306,7 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 # slowest objects first: make -j spawns in prerequisite order, so a slow TU
 # listed late runs alone in the tail; patterns under $(OBJDIR)/obj/, no .o
 SCHED_HOT_OBJS?=third_party/blst/% discof/replay/% discof/rpc/% disco/gui/% ballet/reedsol/% flamenco/vm/% third_party/zstd/lib/compress/% disco/pack/% waltz/quic/fd_quic app/firedancer/topology app/shared/commands/watch/% discof/forest/% discof/%_tile disco/%_tile flamenco/accdb/fd_accdb third_party/zstd/lib/decompress/% ballet/sha256/% ballet/sha512/% ballet/bn254/% flamenco/runtime/program/% ballet/ed25519/% third_party/bzip2/% flamenco/stakes/% util/math/fd_stat disco/events/% disco/topo/% ballet/blake3/% discof/chainer/% flamenco/rewards/% choreo/tower/% disco/shred/% \
-  waltz/http/fd_http_server flamenco/runtime/tests/fd_dump_pb ballet/x509/fd_x509 ballet/toml/fd_toml third_party/cjson/% ballet/zksdk/rangeproofs/% util/log/fd_log util/alloc/fd_alloc util/pod/fd_pod util/wksp/fd_wksp_restore_v2 util/shmem/fd_shmem_admin util/sandbox/fd_sandbox util/tpool/fd_tpool util/wksp/fd_wksp_helper util/wksp/fd_wksp_admin
+  waltz/http/fd_http_server flamenco/runtime/tests/fd_dump_pb ballet/x509/fd_x509 ballet/toml/fd_toml third_party/cjson/% ballet/zksdk/rangeproofs/% util/log/fd_log util/alloc/fd_alloc util/pod/fd_pod util/wksp/fd_wksp_restore_v2 util/shmem/fd_shmem_admin util/sandbox/fd_sandbox util/tpool/fd_tpool util/wksp/fd_wksp_helper util/wksp/fd_wksp_admin third_party/zstd/lib/common/%
 sched-hot-objs = $(filter $(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(lib))),$(SCHED_HOT_ALL))
 # make 4.3 second-expands every rule at parse: the exe-level hot edge stays on bins and
 # goal tests only; each meta gets one over its exes' lib union, declared first so it leads

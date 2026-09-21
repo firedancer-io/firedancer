@@ -46,20 +46,6 @@ fd_bn254_scalar_validate( fd_bn254_scalar_t const * s ) {
 }
 
 static inline fd_bn254_scalar_t *
-fd_bn254_scalar_from_mont( fd_bn254_scalar_t *       r,
-                           fd_bn254_scalar_t const * a ) {
-  fiat_bn254_scalar_from_montgomery( r->limbs, a->limbs );
-  return r;
-}
-
-static inline fd_bn254_scalar_t *
-fd_bn254_scalar_to_mont( fd_bn254_scalar_t *       r,
-                         fd_bn254_scalar_t const * a ) {
-  fiat_bn254_scalar_to_montgomery( r->limbs, a->limbs );
-  return r;
-}
-
-static inline fd_bn254_scalar_t *
 fd_bn254_scalar_add( fd_bn254_scalar_t *       r,
                      fd_bn254_scalar_t const * a,
                      fd_bn254_scalar_t const * b ) {
@@ -84,6 +70,20 @@ fd_bn254_scalar_sqr( fd_bn254_scalar_t *       r,
   return r;
 }
 
+static inline fd_bn254_scalar_t *
+fd_bn254_scalar_from_mont( fd_bn254_scalar_t *       r,
+                           fd_bn254_scalar_t const * a ) {
+  fiat_bn254_scalar_from_montgomery( r->limbs, a->limbs );
+  return r;
+}
+
+static inline fd_bn254_scalar_t *
+fd_bn254_scalar_to_mont( fd_bn254_scalar_t *       r,
+                         fd_bn254_scalar_t const * a ) {
+  fiat_bn254_scalar_to_montgomery( r->limbs, a->limbs );
+  return r;
+}
+
 #else
 
 FD_UINT256_FP_MUL_IMPL(fd_bn254_scalar, fd_bn254_const_r, fd_bn254_const_r_inv)
@@ -92,6 +92,32 @@ static inline fd_bn254_scalar_t *
 fd_bn254_scalar_sqr( fd_bn254_scalar_t *       r,
                      fd_bn254_scalar_t const * a ) {
   return fd_bn254_scalar_mul( r, a, a );
+}
+
+/* Montgomery conversions via scalar_mul rather than fiat's
+   from/to_montgomery (their literal limbs are slow to compile). */
+
+/* const 1. NOT Montgomery. mul(a, 1) = a*R^-1 = from_mont(a). */
+static const fd_bn254_scalar_t fd_bn254_scalar_const_one[1] = {{{
+  0x1UL, 0x0UL, 0x0UL, 0x0UL,
+}}};
+
+/* const R^2 mod r, R=2^256. mul(a, R^2) = a*R = to_mont(a).
+   0x0216d0b17f4e44a58c49833d53bb808553fe3ab1e35c59e31bb8e645ae216da7 */
+static const fd_bn254_scalar_t fd_bn254_scalar_const_rr[1] = {{{
+  0x1bb8e645ae216da7, 0x53fe3ab1e35c59e3, 0x8c49833d53bb8085, 0x0216d0b17f4e44a5,
+}}};
+
+static inline fd_bn254_scalar_t *
+fd_bn254_scalar_from_mont( fd_bn254_scalar_t *       r,
+                           fd_bn254_scalar_t const * a ) {
+  return fd_bn254_scalar_mul( r, a, fd_bn254_scalar_const_one );
+}
+
+static inline fd_bn254_scalar_t *
+fd_bn254_scalar_to_mont( fd_bn254_scalar_t *       r,
+                         fd_bn254_scalar_t const * a ) {
+  return fd_bn254_scalar_mul( r, a, fd_bn254_scalar_const_rr );
 }
 
 #endif
