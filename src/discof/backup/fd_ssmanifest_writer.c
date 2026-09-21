@@ -27,9 +27,11 @@
 
 fd_ssmanifest_writer_t *
 fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
-                           fd_bank_t *              bank ) {
+                           fd_bank_t *              bank,
+                           fd_pubkey_t const *      leader ) {
   enc->state       = STATE_BLOCKHASH_QUEUE;
   enc->bank        = bank;
+  enc->leader      = *leader;
   enc->epoch_idx   = 0;
   enc->epoch_cnt   = 0;
   enc->vote_cnt    = 0;
@@ -58,9 +60,10 @@ find_epoch_credits( fd_bank_t *          bank,
 #include "fd_ssmanifest_encoder.c"
 
 ulong
-fd_snap_manifest_serialized_sz( fd_bank_t * bank ) {
+fd_snap_manifest_serialized_sz( fd_bank_t *         bank,
+                                fd_pubkey_t const * leader ) {
   fd_ssmanifest_writer_t writer[1];
-  fd_ssmanifest_writer_init( writer, bank );
+  fd_ssmanifest_writer_init( writer, bank, leader );
   ulong sz = 0UL;
   for(;;) {
     ulong chunk = manifest_estimate( writer );

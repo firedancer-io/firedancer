@@ -279,7 +279,7 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
 
   seed_epoch_credits( bank );
 
-  ulong manifest_sz = fd_snap_manifest_serialized_sz( bank );
+  ulong manifest_sz = fd_snap_manifest_serialized_sz( bank, &identities[0] );
   FD_TEST( manifest_sz>0UL );
   FD_LOG_NOTICE(( "manifest serialized size: %lu", manifest_sz ));
 
@@ -298,7 +298,7 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
   uchar * chunk_buf = test_alloc( wksp, alignof(uchar), FD_SSMANIFEST_BUF_MIN );
 
   fd_ssmanifest_writer_t writer[1];
-  fd_ssmanifest_writer_init( writer, bank );
+  fd_ssmanifest_writer_init( writer, bank, &identities[0] );
   ulong total_written             = 0UL;
   ulong stake_delegations_len_off = ULONG_MAX;
   int   injected                  = 0;

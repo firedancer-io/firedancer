@@ -151,6 +151,7 @@ struct fd_snapmk {
 
   fd_banks_t *    banks;
   fd_bank_t *     bank;
+  fd_pubkey_t     leader; /* slot leader of bank */
   fd_txncache_t * txncache;
   fd_ssmanifest_writer_t manifest_writer[1];
   fd_txncache_writer_t   txncache_writer[1];
@@ -1089,7 +1090,7 @@ snapmk_tar_headers( fd_snapmk_t * ctx ) {
   memcpy( p, &meta, sizeof(fd_tar_meta_t) );
   p += sizeof(fd_tar_meta_t);
 
-  ctx->manifest_sz = fd_snap_manifest_serialized_sz( ctx->bank );
+  ctx->manifest_sz = fd_snap_manifest_serialized_sz( ctx->bank, &ctx->leader );
   fd_backup_tar_file_hdr( &meta, ctx->manifest_sz );
   fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/%lu", slot, slot );
   fd_tar_meta_set_chksum( &meta );
@@ -1767,7 +1768,8 @@ snap_start( fd_snapmk_t *                  ctx,
 
   /* misc */
 
-  fd_ssmanifest_writer_init( ctx->manifest_writer, bank );
+  ctx->leader = msg->leader;
+  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader );
 
   /* accdb cache/disk parsers */
 

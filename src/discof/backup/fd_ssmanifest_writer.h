@@ -9,6 +9,7 @@
 struct fd_ssmanifest_writer {
   uint        state;
   fd_bank_t * bank;
+  fd_pubkey_t leader; /* slot leader of the bank */
   uchar       epoch_idx;
   uchar       epoch_cnt;
   uint        vote_cnt;
@@ -22,11 +23,13 @@ typedef struct fd_ssmanifest_writer fd_ssmanifest_writer_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_ssmanifest_writer_init creates a new snapshot manifest writer.
+   leader is the slot leader of bank.
    Guaranteed to succeed for a valid bank. */
 
 fd_ssmanifest_writer_t *
 fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * writer,
-                           fd_bank_t *              bank );
+                           fd_bank_t *              bank,
+                           fd_pubkey_t const *      leader );
 
 /* fd_snap_manifest_serialize serializes up to buf_sz worth of snapshot
    manifest data into out_buf.  Returns the number of bytes written.
@@ -51,7 +54,8 @@ fd_snap_manifest_serialize( fd_ssmanifest_writer_t * enc,
    that fd_snap_manifest_serialize would produce for the given bank. */
 
 ulong
-fd_snap_manifest_serialized_sz( fd_bank_t * bank );
+fd_snap_manifest_serialized_sz( fd_bank_t *         bank,
+                                fd_pubkey_t const * leader );
 
 FD_PROTOTYPES_END
 
