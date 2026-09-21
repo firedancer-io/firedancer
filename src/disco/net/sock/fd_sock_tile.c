@@ -1,6 +1,5 @@
 #define _GNU_SOURCE /* dup3 */
 #include "fd_sock_tile_private.h"
-#include "../fd_net_common.h"
 #include "../../fd_disco_base.h"
 #include "../../../discof/repair/fd_repair.h"
 #include "../../topo/fd_topo.h"

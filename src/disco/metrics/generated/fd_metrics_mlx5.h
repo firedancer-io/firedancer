@@ -46,12 +46,12 @@ enum {
 
 #define FD_METRICS_COUNTER_MLX5_PKT_RX_MALFORMED_NAME "mlx5_pkt_rx_malformed"
 #define FD_METRICS_COUNTER_MLX5_PKT_RX_MALFORMED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_MLX5_PKT_RX_MALFORMED_DESC "Number of packets dropped because they exceeded the receive buffer or had malformed Ethernet, IPv4, or UDP headers."
+#define FD_METRICS_COUNTER_MLX5_PKT_RX_MALFORMED_DESC "Number of packets dropped because they were undersized, oversized, or had malformed Ethernet, IPv4, or UDP headers."
 #define FD_METRICS_COUNTER_MLX5_PKT_RX_MALFORMED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_MLX5_PKT_RX_ROUTE_FAIL_NAME "mlx5_pkt_rx_route_fail"
 #define FD_METRICS_COUNTER_MLX5_PKT_RX_ROUTE_FAIL_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_MLX5_PKT_RX_ROUTE_FAIL_DESC "Number of packets dropped because the destination UDP port could not be routed to an output link."
+#define FD_METRICS_COUNTER_MLX5_PKT_RX_ROUTE_FAIL_DESC "Number of packets dropped due to an incorrect destination IP or failed output link lookup."
 #define FD_METRICS_COUNTER_MLX5_PKT_RX_ROUTE_FAIL_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_MLX5_GRE_PKT_RX_NAME "mlx5_gre_pkt_rx"

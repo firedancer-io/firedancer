@@ -421,9 +421,10 @@ EXAMPLES
 </enum>
 
 <tile name="net">
-    <counter name="PktRx" summary="Packets received" />
-    <counter name="PktRxBytes" summary="Bytes received (including Ethernet header)" />
-    <counter name="PktRxUndersize" summary="Incoming packets dropped due to being too small" />
+    <counter name="PktRx" summary="Number of packets successfully published to output links" />
+    <counter name="PktRxBytes" summary="Number of bytes in packets successfully published to output links (including Ethernet header)" />
+    <counter name="PktRxMalformed" summary="Number of packets dropped because they were undersized, oversized, or had malformed Ethernet, IPv4, or UDP headers" />
+    <counter name="PktRxRouteFail" summary="Number of packets dropped due to an incorrect destination IP or failed output link lookup" />
     <counter name="PktRxFillRingFull" summary="Incoming packets dropped due to fill ring being full" />
     <counter name="PktRxBackpressure" summary="Incoming packets dropped due to backpressure" />
     <gauge name="RxBufferBusy" summary="Receive buffers currently busy" />
@@ -451,20 +452,19 @@ EXAMPLES
     <counter name="XdpTxRingEmpty" summary="Failed to retrieve item from tx ring because it was empty (xdp_statistics_v1.tx_ring_empty_descs)" />
 
     <!-- GRE metrics -->
-    <counter name="GrePktRx" summary="Valid GRE packets received" />
-    <counter name="GrePktRxInvalid" summary="Invalid GRE packets received" />
-    <counter name="GrePktRxIgnored" summary="GRE packets received but ignored" />
+    <counter name="GrePktRx" summary="Number of GRE packets successfully decapsulated and published" />
+    <counter name="GrePktRxInvalid" summary="Number of GRE packets dropped because the tunnel peer or headers were invalid" />
+    <counter name="GrePktRxIgnored" summary="Number of GRE packets ignored because no GRE tunnel is configured" />
     <counter name="GrePktTxSubmitted" summary="GRE packet transmit jobs submitted" />
     <counter name="GrePktTxNoRoute" summary="GRE packet transmit jobs dropped due to route failure" />
-    <counter name="PktRxSrcInvalid" summary="Incoming packets dropped due to invalid source IP address" />
     <gauge name="RouteCount" enum="RouteTable" summary="IPv4 routes installed in the forwarding table" />
 </tile>
 
 <tile name="mlx5">
     <counter name="PktRx" summary="Number of packets successfully published to output links." />
     <counter name="PktRxBytes" summary="Number of bytes in packets successfully published to output links (including Ethernet header)." />
-    <counter name="PktRxMalformed" summary="Number of packets dropped because they exceeded the receive buffer or had malformed Ethernet, IPv4, or UDP headers." />
-    <counter name="PktRxRouteFail" summary="Number of packets dropped because the destination UDP port could not be routed to an output link." />
+    <counter name="PktRxMalformed" summary="Number of packets dropped because they were undersized, oversized, or had malformed Ethernet, IPv4, or UDP headers." />
+    <counter name="PktRxRouteFail" summary="Number of packets dropped due to an incorrect destination IP or failed output link lookup." />
     <counter name="GrePktRx" summary="Number of GRE packets successfully decapsulated and published." />
     <counter name="GrePktRxInvalid" summary="Number of GRE packets dropped because the tunnel peer or headers were invalid." />
     <counter name="GrePktRxIgnored" summary="Number of GRE packets ignored because no GRE tunnel is configured." />
