@@ -6,9 +6,9 @@
    fd_snapin_tile_t contexts sharing one real snapin_shmem object, each
    driven frag by frag through returnable_frag/before_frag.  The accdb,
    ssparse and stem entry points the tile calls out to are mocked, so
-   what these tests pin is the tile's own protocol: the attempt-slot
-   gate, the eager-claim counter, the per-attempt resets, the FINI
-   malform gates and the FINI->totals fold. */
+   what these tests pin is the tile's own protocol: shared fork
+   publication, claim counter, per-attempt resets, FINI malform gates
+   and the FINI->totals fold. */
 
 #define _GNU_SOURCE
 #include "../../disco/stem/fd_stem.h"
@@ -476,6 +476,7 @@ sync_ctx_init( fd_snapin_tile_t * ctx,
   fd_memset( init_mem, 0, sizeof(init_mem) );
   ctx->shmem = (fd_snapin_shmem_t *)shmem_mem;
   fd_memset( ctx->shmem, 0, sizeof(fd_snapin_shmem_t) );
+  ctx->shmem->fork_id = (ulong)USHORT_MAX;
 
   ctx->state        = state;
   ctx->full         = 1;
@@ -573,6 +574,7 @@ test_cluster_new( ulong tile_cnt,
   FD_TEST( cl->shmem_mem );
   cl->shmem = (fd_snapin_shmem_t *)cl->shmem_mem;
   fd_memset( cl->shmem, 0, sizeof(fd_snapin_shmem_t) );
+  cl->shmem->fork_id = ULONG_MAX;
 
   cl->sd_mem = aligned_alloc( fd_slot_delta_parser_align(), fd_ulong_align_up( fd_slot_delta_parser_footprint(), fd_slot_delta_parser_align() ) );
   FD_TEST( cl->sd_mem );
@@ -1210,146 +1212,6 @@ test_frame_ordering( void ) {
   }
 }
 
-/* Attempt-slot gate ***************************************************/
-
-/* A worker holds data until tile 0 publishes the current attempt. */
-static void
-test_init_gate_holds_data( void ) {
-  test_cluster_t * cl = test_cluster_new( 2UL, 1UL );
-  test_counters_reset();
-  test_stream_init( 4UL );
-
-  fd_snapin_tile_t * ctx = &cl->ctx[ 1 ];
-
-  /* Keep a plausible fork ID in the stale attempt. */
-  FD_TEST( cl->shmem->attempt.number==0UL );
-  cl->shmem->attempt.fork_id = (ulong)USHORT_MAX;
-
-  for( ulong lane=0UL; lane<cl->lane_cnt; lane++ ) send_control( ctx, lane, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-
-  FD_TEST( ctx->attempt_number==1UL );
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
-  FD_TEST( ctx->waiting_for_tile0 );
-  FD_TEST( ctx->incr_fork==ULONG_MAX );
-  FD_TEST( !cl->shmem->next_appendvec_ticket );
-  FD_TEST( test_pub_cnt==1UL && test_pub_sig[ 0 ]==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-
-  test_cur_tile = ctx->tile_idx;
-  FD_TEST( before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_DATA )==-1 );
-  FD_TEST( ctx->waiting_for_tile0 );
-  FD_TEST( !cl->shmem->next_appendvec_ticket );
-  FD_TEST( !ctx->appendvec_seq );
-  FD_TEST( before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR )==0 );
-  FD_TEST( before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL  )==0 );
-
-  FD_VOLATILE( cl->shmem->attempt.fork_id ) = (ulong)USHORT_MAX;
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( cl->shmem->attempt.number ) = 1UL;
-
-  FD_TEST( tile_step( ctx )==0UL );
-  FD_TEST( !ctx->waiting_for_tile0 );
-  FD_TEST( ctx->incr_fork==(ulong)USHORT_MAX );
-  FD_TEST( cl->shmem->next_appendvec_ticket==2UL );  /* the eager claim, then its replacement */
-  FD_TEST( test_pub_cnt==1UL );             /* still just the INIT ack */
-
-  test_cluster_delete( cl );
-}
-
-/* An interrupted tile 0 INIT must not strand other workers. */
-static void
-test_init_aborted_barrier_retries( void ) {
-  ulong const n = 2UL;
-  ulong const T = 5UL;
-
-  test_cluster_t * cl = test_cluster_new( n, 2UL );
-  test_counters_reset();
-  test_stream_init( T );
-
-  fd_snapin_tile_t * t0 = &cl->ctx[ 0 ];
-  fd_snapin_tile_t * t1 = &cl->ctx[ 1 ];
-
-  /* Tile 1 completes its INIT barrier on both lanes. */
-  for( ulong lane=0UL; lane<cl->lane_cnt; lane++ ) send_control( t1, lane, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-  FD_TEST( t1->attempt_number==1UL );
-  FD_TEST( t1->waiting_for_tile0 );
-
-  /* Interrupt tile 0 before its INIT barrier completes. */
-  send_control( t0, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-  FD_TEST( t0->attempt_number==1UL );
-  FD_TEST( before_frag( t0, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR )==0 );
-  send_control( t0, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR );
-  FD_TEST( t0->state==FD_SNAPSHOT_STATE_ERROR );
-  FD_TEST( !t0->lead.init_completed );
-  FD_TEST( !cl->shmem->attempt.number );  /* attempt never published */
-
-  test_cur_tile = 1UL;
-  FD_TEST( before_frag( t1, 0UL, 0UL, FD_SNAPSHOT_MSG_DATA )==-1 );
-  FD_TEST( before_frag( t1, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR )==0 );
-  send_control( t1, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR );
-  FD_TEST( t1->state==FD_SNAPSHOT_STATE_ERROR );
-  FD_TEST( before_frag( t1, 0UL, 0UL, FD_SNAPSHOT_MSG_DATA )==1 );
-
-  /* Both tiles ack the FAIL. */
-  ulong pub0 = test_pub_cnt;
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FAIL );
-  FD_TEST( test_pub_cnt==pub0+n );
-  for( ulong i=pub0; i<test_pub_cnt; i++ ) FD_TEST( test_pub_sig[ i ]==FD_SNAPSHOT_MSG_CTRL_FAIL );
-  for( ulong t=0UL; t<n; t++ ) {
-    FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
-    FD_TEST( !cl->ctx[ t ].waiting_for_tile0 );
-  }
-  /* Tile 0 never initialized this attempt, so nothing rolls back. */
-  FD_TEST( !t0->lead.rollback.pending );
-
-  /* Retry: generation 2 is published and the load completes. */
-  test_counters_reset();
-  test_stream_init( T );
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-  FD_TEST( cl->shmem->attempt.number==2UL );
-  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].attempt_number==2UL );
-  FD_TEST( !t0->waiting_for_tile0 );
-  FD_TEST( t1->waiting_for_tile0 );
-
-  ulong owner[ TEST_AV_MAX ];
-  cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
-  for( ulong t=0UL; t<n; t++ ) FD_TEST( !cl->ctx[ t ].waiting_for_tile0 );
-
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
-  FD_TEST( cl->shmem->next_appendvec_ticket==T+n );
-
-  test_cluster_delete( cl );
-}
-
-/* The attempt slot left behind by an earlier attempt must not release
-   the gate: the retry compares generations, not a flag. */
-static void
-test_init_gate_rejects_stale_generation( void ) {
-  test_cluster_t * cl = test_cluster_new( 2UL, 1UL );
-  test_counters_reset();
-  test_stream_init( 4UL );
-
-  fd_snapin_tile_t * t1 = &cl->ctx[ 1 ];
-
-  /* Attempt 1 loads normally on tile 1 (tile 0 publishes generation 1). */
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-  FD_TEST( cl->shmem->attempt.number==1UL );
-  (void)tile_step( t1 );  /* the first data frag opens tile 1's gate */
-  FD_TEST( !t1->waiting_for_tile0 );
-
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FAIL );
-
-  /* Attempt 2: only tile 1's barrier completes.  The slot still holds
-     generation 1, which must NOT open the gate. */
-  for( ulong lane=0UL; lane<cl->lane_cnt; lane++ ) send_control( t1, lane, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-  FD_TEST( t1->attempt_number==2UL );
-  FD_TEST( cl->shmem->attempt.number==1UL );
-  test_cur_tile = 1UL;
-  FD_TEST( before_frag( t1, 0UL, 0UL, FD_SNAPSHOT_MSG_DATA )==-1 );
-  FD_TEST( t1->waiting_for_tile0 );
-
-  test_cluster_delete( cl );
-}
-
 /* Eager claim coverage ************************************************/
 
 /* Every appendvec in the stream is claimed by exactly one tile, no
@@ -1369,16 +1231,12 @@ test_eager_claim_coverage( void ) {
       test_stream_init( T );
 
       cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-      /* Only tile 0 claims at INIT (it publishes the slot its own gate
-         waits on); every other tile draws its claim when its first data
-         frag opens its gate. */
-      FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
-      FD_TEST( cl->ctx[ 0 ].claimed_appendvec==0UL );
-      for( ulong t=1UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].waiting_for_tile0 );
+      FD_TEST( !cl->shmem->next_appendvec_ticket );
+      for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].incr_fork==ULONG_MAX );
 
       ulong owner[ TEST_AV_MAX ];
       cluster_stream( cl, orders[ o_idx ], owner );
-      for( ulong t=0UL; t<n; t++ ) FD_TEST( !cl->ctx[ t ].waiting_for_tile0 );
+      for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].incr_fork==(ulong)USHORT_MAX );
 
       FD_TEST( test_appendvec_parse_cnt==T ); /* the parser was flipped exactly once per ordinal */
 
@@ -2339,7 +2197,7 @@ test_retry_resets( void ) {
   test_stream_init( T );
 
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
+  FD_TEST( !cl->shmem->next_appendvec_ticket );
 
   /* Partial walk: every tile gets three events in. */
   for( ulong step=0UL; step<3UL; step++ ) {
@@ -2377,10 +2235,8 @@ test_retry_resets( void ) {
   for( ulong t=0UL; t<n; t++ ) FD_TEST( !cl->ctx[ t ].writer.buf_used );
 
   FD_TEST( !cl->shmem->values[ FD_TOPO_MAX_TILE_IN_LINKS-1UL ].input_lamports );
-  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );   /* claim sequence restarted at 0 */
-  FD_TEST( cl->ctx[ 0 ].claimed_appendvec==0UL );
-  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].attempt_number==2UL );
-  for( ulong t=1UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].waiting_for_tile0 );
+  FD_TEST( !cl->shmem->next_appendvec_ticket );
+  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].incr_fork==ULONG_MAX );
 
   /* The retry covers every ordinal exactly once (cluster_stream would
      trip on a double claim). */
@@ -2531,8 +2387,8 @@ test_full_lifecycle_9_tiles( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
   FD_TEST( test_accdb_reset_cnt==1UL );
   FD_TEST( test_accdb_load_begin_cnt==1UL );
-  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
-  FD_TEST( cl->ctx[ 0 ].incr_fork==(ulong)USHORT_MAX );
+  FD_TEST( !cl->shmem->next_appendvec_ticket );
+  FD_TEST( cl->ctx[ 0 ].incr_fork==ULONG_MAX );
 
   cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].incr_fork==(ulong)USHORT_MAX );
@@ -2554,9 +2410,9 @@ test_full_lifecycle_9_tiles( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   FD_TEST( !test_accdb_reset_cnt );
   FD_TEST( test_accdb_attach_cnt==1UL );          /* child fork for the incremental writes */
-  FD_TEST( cl->shmem->attempt.fork_id==7UL );
-  FD_TEST( cl->ctx[ 0 ].incr_fork==7UL );
-  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
+  FD_TEST( cl->shmem->fork_id==7UL );
+  FD_TEST( cl->ctx[ 0 ].incr_fork==ULONG_MAX );
+  FD_TEST( !cl->shmem->next_appendvec_ticket );
 
   for( ulong step=0UL; step<4UL; step++ ) {
     for( ulong t=0UL; t<n; t++ ) (void)tile_step( &cl->ctx[ t ] );
@@ -2573,7 +2429,7 @@ test_full_lifecycle_9_tiles( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   FD_TEST( test_accdb_purge_cnt==1UL );                    /* failed fork purged */
   FD_TEST( test_accdb_revert_whead_cnt==1UL );
-  FD_TEST( cl->shmem->next_appendvec_ticket==1UL );
+  FD_TEST( !cl->shmem->next_appendvec_ticket );
 
   cluster_stream( cl, TEST_ORDER_REVERSE, owner );
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
@@ -2847,9 +2703,6 @@ main( int     argc,
 
   fd_wksp_delete_anonymous( wksp );
 
-  test_init_gate_holds_data();
-  test_init_aborted_barrier_retries();
-  test_init_gate_rejects_stale_generation();
   test_eager_claim_coverage();
   test_retry_resets();
   test_accumulator_fold();

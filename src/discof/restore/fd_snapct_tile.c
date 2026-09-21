@@ -147,6 +147,7 @@ struct fd_snapct_tile {
   long          deadline_nanos;
   int           flush_ack;
   int           flush_ack_cnt;
+  int           start_sent;
   fd_sspeer_t   peer;
 
   struct {
@@ -618,6 +619,7 @@ init_load( fd_snapct_tile_t *  ctx,
   fd_stem_publish( stem, ctx->out_ld.idx, full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR, ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), 0UL, 0UL, 0UL );
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->flush_ack = 0;
+  ctx->start_sent = 0;
   ctx->load_complete = 0;
 
   if( !file ) snapshot_output_prepare( ctx, full );
@@ -805,6 +807,18 @@ after_credit( fd_snapct_tile_t *  ctx,
   if( FD_LIKELY( ctx->predicted_incremental.pending ) ) {
     send_expected_slot( ctx, stem, ctx->predicted_incremental.slot );
     ctx->predicted_incremental.pending = 0;
+  }
+
+  /* Hold snapld until every feedback path acknowledges INIT, so no
+     DATA reaches a tile before its INIT completes. */
+  if( FD_UNLIKELY( !ctx->start_sent && !ctx->malformed &&
+                   ctx->flush_ack==ctx->flush_ack_cnt &&
+                   (ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE        ||
+                    ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP        ||
+                    ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ||
+                    ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP) ) ) {
+    fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, 0UL, 0UL, 0UL, 0UL, 0UL );
+    ctx->start_sent = 1;
   }
 
   /* Note: All state transitions should occur within this switch

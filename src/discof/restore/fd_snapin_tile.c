@@ -214,12 +214,8 @@ typedef struct fd_snapin_lead fd_snapin_lead_t;
 
 /* Shared state for parallel snapin tiles. */
 struct fd_snapin_shmem {
-  /* After each INIT, tile 0 publishes fork_id, then number.  Workers
-     wait for the matching number before processing. */
-  struct {
-    ulong number;
-    ulong fork_id;
-  } attempt;
+  /* Tile 0 publishes the accdb fork before acknowledging INIT. */
+  ulong fork_id;
 
   /* Per-tile attempt values. */
   struct __attribute__((aligned(128))) {
@@ -237,14 +233,12 @@ typedef struct fd_snapin_shmem fd_snapin_shmem_t;
 
 struct fd_snapin_tile {
   int  state;
-  uint full              : 1;  /* loading a full snapshot? */
-  uint waiting_for_tile0 : 1;
+  uint full : 1;  /* loading a full snapshot? */
 
   fd_snapin_lead_t lead;
 
   ulong tile_idx;           /* tile kind ID */
   ulong lane_cnt;
-  ulong attempt_number;
   ulong expected_frame;
   ulong pending_control;    /* control message expected from snapdc tiles */
   uchar control_seen[ FD_TOPO_MAX_TILE_IN_LINKS ];
@@ -1523,7 +1517,6 @@ reset_attempt_state( fd_snapin_tile_t * ctx ) {
   ctx->expected_frame         = 0UL;
   ctx->appendvec_seq          = 0UL;
   ctx->incr_fork              = ULONG_MAX;
-  ctx->waiting_for_tile0      = 0;
   ctx->writer.buf_used        = 0UL;
   ctx->writer.batch.cnt       = 0UL;
   ctx->staged.data_len        = 0UL;
@@ -1533,21 +1526,14 @@ reset_attempt_state( fd_snapin_tile_t * ctx ) {
   fd_ssparse_batch_enable( ctx->ssparse, 1 );
 }
 
-/* Other tiles wait for tile 0 to finish shared setup before processing
-   data.  Control messages are not blocked. */
-
 static void
 start_processing_attempt( fd_snapin_tile_t * ctx ) {
   FD_COMPILER_MFENCE();
-  FD_TEST( FD_VOLATILE_CONST( ctx->shmem->attempt.number )==ctx->attempt_number );
-  ctx->incr_fork = FD_VOLATILE_CONST( ctx->shmem->attempt.fork_id );
-  if( FD_UNLIKELY( ctx->full ? ctx->incr_fork!=(ulong)USHORT_MAX : ctx->incr_fork>=(ulong)USHORT_MAX ) ) {
-    FD_LOG_ERR(( "invalid attempt fork %lu (full=%d); this is a bug", ctx->incr_fork, (int)ctx->full ));
-  }
+  ctx->incr_fork = FD_VOLATILE_CONST( ctx->shmem->fork_id );
+  FD_TEST( ctx->full ? ctx->incr_fork==(ulong)USHORT_MAX : ctx->incr_fork<(ulong)USHORT_MAX );
 
   /* Claim before the first data fragment. */
   ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec_ticket, 1UL );
-  ctx->waiting_for_tile0 = 0;
 }
 
 static int
@@ -1621,7 +1607,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.incremental_bytes_read = 0UL;
       }
 
-      ctx->waiting_for_tile0 = 1;
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
       /* Roll back before publishing this attempt. */
@@ -1671,18 +1656,14 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_memcpy( ctx->lead.advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
       ctx->lead.init_completed = 1;
 
-      /* Reset shared state before publishing the attempt slot. */
+      /* Reset shared state before publishing the fork. */
       fd_memset( &ctx->shmem->values, 0, sizeof(ctx->shmem->values) );
       FD_VOLATILE( ctx->shmem->next_appendvec_ticket ) = 0UL;
       FD_COMPILER_MFENCE();
 
-      /* Publish last. Other tiles wait for this. */
-      FD_VOLATILE( ctx->shmem->attempt.fork_id ) = ctx->full ? (ulong)USHORT_MAX : (ulong)ctx->lead.accdb_incr_fork_id.val;
+      /* Publish before acknowledging INIT. */
+      FD_VOLATILE( ctx->shmem->fork_id ) = ctx->full ? (ulong)USHORT_MAX : (ulong)ctx->lead.accdb_incr_fork_id.val;
       FD_COMPILER_MFENCE();
-      FD_VOLATILE( ctx->shmem->attempt.number ) = ctx->attempt_number;
-
-      /* Tile 0 opens now. Other tiles open in before_frag. */
-      start_processing_attempt( ctx );
       break;
     }
 
@@ -1823,6 +1804,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       /* Defer rollback until the next INIT, which is triggered after
          all workers have sent their FAIL acks. */
       if( FD_UNLIKELY( is_lead( ctx ) ) ) {
+        FD_VOLATILE( ctx->shmem->fork_id ) = ULONG_MAX;
+        FD_COMPILER_MFENCE();
+
         /* Only a completed INIT has valid state to roll back. */
         if( FD_LIKELY( ctx->lead.init_completed ) ) {
           ctx->lead.rollback.pending = 1;
@@ -1892,14 +1876,6 @@ before_frag( fd_snapin_tile_t * ctx,
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) {
     /* Only accept DATA frags from the expected lane */
     if( FD_UNLIKELY( in_idx!=ctx->expected_frame%ctx->lane_cnt ) ) return -1;
-
-    if( FD_UNLIKELY( ctx->waiting_for_tile0 ) ) {
-      if( FD_UNLIKELY( FD_VOLATILE_CONST( ctx->shmem->attempt.number )!=ctx->attempt_number ) ) {
-        return -1;
-      }
-
-      start_processing_attempt( ctx );
-    }
   }
 
   return 0;
@@ -1912,6 +1888,10 @@ handle_lane_data_frag( fd_snapin_tile_t *  ctx,
                        ulong               chunk,
                        ulong               sz,
                        ulong               ctl ) {
+  if( FD_UNLIKELY( ctx->incr_fork==ULONG_MAX ) ) {
+    start_processing_attempt( ctx );
+  }
+
   /* EOM marks the end of a frame */
   int eom = !!fd_frag_meta_ctl_eom( ctl );
 
@@ -1947,11 +1927,6 @@ handle_control_barrier( fd_snapin_tile_t *  ctx,
     FD_TEST( ctx->pending_control==ULONG_MAX || sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
     clear_control_barrier( ctx );
     ctx->pending_control = sig;
-
-    /* Bump on the first INIT fragment, even if ERROR stops the barrier. */
-    if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL || sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) ) {
-      ctx->attempt_number++;
-    }
   }
 
   /* Only process the control frag when all upstream tiles have sent
@@ -2052,10 +2027,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tile_idx = tile->kind_id;
   if( FD_UNLIKELY( ctx->tile_idx>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "tile `" NAME "` has unsupported kind id %lu", tile->kind_id ));
 
-  ctx->full            = 1;
-  ctx->state           = FD_SNAPSHOT_STATE_IDLE;
-  ctx->lane_cnt        = tile->in_cnt;
-  ctx->attempt_number  = 0UL;
+  ctx->full     = 1;
+  ctx->state    = FD_SNAPSHOT_STATE_IDLE;
+  ctx->lane_cnt = tile->in_cnt;
   clear_control_barrier( ctx );
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
@@ -2185,7 +2159,9 @@ snapin_shmem_align( fd_topo_t const *     topo FD_PARAM_UNUSED,
 static void
 snapin_shmem_new( fd_topo_t const *     topo,
                   fd_topo_obj_t const * obj ) {
-  fd_memset( fd_topo_obj_laddr( topo, obj->id ), 0, sizeof(fd_snapin_shmem_t) );
+  fd_snapin_shmem_t * shmem = fd_topo_obj_laddr( topo, obj->id );
+  fd_memset( shmem, 0, sizeof(fd_snapin_shmem_t) );
+  shmem->fork_id = ULONG_MAX;
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_snapin_shmem = {

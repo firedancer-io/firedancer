@@ -35,6 +35,7 @@ typedef struct fd_snapld_tile {
   } config;
 
   int   state;
+  int   pipeline_ready;
   int   load_full;
   int   load_file;
   int   sent_meta;
@@ -191,7 +192,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
   ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
 
-  ctx->state            = FD_SNAPSHOT_STATE_IDLE;
+  ctx->state          = FD_SNAPSHOT_STATE_IDLE;
+  ctx->pipeline_ready = 0;
 
   ctx->download_speed_mibs = 0.0;
   ctx->bytes_in_batch      = 0UL;
@@ -281,6 +283,10 @@ after_credit( fd_snapld_tile_t *  ctx,
               int *               charge_busy ) {
   if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
     fd_log_sleep( (long)1e6 );
+    return;
+  }
+
+  if( FD_UNLIKELY( !ctx->pipeline_ready ) ) {
     return;
   }
 
@@ -478,6 +484,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->pipeline_ready = 0;
       FD_TEST( sz==sizeof(fd_ssctrl_init_t) && sz<=ctx->out_dc.mtu );
       fd_ssctrl_init_t const * msg_in = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
       ctx->load_full   = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
@@ -509,6 +516,13 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       break;
     }
 
+    case FD_SNAPSHOT_MSG_CTRL_START: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      ctx->pipeline_ready = 1;
+      forward_msg = 0;
+      break;
+    }
+
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       break;
@@ -532,6 +546,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       fd_sshttp_cancel( ctx->sshttp );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      ctx->pipeline_ready = 0;
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {

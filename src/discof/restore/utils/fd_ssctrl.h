@@ -36,7 +36,9 @@
      2. snapct initializes the pipeline by sending an INIT message.
         Each tile enters the PROCESSING state and then forwards the INIT
         message down the pipeline.  When snapct receives this INIT
-        message, the entire pipeline is in PROCESSING state.
+        message from every path, the entire pipeline is in PROCESSING
+        state.  snapct then sends START to snapld, which begins
+        producing snapshot data.
      3. Tiles continue to process data / frags as applicable.  If an
         error occurs, the tile enters the ERROR state and also sends an
         ERROR message downstream.  All downstream tiles also enter the
@@ -70,6 +72,8 @@
      - Control messages that apply to all states (except SHUTDOWN):
         On ERROR msg, always transition to ERROR.
         On FAIL msg, always transition to IDLE.
+     - START is sent only from snapct to snapld.  It is not forwarded
+       through the feedback loop and does not change snapld's state.
      - When in SHUTDOWN state, no data or control message is allowed.
      - Error handling:
         A tile that enters ERROR state on its own must forward an
@@ -87,10 +91,10 @@
         early, if it can detect end-of-stream.  The FINI message is
         used to synchronize the transition.
 
-   Each non-ERROR control message is only generated once in snapct
-   and will not be re-sent.  The pipeline will be locked on flushing
-   that control message until all tiles forward it on, or an ERROR
-   message is triggered by any of the tiles and forwarded. */
+   Each non-ERROR control message is only generated once in snapct and
+   will not be re-sent.  Except for START, the pipeline will be locked
+   on flushing that control message until all tiles forward it on, or an
+   ERROR message is triggered by any of the tiles and forwarded. */
 
 /* Snapshot data MTU and snapld-to-snapdc link depth. */
 #define FD_SNAPSHOT_DATA_DEPTH                 (1024UL)
@@ -112,15 +116,16 @@
 
 #define FD_SNAPSHOT_MSG_CTRL_INIT_FULL         (2UL) /* Pipeline should start processing a full snapshot */
 #define FD_SNAPSHOT_MSG_CTRL_INIT_INCR         (3UL) /* Pipeline should start processing an incremental snapshot */
-#define FD_SNAPSHOT_MSG_CTRL_FAIL              (4UL) /* Current snapshot failed, queue rollback and reset to idle */
-#define FD_SNAPSHOT_MSG_CTRL_NEXT              (5UL) /* Current snapshot succeeded, commit work, go idle, and expect another snapshot */
-#define FD_SNAPSHOT_MSG_CTRL_DONE              (6UL) /* Current snapshot succeeded, commit work, go idle, and expect shutdown */
-#define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* Snapshot load successful, no work left to do, perform final cleanup and shut down*/
-#define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
-#define FD_SNAPSHOT_MSG_CTRL_FINI              (9UL) /* Current snapshot has been fully loaded, finish processing */
+#define FD_SNAPSHOT_MSG_CTRL_START             (4UL) /* snapct -> snapld: all INIT paths acknowledged */
+#define FD_SNAPSHOT_MSG_CTRL_FAIL              (5UL) /* Current snapshot failed, queue rollback and reset to idle */
+#define FD_SNAPSHOT_MSG_CTRL_NEXT              (6UL) /* Current snapshot succeeded, commit work, go idle, and expect another snapshot */
+#define FD_SNAPSHOT_MSG_CTRL_DONE              (7UL) /* Current snapshot succeeded, commit work, go idle, and expect shutdown */
+#define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (8UL) /* Snapshot load successful, no work left to do, perform final cleanup and shut down*/
+#define FD_SNAPSHOT_MSG_CTRL_ERROR             (9UL) /* Some tile encountered an error with the current stream */
+#define FD_SNAPSHOT_MSG_CTRL_FINI             (10UL) /* Current snapshot has been fully loaded, finish processing */
 
 /* snapld -> snapct (via snapld_dc) */
-#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (10UL) /* snapld finished reading/downloading all data */
+#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (11UL) /* snapld finished reading/downloading all data */
 
 /* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */
@@ -190,6 +195,7 @@ fd_ssctrl_msg_ctrl_str( ulong sig ) {
     case FD_SNAPSHOT_MSG_META:                  return "meta";
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:        return "init_full";
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:        return "init_incr";
+    case FD_SNAPSHOT_MSG_CTRL_START:            return "start";
     case FD_SNAPSHOT_MSG_CTRL_FAIL:             return "fail";
     case FD_SNAPSHOT_MSG_CTRL_NEXT:             return "next";
     case FD_SNAPSHOT_MSG_CTRL_DONE:             return "done";
