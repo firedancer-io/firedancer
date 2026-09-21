@@ -8,6 +8,7 @@
    (CQs).  The mlx5 tile uses separate CQs for TX and RX, one each. */
 
 #include "../fd_net_tile.h"
+#include "../fd_net_tile_private.h"
 #include "fd_mlx5_private.h"
 
 #include <errno.h>
@@ -18,7 +19,6 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include "../fd_net_common.h"
 #include "../../metrics/fd_metrics.h"
 #include "../fd_net_router.h"
 #include "../fd_linux_bond.h"
@@ -39,12 +39,6 @@
 
 #include "generated/fd_mlx5_tile_seccomp.h"
 
-#define IN_KIND_NET     (0U)
-#define IN_KIND_IPROUTE (1U)
-
-/* Max number of flow rules */
-#define FD_MLX5_FLOW_CAP            (64UL)
-#define FD_MLX5_GRE_MAX             (4UL)
 #define FD_MLX5_TX_FLUSH_TIMEOUT_NS (20000L) /* 20us */
 #define FD_MLX5_LO_TX_TIMEOUT_NS    (500000L) /* 500us */
 
@@ -128,15 +122,10 @@ struct fd_mlx5_tile_rx_comp {
 };
 typedef struct fd_mlx5_tile_rx_comp fd_mlx5_tile_rx_comp_t;
 
-struct fd_mlx5_tile_input_ctx {
-  void * wksp_base;
-  ulong  chunk0;
-  ulong  wmark;
-};
-typedef struct fd_mlx5_tile_input_ctx fd_mlx5_tile_input_ctx_t;
-
 /* fd_mlx5_tile_t is private tile state */
 struct fd_mlx5_tile {
+  fd_net_tile_t net;
+
   fd_uverbs_ctx_t  uverbs;
   fd_mlx5_cq_t     rx_cq;
   fd_mlx5_cq_t     tx_cq;
@@ -148,8 +137,6 @@ struct fd_mlx5_tile {
   uint             prepared;
 
   uint batch_size; /* used for both SQ/RQ and TX/RX CQ batching */
-  uint net_tile_id;
-  uint net_tile_cnt;
 
   /* RQ batching */
   uint rq_pending_chunk[ FD_MLX5_BATCH_SIZE ];
@@ -170,39 +157,14 @@ struct fd_mlx5_tile {
   uchar              lo_tx_buf [ FD_MLX5_BATCH_SIZE ][ FD_NET_MTU ];
 
   /* Packet buffer addressing */
-  uchar * pkt_buf_wksp_base;
-  uint    pkt_buf_chunk0;   /* lowest allowed chunk number */
-  uint    pkt_buf_wmark;    /* highest allowed chunk number */
   uint *  sq_wqe_buf_chunk; /* maps SQ WQEs to packet buffers */
-
-  /* TX input links */
-  fd_mlx5_tile_input_ctx_t input_ctx[ FD_TOPO_MAX_TILE_IN_LINKS ];
-  uchar                    in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
-  fd_iproute_msg_t         iproute_msg; /* route update staged between Stem callbacks */
 
   /* TX IP routing */
   fd_net_router_t   router;
   fd_net_tx_route_t tx_route;
 
-  /* RX UDP destination port to RX out link */
-  uint   dst_port_cnt;
-  ushort dst_ports[ FD_MLX5_FLOW_CAP ];
-  uchar  dst_protos[ FD_MLX5_FLOW_CAP ];
-  uchar  dst_out_idx[ FD_MLX5_FLOW_CAP ];
-  uchar  repair_out_idx;
-  uint   gre_tunnel_ip[ FD_MLX5_GRE_MAX ];
-
-  uchar rx_out_cnt; /* number of out links */
-
   /* Metric tracking */
   struct {
-    ulong rx_pkt_cnt;
-    ulong rx_bytes_total;
-    ulong rx_malformed_cnt;
-    ulong rx_route_fail_cnt;
-    ulong rx_gre_cnt;
-    ulong rx_gre_invalid_cnt;
-    ulong rx_gre_ignored_cnt;
     ulong tx_pkt_cnt;
     ulong tx_bytes_total;
     ulong tx_no_buffer_cnt;
@@ -393,7 +355,7 @@ fd_mlx5_hw_post_send( fd_mlx5_tile_t * ctx,
   ulong const frame_iova = (ulong)chunk<<FD_CHUNK_LG_SZ;
   fd_mlx5_tx_wqe_t * wqe = tx_qp->sq+(sq_idx & (tx_qp->tx_depth-1U));
   if( FD_UNLIKELY( !fd_mlx5_hw_init_tx_wqe( wqe, sq_idx, tx_qp->qpn,
-                                            fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk ), frame_iova, frame_sz,
+                                            fd_chunk_to_laddr( ctx->net.pkt_buf_wksp_base, chunk ), frame_iova, frame_sz,
                                             ctx->lkey, tx_qp->tx_inline_hdr_sz ) ) ) {
     errno = EINVAL;
     return -1;
@@ -565,160 +527,6 @@ fd_mlx5_tile_rx_recycle( fd_mlx5_tile_t * ctx,
 }
 
 static inline int
-fd_mlx5_tile_rx_dst_port_lookup( fd_mlx5_tile_t const * ctx,
-                                 ushort                 net_dport,
-                                 ulong                  frame_sz,
-                                 ulong *                out_idx,
-                                 ulong *                dst_proto ) {
-  ulong rule_idx = ULONG_MAX;
-  for( ulong i=0UL; i<ctx->dst_port_cnt; i++ ) {
-    if( ctx->dst_ports[ i ]==net_dport ) {
-      rule_idx = i;
-      break;
-    }
-  }
-  if( FD_UNLIKELY( rule_idx==ULONG_MAX ) ) return 0;
-
-  *out_idx   = ctx->dst_out_idx[ rule_idx ];
-  *dst_proto = ctx->dst_protos [ rule_idx ];
-  if( FD_UNLIKELY( *dst_proto==DST_PROTO_REPAIR ) ) {
-    ulong const max_hdr_sz     = sizeof(fd_eth_hdr_t) + 15UL*4UL /* max IHL */ + sizeof(fd_udp_hdr_t);
-    ulong const min_payload_sz = frame_sz>max_hdr_sz ? frame_sz-max_hdr_sz : 0UL;
-    if( FD_UNLIKELY( min_payload_sz<=AG_REPAIR_RESPONSE_MAX_SZ ) ) {
-      if( FD_UNLIKELY( ctx->repair_out_idx==UCHAR_MAX ) ) return 0;
-      *out_idx = ctx->repair_out_idx;
-    }
-  }
-  return *out_idx<ctx->rx_out_cnt;
-}
-
-/* fd_mlx5_tile_rx_pkt validates and publishes an RX packet.  It returns
-   whether publication succeeded and sets freed_chunk to a reusable buffer. */
-static inline int
-fd_mlx5_tile_rx_pkt( fd_mlx5_tile_t *    ctx,
-                     fd_stem_context_t * stem,
-                     ulong               chunk,
-                     ulong               byte_len,
-                     ulong               tspub,
-                     ulong *             freed_chunk ) {
-  *freed_chunk = chunk;
-
-  ulong const min_udp_frame_sz = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t);
-  if( FD_UNLIKELY( byte_len<min_udp_frame_sz || byte_len>FD_NET_MTU ) ) {
-    ctx->metrics.rx_malformed_cnt++;
-    return 0;
-  }
-
-  uchar * frame = fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk );
-  fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)frame;
-  if( FD_UNLIKELY( fd_ushort_bswap( eth_hdr->net_type )!=FD_ETH_HDR_TYPE_IP ) ) {
-    ctx->metrics.rx_malformed_cnt++;
-    return 0;
-  }
-
-  fd_ip4_hdr_t * ip4_hdr = (fd_ip4_hdr_t *)(eth_hdr+1);
-  ulong ip4_hdr_sz = FD_IP4_GET_LEN( *ip4_hdr );
-  ulong ip4_total_sz = fd_ushort_bswap( ip4_hdr->net_tot_len );
-  if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 || ip4_hdr_sz<sizeof(fd_ip4_hdr_t) ) ) {
-    ctx->metrics.rx_malformed_cnt++;
-    return 0;
-  }
-  if( FD_UNLIKELY( ip4_total_sz<ip4_hdr_sz ||
-                   sizeof(fd_eth_hdr_t)+ip4_total_sz>byte_len ) ) {
-    ctx->metrics.rx_malformed_cnt++;
-    return 0;
-  }
-
-  ulong ctl = 0UL;
-  int is_gre = ip4_hdr->protocol==FD_IP4_HDR_PROTOCOL_GRE;
-  if( FD_UNLIKELY( is_gre ) ) {
-    if( FD_UNLIKELY( !ctx->gre_tunnel_ip[0] ) ) {
-      ctx->metrics.rx_gre_ignored_cnt++;
-      return 0;
-    }
-
-    int tunnel_found = 0;
-    for( ulong i=0UL; i<FD_MLX5_GRE_MAX; i++ ) tunnel_found |= ip4_hdr->saddr==ctx->gre_tunnel_ip[ i ];
-    ulong const overhead = ip4_hdr_sz+sizeof(fd_gre_hdr_t);
-    if( FD_UNLIKELY( !tunnel_found || !ip4_hdr->saddr ||
-                     overhead+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)>ip4_total_sz ) ) {
-      ctx->metrics.rx_gre_invalid_cnt++;
-      return 0;
-    }
-
-    fd_gre_hdr_t const * gre_hdr = (fd_gre_hdr_t const *)((uchar *)ip4_hdr+ip4_hdr_sz);
-    if( FD_UNLIKELY( gre_hdr->flags_version!=FD_GRE_HDR_FLG_VER_BASIC ||
-                     gre_hdr->protocol!=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) {
-      ctx->metrics.rx_gre_invalid_cnt++;
-      return 0;
-    }
-
-    frame += overhead;
-    fd_memcpy( frame, eth_hdr, sizeof(fd_eth_hdr_t) );
-
-    byte_len    -= overhead;
-    ctl          = overhead;
-    eth_hdr      = (fd_eth_hdr_t *)frame;
-    ip4_hdr      = (fd_ip4_hdr_t *)(eth_hdr+1);
-    ip4_hdr_sz   = FD_IP4_GET_LEN( *ip4_hdr );
-    ip4_total_sz = fd_ushort_bswap( ip4_hdr->net_tot_len );
-  }
-
-  if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4_hdr )!=4 ||
-                   ip4_hdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ||
-                   ip4_hdr_sz<sizeof(fd_ip4_hdr_t) || ip4_total_sz<ip4_hdr_sz ||
-                   sizeof(fd_eth_hdr_t)+ip4_total_sz>byte_len ) ) {
-    ctx->metrics.rx_malformed_cnt++;
-    return 0;
-  }
-  if( FD_UNLIKELY( ctx->router.bind_address && ip4_hdr->daddr!=ctx->router.bind_address ) ) {
-    ctx->metrics.rx_route_fail_cnt++;
-    return 0;
-  }
-
-  ulong const udp_off   = sizeof(fd_eth_hdr_t)+ip4_hdr_sz;
-  ulong const dgram_off = udp_off+sizeof(fd_udp_hdr_t);
-  if( FD_UNLIKELY( dgram_off>byte_len ) ) {
-    ctx->metrics.rx_malformed_cnt++;
-    return 0;
-  }
-
-  fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)((uchar const *)eth_hdr+udp_off);
-  ulong const          udp_sz  = fd_ushort_bswap( udp_hdr->net_len );
-  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) || udp_sz>ip4_total_sz-ip4_hdr_sz ||
-                   fd_ip4_addr_is_mcast( ip4_hdr->saddr ) ) ) {
-    ctx->metrics.rx_malformed_cnt++;
-    return 0;
-  }
-
-  ushort const dst_port = fd_ushort_bswap( udp_hdr->net_dport );
-  ulong out_idx;
-  ulong dst_proto;
-  if( FD_UNLIKELY( !fd_mlx5_tile_rx_dst_port_lookup( ctx, dst_port, byte_len, &out_idx, &dst_proto ) ) ) {
-    ctx->metrics.rx_route_fail_cnt++;
-    return 0;
-  }
-
-  fd_frag_meta_t * mcache = stem->mcaches[ out_idx ];
-  ulong const      depth  = stem->depths [ out_idx ];
-  ulong const      seq    = stem->seqs[ out_idx ];
-
-  *freed_chunk = mcache[ fd_mcache_line_idx( seq, depth ) ].chunk;
-
-  ushort const src_port = fd_ushort_bswap( udp_hdr->net_sport );
-  ulong const  sig      = fd_disco_netmux_sig( ip4_hdr->saddr, src_port, ip4_hdr->saddr, dst_proto, dgram_off );
-  ulong const  tsorig   = 0UL;
-
-  fd_stem_publish( stem, out_idx, sig, chunk, byte_len, ctl, tsorig, tspub );
-
-  ctx->metrics.rx_gre_cnt += (ulong)is_gre;
-  ctx->metrics.rx_pkt_cnt++;
-  ctx->metrics.rx_bytes_total += byte_len;
-
-  return 1;
-}
-
-static inline int
 fd_mlx5_tile_poll_rx( fd_mlx5_tile_t *    ctx,
                       fd_stem_context_t * stem ) {
   fd_mlx5_tile_rx_comp_t comp[ FD_MLX5_BATCH_SIZE ];
@@ -733,19 +541,19 @@ fd_mlx5_tile_poll_rx( fd_mlx5_tile_t *    ctx,
 
   for( uint i=0U; i<(uint)comp_cnt; i++ ) {
     ulong const chunk = comp[ i ].chunk;
-    if( FD_UNLIKELY( chunk<ctx->pkt_buf_chunk0 || chunk>ctx->pkt_buf_wmark ) ) {
-      FD_LOG_CRIT(( "RX completion chunk %lu out of bounds [%u,%u]", chunk, ctx->pkt_buf_chunk0, ctx->pkt_buf_wmark ));
+    if( FD_UNLIKELY( chunk<ctx->net.pkt_buf_chunk0 || chunk>ctx->net.pkt_buf_wmark ) ) {
+      FD_LOG_CRIT(( "RX completion chunk %lu out of bounds [%lu,%lu]", chunk, ctx->net.pkt_buf_chunk0, ctx->net.pkt_buf_wmark ));
     }
-    __builtin_prefetch( fd_chunk_to_laddr_const( ctx->pkt_buf_wksp_base, chunk ), 0, 3 );
+    __builtin_prefetch( fd_chunk_to_laddr_const( ctx->net.pkt_buf_wksp_base, chunk ), 0, 3 );
   }
 
   for( uint i=0U; i<(uint)comp_cnt; i++ ) {
     ulong freed_chunk;
     if( FD_UNLIKELY( comp[ i ].opcode==FD_MLX5_CQE_OP_RX_ERR ) ) {
-      ctx->metrics.rx_malformed_cnt++;
+      ctx->net.metrics.rx_malformed_cnt++;
       freed_chunk = comp[ i ].chunk;
     } else {
-      fd_mlx5_tile_rx_pkt( ctx, stem, comp[ i ].chunk, comp[ i ].byte_len, tspub, &freed_chunk );
+      fd_net_rx_pkt( &ctx->net, stem, comp[ i ].chunk, comp[ i ].byte_len, tspub, &freed_chunk );
     }
     if( FD_UNLIKELY( !freed_chunk ) ) FD_LOG_CRIT(( "invalid chunk in mcache" ));
     fd_mlx5_tile_rx_recycle( ctx, freed_chunk );
@@ -863,16 +671,16 @@ before_frag( fd_mlx5_tile_t * ctx,
              ulong            seq,
              ulong            sig ) {
   (void)seq;
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_IPROUTE ) ) return 0;
+  if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) return 0;
 
   /* Resolve the TX route for outgoing packets */
   ulong dst_proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( dst_proto!=DST_PROTO_OUTGOING ) ) return 1;
 
-  uint const hash        = (uint)fd_disco_netmux_sig_hash( sig );
-  uint       target_idx  = hash % ctx->net_tile_cnt;
-  uint const net_tile_id = ctx->net_tile_id;
-  if( net_tile_id!=0U && net_tile_id!=target_idx ) return 1;
+  ulong const hash        = fd_disco_netmux_sig_hash( sig );
+  ulong       target_idx  = hash % ctx->net.net_tile_cnt;
+  ulong const net_tile_id = ctx->net.net_tile_id;
+  if( net_tile_id!=0UL && net_tile_id!=target_idx ) return 1;
 
   uint dst_ip = fd_disco_netmux_sig_ip( sig );
   if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, dst_ip, &ctx->tx_route ) ) ) return 1;
@@ -895,7 +703,7 @@ before_frag( fd_mlx5_tile_t * ctx,
     ctx->tx_route.use_gre          = 1U;
   }
 
-  if( ctx->tx_route.use_loopback ) target_idx = 0U;
+  if( ctx->tx_route.use_loopback ) target_idx = 0UL;
   if( net_tile_id!=target_idx ) return 1;
 
   /* Drop the packet if no SQ WQE is available. */
@@ -919,15 +727,15 @@ during_frag( fd_mlx5_tile_t * ctx,
              ulong            frame_sz,
              ulong            ctl ) {
   (void)seq; (void)sig; (void)ctl;
-  fd_mlx5_tile_input_ctx_t * input_ctx = &ctx->input_ctx[ in_idx ];
+  fd_net_in_dcache_ctx_t * input_ctx = &ctx->net.in_dcache_ctx[ in_idx ];
 
   if( FD_UNLIKELY( chunk<input_ctx->chunk0 || chunk>input_ctx->wmark || frame_sz>FD_NET_MTU ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, frame_sz, input_ctx->chunk0, input_ctx->wmark ));
   }
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_IPROUTE ) ) {
+  if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) {
     if( FD_UNLIKELY( frame_sz!=sizeof(fd_iproute_msg_t) ) ) FD_LOG_ERR(( "invalid iproute message size %lu", frame_sz ));
-    fd_memcpy( &ctx->iproute_msg, fd_chunk_to_laddr_const( input_ctx->wksp_base, chunk ), sizeof(fd_iproute_msg_t) );
+    fd_memcpy( &ctx->net.iproute_msg, fd_chunk_to_laddr_const( input_ctx->wksp_base, chunk ), sizeof(fd_iproute_msg_t) );
     return;
   }
 
@@ -942,7 +750,7 @@ during_frag( fd_mlx5_tile_t * ctx,
   /* Speculatively copy frame into buffer */
   uchar const * src       = fd_chunk_to_laddr_const( input_ctx->wksp_base, chunk );
   ulong         dst_chunk = fd_mlx5_tile_tx_chunk( ctx, ctx->tx_qp.sq_prod );
-  uchar *       dst       = fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, dst_chunk );
+  uchar *       dst       = fd_chunk_to_laddr( ctx->net.pkt_buf_wksp_base, dst_chunk );
   if( FD_UNLIKELY( ctx->tx_route.use_gre ) ) {
     ulong const inner_ip_off = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t);
     fd_memcpy( dst+offsetof(fd_eth_hdr_t, net_type), src+offsetof(fd_eth_hdr_t, net_type), sizeof(ushort)                );
@@ -964,8 +772,8 @@ after_frag( fd_mlx5_tile_t *    ctx,
             fd_stem_context_t * stem ) {
   (void)seq; (void)sig; (void)tsorig; (void)tspub;
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_IPROUTE ) ) {
-    fd_iproute_msg_t const * msg = &ctx->iproute_msg;
+  if( FD_UNLIKELY( ctx->net.in_kind[ in_idx ]==FD_NET_IN_KIND_IPROUTE ) ) {
+    fd_iproute_msg_t const * msg = &ctx->net.iproute_msg;
     if( msg->op==FD_IPROUTE_OP_FLUSH ) {
       fd_fib4_clear( ctx->router.fib_local );
       fd_fib4_clear( ctx->router.fib_main );
@@ -987,7 +795,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
   }
 
   ulong   chunk       = fd_mlx5_tile_tx_chunk( ctx, ctx->tx_qp.sq_prod );
-  uchar * frame       = fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk );
+  uchar * frame       = fd_chunk_to_laddr( ctx->net.pkt_buf_wksp_base, chunk );
   ulong   tx_frame_sz = frame_sz;
   int fill_result;
 
@@ -1066,7 +874,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
     int owned = 0;
     if( !ctx->router.bind_address || ctx->router.bind_address==ip4->daddr ) {
       ushort const dst_port = fd_ushort_bswap( udp->net_dport );
-      for( uint i=0U; i<ctx->dst_port_cnt; i++ ) owned |= ctx->dst_ports[ i ]==dst_port;
+      for( ulong i=0UL; i<ctx->net.dst_port_cnt; i++ ) owned |= ctx->net.dst_ports[ i ]==dst_port;
     }
     if( !owned ) {
       fd_mlx5_tile_lo_tx_enqueue( ctx, ip4, ip_sz );
@@ -1074,7 +882,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
     }
 
     ulong freed_chunk;
-    if( fd_mlx5_tile_rx_pkt( ctx, stem, chunk, frame_sz, (ulong)fd_frag_meta_ts_comp( fd_tickcount() ), &freed_chunk ) ) {
+    if( fd_net_rx_pkt( &ctx->net, stem, chunk, frame_sz, (ulong)fd_frag_meta_ts_comp( fd_tickcount() ), &freed_chunk ) ) {
       ctx->sq_wqe_buf_chunk[ ctx->tx_qp.sq_prod & (ctx->tx_qp.tx_depth-1U) ] = (uint)freed_chunk;
     }
     ctx->metrics.tx_pkt_cnt++;
@@ -1105,13 +913,13 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
   ulong const tx_buffer_busy_cnt = fd_ulong_min( (ulong)(tx_qp->sq_prod-tx_qp->sq_cons), tx_qp->tx_depth );
   ulong const tx_buffer_idle_cnt = tx_qp->tx_depth-tx_buffer_busy_cnt;
 
-  FD_MCNT_SET(   MLX5, PKT_RX,             ctx->metrics.rx_pkt_cnt           );
-  FD_MCNT_SET(   MLX5, PKT_RX_BYTES,       ctx->metrics.rx_bytes_total       );
-  FD_MCNT_SET(   MLX5, PKT_RX_MALFORMED,   ctx->metrics.rx_malformed_cnt     );
-  FD_MCNT_SET(   MLX5, PKT_RX_ROUTE_FAIL,  ctx->metrics.rx_route_fail_cnt    );
-  FD_MCNT_SET(   MLX5, GRE_PKT_RX,         ctx->metrics.rx_gre_cnt           );
-  FD_MCNT_SET(   MLX5, GRE_PKT_RX_INVALID, ctx->metrics.rx_gre_invalid_cnt   );
-  FD_MCNT_SET(   MLX5, GRE_PKT_RX_IGNORED, ctx->metrics.rx_gre_ignored_cnt   );
+  FD_MCNT_SET(   MLX5, PKT_RX,             ctx->net.metrics.rx_pkt_cnt           );
+  FD_MCNT_SET(   MLX5, PKT_RX_BYTES,       ctx->net.metrics.rx_bytes_total       );
+  FD_MCNT_SET(   MLX5, PKT_RX_MALFORMED,   ctx->net.metrics.rx_malformed_cnt     );
+  FD_MCNT_SET(   MLX5, PKT_RX_ROUTE_FAIL,  ctx->net.metrics.rx_route_fail_cnt    );
+  FD_MCNT_SET(   MLX5, GRE_PKT_RX,         ctx->net.metrics.rx_gre_cnt           );
+  FD_MCNT_SET(   MLX5, GRE_PKT_RX_INVALID, ctx->net.metrics.rx_gre_invalid_cnt   );
+  FD_MCNT_SET(   MLX5, GRE_PKT_RX_IGNORED, ctx->net.metrics.rx_gre_ignored_cnt   );
   FD_MGAUGE_SET( MLX5, RX_BUFFER_BUSY,     rx_buffer_busy_cnt                );
   FD_MGAUGE_SET( MLX5, RX_BUFFER_IDLE,     rx_buffer_idle_cnt                );
 
@@ -1130,12 +938,12 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
 
 static void
 fd_mlx5_tile_gre_tunnels_refresh( fd_mlx5_tile_t * ctx ) {
-  fd_memset( ctx->gre_tunnel_ip, 0, sizeof(ctx->gre_tunnel_ip) );
+  fd_memset( ctx->net.gre_tunnel_ip, 0, sizeof(ctx->net.gre_tunnel_ip) );
   ulong tunnel_cnt = 0UL;
-  for( ushort i=0U; i<ctx->router.netdev_tbl.hdr->dev_cnt && tunnel_cnt<FD_MLX5_GRE_MAX; i++ ) {
+  for( ushort i=0U; i<ctx->router.netdev_tbl.hdr->dev_cnt && tunnel_cnt<FD_NET_GRE_MAX; i++ ) {
     fd_netdev_t const * netdev = ctx->router.netdev_tbl.dev_tbl+i;
     if( netdev->dev_type==ARPHRD_IPGRE && netdev->gre_dst_ip ) {
-      ctx->gre_tunnel_ip[ tunnel_cnt++ ] = netdev->gre_dst_ip;
+      ctx->net.gre_tunnel_ip[ tunnel_cnt++ ] = netdev->gre_dst_ip;
     }
   }
 }
@@ -1253,64 +1061,6 @@ fd_mlx5_tile_fib4_join( fd_fib4_t *            out,
   return fd_fib4_join( out, main_table ? main_mem : local_mem );
 }
 
-/* fd_mlx5_tile_rx_dst_port_add maps an IPv4 UDP destination port to the
-   output link with the requested name and tile kind.  Published fragments
-   encode dst_proto in their netmux signatures. */
-static void
-fd_mlx5_tile_rx_dst_port_add( fd_mlx5_tile_t *       ctx,
-                              fd_topo_t const *      topo,
-                              fd_topo_tile_t const * tile,
-                              ulong                  dst_proto,
-                              char const *           out_link,
-                              ushort                 dst_port,
-                              int                    required ) {
-  if( FD_UNLIKELY( !dst_port ) ) return;
-  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, out_link, tile->kind_id );
-
-  if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
-    if( FD_UNLIKELY( required ) ) {
-      FD_LOG_ERR(( "mlx5 output link `%s` is missing for UDP port %hu", out_link, dst_port ));
-    }
-    return;
-  }
-
-  if( FD_UNLIKELY( ctx->dst_port_cnt>=FD_MLX5_FLOW_CAP ) ) {
-    FD_LOG_ERR(( "mlx5 tile flow rule count exceeds max of %lu", FD_MLX5_FLOW_CAP ));
-  }
-
-  uint const rule_idx = ctx->dst_port_cnt;
-  ctx->dst_protos [ rule_idx ] = (uchar)dst_proto;
-  ctx->dst_ports  [ rule_idx ] = dst_port;
-  ctx->dst_out_idx[ rule_idx ] = (uchar)out_idx;
-  ctx->dst_port_cnt++;
-}
-
-static void
-fd_mlx5_tile_rx_dst_ports_init( fd_mlx5_tile_t *       ctx,
-                                fd_topo_t const *      topo,
-                                fd_topo_tile_t const * tile ) {
-  ctx->rx_out_cnt     = (uchar)tile->out_cnt;
-  ctx->repair_out_idx = UCHAR_MAX;
-
-  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->mlx5.net.legacy_transaction_listen_port, 1 );
-  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->mlx5.net.quic_transaction_listen_port,   1 );
-  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_SHRED,    "net_shred",  tile->mlx5.net.shred_listen_port,              1 );
-  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossvf", tile->mlx5.net.gossip_listen_port,             1 );
-  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->mlx5.net.repair_client_listen_port,      1 );
-  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_RSERVE,   "net_rserve", tile->mlx5.net.repair_serve_listen_port,       0 );
-  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_SEND,     "net_txsend", tile->mlx5.net.txsend_src_port,                1 );
-  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->mlx5.net.votor_quic_client_listen_port,  1 );
-  fd_mlx5_tile_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->mlx5.net.votor_quic_server_listen_port,  1 );
-
-  if( tile->mlx5.net.repair_client_listen_port ) {
-    ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "net_repair", tile->kind_id );
-    if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
-      FD_LOG_ERR(( "mlx5 output link `net_repair` is missing for repair pings" ));
-    }
-    ctx->repair_out_idx = (uchar)out_idx;
-  }
-}
-
 static void
 fd_mlx5_tile_packet_memory( fd_topo_t const *      topo,
                             fd_topo_tile_t const * tile,
@@ -1333,9 +1083,9 @@ fd_mlx5_tile_packet_memory( fd_topo_t const *      topo,
     FD_LOG_ERR(( "Calculated invalid packet buffer bounds [%lu,%lu]", pkt_buf_chunk0, pkt_buf_wmark ));
   }
 
-  ctx->pkt_buf_wksp_base = (uchar *)workspace_base;
-  ctx->pkt_buf_chunk0    = (uint)pkt_buf_chunk0;
-  ctx->pkt_buf_wmark     = (uint)pkt_buf_wmark;
+  ctx->net.pkt_buf_wksp_base = workspace_base;
+  ctx->net.pkt_buf_chunk0    = pkt_buf_chunk0;
+  ctx->net.pkt_buf_wmark     = pkt_buf_wmark;
   if( packet_memory    ) *packet_memory    = packet_dcache;
   if( packet_memory_sz ) *packet_memory_sz = frame_region_sz;
   if( packet_iova      ) *packet_iova      = (ulong)packet_dcache-(ulong)workspace_base;
@@ -1396,7 +1146,7 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
       .packet_memory_sz = packet_memory_sz,
       .packet_iova      = packet_iova,
     };
-    fd_mlx5_tile_rx_dst_ports_init( ctx, topo, tile );
+    fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
 
     if( !i ) {
       first_tile = tile;
@@ -1436,19 +1186,19 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
     ctxs[ i ]->prepared     = 1U;
   }
 
-  for( ulong flow_idx=0UL; flow_idx<first->dst_port_cnt; flow_idx++ ) {
+  for( ulong flow_idx=0UL; flow_idx<first->net.dst_port_cnt; flow_idx++ ) {
     if( FD_UNLIKELY( fd_uverbs_create_udp_flow( &first->uverbs, &first->outer_rss_qp,
                                                 first_tile->mlx5.net.bind_address,
-                                                first->dst_ports[ flow_idx ] ) ) ) {
+                                                first->net.dst_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     if( FD_UNLIKELY( fd_uverbs_create_gre_udp_flow( &first->uverbs, &first->gre_rss_qp,
                                                     first_tile->mlx5.net.bind_address,
-                                                    first->dst_ports[ flow_idx ] ) ) ) {
+                                                    first->net.dst_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_gre_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
-  FD_LOG_INFO(( "Installed %u direct mlx5 flow rules", 2U*first->dst_port_cnt ));
+  FD_LOG_INFO(( "Installed %lu direct mlx5 flow rules", 2UL*first->net.dst_port_cnt ));
 
   if( fds ) {
     fds->cmd_fd   = first->uverbs.cmd_fd;
@@ -1508,8 +1258,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->sq_flush_timeout_ticks = (long)( FD_MLX5_TX_FLUSH_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
   ctx->lo_tx_timeout_ticks    = (long)( FD_MLX5_LO_TX_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
   ctx->lo_tx_cnt              = 0U;
-  ctx->net_tile_id            = (uint)tile->kind_id;
-  ctx->net_tile_cnt           = (uint)fd_topo_tile_name_cnt( topo, tile->name );
+  ctx->net.net_tile_id        = tile->kind_id;
+  ctx->net.net_tile_cnt       = fd_topo_tile_name_cnt( topo, tile->name );
 
   void * netdev_tbl_local = FD_SCRATCH_ALLOC_APPEND( scratch, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
   void * fib_local_mem    = FD_SCRATCH_ALLOC_APPEND( scratch, fd_fib4_align(), fd_fib4_footprint( tile->mlx5.route_max, tile->mlx5.route_peer_max ) );
@@ -1517,13 +1267,13 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* chunk 0 is used as a sentinel value, so ensure actual chunk indices
      do not use that value. */
-  FD_TEST( ctx->pkt_buf_chunk0>0 );
+  FD_TEST( ctx->net.pkt_buf_chunk0>0UL );
 
   ctx->rq_pending_cnt = 0U;
 
   /* Post RQ WQEs */
   ulong frame_chunks = FD_NET_MTU>>FD_CHUNK_LG_SZ;
-  ulong next_chunk   = ctx->pkt_buf_chunk0;
+  ulong next_chunk   = ctx->net.pkt_buf_chunk0;
 
   FD_TEST( tile->mlx5.rx_queue_size>ctx->batch_size );
 
@@ -1549,21 +1299,21 @@ unprivileged_init( fd_topo_t const *      topo,
     next_chunk += frame_chunks;
   }
   /* Init TX */
-  if( FD_UNLIKELY( tile->in_cnt>FD_TOPO_MAX_TILE_IN_LINKS ) ) {
-    FD_LOG_ERR(( "mlx5 tile in link count %lu exceeds max of %lu", tile->in_cnt, FD_TOPO_MAX_TILE_IN_LINKS ));
+  if( FD_UNLIKELY( tile->in_cnt>FD_NET_IN_MAX ) ) {
+    FD_LOG_ERR(( "mlx5 tile in link count %lu exceeds max of %lu", tile->in_cnt, FD_NET_IN_MAX ));
   }
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     if( !strcmp( link->name, "iproute_out" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_IPROUTE;
+      ctx->net.in_kind[ i ] = FD_NET_IN_KIND_IPROUTE;
     } else {
-      ctx->in_kind[ i ] = IN_KIND_NET;
+      ctx->net.in_kind[ i ] = FD_NET_IN_KIND_TX;
       if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "mlx5 tile in link does not have a normal MTU" ));
     }
 
-    ctx->input_ctx[ i ].wksp_base = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    ctx->input_ctx[ i ].chunk0    = fd_dcache_compact_chunk0( ctx->input_ctx[ i ].wksp_base, link->dcache );
-    ctx->input_ctx[ i ].wmark     = fd_dcache_compact_wmark(  ctx->input_ctx[ i ].wksp_base, link->dcache, link->mtu );
+    ctx->net.in_dcache_ctx[ i ].wksp_base = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->net.in_dcache_ctx[ i ].chunk0    = fd_dcache_compact_chunk0( ctx->net.in_dcache_ctx[ i ].wksp_base, link->dcache );
+    ctx->net.in_dcache_ctx[ i ].wmark     = fd_dcache_compact_wmark(  ctx->net.in_dcache_ctx[ i ].wksp_base, link->dcache, link->mtu );
   }
 
   /* Join netbase objects */
@@ -1576,6 +1326,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
   fd_mlx5_tile_gre_tunnels_refresh( ctx );
   ctx->router.bind_address = tile->mlx5.net.bind_address;
+  ctx->net.bind_address    = tile->mlx5.net.bind_address;
 
   ulong neigh4_obj_id = tile->mlx5.neigh4_obj_id;
   ulong ele_max   = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.ele_max",   neigh4_obj_id );
@@ -1604,7 +1355,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   /* Check if all chunks are in bound */
-  if( FD_UNLIKELY( next_chunk>ctx->pkt_buf_wmark ) ) {
+  if( FD_UNLIKELY( next_chunk>ctx->net.pkt_buf_wmark ) ) {
     FD_LOG_ERR(( "dcache is too small (topology bug)" ));
   }
 
