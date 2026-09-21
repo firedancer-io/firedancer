@@ -1,0 +1,82 @@
+{
+    "name": "alpenglow_vote",
+    "id": 19,
+    "description": "An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we received the vote, or cast it if our_vote; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48",
+    "fields": {
+        "slot":                               { "type": "UInt64",        "compression": "Delta, ZSTD",       "description": "Which slot the vote is for." },
+        "block_id":                           { "type": "Hash",                                              "description": "Which block the vote is for (only for notar and notar_fallback, all zeros otherwise)." },
+        "voter_rank":                         { "type": "UInt16",        "compression": "T64, ZSTD",         "description": "Where the voter ranks in the slot's epoch (only if ranked, 65535 otherwise). Also marks their position in the Cert array" },
+        "voter_identity":                     { "type": "Pubkey",                                            "description": "Validator identity of the voter, looked up from voter_rank in the slot's epoch (all zeros if voter_rank is 65535)." },
+        "kind": {
+            "type": "LowCardinality(String)",
+            "description": "What kind of vote is this.",
+            "variants": {
+                "notar":          { "description": "Cast on the slot's first block once its parent is ready at a window start, or once we notarized its parent in the previous slot (Algorithm 2, Definition 15)." },
+                "final":          { "description": "Cast once the block we notarized has a notarization cert and we cast no skip or fallback vote in the slot (Algorithm 2, Definition 18). Names only the slot." },
+                "skip":           { "description": "Cast for every unvoted slot of the leader window on timeout (Definition 17), on SafeToNotar or SafeToSkip (Algorithm 1), a dead block or the crashed-leader timer. Names only the slot." },
+                "notar_fallback": { "description": "Cast on SafeToNotar. At most three per slot (Definition 12)." },
+                "skip_fallback":  { "description": "Cast on SafeToSkip. Names only the slot." }
+            }
+        },
+        "received_from_ip":                   { "type": "IPv6",                                              "description": "IPv4 address of the peer we received the vote from; ourselves if our_vote, stored as an IPv4-mapped IPv6 address (all zeros if unknown)." },
+        "received_from_identity":             { "type": "Pubkey",                                            "description": "Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). Not necessarily the voter; see voter_identity." },
+        "our_vote":                           { "type": "Bool",                                              "description": "Whether this is our own vote, which we store like any other; received_from_identity is then our identity." },
+        "broadcast_reason": {
+            "type": "LowCardinality(String)",
+            "description": "Why we cast the vote, based on the Alpenglow voting algorithm (not_broadcasted if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17.",
+            "variants": {
+                "not_broadcasted":        { "description": "Not our vote, so we did not broadcast it; see our_vote." },
+                "block_replayed":         { "description": "Replay completed the block normally, so we vote notar for it." },
+                "block_dead":             { "description": "Replay ruled the block dead, so we vote skip on the entire rest of the window containing this slot." },
+                "parent_ready":           { "description": "We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending." },
+                "block_notarized":        { "description": "We hold a notar cert for the block we voted notar for and cast no skip or fallback vote in the slot, so we vote final for it." },
+                "timeout":                { "description": "The slot's timeout fired with no vote cast in it, so we vote skip on the entire rest of the window containing this slot." },
+                "timeout_crashed_leader": { "description": "The window's crashed-leader timeout fired with no shred and no vote for its first slot, so we vote skip on every slot of the window." },
+                "safe_to_notar":          { "description": "No block but this one can be fast-finalized in the slot: notar votes for it reach 40% of stake, or 20% with skip votes bringing the total to 60%, and its parent is notar-fallback certified (Definition 16). Having voted skip or notar for another block in the slot, we vote notar-fallback for it and skip every unvoted slot of the window." },
+                "safe_to_skip":           { "description": "No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window." }
+            }
+        },
+        "broadcast_to": {
+            "type": "Array",
+            "description": "Who we sent the vote to, by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_vote, empty otherwise).",
+            "max_len": 2000,
+            "dynamic": true,
+            "element": {
+                "type": "Tuple",
+                "description": "The peer at this rank.",
+                "fields": {
+                    "identity": { "type": "Pubkey", "description": "Validator identity of the peer (all zeros if not sent)." },
+                    "ip":       { "type": "IPv6",   "description": "IPv4 address of the peer as an IPv4-mapped IPv6 address (all zeros if not sent)." },
+                    "port":     { "type": "UInt16", "description": "Port of the peer's Alpenglow QUIC endpoint (0 if not sent)." }
+                }
+            }
+        },
+        "processing_result": {
+            "type": "LowCardinality(String)",
+            "description": "What we did with the vote. unknown_peer and banned_peer are decided on the connection before the vote is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific validation.",
+            "variants": {
+                "unknown_peer":           { "description": "The connection had no known peer: we cleared its identity while closing it, or accepted it before we knew the epoch's validators." },
+                "banned_peer":            { "description": "The peer is banned for an earlier invalid signature or cert; connection closed." },
+                "shred_version_mismatch": { "description": "Signed under a different shred version than ours." },
+                "unranked_peer":          { "description": "The peer has no rank in the slot's epoch." },
+                "slot_too_old":           { "description": "The slot is more than eight slots behind our finality frontier, or in an earlier epoch we have no stake information for." },
+                "slot_too_new":           { "description": "The slot is beyond our look-ahead window, or in an epoch we have no stake information for." },
+                "slashable":              { "description": "Conflicts with a vote the peer already cast for the slot (Lemma 22, Definition 12)." },
+                "duplicate":              { "description": "We already stored this vote or one that covers it: notar and notar-fallback for one block, skip and skip-fallback (Definition 12); ignored." },
+                "ignored_redundant":      { "description": "We already hold a valid cert for the slot, or block, this vote would count toward; ignored." },
+                "accepted":               { "description": "Vote is accepted and next step is to aggregate (and broadcast, if our_vote)." }
+            }
+        },
+        "quorum_reached_safe_to_notar":       { "type": "Bool",                                              "description": "Notar votes for block_id reached 40% of stake, or 20% with skip votes bringing the total to 60% (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
+        "quorum_reached_safe_to_skip":        { "type": "Bool",                                              "description": "Skip votes plus notar votes for every block but the most-voted one reached 40% of stake (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
+        "quorum_reached_final_cert":          { "type": "Bool",                                              "description": "Final votes for the slot reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
+        "quorum_reached_fast_final_cert":     { "type": "Bool",                                              "description": "Notar votes for block_id reached 80% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
+        "quorum_reached_notar_cert":          { "type": "Bool",                                              "description": "Notar votes for block_id reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
+        "quorum_reached_notar_fallback_cert": { "type": "Bool",                                              "description": "Notar and notar-fallback votes for block_id reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
+        "quorum_reached_skip_cert":           { "type": "Bool",                                              "description": "Skip and skip-fallback votes for the slot reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
+        "aggregation_start_time":             { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started aggregating the vote into the running BLS aggregate for its slot, kind and block (only if processing_result is accepted, 0 otherwise)." },
+        "verify_start_time":                  { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started BLS verifying the aggregate this vote completed (only if this vote brought a tally to a quorum of Table 6 or Definition 16, which is when we verify signatures, 0 otherwise)." },
+        "broadcast_start_time":               { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started broadcasting the vote to our peers (only if our_vote, 0 otherwise)." },
+        "done_time":                          { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we finished processing the vote, may be any of the above stages including short-circuiting at earlier stages." }
+    }
+}

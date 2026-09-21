@@ -528,6 +528,74 @@ fd_event_runtime_vote_account_fill_max( fd_event_runtime_vote_account_t * msg ) 
 static void
 fd_event_runtime_vote_account_fill_max_v( void * msg ) { fd_event_runtime_vote_account_fill_max( (fd_event_runtime_vote_account_t *)msg ); }
 
+static inline void
+fd_event_alpenglow_vote_fill_max( fd_event_alpenglow_vote_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->slot = ULONG_MAX;
+  fd_memset( msg->block_id, 0xFF, 32UL );
+  msg->voter_rank = USHORT_MAX;
+  fd_memset( msg->voter_identity, 0xFF, 32UL );
+  msg->kind = INT_MAX;
+  fd_memset( msg->received_from_ip, 0xFF, 16UL );
+  fd_memset( msg->received_from_identity, 0xFF, 32UL );
+  msg->our_vote = 1;
+  msg->broadcast_reason = INT_MAX;
+  msg->broadcast_to_cnt = 2000UL;
+  for( ulong k=0UL; k<2000UL; k++ ) {
+    fd_memset( msg->broadcast_to[ k ].identity, 0xFF, 32UL );
+    fd_memset( msg->broadcast_to[ k ].ip, 0xFF, 16UL );
+    msg->broadcast_to[ k ].port = USHORT_MAX;
+  }
+  msg->processing_result = INT_MAX;
+  msg->quorum_reached_safe_to_notar = 1;
+  msg->quorum_reached_safe_to_skip = 1;
+  msg->quorum_reached_final_cert = 1;
+  msg->quorum_reached_fast_final_cert = 1;
+  msg->quorum_reached_notar_cert = 1;
+  msg->quorum_reached_notar_fallback_cert = 1;
+  msg->quorum_reached_skip_cert = 1;
+  msg->aggregation_start_time = ULONG_MAX;
+  msg->verify_start_time = ULONG_MAX;
+  msg->broadcast_start_time = ULONG_MAX;
+  msg->done_time = ULONG_MAX;
+}
+
+static void
+fd_event_alpenglow_vote_fill_max_v( void * msg ) { fd_event_alpenglow_vote_fill_max( (fd_event_alpenglow_vote_t *)msg ); }
+
+static inline void
+fd_event_alpenglow_cert_fill_max( fd_event_alpenglow_cert_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->slot = ULONG_MAX;
+  fd_memset( msg->block_id, 0xFF, 32UL );
+  msg->kind = INT_MAX;
+  msg->voters_cnt = 2000UL;
+  for( ulong k=0UL; k<2000UL; k++ ) {
+    msg->voters[ k ] = 1;
+  }
+  msg->fallback_voters_cnt = 2000UL;
+  for( ulong k=0UL; k<2000UL; k++ ) {
+    msg->fallback_voters[ k ] = 1;
+  }
+  fd_memset( msg->relayer_ip, 0xFF, 16UL );
+  fd_memset( msg->relayer_identity, 0xFF, 32UL );
+  msg->our_cert = 1;
+  msg->broadcast_reason = INT_MAX;
+  msg->broadcast_to_cnt = 2000UL;
+  for( ulong k=0UL; k<2000UL; k++ ) {
+    fd_memset( msg->broadcast_to[ k ].identity, 0xFF, 32UL );
+    fd_memset( msg->broadcast_to[ k ].ip, 0xFF, 16UL );
+    msg->broadcast_to[ k ].port = USHORT_MAX;
+  }
+  msg->processing_result = INT_MAX;
+  msg->verify_start_time = ULONG_MAX;
+  msg->broadcast_start_time = ULONG_MAX;
+  msg->done_time = ULONG_MAX;
+}
+
+static void
+fd_event_alpenglow_cert_fill_max_v( void * msg ) { fd_event_alpenglow_cert_fill_max( (fd_event_alpenglow_cert_t *)msg ); }
+
 typedef struct {
   ulong        type;    /* event schema id */
   ulong        buf_max; /* modeled encode bound */
@@ -552,9 +620,11 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 16UL, FD_EVENT_RUNTIME_ROOTED_BUF_MAX, sizeof(fd_event_runtime_rooted_t), "runtime_rooted", fd_event_runtime_rooted_fill_max_v },
   { 17UL, FD_EVENT_RUNTIME_EPOCH_BUF_MAX, sizeof(fd_event_runtime_epoch_t), "runtime_epoch", fd_event_runtime_epoch_fill_max_v },
   { 18UL, FD_EVENT_RUNTIME_VOTE_ACCOUNT_BUF_MAX, sizeof(fd_event_runtime_vote_account_t), "runtime_vote_account", fd_event_runtime_vote_account_fill_max_v },
+  { 19UL, FD_EVENT_ALPENGLOW_VOTE_BUF_MAX, sizeof(fd_event_alpenglow_vote_t), "alpenglow_vote", fd_event_alpenglow_vote_fill_max_v },
+  { 20UL, FD_EVENT_ALPENGLOW_CERT_BUF_MAX, sizeof(fd_event_alpenglow_cert_t), "alpenglow_cert", fd_event_alpenglow_cert_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (15UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (17UL)
 
 FD_PROTOTYPES_END
 
