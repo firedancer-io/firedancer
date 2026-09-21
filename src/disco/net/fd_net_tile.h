@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_disco_net_fd_net_tile_h
 #define HEADER_fd_src_disco_net_fd_net_tile_h
 
-/* fd_net_tile.h contains APIs for providing XDP networking to a
-   Firedancer topology using the 'net' tile. */
+/* fd_net_tile.h declares public APIs used by network tiles, net consumers, and topology builders. */
 
 #include "../fd_disco_base.h"
 #include "../../tango/dcache/fd_dcache.h"

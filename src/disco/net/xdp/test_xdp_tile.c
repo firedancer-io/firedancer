@@ -379,7 +379,7 @@ main( int     argc,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
   fd_memset( ctx, 0, sizeof(fd_net_ctx_t) );
-  ctx->net_tile_cnt = 1;
+  ctx->net.net_tile_cnt = 1UL;
   ctx->free_tx.queue  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), topo_tile->xdp.free_ring_depth * sizeof(ulong) );
   ctx->free_tx.depth  = topo_tile->xdp.free_ring_depth;
   void * netdev_tbl_local = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
@@ -395,20 +395,19 @@ main( int     argc,
 
   ulong  const umem_chunk0    = ( (ulong)umem - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
 
-  ctx->umem        = umem;
-  ctx->umem_chunk0 = (uint)umem_chunk0;
-  ctx->umem_sz     = umem_sz;
+  ctx->umem                 = umem;
+  ctx->umem_sz              = umem_sz;
+  ctx->net.pkt_buf_wksp_base = umem_base;
+  ctx->net.pkt_buf_chunk0    = umem_chunk0;
+  ctx->net.pkt_buf_wmark     = umem_chunk0 + ((umem_sz-umem_frame_sz)>>FD_CHUNK_LG_SZ);
 
-  ctx->shred_listen_port = SHRED_PORT;
-  ctx->shred_out->mcache = rx_link->mcache;
-  ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
-  ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
-  ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
+  topo_tile->net.shred_listen_port = SHRED_PORT;
+  fd_net_rx_dst_ports_init( &ctx->net, topo, topo_tile );
 
   /* Initialize out link mcache chunks (RX links) */
   ulong frame_off = 0UL;
   for( ulong j=0UL; j<fd_mcache_depth( rx_link->mcache ); j++ ) {
-    rx_link->mcache[ j ].chunk = (uint)( ctx->umem_chunk0 + (frame_off>>FD_CHUNK_LG_SZ) );
+    rx_link->mcache[ j ].chunk = (uint)( ctx->net.pkt_buf_chunk0 + (frame_off>>FD_CHUNK_LG_SZ) );
     frame_off += frame_sz;
   }
 
@@ -483,24 +482,27 @@ main( int     argc,
   /* Netdev table */
   setup_netdev_table( ctx );
   net_gre_tunnel_ip( ctx );
-  FD_TEST( ctx->gre_tunnel_ip[0]==gre0_outer_dst_ip );
-  FD_TEST( ctx->gre_tunnel_ip[1]==gre1_outer_dst_ip );
-  for( ulong i=2UL; i<MAX_GRE_CNT; i++ ) FD_TEST( ctx->gre_tunnel_ip[i]==0U );
+  FD_TEST( ctx->net.gre_tunnel_ip[0]==gre0_outer_dst_ip );
+  FD_TEST( ctx->net.gre_tunnel_ip[1]==gre1_outer_dst_ip );
+  for( ulong i=2UL; i<FD_NET_GRE_MAX; i++ ) FD_TEST( ctx->net.gre_tunnel_ip[i]==0U );
 
-  /* ctx->in */
-  ctx->in[ 0 ].mem    = fd_wksp_containing( app_tx_dcache_mem );
-  ctx->in[ 0 ].chunk0 = tx_chunk0;
-  ctx->in[ 0 ].wmark  = tx_wmark;
+  /* ctx->net.in_dcache_ctx */
+  ctx->net.in_dcache_ctx[ 0 ].wksp_base = fd_wksp_containing( app_tx_dcache_mem );
+  ctx->net.in_dcache_ctx[ 0 ].chunk0    = tx_chunk0;
+  ctx->net.in_dcache_ctx[ 0 ].wmark     = tx_wmark;
 
   /* Start testing */
 
   /* Stem publish context for RX */
-  ulong cr_avail    = ULONG_MAX;
+  ulong rx_seq       = 0UL;
+  ulong cr_avail     = ULONG_MAX;
+  int   out_reliable = 0;
   fd_stem_context_t stem[1] = {{
     .mcaches             = &rx_link->mcache,
-    .seqs                = &ctx->shred_out->seq,
+    .seqs                = &rx_seq,
     .depths              = &link_depth,
     .cr_avail            = &cr_avail,
+    .out_reliable        = &out_reliable,
     .cr_decrement_amount = 0UL
   }};
 
@@ -518,7 +520,7 @@ main( int     argc,
     .outer_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_GRE,
-      .net_tot_len = fd_ushort_bswap( 28 )
+      .net_tot_len = fd_ushort_bswap( 55 )
     },
     .gre = {
       .flags_version = FD_GRE_HDR_FLG_VER_BASIC,
@@ -527,7 +529,7 @@ main( int     argc,
     .inner_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
-      .net_tot_len = fd_ushort_bswap( 28 )
+      .net_tot_len = fd_ushort_bswap( 31 )
     },
     .udp = {
       .net_len   = fd_ushort_bswap( 11 ),
@@ -548,7 +550,7 @@ main( int     argc,
     .inner_ip4 = {
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
-      .net_tot_len = fd_ushort_bswap( 28 )
+      .net_tot_len = fd_ushort_bswap( 31 )
     },
     .udp = {
       .net_len   = fd_ushort_bswap( 11 ),
@@ -871,8 +873,11 @@ main( int     argc,
     xdp_rx_ring_prod++;
 
     /* Get net tile to move RX frame->mline */
-    fd_frag_meta_t const * mline = rx_link->mcache + fd_mcache_line_idx( stem->seqs[0], fd_mcache_depth( rx_link->mcache ) );
+    ulong const seq_before = stem->seqs[0];
+    fd_frag_meta_t const * mline = rx_link->mcache + fd_mcache_line_idx( seq_before, fd_mcache_depth( rx_link->mcache ) );
     before_credit( ctx, stem, &charge_busy );
+    FD_TEST( fd_frag_meta_seq_query( mline )==seq_before );
+    FD_TEST( stem->seqs[0]==fd_seq_inc( seq_before, 1UL ) );
 
     /* Validate produced mline:  Check that the mline points to the same
        frame as the XDP packet we fed in.  The pointer might move
@@ -900,7 +905,7 @@ main( int     argc,
     }
 
     /* during_frag */
-    uchar * src = fd_chunk_to_laddr( ctx->in[ 0 ].mem, tx_chunk );
+    uchar * src = fd_chunk_to_laddr( ctx->net.in_dcache_ctx[ 0 ].wksp_base, tx_chunk );
     fd_memcpy( src, during_frag_src, during_frag_src_sz );
     during_frag( ctx, 0, tx_seq, 0, tx_chunk, during_frag_src_sz, 0 );
     FD_TEST( fd_memeq( ctx->tx_op.frame, during_frag_expected, during_frag_expected_sz ) );
@@ -920,8 +925,8 @@ main( int     argc,
   }
 
   /* GRE packets from invalid source dropped before decapsulation */
-  ulong src_invalid_before = ctx->metrics.rx_src_addr_invalid_cnt;
-  ulong seq_before         = ctx->shred_out->seq;
+  ulong gre_invalid_before = ctx->net.metrics.rx_gre_invalid_cnt;
+  ulong seq_before         = stem->seqs[0];
 
   FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
   ulong const rx_frame_off = fr_frame_ring[ xdp_fr_ring_cons & (ring_fr_depth-1) ];
@@ -938,14 +943,14 @@ main( int     argc,
 
   int charge_busy = 1;
   before_credit( ctx, stem, &charge_busy );
-  FD_TEST( ctx->metrics.rx_src_addr_invalid_cnt==src_invalid_before+1UL );
-  FD_TEST( ctx->shred_out->seq==seq_before );
+  FD_TEST( ctx->net.metrics.rx_gre_invalid_cnt==gre_invalid_before+1UL );
+  FD_TEST( stem->seqs[0]==seq_before );
 
   /* GRE packets whose inner IP total length overruns the frame are
      dropped after decapsulation */
   {
-    ulong undersz_before = ctx->metrics.rx_undersz_cnt;
-    seq_before           = ctx->shred_out->seq;
+    ulong malformed_before = ctx->net.metrics.rx_malformed_cnt;
+    seq_before             = stem->seqs[0];
 
     FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
     ulong const frame_off = fr_frame_ring[ xdp_fr_ring_cons & (ring_fr_depth-1) ];
@@ -961,10 +966,10 @@ main( int     argc,
     xdp_rx_ring_prod++;
 
     before_credit( ctx, stem, &charge_busy );
-    FD_TEST( ctx->metrics.rx_undersz_cnt==undersz_before+1UL );
-    FD_TEST( ctx->shred_out->seq==seq_before );
+    FD_TEST( ctx->net.metrics.rx_malformed_cnt==malformed_before+1UL );
+    FD_TEST( stem->seqs[0]==seq_before );
 
-    rx_pkt_gre.inner_ip4.net_tot_len = fd_ushort_bswap( 28 );
+    rx_pkt_gre.inner_ip4.net_tot_len = fd_ushort_bswap( 31 );
   }
 
   /* Test invalid network headers */
@@ -978,7 +983,8 @@ main( int     argc,
 
   #define NET_LEN_TOO_SHORT 0
   #define NET_LEN_TOO_LONG  1
-  #define INVALIDS_CNT      2
+  #define MULTICAST_SOURCE  2
+  #define INVALIDS_CNT      3
   test_net_hdrs_t invalids[INVALIDS_CNT];
   invalids[NET_LEN_TOO_SHORT] = (test_net_hdrs_t){
     .eth = {
@@ -997,11 +1003,14 @@ main( int     argc,
   };
   invalids[NET_LEN_TOO_LONG] = invalids[NET_LEN_TOO_SHORT];
   invalids[NET_LEN_TOO_LONG].udp.net_len = fd_ushort_bswap( 100 );
+  invalids[MULTICAST_SOURCE] = invalids[NET_LEN_TOO_SHORT];
+  invalids[MULTICAST_SOURCE].udp.net_len = fd_ushort_bswap( 11 );
+  invalids[MULTICAST_SOURCE].ip4.saddr = FD_IP4_ADDR( 224,0,0,1 );
 
   for( uint test_case=NET_LEN_TOO_SHORT; test_case<INVALIDS_CNT; test_case++ ) {
 
-    ulong undersz_before = ctx->metrics.rx_undersz_cnt;
-    ulong seq_before     = ctx->shred_out->seq;
+    ulong malformed_before = ctx->net.metrics.rx_malformed_cnt;
+    ulong seq_before       = stem->seqs[0];
 
     /* Pop frame off FILL ring */
     FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
@@ -1022,13 +1031,13 @@ main( int     argc,
     before_credit( ctx, stem, &charge_busy );
 
     /* Verify packet was dropped */
-    FD_TEST( ctx->metrics.rx_undersz_cnt == undersz_before + 1 );
-    FD_TEST( ctx->shred_out->seq == seq_before );  /* No mcache advancement */
+    FD_TEST( ctx->net.metrics.rx_malformed_cnt == malformed_before + 1 );
+    FD_TEST( stem->seqs[0] == seq_before );  /* No sequence advancement */
   }
 
   /* Route deltas and flushes are applied on the net tile's Stem thread. */
-  ctx->in_kind[7] = IN_KIND_IPROUTE;
-  ctx->iproute_msg = (fd_iproute_msg_t) {
+  ctx->net.in_kind[7] = FD_NET_IN_KIND_IPROUTE;
+  ctx->net.iproute_msg = (fd_iproute_msg_t) {
     .hop={ .rtype=FD_FIB4_RTYPE_UNICAST, .if_idx=77U },
     .dst_addr=FD_IP4_ADDR( 203,0,113,7 ), .table_id=RT_TABLE_MAIN,
     .op=FD_IPROUTE_OP_UPSERT, .prefix=32U
@@ -1039,21 +1048,21 @@ main( int     argc,
 
   /* UPSERT mirrors NLM_F_REPLACE semantics.  A different metric creates a
      second route, while the same metric updates the existing route. */
-  ctx->iproute_msg.prio       = 100U;
-  ctx->iproute_msg.hop.if_idx = 88U;
+  ctx->net.iproute_msg.prio       = 100U;
+  ctx->net.iproute_msg.hop.if_idx = 88U;
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
   FD_TEST( fd_fib4_lookup( ctx->fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx==77U );
   FD_TEST( fd_fib4_cnt( ctx->fib_main )==route_cnt+1UL );
-  ctx->iproute_msg.prio       = 0U;
-  ctx->iproute_msg.hop.if_idx = 99U;
+  ctx->net.iproute_msg.prio       = 0U;
+  ctx->net.iproute_msg.hop.if_idx = 99U;
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
   FD_TEST( fd_fib4_lookup( ctx->fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx==99U );
   FD_TEST( fd_fib4_cnt( ctx->fib_main )==route_cnt+1UL );
 
-  ctx->iproute_msg = (fd_iproute_msg_t){ .op=FD_IPROUTE_OP_FLUSH };
+  ctx->net.iproute_msg = (fd_iproute_msg_t){ .op=FD_IPROUTE_OP_FLUSH };
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
   FD_TEST( fd_fib4_lookup( ctx->fib_main, FD_IP4_ADDR( 203,0,113,7 ), 0UL ).if_idx!=77U );
-  ctx->iproute_msg = (fd_iproute_msg_t) {
+  ctx->net.iproute_msg = (fd_iproute_msg_t) {
     .hop={ .rtype=FD_FIB4_RTYPE_UNICAST, .if_idx=88U },
     .dst_addr=FD_IP4_ADDR( 198,51,100,8 ), .table_id=RT_TABLE_MAIN,
     .op=FD_IPROUTE_OP_UPSERT, .prefix=32U
@@ -1069,25 +1078,50 @@ main( int     argc,
   ctx->neigh4_solicit->depth  = netlink_req_depth;
   ctx->neigh4_solicit->seq    = 0UL;
 
-  ctx->iproute_msg = (fd_iproute_msg_t){ .op=FD_IPROUTE_OP_FLUSH };
+  ctx->net.iproute_msg = (fd_iproute_msg_t){ .op=FD_IPROUTE_OP_FLUSH };
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
   for( uint i=0U; i<16U; i++ ) {
-    ctx->iproute_msg = (fd_iproute_msg_t) {
+    ctx->net.iproute_msg = (fd_iproute_msg_t) {
       .hop={ .rtype=FD_FIB4_RTYPE_UNICAST, .if_idx=88U },
       .dst_addr=FD_IP4_ADDR( 198,18,0,i ), .table_id=RT_TABLE_MAIN,
       .op=FD_IPROUTE_OP_UPSERT, .prefix=32U
     };
     after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
   }
-  ctx->iproute_msg.dst_addr = FD_IP4_ADDR( 198,18,0,16 );
-  ctx->net_tile_id = 1U;
+  ctx->net.iproute_msg.dst_addr = FD_IP4_ADDR( 198,18,0,16 );
+  ctx->net.net_tile_id = 1UL;
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
   FD_TEST( ctx->neigh4_solicit->seq==0UL );
 
-  ctx->net_tile_id = 0U;
+  ctx->net.net_tile_id = 0UL;
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
   FD_TEST( ctx->neigh4_solicit->seq==1UL );
   FD_TEST( ctx->neigh4_solicit->mcache[ fd_mcache_line_idx( 0UL, netlink_req_depth ) ].sig==FD_NETLINK_ROUTE4_SYNC_SIG );
+
+  ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ] = {0};
+  volatile ulong * saved_metrics = fd_metrics_tl;
+  fd_metrics_tl = metrics;
+  metrics_write( ctx );
+  FD_TEST( FD_MCNT_GET( NET, PKT_RX             )==ctx->net.metrics.rx_pkt_cnt         );
+  FD_TEST( FD_MCNT_GET( NET, PKT_RX_BYTES       )==ctx->net.metrics.rx_bytes_total     );
+  FD_TEST( FD_MCNT_GET( NET, PKT_RX_MALFORMED   )==ctx->net.metrics.rx_malformed_cnt   );
+  FD_TEST( FD_MCNT_GET( NET, PKT_RX_ROUTE_FAIL  )==ctx->net.metrics.rx_route_fail_cnt  );
+  FD_TEST( FD_MCNT_GET( NET, GRE_PKT_RX         )==ctx->net.metrics.rx_gre_cnt         );
+  FD_TEST( FD_MCNT_GET( NET, GRE_PKT_RX_INVALID )==ctx->net.metrics.rx_gre_invalid_cnt );
+  FD_TEST( FD_MCNT_GET( NET, GRE_PKT_RX_IGNORED )==ctx->net.metrics.rx_gre_ignored_cnt );
+  fd_metrics_tl = saved_metrics;
+
+  /* Recycle the last UMEM frame with XDP_PACKET_HEADROOM. */
+  {
+    ulong const last_frame_off = umem_sz-FD_NET_MTU;
+    uint const  rx_seq         = xsk->ring_rx.cached_cons;
+    uint const  fill_prod      = xsk->ring_fr.cached_prod;
+    xsk->ring_rx.packet_ring[ rx_seq & (xsk->ring_rx.depth-1U) ] = (struct xdp_desc){ .addr=last_frame_off+256UL, .len=0U };
+    net_rx_event( ctx, stem, xsk, rx_seq );
+    FD_TEST( xsk->ring_rx.cached_cons==rx_seq+1U );
+    FD_TEST( xsk->ring_fr.cached_prod==fill_prod+1U );
+    FD_TEST( xsk->ring_fr.frame_ring[ fill_prod & (xsk->ring_fr.depth-1U) ]==last_frame_off );
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
