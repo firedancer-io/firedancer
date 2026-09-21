@@ -72,11 +72,15 @@ ag_parent_ready_tracker_leave( ag_parent_ready_tracker_t const * tracker );
 void *
 ag_parent_ready_tracker_delete( void * shtracker );
 
+/* Definition 15. ParentReadyTracker::mark_notar_fallback */
+
 void
 ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
                                              ag_block_id_t const *       id,
                                              ag_parent_ready_t *         newly_certified,
                                              ulong *                     newly_certified_cnt );
+
+/* Definition 15. ParentReadyTracker::mark_skipped */
 
 void
 ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
@@ -84,20 +88,28 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
                                       ag_parent_ready_t *         newly_certified,
                                       ulong *                     newly_certified_cnt );
 
+/* Definition 15. ParentReadyTracker::handle_finalization */
+
 ag_parent_ready_t
 ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t *     self,
                                              ag_finalization_event_t const * event,
                                              ag_parent_ready_t *             newly_certified,
                                              ulong *                         newly_certified_cnt );
 
+/* Definition 15. ParentReadyTracker::parents_ready */
+
 ag_block_id_t const *
 ag_parent_ready_tracker_parents_ready( ag_parent_ready_tracker_t * self,
                                        ulong                       slot,
                                        ulong *                     cnt );
 
+/* Definition 15. ParentReadyTracker::wait_for_parent_ready; slot ULONG_MAX is the pending receiver */
+
 ag_block_id_t
 ag_parent_ready_tracker_wait_for_parent_ready( ag_parent_ready_tracker_t * self,
                                                ulong                       slot );
+
+/* Section 2.9. ParentReadyTracker::prune */
 
 void
 ag_parent_ready_tracker_prune( ag_parent_ready_tracker_t * self,

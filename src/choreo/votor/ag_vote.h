@@ -74,6 +74,8 @@ typedef struct ag_vote ag_vote_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* Definition 11. Vote::slot */
+
 FD_FN_PURE static inline ulong
 ag_vote_slot( ag_vote_t const * self ) {
   switch( self->kind ) {
@@ -85,6 +87,8 @@ ag_vote_slot( ag_vote_t const * self ) {
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
+
+/* Definition 11. Vote::block_hash */
 
 FD_FN_PURE static inline uchar const *
 ag_vote_block_hash( ag_vote_t const * self ) {
@@ -98,6 +102,8 @@ ag_vote_block_hash( ag_vote_t const * self ) {
   }
 }
 
+/* Definition 11. SignedVote::sig */
+
 FD_FN_PURE static inline fd_bls_sig_t const *
 ag_vote_sig( ag_vote_t const * self ) {
   switch( self->kind ) {
@@ -109,6 +115,8 @@ ag_vote_sig( ag_vote_t const * self ) {
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
+
+/* Definition 11. Vote::signer; assigned by the tile from the peer, not carried on the wire */
 
 FD_FN_PURE static inline ushort
 ag_vote_rank( ag_vote_t const * self ) {
@@ -134,6 +142,8 @@ ag_vote_shred_version( ag_vote_t const * self ) {
   }
 }
 
+/* Definition 11. Vote::new_notar */
+
 ag_vote_t
 ag_vote_construct_notar( fd_bls_sign_fn        sign_fn,
                          void *                sign_ctx,
@@ -142,12 +152,16 @@ ag_vote_construct_notar( fd_bls_sign_fn        sign_fn,
                          ushort                rank,
                          ushort                shred_version );
 
+/* Definition 11. Vote::new_final */
+
 ag_vote_t
 ag_vote_construct_final( fd_bls_sign_fn sign_fn,
                          void *         sign_ctx,
                          ulong          slot,
                          ushort         rank,
                          ushort         shred_version );
+
+/* Definition 11. Vote::new_skip */
 
 ag_vote_t
 ag_vote_construct_skip( fd_bls_sign_fn sign_fn,
@@ -156,6 +170,8 @@ ag_vote_construct_skip( fd_bls_sign_fn sign_fn,
                         ushort         rank,
                         ushort         shred_version );
 
+/* Definition 11. Vote::new_notar_fallback */
+
 ag_vote_t
 ag_vote_construct_notar_fallback( fd_bls_sign_fn        sign_fn,
                                   void *                sign_ctx,
@@ -163,6 +179,8 @@ ag_vote_construct_notar_fallback( fd_bls_sign_fn        sign_fn,
                                   ag_block_hash_t const hash,
                                   ushort                rank,
                                   ushort                shred_version );
+
+/* Definition 11. Vote::new_skip_fallback */
 
 ag_vote_t
 ag_vote_construct_skip_fallback( fd_bls_sign_fn sign_fn,

@@ -132,9 +132,13 @@ ag_slot_state_zero( ag_slot_state_t *       self,
                     ag_epoch_info_t const * epoch_info,
                     ulong                   own_rank );
 
+/* Definition 13. SlotState::add_cert */
+
 void
 ag_slot_state_add_cert( ag_slot_state_t * self,
                         ag_cert_t const * cert );
+
+/* Definition 12. SlotState::add_vote */
 
 int
 ag_slot_state_add_vote( ag_slot_state_t *   self,
@@ -148,26 +152,38 @@ ag_slot_state_add_vote( ag_slot_state_t *   self,
                         ulong *             out_repair_event_cnt,
                         fd_bls_set_t *      bad );
 
+/* Definition 16. SlotState::notify_parent_known */
+
 void
 ag_slot_state_notify_parent_known( ag_slot_state_t *     self,
                                    ag_block_hash_t const block_hash );
+
+/* Definition 16. SlotState::notify_parent_certified */
 
 int
 ag_slot_state_notify_parent_certified( ag_slot_state_t *     self,
                                        ag_block_hash_t const block_hash,
                                        fd_bls_set_t *        bad );
 
+/* SlotState::check_slashable_offence */
+
 FD_FN_PURE int
 ag_slot_state_check_slashable_offence( ag_slot_state_t const * self,
                                        ag_vote_t const *       vote );
+
+/* Definition 12. SlotState::should_ignore_vote */
 
 FD_FN_PURE int
 ag_slot_state_should_ignore_vote( ag_slot_state_t const * self,
                                   ag_vote_t const *       vote );
 
+/* Definition 13. SlotState::is_notar_fallback */
+
 FD_FN_PURE int
 ag_slot_state_is_notar_fallback( ag_slot_state_t const * self,
                                  ag_block_hash_t const   block_hash );
+
+/* Definition 13. SlotState::is_notar_fallback_or_stronger */
 
 FD_FN_PURE int
 ag_slot_state_is_notar_fallback_or_stronger( ag_slot_state_t const * self,

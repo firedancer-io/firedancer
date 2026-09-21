@@ -25,10 +25,14 @@ typedef struct ag_epoch_info ag_epoch_info_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* EpochInfo::validators */
+
 FD_FN_CONST static inline ag_validator_info_t const *
 ag_epoch_info_validators( ag_epoch_info_t const * self ) {
   return self->validators;
 }
+
+/* EpochInfo::validator */
 
 FD_FN_PURE static inline ag_validator_info_t const *
 ag_epoch_info_validator( ag_epoch_info_t const * self,
@@ -36,6 +40,8 @@ ag_epoch_info_validator( ag_epoch_info_t const * self,
   FD_TEST( rank<self->validator_cnt );
   return ag_epoch_info_validators( self ) + rank;
 }
+
+/* EpochInfo::leader */
 
 FD_FN_PURE static inline ag_validator_info_t const *
 ag_epoch_info_leader( ag_epoch_info_t const * self,
@@ -45,8 +51,12 @@ ag_epoch_info_leader( ag_epoch_info_t const * self,
   return ag_epoch_info_validator( self, leader_id );
 }
 
+/* EpochInfo::total_stake */
+
 FD_FN_PURE static inline ulong
 ag_epoch_info_total_stake( ag_epoch_info_t const * self ) { return self->total_stake; }
+
+/* Definition 13. EpochInfo::is_weakest_quorum, is_weak_quorum, is_quorum, is_strong_quorum */
 
 FD_FN_PURE int ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_weak_quorum   ( ag_epoch_info_t const * self, ulong stake );

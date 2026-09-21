@@ -60,32 +60,44 @@ ag_finality_tracker_init( ag_finality_tracker_t * self,
 void
 ag_finality_tracker_fini( ag_finality_tracker_t * self );
 
+/* Definition 14. FinalityTracker::add_parent */
+
 void
 ag_finality_tracker_add_parent( ag_finality_tracker_t *   self,
                                 ag_block_id_t const *     block,
                                 ag_block_id_t const *     parent,
                                 ag_finalization_event_t * event );
 
+/* Definition 14. FinalityTracker::mark_fast_finalized */
+
 void
 ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t *   self,
                                          ag_block_id_t const *     block,
                                          ag_finalization_event_t * event );
+
+/* Definition 14. FinalityTracker::mark_notarized */
 
 void
 ag_finality_tracker_mark_notarized( ag_finality_tracker_t *   self,
                                     ag_block_id_t const *     block,
                                     ag_finalization_event_t * event );
 
+/* Definition 14. FinalityTracker::mark_finalized */
+
 void
 ag_finality_tracker_mark_finalized( ag_finality_tracker_t *   self,
                                     ulong                     slot,
                                     ag_finalization_event_t * event );
+
+/* Definition 14. FinalityTracker::highest_finalized_slot */
 
 FD_FN_PURE ulong
 ag_finality_tracker_highest_finalized_slot( ag_finality_tracker_t const * self );
 
 FD_FN_PURE uchar const *
 ag_finality_tracker_highest_finalized_block_hash( ag_finality_tracker_t const * self );
+
+/* Section 2.9. FinalityTracker::first_unpruned_slot */
 
 FD_FN_PURE ulong
 ag_finality_tracker_first_unpruned_slot( ag_finality_tracker_t const * self );

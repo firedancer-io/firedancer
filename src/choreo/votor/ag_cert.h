@@ -72,6 +72,8 @@ typedef struct ag_cert ag_cert_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* Definition 11. Cert::slot */
+
 FD_FN_PURE static inline ulong
 ag_cert_slot( ag_cert_t const * self ) {
   switch( self->kind ) {
@@ -83,6 +85,8 @@ ag_cert_slot( ag_cert_t const * self ) {
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
+
+/* Definition 11. Cert::block_hash */
 
 FD_FN_PURE static inline uchar const *
 ag_cert_block_hash( ag_cert_t const * self ) {
@@ -106,6 +110,8 @@ ag_cert_shred_version( ag_cert_t const * self ) {
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
+
+/* Definition 13. ValidatedCert::try_new */
 
 int
 ag_cert_verify( ag_cert_t const *       self,
