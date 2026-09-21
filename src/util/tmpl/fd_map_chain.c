@@ -550,9 +550,7 @@ __attribute__((warn_unused_result)) FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_(iter_t)      iter,
                  MAP_(t) const *   join,
                  MAP_ELE_T const * pool ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( MAP_(iter_done)( iter, join, pool ) ) ) FD_LOG_CRIT(( "assumes not done" ));
-# endif
+  FD_DCHECK_CRIT( !MAP_(iter_done)( iter, join, pool ), "assumes not done" );
   ulong chain_rem = iter.chain_rem;
   ulong ele_idx   = iter.ele_idx;
 
@@ -587,9 +585,7 @@ FD_FN_CONST static inline ulong
 MAP_(iter_idx)( MAP_(iter_t)    iter,
                 MAP_(t) const * join,
                 MAP_ELE_T *     pool ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( MAP_(iter_done)( iter, join, pool ) ) ) FD_LOG_CRIT(( "assumes not done" ));
-# endif
+  FD_DCHECK_CRIT( !MAP_(iter_done)( iter, join, pool ), "assumes not done" );
   (void)join; (void)pool;
   return iter.ele_idx;
 }
@@ -598,9 +594,7 @@ FD_FN_CONST static inline MAP_ELE_T *
 MAP_(iter_ele)( MAP_(iter_t)    iter,
                 MAP_(t) const * join,
                 MAP_ELE_T *     pool ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( MAP_(iter_done)( iter, join, pool ) ) ) FD_LOG_CRIT(( "assumes not done" ));
-# endif
+  FD_DCHECK_CRIT( !MAP_(iter_done)( iter, join, pool ), "assumes not done" );
   (void)join;
   return pool + iter.ele_idx;
 }
@@ -609,9 +603,7 @@ FD_FN_CONST static inline MAP_ELE_T const *
 MAP_(iter_ele_const) ( MAP_(iter_t)      iter,
                        MAP_(t) const *   join,
                        MAP_ELE_T const * pool ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( MAP_(iter_done)( iter, join, pool ) ) ) FD_LOG_CRIT(( "assumes not done" ));
-# endif
+  FD_DCHECK_CRIT( !MAP_(iter_done)( iter, join, pool ), "assumes not done" );
   (void)join;
   return pool + iter.ele_idx;
 }
@@ -856,10 +848,9 @@ MAP_IMPL_STATIC MAP_(t) *
 MAP_(idx_insert)( MAP_(t) *   join,
                   ulong       ele_idx,
                   MAP_ELE_T * pool ) {
-# if FD_TMPL_USE_HANDHOLDING && !MAP_MULTI
-  if( FD_UNLIKELY( !MAP_(private_idx_is_null)( MAP_(idx_query)( join, &pool[ ele_idx ].MAP_KEY, MAP_(private_idx_null)(), pool ) ) ) ) {
-    FD_LOG_CRIT(( "ele_idx already in map" ));
-  }
+# if !MAP_MULTI
+  FD_DCHECK_CRIT( MAP_(private_idx_is_null)( MAP_(idx_query)( join, &pool[ ele_idx ].MAP_KEY, MAP_(private_idx_null)(), pool ) ),
+                  "ele_idx already in map" );
 # endif
   MAP_(private_t) * map = MAP_(private)( join );
 
