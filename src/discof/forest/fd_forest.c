@@ -1642,6 +1642,16 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     advance_consumed_frontier( forest, new_root_slot, 0 ); /* advances consumed frontier if possible */
   }
 
+  // when the ancestor is pruned after root advances, and they are on the reqslist, then we should reseed the reqslist with the new root
+  int lost_cover = 0;
+  for( fd_forest_blk_t * anc = fd_forest_pool_ele( pool, new_root_ele->parent ); anc; anc = fd_forest_pool_ele( pool, anc->parent ) ) {
+    ulong anc_idx = fd_forest_pool_idx( pool, anc );
+    if( fd_forest_requests_ele_query( fd_forest_requests( forest ), &anc_idx, NULL, fd_forest_reqspool( forest ) ) ) {
+      lost_cover = 1;
+      break;
+    }
+  }
+
   /* First, remove the previous root, and add it to a FIFO prune queue.
      head points to the queue head (initialized with old_root_ele). */
   FD_CHECK_CRIT( fd_forest_deque_cnt( queue ) == 0, "invariant violation" );
@@ -1730,7 +1740,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
      reqslist, so if the prune emptied it, nothing below the new root
      will ever be requested again. conslist can stay non-empty while
      reqslist empties. */
-  if( FD_UNLIKELY( conslist_empty || reqslist_empty ) ) {
+  if( FD_UNLIKELY( conslist_empty || reqslist_empty || lost_cover ) ) {
     requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, new_root_ele ) );
   }
 

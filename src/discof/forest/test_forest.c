@@ -2212,9 +2212,9 @@ test_publish_reseed_stranded_gap( fd_wksp_t * wksp ) {
      slot 5's gap with nothing above it to walk down from. conslist is
      still non-empty here, which is what used to skip the reseed. */
   ulong ele_max = 8;
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
   FD_TEST( mem );
-  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL /* seed */ ) );
   fd_forest_init( forest, 0 );
 
   fd_forest_blk_t      * pool     = fd_forest_pool( forest );
@@ -2271,6 +2271,70 @@ test_publish_reseed_stranded_gap( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
+static ulong
+reqslist_slots( fd_forest_t * forest, ulong * out, ulong out_max ) {
+  fd_forest_reqslist_t * reqslist = fd_forest_reqslist( forest );
+  fd_forest_ref_t *      reqspool = fd_forest_reqspool( forest );
+  ulong n = 0;
+  for( fd_forest_reqslist_iter_t it = fd_forest_reqslist_iter_fwd_init( reqslist, reqspool );
+       !fd_forest_reqslist_iter_done( it, reqslist, reqspool );
+       it = fd_forest_reqslist_iter_fwd_next( it, reqslist, reqspool ) ) {
+    fd_forest_ref_t const * ele = fd_forest_reqslist_iter_ele_const( it, reqslist, reqspool );
+    if( n < out_max ) out[n] = idx_slot( forest, ele->idx );
+    n++;
+  }
+  return n;
+}
+
+static int
+slot_covered_by_reqslist( fd_forest_t * forest, ulong slot ) {
+  fd_forest_blk_t *      pool     = fd_forest_pool( forest );
+  fd_forest_requests_t * requests = fd_forest_requests( forest );
+  fd_forest_ref_t *      reqspool = fd_forest_reqspool( forest );
+  for( fd_forest_blk_t * anc = fd_forest_query( forest, slot ); anc; anc = fd_forest_pool_ele( pool, anc->parent ) ) {
+    ulong anc_idx = fd_forest_pool_idx( pool, anc );
+    if( fd_forest_requests_ele_query( requests, &anc_idx, NULL, reqspool ) ) return 1;
+  }
+  return 0;
+}
+
+static void
+test_publish_reseed_sibling_keeps_list( fd_wksp_t * wksp ) {
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
+  fd_forest_init( forest, 0 );
+
+  fd_forest_blk_data_shred_insert( forest, 1, 0, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 2, 0, 1, 1 );
+  fd_forest_blk_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 3, 2, 1, 0, 1, 1 );
+  for( ulong slot=4UL; slot<=7UL; slot++ ) {
+    fd_forest_blk_data_shred_insert( forest, slot, slot-1UL, 0, 0, 0, 0 );
+    fd_forest_blk_data_shred_insert( forest, slot, slot-1UL, 1, 0, 1, 1 );
+  }
+
+  for( ulong i=0; i<4; i++ ) fd_forest_iter_next( &forest->iter, forest );
+  ulong slots[8];
+  FD_TEST( reqslist_slots( forest, slots, 8 ) == 3 && slots[0] == 2 && slots[1] == 1 && slots[2] == 4 );
+
+  fd_forest_blk_data_shred_insert( forest, 8, 3, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 8, 3, 2, 0, 1, 1 );
+  fd_forest_blk_data_shred_insert( forest, 1, 0, 1, 0, 1, 1 );
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 1, 0, 0, 0 );
+
+  FD_TEST( fd_forest_publish( forest, 3 ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+  FD_TEST( !fd_forest_conslist_is_empty( fd_forest_conslist( forest ), fd_forest_conspool( forest ) ) );
+  FD_TEST( !fd_forest_reqslist_is_empty( fd_forest_reqslist( forest ), fd_forest_reqspool( forest ) ) );
+
+  FD_TEST( slot_covered_by_reqslist( forest, 8 ) );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -2315,6 +2379,7 @@ main( int argc, char ** argv ) {
   test_fec_insert_dup_confirm_larger_complete_idx( wksp );
   test_sentinel_parent_update_orphreqs_leak( wksp );
   test_publish_reseed_stranded_gap( wksp );
+  test_publish_reseed_sibling_keeps_list( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
