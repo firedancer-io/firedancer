@@ -545,6 +545,36 @@ FD_VM_SYSCALL_DECL( sol_get_sysvar );
 
 FD_VM_SYSCALL_DECL( sol_get_epoch_stake );
 
+/* syscall(5ac11466) "sol_get_leader"
+
+   This syscall writes the LeaderInfo struct for the current slot and the
+   next slot into the user-provided buffer.
+
+   Inputs:
+
+     r1 - out_vaddr, memory location to write the LeaderInfo struct into
+     r2 - ignored
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
+
+   Return:
+
+     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
+     vm->cu==0.
+
+     FD_VM_ERR_SIGSEGV: bad out_vaddr.  *_ret unchanged.  vm->cu
+     decremented and vm->cu>=0.
+
+     FD_VM_ERR_INVAL: out_vaddr in input region.  *_ret unchanged.
+
+     FD_VM_SYSCALL_ERR_UNALIGNED_POINTER: out_vaddr not aligned (when deprecated loader).
+
+     FD_VM_SUCCESS: success.  vm->cu decremented and vm->cu>=0.
+     *_ret is set to 0. */
+
+FD_VM_SYSCALL_DECL( sol_get_leader );
+
 /* syscall(85532d94) "sol_get_stack_height"
 
    Inputs:

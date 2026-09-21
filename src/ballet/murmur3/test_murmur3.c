@@ -38,6 +38,7 @@ static fd_murmur3_32_test_vector_t const fd_murmur3_32_test_vector[] = {
   { 0x5d2245e4U, "sol_get_return_data",                   19UL, 0 },
   { 0x7317b434U, "sol_log_data",                          12UL, 0 },
   { 0xadb8efc8U, "sol_get_processed_sibling_instruction", 37UL, 0 },
+  { 0x5ac11466U, "sol_get_leader",                        14UL, 0 },
   {0}
 };
 
