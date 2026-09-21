@@ -139,6 +139,10 @@ test_spill_query_read_only( void ) {
   fd_txncache_insert( tc, b, BLOCKHASH(1UL), TXNHASH(1UL) );
   fd_txncache_insert( tc, b, BLOCKHASH(1UL), TXNHASH(2UL) );
   fd_txncache_insert( tc, b, BLOCKHASH(2UL), TXNHASH(3UL) );
+  /* Unused disk-page slots need no backing bytes, even at end of file. */
+  ulong disk_page = fd_txncache_txnpage_idx_ld( sh->txnpage_idx_sz, tc->blockcache_pool[ a.val ].pages, 0UL );
+  ulong disk_off = disk_page*sizeof(fd_txncache_txnpage_t)+offsetof(fd_txncache_txnpage_t, txns);
+  FD_TEST( lseek( fd, 0, SEEK_END )==(long)(disk_off+sizeof(fd_txncache_single_txn_t)) );
 
   /* Blockhash 1 keeps the sole RAM page; blockhash 2 is on disk.
      A RAM-only join must still read and append to blockhash 1. */
@@ -154,7 +158,9 @@ test_spill_query_read_only( void ) {
   FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(2UL), TXNHASH(3UL) ) );
 
   /* Disk inserts write back before another join can read the record. */
+  memset( tc->scratch_txnpage, 0xA5, sizeof(fd_txncache_txnpage_t) );
   fd_txncache_insert( tc, b, BLOCKHASH(2UL), TXNHASH(5UL) );
+  FD_TEST( lseek( fd, 0, SEEK_END )==(long)(disk_off+2UL*sizeof(fd_txncache_single_txn_t)) );
   FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(2UL), TXNHASH(5UL) ) );
   FD_TEST( !fd_txncache_query( reader, b, BLOCKHASH(2UL), TXNHASH(99UL) ) );
   FD_TEST( fd_txncache_query( reader, b, BLOCKHASH(1UL), TXNHASH(4UL) ) );

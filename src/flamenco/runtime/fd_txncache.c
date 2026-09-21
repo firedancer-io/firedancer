@@ -198,7 +198,7 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
     else {
       if( FD_LIKELY( !write ) ) return NULL;
       page = tc->scratch_txnpage;
-      page_io( tc, txnpage_idx, 0UL, page, sizeof(*page), 0 );
+      page_io( tc, txnpage_idx, offsetof(fd_txncache_txnpage_t, free), &page->free, sizeof(page->free), 0 );
     }
     if( FD_LIKELY( page->free ) ) return page;
   }
@@ -232,7 +232,6 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
       page = &tc->txnpages[ txnpage_idx-disk_pages ];
     } else {
       page = tc->scratch_txnpage;
-      memset( page, 0, sizeof(*page) );
     }
     page->free = FD_TXNCACHE_TXNS_PER_PAGE;
     FD_COMPILER_MFENCE();
@@ -630,7 +629,13 @@ fd_txncache_insert( fd_txncache_t *       tc,
          if needed. */
       ulong txnpage_idx = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, blockcache->pages, blockcache->shmem->pages_cnt-1UL );
       FD_TEST( fd_txncache_insert_txn( tc, blockcache, txnpage, txnpage_idx, fork_id, txnhash ) );
-      if( FD_UNLIKELY( txnpage_idx<disk_pages ) ) page_io( tc, txnpage_idx, 0UL, txnpage, sizeof(*txnpage), 1 );
+      if( FD_UNLIKELY( txnpage_idx<disk_pages ) ) {
+        /* Persist only the new record and count before releasing the write lock. */
+        ulong txn_idx = FD_TXNCACHE_TXNS_PER_PAGE-txnpage->free-1UL;
+        fd_txncache_single_txn_t * txn = txnpage->txns[ txn_idx ];
+        page_io( tc, txnpage_idx, offsetof(fd_txncache_txnpage_t, txns)+txn_idx*sizeof(*txn), txn, sizeof(*txn), 1 );
+        page_io( tc, txnpage_idx, offsetof(fd_txncache_txnpage_t, free), &txnpage->free, sizeof(txnpage->free), 1 );
+      }
       fd_rwlock_unwrite( tc->shmem->lock );
       return;
     }
