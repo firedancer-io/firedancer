@@ -294,7 +294,17 @@ vm_trace_done:
 
   FD_LOG_NOTICE(( "Synthetic trace"));
   FD_TEST( !fd_vm_trace_printf( trace, NULL ) );
-  /* FIXME: More fd_vm_trace coverage */
+
+  FD_LOG_NOTICE(( "Testing malformed trace records" ));
+  uchar malformed_shmem[ 256 ] __attribute__((aligned(8)));
+  fd_vm_trace_t * malformed_trace = fd_vm_trace_join( fd_vm_trace_new( malformed_shmem, sizeof(ulong), 0UL ) );
+  FD_TEST( malformed_trace );
+  FD_TEST( !fd_vm_trace_printf( malformed_trace, NULL ) );
+  for( ulong rem=1UL; rem<sizeof(ulong); rem++ ) {
+    malformed_trace->event_sz = rem;
+    FD_TEST( fd_vm_trace_printf( malformed_trace, NULL )==FD_VM_ERR_IO );
+  }
+  FD_TEST( fd_vm_trace_delete( fd_vm_trace_leave( malformed_trace ) )==(void *)malformed_shmem );
 
   /* Test destructors */
 
