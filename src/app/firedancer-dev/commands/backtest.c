@@ -238,7 +238,7 @@ backtest_topo( config_t * config ) {
 
     fd_topob_wksp( topo, "snapin_ct" );
 
-    fd_topob_link( topo, "snapct_ld",    "snapct_ld",    128UL,   sizeof(fd_ssctrl_init_t),       1UL );
+    fd_topob_link( topo, "snapct_ld",    "snapct_ld",    128UL,   sizeof(fd_ssctrl_msg_t),        1UL );
     fd_topob_link( topo, "snapld_dc",    "snapld_dc",    FD_SNAPSHOT_DATA_DEPTH, FD_SNAPSHOT_DATA_MTU,           1UL );
     FOR(snapdc_tile_cnt) fd_topob_link( topo, "snapdc_in", "snapdc_in", FD_SNAPSHOT_DC_IN_DEPTH, FD_SNAPSHOT_DATA_MTU, 1UL );
 

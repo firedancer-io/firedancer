@@ -719,10 +719,15 @@ test_start_after_init_acks( void ) {
   fd_snapct_tile_t * ctx     = scratch;
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+  gossip_ci_entry_t * ci_table = aligned_alloc( alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX ); FD_TEST( ci_table );
+  void * ci_map = aligned_alloc( gossip_ci_map_align(), gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) ); FD_TEST( ci_map );
   for( int file=0; file<2; file++ ) {
     for( int full=0; full<2; full++ ) {
       fd_memset( ctx, 0, sizeof(*ctx) );
       ctx->selector      = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+      fd_memset( ci_table, 0, sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX );
+      ctx->gossip.ci_table = ci_table;
+      ctx->gossip.ci_map   = gossip_ci_map_join( gossip_ci_map_new( ci_map, gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ), TEST_GOSSIP_CI_SEED ) );
       ctx->state         = file ? (full ? FD_SNAPCT_STATE_READING_FULL_FILE : FD_SNAPCT_STATE_READING_INCREMENTAL_FILE)
                                 : (full ? FD_SNAPCT_STATE_READING_FULL_HTTP : FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP);
       ctx->flush_ack_cnt = 9;
@@ -767,6 +772,8 @@ test_start_after_init_acks( void ) {
       FD_TEST( test_publish_cnt==2UL );
     }
   }
+  free( ci_map );
+  free( ci_table );
   free( sel );
   free( scratch );
 }

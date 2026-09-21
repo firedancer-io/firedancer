@@ -822,6 +822,7 @@ after_credit( fd_snapct_tile_t *  ctx,
           break;
         }
       }
+      log_download( ctx, full, ctx->peer.addr, full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot );
     }
     ulong sz = file ? 0UL : sizeof(fd_ssctrl_start_t);
     fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sz, 0UL, 0UL, 0UL );
@@ -973,7 +974,6 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_HTTP;
         ctx->predicted_incremental.full_slot = best.full_slot;
         init_load( ctx, stem, 1, 0 );
-        log_download( ctx, 1, best.addr, best.full_slot );
       }
       break;
     }
@@ -1013,7 +1013,6 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->peer  = best;
         ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
         init_load( ctx, stem, 0, 0 );
-        log_download( ctx, 0, best.addr, best.incr_slot );
       }
       break;
     }
@@ -1223,7 +1222,6 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->peer  = best;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
       init_load( ctx, stem, 0, 0 );
-      log_download( ctx, 0, best.addr, best.incr_slot );
       break;
 
     /* ============================================================== */
