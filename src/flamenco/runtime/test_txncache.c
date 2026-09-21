@@ -76,7 +76,7 @@ test_spill( void ) {
 }
 
 static void
-test_spill_prefers_free_frame( void ) {
+test_spill_page_reuse( void ) {
   ulong shsz = fd_txncache_shmem_footprint( 4UL, 256UL, 2UL*sizeof(fd_txncache_txnpage_t) );
   ulong sz = shsz+fd_txncache_footprint( 4UL );
   uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
@@ -103,13 +103,13 @@ test_spill_prefers_free_frame( void ) {
   fd_txncache_insert( tc, child, BLOCKHASH(4UL), TXNHASH(4UL) );
   long spill_sz = lseek( fd, 0, SEEK_END );
   FD_TEST( spill_sz>0L );
-  FD_TEST( !close( fd ) );
-  fd_txncache_cancel_fork( tc, a ); /* releases a RAM page */
+  fd_txncache_cancel_fork( tc, a ); /* releases RAM and disk pages */
   a = fd_txncache_attach_child( tc, root );
   fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(3UL) );
   b = fd_txncache_attach_child( tc, a );
   fd_txncache_insert( tc, b, BLOCKHASH(3UL), TXNHASH(3UL) );
   FD_TEST( fd_txncache_query( tc, b, BLOCKHASH(3UL), TXNHASH(3UL) ) );
+  FD_TEST( !close( fd ) );
   FD_TEST( !munmap( mem, sz ) );
 }
 
@@ -918,7 +918,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  test_spill_prefers_free_frame();
+  test_spill_page_reuse();
   test_spill_query_read_only();
   test_spill_io_failure( 0 );
   test_spill_io_failure( 1 );

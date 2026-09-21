@@ -18,8 +18,8 @@
          blocks do not contain duplicate transactions.
 
    Queries, RAM inserts, and ordinary RAM page allocation can run
-   concurrently under the shared lock.  Disk inserts, rearranging the
-   free-page stack, and structural operations take the exclusive lock.
+   concurrently under the shared lock.  Disk inserts and structural
+   operations take the exclusive lock.
 
    The txn cache is somewhat CPU and memory sensitive.  To store message
    hashes requires 20 bytes (only the first 20 of the 32 bytes of the
@@ -148,7 +148,7 @@ FD_PROTOTYPES_BEGIN
    page then fails.  I/O errors terminate rather than return a false
    cache miss.
 
-   Each local join includes one page of scratch for disk inserts.
+   Disk inserts reuse the shared compaction scratch under the write lock.
    RAM pages remain in RAM; overflow pages remain on disk until freed.
 
    fd_txncache_join joins the caller to a txn cache.  Assumes ljoin

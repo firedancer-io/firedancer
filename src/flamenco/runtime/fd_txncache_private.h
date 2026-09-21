@@ -124,8 +124,8 @@ typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
 struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_private {
   /* The txncache is a concurrent structure and will be accessed by multiple threads
      concurrently.  Queries, RAM inserts, and ordinary RAM allocation
-     take a read lock.  Disk inserts, free-stack rearrangement, and
-     structural changes take a write lock.
+     take a read lock.  Disk inserts and structural changes take a
+     write lock.
 
      The lock needs to be aligned to 128 bytes to avoid false sharing with other
      data that might be on the same cache line. */
@@ -227,8 +227,7 @@ struct fd_txncache_private {
 
   void *                  scratch_pages;
   uint *                  scratch_heads;
-  fd_txncache_txnpage_t * scratch_txnpage;
-  fd_txncache_txnpage_t * local_txnpage;
+  fd_txncache_txnpage_t * scratch_txnpage; /* Shared by compaction and disk inserts under the write lock. */
   int                     spill_fd;
 };
 

@@ -16,9 +16,8 @@ fd_txncache_footprint( ulong max_live_slots ) {
 
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,        sizeof(fd_txncache_t)                 );
-  l = FD_LAYOUT_APPEND( l, alignof(blockcache_t),          max_active_slots*sizeof(blockcache_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), sizeof(fd_txncache_txnpage_t)          );
+  l = FD_LAYOUT_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN, sizeof(fd_txncache_t)                 );
+  l = FD_LAYOUT_APPEND( l, alignof(blockcache_t),   max_active_slots*sizeof(blockcache_t) );
   return FD_LAYOUT_FINI( l, FD_TXNCACHE_ALIGN );
 }
 
@@ -67,9 +66,8 @@ fd_txncache_new( void *                ljoin,
   void * _scratch_txnpage     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),   sizeof(fd_txncache_txnpage_t)                                );
 
   FD_SCRATCH_ALLOC_INIT( l2, ljoin );
-  fd_txncache_t * ltc           = FD_SCRATCH_ALLOC_APPEND( l2, FD_TXNCACHE_ALIGN,                sizeof(fd_txncache_t)                 );
-  void * _local_blockcache_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(blockcache_t),          max_active_slots*sizeof(blockcache_t) );
-  void * _local_txnpage         = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_txncache_txnpage_t), sizeof(fd_txncache_txnpage_t)          );
+  fd_txncache_t * ltc           = FD_SCRATCH_ALLOC_APPEND( l2, FD_TXNCACHE_ALIGN,     sizeof(fd_txncache_t)                 );
+  void * _local_blockcache_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(blockcache_t), max_active_slots*sizeof(blockcache_t) );
 
   ltc->shmem = tc;
 
@@ -94,7 +92,6 @@ fd_txncache_new( void *                ljoin,
   ltc->scratch_pages   = _scratch_pages;
   ltc->scratch_heads   = _scratch_heads;
   ltc->scratch_txnpage = _scratch_txnpage;
-  ltc->local_txnpage   = _local_txnpage;
   ltc->spill_fd        = spill_fd;
 
   return (void *)ltc;
@@ -183,8 +180,7 @@ fd_txncache_bucket( fd_txncache_t const * tc,
   return fd_ulong_hash( FD_LOAD( ulong, txnhash )^tc->shmem->seed )%tc->shmem->bucket_cnt;
 }
 
-/* Caller holds the shmem lock.  With only a read lock, return NULL if
-   disk access or rearranging the free stack requires exclusive access. */
+/* Caller holds the shmem lock; write indicates exclusive access. */
 static fd_txncache_txnpage_t *
 fd_txncache_ensure_txnpage( fd_txncache_t * tc,
                             blockcache_t *  blockcache,
@@ -201,7 +197,7 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
     if( FD_LIKELY( txnpage_idx>=disk_pages ) ) page = &tc->txnpages[ txnpage_idx-disk_pages ];
     else {
       if( FD_LIKELY( !write ) ) return NULL;
-      page = tc->local_txnpage;
+      page = tc->scratch_txnpage;
       page_io( tc, txnpage_idx, 0UL, page, sizeof(*page), 0 );
     }
     if( FD_LIKELY( page->free ) ) return page;
@@ -220,22 +216,10 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
         return NULL;
       }
       txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, txnpages_free_cnt-1UL );
-      if( FD_UNLIKELY( txnpage_idx<disk_pages ) ) {
-        if( FD_LIKELY( !write ) ) {
-          fd_txncache_txnpage_idx_st( idx_sz, blockcache->pages, page_cnt, idx_null );
-          FD_COMPILER_MFENCE();
-          return NULL;
-        }
-        /* Pruning can return RAM pages below disk pages in the stack.
-           Under the write lock, move a free RAM page to the top. */
-        for( ulong i=txnpages_free_cnt-1UL; i; i-- ) {
-          ulong candidate = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, i-1UL );
-          if( candidate<disk_pages ) continue;
-          fd_txncache_txnpage_idx_st( idx_sz, tc->txnpages_free, i-1UL, txnpage_idx );
-          txnpage_idx = candidate;
-          fd_txncache_txnpage_idx_st( idx_sz, tc->txnpages_free, txnpages_free_cnt-1UL, candidate );
-          break;
-        }
+      if( FD_UNLIKELY( txnpage_idx<disk_pages && !write ) ) {
+        fd_txncache_txnpage_idx_st( idx_sz, blockcache->pages, page_cnt, idx_null );
+        FD_COMPILER_MFENCE();
+        return NULL;
       }
       ulong old_txnpages_free_cnt = FD_ATOMIC_CAS( &tc->shmem->txnpages_free_cnt, txnpages_free_cnt, txnpages_free_cnt-1UL );
       if( FD_LIKELY( old_txnpages_free_cnt==txnpages_free_cnt ) ) break;
@@ -244,9 +228,10 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
     }
 
     fd_txncache_txnpage_t * page;
-    if( FD_LIKELY( txnpage_idx>=disk_pages ) ) page = &tc->txnpages[ txnpage_idx-disk_pages ];
-    else {
-      page = tc->local_txnpage;
+    if( FD_LIKELY( txnpage_idx>=disk_pages ) ) {
+      page = &tc->txnpages[ txnpage_idx-disk_pages ];
+    } else {
+      page = tc->scratch_txnpage;
       memset( page, 0, sizeof(*page) );
     }
     page->free = FD_TXNCACHE_TXNS_PER_PAGE;
@@ -613,6 +598,7 @@ fd_txncache_insert( fd_txncache_t *       tc,
 
   ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
   for(;;) {
+    /* First look for an in-memory page (write==0) */
     fd_txncache_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 0 );
     if( FD_UNLIKELY( !txnpage ) ) {
       /* Because of sizing invariants when creating the structure, it is
@@ -622,11 +608,11 @@ fd_txncache_insert( fd_txncache_t *       tc,
          Under the write lock there are no concurrent allocators, so a
          page still unavailable after the purge means the cache is
          undersized for the caller's usage. */
-      /* Slow path: there is no usage in-memory txnpage. */
       fd_rwlock_unread( tc->shmem->lock );
       fd_rwlock_write( tc->shmem->lock );
       blockcache = blockhash_on_fork( tc, fork, blockhash );
       FD_TEST( blockcache );
+      /* Now check for a page on disk (write==1) */
       txnpage = fd_txncache_ensure_txnpage( tc, blockcache, 1 );
       if( FD_UNLIKELY( !txnpage ) ) {
         /* Slow path: there is no available txnpage in-memory or on
@@ -677,7 +663,7 @@ fd_txncache_query( fd_txncache_t *       tc,
 
   int found = 0;
 
-  /* Select the bucket using the stored portion of the transaction hash. */
+  /* Select the bucket using the stored portion of the txn hash. */
   ulong txnhash_offset = blockcache->shmem->txnhash_offset;
   ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
   ulong head_hash = fd_txncache_bucket( tc, txnhash+txnhash_offset );
