@@ -38,6 +38,8 @@
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 
+FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_CNT==FD_GUI_HIST_CNT, gui_db_enum );
+
 #define IN_KIND_PACK_EXECLE   ( 2UL)
 #define IN_KIND_PACK_POH      ( 3UL)
 #define IN_KIND_EXECLE_POH    ( 4UL)
@@ -519,7 +521,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_REPAIR_NET: {
       if( FD_UNLIKELY( ctx->parsed.repair_net.slot==ULONG_MAX ) ) break;
       long tsorig_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
-      fd_gui_handle_repair_request( ctx->gui, ctx->parsed.repair_net.slot, ctx->parsed.repair_net.shred_idx, tsorig_ns );
+      fd_gui_handle_repair_request( ctx->gui, ctx->parsed.repair_net.slot, ctx->parsed.repair_net.shred_idx, tsorig_ns, fd_clock_tile_now( ctx->clock ) );
       break;
     }
     case IN_KIND_NET_GOSSVF: {

@@ -2828,15 +2828,16 @@ UNIX nanosecond timestamp window.
 
 | param    | type     | description |
 |----------|----------|-------------|
-| start_ns | `string` | Inclusive lower bound of the UNIX nanosecond timestamp window to query for shred events |
-| end_ns   | `string` | Inclusive upper bound of the UNIX nanosecond timestamp window to query for shred events |
+| start_ns | `string` | Inclusive lower bound of the GUI insertion-time window, as a UNIX timestamp in nanoseconds |
+| end_ns   | `string` | Inclusive upper bound of the GUI insertion-time window, as a UNIX timestamp in nanoseconds |
 
 WebSocket clients may request historical shred metadata over a UNIX
-nanosecond timestamp window.  The requested window must not exceed 10
+nanosecond timestamp window.  The requested window must not exceed 60
 seconds.  The response has the same shape as the live `slot.live_shreds`
-topic and covers every shred event recorded in the window across all
-slots.  If no shred events fall in the window, the response arrays will
-be empty.
+topic and includes retained events which were inserted into the server
+database during that window.  Events are available as they arrive,
+without waiting for replay completion. If no shred events fall in the
+window, the response arrays are empty.
 
 ::: details Example
 
@@ -3117,7 +3118,7 @@ and is broadcast to all WebSocket clients.
 | reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
 | slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
 | shred_idx       | `(number\|null)[]` | `shred_idx[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
-| event           | `number[]`         | `event[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
+| event           | `number[]`         | `event[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `slot_complete` (4), and `shred_published` (6) |
 | event_ts_delta  | `string[]`         | `reference_ts + event_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occurred |
 
 #### `slot.update`
