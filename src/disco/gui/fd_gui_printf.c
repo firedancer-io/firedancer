@@ -2799,6 +2799,13 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
         default: FD_LOG_ERR(( "unknown phase %d", gui->summary.boot_progress.phase ));
       }
 
+      if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY
+                  && gui->summary.boot_progress.boot_target_slot_duration_nanos!=ULONG_MAX ) ) {
+        jsonp_ulong( gui->http, "boot_target_slot_duration_nanos", gui->summary.boot_progress.boot_target_slot_duration_nanos );
+      } else {
+        jsonp_null( gui->http, "boot_target_slot_duration_nanos" );
+      }
+
       jsonp_string( gui->http, "accounts_database_path", gui->summary.accounts_database_path );
       jsonp_string( gui->http, "gui_database_path", gui->summary.gui_database_path );
 

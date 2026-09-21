@@ -566,6 +566,7 @@ Some interesting transitions are,
 	"key": "boot_progress",
     "value": {
         "phase": "waiting_for_supermajority",
+        "boot_target_slot_duration_nanos": 400000000,
         "accounts_database_path": "/path/to/accounts.db",
         "gui_database_path": "/path/to/gui.db",
         "joining_gossip_elapsed_seconds": 5,
@@ -614,6 +615,7 @@ Some interesting transitions are,
 | Field                                                                 | Type            | Description |
 |-----------------------------------------------------------------------|-----------------|-------------|
 | phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, `waiting_for_supermajority`, or `running`. This indicates the current phase of the boot process |
+| boot_target_slot_duration_nanos                                       | `number\|null`  | Target slot duration in nanoseconds for the epoch containing the boot snapshot slot, preferring the incremental snapshot over the full snapshot. `null` at startup until known |
 | accounts_database_path                                                | `string`        | Absolute path to the on-disk accounts database file that this validator loads accounts into |
 | gui_database_path                                                     | `string`        | Absolute path to the on-disk gui database file that this validator saves historical monitoring info into |
 | joining_gossip_elapsed_seconds                                        | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |

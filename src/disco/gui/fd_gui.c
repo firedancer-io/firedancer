@@ -216,6 +216,7 @@ fd_gui_new( void *                   shmem,
       fd_memset( &gui->summary.boot_progress, 0, sizeof(gui->summary.boot_progress) );
       gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
     }
+    gui->summary.boot_progress.boot_target_slot_duration_nanos = ULONG_MAX;
   }
 
   gui->summary.identity_account_balance      = 0UL;
@@ -2356,6 +2357,34 @@ fd_gui_slot_get_canon_safe( fd_gui_t * gui, ulong _slot ) {
   }
 }
 
+static ulong
+fd_gui_boot_snapshot_slot( fd_gui_t const * gui ) {
+  for( ulong i=FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT; i>0UL; i-- ) {
+    ulong slot = gui->summary.boot_progress.loading_snapshot[ i-1UL ].slot;
+    if( slot!=ULONG_MAX ) return slot;
+  }
+  return ULONG_MAX;
+}
+
+static void
+fd_gui_update_boot_epoch_duration( fd_gui_t * gui ) {
+  ulong prev = gui->summary.boot_progress.boot_target_slot_duration_nanos;
+
+  ulong slot = fd_gui_boot_snapshot_slot( gui );
+  if( FD_LIKELY( slot!=ULONG_MAX ) ) {
+    fd_gui_epoch_t const * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+    if( FD_LIKELY( epoch && epoch->target_slot_duration_ns>0L ) ) {
+      gui->summary.boot_progress.boot_target_slot_duration_nanos = (ulong)epoch->target_slot_duration_ns;
+    }
+  }
+
+  if( FD_UNLIKELY( prev!=gui->summary.boot_progress.boot_target_slot_duration_nanos ) ) {
+    gui->summary.prev_boot_progress = gui->summary.boot_progress;
+    fd_gui_printf_boot_progress( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+}
+
 void
 fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           fd_epoch_info_msg_t const * epoch_info,
@@ -2390,7 +2419,6 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
     epoch->slot_cnt       = epoch_info->slot_cnt;
     epoch->start_time     = LONG_MAX;
     epoch->end_time       = LONG_MAX;
-    epoch->target_slot_duration_ns = (long)epoch_info->ns_per_slot;
     epoch->my_total_slots = 0UL;
     epoch->my_skipped_slots = 0UL;
     epoch->rankings_slot  = epoch_info->start_slot;
@@ -2410,6 +2438,8 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
     fd_memcpy( epoch->stakes, gui->epoch.stakes_scratch, epoch->stakes_cnt*sizeof(fd_vote_stake_weight_t) );
   }
 
+  epoch->target_slot_duration_ns = (long)epoch_info->ns_per_slot;
+
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( lsched ) );
 
   if( FD_UNLIKELY( gui->epoch.current_epoch==ULONG_MAX ) ) {
@@ -2426,6 +2456,8 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
     epoch->start_time = slot->parent_completed_time;
     break;
   }
+
+  fd_gui_update_boot_epoch_duration( gui );
 
   fd_gui_printf_epoch( gui, epoch_info->epoch );
   fd_http_server_ws_broadcast( gui->http );
@@ -2972,6 +3004,12 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
                                fd_snapct_update_t const * msg ) {
   FD_TEST( msg && fd_cstr_nlen( msg->read_path, 1 ) );
 
+  ulong prev_slot = fd_gui_boot_snapshot_slot( gui );
+  if( msg->type==FD_SNAPCT_SNAPSHOT_TYPE_FULL ) {
+    gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].slot = ULONG_MAX;
+    gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].read_path[ 0 ] = '\0';
+  }
+
   ulong snapshot_idx = fd_ulong_if( msg->type==FD_SNAPCT_SNAPSHOT_TYPE_FULL, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
 
   char const * filename = strrchr( msg->read_path, '/' );
@@ -2991,7 +3029,11 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
         gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot1;
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
   }
+
+  if( prev_slot!=fd_gui_boot_snapshot_slot( gui ) ) gui->summary.boot_progress.boot_target_slot_duration_nanos = ULONG_MAX;
+
   fd_cstr_printf_check( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path, sizeof(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path), NULL, "%s", msg->read_path );
+  fd_gui_update_boot_epoch_duration( gui );
 }
 
 void

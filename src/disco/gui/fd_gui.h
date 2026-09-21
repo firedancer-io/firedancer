@@ -733,6 +733,7 @@ typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
 
 struct fd_gui_boot_progress {
   uchar phase;
+  ulong boot_target_slot_duration_nanos;
   long joining_gossip_time_nanos;
   struct {
     ulong  slot;
