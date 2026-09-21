@@ -470,7 +470,7 @@ sync_ctx_init( fd_snapin_tile_t * ctx,
                int                state ) {
   static uchar shmem_mem[ sizeof(fd_snapin_shmem_t)
                         + 3UL*4096UL ] __attribute__((aligned(4096)));
-  static uchar init_mem[ FD_TOPO_MAX_TILE_IN_LINKS ][ sizeof(fd_ssctrl_init_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar init_mem[ FD_TOPO_MAX_TILE_IN_LINKS ][ FD_ULONG_ALIGN_UP( sizeof(fd_ssctrl_init_t), FD_CHUNK_ALIGN ) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
   fd_memset( ctx, 0, sizeof(*ctx) );
   fd_memset( init_mem, 0, sizeof(init_mem) );

@@ -496,17 +496,10 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;
-      long now = fd_log_wallclock();
       if( ctx->load_file ) {
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
           FD_LOG_ERR(( "lseek(0) failed on %s snapshot file (%i-%s)",
                        ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
-      } else {
-        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, 4UL, now ) ) ) {
-          transition_malformed( ctx, stem );
-          forward_msg = 0;
-          break;
-        }
       }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
       fd_memcpy( msg_out, msg_in, sz );
@@ -518,6 +511,15 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_START: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      if( !ctx->load_file ) {
+        FD_TEST( sz==sizeof(fd_ssctrl_start_t) );
+        fd_ssctrl_start_t const * msg = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
+        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg->addr, msg->hostname, msg->is_https, msg->path, msg->path_len, 4UL, fd_log_wallclock() ) ) ) {
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
+      }
       ctx->pipeline_ready = 1;
       forward_msg = 0;
       break;

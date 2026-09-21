@@ -596,33 +596,17 @@ init_load( fd_snapct_tile_t *  ctx,
   if( file ) out->file_sz = full ? ctx->local_in.full_snapshot_size : ctx->local_in.incremental_snapshot_size;
   else       out->file_sz = 0UL;
 
-  if( !file ) {
-    out->addr = ctx->peer.addr;
-    if( full ) {
-      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
-      FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot.tar.bz2" ) );
-    } else {
-      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot.tar.bz2" ) );
-      FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot.tar.bz2" ) );
-    }
-
-    out->is_https = 0; /* if not found in the config list, it's not https */
-    out->hostname[0] = '\0'; /* .. and it doesn't have a hostname either. */
-    for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
-      if( FD_UNLIKELY( ctx->peer.addr.l==ctx->resolved_servers[ i ].addr.l ) ) {
-        fd_cstr_ncpy( out->hostname, ctx->resolved_servers[ i ].hostname, sizeof(out->hostname) );
-        out->is_https = ctx->resolved_servers[ i ].is_https;
-        break;
-      }
-    }
-  }
   fd_stem_publish( stem, ctx->out_ld.idx, full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR, ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), 0UL, 0UL, 0UL );
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->flush_ack = 0;
   ctx->start_sent = 0;
   ctx->load_complete = 0;
 
-  if( !file ) snapshot_output_prepare( ctx, full );
+  if( !file ) {
+    FD_TEST( fd_cstr_printf_check( full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name,
+                                 PATH_MAX, NULL, full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ) );
+    snapshot_output_prepare( ctx, full );
+  }
 
   /* Clear stale http_*_snapshot_name for file loads before rename
      functions run.  GUI publish is deferred to the META handler. */
@@ -817,7 +801,31 @@ after_credit( fd_snapct_tile_t *  ctx,
                     ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP        ||
                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ||
                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP) ) ) {
-    fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, 0UL, 0UL, 0UL, 0UL, 0UL );
+    int file = ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE || ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
+    int full = ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE || ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP;
+    if( !file ) {
+      fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
+      out->addr = ctx->peer.addr;
+      if( full ) {
+        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
+      } else {
+        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot.tar.bz2" ) );
+      }
+
+      /* Peers outside the config list use HTTP without a hostname. */
+      out->is_https    = 0;
+      out->hostname[0] = '\0';
+      for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
+        if( FD_UNLIKELY( ctx->peer.addr.l==ctx->resolved_servers[ i ].addr.l ) ) {
+          fd_cstr_ncpy( out->hostname, ctx->resolved_servers[ i ].hostname, sizeof(out->hostname) );
+          out->is_https = ctx->resolved_servers[ i ].is_https;
+          break;
+        }
+      }
+    }
+    ulong sz = file ? 0UL : sizeof(fd_ssctrl_start_t);
+    fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sz, 0UL, 0UL, 0UL );
+    ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sz, ctx->out_ld.chunk0, ctx->out_ld.wmark );
     ctx->start_sent = 1;
   }
 

@@ -307,7 +307,13 @@ fd_sshttp_init( fd_sshttp_t * http,
                 long          now ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
-  http->hostname = hostname;
+  ulong hostname_len = strnlen( hostname, sizeof(http->hostname) );
+  if( FD_UNLIKELY( hostname_len==sizeof(http->hostname) ) ) {
+    FD_LOG_WARNING(( "snapshot hostname too long" ));
+    return -1;
+  }
+  /* Redirects reinitialize using our own hostname buffer. */
+  memmove( http->hostname, hostname, hostname_len+1UL );
   http->is_https = is_https;
 
   if( FD_LIKELY( is_https ) ) {

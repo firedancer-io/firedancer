@@ -37,8 +37,8 @@
         Each tile enters the PROCESSING state and then forwards the INIT
         message down the pipeline.  When snapct receives this INIT
         message from every path, the entire pipeline is in PROCESSING
-        state.  snapct then sends START to snapld, which begins
-        producing snapshot data.
+        state.  snapct then sends START with the fetch target to snapld,
+        which begins producing snapshot data.
      3. Tiles continue to process data / frags as applicable.  If an
         error occurs, the tile enters the ERROR state and also sends an
         ERROR message downstream.  All downstream tiles also enter the
@@ -127,21 +127,34 @@
 /* snapld -> snapct (via snapld_dc) */
 #define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (11UL) /* snapld finished reading/downloading all data */
 
-/* Sent by snapct to tell snapld whether to load a local file or
-   download from a particular external peer. */
+/* Pipeline initialization, forwarded by snapld through snapdc to
+   snapin. */
 typedef struct fd_ssctrl_init {
   int           file;
   int           zstd;
   ulong         slot; /* slot advertised by the snapshot peer */
-  fd_ip4_port_t addr;
   uchar         snapshot_hash[ FD_HASH_FOOTPRINT ]; /* advertised snapshot hash from snapshot file name */
-  char          hostname[ FD_FQDN_BUF_MAX ];
-  char          path[ PATH_MAX ];
-  ulong         path_len;
-  int           is_https;
   int           is_redirect; /* 1 if using well-known redirect path */
   ulong         file_sz;     /* file size in bytes (file loads only, 0 for HTTP) */
 } fd_ssctrl_init_t;
+
+/* Fetch target sent only from snapct to snapld after all INIT acks.
+   For file loads, START has no payload. */
+typedef struct fd_ssctrl_start {
+  fd_ip4_port_t addr;
+  int           is_https;
+  ulong         path_len;
+  char          hostname[ FD_FQDN_BUF_MAX ];
+  char          path[ PATH_MAX ];
+} fd_ssctrl_start_t;
+
+/* The fragment signature selects the payload.  Publish only the
+   selected member's size; the union sizes the shared snapct -> snapld
+   buffer. */
+typedef union fd_ssctrl_msg {
+  fd_ssctrl_init_t  init;
+  fd_ssctrl_start_t start;
+} fd_ssctrl_msg_t;
 
 /* Sent by snapld to tell snapct metadata about a downloaded snapshot. */
 typedef struct fd_ssctrl_meta {

@@ -180,7 +180,10 @@ begin_load( test_env_t * env,
             int          full,
             int          zstd ) {
   fd_memset( env->init, 0, sizeof(fd_ssctrl_init_t) );
-  env->init->zstd = zstd;
+  env->init->zstd        = zstd;
+  env->init->slot        = 12345UL;
+  env->init->is_redirect = 1;
+  fd_memset( env->init->snapshot_hash, 0xa5, FD_HASH_FOOTPRINT );
   fd_memcpy( env->in, env->init, sizeof(fd_ssctrl_init_t) );
   ulong sig = full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR;
   ulong pub_cnt = test_pub_cnt;
