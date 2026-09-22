@@ -1918,11 +1918,13 @@ fd_grpc_server_conn_timers( fd_grpc_server_conn_t * conn,
   fd_grpc_server_params_t const * params = &server->params;
   ulong                           stream_max = params->max_stream_cnt;
 
-  ulong active_cnt = 0UL;
+  ulong active_cnt  = 0UL;
+  int   pending_out = 0;
   for( ulong i=0UL; i<stream_max; i++ ) {
     fd_grpc_server_stream_t * s = conn->stream+i;
     if( s->state==FD_GRPC_SERVER_STREAM_FREE ) continue;
     active_cnt++;
+    pending_out |= ( !!fd_h2_rbuf_used_sz( s->tx_queue ) ) | ( s->large_idx>=0L );
     if( ( s->state==FD_GRPC_SERVER_STREAM_ACTIVE                 ) &
         ( !!( s->flags & FD_GRPC_SERVER_STREAM_FLAG_UNARY )             ) &
         ( s->deadline <= now                                      ) ) {
@@ -1953,10 +1955,11 @@ fd_grpc_server_conn_timers( fd_grpc_server_conn_t * conn,
   }
 
   /* Output the peer never takes, which an open stream would otherwise
-     keep alive forever.  A healthy subscriber drains, so its send ring
-     empties even when it sends nothing back. */
+     keep alive forever.  A healthy subscriber drains, so nothing stays
+     queued even when it sends nothing back.  Flow control stops the
+     stream queues from reaching the send ring, so both count. */
   if( ( params->idle_timeout_nanos>0L                           ) &
-      ( !!fd_h2_rbuf_used_sz( conn->rbuf_tx )                   ) &
+      ( ( !!fd_h2_rbuf_used_sz( conn->rbuf_tx ) ) | pending_out  ) &
       ( !( conn->flags & FD_GRPC_SERVER_CONN_FLAG_CLOSING )     ) &
       ( now - conn->tx_nanos > params->idle_timeout_nanos       ) ) {
     server->metrics.idle_timeout_cnt++;
