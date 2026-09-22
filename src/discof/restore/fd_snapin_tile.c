@@ -1145,7 +1145,8 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->writer.buf_used ) ) return 0;
 
   /* Pad the range to FD_SNAPIN_DIRECT_ALIGN for O_DIRECT.  The padding
-     is a dead record so compaction steps over it. */
+     is a dead record so compaction reclaims it after snapshot loading
+     finishes. */
   ulong used   = ctx->writer.buf_used;
   ulong padded = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
   FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ ); /* guaranteed by FD_SNAPIN_WRITE_BUF_MAX */
