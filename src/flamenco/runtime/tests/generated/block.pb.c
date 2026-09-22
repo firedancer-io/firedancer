@@ -27,6 +27,9 @@ PB_BIND(FD_EXEC_TEST_BLOCK_CONTEXT, fd_exec_test_block_context_t, 2)
 PB_BIND(FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS, fd_exec_test_leader_schedule_effects_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_STAKE_DELEGATION, fd_exec_test_stake_delegation_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_BLOCK_EFFECTS, fd_exec_test_block_effects_t, AUTO)
 
 

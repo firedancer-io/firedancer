@@ -129,6 +129,18 @@ typedef struct fd_exec_test_leader_schedule_effects {
     pb_byte_t leader_schedule_hash[16];
 } fd_exec_test_leader_schedule_effects_t;
 
+/* Post-block stakes cache entry (not covered by the bank hash). */
+typedef struct fd_exec_test_stake_delegation {
+    pb_byte_t stake_account[32];
+    pb_byte_t vote_account[32];
+    uint64_t stake;
+    uint64_t activation_epoch;
+    uint64_t deactivation_epoch;
+    uint64_t credits_observed;
+    uint64_t lamports;
+    uint64_t data_len;
+} fd_exec_test_stake_delegation_t;
+
 typedef struct fd_exec_test_block_effects {
     /* If block execution failed */
     bool has_error;
@@ -142,6 +154,9 @@ typedef struct fd_exec_test_block_effects {
     /* Leader schedule */
     bool has_leader_schedule;
     fd_exec_test_leader_schedule_effects_t leader_schedule;
+    /* Sorted by stake_account; empty when has_error */
+    pb_size_t stake_delegations_count;
+    struct fd_exec_test_stake_delegation *stake_delegations;
 } fd_exec_test_block_effects_t;
 
 typedef struct fd_exec_test_block_fixture {
@@ -180,6 +195,7 @@ extern "C" {
 
 
 
+
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
@@ -188,7 +204,8 @@ extern "C" {
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT     {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT {0, 0, 0, 0, 0, {0}}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_STAKE_DELEGATION_INIT_DEFAULT {{0}, {0}, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
@@ -197,7 +214,8 @@ extern "C" {
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO        {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO {0, 0, 0, 0, 0, {0}}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_ZERO, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO}
+#define FD_EXEC_TEST_STAKE_DELEGATION_INIT_ZERO  {{0}, {0}, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_ZERO, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -243,11 +261,20 @@ extern "C" {
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_LEADER_PUB_CNT_TAG 4
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_LEADERS_SCHED_CNT_TAG 5
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_LEADER_SCHEDULE_HASH_TAG 6
+#define FD_EXEC_TEST_STAKE_DELEGATION_STAKE_ACCOUNT_TAG 1
+#define FD_EXEC_TEST_STAKE_DELEGATION_VOTE_ACCOUNT_TAG 2
+#define FD_EXEC_TEST_STAKE_DELEGATION_STAKE_TAG  3
+#define FD_EXEC_TEST_STAKE_DELEGATION_ACTIVATION_EPOCH_TAG 4
+#define FD_EXEC_TEST_STAKE_DELEGATION_DEACTIVATION_EPOCH_TAG 5
+#define FD_EXEC_TEST_STAKE_DELEGATION_CREDITS_OBSERVED_TAG 6
+#define FD_EXEC_TEST_STAKE_DELEGATION_LAMPORTS_TAG 7
+#define FD_EXEC_TEST_STAKE_DELEGATION_DATA_LEN_TAG 8
 #define FD_EXEC_TEST_BLOCK_EFFECTS_HAS_ERROR_TAG 1
 #define FD_EXEC_TEST_BLOCK_EFFECTS_SLOT_CAPITALIZATION_TAG 2
 #define FD_EXEC_TEST_BLOCK_EFFECTS_BANK_HASH_TAG 3
 #define FD_EXEC_TEST_BLOCK_EFFECTS_COST_TRACKER_TAG 4
 #define FD_EXEC_TEST_BLOCK_EFFECTS_LEADER_SCHEDULE_TAG 5
+#define FD_EXEC_TEST_BLOCK_EFFECTS_STAKE_DELEGATIONS_TAG 6
 #define FD_EXEC_TEST_BLOCK_FIXTURE_METADATA_TAG  1
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INPUT_TAG     2
 #define FD_EXEC_TEST_BLOCK_FIXTURE_OUTPUT_TAG    3
@@ -333,16 +360,30 @@ X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, leader_schedule_hash,   6)
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_DEFAULT NULL
 
+#define FD_EXEC_TEST_STAKE_DELEGATION_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, stake_account,     1) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, vote_account,      2) \
+X(a, STATIC,   SINGULAR, UINT64,   stake,             3) \
+X(a, STATIC,   SINGULAR, UINT64,   activation_epoch,   4) \
+X(a, STATIC,   SINGULAR, UINT64,   deactivation_epoch,   5) \
+X(a, STATIC,   SINGULAR, UINT64,   credits_observed,   6) \
+X(a, STATIC,   SINGULAR, UINT64,   lamports,          7) \
+X(a, STATIC,   SINGULAR, UINT64,   data_len,          8)
+#define FD_EXEC_TEST_STAKE_DELEGATION_CALLBACK NULL
+#define FD_EXEC_TEST_STAKE_DELEGATION_DEFAULT NULL
+
 #define FD_EXEC_TEST_BLOCK_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     has_error,         1) \
 X(a, STATIC,   SINGULAR, UINT64,   slot_capitalization,   2) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bank_hash,         3) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  cost_tracker,      4) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  leader_schedule,   5)
+X(a, STATIC,   OPTIONAL, MESSAGE,  leader_schedule,   5) \
+X(a, POINTER,  REPEATED, MESSAGE,  stake_delegations,   6)
 #define FD_EXEC_TEST_BLOCK_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_BLOCK_EFFECTS_DEFAULT NULL
 #define fd_exec_test_block_effects_t_cost_tracker_MSGTYPE fd_exec_test_cost_tracker_t
 #define fd_exec_test_block_effects_t_leader_schedule_MSGTYPE fd_exec_test_leader_schedule_effects_t
+#define fd_exec_test_block_effects_t_stake_delegations_MSGTYPE fd_exec_test_stake_delegation_t
 
 #define FD_EXEC_TEST_BLOCK_FIXTURE_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
@@ -361,6 +402,7 @@ extern const pb_msgdesc_t fd_exec_test_prev_vote_account_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_bank_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_leader_schedule_effects_t_msg;
+extern const pb_msgdesc_t fd_exec_test_stake_delegation_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_effects_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 
@@ -372,6 +414,7 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define FD_EXEC_TEST_BLOCK_BANK_FIELDS &fd_exec_test_block_bank_t_msg
 #define FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS &fd_exec_test_block_context_t_msg
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_FIELDS &fd_exec_test_leader_schedule_effects_t_msg
+#define FD_EXEC_TEST_STAKE_DELEGATION_FIELDS &fd_exec_test_stake_delegation_t_msg
 #define FD_EXEC_TEST_BLOCK_EFFECTS_FIELDS &fd_exec_test_block_effects_t_msg
 #define FD_EXEC_TEST_BLOCK_FIXTURE_FIELDS &fd_exec_test_block_fixture_t_msg
 
@@ -379,13 +422,14 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 /* fd_exec_test_PrevVoteAccount_size depends on runtime parameters */
 /* fd_exec_test_BlockBank_size depends on runtime parameters */
 /* fd_exec_test_BlockContext_size depends on runtime parameters */
+/* fd_exec_test_BlockEffects_size depends on runtime parameters */
 /* fd_exec_test_BlockFixture_size depends on runtime parameters */
-#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          135
 #define FD_EXEC_TEST_COST_TRACKER_SIZE           11
 #define FD_EXEC_TEST_EPOCH_CREDIT_SIZE           33
 #define FD_EXEC_TEST_INFLATION_SIZE              45
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_SIZE 73
-#define ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_MAX_SIZE FD_EXEC_TEST_BLOCK_EFFECTS_SIZE
+#define FD_EXEC_TEST_STAKE_DELEGATION_SIZE       134
+#define ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_MAX_SIZE FD_EXEC_TEST_STAKE_DELEGATION_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_VoteAccountVersion fd_exec_test_VoteAccountVersion
@@ -397,6 +441,7 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define org_solana_sealevel_v1_BlockBank fd_exec_test_BlockBank
 #define org_solana_sealevel_v1_BlockContext fd_exec_test_BlockContext
 #define org_solana_sealevel_v1_LeaderScheduleEffects fd_exec_test_LeaderScheduleEffects
+#define org_solana_sealevel_v1_StakeDelegation fd_exec_test_StakeDelegation
 #define org_solana_sealevel_v1_BlockEffects fd_exec_test_BlockEffects
 #define org_solana_sealevel_v1_BlockFixture fd_exec_test_BlockFixture
 #define _ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_VERSION_MIN _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN
@@ -412,6 +457,7 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_BANK_INIT_DEFAULT FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_STAKE_DELEGATION_INIT_DEFAULT FD_EXEC_TEST_STAKE_DELEGATION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_COST_TRACKER_INIT_ZERO FD_EXEC_TEST_COST_TRACKER_INIT_ZERO
@@ -421,6 +467,7 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_BANK_INIT_ZERO FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_CONTEXT_INIT_ZERO FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_LEADER_SCHEDULE_EFFECTS_INIT_ZERO FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_STAKE_DELEGATION_INIT_ZERO FD_EXEC_TEST_STAKE_DELEGATION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_EFFECTS_INIT_ZERO FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_FIXTURE_INIT_ZERO FD_EXEC_TEST_BLOCK_FIXTURE_INIT_ZERO
 
