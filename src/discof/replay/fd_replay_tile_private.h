@@ -358,9 +358,12 @@ struct fd_replay_tile {
   ulong     published_root_slot;     /* slot number of the published root. */
   ulong     published_root_bank_idx; /* bank index of the published root. */
 
-  /* ALPENGLOW-ONLY.  finalized_block_id caches a finalization that ran
-     ahead of replay, slot ULONG_MAX if none. */
-  ag_block_id_t finalized_block_id;
+  /* ALPENGLOW-ONLY.  Watermarks marking the finalized but unreplayed
+     slots.  lo is the oldest and held until replay reaches it.  hi is
+     the newest and continuously updated.  If the gap between hi and lo
+     exceeds max_live_slots, Firedancer halts. */
+  ag_block_id_t finalized_block_id_lo;
+  ag_block_id_t finalized_block_id_hi;
 
   /* Randomly generated block id for the initial genesis/snapshot slot.
      Used as a fallback when the snapshot manifest does not contain a

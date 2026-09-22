@@ -777,14 +777,19 @@ try_advance_root_ag( fd_replay_tile_t * ctx,
     memcpy( ctx->consensus_root.uc, finalized_block_id.hash, sizeof(fd_hash_t) );
     if( FD_UNLIKELY( ctx->next_leader_slot!=ULONG_MAX && finalized_block_id.slot>ctx->votor_leader->parent_slot ) ) ctx->next_leader_slot = ULONG_MAX;
     return;
-  } else if( ctx->finalized_block_id.slot==ULONG_MAX || finalized_block_id.slot>ctx->finalized_block_id.slot ) {
+  }
 
     /* When a block id is finalized ahead of replay, we need to cache it
        and process it when replay catches up.  Certificates can arrive
-       out of order, so only overwite with a newer finalization. */
+       out of order, so lo keeps the oldest and hi the newest. */
 
-    ctx->finalized_block_id = finalized_block_id;
+  if( FD_UNLIKELY( finalized_block_id.slot<ctx->finalized_block_id_lo.slot || ctx->finalized_block_id_lo.slot<=ctx->consensus_root_slot ) ) {
+    if( FD_UNLIKELY( ctx->finalized_block_id_lo.slot>ctx->finalized_block_id_hi.slot ) ) fd_swap( ctx->finalized_block_id_lo, ctx->finalized_block_id_hi );
+    ctx->finalized_block_id_lo = finalized_block_id;
+  } else if( FD_LIKELY( finalized_block_id.slot>ctx->finalized_block_id_hi.slot ) ) {
+    ctx->finalized_block_id_hi = finalized_block_id;
   }
+  FD_CHECK_CRIT( ctx->finalized_block_id_hi.slot<=ctx->finalized_block_id_lo.slot+ctx->max_live_slots, "Firedancer has fallen too far behind and cannot catchup. The hi-watermark exceeds the lo-watermark of unreplayed, finalized slots by more than max_live_slots." );
 }
 
 static void
@@ -954,7 +959,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( !is_initial ) ) report_block_completed( ctx, bank, is_leader, slot_info );
   timing_slot_release( ctx, bank->idx );
 
-  if( FD_UNLIKELY( ctx->alpenglow && slot==ctx->finalized_block_id.slot && !memcmp( block_id.uc, ctx->finalized_block_id.hash, sizeof(fd_hash_t) ) ) ) try_advance_root_ag( ctx, ctx->finalized_block_id ); /* finalized ahead of replay, replay caught up */
+  if( FD_UNLIKELY( ctx->alpenglow && slot==ctx->finalized_block_id_lo.slot && !memcmp( block_id.uc, ctx->finalized_block_id_lo.hash, sizeof(fd_hash_t) ) ) ) { /* finalized ahead of replay, replay caught up */
+    try_advance_root_ag( ctx, ctx->finalized_block_id_lo );
+    ctx->finalized_block_id_lo = ctx->finalized_block_id_hi; /* hi becomes lo once lo is reached */
+  }
 }
 
 static void
@@ -2079,6 +2087,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   ctx->consensus_root          = ctx->initial_block_id;
   ctx->consensus_root_slot     = 0UL;
+  ctx->finalized_block_id_lo   = ag_block_id( 0UL, ctx->initial_block_id.uc );
+  ctx->finalized_block_id_hi   = ctx->finalized_block_id_lo;
   ctx->notified_root           = ctx->initial_block_id;
   ctx->notified_root_slot      = 0UL;
   ctx->notified_root_bank      = bank;
@@ -2242,6 +2252,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
+    ctx->finalized_block_id_lo   = ag_block_id( snapshot_slot, manifest_block_id.uc );
+    ctx->finalized_block_id_hi   = ctx->finalized_block_id_lo;
     ctx->notified_root           = manifest_block_id;
     ctx->notified_root_slot      = snapshot_slot;
     ctx->notified_root_bank      = bank;
@@ -4819,7 +4831,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->consensus_root      = ctx->initial_block_id;
-  ctx->finalized_block_id.slot = ULONG_MAX;
+  ctx->finalized_block_id_lo = ag_block_id( ULONG_MAX, ctx->initial_block_id.uc );
+  ctx->finalized_block_id_hi = ctx->finalized_block_id_lo;
   ctx->notified_root_slot  = ULONG_MAX;
   ctx->notified_root       = ctx->initial_block_id;
   ctx->notified_root_bank = NULL;

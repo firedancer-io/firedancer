@@ -273,7 +273,7 @@ count_notar_stake( ag_slot_state_t *       self,
   ag_epoch_info_t const * epoch_info    = self->epoch_info;
   ulong                   slot          = vote->slot;
   uchar const *           block_hash    = vote->block_hash;
-  ag_block_hash_key_t               key           = FD_LOAD( ag_block_hash_key_t, block_hash );
+  ag_block_hash_key_t     key           = FD_LOAD( ag_block_hash_key_t, block_hash );
   ulong                   rank          = vote->rank;
   ushort                  shred_version = vote->shred_version;
   fd_bls_sig_t const *    sig           = &vote->sig;
