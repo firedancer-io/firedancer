@@ -699,6 +699,12 @@ test_boundary_unrooted_delegation_totals( fd_wksp_t * wksp, int fixed_point, int
   if( gap ) {
     /* Observe copied tags before the caller performs the deferred root
        sweep.  Removing the in-view policy change must fail here. */
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( child );
+    ulong              child_epoch = fd_slot_to_epoch( &child->f.epoch_schedule, child->f.slot, NULL );
+    /* Match block preparation's epoch rotation before refreshing votes. */
+    fd_vote_stakes_purge_fork( vote_stakes, child->vote_stakes_fork_id );
+    child->vote_stakes_fork_id = fd_vote_stakes_new_fork( vote_stakes, parent->vote_stakes_fork_id, child_epoch );
+
     fd_stake_history_t prior[1];
     FD_TEST( fd_sysvar_cache_stake_history_view( &child->f.sysvar_cache, prior ) );
     fd_stake_delegations_view_t view[1];
