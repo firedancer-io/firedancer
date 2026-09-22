@@ -6,6 +6,7 @@
 #include "utils/fd_ssmanifest_parser.h"
 #include "utils/fd_slot_delta_parser.h"
 #include "../../util/fd_hash32.h"
+#include "../../util/bits/fd_float.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -13,8 +14,10 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../flamenco/rewards/fd_rewards_base.h"
 
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/features/fd_features.h"
@@ -191,6 +194,11 @@ struct fd_snapin_lead {
     ulong                        capitalization;
     fd_accdb_snapshot_recovery_t accdb_metadata;
   } recovery; /* stores state from the last full snapshot for incremental revert */
+
+  /* Scratch for verify_sysvars: the decoded sysvar accounts of the
+     snapshot being verified, in the layout the replay tile rebuilds
+     from the accounts database at boot. */
+  fd_sysvar_cache_t sysvar_cache[1];
 
   blockhash_group_t *        blockhash_groups;
   ulong                      blockhash_groups_cnt; /* every group parsed, including those from dropped slots */
@@ -385,37 +393,21 @@ metrics_write( fd_snapin_tile_t * ctx ) {
 }
 
 /* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
-   sysvar account after loading a snapshot.  Returns 0 if verification
-   passed, -1 if not. */
+   sysvar account after loading a snapshot.  data points to the first
+   data_len bytes of the account (data_len is the untruncated account
+   size).  Returns 0 if verification passed, -1 if not. */
 
 static int
-verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
-  fd_accdb_fork_id_t fork_id = ctx->full ? ctx->lead.accdb_root_fork_id
-                                         : ctx->lead.accdb_incr_fork_id;
-  ulong lamports;
-  ulong data_len;
-  int   executable;
-  uchar owner[ 32UL ];
-  int   source = fd_accdb_read_one_nocache( ctx->accdb, fork_id,
-                                            fd_sysvar_slot_history_id.uc,
-                                            &lamports, &executable, owner,
-                                            ctx->staged.data, &data_len );
-  if( FD_UNLIKELY( source==FD_ACCDB_READ_ONE_NOCACHE_MISS ) ) {
-    FD_LOG_WARNING(( "SlotHistory sysvar account was not present in the accounts database" ));
-    return -1;
-  }
+verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx,
+                                      uchar const *      data,
+                                      ulong              data_len ) {
   if( FD_UNLIKELY( data_len!=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account data size is %lu, expected %lu", data_len, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ));
     return -1;
   }
-  if( FD_UNLIKELY( !fd_memeq( owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( owner, owner_b58 );
-    FD_LOG_WARNING(( "SlotHistory sysvar owner is invalid: %s != sysvar_owner_id", owner_b58 ));
-    return -1;
-  }
 
   fd_slot_history_view_t view[1];
-  if( FD_UNLIKELY( !fd_sysvar_slot_history_view( view, ctx->staged.data, data_len ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_slot_history_view( view, data, data_len ) ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account data is corrupt" ));
     return -1;
   }
@@ -477,6 +469,169 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
   }
 
   return 0;
+}
+
+/* Sysvar accounts checked by verify_sysvars, in fd_sysvar_cache order.
+
+   required: reject the snapshot if the account is missing.  Agave
+   requires Rent (Bank::new_from_fields panics without a well-formed
+   rent sysvar, see load_rent_from_account_for_snapshot_load).
+   Firedancer additionally requires Clock (fd_runtime aborts on a
+   failed clock read when preparing a block) and SlotHistory (slot
+   delta verification below).  The rest are recreated by the runtime
+   if absent. */
+
+struct snapin_sysvar {
+  fd_pubkey_t const * id;
+  char const *        name;
+  int                 required;
+};
+typedef struct snapin_sysvar snapin_sysvar_t;
+
+static snapin_sysvar_t const snapin_sysvar_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
+  [ FD_SYSVAR_clock_IDX             ] = { &fd_sysvar_clock_id,               "Clock",             1 },
+  [ FD_SYSVAR_epoch_rewards_IDX     ] = { &fd_sysvar_epoch_rewards_id,       "EpochRewards",      0 },
+  [ FD_SYSVAR_epoch_schedule_IDX    ] = { &fd_sysvar_epoch_schedule_id,      "EpochSchedule",     0 },
+  [ FD_SYSVAR_last_restart_slot_IDX ] = { &fd_sysvar_last_restart_slot_id,   "LastRestartSlot",   0 },
+  [ FD_SYSVAR_recent_hashes_IDX     ] = { &fd_sysvar_recent_block_hashes_id, "RecentBlockhashes", 0 },
+  [ FD_SYSVAR_rent_IDX              ] = { &fd_sysvar_rent_id,                "Rent",              1 },
+  [ FD_SYSVAR_slot_hashes_IDX       ] = { &fd_sysvar_slot_hashes_id,         "SlotHashes",        0 },
+  [ FD_SYSVAR_slot_history_IDX      ] = { &fd_sysvar_slot_history_id,        "SlotHistory",       1 },
+  [ FD_SYSVAR_stake_history_IDX     ] = { &fd_sysvar_stake_history_id,       "StakeHistory",      0 },
+};
+
+/* Rent::try_minimum_balance rejects lamports_per_byte values that
+   would overflow minimum_balance for a max-size account.  Agave's
+   Rent::minimum_balance panics on such a rent sysvar, and Firedancer's
+   fd_rent_exempt_minimum_balance would silently wrap.
+   https://github.com/anza-xyz/solana-sdk/blob/rent%40v4.4.0/rent/src/lib.rs#L187-L204 */
+
+#define SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_1 (1759197129867UL)
+#define SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_2 ( 879598564933UL)
+
+/* verify_sysvars reads every cached sysvar account back from the
+   accounts database and decodes it the way the replay tile will at
+   boot (fd_sysvar_cache_restore), then checks the invariants the
+   runtime later asserts on.  A snapshot that would abort the validator
+   at boot is rejected here so the load can be retried from another
+   peer.  Only valid once every snapin tile has acked FINI, which makes
+   the accounts stable.  Returns 0 on success, -1 on failure. */
+
+static int
+verify_sysvars( fd_snapin_tile_t * ctx ) {
+  fd_accdb_fork_id_t fork_id = ctx->full ? ctx->lead.accdb_root_fork_id
+                                         : ctx->lead.accdb_incr_fork_id;
+  fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new( ctx->lead.sysvar_cache ) );
+
+  struct {
+    int   present;
+    ulong data_len; /* untruncated account data length */
+  } acct[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {0};
+
+  for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
+    snapin_sysvar_t const * sysvar = &snapin_sysvar_tbl[ i ];
+
+    ulong lamports;
+    ulong data_len;
+    int   executable;
+    uchar owner[ 32UL ];
+    int   source = fd_accdb_read_one_nocache( ctx->accdb, fork_id, sysvar->id->uc,
+                                              &lamports, &executable, owner,
+                                              ctx->staged.data, &data_len );
+    if( source==FD_ACCDB_READ_ONE_NOCACHE_MISS ) {
+      if( FD_UNLIKELY( sysvar->required ) ) {
+        FD_LOG_WARNING(( "%s sysvar account was not present in the accounts database", sysvar->name ));
+        return -1;
+      }
+      continue;
+    }
+
+    /* The runtime's in-place sysvar updaters abort on a foreign owner
+       (fd_sysvar_slot_hashes_update, fd_sysvar_stake_history_update). */
+    if( FD_UNLIKELY( !fd_memeq( owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( owner, owner_b58 );
+      FD_LOG_WARNING(( "%s sysvar owner is invalid: %s != sysvar_owner_id", sysvar->name, owner_b58 ));
+      return -1;
+    }
+
+    /* Same decode the replay tile does at boot; fd_sysvar_cache_restore
+       aborts if it fails there. */
+    fd_sysvar_cache_restore_one( cache, sysvar->id, lamports, ctx->staged.data, data_len );
+    ulong cached_sz;
+    if( FD_UNLIKELY( !fd_sysvar_cache_data_query( cache, sysvar->id->uc, &cached_sz ) ) ) {
+      FD_LOG_WARNING(( "%s sysvar account data is corrupt (data_len=%lu)", sysvar->name, data_len ));
+      return -1;
+    }
+
+    acct[ i ].present  = 1;
+    acct[ i ].data_len = data_len;
+  }
+
+  fd_rent_t rent[1];
+  fd_sysvar_cache_rent_read( cache, rent ); /* required above */
+  ulong threshold_bits = fd_dblbits( rent->exemption_threshold );
+  if( FD_UNLIKELY( ( threshold_bits==fd_dblbits( 1.0 ) && rent->lamports_per_uint8_year>SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_1 ) ||
+                   ( threshold_bits==fd_dblbits( 2.0 ) && rent->lamports_per_uint8_year>SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_2 ) ) ) {
+    FD_LOG_WARNING(( "Rent sysvar lamports_per_byte %lu overflows minimum_balance for exemption_threshold %g",
+                     rent->lamports_per_uint8_year, rent->exemption_threshold ));
+    return -1;
+  }
+
+  /* fd_sysvar_slot_hashes_update rewrites the account in place and
+     aborts if it is smaller than the full serialized size. */
+  if( FD_UNLIKELY( acct[ FD_SYSVAR_slot_hashes_IDX ].present &&
+                   acct[ FD_SYSVAR_slot_hashes_IDX ].data_len<FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) ) {
+    FD_LOG_WARNING(( "SlotHashes sysvar account data size is %lu, expected at least %lu",
+                     acct[ FD_SYSVAR_slot_hashes_IDX ].data_len, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ));
+    return -1;
+  }
+
+  fd_sysvar_epoch_rewards_t rewards[1];
+  if( fd_sysvar_cache_epoch_rewards_read( cache, rewards ) && rewards->active ) {
+    /* Replay recalculates the partitioned rewards from this sysvar at
+       boot (fd_rewards_recalculate_partitioned_rewards).  Its reader
+       requires the exact serialized size; any other size makes it skip
+       the active rewards silently. */
+    if( FD_UNLIKELY( acct[ FD_SYSVAR_epoch_rewards_IDX ].data_len!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) {
+      FD_LOG_WARNING(( "EpochRewards sysvar account data size is %lu, expected %lu",
+                       acct[ FD_SYSVAR_epoch_rewards_IDX ].data_len, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ));
+      return -1;
+    }
+    /* Asserted on every distribution by both clients.
+       https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.4/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L117 */
+    if( FD_UNLIKELY( rewards->distributed_rewards>rewards->total_rewards ) ) {
+      FD_LOG_WARNING(( "EpochRewards sysvar distributed rewards %lu exceed total rewards %lu",
+                       rewards->distributed_rewards, rewards->total_rewards ));
+      return -1;
+    }
+    /* fd_stake_rewards_init aborts on a partition count outside
+       [1,MAX_PARTITIONS_PER_EPOCH] or a block height overflow;
+       fd_distribute_partitioned_epoch_rewards aborts if the partitions
+       do not fit in the epoch. */
+    ulong epoch_slot_cnt = fd_epoch_slot_cnt( &ctx->lead.epoch_schedule, ctx->lead.epoch );
+    if( FD_UNLIKELY( !rewards->num_partitions ||
+                     rewards->num_partitions>MAX_PARTITIONS_PER_EPOCH ||
+                     rewards->num_partitions>=epoch_slot_cnt ) ) {
+      FD_LOG_WARNING(( "EpochRewards sysvar has invalid partition count %lu (epoch has %lu slots)",
+                       rewards->num_partitions, epoch_slot_cnt ));
+      return -1;
+    }
+    if( FD_UNLIKELY( rewards->distribution_starting_block_height>ULONG_MAX-rewards->num_partitions ) ) {
+      FD_LOG_WARNING(( "EpochRewards sysvar distribution starting block height %lu overflows with %lu partitions",
+                       rewards->distribution_starting_block_height, rewards->num_partitions ));
+      return -1;
+    }
+    /* Recalculation aborts without a StakeHistory account
+       (read_stake_history in fd_rewards.c). */
+    if( FD_UNLIKELY( !acct[ FD_SYSVAR_stake_history_IDX ].present ) ) {
+      FD_LOG_WARNING(( "EpochRewards sysvar is active but the StakeHistory sysvar account is not present" ));
+      return -1;
+    }
+  }
+
+  ulong         slot_history_sz;
+  uchar const * slot_history = fd_sysvar_cache_data_query( cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
+  return verify_slot_deltas_with_slot_history( ctx, slot_history, acct[ FD_SYSVAR_slot_history_IDX ].data_len );
 }
 
 /* verification of epoch stakes from manifest
@@ -1751,8 +1906,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
       /* FINI acks make shared data stable. */
-      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-        FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+      if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
+        FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
@@ -1776,9 +1931,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
-      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-        if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
-        else            FD_LOG_WARNING(( "slot deltas verification failed for incremental snapshot" ));
+      if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
+        if( ctx->full ) FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
+        else            FD_LOG_WARNING(( "sysvar verification failed for incremental snapshot" ));
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
