@@ -1642,7 +1642,8 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     advance_consumed_frontier( forest, new_root_slot, 0 ); /* advances consumed frontier if possible */
   }
 
-  // when the ancestor is pruned after root advances, and they are on the reqslist, then we should reseed the reqslist with the new root
+  /* If a reqslist ancestor is pruned after the root advances,
+     reseed reqslist with the new root. */
   int lost_cover = 0;
   for( fd_forest_blk_t * anc = fd_forest_pool_ele( pool, new_root_ele->parent ); anc; anc = fd_forest_pool_ele( pool, anc->parent ) ) {
     ulong anc_idx = fd_forest_pool_idx( pool, anc );
