@@ -474,6 +474,7 @@ fd_gui_handle_diag_snapshot( fd_gui_t *   gui,
   for( ulong i=0UL; i<(ulong)snapshot->cpu_cnt; i++ ) {
     fd_diag_system_cpu_t const * cpu = &snapshot->cpu[ i ];
     if( FD_UNLIKELY( cpu->cpu_idx>=FD_DIAG_SYSTEM_CPU_MAX ) ) return;
+    if( FD_UNLIKELY( cpu->die_idx!=USHORT_MAX && cpu->die_idx>=snapshot->cpu_cnt ) ) return;
   }
   for( ulong i=0UL; i<(ulong)snapshot->tile_mem_cnt; i++ ) {
     fd_diag_system_tile_mem_t const * tile = &snapshot->tile_mem[ i ];

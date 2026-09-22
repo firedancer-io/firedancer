@@ -1,4 +1,6 @@
-/* test_topob.c – unit tests for fd_topob_auto_layout_cpus.
+#define _GNU_SOURCE
+
+/* test_topob.c – unit tests for CPU topology and fd_topob_auto_layout_cpus.
 
    Tests verify the auto-layout algorithm on synthetic CPU topologies
    for various core counts, tile sets, and blocklists.
@@ -14,13 +16,114 @@
          expected[cpu] = NULL (__) →  cpu unassigned                   */
 
 #include "fd_topob.h"
-#include "fd_cpu_topo.h"
+#include "fd_cpu_topo.c"
 #include "../../util/tile/fd_tile_private.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
 #include <signal.h>
+#include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+/* ---- CPU topology ------------------------------------------------------ */
+
+FD_UNIT_TEST( test_cpu_topo_parse ) {
+  struct {
+    char const * text;
+    int          expected;
+  } const cases[] = {
+    { "0",                    0       },
+    { "0\n",                  0       },
+    { "42\n",                 42      },
+    { "2147483647\n",         INT_MAX },
+    { "2147483648\n",         -1      },
+    { "18446744073709551616", -1      },
+    { "-1\n",                 -1      },
+    { "-2\n",                 -1      },
+    { "",                     -1      },
+    { "\n",                   -1      },
+    { "abc\n",                -1      },
+    { "12x\n",                -1      },
+    { "0\n1\n",               -1      },
+    { "0\n\n",                -1      }
+  };
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    FD_TEST( parse_topology_id( cases[ i ].text, strlen( cases[ i ].text ) )==cases[ i ].expected );
+  }
+  FD_TEST( parse_topology_id( "1\0junk", 6UL )==-1 );
+}
+
+FD_UNIT_TEST( test_cpu_topo_read ) {
+  int fd = memfd_create( "test_topob", 0U );
+  FD_TEST( fd>=0 );
+  char path[ 64 ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/self/fd/%i", fd ) );
+  FD_TEST( read_topology_id( path )==-1 );
+
+  char const * cases[] = { "7\n", "-1\n", "2147483648\n", "not a die\n" };
+  int expected[] = { 7, -1, -1, -1 };
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    FD_TEST( !ftruncate( fd, 0 ) );
+    FD_TEST( lseek( fd, 0, SEEK_SET )==0 );
+    ulong sz;
+    FD_TEST( !fd_io_write( fd, cases[ i ], strlen( cases[ i ] ), strlen( cases[ i ] ), &sz ) );
+    FD_TEST( read_topology_id( path )==expected[ i ] );
+  }
+  char oversized[ 128 ];
+  memset( oversized, '0', sizeof(oversized) );
+  FD_TEST( !ftruncate( fd, 0 ) );
+  FD_TEST( lseek( fd, 0, SEEK_SET )==0 );
+  ulong sz;
+  FD_TEST( !fd_io_write( fd, oversized, sizeof(oversized), sizeof(oversized), &sz ) );
+  FD_TEST( read_topology_id( path )==-1 );
+  FD_TEST( !close( fd ) );
+  FD_TEST( read_topology_id( path )==-1 );
+}
+
+FD_UNIT_TEST( test_cpu_topo_assign ) {
+  fd_topo_cpus_t cpus[ 1 ];
+  memset( cpus, 0, sizeof(cpus) );
+  int package_ids[ FD_TILE_MAX ];
+  int die_ids    [ FD_TILE_MAX ];
+  cpus->cpu_cnt = FD_TILE_MAX;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    cpus->cpu[ i ].idx = i;
+    cpus->cpu[ i ].online = (int)(i%2UL);
+    cpus->cpu[ i ].die_idx = 42UL;
+    package_ids[ i ] = -1;
+    die_ids[ i ] = -1;
+  }
+  assign_die_indices( cpus, package_ids, die_ids );
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) FD_TEST( cpus->cpu[ i ].die_idx==ULONG_MAX );
+
+  int const packages[] = { -1, 2, 2, 2, 8, 2, 8, -1, 2, INT_MAX };
+  int const dies[]     = {  0, 4, 9, 4, 4, -1, 4, 7, 9, INT_MAX };
+  ulong const expected[] = { ULONG_MAX, 0UL, 1UL, 0UL, 2UL, ULONG_MAX, 2UL, ULONG_MAX, 1UL, 3UL };
+  cpus->cpu_cnt = sizeof(packages)/sizeof(packages[0]);
+  for( ulong run=0UL; run<2UL; run++ ) {
+    assign_die_indices( cpus, packages, dies );
+    for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+      FD_TEST( cpus->cpu[ i ].die_idx==expected[ i ] );
+      FD_TEST( cpus->cpu[ i ].idx==i );
+      FD_TEST( cpus->cpu[ i ].online==(int)(i%2UL) );
+    }
+  }
+
+  cpus->cpu_cnt = FD_TILE_MAX;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    package_ids[ i ] = (int)(i/2UL);
+    die_ids[ i ] = (int)(i%2UL);
+  }
+  assign_die_indices( cpus, package_ids, die_ids );
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) FD_TEST( cpus->cpu[ i ].die_idx==i );
+
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    package_ids[ i ] = 0;
+    die_ids[ i ] = 0;
+  }
+  assign_die_indices( cpus, package_ids, die_ids );
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) FD_TEST( cpus->cpu[ i ].die_idx==0UL );
+}
 
 /* ---- Tile specification ------------------------------------------------ */
 
@@ -43,6 +146,7 @@ make_cpus( fd_topo_cpus_t * cpus,
     cpus->cpu[ i ].online    = 1;
     cpus->cpu[ i ].numa_node = 0UL;
     cpus->cpu[ i ].sibling   = physical_cores + i;
+    cpus->cpu[ i ].die_idx   = 0UL;
   }
   for( ulong i=0UL; i<physical_cores; i++ ) {
     ulong s = physical_cores + i;
@@ -50,6 +154,7 @@ make_cpus( fd_topo_cpus_t * cpus,
     cpus->cpu[ s ].online    = 1;
     cpus->cpu[ s ].numa_node = 0UL;
     cpus->cpu[ s ].sibling   = i;
+    cpus->cpu[ s ].die_idx   = 0UL;
   }
 }
 

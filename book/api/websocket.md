@@ -1633,9 +1633,9 @@ seconds. The Firedancer allocation breakdown is fixed at startup.
     "key": "live_system_resources",
     "value": {
         "cpus": [
-            { "online": true, "numa_node": 0, "sibling_cpu": 2, "tile_idxs": [0, 3] },
-            { "online": true, "numa_node": 0, "sibling_cpu": null, "tile_idxs": [1] },
-            { "online": true, "numa_node": 0, "sibling_cpu": 0, "tile_idxs": [] }
+            { "online": true, "numa_node": 0, "die_idx": 0, "sibling_cpu": 2, "tile_idxs": [0, 3] },
+            { "online": true, "numa_node": 0, "die_idx": 0, "sibling_cpu": null, "tile_idxs": [1] },
+            { "online": true, "numa_node": 0, "die_idx": 0, "sibling_cpu": 0, "tile_idxs": [] }
         ],
         "memory": {
             "available_bytes": 326417514496,
@@ -1701,6 +1701,7 @@ seconds. The Firedancer allocation breakdown is fixed at startup.
 |-------------|------------------|-------------|
 | online      | `boolean`        | Whether the CPU was online at validator startup |
 | numa_node   | `number`         | NUMA node containing this CPU |
+| die_idx     | `number \| null` | Linux-reported processor die containing this CPU, or `null` when package or die metadata is unavailable or invalid. Known `die_idx` values are dense, zero-based indices assigned to distinct Linux `(physical_package_id, die_id)` pairs in ascending logical CPU order |
 | sibling_cpu | `number \| null` | Logical CPU ID of the other hyperthread on the same physical core, or `null` when there is no known sibling. This ID indexes the `cpus` array |
 | tile_idxs   | `number[]`       | Indices in `summary.tiles` of tiles pinned to this CPU. Multiple entries indicate configured CPU sharing, for example between startup and post-start tiles. Tiles the kernel schedules across CPUs are not listed |
 

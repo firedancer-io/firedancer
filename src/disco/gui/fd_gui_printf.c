@@ -1168,6 +1168,8 @@ fd_gui_printf_system_resources( fd_gui_t * gui ) {
           jsonp_open_object( gui->http, NULL );
             jsonp_bool(  gui->http, "online",    cpu->online   );
             jsonp_ulong( gui->http, "numa_node", cpu->numa_idx );
+            if( FD_LIKELY( cpu->die_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, "die_idx", cpu->die_idx );
+            else                                        jsonp_null ( gui->http, "die_idx"               );
             if( FD_LIKELY( cpu->sibling_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, "sibling_cpu", cpu->sibling_idx );
             else                                            jsonp_null ( gui->http, "sibling_cpu"                  );
             jsonp_open_array( gui->http, "tile_idxs" );
