@@ -82,6 +82,7 @@ put_epoch( fd_gui_t * gui, ulong epoch, ulong start_slot, ulong slot_cnt ) {
   rec->epoch      = epoch;
   rec->start_slot = start_slot;
   rec->slot_cnt   = slot_cnt;
+  memset( rec->vote_count, 0xFF, sizeof(rec->vote_count) );
 
   gui->epoch.stored_epoch_cnt++; /* mirror fd_gui_handle_epoch_info; the >= FD_GUI_HIST_MIN_EPOCHS guard reads this */
 }
@@ -1164,7 +1165,6 @@ test_shred_epoch_retention( fd_gui_t * gui,
    the backend partition sizing, which is a deliberate MVP placeholder slated
    for rework.  The eviction *mechanics* it drives are exercised above via
    fd_gui_hist_evict_oldest. */
-
 int
 main( int     argc,
       char ** argv ) {

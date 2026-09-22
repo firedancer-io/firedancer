@@ -291,8 +291,10 @@ replay_voter_rank( fd_replay_tile_t * ctx,
 static int
 replay_reward_cert_voted( fd_replay_tile_t * ctx,
                           fd_bank_t *        bank,
-                          ushort    *        rank_out ) {
+                          ushort *           rank_out,
+                          ushort *           count_out ) {
   *rank_out = USHORT_MAX;
+  *count_out = USHORT_MAX;
   if( FD_LIKELY( !ctx->alpenglow ) ) return 0;
 
   if( FD_UNLIKELY( bank->f.slot<FD_NUM_SLOTS_FOR_REWARD ) ) return 0;
@@ -303,14 +305,20 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
   *rank_out = rank;
 
   fd_block_footer_t const * footer = bank==ctx->leader_bank ? ctx->leader_footer : fd_sched_get_footer( ctx->sched, bank->idx );
-  if( FD_LIKELY( !footer || ( !footer->has_skip_reward_cert && !footer->has_notar_reward_cert ) ) ) return 0;
+  if( FD_UNLIKELY( !footer ) ) return 0;
+
+  /* A validator included in both reward certificates is counted once. */
+  fd_bls_set_t reward_set[ fd_bls_set_word_cnt ];
+  fd_bls_set_null( reward_set );
+  if( FD_UNLIKELY( footer->has_skip_reward_cert ) ) fd_bls_set_union( reward_set, reward_set, footer->skip_reward_cert.signer_set  );
+  if( FD_LIKELY( footer->has_notar_reward_cert ) ) fd_bls_set_union( reward_set, reward_set, footer->notar_reward_cert.signer_set );
+  *count_out = (ushort)fd_bls_set_cnt( reward_set );
 
   if( FD_UNLIKELY( rank==USHORT_MAX ) ) return 0;
 
   /* bits at or past the cert's nbits are left clear at decode, so the
      set test alone bounds the rank */
-  int in_cert = ( footer->has_skip_reward_cert  && fd_bls_set_test( footer->skip_reward_cert.signer_set,  rank ) ) ||
-                ( footer->has_notar_reward_cert && fd_bls_set_test( footer->notar_reward_cert.signer_set, rank ) );
+  int in_cert = fd_bls_set_test( reward_set, rank );
 
   if( FD_UNLIKELY( in_cert && ( ctx->metrics.voted_slot==ULONG_MAX || reward_slot>ctx->metrics.voted_slot ) ) ) ctx->metrics.voted_slot = reward_slot;
   return in_cert;
@@ -904,7 +912,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->tips = bank->f.tips;
   slot_info->shred_cnt = bank->f.shred_cnt;
 
-  slot_info->voted = replay_reward_cert_voted( ctx, bank, &slot_info->voted_rank );
+  slot_info->voted = replay_reward_cert_voted( ctx, bank, &slot_info->voted_rank, &slot_info->vote_count );
 
   slot_info->vote_balance    = ULONG_MAX;
   slot_info->vote_commission = USHORT_MAX;
