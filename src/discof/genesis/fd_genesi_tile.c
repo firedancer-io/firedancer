@@ -90,10 +90,10 @@ struct fd_genesi_tile {
 
   fd_alloc_t * bz2_alloc;
 
-  fd_genesis_t genesis[1];
-  uchar *      genesis_blob;
-  ulong        genesis_blob_sz;
-  ulong        max_message_size;
+  fd_genesis_t * genesis;
+  uchar *        genesis_blob;
+  ulong          genesis_blob_sz;
+  ulong          max_message_size;
 };
 
 typedef struct fd_genesi_tile fd_genesi_tile_t;
@@ -103,6 +103,7 @@ scratch_align( void ) {
   ulong a = alignof( fd_genesi_tile_t );
   a = fd_ulong_max( a, fd_genesis_client_align() );
   a = fd_ulong_max( a, fd_alloc_align() );
+  a = fd_ulong_max( a, fd_genesis_align() );
   return a;
 }
 
@@ -115,6 +116,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) ) {
     l = FD_LAYOUT_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->genesi.max_live_slots ) );
   }
+  l = FD_LAYOUT_APPEND( l, fd_genesis_align(),          fd_genesis_footprint( fd_genesis_account_max( tile->genesi.max_message_size ) ) );
   l = FD_LAYOUT_APPEND( l, alignof(uchar),              tile->genesi.max_message_size + 4UL*FD_TAR_BLOCK_SZ );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -528,6 +530,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb          = !tile->genesi.entrypoints_cnt ?
                            FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->genesi.max_live_slots ) ) :
                            NULL;
+  void * _genesis        = FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_align(),          fd_genesis_footprint( fd_genesis_account_max( tile->genesi.max_message_size ) ) );
   void * _genesis_blob   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),              tile->genesi.max_message_size + 4UL*FD_TAR_BLOCK_SZ );
 
   fd_lthash_zero( ctx->lthash );
@@ -538,6 +541,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->waker_fseq );
   fd_clock_tile_init( ctx->clock );
 
+  ctx->genesis = fd_genesis_new( _genesis, fd_genesis_account_max( tile->genesi.max_message_size ) );
+  FD_TEST( ctx->genesis );
   ctx->genesis_blob = _genesis_blob;
   ctx->max_message_size = tile->genesi.max_message_size;
   ctx->shutdown = 0;

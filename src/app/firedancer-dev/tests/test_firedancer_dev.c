@@ -227,6 +227,9 @@ firedancer_dev_test_run( int     argc,
       ulong genesi_out_idx = fd_topo_find_link( &config->topo, "genesi_out", 0UL );
       FD_TEST( genesi_out_idx!=ULONG_MAX );
       FD_TEST( config->topo.links[ genesi_out_idx ].mtu==fd_genesi_tile_mtu( genesis_max_message_size ) );
+      ulong replay_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
+      FD_TEST( replay_idx!=ULONG_MAX );
+      FD_TEST( config->topo.tiles[ replay_idx ].replay.genesis_max_message_size==genesis_max_message_size );
 
       config->log.log_fd = fd_log_private_logfile_fd();
       config->frankendancer.consensus.poh_speed_test = 0;

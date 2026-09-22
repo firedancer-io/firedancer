@@ -2038,7 +2038,10 @@ telemetry = true
         validate_genesis_hash = true
 
         # The maximum size of the genesis file that is either loaded
-        # from the disk or downloaded from the network.
+        # from the disk or downloaded from the network.  This also
+        # bounds the number of genesis accounts Firedancer can index
+        # (about one per 89 bytes) and sizes the account index kept by
+        # the genesi and replay tiles (about 18% of this value each).
         # Must be in [1, 4055].
         max_file_size_mib = 16
 
