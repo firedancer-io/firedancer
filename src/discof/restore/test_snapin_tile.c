@@ -372,7 +372,7 @@ mock_slot_delta_parser_init( fd_slot_delta_parser_t * parser ) {
   (void)parser;
 }
 
-void mock_stake_delegations_reset( fd_stake_delegations_t * sd ) { (void)sd; }
+void mock_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) { (void)stake_delegations; }
 
 void
 mock_features_restore_chunk( fd_features_t *             features,

@@ -253,7 +253,7 @@ fd_stake_delegations_join( void * mem,
                            int    disk_fd );
 
 void
-fd_stake_delegations_reset( fd_stake_delegations_t * sd );
+fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations );
 
 /* root_update is boot-only.  Attaching the first child ends boot.
    Fork updates accept allocated non-root forks without views.  Callers
@@ -307,20 +307,20 @@ fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,
                                   fd_pubkey_t const *      stake_account );
 
 ushort
-fd_stake_delegations_root_fork_id( fd_stake_delegations_t const * sd );
+fd_stake_delegations_root_fork_id( fd_stake_delegations_t const * stake_delegations );
 
 ushort
-fd_stake_delegations_attach_child( fd_stake_delegations_t * sd,
+fd_stake_delegations_attach_child( fd_stake_delegations_t * stake_delegations,
                                    ushort                   parent );
 
 /* Drain bank/scheduler users before cancellation or root advancement,
    and clear released IDs before reusing bank objects. */
 void
-fd_stake_delegations_cancel_fork( fd_stake_delegations_t * sd,
+fd_stake_delegations_cancel_fork( fd_stake_delegations_t * stake_delegations,
                                   ushort                   fork );
 
 void
-fd_stake_delegations_advance_root( fd_stake_delegations_t *             sd,
+fd_stake_delegations_advance_root( fd_stake_delegations_t *             stake_delegations,
                                    ushort                               fork,
                                    ulong                                epoch,
                                    fd_stake_history_t const *           history,
@@ -332,7 +332,7 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             sd,
 
 fd_stake_delegations_view_t *
 fd_stake_delegations_view_begin( fd_stake_delegations_view_t * view,
-                                 fd_stake_delegations_t *      sd,
+                                 fd_stake_delegations_t *      stake_delegations,
                                  ushort                        fork );
 
 void
@@ -372,10 +372,10 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
 
 /* Exclusive maintenance operations must run outside views. */
 void
-fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * sd );
+fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations );
 
 ulong
-fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   sd,
+fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_delegations,
                                           ulong                      epoch,
                                           fd_stake_history_t const * history,
                                           ulong *                    rate_epoch,
