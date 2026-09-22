@@ -138,7 +138,8 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_t *             accdb,
 
 static void
 fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
+  fd_stake_delegations_cancel_fork( fd_bank_stake_delegations_modify( runner->bank ), runner->bank->stake_delegations_fork_id );
+  runner->bank->stake_delegations_fork_id = USHORT_MAX;
 
   runner->bank->stake_rewards_fork_id = USHORT_MAX;
   fd_stake_rewards_clear( fd_bank_stake_rewards_modify( runner->bank ) );
@@ -266,8 +267,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   fd_stake_delegations_reset( stake_delegations );
 
-  bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
-
   FD_TEST( block_bank->vote_accounts_t_1_count<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   FD_TEST( block_bank->vote_accounts_t_2_count<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
 
@@ -301,6 +300,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Restore the snapshot on the parent, then fork the execution bank
      from it just as replay does. */
   fd_vote_stakes_reset( vote_stakes );
+  parent->stake_delegations_fork_id = fd_stake_delegations_root_fork_id( stake_delegations );
   parent->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
   fd_solfuzz_block_update_prev_epoch_stakes( vote_stakes, parent->vote_stakes_fork_id, 1, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count );
   fd_solfuzz_block_update_prev_epoch_stakes( vote_stakes, parent->vote_stakes_fork_id, 0, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count );
@@ -318,14 +318,13 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                                 block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count,
                                                 fd_ulong_sat_sub( bank->f.epoch, 1UL ) );
 
-  /* Initialize total_effective/activating/deactivating_stake from the
-     loaded stake delegations.  These are read by fd_stakes_activate_epoch
-     at epoch boundary instead of re-scanning all delegations. */
+  /* Reconcile loaded delegations and initialize root evaluation context. */
   fd_stake_history_t stake_history[1];
   if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar missing or invalid" ));
   }
   fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ), accdb, fork_id );
+  bank->stake_delegations_fork_id = fd_stake_delegations_attach_child( stake_delegations, parent->stake_delegations_fork_id );
 
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( runtime_stack->max_vote_accounts );
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map, chain_cnt, 999 ) ) );

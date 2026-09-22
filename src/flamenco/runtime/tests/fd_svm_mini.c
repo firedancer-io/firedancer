@@ -37,11 +37,18 @@ static fd_wksp_t *
 fd_wksp_new_lazy( ulong footprint,
                   ulong addl_part_cnt ) {
   footprint = fd_ulong_align_up( footprint, FD_SHMEM_NORMAL_PAGE_SZ );
-  void * mem = mmap( NULL, footprint, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
-  if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
+  ulong align = fd_banks_align();
+  ulong map_sz = footprint+align;
+  void * mapping = mmap( NULL, map_sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  if( FD_UNLIKELY( mapping==MAP_FAILED ) ) {
     FD_LOG_ERR(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS) failed (%i-%s)",
-                 footprint>>10, errno, fd_io_strerror( errno ) ));
+                 map_sz>>10, errno, fd_io_strerror( errno ) ));
   }
+  void * mem = (void *)fd_ulong_align_up( (ulong)mapping, align );
+  ulong prefix_sz = (ulong)mem-(ulong)mapping;
+  ulong suffix_sz = map_sz-prefix_sz-footprint;
+  if( prefix_sz ) FD_TEST( !munmap( mapping, prefix_sz ) );
+  if( suffix_sz ) FD_TEST( !munmap( (uchar *)mem+footprint, suffix_sz ) );
 
   ulong part_max = fd_wksp_part_max_est( footprint, 64UL<<10 );
   FD_TEST( part_max );
@@ -116,8 +123,9 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, fd_progcache_shmem_min_sz( txn_max ) );
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
-  ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts );
-  ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
+  ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts,
+                                               limits->stake_max_records, limits->stake_cache_bytes );
+  ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
@@ -156,7 +164,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
   ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width,
-                                               limits->max_stake_accounts, limits->max_vote_accounts );
+                                               limits->max_stake_accounts, limits->max_vote_accounts,
+                                               limits->stake_max_records, limits->stake_cache_bytes );
   ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
@@ -214,8 +223,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache ) )) );
 
   mini->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, txn_max, limits->max_fork_width,
-                               limits->max_stake_accounts, limits->max_disk_records,
-                               limits->max_vote_accounts, 0, 8888UL ) );
+                               limits->max_stake_accounts, limits->stake_max_records,
+                               limits->max_vote_accounts, 0, 8888UL, limits->stake_cache_bytes ) );
   FD_TEST( mini->banks );
 
   mini->runtime = runtime;

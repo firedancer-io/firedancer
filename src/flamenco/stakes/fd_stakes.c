@@ -532,13 +532,13 @@ get_vote_credits( uchar const *        account_data,
 }
 
 void
-fd_refresh_vote_accounts( fd_bank_t *                    bank,
-                          fd_accdb_t *                   accdb,
-                          fd_runtime_stack_t *           runtime_stack,
-                          fd_stake_delegations_t const * stake_delegations,
-                          fd_stake_history_t const *     history,
-                          ulong                          rewarded_epoch,
-                          ulong *                        new_rate_activation_epoch ) {
+fd_refresh_vote_accounts( fd_bank_t *                   bank,
+                          fd_accdb_t *                  accdb,
+                          fd_runtime_stack_t *          runtime_stack,
+                          fd_stake_delegations_view_t * stake_delegations,
+                          fd_stake_history_t const *    history,
+                          ulong                         rewarded_epoch,
+                          ulong *                       new_rate_activation_epoch ) {
   fd_bank_epoch_credits_new_fork( bank );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
@@ -798,60 +798,19 @@ fd_stakes_burn_vat( fd_bank_t *         bank,
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
-void
-fd_stakes_activate_epoch( fd_bank_t *                    bank,
-                          fd_runtime_stack_t *           runtime_stack,
-                          fd_accdb_t *                   accdb,
-                          fd_capture_ctx_t *             capture_ctx,
-                          fd_stake_delegations_t *       stake_delegations,
-                          ulong *                        new_rate_activation_epoch ) {
+int
+fd_stakes_activate_epoch( fd_bank_t *                      bank,
+                          fd_runtime_stack_t *             runtime_stack,
+                          fd_accdb_t *                     accdb,
+                          fd_capture_ctx_t *               capture_ctx,
+                          fd_stake_delegations_view_t *    stake_delegations,
+                          fd_stake_history_entry_t const * closing_totals,
+                          ulong *                          new_rate_activation_epoch ) {
   /* We can update our stake history sysvar based on the bank stake values.
      Afterward, we can refresh the stake values for the vote accounts. */
 
-  fd_stake_history_entry_t elem = {
-    .epoch        = bank->f.epoch,
-    .effective    = stake_delegations->effective_stake,
-    .activating   = stake_delegations->activating_stake,
-    .deactivating = stake_delegations->deactivating_stake,
-  };
-
-  /* Agave recomputes each stake history entry from scratch every epoch
-     boundary, whereas Firedancer keeps running totals. Therefore,
-     at the boundary where upgrade_bpf_stake_program_to_v5_1 is
-     activated, we need to recompute the stake history entry for the
-     epoch that has just ended, so that all the delegations for this
-     entry are summed using the new fixed point arithmetic. We only
-     need to do this once, at the feature activation epoch boundary.
-
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477
-  */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
-    fd_stake_history_t history[1];
-    if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, history ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: StakeHistory sysvar missing or invalid" ));
-    }
-    ulong effective    = 0UL;
-    ulong activating   = 0UL;
-    ulong deactivating = 0UL;
-
-    int use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
-
-    fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-         !fd_stake_delegations_iter_done( iter );
-         fd_stake_delegations_iter_next( iter ) ) {
-      fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
-      fd_stake_history_entry_t      acc              = fd_stake_delegation_activation_status(
-          stake_delegation, bank->f.epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math );
-      effective    += acc.effective;
-      activating   += acc.activating;
-      deactivating += acc.deactivating;
-    }
-
-    elem.effective    = effective;
-    elem.activating   = activating;
-    elem.deactivating = deactivating;
-  }
+  fd_stake_history_entry_t elem = *closing_totals;
+  elem.epoch = bank->f.epoch;
 
   fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_stake_history( &elem );
@@ -874,9 +833,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     }
   }
 
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_is_contiguous( stake_history ) ) ) {
-    fd_stake_delegations_invalidate_warmed( stake_delegations );
-  }
+  int invalidate_warmed = !fd_sysvar_stake_history_is_contiguous( stake_history );
+  if( FD_UNLIKELY( invalidate_warmed ) ) stake_delegations->use_stable_tags = 0;
 
   /* Now increment the epoch and recompute the stakes for the vote
      accounts for the new epoch value.  The rewarded epoch trails the
@@ -893,6 +851,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                             rewarded_epoch,
                             new_rate_activation_epoch );
   fd_stakes_burn_vat( bank, accdb, capture_ctx );
+  return invalidate_warmed;
 }
 
 

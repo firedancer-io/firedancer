@@ -613,7 +613,7 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
 /* process for the start of a new epoch
    https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L1811-L1899 */
 static void
-fd_runtime_process_new_epoch( fd_banks_t *         banks,
+fd_runtime_process_new_epoch( fd_banks_t *         banks FD_PARAM_UNUSED,
                               fd_bank_t *          bank,
                               fd_accdb_t *         accdb,
                               fd_capture_ctx_t *   capture_ctx,
@@ -635,8 +635,6 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
-  ushort stake_delegations_fork_ids[ banks->max_total_banks ];
-  ulong  stake_delegations_fork_id_cnt = fd_banks_stake_delegations_fork_ids( banks, bank, stake_delegations_fork_ids );
   fd_stake_history_t   stake_delegations_history_[1];
   fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_delegations_history_ );
 
@@ -644,14 +642,6 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "stake_delegations is NULL" ));
   }
-  fd_stake_delegations_frontier_query_begin( stake_delegations,
-                                             bank->f.epoch,
-                                             stake_delegations_history,
-                                             &bank->f.warmup_cooldown_rate_epoch,
-                                             FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                             stake_delegations_fork_ids,
-                                             stake_delegations_fork_id_cnt );
-
   /* Wipe WARMED tags awarded under the old floating point math when the
      fixed point math activates.  This will force all the effective
      stakes to be re-computed using the post-activation math.
@@ -671,8 +661,15 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
     fd_stake_delegations_invalidate_warmed( stake_delegations );
   }
 
-  fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations,
-                            &bank->f.warmup_cooldown_rate_epoch );
+  fd_stake_delegations_view_t stake_view[1];
+  fd_stake_delegations_view_begin( stake_view, stake_delegations, bank->stake_delegations_fork_id );
+  stake_view->use_stable_tags = 1;
+  fd_stake_history_entry_t closing_totals;
+  fd_stake_delegations_view_totals( stake_view, bank->f.epoch, stake_delegations_history,
+                                     &bank->f.warmup_cooldown_rate_epoch,
+                                     FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), &closing_totals );
+  int invalidate_warmed = fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_view,
+                                                     &closing_totals, &bank->f.warmup_cooldown_rate_epoch );
 
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */
@@ -682,7 +679,7 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
                                 accdb,
                                 runtime_stack,
                                 capture_ctx,
-                                stake_delegations,
+                                stake_view,
                                 parent_blockhash,
                                 parent_epoch,
                                 epoch_start_capitalization );
@@ -691,12 +688,8 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
      reward partitions have been calculated. */
   fd_stake_history_ensure_rent_exempt( bank, accdb, capture_ctx );
 
-  fd_stake_delegations_frontier_query_end( stake_delegations,
-                                           stake_delegations_history,
-                                           &bank->f.warmup_cooldown_rate_epoch,
-                                           FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                           stake_delegations_fork_ids,
-                                           stake_delegations_fork_id_cnt );
+  fd_stake_delegations_view_end( stake_view );
+  if( FD_UNLIKELY( invalidate_warmed ) ) fd_stake_delegations_invalidate_warmed( stake_delegations );
 
   /* The Agave client handles updating their stakes cache with a call to
      update_epoch_stakes() which keys stakes by the leader schedule
@@ -877,6 +870,9 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
   fd_features_prepopulate_upcoming( bank, accdb );
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, runtime_stack, capture_ctx );
   FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
+  if( FD_LIKELY( bank->f.slot ) ) {
+    fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
+  }
 }
 
 static void
@@ -1614,7 +1610,10 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
       fd_accdb_unread_one( accdb, &ro );
     }
 
-    fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, ULONG_MAX, &new_rate_activation_epoch );
+    fd_stake_delegations_view_t stake_view[1];
+    fd_stake_delegations_view_begin( stake_view, stake_delegations, bank->stake_delegations_fork_id );
+    fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_view, stake_history, ULONG_MAX, &new_rate_activation_epoch );
+    fd_stake_delegations_view_end( stake_view );
   }
 
   /* At genesis (epoch 0) there is no previous epoch, so the t-2 set

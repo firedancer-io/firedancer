@@ -571,22 +571,23 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
      validate step requires production-sized capacities outside the
      scope of this test. */
 
-  ulong max_banks = 16UL;
-  ulong max_forks =  4UL;
-  ulong max_stake          = 64UL;
-  ulong max_disk_records   = 1024UL;
-  ulong max_vote           = 64UL;
-  ulong seed               = 42UL;
+  ulong max_banks         = 16UL;
+  ulong max_forks         = 4UL;
+  ulong max_stake         = 64UL;
+  ulong stake_max_records = 1024UL;
+  ulong stake_cache_bytes = 128UL<<10;
+  ulong max_vote          = 64UL;
+  ulong seed              = 42UL;
 
   ulong banks_footprint = fd_banks_footprint( max_banks, max_forks,
-                                              max_stake, max_vote );
+                                              max_stake, max_vote, stake_max_records, stake_cache_bytes );
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),
                                           banks_footprint, 2UL );
   FD_TEST( banks_mem );
 
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, max_banks, max_forks,
-                                                    max_stake, max_disk_records, max_vote,
-                                                    0UL /* max_cost_per_block */, seed ) );
+                                                    max_stake, stake_max_records, max_vote,
+                                                    0UL /* max_cost_per_block */, seed, stake_cache_bytes ) );
   FD_TEST( banks );
 
   fd_bank_t * bank = fd_banks_init_bank( banks );

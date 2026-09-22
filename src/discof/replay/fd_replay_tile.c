@@ -229,6 +229,26 @@ metrics_write( fd_replay_tile_t * ctx ) {
 
   FD_MGAUGE_SET( REPLAY, BANK_LIVE, fd_banks_pool_used_cnt( ctx->banks ) );
 
+  fd_stake_delegations_metrics_t stake_metrics;
+  fd_stake_delegations_metrics_query( fd_banks_stake_delegations_root_query( ctx->banks ), &stake_metrics );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_ROOT_RECORDS,        stake_metrics.root_cnt         );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_PLACEHOLDER_RECORDS, stake_metrics.placeholder_cnt  );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_DELTA_RECORDS,       stake_metrics.delta_cnt        );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_OCCUPIED_PAGES,      stake_metrics.occupied_pages   );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_RESIDENT_PAGES,      stake_metrics.resident_pages   );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_FOOTPRINT_BYTES,     stake_metrics.footprint        );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_CACHE_HITS,          stake_metrics.cache_hits       );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_CACHE_MISSES,        stake_metrics.cache_misses     );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_DIRTY_WRITEBACKS,    stake_metrics.dirty_writebacks );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_READ_BYTES,          stake_metrics.bytes_read       );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_WRITTEN_BYTES,       stake_metrics.bytes_written    );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_BUCKET_STEPS,        stake_metrics.bucket_steps     );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_DELTA_STEPS,         stake_metrics.delta_steps      );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_TREE_WAIT_TICKS,     stake_metrics.tree_wait_ticks  );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_TREE_HOLD_TICKS,     stake_metrics.tree_hold_ticks  );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_CACHE_WAIT_TICKS,    stake_metrics.cache_wait_ticks );
+  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_CACHE_HOLD_TICKS,    stake_metrics.cache_hold_ticks );
+
   ulong reasm_free = ctx->reasm ? fd_reasm_free( ctx->reasm ) : 0UL;
   FD_MGAUGE_SET( REPLAY, REASSEMBLY_FREE, reasm_free );
 
@@ -1716,8 +1736,10 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      rows match the post-reconciliation cache rather than the raw
      account stream. */
   if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
+    fd_stake_delegations_view_t stake_view[1];
+    fd_stake_delegations_view_begin( stake_view, root_delegations, bank->stake_delegations_fork_id );
     fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, root_delegations );
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_view );
          !fd_stake_delegations_iter_done( iter );
          fd_stake_delegations_iter_next( iter ) ) {
       fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
@@ -1726,6 +1748,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
       fd_event_runtime_stake_delegation_bootup_emit( bank->f.slot, bank->f.epoch, d->stake_account.uc,
                                                      d->vote_account.uc, d->stake, ae, de, d->credits_observed );
     }
+    fd_stake_delegations_view_end( stake_view );
   }
 
   fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );

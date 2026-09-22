@@ -69,6 +69,8 @@ main( int     argc,
   static char json[ 262144 ];
   ulong len = fd_config_to_json( config, json, sizeof(json) );
   FD_TEST( len && len==strlen( json ) );
+  FD_TEST( strstr( json, "\"stake_delegations_cache_mib\":384" ) );
+  FD_TEST( strstr( json, "\"stake_delegations_max_records\":100000000" ) );
 
   /* balanced braces/brackets outside strings */
   long depth = 0L; int in_str = 0, esc = 0;

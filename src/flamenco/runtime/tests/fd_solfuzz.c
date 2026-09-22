@@ -109,7 +109,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(),   fd_progcache_shmem_footprint( txn_max, progcache_sz ),       wksp_tag );
   uchar *               scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,                              wksp_tag );
   void *                spad_mem     = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),                               wksp_tag );
-  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 2048UL ), wksp_tag );
+  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 2048UL, 32768UL, 4UL<<20 ), wksp_tag );
   if( FD_UNLIKELY( !runner       ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed"                                            )); goto bail1; }
   if( FD_UNLIKELY( !accdb_shmem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_shmem) failed"                                               )); goto bail1; }
   if( FD_UNLIKELY( !accdb_join   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_join) failed"                                                )); goto bail1; }
@@ -157,9 +157,9 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
   /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
-  runner->banks = fd_banks_join( fd_banks_new( banks_mem, stake_delegations_fd, bank_max, fork_max, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  runner->banks = fd_banks_join( fd_banks_new( banks_mem, stake_delegations_fd, bank_max, fork_max, 2048UL, 32768UL, 2048UL, 0, 8888UL, 4UL<<20 ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
-  FD_TEST( fd_banks_stake_delegations_root_query( runner->banks )->disk_fd_==stake_delegations_fd );
+  FD_TEST( fd_banks_stake_delegations_root_query( runner->banks )->disk_fd==stake_delegations_fd );
 
   /* Runtime block execution requires every non-genesis bank to have a
      parent.  Keep the root bank as that parent and run harnesses against

@@ -599,6 +599,7 @@ test_alpenglow_reward_uses_vote_credits( fd_svm_mini_t * mini ) {
   FD_FEATURE_SET_ACTIVE( &epoch_bank->f.features, delay_commission_updates, 0UL );
   fd_stake_rewards_clear( fd_bank_stake_rewards_modify( epoch_bank ) );
   epoch_bank->stake_rewards_fork_id = USHORT_MAX;
+  fd_svm_mini_freeze( mini, epoch_idx );
   fd_rewards_recalculate_partitioned_rewards( mini->banks,
                                               epoch_bank,
                                               mini->runtime->accdb,
@@ -618,7 +619,6 @@ test_alpenglow_reward_uses_vote_credits( fd_svm_mini_t * mini ) {
   FD_TEST( fd_stake_rewards_total_rewards( fd_bank_stake_rewards_modify( epoch_bank ),
                                            epoch_bank->stake_rewards_fork_id )==1000UL );
 
-  fd_svm_mini_freeze( mini, epoch_idx );
   ulong              distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
   fd_accdb_fork_id_t distrib_fk  = fd_svm_mini_fork_id( mini, distrib_idx );
 
@@ -1006,6 +1006,7 @@ test_inert_delegation_not_partitioned( fd_svm_mini_t * mini ) {
   /* Snapshot restart recalculation applies the same filter. */
   fd_stake_rewards_clear( stake_rewards );
   epoch_bank->stake_rewards_fork_id = USHORT_MAX;
+  fd_svm_mini_freeze( mini, epoch_idx );
   fd_rewards_recalculate_partitioned_rewards(
       mini->banks, epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
   partition_cnt = fd_stake_rewards_num_partitions(
@@ -1013,7 +1014,6 @@ test_inert_delegation_not_partitioned( fd_svm_mini_t * mini ) {
   FD_TEST( find_reward_partition(
       stake_rewards, epoch_bank->stake_rewards_fork_id, &stake_key, partition_cnt )==UINT_MAX );
 
-  fd_svm_mini_freeze( mini, epoch_idx );
   ulong distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
   fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
   FD_TEST( read_lamports( mini, distrib_fk, &stake_key )==stake_lam_before );
@@ -1060,17 +1060,16 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         stake_delegations, &stake_key )==!feature_active );
   }
 
-  /* Refresh also drops inactive accounts that reside in the disk root
-     tier. */
+  /* Refresh also drops inactive accounts across evicted root pages. */
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
   params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
   params->root_slot          = TEST_ROOT_SLOT;
-  params->mock_validator_cnt = 2UL;
+  params->mock_validator_cnt = 129UL;
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
-  fd_pubkey_t identity[2], vote[2], stake[2];
-  for( ulong i=0UL; i<2UL; i++ ) {
+  fd_pubkey_t identity[129], vote[129], stake[129];
+  for( ulong i=0UL; i<129UL; i++ ) {
     mock_validator_keys_idx( params->hash_seed, i, &identity[i], &vote[i], &stake[i] );
     patch_stake_epochs( mini, root_idx, &stake[i], &vote[i], 0UL, 0UL );
   }
@@ -1079,16 +1078,16 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
   FD_TEST( stake_delegations_fd>=0 );
   ulong align = fd_stake_delegations_align();
   ulong footprint = fd_ulong_align_up(
-      fd_stake_delegations_footprint( 1UL, 1UL ), align );
+      fd_stake_delegations_footprint( 256UL, 1UL, FD_STAKE_DELEGATIONS_PAGE_SZ ), align );
   void * mem = aligned_alloc( align, footprint );
   FD_TEST( mem );
   fd_stake_delegations_t * spill_delegations = fd_stake_delegations_join(
-      fd_stake_delegations_new( mem, stake_delegations_fd, 1UL, 1UL, 8UL, 1UL ),
+      fd_stake_delegations_new( mem, stake_delegations_fd, 1UL, 256UL, 1UL, FD_STAKE_DELEGATIONS_PAGE_SZ ),
       stake_delegations_fd );
   FD_TEST( spill_delegations );
 
   fd_accdb_fork_id_t root_fork_id = fd_svm_mini_fork_id( mini, root_idx );
-  for( ulong i=0UL; i<2UL; i++ ) {
+  for( ulong i=0UL; i<129UL; i++ ) {
     fd_stake_delegations_root_update(
         spill_delegations,
         &stake[i],
@@ -1101,8 +1100,10 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         FD_STAKE_STATE_SZ,
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   }
-  FD_TEST( test_stake_delegations_base_cnt( spill_delegations )==2UL );
-  FD_TEST( test_stake_delegations_disk_cnt( spill_delegations )==1UL );
+  FD_TEST( test_stake_delegations_base_cnt( spill_delegations )==129UL );
+  FD_TEST( spill_delegations->occupied_pages==2UL );
+  FD_TEST( spill_delegations->resident_pages==1UL );
+  FD_TEST( spill_delegations->bytes_written>0UL );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   fd_stake_history_t stake_history_[1];
@@ -1118,7 +1119,7 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
       mini->runtime->accdb,
       root_fork_id );
   FD_TEST( !test_stake_delegations_base_cnt( spill_delegations ) );
-  FD_TEST( !test_stake_delegations_disk_cnt( spill_delegations ) );
+  FD_TEST( !spill_delegations->occupied_pages );
   FD_TEST( !close( stake_delegations_fd ) );
   free( mem );
 
@@ -1453,6 +1454,7 @@ test_zero_points_skips_rewards( fd_svm_mini_t * mini ) {
   /* Snapshot restart recalculation skips the same way. */
   fd_stake_rewards_clear( stake_rewards );
   epoch_bank->stake_rewards_fork_id = USHORT_MAX;
+  fd_svm_mini_freeze( mini, epoch_idx );
   fd_rewards_recalculate_partitioned_rewards(
       mini->banks, epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
 
@@ -1466,7 +1468,6 @@ test_zero_points_skips_rewards( fd_svm_mini_t * mini ) {
 
   /* Distribution over the recalculated partitions leaves the stake
      account exactly as it was. */
-  fd_svm_mini_freeze( mini, epoch_idx );
   ulong              distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
   fd_accdb_fork_id_t distrib_fk  = fd_svm_mini_fork_id( mini, distrib_idx );
 
@@ -3265,6 +3266,7 @@ main( int     argc,
       char ** argv ) {
   fd_svm_mini_limits_t limits[1];
   fd_svm_mini_limits_default( limits );
+  limits->max_accounts = 1024UL; /* 129 vote/stake pairs in the paged refresh fixture. */
   fd_svm_mini_t * mini = fd_svm_test_boot( &argc, &argv, limits );
 
   test_commission_split();

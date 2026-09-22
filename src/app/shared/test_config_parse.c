@@ -141,6 +141,8 @@ main( int     argc,
   config->firedancer.accounts.max_accounts                     = 1UL;
   config->firedancer.accounts.cache_size_gib                   = 1UL;
   config->firedancer.runtime.program_cache_size_mib            = 32UL;
+  config->firedancer.runtime.stake_delegations_cache_mib        = 384UL;
+  config->firedancer.runtime.stake_delegations_max_records      = 100000000UL;
   config->tiles.repair.slot_max                                   = 1UL;
   config->tiles.rotor.slot_max                                    = 1UL;
 

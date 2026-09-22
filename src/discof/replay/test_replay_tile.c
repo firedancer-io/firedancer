@@ -206,6 +206,7 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
                                        int *                is_epoch_boundary ) {
   if( FD_UNLIKELY( !mock_epoch_boundary_enabled ) ) {
     *is_epoch_boundary = 0;
+    fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
     return;
   }
 
@@ -226,6 +227,7 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
                                                        0U,
                                                        0UL );
   fd_stake_rewards_fini( stake_rewards, bank->stake_rewards_fork_id );
+  fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
 }
 
 #define fd_multi_epoch_leaders_get_next_slot mock_multi_epoch_leaders_next_slot_fn
@@ -406,9 +408,9 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
 
   /* Real banks — initialize root bank. */
 
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( TEST_BANKS_MAX, max_fork_width, 2048UL, 2048UL ), 1UL );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( TEST_BANKS_MAX, max_fork_width, 2048UL, 2048UL, 32768UL, 4UL<<20 ), 1UL );
   FD_TEST( banks_mem );
-  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, TEST_BANKS_MAX, max_fork_width, 2048UL, 32768UL, 2048UL, 0, 42UL ) );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, TEST_BANKS_MAX, max_fork_width, 2048UL, 32768UL, 2048UL, 0, 42UL, 4UL<<20 ) );
   FD_TEST( ctx->banks );
   fd_bank_t * root_bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( root_bank );
@@ -958,9 +960,9 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   setup_stem( ctx, wksp );
 
   ulong const bank_cnt = 4UL;
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL, 1024UL, 128UL<<10 ), 1UL );
   FD_TEST( banks_mem );
-  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 0, 43UL ) );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 1024UL, 8UL, 0, 43UL, 128UL<<10 ) );
   FD_TEST( ctx->banks );
 
   fd_bank_t * root = fd_banks_init_bank( ctx->banks );
@@ -1044,6 +1046,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( child );
   child->f.slot     = 1UL;
   child->f.block_id = child_id;
+  fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( child ), child->stake_delegations_fork_id );
   fd_banks_mark_bank_frozen( child );
 
   fd_block_id_ele_t * child_ele = &ctx->block_id_arr[ child->idx ];
@@ -1140,9 +1143,9 @@ setup_rooting_ctx( fd_replay_tile_t * ctx,
   ctx->alpenglow = 1;
 
   ulong const bank_cnt = 8UL;
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL, 1024UL, 128UL<<10 ), 1UL );
   FD_TEST( banks_mem );
-  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 0, 43UL ) );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 1024UL, 8UL, 0, 43UL, 128UL<<10 ) );
   FD_TEST( ctx->banks );
 
   fd_bank_t * root = fd_banks_init_bank( ctx->banks );
@@ -1196,6 +1199,7 @@ add_replayable_block( fd_replay_tile_t * ctx,
   bank->f.slot        = slot;
   bank->f.parent_slot = parent->f.slot;
   bank->f.block_id    = *block_id;
+  fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
 
   fd_block_id_ele_t * ele = &ctx->block_id_arr[ bank->idx ];
   ele->dmr           = *block_id;

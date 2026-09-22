@@ -969,7 +969,7 @@ calculate_stake_points_for_reward( int                            alpenglow_enab
 static uint128
 calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                      fd_accdb_t *                   accdb,
-                                     fd_stake_delegations_t const * stake_delegations,
+                                     fd_stake_delegations_view_t *  stake_delegations,
                                      fd_stake_history_t const *     stake_history,
                                      ulong                          rewarded_epoch,
                                      fd_runtime_stack_t *           runtime_stack ) {
@@ -1088,7 +1088,7 @@ delegation_may_need_adjustment( fd_bank_t *                   bank,
 static void
 calculate_stake_vote_rewards( fd_bank_t *                    bank,
                               fd_accdb_t *                   accdb,
-                              fd_stake_delegations_t const * stake_delegations,
+                              fd_stake_delegations_view_t *  stake_delegations,
                               fd_capture_ctx_t *             capture_ctx FD_PARAM_UNUSED,
                               fd_stake_history_t const *     stake_history,
                               ulong                          rewarded_epoch,
@@ -1266,7 +1266,7 @@ static void
 setup_stake_partitions( fd_bank_t *                    bank,
                         fd_accdb_t *                   accdb,
                         fd_stake_history_t const *     stake_history,
-                        fd_stake_delegations_t const * stake_delegations,
+                        fd_stake_delegations_view_t *  stake_delegations,
                         fd_runtime_stack_t *           runtime_stack,
                         ushort                         fork_idx,
                         ulong                          rewarded_epoch,
@@ -1400,7 +1400,7 @@ static uint128
 calculate_validator_rewards( fd_bank_t *                    bank,
                              fd_accdb_t *                   accdb,
                              fd_runtime_stack_t *           runtime_stack,
-                             fd_stake_delegations_t const * stake_delegations,
+                             fd_stake_delegations_view_t *  stake_delegations,
                              fd_capture_ctx_t *             capture_ctx,
                              ulong                          rewarded_epoch,
                              ulong *                        rewards_out ) {
@@ -1497,7 +1497,7 @@ static void
 calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                     fd_accdb_t *                           accdb,
                                     fd_runtime_stack_t *                   runtime_stack,
-                                    fd_stake_delegations_t const *         stake_delegations,
+                                    fd_stake_delegations_view_t *          stake_delegations,
                                     fd_capture_ctx_t *                     capture_ctx,
                                     ulong                                  prev_epoch,
                                     fd_partitioned_rewards_calculation_t * result ) {
@@ -1539,7 +1539,7 @@ static ulong
 calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    bank,
                                                fd_accdb_t *                   accdb,
                                                fd_runtime_stack_t *           runtime_stack,
-                                               fd_stake_delegations_t const * stake_delegations,
+                                               fd_stake_delegations_view_t *  stake_delegations,
                                                fd_capture_ctx_t *             capture_ctx,
                                                ulong                          prev_epoch ) {
 
@@ -1972,7 +1972,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_accdb_t *                   accdb,
                               fd_runtime_stack_t *           runtime_stack,
                               fd_capture_ctx_t *             capture_ctx,
-                              fd_stake_delegations_t const * stake_delegations,
+                              fd_stake_delegations_view_t *  stake_delegations,
                               fd_hash_t const *              parent_blockhash,
                               ulong                          parent_epoch,
                               ulong                          parent_capitalization ) {
@@ -2044,7 +2044,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
     https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521
     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1038-L1095 */
 static int
-recalculate_partitioned_rewards( fd_banks_t *              banks,
+recalculate_partitioned_rewards( fd_banks_t *              banks FD_PARAM_UNUSED,
                                  fd_bank_t *               bank,
                                  fd_accdb_t *              accdb,
                                  fd_runtime_stack_t *      runtime_stack,
@@ -2181,25 +2181,15 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
   fd_stake_history_t stake_history[1];
   read_stake_history( accdb, bank->accdb_fork_id, stake_history_data, stake_history );
 
-  ushort stake_delegations_fork_ids[ banks->max_total_banks ];
-  ulong  stake_delegations_fork_id_cnt = fd_banks_stake_delegations_fork_ids( banks, bank, stake_delegations_fork_ids );
-  fd_stake_history_t   frontier_stake_history_[1];
-  fd_stake_history_t * frontier_stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, frontier_stake_history_ );
-
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-  fd_stake_delegations_frontier_query_begin( stake_delegations,
-                                             bank->f.epoch,
-                                             frontier_stake_history,
-                                             &bank->f.warmup_cooldown_rate_epoch,
-                                             FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                             stake_delegations_fork_ids,
-                                             stake_delegations_fork_id_cnt );
+  fd_stake_delegations_view_t stake_view[1];
+  fd_stake_delegations_view_begin( stake_view, stake_delegations, bank->stake_delegations_fork_id );
 
   if( FD_LIKELY( !skip_rewards ) ) {
     calculate_stake_vote_rewards(
         bank,
         accdb,
-        stake_delegations,
+        stake_view,
         capture_ctx,
         stake_history,
         rewarded_epoch,
@@ -2231,7 +2221,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
         bank,
         accdb,
         stake_history,
-        stake_delegations,
+        stake_view,
         runtime_stack,
         fork_idx,
         rewarded_epoch,
@@ -2241,12 +2231,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
     fd_stake_rewards_fini( stake_rewards, fork_idx );
   }
 
-  fd_stake_delegations_frontier_query_end( stake_delegations,
-                                           frontier_stake_history,
-                                           &bank->f.warmup_cooldown_rate_epoch,
-                                           FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                           stake_delegations_fork_ids,
-                                           stake_delegations_fork_id_cnt );
+  fd_stake_delegations_view_end( stake_view );
   return 1;
 }
 

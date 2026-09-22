@@ -31,11 +31,6 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
 
-/* FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS is the maximum number
-   of records in each stake-delegation disk tier. */
-
-#define FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS (100000000UL)
-
 /* The runtime only supports post-validator_admission_ticket banks.  The
    accumulator can still see one distinct voter per stake account before
    the final eligible set is reduced to the VAT limit below. */

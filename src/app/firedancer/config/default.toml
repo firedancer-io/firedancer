@@ -741,6 +741,14 @@ telemetry = true
     # faster transaction execution.
     program_cache_size_mib = 2048
 
+    # Memory for cached stake-delegation records, in MiB.
+    # Records exceeding this cache use the stake-delegation file.
+    stake_delegations_cache_mib = 384
+
+    # Maximum combined root and fork-version records.
+    # Increasing this limit also increases bookkeeping memory.
+    stake_delegations_max_records = 100000000
+
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
 # run on which cores and for how long, Firedancer overrides most of this

@@ -38,7 +38,10 @@
 #include <sys/resource.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
+#include <sys/statvfs.h>
 #include <linux/capability.h>
+#include <linux/magic.h>
 
 #include "../../../../util/tile/fd_tile_private.h"
 
@@ -1093,9 +1096,29 @@ initialize_stake_delegations_fd( config_t const * config ) {
   if( FD_UNLIKELY( !config->is_firedancer ) ) return;
 
   char const * spill_path = config->paths.stake_delegations;
-  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME|O_DIRECT|O_NOFOLLOW, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+
+  struct statfs fs;
+  if( FD_UNLIKELY( -1==fstatfs( spill_fd, &fs ) ) ) FD_LOG_ERR(( "fstatfs() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fs.f_type==TMPFS_MAGIC ) ) FD_LOG_ERR(( "stake-delegation file %s requires a filesystem supporting direct I/O", spill_path ));
+#ifdef STATX_DIOALIGN
+  struct statx stx;
+  if( FD_LIKELY( !statx( spill_fd, "", AT_EMPTY_PATH, STATX_DIOALIGN, &stx ) && (stx.stx_mask & STATX_DIOALIGN) ) ) {
+    if( FD_UNLIKELY( !stx.stx_dio_mem_align || !stx.stx_dio_offset_align ||
+                     FD_STAKE_DELEGATIONS_PAGE_SZ%stx.stx_dio_mem_align ||
+                     FD_STAKE_DELEGATIONS_PAGE_SZ%stx.stx_dio_offset_align ) ) {
+      FD_LOG_ERR(( "stake-delegation file %s has unsupported direct I/O alignment (%u memory, %u offset)", spill_path, stx.stx_dio_mem_align, stx.stx_dio_offset_align ));
+    }
+  }
+#endif
+  struct statvfs space;
+  if( FD_UNLIKELY( -1==fstatvfs( spill_fd, &space ) ) ) FD_LOG_ERR(( "fstatvfs() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  FD_LOG_NOTICE(( "stake-delegation cache: %lu MiB, %lu logical records, backing file %s (%lu MiB available)",
+                   config->firedancer.runtime.stake_delegations_cache_mib,
+                   config->firedancer.runtime.stake_delegations_max_records,
+                   spill_path, fd_ulong_sat_mul( space.f_bavail, space.f_frsize )>>20 ));
 
   if( FD_LIKELY( spill_fd!=FD_STAKE_DELEGATIONS_FD ) ) {
     if( FD_UNLIKELY( -1==dup2( spill_fd, FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

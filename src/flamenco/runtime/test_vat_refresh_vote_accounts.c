@@ -347,9 +347,9 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   env->accdb = fd_accdb_join( fd_accdb_new( env->accdb_join, shmem, env->accdb_fd, 0UL, NULL ) );
   FD_TEST( env->accdb );
 
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL, 32768UL, 4UL<<20 ), env->tag );
   FD_TEST( banks_mem );
-  env->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, max_fork_width, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  env->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, max_fork_width, 2048UL, 32768UL, 2048UL, 0, 8888UL, 4UL<<20 ) );
   FD_TEST( env->banks );
 
   env->bank = fd_banks_init_bank( env->banks );
@@ -378,9 +378,6 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   env->bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, env->bank->f.epoch );
   ulong fork_id = env->bank->vote_stakes_fork_id;
 
-  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
-  env->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
-
   for( ulong i=0UL; i<NUM_VOTERS; i++ ) {
     fd_pubkey_t v = vote_key( i );
     fd_pubkey_t s = stake_key( i );
@@ -398,7 +395,11 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
       fd_vote_stakes_update_state( vote_stakes, fork_id, &v, 0UL, voter_vote_ts( i ), 1 );
     }
     add_delegated_stake_account     ( env, &s, &v, stake );
-    add_bank_stake_delegation_entry ( env, &s, &v, stake );
+    fd_stake_delegations_root_update( fd_bank_stake_delegations_modify( env->bank ),
+                                      &s, &v, stake, 0UL, ULONG_MAX, 0UL,
+                                      stake + VOTE_ACCOUNT_LAMPORTS,
+                                      (uint)FD_STAKE_STATE_SZ,
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   }
 
   fd_features_t features = {0};

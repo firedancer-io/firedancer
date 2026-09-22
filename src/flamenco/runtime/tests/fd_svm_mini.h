@@ -65,7 +65,10 @@ struct fd_svm_mini_limits {
   /* consensus */
   ulong max_vote_accounts;
   ulong max_stake_accounts;
-  ulong max_disk_records; /* records in each stake-delegation disk tier */
+
+  /* stake delegations */
+  ulong stake_max_records;
+  ulong stake_cache_bytes;
 
   /* accdb */
   ulong max_accounts;
@@ -162,7 +165,8 @@ fd_svm_mini_limits_default( fd_svm_mini_limits_t * limits ) {
     .max_fork_width           = 4UL,
     .max_vote_accounts        = 256UL,
     .max_stake_accounts       = 256UL,
-    .max_disk_records            = 4096UL,
+    .stake_max_records        = 32768UL,
+    .stake_cache_bytes        = 4UL<<20,
     .max_accounts             = 128UL,
     .max_account_space_bytes  = 32UL<<20,
     .max_txn_write_locks      = 0UL,

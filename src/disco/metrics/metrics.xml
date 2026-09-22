@@ -1261,6 +1261,24 @@ EXAMPLES
 </enum>
 
 <tile name="replay">
+    <gauge name="StakeDelegationsRootRecords" summary="Rooted stake-delegation records" />
+    <gauge name="StakeDelegationsPlaceholderRecords" summary="Stake-delegation keys present only on unrooted forks" />
+    <gauge name="StakeDelegationsDeltaRecords" summary="Stake-delegation fork versions" />
+    <gauge name="StakeDelegationsOccupiedPages" summary="Allocated stake-delegation pages" />
+    <gauge name="StakeDelegationsResidentPages" summary="Stake-delegation pages currently cached in RAM" />
+    <gauge name="StakeDelegationsFootprintBytes" summary="Reserved shared-memory bytes for the stake-delegation store" />
+    <counter name="StakeDelegationsCacheHits" summary="Stake-delegation resident page accesses" />
+    <counter name="StakeDelegationsCacheMisses" summary="Stake-delegation nonresident page accesses" />
+    <counter name="StakeDelegationsDirtyWritebacks" summary="Dirty stake-delegation pages written before eviction" />
+    <counter name="StakeDelegationsReadBytes" summary="Stake-delegation bytes read from the backing file" />
+    <counter name="StakeDelegationsWrittenBytes" summary="Stake-delegation bytes written to the backing file" />
+    <counter name="StakeDelegationsBucketSteps" summary="Stake-delegation pubkey bucket records examined" />
+    <counter name="StakeDelegationsDeltaSteps" summary="Stake-delegation fork versions examined" />
+    <counter name="StakeDelegationsTreeWaitTicks" summary="CPU ticks waiting for exclusive stake-delegation tree access" />
+    <counter name="StakeDelegationsTreeHoldTicks" summary="CPU ticks holding exclusive stake-delegation tree access" />
+    <counter name="StakeDelegationsCacheWaitTicks" summary="CPU ticks waiting for exclusive stake-delegation cache access" />
+    <counter name="StakeDelegationsCacheHoldTicks" summary="CPU ticks holding exclusive stake-delegation cache access" />
+
     <gauge name="IdentityBalanceLamports" summary="Identity account balance at the optimistically confirmed slot" />
     <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot" />
     <gauge name="ClusterActiveStakeLamports" summary="Total cluster active stake at the optimistically confirmed slot" />

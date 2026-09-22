@@ -136,7 +136,9 @@ snapshot_load_topo( config_t * config ) {
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks",
       config->firedancer.runtime.max_live_slots,
       config->firedancer.runtime.max_fork_width,
-      config->development.bench.max_cost_per_block );
+      config->development.bench.max_cost_per_block,
+      config->firedancer.runtime.stake_delegations_max_records,
+      config->firedancer.runtime.stake_delegations_cache_mib*(1UL<<20) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
 #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )

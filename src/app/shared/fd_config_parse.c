@@ -104,6 +104,8 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
 
   CFG_POP      ( ulong,  runtime.program_cache_size_mib                      );
+  CFG_POP      ( ulong,  runtime.stake_delegations_cache_mib                  );
+  CFG_POP      ( ulong,  runtime.stake_delegations_max_records                );
 
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
 

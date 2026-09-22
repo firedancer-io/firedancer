@@ -583,7 +583,7 @@ test_cluster_new( ulong tile_cnt,
   FD_TEST( cl->in_mem );
   fd_memset( cl->in_mem, 0, tile_cnt*lane_cnt*TEST_FRAG_SZ );
 
-  cl->stake_delegations = aligned_alloc( 128UL, fd_ulong_align_up( sizeof(fd_stake_delegations_t), 128UL ) );
+  cl->stake_delegations = aligned_alloc( fd_stake_delegations_align(), fd_ulong_align_up( sizeof(fd_stake_delegations_t), fd_stake_delegations_align() ) );
   FD_TEST( cl->stake_delegations );
   fd_memset( cl->stake_delegations, 0, sizeof(fd_stake_delegations_t) );
 
@@ -1384,9 +1384,9 @@ test_nonempty_raw_data( void ) {
 
 static fd_banks_t *
 new_banks( fd_wksp_t * wksp ) {
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 4UL, 16UL, 16UL ), 1UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 4UL, 16UL, 16UL, 1024UL, 128UL<<10 ), 1UL );
   FD_TEST( mem );
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 16UL, 64UL, 16UL, 0, 42UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 16UL, 1024UL, 16UL, 0, 42UL, 128UL<<10 ) );
   FD_TEST( banks );
   return banks;
 }
@@ -1404,9 +1404,9 @@ make_stake_state( fd_stake_state_t * state,
 }
 
 static void
-assert_stake_delegation( fd_stake_delegations_t const * stake_delegations,
-                         fd_pubkey_t const *            stake_account,
-                         fd_pubkey_t const *            vote_account ) {
+assert_stake_delegation( fd_stake_delegations_t * stake_delegations,
+                         fd_pubkey_t const *      stake_account,
+                         fd_pubkey_t const *      vote_account ) {
   fd_stake_delegation_t delegation[1];
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, stake_account, delegation ) );
   FD_TEST( fd_pubkey_eq( &delegation->vote_account, vote_account ) );

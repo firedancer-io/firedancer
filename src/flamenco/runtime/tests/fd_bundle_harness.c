@@ -53,7 +53,8 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
 
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( runner->banks );
-  runner->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
+  fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
+  runner->bank->stake_delegations_fork_id = fd_stake_delegations_attach_child( stake_delegations, fd_stake_delegations_root_fork_id( stake_delegations ) );
 
   fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
   runner->bank->f.rbh_lamports_per_sig = txn_bank->rbh_lamports_per_signature;
@@ -99,6 +100,7 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
     txns[i].payload_sz = (ushort)msg_sz;
   }
 
+  fd_stake_delegations_activate_fork( stake_delegations, runner->bank->stake_delegations_fork_id );
   *out_txn_cnt = txn_cnt;
   return txns;
 }

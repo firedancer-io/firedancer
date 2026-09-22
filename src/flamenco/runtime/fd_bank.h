@@ -20,7 +20,7 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2451) /* FIREDANCER BANKS V1 */
 #define FD_BANKS_MAX_BANKS (4096UL)
-#define FD_BANKS_ALIGN     (128UL)
+#define FD_BANKS_ALIGN     (16384UL)
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
    for a given block.  More specifically, the bank state corresponds to
@@ -377,6 +377,8 @@ struct fd_banks {
   ulong max_fork_width;              /* Maximum fork width executing through any given slot. */
   ulong max_stake_accounts;          /* Maximum number of stake accounts */
   ulong max_vote_accounts;           /* Maximum number of vote accounts */
+  ulong stake_max_records;           /* Logical stake-delegation record capacity */
+  ulong stake_cache_bytes;           /* Resident stake-delegation frame bytes */
   ulong root_idx;                    /* root idx */
   ulong bank_seq;                    /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
   ulong evict_rr_idx;                /* internal index for round-robin banks eviction */
@@ -492,16 +494,6 @@ fd_bank_lthash_locking_modify( fd_bank_t * bank );
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 
-/* fd_banks_stake_delegations_fork_ids writes the stake delegation fork
-   IDs in bank's ancestry to fork_ids in root-to-bank order, skipping
-   banks without a fork ID, and returns the number written.  fork_ids
-   must have room for banks->max_total_banks elements. */
-
-ulong
-fd_banks_stake_delegations_fork_ids( fd_banks_t *      banks,
-                                     fd_bank_t const * bank,
-                                     ushort *          fork_ids );
-
 /* fd_banks_stake_delegations_root_query() will return a pointer to the
    full stake delegations for the current root. This function should
    only be called on boot. */
@@ -559,7 +551,9 @@ ulong
 fd_banks_footprint( ulong max_total_banks,
                     ulong max_fork_width,
                     ulong max_stake_accounts,
-                    ulong max_vote_accounts );
+                    ulong max_vote_accounts,
+                    ulong stake_max_records,
+                    ulong stake_cache_bytes );
 
 /* fd_banks_new() creates a new fd_banks_t struct.  This function
    lays out the memory for all of the constituent fd_bank_t structs
@@ -573,10 +567,11 @@ fd_banks_new( void * mem,
               ulong  max_total_banks,
               ulong  max_fork_width,
               ulong  max_stake_accounts,
-              ulong  max_disk_records,
+              ulong  stake_max_records,
               ulong  max_vote_accounts,
               ulong  bench_max_cost_per_block, /* [development.bench], floors the block cost limit */
-              ulong  seed );
+              ulong  seed,
+              ulong  stake_cache_bytes );
 
 /* fd_banks_join() joins an fd_banks_t struct.  It takes in a valid
    banks_data_mem.  Returns a pointer to the joined fd_banks_t struct

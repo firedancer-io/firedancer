@@ -540,6 +540,14 @@ fd_config_validatef( fd_configf_t const * config ) {
   }
 
   CFG_HAS_NON_ZERO( runtime.program_cache_size_mib );
+  CFG_HAS_NON_ZERO( runtime.stake_delegations_cache_mib );
+  CFG_HAS_NON_ZERO( runtime.stake_delegations_max_records );
+  if( FD_UNLIKELY( config->runtime.stake_delegations_cache_mib>ULONG_MAX/(1UL<<20) ) ) {
+    FD_LOG_ERR(( "`runtime.stake_delegations_cache_mib` is too large" ));
+  }
+  if( FD_UNLIKELY( config->runtime.stake_delegations_max_records>(ulong)UINT_MAX-127UL ) ) {
+    FD_LOG_ERR(( "`runtime.stake_delegations_max_records` is too large" ));
+  }
 }
 
 static void

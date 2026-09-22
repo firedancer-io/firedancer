@@ -60,7 +60,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_accdb_t *                   accdb,
                               fd_runtime_stack_t *           runtime_stack,
                               fd_capture_ctx_t *             capture_ctx,
-                              fd_stake_delegations_t const * stake_delegations,
+                              fd_stake_delegations_view_t *  stake_delegations,
                               fd_hash_t const *              parent_blockhash,
                               ulong                          parent_epoch,
                               ulong                          parent_capitalization );
