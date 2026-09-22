@@ -107,10 +107,9 @@ main( int     argc,
   /* Undo calldest hashing */
 
   if( fixup_calls ) {
-    ulong * text0 = prog->text;
-    ulong * text1 = text0 + prog->info.text_cnt;
-    for( ulong * t=text0; t<text1; t++ ) {
-      ulong insn = *t;
+    uchar * text = prog->text;
+    for( ulong pc=0UL; pc<prog->info.text_cnt; pc++ ) {
+      ulong insn = FD_LOAD( ulong, text+8UL*pc );
       ulong opc  = insn & 0xFF;
       uint  imm  = (uint)(insn >> 32);
       if( (opc!=FD_SBPF_OP_CALL_IMM) || (imm==UINT_MAX) ) continue;
@@ -118,8 +117,8 @@ main( int     argc,
       ulong target_pc = fd_pchash_inverse( imm );
       if( FD_UNLIKELY( target_pc >= prog->info.text_cnt ) ) continue;
 
-      long new_imm = (long)target_pc - ( t-text0 ) - 1L;
-      *t = (insn & UINT_MAX) | ( (ulong)(uint)new_imm << 32UL );
+      long new_imm = (long)target_pc - (long)pc - 1L;
+      FD_STORE( ulong, text+8UL*pc, (insn & UINT_MAX) | ( (ulong)(uint)new_imm << 32UL ) );
     }
   }
 
