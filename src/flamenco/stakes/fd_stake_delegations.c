@@ -62,18 +62,6 @@ spin_unlock( uint * lock ) {
 }
 
 static void
-exclusive_begin( fd_stake_delegations_t * stake_delegations ) {
-  fd_rwlock_write( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
-}
-
-static void
-exclusive_end( fd_stake_delegations_t * stake_delegations ) {
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
-  fd_rwlock_unwrite( &stake_delegations->tree_lock );
-}
-
-static void
 nonfull_remove( fd_stake_delegations_t * stake_delegations,
                 uint                     page ) {
   page_t * pages = get_pages( stake_delegations );
@@ -454,9 +442,11 @@ fd_stake_delegations_join( void * mem,
 
 void
 fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
-  exclusive_begin( stake_delegations );
+  fd_rwlock_write( &stake_delegations->tree_lock );
+  fd_rwlock_write( &stake_delegations->cache_lock );
   reset( stake_delegations );
-  exclusive_end( stake_delegations );
+  fd_rwlock_unwrite( &stake_delegations->cache_lock );
+  fd_rwlock_unwrite( &stake_delegations->tree_lock );
 }
 
 static int
@@ -474,7 +464,8 @@ fd_stake_delegations_root_fork_id( fd_stake_delegations_t const * stake_delegati
 ushort
 fd_stake_delegations_attach_child( fd_stake_delegations_t * stake_delegations,
                                    ushort                   parent ) {
-  exclusive_begin( stake_delegations );
+  fd_rwlock_write( &stake_delegations->tree_lock );
+  fd_rwlock_write( &stake_delegations->cache_lock );
   fork_t * forks = get_forks( stake_delegations );
   FD_CHECK_CRIT( parent<stake_delegations->max_live_slots && forks[parent].in_use,
                  "invalid stake delegations parent" );
@@ -490,7 +481,8 @@ fd_stake_delegations_attach_child( fd_stake_delegations_t * stake_delegations,
   fd_memcpy( get_descends( stake_delegations, id ), get_descends( stake_delegations, parent ), descends_words*sizeof(ulong) );
   get_descends( stake_delegations, id )[parent>>6] |= 1UL<<(parent & 63);
   stake_delegations->boot = 0;
-  exclusive_end( stake_delegations );
+  fd_rwlock_unwrite( &stake_delegations->cache_lock );
+  fd_rwlock_unwrite( &stake_delegations->tree_lock );
   return id;
 }
 
@@ -713,7 +705,8 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    lamports,
                                   uint                     acc_dlen,
                                   uchar                    warmup_cooldown_rate ) {
-  exclusive_begin( stake_delegations );
+  fd_rwlock_write( &stake_delegations->tree_lock );
+  fd_rwlock_write( &stake_delegations->cache_lock );
   FD_CHECK_CRIT( stake_delegations->boot, "stake delegations root_update after boot" );
   FD_CHECK_ERR( activation_epoch  <USHORT_MAX || activation_epoch  ==ULONG_MAX, "activation_epoch overflow"   );
   FD_CHECK_ERR( deactivation_epoch<USHORT_MAX || deactivation_epoch==ULONG_MAX, "deactivation_epoch overflow" );
@@ -731,7 +724,8 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
   uint root = find_root( stake_delegations, stake_account, 1 );
   if( root==UINT_MAX ) root = insert_root( stake_delegations, stake_account, 1 );
   store_root( stake_delegations, root, &d );
-  exclusive_end( stake_delegations );
+  fd_rwlock_unwrite( &stake_delegations->cache_lock );
+  fd_rwlock_unwrite( &stake_delegations->tree_lock );
 }
 
 fd_stake_delegations_view_t *
@@ -941,14 +935,16 @@ rebuild_tree( fd_stake_delegations_t * stake_delegations ) {
 void
 fd_stake_delegations_cancel_fork( fd_stake_delegations_t * stake_delegations,
                                   ushort                   fork ) {
-  exclusive_begin( stake_delegations );
+  fd_rwlock_write( &stake_delegations->tree_lock );
+  fd_rwlock_write( &stake_delegations->cache_lock );
   FD_CHECK_CRIT( fork<stake_delegations->max_live_slots && fork!=stake_delegations->root_fork && get_forks( stake_delegations )[fork].in_use,
                  "invalid stake delegations cancellation" );
   for( ushort id=0; id<stake_delegations->max_live_slots; id++ ) {
     if( get_forks( stake_delegations )[id].in_use && (id==fork || ancestor( stake_delegations, id, fork )) ) cancel_one( stake_delegations, id );
   }
   rebuild_tree( stake_delegations );
-  exclusive_end( stake_delegations );
+  fd_rwlock_unwrite( &stake_delegations->cache_lock );
+  fd_rwlock_unwrite( &stake_delegations->tree_lock );
 }
 
 static void
@@ -1031,7 +1027,8 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             stake_de
                                    int                                  prune_inactive,
                                    fd_bank_t const *                    emit_bank,
                                    fd_stake_delegations_delta_stats_t * stats ) {
-  exclusive_begin( stake_delegations );
+  fd_rwlock_write( &stake_delegations->tree_lock );
+  fd_rwlock_write( &stake_delegations->cache_lock );
   fork_t * forks = get_forks( stake_delegations );
   FD_CHECK_CRIT( fork<stake_delegations->max_live_slots && forks[fork].in_use && ancestor( stake_delegations, fork, stake_delegations->root_fork ),
                  "stake delegations root destination is not a descendant" );
@@ -1082,7 +1079,8 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             stake_de
     stats->removes += removes;
     stats->root_cnt = stake_delegations->root_cnt;
   }
-  exclusive_end( stake_delegations );
+  fd_rwlock_unwrite( &stake_delegations->cache_lock );
+  fd_rwlock_unwrite( &stake_delegations->tree_lock );
 }
 
 ulong
@@ -1092,19 +1090,22 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
                                           ulong *                    rate_epoch,
                                           int                        fixed_point,
                                           fd_bank_t const *          emit_bank ) {
-  exclusive_begin( stake_delegations );
+  fd_rwlock_write( &stake_delegations->tree_lock );
+  fd_rwlock_write( &stake_delegations->cache_lock );
   if( !same_context( stake_delegations, epoch, history, rate_epoch, fixed_point ) ) {
     set_context( stake_delegations, epoch, history, rate_epoch, fixed_point );
     recompute( stake_delegations );
   }
   ulong cnt = prune( stake_delegations, epoch, history, rate_epoch, fixed_point, emit_bank );
-  exclusive_end( stake_delegations );
+  fd_rwlock_unwrite( &stake_delegations->cache_lock );
+  fd_rwlock_unwrite( &stake_delegations->tree_lock );
   return cnt;
 }
 
 void
 fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations ) {
-  exclusive_begin( stake_delegations );
+  fd_rwlock_write( &stake_delegations->tree_lock );
+  fd_rwlock_write( &stake_delegations->cache_lock );
   for( uint page=0U; page<stake_delegations->page_wmk; page++ ) {
     if( get_pages( stake_delegations )[page].role!=PAGE_ROOT ) continue;
     for( uint slot=0U; slot<128U; slot++ ) {
@@ -1116,7 +1117,8 @@ fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegatio
     }
   }
   stake_delegations->fp_warmed_awarded = 0;
-  exclusive_end( stake_delegations );
+  fd_rwlock_unwrite( &stake_delegations->cache_lock );
+  fd_rwlock_unwrite( &stake_delegations->tree_lock );
 }
 
 void
@@ -1128,7 +1130,8 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               int                        remove_inactive_stakes,
                               fd_accdb_t *               accdb,
                               fd_accdb_fork_id_t         fork_id ) {
-  exclusive_begin( stake_delegations );
+  fd_rwlock_write( &stake_delegations->tree_lock );
+  fd_rwlock_write( &stake_delegations->cache_lock );
   set_context( stake_delegations, epoch, history, rate_epoch, fixed_point );
   /* Snapshot totals are rebuilt from account data.  Copies keep batch
      keys and payloads valid while later records evict earlier pages. */
@@ -1204,5 +1207,6 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
     }
   }
 #undef BATCH
-  exclusive_end( stake_delegations );
+  fd_rwlock_unwrite( &stake_delegations->cache_lock );
+  fd_rwlock_unwrite( &stake_delegations->tree_lock );
 }
