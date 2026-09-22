@@ -753,6 +753,9 @@ telemetry = true
     # When full, the cache spills to paths.txncache.  This value has
     # been chosen and tuned around mainnet network behavior.  Lowering
     # this value risks introducing performance regressions.
+    #
+    # It is not recommended to change this value, except in development
+    # or test environments to decrease memory usage to test edge cases.
     transaction_cache_size_mib = 640
 
 # CPU cores in Firedancer are carefully managed.  Where a typical

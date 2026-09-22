@@ -101,6 +101,5 @@ $(call make-unit-test,test_system_ids,test_system_ids,fd_flamenco fd_util fd_bal
 $(call run-unit-test,test_system_ids)
 
 ifdef FD_HAS_HOSTED
-# TODO: Flakes
-# $(call run-unit-test,test_txncache)
+$(call run-unit-test,test_txncache)
 endif
