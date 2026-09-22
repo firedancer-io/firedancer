@@ -347,7 +347,7 @@ struct fd_event_block_completed_txn_timing {
   ulong sigverify_dispatched_time; /* When the scheduler dispatched signature verification, which runs in parallel with execution. 0 for leader blocks (verified upstream of pack). */
   ulong sigverify_done_time;       /* When the signature verification result returned to the scheduler. 0 for leader blocks. */
   ulong poh_mixed_time;            /* When the transaction was mixed into the PoH stream, fixing its position in the block; transactions of one microblock share the stamp. 0 for blocks this validator did not produce. */
-};
+} __attribute__((aligned(8)));
 typedef struct fd_event_block_completed_txn_timing fd_event_block_completed_txn_timing_t;
 
 /* A block finished production, or replay on this validator, or was marked dead, or was abandoned before completing. A block gets a row if it was ever replayed or produced (had a bank), or if it finished reception on a fork that had already died or been discarded; a block dropped before reception finished gets no row.  Under alpenglow, fork knowledge is much more transient, so blocks that were never replayed due to a parent getting discarded gets no row, even if reception finished.  Delivery is best-effort: rows travel a lossy telemetry link, and a large burst of simultaneous rows (mass death of a fork) can drop some. On-chain data is deliberately not part of this event. Reception and repair tallies are best-effort: they restart if repair transiently stopped tracking the block (forest eviction), and on equivocated slots they are slot-scoped — shreds from all observed versions of the slot merge into the same counts on every version's row. */
@@ -791,11 +791,170 @@ typedef struct fd_event_runtime_vote_account fd_event_runtime_vote_account_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_RUNTIME_VOTE_ACCOUNT_BUF_MAX (353UL)
 
+/* What kind of vote is this. */
+#define FD_EVENT_ALPENGLOW_VOTE_KIND_NOTAR          (1) /* Cast on the slot's first block once its parent is ready at a window start, or once we notarized its parent in the previous slot (Algorithm 2, Definition 15). */
+#define FD_EVENT_ALPENGLOW_VOTE_KIND_FINAL          (2) /* Cast once the block we notarized has a notarization cert and we cast no skip or fallback vote in the slot (Algorithm 2, Definition 18). Names only the slot. */
+#define FD_EVENT_ALPENGLOW_VOTE_KIND_SKIP           (3) /* Cast for every unvoted slot of the leader window on timeout (Definition 17), on SafeToNotar or SafeToSkip (Algorithm 1), a dead block or the crashed-leader timer. Names only the slot. */
+#define FD_EVENT_ALPENGLOW_VOTE_KIND_NOTAR_FALLBACK (4) /* Cast on SafeToNotar. At most three per slot (Definition 12). */
+#define FD_EVENT_ALPENGLOW_VOTE_KIND_SKIP_FALLBACK  (5) /* Cast on SafeToSkip. Names only the slot. */
+
+/* Why we cast the vote, based on the Alpenglow voting algorithm (not_broadcasted if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17. */
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_REASON_NOT_BROADCASTED        (1) /* Not our vote, so we did not broadcast it; see our_vote. */
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_REASON_BLOCK_REPLAYED         (2) /* Replay completed the block normally, so we vote notar for it. */
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_REASON_BLOCK_DEAD             (3) /* Replay ruled the block dead, so we vote skip on the entire rest of the window containing this slot. */
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_REASON_PARENT_READY           (4) /* We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending. */
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_REASON_BLOCK_NOTARIZED        (5) /* We hold a notar cert for the block we voted notar for and cast no skip or fallback vote in the slot, so we vote final for it. */
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_REASON_TIMEOUT                (6) /* The slot's timeout fired with no vote cast in it, so we vote skip on the entire rest of the window containing this slot. */
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_REASON_TIMEOUT_CRASHED_LEADER (7) /* The window's crashed-leader timeout fired with no shred and no vote for its first slot, so we vote skip on every slot of the window. */
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_REASON_SAFE_TO_NOTAR          (8) /* No block but this one can be fast-finalized in the slot: notar votes for it reach 40% of stake, or 20% with skip votes bringing the total to 60%, and its parent is notar-fallback certified (Definition 16). Having voted skip or notar for another block in the slot, we vote notar-fallback for it and skip every unvoted slot of the window. */
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_REASON_SAFE_TO_SKIP           (9) /* No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window. */
+
+/* What we did with the vote. unknown_peer and banned_peer are decided on the connection before the vote is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific validation. */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_UNKNOWN_PEER           (1) /* The connection had no known peer: we cleared its identity while closing it, or accepted it before we knew the epoch's validators. */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_BANNED_PEER            (2) /* The peer is banned for an earlier invalid signature or cert; connection closed. */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SHRED_VERSION_MISMATCH (3) /* Signed under a different shred version than ours. */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_UNRANKED_PEER          (4) /* The peer has no rank in the slot's epoch. */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD           (5) /* The slot is more than eight slots behind our finality frontier, or in an earlier epoch we have no stake information for. */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW           (6) /* The slot is beyond our look-ahead window, or in an epoch we have no stake information for. */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLASHABLE              (7) /* Conflicts with a vote the peer already cast for the slot (Lemma 22, Definition 12). */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_DUPLICATE              (8) /* We already stored this vote or one that covers it: notar and notar-fallback for one block, skip and skip-fallback (Definition 12); ignored. */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_IGNORED_REDUNDANT      (9) /* We already hold a valid cert for the slot, or block, this vote would count toward; ignored. */
+#define FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED               (10) /* Vote is accepted and next step is to aggregate (and broadcast, if our_vote). */
+
+/* The peer at this rank. */
+struct fd_event_alpenglow_vote_broadcast_to {
+  uchar  identity[ 32UL ]; /* Validator identity of the peer (all zeros if not sent). */
+  uchar  ip[ 16UL ];       /* IPv4 address of the peer as an IPv4-mapped IPv6 address (all zeros if not sent). */
+  ushort port;             /* Port of the peer's Alpenglow QUIC endpoint (0 if not sent). */
+} __attribute__((aligned(8)));
+typedef struct fd_event_alpenglow_vote_broadcast_to fd_event_alpenglow_vote_broadcast_to_t;
+
+/* An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we received the vote, or cast it if our_vote; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
+struct fd_event_alpenglow_vote {
+  ulong                                  slot;                               /* Which slot the vote is for. */
+  uchar                                  block_id[ 32UL ];                   /* Which block the vote is for (only for notar and notar_fallback, all zeros otherwise). */
+  ushort                                 voter_rank;                         /* Where the voter ranks in the slot's epoch (only if ranked, 65535 otherwise). Also marks their position in the Cert array */
+  uchar                                  voter_identity[ 32UL ];             /* Validator identity of the voter, looked up from voter_rank in the slot's epoch (all zeros if voter_rank is 65535). */
+  int                                    kind;                               /* What kind of vote is this. */
+  uchar                                  received_from_ip[ 16UL ];           /* IPv4 address of the peer we received the vote from; ourselves if our_vote, stored as an IPv4-mapped IPv6 address (all zeros if unknown). */
+  uchar                                  received_from_identity[ 32UL ];     /* Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). Not necessarily the voter; see voter_identity. */
+  int                                    our_vote;                           /* Whether this is our own vote, which we store like any other; received_from_identity is then our identity. */
+  int                                    broadcast_reason;                   /* Why we cast the vote, based on the Alpenglow voting algorithm (not_broadcasted if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17. */
+  ulong                                  broadcast_to_cnt;                   /* Number of broadcast_to entries (<= 2000) */
+  int                                    processing_result;                  /* What we did with the vote. unknown_peer and banned_peer are decided on the connection before the vote is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific validation. */
+  int                                    quorum_reached_safe_to_notar;       /* Notar votes for block_id reached 40% of stake, or 20% with skip votes bringing the total to 60% (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time). */
+  int                                    quorum_reached_safe_to_skip;        /* Skip votes plus notar votes for every block but the most-voted one reached 40% of stake (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time). */
+  int                                    quorum_reached_final_cert;          /* Final votes for the slot reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time). */
+  int                                    quorum_reached_fast_final_cert;     /* Notar votes for block_id reached 80% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time). */
+  int                                    quorum_reached_notar_cert;          /* Notar votes for block_id reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time). */
+  int                                    quorum_reached_notar_fallback_cert; /* Notar and notar-fallback votes for block_id reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time). */
+  int                                    quorum_reached_skip_cert;           /* Skip and skip-fallback votes for the slot reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time). */
+  ulong                                  aggregation_start_time;             /* When we started aggregating the vote into the running BLS aggregate for its slot, kind and block (only if processing_result is accepted, 0 otherwise). */
+  ulong                                  verify_start_time;                  /* When we started BLS verifying the aggregate this vote completed (only if this vote brought a tally to a quorum of Table 6 or Definition 16, which is when we verify signatures, 0 otherwise). */
+  ulong                                  broadcast_start_time;               /* When we started broadcasting the vote to our peers (only if our_vote, 0 otherwise). */
+  ulong                                  done_time;                          /* When we finished processing the vote, may be any of the above stages including short-circuiting at earlier stages. */
+  fd_event_alpenglow_vote_broadcast_to_t broadcast_to[ 2000UL ];             /* Who we sent the vote to, by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_vote, empty otherwise). (dynamic: stored at end, shipped at used length) */
+};
+typedef struct fd_event_alpenglow_vote fd_event_alpenglow_vote_t;
+
+#define FD_EVENT_ALPENGLOW_VOTE_PREFIX_SZ (offsetof(fd_event_alpenglow_vote_t, broadcast_to))
+
+#define FD_EVENT_ALPENGLOW_VOTE_BROADCAST_TO_MAX (2000UL)
+
+FD_STATIC_ASSERT( sizeof(((fd_event_alpenglow_vote_t *)0)->broadcast_to[0])%8UL==0UL, alpenglow_vote_broadcast_to_align );
+
+/* Packed (wire) footprint of a alpenglow_vote event: prefix plus used
+   dynamic array entries.  msg may point at a full struct or at a
+   packed event's prefix. */
+static inline ulong
+fd_event_alpenglow_vote_footprint( fd_event_alpenglow_vote_t const * msg ) {
+  return FD_EVENT_ALPENGLOW_VOTE_PREFIX_SZ
+       + msg->broadcast_to_cnt*sizeof(((fd_event_alpenglow_vote_t *)0)->broadcast_to[0])
+       ;
+}
+
+/* Worst-case encoded size of a alpenglow_vote event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_ALPENGLOW_VOTE_BUF_MAX (176427UL)
+
+/* What kind of cert is this. */
+#define FD_EVENT_ALPENGLOW_CERT_KIND_FINAL          (1) /* FinalVote aggregate that sums >= 60% of stake, for slot. There is guaranteed to be one unique notarized block_id Final corresponds to. */
+#define FD_EVENT_ALPENGLOW_CERT_KIND_FAST_FINAL     (2) /* NotarVote aggregate that sums >= 80% of stake, for block_id; finalizes it in one round. */
+#define FD_EVENT_ALPENGLOW_CERT_KIND_NOTAR          (3) /* NotarVote aggregate that sums >= 60% of stake, for block_id (BlockNotarized; Definition 15). */
+#define FD_EVENT_ALPENGLOW_CERT_KIND_NOTAR_FALLBACK (4) /* NotarVote or NotarFallbackVote aggregate that sums >= 60% of stake, for block_id. At most four blocks per slot (Lemma 48). */
+#define FD_EVENT_ALPENGLOW_CERT_KIND_SKIP           (5) /* SkipVote or SkipFallbackVote aggregate that sums >= 60% of stake, for slot. */
+
+/* Why we broadcast the cert (based on the Alpenglow certificate rules, see Table 6 and Definition 13) (not_broadcasted if we did not). */
+#define FD_EVENT_ALPENGLOW_CERT_BROADCAST_REASON_NOT_BROADCASTED (1) /* We did not broadcast the cert for various reasons, see processing_result. */
+#define FD_EVENT_ALPENGLOW_CERT_BROADCAST_REASON_FIRST_VALID     (2) /* The first valid cert of its kind for the slot that we received or constructed; every node broadcasts these (Definition 13). */
+
+/* What we did with the cert. unknown_peer and banned_peer are decided on the connection before the cert is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNKNOWN_PEER           (1) /* The connection had no known peer: we cleared its identity while closing it, or accepted it before we knew the epoch's validators. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_BANNED_PEER            (2) /* The peer is banned for an earlier invalid signature or cert; connection closed. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SHRED_VERSION_MISMATCH (3) /* Signed under a different shred version than ours. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNRANKED_PEER          (4) /* The peer has no rank in the slot's epoch. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_OLD           (5) /* The slot is behind our finality frontier, or in an earlier epoch we have no stake information for. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_NEW           (6) /* The slot is beyond our look-ahead window, or in an epoch we have no stake information for. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE              (7) /* We already held a cert of this kind for the slot, or for this block if notar_fallback; we keep one per kind (Definition 13), so we dropped the copy without verifying it. The common case: every node broadcasts each cert it accepts. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_IGNORED_REDUNDANT      (8) /* We already hold a valid cert that supersedes this one, e.g. a fast-finalization cert for the block a notarization cert arrives for; ignored. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY      (9) /* The signers' stake is below the threshold (Table 6), a signer rank is outside the epoch, or the aggregate BLS signature is invalid; peer banned. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED               (10) /* BLS verified (stake threshold of Table 6 and aggregate BLS signature) and stored as the first cert of its kind for the slot, then broadcast to our peers (Definition 13); see broadcast_start_time and broadcast_to. */
+
+/* The peer at this rank. */
+struct fd_event_alpenglow_cert_broadcast_to {
+  uchar  identity[ 32UL ]; /* Validator identity of the peer (all zeros if not sent). */
+  uchar  ip[ 16UL ];       /* IPv4 address of the peer as an IPv4-mapped IPv6 address (all zeros if not sent). */
+  ushort port;             /* Port of the peer's Alpenglow QUIC endpoint (0 if not sent). */
+} __attribute__((aligned(8)));
+typedef struct fd_event_alpenglow_cert_broadcast_to fd_event_alpenglow_cert_broadcast_to_t;
+
+/* An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we received the cert, or constructed it if our_cert; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
+struct fd_event_alpenglow_cert {
+  ulong                                  slot;                      /* Which slot the cert is for. */
+  uchar                                  block_id[ 32UL ];          /* Which block the cert is for (only for fast_final, notar and notar_fallback, all zeros otherwise). */
+  int                                    kind;                      /* What kind of cert is this. */
+  int                                    voters[ 2000UL ];          /* Which validators' primary votes the cert aggregates (NotarVote for notar, fast_final and notar_fallback; FinalVote for final; SkipVote for skip), indexed by the voter's rank in the slot's epoch. */
+  ulong                                  voters_cnt;                /* Number of voters entries (<= 2000) */
+  int                                    fallback_voters[ 2000UL ]; /* Fallback signer set (NotarFallbackVote for notar_fallback, SkipFallbackVote for skip) by rank. Empty for other kinds. */
+  ulong                                  fallback_voters_cnt;       /* Number of fallback_voters entries (<= 2000) */
+  uchar                                  relayer_ip[ 16UL ];        /* IPv4 address of the peer that relayed the cert to us; ourselves if our_cert, stored as an IPv4-mapped IPv6 address (all zeros if unknown). */
+  uchar                                  relayer_identity[ 32UL ];  /* Validator identity of the peer that relayed the cert to us (determined from the QUIC client-side TLS certificate); ourselves if our_cert (all zeros if unknown_peer). Not necessarily the creator of the cert: a node re-broadcasts the first valid cert it obtains (whether from self or others). */
+  int                                    our_cert;                  /* Whether we constructed the cert ourselves from the votes we had received, rather than a peer delivering it first. Not every cert is self-made; when it is, we reached the threshold before any peer's copy arrived, i.e. we are running fast. */
+  int                                    broadcast_reason;          /* Why we broadcast the cert (based on the Alpenglow certificate rules, see Table 6 and Definition 13) (not_broadcasted if we did not). */
+  ulong                                  broadcast_to_cnt;          /* Number of broadcast_to entries (<= 2000) */
+  int                                    processing_result;         /* What we did with the cert. unknown_peer and banned_peer are decided on the connection before the cert is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific. */
+  ulong                                  verify_start_time;         /* When we started BLS verifying the cert (unset if our_cert). */
+  ulong                                  broadcast_start_time;      /* When we started broadcasting the cert to our peers, BLS verification having finished (only if broadcast_reason is first_valid, 0 otherwise). */
+  ulong                                  done_time;                 /* When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages. */
+  fd_event_alpenglow_cert_broadcast_to_t broadcast_to[ 2000UL ];    /* Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if broadcast_reason is first_valid, empty otherwise). (dynamic: stored at end, shipped at used length) */
+};
+typedef struct fd_event_alpenglow_cert fd_event_alpenglow_cert_t;
+
+#define FD_EVENT_ALPENGLOW_CERT_PREFIX_SZ (offsetof(fd_event_alpenglow_cert_t, broadcast_to))
+
+#define FD_EVENT_ALPENGLOW_CERT_BROADCAST_TO_MAX (2000UL)
+
+FD_STATIC_ASSERT( sizeof(((fd_event_alpenglow_cert_t *)0)->broadcast_to[0])%8UL==0UL, alpenglow_cert_broadcast_to_align );
+
+/* Packed (wire) footprint of a alpenglow_cert event: prefix plus used
+   dynamic array entries.  msg may point at a full struct or at a
+   packed event's prefix. */
+static inline ulong
+fd_event_alpenglow_cert_footprint( fd_event_alpenglow_cert_t const * msg ) {
+  return FD_EVENT_ALPENGLOW_CERT_PREFIX_SZ
+       + msg->broadcast_to_cnt*sizeof(((fd_event_alpenglow_cert_t *)0)->broadcast_to[0])
+       ;
+}
+
+/* Worst-case encoded size of a alpenglow_cert event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_ALPENGLOW_CERT_BUF_MAX (200318UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size, aligned to
    FD_EVENT_GEN_STRUCT_ALIGN. */
-#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; }))
-#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; }))
+#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; }))
+#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -949,6 +1108,26 @@ fd_event_runtime_vote_account_serialize( fd_circq_t *                           
                                          ulong                                   link_seq,
                                          fd_event_runtime_vote_account_t const * msg );
 
+/* Serialize a alpenglow_vote event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_alpenglow_vote_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_alpenglow_vote_t const * msg );
+
+/* Serialize a alpenglow_cert event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_alpenglow_cert_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_alpenglow_cert_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -1070,6 +1249,34 @@ fd_event_report_runtime_epoch( fd_event_runtime_epoch_t const * msg ) {
 static inline void
 fd_event_report_runtime_vote_account( fd_event_runtime_vote_account_t const * msg ) {
   fd_event_report_( 18UL, msg, sizeof(fd_event_runtime_vote_account_t) );
+}
+
+/* Report a alpenglow_vote event (AlpenglowVote, id 19) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link).
+   The event travels packed: fixed prefix followed by the used entries
+   of each dynamic array. */
+static inline void
+fd_event_report_alpenglow_vote( fd_event_alpenglow_vote_t const * msg ) {
+  FD_TEST( msg->broadcast_to_cnt<=2000UL );
+  fd_event_report_iov_t iov[] = {
+    { (void const *)msg, FD_EVENT_ALPENGLOW_VOTE_PREFIX_SZ },
+    { (void const *)msg->broadcast_to, msg->broadcast_to_cnt*sizeof(msg->broadcast_to[0]) },
+  };
+  fd_event_report_gather_( 19UL, iov, sizeof(iov)/sizeof(iov[0]) );
+}
+
+/* Report a alpenglow_cert event (AlpenglowCert, id 20) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link).
+   The event travels packed: fixed prefix followed by the used entries
+   of each dynamic array. */
+static inline void
+fd_event_report_alpenglow_cert( fd_event_alpenglow_cert_t const * msg ) {
+  FD_TEST( msg->broadcast_to_cnt<=2000UL );
+  fd_event_report_iov_t iov[] = {
+    { (void const *)msg, FD_EVENT_ALPENGLOW_CERT_PREFIX_SZ },
+    { (void const *)msg->broadcast_to, msg->broadcast_to_cnt*sizeof(msg->broadcast_to[0]) },
+  };
+  fd_event_report_gather_( 20UL, iov, sizeof(iov)/sizeof(iov[0]) );
 }
 
 FD_PROTOTYPES_END

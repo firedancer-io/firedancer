@@ -359,7 +359,7 @@ def tuple_fields_of(f: Field) -> Optional[Dict[str, Field]]:
         return inner.fields
     return None
 
-def gen_tuple_struct( schema_name: str, field_name: str, flds: Dict[str, Field], desc: str ) -> List[str]:
+def gen_tuple_struct( schema_name: str, field_name: str, flds: Dict[str, Field], desc: str, dynamic: bool = False ) -> List[str]:
     """Emit a C struct definition for a Tuple field's element type.  Tuple
     subfields are themselves restricted to fixed-length scalar/enum/fixed-byte
     types (no nested arrays/bytes), which covers current schemas."""
@@ -378,7 +378,7 @@ def gen_tuple_struct( schema_name: str, field_name: str, flds: Dict[str, Field],
     out = [f"/* {desc} */", f"struct {tn[:-2]} {{"]
     for ctype, decl, d in members:
         out.append(f"  {ctype:<{tw}} {decl + ';':<{dw + 1}} /* {d} */")
-    out += ["};", f"typedef struct {tn[:-2]} {tn};", ""]
+    out += ["} __attribute__((aligned(8)));" if dynamic else "};", f"typedef struct {tn[:-2]} {tn};", ""]
     return out
 
 def serializer_signature(s: Schema, terminator: str) -> List[str]:
@@ -440,7 +440,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
             tflds = tuple_fields_of( f )
             if tflds is not None:
                 inner = f.element if f.chtype == ClickHouseType.Array else f
-                lines += gen_tuple_struct( s.name, name, tflds, inner.description )
+                lines += gen_tuple_struct( s.name, name, tflds, inner.description, f.dynamic )
 
         # Main struct.  Each field becomes one or more members:
         #   scalar/enum/fixed-byte -> single member
