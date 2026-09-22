@@ -31,11 +31,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_snapin_tile_instr_cnt = 46;
+static const uint sock_filter_policy_fd_snapin_tile_instr_cnt = 48;
 
-static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct sock_filter out[ static 46 ], uint logfile_fd, uint accounts_fd, uint stake_spill_fd ) {
-  FD_TEST( out_cnt >= 46 );
-  struct sock_filter filter[46] = {
+static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct sock_filter out[ static 48 ], uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd ) {
+  FD_TEST( out_cnt >= 48 );
+  struct sock_filter filter[48] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 8 ),
@@ -120,8 +120,12 @@ static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct so
 //  check_pwrite64:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_fd)), /* pwrite64_ALLOW */ 3, /* or_3 */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_fd)), /* pwrite64_ALLOW */ 5, /* or_3 */ 0 ),
 //  or_3:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_direct_fd)), /* pwrite64_ALLOW */ 3, /* or_4 */ 0 ),
+//  or_4:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(stake_spill_fd)), /* pwrite64_ALLOW */ 1, /* pwrite64_KILL */ 0 ),

@@ -5,7 +5,7 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint stake_spill_fd
+uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -52,4 +52,5 @@ pread64: (eq (arg 0) stake_spill_fd)
 #
 # arg 0 is the file descriptor to write to.
 pwrite64: (or (eq (arg 0) accounts_fd)
+              (eq (arg 0) accounts_direct_fd)
               (eq (arg 0) stake_spill_fd))
