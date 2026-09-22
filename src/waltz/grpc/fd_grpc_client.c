@@ -880,6 +880,7 @@ fd_grpc_h2_cb_headers(
     ulong            data_sz,
     ulong            flags
 ) {
+  if( FD_UNLIKELY( !h2_stream ) ) return; /* a client refuses no streams */
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
   fd_grpc_client_t * client = conn->ctx;
 

@@ -681,7 +681,6 @@ test_server_new_ex( int   compression,
   params->max_conn_cnt       = 2UL;
   params->max_stream_cnt     = 4UL;
   params->max_request_msg_sz = max_request_msg_sz;
-  params->max_header_list_sz = 4096UL;
   params->stream_tx_queue_sz = stream_tx_queue_sz;
   params->max_msg_sz              = g_opt_max_msg_sz ? g_opt_max_msg_sz : stream_tx_queue_sz;
   params->large_msg_slot_cnt      = g_opt_large_slots;
@@ -2291,6 +2290,48 @@ test_listen( ushort port ) {
 
 #endif
 
+/* A refused stream's field block still advances the connection's HPACK
+   table, so a later block may reference what it inserted. */
+
+static void
+test_refused_dtable( void ) {
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+
+  /* Fill every stream slot; no END_STREAM so they stay held. */
+  req_opt_t opt = { .path = ROUTE_UNARY };
+  for( uint i=0U; i<4U; i++ ) tc_request( tc, 1U+2U*i, &opt );
+  tc_flush( tc );
+
+  /* Stream 9 is refused.  Its block inserts x-a: b at dynamic index 62
+     via a literal with incremental indexing. */
+  uchar block[ 512 ]; ulong o = 0UL;
+  block[ o++ ] = FD_HPACK_INDEXED_SHORT( 3 );
+  block[ o++ ] = FD_HPACK_INDEXED_SHORT( 6 );
+  o += HDR_LIT( block+o, ":path", ROUTE_UNARY );
+  o += hdr_lit( block+o, "content-type", 12UL, "application/grpc", 16UL );
+  o += HDR_LIT( block+o, "te", "trailers" );
+  block[ o++ ] = 0x40; /* literal, new name, incremental indexing */
+  block[ o++ ] = 3; block[ o++ ]='x'; block[ o++ ]='-'; block[ o++ ]='a';
+  block[ o++ ] = 1; block[ o++ ]='b';
+  tc_frame( tc, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, 9U, block, o );
+  tc_flush( tc );
+  FD_TEST( tc_stream( tc, 9U )->rst );
+
+  /* Stream 1 sends trailers that reference index 62. */
+  uchar tr[ 1 ] = { 0xBE };
+  tc_frame( tc, FD_H2_FRAME_TYPE_HEADERS,
+            FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, 1U, tr, 1UL );
+  tc_flush( tc );
+
+  FD_TEST( !tc->goaway );
+  FD_TEST( fd_grpc_server_conn_is_open( tc->conn ) );
+
+  tc_close( tc );
+  fd_grpc_server_delete( fd_grpc_server_leave( server ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2348,6 +2389,7 @@ main( int     argc,
   RUN( test_zstd_disabled        );
   RUN( test_zstd_other_codec     );
   RUN( test_compressed_request   );
+  RUN( test_refused_dtable       );
 # undef RUN
 
   FD_LOG_NOTICE(( "pass (%lu tests)", test_cnt ));

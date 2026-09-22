@@ -101,7 +101,6 @@ struct fd_grpc_server_params {
   /* protocol params sent to client */
   ulong max_stream_cnt;       /* SETTINGS_MAX_CONCURRENT_STREAMS, in [1,256] */
   ulong max_frame_sz;         /* SETTINGS_MAX_FRAME_SIZE, in [16384,2^24) */
-  ulong max_header_list_sz;   /* SETTINGS_MAX_HEADER_LIST_SIZE, in [256,2^20] */
   ulong stream_rx_wnd_sz;     /* SETTINGS_INITIAL_WINDOW_SIZE, HTTP/2 stream receive window, in [65535,2^31) */
   ulong conn_rx_wnd_sz;       /* HTTP/2 connection flow-control window, granted by WINDOW_UPDATE, >=65535 */
 

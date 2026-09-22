@@ -159,7 +159,7 @@ struct fd_grpc_server {
   ulong                    large_slot_sz; /* max_msg_sz + sizeof(fd_grpc_hdr_t) */
 
   uchar * frame_scratch; /* max_frame_sz bytes */
-  uchar * hpack_scratch; /* 2*max_header_list_sz + 2*FD_HPACK_DTABLE_SZ_MAX bytes */
+  uchar * hpack_scratch; /* 2*max_frame_sz + 2*FD_HPACK_DTABLE_SZ_MAX bytes */
   uchar * compress_out;   /* ZSTD_compressBound(stream_tx_queue_sz) bytes */
   ulong   compress_out_sz;
   uchar * decompress_out; /* max_request_msg_sz bytes */

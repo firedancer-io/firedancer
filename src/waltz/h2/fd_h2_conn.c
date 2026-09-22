@@ -275,16 +275,17 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
        it, whether or not this end accepts the stream. */
     conn->rx_stream_next = stream_id+2;
 
-    /* A refused block is dropped undecoded, so its dynamic table
-       insertions are not applied: a peer that opens more streams than
-       it was granted desyncs its own HPACK table. */
+    /* A refused stream calls cb->headers( conn, NULL, ... ), so headers
+       are still decoded. */
     if( FD_UNLIKELY( conn->stream_active_cnt[0] >= conn->self_settings.max_concurrent_streams ) ) {
       fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
+      cb->headers( conn, NULL, payload, payload_sz, frame_flags );
       return 1;
     }
     stream = cb->stream_create( conn, stream_id );
     if( FD_UNLIKELY( !stream ) ) {
       fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
+      cb->headers( conn, NULL, payload, payload_sz, frame_flags );
       return 1;
     }
     fd_h2_stream_open( stream, conn, stream_id );

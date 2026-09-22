@@ -119,7 +119,7 @@ cb_headers( fd_h2_conn_t *   conn,
     }
     assert( conn->rx_hpack.used_sz <= conn->rx_hpack.max_sz );
   }
-  if( flags & FD_H2_FLAG_END_STREAM ) {
+  if( stream && ( flags & FD_H2_FLAG_END_STREAM ) ) {
     test_response_init( conn, stream );
   }
   return;
