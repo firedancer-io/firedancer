@@ -213,8 +213,7 @@ test_padded_sz( ulong used ) {
 
 static fd_snapin_tile_t * test_ctx;
 
-/* Sysvar accounts served by the accdb mock, indexed like
-   snapin_sysvar_tbl.  lamports==0 means the account does not exist. */
+/* Sysvar accounts served by the accdb mock (lamports==0: absent). */
 struct test_sysvar {
   ulong lamports;
   ulong data_len;
@@ -776,8 +775,7 @@ test_stream_init( ulong av_cnt ) {
   for( ulong i=0UL; i<av_cnt; i++ ) test_av_sz[ i ] = 1024UL*(i+1UL);
 }
 
-/* Install a sysvar account in the accdb mock: 1 lamport, owned by the
-   sysvar program, data_len bytes of data (zero padded if data is NULL). */
+/* Install a sysvar account in the accdb mock (data NULL: zero-filled). */
 static void
 test_sysvar_set( ulong        idx,
                  void const * data,
@@ -810,10 +808,7 @@ test_stamp_slot_history( ulong bank_slot ) {
   FD_STORE( ulong, footer+8UL,  bank_slot+1UL               );
 }
 
-/* Install a complete, valid set of the nine cached sysvars in the accdb
-   mock, as the tile's verify_sysvars gate expects to find them after a
-   load.  Sizes match what the runtime writes; zero-filled bodies decode
-   as empty/inactive. */
+/* Install a complete valid sysvar set in the accdb mock. */
 static void
 test_stamp_sysvars( test_cluster_t * cl,
                     ulong            bank_slot ) {
@@ -2426,9 +2421,7 @@ test_gauge_sum_continuity( void ) {
 
 /* Sysvar verification *************************************************/
 
-/* verify_sysvars runs on tile 0 once every tile has acked FINI.  Drive
-   it directly against the accdb mock with a one-tile cluster whose
-   manifest-derived fields (bank slot, epoch schedule) are stamped. */
+/* Drive verify_sysvars directly against the accdb mock. */
 
 #define TEST_SYSVAR_BANK_SLOT (440123518UL)
 
@@ -2465,8 +2458,7 @@ test_verify_sysvars_accepts_valid( void ) {
   test_cluster_delete( cl );
 }
 
-/* Only Clock, Rent and SlotHistory are required; the rest are
-   recreated by the runtime when absent. */
+/* Only Clock, Rent and SlotHistory are required. */
 static void
 test_verify_sysvars_presence( void ) {
   test_cluster_t * cl = test_sysvar_cluster_new();
@@ -2490,8 +2482,7 @@ test_verify_sysvars_rejects_bad_owner( void ) {
   test_cluster_delete( cl );
 }
 
-/* Anything the boot-time sysvar cache restore would refuse to decode
-   is rejected here. */
+/* Rejects anything fd_sysvar_cache_restore would not decode. */
 static void
 test_verify_sysvars_rejects_undecodable( void ) {
   test_cluster_t * cl = test_sysvar_cluster_new();
@@ -2504,8 +2495,7 @@ test_verify_sysvars_rejects_undecodable( void ) {
     FD_TEST( verify_sysvars( ctx )==-1 );
   }
 
-  /* Structural checks of the individual decoders: bools that are not
-     0/1, and element counts that do not fit the account. */
+  /* Bad bools and element counts. */
   test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
   test_sysvars[ FD_SYSVAR_epoch_schedule_IDX ].data[ 16UL ] = 2; /* warmup */
   FD_TEST( verify_sysvars( ctx )==-1 );
@@ -2540,9 +2530,7 @@ test_verify_sysvars_rejects_undecodable( void ) {
   test_cluster_delete( cl );
 }
 
-/* Rent::try_minimum_balance bounds lamports_per_byte for the two
-   exemption thresholds Agave evaluates in integer arithmetic.  Any
-   other threshold has no bound. */
+/* lamports_per_byte is bounded only for thresholds 1.0 and 2.0. */
 static void
 test_verify_sysvars_rent_bounds( void ) {
   test_cluster_t * cl = test_sysvar_cluster_new();
@@ -2588,8 +2576,7 @@ test_verify_sysvars_slot_hashes_size( void ) {
   test_cluster_delete( cl );
 }
 
-/* An active EpochRewards sysvar drives reward recalculation at boot;
-   its fields must satisfy what that path asserts. */
+/* Active EpochRewards fields must satisfy the recalculation asserts. */
 static void
 test_verify_sysvars_epoch_rewards( void ) {
   test_cluster_t * cl = test_sysvar_cluster_new();
@@ -2660,10 +2647,7 @@ test_verify_sysvars_epoch_rewards( void ) {
   test_cluster_delete( cl );
 }
 
-/* A rejected sysvar set at NEXT or DONE moves tile 0 to ERROR and
-   publishes ERROR instead of forwarding the control, so snapct retries
-   from another peer.  The load-side bookkeeping of a passed gate does
-   not run. */
+/* A failed gate at NEXT/DONE publishes ERROR instead of forwarding. */
 static void
 test_verify_sysvars_gates_controls( void ) {
   ulong const n = 2UL;
