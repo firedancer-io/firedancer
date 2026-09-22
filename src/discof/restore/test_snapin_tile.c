@@ -2487,7 +2487,7 @@ test_writer_short_write_and_eintr( void ) {
   test_pwrite_push(  2L, 0     );
   test_pwrite_push(  3L, 0     );
 
-  writer_pwrite( ctx, FD_ACCDB_FD_RW, data, sizeof(data), 10UL );
+  writer_pwrite( ctx, data, sizeof(data), 10UL );
   FD_TEST( test_pwrite_call_cnt==3UL );
   FD_TEST( test_pwrite_sz [0]==5UL && test_pwrite_off[0]==10UL && test_pwrite_data[0][0]==1U );
   FD_TEST( test_pwrite_sz [1]==5UL && test_pwrite_off[1]==10UL && test_pwrite_data[1][0]==1U );
@@ -2508,7 +2508,7 @@ test_writer_disk_error_fatal( void ) {
     fd_log_level_stderr_set( 6 );
     test_io_reset();
     test_pwrite_push( -1L, EIO );
-    writer_pwrite( ctx, FD_ACCDB_FD_RW, data, sizeof(data), 0UL );
+    writer_pwrite( ctx, data, sizeof(data), 0UL );
     _exit( 0 );
   }
 

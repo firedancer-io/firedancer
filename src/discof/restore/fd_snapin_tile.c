@@ -1131,13 +1131,12 @@ snoop_stake_delegation( fd_snapin_tile_t *  ctx,
 
 static void
 writer_pwrite( fd_snapin_tile_t * ctx,
-               int                fd,
                uchar const *      buf,
                ulong              sz,
                ulong              off ) {
   ulong done = 0UL;
   while( done<sz ) {
-    long res = pwrite( fd, buf+done, sz-done, (long)(off+done) );
+    long res = pwrite( ctx->writer.direct_fd, buf+done, sz-done, (long)(off+done) );
     if( FD_UNLIKELY( res<=0L ) ) {
       int err = res<0L ? errno : EIO;
       if( res<0L && err==EINTR ) continue;
@@ -1152,10 +1151,8 @@ static int
 writer_flush( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->writer.buf_used ) ) return 0;
 
-  /* Write all buffered accounts as one contiguous range.  With direct
-     IO the range is padded to FD_SNAPIN_DIRECT_ALIGN; the padding is a
-     dead record (zero pubkey, size covering the gap) so that the
-     compaction cursor walks over it. */
+  /* Pad the range to FD_SNAPIN_DIRECT_ALIGN for O_DIRECT.  The padding
+     is a dead record so compaction steps over it. */
   ulong used   = ctx->writer.buf_used;
   ulong padded = fd_ulong_align_up( used, FD_SNAPIN_DIRECT_ALIGN );
   ulong pad    = padded-used;
@@ -1172,7 +1169,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
      and partitions start aligned, so the offset is aligned too. */
   ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded );
   FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
-  writer_pwrite( ctx, ctx->writer.direct_fd, ctx->writer.buf, padded, base_off );
+  writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
 
   fd_accdb_fork_id_t fork_id = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
   fd_snapin_account_batch_t * batch = &ctx->writer.batch;
@@ -2035,8 +2032,6 @@ privileged_init( fd_topo_t const *      topo,
   memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->lead.seed, 8UL ) );
 
-  /* Reopen the accounts db through /proc so the O_DIRECT fd is
-     guaranteed to refer to the same inode as FD_ACCDB_FD_RW. */
   char path[ 64 ];
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/self/fd/%d", FD_ACCDB_FD_RW ) );
   ctx->writer.direct_fd = open( path, O_WRONLY|O_DIRECT|O_CLOEXEC );
