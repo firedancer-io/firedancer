@@ -33,13 +33,12 @@
 
 #define FD_SNAPIN_WRITE_BUF_SZ      (16UL<<20)
 #define FD_SNAPIN_WRITE_ACCOUNT_MAX (FD_SNAPIN_WRITE_BUF_SZ/sizeof(fd_accdb_disk_meta_t))
-/* PROTOTYPE: accounts.db writes go through an O_DIRECT fd so that
-   parallel snapin tiles do not serialize on the XFS inode lock that
-   every buffered write takes.  Each flush is padded to a multiple of
-   FD_SNAPIN_DIRECT_ALIGN with a dead record header so the compaction
-   cursor skips the gap.  Accounts fill the buffer only up to
-   FD_SNAPIN_WRITE_BUF_MAX so that a gap too small for the header can
-   always be widened by one block without leaving the buffer. */
+/* Accounts are written with O_DIRECT so that snapin tiles do not
+   serialize on the inode lock taken by buffered writes.  Each flush is
+   padded to FD_SNAPIN_DIRECT_ALIGN with a dead record header.  The
+   buffer fills only to FD_SNAPIN_WRITE_BUF_MAX so the padding always
+   fits, even when the gap is too small for a header and must grow by
+   one block. */
 #define FD_SNAPIN_DIRECT_ALIGN      (4096UL)
 #define FD_SNAPIN_WRITE_BUF_MAX     (FD_SNAPIN_WRITE_BUF_SZ-sizeof(fd_accdb_disk_meta_t))
 
