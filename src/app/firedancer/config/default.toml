@@ -743,10 +743,16 @@ telemetry = true
 
     # Memory for cached stake-delegation records, in MiB.
     # Records exceeding this cache use the stake-delegation file.
+    #
+    # It is not recommended to change this value, except in development
+    # or test environments to decrease memory usage or test edge cases.
     stake_delegations_cache_mib = 384
 
     # Maximum combined root and fork-version records.
     # Increasing this limit also increases bookkeeping memory.
+    #
+    # It is not recommended to change this value, except in development
+    # or test environments to decrease memory usage or test edge cases.
     stake_delegations_max_records = 100000000
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
