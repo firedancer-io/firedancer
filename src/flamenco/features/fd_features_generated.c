@@ -2029,8 +2029,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0d\x4c\x62\x86\x71\x8e\x64\x76\x9b\xba\x3c\x7c\x9b\x87\xa0\xf7\xfa\xf2\x1b\x77\xd7\x96\x9f\x08\x62\x70\xb3\xbb\x67\x02\xc8\xb8"},
                                  /* turbzzBJLGMJJikLvgCCJu9e1hTmfxwarrbLndYAsK5 */
     .name                      = "enforce_correct_proof_size",
-    .cleaned_up                = 0,
-    .hardcode_for_fuzzing      = 1 },
+    .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
 };
