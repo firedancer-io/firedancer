@@ -111,7 +111,17 @@ state_mut( ag_votor_t * self,
   slot_state_ele_t * ele = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
   if( FD_LIKELY( ele ) ) return ele;
 
-  FD_TEST( slot_state_pool_free( self->slot_states->pool ) );
+  /* Evict oldest pending entry if pool full. */
+  if( FD_UNLIKELY( !slot_state_pool_free( self->slot_states->pool ) ) ) {
+    if( FD_UNLIKELY( pending_dlist_is_empty( self->pending_dlist, self->slot_states->pool ) ) ) {
+      FD_LOG_ERR(( "slot_state pool exhausted with no pending entries to evict" ));
+    }
+    slot_state_ele_t * victim = pending_dlist_ele_pop_head( self->pending_dlist, self->slot_states->pool );
+    victim->pending_block = 0;
+    if( FD_LIKELY( !timer_idle( victim ) ) ) timeout_dlist_ele_remove( self->timeout_dlist, victim, self->slot_states->pool );
+    slot_state_map_ele_remove( self->slot_states->map, &victim->slot, NULL, self->slot_states->pool );
+    slot_state_pool_ele_release( self->slot_states->pool, victim );
+  }
 
   ele                         = slot_state_pool_ele_acquire( self->slot_states->pool );
   fd_memset( ele, 0, sizeof(slot_state_ele_t) );
@@ -271,12 +281,13 @@ ag_votor_delete( void * mem ) {
 }
 
 void
-ag_votor_init( ag_votor_t *   self,
-               ulong          slot,
-               long           now,
-               ushort         shred_version,
-               fd_bls_sign_fn sign_fn,
-               void *         sign_ctx ) {
+ag_votor_init( ag_votor_t *          self,
+               ulong                 slot,
+               ag_block_hash_t const block_hash,
+               long                  now,
+               ushort                shred_version,
+               fd_bls_sign_fn        sign_fn,
+               void *                sign_ctx ) {
   FD_TEST( sign_fn );
   self->now                     = now;
   self->root                    = slot;
@@ -288,6 +299,7 @@ ag_votor_init( ag_votor_t *   self,
   slot_state_ele_t * state       = state_mut( self, slot );
   state->voted                   = 1;
   state->voted_notar             = 1;
+  memcpy( state->voted_notar_hash, block_hash, sizeof(ag_block_hash_t) );
   state->block_notarized         = 1;
   state->parents_ready[ 0 ].slot = slot;
   state->parents_ready_cnt       = 1UL;
@@ -300,6 +312,17 @@ void
 ag_votor_fini( ag_votor_t * self ) {
   self->root                    = ULONG_MAX;
   self->highest_final_cert_slot = ULONG_MAX;
+}
+
+void
+ag_votor_catchup( ag_votor_t * self ) {
+  ag_votor_fini( self );
+  vote_events_remove_all( self->vote_events );
+  cert_events_remove_all( self->cert_events );
+  pending_dlist_remove_all( self->pending_dlist, self->slot_states->pool );
+  timeout_dlist_remove_all( self->timeout_dlist, self->slot_states->pool );
+  slot_state_pool_reset( self->slot_states->pool );
+  slot_state_map_reset ( self->slot_states->map  );
 }
 
 static ushort

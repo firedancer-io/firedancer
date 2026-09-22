@@ -122,7 +122,8 @@ setup_votor( long now ) {
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init         ( votor, 0UL, now, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_block_hash_t genesis_hash_; genesis_hash( genesis_hash_ );
+  ag_votor_init         ( votor, 0UL, genesis_hash_, now, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
   ag_votor_advance_epoch( votor, 0UL, 0UL );
 
   g_epoch_info = &epoch_info_mem;
@@ -384,6 +385,31 @@ test_prunes_to_finalized_window( void ) {
   teardown_votor( votor );
 }
 
+static void
+test_pending_eviction_on_pool_full( void ) {
+  ag_votor_t *  votor  = setup_votor( 0L );
+  ag_block_id_t parent = genesis_block_id();
+
+  for( ulong s=1UL; s<3UL*TEST_SLOT_MAX; s++ ) {
+    ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = s };
+    random_hash( completed.block_info.hash );
+    completed.block_info.parent = parent;
+    ag_votor_handle_replay_event( votor, &completed );
+
+    ag_vote_t vote;
+    if( try_recv( votor, &vote ) && vote.kind==AG_VOTE_KIND_NOTAR ) {
+      parent.slot = s;
+      memcpy( parent.hash, completed.block_info.hash, sizeof(ag_block_hash_t) );
+    }
+  }
+
+  /* Survived without crash; newest slots tracked, oldest evicted. */
+  FD_TEST(  contains_slot( votor, 3UL*TEST_SLOT_MAX - 1UL ) );
+  FD_TEST( !contains_slot( votor, AG_SLOTS_PER_WINDOW + 1UL ) );
+
+  teardown_votor( votor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -396,6 +422,7 @@ main( int     argc,
   test_safe_to_notar();
   test_safe_to_skip();
   test_prunes_to_finalized_window();
+  test_pending_eviction_on_pool_full();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

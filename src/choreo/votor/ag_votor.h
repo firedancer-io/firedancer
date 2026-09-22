@@ -30,15 +30,23 @@ void *
 ag_votor_delete( void * mem );
 
 void
-ag_votor_init( ag_votor_t *   self,
-               ulong          slot,
-               long           now,
-               ushort         shred_version,
-               fd_bls_sign_fn sign_fn,
-               void *         sign_ctx );
+ag_votor_init( ag_votor_t *          self,
+               ulong                 slot,
+               ag_block_hash_t const block_hash,
+               long                  now,
+               ushort                shred_version,
+               fd_bls_sign_fn        sign_fn,
+               void *                sign_ctx );
 
 void
 ag_votor_fini( ag_votor_t * self );
+
+/* ag_votor_catchup resets all internal state (pools, maps, dlists,
+   event queues) so that the votor can be re-initialized at a new
+   position via ag_votor_init.  O(slot_max). */
+
+void
+ag_votor_catchup( ag_votor_t * self );
 
 void
 ag_votor_advance_epoch( ag_votor_t * self,

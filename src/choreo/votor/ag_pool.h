@@ -45,6 +45,15 @@ ag_pool_init( ag_pool_t * self,
 void
 ag_pool_fini( ag_pool_t * self );
 
+/* ag_pool_catchup resets all internal state (slot states, parent-ready
+   tracker, finality tracker, s2n waiting entries, event queues) and
+   re-initializes at the given slot.  Used when the pool's bounded
+   window is exhausted during catch-up. */
+
+void
+ag_pool_catchup( ag_pool_t * self,
+                 ulong       slot );
+
 FD_FN_CONST char const *
 ag_pool_strerror( int err );
 

@@ -151,6 +151,7 @@ struct fd_votor_tile {
   /* Data */
 
   int                        init;
+  ag_block_hash_t            boot_block_hash;
   ag_epoch_info_t *          prev_epoch_info;
   ulong                      prev_epoch_slot;
   ag_epoch_info_t *          curr_epoch_info;
@@ -609,6 +610,7 @@ rank_voters( ag_epoch_info_t *              epoch_info,
   for( ulong i=0UL; i<key_cnt; i++ ) if( FD_LIKELY( !keys[i].dup ) ) keys[epoch_info->validator_cnt++] = keys[i];
   sort_voter_stake_inplace( keys, epoch_info->validator_cnt );
 
+  epoch_info->total_stake = 0UL;
   for( ulong i=0UL; i<epoch_info->validator_cnt; i++ ) {
     ulong                 idx            = keys[i].idx;
     ag_validator_info_t * validator_info = epoch_info->validators + i;
@@ -623,6 +625,8 @@ rank_voters( ag_epoch_info_t *              epoch_info,
   }
   return epoch_info;
 }
+
+static void try_complete_init( fd_votor_tile_t * ctx );
 
 static void
 handle_epoch( fd_votor_tile_t *           ctx,
@@ -769,7 +773,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, msg->start_slot, &ctx->id_key );
 
-  ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
+  try_complete_init( ctx );
 }
 
 static void
@@ -833,6 +837,24 @@ handle_gossip( fd_votor_tile_t *                  ctx,
   }
 }
 
+/* try_complete_init centralizes the votor tile initialization
+   transition.  Three conditions must hold: (1) the pool has a finalized
+   slot (ag_pool_init was called), (2) we know our shred version
+   (IPECHO delivered it), and (3) we have epoch information (epoch tile
+   delivered it).  Once all three are met the votor is initialized and
+   the tile begins producing and consuming votes. */
+
+static void
+try_complete_init( fd_votor_tile_t * ctx ) {
+  if( FD_LIKELY( ctx->init ) ) return;
+  ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
+  if( FD_UNLIKELY( finalized_slot==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( !ctx->shred_version        ) ) return;
+  if( FD_UNLIKELY( !ctx->curr_epoch_info       ) ) return;
+  ag_votor_init( ctx->votor, finalized_slot, ctx->boot_block_hash, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
+  ctx->init = 1;
+}
+
 static void
 handle_replay( fd_votor_tile_t *           ctx,
                ulong                       sig,
@@ -843,17 +865,32 @@ handle_replay( fd_votor_tile_t *           ctx,
     fd_replay_slot_completed_t const * slot_completed  = &replay->slot_completed;
     ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
-    if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
+    if( FD_UNLIKELY( !ctx->init ) ) {
+      /* Slide the pool window to track catch-up progress without
+         filling entries.  This keeps the bounded window positioned at
+         the latest replayed slot so that live-tip blocks and votes are
+         accepted once the tile finishes initialization. */
       ag_pool_init( ctx->pool, block_id.slot );
-      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
-      ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
+      memcpy( ctx->boot_block_hash, block_id.hash, sizeof(ag_block_hash_t) );
+      try_complete_init( ctx );
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
-      ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
-      if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, block_id.slot );
+      int err = ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
+      if( FD_UNLIKELY( err==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS ) ) {
+        /* Pool window exhausted during catch-up.  Reset everything and
+           re-initialize at the current slot. */
+        ag_pool_catchup ( ctx->pool,  block_id.slot );
+        ag_votor_catchup( ctx->votor );
+        memcpy( ctx->boot_block_hash, block_id.hash, sizeof(ag_block_hash_t) );
+        ag_votor_init( ctx->votor, block_id.slot, block_id.hash, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
+      } else if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) {
+        ban_bad_ranks( ctx, ctx->scratch.bad, block_id.slot );
+      }
     }
-    ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
-    memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
-    ag_votor_handle_replay_event( ctx->votor, &completed );
+    if( FD_LIKELY( ctx->init ) ) {
+      ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
+      memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
+      ag_votor_handle_replay_event( ctx->votor, &completed );
+    }
     break;
   }
   default:
@@ -1106,9 +1143,8 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
-    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, ag_pool_finalized_slot( ctx->pool ), fd_log_wallclock(), (ushort)sig, sign_bls, ctx );
     ctx->shred_version = (ushort)sig;
-    ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
+    try_complete_init( ctx );
     break;
   case IN_KIND_NET: {
     if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) break;

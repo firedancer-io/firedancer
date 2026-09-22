@@ -283,6 +283,21 @@ ag_pool_fini( ag_pool_t * self ) {
   self->parent_ready_tracker->root = ULONG_MAX;
 }
 
+void
+ag_pool_catchup( ag_pool_t * self,
+                 ulong       slot ) {
+  slot_state_pool_reset             ( self->slot_states->pool                  );
+  slot_state_map_reset              ( self->slot_states->map                   );
+  s2n_waiting_parent_cert_pool_reset( self->s2n_waiting_parent_cert->pool      );
+  s2n_waiting_parent_cert_map_reset ( self->s2n_waiting_parent_cert->map       );
+  ag_parent_ready_state_pool_reset  ( self->parent_ready_tracker->states.pool  );
+  ag_parent_ready_state_map_reset   ( self->parent_ready_tracker->states.map   );
+  pool_events_remove_all            ( self->pool_events                        );
+  repair_events_remove_all          ( self->repair_events                      );
+  ag_finality_tracker_fini          ( self->finality_tracker                   );
+  ag_pool_init( self, slot );
+}
+
 FD_FN_CONST char const *
 ag_pool_strerror( int err ) {
   switch( err ) {
