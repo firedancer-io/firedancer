@@ -9,7 +9,7 @@
 #include "../../waltz/quic/fd_quic.h"
 #include "../../util/io/fd_io.h"
 
-#define FD_QUIC_TILE_IN_MAX (8UL)
+#define FD_QUIC_TILE_IN_MAX (9UL)
 
 extern fd_topo_run_tile_t fd_tile_quic;
 
