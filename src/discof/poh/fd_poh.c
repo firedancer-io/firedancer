@@ -82,6 +82,7 @@ fd_poh_new( void * shmem ) {
   poh->hashcnt_per_tick = ULONG_MAX;
   poh->state = STATE_UNINIT;
   poh->wfs_paused = 0;
+  memset( poh->completed_block_id, 0, 32UL );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( poh->magic ) = FD_POH_MAGIC;
