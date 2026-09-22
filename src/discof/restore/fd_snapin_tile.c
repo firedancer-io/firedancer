@@ -303,7 +303,7 @@ struct fd_snapin_tile {
   struct {
     uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(FD_SNAPIN_DIRECT_ALIGN)));
     ulong                     buf_used;
-    int                       direct_fd;        /* O_DIRECT fd to accounts.db */
+    int                       accdb_direct_fd;  /* O_DIRECT fd to accounts.db; FD_ACCDB_FD_RW stays for fallocate and reads */
     fd_snapin_account_batch_t batch;
   } writer;
 
@@ -1130,7 +1130,7 @@ writer_pwrite( fd_snapin_tile_t * ctx,
                ulong              off ) {
   ulong done = 0UL;
   while( done<sz ) {
-    long res = pwrite( ctx->writer.direct_fd, buf+done, sz-done, (long)(off+done) );
+    long res = pwrite( ctx->writer.accdb_direct_fd, buf+done, sz-done, (long)(off+done) );
     if( FD_UNLIKELY( res<=0L ) ) {
       int err = res<0L ? errno : EIO;
       if( res<0L && err==EINTR ) continue;
@@ -2003,7 +2003,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
-  out_fds[ out_cnt++ ] = ctx->writer.direct_fd; /* accounts db, O_DIRECT */
+  out_fds[ out_cnt++ ] = ctx->writer.accdb_direct_fd; /* accounts db, O_DIRECT */
 
   return out_cnt;
 }
@@ -2014,7 +2014,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.direct_fd, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
@@ -2027,8 +2027,8 @@ privileged_init( fd_topo_t const *      topo,
 
   char path[ 64 ];
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/self/fd/%d", FD_ACCDB_FD_RW ) );
-  ctx->writer.direct_fd = open( path, O_WRONLY|O_DIRECT|O_CLOEXEC );
-  FD_CHECK_ERR( ctx->writer.direct_fd>=0, "open(accounts.db, O_DIRECT) failed; the filesystem holding [paths.accounts] must support direct IO" );
+  ctx->writer.accdb_direct_fd = open( path, O_WRONLY|O_DIRECT|O_CLOEXEC );
+  FD_CHECK_ERR( ctx->writer.accdb_direct_fd>=0, "open(accounts.db, O_DIRECT) failed; the filesystem holding [paths.accounts] must support direct IO" );
 }
 
 static inline fd_snapin_out_link_t
