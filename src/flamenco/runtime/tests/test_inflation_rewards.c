@@ -1124,9 +1124,9 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   }
   FD_TEST( test_stake_delegations_base_cnt( spill_delegations )==129UL );
-  FD_TEST( spill_delegations->occupied_pages==2UL );
-  FD_TEST( spill_delegations->resident_pages==1UL );
-  FD_TEST( spill_delegations->bytes_written>0UL );
+  FD_TEST( test_stake_delegations_page_cnt( spill_delegations, 0 )==2UL );
+  FD_TEST( test_stake_delegations_page_cnt( spill_delegations, 1 )==1UL );
+  FD_TEST( test_stake_delegations_file_sz( spill_delegations )>0UL );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   fd_stake_history_t stake_history_[1];
@@ -1142,7 +1142,7 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
       mini->runtime->accdb,
       root_fork_id );
   FD_TEST( !test_stake_delegations_base_cnt( spill_delegations ) );
-  FD_TEST( !spill_delegations->occupied_pages );
+  FD_TEST( !test_stake_delegations_page_cnt( spill_delegations, 0 ) );
   FD_TEST( !close( stake_delegations_fd ) );
   free( mem );
 

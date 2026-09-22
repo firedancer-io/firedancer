@@ -1265,10 +1265,10 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
     fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
 
-    FD_TEST( root->delta_cnt==0UL );
+    FD_TEST( test_stake_delegations_record_cnt( root, PAGE_DELTA )==0UL );
     fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
 
-    FD_TEST( root->delta_cnt==1UL );
+    FD_TEST( test_stake_delegations_record_cnt( root, PAGE_DELTA )==1UL );
     fd_stake_delegation_t root_delegation[1];
     FD_TEST( test_stake_delegations_find_copy( root, &stake_acct, root_delegation ) );
 
@@ -1304,9 +1304,9 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
     FD_TEST( !test_stake_delegations_contains( root, &stake_acct ) );
 
-    FD_TEST( root->delta_cnt==0UL );
+    FD_TEST( test_stake_delegations_record_cnt( root, PAGE_DELTA )==0UL );
     fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
-    FD_TEST( root->delta_cnt==0UL );
+    FD_TEST( test_stake_delegations_record_cnt( root, PAGE_DELTA )==0UL );
     fd_stake_delegations_finalize_fork( root, env->bank->stake_delegations_fork_id );
 
     fd_stake_delegations_view_t frontier[1];

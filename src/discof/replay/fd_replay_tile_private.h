@@ -151,8 +151,6 @@ struct fd_replay_tile {
   fd_store_t *    store;
   fd_store_map_t  map_join[1];
   int             store_disk_fd;
-  ulong           stake_disk_written;
-  ulong           stake_disk_allocated_bytes;
   fd_banks_t *    banks;
 
   /* This flag is 1 If we have seen a vote signature that our node has

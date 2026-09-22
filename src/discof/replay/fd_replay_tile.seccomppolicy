@@ -59,6 +59,3 @@ pread64: (or (eq (arg 0) store_fd)
 
 # stake delegations: complete-page writeback
 pwrite64: (eq (arg 0) stake_spill_fd)
-
-# stake delegations: allocated disk blocks after page writeback
-fstat: (eq (arg 0) stake_spill_fd)

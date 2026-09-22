@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include <linux/futex.h> /* FUTEX_WAKE */
 #include <sys/syscall.h> /* SYS_futex */
-#include <sys/stat.h>
 #include <unistd.h> /* syscall(2) */
 
 #include "fd_replay_tile.h"
@@ -229,36 +228,6 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, VOTE_SLOT_LAST_REWARDED, ctx->metrics.voted_slot );
 
   FD_MGAUGE_SET( REPLAY, BANK_LIVE, fd_banks_pool_used_cnt( ctx->banks ) );
-
-  fd_stake_delegations_metrics_t stake_metrics;
-  fd_stake_delegations_metrics_query( fd_banks_stake_delegations_root_query( ctx->banks ), &stake_metrics );
-  if( FD_UNLIKELY( stake_metrics.bytes_written!=ctx->stake_disk_written ) ) {
-    struct stat st;
-    if( FD_UNLIKELY( -1==syscall( SYS_fstat, FD_STAKE_DELEGATIONS_FD, &st ) ) ) {
-      FD_LOG_ERR(( "fstat(stake-delegation file) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    }
-    ctx->stake_disk_written = stake_metrics.bytes_written;
-    ctx->stake_disk_allocated_bytes = (ulong)st.st_blocks*512UL;
-  }
-  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_ROOT_RECORDS,        stake_metrics.root_cnt         );
-  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_PLACEHOLDER_RECORDS, stake_metrics.placeholder_cnt  );
-  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_DELTA_RECORDS,       stake_metrics.delta_cnt        );
-  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_FORKS,               stake_metrics.fork_cnt         );
-  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_DISK_ALLOCATED_BYTES, ctx->stake_disk_allocated_bytes );
-  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_OCCUPIED_PAGES,      stake_metrics.occupied_pages   );
-  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_RESIDENT_PAGES,      stake_metrics.resident_pages   );
-  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_FOOTPRINT_BYTES,     stake_metrics.footprint        );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_CACHE_HITS,          stake_metrics.cache_hits       );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_CACHE_MISSES,        stake_metrics.cache_misses     );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_DIRTY_WRITEBACKS,    stake_metrics.dirty_writebacks );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_READ_BYTES,          stake_metrics.bytes_read       );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_WRITTEN_BYTES,       stake_metrics.bytes_written    );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_BUCKET_STEPS,        stake_metrics.bucket_steps     );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_DELTA_STEPS,         stake_metrics.delta_steps      );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_TREE_WAIT_TICKS,     stake_metrics.tree_wait_ticks  );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_TREE_HOLD_TICKS,     stake_metrics.tree_hold_ticks  );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_CACHE_WAIT_TICKS,    stake_metrics.cache_wait_ticks );
-  FD_MCNT_SET  ( REPLAY, STAKE_DELEGATIONS_CACHE_HOLD_TICKS,    stake_metrics.cache_hold_ticks );
 
   ulong reasm_free = ctx->reasm ? fd_reasm_free( ctx->reasm ) : 0UL;
   FD_MGAUGE_SET( REPLAY, REASSEMBLY_FREE, reasm_free );
@@ -4769,8 +4738,6 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed,   sizeof(ulong) )         );
 
   ctx->store_disk_fd = -1;
-  ctx->stake_disk_written = 0UL;
-  ctx->stake_disk_allocated_bytes = 0UL;
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
     fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );

@@ -1,7 +1,45 @@
 #ifndef HEADER_fd_src_flamenco_stakes_test_stake_delegations_util_h
 #define HEADER_fd_src_flamenco_stakes_test_stake_delegations_util_h
 
-#include "fd_stake_delegations.h"
+#include "fd_stake_delegations_private.h"
+#include <sys/stat.h>
+
+/* Allocation inspection requires quiescent writers.  Count actual
+   descriptors rather than maintaining production telemetry for tests. */
+static inline ulong
+test_stake_delegations_record_cnt( fd_stake_delegations_t const * sd,
+                                   uchar                          role ) {
+  page_t const * pages = (page_t const *)((uchar const *)sd + sd->pages_offset);
+  ulong cnt = 0UL;
+  for( uint i=0U; i<sd->page_wmk; i++ ) {
+    if( pages[i].role==role ) cnt += (ulong)fd_ulong_popcnt( pages[i].used[0] ) + (ulong)fd_ulong_popcnt( pages[i].used[1] );
+  }
+  return cnt;
+}
+
+static inline ulong
+test_stake_delegations_page_cnt( fd_stake_delegations_t const * sd,
+                                 int                            resident_only ) {
+  page_t const * pages = (page_t const *)((uchar const *)sd + sd->pages_offset);
+  ulong cnt = 0UL;
+  for( uint i=0U; i<sd->page_wmk; i++ ) cnt += (ulong)(pages[i].role!=PAGE_FREE && (!resident_only || pages[i].frame!=UINT_MAX));
+  return cnt;
+}
+
+static inline ulong
+test_stake_delegations_fork_cnt( fd_stake_delegations_t const * sd ) {
+  fork_t const * forks = (fork_t const *)((uchar const *)sd + sd->forks_offset);
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<sd->max_live_slots; i++ ) cnt += (ulong)(forks[i].state!=FORK_FREE);
+  return cnt;
+}
+
+static inline ulong
+test_stake_delegations_file_sz( fd_stake_delegations_t const * sd ) {
+  struct stat st;
+  FD_TEST( !fstat( sd->disk_fd, &st ) );
+  return (ulong)st.st_size;
+}
 
 /* Root helpers own a view.  Boundary tests which already hold a view
    use the view helpers to avoid nested structural read admission. */

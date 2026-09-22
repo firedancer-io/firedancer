@@ -5,7 +5,7 @@
 #include "../accdb/fd_accdb.h"
 #include "../fd_rwlock.h"
 
-#define FD_STAKE_DELEGATIONS_MAGIC (0xF17EDA2CE757A3E1) /* FIREDANCER STAKE V0 */
+#define FD_STAKE_DELEGATIONS_MAGIC (0xF17EDA2CE757A3E0) /* FIREDANCER STAKE V0 */
 #define FD_STAKE_DELEGATIONS_ALIGN      (16384UL)
 #define FD_STAKE_DELEGATIONS_PAGE_SZ    (16384UL)
 #define FD_STAKE_DELEGATIONS_FORK_MAX   (4096UL)
@@ -76,61 +76,50 @@ typedef struct fd_stake_delegation fd_stake_delegation_t;
 FD_STATIC_ASSERT( sizeof(fd_stake_delegation_t)==128UL, fd_stake_delegation_size );
 FD_STATIC_ASSERT( alignof(fd_stake_delegation_t)==8UL, fd_stake_delegation_align );
 
-struct fd_stake_delegations_lock {
-  fd_rwlock_t lock;
-  uint        waiting;
-  ulong       wait_ticks;
-  ulong       hold_ticks;
-  long        acquired;
-};
-typedef struct fd_stake_delegations_lock fd_stake_delegations_lock_t;
-
 struct fd_stake_delegations {
+  /* Identity and immutable configuration */
   ulong magic;
   ulong seed;
   ulong max_live_slots;
+  uint  page_max;
+  uint  frame_max;
+  int   disk_fd;
+
+  /* Packed shared-memory layout */
   ulong pages_offset;
   ulong frames_offset;
   ulong forks_offset;
   ulong descends_offset;
   ulong stripes_offset;
   ulong data_offset;
-  uint  page_max;
-  uint  frame_max;
-  uint  page_wmk;
-  uint  free_page;
-  uint  free_frame;
-  uint  clock_hand;
-  uint  nonfull[3][2];
-  uint  allocator_lock;
-  ushort root_fork;
-  ushort fork_cnt;
-  int    disk_fd;
-  fd_stake_delegations_lock_t tree_lock;
-  fd_stake_delegations_lock_t cache_lock;
 
+  /* Record allocator and page cache */
+  uint        page_wmk;
+  uint        free_page;
+  uint        free_frame;
+  uint        clock_hand;
+  uint        nonfull[3][2];
+  uint        allocator_lock;
+  fd_rwlock_t cache_lock;
+
+  /* Fork lifecycle */
+  ushort      root_fork;
+  uchar       boot;
+  fd_rwlock_t tree_lock;
+
+  /* Rooted aggregate state */
   ulong root_cnt;
-  ulong placeholder_cnt;
-  ulong delta_cnt;
-  ulong occupied_pages;
-  ulong resident_pages;
-  ulong cache_hits;
-  ulong cache_misses;
-  ulong bytes_read;
-  ulong bytes_written;
-  ulong bucket_steps;
-  ulong delta_steps;
-
   ulong effective_stake;
   ulong activating_stake;
   ulong deactivating_stake;
   uchar fp_warmed_awarded;
-  uchar context_valid;
-  uchar boot;
-  int   root_fixed_point;
-  ulong root_epoch;
-  ulong root_rate_epoch;
-  ulong root_history_len;
+
+  /* Rooted aggregate calculation context */
+  uchar                    context_valid;
+  int                      root_fixed_point;
+  ulong                    root_epoch;
+  ulong                    root_rate_epoch;
+  ulong                    root_history_len;
   fd_stake_history_entry_t root_history[ FD_SYSVAR_STAKE_HISTORY_CAP ];
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
@@ -168,30 +157,6 @@ struct fd_stake_delegations_delta_stats {
   ulong root_cnt;
 };
 typedef struct fd_stake_delegations_delta_stats fd_stake_delegations_delta_stats_t;
-
-struct fd_stake_delegations_metrics {
-  ulong footprint;
-  ulong cache_bytes;
-  ulong max_records;
-  ulong root_cnt;
-  ulong placeholder_cnt;
-  ulong delta_cnt;
-  ulong fork_cnt;
-  ulong occupied_pages;
-  ulong resident_pages;
-  ulong cache_hits;
-  ulong cache_misses;
-  ulong dirty_writebacks;
-  ulong bytes_read;
-  ulong bytes_written;
-  ulong bucket_steps;
-  ulong delta_steps;
-  ulong tree_wait_ticks;
-  ulong tree_hold_ticks;
-  ulong cache_wait_ticks;
-  ulong cache_hold_ticks;
-};
-typedef struct fd_stake_delegations_metrics fd_stake_delegations_metrics_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -264,13 +229,6 @@ fd_stake_delegation_classify( fd_stake_delegation_t const * delegation,
   return FD_STAKE_DELEGATION_STATE_UNKNOWN;
 }
 
-
-/* Consistent cache/tree snapshot; hot counters are read atomically.
-   Call outside a view.  File block accounting belongs to the operator
-   process, outside tile sandboxes. */
-void
-fd_stake_delegations_metrics_query( fd_stake_delegations_t *         sd,
-                                    fd_stake_delegations_metrics_t * metrics );
 
 ulong
 fd_stake_delegations_align( void );

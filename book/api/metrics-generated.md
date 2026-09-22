@@ -1047,25 +1047,6 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;root_&#8203;records</span> | gauge | Rooted stake-delegation records |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;placeholder_&#8203;records</span> | gauge | Stake-delegation keys present only on unrooted forks |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;delta_&#8203;records</span> | gauge | Stake-delegation fork versions |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;forks</span> | gauge | Retained stake-delegation forks including the root |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Allocated disk bytes in the stake-delegation backing file |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;occupied_&#8203;pages</span> | gauge | Allocated stake-delegation pages |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;resident_&#8203;pages</span> | gauge | Stake-delegation pages currently cached in RAM |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;footprint_&#8203;bytes</span> | gauge | Reserved shared-memory bytes for the stake-delegation store |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;cache_&#8203;hits</span> | counter | Stake-delegation resident page accesses |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;cache_&#8203;misses</span> | counter | Stake-delegation nonresident page accesses |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;dirty_&#8203;writebacks</span> | counter | Dirty stake-delegation pages written before eviction |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;read_&#8203;bytes</span> | counter | Stake-delegation bytes read from the backing file |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;written_&#8203;bytes</span> | counter | Stake-delegation bytes written to the backing file |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;bucket_&#8203;steps</span> | counter | Stake-delegation pubkey bucket records examined |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;delta_&#8203;steps</span> | counter | Stake-delegation fork versions examined |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;tree_&#8203;wait_&#8203;ticks</span> | counter | CPU ticks waiting for exclusive stake-delegation tree access |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;tree_&#8203;hold_&#8203;ticks</span> | counter | CPU ticks holding exclusive stake-delegation tree access |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;cache_&#8203;wait_&#8203;ticks</span> | counter | CPU ticks waiting for exclusive stake-delegation cache access |
-| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;cache_&#8203;hold_&#8203;ticks</span> | counter | CPU ticks holding exclusive stake-delegation cache access |
 | <span class="metrics-name">replay_&#8203;identity_&#8203;balance_&#8203;lamports</span> | gauge | Identity account balance at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Our active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Total cluster active stake at the optimistically confirmed slot |

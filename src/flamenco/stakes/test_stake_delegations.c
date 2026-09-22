@@ -19,6 +19,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+FD_STATIC_ASSERT( sizeof(((fd_stake_delegations_t *)0)->tree_lock)==sizeof(fd_rwlock_t), tree_lock_is_raw_rwlock );
+FD_STATIC_ASSERT( sizeof(((fd_stake_delegations_t *)0)->cache_lock)==sizeof(fd_rwlock_t), cache_lock_is_raw_rwlock );
+
 #define TEST_STAKE_DELEGATION_LAMPORTS (123456789UL)
 #define TEST_STAKE_DELEGATION_ACC_DLEN ((uint)sizeof(fd_stake_state_t))
 
@@ -136,13 +139,13 @@ test_visibility( fd_stake_delegations_t * sd ) {
   fd_stake_delegations_activate_fork( sd, f );
   update( sd, f, 1UL, 150UL );
   update( sd, f, 1UL, 160UL );
-  FD_TEST( sd->delta_cnt==3UL );
+  FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_DELTA )==3UL );
   fd_stake_delegations_finalize_fork( sd, f );
   fd_stake_history_t history = {0};
   fd_stake_delegations_delta_stats_t stats = {0};
   fd_stake_delegations_advance_root( sd, f, 2UL, &history, NULL, 1, 0, NULL, &stats );
   FD_TEST( stats.upserts==2UL && !stats.removes && stats.root_cnt==1UL );
-  FD_TEST( sd->delta_cnt==0UL );
+  FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_DELTA )==0UL );
   FD_TEST( sd->effective_stake==160UL );
   FD_TEST( expect( sd, f, 1UL, 160UL )==idx );
   ushort reused = fd_stake_delegations_attach_child( sd, f );
@@ -167,11 +170,11 @@ test_placeholder( fd_stake_delegations_t * sd ) {
   fd_stake_delegations_advance_root( sd, a, 2UL, &history, NULL, 1, 0, NULL, NULL );
   expect( sd, a, 2UL, ULONG_MAX );
   FD_TEST( expect( sd, b, 2UL, 150UL )==idx );
-  FD_TEST( sd->root_cnt==0UL && sd->placeholder_cnt==1UL );
+  FD_TEST( sd->root_cnt==0UL && test_stake_delegations_record_cnt( sd, PAGE_ROOT )==sd->root_cnt+1UL );
   fd_stake_delegations_finalize_fork( sd, b );
   fd_stake_delegations_advance_root( sd, b, 3UL, &history, NULL, 1, 0, NULL, NULL );
   FD_TEST( expect( sd, b, 2UL, 150UL )==idx );
-  FD_TEST( sd->root_cnt==1UL && !sd->placeholder_cnt );
+  FD_TEST( sd->root_cnt==1UL && test_stake_delegations_record_cnt( sd, PAGE_ROOT )==sd->root_cnt );
 }
 
 static void
@@ -249,11 +252,11 @@ test_concurrent( fd_stake_delegations_t * sd ) {
   FD_TEST( !pthread_join( threads[0], NULL ) );
   FD_TEST( !pthread_join( threads[1], NULL ) );
   fd_stake_delegations_view_end( view );
-  FD_TEST( sd->delta_cnt==384UL );
+  FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_DELTA )==384UL );
   fd_stake_delegations_finalize_fork( sd, f );
   fd_stake_history_t history = {0};
   fd_stake_delegations_advance_root( sd, f, 3UL, &history, NULL, 1, 0, NULL, NULL );
-  FD_TEST( sd->root_cnt==385UL && !sd->delta_cnt );
+  FD_TEST( sd->root_cnt==385UL && !test_stake_delegations_record_cnt( sd, PAGE_DELTA ) );
   expect( sd, f, 192UL, 2192UL );
 }
 
@@ -308,9 +311,9 @@ test_context_and_prune( fd_stake_delegations_t * sd ) {
   fd_stake_delegations_advance_root( sd, d, 7UL, &history, NULL, 1, 1, NULL, NULL );
   expect( sd, d, 11UL, ULONG_MAX );
   FD_TEST( expect( sd, e, 11UL, 17UL )==idx );
-  FD_TEST( sd->placeholder_cnt==1UL );
+  FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_ROOT )==sd->root_cnt+1UL );
   fd_stake_delegations_cancel_fork( sd, e );
-  FD_TEST( !sd->placeholder_cnt );
+  FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_ROOT )==sd->root_cnt );
 }
 
 struct admission_args {
@@ -330,7 +333,7 @@ cancel_writer( void * arg ) {
 }
 
 static void
-test_writer_admission( fd_stake_delegations_t * sd ) {
+test_writer_blocking( fd_stake_delegations_t * sd ) {
   fd_stake_delegations_reset( sd );
   for( ulong k=0UL; k<300UL; k++ ) root_update( sd, k, k+1UL );
   ushort root = fd_stake_delegations_root_fork_id( sd );
@@ -341,14 +344,14 @@ test_writer_admission( fd_stake_delegations_t * sd ) {
   struct admission_args args = { .sd=sd, .fork=sibling };
   pthread_t thread;
   FD_TEST( !pthread_create( &thread, NULL, cancel_writer, &args ) );
-  while( !__atomic_load_n( &sd->tree_lock.waiting, __ATOMIC_SEQ_CST ) ) FD_SPIN_PAUSE();
+  while( !__atomic_load_n( &args.started, __ATOMIC_ACQUIRE ) ) FD_SPIN_PAUSE();
   FD_TEST( !__atomic_load_n( &args.done, __ATOMIC_ACQUIRE ) );
-  /* A waiting tree writer must not gate cache admission by this view. */
+  /* A tree writer blocked by this view must not hold the cache lock. */
   FD_TEST( test_stake_delegations_view_cnt( view )==300UL );
   fd_stake_delegations_view_end( view );
   FD_TEST( !pthread_join( thread, NULL ) );
   FD_TEST( __atomic_load_n( &args.done, __ATOMIC_ACQUIRE ) );
-  FD_TEST( !sd->delta_cnt );
+  FD_TEST( !test_stake_delegations_record_cnt( sd, PAGE_DELTA ) );
 }
 
 static void
@@ -390,7 +393,7 @@ test_refresh( fd_stake_delegations_t * sd ) {
   update( sd, child, collision, 55UL );
   expect( sd, child, collision, 55UL );
   fd_stake_delegations_cancel_fork( sd, child );
-  FD_TEST( sd->root_cnt==1UL && !sd->placeholder_cnt );
+  FD_TEST( sd->root_cnt==1UL && test_stake_delegations_record_cnt( sd, PAGE_ROOT )==sd->root_cnt );
 }
 
 /* Three hundred siblings exceed the iterator's cache-lock traversal
@@ -413,25 +416,22 @@ test_long_chain( fd_stake_delegations_t * sd ) {
     } else update( sd, forks[i], 2UL, 2000UL+i );
     fd_stake_delegations_finalize_fork( sd, forks[i] );
   }
-  fd_stake_delegations_metrics_t before;
-  fd_stake_delegations_metrics_query( sd, &before );
-  FD_TEST( before.root_cnt==2UL && before.placeholder_cnt==1UL && before.delta_cnt==900UL );
+  FD_TEST( sd->root_cnt==2UL );
+  FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_ROOT )==3UL );
+  FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_DELTA )==900UL );
   ulong idx = expect( sd, root, 1UL, 100UL );
   expect( sd, root, 2UL, 200UL );
   expect( sd, root, 3UL, ULONG_MAX );
   FD_TEST( expect( sd, forks[0], 1UL, 1000UL )==idx );
   expect( sd, forks[0], 2UL, ULONG_MAX );
   expect( sd, forks[0], 3UL, 3000UL );
-  fd_stake_delegations_metrics_t after;
-  fd_stake_delegations_metrics_query( sd, &after );
-  FD_TEST( after.delta_steps>before.delta_steps+1800UL );
-  if( sd->frame_max<=4U ) FD_TEST( after.bytes_read>before.bytes_read );
+  if( sd->frame_max<=4U ) FD_TEST( test_stake_delegations_page_cnt( sd, 0 )>sd->frame_max );
   fd_stake_history_t history = {0};
   fd_stake_delegations_advance_root( sd, forks[0], 4UL, &history, NULL, 1, 0, NULL, NULL );
   FD_TEST( expect( sd, forks[0], 1UL, 1000UL )==idx );
   expect( sd, forks[0], 2UL, ULONG_MAX );
   expect( sd, forks[0], 3UL, 3000UL );
-  FD_TEST( sd->root_cnt==2UL && !sd->placeholder_cnt && !sd->delta_cnt && sd->fork_cnt==1UL );
+  FD_TEST( sd->root_cnt==2UL && test_stake_delegations_record_cnt( sd, PAGE_ROOT )==sd->root_cnt && !test_stake_delegations_record_cnt( sd, PAGE_DELTA ) && test_stake_delegations_fork_cnt( sd )==1UL );
 }
 
 struct sibling_writer_args {
@@ -488,9 +488,9 @@ test_same_key_siblings( fd_stake_delegations_t * sd ) {
   FD_TEST( !pthread_join( threads[1], NULL ) );
   FD_TEST( !pthread_barrier_destroy( &barrier ) );
   fd_stake_delegations_view_end( view );
-  fd_stake_delegations_metrics_t m;
-  fd_stake_delegations_metrics_query( sd, &m );
-  FD_TEST( m.root_cnt==1UL && m.placeholder_cnt==192UL && m.delta_cnt==384UL );
+  FD_TEST( sd->root_cnt==1UL );
+  FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_ROOT )==193UL );
+  FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_DELTA )==384UL );
   ulong indices[192];
   for( ulong f=0UL; f<2UL; f++ ) {
     fd_stake_delegations_finalize_fork( sd, forks[f] );
@@ -515,7 +515,7 @@ test_same_key_siblings( fd_stake_delegations_t * sd ) {
   fd_stake_delegations_cancel_fork( sd, forks[0] );
   FD_TEST( expect( sd, forks[1], 0UL, 2001UL )==indices[0] );
   fd_stake_delegations_cancel_fork( sd, forks[1] );
-  FD_TEST( sd->root_cnt==1UL && !sd->placeholder_cnt && !sd->delta_cnt );
+  FD_TEST( sd->root_cnt==1UL && test_stake_delegations_record_cnt( sd, PAGE_ROOT )==sd->root_cnt && !test_stake_delegations_record_cnt( sd, PAGE_DELTA ) );
 }
 
 static void
@@ -531,7 +531,7 @@ test_fork_reuse( fd_stake_delegations_t * sd ) {
   update( sd, b, 1UL, 400UL );
   update( sd, b, 2UL, 500UL );
   fd_stake_delegations_cancel_fork( sd, a );
-  FD_TEST( sd->fork_cnt==1UL && !sd->delta_cnt && !sd->placeholder_cnt );
+  FD_TEST( test_stake_delegations_fork_cnt( sd )==1UL && !test_stake_delegations_record_cnt( sd, PAGE_DELTA ) && test_stake_delegations_record_cnt( sd, PAGE_ROOT )==sd->root_cnt );
   ushort reused_a = fd_stake_delegations_attach_child( sd, root );
   FD_TEST( reused_a==a );
   expect( sd, reused_a, 1UL, 100UL );
@@ -548,45 +548,6 @@ test_fork_reuse( fd_stake_delegations_t * sd ) {
   expect( sd, reused_b, 1UL, 100UL );
   expect( sd, reused_b, 2UL, 600UL );
   FD_TEST( sd->root_cnt==2UL && sd->effective_stake==700UL );
-}
-
-static void
-test_metrics( fd_stake_delegations_t * sd ) {
-  fd_stake_delegations_reset( sd );
-  fd_stake_delegations_metrics_t before;
-  fd_stake_delegations_metrics_query( sd, &before );
-  FD_TEST( before.footprint==fd_stake_delegations_footprint( before.max_records, sd->max_live_slots, before.cache_bytes ) );
-  FD_TEST( !before.root_cnt && !before.placeholder_cnt && !before.delta_cnt && before.fork_cnt==1UL );
-  FD_TEST( !before.occupied_pages && !before.resident_pages && !before.bytes_read && !before.bytes_written );
-  for( ulong k=0UL; k<300UL; k++ ) root_update( sd, k, k+1UL );
-  ushort root = fd_stake_delegations_root_fork_id( sd );
-  ushort child = fd_stake_delegations_attach_child( sd, root );
-  update( sd, child, 0UL, 7UL );
-  update( sd, child, 300UL, 8UL );
-  fd_stake_delegations_metrics_t after;
-  fd_stake_delegations_metrics_query( sd, &after );
-  FD_TEST( after.footprint==before.footprint && after.max_records==before.max_records && after.cache_bytes==before.cache_bytes );
-  FD_TEST( after.root_cnt==300UL && after.placeholder_cnt==1UL && after.delta_cnt==2UL && after.fork_cnt==2UL );
-  FD_TEST( after.occupied_pages==4UL && after.resident_pages<=4UL );
-  FD_TEST( after.resident_pages<=after.cache_bytes/FD_STAKE_DELEGATIONS_PAGE_SZ );
-  FD_TEST( after.bytes_written==after.dirty_writebacks*FD_STAKE_DELEGATIONS_PAGE_SZ );
-  FD_TEST( !(after.bytes_read%FD_STAKE_DELEGATIONS_PAGE_SZ) );
-  FD_TEST( after.cache_hits>before.cache_hits && after.cache_misses>before.cache_misses );
-  FD_TEST( after.tree_wait_ticks>=before.tree_wait_ticks && after.tree_hold_ticks>=before.tree_hold_ticks );
-  FD_TEST( after.cache_wait_ticks>=before.cache_wait_ticks && after.cache_hold_ticks>=before.cache_hold_ticks );
-  fd_stake_delegations_metrics_query( sd, &before );
-  FD_TEST( before.cache_hits==after.cache_hits && before.cache_misses==after.cache_misses );
-  FD_TEST( before.bytes_read==after.bytes_read && before.bytes_written==after.bytes_written );
-  fd_stake_delegations_finalize_fork( sd, child );
-  fd_stake_history_t history = {0};
-  fd_stake_delegations_advance_root( sd, child, 4UL, &history, NULL, 1, 0, NULL, NULL );
-  fd_stake_delegations_metrics_query( sd, &after );
-  FD_TEST( after.root_cnt==301UL && !after.placeholder_cnt && !after.delta_cnt && after.fork_cnt==1UL );
-  FD_TEST( after.root_cnt==test_stake_delegations_base_cnt( sd ) );
-  fd_stake_delegations_reset( sd );
-  fd_stake_delegations_metrics_query( sd, &after );
-  FD_TEST( !after.root_cnt && !after.placeholder_cnt && !after.delta_cnt && after.fork_cnt==1UL );
-  FD_TEST( !after.occupied_pages && !after.resident_pages && !after.bytes_read && !after.bytes_written );
 }
 
 #define FAIL_UPDATE          (0)
@@ -695,10 +656,9 @@ test_capacity_and_eof( int direct_fd ) {
      reach EOF on the next fault, without a dirty eviction growing the
      file first and supplying a zero-filled sparse page instead. */
   FD_TEST( test_stake_delegations_base_cnt( sd )==129UL );
-  fd_stake_delegations_metrics_t m;
-  fd_stake_delegations_metrics_query( sd, &m );
-  FD_TEST( m.resident_pages==1UL && m.occupied_pages==2UL );
-  FD_TEST( m.bytes_written>=2UL*FD_STAKE_DELEGATIONS_PAGE_SZ );
+  FD_TEST( test_stake_delegations_page_cnt( sd, 1 )==1UL );
+  FD_TEST( test_stake_delegations_page_cnt( sd, 0 )==2UL );
+  FD_TEST( test_stake_delegations_file_sz( sd )>=2UL*FD_STAKE_DELEGATIONS_PAGE_SZ );
   test_failure( sd, fd_stake_delegations_root_fork_id( sd ), FAIL_TRUNCATED_PAGE, "read made no progress" );
   free( mem );
 }
@@ -721,9 +681,10 @@ struct racesan_view_args {
   ushort                  fork;
   ushort                  cancel_fork;
   uint                    ready;
+  uint                    writer_started;
   uint                    done;
   uint                    canceled;
-  int                     wait_writer;
+  int                     coordinate_writer;
   ulong                   count;
   ulong                   total;
 };
@@ -743,13 +704,13 @@ racesan_view( void * arg ) {
   fd_stake_delegations_view_t view[1];
   fd_stake_delegations_view_begin( view, a->sd, a->fork );
   __atomic_store_n( &a->ready, 1U, __ATOMIC_RELEASE );
-  if( a->wait_writer ) {
-    while( !__atomic_load_n( &a->sd->tree_lock.waiting, __ATOMIC_SEQ_CST ) ) {
+  if( a->coordinate_writer ) {
+    while( !__atomic_load_n( &a->writer_started, __ATOMIC_ACQUIRE ) ) {
       fd_racesan_hook( "stake_delegations_test:wait_writer" );
     }
     FD_TEST( !__atomic_load_n( &a->canceled, __ATOMIC_ACQUIRE ) );
   }
-  ulong reads = a->sd->bytes_read;
+  if( a->coordinate_writer ) FD_TEST( test_stake_delegations_page_cnt( a->sd, 0 )>a->sd->frame_max );
   for( ulong pass=0UL; pass<2UL; pass++ ) {
     ulong count = 0UL;
     ulong total = 0UL;
@@ -760,7 +721,6 @@ racesan_view( void * arg ) {
     }
     FD_TEST( count==a->count && total==a->total );
   }
-  if( a->wait_writer ) FD_TEST( a->sd->bytes_read>reads );
   fd_stake_delegations_view_end( view );
   __atomic_store_n( &a->done, 1U, __ATOMIC_RELEASE );
 }
@@ -771,6 +731,7 @@ racesan_cancel( void * arg ) {
   while( !__atomic_load_n( &a->ready, __ATOMIC_ACQUIRE ) ) {
     fd_racesan_hook( "stake_delegations_test:wait_view" );
   }
+  __atomic_store_n( &a->writer_started, 1U, __ATOMIC_RELEASE );
   fd_stake_delegations_cancel_fork( a->sd, a->cancel_fork );
   FD_TEST( __atomic_load_n( &a->done, __ATOMIC_ACQUIRE ) );
   __atomic_store_n( &a->canceled, 1U, __ATOMIC_RELEASE );
@@ -806,9 +767,8 @@ test_racesan_writers( fd_stake_delegations_t * sd,
       for( ulong i=0UL; i<3UL; i++ ) fd_racesan_weave_add( weave, async+i );
       fd_racesan_weave_exec_rand( weave, seed, RACESAN_STEP_MAX );
       FD_TEST( !weave->rem_cnt && reader.done );
-      FD_TEST( !sd->tree_lock.waiting && !sd->cache_lock.waiting );
-      FD_TEST( sd->root_cnt==1UL && sd->placeholder_cnt==(mode==1UL ? 3UL : 2UL) );
-      FD_TEST( sd->delta_cnt==(mode==0UL ? 2UL : 3UL) );
+      FD_TEST( sd->root_cnt==1UL && test_stake_delegations_record_cnt( sd, PAGE_ROOT )==sd->root_cnt+(mode==1UL ? 3UL : 2UL) );
+      FD_TEST( test_stake_delegations_record_cnt( sd, PAGE_DELTA )==(mode==0UL ? 2UL : 3UL) );
       fd_stake_delegations_finalize_fork( sd, a );
       if( b!=a ) fd_stake_delegations_finalize_fork( sd, b );
       if( !mode ) {
@@ -840,12 +800,12 @@ test_racesan_admission( fd_stake_delegations_t * sd,
     ushort sibling = fd_stake_delegations_attach_child( sd, root );
     update( sd, sibling, 0UL, 200UL );
     struct racesan_view_args reader = {
-      .sd          = sd,
-      .fork        = root,
-      .cancel_fork = sibling,
-      .wait_writer = 1,
-      .count       = 129UL,
-      .total       = 8385UL
+      .sd                = sd,
+      .fork              = root,
+      .cancel_fork       = sibling,
+      .coordinate_writer = 1,
+      .count             = 129UL,
+      .total             = 8385UL
     };
     fd_racesan_weave_t weave[1];
     fd_racesan_weave_new( weave );
@@ -855,8 +815,7 @@ test_racesan_admission( fd_stake_delegations_t * sd,
     fd_racesan_weave_add( weave, async+1 );
     fd_racesan_weave_exec_rand( weave, seed, RACESAN_STEP_MAX );
     FD_TEST( !weave->rem_cnt && reader.done && reader.canceled );
-    FD_TEST( !sd->delta_cnt && sd->root_cnt==129UL && sd->fork_cnt==1UL );
-    FD_TEST( !sd->tree_lock.waiting && !sd->cache_lock.waiting );
+    FD_TEST( !test_stake_delegations_record_cnt( sd, PAGE_DELTA ) && sd->root_cnt==129UL && test_stake_delegations_fork_cnt( sd )==1UL );
     fd_racesan_async_delete( async+1 );
     fd_racesan_async_delete( async   );
     fd_racesan_weave_delete( weave );
@@ -915,22 +874,21 @@ main( int argc, char ** argv ) {
     test_visibility( sd );
     test_placeholder( sd );
     test_model( sd );
-    if( frames==16UL ) FD_TEST( !sd->bytes_read && !sd->bytes_written );
-    else if( frames<=4UL ) FD_TEST( sd->bytes_read && sd->bytes_written );
+    if( frames==16UL ) FD_TEST( !test_stake_delegations_file_sz( sd ) );
+    else if( frames<=4UL ) FD_TEST( test_stake_delegations_file_sz( sd ) );
     test_concurrent( sd );
     test_context_and_prune( sd );
-    test_writer_admission( sd );
+    test_writer_blocking( sd );
     test_refresh( sd );
     test_long_chain( sd );
     test_same_key_siblings( sd );
     test_fork_reuse( sd );
-    test_metrics( sd );
     if( frames==1UL ) {
       test_lifecycle_failures( sd );
       test_capacity_and_eof( direct_fd );
     }
     fd_stake_delegations_reset( sd );
-    FD_TEST( !sd->root_cnt && !sd->delta_cnt && !sd->occupied_pages );
+    FD_TEST( !sd->root_cnt && !test_stake_delegations_record_cnt( sd, PAGE_DELTA ) && !test_stake_delegations_page_cnt( sd, 0 ) );
     free( mem );
     FD_TEST( !close( direct_fd ) );
     FD_LOG_NOTICE(( "passed with %lu frame(s)", frames ));
