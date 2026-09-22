@@ -181,6 +181,26 @@ test_timeouts( void ) {
   teardown_votor( votor );
 }
 
+/* Booting mid-window must not skip the slots below the boot slot */
+
+static void
+test_boot_mid_window( void ) {
+  create_validators();
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( votor );
+  ag_votor_init         ( votor, 2UL, 0L, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_advance_epoch( votor, 0UL, 0UL );
+
+  handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
+
+  ag_vote_t msg = recv( votor );
+  FD_TEST( msg.kind==AG_VOTE_KIND_SKIP );
+  FD_TEST( ag_vote_slot( &msg )==3UL );
+  FD_TEST_NO_MSG( votor );
+
+  ag_votor_delete( ag_votor_leave( votor ) );
+}
+
 /* src/consensus/votor.rs::notar_and_final */
 
 static void
@@ -390,6 +410,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   test_timeouts();
+  test_boot_mid_window();
   test_notar_and_final();
   test_notar_out_of_order();
   test_pending_block_not_notarized_after_skip();
