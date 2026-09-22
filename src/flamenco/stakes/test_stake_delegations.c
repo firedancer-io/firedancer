@@ -19,9 +19,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-FD_STATIC_ASSERT( sizeof(((fd_stake_delegations_t *)0)->tree_lock)==sizeof(fd_rwlock_t), tree_lock_is_raw_rwlock );
-FD_STATIC_ASSERT( sizeof(((fd_stake_delegations_t *)0)->cache_lock)==sizeof(fd_rwlock_t), cache_lock_is_raw_rwlock );
-
 #define TEST_STAKE_DELEGATION_LAMPORTS (123456789UL)
 #define TEST_STAKE_DELEGATION_ACC_DLEN ((uint)sizeof(fd_stake_state_t))
 
@@ -230,6 +227,7 @@ test_concurrent( fd_stake_delegations_t * stake_delegations ) {
   fd_stake_delegations_view_t view[1];
   fd_stake_delegations_view_begin( view, stake_delegations, root );
   struct writer_args args[2] = {{stake_delegations,f,0UL},{stake_delegations,f,192UL}};
+  FD_TEST( !fd_rwlock_tryread( &stake_delegations->lock ) );
   pthread_t threads[2];
   FD_TEST( !pthread_create( &threads[0], NULL, writer, &args[0] ) );
   FD_TEST( !pthread_create( &threads[1], NULL, writer, &args[1] ) );
@@ -241,9 +239,9 @@ test_concurrent( fd_stake_delegations_t * stake_delegations ) {
     fd_stake_delegations_iter_next( iter );
     FD_TEST( fd_stake_delegations_iter_done( iter ) );
   }
+  fd_stake_delegations_view_end( view );
   FD_TEST( !pthread_join( threads[0], NULL ) );
   FD_TEST( !pthread_join( threads[1], NULL ) );
-  fd_stake_delegations_view_end( view );
   FD_TEST( test_stake_delegations_record_cnt( stake_delegations, PAGE_DELTA )==384UL );
   fd_stake_history_t history = {0};
   fd_stake_delegations_advance_root( stake_delegations, f, 3UL, &history, NULL, 1, 0, NULL, NULL );
@@ -333,7 +331,7 @@ test_writer_blocking( fd_stake_delegations_t * stake_delegations ) {
   FD_TEST( !pthread_create( &thread, NULL, cancel_writer, &args ) );
   while( !__atomic_load_n( &args.started, __ATOMIC_ACQUIRE ) ) FD_SPIN_PAUSE();
   FD_TEST( !__atomic_load_n( &args.done, __ATOMIC_ACQUIRE ) );
-  /* A tree writer blocked by this view must not hold the cache lock. */
+  /* The view can fault pages while the writer waits for its lock. */
   FD_TEST( test_stake_delegations_view_cnt( view )==300UL );
   fd_stake_delegations_view_end( view );
   FD_TEST( !pthread_join( thread, NULL ) );
@@ -383,9 +381,8 @@ test_refresh( fd_stake_delegations_t * stake_delegations ) {
   FD_TEST( stake_delegations->root_cnt==1UL && test_stake_delegations_record_cnt( stake_delegations, PAGE_ROOT )==stake_delegations->root_cnt );
 }
 
-/* Three hundred siblings exceed the iterator's cache-lock traversal
-   chunk.  Check both root fallback and an oldest selected version, then
-   repeat after a tombstone and another key which is absent in the root. */
+/* Check long chains, root fallback, the oldest selected version, a
+   tombstone, and a key which is absent in the root. */
 static void
 test_long_chain( fd_stake_delegations_t * stake_delegations ) {
   fd_stake_delegations_reset( stake_delegations );
@@ -468,10 +465,10 @@ test_same_key_siblings( fd_stake_delegations_t * stake_delegations ) {
     fd_stake_delegations_iter_next( iter );
     FD_TEST( fd_stake_delegations_iter_done( iter ) );
   }
+  fd_stake_delegations_view_end( view );
   FD_TEST( !pthread_join( threads[0], NULL ) );
   FD_TEST( !pthread_join( threads[1], NULL ) );
   FD_TEST( !pthread_barrier_destroy( &barrier ) );
-  fd_stake_delegations_view_end( view );
   FD_TEST( stake_delegations->root_cnt==1UL );
   FD_TEST( test_stake_delegations_record_cnt( stake_delegations, PAGE_ROOT )==193UL );
   FD_TEST( test_stake_delegations_record_cnt( stake_delegations, PAGE_DELTA )==384UL );
@@ -606,7 +603,7 @@ test_lifecycle_failures( fd_stake_delegations_t * stake_delegations ) {
   expect( stake_delegations, descendant, 1UL, 300UL );
   fd_stake_delegations_view_t view[1];
   fd_stake_delegations_view_begin( view, stake_delegations, descendant );
-  test_failure( stake_delegations, descendant, FAIL_UPDATE, "write to viewed fork" );
+  FD_TEST( !fd_rwlock_trywrite( &stake_delegations->lock ) );
   fd_stake_delegations_view_end( view );
   update( stake_delegations, descendant, 1UL, 400UL );
   fd_stake_delegations_advance_root( stake_delegations, child, 1UL, NULL, NULL, 0, 0, NULL, NULL );
@@ -708,8 +705,8 @@ racesan_view( void * arg ) {
     }
     FD_TEST( count==a->count && total==a->total );
   }
-  fd_stake_delegations_view_end( view );
   __atomic_store_n( &a->done, 1U, __ATOMIC_RELEASE );
+  fd_stake_delegations_view_end( view );
 }
 
 static void
@@ -736,8 +733,8 @@ test_racesan_writers( fd_stake_delegations_t * stake_delegations,
       ushort selected = fd_stake_delegations_attach_child( stake_delegations, root );
       ushort a        = fd_stake_delegations_attach_child( stake_delegations, root );
       ushort b        = mode==2UL ? fd_stake_delegations_attach_child( stake_delegations, root ) : a;
-      /* Initialize resident allocator pages before racing their unused
-         slots; the one-frame run exercises the same calls cold. */
+      /* Seed both page roles; one frame forces eviction while the
+         concurrent operations serialize on the store lock. */
       update( stake_delegations, a, 998UL, 11UL );
       struct racesan_writer_args writers[2] = {
         { .sd=stake_delegations, .fork=a, .key=1UL,                   .stake=100UL },

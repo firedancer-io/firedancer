@@ -34,31 +34,10 @@ get_descends( fd_stake_delegations_t * stake_delegations,
   return (ulong *)((uchar *)stake_delegations + stake_delegations->descends_offset) + (ulong)fork*descends_words;
 }
 
-static inline stripe_t *
-get_stripes( fd_stake_delegations_t * stake_delegations ) {
-  return (stripe_t *)((uchar *)stake_delegations + stake_delegations->stripes_offset);
-}
-
 static inline uchar *
 get_data( fd_stake_delegations_t * stake_delegations,
           uint                     frame ) {
   return (uchar *)stake_delegations + stake_delegations->data_offset + (ulong)frame*FD_STAKE_DELEGATIONS_PAGE_SZ;
-}
-
-static void
-spin_lock( uint * lock ) {
-  fd_racesan_hook( "stake_delegations_spin:pre_acquire" );
-  while( __atomic_exchange_n( lock, 1U, __ATOMIC_ACQUIRE ) ) {
-    fd_racesan_hook( "stake_delegations_spin:wait" );
-    FD_SPIN_PAUSE();
-  }
-  fd_racesan_hook( "stake_delegations_spin:post_acquire" );
-}
-
-static void
-spin_unlock( uint * lock ) {
-  fd_racesan_hook( "stake_delegations_spin:pre_release" );
-  __atomic_store_n( lock, 0U, __ATOMIC_RELEASE );
 }
 
 static void
@@ -126,13 +105,14 @@ page_fault( fd_stake_delegations_t * stake_delegations,
     stake_delegations->free_frame = frames[frame].next;
   } else {
     for(;;) {
-      frame          = stake_delegations->clock_hand;
+      frame                       = stake_delegations->clock_hand;
       stake_delegations->clock_hand = (frame+1U)%stake_delegations->frame_max;
-      if( !__atomic_exchange_n( &frames[frame].referenced, 0U, __ATOMIC_RELAXED ) ) break;
+      if( !frames[frame].referenced ) break;
+      frames[frame].referenced = 0U;
     }
     uint     victim = frames[frame].page;
     page_t * v      = pages+victim;
-    if( __atomic_load_n( &v->flags, __ATOMIC_RELAXED ) & PAGE_DIRTY ) {
+    if( v->flags & PAGE_DIRTY ) {
       page_io( stake_delegations, victim, get_data( stake_delegations, frame ), 1 );
       v->flags = PAGE_WRITTEN;
     }
@@ -157,34 +137,28 @@ page_fault( fd_stake_delegations_t * stake_delegations,
 static fd_stake_delegation_t *
 record( fd_stake_delegations_t * stake_delegations,
         uint                     idx,
-        int                      cold,
         int                      reference ) {
   uint page  = idx>>7;
   uint frame = get_pages( stake_delegations )[page].frame;
   if( FD_UNLIKELY( frame==UINT_MAX ) ) {
-    if( !cold ) return NULL;
     frame = page_fault( stake_delegations, page );
   }
-  if( reference ) __atomic_store_n( &get_frames( stake_delegations )[frame].referenced, 1U, __ATOMIC_RELAXED );
+  if( reference ) get_frames( stake_delegations )[frame].referenced = 1U;
   return (fd_stake_delegation_t *)get_data( stake_delegations, frame ) + (idx & 127U);
 }
 
 static void
 dirty( fd_stake_delegations_t * stake_delegations,
        uint                     idx ) {
-  __atomic_fetch_or( &get_pages( stake_delegations )[idx>>7].flags, PAGE_DIRTY, __ATOMIC_RELAXED );
+  get_pages( stake_delegations )[idx>>7].flags |= PAGE_DIRTY;
 }
 
-/* The allocator lock protects reservations and non-full lists.  Hot
-   reservations never initialize a page or perform I/O.  Cache exclusive
-   excludes every allocator and can move list membership without it. */
+/* Prefer free slots on resident pages before faulting another page. */
 static uint
 reserve( fd_stake_delegations_t * stake_delegations,
-         uchar                    role,
-         int                      cold ) {
-  if( !cold ) spin_lock( &stake_delegations->allocator_lock );
+         uchar                    role ) {
   uint page = stake_delegations->nonfull[role][1];
-  if( page==UINT_MAX && cold ) {
+  if( page==UINT_MAX ) {
     page = stake_delegations->nonfull[role][0];
     if( page!=UINT_MAX ) {
       page_fault( stake_delegations, page );
@@ -207,10 +181,6 @@ reserve( fd_stake_delegations_t * stake_delegations,
       page_fault( stake_delegations, page );
     }
   }
-  if( page==UINT_MAX ) {
-    spin_unlock( &stake_delegations->allocator_lock );
-    return UINT_MAX;
-  }
   page_t * p    = get_pages( stake_delegations )+page;
   uint     word = p->used[0]==ULONG_MAX;
   uint     bit  = (uint)fd_ulong_find_lsb( ~p->used[word] );
@@ -219,7 +189,6 @@ reserve( fd_stake_delegations_t * stake_delegations,
   p->cnt++;
   fd_racesan_hook( "stake_delegations_alloc:post_reserve" );
   if( p->cnt==128U ) nonfull_remove( stake_delegations, page );
-  if( !cold ) spin_unlock( &stake_delegations->allocator_lock );
   return (page<<7) + 64U*word + bit;
 }
 
@@ -228,8 +197,8 @@ release( fd_stake_delegations_t * stake_delegations,
          uint                     idx ) {
   uint                    page = idx>>7;
   page_t *                p    = get_pages( stake_delegations )+page;
-  fd_stake_delegation_t * d    = record( stake_delegations, idx, 1, 0 );
-  __atomic_store_n( &d->flags, 0, __ATOMIC_RELEASE );
+  fd_stake_delegation_t * d    = record( stake_delegations, idx, 0 );
+  d->flags = 0;
   dirty( stake_delegations, idx );
   if( p->cnt==128U ) nonfull_insert( stake_delegations, page );
   p->used[(idx & 127U)>>6] &= ~(1UL<<(idx & 63U));
@@ -255,12 +224,9 @@ static void
 publish( fd_stake_delegations_t *      stake_delegations,
          uint                          idx,
          fd_stake_delegation_t const * d ) {
-  fd_stake_delegation_t * dst = record( stake_delegations, idx, 1, 1 );
-  ulong                   off = offsetof( fd_stake_delegation_t, flags );
-  fd_memcpy( dst, d, off );
-  fd_memcpy( (uchar *)dst+off+1UL, (uchar const *)d+off+1UL, sizeof(*d)-off-1UL );
+  fd_stake_delegation_t * dst = record( stake_delegations, idx, 1 );
   fd_racesan_hook( "stake_delegations_record:pre_publish" );
-  __atomic_store_n( &dst->flags, d->flags, __ATOMIC_RELEASE );
+  *dst = *d;
   fd_racesan_hook( "stake_delegations_record:post_publish" );
   dirty( stake_delegations, idx );
 }
@@ -271,15 +237,13 @@ bucket( fd_stake_delegations_t * stake_delegations,
   return fd_hash32( key->uc, stake_delegations->seed ) & (uint)(FD_STAKE_DELEGATIONS_BUCKET_CNT-1UL);
 }
 
-/* UINT_MAX means absent, UINT_MAX-1 means a hot lookup needs a fault. */
+/* UINT_MAX means the key is absent. */
 static uint
 find_root( fd_stake_delegations_t * stake_delegations,
-           fd_pubkey_t const *      key,
-           int                      cold ) {
-  uint idx = __atomic_load_n( get_buckets( stake_delegations )+bucket( stake_delegations, key ), __ATOMIC_ACQUIRE );
+           fd_pubkey_t const *      key ) {
+  uint idx = get_buckets( stake_delegations )[bucket( stake_delegations, key )];
   while( idx!=UINT_MAX ) {
-    fd_stake_delegation_t const * d = record( stake_delegations, idx, cold, 1 );
-    if( !d ) return UINT_MAX-1U;
+    fd_stake_delegation_t const * d = record( stake_delegations, idx, 1 );
     if( fd_pubkey_eq( &d->stake_account, key ) ) return idx;
     idx = d->next_;
   }
@@ -288,11 +252,9 @@ find_root( fd_stake_delegations_t * stake_delegations,
 
 static uint
 insert_root( fd_stake_delegations_t * stake_delegations,
-             fd_pubkey_t const *      key,
-             int                      cold ) {
-  uint idx = reserve( stake_delegations, PAGE_ROOT, cold );
-  if( idx==UINT_MAX ) return UINT_MAX;
-  uint b = bucket( stake_delegations, key );
+             fd_pubkey_t const *      key ) {
+  uint idx = reserve( stake_delegations, PAGE_ROOT );
+  uint b   = bucket( stake_delegations, key );
   fd_stake_delegation_t d = {
     .stake_account = *key,
     .next_         = get_buckets( stake_delegations )[b],
@@ -302,7 +264,7 @@ insert_root( fd_stake_delegations_t * stake_delegations,
   };
   publish( stake_delegations, idx, &d );
   fd_racesan_hook( "stake_delegations_bucket:pre_publish" );
-  __atomic_store_n( get_buckets( stake_delegations )+b, idx, __ATOMIC_RELEASE );
+  get_buckets( stake_delegations )[b] = idx;
   fd_racesan_hook( "stake_delegations_bucket:post_publish" );
   return idx;
 }
@@ -310,7 +272,7 @@ insert_root( fd_stake_delegations_t * stake_delegations,
 static void
 remove_root( fd_stake_delegations_t * stake_delegations,
              uint                     idx ) {
-  fd_stake_delegation_t d = *record( stake_delegations, idx, 1, 0 );
+  fd_stake_delegation_t d = *record( stake_delegations, idx, 0 );
   FD_TEST( d.delta_head==UINT_MAX );
   uint b    = bucket( stake_delegations, &d.stake_account );
   uint prev = UINT_MAX;
@@ -318,12 +280,12 @@ remove_root( fd_stake_delegations_t * stake_delegations,
   while( cur!=idx ) {
     FD_CHECK_CRIT( cur!=UINT_MAX, "missing stake delegation root" );
     prev = cur;
-    cur  = record( stake_delegations, cur, 1, 0 )->next_;
+    cur  = record( stake_delegations, cur, 0 )->next_;
   }
   if( prev==UINT_MAX ) {
     get_buckets( stake_delegations )[b] = d.next_;
   } else {
-    record( stake_delegations, prev, 1, 0 )->next_ = d.next_;
+    record( stake_delegations, prev, 0 )->next_ = d.next_;
     dirty( stake_delegations, prev );
   }
   if( d.flags & FD_STAKE_DELEGATION_ROOT_PRESENT ) stake_delegations->root_cnt--;
@@ -384,7 +346,6 @@ fd_stake_delegations_footprint( ulong max_records,
   l = FD_LAYOUT_APPEND( l, alignof(frame_t),                frame_max*sizeof(frame_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fork_t),                 max_live_slots*sizeof(fork_t) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                  max_live_slots*((max_live_slots+63UL)>>6)*sizeof(ulong) );
-  l = FD_LAYOUT_APPEND( l, alignof(stripe_t),               FD_STAKE_DELEGATIONS_STRIPE_CNT*sizeof(stripe_t) );
   l = FD_LAYOUT_APPEND( l, FD_STAKE_DELEGATIONS_ALIGN,      cache_bytes );
   return FD_LAYOUT_FINI( l, FD_STAKE_DELEGATIONS_ALIGN );
 }
@@ -416,13 +377,10 @@ fd_stake_delegations_new( void * mem,
   APPEND( frames_offset,   alignof(frame_t),                (ulong)sd->frame_max*sizeof(frame_t) );
   APPEND( forks_offset,    alignof(fork_t),                 max_live_slots*sizeof(fork_t) );
   APPEND( descends_offset, alignof(ulong),                  max_live_slots*descends_words*sizeof(ulong) );
-  APPEND( stripes_offset,  alignof(stripe_t),               FD_STAKE_DELEGATIONS_STRIPE_CNT*sizeof(stripe_t) );
   APPEND( data_offset,     FD_STAKE_DELEGATIONS_ALIGN,      cache_bytes );
 #undef APPEND
   FD_TEST( fd_ulong_align_up( l, FD_STAKE_DELEGATIONS_ALIGN )==footprint );
-  fd_memset( get_stripes( sd ), 0, FD_STAKE_DELEGATIONS_STRIPE_CNT*sizeof(stripe_t) );
-  fd_rwlock_new( &sd->tree_lock );
-  fd_rwlock_new( &sd->cache_lock );
+  fd_rwlock_new( &sd->lock );
   reset( sd );
   FD_COMPILER_MFENCE();
   sd->magic = FD_STAKE_DELEGATIONS_MAGIC;
@@ -442,11 +400,9 @@ fd_stake_delegations_join( void * mem,
 
 void
 fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
-  fd_rwlock_write( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
   reset( stake_delegations );
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
-  fd_rwlock_unwrite( &stake_delegations->tree_lock );
+  fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
 static int
@@ -464,8 +420,7 @@ fd_stake_delegations_root_fork_id( fd_stake_delegations_t const * stake_delegati
 ushort
 fd_stake_delegations_attach_child( fd_stake_delegations_t * stake_delegations,
                                    ushort                   parent ) {
-  fd_rwlock_write( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
   fork_t * forks = get_forks( stake_delegations );
   FD_CHECK_CRIT( parent<stake_delegations->max_live_slots && forks[parent].in_use,
                  "invalid stake delegations parent" );
@@ -481,8 +436,7 @@ fd_stake_delegations_attach_child( fd_stake_delegations_t * stake_delegations,
   fd_memcpy( get_descends( stake_delegations, id ), get_descends( stake_delegations, parent ), descends_words*sizeof(ulong) );
   get_descends( stake_delegations, id )[parent>>6] |= 1UL<<(parent & 63);
   stake_delegations->boot = 0;
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
-  fd_rwlock_unwrite( &stake_delegations->tree_lock );
+  fd_rwlock_unwrite( &stake_delegations->lock );
   return id;
 }
 
@@ -491,18 +445,14 @@ check_mutable( fd_stake_delegations_t * stake_delegations,
                ushort                   fork ) {
   FD_CHECK_CRIT( fork<stake_delegations->max_live_slots && fork!=stake_delegations->root_fork && get_forks( stake_delegations )[fork].in_use,
                  "stake delegations fork is not mutable" );
-  FD_CHECK_CRIT( !get_forks( stake_delegations )[fork].views, "stake delegations write to viewed fork" );
 }
 
-/* Only payload bytes and the atomic flags change on overwrite.  A view
-   skips sibling versions using immutable fork_id/next_ before inspecting
-   payload; no selected version can have an admitted writer. */
+/* Preserve the existing record links when replacing a fork payload. */
 static void
 replace_delta( fd_stake_delegations_t *      stake_delegations,
                uint                          idx,
-               fd_stake_delegation_t const * src,
-               int                           cold ) {
-  fd_stake_delegation_t * dst = record( stake_delegations, idx, cold, 1 );
+               fd_stake_delegation_t const * src ) {
+  fd_stake_delegation_t * dst = record( stake_delegations, idx, 1 );
   dst->vote_account         = src->vote_account;
   dst->stake                = src->stake;
   dst->lamports             = src->lamports;
@@ -512,77 +462,41 @@ replace_delta( fd_stake_delegations_t *      stake_delegations,
   dst->deactivation_epoch   = src->deactivation_epoch;
   dst->warmup_cooldown_rate = src->warmup_cooldown_rate;
   dst->state                = FD_STAKE_DELEGATION_STATE_UNKNOWN;
-  __atomic_store_n( &dst->flags, src->flags, __ATOMIC_RELEASE );
+  dst->flags                = src->flags;
   dirty( stake_delegations, idx );
-}
-
-static int
-upsert( fd_stake_delegations_t *      stake_delegations,
-        ushort                        fork,
-        fd_stake_delegation_t const * src,
-        int                           cold ) {
-  check_mutable( stake_delegations, fork );
-  uint root = find_root( stake_delegations, &src->stake_account, cold );
-  if( root==UINT_MAX-1U ) return 0;
-  if( root==UINT_MAX ) {
-    root = insert_root( stake_delegations, &src->stake_account, cold );
-    if( root==UINT_MAX ) return 0;
-  }
-  fd_stake_delegation_t * r = record( stake_delegations, root, cold, 1 );
-  if( !r ) return 0;
-  uint head = __atomic_load_n( &r->delta_head, __ATOMIC_ACQUIRE );
-  uint idx  = head;
-  while( idx!=UINT_MAX ) {
-    fd_stake_delegation_t const * d = record( stake_delegations, idx, cold, 1 );
-    if( !d ) return 0;
-    if( d->fork_id==fork ) {
-      replace_delta( stake_delegations, idx, src, cold );
-      return 1;
-    }
-    idx = d->next_;
-  }
-  idx = reserve( stake_delegations, PAGE_DELTA, cold );
-  if( idx==UINT_MAX ) return 0;
-  fd_stake_delegation_t d = *src;
-  d.fork_id = fork;
-  d.next_   = head;
-  fork_t * f         = get_forks( stake_delegations )+fork;
-  uint     fork_head = __atomic_load_n( &f->delta_head, __ATOMIC_ACQUIRE );
-  d.fork_next = fork_head;
-  publish( stake_delegations, idx, &d );
-  fd_stake_delegation_t * dst = record( stake_delegations, idx, cold, 1 );
-  fd_racesan_hook( "stake_delegations_fork:pre_cas" );
-  while( !__atomic_compare_exchange_n( &f->delta_head, &fork_head, idx, 0, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE ) ) {
-    dst->fork_next = fork_head;
-    fd_racesan_hook( "stake_delegations_fork:retry_cas" );
-  }
-  fd_racesan_hook( "stake_delegations_fork:post_cas" );
-  /* Reacquire after delta allocation, which can evict the root. */
-  r = record( stake_delegations, root, cold, 1 );
-  fd_racesan_hook( "stake_delegations_key:pre_publish" );
-  __atomic_store_n( &r->delta_head, idx, __ATOMIC_RELEASE );
-  fd_racesan_hook( "stake_delegations_key:post_publish" );
-  dirty( stake_delegations, root );
-  return 1;
 }
 
 static void
 fork_upsert( fd_stake_delegations_t *      stake_delegations,
              ushort                        fork,
              fd_stake_delegation_t const * src ) {
-  fd_rwlock_read( &stake_delegations->tree_lock );
-  fd_rwlock_read( &stake_delegations->cache_lock );
-  uint * stripe = &get_stripes( stake_delegations )[bucket( stake_delegations, &src->stake_account ) & (FD_STAKE_DELEGATIONS_STRIPE_CNT-1UL)].lock;
-  spin_lock( stripe );
-  int done = upsert( stake_delegations, fork, src, 0 );
-  spin_unlock( stripe );
-  fd_rwlock_unread( &stake_delegations->cache_lock );
-  if( FD_UNLIKELY( !done ) ) {
-    fd_rwlock_write( &stake_delegations->cache_lock );
-    FD_TEST( upsert( stake_delegations, fork, src, 1 ) );
-    fd_rwlock_unwrite( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
+  check_mutable( stake_delegations, fork );
+  uint root = find_root( stake_delegations, &src->stake_account );
+  if( root==UINT_MAX ) root = insert_root( stake_delegations, &src->stake_account );
+  uint head = record( stake_delegations, root, 1 )->delta_head;
+  uint idx  = head;
+  while( idx!=UINT_MAX ) {
+    fd_stake_delegation_t const * d = record( stake_delegations, idx, 1 );
+    if( d->fork_id==fork ) {
+      replace_delta( stake_delegations, idx, src );
+      fd_rwlock_unwrite( &stake_delegations->lock );
+      return;
+    }
+    idx = d->next_;
   }
-  fd_rwlock_unread( &stake_delegations->tree_lock );
+  idx = reserve( stake_delegations, PAGE_DELTA );
+  fd_stake_delegation_t d = *src;
+  fork_t *              f = get_forks( stake_delegations )+fork;
+  d.fork_id   = fork;
+  d.next_     = head;
+  d.fork_next = f->delta_head;
+  publish( stake_delegations, idx, &d );
+  f->delta_head = idx;
+  /* Delta allocation can evict the root page. */
+  record( stake_delegations, root, 1 )->delta_head = idx;
+  dirty( stake_delegations, root );
+  fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
 void
@@ -666,7 +580,7 @@ static void
 store_root( fd_stake_delegations_t *      stake_delegations,
             uint                          idx,
             fd_stake_delegation_t const * src ) {
-  fd_stake_delegation_t old = *record( stake_delegations, idx, 1, 0 );
+  fd_stake_delegation_t old = *record( stake_delegations, idx, 0 );
   subtract_root( stake_delegations, &old );
   fd_stake_delegation_t d = *src;
   d.next_      = old.next_;
@@ -683,7 +597,7 @@ store_root( fd_stake_delegations_t *      stake_delegations,
 static void
 delete_root( fd_stake_delegations_t * stake_delegations,
              uint                     idx ) {
-  fd_stake_delegation_t d = *record( stake_delegations, idx, 1, 0 );
+  fd_stake_delegation_t d = *record( stake_delegations, idx, 0 );
   if( d.flags & FD_STAKE_DELEGATION_ROOT_PRESENT ) {
     subtract_root( stake_delegations, &d );
     d.flags = FD_STAKE_DELEGATION_IN_USE;
@@ -705,8 +619,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    lamports,
                                   uint                     acc_dlen,
                                   uchar                    warmup_cooldown_rate ) {
-  fd_rwlock_write( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
   FD_CHECK_CRIT( stake_delegations->boot, "stake delegations root_update after boot" );
   FD_CHECK_ERR( activation_epoch  <USHORT_MAX || activation_epoch  ==ULONG_MAX, "activation_epoch overflow"   );
   FD_CHECK_ERR( deactivation_epoch<USHORT_MAX || deactivation_epoch==ULONG_MAX, "deactivation_epoch overflow" );
@@ -721,126 +634,75 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
     .deactivation_epoch   = (ushort)deactivation_epoch,
     .warmup_cooldown_rate = warmup_cooldown_rate
   };
-  uint root = find_root( stake_delegations, stake_account, 1 );
-  if( root==UINT_MAX ) root = insert_root( stake_delegations, stake_account, 1 );
+  uint root = find_root( stake_delegations, stake_account );
+  if( root==UINT_MAX ) root = insert_root( stake_delegations, stake_account );
   store_root( stake_delegations, root, &d );
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
-  fd_rwlock_unwrite( &stake_delegations->tree_lock );
+  fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
 fd_stake_delegations_view_t *
 fd_stake_delegations_view_begin( fd_stake_delegations_view_t * view,
                                  fd_stake_delegations_t *      stake_delegations,
                                  ushort                        fork ) {
-  fd_rwlock_read( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
   FD_CHECK_CRIT( fork<stake_delegations->max_live_slots && get_forks( stake_delegations )[fork].in_use,
                  "invalid stake delegations view" );
-  get_forks( stake_delegations )[fork].views++;
   *view = (fd_stake_delegations_view_t){
     .sd       = stake_delegations,
     .fork_id  = fork,
     .page_wmk = stake_delegations->page_wmk
   };
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
   fd_racesan_hook( "stake_delegations_view:admitted" );
   return view;
 }
 
 void
 fd_stake_delegations_view_end( fd_stake_delegations_view_t * view ) {
-  fd_stake_delegations_t * sd = view->sd;
-  fd_rwlock_write( &sd->cache_lock );
-  FD_TEST( get_forks( sd )[view->fork_id].views );
-  get_forks( sd )[view->fork_id].views--;
-  fd_rwlock_unwrite( &sd->cache_lock );
-  fd_rwlock_unread( &sd->tree_lock );
+  fd_rwlock_unwrite( &view->sd->lock );
   view->sd = NULL;
 }
 
-/* The iterator retains a logical chain cursor across bounded cache-lock
-   chunks.  A long chain with no visible version cannot monopolize cache
-   exclusive, and a one-frame scan never restarts its chain on a fault.
-   Newly prepended sibling deltas are invisible to this view. */
+/* The view holds the store lock.  Copy records before another access
+   can fault and replace their frame, even under exclusive access. */
 static void
 iter_fill( fd_stake_delegations_iter_t * iter ) {
-  fd_stake_delegations_view_t * view  = iter->view;
-  fd_stake_delegations_t *      sd    = view->sd;
-  ulong                         limit = (ulong)view->page_wmk*128UL;
+  fd_stake_delegations_view_t * view              = iter->view;
+  fd_stake_delegations_t *      stake_delegations = view->sd;
+  ulong                         limit             = (ulong)view->page_wmk*128UL;
   iter->batch_idx = iter->batch_cnt = 0UL;
-  int cold = 0;
-  fd_rwlock_read( &sd->cache_lock );
-  ulong work = 0UL;
   while( iter->cursor<limit && iter->batch_cnt<FD_STAKE_DELEGATIONS_ITER_BATCH ) {
-    if( work++==256UL ) {
-      if( cold ) fd_rwlock_unwrite( &sd->cache_lock );
-      else       fd_rwlock_unread( &sd->cache_lock );
-      cold = 0;
-      work = 0UL;
-      fd_rwlock_read( &sd->cache_lock );
-    }
-    uint root = (uint)iter->cursor;
-    uint idx  = iter->resolving && iter->chain!=UINT_MAX ? iter->chain : root;
-    if( !iter->resolving && get_pages( sd )[root>>7].role!=PAGE_ROOT ) {
+    uint root = (uint)iter->cursor++;
+    if( get_pages( stake_delegations )[root>>7].role!=PAGE_ROOT ) {
       iter->cursor = ((ulong)(root>>7)+1UL)*128UL;
       continue;
     }
-    fd_stake_delegation_t const * d = record( sd, idx, cold, 0 );
-    if( !d ) {
-      fd_rwlock_unread( &sd->cache_lock );
-      fd_rwlock_write( &sd->cache_lock );
-      cold = 1;
-      continue;
-    }
-    if( !iter->resolving ) {
-      iter->root_flags = __atomic_load_n( &d->flags, __ATOMIC_ACQUIRE );
-      if( !(iter->root_flags & FD_STAKE_DELEGATION_IN_USE) ) {
-        iter->cursor++;
-        continue;
+    fd_stake_delegation_t selected = *record( stake_delegations, root, 0 );
+    if( !(selected.flags & FD_STAKE_DELEGATION_IN_USE) ) continue;
+    uint next  = selected.delta_head;
+    int  found = !!(selected.flags & FD_STAKE_DELEGATION_ROOT_PRESENT);
+    if( !view->use_stable_tags ) selected.state = FD_STAKE_DELEGATION_STATE_UNKNOWN;
+    while( next!=UINT_MAX ) {
+      fd_stake_delegation_t const * d = record( stake_delegations, next, 0 );
+      if( d->fork_id==view->fork_id || ancestor( stake_delegations, view->fork_id, d->fork_id ) ) {
+        selected = *d;
+        found    = !(selected.flags & FD_STAKE_DELEGATION_TOMBSTONE);
+        break;
       }
-      iter->chain     = __atomic_load_n( &d->delta_head, __ATOMIC_ACQUIRE );
-      iter->resolving = 1;
-      if( iter->chain!=UINT_MAX ) continue;
+      next = d->next_;
     }
-    int                     found = 0;
-    fd_stake_delegation_t * out   = iter->batch+iter->batch_cnt;
-    if( iter->chain!=UINT_MAX ) {
-      if( d->fork_id!=view->fork_id && !ancestor( sd, view->fork_id, d->fork_id ) ) {
-        iter->chain = d->next_;
-        continue;
-      }
-      if( !(__atomic_load_n( &d->flags, __ATOMIC_ACQUIRE ) & FD_STAKE_DELEGATION_TOMBSTONE) ) {
-        *out = *d;
-        found = 1;
-      }
-    } else if( iter->root_flags & FD_STAKE_DELEGATION_ROOT_PRESENT ) {
-      /* Siblings may atomically prepend delta_head while cache shared.
-         Copy the immutable root payload around that atomic field. */
-      fd_memcpy( out, d, offsetof(fd_stake_delegation_t, delta_head) );
-      out->delta_head           = UINT_MAX;
-      out->activation_epoch     = d->activation_epoch;
-      out->deactivation_epoch   = d->deactivation_epoch;
-      out->fork_id              = d->fork_id;
-      out->flags                = iter->root_flags;
-      out->warmup_cooldown_rate = d->warmup_cooldown_rate;
-      out->state                = view->use_stable_tags ? d->state : FD_STAKE_DELEGATION_STATE_UNKNOWN;
-      found                     = 1;
-    }
-    iter->resolving = 0;
-    iter->cursor++;
-    if( found ) iter->indices[iter->batch_cnt++] = root;
+    if( !found ) continue;
+    iter->batch[iter->batch_cnt]   = selected;
+    iter->indices[iter->batch_cnt] = root;
+    iter->batch_cnt++;
   }
-  if( cold ) fd_rwlock_unwrite( &sd->cache_lock );
-  else       fd_rwlock_unread( &sd->cache_lock );
   if( iter->batch_cnt ) iter->idx = iter->indices[0];
 }
 
 fd_stake_delegations_iter_t *
 fd_stake_delegations_iter_init( fd_stake_delegations_iter_t * iter,
                                 fd_stake_delegations_view_t * view ) {
-  iter->view      = view;
-  iter->cursor    = 0UL;
-  iter->resolving = 0;
+  iter->view   = view;
+  iter->cursor = 0UL;
   iter_fill( iter );
   return iter;
 }
@@ -880,20 +742,20 @@ static uint
 unlink_delta( fd_stake_delegations_t *      stake_delegations,
               uint                          idx,
               fd_stake_delegation_t const * d ) {
-  uint root = find_root( stake_delegations, &d->stake_account, 1 );
+  uint root = find_root( stake_delegations, &d->stake_account );
   FD_CHECK_CRIT( root!=UINT_MAX, "stake delegation delta without root slot" );
   uint prev = UINT_MAX;
-  uint cur  = record( stake_delegations, root, 1, 0 )->delta_head;
+  uint cur  = record( stake_delegations, root, 0 )->delta_head;
   while( cur!=idx ) {
     FD_CHECK_CRIT( cur!=UINT_MAX, "missing stake delegation delta" );
     prev = cur;
-    cur  = record( stake_delegations, cur, 1, 0 )->next_;
+    cur  = record( stake_delegations, cur, 0 )->next_;
   }
   if( prev==UINT_MAX ) {
-    record( stake_delegations, root, 1, 0 )->delta_head = d->next_;
+    record( stake_delegations, root, 0 )->delta_head = d->next_;
     dirty( stake_delegations, root );
   } else {
-    record( stake_delegations, prev, 1, 0 )->next_ = d->next_;
+    record( stake_delegations, prev, 0 )->next_ = d->next_;
     dirty( stake_delegations, prev );
   }
   release( stake_delegations, idx );
@@ -906,9 +768,9 @@ cancel_one( fd_stake_delegations_t * stake_delegations,
   fork_t * f   = get_forks( stake_delegations )+fork;
   uint     idx = f->delta_head;
   while( idx!=UINT_MAX ) {
-    fd_stake_delegation_t d    = *record( stake_delegations, idx, 1, 0 );
+    fd_stake_delegation_t d    = *record( stake_delegations, idx, 0 );
     uint                  root = unlink_delta( stake_delegations, idx, &d );
-    fd_stake_delegation_t r    = *record( stake_delegations, root, 1, 0 );
+    fd_stake_delegation_t r    = *record( stake_delegations, root, 0 );
     if( !(r.flags & FD_STAKE_DELEGATION_ROOT_PRESENT) && r.delta_head==UINT_MAX ) remove_root( stake_delegations, root );
     idx = d.fork_next;
   }
@@ -935,16 +797,14 @@ rebuild_tree( fd_stake_delegations_t * stake_delegations ) {
 void
 fd_stake_delegations_cancel_fork( fd_stake_delegations_t * stake_delegations,
                                   ushort                   fork ) {
-  fd_rwlock_write( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
   FD_CHECK_CRIT( fork<stake_delegations->max_live_slots && fork!=stake_delegations->root_fork && get_forks( stake_delegations )[fork].in_use,
                  "invalid stake delegations cancellation" );
   for( ushort id=0; id<stake_delegations->max_live_slots; id++ ) {
     if( get_forks( stake_delegations )[id].in_use && (id==fork || ancestor( stake_delegations, id, fork )) ) cancel_one( stake_delegations, id );
   }
   rebuild_tree( stake_delegations );
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
-  fd_rwlock_unwrite( &stake_delegations->tree_lock );
+  fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
 static void
@@ -983,7 +843,7 @@ recompute( fd_stake_delegations_t * stake_delegations ) {
     if( get_pages( stake_delegations )[page].role!=PAGE_ROOT ) continue;
     for( uint slot=0U; slot<128U; slot++ ) {
       uint                  idx = (page<<7)+slot;
-      fd_stake_delegation_t d   = *record( stake_delegations, idx, 1, 0 );
+      fd_stake_delegation_t d   = *record( stake_delegations, idx, 0 );
       if( !(d.flags & FD_STAKE_DELEGATION_ROOT_PRESENT) ) continue;
       add_root( stake_delegations, &d );
       publish( stake_delegations, idx, &d );
@@ -1005,7 +865,7 @@ prune( fd_stake_delegations_t *   stake_delegations,
     for( uint slot=0U; slot<128U; slot++ ) {
       if( get_pages( stake_delegations )[page].role!=PAGE_ROOT ) break;
       uint                  idx = (page<<7)+slot;
-      fd_stake_delegation_t d   = *record( stake_delegations, idx, 1, 0 );
+      fd_stake_delegation_t d   = *record( stake_delegations, idx, 0 );
       if( !(d.flags & FD_STAKE_DELEGATION_ROOT_PRESENT) ) continue;
       if( !fd_stake_delegation_is_inactive( &d, epoch, history, rate_epoch, fixed_point ) ||
           !fd_stake_delegation_is_inactive( &d, prev_epoch, history, rate_epoch, fixed_point ) ) continue;
@@ -1027,8 +887,7 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             stake_de
                                    int                                  prune_inactive,
                                    fd_bank_t const *                    emit_bank,
                                    fd_stake_delegations_delta_stats_t * stats ) {
-  fd_rwlock_write( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
   fork_t * forks = get_forks( stake_delegations );
   FD_CHECK_CRIT( fork<stake_delegations->max_live_slots && forks[fork].in_use && ancestor( stake_delegations, fork, stake_delegations->root_fork ),
                  "stake delegations root destination is not a descendant" );
@@ -1052,7 +911,7 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             stake_de
     ushort id  = path[p-1UL];
     uint   idx = forks[id].delta_head;
     while( idx!=UINT_MAX ) {
-      fd_stake_delegation_t d    = *record( stake_delegations, idx, 1, 0 );
+      fd_stake_delegation_t d    = *record( stake_delegations, idx, 0 );
       uint                  root = unlink_delta( stake_delegations, idx, &d );
       if( d.flags & FD_STAKE_DELEGATION_TOMBSTONE ) {
         delete_root( stake_delegations, root );
@@ -1079,8 +938,7 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             stake_de
     stats->removes += removes;
     stats->root_cnt = stake_delegations->root_cnt;
   }
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
-  fd_rwlock_unwrite( &stake_delegations->tree_lock );
+  fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
 ulong
@@ -1090,35 +948,31 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
                                           ulong *                    rate_epoch,
                                           int                        fixed_point,
                                           fd_bank_t const *          emit_bank ) {
-  fd_rwlock_write( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
   if( !same_context( stake_delegations, epoch, history, rate_epoch, fixed_point ) ) {
     set_context( stake_delegations, epoch, history, rate_epoch, fixed_point );
     recompute( stake_delegations );
   }
   ulong cnt = prune( stake_delegations, epoch, history, rate_epoch, fixed_point, emit_bank );
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
-  fd_rwlock_unwrite( &stake_delegations->tree_lock );
+  fd_rwlock_unwrite( &stake_delegations->lock );
   return cnt;
 }
 
 void
 fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations ) {
-  fd_rwlock_write( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
   for( uint page=0U; page<stake_delegations->page_wmk; page++ ) {
     if( get_pages( stake_delegations )[page].role!=PAGE_ROOT ) continue;
     for( uint slot=0U; slot<128U; slot++ ) {
       uint                    idx = (page<<7)+slot;
-      fd_stake_delegation_t * d   = record( stake_delegations, idx, 1, 0 );
+      fd_stake_delegation_t * d   = record( stake_delegations, idx, 0 );
       if( !(d->flags & FD_STAKE_DELEGATION_ROOT_PRESENT) || d->state!=FD_STAKE_DELEGATION_STATE_WARMED ) continue;
       d->state = FD_STAKE_DELEGATION_STATE_UNKNOWN;
       dirty( stake_delegations, idx );
     }
   }
   stake_delegations->fp_warmed_awarded = 0;
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
-  fd_rwlock_unwrite( &stake_delegations->tree_lock );
+  fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
 void
@@ -1130,8 +984,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               int                        remove_inactive_stakes,
                               fd_accdb_t *               accdb,
                               fd_accdb_fork_id_t         fork_id ) {
-  fd_rwlock_write( &stake_delegations->tree_lock );
-  fd_rwlock_write( &stake_delegations->cache_lock );
+  fd_rwlock_write( &stake_delegations->lock );
   set_context( stake_delegations, epoch, history, rate_epoch, fixed_point );
   /* Snapshot totals are rebuilt from account data.  Copies keep batch
      keys and payloads valid while later records evict earlier pages. */
@@ -1153,7 +1006,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
         cursor = ((ulong)(idx>>7)+1UL)*128UL;
         continue;
       }
-      fd_stake_delegation_t d = *record( stake_delegations, idx, 1, 0 );
+      fd_stake_delegation_t d = *record( stake_delegations, idx, 0 );
       if( !(d.flags & FD_STAKE_DELEGATION_ROOT_PRESENT) ) continue;
       batch[cnt]   = d;
       indices[cnt] = idx;
@@ -1198,7 +1051,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
       } else {
         /* Earlier removals in this batch may have changed this root's
            bucket linkage.  The copied payload must not restore it. */
-        fd_stake_delegation_t const * current = record( stake_delegations, indices[i], 1, 0 );
+        fd_stake_delegation_t const * current = record( stake_delegations, indices[i], 0 );
         d->next_      = current->next_;
         d->delta_head = current->delta_head;
         add_root( stake_delegations, d );
@@ -1207,6 +1060,5 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
     }
   }
 #undef BATCH
-  fd_rwlock_unwrite( &stake_delegations->cache_lock );
-  fd_rwlock_unwrite( &stake_delegations->tree_lock );
+  fd_rwlock_unwrite( &stake_delegations->lock );
 }

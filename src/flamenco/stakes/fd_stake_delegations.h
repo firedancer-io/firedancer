@@ -10,20 +10,18 @@
 #define FD_STAKE_DELEGATIONS_PAGE_SZ    (16384UL)
 #define FD_STAKE_DELEGATIONS_FORK_MAX   (4096UL)
 #define FD_STAKE_DELEGATIONS_BUCKET_CNT (1UL<<22)
-#define FD_STAKE_DELEGATIONS_STRIPE_CNT (4096UL)
 #define FD_STAKE_DELEGATIONS_FD         (123457)
 
 /* The store owns a fork tree and a shared pool of typed record pages.
    Persistent links use logical record indices.  Every joining process
    must install the same backing file at disk_fd.
 
-   After boot, production structural mutations are owned by replay.
-   A boundary view doing accdb acquires cannot overlap an independent
-   structural writer: execution may hold accdb references while entering
-   this store.  The scheduler drains removed banks before ID release.
-   Callers stop writing a parent before attaching a child, and quiesce
-   the selected fork before opening a view.  The store tracks allocation
-   and open views, not bank execution state. */
+   One exclusive lock protects every operation, including paging.
+   A view holds it across all related scans.  Callers must not invoke
+   another store operation while holding a view.  A boundary caller
+   must not wait for execution work that could be waiting on this lock.
+   The scheduler drains removed banks before ID release and stops
+   parent writes before attaching a child. */
 
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 (0)
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 (1)
@@ -93,7 +91,6 @@ struct fd_stake_delegations {
   ulong frames_offset;
   ulong forks_offset;
   ulong descends_offset;
-  ulong stripes_offset;
   ulong data_offset;
 
   /* Record allocator and page cache */
@@ -102,13 +99,11 @@ struct fd_stake_delegations {
   uint        free_frame;
   uint        clock_hand;
   uint        nonfull[3][2];
-  uint        allocator_lock;
-  fd_rwlock_t cache_lock;
+  fd_rwlock_t lock;
 
   /* Fork lifecycle */
   ushort      root_fork;
   uchar       boot;
-  fd_rwlock_t tree_lock;
 
   /* Rooted aggregate state */
   ulong root_cnt;
@@ -127,9 +122,9 @@ struct fd_stake_delegations {
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
-/* A view holds tree shared until view_end.  The caller ensures its fork
-   and ancestors have no scheduled writers.  Close it before writes to
-   that fork or structural mutation.  Other forks can update and page.
+/* A view holds the exclusive store lock until view_end.  All other
+   store operations wait, including updates on unrelated forks.
+   Close the view before calling a mutator or opening another view.
    Stable tags require a caller proof of epoch, history and math mode. */
 struct fd_stake_delegations_view {
   fd_stake_delegations_t * sd;
@@ -146,9 +141,6 @@ struct fd_stake_delegations_iter {
   ulong                        idx;
   ulong                        batch_idx;
   ulong                        batch_cnt;
-  uint                         chain;
-  uchar                        root_flags;
-  uchar                        resolving;
   ulong                        indices[ FD_STAKE_DELEGATIONS_ITER_BATCH ];
   fd_stake_delegation_t         batch[ FD_STAKE_DELEGATIONS_ITER_BATCH ];
 };
@@ -256,7 +248,7 @@ void
 fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations );
 
 /* root_update is boot-only.  Attaching the first child ends boot.
-   Fork updates accept allocated non-root forks without views.  Callers
+   Fork updates accept allocated non-root forks.  Callers
    must stop updates to a fork before attaching children to it. */
 
 void
@@ -346,8 +338,8 @@ fd_stake_delegations_view_totals( fd_stake_delegations_view_t * view,
                                   int                           fixed_point,
                                   fd_stake_history_entry_t *    totals );
 
-/* Iterator records are copies valid until iter_next.  No cache lock is
-   held across caller stake math or account-database operations. */
+/* Iterator records are copies valid until iter_next.  The view retains
+   the store lock across iteration and caller processing. */
 fd_stake_delegations_iter_t *
 fd_stake_delegations_iter_init( fd_stake_delegations_iter_t * iter,
                                 fd_stake_delegations_view_t * view );
