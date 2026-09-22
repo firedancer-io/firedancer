@@ -1344,6 +1344,7 @@ EXAMPLES
     <counter name="FecReassemblyEmpty" summary="Times reassembly is empty and a FEC set can't be processed" />
     <counter name="FecLeaderBidWait" summary="Times replay is blocked by the PoH tile not sending an end of leader message" />
     <counter name="FecBankFull" summary="Times banks are full and a FEC set can't be processed" />
+    <counter name="FecParentUnavailable" summary="Alpenglow: FEC sets dropped because replay could not resolve the block's parent, which was itself dropped on a dead lineage, evicted with its tracking slot reused, or rooted past. " />
     <counter name="StorageRootBehind" summary="Times the storage root is behind the consensus root and can't be advanced" />
 
     <!-- extensive program cache metrics.  Useful for development, will be

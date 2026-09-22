@@ -762,7 +762,7 @@ test_reception_metrics_sidecar( fd_wksp_t * wksp ) {
   FD_TEST( f1_32->fec_completed_ts_nanos==metrics_invalid.fec_completed_ts_nanos );
 
   fd_event_block_completed_t ev = {0};
-  block_completed_event_fill_reception( ctx, &ev, &mr1_32, 1UL );
+  block_completed_event_fill_reception( ctx, &ev, ULONG_MAX, &mr1_32, 1UL );
   FD_TEST( ev.fec_set_count==2UL );
   assert_reception_event_matches( &ev, &metrics_a, 0U );
 
@@ -776,7 +776,7 @@ test_reception_metrics_sidecar( fd_wksp_t * wksp ) {
   FD_TEST( ctx->reception_stats[ 1UL % ctx->reception_stats_cnt ].slot==1UL );
 
   memset( &ev, 0, sizeof(ev) );
-  block_completed_event_fill_reception( ctx, &ev, &mr1_64, 1UL );
+  block_completed_event_fill_reception( ctx, &ev, ULONG_MAX, &mr1_64, 1UL );
   assert_reception_event_matches( &ev, &metrics_b, 64U );
 
   fd_fec_complete_metrics_t metrics_c = metrics_a;
@@ -788,11 +788,11 @@ test_reception_metrics_sidecar( fd_wksp_t * wksp ) {
   FD_TEST( ctx->reception_stats[ 1UL % ctx->reception_stats_cnt ].slot==1UL );
 
   memset( &ev, 0, sizeof(ev) );
-  block_completed_event_fill_reception( ctx, &ev, &mr1_64, 1UL );
+  block_completed_event_fill_reception( ctx, &ev, ULONG_MAX, &mr1_64, 1UL );
   assert_reception_event_matches( &ev, &metrics_c, 0U );
 
   memset( &ev, 0, sizeof(ev) );
-  block_completed_event_fill_reception( ctx, &ev, &mr1_0_b, 1UL );
+  block_completed_event_fill_reception( ctx, &ev, ULONG_MAX, &mr1_0_b, 1UL );
   assert_reception_event_matches( &ev, &metrics_c, 0U );
 
   fd_fec_complete_metrics_t capacity_metrics = metrics_a;
@@ -801,12 +801,12 @@ test_reception_metrics_sidecar( fd_wksp_t * wksp ) {
     fd_reception_stats_t * stats = &ctx->reception_stats[ slot % ctx->reception_stats_cnt ];
     stats->slot        = slot;
     stats->fec_set_idx = (uint)slot;
-    stats->metrics     = capacity_metrics;
+    stats->metrics.repair = capacity_metrics;
   }
   FD_TEST( ctx->reception_stats[ 1UL % ctx->reception_stats_cnt ].slot!=1UL );
   fd_reception_stats_t * latest = &ctx->reception_stats[ (TEST_BANKS_MAX+1UL) % ctx->reception_stats_cnt ];
   FD_TEST( latest->slot==TEST_BANKS_MAX+1UL );
-  FD_TEST( latest->metrics.blk_turbine_cnt==TEST_BANKS_MAX+1UL );
+  FD_TEST( latest->metrics.repair.blk_turbine_cnt==TEST_BANKS_MAX+1UL );
 
   FD_LOG_NOTICE(( "pass: test_reception_metrics_sidecar" ));
 }

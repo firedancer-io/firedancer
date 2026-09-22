@@ -10,6 +10,7 @@
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/repair/fd_repair_tile.h"
+#include "../../discof/rotor/fd_rotor_tile.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
@@ -69,10 +70,18 @@ struct fd_block_id_ele {
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
+/* Tower keys by slot (slot % reception_stats_cnt).  Alpenglow keys by
+   bank idx.  There is no reasm; rotor stamps the snapshot onto every
+   FEC it delivers and replay records it in process_rotor_fec. */
 struct fd_reception_stats {
-  ulong                     slot;
+  ulong                     bank_seq; /* alpenglow guard: valid iff ==bank->bank_seq */
+  ulong                     slot;     /* tower guard */
   uint                      fec_set_idx;
-  fd_fec_complete_metrics_t metrics;
+
+  union {
+    fd_fec_complete_metrics_t repair; /* tower/repair */
+    fd_rotor_fec_metrics_t    rotor;  /* ag */
+  } metrics;
 };
 typedef struct fd_reception_stats fd_reception_stats_t;
 
@@ -456,8 +465,10 @@ struct fd_replay_tile {
   ulong       reset_slot;
 
   /* Caught up to the cluster: replay has completed a slot within a few
-     slots of the highest FEC set slot seen from repair (which tracks
-     the turbine tip). */
+     slots of the cluster tip.  Under tower the tip is the highest FEC
+     set slot repair forwarded; under alpenglow rotor tracks it and
+     ships it on each delivered FEC, because rotor delivers only
+     replayable FECs in order and their slots track replay itself. */
   int         caught_up;
   ulong       catch_up_max_fec_slot;
   ulong       catch_up_tip_advance_cnt;
@@ -555,6 +566,7 @@ struct fd_replay_tile {
     ulong reasm_empty;
     ulong leader_bid_wait;
     ulong banks_full;
+    ulong parent_unavailable;
     ulong storage_root_behind;
 
     ulong voted_slot; /* monotone, ULONG_MAX if none */

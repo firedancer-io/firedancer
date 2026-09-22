@@ -133,6 +133,44 @@
 /* alpenglow type - replayable fec */
 #define ROTOR_SIG_FEC_REPLAY  (3UL)
 
+struct fd_rotor_fec_metrics {
+  uint  stats_valid;        /* 1 if the counters below are populated */
+
+  /* 1 if the FEC was delivered under a votor-driven version of its slot
+     -- one the chainer created from a cert and filled by block id
+     repair -- and 0 if it was delivered under the slot's turbine
+     version, our own leader blocks included. */
+  uchar votor_repaired;
+
+  uint  blk_turbine_cnt;            /* block: data shreds received via turbine, plus every coding shred */
+  uint  blk_repair_cnt;             /* block: data shreds received via repair */
+  uint  blk_recovered_cnt;          /* block: shreds recovered via reed-solomon */
+  uint  blk_data_cnt;               /* block: data shreds held */
+  uint  blk_parity_cnt;             /* block: coding shreds received */
+  uchar blk_slot_complete;          /* block: 1 if the end of the block is known */
+  uint  blk_last_completed_fec_idx; /* block: fec_set_idx of the set that most recently completed reception, UINT_MAX if none */
+
+  uint  blk_req_window_cnt;     /* block: positional specific-shred requests sent */
+  uint  blk_req_highest_cnt;    /* block: highest-shred requests sent */
+  uint  blk_req_orphan_cnt;     /* block: orphan requests sent */
+  uint  blk_req_shred_bid_cnt;  /* block: ShredForBlockId requests sent */
+  uint  blk_req_parent_cnt;     /* block: ParentAndFecCount requests sent */
+  uint  blk_req_fec_root_cnt;   /* block: FecRoot requests sent */
+  uint  blk_req_retransmit_cnt; /* block: requests re-issued after a timeout or bad response */
+  uint  blk_repair_responses;   /* block: repair responses matched to an outstanding request */
+
+  ulong blk_first_shred_ts_nanos;      /* block: when the first shred arrived, 0 if never stamped */
+  ulong blk_last_shred_ts_nanos;       /* block: when the block became contiguous, 0 if it has not */
+  ulong blk_first_req_ts_nanos;        /* block: when the first specific-shred repair request was sent, 0 if none */
+  ulong blk_last_repair_resp_ts_nanos; /* block: when the most recent matched repair response arrived, 0 if none */
+
+  /* Highest slot rotor has completed a FEC set for off the network, our
+     own leader FEC sets excluded: the cluster tip.  Not a per-block
+     figure like the rest of these metrics. */
+  ulong highest_fec_complete_slot;
+};
+typedef struct fd_rotor_fec_metrics fd_rotor_fec_metrics_t;
+
 struct fd_rotor_replay_fec {
    ulong     slot;
    uint      fec_set_idx;
@@ -164,6 +202,8 @@ struct fd_rotor_replay_fec {
       Redelivery from root never changes known_id. It only affects block_id */
    int       known_id;
    fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
+
+   fd_rotor_fec_metrics_t metrics;
 };
 typedef struct fd_rotor_replay_fec fd_rotor_replay_fec_t;
 
