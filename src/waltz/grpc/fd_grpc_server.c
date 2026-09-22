@@ -58,7 +58,6 @@ fd_grpc_server_params_default( fd_grpc_server_params_t * params ) {
     .max_conn_cnt             = 16UL,
     .max_stream_cnt           = 8UL,
     .max_request_msg_sz       = 16UL<<10,
-    .max_header_list_sz       = 8UL<<10,
     .stream_tx_queue_sz       = 64UL<<10,
     .max_msg_sz               = 64UL<<10,
     .large_msg_slot_cnt       = 0UL,
@@ -90,7 +89,6 @@ fd_grpc_server_params_valid( fd_grpc_server_params_t const * p ) {
   CHECK( p->max_conn_cnt      >=1UL && p->max_conn_cnt      <=4096UL );
   CHECK( p->max_stream_cnt    >=1UL && p->max_stream_cnt    <= 256UL );
   CHECK( p->max_request_msg_sz>=1UL && p->max_request_msg_sz < (1UL<<31) );
-  CHECK( p->max_header_list_sz>=256UL && p->max_header_list_sz<=(1UL<<20) );
   CHECK( p->stream_tx_queue_sz>=64UL && p->stream_tx_queue_sz<=(1UL<<31) );
   CHECK( p->max_msg_sz        >=p->stream_tx_queue_sz && p->max_msg_sz<(1UL<<31) );
   CHECK( p->large_msg_slot_cnt<=256UL );
@@ -123,7 +121,8 @@ fd_grpc_server_hpack_scratch_sz( fd_grpc_server_params_t const * p ) {
      dynamic table entry up to FD_HPACK_DTABLE_SZ_MAX bytes.  The
      scratch cursor is reset after every header, so it only has to hold
      the largest single header. */
-  return 2UL*p->max_header_list_sz + 2UL*FD_HPACK_DTABLE_SZ_MAX;
+  ulong max_header_list_sz = p->max_frame_sz;
+  return 2UL*max_header_list_sz + 2UL*FD_HPACK_DTABLE_SZ_MAX;
 }
 
 static ulong
@@ -1118,6 +1117,7 @@ fd_grpc_server_rx_request_hdrs( fd_grpc_server_stream_t * stream,
   int   scheme_ok    = 0;
   ulong scratch_sz   = fd_grpc_server_hpack_scratch_sz( &server->params );
   ulong decoded_sz   = 0UL;
+  ulong max_header_list_sz = server->params.max_frame_sz;
 
   while( !fd_hpack_rd_done( hpack_rd ) ) {
     uchar *     scratch = server->hpack_scratch;
@@ -1131,7 +1131,7 @@ fd_grpc_server_rx_request_hdrs( fd_grpc_server_stream_t * stream,
        decoded size, which a dynamic table reference can expand far
        beyond the wire size. */
     decoded_sz += hdr->name_len + hdr->value_len + 32UL;
-    if( FD_UNLIKELY( decoded_sz > server->params.max_header_list_sz ) ) {
+    if( FD_UNLIKELY( decoded_sz > max_header_list_sz ) ) {
       fd_h2_conn_error( h2, FD_H2_ERR_ENHANCE_YOUR_CALM );
       return;
     }
@@ -1506,12 +1506,13 @@ fd_grpc_server_cb_conn_final( fd_h2_conn_t * h2,
    ending the stream or the conn. */
 
 static int
-fd_grpc_server_rx_discard_hdrs( fd_grpc_server_stream_t * stream,
+fd_grpc_server_rx_discard_hdrs( fd_grpc_server_conn_t *   conn,
+                                fd_grpc_server_stream_t * stream,
                                 uchar const *             block,
                                 ulong                     block_sz ) {
-  fd_grpc_server_conn_t * conn   = stream->conn;
   fd_grpc_server_t *      server = conn->server;
   fd_h2_conn_t *          h2     = conn->h2;
+  int                     malformed = 0;
   fd_hpack_rd_t hpack_rd[1];
   if( FD_UNLIKELY( !fd_hpack_rd_init_dtable( hpack_rd, block, block_sz, &h2->rx_hpack ) ) ) {
     fd_h2_conn_error( h2, FD_H2_ERR_COMPRESSION );
@@ -1519,6 +1520,7 @@ fd_grpc_server_rx_discard_hdrs( fd_grpc_server_stream_t * stream,
   }
   ulong scratch_sz = fd_grpc_server_hpack_scratch_sz( &server->params );
   ulong decoded_sz = 0UL;
+  ulong max_header_list_sz = server->params.max_frame_sz;
   while( !fd_hpack_rd_done( hpack_rd ) ) {
     uchar *     scratch = server->hpack_scratch;
     fd_h2_hdr_t hdr[1];
@@ -1528,17 +1530,22 @@ fd_grpc_server_rx_discard_hdrs( fd_grpc_server_stream_t * stream,
       return 0;
     }
     decoded_sz += hdr->name_len + hdr->value_len + 32UL;
-    if( FD_UNLIKELY( decoded_sz > server->params.max_header_list_sz ) ) {
+    if( FD_UNLIKELY( decoded_sz > max_header_list_sz ) ) {
       fd_h2_conn_error( h2, FD_H2_ERR_ENHANCE_YOUR_CALM );
       return 0;
     }
-    /* RFC 9113 Section 8.1: trailers carry no pseudo-headers */
+    /* RFC 9113 Section 8.1: trailers carry no pseudo-headers.
+       Processing malformed waits the end of the loop, so the full
+       decoding happens. */
     if( FD_UNLIKELY( !hdr->name_len || hdr->name[0]==':' ||
                      !fd_grpc_server_hdr_name_valid ( hdr->name,  hdr->name_len  ) ||
                      !fd_grpc_server_hdr_value_valid( hdr->value, hdr->value_len ) ) ) {
-      fd_grpc_server_stream_malformed( stream, FD_H2_ERR_PROTOCOL );
-      return 0;
+      malformed = 1;
     }
+  }
+  if( FD_UNLIKELY( malformed ) ) {
+    if( stream ) fd_grpc_server_stream_malformed( stream, FD_H2_ERR_PROTOCOL );
+    return 0;
   }
   return 1;
 }
@@ -1558,11 +1565,18 @@ fd_grpc_server_cb_headers( fd_h2_conn_t *   h2,
     return;
   }
 
+  /* The stream was refused, we still need to update the decoder state,
+     but can terminate immediately. */
+  if( FD_UNLIKELY( !stream ) ) {
+    fd_grpc_server_rx_discard_hdrs( fd_grpc_server_conn_from_h2( h2 ), NULL, data, data_sz );
+    return;
+  }
+
   int end_stream = !!( flags & FD_H2_FLAG_END_STREAM );
   if( FD_UNLIKELY( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_HDRS_DONE ) ) {
     /* Request trailers carry no gRPC metadata.  They are decoded so
        that the HPACK dynamic table stays in sync, then dropped. */
-    if( FD_UNLIKELY( !fd_grpc_server_rx_discard_hdrs( stream, data, data_sz ) ) ) return;
+    if( FD_UNLIKELY( !fd_grpc_server_rx_discard_hdrs( stream->conn, stream, data, data_sz ) ) ) return;
     if( FD_UNLIKELY( !end_stream ) ) {
       fd_grpc_server_stream_malformed( stream, FD_H2_ERR_PROTOCOL );
       return;
@@ -1786,7 +1800,8 @@ fd_grpc_server_conn_init( fd_grpc_server_t * server,
   conn->h2->ctx                                   = conn;
   conn->h2->self_settings.max_concurrent_streams  = (uint)params->max_stream_cnt;
   conn->h2->self_settings.max_frame_size          = (uint)params->max_frame_sz;
-  conn->h2->self_settings.max_header_list_size    = (uint)params->max_header_list_sz;
+  ulong max_header_list_sz = params->max_frame_sz;
+  conn->h2->self_settings.max_header_list_size    = (uint)max_header_list_sz;
   conn->h2->self_settings.initial_window_size     = (uint)params->stream_rx_wnd_sz;
   fd_h2_conn_rx_wnd_set( conn->h2, (uint)params->conn_rx_wnd_sz );
 
@@ -2059,7 +2074,10 @@ fd_grpc_server_conn_pop_tx( fd_grpc_server_conn_t * conn,
                             ulong                   out_sz ) {
   if( FD_UNLIKELY( !conn->active ) ) return 0UL;
   ulong take = fd_ulong_min( out_sz, fd_h2_rbuf_used_sz( conn->rbuf_tx ) );
-  if( take ) fd_h2_rbuf_pop_copy( conn->rbuf_tx, out, take );
+  if( take ) {
+    fd_h2_rbuf_pop_copy( conn->rbuf_tx, out, take );
+    conn->tx_nanos = conn->server->now;
+  }
   return take;
 }
 
@@ -2177,6 +2195,7 @@ fd_grpc_server_conn_io( fd_grpc_server_conn_t * conn,
       fd_grpc_server_conn_release( conn );
       return;
     }
+    if( !err ) conn->tx_nanos = now;
   }
 
   ulong rx_hi0 = conn->rbuf_rx->hi_off;

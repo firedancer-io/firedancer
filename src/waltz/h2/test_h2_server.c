@@ -155,10 +155,10 @@ test_cb_headers( fd_h2_conn_t *   conn,
                     (int)hdr->value_len, (char const *)hdr->value ));
   }
 
-  if( flags & FD_H2_FLAG_END_HEADERS ) {
+  if( stream && ( flags & FD_H2_FLAG_END_HEADERS ) ) {
     FD_LOG_NOTICE(( "Request %u: Headers complete", stream->stream_id ));
   }
-  if( flags & FD_H2_FLAG_END_STREAM ) {
+  if( stream && ( flags & FD_H2_FLAG_END_STREAM ) ) {
     test_response_init( conn, stream );
   }
 }

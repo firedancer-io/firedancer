@@ -158,7 +158,6 @@ LLVMFuzzerInitialize( int  *   argc,
   params->max_conn_cnt       = 1UL;
   params->max_stream_cnt     = 3UL;
   params->max_request_msg_sz = 2048UL;
-  params->max_header_list_sz = 1024UL;
   params->stream_tx_queue_sz = 4096UL;
   /* Room for one message of eight queues, so the large send path is
      reachable and its slot accounting is exercised */
