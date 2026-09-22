@@ -131,7 +131,6 @@ fd_topos_net_tile_finish( fd_topo_t * topo,
    RX consumers as net_tile. */
 void
 fd_topos_sock_lo( fd_topo_t *                 topo,
-                  fd_config_net_t const *     net_cfg,
                   struct fd_topo_tile const * net_tile );
 
 /* sock_lo_net_tile_id returns the ID of the net tile whose CPU affinity

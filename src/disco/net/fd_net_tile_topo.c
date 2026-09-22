@@ -467,17 +467,13 @@ fd_topo_install_xdp( fd_topo_t const * topo,
 # undef ADD_IF_IDX
 
 void
-fd_topos_sock_lo( fd_topo_t *             topo,
-                  fd_config_net_t const * net_cfg,
-                  fd_topo_tile_t const *  net_tile ) {
-  if( FD_UNLIKELY( net_cfg->socket.receive_buffer_size>INT_MAX ) )
-    FD_LOG_ERR(( "invalid [net.socket.receive_buffer_size]" ));
-
+fd_topos_sock_lo( fd_topo_t *            topo,
+                  fd_topo_tile_t const * net_tile ) {
   fd_topob_wksp( topo, "sock" );
   fd_topo_tile_t * sock = fd_topob_tile( topo, "sock", "sock", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
   sock->net = net_tile->net;
   sock->sock.only_recv_lo = 1;
-  sock->sock.so_rcvbuf    = (int)net_cfg->socket.receive_buffer_size;
+  sock->sock.so_rcvbuf    = 32*1024*1024;
   sock->sock.net_tile_id  = net_tile->id;
 
   for( ulong i=0UL; i<net_tile->out_cnt; i++ ) {
@@ -487,7 +483,7 @@ fd_topos_sock_lo( fd_topo_t *             topo,
     if( 0!=strncmp( net_out_link->name, "net_", 4UL ) || 0==strcmp( net_out_link->name, "net_netlnk" ) ) continue;
 
     /* Duplicate link */
-    fd_topo_link_t * sock_out_link = fd_topob_link( topo, net_out_link->name, "sock", net_out_link->depth, FD_NET_MTU, 64UL );
+    fd_topo_link_t * sock_out_link = fd_topob_link( topo, net_out_link->name, "sock", 4096UL, FD_NET_MTU, 64UL );
     fd_topob_tile_out( topo, "sock", sock->kind_id, sock_out_link->name, sock_out_link->kind_id );
 
     /* Loop through all tiles, check their in links for net */

@@ -1156,7 +1156,7 @@ fd_topo_initialize( config_t * config ) {
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     ulong net_tile_id = fd_topo_find_tile( topo, fd_net_tile_name( config->net.provider ), 0UL );
     FD_TEST( net_tile_id!=ULONG_MAX );
-    fd_topos_sock_lo( topo, &config->net, &topo->tiles[ net_tile_id ] );
+    fd_topos_sock_lo( topo, &topo->tiles[ net_tile_id ] );
   }
 
   /* Auto layout must run after all fd_topob_tile() calls so every tile gets a blocklist-aware CPU assignment. */
