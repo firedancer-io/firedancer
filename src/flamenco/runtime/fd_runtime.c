@@ -870,9 +870,6 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
   fd_features_prepopulate_upcoming( bank, accdb );
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, runtime_stack, capture_ctx );
   FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
-  if( FD_LIKELY( bank->f.slot ) ) {
-    fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
-  }
 }
 
 static void

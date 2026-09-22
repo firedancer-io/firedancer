@@ -100,7 +100,6 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
     txns[i].payload_sz = (ushort)msg_sz;
   }
 
-  fd_stake_delegations_activate_fork( stake_delegations, runner->bank->stake_delegations_fork_id );
   *out_txn_cnt = txn_cnt;
   return txns;
 }

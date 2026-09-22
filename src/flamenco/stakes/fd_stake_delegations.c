@@ -364,7 +364,7 @@ reset( fd_stake_delegations_t * sd ) {
   get_forks( sd )[0] = (fork_t){
     .delta_head = UINT_MAX,
     .parent     = USHORT_MAX,
-    .state      = FORK_ROOT
+    .in_use     = 1
   };
   sd->root_cnt          = 0UL;
   sd->effective_stake   = sd->activating_stake = sd->deactivating_stake = 0UL;
@@ -476,15 +476,15 @@ fd_stake_delegations_attach_child( fd_stake_delegations_t * sd,
                                    ushort                   parent ) {
   exclusive_begin( sd );
   fork_t * forks = get_forks( sd );
-  FD_CHECK_CRIT( parent<sd->max_live_slots && (forks[parent].state==FORK_ROOT || forks[parent].state==FORK_FINALIZED),
-                 "stake delegations parent is not immutable" );
+  FD_CHECK_CRIT( parent<sd->max_live_slots && forks[parent].in_use,
+                 "invalid stake delegations parent" );
   ushort id = 0;
-  while( id<sd->max_live_slots && forks[id].state!=FORK_FREE ) id++;
+  while( id<sd->max_live_slots && forks[id].in_use ) id++;
   FD_CHECK_CRIT( id<sd->max_live_slots, "stake delegations fork capacity exhausted" );
   forks[id] = (fork_t){
     .delta_head = UINT_MAX,
     .parent     = parent,
-    .state      = FORK_PREPARING
+    .in_use     = 1
   };
   ulong descends_words = (sd->max_live_slots+63UL)>>6;
   fd_memcpy( get_descends( sd, id ), get_descends( sd, parent ), descends_words*sizeof(ulong) );
@@ -494,30 +494,10 @@ fd_stake_delegations_attach_child( fd_stake_delegations_t * sd,
   return id;
 }
 
-void
-fd_stake_delegations_activate_fork( fd_stake_delegations_t * sd,
-                                    ushort                   fork ) {
-  exclusive_begin( sd );
-  FD_CHECK_CRIT( fork<sd->max_live_slots && get_forks( sd )[fork].state==FORK_PREPARING,
-                 "stake delegations fork is not preparing" );
-  get_forks( sd )[fork].state = FORK_ACTIVE;
-  exclusive_end( sd );
-}
-
-void
-fd_stake_delegations_finalize_fork( fd_stake_delegations_t * sd,
-                                    ushort                   fork ) {
-  exclusive_begin( sd );
-  FD_CHECK_CRIT( fork<sd->max_live_slots && (get_forks( sd )[fork].state==FORK_PREPARING || get_forks( sd )[fork].state==FORK_ACTIVE),
-                 "stake delegations fork is not mutable" );
-  get_forks( sd )[fork].state = FORK_FINALIZED;
-  exclusive_end( sd );
-}
-
 static void
 check_mutable( fd_stake_delegations_t * sd,
                ushort                   fork ) {
-  FD_CHECK_CRIT( fork<sd->max_live_slots && (get_forks( sd )[fork].state==FORK_PREPARING || get_forks( sd )[fork].state==FORK_ACTIVE),
+  FD_CHECK_CRIT( fork<sd->max_live_slots && fork!=sd->root_fork && get_forks( sd )[fork].in_use,
                  "stake delegations fork is not mutable" );
   FD_CHECK_CRIT( !get_forks( sd )[fork].views, "stake delegations write to viewed fork" );
 }
@@ -760,9 +740,8 @@ fd_stake_delegations_view_begin( fd_stake_delegations_view_t * view,
                                  ushort                        fork ) {
   fd_rwlock_read( &sd->tree_lock );
   fd_rwlock_write( &sd->cache_lock );
-  FD_CHECK_CRIT( fork<sd->max_live_slots && (get_forks( sd )[fork].state==FORK_ROOT ||
-                 get_forks( sd )[fork].state==FORK_FINALIZED || get_forks( sd )[fork].state==FORK_PREPARING),
-                 "stake delegations fork is not viewable" );
+  FD_CHECK_CRIT( fork<sd->max_live_slots && get_forks( sd )[fork].in_use,
+                 "invalid stake delegations view" );
   get_forks( sd )[fork].views++;
   *view = (fd_stake_delegations_view_t){
     .sd       = sd,
@@ -952,9 +931,9 @@ rebuild_tree( fd_stake_delegations_t * sd ) {
     fd_memset( get_descends( sd, id ), 0, descends_words*sizeof(ulong) );
   }
   for( ushort id=0; id<sd->max_live_slots; id++ ) {
-    if( forks[id].state==FORK_FREE || id==sd->root_fork ) continue;
+    if( !forks[id].in_use || id==sd->root_fork ) continue;
     ushort parent = forks[id].parent;
-    FD_TEST( parent<sd->max_live_slots && forks[parent].state!=FORK_FREE );
+    FD_TEST( parent<sd->max_live_slots && forks[parent].in_use );
     for( ushort p=parent; p!=USHORT_MAX; p=forks[p].parent ) get_descends( sd, id )[p>>6] |= 1UL<<(p & 63);
   }
 }
@@ -963,10 +942,10 @@ void
 fd_stake_delegations_cancel_fork( fd_stake_delegations_t * sd,
                                   ushort                   fork ) {
   exclusive_begin( sd );
-  FD_CHECK_CRIT( fork<sd->max_live_slots && fork!=sd->root_fork && get_forks( sd )[fork].state!=FORK_FREE,
+  FD_CHECK_CRIT( fork<sd->max_live_slots && fork!=sd->root_fork && get_forks( sd )[fork].in_use,
                  "invalid stake delegations cancellation" );
   for( ushort id=0; id<sd->max_live_slots; id++ ) {
-    if( get_forks( sd )[id].state!=FORK_FREE && (id==fork || ancestor( sd, id, fork )) ) cancel_one( sd, id );
+    if( get_forks( sd )[id].in_use && (id==fork || ancestor( sd, id, fork )) ) cancel_one( sd, id );
   }
   rebuild_tree( sd );
   exclusive_end( sd );
@@ -1054,8 +1033,8 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             sd,
                                    fd_stake_delegations_delta_stats_t * stats ) {
   exclusive_begin( sd );
   fork_t * forks = get_forks( sd );
-  FD_CHECK_CRIT( fork<sd->max_live_slots && forks[fork].state==FORK_FINALIZED && ancestor( sd, fork, sd->root_fork ),
-                 "stake delegations root destination is not a finalized descendant" );
+  FD_CHECK_CRIT( fork<sd->max_live_slots && forks[fork].in_use && ancestor( sd, fork, sd->root_fork ),
+                 "stake delegations root destination is not a descendant" );
   ushort path[ FD_STAKE_DELEGATIONS_FORK_MAX ];
   ulong path_cnt = 0UL;
   for( ushort id=fork; id!=sd->root_fork; id=forks[id].parent ) path[path_cnt++] = id;
@@ -1063,7 +1042,7 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             sd,
   /* Cancel branches outside the path and destination subtree.  Ancestry
      remains intact until every release decision has been made. */
   for( ushort id=0; id<sd->max_live_slots; id++ ) {
-    if( forks[id].state==FORK_FREE || id==fork || ancestor( sd, fork, id ) || ancestor( sd, id, fork ) ) continue;
+    if( !forks[id].in_use || id==fork || ancestor( sd, fork, id ) || ancestor( sd, id, fork ) ) continue;
     cancel_one( sd, id );
   }
   if( !same_context( sd, epoch, history, rate_epoch, fixed_point ) ) {
@@ -1096,7 +1075,6 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             sd,
   for( ulong p=1UL; p<path_cnt; p++ ) cancel_one( sd, path[p] );
   cancel_one( sd, old_root );
   sd->root_fork      = fork;
-  forks[fork].state  = FORK_ROOT;
   forks[fork].parent = USHORT_MAX;
   rebuild_tree( sd );
   if( stats ) {

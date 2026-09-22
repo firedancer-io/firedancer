@@ -30,7 +30,7 @@ static inline ulong
 test_stake_delegations_fork_cnt( fd_stake_delegations_t const * sd ) {
   fork_t const * forks = (fork_t const *)((uchar const *)sd + sd->forks_offset);
   ulong cnt = 0UL;
-  for( ulong i=0UL; i<sd->max_live_slots; i++ ) cnt += (ulong)(forks[i].state!=FORK_FREE);
+  for( ulong i=0UL; i<sd->max_live_slots; i++ ) cnt += (ulong)!!forks[i].in_use;
   return cnt;
 }
 

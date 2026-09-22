@@ -20,7 +20,10 @@
    After boot, production structural mutations are owned by replay.
    A boundary view doing accdb acquires cannot overlap an independent
    structural writer: execution may hold accdb references while entering
-   this store.  The scheduler drains removed banks before ID release. */
+   this store.  The scheduler drains removed banks before ID release.
+   Callers stop writing a parent before attaching a child, and quiesce
+   the selected fork before opening a view.  The store tracks allocation
+   and open views, not bank execution state. */
 
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 (0)
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 (1)
@@ -124,9 +127,9 @@ struct fd_stake_delegations {
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
-/* A view holds tree shared until view_end.  It selects ROOT, FINALIZED,
-   or a PREPARING fork with no scheduled writers.  Close it before writes
-   to that fork or structural mutation.  Other forks can update and page.
+/* A view holds tree shared until view_end.  The caller ensures its fork
+   and ancestors have no scheduled writers.  Close it before writes to
+   that fork or structural mutation.  Other forks can update and page.
    Stable tags require a caller proof of epoch, history and math mode. */
 struct fd_stake_delegations_view {
   fd_stake_delegations_t * sd;
@@ -253,7 +256,8 @@ void
 fd_stake_delegations_reset( fd_stake_delegations_t * sd );
 
 /* root_update is boot-only.  Attaching the first child ends boot.
-   Fork updates accept PREPARING or ACTIVE forks without views. */
+   Fork updates accept allocated non-root forks without views.  Callers
+   must stop updates to a fork before attaching children to it. */
 
 void
 fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
@@ -308,14 +312,6 @@ fd_stake_delegations_root_fork_id( fd_stake_delegations_t const * sd );
 ushort
 fd_stake_delegations_attach_child( fd_stake_delegations_t * sd,
                                    ushort                   parent );
-
-void
-fd_stake_delegations_activate_fork( fd_stake_delegations_t * sd,
-                                    ushort                   fork );
-
-void
-fd_stake_delegations_finalize_fork( fd_stake_delegations_t * sd,
-                                    ushort                   fork );
 
 /* Drain bank/scheduler users before cancellation or root advancement,
    and clear released IDs before reusing bank objects. */

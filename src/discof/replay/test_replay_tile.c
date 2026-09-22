@@ -206,7 +206,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
                                        int *                is_epoch_boundary ) {
   if( FD_UNLIKELY( !mock_epoch_boundary_enabled ) ) {
     *is_epoch_boundary = 0;
-    fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
     return;
   }
 
@@ -227,7 +226,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
                                                        0U,
                                                        0UL );
   fd_stake_rewards_fini( stake_rewards, bank->stake_rewards_fork_id );
-  fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
 }
 
 #define fd_multi_epoch_leaders_get_next_slot mock_multi_epoch_leaders_next_slot_fn
@@ -1082,7 +1080,6 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( child );
   child->f.slot     = 1UL;
   child->f.block_id = child_id;
-  fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( child ), child->stake_delegations_fork_id );
   fd_banks_mark_bank_frozen( child );
 
   fd_block_id_ele_t * child_ele = &ctx->block_id_arr[ child->idx ];
@@ -1235,7 +1232,6 @@ add_replayable_block( fd_replay_tile_t * ctx,
   bank->f.slot        = slot;
   bank->f.parent_slot = parent->f.slot;
   bank->f.block_id    = *block_id;
-  fd_stake_delegations_activate_fork( fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
 
   fd_block_id_ele_t * ele = &ctx->block_id_arr[ bank->idx ];
   ele->dmr           = *block_id;

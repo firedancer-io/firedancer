@@ -9,12 +9,6 @@
 #define PAGE_DIRTY   ((uchar)1)
 #define PAGE_WRITTEN ((uchar)2)
 
-#define FORK_FREE      (0)
-#define FORK_PREPARING (1)
-#define FORK_ACTIVE    (2)
-#define FORK_FINALIZED (3)
-#define FORK_ROOT      (4)
-
 struct page {
   ulong  used[2];
   uint   frame;
@@ -38,7 +32,7 @@ struct fork {
   uint   delta_head;
   uint   views;
   ushort parent;
-  uchar  state;
+  uchar  in_use;
 };
 typedef struct fork fork_t;
 

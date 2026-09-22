@@ -1141,7 +1141,6 @@ fd_banks_mark_bank_frozen( fd_bank_t * bank ) {
   fd_banks_t * banks = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
 
   FD_CHECK_CRIT( bank->state==FD_BANK_STATE_REPLAYABLE, "invariant violation: bank is not replayable" );
-  fd_stake_delegations_finalize_fork( fd_banks_get_stake_delegations( banks ), bank->stake_delegations_fork_id );
   bank->state = FD_BANK_STATE_FROZEN;
 
   FD_CHECK_CRIT( bank->cost_tracker_pool_idx!=ULONG_MAX, "invariant violation: cost tracker pool index is null" );

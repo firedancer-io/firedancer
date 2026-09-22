@@ -1307,7 +1307,6 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_TEST( test_stake_delegations_record_cnt( root, PAGE_DELTA )==0UL );
     fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
     FD_TEST( test_stake_delegations_record_cnt( root, PAGE_DELTA )==0UL );
-    fd_stake_delegations_finalize_fork( root, env->bank->stake_delegations_fork_id );
 
     fd_stake_delegations_view_t frontier[1];
     fd_stake_delegations_view_begin( frontier, fd_bank_stake_delegations_modify( env->bank ), env->bank->stake_delegations_fork_id );
