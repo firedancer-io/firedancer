@@ -2040,10 +2040,7 @@ privileged_init( fd_topo_t const *      topo,
   char path[ 64 ];
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/self/fd/%d", FD_ACCDB_FD_RW ) );
   ctx->writer.direct_fd = open( path, O_WRONLY|O_DIRECT|O_CLOEXEC );
-  if( FD_UNLIKELY( ctx->writer.direct_fd<0 ) ) {
-    FD_LOG_ERR(( "open(%s, O_DIRECT) failed (%i-%s). The filesystem holding [paths.accounts] must support direct IO",
-                 path, errno, fd_io_strerror( errno ) ));
-  }
+  FD_CHECK_ERR( ctx->writer.direct_fd>=0, "open(accounts.db, O_DIRECT) failed; the filesystem holding [paths.accounts] must support direct IO" );
 }
 
 static inline fd_snapin_out_link_t
