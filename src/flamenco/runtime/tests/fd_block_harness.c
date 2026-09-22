@@ -27,6 +27,11 @@ typedef struct {
 #define SORT_BEFORE(a,b) (memcmp(&(a).pk, &(b).pk, sizeof(fd_pubkey_t))<0)
 #include "../../../util/tmpl/fd_sort.c"  /* generates templatized sort_pkpos_*() APIs */
 
+#define SORT_NAME        sort_stake_delegation
+#define SORT_KEY_T       fd_exec_test_stake_delegation_t
+#define SORT_BEFORE(a,b) (memcmp((a).stake_account, (b).stake_account, sizeof(fd_pubkey_t))<0)
+#include "../../../util/tmpl/fd_sort.c"
+
 /* Fixed leader schedule hash seed (consistent with solfuzz-agave) */
 #define LEADER_SCHEDULE_HASH_SEED 0xDEADFACEUL
 
@@ -483,6 +488,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
     runner->bank->f.poh = *poh;
     /* Finalize the block */
     fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx, NULL, (ushort)0 );
+    fd_stake_delegations_finalize_fork( fd_bank_stake_delegations_modify( runner->bank ), runner->bank->stake_delegations_fork_id );
 
     return !has_err;
   } FD_SPAD_FRAME_END;
@@ -589,6 +595,38 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *          runn
   );
 }
 
+static ulong
+fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runner,
+                                         fd_exec_test_stake_delegation_t * out,
+                                         ulong                             out_max ) {
+  fd_bank_t * bank = runner->bank;
+  fd_stake_delegations_view_t view[1];
+  fd_stake_delegations_view_begin( view, fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
+
+  ulong cnt = 0UL;
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, view );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    if( FD_UNLIKELY( cnt>=out_max ) ) abort();
+    fd_stake_delegation_t const *     d = fd_stake_delegations_iter_ele( iter );
+    fd_exec_test_stake_delegation_t * o = &out[ cnt++ ];
+    fd_memcpy( o->stake_account, d->stake_account.uc, sizeof(fd_pubkey_t) );
+    fd_memcpy( o->vote_account,  d->vote_account.uc,  sizeof(fd_pubkey_t) );
+    o->stake              = d->stake;
+    o->activation_epoch   = d->activation_epoch  ==USHORT_MAX ? ULONG_MAX : (ulong)d->activation_epoch;
+    o->deactivation_epoch = d->deactivation_epoch==USHORT_MAX ? ULONG_MAX : (ulong)d->deactivation_epoch;
+    o->credits_observed   = d->credits_observed;
+    o->lamports           = d->lamports;
+    o->data_len           = d->acc_dlen;
+  }
+
+  fd_stake_delegations_view_end( view );
+
+  sort_stake_delegation_inplace( out, cnt );
+  return cnt;
+}
+
 ulong
 fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
                           void const *         input_,
@@ -641,6 +679,14 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
 
     /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */
     fd_solfuzz_pb_build_leader_schedule_effects( runner, effects );
+
+    if( !effects->has_error ) {
+      fd_exec_test_stake_delegation_t * out = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_stake_delegation_t), 0UL );
+      ulong cnt = fd_solfuzz_pb_collect_stake_delegations( runner, out, (output_end-_l)/sizeof(fd_exec_test_stake_delegation_t) );
+      FD_SCRATCH_ALLOC_APPEND( l, 1UL, cnt*sizeof(fd_exec_test_stake_delegation_t) );
+      effects->stake_delegations       = out;
+      effects->stake_delegations_count = (pb_size_t)cnt;
+    }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
     fd_solfuzz_pb_block_ctx_destroy( runner );

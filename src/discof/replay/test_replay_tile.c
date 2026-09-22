@@ -252,7 +252,8 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 
 /* Isolate footer rooting from scheduler storage and runtime settlement. */
 static int               mock_footer_finalize;
-static fd_block_footer_t mock_footer[ 1 ];
+static fd_block_footer_t mock_footer_storage[ 1 ];
+static fd_block_footer_t * mock_footer = mock_footer_storage;
 static fd_hash_t         mock_footer_poh;
 
 #define fd_sched_get_poh(s,b)        (mock_footer_finalize ? &mock_footer_poh : (fd_sched_get_poh)(s,b))
@@ -881,6 +882,41 @@ test_leader_fec_payload_retained( fd_wksp_t * wksp ) {
   FD_TEST( !insert_fec_set( ctx, test_stem, &stale_fec ) );
 
   FD_LOG_NOTICE(( "pass: test_leader_fec_payload_retained" ));
+}
+
+static void
+test_reward_cert_signer_count( void ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  static fd_bank_t bank[ 1 ];
+  ctx->alpenglow = 1;
+  bank->f.slot = FD_NUM_SLOTS_FOR_REWARD;
+  fd_epoch_schedule_derive( &bank->f.epoch_schedule, 128UL, 128UL, 0 );
+  /* Count signers even when our voter rank is unavailable. */
+  bank->vote_stakes_fork_id = ULONG_MAX;
+  mock_footer_finalize = 1;
+  memset( mock_footer, 0, sizeof(fd_block_footer_t) );
+
+  mock_footer->has_skip_reward_cert = mock_footer->has_notar_reward_cert = 1;
+  fd_bls_set_insert( mock_footer->skip_reward_cert.signer_set, 1UL );
+  fd_bls_set_insert( mock_footer->skip_reward_cert.signer_set, 2UL );
+  fd_bls_set_insert( mock_footer->notar_reward_cert.signer_set, 2UL );
+  fd_bls_set_insert( mock_footer->notar_reward_cert.signer_set, 3UL );
+  ushort rank = 0, count = 0;
+  FD_TEST( !replay_reward_cert_voted( ctx, bank, &rank, &count ) );
+  FD_TEST( rank==USHORT_MAX && count==3 );
+
+  mock_footer = NULL;
+  FD_TEST( !replay_reward_cert_voted( ctx, bank, &rank, &count ) );
+  FD_TEST( count==USHORT_MAX );
+
+  mock_footer = mock_footer_storage;
+  fd_bls_set_null( mock_footer->skip_reward_cert.signer_set );
+  fd_bls_set_null( mock_footer->notar_reward_cert.signer_set );
+  FD_TEST( !replay_reward_cert_voted( ctx, bank, &rank, &count ) );
+  FD_TEST( count==0 );
+  mock_footer_finalize = 0;
+
+  FD_LOG_NOTICE(( "pass: test_reward_cert_signer_count" ));
 }
 
 static void
@@ -3549,6 +3585,7 @@ main( int     argc,
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
   test_leader_fec_payload_retained( wksp );          fd_wksp_reset( wksp, 42U );
   test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );
+  test_reward_cert_signer_count();
   test_snapshot_intervals_use_block_height();
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
   test_root_from_votor_cert( wksp );                fd_wksp_reset( wksp, 42U );
