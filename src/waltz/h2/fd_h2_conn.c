@@ -745,6 +745,14 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     return;
   }
 
+  /* RFC 9113 Section 3.4: the peer's first frame must be SETTINGS,
+     any other frame before is invalid. */
+  if( FD_UNLIKELY( (!!( conn->flags & FD_H2_CONN_FLAGS_WAIT_SETTINGS_0 ) ) &
+                   (    frame_type!=FD_H2_FRAME_TYPE_SETTINGS           ) ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    return;
+  }
+
   /* Peek padding */
   uint pad_sz = 0U;
   /* Bytes remaining in this frame payload excluding padding length and padding. */

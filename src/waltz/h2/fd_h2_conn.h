@@ -15,7 +15,7 @@ struct fd_h2_settings {
   uint max_frame_size;
   uint max_header_list_size;
   uint max_concurrent_streams;
-  uint header_table_size;
+  uint header_table_size; /* set to 0=client, 4096=server, then read-only */
 };
 
 typedef struct fd_h2_settings fd_h2_settings_t;

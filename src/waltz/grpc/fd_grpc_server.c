@@ -790,6 +790,7 @@ fd_grpc_server_send( fd_grpc_server_stream_t * stream,
     server->metrics.tx_byte_cnt      += msg_sz;
     server->metrics.tx_byte_cnt_wire += payload_sz;
     if( compressed ) server->metrics.tx_msg_compressed_cnt++;
+    stream->resp_deadline = LONG_MAX;
     return FD_GRPC_SERVER_SUCCESS;
   }
 
@@ -832,6 +833,7 @@ fd_grpc_server_send( fd_grpc_server_stream_t * stream,
   server->metrics.tx_byte_cnt      += msg_sz;
   server->metrics.tx_byte_cnt_wire += payload_sz;
   if( compressed ) server->metrics.tx_msg_compressed_cnt++;
+  stream->resp_deadline = LONG_MAX;
   return FD_GRPC_SERVER_SUCCESS;
 }
 
