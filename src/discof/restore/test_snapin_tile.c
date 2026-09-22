@@ -181,9 +181,7 @@ test_stem_publish( fd_stem_context_t * stem,
 /* Size of a flush after direct-IO padding (mirrors writer_flush). */
 static ulong
 test_padded_sz( ulong used ) {
-  ulong padded = fd_ulong_align_up( used, FD_SNAPIN_DIRECT_ALIGN );
-  if( padded-used && padded-used<sizeof(fd_accdb_disk_meta_t) ) padded += FD_SNAPIN_DIRECT_ALIGN;
-  return padded;
+  return fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
 }
 #undef pwrite
 #include "../../disco/pack/fd_pack_cost.h"

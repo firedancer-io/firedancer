@@ -36,9 +36,8 @@
 /* Accounts are written with O_DIRECT so that snapin tiles do not
    serialize on the inode lock taken by buffered writes.  Each flush is
    padded to FD_SNAPIN_DIRECT_ALIGN with a dead record header.  The
-   buffer fills only to FD_SNAPIN_WRITE_BUF_MAX so the padding always
-   fits, even when the gap is too small for a header and must grow by
-   one block. */
+   buffer fills only to FD_SNAPIN_WRITE_BUF_MAX so the header always
+   fits. */
 #define FD_SNAPIN_DIRECT_ALIGN      (4096UL)
 #define FD_SNAPIN_WRITE_BUF_MAX     (FD_SNAPIN_WRITE_BUF_SZ-sizeof(fd_accdb_disk_meta_t))
 
@@ -303,7 +302,7 @@ struct fd_snapin_tile {
   struct {
     uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(FD_SNAPIN_DIRECT_ALIGN)));
     ulong                     buf_used;
-    int                       accdb_direct_fd;  /* O_DIRECT fd to accounts.db; FD_ACCDB_FD_RW stays for fallocate and reads */
+    int                       accdb_direct_fd;  /* O_DIRECT fd to accounts.db */
     fd_snapin_account_batch_t batch;
   } writer;
 
@@ -1148,15 +1147,10 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   /* Pad the range to FD_SNAPIN_DIRECT_ALIGN for O_DIRECT.  The padding
      is a dead record so compaction steps over it. */
   ulong used   = ctx->writer.buf_used;
-  ulong padded = fd_ulong_align_up( used, FD_SNAPIN_DIRECT_ALIGN );
-  ulong pad    = padded-used;
-  if( FD_UNLIKELY( pad && pad<sizeof(fd_accdb_disk_meta_t) ) ) { padded += FD_SNAPIN_DIRECT_ALIGN; pad += FD_SNAPIN_DIRECT_ALIGN; }
+  ulong padded = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
   FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ ); /* guaranteed by FD_SNAPIN_WRITE_BUF_MAX */
-  if( pad ) {
-    fd_memset( ctx->writer.buf+used, 0, pad );
-    fd_accdb_disk_meta_t * pad_meta = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
-    pad_meta->size = (uint)( pad-sizeof(fd_accdb_disk_meta_t) );
-  }
+  fd_memset( ctx->writer.buf+used, 0, padded-used );
+  ((fd_accdb_disk_meta_t *)( ctx->writer.buf+used ))->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
 
   /* Every snapshot reservation is a multiple of FD_SNAPIN_DIRECT_ALIGN
      and partitions start aligned, so the offset is aligned too. */
