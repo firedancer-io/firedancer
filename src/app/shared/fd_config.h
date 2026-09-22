@@ -113,6 +113,7 @@ struct fd_configf {
     uint execle_tile_count;
     uint execrp_tile_count;
     uint snapdc_tile_count;
+    uint snapin_tile_count;
     uint snapzp_tile_count;
     uint snapsv_tile_count;
     uint snapsv_io_worker_count;

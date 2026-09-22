@@ -60,7 +60,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   char const * path = "/test";
 
-  http->hostname = "localhost";
+  fd_cstr_ncpy( http->hostname, "localhost", sizeof(http->hostname) );
   http->is_https = 0;
   http->hops = 4UL;
   http->request_sent = 0UL;

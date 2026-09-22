@@ -41,7 +41,8 @@ fd_sshttp_resolved_hash( fd_sshttp_t const * http );
 
 /* fd_sshttp_init initializes an sshttp connection to the given server.
    addr is the resolved IP address and port.  hostname is a
-   null-terminated string used for the Host header and TLS SNI.
+   null-terminated string used for the Host header and TLS SNI.  The
+   hostname and path are copied; no caller memory is borrowed.
    is_https indicates whether TLS should be used.  path points to the
    URL path of length path_len.  hops is the maximum number of HTTP
    redirects to follow, pass ULONG_MAX to preserve the current hops

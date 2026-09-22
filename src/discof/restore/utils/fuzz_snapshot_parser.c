@@ -315,6 +315,7 @@ LLVMFuzzerTestOneInput( uchar const * const data,
   for (;;) {
     int res = fd_ssparse_advance( ssparse, data_ptr, data_sz, result );
     if( res==FD_SSPARSE_ADVANCE_DONE || res==FD_SSPARSE_ADVANCE_ERROR ) break;
+    if( res==FD_SSPARSE_ADVANCE_APPENDVEC ) fd_ssparse_appendvec_parse( ssparse );
     data_ptr += result->bytes_consumed;
     data_sz  -= result->bytes_consumed;
   }

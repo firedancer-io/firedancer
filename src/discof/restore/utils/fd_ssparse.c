@@ -199,8 +199,10 @@ advance_tar( fd_ssparse_t *                ssparse,
       }
 
       ssparse->account.header_bytes_consumed = 0UL;
-      ssparse->state = FD_SSPARSE_STATE_ACCOUNT_HEADER;
-      break;
+      ssparse->state = FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE;
+      result->appendvec.slot    = ssparse->slot;
+      result->appendvec.data_sz = ssparse->tar.file_bytes;
+      return FD_SSPARSE_ADVANCE_APPENDVEC;
     case FD_SSPARSE_STATE_STATUS_CACHE:
       if( FD_UNLIKELY( ssparse->flags.seen_status_cache ) ) {
         FD_LOG_WARNING(( "unexpected status cache file" ));
@@ -586,4 +588,11 @@ void
 fd_ssparse_batch_enable( fd_ssparse_t * ssparse,
                          int            enabled ) {
   ssparse->batch_enabled = !!enabled;
+}
+
+void
+fd_ssparse_appendvec_parse( fd_ssparse_t * ssparse ) {
+  FD_TEST( ssparse->state==FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE );
+  FD_TEST( !ssparse->tar.file_bytes_consumed                       );
+  ssparse->state = FD_SSPARSE_STATE_ACCOUNT_HEADER;
 }

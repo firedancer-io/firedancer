@@ -22,7 +22,7 @@ connect_pair( fd_sshttp_t * http ) {
   FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM, 0, sv ) );
   FD_TEST( -1!=fcntl( sv[ 0 ], F_SETFL, fcntl( sv[ 0 ], F_GETFL, 0 )|O_NONBLOCK ) );
 
-  http->hostname     = "localhost";
+  fd_cstr_ncpy( http->hostname, "localhost", sizeof(http->hostname) );
   http->is_https     = 0;
   http->hops         = 4UL;
   http->response_len = 0UL;

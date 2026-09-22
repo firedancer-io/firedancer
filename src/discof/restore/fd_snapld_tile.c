@@ -35,6 +35,7 @@ typedef struct fd_snapld_tile {
   } config;
 
   int   state;
+  int   pipeline_ready;
   int   load_full;
   int   load_file;
   int   sent_meta;
@@ -191,7 +192,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
   ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
 
-  ctx->state            = FD_SNAPSHOT_STATE_IDLE;
+  ctx->state          = FD_SNAPSHOT_STATE_IDLE;
+  ctx->pipeline_ready = 0;
 
   ctx->download_speed_mibs = 0.0;
   ctx->bytes_in_batch      = 0UL;
@@ -281,6 +283,10 @@ after_credit( fd_snapld_tile_t *  ctx,
               int *               charge_busy ) {
   if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
     fd_log_sleep( (long)1e6 );
+    return;
+  }
+
+  if( FD_UNLIKELY( !ctx->pipeline_ready ) ) {
     return;
   }
 
@@ -478,6 +484,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->pipeline_ready = 0;
       FD_TEST( sz==sizeof(fd_ssctrl_init_t) && sz<=ctx->out_dc.mtu );
       fd_ssctrl_init_t const * msg_in = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
       ctx->load_full   = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
@@ -489,23 +496,32 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;
-      long now = fd_log_wallclock();
       if( ctx->load_file ) {
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
           FD_LOG_ERR(( "lseek(0) failed on %s snapshot file (%i-%s)",
                        ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
-      } else {
-        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, 4UL, now ) ) ) {
-          transition_malformed( ctx, stem );
-          forward_msg = 0;
-          break;
-        }
       }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
       fd_memcpy( msg_out, msg_in, sz );
       fd_stem_publish( stem, 0UL, sig, ctx->out_dc.chunk, sz, 0UL, 0UL, 0UL );
       ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, ctx->out_dc.mtu, ctx->out_dc.chunk0, ctx->out_dc.wmark );
       forward_msg = 0; // we are forwarding the control message in the `fd_sstrl_init_t` message
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_START: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      if( !ctx->load_file ) {
+        FD_TEST( sz==sizeof(fd_ssctrl_start_t) );
+        fd_ssctrl_start_t const * msg = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
+        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg->addr, msg->hostname, msg->is_https, msg->path, msg->path_len, 4UL, fd_log_wallclock() ) ) ) {
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
+      }
+      ctx->pipeline_ready = 1;
+      forward_msg = 0;
       break;
     }
 
@@ -532,6 +548,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       fd_sshttp_cancel( ctx->sshttp );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      ctx->pipeline_ready = 0;
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
