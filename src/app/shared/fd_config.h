@@ -211,6 +211,27 @@ struct fd_configf {
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
 
+  struct {
+    int    enabled;
+    ulong  members_cnt;
+    char   members[ FD_TOPO_FAILOVER_MEMBER_MAX ][ IP4_PORT_STR_MAX ];
+    ulong  member_junk_pubkeys_cnt;
+    char   member_junk_pubkeys[ FD_TOPO_FAILOVER_MEMBER_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+    char   bind_address[ 64 ];
+    char   junk_identity_path[ PATH_MAX ];
+    char   staked_identity_path[ PATH_MAX ];
+    int    accept_peer_requests;
+    ulong  min_slots_to_leader;
+    ulong  deadline_slots;
+    ulong  catchup_gap_slots;
+    ulong  status_interval_millis;
+    ulong  replication_lag_slots;
+    ulong  peer_silence_intervals;
+    ulong  retry_backoff_min_millis;
+    ulong  retry_backoff_max_millis;
+    int    tower_file;
+  } failover;
+
 };
 
 typedef struct fd_configf fd_configf_t;
@@ -297,6 +318,10 @@ struct fd_config {
   /* The name of the action being executed (e.g. "run", "dev",
      "backtest").  Populated by fd_main before topo_init runs. */
   char action[ 16 ];
+
+  /* First-use authorization.  Not a TOML key, it reaches the tiles only
+     through this launch's config fd. */
+  char failover_first_use[ 45 ];
 
   struct {
     char base[ PATH_MAX ];
@@ -580,6 +605,14 @@ typedef struct fd_config fd_config_t;
 typedef struct fd_config config_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_config_parse_ip_port parses an "ipv4:port" string into out and
+   logs an error naming the config key on any failure. */
+
+void
+fd_config_parse_ip_port( char const *        name,
+                         char const *        ip_port,
+                         fd_topo_ip_port_t * out );
 
 /* fd_config_load() loads a fd_config_t object from the contents of a
    configuration file.  This is not a simple transformation of the file,

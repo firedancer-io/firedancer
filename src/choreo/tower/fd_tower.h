@@ -473,6 +473,8 @@ typedef struct fd_tower_vtr fd_tower_vtr_t;
 struct fd_tower {
   fd_tower_vote_t * votes; /* our local tower's vote deque */
   ulong             root;  /* our local tower's root slot (ULONG_MAX if none) */
+  ulong             saved_root;   /* root restored from the tower file while replay has not reached it, else ULONG_MAX */
+  ulong             restored_tip; /* newest vote slot restored from the tower file, else ULONG_MAX */
 
   ulong              blk_max;   /* max number of blocks */
   ulong              vtr_max;   /* max number of voters */
@@ -493,6 +495,28 @@ struct fd_tower {
   fd_used_acc_scratch_t *     stk_used_acc;
 };
 typedef struct fd_tower fd_tower_t;
+
+/* fd_tower_consensus_root returns the higher of the local root and the
+   root restored from the tower file.  After a restart from a snapshot
+   older than the file, the restored root is the one written into vote
+   transactions and used as the floor by the switch proof and the
+   recency check, until the local root catches up with it through
+   replay.  The local root itself still bounds pruning. */
+static inline ulong
+fd_tower_consensus_root( fd_tower_t const * tower ) {
+  if( tower->saved_root!=ULONG_MAX && ( tower->root==ULONG_MAX || tower->saved_root>tower->root ) ) return tower->saved_root;
+  return tower->root;
+}
+
+/* fd_tower_vote_is_restored returns 1 if the vote at slot came from the
+   tower file.  Restored votes are the oldest in the deque and are bound
+   to blocks by slot, so the checks that assume a vote sits on a block
+   we replayed and voted for take another path for them. */
+static inline int
+fd_tower_vote_is_restored( fd_tower_t const * tower,
+                           ulong              slot ) {
+  return tower->restored_tip!=ULONG_MAX && slot<=tower->restored_tip;
+}
 
 /* fd_tower_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as a tower.
@@ -607,6 +631,18 @@ void
 fd_tower_reconcile( fd_tower_t      * tower,
                     fd_tower_vote_t * onchain_votes,
                     ulong             onchain_root );
+
+/* fd_tower_adopt installs a received tower even when its last vote is
+   behind the local shadow tower.  It truncates votes at the first slot
+   local replay has not completed.  It returns -1 when local replay is
+   not initialized or the received root is ahead, -2 when the received
+   slots do not form one descendant chain, and zero on success.  Errors
+   do not modify tower. */
+
+int
+fd_tower_adopt( fd_tower_t      * tower,
+                fd_tower_vote_t * adopt_votes,
+                ulong             adopt_root );
 
 /* fd_tower_blocks_{query,insert,remove} provide convenient wrappers for
    {querying,inserting,removing} blocks into the tower's block map. */

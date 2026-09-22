@@ -70,6 +70,17 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+  if( FD_UNLIKELY( config->is_firedancer && config->firedancer.failover.enabled ) ) {
+    ulong members_cnt = fd_ulong_min( config->firedancer.failover.members_cnt, FD_TOPO_FAILOVER_MEMBER_MAX );
+    for( ulong i=1UL; i<members_cnt; i++ ) {
+      fd_topo_ip_port_t member;
+      fd_config_parse_ip_port( "failover.members", config->firedancer.failover.members[ i ], &member );
+      if( FD_UNLIKELY( member.port<1024 ) ) {
+        fd_cap_chk_cap(    chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for a failover listener" );
+        break;
+      }
+    }
+  }
 }
 
 struct pidns_clone_args {
@@ -1047,6 +1058,13 @@ run_firedancer_init( config_t * config,
   if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
   else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
 
+  /* Failover boots under the junk identity, so that key has to exist too. */
+  if( FD_UNLIKELY( config->is_firedancer && config->firedancer.failover.enabled ) ) {
+    err = stat( config->firedancer.failover.junk_identity_path, &st );
+    if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[failover.junk_identity_path] key does not exist `%s`. You can generate a key at this path by running `%s keys new %s --config <toml>`", config->firedancer.failover.junk_identity_path, FD_BINARY_NAME, config->firedancer.failover.junk_identity_path ));
+    else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [failover.junk_identity_path] `%s` (%i-%s)", config->firedancer.failover.junk_identity_path, errno, fd_io_strerror( errno ) ));
+  }
+
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
     for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ ) {
       err = stat( config->frankendancer.paths.authorized_voter_paths[ i ], &st );
@@ -1511,6 +1529,14 @@ action_t fd_action_run1 = {
   .args_help   = run1_args_help,
 };
 
+static void
+run_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--failover-first-use", "<staked-pubkey>",
+                      "Authorize one launch of a genuinely new failover voter without a tower file.\n"
+                      "Does not override an invalid file or known voting history. Do not use this\n"
+                      "option to recover a lost tower." );
+}
+
 action_t fd_action_run = {
   .name           = "run",
   .args           = NULL,
@@ -1523,6 +1549,7 @@ action_t fd_action_run = {
                     "sufficient privileges to perform boot-time setup, after which it drops\n"
                     "privileges to the configured user.",
   .usage          = "run [OPTIONS]",
+  .args_help      = run_args_help,
   .permission_err = "insufficient permissions to execute command `%s`. It is recommended "
                     "to start Firedancer as the root user, but you can also start it "
                     "with the missing capabilities listed above. The program only needs "

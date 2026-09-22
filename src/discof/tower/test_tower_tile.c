@@ -4,6 +4,8 @@
 
 #include "fd_tower_tile.c"
 #include "../../disco/topo/fd_topob.h"
+#include "../../util/sandbox/fd_sandbox_private.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 void
 mock_query_voters( fd_tower_tile_t *            ctx,
@@ -13,9 +15,220 @@ mock_query_voters( fd_tower_tile_t *            ctx,
 }
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
+
+static void
+wait_sigsys( pid_t          pid,
+             volatile int * progress,
+             int            expected_progress ) {
+  int status;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFSIGNALED( status ) && WTERMSIG( status )==SIGSYS );
+  FD_TEST( *progress==expected_progress );
+}
+
+static void
+test_tower_seccomp( void ) {
+  char dir[] = "/tmp/fd_tower_seccomp.XXXXXX";
+  FD_TEST( mkdtemp( dir ) );
+  int dirfd = open( dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( dirfd>=0 );
+  int tower_fd = fcntl( dirfd, F_DUPFD_CLOEXEC, 0 );
+  FD_TEST( tower_fd>=0 );
+
+  volatile int * progress = mmap( NULL, 4096UL, PROT_READ|PROT_WRITE,
+                                  MAP_SHARED|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( progress!=MAP_FAILED );
+
+  *progress = 0;
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    struct sock_filter filter[ 128 ];
+    populate_sock_filter_policy_fd_tower_tile( 128UL, filter, (uint)-1, FD_ACCDB_FD_RW );
+    if( prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) __builtin_trap();
+    fd_sandbox_private_set_seccomp_filter( (ushort)sock_filter_policy_fd_tower_tile_instr_cnt, filter );
+    (void)openat( dirfd, "disabled", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, 0600 );
+    *progress = 1;
+    __builtin_trap();
+  }
+  wait_sigsys( pid, progress, 0 );
+
+  *progress = 0;
+  pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    struct sock_filter filter[ 128 ];
+    populate_sock_filter_policy_fd_tower_tile_file( 128UL, filter, (uint)-1, (uint)dirfd, (uint)tower_fd, FD_ACCDB_FD_RW );
+    if( prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) __builtin_trap();
+    fd_sandbox_private_set_seccomp_filter( (ushort)sock_filter_policy_fd_tower_tile_file_instr_cnt, filter );
+    if( close( tower_fd ) ) __builtin_trap();
+    if( unlinkat( dirfd, "enabled.new", 0 ) && errno!=ENOENT ) __builtin_trap();
+    int fd = openat( dirfd, "enabled.new", O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, 0600 );
+    if( fd!=tower_fd ) __builtin_trap();
+    if( write( fd, "tower", 5UL )!=5L ) __builtin_trap();
+    if( fsync( fd ) ) __builtin_trap();
+    if( renameat( dirfd, "enabled.new", dirfd, "enabled" ) ) __builtin_trap();
+    if( fsync( dirfd ) ) __builtin_trap();
+    *progress = 1;
+    (void)syscall( SYS_getpid );
+    __builtin_trap();
+  }
+  wait_sigsys( pid, progress, 1 );
+
+  FD_TEST( !munmap( (void *)progress, 4096UL ) );
+  FD_TEST( !close( tower_fd ) );
+  FD_TEST( !unlinkat( dirfd, "enabled", 0 ) );
+  FD_TEST( !close( dirfd ) );
+  FD_TEST( !rmdir( dir ) );
+}
+
+static void
+file_test_sign( void *        keypair,
+                uchar         sig[ 64 ],
+                uchar const * msg,
+                ulong         msg_sz ) {
+  fd_sha512_t sha[ 1 ];
+  uchar const * key = (uchar const *)keypair;
+  uchar         m[ FD_KEYGUARD_TOWER_FILE_MSG_SZ ];
+  fd_tower_file_sign_msg( msg, msg_sz, m );
+  fd_ed25519_sign( sig, m, sizeof(m), key+32UL, key, sha );
+}
+
+static void
+test_tower_file_load( void ) {
+  char base[] = "/tmp/fd_tower_load.XXXXXX";
+  FD_TEST( mkdtemp( base ) );
+  int dir = open( base, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
+  FD_TEST( dir>=0 );
+  uchar keypair[ 64 ];
+  fd_memset( keypair, 0x42, 32UL );
+  fd_sha512_t sha[ 1 ];
+  fd_ed25519_public_from_private( keypair+32UL, keypair, sha );
+  fd_pubkey_t identity;
+  fd_memcpy( &identity, keypair+32UL, 32UL );
+  fd_tower_file_t out;
+  FD_TEST( !tower_file_load( dir, &identity, &out ) );
+
+  static uchar deque_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  fd_tower_vote_t * votes = fd_tower_vote_join( fd_tower_vote_new( deque_mem ) );
+  fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot=101UL, .conf=1UL } );
+  fd_hash_t hash = { .ul={101UL} };
+  uchar buf[ FD_TOWER_FILE_MAX ];
+  long sz = fd_tower_file_ser( votes, 100UL, &hash, &hash, 77L, &identity, file_test_sign, keypair, buf, sizeof(buf) );
+  FD_TEST( sz>0 );
+  char name[ 64 ], name_new[ 64 ];
+  tower_file_names( &identity, name, name_new );
+  int fd = openat( dir, name, O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC, 0600 );
+  FD_TEST( fd>=0 );
+  ulong written;
+  FD_TEST( !fd_io_write( fd, buf, (ulong)sz, (ulong)sz, &written ) );
+  FD_TEST( 1==tower_file_load( dir, &identity, &out ) );
+  FD_TEST( out.votes_cnt==1UL && out.votes[ 0 ].slot==101UL && out.root==100UL );
+  FD_TEST( fd_memeq( &out.bank_hash, &hash, sizeof(hash) ) );
+
+  buf[ 100 ] ^= 1U;
+  FD_TEST( pwrite( fd, buf, (ulong)sz, 0 )==sz );
+  FD_TEST( -1==tower_file_load( dir, &identity, &out ) );
+  FD_TEST( !ftruncate( fd, 0 ) );
+  FD_TEST( -1==tower_file_load( dir, &identity, &out ) );
+  FD_TEST( !ftruncate( fd, (off_t)(FD_TOWER_FILE_MAX+1UL) ) );
+  FD_TEST( -1==tower_file_load( dir, &identity, &out ) );
+  FD_TEST( !close( fd ) );
+  FD_TEST( !unlinkat( dir, name, 0 ) );
+  FD_TEST( !symlinkat( "missing-target", dir, name ) );
+  FD_TEST( -1==tower_file_load( dir, &identity, &out ) );
+  FD_TEST( !unlinkat( dir, name, 0 ) );
+  FD_TEST( !mkfifoat( dir, name, 0600 ) );
+  FD_TEST( -1==tower_file_load( dir, &identity, &out ) );
+  FD_TEST( !unlinkat( dir, name, 0 ) );
+  FD_TEST( !mkdirat( dir, name, 0700 ) );
+  FD_TEST( -1==tower_file_load( dir, &identity, &out ) );
+  FD_TEST( !unlinkat( dir, name, AT_REMOVEDIR ) );
+  FD_TEST( !close( dir ) );
+  FD_TEST( !rmdir( base ) );
+  FD_LOG_NOTICE(( "pass: verified tower load, missing, corrupt, empty, oversized and non-regular files" ));
+}
+
+static void
+test_tower_file_store( void ) {
+  char base[] = "/tmp/fd_tower_file.XXXXXX";
+  FD_TEST( mkdtemp( base ) );
+  char tower_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( tower_path, sizeof(tower_path), NULL, "%s/tower", base ) );
+  FD_TEST( !mkdir( tower_path, 0755 ) );
+  FD_TEST( !chmod( tower_path, 0755 ) );
+
+  static fd_tower_tile_t ctx[1];
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->tower_dir_fd = tower_file_dir_open( base );
+  FD_TEST( ctx->tower_dir_fd>=0 );
+  struct stat st;
+  FD_TEST( !fstat( ctx->tower_dir_fd, &st ) );
+  FD_TEST( S_ISDIR( st.st_mode ) && (st.st_mode & 07777U)==0700U );
+  ctx->tower_file_fd = fcntl( ctx->tower_dir_fd, F_DUPFD_CLOEXEC, 0 );
+  FD_TEST( ctx->tower_file_fd>=0 );
+  int const tower_file_fd = ctx->tower_file_fd;
+
+  fd_memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
+  char first_name[ 64 ];
+  char first_new[ 64 ];
+  tower_file_names( ctx->identity_key, first_name, first_new );
+  uchar const first[] = { 1U, 2U, 3U };
+  tower_file_store( ctx, ctx->identity_key, first, sizeof(first) );
+  FD_TEST( ctx->tower_file_fd==tower_file_fd );
+
+  int fd = openat( ctx->tower_dir_fd, first_name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( fd>=0 );
+  uchar buf[ 4 ];
+  FD_TEST( read( fd, buf, sizeof(buf) )==(long)sizeof(first) );
+  FD_TEST( fd_memeq( buf, first, sizeof(first) ) );
+  FD_TEST( !close( fd ) );
+  FD_TEST( faccessat( ctx->tower_dir_fd, first_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+
+  uchar const replacement[] = { 7U, 8U, 9U, 10U };
+  tower_file_store( ctx, ctx->identity_key, replacement, sizeof(replacement) );
+  FD_TEST( ctx->tower_file_fd==tower_file_fd );
+  fd = openat( ctx->tower_dir_fd, first_name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( fd>=0 );
+  FD_TEST( read( fd, buf, sizeof(buf) )==(long)sizeof(replacement) );
+  FD_TEST( fd_memeq( buf, replacement, sizeof(replacement) ) );
+  FD_TEST( !close( fd ) );
+  FD_TEST( faccessat( ctx->tower_dir_fd, first_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+
+  fd_memset( ctx->identity_key, 0x22, sizeof(fd_pubkey_t) );
+  char second_name[ 64 ];
+  char second_new[ 64 ];
+  tower_file_names( ctx->identity_key, second_name, second_new );
+  uchar const second[] = { 4U, 5U };
+  tower_file_store( ctx, ctx->identity_key, second, sizeof(second) );
+  FD_TEST( ctx->tower_file_fd==tower_file_fd );
+
+  fd = openat( ctx->tower_dir_fd, first_name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( fd>=0 );
+  FD_TEST( read( fd, buf, sizeof(buf) )==(long)sizeof(replacement) );
+  FD_TEST( fd_memeq( buf, replacement, sizeof(replacement) ) );
+  FD_TEST( !close( fd ) );
+  fd = openat( ctx->tower_dir_fd, second_name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( fd>=0 );
+  FD_TEST( read( fd, buf, sizeof(buf) )==(long)sizeof(second) );
+  FD_TEST( fd_memeq( buf, second, sizeof(second) ) );
+  FD_TEST( !close( fd ) );
+  FD_TEST( faccessat( ctx->tower_dir_fd, second_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+
+  FD_TEST( !close( ctx->tower_file_fd ) );
+  FD_TEST( !unlinkat( ctx->tower_dir_fd, first_name, 0 ) );
+  FD_TEST( !unlinkat( ctx->tower_dir_fd, second_name, 0 ) );
+  FD_TEST( !close( ctx->tower_dir_fd ) );
+  FD_TEST( !rmdir( tower_path ) );
+  FD_TEST( !rmdir( base ) );
+}
 
 /* mock_vote_txn builds a vote transaction from a tower.  Constructs an
    fd_tower_t with the given (slot, conf) pairs, serializes it via
@@ -81,6 +294,121 @@ mock_vote_account( fd_pubkey_t const * node_pubkey,
 }
 
 static void
+test_first_use_history( void ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static uchar votes_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->scratch_tower = fd_tower_vote_join( fd_tower_vote_new( votes_mem ) );
+  ctx->our_vote_acct_sz = mock_vote_account( ctx->identity_key, ctx->identity_key, ctx->our_vote_acct );
+  tower_first_use_check( ctx, ULONG_MAX );
+
+  for( int test_case=0; test_case<5; test_case++ ) {
+    pid_t pid = fork();
+    FD_TEST( pid>=0 );
+    if( !pid ) {
+      ulong root = ULONG_MAX;
+      if( test_case==0 ) root = 0UL; /* slot zero is real history */
+      if( test_case==1 ) fd_tower_vote_push_tail( ctx->scratch_tower, (fd_tower_vote_t){ .slot=1UL, .conf=1UL } );
+      if( test_case==2 ) ctx->our_vote_acct_sz = 1UL;
+      if( test_case==3 || test_case==4 ) {
+        fd_vote_state_versioned_t vsv[ 1 ];
+        FD_TEST( fd_vote_state_versioned_deserialize( vsv, ctx->our_vote_acct, ctx->our_vote_acct_sz ) );
+        if( test_case==3 ) vsv->v3.last_timestamp.slot = 1UL;
+        else deq_fd_vote_epoch_credits_t_push_tail( vsv->v3.epoch_credits, (fd_vote_epoch_credits_t){0} );
+        FD_TEST( !fd_vote_state_versioned_serialize( vsv, ctx->our_vote_acct, ctx->our_vote_acct_sz ) );
+      }
+      tower_first_use_check( ctx, root );
+      _exit( 0 );
+    }
+    int status;
+    FD_TEST( waitpid( pid, &status, 0 )==pid );
+    FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )!=0 );
+  }
+  FD_LOG_NOTICE(( "pass: first-use rejects root, votes, malformed account, timestamp and credits" ));
+}
+
+static void
+test_recovery_unhalt( void ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static fd_keyswitch_t identity[ 1 ];
+  static fd_keyswitch_t voter[ 1 ];
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->identity_keyswitch = fd_keyswitch_join( fd_keyswitch_new( identity, FD_KEYSWITCH_STATE_UNHALT_PENDING ) );
+  ctx->auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( voter, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx->halt_signing       = 1;
+  ctx->recovery_pending   = 1;
+  during_housekeeping( ctx );
+  FD_TEST( !ctx->halt_signing && ctx->recovery_pending );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED );
+  fd_keyswitch_state( voter, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  voter->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
+  during_housekeeping( ctx );
+  FD_TEST( !ctx->halt_signing && ctx->recovery_pending );
+  FD_LOG_NOTICE(( "pass: identity and voter unhalt cannot bypass tower recovery" ));
+}
+
+/* The standby flag is set at boot and only a switch to the staked key
+   clears it. */
+static void
+test_failover_standby_follows_the_key( void ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static fd_keyswitch_t identity[ 1 ];
+  static fd_keyswitch_t voter[ 1 ];
+  fd_pubkey_t staked, junk;
+  fd_memset( &staked, 0x5A, sizeof(staked) );
+  fd_memset( &junk,   0x11, sizeof(junk) );
+
+  static uchar publishes_mem[ 65536 ] __attribute__((aligned(128)));
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->identity_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( identity, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx->auth_vtr_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( voter, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx->publishes                = publishes_join( publishes_new( publishes_mem, 2UL ) );
+  FD_TEST( ctx->publishes );
+  ctx->failover_enabled         = 1;
+  ctx->failover_staked_identity = staked;
+  *ctx->identity_key            = junk;
+  ctx->failover_standby         = 1;
+
+  /* Promotion installs the staked key, so this machine is the voter. */
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !ctx->failover_standby && ctx->halt_signing );
+
+  /* Demotion installs the junk key, so it is a hot spare again. */
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( ctx );
+  fd_memcpy( identity->bytes, junk.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( ctx->failover_standby );
+
+  /* A vote the last replay queued holds the switch until it drains, so the
+     halt watermark sits past it. */
+  ctx->out_seq = 5UL;
+  publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_DONE } );
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_SWITCH_PENDING && ctx->halt_signing );
+  publishes_pop_head_nocopy( ctx->publishes );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED && ctx->identity_keyswitch->result==5UL );
+
+  /* Without failover the identity switch does not touch the flag. */
+  ctx->failover_enabled = 0;
+  ctx->failover_standby = 0;
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( ctx );
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( !ctx->failover_standby );
+  FD_LOG_NOTICE(( "pass: the hot spare latch follows the identity the switch installs" ));
+}
+
+static void
 test_publish_slot_done_identity_mismatch( void ) {
   static fd_tower_tile_t ctx[1];
   static uchar tower_mem[ 65536 ] __attribute__((aligned(128)));
@@ -135,6 +463,24 @@ test_publish_slot_done_identity_mismatch( void ) {
   FD_TEST( pub->msg.slot_done.authority_idx==ULONG_MAX );
   FD_TEST( pub->msg.slot_done.vote_acct_com==10000U );
   publishes_pop_head_nocopy( ctx->publishes );
+
+  /* Pending recovery blocks the vote but leaves is_voting set.  No
+     vote txn and no tower file, even though signing is not halted. */
+  ctx->recovery_pending = 1;
+  ctx->halt_signing = 0;
+  publish_slot_done( ctx, &sc, &out, 1, 100UL, 10000U, 0UL, NULL );
+  pub = publishes_peek_head( ctx->publishes );
+  FD_TEST( pub->msg.slot_done.is_voting==1 );
+  FD_TEST( pub->msg.slot_done.has_vote_txn==0 && !ctx->tower_file_sz );
+  publishes_pop_head_nocopy( ctx->publishes );
+  ctx->recovery_pending = 0;
+
+  ctx->failover_standby = 1;
+  publish_slot_done( ctx, &sc, &out, 1, 100UL, 10000U, 0UL, NULL );
+  pub = publishes_peek_head( ctx->publishes );
+  FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
+  publishes_pop_head_nocopy( ctx->publishes );
+  ctx->failover_standby = 0;
 
   /* Matching identity but no votable slot: voter with no vote txn */
   fd_tower_out_t out_no_vote = out;
@@ -488,7 +834,8 @@ mock_topo_with_accdb( fd_wksp_t *      wksp,
 }
 
 static void
-test_fixture_replay( fd_wksp_t * wksp ) {
+test_fixture_replay( fd_wksp_t * wksp,
+                     int         recover ) {
 
   /* Use scratch_footprint to compute the exact allocation size needed,
      matching the production init path.  We construct a mock
@@ -521,8 +868,8 @@ test_fixture_replay( fd_wksp_t * wksp ) {
 
   /* Set fields normally handled by privileged_init. */
 
-  ctx->checkpt_fd = -1;
-  ctx->restore_fd = -1;
+  ctx->tower_dir_fd  = -1;
+  ctx->tower_file_fd = -1;
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
 
@@ -530,6 +877,20 @@ test_fixture_replay( fd_wksp_t * wksp ) {
 
   ulong start_slot = 398915634UL;
   ulong num_slots  = 32UL;
+  if( recover ) {
+    ctx->recovery.saved = (fd_tower_file_t){
+      .votes = { { .slot=start_slot+1UL, .conf=3UL }, { .slot=start_slot+2UL, .conf=2UL }, { .slot=start_slot+3UL, .conf=1UL } },
+      .votes_cnt = 3UL,
+      .root = start_slot,
+      .bank_hash = { .ul={start_slot+3UL} },
+      .block_id = { .ul={start_slot+3UL} },
+    };
+    ctx->recovery.snapshot_slot = start_slot;
+    ctx->recovery.retained_cnt  = 3UL;   /* every saved vote is newer than the snapshot */
+    ctx->recovery_pending       = 0;
+    ctx->recovery_initialized   = 1;     /* snapshot sysvars are tested separately */
+    num_slots = 4UL;
+  }
 
   fd_vote_stake_weight_t fixture_stakes[1] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
   ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, start_slot - 1, num_slots + MOCK_SLOT_MAX + 100, 1UL, fixture_stakes ) );
@@ -550,6 +911,24 @@ test_fixture_replay( fd_wksp_t * wksp ) {
     sc.is_leader        = 0;
 
     replay_slot_completed( ctx, &sc, 0UL, NULL );
+    if( recover ) {
+      publish_t * pub = publishes_peek_head( ctx->publishes );
+      FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
+      FD_TEST( pub->msg.slot_done.vote_slot==ULONG_MAX && !pub->msg.slot_done.has_vote_txn );
+      FD_TEST( !ctx->halt_signing );
+      if( slot==start_slot ) {
+        /* The tile installs the retained votes at the snapshot slot,
+           once the tower is rooted there.  They are lockouts without
+           block identity until replay reaches them. */
+        fd_tower_recover_install( &ctx->recovery, ctx->tower );
+      } else {
+        FD_TEST( fd_tower_vote_cnt( ctx->tower->votes )==3UL );
+        for( ulong i=0UL; i<3UL; i++ )
+          FD_TEST( fd_memeq( fd_tower_vote_peek_index_const( ctx->tower->votes, i ), &ctx->recovery.saved.votes[ i ], sizeof(fd_tower_vote_t) ) );
+        fd_tower_blk_t * blk = fd_tower_blocks_query( ctx->tower, slot );
+        FD_TEST( blk && blk->voted && blk->voted_block_id.ul[ 0 ]==slot );
+      }
+    }
   }
 
   /* Verify: init flag set after first slot. */
@@ -579,7 +958,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
     FD_TEST( fd_ghost_query( ctx->ghost, &bid ) );
   }
 
-  FD_LOG_NOTICE(( "pass: test_fixture_replay" ));
+  FD_LOG_NOTICE(( "pass: test_fixture_replay (recovery=%d)", recover ));
 }
 
 /* ---- eqvoc ordering tests ----
@@ -637,8 +1016,8 @@ eqvoc_setup( fd_wksp_t * wksp ) {
   fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
   FD_TEST( ctx );
 
-  ctx->checkpt_fd = -1;
-  ctx->restore_fd = -1;
+  ctx->tower_dir_fd  = -1;
+  ctx->tower_file_fd = -1;
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
 
@@ -883,11 +1262,165 @@ test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_eqvoc_cre_diff" ));
 }
 
+static void
+test_failover_adopt_tower( fd_wksp_t * wksp ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static uchar scratch_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  void * tower_mem   = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
+  ctx->tower         = fd_tower_join( fd_tower_new( tower_mem, 64UL, 2UL, 0UL ) );
+  ctx->scratch_tower = fd_tower_vote_join( fd_tower_vote_new( scratch_mem ) );
+  FD_TEST( ctx->tower && ctx->scratch_tower );
+  ctx->tower->root = 1UL;
+
+  for( ulong slot=2UL; slot<=3UL; slot++ ) {
+    fd_tower_blk_t * blk  = fd_tower_blocks_insert( ctx->tower, slot, slot-1UL );
+    blk->replayed          = 1;
+    blk->replayed_block_id = (fd_hash_t){ .ul={ slot } };
+    blk->bank_hash         = (fd_hash_t){ .ul={ slot+10UL } };
+  }
+
+  /* The tile advances the fork choice root alongside the tower root, so
+     give the test a ghost that matches the replayed chain 1 -> 2 -> 3. */
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( 64UL, 2UL ), 1UL );
+  ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( ctx->ghost );
+  fd_ghost_init( ctx->ghost, 0UL, 1UL, &(fd_hash_t){ .ul={ 1UL } } );
+  for( ulong slot=2UL; slot<=3UL; slot++ )
+    FD_TEST( fd_ghost_insert( ctx->ghost, 0UL, slot, &(fd_hash_t){ .ul={ slot } }, &(fd_hash_t){ .ul={ slot-1UL } } ) );
+
+  fd_compact_tower_sync_serde_t serde;
+  fd_memset( &serde, 0, sizeof(serde) );
+  serde.root         = 1UL;
+  serde.lockouts_cnt = 2U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=2U };
+  serde.lockouts[ 1 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash     = fd_tower_blocks_query( ctx->tower, 3UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
+
+  uchar buf[ 512UL ];
+  ulong buf_sz;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  fd_tower_adopt_result_t result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==1UL && result.vote_slot==3UL );
+
+  serde.block_id.uc[ 0 ] ^= 1U;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH );
+  FD_TEST( result.root==1UL && result.vote_slot==3UL );
+
+  serde.block_id.uc[ 0 ] ^= 1U;
+  serde.hash.uc[ 0 ] ^= 1U;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH );
+  FD_TEST( result.root==1UL && result.vote_slot==3UL );
+
+  serde.hash.uc[ 0 ] ^= 1U;
+  serde.lockouts[ 1 ].offset = 2UL;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+
+  fd_tower_blk_t * blk4  = fd_tower_blocks_insert( ctx->tower, 4UL, 1UL );
+  blk4->replayed          = 1;
+  blk4->replayed_block_id = (fd_hash_t){ .ul={ 4UL } };
+  blk4->bank_hash         = (fd_hash_t){ .ul={ 14UL } };
+  serde.hash              = blk4->bank_hash;
+  serde.block_id          = blk4->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH );
+  FD_TEST( result.root==1UL && result.vote_slot==2UL );
+
+  serde.root = 9UL;
+  serde.lockouts_cnt = 1U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT );
+  FD_TEST( result.root==1UL && result.vote_slot==2UL );
+
+  result = failover_adopt_tower( ctx, buf, buf_sz-1UL );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_DECODE );
+  FD_TEST( result.root==1UL && result.vote_slot==2UL );
+
+  serde.root = 1UL;
+  serde.lockouts[ 0 ].confirmation_count = 0U;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_INVALID );
+  FD_TEST( result.root==1UL && result.vote_slot==2UL );
+
+  /* The votes the local tower holds were cast under the junk identity, so
+     a tower that ends before them is still taken.  Take the tower back to
+     slot 3, then offer one that ends at 2. */
+  serde.root          = 1UL;
+  serde.lockouts_cnt  = 2U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=2U };
+  serde.lockouts[ 1 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash     = fd_tower_blocks_query( ctx->tower, 3UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==3UL );
+  serde.lockouts_cnt  = 1U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash     = fd_tower_blocks_query( ctx->tower, 2UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 2UL )->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+
+  /* One that ends before the signed file verified at boot is refused, the
+     identity signed past it here.  A file that ends at the same slot is
+     no objection, and neither is a file that was not verified. */
+  ctx->tower_file_loaded         = 1;
+  ctx->recovery.saved.votes_cnt  = 1UL;
+  ctx->recovery.saved.votes[ 0 ] = (fd_tower_vote_t){ .slot=5UL, .conf=1UL };
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_STALE && result.vote_slot==2UL );
+  ctx->recovery.saved.votes[ 0 ].slot = 2UL;
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+  ctx->recovery.saved.votes[ 0 ].slot = 5UL;
+  ctx->tower_file_loaded = 0;
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+
+  /* A promotion whose tower root is ahead of ours advances the fork choice
+     root too.  Without it a later replay would walk ghost ancestry the
+     tower has already dropped and the tile would stop. */
+  serde.root          = 2UL;
+  serde.lockouts_cnt  = 1U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash     = fd_tower_blocks_query( ctx->tower, 3UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  FD_TEST( fd_ghost_root( ctx->ghost )->slot==1UL );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==2UL && result.vote_slot==3UL );
+  FD_TEST( fd_ghost_root( ctx->ghost )->slot==2UL );    /* the fork choice root advanced with the tower root */
+  FD_TEST( !fd_tower_blocks_query( ctx->tower, 1UL ) ); /* tower ancestry below the new root is gone */
+  FD_TEST( ctx->epoch_refresh_pending );                /* the epoch voter caches refresh on the next completed slot */
+
+  fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ctx->ghost ) ) );
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( ctx->tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_failover_adopt_tower" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  test_tower_seccomp();
+  test_tower_file_store();
+  test_tower_file_load();
+  test_first_use_history();
+  test_recovery_unhalt();
+  test_failover_standby_follows_the_key();
   test_publish_slot_done_identity_mismatch();
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();
@@ -898,7 +1431,9 @@ main( int     argc,
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_fixture_replay( wksp );
+  test_failover_adopt_tower( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_fixture_replay( wksp, 0 );
+  fd_wksp_reset( wksp, 1UL ); test_fixture_replay( wksp, 1 );
 
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_same( wksp );
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_rec_same( wksp );

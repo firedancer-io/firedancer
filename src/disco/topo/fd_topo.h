@@ -243,7 +243,37 @@ struct fd_topo_tile {
 
     struct {
       char identity_key_path[ PATH_MAX ];
+      char failover_staked_identity_path[ PATH_MAX ];
+      int  failover_enabled;
+      int  tower_file_enabled;
     } admin;
+
+/* The failover pool is one active plus its hot spares. */
+#define FD_TOPO_FAILOVER_MEMBER_MAX (8UL)
+    struct {
+      char              identity_key_path[ PATH_MAX ];
+      char              junk_identity_path[ PATH_MAX ];
+      char              staked_identity_path[ PATH_MAX ];
+      char              vote_account_path[ PATH_MAX ];
+      char              base_path[ PATH_MAX ];
+      uint              target_uid;
+      uint              target_gid;
+      int               role_file_sandboxed; /* the reserved descriptor number is fixed by seccomp */
+      uint              bind_addr;
+      ulong             member_cnt;
+      fd_topo_ip_port_t member[ FD_TOPO_FAILOVER_MEMBER_MAX ];
+      uchar             member_junk_pubkey[ FD_TOPO_FAILOVER_MEMBER_MAX ][ 32 ];
+      int               accept_peer_requests;
+      ulong             min_slots_to_leader;
+      ulong             deadline_slots;
+      ulong             catchup_gap_slots;
+      ulong             status_interval_millis;
+      ulong             replication_lag_slots;
+      ulong             peer_silence_intervals;
+      ulong             retry_backoff_min_millis;
+      ulong             retry_backoff_max_millis;
+      ulong             cfg_hash;
+    } failov;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
 
@@ -647,6 +677,11 @@ struct fd_topo_tile {
       char  vote_account[ PATH_MAX ];
       char  base_path[PATH_MAX];
       ulong max_shreds_per_block;
+      int   tower_file;
+      int   tower_file_sandboxed; /* the reserved descriptor number is fixed by seccomp, threads share the table */
+      int   failover_enabled;
+      char  failover_staked_identity_path[ PATH_MAX ];
+      char  failover_first_use[ 45 ];
     } tower;
 
     struct {
@@ -883,6 +918,7 @@ typedef struct {
   ulong (*max_event_sz            )( fd_topo_tile_t const * tile );
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );
+  int   (*populate_allowed_write_path_fd)( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   ulong (*scratch_align           )( void );
   ulong (*scratch_footprint       )( fd_topo_tile_t const * tile );
   ulong (*loose_footprint         )( fd_topo_tile_t const * tile );

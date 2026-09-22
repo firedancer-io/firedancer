@@ -1,0 +1,44 @@
+# logfile_fd: optional log file descriptor
+# tower_dir_fd: directory containing tower files
+# tower_file_fd: stable descriptor used for each temporary tower file
+# accounts_fd: accounts database descriptor
+uint logfile_fd, uint tower_dir_fd, uint tower_file_fd, uint accounts_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+#
+# tower_file_store requires write
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd)
+           (eq (arg 0) tower_file_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+# tower: always fsync the tower file and directory to disk immediately.
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (or (eq (arg 0) logfile_fd)
+           (eq (arg 0) tower_file_fd)
+           (eq (arg 0) tower_dir_fd))
+
+# tower_file_store requires close, openat, unlinkat, and renameat
+close: (eq (arg 0) tower_file_fd)
+
+# O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, mode 0600
+openat: (and (eq (arg 0) tower_dir_fd)
+             (eq (arg 2) 0x000a00c1)
+             (eq (arg 3) 0x00000180))
+
+unlinkat: (and (eq (arg 0) tower_dir_fd)
+               (eq (arg 2) 0))
+
+renameat: (and (eq (arg 0) tower_dir_fd)
+               (eq (arg 2) tower_dir_fd))
+
+pwritev2: (eq (arg 0) accounts_fd)
+
+preadv2: (eq (arg 0) accounts_fd)
+
+fallocate: (and (eq (arg 0) accounts_fd)
+                (eq (arg 1) 0))

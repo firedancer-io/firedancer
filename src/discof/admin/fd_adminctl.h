@@ -37,6 +37,8 @@
 #define FD_ADMINCTL_CMD_GET_IDENTITY           (3UL)
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
+#define FD_ADMINCTL_CMD_FAILOVER_STATUS        (6UL)
+#define FD_ADMINCTL_CMD_FAILOVER_CONTROL       (7UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
@@ -102,6 +104,152 @@ struct fd_adminctl_remove_all_auth_voters_v1 {
 };
 typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth_voters_t;
 #define FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION (1UL)
+
+struct fd_adminctl_failover_status_req_v1 {
+  ulong version;  /* ==FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION */
+  ulong peer_idx; /* which pool peer to report, in member list order without this machine */
+};
+typedef struct fd_adminctl_failover_status_req_v1 fd_adminctl_failover_status_req_t;
+
+struct fd_adminctl_failover_status_resp_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION */
+  uchar enabled;
+  uchar role;
+  uchar link_state;           /* FD_FAILOVER_SESSION_* of the reported peer */
+  uchar peer_role;
+  uchar peer_status_valid;
+  uchar pool_healthy;        /* 1 when readiness_reason is POOL_HEALTHY */
+  uchar readiness_reason;    /* FD_FAILOVER_READINESS_* */
+  uchar member_cnt;          /* pool size including this machine */
+  ulong term;
+  ulong peer_term;
+  uint  status;
+  uint  peer_status;
+  uchar flags;
+  uchar peer_flags;
+  uchar self_idx;            /* this machine's place in the member list */
+  uchar peer_idx;            /* the reported peer, in member list order without this machine */
+  uchar peers_paired;        /* peers with an authenticated session right now */
+  uchar reserved[ 3 ];
+  ulong peer_status_age_nanos;
+  ulong replication_lag_slots; /* ULONG_MAX until measured */
+  ulong rtt_nanos;             /* 0 until measured */
+  ulong replay_slot;           /* ULONG_MAX until observed */
+  ulong root_slot;
+  ulong turbine_slot;
+  ulong next_leader_slot;
+  ulong last_vote_slot;
+  ulong peer_replay_slot;
+  ulong peer_root_slot;
+  ulong peer_turbine_slot;
+  ulong peer_next_leader_slot;
+  ulong peer_last_vote_slot;
+  ulong frames_sent;
+  ulong frames_received;
+  ulong tls_failures;
+  ulong wire_failures;
+  ulong hello_rejections;
+  ulong connection_attempts;
+  ulong sessions_paired;
+  ulong pending_handshakes;
+  ulong admission_drops;
+  ulong handshake_timeouts;
+};
+typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_resp_t;
+#define FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION (1UL)
+
+#define FD_FAILOVER_READINESS_POOL_HEALTHY      (0U)
+#define FD_FAILOVER_READINESS_LINK_DOWN         (1U)
+#define FD_FAILOVER_READINESS_STATUS_STALE      (2U)
+#define FD_FAILOVER_READINESS_ROLE_CONFLICT     (3U)
+#define FD_FAILOVER_READINESS_ACTIVE_UNHEALTHY  (4U)
+#define FD_FAILOVER_READINESS_STANDBY_UNHEALTHY (5U)
+#define FD_FAILOVER_READINESS_STANDBY_BEHIND    (6U)
+#define FD_FAILOVER_READINESS_CNT               (8U)
+
+#define FD_FAILOVER_READINESS_DISABLED          (7U)
+
+/* handoff and drill talk to the peer, demote and promote are local, pause
+   and resume block and unblock transitions. */
+#define FD_ADMINCTL_FAILOVER_CMD_HANDOFF (0UL)
+#define FD_ADMINCTL_FAILOVER_CMD_DRILL   (1UL)
+#define FD_ADMINCTL_FAILOVER_CMD_DEMOTE  (2UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PROMOTE (3UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PAUSE   (4UL)
+#define FD_ADMINCTL_FAILOVER_CMD_RESUME  (5UL)
+#define FD_ADMINCTL_FAILOVER_CMD_CNT     (6UL)
+
+struct fd_adminctl_failover_control_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION */
+  ulong cmd;     /* FD_ADMINCTL_FAILOVER_CMD_* */
+  uchar force;   /* promote even if the peer is unreachable, still needs its
+                    demotion confirmation */
+  uchar reserved[ 7 ];
+  uchar staked_pubkey[ 32 ]; /* required with force, as a safety check */
+};
+
+typedef struct fd_adminctl_failover_control_v1 fd_adminctl_failover_control_t;
+
+struct fd_adminctl_failover_control_resp_v1 {
+  ulong version;
+  ulong term;
+  uchar state; /* FD_FAILOVER_STATE_* after the command was applied */
+  uchar role;  /* FD_FAILOVER_ROLE_* */
+  uchar paused;
+  uchar reserved[ 5 ];
+};
+
+typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control_resp_t;
+#define FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION (1UL)
+
+/* failover-control result codes, they say why a command was refused. */
+#define FD_FAILOVER_CONTROL_RESULT_DISABLED      (0x5001UL)
+#define FD_FAILOVER_CONTROL_RESULT_BAD_ROLE      (0x5002UL)
+#define FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED    (0x5003UL)
+#define FD_FAILOVER_CONTROL_RESULT_BUSY          (0x5004UL)
+#define FD_FAILOVER_CONTROL_RESULT_PAUSED        (0x5005UL)
+#define FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE   (0x5006UL)
+#define FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY  (0x5007UL)
+#define FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED   (0x5008UL)
+#define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY  (0x5009UL) /* the spare's last status says it cannot take the identity */
+
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_t     )<=FD_ADMINCTL_PAYLOAD_MAX, failover_control_req_fits  );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_control_resp_fits );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_t     )==56UL, failover_control_req_v1_layout  );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_control_resp_v1_layout );
+
+#define FD_FAILOVER_STATUS_RESULT_BUSY          (0x4001UL)
+#define FD_FAILOVER_STATUS_RESULT_UNRESPONSIVE  (0x4002UL)
+#define FD_FAILOVER_STATUS_RESULT_NO_SUCH_PEER  (0x4003UL)
+
+/* fd_adminctl_failover_status_resp_init stamps the version and every
+   unknown field.  Both the admin tile, for a validator with failover
+   off, and the failover tile, before it fills the live values, start
+   here. */
+
+static inline void
+fd_adminctl_failover_status_resp_init( fd_adminctl_failover_status_resp_t * resp ) {
+  fd_memset( resp, 0, sizeof(*resp) );
+  resp->version               = FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION;
+  resp->readiness_reason      = (uchar)FD_FAILOVER_READINESS_DISABLED;
+  resp->peer_status_age_nanos = ULONG_MAX;
+  resp->replication_lag_slots = ULONG_MAX;
+  resp->replay_slot           = ULONG_MAX;
+  resp->root_slot             = ULONG_MAX;
+  resp->turbine_slot          = ULONG_MAX;
+  resp->next_leader_slot      = ULONG_MAX;
+  resp->last_vote_slot        = ULONG_MAX;
+  resp->peer_replay_slot      = ULONG_MAX;
+  resp->peer_root_slot        = ULONG_MAX;
+  resp->peer_turbine_slot     = ULONG_MAX;
+  resp->peer_next_leader_slot = ULONG_MAX;
+  resp->peer_last_vote_slot   = ULONG_MAX;
+}
+
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_req_t )<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_req_fits );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_resp_fits );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_req_t )==16UL, failover_status_req_v1_layout );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)==232UL, failover_status_resp_v1_layout );
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 

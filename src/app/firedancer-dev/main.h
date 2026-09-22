@@ -109,6 +109,7 @@ extern fd_topo_run_tile_t fd_tile_udpecho;
 extern fd_topo_run_tile_t fd_tile_genesi;
 extern fd_topo_run_tile_t fd_tile_ipecho;
 extern fd_topo_run_tile_t fd_tile_admin;
+extern fd_topo_run_tile_t fd_tile_failov;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
@@ -187,6 +188,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_genesi,
   &fd_tile_ipecho,
   &fd_tile_admin,
+  &fd_tile_failov,
   &fd_tile_solcap,
   &fd_tile_snapmk,
   &fd_tile_snapzp,
@@ -205,6 +207,7 @@ extern action_t fd_action_mem;
 extern action_t fd_action_netconf;
 extern action_t fd_action_set_identity;
 extern action_t fd_action_get_identity;
+extern action_t fd_action_failover;
 extern action_t fd_action_ps;
 extern action_t fd_action_version;
 extern action_t fd_action_bench;
@@ -250,6 +253,7 @@ action_t * ACTIONS[] = {
   &fd_action_netconf,
   &fd_action_set_identity,
   &fd_action_get_identity,
+  &fd_action_failover,
   &fd_action_ps,
   &fd_action_help,
   &fd_action_metrics,
