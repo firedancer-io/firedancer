@@ -23,6 +23,7 @@ SNAPDC_TILE_COUNT=""
 ROOT_DISTANCE="2"
 MAX_LIVE_SLOTS="32"
 ALPENGLOW="false"
+GENESIS_MAX_FILE_SIZE_MIB=""
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
 if [[ -n "$CI" ]]; then
@@ -54,6 +55,11 @@ while [[ $# -gt 0 ]]; do
        ;;
     -m|--indexmax)
        INDEX_MAX="$2"
+       shift
+       shift
+       ;;
+    --genesis-max-file-size-mib)
+       GENESIS_MAX_FILE_SIZE_MIB="$2"
        shift
        shift
        ;;
@@ -232,6 +238,7 @@ ${SNAPDC_TILE_COUNT:+    snapdc_tile_count = $SNAPDC_TILE_COUNT}
     alpenglow = $ALPENGLOW
     [development.genesis]
         validate_genesis_hash = false
+${GENESIS_MAX_FILE_SIZE_MIB:+        max_file_size_mib = $GENESIS_MAX_FILE_SIZE_MIB}
     [development.ledger_input]
         path = "$LEDGER_INPUT"
         end_slot = $END_SLOT

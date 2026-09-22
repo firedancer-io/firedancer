@@ -512,6 +512,7 @@ struct fd_topo_tile {
       ulong heap_size_gib;
       ulong sched_depth;
       ulong max_live_slots;
+      ulong genesis_max_message_size;
       ulong full_snapshot_interval_blocks;
       ulong incremental_snapshot_interval_blocks;
 

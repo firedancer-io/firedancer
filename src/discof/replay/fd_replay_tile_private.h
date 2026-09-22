@@ -209,7 +209,7 @@ struct fd_replay_tile {
 
   char         genesis_path[ PATH_MAX ];
   fd_hash_t    genesis_hash[1];
-  fd_genesis_t genesis[1];
+  fd_genesis_t * genesis;
   ulong        cluster_type;
   ulong        genesis_timestamp;
   ulong        expected_genesis_timestamp;

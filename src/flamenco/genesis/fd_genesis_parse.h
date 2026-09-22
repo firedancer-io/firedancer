@@ -4,8 +4,19 @@
 #include "../fd_flamenco_base.h"
 
 /* Hardcoded genesis array limits */
-#define FD_GENESIS_ACCOUNT_MAX_COUNT (131072UL)
 #define FD_GENESIS_BUILTIN_MAX_COUNT (16UL)
+
+/* FD_GENESIS_ACCOUNT_MIN_SZ is the smallest bincode encoding of one
+   genesis account (32 pubkey + 8 lamports + 8 data_len + 0 data +
+   32 owner + 1 executable + 8 rent_epoch).  A blob of N bytes can
+   therefore hold at most N/FD_GENESIS_ACCOUNT_MIN_SZ accounts, which is
+   how callers size the account offset table (see fd_genesis_account_max). */
+#define FD_GENESIS_ACCOUNT_MIN_SZ (89UL)
+
+#define FD_GENESIS_ACCOUNT_MAX( blob_sz_max ) ((blob_sz_max)/FD_GENESIS_ACCOUNT_MIN_SZ)
+
+#define FD_GENESIS_ALIGN (8UL)
+#define FD_GENESIS_FOOTPRINT( account_max ) (sizeof(fd_genesis_t) + (account_max)*sizeof(fd_genesis_account_off_t))
 
 #define FD_GENESIS_TYPE_TESTNET     (0)
 #define FD_GENESIS_TYPE_MAINNET     (1)
@@ -25,8 +36,10 @@ struct fd_genesis_builtin_off {
 typedef struct fd_genesis_builtin_off fd_genesis_builtin_off_t;
 
 /* fd_genesis_t helps interpret a genesis blob.  Contains deserialized
-   values and offsets to binary account data.  This is a very large
-   struct (~2 MiB) so it should not be stack allocated. */
+   values and offsets to binary account data.  The account offset table
+   is a trailing flexible array sized by the caller (fd_genesis_new with
+   fd_genesis_footprint), so instances must be allocated with the
+   footprint for the desired capacity and not declared directly. */
 
 struct fd_genesis {
   ulong creation_time;
@@ -74,7 +87,9 @@ struct fd_genesis {
   ulong account_cnt;
 
   fd_genesis_builtin_off_t builtin[ FD_GENESIS_BUILTIN_MAX_COUNT ];
-  fd_genesis_account_off_t account[ FD_GENESIS_ACCOUNT_MAX_COUNT ];
+
+  ulong account_max; /* capacity of account[], set by fd_genesis_new */
+  fd_genesis_account_off_t account[];
 };
 
 typedef struct fd_genesis fd_genesis_t;
@@ -100,6 +115,35 @@ typedef struct fd_genesis_builtin fd_genesis_builtin_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_genesis_account_max returns the largest account count a genesis
+   blob of at most blob_sz_max bytes can encode.  Use it to size the
+   account offset table of an fd_genesis_t that will parse blobs bounded
+   by blob_sz_max (e.g. development.genesis.max_file_size_mib). */
+
+FD_FN_CONST static inline ulong
+fd_genesis_account_max( ulong blob_sz_max ) {
+  return FD_GENESIS_ACCOUNT_MAX( blob_sz_max );
+}
+
+/* fd_genesis_{align,footprint} describe the memory region backing an
+   fd_genesis_t able to hold account_max account offsets (account_max
+   may be 0; the caller bounds it, e.g. via fd_genesis_account_max).
+
+   fd_genesis_new formats such a region and returns the fd_genesis_t to
+   pass to fd_genesis_parse.  Returns NULL and logs a warning if mem is
+   NULL or misaligned.  There is deliberately no join/leave/delete: the
+   object is private to the caller and never shared across processes. */
+
+FD_FN_CONST ulong
+fd_genesis_align( void );
+
+FD_FN_CONST ulong
+fd_genesis_footprint( ulong account_max );
+
+fd_genesis_t *
+fd_genesis_new( void * mem,
+                ulong  account_max );
+
 /* fd_genesis_parse decodes a bincode-encoded 'GenesisConfig'.
    The genesis blob is found in the genesis archive, e.g.
    GET http://<rpc>/genesis.tar.bz2
@@ -111,7 +155,10 @@ FD_PROTOTYPES_BEGIN
    and returns the fd_genesis_t object.  On failure, logs warning and
    returns NULL.  Reasons for failure include:
    - Deserialize failed (invalid bincode?)
-   - Hardcoded limit exceeded (builtin/account count)
+   - Hardcoded limit exceeded (builtin count)
+   - Account count exceeds the capacity genesis was created with (only
+     possible for a malformed blob when the capacity was derived from
+     the blob size bound with fd_genesis_account_max)
    - Garbage trailing data */
 
 fd_genesis_t *

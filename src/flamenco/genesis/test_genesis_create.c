@@ -12,6 +12,7 @@
 #include "../../ballet/sha512/fd_sha512.h"
 
 #define BUFSZ (131072UL)
+#define TEST_GENESIS_ACCOUNT_MAX (4096UL)
 
 static fd_genesis_account_t *
 find_account( fd_genesis_t const *   genesis,
@@ -95,8 +96,28 @@ main( int     argc,
   /* Round-trip: parse the blob back and verify the resulting genesis
      config matches the options we used to create it. */
 
-  static fd_genesis_t genesis[1];
+  static uchar genesis_mem[ FD_GENESIS_FOOTPRINT( TEST_GENESIS_ACCOUNT_MAX ) ] __attribute__((aligned(FD_GENESIS_ALIGN)));
+  fd_genesis_t * genesis = fd_genesis_new( genesis_mem, TEST_GENESIS_ACCOUNT_MAX );
+  FD_TEST( genesis );
   FD_TEST( fd_genesis_parse( genesis, result_mem, result_sz ) );
+
+  /* The account table capacity is enforced: a table smaller than the
+     blob's account count is rejected, an exact fit is accepted. */
+
+  fd_log_level_logfile_set( fd_int_max( log_level, 4 ) );
+  static uchar small_mem[ FD_GENESIS_FOOTPRINT( 4UL ) ] __attribute__((aligned(FD_GENESIS_ALIGN)));
+  fd_genesis_t * small = fd_genesis_new( small_mem, 4UL );
+  FD_TEST( small );
+  FD_TEST( genesis->account_cnt>4UL );
+  FD_TEST( !fd_genesis_parse( small, result_mem, result_sz ) );
+  FD_TEST( small->account_max==4UL );
+  fd_log_level_logfile_set( log_level );
+
+  static uchar exact_mem[ FD_GENESIS_FOOTPRINT( TEST_GENESIS_ACCOUNT_MAX ) ] __attribute__((aligned(FD_GENESIS_ALIGN)));
+  fd_genesis_t * exact = fd_genesis_new( exact_mem, genesis->account_cnt );
+  FD_TEST( exact );
+  FD_TEST( fd_genesis_parse( exact, result_mem, result_sz ) );
+  FD_TEST( exact->account_cnt==genesis->account_cnt );
 
   /* Verify POH config */
 
