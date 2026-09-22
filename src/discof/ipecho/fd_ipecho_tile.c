@@ -1,5 +1,6 @@
 #include "fd_ipecho_client.h"
 #include "fd_ipecho_server.h"
+#include "fd_ipecho_server_port_check.h"
 
 #include "../genesis/fd_genesi_tile.h"
 #include "../genesis/genesis_hash.h"
@@ -71,6 +72,12 @@ metrics_write( fd_ipecho_tile_ctx_t * ctx ) {
   conn_closed[ FD_METRICS_ENUM_CONN_CLOSE_RESULT_V_OK_IDX    ] = metrics->connections_closed_ok;
   conn_closed[ FD_METRICS_ENUM_CONN_CLOSE_RESULT_V_ERROR_IDX ] = metrics->connections_closed_error;
   FD_MCNT_ENUM_COPY( IPECHO, CONN_CLOSED, conn_closed );
+
+  fd_ipecho_server_port_check_metrics_t * pc_metrics = fd_ipecho_server_port_check_metrics(
+    fd_ipecho_server_port_check( ctx->server ) );
+  FD_MCNT_SET(       IPECHO, PORT_CHECK_UDP_SENT,   pc_metrics->udp_sent );
+  FD_MCNT_ENUM_COPY( IPECHO, PORT_CHECK_TCP,        pc_metrics->tcp      );
+  FD_MGAUGE_SET(     IPECHO, PORT_CHECK_TCP_ACTIVE, pc_metrics->active   );
 }
 
 static inline void
@@ -102,6 +109,7 @@ poll_client( fd_ipecho_tile_ctx_t * ctx,
 static void
 during_housekeeping( fd_ipecho_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+  fd_ipecho_server_port_check_prune( fd_ipecho_server_port_check( ctx->server ), fd_tickcount() );
 }
 
 static inline long
@@ -130,7 +138,7 @@ after_credit( fd_ipecho_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
     fd_fseq_update( ctx->waker_fseq, 0UL );
-    fd_ipecho_server_epoll_poll( ctx->server, charge_busy ); /* one batch; the rearm re-fires leftovers */
+    fd_ipecho_server_epoll_poll( ctx->server, fd_tickcount(), charge_busy ); /* one batch; the rearm re-fires leftovers */
     fd_waker_client_rearm( ctx->waker_client_idx );
   } else {
     fd_log_sleep( (long)1e6 );
@@ -237,12 +245,14 @@ unprivileged_init( fd_topo_t const *      topo,
 static ulong
 rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
                  fd_topo_tile_t const * tile ) {
-  /* pipefd, socket, stderr, logfile, and one spare for
-     new accept() connections */
-  ulong base = 5UL;
+  /* stderr, logfile, the listen socket, the waker's inner and outer
+     epoll fds, and one spare for new accept() connections */
+  ulong base = 6UL;
   return base +
-         tile->ipecho.entrypoints_cnt + /* for the client */
-         FD_IPECHO_MAX_CONNECTION_CNT;  /* for the server's connections */
+         tile->ipecho.entrypoints_cnt +        /* for the client */
+         1UL +                                 /* for the port check's UDP socket */
+         FD_IPECHO_MAX_CONNECTION_CNT +        /* for the server's connections */
+         FD_IPECHO_SERVER_PORT_CHECK_CONN_MAX; /* for the port check's outgoing TCP connections */
 }
 
 static ulong
@@ -250,12 +260,15 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
+  void * scratch             = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ipecho_tile_ctx_t), sizeof(fd_ipecho_tile_ctx_t) );
 
-  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
-  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+  uint epoll_inner_fd    = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd    = (uint)FD_WAKER_OUTER_FD;
+  uint port_check_udp_fd = (uint)fd_ipecho_server_port_check_udp_sockfd( fd_ipecho_server_port_check( ctx->server ) );
 
-  populate_sock_filter_policy_fd_ipecho_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), epoll_inner_fd, epoll_outer_fd );
+  populate_sock_filter_policy_fd_ipecho_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), epoll_inner_fd, epoll_outer_fd, port_check_udp_fd );
   return sock_filter_policy_fd_ipecho_tile_instr_cnt;
 }
 
@@ -269,7 +282,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ipecho_tile_ctx_t), sizeof(fd_ipecho_tile_ctx_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL+tile->ipecho.entrypoints_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL+tile->ipecho.entrypoints_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -282,8 +295,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
     if( FD_LIKELY( fd!=-1 ) ) out_fds[ out_cnt++ ] = fd;
   }
 
-  /* The server's socket. */
+  /* The server's listen socket and the port check's UDP socket. */
   out_fds[ out_cnt++ ] = fd_ipecho_server_sockfd( ctx->server );
+  out_fds[ out_cnt++ ] = fd_ipecho_server_port_check_udp_sockfd( fd_ipecho_server_port_check( ctx->server ) );
 
   out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
   out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
