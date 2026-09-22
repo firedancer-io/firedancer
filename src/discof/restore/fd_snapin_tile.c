@@ -1149,9 +1149,10 @@ writer_flush( fd_snapin_tile_t * ctx ) {
      finishes. */
   ulong used   = ctx->writer.buf_used;
   ulong padded = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
-  FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ ); /* guaranteed by FD_SNAPIN_WRITE_BUF_MAX */
+  FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ );
   fd_memset( ctx->writer.buf+used, 0, padded-used );
-  ((fd_accdb_disk_meta_t *)( ctx->writer.buf+used ))->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
+  fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
+  dummy_record->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
 
   /* The offset is aligned because partitions are whole GiB, the snapin
      tiles are the only layer-0 writers during the load, and every
