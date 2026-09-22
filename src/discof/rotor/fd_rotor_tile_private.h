@@ -222,6 +222,15 @@ struct ctx {
 
   fd_repair_metrics_t * slot_metrics;
   ulong                 turbine_slot0;  // catchup considered complete after this slot
+
+  /* Highest slot rotor has completed a FEC set for off the network,
+     our own leader FEC sets excluded.  This is the cluster tip, and it is rotor's to
+     track: replay used to derive it from the FEC sets repair forwarded
+     indiscriminately, but rotor delivers only what is replayable and
+     in order, so a delivered FEC's slot is the replay frontier rather
+     than the tip.  Shipped to replay on every delivered FEC.  0 until
+     the first FEC set completes. */
+  ulong                 highest_fec_complete_slot;
 };
 typedef struct ctx ctx_t;
 

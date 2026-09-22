@@ -133,6 +133,24 @@ acquire_slotv( fd_chainer_t * chainer, ulong slot ) {
   slotv->connected         = 0;
   slotv->highest_requested = UINT_MAX;
 
+  slotv->metrics.turbine_cnt         = 0U;
+  slotv->metrics.repair_cnt          = 0U;
+  slotv->metrics.recovered_cnt       = 0U;
+  slotv->metrics.parity_cnt          = 0U;
+  slotv->metrics.first_shred_ts      = 0L;
+  slotv->metrics.last_shred_ts       = 0L;
+  slotv->metrics.req_window_cnt      = 0U;
+  slotv->metrics.req_highest_cnt     = 0U;
+  slotv->metrics.req_orphan_cnt      = 0U;
+  slotv->metrics.req_shred_bid_cnt   = 0U;
+  slotv->metrics.req_parent_cnt      = 0U;
+  slotv->metrics.req_fec_root_cnt    = 0U;
+  slotv->metrics.req_retransmit_cnt  = 0U;
+  slotv->metrics.repair_responses    = 0U;
+  slotv->metrics.first_req_ts        = 0L;
+  slotv->metrics.last_repair_resp_ts = 0L;
+  slotv->metrics.last_completed_fec_idx = UINT_MAX;
+
   fd_memset( &slotv->block_id,        0, sizeof(fd_hash_t) );
   fd_memset( &slotv->parent_block_id, 0, sizeof(fd_hash_t) );
   fd_memset( fd_chainer_slotv_fecs( chainer, slotv ), 0xff, chainer->fec_blk_max*sizeof(uint) ); /* UINT_MAX pool_idx sentinel */
@@ -346,6 +364,8 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
                          ulong                 slot,
                          uint                  shred_idx,
                          int                   slot_complete,
+                         int                   src,
+                         long                  rx_ts,
                          fd_hash_t const *     mr,
                          ulong                 parent_slot,
                          fd_hash_t const *     parent_block_id ) {
@@ -409,7 +429,9 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
     return created; /* shred dropped, but the version it made is real */
   }
 
-  fec->data_idxs |= 1U << ( shred_idx - fec_set_idx );
+  uint bit       = 1U << ( shred_idx - fec_set_idx );
+  int  new_shred = !( fec->data_idxs & bit ); /* the versions that own this root have not counted it yet */
+  fec->data_idxs |= bit;
   if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
 
   /* Update every version that owns this FEC root at this position. */
@@ -421,6 +443,16 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
     fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, _i );
     if( FD_UNLIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ k ]!=fec_idx ) ) continue;
 
+    /* update reception statistics */
+    if( FD_LIKELY( new_shred ) ) {
+      slotv->metrics.turbine_cnt   += ( src==FD_CHAINER_SRC_TURBINE   );
+      slotv->metrics.repair_cnt    += ( src==FD_CHAINER_SRC_REPAIR    );
+      slotv->metrics.recovered_cnt += ( src==FD_CHAINER_SRC_RECOVERED );
+    }
+
+    /* A version created late adopts FECs whose shreds predate it. */
+    if( FD_UNLIKELY( rx_ts && ( !slotv->metrics.first_shred_ts || rx_ts<slotv->metrics.first_shred_ts ) ) ) slotv->metrics.first_shred_ts = rx_ts;
+
     /* update slot-level shred indexing */
     if( FD_UNLIKELY( slot_complete ) ) slotv->complete_idx = shred_idx;
     while( slotv->buffered_idx + 1 < shred_max && fd_chainer_shred_test( chainer, slotv, slotv->buffered_idx + 1U ) ) {
@@ -429,6 +461,11 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
 
     /* If equivocating, buffered_idx needs to be clamped to complete_idx */
     if( FD_UNLIKELY( slotv->buffered_idx != UINT_MAX && slotv->complete_idx != UINT_MAX && slotv->buffered_idx > slotv->complete_idx ) ) slotv->buffered_idx = slotv->complete_idx;
+
+    /* Stamped once, when the version first becomes contiguous */
+    if( FD_UNLIKELY( rx_ts && !slotv->metrics.last_shred_ts && slotv->complete_idx!=UINT_MAX && slotv->buffered_idx==slotv->complete_idx ) ) {
+      slotv->metrics.last_shred_ts = rx_ts;
+    }
 
     /* parent_slot_batch tracks which batch the information came from
        so a later UpdateParent supersedes the header (it may only move
@@ -449,6 +486,33 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
     }
   }
   return created;
+}
+
+void
+fd_chainer_code_shred_insert( fd_chainer_t *    chainer,
+                              ulong             slot,
+                              uint              fec_set_idx,
+                              long              rx_ts,
+                              fd_hash_t const * mr ) {
+  ulong k = fec_set_idx / FD_FEC_SHRED_CNT;
+  if( FD_UNLIKELY( k>=chainer->fec_blk_max ) ) return;
+
+  /* Purely metrics, so best effort tracing.  Coding shreds do not create
+     fec entries. */
+
+  fd_chainer_fec_t * fec = fec_query( chainer, mr );
+  if( FD_UNLIKELY( !fec ) ) return;
+
+  uint fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
+  for( ulong i =slotv_iter_init( chainer, slot );
+             i!=ULONG_MAX;
+             i =slotv_iter_next( chainer, i ) ) {
+    fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, i );
+    if( FD_UNLIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ k ]!=fec_idx ) ) continue;
+    slotv->metrics.parity_cnt++;
+    slotv->metrics.turbine_cnt++;
+    if( FD_UNLIKELY( rx_ts && ( !slotv->metrics.first_shred_ts || rx_ts<slotv->metrics.first_shred_ts ) ) ) slotv->metrics.first_shred_ts = rx_ts;
+  }
 }
 
 /* chainer_deliver queues a delivered FEC for publish to replay.  The
@@ -523,6 +587,7 @@ fd_chainer_fec_complete( fd_chainer_t *        chainer,
                          int                   slot_complete,
                          int                   data_complete,
                          int                   is_leader,
+                         long                  rx_ts,
                          fd_hash_t *           mr,
                          int *                 opt_rejected ) {
   FD_TEST( slot>chainer->root );
@@ -534,7 +599,7 @@ fd_chainer_fec_complete( fd_chainer_t *        chainer,
 
   fd_chainer_slotv_t * created = NULL;
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
-    fd_chainer_slotv_t * c = fd_chainer_shred_insert( chainer, slot, fec_set_idx_ + i, slot_complete && ( i==FD_FEC_SHRED_CNT-1 ), mr, AG_UNKNOWN_SLOT, NULL );
+    fd_chainer_slotv_t * c = fd_chainer_shred_insert( chainer, slot, fec_set_idx_ + i, slot_complete && ( i==FD_FEC_SHRED_CNT-1 ), FD_CHAINER_SRC_RECOVERED, rx_ts, mr, AG_UNKNOWN_SLOT, NULL );
     if( FD_UNLIKELY( c ) ) created = c; /* only the first insert can create */
   }
 
@@ -558,6 +623,8 @@ fd_chainer_fec_complete( fd_chainer_t *        chainer,
   for( ulong _i=slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=slotv_iter_next( chainer, _i ) ) {
     fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, _i );
     if( FD_UNLIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ k ]!=fec_idx || slotv->abandoned ) ) continue;
+
+    slotv->metrics.last_completed_fec_idx = fec_set_idx;
 
     for(;;) {
       fd_chainer_fec_t * next = slotv_fec( chainer, slotv, slotv->buffered_fec_idx + 1U );
@@ -691,7 +758,7 @@ fd_chainer_verified_hash_insert( fd_chainer_t *        chainer,
   if( FD_LIKELY( shared_complete ) ) {
     /* TODO double check we don't need to be updating slotv buffered_idx
        when FEC is not complete as well */
-    created = fd_chainer_fec_complete( chainer, slot, fec_set_idx, shared->slot_complete, shared->data_complete, 0, mr, NULL );
+    created = fd_chainer_fec_complete( chainer, slot, fec_set_idx, shared->slot_complete, shared->data_complete, 0, 0L /* arrival time unknown: replayed into a new version */, mr, NULL );
   }
   fd_chainer_repair_add( chainer, slotv ); /* new sentinel -> re-add for shred fill */
   chainer_advance( chainer, slotv );
@@ -738,7 +805,7 @@ fec_rekey( fd_chainer_t *        chainer,
 
   if( FD_LIKELY( existing->complete ) ) {
     fd_hash_t full = *full_mr;
-    fd_chainer_fec_complete( chainer, slot, fec_set_idx, existing->slot_complete, existing->data_complete, 0, &full, NULL ); /* cannot create: the caller's shred_insert already made the turbine version */
+    fd_chainer_fec_complete( chainer, slot, fec_set_idx, existing->slot_complete, existing->data_complete, 0, 0L /* arrival time unknown */, &full, NULL ); /* cannot create: the caller's shred_insert already made the turbine version */
   }
   for( ulong i=0UL; i<repointed_cnt; i++ ) {
     fd_chainer_repair_add( chainer, repointed[ i ] ); /* re-add for remaining shred fill */

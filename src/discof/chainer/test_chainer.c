@@ -126,22 +126,53 @@ teardown( fd_chainer_t * chainer ) {
   fd_wksp_free_laddr( chainer );
 }
 
+/* test_rx_tick is the arrival tick handed to every chainer insert in
+   these tests.  Tests that care about the reception timestamps bump it
+   between steps; the rest leave it alone. */
+
+static long test_rx_tick = 1L;
+
 /* fec_complete wraps fd_chainer_fec_complete and returns its rejected
    flag (0 accepted, 1 rejected), which is what these tests check. */
 
 static int
 fec_complete( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, int slot_complete, int data_complete, int is_leader, fd_hash_t * mr ) {
   int rejected;
-  fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, data_complete, is_leader, mr, &rejected );
+  fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, data_complete, is_leader, test_rx_tick, mr, &rejected );
   return rejected;
 }
 
-/* feed_fec drives one FEC set through the chainer the way the shred tile
-   does: a shred_insert per shred, then one fec_insert once the set is
-   complete.  Parent information rides on the first shred only (pass
+/* feed_fec_src drives one FEC set through the chainer the way the shred
+   tile does: a shred_insert per shred, then one fec_insert once the set
+   is complete.  Parent information rides on the first shred only (pass
    AG_UNKNOWN_SLOT to leave the parent unknown), the same way the shred
-   tile only learns the parent from the shred header.  Returns the
+   tile only learns the parent from the shred header.  src is the
+   provenance every shred of the set is delivered with.  Returns the
    fd_chainer_fec_complete return code (0 accepted, 1 rejected). */
+
+static int
+feed_fec_src( fd_chainer_t *    chainer,
+              ulong             slot,
+              uint              fec_set_idx,
+              int               slot_complete,
+              int               src,
+              fd_hash_t const * mr,
+              ulong             parent_slot,
+              fd_hash_t const * parent_block_id ) {
+  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
+    int last = ( i==(uint)FD_FEC_SHRED_CNT-1U );
+    fd_chainer_shred_insert( chainer, slot, fec_set_idx+i, slot_complete && last, src, test_rx_tick, mr,
+                             i ? AG_UNKNOWN_SLOT : parent_slot,
+                             i ? NULL            : parent_block_id );
+    FD_TEST( !fd_chainer_verify( chainer ) );
+  }
+  fd_hash_t mr_ = *mr;
+  int rc = fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, 0, &mr_ );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  return rc;
+}
+
+/* feed_fec is feed_fec_src for the usual all-turbine set. */
 
 static int
 feed_fec( fd_chainer_t *    chainer,
@@ -151,17 +182,7 @@ feed_fec( fd_chainer_t *    chainer,
           fd_hash_t const * mr,
           ulong             parent_slot,
           fd_hash_t const * parent_block_id ) {
-  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
-    int last = ( i==(uint)FD_FEC_SHRED_CNT-1U );
-    fd_chainer_shred_insert( chainer, slot, fec_set_idx+i, slot_complete && last, mr,
-                             i ? AG_UNKNOWN_SLOT : parent_slot,
-                             i ? NULL            : parent_block_id );
-    FD_TEST( !fd_chainer_verify( chainer ) );
-  }
-  fd_hash_t mr_ = *mr;
-  int rc = fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, 0, &mr_ );
-  FD_TEST( !fd_chainer_verify( chainer ) );
-  return rc;
+  return feed_fec_src( chainer, slot, fec_set_idx, slot_complete, FD_CHAINER_SRC_TURBINE, mr, parent_slot, parent_block_id );
 }
 
 /* One delivered FEC, identified the way replay sees it: (slot,
@@ -238,7 +259,7 @@ test_basic( fd_wksp_t * wksp ) {
   /* first FEC set of slot 11, shred by shred */
 
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
-    fd_chainer_shred_insert( chainer, 11UL, i, 0, &r0, i ? AG_UNKNOWN_SLOT : 10UL, i ? NULL : &bid0 );
+    fd_chainer_shred_insert( chainer, 11UL, i, 0, FD_CHAINER_SRC_TURBINE, test_rx_tick, &r0, i ? AG_UNKNOWN_SLOT : 10UL, i ? NULL : &bid0 );
     FD_TEST( !fd_chainer_verify( chainer ) );
 
     fd_chainer_slotv_t * slotv = slotv_at( chainer, 11UL, 0UL );
@@ -610,7 +631,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   /* turbine delivers set 1 of the honest block */
 
   for( uint i=32U; i<64U; i++ ) {
-    fd_chainer_shred_insert( chainer, 51UL, i, i==63U, &r1, AG_UNKNOWN_SLOT, NULL );
+    fd_chainer_shred_insert( chainer, 51UL, i, i==63U, FD_CHAINER_SRC_TURBINE, test_rx_tick, &r1, AG_UNKNOWN_SLOT, NULL );
     FD_TEST( !fd_chainer_verify( chainer ) );
   }
   fd_hash_t mr = r1;
@@ -912,7 +933,7 @@ test_sentinel_rekey( fd_wksp_t * wksp ) {
      re-keyed in place: same entries, full roots, no new FEC. */
 
   FD_TEST( !feed_fec( chainer, 41UL, 0U, 0, &r0, 40UL, &bid0 ) );
-  fd_chainer_shred_insert( chainer, 41UL, 35U, 0, &r1, AG_UNKNOWN_SLOT, NULL );
+  fd_chainer_shred_insert( chainer, 41UL, 35U, 0, FD_CHAINER_SRC_TURBINE, test_rx_tick, &r1, AG_UNKNOWN_SLOT, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( fd_chainer_fec_query( chainer, 41UL, 0U,  &bidZ )==s0 );
@@ -943,7 +964,7 @@ test_sentinel_rekey( fd_wksp_t * wksp ) {
   FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used+1UL );
   FD_TEST( !fd_chainer_shred_test( chainer, vY, 3U ) );
 
-  fd_chainer_shred_insert( chainer, 41UL, 3U, 0, &r0, AG_UNKNOWN_SLOT, NULL ); /* a duplicate of a shred we hold */
+  fd_chainer_shred_insert( chainer, 41UL, 3U, 0, FD_CHAINER_SRC_TURBINE, test_rx_tick, &r0, AG_UNKNOWN_SLOT, NULL ); /* a duplicate of a shred we hold */
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( fd_chainer_fec_query( chainer, 41UL, 0U, &bidY )==s0 );  /* merged onto the full-root FEC */

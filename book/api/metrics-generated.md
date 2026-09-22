@@ -1130,6 +1130,7 @@
 | <span class="metrics-name">replay_&#8203;fec_&#8203;reassembly_&#8203;empty</span> | counter | Times reassembly is empty and a FEC set can't be processed |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;leader_&#8203;bid_&#8203;wait</span> | counter | Times replay is blocked by the PoH tile not sending an end of leader message |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;bank_&#8203;full</span> | counter | Times banks are full and a FEC set can't be processed |
+| <span class="metrics-name">replay_&#8203;fec_&#8203;parent_&#8203;unavailable</span> | counter | Alpenglow: FEC sets dropped because replay could not resolve the block's parent, which was itself dropped on a dead lineage, evicted with its tracking slot reused, or rooted past.  |
 | <span class="metrics-name">replay_&#8203;storage_&#8203;root_&#8203;behind</span> | counter | Times the storage root is behind the consensus root and can't be advanced |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Program cache entries rooted |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;class_&#8203;used</span><br/>{progcache_&#8203;class="<span class="metrics-enum">class0</span>"} | gauge | Occupied program cache value slots, broken down by size class (<=128 KiB) |

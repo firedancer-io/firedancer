@@ -244,6 +244,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, FEC_REASSEMBLY_EMPTY,    ctx->metrics.reasm_empty );
   FD_MCNT_SET( REPLAY, FEC_LEADER_BID_WAIT,     ctx->metrics.leader_bid_wait );
   FD_MCNT_SET( REPLAY, FEC_BANK_FULL,           ctx->metrics.banks_full );
+  FD_MCNT_SET( REPLAY, FEC_PARENT_UNAVAILABLE,  ctx->metrics.parent_unavailable );
   FD_MCNT_SET( REPLAY, STORAGE_ROOT_BEHIND, ctx->metrics.storage_root_behind );
 
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
@@ -505,18 +506,75 @@ sched_block_dead_reason_to_event( fd_replay_tile_t * ctx, ulong bank_idx ) {
   return sched_dead_reason_to_event( fd_sched_get_dead_reason( ctx->sched, bank_idx ) );
 }
 
+/* The stats array is keyed by slot under tower and by bank idx under
+   alpenglow.  Pass ULONG_MAX for bank_idx under tower, where the walk
+   keys off mr/slot instead. */
+
 static void
 block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
                                       fd_event_block_completed_t * ev,
+                                      ulong                        bank_idx,
                                       fd_hash_t const *            mr,
                                       ulong                        slot ) {
-  ev->lowest_verified_fec_index    = UINT_MAX;
+  ev->lowest_verified_fec_index    = ctx->alpenglow ? 0U : UINT_MAX;
   ev->last_completed_fec_set_index = UINT_MAX;
+  fd_reception_stats_t   const * stats;
+  fd_rotor_fec_metrics_t const * rm = NULL;
 
-  if( !ctx->reasm ) return;
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    fd_bank_t const * bank = bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, bank_idx );
+    if( FD_UNLIKELY( !bank ) ) return;
 
-  fd_reasm_fec_t * chain_tip = fd_reasm_query( ctx->reasm, mr );
-  if( FD_LIKELY( chain_tip ) ) {
+    fd_block_id_ele_t const * ele = &ctx->block_id_arr[ bank_idx ];
+    ev->fec_set_count = ele->fec_cnt;
+
+    if( FD_LIKELY( bank->parent_idx!=ULONG_MAX ) ) {
+      fd_block_id_ele_t const * parent = &ctx->block_id_arr[ bank->parent_idx ];
+      fd_memcpy( ev->parent_block_id, parent->dmr.uc, sizeof(ev->parent_block_id) );
+      if( !ev->parent_slot ) ev->parent_slot = parent->slot;
+    }
+
+    /* A mismatched bank_seq means the entry belongs to a previous
+       occupant of this bank idx, i.e. we have no stats for this block. */
+    fd_reception_stats_t const * s = &ctx->reception_stats[ bank_idx ];
+    if( FD_UNLIKELY( s->bank_seq!=bank->bank_seq ) ) return;
+    rm = &s->metrics.rotor;
+
+    if( FD_UNLIKELY( !rm->stats_valid ) ) return;
+
+    ev->turbine_shred_count   = rm->blk_turbine_cnt;
+    ev->repair_shred_count    = rm->blk_repair_cnt;
+    ev->recovered_shred_count = rm->blk_recovered_cnt;
+    ev->data_shred_count      = rm->blk_data_cnt;
+    ev->parity_shred_count    = rm->blk_parity_cnt;
+    ev->slot_complete_flag    = !!rm->blk_slot_complete;
+    ev->votor_repaired        = !!rm->votor_repaired;
+
+    ev->last_completed_fec_set_index        = rm->blk_last_completed_fec_idx;
+    ev->repair_request_window_count         = rm->blk_req_window_cnt;
+    ev->repair_request_highest_window_count = rm->blk_req_highest_cnt;
+    ev->repair_request_orphan_count         = rm->blk_req_orphan_cnt;
+    ev->repair_request_shred_block_id_count = rm->blk_req_shred_bid_cnt;
+    ev->repair_request_parent_count         = rm->blk_req_parent_cnt;
+    ev->repair_request_fec_root_count       = rm->blk_req_fec_root_cnt;
+    ev->repair_requests_retransmitted       = rm->blk_req_retransmit_cnt;
+    ev->repair_responses_received           = rm->blk_repair_responses;
+    ev->first_shred_received_time           = rm->blk_first_shred_ts_nanos;
+    ev->last_shred_received_time            = rm->blk_last_shred_ts_nanos;
+    ev->first_repair_request_time           = rm->blk_first_req_ts_nanos;
+    ev->last_repair_received_time           = rm->blk_last_repair_resp_ts_nanos;
+
+    /* always zero for alpenglow*/
+    ev->lowest_verified_fec_index  = 0;
+    ev->repair_failed_chain_verify = 0;
+    ev->chain_confirmed            = 0;
+
+    return;
+  } else {
+
+    fd_reasm_fec_t * chain_tip = fd_reasm_query( ctx->reasm, mr );
+    if( FD_UNLIKELY( !chain_tip ) ) return;
+
     ulong n = 0UL;
     fd_reasm_fec_t * f = chain_tip;
     for( ; f && f->slot==slot; f = fd_reasm_parent( ctx->reasm, f ) ) {
@@ -533,13 +591,13 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
       if( !ev->parent_slot ) ev->parent_slot = f->slot;
     }
 
-    fd_reception_stats_t * stats = &ctx->reception_stats[ slot % ctx->reception_stats_cnt ];
+    stats = &ctx->reception_stats[ slot % ctx->reception_stats_cnt ];
     /* If there's a mismatch in the slot's stats, we just ignore it and
        return.  This can only happen in the case where there is a large
        jump in the slot number and it exactly matches the expected
        slot's modulo with max_live_slots. */
     if( FD_UNLIKELY( stats->slot!=slot ) ) return;
-    fd_fec_complete_metrics_t const * m = &stats->metrics;
+    fd_fec_complete_metrics_t const * m = &stats->metrics.repair;
     ev->last_completed_fec_set_index = stats->fec_set_idx;
     ev->turbine_shred_count       = m->blk_turbine_cnt;
     ev->repair_shred_count        = m->blk_repair_cnt;
@@ -611,7 +669,7 @@ block_completed_event_fill_bank( fd_replay_tile_t *           ctx,
     ev->cost_tracker_pool_idx       = bank->cost_tracker_pool_idx;
   }
 
-  block_completed_event_fill_reception( ctx, ev, &ctx->block_id_arr[ bank->idx ].latest_mr, slot );
+  block_completed_event_fill_reception( ctx, ev, bank->idx, &ctx->block_id_arr[ bank->idx ].latest_mr, slot );
 }
 
 static int
@@ -975,7 +1033,7 @@ report_block_incomplete( fd_replay_tile_t * ctx,
     ev->slot = slot;
     if( FD_LIKELY( ctx->notified_root_bank ) ) ev->epoch = fd_slot_to_epoch( &ctx->notified_root_bank->f.epoch_schedule, slot, NULL );
     fd_memcpy( ev->block_id, block_id->uc, sizeof(ev->block_id) );
-    block_completed_event_fill_reception( ctx, ev, block_id, slot );
+    block_completed_event_fill_reception( ctx, ev, ULONG_MAX, block_id, slot );
   }
   ev->root_slot    = ctx->consensus_root_slot;
   ev->storage_slot = ctx->published_root_slot;
@@ -2708,7 +2766,14 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
     if( FD_UNLIKELY( !parent ) ) {
       FD_BASE58_ENCODE_32_BYTES( fec->parent_block_id.uc, parent_key_b58 );
       FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u, parent slot %lu parent block_id %s", fec->slot, fec->fec_set_idx, fec->parent_slot, parent_key_b58 ));
-      return PROCESS_FEC_DROP; // either pruned or bank evicted
+
+      /* We cannot tell here why the parent is missing -- dropped on a
+         dead lineage, evicted with its tracking slot reused, or rooted
+         past -- and the latter two are routine and recoverable, so do
+         not emit events; they would be emitted in bulk during the
+         redelivery that recovers them. */
+      ctx->metrics.parent_unavailable++;
+      return PROCESS_FEC_DROP;
     }
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   } else {
@@ -2719,6 +2784,7 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
     if( FD_UNLIKELY( !parent ) ) {
       FD_BASE58_ENCODE_32_BYTES( fec->block_id.uc, block_id_b58 );
       FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u slot_bid %s. parent slot %lu", fec->slot, fec->fec_set_idx, block_id_b58, fec->parent_slot ));
+      ctx->metrics.parent_unavailable++;
       return PROCESS_FEC_DROP; // either pruned or bank evicted
     }
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
@@ -2787,6 +2853,7 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
   int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
   if( FD_UNLIKELY( invalid_parent ) ) {
     FD_LOG_INFO(( "parent bank evicted for slot %lu fec set idx %u, parent slot %lu", fec->slot, fec->fec_set_idx, fec->parent_slot ));
+    ctx->metrics.parent_unavailable++;
     return PROCESS_FEC_DROP;
   } else if( FD_UNLIKELY( fec->fec_set_idx!=0U && parent->latest_fec_idx!=fec->fec_set_idx - FD_FEC_SHRED_CNT ) ) {
     /* Similar to the very first condition in can_process_rotor_fec,
@@ -3881,7 +3948,7 @@ process_fec_complete( fd_replay_tile_t *         ctx,
     fd_reception_stats_t * stats = &ctx->reception_stats[ fec->slot % ctx->reception_stats_cnt ];
     stats->slot        = fec->slot;
     stats->fec_set_idx = fec->fec_set_idx;
-    stats->metrics     = complete_msg->metrics;
+    stats->metrics.repair = complete_msg->metrics;
   }
 }
 
@@ -3893,8 +3960,8 @@ static void
 process_rotor_fec( fd_replay_tile_t      * ctx,
                    fd_stem_context_t     * stem,
                    fd_rotor_replay_fec_t * fec ) {
-  if( FD_LIKELY( !fec->is_leader && ( ctx->catch_up_max_fec_slot==ULONG_MAX || fec->slot>ctx->catch_up_max_fec_slot ) ) ) {
-    ctx->catch_up_max_fec_slot = fec->slot;
+  if( FD_LIKELY( fec->metrics.highest_fec_complete_slot && ( ctx->catch_up_max_fec_slot==ULONG_MAX || fec->metrics.highest_fec_complete_slot>ctx->catch_up_max_fec_slot ) ) ) {
+    ctx->catch_up_max_fec_slot = fec->metrics.highest_fec_complete_slot;
     ctx->catch_up_tip_advance_cnt++;
   }
 
@@ -3993,11 +4060,17 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
 
   block_id_ele->latest_mr = fec->mr;
 
-  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
-    if( FD_LIKELY( block_id_ele->fec_cnt<FD_FEC_BLK_MAX ) ) {
-      ctx->fec_chain[ bank->idx*FD_FEC_BLK_MAX + block_id_ele->fec_cnt ] = fec->mr;
-    }
-    block_id_ele->fec_cnt++;
+  if( FD_UNLIKELY( ctx->report_runtime_diffs && block_id_ele->fec_cnt<FD_FEC_BLK_MAX ) ) {
+    ctx->fec_chain[ bank->idx*FD_FEC_BLK_MAX + block_id_ele->fec_cnt ] = fec->mr;
+  }
+  block_id_ele->fec_cnt++;
+
+  if( FD_LIKELY( fec->metrics.stats_valid ) ) {
+    fd_reception_stats_t * stats = &ctx->reception_stats[ bank->idx ];
+    stats->bank_seq    = bank->bank_seq;
+    stats->slot        = fec->slot;
+    stats->fec_set_idx = fec->fec_set_idx;
+    stats->metrics.rotor = fec->metrics;
   }
 
   if( FD_UNLIKELY( fec->slot_complete ) ) {
@@ -4918,6 +4991,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->reception_stats     = recp_stats_mem;
   ctx->reception_stats_cnt = tile->replay.max_live_slots;
   FD_TEST( ctx->reception_stats_cnt );
+  memset( ctx->reception_stats, 0, sizeof(fd_reception_stats_t)*ctx->reception_stats_cnt );
   for( ulong i=0UL; i<ctx->reception_stats_cnt; i++ ) ctx->reception_stats[ i ].slot = ULONG_MAX;
   ctx->reasm_evicted = NULL;
 
