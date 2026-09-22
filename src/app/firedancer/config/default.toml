@@ -996,8 +996,8 @@ telemetry = true
     # snapshot loader is bottlenecked by disk write speed.
     #
     # Decompression scales linearly in the number of cores used, and may
-    # become a bottleneck when the accounts database is kept in memory,
-    # or backed by a very fast disk.
+    # become a bottleneck when the accounts database is backed by a very
+    # fast disk.
     snapdc_tile_count = 3
 
     # How many snapshot inserter tiles to run.  Snapshot inserter tiles
