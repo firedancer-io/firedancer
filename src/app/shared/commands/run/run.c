@@ -1105,13 +1105,19 @@ initialize_stake_delegations_fd( config_t const * config ) {
   if( FD_UNLIKELY( fs.f_type==TMPFS_MAGIC ) ) FD_LOG_ERR(( "stake-delegation file %s requires a filesystem supporting direct I/O", spill_path ));
 #ifdef STATX_DIOALIGN
   struct statx stx;
-  if( FD_LIKELY( !statx( spill_fd, "", AT_EMPTY_PATH, STATX_DIOALIGN, &stx ) && (stx.stx_mask & STATX_DIOALIGN) ) ) {
-    if( FD_UNLIKELY( !stx.stx_dio_mem_align || !stx.stx_dio_offset_align ||
-                     FD_STAKE_DELEGATIONS_PAGE_SZ%stx.stx_dio_mem_align ||
-                     FD_STAKE_DELEGATIONS_PAGE_SZ%stx.stx_dio_offset_align ) ) {
-      FD_LOG_ERR(( "stake-delegation file %s has unsupported direct I/O alignment (%u memory, %u offset)", spill_path, stx.stx_dio_mem_align, stx.stx_dio_offset_align ));
-    }
+  if( FD_UNLIKELY( -1==statx( spill_fd, "", AT_EMPTY_PATH, STATX_DIOALIGN, &stx ) ) ) {
+    FD_LOG_ERR(( "statx(stake-delegation direct I/O alignment) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+  if( FD_UNLIKELY( !(stx.stx_mask & STATX_DIOALIGN) ) ) {
+    FD_LOG_ERR(( "filesystem for stake-delegation file %s does not report direct I/O alignment", spill_path ));
+  }
+  if( FD_UNLIKELY( !stx.stx_dio_mem_align || !stx.stx_dio_offset_align ||
+                   FD_STAKE_DELEGATIONS_PAGE_SZ%stx.stx_dio_mem_align ||
+                   FD_STAKE_DELEGATIONS_PAGE_SZ%stx.stx_dio_offset_align ) ) {
+    FD_LOG_ERR(( "stake-delegation file %s has unsupported direct I/O alignment (%u memory, %u offset)", spill_path, stx.stx_dio_mem_align, stx.stx_dio_offset_align ));
+  }
+#else
+  FD_LOG_ERR(( "stake-delegation direct I/O requires headers supporting STATX_DIOALIGN" ));
 #endif
   struct statvfs space;
   if( FD_UNLIKELY( -1==fstatvfs( spill_fd, &space ) ) ) FD_LOG_ERR(( "fstatvfs() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

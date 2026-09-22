@@ -310,7 +310,7 @@ fd_banks_footprint( ulong max_total_banks,
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
   l = FD_LAYOUT_APPEND( l, fd_stake_delegations_align(),      stake_footprint );
-  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_total_banks, max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),            fd_vote_stakes_footprint( max_total_banks, max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * epoch_leaders_footprint );
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
@@ -368,18 +368,18 @@ fd_banks_new( void * shmem,
   ulong epoch_leaders_footprint = FD_EPOCH_LEADERS_FOOTPRINT( max_vote_accounts, FD_RUNTIME_SLOTS_PER_EPOCH );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_banks_t * banks_data              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  void *       stake_delegations_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( stake_max_records, max_total_banks, stake_cache_bytes ) );
-  void *       vote_stakes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_total_banks, max_fork_width ) );
-  void *       epoch_leaders_mem       = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * epoch_leaders_footprint );
-  void *       pool_mem                = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
-  void *       dead_banks_deque_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
-  void *       cost_tracker_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
-  void *       stake_rewards_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
-  void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, max_fork_width+1UL ) );
-  void *       epoch_credits_len_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
-  void *       epoch_credits_rc_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
-  void *       collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
+  fd_banks_t * banks_data               = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
+  void *       stake_delegations_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( stake_max_records, max_total_banks, stake_cache_bytes ) );
+  void *       vote_stakes_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),            fd_vote_stakes_footprint( max_total_banks, max_fork_width ) );
+  void *       epoch_leaders_mem        = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * epoch_leaders_footprint );
+  void *       pool_mem                 = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
+  void *       dead_banks_deque_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
+  void *       cost_tracker_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  void *       stake_rewards_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
+  void *       epoch_credits_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, max_fork_width+1UL ) );
+  void *       epoch_credits_len_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
+  void *       epoch_credits_rc_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
+  void *       collector_overrides_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width, max_stake_accounts, max_vote_accounts, stake_max_records, stake_cache_bytes ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -522,18 +522,18 @@ fd_banks_join( void * banks_data_mem ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, banks_data );
-  banks_data                   = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
-  void * stake_delegations_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( banks_data->stake_max_records, banks_data->max_total_banks, banks_data->stake_cache_bytes ) );
-  void * vote_stakes_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( banks_data->max_total_banks, banks_data->max_fork_width ) );
-  void * epoch_leaders_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * banks_data->epoch_leaders_footprint );
-  void * pool_mem              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( banks_data->max_total_banks ) );
-  void * dead_banks_deque_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
-  void * cost_tracker_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
-  void * stake_rewards_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
-  void * epoch_credits_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, banks_data->max_fork_width+1UL ) );
-  void * epoch_credits_len_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (banks_data->max_fork_width+1UL) );
-  void * epoch_credits_rc_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (banks_data->max_fork_width+1UL) );
-  void * collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),  fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( banks_data->max_fork_width ) ) );
+  banks_data                      = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
+  void * stake_delegations_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),      fd_stake_delegations_footprint( banks_data->stake_max_records, banks_data->max_total_banks, banks_data->stake_cache_bytes ) );
+  void * vote_stakes_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),            fd_vote_stakes_footprint( banks_data->max_total_banks, banks_data->max_fork_width ) );
+  void * epoch_leaders_mem        = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * banks_data->epoch_leaders_footprint );
+  void * pool_mem                 = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( banks_data->max_total_banks ) );
+  void * dead_banks_deque_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
+  void * cost_tracker_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
+  void * stake_rewards_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
+  void * epoch_credits_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, banks_data->max_fork_width+1UL ) );
+  void * epoch_credits_len_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (banks_data->max_fork_width+1UL) );
+  void * epoch_credits_rc_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (banks_data->max_fork_width+1UL) );
+  void * collector_overrides_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( banks_data->max_fork_width ) ) );
   (void)epoch_credits_len_mem;
   (void)epoch_credits_rc_mem;
   (void)collector_overrides_mem;

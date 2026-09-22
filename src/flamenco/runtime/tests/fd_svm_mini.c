@@ -123,9 +123,9 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, fd_progcache_shmem_min_sz( txn_max ) );
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
-  ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts,
+  ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts,
                                                limits->stake_max_records, limits->stake_cache_bytes );
-  ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
+  ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
@@ -163,10 +163,10 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, progcache_sz );
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
-  ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width,
+  ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width,
                                                limits->max_stake_accounts, limits->max_vote_accounts,
                                                limits->stake_max_records, limits->stake_cache_bytes );
-  ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
+  ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,

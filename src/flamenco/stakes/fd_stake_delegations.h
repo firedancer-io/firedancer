@@ -33,7 +33,8 @@
    The rate is always determined by the epoch. */
 
 static inline uchar
-fd_stake_warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
+fd_stake_warmup_cooldown_rate( ulong   current_epoch,
+                               ulong * new_rate_activation_epoch ) {
   ulong activation_epoch = new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX;
   return current_epoch<activation_epoch
     ? (uchar)FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025
@@ -274,14 +275,31 @@ fd_stake_delegation_classify( fd_stake_delegation_t const * delegation,
 /* Consistent cache/tree snapshot; hot counters are read atomically.
    Call outside a view.  File block accounting belongs to the operator
    process, outside tile sandboxes. */
-void fd_stake_delegations_metrics_query( fd_stake_delegations_t * sd, fd_stake_delegations_metrics_t * metrics );
+void
+fd_stake_delegations_metrics_query( fd_stake_delegations_t *         sd,
+                                    fd_stake_delegations_metrics_t * metrics );
 
-ulong fd_stake_delegations_align( void );
-ulong fd_stake_delegations_footprint( ulong max_records, ulong max_live_slots, ulong cache_bytes );
-void * fd_stake_delegations_new( void * mem, int disk_fd, ulong seed,
-                                 ulong max_records, ulong max_live_slots, ulong cache_bytes );
-fd_stake_delegations_t * fd_stake_delegations_join( void * mem, int disk_fd );
-void fd_stake_delegations_reset( fd_stake_delegations_t * sd );
+ulong
+fd_stake_delegations_align( void );
+
+ulong
+fd_stake_delegations_footprint( ulong max_records,
+                                ulong max_live_slots,
+                                ulong cache_bytes );
+
+void *
+fd_stake_delegations_new( void * mem,
+                          int    disk_fd,
+                          ulong  seed,
+                          ulong  max_records,
+                          ulong  max_live_slots,
+                          ulong  cache_bytes );
+fd_stake_delegations_t *
+fd_stake_delegations_join( void * mem,
+                           int    disk_fd );
+
+void
+fd_stake_delegations_reset( fd_stake_delegations_t * sd );
 
 /* root_update is boot-only.  Attaching the first child ends boot.
    Fork updates accept PREPARING or ACTIVE forks without views. */
@@ -333,31 +351,62 @@ fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,
                                   ushort                   fork_idx,
                                   fd_pubkey_t const *      stake_account );
 
-ushort fd_stake_delegations_root_fork_id( fd_stake_delegations_t const * sd );
-ushort fd_stake_delegations_attach_child( fd_stake_delegations_t * sd, ushort parent );
-void fd_stake_delegations_activate_fork( fd_stake_delegations_t * sd, ushort fork );
-void fd_stake_delegations_finalize_fork( fd_stake_delegations_t * sd, ushort fork );
+ushort
+fd_stake_delegations_root_fork_id( fd_stake_delegations_t const * sd );
+
+ushort
+fd_stake_delegations_attach_child( fd_stake_delegations_t * sd,
+                                   ushort                   parent );
+
+void
+fd_stake_delegations_activate_fork( fd_stake_delegations_t * sd,
+                                    ushort                   fork );
+
+void
+fd_stake_delegations_finalize_fork( fd_stake_delegations_t * sd,
+                                    ushort                   fork );
 
 /* Drain bank/scheduler users before cancellation or root advancement,
    and clear released IDs before reusing bank objects. */
-void fd_stake_delegations_cancel_fork( fd_stake_delegations_t * sd, ushort fork );
-void fd_stake_delegations_advance_root( fd_stake_delegations_t * sd, ushort fork, ulong epoch,
-                                       fd_stake_history_t const * history, ulong * rate_epoch,
-                                       int fixed_point, int prune_inactive, fd_bank_t const * emit_bank,
-                                       fd_stake_delegations_delta_stats_t * stats );
+void
+fd_stake_delegations_cancel_fork( fd_stake_delegations_t * sd,
+                                  ushort                   fork );
+
+void
+fd_stake_delegations_advance_root( fd_stake_delegations_t *             sd,
+                                   ushort                               fork,
+                                   ulong                                epoch,
+                                   fd_stake_history_t const *           history,
+                                   ulong *                              rate_epoch,
+                                   int                                  fixed_point,
+                                   int                                  prune_inactive,
+                                   fd_bank_t const *                    emit_bank,
+                                   fd_stake_delegations_delta_stats_t * stats );
 
 fd_stake_delegations_view_t *
-fd_stake_delegations_view_begin( fd_stake_delegations_view_t * view, fd_stake_delegations_t * sd, ushort fork );
-void fd_stake_delegations_view_end( fd_stake_delegations_view_t * view );
-void fd_stake_delegations_view_totals( fd_stake_delegations_view_t * view, ulong epoch,
-                                      fd_stake_history_t const * history, ulong * rate_epoch,
-                                      int fixed_point, fd_stake_history_entry_t * totals );
+fd_stake_delegations_view_begin( fd_stake_delegations_view_t * view,
+                                 fd_stake_delegations_t *      sd,
+                                 ushort                        fork );
+
+void
+fd_stake_delegations_view_end( fd_stake_delegations_view_t * view );
+
+void
+fd_stake_delegations_view_totals( fd_stake_delegations_view_t * view,
+                                  ulong                         epoch,
+                                  fd_stake_history_t const *    history,
+                                  ulong *                       rate_epoch,
+                                  int                           fixed_point,
+                                  fd_stake_history_entry_t *    totals );
 
 /* Iterator records are copies valid until iter_next.  No cache lock is
    held across caller stake math or account-database operations. */
 fd_stake_delegations_iter_t *
-fd_stake_delegations_iter_init( fd_stake_delegations_iter_t * iter, fd_stake_delegations_view_t * view );
-void fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter );
+fd_stake_delegations_iter_init( fd_stake_delegations_iter_t * iter,
+                                fd_stake_delegations_view_t * view );
+
+void
+fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter );
 
 static inline fd_stake_delegation_t const *
 fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t const * iter ) {
@@ -375,10 +424,16 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
 }
 
 /* Exclusive maintenance operations must run outside views. */
-void fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * sd );
-ulong fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t * sd, ulong epoch,
-                                               fd_stake_history_t const * history, ulong * rate_epoch,
-                                               int fixed_point, fd_bank_t const * emit_bank );
+void
+fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * sd );
+
+ulong
+fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   sd,
+                                          ulong                      epoch,
+                                          fd_stake_history_t const * history,
+                                          ulong *                    rate_epoch,
+                                          int                        fixed_point,
+                                          fd_bank_t const *          emit_bank );
 
 FD_PROTOTYPES_END
 

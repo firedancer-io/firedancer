@@ -736,14 +736,15 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   fd_stake_delegations_t * root_stake_delegations = fd_banks_stake_delegations_root_query( banks_small );
   fd_stake_delegations_root_update( root_stake_delegations, &stake_0, &vote_0, 11UL, 1UL, 2UL, 3UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
-  fd_stake_delegations_view_t * frontier_stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( root_bank ), root_bank->stake_delegations_fork_id );
-  FD_TEST( test_stake_delegations_view_cnt( frontier_stake_delegations )==1UL );
+  fd_stake_delegations_view_t delegations_view[1];
+  fd_stake_delegations_view_begin( delegations_view, fd_bank_stake_delegations_modify( root_bank ), root_bank->stake_delegations_fork_id );
+  FD_TEST( test_stake_delegations_view_cnt( delegations_view )==1UL );
   fd_stake_delegation_t stake_delegation[1];
-  FD_TEST( test_stake_delegations_view_find_copy( frontier_stake_delegations, &stake_0, stake_delegation ) );
+  FD_TEST( test_stake_delegations_view_find_copy( delegations_view, &stake_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake==11UL );
   test_bank_assert_stake_metadata( stake_delegation );
   FD_TEST( !memcmp( epoch_leaders_snapshot, (uchar *)banks_small + banks_small->epoch_leaders_offset, sizeof(epoch_leaders_snapshot) ) );
-  fd_stake_delegations_view_end( frontier_stake_delegations );
+  fd_stake_delegations_view_end( delegations_view );
 
   /* A view leaves the root state unchanged. */
   FD_TEST( test_stake_delegations_contains( root_stake_delegations, &stake_0 ) );
@@ -756,16 +757,16 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   fd_stake_delegations_t * sd = fd_bank_stake_delegations_modify( child_bank );
   fd_stake_delegations_fork_update( sd, child_bank->stake_delegations_fork_id, &stake_0, &vote_0, 33UL, 4UL, 5UL, 6UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   fd_stake_delegations_fork_update( sd, child_bank->stake_delegations_fork_id, &stake_1, &vote_1, 22UL, 4UL, 5UL, 6UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-  frontier_stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( child_bank ), child_bank->stake_delegations_fork_id );
-  FD_TEST( test_stake_delegations_view_cnt( frontier_stake_delegations )==2UL );
-  FD_TEST( test_stake_delegations_view_find_copy( frontier_stake_delegations, &stake_0, stake_delegation ) );
+  fd_stake_delegations_view_begin( delegations_view, fd_bank_stake_delegations_modify( child_bank ), child_bank->stake_delegations_fork_id );
+  FD_TEST( test_stake_delegations_view_cnt( delegations_view )==2UL );
+  FD_TEST( test_stake_delegations_view_find_copy( delegations_view, &stake_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake==33UL );
   test_bank_assert_stake_metadata( stake_delegation );
-  FD_TEST( test_stake_delegations_view_find_copy( frontier_stake_delegations, &stake_1, stake_delegation ) );
+  FD_TEST( test_stake_delegations_view_find_copy( delegations_view, &stake_1, stake_delegation ) );
   FD_TEST( stake_delegation->stake==22UL );
   test_bank_assert_stake_metadata( stake_delegation );
   FD_TEST( !memcmp( epoch_leaders_snapshot, (uchar *)banks_small + banks_small->epoch_leaders_offset, sizeof(epoch_leaders_snapshot) ) );
-  fd_stake_delegations_view_end( frontier_stake_delegations );
+  fd_stake_delegations_view_end( delegations_view );
 
   /* Root state should still reflect only rooted delegations pre-publish. */
   FD_TEST( test_stake_delegations_find_copy( root_stake_delegations, &stake_0, stake_delegation ) );
@@ -1140,15 +1141,17 @@ test_bank_advance_root_prunes_inactive_stakes( void * mem ) {
     fd_banks_mark_bank_frozen( sibling );
 
     fd_stake_delegation_t stake_delegation[1];
-    fd_stake_delegations_view_t * child_frontier = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( child ), child->stake_delegations_fork_id );
-    FD_TEST( test_stake_delegations_view_find_copy( child_frontier, &stake_account, stake_delegation ) );
+    fd_stake_delegations_view_t child_view[1];
+    fd_stake_delegations_view_begin( child_view, fd_bank_stake_delegations_modify( child ), child->stake_delegations_fork_id );
+    FD_TEST( test_stake_delegations_view_find_copy( child_view, &stake_account, stake_delegation ) );
     FD_TEST( stake_delegation->deactivation_epoch==2U );
-    fd_stake_delegations_view_end( child_frontier );
+    fd_stake_delegations_view_end( child_view );
 
-    fd_stake_delegations_view_t * sibling_frontier = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( sibling ), sibling->stake_delegations_fork_id );
-    FD_TEST( test_stake_delegations_view_find_copy( sibling_frontier, &stake_account, stake_delegation ) );
+    fd_stake_delegations_view_t sibling_view[1];
+    fd_stake_delegations_view_begin( sibling_view, fd_bank_stake_delegations_modify( sibling ), sibling->stake_delegations_fork_id );
+    FD_TEST( test_stake_delegations_view_find_copy( sibling_view, &stake_account, stake_delegation ) );
     FD_TEST( stake_delegation->deactivation_epoch==USHORT_MAX );
-    fd_stake_delegations_view_end( sibling_frontier );
+    fd_stake_delegations_view_end( sibling_view );
 
     fd_banks_advance_root( banks, child->idx );
     FD_TEST( !!test_stake_delegations_contains(
@@ -1220,7 +1223,8 @@ main( int argc, char ** argv ) {
   fd_stake_delegations_t * sd_test = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_root_update( sd_test, &key_0, &key_9, 100UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
-  fd_stake_delegations_view_t * stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
+  fd_stake_delegations_view_t stake_delegations[1];
+  fd_stake_delegations_view_begin( stake_delegations, fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
   FD_TEST( test_stake_delegations_view_cnt( stake_delegations ) == 1UL );
   fd_stake_delegation_t stake_delegation[1];
   FD_TEST( test_stake_delegations_view_find_copy( stake_delegations, &key_0, stake_delegation ) );
@@ -1250,7 +1254,7 @@ main( int argc, char ** argv ) {
   /* Make sure that the contents of the stake delegations is the same
      after a new bank has been created. */
 
-  stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
+  fd_stake_delegations_view_begin( stake_delegations, fd_bank_stake_delegations_modify( bank ), bank->stake_delegations_fork_id );
   FD_TEST( test_stake_delegations_view_cnt( stake_delegations ) == 1UL );
   FD_TEST( test_stake_delegations_view_find_copy( stake_delegations, &key_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 100UL );
@@ -1261,7 +1265,7 @@ main( int argc, char ** argv ) {
   sd_test = fd_bank_stake_delegations_modify( bank2 );
   fd_stake_delegations_fork_update( sd_test, bank2->stake_delegations_fork_id, &key_0, &key_0, 200UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   fd_stake_delegations_fork_update( sd_test, bank2->stake_delegations_fork_id, &key_1, &key_8, 100UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-  stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( bank2 ), bank2->stake_delegations_fork_id );
+  fd_stake_delegations_view_begin( stake_delegations, fd_bank_stake_delegations_modify( bank2 ), bank2->stake_delegations_fork_id );
   FD_TEST( test_stake_delegations_view_cnt( stake_delegations ) == 2UL );
   FD_TEST( test_stake_delegations_view_find_copy( stake_delegations, &key_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 200UL );
@@ -1288,7 +1292,7 @@ main( int argc, char ** argv ) {
 
   sd_test = fd_bank_stake_delegations_modify( bank3 );
   fd_stake_delegations_fork_update( sd_test, bank3->stake_delegations_fork_id, &key_2, &key_7, 10UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-  stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( bank3 ), bank3->stake_delegations_fork_id );
+  fd_stake_delegations_view_begin( stake_delegations, fd_bank_stake_delegations_modify( bank3 ), bank3->stake_delegations_fork_id );
   FD_TEST( test_stake_delegations_view_cnt( stake_delegations ) == 2UL );
   FD_TEST( test_stake_delegations_view_find_copy( stake_delegations, &key_2, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 10UL );
@@ -1351,7 +1355,7 @@ main( int argc, char ** argv ) {
 
   sd_test = fd_bank_stake_delegations_modify( bank7 );
   fd_stake_delegations_fork_update( sd_test, bank7->stake_delegations_fork_id, &key_3, &key_6, 7UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-  stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( bank7 ), bank7->stake_delegations_fork_id );
+  fd_stake_delegations_view_begin( stake_delegations, fd_bank_stake_delegations_modify( bank7 ), bank7->stake_delegations_fork_id );
 
   FD_TEST( test_stake_delegations_view_cnt( stake_delegations ) == 3UL );
   FD_TEST( test_stake_delegations_view_contains( stake_delegations, &key_0 ) ); // bank2
@@ -1381,7 +1385,7 @@ main( int argc, char ** argv ) {
 
   sd_test = fd_bank_stake_delegations_modify( bank8 );
   fd_stake_delegations_fork_update( sd_test, bank8->stake_delegations_fork_id, &key_4, &key_5, 4UL, 100UL, 100UL, 100UL, TEST_BANK_STAKE_LAMPORTS, TEST_BANK_STAKE_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
-  stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( bank8 ), bank8->stake_delegations_fork_id );
+  fd_stake_delegations_view_begin( stake_delegations, fd_bank_stake_delegations_modify( bank8 ), bank8->stake_delegations_fork_id );
   FD_TEST( test_stake_delegations_view_cnt( stake_delegations ) == 4UL );
   FD_TEST( test_stake_delegations_view_find_copy( stake_delegations, &key_4, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 4UL );
@@ -1402,7 +1406,7 @@ main( int argc, char ** argv ) {
      total stake delegations even when some ancestors have not
      published any delegations. */
 
-  stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( bank9 ), bank9->stake_delegations_fork_id );
+  fd_stake_delegations_view_begin( stake_delegations, fd_bank_stake_delegations_modify( bank9 ), bank9->stake_delegations_fork_id );
   FD_TEST( test_stake_delegations_view_cnt( stake_delegations ) == 3UL );
   FD_TEST( test_stake_delegations_view_find_copy( stake_delegations, &key_3, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 7UL );
@@ -1441,7 +1445,7 @@ main( int argc, char ** argv ) {
   FD_TEST( !fd_banks_bank_query( banks, bank_idx6 ) );
   FD_TEST( !fd_banks_bank_query( banks, bank_idx3 ) );
 
-  stake_delegations = fd_stake_delegations_view_begin( &(fd_stake_delegations_view_t){0}, fd_bank_stake_delegations_modify( new_root ), new_root->stake_delegations_fork_id );
+  fd_stake_delegations_view_begin( stake_delegations, fd_bank_stake_delegations_modify( new_root ), new_root->stake_delegations_fork_id );
   FD_TEST( test_stake_delegations_view_cnt( stake_delegations ) == 3UL );
   FD_TEST( test_stake_delegations_view_find_copy( stake_delegations, &key_3, stake_delegation ) );
   FD_TEST( stake_delegation->stake == 7UL );

@@ -17,6 +17,7 @@
 #include "../accdb/fd_accdb_shmem.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_stake_types.h"
+#include "../stakes/fd_stakes.h"
 #include "../stakes/fd_vote_stakes.h"
 
 #include <sys/mman.h>
@@ -648,6 +649,104 @@ test_runtime_stack_stake_accum_map_sizing( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( mem );
 }
 
+/* Root totals must not replace the selected unrooted ancestry when the
+   boundary writes the closing epoch's stake-history entry. */
+static void
+test_boundary_unrooted_delegation_totals( fd_wksp_t * wksp, int fixed_point, int gap ) {
+  test_env_t env[1];
+  test_env_create( env, wksp );
+  if( gap ) {
+    while( env->bank->f.slot<2UL*TEST_SLOTS_PER_EPOCH ) step_slot( env, 0UL );
+  }
+  fd_bank_t * root = env->bank;
+  ulong closing_epoch = gap ? 2UL : 1UL;
+  root->f.slot = (closing_epoch+1UL)*TEST_SLOTS_PER_EPOCH-2UL;
+  root->f.epoch = closing_epoch;
+  if( gap ) {
+    fd_sysvar_stake_history_init( root, env->accdb, NULL );
+    /* A single contiguous entry becomes a gap when epoch 2 is added. */
+    fd_stake_history_entry_t old_history = { .epoch=0UL, .effective=100UL*BASE_STAKE, .activating=8UL*BASE_STAKE };
+    fd_sysvar_stake_history_update( root, env->accdb, NULL, &old_history );
+  }
+  fd_stake_delegations_t * sd = fd_bank_stake_delegations_modify( root );
+  fd_stake_delegations_refresh( sd, closing_epoch, NULL, &root->f.warmup_cooldown_rate_epoch,
+                                0, 0, env->accdb, root->accdb_fork_id );
+  FD_TEST( sd->effective_stake==7UL*BASE_STAKE );
+  FD_TEST( sd->fp_warmed_awarded );
+
+  fd_bank_t * parent = fd_banks_new_bank( env->banks, root->idx, 0L, 0 );
+  parent = fd_banks_clone_from_parent( env->banks, parent->idx );
+  parent->f.slot = root->f.slot+1UL;
+  parent->accdb_fork_id = fd_accdb_attach_child( env->accdb, root->accdb_fork_id );
+  env->bank = parent;
+  int boundary;
+  fd_runtime_block_execute_prepare( env->banks, parent, env->accdb, env->runtime_stack, NULL, &boundary );
+  FD_TEST( !boundary );
+  fd_pubkey_t key = stake_key( 0UL );
+  fd_pubkey_t vote = vote_key( 0UL );
+  add_delegated_stake_account( env, &key, &vote, 2UL*BASE_STAKE );
+  add_bank_stake_delegation_entry( env, &key, &vote, 2UL*BASE_STAKE );
+  if( fixed_point ) {
+    enable_feature( env, offsetof(fd_features_t, upgrade_bpf_stake_program_to_v5_1), parent->f.slot+1UL );
+  }
+  fd_banks_mark_bank_frozen( parent );
+
+  fd_bank_t * child = fd_banks_new_bank( env->banks, parent->idx, 0L, 0 );
+  child = fd_banks_clone_from_parent( env->banks, child->idx );
+  child->f.slot = parent->f.slot+1UL;
+  child->accdb_fork_id = fd_accdb_attach_child( env->accdb, parent->accdb_fork_id );
+  env->bank = child;
+  if( gap ) {
+    /* Observe copied tags before the caller performs the deferred root
+       sweep.  Removing the in-view policy change must fail here. */
+    fd_stake_history_t prior[1];
+    FD_TEST( fd_sysvar_cache_stake_history_view( &child->f.sysvar_cache, prior ) );
+    fd_stake_delegations_view_t view[1];
+    fd_stake_delegations_view_begin( view, sd, child->stake_delegations_fork_id );
+    view->use_stable_tags = 1;
+    fd_stake_history_entry_t totals;
+    fd_stake_delegations_view_totals( view, closing_epoch, prior, &child->f.warmup_cooldown_rate_epoch, 0, &totals );
+    FD_TEST( fd_stakes_activate_epoch( child, env->runtime_stack, env->accdb, NULL, view,
+                                      &totals, &child->f.warmup_cooldown_rate_epoch ) );
+    FD_TEST( sd->fp_warmed_awarded );
+    fd_stake_delegations_iter_t iter[1];
+    for( fd_stake_delegations_iter_init( iter, view ); !fd_stake_delegations_iter_done( iter ); fd_stake_delegations_iter_next( iter ) ) {
+      FD_TEST( fd_stake_delegations_iter_ele( iter )->state==FD_STAKE_DELEGATION_STATE_UNKNOWN );
+    }
+    fd_stake_delegations_view_end( view );
+    fd_stake_delegations_invalidate_warmed( sd );
+  } else {
+    fd_runtime_block_execute_prepare( env->banks, child, env->accdb, env->runtime_stack, NULL, &boundary );
+    FD_TEST( boundary );
+  }
+  FD_TEST( sd->effective_stake==7UL*BASE_STAKE );
+
+  fd_acc_t acc = fd_accdb_read_one( env->accdb, child->accdb_fork_id, fd_sysvar_stake_history_id.uc );
+  fd_stake_history_t history[1];
+  FD_TEST( fd_sysvar_stake_history_view( history, acc.data, acc.data_len ) );
+  fd_stake_history_entry_t const * closing = fd_sysvar_stake_history_query( history, closing_epoch );
+  FD_TEST( closing );
+  FD_TEST( closing->effective==8UL*BASE_STAKE );
+  FD_TEST( !closing->activating );
+  FD_TEST( !closing->deactivating );
+  fd_accdb_unread_one( env->accdb, &acc );
+  FD_TEST( child->f.total_effective_stake==8UL*BASE_STAKE );
+  if( fixed_point || gap ) {
+    FD_TEST( !sd->fp_warmed_awarded );
+    fd_stake_delegations_view_t view[1];
+    fd_stake_delegations_view_begin( view, sd, fd_stake_delegations_root_fork_id( sd ) );
+    view->use_stable_tags = 1;
+    fd_stake_delegations_iter_t iter[1];
+    for( fd_stake_delegations_iter_init( iter, view ); !fd_stake_delegations_iter_done( iter ); fd_stake_delegations_iter_next( iter ) ) {
+      FD_TEST( fd_stake_delegations_iter_ele( iter )->state==FD_STAKE_DELEGATION_STATE_UNKNOWN );
+    }
+    fd_stake_delegations_view_end( view );
+  }
+  if( fixed_point ) FD_TEST( FD_FEATURE_ACTIVE_BANK( child, upgrade_bpf_stake_program_to_v5_1 ) );
+  test_env_destroy( env );
+  FD_LOG_NOTICE(( "test_boundary_unrooted_delegation_totals: ok" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -665,6 +764,9 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_runtime_stack_stake_accum_map_sizing( wksp );
+  test_boundary_unrooted_delegation_totals( wksp, 0, 0 );
+  test_boundary_unrooted_delegation_totals( wksp, 1, 0 );
+  test_boundary_unrooted_delegation_totals( wksp, 0, 1 );
   test_vat_path_unconditional( wksp );
   test_vat_invalidate_revalidate( wksp );
 

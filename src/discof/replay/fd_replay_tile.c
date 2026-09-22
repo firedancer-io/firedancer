@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <linux/futex.h> /* FUTEX_WAKE */
 #include <sys/syscall.h> /* SYS_futex */
+#include <sys/stat.h>
 #include <unistd.h> /* syscall(2) */
 
 #include "fd_replay_tile.h"
@@ -231,9 +232,19 @@ metrics_write( fd_replay_tile_t * ctx ) {
 
   fd_stake_delegations_metrics_t stake_metrics;
   fd_stake_delegations_metrics_query( fd_banks_stake_delegations_root_query( ctx->banks ), &stake_metrics );
+  if( FD_UNLIKELY( stake_metrics.bytes_written!=ctx->stake_disk_written ) ) {
+    struct stat st;
+    if( FD_UNLIKELY( -1==syscall( SYS_fstat, FD_STAKE_DELEGATIONS_FD, &st ) ) ) {
+      FD_LOG_ERR(( "fstat(stake-delegation file) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    ctx->stake_disk_written = stake_metrics.bytes_written;
+    ctx->stake_disk_allocated_bytes = (ulong)st.st_blocks*512UL;
+  }
   FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_ROOT_RECORDS,        stake_metrics.root_cnt         );
   FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_PLACEHOLDER_RECORDS, stake_metrics.placeholder_cnt  );
   FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_DELTA_RECORDS,       stake_metrics.delta_cnt        );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_FORKS,               stake_metrics.fork_cnt         );
+  FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_DISK_ALLOCATED_BYTES, ctx->stake_disk_allocated_bytes );
   FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_OCCUPIED_PAGES,      stake_metrics.occupied_pages   );
   FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_RESIDENT_PAGES,      stake_metrics.resident_pages   );
   FD_MGAUGE_SET( REPLAY, STAKE_DELEGATIONS_FOOTPRINT_BYTES,     stake_metrics.footprint        );
@@ -4750,6 +4761,8 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed,   sizeof(ulong) )         );
 
   ctx->store_disk_fd = -1;
+  ctx->stake_disk_written = 0UL;
+  ctx->stake_disk_allocated_bytes = 0UL;
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
     fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );

@@ -1050,6 +1050,8 @@
 | <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;root_&#8203;records</span> | gauge | Rooted stake-delegation records |
 | <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;placeholder_&#8203;records</span> | gauge | Stake-delegation keys present only on unrooted forks |
 | <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;delta_&#8203;records</span> | gauge | Stake-delegation fork versions |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;forks</span> | gauge | Retained stake-delegation forks including the root |
+| <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Allocated disk bytes in the stake-delegation backing file |
 | <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;occupied_&#8203;pages</span> | gauge | Allocated stake-delegation pages |
 | <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;resident_&#8203;pages</span> | gauge | Stake-delegation pages currently cached in RAM |
 | <span class="metrics-name">replay_&#8203;stake_&#8203;delegations_&#8203;footprint_&#8203;bytes</span> | gauge | Reserved shared-memory bytes for the stake-delegation store |

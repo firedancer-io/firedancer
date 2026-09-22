@@ -12,6 +12,7 @@
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../fd_system_ids.h"
 #include "../fd_pubkey_utils.h"
+#include "../fd_runtime_stack_tmpl.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include <stdlib.h>
@@ -704,7 +705,7 @@ test_no_credits_no_reward( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_no_credits_no_reward: PASSED" ));
 }
 
-static void
+static ulong
 test_credits_staker_reward( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
@@ -747,6 +748,7 @@ test_credits_staker_reward( fd_svm_mini_t * mini ) {
   FD_TEST( s_after.delegation.voter_pubkey.ul[0] == vote_key.ul[0] );
 
   FD_LOG_NOTICE(( "test_credits_staker_reward: PASSED (staker reward = %lu lamports)", reward ));
+  return reward;
 }
 
 static void
@@ -815,6 +817,27 @@ test_evicted_reward_window_recalculated( fd_svm_mini_t * mini ) {
       stake_rewards, evicted_fork )==total_rewards );
 
   FD_LOG_NOTICE(( "test_evicted_reward_window_recalculated: PASSED" ));
+}
+
+/* With no ordinal cache, every logical index takes the uncached reward
+   and partition path.  Its payout must match the ordinary cached run. */
+static void
+test_rewards_without_ordinal_cache( fd_svm_mini_t * mini ) {
+  fd_runtime_stack_t * saved = mini->runtime_stack;
+  ulong expected = test_credits_staker_reward( mini );
+  ulong footprint = fd_runtime_stack_footprint( saved->max_vote_accounts,
+                                               saved->max_vote_accounts, 0UL );
+  void * mem = aligned_alloc( fd_runtime_stack_align(), footprint );
+  FD_TEST( mem );
+  mini->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( mem,
+      saved->max_vote_accounts, saved->max_vote_accounts, 0UL, 999UL ) );
+  FD_TEST( mini->runtime_stack );
+  FD_TEST( !mini->runtime_stack->max_stake_accounts );
+  FD_TEST( test_credits_staker_reward( mini )==expected );
+  test_evicted_reward_window_recalculated( mini );
+  mini->runtime_stack = saved;
+  free( mem );
+  FD_LOG_NOTICE(( "test_rewards_without_ordinal_cache: PASSED" ));
 }
 
 static void
@@ -3276,6 +3299,7 @@ main( int     argc,
   test_alpenglow_preserves_commission_remainder( mini );
   test_no_credits_no_reward( mini );
   test_credits_staker_reward( mini );
+  test_rewards_without_ordinal_cache( mini );
   test_evicted_reward_window_recalculated( mini );
   test_activation_epoch_skips_reward( mini );
   test_inert_delegation_not_partitioned( mini );

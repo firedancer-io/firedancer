@@ -53,10 +53,12 @@ futex: (and (eq (arg 1) FUTEX_WAKE)
 
 # store disk layer: rare reads of spilled FEC payloads
 #
-# stake delegations: full root and fork-delta records spilled beyond
-# the in-memory delegation pools.
+# stake delegations: record pages evicted from the frame cache.
 pread64: (or (eq (arg 0) store_fd)
              (eq (arg 0) stake_spill_fd))
 
-# stake delegations: full-record disk spill
+# stake delegations: complete-page writeback
 pwrite64: (eq (arg 0) stake_spill_fd)
+
+# stake delegations: allocated disk blocks after page writeback
+fstat: (eq (arg 0) stake_spill_fd)

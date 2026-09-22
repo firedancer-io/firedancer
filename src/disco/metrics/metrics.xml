@@ -1264,6 +1264,8 @@ EXAMPLES
     <gauge name="StakeDelegationsRootRecords" summary="Rooted stake-delegation records" />
     <gauge name="StakeDelegationsPlaceholderRecords" summary="Stake-delegation keys present only on unrooted forks" />
     <gauge name="StakeDelegationsDeltaRecords" summary="Stake-delegation fork versions" />
+    <gauge name="StakeDelegationsForks" summary="Retained stake-delegation forks including the root" />
+    <gauge name="StakeDelegationsDiskAllocatedBytes" summary="Allocated disk bytes in the stake-delegation backing file" />
     <gauge name="StakeDelegationsOccupiedPages" summary="Allocated stake-delegation pages" />
     <gauge name="StakeDelegationsResidentPages" summary="Stake-delegation pages currently cached in RAM" />
     <gauge name="StakeDelegationsFootprintBytes" summary="Reserved shared-memory bytes for the stake-delegation store" />
