@@ -2304,6 +2304,33 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
     publish_root_advanced( ctx, stem, bank );
+
+    if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
+      fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+
+      reset->bank_idx         = bank->idx;
+      reset->timestamp        = ctx->reset_timestamp_nanos;
+      reset->completed_slot   = ctx->reset_slot;
+      reset->hashcnt_per_tick = bank->f.slot_params.hashes_per_tick;
+      reset->ticks_per_slot   = bank->f.ticks_per_slot;
+      reset->tick_duration_ns = bank->f.slot_params.ns_per_slot_adjusted/reset->ticks_per_slot;
+
+      fd_memcpy( reset->completed_cmr, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
+      fd_memcpy( reset->completed_dmr, &block_id_ele->dmr,       sizeof(fd_hash_t) );
+
+      fd_blockhashes_t const * block_hash_queue = &bank->f.block_hash_queue;
+      fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( block_hash_queue );
+      FD_TEST( last_hash );
+      fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );
+
+      reset->max_microblocks_in_slot = fd_poh_max_microblocks_per_slot( bank->f.ticks_per_slot, reset->hashcnt_per_tick );
+      reset->next_leader_slot = ctx->next_leader_slot;
+      reset->wfs_paused       = !ctx->wfs_complete;
+
+      fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+    }
+
     return;
   }
 

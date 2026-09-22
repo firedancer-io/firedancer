@@ -967,6 +967,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( root );
   root->f.slot                        = 0UL;
   root->f.parent_slot                 = 0UL;
+  root->f.ticks_per_slot              = 64UL;
   root->f.slot_params                 = FD_SLOT_PARAMS_400MS;
   root->f.slot_params.hashes_per_tick = 4UL;
   root->f.slot_params_default         = FD_SLOT_PARAMS_400MS;
@@ -1015,6 +1016,8 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   static ulong test_metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
   volatile ulong * saved_metrics_tl = fd_metrics_tl;
   fd_metrics_tl = test_metrics;
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
   mock_snapshot_boot = 1;
   on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
   mock_snapshot_boot = 0;
@@ -1022,6 +1025,18 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( root->accdb_fork_id.val==37U );
   FD_TEST( root->parent_accdb_fork_id.val==37U );
   FD_TEST( mock_accdb_fork_id_next==0U );
+
+  /* Verify REPLAY_SIG_RESET was published (3rd message after
+     SLOT_COMPLETED and ROOT_ADVANCED). */
+  FD_TEST( test_stem_seqs[ out_idx ]>=seq0+3UL );
+  fd_frag_meta_t const * reset_meta = test_stem_mcaches[ out_idx ]
+      + fd_mcache_line_idx( seq0+2UL, test_stem_depths[ out_idx ] );
+  FD_TEST( reset_meta->sig==REPLAY_SIG_RESET );
+  FD_TEST( reset_meta->sz ==sizeof(fd_poh_reset_t) );
+  fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_out->mem, reset_meta->chunk );
+  FD_TEST( reset->completed_slot==0UL );
+  FD_TEST( reset->ticks_per_slot==64UL );
+
   root->refcnt = 0UL;
 
   fd_bank_t * child = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
