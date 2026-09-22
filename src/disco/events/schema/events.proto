@@ -963,7 +963,7 @@ message RuntimeTxn {
   repeated bytes program_ids = 41;
 }
 
-// A block finished production, or replay on this validator, or was marked dead, or was abandoned before completing. A block gets a row if it was ever replayed or produced (had a bank), or if it finished reception on a fork that had already died or been discarded; a block dropped before reception finished gets no row. Delivery is best-effort: rows travel a lossy telemetry link, and a large burst of simultaneous rows (mass death of a fork) can drop some. On-chain data is deliberately not part of this event. Reception and repair tallies are best-effort: they restart if repair transiently stopped tracking the block (forest eviction), and on equivocated slots they are slot-scoped — shreds from all observed versions of the slot merge into the same counts on every version's row.
+// A block finished production, or replay on this validator, or was marked dead, or was abandoned before completing. A block gets a row if it was ever replayed or produced (had a bank), or if it finished reception on a fork that had already died or been discarded; a block dropped before reception finished gets no row.  Under alpenglow, fork knowledge is much more transient, so blocks that were never replayed due to a parent getting discarded gets no row, even if reception finished.  Delivery is best-effort: rows travel a lossy telemetry link, and a large burst of simultaneous rows (mass death of a fork) can drop some. On-chain data is deliberately not part of this event. Reception and repair tallies are best-effort: they restart if repair transiently stopped tracking the block (forest eviction), and on equivocated slots they are slot-scoped — shreds from all observed versions of the slot merge into the same counts on every version's row.
 message BlockCompleted {
   // Bank sequence number, counting from 1 within a run; the join key to confirmation events. Not meaningful across restarts. 0 means no bank was ever allocated (a block completing reception under a dead or discarded lineage without ever getting a bank), leaving nothing to join on bank_seq; any forward confirmations for such a block join on slot and block_id. The boot bank (bank_seq 1) emits confirmation events but no block_completed row.
   uint64 bank_seq = 1;
@@ -1059,9 +1059,9 @@ message BlockCompleted {
   uint32 repair_shred_count = 46;
   // Shreds reconstructed locally from parity data. Re-recovered pieces count once per recovery (see turbine_shred_count). Always 0 for leader blocks, which produce rather than recover their shreds. 0 if repair pruned the block before completion.
   uint32 recovered_shred_count = 47;
-  // Whether every FEC set was verified to chain back to the confirmed block identity, i.e. the assembled data matches the block the cluster confirmed. Verification is confirmation-triggered and the value is snapshotted at the block's last received FEC set, so false means it had not run by then, not that it failed; at the live tip confirmation usually arrives later. True mainly when confirmation precedes reception completing, e.g. during catch-up. See lowest_verified_fec_index.
+  // Whether every FEC set was verified to chain back to the confirmed block identity, i.e. the assembled data matches the block the cluster confirmed. Verification is confirmation-triggered and the value is snapshotted at the block's last received FEC set, so false means it had not run by then, not that it failed; at the live tip confirmation usually arrives later. Always false under alpenglow. True mainly when confirmation precedes reception completing, e.g. during catch-up. See lowest_verified_fec_index.
   bool chain_confirmed = 48;
-  // Lowest FEC set index reached by chain verification as of the block's last received FEC set; the walk anchors at the confirmed block identity and works backwards. 0 means the whole block verified. 4294967295 means no verification information (verification never ran, or repair pruned the block); not a FEC index.
+  // Lowest FEC set index reached by chain verification as of the block's last received FEC set; the walk anchors at the confirmed block identity and works backwards. 0 means the whole block verified. 4294967295 means no verification information (verification never ran, or repair pruned the block); not a FEC index. Always 0 under alpenglow.
   uint32 lowest_verified_fec_index = 49;
   // FEC set index of the last piece of the block to complete reception, which with out-of-order repair need not be the block's final index. 4294967295 when the reception statistics are unpopulated; not a FEC index.
   uint32 last_completed_fec_set_index = 50;
@@ -1079,7 +1079,7 @@ message BlockCompleted {
   uint32 repair_request_highest_window_count = 56;
   // Repair requests for the block's ancestry when its parent is unknown; a response carries shreds from up to 11 ancestor blocks. Always 0 for leader blocks. 0 if repair pruned the block before completion.
   uint32 repair_request_orphan_count = 57;
-  // Whether chain verification against the confirmed block identity found a mismatched (wrong-version) FEC held for this block; the piece was cleared and re-repaired, but may have arrived by any route, turbine included. Always false for leader blocks. False if repair pruned the block before completion.
+  // Whether chain verification against the confirmed block identity found a mismatched (wrong-version) FEC held for this block; the piece was cleared and re-repaired, but may have arrived by any route, turbine included. Always false for leader blocks and under alpenglow. False if repair pruned the block before completion.
   bool repair_failed_chain_verify = 58;
   // Compute units used by all transactions, votes included; the vote/non-vote split is not part of this event (pack_vote_cost carries the producer-side vote reservation on leader rows). 0 if no cost tracker existed for the block (never prepared for replay, or no bank).
   uint64 cost_tracker_block_cost = 59;
@@ -1113,6 +1113,14 @@ message BlockCompleted {
   uint64 bundle_txn_count = 73;
   // Per-transaction timestamps, one entry per transaction in block order. Replayed blocks: stamped by the replay scheduler. Leader blocks: stamped by the production pipeline. Columns exclusive to the other path are 0. Empty on dead and abandoned replay rows; an abandoned leader block reports the transactions mixed into the block before production was abandoned. Otherwise best-effort: empty when no capture slot was free (more than 16 blocks replaying at once) or the production timing table was unavailable. Empty does not mean the block had no transactions.
   repeated BlockCompletedTxnTiming txn_timing = 74;
+  // Whether the block reached replay after a votor event named that block and we repaired that version, rather than through the version received over turbine. Always false before alpenglow, and false for blocks this validator produced as leader. A slot can report both, on separate rows.
+  bool votor_repaired = 75;
+  // Alpenglow ShredForBlockId requests, analogous to legacy window requests. Asks a peer for a specific missing shred, addressed by the block id it belongs to. Always 0 before alpenglow and for leader blocks.
+  uint32 repair_request_shred_block_id_count = 76;
+  // Alpenglow ParentAndFecCount requests, analogous to legacy orphan requests. Asks a peer for the block's parent and its FEC set count. Always 0 before alpenglow and for leader blocks.
+  uint32 repair_request_parent_count = 77;
+  // Alpenglow FecRoot requests: asks a peer for a FEC set's merkle root for a specified FEC set index. Always 0 before alpenglow and for leader blocks.
+  uint32 repair_request_fec_root_count = 78;
 }
 
 // Reported once when the validator process starts. A wide fingerprint of the host, operating system, kernel, hardware, network, build, and validator configuration at launch.

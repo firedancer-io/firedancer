@@ -264,6 +264,10 @@ fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
     msg->txn_timing[ k ].sigverify_done_time = ULONG_MAX;
     msg->txn_timing[ k ].poh_mixed_time = ULONG_MAX;
   }
+  msg->votor_repaired = 1;
+  msg->repair_request_shred_block_id_count = UINT_MAX;
+  msg->repair_request_parent_count = UINT_MAX;
+  msg->repair_request_fec_root_count = UINT_MAX;
 }
 
 static void
