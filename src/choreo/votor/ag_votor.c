@@ -645,11 +645,6 @@ ag_votor_handle_replay_event( ag_votor_t *              self,
     }
     break;
 
-  case AG_EVENT_REPLAY_DEAD:
-    FD_LOG_WARNING(( "replay marked slot %lu dead, skipping window", slot ));
-    try_skip_window( self, slot );
-    break;
-
   default:
     FD_LOG_ERR(( "invalid replay event kind %d", event->kind ));
   }
