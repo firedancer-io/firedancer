@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssload.h"
 #include "utils/fd_ssmsg.h"
@@ -28,10 +29,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#ifndef O_DIRECT
-#define O_DIRECT 00040000
-#endif
-
 #define NAME "snapin"
 
 #define FD_SNAPIN_WRITE_BUF_SZ      (16UL<<20)
@@ -40,11 +37,15 @@
    parallel snapin tiles do not serialize on the XFS inode lock that
    every buffered write takes.  Each flush is padded to a multiple of
    FD_SNAPIN_DIRECT_ALIGN with a dead record header so the compaction
-   cursor skips the gap. */
+   cursor skips the gap.  Accounts fill the buffer only up to
+   FD_SNAPIN_WRITE_BUF_MAX so that a gap too small for the header can
+   always be widened by one block without leaving the buffer. */
 #define FD_SNAPIN_DIRECT_ALIGN      (4096UL)
+#define FD_SNAPIN_WRITE_BUF_MAX     (FD_SNAPIN_WRITE_BUF_SZ-sizeof(fd_accdb_disk_meta_t))
 
-FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_SZ, write_buf );
-FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX<=FD_SNAPIN_WRITE_BUF_SZ, max_account );
+FD_STATIC_ASSERT( FD_SNAPIN_WRITE_BUF_SZ%FD_SNAPIN_DIRECT_ALIGN==0UL, write_buf_align );
+FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_MAX, write_buf );
+FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX<=FD_SNAPIN_WRITE_BUF_MAX, max_account );
 
 /* The snapin tiles are state machines that parse and load a full and
    optionally an incremental snapshot.  They are responsible for loading
@@ -301,7 +302,7 @@ struct fd_snapin_tile {
   ulong incr_fork;          /* insert fork; USHORT_MAX for full */
 
   struct {
-    uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ+2UL*FD_SNAPIN_DIRECT_ALIGN ] __attribute__((aligned(FD_SNAPIN_DIRECT_ALIGN)));
+    uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(FD_SNAPIN_DIRECT_ALIGN)));
     ulong                     buf_used;
     int                       direct_fd;        /* O_DIRECT fd to accounts.db, or -1 */
     ulong                     direct_pad_bytes; /* padding written for alignment */
@@ -1162,6 +1163,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     ulong padded = fd_ulong_align_up( used, FD_SNAPIN_DIRECT_ALIGN );
     ulong pad    = padded-used;
     if( FD_UNLIKELY( pad && pad<sizeof(fd_accdb_disk_meta_t) ) ) { padded += FD_SNAPIN_DIRECT_ALIGN; pad += FD_SNAPIN_DIRECT_ALIGN; }
+    FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ ); /* guaranteed by FD_SNAPIN_WRITE_BUF_MAX */
     if( pad ) {
       fd_memset( ctx->writer.buf+used, 0, pad );
       fd_accdb_disk_meta_t * pad_meta = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
@@ -1252,9 +1254,9 @@ writer_append_account( fd_snapin_tile_t * ctx,
                        int                executable ) {
   FD_TEST( slot<=UINT_MAX );
   ulong account_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
-  FD_TEST( account_sz<=FD_SNAPIN_WRITE_BUF_SZ );
+  FD_TEST( account_sz<=FD_SNAPIN_WRITE_BUF_MAX );
 
-  if( FD_UNLIKELY( account_sz>FD_SNAPIN_WRITE_BUF_SZ-ctx->writer.buf_used && writer_flush( ctx ) ) ) {
+  if( FD_UNLIKELY( account_sz>FD_SNAPIN_WRITE_BUF_MAX-ctx->writer.buf_used && writer_flush( ctx ) ) ) {
     return 1;
   }
 

@@ -2555,7 +2555,7 @@ test_writer_full_buffer_flush( void ) {
   sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_IDLE );
   test_io_reset();
 
-  ulong data_len = FD_SNAPIN_WRITE_BUF_SZ/2UL-sizeof(fd_accdb_disk_meta_t)-1UL;
+  ulong data_len = (FD_SNAPIN_WRITE_BUF_MAX-2UL)/2UL-sizeof(fd_accdb_disk_meta_t);
   uchar * data = aligned_alloc( 64UL, fd_ulong_align_up( data_len, 64UL ) );
   FD_TEST( data );
   fd_memset( data, 7, data_len );
@@ -2566,18 +2566,18 @@ test_writer_full_buffer_flush( void ) {
   FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, data_len, 0 ) );
   pubkey[ 0 ] = 4U;
   FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, data_len, 0 ) );
-  FD_TEST( ctx->writer.buf_used==FD_SNAPIN_WRITE_BUF_SZ-2UL );
+  FD_TEST( ctx->writer.buf_used==FD_SNAPIN_WRITE_BUF_MAX-2UL );
 
   pubkey[ 0 ] = 5U;
   FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, 1UL, 0 ) );
   FD_TEST( test_pwrite_call_cnt==1UL );
-  FD_TEST( test_pwrite_sz[ 0 ]==FD_SNAPIN_WRITE_BUF_SZ-2UL );
+  FD_TEST( test_pwrite_sz[ 0 ]==FD_SNAPIN_WRITE_BUF_MAX-2UL );
   FD_TEST( ctx->writer.buf_used==sizeof(fd_accdb_disk_meta_t)+1UL );
 
   FD_TEST( !writer_flush( ctx ) );
   FD_TEST( test_pwrite_call_cnt==2UL );
-  FD_TEST( test_pwrite_off[ 1 ]==FD_SNAPIN_WRITE_BUF_SZ-2UL );
-  FD_TEST( test_file_off==FD_SNAPIN_WRITE_BUF_SZ+sizeof(fd_accdb_disk_meta_t)-1UL );
+  FD_TEST( test_pwrite_off[ 1 ]==FD_SNAPIN_WRITE_BUF_MAX-2UL );
+  FD_TEST( test_file_off==FD_SNAPIN_WRITE_BUF_MAX+sizeof(fd_accdb_disk_meta_t)-1UL );
   free( data );
 }
 
