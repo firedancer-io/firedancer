@@ -2332,6 +2332,63 @@ test_refused_dtable( void ) {
   fd_grpc_server_delete( fd_grpc_server_leave( server ) );
 }
 
+static void
+test_flowctl_stall( void ) {
+  /* A peer that never opens its flow-control window leaves the response
+     in the stream queue, where the idle timeout still reaches it. */
+  fd_grpc_server_t * server = test_server_new_ex( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL,
+                                                  300L*1000L*1000L*1000L );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+  tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
+  tc_flush( tc );
+
+  req_opt_t opt = { .path = ROUTE_SLOW };
+  tc_request( tc, 1U, &opt );
+  uchar cmd[1] = { 'Q' };
+  tc_msg( tc, 1U, 0, cmd, sizeof(cmd), 0 );
+  tc_flush( tc );
+
+  /* The send ring is empty and the stream is active, so neither the
+     stalled output nor the receive idle branch sees the connection. */
+  uchar scratch[ 64 ];
+  FD_TEST( fd_grpc_server_conn_pop_tx( tc->conn, scratch, sizeof(scratch) )==0UL );
+  FD_TEST( fd_grpc_server_metrics( server )->tx_queue_full_cnt==1UL );
+
+  tc->now += 301L*1000L*1000L*1000L;
+  fd_grpc_server_service( server, tc->now );
+  tc_drain( tc );
+  FD_TEST( tc->goaway );
+  fd_grpc_server_service( server, tc->now );
+  FD_TEST( !fd_grpc_server_conn_is_open( tc->conn ) );
+  FD_TEST( fd_grpc_server_metrics( server )->idle_timeout_cnt==1UL );
+  test_server_delete( server );
+}
+
+static void
+test_quiet_subscriber( void ) {
+  /* A subscriber with an open window and nothing queued stays open. */
+  fd_grpc_server_t * server = test_server_new_ex( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL,
+                                                  300L*1000L*1000L*1000L );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+  req_opt_t opt = { .path = ROUTE_STREAM };
+  tc_request( tc, 1U, &opt );
+  tc_flush( tc );
+  tc_window_update( tc, 1U, 1UL<<20 );
+  tc_flush( tc );
+
+  tc->now += 301L*1000L*1000L*1000L;
+  fd_grpc_server_service( server, tc->now );
+  tc_drain( tc );
+  FD_TEST( !tc->goaway );
+  FD_TEST( fd_grpc_server_conn_is_open( tc->conn ) );
+  FD_TEST( fd_grpc_server_metrics( server )->idle_timeout_cnt==0UL );
+
+  tc_close( tc );
+  test_server_delete( server );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2390,6 +2447,8 @@ main( int     argc,
   RUN( test_zstd_other_codec     );
   RUN( test_compressed_request   );
   RUN( test_refused_dtable       );
+  RUN( test_flowctl_stall        );
+  RUN( test_quiet_subscriber     );
 # undef RUN
 
   FD_LOG_NOTICE(( "pass (%lu tests)", test_cnt ));
