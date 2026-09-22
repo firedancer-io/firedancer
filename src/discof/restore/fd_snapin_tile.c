@@ -304,7 +304,7 @@ struct fd_snapin_tile {
   struct {
     uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(FD_SNAPIN_DIRECT_ALIGN)));
     ulong                     buf_used;
-    int                       direct_fd;        /* O_DIRECT fd to accounts.db (0 in unit tests: buffered) */
+    int                       direct_fd;        /* O_DIRECT fd to accounts.db */
     ulong                     direct_pad_bytes; /* padding written for alignment */
     fd_snapin_account_batch_t batch;
   } writer;
@@ -1156,30 +1156,23 @@ writer_flush( fd_snapin_tile_t * ctx ) {
      IO the range is padded to FD_SNAPIN_DIRECT_ALIGN; the padding is a
      dead record (zero pubkey, size covering the gap) so that the
      compaction cursor walks over it. */
-  ulong used = ctx->writer.buf_used;
-  ulong sz   = used;
-  if( FD_LIKELY( ctx->writer.direct_fd>0 ) ) {
-    ulong padded = fd_ulong_align_up( used, FD_SNAPIN_DIRECT_ALIGN );
-    ulong pad    = padded-used;
-    if( FD_UNLIKELY( pad && pad<sizeof(fd_accdb_disk_meta_t) ) ) { padded += FD_SNAPIN_DIRECT_ALIGN; pad += FD_SNAPIN_DIRECT_ALIGN; }
-    FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ ); /* guaranteed by FD_SNAPIN_WRITE_BUF_MAX */
-    if( pad ) {
-      fd_memset( ctx->writer.buf+used, 0, pad );
-      fd_accdb_disk_meta_t * pad_meta = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
-      pad_meta->size = (uint)( pad-sizeof(fd_accdb_disk_meta_t) );
-      ctx->writer.direct_pad_bytes += pad;
-    }
-    sz = padded;
+  ulong used   = ctx->writer.buf_used;
+  ulong padded = fd_ulong_align_up( used, FD_SNAPIN_DIRECT_ALIGN );
+  ulong pad    = padded-used;
+  if( FD_UNLIKELY( pad && pad<sizeof(fd_accdb_disk_meta_t) ) ) { padded += FD_SNAPIN_DIRECT_ALIGN; pad += FD_SNAPIN_DIRECT_ALIGN; }
+  FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ ); /* guaranteed by FD_SNAPIN_WRITE_BUF_MAX */
+  if( pad ) {
+    fd_memset( ctx->writer.buf+used, 0, pad );
+    fd_accdb_disk_meta_t * pad_meta = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
+    pad_meta->size = (uint)( pad-sizeof(fd_accdb_disk_meta_t) );
+    ctx->writer.direct_pad_bytes += pad;
   }
-  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, sz );
-  int fd = FD_ACCDB_FD_RW;
-  if( FD_LIKELY( ctx->writer.direct_fd>0 ) ) {
-    /* Every snapshot reservation is a multiple of FD_SNAPIN_DIRECT_ALIGN
-       and partitions start aligned, so the offset is aligned too. */
-    FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
-    fd = ctx->writer.direct_fd;
-  }
-  writer_pwrite( ctx, fd, ctx->writer.buf, sz, base_off );
+
+  /* Every snapshot reservation is a multiple of FD_SNAPIN_DIRECT_ALIGN
+     and partitions start aligned, so the offset is aligned too. */
+  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded );
+  FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
+  writer_pwrite( ctx, ctx->writer.direct_fd, ctx->writer.buf, padded, base_off );
 
   fd_accdb_fork_id_t fork_id = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
   fd_snapin_account_batch_t * batch = &ctx->writer.batch;
@@ -2020,7 +2013,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
-  if( FD_LIKELY( ctx->writer.direct_fd>0 ) ) out_fds[ out_cnt++ ] = ctx->writer.direct_fd; /* accounts db, O_DIRECT */
+  out_fds[ out_cnt++ ] = ctx->writer.direct_fd; /* accounts db, O_DIRECT */
 
   return out_cnt;
 }
@@ -2031,8 +2024,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  uint direct_fd = ctx->writer.direct_fd>0 ? (uint)ctx->writer.direct_fd : (uint)FD_ACCDB_FD_RW;
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, direct_fd, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.direct_fd, FD_STAKE_DELEGATIONS_FD );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 

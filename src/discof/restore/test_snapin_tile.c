@@ -177,6 +177,14 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_txncache_attach_child                     record_txncache_attach_child
 #define pwrite                                       test_pwrite
 #include "fd_snapin_tile.c"
+
+/* Size of a flush after direct-IO padding (mirrors writer_flush). */
+static ulong
+test_padded_sz( ulong used ) {
+  ulong padded = fd_ulong_align_up( used, FD_SNAPIN_DIRECT_ALIGN );
+  if( padded-used && padded-used<sizeof(fd_accdb_disk_meta_t) ) padded += FD_SNAPIN_DIRECT_ALIGN;
+  return padded;
+}
 #undef pwrite
 #include "../../disco/pack/fd_pack_cost.h"
 #undef fd_txncache_attach_child
@@ -2540,11 +2548,11 @@ test_writer_flush( void ) {
 
   ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+sizeof(data);
   FD_TEST( test_pwrite_call_cnt==1UL );
-  FD_TEST( test_pwrite_off[ 0 ]==0UL && test_pwrite_sz[ 0 ]==entry_sz );
-  FD_TEST( test_file_off==entry_sz );
+  FD_TEST( test_pwrite_off[ 0 ]==0UL && test_pwrite_sz[ 0 ]==test_padded_sz( entry_sz ) );
+  FD_TEST( test_file_off==test_padded_sz( entry_sz ) );
   FD_TEST( !ctx->writer.buf_used && !ctx->writer.batch.cnt );
   FD_TEST( ctx->metrics.accounts_loaded==1UL );
-  FD_TEST( ctx->metrics.disk_bytes_written==entry_sz );
+  FD_TEST( ctx->metrics.disk_bytes_written==test_padded_sz( entry_sz ) );
   FD_TEST( ctx->shmem->values[ ctx->tile_idx ].loaded==1UL );
   FD_TEST( ctx->shmem->values[ ctx->tile_idx ].input_lamports==7UL );
 }
@@ -2571,13 +2579,14 @@ test_writer_full_buffer_flush( void ) {
   pubkey[ 0 ] = 5U;
   FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, 1UL, 0 ) );
   FD_TEST( test_pwrite_call_cnt==1UL );
-  FD_TEST( test_pwrite_sz[ 0 ]==FD_SNAPIN_WRITE_BUF_MAX-2UL );
+  FD_TEST( test_pwrite_sz[ 0 ]==FD_SNAPIN_WRITE_BUF_SZ ); /* BUF_MAX-2 padded to the full buffer */
   FD_TEST( ctx->writer.buf_used==sizeof(fd_accdb_disk_meta_t)+1UL );
 
   FD_TEST( !writer_flush( ctx ) );
   FD_TEST( test_pwrite_call_cnt==2UL );
-  FD_TEST( test_pwrite_off[ 1 ]==FD_SNAPIN_WRITE_BUF_MAX-2UL );
-  FD_TEST( test_file_off==FD_SNAPIN_WRITE_BUF_MAX+sizeof(fd_accdb_disk_meta_t)-1UL );
+  FD_TEST( test_pwrite_off[ 1 ]==FD_SNAPIN_WRITE_BUF_SZ );
+  FD_TEST( test_pwrite_sz [ 1 ]==test_padded_sz( sizeof(fd_accdb_disk_meta_t)+1UL ) );
+  FD_TEST( test_file_off==FD_SNAPIN_WRITE_BUF_SZ+test_padded_sz( sizeof(fd_accdb_disk_meta_t)+1UL ) );
   free( data );
 }
 
@@ -2637,7 +2646,7 @@ test_max_account_staging( void ) {
   FD_TEST( !writer_flush( ctx ) );
   FD_TEST( ctx->metrics.accounts_loaded==1UL );
   FD_TEST( test_pwrite_call_cnt==1UL );
-  FD_TEST( test_pwrite_sz[ 0 ]==sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX );
+  FD_TEST( test_pwrite_sz[ 0 ]==test_padded_sz( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX ) );
 }
 
 int
