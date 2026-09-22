@@ -141,7 +141,8 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
                              txnpages_free, scratch_pages), see fd_txncache_txnpage_idx_sz. */
 
   uint  blockcache_generation; /* Incremented for every blockcache. */
-  ulong txnpages_free_cnt; /* The number of pages in the txnpages that are not currently in use. */
+  ulong txnpages_free_cnt; /* Total free pages across the RAM and disk stacks. */
+  ulong disk_free_cnt;     /* Changes only under the write lock; RAM free count is total minus disk. */
 
   /* Helps the snapshot producer walk the txncache lock-free and detect
      relevant changes to the txncache.  mutation_gen covers transaction
@@ -217,7 +218,7 @@ struct fd_txncache_private {
   blockcache_t * blockcache_pool;
   blockhash_map_t * blockhash_map;
 
-  void * txnpages_free;             /* The index in the txnpages array that is free, for each of the free pages.
+  void * txnpages_free;             /* Free page IDs: RAM stack starts at 0, disk stack at resident_pages.
                                        Elements are shmem->txnpage_idx_sz bytes, as are scratch_pages below. */
 
   fd_txncache_txnpage_t * txnpages; /* The actual storage for the transactions.  The blockcache points to these

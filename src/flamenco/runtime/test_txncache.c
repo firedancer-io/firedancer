@@ -77,11 +77,11 @@ test_spill( void ) {
 
 static void
 test_spill_page_reuse( void ) {
-  ulong shsz = fd_txncache_shmem_footprint( 4UL, 256UL, 2UL*sizeof(fd_txncache_txnpage_t) );
-  ulong sz = shsz+fd_txncache_footprint( 4UL );
+  ulong shsz = fd_txncache_shmem_footprint( 5UL, 256UL, 2UL*sizeof(fd_txncache_txnpage_t) );
+  ulong sz = shsz+fd_txncache_footprint( 5UL );
   uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
   FD_TEST( mem!=MAP_FAILED );
-  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, 2UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 5UL, 256UL, 2UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
   char path[] = "/tmp/fd-txncache-free-XXXXXX";
   int fd = mkstemp( path );
   FD_TEST( fd>=0 );
@@ -92,23 +92,48 @@ test_spill_page_reuse( void ) {
   fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
   fd_txncache_fork_id_t a = fd_txncache_attach_child( tc, root );
   fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(2UL) );
-  fd_txncache_fork_id_t b = fd_txncache_attach_child( tc, a );
+  fd_txncache_fork_id_t b = fd_txncache_attach_child( tc, root );
   fd_txncache_finalize_fork( tc, b, 0UL, BLOCKHASH(4UL) );
+  fd_txncache_fork_id_t ram_child = fd_txncache_attach_child( tc, a );
   fd_txncache_fork_id_t child = fd_txncache_attach_child( tc, b );
   /* RAM page allocation must work while another reader holds the lock. */
   fd_rwlock_read( sh->lock );
   fd_txncache_insert( tc, child, BLOCKHASH(1UL), TXNHASH(1UL) );
-  fd_txncache_insert( tc, child, BLOCKHASH(2UL), TXNHASH(2UL) );
+  fd_txncache_insert( tc, ram_child, BLOCKHASH(2UL), TXNHASH(2UL) );
   fd_rwlock_unread( sh->lock );
   fd_txncache_insert( tc, child, BLOCKHASH(4UL), TXNHASH(4UL) );
   long spill_sz = lseek( fd, 0, SEEK_END );
   FD_TEST( spill_sz>0L );
-  fd_txncache_cancel_fork( tc, a ); /* releases RAM and disk pages */
-  a = fd_txncache_attach_child( tc, root );
-  fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(3UL) );
-  b = fd_txncache_attach_child( tc, a );
-  fd_txncache_insert( tc, b, BLOCKHASH(3UL), TXNHASH(3UL) );
-  FD_TEST( fd_txncache_query( tc, b, BLOCKHASH(3UL), TXNHASH(3UL) ) );
+  ulong disk_pages = sh->max_txnpages-sh->resident_pages;
+  ulong ram_page   = fd_txncache_txnpage_idx_ld( sh->txnpage_idx_sz, tc->blockcache_pool[ a.val ].pages, 0UL );
+  ulong disk_page  = fd_txncache_txnpage_idx_ld( sh->txnpage_idx_sz, tc->blockcache_pool[ b.val ].pages, 0UL );
+  FD_TEST( ram_page>=disk_pages && disk_page<disk_pages );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    /* Free RAM first and disk last: allocation must still prefer RAM. */
+    fd_txncache_cancel_fork( tc, a );
+    fd_txncache_cancel_fork( tc, b );
+    a = fd_txncache_attach_child( tc, root );
+    fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(2UL) );
+    ram_child = fd_txncache_attach_child( tc, a );
+    fd_txncache_insert( tc, ram_child, BLOCKHASH(2UL), TXNHASH(10UL+i) );
+    FD_TEST( fd_txncache_txnpage_idx_ld( sh->txnpage_idx_sz, tc->blockcache_pool[ a.val ].pages, 0UL )==ram_page );
+    FD_TEST( fd_txncache_query( tc, ram_child, BLOCKHASH(2UL), TXNHASH(10UL+i) ) );
+
+    b = fd_txncache_attach_child( tc, root );
+    fd_txncache_finalize_fork( tc, b, 0UL, BLOCKHASH(4UL) );
+    child = fd_txncache_attach_child( tc, b );
+    fd_txncache_insert( tc, child, BLOCKHASH(4UL), TXNHASH(20UL+i) );
+    FD_TEST( fd_txncache_txnpage_idx_ld( sh->txnpage_idx_sz, tc->blockcache_pool[ b.val ].pages, 0UL )==disk_page );
+    FD_TEST( fd_txncache_query( tc, child, BLOCKHASH(4UL), TXNHASH(20UL+i) ) );
+    FD_TEST( !fd_txncache_query( tc, child, BLOCKHASH(4UL), TXNHASH(i ? 19UL+i : 4UL) ) );
+  }
+  fd_txncache_reset( tc );
+  FD_TEST( sh->txnpages_free_cnt==sh->max_txnpages );
+  root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
+  child = fd_txncache_attach_child( tc, root );
+  fd_txncache_insert( tc, child, BLOCKHASH(1UL), TXNHASH(1UL) );
+  FD_TEST( fd_txncache_txnpage_idx_ld( sh->txnpage_idx_sz, tc->blockcache_pool[ root.val ].pages, 0UL )>=disk_pages );
   FD_TEST( !close( fd ) );
   FD_TEST( !munmap( mem, sz ) );
 }
@@ -656,6 +681,16 @@ test_purge_stale( uchar * scratch0,
 
   for( ulong i=0UL; i<10UL; i++ ) {
     FD_TEST( !fd_txncache_query( tc, query_fork, BLOCKHASH(0UL), TXNHASH(stale_id_base + i) ) );
+  }
+
+  if( test_spill_fd>=0 ) {
+    /* Compaction returned the sole RAM page; a new blockcache must reuse it. */
+    fd_txncache_finalize_fork( tc, query_fork, 0UL, BLOCKHASH(20000UL) );
+    fd_txncache_fork_id_t child = fd_txncache_attach_child( tc, query_fork );
+    fd_txncache_insert( tc, child, BLOCKHASH(20000UL), TXNHASH(20000UL) );
+    ulong page = fd_txncache_txnpage_idx_ld( shtc->txnpage_idx_sz, tc->blockcache_pool[ query_fork.val ].pages, 0UL );
+    FD_TEST( page>=shtc->max_txnpages-shtc->resident_pages );
+    FD_TEST( fd_txncache_query( tc, child, BLOCKHASH(20000UL), TXNHASH(20000UL) ) );
   }
 }
 

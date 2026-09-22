@@ -195,8 +195,10 @@ fd_txncache_shmem_new( void * shmem,
   tc->txnpage_idx_sz             = _txnpage_idx_sz;
 
   tc->blockcache_generation = 0U;
-  tc->txnpages_free_cnt = _max_txnpages;
-  for( ulong i=0UL; i<_max_txnpages; i++ ) fd_txncache_txnpage_idx_st( _txnpage_idx_sz, _txnpages_free, i, i );
+  tc->txnpages_free_cnt     = _max_txnpages;
+  tc->disk_free_cnt         = _max_txnpages-resident_pages;
+  for( ulong i=0UL; i<resident_pages;    i++ ) fd_txncache_txnpage_idx_st( _txnpage_idx_sz, _txnpages_free, i,                tc->disk_free_cnt+i );
+  for( ulong i=0UL; i<tc->disk_free_cnt; i++ ) fd_txncache_txnpage_idx_st( _txnpage_idx_sz, _txnpages_free, resident_pages+i, i                   );
 
   tc->seed = seed;
 

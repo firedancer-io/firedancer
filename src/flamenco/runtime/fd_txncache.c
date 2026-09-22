@@ -157,7 +157,9 @@ fd_txncache_reset( fd_txncache_t * tc ) {
   root_slist_remove_all( tc->shmem->root_ll, tc->blockcache_shmem_pool );
 
   tc->shmem->txnpages_free_cnt = tc->shmem->max_txnpages;
-  for( ulong i=0UL; i<tc->shmem->max_txnpages; i++ ) fd_txncache_txnpage_idx_st( tc->shmem->txnpage_idx_sz, tc->txnpages_free, i, i );
+  tc->shmem->disk_free_cnt     = tc->shmem->max_txnpages-tc->shmem->resident_pages;
+  for( ulong i=0UL; i<tc->shmem->resident_pages; i++ ) fd_txncache_txnpage_idx_st( tc->shmem->txnpage_idx_sz, tc->txnpages_free, i,                             tc->shmem->disk_free_cnt+i );
+  for( ulong i=0UL; i<tc->shmem->disk_free_cnt;  i++ ) fd_txncache_txnpage_idx_st( tc->shmem->txnpage_idx_sz, tc->txnpages_free, tc->shmem->resident_pages+i, i                         );
 
   blockcache_pool_reset( tc->blockcache_shmem_pool );
   blockhash_map_reset( tc->blockhash_map );
@@ -189,7 +191,7 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
   ulong page_cnt = blockcache->shmem->pages_cnt;
   if( FD_UNLIKELY( page_cnt>tc->shmem->txnpages_per_blockhash_max ) ) return NULL;
 
-  ulong idx_sz = tc->shmem->txnpage_idx_sz;
+  ulong idx_sz     = tc->shmem->txnpage_idx_sz;
   ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
   if( FD_LIKELY( page_cnt ) ) {
     txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, page_cnt-1UL );
@@ -209,18 +211,22 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
                                      : FD_ATOMIC_CAS( (ushort *)blockcache->pages+page_cnt, (ushort)USHORT_MAX, (ushort)(USHORT_MAX-1U) )==(ushort)USHORT_MAX;
   if( FD_LIKELY( claimed ) ) {
     ulong txnpages_free_cnt = tc->shmem->txnpages_free_cnt;
+    ulong disk_free_cnt     = tc->shmem->disk_free_cnt;
     for(;;) {
-      if( FD_UNLIKELY( !txnpages_free_cnt ) ) {
-        fd_txncache_txnpage_idx_st( idx_sz, blockcache->pages, page_cnt, idx_null );
-        FD_COMPILER_MFENCE();
-        return NULL;
+      /* Only take a disk page when no RAM page is free. */
+      if( FD_UNLIKELY( txnpages_free_cnt==disk_free_cnt ) ) {
+        if( FD_UNLIKELY( !write || !disk_free_cnt ) ) {
+          fd_txncache_txnpage_idx_st( idx_sz, blockcache->pages, page_cnt, idx_null );
+          FD_COMPILER_MFENCE();
+          return NULL;
+        }
+        txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, tc->shmem->resident_pages+disk_free_cnt-1UL );
+        tc->shmem->disk_free_cnt--;
+        tc->shmem->txnpages_free_cnt--;
+        break;
       }
-      txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, txnpages_free_cnt-1UL );
-      if( FD_UNLIKELY( txnpage_idx<disk_pages && !write ) ) {
-        fd_txncache_txnpage_idx_st( idx_sz, blockcache->pages, page_cnt, idx_null );
-        FD_COMPILER_MFENCE();
-        return NULL;
-      }
+      /* Disk count is stable under the read lock, so only the total needs CAS. */
+      txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, txnpages_free_cnt-disk_free_cnt-1UL );
       ulong old_txnpages_free_cnt = FD_ATOMIC_CAS( &tc->shmem->txnpages_free_cnt, txnpages_free_cnt, txnpages_free_cnt-1UL );
       if( FD_LIKELY( old_txnpages_free_cnt==txnpages_free_cnt ) ) break;
       txnpages_free_cnt = old_txnpages_free_cnt;
@@ -372,9 +378,16 @@ static inline void
 remove_blockcache( fd_txncache_t * tc,
                    blockcache_t *  blockcache ) {
   FD_TEST( blockcache->shmem->frozen>=0 );
-  ulong idx_sz = tc->shmem->txnpage_idx_sz;
-  memcpy( (uchar *)tc->txnpages_free+tc->shmem->txnpages_free_cnt*idx_sz, blockcache->pages, blockcache->shmem->pages_cnt*idx_sz );
-  tc->shmem->txnpages_free_cnt += blockcache->shmem->pages_cnt;
+  ulong idx_sz     = tc->shmem->txnpage_idx_sz;
+  ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
+  for( ulong i=0UL; i<blockcache->shmem->pages_cnt; i++ ) {
+    ulong page = fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, i );
+    ulong free_idx;
+    if( FD_LIKELY( page>=disk_pages ) ) free_idx = tc->shmem->txnpages_free_cnt-tc->shmem->disk_free_cnt;
+    else                              free_idx = tc->shmem->resident_pages+tc->shmem->disk_free_cnt++;
+    fd_txncache_txnpage_idx_st( idx_sz, tc->txnpages_free, free_idx, page );
+    tc->shmem->txnpages_free_cnt++;
+  }
 
   ulong idx = blockcache_pool_idx( tc->blockcache_shmem_pool, blockcache->shmem );
   for( ulong i=0UL; i<tc->shmem->active_slots_max; i++ ) descends_set_remove( tc->blockcache_pool[ i ].descends, idx );
@@ -496,7 +509,8 @@ static void
 purge_stale_on_blockcache( fd_txncache_t * tc,
                            blockcache_t *  blockcache ) {
   FD_TEST( blockcache->shmem->frozen>=0 );
-  ulong idx_sz = tc->shmem->txnpage_idx_sz;
+  ulong idx_sz     = tc->shmem->txnpage_idx_sz;
+  ulong disk_pages = tc->shmem->max_txnpages-tc->shmem->resident_pages;
   memset( tc->scratch_heads, 0xFF, tc->shmem->bucket_cnt*sizeof(tc->scratch_heads[ 0 ]) );
   memset( tc->scratch_pages, 0xFF, tc->shmem->txnpages_per_blockhash_max*idx_sz );
   ulong scratch_pages_cnt = 0UL;
@@ -539,7 +553,10 @@ purge_stale_on_blockcache( fd_txncache_t * tc,
     }
     if( FD_UNLIKELY( curr_txnpage_idx!=scratch_txnpage_idx ) ) {
       /* The txnpage is not being used for compaction, free it up. */
-      fd_txncache_txnpage_idx_st( idx_sz, tc->txnpages_free, tc->shmem->txnpages_free_cnt, curr_txnpage_idx );
+      ulong free_idx;
+      if( FD_LIKELY( curr_txnpage_idx>=disk_pages ) ) free_idx = tc->shmem->txnpages_free_cnt-tc->shmem->disk_free_cnt;
+      else                                         free_idx = tc->shmem->resident_pages+tc->shmem->disk_free_cnt++;
+      fd_txncache_txnpage_idx_st( idx_sz, tc->txnpages_free, free_idx, curr_txnpage_idx );
       tc->shmem->txnpages_free_cnt++;
     }
   }

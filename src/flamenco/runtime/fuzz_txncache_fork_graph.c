@@ -567,6 +567,12 @@ static void
 check_invariants( model_t const * m ) {
   fd_txncache_t * tc = m->tc;
   FD_TEST( tc->shmem->txnpages_free_cnt<=tc->shmem->max_txnpages );
+  ulong disk_pages    = tc->shmem->max_txnpages-tc->shmem->resident_pages;
+  ulong disk_free_cnt = tc->shmem->disk_free_cnt;
+  FD_TEST( disk_free_cnt<=disk_pages );
+  FD_TEST( disk_free_cnt<=tc->shmem->txnpages_free_cnt );
+  ulong ram_free_cnt = tc->shmem->txnpages_free_cnt-disk_free_cnt;
+  FD_TEST( ram_free_cnt<=tc->shmem->resident_pages );
   FD_TEST( tc->shmem->max_txnpages<=512U );
 
   ulong pool_free = blockcache_pool_free( tc->blockcache_shmem_pool );
@@ -600,9 +606,16 @@ check_invariants( model_t const * m ) {
     }
   }
 
-  for( ulong i=0UL; i<tc->shmem->txnpages_free_cnt; i++ ) {
+  for( ulong i=0UL; i<ram_free_cnt; i++ ) {
     ulong page = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, i );
+    FD_TEST( page>=disk_pages );
     FD_TEST( page<tc->shmem->max_txnpages );
+    FD_TEST( !page_seen[ page ] );
+    page_seen[ page ] = 1U;
+  }
+  for( ulong i=0UL; i<disk_free_cnt; i++ ) {
+    ulong page = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, tc->shmem->resident_pages+i );
+    FD_TEST( page<disk_pages );
     FD_TEST( !page_seen[ page ] );
     page_seen[ page ] = 1U;
   }

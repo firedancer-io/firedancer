@@ -149,6 +149,8 @@ FD_PROTOTYPES_BEGIN
    cache miss.
 
    Disk inserts reuse the shared compaction scratch under the write lock.
+   New pages are allocated from RAM first, using disk only when no RAM
+   page is free.
    RAM pages remain in RAM; overflow pages remain on disk until freed.
 
    fd_txncache_join joins the caller to a txn cache.  Assumes ljoin
