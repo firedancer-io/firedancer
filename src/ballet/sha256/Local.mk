@@ -3,6 +3,9 @@ $(call add-objs,fd_sha256,fd_ballet)
 ifdef FD_HAS_ARM_SHA256
 $(call add-objs,fd_sha256_arm,fd_ballet)
 endif
+ifdef FD_HAS_RISCV_SHA256
+$(call add-objs,fd_sha256_riscv,fd_ballet)
+endif
 ifdef FD_HAS_AVX
 $(call add-objs,fd_sha256_batch_avx,fd_ballet)
 endif

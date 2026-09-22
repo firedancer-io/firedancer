@@ -21,6 +21,10 @@ nix develop .#aarch64-linux-musl
 nix develop .#riscv64-linux-musl
 ```
 
+The RISC-V profile targets RV64GCV with the Zvknhb vector SHA-256/SHA-512 and
+Zvkb vector bit-manipulation extensions, with a minimum vector length of 128
+bits.  The full V extension also accelerates Ed25519 field arithmetic.
+
 These shells are exported on x86-64, AArch64, and RISC-V 64 Linux hosts.
 Running `nix develop` without a shell name selects the native architecture.
 

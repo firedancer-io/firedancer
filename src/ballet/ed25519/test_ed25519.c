@@ -277,6 +277,26 @@ test_fe_mul( fd_rng_t * rng ) {
   fd_f25519_tobytes( buf, h );
   FD_TEST( fd_memeq( buf, ebuf, 32 ) );
 
+  /* Check the batched implementation against the scalar implementation,
+     including loose inputs and in-place output. */
+  for( ulong iter=0UL; iter<128UL; iter++ ) {
+    fd_f25519_t a[4], b[4], t[1], expected[4];
+    for( ulong j=0UL; j<4UL; j++ ) {
+      fd_f25519_rng_unsafe( &a[j], rng );
+      fd_f25519_rng_unsafe( t,     rng );
+      fd_f25519_add_nr( &a[j], &a[j], t );
+      fd_f25519_rng_unsafe( &b[j], rng );
+      fd_f25519_rng_unsafe( t,     rng );
+      fd_f25519_add_nr( &b[j], &b[j], t );
+      fd_f25519_mul( &expected[j], &a[j], &b[j] );
+    }
+    fd_f25519_mul4( &a[0], &a[0], &b[0],
+                    &a[1], &a[1], &b[1],
+                    &a[2], &a[2], &b[2],
+                    &a[3], &a[3], &b[3] );
+    for( ulong j=0UL; j<4UL; j++ ) FD_TEST( fd_f25519_eq( &a[j], &expected[j] ) );
+  }
+
   fd_f25519_rng_unsafe( f, rng );
   fd_f25519_rng_unsafe( g, rng );
   ulong iter = g_bench ? 1000000UL : 0UL;
@@ -294,6 +314,24 @@ test_fe_sq( fd_rng_t * rng ) {
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
 
   fd_f25519_rng_unsafe( f, rng );
+
+  /* Check the batched implementation against the scalar implementation,
+     including loose inputs and in-place output. */
+  for( ulong j=0UL; j<128UL; j++ ) {
+    fd_f25519_t a[4], t[1], expected[4];
+    for( ulong k=0UL; k<4UL; k++ ) {
+      fd_f25519_rng_unsafe( &a[k], rng );
+      fd_f25519_rng_unsafe( t,     rng );
+      fd_f25519_add_nr( &a[k], &a[k], t );
+      fd_f25519_sqr( &expected[k], &a[k] );
+    }
+    fd_f25519_sqr4( &a[0], &a[0],
+                    &a[1], &a[1],
+                    &a[2], &a[2],
+                    &a[3], &a[3] );
+    for( ulong k=0UL; k<4UL; k++ ) FD_TEST( fd_f25519_eq( &a[k], &expected[k] ) );
+  }
+
   ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_f25519_sqr( h, f ); }

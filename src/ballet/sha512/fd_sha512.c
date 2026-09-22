@@ -105,6 +105,8 @@ fd_sha512_delete( void * shsha ) {
 #define FD_SHA512_CORE_IMPL 2
 #elif FD_HAS_AVX
 #define FD_SHA512_CORE_IMPL 1
+#elif FD_HAS_RISCV_SHA512
+#define FD_SHA512_CORE_IMPL 3
 #else
 #define FD_SHA512_CORE_IMPL 0
 #endif
@@ -371,6 +373,15 @@ fd_sha512_core_arm( ulong *       state,
 }
 
 #define fd_sha512_core fd_sha512_core_arm
+
+#elif FD_SHA512_CORE_IMPL==3
+
+void
+fd_sha512_core_riscv( ulong *       state,
+                      uchar const * block,
+                      ulong         block_cnt );
+
+#define fd_sha512_core fd_sha512_core_riscv
 
 #else
 #error "Unsupported FD_SHA512_CORE_IMPL"

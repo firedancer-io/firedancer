@@ -22,9 +22,16 @@ include config/extra/with-debug.mk
 include config/extra/with-security.mk
 include config/extra/with-threads.mk
 
-CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1
+# Zvknhb provides vector SHA-256/SHA-512, Zvkb provides vector byte reversal,
+# and V provides the multiply-high operations used by Ed25519.  These vector
+# operations require VLEN >= 128.
+CPPFLAGS+=-march=rv64gcv_zvkb_zvknhb_zvl128b
+CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_RISCV_SHA256=1 -DFD_HAS_RISCV_SHA512=1 -DFD_HAS_RISCV_ED25519=1
 
 FD_HAS_INT128:=1
 FD_HAS_DOUBLE:=1
 FD_HAS_ALLOCA:=1
+FD_HAS_RISCV_SHA256:=1
+FD_HAS_RISCV_SHA512:=1
+FD_HAS_RISCV_ED25519:=1
 FD_ARCH_SUPPORTS_SANDBOX:=1
