@@ -304,7 +304,6 @@ struct fd_snapin_tile {
     uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(FD_SNAPIN_DIRECT_ALIGN)));
     ulong                     buf_used;
     int                       direct_fd;        /* O_DIRECT fd to accounts.db */
-    ulong                     direct_pad_bytes; /* padding written for alignment */
     fd_snapin_account_batch_t batch;
   } writer;
 
@@ -345,10 +344,6 @@ should_shutdown( fd_snapin_tile_t * ctx ) {
     format_count( dup_buf,    sizeof(dup_buf),    ctx->lead.account_counts.duplicates );
     FD_LOG_NOTICE(( "loaded %s accounts %s(%s dups)%s from snapshot in %.3f seconds",
                     loaded_buf, fd_log_style_dim(), dup_buf, fd_log_style_normal(), (double)elapsed_ns/1e9 ));
-  }
-  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) ) {
-    FD_LOG_NOTICE(( "snapin %lu direct io: fd=%d pad_bytes=%lu disk_bytes_written=%lu",
-                    ctx->tile_idx, ctx->writer.direct_fd, ctx->writer.direct_pad_bytes, ctx->metrics.disk_bytes_written ));
   }
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
@@ -1161,7 +1156,6 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     fd_memset( ctx->writer.buf+used, 0, pad );
     fd_accdb_disk_meta_t * pad_meta = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
     pad_meta->size = (uint)( pad-sizeof(fd_accdb_disk_meta_t) );
-    ctx->writer.direct_pad_bytes += pad;
   }
 
   /* Every snapshot reservation is a multiple of FD_SNAPIN_DIRECT_ALIGN
