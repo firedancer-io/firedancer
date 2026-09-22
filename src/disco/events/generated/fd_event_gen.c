@@ -443,6 +443,10 @@ fd_event_block_completed_serialize( fd_circq_t *                       circq,
     if( txn_timing[ k ].poh_mixed_time ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)txn_timing[ k ].poh_mixed_time );
     ok &= !!fd_pb_submsg_close( encoder );
   }
+  if( msg->votor_repaired ) ok &= !!fd_pb_push_bool  ( encoder, 75U, msg->votor_repaired );
+  if( msg->repair_request_shred_block_id_count ) ok &= !!fd_pb_push_uint32( encoder, 76U, (uint)msg->repair_request_shred_block_id_count );
+  if( msg->repair_request_parent_count ) ok &= !!fd_pb_push_uint32( encoder, 77U, (uint)msg->repair_request_parent_count );
+  if( msg->repair_request_fec_root_count ) ok &= !!fd_pb_push_uint32( encoder, 78U, (uint)msg->repair_request_fec_root_count );
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );
