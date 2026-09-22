@@ -30,12 +30,13 @@ void *
 ag_votor_delete( void * mem );
 
 void
-ag_votor_init( ag_votor_t *   self,
-               ulong          slot,
-               long           now,
-               ushort         shred_version,
-               fd_bls_sign_fn sign_fn,
-               void *         sign_ctx );
+ag_votor_init( ag_votor_t *          self,
+               ulong                 slot,
+               ag_block_hash_t const hash,
+               long                  now,
+               ushort                shred_version,
+               fd_bls_sign_fn        sign_fn,
+               void *                sign_ctx );
 
 void
 ag_votor_fini( ag_votor_t * self );

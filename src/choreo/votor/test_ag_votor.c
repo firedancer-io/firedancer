@@ -122,7 +122,8 @@ setup_votor( long now ) {
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init         ( votor, 0UL, now, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_block_hash_t genesis; genesis_hash( genesis );
+  ag_votor_init         ( votor, 0UL, genesis, now, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
   ag_votor_advance_epoch( votor, 0UL, 0UL );
 
   g_epoch_info = &epoch_info_mem;
@@ -188,7 +189,8 @@ test_boot_mid_window( void ) {
   create_validators();
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init         ( votor, 2UL, 0L, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_block_hash_t boot; random_hash( boot );
+  ag_votor_init         ( votor, 2UL, boot, 0L, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
   ag_votor_advance_epoch( votor, 0UL, 0UL );
 
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
@@ -404,6 +406,74 @@ test_prunes_to_finalized_window( void ) {
   teardown_votor( votor );
 }
 
+/* Verify that the votor survives pool exhaustion by exercising the
+   emergency eviction path in state_mut(). */
+
+static void
+test_pool_exhaustion_eviction( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  /* Feed TEST_SLOT_MAX + AG_SLOTS_PER_WINDOW REPLAY_COMPLETED events
+     without any FINAL certs.  Without eviction the pool (sized to
+     TEST_SLOT_MAX) would crash at the assertion. */
+  ulong total = TEST_SLOT_MAX + AG_SLOTS_PER_WINDOW;
+  for( ulong s=1UL; s<=total; s++ ) {
+    ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
+    block.slot              = s;
+    random_hash( block.block_info.hash );
+    /* All blocks in a window chain to the previous slot. */
+    block.block_info.parent = random_block_id( s-1UL );
+    ag_votor_handle_replay_event( votor, &block );
+
+    /* Drain any votes produced so they don't clog the queue. */
+    ag_vote_t vote;
+    while( try_recv( votor, &vote ) ) {}
+  }
+
+  /* Evicted slots from the root should no longer be in the pool. */
+  for( ulong s=0UL; s<AG_SLOTS_PER_WINDOW; s++ ) {
+    FD_TEST( !contains_slot( votor, s ) );
+  }
+
+  /* The latest slots should still be present. */
+  for( ulong s=total-AG_SLOTS_PER_WINDOW+1UL; s<=total; s++ ) {
+    FD_TEST( contains_slot( votor, s ) );
+  }
+
+  teardown_votor( votor );
+}
+
+static void
+test_pool_exhaustion_with_gap( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  /* Simulate WFS: votor was initialized at slot 0 (by setup_votor),
+     then a large gap of slots that never entered the votor. */
+  ulong gap_start = AG_SLOTS_PER_WINDOW; /* first slot NOT created by init */
+  ulong gap_size  = TEST_SLOT_MAX;       /* large gap with no votor entries */
+  ulong resume    = gap_start + gap_size; /* first slot the votor sees after WFS */
+
+  /* Fill the pool with slots after the gap. */
+  ulong total = resume + TEST_SLOT_MAX;
+  for( ulong s=resume; s<total; s++ ) {
+    ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
+    block.slot              = s;
+    random_hash( block.block_info.hash );
+    block.block_info.parent = random_block_id( s-1UL );
+    ag_votor_handle_replay_event( votor, &block );
+
+    ag_vote_t vote;
+    while( try_recv( votor, &vote ) ) {}
+  }
+
+  /* The latest slots should still be present. */
+  for( ulong s=total-AG_SLOTS_PER_WINDOW+1UL; s<total; s++ ) {
+    FD_TEST( contains_slot( votor, s ) );
+  }
+
+  teardown_votor( votor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -417,6 +487,8 @@ main( int     argc,
   test_safe_to_notar();
   test_safe_to_skip();
   test_prunes_to_finalized_window();
+  test_pool_exhaustion_eviction();
+  test_pool_exhaustion_with_gap();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

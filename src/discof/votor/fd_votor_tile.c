@@ -151,6 +151,8 @@ struct fd_votor_tile {
   /* Data */
 
   int                        init;
+  int                        wfs_paused;
+  ag_block_hash_t            init_block_hash;
   ag_epoch_info_t *          prev_epoch_info;
   ulong                      prev_epoch_slot;
   ag_epoch_info_t *          curr_epoch_info;
@@ -611,6 +613,7 @@ rank_voters( ag_epoch_info_t *              epoch_info,
   for( ulong i=0UL; i<key_cnt; i++ ) if( FD_LIKELY( !keys[i].dup ) ) keys[epoch_info->validator_cnt++] = keys[i];
   sort_voter_stake_inplace( keys, epoch_info->validator_cnt );
 
+  epoch_info->total_stake = 0UL;
   for( ulong i=0UL; i<epoch_info->validator_cnt; i++ ) {
     ulong                 idx            = keys[i].idx;
     ag_validator_info_t * validator_info = epoch_info->validators + i;
@@ -771,7 +774,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, msg->start_slot, &ctx->id_key );
 
-  ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
+  ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version && !ctx->wfs_paused;
 }
 
 static void
@@ -841,21 +844,30 @@ handle_replay( fd_votor_tile_t *           ctx,
                fd_replay_message_t const * replay ) {
 
   switch( sig ) {
+  case REPLAY_SIG_RESET: {
+    fd_poh_reset_t const * reset = &replay->reset;
+    ctx->wfs_paused = reset->wfs_paused;
+    ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version && !ctx->wfs_paused;
+    break;
+  }
   case REPLAY_SIG_SLOT_COMPLETED: {
     fd_replay_slot_completed_t const * slot_completed  = &replay->slot_completed;
     ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ag_pool_init( ctx->pool, block_id.slot );
-      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
-      ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
+      memcpy( ctx->init_block_hash, block_id.hash, sizeof(ag_block_hash_t) );
+      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, block_id.hash, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
+      ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version && !ctx->wfs_paused;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, block_id.slot );
     }
     ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
     memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
-    ag_votor_handle_replay_event( ctx->votor, &completed );
+    if( FD_LIKELY( !ctx->wfs_paused ) ) {
+      ag_votor_handle_replay_event( ctx->votor, &completed );
+    }
     break;
   }
   default:
@@ -1041,6 +1053,7 @@ before_frag( fd_votor_tile_t * ctx,
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
+    if( FD_UNLIKELY( sig==REPLAY_SIG_RESET || sig==REPLAY_SIG_WFS_DONE ) ) return 0;
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
     return sig!=REPLAY_SIG_SLOT_COMPLETED;
   default:
@@ -1077,6 +1090,11 @@ during_frag( fd_votor_tile_t * ctx,
     fd_memcpy( ctx->net_buf, fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz ), sz );
     break;
   case IN_KIND_REPLAY: {
+    if( FD_UNLIKELY( sig==REPLAY_SIG_WFS_DONE ) ) {
+      ctx->wfs_paused = 0;
+      ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
+      break;
+    }
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof(fd_replay_message_t) ) ) {
       FD_LOG_ERR(( "chunk %lu sz %lu from replay out of bounds, chunk0 %lu wmark %lu",
                    chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -1109,9 +1127,9 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
-    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, ag_pool_finalized_slot( ctx->pool ), fd_log_wallclock(), (ushort)sig, sign_bls, ctx );
+    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, ag_pool_finalized_slot( ctx->pool ), ctx->init_block_hash, fd_log_wallclock(), (ushort)sig, sign_bls, ctx );
     ctx->shred_version = (ushort)sig;
-    ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
+    ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !ctx->wfs_paused;
     break;
   case IN_KIND_NET: {
     if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) break;
@@ -1215,6 +1233,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->mleaders );
 
   ctx->init                      = 0;
+  ctx->wfs_paused                = 0;
   ctx->net_tx_cnt                = 0UL;
   ctx->next_leader_slot          = ULONG_MAX;
   ctx->highest_parent_ready_slot = 0UL;

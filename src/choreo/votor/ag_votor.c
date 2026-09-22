@@ -111,7 +111,25 @@ state_mut( ag_votor_t * self,
   slot_state_ele_t * ele = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
   if( FD_LIKELY( ele ) ) return ele;
 
-  FD_TEST( slot_state_pool_free( self->slot_states->pool ) );
+  if( FD_UNLIKELY( !slot_state_pool_free( self->slot_states->pool ) ) ) {
+    /* Emergency eviction: free pool space by evicting from root. */
+    while( !slot_state_pool_free( self->slot_states->pool ) ) {
+      ulong evict_end = self->root + AG_SLOTS_PER_WINDOW;
+      for( ulong s=self->root; s<evict_end; s++ ) {
+        slot_state_ele_t * victim = slot_state_map_ele_remove( self->slot_states->map, &s, NULL, self->slot_states->pool );
+        if( FD_LIKELY( victim ) ) {
+          if( FD_UNLIKELY( victim->pending_block   ) ) pending_dlist_ele_remove( self->pending_dlist, victim, self->slot_states->pool );
+          if( FD_LIKELY  ( !timer_idle( victim )   ) ) timeout_dlist_ele_remove( self->timeout_dlist, victim, self->slot_states->pool );
+          slot_state_pool_ele_release( self->slot_states->pool, victim );
+        }
+      }
+      self->root = evict_end;
+    }
+    /* Advance highest_final_cert_slot so should_ignore_pool_event
+       correctly filters events for evicted slots. */
+    ulong min_final = self->root + AG_REWARD_SLOT_DELTA;
+    self->highest_final_cert_slot = fd_ulong_max( self->highest_final_cert_slot, min_final );
+  }
 
   ele                         = slot_state_pool_ele_acquire( self->slot_states->pool );
   fd_memset( ele, 0, sizeof(slot_state_ele_t) );
@@ -271,12 +289,13 @@ ag_votor_delete( void * mem ) {
 }
 
 void
-ag_votor_init( ag_votor_t *   self,
-               ulong          slot,
-               long           now,
-               ushort         shred_version,
-               fd_bls_sign_fn sign_fn,
-               void *         sign_ctx ) {
+ag_votor_init( ag_votor_t *          self,
+               ulong                 slot,
+               ag_block_hash_t const hash,
+               long                  now,
+               ushort                shred_version,
+               fd_bls_sign_fn        sign_fn,
+               void *                sign_ctx ) {
   FD_TEST( sign_fn );
   self->now                     = now;
   self->root                    = slot;
@@ -288,6 +307,7 @@ ag_votor_init( ag_votor_t *   self,
   slot_state_ele_t * state       = state_mut( self, slot );
   state->voted                   = 1;
   state->voted_notar             = 1;
+  memcpy( state->voted_notar_hash, hash, sizeof(ag_block_hash_t) );
   state->block_notarized         = 1;
   state->parents_ready[ 0 ].slot = slot;
   state->parents_ready_cnt       = 1UL;
