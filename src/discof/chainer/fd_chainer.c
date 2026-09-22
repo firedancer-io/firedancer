@@ -25,7 +25,7 @@ fd_chainer_new( void * shmem,
   fd_memset( shmem, 0, footprint );
   fd_chainer_t * chainer;
 
-  ulong blk_max       = ele_max * FD_CHAINER_SLOT_VER_MAX;
+  ulong blk_max       = fd_chainer_blk_max( ele_max );
   ulong fec_blk_max   = max_shreds_per_block / FD_FEC_SHRED_CNT;
   ulong fec_max       = blk_max * fec_blk_max;
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );

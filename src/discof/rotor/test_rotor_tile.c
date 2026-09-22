@@ -697,6 +697,8 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   FD_TEST( fd_rng_secure( &ctx->repair_seed, sizeof(ulong) ) );
   FD_TEST( fd_rng_secure( ctx->repair_nonce_ss, sizeof(fd_rnonce_ss_t) ) );
 
+  ulong deliver_max = fd_chainer_blk_max( TEST_SLOT_MAX ) * FD_FEC_BLK_MAX;
+
   void * chainer_mem    = fd_wksp_alloc_laddr( wksp, fd_chainer_align(),        fd_chainer_footprint( TEST_SLOT_MAX, FD_SHRED_BLK_MAX ), 1UL );
   void * policy_mem     = fd_wksp_alloc_laddr( wksp, fd_policy_align(),         fd_policy_footprint( TEST_PEER_MAX ),    1UL );
   void * dedup_mem      = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(),         fd_reqlim_footprint( TEST_DEDUP_MAX ),   1UL );
@@ -706,7 +708,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * ag_req_mem     = fd_wksp_alloc_laddr( wksp, meta_queue_align(),        meta_queue_footprint( FD_FEC_BLK_MAX ),   1UL );
   void * repair_mem     = fd_wksp_alloc_laddr( wksp, fd_repair_align(),         fd_repair_footprint(),                   1UL );
   void * metrics_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_metrics_align(), fd_repair_metrics_footprint(),           1UL );
-  void * deliver_q_mem  = fd_wksp_alloc_laddr( wksp, out_queue_align(),         out_queue_footprint( (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ), 1UL );
+  void * deliver_q_mem  = fd_wksp_alloc_laddr( wksp, out_queue_align(),         out_queue_footprint( deliver_max ), 1UL );
   FD_TEST( chainer_mem && policy_mem && dedup_mem && inflights_mem && signs_map_mem && pong_queue_mem && ag_req_mem && repair_mem && metrics_mem && deliver_q_mem );
 
   ctx->chainer       = fd_chainer_join       ( fd_chainer_new       ( chainer_mem,    TEST_SLOT_MAX, FD_SHRED_BLK_MAX, ctx->repair_seed     ) );
@@ -718,7 +720,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->meta_queue    = meta_queue_join       ( meta_queue_new       ( ag_req_mem,     FD_FEC_BLK_MAX                                        ) );
   ctx->protocol      = fd_repair_join        ( fd_repair_new        ( repair_mem,     &ctx->identity_public_key                             ) );
   ctx->slot_metrics  = fd_repair_metrics_join( fd_repair_metrics_new( metrics_mem                                                           ) );
-  ctx->deliver_queue = out_queue_join        ( out_queue_new        ( deliver_q_mem, (ulong)TEST_SLOT_MAX * FD_CHAINER_SLOT_VER_MAX * FD_FEC_BLK_MAX ) );
+  ctx->deliver_queue = out_queue_join        ( out_queue_new        ( deliver_q_mem, deliver_max ) );
   FD_TEST( ctx->chainer && ctx->policy && ctx->dedup && ctx->inflights && ctx->signs_map && ctx->toss_queue && ctx->meta_queue && ctx->protocol && ctx->slot_metrics && ctx->deliver_queue );
 
   /* Out links.  fd_chunk_to_laddr( mem, 0 )==mem, so chunk0=0 with mem

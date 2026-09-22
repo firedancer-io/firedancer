@@ -73,13 +73,16 @@
    update with the parentUpdate marker.
 */
 
+#include <math.h>
+
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../disco/store/fd_store.h"
 
 #define FD_CHAINER_MAGIC (0xf17eda2ce7c4a112UL) /* firedancer chainer v1 */
 
-#define FD_CHAINER_SLOT_VER_MAX 7 /* see Corollary 50 */
+#define FD_CHAINER_SLOT_VER_MAX      7 /* see Corollary 50 */
+#define FD_CHAINER_EXPECTED_SLOT_CNT (2.2) /* =(0.8*1 + 0.2*7). 80% of nodes expected to produce 1 version, 20% expected to produce up to 7. */
 
 #define FD_CHAINER_SRC_TURBINE   (0)
 #define FD_CHAINER_SRC_REPAIR    (1)
@@ -310,19 +313,22 @@ fd_chainer_align( void ) {
   return fd_ulong_max( alignof(fd_chainer_t), 128UL );
 }
 
-/* fd_chainer_footprint returns the footprint for ele_max slots, each
-   with up to FD_CHAINER_SLOT_VER_MAX versions of up to
-   max_shreds_per_block data shreds (FD_SHRED_BLK_MAX in production,
-   larger under bench limits).  Returns 0 if max_shreds_per_block is not
-   a positive multiple of FD_FEC_SHRED_CNT, exceeds the 28-bit
-   fec_set_idx, or asks for more FEC elements than the uint pool and map
-   indices can address. */
+/* fd_chainer_blk_max returns the max number of block versions the
+   chainer tracks across ele_max slots, ie. ele_max *
+   FD_CHAINER_EXPECTED_SLOT_CNT rounded up.  This is the expected, not
+   the worst case: a slot may have up to FD_CHAINER_SLOT_VER_MAX
+   versions, but only a minority of leaders are expected to equivocate. */
+
+FD_FN_CONST static inline ulong
+fd_chainer_blk_max( ulong ele_max ) {
+  return (ulong)ceil( (double)ele_max * FD_CHAINER_EXPECTED_SLOT_CNT );
+}
 
 FD_FN_CONST static inline ulong
 fd_chainer_footprint( ulong ele_max,
                       ulong max_shreds_per_block ) {
   if( FD_UNLIKELY( !max_shreds_per_block || max_shreds_per_block%FD_FEC_SHRED_CNT || max_shreds_per_block>FD_SHRED_BLK_MAX_RAISED ) ) return 0UL;
-  ulong blk_max       = ele_max * FD_CHAINER_SLOT_VER_MAX;
+  ulong blk_max       = fd_chainer_blk_max( ele_max );
   ulong fec_blk_max   = max_shreds_per_block / FD_FEC_SHRED_CNT;
   ulong fec_max       = blk_max * fec_blk_max;
   if( FD_UNLIKELY( !fd_fec_pool_footprint( fec_max ) ) ) return 0UL;

@@ -21,7 +21,7 @@ static fd_chainer_t
 rotor_chainer_reloc( void * chainer_laddr, ulong ele_max, ulong max_shreds_per_block ) {
   fd_chainer_t c = *(fd_chainer_t *)chainer_laddr;
 
-  ulong blk_max       = ele_max * FD_CHAINER_SLOT_VER_MAX;
+  ulong blk_max       = fd_chainer_blk_max( ele_max );
   ulong fec_max       = blk_max * ( max_shreds_per_block / FD_FEC_SHRED_CNT );
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
   ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );

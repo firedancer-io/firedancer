@@ -74,6 +74,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong total_sign_depth = tile->rotor.repair_sign_depth * tile->rotor.repair_sign_cnt;
   int   lg_sign_depth    = fd_ulong_find_msb( fd_ulong_pow2_up(total_sign_depth) ) + 1;
   ulong fec_blk_max      = tile->rotor.max_shreds_per_block / FD_FEC_SHRED_CNT;
+  ulong deliver_max      = fd_chainer_blk_max( tile->rotor.slot_max ) * fec_blk_max;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                                         );
@@ -86,7 +87,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, toss_queue_align(),        toss_queue_footprint       ()                                                         );
   l = FD_LAYOUT_APPEND( l, meta_queue_align(),        meta_queue_footprint       ( fec_blk_max )                                            );
   l = FD_LAYOUT_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                                         );
-  l = FD_LAYOUT_APPEND( l, out_queue_align(),         out_queue_footprint        ( (ulong)tile->rotor.slot_max * FD_CHAINER_SLOT_VER_MAX * fec_blk_max ) );
+  l = FD_LAYOUT_APPEND( l, out_queue_align(),         out_queue_footprint        ( deliver_max )                                            );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -1358,6 +1359,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong total_sign_depth = tile->rotor.repair_sign_depth * tile->rotor.repair_sign_cnt;
   int   lg_sign_depth    = fd_ulong_find_msb( fd_ulong_pow2_up(total_sign_depth) ) + 1;
   ulong fec_blk_max      = tile->rotor.max_shreds_per_block / FD_FEC_SHRED_CNT;
+  ulong deliver_max      = fd_chainer_blk_max( tile->rotor.slot_max ) * fec_blk_max;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                                  );
@@ -1370,13 +1372,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->toss_queue    = FD_SCRATCH_ALLOC_APPEND( l, toss_queue_align(),        toss_queue_footprint()                                                         );
   ctx->meta_queue    = FD_SCRATCH_ALLOC_APPEND( l, meta_queue_align(),        meta_queue_footprint( fec_blk_max )                                            );
   ctx->slot_metrics  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                                  );
-  ctx->deliver_queue = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),         out_queue_footprint( (ulong)tile->rotor.slot_max * FD_CHAINER_SLOT_VER_MAX * fec_blk_max ) );
+  ctx->deliver_queue = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),         out_queue_footprint( deliver_max )                                             );
   ulong scratch_top  = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->chainer       = fd_chainer_join       ( fd_chainer_new       ( ctx->chainer,       tile->rotor.slot_max, tile->rotor.max_shreds_per_block, ctx->repair_seed ) );
-  ctx->deliver_queue = out_queue_join        ( out_queue_new        ( ctx->deliver_queue, (ulong)tile->rotor.slot_max * FD_CHAINER_SLOT_VER_MAX * fec_blk_max      ) );
+  ctx->deliver_queue = out_queue_join        ( out_queue_new        ( ctx->deliver_queue, deliver_max                                                              ) );
 
   ctx->protocol      = fd_repair_join        ( fd_repair_new        ( ctx->protocol,      &ctx->identity_public_key                                                ) );
   ctx->policy        = fd_policy_join        ( fd_policy_new        ( ctx->policy,        FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss               ) );
