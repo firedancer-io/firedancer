@@ -2,6 +2,8 @@
 #include "../fd_bank.h"
 #include "../fd_runtime.h"
 #include "../fd_executor_err.h"
+#include "../fd_borrowed_account.h"
+#include "../sysvar/fd_sysvar_rent.h"
 #include "../../features/fd_features.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../../ballet/elf/fd_elf64.h"
@@ -230,6 +232,113 @@ test_finalize_v3_feature_on( void ) {
   FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
 }
 
+
+/* SIMD-0433: ProgramData is resized to the new ELF length on upgrade.
+   Covers {feature off, feature on} x {grow, exact, shrink} plus the
+   MAX_PERMITTED_DATA_LENGTH boundary and the 1-lamport balance floor. */
+
+#define SIZING_META (PROGRAMDATA_METADATA_SIZE)
+
+static void
+test_upgrade_sizing_feature_off( void ) {
+  fd_rent_t rent = FD_RENT_DEFAULT_PARAMS;
+  ulong     len  = 0UL;
+  ulong     bal  = 0UL;
+
+  /* Exactly large enough: keeps its length. */
+  int err = fd_bpf_loader_v3_upgrade_sizing( 0, SIZING_META+100UL, 100UL, &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( len==SIZING_META+100UL );
+  FD_TEST( bal==fd_rent_exempt_minimum_balance( &rent, SIZING_META+100UL ) );
+
+  /* Oversized: must NOT shrink, and rent is charged on the old size. */
+  err = fd_bpf_loader_v3_upgrade_sizing( 0, SIZING_META+500UL, 100UL, &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( len==SIZING_META+500UL );
+  FD_TEST( bal==fd_rent_exempt_minimum_balance( &rent, SIZING_META+500UL ) );
+
+  /* Too small: rejected rather than grown. */
+  err = fd_bpf_loader_v3_upgrade_sizing( 0, SIZING_META+50UL, 100UL, &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
+
+  /* One byte short is still too small. */
+  err = fd_bpf_loader_v3_upgrade_sizing( 0, SIZING_META+99UL, 100UL, &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
+}
+
+static void
+test_upgrade_sizing_feature_on( void ) {
+  fd_rent_t rent = FD_RENT_DEFAULT_PARAMS;
+  ulong     len  = 0UL;
+  ulong     bal  = 0UL;
+
+  /* Grow: an account too small for the old rules is now resized. */
+  int err = fd_bpf_loader_v3_upgrade_sizing( 1, SIZING_META+50UL, 100UL, &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( len==SIZING_META+100UL );
+  FD_TEST( bal==fd_rent_exempt_minimum_balance( &rent, SIZING_META+100UL ) );
+
+  /* Shrink: an oversized account is trimmed to the ELF, and the
+     required balance drops with it (the excess is spilled). */
+  ulong big_bal = fd_rent_exempt_minimum_balance( &rent, SIZING_META+500UL );
+  err = fd_bpf_loader_v3_upgrade_sizing( 1, SIZING_META+500UL, 100UL, &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( len==SIZING_META+100UL );
+  FD_TEST( bal==fd_rent_exempt_minimum_balance( &rent, SIZING_META+100UL ) );
+  FD_TEST( bal<big_bal );
+
+  /* The result does not depend on the current length. */
+  ulong len2 = 0UL, bal2 = 0UL;
+  err = fd_bpf_loader_v3_upgrade_sizing( 1, 0UL, 100UL, &rent, &len2, &bal2 );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( len2==len );
+  FD_TEST( bal2==bal );
+}
+
+static void
+test_upgrade_sizing_max_len_boundary( void ) {
+  fd_rent_t rent = FD_RENT_DEFAULT_PARAMS;
+  ulong     len  = 0UL;
+  ulong     bal  = 0UL;
+
+  /* Exactly MAX_PERMITTED_DATA_LENGTH is allowed. */
+  int err = fd_bpf_loader_v3_upgrade_sizing( 1, 0UL, MAX_PERMITTED_DATA_LENGTH-SIZING_META,
+                                             &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( len==MAX_PERMITTED_DATA_LENGTH );
+
+  /* One byte over is rejected, and the offending length is reported
+     so the caller can log it. */
+  err = fd_bpf_loader_v3_upgrade_sizing( 1, 0UL, MAX_PERMITTED_DATA_LENGTH-SIZING_META+1UL,
+                                         &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  FD_TEST( len==MAX_PERMITTED_DATA_LENGTH+1UL );
+
+  /* The cap applies only to the resizing path: an already-huge account
+     is still accepted when the feature is off. */
+  err = fd_bpf_loader_v3_upgrade_sizing( 0, MAX_PERMITTED_DATA_LENGTH, 100UL, &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( len==MAX_PERMITTED_DATA_LENGTH );
+}
+
+static void
+test_upgrade_sizing_balance_floor( void ) {
+  /* With zero rent the required balance is floored at 1 lamport, not 0. */
+  fd_rent_t rent = { .lamports_per_uint8_year=0UL, .exemption_threshold=0.0, .burn_percent=(uchar)0 };
+  ulong     len  = 0UL;
+  ulong     bal  = 0UL;
+
+  FD_TEST( fd_rent_exempt_minimum_balance( &rent, SIZING_META+100UL )==0UL );
+
+  int err = fd_bpf_loader_v3_upgrade_sizing( 1, 0UL, 100UL, &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( bal==1UL );
+
+  err = fd_bpf_loader_v3_upgrade_sizing( 0, SIZING_META+100UL, 100UL, &rent, &len, &bal );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( bal==1UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -256,6 +365,11 @@ main( int     argc,
   test_finalize_v0_feature_on ( );
   test_finalize_v3_feature_off( );
   test_finalize_v3_feature_on ( );
+
+  test_upgrade_sizing_feature_off();
+  test_upgrade_sizing_feature_on();
+  test_upgrade_sizing_max_len_boundary();
+  test_upgrade_sizing_balance_floor();
 
   fd_wksp_delete_anonymous( wksp );
 

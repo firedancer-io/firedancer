@@ -2031,6 +2031,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "enforce_correct_proof_size",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, loader_v3_set_program_data_to_elf_length)>>3,
+    .id                        = {"\xcb\x96\x7f\xe4\x9d\xb2\xa7\x0a\xc5\xf7\x47\xe5\xe5\x0e\xd8\x60\x94\x83\xca\x6f\x84\x1f\xfd\x0d\x20\x7b\x2b\x9b\xe2\x61\x22\x36"},
+                                 /* EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy */
+    .name                      = "loader_v3_set_program_data_to_elf_length",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2344,6 +2350,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_294 0x1e7f253e967667d3UL, .val = &ids[294]
 #define MAP_PERFECT_295 0x77d57539c0a4f4d4UL, .val = &ids[295]
 #define MAP_PERFECT_296 0x76648e7186624c0dUL, .val = &ids[296]
+#define MAP_PERFECT_297 0x0aa7b29de47f96cbUL, .val = &ids[297]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2651,4 +2658,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, alpenglow                            
 FD_STATIC_ASSERT( offsetof( fd_features_t, relax_fee_payer_constraint                              )>>3==294UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, alpenglow_fast_leader_handover                          )>>3==295UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_correct_proof_size                              )>>3==296UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_set_program_data_to_elf_length                )>>3==297UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
