@@ -29,9 +29,7 @@ $(call run-unit-test,test_slot_params)
 endif
 
 $(call add-hdrs,fd_txncache_shmem.h fd_txncache.h)
-ifdef FD_HAS_HOSTED
 $(call add-objs,fd_txncache_shmem fd_txncache,fd_flamenco)
-endif
 
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
