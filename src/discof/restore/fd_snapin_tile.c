@@ -304,9 +304,8 @@ struct fd_snapin_tile {
   struct {
     uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(FD_SNAPIN_DIRECT_ALIGN)));
     ulong                     buf_used;
-    int                       direct_fd;        /* O_DIRECT fd to accounts.db, or -1 */
+    int                       direct_fd;        /* O_DIRECT fd to accounts.db (0 in unit tests: buffered) */
     ulong                     direct_pad_bytes; /* padding written for alignment */
-    ulong                     direct_fallbacks; /* flushes that had to use the buffered fd */
     fd_snapin_account_batch_t batch;
   } writer;
 
@@ -349,8 +348,8 @@ should_shutdown( fd_snapin_tile_t * ctx ) {
                     loaded_buf, fd_log_style_dim(), dup_buf, fd_log_style_normal(), (double)elapsed_ns/1e9 ));
   }
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) ) {
-    FD_LOG_NOTICE(( "snapin %lu direct io: fd=%d pad_bytes=%lu buffered_fallbacks=%lu disk_bytes_written=%lu",
-                    ctx->tile_idx, ctx->writer.direct_fd, ctx->writer.direct_pad_bytes, ctx->writer.direct_fallbacks, ctx->metrics.disk_bytes_written ));
+    FD_LOG_NOTICE(( "snapin %lu direct io: fd=%d pad_bytes=%lu disk_bytes_written=%lu",
+                    ctx->tile_idx, ctx->writer.direct_fd, ctx->writer.direct_pad_bytes, ctx->metrics.disk_bytes_written ));
   }
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
@@ -1175,8 +1174,10 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, sz );
   int fd = FD_ACCDB_FD_RW;
   if( FD_LIKELY( ctx->writer.direct_fd>0 ) ) {
-    if( FD_LIKELY( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) ) ) fd = ctx->writer.direct_fd;
-    else ctx->writer.direct_fallbacks++;
+    /* Every snapshot reservation is a multiple of FD_SNAPIN_DIRECT_ALIGN
+       and partitions start aligned, so the offset is aligned too. */
+    FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
+    fd = ctx->writer.direct_fd;
   }
   writer_pwrite( ctx, fd, ctx->writer.buf, sz, base_off );
 
@@ -2048,8 +2049,8 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/self/fd/%d", FD_ACCDB_FD_RW ) );
   ctx->writer.direct_fd = open( path, O_WRONLY|O_DIRECT|O_CLOEXEC );
   if( FD_UNLIKELY( ctx->writer.direct_fd<0 ) ) {
-    FD_LOG_WARNING(( "open(%s, O_DIRECT) failed (%i-%s); accounts.db writes will be buffered", path, errno, fd_io_strerror( errno ) ));
-    ctx->writer.direct_fd = -1;
+    FD_LOG_ERR(( "open(%s, O_DIRECT) failed (%i-%s). The filesystem holding [paths.accounts] must support direct IO",
+                 path, errno, fd_io_strerror( errno ) ));
   }
 }
 
