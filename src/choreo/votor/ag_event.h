@@ -52,7 +52,6 @@ struct ag_event_block {
 typedef struct ag_event_block ag_event_block_t;
 
 #define AG_EVENT_REPLAY_COMPLETED (0)
-#define AG_EVENT_REPLAY_DEAD      (1)
 
 struct ag_event_replay {
   ulong           seq;

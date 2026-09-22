@@ -856,12 +856,6 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_votor_handle_replay_event( ctx->votor, &completed );
     break;
   }
-  case REPLAY_SIG_SLOT_DEAD: {
-    fd_replay_slot_dead_t const * slot_dead = &replay->slot_dead;
-    ag_event_replay_t             dead      = { .kind = AG_EVENT_REPLAY_DEAD, .slot = slot_dead->slot };
-    ag_votor_handle_replay_event( ctx->votor, &dead );
-    break;
-  }
   default:
     FD_LOG_ERR(( "unexpected replay sig %lu", sig ));
   }
@@ -1045,7 +1039,7 @@ before_frag( fd_votor_tile_t * ctx,
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
-    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD;
+    return sig!=REPLAY_SIG_SLOT_COMPLETED;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
