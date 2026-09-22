@@ -1006,10 +1006,10 @@ telemetry = true
     #
     # It is recommended to use five tiles for all clusters and
     # configurations, unless there is an indication that disk write
-    # speeds during snapshot load are lower than expected.
-    #
-    # Operators using fast disks or keeping the accounts database in
-    # memory may realize faster snapshot load speeds with more tiles.
+    # speeds during snapshot load are lower than expected, or the
+    # snapin tiles are completely busy but disk writing is not yet
+    # fully saturated.  This is not typically expected on current
+    # NVMe, but may occur if using a RAM disk.
     snapin_tile_count = 5
 
     # How many snapshot compressor tiles to run.  These tiles do not
