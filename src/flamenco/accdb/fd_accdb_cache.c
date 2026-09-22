@@ -101,14 +101,8 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
     return 0;
   }
 
-  /* Phase 1: Reserve min_reserved of each class off the top.  This
-     guarantees the worst-case batch (64 accounts per transaction,
-     doubled to cover programdata, multiplied by max simultaneous
-     transactions) can execute fully in memory.  Each referenced account
-     reserves one slot in its own class plus one slot for its
-     programdata account, which may land in any class.  Worst case all
-     referenced accounts and all programdata accounts land in the same
-     class. */
+  /* Phase 1: give each class min_reserved slots off the top, the floor
+     that lets a worst-case acquire and commit complete alone in memory. */
 
   ulong remaining = cache_footprint;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {

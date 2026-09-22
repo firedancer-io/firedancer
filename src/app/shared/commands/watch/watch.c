@@ -1020,19 +1020,7 @@ write_accdb( config_t const * config,
       cache_used_str[ c ], cache_max_str[ c ] );
   }
   PRINT( CLEARLN "\n" );
-
-  ulong cache_resv_off = MIDX( GAUGE, ACCDB, CACHE_CLASS_RESERVED );
-  char * cache_resv_str[ 8 ];
-  for( ulong c=0UL; c<8UL; c++ ) {
-    ulong resv = t[ cache_resv_off + c ];
-    if( resv==ULONG_MAX ) cache_resv_str[ c ] = "  off ";
-    else                  cache_resv_str[ c ] = COUNT_T( resv );
-  }
-
-  PRINT( ROWC K( "reserved" ) );
-  for( ulong c=0UL; c<8UL; c++ ) PRINT( "               %6s", cache_resv_str[ c ] );
-  PRINT( CLEARLN "\n" );
-  return 7;
+  return 6;
 }
 
 static uint

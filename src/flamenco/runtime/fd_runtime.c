@@ -2067,6 +2067,11 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     }
   }
 
+  /* IMPORTANT!! See note in fd_executor.c, the accounts must be
+     considered READ-ONLY between acquire_a and acquire_b.  acquire_b
+     may release the accounts back to the pool and then re-acquire them
+     under high cache pressure. */
+
   if( FD_LIKELY( acquire_cnt ) ) {
     fd_accdb_acquire_a( runtime->accdb, bank->accdb_fork_id, acquire_cnt, acquire_pubkeys, acquire_writable, runtime->accounts.account );
     runtime->accounts.account_cnt = acquire_cnt;
@@ -2089,8 +2094,8 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   }
 
   /* Do the same for executable accounts (programdata accounts).  Dedup
-    against all other executable-only accounts as well as ones that
-    were already included. */
+     against all other executable-only accounts as well as ones that
+     were already included. */
 
   fd_pubkey_t   programdata_keys[ FD_BUNDLE_ACCT_MAX ];
   uchar const * pd_pubkeys      [ FD_BUNDLE_ACCT_MAX ];
@@ -2126,12 +2131,10 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     pd_cnt++;
   }
 
-  /* acquire_b refunds the per-class reservations acquire_a made for the
-    union (reserved_cnt==acquire_cnt) that did not turn out to be
-    programdata.  Skip it entirely for an empty bundle (nothing was
-    reserved and nothing is executable). */
+  /* Skip the second phase entirely for an empty bundle (nothing was
+    acquired and nothing is executable). */
   if( FD_LIKELY( acquire_cnt || pd_cnt ) ) {
-    fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, acquire_cnt, pd_cnt, pd_pubkeys, pd_writable, runtime->accounts.executable );
+    fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, pd_cnt, pd_pubkeys, pd_writable, runtime->accounts.executable );
   }
   runtime->accounts.executable_cnt = pd_cnt;
 

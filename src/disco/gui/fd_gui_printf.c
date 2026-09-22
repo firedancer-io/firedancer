@@ -1552,7 +1552,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
               jsonp_ulong(  gui->http, "class",                 c );
               jsonp_ulong(  gui->http, "used_slots",            cur->cache_class_used           [ c ] );
               jsonp_ulong(  gui->http, "max_slots",             cur->cache_class_max            [ c ] );
-              jsonp_ulong(  gui->http, "reserved_slots",        cur->cache_class_reserved       [ c ] );
+              jsonp_ulong(  gui->http, "reserved_slots",        0UL ); /* deprecated */
               jsonp_ulong(  gui->http, "target_used_slots",     cur->cache_class_target_used    [ c ] );
               jsonp_ulong(  gui->http, "low_water_used_slots",  cur->cache_class_low_water_used [ c ] );
               jsonp_ulong(  gui->http, "not_found",             cur->not_found_per_class           [ c ] );

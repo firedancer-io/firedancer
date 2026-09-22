@@ -292,10 +292,9 @@ test_background_preevict_ignores_uninitialized_tail( void ) {
   uchar owner[ 32UL ] = { 9, 0 };
   accdb_write( accdb, slot1, pubkey0, 1UL, NULL, 0UL, owner );
 
-  ulong cache_used    [ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong cache_max     [ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong cache_reserved[ FD_ACCDB_CACHE_CLASS_CNT ];
-  fd_accdb_cache_class_occupancy( accdb, cache_used, cache_max, cache_reserved );
+  ulong cache_used[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_max [ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, cache_used, cache_max );
 
   FD_TEST( cache_used[ 0UL ]==1UL );
   FD_TEST( cache_max[ 0UL ]>1UL );
@@ -304,7 +303,7 @@ test_background_preevict_ignores_uninitialized_tail( void ) {
   int charge_busy = 0;
   fd_accdb_background( accdb, &charge_busy );
 
-  fd_accdb_cache_class_occupancy( accdb, cache_used, cache_max, cache_reserved );
+  fd_accdb_cache_class_occupancy( accdb, cache_used, cache_max );
 
   FD_TEST( cache_used[ 0UL ]==1UL );
   FD_TEST( fd_accdb_metrics( accdb )->accounts_preevicted==0UL );
@@ -1088,81 +1087,97 @@ test_mainnet_footprint( void ) {
   }
 }
 
-/* test_acquire_b_refund_accounting drives the two-phase programdata
-   acquire (acquire_a over-reserves one slot in every live size class per
-   candidate; acquire_b refunds the surplus, keeping one reservation per
-   found programdata account in its own size class) followed by release,
-   and asserts the per-class reservation counters (cache_class_used,
-   surfaced via fd_accdb_cache_class_occupancy's `reserved`) return EXACTLY
-   to their pre-cycle baseline.
+static int
+test_snapshot_write_one( fd_accdb_t *       accdb,
+                         fd_accdb_fork_id_t fork_id,
+                         uchar const *      pubkey,
+                         ulong              slot,
+                         ulong              lamports,
+                         ulong              data_len,
+                         int                executable,
+                         ulong *            out_replaced_lamports ) {
+  uchar const * pubkeys[ 1 ] = { pubkey };
+  ulong slots[ 1 ] = { slot };
+  ulong lamports_arr[ 1 ] = { lamports };
+  ulong data_lens[ 1 ] = { data_len };
+  int executables[ 1 ] = { executable };
+  ulong file_offsets[ 1 ] = {
+    fd_accdb_snapshot_reserve_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_len )
+  };
+  ulong ignored, replaced, loaded, ignored_lamports;
+  int result = fd_accdb_snapshot_write_batch( accdb, fork_id, 1UL, pubkeys, slots, lamports_arr,
+                                               data_lens, executables, file_offsets, &ignored,
+                                               &replaced, &loaded, out_replaced_lamports,
+                                               &ignored_lamports );
+  FD_TEST( !result );
+  if( ignored ) return -1;
+  if( replaced ) return 2;
+  FD_TEST( loaded==1UL );
+  return 1;
+}
 
-   This locks in that acquire_b's refund accounting balances.  The refund
-   was moved out of fd_accdb_acquire_b (where it walked the acc_map with
-   the joiner epoch idle) into acquire_inner's epoch-protected STEP-1 walk;
-   a miscount (over- or under-refund) leaves a class counter off baseline
-   and fails here.  We exercise a found programdata account in a TRACKED
-   size class plus a missing one (no accmeta -> no decrement) so the
-   per-class arithmetic is covered.
-
-   A class only tracks reservations when cache_class_max[c] <
-   cache_min_reserved*joiner_cnt (otherwise the counter is pinned to
-   ULONG_MAX and acquire/release skip it).  A footprint just above the
-   Phase-1 minimum keeps the larger class maxes pinned at the
-   cache_min_reserved floor (=2); joiner_cnt=2 (threshold 4) makes class
-   3 — where pd_big lands — tracked, while leaving 2 slots, enough for
-   the two-candidate over-reservation.  The whole cache is ~32 MiB. */
+/* test_acquire_b_cycle drives the two-phase programdata acquire
+   (acquire_a for the candidates, acquire_b for the programdata accounts
+   it resolved: one on disk only, one missing) and the paired release,
+   watching the per-class occupancy: the writable candidates hold two
+   staging lines until the release, the cold programdata load takes a
+   class-3 line that stays resident, the missing one takes nothing, and
+   a second cycle over the now resident programdata takes nothing.  The
+   whole cache is ~32 MiB, so acquire_b never lacks a line here. */
 static void
-test_acquire_b_refund_accounting( void ) {
+test_acquire_b_cycle( void ) {
   int fd;
   fd_accdb_t * accdb = test_setup_ex( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL,
                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
 
-  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
-
   uchar cand0 [ 32 ] = { 'a', 0 };
   uchar cand1 [ 32 ] = { 'b', 0 };
   uchar owner [ 32 ] = { 0x11, 0 };
-  uchar pd_big[ 32 ] = { 'G', 0 };  /* class 3 (4 KiB) -- a TRACKED class */
-  uchar pd_none[ 32 ] = { 'N', 0 }; /* never committed -> no accmeta      */
+  uchar pd_big[ 32 ] = { 'G', 0 };  /* 4 KiB: class 3, written without a cache line */
+  uchar pd_none[ 32 ] = { 'N', 0 }; /* never committed -> no accmeta */
 
-  uchar bigdata[ 4096 ];
-  memset( bigdata, 0xCD, sizeof(bigdata) );
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+  ulong replaced = 0UL;
+  fd_accdb_snapshot_load_begin( accdb );
+  FD_TEST( test_snapshot_write_one( accdb, SENTINEL, pd_big, 1UL, 100UL, 4096UL, 0, &replaced )==1 );
+  fd_accdb_snapshot_load_end( accdb );
 
-  accdb_write( accdb, root0, cand0,  100UL, NULL,    0UL,              owner );
-  accdb_write( accdb, root0, cand1,  100UL, NULL,    0UL,              owner );
-  accdb_write( accdb, root0, pd_big, 100UL, bigdata, sizeof(bigdata),  owner );
+  accdb_write( accdb, root0, cand0, 100UL, NULL, 0UL, owner );
+  accdb_write( accdb, root0, cand1, 100UL, NULL, 0UL, owner );
 
-  ulong used0[ FD_ACCDB_CACHE_CLASS_CNT ], max0[ FD_ACCDB_CACHE_CLASS_CNT ], base[ FD_ACCDB_CACHE_CLASS_CNT ];
-  fd_accdb_cache_class_occupancy( accdb, used0, max0, base );
+  ulong used0[ FD_ACCDB_CACHE_CLASS_CNT ], max0[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong used [ FD_ACCDB_CACHE_CLASS_CNT ], max [ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, used0, max0 );
 
-  /* Phase A: acquire the two candidates read-only (maybe-programdata
-     over-reservation: +1 to every tracked class per candidate). */
   uchar const * cand_pks[2] = { cand0, cand1 };
-  int           cand_wr [2] = { 0, 0 };
+  int           cand_wr [2] = { 1, 1 };
   fd_acc_t      cand_acc[2];
-  memset( cand_acc, 0, sizeof(cand_acc) );
-  fd_accdb_acquire_a( accdb, root0, 2UL, cand_pks, cand_wr, cand_acc );
-
-  /* Phase B: resolve programdata and refund the surplus.  reserved_cnt is
-     the candidate count (2), exactly as fd_executor.c passes
-     txn_out->accounts.cnt. */
   uchar const * pd_pks[2] = { pd_big, pd_none };
   int           pd_wr [2] = { 0, 0 };
   fd_acc_t      pd_acc[2];
-  memset( pd_acc, 0, sizeof(pd_acc) );
-  fd_accdb_acquire_b( accdb, root0, 2UL, 2UL, pd_pks, pd_wr, pd_acc );
 
-  fd_accdb_release_ab( accdb, 2UL, cand_acc, 2UL, pd_acc );
+  for( ulong cycle=0UL; cycle<2UL; cycle++ ) {
+    /* Phase A: the candidates, writable, so each holds a staging
+       line. */
+    memset( cand_acc, 0, sizeof(cand_acc) );
+    fd_accdb_acquire_a( accdb, root0, 2UL, cand_pks, cand_wr, cand_acc );
+    fd_accdb_cache_class_occupancy( accdb, used, max );
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( used[ c ]==used0[ c ]+( c==7UL ? 2UL : 0UL ) );
 
-  ulong used1[ FD_ACCDB_CACHE_CLASS_CNT ], max1[ FD_ACCDB_CACHE_CLASS_CNT ], post[ FD_ACCDB_CACHE_CLASS_CNT ];
-  fd_accdb_cache_class_occupancy( accdb, used1, max1, post );
-  int any_tracked = 0;
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    if( base[ c ]!=ULONG_MAX ) any_tracked = 1; /* ULONG_MAX => class not tracked */
-    FD_TEST( post[ c ]==base[ c ] );
+    /* Phase B: the programdata accounts.  The first cycle loads pd_big
+       from disk into a class-3 line; the second finds it resident. */
+    memset( pd_acc, 0, sizeof(pd_acc) );
+    fd_accdb_acquire_b( accdb, root0, 2UL, pd_pks, pd_wr, pd_acc );
+    FD_TEST( pd_acc[0].lamports==100UL && pd_acc[0].data_len==4096UL );
+    FD_TEST( !pd_acc[1].lamports && !pd_acc[1].data_len );
+    if( !cycle ) used0[ 3 ]++;
+    fd_accdb_cache_class_occupancy( accdb, used, max );
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( used[ c ]==used0[ c ]+( c==7UL ? 2UL : 0UL ) );
+
+    fd_accdb_release_ab( accdb, 2UL, cand_acc, 2UL, pd_acc );
+    fd_accdb_cache_class_occupancy( accdb, used, max );
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( used[ c ]==used0[ c ] );
   }
-  /* Meaningful only if at least one class actually tracks reservations. */
-  FD_TEST( any_tracked );
 
   test_teardown( accdb, fd );
 }
@@ -1221,35 +1236,6 @@ test_reset( void ) {
   FD_TEST( !memcmp( owner, owner3, 32UL ) );
 
   test_teardown( accdb, fd );
-}
-
-static int
-test_snapshot_write_one( fd_accdb_t *       accdb,
-                         fd_accdb_fork_id_t fork_id,
-                         uchar const *      pubkey,
-                         ulong              slot,
-                         ulong              lamports,
-                         ulong              data_len,
-                         int                executable,
-                         ulong *            out_replaced_lamports ) {
-  uchar const * pubkeys[ 1 ] = { pubkey };
-  ulong slots[ 1 ] = { slot };
-  ulong lamports_arr[ 1 ] = { lamports };
-  ulong data_lens[ 1 ] = { data_len };
-  int executables[ 1 ] = { executable };
-  ulong file_offsets[ 1 ] = {
-    fd_accdb_snapshot_reserve_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_len )
-  };
-  ulong ignored, replaced, loaded, ignored_lamports;
-  int result = fd_accdb_snapshot_write_batch( accdb, fork_id, 1UL, pubkeys, slots, lamports_arr,
-                                               data_lens, executables, file_offsets, &ignored,
-                                               &replaced, &loaded, out_replaced_lamports,
-                                               &ignored_lamports );
-  FD_TEST( !result );
-  if( ignored ) return -1;
-  if( replaced ) return 2;
-  FD_TEST( loaded==1UL );
-  return 1;
 }
 
 /* test_revert_whead: revert_whead releases partitions and restores
@@ -2254,8 +2240,8 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_txn_footprint_growth ..." ));
   test_txn_footprint_growth();
 
-  FD_LOG_NOTICE(( "test_acquire_b_refund_accounting ..." ));
-  test_acquire_b_refund_accounting();
+  FD_LOG_NOTICE(( "test_acquire_b_cycle ..." ));
+  test_acquire_b_cycle();
 
   FD_LOG_NOTICE(( "test_sentinel_index_wrap ..." ));
   test_sentinel_index_wrap();

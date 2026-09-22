@@ -1390,17 +1390,14 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   /* The hilariously poorly designed account loader semantics require a
      two phase acquire ... since the programdata accounts do not need to
      be declared in the transaction account keys.  We first have to
-     acquire all accounts expressly referenced in the transaction, and
-     overcommit the reservations by double the number of them that could
-     be executable.  This is because acquire must grab all locks it
-     needs atomically, if we went back to grab more locks later it could
-     deadlock with two threads both holding half the locks each and
-     unable to acquire.
+     acquire all accounts expressly referenced in the transaction, then
+     figure out which are executable and acquire their programdata.
 
-     So first, just acquire and atomically reserve double the locks,
-     then figure out which accounts are executable, keep those
-     reservations, and release the extras back to the pool in the second
-     phase. */
+     IMPORTANT!! Between acquire_a and acquire_b we must not modify any
+     of the accounts acquired in acquire_a, set their commit bit, or
+     touch them in any way except to read. acquire_b may later find that
+     the accounts must be released to prevent a deadlock, and reacquired
+     after another concurrent transaction. */
 
   if( FD_LIKELY( acquire_cnt ) ) {
     fd_acc_t * acquire_base = &runtime->accounts.account[ runtime->accounts.account_cnt ];
@@ -1472,12 +1469,9 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     executable_account_cnt++;
   }
 
-  /* acquire_b must refund exactly what acquire_a reserved.  acquire_a
-     ran over acquire_cnt pubkeys, so the reserved count is acquire_cnt
-     and not txn_out->accounts.cnt. */
   FD_TEST( runtime->accounts.executable_cnt+executable_acquire_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS );
   fd_acc_t * acquire_base = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
-  fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, acquire_cnt, executable_acquire_cnt, pubkeys, writable, acquire_base );
+  fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, executable_acquire_cnt, pubkeys, writable, acquire_base );
   int acquired_from_parent = bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val;
   for( ushort i=0; i<executable_acquire_cnt; i++ ) {
     ushort exe_idx = executable_acquire_idx[ i ];

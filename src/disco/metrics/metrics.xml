@@ -1202,7 +1202,6 @@ EXAMPLES
 
     <gauge name="CacheClassUsed" enum="AccdbCacheClass" summary="Number of slots currently occupied in the account database cache, broken down by size class" />
     <gauge name="CacheClassMax" enum="AccdbCacheClass" summary="Total slot capacity of the account database cache, broken down by size class" />
-    <gauge name="CacheClassReserved" enum="AccdbCacheClass" summary="Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class" />
     <gauge name="CacheClassTargetUsed" enum="AccdbCacheClass" summary="Target used-slot count for the account database cache (max - cache_free_target). When used exceeds this, the background preevict pass tries to bring used back down to this level." />
     <gauge name="CacheClassLowWaterUsed" enum="AccdbCacheClass" summary="Used-slot count at which the background preevict pass kicks in (max - cache_free_low_water). When used exceeds this, preevicts start." />
 

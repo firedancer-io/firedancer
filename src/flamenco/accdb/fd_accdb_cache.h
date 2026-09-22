@@ -51,47 +51,37 @@
 #define FD_ACCDB_MAX_TXN_PER_ACQUIRE  (5UL)
 #define FD_ACCDB_MAX_ACQUIRE_CNT      (FD_ACCDB_MAX_TXN_PER_ACQUIRE*FD_ACCDB_MAX_TX_ACCOUNT_LOCKS)
 
-/* min_reserved is the minimum number of slots reserved per class so a
-   worst-case batch of transactions can always execute fully in-memory.
+/* min_reserved is the minimum number of lines per class so that a
+   worst-case acquire, executed alone, always finds the lines it needs
+   and completes in memory.  Lines are taken as needed: an acquire that
+   finds a class full gives back what it took and waits for other joins
+   to release, so this floor is what makes that wait finite.
 
-   The floor is driven by the per-class peak that fd_accdb_acquire_a can
-   atomically increment for the simultaneously live transactions (a
-   bundle of up to 5).  Per pubkey, per class, the acquire reservation
-   can add up to:
-     +1 for the existing account's own size class (cache read line)
-     +1 for the writable staging buffer (added to EVERY class)
-     +1 for the unknown-programdata placeholder (added to EVERY class,
-        unconditionally per pubkey under MAYBE_PROGRAMDATA, regardless
-        of writable/existence, refunded later by acquire_b)
-   = 3 slots in the worst-case-matching class for a writable account
-   that already exists there.
+   Per pubkey, per class, one acquire and its commit can hold at once:
+     +1 the existing version, loaded from disk into its own class
+     +1 the writable staging buffer (class 7 only)
+     +1 the committed version's destination, in the new size's class
+       (classes 0-6 only; a class-7 result stays in its staging line)
+   = at most 2 lines in any one class, 3 counting the staging line a
+   class-7 account's commit holds while it takes its destination.
 
-   So worst case (all 64 writable + existing in the same class) gives
-   64 * (1+1+1) = 192 slots per class per transaction.
+   So worst case (all 64 accounts writable, all in the same class)
+   gives 64 * 3 = 192 lines per class per transaction, a bound with
+   some slack in it.
 
-   A read-only pubkey contributes at most (1)+(3) = 2 in any class (no
-   writable +1 every class).  Unfortunately
+   A read-only pubkey contributes at most 1 (its own line).  We do NOT
+   deduct for it:
    - The bundle path acquires every deduped pubkey writable.
-   - We do NOT subtract for a read-only program.  A transaction is free
-     to declare a program as writable.  The writability is demoted
-     unless BPFUpgradeableLoader is present.  That said,
-     BPFUpgradeableLoader is one of the ones that gets demoted.  So if
-     demotion logic happens before acquire (which it is for the
-     non-bundle path), we'd have at least one read-only account.
-     Nonetheless, a transaction with zero instructions is valid, so
-     there need not be an invoked program at all.
-   - We do NOT subtract for the fee payer cannot-be-programdata
-     constraint: the fee payer is still writable and still receives the
-     placeholder reservation at (3) — only an acquire_a code change
-     could exploit that.  Likewise, the read-only program likely lives
-     in a BPF size class (class 3+), but we do not assume which class:
-     we just deduct the writable (2) contribution that any read-only
-     pubkey can never provide.)
+   - A transaction is free to declare a program as writable.  The
+     writability is demoted unless BPFUpgradeableLoader is present, but
+     a transaction with zero instructions is valid, so there need not
+     be an invoked program at all.
+   - The fee payer is still writable and still counts fully.
 
    To summarize:
 
-   Bundles disabled: 3 *  64 = 192 slots/class (worst case single transaction)
-   Bundles enabled:  5 * 192 = 960 slots/class (worst case 5-transaction bundle)
+   Bundles disabled: 3 *  64 = 192 lines/class (worst case single transaction)
+   Bundles enabled:  5 * 192 = 960 lines/class (worst case 5-transaction bundle)
 
    The above works out to ~2.10 GiB minimum cache budget for bundles
    disabled, and ~10.47 GiB minimum cache budget for bundles enabled. */

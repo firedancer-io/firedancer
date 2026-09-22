@@ -1873,7 +1873,7 @@ since process start.
                     "class": 0,
                     "used_slots": 524288,
                     "max_slots": 1048576,
-                    "reserved_slots": 8192,
+                    "reserved_slots": 0,
                     "target_used_slots": 786432,
                     "low_water_used_slots": 262144,
                     "not_found": 1024,
@@ -2015,7 +2015,7 @@ to 128 B, `1` covers 129 B - 512 B, `2` covers 513 B - 2 KiB, `3` covers
 | class                        | `number` | The size class index, `0` through `7` |
 | used_slots                   | `number` | Number of cache slots in this class currently holding an account |
 | max_slots                    | `number` | Total number of cache slots provisioned for this class |
-| reserved_slots               | `number` | Slots held in reserve for prewrite, not available for eviction |
+| reserved_slots               | `number` | Always zero: nothing is reserved ahead of use.  Kept for compatibility |
 | target_used_slots            | `number` | Steady-state target occupancy for this class |
 | low_water_used_slots         | `number` | Occupancy below which the class will not preemptively evict |
 | not_found                    | `number` | Cumulative count of cache misses (account had to be read from disk) for this class |

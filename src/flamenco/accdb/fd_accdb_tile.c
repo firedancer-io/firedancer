@@ -75,13 +75,11 @@ metrics_write( fd_accdb_tile_ctx_t * ctx ) {
   FD_MCNT_SET( ACCDB, COPY_OPERATION,    rt->copy_ops          );
   FD_MCNT_SET( ACCDB, ACCOUNT_DELETED,   rt->accounts_deleted  );
 
-  ulong cache_used    [ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong cache_max     [ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong cache_reserved[ FD_ACCDB_CACHE_CLASS_CNT ];
-  fd_accdb_cache_class_occupancy( ctx->accdb, cache_used, cache_max, cache_reserved );
-  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_USED,     cache_used     );
-  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_MAX,      cache_max      );
-  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_RESERVED, cache_reserved );
+  ulong cache_used[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_max [ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( ctx->accdb, cache_used, cache_max );
+  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_USED, cache_used );
+  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_MAX,  cache_max  );
 
   ulong cache_target_used[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_lwm_used   [ FD_ACCDB_CACHE_CLASS_CNT ];
