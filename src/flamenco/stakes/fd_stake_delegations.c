@@ -9,7 +9,7 @@
 
 static inline uint *
 get_buckets( fd_stake_delegations_t * sd ) {
-  return (uint *)((uchar *)sd + sd->buckets_offset);
+  return (uint *)((uchar *)sd + fd_ulong_align_up( sizeof(*sd), alignof(uint) ));
 }
 
 static inline page_t *
@@ -30,7 +30,8 @@ get_forks( fd_stake_delegations_t * sd ) {
 static inline ulong *
 get_descends( fd_stake_delegations_t * sd,
               ushort                   fork ) {
-  return (ulong *)((uchar *)sd + sd->descends_offset) + (ulong)fork*sd->descends_words;
+  ulong descends_words = (sd->max_live_slots+63UL)>>6;
+  return (ulong *)((uchar *)sd + sd->descends_offset) + (ulong)fork*descends_words;
 }
 
 static inline stripe_t *
@@ -191,7 +192,6 @@ page_fault( fd_stake_delegations_t * sd,
     if( __atomic_load_n( &v->flags, __ATOMIC_RELAXED ) & PAGE_DIRTY ) {
       page_io( sd, victim, get_data( sd, frame ), 1 );
       v->flags = PAGE_WRITTEN;
-      sd->dirty_writebacks++;
     }
     if( v->cnt<128U ) nonfull_remove( sd, victim );
     v->frame = UINT_MAX;
@@ -397,10 +397,11 @@ remove_root( fd_stake_delegations_t * sd,
 
 static void
 reset( fd_stake_delegations_t * sd ) {
+  ulong descends_words = (sd->max_live_slots+63UL)>>6;
   fd_memset( get_buckets( sd ),      255, FD_STAKE_DELEGATIONS_BUCKET_CNT*sizeof(uint) );
   fd_memset( get_pages( sd ),          0, (ulong)sd->page_max*sizeof(page_t) );
   fd_memset( get_forks( sd ),          0, sd->max_live_slots*sizeof(fork_t) );
-  fd_memset( get_descends( sd, 0 ),    0, sd->max_live_slots*sd->descends_words*sizeof(ulong) );
+  fd_memset( get_descends( sd, 0 ),    0, sd->max_live_slots*descends_words*sizeof(ulong) );
   for( uint i=0U; i<sd->frame_max; i++ ) {
     get_frames( sd )[i] = (frame_t){
       .page = UINT_MAX,
@@ -417,13 +418,11 @@ reset( fd_stake_delegations_t * sd ) {
   get_forks( sd )[0] = (fork_t){
     .delta_head = UINT_MAX,
     .parent     = USHORT_MAX,
-    .child      = USHORT_MAX,
-    .sibling    = USHORT_MAX,
     .state      = FORK_ROOT
   };
   sd->root_cnt          = sd->placeholder_cnt = sd->delta_cnt = 0UL;
   sd->occupied_pages    = sd->resident_pages = 0UL;
-  sd->cache_hits        = sd->cache_misses = sd->dirty_writebacks = 0UL;
+  sd->cache_hits        = sd->cache_misses = 0UL;
   sd->bytes_read        = sd->bytes_written = sd->bucket_steps = sd->delta_steps = 0UL;
   sd->effective_stake   = sd->activating_stake = sd->deactivating_stake = 0UL;
   sd->fp_warmed_awarded = sd->context_valid = 0;
@@ -471,25 +470,21 @@ fd_stake_delegations_new( void * mem,
   fd_stake_delegations_t * sd = mem;
   fd_memset( sd, 0, sizeof(*sd) );
   sd->seed           = seed;
-  sd->max_records    = fd_ulong_align_up( max_records, 128UL );
   sd->max_live_slots = max_live_slots;
-  sd->cache_bytes    = cache_bytes;
-  sd->footprint      = footprint;
-  sd->page_max       = (uint)(sd->max_records>>7);
+  sd->page_max       = (uint)((max_records+127UL)>>7);
   sd->frame_max      = (uint)(cache_bytes/FD_STAKE_DELEGATIONS_PAGE_SZ);
-  sd->descends_words = (max_live_slots+63UL)>>6;
   sd->disk_fd        = disk_fd;
-  ulong l = sizeof(*sd);
+  ulong descends_words = (max_live_slots+63UL)>>6;
+  ulong l              = fd_ulong_align_up( sizeof(*sd), alignof(uint) ) + FD_STAKE_DELEGATIONS_BUCKET_CNT*sizeof(uint);
 #define APPEND(member,align,size) do {          \
     l = fd_ulong_align_up( l, (align) );        \
     sd->member = l;                            \
     l += (size);                              \
   } while(0)
-  APPEND( buckets_offset,  alignof(uint),                   FD_STAKE_DELEGATIONS_BUCKET_CNT*sizeof(uint) );
   APPEND( pages_offset,    alignof(page_t),                 (ulong)sd->page_max*sizeof(page_t) );
   APPEND( frames_offset,   alignof(frame_t),                (ulong)sd->frame_max*sizeof(frame_t) );
   APPEND( forks_offset,    alignof(fork_t),                 max_live_slots*sizeof(fork_t) );
-  APPEND( descends_offset, alignof(ulong),                  max_live_slots*sd->descends_words*sizeof(ulong) );
+  APPEND( descends_offset, alignof(ulong),                  max_live_slots*descends_words*sizeof(ulong) );
   APPEND( stripes_offset,  alignof(stripe_t),               FD_STAKE_DELEGATIONS_STRIPE_CNT*sizeof(stripe_t) );
   APPEND( data_offset,     FD_STAKE_DELEGATIONS_ALIGN,      cache_bytes );
 #undef APPEND
@@ -501,7 +496,7 @@ fd_stake_delegations_new( void * mem,
   FD_COMPILER_MFENCE();
   sd->magic = FD_STAKE_DELEGATIONS_MAGIC;
   FD_LOG_INFO(( "stake delegations: %lu bytes, %lu record slots, %u pages, %u frames, %lu forks",
-                footprint, sd->max_records, sd->page_max, sd->frame_max, max_live_slots ));
+                footprint, (ulong)sd->page_max*128UL, sd->page_max, sd->frame_max, max_live_slots ));
   return mem;
 }
 
@@ -546,12 +541,10 @@ fd_stake_delegations_attach_child( fd_stake_delegations_t * sd,
   forks[id] = (fork_t){
     .delta_head = UINT_MAX,
     .parent     = parent,
-    .child      = USHORT_MAX,
-    .sibling    = forks[parent].child,
     .state      = FORK_PREPARING
   };
-  forks[parent].child = id;
-  fd_memcpy( get_descends( sd, id ), get_descends( sd, parent ), sd->descends_words*sizeof(ulong) );
+  ulong descends_words = (sd->max_live_slots+63UL)>>6;
+  fd_memcpy( get_descends( sd, id ), get_descends( sd, parent ), descends_words*sizeof(ulong) );
   get_descends( sd, id )[parent>>6] |= 1UL<<(parent & 63);
   sd->fork_cnt++;
   sd->boot = 0;
@@ -651,7 +644,6 @@ upsert( fd_stake_delegations_t *      sd,
     fd_racesan_hook( "stake_delegations_fork:retry_cas" );
   }
   fd_racesan_hook( "stake_delegations_fork:post_cas" );
-  __atomic_fetch_add( &f->delta_cnt, 1UL, __ATOMIC_RELAXED );
   __atomic_fetch_add( &sd->delta_cnt, 1UL, __ATOMIC_RELAXED );
   /* Reacquire after delta allocation, which can evict the root. */
   r = record( sd, root, cold, 1 );
@@ -835,10 +827,9 @@ fd_stake_delegations_view_begin( fd_stake_delegations_view_t * view,
                  "stake delegations fork is not viewable" );
   get_forks( sd )[fork].views++;
   *view = (fd_stake_delegations_view_t){
-    .sd         = sd,
-    .fork_id    = fork,
-    .root_epoch = sd->root_epoch,
-    .page_wmk   = sd->page_wmk
+    .sd       = sd,
+    .fork_id  = fork,
+    .page_wmk = sd->page_wmk
   };
   write_unlock( &sd->cache_lock );
   fd_racesan_hook( "stake_delegations_view:admitted" );
@@ -1016,21 +1007,19 @@ cancel_one( fd_stake_delegations_t * sd,
   sd->fork_cnt--;
 }
 
-/* Rebuild links/ancestry from the surviving immutable parent relation.
-   At most max_live_slots^2 bits are copied; no record pages are scanned. */
+/* Rebuild ancestry from the surviving immutable parent relation.
+   No record pages are scanned. */
 static void
 rebuild_tree( fd_stake_delegations_t * sd ) {
-  fork_t * forks = get_forks( sd );
+  fork_t * forks          = get_forks( sd );
+  ulong    descends_words = (sd->max_live_slots+63UL)>>6;
   for( ushort id=0; id<sd->max_live_slots; id++ ) {
-    forks[id].child = forks[id].sibling = USHORT_MAX;
-    fd_memset( get_descends( sd, id ), 0, sd->descends_words*sizeof(ulong) );
+    fd_memset( get_descends( sd, id ), 0, descends_words*sizeof(ulong) );
   }
   for( ushort id=0; id<sd->max_live_slots; id++ ) {
     if( forks[id].state==FORK_FREE || id==sd->root_fork ) continue;
     ushort parent = forks[id].parent;
     FD_TEST( parent<sd->max_live_slots && forks[parent].state!=FORK_FREE );
-    forks[id].sibling    = forks[parent].child;
-    forks[parent].child = id;
     for( ushort p=parent; p!=USHORT_MAX; p=forks[p].parent ) get_descends( sd, id )[p>>6] |= 1UL<<(p & 63);
   }
 }
@@ -1164,7 +1153,6 @@ fd_stake_delegations_advance_root( fd_stake_delegations_t *             sd,
       idx = d.fork_next;
     }
     forks[id].delta_head = UINT_MAX;
-    forks[id].delta_cnt  = 0UL;
   }
   /* Prune once at the externally visible transition, after the complete
      ancestry fold.  Descendant deltas keep absent root slots alive. */
@@ -1311,10 +1299,12 @@ fd_stake_delegations_metrics_query( fd_stake_delegations_t *         sd,
                                     fd_stake_delegations_metrics_t * m ) {
   read_lock( &sd->tree_lock );
   read_lock( &sd->cache_lock );
+  ulong max_records = (ulong)sd->page_max*128UL;
+  ulong cache_bytes = (ulong)sd->frame_max*FD_STAKE_DELEGATIONS_PAGE_SZ;
   *m = (fd_stake_delegations_metrics_t){
-    .footprint         = sd->footprint,
-    .cache_bytes       = sd->cache_bytes,
-    .max_records       = sd->max_records,
+    .footprint         = fd_stake_delegations_footprint( max_records, sd->max_live_slots, cache_bytes ),
+    .cache_bytes       = cache_bytes,
+    .max_records       = max_records,
     .root_cnt          = sd->root_cnt,
     .placeholder_cnt   = __atomic_load_n( &sd->placeholder_cnt, __ATOMIC_RELAXED ),
     .delta_cnt         = __atomic_load_n( &sd->delta_cnt, __ATOMIC_RELAXED ),
@@ -1323,7 +1313,7 @@ fd_stake_delegations_metrics_query( fd_stake_delegations_t *         sd,
     .resident_pages    = sd->resident_pages,
     .cache_hits        = __atomic_load_n( &sd->cache_hits, __ATOMIC_RELAXED ),
     .cache_misses      = sd->cache_misses,
-    .dirty_writebacks  = sd->dirty_writebacks,
+    .dirty_writebacks  = sd->bytes_written/FD_STAKE_DELEGATIONS_PAGE_SZ,
     .bytes_read        = sd->bytes_read,
     .bytes_written     = sd->bytes_written,
     .bucket_steps      = __atomic_load_n( &sd->bucket_steps, __ATOMIC_RELAXED ),

@@ -425,7 +425,7 @@ test_long_chain( fd_stake_delegations_t * sd ) {
   fd_stake_delegations_metrics_t after;
   fd_stake_delegations_metrics_query( sd, &after );
   FD_TEST( after.delta_steps>before.delta_steps+1800UL );
-  if( sd->cache_bytes<=4UL*FD_STAKE_DELEGATIONS_PAGE_SZ ) FD_TEST( after.bytes_read>before.bytes_read );
+  if( sd->frame_max<=4U ) FD_TEST( after.bytes_read>before.bytes_read );
   fd_stake_history_t history = {0};
   fd_stake_delegations_advance_root( sd, forks[0], 4UL, &history, NULL, 1, 0, NULL, NULL );
   FD_TEST( expect( sd, forks[0], 1UL, 1000UL )==idx );
@@ -883,10 +883,10 @@ test_racesan( fd_stake_delegations_t * sd ) {
   fd_racesan_async_delete( async );
 
   test_racesan_writers( sd, stacks );
-  if( sd->cache_bytes==FD_STAKE_DELEGATIONS_PAGE_SZ ) test_racesan_admission( sd, stacks );
+  if( sd->frame_max==1U ) test_racesan_admission( sd, stacks );
   for( ulong i=0UL; i<3UL; i++ ) fd_racesan_stack_destroy( stacks[i], RACESAN_STACK_SZ );
-  FD_LOG_NOTICE(( "racesan: 100 seeds per writer schedule, %lu frame(s), bounded to %lu steps",
-                  sd->cache_bytes/FD_STAKE_DELEGATIONS_PAGE_SZ, RACESAN_STEP_MAX ));
+  FD_LOG_NOTICE(( "racesan: 100 seeds per writer schedule, %u frame(s), bounded to %lu steps",
+                  sd->frame_max, RACESAN_STEP_MAX ));
 }
 
 #endif /* FD_HAS_RACESAN */

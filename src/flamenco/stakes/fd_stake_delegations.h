@@ -88,18 +88,13 @@ typedef struct fd_stake_delegations_lock fd_stake_delegations_lock_t;
 struct fd_stake_delegations {
   ulong magic;
   ulong seed;
-  ulong max_records;
   ulong max_live_slots;
-  ulong cache_bytes;
-  ulong footprint;
-  ulong buckets_offset;
   ulong pages_offset;
   ulong frames_offset;
   ulong forks_offset;
   ulong descends_offset;
   ulong stripes_offset;
   ulong data_offset;
-  ulong descends_words;
   uint  page_max;
   uint  frame_max;
   uint  page_wmk;
@@ -121,7 +116,6 @@ struct fd_stake_delegations {
   ulong resident_pages;
   ulong cache_hits;
   ulong cache_misses;
-  ulong dirty_writebacks;
   ulong bytes_read;
   ulong bytes_written;
   ulong bucket_steps;
@@ -147,7 +141,6 @@ typedef struct fd_stake_delegations fd_stake_delegations_t;
    Stable tags require a caller proof of epoch, history and math mode. */
 struct fd_stake_delegations_view {
   fd_stake_delegations_t * sd;
-  ulong                   root_epoch;
   uint                    page_wmk;
   ushort                  fork_id;
   int                     use_stable_tags;
