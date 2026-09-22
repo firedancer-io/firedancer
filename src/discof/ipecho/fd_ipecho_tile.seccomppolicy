@@ -10,7 +10,10 @@
 #                 can poll all file descriptors across all tiles at once.
 #                 This tile needs access to the outer file descriptor to
 #                 rearm the inner set after a drain.
-uint logfile_fd, uint epoll_inner_fd, uint epoll_outer_fd
+#
+# port_check_udp_fd: The server sends UDP packets to the UDP sockets
+#                    specified by joiner nodes, for the port check.
+uint logfile_fd, uint epoll_inner_fd, uint epoll_outer_fd, uint port_check_udp_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -35,9 +38,10 @@ close: (not (or (eq (arg 0) logfile_fd)
 # server: read from an open connection that has been accepted
 #
 # arg 0 is the file descriptor to read.  We will restrict the file
-# descriptor used for STDERR and logging.
+# descriptors used for STDERR, logging and the UDP port check socket.
 read: (not (or (eq (arg 0) logfile_fd)
-               (eq (arg 0) 2)))
+               (eq (arg 0) 2)
+               (eq (arg 0) port_check_udp_fd)))
 
 # server: accept new connections
 #
@@ -55,20 +59,55 @@ ppoll
 #
 # arg 0 is the file descriptor that we want to send messages to.  We
 # will allow sending to any of the descriptors opened in the client.
-# Only restrict from sending to the logfile and STDERR
-sendto: (and (not (or (eq (arg 0) logfile_fd)
-                      (eq (arg 0) 2)))
-             (eq (arg 3) "MSG_NOSIGNAL")
-             (eq (arg 4) 0)
-             (eq (arg 5) 0))
+#
+# Only restrict from sending to the logfile, STDERR and the port check
+# UDP socket. For the port check UDP socket, only allow sending to IPv4
+# addresses (destination address must be 16 bytes).
+sendto: (or (and (not (or (eq (arg 0) logfile_fd)
+                          (eq (arg 0) 2)
+                          (eq (arg 0) port_check_udp_fd)))
+                 (eq (arg 3) "MSG_NOSIGNAL")
+                 (eq (arg 4) 0)
+                 (eq (arg 5) 0))
+            (and (eq (arg 0) port_check_udp_fd)
+                 (eq (arg 3) "MSG_NOSIGNAL")
+                 (eq (arg 5) 16)))
+
+# server: need to open TCP connections to joiner node's TCP sockets,
+#         for the port check.
+socket: (and (eq (arg 0) "AF_INET")
+             (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC")
+             (eq (arg 2) 0))
+
+# server: need to connect to the TCP sockets opened for the port check.
+#
+# arg 0 is the port check's TCP socket. We allow connect() on any
+# socket except for the log file and the UDP socket. arg 2 is the
+# sockaddr length, which we restrict to IPv4 addresses (16 bytes).
+connect: (and (not (or (eq (arg 0) logfile_fd)
+                       (eq (arg 0) 2)
+                       (eq (arg 0) port_check_udp_fd)))
+              (eq (arg 2) 16))
+
+# server: the server needs to call getsockopt to determine if the
+#         port check connection succeeded or failed.
+#         We do not allow this on the log file or the port check UDP
+#         port.
+getsockopt: (and (not (or (eq (arg 0) logfile_fd)
+                          (eq (arg 0) 2)
+                          (eq (arg 0) port_check_udp_fd)))
+                 (eq (arg 1) SOL_SOCKET)
+                 (eq (arg 2) SO_ERROR))
 
 # client: need to read from connections established by the client
 #
 # arg 0 is the file descriptor that we receive messages from.  We will
 # allow receiving to any of the descriptors opened in the client.  Only
-# restrict from receiving to the logfile and STDERR
+# restrict from receiving to the logfile, STDERR and the port check
+# UDP socket.
 recvfrom: (and (not (or (eq (arg 0) logfile_fd)
-                        (eq (arg 0) 2)))
+                        (eq (arg 0) 2)
+                        (eq (arg 0) port_check_udp_fd)))
                (eq (arg 3) 0)
                (eq (arg 4) 0)
                (eq (arg 5) 0))

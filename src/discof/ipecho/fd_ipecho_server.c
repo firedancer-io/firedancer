@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_ipecho_server.h"
+#include "fd_ipecho_server_port_check.h"
 
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
@@ -57,6 +58,8 @@ struct fd_ipecho_server {
   fd_ipecho_server_connection_t * pool;
   struct pollfd *                 pollfds;
 
+  fd_ipecho_server_port_check_t * port_check;
+
   fd_ipecho_server_metrics_t metrics[ 1 ];
 
   ulong magic;
@@ -70,9 +73,10 @@ fd_ipecho_server_align( void ) {
 FD_FN_CONST ulong
 fd_ipecho_server_footprint( ulong max_connection_cnt ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_ipecho_server_align(), sizeof(fd_ipecho_server_t)                     );
-  l = FD_LAYOUT_APPEND( l, conn_pool_align(),        conn_pool_footprint( max_connection_cnt )      );
-  l = FD_LAYOUT_APPEND( l, alignof(struct pollfd),   (1UL+max_connection_cnt)*sizeof(struct pollfd) );
+  l = FD_LAYOUT_APPEND( l, fd_ipecho_server_align(),            sizeof(fd_ipecho_server_t)                     );
+  l = FD_LAYOUT_APPEND( l, conn_pool_align(),                   conn_pool_footprint( max_connection_cnt )      );
+  l = FD_LAYOUT_APPEND( l, alignof(struct pollfd),              (1UL+max_connection_cnt)*sizeof(struct pollfd) );
+  l = FD_LAYOUT_APPEND( l, fd_ipecho_server_port_check_align(), fd_ipecho_server_port_check_footprint() );
   return FD_LAYOUT_FINI( l, fd_ipecho_server_align() );
 }
 
@@ -93,9 +97,13 @@ fd_ipecho_server_new( void * shmem,
   fd_ipecho_server_t * server = FD_SCRATCH_ALLOC_APPEND( l, fd_ipecho_server_align(), sizeof(fd_ipecho_server_t)                     );
   void * pool                 = FD_SCRATCH_ALLOC_APPEND( l, conn_pool_align(),        conn_pool_footprint( max_connection_cnt )      );
   server->pollfds             = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct pollfd),   (1UL+max_connection_cnt)*sizeof(struct pollfd) );
+  void * port_check           = FD_SCRATCH_ALLOC_APPEND( l, fd_ipecho_server_port_check_align(), fd_ipecho_server_port_check_footprint() );
 
   server->pool = conn_pool_join( conn_pool_new( pool, max_connection_cnt ) );
   FD_TEST( server->pool );
+
+  server->port_check = fd_ipecho_server_port_check_join( fd_ipecho_server_port_check_new( port_check ) );
+  FD_TEST( server->port_check );
 
   server->sockfd   = -1;
   server->epoll_fd = -1;
@@ -140,11 +148,27 @@ fd_ipecho_server_join( void * shipe ) {
   return server;
 }
 
+/* We handle epoll events for 3 kinds of sockets: already active
+   clients, the listening socket, and the port check TCP connections.
+
+   We use the high 32 bits of the data word to distinguish the socket
+   type, and the low 32 bits to determine the connection.
+   For active clients, the low 32 bits is the index into the
+   server's connection pool. For the port check TCP sockets, the
+   low 32 bits is the id returned by fd_ipecho_server_port_check_tcp. */
+
+#define EPOLL_DATA_FLAG_CONN       (0UL<<32) /* active client */
+#define EPOLL_DATA_FLAG_LISTENER   (1UL<<32) /* the listening socket */
+#define EPOLL_DATA_FLAG_PORT_CHECK (2UL<<32) /* port check TCP socket */
+#define EPOLL_DATA_FLAG_MASK       (0xFFFFFFFFUL)
+#define EPOLL_DATA_FLAG( d )       ((d) & ~EPOLL_DATA_FLAG_MASK)
+#define EPOLL_DATA_CONN_IDX( d )   ((d) &  EPOLL_DATA_FLAG_MASK)
+
 static void
 epoll_maybe_add_listener( fd_ipecho_server_t * server ) {
   if( FD_UNLIKELY( -1==server->sockfd ) ) return;
   if( FD_UNLIKELY( server->shred_version==0U ) ) return;
-  struct epoll_event ev = { .events = EPOLLIN, .data.u64 = server->max_connection_cnt };
+  struct epoll_event ev = { .events = EPOLLIN, .data.u64 = EPOLL_DATA_FLAG_LISTENER };
   if( FD_UNLIKELY( -1==epoll_ctl( server->epoll_fd, EPOLL_CTL_ADD, server->sockfd, &ev ) ) ) {
     if( FD_LIKELY( errno==EEXIST ) ) return;
     FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -187,6 +211,8 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
 
   server->pollfds[ server->max_connection_cnt ] = (struct pollfd){ .fd = server->sockfd, .events = POLLIN, .revents = 0 };
   epoll_maybe_add_listener( server );
+
+  fd_ipecho_server_port_check_init( server->port_check, address );
 }
 
 void
@@ -197,6 +223,7 @@ fd_ipecho_server_fini( fd_ipecho_server_t * server ) {
     server->sockfd = -1;
     server->pollfds[ server->max_connection_cnt ].fd = -1;
   }
+  fd_ipecho_server_port_check_fini( server->port_check );
 }
 
 void
@@ -210,6 +237,8 @@ fd_ipecho_server_close_conns( fd_ipecho_server_t * server ) {
   }
   server->metrics->connection_cnt = 0UL;
   server->evict_idx               = 0UL;
+
+  fd_ipecho_server_port_check_close_all( server->port_check );
 }
 
 void
@@ -259,10 +288,19 @@ close_conn( fd_ipecho_server_t * server,
 static void
 epoll_conn_add( fd_ipecho_server_t * server,
                 ulong                conn_idx ) {
-  struct epoll_event ev = { .events = EPOLLIN, .data.u64 = conn_idx };
+  struct epoll_event ev = { .events = EPOLLIN, .data.u64 = EPOLL_DATA_FLAG_CONN|conn_idx };
   if( FD_UNLIKELY( -1==epoll_ctl( server->epoll_fd, EPOLL_CTL_ADD, server->pollfds[ conn_idx ].fd, &ev ) ) )
     FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   server->pollfds[ conn_idx ].events = POLLIN;
+}
+
+static void
+epoll_port_check_add( fd_ipecho_server_t * server,
+                      ulong                check_id ) {
+  int fd = fd_ipecho_server_port_check_conn_fd( server->port_check, check_id );
+  struct epoll_event ev = { .events = EPOLLOUT, .data.u64 = EPOLL_DATA_FLAG_PORT_CHECK|check_id };
+  if( FD_UNLIKELY( -1==epoll_ctl( server->epoll_fd, EPOLL_CTL_ADD, fd, &ev ) ) )
+    FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -273,7 +311,7 @@ epoll_update_out( fd_ipecho_server_t * server,
   if( FD_LIKELY( server->pollfds[ conn_idx ].events==events ) ) return;
   struct epoll_event ev = {
     .events   = ((events & POLLIN) ? EPOLLIN : 0U) | ((events & POLLOUT) ? EPOLLOUT : 0U),
-    .data.u64 = conn_idx,
+    .data.u64 = EPOLL_DATA_FLAG_CONN|conn_idx,
   };
   if( FD_UNLIKELY( -1==epoll_ctl( server->epoll_fd, EPOLL_CTL_MOD, server->pollfds[ conn_idx ].fd, &ev ) ) )
     FD_LOG_ERR(( "epoll_ctl(MOD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -314,7 +352,8 @@ accept_conns( fd_ipecho_server_t * server ) {
 
 static void
 read_conn( fd_ipecho_server_t * server,
-           ulong                conn_idx ) {
+           ulong                conn_idx,
+           long                 now ) {
   fd_ipecho_server_connection_t * conn = &server->pool[ conn_idx ];
 
   if( FD_UNLIKELY( conn->state!=STATE_READING ) ) {
@@ -353,6 +392,30 @@ read_conn( fd_ipecho_server_t * server,
   if( FD_UNLIKELY( conn->request_bytes[ 20UL ]!='\n' ) ) {
     close_conn( server, conn_idx, CLOSE_BAD_TRAILER );
     return;
+  }
+
+  /* Send a UDP datagram to each non-zero UDP port in the
+     IpEchoServerMessage, and try to connect to each non-zero TCP port.
+
+     These are the same semantics as Agave's IP echo server. If we
+     don't do this Agave nodes without --no-port-check will fail to
+     join our entrypoint.
+
+     https://github.com/anza-xyz/agave/blob/v4.3.0/net-utils/src/ip_echo_server.rs#L132-L165 */
+  for( ulong i=0UL; i<4UL; i++ ) {
+    /* Safe because we read up to conn->request_bytes[19] here, and
+       the checks above ensure that request_bytes is exactly 21 bytes. */
+    ushort tcp_port = FD_LOAD( ushort, conn->request_bytes+4UL+2UL*i  );
+    ushort udp_port = FD_LOAD( ushort, conn->request_bytes+12UL+2UL*i );
+
+    /* We expect most operators to have port checks disabled */
+    if( FD_UNLIKELY( tcp_port ) ) {
+      ulong check_id = fd_ipecho_server_port_check_tcp( server->port_check, conn->ipv4, tcp_port, now );
+      if( FD_LIKELY( check_id!=ULONG_MAX ) ) epoll_port_check_add( server, check_id );
+    }
+    if( FD_UNLIKELY( udp_port ) ) {
+      fd_ipecho_server_port_check_udp( server->port_check, conn->ipv4, udp_port );
+    }
   }
 
   uchar response[ 27UL ] = {
@@ -398,10 +461,11 @@ write_conn( fd_ipecho_server_t * server,
 
 int
 fd_ipecho_server_epoll_poll( fd_ipecho_server_t * server,
+                             long                 now,
                              int *                charge_busy ) {
   FD_TEST( -1!=server->epoll_fd );
 
-  if( FD_UNLIKELY( server->shred_version==0U ) ) return 0; 
+  if( FD_UNLIKELY( server->shred_version==0U ) ) return 0;
 
   struct epoll_event evs[ 64 ];
   int nfds = epoll_pwait( server->epoll_fd, evs, 64, 0, NULL );
@@ -413,17 +477,30 @@ fd_ipecho_server_epoll_poll( fd_ipecho_server_t * server,
 
   *charge_busy = 1;
   for( int i=0; i<nfds; i++ ) {
-    ulong conn_idx = evs[ i ].data.u64;
-    if( FD_UNLIKELY( conn_idx==server->max_connection_cnt ) ) {
+    ulong data = evs[ i ].data.u64;
+    switch( EPOLL_DATA_FLAG( data ) ) {
+    case EPOLL_DATA_FLAG_LISTENER:
+      /* New connections to the ipecho server */
       accept_conns( server );
-      continue;
+      break;
+    case EPOLL_DATA_FLAG_PORT_CHECK:
+      /* Port check TCP sockets (handshake succeeded or errored) */
+      fd_ipecho_server_port_check_handle_event( server->port_check, EPOLL_DATA_CONN_IDX( data ) );
+      break;
+    case EPOLL_DATA_FLAG_CONN: {
+      /* Existing non-port-check connections to the ipecho server */
+      ulong conn_idx = EPOLL_DATA_CONN_IDX( data );
+      if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) break;
+      if( FD_LIKELY(   evs[ i ].events & (EPOLLIN|EPOLLHUP|EPOLLERR) ) ) read_conn(  server, conn_idx, now );
+      if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) break;
+      if( FD_LIKELY(   evs[ i ].events & EPOLLOUT             ) ) write_conn( server, conn_idx );
+      if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) break;
+      epoll_update_out( server, conn_idx );
+      break;
     }
-    if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) continue;
-    if( FD_LIKELY(   evs[ i ].events & (EPOLLIN|EPOLLHUP|EPOLLERR) ) ) read_conn(  server, conn_idx );
-    if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) continue;
-    if( FD_LIKELY(   evs[ i ].events & EPOLLOUT             ) ) write_conn( server, conn_idx );
-    if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) continue;
-    epoll_update_out( server, conn_idx );
+    default:
+      FD_LOG_ERR(( "unexpected epoll data flag 0x%lx", EPOLL_DATA_FLAG( data ) ));
+    }
   }
 
   return 1;
@@ -437,4 +514,9 @@ fd_ipecho_server_metrics( fd_ipecho_server_t * server ) {
 int
 fd_ipecho_server_sockfd( fd_ipecho_server_t * server ) {
   return server->sockfd;
+}
+
+fd_ipecho_server_port_check_t *
+fd_ipecho_server_port_check( fd_ipecho_server_t * server ) {
+  return server->port_check;
 }
