@@ -120,6 +120,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l disable_sbpf_v0_v1_v2_deplo
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l define_ltds_fee_only_semantics-v4.2.0-beta.1-vat -m 1000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l loader_v3_minimum_extend_program_size-v4.2.0-beta.1-vat -m 1000 -e 590
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_sha512_syscall-v4.2.0-beta.1-vat -m 1000 -e 611
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l loader_v3_set_program_data_to_elf_length -m 1000 -e 363
 
 # Delay-commission epoch-boundary scenarios (local cluster, agave-cluster generated).
 # delay_commission_updates + validator_admission_ticket (VAT) + bls_pubkey_management ALL ON.

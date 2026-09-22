@@ -9,6 +9,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../../accdb/fd_accdb.h"
 #include "../../progcache/fd_progcache_base.h"
+#include "../sysvar/fd_sysvar_base.h"
 #include "../../../ballet/txn/fd_txn.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
@@ -496,6 +497,15 @@ int
 fd_bpf_loader_finalize_v3_check( int           feature_active,
                                  uchar const * programdata,
                                  ulong         programdata_len );
+
+/* SIMD-0433 ProgramData sizing for the Loader V3 Upgrade instruction. */
+int
+fd_bpf_loader_v3_upgrade_sizing( int               set_programdata_to_elf_len,
+                                 ulong             programdata_current_len,
+                                 ulong             buffer_data_len,
+                                 fd_rent_t const * rent,
+                                 ulong *           out_programdata_len,
+                                 ulong *           out_balance_required );
 
 int
 fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
