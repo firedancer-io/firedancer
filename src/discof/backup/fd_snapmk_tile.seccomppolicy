@@ -101,3 +101,6 @@ futex: (or (eq (arg 1) FUTEX_WAIT)
 
 # transaction cache: read spilled pages
 pread64: (eq (arg 0) txncache_fd)
+
+# transaction cache: write back cache pages
+pwrite64: (eq (arg 0) txncache_fd)

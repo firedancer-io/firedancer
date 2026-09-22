@@ -133,27 +133,29 @@ writer_map_execution_slots( fd_txncache_writer_t * writer ) {
 }
 
 /* Walks every hash chain of a rooted blockcache, taking the txncache
-   read lock per bucket if pages can be on disk.  For each transaction
-   that matches a captured rooted descriptor, the function either counts
-   it into its (execution slot, blockhash) group, or copies its hash into
-   the group's arena range. */
+   read lock per bucket if pages can be evicted.  A cache miss retries
+   the bucket under the write lock.  For each transaction that matches a
+   captured rooted descriptor, the function either counts it into its
+   (execution slot, blockhash) group, or copies its hash into the group's
+   arena range. */
 
 static void
 writer_walk_blockhash( fd_txncache_writer_t * writer,
                        ulong                  blockhash_i,
                        int                    mode ) {
-  fd_txncache_t const *                       tc             = writer->tc;
+  fd_txncache_t *                             tc             = writer->tc;
   fd_txncache_writer_blockhash_desc_t const * blockhash_desc = &writer->blockhash_descs[ blockhash_i ];
 
   /* Loop invariant variables are hoisted because the compiler fences
      would otherwise force the address chains to be reloaded every
      bucket. */
   fd_txncache_shmem_t const *   shmem         = tc->shmem;
+  fd_rwlock_t *                 lock          = tc->shmem->lock;
   uint const *                  heads         = tc->blockcache_pool[ blockhash_desc->blockcache_idx ].heads;
   fd_txncache_txnpage_t const * txnpages      = tc->txnpages;
   ulong                         bucket_cnt    = shmem->bucket_cnt;
   ulong                         txn_cap       = shmem->max_txnpages*FD_TXNCACHE_TXNS_PER_PAGE;
-  ulong                         disk_pages    = shmem->max_txnpages-shmem->resident_pages;
+  int                           bounded       = shmem->resident_pages<shmem->max_txnpages;
   ulong                         root_gen_init = writer->root_gen;
   fd_txnhash_t *                arena         = writer->arena;
   ulong                         group_lo      = writer->group_i;
@@ -163,9 +165,10 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
   ushort touched_slot_i[ FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS ];
 
   for( ulong bucket=0UL; bucket<bucket_cnt; bucket++ ) {
-    /* Disk inserts publish the chain head before writing the page.
-       Hold the read lock for this bucket when pages can be on disk. */
-    if( FD_UNLIKELY( disk_pages ) ) fd_rwlock_read( tc->shmem->lock );
+    /* Hold the lock while following resident pages so they cannot be
+       evicted during this bucket walk. */
+    int write_lock = 0;
+    if( FD_UNLIKELY( bounded ) ) fd_rwlock_read( lock );
     for(;;) {
       ulong gen0 = __atomic_load_n( &shmem->mutation_gen, __ATOMIC_ACQUIRE );
       if( FD_UNLIKELY( gen0&1UL ) ) {
@@ -183,6 +186,7 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
 
       ulong  touched_cnt      = 0UL;
       ulong  steps            = 0UL;
+      int    cache_miss       = 0;
       int    anomaly          = WALK_ANOMALY_NONE;
       uint   anomaly_txn_idx  = UINT_MAX;
       fd_txncache_writer_blockhash_desc_t const * anomaly_desc = NULL;
@@ -197,14 +201,12 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
         }
         ulong page = head/FD_TXNCACHE_TXNS_PER_PAGE;
         ulong idx  = head%FD_TXNCACHE_TXNS_PER_PAGE;
-        fd_txncache_single_txn_t         disk_txn[1];
-        fd_txncache_single_txn_t const * txn;
-        if( FD_LIKELY( page>=disk_pages ) ) {
-          txn = txnpages[ page-disk_pages ].txns[ idx ];
-        } else {
-          page_io( writer->tc, page, offsetof(fd_txncache_txnpage_t, txns)+idx*sizeof(*disk_txn), disk_txn, sizeof(*disk_txn), 0 );
-          txn = disk_txn;
+        fd_txncache_txnpage_t const * txnpage = FD_LIKELY( !bounded ) ? &txnpages[ page ] : page_io( tc, page, write_lock );
+        if( FD_UNLIKELY( !txnpage ) ) {
+          cache_miss = 1;
+          break;
         }
+        fd_txncache_single_txn_t const * txn = txnpage->txns[ idx ];
         /* Pigeonhole principle.  If we visited more than the max number
            of entries, then at least one entry has been visited twice,
            meaning a potential cycle. */
@@ -259,6 +261,14 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
         head = FD_VOLATILE_CONST( txn->blockcache_next );
       }
 
+      if( FD_UNLIKELY( cache_miss ) ) {
+        for( ulong i=0UL; i<touched_cnt; i++ ) bucket_entry_cnt[ touched_slot_i[ i ] ] = 0U;
+        fd_rwlock_unread( lock );
+        fd_rwlock_write( lock );
+        write_lock = 1;
+        continue;
+      }
+
       if( FD_UNLIKELY( anomaly!=WALK_ANOMALY_NONE ) ) { fd_racesan_hook( "txncache_writer:anomaly_detected" ); }
 
       /* Drain reads before we check generation number. */
@@ -301,7 +311,10 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
       }
       break;
     }
-    if( FD_UNLIKELY( disk_pages ) ) fd_rwlock_unread( tc->shmem->lock );
+    if( FD_UNLIKELY( bounded ) ) {
+      if( write_lock ) fd_rwlock_unwrite( lock );
+      else            fd_rwlock_unread ( lock );
+    }
   }
 }
 

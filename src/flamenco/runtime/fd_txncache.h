@@ -17,9 +17,9 @@
          anything twice.  The replay stage queries to make sure that
          blocks do not contain duplicate transactions.
 
-   Queries, RAM inserts, and ordinary RAM page allocation can run
-   concurrently under the shared lock.  Disk inserts and structural
-   operations take the exclusive lock.
+   Queries and inserts on resident pages run concurrently under the
+   shared lock.  Page allocation, cache misses, and structural operations
+   take the exclusive lock.  Dirty pages are written back on eviction.
 
    The txn cache is somewhat CPU and memory sensitive.  To store message
    hashes requires 20 bytes (only the first 20 of the 32 bytes of the
@@ -144,14 +144,15 @@ FD_PROTOTYPES_BEGIN
 
    spill_fd identifies the backing file shared by all local joins.  The
    caller retains ownership and keeps it open throughout the join
-   lifetime.  Pass -1 when no disk access is needed; accessing a spilled
-   page then fails.  I/O errors terminate rather than return a false
+   lifetime.  Pass -1 when no disk access is needed; a miss requiring I/O
+   then fails.  I/O errors terminate rather than return a false
    cache miss.
 
-   Disk inserts reuse the shared compaction scratch under the write lock.
-   New pages are allocated from RAM first, using disk only when no RAM
-   page is free.
-   RAM pages remain in RAM; overflow pages remain on disk until freed.
+   Resident frames are shared by all joins.  Cache misses load whole
+   pages and may evict dirty frames under the write lock.  The spill
+   descriptor must support reads and writes, even for query-only users.
+   Production opens the temporary backing file with O_DIRECT; buffers,
+   offsets, and transfer sizes are aligned to 4096 bytes.
 
    fd_txncache_join joins the caller to a txn cache.  Assumes ljoin
    points to the first byte of the local join region holding the state.

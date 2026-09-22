@@ -7,8 +7,9 @@
    recent rooted slot with a block, holding the transactions that
    executed in that slot, grouped by the blockhash they referenced.
    Takes the txncache read lock during initial setup.  RAM-only walks
-   are lock free and retry when they race a mutation.  With disk-backed
-   pages, walks also take the read lock for each bucket. */
+   are lock free and retry when they race a mutation.  With a bounded
+   page cache, walks take the read lock for each bucket and retry under
+   the write lock on a cache miss. */
 
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
