@@ -9,7 +9,7 @@ mkdir -p "$PREFIX"
 cd "$PREFIX"
 
 macos_pkgs () {
-  local REQUIRED_FORMULAE=( rpm llvm lld coreutils findutils grep git make cmake )
+  local REQUIRED_FORMULAE=( rpm llvm@21 lld coreutils findutils grep git make )
 
   echo "[~] Checking for required brew formulae"
 
@@ -47,14 +47,9 @@ sysroot () {
     glibc
     glibc-devel # libc headers
     gcc # crtBeginS.o
-    gcc-c++ # /usr/lib/gcc/x86_64-redhat-linux/15/libstdc++.so
     libgcc
-    libstdc++
-    libstdc++-devel
     # Project dependencies
     kernel-headers
-    libzstd-devel libzstd-static
-    snappy-devel snappy
   )
 
   # Resolve packages
@@ -76,31 +71,7 @@ sysroot () {
   done
 }
 
-deps_cmake () {
-  LLVM_PREFIX="$(brew --prefix llvm)"
-  cat > ./toolchain.cmake << EOF
-
-set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_C_COMPILER $LLVM_PREFIX/bin/clang "--sysroot $(realpath .)" "-nostdinc" "-isystem $(realpath ./usr/include)" "-isystem $(realpath ./usr/lib/clang/21/include)")
-set(CMAKE_AR $LLVM_PREFIX/bin/llvm-ar)
-set(CMAKE_RANLIB $LLVM_PREFIX/bin/llvm-ranlib)
-set(CLANG_TARGET_TRIPLE x86_64-linux-gnu)
-set(CMAKE_C_COMPILER_TARGET x86_64-linux-gnu)
-set(CMAKE_CXX_COMPILER_TARGET x86_64-linux-gnu)
-set(CMAKE_ASM_COMPILER_TARGET x86_64-linux-gnu)
-set(CMAKE_SYSTEM_PROCESSOR amd64)
-set(CMAKE_C_COMPILER_WORKS ON)
-
-set(CMAKE_FIND_ROOT_PATH $(realpath .))
-set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
-
-EOF
-}
-
 macos_pkgs
 sysroot
-deps_cmake
 
 echo "DONE!"

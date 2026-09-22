@@ -335,7 +335,7 @@ $(if $(FD_PRUNE),EXE_KEEP+=$(call ldstamp,$(5),$(1),$(6)) $(if $(filter bin,$(5)
 ifeq ($(5),bin)
 # build info captured by its own early job; the link installs it
 $(OBJDIR)/bin/$(1).buildinfo.o.new: FORCE
-	@$(MKDIR) $$(dir $$@) && { echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $(OBJDIR)/bin/$(1).buildinfo.c && $$(CC) -c -o $$@ $(OBJDIR)/bin/$(1).buildinfo.c
+	@$(MKDIR) $$(dir $$@) && { echo 'char const fd_bin_build_info[] ='; printf '  "# date     %s\\n"\n' "$$$$(date +'%Y-%m-%d %H:%M:%S %z')"; [ "$$$$(git rev-parse --show-toplevel 2>/dev/null)" = "$$$$(pwd -P)" ] && git --no-optional-locks status --porcelain=2 2>/dev/null | grep -E '^[12u] ' | head -100 | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/  "&\\n"/'; echo ';'; } > $(OBJDIR)/bin/$(1).buildinfo.c && $$(CC) $$(CPPFLAGS) $$(CFLAGS) -c -o $$@ $(OBJDIR)/bin/$(1).buildinfo.c
 $(1) buildinfo: $(OBJDIR)/bin/$(1).buildinfo.o.new $(OBJDIR)/info
 $(OBJDIR)/bin/$(1): | $(OBJDIR)/bin/$(1).buildinfo.o.new
 endif

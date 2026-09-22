@@ -3,7 +3,7 @@ BASEDIR:=build-cross
 # macOS Homebrew build toolchain
 
 CROSS:=macos-arm-clang_x_linux-x86
-LLVM_PREFIX:=$(shell brew --prefix llvm)
+LLVM_PREFIX:=$(shell brew --prefix llvm@21)
 CC:=$(LLVM_PREFIX)/bin/clang
 LD:=$(LLVM_PREFIX)/bin/clang
 AR:=$(LLVM_PREFIX)/bin/llvm-ar
