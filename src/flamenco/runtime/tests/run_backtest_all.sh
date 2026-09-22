@@ -167,3 +167,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs -
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-deactivated-stake --alpenglow -m 2000000 -e 810
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-leader-credits --alpenglow -m 2000000 -e 3915
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-alpenclock-lamports --alpenglow -m 2000000 -e 280
+
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l sd-disk-spill -m 10000000 -e 17400 --genesis-max-file-size-mib 1024
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l sd-disk-spill-post -m 10000000 -e 17400 --genesis-max-file-size-mib 1024
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l sd-disk-spill-midwin -m 10000000 -e 17400 --genesis-max-file-size-mib 1024
