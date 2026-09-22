@@ -51,7 +51,7 @@ ENCODE_FN {
   }
   case STATE_COUNTERS: {
     PUSH_VAL( ulong,  bank->f.parent_txn_count + bank->f.txn_count                );
-    PUSH_VAL( ulong,  bank->f.tick_height                                         );
+    PUSH_VAL( ulong,  bank->f.max_tick_height                                     );
     PUSH_VAL( ulong,  bank->f.signature_count                                     );
     PUSH_VAL( ulong,  bank->f.capitalization                                      );
     PUSH_VAL( ulong,  bank->f.max_tick_height                                     );
@@ -65,7 +65,7 @@ ENCODE_FN {
     PUSH_VAL( ulong,  bank->f.slot                                                );
     PUSH_VAL( ulong,  bank->f.epoch                                               );
     PUSH_VAL( ulong,  bank->f.block_height                                        );
-    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* leader_id, unused */
+    PUSH_VAL( fd_pubkey_t, enc->leader );
     PUSH_VAL( ulong, 0UL ); /* unused_collector_fees */
     PUSH_VAL( ulong, 0UL ); /* unused_fee_calculator */
 

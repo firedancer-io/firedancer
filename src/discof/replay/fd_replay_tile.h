@@ -275,9 +275,10 @@ typedef struct fd_replay_drop_bank_ref fd_replay_drop_bank_ref_t;
    (REPLAY_SIG_SNAP_START) just before starting snapshot creation. */
 
 struct fd_replay_snap_start {
-  ulong bank_idx;
-  ulong base_slot;
-  ulong slot; /* ==base_slot implies full snapshot, else incremental */
+  ulong       bank_idx;
+  ulong       base_slot;
+  ulong       slot;   /* ==base_slot implies full snapshot, else incremental */
+  fd_pubkey_t leader; /* leader of slot, written to the manifest for Agave */
 };
 typedef struct fd_replay_snap_start fd_replay_snap_start_t;
 
