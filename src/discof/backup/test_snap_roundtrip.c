@@ -14,9 +14,12 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+static int spill_test_fd = -1;
 
 #define MAX_LIVE_SLOTS      16UL
 #define MAX_TXN_PER_SLOT    4096UL
@@ -99,14 +102,15 @@ static test_txncache_t
 create_txncache_sized( fd_wksp_t * wksp,
                        ulong       max_live_slots,
                        ulong       max_txn_per_slot ) {
-  ulong shmem_fp = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot );
+  ulong cache_footprint = spill_test_fd>=0 ? sizeof(fd_txncache_txnpage_t) : ULONG_MAX;
+  ulong shmem_fp = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot, cache_footprint );
   void * shmem_raw = test_alloc( wksp, fd_txncache_shmem_align(), shmem_fp );
-  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem_raw, max_live_slots, max_txn_per_slot, 1UL ) );
+  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem_raw, max_live_slots, max_txn_per_slot, cache_footprint, 1UL ) );
   FD_TEST( shmem );
 
   ulong ljoin_fp = fd_txncache_footprint( max_live_slots );
   void * ljoin_raw = test_alloc( wksp, fd_txncache_align(), ljoin_fp );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( ljoin_raw, shmem ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( ljoin_raw, shmem, spill_test_fd ) );
   FD_TEST( tc );
   return (test_txncache_t){ .tc = tc, .shmem = shmem };
 }
@@ -1687,6 +1691,30 @@ main( int     argc,
   test_allocs_reclaim( wksp );
   test_txncache_writer_root_advance_is_fatal( wksp );
   test_allocs_reclaim( wksp );
+
+  /* Repeat serialization/parse checks with only one RAM page,
+     placing the remaining pages on disk. */
+  char spill_path[] = "/tmp/fd-txncache-roundtrip-XXXXXX";
+  spill_test_fd = mkstemp( spill_path );
+  FD_TEST( spill_test_fd>=0 );
+  FD_TEST( !unlink( spill_path ) );
+  test_txncache_roundtrip_empty( wksp );
+  test_allocs_reclaim( wksp );
+  test_txncache_roundtrip_genesis_blockhash( wksp );
+  test_allocs_reclaim( wksp );
+  test_txncache_roundtrip( wksp );
+  test_allocs_reclaim( wksp );
+  test_txncache_roundtrip_slot_history( wksp );
+  test_allocs_reclaim( wksp );
+  test_txncache_roundtrip_large( wksp );
+  test_allocs_reclaim( wksp );
+  test_txncache_roundtrip_many_roots( wksp );
+  test_allocs_reclaim( wksp );
+  stress_txncache_writer_concurrent_cancels( wksp );
+  test_allocs_reclaim( wksp );
+  stress_txncache_writer_concurrent_compaction( wksp );
+  test_allocs_reclaim( wksp );
+  FD_TEST( !close( spill_test_fd ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

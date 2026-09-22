@@ -123,8 +123,9 @@ typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
 
 struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_private {
   /* The txncache is a concurrent structure and will be accessed by multiple threads
-     concurrently.  Insertion and querying only take a read lock as they can be done
-     lockless but all other operations will take a write lock internally.
+     concurrently.  Queries, RAM inserts, and ordinary RAM allocation
+     take a read lock.  Disk inserts and structural changes take a
+     write lock.
 
      The lock needs to be aligned to 128 bytes to avoid false sharing with other
      data that might be on the same cache line. */
@@ -140,7 +141,8 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
                              txnpages_free, scratch_pages), see fd_txncache_txnpage_idx_sz. */
 
   uint  blockcache_generation; /* Incremented for every blockcache. */
-  ulong txnpages_free_cnt; /* The number of pages in the txnpages that are not currently in use. */
+  ulong txnpages_free_cnt; /* Total free pages across the RAM and disk stacks. */
+  ulong disk_free_cnt;     /* Changes only under the write lock; RAM free count is total minus disk. */
 
   /* Helps the snapshot producer walk the txncache lock-free and detect
      relevant changes to the txncache.  mutation_gen covers transaction
@@ -187,6 +189,8 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
                               most recently added root, the head is the oldest root.  This is used to identify
                               which forks can be pruned when a new root is added. */
 
+  ulong resident_pages; /* Highest page IDs are permanently backed by RAM. */
+
   ulong seed;
   ulong magic; /* ==FD_TXNCACHE_SHMEM_MAGIC */
 };
@@ -214,20 +218,31 @@ struct fd_txncache_private {
   blockcache_t * blockcache_pool;
   blockhash_map_t * blockhash_map;
 
-  void * txnpages_free;             /* The index in the txnpages array that is free, for each of the free pages.
+  void * txnpages_free;             /* Free page IDs: RAM stack starts at 0, disk stack at resident_pages.
                                        Elements are shmem->txnpage_idx_sz bytes, as are scratch_pages below. */
 
   fd_txncache_txnpage_t * txnpages; /* The actual storage for the transactions.  The blockcache points to these
                                        pages when storing transactions.  Transaction are grouped into pages of
-                                       size 16384 to make certain allocation and deallocation operations faster
+                                       size FD_TXNCACHE_TXNS_PER_PAGE to make allocation and deallocation faster
                                        (just the pages are acquired/released, rather than each txn). */
 
-  void * scratch_pages;
-  uint * scratch_heads;
-  fd_txncache_txnpage_t * scratch_txnpage;
+  void *                  scratch_pages;
+  uint *                  scratch_heads;
+  fd_txncache_txnpage_t * scratch_txnpage; /* Shared by compaction and disk inserts under the write lock. */
+  int                     spill_fd;
 };
 
 FD_PROTOTYPES_BEGIN
+
+/* Transfer a byte range from a logical page in RAM or on disk.
+   Caller holds the shmem read lock for reads, write lock for writes. */
+void
+page_io( struct fd_txncache_private * tc,
+         ulong                        page,
+         ulong                        off,
+         void *                       buf,
+         ulong                        sz,
+         int                          write );
 
 /* Use these to bracket a write locked change that is visible to the
    lock-free snapshot chain walker (fd_txncache_writer).  mutation_gen

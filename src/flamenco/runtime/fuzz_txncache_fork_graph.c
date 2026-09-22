@@ -4,6 +4,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../../util/fd_util.h"
 #include "fd_txncache.h"
@@ -105,12 +106,14 @@ fuzz_bounded( fuzz_cursor_t * cur,
   return x % bound;
 }
 
+static int fuzz_spill_fd = -1;
+
 static fd_txncache_t *
 setup( ulong max_live_slots, ulong max_txn_per_slot ) {
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 2UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
   FD_TEST( shtc );
 
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc, fuzz_spill_fd ) );
   FD_TEST( tc );
   return tc;
 }
@@ -364,7 +367,9 @@ blockcache_txn_cnt( model_t const * m,
   for( ulong i=0UL; i<bc->shmem->pages_cnt; i++ ) {
     ulong page = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, bc->pages, i );
     FD_TEST( page<tc->shmem->max_txnpages );
-    cnt += FD_TXNCACHE_TXNS_PER_PAGE - tc->txnpages[ page ].free;
+    ushort txnpage_free;
+    page_io( tc, page, offsetof(fd_txncache_txnpage_t, free), &txnpage_free, sizeof(txnpage_free), 0 );
+    cnt += FD_TXNCACHE_TXNS_PER_PAGE-txnpage_free;
   }
   return cnt;
 }
@@ -380,7 +385,9 @@ blockcache_needs_purge_for_insert( model_t const * m,
 
   ulong tail_page = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, bc->pages, bc->shmem->pages_cnt-1UL );
   FD_TEST( tail_page<tc->shmem->max_txnpages );
-  return !tc->txnpages[ tail_page ].free;
+  ushort txnpage_free;
+  page_io( tc, tail_page, offsetof(fd_txncache_txnpage_t, free), &txnpage_free, sizeof(txnpage_free), 0 );
+  return !txnpage_free;
 }
 
 static int
@@ -393,9 +400,12 @@ blockcache_has_stale_txn( model_t const * m,
     ulong page = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, bc->pages, i );
     FD_TEST( page<tc->shmem->max_txnpages );
 
-    ulong txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE - tc->txnpages[ page ].free;
+    ushort txnpage_free;
+    page_io( tc, page, offsetof(fd_txncache_txnpage_t, free), &txnpage_free, sizeof(txnpage_free), 0 );
+    ulong txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE-txnpage_free;
     for( ulong j=0UL; j<txn_cnt; j++ ) {
-      fd_txncache_single_txn_t const * txn = tc->txnpages[ page ].txns[ j ];
+      fd_txncache_single_txn_t txn[1];
+      page_io( tc, page, offsetof(fd_txncache_txnpage_t, txns)+j*sizeof(*txn), txn, sizeof(*txn), 0 );
       ushort txn_fork = txn->fork_id.val;
       FD_TEST( txn_fork<tc->shmem->active_slots_max );
 
@@ -557,6 +567,12 @@ static void
 check_invariants( model_t const * m ) {
   fd_txncache_t * tc = m->tc;
   FD_TEST( tc->shmem->txnpages_free_cnt<=tc->shmem->max_txnpages );
+  ulong disk_pages    = tc->shmem->max_txnpages-tc->shmem->resident_pages;
+  ulong disk_free_cnt = tc->shmem->disk_free_cnt;
+  FD_TEST( disk_free_cnt<=disk_pages );
+  FD_TEST( disk_free_cnt<=tc->shmem->txnpages_free_cnt );
+  ulong ram_free_cnt = tc->shmem->txnpages_free_cnt-disk_free_cnt;
+  FD_TEST( ram_free_cnt<=tc->shmem->resident_pages );
   FD_TEST( tc->shmem->max_txnpages<=512U );
 
   ulong pool_free = blockcache_pool_free( tc->blockcache_shmem_pool );
@@ -590,9 +606,16 @@ check_invariants( model_t const * m ) {
     }
   }
 
-  for( ulong i=0UL; i<tc->shmem->txnpages_free_cnt; i++ ) {
+  for( ulong i=0UL; i<ram_free_cnt; i++ ) {
     ulong page = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, i );
+    FD_TEST( page>=disk_pages );
     FD_TEST( page<tc->shmem->max_txnpages );
+    FD_TEST( !page_seen[ page ] );
+    page_seen[ page ] = 1U;
+  }
+  for( ulong i=0UL; i<disk_free_cnt; i++ ) {
+    ulong page = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, tc->shmem->resident_pages+i );
+    FD_TEST( page<disk_pages );
     FD_TEST( !page_seen[ page ] );
     page_seen[ page ] = 1U;
   }
@@ -1109,6 +1132,7 @@ op_extend_root( model_t *       m,
 
 static void
 fuzz_cleanup( void ) {
+  if( fuzz_spill_fd>=0 ) FD_TEST( !close( fuzz_spill_fd ) );
   free( fuzz_shmem );
   free( fuzz_ljoin );
 }
@@ -1124,7 +1148,10 @@ LLVMFuzzerInitialize( int *    argc,
   fd_log_level_logfile_set( 4 );
   atexit( fd_halt );
 
-  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT );
+  char path[] = "/tmp/fd-txncache-fuzz-XXXXXX";
+  fuzz_spill_fd = mkstemp( path );
+  FD_TEST( fuzz_spill_fd>=0 ); FD_TEST( !unlink( path ) );
+  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT, 2UL*sizeof(fd_txncache_txnpage_t) );
   fuzz_ljoin_fp = fd_txncache_footprint( FUZZ_MAX_LIVE_SLOTS );
   FD_TEST( fuzz_shmem_fp );
   FD_TEST( fuzz_ljoin_fp );

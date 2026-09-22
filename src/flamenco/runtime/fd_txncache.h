@@ -17,11 +17,9 @@
          anything twice.  The replay stage queries to make sure that
          blocks do not contain duplicate transactions.
 
-   Both of these operations are concurrent and lockless, assuming there
-   are no other (non-insert/query) operations occurring on the txn
-   cache. Most other operations lock the entire structure and will
-   prevent both insertion and query from proceeding, but are rare
-   (once per slot) so it's OK.
+   Queries, RAM inserts, and ordinary RAM page allocation can run
+   concurrently under the shared lock.  Disk inserts and structural
+   operations take the exclusive lock.
 
    The txn cache is somewhat CPU and memory sensitive.  To store message
    hashes requires 20 bytes (only the first 20 of the 32 bytes of the
@@ -111,6 +109,11 @@
 
 #define FD_TXNCACHE_ALIGN (128UL)
 
+/* 123457 is stake delegations, 123458/123459 are store, 123460/123461
+   are accdb, and 123462+ are reserved by XDP. */
+
+#define FD_TXNCACHE_FD (123456)
+
 struct fd_txncache_private;
 typedef struct fd_txncache_private fd_txncache_t;
 
@@ -139,6 +142,17 @@ FD_PROTOTYPES_BEGIN
    with a matching max_live_slots.  Returns ljoin on success and NULL
    on failure (logs details).  The caller is not joined on return.
 
+   spill_fd identifies the backing file shared by all local joins.  The
+   caller retains ownership and keeps it open throughout the join
+   lifetime.  Pass -1 when no disk access is needed; accessing a spilled
+   page then fails.  I/O errors terminate rather than return a false
+   cache miss.
+
+   Disk inserts reuse the shared compaction scratch under the write lock.
+   New pages are allocated from RAM first, using disk only when no RAM
+   page is free.
+   RAM pages remain in RAM; overflow pages remain on disk until freed.
+
    fd_txncache_join joins the caller to a txn cache.  Assumes ljoin
    points to the first byte of the local join region holding the state.
    Returns a local handle to the join on success (this is not
@@ -153,7 +167,8 @@ fd_txncache_footprint( ulong max_live_slots );
 
 void *
 fd_txncache_new( void *                ljoin,
-                 fd_txncache_shmem_t * shmem );
+                 fd_txncache_shmem_t * shmem,
+                 int                   spill_fd );
 
 fd_txncache_t *
 fd_txncache_join( void * ljoin );
@@ -172,10 +187,8 @@ fd_txncache_reset( fd_txncache_t * tc );
    region freely until it performs the first insert, at which point the
    contents should be assumed clobbered.
 
-   The pool is sized to hold at least
-   FD_TXNCACHE_MAX_SLOT_DELTAS*max_txn_per_slot transactions, so the
-   region is at least that many times sizeof(fd_txncache_single_txn_t)
-   bytes regardless of max_live_slots. */
+   The returned size is limited to the in-memory transaction pages.
+   Callers must size cache_footprint to accommodate their scratch needs. */
 
 void *
 fd_txncache_snapin_scratch( fd_txncache_t * tc,

@@ -30,6 +30,7 @@ endif
 
 $(call add-hdrs,fd_txncache_shmem.h fd_txncache.h)
 $(call add-objs,fd_txncache_shmem fd_txncache,fd_flamenco)
+
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
 ifdef FD_HAS_HOSTED
@@ -98,6 +99,5 @@ $(call make-unit-test,test_system_ids,test_system_ids,fd_flamenco fd_util fd_bal
 $(call run-unit-test,test_system_ids)
 
 ifdef FD_HAS_HOSTED
-# TODO: Flakes
-# $(call run-unit-test,test_txncache)
+$(call run-unit-test,test_txncache)
 endif

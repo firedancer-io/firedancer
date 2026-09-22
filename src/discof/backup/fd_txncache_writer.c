@@ -132,11 +132,11 @@ writer_map_execution_slots( fd_txncache_writer_t * writer ) {
   return 1;
 }
 
-/* Walks every hash chain of a rooted blockcache without taking the
-   txncache lock.  For each transaction that matches a captured rooted
-   descriptor, the function either counts the transaction into its
-   (execution slot, blockhash) group, or copies its hash into the
-   group's arena range. */
+/* Walks every hash chain of a rooted blockcache, taking the txncache
+   read lock per bucket if pages can be on disk.  For each transaction
+   that matches a captured rooted descriptor, the function either counts
+   it into its (execution slot, blockhash) group, or copies its hash into
+   the group's arena range. */
 
 static void
 writer_walk_blockhash( fd_txncache_writer_t * writer,
@@ -153,6 +153,7 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
   fd_txncache_txnpage_t const * txnpages      = tc->txnpages;
   ulong                         bucket_cnt    = shmem->bucket_cnt;
   ulong                         txn_cap       = shmem->max_txnpages*FD_TXNCACHE_TXNS_PER_PAGE;
+  ulong                         disk_pages    = shmem->max_txnpages-shmem->resident_pages;
   ulong                         root_gen_init = writer->root_gen;
   fd_txnhash_t *                arena         = writer->arena;
   ulong                         group_lo      = writer->group_i;
@@ -162,6 +163,9 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
   ushort touched_slot_i[ FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS ];
 
   for( ulong bucket=0UL; bucket<bucket_cnt; bucket++ ) {
+    /* Disk inserts publish the chain head before writing the page.
+       Hold the read lock for this bucket when pages can be on disk. */
+    if( FD_UNLIKELY( disk_pages ) ) fd_rwlock_read( tc->shmem->lock );
     for(;;) {
       ulong gen0 = __atomic_load_n( &shmem->mutation_gen, __ATOMIC_ACQUIRE );
       if( FD_UNLIKELY( gen0&1UL ) ) {
@@ -191,7 +195,16 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
           anomaly_txn_idx = head;
           break;
         }
-        fd_txncache_single_txn_t const * txn = txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
+        ulong page = head/FD_TXNCACHE_TXNS_PER_PAGE;
+        ulong idx  = head%FD_TXNCACHE_TXNS_PER_PAGE;
+        fd_txncache_single_txn_t         disk_txn[1];
+        fd_txncache_single_txn_t const * txn;
+        if( FD_LIKELY( page>=disk_pages ) ) {
+          txn = txnpages[ page-disk_pages ].txns[ idx ];
+        } else {
+          page_io( writer->tc, page, offsetof(fd_txncache_txnpage_t, txns)+idx*sizeof(*disk_txn), disk_txn, sizeof(*disk_txn), 0 );
+          txn = disk_txn;
+        }
         /* Pigeonhole principle.  If we visited more than the max number
            of entries, then at least one entry has been visited twice,
            meaning a potential cycle. */
@@ -288,6 +301,7 @@ writer_walk_blockhash( fd_txncache_writer_t * writer,
       }
       break;
     }
+    if( FD_UNLIKELY( disk_pages ) ) fd_rwlock_unread( tc->shmem->lock );
   }
 }
 
