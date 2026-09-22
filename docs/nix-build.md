@@ -17,7 +17,12 @@ Enter a target environment:
 nix develop .#x86_64-linux-musl
 # or
 nix develop .#aarch64-linux-musl
+# or
+nix develop .#riscv64-linux-musl
 ```
+
+These shells are exported on x86-64, AArch64, and RISC-V 64 Linux hosts.
+Running `nix develop` without a shell name selects the native architecture.
 
 Then build the client:
 

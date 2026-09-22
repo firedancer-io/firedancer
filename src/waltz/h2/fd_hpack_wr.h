@@ -153,10 +153,11 @@ fd_hpack_wr_authority( fd_h2_rbuf_t * rbuf_tx,
                        ushort         port ) {
   char suffix_cstr[ 7 ];
   ulong port_cstr_len = fd_ushort_base10_dig_cnt( port );
+  if( FD_UNLIKELY( port_cstr_len>5UL ) ) return 0;
   char * p = fd_cstr_init( suffix_cstr );
   p = fd_cstr_append_char( p, ':' );
   p = fd_cstr_append_ushort_as_text( p, 0, 0, port, port_cstr_len );
-  ulong suffix_len = (ulong)p - (ulong)suffix_cstr;
+  ulong suffix_len = 1UL+port_cstr_len;
   fd_cstr_fini( p );
 
   //if( !port ) suffix_len = 0;
@@ -167,7 +168,10 @@ fd_hpack_wr_authority( fd_h2_rbuf_t * rbuf_tx,
   ulong prefix_len = 1+fd_hpack_wr_varint( prefix+1, 0x00, 0x7f, value_len );
   fd_h2_rbuf_push( rbuf_tx, prefix,      prefix_len );
   fd_h2_rbuf_push( rbuf_tx, host,        host_len   );
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
   fd_h2_rbuf_push( rbuf_tx, suffix_cstr, suffix_len );
+#pragma GCC diagnostic pop
   return 1;
 }
 

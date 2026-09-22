@@ -2,6 +2,7 @@
 
 #include "fd_accdb.h"
 #include "../../util/fd_util.h"
+#include "../../util/tile/fd_tile_private.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -107,10 +108,9 @@ static void
 pin_thread( ulong cpu ) {
   if( cpu==ULONG_MAX ) return;
   FD_TEST( cpu<CPU_SETSIZE );
-  cpu_set_t set;
-  CPU_ZERO( &set );
-  CPU_SET( cpu, &set );
-  FD_TEST( !pthread_setaffinity_np( pthread_self(), sizeof(set), &set ) );
+  FD_CPUSET_DECL( set );
+  fd_cpuset_insert( set, cpu );
+  FD_TEST( !fd_cpuset_setaffinity( 0UL, set ) );
 }
 
 static ulong

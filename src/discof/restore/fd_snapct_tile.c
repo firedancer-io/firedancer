@@ -21,6 +21,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
+#include <linux/fs.h>
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
@@ -459,8 +461,9 @@ snapshot_output_prepare( fd_snapct_tile_t * ctx,
       else       ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
     }
 
-    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, name, ctx->local_out.dir_fd, partial_name ) ) )
-      FD_LOG_ERR(( "renameat(%s, %s) failed (%i-%s)", name, partial_name, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==syscall( SYS_renameat2, ctx->local_out.dir_fd, name,
+                                 ctx->local_out.dir_fd, partial_name, 0U ) ) )
+      FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", name, partial_name, errno, fd_io_strerror( errno ) ));
     fd_cstr_ncpy( name, partial_name, FD_SNAP_NAME_MAX );
   }
 
@@ -475,8 +478,8 @@ rename_full_snapshot( fd_snapct_tile_t * ctx ) {
   FD_TEST( -1!=ctx->local_out.dir_fd );
 
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd && ctx->http_full_snapshot_name[ 0 ]!='\0' ) ) {
-    int err = renameat2( ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name,
-                         ctx->local_out.dir_fd, ctx->http_full_snapshot_name, RENAME_NOREPLACE );
+    int err = (int)syscall( SYS_renameat2, ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name,
+                           ctx->local_out.dir_fd, ctx->http_full_snapshot_name, RENAME_NOREPLACE );
     if( FD_UNLIKELY( err && errno!=EEXIST ) )
       FD_LOG_ERR(( "renameat2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( !err ) )
@@ -489,8 +492,8 @@ rename_incr_snapshot( fd_snapct_tile_t * ctx ) {
   FD_TEST( -1!=ctx->local_out.dir_fd );
 
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd && ctx->http_incr_snapshot_name[ 0 ]!='\0' ) ) {
-    int err = renameat2( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name,
-                         ctx->local_out.dir_fd, ctx->http_incr_snapshot_name, RENAME_NOREPLACE );
+    int err = (int)syscall( SYS_renameat2, ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name,
+                           ctx->local_out.dir_fd, ctx->http_incr_snapshot_name, RENAME_NOREPLACE );
     if( FD_UNLIKELY( err && errno!=EEXIST ) )
       FD_LOG_ERR(( "renameat2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( !err ) )

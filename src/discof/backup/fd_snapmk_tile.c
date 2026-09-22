@@ -746,8 +746,9 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
     FD_LOG_ERR(( "fcntl(F_UNLCK, %s) failed: %i-%s",
                  inode->name, errno, fd_io_strerror( errno ) ));
   }
-  if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, inode->name, ctx->snap_dir_fd, ctx->final_name ) ) ) {
-    FD_LOG_ERR(( "renameat(%s, %s) failed: %s", inode->name, ctx->final_name, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->snap_dir_fd, inode->name,
+                           ctx->snap_dir_fd, ctx->final_name, 0U ) ) ) {
+    FD_LOG_ERR(( "renameat2(%s, %s) failed: %s", inode->name, ctx->final_name, fd_io_strerror( errno ) ));
   }
   fd_cstr_ncpy( inode->name, ctx->final_name, sizeof(inode->name) );
 
@@ -1640,8 +1641,9 @@ snap_pool_acquire( fd_snapmk_t *       ctx,
 
   char partial_name[ sizeof(inode->name) ];
   fd_snap_pool_partial_name( partial_name, snap_pool_idx );
-  if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, inode->name, ctx->snap_dir_fd, partial_name ) ) ) {
-    FD_LOG_ERR(( "renameat(%s, %s) failed: %s", inode->name, partial_name, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->snap_dir_fd, inode->name,
+                           ctx->snap_dir_fd, partial_name, 0U ) ) ) {
+    FD_LOG_ERR(( "renameat2(%s, %s) failed: %s", inode->name, partial_name, fd_io_strerror( errno ) ));
   }
   fd_cstr_ncpy( inode->name, partial_name, sizeof(inode->name) );
   inode->full_slot = ULONG_MAX;

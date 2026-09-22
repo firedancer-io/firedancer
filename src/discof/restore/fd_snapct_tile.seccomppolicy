@@ -150,11 +150,10 @@ setsockopt: (and (not (or (eq (arg 0) 2)
 # arg 2 is the file descriptor for the directory that the file is being
 # renamed to.  This should be the same file descriptor as the one used
 # in arg 0
-renameat: (and (eq (arg 0) dir_fd)
-               (eq (arg 2) dir_fd))
 renameat2: (and (eq (arg 0) dir_fd)
                 (eq (arg 2) dir_fd)
-                (eq (arg 4) 1))
+                (or (eq (arg 4) 0)
+                    (eq (arg 4) 1)))
 
 # TLS: regenerate X25519 keys for each HTTPS connection
 getrandom

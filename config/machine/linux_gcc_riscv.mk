@@ -7,7 +7,7 @@ include config/extra/with-gcc.mk
 CPPFLAGS:=
 LDFLAGS:=-lm
 
-ifneq ($(shell uname -m),ppc64le)
+ifneq ($(shell uname -m),riscv64)
 CROSS=1
 endif
 
@@ -27,3 +27,4 @@ CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1
 FD_HAS_INT128:=1
 FD_HAS_DOUBLE:=1
 FD_HAS_ALLOCA:=1
+FD_ARCH_SUPPORTS_SANDBOX:=1

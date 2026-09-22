@@ -44,7 +44,7 @@ FD_GUI_STALE_CMP := $(shell zn=$$(ls -t $(FD_GUI_ZSTD_INPUTS) | head -1); gn=$$(
 .PHONY: gui-assets
 ifneq ($(FD_GUI_STALE_CMP),)
 gui-assets:
-	$(Q)$(MAKE) --no-print-directory -f src/disco/gui/assets.mk CC='$(CC)' OBJDIR=$(OBJDIR) Q=$(Q) FD_GUI_DIST=src/disco/gui/dist ZSTD_DEFS='$(ZSTD_DEFS)' ZLIB_DEFS='$(ZLIB_DEFS)' TOOL_LDFLAGS='$(filter -fuse-ld=% -B% -static-libgcc,$(LDFLAGS))' $(FD_GUI_STALE_CMP)
+	$(Q)$(MAKE) --no-print-directory -f src/disco/gui/assets.mk CC='$(HOSTCC)' OBJDIR=$(OBJDIR) Q=$(Q) FD_GUI_DIST=src/disco/gui/dist ZSTD_DEFS='$(ZSTD_DEFS)' ZLIB_DEFS='$(ZLIB_DEFS)' $(FD_GUI_STALE_CMP)
 else
 gui-assets: ;
 endif

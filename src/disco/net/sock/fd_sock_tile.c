@@ -34,6 +34,7 @@
    triggering -Wsign-compare.  Wrap it here with diagnostics disabled. */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsign-compare"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
 static inline struct cmsghdr *
 fd_cmsg_nxthdr( struct msghdr *   mhdr,
                 struct cmsghdr * cmsg ) {

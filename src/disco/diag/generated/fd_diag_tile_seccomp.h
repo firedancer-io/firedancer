@@ -21,6 +21,8 @@
 # define ARCH_NR  AUDIT_ARCH_X86_64
 #elif defined(__aarch64__)
 # define ARCH_NR AUDIT_ARCH_AARCH64
+#elif defined(__riscv) && __riscv_xlen == 64
+# define ARCH_NR AUDIT_ARCH_RISCV64
 #else
 # error "Target architecture is unsupported by seccomp."
 #endif
