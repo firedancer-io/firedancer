@@ -61,6 +61,9 @@ fd_bls_pub_de( fd_bls_pub_t * pub,
                ulong          buf_sz );
 
 fd_bls_agg_t *
+fd_bls_agg_null( fd_bls_agg_t * agg );
+
+fd_bls_agg_t *
 fd_bls_agg_construct( fd_bls_agg_t *       agg,
                       fd_bls_pub_t const * pub,
                       fd_bls_sig_t const * sig,

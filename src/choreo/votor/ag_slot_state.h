@@ -23,9 +23,11 @@
 #define AG_SLOT_STATE_OUT_REPAIR_MAX (3UL)
 
 #define AG_NOTAR_MAP_LG_SLOT_CNT          (11)
+#define AG_NOTAR_MAP_SLOT_CNT             (1UL<<AG_NOTAR_MAP_LG_SLOT_CNT)
 #define AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT (13)
-FD_STATIC_ASSERT( AG_VAT_MAX                           <(1UL<<AG_NOTAR_MAP_LG_SLOT_CNT         ), notar_map          );
-FD_STATIC_ASSERT( AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX<(1UL<<AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT), notar_fallback_map );
+#define AG_NOTAR_FALLBACK_MAP_SLOT_CNT    (1UL<<AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT)
+FD_STATIC_ASSERT( AG_NOTAR_MAP_SLOT_CNT         >AG_VAT_MAX,                            notar_map          );
+FD_STATIC_ASSERT( AG_NOTAR_FALLBACK_MAP_SLOT_CNT>AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX, notar_fallback_map );
 
 struct ag_slot_voted_stake_hash {
   ag_block_hash_key_t hash;
@@ -74,9 +76,9 @@ struct ag_block_hash_set {
 typedef struct ag_block_hash_set ag_block_hash_set_t;
 
 struct ag_slot_voted_stake {
-  ag_slot_voted_stake_hash_t notar[ 1UL<<AG_NOTAR_MAP_LG_SLOT_CNT ];
+  ag_slot_voted_stake_hash_t notar[ AG_NOTAR_MAP_SLOT_CNT ];
   fd_bls_sig_t               notar_sig[ AG_VAT_MAX ];
-  ag_slot_voted_stake_hash_t notar_fallback[ 1UL<<AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT ];
+  ag_slot_voted_stake_hash_t notar_fallback[ AG_NOTAR_FALLBACK_MAP_SLOT_CNT ];
   fd_bls_sig_t               notar_fallback_sig[ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
   ag_block_hash_t            notar_fallback_sig_hash[ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
   uchar                      notar_fallback_sig_cnt[ AG_VAT_MAX ];
@@ -127,10 +129,7 @@ typedef struct ag_slot_state ag_slot_state_t;
 FD_PROTOTYPES_BEGIN
 
 void
-ag_slot_state_zero( ag_slot_state_t *       self,
-                    ulong                   slot,
-                    ag_epoch_info_t const * epoch_info,
-                    ulong                   own_rank );
+ag_slot_state_null( ag_slot_state_t * self );
 
 /* Definition 13. SlotState::add_cert */
 

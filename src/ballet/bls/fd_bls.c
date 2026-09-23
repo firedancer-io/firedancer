@@ -74,6 +74,14 @@ fd_bls_pub_de( fd_bls_pub_t * pub,
 }
 
 fd_bls_agg_t *
+fd_bls_agg_null( fd_bls_agg_t * agg ) {
+  fd_memset( &agg->pub, 0, sizeof(fd_bls_pub_t) );
+  fd_memset( &agg->sig, 0, sizeof(fd_bls_sig_t) );
+  fd_bls_set_null( agg->set );
+  return agg;
+}
+
+fd_bls_agg_t *
 fd_bls_agg_construct( fd_bls_agg_t *       agg,
                       fd_bls_pub_t const * pub,
                       fd_bls_sig_t const * sig,
