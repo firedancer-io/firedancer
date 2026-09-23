@@ -197,9 +197,29 @@
 #define STEM_LAZY (0L)
 #endif
 
+/* STEM_ALWAYS_PARK makes the tile park on its NEXT_DEADLINE even in
+   performance mode.
+
+   STEM_NEVER_PARK keeps the tile spinning even if it has no fragments
+   to process and would ordinarily try to park.  This is typically for
+   tiles which don't yet play nicely with the sleep infrastructure or do
+   custom waiting. */
+
+#ifndef STEM_ALWAYS_PARK
+#define STEM_ALWAYS_PARK 0
+#endif
+
+#ifndef STEM_NEVER_PARK
+#define STEM_NEVER_PARK 0
+#endif
+
+#if STEM_ALWAYS_PARK && STEM_NEVER_PARK
+#error "STEM_ALWAYS_PARK and STEM_NEVER_PARK are exclusive"
+#endif
+
 #define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
 
-static inline void
+static inline __attribute__((always_inline)) void
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
   __atomic_store_n( in->fseq, in->seq, __ATOMIC_RELEASE );
 
@@ -214,6 +234,191 @@ STEM_(in_update)( fd_stem_tile_in_t * in ) {
   FD_COMPILER_MFENCE();
   accum[0] = 0U;              accum[1] = 0U;              accum[2] = 0U;
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
+}
+
+static inline void
+STEM_(mirror)( ulong * mirror,
+               ulong   seq ) {
+  if( FD_LIKELY( fd_seq_gt( seq, FD_VOLATILE_CONST( mirror[0] ) ) ) ) FD_VOLATILE( mirror[0] ) = seq;
+}
+
+static inline int
+STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
+             fd_stem_sleep_t const *      sleep,
+             fd_stem_tile_in_t *          in,
+             ulong                        in_cnt,
+             fd_frag_meta_t **            out_mcache,
+             ulong                        out_cnt,
+             ulong const *                out_seq,
+             int                          backpressured,
+             long                         deadline_hint,
+             long                         cap_ticks,
+             long                         min_ticks,
+             double                       tick_per_ns,
+             long                         now ) {
+  (void)ctx;
+
+  if( FD_LIKELY( !backpressured ) ) {
+    for( ulong i=0UL; i<in_cnt; i++ ) {
+      /* If there's a frag to read on some in, then we don't park. */
+      if( FD_UNLIKELY( fd_seq_diff( in[ i ].seq, fd_frag_meta_seq_query( in[ i ].mline ) )<=0L ) ) return 0;
+    }
+  }
+
+  if( FD_LIKELY( sleep->waker_fseq ) ) {
+    if( FD_UNLIKELY( fd_fseq_query( sleep->waker_fseq )==1UL ) ) return 0;
+  }
+
+#ifdef STEM_CALLBACK_PARK_PENDING
+  if( FD_UNLIKELY( STEM_CALLBACK_PARK_PENDING( ctx ) ) ) return 0;
+#endif
+
+#ifdef STEM_CALLBACK_SHOULD_SHUTDOWN
+  if( FD_UNLIKELY( STEM_CALLBACK_SHOULD_SHUTDOWN( ctx ) ) ) return 0;
+#endif
+
+
+  long deadline = fd_long_min( now+cap_ticks, deadline_hint );
+#ifdef STEM_CALLBACK_NEXT_DEADLINE
+  deadline = fd_long_min( deadline, STEM_CALLBACK_NEXT_DEADLINE( ctx ) );
+#endif
+  if( FD_UNLIKELY( deadline-now<min_ticks ) ) return 0; /* already close enough to deadline, don't waste a syscall */
+
+  /* We are now going to park ... flush all state before. */
+  for( ulong i=0UL; i<in_cnt; i++ ) STEM_(in_update)( &in[ i ] );
+  for( ulong o=0UL; o<out_cnt; o++ ) {
+    fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ o ] ), out_seq[ o ] );
+    if( FD_LIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ o ] ], out_seq[ o ] );
+  }
+
+  ulong _word;
+  ulong * word;
+  ulong my_w;
+  ulong my_bit;
+
+  int parked = 0;
+  if( FD_LIKELY( sleep->shmem ) ) {
+    sleep->shmem->tile[ sleep->tile_id ].deadline = (ulong)deadline;
+    sleep->shmem->tile[ sleep->tile_id ].gen++;
+    word   = &sleep->shmem->tile[ sleep->tile_id ].word;
+    my_w   = sleep->tile_id>>6;
+    my_bit = 1UL<<(sleep->tile_id&63UL);
+    FD_VOLATILE( word[0] ) = 0UL;
+
+    if( FD_LIKELY( !backpressured ) ) {
+      /* Waiting for a producer: set the parked bit so publishes ring
+         us, and snapshot our in seqs so the mwaitx sweep can catch a
+         ring that raced. */
+      for( ulong i=0UL; i<in_cnt; i++ ) sleep->shmem->seq_snap[ sleep->tile_id ][ in[ i ].idx ] = in[ i ].seq;
+      __atomic_fetch_or( &sleep->shmem->parked_bits[ my_w ], my_bit, __ATOMIC_SEQ_CST );
+      parked = 1;
+    } else {
+      /* Waiting for a consumer's credits, which nothing rings, sleep
+         to the deadline only.  A ring would just wake us into the
+         same backpressure, so no parked bit and no snapshot. */
+      __atomic_thread_fence( __ATOMIC_SEQ_CST );
+    }
+  } else {
+    /* No shmem, so no one can wake us.  We will just sleep until the
+       deadline.  This only happens for ALWAYS_PARK tiles when running
+       in spin mode. */
+    word = &_word;
+    my_w = 0UL;
+    my_bit = 0UL;
+    FD_VOLATILE( word[0] ) = 0UL;
+    __atomic_thread_fence( __ATOMIC_SEQ_CST );
+  }
+
+  /* Last chance checks to reduce race-window for a lost wake.  If there
+     is nothing to abort the park, then park.  There's a short race
+     between checking and parking, which cannot be avoided, and is
+     bounded by the mwaitx tile which periodically sweeps and wakes us
+     if we raced here. */
+
+  int pending = 0;
+  if( FD_LIKELY( parked ) ) {
+    for( ulong i=0UL; i<in_cnt; i++ ) {
+      pending |= fd_seq_diff( in[ i ].seq, fd_frag_meta_seq_query( in[ i ].mline ) )<=0L;
+    }
+  }
+  if( FD_LIKELY( sleep->waker_fseq ) ) pending |= fd_fseq_query( sleep->waker_fseq )==1UL;
+#ifdef STEM_CALLBACK_SHOULD_SHUTDOWN
+  pending |= STEM_CALLBACK_SHOULD_SHUTDOWN( ctx );
+#endif
+
+  FD_MCNT_INC( TILE, PARK, 1UL );
+
+  if( FD_UNLIKELY( pending ) ) {
+    FD_VOLATILE( word[0] ) = 1UL;
+    if( FD_LIKELY( parked ) ) __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
+    FD_MCNT_INC( TILE, UNPARK_PENDING, 1UL );
+    return 0;
+  }
+
+  int cause = fd_sleep_park_wait( word, deadline, tick_per_ns );
+
+  /* Park completed, either due to a ring or a deadline.  Now clear the
+     parked bit and publish the reason.  There's a race here with the
+     ringer but it's harmless, it might cause one more spurious wake. */
+  FD_VOLATILE( word[0] ) = 1UL;
+  if( FD_LIKELY( sleep->shmem && parked ) ) __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
+  if( FD_LIKELY( cause==FD_SLEEP_UNPARK_RING ) ) FD_MCNT_INC( TILE, UNPARK_RING,     1UL );
+  else                                           FD_MCNT_INC( TILE, UNPARK_DEADLINE, 1UL );
+  return 1;
+}
+
+static inline void
+STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
+                     fd_stem_sleep_t const *      cfg,
+                     fd_stem_tile_in_t *          in,
+                     ulong                        in_cnt,
+                     fd_frag_meta_t **            out_mcache,
+                     ulong                        out_cnt,
+                     ulong const *                out_seq,
+                     ulong                        cons_cnt,
+                     ulong const **               cons_fseq,
+                     ulong *                      cons_seq,
+                     ulong const *                cons_out,
+                     ulong                        event_cnt,
+                     ushort const *               event_map,
+                     ulong *                      event_seq,
+                     ulong                        async_min,
+                     long                         cap_ticks,
+                     long                         min_ticks,
+                     double                       tick_per_ns,
+                     ulong *                      metric_regime_ticks,
+                     long *                       now,
+                     ulong                        regime,
+                     int                          backpressured,
+                     long                         deadline_hint ) {
+  (void)cons_out; (void)out_seq;
+
+  int slept = STEM_(park)( ctx, cfg, in, in_cnt, out_mcache, out_cnt, out_seq,
+                           backpressured, deadline_hint, cap_ticks, min_ticks, tick_per_ns, *now );
+  if( FD_UNLIKELY( !slept ) ) return; /* found work */
+
+  long next   = fd_tickcount();
+  long waited = next - *now;
+  metric_regime_ticks[ regime ] += (ulong)waited;
+  *now = next;
+  if( FD_UNLIKELY( waited>=(long)async_min ) ) {
+    /* If we slept shorter than a housekeeping interval, we didn't miss
+       any credit refresh housekeeping events, but otherwise we might
+       have missed many, so refill them immediately here. */
+    for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
+      ulong this_cons_seq = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
+      cons_seq[ cons_idx ] = this_cons_seq;
+#ifdef STEM_CALLBACK_RECV_CREDIT
+      STEM_CALLBACK_RECV_CREDIT( ctx, cons_out[ cons_idx ], out_seq[ cons_out[ cons_idx ] ], this_cons_seq );
+#endif
+    }
+    for( ulong k=0UL; k<event_cnt; k++ ) {
+      if( event_map[ k ]==cons_cnt ) {
+        *event_seq = k;
+        break;
+      }
+    }
+  }
 }
 
 FD_FN_PURE static inline ulong
@@ -240,7 +445,90 @@ STEM_(scratch_footprint)( ulong in_cnt,
   return FD_LAYOUT_FINI( l, STEM_(scratch_align)() );
 }
 
+#if !STEM_ALWAYS_PARK
+#define STEM_RUN1_NAME   run1_spin
+#define STEM_SLEEP_PARKS 0
 #include "fd_stem_run1.c"
+#undef  STEM_SLEEP_PARKS
+#undef  STEM_RUN1_NAME
+#endif
+
+#if !STEM_NEVER_PARK
+#define STEM_RUN1_NAME   run1_park
+#define STEM_SLEEP_PARKS 1
+#include "fd_stem_run1.c"
+#undef  STEM_SLEEP_PARKS
+#undef  STEM_RUN1_NAME
+#endif
+
+#if !STEM_ALWAYS_PARK
+static __attribute__((noinline)) void
+STEM_(run_spin)( ulong                        in_cnt,
+                  fd_frag_meta_t const **      in_mcache,
+                  ulong **                     in_fseq,
+                  ulong                        out_cnt,
+                  fd_frag_meta_t **            out_mcache,
+                  ulong                        cons_cnt,
+                  ulong *                      _cons_out,
+                  ulong **                     _cons_fseq,
+                  volatile ulong **            _cons_slow,
+                  ulong                        burst,
+                  long                         lazy,
+                  fd_rng_t *                   rng,
+                  void *                       scratch,
+                  STEM_CALLBACK_CONTEXT_TYPE * ctx,
+                  fd_stem_sleep_t const *      sleep ) {
+  STEM_(run1_spin)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );
+}
+#endif
+
+#if !STEM_NEVER_PARK
+static __attribute__((noinline)) void
+STEM_(run_park)( ulong                        in_cnt,
+                  fd_frag_meta_t const **      in_mcache,
+                  ulong **                     in_fseq,
+                  ulong                        out_cnt,
+                  fd_frag_meta_t **            out_mcache,
+                  ulong                        cons_cnt,
+                  ulong *                      _cons_out,
+                  ulong **                     _cons_fseq,
+                  volatile ulong **            _cons_slow,
+                  ulong                        burst,
+                  long                         lazy,
+                  fd_rng_t *                   rng,
+                  void *                       scratch,
+                  STEM_CALLBACK_CONTEXT_TYPE * ctx,
+                  fd_stem_sleep_t const *      sleep ) {
+  STEM_(run1_park)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );
+}
+#endif
+
+static inline void
+STEM_(run1)( ulong                        in_cnt,
+             fd_frag_meta_t const **      in_mcache,
+             ulong **                     in_fseq,
+             ulong                        out_cnt,
+             fd_frag_meta_t **            out_mcache,
+             ulong                        cons_cnt,
+             ulong *                      _cons_out,
+             ulong **                     _cons_fseq,
+             volatile ulong **            _cons_slow,
+             ulong                        burst,
+             long                         lazy,
+             fd_rng_t *                   rng,
+             void *                       scratch,
+             STEM_CALLBACK_CONTEXT_TYPE * ctx,
+             fd_stem_sleep_t const *      sleep ) {
+#if STEM_ALWAYS_PARK
+  if( !sleep->shmem ) FD_TEST( !in_cnt );
+  STEM_(run_park)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );
+#elif STEM_NEVER_PARK
+  STEM_(run_spin)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );
+#else
+  if( sleep->shmem ) STEM_(run_park)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );
+  else               STEM_(run_spin)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );
+#endif
+}
 
 FD_FN_UNUSED static void
 STEM_(run)( fd_topo_t *      topo,
@@ -263,6 +551,28 @@ STEM_(run)( fd_topo_t *      topo,
   for( ulong i=0UL; i<tile->out_cnt; i++ ) {
     out_mcache[ i ] = topo->links[ tile->out_link_id[ i ] ].mcache;
     FD_TEST( out_mcache[ i ] );
+  }
+
+  fd_stem_sleep_t sleep[ 1 ] = {{ .shmem = NULL }};
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    sleep->shmem = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+    FD_TEST( sleep->shmem );
+    sleep->tile_id     = tile->id;
+    sleep->waker_fseq  = tile->is_waker_client ? fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) ) : NULL;
+    FD_TEST( !tile->is_waker_client || sleep->waker_fseq );
+    sleep->out_link_id = tile->out_link_id;
+
+    ulong polled_idx = 0UL;
+    for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+      if( FD_LIKELY( tile->in_link_poll[ i ] ) ) sleep->in_link_id[ polled_idx++ ] = tile->in_link_id[ i ];
+    }
+
+    ulong pair_cnt = 0UL;
+    for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+      sleep->wake_off[ i ] = (ushort)pair_cnt;
+      pair_cnt += fd_sleep_wake_table( sleep->wake+pair_cnt, topo, tile->out_link_id[ i ] );
+    }
+    sleep->wake_off[ tile->out_cnt ] = (ushort)pair_cnt;
   }
 
   ulong   reliable_cons_cnt = 0UL;
@@ -320,7 +630,8 @@ STEM_(run)( fd_topo_t *      topo,
                STEM_LAZY,
                rng,
                stem_scratch,
-               ctx );
+               ctx,
+               sleep );
 
 #ifdef STEM_CALLBACK_METRICS_WRITE
   /* Write final metrics state before shutting down */
@@ -340,12 +651,22 @@ STEM_(run)( fd_topo_t *      topo,
       FD_TEST( fseq );
       __atomic_store_n( fseq, STEM_SHUTDOWN_SEQ, __ATOMIC_RELEASE );
     }
+
+    if( FD_UNLIKELY( sleep->shmem ) ) {
+      /* Leave the sleep object as if we never parked, to prevent
+         producers repeatedly trying to wake up. */
+      FD_VOLATILE( sleep->shmem->tile[ sleep->tile_id ].word ) = 1UL;
+      __atomic_fetch_and( &sleep->shmem->doorbell   [ sleep->tile_id>>6 ], ~(1UL<<(sleep->tile_id&63UL)), __ATOMIC_SEQ_CST );
+      __atomic_fetch_and( &sleep->shmem->parked_bits[ sleep->tile_id>>6 ], ~(1UL<<(sleep->tile_id&63UL)), __ATOMIC_SEQ_CST );
+    }
   }
 }
 
 #undef STEM_NAME
 #undef STEM_
 #undef STEM_BURST
+#undef STEM_ALWAYS_PARK
+#undef STEM_NEVER_PARK
 #undef STEM_CALLBACK_CONTEXT_TYPE
 #undef STEM_CALLBACK_CONTEXT_ALIGN
 #undef STEM_LAZY
@@ -353,6 +674,10 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_SHOULD_SHUTDOWN
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
 #undef STEM_CALLBACK_METRICS_WRITE
+#undef STEM_CALLBACK_NEXT_DEADLINE
+#undef STEM_CALLBACK_PARK_PENDING
+#undef STEM_CALLBACK_RECV_CREDIT
+#undef STEM_CALLBACK_CHECK_CREDIT
 #undef STEM_CALLBACK_BEFORE_CREDIT
 #undef STEM_CALLBACK_AFTER_CREDIT
 #undef STEM_CALLBACK_BEFORE_FRAG

@@ -497,6 +497,9 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 }
 
+/* Replay and execrp publish raw to the solcap links and spin on the
+   results, this code will be deleted soon. */
+#define STEM_NEVER_PARK 1
 #define STEM_BURST (1UL)
 
 /* See explanation in fd_pack */

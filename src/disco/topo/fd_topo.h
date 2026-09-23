@@ -27,6 +27,10 @@
 /* Maximum number of objects that a tile can use. */
 #define FD_TOPO_MAX_TILE_OBJS      ( 256UL)
 
+FD_STATIC_ASSERT( FD_SLEEP_LINK_MAX==FD_TOPO_MAX_LINKS,          sleep_limits );
+FD_STATIC_ASSERT( FD_SLEEP_IN_MAX  ==FD_TOPO_MAX_TILE_IN_LINKS,  sleep_limits );
+FD_STATIC_ASSERT( FD_SLEEP_OUT_MAX ==FD_TOPO_MAX_TILE_OUT_LINKS, sleep_limits );
+
 /* Maximum number of additional ip addresses */
 #define FD_NET_MAX_SRC_ADDR 4
 

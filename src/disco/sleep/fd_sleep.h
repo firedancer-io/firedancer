@@ -31,6 +31,7 @@
 #define FD_SLEEP_BITS_CNT  (FD_SLEEP_TILE_MAX/64UL)
 #define FD_SLEEP_LINK_MAX  (256UL) /* ==FD_TOPO_MAX_LINKS  */
 #define FD_SLEEP_IN_MAX    (128UL) /* ==FD_TOPO_MAX_TILE_IN_LINKS */
+#define FD_SLEEP_OUT_MAX   ( 32UL) /* ==FD_TOPO_MAX_TILE_OUT_LINKS */
 
 #define FD_SLEEP_LINGER_NS   (0L)        /* park as soon as caught up */
 #define FD_SLEEP_PARK_CAP_NS (20000000L) /* longest park */
@@ -116,7 +117,7 @@ fd_sleep_ring( fd_sleep_t * sleep,
    One load per pair; the locked OR only on a hit. */
 
 static inline void
-fd_sleep_wake_check( fd_sleep_t *      sleep,
+fd_sleep_wake_check( fd_sleep_t *            sleep,
                      fd_sleep_wake_t const * wake,
                      ulong                   wake_cnt ) {
   for( ulong k=0UL; k<wake_cnt; k++ ) {
@@ -131,16 +132,17 @@ fd_sleep_wake_check( fd_sleep_t *      sleep,
 #define FD_SLEEP_UNPARK_DEADLINE (1)
 #define FD_SLEEP_UNPARK_PENDING  (2)
 
-/* fd_sleep_park_wait blocks on word (caller set it to 0) until woken
-   or deadline_ticks (abs fd_tickcount) passes.  Returns the cause.
-   fd_sleep_wake_one sets word to 1 and wakes one waiter; called by
-   the mwaitx tile only. */
+/* fd_sleep_park_wait blocks on word until woken or deadline_ticks
+   passes.  Returns the reason, either FD_SLEEP_UNPARK_RING, or
+   FD_SLEEP_UNPARK_DEADLINE. */
 
-int  fd_sleep_park_wait( fd_sleep_t const * sleep,
-                         ulong *            word,
-                         long               deadline_ticks );
+int
+fd_sleep_park_wait( ulong * word,
+                    long    deadline_ticks,
+                    double  tick_per_ns );
 
-void fd_sleep_wake_one( ulong * word );
+void
+fd_sleep_wake_one( ulong * word );
 
 FD_PROTOTYPES_END
 

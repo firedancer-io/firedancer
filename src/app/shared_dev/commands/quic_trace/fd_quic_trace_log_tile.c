@@ -70,6 +70,7 @@ fd_quic_trace_log_tile( fd_quic_trace_ctx_t  * ctx,
 
   uchar scratch[ sizeof(fd_stem_tile_in_t)+128 ] __attribute__((aligned(FD_STEM_SCRATCH_ALIGN)));
 
+  fd_stem_sleep_t sleep[ 1 ] = {{ .shmem = NULL }}; /* no sleep object: spin */
   stem_run1( /* in_cnt     */ 1UL,
              /* in_mcache  */ in_mcache_tbl,
              /* in_fseq    */ fseq_tbl,
@@ -83,7 +84,8 @@ fd_quic_trace_log_tile( fd_quic_trace_ctx_t  * ctx,
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
              /* scratch    */ scratch,
-             /* ctx        */ ctx );
+             /* ctx        */ ctx,
+             /* sleep      */ sleep );
 
   fd_fseq_delete( fd_fseq_leave( fseq ) );
 }

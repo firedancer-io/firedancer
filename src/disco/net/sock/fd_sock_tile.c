@@ -766,6 +766,7 @@ rlimit_file_cnt( fd_topo_t const *      topo,
   return RX_SOCK_FD_MIN + ctx->sock_cnt;
 }
 
+#define STEM_NEVER_PARK             1
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_sock_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_sock_tile_t)
 

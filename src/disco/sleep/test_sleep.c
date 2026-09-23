@@ -85,7 +85,7 @@ main( int     argc,
   long t0 = fd_tickcount();
   for( ulong i=0UL; i<10UL; i++ ) {
     FD_VOLATILE( sleep->tile[ 0 ].word ) = 0UL;
-    FD_TEST( fd_sleep_park_wait( sleep, &sleep->tile[ 0 ].word, fd_tickcount()+(long)(2e6*tick_per_ns) )==FD_SLEEP_UNPARK_DEADLINE );
+    FD_TEST( fd_sleep_park_wait( &sleep->tile[ 0 ].word, fd_tickcount()+(long)(2e6*tick_per_ns), tick_per_ns )==FD_SLEEP_UNPARK_DEADLINE );
     FD_VOLATILE( sleep->tile[ 0 ].word ) = 1UL;
   }
   long waited_ns = (long)((double)(fd_tickcount()-t0)/tick_per_ns);
@@ -93,12 +93,12 @@ main( int     argc,
 
   /* lapsed deadline returns without sleeping */
   FD_VOLATILE( sleep->tile[ 0 ].word ) = 0UL;
-  FD_TEST( fd_sleep_park_wait( sleep, &sleep->tile[ 0 ].word, fd_tickcount()-1L )==FD_SLEEP_UNPARK_DEADLINE );
+  FD_TEST( fd_sleep_park_wait( &sleep->tile[ 0 ].word, fd_tickcount()-1L, tick_per_ns )==FD_SLEEP_UNPARK_DEADLINE );
   FD_VOLATILE( sleep->tile[ 0 ].word ) = 1UL;
 
   /* word already 1: EAGAIN counts as a ring */
   FD_VOLATILE( sleep->tile[ 0 ].word ) = 1UL;
-  FD_TEST( fd_sleep_park_wait( sleep, &sleep->tile[ 0 ].word, fd_tickcount()+(long)(1e9*tick_per_ns) )==FD_SLEEP_UNPARK_RING );
+  FD_TEST( fd_sleep_park_wait( &sleep->tile[ 0 ].word, fd_tickcount()+(long)(1e9*tick_per_ns), tick_per_ns )==FD_SLEEP_UNPARK_RING );
 
   /* lost-wake hammer: a lost wake trips the 1s backstop deadline and
      fails the cause assertion */
@@ -108,7 +108,7 @@ main( int     argc,
   for( ulong i=0UL; i<HAMMER_ITER; i++ ) {
     FD_VOLATILE( sleep->tile[ 1 ].word ) = 0UL;
     __atomic_fetch_or( &sleep->parked_bits[ 0 ], 2UL, __ATOMIC_SEQ_CST );
-    int cause = fd_sleep_park_wait( sleep, &sleep->tile[ 1 ].word, fd_tickcount()+deadline_slack );
+    int cause = fd_sleep_park_wait( &sleep->tile[ 1 ].word, fd_tickcount()+deadline_slack, tick_per_ns );
     FD_TEST( cause==FD_SLEEP_UNPARK_RING );
     FD_VOLATILE( sleep->tile[ 1 ].word ) = 1UL;
     __atomic_fetch_and( &sleep->doorbell   [ 0 ], ~2UL, __ATOMIC_SEQ_CST );

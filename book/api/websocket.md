@@ -1301,6 +1301,8 @@ potentially CPU heavy tasks
 regardless of the presence of incoming messages
 - handling: the portion of the run loop that executes as a side effect
 of an incoming message from an upstream producer tile
+- parked: the tile is asleep in the kernel waiting for work or a
+deadline, not executing the run loop
 
 ##### `regimes`
 
@@ -1314,10 +1316,15 @@ of an incoming message from an upstream producer tile
     "stalled_routine",
     "running_handling",
     "processing_handling",
+    "waiting",
+    "stalled_waiting",
 ]
 ```
 
-"stalled_handling" is an impossible state, and is therefore excluded.
+"waiting" is running_parked and "stalled_waiting" is stalled_parked.
+"stalled_handling" and "processing_parked" are impossible states (a
+tile with a message to consume never parks), and are therefore
+excluded.
 
 The sched_timers field is structured the same as the timers field, but
 represents a different set of regimes that together make up the total
