@@ -280,7 +280,9 @@ fd_txncache_bucket_cnt( ulong max_txn_per_slot ) {
    unchanged.  The all-ones value of the width is the null index and
    all-ones minus one is the allocation-in-progress flag, so memset 0xFF
    nulls an array of either width.  ld/st access an index array of the
-   given element size. */
+   given element size.  A page index also publishes initialized page
+   storage to concurrent inserters, so loads acquire and stores release.
+   In particular, polling the allocation-in-progress flag must reload. */
 
 FD_FN_CONST static inline ulong
 fd_txncache_txnpage_idx_sz( ulong max_txnpages ) {
@@ -291,7 +293,8 @@ static inline ulong
 fd_txncache_txnpage_idx_ld( ulong        idx_sz,
                             void const * idx,
                             ulong        i ) {
-  return idx_sz==sizeof(uint) ? (ulong)((uint const *)idx)[ i ] : (ulong)((ushort const *)idx)[ i ];
+  return idx_sz==sizeof(uint) ? (ulong)__atomic_load_n( (uint const *)idx+i, __ATOMIC_ACQUIRE )
+                             : (ulong)__atomic_load_n( (ushort const *)idx+i, __ATOMIC_ACQUIRE );
 }
 
 static inline void
@@ -299,8 +302,8 @@ fd_txncache_txnpage_idx_st( ulong  idx_sz,
                             void * idx,
                             ulong  i,
                             ulong  val ) {
-  if( idx_sz==sizeof(uint) ) ((uint *)idx)[ i ] = (uint)val;
-  else                       ((ushort *)idx)[ i ] = (ushort)val;
+  if( idx_sz==sizeof(uint) ) __atomic_store_n( (uint *)idx+i, (uint)val, __ATOMIC_RELEASE );
+  else                      __atomic_store_n( (ushort *)idx+i, (ushort)val, __ATOMIC_RELEASE );
 }
 
 FD_PROTOTYPES_END
