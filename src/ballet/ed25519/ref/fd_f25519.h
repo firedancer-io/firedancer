@@ -269,6 +269,12 @@ fd_f25519_is_zero( fd_f25519_t const * a ) {
  * Vectorized
  */
 
+#if FD_HAS_RISCV_ED25519
+
+#include "../riscv/fd_f25519.h"
+
+#else
+
 /* fd_f25519_muln computes r_i = a_i * b_i */
 FD_25519_INLINE void
 fd_f25519_mul2( fd_f25519_t * r1, fd_f25519_t const * a1, fd_f25519_t const * b1,
@@ -324,5 +330,7 @@ fd_f25519_sqr4( fd_f25519_t * r1, fd_f25519_t const * a1,
   fd_f25519_sqr( r3, a3 );
   fd_f25519_sqr( r4, a4 );
 }
+
+#endif
 
 FD_PROTOTYPES_END
