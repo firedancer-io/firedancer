@@ -635,7 +635,8 @@ static inline void
 before_credit( fd_mlx5_tile_t *    ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem;
+  fd_net_router_solicit( &ctx->router, stem );
+
   if( FD_UNLIKELY( ctx->lo_tx_cnt && fd_tickcount()>=ctx->lo_tx_deadline_ticks ) ) {
     fd_mlx5_tile_lo_tx_flush( ctx );
     *charge_busy = 1;
@@ -787,7 +788,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
 
     if( msg->op==FD_IPROUTE_OP_UPSERT && FD_UNLIKELY( !fd_fib4_insert( fib, msg->dst_addr, msg->prefix, msg->prio, &msg->hop ) ) ) {
       FD_LOG_WARNING(( "route update dropped: route table full (increase [net.max_routes] or [net.max_peer_routes])" ));
-      fd_netlink_route4_sync( ctx->router.neigh4_solicit, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, ctx->router.netlnk_out_idx, FD_NETLINK_ROUTE4_SYNC_SIG, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     } else if( msg->op==FD_IPROUTE_OP_DELETE ) {
       fd_fib4_remove( fib, msg->dst_addr, msg->prefix, msg->prio );
     }
@@ -1327,20 +1328,9 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 
-  ulong net_netlnk_id = ULONG_MAX;
-  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
-    if( !strcmp( topo->links[ tile->out_link_id[ i ] ].name, "net_netlnk" ) ) net_netlnk_id = tile->out_link_id[ i ];
-  }
-  if( FD_LIKELY( net_netlnk_id!=ULONG_MAX ) ) {
-    fd_topo_link_t const * net_netlnk = &topo->links[ net_netlnk_id ];
-    if( FD_UNLIKELY( !net_netlnk->mcache ) ) FD_LOG_ERR(( "netlink request link not initialized" ));
-
-    ctx->router.neigh4_solicit->mcache = net_netlnk->mcache;
-    ctx->router.neigh4_solicit->depth  = fd_mcache_depth( ctx->router.neigh4_solicit->mcache );
-    ctx->router.neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->router.neigh4_solicit->mcache ) );
-  } else {
-    FD_LOG_ERR(( "netlink request link not found" ));
-  }
+  ctx->router.netlnk_out_idx = fd_topo_find_tile_out_link( topo, tile, "net_netlnk", tile->kind_id );
+  if( FD_UNLIKELY( ctx->router.netlnk_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "netlink request link not found" ));
+  ctx->router.solicit_ip = 0U;
 
   /* Check if all chunks are in bound */
   if( FD_UNLIKELY( next_chunk>ctx->net.pkt_buf_wmark ) ) {

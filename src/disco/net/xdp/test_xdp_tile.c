@@ -1071,33 +1071,43 @@ main( int     argc,
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
   FD_TEST( fd_fib4_lookup( ctx->fib_main, FD_IP4_ADDR( 198,51,100,8 ), 0UL ).if_idx==88U );
 
-  ulong const netlink_req_depth = 8UL;
+  ulong netlink_req_depth = 8UL;
   void * netlink_req_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( netlink_req_depth, 0UL ), WKSP_TAG );
   FD_TEST( netlink_req_mem );
-  ctx->neigh4_solicit->mcache = fd_mcache_join( fd_mcache_new( netlink_req_mem, netlink_req_depth, 0UL, 0UL ) );
-  FD_TEST( ctx->neigh4_solicit->mcache );
-  ctx->neigh4_solicit->depth  = netlink_req_depth;
-  ctx->neigh4_solicit->seq    = 0UL;
+  fd_frag_meta_t * netlink_mcache = fd_mcache_join( fd_mcache_new( netlink_req_mem, netlink_req_depth, 0UL, 0UL ) );
+  FD_TEST( netlink_mcache );
+  ulong netlink_seq          = 0UL;
+  ulong netlink_cr_avail     = ULONG_MAX;
+  int   netlink_out_reliable = 0;
+  fd_stem_context_t netlink_stem[1] = {{
+    .mcaches             = &netlink_mcache,
+    .seqs                = &netlink_seq,
+    .depths              = &netlink_req_depth,
+    .cr_avail            = &netlink_cr_avail,
+    .out_reliable        = &netlink_out_reliable,
+    .cr_decrement_amount = 0UL
+  }};
+  ctx->netlnk_out_idx = 0UL;
 
   ctx->net.iproute_msg = (fd_iproute_msg_t){ .op=FD_IPROUTE_OP_FLUSH };
-  after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
+  after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, netlink_stem );
   for( uint i=0U; i<16U; i++ ) {
     ctx->net.iproute_msg = (fd_iproute_msg_t) {
       .hop={ .rtype=FD_FIB4_RTYPE_UNICAST, .if_idx=88U },
       .dst_addr=FD_IP4_ADDR( 198,18,0,i ), .table_id=RT_TABLE_MAIN,
       .op=FD_IPROUTE_OP_UPSERT, .prefix=32U
     };
-    after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
+    after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, netlink_stem );
   }
   ctx->net.iproute_msg.dst_addr = FD_IP4_ADDR( 198,18,0,16 );
   ctx->net.net_tile_id = 1UL;
-  after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
-  FD_TEST( ctx->neigh4_solicit->seq==0UL );
+  after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, netlink_stem );
+  FD_TEST( netlink_seq==0UL );
 
   ctx->net.net_tile_id = 0UL;
-  after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, NULL );
-  FD_TEST( ctx->neigh4_solicit->seq==1UL );
-  FD_TEST( ctx->neigh4_solicit->mcache[ fd_mcache_line_idx( 0UL, netlink_req_depth ) ].sig==FD_NETLINK_ROUTE4_SYNC_SIG );
+  after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, netlink_stem );
+  FD_TEST( netlink_seq==1UL );
+  FD_TEST( netlink_mcache[ fd_mcache_line_idx( 0UL, netlink_req_depth ) ].sig==FD_NETLINK_ROUTE4_SYNC_SIG );
 
   ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ] = {0};
   volatile ulong * saved_metrics = fd_metrics_tl;

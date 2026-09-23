@@ -232,7 +232,10 @@ typedef struct {
   fd_fib4_t fib_local[1];
   fd_fib4_t fib_main[1];
   fd_neigh4_hmap_t  neigh4[1];
-  fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
+
+  ulong netlnk_out_idx;
+  uint  solicit_ip;
+  uint  solicit_if_idx;
 
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl;    /* local copy in scratch (hot path) */
@@ -590,7 +593,8 @@ net_tx_route( fd_net_ctx_t * ctx,
   int neigh_res = fd_neigh4_hmap_query_entry( ctx->neigh4, neigh_ip, neigh );
   if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
     /* Neighbor not found */
-    fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->solicit_ip     = neigh_ip;
+    ctx->solicit_if_idx = if_idx;
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
@@ -778,7 +782,7 @@ after_frag( fd_net_ctx_t *      ctx,
     if( msg->op==FD_IPROUTE_OP_UPSERT && FD_UNLIKELY( !fd_fib4_insert( fib, msg->dst_addr, msg->prefix, msg->prio, &msg->hop ) ) ) {
       FD_LOG_WARNING(( "route update dropped: route table full (increase [net.max_routes] or [net.max_peer_routes])" ));
       if( FD_UNLIKELY( ctx->net.net_tile_id==0UL ) ) {
-        fd_netlink_route4_sync( ctx->neigh4_solicit, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        fd_stem_publish( stem, ctx->netlnk_out_idx, FD_NETLINK_ROUTE4_SYNC_SIG, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       }
     }
     else if( msg->op==FD_IPROUTE_OP_DELETE ) fd_fib4_remove( fib, msg->dst_addr, msg->prefix, msg->prio );
@@ -1098,7 +1102,11 @@ static void
 before_credit( fd_net_ctx_t *      ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem;
+  if( FD_UNLIKELY( ctx->solicit_ip ) ) {
+    fd_stem_publish( stem, ctx->netlnk_out_idx, fd_netlink_neigh4_solicit_sig( ctx->solicit_ip, ctx->solicit_if_idx ), 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->solicit_ip = 0U;
+  }
+
   /* A previous send attempt was overrun.  A corrupt copy of the packet was
      placed into an XDP frame, but the frame was not yet submitted to the
      TX ring.  Return the tx buffer to the free list. */
@@ -1399,12 +1407,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
 
-  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "net_netlnk", tile->kind_id );
-  if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "netlink request link not found" ));
-  fd_topo_link_t const * netlink_out = &topo->links[ tile->out_link_id[ out_idx ] ];
-  ctx->neigh4_solicit->mcache = netlink_out->mcache;
-  ctx->neigh4_solicit->depth  = fd_mcache_depth( ctx->neigh4_solicit->mcache );
-  ctx->neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->neigh4_solicit->mcache ) );
+  ctx->netlnk_out_idx = fd_topo_find_tile_out_link( topo, tile, "net_netlnk", tile->kind_id );
+  if( FD_UNLIKELY( ctx->netlnk_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "netlink request link not found" ));
+  ctx->solicit_ip = 0U;
 
   for( uint j=0U; j<2U; j++ ) {
     ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tile->xdp.xdp_tx_queue_size * 0.7 );

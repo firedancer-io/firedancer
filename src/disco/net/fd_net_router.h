@@ -28,7 +28,10 @@ struct fd_net_router {
   fd_fib4_t fib_local[1];
   fd_fib4_t fib_main[1];
   fd_neigh4_hmap_t  neigh4[1];
-  fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
+
+  ulong netlnk_out_idx;
+  uint  solicit_ip;
+  uint  solicit_if_idx;
 
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl;    /* local copy in scratch */
@@ -137,7 +140,8 @@ fd_net_tx_route( fd_net_router_t * ctx,
   int neigh_res = fd_neigh4_hmap_query_entry( ctx->neigh4, neigh_ip, neigh );
   if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
     /* Neighbor not found */
-    fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->solicit_ip     = neigh_ip;
+    ctx->solicit_if_idx = if_idx;
     ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
@@ -151,6 +155,15 @@ fd_net_tx_route( fd_net_router_t * ctx,
   memcpy( out->mac_addrs+6, netdev->mac_addr, 6 );
 
   return 1;
+}
+
+static inline void
+fd_net_router_solicit( fd_net_router_t *   ctx,
+                       fd_stem_context_t * stem ) {
+  if( FD_LIKELY( !ctx->solicit_ip ) ) return;
+
+  fd_stem_publish( stem, ctx->netlnk_out_idx, fd_netlink_neigh4_solicit_sig( ctx->solicit_ip, ctx->solicit_if_idx ), 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->solicit_ip = 0U;
 }
 
 static int

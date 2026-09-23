@@ -16,17 +16,6 @@
 
 extern fd_topo_run_tile_t fd_tile_netlnk;
 
-/* fd_netlink_neigh4_solicit_link_t holds information required to send
-   neighbor solicitation requests to the netlink tile. */
-
-struct fd_netlink_neigh4_solicit_link {
-  fd_frag_meta_t * mcache;
-  ulong            depth;
-  ulong            seq;
-};
-
-typedef struct fd_netlink_neigh4_solicit_link fd_netlink_neigh4_solicit_link_t;
-
 #define FD_NETLINK_ROUTE4_SYNC_SIG (1UL<<63)
 
 struct fdctl_config;
@@ -46,29 +35,10 @@ fd_netlink_topo_join( fd_topo_t *      topo,
                       fd_topo_tile_t * netlink_tile,
                       fd_topo_tile_t * join_tile );
 
-/* fd_netlink_neigh4_solicit requests a neighbor solicitation (i.e. ARP
-   request) for an IPv4 address.  Safe to call at a high rate.  The
-   netlink tile will deduplicate requests.  ip4_addr is big endian. */
-
-static inline void
-fd_netlink_neigh4_solicit( fd_netlink_neigh4_solicit_link_t * link,
-                           uint                               ip4_addr,
-                           uint                               if_idx,
-                           ulong                              tspub_comp ) {
-  ulong seq = link->seq;
-  ulong sig = (ulong)ip4_addr | ( (ulong)if_idx<<32 );
-  fd_mcache_publish( link->mcache, link->depth, seq, sig, 0UL, 0UL, 0UL, 0UL, tspub_comp );
-  link->seq = fd_seq_inc( seq, 1UL );
-}
-
-/* fd_netlink_route4_sync requests a full route table sync. */
-
-static inline void
-fd_netlink_route4_sync( fd_netlink_neigh4_solicit_link_t * link,
-                        ulong                              tspub_comp ) {
-  ulong seq = link->seq;
-  fd_mcache_publish( link->mcache, link->depth, seq, FD_NETLINK_ROUTE4_SYNC_SIG, 0UL, 0UL, 0UL, 0UL, tspub_comp );
-  link->seq = fd_seq_inc( seq, 1UL );
+static inline ulong
+fd_netlink_neigh4_solicit_sig( uint ip4_addr,
+                               uint if_idx ) {
+  return (ulong)ip4_addr | ( (ulong)if_idx<<32 );
 }
 
 FD_PROTOTYPES_END
