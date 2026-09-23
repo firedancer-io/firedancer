@@ -151,6 +151,7 @@ struct fd_votor_tile {
   /* Data */
 
   int                        init;
+  ag_block_hash_t            init_block_hash;
   ag_epoch_info_t *          prev_epoch_info;
   ulong                      prev_epoch_slot;
   ag_epoch_info_t *          curr_epoch_info;
@@ -847,7 +848,8 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ag_pool_init( ctx->pool, block_id.slot );
-      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
+      memcpy( ctx->init_block_hash, block_id.hash, sizeof(ag_block_hash_t) );
+      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, block_id.hash, fd_log_wallclock(), ctx->shred_version, sign_bls, ctx );
       ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
@@ -1109,7 +1111,7 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
-    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, ag_pool_finalized_slot( ctx->pool ), fd_log_wallclock(), (ushort)sig, sign_bls, ctx );
+    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, ag_pool_finalized_slot( ctx->pool ), ctx->init_block_hash, fd_log_wallclock(), (ushort)sig, sign_bls, ctx );
     ctx->shred_version = (ushort)sig;
     ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
     break;

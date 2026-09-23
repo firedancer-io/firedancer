@@ -122,7 +122,8 @@ setup_votor( long now ) {
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init         ( votor, 0UL, now, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_block_hash_t genesis; genesis_hash( genesis );
+  ag_votor_init         ( votor, 0UL, genesis, now, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
   ag_votor_advance_epoch( votor, 0UL, 0UL );
 
   g_epoch_info = &epoch_info_mem;
@@ -188,7 +189,8 @@ test_boot_mid_window( void ) {
   create_validators();
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init         ( votor, 2UL, 0L, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_block_hash_t boot; random_hash( boot );
+  ag_votor_init         ( votor, 2UL, boot, 0L, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
   ag_votor_advance_epoch( votor, 0UL, 0UL );
 
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
@@ -196,6 +198,25 @@ test_boot_mid_window( void ) {
   ag_vote_t msg = recv( votor );
   FD_TEST( msg.kind==AG_VOTE_KIND_SKIP );
   FD_TEST( ag_vote_slot( &msg )==3UL );
+  FD_TEST_NO_MSG( votor );
+
+  ag_votor_delete( ag_votor_leave( votor ) );
+}
+
+static void
+test_notar_after_boot( void ) {
+  create_validators();
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( votor );
+
+  ag_block_id_t boot = random_block_id( AG_SLOTS_PER_WINDOW );
+  ag_votor_init( votor, boot.slot, boot.hash, 0L, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_advance_epoch( votor, 0UL, 0UL );
+
+  /* mid-window, so try_notar takes the parent-hash path rather than
+     looking for a ParentReady */
+  FD_TEST( !ag_is_start_of_window( boot.slot+1UL ) );
+  send_block_and_expect_notar( votor, boot.slot+1UL, &boot );
   FD_TEST_NO_MSG( votor );
 
   ag_votor_delete( ag_votor_leave( votor ) );
@@ -411,6 +432,7 @@ main( int     argc,
 
   test_timeouts();
   test_boot_mid_window();
+  test_notar_after_boot();
   test_notar_and_final();
   test_notar_out_of_order();
   test_pending_block_not_notarized_after_skip();
