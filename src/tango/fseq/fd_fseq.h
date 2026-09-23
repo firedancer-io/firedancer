@@ -100,7 +100,8 @@ FD_FN_PURE static inline ulong fd_fseq_seq0( ulong const * fseq ) { return fseq[
 static inline ulong
 fd_fseq_query( ulong const * fseq ) {
   FD_COMPILER_MFENCE();
-  ulong seq = FD_VOLATILE_CONST( fseq[0] );
+  /* Acquire returned credits before reusing the consumer's buffers. */
+  ulong seq = __atomic_load_n( fseq, __ATOMIC_ACQUIRE );
   FD_COMPILER_MFENCE();
   return seq;
 }
@@ -114,7 +115,9 @@ static inline void
 fd_fseq_update( ulong * fseq,
                 ulong   seq ) {
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( fseq[0] ) = seq;
+  /* Finish reading payloads before permitting the producer to reuse them.
+     A store-store fence alone does not order these preceding reads. */
+  __atomic_store_n( fseq, seq, __ATOMIC_RELEASE );
   FD_COMPILER_MFENCE();
 }
 

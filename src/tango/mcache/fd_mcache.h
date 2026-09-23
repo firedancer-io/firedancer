@@ -186,7 +186,7 @@ FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcach
 static inline ulong
 fd_mcache_seq_query( ulong const * _seq ) {
   FD_COMPILER_MFENCE();
-  ulong seq = FD_VOLATILE_CONST( *_seq );
+  ulong seq = __atomic_load_n( _seq, __ATOMIC_ACQUIRE );
   FD_COMPILER_MFENCE();
   return seq;
 }
@@ -209,7 +209,7 @@ static inline void
 fd_mcache_seq_update( ulong * _seq,
                       ulong   seq ) {
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( *_seq ) = seq;
+  __atomic_store_n( _seq, seq, __ATOMIC_RELEASE );
   FD_COMPILER_MFENCE();
 }
 

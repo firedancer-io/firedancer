@@ -278,8 +278,10 @@ fd_laddr_to_chunk( void const * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
 
 static inline ulong
 fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
-  FD_COMPILER_MFENCE();
-  ulong seq = FD_VOLATILE_CONST( meta->seq );
+  /* Also used to validate that a payload read was not overrun.  Order
+     preceding reads before validation, and subsequent reads after it. */
+  FD_HW_MFENCE_LD();
+  ulong seq = __atomic_load_n( &meta->seq, __ATOMIC_ACQUIRE );
   FD_COMPILER_MFENCE();
   return seq;
 }
