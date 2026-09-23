@@ -31,6 +31,7 @@ CBMC?=cbmc
 # Default compiler configuration, if not already set
 CC?=gcc
 LD?=$(CC)
+HOSTCC?=cc
 
 # LLVM toolchain
 LLVM_COV?=llvm-cov
