@@ -260,6 +260,46 @@ static fd_hash_t         mock_footer_poh;
 #define fd_runtime_block_execute_finalize(b,a,c,f,s) (mock_footer_finalize ? 0 : (fd_runtime_block_execute_finalize)(b,a,c,f,s))
 #define fd_txncache_finalize_fork(t,f,o,h) do { if( !mock_footer_finalize ) (fd_txncache_finalize_fork)(t,f,o,h); } while(0)
 
+/* Mock accdb single account reads.  ctx->accdb is never stood up in
+   these tests, so the leader path's account lookups are served from
+   here.  mock_acc_lamports==0 models an account that does not exist.
+   Lamports and data_len are set independently so a caller can pin which
+   term of a liveness check rejected the account. */
+
+static ulong       mock_acc_lamports;
+static ulong       mock_acc_data_len;
+static uchar       mock_acc_data[ 64 ];
+static ulong       mock_acc_read_cnt;
+static ulong       mock_acc_unread_cnt;
+static fd_pubkey_t mock_acc_last_key;
+static ushort      mock_acc_last_fork_id;
+
+fd_acc_t
+mock_accdb_read_one_fn( fd_accdb_t *       accdb FD_PARAM_UNUSED,
+                        fd_accdb_fork_id_t fork_id,
+                        uchar const *      pubkey ) {
+  FD_TEST( mock_acc_data_len<=sizeof(mock_acc_data) );
+  mock_acc_read_cnt++;
+  mock_acc_last_fork_id = fork_id.val;
+  fd_memcpy( mock_acc_last_key.uc, pubkey, sizeof(fd_pubkey_t) );
+
+  fd_acc_t acc = {0};
+  fd_memcpy( acc.pubkey, pubkey, sizeof(fd_pubkey_t) );
+  acc.lamports = mock_acc_lamports;
+  acc.data_len = mock_acc_data_len;
+  acc.data     = mock_acc_data;
+  return acc;
+}
+
+void
+mock_accdb_unread_one_fn( fd_accdb_t * accdb FD_PARAM_UNUSED,
+                          fd_acc_t *   acc   FD_PARAM_UNUSED ) {
+  mock_acc_unread_cnt++;
+}
+
+#define fd_accdb_read_one   mock_accdb_read_one_fn
+#define fd_accdb_unread_one mock_accdb_unread_one_fn
+
 /* ---- Include the tile under test ---- */
 
 #include "fd_replay_tile.c"
@@ -456,6 +496,12 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   mock_epoch_boundary_fork_cnt = 0UL;
   mock_epoch_boundary_fork_max = ULONG_MAX;
   mock_epoch_boundary_overflow = 0;
+  mock_acc_lamports            = 0UL;
+  mock_acc_data_len            = 0UL;
+  mock_acc_read_cnt            = 0UL;
+  mock_acc_unread_cnt          = 0UL;
+  mock_acc_last_fork_id        = (ushort)0;
+  memset( mock_acc_last_key.uc, 0, sizeof(fd_pubkey_t) );
 
   setup_stem( ctx, wksp );
   setup_repair_input( ctx, wksp );
@@ -3634,6 +3680,132 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_stale_id_key_does_not_shadow_rebuild" ));
 }
 
+/* Firedancer cannot produce the first alpenglow block, so an alpenglow
+   leader slot whose parent has no usable alpenclock account must be
+   given up before anything is published.  Producing it anyway would
+   abort the validator mid-block in enforce_nanosecond_clock_bounds; an
+   inverted check would instead skip every assigned slot. */
+
+#define TEST_AG_LEADER_FORK_ID ((ushort)23)
+
+/* setup_ag_leader_ctx leaves ctx one after_credit away from producing
+   leader_slot off the frozen root bank, the way the ParentReady handler
+   does. */
+
+static void
+setup_ag_leader_ctx( fd_replay_tile_t * ctx,
+                     fd_wksp_t *        wksp,
+                     fd_hash_t const *  parent_bid,
+                     ulong              leader_slot ) {
+  setup_ctx( ctx, wksp );
+  ctx->alpenglow = 1;
+  setup_ag_block_id_map( ctx, wksp, parent_bid );
+  fd_alpenglow_pda( "alpenclock", &ctx->alpenclock_addr );
+
+  fd_bank_t * root_bank = fd_banks_root( ctx->banks );
+  FD_TEST( root_bank );
+  root_bank->accdb_fork_id = (fd_accdb_fork_id_t){ .val=TEST_AG_LEADER_FORK_ID };
+
+  *ctx->votor_leader = (fd_votor_leader_t){
+    .slot            = leader_slot,
+    .parent_slot     = root_bank->f.slot,
+    .parent_block_id = *parent_bid
+  };
+  ctx->next_leader_slot      = leader_slot;
+  ctx->next_leader_tickcount = LONG_MAX;
+}
+
+/* The slot is dropped, not deferred: next_leader_slot is cleared, no
+   bank is started, and neither reset nor became-leader is published. */
+
+static void
+expect_ag_leader_declined( fd_replay_tile_t * ctx,
+                           ulong              seq0 ) {
+  fd_hash_t const zero = {0};
+
+  FD_TEST( ctx->next_leader_slot     ==ULONG_MAX );
+  FD_TEST( ctx->next_leader_tickcount==LONG_MAX  );
+  FD_TEST( !ctx->is_leader   );
+  FD_TEST( !ctx->leader_bank );
+  FD_TEST( ctx->highwater_leader_slot==ULONG_MAX );
+  FD_TEST( !memcmp( ctx->reset_dmr.uc, zero.uc, sizeof(fd_hash_t) ) );
+  FD_TEST( ctx->reset_timestamp_nanos==0L );
+  FD_TEST( test_stem_seqs[ ctx->replay_out->idx ]==seq0 );
+
+  /* The read came off the parent's fork and was released. */
+  FD_TEST( mock_acc_read_cnt  ==1UL );
+  FD_TEST( mock_acc_unread_cnt==1UL );
+  FD_TEST( mock_acc_last_fork_id==TEST_AG_LEADER_FORK_ID );
+  FD_TEST( !memcmp( mock_acc_last_key.uc, ctx->alpenclock_addr.uc, sizeof(fd_pubkey_t) ) );
+}
+
+static void
+test_ag_leader_alpenclock_missing( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t parent_bid = { .ul = { 0xA11C10C0UL } };
+  setup_ag_leader_ctx( ctx, wksp, &parent_bid, 1UL );
+  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+
+  /* Big enough, but no such account: lamports alone must reject it. */
+  mock_acc_lamports = 0UL;
+  mock_acc_data_len = sizeof(ulong);
+
+  drive_after_credit_once( ctx );
+  expect_ag_leader_declined( ctx, seq0 );
+
+  FD_LOG_NOTICE(( "pass: test_ag_leader_alpenclock_missing" ));
+}
+
+static void
+test_ag_leader_alpenclock_undersized( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t parent_bid = { .ul = { 0xA11C10C0UL } };
+  setup_ag_leader_ctx( ctx, wksp, &parent_bid, 1UL );
+  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+
+  /* Account exists but is one byte short of holding the clock. */
+  mock_acc_lamports = 1UL;
+  mock_acc_data_len = sizeof(ulong)-1UL;
+
+  drive_after_credit_once( ctx );
+  expect_ag_leader_declined( ctx, seq0 );
+
+  FD_LOG_NOTICE(( "pass: test_ag_leader_alpenclock_undersized" ));
+}
+
+static void
+test_ag_leader_alpenclock_present( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t parent_bid = { .ul = { 0xA11C10C0UL } };
+  setup_ag_leader_ctx( ctx, wksp, &parent_bid, 1UL );
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+
+  mock_acc_lamports = 1UL;
+  mock_acc_data_len = sizeof(ulong);
+
+  fd_bank_t * root_bank = fd_banks_root( ctx->banks );
+  FD_TEST( drive_after_credit_once( ctx ) );
+
+  FD_TEST( ctx->is_leader );
+  FD_TEST( ctx->leader_bank );
+  FD_TEST( ctx->leader_bank->f.slot==1UL );
+  FD_TEST( ctx->leader_bank->parent_idx==root_bank->idx );
+  FD_TEST( ctx->highwater_leader_slot==1UL );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->reset_slot==root_bank->f.slot );
+  FD_TEST( !memcmp( ctx->reset_dmr.uc, parent_bid.uc, sizeof(fd_hash_t) ) );
+
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+2UL );
+  FD_TEST( replay_out_sig( ctx, seq0     )==REPLAY_SIG_RESET         );
+  FD_TEST( replay_out_sig( ctx, seq0+1UL )==REPLAY_SIG_BECAME_LEADER );
+
+  FD_TEST( mock_acc_read_cnt  ==1UL );
+  FD_TEST( mock_acc_unread_cnt==1UL );
+
+  FD_LOG_NOTICE(( "pass: test_ag_leader_alpenclock_present" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -3681,7 +3853,10 @@ main( int     argc,
   test_process_rotor_fec_skip_replayed( wksp );     fd_wksp_reset( wksp, 42U );
   test_rotor_fec_turbine_keying( wksp );            fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );
-  test_stale_id_key_does_not_shadow_rebuild( wksp );
+  test_stale_id_key_does_not_shadow_rebuild( wksp ); fd_wksp_reset( wksp, 42U );
+  test_ag_leader_alpenclock_missing( wksp );        fd_wksp_reset( wksp, 42U );
+  test_ag_leader_alpenclock_undersized( wksp );     fd_wksp_reset( wksp, 42U );
+  test_ag_leader_alpenclock_present( wksp );        fd_wksp_reset( wksp, 42U );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 
