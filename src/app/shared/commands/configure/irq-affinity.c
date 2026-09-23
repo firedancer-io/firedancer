@@ -344,10 +344,7 @@ check( config_t const * config,
   FD_CPUSET_DECL( banned );
   fd_cpu_isolation_banned_cpus( banned, &config->topo );
 
-  if( FD_UNLIKELY( fd_cpuset_is_null( banned ) ) ) {
-    FD_CPUSET_DECL( daemon_banned );
-    if( FD_LIKELY( -1!=fd_irqbalance_ban_cpus_get( daemon_banned ) ) ) CONFIGURE_OK();
-  }
+  if( FD_UNLIKELY( fd_cpuset_is_null( banned ) ) ) CONFIGURE_OK();
 
   FD_CPUSET_DECL( allowed );
   fd_cpuset_subtract( allowed, fd_cpu_isolation_online_cpus( allowed ), banned );

@@ -12,6 +12,8 @@ $(call make-unit-test,test_auto_net,test_auto_net,fd_firedancer fdctl_shared fdc
 $(call run-unit-test,test_auto_net)
 $(call make-unit-test,test_config_json,test_config_json,fd_firedancer fdctl_shared fdctl_platform fd_disco fd_waltz fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_config_json)
+$(call make-unit-test,test_cpu_isolation,test_cpu_isolation,fdctl_shared fd_disco fd_waltz fd_ballet fd_tango fd_util)
+$(call run-unit-test,test_cpu_isolation)
 $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_firedancer fdctl_shared fdctl_platform fd_disco fd_waltz fd_ballet fd_tango fd_util)
 
 $(call add-objs,boot/fd_boot,fdctl_shared)
