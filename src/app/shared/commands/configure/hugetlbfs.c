@@ -37,6 +37,16 @@ static char const * FREE_HUGE_PAGE_PATH[ 2 ] = {
   "/sys/devices/system/node/node%lu/hugepages/hugepages-1048576kB/free_hugepages",
 };
 
+static char const * TOTAL_HUGE_PAGE_PATH_FALLBACK[ 2 ] = {
+  "/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages",
+  "/sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages",
+};
+
+static char const * FREE_HUGE_PAGE_PATH_FALLBACK[ 2 ] = {
+  "/sys/kernel/mm/hugepages/hugepages-2048kB/free_hugepages",
+  "/sys/kernel/mm/hugepages/hugepages-1048576kB/free_hugepages",
+};
+
 static ulong FD_PAGE_SIZE[ 2 ] = {
   2097152,
   1073741824,
@@ -55,6 +65,8 @@ init( config_t const * config ) {
   };
 
   ulong numa_node_cnt = fd_shmem_numa_cnt();
+  /* Use global counters only when node sysfs is absent. */
+  int no_numa = numa_node_cnt==1UL && access( "/sys/devices/system/node/node0", F_OK ) && errno==ENOENT;
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
     ulong required_pages[ 2 ] = {
       fd_topo_huge_page_cnt( &config->topo, i, 0 ),
@@ -65,8 +77,11 @@ init( config_t const * config ) {
       char free_page_path[ PATH_MAX ];
       FD_TEST( fd_cstr_printf_check( free_page_path, PATH_MAX, NULL, FREE_HUGE_PAGE_PATH[ j ], i ) );
       uint free_pages;
-      if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &free_pages ) ) )
-        FD_LOG_ERR(( "could not read `%s`, please confirm your host is configured for gigantic pages (%i-%s)", free_page_path, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &free_pages ) ) ) {
+        if( FD_UNLIKELY( !no_numa || errno!=ENOENT || -1==fd_file_util_read_uint( FREE_HUGE_PAGE_PATH_FALLBACK[ j ], &free_pages ) ) )
+          FD_LOG_ERR(( "could not read `%s` or `%s`, please confirm your host is configured for huge pages (%i-%s)", free_page_path, FREE_HUGE_PAGE_PATH_FALLBACK[ j ], errno, fd_io_strerror( errno ) ));
+        FD_LOG_WARNING(( "could not read `%s`; using non-NUMA hugepage counter `%s`", free_page_path, FREE_HUGE_PAGE_PATH_FALLBACK[ j ] ));
+      }
 
       /* There is a TOCTOU race condition here, but it's not avoidable. There's
          no way to atomically increment the page count. */
@@ -75,18 +90,25 @@ init( config_t const * config ) {
         char total_page_path[ PATH_MAX ];
         FD_TEST( fd_cstr_printf_check( total_page_path, PATH_MAX, NULL, TOTAL_HUGE_PAGE_PATH[ j ], i ) );
         uint total_pages;
-        if( FD_UNLIKELY( -1==fd_file_util_read_uint( total_page_path, &total_pages ) ) )
-          FD_LOG_ERR(( "could not read `%s`, please confirm your host is configured for gigantic pages (%i-%s)", total_page_path, errno, fd_io_strerror( errno ) ));
+        char const * total_page_path_write = total_page_path;
+        if( FD_UNLIKELY( -1==fd_file_util_read_uint( total_page_path, &total_pages ) ) ) {
+          if( FD_UNLIKELY( !no_numa || errno!=ENOENT || -1==fd_file_util_read_uint( TOTAL_HUGE_PAGE_PATH_FALLBACK[ j ], &total_pages ) ) )
+            FD_LOG_ERR(( "could not read `%s` or `%s`, please confirm your host is configured for huge pages (%i-%s)", total_page_path, TOTAL_HUGE_PAGE_PATH_FALLBACK[ j ], errno, fd_io_strerror( errno ) ));
+          FD_LOG_WARNING(( "could not read `%s`; using non-NUMA hugepage counter `%s`", total_page_path, TOTAL_HUGE_PAGE_PATH_FALLBACK[ j ] ));
+          total_page_path_write = TOTAL_HUGE_PAGE_PATH_FALLBACK[ j ];
+        }
 
         ulong additional_pages_needed = required_pages[ j ]-free_pages;
 
-        FD_LOG_NOTICE(( "%sRUN: `echo \"%u\" > %s`%s", fd_log_style_dim(), (uint)(total_pages+additional_pages_needed), total_page_path , fd_log_style_normal() ));
-        if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path, (uint)(total_pages+additional_pages_needed) ) ) )
+        FD_LOG_NOTICE(( "%sRUN: `echo \"%u\" > %s`%s", fd_log_style_dim(), (uint)(total_pages+additional_pages_needed), total_page_path_write, fd_log_style_normal() ));
+        if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path_write, (uint)(total_pages+additional_pages_needed) ) ) )
           FD_LOG_ERR(( "could not increase the number of %s pages on NUMA node %lu (%i-%s)", PAGE_NAMES[ j ], i, errno, fd_io_strerror( errno ) ));
 
         uint raised_free_pages;
-        if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &raised_free_pages ) ) )
-          FD_LOG_ERR(( "could not read `%s`, please confirm your host is configured for gigantic pages (%i-%s)", free_page_path, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &raised_free_pages ) ) ) {
+          if( FD_UNLIKELY( !no_numa || errno!=ENOENT || -1==fd_file_util_read_uint( FREE_HUGE_PAGE_PATH_FALLBACK[ j ], &raised_free_pages ) ) )
+            FD_LOG_ERR(( "could not read `%s` or `%s`, please confirm your host is configured for huge pages (%i-%s)", free_page_path, FREE_HUGE_PAGE_PATH_FALLBACK[ j ], errno, fd_io_strerror( errno ) ));
+        }
 
         if( FD_UNLIKELY( raised_free_pages<required_pages[ j ] ) ) {
           /* Well.. usually this is due to memory being fragmented,
@@ -112,11 +134,13 @@ init( config_t const * config ) {
           FD_TEST( -1!=fd_sys_util_nanosleep( 0, 500000000 /* 500 millis */ ) );
         }
 
-        FD_LOG_NOTICE(( "%sRUN: `echo \"%u\" > %s`%s", fd_log_style_dim(), (uint)(total_pages+additional_pages_needed), total_page_path , fd_log_style_normal() ));
-        if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path, (uint)(total_pages+additional_pages_needed) ) ) )
+        FD_LOG_NOTICE(( "%sRUN: `echo \"%u\" > %s`%s", fd_log_style_dim(), (uint)(total_pages+additional_pages_needed), total_page_path_write, fd_log_style_normal() ));
+        if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path_write, (uint)(total_pages+additional_pages_needed) ) ) )
           FD_LOG_ERR(( "could not increase the number of %s pages on NUMA node %lu (%i-%s)", PAGE_NAMES[ j ], i, errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &raised_free_pages ) ) )
-          FD_LOG_ERR(( "could not read `%s`, please confirm your host is configured for gigantic pages (%i-%s)", free_page_path, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &raised_free_pages ) ) ) {
+          if( FD_UNLIKELY( !no_numa || errno!=ENOENT || -1==fd_file_util_read_uint( FREE_HUGE_PAGE_PATH_FALLBACK[ j ], &raised_free_pages ) ) )
+            FD_LOG_ERR(( "could not read `%s` or `%s`, please confirm your host is configured for huge pages (%i-%s)", free_page_path, FREE_HUGE_PAGE_PATH_FALLBACK[ j ], errno, fd_io_strerror( errno ) ));
+        }
         if( FD_UNLIKELY( raised_free_pages<required_pages[ j ] ) ) {
           FD_LOG_ERR(( "ENOMEM-Out of memory when trying to reserve %s pages for Firedancer on NUMA node %lu. Your Firedancer "
                        "configuration requires %lu GiB of memory total consisting of %lu gigantic (1GiB) pages and %lu huge (2MiB) "
