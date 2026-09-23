@@ -20,6 +20,9 @@ endif
 
 ifdef FD_USING_GCC
 CPPFLAGS+=-Wimplicit-fallthrough=2
+ifeq ($(shell test $(CC_MAJOR_VERSION) -ge 15 && echo yes),yes)
+CPPFLAGS+=-Wno-unterminated-string-initialization
+endif
 CFLAGS+=-Wstrict-prototypes
 # -Wformat-signedness is supported since GCC 5.1, and since clang 19, however we build on clang 15
 CFLAGS+=-Wformat-signedness
