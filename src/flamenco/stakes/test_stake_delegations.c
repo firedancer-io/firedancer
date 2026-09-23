@@ -1798,6 +1798,7 @@ int main( int argc, char ** argv ) {
     ulong const snap_epoch = 4UL;
     ulong snap_warmup_epoch = 0UL;
     fd_stake_delegation_t d[1];
+    fd_stake_delegations_iter_t iter_[1];
 #   define SNAP_UPD( fork_, slot_, acct, voter, stake_ ) fd_stake_delegations_snapshot_upsert( stake_delegations, (fork_), (slot_), (acct), (voter), (stake_), ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN )
 
     /* Root: newest slot wins in either arrival order; equal slots
@@ -1840,6 +1841,33 @@ int main( int argc, char ** argv ) {
     FD_TEST( !test_stake_delegations_contains( stake_delegations, &stake_account_5 ) );
     FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==2UL );
     FD_TEST( stake_delegations->effective_stake==3UL+5UL );
+
+    /* Tombstones beyond the pool spill to disk; refresh drops every
+       one, in both tiers, and repacks the pool. */
+    fd_stake_delegations_reset( stake_delegations );
+    for( ulong i=0UL; i<max_stake_accounts; i++ ) {
+      fd_pubkey_t k = { .ul = { 90000UL+i, 1UL } };
+      SNAP_UPD( ROOT, 10UL, &k, &voter_pubkey_0, i+1UL );
+    }
+    for( ulong i=0UL; i<3UL; i++ ) {  /* over live entries */
+      fd_pubkey_t k = { .ul = { 90000UL+i, 1UL } };
+      fd_stake_delegations_snapshot_remove( stake_delegations, ROOT, 20UL, &k, 0 );
+    }
+    for( ulong i=0UL; i<25UL; i++ ) { /* for accounts never in the cache */
+      fd_pubkey_t k = { .ul = { 90500UL+i, 1UL } };
+      fd_stake_delegations_snapshot_remove( stake_delegations, ROOT, 20UL, &k, 0 );
+    }
+    FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==max_stake_accounts+25UL );
+    FD_TEST( test_stake_delegations_disk_cnt( stake_delegations )==25UL );
+    fd_stake_delegations_refresh( stake_delegations, snap_epoch, stake_history, &snap_warmup_epoch, 1, 0 );
+    FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==max_stake_accounts-3UL );
+    FD_TEST( !test_stake_delegations_disk_cnt( stake_delegations ) );
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+         !fd_stake_delegations_iter_done( iter );
+         fd_stake_delegations_iter_next( iter ) ) {
+      FD_TEST( fd_stake_delegations_iter_ele( iter )->lamports );
+    }
+    FD_TEST( stake_delegations->effective_stake==4UL+5UL+6UL+7UL+8UL+9UL+10UL );
 
     /* Disk root tier behaves the same. */
     fd_stake_delegations_reset( stake_delegations );
