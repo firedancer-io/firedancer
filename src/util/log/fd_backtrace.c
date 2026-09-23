@@ -15,10 +15,18 @@ fd_backtrace_log( void ** addrs,
     void * addr = addrs[ i ];
     Dl_info info;
 
+#if defined(__GLIBC__)
     void * _map = NULL;
-    if( FD_LIKELY( dladdr1( addr, &info, &_map, RTLD_DL_LINKMAP ) && info.dli_fname && info.dli_fname[0]!='\0' ) ) {
+    int found = dladdr1( addr, &info, &_map, RTLD_DL_LINKMAP );
+    if( FD_LIKELY( found ) ) {
       struct link_map * map = _map;
       info.dli_fbase = (void*)map->l_addr;
+    }
+#else
+    int found = dladdr( addr, &info );
+#endif
+
+    if( FD_LIKELY( found && info.dli_fname && info.dli_fname[0]!='\0' ) ) {
       if( FD_UNLIKELY( !info.dli_sname ) ) info.dli_saddr = info.dli_fbase;
       if( FD_UNLIKELY( !info.dli_sname && !info.dli_saddr ) ) fd_log_private_fprintf_0( STDERR_FILENO, "%s(%s) [%p]\n", info.dli_fname ? info.dli_fname : "", info.dli_sname ? info.dli_sname : "", addr );
       else {
