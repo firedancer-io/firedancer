@@ -146,7 +146,7 @@ fd_txncache_bucket( fd_txncache_t const * tc,
 static fd_txncache_txnpage_t *
 fd_txncache_ensure_txnpage( fd_txncache_t * tc,
                             blockcache_t *  blockcache ) {
-  ulong page_cnt = blockcache->shmem->pages_cnt;
+  ulong page_cnt = __atomic_load_n( &blockcache->shmem->pages_cnt, __ATOMIC_ACQUIRE );
   if( FD_UNLIKELY( page_cnt>tc->shmem->txnpages_per_blockhash_max ) ) return NULL;
 
   ulong idx_sz = tc->shmem->txnpage_idx_sz;
@@ -180,7 +180,7 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
     FD_COMPILER_MFENCE();
     fd_txncache_txnpage_idx_st( idx_sz, blockcache->pages, page_cnt, txnpage_idx );
     FD_COMPILER_MFENCE();
-    blockcache->shmem->pages_cnt = page_cnt+1UL;
+    __atomic_store_n( &blockcache->shmem->pages_cnt, page_cnt+1UL, __ATOMIC_RELEASE );
     return txnpage;
   } else {
     ulong txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, blockcache->pages, page_cnt );
