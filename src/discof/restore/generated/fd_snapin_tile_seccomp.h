@@ -33,7 +33,7 @@
 
 static const uint sock_filter_policy_fd_snapin_tile_instr_cnt = 46;
 
-static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct sock_filter out[ static 46 ], uint logfile_fd, uint accounts_fd, uint stake_spill_fd ) {
+static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct sock_filter out[ static 46 ], uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd ) {
   FD_TEST( out_cnt >= 46 );
   struct sock_filter filter[46] = {
     /* validate architecture */
@@ -120,7 +120,7 @@ static void populate_sock_filter_policy_fd_snapin_tile( ulong out_cnt, struct so
 //  check_pwrite64:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_fd)), /* pwrite64_ALLOW */ 3, /* or_3 */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accounts_direct_fd)), /* pwrite64_ALLOW */ 3, /* or_3 */ 0 ),
 //  or_3:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),

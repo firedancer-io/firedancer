@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssload.h"
 #include "utils/fd_ssmsg.h"
@@ -25,15 +26,24 @@
 #include "generated/fd_snapin_tile_seccomp.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #define NAME "snapin"
 
 #define FD_SNAPIN_WRITE_BUF_SZ      (16UL<<20)
 #define FD_SNAPIN_WRITE_ACCOUNT_MAX (FD_SNAPIN_WRITE_BUF_SZ/sizeof(fd_accdb_disk_meta_t))
+/* Accounts are written with O_DIRECT so that snapin tiles do not
+   serialize on the inode lock taken by buffered writes.  Each flush is
+   padded to FD_SNAPIN_DIRECT_ALIGN with a dead record header.  The
+   buffer fills only to FD_SNAPIN_WRITE_BUF_MAX so the header always
+   fits. */
+#define FD_SNAPIN_DIRECT_ALIGN      (4096UL)
+#define FD_SNAPIN_WRITE_BUF_MAX     (FD_SNAPIN_WRITE_BUF_SZ-sizeof(fd_accdb_disk_meta_t))
 
-FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_SZ, write_buf );
-FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX<=FD_SNAPIN_WRITE_BUF_SZ, max_account );
+FD_STATIC_ASSERT( FD_SNAPIN_WRITE_BUF_SZ%FD_SNAPIN_DIRECT_ALIGN==0UL, write_buf_align );
+FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_MAX, write_buf );
+FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX<=FD_SNAPIN_WRITE_BUF_MAX, max_account );
 
 /* The snapin tiles are state machines that parse and load a full and
    optionally an incremental snapshot.  They are responsible for loading
@@ -290,8 +300,9 @@ struct fd_snapin_tile {
   ulong incr_fork;          /* insert fork; USHORT_MAX for full */
 
   struct {
-    uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(64)));
+    uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(FD_SNAPIN_DIRECT_ALIGN)));
     ulong                     buf_used;
+    int                       accdb_direct_fd;  /* O_DIRECT fd to accounts.db */
     fd_snapin_account_batch_t batch;
   } writer;
 
@@ -338,7 +349,7 @@ should_shutdown( fd_snapin_tile_t * ctx ) {
 
 static ulong
 scratch_align( void ) {
-  return 512UL;
+  return FD_SNAPIN_DIRECT_ALIGN;
 }
 
 static ulong
@@ -1118,7 +1129,7 @@ writer_pwrite( fd_snapin_tile_t * ctx,
                ulong              off ) {
   ulong done = 0UL;
   while( done<sz ) {
-    long res = pwrite( FD_ACCDB_FD_RW, buf+done, sz-done, (long)(off+done) );
+    long res = pwrite( ctx->writer.accdb_direct_fd, buf+done, sz-done, (long)(off+done) );
     if( FD_UNLIKELY( res<=0L ) ) {
       int err = res<0L ? errno : EIO;
       if( res<0L && err==EINTR ) continue;
@@ -1133,9 +1144,23 @@ static int
 writer_flush( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->writer.buf_used ) ) return 0;
 
-  /* Write all buffered accounts as one contiguous range. */
-  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, ctx->writer.buf_used );
-  writer_pwrite( ctx, ctx->writer.buf, ctx->writer.buf_used, base_off );
+  /* Pad the range to FD_SNAPIN_DIRECT_ALIGN for O_DIRECT.  The padding
+     is a dead record so compaction reclaims it after snapshot loading
+     finishes. */
+  ulong used   = ctx->writer.buf_used;
+  ulong padded = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
+  FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ );
+  fd_memset( ctx->writer.buf+used, 0, padded-used );
+  fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
+  dummy_record->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
+
+  /* The offset is aligned because partition sizes are multiples of
+     FD_SNAPIN_DIRECT_ALIGN (whole GiB), the snapin tiles are the only
+     layer-0 writers during the load, and every reservation they make
+     is a multiple of FD_SNAPIN_DIRECT_ALIGN. */
+  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded );
+  FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
+  writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
 
   fd_accdb_fork_id_t fork_id = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
   fd_snapin_account_batch_t * batch = &ctx->writer.batch;
@@ -1211,9 +1236,9 @@ writer_append_account( fd_snapin_tile_t * ctx,
                        int                executable ) {
   FD_TEST( slot<=UINT_MAX );
   ulong account_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
-  FD_TEST( account_sz<=FD_SNAPIN_WRITE_BUF_SZ );
+  FD_TEST( account_sz<=FD_SNAPIN_WRITE_BUF_MAX );
 
-  if( FD_UNLIKELY( account_sz>FD_SNAPIN_WRITE_BUF_SZ-ctx->writer.buf_used && writer_flush( ctx ) ) ) {
+  if( FD_UNLIKELY( account_sz>FD_SNAPIN_WRITE_BUF_MAX-ctx->writer.buf_used && writer_flush( ctx ) ) ) {
     return 1;
   }
 
@@ -1962,11 +1987,12 @@ returnable_frag( fd_snapin_tile_t *  ctx,
 }
 
 static ulong
-populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
-                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+populate_allowed_fds( fd_topo_t      const * topo,
+                      fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
@@ -1975,6 +2001,7 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
+  out_fds[ out_cnt++ ] = ctx->writer.accdb_direct_fd; /* accounts db, O_DIRECT */
 
   return out_cnt;
 }
@@ -1984,8 +2011,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo; (void)tile;
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD );
+  fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
@@ -1995,6 +2022,11 @@ privileged_init( fd_topo_t const *      topo,
   fd_snapin_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->lead.seed, 8UL ) );
+
+  char path[ 64 ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/self/fd/%d", FD_ACCDB_FD_RW ) );
+  ctx->writer.accdb_direct_fd = open( path, O_WRONLY|O_DIRECT|O_CLOEXEC );
+  FD_CHECK_ERR( ctx->writer.accdb_direct_fd>=0, "open(accounts.db, O_DIRECT) failed; the filesystem holding [paths.accounts] must support direct IO" );
 }
 
 static inline fd_snapin_out_link_t

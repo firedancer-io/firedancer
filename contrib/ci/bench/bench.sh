@@ -50,7 +50,7 @@ case $what in
     ;;
   replay)   backtest "${BENCH_LEDGER:-mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat}" \
                      -e "${BENCH_END_SLOT:-424669200}" -m 4000000 ;;
-  snapshot) backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000 --snapdc 2 ;;  # load-only ledger: no shreds
+  snapshot) backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000 ;;  # load-only ledger: no shreds
   bench)
     { cat "$BENCH_DIR/$side/bench.toml"; printf '[paths]\n    accounts = "%s"\n    shredb = "%s"\n' "$DUMP_DIR/accounts.db" "$SHREDB"; } > "$out.toml"
     quiesce

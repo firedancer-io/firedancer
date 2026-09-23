@@ -142,6 +142,17 @@ test_env_init( test_env_t * env,
     ctx->full         = 1;
     ctx->tile_idx     = i;
     ctx->shmem        = env->snapin_shmem;
+
+    /* Same reopen as privileged_init.  Direct IO on a memfd needs
+       kernel support; fall back to the buffered fd where it is missing
+       so the padding logic is still exercised. */
+    char path[ 64 ];
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/self/fd/%d", FD_ACCDB_FD_RW ) );
+    ctx->writer.accdb_direct_fd = open( path, O_WRONLY|O_DIRECT|O_CLOEXEC );
+    if( FD_UNLIKELY( ctx->writer.accdb_direct_fd<0 ) ) {
+      FD_LOG_NOTICE(( "O_DIRECT unsupported here (%i-%s), testing with buffered writes", errno, fd_io_strerror( errno ) ));
+      ctx->writer.accdb_direct_fd = FD_ACCDB_FD_RW;
+    }
   }
 
   env->root = fd_accdb_attach_child( env->worker[ 0 ].accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
@@ -247,21 +258,28 @@ read_account( test_env_t *          env,
 static void
 test_env_fini( test_env_t *          env,
                test_account_t const * accounts ) {
-  ulong bytes_written = 0UL;
+  /* Every account is still buffered: exactly one flush per worker,
+     each padded to FD_SNAPIN_DIRECT_ALIGN. */
+  ulong buffered_bytes = 0UL;
+  ulong expected_bytes = 0UL;
+  ulong bytes_written  = 0UL;
   for( ulong i=0UL; i<env->worker_cnt; i++ ) {
     fd_snapin_tile_t * ctx = &env->worker[ i ];
+    buffered_bytes += ctx->writer.buf_used;
+    if( ctx->writer.buf_used ) expected_bytes += fd_ulong_align_up( ctx->writer.buf_used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
     FD_TEST( !writer_flush( ctx ) );
     bytes_written += ctx->metrics.disk_bytes_written;
     fd_accdb_flush_metrics( ctx->accdb );
   }
 
-  ulong expected_bytes = TEST_ACCOUNT_CNT*sizeof(fd_accdb_disk_meta_t)+accounts[ FD_SSPARSE_ACC_BATCH_MAX ].data_len;
+  FD_TEST( buffered_bytes==TEST_ACCOUNT_CNT*sizeof(fd_accdb_disk_meta_t)+accounts[ FD_SSPARSE_ACC_BATCH_MAX ].data_len );
   FD_TEST( bytes_written==expected_bytes );
 
   fd_accdb_snapshot_load_end( env->worker[ 0 ].accdb );
   for( ulong i=0UL; i<TEST_ACCOUNT_CNT; i++ ) read_account( env, &accounts[ i ] );
 
   for( ulong i=0UL; i<env->worker_cnt; i++ ) {
+    if( env->worker[ i ].writer.accdb_direct_fd!=FD_ACCDB_FD_RW ) FD_TEST( !close( env->worker[ i ].writer.accdb_direct_fd ) );
     free( env->join_mem[ i ] );
   }
   free( env->worker );

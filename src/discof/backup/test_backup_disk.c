@@ -430,6 +430,60 @@ test_scalar_skip_yields_to_batch( void ) {
   FD_TEST( !parse->data_sz );
 }
 
+/* The snapshot loader pads each O_DIRECT flush to a 4 KiB boundary
+   with a dead record: an all-zero header whose size covers the gap.
+   The parser must step over it and resolve the live records on either
+   side at their true offsets. */
+
+static void
+test_padding_record_skipped( void ) {
+  env_reset();
+
+  ulong const off_base = 0x50000UL;
+  uint  const data_a   = 16U;
+  uint  const data_b   = 8U;
+  ulong const pad_sz   = 200UL; /* arbitrary gap, larger than a header */
+
+  static uchar frag[ 2UL*sizeof(fd_accdb_disk_meta_t) + 16UL + 8UL + 200UL ];
+  memset( frag, 0, sizeof(frag) );
+
+  uchar const * pk_a = pubkey_n( 400UL );
+  ulong sz_a = record_init( frag, pk_a, 5U, data_a );
+  uint ele_a = index_add( 80U, fd_backup_accidx_chain( &parse->idx, pk_a ), pk_a, 5U, 1000UL, off_base );
+
+  /* padding: zero pubkey, owner and generation; only size is set */
+  fd_accdb_disk_meta_t * pad = (fd_accdb_disk_meta_t *)( frag+sz_a );
+  pad->size = (uint)( pad_sz-sizeof(fd_accdb_disk_meta_t) );
+
+  uchar const * pk_b = pubkey_n( 401UL );
+  ulong sz_b = record_init( frag+sz_a+pad_sz, pk_b, 5U, data_b );
+  uint ele_b = index_add( 81U, fd_backup_accidx_chain( &parse->idx, pk_b ), pk_b, 5U, 1000UL, off_base+sz_a+pad_sz );
+  FD_TEST( sz_a+pad_sz+sz_b==sizeof(frag) );
+
+  parse->data            = frag;
+  parse->data_sz         = sizeof(frag);
+  parse->src_gaddr       = 0xa00000UL;
+  parse->frag_base_gaddr = 0xa00000UL;
+  parse->src_off         = off_base;
+  parse->pf_cursor       = NULL;
+  parse->ps_cnt          = 0U;
+  parse->pub_pending     = 0;
+  parse->acc_active      = 0;
+  parse->meta_sz         = 0U;
+
+  fd_backup_disk_batch_msg_t batch[1];
+  ulong n = fd_snapmk_accparse_publish_batch( parse, batch );
+
+  FD_TEST( n==3UL );
+  FD_TEST( batch->acc_idx [ 0 ]==ele_a                 );
+  FD_TEST( batch->frag_off[ 0 ]==0U                    );
+  FD_TEST( batch->acc_idx [ 1 ]==UINT_MAX              ); /* padding: nothing in the index claims it */
+  FD_TEST( batch->frag_off[ 1 ]==(uint)sz_a            );
+  FD_TEST( batch->acc_idx [ 2 ]==ele_b                 ); /* cursor landed exactly on the next record */
+  FD_TEST( batch->frag_off[ 2 ]==(uint)(sz_a+pad_sz)   );
+  FD_TEST( !parse->data_sz );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -465,6 +519,7 @@ main( int     argc,
   test_keep_skips_too_new();
   test_prestage_skips_too_new();
   test_scalar_skip_yields_to_batch();
+  test_padding_record_skipped();
 
   /* every lookup must have released its epoch announcement */
   FD_TEST( epoch_slot==ULONG_MAX );
