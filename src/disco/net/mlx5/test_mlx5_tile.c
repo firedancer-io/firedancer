@@ -627,15 +627,17 @@ main( int     argc,
   add_neighbor( neigh4_hmap, neigh2_ip4_addr, 0x01,0x23,0x45,0x67,0x89,0xab );
   add_neighbor( neigh4_hmap, gw_ip4_addr,     0xff,0x23,0x45,0x67,0x89,0xab );
 
-  /* Stem publish context for RX */
-  ulong stem_seq[1] = {0};
-  ulong cr_avail = ULONG_MAX;
-  int out_reliable[1] = {0};
+  /* Stem publish context: out 0 is net_shred (RX), out 1 net_netlnk */
+  fd_frag_meta_t * stem_mcaches[2] = { rx_link->mcache, neigh_link->mcache };
+  ulong stem_seq[2] = {0};
+  ulong stem_depths[2] = { link_depth, link_depth };
+  ulong cr_avail[2] = { ULONG_MAX, ULONG_MAX };
+  int out_reliable[2] = {0};
   fd_stem_context_t stem[1] = {{
-    .mcaches      = &rx_link->mcache,
+    .mcaches      = stem_mcaches,
     .seqs         = stem_seq,
-    .depths       = &link_depth,
-    .cr_avail     = &cr_avail,
+    .depths       = stem_depths,
+    .cr_avail     = cr_avail,
     .out_reliable = out_reliable,
     .cr_decrement_amount = 0UL
   }};
