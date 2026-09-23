@@ -223,66 +223,165 @@ test_identity_guard( void ) {
   FD_LOG_NOTICE(( "pass: failover and tower-file identity guards" ));
 }
 
-/* read_switch_key loads a key file only for a switch, checks it is the
-   identity recorded at boot, and never keeps it. */
+/* Exercise both request formats through the halt/drain/switch sequence.
+   Two sign tiles must both complete before any producer is unhalted. */
 static void
-test_switch_key_on_demand( void ) {
-  static uchar copy_mem[ 4096 ] __attribute__((aligned(4096)));
-  ctx.failover_key_copy = copy_mem;
+test_identity_switch_ordering( void ) {
+  enum { REPLAY, TOWER, TXSEND, REPAIR, GOSSIP, BUNDLE, RSERVE, SHRED,
+         SIGN0, SIGN1, GOSSVF, GUI, EVENT, TILE_CNT };
+  static char const * names[ TILE_CNT ] = {
+    "replay", "tower", "txsend", "repair", "gossip", "bundle", "rserve",
+    "shred", "sign", "sign", "gossvf", "gui", "event"
+  };
+  static fd_topo_t topo;
+  static fd_keyswitch_t ks[ TILE_CNT+1 ];
+  fd_memset( &topo, 0, sizeof(topo) );
+  topo.tile_cnt = TILE_CNT;
+  topo.workspaces[ 0 ].wksp = fd_type_pun( ks );
+  for( ulong i=0UL; i<TILE_CNT; i++ ) {
+    fd_cstr_ncpy( topo.tiles[ i ].name, names[ i ], sizeof(topo.tiles[ i ].name) );
+    topo.tiles[ i ].kind_id = (ulong)( i==SIGN1 );
+    topo.tiles[ i ].id_keyswitch_obj_id = i;
+    topo.objs[ i ].id     = i;
+    topo.objs[ i ].offset = (i+1UL)*sizeof(fd_keyswitch_t);
+  }
+  ctx.topo = &topo;
+  fd_keyswitch_t * k = ks+1;
+  for( int resident=0; resident<2; resident++ ) {
+    for( ulong i=0UL; i<TILE_CNT; i++ ) {
+      FD_TEST( fd_keyswitch_new( &k[ i ], FD_KEYSWITCH_STATE_UNLOCKED ) );
+      fd_memset( k[ i ].bytes, 0xA5, 64UL );
+    }
+    uchar keypair[ 64 ];
+    fd_memset( keypair,      0x33, 32UL );
+    fd_memset( keypair+32UL, 0x55, 32UL );
+    uchar const * public_key = keypair+32UL;
+    uchar * private_key = resident ? NULL : keypair;
+    ulong state = FD_SET_IDENTITY_STATE_UNLOCKED;
+    ulong halted_seq = 0UL;
+    ulong outset = 1234UL;
+#define POLL() FD_TEST( !poll_set_identity( &ctx, &state, &halted_seq, outset, public_key, private_key ) )
+    POLL();
+    POLL();
+    FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    FD_TEST( fd_memeq( k[ REPLAY ].bytes, public_key, 32UL ) );
+    POLL();
+    FD_TEST( k[ TOWER ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+    k[ REPLAY ].result = 17UL;
+    k[ REPLAY ].state = FD_KEYSWITCH_STATE_COMPLETED;
+    POLL();
+    FD_TEST( halted_seq==17UL );
+    POLL();
+    POLL();
+    FD_TEST( k[ TXSEND ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+    FD_TEST( k[ SIGN0 ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+    for( ulong i=TOWER; i<=SHRED; i++ ) {
+      if( i==TXSEND ) continue;
+      FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+      FD_TEST( fd_memeq( k[ i ].bytes, public_key, 32UL ) );
+      k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+    }
+    k[ TOWER ].result = 37UL;
+    POLL();
+    POLL();
+    FD_TEST( k[ TXSEND ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    FD_TEST( k[ TXSEND ].param==37UL );
+    FD_TEST( fd_memeq( k[ TXSEND ].bytes, public_key, 32UL ) );
+    POLL();
+    FD_TEST( state==FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED );
+    FD_TEST( k[ SIGN0 ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+    FD_TEST( k[ SIGN1 ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+    k[ TXSEND ].state = FD_KEYSWITCH_STATE_COMPLETED;
+    POLL();
+    POLL();
+    for( ulong i=SIGN0; i<=SIGN1; i++ ) {
+      FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+      if( resident ) {
+        FD_TEST( k[ i ].param==FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY );
+        FD_TEST( fd_memeq( k[ i ].bytes, public_key, 32UL ) );
+        for( ulong j=32UL; j<64UL; j++ ) FD_TEST( !k[ i ].bytes[ j ] );
+      } else {
+        FD_TEST( k[ i ].param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR );
+        for( ulong j=0UL; j<32UL; j++ ) FD_TEST( k[ i ].bytes[ j ]==0x33 );
+        FD_TEST( fd_memeq( k[ i ].bytes+32UL, public_key, 32UL ) );
+      }
+    }
+    if( !resident ) for( ulong i=0UL; i<32UL; i++ ) FD_TEST( !keypair[ i ] );
+    FD_TEST( k[ GOSSVF ].param==outset );
+    for( ulong i=GOSSVF; i<TILE_CNT; i++ ) {
+      FD_TEST( fd_memeq( k[ i ].bytes, public_key, 32UL ) );
+      k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+    }
+    POLL();
+    k[ SIGN0 ].state = FD_KEYSWITCH_STATE_COMPLETED;
+    POLL();
+    FD_TEST( state==FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED );
+    FD_TEST( k[ TOWER ].state==FD_KEYSWITCH_STATE_COMPLETED );
+    FD_TEST( k[ TXSEND ].state==FD_KEYSWITCH_STATE_COMPLETED );
+    k[ SIGN1 ].state = FD_KEYSWITCH_STATE_COMPLETED;
+    POLL();
+    for( ulong i=SIGN0; i<=SIGN1; i++ )
+      for( ulong j=0UL; j<64UL; j++ ) FD_TEST( !k[ i ].bytes[ j ] );
+    POLL();
+    POLL();
+    FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_COMPLETED );
+    for( ulong i=TOWER; i<SHRED; i++ ) {
+      FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+      k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+    }
+    POLL();
+    POLL();
+    FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+    POLL();
+    k[ REPLAY ].state = FD_KEYSWITCH_STATE_COMPLETED;
+    FD_TEST( poll_set_identity( &ctx, &state, &halted_seq, outset, public_key, private_key ) );
+    FD_TEST( state==FD_SET_IDENTITY_STATE_UNLOCKED );
+    FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+#undef POLL
+  }
+  ctx.topo = NULL;
+  FD_LOG_NOTICE(( "pass: public-key selection and manual keypair switches preserve drain and completion ordering" ));
+}
 
-  uchar kp[ 64 ];
-  fd_memset( kp, 0, sizeof(kp) );
-  for( ulong i=0UL; i<32UL; i++ ) kp[ i ] = (uchar)( i+1UL );
-  fd_ed25519_public_from_private( kp+32UL, kp, ctx.sha512 );
-
-  char dir[] = "/tmp/fd-admin-key-XXXXXX";
-  FD_TEST( mkdtemp( dir ) );
-  char path[ 256 ];
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/staked.json", dir ) );
-  FILE * f = fopen( path, "w" );
-  FD_TEST( f );
-  fputc( '[', f );
-  for( ulong i=0UL; i<64UL; i++ ) fprintf( f, "%s%u", i?",":"", (uint)kp[ i ] );
-  fputc( ']', f );
-  FD_TEST( !fclose( f ) );
-
-  /* The file is opened before the sandbox and preadd for a switch, so the
-     switch never opens a path. */
-  int key_fd = open( path, O_RDONLY|O_CLOEXEC );
-  FD_TEST( key_fd>=0 );
-
-  /* The right identity loads and lands in the copy. */
-  FD_TEST( !read_switch_key( &ctx, key_fd, kp+32UL ) );
-  FD_TEST( fd_memeq( ctx.failover_key_copy+32UL, kp+32UL, 32UL ) );
-  fd_memzero_explicit( ctx.failover_key_copy, 64UL );
-
-  /* A pread does not consume the descriptor, a second switch still works. */
-  FD_TEST( !read_switch_key( &ctx, key_fd, kp+32UL ) );
-  fd_memzero_explicit( ctx.failover_key_copy, 64UL );
-
-  /* A file that is not the identity recorded at boot is refused and the
-     copy is left clean. */
-  uchar other[ 32 ];
-  fd_memset( other, 0xAB, sizeof(other) );
-  FD_TEST( read_switch_key( &ctx, key_fd, other )==EPERM );
-  for( ulong i=0UL; i<64UL; i++ ) FD_TEST( !ctx.failover_key_copy[ i ] );
-
-  /* A malformed file returns an error rather than terminating the tile. */
-  char bad_path[ 256 ];
-  FD_TEST( fd_cstr_printf_check( bad_path, sizeof(bad_path), NULL, "%s/bad.json", dir ) );
-  FILE * bf = fopen( bad_path, "w" );
-  FD_TEST( bf && fputs( "[]", bf )>=0 && !fclose( bf ) );
-  int bad_fd = open( bad_path, O_RDONLY|O_CLOEXEC );
-  FD_TEST( bad_fd>=0 );
-  FD_TEST( read_switch_key( &ctx, bad_fd, kp+32UL ) );
-  for( ulong i=0UL; i<64UL; i++ ) FD_TEST( !ctx.failover_key_copy[ i ] );
-  FD_TEST( !close( bad_fd ) && !unlink( bad_path ) );
-
-  FD_TEST( !close( key_fd ) );
-  FD_TEST( !unlink( path ) );
-  FD_TEST( !rmdir( dir ) );
-  ctx.failover_key_copy = NULL;
-  FD_LOG_NOTICE(( "pass: a switch preads and checks the key, rejects malformed input, never holds it resident" ));
+static void
+test_authorized_voter_refusal( void ) {
+  fd_keyswitch_t tower;
+  fd_keyswitch_t signs[ 2 ];
+  FD_TEST( fd_keyswitch_new( &tower, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx.tower_av_keyswitch = &tower;
+  ctx.sign_av_keyswitch_cnt = 2UL;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( fd_keyswitch_new( &signs[ i ], FD_KEYSWITCH_STATE_UNLOCKED ) );
+    ctx.sign_av_keyswitch[ i ] = &signs[ i ];
+  }
+  uchar keypair[ 64 ];
+  fd_memset( keypair, 0x33, sizeof(keypair) );
+  ulong state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
+  ulong result = FD_ADMINCTL_RESULT_SUCCESS;
+  poll_add_authorized_voter( &ctx, &state, keypair, &result );
+  poll_add_authorized_voter( &ctx, &state, keypair, &result );
+  FD_TEST( tower.state==FD_KEYSWITCH_STATE_LOCKED );
+  for( ulong i=0UL; i<32UL; i++ ) FD_TEST( !keypair[ i ] );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( signs[ i ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    signs[ i ].result = FD_ADMINCTL_RESULT_UNSUPPORTED;
+    signs[ i ].state = FD_KEYSWITCH_STATE_FAILED;
+    poll_add_authorized_voter( &ctx, &state, keypair, &result );
+    FD_TEST( result==FD_ADMINCTL_RESULT_UNSUPPORTED );
+    if( !i ) FD_TEST( state==FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED );
+  }
+  /* A rejected staked key must not reach the tower's authorized set. */
+  FD_TEST( state==FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED );
+  for( ulong i=0UL; i<64UL; i++ ) FD_TEST( !tower.bytes[ i ] );
+  poll_add_authorized_voter( &ctx, &state, keypair, &result );
+  FD_TEST( tower.state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  tower.state = FD_KEYSWITCH_STATE_UNLOCKED;
+  poll_add_authorized_voter( &ctx, &state, keypair, &result );
+  FD_TEST( state==FD_ADD_AUTH_VOTER_STATE_UNLOCKED );
+  ctx.tower_av_keyswitch = NULL;
+  ctx.sign_av_keyswitch_cnt = 0UL;
+  ctx.sign_av_keyswitch[ 0 ] = ctx.sign_av_keyswitch[ 1 ] = NULL;
+  FD_LOG_NOTICE(( "pass: a refused authorized voter is reported after both signers answer without changing tower" ));
 }
 
 int
@@ -300,7 +399,8 @@ main( int argc, char ** argv ) {
   test_installed_identity_query();
   test_bus_forwarding();
   test_bus_unresponsive();
-  test_switch_key_on_demand();
+  test_identity_switch_ordering();
+  test_authorized_voter_refusal();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

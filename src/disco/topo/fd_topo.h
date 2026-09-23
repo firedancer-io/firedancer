@@ -443,6 +443,8 @@ struct fd_topo_tile {
 
     struct {
       char  identity_key_path[ PATH_MAX ];
+      int   failover_enabled;
+      char  failover_staked_identity_path[ PATH_MAX ];
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       struct {

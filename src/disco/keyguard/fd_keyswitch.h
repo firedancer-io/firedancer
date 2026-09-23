@@ -20,6 +20,12 @@
 
 /* Application-specific param values should be defined below. */
 
+/* Identity switches to the sign tile either supply a new keypair in
+   bytes[0..64), or select a failover key loaded at boot by its public
+   key in bytes[0..32).  Selection never carries a private key. */
+#define FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR (0UL)
+#define FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY  (1UL)
+
 #define FD_KEYSWITCH_PARAM_AV_ADD   (0UL)
 #define FD_KEYSWITCH_PARAM_AV_CLEAR (1UL)
 

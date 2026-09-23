@@ -221,9 +221,12 @@ FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
   if( FD_UNLIKELY( !strcmp( tile->name, "admin" ) && tile->admin.failover_enabled ) ) {
-    /* Protected page and guards for the resident staked key, plus
-       transient key-load pages. */
-    key_pages += 5UL + 10UL;
+    /* Startup public-key loads, including guard pages. */
+    key_pages += 10UL;
+  }
+  if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) && tile->sign.failover_enabled ) ) {
+    /* The staked key is resident alongside the boot junk key. */
+    key_pages += 5UL;
   }
   if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
     /* One protected page with guards per peer for the resident junk key
