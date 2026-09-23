@@ -657,7 +657,7 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks FD_PARAM_UNUSED,
      after it, unless some extremely sparse epochs happen after
      activation.  Tags are only used at boundaries for now, and this
      runs before any use. */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) && stake_delegations->fp_warmed_awarded ) ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) && fd_stake_delegations_fp_warmed_awarded( stake_delegations ) ) ) {
     fd_stake_delegations_invalidate_warmed( stake_delegations );
   }
 
@@ -2057,7 +2057,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
       FD_TEST( acquire_cnt<FD_BUNDLE_ACCT_MAX );
       acquire_pubkeys [ acquire_cnt ] = key->uc;
       /* Bundle accounts are always acquired writable so that a later
-        txn can cleanly upgrade a read permission to a write. */
+         txn can cleanly upgrade a read permission to a write. */
       acquire_writable[ acquire_cnt ] = 1;
       acquire_cnt++;
     }

@@ -6,6 +6,7 @@
 #include "../fd_runtime_stack_tmpl.h"
 #include "../fd_runtime.h"
 #include "../../progcache/fd_progcache_admin.h"
+#include "../../stakes/fd_stake_delegations_private.h"
 #include <errno.h>
 #include <sys/mman.h>
 #include <unistd.h>

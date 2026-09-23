@@ -1715,9 +1715,10 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
       FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ),
       ctx->accdb,
       bank->accdb_fork_id );
-  bank->f.total_effective_stake    = root_delegations->effective_stake;
-  bank->f.total_activating_stake   = root_delegations->activating_stake;
-  bank->f.total_deactivating_stake = root_delegations->deactivating_stake;
+  fd_stake_history_entry_t root_totals = fd_stake_delegations_root_totals( root_delegations );
+  bank->f.total_effective_stake    = root_totals.effective;
+  bank->f.total_activating_stake   = root_totals.activating;
+  bank->f.total_deactivating_stake = root_totals.deactivating;
 
   /* Emit the stake-delegations boot baseline from the finalized root
      cache (snapshot accepted and refreshed, or genesis loaded), so the
@@ -1765,11 +1766,13 @@ try_become_leader( fd_replay_tile_t *  ctx,
   /* If we have evicted the reset bank we can't become leader it may be
      inactive or have been resused, we can't become leader.  We may miss
      our leader slot if we happen to evict our reset bank.  As soon as
-     we re-replay the slot, we will be able to become leader again. */
+     we re-replay the slot, we will be able to become leader again.  The
+     block id map entry is re-keyed to the re-replayed bank once its
+     final FEC is ingested, before that bank is frozen. */
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->reset_cmr, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
-  if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
+  if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state!=FD_BANK_STATE_FROZEN ) ) return 0;
 
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;

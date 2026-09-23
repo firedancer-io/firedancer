@@ -671,8 +671,8 @@ test_boundary_unrooted_delegation_totals( fd_wksp_t * wksp, int fixed_point, int
   fd_stake_delegations_t * sd = fd_bank_stake_delegations_modify( root );
   fd_stake_delegations_refresh( sd, closing_epoch, NULL, &root->f.warmup_cooldown_rate_epoch,
                                 0, 0, env->accdb, root->accdb_fork_id );
-  FD_TEST( sd->effective_stake==7UL*BASE_STAKE );
-  FD_TEST( sd->fp_warmed_awarded );
+  FD_TEST( fd_stake_delegations_root_totals( sd ).effective==7UL*BASE_STAKE );
+  FD_TEST( fd_stake_delegations_fp_warmed_awarded( sd ) );
 
   fd_bank_t * parent = fd_banks_new_bank( env->banks, root->idx, 0L, 0 );
   parent = fd_banks_clone_from_parent( env->banks, parent->idx );
@@ -714,7 +714,7 @@ test_boundary_unrooted_delegation_totals( fd_wksp_t * wksp, int fixed_point, int
     fd_stake_delegations_view_totals( view, closing_epoch, prior, &child->f.warmup_cooldown_rate_epoch, 0, &totals );
     FD_TEST( fd_stakes_activate_epoch( child, env->runtime_stack, env->accdb, NULL, view,
                                       &totals, &child->f.warmup_cooldown_rate_epoch ) );
-    FD_TEST( sd->fp_warmed_awarded );
+    FD_TEST( fd_stake_delegations_fp_warmed_awarded( sd ) );
     fd_stake_delegations_iter_t iter[1];
     for( fd_stake_delegations_iter_init( iter, view ); !fd_stake_delegations_iter_done( iter ); fd_stake_delegations_iter_next( iter ) ) {
       FD_TEST( fd_stake_delegations_iter_ele( iter )->state==FD_STAKE_DELEGATION_STATE_UNKNOWN );
@@ -725,7 +725,7 @@ test_boundary_unrooted_delegation_totals( fd_wksp_t * wksp, int fixed_point, int
     fd_runtime_block_execute_prepare( env->banks, child, env->accdb, env->runtime_stack, NULL, &boundary );
     FD_TEST( boundary );
   }
-  FD_TEST( sd->effective_stake==7UL*BASE_STAKE );
+  FD_TEST( fd_stake_delegations_root_totals( sd ).effective==7UL*BASE_STAKE );
 
   fd_acc_t acc = fd_accdb_read_one( env->accdb, child->accdb_fork_id, fd_sysvar_stake_history_id.uc );
   fd_stake_history_t history[1];
@@ -738,7 +738,7 @@ test_boundary_unrooted_delegation_totals( fd_wksp_t * wksp, int fixed_point, int
   fd_accdb_unread_one( env->accdb, &acc );
   FD_TEST( child->f.total_effective_stake==8UL*BASE_STAKE );
   if( fixed_point || gap ) {
-    FD_TEST( !sd->fp_warmed_awarded );
+    FD_TEST( !fd_stake_delegations_fp_warmed_awarded( sd ) );
     fd_stake_delegations_view_t view[1];
     fd_stake_delegations_view_begin( view, sd, fd_stake_delegations_root_fork_id( sd ) );
     view->use_stable_tags = 1;

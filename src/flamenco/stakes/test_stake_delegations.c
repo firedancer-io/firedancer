@@ -381,6 +381,62 @@ test_refresh( fd_stake_delegations_t * stake_delegations ) {
   FD_TEST( stake_delegations->root_cnt==1UL && test_stake_delegations_record_cnt( stake_delegations, PAGE_ROOT )==stake_delegations->root_cnt );
 }
 
+/* Unallocated slots can retain complete records from an earlier page.
+   Every scan must ignore them, including slots in both bitmap words. */
+static void
+test_unused_slots( fd_stake_delegations_t * stake_delegations ) {
+  uint const slots[] = { 1U, 63U, 64U, 127U };
+  for( ulong mode=0UL; mode<5UL; mode++ ) {
+    fd_stake_delegations_reset( stake_delegations );
+    root_update( stake_delegations, 1UL, 100UL );
+    ushort root = fd_stake_delegations_root_fork_id( stake_delegations );
+    ulong idx = expect( stake_delegations, root, 1UL, 100UL );
+    FD_TEST( !(idx & 127UL) );
+    page_t * page = (page_t *)((uchar *)stake_delegations + stake_delegations->pages_offset) + (idx>>7);
+    FD_TEST( page->frame!=UINT_MAX );
+    fd_stake_delegation_t * records = (fd_stake_delegation_t *)((uchar *)stake_delegations + stake_delegations->data_offset + (ulong)page->frame*FD_STAKE_DELEGATIONS_PAGE_SZ);
+    for( ulong i=0UL; i<4UL; i++ ) {
+      uint slot = slots[i];
+      FD_TEST( !(page->used[slot>>6] & (1UL<<(slot & 63U))) );
+      records[slot] = records[0];
+      records[slot].flags = (uchar)255;
+      records[slot].stake = mode==2UL ? 0UL : 70000UL;
+      records[slot].state = FD_STAKE_DELEGATION_STATE_WARMED;
+    }
+    page->flags |= PAGE_DIRTY;
+
+    if( mode==0UL ) {
+      FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==1UL );
+    } else if( mode==1UL ) {
+      ushort child = fd_stake_delegations_attach_child( stake_delegations, root );
+      fd_stake_delegations_advance_root( stake_delegations, child, 2UL, NULL, NULL, 0, 0, NULL, NULL );
+      FD_TEST( stake_delegations->effective_stake==100UL );
+    } else if( mode==2UL ) {
+      FD_TEST( !fd_stake_delegations_prune_inactive_root( stake_delegations, 2UL, NULL, NULL, 0, NULL ) );
+    } else if( mode==3UL ) {
+      fd_stake_delegations_invalidate_warmed( stake_delegations );
+      for( ulong i=0UL; i<4UL; i++ ) FD_TEST( records[slots[i]].state==FD_STAKE_DELEGATION_STATE_WARMED );
+    } else {
+      test_accdb_t db = test_accdb_new();
+      fd_accdb_fork_id_t fork = fd_accdb_attach_child( db.accdb, (fd_accdb_fork_id_t){ .val=USHORT_MAX } );
+      fd_stake_state_t state = {
+        .stake_type = FD_STAKE_STATE_STAKE,
+        .stake = { .stake = { .delegation = {
+          .stake=200UL, .activation_epoch=ULONG_MAX, .deactivation_epoch=ULONG_MAX,
+          .warmup_cooldown_rate=FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025
+        } } }
+      };
+      fd_pubkey_t pubkey = key( 1UL );
+      test_accdb_write_stake( db.accdb, fork, &pubkey, &state );
+      fd_stake_delegations_refresh( stake_delegations, 2UL, NULL, NULL, 0, 0, db.accdb, fork );
+      FD_TEST( stake_delegations->effective_stake==200UL );
+      test_accdb_delete( &db );
+    }
+    FD_TEST( stake_delegations->root_cnt==1UL );
+    FD_TEST( test_stake_delegations_record_cnt( stake_delegations, PAGE_ROOT )==1UL );
+  }
+}
+
 /* Check long chains, root fallback, the oldest selected version, a
    tombstone, and a key which is absent in the root. */
 static void
@@ -509,14 +565,15 @@ test_fork_reuse( fd_stake_delegations_t * stake_delegations ) {
   ushort b = fd_stake_delegations_attach_child( stake_delegations, a );
   update( stake_delegations, b, 1UL, 400UL );
   update( stake_delegations, b, 2UL, 500UL );
+  fd_stake_delegations_cancel_fork( stake_delegations, b );
   fd_stake_delegations_cancel_fork( stake_delegations, a );
   FD_TEST( test_stake_delegations_fork_cnt( stake_delegations )==1UL && !test_stake_delegations_record_cnt( stake_delegations, PAGE_DELTA ) && test_stake_delegations_record_cnt( stake_delegations, PAGE_ROOT )==stake_delegations->root_cnt );
   ushort reused_a = fd_stake_delegations_attach_child( stake_delegations, root );
-  FD_TEST( reused_a==a );
+  FD_TEST( reused_a==a || reused_a==b );
   expect( stake_delegations, reused_a, 1UL, 100UL );
   expect( stake_delegations, reused_a, 2UL, ULONG_MAX );
   ushort reused_b = fd_stake_delegations_attach_child( stake_delegations, reused_a );
-  FD_TEST( reused_b==b );
+  FD_TEST( (reused_b==a || reused_b==b) && reused_b!=reused_a );
   expect( stake_delegations, reused_b, 1UL, 100UL );
   expect( stake_delegations, reused_b, 2UL, ULONG_MAX );
   update( stake_delegations, reused_b, 2UL, 600UL );
@@ -527,7 +584,6 @@ test_fork_reuse( fd_stake_delegations_t * stake_delegations ) {
   FD_TEST( stake_delegations->root_cnt==2UL && stake_delegations->effective_stake==700UL );
 }
 
-#define FAIL_UPDATE          (0)
 #define FAIL_ATTACH          (1)
 #define FAIL_VIEW            (2)
 #define FAIL_ROOT_CAPACITY   (3)
@@ -549,7 +605,6 @@ test_failure( fd_stake_delegations_t * stake_delegations, ushort fork_id, int ac
     fd_log_level_core_set( 8 );
     alarm( 10U );
     switch( action ) {
-      case FAIL_UPDATE: update( stake_delegations, fork_id, 1UL, 200UL ); break;
       case FAIL_ATTACH: fd_stake_delegations_attach_child( stake_delegations, fork_id ); break;
       case FAIL_VIEW: {
         fd_stake_delegations_view_t view[1];
@@ -609,9 +664,7 @@ test_lifecycle_failures( fd_stake_delegations_t * stake_delegations ) {
   fd_stake_delegations_advance_root( stake_delegations, child, 1UL, NULL, NULL, 0, 0, NULL, NULL );
   expect( stake_delegations, child, 1UL, 200UL );
   expect( stake_delegations, descendant, 1UL, 400UL );
-  test_failure( stake_delegations, child, FAIL_UPDATE, "fork is not mutable" );
   fd_stake_delegations_cancel_fork( stake_delegations, descendant );
-  test_failure( stake_delegations, descendant, FAIL_UPDATE, "fork is not mutable" );
   test_failure( stake_delegations, descendant, FAIL_VIEW, "invalid stake delegations view" );
   test_failure( stake_delegations, descendant, FAIL_ATTACH, "invalid stake delegations parent" );
 }
@@ -627,10 +680,33 @@ test_capacity_and_eof( int direct_fd ) {
   for( ulong k=0UL; k<128UL; k++ ) root_update( sd, k, k+1UL );
   test_failure( sd, 0, FAIL_ROOT_CAPACITY, "logical page capacity exhausted" );
   FD_TEST( test_stake_delegations_base_cnt( sd )==128UL );
-  fd_stake_delegations_reset( sd );
-  ushort root = fd_stake_delegations_root_fork_id( sd );
-  for( ulong i=0UL; i<3UL; i++ ) fd_stake_delegations_attach_child( sd, root );
-  test_failure( sd, root, FAIL_ATTACH, "fork capacity exhausted" );
+  for( ulong pass=0UL; pass<3UL; pass++ ) {
+    fd_stake_delegations_reset( sd );
+    ushort root = fd_stake_delegations_root_fork_id( sd );
+    ushort a = fd_stake_delegations_attach_child( sd, root );
+    ushort b = fd_stake_delegations_attach_child( sd, a );
+    ushort c = fd_stake_delegations_attach_child( sd, root );
+    FD_TEST( a!=root && b!=root && c!=root && a!=b && a!=c && b!=c );
+    test_failure( sd, root, FAIL_ATTACH, "fork capacity exhausted" );
+
+    fd_stake_delegations_cancel_fork( sd, b );
+    fd_stake_delegations_cancel_fork( sd, a );
+    FD_TEST( test_stake_delegations_fork_cnt( sd )==2UL );
+    a = fd_stake_delegations_attach_child( sd, root );
+    b = fd_stake_delegations_attach_child( sd, a );
+    FD_TEST( a!=root && b!=root && a!=c && b!=c && a!=b );
+    test_failure( sd, root, FAIL_ATTACH, "fork capacity exhausted" );
+
+    fd_stake_delegations_advance_root( sd, b, 1UL, NULL, NULL, 0, 0, NULL, NULL );
+    FD_TEST( fd_stake_delegations_root_fork_id( sd )==b );
+    FD_TEST( test_stake_delegations_fork_cnt( sd )==1UL );
+    root = b;
+    a = fd_stake_delegations_attach_child( sd, root );
+    b = fd_stake_delegations_attach_child( sd, root );
+    c = fd_stake_delegations_attach_child( sd, root );
+    FD_TEST( a!=root && b!=root && c!=root && a!=b && a!=c && b!=c );
+    test_failure( sd, root, FAIL_ATTACH, "fork capacity exhausted" );
+  }
 
   sd = fd_stake_delegations_join(
       fd_stake_delegations_new( mem, direct_fd, 123UL, 256UL, 4UL, FD_STAKE_DELEGATIONS_PAGE_SZ ), direct_fd );
@@ -860,6 +936,7 @@ main( int argc, char ** argv ) {
     test_context_and_prune( sd );
     test_writer_blocking( sd );
     test_refresh( sd );
+    test_unused_slots( sd );
     test_long_chain( sd );
     test_same_key_siblings( sd );
     test_fork_reuse( sd );

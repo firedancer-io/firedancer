@@ -48,7 +48,6 @@ fd_stake_warmup_cooldown_rate( ulong   current_epoch,
 #define FD_STAKE_DELEGATION_STATE_COOLING ((uchar)3)
 #define FD_STAKE_DELEGATION_STATE_COOLED  ((uchar)4)
 
-#define FD_STAKE_DELEGATION_IN_USE       ((uchar)1)
 #define FD_STAKE_DELEGATION_ROOT_PRESENT ((uchar)2)
 #define FD_STAKE_DELEGATION_TOMBSTONE    ((uchar)4)
 
@@ -77,49 +76,6 @@ typedef struct fd_stake_delegation fd_stake_delegation_t;
 FD_STATIC_ASSERT( sizeof(fd_stake_delegation_t)==128UL, fd_stake_delegation_size );
 FD_STATIC_ASSERT( alignof(fd_stake_delegation_t)==8UL, fd_stake_delegation_align );
 
-struct fd_stake_delegations {
-  /* Identity and immutable configuration */
-  ulong magic;
-  ulong seed;
-  ulong max_live_slots;
-  uint  page_max;
-  uint  frame_max;
-  int   disk_fd;
-
-  /* Packed shared-memory layout */
-  ulong pages_offset;
-  ulong frames_offset;
-  ulong forks_offset;
-  ulong descends_offset;
-  ulong data_offset;
-
-  /* Record allocator and page cache */
-  uint        page_wmk;
-  uint        free_page;
-  uint        free_frame;
-  uint        clock_hand;
-  uint        nonfull[3][2];
-  fd_rwlock_t lock;
-
-  /* Fork lifecycle */
-  ushort      root_fork;
-  uchar       boot;
-
-  /* Rooted aggregate state */
-  ulong root_cnt;
-  ulong effective_stake;
-  ulong activating_stake;
-  ulong deactivating_stake;
-  uchar fp_warmed_awarded;
-
-  /* Rooted aggregate calculation context */
-  uchar                    context_valid;
-  int                      root_fixed_point;
-  ulong                    root_epoch;
-  ulong                    root_rate_epoch;
-  ulong                    root_history_len;
-  fd_stake_history_entry_t root_history[ FD_SYSVAR_STAKE_HISTORY_CAP ];
-};
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
 /* A view holds the exclusive store lock until view_end.  All other
@@ -306,7 +262,8 @@ fd_stake_delegations_attach_child( fd_stake_delegations_t * stake_delegations,
                                    ushort                   parent );
 
 /* Drain bank/scheduler users before cancellation or root advancement,
-   and clear released IDs before reusing bank objects. */
+   and clear released IDs before reusing bank objects.  Only a leaf
+   fork can be cancelled. */
 void
 fd_stake_delegations_cancel_fork( fd_stake_delegations_t * stake_delegations,
                                   ushort                   fork );
@@ -361,6 +318,15 @@ static inline int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
   return iter->batch_idx==iter->batch_cnt;
 }
+
+/* Rooted effective, activating and deactivating stake totals. */
+fd_stake_history_entry_t
+fd_stake_delegations_root_totals( fd_stake_delegations_t const * stake_delegations );
+
+/* Nonzero if a live WARMED tag may have been computed with floating
+   point stake math. */
+int
+fd_stake_delegations_fp_warmed_awarded( fd_stake_delegations_t const * stake_delegations );
 
 /* Exclusive maintenance operations must run outside views. */
 void
