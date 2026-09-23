@@ -611,6 +611,7 @@ rank_voters( ag_epoch_info_t *              epoch_info,
   for( ulong i=0UL; i<key_cnt; i++ ) if( FD_LIKELY( !keys[i].dup ) ) keys[epoch_info->validator_cnt++] = keys[i];
   sort_voter_stake_inplace( keys, epoch_info->validator_cnt );
 
+  epoch_info->total_stake = 0UL;
   for( ulong i=0UL; i<epoch_info->validator_cnt; i++ ) {
     ulong                 idx            = keys[i].idx;
     ag_validator_info_t * validator_info = epoch_info->validators + i;
