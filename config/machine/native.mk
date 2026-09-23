@@ -43,6 +43,9 @@ ifneq ($(call native-def,__riscv_zvl128b),)
 ifneq ($(or $(call native-def,__riscv_zvknha),$(call native-def,__riscv_zvknhb)),)
 FD_NATIVE_HAS+=FD_HAS_RISCV_SHA256
 endif
+ifneq ($(call native-def,__riscv_zvknhb),)
+FD_NATIVE_HAS+=FD_HAS_RISCV_SHA512
+endif
 endif
 endif
 $(foreach v,$(FD_NATIVE_HAS),$(eval $(v):=1))
