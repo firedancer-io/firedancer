@@ -22,12 +22,13 @@ include config/extra/with-debug.mk
 include config/extra/with-security.mk
 include config/extra/with-threads.mk
 
-# Vector SHA-256 requires Zvkb, Zvknha and at least 128-bit vectors.
-CPPFLAGS+=-march=rv64gc_zbb_zvkb_zvknha_zvl128b
-CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_RISCV=1 -DFD_HAS_RISCV_SHA256=1
+# Vector SHA-256/SHA-512 require Zvkb, Zvknhb and at least 128-bit vectors.
+CPPFLAGS+=-march=rv64gc_zbb_zvkb_zvknhb_zvl128b
+CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_RISCV=1 -DFD_HAS_RISCV_SHA256=1 -DFD_HAS_RISCV_SHA512=1
 
 FD_HAS_RISCV:=1
 FD_HAS_RISCV_SHA256:=1
+FD_HAS_RISCV_SHA512:=1
 FD_ARCH_SUPPORTS_SANDBOX:=1
 
 FD_HAS_INT128:=1

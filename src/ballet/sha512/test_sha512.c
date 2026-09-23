@@ -39,6 +39,17 @@ test_sha512_vectors( fd_sha512_test_vector_t const * vec,
                    FD_LOG_HEX16_FMT_ARGS( expected    ), FD_LOG_HEX16_FMT_ARGS( expected+16 ),
                    FD_LOG_HEX16_FMT_ARGS( expected+32 ), FD_LOG_HEX16_FMT_ARGS( expected+48 ) ));
 
+    /* Compare unaligned, multi-block inputs against independent known
+       answers too, not only against another path through the same core. */
+    if( sz<=4096UL ) {
+      uchar unaligned[4096UL+8UL] __attribute__((aligned(128)));
+      for( ulong off=0UL; off<8UL; off++ ) {
+        fd_memcpy( unaligned+off, msg, sz );
+        FD_TEST( fd_sha512_hash( unaligned+off, sz, hash )==hash );
+        FD_TEST( !memcmp( hash, expected, FD_SHA512_HASH_SZ ) );
+      }
+    }
+
     /* test incremental hashing */
 
     memset( hash, 0, 64UL );
