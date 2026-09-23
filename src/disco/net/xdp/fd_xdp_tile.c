@@ -382,27 +382,6 @@ net_is_fatal_xdp_error( int err ) {
          err==EPERM;
 }
 
-/* net_gre_tunnel_ip fills ctx->net.gre_tunnel_ip.  The first gre_tunnel_cnt
-   entries will be populated with the IP address of the GRE tunnel peer
-   for the first gre_tunnel_cnt untagged GRE tunnels, and the rest of
-   the entries will be set to 0, where gre_tunnel_cnt = min(FD_NET_GRE_MAX,
-   the number of untagged GRE tunnels).  Returns gre_tunnel_cnt. */
-
-static ulong
-net_gre_tunnel_ip( fd_net_ctx_t * ctx ) {
-  fd_netdev_t * dev_tbl = ctx->netdev_tbl.dev_tbl;
-  ushort        dev_cnt = ctx->netdev_tbl.hdr->dev_cnt;
-
-  ulong gre_tunnel_cnt = 0UL;
-  memset( ctx->net.gre_tunnel_ip, '\0', FD_NET_GRE_MAX*sizeof(uint) );
-  for( ushort if_idx = 0; (if_idx<dev_cnt) & (gre_tunnel_cnt<FD_NET_GRE_MAX); if_idx++ ) {
-    fd_netdev_t const * dev = dev_tbl+if_idx;
-    if( dev->dev_type==ARPHRD_IPGRE && dev->gre_dst_ip ) ctx->net.gre_tunnel_ip[ gre_tunnel_cnt++ ] = dev->gre_dst_ip;
-  }
-  return gre_tunnel_cnt;
-}
-
-
 /* net_tx_ready returns 1 if we can submit a job to this TX ring, and 0 otherwise.
    Reasons for block include:
    - No TX buffer is available (free ring empty)
@@ -497,7 +476,7 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
   if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->netdev_shared.hdr->seqlock ) ) ) {
     fd_netdev_tbl_copy( &ctx->netdev_tbl, &ctx->netdev_shared );
   }
-  net_gre_tunnel_ip( ctx );
+  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->netdev_tbl );
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;

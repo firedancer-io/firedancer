@@ -3,8 +3,11 @@
 
 /* fd_net_tile_private.h defines private APIs used by network tiles. */
 
+#include <net/if.h>
+
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
+#include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../discof/repair/fd_repair.h"
 
 #include "../../waltz/ip/fd_iproute.h"
@@ -12,6 +15,8 @@
 #include "../../util/net/fd_gre.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
+
+#include <linux/if_arp.h>
 
 #define FD_NET_IN_KIND_TX      (0U)
 #define FD_NET_IN_KIND_IPROUTE (1U)
@@ -75,6 +80,26 @@ struct fd_net_tile {
 typedef struct fd_net_tile fd_net_tile_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_net_gre_tunnels_refresh fills ctx->gre_tunnel_ip with the IP
+   addresses of (up to) the first FD_NET_GRE_MAX remote GRE tunnel
+   endpoints.  Any remaining entries are set to zero. */
+static void
+fd_net_gre_tunnels_refresh( fd_net_tile_t *              ctx,
+                            fd_netdev_tbl_join_t const * netdev_tbl ) {
+  fd_netdev_t const * dev_tbl = netdev_tbl->dev_tbl;
+  ushort              dev_cnt = netdev_tbl->hdr->dev_cnt;
+
+  fd_memset( ctx->gre_tunnel_ip, 0, sizeof(ctx->gre_tunnel_ip) );
+
+  ulong gre_tunnel_cnt = 0UL;
+  for( ushort if_idx=0U; if_idx<dev_cnt && gre_tunnel_cnt<FD_NET_GRE_MAX; if_idx++ ) {
+    fd_netdev_t const * netdev = dev_tbl+if_idx;
+    if( netdev->dev_type==ARPHRD_IPGRE && netdev->gre_dst_ip ) {
+      ctx->gre_tunnel_ip[ gre_tunnel_cnt++ ] = netdev->gre_dst_ip;
+    }
+  }
+}
 
 /* fd_net_rx_dst_port_add maps an IPv4 UDP destination port to the
    output link with the requested name and tile kind. */
