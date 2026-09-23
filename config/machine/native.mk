@@ -34,6 +34,10 @@ ifeq ($(and $(FD_IS_GNU),$(if $(FD_USING_CLANG),,1),$(filter 0 1 2 3 4 5 6 7 8 9
 FD_NATIVE_FEATURES+=FD_HAS_AVX512:__AVX512IFMA__
 endif
 FD_NATIVE_HAS:=$(foreach f,$(FD_NATIVE_FEATURES),$(if $(call native-def,$(lastword $(subst :, ,$(f)))),$(firstword $(subst :, ,$(f)))))
+ifeq ($(call native-val,__riscv_xlen),64)
+FD_NATIVE_HAS+=FD_HAS_RISCV
+FD_ARCH_SUPPORTS_SANDBOX:=1
+endif
 $(foreach v,$(FD_NATIVE_HAS),$(eval $(v):=1))
 FD_HAS_DOUBLE:=1
 CPPFLAGS_NATIVE:=$(FD_NATIVE_FLAGS) -DFD_HAS_DOUBLE=1 $(foreach v,$(FD_NATIVE_HAS),-D$(v)=1)

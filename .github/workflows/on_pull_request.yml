@@ -41,7 +41,6 @@ jobs:
       gcc_exceptions: |
         gcc-8.5.0,linux_gcc_zen2,ALL;
         gcc-12.4.0,linux_gcc_zen2,ALL;
-        ALL,linux_gcc_riscv,ALL;
         ALL,linux_gcc_power9,ALL;
         ALL,linux_gcc_neoverse_n2,ALL;
         ALL,linux_gcc_zen3,ALL;
@@ -54,6 +53,7 @@ jobs:
         ALL,linux_clang_zen3,ALL;
         ALL,linux_clang_zen4,ALL;
         ALL,linux_clang_zen5,ALL;
+        ALL,linux_clang_spacemit_k3,ALL;
   build_checks_2:
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/builds.yml

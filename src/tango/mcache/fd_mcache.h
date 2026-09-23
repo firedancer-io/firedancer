@@ -307,7 +307,7 @@ fd_mcache_publish( fd_frag_meta_t * mcache,   /* Assumed a current local join */
                    ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
                    ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
   fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
-#if FD_HAS_ARM
+#if FD_HAS_ARM || FD_HAS_RISCV
   __atomic_store_n( &meta->seq, fd_seq_dec( seq, 1UL ), __ATOMIC_RELAXED );
   FD_HW_MFENCE_ST();
   meta->sig    =         sig;
