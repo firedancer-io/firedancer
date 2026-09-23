@@ -936,18 +936,6 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
   FD_MGAUGE_SET( MLX5, TX_BUFFER_IDLE,        tx_buffer_idle_cnt                    );
 }
 
-static void
-fd_mlx5_tile_gre_tunnels_refresh( fd_mlx5_tile_t * ctx ) {
-  fd_memset( ctx->net.gre_tunnel_ip, 0, sizeof(ctx->net.gre_tunnel_ip) );
-  ulong tunnel_cnt = 0UL;
-  for( ushort i=0U; i<ctx->router.netdev_tbl.hdr->dev_cnt && tunnel_cnt<FD_NET_GRE_MAX; i++ ) {
-    fd_netdev_t const * netdev = ctx->router.netdev_tbl.dev_tbl+i;
-    if( netdev->dev_type==ARPHRD_IPGRE && netdev->gre_dst_ip ) {
-      ctx->net.gre_tunnel_ip[ tunnel_cnt++ ] = netdev->gre_dst_ip;
-    }
-  }
-}
-
 static inline void
 during_housekeeping( fd_mlx5_tile_t * ctx ) {
   /* Drain pending uverbs async events. */
@@ -980,7 +968,7 @@ during_housekeeping( fd_mlx5_tile_t * ctx ) {
   /* Refresh the netdev snapshot when its shared state is stable */
   if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->router.netdev_shared.hdr->seqlock ) ) ) {
     fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
-    fd_mlx5_tile_gre_tunnels_refresh( ctx );
+    fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
   }
 }
 
@@ -1324,7 +1312,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_netdev_tbl_join( &ctx->router.netdev_tbl, netdev_tbl_local )                                                                                  );
 
   fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
-  fd_mlx5_tile_gre_tunnels_refresh( ctx );
+  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
   ctx->router.bind_address = tile->mlx5.net.bind_address;
   ctx->net.bind_address    = tile->mlx5.net.bind_address;
 

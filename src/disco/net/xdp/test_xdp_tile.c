@@ -469,7 +469,8 @@ main( int     argc,
   setup_routing_table( ctx, fib4_local_mem, fib4_main_mem );
 
   /* Ensure initial (fake) device table is valid */
-  FD_TEST( net_gre_tunnel_ip( ctx )==0U );
+  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->netdev_tbl );
+  for( ulong i=0UL; i<FD_NET_GRE_MAX; i++ ) FD_TEST( ctx->net.gre_tunnel_ip[i]==0U );
   uint is_gre_inf = 0U;
   FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ), &is_gre_inf )==0 );
 
@@ -481,7 +482,7 @@ main( int     argc,
 
   /* Netdev table */
   setup_netdev_table( ctx );
-  net_gre_tunnel_ip( ctx );
+  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->netdev_tbl );
   FD_TEST( ctx->net.gre_tunnel_ip[0]==gre0_outer_dst_ip );
   FD_TEST( ctx->net.gre_tunnel_ip[1]==gre1_outer_dst_ip );
   for( ulong i=2UL; i<FD_NET_GRE_MAX; i++ ) FD_TEST( ctx->net.gre_tunnel_ip[i]==0U );
