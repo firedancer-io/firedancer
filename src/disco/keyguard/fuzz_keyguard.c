@@ -1,4 +1,5 @@
 #include "fd_keyguard.h"
+#include "../../waltz/tls/fd_tls.h"
 
 #include <stdlib.h>
 
@@ -40,6 +41,8 @@ role_from_payload( int payload_lg_type ) {
     return FD_KEYGUARD_ROLE_VOTOR;
   case FD_KEYGUARD_PAYLOAD_LG_TOWER:
     return FD_KEYGUARD_ROLE_TOWER;
+  case FD_KEYGUARD_PAYLOAD_LG_FAILOV:
+    return FD_KEYGUARD_ROLE_FAILOV;
   default:
     return -1;
   }
@@ -64,7 +67,22 @@ LLVMFuzzerTestOneInput( uchar const * data,
       if( bit==FD_KEYGUARD_PAYLOAD_LG_TXN ) {
         (void)fd_keyguard_payload_authorize( &authority, data, size, FD_KEYGUARD_ROLE_BUNDLE_CRANK, (int)i );
       }
+      if( bit==FD_KEYGUARD_PAYLOAD_LG_TLS_CV ) {
+        (void)fd_keyguard_payload_authorize( &authority, data, size, FD_KEYGUARD_ROLE_FAILOV, (int)i );
+      }
     }
+  }
+
+  /* The sign tile picks the failover key by size, so the failov role
+     signs only the member certificate or a CertificateVerify. */
+  for( ulong i=0UL; i<FD_KEYGUARD_SIGN_TYPE_CNT; i++ ) {
+    if( !fd_keyguard_payload_authorize( &authority, data, size, FD_KEYGUARD_ROLE_FAILOV, (int)i ) ) continue;
+    int cert = size==FD_KEYGUARD_MEMBER_CERT_MSG_SZ &&
+               fd_memeq( data, FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
+    int cv   = size==FD_TLS_CV_SIGN_SZ &&
+               ( fd_memeq( data, fd_tls13_cli_sign_prefix, sizeof(fd_tls13_cli_sign_prefix) ) ||
+                 fd_memeq( data, fd_tls13_srv_sign_prefix, sizeof(fd_tls13_srv_sign_prefix) ) );
+    FD_TEST( i==FD_KEYGUARD_SIGN_TYPE_ED25519 && ( cert || cv ) );
   }
   return 0;
 }

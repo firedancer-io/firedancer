@@ -126,6 +126,9 @@ set_identity( args_t *   args,
     case FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY:
       FD_LOG_ERR(( "Failed to set identity: the vote history file is invalid or does not belong to the new identity. "
                    "If you believe the vote history file is valid, please contact the Firedancer team for additional assistance." ));
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:
+      FD_LOG_ERR(( "Failed to set identity: the validator runs with [failover.enabled] set to true, "
+                   "and failover fully manages the identity while it is on." ));
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
