@@ -119,6 +119,36 @@ fd_shmem_private_map_rand( ulong  size,
   int   prot     = PROT_READ | ( rw ? PROT_WRITE : 0 );
   ulong ret_addr = 0UL;
 
+  /* First ask the kernel for any suitable region.  Over-map so we can
+     trim to the requested alignment.  This is more portable than the
+     random-address fallback below on platforms with smaller user VA
+     spaces (e.g. riscv64 Sv39). */
+  if( FD_LIKELY( size<=ULONG_MAX-align ) ) {
+    ulong reserve_sz = size + align;
+    void * reserve = mmap( NULL, reserve_sz, prot, MAP_ANON|MAP_PRIVATE, -1, 0 );
+    if( FD_LIKELY( reserve!=MAP_FAILED ) ) {
+      ulong reserve_addr = (ulong)reserve;
+      ulong aligned_addr = fd_ulong_align_up( reserve_addr, align );
+      ulong prefix_sz    = aligned_addr - reserve_addr;
+      ulong suffix_addr  = aligned_addr + size;
+      ulong suffix_sz    = (reserve_addr + reserve_sz) - suffix_addr;
+
+      int err = 0;
+      if( FD_UNLIKELY( prefix_sz && munmap( (void *)reserve_addr, prefix_sz ) ) ) err = errno ? errno : EINVAL;
+      if( FD_UNLIKELY( suffix_sz && munmap( (void *)suffix_addr,  suffix_sz ) ) ) err = errno ? errno : EINVAL;
+      if( FD_LIKELY( !err ) ) {
+        *(void **)mem = (void *)aligned_addr;
+        return 0;
+      }
+
+      if( FD_UNLIKELY( munmap( (void *)aligned_addr, size ) ) )
+        FD_LOG_WARNING(( "failed to unmap temporary mapping, munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "unable to reserve a %lu byte aligned region (align %lu, prot %i), munmap() failed (%i-%s)",
+                       size, align, prot, err, fd_io_strerror( err ) ));
+      return err;
+    }
+  }
+
   /* Failure is unlikely, FD_SHMEM_PRIVATE_MAP_RAND_MAX iterations should
      guarantee success */
   for( ulong i=0UL; i<FD_SHMEM_PRIVATE_MAP_RAND_MAX; i++ ) {
