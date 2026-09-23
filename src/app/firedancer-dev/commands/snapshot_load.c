@@ -137,6 +137,7 @@ snapshot_load_topo( config_t * config ) {
       config->firedancer.runtime.max_live_slots,
       config->firedancer.runtime.bank_cache_cnt,
       config->firedancer.runtime.stake_delegation_cache_cnt,
+      config->firedancer.accounts.max_stake_accounts_fallback,
       config->development.bench.max_cost_per_block );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 

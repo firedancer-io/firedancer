@@ -507,6 +507,18 @@ fd_config_validatef( fd_configf_t const * config ) {
 
   CFG_HAS_NON_ZERO( accounts.max_accounts   );
   CFG_HAS_NON_ZERO( accounts.cache_size_gib );
+  CFG_HAS_NON_ZERO( accounts.max_stake_accounts_fallback );
+  if( FD_UNLIKELY( config->runtime.stake_delegation_cache_cnt>config->accounts.max_stake_accounts_fallback ) ) {
+    FD_LOG_ERR(( "`runtime.stake_delegation_cache_cnt` must not exceed `accounts.max_stake_accounts_fallback`" ));
+  }
+  if( FD_UNLIKELY( config->accounts.max_stake_accounts_fallback>config->accounts.max_accounts ) ) {
+    FD_LOG_ERR(( "`accounts.max_stake_accounts_fallback` must not exceed `accounts.max_accounts`" ));
+  }
+
+  CFG_HAS_NON_ZERO( runtime.vote_history_max );
+  if( FD_UNLIKELY( config->runtime.vote_history_max>512UL ) ) {
+    FD_LOG_ERR(( "`runtime.vote_history_max` must be at most 512" ));
+  }
 
   CFG_HAS_NON_ZERO( development.genesis.max_file_size_mib );
   if( FD_UNLIKELY( config->development.genesis.max_file_size_mib>FD_GENESIS_MAX_FILE_SIZE_MIB ) ) {

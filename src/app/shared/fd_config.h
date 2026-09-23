@@ -17,6 +17,7 @@ struct fd_configf {
   struct {
     ulong max_accounts;
     ulong cache_size_gib;
+    ulong max_stake_accounts_fallback;
   } accounts;
 
   struct {
@@ -41,6 +42,7 @@ struct fd_configf {
     ulong stake_delegation_cache_cnt;
     ulong program_cache_size_mib;
     ulong bank_cache_cnt;
+    ulong vote_history_max;
   } runtime;
 
   struct {
