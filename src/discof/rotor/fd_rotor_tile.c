@@ -502,7 +502,11 @@ after_alpen_meta_repair( ctx_t *                ctx,
     case AG_REPAIR_RESPONSE_FEC_SET_ROOT: {
       ag_fec_root_res_t * fec_set_root = &response->fec_set_root;
 
-      if( FD_UNLIKELY( ag_repair_fec_set_root_verify( fec_set_root, &block_id, fec_set_idx ) ) ) {
+      fd_chainer_slotv_t const * slotv = fd_chainer_slot_version_query( ctx->chainer, slot, &block_id );
+      if( FD_UNLIKELY( !slotv ) ) return;
+      uint fec_set_count = ( slotv->complete_idx+1U ) / FD_FEC_SHRED_CNT;
+
+      if( FD_UNLIKELY( ag_repair_fec_set_root_verify( fec_set_root, &block_id, fec_set_idx, fec_set_count ) ) ) {
         ctx->metrics->failed_fec_root_cnt++;
         meta_queue_push_safe( ctx, ag_repair_fec_set_root( ctx->protocol, &to, now_ms, ctx->ag_nonce++, slot, &block_id, fec_set_idx ), now );
         fd_chainer_repair_tally( fd_chainer_slot_version_query( ctx->chainer, slot, &block_id ), FD_CHAINER_REQ_RETRANSMIT, now );

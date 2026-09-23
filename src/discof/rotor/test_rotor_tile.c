@@ -430,6 +430,27 @@ respond_fec_root( ctx_t * ctx, blk_t const * b, uint fec_set_idx, uint nonce, in
   deliver_net_response( ctx, buf, sz );
 }
 
+/* respond_fec_root_short forges a FecSetRoot response for FEC set 0
+   from a proof one node too short: the "root" it carries is the real
+   tree's interior node above leaves 0 and 1 and the proof is leaf 0's
+   proof minus its first node.  fd_bmtree_from_proof happily
+   reconstructs block_id from that pair, so only a depth check on the
+   proof tells it apart from the genuine response. */
+
+static void
+respond_fec_root_short( ctx_t * ctx, blk_t const * b, uint nonce ) {
+  FD_TEST( b->proof_len>=2UL );
+  fd_bmtree_node_t leaf[1] = {0};
+  memcpy( leaf->hash, b->fec_root[ 0 ].uc, FD_SHRED_MERKLE_NODE_SZ );
+  fd_bmtree_node_t inner[1];
+  FD_TEST( fd_bmtree_from_proof( leaf, 0UL, inner, b->proof[ 0 ], 1UL, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ ) );
+  fd_hash_t forged; memcpy( forged.uc, inner->hash, sizeof(fd_hash_t) );
+  uchar buf[ 512 ];
+  ulong sz = ser_fec_root_res( buf, &forged, b->proof[ 0 ]+FD_SHRED_MERKLE_NODE_SZ, b->proof_len-1UL, nonce );
+  FD_TEST( sz!=sizeof(fd_repair_ping_t) );
+  deliver_net_response( ctx, buf, sz );
+}
+
 /* ---------------------------------------------------------------------
    Shred tile simulation */
 
@@ -1380,6 +1401,21 @@ test_votor_notar_fallback( fd_wksp_t * wksp ) {
   pump( ctx );
   req_t * meta_d = req_find( mark, AG_REPAIR_KIND_PARENT_FEC_COUNT, slotD, UINT_MAX, &blkD->block_id );
   FD_TEST( meta_d );
+
+  /* A ParentFecSetCount response claiming zero FEC sets is malformed
+     and dropped before the nonce is consumed: it never reaches the
+     verifier (so no failure is counted) and the request stays
+     outstanding for the genuine response below. */
+
+  {
+    uchar buf[ 512 ];
+    ulong sz = ser_parent_fec_count_res( buf, 0U, blkD->parent_slot, &blkD->parent_block_id, NULL, 0UL, meta_d->nonce );
+    FD_TEST( sz!=sizeof(fd_repair_ping_t) );
+    deliver_net_response( ctx, buf, sz );
+    FD_TEST( ctx->metrics->failed_parent_fec_count_cnt==0UL );
+    FD_TEST( fd_chainer_slot_version_query( ctx->chainer, slotD, &blkD->block_id )->complete_idx==UINT_MAX );
+  }
+
   respond_parent_fec_count( ctx, blkD, meta_d->nonce, 0 );
   pump( ctx );
 
@@ -1414,6 +1450,21 @@ test_votor_notar_fallback( fd_wksp_t * wksp ) {
   FD_TEST( !req_find( mark, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, slotD, UINT_MAX, NULL ) );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
+  /* A proof that chains up to block_id but is one node too short
+     proves an interior node rather than FEC set 0's root.  Storing it
+     would strand the block (no shred can ever match), so it must be
+     rejected on depth and the request re-issued once more. */
+
+  respond_fec_root_short( ctx, blkD, retry_d0->nonce );
+  FD_TEST( ctx->metrics->failed_fec_root_cnt==2UL );
+  FD_TEST( !fd_chainer_fec_query( ctx->chainer, slotD, 0U, &blkD->block_id ) );
+
+  mark = req_cnt;
+  pump( ctx );
+  req_t * retry2_d0 = req_find( mark, AG_REPAIR_KIND_FEC_ROOT, slotD, 0U, &blkD->block_id );
+  FD_TEST( retry2_d0 && retry2_d0->nonce!=retry_d0->nonce );
+  retry_d0 = retry2_d0;
+
   /* Good responses to the retries complete the recovery: the block is
      repaired and delivered end to end. */
 
@@ -1441,7 +1492,7 @@ test_votor_notar_fallback( fd_wksp_t * wksp ) {
     }
   }
   FD_TEST( seen_d_complete );
-  FD_TEST( ctx->metrics->failed_fec_root_cnt==1UL ); /* no new failures during recovery */
+  FD_TEST( ctx->metrics->failed_fec_root_cnt==2UL ); /* no new failures during recovery */
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
   FD_LOG_NOTICE(( "pass: test_votor_notar_fallback" ));
@@ -1880,6 +1931,45 @@ test_block_id_repair_only( fd_wksp_t * wksp ) {
    meta_queue_push_or_defer records them directly in the metadata
    inflight table instead, and the policy walk's age-out redispatch
    sends them once the dedup timeout passes. */
+
+/* A FecSetRoot response for a version whose FEC set count is not yet
+   fixed (complete_idx still UINT_MAX) cannot be depth-checked.  It must
+   be rejected and the request re-issued, never consumed: dropping it
+   would strand the request with no retry.  Unreachable today (FEC root
+   requests are only minted after the count is known), so the inflight
+   entry is planted by hand against a freshly cert'd version. */
+
+static void
+test_fec_root_unknown_count( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  ulong slot = SNAP_SLOT+1UL;
+  blk_t blk[1] = {{ .slot = slot, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk->fec_root[ 0 ] = mkhash( 0xF0UL );
+  blk->fec_root[ 1 ] = mkhash( 0xF1UL );
+  blk_build( blk );
+
+  deliver_votor( ctx, FD_VOTOR_SIG_REPAIR, slot, &blk->block_id );
+  pump( ctx );
+  fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( ctx->chainer, slot, &blk->block_id );
+  FD_TEST( slotv && slotv->complete_idx==UINT_MAX );
+
+  uint        nonce = (uint)ctx->ag_nonce++;
+  fd_pubkey_t peer  = {0};
+  fd_inflights_meta_insert( ctx->inflights, nonce, AG_REPAIR_KIND_FEC_ROOT, &peer, slot, &blk->block_id, 0U, fd_clock_tile_now( ctx->clock ) );
+
+  ulong mark = req_cnt;
+  respond_fec_root( ctx, blk, 0U, nonce, 0 /* genuine proof */ );
+  FD_TEST( ctx->metrics->failed_fec_root_cnt==1UL );
+  FD_TEST( !fd_chainer_fec_query( ctx->chainer, slot, 0U, &blk->block_id ) ); /* nothing was inserted */
+
+  pump( ctx );
+  req_t * retry = req_find( mark, AG_REPAIR_KIND_FEC_ROOT, slot, 0U, &blk->block_id );
+  FD_TEST( retry && retry->nonce!=nonce );
+
+  FD_LOG_NOTICE(( "pass: test_fec_root_unknown_count" ));
+}
 
 static void
 test_meta_queue_defer( fd_wksp_t * wksp ) {
@@ -2983,6 +3073,7 @@ main( int argc, char ** argv ) {
   fd_wksp_reset( wksp, 1U );
   test_block_id_repair_only( wksp );
   test_meta_queue_defer( wksp );
+  test_fec_root_unknown_count( wksp );
 
   fd_wksp_reset( wksp, 1U );
   test_block_id_catchup_anchor( wksp );

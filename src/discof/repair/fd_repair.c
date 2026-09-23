@@ -220,7 +220,7 @@ ag_repair_response_de( ag_repair_response_t * response,
       if( FD_UNLIKELY( rem < sizeof(uint) ) ) return -1;
       res->fec_set_count = fd_uint_load_4_fast( cur );
       cur += sizeof(uint); rem -= sizeof(uint);
-      if( FD_UNLIKELY( res->fec_set_count>fec_set_max ) ) return -1;
+      if( FD_UNLIKELY( !res->fec_set_count || res->fec_set_count>fec_set_max ) ) return -1;
 
       if( FD_UNLIKELY( rem < sizeof(ulong) ) ) return -1;
       res->parent_slot = fd_ulong_load_8_fast( cur );
@@ -304,7 +304,13 @@ ag_repair_parent_fec_count_verify( ag_parent_fec_count_res_t const * res,
 int
 ag_repair_fec_set_root_verify( ag_fec_root_res_t const * res,
                                fd_hash_t const *         block_id,
-                               uint                      fec_set_idx ) {
+                               uint                      fec_set_idx,
+                               uint                      fec_set_count ) {
+  /* https://github.com/anza-xyz/agave/blob/5f11d68ab206fee323e8d29acd96d517fae3c9ec/core/src/repair/serve_repair.rs#L381 */
+  if( FD_UNLIKELY( !fec_set_count                                             ) ) return -1;
+  if( FD_UNLIKELY( fec_set_idx / FD_FEC_SHRED_CNT >= fec_set_count            ) ) return -1;
+  if( FD_UNLIKELY( res->proof_len != fd_bmtree_depth( fec_set_count+1UL )-1UL ) ) return -1;
+
   fd_bmtree_node_t leaf[1] = {0};
   memcpy( leaf->hash, res->root, FD_SHRED_MERKLE_NODE_SZ );
 

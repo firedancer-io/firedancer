@@ -368,8 +368,9 @@ ag_repair_shred_block_id( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts
    a multiple of FD_SHRED_MERKLE_NODE_SZ).  Ping responses (tag 2) are
    not handled here; they are the same sz as legacy repair pings and
    should be routed to the ping path.  fec_set_max bounds the FEC sets
-   a block may hold (max_shreds_per_block/FD_FEC_SHRED_CNT).  Returns 0
-   on success and -1 if the response is malformed.
+   a block may hold (max_shreds_per_block/FD_FEC_SHRED_CNT); a
+   fec_set_count of 0 or above that bound is malformed.  Returns 0 on
+   success and -1 if the response is malformed.
    Does NOT verify the merkle proofs. */
 int
 ag_repair_response_de( ag_repair_response_t * response,
@@ -388,7 +389,8 @@ ag_repair_parent_fec_count_verify( ag_parent_fec_count_res_t const * res,
 int
 ag_repair_fec_set_root_verify( ag_fec_root_res_t const * res,
                                fd_hash_t const *         block_id,
-                               uint                      fec_set_idx );
+                               uint                      fec_set_idx,
+                               uint                      fec_set_count );
 
 /* fd_repair_sz returns the bincode-serialized sz of msg. */
 
