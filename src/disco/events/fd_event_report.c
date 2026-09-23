@@ -25,5 +25,14 @@ fd_event_register( fd_topo_t const *      topo,
   r->chunk  = r->chunk0;
   r->mtu    = link->mtu;
 
+  r->sleep    = NULL;
+  r->link_id  = link->id;
+  r->wake_cnt = 0UL;
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    r->sleep = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+    FD_TEST( r->sleep );
+    r->wake_cnt = fd_sleep_wake_table( r->wake, topo, link->id );
+  }
+
   fd_event_tl = r;
 }

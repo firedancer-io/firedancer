@@ -1029,6 +1029,21 @@ fd_topo_find_link_producer( fd_topo_t const *      topo,
   return ULONG_MAX;
 }
 
+/* Find the id of the tile which is a consumer of the given link.  If
+   no tile is a consumer of the link, returns ULONG_MAX. */
+FD_FN_PURE static inline ulong
+fd_topo_find_link_consumer( fd_topo_t const *      topo,
+                            fd_topo_link_t const * link ) {
+  for( ulong i=0; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+
+    for( ulong j=0; j<tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( tile->in_link_id[ j ] == link->id ) ) return i;
+    }
+  }
+  return ULONG_MAX;
+}
+
 /* Given a link, count the number of consumers of that link among all
    the tiles in the topology. */
 FD_FN_PURE static inline ulong
