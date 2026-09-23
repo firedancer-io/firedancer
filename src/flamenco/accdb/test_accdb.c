@@ -3,6 +3,7 @@
 #include "fd_accdb.h"
 #include "fd_accdb_cache.h"
 #include "fd_accdb_private.h"
+#include "fd_accdb_io_uring.h"
 #include "../../util/fd_util.h"
 
 #include <stdlib.h>
@@ -35,6 +36,57 @@ static uchar owner3[ 32UL ] = { 3, 0 };
 
 static fd_accdb_shmem_t * test_shmem_mem;
 
+/* If test_ring_enabled, the primary writer join of each test (created
+   on the main thread) gets an io_uring attached. */
+
+#define TEST_RING_DEPTH (32UL) /* less than BATCH_IO_COLD */
+
+static int             test_ring_enabled;
+static fd_io_uring_t   test_ring[1] FD_FN_UNUSED;
+static int             test_ring_active;
+
+/* The kernel tears down a closed ring asynchronously, so ring memory
+   is never reused (leaked) to avoid racing with a prior ring.  Leaked
+   blocks are chained off test_ring_mem_list to keep them reachable
+   for LeakSanitizer. */
+static void * test_ring_mem_list;
+
+FD_FN_UNUSED static void *
+test_ring_mem_new( void ) {
+  ulong  align = fd_accdb_io_uring_align();
+  uchar * mem  = aligned_alloc( align, align+fd_accdb_io_uring_footprint( TEST_RING_DEPTH ) );
+  FD_TEST( mem );
+  *(void **)mem      = test_ring_mem_list;
+  test_ring_mem_list = mem;
+  return mem+align;
+}
+
+static void
+test_ring_attach( fd_accdb_t * accdb,
+                  int          fd ) {
+  if( !test_ring_enabled ) return;
+  FD_TEST( !test_ring_active );
+#if defined(__linux__)
+  FD_TEST( fd_accdb_io_uring_init( test_ring, test_ring_mem_new(), TEST_RING_DEPTH, fd, 1 ) );
+  fd_accdb_attach_io_uring( accdb, test_ring );
+  test_ring_active = 1;
+#else
+  (void)accdb; (void)fd;
+#endif
+}
+
+static void
+test_ring_detach( fd_accdb_t * accdb ) {
+  if( !test_ring_active ) return;
+#if defined(__linux__)
+  fd_accdb_attach_io_uring( accdb, NULL );
+  fd_accdb_io_uring_fini( test_ring );
+#else
+  (void)accdb;
+#endif
+  test_ring_active = 0;
+}
+
 static fd_accdb_t *
 test_setup_ex( int * out_fd,
                ulong max_accounts,
@@ -66,6 +118,7 @@ test_setup_ex( int * out_fd,
   FD_TEST( accdb_mem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
+  test_ring_attach( accdb, fd );
   return accdb;
 }
 
@@ -93,6 +146,7 @@ test_join_writer( int fd ) {
 static void
 test_teardown( fd_accdb_t * accdb,
                int          fd ) {
+  test_ring_detach( accdb );
   free( test_shmem_mem );
   free( accdb );
   close( fd );
@@ -2224,6 +2278,171 @@ test_sentinel_index_wrap( void ) {
   FD_TEST( fp ); /* 0 would mean partition_cnt==8192 was rejected */
 }
 
+/* test_batch_io exercises batched disk I/O.  Accounts are loaded via
+   snapshot (so they start uncached) and read back with one acquire
+   whose cold misses exceed the io_uring depth.  Churning the tiny
+   class 2 cache forces dirty writeback.  Finally, the nocache batch API
+   reads a mix of cached, on-disk, and missing accounts from a readonly
+   join, with an arena small enough to require several calls.
+
+   The test cache only has 2 lines in classes 2-7, and each writable
+   account reserves a line in every class, so writes go 1 at a time. */
+
+#define BATCH_IO_CNT   (FD_ACCDB_MAX_TX_ACCOUNT_LOCKS) /* snapshot accounts */
+#define BATCH_IO_COLD  (48UL)                          /* acquired read-only */
+#define BATCH_IO_CHURN (8UL)                           /* class 2 writes */
+
+static ulong batch_io_len( ulong k ) { return 129UL + (k*37UL)%384UL; } /* class 1 */
+
+static void
+batch_io_fill( uchar * buf,
+               ulong   sz,
+               ulong   seed ) {
+  for( ulong j=0UL; j<sz; j++ ) buf[ j ] = (uchar)( seed*131UL + j*7UL );
+}
+
+static void
+test_batch_io( void ) {
+  int fd;
+  ulong max_accounts = 1024UL;
+  fd_accdb_t * accdb = test_setup_ex( &fd, max_accounts, 64UL, 1024UL, 64UL, 64UL<<20UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  static uchar pks  [ BATCH_IO_CNT   ][ 32UL ];
+  static uchar churn[ BATCH_IO_CHURN ][ 32UL ];
+  static uchar data [ 2048UL ];
+  for( ulong k=0UL; k<BATCH_IO_CNT; k++ ) {
+    fd_memset( pks[ k ], 0, 32UL );
+    pks[ k ][ 0 ] = (uchar)( k+1UL );
+    pks[ k ][ 1 ] = 0xB1;
+
+    ulong data_len = batch_io_len( k );
+    ulong off      = fd_accdb_snapshot_reserve_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_len );
+    fd_accdb_disk_meta_t meta = {0};
+    fd_memcpy( meta.pubkey, pks[ k ], 32UL );
+    meta.size = (uint)data_len;
+    fd_memset( meta.owner, (int)k, 32UL );
+    batch_io_fill( data, data_len, k );
+    FD_TEST( pwrite( fd, meta.b, sizeof(meta), (long)off )==(long)sizeof(meta) );
+    FD_TEST( pwrite( fd, data, data_len, (long)(off+sizeof(meta)) )==(long)data_len );
+
+    uchar const * pubkeys[1] = { pks[ k ] };
+    ulong slots[1] = { 1UL }, lamports[1] = { 1000UL+k }, data_lens[1] = { data_len }, offs[1] = { off };
+    int execs[1] = { 0 };
+    ulong ignored, replaced, loaded, rl, il;
+    FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 1UL, pubkeys, slots, lamports, data_lens, execs,
+                                             offs, &ignored, &replaced, &loaded, &rl, &il ) );
+    FD_TEST( loaded==1UL );
+  }
+  fd_accdb_snapshot_load_end( accdb );
+  fd_accdb_fork_id_t f = fd_accdb_attach_child( accdb, root );
+
+  /* One read-only acquire, all cold */
+  uchar const * pubkeys [ BATCH_IO_COLD ];
+  int           writable[ BATCH_IO_COLD ];
+  fd_acc_t      accs    [ BATCH_IO_COLD ];
+  for( ulong k=0UL; k<BATCH_IO_COLD; k++ ) { pubkeys[ k ] = pks[ k ]; writable[ k ] = 0; }
+  ulong read_ops0 = fd_accdb_metrics( accdb )->read_ops;
+  fd_accdb_acquire( accdb, f, BATCH_IO_COLD, pubkeys, writable, accs );
+  FD_TEST( fd_accdb_metrics( accdb )->read_ops-read_ops0>=BATCH_IO_COLD );
+  for( ulong k=0UL; k<BATCH_IO_COLD; k++ ) {
+    ulong data_len = batch_io_len( k );
+    FD_TEST( accs[ k ].lamports==1000UL+k );
+    FD_TEST( accs[ k ].data_len==data_len );
+    for( ulong j=0UL; j<32UL; j++ ) FD_TEST( accs[ k ].owner[ j ]==(uchar)k );
+    batch_io_fill( data, data_len, k );
+    FD_TEST( !memcmp( accs[ k ].data, data, data_len ) );
+  }
+  fd_accdb_release( accdb, BATCH_IO_COLD, accs );
+
+  /* Class 2 has 2 lines, so each churn write evicts (and writes back)
+     an older dirty churn account. */
+  ulong write_ops0 = fd_accdb_metrics( accdb )->write_ops;
+  for( ulong k=0UL; k<BATCH_IO_CHURN; k++ ) {
+    fd_memset( churn[ k ], 0, 32UL );
+    churn[ k ][ 0 ] = (uchar)k;
+    churn[ k ][ 1 ] = 0xB2;
+    batch_io_fill( data, 1000UL, 100UL+k );
+    accdb_write( accdb, f, churn[ k ], 3000UL+k, data, 1000UL, owner2 );
+  }
+  FD_TEST( fd_accdb_metrics( accdb )->write_ops-write_ops0>=BATCH_IO_CHURN-2UL );
+
+  /* Nocache batch through a readonly join (sharing the writer's ring
+     is fine since both run on this thread and never overlap). */
+  ulong  ro_epoch = ULONG_MAX;
+  void * ro_mem   = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( test_shmem_mem->max_live_slots ) );
+  FD_TEST( ro_mem );
+  fd_accdb_t * ro = fd_accdb_join_readonly( ro_mem, test_shmem_mem, &ro_epoch, fd );
+  FD_TEST( ro );
+#if defined(__linux__)
+  if( test_ring_active ) fd_accdb_attach_io_uring( ro, test_ring );
+#endif
+
+# define NC_CNT (BATCH_IO_CNT+BATCH_IO_CHURN+1UL)
+  static uchar missing[ 32UL ] = { 0xFF, 0xFF, 0xB3 };
+  uchar const * nc_keys[ NC_CNT ];
+  for( ulong k=0UL; k<BATCH_IO_CNT;   k++ ) nc_keys[ k ] = pks[ k ];
+  for( ulong k=0UL; k<BATCH_IO_CHURN; k++ ) nc_keys[ BATCH_IO_CNT+k ] = churn[ k ];
+  nc_keys[ NC_CNT-1UL ] = missing;
+
+  static uchar arena[ 8UL<<10 ];
+  fd_accdb_nocache_out_t out[ NC_CNT ];
+  ulong prefix_sz = 24UL;
+  ulong done      = 0UL;
+  ulong src_cnt[ 3 ] = {0};
+  ulong round_cnt = 0UL;
+  while( done<NC_CNT ) {
+    ulong n = fd_accdb_read_nocache_batch( ro, f, NC_CNT-done, nc_keys+done, arena, sizeof(arena),
+                                           prefix_sz, 8UL, out+done );
+    FD_TEST( n );
+    uchar * cursor = arena;
+    for( ulong i=done; i<done+n; i++ ) {
+      src_cnt[ out[ i ].source ]++;
+      if( i==NC_CNT-1UL ) {
+        FD_TEST( !out[ i ].lamports && !out[ i ].data_len && out[ i ].source==FD_ACCDB_READ_ONE_NOCACHE_MISS );
+        FD_TEST( out[ i ].data==cursor+prefix_sz );
+        cursor += fd_ulong_align_up( prefix_sz, 8UL );
+        continue;
+      }
+      ulong        data_len, lamports, seed;
+      uchar const * owner;
+      uchar        owner_k[ 32UL ];
+      if( i<BATCH_IO_CNT ) {
+        data_len = batch_io_len( i ); lamports = 1000UL+i; seed = i;
+        fd_memset( owner_k, (int)i, 32UL ); owner = owner_k;
+        FD_TEST( out[ i ].source==( i<BATCH_IO_COLD ? FD_ACCDB_READ_ONE_NOCACHE_CACHE : FD_ACCDB_READ_ONE_NOCACHE_DISK ) );
+      } else {
+        ulong k = i-BATCH_IO_CNT;
+        data_len = 1000UL; lamports = 3000UL+k; seed = 100UL+k; owner = owner2;
+      }
+      FD_TEST( out[ i ].lamports==lamports );
+      FD_TEST( out[ i ].data_len==data_len );
+      FD_TEST( out[ i ].data==cursor+prefix_sz );
+      FD_TEST( !memcmp( out[ i ].owner, owner, 32UL ) );
+      batch_io_fill( data, data_len, seed );
+      FD_TEST( !memcmp( out[ i ].data, data, data_len ) );
+      cursor += fd_ulong_align_up( prefix_sz+data_len, 8UL );
+    }
+    done += n;
+    round_cnt++;
+  }
+# undef NC_CNT
+  FD_TEST( round_cnt>1UL );
+  FD_TEST( src_cnt[ FD_ACCDB_READ_ONE_NOCACHE_DISK  ]>=BATCH_IO_CNT-BATCH_IO_COLD+BATCH_IO_CHURN-2UL );
+  FD_TEST( src_cnt[ FD_ACCDB_READ_ONE_NOCACHE_CACHE ]>=BATCH_IO_COLD );
+  FD_TEST( src_cnt[ FD_ACCDB_READ_ONE_NOCACHE_MISS  ]==1UL );
+  FD_TEST( ro_epoch==ULONG_MAX );
+#if defined(__linux__)
+  fd_accdb_attach_io_uring( ro, NULL );
+#endif
+  free( ro_mem );
+
+  test_teardown( accdb, fd );
+}
+
 static void
 test_txn_footprint_growth( void ) {
   ulong fp_64 = fd_accdb_shmem_footprint( 1024UL, 1UL, 64UL, 64UL,
@@ -2238,11 +2457,8 @@ test_txn_footprint_growth( void ) {
   FD_TEST( fp_96-fp_64==32UL*(8UL+4UL) );
 }
 
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-
+static void
+test_all( void ) {
   FD_LOG_NOTICE(( "test_basic ..." ));
   test_basic();
 
@@ -2344,6 +2560,33 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
+
+  FD_LOG_NOTICE(( "test_batch_io ..." ));
+  test_batch_io();
+}
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+
+  test_all();
+
+#if defined(__linux__)
+  /* Rerun with an io_uring attached to the primary join */
+  int probe_fd = memfd_create( "accdb_test_probe", 0 );
+  FD_TEST( probe_fd>=0 );
+  if( FD_UNLIKELY( !fd_accdb_io_uring_init( test_ring, test_ring_mem_new(), TEST_RING_DEPTH, probe_fd, 1 ) ) ) {
+    FD_LOG_WARNING(( "skip: io_uring unavailable" ));
+  } else {
+    fd_accdb_io_uring_fini( test_ring );
+    FD_LOG_NOTICE(( "rerunning with io_uring" ));
+    test_ring_enabled = 1;
+    test_all();
+    test_ring_enabled = 0;
+  }
+  close( probe_fd );
+#endif
 
   FD_LOG_NOTICE(( "success" ));
 

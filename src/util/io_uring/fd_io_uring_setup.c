@@ -1,9 +1,11 @@
 #define _GNU_SOURCE
 #include "fd_io_uring_setup.h"
 #include "../shmem/fd_shmem.h"
+#if defined(__linux__)
 #include <errno.h>
 #include <sys/mman.h> /* mmap */
 #include <unistd.h> /* close */
+#endif
 
 #define FD_IO_URING_SHMEM_HEADROOM (4096UL)
 
@@ -111,6 +113,8 @@ fd_io_uring_shmem_setup( fd_io_uring_params_t * params,
 
   return params;
 }
+
+#if defined(__linux__)
 
 static void
 fd_io_uring_init_rings(
@@ -302,3 +306,5 @@ fd_io_uring_fini( fd_io_uring_t * ring ) {
 
   return ring;
 }
+
+#endif /* defined(__linux__) */
