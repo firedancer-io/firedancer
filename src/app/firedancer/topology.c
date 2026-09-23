@@ -97,12 +97,14 @@ setup_topo_banks( fd_topo_t *  topo,
                   ulong        max_live_slots,
                   ulong        cache_cnt,
                   ulong        stake_delegation_cache_cnt,
+                  ulong        max_stake_accounts_fallback,
                   ulong        bench_max_cost_per_block ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "banks", wksp_name );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,             "obj.%lu.max_live_slots",             obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, cache_cnt,                  "obj.%lu.cache_cnt",                  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, stake_delegation_cache_cnt, "obj.%lu.stake_delegation_cache_cnt", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, bench_max_cost_per_block,   "obj.%lu.bench_max_cost_per_block",   obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,              "obj.%lu.max_live_slots",              obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, cache_cnt,                   "obj.%lu.cache_cnt",                   obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, stake_delegation_cache_cnt,  "obj.%lu.stake_delegation_cache_cnt",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_stake_accounts_fallback, "obj.%lu.max_stake_accounts_fallback", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, bench_max_cost_per_block,    "obj.%lu.bench_max_cost_per_block",    obj->id ) );
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, seed, "obj.%lu.seed", obj->id ) );
@@ -1141,7 +1143,7 @@ fd_topo_initialize( config_t * config ) {
                  "execrp_tile_count %lu and %lu replay staging lanes).  Increase [runtime] bank_cache_cnt.",
                  config->firedancer.runtime.bank_cache_cnt, min_bank_cache_cnt, execrp_tile_cnt, FD_SCHED_MAX_STAGING_LANES ));
   }
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.bank_cache_cnt, config->firedancer.runtime.stake_delegation_cache_cnt, config->development.bench.max_cost_per_block );
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.bank_cache_cnt, config->firedancer.runtime.stake_delegation_cache_cnt, config->firedancer.accounts.max_stake_accounts_fallback, config->development.bench.max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( !alpenglow_enabled ) {
     /**/               fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1826,6 +1828,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
     tile->tower.wait_for_supermajority = !!strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
+    tile->tower.vote_history_max   = config->firedancer.runtime.vote_history_max;
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     fd_cstr_ncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
     fd_cstr_ncpy( tile->tower.tower_path, config->tiles.tower.write_vote_history_file ? config->paths.vote_history : "", sizeof(tile->tower.tower_path) );
