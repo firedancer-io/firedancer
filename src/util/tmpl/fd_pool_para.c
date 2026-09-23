@@ -731,6 +731,8 @@ POOL_(acquire)( POOL_(t) * join ) {
 
   for(;;) {
     ulong ver_top = *_v;
+    /* Observe the next pointer published before this version. */
+    FD_HW_MFENCE_LD();
 
     ulong ver     = POOL_(private_vidx_ver)( ver_top );
     ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
@@ -759,6 +761,9 @@ POOL_(acquire)( POOL_(t) * join ) {
            only signal ERR_CORRUPT if the version number hasn't changed
            since we read it. */
 
+        /* The version recheck must follow the next-pointer read.  On
+           weakly ordered CPUs, a control dependency does not suffice. */
+        FD_HW_MFENCE_LD();
         if( FD_UNLIKELY( POOL_(private_vidx_ver)( *_v )==ver ) ) {
           FD_LOG_CRIT(( "corruption detected (ele_nxt=%lu ele_max=%lu)", ele_nxt, ele_max ));
         }
