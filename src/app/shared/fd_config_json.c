@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22991088UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22993136UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -368,14 +368,17 @@ fd_config_to_json( fd_config_t const * config,
   jw_obj_close( &w );
 
   jw_obj_open( &w, "accounts" );
-    jw_ulong( &w, "max_accounts",   f->accounts.max_accounts );
-    jw_ulong( &w, "cache_size_gib", f->accounts.cache_size_gib );
+    jw_ulong( &w, "max_accounts",                  f->accounts.max_accounts );
+    jw_ulong( &w, "cache_size_gib",                f->accounts.cache_size_gib );
+    jw_ulong( &w, "max_stake_accounts",            f->accounts.max_stake_accounts );
+    jw_ulong( &w, "max_stake_accounts_fallback",   f->accounts.max_stake_accounts_fallback );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "runtime" );
     jw_ulong( &w, "max_live_slots", f->runtime.max_live_slots );
     jw_ulong( &w, "max_fork_width", f->runtime.max_fork_width );
     jw_ulong( &w, "program_cache_size_mib", f->runtime.program_cache_size_mib );
+    jw_ulong( &w, "vote_history_max",        f->runtime.vote_history_max );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "snapshots" );

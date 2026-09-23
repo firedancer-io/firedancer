@@ -102,6 +102,8 @@ struct fd_configf {
   struct {
     ulong max_accounts;
     ulong cache_size_gib;
+    ulong max_stake_accounts;
+    ulong max_stake_accounts_fallback;
   } accounts;
 
   struct {
@@ -123,6 +125,7 @@ struct fd_configf {
     ulong max_live_slots;
     ulong max_fork_width;
     ulong program_cache_size_mib;
+    ulong vote_history_max;
   } runtime;
 
   struct {

@@ -48,13 +48,10 @@ FD_STATIC_ASSERT( 1<<AUTH_VTR_LG_MAX==32, AUTH_VTR_LG_MAX );
 
 #define VTR_MAX (2000) /* the maximum # of unique voters ie. node pubkeys. */
 
-/* PER_VTR_MAX controls how many "entries" a validator is allowed to
-   occupy in various vote-tracking structures.  This is set somewhat
-   arbitrarily based on expected worst-case usage by an honest validator
-   and is set to guard against a malicious spamming validator attempting
-   to oom Firedancer structures. */
-
-#define PER_VTR_MAX (512) /* the maximum amount of slot history the sysvar retains */
+/* The configured per-voter history controls how many entries a
+   validator may occupy in various vote-tracking structures.  The
+   production default is 512; smaller development values trade history
+   retained against memory usage. */
 
 struct publish {
   ulong          sig;
