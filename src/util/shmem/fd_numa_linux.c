@@ -47,6 +47,7 @@ fd_numa_node_cnt( void ) {
   char const * path = "/sys/devices/system/node";
   DIR *        dir  = opendir( path );
   if( FD_UNLIKELY( !dir ) ) {
+    if( FD_LIKELY( errno==ENOENT ) ) return 1UL; /* CONFIG_NUMA=n */
     FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     return 0UL;
   }
@@ -68,8 +69,8 @@ fd_numa_node_cnt( void ) {
     FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( node_idx_max<0 ) ) {
-    FD_LOG_WARNING(( "No numa nodes found in \"%s\"", path ));
-    return 0UL;
+    FD_LOG_WARNING(( "No numa nodes found in \"%s\"; assuming one NUMA node", path ));
+    return 1UL;
   }
 
   return ((ulong)node_idx_max) + 1UL;
@@ -118,8 +119,8 @@ fd_numa_node_idx( ulong cpu_idx ) {
     FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( node_idx<0 ) ) {
-    FD_LOG_WARNING(( "No numa node found in \"%s\"", path ));
-    return ULONG_MAX;
+    FD_LOG_WARNING(( "No numa node found in \"%s\"; assuming NUMA node 0", path ));
+    return 0UL;
   }
 
   return (ulong)node_idx;
@@ -178,6 +179,14 @@ fd_numa_get_mempolicy( int *   mode,
                        void *  addr,
                        uint    flags ) {
   long rc = syscall( SYS_get_mempolicy, mode, nodemask, maxnode, addr, flags );
+  if( FD_UNLIKELY( rc && errno==ENOSYS ) ) {
+    if( mode     ) *mode = 0;
+    if( nodemask && maxnode ) {
+      fd_memset( nodemask, 0, 8UL*((maxnode+63UL)/64UL) );
+      nodemask[ 0 ] = 1UL;
+    }
+    rc = 0;
+  }
   if( rc==0 ) {
     if( mode     ) fd_msan_unpoison( mode, sizeof(int) );
     if( nodemask ) fd_msan_unpoison( nodemask, 8UL*((maxnode+63UL)/64UL) );
@@ -189,7 +198,9 @@ long
 fd_numa_set_mempolicy( int           mode,
                        ulong const * nodemask,
                        ulong         maxnode ) {
-  return syscall( SYS_set_mempolicy, mode, nodemask, maxnode );
+  long rc = syscall( SYS_set_mempolicy, mode, nodemask, maxnode );
+  if( FD_UNLIKELY( rc && errno==ENOSYS ) ) return 0;
+  return rc;
 }
 
 long
@@ -199,7 +210,9 @@ fd_numa_mbind( void *        addr,
                ulong const * nodemask,
                ulong         maxnode,
                uint          flags ) {
-  return syscall( SYS_mbind, addr, len, mode, nodemask, maxnode, flags );
+  long rc = syscall( SYS_mbind, addr, len, mode, nodemask, maxnode, flags );
+  if( FD_UNLIKELY( rc && errno==ENOSYS ) ) return 0;
+  return rc;
 }
 
 long
@@ -210,6 +223,10 @@ fd_numa_move_pages( int         pid,
                     int *       status,
                     int         flags ) {
   long rc = syscall( SYS_move_pages, pid, count, pages, nodes, status, flags );
-  if( rc==0 ) fd_msan_unpoison( status, count*sizeof(int) );
+  if( FD_UNLIKELY( rc && errno==ENOSYS ) ) {
+    if( status ) fd_memset( status, 0, count*sizeof(int) );
+    rc = 0;
+  }
+  if( rc==0 && status ) fd_msan_unpoison( status, count*sizeof(int) );
   return rc;
 }
