@@ -486,11 +486,10 @@ EXAMPLES
     <counter name="PktTxBytes" summary="Number of bytes transmitted (including Ethernet header)." />
     <counter name="PktTxNoBuffer" summary="Number of transmit jobs dropped because no TX buffer was available." />
     <counter name="PktTxRouteFail" enum="RouteFail" summary="Number of transmit jobs dropped because route or source address selection failed." />
-    <counter name="PktTxInvalid" summary="Number of transmit jobs dropped because the IPv4 version or header length was invalid." />
+    <counter name="PktTxInvalid" summary="Number of transmit jobs dropped for invalid packet headers or GRE packets exceeding the MTU." />
     <counter name="PktTxNoNeighbor" summary="Number of transmit jobs dropped because the next-hop neighbor was unresolved." />
     <counter name="GrePktTxSubmitted" summary="Number of GRE transmit jobs submitted to the NIC." />
     <counter name="GrePktTxNoRoute" summary="Number of GRE transmit jobs dropped because the inner or outer route was incomplete." />
-    <counter name="GrePktTxOversize" summary="Number of GRE transmit jobs dropped because the encapsulated packet exceeded the route MTU." />
     <gauge name="TxBufferBusy" summary="Number of TX buffers pending or submitted to the NIC." />
     <gauge name="TxBufferIdle" summary="Number of TX buffers available for a new transmit job." />
 </tile>
