@@ -91,6 +91,20 @@ int
 fd_failover_hello_check( fd_failover_hello_t const * self,
                          fd_failover_hello_t const * peer );
 
+/* fd_failover_member_cert_msg writes the 48 byte message a member
+   certificate signs, the keyguard's member cert prefix then
+   junk_pubkey.  The sign tile signs exactly this with the staked key. */
+void
+fd_failover_member_cert_msg( uchar       out[ 48 ],
+                             uchar const junk_pubkey[ 32 ] );
+
+/* fd_failover_member_cert_check returns FD_FAILOVER_HELLO_OK if the
+   member_cert in hello is the staked pubkey's signature over the junk
+   pubkey in hello, else FD_FAILOVER_HELLO_ERR_CERT. */
+int
+fd_failover_member_cert_check( fd_failover_hello_t const * hello,
+                               fd_sha512_t *               sha );
+
 /* fd_failover_session_init returns the resting state of an endpoint,
    LISTENING for the listener and BACKOFF for the dialer. */
 ulong
