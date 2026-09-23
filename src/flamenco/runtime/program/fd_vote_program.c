@@ -1704,8 +1704,9 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   ulong               signers_cnt                   = 0UL;
   fd_exec_instr_ctx_get_signers( ctx, signers, &signers_cnt );
 
-  /* Some of these features are not implemented yet. As such, they are
-     not in feature_map.json.
+  /* block_revenue_sharing and vote_account_initialize_v2 are not
+     implemented yet.  They are listed in feature_map.json with
+     implemented:0, so they are hardcoded off here.
 
      TODO: don't hardcode these when the features are implemented. */
   int bls_pubkey_management_in_vote_account = FD_FEATURE_ACTIVE_BANK( ctx->bank, bls_pubkey_management_in_vote_account );

@@ -90,6 +90,10 @@ fd_solfuzz_pb_restore_features( fd_features_t *                    features,
       FD_LOG_WARNING(( "unsupported feature ID 0x%016lx", prefix ));
       return 0;
     }
+    if( FD_UNLIKELY( !id->implemented ) ) {
+      FD_LOG_WARNING(( "unimplemented feature %s", id->name ));
+      return 0;
+    }
     /* Enabled since genesis */
     fd_features_set( features, id, 0UL );
   }
