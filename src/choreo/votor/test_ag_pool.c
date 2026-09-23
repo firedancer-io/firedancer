@@ -191,7 +191,8 @@ setup_pool( void ) {
   FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
   ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
   FD_TEST( pool );
-  ag_pool_init( pool, 0UL );
+  ag_block_hash_t genesis; genesis_hash( genesis );
+  ag_pool_init( pool, 0UL, genesis );
 
   g_epoch_info = make_epoch_info( 0UL, g_info, NV );
   ag_pool_advance_epoch( pool, g_epoch_info, 0UL, 0UL );
@@ -692,6 +693,73 @@ test_branch_certified_out_of_order( void ) {
   FD_TEST( is_parent_ready( pool, next, &parent ) );
   ag_pool_parents_ready( pool, next, &cnt );
   FD_TEST( cnt==1UL );
+
+  teardown_pool( pool );
+}
+
+/* Boot mid-window, skip the rest of it: only the boot block can carry
+   the node forward.  Agave covers the same case in
+   https://github.com/anza-xyz/agave/blob/v4.3/votor/src/consensus_pool/parent_ready_tracker.rs#L384 */
+
+static void
+test_boot_block_carries_skipped_window( void ) {
+  create_validators();
+  FD_TEST( ag_pool_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
+  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( pool );
+
+  ulong           boot_slot = 2UL; /* mid-window */
+  ag_block_hash_t boot_hash; random_hash( boot_hash );
+  FD_TEST( !ag_is_start_of_window( boot_slot ) );
+
+  ag_pool_init( pool, boot_slot, boot_hash );
+  g_epoch_info = make_epoch_info( 0UL, g_info, NV );
+  ag_pool_advance_epoch( pool, g_epoch_info, 0UL, 0UL );
+  drain_events( pool );
+
+  /* nobody notarizes anything in the boot window */
+
+  ulong next_start = SLOTS_PER_WINDOW;
+  for( ulong s=boot_slot+1UL; s<next_start; s++ ) add_skip_votes( pool, s, 0UL, 7UL );
+
+  ulong                 cnt;
+  ag_block_id_t const * ready = ag_pool_parents_ready( pool, next_start, &cnt );
+  FD_TEST( cnt==1UL );
+  FD_TEST( ready[0].slot==boot_slot );
+  FD_TEST( !memcmp( ready[0].hash, boot_hash, sizeof(ag_block_hash_t) ) );
+
+  teardown_pool( pool );
+}
+
+/* Boot on the last slot of a window and the next slot already starts
+   one, so readiness is granted at init with no certs at all. */
+
+static void
+test_boot_block_ready_at_next_slot( void ) {
+  create_validators();
+  FD_TEST( ag_pool_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
+  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( pool );
+
+  ulong           boot_slot = SLOTS_PER_WINDOW-1UL;
+  ag_block_hash_t boot_hash; random_hash( boot_hash );
+  FD_TEST( ag_is_start_of_window( boot_slot+1UL ) );
+
+  ag_pool_init( pool, boot_slot, boot_hash );
+
+  ag_event_pool_t event;
+  FD_TEST( ag_pool_poll_pool_event( pool, &event ) );
+  FD_TEST( event.kind==AG_EVENT_POOL_PARENT_READY );
+  FD_TEST( event.parent_ready.slot==boot_slot+1UL );
+  FD_TEST( event.parent_ready.parent.slot==boot_slot );
+  FD_TEST( !memcmp( event.parent_ready.parent.hash, boot_hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( !ag_pool_poll_pool_event( pool, &event ) );
+
+  ulong                 cnt;
+  ag_block_id_t const * ready = ag_pool_parents_ready( pool, boot_slot+1UL, &cnt );
+  FD_TEST( cnt==1UL );
+  FD_TEST( ready[0].slot==boot_slot );
+  FD_TEST( !memcmp( ready[0].hash, boot_hash, sizeof(ag_block_hash_t) ) );
 
   teardown_pool( pool );
 }
@@ -1353,7 +1421,8 @@ setup_two_epoch_pool( ag_epoch_info_t ** out_a,
   FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
   ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
   FD_TEST( pool );
-  ag_pool_init( pool, 0UL );
+  ag_block_hash_t genesis; genesis_hash( genesis );
+  ag_pool_init( pool, 0UL, genesis );
 
   ag_validator_info_t heavy[ NV ];
   for( ulong i=0UL; i<NV; i++ ) {
@@ -1595,6 +1664,8 @@ main( int     argc,
   test_epoch_installed_late();
   test_retired_epoch_already_pruned();
   test_standstill_recovery_no_final_cert();
+  test_boot_block_carries_skipped_window();
+  test_boot_block_ready_at_next_slot();
   test_add_block_below_watermark();
 
   FD_LOG_NOTICE(( "pass" ));

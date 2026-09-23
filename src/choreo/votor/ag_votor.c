@@ -290,6 +290,13 @@ ag_votor_init( ag_votor_t *   self,
   self->bls_sign_fn             = sign_fn;
   self->bls_sign_ctx            = sign_ctx;
 
+  /* voted_notar_hash is left zeroed, so try_notar never matches this as
+     a parent and the node resumes at the next window start instead, see
+     ag_pool_init.  Storing the real hash suits a genesis boot but not a
+     snapshot boot, and nothing here tells the two apart.  Agave seeds it
+     for genesis only:
+     https://github.com/anza-xyz/agave/blob/v4.3/votor/src/vote_history.rs#L104-L127 */
+
   slot_state_ele_t * state       = state_mut( self, slot );
   state->voted                   = 1;
   state->voted_notar             = 1;

@@ -271,10 +271,22 @@ ag_pool_delete( void * mem ) {
 }
 
 void
-ag_pool_init( ag_pool_t * self,
-              ulong       slot ) {
+ag_pool_init( ag_pool_t *           self,
+              ulong                 slot,
+              ag_block_hash_t const block_hash ) {
   ag_finality_tracker_init( self->finality_tracker, slot );
+
+  ag_block_id_t root_block         = ag_block_id( slot, block_hash );
   self->parent_ready_tracker->root = slot;
+  ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, &root_block, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
+  for( ulong i=0UL; i<self->scratch.parent_ready_cnt; i++ ) {
+    ag_parent_ready_t const * ready = &self->scratch.parent_readys[i];
+    FD_TEST( ag_is_start_of_window( ready->slot ) ); /* readiness is granted at window starts */
+    ag_event_pool_t event = { .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY };
+    event.parent_ready.slot   = ready->slot;
+    event.parent_ready.parent = ready->parent;
+    pool_events_push( self->pool_events, event );
+  }
 }
 
 void

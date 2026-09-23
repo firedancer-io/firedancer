@@ -166,6 +166,7 @@ ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
   for( ulong i=0UL; i<state->notar_fallbacks_cnt; i++ ) {
     if( FD_UNLIKELY( 0==memcmp( state->notar_fallbacks[i], hash, sizeof(ag_block_hash_t) ) ) ) return;
   }
+  FD_TEST( state->notar_fallbacks_cnt<AG_NOTAR_FALLBACK_CERT_MAX );
   memcpy( state->notar_fallbacks[ state->notar_fallbacks_cnt++ ], hash, sizeof(ag_block_hash_t) );
 
   for( ulong slot_=slot+1; ; slot_++ ) {
