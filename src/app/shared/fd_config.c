@@ -488,9 +488,6 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.snapsv_io_worker_count );
   CFG_HAS_NON_ZERO( layout.snapdc_tile_count );
   CFG_HAS_NON_ZERO( layout.snapin_tile_count );
-  if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
-    FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
-  }
 
   if( FD_UNLIKELY( config->snapshots.sources.gossip.allow_any && config->snapshots.sources.gossip.allow_list_cnt>0UL ) ) {
     FD_LOG_ERR(( "`snapshots.sources.gossip` has an explicit list of %lu allowed peer(s) in `allow_list` "

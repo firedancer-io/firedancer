@@ -1041,13 +1041,13 @@ telemetry = true
     # very high TPS rates because the cluster size will be very small.
     shred_tile_count = 1
 
-    # How many sign tiles to run, should be at least two.  The signing
+    # How many sign tiles to run, must be at least one.  The signing
     # tiles exclusively hold the validator private key for security, and
     # all requests to sign things (transactions, shreds, repair
     # requests, etc.) are routed to these tiles.  Adding more signing
     # tiles can speed up signing of repair requests, which there are a
-    # lot of, but all other signing requests are easily handled by two
-    # tiles.
+    # lot of.  With one sign tile, repair signing shares the tile with
+    # all other signing requests.
     sign_tile_count = 2
 
 # All memory that will be used in Firedancer is pre-allocated in two

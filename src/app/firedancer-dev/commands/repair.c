@@ -267,6 +267,11 @@ repair_topo( config_t * config ) {
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
   ulong gossvf_tile_cnt = config->firedancer.layout.gossvf_tile_count;
 
+  /* Prefer to keep repair traffic off sign tile 0, which serves the
+     other signing clients.  With only one sign tile, share tile 0. */
+  ulong repair_sign_tile_cnt = sign_tile_cnt>1UL ? sign_tile_cnt-1UL : 1UL;
+  ulong repair_sign_tile_off = sign_tile_cnt>1UL ? 1UL               : 0UL;
+
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
@@ -350,8 +355,8 @@ repair_topo( config_t * config ) {
   /**/                 fd_topob_link( topo, "repair_net",   "net_repair",   config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    pending_fec_shreds_depth,                 sizeof(fd_shred_message_t),    FD_SHRED_STEM_BURST );
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
+  FOR(repair_sign_tile_cnt) fd_topob_link( topo, "repair_sign",  "repair_sign",  256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
+  FOR(repair_sign_tile_cnt) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   /**/                 fd_topob_link( topo, "repair_out",   "repair_out",   128UL,                                    sizeof(fd_repair_fec_complete_t), 1UL );
 
@@ -450,10 +455,10 @@ repair_topo( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
                        fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  FOR(sign_tile_cnt-1) fd_topob_tile_out( topo, "repair", 0UL,                        "repair_sign",   i                                                    );
-  FOR(sign_tile_cnt-1) fd_topob_tile_in ( topo, "sign",   i+1,           "metric_in", "repair_sign",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  FOR(sign_tile_cnt-1) fd_topob_tile_out( topo, "sign",   i+1,                        "sign_repair",   i                                                    );
-  FOR(sign_tile_cnt-1) fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "sign_repair",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  FOR(repair_sign_tile_cnt) fd_topob_tile_out( topo, "repair", 0UL,                            "repair_sign",   i                                                    );
+  FOR(repair_sign_tile_cnt) fd_topob_tile_in ( topo, "sign",   i+repair_sign_tile_off, "metric_in", "repair_sign",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  FOR(repair_sign_tile_cnt) fd_topob_tile_out( topo, "sign",   i+repair_sign_tile_off,              "sign_repair",   i                                                    );
+  FOR(repair_sign_tile_cnt) fd_topob_tile_in ( topo, "repair", 0UL,                            "metric_in", "sign_repair",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
 
   /**/                 fd_topob_tile_out( topo, "repair", 0UL,                        "repair_out",   0UL                                                   );
   /**/                 fd_topob_tile_in ( topo, "gossip", 0UL,           "metric_in", "sign_gossip",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
