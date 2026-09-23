@@ -67,6 +67,7 @@ struct fd_feature_id {
   ulong        index;                /* index of feature in fd_features_t */
   fd_pubkey_t  id;                   /* pubkey of feature */
   char const * name;                 /* feature name cstr */
+  uchar        implemented;          /* 1 if the feature's behavior is implemented in firedancer, 0 otherwise */
   uchar        cleaned_up;           /* 1 if feature is cleaned up in firedancer, 0 otherwise */
   uchar        reverted;             /* if the feature was reverted */
   uchar        hardcode_for_fuzzing; /* if the should be treated as hardcoded in the firedancer fuzzing harness */

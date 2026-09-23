@@ -117,7 +117,8 @@ sol_compat_get_features_v1( void ) {
     for( fd_feature_id_t const * iter = fd_feature_iter_init();
          !fd_feature_iter_done( iter );
          iter = fd_feature_iter_next( iter ) ) {
-      if( iter->reverted ) continue; /* skip reverted features */
+      if( iter->reverted    ) continue; /* skip reverted features */
+      if( !iter->implemented ) continue; /* skip features firedancer does not implement yet */
 
       /* Pretend that features activated on all clusters are hardcoded */
       if( iter->hardcode_for_fuzzing ) {

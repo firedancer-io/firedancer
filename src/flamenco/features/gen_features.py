@@ -118,6 +118,11 @@ fd_feature_id_t const ids[] = {{""",
             file=body,
             end="",
         )
+        if "implemented" not in x:
+            raise ValueError(f"feature {x['name']} is missing the 'implemented' field")
+        if x.get("cleaned_up") and not x["implemented"]:
+            raise ValueError(f"feature {x['name']} is cleaned_up but not implemented")
+        print(f",\n    .implemented               = {1 if x['implemented'] else 0}", file=body, end="")
         if x.get("cleaned_up"):
             print(f",\n    .cleaned_up                = 1", file=body, end="")
         else:
