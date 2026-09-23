@@ -301,8 +301,19 @@ fd_stake_delegations_iter_t *
 fd_stake_delegations_iter_init( fd_stake_delegations_iter_t * iter,
                                 fd_stake_delegations_view_t * view );
 
+/* Internal batch refill used by iter_init and iter_next. */
 void
-fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter );
+fd_stake_delegations_iter_fill( fd_stake_delegations_iter_t * iter );
+
+static inline void
+fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter ) {
+  iter->batch_idx++;
+  if( iter->batch_idx==iter->batch_cnt ) {
+    fd_stake_delegations_iter_fill( iter );
+  } else {
+    iter->idx = iter->indices[iter->batch_idx];
+  }
+}
 
 static inline fd_stake_delegation_t const *
 fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t const * iter ) {

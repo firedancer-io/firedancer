@@ -689,39 +689,80 @@ fd_stake_delegations_view_end( fd_stake_delegations_view_t * view ) {
   view->sd = NULL;
 }
 
-/* The view holds the store lock.  Copy records before another access
-   can fault and replace their frame, even under exclusive access. */
-static void
-iter_fill( fd_stake_delegations_iter_t * iter ) {
+/* Walk occupied slots from one resident page at a time.  Delta reads
+   can evict that page, so resume through the page lookup afterwards. */
+void
+fd_stake_delegations_iter_fill( fd_stake_delegations_iter_t * iter ) {
   fd_stake_delegations_view_t * view              = iter->view;
   fd_stake_delegations_t *      stake_delegations = view->sd;
-  page_t *                      pages             = get_pages( stake_delegations );
-  ulong                         limit             = (ulong)view->page_wmk*128UL;
+  page_t *                     pages             = get_pages( stake_delegations );
+  ulong                        limit             = (ulong)view->page_wmk*128UL;
   iter->batch_idx = iter->batch_cnt = 0UL;
   while( iter->cursor<limit && iter->batch_cnt<FD_STAKE_DELEGATIONS_ITER_BATCH ) {
-    uint root = (uint)iter->cursor++;
-    if( pages[root>>7].role!=PAGE_ROOT ) {
-      iter->cursor = ((ulong)(root>>7)+1UL)*128UL;
+    uint     page_idx = (uint)(iter->cursor>>7);
+    page_t * page     = pages+page_idx;
+    if( page->role!=PAGE_ROOT ) {
+      iter->cursor = ((ulong)page_idx+1UL)*128UL;
       continue;
     }
-    if( !(pages[root>>7].used[(root & 127U)>>6] & (1UL<<(root & 63U))) ) continue;
-    fd_stake_delegation_t selected = *record( stake_delegations, root );
-    uint next  = selected.delta_head;
-    int  found = !!(selected.flags & FD_STAKE_DELEGATION_ROOT_PRESENT);
-    if( !view->use_stable_tags ) selected.state = FD_STAKE_DELEGATION_STATE_UNKNOWN;
-    while( next!=UINT_MAX ) {
-      fd_stake_delegation_t const * delta = record( stake_delegations, next );
-      if( delta->fork_id==view->fork_id || ancestor( stake_delegations, view->fork_id, delta->fork_id ) ) {
-        selected = *delta;
-        found    = !(selected.flags & FD_STAKE_DELEGATION_TOMBSTONE);
+    uint  word = (uint)((iter->cursor & 127UL)>>6);
+    ulong used = page->used[word] & (ULONG_MAX<<(iter->cursor & 63UL));
+    if( !used ) {
+      iter->cursor = ((ulong)page_idx*2UL+word+1UL)*64UL;
+      continue;
+    }
+    uint frame = page->frame;
+    if( FD_UNLIKELY( frame==UINT_MAX ) ) frame = page_fault( stake_delegations, page_idx );
+    fd_stake_delegation_t const * records = (fd_stake_delegation_t const *)get_data( stake_delegations, frame );
+    /* Full words can advance sequentially until a root needs delta
+       selection or the output batch fills. */
+    if( page->used[word]==ULONG_MAX ) {
+      uint slot = (uint)(iter->cursor & 127UL);
+      uint end  = (word+1U)*64U;
+      while( slot<end && iter->batch_cnt<FD_STAKE_DELEGATIONS_ITER_BATCH ) {
+        fd_stake_delegation_t const * selected = records+slot;
+        if( selected->delta_head!=UINT_MAX || !(selected->flags & FD_STAKE_DELEGATION_ROOT_PRESENT) ) break;
+        fd_stake_delegation_t * out = iter->batch+iter->batch_cnt;
+        *out = *selected;
+        if( !view->use_stable_tags ) out->state = FD_STAKE_DELEGATION_STATE_UNKNOWN;
+        iter->indices[iter->batch_cnt++] = (page_idx<<7)+slot;
+        slot++;
+      }
+      iter->cursor = ((ulong)page_idx<<7)+slot;
+      if( slot==end || iter->batch_cnt==FD_STAKE_DELEGATIONS_ITER_BATCH ) continue;
+      used = ULONG_MAX<<(slot & 63U);
+    }
+    while( used && iter->batch_cnt<FD_STAKE_DELEGATIONS_ITER_BATCH ) {
+      uint slot = word*64U + (uint)fd_ulong_find_lsb( used );
+      used &= used-1UL;
+      uint root = (page_idx<<7)+slot;
+      iter->cursor = (ulong)root+1UL;
+      fd_stake_delegation_t const * selected = records+slot;
+      fd_stake_delegation_t *       out      = iter->batch+iter->batch_cnt;
+      uint next = selected->delta_head;
+      int found = !!(selected->flags & FD_STAKE_DELEGATION_ROOT_PRESENT);
+      if( FD_UNLIKELY( next!=UINT_MAX ) ) {
+        /* Preserve root fallback before a delta can replace its frame. */
+        *out = *selected;
+        if( !view->use_stable_tags ) out->state = FD_STAKE_DELEGATION_STATE_UNKNOWN;
+        do {
+          fd_stake_delegation_t const * delta = record( stake_delegations, next );
+          if( delta->fork_id==view->fork_id || ancestor( stake_delegations, view->fork_id, delta->fork_id ) ) {
+            *out  = *delta;
+            found = !(delta->flags & FD_STAKE_DELEGATION_TOMBSTONE);
+            break;
+          }
+          next = delta->next_;
+        } while( next!=UINT_MAX );
+        if( found ) iter->indices[iter->batch_cnt++] = root;
         break;
       }
-      next = delta->next_;
+      if( !found ) continue;
+      *out = *selected;
+      if( !view->use_stable_tags ) out->state = FD_STAKE_DELEGATION_STATE_UNKNOWN;
+      iter->indices[iter->batch_cnt++] = root;
     }
-    if( !found ) continue;
-    iter->batch[iter->batch_cnt]   = selected;
-    iter->indices[iter->batch_cnt] = root;
-    iter->batch_cnt++;
+    if( !used ) iter->cursor = ((ulong)page_idx*2UL+word+1UL)*64UL;
   }
   if( iter->batch_cnt ) iter->idx = iter->indices[0];
 }
@@ -731,18 +772,8 @@ fd_stake_delegations_iter_init( fd_stake_delegations_iter_t * iter,
                                 fd_stake_delegations_view_t * view ) {
   iter->view   = view;
   iter->cursor = 0UL;
-  iter_fill( iter );
+  fd_stake_delegations_iter_fill( iter );
   return iter;
-}
-
-void
-fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter ) {
-  iter->batch_idx++;
-  if( iter->batch_idx==iter->batch_cnt ) {
-    iter_fill( iter );
-  } else {
-    iter->idx = iter->indices[iter->batch_idx];
-  }
 }
 
 void

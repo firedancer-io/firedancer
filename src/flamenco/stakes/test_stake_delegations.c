@@ -168,6 +168,66 @@ test_placeholder( fd_stake_delegations_t * stake_delegations ) {
   FD_TEST( stake_delegations->root_cnt==1UL && test_stake_delegations_record_cnt( stake_delegations, PAGE_ROOT )==stake_delegations->root_cnt );
 }
 
+/* Walk full and sparse pages across batch/bitmap boundaries.  A second
+   iterator can evict the first one's root page between batch refills. */
+static void
+test_iter_pages( fd_stake_delegations_t * stake_delegations,
+                 int                      sparse ) {
+  fd_stake_delegations_reset( stake_delegations );
+  ulong model[300];
+  for( ulong k=0UL; k<300UL; k++ ) {
+    int present = !sparse || k%7UL;
+    root_update( stake_delegations, k, present ? k+1000UL : 0UL );
+    model[k] = present ? k+1000UL : ULONG_MAX;
+  }
+  FD_TEST( fd_stake_delegations_prune_inactive_root( stake_delegations, 2UL, NULL, NULL, 1, NULL )==(sparse ? 43UL : 0UL) );
+  ushort root = fd_stake_delegations_root_fork_id( stake_delegations );
+  ushort a = fd_stake_delegations_attach_child( stake_delegations, root );
+  for( ulong k=0UL; k<300UL; k+=11UL ) {
+    update( stake_delegations, a, k, k+2000UL );
+    model[k] = k+2000UL;
+  }
+  ushort child = fd_stake_delegations_attach_child( stake_delegations, a );
+  for( ulong k=0UL; k<300UL; k+=13UL ) {
+    fd_pubkey_t pubkey = key( k );
+    fd_stake_delegations_fork_remove( stake_delegations, child, &pubkey );
+    model[k] = ULONG_MAX;
+  }
+  ushort sibling = fd_stake_delegations_attach_child( stake_delegations, root );
+  for( ulong k=0UL; k<300UL; k+=17UL ) update( stake_delegations, sibling, k, k+3000UL );
+
+  fd_stake_delegations_view_t view[1];
+  fd_stake_delegations_view_begin( view, stake_delegations, child );
+  fd_stake_delegations_iter_t iter[2];
+  fd_stake_delegations_iter_init( iter, view );
+  fd_stake_delegations_iter_init( iter+1, view );
+  uchar seen[2][300] = {{0}};
+  ulong indices[300];
+  for( ulong k=0UL; k<300UL; k++ ) indices[k] = ULONG_MAX;
+  /* Start one iterator ahead so their page faults are interleaved. */
+  for( ulong step=0UL;; step++ ) {
+    if( fd_stake_delegations_iter_done( iter ) && fd_stake_delegations_iter_done( iter+1 ) ) break;
+    for( ulong i=0UL; i<2UL; i++ ) {
+      if( i && step<37UL ) continue;
+      if( fd_stake_delegations_iter_done( iter+i ) ) continue;
+      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter+i );
+      ulong k = d->stake_account.ul[0];
+      FD_TEST( k<300UL && !seen[i][k] && d->stake==model[k] );
+      FD_TEST( d->state==FD_STAKE_DELEGATION_STATE_UNKNOWN );
+      seen[i][k] = 1;
+      ulong idx = fd_stake_delegations_iter_idx( iter+i );
+      if( indices[k]==ULONG_MAX ) indices[k] = idx;
+      else FD_TEST( indices[k]==idx );
+      fd_stake_delegations_iter_next( iter+i );
+    }
+  }
+  for( ulong k=0UL; k<300UL; k++ ) {
+    FD_TEST( seen[0][k]==(model[k]!=ULONG_MAX) );
+    FD_TEST( seen[1][k]==(model[k]!=ULONG_MAX) );
+  }
+  fd_stake_delegations_view_end( view );
+}
+
 static void
 test_model( fd_stake_delegations_t * stake_delegations ) {
   fd_stake_delegations_reset( stake_delegations );
@@ -937,6 +997,8 @@ main( int argc, char ** argv ) {
     test_writer_blocking( sd );
     test_refresh( sd );
     test_unused_slots( sd );
+    test_iter_pages( sd, 0 );
+    test_iter_pages( sd, 1 );
     test_long_chain( sd );
     test_same_key_siblings( sd );
     test_fork_reuse( sd );
