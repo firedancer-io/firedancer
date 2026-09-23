@@ -570,10 +570,12 @@ main( int     argc,
   void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
   fd_http_server_params_t http_params = derive_http_params( tile );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_rpc_tile_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t ) );
-  void *          http_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( http_params ) );
+  fd_rpc_tile_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ),  sizeof( fd_rpc_tile_t ) );
+                             FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
+  void *          http_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),    fd_http_server_footprint( http_params ) );
   tile_obj->offset = fd_wksp_gaddr_fast( wksp, ctx );
   memset( ctx, 0, sizeof(fd_rpc_tile_t) );
+  ctx->accdb_ring->ioring_fd = -1; /* no privileged_init: blocking accdb reads */
   static fd_http_server_callbacks_t const callbacks = {
     .request    = rpc_http_request,
     .ws_open    = rpc_ws_open,

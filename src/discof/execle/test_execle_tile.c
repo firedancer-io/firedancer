@@ -186,6 +186,10 @@ test_env_create( void ) {
 
 static void
 test_env_destroy( test_env_t * env ) {
+  if( env->execle->accdb_ring->ioring_fd>=0 ) {
+    fd_accdb_attach_io_uring( env->execle->accdb, NULL );
+    fd_accdb_io_uring_fini( env->execle->accdb_ring );
+  }
   ulong tag = TOPO_TAG;
   fd_wksp_tag_free( env->mini->wksp, &tag, 1UL );
 }
@@ -814,17 +818,24 @@ test_assert_txn_ns_dt_ordered( fd_txn_ns_dt_t const * dt ) {
 }
 
 FD_UNIT_TEST( execle_seccomp ) {
-  int   out_fds[4];
-  ulong nfds = populate_allowed_fds( NULL, NULL, 4UL, out_fds );
-  FD_TEST( nfds>=3 && nfds<=4 );
+  test_env_t *           env  = test_env_create();
+  fd_topo_tile_t const * tile = &topo->tiles[ 0 ];
+  int   out_fds[5];
+  ulong nfds = populate_allowed_fds( topo, tile, 5UL, out_fds );
+  /* logfile fd is optional; io_uring fd is last unless io_uring is
+     unavailable */
+  ulong ring_cnt = env->execle->accdb_ring->ioring_fd>=0 ? 1UL : 0UL;
+  ulong base_cnt = nfds-ring_cnt;
+  FD_TEST( base_cnt>=3 && base_cnt<=4 );
   FD_TEST( out_fds[0]==STDERR_FILENO );
-  /* logfile fd is optional; the stake spill fd is always last */
-  FD_TEST( out_fds[ nfds-2UL ]==FD_ACCDB_FD_RW );
-  FD_TEST( out_fds[ nfds-1UL ]==FD_STAKE_DELEGATIONS_FD );
-  if( nfds==4 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
+  FD_TEST( out_fds[ base_cnt-2UL ]==FD_ACCDB_FD_RW );
+  FD_TEST( out_fds[ base_cnt-1UL ]==FD_STAKE_DELEGATIONS_FD );
+  if( ring_cnt ) FD_TEST( out_fds[ base_cnt ]==env->execle->accdb_ring->ioring_fd );
+  if( base_cnt==4 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
 
   struct sock_filter filter[ sock_filter_policy_fd_execle_tile_instr_cnt ];
-  populate_allowed_seccomp( NULL, NULL, sock_filter_policy_fd_execle_tile_instr_cnt, filter );
+  populate_allowed_seccomp( topo, tile, sock_filter_policy_fd_execle_tile_instr_cnt, filter );
+  test_env_destroy( env );
 }
 
 FD_UNIT_TEST( execle_rebate_deferred ) {
