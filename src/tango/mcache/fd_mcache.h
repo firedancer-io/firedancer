@@ -185,7 +185,10 @@ FD_FN_PURE uchar *       fd_mcache_app_laddr      ( fd_frag_meta_t *       mcach
 
 static inline ulong
 fd_mcache_seq_query( ulong const * _seq ) {
-  return __atomic_load_n( _seq, __ATOMIC_ACQUIRE );
+  FD_COMPILER_MFENCE();
+  ulong seq = __atomic_load_n( _seq, __ATOMIC_ACQUIRE );
+  FD_COMPILER_MFENCE();
+  return seq;
 }
 
 /* fd_mcache_seq_update updates the mcache's seq[0] (e.g. from
@@ -205,7 +208,9 @@ fd_mcache_seq_query( ulong const * _seq ) {
 static inline void
 fd_mcache_seq_update( ulong * _seq,
                       ulong   seq ) {
+  FD_COMPILER_MFENCE();
   __atomic_store_n( _seq, seq, __ATOMIC_RELEASE );
+  FD_COMPILER_MFENCE();
 }
 
 /* fd_mcache_line_idx returns the index of the cache line in a depth

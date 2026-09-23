@@ -99,7 +99,11 @@ FD_FN_PURE static inline ulong fd_fseq_seq0( ulong const * fseq ) { return fseq[
 
 static inline ulong
 fd_fseq_query( ulong const * fseq ) {
-  return __atomic_load_n( fseq, __ATOMIC_ACQUIRE );
+  FD_COMPILER_MFENCE();
+  /* Acquire returned credits before reusing the consumer's buffers. */
+  ulong seq = __atomic_load_n( fseq, __ATOMIC_ACQUIRE );
+  FD_COMPILER_MFENCE();
+  return seq;
 }
 
 /* fd_fseq_update updates the sequence number stored in the fseq to seq.
@@ -110,7 +114,11 @@ fd_fseq_query( ulong const * fseq ) {
 static inline void
 fd_fseq_update( ulong * fseq,
                 ulong   seq ) {
+  FD_COMPILER_MFENCE();
+  /* Finish reading payloads before permitting the producer to reuse them.
+     A store-store fence alone does not order these preceding reads. */
   __atomic_store_n( fseq, seq, __ATOMIC_RELEASE );
+  FD_COMPILER_MFENCE();
 }
 
 FD_PROTOTYPES_END
