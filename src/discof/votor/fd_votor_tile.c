@@ -33,13 +33,13 @@
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
 
-#define QUIC_CONN_MAX (AG_VAT_MAX * 2) /* each validator is alloted 2 concurrent conns */
+#define VOTE_LOOKAHEAD_MAX (40UL) /* lookahead at most 40 slots from highest ParentReady (matches Agave) */
 
+#define QUIC_BAN_TIMEOUT_NS     (10L*1000L*1000L*1000L) /* 10 seconds */
 #define QUIC_CLOSE_CODE_UNKNOWN (2U)
 #define QUIC_CLOSE_CODE_EVICTED (3U)
 #define QUIC_CLOSE_CODE_BANNED  (4U)
-
-#define QUIC_BAN_TIMEOUT_NS (10L*1000L*1000L*1000L) /* 10 seconds */
+#define QUIC_CONN_MAX           (AG_VAT_MAX * 2) /* each validator is alloted 2 concurrent conns */
 
 static fd_quic_limits_t quic_client_limits = {
   .conn_cnt                    = AG_VAT_MAX,
@@ -159,7 +159,8 @@ struct fd_votor_tile {
   ulong                      next_epoch_slot;
   fd_multi_epoch_leaders_t * mleaders;
   ulong                      next_leader_slot;
-  ulong                      pending_notar_slot; /* highest slot whose CERTED FINAL was published */
+  ulong                      highest_parent_ready_slot;
+  ulong                      highest_unotar_final_slot; /* highest slot for which we have a final cert that we have not paired with a notar  */
   contact_info_t *           contact_infos;
   peer_t *                   peers;
   ag_pool_t *                pool;
@@ -515,6 +516,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     }
 
     ulong  vote_slot = ag_vote_slot( vote  );
+    if( FD_UNLIKELY( vote_slot>fd_ulong_max( ag_pool_finalized_slot( ctx->pool ), ctx->highest_parent_ready_slot )+VOTE_LOOKAHEAD_MAX ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_BOUNDS_IDX ]++; return; }
     ushort rank      = fd_ushort_if( vote_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( vote_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_NOT_RANKED_IDX ]++; return; } /* peer is not ranked in their vote slot's epoch */
     switch( vote->kind ) {
@@ -896,6 +898,7 @@ after_credit( fd_votor_tile_t *   ctx,
 
   if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
     ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
+    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_PARENT_READY ) ) ctx->highest_parent_ready_slot = fd_ulong_max( ctx->highest_parent_ready_slot, ctx->scratch.pool_event.parent_ready.slot );
 
     /* Notify other tiles that we have a cert indicating this slot has
        reached a new state.
@@ -915,7 +918,7 @@ after_credit( fd_votor_tile_t *   ctx,
           *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, state->certs.notar.block_hash ), .agg = state->certs.finalize.agg, .agg2 = state->certs.notar.agg };
           fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
         } else {
-          ctx->pending_notar_slot = slot;
+          ctx->highest_unotar_final_slot = slot;
         }
         break;
       case AG_CERT_KIND_FAST_FINAL:
@@ -925,7 +928,7 @@ after_credit( fd_votor_tile_t *   ctx,
       case AG_CERT_KIND_NOTAR:
         *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->notar.block_hash ), .agg = cert->notar.agg };
         fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-        if( FD_UNLIKELY( ctx->pending_notar_slot==slot && state && state->certs.finalize.slot != ULONG_MAX ) ) {
+        if( FD_UNLIKELY( ctx->highest_unotar_final_slot==slot && state && state->certs.finalize.slot != ULONG_MAX ) ) {
           *certed = (fd_votor_certed_t){ .kind = AG_CERT_KIND_FINAL, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->notar.block_hash ), .agg = cert->notar.agg };
           fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
         }
@@ -1211,10 +1214,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
   FD_TEST( ctx->mleaders );
 
-  ctx->init               = 0;
-  ctx->net_tx_cnt         = 0UL;
-  ctx->next_leader_slot   = ULONG_MAX;
-  ctx->pending_notar_slot = ULONG_MAX;
+  ctx->init                      = 0;
+  ctx->net_tx_cnt                = 0UL;
+  ctx->next_leader_slot          = ULONG_MAX;
+  ctx->highest_parent_ready_slot = 0UL;
+  ctx->highest_unotar_final_slot = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
