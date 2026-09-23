@@ -333,6 +333,60 @@ test_handoff_checks( void ) {
   FD_LOG_NOTICE(( "pass: test_handoff_checks" ));
 }
 
+/* A reclaim names one term, computed the same way on both sides, and
+   its confirmation answers exactly that attempt. */
+static void
+test_reclaim_checks( void ) {
+  FD_TEST( fd_failover_reclaim_term( 5UL, 3UL )==6UL && fd_failover_reclaim_term( 3UL, 5UL )==6UL );
+  FD_TEST( fd_failover_reclaim_term( 0UL, 0UL )==1UL );
+  FD_TEST( fd_failover_reclaim_term( ULONG_MAX-3UL, 0UL )==ULONG_MAX-2UL );
+  FD_TEST( fd_failover_reclaim_term( ULONG_MAX-2UL, 0UL )==ULONG_MAX );
+  FD_TEST( fd_failover_reclaim_term( ULONG_MAX, 0UL )==ULONG_MAX );
+
+  fd_failover_reclaim_t req   = { .term=6UL, .nonce=9UL };
+  fd_failover_status_t  local = { .term=5UL, .role=FD_FAILOVER_ROLE_STANDBY };
+  fd_failover_status_t  peer  = { .term=5UL, .role=FD_FAILOVER_ROLE_STANDBY };
+  uchar why;
+#define RECLAIM(change, code_, reason_) do {                                           \
+    fd_failover_reclaim_t r = req;                                                    \
+    fd_failover_status_t  l = local;                                                  \
+    fd_failover_status_t  p = peer;                                                   \
+    int fresh=1, junk=1, pending=0, owed=0;                                           \
+    ulong state = FD_FAILOVER_STATE_STANDBY;                                          \
+    change;                                                                           \
+    why = 0U;                                                                         \
+    FD_TEST( fd_failover_reclaim_check( &r, &l, &p, fresh, state, junk, pending, owed, &why )==(code_) ); \
+    FD_TEST( why==(reason_) );                                                        \
+  } while(0)
+  RECLAIM( (void)0,                                FD_FAILOVER_RECLAIM_CONFIRMED,  FD_FAILOVER_REJECT_NONE           );
+  RECLAIM( r.nonce=0UL,                            FD_FAILOVER_RECLAIM_REFUSED,    FD_FAILOVER_REJECT_BAD_REQUEST    );
+  RECLAIM( l.role=FD_FAILOVER_ROLE_ACTIVE,         FD_FAILOVER_RECLAIM_HELD,       FD_FAILOVER_REJECT_NONE           );
+  RECLAIM( state=FD_FAILOVER_STATE_ACTIVE,         FD_FAILOVER_RECLAIM_HELD,       FD_FAILOVER_REJECT_NONE           );
+  RECLAIM( fresh=0,                                FD_FAILOVER_RECLAIM_REFUSED,    FD_FAILOVER_REJECT_STATUS_STALE   );
+  RECLAIM( p.role=FD_FAILOVER_ROLE_ACTIVE,         FD_FAILOVER_RECLAIM_REFUSED,    FD_FAILOVER_REJECT_STATE_MISMATCH );
+  RECLAIM( l.term=ULONG_MAX-2UL; r.term=ULONG_MAX, FD_FAILOVER_RECLAIM_REFUSED,    FD_FAILOVER_REJECT_TERM_EXHAUSTED );
+  RECLAIM( r.term=7UL,                             FD_FAILOVER_RECLAIM_STALE_TERM, FD_FAILOVER_REJECT_NONE           );
+  RECLAIM( p.term=7UL,                             FD_FAILOVER_RECLAIM_STALE_TERM, FD_FAILOVER_REJECT_NONE           );
+  RECLAIM( l.status=FD_FAILOVER_STATUS_PAUSED,     FD_FAILOVER_RECLAIM_REFUSED,    FD_FAILOVER_REJECT_PAUSED         );
+  RECLAIM( owed=1,                                 FD_FAILOVER_RECLAIM_REFUSED,    FD_FAILOVER_REJECT_STATE_MISMATCH );
+  RECLAIM( pending=1,                              FD_FAILOVER_RECLAIM_REFUSED,    FD_FAILOVER_REJECT_SWITCH_PENDING );
+  RECLAIM( junk=0,                                 FD_FAILOVER_RECLAIM_REFUSED,    FD_FAILOVER_REJECT_HOLDS_IDENTITY );
+  /* The peer may be ahead and the term still recomputes. */
+  RECLAIM( p.term=6UL; r.term=7UL,                 FD_FAILOVER_RECLAIM_CONFIRMED,  FD_FAILOVER_REJECT_NONE           );
+#undef RECLAIM
+
+  fd_failover_confirm_t c = { .term=6UL, .nonce=9UL, .code=FD_FAILOVER_RECLAIM_CONFIRMED, .reason=FD_FAILOVER_REJECT_NONE };
+  FD_TEST(  fd_failover_confirm_check( &c, &req ) );
+  c.nonce = 8UL; FD_TEST( !fd_failover_confirm_check( &c, &req ) ); c.nonce = 9UL;
+  c.term  = 7UL; FD_TEST( !fd_failover_confirm_check( &c, &req ) ); c.term  = 6UL;
+  c.reason = FD_FAILOVER_REJECT_BUSY;    FD_TEST( !fd_failover_confirm_check( &c, &req ) ); /* a yes carries no reason */
+  c.code   = FD_FAILOVER_RECLAIM_REFUSED; FD_TEST(  fd_failover_confirm_check( &c, &req ) );
+  c.reason = FD_FAILOVER_REJECT_NONE;    FD_TEST( !fd_failover_confirm_check( &c, &req ) ); /* a refusal names one */
+  c.code   = FD_FAILOVER_RECLAIM_CODE_CNT; FD_TEST( !fd_failover_confirm_check( &c, &req ) );
+  c.code   = FD_FAILOVER_RECLAIM_HELD; c.reason = FD_FAILOVER_REJECT_CNT; FD_TEST( !fd_failover_confirm_check( &c, &req ) );
+  FD_LOG_NOTICE(( "pass: a reclaim names one term and its confirmation answers exactly that attempt" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -344,6 +398,7 @@ main( int     argc,
   test_state_boot();
   test_demoted_terms();
   test_handoff_checks();
+  test_reclaim_checks();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -1493,6 +1493,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->failov.staked_identity_path, config->firedancer.failover.staked_identity_path, sizeof(tile->failov.staked_identity_path) );
     fd_cstr_ncpy( tile->failov.vote_account_path,    config->paths.vote_account,                       sizeof(tile->failov.vote_account_path) );
     fd_cstr_ncpy( tile->failov.base_path,            config->paths.base,                               sizeof(tile->failov.base_path) );
+    fd_cstr_ncpy( tile->failov.failover_first_use,   config->failover_first_use,                       sizeof(tile->failov.failover_first_use) );
     tile->failov.target_uid          = config->uid;
     tile->failov.target_gid          = config->gid;
     tile->failov.role_file_sandboxed = config->development.sandbox;

@@ -6,7 +6,7 @@
 #include "../../util/fd_util_base.h"
 
 /* Protocol version */
-#define FD_FAILOVER_VERSION (1U)
+#define FD_FAILOVER_VERSION (2U)
 
 /* Message types */
 #define FD_FAILOVER_MSG_HELLO            (0U)
@@ -19,7 +19,9 @@
 #define FD_FAILOVER_MSG_PROMOTE_REJECTED (7U)
 #define FD_FAILOVER_MSG_PAUSE            (8U)
 #define FD_FAILOVER_MSG_RESUME           (9U)
-#define FD_FAILOVER_MSG_RESERVED         (10U)
+#define FD_FAILOVER_MSG_RECLAIM          (10U)
+#define FD_FAILOVER_MSG_CONFIRM          (11U)
+#define FD_FAILOVER_MSG_RESERVED         (12U)
 
 /* Sentinel for a slot field with no value */
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
@@ -180,7 +182,9 @@ typedef struct fd_failover_handoff_req fd_failover_handoff_req_t;
 #define FD_FAILOVER_REJECT_ADOPTION_MISMATCH (16U)
 #define FD_FAILOVER_REJECT_STATE_MISMATCH    (17U)
 #define FD_FAILOVER_REJECT_TERM_EXHAUSTED    (18U)
-#define FD_FAILOVER_REJECT_CNT               (19U)
+#define FD_FAILOVER_REJECT_HOLDS_IDENTITY    (19U)
+#define FD_FAILOVER_REJECT_SWITCH_PENDING    (20U)
+#define FD_FAILOVER_REJECT_CNT               (21U)
 
 struct __attribute__((packed)) fd_failover_handoff_resp {
   ulong proposed_term;
@@ -225,6 +229,34 @@ struct __attribute__((packed)) fd_failover_control {
 };
 
 typedef struct fd_failover_control fd_failover_control_t;
+
+/* A first-use claimant asks its peer to stand down at one past the larger
+   of their terms.  The nonce identifies this attempt across reconnects.
+   The same wire exchange also supports later signed-history recovery. */
+struct __attribute__((packed)) fd_failover_reclaim {
+  ulong term;
+  ulong nonce;
+};
+typedef struct fd_failover_reclaim fd_failover_reclaim_t;
+
+/* CONFIRMED is sent only after the admin tile proves the junk identity
+   is installed and the confirmer durably records standby at this term. */
+struct __attribute__((packed)) fd_failover_confirm {
+  ulong term;
+  ulong nonce;
+  uchar code;
+  uchar reason;
+};
+typedef struct fd_failover_confirm fd_failover_confirm_t;
+
+#define FD_FAILOVER_RECLAIM_CONFIRMED  (0U)
+#define FD_FAILOVER_RECLAIM_REFUSED    (1U)
+#define FD_FAILOVER_RECLAIM_HELD       (2U)
+#define FD_FAILOVER_RECLAIM_STALE_TERM (3U)
+#define FD_FAILOVER_RECLAIM_CODE_CNT   (4U)
+
+FD_STATIC_ASSERT( sizeof(fd_failover_reclaim_t)==16UL, reclaim_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_confirm_t)==18UL, confirm_layout );
 
 FD_STATIC_ASSERT( sizeof(fd_failover_handoff_req_t)==26UL, wire_layout );
 FD_STATIC_ASSERT( sizeof(fd_failover_handoff_resp_t)==27UL, wire_layout );
@@ -323,6 +355,37 @@ fd_failover_handoff_check( fd_failover_handoff_req_t const * req,
 int
 fd_failover_handoff_resp_check( fd_failover_handoff_resp_t const * resp,
                                 fd_failover_handoff_req_t const *  req );
+
+/* fd_failover_reclaim_term returns the term a reclaim must name, or
+   ULONG_MAX when the pair has no term left.  Both sides compute it from
+   the same two numbers, which pins one reclaim to one term. */
+ulong
+fd_failover_reclaim_term( ulong local_term,
+                          ulong peer_term );
+
+/* fd_failover_reclaim_check is the confirmer's verdict on a reclaim.
+   local is this machine's own status, peer the asker's as this machine
+   sees it, junk_installed and switch_pending come from the admin tile's
+   answer and the controller's own bookkeeping, and owes_confirmation says
+   a demotion confirmation is still owed to the asker.  A busy machine is
+   refused by the caller before it asks the admin tile, so busy is not
+   judged here.  Returns FD_FAILOVER_RECLAIM_* and writes the reason. */
+uchar
+fd_failover_reclaim_check( fd_failover_reclaim_t const * req,
+                           fd_failover_status_t const *  local,
+                           fd_failover_status_t const *  peer,
+                           int                           peer_fresh,
+                           ulong                         local_state,
+                           int                           junk_installed,
+                           int                           switch_pending,
+                           int                           owes_confirmation,
+                           uchar *                       reason );
+
+/* fd_failover_confirm_check says whether a confirmation answers the
+   given request, field for field, with a consistent code and reason. */
+int
+fd_failover_confirm_check( fd_failover_confirm_t const * confirm,
+                           fd_failover_reclaim_t const * req );
 
 FD_PROTOTYPES_END
 

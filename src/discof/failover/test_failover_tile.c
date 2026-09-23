@@ -477,9 +477,11 @@ test_before_frag_admits( void ) {
 
   FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_STATUS_REQ ) );
   FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_RESP ) );
+  FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_STATE ) );
   /* This tile publishes these two, it never receives them. */
   FD_TEST(  before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_STATUS_RESP ) );
   FD_TEST(  before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_REQ ) );
+  FD_TEST(  before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_QUERY ) );
   FD_LOG_NOTICE(( "pass: before_frag admits every frame the tile acts on" ));
 }
 
@@ -542,6 +544,219 @@ controller_fini( void ) {
   FD_TEST( !close( ctx->role_file_fd ) );
   FD_TEST( !close( ctx->role_dir_fd ) );
   (void)unlink( "/tmp/unused" );
+}
+
+static fd_failover_peer_t *
+first_use_peer( ulong self_idx,
+                 long now ) {
+  ctx->member_cnt = 2UL;
+  ctx->self_idx = self_idx;
+  ctx->step_stem = stem;
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  peer->member_idx = 1UL-self_idx;
+  peer->status_valid = 1;
+  peer->status_time = now;
+  peer->status.role = FD_FAILOVER_ROLE_STANDBY;
+  peer->status.term = 0UL;
+  peer->channel->state = FD_FAILOVER_SESSION_PAIRED;
+  peer->channel->peer_hello.role = FD_FAILOVER_ROLE_STANDBY;
+  peer->channel->peer_hello.term = 0UL;
+  peer->channel->peer_hello.boot_id = 77UL;
+  return peer;
+}
+
+static void
+test_first_use_boot_guard( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 0UL );
+  first_use_peer( 0UL, 1000L );
+  FD_BASE58_ENCODE_32_BYTES( ctx->hello.staked_pubkey, pubkey );
+  FD_TEST( first_use_check( ctx, pubkey, 0, ENOENT ) );
+  FD_TEST( first_use_check( ctx, pubkey, ENOENT, ENOENT ) );
+  FD_TEST( !first_use_check( ctx, "not a public key", 0, ENOENT ) );
+  for( int err=0; err<3; err++ ) {
+    int errors[] = { EPROTO, EACCES, EIO };
+    FD_TEST( !first_use_check( ctx, pubkey, errors[ err ], ENOENT ) );
+    FD_TEST( !first_use_check( ctx, pubkey, 0, errors[ err ] ) );
+  }
+  FD_TEST( !first_use_check( ctx, pubkey, 0, 0 ) );
+  ctx->self_idx = 1UL;
+  FD_TEST( !first_use_check( ctx, pubkey, 0, ENOENT ) );
+  ctx->self_idx = 0UL;
+  ctx->hello.staked_pubkey[ 0 ] ^= 1U;
+  FD_TEST( !first_use_check( ctx, pubkey, 0, ENOENT ) );
+  ctx->hello.staked_pubkey[ 0 ] ^= 1U;
+  for( ulong state=1UL; state<FD_FAILOVER_STATE_CNT; state++ ) {
+    ctx->role_file.role = (uchar)state;
+    FD_TEST( !first_use_check( ctx, pubkey, 0, ENOENT ) );
+  }
+  ctx->role_file.role = FD_FAILOVER_STATE_STANDBY;
+  ctx->role_file.term = 1UL;
+  FD_TEST( !first_use_check( ctx, pubkey, 0, ENOENT ) );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: first use requires member zero, the exact identity and unused controller records" ));
+}
+
+static void
+test_first_use_exchange( void ) {
+  static fd_failover_tile_ctx_t claimant;
+  fd_failover_reclaim_t req;
+  fd_failover_confirm_t confirm;
+
+  controller_init( FD_FAILOVER_STATE_STANDBY, 0UL );
+  first_use_peer( 0UL, 1000L );
+  maybe_first_use( ctx, 1000L );
+  FD_TEST( !ctx->pending_valid && ctx->action==FD_FAILOVER_ACTION_IDLE );
+  ctx->first_use_authorized = 1;
+  maybe_first_use( ctx, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->role_file.term==0UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_FIRST_USE_WAIT && ctx->first_use_pending );
+  FD_TEST( ctx->pending_type==FD_FAILOVER_MSG_RECLAIM && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
+  fd_memcpy( &req, ctx->pending, sizeof(req) );
+  FD_TEST( req.term==1UL && req.nonce );
+  claimant = *ctx;
+  controller_fini();
+
+  controller_init( FD_FAILOVER_STATE_STANDBY, 0UL );
+  fd_failover_peer_t * peer = first_use_peer( 1UL, 1000L );
+  fd_memcpy( ctx->rx, &req, sizeof(req) );
+  handle_control( ctx, peer, FD_FAILOVER_MSG_RECLAIM, sizeof(req), 1000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_CONFIRM_WAIT_QUERY && ctx->switch_query_pending );
+  FD_TEST( !ctx->pending_valid && ctx->role_file.term==0UL );
+  FD_TEST( pub_mcache[ 0 ].sig==FD_FAILOVER_BUS_SWITCH_QUERY );
+  FD_TEST( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_STAKED )==ULONG_MAX );
+
+  /* A query result cannot complete an identity switch.  A stale query
+     answer cannot release the first-use grant either. */
+  ctx->admin_in_idx    = 1UL;
+  ctx->adopt_in_idx    = ULONG_MAX;
+  ctx->admin_in_mem    = (fd_wksp_t *)bus_mem;
+  ctx->admin_in_chunk0 = 0UL;
+  ctx->admin_in_wmark  = 0UL;
+  fd_failover_bus_msg_t * answer = (fd_failover_bus_msg_t *)bus_mem;
+  fd_memset( answer, 0, sizeof(*answer) );
+  fd_failover_switch_resp_t state = { .result=FD_FAILOVER_SWITCH_STATE_JUNK, .tower_watermark=ULONG_MAX };
+  fd_memcpy( state.identity, ctx->hello.junk_pubkey, 32UL );
+  fd_memcpy( answer->payload, &state, sizeof(state) );
+  answer->nonce = ctx->switch_query_id+1UL;
+  during_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_STATE, 0UL, sizeof(*answer), 0UL );
+  after_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_STATE, sizeof(*answer), 0UL, 0UL, stem );
+  step_controller( ctx, stem, 1100L );
+  FD_TEST( ctx->switch_query_pending && !ctx->pending_valid );
+  answer->nonce = ctx->switch_query_id;
+  during_frag( ctx, 1UL, 1UL, FD_FAILOVER_BUS_SWITCH_STATE, 0UL, sizeof(*answer), 0UL );
+  after_frag( ctx, 1UL, 1UL, FD_FAILOVER_BUS_SWITCH_STATE, sizeof(*answer), 0UL, 0UL, stem );
+  FD_TEST( !ctx->bus_req_fresh );
+  step_controller( ctx, stem, 1200L );
+  FD_TEST( !ctx->switch_result_fresh && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
+  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->role_file.term==1UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->pending_type==FD_FAILOVER_MSG_CONFIRM );
+  fd_memcpy( &confirm, ctx->pending, sizeof(confirm) );
+  FD_TEST( confirm.code==FD_FAILOVER_RECLAIM_CONFIRMED && confirm.nonce==req.nonce );
+  fd_failover_role_file_t saved;
+  FD_TEST( !fd_failover_role_load( ctx->role_dir_fd, &saved ) );
+  FD_TEST( saved.term==1UL && saved.role==FD_FAILOVER_STATE_STANDBY );
+
+  /* Same attempt after a dropped answer is idempotent.  A new claimant
+     boot or a new nonce cannot reuse the durable term. */
+  ctx->pending_valid = 0;
+  handle_control( ctx, peer, FD_FAILOVER_MSG_RECLAIM, sizeof(req), 1300L );
+  FD_TEST( fd_memeq( &confirm, ctx->pending, sizeof(confirm) ) );
+  ctx->pending_valid = 0;
+  ctx->switch_pending_key = FD_FAILOVER_SWITCH_KEY_STAKED;
+  handle_control( ctx, peer, FD_FAILOVER_MSG_RECLAIM, sizeof(req), 1350L );
+  FD_TEST( ((fd_failover_confirm_t *)ctx->pending)->code==FD_FAILOVER_RECLAIM_REFUSED );
+  FD_TEST( ((fd_failover_confirm_t *)ctx->pending)->reason==FD_FAILOVER_REJECT_SWITCH_PENDING );
+  ctx->switch_pending_key = FD_FAILOVER_SWITCH_KEY_CNT;
+  ctx->pending_valid = 0;
+  peer->channel->peer_hello.boot_id++;
+  handle_control( ctx, peer, FD_FAILOVER_MSG_RECLAIM, sizeof(req), 1400L );
+  FD_TEST( ((fd_failover_confirm_t *)ctx->pending)->code==FD_FAILOVER_RECLAIM_STALE_TERM );
+  peer->channel->peer_hello.boot_id--;
+  ctx->pending_valid = 0;
+  fd_failover_reclaim_t other = req;
+  other.nonce++;
+  fd_memcpy( ctx->rx, &other, sizeof(other) );
+  handle_control( ctx, peer, FD_FAILOVER_MSG_RECLAIM, sizeof(other), 1500L );
+  FD_TEST( ((fd_failover_confirm_t *)ctx->pending)->code==FD_FAILOVER_RECLAIM_STALE_TERM );
+  controller_fini();
+
+  controller_init( FD_FAILOVER_STATE_STANDBY, 0UL );
+  peer = first_use_peer( 0UL, 1600L );
+  ctx->first_use_authorized = claimant.first_use_authorized;
+  ctx->first_use_tried = claimant.first_use_tried;
+  ctx->first_use_pending = claimant.first_use_pending;
+  ctx->first_use_req = claimant.first_use_req;
+  ctx->first_use_peer_boot = claimant.first_use_peer_boot;
+  ctx->claim_deadline = claimant.claim_deadline;
+  ctx->action = claimant.action;
+  ctx->action_term = claimant.action_term;
+  fd_failover_confirm_t stale = confirm;
+  stale.nonce++;
+  fd_memcpy( ctx->rx, &stale, sizeof(stale) );
+  handle_control( ctx, peer, FD_FAILOVER_MSG_CONFIRM, sizeof(stale), 1700L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_FIRST_USE_WAIT && ctx->role_file.term==0UL );
+
+  fd_memcpy( ctx->rx, &confirm, sizeof(confirm) );
+  handle_control( ctx, peer, FD_FAILOVER_MSG_CONFIRM, sizeof(confirm), 1800L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->role_file.term==1UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED );
+  FD_TEST( !ctx->first_use_authorized && !ctx->demoted_valid );
+  FD_TEST( !fd_failover_role_load( ctx->role_dir_fd, &saved ) && saved.role==FD_FAILOVER_STATE_PROMOTING );
+  step_controller( ctx, stem, 1900L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING );
+  ctx->switch_result.result = FD_FAILOVER_SWITCH_OK;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 2000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->role_file.term==1UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->first_use_promoting && !ctx->pending_valid );
+  FD_TEST( fd_failover_state_boot( ctx->role_file.role )==FD_FAILOVER_STATE_RECLAIMING );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a passive pair becomes one holder only after durable peer proof and completed key installation" ));
+}
+
+static void
+test_first_use_refusals( void ) {
+  for( ulong mode=0UL; mode<7UL; mode++ ) {
+    controller_init( FD_FAILOVER_STATE_STANDBY, 0UL );
+    fd_failover_peer_t * peer = first_use_peer( 1UL, 1000L );
+    fd_failover_reclaim_t req = { .term=1UL, .nonce=77UL };
+    fd_memcpy( ctx->rx, &req, sizeof(req) );
+    if( mode==0UL ) ctx->paused = 1;
+    if( mode==1UL ) ctx->state = FD_FAILOVER_STATE_ACTIVE;
+    if( mode==2UL ) ctx->send_demoted = 1;
+    if( mode==3UL ) ctx->switch_pending_key = FD_FAILOVER_SWITCH_KEY_STAKED;
+    if( mode==4UL ) peer->status_time = 1000L-3L*ctx->status_interval;
+    handle_control( ctx, peer, FD_FAILOVER_MSG_RECLAIM, sizeof(req), 1000L );
+    if( mode>=5UL ) {
+      FD_TEST( ctx->switch_query_pending && !ctx->pending_valid );
+      ctx->switch_state.result = FD_FAILOVER_SWITCH_STATE_STAKED;
+      ctx->switch_state.tower_watermark = ULONG_MAX;
+      if( mode==5UL ) switch_state_answer( ctx, ctx->switch_query_id );
+      step_controller( ctx, stem, mode==6UL ? ctx->claim_deadline : 1100L );
+    }
+    FD_TEST( ctx->role_file.term==0UL && ctx->pending_valid );
+    FD_TEST( ((fd_failover_confirm_t *)ctx->pending)->code!=FD_FAILOVER_RECLAIM_CONFIRMED );
+    controller_fini();
+  }
+  for( ulong mode=0UL; mode<4UL; mode++ ) {
+    controller_init( FD_FAILOVER_STATE_STANDBY, 0UL );
+    fd_failover_peer_t * peer = first_use_peer( 0UL, 1000L );
+    ctx->first_use_authorized = 1;
+    ctx->replay_slot = FD_FAILOVER_SLOT_NULL;
+    maybe_first_use( ctx, 1000L );
+    fd_failover_confirm_t confirm = { .term=ctx->first_use_req.term, .nonce=ctx->first_use_req.nonce, .code=FD_FAILOVER_RECLAIM_CONFIRMED };
+    if( mode==0UL ) ctx->paused = 1;
+    if( mode==1UL ) peer->channel->peer_hello.boot_id++;
+    if( mode==2UL ) confirm.code = FD_FAILOVER_RECLAIM_HELD;
+    fd_memcpy( ctx->rx, &confirm, sizeof(confirm) );
+    handle_control( ctx, peer, FD_FAILOVER_MSG_CONFIRM, sizeof(confirm), mode==3UL ? ctx->claim_deadline : 1100L );
+    FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->role_file.term==0UL && ctx->stuck );
+    FD_TEST( !ctx->first_use_pending && !ctx->first_use_authorized && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
+    handle_control( ctx, peer, FD_FAILOVER_MSG_CONFIRM, sizeof(confirm), 1200L );
+    FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY );
+    controller_fini();
+  }
+  FD_LOG_NOTICE(( "pass: first use refuses absent proof, active peers, pause, stale replies and expired attempts" ));
 }
 
 /* Test that we only tell the peer to promote after we have actually
@@ -1522,6 +1737,9 @@ main( int     argc,
   test_switch_request();
   test_before_frag_admits();
   FD_TEST( mkdtemp( ctl_dir ) );
+  test_first_use_boot_guard();
+  test_first_use_exchange();
+  test_first_use_refusals();
   test_demoted_payload();
   test_final_tower_regression();
   test_pause_stops_pending_promotion();

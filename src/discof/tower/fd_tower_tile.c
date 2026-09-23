@@ -705,7 +705,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   msg->is_voting = found_authority && identity_matches;
 
   if( FD_LIKELY( out->vote_slot!=ULONG_MAX &&
-                 !ctx->recovery_pending && !ctx->failover_standby &&
+                 !ctx->recovery_pending && !ctx->failover_standby && !ctx->no_vote_authority &&
                  found_authority &&
                  identity_matches &&
                  !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
@@ -1861,6 +1861,24 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     if( FD_UNLIKELY( ctx->failover_enabled ) ) {
       ctx->failover_standby = !fd_pubkey_eq( ctx->identity_key, &ctx->failover_staked_identity );
       FD_LOG_NOTICE(( "failover: this machine is now %s", ctx->failover_standby ? "a hot spare" : "the active voter" ));
+      ctx->first_use_pending = 0;
+      ctx->no_vote_authority = 0;
+      if( FD_UNLIKELY( !ctx->failover_standby ) ) {
+        if( FD_LIKELY( ctx->failover_tower_adopted ) ) {
+          ctx->first_use_authorized = 0;
+        } else if( FD_UNLIKELY( ctx->first_use_authorized ) ) {
+          /* A passive node may already have shadow votes.  They are not
+             signed history and must never bypass the vote-account check. */
+          fd_tower_vote_remove_all( ctx->tower->votes );
+          ctx->first_use_pending    = 1;
+          ctx->first_use_authorized = 0;
+          FD_LOG_NOTICE(( "first use installed, checking the vote account for history before voting" ));
+        } else {
+          ctx->no_vote_authority = 1;
+          FD_LOG_WARNING(( "staked identity installed without an adopted tower or first-use authorization, refusing to vote" ));
+        }
+      }
+      ctx->failover_tower_adopted = 0;
     }
     /* The admin tile reads the result as soon as it sees COMPLETED, so it
        has to be written first. */
@@ -1977,6 +1995,7 @@ failover_adopt_tower( fd_tower_tile_t * ctx,
                   err     ? FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT :
                             FD_TOWER_ADOPT_SUCCESS;
   if( FD_LIKELY( !err ) ) {
+    ctx->failover_tower_adopted = 1;
     /* fd_tower_adopt advanced the tower root and dropped tower ancestry
        below it.  The fork choice root is separate, so advance it to match,
        the way the normal root publish does.  Otherwise a later replay walks
@@ -2177,9 +2196,11 @@ privileged_init( fd_topo_t const *      topo,
   ctx->recovery_onchain_root = ULONG_MAX;
   ctx->recovery.retained_cnt = 0UL;
   ctx->first_use_pending    = 0;
+  ctx->first_use_authorized = 0;
+  ctx->failover_tower_adopted = 0;
+  ctx->no_vote_authority    = 0;
   ctx->failover_standby     = 0;
   fd_pubkey_t checkpoint_identity = *ctx->identity_key;
-  int first_use = 0;
   if( tile->tower.failover_enabled ) {
     if( FD_UNLIKELY( !ctx->tower_file_enabled ) ) FD_LOG_ERR(( "failover requires tower persistence" ));
     uchar const * staked = fd_keyload_load( tile->tower.failover_staked_identity_path, 1 );
@@ -2190,11 +2211,10 @@ privileged_init( fd_topo_t const *      topo,
     ctx->failover_standby         = !fd_pubkey_eq( ctx->identity_key, &checkpoint_identity );
     if( tile->tower.failover_first_use[ 0 ] ) {
       fd_pubkey_t authorized;
-      if( FD_UNLIKELY( ctx->failover_standby ||
-                       !fd_base58_decode_32( tile->tower.failover_first_use, authorized.uc ) ||
+      if( FD_UNLIKELY( !fd_base58_decode_32( tile->tower.failover_first_use, authorized.uc ) ||
                        !fd_pubkey_eq( &authorized, &checkpoint_identity ) ) )
-        FD_LOG_ERR(( "--failover-first-use must pass in this active validator's staked identity" ));
-      first_use = 1;
+        FD_LOG_ERR(( "--failover-first-use must name this pool's staked identity" ));
+      ctx->first_use_authorized = 1;
     }
   }
   if( FD_UNLIKELY( ctx->tower_file_enabled ) ) {
@@ -2202,13 +2222,15 @@ privileged_init( fd_topo_t const *      topo,
     int loaded = tower_file_load( ctx->tower_dir_fd, &checkpoint_identity, &ctx->recovery.saved );
     if( FD_UNLIKELY( loaded<0 ) )
       FD_LOG_ERR(( "cannot read or verify signed tower file." ));
-    if( FD_UNLIKELY( !loaded && tile->tower.failover_enabled && !ctx->failover_standby && !first_use ) )
+    if( FD_UNLIKELY( loaded && ctx->first_use_authorized ) )
+      FD_LOG_ERR(( "--failover-first-use cannot discard an existing signed tower file. Use signed-history recovery." ));
+    if( FD_UNLIKELY( !loaded && tile->tower.failover_enabled && !ctx->failover_standby && !ctx->first_use_authorized ) )
       FD_LOG_ERR(( "failover active startup requires its latest signed tower file." ));
     ctx->recovery_pending  = loaded && !ctx->failover_standby;
     ctx->tower_file_loaded = loaded;
-    ctx->first_use_pending = !loaded && first_use;
+    ctx->first_use_pending = ctx->first_use_authorized && !ctx->failover_standby;
     if( ctx->recovery_pending ) FD_LOG_NOTICE(( "loaded signed tower through slot %lu, it is reconciled with the snapshot's rooted history at the first replayed slot", ctx->recovery.saved.votes[ ctx->recovery.saved.votes_cnt-1UL ].slot ));
-    if( ctx->first_use_pending ) FD_LOG_NOTICE(( "first-use authorization accepted for this launch." ));
+    if( ctx->first_use_authorized ) FD_LOG_NOTICE(( "first-use authorization accepted for this launch, waiting for the controller to install the staked identity" ));
     ctx->tower_file_fd = fcntl( ctx->tower_dir_fd, F_DUPFD_CLOEXEC, 0 );
     if( FD_UNLIKELY( -1==ctx->tower_file_fd ) ) FD_LOG_ERR(( "fcntl(F_DUPFD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 

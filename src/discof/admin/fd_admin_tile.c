@@ -1600,6 +1600,37 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*out), ctx->failov_out_chunk0, ctx->failov_out_wmark );
 }
 
+/* This tile is the sole writer of identities.  A query reports its
+   installed key without initiating a switch or exposing private keys.
+   Switches run synchronously here, so a query cannot interleave one. */
+static void
+failover_switch_query( fd_admin_tile_ctx_t * ctx,
+                       fd_stem_context_t *   stem ) {
+  fd_failover_bus_msg_t const * req = &ctx->failov_resp;
+  fd_failover_switch_query_t query;
+  fd_memcpy( &query, req->payload, sizeof(query) );
+  fd_failover_switch_resp_t answer;
+  fd_memset( &answer, 0, sizeof(answer) );
+  answer.tower_watermark = ULONG_MAX;
+  answer.result = FD_FAILOVER_SWITCH_STATE_FOREIGN;
+  fd_memcpy( answer.identity, ctx->identity_pubkey, 32UL );
+  if( FD_LIKELY( ctx->failover_enabled && !query.reserved ) ) {
+    if( FD_LIKELY( fd_memeq( ctx->identity_pubkey, ctx->failover_junk_pubkey, 32UL ) ) )
+      answer.result = FD_FAILOVER_SWITCH_STATE_JUNK;
+    else if( FD_LIKELY( fd_memeq( ctx->identity_pubkey, ctx->failover_staked_pubkey, 32UL ) ) )
+      answer.result = FD_FAILOVER_SWITCH_STATE_STAKED;
+  }
+  if( FD_UNLIKELY( ctx->failov_out_idx==ULONG_MAX ) ) return;
+  fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk );
+  fd_memset( out, 0, sizeof(*out) );
+  out->nonce  = req->nonce;
+  out->result = answer.result;
+  fd_memcpy( out->payload, &answer, sizeof(answer) );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->failov_out_idx, FD_FAILOVER_BUS_SWITCH_STATE, ctx->failov_out_chunk, sizeof(*out), 0UL, tspub, tspub );
+  ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*out), ctx->failov_out_chunk0, ctx->failov_out_wmark );
+}
+
 /* Forward a failover command to the failover tile.  We only check the ABI
    here, the failover tile decides whether the command is allowed. */
 static void
@@ -1788,6 +1819,10 @@ after_frag( fd_admin_tile_ctx_t * ctx,
   if( FD_LIKELY( in_idx!=ctx->failov_in_idx ) ) return;
   if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_REQ ) ) {
     failover_switch_request( ctx, stem );
+    return;
+  }
+  if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_QUERY ) ) {
+    failover_switch_query( ctx, stem );
     return;
   }
   failover_status_response( ctx, sig );

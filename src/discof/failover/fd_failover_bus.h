@@ -20,6 +20,8 @@
 #define FD_FAILOVER_BUS_CONTROL_RESP (6UL) /* failov to admin, fd_adminctl_failover_control_resp_t */
 #define FD_FAILOVER_BUS_SWITCH_REQ   (3UL) /* failov to admin, fd_failover_switch_req_t */
 #define FD_FAILOVER_BUS_SWITCH_RESP  (4UL) /* admin to failov, fd_failover_switch_resp_t */
+#define FD_FAILOVER_BUS_SWITCH_QUERY (7UL) /* failov to admin, fd_failover_switch_query_t */
+#define FD_FAILOVER_BUS_SWITCH_STATE (8UL) /* admin to failov, fd_failover_switch_resp_t */
 
 /* Which of the two keypairs the admin tile should switch to.  Only an
    id goes over the link, never the key itself, so the failover tile never
@@ -49,6 +51,20 @@ struct fd_failover_switch_resp {
 };
 
 typedef struct fd_failover_switch_resp fd_failover_switch_resp_t;
+
+/* A query reads the admin tile's installed identity.  Its answer has a
+   separate signature and no watermark, so it cannot complete a switch. */
+struct fd_failover_switch_query {
+  ulong reserved; /* zero */
+};
+typedef struct fd_failover_switch_query fd_failover_switch_query_t;
+
+#define FD_FAILOVER_SWITCH_STATE_JUNK    (0UL)
+#define FD_FAILOVER_SWITCH_STATE_STAKED  (1UL)
+#define FD_FAILOVER_SWITCH_STATE_FOREIGN (2UL)
+#define FD_FAILOVER_SWITCH_STATE_CNT     (3UL)
+
+FD_STATIC_ASSERT( sizeof(fd_failover_switch_query_t)<=FD_ADMINCTL_PAYLOAD_MAX, switch_query_fits );
 
 FD_STATIC_ASSERT( sizeof(fd_failover_switch_req_t )<=FD_ADMINCTL_PAYLOAD_MAX, switch_req_fits  );
 FD_STATIC_ASSERT( sizeof(fd_failover_switch_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, switch_resp_fits );
