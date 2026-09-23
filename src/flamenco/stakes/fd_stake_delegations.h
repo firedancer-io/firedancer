@@ -164,6 +164,10 @@ struct fd_stake_delegation {
     uchar     is_tombstone; /* Internal delta usage */
     uchar     dne_in_root;  /* Tracking for stake delegation iteration */
   };
+  uchar       in_use : 1; /* For the in-memory root pool only.  Not meaningful in the
+                             delta pool.  Set to 1 if this element holds a live delegation
+                             present in the root map, 0 if the element has been reclaimed. */
+  uchar       state  : 3; /* Can only be non-UNKNOWN in a root record. */
   fd_pubkey_t vote_account;
   ulong       stake;
   ulong       lamports;
@@ -174,10 +178,8 @@ struct fd_stake_delegation {
     uint      delta_idx; /* Root's in-memory/disk delta reference for iteration */
     uint      fork_next; /* Next in-memory delta in this fork */
   };
-  uchar       in_use : 1; /* For the in-memory root pool only.  Not meaningful in the
-                             delta pool.  Set to 1 if this element holds a live delegation
-                             present in the root map, 0 if the element has been reclaimed. */
-  uchar       state  : 3; /* Can only be non-UNKNOWN in a root record. */
+  uint        slot;   /* Snapshot loading only: slot of the account version this
+                         record came from, newest wins.  Runtime writes store 0. */
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
@@ -348,6 +350,41 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    lamports,
                                   uint                     acc_dlen );
 
+/* Snapshot loader writes, called by snapin tiles with the slot of the
+   account version the index accepted.  Newest slot wins, so tiles that
+   see versions in any order converge.  fork_idx is USHORT_MAX to write
+   the root (full snapshot) or a fork (incremental),
+   later applied by fd_stake_delegations_snapshot_publish_fork.
+
+   snapshot_remove stores a lamports==0 tombstone for a version that is
+   not a delegation, blocking late upserts of older versions; refresh
+   drops tombstones.  cross_fork means the replaced version came from
+   an earlier load, so an account not in the root is left alone. */
+
+void
+fd_stake_delegations_snapshot_upsert( fd_stake_delegations_t * stake_delegations,
+                                      ushort                   fork_idx,
+                                      ulong                    slot,
+                                      fd_pubkey_t const *      stake_account,
+                                      fd_pubkey_t const *      vote_account,
+                                      ulong                    stake,
+                                      ulong                    activation_epoch,
+                                      ulong                    deactivation_epoch,
+                                      ulong                    credits_observed,
+                                      ulong                    lamports,
+                                      uint                     acc_dlen );
+
+void
+fd_stake_delegations_snapshot_remove( fd_stake_delegations_t * stake_delegations,
+                                      ushort                   fork_idx,
+                                      ulong                    slot,
+                                      fd_pubkey_t const *      stake_account,
+                                      int                      cross_fork );
+
+void
+fd_stake_delegations_snapshot_publish_fork( fd_stake_delegations_t * stake_delegations,
+                                            ushort                   fork_idx );
+
 /* fd_stake_delegations_prune_inactive_root removes root delegations
    that are inactive in both epoch and epoch-1.  This function removes
    all inactive delegations from the in-memory and disk roots.  It is a
@@ -364,24 +401,12 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
                                           int                        use_fixed_point_stake_math,
                                           fd_bank_t const *          emit_bank );
 
-/* fd_stake_delegations_refresh is used to refresh the stake
-   delegations stored in fd_stake_delegations_t which is owned by
-   the bank. For a given database handle, read in the state of all
-   stake accounts, decode their state, and update each stake delegation.
-   This is meant to be called before any slots are executed, but after
-   the snapshot has finished loading.
-
-   Before this function is called, there are some important assumptions
-   made about the state of the stake delegations:
-   1. fd_stake_delegations_t is not missing any valid entries
-   2. fd_stake_delegations_t may have some invalid entries that should
-      be removed
-
-   fd_stake_delegations_refresh will remove all of the invalid entries
-   that are detected. An entry is considered invalid if the stake
-   account does not exist (e.g. zero balance or no record) or if it
-   has invalid state (e.g. not a stake account or invalid bincode data).
-   No new entries are added to the struct at this point. */
+/* fd_stake_delegations_refresh finalizes the root after a snapshot or
+   genesis load, before any slot executes.  Pure in-memory pass: drops
+   tombstones, drops delegations inactive in both epoch and epoch-1
+   when remove_inactive_stakes is set, sets the warmup rate and state
+   tag, accumulates the stake totals and refills the pool from disk
+   roots.  stake_history may be NULL. */
 
 void
 fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
@@ -389,9 +414,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               fd_stake_history_t const * stake_history,
                               ulong *                    warmup_cooldown_rate_epoch,
                               int                        use_fixed_point_stake_math,
-                              int                        remove_inactive_stakes,
-                              fd_accdb_t *               accdb,
-                              fd_accdb_fork_id_t         fork_id );
+                              int                        remove_inactive_stakes );
 
 /* fd_stake_delegations_new_fork allocates a child of parent_fork_idx.
    USHORT_MAX indicates that the parent is the fork. */

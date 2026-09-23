@@ -1041,9 +1041,7 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         stake_history,
         &root_bank->f.warmup_cooldown_rate_epoch,
         FD_FEATURE_ACTIVE_BANK( root_bank, upgrade_bpf_stake_program_to_v5_1 ),
-        feature_active,
-        mini->runtime->accdb,
-        root_bank->accdb_fork_id );
+        feature_active );
 
     FD_TEST( !!test_stake_delegations_contains(
         stake_delegations, &stake_key )==!feature_active );
@@ -1106,9 +1104,7 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
       stake_history,
       &root_bank->f.warmup_cooldown_rate_epoch,
       FD_FEATURE_ACTIVE_BANK( root_bank, upgrade_bpf_stake_program_to_v5_1 ),
-      1,
-      mini->runtime->accdb,
-      root_fork_id );
+      1 );
   FD_TEST( !test_stake_delegations_base_cnt( spill_delegations ) );
   FD_TEST( !close( stake_delegations_fd ) );
   free( mem );

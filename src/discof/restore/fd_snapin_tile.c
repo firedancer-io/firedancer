@@ -233,6 +233,9 @@ struct fd_snapin_shmem {
   /* Tile 0 publishes the accdb fork before acknowledging INIT. */
   ulong fork_id;
 
+  /* Stake delegations fork for incremental writes, USHORT_MAX for full. */
+  ulong stake_fork;
+
   /* Per-tile attempt values. */
   struct __attribute__((aligned(128))) {
     ulong loaded;
@@ -1238,23 +1241,23 @@ process_manifest( fd_snapin_tile_t *  ctx,
 }
 
 static void
-snoop_stake_delegation( fd_snapin_tile_t *  ctx,
-                        fd_pubkey_t const * stake_account,
-                        ulong               lamports,
-                        ulong               data_len,
-                        uchar const *       data,
-                        ulong               data_sz ) {
-  fd_stake_state_t const * stake_state = fd_stake_state_view( data, data_sz );
-  if( FD_UNLIKELY( !stake_state || stake_state->stake_type!=FD_STAKE_STATE_STAKE ) ) return;
-
+snoop_stake_delegation( fd_snapin_tile_t *       ctx,
+                        ushort                   stake_fork,
+                        ulong                    slot,
+                        fd_pubkey_t const *      stake_account,
+                        ulong                    lamports,
+                        fd_stake_state_t const * stake_state,
+                        ulong                    data_sz ) {
   fd_delegation_t const * delegation = &stake_state->stake.stake.delegation;
   if( FD_UNLIKELY( ( delegation->activation_epoch!=ULONG_MAX &&
                      delegation->activation_epoch>=(ulong)USHORT_MAX ) ||
                    ( delegation->deactivation_epoch!=ULONG_MAX &&
                      delegation->deactivation_epoch>=(ulong)USHORT_MAX ) ) ) return;
 
-  fd_stake_delegations_root_update(
+  fd_stake_delegations_snapshot_upsert(
       ctx->stake_delegations,
+      stake_fork,
+      slot,
       stake_account,
       &delegation->voter_pubkey,
       delegation->stake,
@@ -1262,7 +1265,7 @@ snoop_stake_delegation( fd_snapin_tile_t *  ctx,
       delegation->deactivation_epoch,
       stake_state->stake.stake.credits_observed,
       lamports,
-      (uint)data_len );
+      (uint)data_sz );
 }
 
 /* Write engine */
@@ -1307,14 +1310,16 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
   writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
 
-  fd_accdb_fork_id_t fork_id = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
-  fd_snapin_account_batch_t * batch = &ctx->writer.batch;
-  ulong tile_idx = ctx->tile_idx;
+  fd_accdb_fork_id_t          fork_id    = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
+  ushort                      stake_fork = (ushort)FD_VOLATILE_CONST( ctx->shmem->stake_fork );
+  fd_snapin_account_batch_t * batch      = &ctx->writer.batch;
+  ulong                       tile_idx   = ctx->tile_idx;
 
   uchar const * pubkeys[ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong slots          [ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong data_lens      [ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong file_offsets   [ FD_SSPARSE_ACC_BATCH_MAX ];
+  uchar results        [ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong buf_off = 0UL;
 
   /* Flush accounts in batches of 8 */
@@ -1325,24 +1330,13 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     for( ulong i=0UL; i<cnt; i++ ) {
       ulong idx = batch_off+i;
 
-      uchar const * meta_ptr = ctx->writer.buf+buf_off;
-      uchar const * owner    = meta_ptr+offsetof(fd_accdb_disk_meta_t, owner);
-      uchar const * data     = meta_ptr+sizeof(fd_accdb_disk_meta_t);
-
-      pubkeys     [ i ] = meta_ptr;
+      pubkeys     [ i ] = ctx->writer.buf+buf_off;
       slots       [ i ] = (ulong)batch->slots    [ idx ];
       data_lens   [ i ] = (ulong)batch->data_lens[ idx ];
       file_offsets[ i ] = base_off+buf_off;
 
       buf_off += sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
       input_lamports = fd_ulong_sat_add( input_lamports, batch->lamports[ idx ] );
-
-      if( FD_UNLIKELY( batch->lamports[ idx ] &&
-                       !memcmp( owner, fd_solana_stake_program_id.uc, 32UL ) ) ) {
-        snoop_stake_delegation( ctx, (fd_pubkey_t const *)pubkeys[ i ],
-                                batch->lamports[ idx ], data_lens[ i ],
-                                data, data_lens[ i ] );
-      }
     }
 
     ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
@@ -1350,8 +1344,33 @@ writer_flush( fd_snapin_tile_t * ctx ) {
                                                     slots, batch->lamports+batch_off,
                                                     data_lens, batch->executables+batch_off,
                                                     file_offsets, &accounts_ignored, &accounts_replaced,
-                                                    &accounts_loaded, &replaced_lamports, &ignored_lamports ) ) ) {
+                                                    &accounts_loaded, &replaced_lamports, &ignored_lamports, results ) ) ) {
       return 1;
+    }
+
+    /* Update the snooped stake delegations.  Anything that is not a
+       delegation and replaced a funded version tombstones it, so a tile
+       still holding the older version cannot leave it behind. */
+    for( ulong i=0UL; i<cnt; i++ ) {
+      if( FD_UNLIKELY( results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED ) ) continue;
+
+      ulong               lamports = batch->lamports[ batch_off+i ];
+      fd_pubkey_t const * pubkey   = (fd_pubkey_t const *)pubkeys[ i ];
+      uchar const *       owner    = pubkeys[ i ]+offsetof(fd_accdb_disk_meta_t, owner);
+      uchar const *       data     = pubkeys[ i ]+sizeof(fd_accdb_disk_meta_t);
+
+      if( lamports && !memcmp( owner, fd_solana_stake_program_id.uc, 32UL ) ) {
+        fd_stake_state_t const * stake_state = fd_stake_state_view( data, data_lens[ i ] );
+        if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
+          snoop_stake_delegation( ctx, stake_fork, slots[ i ], pubkey, lamports, stake_state, data_lens[ i ] );
+          continue;
+        }
+      }
+
+      int cross_fork = results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS;
+      if( FD_UNLIKELY( cross_fork || results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED ) ) {
+        fd_stake_delegations_snapshot_remove( ctx->stake_delegations, stake_fork, slots[ i ], pubkey, cross_fork );
+      }
     }
 
     ctx->metrics.accounts_ignored  += accounts_ignored;
@@ -1786,6 +1805,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         if( !ctx->lead.rollback.full && FD_LIKELY( !ctx->full ) ) {
           fd_accdb_purge( ctx->accdb, ctx->lead.rollback.fork );
           fd_accdb_snapshot_revert_whead( ctx->accdb, &ctx->lead.recovery.accdb_metadata );
+          fd_stake_delegations_evict_fork( ctx->stake_delegations, (ushort)FD_VOLATILE_CONST( ctx->shmem->stake_fork ) );
         }
       }
 
@@ -1798,6 +1818,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_slot_delta_parser_init( ctx->lead.slot_delta_parser );
       fd_memset( &ctx->lead.flags,    0, sizeof(ctx->lead.flags)    );
 
+      ushort stake_fork = USHORT_MAX;
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
         ctx->lead.full_genesis_creation_time_seconds = 0UL;
         ctx->lead.recovery.capitalization            = 0UL;
@@ -1812,8 +1833,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       } else {
         /* Create a child fork for incremental writes.  On failure,
            fd_accdb_purge(child) reverts just the incremental changes.
-           On success, fd_accdb_advance_root(child) promotes them. */
+           On success, fd_accdb_advance_root(child) promotes them.  The
+           stake delegations get a fork likewise. */
         ctx->lead.accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
+        stake_fork                   = fd_stake_delegations_new_fork( ctx->stake_delegations );
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
@@ -1832,7 +1855,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_COMPILER_MFENCE();
 
       /* Publish before acknowledging INIT. */
-      FD_VOLATILE( ctx->shmem->fork_id ) = ctx->full ? (ulong)USHORT_MAX : (ulong)ctx->lead.accdb_incr_fork_id.val;
+      FD_VOLATILE( ctx->shmem->fork_id    ) = ctx->full ? (ulong)USHORT_MAX : (ulong)ctx->lead.accdb_incr_fork_id.val;
+      FD_VOLATILE( ctx->shmem->stake_fork ) = (ulong)stake_fork;
       FD_COMPILER_MFENCE();
       break;
     }
@@ -1943,6 +1967,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
         ctx->lead.accdb_root_fork_id = ctx->lead.accdb_incr_fork_id;
         ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+        fd_stake_delegations_snapshot_publish_fork( ctx->stake_delegations, (ushort)FD_VOLATILE_CONST( ctx->shmem->stake_fork ) );
       }
 
       fd_accdb_snapshot_load_end( ctx->accdb );

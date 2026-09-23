@@ -4032,7 +4032,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_replaced,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
-                               ulong *             out_ignored_lamports ) {
+                               ulong *             out_ignored_lamports,
+                               uchar *             results ) {
 #define CHAIN_LOCKED (UINT_MAX-1U)
 
   FD_TEST( cnt>0UL && cnt<=8UL );
@@ -4143,6 +4144,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     }
 
     if( FD_UNLIKELY( skip ) ) {
+      results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_IGNORED;
       FD_COMPILER_MFENCE();
       FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
       fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
@@ -4153,6 +4155,11 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
     fd_accdb_accmeta_t * accmeta;
     uint new_head = chain_head;
+
+    fd_accdb_accmeta_t const * prev = existing ? existing : cross_existing;
+    if( !prev || !prev->lamports ) results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
+    else if( cross_existing )      results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS;
+    else                           results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_REPLACED;
 
     if( FD_UNLIKELY( existing ) ) {
       accmeta = existing;

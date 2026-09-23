@@ -46,7 +46,7 @@ FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, key                  )==  0UL
 FD_STATIC_ASSERT( sizeof(fd_stake_delegation_key_t)==34UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_delegation_key_t, stake_account )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_delegation_key_t, fork_idx      )==32UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, vote_account         )== 39UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, vote_account         )== 40UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, stake                )== 72UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, lamports             )== 80UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, credits_observed     )== 88UL, layout );
@@ -58,64 +58,11 @@ FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, activation_epoch     )== 34UL
 FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, deactivation_epoch   )== 36UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, is_tombstone         )== 38UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, dne_in_root          )== 38UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, slot                 )==108UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_delegation_t, fork_idx             )== 32UL, layout );
 
 #define TEST_STAKE_DELEGATION_LAMPORTS (123456789UL)
 #define TEST_STAKE_DELEGATION_ACC_DLEN ((uint)sizeof(fd_stake_state_t))
-
-#define TEST_ACCDB_CACHE_FOOTPRINT    (32UL<<20)
-#define TEST_ACCDB_CACHE_MIN_RESERVED (2UL)
-
-struct test_accdb {
-  fd_accdb_t * accdb;
-  void *       shmem_mem;
-  int          fd;
-};
-typedef struct test_accdb test_accdb_t;
-
-static test_accdb_t
-test_accdb_new( void ) {
-  test_accdb_t test = { .fd = memfd_create( "stake_delegations_accdb", 0 ) };
-  FD_TEST( test.fd>=0 );
-
-  ulong shmem_footprint = fd_accdb_shmem_footprint( 64UL, 3UL, 64UL, 64UL, TEST_ACCDB_CACHE_FOOTPRINT, TEST_ACCDB_CACHE_MIN_RESERVED, 1UL, 0UL );
-  FD_TEST( shmem_footprint );
-  test.shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_footprint );
-  FD_TEST( test.shmem_mem );
-  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
-      fd_accdb_shmem_new( test.shmem_mem, 64UL, 3UL, 64UL, 64UL, 1UL<<30, TEST_ACCDB_CACHE_FOOTPRINT, TEST_ACCDB_CACHE_MIN_RESERVED, 0, 42UL, 1UL, 0UL ) );
-  FD_TEST( shmem );
-
-  void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 3UL, 0 ) );
-  FD_TEST( accdb_mem );
-  test.accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, test.fd, 0UL, NULL, NULL, 0UL, 0 ) );
-  FD_TEST( test.accdb );
-  return test;
-}
-
-static void
-test_accdb_delete( test_accdb_t * test ) {
-  free( test->shmem_mem );
-  free( test->accdb );
-  FD_TEST( !close( test->fd ) );
-}
-
-static void
-test_accdb_write_stake( fd_accdb_t *             accdb,
-                        fd_accdb_fork_id_t       fork_id,
-                        fd_pubkey_t const *      pubkey,
-                        fd_stake_state_t const * stake ) {
-  uchar const * keys[ 1 ] = { pubkey->uc };
-  int           writable[ 1 ] = { 1 };
-  fd_acc_t      acc[ 1 ] = {0};
-  fd_accdb_acquire( accdb, fork_id, 1UL, keys, writable, acc );
-  acc[ 0 ].lamports = TEST_STAKE_DELEGATION_LAMPORTS;
-  acc[ 0 ].data_len = sizeof(fd_stake_state_t);
-  memcpy( acc[ 0 ].owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) );
-  memcpy( acc[ 0 ].data, stake, sizeof(fd_stake_state_t) );
-  acc[ 0 ].commit = 1;
-  fd_accdb_release( accdb, 1UL, acc );
-}
 
 static inline ulong
 test_stake_delegations_disk_cnt( fd_stake_delegations_t const * stake_delegations ) {
@@ -1532,26 +1479,6 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_root_update( stake_delegations, &overflow, &voter_pubkey_0, 1UL, 2UL, 2UL, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
     FD_TEST( test_stake_delegations_disk_cnt( stake_delegations )==1UL );
 
-    test_accdb_t accdb = test_accdb_new();
-    fd_accdb_fork_id_t accdb_fork = fd_accdb_attach_child(
-        accdb.accdb,
-        (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
-    fd_stake_state_t inactive = {
-      .stake_type = FD_STAKE_STATE_STAKE,
-      .stake = {
-        .stake = {
-          .delegation = {
-            .voter_pubkey         = voter_pubkey_0,
-            .stake                = 1UL,
-            .activation_epoch     = 2UL,
-            .deactivation_epoch   = 2UL,
-            .warmup_cooldown_rate = FD_STAKE_WARMUP_COOLDOWN_RATE_025,
-          },
-        },
-      },
-    };
-    test_accdb_write_stake( accdb.accdb, accdb_fork, &overflow, &inactive );
-
     ulong refresh_warmup_epoch = ULONG_MAX;
     fd_stake_delegations_iter_t iter_[1];
     int found_overflow = 0;
@@ -1566,18 +1493,17 @@ int main( int argc, char ** argv ) {
     }
     FD_TEST( found_overflow );
 
+    /* Bootstrap delegations stay, the inactive disk-tier entry goes. */
     fd_stake_delegations_refresh(
         stake_delegations,
         4UL,
         stake_history,
         &refresh_warmup_epoch,
         1,
-        1,
-        accdb.accdb,
-        accdb_fork );
-    FD_TEST( !test_stake_delegations_base_cnt( stake_delegations ) );
+        1 );
+    FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==max_stake_accounts );
     FD_TEST( !test_stake_delegations_disk_cnt( stake_delegations ) );
-    test_accdb_delete( &accdb );
+    FD_TEST( !test_stake_delegations_contains( stake_delegations, &overflow ) );
 
     fd_stake_delegations_reset( stake_delegations );
   }
@@ -1863,6 +1789,120 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_evict_fork( stake_delegations, fork_rm2 );
     FD_TEST( stats.upserts==1UL );
     FD_TEST( stats.removes==2UL ); /* tombstone for a root-absent account still counts */
+  }
+
+  /* Case 41: Snapshot loader writes: newest slot wins, tombstones, and
+     the incremental fork. */
+  {
+    ushort const ROOT = USHORT_MAX;
+    ulong const snap_epoch = 4UL;
+    ulong snap_warmup_epoch = 0UL;
+    fd_stake_delegation_t d[1];
+#   define SNAP_UPD( fork_, slot_, acct, voter, stake_ ) fd_stake_delegations_snapshot_upsert( stake_delegations, (fork_), (slot_), (acct), (voter), (stake_), ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN )
+
+    /* Root: newest slot wins in either arrival order; equal slots
+       overwrite. */
+    fd_stake_delegations_reset( stake_delegations );
+    SNAP_UPD( ROOT, 100UL, &stake_account_0, &voter_pubkey_0, 1UL );
+    SNAP_UPD( ROOT, 200UL, &stake_account_0, &voter_pubkey_1, 2UL );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, d ) );
+    assert_delegation( d, &stake_account_0, &voter_pubkey_1, 2UL, USHORT_MAX, USHORT_MAX );
+    FD_TEST( d->slot==200U );
+    SNAP_UPD( ROOT, 150UL, &stake_account_0, &voter_pubkey_0, 9UL );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, d ) && d->stake==2UL );
+    SNAP_UPD( ROOT, 200UL, &stake_account_0, &voter_pubkey_1, 3UL );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, d ) && d->stake==3UL );
+
+    /* Root tombstones: block older upserts, lose to newer ones, may
+       precede any record unless cross_fork, and refresh sweeps. */
+    SNAP_UPD( ROOT, 100UL, &stake_account_1, &voter_pubkey_0, 1UL );
+    fd_stake_delegations_snapshot_remove( stake_delegations, ROOT, 200UL, &stake_account_1, 0 );
+    fd_stake_delegations_snapshot_remove( stake_delegations, ROOT, 200UL, &stake_account_2, 0 );
+    SNAP_UPD( ROOT, 100UL, &stake_account_2, &voter_pubkey_0, 1UL );
+    fd_stake_delegations_snapshot_remove( stake_delegations, ROOT, 200UL, &stake_account_3, 0 );
+    SNAP_UPD( ROOT, 300UL, &stake_account_3, &voter_pubkey_0, 5UL );
+    fd_pubkey_t stake_account_4 = { .ul = { 40404UL, 1UL } };
+    fd_pubkey_t stake_account_5 = { .ul = { 50505UL, 1UL } };
+    fd_stake_delegations_snapshot_remove( stake_delegations, ROOT, 200UL, &stake_account_4, 1 );
+    fd_stake_delegations_snapshot_remove( stake_delegations, ROOT, 200UL, &stake_account_5, 0 );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_1, d ) && !d->lamports );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_2, d ) && !d->lamports );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_3, d ) && d->stake==5UL );
+    FD_TEST( !test_stake_delegations_contains( stake_delegations, &stake_account_4 ) );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_5, d ) && !d->lamports );
+    FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==5UL );
+    fd_stake_delegations_refresh( stake_delegations, snap_epoch, stake_history, &snap_warmup_epoch, 1, 0 );
+    FD_TEST(  test_stake_delegations_contains( stake_delegations, &stake_account_0 ) );
+    FD_TEST( !test_stake_delegations_contains( stake_delegations, &stake_account_1 ) );
+    FD_TEST( !test_stake_delegations_contains( stake_delegations, &stake_account_2 ) );
+    FD_TEST(  test_stake_delegations_find_copy( stake_delegations, &stake_account_3, d ) );
+    assert_delegation( d, &stake_account_3, &voter_pubkey_0, 5UL, USHORT_MAX, USHORT_MAX );
+    FD_TEST( !test_stake_delegations_contains( stake_delegations, &stake_account_5 ) );
+    FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==2UL );
+    FD_TEST( stake_delegations->effective_stake==3UL+5UL );
+
+    /* Disk root tier behaves the same. */
+    fd_stake_delegations_reset( stake_delegations );
+    for( ulong i=0UL; i<max_stake_accounts; i++ ) {
+      fd_pubkey_t k = { .ul = { 91000UL+i, 1UL } };
+      SNAP_UPD( ROOT, 10UL, &k, &voter_pubkey_0, i+1UL );
+    }
+    fd_pubkey_t disk_a = { .ul = { 92001UL, 1UL } };
+    fd_pubkey_t disk_b = { .ul = { 92002UL, 1UL } };
+    SNAP_UPD( ROOT, 100UL, &disk_a, &voter_pubkey_0, 1UL );
+    SNAP_UPD( ROOT, 200UL, &disk_a, &voter_pubkey_1, 2UL );
+    fd_stake_delegations_snapshot_remove( stake_delegations, ROOT, 200UL, &disk_b, 0 );
+    SNAP_UPD( ROOT, 100UL, &disk_b, &voter_pubkey_0, 1UL );
+    FD_TEST( test_stake_delegations_disk_cnt( stake_delegations )==2UL );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &disk_a, d ) && d->stake==2UL );
+    fd_stake_delegations_refresh( stake_delegations, snap_epoch, stake_history, &snap_warmup_epoch, 1, 0 );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &disk_a, d ) && d->stake==2UL );
+    FD_TEST( !test_stake_delegations_contains( stake_delegations, &disk_b ) );
+    FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==max_stake_accounts+1UL );
+    FD_TEST( test_stake_delegations_disk_cnt( stake_delegations )==1UL );
+
+    /* Incremental fork: newest slot wins per account, publish applies
+       the fork to the root, and eviction discards it. */
+    fd_stake_delegations_reset( stake_delegations );
+    SNAP_UPD( ROOT, 10UL,  &stake_account_0, &voter_pubkey_0, 1UL );
+    SNAP_UPD( ROOT, 10UL,  &stake_account_1, &voter_pubkey_0, 1UL );
+    SNAP_UPD( ROOT, 500UL, &stake_account_2, &voter_pubkey_0, 1UL );
+    ushort snap_fork = fd_stake_delegations_new_fork( stake_delegations );
+    SNAP_UPD( snap_fork, 100UL, &stake_account_0, &voter_pubkey_1, 2UL );
+    SNAP_UPD( snap_fork, 200UL, &stake_account_0, &voter_pubkey_1, 3UL );
+    SNAP_UPD( snap_fork, 150UL, &stake_account_0, &voter_pubkey_1, 9UL );
+    fd_stake_delegations_snapshot_remove( stake_delegations, snap_fork, 300UL, &stake_account_1, 1 ); /* closed, was in root */
+    fd_stake_delegations_snapshot_remove( stake_delegations, snap_fork, 100UL, &stake_account_3, 0 );
+    SNAP_UPD( snap_fork, 200UL, &stake_account_3, &voter_pubkey_0, 4UL );                            /* re-created after close */
+    SNAP_UPD( snap_fork, 400UL, &stake_account_2, &voter_pubkey_1, 8UL );                            /* older than root */
+    for( ulong i=0UL; i<max_delta_accounts+2UL; i++ ) {
+      fd_pubkey_t k = { .ul = { 93000UL+i, 1UL } };
+      SNAP_UPD( snap_fork, 100UL, &k, &voter_pubkey_0, 10UL+i );
+    }
+    FD_TEST( test_stake_delegations_disk_cnt( stake_delegations )>0UL ); /* spilled */
+    /* Duplicates that spill are resolved by slot on disk. */
+    fd_pubkey_t spilled_dup = { .ul = { 94000UL, 1UL } };
+    SNAP_UPD( snap_fork, 100UL, &spilled_dup, &voter_pubkey_0, 1UL );
+    SNAP_UPD( snap_fork, 200UL, &spilled_dup, &voter_pubkey_1, 2UL );
+    SNAP_UPD( snap_fork, 150UL, &spilled_dup, &voter_pubkey_0, 9UL );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, d ) && d->stake==1UL ); /* root untouched */
+
+    fd_stake_delegations_snapshot_publish_fork( stake_delegations, snap_fork );
+    FD_TEST( !stake_delegations->disk_delta_cnt_ );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, d ) && d->stake==3UL && d->slot==200U );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_1, d ) && !d->lamports );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_2, d ) && d->stake==1UL && d->slot==500U );
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_3, d ) && d->stake==4UL );
+    for( ulong i=0UL; i<max_delta_accounts+2UL; i++ ) {
+      fd_pubkey_t k = { .ul = { 93000UL+i, 1UL } };
+      FD_TEST( test_stake_delegations_find_copy( stake_delegations, &k, d ) && d->stake==10UL+i );
+    }
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &spilled_dup, d ) && d->stake==2UL && d->slot==200U );
+    FD_TEST( fd_stake_delegations_new_fork( stake_delegations )==snap_fork ); /* fork released */
+    fd_stake_delegations_evict_fork( stake_delegations, snap_fork );
+
+    fd_stake_delegations_reset( stake_delegations );
+#   undef SNAP_UPD
   }
 
   /* Test stake delegations refresh */
