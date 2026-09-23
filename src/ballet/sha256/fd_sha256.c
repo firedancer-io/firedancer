@@ -107,6 +107,8 @@ fd_sha256_delete( void * shsha ) {
 #define FD_SHA256_CORE_IMPL 2
 #elif FD_HAS_SHANI
 #define FD_SHA256_CORE_IMPL 1
+#elif FD_HAS_RISCV_SHA256
+#define FD_SHA256_CORE_IMPL 3
 #else
 #define FD_SHA256_CORE_IMPL 0
 #endif
@@ -363,6 +365,15 @@ fd_sha256_core_arm( uint *        state,
 
 #define fd_sha256_core fd_sha256_core_arm
 
+#elif FD_SHA256_CORE_IMPL==3
+
+void
+fd_sha256_core_riscv( uint *        state,
+                      uchar const * block,
+                      ulong         block_cnt );
+
+#define fd_sha256_core fd_sha256_core_riscv
+
 #else
 #error "Unsupported FD_SHA256_CORE_IMPL"
 #endif
@@ -553,6 +564,11 @@ void
 fd_sha256_hash_32_repeated_arm( uchar const * data,
                                 uchar *       hash,
                                 ulong         cnt );
+#elif FD_SHA256_CORE_IMPL==3
+void
+fd_sha256_hash_32_repeated_riscv( uchar const * data,
+                                  uchar *       hash,
+                                  ulong         cnt );
 #endif
 
 void *
@@ -561,6 +577,9 @@ fd_sha256_hash_32_repeated( void const * _data,
                             ulong        cnt ) {
 #if FD_SHA256_CORE_IMPL==2
   fd_sha256_hash_32_repeated_arm( _data, _hash, cnt );
+  return _hash;
+#elif FD_SHA256_CORE_IMPL==3
+  fd_sha256_hash_32_repeated_riscv( _data, _hash, cnt );
   return _hash;
 #elif FD_SHA256_CORE_IMPL==1
 
