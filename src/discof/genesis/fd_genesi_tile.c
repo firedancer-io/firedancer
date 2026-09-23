@@ -348,7 +348,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     char basename_partial[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( basename_partial, PATH_MAX, NULL, "%s.partial", basename ) );
 
-    int err = renameat2( ctx->out_dir_fd, basename_partial, ctx->out_dir_fd, basename, RENAME_NOREPLACE );
+    int err = (int)syscall( SYS_renameat2, ctx->out_dir_fd, basename_partial, ctx->out_dir_fd, basename, RENAME_NOREPLACE );
     if( FD_UNLIKELY( -1==err ) ) FD_LOG_ERR(( "renameat2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     FD_LOG_NOTICE(( "retrieved genesis %s%s%s from peer at %shttp://" FD_IP4_ADDR_FMT ":%hu/genesis.tar.bz2%s",
