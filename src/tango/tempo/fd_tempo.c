@@ -76,9 +76,18 @@ fd_tempo_tickcount_model( double * opt_tau ) {
         FD_COMPILER_MFENCE();
         long tic = fd_tickcount();
         FD_COMPILER_MFENCE();
+#if FD_TICKCOUNT_STYLE==3
+        /* The RV64 timebase can be much coarser than the read latency
+           (e.g. 24 MHz with an 8 ns read).  Amortize quantization across
+           32 reads rather than fitting a sample dominated by zeros. */
+        for( ulong j=1UL; j<32UL; j++ ) (void)fd_tickcount();
+#endif
         long toc = fd_tickcount();
         FD_COMPILER_MFENCE();
         trial[ trial_idx ] = (double)(toc - tic);
+#if FD_TICKCOUNT_STYLE==3
+        trial[ trial_idx ] *= 1./32.;
+#endif
         FD_COMPILER_MFENCE();
       }
       double * sample     = trial + TRIM_CNT;

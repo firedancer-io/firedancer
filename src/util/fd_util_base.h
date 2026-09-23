@@ -1265,6 +1265,8 @@ fd_hash_memcpy( ulong                    seed,
 #define FD_TICKCOUNT_STYLE 1
 #elif FD_HAS_ARM /* Use CNTVCT_EL0 */
 #define FD_TICKCOUNT_STYLE 2
+#elif FD_HAS_RISCV /* Use the shared platform timebase, not CPU cycles */
+#define FD_TICKCOUNT_STYLE 3
 #else /* Use portable fallback */
 #define FD_TICKCOUNT_STYLE 0
 #endif
@@ -1323,6 +1325,28 @@ fd_tickcount( void ) {
     "mrs %0, cntvct_el0\n"
     "nop"
     : "=r" (value) );
+  return (long)value;
+}
+
+#elif FD_TICKCOUNT_STYLE==3 /* RV64 time CSR (Zicntr) */
+
+/* The time CSR is a platform timebase shared across harts, independent
+   of core frequency.  Unlike cycle, it is suitable for migration between
+   heterogeneous cores.  The kernel/firmware must permit user-mode reads
+   (otherwise rdtime traps).  Select FD_TICKCOUNT_STYLE=0 on such systems.
+
+   Do not assume a frequency or nanoseconds per tick: tempo/clock calibrate
+   it against wallclock time.  Like RDTSC and CNTVCT_EL0 above, this is not
+   a memory barrier.  Callers must supply ordering where needed. */
+
+#if !defined(__riscv) || (__riscv_xlen!=64)
+#error "FD_TICKCOUNT_STYLE=3 requires RV64"
+#endif
+
+static inline long
+fd_tickcount( void ) {
+  ulong value;
+  __asm__ __volatile__( "rdtime %0" : "=r" (value) );
   return (long)value;
 }
 

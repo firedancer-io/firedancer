@@ -11,6 +11,10 @@ $(call add-objs,fd_version,fd_util)
 $(call make-unit-test,test_util,test_util,fd_util)
 $(call run-unit-test,test_util)
 
+ifdef FD_HAS_RISCV
+$(call make-unit-test,test_tickcount,test_tickcount,fd_util)
+endif
+
 ifndef FD_HAS_UBSAN
 # The point of test_util_base is to diagnose compatibility of the build
 # target with the FD machine model.  It does this in part by extensively
