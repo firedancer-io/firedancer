@@ -263,6 +263,8 @@ fd_mlx5_hw_dma_to_device( void ) {
   FD_COMPILER_MFENCE();
 #elif FD_HAS_ARM
   __asm__ __volatile__( "dmb oshst" ::: "memory" );
+#elif FD_HAS_RISCV
+  __asm__ __volatile__( "fence ow,ow" ::: "memory" );
 #else
   FD_HW_MFENCE_ST();
 #endif
@@ -274,6 +276,8 @@ fd_mlx5_hw_dma_from_device( void ) {
   __asm__ __volatile__( "lfence" ::: "memory" );
 #elif FD_HAS_ARM
   __asm__ __volatile__( "dmb oshld" ::: "memory" );
+#elif FD_HAS_RISCV
+  __asm__ __volatile__( "fence ir,ir" ::: "memory" );
 #else
   FD_HW_MFENCE();
 #endif

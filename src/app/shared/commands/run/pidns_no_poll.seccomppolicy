@@ -1,5 +1,5 @@
 # Keep in sync with pidns.seccomppolicy
-# Required because the 'poll' syscall does not exist for arm64.
+# Required because the 'poll' syscall does not exist for arm64 or riscv64.
 
 # There are two policies involved in booting Firedancer, one for the
 # init process that creates a child process with a PID namespace, and

@@ -455,7 +455,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     __m128i seq_sig = fd_frag_meta_seq_sig_query( this_in_mline );
     ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
     ulong sig       = fd_frag_meta_sse0_sig( seq_sig );
-#elif FD_HAS_ARM
+#elif FD_HAS_ARM || FD_HAS_RISCV
     ulong seq_found = __atomic_load_n( &this_in_mline->seq, __ATOMIC_ACQUIRE );
     ulong sig;
 #else
@@ -511,8 +511,9 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
       continue;
     }
 
-#if FD_HAS_ARM
-    /* arm requires a double take to avoid 'dmb ishld' on every frag */
+#if FD_HAS_ARM || FD_HAS_RISCV
+    /* On weakly ordered CPUs, acquire publication before reading sig,
+       then confirm the sequence before allowing before_frag to filter. */
     sig = __atomic_load_n( &this_in_mline->sig, __ATOMIC_ACQUIRE );
     ulong seq_confirm = __atomic_load_n( &this_in_mline->seq, __ATOMIC_ACQUIRE );
     if( FD_UNLIKELY( fd_seq_ne( seq_confirm, seq_found ) ) ) {
@@ -655,4 +656,3 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     if( FD_UNLIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ], out_seq[ out_idx ] );
   }
 }
-
