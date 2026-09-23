@@ -1840,6 +1840,13 @@ EXAMPLES
     <counter name="WakeDelivered" summary="Client wakes delivered (readiness fseq raised)" />
 </tile>
 
+<tile name="mwaitx">
+    <counter name="Nap" summary="Hardware idle-wait naps on the doorbell line" />
+    <counter name="WakeIssued" summary="futex wakes issued to parked tiles" />
+    <counter name="DeadlineWake" summary="Wakes rung because a parked tile's deadline lapsed" />
+    <counter name="SweepWake" summary="Wakes rung by the verifying sweep indicating a doorbell raced or lost" />
+</tile>
+
 <enum name="ConnCloseResult">
     <int value="0" name="Ok" label="Closed normally" />
     <int value="1" name="Error" label="Closed abnormally" />

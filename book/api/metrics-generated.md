@@ -2038,6 +2038,19 @@
 
 </div>
 
+## Mwaitx Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">mwaitx_&#8203;nap</span> | counter | Hardware idle-wait naps on the doorbell line |
+| <span class="metrics-name">mwaitx_&#8203;wake_&#8203;issued</span> | counter | futex wakes issued to parked tiles |
+| <span class="metrics-name">mwaitx_&#8203;deadline_&#8203;wake</span> | counter | Wakes rung because a parked tile's deadline lapsed |
+| <span class="metrics-name">mwaitx_&#8203;sweep_&#8203;wake</span> | counter | Wakes rung by the verifying sweep indicating a doorbell raced or lost |
+
+</div>
+
 ## Snapmk Tile
 
 <div class="metrics">
