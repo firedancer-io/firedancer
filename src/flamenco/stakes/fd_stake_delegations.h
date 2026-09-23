@@ -357,9 +357,10 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
    later applied by fd_stake_delegations_snapshot_publish_fork.
 
    snapshot_remove stores a lamports==0 tombstone for a version that is
-   not a delegation, blocking late upserts of older versions; refresh
-   drops tombstones.  cross_fork means the replaced version came from
-   an earlier load, so an account not in the root is left alone. */
+   not a delegation, blocking late upserts of older versions, and then
+   fd_stake_delegations_refresh drops tombstones.  cross_fork means an
+   incremental snapshot is loading and the replaced version was loaded
+   by the full snapshot, so an account not in the root is left alone. */
 
 void
 fd_stake_delegations_snapshot_upsert( fd_stake_delegations_t * stake_delegations,
