@@ -309,7 +309,10 @@ slot_state( ag_pool_t * self,
 
   ele       = slot_state_pool_ele_acquire( self->slot_states->pool );
   ele->slot = slot;
-  ag_slot_state_zero( &ele->slot_state, slot, info, rank );
+  ag_slot_state_null( &ele->slot_state );
+  ele->slot_state.slot       = slot;
+  ele->slot_state.epoch_info = info;
+  ele->slot_state.own_rank   = rank;
   slot_state_map_ele_insert( self->slot_states->map, ele, self->slot_states->pool );
   return &ele->slot_state;
 }

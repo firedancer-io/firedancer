@@ -59,12 +59,6 @@ static fd_quic_limits_t quic_server_limits = {
   .min_inflight_frame_cnt_conn = 32UL,
 };
 
-struct publish {
-  ulong          sig;
-  fd_votor_msg_t msg;
-};
-typedef struct publish publish_t;
-
 #define CONTACT_INFOS_LG_SLOT_CNT (16) /* FD_CONTACT_INFO_TABLE_SIZE keys, fill ratio 0.5 */
 FD_STATIC_ASSERT( (1UL<<CONTACT_INFOS_LG_SLOT_CNT)==2UL*FD_CONTACT_INFO_TABLE_SIZE, contact_infos );
 
@@ -166,6 +160,7 @@ struct fd_votor_tile {
   ag_epoch_info_t *          next_epoch_info;
   ulong                      next_epoch_slot;
   fd_multi_epoch_leaders_t * mleaders;
+  ulong                      curr_leader_slot;
   ulong                      next_leader_slot;
   ulong                      highest_parent_ready_slot;
   ulong                      highest_unotar_final_slot; /* highest slot for which we have a final cert that we have not paired with a notar  */
@@ -282,16 +277,18 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
 static void
 publish_reward_certs( fd_votor_tile_t *   ctx,
                       fd_stem_context_t * stem,
-                      ulong               slot ) {
-  publish_t           pub    = { .sig = FD_VOTOR_SIG_REWARD };
-  fd_votor_reward_t * reward = &pub.msg.reward;
-  memset( reward, 0, sizeof(fd_votor_reward_t) );
-  reward->slot = slot;
+                      ulong               reward_slot ) {
+  fd_votor_msg_t *    chunk  = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+  fd_votor_reward_t * reward = &chunk->reward;
 
-  ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, slot );
-  if( FD_UNLIKELY( !state ) ) {
-    memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
-    fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+  reward->slot     = reward_slot;
+  reward->block_id = (fd_hash_t){ 0 };
+  fd_bls_agg_null( &reward->agg_notar );
+  fd_bls_agg_null( &reward->agg_skip );
+
+  ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, reward_slot );
+  if( FD_UNLIKELY( !state ) ) { /* no notar or skip votes for this slot: send a frag with empty reward certs */
+    fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REWARD, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     return;
   }
@@ -307,32 +304,31 @@ publish_reward_certs( fd_votor_tile_t *   ctx,
   ag_slot_voted_stake_hash_t const * top  = notar_map_key_inval( key ) ? NULL : notar_map_query_const( voted_stake->notar, key, NULL );
   if( FD_LIKELY( top ) ) {
     fd_bls_agg_t agg = top->agg;
-    msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, hash, ctx->shred_version, msg );
+    msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, reward_slot, hash, ctx->shred_version, msg );
     err    = fd_bls_agg_verify_subtract( &agg, msg, msg_sz, epoch_info->pubkeys, voted_stake->notar_sig, ctx->scratch.bad );
-    ban_bad_ranks( ctx, ctx->scratch.bad, slot );
+    ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     switch( err ) {
     case FD_BLS_SUCCESS:      memcpy( reward->block_id.uc, hash, sizeof(fd_hash_t) ); reward->agg_notar = agg; break;
     case FD_BLS_ERR_EMPTY:    break;
-    case FD_BLS_ERR_INFINITY: FD_LOG_WARNING(( "slot %lu: notar reward cert cancels to infinity", slot )); break;
+    case FD_BLS_ERR_INFINITY: FD_LOG_WARNING(( "slot %lu: notar reward cert cancels to infinity", reward_slot )); break;
     default:                  FD_LOG_CRIT(( "unhandled kind %d", err ));
     }
   }
 
   if( FD_LIKELY( !fd_bls_set_is_null( voted_stake->skip_agg.set ) ) ) {
     fd_bls_agg_t agg = voted_stake->skip_agg;
-    msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, ctx->shred_version, msg );
+    msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, reward_slot, NULL, ctx->shred_version, msg );
     err    = fd_bls_agg_verify_subtract( &agg, msg, msg_sz, epoch_info->pubkeys, voted_stake->skip_sig, ctx->scratch.bad );
-    ban_bad_ranks( ctx, ctx->scratch.bad, slot );
+    ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     switch( err ) {
     case FD_BLS_SUCCESS:      reward->agg_skip = agg; break;
     case FD_BLS_ERR_EMPTY:    break;
-    case FD_BLS_ERR_INFINITY: FD_LOG_WARNING(( "slot %lu: skip reward cert cancels to infinity", slot )); break;
+    case FD_BLS_ERR_INFINITY: FD_LOG_WARNING(( "slot %lu: skip reward cert cancels to infinity", reward_slot )); break;
     default:                  FD_LOG_CRIT(( "unhandled kind %d", err ));
     }
   }
 
-  memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
-  fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REWARD, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 }
 
@@ -538,7 +534,8 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     default:                          FD_LOG_CRIT(( "unreachable" ));
     }
 
-    switch( ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad ) ) {
+    err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad );
+    switch( err ) {
     case AG_POOL_SUCCESS:                ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SUCCESS_IDX            ]++; break;
     case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_BOUNDS_IDX ]++; break;
     case AG_POOL_ERR_DUPLICATE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_DUPLICATE_IDX          ]++; break;
@@ -547,6 +544,11 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       FD_LOG_CRIT(( "unhandled kind" ));
     }
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
+    if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) {
+      int reward_kind = vote->kind==AG_VOTE_KIND_NOTAR || vote->kind==AG_VOTE_KIND_SKIP;
+      int curr_leader = vote_slot+FD_NUM_SLOTS_FOR_REWARD>=ctx->curr_leader_slot && vote_slot+FD_NUM_SLOTS_FOR_REWARD<ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW;
+      if( FD_UNLIKELY( reward_kind && curr_leader ) ) publish_reward_certs( ctx, ctx->stem, vote_slot );
+    }
     return;
   }
   case AG_CERT_SERDE_TAG_FINAL:
@@ -867,6 +869,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
     memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
     ag_votor_handle_replay_event( ctx->votor, &completed );
+    if( FD_UNLIKELY( block_id.slot==ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW-1UL ) ) ctx->curr_leader_slot = ULONG_MAX;
     break;
   }
   default:
@@ -960,11 +963,9 @@ after_credit( fd_votor_tile_t *   ctx,
   }
 
   if( FD_UNLIKELY( ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event ) ) ) {
-    publish_t pub = { .sig = FD_VOTOR_SIG_REPAIR };
-    pub.msg.repair.slot = ctx->scratch.repair_event.block.slot;
-    memcpy( &pub.msg.repair.block_id, ctx->scratch.repair_event.block.hash, sizeof(fd_hash_t) );
-    memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
-    fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+    chunk->repair = (fd_votor_repair_t){ .slot = ctx->scratch.repair_event.block.slot, .block_id = FD_LOAD( fd_hash_t, ctx->scratch.repair_event.block.hash ) };
+    fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REPAIR, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     *charge_busy = 1;
   }
@@ -979,8 +980,13 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote_event.vote );
     if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
-      ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote, ctx->scratch.bad );
+      int err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
+      if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) {
+        int reward_kind = ctx->scratch.vote_event.vote.kind==AG_VOTE_KIND_NOTAR || ctx->scratch.vote_event.vote.kind==AG_VOTE_KIND_SKIP;
+        int curr_leader = vote_slot+FD_NUM_SLOTS_FOR_REWARD>=ctx->curr_leader_slot && vote_slot+FD_NUM_SLOTS_FOR_REWARD<ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW;
+        if( FD_UNLIKELY( reward_kind && curr_leader ) ) publish_reward_certs( ctx, stem, vote_slot );
+      }
 
       ulong ser_sz = ag_vote_ser( &ctx->scratch.vote_event.vote, ctx->scratch.ser );
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
@@ -1021,13 +1027,11 @@ after_credit( fd_votor_tile_t *   ctx,
 
   ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
   for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_certs( ctx, stem, reward_slot+i );
+  ctx->curr_leader_slot = ctx->next_leader_slot;
 
-  publish_t pub = { .sig = FD_VOTOR_SIG_LEADER };
-  pub.msg.leader.slot        = ctx->next_leader_slot;
-  pub.msg.leader.parent_slot = parent.slot;
-  memcpy( pub.msg.leader.parent_block_id.uc, parent.hash, sizeof(fd_hash_t) );
-  memcpy( fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ), &pub.msg, sizeof(fd_votor_msg_t) );
-  fd_stem_publish( stem, OUT_IDX_VOTOR, pub.sig, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+  chunk->leader = (fd_votor_leader_t){ .slot = ctx->next_leader_slot, .parent_slot = parent.slot, .parent_block_id = FD_LOAD( fd_hash_t, parent.hash ) };
+  fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
@@ -1133,6 +1137,7 @@ after_frag( fd_votor_tile_t *   ctx,
     ushort               dport = fd_ushort_bswap( udp->net_dport );
     if( FD_UNLIKELY( dport!=ctx->quic_client_listen_port && dport!=ctx->quic_server_listen_port ) ) break;
     fd_quic_t * quic = fd_ptr_if( dport==ctx->quic_client_listen_port, ctx->quic_client, ctx->quic_server );
+    ctx->stem = stem;
     fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_log_wallclock() );
     for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
     ctx->net_tx_cnt = 0UL;
@@ -1227,6 +1232,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->init                      = 0;
   ctx->net_tx_cnt                = 0UL;
+  ctx->curr_leader_slot          = ULONG_MAX;
   ctx->next_leader_slot          = ULONG_MAX;
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_unotar_final_slot = ULONG_MAX;
@@ -1363,7 +1369,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( VOTOR, CERT_RX,     ctx->metrics.cert_rx     );
 }
 
-#define STEM_BURST (2UL+1UL+AG_SLOTS_PER_WINDOW+1UL) /* votor_out: 2 certed + 1 repair + 4 reward + 1 leader. EXCLUDES VOTOR_NET (has no reliable consumers) */
+#define STEM_BURST FD_VOTOR_OUT_BURST /* votor_out only; EXCLUDES VOTOR_NET (has no reliable consumers) */
 #define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_votor_tile_t

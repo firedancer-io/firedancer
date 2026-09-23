@@ -1117,7 +1117,7 @@ fd_topo_initialize( config_t * config ) {
   /* Alpenglow links and tile connections.  The optional GUI tile has
      been created by this point. */
   if( alpenglow_enabled ) {
-    /**/               fd_topob_link( topo, "votor_out",     "votor_out",     1024UL,                                   sizeof(fd_votor_msg_t),                        8UL ); /* up to 8 direct notifications per callback; queued roots drain separately */
+    /**/               fd_topob_link( topo, "votor_out",     "votor_out",     1024UL,                                   sizeof(fd_votor_msg_t),                        FD_VOTOR_OUT_BURST );
     /**/               fd_topob_link( topo, "votor_net",     "net_votor",     32768UL,                                  FD_NET_MTU,                                    FD_VOTOR_NET_BURST ); /* as shred_net: fan-out publishes as it goes and rides depth, burst covers only the deferred aio flush */
     /**/               fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    130UL,                                         1UL ); /* TLS 1.3 CertificateVerify payload */
     /**/               fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    FD_KEYGUARD_BLS_SIG_SZ,                        1UL ); /* ed25519 sig (TLS) or BLS sig (vote) */

@@ -47,7 +47,10 @@ static ag_slot_state_t *
 make_state( ulong                   slot,
             ag_epoch_info_t const * epoch_info ) {
   ag_slot_state_t * slot_state = &slot_state_mem;
-  ag_slot_state_zero( slot_state, slot, epoch_info, 0UL );
+  ag_slot_state_null( slot_state );
+  slot_state->slot       = slot;
+  slot_state->epoch_info = epoch_info;
+  slot_state->own_rank   = 0UL;
   return slot_state;
 }
 
@@ -681,7 +684,10 @@ test_skip_skip_fallback_conflict( void ) {
 
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &skip_fallback )==AG_SLASHABLE_NONE );
 
-  ag_slot_state_zero( ss, slot, epoch_info, 0UL );
+  ag_slot_state_null( ss );
+  ss->slot       = slot;
+  ss->epoch_info = epoch_info;
+  ss->own_rank   = 0UL;
   add_vote_helper( ss, &skip_fallback, epoch_info, &t );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &skip          ) );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &skip_fallback ) );
@@ -721,7 +727,10 @@ test_notar_notar_fallback_conflict( void ) {
 
   FD_TEST( ag_slot_state_check_slashable_offence( ss, &notar_fallback )==AG_SLASHABLE_NONE );
 
-  ag_slot_state_zero( ss, slot, epoch_info, 0UL );
+  ag_slot_state_null( ss );
+  ss->slot       = slot;
+  ss->epoch_info = epoch_info;
+  ss->own_rank   = 0UL;
   add_vote_helper( ss, &notar_fallback, epoch_info, &t );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &notar          ) );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &notar_fallback ) );

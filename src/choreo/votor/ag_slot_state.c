@@ -505,22 +505,15 @@ count_finalize_stake( ag_slot_state_t *       self,
 }
 
 void
-ag_slot_state_zero( ag_slot_state_t *       self,
-                    ulong                   slot,
-                    ag_epoch_info_t const * epoch_info,
-                    ulong                   own_rank ) {
+ag_slot_state_null( ag_slot_state_t * self ) {
   fd_memset( self, 0, sizeof(ag_slot_state_t) );
-  notar_map_new         ( self->votes.notar          );
-  notar_fallback_map_new( self->votes.notar_fallback );
+  notar_map_clear         ( self->votes.notar          );
+  notar_fallback_map_clear( self->votes.notar_fallback );
 
   self->certs.notar.slot         = ULONG_MAX;
   self->certs.skip.slot          = ULONG_MAX;
   self->certs.fast_finalize.slot = ULONG_MAX;
   self->certs.finalize.slot      = ULONG_MAX;
-
-  self->slot       = slot;
-  self->epoch_info = epoch_info;
-  self->own_rank   = own_rank;
 }
 
 FD_FN_PURE int
