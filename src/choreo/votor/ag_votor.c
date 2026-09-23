@@ -8,8 +8,6 @@
 #define QUEUE_T    ag_event_cert_t
 #include "../../util/tmpl/fd_queue_dynamic.c"
 
-#define PARENTS_READY_MAX (AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX+1UL)
-
 struct slot_state_ele {
   ulong slot;
   ulong next;
@@ -20,7 +18,7 @@ struct slot_state_ele {
   int             bad_window;
   int             block_notarized;
   ag_block_hash_t block_notarized_hash;
-  ag_block_id_t   parents_ready[ PARENTS_READY_MAX ];
+  ag_block_id_t   parents_ready[ AG_PARENT_READY_MAX ];
   ulong           parents_ready_cnt;
   int             received_shred;
   int             pending_block;
@@ -289,6 +287,13 @@ ag_votor_init( ag_votor_t *   self,
   self->ns_per_slot             = ns_per_slot;
   self->bls_sign_fn             = sign_fn;
   self->bls_sign_ctx            = sign_ctx;
+
+  /* voted_notar_hash is left zeroed, so try_notar never matches this as
+     a parent and the node resumes at the next window start instead, see
+     ag_pool_init.  Storing the real hash suits a genesis boot but not a
+     snapshot boot, and nothing here tells the two apart.  Agave seeds it
+     for genesis only:
+     https://github.com/anza-xyz/agave/blob/v4.3/votor/src/vote_history.rs#L104-L127 */
 
   slot_state_ele_t * state       = state_mut( self, slot );
   state->voted                   = 1;
@@ -563,7 +568,7 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
       if( FD_UNLIKELY( ag_block_id_eq( &state->parents_ready[i], parent ) ) ) { dup = 1; break; }
     }
     if( FD_LIKELY( !dup ) ) {
-      FD_TEST( state->parents_ready_cnt<PARENTS_READY_MAX );
+      FD_TEST( state->parents_ready_cnt<AG_PARENT_READY_MAX );
       state->parents_ready[ state->parents_ready_cnt++ ] = *parent;
     }
 

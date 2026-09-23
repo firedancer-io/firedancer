@@ -109,6 +109,7 @@ add_to_ready( ag_parent_ready_state_t * state,
     state->ready_id_cnt   = 1UL;
     state->is_ready       = 1;
   } else {
+    FD_TEST( state->ready_id_cnt<AG_PARENT_READY_MAX );
     state->ready_ids[ state->ready_id_cnt++ ] = *id;
   }
 }
@@ -166,6 +167,7 @@ ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
   for( ulong i=0UL; i<state->notar_fallbacks_cnt; i++ ) {
     if( FD_UNLIKELY( 0==memcmp( state->notar_fallbacks[i], hash, sizeof(ag_block_hash_t) ) ) ) return;
   }
+  FD_TEST( state->notar_fallbacks_cnt<AG_NOTAR_FALLBACK_TRACKED_MAX );
   memcpy( state->notar_fallbacks[ state->notar_fallbacks_cnt++ ], hash, sizeof(ag_block_hash_t) );
 
   for( ulong slot_=slot+1; ; slot_++ ) {
@@ -193,7 +195,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
   if( FD_UNLIKELY( state->skip ) ) return;
   state->skip = 1;
 
-  ag_block_id_t potential_parents[ AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX ];
+  ag_block_id_t potential_parents[ AG_PARENT_READY_MAX ];
   ulong         potential_cnt = 0UL;
 
   for( ulong slot=marked_slot; slot>=fd_ulong_max( ag_first_slot_in_window( marked_slot ), self->root ); slot-- ) {
@@ -201,7 +203,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
 
     if( FD_LIKELY( slot!=marked_slot ) ) {
       for( ulong i=0UL; i<state->notar_fallbacks_cnt; i++ ) {
-        FD_TEST( potential_cnt < AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX );
+        FD_TEST( potential_cnt < AG_PARENT_READY_MAX );
         potential_parents[ potential_cnt ] = ag_block_id( slot, state->notar_fallbacks[i] );
         potential_cnt++;
       }
@@ -210,7 +212,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
     if( FD_LIKELY( !state->skip ) ) break;
 
     for( ulong i=0UL; i<state->ready_id_cnt; i++ ) {
-      FD_TEST( potential_cnt < AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX );
+      FD_TEST( potential_cnt < AG_PARENT_READY_MAX );
       potential_parents[ potential_cnt ] = state->ready_ids[i];
       potential_cnt++;
     }

@@ -16,11 +16,11 @@ struct ag_parent_ready_state {
 
   int skip;
 
-  ag_block_hash_t notar_fallbacks[AG_NOTAR_FALLBACK_CERT_MAX];
+  ag_block_hash_t notar_fallbacks[AG_NOTAR_FALLBACK_TRACKED_MAX];
   uchar           notar_fallbacks_cnt;
 
   int           is_ready;
-  ag_block_id_t ready_ids[AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX];
+  ag_block_id_t ready_ids[AG_PARENT_READY_MAX];
   ulong         ready_id_cnt;
 };
 typedef struct ag_parent_ready_state ag_parent_ready_state_t;

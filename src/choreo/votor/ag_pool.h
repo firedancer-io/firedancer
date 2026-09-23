@@ -38,9 +38,16 @@ ag_pool_leave( ag_pool_t const * pool );
 void *
 ag_pool_delete( void * mem );
 
+/* Initializes the pool at the block the node booted on, whose hash is
+   block_hash.  Seeds it as notarized fallback so a node booting
+   mid-window into a skipped window still gets parent ready at the next
+   window start, as Agave's ParentReadyTracker::new does at
+   https://github.com/anza-xyz/agave/blob/v4.3/votor/src/consensus_pool/parent_ready_tracker.rs#L69-L112 */
+
 void
-ag_pool_init( ag_pool_t * self,
-              ulong       slot );
+ag_pool_init( ag_pool_t *           self,
+              ulong                 slot,
+              ag_block_hash_t const block_hash );
 
 void
 ag_pool_fini( ag_pool_t * self );

@@ -10,6 +10,16 @@
 #define AG_NOTAR_FALLBACK_VOTE_MAX (3UL)    /* Definition 12 */
 #define AG_NOTAR_FALLBACK_CERT_MAX (4UL)    /* Lemma 48 */
 
+/* ag_pool_init seeds the block the node booted on as notarized fallback
+   at the root, so the tracker holds one entry per slot beyond the
+   certificates the protocol allows, and one per window start beyond the
+   parents a window can otherwise offer.  The parent ready tracker and
+   the votor must agree on the latter: the tracker hands every parent it
+   grants to the votor, which stores them. */
+
+#define AG_NOTAR_FALLBACK_TRACKED_MAX (AG_NOTAR_FALLBACK_CERT_MAX+1UL)
+#define AG_PARENT_READY_MAX           (AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX+1UL)
+
 #define AG_DELTA_TIMEOUT_NS    (400000000L)   /* skip timeout */
 #define AG_DELTA_STANDSTILL_NS (10000000000L) /* 10s since last finalize */
 

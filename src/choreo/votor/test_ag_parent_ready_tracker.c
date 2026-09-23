@@ -520,6 +520,44 @@ test_wait_does_not_allocate( void ) {
   FD_TEST( ag_parent_ready_state_pool_free( tracker->states.pool )==free_before );
 }
 
+/* The synthetic root seeded at boot has to leave room for a full set of
+   real fallback certificates at that same slot. */
+
+static void
+test_root_seed_plus_full_fallbacks( void ) {
+  ag_parent_ready_tracker_t * tracker = setup_tracker( TEST_SLOT_MAX );
+
+  ulong             root = SLOTS_PER_WINDOW; /* window start, so readiness lands at root+AG_SLOTS_PER_WINDOW */
+  ag_parent_ready_t readys[ TEST_SLOT_MAX ];
+  ulong             ready_cnt;
+
+  tracker->root = root;
+
+  ag_block_id_t seed = random_block_id( root );
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &seed, readys, &ready_cnt );
+
+  /* AG_NOTAR_FALLBACK_CERT_MAX real certs for other blocks in the same
+     slot, none of which dedupe against the seed. */
+
+  for( ulong i=0UL; i<AG_NOTAR_FALLBACK_CERT_MAX; i++ ) {
+    ag_block_id_t other; other.slot = root;
+    fd_memset( other.hash, (int)( 0x80UL+i ), sizeof(ag_block_hash_t) );
+    ag_parent_ready_tracker_mark_notar_fallback( tracker, &other, readys, &ready_cnt );
+  }
+
+  ag_parent_ready_state_t * state = slot_state( tracker, root );
+  FD_TEST( state->notar_fallbacks_cnt==AG_NOTAR_FALLBACK_TRACKED_MAX );
+
+  /* and all of them survive the skip walk into the next window */
+
+  for( ulong s=root+1UL; s<root+SLOTS_PER_WINDOW; s++ ) {
+    ag_parent_ready_tracker_mark_skipped( tracker, s, readys, &ready_cnt );
+  }
+  ulong cnt;
+  ag_parent_ready_tracker_parents_ready( tracker, root+SLOTS_PER_WINDOW, &cnt );
+  FD_TEST( cnt==AG_NOTAR_FALLBACK_TRACKED_MAX );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -541,6 +579,7 @@ main( int     argc,
   test_wait_does_not_allocate();
   test_parent_ready_finalized();
   test_prune();
+  test_root_seed_plus_full_fallbacks();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
