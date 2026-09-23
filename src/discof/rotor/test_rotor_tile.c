@@ -1604,18 +1604,18 @@ test_block_id_catchup_anchor( fd_wksp_t * wksp ) {
 /* =====================================================================
    Test 2b: FEC re-key merge.
 
-   When turbine sees a FEC first it keys it by the full 32-byte merkle
-   root.  A later notar-fallback version that shares that FEC learns only
-   the 20-byte root prefix from its FecSetRoot repair response, so
-   verified_hash_insert (querying with the padded root) misses the
-   full-root entry and creates a distinct sentinel.  Once a real shred
-   delivers the full root, the chainer must merge the sentinel's
-   owners onto the existing full-root FEC rather than leaving them
-   stranded.  This is invisible unless the root has a non-zero tail
-   (bytes 20-31), which mkhash does not produce, so build one here. */
+   When turbine sees a FEC first it holds the full 32-byte merkle root.
+   A later notar-fallback version that shares that FEC learns only the
+   20-byte root prefix from its FecSetRoot repair response.  FECs are
+   keyed by that prefix, so verified_hash_insert (querying with the
+   padded root) must find the existing full-root entry, join it, and
+   replay its completion for the new version rather than creating a
+   distinct sentinel and requesting shreds it already holds.  This is
+   invisible unless the root has a non-zero tail (bytes 20-31), which
+   mkhash does not produce, so build one here. */
 
 static void
-test_fec_rekey_merge( fd_wksp_t * wksp ) {
+test_fec_prefix_key_share( fd_wksp_t * wksp ) {
   static ctx_t ctx[1];
   setup_ctx( ctx, wksp );
 
@@ -1659,34 +1659,23 @@ test_fec_rekey_merge( fd_wksp_t * wksp ) {
   req_t * root0 = req_find( mark, AG_REPAIR_KIND_FEC_ROOT, slot, 0U, &blkB->block_id );
   FD_TEST( root0 );
 
-  /* B's FecSetRoot response for set 0.  The 20-byte-padded root misses
-     A's full-root FEC, so B gets its own distinct sentinel rather than
-     sharing A's entry. */
-  respond_fec_root( ctx, blkB, 0U, root0->nonce, 0 );
-  FD_TEST( fd_chainer_slotv_fecs( ctx->chainer, vB )[ 0 ]!=UINT_MAX );
-  FD_TEST( fd_chainer_slotv_fecs( ctx->chainer, vB )[ 0 ]!=aFec0 ); /* distinct 20-byte-prefix sentinel */
-
-  /* B requests set-0 shreds (its sentinel is incomplete). */
-  pump( ctx );
-  req_t * s0 = req_find( mark, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, slot, 0U, &blkB->block_id );
-  FD_TEST( s0 );
-
-  /* Serve one set-0 shred carrying the full root.  after_alpen_shred
-     matches it to B's request by the 20-byte root prefix, and the
-     chainer, seeing A's full-root FEC already exists, merges B's
-     sentinel onto it on insert and releases the sentinel. */
+  /* B's FecSetRoot response for set 0.  The 20-byte-padded root finds
+     A's complete full-root FEC directly: B joins it, A keeps it, and
+     the completion is replayed under B so FEC 0 is re-delivered without
+     B requesting a single set-0 shred. */
   ulong rmark = rep_cnt;
-  serve_shred_request( ctx, blkB, s0, &blkB->fec_root[ 0 ] );
-  pump( ctx );
-
-  FD_TEST( fd_chainer_slotv_fecs( ctx->chainer, vB )[ 0 ]==aFec0 );                          /* merged onto A's FEC */
+  respond_fec_root( ctx, blkB, 0U, root0->nonce, 0 );
+  FD_TEST( fd_chainer_slotv_fecs( ctx->chainer, vB )[ 0 ]==aFec0 );                          /* shares A's FEC */
   FD_TEST( fd_chainer_slotv_fecs( ctx->chainer, vA )[ 0 ]==aFec0 );                          /* A still owns it */
   FD_TEST( slot_version_cnt( ctx->chainer, slot )==2UL );  /* no stray version */
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
-  FD_TEST( rep_cnt>rmark );                                /* FEC 0 re-delivered under B */
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) FD_TEST( fd_chainer_shred_test( ctx->chainer, vB, i ) );
 
-  FD_LOG_NOTICE(( "pass: test_fec_rekey_merge" ));
+  pump( ctx );
+  FD_TEST( rep_cnt>rmark );                                /* FEC 0 re-delivered under B */
+  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) FD_TEST( !req_find( mark, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, slot, i, &blkB->block_id ) ); /* nothing to fetch for set 0 */
+
+  FD_LOG_NOTICE(( "pass: test_fec_prefix_key_share" ));
 }
 
 /* =====================================================================
@@ -3065,7 +3054,7 @@ main( int argc, char ** argv ) {
   test_votor_notar_fallback( wksp );
 
   fd_wksp_reset( wksp, 1U );
-  test_fec_rekey_merge( wksp );
+  test_fec_prefix_key_share( wksp );
 
   fd_wksp_reset( wksp, 1U );
   test_notar_fallback_same_block( wksp );

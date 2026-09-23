@@ -92,7 +92,7 @@
 FD_STATIC_ASSERT( FD_FEC_SHRED_CNT==32UL, fd_chainer_fec_bitmap );
 
 struct fd_chainer_fec {
-  fd_hash_t merkle_root; /* key */
+  fd_hash_t merkle_root; /* key: first FD_SHRED_MERKLE_NODE_SZ bytes */
   uint      slot;        /* slot this FEC belongs to */
   uint      data_idxs;   /* received data shreds in this FEC */
   uint      next;        /* reserved by pool and map_chain */
@@ -116,7 +116,7 @@ FD_STATIC_ASSERT( sizeof(fd_chainer_fec_t)==52UL, fd_chainer_fec );
 #define MAP_IDX_T uint
 #define MAP_KEY   merkle_root
 #define MAP_KEY_T fd_hash_t
-#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0)->uc, (k1)->uc, sizeof(fd_hash_t) ))
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0)->uc, (k1)->uc, FD_SHRED_MERKLE_NODE_SZ )) /* 20-byte root prefix */
 #define MAP_KEY_HASH(key,seed) ( (seed) ^ fd_ulong_load_8( (key)->uc ) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
@@ -408,7 +408,10 @@ fd_chainer_init( fd_chainer_t *    chainer,
 
    The shred may be rejected (unauthorized equivocation); the caller
    does not need to know.  Returns the turbine version if this call
-   created it, else NULL. */
+   created it, else NULL.
+
+   Caller must supply the full 32-byte merkle-root, not the 20-byte
+   prefix. */
 
 fd_chainer_slotv_t *
 fd_chainer_shred_insert( fd_chainer_t *    chainer,
@@ -431,7 +434,10 @@ fd_chainer_code_shred_insert( fd_chainer_t *    chainer,
 /* fd_chainer_fec_complete returns the turbine version if this call
    created it, else NULL.  If opt_rejected is non-NULL it is set to 1
    when the set was rejected (unauthorized equivocating root: dropped,
-   nothing completed) and 0 otherwise. */
+   nothing completed) and 0 otherwise.
+
+   Caller must supply the full 32-byte merkle-root, not the 20-byte
+   prefix. */
 
 fd_chainer_slotv_t *
 fd_chainer_fec_complete( fd_chainer_t *        chainer,
@@ -489,14 +495,15 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
    the FEC entry if it doesn't exist yet and updates bookkeeping.  If
    the root was already complete under another version the completion
    is replayed, which can create the slot's turbine version (returned);
-   otherwise returns NULL. */
+   otherwise returns NULL.  mr_prefix is the 20-byte root prefix the
+   getFecSetRoot response carries. */
 
 fd_chainer_slotv_t *
-fd_chainer_verified_hash_insert( fd_chainer_t *        chainer,
-                                 ulong                 slot,
-                                 fd_hash_t *           block_id,
-                                 uint                  fec_set_idx,
-                                 fd_hash_t *           mr );
+fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
+                                 ulong          slot,
+                                 fd_hash_t *    block_id,
+                                 uint           fec_set_idx,
+                                 uchar const    mr_prefix[ static FD_SHRED_MERKLE_NODE_SZ ] );
 
 /* fd_chainer_fec_query returns the FEC that the version of slot
    identified by block_id owns at fec_set_idx, or NULL. */

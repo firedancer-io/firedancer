@@ -513,10 +513,7 @@ after_alpen_meta_repair( ctx_t *                ctx,
         return;
       }
 
-      /* The response carries only the 20-byte FEC-set root prefix */
-      fd_hash_t fec_root_mr = {0};
-      memcpy( fec_root_mr.uc, fec_set_root->root, FD_SHRED_MERKLE_NODE_SZ );
-      fd_chainer_verified_hash_insert( ctx->chainer, slot, &block_id, fec_set_idx, &fec_root_mr );
+      fd_chainer_verified_hash_insert( ctx->chainer, slot, &block_id, fec_set_idx, fec_set_root->root );
       break;
     }
   }

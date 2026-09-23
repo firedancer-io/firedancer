@@ -354,11 +354,6 @@ finalize_block_id( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv ) {
   return 1;
 }
 
-static void
-fec_rekey( fd_chainer_t *        chainer,
-           fd_chainer_fec_t *    sentinel,
-           fd_hash_t const *     full_mr );
-
 fd_chainer_slotv_t *
 fd_chainer_shred_insert( fd_chainer_t *        chainer,
                          ulong                 slot,
@@ -376,9 +371,7 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
   FD_TEST( k<chainer->fec_blk_max ); /* guaranteed by fec_resolver */
 
   /* Identify the slot versions this shred belongs to.  The turbine
-     version is created here, before the rekey below, so the nested
-     shred_inserts a rekey can replay never create anything: this call
-     is the only one that can. */
+     version is created here. */
 
   fd_chainer_slotv_t * created = NULL;
   fd_chainer_slotv_t * turbine = turbine_slotv_find( chainer, slot );
@@ -399,23 +392,7 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
     }
   }
 
-  /* A getFecRoot response carries only the 20-byte root prefix, so the
-     FEC it created (the sentinel) is keyed by the zero-padded prefix.
-     If a sentinel for mr exists, re-key it now so this and later shreds
-     find it by full root.  */
-
-  fd_hash_t prefix = {0};
-  memcpy( prefix.uc, mr->uc, FD_SHRED_MERKLE_NODE_SZ );
-  if( FD_LIKELY( !fd_hash_eq( &prefix, mr ) ) ) {
-    fd_chainer_fec_t * sentinel = fec_query( chainer, &prefix );
-    if( FD_UNLIKELY( sentinel && sentinel->slot==(uint)slot && sentinel->fec_set_idx==fec_set_idx ) ) {
-      fec_rekey( chainer, sentinel, mr );
-    }
-  }
-
-  /* Find or create the FEC for this shred's root
-
-     If the turbine version holds no root at this position it adopts
+  /* If the turbine version holds no root at this position it adopts
      this one, whether it is newly seen FEC or an entry a getFecRoot
      sentinel already created.  If turbine already holds a *different*
      root here and nothing authorized this one, the shred is an
@@ -428,6 +405,10 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
   } else if( FD_UNLIKELY( !fec ) ) {
     return created; /* shred dropped, but the version it made is real */
   }
+
+  /* A sentinel holds only the zero-padded prefix until now.  Fill in
+     the full root the shred carries. */
+  fec->merkle_root = *mr;
 
   uint bit       = 1U << ( shred_idx - fec_set_idx );
   int  new_shred = !( fec->data_idxs & bit ); /* the versions that own this root have not counted it yet */
@@ -730,87 +711,43 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
 }
 
 fd_chainer_slotv_t *
-fd_chainer_verified_hash_insert( fd_chainer_t *        chainer,
-                                 ulong                 slot,
-                                 fd_hash_t *           block_id,
-                                 uint                  fec_set_idx,
-                                 fd_hash_t *           mr ) {
+fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
+                                 ulong          slot,
+                                 fd_hash_t *    block_id,
+                                 uint           fec_set_idx,
+                                 uchar const    mr_prefix[ static FD_SHRED_MERKLE_NODE_SZ ] ) {
   fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( chainer, slot, block_id );
   if( FD_UNLIKELY( !slotv ) ) FD_LOG_CRIT(( "slotv not found for slot %lu - verify this is a CRIT", slot ));
 
   /* Already have this version's FEC entry -> nothing to fetch. */
   if( FD_UNLIKELY( slotv_fec( chainer, slotv, fec_set_idx ) ) ) return NULL;
 
+  fd_hash_t mr = {0};
+  memcpy( mr.uc, mr_prefix, FD_SHRED_MERKLE_NODE_SZ );
+
   /* The same root may have already started progress through repairing
      another slot version.  If so, create this version's entry
      already-complete and replay the completion through
      fd_chainer_fec_complete.  Otherwise create an incomplete entry that
      is awaiting shreds. */
-  fd_chainer_fec_t * shared          = fec_query( chainer, mr );
+  fd_chainer_fec_t * shared          = fec_query( chainer, &mr );
   int                shared_complete = shared && shared->complete;
 
-  fd_chainer_fec_t * fec = fec_join( chainer, slot, fec_set_idx, slotv, mr );
+  fd_chainer_fec_t * fec = fec_join( chainer, slot, fec_set_idx, slotv, &mr );
   if( FD_UNLIKELY( fec_set_idx==slotv->complete_idx - ( FD_FEC_SHRED_CNT-1 ) ) ) {
     fec->slot_complete = 1;
   }
 
   fd_chainer_slotv_t * created = NULL;
   if( FD_LIKELY( shared_complete ) ) {
-    /* TODO double check we don't need to be updating slotv buffered_idx
-       when FEC is not complete as well */
-    created = fd_chainer_fec_complete( chainer, slot, fec_set_idx, shared->slot_complete, shared->data_complete, 0, 0L /* arrival time unknown: replayed into a new version */, mr, NULL );
+    /* Replay with the full root the shared FEC already holds, never the
+       prefix */
+    fd_hash_t shared_mr = shared->merkle_root;
+    created = fd_chainer_fec_complete( chainer, slot, fec_set_idx, shared->slot_complete, shared->data_complete, 0, 0L /* arrival time unknown: replayed into a new version */, &shared_mr, NULL );
   }
   fd_chainer_repair_add( chainer, slotv ); /* new sentinel -> re-add for shred fill */
   chainer_advance( chainer, slotv );
   return created;
-}
-
-/* fec_rekey re-keys sentinel, a FEC created from a getFecRoot response
-   and  keyed by only its zero-padded 20-byte root prefix, to the
-   full merkle root full_mr that a shred just delivered.  If a FEC keyed
-   by full_mr already exists (e.g. turbine saw the set first), the
-   sentinel is merged into it instead: every version pointing at the
-   sentinel is repointed and, if the existing FEC is already complete,
-   its completion is replayed so those versions deliver it. */
-
-static void
-fec_rekey( fd_chainer_t *        chainer,
-           fd_chainer_fec_t *    sentinel,
-           fd_hash_t const *     full_mr ) {
-  fd_chainer_fec_t * existing = fec_query( chainer, full_mr );
-  if( FD_LIKELY( !existing ) ) {
-    fd_fec_map_ele_remove_fast( chainer->fec_map, sentinel, chainer->fec_pool );
-    sentinel->merkle_root = *full_mr;
-    fd_fec_map_ele_insert( chainer->fec_map, sentinel, chainer->fec_pool );
-    return;
-  }
-
-  ulong slot         = sentinel->slot;
-  uint  fec_set_idx  = sentinel->fec_set_idx;
-  uint  k            = fec_set_idx / FD_FEC_SHRED_CNT;
-  uint  sentinel_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, sentinel );
-  uint  existing_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, existing );
-
-  fd_chainer_slotv_t * repointed[ FD_CHAINER_SLOT_VER_MAX ];
-  ulong                repointed_cnt = 0UL;
-  for( ulong i=slotv_iter_init( chainer, slot ); i!=ULONG_MAX; i=slotv_iter_next( chainer, i ) ) {
-    fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, i );
-    uint *               fecs  = fd_chainer_slotv_fecs( chainer, slotv );
-    if( FD_LIKELY( fecs[ k ]!=sentinel_idx ) ) continue;
-    fecs[ k ] = existing_idx;
-    repointed[ repointed_cnt++ ] = slotv;
-  }
-  fd_fec_map_ele_remove_fast( chainer->fec_map, sentinel, chainer->fec_pool );
-  fd_fec_pool_ele_release   ( chainer->fec_pool, sentinel );
-
-  if( FD_LIKELY( existing->complete ) ) {
-    fd_hash_t full = *full_mr;
-    fd_chainer_fec_complete( chainer, slot, fec_set_idx, existing->slot_complete, existing->data_complete, 0, 0L /* arrival time unknown */, &full, NULL ); /* cannot create: the caller's shred_insert already made the turbine version */
-  }
-  for( ulong i=0UL; i<repointed_cnt; i++ ) {
-    fd_chainer_repair_add( chainer, repointed[ i ] ); /* re-add for remaining shred fill */
-    chainer_advance( chainer, repointed[ i ] );
-  }
 }
 
 fd_chainer_slotv_t *
