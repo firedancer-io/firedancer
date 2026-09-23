@@ -1,8 +1,67 @@
 #include "fd_keyguard.h"
 #include "../../ballet/txn/fd_txn.h"
+#include "../../waltz/tls/fd_tls.h"
 
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
+
+static ulong
+build_txn_v1( uchar * buf,
+              ulong   sig_cnt,
+              ulong   num_addr,
+              ulong   instr_cnt,
+              ulong * msg_sz );
+
+/* test_failov_message: the failov role gets the exact member
+   certificate message and a TLS CertificateVerify signed. */
+
+static void
+test_failov_message( void ) {
+  fd_keyguard_authority_t authority = {0};
+  uchar                   msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
+  fd_memcpy( msg, FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
+  fd_memset( msg+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, 0x5a, 32UL );
+  FD_TEST( fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_FAILOV );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  msg[0] ^= 1;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  uchar cv[ FD_TLS_CV_SIGN_SZ ];
+  fd_memcpy( cv, fd_tls13_cli_sign_prefix, sizeof(fd_tls13_cli_sign_prefix) );
+  fd_memset( cv+sizeof(fd_tls13_cli_sign_prefix), 0x5a, 32UL );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  fd_memcpy( cv, fd_tls13_srv_sign_prefix, sizeof(fd_tls13_srv_sign_prefix) );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  cv[0] ^= 1;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  /* No other role signs a member certificate, and the failov role signs
+     it only as Ed25519. */
+  msg[0] ^= 1;
+  for( int role=0; role<FD_KEYGUARD_ROLE_CNT; role++ ) {
+    if( role==FD_KEYGUARD_ROLE_FAILOV ) continue;
+    FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), role, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  }
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+
+  /* The failov role signs nothing else: a ping, a pong, a shred root, a
+     transaction or a CertificateVerify of another size. */
+  uchar other[ 162 ];
+  fd_memset( other, 0x5a, sizeof(other) );
+  fd_memcpy( other, "SOLANA_PING_PONG", 16UL );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 32UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 48UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  fd_memset( other, 0x5a, 32UL );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 32UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  ulong msg_sz;
+  build_txn_v1( v1_buf, 1UL, 1UL, 0UL, &msg_sz );
+  FD_TEST( fd_keyguard_payload_match( v1_buf, msg_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TXN );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, v1_buf, msg_sz, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  fd_memcpy( other, fd_tls13_cli_sign_prefix, sizeof(fd_tls13_cli_sign_prefix) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 146UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, other, 162UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+}
 
 static ulong
 build_txn_v1( uchar * buf,
@@ -211,6 +270,7 @@ main( int     argc,
   test_txn_v1_match();
   test_ag_vote_authorize();
   test_bls_pubkey_authorize();
+  test_failov_message();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }
