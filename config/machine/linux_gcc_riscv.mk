@@ -7,7 +7,7 @@ include config/extra/with-gcc.mk
 CPPFLAGS:=
 LDFLAGS:=-lm
 
-ifneq ($(shell uname -m),ppc64le)
+ifneq ($(shell uname -m),riscv64)
 CROSS=1
 endif
 
@@ -22,7 +22,12 @@ include config/extra/with-debug.mk
 include config/extra/with-security.mk
 include config/extra/with-threads.mk
 
-CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1
+# Experimental RV64 Linux target.  No vector extensions are required here.
+CPPFLAGS+=-march=rv64gc
+CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_RISCV=1
+
+FD_HAS_RISCV:=1
+FD_ARCH_SUPPORTS_SANDBOX:=1
 
 FD_HAS_INT128:=1
 FD_HAS_DOUBLE:=1

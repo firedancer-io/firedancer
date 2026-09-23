@@ -6,7 +6,7 @@
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__riscv)
 #include "generated/pidns_arm64_seccomp.h"
 #else
 #include "generated/pidns_seccomp.h"
@@ -594,7 +594,7 @@ main_pid_namespace( void * _args ) {
 
   struct sock_filter seccomp_filter[ 128UL ];
   unsigned int instr_cnt;
-  #if defined(__aarch64__)
+  #if defined(__aarch64__) || defined(__riscv)
   populate_sock_filter_policy_pidns_arm64( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
   instr_cnt = sock_filter_policy_pidns_arm64_instr_cnt;
   #else

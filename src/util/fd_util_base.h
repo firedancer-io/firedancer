@@ -189,6 +189,12 @@
 #define FD_HAS_ARM 0
 #endif
 
+/* FD_HAS_RISCV: Experimental RV64 support (RVWMO, not Ztso). */
+
+#ifndef FD_HAS_RISCV
+#define FD_HAS_RISCV 0
+#endif
+
 /* FD_HAS_LZ4 indicates that the target supports LZ4 compression.
    Roughly, does "#include <lz4.h>" and the APIs therein work? */
 
@@ -762,6 +768,10 @@ fd_type_pun_const( void const * p ) {
 #define FD_HW_MFENCE()    __asm__ __volatile__( "dmb ish" ::: "memory" )
 #define FD_HW_MFENCE_LD() __asm__ __volatile__( "dmb ishld" ::: "memory" )
 #define FD_HW_MFENCE_ST() __asm__ __volatile__( "dmb ishst" ::: "memory" )
+#elif FD_HAS_RISCV
+#define FD_HW_MFENCE()    __asm__ __volatile__( "fence rw,rw" ::: "memory" )
+#define FD_HW_MFENCE_LD() __asm__ __volatile__( "fence r,rw"  ::: "memory" )
+#define FD_HW_MFENCE_ST() __asm__ __volatile__( "fence w,w"   ::: "memory" )
 #else
 #define FD_HW_MFENCE()    __sync_synchronize()
 #define FD_HW_MFENCE_LD() __sync_synchronize()
