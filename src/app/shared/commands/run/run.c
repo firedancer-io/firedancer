@@ -263,7 +263,8 @@ execve_tile( char const *           name,
        thread affinity before we clone the new process, to ensure
        kernel first touch happens on the desired thread.  The child
        inherits both. */
-    join_isolation_cgroup( name, cg );
+    if( FD_UNLIKELY( tile->floats ) ) leave_isolation_cgroup( cg );
+    else                            join_isolation_cgroup( name, cg );
     if( FD_UNLIKELY( tile->floats ) ) {
       /* the floating CPUs on this tile's NUMA node: memory was placed
          by cpu_idx */

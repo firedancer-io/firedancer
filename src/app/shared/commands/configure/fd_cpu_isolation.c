@@ -15,7 +15,9 @@ fd_cpu_isolation_tile_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt 
   ulong cpu_cnt = fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    if( tile->cpu_idx<cpu_cnt ) fd_cpuset_insert( cpuset, tile->cpu_idx );
+    /* Shared-affinity tiles float in a housekeeping pool.  Reserving
+       that pool would leave no CPUs for IRQs and kernel workers. */
+    if( !tile->floats && tile->cpu_idx<cpu_cnt ) fd_cpuset_insert( cpuset, tile->cpu_idx );
   }
   return cpuset;
 }
