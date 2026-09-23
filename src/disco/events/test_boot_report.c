@@ -128,6 +128,8 @@ main( int     argc,
   FD_TEST( report->kernel_release[ 0 ] );
   FD_TEST( report->cpu_logical_count );
   FD_TEST( report->host_memory_bytes );
+  FD_TEST( report->libc_kind==1 || report->libc_kind==2 );
+  FD_TEST( report->libc_version[ 0 ] );
   FD_TEST( report->resolved_config_json_len==13UL );
   FD_TEST( report->user_config_json_len==13UL );
   FD_TEST( report->filesystems_cnt>=1UL );
