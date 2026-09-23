@@ -93,6 +93,9 @@ set_identity( args_t *   args,
     case FD_ADMINCTL_RESULT_SUCCESS:
       FD_LOG_NOTICE(( "validator identity key switched to %s%s%s", fd_log_style_bold(), identity_key_base58, fd_log_style_normal() ));
       break;
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:
+      FD_LOG_ERR(( "Failed to set identity: the validator runs with [failover.junk_identity_key] set, "
+                   "and failover fully manages the identity while it is on." ));
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:

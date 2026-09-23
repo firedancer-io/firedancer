@@ -250,6 +250,7 @@ struct fd_topo_tile {
 
     struct {
       char identity_key_path[ PATH_MAX ];
+      int  failover_enabled;
     } admin;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
@@ -419,6 +420,8 @@ struct fd_topo_tile {
 
     struct {
       char  identity_key_path[ PATH_MAX ];
+      int   failover_enabled;
+      char  failover_staked_key_path[ PATH_MAX ];
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       struct {

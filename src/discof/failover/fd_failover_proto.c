@@ -1,5 +1,12 @@
 #include "fd_failover_proto.h"
 
+#include "../../choreo/tower/fd_tower.h"
+#include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../disco/keyguard/fd_keyguard.h"
+
+FD_STATIC_ASSERT( FD_KEYGUARD_MEMBER_CERT_MSG_SZ==FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ+32UL, member_cert_msg );
+
 int
 fd_failover_hello_check( fd_failover_hello_t const * self,
                          fd_failover_hello_t const * peer ) {
@@ -16,6 +23,24 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
   if( FD_UNLIKELY(  fd_memeq( peer->junk_pubkey,   peer->staked_pubkey, 32UL ) ) ) return FD_FAILOVER_HELLO_ERR_JUNK_STAKE;
   if( FD_UNLIKELY( self->role==FD_FAILOVER_ROLE_ACTIVE &&
                    peer->role==FD_FAILOVER_ROLE_ACTIVE ) )                         return FD_FAILOVER_HELLO_ERR_BOTH_ACT;
+  return FD_FAILOVER_HELLO_OK;
+}
+
+void
+fd_failover_member_cert_msg( uchar       out[ 48 ],
+                             uchar const junk_pubkey[ 32 ] ) {
+  fd_memcpy( out,                                   FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
+  fd_memcpy( out+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, junk_pubkey,                    32UL                              );
+}
+
+int
+fd_failover_member_cert_check( fd_failover_hello_t const * hello,
+                               fd_sha512_t *               sha ) {
+  uchar msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
+  fd_failover_member_cert_msg( msg, hello->junk_pubkey );
+  if( FD_UNLIKELY( fd_ed25519_verify( msg, sizeof(msg), hello->member_cert, hello->staked_pubkey, sha )!=FD_ED25519_SUCCESS ) ) {
+    return FD_FAILOVER_HELLO_ERR_CERT;
+  }
   return FD_FAILOVER_HELLO_OK;
 }
 
