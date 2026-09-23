@@ -238,7 +238,7 @@ enum BootCompiler {
 enum BootCpuArch {
   BOOT_CPU_ARCH_UNSPECIFIED = 0;
   BOOT_CPU_ARCH_X86_64 = 1;  // x86-64
-  BOOT_CPU_ARCH_ARM = 2;  // ARM
+  BOOT_CPU_ARCH_ARM64 = 2;  // arm64
   BOOT_CPU_ARCH_UNKNOWN = 3;  // Unlisted or undeterminable.
   BOOT_CPU_ARCH_RISCV64 = 4;  // riscv64
 }
