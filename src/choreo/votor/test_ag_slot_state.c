@@ -316,7 +316,7 @@ test_should_ignore_duplicate_votes( void ) {
   ag_vote_t v4nf_other = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[4], slot, other_hash, 4UL, TEST_SHRED_VERSION );
   FD_TEST( !ag_slot_state_should_ignore_vote( ss, &v4nf_other ) );
 
-  ag_block_hash_t null_hash; memset( null_hash, 0xFF, sizeof(ag_block_hash_t) );
+  ag_block_hash_t null_hash; memset( null_hash, 0, sizeof(ag_block_hash_t) );
   ag_vote_t v5n_null  = ag_vote_construct_notar         ( sec_sign_fn, &g_sk[5], slot, null_hash, 5UL, TEST_SHRED_VERSION );
   ag_vote_t v5nf_null = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[5], slot, null_hash, 5UL, TEST_SHRED_VERSION );
   FD_TEST( ag_slot_state_should_ignore_vote( ss, &v5n_null  ) );
@@ -766,7 +766,7 @@ assert_tally( ag_slot_voted_stake_hash_t const * ele,
   FD_TEST( cnt==expected_cnt );
   for( ulong i=0UL; i<expected_cnt; i++ ) { /* the tally is unordered, so search for each hash */
     ulong j;
-    for( j=0UL; j<slot_cnt; j++ ) if( !memcmp( ele[j].hash.uc, hash[i], sizeof(ag_block_hash_t) ) ) break;
+    for( j=0UL; j<slot_cnt; j++ ) if( !memcmp( ele[j].hash.block_hash, hash[i], sizeof(ag_block_hash_t) ) ) break;
     FD_TEST( j<slot_cnt );
     FD_TEST( ele[j].stake==stake[i] );
   }
