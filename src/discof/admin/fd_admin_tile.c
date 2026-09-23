@@ -3,28 +3,18 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
 
-#include <fcntl.h>
-#include <errno.h>
-#include <unistd.h>
-#include <stdio.h>
-
 #include "fd_adminctl.h"
 #include "../failover/fd_failover_bus.h"
 #include "generated/fd_admin_tile_seccomp.h"
-#include "generated/fd_admin_tile_failover_seccomp.h"
 
 struct fd_admin_tile_ctx {
   fd_topo_t const * topo;
   fd_adminctl_t *   adminctl;
   uchar             identity_pubkey[ 32UL ];
-  /* Neither private key is held resident.  Each is read from disk only for
-     the duration of a switch, into failover_key_copy, then zeroed, so a
-     spare never carries the staked key and the tile never carries either. */
-  int               failover_junk_key_fd;      /* the key files, opened before the sandbox */
-  int               failover_staked_key_fd;    /* a switch preads them, it never opens a path at runtime */
-  uchar             failover_junk_pubkey[ 32 ];   /* the boot identity, checked against the file at a switch */
-  uchar             failover_staked_pubkey[ 32 ]; /* checked against the file at a switch */
-  uchar *           failover_key_copy;            /* a switch reads a key into this page, kept out of core dumps */
+  /* Failover switches select keys loaded by the sign tile at boot.
+     This tile keeps only their public keys and no key-file descriptors. */
+  uchar             failover_junk_pubkey[ 32 ];
+  uchar             failover_staked_pubkey[ 32 ];
   fd_keyswitch_t *  tower_av_keyswitch;
   fd_keyswitch_t *  txsend_av_keyswitch;
   fd_keyswitch_t *  sign_av_keyswitch[ FD_TOPO_MAX_TILES ];
@@ -108,57 +98,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return sizeof(fd_admin_tile_ctx_t);
 }
 
-/* Read a key file into the switch copy and check it is the identity
-   recorded at boot.  Returns 0 with the private key in
-   ctx->failover_key_copy, or nonzero with the copy zeroed. */
-/* Read a key from an already-open file into the switch copy, parse it, and
-   check it is the identity recorded at boot.  The file is preadd, never
-   reopened, so the sandbox does not have to allow a runtime open, and a
-   malformed file returns an error rather than terminating the tile.
-   Returns 0 with the private key in ctx->failover_key_copy, or nonzero
-   with the copy scrubbed.  The page holds the 64 byte key, then a scratch
-   region for the json text and its tokens (as fd_keyload_read lays out). */
-#define FD_ADMIN_KEY_MIN_SZ  (129UL)  /* 64 bytes, 63 commas, two brackets */
-#define FD_ADMIN_KEY_JSON_SZ (1023UL)
-static int FD_FN_SENSITIVE
-read_switch_key( fd_admin_tile_ctx_t * ctx,
-                 int                   key_fd,
-                 uchar const *         want_pub ) {
-  uchar * kp   = ctx->failover_key_copy;
-  char *  json = (char *)kp + 64UL;
-  long    n    = pread( key_fd, json, FD_ADMIN_KEY_JSON_SZ, 0L );
-  if( FD_UNLIKELY( n<(long)FD_ADMIN_KEY_MIN_SZ ) ) {
-    /* pread may have left a partial key in the scratch, scrub the whole
-       page, not just the 64 byte slot. */
-    fd_memzero_explicit( kp, 64UL+FD_ADMIN_KEY_JSON_SZ );
-    FD_LOG_WARNING(( "could not read the key file for a switch (%li, %i-%s)", n, errno, fd_io_strerror( errno ) ));
-    return errno ? errno : EPROTO;
-  }
-  json[ n ] = '\0';
-  char ** tok = (char **)( kp + 64UL + 1024UL );
-  int ok = fd_cstr_tokenize( tok, 64UL, json, ',' )==64UL;
-  ok = ok && 1==sscanf( tok[ 0 ], "[ %hhu", &kp[ 0 ] );
-  for( ulong i=1UL; ok && i<63UL; i++ ) ok = 1==sscanf( tok[ i ], "%hhu", &kp[ i ] );
-  ok = ok && 1==sscanf( tok[ 63 ], "%hhu ]", &kp[ 63 ] );
-  fd_memzero_explicit( json, FD_ADMIN_KEY_JSON_SZ+1UL );
-  fd_memzero_explicit( tok,  64UL*sizeof(char *) );
-  if( FD_UNLIKELY( !ok ) ) {
-    fd_memzero_explicit( kp, 64UL );
-    FD_LOG_WARNING(( "the key file is malformed, not switching" ));
-    return EPROTO;
-  }
-  /* Check the file still holds the identity recorded at boot.  We do not
-     derive the pubkey from the seed here, an inconsistent keypair is
-     caught fatally by the sign tile, which is where the secret already
-     lives. */
-  if( FD_UNLIKELY( !fd_memeq( kp+32UL, want_pub, 32UL ) ) ) {
-    fd_memzero_explicit( kp, 64UL );
-    FD_LOG_WARNING(( "the key file no longer holds the configured identity, not switching" ));
-    return EPERM;
-  }
-  return 0;
-}
-
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -174,44 +113,16 @@ privileged_init( fd_topo_t const *      topo,
   fd_keyload_unload( identity, 1 );
 
   if( FD_UNLIKELY( tile->admin.failover_enabled ) ) {
-    /* A switch reads a key into this page, uses it, and zeroes it.  Like
-       the loaded keys it is locked and kept out of core dumps. */
-    ctx->failover_key_copy   = fd_keyload_alloc_protected_pages( 1UL, 1UL );
-
-    /* Open the two key files before the sandbox.  A switch preads them, so
-       it never opens a path once landlock is up, and RLIMIT_NOFILE=0 does
-       not stop it because these descriptors already exist.  The boot
-       identity is the junk key. */
+    /* Record the public keys used to select the sign tile's resident
+       identity.  The public-key loader closes the file and wipes the
+       private half before returning. */
     fd_memcpy( ctx->failover_junk_pubkey, ctx->identity_pubkey, 32UL );
-    ctx->failover_junk_key_fd   = open( tile->admin.identity_key_path,             O_RDONLY|O_CLOEXEC );
-    if( FD_UNLIKELY( ctx->failover_junk_key_fd<0 ) )
-      FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->admin.identity_key_path, errno, fd_io_strerror( errno ) ));
-    ctx->failover_staked_key_fd = open( tile->admin.failover_staked_identity_path, O_RDONLY|O_CLOEXEC );
-    if( FD_UNLIKELY( ctx->failover_staked_key_fd<0 ) )
-      FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->admin.failover_staked_identity_path, errno, fd_io_strerror( errno ) ));
-
-    /* Record the staked public key for the boot checks and to verify the
-       file at each switch.  The private half is not kept. */
     uchar const * staked_pk = fd_keyload_load( tile->admin.failover_staked_identity_path, 1 );
     fd_memcpy( ctx->failover_staked_pubkey, staked_pk, 32UL );
     int same_as_junk = fd_memeq( staked_pk, ctx->identity_pubkey, 32UL );
     fd_keyload_unload( staked_pk, 1 );
     if( FD_UNLIKELY( same_as_junk ) ) {
       FD_LOG_ERR(( "[failover.staked_identity_path] and [failover.junk_identity_path] hold the same key, a spare must not boot under the staked identity" ));
-    }
-
-    /* With the staked key as an authorized voter a spare could sign
-       votes without being promoted. */
-    ulong sign_idx = fd_topo_find_tile( topo, "sign", 0UL );
-    FD_TEST( sign_idx!=ULONG_MAX );
-    fd_topo_tile_t const * sign_tile = &topo->tiles[ sign_idx ];
-    for( ulong i=0UL; i<sign_tile->sign.authorized_voter_paths_cnt; i++ ) {
-      uchar const * voter = fd_keyload_load( sign_tile->sign.authorized_voter_paths[ i ], 1 );
-      int matches = fd_memeq( voter, ctx->failover_staked_pubkey, 32UL );
-      fd_keyload_unload( voter, 1 );
-      if( FD_UNLIKELY( matches ) ) {
-        FD_LOG_ERR(( "authorized voter `%s` must differ from [failover.staked_identity_path]", sign_tile->sign.authorized_voter_paths[ i ] ));
-      }
     }
   }
 }
@@ -473,7 +384,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
                    ulong *               state,
                    ulong *               halted_seq,
                    ulong                 identity_outset,
-                   uchar *               keypair ) {
+                   uchar const *         public_key,
+                   uchar *               opt_private_key ) {
   fd_topo_t const * topo = ctx->topo;
 
   switch( *state ) {
@@ -489,7 +401,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
     }
     case FD_SET_IDENTITY_STATE_LOCKED: {
       fd_keyswitch_t * replay = find_identity_keyswitch( ctx, "replay" );
-      memcpy( replay->bytes, keypair+32UL, 32UL );
+      memcpy( replay->bytes, public_key, 32UL );
 
       FD_COMPILER_MFENCE();
       replay->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
@@ -529,7 +441,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         if( !strcmp( tile->name, "gossip" ) ) tile_ks->param = identity_outset;
         if( !strcmp( tile->name, "shred"  ) ) tile_ks->param = 0UL; /* the leader pipeline is halted, nothing more to reach */
-        memcpy( tile_ks->bytes, keypair+32UL, 32UL );
+        memcpy( tile_ks->bytes, public_key, 32UL );
         FD_COMPILER_MFENCE();
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
@@ -570,7 +482,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       ulong tower_halted_seq = find_identity_keyswitch( ctx, "tower" )->result;
       fd_keyswitch_t * txsend = find_identity_keyswitch( ctx, "txsend" );
       txsend->param = tower_halted_seq;
-      memcpy( txsend->bytes, keypair+32UL, 32UL );
+      memcpy( txsend->bytes, public_key, 32UL );
       FD_COMPILER_MFENCE();
       txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
@@ -594,13 +506,21 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( strcmp( tile->name, "sign" ) ) continue;
         fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
-        memcpy( sign->bytes, keypair, 64UL );
+        if( FD_UNLIKELY( !opt_private_key ) ) {
+          sign->param = FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY;
+          fd_memzero_explicit( sign->bytes, 64UL );
+          memcpy( sign->bytes, public_key, 32UL );
+        } else {
+          sign->param = FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR;
+          memcpy( sign->bytes, opt_private_key, 32UL );
+          memcpy( sign->bytes+32UL, public_key, 32UL );
+        }
         FD_COMPILER_MFENCE();
         sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
       }
 
-      fd_memzero_explicit( keypair, 32UL ); /* Private key no longer needed by the admin tile. */
+      if( opt_private_key ) fd_memzero_explicit( opt_private_key, 32UL );
 
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
@@ -617,7 +537,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         if( !strcmp( tile->name, "gossvf" ) ) tile_ks->param = identity_outset;
-        memcpy( tile_ks->bytes, keypair+32UL, 32UL );
+        memcpy( tile_ks->bytes, public_key, 32UL );
         FD_COMPILER_MFENCE();
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
@@ -744,7 +664,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
 }
 
 static void FD_FN_SENSITIVE run_identity_switch( fd_admin_tile_ctx_t * ctx,
-                                                 uchar *               keypair,
+                                                 uchar const *         public_key,
+                                                 uchar *               opt_private_key,
                                                  ulong *               opt_tower_watermark );
 
 static void FD_FN_SENSITIVE
@@ -800,28 +721,30 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
-  run_identity_switch( ctx, req->keypair, NULL );
+  run_identity_switch( ctx, req->keypair+32UL, req->keypair, NULL );
 
   report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
-/* Switches the whole validator to the given keypair.  This blocks until
-   every tile has picked up the new key.  The private key is zeroed as
-   part of the switch, so pass a copy.  If opt_tower_watermark is set, it
+/* Switches the whole validator to the given identity.  A NULL private
+   key selects a failover key loaded by the sign tile at boot.  A supplied
+   private key is zeroed as part of the switch, so pass a copy.  This blocks
+   until every tile has picked up the key.  If opt_tower_watermark is set, it
    receives the tower tile's sequence number at the point it stopped. */
 static void FD_FN_SENSITIVE
 run_identity_switch( fd_admin_tile_ctx_t * ctx,
-                     uchar *               keypair,
+                     uchar const *         public_key,
+                     uchar *               opt_private_key,
                      ulong *               opt_tower_watermark ) {
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong halted_seq      = 0UL;
   ulong identity_outset = (ulong)fd_log_wallclock();
   for(;;) {
-    if( FD_UNLIKELY( poll_set_identity( ctx, &state, &halted_seq, identity_outset, keypair ) ) ) break;
+    if( FD_UNLIKELY( poll_set_identity( ctx, &state, &halted_seq, identity_outset, public_key, opt_private_key ) ) ) break;
   }
 
-  fd_memcpy( ctx->identity_pubkey, keypair+32UL, 32UL );
+  fd_memcpy( ctx->identity_pubkey, public_key, 32UL );
   /* The watermark a demotion needs is the tower tile's output sequence,
      the one it records when it halts and the failover tile consumes on
      tower_out.  halted_seq above is the replay tile's field, which nothing
@@ -1095,6 +1018,9 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
       break;
     case FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER:
       report_admin_command_custom_result( &event, "duplicate_authorized_voter" );
+      break;
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:
+      report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
       break;
     default:
       FD_LOG_ERR(( "unexpected add-authorized-voter result %lu", result ));
@@ -1564,26 +1490,18 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   fd_memset( &answer, 0, sizeof(answer) );
   fd_memcpy( answer.identity, ctx->identity_pubkey, 32UL );
 
-  int           key_fd   = -1;
   uchar const * want_pub = NULL;
   if( FD_UNLIKELY( !ctx->failover_enabled ) )                   answer.result = FD_FAILOVER_SWITCH_ERR_DISABLED;
-  else if( FD_LIKELY( sw.key==FD_FAILOVER_SWITCH_KEY_JUNK   ) ) { key_fd = ctx->failover_junk_key_fd;   want_pub = ctx->failover_junk_pubkey;   }
-  else if( FD_LIKELY( sw.key==FD_FAILOVER_SWITCH_KEY_STAKED ) ) { key_fd = ctx->failover_staked_key_fd; want_pub = ctx->failover_staked_pubkey; }
+  else if( FD_LIKELY( sw.key==FD_FAILOVER_SWITCH_KEY_JUNK   ) ) want_pub = ctx->failover_junk_pubkey;
+  else if( FD_LIKELY( sw.key==FD_FAILOVER_SWITCH_KEY_STAKED ) ) want_pub = ctx->failover_staked_pubkey;
   else                                                         answer.result = FD_FAILOVER_SWITCH_ERR_KEY;
 
-  if( FD_LIKELY( key_fd>=0 ) ) {
-    /* Read the key from disk into the protected page only now, for this
-       switch, so the tile never holds a private key resident. */
-    if( FD_UNLIKELY( read_switch_key( ctx, key_fd, want_pub ) ) ) {
-      answer.result = FD_FAILOVER_SWITCH_ERR_KEY;
-    } else {
-      ulong watermark = 0UL;
-      run_identity_switch( ctx, ctx->failover_key_copy, &watermark );
-      fd_memzero_explicit( ctx->failover_key_copy, 64UL );
-      answer.result          = FD_FAILOVER_SWITCH_OK;
-      answer.tower_watermark = watermark;
-      fd_memcpy( answer.identity, ctx->identity_pubkey, 32UL );
-    }
+  if( FD_LIKELY( want_pub ) ) {
+    ulong watermark = 0UL;
+    run_identity_switch( ctx, want_pub, NULL, &watermark );
+    answer.result          = FD_FAILOVER_SWITCH_OK;
+    answer.tower_watermark = watermark;
+    fd_memcpy( answer.identity, ctx->identity_pubkey, 32UL );
   }
 
   if( FD_UNLIKELY( ctx->failov_out_idx==ULONG_MAX ) ) {
@@ -1829,38 +1747,25 @@ after_frag( fd_admin_tile_ctx_t * ctx,
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo,
-                          fd_topo_tile_t const * tile,
+populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  if( FD_UNLIKELY( tile->admin.failover_enabled ) ) {
-    fd_admin_tile_ctx_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-    populate_sock_filter_policy_fd_admin_tile_failover( out_cnt, out, (uint)fd_log_private_logfile_fd(),
-                                                        (uint)ctx->failover_junk_key_fd, (uint)ctx->failover_staked_key_fd );
-    return sock_filter_policy_fd_admin_tile_failover_instr_cnt;
-  }
   populate_sock_filter_policy_fd_admin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_fd_admin_tile_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( fd_topo_t const *      topo,
-                      fd_topo_tile_t const * tile,
+populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  fd_admin_tile_ctx_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  ulong need = 2UL + (ulong)(fd_log_private_logfile_fd()!=-1) + 2UL*(ulong)!!tile->admin.failover_enabled;
-  if( FD_UNLIKELY( out_fds_cnt<need ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  if( FD_UNLIKELY( tile->admin.failover_enabled ) ) {
-    out_fds[ out_cnt++ ] = ctx->failover_junk_key_fd;   /* preadd for a switch */
-    out_fds[ out_cnt++ ] = ctx->failover_staked_key_fd;
-  }
   return out_cnt;
 }
 
