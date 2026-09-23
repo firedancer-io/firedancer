@@ -2053,16 +2053,17 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     err = fd_executor_validate_account_locks( txn_out );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
+    uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.keys, txn_out->accounts.cnt );
     for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {
       fd_pubkey_t const * key = &txn_out->accounts.keys[ j ];
+      int writable = fd_runtime_account_is_writable_idx_flat( j, key, TXN( txn_in->txn ), bpf_upgradeable );
       int dup = 0;
-      for( ulong k=0UL; k<acquire_cnt; k++ ) if( FD_UNLIKELY( !memcmp( acquire_pubkeys[ k ], key->uc, 32UL ) ) ) { dup = 1; break; }
+      for( ulong k=0UL; k<acquire_cnt; k++ ) if( FD_UNLIKELY( !memcmp( acquire_pubkeys[ k ], key->uc, 32UL ) ) ) { acquire_writable[ k ] |= writable; dup = 1; break; }
       if( FD_UNLIKELY( dup ) ) continue;
       FD_TEST( acquire_cnt<FD_BUNDLE_ACCT_MAX );
       acquire_pubkeys [ acquire_cnt ] = key->uc;
-      /* Bundle accounts are always acquired writable so that a later
-        txn can cleanly upgrade a read permission to a write. */
-      acquire_writable[ acquire_cnt ] = 1;
+      /* Acquire writable if any bundle member can write this account. */
+      acquire_writable[ acquire_cnt ] = writable;
       acquire_cnt++;
     }
   }

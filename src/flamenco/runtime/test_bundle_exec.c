@@ -358,6 +358,29 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     bundle_acquire( env, &_repr, (txn_cnt) );                                                     \
   } while(0)
 
+  /* Shared reads remain read-only; a later writer upgrades the union.
+     A requested-writable sysvar is still read-only after demotion. */
+  {
+    fd_txn_p_t perms_txn[2] = {0};
+    fd_txn_in_t perms_in[2] = {0};
+    fd_pubkey_t keys[2][4] = { { pubkey1, pubkey2, pubkey3, fd_sysvar_clock_id },
+                              { pubkey1, pubkey2, fd_sysvar_clock_id, pubkey3 } };
+    for( ulong i=0UL; i<2UL; i++ ) {
+      ulong sz = txn_serialize( perms_txn[i].payload, 1UL, &signature, 1UL, 0UL,
+                                i ? 1UL : 3UL, 4UL, keys[i], &dummy_hash );
+      perms_txn[i].payload_sz = (ushort)sz;
+      FD_TEST( fd_txn_parse( perms_txn[i].payload, sz, TXN( &perms_txn[i] ), NULL ) );
+      perms_in[i].txn              = &perms_txn[i];
+      perms_in[i].bundle.is_bundle = 1;
+    }
+    FD_TEST( fd_runtime_prepare_bundle_accounts( env->runtime, env->bank, perms_in, env->txn_out, 2UL )==FD_RUNTIME_EXECUTE_SUCCESS );
+    FD_TEST( env->txn_out[0].accounts.account[2] && !env->txn_out[0].accounts.account[2]->_writable );
+    FD_TEST( env->txn_out[1].accounts.account[3] == env->txn_out[0].accounts.account[2] );
+    FD_TEST( env->txn_out[1].accounts.account[1] &&  env->txn_out[1].accounts.account[1]->_writable );
+    FD_TEST( env->txn_out[1].accounts.account[2] && !env->txn_out[1].accounts.account[2]->_writable );
+    fd_runtime_fini_bundle( env->runtime );
+  }
+
   /* ==========================================================================
      Test 1: rw -> rw — bundle reuses a writable account as writable
      ========================================================================== */
