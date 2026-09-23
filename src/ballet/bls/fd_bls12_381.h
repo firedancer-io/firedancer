@@ -2,7 +2,8 @@
 #define HEADER_fd_src_ballet_bls_fd_bls12_381_h
 
 #include "../fd_ballet_base.h"
-#include "fd_bls_err.h"
+
+#define FD_BLS_SUCCESS (0)
 
 /* Max size for the pairing function */
 #define FD_BLS12_381_PAIRING_BATCH_SZ (8UL)

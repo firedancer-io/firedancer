@@ -2,7 +2,6 @@
 #include "test_ag_cert_builder.h"
 
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../ballet/bls/fd_bls12_381.h" /* fd_bls12_381_g2_add_syscall */
 #include "../../third_party/blst/bindings/blst.h"
 
 #include <stdlib.h>

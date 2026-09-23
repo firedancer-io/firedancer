@@ -1,19 +1,20 @@
 #include "ag_pool.c"
+#include "ag_slot_state.c"
 #include "test_ag_cert_builder.h"
 #include "ag_cert_serde.h"
 #include "ag_vote_serde.h"
 
 static ulong
-notar_cnt( ag_slot_voted_stake_t const * voted_stake ) {
+notar_cnt( ag_slot_votes_t const * votes ) {
   ulong cnt = 0UL;
-  for( ulong slot_idx=0UL; slot_idx<notar_map_slot_cnt(); slot_idx++ ) cnt += !notar_map_key_inval( voted_stake->notar[ slot_idx ].hash );
+  for( ulong slot_idx=0UL; slot_idx<notar_map_slot_cnt(); slot_idx++ ) cnt += !notar_map_key_inval( votes->notar_stake_map[ slot_idx ].hash );
   return cnt;
 }
 
 static ag_slot_voted_stake_hash_t const *
-notar_for( ag_slot_voted_stake_t const * voted_stake,
+notar_for( ag_slot_votes_t const * votes,
            ag_block_hash_t const         hash ) {
-  return notar_map_query_const( voted_stake->notar, FD_LOAD( ag_block_hash_key_t, hash ), NULL );
+  return notar_map_query_const( votes->notar_stake_map, FD_LOAD( ag_block_hash_key_t, hash ), NULL );
 }
 
 static int
@@ -390,16 +391,16 @@ test_reward_readback_window( void ) {
 
   ag_slot_state_t const * state = ag_pool_slot_state( pool, slot );
   FD_TEST( state );
-  ag_slot_voted_stake_t const * voted_stake = &state->votes;
-  FD_TEST( notar_cnt( voted_stake )==1UL );
-  FD_TEST( fd_bls_set_cnt( notar_for( voted_stake, hash )->agg.set )==10UL );
-  FD_TEST( fd_bls_set_cnt( voted_stake->skip_agg.set )==1UL );
+  ag_slot_votes_t const * votes = &state->votes;
+  FD_TEST( notar_cnt( votes )==1UL );
+  FD_TEST( fd_bls_set_cnt( notar_for( votes, hash )->agg.set )==10UL );
+  FD_TEST( fd_bls_set_cnt( votes->skip_agg.set )==1UL );
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, hash, TEST_SHRED_VERSION, msg );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &notar_for( voted_stake, hash )->agg.pub, &notar_for( voted_stake, hash )->agg.sig ) );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &notar_for( votes, hash )->agg.pub, &notar_for( votes, hash )->agg.sig ) );
   msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, TEST_SHRED_VERSION, msg );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &voted_stake->skip_agg.pub, &voted_stake->skip_agg.sig ) );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &votes->skip_agg.pub, &votes->skip_agg.sig ) );
 
   for( ulong s=slot+1UL; s<=slot+AG_REWARD_SLOT_DELTA; s++ ) {
     ag_block_hash_t hash2; random_hash( hash2 );

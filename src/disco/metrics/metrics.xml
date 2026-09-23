@@ -2077,14 +2077,16 @@ EXAMPLES
     <int value="0" name="Success" label="Vote was handed to the pool and accepted" />
     <int value="1" name="BadSize" label="Vote was truncated or had trailing bytes" />
     <int value="2" name="BadEncoding" label="Vote had an invalid version, tag, or signature encoding" />
-    <int value="3" name="ShredVersion" label="Vote was for a different shred version" />
-    <int value="4" name="UnknownSigner" label="Sending connection had no authenticated identity" />
-    <int value="5" name="NotAPeer" label="Sender was not in the peer set" />
-    <int value="6" name="NotRanked" label="Sender was not a ranked validator in the vote slot's epoch" />
-    <int value="7" name="SlotOutOfBounds" label="Vote slot was either too old or too far in the future" />
-    <int value="8" name="Duplicate" label="Voter had already cast this vote" />
-    <int value="9" name="Slashable" label="Vote constitutes a slashable offence" />
-    <int value="10" name="Banned" label="Sender is banned for a failed signature verification" />
+    <int value="3" name="UnknownSigner" label="Sending connection had no authenticated identity" />
+    <int value="4" name="NotAPeer" label="Sender was not in the peer set" />
+    <int value="5" name="Banned" label="Sender is banned for a failed signature verification" />
+    <int value="6" name="BadSlot" label="Vote slot was either too old or too far in the future" />
+    <int value="7" name="BadBlockHash" label="Vote block hash was null" />
+    <int value="8" name="BadSig" label="Vote signature was the identity point" />
+    <int value="9" name="BadRank" label="Sender was not a ranked validator in the vote slot's epoch" />
+    <int value="10" name="BadShredVersion" label="Vote was for a different shred version" />
+    <int value="11" name="Duplicate" label="Voter had already cast this vote" />
+    <int value="12" name="Slashable" label="Vote constitutes a slashable offence" />
 </enum>
 
 <enum name="CertRxResult">
