@@ -1593,7 +1593,7 @@ fd_http_server_reserve( fd_http_server_t * http,
                  preserve the invariant that snaps are always evicted in
                  circular order. */
 
-      ulong stage_end = http->stage_off+remaining+http->stage_len+len;
+      ulong stage_end = http->stage_off+remaining+2UL*http->stage_len+len;
       ulong clamp = fd_ulong_if( stage_end>=http->oring_sz, stage_end-http->oring_sz, 0UL );
       fd_http_server_evict_until( http, clamp );
       memmove( http->oring, http->oring+(http->stage_off%http->oring_sz), http->stage_len );
