@@ -225,6 +225,31 @@ test_efficient_layout( config_t const * config ) {
   test_efficient_l3_layout( eff_config );
 }
 
+static void
+test_repair_sign_links( config_t const * config ) {
+  fd_topo_t const * topo = &config->topo;
+  ulong repair_idx = fd_topo_find_tile( topo, "rotor", 0UL );
+  FD_TEST( repair_idx!=ULONG_MAX );
+
+  ulong sign_tile_cnt        = config->firedancer.layout.sign_tile_count;
+  ulong repair_sign_tile_cnt = sign_tile_cnt>1UL ? sign_tile_cnt-1UL : 1UL;
+  ulong repair_sign_tile_off = sign_tile_cnt>1UL ? 1UL               : 0UL;
+  fd_topo_tile_t const * repair = &topo->tiles[ repair_idx ];
+
+  for( ulong i=0UL; i<repair_sign_tile_cnt; i++ ) {
+    ulong sign_idx = fd_topo_find_tile( topo, "sign", i+repair_sign_tile_off );
+    FD_TEST( sign_idx!=ULONG_MAX );
+    FD_TEST( fd_topo_find_tile_out_link( topo, repair, "repair_sign", i )!=ULONG_MAX );
+    FD_TEST( fd_topo_find_tile_in_link( topo, &topo->tiles[ sign_idx ], "repair_sign", i )!=ULONG_MAX );
+    FD_TEST( fd_topo_find_tile_out_link( topo, &topo->tiles[ sign_idx ], "sign_repair", i )!=ULONG_MAX );
+    FD_TEST( fd_topo_find_tile_in_link( topo, repair, "sign_repair", i )!=ULONG_MAX );
+  }
+  FD_TEST( fd_topo_find_link( topo, "repair_sign", repair_sign_tile_cnt )==ULONG_MAX );
+  FD_TEST( fd_topo_find_link( topo, "sign_repair", repair_sign_tile_cnt )==ULONG_MAX );
+
+  FD_TEST( repair->rotor.repair_sign_cnt==repair_sign_tile_cnt );
+}
+
 int
 firedancer_dev_test_run( int     argc,
                          char ** argv,
@@ -253,6 +278,7 @@ firedancer_dev_test_run( int     argc,
 
       fd_topo_initialize( config );
       test_efficient_layout( config );
+      test_repair_sign_links( config );
 
       ulong genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib<<20;
       ulong genesi_idx = fd_topo_find_tile( &config->topo, "genesi", 0UL );
@@ -398,8 +424,10 @@ main( int     argc,
     fd_boot( &argc, &argv );
     static config_t config[ 1 ];
     fd_config_load( 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
+    config->firedancer.layout.sign_tile_count = 1U;
     fd_topo_initialize( config );
     test_efficient_layout( config );
+    test_repair_sign_links( config );
     fd_halt();
     return 0;
   }

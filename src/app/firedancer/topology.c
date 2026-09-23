@@ -274,6 +274,12 @@ fd_topo_initialize( config_t * config ) {
   ulong execrp_tile_cnt = config->firedancer.layout.execrp_tile_count;
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
 
+  /* Prefer to keep repair traffic off sign tile 0, which serves all
+     other signing clients.  When there is only one sign tile, repair
+     shares tile 0 with those clients. */
+  ulong repair_sign_tile_cnt = sign_tile_cnt>1UL ? sign_tile_cnt-1UL : 1UL;
+  ulong repair_sign_tile_off = sign_tile_cnt>1UL ? 1UL               : 0UL;
+
   ulong genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib << 20;
 
   int snapshots_enabled   = !!config->gossip.entrypoints_cnt;
@@ -527,8 +533,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_sign",   "gossip_sign",   128UL,                                    2048UL,                        1UL ); /* TODO: Where does 2048 come from? Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "sign_gossip",   "sign_gossip",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",   "repair_sign",   256UL,                                    FD_REPAIR_SIG_SER_MAX,         1UL ); /* See repair_tile.c for explanation */
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",   "sign_repair",   256UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
+  FOR(repair_sign_tile_cnt) fd_topob_link( topo, "repair_sign",   "repair_sign",   256UL,                                    FD_REPAIR_SIG_SER_MAX,         1UL ); /* See repair_tile.c for explanation */
+  FOR(repair_sign_tile_cnt) fd_topob_link( topo, "sign_repair",   "sign_repair",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),     FD_SHRED_STEM_BURST );
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    repair_out_depth,                         sizeof(fd_repair_replay_fec_t), 1UL );
@@ -879,10 +885,10 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_shred",   i                                                    );
   }
 
-  FOR(sign_tile_cnt-1UL) fd_topob_tile_out( topo, "rotor",   0UL,                       "repair_sign",  i                                                    );
-  FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "sign",    i+1UL,        "metric_in", "repair_sign",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  FOR(sign_tile_cnt-1UL) fd_topob_tile_out( topo, "sign",    i+1UL,                     "sign_repair",  i                                                    );
-  FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "rotor",   0UL,          "metric_in", "sign_repair",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* This link is polled because the signing requests are asynchronous */
+  FOR(repair_sign_tile_cnt) fd_topob_tile_out( topo, "rotor",   0UL,                       "repair_sign",  i                                                    );
+  FOR(repair_sign_tile_cnt) fd_topob_tile_in ( topo, "sign",    i+repair_sign_tile_off, "metric_in", "repair_sign",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  FOR(repair_sign_tile_cnt) fd_topob_tile_out( topo, "sign",    i+repair_sign_tile_off,              "sign_repair",  i                                                    );
+  FOR(repair_sign_tile_cnt) fd_topob_tile_in ( topo, "rotor",   0UL,          "metric_in", "sign_repair",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* This link is polled because the signing requests are asynchronous */
 
   if( rserve_enabled ) {
     /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "rserve_sign",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -1562,7 +1568,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
         break;
       }
     }
-    tile->rotor.repair_sign_cnt = config->firedancer.layout.sign_tile_count - 1; /* -1 because this excludes the keyguard client */
+    tile->rotor.repair_sign_cnt = config->firedancer.layout.sign_tile_count>1U ? config->firedancer.layout.sign_tile_count-1U : 1U;
     fd_cstr_ncpy( tile->rotor.identity_key_path, config->paths.identity_key, sizeof(tile->rotor.identity_key_path) );
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rserve" ) ) ) {
     tile->rserve.repair_serve_listen_port = config->tiles.rserve.repair_serve_listen_port;

@@ -181,6 +181,10 @@ main( int     argc,
   fd_config_validate( config );
   strcpy( config->net.provider, "xdp" );
 
+  config->firedancer.layout.sign_tile_count = 1U;
+  fd_config_validate( config );
+  config->firedancer.layout.sign_tile_count = 2U;
+
   /* bzip2's avail_in and avail_out fields are uint. */
 
   memset( &config->firedancer, 0, sizeof(config->firedancer) );
