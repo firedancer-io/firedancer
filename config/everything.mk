@@ -345,7 +345,7 @@ $(OBJDIR)/$(5)/$(1): $(if $(filter bin,$(5))$(filter $(1) $(OBJDIR)/$(5)/$(1),$(
 	@printf 'LD\t%s (%s)\n' $$(notdir $$@) $(5)
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $(if $(filter bin,$(5)),mv -f $$@.buildinfo.o.new $$@.buildinfo.o && ) \
-$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $$(call exe-lib-args,$(3)) $(6) $$(LDFLAGS) $$(call exe-lib-args,$(EXE_VENDOR_LIBS)) -o $$@.tmp && mv -f $$@.tmp $$@
+$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(if $(filter bin,$(5)),$$@.buildinfo.o) $$(call exe-lib-args,$(3)) $(6) $$(filter-out $(if $(filter lib,$(5)),-static),$$(LDFLAGS)) $$(call exe-lib-args,$(EXE_VENDOR_LIBS)) -o $$@.tmp && mv -f $$@.tmp $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
 
