@@ -303,13 +303,7 @@ set_irq_smp_affinities( fd_cpuset_t const * desired ) {
 static fd_cpuset_t *
 topo_banned_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ],
                   fd_topo_t const * topo ) {
-  fd_cpuset_new( cpuset );
-  ulong cpu_cnt = fd_shmem_cpu_cnt();
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    if( tile->cpu_idx < cpu_cnt ) fd_cpuset_insert( cpuset, tile->cpu_idx );
-  }
-  return cpuset;
+  return fd_cpu_isolation_tile_cpus( cpuset, topo );
 }
 
 static void
@@ -359,10 +353,7 @@ check( config_t const * config,
   FD_CPUSET_DECL( banned );
   topo_banned_cpus( banned, &config->topo );
 
-  if( FD_UNLIKELY( fd_cpuset_is_null( banned ) ) ) {
-    FD_CPUSET_DECL( daemon_banned );
-    if( FD_LIKELY( -1!=fd_irqbalance_ban_cpus_get( daemon_banned ) ) ) CONFIGURE_OK();
-  }
+  if( FD_UNLIKELY( fd_cpuset_is_null( banned ) ) ) CONFIGURE_OK();
 
   FD_CPUSET_DECL( allowed );
   fd_cpuset_subtract( allowed, fd_cpu_isolation_host_cpus( allowed ), banned );
