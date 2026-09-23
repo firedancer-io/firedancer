@@ -13,6 +13,7 @@ struct fd_clock_tile {
   fd_clock_shmem_t shmem[1];
   fd_clock_t       clock[1];
   fd_clock_epoch_t epoch[1];
+  double           inv_m;
 };
 
 typedef struct fd_clock_tile fd_clock_tile_t;
@@ -39,6 +40,7 @@ fd_clock_tile_init( fd_clock_tile_t * clock ) {
   if( FD_UNLIKELY( !clock_ptr ) ) FD_LOG_ERR(( "fd_clock_join failed" ));
 
   fd_clock_epoch_init( clock->epoch, clock->shmem );
+  clock->inv_m = 1.0/clock->epoch->m;
 }
 
 /* fd_clock_tile_recal_next returns the wallclock deadline after which
@@ -64,6 +66,7 @@ fd_clock_tile_recal( fd_clock_tile_t * clock ) {
   }
   long recal_next = fd_clock_recal( clock->clock, x, y );
   fd_clock_epoch_refresh( clock->epoch, clock->shmem );
+  clock->inv_m = 1.0/clock->epoch->m;
   return recal_next;
 }
 
@@ -75,6 +78,7 @@ fd_clock_tile_set( fd_clock_tile_t * clock,
                    long              now ) {
   fd_clock_step( clock->clock, fd_tickcount(), now, clock->epoch->w );
   fd_clock_epoch_refresh( clock->epoch, clock->shmem );
+  clock->inv_m = 1.0/clock->epoch->m;
 }
 
 /* fd_clock_tile_now returns an approximation of fd_log_wallclock. */
@@ -98,6 +102,16 @@ static inline long
 fd_clock_tile_tickcount_to_wallclock( fd_clock_tile_t const * clock,
                                       long                    tickcount ) {
   return fd_clock_epoch_y( clock->epoch, tickcount );
+}
+
+/* fd_clock_tile_wallclock_to_tickcount converts a fd_log_wallclock()
+   value to the fd_tickcount() at which the clock would read it. */
+
+static inline long
+fd_clock_tile_wallclock_to_tickcount( fd_clock_tile_t const * clock,
+                                      long                    wallclock ) {
+  fd_clock_epoch_t const * epoch = clock->epoch;
+  return fd_clock_epoch_x0( epoch ) + (long)( (double)( wallclock-fd_clock_epoch_y0_eff( epoch ) )*clock->inv_m );
 }
 
 /* fd_clock_tile_tickcomp_to_wallclock converts a compressed

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "fd_diag_tile.h"
+#include "../fd_clock_tile.h"
 
 #include "../bundle/fd_bundle_tile.h"
 #include "../metrics/fd_metrics.h"
@@ -16,6 +17,7 @@
 #include <sys/types.h> /* SEEK_SET */
 #include <sys/stat.h>
 #include <sys/vfs.h>
+#include <linux/futex.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -29,6 +31,7 @@
 
 
 struct fd_diag_tile {
+  fd_clock_tile_t clock[1];
   long next_report_nanos;
 
   ulong tile_cnt;
@@ -138,6 +141,16 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   return sizeof(fd_diag_tile_t);
+}
+
+static void
+during_housekeeping( fd_diag_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+}
+
+static inline long
+next_deadline( fd_diag_tile_t * ctx ) {
+  return fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->next_report_nanos );
 }
 
 static int
@@ -675,17 +688,8 @@ before_credit( fd_diag_tile_t *    ctx,
                int *               charge_busy ) {
   (void)stem;
 
-  long now = fd_log_wallclock();
-  if( now<ctx->next_report_nanos ) {
-    long diff = ctx->next_report_nanos - now;
-    diff = fd_long_min( diff, 2e6 /* 2ms */ );
-    struct timespec const ts = {
-      .tv_sec  = diff / (long)1e9,
-      .tv_nsec = diff % (long)1e9
-    };
-    clock_nanosleep( CLOCK_REALTIME, 0, &ts, NULL );
-    return;
-  }
+  long now = fd_clock_tile_now( ctx->clock );
+  if( FD_UNLIKELY( now<ctx->next_report_nanos ) ) return;
   ctx->next_report_nanos += REPORT_INTERVAL_MILLIS*1000L*1000L;
 
   *charge_busy = 1;
@@ -1281,7 +1285,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_diag_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   memset( ctx->first_seen_died, 0, sizeof( ctx->first_seen_died ) );
-  ctx->next_report_nanos = fd_log_wallclock();
+  fd_clock_tile_init( ctx->clock );
+  ctx->next_report_nanos = fd_clock_tile_now( ctx->clock );
   ctx->next_system_report_nanos = ctx->next_report_nanos;
   if( FD_UNLIKELY( ctx->gui_enabled ) ) {
     ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "diag_gui", 0UL );
@@ -1349,12 +1354,11 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->cpu_to_tile[ cpu_idx ] = (ushort)i;
   }
 
-  long now = fd_log_wallclock();
   ctx->is_voting = tile->diag.is_voting;
-  ctx->check_engine.vote_slot_changed_ns = now;
-  ctx->check_engine.reset_slot_changed_ns = now;
-  ctx->check_engine.turbine_slot_changed_ns = now;
-  ctx->check_engine.byte_snapshot_ns = now;
+  ctx->check_engine.vote_slot_changed_ns    = ctx->next_report_nanos;
+  ctx->check_engine.reset_slot_changed_ns   = ctx->next_report_nanos;
+  ctx->check_engine.turbine_slot_changed_ns = ctx->next_report_nanos;
+  ctx->check_engine.byte_snapshot_ns        = ctx->next_report_nanos;
 }
 
 static ulong
@@ -1405,11 +1409,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_BURST (1UL)
 #define STEM_LAZY  ((long)10e6) /* 10ms */
+#define STEM_ALWAYS_PARK 1
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_diag_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_diag_tile_t)
 
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 
 #include "../../disco/stem/fd_stem.c"
 
