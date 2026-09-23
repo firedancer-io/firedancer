@@ -1360,6 +1360,19 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
   if( !ctx->supports_leader ) return 0;
 
+  /* Give the slot up rather than let enforce_nanosecond_clock_bounds
+     abort half way through producing it. */
+
+  fd_acc_t alpenclock       = fd_accdb_read_one( ctx->accdb, reset_bank->accdb_fork_id, ctx->alpenclock_addr.uc );
+  int      alpenclock_ready = !!alpenclock.lamports && alpenclock.data_len>=sizeof(ulong);
+  fd_accdb_unread_one( ctx->accdb, &alpenclock );
+  if( FD_UNLIKELY( !alpenclock_ready ) ) {
+    FD_LOG_WARNING(( "not producing slot %lu off parent %lu, alpenclock account missing", ctx->next_leader_slot, parent_slot ));
+    ctx->next_leader_slot      = ULONG_MAX;
+    ctx->next_leader_tickcount = LONG_MAX;
+    return 0;
+  }
+
   /* In Alpenglow, the "reset" block is signaled by ParentReady (a state
      transition in the Votor consensus logic).  ParentReady can occur
      ahead of replay, unlike Tower, in which the reset bank has by
@@ -5010,6 +5023,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->leader_stats.slot = ULONG_MAX;
   ctx->alpenglow         = tile->replay.alpenglow;
+  fd_alpenglow_pda( "alpenclock", &ctx->alpenclock_addr );
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ), ctx->alpenglow ) );
   FD_TEST( ctx->sched );
   FD_TEST( ctx->alpenglow || ctx->reasm );

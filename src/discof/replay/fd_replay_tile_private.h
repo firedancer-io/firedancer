@@ -170,6 +170,8 @@ struct fd_replay_tile {
   int wait_for_vote_to_start_leader;
   int alpenglow;
 
+  fd_pubkey_t alpenclock_addr;
+
   /* wfs_enabled is 1 if the validator is booted in
      wait_for_supermajority mode. In this mode replay (and, by extension,
      downstream consumers) is not allowed to make progress until 80% of
