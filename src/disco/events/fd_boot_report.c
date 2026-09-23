@@ -993,7 +993,7 @@ collect_nvme( fd_boot_report_t * r ) {
       .data_len = 512U,
       .cdw10    = 0x02U | ( ( 512U/4U-1U )<<16 ), /* smart / health, numdl */
     };
-    if( 0==ioctl( fd, NVME_IOCTL_ADMIN_CMD_, &cmd ) ) {
+    if( 0==syscall( SYS_ioctl, fd, NVME_IOCTL_ADMIN_CMD_, &cmd ) ) {
       d->critical_warning    = log[ 0 ];
       d->available_spare_pct = log[ 3 ];
       d->percentage_used     = log[ 5 ];

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_mlx5_private.h"
 #include "../../../util/log/fd_log.h"
 #include "../../../util/net/fd_eth.h"
@@ -18,6 +19,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include <linux/netlink.h>
@@ -1096,7 +1098,7 @@ fd_uverbs_destroy_uar( fd_uverbs_ctx_t * ctx,
     errno = EINVAL;
     return -1;
   }
-  return ioctl( ctx->cmd_fd, RDMA_VERBS_IOCTL, &req->hdr );
+  return (int)syscall( SYS_ioctl, ctx->cmd_fd, RDMA_VERBS_IOCTL, &req->hdr );
 }
 
 static ulong *
@@ -1111,7 +1113,7 @@ fd_uverbs_alloc_uar( fd_uverbs_ctx_t * ctx,
     errno = EINVAL;
     return NULL;
   }
-  if( FD_UNLIKELY( ioctl( ctx->cmd_fd, RDMA_VERBS_IOCTL, &req->hdr ) ) ) return NULL;
+  if( FD_UNLIKELY( syscall( SYS_ioctl, ctx->cmd_fd, RDMA_VERBS_IOCTL, &req->hdr ) ) ) return NULL;
 
   ulong handle_raw = req->attrs[0].data;
   if( FD_UNLIKELY( handle_raw>UINT_MAX || mmap_sz!=FD_MLX5_PAGE_SZ ||
