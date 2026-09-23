@@ -8,6 +8,44 @@
 #include "fd_txncache_private.h"
 
 #include <sys/mman.h>
+#if FD_HAS_THREADS
+#include <pthread.h>
+
+struct publication_test {
+  ulong idx_sz;
+  uint  index;
+  ulong payload;
+};
+
+static void *
+publish_page( void * arg ) {
+  struct publication_test * p = arg;
+  fd_log_sleep( 20000000L );
+  p->payload = 1234UL;
+  fd_txncache_txnpage_idx_st( p->idx_sz, &p->index, 0UL, 7UL );
+  return NULL;
+}
+
+static void
+test_page_publication( void ) {
+  for( ulong idx_sz=sizeof(ushort); idx_sz<=sizeof(uint); idx_sz*=2UL ) {
+    struct publication_test p = { .idx_sz = idx_sz, .index = 0U, .payload = 0UL };
+    ulong busy = idx_sz==sizeof(uint) ? UINT_MAX-1UL : USHORT_MAX-1UL;
+    fd_txncache_txnpage_idx_st( idx_sz, &p.index, 0UL, busy );
+    pthread_t writer;
+    FD_TEST( !pthread_create( &writer, NULL, publish_page, &p ) );
+    /* Deliberately match the allocator's wait loop: a spin hint is not
+       guaranteed to contain a compiler or hardware memory barrier. */
+    ulong idx = fd_txncache_txnpage_idx_ld( idx_sz, &p.index, 0UL );
+    while( idx==busy ) {
+      idx = fd_txncache_txnpage_idx_ld( idx_sz, &p.index, 0UL );
+      FD_SPIN_PAUSE();
+    }
+    FD_TEST( idx==7UL && p.payload==1234UL );
+    FD_TEST( !pthread_join( writer, NULL ) );
+  }
+}
+#endif
 
 FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN==128UL, unit_test );
 
@@ -661,6 +699,14 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+#if FD_HAS_THREADS
+  test_page_publication();
+  if( fd_env_strip_cmdline_contains( &argc, &argv, "--publication-only" ) ) {
+    FD_LOG_NOTICE(( "page publication: pass" ));
+    fd_halt();
+    return 0;
+  }
+#endif
 
   test_bucket_cnt();
   test_page_sizing();
