@@ -578,7 +578,9 @@ run_bad_tick_cases( void ) {
 
 static void
 run_poh_spread_case( ulong tick_cnt,
-                     ulong hashes_per_tick ) {
+                     ulong hashes_per_tick,
+                     ulong exec_cnt ) {
+  FD_TEST( exec_cnt>=1UL && exec_cnt<=8UL );
   ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
   ulong block_cnt_max = 4UL;
   ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
@@ -586,7 +588,7 @@ run_poh_spread_case( ulong tick_cnt,
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, exec_cnt, 0 ) );
   FD_TEST( sched );
 
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -633,13 +635,13 @@ run_poh_spread_case( ulong tick_cnt,
      tile is held back for transaction execution. */
   ulong min_cnt      = fd_sha256_simd_lane_min();
   ulong lane_cnt     = fd_sha256_simd_lane_max();
-  ulong expect_cnt   = fd_ulong_min( (tick_cnt+TEST_EXEC_CNT-1UL)/TEST_EXEC_CNT, lane_cnt );
+  ulong expect_cnt   = fd_ulong_min( (tick_cnt+exec_cnt-1UL)/exec_cnt, lane_cnt );
   if( expect_cnt<min_cnt ) expect_cnt = 1UL; /* below the kernel's SIMD floor, batching is pointless */
-  ulong expect_tasks = fd_ulong_min( tick_cnt, TEST_EXEC_CNT );
+  ulong expect_tasks = fd_ulong_min( tick_cnt, exec_cnt );
   /* If the lane width is too narrow to fit every tick in one round
      (e.g. width 1 on non-AVX-512 x86), a round dispatches at most
-     TEST_EXEC_CNT*expect_cnt microblocks and the rest wait. */
-  int   overflow     = tick_cnt>TEST_EXEC_CNT*expect_cnt;
+     exec_cnt*expect_cnt microblocks and the rest wait. */
+  int   overflow     = tick_cnt>exec_cnt*expect_cnt;
 
   ulong round_cnt = 0UL;
   int   saw_end   = 0;
@@ -649,7 +651,7 @@ run_poh_spread_case( ulong tick_cnt,
     /* Drain every dispatchable PoH task for this round without
        completing any, so the whole batch of ticks is in flight at
        once. */
-    fd_sched_task_t in_flight[ TEST_EXEC_CNT ];
+    fd_sched_task_t in_flight[ 8 ];
     ulong in_flight_cnt = 0UL;
     ulong tile_mask     = 0UL;
     ulong mblk_cnt      = 0UL;
@@ -661,9 +663,9 @@ run_poh_spread_case( ulong tick_cnt,
         break;
       }
       FD_TEST( task->task_type==FD_SCHED_TT_POH_HASH );
-      FD_TEST( in_flight_cnt<TEST_EXEC_CNT );
+      FD_TEST( in_flight_cnt<exec_cnt );
       FD_TEST( task->poh_hash->cnt<=expect_cnt );
-      FD_TEST( task->poh_hash->exec_idx<TEST_EXEC_CNT );
+      FD_TEST( task->poh_hash->exec_idx<exec_cnt );
       FD_TEST( !fd_ulong_extract_bit( tile_mask, (int)task->poh_hash->exec_idx ) );
       tile_mask = fd_ulong_set_bit( tile_mask, (int)task->poh_hash->exec_idx );
       mblk_cnt += task->poh_hash->cnt;
@@ -676,7 +678,7 @@ run_poh_spread_case( ulong tick_cnt,
       FD_TEST( mblk_cnt==tick_cnt );
     } else {
       FD_TEST( in_flight_cnt>=1UL );
-      FD_TEST( mblk_cnt<=TEST_EXEC_CNT*expect_cnt );
+      FD_TEST( mblk_cnt<=exec_cnt*expect_cnt );
     }
     round_cnt++;
 
@@ -705,16 +707,16 @@ run_poh_spread_case( ulong tick_cnt,
 
 static void
 run_poh_spread_cases( void ) {
-  /* Fewer ticks than tiles: exactly one tick per task, one task per
-     tile. */
-  run_poh_spread_case( 1UL, 9000UL );
-  run_poh_spread_case( 3UL, 9000UL );
-  run_poh_spread_case( TEST_EXEC_CNT, 9000UL );
-  /* More ticks than tiles: at most ceil( tick_cnt/tile_cnt ) per task,
-     clamped to the SIMD lane width (so exactly one per task on builds
-     with a serial fallback), still using every tile. */
-  run_poh_spread_case( 6UL, 9000UL );
-  run_poh_spread_case( 8UL, 9000UL );
+  /* Cover one worker through catch-up layouts with multiple independent
+     PoH jobs.  Include fewer, equal and more jobs than available workers.
+     Batch width is capped by the selected SHA backend's SIMD lanes. */
+  for( ulong exec_cnt=1UL; exec_cnt<=8UL; exec_cnt*=2UL ) {
+    run_poh_spread_case( 1UL,      9000UL, exec_cnt );
+    run_poh_spread_case( 3UL,      9000UL, exec_cnt );
+    run_poh_spread_case( exec_cnt, 9000UL, exec_cnt );
+    run_poh_spread_case( 6UL,      9000UL, exec_cnt );
+    run_poh_spread_case( 8UL,      9000UL, exec_cnt );
+  }
 }
 
 static void
