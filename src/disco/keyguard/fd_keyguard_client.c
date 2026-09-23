@@ -24,8 +24,16 @@ fd_keyguard_client_new( void *           shmem,
                         fd_frag_meta_t * response_mcache,
                         uchar *          response_dcache,
                         ulong            request_mtu,
-                        ulong            response_mtu ) {
+                        ulong            response_mtu,
+                        fd_sleep_t *     sleep,
+                        ulong            request_link_id,
+                        ulong            sign_tile_id ) {
   fd_keyguard_client_t * client = (fd_keyguard_client_t*)shmem;
+
+  client->sleep           = sign_tile_id!=ULONG_MAX ? sleep : NULL;
+  client->request_link_id = request_link_id;
+  client->wake.w          = sign_tile_id>>6;
+  client->wake.mask       = 1UL<<(sign_tile_id&63UL);
 
   client->request        = request_mcache;
   client->request_depth  = fd_mcache_depth( request_mcache );
@@ -67,6 +75,11 @@ fd_keyguard_client_sign_sz( fd_keyguard_client_t * client,
   fd_keyguard_client_publish( client, sig, sign_data_len );
   client->request_seq   = fd_seq_inc( client->request_seq, 1UL );
   client->request_chunk = fd_dcache_compact_next( client->request_chunk, sign_data_len, client->request_chunk0, client->request_wmark );
+
+  if( FD_UNLIKELY( client->sleep ) ) {
+    FD_VOLATILE( client->sleep->seq_mirror[ client->request_link_id ] ) = client->request_seq;
+    fd_sleep_wake_check( client->sleep, &client->wake, 1UL );
+  }
 
   fd_frag_meta_t meta;
   fd_frag_meta_t const * mline;
@@ -130,6 +143,11 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
   fd_keyguard_client_publish( client, sig, sign_data_len );
   client->request_seq   = fd_seq_inc( client->request_seq, 1UL );
   client->request_chunk = fd_dcache_compact_next( client->request_chunk, sign_data_len, client->request_chunk0, client->request_wmark );
+
+  if( FD_UNLIKELY( client->sleep ) ) {
+    FD_VOLATILE( client->sleep->seq_mirror[ client->request_link_id ] ) = client->request_seq;
+    fd_sleep_wake_check( client->sleep, &client->wake, 1UL );
+  }
 
   fd_frag_meta_t meta;
   fd_frag_meta_t const * mline;

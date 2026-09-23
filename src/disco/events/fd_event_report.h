@@ -18,6 +18,7 @@
    fd_event_tl is NULL and reporting is a no-op. */
 
 #include "../topo/fd_topo.h"
+#include "../sleep/fd_sleep.h"
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
 
@@ -32,6 +33,11 @@ struct fd_event_reporter {
   ulong            chunk0;  /* first chunk */
   ulong            wmark;   /* wrap watermark */
   ulong            mtu;     /* link mtu (== max_event_sz) */
+
+  fd_sleep_t *     sleep;
+  ulong            link_id;
+  fd_sleep_wake_t  wake[ FD_SLEEP_BITS_CNT ];
+  ulong            wake_cnt;
 };
 
 typedef struct fd_event_reporter fd_event_reporter_t;
@@ -73,6 +79,13 @@ typedef struct fd_event_report_iov fd_event_report_iov_t;
    this with the right type and size. */
 
 static inline void
+fd_event_report_ring_( fd_event_reporter_t * r ) {
+  if( FD_LIKELY( !r->sleep ) ) return;
+  FD_VOLATILE( r->sleep->seq_mirror[ r->link_id ] ) = r->seq;
+  fd_sleep_wake_check( r->sleep, r->wake, r->wake_cnt );
+}
+
+static inline void
 fd_event_report_( ulong        type,
                   void const * event,
                   ulong        sz ) {
@@ -89,6 +102,7 @@ fd_event_report_( ulong        type,
   r->seq   = fd_seq_inc( r->seq, 1UL );
   r->chunk = fd_dcache_compact_next( r->chunk, sz, r->chunk0, r->wmark );
   fd_mcache_seq_update( r->seq_store, r->seq );
+  fd_event_report_ring_( r );
 }
 
 static inline void
@@ -116,6 +130,7 @@ fd_event_report_gather_( ulong                         type,
   r->seq   = fd_seq_inc( r->seq, 1UL );
   r->chunk = fd_dcache_compact_next( r->chunk, sz, r->chunk0, r->wmark );
   fd_mcache_seq_update( r->seq_store, r->seq );
+  fd_event_report_ring_( r );
 }
 
 FD_PROTOTYPES_END

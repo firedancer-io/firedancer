@@ -25,9 +25,10 @@
         specifically formatted for that role. */
 
 #include "../../tango/fd_tango_base.h"
+#include "../sleep/fd_sleep.h"
 
 #define FD_KEYGUARD_CLIENT_ALIGN (128UL)
-#define FD_KEYGUARD_CLIENT_FOOTPRINT (128UL)
+#define FD_KEYGUARD_CLIENT_FOOTPRINT (256UL)
 
 struct __attribute__((aligned(FD_KEYGUARD_CLIENT_ALIGN))) fd_keyguard_client {
   fd_frag_meta_t * request;
@@ -46,6 +47,10 @@ struct __attribute__((aligned(FD_KEYGUARD_CLIENT_ALIGN))) fd_keyguard_client {
   ulong            response_chunk0;
   ulong            response_wmark;
   ulong            response_mtu;
+
+  fd_sleep_t *    sleep;
+  ulong           request_link_id;
+  fd_sleep_wake_t wake;
 };
 typedef struct fd_keyguard_client fd_keyguard_client_t;
 
@@ -58,7 +63,10 @@ fd_keyguard_client_new( void *           shmem,
                         fd_frag_meta_t * response_mcache,
                         uchar *          response_dcache,
                         ulong            request_mtu,
-                        ulong            response_mtu );
+                        ulong            response_mtu,
+                        fd_sleep_t *     sleep,
+                        ulong            request_link_id,
+                        ulong            sign_tile_id );
 
 static inline fd_keyguard_client_t *
 fd_keyguard_client_join( void * shclient ) { return (fd_keyguard_client_t*)shclient; }
