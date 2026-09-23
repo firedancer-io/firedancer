@@ -75,7 +75,7 @@ typedef struct {
   ulong nvcsw;
   ulong nivcsw;
 
-  ulong regime_ticks[9];
+  ulong regime_ticks[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
 } tile_snap_t;
 
 typedef struct {
@@ -95,7 +95,7 @@ typedef struct {
 static ulong
 tile_total_ticks( tile_snap_t * snap ) {
   ulong total = 0UL;
-  for( ulong i=0UL; i<9UL; i++ ) total += snap->regime_ticks[ i ];
+  for( ulong i=0UL; i<FD_METRICS_ENUM_TILE_REGIME_CNT; i++ ) total += snap->regime_ticks[ i ];
   return total;
 }
 
@@ -117,7 +117,7 @@ tile_snap( tile_snap_t *     snap_cur, /* Snapshot for each tile, indexed [0,til
     snap->nivcsw    = FD_MCNT_GET( TILE, CONTEXT_SWITCH_INVOLUNTARY );
     snap->in_backp  = FD_MGAUGE_GET( TILE, IN_BACKPRESSURE );
     snap->backp_cnt = FD_MCNT_GET( TILE, BACKPRESSURE );
-    for( ulong i=0UL; i<9UL; i++ ) {
+    for( ulong i=0UL; i<FD_METRICS_ENUM_TILE_REGIME_CNT; i++ ) {
       snap->regime_ticks[ i ] = fd_metrics_tl[ MIDX(COUNTER, TILE, REGIME_DURATION_NANOS)+i ];
     }
     FD_COMPILER_MFENCE();
@@ -344,11 +344,11 @@ run_monitor( config_t const * config,
         ulong cur_hkeep_ticks      = cur->regime_ticks[0]+cur->regime_ticks[1]+cur->regime_ticks[2];
         ulong prv_hkeep_ticks      = prv->regime_ticks[0]+prv->regime_ticks[1]+prv->regime_ticks[2];
 
-        ulong cur_wait_ticks       = cur->regime_ticks[6];
-        ulong prv_wait_ticks       = prv->regime_ticks[6];
+        ulong cur_wait_ticks       = cur->regime_ticks[6]+cur->regime_ticks[8];
+        ulong prv_wait_ticks       = prv->regime_ticks[6]+prv->regime_ticks[8];
 
-        ulong cur_backp_ticks      = cur->regime_ticks[5];
-        ulong prv_backp_ticks      = prv->regime_ticks[5];
+        ulong cur_backp_ticks      = cur->regime_ticks[5]+cur->regime_ticks[9];
+        ulong prv_backp_ticks      = prv->regime_ticks[5]+prv->regime_ticks[9];
 
         ulong cur_processing_ticks = cur->regime_ticks[3]+cur->regime_ticks[4]+cur->regime_ticks[7];
         ulong prv_processing_ticks = prv->regime_ticks[3]+prv->regime_ticks[4]+prv->regime_ticks[7];

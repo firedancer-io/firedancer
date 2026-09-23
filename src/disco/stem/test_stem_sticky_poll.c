@@ -79,7 +79,8 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   FD_TEST( stem_scratch_footprint( LINK_CNT, 0UL, 0UL )<=sizeof(scratch) );
   memset( &ctx, 0, sizeof(ctx) );
-  stem_run1( LINK_CNT, in_mcache, in_fseq, 0UL, NULL, 0UL, NULL, NULL, NULL, BURST, LAZY, rng, scratch, &ctx );
+  fd_stem_sleep_t sleep[ 1 ] = {{ .shmem = NULL }}; /* no sleep object: spin */
+  stem_run1( LINK_CNT, in_mcache, in_fseq, 0UL, NULL, 0UL, NULL, NULL, NULL, BURST, LAZY, rng, scratch, &ctx, sleep );
 
   FD_TEST( ctx.consumed==LINK_CNT*FRAG_CNT );
   for( ulong i=0UL; i<LINK_CNT; i++ ) for( ulong seq=0UL; seq<FRAG_CNT; seq++ ) FD_TEST( ctx.seen[ i ][ seq ]==1UL );

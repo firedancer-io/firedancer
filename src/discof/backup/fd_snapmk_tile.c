@@ -828,6 +828,7 @@ zp_publish( fd_snapmk_t *       ctx,
   *stem->min_cr_avail       = fd_ulong_min( cr_avail, *stem->min_cr_avail );
   if( FD_UNLIKELY( !cr_avail ) ) ctx->zp_ready &= ~fd_ulong_mask_bit( (int)out_idx );
   *seqp = fd_seq_inc( seq, 1UL );
+  if( FD_UNLIKELY( stem->sleep ) ) fd_sleep_wake_check( stem->sleep, stem->wake+stem->wake_off[ out_idx ], (ulong)(stem->wake_off[ out_idx+1UL ]-stem->wake_off[ out_idx ]) );
   return seq;
 }
 
@@ -2086,11 +2087,31 @@ snapmk_run( fd_topo_t *      topo,
 
   uchar __attribute__((aligned(FD_STEM_SCRATCH_ALIGN))) stem_scratch[ stem_scratch_footprint( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ];
 
+  fd_stem_sleep_t sleep[ 1 ] = {{ .shmem = NULL }};
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    sleep->shmem = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
+    FD_TEST( sleep->shmem );
+    sleep->tile_id     = tile->id;
+    sleep->waker_fseq  = NULL;
+    sleep->out_link_id = tile->out_link_id;
+
+    ulong polled_idx = 0UL;
+    for( ulong i=0UL; i<tile->in_cnt; i++ )
+      if( FD_LIKELY( tile->in_link_poll[ i ] ) ) sleep->in_link_id[ polled_idx++ ] = tile->in_link_id[ i ];
+
+    ulong pair_cnt = 0UL;
+    for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+      sleep->wake_off[ i ] = (ushort)pair_cnt;
+      pair_cnt += fd_sleep_wake_table( sleep->wake+pair_cnt, topo, tile->out_link_id[ i ] );
+    }
+    sleep->wake_off[ tile->out_cnt ] = (ushort)pair_cnt;
+  }
+
   stem_run1( polled_in_cnt, in_mcache, in_fseq,
              tile->out_cnt, out_mcache,
              reliable_cons_cnt, cons_out, cons_fseq, cons_slow,
              SNAPMK_STEM_BURST, SNAPMK_STEM_LAZY,
-             rng, stem_scratch, ctx );
+             rng, stem_scratch, ctx, sleep );
 }
 
 static ulong

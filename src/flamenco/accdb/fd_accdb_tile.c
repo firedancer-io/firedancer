@@ -205,6 +205,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+/* For now the accdb tile spins and never parks, as it waits on a
+   special shared memory command channel which has no doorbell, and it
+   checks watermarks every tick.  This is wasteful and should be
+   improved in future. */
+#define STEM_NEVER_PARK 1
 #define STEM_BURST (1UL)
 #define STEM_LAZY  (128L*3000L)
 

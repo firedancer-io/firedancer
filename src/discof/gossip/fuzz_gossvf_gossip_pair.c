@@ -461,6 +461,9 @@ pair_init_stem( fd_stem_context_t * stem,
   stem->min_cr_avail        = min_cr_avail;
   stem->cr_decrement_amount = 1UL;
   stem->out_reliable        = out_reliable;
+  stem->sleep               = NULL;
+  stem->wake                = NULL;
+  stem->wake_off            = NULL;
 }
 
 static ulong

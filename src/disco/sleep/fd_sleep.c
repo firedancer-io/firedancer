@@ -87,15 +87,15 @@ fd_sleep_join( void * shsleep ) {
 }
 
 int
-fd_sleep_park_wait( fd_sleep_t const * sleep,
-                    ulong *            word,
-                    long               deadline_ticks ) {
+fd_sleep_park_wait( ulong * word,
+                    long    deadline_ticks,
+                    double  tick_per_ns ) {
   /* Absolute timeout, anchored on a clock read taken before the tick
      read: preemption anywhere after can only shorten the sleep, never
      stretch it past deadline_ticks */
   struct timespec ts;
   clock_gettime( CLOCK_MONOTONIC, &ts );
-  long remaining = (long)((double)(deadline_ticks-fd_tickcount())/sleep->tick_per_ns);
+  long remaining = (long)((double)(deadline_ticks-fd_tickcount())/tick_per_ns);
   if( FD_UNLIKELY( remaining<=0L ) ) return FD_SLEEP_UNPARK_DEADLINE;
   long abs_ns = ts.tv_sec*(long)1e9 + ts.tv_nsec + remaining;
   ts.tv_sec  = abs_ns/(long)1e9;

@@ -545,6 +545,7 @@ fd_quic_trace_rx_tile( fd_quic_trace_ctx_t  * trace_ctx,
 
   fd_frag_meta_t const * in_mcache_tbl[2] = { rx_mcache, tx_mcache };
 
+  fd_stem_sleep_t sleep[ 1 ] = {{ .shmem = NULL }}; /* no sleep object: spin */
   stem_run1( /* in_cnt     */ 2UL,
              /* in_mcache  */ in_mcache_tbl,
              /* in_fseq    */ fseq_tbl,
@@ -558,7 +559,8 @@ fd_quic_trace_rx_tile( fd_quic_trace_ctx_t  * trace_ctx,
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
              /* scratch    */ scratch,
-             /* ctx        */ trace_ctx );
+             /* ctx        */ trace_ctx,
+             /* sleep      */ sleep );
 
   for( int j = 0; j < 2; ++j ){
     fd_fseq_delete( fd_fseq_leave( fseq_tbl[j] ) );

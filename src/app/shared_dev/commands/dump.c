@@ -370,6 +370,7 @@ dump_cmd_fn( args_t      * args,
     ctx.warmup_until = fd_clock_tile_now( ctx.clock ) + (long)1e9;
     ctx.next_stat_log = ctx.warmup_until + (long)1e9;
 
+    fd_stem_sleep_t sleep[ 1 ] = {{ .shmem = NULL }}; /* no sleep object: spin */
     stem_run1( ctx.link_cnt, /* in_cnt */
                mcaches,      /* in_mcache */
                fseqs,        /* in_fseq */
@@ -383,7 +384,8 @@ dump_cmd_fn( args_t      * args,
                0UL,          /* lazy */
                rng,          /* rng */
                scratch,      /* scratch */
-               &ctx );       /* ctx */
+               &ctx,         /* ctx */
+               sleep );      /* sleep */
 
     for( ulong i=0UL; i<ctx.link_cnt; i++ ) {
       struct link const * link = &ctx.links[ i ];

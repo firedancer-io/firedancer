@@ -61,6 +61,10 @@ fd_topo_run_tile( fd_topo_t *          topo,
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", tile->name, tile->kind_id ) );
   if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( -1==prctl( PR_SET_TIMERSLACK, 1UL, 0UL, 0UL, 0UL ) ) ) FD_LOG_ERR(( "prctl(PR_SET_TIMERSLACK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 

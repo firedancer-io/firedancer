@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_stem_fd_stem_h
 
 #include "../fd_disco_base.h"
+#include "../sleep/fd_sleep.h"
 
 #define FD_STEM_SCRATCH_ALIGN (128UL)
 
@@ -16,9 +17,26 @@ struct fd_stem_context {
    int *             out_reliable;
    ulong const *     cons_seq;
    struct fd_stem_tile_in * in;
+
+   fd_sleep_t *            sleep;
+   fd_sleep_wake_t const * wake;
+   ushort const *          wake_off;
 };
 
 typedef struct fd_stem_context fd_stem_context_t;
+
+struct fd_stem_sleep {
+  fd_sleep_t *    shmem;
+
+  ulong           tile_id;
+  ulong const *   waker_fseq;  /* waker readiness word, NULL if not a client */
+  ulong const *   out_link_id; /* per out: link id (seq_mirror), the tile's own array */
+  ulong           in_link_id[ FD_SLEEP_IN_MAX ];               /* link id (seq_snap/sweep) */
+  fd_sleep_wake_t wake[ FD_SLEEP_OUT_MAX*FD_SLEEP_BITS_CNT ];  /* flattened (word,mask) pairs */
+  ushort          wake_off[ FD_SLEEP_OUT_MAX+1UL ];            /* out_cnt+1 offsets into wake */
+};
+
+typedef struct fd_stem_sleep fd_stem_sleep_t;
 
 struct __attribute__((aligned(64))) fd_stem_tile_in {
   fd_frag_meta_t const * mcache;   /* local join to this in's mcache */
@@ -62,6 +80,7 @@ fd_stem_publish( fd_stem_context_t * stem,
     *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );
   }
   *seqp = fd_seq_inc( seq, 1UL );
+  if( FD_UNLIKELY( stem->sleep ) ) fd_sleep_wake_check( stem->sleep, stem->wake+stem->wake_off[ out_idx ], (ulong)(stem->wake_off[ out_idx+1UL ]-stem->wake_off[ out_idx ]) );
   return seq;
 }
 
@@ -78,6 +97,7 @@ fd_stem_advance( fd_stem_context_t * stem,
     *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );
   }
   *seqp = fd_seq_inc( seq, 1UL );
+  if( FD_UNLIKELY( stem->sleep ) ) fd_sleep_wake_check( stem->sleep, stem->wake+stem->wake_off[ out_idx ], (ulong)(stem->wake_off[ out_idx+1UL ]-stem->wake_off[ out_idx ]) );
   return seq;
 }
 

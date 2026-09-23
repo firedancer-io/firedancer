@@ -1,18 +1,20 @@
-static inline void
-STEM_(run1)( ulong                        in_cnt,
-             fd_frag_meta_t const **      in_mcache,
-             ulong **                     in_fseq,
-             ulong                        out_cnt,
-             fd_frag_meta_t **            out_mcache,
-             ulong                        cons_cnt,
-             ulong *                      _cons_out,
-             ulong **                     _cons_fseq,
-             volatile ulong **            _cons_slow,
-             ulong                        burst,
-             long                         lazy,
-             fd_rng_t *                   rng,
-             void *                       scratch,
-             STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
+static inline __attribute__((always_inline)) void
+STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
+                       fd_frag_meta_t const **      in_mcache,
+                       ulong **                     in_fseq,
+                       ulong                        out_cnt,
+                       fd_frag_meta_t **            out_mcache,
+                       ulong                        cons_cnt,
+                       ulong *                      _cons_out,
+                       ulong **                     _cons_fseq,
+                       volatile ulong **            _cons_slow,
+                       ulong                        burst,
+                       long                         lazy,
+                       fd_rng_t *                   rng,
+                       void *                       scratch,
+                       STEM_CALLBACK_CONTEXT_TYPE * ctx,
+                       fd_stem_sleep_t const *      sleep ) {
+  (void)sleep; /* unread by a tile with no publish context and no park code */
   /* in frag stream state */
   ulong               in_seq; /* current position in input poll sequence, in [0,in_cnt) */
   fd_stem_tile_in_t * in;     /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
@@ -43,6 +45,14 @@ STEM_(run1)( ulong                        in_cnt,
   ulong metric_backp_cnt; /* Accumulates number of transitions of tile to backpressured between housekeeping events */
 
   ulong metric_regime_ticks[ FD_METRICS_ENUM_TILE_REGIME_CNT ]; /* How many ticks the tile has spent in each regime */
+
+#if STEM_SLEEP_PARKS
+  double sleep_tick_per_ns    = fd_tempo_tick_per_ns( NULL );
+  long   sleep_linger_ticks   = (long)((double)FD_SLEEP_LINGER_NS  *sleep_tick_per_ns);
+  long   sleep_cap_ticks      = (long)((double)FD_SLEEP_PARK_CAP_NS*sleep_tick_per_ns);
+  long   sleep_min_ticks      = (long)((double)FD_SLEEP_PARK_MIN_NS*sleep_tick_per_ns);
+  ulong  sleep_idle_streak    = 0UL;
+#endif
 
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "NULL scratch" ));
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, STEM_(scratch_align)() ) ) ) FD_LOG_ERR(( "misaligned scratch" ));
@@ -155,6 +165,9 @@ STEM_(run1)( ulong                        in_cnt,
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
   long then = fd_tickcount();
   long now  = then;
+#if STEM_SLEEP_PARKS
+  long linger_start = then;
+#endif
   for(;;) {
 
 #ifdef STEM_CALLBACK_SHOULD_SHUTDOWN
@@ -244,6 +257,7 @@ STEM_(run1)( ulong                        in_cnt,
         /* Publish producer progress sync word */
         for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
           fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ out_idx ] ), out_seq[ out_idx ] );
+          if( FD_UNLIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ], out_seq[ out_idx ] );
         }
 
 #ifdef STEM_CALLBACK_DURING_HOUSEKEEPING
@@ -304,7 +318,11 @@ STEM_(run1)( ulong                        in_cnt,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
       .out_reliable        = out_reliable,
       .cons_seq            = cons_seq,
-      .in                  = in
+      .in                  = in,
+
+      .sleep               = sleep->shmem,
+      .wake                = sleep->wake,
+      .wake_off            = sleep->wake_off,
     };
 #endif
 
@@ -333,6 +351,16 @@ STEM_(run1)( ulong                        in_cnt,
       long next = fd_tickcount();
       metric_regime_ticks[5] += (ulong)(next - now);
       now = next;
+#if STEM_SLEEP_PARKS
+      sleep_idle_streak++;
+      if( FD_UNLIKELY( sleep_idle_streak>=in_cnt && (now-linger_start)>sleep_linger_ticks ) ) {
+        sleep_idle_streak = 0UL;
+        STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_seq, cons_cnt, cons_fseq, cons_seq, cons_out,
+                             event_cnt, event_map, &event_seq, async_min,
+                             sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now,
+                             FD_METRICS_ENUM_TILE_REGIME_V_BACKPRESSURE_SLEEPING_IDX, 1, then );
+      }
+#endif
       continue;
     }
     metric_in_backp = 0UL;
@@ -346,6 +374,10 @@ STEM_(run1)( ulong                        in_cnt,
       long next = fd_tickcount();
       metric_regime_ticks[4] += (ulong)(next - now);
       now = next;
+#if STEM_SLEEP_PARKS
+      sleep_idle_streak = 0UL;
+      linger_start = now;
+#endif
       continue;
     }
 #endif
@@ -359,6 +391,20 @@ STEM_(run1)( ulong                        in_cnt,
       if( FD_UNLIKELY( was_busy ) ) metric_regime_ticks[3] += (ulong)(next - now);
       else                          metric_regime_ticks[6] += (ulong)(next - now);
       now = next;
+#if STEM_SLEEP_PARKS
+      if( FD_UNLIKELY( was_busy ) ) {
+        sleep_idle_streak  = 0UL;
+        linger_start = now;
+      } else {
+        if( FD_UNLIKELY( (now-linger_start)>sleep_linger_ticks ) ) {
+          sleep_idle_streak = 0UL;
+          STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_seq, cons_cnt, cons_fseq, cons_seq, cons_out,
+                               event_cnt, event_map, &event_seq, async_min,
+                               sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now,
+                               FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX, 0, LONG_MAX );
+        }
+      }
+#endif
       continue;
     }
 
@@ -447,6 +493,21 @@ STEM_(run1)( ulong                        in_cnt,
       long next = fd_tickcount();
       *finish_regime += (ulong)(next - now);
       now = next;
+#if STEM_SLEEP_PARKS
+      if( FD_UNLIKELY( (diff<0L) || (charge_busy_before+charge_busy_after)>0L ) ) {
+        sleep_idle_streak  = 0UL;
+        linger_start = now;
+      } else {
+        sleep_idle_streak++;
+        if( FD_UNLIKELY( sleep_idle_streak>=in_cnt && (now-linger_start)>sleep_linger_ticks ) ) {
+          sleep_idle_streak = 0UL;
+          STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_seq, cons_cnt, cons_fseq, cons_seq, cons_out,
+                               event_cnt, event_map, &event_seq, async_min,
+                               sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now,
+                               FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX, 0, LONG_MAX );
+        }
+      }
+#endif
       continue;
     }
 
@@ -468,6 +529,10 @@ STEM_(run1)( ulong                        in_cnt,
 #ifdef STEM_CALLBACK_BEFORE_FRAG
     int filter = STEM_CALLBACK_BEFORE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig );
     if( FD_UNLIKELY( filter<0 ) ) {
+#if STEM_SLEEP_PARKS
+      sleep_idle_streak = 0UL;
+      linger_start = now;
+#endif
       metric_regime_ticks[1] += housekeeping_ticks;
       metric_regime_ticks[4] += prefrag_ticks;
       long next = fd_tickcount();
@@ -475,6 +540,9 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
       continue;
     } else if( FD_UNLIKELY( filter>0 ) ) {
+#if STEM_SLEEP_PARKS
+      linger_start = now;
+#endif
       this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ]++;
       this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_BYTES_OFF ] += (uint)this_in_mline->sz; /* TODO: This might be overrun ... ? Not loaded atomically */
 
@@ -489,6 +557,11 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
       continue;
     }
+#endif
+
+#if STEM_SLEEP_PARKS
+    sleep_idle_streak = 0UL;
+    linger_start = now;
 #endif
 
     /* We have a new fragment to mux.  Try to load it.  This attempt
@@ -576,4 +649,10 @@ STEM_(run1)( ulong                        in_cnt,
     metric_regime_ticks[7] += (ulong)(next - now);
     now = next;
   }
+
+  for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
+    fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ out_idx ] ), out_seq[ out_idx ] );
+    if( FD_UNLIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ], out_seq[ out_idx ] );
+  }
 }
+

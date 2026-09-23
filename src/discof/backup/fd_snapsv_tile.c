@@ -2207,6 +2207,9 @@ metrics_write( fd_snapsv_t * ctx ) {
   FD_MGAUGE_SET( SNAPSV, CONN_ACTIVE,                     ctx->conn_cnt      );
 }
 
+/* snapsv uses a custom sleep with io_uring_enter and doesn't currently
+   support parking.  TODO: Fix and align to fd_stem in future. */
+#define STEM_NEVER_PARK 1
 #define STEM_BURST 1UL
 #define STEM_LAZY  ((long)1e6) /* 1 ms */
 #define STEM_CALLBACK_CONTEXT_TYPE        fd_snapsv_t
