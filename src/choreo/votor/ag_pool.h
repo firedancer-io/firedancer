@@ -54,15 +54,21 @@ ag_pool_advance_epoch( ag_pool_t *             self,
                        ulong                   epoch_rank,
                        ulong                   epoch_slot );
 
+/* Definition 13. Pool::add_cert */
+
 int
 ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert,
                   fd_bls_set_t *    bad );
 
+/* Definition 12. Pool::add_vote */
+
 int
 ag_pool_add_vote( ag_pool_t *       self,
                   ag_vote_t const * vote,
                   fd_bls_set_t *    bad );
+
+/* Definition 16. Pool::add_block */
 
 int
 ag_pool_add_block( ag_pool_t *           self,
@@ -70,12 +76,18 @@ ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * parent_id,
                    fd_bls_set_t *        bad );
 
+/* PoolImpl::slot_state, read-only */
+
 ag_slot_state_t const *
 ag_pool_slot_state( ag_pool_t const * self,
                     ulong             slot );
 
+/* Section 4.1. Pool::recover_from_standstill */
+
 void
 ag_pool_recover_from_standstill( ag_pool_t * self );
+
+/* Definition 14. Pool::finalized_slot */
 
 FD_FN_PURE ulong
 ag_pool_finalized_slot( ag_pool_t const * self );
@@ -83,10 +95,14 @@ ag_pool_finalized_slot( ag_pool_t const * self );
 FD_FN_PURE uchar const *
 ag_pool_finalized_block_hash( ag_pool_t const * self );
 
+/* Definition 15. Pool::parents_ready */
+
 ag_block_id_t const *
 ag_pool_parents_ready( ag_pool_t * self,
                        ulong       slot,
                        ulong *     cnt );
+
+/* Definition 15. Pool::wait_for_parent_ready; slot ULONG_MAX is the pending receiver */
 
 ag_block_id_t
 ag_pool_wait_for_parent_ready( ag_pool_t * self,

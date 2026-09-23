@@ -59,15 +59,21 @@ typedef struct ag_standstill ag_standstill_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* Algorithm 2, line 1. Slot::first_slot_in_window */
+
 FD_FN_CONST static inline ulong
 ag_first_slot_in_window( ulong slot ) {
   return ( slot / AG_SLOTS_PER_WINDOW ) * AG_SLOTS_PER_WINDOW;
 }
 
+/* Algorithm 2, line 1. Slot::is_start_of_window */
+
 FD_FN_CONST static inline int
 ag_is_start_of_window( ulong slot ) {
   return ( slot % AG_SLOTS_PER_WINDOW )==0UL;
 }
+
+/* Definition 4. BlockId, the (Slot, BlockHash) tuple */
 
 static inline ag_block_id_t
 ag_block_id( ulong                 slot,
@@ -76,6 +82,8 @@ ag_block_id( ulong                 slot,
   memcpy( id.hash, hash, sizeof(ag_block_hash_t) );
   return id;
 }
+
+/* Definition 4. BlockId == */
 
 FD_FN_PURE static inline int
 ag_block_id_eq( ag_block_id_t const * a,

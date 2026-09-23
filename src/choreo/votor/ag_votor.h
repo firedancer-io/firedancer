@@ -45,18 +45,26 @@ ag_votor_advance_epoch( ag_votor_t * self,
                         ulong        epoch_rank,
                         ulong        epoch_slot );
 
+/* Algorithm 1, lines 9-25. Votor::handle_pool_event */
+
 void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,
                             long                    now );
 
+/* Votor::handle_blockstore_event, FirstShred and InvalidBlock */
+
 void
 ag_votor_handle_block_event( ag_votor_t *             self,
                              ag_event_block_t const * event );
 
+/* Algorithm 1, lines 1-5. Votor::handle_blockstore_event, Block */
+
 void
 ag_votor_handle_replay_event( ag_votor_t *              self,
                               ag_event_replay_t const * event );
+
+/* Algorithm 1, lines 6-8. Votor::handle_timeout_event */
 
 void
 ag_votor_handle_timeout_event( ag_votor_t *               self,

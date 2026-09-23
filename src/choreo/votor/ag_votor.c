@@ -340,22 +340,18 @@ first_unpruned_slot( ag_votor_t const * self ) {
   return ag_first_slot_in_window( fd_ulong_sat_sub( self->highest_final_cert_slot, AG_REWARD_SLOT_DELTA ) );
 }
 
-FD_FN_PURE static ulong
-pool_event_slot( ag_event_pool_t const * event ) {
-  switch( event->kind ) {
-  case AG_EVENT_POOL_PARENT_READY:  return event->parent_ready.slot;
-  case AG_EVENT_POOL_SAFE_TO_NOTAR: return event->safe_to_notar.slot;
-  case AG_EVENT_POOL_SAFE_TO_SKIP:  return event->safe_to_skip;
-  case AG_EVENT_POOL_CERT_CREATED:  return ag_cert_slot( &event->cert_created );
-  case AG_EVENT_POOL_STANDSTILL:    return event->standstill.slot;
-  default:                          FD_LOG_CRIT(( "unreachable" ));
-  }
-}
-
 static int
 should_ignore_pool_event( ag_votor_t const *      self,
                           ag_event_pool_t const * event ) {
-  ulong slot = pool_event_slot( event );
+  ulong slot;
+  switch( event->kind ) {
+  case AG_EVENT_POOL_PARENT_READY:  slot = event->parent_ready.slot;             break;
+  case AG_EVENT_POOL_SAFE_TO_NOTAR: slot = event->safe_to_notar.slot;            break;
+  case AG_EVENT_POOL_SAFE_TO_SKIP:  slot = event->safe_to_skip;                  break;
+  case AG_EVENT_POOL_CERT_CREATED:  slot = ag_cert_slot( &event->cert_created ); break;
+  case AG_EVENT_POOL_STANDSTILL:    slot = event->standstill.slot;               break;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
   switch( event->kind ) {
   case AG_EVENT_POOL_STANDSTILL:    return 0;
   case AG_EVENT_POOL_CERT_CREATED:  return slot<first_unpruned_slot( self );

@@ -20,11 +20,11 @@
 #include "ag_parent_ready_tracker.h" /* ag_parent_ready_t */
 #include "ag_vote.h"
 
-#define AG_EVENT_POOL_PARENT_READY  (0)
-#define AG_EVENT_POOL_SAFE_TO_NOTAR (1)
-#define AG_EVENT_POOL_SAFE_TO_SKIP  (2)
-#define AG_EVENT_POOL_CERT_CREATED  (3)
-#define AG_EVENT_POOL_STANDSTILL    (4)
+#define AG_EVENT_POOL_PARENT_READY  (0) /* Definition 15. PoolEvent::ParentReady */
+#define AG_EVENT_POOL_SAFE_TO_NOTAR (1) /* Definition 16. PoolEvent::SafeToNotar */
+#define AG_EVENT_POOL_SAFE_TO_SKIP  (2) /* Definition 16. PoolEvent::SafeToSkip */
+#define AG_EVENT_POOL_CERT_CREATED  (3) /* Definition 13. PoolEvent::CertCreated */
+#define AG_EVENT_POOL_STANDSTILL    (4) /* Section 4.1. PoolEvent::Standstill */
 
 struct ag_event_pool {
   ulong seq;
@@ -40,8 +40,8 @@ struct ag_event_pool {
 };
 typedef struct ag_event_pool ag_event_pool_t;
 
-#define AG_EVENT_BLOCK_FIRST_SHRED   (0)
-#define AG_EVENT_BLOCK_INVALID_BLOCK (1)
+#define AG_EVENT_BLOCK_FIRST_SHRED   (0) /* BlockstoreEvent::FirstShred */
+#define AG_EVENT_BLOCK_INVALID_BLOCK (1) /* BlockstoreEvent::InvalidBlock */
 
 struct ag_event_block {
   ulong seq;
@@ -51,7 +51,7 @@ struct ag_event_block {
 };
 typedef struct ag_event_block ag_event_block_t;
 
-#define AG_EVENT_REPLAY_COMPLETED (0)
+#define AG_EVENT_REPLAY_COMPLETED (0) /* Algorithm 1, line 1. BlockstoreEvent::Block */
 
 struct ag_event_replay {
   ulong           seq;
@@ -62,8 +62,8 @@ struct ag_event_replay {
 };
 typedef struct ag_event_replay ag_event_replay_t;
 
-#define AG_EVENT_TIMEOUT                (0)
-#define AG_EVENT_TIMEOUT_CRASHED_LEADER (1)
+#define AG_EVENT_TIMEOUT                (0) /* Definition 17. VotorTimeout::Timeout */
+#define AG_EVENT_TIMEOUT_CRASHED_LEADER (1) /* VotorTimeout::TimeoutCrashedLeader */
 
 struct ag_event_timeout {
   ulong seq;
@@ -77,12 +77,16 @@ typedef struct ag_event_timeout ag_event_timeout_t;
    Votor, but instead are translated into outgoing messages to other
    tiles (see fd_votor_tile.h). */
 
+/* Definition 11. ConsensusMessage::Vote, queued for the tile to send */
+
 struct ag_event_vote {
   ulong     seq;
   long      ts;
   ag_vote_t vote;
 };
 typedef struct ag_event_vote ag_event_vote_t;
+
+/* Definition 11. ConsensusMessage::Cert, queued for the tile to send */
 
 struct ag_event_cert {
   ulong     seq;
