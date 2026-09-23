@@ -241,3 +241,48 @@ fd_failover_handoff_resp_check( fd_failover_handoff_resp_t const * resp,
                resp->code==FD_FAILOVER_HANDOFF_STALE_TERM ) &&
              resp->reason==FD_FAILOVER_REJECT_NONE ) );
 }
+
+ulong
+fd_failover_reclaim_term( ulong local_term,
+                          ulong peer_term ) {
+  ulong t = local_term>peer_term ? local_term : peer_term;
+  return t>=ULONG_MAX-2UL ? ULONG_MAX : t+1UL;
+}
+
+uchar
+fd_failover_reclaim_check( fd_failover_reclaim_t const * req,
+                           fd_failover_status_t const *  local,
+                           fd_failover_status_t const *  peer,
+                           int                           peer_fresh,
+                           ulong                         local_state,
+                           int                           junk_installed,
+                           int                           switch_pending,
+                           int                           owes_confirmation,
+                           uchar *                       reason ) {
+  *reason = FD_FAILOVER_REJECT_NONE;
+  if( FD_UNLIKELY( !req->nonce ) ) { *reason = FD_FAILOVER_REJECT_BAD_REQUEST; return FD_FAILOVER_RECLAIM_REFUSED; }
+  /* A holder does not stand down on request, that is what handoff is for. */
+  if( FD_UNLIKELY( local->role==FD_FAILOVER_ROLE_ACTIVE || local_state==FD_FAILOVER_STATE_ACTIVE ) ) return FD_FAILOVER_RECLAIM_HELD;
+  if( FD_UNLIKELY( !peer_fresh ) ) { *reason = FD_FAILOVER_REJECT_STATUS_STALE; return FD_FAILOVER_RECLAIM_REFUSED; }
+  if( FD_UNLIKELY( peer->role!=FD_FAILOVER_ROLE_STANDBY ) ) { *reason = FD_FAILOVER_REJECT_STATE_MISMATCH; return FD_FAILOVER_RECLAIM_REFUSED; }
+  ulong want = fd_failover_reclaim_term( local->term, peer->term );
+  if( FD_UNLIKELY( want==ULONG_MAX ) ) { *reason = FD_FAILOVER_REJECT_TERM_EXHAUSTED; return FD_FAILOVER_RECLAIM_REFUSED; }
+  if( FD_UNLIKELY( req->term!=want || req->term<=local->term ) ) return FD_FAILOVER_RECLAIM_STALE_TERM;
+  if( FD_UNLIKELY( local->status & FD_FAILOVER_STATUS_PAUSED ) ) { *reason = FD_FAILOVER_REJECT_PAUSED; return FD_FAILOVER_RECLAIM_REFUSED; }
+  /* A confirmation still owed says this machine stopped and nothing about
+     whether the asker may start, so it is settled first. */
+  if( FD_UNLIKELY( owes_confirmation ) ) { *reason = FD_FAILOVER_REJECT_STATE_MISMATCH; return FD_FAILOVER_RECLAIM_REFUSED; }
+  if( FD_UNLIKELY( switch_pending ) ) { *reason = FD_FAILOVER_REJECT_SWITCH_PENDING; return FD_FAILOVER_RECLAIM_REFUSED; }
+  if( FD_UNLIKELY( !junk_installed ) ) { *reason = FD_FAILOVER_REJECT_HOLDS_IDENTITY; return FD_FAILOVER_RECLAIM_REFUSED; }
+  return FD_FAILOVER_RECLAIM_CONFIRMED;
+}
+
+int
+fd_failover_confirm_check( fd_failover_confirm_t const * confirm,
+                           fd_failover_reclaim_t const * req ) {
+  return confirm->term==req->term && confirm->nonce==req->nonce &&
+         confirm->code<FD_FAILOVER_RECLAIM_CODE_CNT &&
+         confirm->reason<FD_FAILOVER_REJECT_CNT &&
+         (( confirm->code==FD_FAILOVER_RECLAIM_REFUSED && confirm->reason!=FD_FAILOVER_REJECT_NONE ) ||
+          ( confirm->code!=FD_FAILOVER_RECLAIM_REFUSED && confirm->reason==FD_FAILOVER_REJECT_NONE ));
+}

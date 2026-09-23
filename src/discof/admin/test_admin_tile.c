@@ -89,6 +89,36 @@ test_status_abi( void ) {
   FD_LOG_NOTICE(( "pass: failover status ABI rejects old versions and malformed sizes" ));
 }
 
+static void
+test_installed_identity_query( void ) {
+  stem_init();
+  ctx.failover_enabled = 1;
+  ctx.failov_out_idx   = 0UL;
+  ctx.failov_out_mem   = (fd_wksp_t *)bus_mem;
+  ctx.failov_out_chunk = ctx.failov_out_chunk0 = ctx.failov_out_wmark = 0UL;
+  fd_memset( &ctx.failov_resp, 0, sizeof(ctx.failov_resp) );
+  ctx.failov_resp.nonce = 77UL;
+  fd_memset( ctx.failover_junk_pubkey, 0x11, 32UL );
+  fd_memset( ctx.failover_staked_pubkey, 0x22, 32UL );
+  ulong expected[] = { FD_FAILOVER_SWITCH_STATE_JUNK, FD_FAILOVER_SWITCH_STATE_STAKED, FD_FAILOVER_SWITCH_STATE_FOREIGN };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    fd_memset( ctx.identity_pubkey, (int)(0x11UL*(i+1UL)), 32UL );
+    failover_switch_query( &ctx, stem );
+    fd_failover_bus_msg_t const * msg = (fd_failover_bus_msg_t const *)bus_mem;
+    fd_failover_switch_resp_t answer;
+    fd_memcpy( &answer, msg->payload, sizeof(answer) );
+    FD_TEST( pub_mcache[ i ].sig==FD_FAILOVER_BUS_SWITCH_STATE );
+    FD_TEST( msg->nonce==77UL && answer.result==expected[ i ] );
+    FD_TEST( answer.tower_watermark==ULONG_MAX && fd_memeq( answer.identity, ctx.identity_pubkey, 32UL ) );
+  }
+  ctx.failover_enabled = 0;
+  fd_memcpy( ctx.identity_pubkey, ctx.failover_junk_pubkey, 32UL );
+  failover_switch_query( &ctx, stem );
+  FD_TEST( ((fd_failover_bus_msg_t *)bus_mem)->result==FD_FAILOVER_SWITCH_STATE_FOREIGN );
+  stem_init();
+  FD_LOG_NOTICE(( "pass: installed identity queries report junk, staked, foreign and disabled without switching" ));
+}
+
 static fd_failover_bus_msg_t *
 published_request( void ) {
   FD_TEST( pub_mcache[ 0 ].sig==FD_FAILOVER_BUS_STATUS_REQ );
@@ -267,6 +297,7 @@ main( int argc, char ** argv ) {
   stem_init();
   test_identity_guard();
   test_status_abi();
+  test_installed_identity_query();
   test_bus_forwarding();
   test_bus_unresponsive();
   test_switch_key_on_demand();

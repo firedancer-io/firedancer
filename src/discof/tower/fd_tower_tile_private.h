@@ -137,6 +137,9 @@ struct fd_tower_tile {
   int              recovery_initialized;
   ulong            recovery_onchain_root;  /* our root in the vote account at the last replayed slot */
   int              first_use_pending;
+  int              first_use_authorized;  /* one launch, consumed when the staked key is installed */
+  int              failover_tower_adopted; /* a confirmed tower was adopted before this switch */
+  int              no_vote_authority;     /* shadow votes never authorize the staked identity */
   int              failover_enabled;
   fd_pubkey_t      failover_staked_identity; /* the one identity of the pool */
   int              failover_standby;

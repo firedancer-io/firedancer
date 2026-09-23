@@ -359,7 +359,11 @@ test_failover_standby_follows_the_key( void ) {
   fd_memset( &junk,   0x11, sizeof(junk) );
 
   static uchar publishes_mem[ 65536 ] __attribute__((aligned(128)));
+  static uchar tower_mem[ 65536 ] __attribute__((aligned(128)));
   fd_memset( ctx, 0, sizeof(*ctx) );
+  FD_TEST( fd_tower_footprint( 2UL, 2UL )<=sizeof(tower_mem) );
+  ctx->tower = fd_tower_join( fd_tower_new( tower_mem, 2UL, 2UL, 0UL ) );
+  FD_TEST( ctx->tower );
   ctx->identity_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( identity, FD_KEYSWITCH_STATE_UNLOCKED ) );
   ctx->auth_vtr_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( voter, FD_KEYSWITCH_STATE_UNLOCKED ) );
   ctx->publishes                = publishes_join( publishes_new( publishes_mem, 2UL ) );
@@ -375,6 +379,7 @@ test_failover_standby_follows_the_key( void ) {
   during_housekeeping( ctx );
   FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED );
   FD_TEST( !ctx->failover_standby && ctx->halt_signing );
+  FD_TEST( ctx->no_vote_authority );
 
   /* Demotion installs the junk key, so it is a hot spare again. */
   fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNHALT_PENDING );
@@ -383,6 +388,33 @@ test_failover_standby_follows_the_key( void ) {
   fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
   during_housekeeping( ctx );
   FD_TEST( ctx->failover_standby );
+
+  /* First use checks history even after the passive tower accumulated
+     unsigned shadow votes.  It is consumed on key installation. */
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot=100UL, .conf=1UL } );
+  ctx->first_use_authorized = 1;
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( !ctx->no_vote_authority && ctx->first_use_pending && !ctx->first_use_authorized );
+  FD_TEST( fd_tower_vote_empty( ctx->tower->votes ) );
+
+  /* Demotion and another switch cannot reuse the launch authorization. */
+  fd_memcpy( identity->bytes, junk.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( ctx->no_vote_authority && !ctx->first_use_pending );
+
+  /* A subsequent handoff uses its adopted final tower, not first use. */
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot=200UL, .conf=1UL } );
+  ctx->failover_tower_adopted = 1;
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( !ctx->no_vote_authority && !ctx->first_use_pending && !ctx->failover_tower_adopted );
+  FD_TEST( fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot==200UL );
 
   /* A vote the last replay queued holds the switch until it drains, so the
      halt watermark sits past it. */

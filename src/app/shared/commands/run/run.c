@@ -1539,9 +1539,10 @@ action_t fd_action_run1 = {
 static void
 run_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--failover-first-use", "<staked-pubkey>",
-                      "Authorize one launch of a genuinely new failover voter without a tower file.\n"
-                      "Does not override an invalid file or known voting history. Do not use this\n"
-                      "option to recover a lost tower." );
+                      "Bootstrap a never-voted identity on member zero of a passive pair.\n"
+                      "Waits for the peer to prove its junk key and durably confirm standing down.\n"
+                      "Requires no signed tower or demotion record and a standby role at term zero.\n"
+                      "Use for one launch only. Existing voting history requires recovery." );
 }
 
 action_t fd_action_run = {

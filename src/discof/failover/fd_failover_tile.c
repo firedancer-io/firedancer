@@ -43,7 +43,9 @@
 #define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for the tower tile to adopt */
 #define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
 #define FD_FAILOVER_ACTION_REJECT              (6UL) /* standing down, telling the peer why */
-#define FD_FAILOVER_ACTION_CNT                 (7UL)
+#define FD_FAILOVER_ACTION_FIRST_USE_WAIT      (7UL) /* waiting for the peer's stand-down */
+#define FD_FAILOVER_ACTION_CONFIRM_WAIT_QUERY  (8UL) /* proving the installed junk key */
+#define FD_FAILOVER_ACTION_CNT                 (9UL)
 
 /* One pool peer, its session and what it last told us. */
 struct fd_failover_peer {
@@ -126,6 +128,25 @@ struct fd_failover_tile_ctx {
   ulong                        handoff_term;
   fd_stem_context_t *          step_stem; /* valid for the duration of after_credit */
 
+  /* First use is authorized once at boot on member zero.  The grant is
+     tied to a nonce and peer boot, and is never recovered from disk. */
+  int                          first_use_authorized;
+  int                          first_use_tried;
+  int                          first_use_pending;
+  int                          first_use_sent;
+  int                          first_use_promoting;
+  ulong                        first_use_nonce;
+  ulong                        first_use_peer_boot;
+  fd_failover_reclaim_t         first_use_req;
+  long                         claim_deadline;
+  fd_failover_reclaim_t         confirm_req;
+  ulong                        confirm_peer_boot;
+  int                          confirm_given;
+  fd_failover_confirm_t         confirm_last;
+  ulong                        confirm_last_boot;
+  fd_failover_confirm_t         confirm_reply;
+  int                          confirm_owed;
+
   /* The role file and its descriptors.  A role change is written here
      before it takes effect. */
   int                     role_dir_fd;
@@ -170,6 +191,11 @@ struct fd_failover_tile_ctx {
   ulong                     switch_result_id;
   int                       switch_result_fresh;
   int                       switch_overdue;      /* the switch in flight passed its deadline, we still wait for it */
+  ulong                     switch_query_id;
+  int                       switch_query_pending;
+  fd_failover_switch_resp_t  switch_state;
+  ulong                     switch_state_nonce;
+  int                       switch_state_fresh;
 
   /* Adoption request to the tower tile and its answer. */
   ulong                   adopt_out_idx;
@@ -339,6 +365,22 @@ role_file_read( fd_failover_tile_ctx_t * ctx ) {
   return err ? err : 0;
 }
 
+/* An old or invalid role file is evidence against first use even though
+   ordinary passive boot tolerates it.  A spent term cannot be rearmed. */
+static int
+first_use_check( fd_failover_tile_ctx_t const * ctx,
+                 char const *                  pubkey,
+                 int                           role_err,
+                 int                           demoted_err ) {
+  uchar named[ 32 ];
+  return fd_base58_decode_32( pubkey, named ) &&
+         fd_memeq( named, ctx->hello.staked_pubkey, 32UL ) &&
+         ctx->member_cnt==2UL && ctx->self_idx==0UL &&
+         ( !role_err || role_err==ENOENT ) &&
+         ctx->role_file.role==FD_FAILOVER_STATE_STANDBY &&
+         !ctx->role_file.term && demoted_err==ENOENT;
+}
+
 /* role_file_write stores the record before the new state takes effect.
    A write failure stops the tile.  Only the write at boot passes an
    owner, it runs before the uid switch, see fd_failover_role_store. */
@@ -495,6 +537,7 @@ pending_flush( fd_failover_tile_ctx_t * ctx,
                    fd_failover_channel_tx_pending( peer->channel ) ) ) return;
   if( FD_LIKELY( !fd_failover_channel_send( peer->channel, now, ctx->pending_type, ctx->pending, ctx->pending_sz ) ) ) {
     if( FD_UNLIKELY( ctx->pending_type==(ushort)FD_FAILOVER_MSG_DEMOTED ) ) ctx->demoted_sent = 1;
+    if( FD_UNLIKELY( ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM ) ) ctx->first_use_sent = 1;
     ctx->pending_valid = 0;
   }
 }
@@ -569,8 +612,16 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "reserved role file descriptor is %i, expected 0: another descriptor was open when the failover tile started", ctx->role_file_fd ));
   }
 
-  int had_role    = !role_file_read( ctx );
+  int role_err   = role_file_read( ctx );
+  int had_role   = !role_err;
   ulong saved     = (ulong)ctx->role_file.role;
+  int demoted_err = fd_failover_demoted_load( ctx->role_dir_fd, &ctx->demoted_record );
+  if( FD_UNLIKELY( tile->failov.failover_first_use[ 0 ] ) ) {
+    if( FD_UNLIKELY( !first_use_check( ctx, tile->failov.failover_first_use, role_err, demoted_err ) ) )
+      FD_LOG_ERR(( "--failover-first-use requires the pool's staked identity, member zero, a standby role at term zero or no role file, and no demotion record" ));
+    ctx->first_use_authorized = 1;
+    FD_LOG_NOTICE(( "first use armed, waiting for the paired standby peer to confirm standing down" ));
+  }
   /* Work out the boot state from the record.  If we were in the middle of
      a transition we come up not voting. */
   ctx->state               = fd_failover_state_boot( saved );
@@ -606,7 +657,6 @@ privileged_init( fd_topo_t const *      topo,
 
   /* If we have a confirmation on disk at this term we demoted and the peer
      may not have received it, so send it again. */
-  int demoted_err = fd_failover_demoted_load( ctx->role_dir_fd, &ctx->demoted_record );
   if( FD_LIKELY( !demoted_err ) ) {
     /* Only if we were the one demoting though.  If we were interrupted mid
        promotion the record on disk is the peer's confirmation, and sending
@@ -644,6 +694,7 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "reading %s failed (%i-%s)", FD_FAILOVER_DEMOTED_PATH, demoted_err, fd_io_strerror( demoted_err ) ));
   }
   FD_TEST( fd_rng_secure( &ctx->hello.boot_id, 8UL ) );
+  ctx->first_use_nonce = ctx->hello.boot_id;
 
   /* One session object per peer, each pinned to that member's junk key.
      The junk keypair is loaded once and copied into every TLS context. */
@@ -960,6 +1011,70 @@ static void  start_demotion( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * s
 static void  demotion_switched( fd_failover_tile_ctx_t * ctx, long now );
 static void  reject_promotion( fd_failover_tile_ctx_t * ctx, uchar reason, long now );
 static void  start_promotion( fd_failover_tile_ctx_t * ctx, fd_failover_demoted_record_t const * record, ulong term );
+static ulong switch_query( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem );
+
+/* These new waits have a monotonic bound even before replay starts. */
+static void
+claim_deadline_start( fd_failover_tile_ctx_t * ctx,
+                      long                     now ) {
+  ulong seconds = fd_ulong_max( 30UL, fd_ulong_min( ctx->deadline_slots, 300UL ) );
+  ctx->claim_deadline = fd_long_sat_add( now, (long)(seconds*1000000000UL) );
+  deadline_start( ctx, ctx->deadline_slots );
+}
+
+static int
+claim_expired( fd_failover_tile_ctx_t const * ctx,
+               long                          now ) {
+  return now>=ctx->claim_deadline || deadline_expired( ctx );
+}
+
+static void
+queue_confirm( fd_failover_tile_ctx_t * ctx,
+                fd_failover_reclaim_t const * req,
+                uchar code,
+                uchar reason ) {
+  ctx->confirm_reply = (fd_failover_confirm_t){ .term=req->term, .nonce=req->nonce, .code=code, .reason=reason };
+  ctx->confirm_owed = !!queue_control( ctx, (ushort)FD_FAILOVER_MSG_CONFIRM, &ctx->confirm_reply, sizeof(ctx->confirm_reply) );
+}
+
+static void
+first_use_failed( fd_failover_tile_ctx_t * ctx,
+                   uchar                    reason ) {
+  ctx->first_use_pending    = 0;
+  ctx->first_use_authorized = 0;
+  if( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM ) ctx->pending_valid = 0;
+  ctx->action = FD_FAILOVER_ACTION_IDLE;
+  ctx->stuck  = 1;
+  FD_LOG_WARNING(( "first use refused at term %lu (reason %u), remaining passive", ctx->action_term, (uint)reason ));
+}
+
+static void
+maybe_first_use( fd_failover_tile_ctx_t * ctx,
+                  long                     now ) {
+  if( FD_LIKELY( !ctx->first_use_authorized || ctx->first_use_tried ) ) return;
+  if( FD_UNLIKELY( ctx->state!=FD_FAILOVER_STATE_STANDBY || ctx->action!=FD_FAILOVER_ACTION_IDLE ||
+                   ctx->paused || ctx->stuck || ctx->pending_valid || ctx->handoff_pending ||
+                   ctx->send_demoted || ctx->demoted_valid || ctx->switch_query_pending ||
+                   ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ||
+                   ctx->member_cnt!=2UL || ctx->self_idx || ctx->peer_cnt!=1UL ) ) return;
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  if( FD_UNLIKELY( fd_failover_channel_state( peer->channel )!=FD_FAILOVER_SESSION_PAIRED ||
+                   !peer_status_fresh( ctx, peer, now ) || peer->status.role!=FD_FAILOVER_ROLE_STANDBY ||
+                   (peer->status.status & (FD_FAILOVER_STATUS_BUSY|FD_FAILOVER_STATUS_PAUSED|FD_FAILOVER_STATUS_STUCK)) ) ) return;
+  ulong term = fd_failover_reclaim_term( ctx->hello.term, peer->status.term );
+  if( FD_UNLIKELY( term==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( !++ctx->first_use_nonce ) ) ctx->first_use_nonce++;
+  ctx->first_use_req       = (fd_failover_reclaim_t){ .term=term, .nonce=ctx->first_use_nonce };
+  ctx->first_use_peer_boot = fd_failover_channel_peer_hello( peer->channel )->boot_id;
+  ctx->first_use_pending   = 1;
+  ctx->first_use_tried     = 1;
+  ctx->first_use_sent      = 0;
+  ctx->action_term         = term;
+  ctx->action              = FD_FAILOVER_ACTION_FIRST_USE_WAIT;
+  claim_deadline_start( ctx, now );
+  (void)queue_control( ctx, (ushort)FD_FAILOVER_MSG_RECLAIM, &ctx->first_use_req, sizeof(ctx->first_use_req) );
+  FD_LOG_NOTICE(( "first use requesting the peer's stand-down at term %lu", term ));
+}
 
 /* Send the tower we are adopting to the tower tile.  This is the final
    tower from the peer's demotion record, not the streamed one, because
@@ -991,6 +1106,8 @@ step_controller( fd_failover_tile_ctx_t * ctx,
      held the slot is still owed to the peer, send it once the slot is
      free. */
   if( FD_UNLIKELY( ctx->reply_owed && !ctx->pending_valid ) ) queue_reply( ctx );
+  if( FD_UNLIKELY( ctx->confirm_owed && !ctx->pending_valid ) )
+    ctx->confirm_owed = !!queue_control( ctx, (ushort)FD_FAILOVER_MSG_CONFIRM, &ctx->confirm_reply, sizeof(ctx->confirm_reply) );
   if( FD_LIKELY( ctx->action==FD_FAILOVER_ACTION_IDLE ) ) return;
 
   switch( ctx->action ) {
@@ -1150,6 +1267,13 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     }
     persist( ctx, FD_FAILOVER_STATE_ACTIVE, ctx->action_term );
     set_role( ctx, FD_FAILOVER_ROLE_ACTIVE, now );
+    if( FD_UNLIKELY( ctx->first_use_promoting ) ) {
+      ctx->first_use_promoting = 0;
+      ctx->action = FD_FAILOVER_ACTION_IDLE;
+      ctx->stuck  = 0;
+      FD_LOG_NOTICE(( "first use installed the staked identity at term %lu, verify the first landed vote", ctx->action_term ));
+      return;
+    }
     /* The ack tells the old active it can drop its confirmation.  Keep it
        as the outcome for this term, so a confirmation resent at this term
        gets the ack again rather than being dropped as a mid transition
@@ -1170,6 +1294,58 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     return;
   }
 
+  case FD_FAILOVER_ACTION_FIRST_USE_WAIT: {
+    deadline_arm( ctx, ctx->deadline_slots );
+    if( FD_UNLIKELY( ctx->paused || claim_expired( ctx, now ) ) ) {
+      first_use_failed( ctx, ctx->paused ? FD_FAILOVER_REJECT_PAUSED : FD_FAILOVER_REJECT_DEADLINE );
+      return;
+    }
+    fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+    if( FD_UNLIKELY( fd_failover_channel_state( peer->channel )==FD_FAILOVER_SESSION_PAIRED &&
+                     fd_failover_channel_peer_hello( peer->channel )->boot_id!=ctx->first_use_peer_boot ) ) {
+      first_use_failed( ctx, FD_FAILOVER_REJECT_STATE_MISMATCH );
+      return;
+    }
+    if( FD_UNLIKELY( !ctx->first_use_sent && !ctx->pending_valid ) )
+      (void)queue_control( ctx, (ushort)FD_FAILOVER_MSG_RECLAIM, &ctx->first_use_req, sizeof(ctx->first_use_req) );
+    return;
+  }
+
+  case FD_FAILOVER_ACTION_CONFIRM_WAIT_QUERY: {
+    deadline_arm( ctx, ctx->deadline_slots );
+    fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+    int paired = fd_failover_channel_state( peer->channel )==FD_FAILOVER_SESSION_PAIRED;
+    int same_boot = paired && fd_failover_channel_peer_hello( peer->channel )->boot_id==ctx->confirm_peer_boot;
+    uchar reason = FD_FAILOVER_REJECT_NONE;
+    uchar code   = FD_FAILOVER_RECLAIM_REFUSED;
+    if( FD_UNLIKELY( ctx->paused || claim_expired( ctx, now ) || !same_boot ) ) {
+      reason = ctx->paused ? FD_FAILOVER_REJECT_PAUSED : FD_FAILOVER_REJECT_DEADLINE;
+    } else {
+      if( FD_LIKELY( !ctx->switch_state_fresh ) ) return;
+      fd_failover_status_t local = local_status( ctx, peer );
+      int junk = ctx->switch_state.result==FD_FAILOVER_SWITCH_STATE_JUNK &&
+                 ctx->switch_state.tower_watermark==ULONG_MAX &&
+                 fd_memeq( ctx->switch_state.identity, ctx->hello.junk_pubkey, 32UL );
+      code = fd_failover_reclaim_check( &ctx->confirm_req, &local, &peer->status,
+                                        peer_status_fresh( ctx, peer, now ), ctx->state, junk,
+                                        ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT,
+                                        ctx->send_demoted, &reason );
+      if( code==FD_FAILOVER_RECLAIM_REFUSED && reason==FD_FAILOVER_REJECT_HOLDS_IDENTITY ) ctx->stuck = 1;
+    }
+    ctx->switch_query_pending = 0;
+    ctx->switch_state_fresh   = 0;
+    if( FD_LIKELY( code==FD_FAILOVER_RECLAIM_CONFIRMED ) ) {
+      persist( ctx, FD_FAILOVER_STATE_STANDBY, ctx->confirm_req.term );
+      ctx->confirm_given     = 1;
+      ctx->confirm_last      = (fd_failover_confirm_t){ .term=ctx->confirm_req.term, .nonce=ctx->confirm_req.nonce, .code=code };
+      ctx->confirm_last_boot = ctx->confirm_peer_boot;
+      FD_LOG_NOTICE(( "confirmed the peer's first use after proving the junk key and recording standby at term %lu", ctx->confirm_req.term ));
+    }
+    ctx->action = FD_FAILOVER_ACTION_IDLE;
+    if( same_boot ) queue_confirm( ctx, &ctx->confirm_req, code, reason );
+    return;
+  }
+
   default: FD_LOG_ERR(( "unexpected failover action %lu", ctx->action ));
   }
 }
@@ -1185,6 +1361,101 @@ handle_control( fd_failover_tile_ctx_t * ctx,
   fd_failover_hello_t const * peer_hello = fd_failover_channel_peer_hello( peer->channel );
 
   switch( type ) {
+
+  case (ushort)FD_FAILOVER_MSG_RECLAIM: {
+    if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_reclaim_t) ) ) break;
+    fd_failover_reclaim_t req;
+    fd_memcpy( &req, ctx->rx, sizeof(req) );
+    if( FD_UNLIKELY( !req.nonce ) ) break;
+    if( FD_UNLIKELY( ctx->pending_valid || ctx->confirm_owed ) ) return;
+    if( FD_UNLIKELY( ctx->member_cnt!=2UL || ctx->self_idx!=1UL || peer->member_idx!=0UL ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_REFUSED, FD_FAILOVER_REJECT_BAD_REQUEST );
+      return;
+    }
+    if( FD_UNLIKELY( ctx->state==FD_FAILOVER_STATE_ACTIVE || ctx->role==FD_FAILOVER_ROLE_ACTIVE ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_HELD, FD_FAILOVER_REJECT_NONE );
+      return;
+    }
+    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->handoff_pending || ctx->switch_query_pending ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_REFUSED, FD_FAILOVER_REJECT_BUSY );
+      return;
+    }
+    if( FD_UNLIKELY( ctx->state!=FD_FAILOVER_STATE_STANDBY || ctx->send_demoted || ctx->demoted_valid || ctx->stuck ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_REFUSED, FD_FAILOVER_REJECT_STATE_MISMATCH );
+      return;
+    }
+    if( FD_UNLIKELY( ctx->paused ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_REFUSED, FD_FAILOVER_REJECT_PAUSED );
+      return;
+    }
+    if( FD_UNLIKELY( !peer_status_fresh( ctx, peer, now ) || peer->status.role!=FD_FAILOVER_ROLE_STANDBY ||
+                     peer_hello->role!=FD_FAILOVER_ROLE_STANDBY ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_REFUSED, FD_FAILOVER_REJECT_STATUS_STALE );
+      return;
+    }
+    if( FD_UNLIKELY( ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_REFUSED, FD_FAILOVER_REJECT_SWITCH_PENDING );
+      return;
+    }
+    if( FD_LIKELY( ctx->confirm_given && ctx->confirm_last_boot==peer_hello->boot_id &&
+                   ctx->hello.term==req.term && req.term==ctx->confirm_last.term && req.nonce==ctx->confirm_last.nonce ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_CONFIRMED, FD_FAILOVER_REJECT_NONE );
+      return;
+    }
+    if( FD_UNLIKELY( req.term<=ctx->hello.term || req.term!=fd_failover_reclaim_term( ctx->hello.term, peer->status.term ) ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_STALE_TERM, FD_FAILOVER_REJECT_NONE );
+      return;
+    }
+    if( FD_UNLIKELY( !ctx->step_stem || switch_query( ctx, ctx->step_stem )==ULONG_MAX ) ) {
+      queue_confirm( ctx, &req, FD_FAILOVER_RECLAIM_REFUSED, FD_FAILOVER_REJECT_SWITCH_PENDING );
+      return;
+    }
+    ctx->confirm_req       = req;
+    ctx->confirm_peer_boot = peer_hello->boot_id;
+    ctx->action            = FD_FAILOVER_ACTION_CONFIRM_WAIT_QUERY;
+    claim_deadline_start( ctx, now );
+    return;
+  }
+
+  case (ushort)FD_FAILOVER_MSG_CONFIRM: {
+    if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_confirm_t) ) ) break;
+    fd_failover_confirm_t confirm;
+    fd_memcpy( &confirm, ctx->rx, sizeof(confirm) );
+    if( FD_UNLIKELY( !ctx->first_use_pending || ctx->action!=FD_FAILOVER_ACTION_FIRST_USE_WAIT ||
+                     !fd_failover_confirm_check( &confirm, &ctx->first_use_req ) ) ) return;
+    if( FD_UNLIKELY( ctx->paused || claim_expired( ctx, now ) ) ) {
+      first_use_failed( ctx, ctx->paused ? FD_FAILOVER_REJECT_PAUSED : FD_FAILOVER_REJECT_DEADLINE );
+      return;
+    }
+    if( FD_UNLIKELY( !ctx->first_use_authorized || ctx->self_idx || peer->member_idx!=1UL ||
+                     ctx->state!=FD_FAILOVER_STATE_STANDBY || ctx->hello.term>=confirm.term ||
+                     peer_hello->boot_id!=ctx->first_use_peer_boot ||
+                     peer_hello->role!=FD_FAILOVER_ROLE_STANDBY ||
+                     !peer_status_fresh( ctx, peer, now ) || peer->status.role!=FD_FAILOVER_ROLE_STANDBY ||
+                     peer->status.term>confirm.term || !ctx->step_stem ) ) {
+      first_use_failed( ctx, FD_FAILOVER_REJECT_STATE_MISMATCH );
+      return;
+    }
+    if( FD_UNLIKELY( confirm.code!=FD_FAILOVER_RECLAIM_CONFIRMED ) ) {
+      first_use_failed( ctx, confirm.code==FD_FAILOVER_RECLAIM_HELD ? FD_FAILOVER_REJECT_HOLDS_IDENTITY
+                                                                 : confirm.reason ? confirm.reason : FD_FAILOVER_REJECT_STATE_MISMATCH );
+      return;
+    }
+    ctx->first_use_pending    = 0;
+    ctx->first_use_authorized = 0;
+    if( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM ) ctx->pending_valid = 0;
+    persist( ctx, FD_FAILOVER_STATE_PROMOTING, confirm.term );
+    ctx->first_use_promoting = 1;
+    ctx->action_term = confirm.term;
+    ctx->stuck       = 0;
+    deadline_start( ctx, ctx->deadline_slots );
+    if( FD_UNLIKELY( request_switch( ctx, ctx->step_stem, FD_FAILOVER_SWITCH_KEY_STAKED )==ULONG_MAX ) ) {
+      reject_promotion( ctx, FD_FAILOVER_REJECT_SWITCH_PENDING, now );
+      return;
+    }
+    ctx->action = FD_FAILOVER_ACTION_PROMOTE_SWITCH;
+    return;
+  }
 
   case (ushort)FD_FAILOVER_MSG_HANDOFF_REQ: {
     /* A handoff request from the peer.  Only a standby may send one. */
@@ -1421,7 +1692,10 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
      transition here, after it, not before.  If we sent a confirmation on a
      session that then died, send it again on the new one. */
   if( FD_UNLIKELY( was!=peer->channel_state &&
-                   peer->channel_state==FD_FAILOVER_SESSION_PAIRED ) ) ctx->demoted_sent = 0;
+                   peer->channel_state==FD_FAILOVER_SESSION_PAIRED ) ) {
+    ctx->demoted_sent = 0;
+    ctx->first_use_sent = 0;
+  }
 
   if( FD_UNLIKELY( fd_failover_channel_state( peer->channel )!=FD_FAILOVER_SESSION_PAIRED ) ) return;
 
@@ -1565,7 +1839,7 @@ request_switch( fd_failover_tile_ctx_t * ctx,
                 fd_stem_context_t *      stem,
                 ulong                    key ) {
   if( FD_UNLIKELY( ctx->admin_out_idx==ULONG_MAX ||
-                   ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) ) return ULONG_MAX;
+                   ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT || ctx->switch_query_pending ) ) return ULONG_MAX;
 
   if( FD_UNLIKELY( !++ctx->switch_request_id ) ) ctx->switch_request_id++;
   fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
@@ -1595,6 +1869,31 @@ switch_answer( fd_failover_tile_ctx_t * ctx,
   ctx->switch_pending_key  = FD_FAILOVER_SWITCH_KEY_CNT;
   ctx->switch_result_id    = nonce;
   ctx->switch_result_fresh = 1;
+}
+
+static ulong
+switch_query( fd_failover_tile_ctx_t * ctx,
+               fd_stem_context_t *      stem ) {
+  if( FD_UNLIKELY( ctx->admin_out_idx==ULONG_MAX || ctx->switch_query_pending ||
+                   ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( !++ctx->switch_query_id ) ) ctx->switch_query_id++;
+  fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
+  fd_memset( out, 0, sizeof(*out) );
+  out->nonce = ctx->switch_query_id;
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_SWITCH_QUERY, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
+  ctx->admin_out_chunk = fd_dcache_compact_next( ctx->admin_out_chunk, sizeof(*out), ctx->admin_out_chunk0, ctx->admin_out_wmark );
+  ctx->switch_query_pending = 1;
+  ctx->switch_state_fresh   = 0;
+  return ctx->switch_query_id;
+}
+
+static void
+switch_state_answer( fd_failover_tile_ctx_t * ctx,
+                      ulong                    nonce ) {
+  if( FD_UNLIKELY( !ctx->switch_query_pending || nonce!=ctx->switch_query_id ) ) return;
+  ctx->switch_query_pending = 0;
+  ctx->switch_state_fresh   = 1;
 }
 
 /* Give up the staked identity at a new term.  We write the record and
@@ -1694,6 +1993,12 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
   ctx->reject_reason = reason;
   ctx->stuck         = 1;
   ctx->action        = FD_FAILOVER_ACTION_REJECT;
+  if( FD_UNLIKELY( ctx->first_use_promoting ) ) {
+    ctx->first_use_promoting = 0;
+    ctx->action = FD_FAILOVER_ACTION_IDLE;
+    FD_LOG_WARNING(( "first-use identity switch failed, remaining passive at term %lu", term ));
+    return;
+  }
 
   /* Keep the outcome so a confirmation resent at the old term is answered
      with the same refusal instead of failing the term check and dropping
@@ -1956,6 +2261,7 @@ after_credit( fd_failover_tile_ctx_t * ctx,
   ctx->step_stem = stem;
   step_controller( ctx, stem, now );
   for( ulong i=0UL; i<ctx->peer_cnt; i++ ) peer_poll( ctx, &ctx->peers[ i ], now, charge_busy );
+  maybe_first_use( ctx, now );
   for( ulong i=0UL; i<ctx->peer_cnt; i++ ) pending_flush( ctx, &ctx->peers[ i ], now );
   ctx->step_stem = NULL;
   if( FD_UNLIKELY( ctx->bus_req_fresh ) ) {
@@ -1988,7 +2294,8 @@ before_frag( fd_failover_tile_ctx_t * ctx,
        reply here would leave the switch hanging forever. */
     return sig!=FD_FAILOVER_BUS_STATUS_REQ &&
            sig!=FD_FAILOVER_BUS_CONTROL_REQ &&
-           sig!=FD_FAILOVER_BUS_SWITCH_RESP;
+           sig!=FD_FAILOVER_BUS_SWITCH_RESP &&
+           sig!=FD_FAILOVER_BUS_SWITCH_STATE;
   }
   return 0;
 }
@@ -2013,6 +2320,11 @@ during_frag( fd_failover_tile_ctx_t * ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->admin_in_chunk0, ctx->admin_in_wmark ));
     }
     fd_failover_bus_msg_t const * msg = fd_chunk_to_laddr_const( ctx->admin_in_mem, chunk );
+    if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_STATE ) ) {
+      fd_memcpy( &ctx->switch_state, msg->payload, sizeof(ctx->switch_state) );
+      ctx->switch_state_nonce = msg->nonce;
+      return;
+    }
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_RESP ) ) {
       fd_memcpy( &ctx->switch_result, msg->payload, sizeof(ctx->switch_result) );
       ctx->switch_answer_nonce = msg->nonce;
@@ -2044,6 +2356,10 @@ after_frag( fd_failover_tile_ctx_t * ctx,
     return;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
+    if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_STATE ) ) {
+      switch_state_answer( ctx, ctx->switch_state_nonce );
+      return;
+    }
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_RESP ) ) {
       switch_answer( ctx, ctx->switch_answer_nonce );
       return;

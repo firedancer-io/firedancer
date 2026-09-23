@@ -262,6 +262,7 @@ struct fd_topo_tile {
       char              staked_identity_path[ PATH_MAX ];
       char              vote_account_path[ PATH_MAX ];
       char              base_path[ PATH_MAX ];
+      char              failover_first_use[ 45 ];
       uint              target_uid;
       uint              target_gid;
       int               role_file_sandboxed; /* the reserved descriptor number is fixed by seccomp */
