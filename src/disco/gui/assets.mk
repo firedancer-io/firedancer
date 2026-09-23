@@ -4,7 +4,7 @@
 # Caller variables: CC OBJDIR ZSTD_DEFS ZLIB_DEFS Q FD_GUI_DIST TOOL_LDFLAGS
 
 TOOL_DIR:=$(OBJDIR)/tool
-TOOL_CFLAGS:=-O1 -std=c17 -fwrapv -pipe -w
+TOOL_CFLAGS:=-O1 -std=c17 -fwrapv -pipe -w -fPIC
 # the parent's linker choice (-fuse-ld/-B) and -static-libgcc: gcc 16's libgcc_s.so is an
 # INPUT(AS_NEEDED(...)) script that mold cannot read, and the product never opens it either
 TOOL_LDFLAGS?=-static-libgcc
