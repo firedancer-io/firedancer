@@ -19,15 +19,16 @@
 #define AG_STRONG_QUORUM_THRESHOLD_NUMER  (4UL) /* 80%, fast-finalize */
 #define AG_QUORUM_THRESHOLD_DENOM         (5UL) /* 100% */
 
-typedef uchar ag_block_hash_t[ 32 ]; /* double merkle root of the block */
 typedef uchar ag_vote_key_t  [ 32 ]; /* vote account address */
 typedef uchar ag_id_key_t    [ 32 ]; /* identity public key */
+
+typedef uchar ag_block_hash_t[ 32 ]; /* double merkle root of the block */
+static const ag_block_hash_t ag_block_hash_null = { 0 };
 
 struct ag_block_hash_key { /* ag_block_hash_t as an assignable fd_map key */
   ag_block_hash_t block_hash;
 };
 typedef struct ag_block_hash_key ag_block_hash_key_t;
-
 static const ag_block_hash_key_t ag_block_hash_key_null = { 0 };
 
 struct ag_block_id {

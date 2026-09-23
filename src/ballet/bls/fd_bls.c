@@ -1,6 +1,5 @@
 #include "fd_bls.h"
 
-#include "fd_bls12_381.h"
 #include "../../third_party/blst/bindings/blst.h"
 
 void
@@ -177,14 +176,13 @@ fd_bls_agg_verify_subtract( fd_bls_agg_t *       agg,
                             fd_bls_pub_t const * pub,
                             fd_bls_sig_t const * sig,
                             fd_bls_set_t *       bad ) {
-  if( FD_LIKELY( fd_bls_agg_verify( msg, msg_sz, &agg->pub, &agg->sig ) ) ) { fd_bls_set_null( bad ); return FD_BLS_SUCCESS; }
+  if( FD_LIKELY( fd_bls_agg_verify( msg, msg_sz, &agg->pub, &agg->sig ) ) ) { fd_bls_set_null( bad ); return 0; }
   fd_bls_agg_verify_bisect( agg, msg, msg_sz, pub, sig, bad );
   fd_bls_agg_t sub = { 0 };
   fd_bls_agg_construct( &sub, pub, sig, bad );
   blst_p1_cneg( &sub.pub, 1 ); blst_p1_add_or_double( &agg->pub, &agg->pub, &sub.pub );
   blst_p2_cneg( &sub.sig, 1 ); blst_p2_add_or_double( &agg->sig, &agg->sig, &sub.sig );
   fd_bls_set_subtract( agg->set, agg->set, bad );
-  if( FD_UNLIKELY( fd_bls_set_is_null( agg->set ) ) ) return FD_BLS_ERR_EMPTY;
-  if( FD_UNLIKELY( blst_p1_is_inf( &agg->pub ) ) ) return FD_BLS_ERR_INFINITY;
-  return FD_BLS_SUCCESS;
+  if( FD_UNLIKELY( blst_p1_is_inf( &agg->pub ) ) ) return -1;
+  return 0;
 }

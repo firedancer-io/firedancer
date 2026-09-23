@@ -61,7 +61,6 @@ typedef struct ag_vote_skip_fallback ag_vote_skip_fallback_t;
 
 struct ag_vote {
   uint   kind;
-  ushort shred_version;
   union {
     ag_vote_notar_t          notar;
     ag_vote_final_t          final;

@@ -1,7 +1,5 @@
 #include "ag_cert_serde.h"
 
-#include "../../ballet/bls/fd_bls12_381.h" /* fd_bls12_381_g2_add_syscall */
-
 #define FAIL( cond, err ) do { if( FD_UNLIKELY( cond ) ) return AG_CERT_DE_ERR_##err; } while( 0 )
 
 ulong
