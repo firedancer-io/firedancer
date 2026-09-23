@@ -71,7 +71,8 @@
             "variants": {
                 "x86_64":  { "description": "x86-64" },
                 "arm":     { "description": "ARM" },
-                "unknown": { "description": "Unlisted or undeterminable." }
+                "unknown": { "description": "Unlisted or undeterminable." },
+                "riscv64": { "description": "riscv64" }
             }
         },
         "cpu_vendor": {
