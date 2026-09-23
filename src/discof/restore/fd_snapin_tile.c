@@ -1249,10 +1249,8 @@ snoop_stake_delegation( fd_snapin_tile_t *       ctx,
                         fd_stake_state_t const * stake_state,
                         ulong                    data_sz ) {
   fd_delegation_t const * delegation = &stake_state->stake.stake.delegation;
-  if( FD_UNLIKELY( ( delegation->activation_epoch!=ULONG_MAX &&
-                     delegation->activation_epoch>=(ulong)USHORT_MAX ) ||
-                   ( delegation->deactivation_epoch!=ULONG_MAX &&
-                     delegation->deactivation_epoch>=(ulong)USHORT_MAX ) ) ) return;
+  FD_CHECK_ERR( delegation->activation_epoch  ==ULONG_MAX || delegation->activation_epoch  <(ulong)USHORT_MAX, "activation_epoch overflow"   );
+  FD_CHECK_ERR( delegation->deactivation_epoch==ULONG_MAX || delegation->deactivation_epoch<(ulong)USHORT_MAX, "deactivation_epoch overflow" );
 
   fd_stake_delegations_snapshot_upsert(
       ctx->stake_delegations,

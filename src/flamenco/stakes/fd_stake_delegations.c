@@ -1359,15 +1359,15 @@ fd_stake_delegations_snapshot_upsert( fd_stake_delegations_t * stake_delegations
   FD_CHECK_CRIT( slot<=UINT_MAX, "snapshot slot exceeds 2^32-1" );
   FD_CHECK_CRIT( lamports, "snapshot delegation without lamports" );
   fd_stake_delegation_t delegation = {
-    .stake_account        = *stake_account,
-    .vote_account         = *vote_account,
-    .stake                = stake,
-    .lamports             = lamports,
-    .credits_observed     = credits_observed,
-    .acc_dlen             = acc_dlen,
-    .activation_epoch     = (ushort)activation_epoch,
-    .deactivation_epoch   = (ushort)deactivation_epoch,
-    .slot                 = (uint)slot,
+    .stake_account      = *stake_account,
+    .vote_account       = *vote_account,
+    .stake              = stake,
+    .lamports           = lamports,
+    .credits_observed   = credits_observed,
+    .acc_dlen           = acc_dlen,
+    .activation_epoch   = (ushort)activation_epoch,
+    .deactivation_epoch = (ushort)deactivation_epoch,
+    .slot               = (uint)slot,
   };
   snapshot_write( stake_delegations, fork_idx, &delegation, 0 );
 }
