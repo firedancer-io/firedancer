@@ -496,6 +496,78 @@ static snapin_sysvar_t const snapin_sysvar_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
 #define SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_1 (1759197129867UL)
 #define SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_2 ( 879598564933UL)
 
+static int
+verify_rent( fd_sysvar_cache_t const * cache ) {
+  fd_rent_t rent[1];
+  fd_sysvar_cache_rent_read( cache, rent ); /* required */
+  ulong threshold_bits = fd_dblbits( rent->exemption_threshold );
+  if( FD_UNLIKELY( ( threshold_bits==fd_dblbits( 1.0 ) && rent->lamports_per_uint8_year>SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_1 ) ||
+                   ( threshold_bits==fd_dblbits( 2.0 ) && rent->lamports_per_uint8_year>SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_2 ) ) ) {
+    FD_LOG_WARNING(( "Rent sysvar lamports_per_byte %lu overflows minimum_balance for exemption_threshold %g",
+                     rent->lamports_per_uint8_year, rent->exemption_threshold ));
+    return -1;
+  }
+  return 0;
+}
+
+/* fd_sysvar_slot_hashes_update needs the full-size account */
+
+static int
+verify_slot_hashes( fd_sysvar_cache_t const * cache,
+                    ulong                     data_len ) {
+  if( FD_UNLIKELY( fd_sysvar_cache_slot_hashes_is_valid( cache ) && data_len<FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) ) {
+    FD_LOG_WARNING(( "SlotHashes sysvar account data size is %lu, expected at least %lu",
+                     data_len, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ));
+    return -1;
+  }
+  return 0;
+}
+
+/* An active EpochRewards sysvar drives fd_rewards_recalculate_partitioned_rewards
+   at boot; check what that path asserts. */
+
+static int
+verify_epoch_rewards( fd_snapin_tile_t const *  ctx,
+                      fd_sysvar_cache_t const * cache,
+                      ulong                     data_len ) {
+  fd_sysvar_epoch_rewards_t rewards[1];
+  if( !fd_sysvar_cache_epoch_rewards_read( cache, rewards ) || !rewards->active ) return 0;
+
+  /* fd_sysvar_epoch_rewards_read requires the exact size */
+  if( FD_UNLIKELY( data_len!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) {
+    FD_LOG_WARNING(( "EpochRewards sysvar account data size is %lu, expected %lu",
+                     data_len, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ));
+    return -1;
+  }
+  /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.4/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L117 */
+  if( FD_UNLIKELY( rewards->distributed_rewards>rewards->total_rewards ) ) {
+    FD_LOG_WARNING(( "EpochRewards sysvar distributed rewards %lu exceed total rewards %lu",
+                     rewards->distributed_rewards, rewards->total_rewards ));
+    return -1;
+  }
+  /* Bounds asserted by fd_stake_rewards_init and
+     fd_distribute_partitioned_epoch_rewards */
+  ulong epoch_slot_cnt = fd_epoch_slot_cnt( &ctx->lead.epoch_schedule, ctx->lead.epoch );
+  if( FD_UNLIKELY( !rewards->num_partitions ||
+                   rewards->num_partitions>MAX_PARTITIONS_PER_EPOCH ||
+                   rewards->num_partitions>=epoch_slot_cnt ) ) {
+    FD_LOG_WARNING(( "EpochRewards sysvar has invalid partition count %lu (epoch has %lu slots)",
+                     rewards->num_partitions, epoch_slot_cnt ));
+    return -1;
+  }
+  if( FD_UNLIKELY( rewards->distribution_starting_block_height>ULONG_MAX-rewards->num_partitions ) ) {
+    FD_LOG_WARNING(( "EpochRewards sysvar distribution starting block height %lu overflows with %lu partitions",
+                     rewards->distribution_starting_block_height, rewards->num_partitions ));
+    return -1;
+  }
+  /* read_stake_history in fd_rewards.c aborts without it */
+  if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_is_valid( cache ) ) ) {
+    FD_LOG_WARNING(( "EpochRewards sysvar is active but the StakeHistory sysvar account is not present" ));
+    return -1;
+  }
+  return 0;
+}
+
 /* verify_sysvars reads the sysvar accounts back from the accounts
    database and checks they decode and satisfy the invariants replay
    asserts at boot.  Call after all FINI acks.  Returns 0 on success,
@@ -507,10 +579,7 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
                                          : ctx->lead.accdb_incr_fork_id;
   fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new( ctx->lead.sysvar_cache ) );
 
-  struct {
-    int   present;
-    ulong data_len;
-  } acct[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {0};
+  ulong data_lens[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {0}; /* untruncated */
 
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
     snapin_sysvar_t const * sysvar = &snapin_sysvar_tbl[ i ];
@@ -544,67 +613,16 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
       return -1;
     }
 
-    acct[ i ].present  = 1;
-    acct[ i ].data_len = data_len;
+    data_lens[ i ] = data_len;
   }
 
-  fd_rent_t rent[1];
-  fd_sysvar_cache_rent_read( cache, rent ); /* required above */
-  ulong threshold_bits = fd_dblbits( rent->exemption_threshold );
-  if( FD_UNLIKELY( ( threshold_bits==fd_dblbits( 1.0 ) && rent->lamports_per_uint8_year>SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_1 ) ||
-                   ( threshold_bits==fd_dblbits( 2.0 ) && rent->lamports_per_uint8_year>SNAPIN_RENT_MAX_LAMPORTS_PER_BYTE_THRESHOLD_2 ) ) ) {
-    FD_LOG_WARNING(( "Rent sysvar lamports_per_byte %lu overflows minimum_balance for exemption_threshold %g",
-                     rent->lamports_per_uint8_year, rent->exemption_threshold ));
-    return -1;
-  }
-
-  /* fd_sysvar_slot_hashes_update needs the full-size account */
-  if( FD_UNLIKELY( acct[ FD_SYSVAR_slot_hashes_IDX ].present &&
-                   acct[ FD_SYSVAR_slot_hashes_IDX ].data_len<FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) ) {
-    FD_LOG_WARNING(( "SlotHashes sysvar account data size is %lu, expected at least %lu",
-                     acct[ FD_SYSVAR_slot_hashes_IDX ].data_len, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ));
-    return -1;
-  }
-
-  fd_sysvar_epoch_rewards_t rewards[1];
-  if( fd_sysvar_cache_epoch_rewards_read( cache, rewards ) && rewards->active ) {
-    /* fd_sysvar_epoch_rewards_read requires the exact size */
-    if( FD_UNLIKELY( acct[ FD_SYSVAR_epoch_rewards_IDX ].data_len!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) {
-      FD_LOG_WARNING(( "EpochRewards sysvar account data size is %lu, expected %lu",
-                       acct[ FD_SYSVAR_epoch_rewards_IDX ].data_len, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ));
-      return -1;
-    }
-    /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.4/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L117 */
-    if( FD_UNLIKELY( rewards->distributed_rewards>rewards->total_rewards ) ) {
-      FD_LOG_WARNING(( "EpochRewards sysvar distributed rewards %lu exceed total rewards %lu",
-                       rewards->distributed_rewards, rewards->total_rewards ));
-      return -1;
-    }
-    /* Bounds asserted by fd_stake_rewards_init and
-       fd_distribute_partitioned_epoch_rewards */
-    ulong epoch_slot_cnt = fd_epoch_slot_cnt( &ctx->lead.epoch_schedule, ctx->lead.epoch );
-    if( FD_UNLIKELY( !rewards->num_partitions ||
-                     rewards->num_partitions>MAX_PARTITIONS_PER_EPOCH ||
-                     rewards->num_partitions>=epoch_slot_cnt ) ) {
-      FD_LOG_WARNING(( "EpochRewards sysvar has invalid partition count %lu (epoch has %lu slots)",
-                       rewards->num_partitions, epoch_slot_cnt ));
-      return -1;
-    }
-    if( FD_UNLIKELY( rewards->distribution_starting_block_height>ULONG_MAX-rewards->num_partitions ) ) {
-      FD_LOG_WARNING(( "EpochRewards sysvar distribution starting block height %lu overflows with %lu partitions",
-                       rewards->distribution_starting_block_height, rewards->num_partitions ));
-      return -1;
-    }
-    /* read_stake_history in fd_rewards.c aborts without it */
-    if( FD_UNLIKELY( !acct[ FD_SYSVAR_stake_history_IDX ].present ) ) {
-      FD_LOG_WARNING(( "EpochRewards sysvar is active but the StakeHistory sysvar account is not present" ));
-      return -1;
-    }
-  }
+  if( FD_UNLIKELY( verify_rent         ( cache )                                                ) ) return -1;
+  if( FD_UNLIKELY( verify_slot_hashes  ( cache,      data_lens[ FD_SYSVAR_slot_hashes_IDX   ] ) ) ) return -1;
+  if( FD_UNLIKELY( verify_epoch_rewards( ctx, cache, data_lens[ FD_SYSVAR_epoch_rewards_IDX ] ) ) ) return -1;
 
   ulong         slot_history_sz;
   uchar const * slot_history = fd_sysvar_cache_data_query( cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
-  return verify_slot_deltas_with_slot_history( ctx, slot_history, acct[ FD_SYSVAR_slot_history_IDX ].data_len );
+  return verify_slot_deltas_with_slot_history( ctx, slot_history, data_lens[ FD_SYSVAR_slot_history_IDX ] );
 }
 
 /* verification of epoch stakes from manifest
