@@ -45,6 +45,7 @@ class Tile(Enum):
     RPC = 40
     MLX5 = 41
     WAKER = 42
+    MWAITX = 43
 
     SNAPMK = 50
     SNAPZP = 51
