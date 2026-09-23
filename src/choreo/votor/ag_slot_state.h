@@ -39,11 +39,11 @@ typedef struct ag_slot_voted_stake_hash ag_slot_voted_stake_hash_t;
 #define MAP_LG_SLOT_CNT       AG_NOTAR_MAP_LG_SLOT_CNT
 #define MAP_KEY               hash
 #define MAP_KEY_T             ag_block_hash_key_t
-#define MAP_KEY_NULL          ((ag_block_hash_key_t){ .ul = { ULONG_MAX, ULONG_MAX, ULONG_MAX, ULONG_MAX } })
-#define MAP_KEY_INVAL(k)      (((k).ul[0]&(k).ul[1]&(k).ul[2]&(k).ul[3])==ULONG_MAX)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(ag_block_hash_key_t) ))
+#define MAP_KEY_NULL          ag_block_hash_key_null
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k,ag_block_hash_key_null)
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).block_hash,(k1).block_hash,sizeof(ag_block_hash_key_t)))
 #define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     ((uint)fd_hash32( (key).uc, 42UL ))
+#define MAP_KEY_HASH(key)     ((uint)fd_hash32( (key).block_hash, 42UL ))
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 
@@ -52,11 +52,11 @@ typedef struct ag_slot_voted_stake_hash ag_slot_voted_stake_hash_t;
 #define MAP_LG_SLOT_CNT       AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT
 #define MAP_KEY               hash
 #define MAP_KEY_T             ag_block_hash_key_t
-#define MAP_KEY_NULL          ((ag_block_hash_key_t){ .ul = { ULONG_MAX, ULONG_MAX, ULONG_MAX, ULONG_MAX } })
-#define MAP_KEY_INVAL(k)      (((k).ul[0]&(k).ul[1]&(k).ul[2]&(k).ul[3])==ULONG_MAX)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(ag_block_hash_key_t) ))
+#define MAP_KEY_NULL          ag_block_hash_key_null
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k,ag_block_hash_key_null)
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).block_hash,(k1).block_hash,sizeof(ag_block_hash_key_t)))
 #define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     ((uint)fd_hash32( (key).uc, 42UL ))
+#define MAP_KEY_HASH(key)     ((uint)fd_hash32( (key).block_hash, 42UL ))
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 

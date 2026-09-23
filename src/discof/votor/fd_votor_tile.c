@@ -41,6 +41,8 @@
 #define QUIC_CLOSE_CODE_BANNED  (4U)
 #define QUIC_CONN_MAX           (AG_VAT_MAX * 2) /* each validator is alloted 2 concurrent conns */
 
+#define SER_MAX (AG_VOTE_SER_MAX>AG_CERT_SER_MAX ? AG_VOTE_SER_MAX : AG_CERT_SER_MAX)
+
 static fd_quic_limits_t quic_client_limits = {
   .conn_cnt                    = AG_VAT_MAX,
   .handshake_cnt               = 1024UL,
@@ -142,15 +144,21 @@ typedef struct sort_voter sort_voter_t;
 
 struct fd_votor_tile {
 
-  /* Metadata */
+  /* Signing */
 
   fd_pubkey_t          id_key;
   fd_keyguard_client_t keyguard_client[1];
-  ushort               shred_version;
 
-  /* Data */
+  /* Initialization */
 
-  int                        init;
+  int init;
+
+  /* Cluster metadata */
+
+  ushort shred_version;
+
+  /* Epoch metadata */
+
   ag_epoch_info_t *          prev_epoch_info;
   ulong                      prev_epoch_slot;
   ag_epoch_info_t *          curr_epoch_info;
@@ -161,13 +169,16 @@ struct fd_votor_tile {
   ulong                      next_leader_slot;
   ulong                      highest_parent_ready_slot;
   ulong                      highest_unotar_final_slot; /* highest slot for which we have a final cert that we have not paired with a notar  */
-  contact_info_t *           contact_infos;
-  peer_t *                   peers;
-  ag_pool_t *                pool;
-  ag_votor_t *               votor;
+
+  /* Alpenglow data structures */
+
+  ag_pool_t *  pool;
+  ag_votor_t * votor;
 
   /* Networking */
 
+  contact_info_t *   contact_infos;
+  peer_t *           peers;
   fd_pubkey_t        client_peer_id_keys[ QUIC_CONN_MAX ];
   fd_pubkey_t        server_peer_id_keys[ QUIC_CONN_MAX ];
   fd_net_rx_bounds_t net_in_bounds[ 32 ];
@@ -220,10 +231,8 @@ struct fd_votor_tile {
     ag_epoch_info_t prev_epoch_info;
     ag_epoch_info_t curr_epoch_info;
     ag_epoch_info_t next_epoch_info;
-
-    uchar ser[ AG_VOTE_SER_MAX > AG_CERT_SER_MAX ? AG_VOTE_SER_MAX : AG_CERT_SER_MAX ];
-
-    fd_bls_set_t bad[ fd_bls_set_word_cnt ];
+    uchar           ser[ SER_MAX ];
+    fd_bls_set_t    bad[ fd_bls_set_word_cnt ];
   } scratch;
 
   /* Metrics */
@@ -294,7 +303,8 @@ publish_reward_certs( fd_votor_tile_t *   ctx,
   int   err;
 
   uchar const *                      hash = voted_stake->top_notar_hash;
-  ag_slot_voted_stake_hash_t const * top  = notar_map_query_const( voted_stake->notar, FD_LOAD( ag_block_hash_key_t, hash ), NULL );
+  ag_block_hash_key_t                key  = FD_LOAD( ag_block_hash_key_t, hash );
+  ag_slot_voted_stake_hash_t const * top  = notar_map_key_inval( key ) ? NULL : notar_map_query_const( voted_stake->notar, key, NULL );
   if( FD_LIKELY( top ) ) {
     fd_bls_agg_t agg = top->agg;
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, hash, ctx->shred_version, msg );

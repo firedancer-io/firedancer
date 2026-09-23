@@ -120,7 +120,7 @@ static ag_validator_info_t g_info[ NV ];
 
 static void
 genesis_hash( ag_block_hash_t out ) {
-  fd_memset( out, 0, sizeof(ag_block_hash_t) );
+  fd_memset( out, 1, sizeof(ag_block_hash_t) );
 }
 
 static ulong g_hash_ctr = 0UL;

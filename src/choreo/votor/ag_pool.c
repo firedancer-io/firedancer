@@ -633,7 +633,7 @@ ag_pool_recover_from_standstill( ag_pool_t * self ) {
     for( ulong slot_idx=0UL; slot_idx<notar_map_slot_cnt(); slot_idx++ ) {
       if( FD_LIKELY( notar_map_key_inval( voted_stakes->notar[ slot_idx ].hash ) || !fd_bls_set_test( voted_stakes->notar[ slot_idx ].agg.set, own_rank ) ) ) continue;
       votes[ votes_cnt ] = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR, .notar = { .slot = slot_state->slot, .sig = voted_stakes->notar_sig[ own_rank ], .rank = (ushort)own_rank, .shred_version = shred_version } };
-      memcpy( votes[ votes_cnt ].notar.block_hash, voted_stakes->notar[ slot_idx ].hash.uc, sizeof(ag_block_hash_t) );
+      memcpy( votes[ votes_cnt ].notar.block_hash, voted_stakes->notar[ slot_idx ].hash.block_hash, sizeof(ag_block_hash_t) );
       votes_cnt++;
     }
     if( FD_LIKELY  ( fd_bls_set_test( voted_stakes->finalize_agg.set, own_rank ) ) ) votes[ votes_cnt++ ] = (ag_vote_t){ .kind = AG_VOTE_KIND_FINAL, .final = { .slot = slot_state->slot, .sig = voted_stakes->finalize_sig[ own_rank ], .rank = (ushort)own_rank, .shred_version = shred_version } };
