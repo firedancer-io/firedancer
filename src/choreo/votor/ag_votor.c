@@ -72,11 +72,12 @@ typedef struct slot_states slot_states_t;
 #include "../../util/tmpl/fd_sort.c"
 
 struct __attribute__((aligned(128UL))) ag_votor {
+  ulong          slot_max;
   long           now;
   ulong          seq;
   ulong          root;
-  ulong          slot_max;
   ushort         shred_version;
+  long           ns_per_slot;
   fd_bls_sign_fn bls_sign_fn;
   void *         bls_sign_ctx;
 
@@ -127,7 +128,7 @@ set_timeouts( ag_votor_t * self,
               ulong        slot ) {
   FD_TEST( ag_is_start_of_window( slot ) );
 
-  long deadline = self->now + AG_DELTA_TIMEOUT_NS + AG_DELTA_FIRST_SLICE_NS;
+  long deadline = self->now + AG_DELTA_TIMEOUT_NS + self->ns_per_slot;
 
   slot_state_ele_t * start      = state_mut( self, slot );
   int                start_idle = timer_idle( start );
@@ -135,9 +136,7 @@ set_timeouts( ag_votor_t * self,
   if( FD_UNLIKELY( start_idle ) ) timeout_dlist_ele_push_tail( self->timeout_dlist, start, self->slot_states->pool );
 
   for( ulong s=slot; s<slot+AG_SLOTS_PER_WINDOW; s++ ) {
-    deadline += fd_long_if( ag_is_start_of_window( s ),
-                            fd_long_max( AG_DELTA_BLOCK_NS-AG_DELTA_FIRST_SLICE_NS, 0L ),
-                            AG_DELTA_BLOCK_NS );
+    deadline += fd_long_if( ag_is_start_of_window( s ), 0L, self->ns_per_slot );
     slot_state_ele_t * state = state_mut( self, s );
     int                idle  = timer_idle( state );
     state->timeout           = fd_long_min( state->timeout, deadline );
@@ -212,9 +211,14 @@ ag_votor_new( void * mem,
   void *       slot_scratch     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           sizeof(ulong)*slot_max                            );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, ag_votor_align() ) == (ulong)mem + footprint );
 
+  votor->slot_max                = slot_max;
+  votor->now                     = 0L;
   votor->seq                     = 0UL;
   votor->root                    = ULONG_MAX;
-  votor->slot_max                = slot_max;
+  votor->shred_version           = 0;
+  votor->ns_per_slot             = 0L;
+  votor->bls_sign_fn             = NULL;
+  votor->bls_sign_ctx            = NULL;
   votor->slot_states             = (slot_states_t *)slot_states;
   votor->slot_states->pool       = slot_state_pool_join( slot_state_pool_new( slot_state_pool, slot_max                  ) );
   votor->slot_states->map        = slot_state_map_join ( slot_state_map_new ( slot_state_map,  slot_state_chain_cnt, seed ) );
@@ -274,6 +278,7 @@ void
 ag_votor_init( ag_votor_t *   self,
                ulong          slot,
                long           now,
+               long           ns_per_slot,
                ushort         shred_version,
                fd_bls_sign_fn sign_fn,
                void *         sign_ctx ) {
@@ -281,9 +286,9 @@ ag_votor_init( ag_votor_t *   self,
   self->now                     = now;
   self->root                    = slot;
   self->shred_version           = shred_version;
+  self->ns_per_slot             = ns_per_slot;
   self->bls_sign_fn             = sign_fn;
   self->bls_sign_ctx            = sign_ctx;
-  self->highest_final_cert_slot = slot;
 
   slot_state_ele_t * state       = state_mut( self, slot );
   state->voted                   = 1;
@@ -298,6 +303,8 @@ ag_votor_init( ag_votor_t *   self,
     below->voted               = 1;
     below->retired             = 1;
   }
+
+  self->highest_final_cert_slot = slot;
 
   set_timeouts( self, ag_first_slot_in_window( slot ) );
 }
@@ -516,6 +523,7 @@ handle_cert_created( ag_votor_t *      self,
 
 void
 ag_votor_advance_epoch( ag_votor_t * self,
+                        long         ns_per_slot,
                         ulong        epoch_rank,
                         ulong        epoch_slot ) {
   if( FD_UNLIKELY( self->curr_epoch_slot==ULONG_MAX ) ) {
@@ -532,6 +540,7 @@ ag_votor_advance_epoch( ag_votor_t * self,
     self->next_epoch_rank = epoch_rank;
     self->next_epoch_slot = epoch_slot;
   }
+  self->ns_per_slot = ns_per_slot;
 }
 
 void

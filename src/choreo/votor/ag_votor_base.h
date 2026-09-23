@@ -10,11 +10,8 @@
 #define AG_NOTAR_FALLBACK_VOTE_MAX (3UL)    /* Definition 12 */
 #define AG_NOTAR_FALLBACK_CERT_MAX (4UL)    /* Lemma 48 */
 
-#define AG_DELTA_NS             (250000000L)       /* 250 ms 0.5-RTT, partial-synchrony */
-#define AG_DELTA_BLOCK_NS       (200000000L)       /* 200 ms slots */
-#define AG_DELTA_FIRST_SLICE_NS (10000000L)        /* TODO */
-#define AG_DELTA_TIMEOUT_NS     (3L * AG_DELTA_NS) /* skip timeout  */
-#define AG_DELTA_STANDSTILL_NS  (10000000000L)     /* 10s since last finalize */
+#define AG_DELTA_TIMEOUT_NS    (400000000L)   /* skip timeout */
+#define AG_DELTA_STANDSTILL_NS (10000000000L) /* 10s since last finalize */
 
 #define AG_WEAKEST_QUORUM_THRESHOLD_NUMER (1UL) /* 20%, safe-to-notar + 40% skip */
 #define AG_WEAK_QUORUM_THRESHOLD_NUMER    (2UL) /* 40%, safe-to-notar / safe-to-skip */

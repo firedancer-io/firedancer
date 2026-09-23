@@ -33,6 +33,7 @@ void
 ag_votor_init( ag_votor_t *   self,
                ulong          slot,
                long           now,
+               long           ns_per_slot,
                ushort         shred_version,
                fd_bls_sign_fn sign_fn,
                void *         sign_ctx );
@@ -42,6 +43,7 @@ ag_votor_fini( ag_votor_t * self );
 
 void
 ag_votor_advance_epoch( ag_votor_t * self,
+                        long         ns_per_slot,
                         ulong        epoch_rank,
                         ulong        epoch_slot );
 

@@ -7,7 +7,8 @@
 
 /* Long enough for every timeout of a leader window to come due. */
 
-#define TEST_WINDOW_ELAPSED_NS (AG_DELTA_TIMEOUT_NS + (long)(AG_SLOTS_PER_WINDOW+1UL)*AG_DELTA_BLOCK_NS)
+#define TEST_NS_PER_SLOT       (400000000L)
+#define TEST_WINDOW_ELAPSED_NS (AG_DELTA_TIMEOUT_NS + (long)(AG_SLOTS_PER_WINDOW+1UL)*TEST_NS_PER_SLOT)
 
 #define FD_TEST_NO_MSG( votor ) do {           \
     ag_vote_t unused_;                         \
@@ -122,8 +123,8 @@ setup_votor( long now ) {
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init         ( votor, 0UL, now, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, 0UL, 0UL );
+  ag_votor_init         ( votor, 0UL, now, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL );
 
   g_epoch_info = &epoch_info_mem;
   epoch_info_build( g_epoch_info, g_info, NV );
@@ -188,8 +189,8 @@ test_boot_mid_window( void ) {
   create_validators();
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init         ( votor, 2UL, 0L, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, 0UL, 0UL );
+  ag_votor_init         ( votor, 2UL, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL );
 
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
 
