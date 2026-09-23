@@ -785,8 +785,8 @@ test_sysvar_set( ulong        idx,
   sv->lamports = 1UL;
   sv->data_len = data_len;
   fd_memcpy( sv->owner, fd_sysvar_owner_id.uc, 32UL );
-  fd_memset( sv->data, 0, sizeof(sv->data) );
   if( data ) fd_memcpy( sv->data, data, data_len );
+  else       fd_memset( sv->data, 0,    data_len );
 }
 
 /* A SlotHistory sysvar returned by the accdb mock:
@@ -832,6 +832,16 @@ test_stamp_sysvars( test_cluster_t * cl,
   cl->ctx[ 0 ].lead.bank_slot      = bank_slot;
   cl->ctx[ 0 ].lead.epoch_schedule = *schedule;
   cl->ctx[ 0 ].lead.epoch          = fd_slot_to_epoch( schedule, bank_slot, NULL );
+}
+
+/* Install one sysvar account and run tile 0's verify_sysvars. */
+static int
+test_verify_with( test_cluster_t * cl,
+                  ulong            idx,
+                  void const *     data,
+                  ulong            data_len ) {
+  test_sysvar_set( idx, data, data_len );
+  return verify_sysvars( &cl->ctx[ 0 ] );
 }
 
 /* Regression: scratch_align() must cover the largest FD_LAYOUT_APPEND
@@ -2495,36 +2505,21 @@ test_verify_sysvars_rejects_undecodable( void ) {
     FD_TEST( verify_sysvars( ctx )==-1 );
   }
 
-  /* Bad bools and element counts. */
+  /* Right size, bad content (the decoders themselves are covered by
+     the sysvar unit tests). */
   test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  test_sysvars[ FD_SYSVAR_epoch_schedule_IDX ].data[ 16UL ] = 2; /* warmup */
+  test_sysvars[ FD_SYSVAR_epoch_schedule_IDX ].data[ offsetof(fd_epoch_schedule_t, warmup) ] = 2;
   FD_TEST( verify_sysvars( ctx )==-1 );
 
-  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  test_sysvars[ FD_SYSVAR_epoch_rewards_IDX ].data[ 80UL ] = 2; /* active */
-  FD_TEST( verify_sysvars( ctx )==-1 );
-
-  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  test_sysvars[ FD_SYSVAR_slot_history_IDX ].data[ 0UL ] = 2; /* has_bits */
-  FD_TEST( verify_sysvars( ctx )==-1 );
-
-  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  FD_STORE( ulong, test_sysvars[ FD_SYSVAR_slot_hashes_IDX ].data, FD_SYSVAR_SLOT_HASHES_CAP+1UL );
-  FD_TEST( verify_sysvars( ctx )==-1 );
-
-  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  FD_STORE( ulong, test_sysvars[ FD_SYSVAR_stake_history_IDX ].data, ULONG_MAX );
-  FD_TEST( verify_sysvars( ctx )==-1 );
-
-  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  FD_STORE( ulong, test_sysvars[ FD_SYSVAR_recent_hashes_IDX ].data, ULONG_MAX );
-  FD_TEST( verify_sysvars( ctx )==-1 );
-
-  /* SlotHistory must be exactly the serialized size. */
+  /* SlotHistory must be exactly the serialized size, SlotHashes at
+     least (the in-place updater rewrites the whole account). */
   test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
   test_sysvars[ FD_SYSVAR_slot_history_IDX ].data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ+1UL;
   FD_TEST( verify_sysvars( ctx )==-1 );
   test_sysvars[ FD_SYSVAR_slot_history_IDX ].data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ-1UL;
+  FD_TEST( verify_sysvars( ctx )==-1 );
+  test_sysvars[ FD_SYSVAR_slot_history_IDX ].data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ;
+  test_sysvars[ FD_SYSVAR_slot_hashes_IDX  ].data_len = FD_SYSVAR_SLOT_HASHES_BINCODE_SZ-1UL;
   FD_TEST( verify_sysvars( ctx )==-1 );
 
   test_cluster_delete( cl );
@@ -2534,7 +2529,8 @@ test_verify_sysvars_rejects_undecodable( void ) {
 static void
 test_verify_sysvars_rent_bounds( void ) {
   test_cluster_t * cl = test_sysvar_cluster_new();
-  fd_snapin_tile_t * ctx = &cl->ctx[ 0 ];
+  ulong const idx = FD_SYSVAR_rent_IDX;
+  ulong const sz  = FD_SYSVAR_RENT_BINCODE_SZ;
 
   struct { double threshold; ulong max; } const cases[] = {
     { 1.0, 1759197129867UL },
@@ -2542,37 +2538,17 @@ test_verify_sysvars_rent_bounds( void ) {
   };
   for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
     fd_rent_t rent = { .lamports_per_uint8_year = cases[ i ].max, .exemption_threshold = cases[ i ].threshold, .burn_percent = 50 };
-    test_sysvar_set( FD_SYSVAR_rent_IDX, &rent, FD_SYSVAR_RENT_BINCODE_SZ );
-    FD_TEST( !verify_sysvars( ctx ) );
+    FD_TEST( !test_verify_with( cl, idx, &rent, sz ) );
     rent.lamports_per_uint8_year++;
-    test_sysvar_set( FD_SYSVAR_rent_IDX, &rent, FD_SYSVAR_RENT_BINCODE_SZ );
-    FD_TEST( verify_sysvars( ctx )==-1 );
-    rent.lamports_per_uint8_year = 0UL;
-    test_sysvar_set( FD_SYSVAR_rent_IDX, &rent, FD_SYSVAR_RENT_BINCODE_SZ );
-    FD_TEST( !verify_sysvars( ctx ) );
+    FD_TEST( test_verify_with( cl, idx, &rent, sz )==-1 );
   }
 
   ulong const thresholds[] = { 0UL, fd_dblbits( -1.0 ), fd_dblbits( 3.5 ), 0x7ff0000000000000UL /* inf */, 0x7ff8000000000000UL /* nan */ };
   for( ulong i=0UL; i<sizeof(thresholds)/sizeof(thresholds[0]); i++ ) {
-    fd_rent_t rent = { .lamports_per_uint8_year = ULONG_MAX, .burn_percent = 50 };
-    FD_STORE( ulong, (uchar *)&rent+8UL, thresholds[ i ] );
-    test_sysvar_set( FD_SYSVAR_rent_IDX, &rent, FD_SYSVAR_RENT_BINCODE_SZ );
-    FD_TEST( !verify_sysvars( ctx ) );
+    fd_rent_t rent = { .lamports_per_uint8_year = ULONG_MAX, .exemption_threshold = fd_double( thresholds[ i ] ), .burn_percent = 50 };
+    FD_TEST( !test_verify_with( cl, idx, &rent, sz ) );
   }
 
-  test_cluster_delete( cl );
-}
-
-/* The in-place SlotHashes updater needs the full-size account. */
-static void
-test_verify_sysvars_slot_hashes_size( void ) {
-  test_cluster_t * cl = test_sysvar_cluster_new();
-  test_sysvars[ FD_SYSVAR_slot_hashes_IDX ].data_len = 8UL; /* decodes as empty */
-  FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==-1 );
-  test_sysvars[ FD_SYSVAR_slot_hashes_IDX ].data_len = FD_SYSVAR_SLOT_HASHES_BINCODE_SZ-1UL;
-  FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==-1 );
-  test_sysvars[ FD_SYSVAR_slot_hashes_IDX ].data_len = FD_SYSVAR_SLOT_HASHES_BINCODE_SZ;
-  FD_TEST( !verify_sysvars( &cl->ctx[ 0 ] ) );
   test_cluster_delete( cl );
 }
 
@@ -2581,6 +2557,8 @@ static void
 test_verify_sysvars_epoch_rewards( void ) {
   test_cluster_t * cl = test_sysvar_cluster_new();
   fd_snapin_tile_t * ctx = &cl->ctx[ 0 ];
+  ulong const idx = FD_SYSVAR_epoch_rewards_IDX;
+  ulong const sz  = FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ;
 
   fd_sysvar_epoch_rewards_t rewards = {
     .active                             = 1,
@@ -2589,17 +2567,14 @@ test_verify_sysvars_epoch_rewards( void ) {
     .distributed_rewards                = 10UL,
     .distribution_starting_block_height = ULONG_MAX-1UL,
   };
-  test_sysvar_set( FD_SYSVAR_epoch_rewards_IDX, &rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
-  FD_TEST( !verify_sysvars( ctx ) );
+  FD_TEST( !test_verify_with( cl, idx, &rewards, sz ) );
 
   rewards.distributed_rewards = 11UL;
-  test_sysvar_set( FD_SYSVAR_epoch_rewards_IDX, &rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
-  FD_TEST( verify_sysvars( ctx )==-1 );
+  FD_TEST( test_verify_with( cl, idx, &rewards, sz )==-1 );
   rewards.distributed_rewards = 10UL;
 
   rewards.distribution_starting_block_height = ULONG_MAX;
-  test_sysvar_set( FD_SYSVAR_epoch_rewards_IDX, &rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
-  FD_TEST( verify_sysvars( ctx )==-1 );
+  FD_TEST( test_verify_with( cl, idx, &rewards, sz )==-1 );
   rewards.distribution_starting_block_height = 0UL;
 
   struct { ulong partitions; int ok; } const cases[] = {
@@ -2610,8 +2585,7 @@ test_verify_sysvars_epoch_rewards( void ) {
   };
   for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
     rewards.num_partitions = cases[ i ].partitions;
-    test_sysvar_set( FD_SYSVAR_epoch_rewards_IDX, &rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
-    FD_TEST( verify_sysvars( ctx )==(cases[ i ].ok ? 0 : -1) );
+    FD_TEST( test_verify_with( cl, idx, &rewards, sz )==(cases[ i ].ok ? 0 : -1) );
   }
 
   /* Partitions must fit inside the epoch. */
@@ -2619,11 +2593,9 @@ test_verify_sysvars_epoch_rewards( void ) {
   FD_TEST( fd_epoch_schedule_derive( &ctx->lead.epoch_schedule, 64UL, 64UL, 0 ) );
   ctx->lead.epoch = fd_slot_to_epoch( &ctx->lead.epoch_schedule, TEST_SYSVAR_BANK_SLOT, NULL );
   rewards.num_partitions = 64UL;
-  test_sysvar_set( FD_SYSVAR_epoch_rewards_IDX, &rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
-  FD_TEST( verify_sysvars( ctx )==-1 );
+  FD_TEST( test_verify_with( cl, idx, &rewards, sz )==-1 );
   rewards.num_partitions = 63UL;
-  test_sysvar_set( FD_SYSVAR_epoch_rewards_IDX, &rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
-  FD_TEST( !verify_sysvars( ctx ) );
+  FD_TEST( !test_verify_with( cl, idx, &rewards, sz ) );
   ctx->lead.epoch_schedule = saved;
   ctx->lead.epoch          = fd_slot_to_epoch( &saved, TEST_SYSVAR_BANK_SLOT, NULL );
 
@@ -2633,14 +2605,15 @@ test_verify_sysvars_epoch_rewards( void ) {
   test_sysvars[ FD_SYSVAR_stake_history_IDX ].lamports = 1UL;
 
   /* The reward reader requires the exact serialized size. */
-  test_sysvars[ FD_SYSVAR_epoch_rewards_IDX ].data_len = FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ+1UL;
+  test_sysvars[ idx ].data_len = sz+1UL;
   FD_TEST( verify_sysvars( ctx )==-1 );
 
   /* None of this applies while rewards are inactive. */
   rewards.active              = 0;
   rewards.num_partitions      = ULONG_MAX;
   rewards.distributed_rewards = ULONG_MAX;
-  test_sysvar_set( FD_SYSVAR_epoch_rewards_IDX, &rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ+1UL );
+  test_sysvar_set( idx, &rewards, sz );
+  test_sysvars[ idx ].data_len = sz+1UL;
   test_sysvars[ FD_SYSVAR_stake_history_IDX ].lamports = 0UL;
   FD_TEST( !verify_sysvars( ctx ) );
 
@@ -3046,7 +3019,6 @@ main( int     argc,
   test_verify_sysvars_rejects_bad_owner();
   test_verify_sysvars_rejects_undecodable();
   test_verify_sysvars_rent_bounds();
-  test_verify_sysvars_slot_hashes_size();
   test_verify_sysvars_epoch_rewards();
   test_verify_sysvars_gates_controls();
 
