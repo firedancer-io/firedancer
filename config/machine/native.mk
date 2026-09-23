@@ -38,6 +38,13 @@ ifeq ($(call native-val,__riscv_xlen),64)
 FD_NATIVE_HAS+=FD_HAS_RISCV
 FD_ARCH_SUPPORTS_SANDBOX:=1
 endif
+ifneq ($(call native-def,__riscv_zvkb),)
+ifneq ($(call native-def,__riscv_zvl128b),)
+ifneq ($(or $(call native-def,__riscv_zvknha),$(call native-def,__riscv_zvknhb)),)
+FD_NATIVE_HAS+=FD_HAS_RISCV_SHA256
+endif
+endif
+endif
 $(foreach v,$(FD_NATIVE_HAS),$(eval $(v):=1))
 FD_HAS_DOUBLE:=1
 CPPFLAGS_NATIVE:=$(FD_NATIVE_FLAGS) -DFD_HAS_DOUBLE=1 $(foreach v,$(FD_NATIVE_HAS),-D$(v)=1)
