@@ -1689,21 +1689,6 @@ fd_gui_slot_is_ancestor( fd_gui_t * gui,
   }
 }
 
-/* fd_gui_slot_skipped_get_parent returns the largest slot number
-   smaller than slot that is not skipped. */
-
-static inline ulong
-fd_gui_slot_skipped_get_parent( fd_gui_t * gui, ulong slot ) {
-  fd_gui_slot_t * c = fd_gui_slot_get_canon( gui, gui->summary.slot_tower );
-  while( c ) {
-    ulong pslot = c->parent_slot;
-    fd_gui_slot_t * p = fd_gui_slot_parent_get( gui, c );
-    if( FD_UNLIKELY( p && pslot<slot ) ) return pslot;
-    c = p;
-  }
-  return ULONG_MAX;
-}
-
 /* fd_gui_slot_is_skipped returns 1 if `slot` is skipped on the fork
    whose tip is (des, des_bank_seq) and whose root is `root`, 0
    otherwise. */
