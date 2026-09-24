@@ -842,8 +842,9 @@ This message is Tower-only and is not published by an Alpenglow validator.
 The highest slot known to have been finalized by Alpenglow cluster
 votes. It never decreases, and it can be greater than
 `summary.root_slot` or `summary.completed_slot` while the validator is
-still acquiring or replaying the finalized fork. It is derived only from
- the finalization certificates Votor's own certificate pool produces.
+still acquiring or replaying the finalized fork. It advances from Votor
+finalization certificates and from replay updates, which can
+learn finalization from block footers even on an unstaked observer.
 
 #### `summary.notarized_slot`
 | frequency       | type     | example     |

@@ -484,8 +484,6 @@ struct fd_topo_tile {
     } metric;
 
     struct {
-      int is_voting;
-
       char accounts_path [ PATH_MAX ];
       char shreds_path   [ PATH_MAX ];
       char snapshots_path[ PATH_MAX ];

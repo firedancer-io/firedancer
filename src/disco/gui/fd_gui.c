@@ -83,7 +83,6 @@ fd_gui_new( void *                   shmem,
             ulong                    max_live_slots,
             ulong                    max_txn_per_slot,
             int                      snapshots_enabled,
-            int                      is_voting,
             int                      schedule_strategy,
             char const *             wfs_expected_bank_hash_cstr,
             ushort                   expected_shred_version,
@@ -225,7 +224,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.estimated_slot_duration_nanos = 0UL;
 
   gui->summary.vote_distance = 0UL;
-  gui->summary.vote_state = is_voting ? FD_GUI_VOTE_STATE_VOTING : FD_GUI_VOTE_STATE_NON_VOTING;
+  gui->summary.vote_state = FD_GUI_VOTE_STATE_NON_VOTING;
 
   gui->summary.sock_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "sock"   );
   gui->summary.mlx5_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "mlx5"   );
@@ -435,7 +434,9 @@ fd_gui_set_identity( fd_gui_t *    gui,
   gui->summary.identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
   gui->summary.vote_distance = 0UL;
-  if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
+  gui->summary.vote_state = FD_GUI_VOTE_STATE_NON_VOTING;
+  fd_gui_printf_vote_state( gui );
+  fd_http_server_ws_broadcast( gui->http );
   gui->landed_vote_cnt = 0UL;
 
   if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) gui->summary.slot_voted = ULONG_MAX;
@@ -2601,6 +2602,27 @@ fd_gui_record_vote_latency( fd_gui_t * gui,
   }
 }
 
+static void
+fd_gui_ag_update_notarized_slot( fd_gui_t * gui,
+                                 ulong      slot ) {
+  if( FD_LIKELY( gui->summary.slot_notarized!=ULONG_MAX && slot<=gui->summary.slot_notarized ) ) return;
+
+  gui->summary.slot_notarized = slot;
+  fd_gui_printf_notarized_slot( gui );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+static void
+fd_gui_ag_update_finalized_slot( fd_gui_t * gui,
+                                 ulong      slot ) {
+  fd_gui_ag_update_notarized_slot( gui, slot );
+  if( FD_LIKELY( gui->summary.slot_finalized!=ULONG_MAX && slot<=gui->summary.slot_finalized ) ) return;
+
+  gui->summary.slot_finalized = slot;
+  fd_gui_printf_finalized_slot( gui );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
 void
 fd_gui_handle_root_advanced( fd_gui_t * gui,
                              ulong      _slot,
@@ -2617,6 +2639,8 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
   gui->summary.slot_rooted = _slot;
   fd_gui_printf_root_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
+
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) fd_gui_ag_update_finalized_slot( gui, _slot );
 
   for( ulong cslot=_slot, cbank_seq=bank_seq; ; ) {
     fd_gui_slot_t * c = fd_gui_slot_get( gui, cslot, cbank_seq );
@@ -2759,16 +2783,6 @@ fd_gui_ag_slot_publish( fd_gui_t *               gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
-static void
-fd_gui_ag_update_notarized_slot( fd_gui_t * gui,
-                                 ulong      slot ) {
-  if( FD_LIKELY( gui->summary.slot_notarized!=ULONG_MAX && slot<=gui->summary.slot_notarized ) ) return;
-
-  gui->summary.slot_notarized = slot;
-  fd_gui_printf_notarized_slot( gui );
-  fd_http_server_ws_broadcast( gui->http );
-}
-
 void
 fd_gui_ag_register_block( fd_gui_t *        gui,
                           ulong             slot,
@@ -2811,13 +2825,7 @@ fd_gui_handle_ag_finalized( fd_gui_t *        gui,
   ent->notarization_kind = FD_GUI_AG_NOTAR_REGULAR;
 
   fd_gui_ag_slot_publish( gui, ent );
-  fd_gui_ag_update_notarized_slot( gui, slot );
-
-  if( FD_LIKELY( gui->summary.slot_finalized==ULONG_MAX || slot>gui->summary.slot_finalized ) ) {
-    gui->summary.slot_finalized = slot;
-    fd_gui_printf_finalized_slot( gui );
-    fd_http_server_ws_broadcast( gui->http );
-  }
+  fd_gui_ag_update_finalized_slot( gui, slot );
 }
 
 void
@@ -3440,11 +3448,12 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
 
     int frontier_updated = handle_tower_slot( gui, slot_completed->slot, slot_completed->bank_seq, now );
 
-    if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {
+    if( FD_LIKELY( frontier_updated ) ) {
       ulong s         = gui->summary.slot_tower;
       ulong voted     = gui->summary.slot_voted;
       int   current   = voted!=ULONG_MAX && fd_int_if( s>=128UL, voted+128UL>s, voted>0UL );
-      set_vote_state( gui, fd_int_if( current, FD_GUI_VOTE_STATE_VOTING, FD_GUI_VOTE_STATE_DELINQUENT ) );
+      set_vote_state( gui, !slot_completed->is_voting ? FD_GUI_VOTE_STATE_NON_VOTING :
+                          fd_int_if( current, FD_GUI_VOTE_STATE_VOTING, FD_GUI_VOTE_STATE_DELINQUENT ) );
     }
 
     if( FD_UNLIKELY( frontier_updated && gui->summary.slot_estimated!=slot_completed->slot ) ) {
