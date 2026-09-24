@@ -448,9 +448,7 @@ telemetry = true
     # Interval in blocks between periodic incremental snapshot
     # creations.  0 disables incremental snapshot production.
     # Snapshots may be skipped if production cannot keep up with the
-    # schedule, if max_incremental_snapshot_accounts is exceeded, or if
-    # the changed accounts need more 32 MiB appendvecs than there are
-    # slots since the full snapshot.
+    # schedule or max_incremental_snapshot_accounts is exceeded.
     incremental_snapshot_interval_blocks = 200
 
     # Maximum number of changed-account pubkeys retained between full
