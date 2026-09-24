@@ -30,8 +30,7 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
                           /**/            ulong   vals_len,
                           /**/            ulong   result_addr,
                           FD_PARAM_UNUSED ulong   r4,
-                          FD_PARAM_UNUSED ulong   r5,
-                          /**/            ulong * _ret ) {
+                          FD_PARAM_UNUSED ulong   r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1897 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
@@ -75,7 +74,7 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1956-L1957 */
   fd_sha256_fini( sha, hash_result );
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -85,8 +84,7 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
                              /**/            ulong   vals_len,
                              /**/            ulong   result_addr,
                              FD_PARAM_UNUSED ulong   r4,
-                             FD_PARAM_UNUSED ulong   r5,
-                             /**/            ulong * _ret ) {
+                             FD_PARAM_UNUSED ulong   r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1897 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
@@ -130,7 +128,7 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1956-L1957 */
   fd_keccak256_fini( sha, hash_result );
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -140,8 +138,7 @@ fd_vm_syscall_sol_sha512( /**/            void *  _vm,
                           /**/            ulong   vals_len,
                           /**/            ulong   result_addr,
                           FD_PARAM_UNUSED ulong   r4,
-                          FD_PARAM_UNUSED ulong   r5,
-                          /**/            ulong * _ret ) {
+                          FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   if( FD_UNLIKELY( FD_VM_SHA256_MAX_SLICES < vals_len ) ) {
@@ -174,6 +171,6 @@ fd_vm_syscall_sol_sha512( /**/            void *  _vm,
   }
 
   fd_sha512_fini( sha, hash_result );
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }

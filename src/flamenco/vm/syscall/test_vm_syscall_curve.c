@@ -16,8 +16,8 @@ test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
                                            ulong        expected_ret_code,
                                            int          expected_syscall_ret,
                                            void *       expected_result_host_ptr ) {
-    ulong ret_code = 0UL;
-    int   syscall_ret = fd_vm_syscall_sol_curve_multiscalar_mul((void *) vm, curve_id, scalar_vaddr, point_vaddr, point_cnt, result_point_vaddr, &ret_code);
+    int   syscall_ret = fd_vm_syscall_sol_curve_multiscalar_mul((void *) vm, curve_id, scalar_vaddr, point_vaddr, point_cnt, result_point_vaddr);
+    ulong ret_code = vm->reg[0];
     FD_TEST( syscall_ret == expected_syscall_ret );
     if( syscall_ret==FD_VM_SUCCESS ) {
       FD_TEST( ret_code == expected_ret_code );
@@ -46,10 +46,12 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
                                        ulong        expected_ret_code,
                                        int          expected_syscall_ret,
                                        void *       expected_result_host_ptr ) {
-    ulong ret_code = 0UL;
-    int   syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm, curve_id, op_id, in0_vaddr, in1_vaddr, result_point_vaddr, &ret_code);
-    FD_TEST( ret_code == expected_ret_code );
+    int   syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm, curve_id, op_id, in0_vaddr, in1_vaddr, result_point_vaddr);
+    ulong ret_code = vm->reg[0];
     FD_TEST( syscall_ret == expected_syscall_ret );
+    if( syscall_ret==FD_VM_SUCCESS ) {
+      FD_TEST( ret_code == expected_ret_code );
+    }
     test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
     if (ret_code == 0 && syscall_ret == 0) {
@@ -72,8 +74,8 @@ test_fd_vm_syscall_sol_curve_decompress( char const * test_case_name,
                                          ulong        expected_ret_code,
                                          int          expected_syscall_ret,
                                          void const * expected_result_host_ptr ) {
-    ulong ret_code = 0UL;
-    int   syscall_ret = fd_vm_syscall_sol_curve_decompress( (void *)vm, curve_id, point_vaddr, result_vaddr, 0UL, 0UL, &ret_code );
+    int   syscall_ret = fd_vm_syscall_sol_curve_decompress( (void *)vm, curve_id, point_vaddr, result_vaddr, 0UL, 0UL );
+    ulong ret_code = vm->reg[0];
     FD_TEST( syscall_ret == expected_syscall_ret );
     if( syscall_ret==FD_VM_SUCCESS ) {
       FD_TEST( ret_code == expected_ret_code );
@@ -537,18 +539,16 @@ main( int     argc,
 
     vm->cu = FD_VM_COMPUTE_UNIT_LIMIT;
 
-    ulong ret_code = 0UL;
     int syscall_ret = fd_vm_syscall_sol_curve_pairing_map(
       (void *)vm,
       FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE,
       0UL,            /* num_pairs = 0 */
       0UL,            /* g1_points_addr = NULL */
       0UL,            /* g2_points_addr = NULL */
-      result_vaddr,
-      &ret_code
+      result_vaddr
     );
     FD_TEST( syscall_ret == FD_VM_SUCCESS );
-    FD_TEST( ret_code    == 0UL );
+    FD_TEST( vm->reg[0]  == 0UL );
 
     /* Verify the GT identity was written (little-endian encoding of 1 in Fp12:
        first 48 bytes = 1 LE, remaining 528 bytes = 0). */
@@ -572,18 +572,16 @@ main( int     argc,
 
     vm->cu = FD_VM_COMPUTE_UNIT_LIMIT;
 
-    ulong ret_code = 0UL;
     int syscall_ret = fd_vm_syscall_sol_curve_pairing_map(
       (void *)vm,
       FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE,
       0UL,            /* num_pairs = 0 */
       0UL,            /* g1_points_addr = NULL */
       0UL,            /* g2_points_addr = NULL */
-      result_vaddr,
-      &ret_code
+      result_vaddr
     );
     FD_TEST( syscall_ret == FD_VM_SUCCESS );
-    FD_TEST( ret_code    == 0UL );
+    FD_TEST( vm->reg[0]  == 0UL );
 
     /* Big-endian GT identity: the "1" Fp element is serialized at the
        end of the buffer (offset 48*11), as BE Fp: 47 zero bytes then 0x01.

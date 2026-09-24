@@ -22,13 +22,12 @@ test_hash_empty( fd_vm_t * vm, hash_test_spec_t const * spec ) {
   ulong result_offset = 0UL;
   memset( vm->heap + result_offset, 0xcc, spec->hash_sz );
 
-  ulong ret = 0UL;
   int err = spec->syscall_fn( vm, 0UL, 0UL,
       FD_VM_MEM_MAP_HEAP_REGION_START + result_offset,
-      0UL, 0UL, &ret );
+      0UL, 0UL );
 
   FD_TEST( err==FD_VM_SUCCESS );
-  FD_TEST( ret==0UL );
+  FD_TEST( vm->reg[0]==0UL );
   FD_TEST( !memcmp( vm->heap + result_offset, spec->expected_empty, spec->hash_sz ) );
   FD_LOG_NOTICE(( "Passed: %s empty input", spec->name ));
 }
@@ -49,15 +48,14 @@ test_hash_abc( fd_vm_t * vm, hash_test_spec_t const * spec ) {
 
   memset( vm->heap + result_offset, 0xcc, spec->hash_sz );
 
-  ulong ret = 0UL;
   int err = spec->syscall_fn( vm,
       FD_VM_MEM_MAP_HEAP_REGION_START + vec_offset,
       1UL,
       FD_VM_MEM_MAP_HEAP_REGION_START + result_offset,
-      0UL, 0UL, &ret );
+      0UL, 0UL );
 
   FD_TEST( err==FD_VM_SUCCESS );
-  FD_TEST( ret==0UL );
+  FD_TEST( vm->reg[0]==0UL );
   FD_TEST( !memcmp( vm->heap + result_offset, spec->expected_abc, spec->hash_sz ) );
   FD_LOG_NOTICE(( "Passed: %s \"abc\"", spec->name ));
 }
@@ -82,15 +80,14 @@ test_hash_two_slices( fd_vm_t * vm, hash_test_spec_t const * spec ) {
 
   memset( vm->heap + result_offset, 0xcc, spec->hash_sz );
 
-  ulong ret = 0UL;
   int err = spec->syscall_fn( vm,
       FD_VM_MEM_MAP_HEAP_REGION_START + vec_offset,
       2UL,
       FD_VM_MEM_MAP_HEAP_REGION_START + result_offset,
-      0UL, 0UL, &ret );
+      0UL, 0UL );
 
   FD_TEST( err==FD_VM_SUCCESS );
-  FD_TEST( ret==0UL );
+  FD_TEST( vm->reg[0]==0UL );
 
   /* Now hash "abcdef" as a single slice and compare */
   ulong data_offset_full = 384UL;
@@ -107,15 +104,14 @@ test_hash_two_slices( fd_vm_t * vm, hash_test_spec_t const * spec ) {
 
   memset( vm->heap + result_offset2, 0xcc, spec->hash_sz );
 
-  ulong ret2 = 0UL;
   int err2 = spec->syscall_fn( vm,
       FD_VM_MEM_MAP_HEAP_REGION_START + vec_offset2,
       1UL,
       FD_VM_MEM_MAP_HEAP_REGION_START + result_offset2,
-      0UL, 0UL, &ret2 );
+      0UL, 0UL );
 
   FD_TEST( err2==FD_VM_SUCCESS );
-  FD_TEST( ret2==0UL );
+  FD_TEST( vm->reg[0]==0UL );
   FD_TEST( !memcmp( vm->heap + result_offset, vm->heap + result_offset2, spec->hash_sz ) );
   FD_LOG_NOTICE(( "Passed: %s two slices", spec->name ));
 }
@@ -125,12 +121,11 @@ test_hash_too_many_slices( fd_vm_t * vm, hash_test_spec_t const * spec ) {
   ulong result_offset = 0UL;
   memset( vm->heap + result_offset, 0xcc, spec->hash_sz );
 
-  ulong ret = 0UL;
   int err = spec->syscall_fn( vm,
       0UL,
       FD_VM_SHA256_MAX_SLICES + 1UL,
       FD_VM_MEM_MAP_HEAP_REGION_START + result_offset,
-      0UL, 0UL, &ret );
+      0UL, 0UL );
 
   FD_TEST( err==FD_VM_SYSCALL_ERR_TOO_MANY_SLICES );
   FD_LOG_NOTICE(( "Passed: %s too many slices", spec->name ));
