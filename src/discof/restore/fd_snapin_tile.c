@@ -1115,9 +1115,7 @@ snoop_stake_delegation( fd_snapin_tile_t *  ctx,
       delegation->deactivation_epoch,
       stake_state->stake.stake.credits_observed,
       lamports,
-      (uint)data_len,
-      /* fd_stake_delegations_refresh recomputes this after load. */
-      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+      (uint)data_len );
 }
 
 /* Write engine */

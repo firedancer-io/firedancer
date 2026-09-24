@@ -10,9 +10,9 @@
 /* fd_stake_delegations_t is a cache of stake accounts mapping the
    pubkey of the stake account to various information including
    stake, activation/deactivation epoch, corresponding vote_account,
-   credits observed, and warmup cooldown rate. This is used to quickly
-   iterate through all of the stake delegations in the system during
-   epoch boundary reward calculations.
+   and credits observed. This is used to quickly iterate through all
+   of the stake delegations in the system during epoch boundary
+   reward calculations.
 
    The implementation of fd_stake_delegations_t is split into two:
    1. The entire set of stake delegations are stored in the in-memory
@@ -81,27 +81,6 @@
 
 #define FD_STAKE_DELEGATIONS_DELTA_DISK_TAG (1U<<31)
 #define FD_STAKE_DELEGATIONS_DELTA_IDX_MASK (FD_STAKE_DELEGATIONS_DELTA_DISK_TAG-1U)
-
-/* The warmup cooldown rate can only be one of two values: 0.25 or 0.09.
-   The reason that the double is mapped to an enum is to save space in
-   the stake delegations struct. */
-#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 (0)
-#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 (1)
-#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025      (0.25)
-#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009      (0.09)
-
-/* fd_stake_warmup_cooldown_rate gives the warmup/cooldown rate enum
-   for a given epoch.  In Agave, the per-delegation warmup_cooldown_rate
-   field was deprecated (since v1.16.7) and unused in calculations.
-   The rate is always determined by the epoch. */
-
-static inline uchar
-fd_stake_warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
-  ulong activation_epoch = new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX;
-  return current_epoch<activation_epoch
-    ? (uchar)FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025
-    : (uchar)FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
-}
 
 /* Most stake delegations are stable.  So intuitively, there should be a
    way to return their effective stake in O(1).  Essentially, at a given
@@ -186,7 +165,6 @@ struct fd_stake_delegation {
     uchar     is_tombstone; /* Internal delta usage */
     uchar     dne_in_root;  /* Tracking for stake delegation iteration */
   };
-  uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
   fd_pubkey_t vote_account;
   ulong       stake;
   ulong       lamports;
@@ -197,10 +175,10 @@ struct fd_stake_delegation {
     uint      delta_idx; /* Root's in-memory/disk delta reference for iteration */
     uint      fork_next; /* Next in-memory delta in this fork */
   };
-  uchar       in_use; /* For the in-memory root pool only.  Not meaningful in the
-                         delta pool.  Set to 1 if this element holds a live delegation
-                         present in the root map, 0 if the element has been reclaimed. */
-  uchar       state;  /* Can only be non-UNKNOWN in a root record. */
+  uchar       in_use : 1; /* For the in-memory root pool only.  Not meaningful in the
+                             delta pool.  Set to 1 if this element holds a live delegation
+                             present in the root map, 0 if the element has been reclaimed. */
+  uchar       state  : 3; /* Can only be non-UNKNOWN in a root record. */
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
@@ -271,11 +249,6 @@ typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 #include "fd_stake_delegations_private.h"
 
 FD_PROTOTYPES_BEGIN
-
-static inline double
-fd_stake_delegations_warmup_cooldown_rate_to_double( uchar warmup_cooldown_rate ) {
-  return warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 ? FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 : FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009;
-}
 
 /* Classify stake given the activation status evaluated at the provided
    epoch.  The provided epoch is expected to be >= activation epoch. */
@@ -401,8 +374,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
                                   ulong                    lamports,
-                                  uint                     acc_dlen,
-                                  uchar                    warmup_cooldown_rate );
+                                  uint                     acc_dlen );
 
 /* fd_stake_delegations_prune_inactive_root removes root delegations
    that are inactive in both epoch and epoch-1.  This function removes
@@ -469,8 +441,7 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
                                   ulong                    lamports,
-                                  uint                     acc_dlen,
-                                  uchar                    warmup_cooldown_rate );
+                                  uint                     acc_dlen );
 
 /* fd_stake_delegations_fork_remove inserts a tombstone stake delegation
    entry for the given fork.  The function will not actually remove or

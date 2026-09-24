@@ -921,19 +921,17 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
                                   ulong                    lamports,
-                                  uint                     acc_dlen,
-                                  uchar                    warmup_cooldown_rate ) {
+                                  uint                     acc_dlen ) {
   fd_rwlock_write( &stake_delegations->lock );
   fd_stake_delegation_t delegation = {
-    .stake_account        = *stake_account,
-    .vote_account         = *vote_account,
-    .stake                = stake,
-    .lamports             = lamports,
-    .credits_observed     = credits_observed,
-    .acc_dlen             = acc_dlen,
-    .activation_epoch     = (ushort)activation_epoch,
-    .deactivation_epoch   = (ushort)deactivation_epoch,
-    .warmup_cooldown_rate = warmup_cooldown_rate,
+    .stake_account      = *stake_account,
+    .vote_account       = *vote_account,
+    .stake              = stake,
+    .lamports           = lamports,
+    .credits_observed   = credits_observed,
+    .acc_dlen           = acc_dlen,
+    .activation_epoch   = (ushort)activation_epoch,
+    .deactivation_epoch = (ushort)deactivation_epoch,
   };
   root_query_t query;
   root_query( stake_delegations, stake_account, &query );
@@ -1076,18 +1074,17 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
       FD_CHECK_ERR( (long)account_delegation->activation_epoch  <USHORT_MAX, "activation_epoch overflow"   );
       FD_CHECK_ERR( (long)account_delegation->deactivation_epoch<USHORT_MAX, "deactivation_epoch overflow" );
       fd_stake_delegation_t delegation = {
-        .stake_account        = *stake_account,
-        .vote_account         = account_delegation->voter_pubkey,
-        .stake                = account_delegation->stake,
-        .lamports             = accs[ j ].lamports,
-        .credits_observed     = stake->stake.stake.credits_observed,
-        .acc_dlen             = (uint)accs[ j ].data_len,
-        .activation_epoch     = (ushort)account_delegation->activation_epoch,
-        .deactivation_epoch   = (ushort)account_delegation->deactivation_epoch,
-        .warmup_cooldown_rate = fd_stake_warmup_cooldown_rate( epoch, warmup_cooldown_rate_epoch ),
+        .stake_account      = *stake_account,
+        .vote_account       = account_delegation->voter_pubkey,
+        .stake              = account_delegation->stake,
+        .lamports           = accs[ j ].lamports,
+        .credits_observed   = stake->stake.stake.credits_observed,
+        .acc_dlen           = (uint)accs[ j ].data_len,
+        .activation_epoch   = (ushort)account_delegation->activation_epoch,
+        .deactivation_epoch = (ushort)account_delegation->deactivation_epoch,
       };
       delegation.state = history_contiguous
-                         ? fd_stake_delegation_classify( &delegation, history, epoch )
+                         ? fd_stake_delegation_classify( &delegation, history, epoch ) & 0x7U
                          : FD_STAKE_DELEGATION_STATE_UNKNOWN;
       root_upsert( stake_delegations, &query, &delegation );
       if( FD_LIKELY( delegation.state==FD_STAKE_DELEGATION_STATE_WARMED && !use_fixed_point_stake_math ) ) {
@@ -1144,18 +1141,17 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
     FD_CHECK_ERR( (long)account_delegation->activation_epoch  <USHORT_MAX, "activation_epoch overflow"   );
     FD_CHECK_ERR( (long)account_delegation->deactivation_epoch<USHORT_MAX, "deactivation_epoch overflow" );
     fd_stake_delegation_t delegation = {
-      .stake_account        = stake_account,
-      .vote_account         = account_delegation->voter_pubkey,
-      .stake                = account_delegation->stake,
-      .lamports             = accs[ 0 ].lamports,
-      .credits_observed     = stake->stake.stake.credits_observed,
-      .acc_dlen             = (uint)accs[ 0 ].data_len,
-      .activation_epoch     = (ushort)account_delegation->activation_epoch,
-      .deactivation_epoch   = (ushort)account_delegation->deactivation_epoch,
-      .warmup_cooldown_rate = fd_stake_warmup_cooldown_rate( epoch, warmup_cooldown_rate_epoch ),
+      .stake_account      = stake_account,
+      .vote_account       = account_delegation->voter_pubkey,
+      .stake              = account_delegation->stake,
+      .lamports           = accs[ 0 ].lamports,
+      .credits_observed   = stake->stake.stake.credits_observed,
+      .acc_dlen           = (uint)accs[ 0 ].data_len,
+      .activation_epoch   = (ushort)account_delegation->activation_epoch,
+      .deactivation_epoch = (ushort)account_delegation->deactivation_epoch,
     };
     delegation.state = history_contiguous
-                       ? fd_stake_delegation_classify( &delegation, history, epoch )
+                       ? fd_stake_delegation_classify( &delegation, history, epoch ) & 0x7U
                        : FD_STAKE_DELEGATION_STATE_UNKNOWN;
     root_query_t query = {
       .ele      = &old_delegation,
@@ -1256,22 +1252,20 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
                                   ulong                    lamports,
-                                  uint                     acc_dlen,
-                                  uchar                    warmup_cooldown_rate ) {
+                                  uint                     acc_dlen ) {
   fd_rwlock_write( &stake_delegations->lock );
 
   FD_CHECK_ERR( (long)activation_epoch  <USHORT_MAX, "activation_epoch overflow"   );
   FD_CHECK_ERR( (long)deactivation_epoch<USHORT_MAX, "deactivation_epoch overflow" );
   fd_stake_delegation_t delegation = {
-    .stake_account        = *stake_account,
-    .vote_account         = *vote_account,
-    .stake                = stake,
-    .lamports             = lamports,
-    .credits_observed     = credits_observed,
-    .acc_dlen             = acc_dlen,
-    .activation_epoch     = (ushort)activation_epoch,
-    .deactivation_epoch   = (ushort)deactivation_epoch,
-    .warmup_cooldown_rate = warmup_cooldown_rate,
+    .stake_account      = *stake_account,
+    .vote_account       = *vote_account,
+    .stake              = stake,
+    .lamports           = lamports,
+    .credits_observed   = credits_observed,
+    .acc_dlen           = acc_dlen,
+    .activation_epoch   = (ushort)activation_epoch,
+    .deactivation_epoch = (ushort)deactivation_epoch,
   };
 
   fork_delta_upsert( stake_delegations, fork_idx, &delegation );
@@ -1354,7 +1348,7 @@ apply_delta( ulong                           epoch,
   stake_delegations->deactivating_stake += new_entry.deactivating;
 
   root_delegation.state = history_contiguous
-                          ? fd_stake_delegation_classify( &root_delegation, new_entry, epoch )
+                          ? fd_stake_delegation_classify( &root_delegation, new_entry, epoch ) & 0x7U
                           : FD_STAKE_DELEGATION_STATE_UNKNOWN;
   root_upsert( stake_delegations, &query, &root_delegation );
   if( FD_LIKELY( root_delegation.state==FD_STAKE_DELEGATION_STATE_WARMED && !use_fixed_point_stake_math ) ) {

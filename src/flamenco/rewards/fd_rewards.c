@@ -1752,8 +1752,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
                                     stake_state->stake.stake.delegation.deactivation_epoch,
                                     stake_state->stake.stake.credits_observed,
                                     acc->lamports,
-                                    (uint)acc->data_len,
-                                    fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
+                                    (uint)acc->data_len );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
     fd_event_runtime_stake_delegation_payout_emit( bank,
                                                    stake_pubkey->uc,

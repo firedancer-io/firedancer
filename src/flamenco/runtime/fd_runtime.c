@@ -1577,8 +1577,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
           stake_state->stake.stake.delegation.deactivation_epoch,
           stake_state->stake.stake.credits_observed,
           account->lamports,
-          (uint)account->data_len,
-          FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
+          (uint)account->data_len );
     }
   }
 

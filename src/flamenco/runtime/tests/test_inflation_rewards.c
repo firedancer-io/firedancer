@@ -856,8 +856,7 @@ patch_stake_epochs( fd_svm_mini_t *     mini,
       new_deactivation_epoch,
       ss_new.stake.stake.credits_observed,
       new_acc.lamports,
-      (uint)new_acc.data_len,
-      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+      (uint)new_acc.data_len );
 }
 
 /* Re-points an existing stake account at a different vote account,
@@ -899,8 +898,7 @@ redelegate_stake( fd_svm_mini_t *     mini,
       ss_new.stake.stake.delegation.deactivation_epoch,
       ss_new.stake.stake.credits_observed,
       new_acc.lamports,
-      (uint)new_acc.data_len,
-      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+      (uint)new_acc.data_len );
 }
 
 static void
@@ -1098,8 +1096,7 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         0UL,
         0UL,
         read_lamports( mini, root_fork_id, &stake[i] ),
-        FD_STAKE_STATE_SZ,
-        FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+        FD_STAKE_STATE_SZ );
   }
   FD_TEST( test_stake_delegations_base_cnt( spill_delegations )==2UL );
   FD_TEST( test_stake_delegations_disk_cnt( spill_delegations )==1UL );
@@ -1339,8 +1336,7 @@ patch_stake_credits_observed( fd_svm_mini_t *     mini,
       ss_new.stake.stake.delegation.deactivation_epoch,
       credits_observed,
       new_acc.lamports,
-      (uint)new_acc.data_len,
-      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+      (uint)new_acc.data_len );
 }
 
 static void

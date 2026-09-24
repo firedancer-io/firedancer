@@ -7,6 +7,12 @@
 #include "fd_vote_stakes.h"
 #include "../types/fd_cast.h"
 
+/* The warmup cooldown rate can only be one of two values: 0.25 or 0.09. */
+#define FD_STAKE_WARMUP_COOLDOWN_RATE_ENUM_025 (0)
+#define FD_STAKE_WARMUP_COOLDOWN_RATE_ENUM_009 (1)
+#define FD_STAKE_WARMUP_COOLDOWN_RATE_025      (0.25)
+#define FD_STAKE_WARMUP_COOLDOWN_RATE_009      (0.09)
+
 FD_PROTOTYPES_BEGIN
 
 fd_stake_state_t const *
@@ -18,6 +24,24 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
                                    fd_stake_history_t const * stake_history,
                                    ulong *                    new_rate_activation_epoch );
 
+/* fd_stake_warmup_cooldown_rate gives the warmup/cooldown rate enum
+   for a given epoch.  In Agave, the per-delegation warmup_cooldown_rate
+   field was deprecated (since v1.16.7) and unused in calculations.
+   The rate is always determined by the epoch. */
+
+static inline uchar
+fd_stake_warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
+  ulong activation_epoch = new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX;
+  return current_epoch<activation_epoch
+    ? (uchar)FD_STAKE_WARMUP_COOLDOWN_RATE_ENUM_025
+    : (uchar)FD_STAKE_WARMUP_COOLDOWN_RATE_ENUM_009;
+}
+
+static inline double
+fd_stake_warmup_cooldown_rate_to_double( uchar warmup_cooldown_rate ) {
+  return warmup_cooldown_rate==FD_STAKE_WARMUP_COOLDOWN_RATE_ENUM_025 ? FD_STAKE_WARMUP_COOLDOWN_RATE_025 : FD_STAKE_WARMUP_COOLDOWN_RATE_009;
+}
+
 /* Caller must ensure cluster_portion is nonzero. */
 
 static inline ulong
@@ -27,7 +51,7 @@ fd_stake_calculate_change_allowance_float( ulong   current_epoch,
                                            ulong   cluster_effective,
                                            ulong * new_rate_activation_epoch ) {
   double weight = (double)account_portion / (double)cluster_portion;
-  double warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( fd_stake_warmup_cooldown_rate( current_epoch, new_rate_activation_epoch ) );
+  double warmup_cooldown_rate = fd_stake_warmup_cooldown_rate_to_double( fd_stake_warmup_cooldown_rate( current_epoch, new_rate_activation_epoch ) );
   double newly_changed_cluster_stake = (double)cluster_effective * warmup_cooldown_rate;
   return fd_rust_cast_double_to_ulong( weight * newly_changed_cluster_stake );
 }

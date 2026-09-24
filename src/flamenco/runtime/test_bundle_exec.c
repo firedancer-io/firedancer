@@ -724,8 +724,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
                                       ULONG_MAX,
                                       0UL,
                                       2000000000UL,
-                                      (uint)FD_STAKE_STATE_SZ,
-                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+                                      (uint)FD_STAKE_STATE_SZ );
 
     {
       fd_stake_delegations_t * frontier = test_stake_delegations_frontier_mark( env->mini->banks, env->bank );
@@ -1152,8 +1151,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
                          (uint)FD_STAKE_STATE_SZ, sdata, &fd_solana_stake_program_id );
     fd_stake_delegations_root_update( fd_banks_stake_delegations_root_query( env->mini->banks ),
                                       &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
-                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
-                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ );
 
     fd_txn_p_t sp[2] = {0};
     fd_pubkey_t skeys[2] = { pubkey1, stake_acct };
@@ -1210,8 +1208,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
     fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
     fd_stake_delegations_root_update( root, &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
-                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
-                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ );
     fd_stake_delegation_t root_delegation[1];
     FD_TEST( test_stake_delegations_find_copy( root, &stake_acct, root_delegation ) );
 
@@ -1257,8 +1254,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
     fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
     fd_stake_delegations_root_update( root, &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
-                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
-                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ );
     FD_TEST( test_stake_delegations_contains( root, &stake_acct ) );
 
     fd_acc_t acc = {
@@ -1276,8 +1272,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
     /* Distinguish the base from the cache-equivalent fork delta. */
     fd_stake_delegations_root_update( root, &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 1UL,
-                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
-                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ );
     fd_stake_delegation_t root_delegation[1];
     FD_TEST( test_stake_delegations_find_copy( root, &stake_acct, root_delegation ) );
 
@@ -1378,8 +1373,7 @@ test_inactive_stake_update( fd_svm_mini_t * mini ) {
         cases[i].deactivation_epoch,
         0UL,
         2000000000UL,
-        (uint)FD_STAKE_STATE_SZ,
-        FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+        (uint)FD_STAKE_STATE_SZ );
 
     fd_acc_t acc = {
       .lamports       = 2000000001UL,
