@@ -1047,6 +1047,38 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy )
   }
 }
 
+/* publish_block publishes slotv's block metadata to rserve.  Skipped
+   if rserve is disabled, or if the block id, parent, or any FEC root is
+   unknown. */
+static void
+publish_block( ctx_t *              ctx,
+               fd_stem_context_t *  stem,
+               fd_chainer_slotv_t * slotv ) {
+  out_ctx_t * out = ctx->rserve_out_ctx;
+  if( FD_UNLIKELY( out->idx==UINT_MAX ) ) return;
+  if( FD_UNLIKELY( fd_hash_check_zero( &slotv->block_id ) || fd_hash_check_zero( &slotv->parent_block_id ) ) ) return;
+  if( FD_UNLIKELY( slotv->complete_idx==UINT_MAX || slotv->parent_slot==AG_UNKNOWN_SLOT ) ) return;
+
+  uint fec_set_cnt = ( slotv->complete_idx + 1U ) / FD_FEC_SHRED_CNT;
+
+  fd_rotor_block_t * msg  = fd_chunk_to_laddr( out->mem, out->chunk );
+  uint const *       fecs = fd_chainer_slotv_fecs( ctx->chainer, slotv );
+  for( uint k=0U; k<fec_set_cnt; k++ ) {
+    if( FD_UNLIKELY( fecs[ k ]==UINT_MAX ) ) return;
+    fd_chainer_fec_t const * fec = fd_fec_pool_ele_const( ctx->chainer->fec_pool, fecs[ k ] );
+    memcpy( msg->merkle_roots[ k ], fec->merkle_root.uc, FD_SHRED_MERKLE_NODE_SZ );
+  }
+  msg->slot            = slotv->slot;
+  msg->block_id        = slotv->block_id;
+  msg->parent_slot     = slotv->parent_slot;
+  msg->parent_block_id = slotv->parent_block_id;
+  msg->fec_set_cnt     = fec_set_cnt;
+
+  ulong sz = FD_ROTOR_BLOCK_SZ( fec_set_cnt );
+  fd_stem_publish( stem, out->idx, ROTOR_SIG_BLOCK, out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
+}
+
 /* publish_fec builds and publishes a single ROTOR_SIG_FEC_REPLAY
    message to replay for the FEC fec owned by version slotv.
    When from_root is set (the deliver_from_root recovery redelivery),
@@ -1127,6 +1159,10 @@ publish_fec( ctx_t *              ctx,
   fd_stem_publish( stem, ctx->repair_out_ctx->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->repair_out_ctx->chunk = fd_dcache_compact_next( ctx->repair_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), ctx->repair_out_ctx->chunk0, ctx->repair_out_ctx->wmark );
   ctx->metrics->fecs_delivered++;
+
+  /* Also on redelivery: a block first delivered from root is otherwise
+     never published.  Re-publishing is idempotent in rserve. */
+  if( FD_UNLIKELY( fec->slot_complete ) ) publish_block( ctx, stem, slotv );
 }
 
 /* full_fec_path_queue queues every FEC from the chainer root down to
@@ -1444,6 +1480,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->net_out_ctx->idx    = UINT_MAX;
   ctx->repair_out_ctx->idx = UINT_MAX;
+  ctx->rserve_out_ctx->idx = UINT_MAX;
   ctx->repair_sign_cnt     = 0;
   ctx->sign_rrobin_idx     = 0;
 
@@ -1467,6 +1504,15 @@ unprivileged_init( fd_topo_t const *      topo,
       replay_out->chunk0     = fd_dcache_compact_chunk0( replay_out->mem, link->dcache );
       replay_out->wmark      = fd_dcache_compact_wmark( replay_out->mem, link->dcache, link->mtu );
       replay_out->chunk      = replay_out->chunk0;
+
+    } else if( 0==strcmp( link->name, "rotor_rserve" ) ) {
+
+      out_ctx_t * rserve_out = ctx->rserve_out_ctx;
+      rserve_out->idx        = out_idx;
+      rserve_out->mem        = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      rserve_out->chunk0     = fd_dcache_compact_chunk0( rserve_out->mem, link->dcache );
+      rserve_out->wmark      = fd_dcache_compact_wmark( rserve_out->mem, link->dcache, link->mtu );
+      rserve_out->chunk      = rserve_out->chunk0;
 
     } else if( 0==strcmp( link->name, "repair_sign" ) ) {
 
@@ -1566,8 +1612,9 @@ metrics_write( ctx_t * ctx ) {
 
 #undef DEBUG_LOGGING
 
-/* At most one sign request is made in after_credit.  Then at most one
-   message is published in after_frag. */
+/* after_credit makes at most one sign request, or publishes one FEC plus
+   at most one block to rserve.  Then at most one message is published in
+   after_frag. */
 #define STEM_BURST (3UL)
 
 /* Set LAZY to a reasonable value that keeps housekeeping time low.

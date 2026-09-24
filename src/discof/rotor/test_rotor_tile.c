@@ -15,7 +15,9 @@
      fd_fec_complete_t and evictions as fd_fec_evicted_t, the same way
      shred_out does.
    - replay:     repair_out publishes (ROTOR_SIG_FEC_REPLAY) are
-     recorded and asserted on. */
+     recorded and asserted on.
+   - rserve:     rotor_rserve publishes (ROTOR_SIG_BLOCK) are recorded
+     and asserted on. */
 
 #include "../../disco/topo/fd_topo.h"   /* pulls in fd_stem.h so the static inline parses */
 #include "../../disco/shred/fd_shred_tile.h"
@@ -27,6 +29,7 @@ static void * test_out_mem[ TEST_OUT_MAX ];
 #define OUT_IDX_NET    (0UL)
 #define OUT_IDX_REPLAY (1UL)
 #define OUT_IDX_SIGN   (2UL)
+#define OUT_IDX_RSERVE (3UL)
 
 /* In link indices */
 #define IN_IDX_NET    (0UL)
@@ -90,6 +93,12 @@ static ulong req_cnt;
 static fd_rotor_replay_fec_t rep_log[ REP_MAX ];
 static ulong                 rep_cnt;
 
+/* Block log: every ROTOR_SIG_BLOCK frag published to rserve. */
+
+#define BLKREC_MAX (64UL)
+static fd_rotor_block_t blkrec_log[ BLKREC_MAX ];
+static ulong            blkrec_cnt;
+
 /* drain processes every unprocessed publish: sign requests are echoed
    straight back into after_sign (which in turn publishes the signed
    packet to repair_net, picked up by the same loop), net packets are
@@ -146,6 +155,15 @@ drain( ctx_t * ctx ) {
            tracked by these tests */
         FD_TEST( rec.sig==REPAIR_SIG_FEC || rec.sig==REPAIR_SIG_FEC_LEADER || rec.sig==REPAIR_SIG_FEC_INVALID );
       }
+
+    } else if( rec.out_idx==OUT_IDX_RSERVE ) {
+
+      FD_TEST( rec.sig==ROTOR_SIG_BLOCK );
+      FD_TEST( rec.sz>=FD_ROTOR_BLOCK_SZ( 0 ) );
+      FD_TEST( blkrec_cnt<BLKREC_MAX );
+      fd_rotor_block_t * b = &blkrec_log[ blkrec_cnt++ ];
+      fd_memcpy( b, rec.data, rec.sz );
+      FD_TEST( rec.sz==FD_ROTOR_BLOCK_SZ( b->fec_set_cnt ) );
 
     } else {
       FD_LOG_ERR(( "unexpected out_idx %lu", rec.out_idx ));
@@ -713,6 +731,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   pub_cnt = 0UL; pub_cursor = 0UL;
   req_cnt = 0UL;
   rep_cnt = 0UL;
+  blkrec_cnt = 0UL;
   memset( test_out_mem, 0, sizeof(test_out_mem) );
 
   FD_TEST( fd_rng_secure( &ctx->repair_seed, sizeof(ulong) ) );
@@ -752,7 +771,8 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * net_dcache    = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, dcache_sz, 1UL );
   void * replay_dcache = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, dcache_sz, 1UL );
   void * sign_dcache   = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, dcache_sz, 1UL );
-  FD_TEST( net_dcache && replay_dcache && sign_dcache );
+  void * rserve_dcache = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, dcache_sz, 1UL );
+  FD_TEST( net_dcache && replay_dcache && sign_dcache && rserve_dcache );
   ulong wmark = (dcache_sz>>FD_CHUNK_LG_SZ)-(2048UL>>FD_CHUNK_LG_SZ)-1UL;
 
   ctx->net_out_ctx->idx    = OUT_IDX_NET;
@@ -767,6 +787,12 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->repair_out_ctx->wmark  = wmark;
   ctx->repair_out_ctx->chunk  = 0UL;
 
+  ctx->rserve_out_ctx->idx    = OUT_IDX_RSERVE;
+  ctx->rserve_out_ctx->mem    = rserve_dcache;
+  ctx->rserve_out_ctx->chunk0 = 0UL;
+  ctx->rserve_out_ctx->wmark  = wmark;
+  ctx->rserve_out_ctx->chunk  = 0UL;
+
   ctx->repair_sign_cnt                    = 1UL;
   ctx->repair_sign_out_ctx[0].idx         = OUT_IDX_SIGN;
   ctx->repair_sign_out_ctx[0].in_idx      = IN_IDX_SIGN;
@@ -780,6 +806,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   test_out_mem[ OUT_IDX_NET    ] = net_dcache;
   test_out_mem[ OUT_IDX_REPLAY ] = replay_dcache;
   test_out_mem[ OUT_IDX_SIGN   ] = sign_dcache;
+  test_out_mem[ OUT_IDX_RSERVE ] = rserve_dcache;
 
   /* In links */
 
@@ -879,6 +906,7 @@ test_turbine_shreds( fd_wksp_t * wksp ) {
   FD_TEST( rep_log[ 0 ].parent_slot==SNAP_SLOT );
   FD_TEST( fd_hash_eq( &rep_log[ 0 ].parent_block_id, &snap_bid ) );
   FD_TEST( rep_log[ 0 ].data_complete==1 );
+  FD_TEST( blkrec_cnt==0UL ); /* no block record until the slot completes */
 
   /* Second (last) FEC set: block completes, the finalized block_id must
      equal the independently computed double-merkle root. */
@@ -896,6 +924,18 @@ test_turbine_shreds( fd_wksp_t * wksp ) {
   FD_TEST( fd_hash_eq( &v0->block_id, &blk->block_id ) ); /* finalize_block_id agrees with blk_build */
   FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==blk->slot );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  /* Delivering the slot-complete FEC publishes one block record to
+     rserve with the block id, parent, and 20B FEC root prefixes. */
+
+  FD_TEST( blkrec_cnt==1UL );
+  FD_TEST( blkrec_log[ 0 ].slot==blk->slot );
+  FD_TEST( fd_hash_eq( &blkrec_log[ 0 ].block_id, &blk->block_id ) );
+  FD_TEST( blkrec_log[ 0 ].parent_slot==SNAP_SLOT );
+  FD_TEST( fd_hash_eq( &blkrec_log[ 0 ].parent_block_id, &snap_bid ) );
+  FD_TEST( blkrec_log[ 0 ].fec_set_cnt==blk->fec_cnt );
+  for( uint k=0U; k<blk->fec_cnt; k++ )
+    FD_TEST( !memcmp( blkrec_log[ 0 ].merkle_roots[ k ], blk->fec_root[ k ].uc, FD_SHRED_MERKLE_NODE_SZ ) );
 
   /* Unauthorized equivocation, coding shreds, and EQVOC-flagged shreds
      are all dropped without touching the chainer. */
@@ -1126,6 +1166,17 @@ test_votor_notar_fallback( fd_wksp_t * wksp ) {
   FD_TEST( fd_hash_eq( &vB->block_id, &blkB->block_id ) );
   FD_TEST( fd_hash_eq( &vA->block_id, &blkA->block_id ) ); /* version A untouched */
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  /* Both versions published a block record: A from turbine, then B from
+     block id repair, including the FEC set it shares with A. */
+
+  FD_TEST( blkrec_cnt==2UL );
+  FD_TEST( blkrec_log[ 0 ].slot==slot && fd_hash_eq( &blkrec_log[ 0 ].block_id, &blkA->block_id ) );
+  FD_TEST( blkrec_log[ 1 ].slot==slot && fd_hash_eq( &blkrec_log[ 1 ].block_id, &blkB->block_id ) );
+  FD_TEST( blkrec_log[ 1 ].parent_slot==SNAP_SLOT && fd_hash_eq( &blkrec_log[ 1 ].parent_block_id, &snap_bid ) );
+  FD_TEST( blkrec_log[ 1 ].fec_set_cnt==blkB->fec_cnt );
+  for( uint k=0U; k<blkB->fec_cnt; k++ )
+    FD_TEST( !memcmp( blkrec_log[ 1 ].merkle_roots[ k ], blkB->fec_root[ k ].uc, FD_SHRED_MERKLE_NODE_SZ ) );
 
   /* Protocol maximum: five more notar-fallback certs (versions C..G,
      in cert order) land for the same slot, bringing it to
@@ -2593,6 +2644,16 @@ test_deliver_from_root_populates_block_id( fd_wksp_t * wksp ) {
   /* ... but redelivery never marks a turbine version known: replay keys
      it by {slot, 0} until the slot-complete FEC, like the live copy. */
   for( ulong i=base; i<rep_cnt; i++ ) FD_TEST( !rep_log[ i ].known_id );
+
+  /* blk2 is only ever delivered from root, so its block record must come
+     from the redelivery.  blk1's record is re-published alongside. */
+  FD_TEST( blkrec_cnt==3UL );
+  FD_TEST( blkrec_log[ 0 ].slot==blk1->slot && fd_hash_eq( &blkrec_log[ 0 ].block_id, &blk1->block_id ) );
+  FD_TEST( blkrec_log[ 1 ].slot==blk1->slot && fd_hash_eq( &blkrec_log[ 1 ].block_id, &blk1->block_id ) );
+  FD_TEST( blkrec_log[ 2 ].slot==blk2->slot && fd_hash_eq( &blkrec_log[ 2 ].block_id, &blk2->block_id ) );
+  FD_TEST( blkrec_log[ 2 ].parent_slot==blk1->slot && fd_hash_eq( &blkrec_log[ 2 ].parent_block_id, &blk1->block_id ) );
+  FD_TEST( blkrec_log[ 2 ].fec_set_cnt==1U );
+  FD_TEST( !memcmp( blkrec_log[ 2 ].merkle_roots[ 0 ], blk2->fec_root[ 0 ].uc, FD_SHRED_MERKLE_NODE_SZ ) );
 
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
   FD_LOG_NOTICE(( "pass: test_deliver_from_root_populates_block_id" ));

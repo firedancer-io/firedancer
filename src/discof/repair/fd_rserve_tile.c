@@ -6,6 +6,8 @@
 
 #include "fd_rserve.h"
 #include "fd_repair.h"
+#include "fd_blockdb.h"
+#include "../rotor/fd_rotor_tile.h"
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyguard.h"
@@ -25,6 +27,7 @@
 #define IN_KIND_NET    (0)
 #define IN_KIND_SIGN   (1)
 #define IN_KIND_SHRED  (2)
+#define IN_KIND_ROTOR  (3)
 
 #define MAX_IN_LINKS FD_TOPO_MAX_TILE_IN_LINKS
 
@@ -37,19 +40,23 @@
 #define FD_RSERVE_SIGNED_REPAIR_WINDOW (60L*10L*1000L)
 
 /* static map from request type to response metric array index */
-static uint response_metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {
-  [FD_REPAIR_KIND_PING]          = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_PING_IDX,
-  [FD_REPAIR_KIND_SHRED]         = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_WINDOW_IDX,
-  [FD_REPAIR_KIND_HIGHEST_SHRED] = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_HIGHEST_WINDOW_IDX,
-  [FD_REPAIR_KIND_ORPHAN]        = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_ORPHAN_IDX,
+static uint response_metric_index[AG_REPAIR_KIND_FEC_ROOT + 1] = {
+  [FD_REPAIR_KIND_PING]             = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_PING_IDX,
+  [FD_REPAIR_KIND_SHRED]            = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_WINDOW_IDX,
+  [FD_REPAIR_KIND_HIGHEST_SHRED]    = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_HIGHEST_WINDOW_IDX,
+  [FD_REPAIR_KIND_ORPHAN]           = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_ORPHAN_IDX,
+  [AG_REPAIR_KIND_PARENT_FEC_COUNT] = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_PARENT_FEC_SET_COUNT_IDX,
+  [AG_REPAIR_KIND_FEC_ROOT]         = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_FEC_SET_ROOT_IDX,
 };
 
 /* static map from request type to received request metric array index */
-static uint request_metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {
-  [FD_REPAIR_KIND_PONG]          = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_PONG_IDX,
-  [FD_REPAIR_KIND_SHRED]         = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_WINDOW_INDEX_IDX,
-  [FD_REPAIR_KIND_HIGHEST_SHRED] = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_HIGHEST_WINDOW_INDEX_IDX,
-  [FD_REPAIR_KIND_ORPHAN]        = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_ORPHAN_IDX,
+static uint request_metric_index[AG_REPAIR_KIND_FEC_ROOT + 1] = {
+  [FD_REPAIR_KIND_PONG]             = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_PONG_IDX,
+  [FD_REPAIR_KIND_SHRED]            = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_WINDOW_INDEX_IDX,
+  [FD_REPAIR_KIND_HIGHEST_SHRED]    = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_HIGHEST_WINDOW_INDEX_IDX,
+  [FD_REPAIR_KIND_ORPHAN]           = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_ORPHAN_IDX,
+  [AG_REPAIR_KIND_PARENT_FEC_COUNT] = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_PARENT_FEC_SET_COUNT_IDX,
+  [AG_REPAIR_KIND_FEC_ROOT]         = FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_FEC_SET_ROOT_IDX,
 };
 
 
@@ -78,6 +85,7 @@ typedef struct ctx {
   ulong           seed;
   uchar           rserve_secret[ 32 ];
   fd_rserve_t *   rserve;
+  fd_blockdb_t *  blockdb; /* NULL if disabled */
   fd_store_t *    store;
   int             disk_fd;
   ulong           max_shreds_per_block;
@@ -108,6 +116,7 @@ typedef struct ctx {
     ulong fail_invalid_token;
     ulong fail_outdated;
     ulong fail_invalid_shred_idx;
+    ulong fail_invalid_fec_set_idx;
     ulong fail_ping_cache_lookup;
     ulong disk_read_busy;
     ulong disk_read_miss;
@@ -140,6 +149,9 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),    sizeof(ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_rserve_align(), fd_rserve_footprint( tile->rserve.ping_cache_entries) );
+  if( FD_LIKELY( tile->rserve.blockdb_max ) ) {
+    l = FD_LAYOUT_APPEND( l, fd_blockdb_align(), fd_blockdb_footprint( tile->rserve.blockdb_max ) );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -242,6 +254,64 @@ handle_pong( ctx_t              * ctx,
   return;
 }
 
+/* handle_meta_request answers a verified ParentAndFecSetCount or
+   FecSetRoot request from the blockdb.  msg points past the tag and is
+   sized for tag. */
+
+static void
+handle_meta_request( ctx_t             * ctx,
+                     fd_stem_context_t * stem,
+                     uint                tag,
+                     uchar const       * msg,
+                     uint                nonce,
+                     fd_ip4_hdr_t      * ip4,
+                     fd_udp_hdr_t      * udp ) {
+  ulong     slot;
+  fd_hash_t block_id;
+  uint      fec_set_idx = 0U;
+  if( tag==AG_REPAIR_KIND_PARENT_FEC_COUNT ) {
+    ag_repair_parent_fec_count_req_t req[1];
+    memcpy( req, msg, sizeof(req) );
+    slot     = req->slot;
+    block_id = req->block_id;
+  } else {
+    ag_repair_fec_root_req_t req[1];
+    memcpy( req, msg, sizeof(req) );
+    slot        = req->slot;
+    block_id    = req->block_id;
+    fec_set_idx = req->fec_set_idx;
+  }
+
+  fd_blockdb_blk_t const * blk = fd_blockdb_query( ctx->blockdb, slot, &block_id );
+  if( FD_UNLIKELY( !blk ) ) {
+    ctx->metrics->missed_pkt_types[ response_metric_index[ tag ] ]++;
+    return;
+  }
+
+  /* The parent-info leaf follows the fec_set_cnt FEC root leaves. */
+  ulong leaf_idx = blk->fec_set_cnt;
+  if( tag==AG_REPAIR_KIND_FEC_ROOT ) {
+    if( FD_UNLIKELY( fec_set_idx%FD_FEC_SHRED_CNT || fec_set_idx/FD_FEC_SHRED_CNT>=blk->fec_set_cnt ) ) {
+      ctx->metrics->fail_invalid_fec_set_idx++;
+      return;
+    }
+    leaf_idx = fec_set_idx/FD_FEC_SHRED_CNT;
+  }
+
+  uchar proof[ FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ ];
+  int proof_len = fd_blockdb_proof( ctx->blockdb, blk, leaf_idx, proof );
+  FD_TEST( proof_len>=0 );
+
+  uchar buf[ AG_REPAIR_RESPONSE_MAX_SZ ];
+  ulong sz = tag==AG_REPAIR_KIND_PARENT_FEC_COUNT
+    ? ag_repair_parent_fec_count_ser( buf, sizeof(buf), blk->fec_set_cnt, blk->parent_slot, &blk->parent_block_id, proof, (ulong)proof_len, nonce )
+    : ag_repair_fec_set_root_ser    ( buf, sizeof(buf), blk->merkle_roots[ leaf_idx ], proof, (ulong)proof_len, nonce );
+  FD_TEST( sz );
+
+  send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, buf, sz, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->metrics->sent_pkt_types[ response_metric_index[ tag ] ]++;
+}
+
 static inline void
 handle_net_request( ctx_t             * ctx,
                     fd_stem_context_t * stem,
@@ -262,9 +332,13 @@ handle_net_request( ctx_t             * ctx,
     handle_pong( ctx, payload, payload_sz, ip4->saddr, udp->net_sport );
     return;
   }
+  /* Metadata requests need the blockdb, which only exists when
+     alpenglow is enabled. */
+  int is_meta = tag==AG_REPAIR_KIND_PARENT_FEC_COUNT || tag==AG_REPAIR_KIND_FEC_ROOT;
   if( FD_UNLIKELY( tag!=FD_REPAIR_KIND_SHRED &&
                    tag!=FD_REPAIR_KIND_HIGHEST_SHRED &&
-                   tag!=FD_REPAIR_KIND_ORPHAN ) ) {
+                   tag!=FD_REPAIR_KIND_ORPHAN &&
+                   !( is_meta && ctx->blockdb ) ) ) {
     if(      tag==FD_REPAIR_KIND_PING )            ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_RSERVE_MALFORMED_TYPES_V_PING_IDX ]++;
     else if( tag==FD_REPAIR_KIND_ANCESTOR_HASHES ) ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_RSERVE_MALFORMED_TYPES_V_ANCESTOR_HASHES_IDX ]++;
     else                                           ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_RSERVE_MALFORMED_TYPES_V_UNKNOWN_TAG_IDX ]++;
@@ -273,16 +347,16 @@ handle_net_request( ctx_t             * ctx,
 
   /* Validate exact message size for each request type.  We must check
      this before constructing the signable payload to avoid OOB reads. */
-  if( FD_UNLIKELY( tag==FD_REPAIR_KIND_ORPHAN ) ) {
-    if( FD_UNLIKELY( msg_sz!=sizeof(fd_repair_orphan_req_t) ) ) {
-      ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_RSERVE_MALFORMED_TYPES_V_WRONG_SIZE_IDX ]++;
-      return;
-    }
-  } else {
-    if( FD_UNLIKELY( msg_sz!=sizeof(fd_repair_shred_req_t) ) ) {
-      ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_RSERVE_MALFORMED_TYPES_V_WRONG_SIZE_IDX ]++;
-      return;
-    }
+  ulong expected_sz;
+  switch( tag ) {
+    case FD_REPAIR_KIND_ORPHAN:           expected_sz = sizeof(fd_repair_orphan_req_t);           break;
+    case AG_REPAIR_KIND_PARENT_FEC_COUNT: expected_sz = sizeof(ag_repair_parent_fec_count_req_t); break;
+    case AG_REPAIR_KIND_FEC_ROOT:         expected_sz = sizeof(ag_repair_fec_root_req_t);         break;
+    default:                              expected_sz = sizeof(fd_repair_shred_req_t);            break;
+  }
+  if( FD_UNLIKELY( msg_sz!=expected_sz ) ) {
+    ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_RSERVE_MALFORMED_TYPES_V_WRONG_SIZE_IDX ]++;
+    return;
   }
 
   ctx->metrics->received_request_count[ request_metric_index[tag] ]++;
@@ -310,10 +384,11 @@ handle_net_request( ctx_t             * ctx,
 
   /* Verify the signature. */
 
-  /* The largest signable payload size is 96 bytes, that being
-     160-64=96, as the signature itself is not included. */
-  uchar signable[ 96 ];
-  uchar signable_sz = tag==FD_REPAIR_KIND_ORPHAN ? 88 : 96;
+  /* The signed bytes are the tag followed by everything after the
+     signature. */
+  uchar signable[ FD_REPAIR_MAX_PREIMAGE_SZ ];
+  ulong signable_sz = payload_sz - sizeof(fd_ed25519_sig_t);
+  FD_TEST( signable_sz<=sizeof(signable) );
   fd_memcpy( signable,     payload,      4             );
   fd_memcpy( signable+4UL, payload+68UL, signable_sz-4 );
 
@@ -411,6 +486,11 @@ handle_net_request( ctx_t             * ctx,
         }
         break;
       }
+      case AG_REPAIR_KIND_PARENT_FEC_COUNT:
+      case AG_REPAIR_KIND_FEC_ROOT: {
+        handle_meta_request( ctx, stem, tag, payload+4UL, header->nonce, ip4, udp );
+        break;
+      }
     }
   } else {
     ctx->metrics->fail_ping_cache_lookup++;
@@ -425,8 +505,10 @@ handle_net_request( ctx_t             * ctx,
     uchar signature[ 64UL ];
     fd_keyguard_client_sign( ctx->keyguard_client, signature, token, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
+    /* Block id metadata requests are answered with the
+       BlockIdRepairResponse ping variant, like Agave. */
     fd_repair_ping_t msg[ 1 ];
-    msg->kind = FD_REPAIR_KIND_PING;
+    msg->kind = is_meta ? AG_REPAIR_KIND_PING : FD_REPAIR_KIND_PING;
     msg->ping.from = ctx->identity_public_key;
     memcpy( msg->ping.sig, signature, 64 );
     memcpy( msg->ping.hash.uc, token, 32 );
@@ -481,13 +563,26 @@ returnable_frag( ctx_t             * ctx,
     if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return 0;
 
     long dt = -fd_tickcount();
-    int result = fd_store_disk_insert( ctx->store, ctx->disk_fd, shred );
+    int result = fd_store_disk_insert( ctx->store, ctx->disk_fd, shred, &msg->merkle_root );
     dt += fd_tickcount();
     fd_histf_sample( ctx->metrics->disk_write_timing, (ulong)dt );
     if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
       ctx->metrics->disk_inserted++;
       ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
     } else ctx->metrics->disk_write_failed++;
+    return 0;
+  }
+  case IN_KIND_ROTOR: {
+    if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) return 0;
+    if( FD_UNLIKELY( sz<FD_ROTOR_BLOCK_SZ( 0 ) || sz>sizeof(fd_rotor_block_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
+      FD_LOG_ERR(( "rotor_rserve chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
+
+    fd_rotor_block_t const * msg = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    if( FD_UNLIKELY( sz!=FD_ROTOR_BLOCK_SZ( msg->fec_set_cnt ) ) )
+      FD_LOG_ERR(( "rotor_rserve frag sz %lu does not match fec_set_cnt %u", sz, msg->fec_set_cnt ));
+
+    FD_TEST( fd_blockdb_insert( ctx->blockdb, msg->slot, &msg->block_id, msg->parent_slot, &msg->parent_block_id,
+                                msg->fec_set_cnt, (uchar const *)msg->merkle_roots ) );
     return 0;
   }
   default: FD_LOG_ERR(( "unexpected input kind (%u)", in_kind ));
@@ -567,6 +662,7 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( RSERVE, FAILED_NOT_FOR_US,                  ctx->metrics->fail_not_for_us );
   FD_MCNT_SET( RSERVE, FAILED_OUTDATED,                    ctx->metrics->fail_outdated );
   FD_MCNT_SET( RSERVE, FAILED_INVALID_SHRED_INDEX,         ctx->metrics->fail_invalid_shred_idx );
+  FD_MCNT_SET( RSERVE, FAILED_INVALID_FEC_SET_INDEX,       ctx->metrics->fail_invalid_fec_set_idx );
   FD_MCNT_SET( RSERVE, FAILED_PING_CACHE_LOOKUP,           ctx->metrics->fail_ping_cache_lookup );
   FD_MCNT_SET( RSERVE, DISK_READ_BUSY,                     ctx->metrics->disk_read_busy );
   FD_MCNT_SET( RSERVE, DISK_READ_MISS,                     ctx->metrics->disk_read_miss );
@@ -627,7 +723,17 @@ unprivileged_init( fd_topo_t      const * topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
   ctx->rserve = FD_SCRATCH_ALLOC_APPEND( l, fd_rserve_align(), fd_rserve_footprint( ping_cache_entries ) );
+  void * blockdb_mem = NULL;
+  if( FD_LIKELY( tile->rserve.blockdb_max ) ) {
+    blockdb_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_blockdb_align(), fd_blockdb_footprint( tile->rserve.blockdb_max ) );
+  }
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch + scratch_footprint( tile ) );
+
+  ctx->blockdb = NULL;
+  if( FD_LIKELY( blockdb_mem ) ) {
+    ctx->blockdb = fd_blockdb_join( fd_blockdb_new( blockdb_mem, tile->rserve.blockdb_max, ctx->seed ) );
+    FD_TEST( ctx->blockdb );
+  }
 
   ctx->store = NULL;
   ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
@@ -697,6 +803,10 @@ unprivileged_init( fd_topo_t      const * topo,
     }
     else if( 0==strcmp( link->name, "sign_rserve" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
     else if( 0==strcmp( link->name, "shred_out" ) )   ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+    else if( 0==strcmp( link->name, "rotor_rserve" ) ) {
+      if( FD_UNLIKELY( !ctx->blockdb ) ) FD_LOG_ERR(( "rserve has a rotor_rserve link but blockdb_max is 0" ));
+      ctx->in_kind[ in_idx ] = IN_KIND_ROTOR;
+    }
     else FD_LOG_ERR(( "rserve tile has unexpected input link: %s", link->name ));
 
     ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;

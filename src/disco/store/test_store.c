@@ -185,7 +185,7 @@ void
 test_disk_index_footprint( void ) {
   ulong fp_no_disk = fd_store_footprint( 8UL, 31840UL,  0UL, 0UL, 0UL );
   ulong fp_50_gib  = fd_store_footprint( 8UL, 31840UL, 50UL, 0UL, 0UL );
-  FD_TEST( fp_50_gib-fp_no_disk==(1322UL<<20)+4096UL ); /* map, entries, tags, hints, and alignment */
+  FD_TEST( fp_50_gib-fp_no_disk==(2314UL<<20)+4096UL ); /* slot and root maps and entries, tags, hints, and alignment */
 }
 
 void
@@ -500,6 +500,26 @@ test_pinned_spill( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( st ) ) );
 }
 
+/* disk_root returns a merkle root for shred's FEC set, derived from
+   (slot, idx/FD_FEC_SHRED_CNT) so re-inserting a (slot,idx) repeats its
+   (root,idx). */
+
+static fd_hash_t
+disk_root( ulong slot,
+           uint  fec_idx ) {
+  fd_hash_t root;
+  for( ulong i=0UL; i<4UL; i++ ) root.ul[ i ] = fd_ulong_hash( (slot<<20) ^ ((ulong)fec_idx<<2) ^ i );
+  return root;
+}
+
+static int
+disk_insert( fd_store_t *       store,
+             int                disk_fd,
+             fd_shred_t const * shred ) {
+  fd_hash_t root = disk_root( shred->slot, shred->idx/FD_FEC_SHRED_CNT );
+  return fd_store_disk_insert( store, disk_fd, shred, &root );
+}
+
 static fd_store_t * disk_concurrent_store;
 static int          disk_concurrent_fd;
 static uchar        disk_concurrent_shred[ FD_TILE_MAX ][ FD_SHRED_MAX_SZ ];
@@ -526,7 +546,7 @@ disk_tile_insert_concurrent( int argc FD_PARAM_UNUSED,
                              char ** argv FD_PARAM_UNUSED ) {
   ulong tile_idx = fd_tile_idx();
   while( !atomic_load_explicit( &disk_concurrent_go, memory_order_acquire ) ) FD_SPIN_PAUSE();
-  disk_concurrent_result[ tile_idx ] = fd_store_disk_insert(
+  disk_concurrent_result[ tile_idx ] = disk_insert(
       disk_concurrent_store, disk_concurrent_fd,
       (fd_shred_t const *)fd_type_pun_const( disk_concurrent_shred[ tile_idx ] ) );
   return 0;
@@ -560,7 +580,7 @@ test_disk_query_highest( fd_wksp_t * wksp ) {
   shred->idx       = 3U;
   shred->data.size = (ushort)FD_SHRED_DATA_HEADER_SZ;
 
-  FD_TEST( fd_store_disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
 
   uchar out[ FD_SHRED_MAX_SZ ];
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, 42UL, 3U, out )>0 );
@@ -588,7 +608,7 @@ test_disk_query_highest( fd_wksp_t * wksp ) {
   shred->data.size = (ushort)FD_SHRED_DATA_HEADER_SZ;
   shred->data.flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
 
-  FD_TEST( fd_store_disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
   /* An unrelated metadata update does not invalidate this binding. */
   FD_TEST( pread( disk_fd, raw_entry, sizeof(fd_shredb_entry_t), (off_t)store->wire_off )==(long)sizeof(fd_shredb_entry_t) );
   FD_TEST( raw_entry->tag==first_tag );
@@ -626,7 +646,7 @@ test_disk_many_wraps( fd_wksp_t * wksp ) {
     shred->idx       = (uint)(i%4UL);
     shred->data.size = (ushort)(FD_SHRED_DATA_HEADER_SZ+1UL);
     buf[ FD_SHRED_DATA_HEADER_SZ ] = (uchar)i;
-    FD_TEST( fd_store_disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
+    FD_TEST( disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
   }
   FD_TEST( atomic_load_explicit( &store->disk_cnt, memory_order_relaxed )==16UL );
   for( ulong i=144UL; i<160UL; i++ ) {
@@ -634,6 +654,85 @@ test_disk_many_wraps( fd_wksp_t * wksp ) {
     FD_TEST( sz>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==(uchar)i );
   }
   FD_TEST( fd_store_disk_query( store, disk_fd, 35UL, 3U, out )==FD_STORE_DISK_QUERY_MISS );
+
+  close( disk_fd );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
+}
+
+/* Several versions of one (slot,idx): the slot map serves the first
+   stored, the root map serves each, and both follow ring eviction. */
+
+void
+test_disk_versions( fd_wksp_t * wksp ) {
+  ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
+                                                    42UL ) );
+  FD_TEST( store );
+  store->disk_max_shreds = 4UL;
+
+  int disk_fd = store_file_open( store, O_RDWR );
+  FD_TEST( disk_fd>=0 );
+
+  ulong const slot = 50UL;
+  uint  const idx  = 3U;
+  fd_hash_t root_a = disk_root( 1000UL, 0U );
+  fd_hash_t root_b = disk_root( 1001UL, 0U );
+  fd_hash_t root_c = disk_root( 1002UL, 0U );
+  uchar buf[ FD_SHRED_MAX_SZ ];
+  uchar out[ FD_SHRED_MAX_SZ ];
+
+  /* Two versions are both stored and addressable by root; (slot,idx)
+     keeps the first. */
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xa0U ), &root_a )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xb0U ), &root_b )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( atomic_load_explicit( &store->disk_cnt, memory_order_relaxed )==2UL );
+  FD_TEST( fd_store_disk_query( store, disk_fd, slot, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xa0U );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_a.uc, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xa0U );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_b.uc, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xb0U );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot, 0U, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xa0U );
+
+  /* Only the root prefix is keyed and checked */
+  fd_hash_t root_b_tail = root_b; root_b_tail.uc[ 31 ] ^= 1;
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_b_tail.uc, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xb0U );
+
+  /* Wrong idx or unknown root misses */
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_a.uc, idx+1U, out )==FD_STORE_DISK_QUERY_MISS );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_c.uc, idx,    out )==FD_STORE_DISK_QUERY_MISS );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_a.uc, FD_SHRED_BLK_MAX, out )==FD_STORE_DISK_QUERY_MISS );
+
+  /* Re-inserting a stored (root,idx) does not take a ring cell */
+  ulong head = atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xb1U ), &root_b )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed )==head );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_b.uc, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xb0U );
+
+  /* Fill the four-cell ring, then overwrite version A's cell.  (slot,idx)
+     misses even though version B is still stored under its root. */
+  FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot+1UL, 0U, 0xc0U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot+1UL, 1U, 0xc1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot+1UL, 2U, 0xc2U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_a.uc, idx, out )==FD_STORE_DISK_QUERY_MISS );
+  FD_TEST( fd_store_disk_query( store, disk_fd, slot, idx, out )==FD_STORE_DISK_QUERY_MISS );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_b.uc, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xb0U );
+  FD_TEST( atomic_load_explicit( &store->disk_cnt, memory_order_relaxed )==4UL );
+
+  /* With (slot,idx) free again, the next new version takes it */
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xd0U ), &root_c )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query( store, disk_fd, slot, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xd0U );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_c.uc, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xd0U );
+
+  /* That insert overwrote version B's cell */
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_b.uc, idx, out )==FD_STORE_DISK_QUERY_MISS );
+  FD_TEST( atomic_load_explicit( &store->disk_cnt, memory_order_relaxed )==4UL );
+
+  /* An evicted (root,idx) can be stored again */
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xa1U ), &root_a )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_a.uc, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xa1U );
+  FD_TEST( fd_store_disk_query( store, disk_fd, slot, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xd0U );
+
+  /* A root is required */
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0U ), NULL )==FD_STORE_DISK_INSERT_ERR );
 
   close( disk_fd );
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
@@ -707,9 +806,9 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
 
   /* A newer slot that wraps onto this bucket replaces the stale owner
      even when its shred index is lower. */
-  FD_TEST( fd_store_disk_insert( store, disk_fd,
+  FD_TEST( disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_a, 10U, 0xa1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
-  FD_TEST( fd_store_disk_insert( store, disk_fd,
+  FD_TEST( disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_b, 5U, 0xb1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query( store, disk_fd, slot_b, 5U, out )>0 );
   FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xb1U );
@@ -718,13 +817,13 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_a, 0U, out )==FD_STORE_DISK_QUERY_BUSY );
 
   /* Monotonicity still applies within one slot. */
-  FD_TEST( fd_store_disk_insert( store, disk_fd,
+  FD_TEST( disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_b, 3U, 0xb2U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_b, 0U, out )>0 );
   FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xb1U );
 
   /* The next modulo generation can take ownership in the same way. */
-  FD_TEST( fd_store_disk_insert( store, disk_fd,
+  FD_TEST( disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_c, 11U, 0xc1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_c, 0U, out )>0 );
   FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xc1U );
@@ -735,22 +834,22 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
      intentionally never lowered or removed, so a missing hinted exact
      key must return SCAN_LIMIT rather than a false lower result. */
   for( ulong i=0UL; i<4UL; i++ )
-    FD_TEST( fd_store_disk_insert( store, disk_fd,
+    FD_TEST( disk_insert( store, disk_fd,
                                    disk_make_shred( buf, slot_a+1UL+i, 0U, (uchar)(0xd0U+i) ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query( store, disk_fd, slot_c, 11U, out )==FD_STORE_DISK_QUERY_MISS );
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_c, 0U, out )==FD_STORE_DISK_QUERY_SCAN_LIMIT );
 
-  FD_TEST( fd_store_disk_insert( store, disk_fd,
+  FD_TEST( disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_c, 3U, 0xc2U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query( store, disk_fd, slot_c, 3U, out )>0 );
   FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xc2U );
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_c, 0U, out )==FD_STORE_DISK_QUERY_SCAN_LIMIT );
-  FD_TEST( fd_store_disk_insert( store, disk_fd,
+  FD_TEST( disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_c, FD_SHRED_BLK_MAX, 0xc3U ) )==FD_STORE_DISK_INSERT_ERR );
 
   /* A fresh modulo generation must be serviceable from shred zero; it
      must not wait to exceed slot_c's stale index 11 watermark. */
-  FD_TEST( fd_store_disk_insert( store, disk_fd,
+  FD_TEST( disk_insert( store, disk_fd,
                                  disk_make_shred( buf, slot_d, 0U, 0xe0U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_d, 0U, out )>0 );
   FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0xe0U );
@@ -780,7 +879,7 @@ test_disk_lazy_highest( fd_wksp_t * wksp ) {
     shred->slot      = slots[i];
     shred->idx       = idxs[i];
     shred->data.size = (ushort)FD_SHRED_DATA_HEADER_SZ;
-    FD_TEST( fd_store_disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
+    FD_TEST( disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
   }
 
   uchar out[ FD_SHRED_MAX_SZ ];
@@ -829,7 +928,7 @@ test_disk_collision_eviction( fd_wksp_t * wksp ) {
     shred->data.size = (ushort)(FD_SHRED_DATA_HEADER_SZ+1UL);
     buf[ FD_SHRED_DATA_HEADER_SZ ] = payloads[ i ];
 
-    FD_TEST( fd_store_disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
+    FD_TEST( disk_insert( store, disk_fd, shred )==FD_STORE_DISK_INSERT_SUCCESS );
   }
 
   FD_TEST( fd_store_disk_query( store, disk_fd, fd_shredb_key_slot( keys[ 0 ] ), fd_shredb_key_shred_idx( keys[ 0 ] ), out )==FD_STORE_DISK_QUERY_MISS );
@@ -846,7 +945,7 @@ test_disk_collision_eviction( fd_wksp_t * wksp ) {
   oversized->slot      = 9UL;
   oversized->idx       = 0U;
   oversized->data.size = USHRT_MAX;
-  FD_TEST( fd_store_disk_insert( store, disk_fd, oversized )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( disk_insert( store, disk_fd, oversized )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query( store, disk_fd, 9UL, 0U, out )==(int)FD_SHRED_MAX_SZ );
 
   close( disk_fd );
@@ -883,10 +982,10 @@ test_disk_max_shreds_per_block( fd_wksp_t * wksp ) {
   uint  const lo   = FD_SHRED_BLK_MAX-1U; /* highest production idx */
   uint  const hi   = (uint)shred_max-1U;  /* highest bench idx, bit 15 set */
 
-  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, lo, 0x10U ) )==FD_STORE_DISK_INSERT_SUCCESS );
-  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, hi, 0x20U ) )==FD_STORE_DISK_INSERT_SUCCESS );
-  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, (uint)shred_max, 0x30U ) )==FD_STORE_DISK_INSERT_ERR );
-  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, FD_SHREDB_KEY_SLOT_MAX, 0U, 0x40U ) )==FD_STORE_DISK_INSERT_ERR );
+  FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot, lo, 0x10U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot, hi, 0x20U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot, (uint)shred_max, 0x30U ) )==FD_STORE_DISK_INSERT_ERR );
+  FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, FD_SHREDB_KEY_SLOT_MAX, 0U, 0x40U ) )==FD_STORE_DISK_INSERT_ERR );
 
   FD_TEST( fd_store_disk_query( store, disk_fd, slot, lo, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0x10U );
   FD_TEST( fd_store_disk_query( store, disk_fd, slot, hi, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0x20U );
@@ -897,7 +996,7 @@ test_disk_max_shreds_per_block( fd_wksp_t * wksp ) {
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot, 0U, out )>0 );
   FD_TEST( ((fd_shred_t const *)fd_type_pun_const( out ))->idx==hi );
   FD_TEST( out[ FD_SHRED_DATA_HEADER_SZ ]==0x20U );
-  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, lo+1U, 0x11U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( disk_insert( store, disk_fd, disk_make_shred( buf, slot, lo+1U, 0x11U ) )==FD_STORE_DISK_INSERT_SUCCESS );
   FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot, 0U, out )>0 );
   FD_TEST( ((fd_shred_t const *)fd_type_pun_const( out ))->idx==hi ); /* never lowered */
 
@@ -1026,6 +1125,7 @@ main( int argc, char ** argv ) {
   test_disk_query_highest( wksp );
   test_disk_collision_eviction( wksp );
   test_disk_many_wraps( wksp );
+  test_disk_versions( wksp );
   test_disk_concurrent_writes( wksp );
   test_disk_slot_hint( wksp );
   test_disk_lazy_highest( wksp );

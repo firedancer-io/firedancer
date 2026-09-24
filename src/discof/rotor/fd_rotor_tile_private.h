@@ -165,6 +165,7 @@ struct ctx {
 
   out_ctx_t net_out_ctx[1];
   out_ctx_t repair_out_ctx[1];
+  out_ctx_t rserve_out_ctx[1]; /* idx==UINT_MAX if rserve is disabled */
 
   /* repair_sign links (to sign tiles 1+) - for round-robin
      distribution */

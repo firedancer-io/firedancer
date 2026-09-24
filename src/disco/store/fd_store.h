@@ -27,7 +27,7 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
   if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702e9UL) /* firedancer store version 9 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702eaUL) /* firedancer store version 10 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -56,6 +56,17 @@ fd_shredb_key_slot( ulong key ) {
 FD_FN_CONST static inline uint
 fd_shredb_key_shred_idx( ulong key ) {
   return (uint)fd_ulong_extract( key, 0, 31 );
+}
+
+/* Root keys index a shred by the first FD_SHRED_MERKLE_NODE_SZ bytes of
+   its FEC set's merkle root and its shred_idx, so every version of a
+   (slot,idx) is addressable.  Keys are hashes; reads verify the root
+   stored in the entry. */
+
+FD_FN_PURE static inline ulong
+fd_shredb_root_key( uchar const * merkle_root,
+                    uint          shred_idx ) {
+  return fd_hash( (ulong)shred_idx, merkle_root, FD_SHRED_MERKLE_NODE_SZ );
 }
 
 typedef __attribute__((aligned(4))) ulong fd_shredb_map_key_t;
@@ -87,6 +98,7 @@ FD_STATIC_ASSERT( sizeof(fd_shredb_shred_entry_t)==12UL, shredb_shred_entry_foot
 struct __attribute__((aligned(64))) fd_shredb_entry {
   ulong  tag;
   ulong  key;
+  uchar  root[ FD_SHRED_MERKLE_NODE_SZ ]; /* merkle root prefix of the shred's FEC set */
   ushort shred_sz;
   uchar  shred[ FD_SHRED_MAX_SZ ];
 };
@@ -191,9 +203,13 @@ struct fd_store {
   ulong        fec_sets_gaddr;
 
   /* On-disk shred index. Lives in the wire region of the shared file
-     at byte offset wire_off + ring_idx*sizeof(entry). */
+     at byte offset wire_off + ring_idx*sizeof(entry).  shred_map keys
+     cells by (slot,idx), first version wins.  root_map keys every cell
+     by (root,idx).  Both pools are indexed by ring_idx. */
   ulong        shred_map_gaddr;
   ulong        shred_pool_gaddr;
+  ulong        root_map_gaddr;
+  ulong        root_pool_gaddr;
   ulong        shred_tag_gaddr;
   ulong        slot_hint_gaddr;
   ulong        disk_max_shreds;
@@ -280,6 +296,8 @@ fd_store_footprint( ulong fec_max,
     ulong max_slots    = fd_shredb_max_slots( shred_storage_gib );
     ulong disk_chain_cnt = fd_shredb_shred_map_chain_cnt_est( max_shreds );
     if( FD_UNLIKELY( !max_shreds || !max_slots ||
+                     fd_store_layout_append( &l, fd_shredb_shred_map_align(),     1UL,         fd_shredb_shred_map_footprint( disk_chain_cnt ) ) ||
+                     fd_store_layout_append( &l, alignof(fd_shredb_shred_entry_t), max_shreds, sizeof(fd_shredb_shred_entry_t) ) ||
                      fd_store_layout_append( &l, fd_shredb_shred_map_align(),     1UL,         fd_shredb_shred_map_footprint( disk_chain_cnt ) ) ||
                      fd_store_layout_append( &l, alignof(fd_shredb_shred_entry_t), max_shreds, sizeof(fd_shredb_shred_entry_t) ) ||
                      fd_store_layout_append( &l, alignof(atomic_ulong),            max_shreds, sizeof(atomic_ulong) ) ||
@@ -467,18 +485,22 @@ struct fd_store_disk_stats {
 };
 typedef struct fd_store_disk_stats fd_store_disk_stats_t;
 
-/* Persists one (slot,idx) shred, where idx is below max_shreds_per_block.
-   The caller guarantees that the shred has not previously been inserted.
-   Returns FD_STORE_DISK_INSERT_SUCCESS or FD_STORE_DISK_INSERT_ERR. */
+/* Persists one (slot,idx) shred, where idx is below max_shreds_per_block,
+   whose FEC set has merkle root merkle_root (only the first
+   FD_SHRED_MERKLE_NODE_SZ bytes are used).  Every version is indexed by
+   (root,idx).  The first version stored for a (slot,idx) is also indexed
+   by (slot,idx).  Re-inserting a stored (root,idx) is a no-op.  Returns
+   FD_STORE_DISK_INSERT_SUCCESS or FD_STORE_DISK_INSERT_ERR. */
 
 int
 fd_store_disk_insert( fd_store_t       * store,
                       int                disk_fd,
-                      fd_shred_t const * shred );
+                      fd_shred_t const * shred,
+                      fd_hash_t const  * merkle_root );
 
 /* Copies (slot,shred_idx) to out, where shred_idx is below
    max_shreds_per_block.  Returns its positive byte count, MISS, or
-   retryable BUSY. */
+   retryable BUSY.  Only finds the first version stored. */
 
 int
 fd_store_disk_query( fd_store_t const * store,
@@ -486,6 +508,18 @@ fd_store_disk_query( fd_store_t const * store,
                      ulong              slot,
                      uint               shred_idx,
                      uchar              out[ FD_SHRED_MAX_SZ ] );
+
+/* fd_store_disk_query_root copies the shred at shred_idx of the FEC set
+   whose merkle root starts with the FD_SHRED_MERKLE_NODE_SZ bytes at
+   merkle_root to out.  Finds any stored version.  Returns its positive
+   byte count, MISS, or retryable BUSY. */
+
+int
+fd_store_disk_query_root( fd_store_t const * store,
+                          int                disk_fd,
+                          uchar const *      merkle_root,
+                          uint               shred_idx,
+                          uchar              out[ FD_SHRED_MAX_SZ ] );
 
 /* Copies the cached highest stored shred in slot to out.  A shred below
    min_shred_idx is returned only if it completes the slot.  The compact

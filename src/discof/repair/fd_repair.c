@@ -317,6 +317,50 @@ ag_repair_fec_set_root_verify( ag_fec_root_res_t const * res,
   return verify_merkle_proof( leaf, fec_set_idx / FD_FEC_SHRED_CNT, res->fec_proof[0], res->proof_len, block_id );
 }
 
+ulong
+ag_repair_parent_fec_count_ser( uchar *           buf,
+                                ulong             buf_sz,
+                                uint              fec_set_count,
+                                ulong             parent_slot,
+                                fd_hash_t const * parent_block_id,
+                                uchar const *     proof,
+                                ulong             proof_len,
+                                uint              nonce ) {
+  ulong proof_sz = proof_len*FD_SHRED_MERKLE_NODE_SZ;
+  ulong sz       = sizeof(uint) + sizeof(uint) + sizeof(ulong) + sizeof(fd_hash_t) + sizeof(ulong) + proof_sz + sizeof(uint);
+  if( FD_UNLIKELY( sz>buf_sz ) ) return 0UL;
+
+  uchar * cur = buf;
+  FD_STORE( uint,  cur, AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT ); cur += sizeof(uint);
+  FD_STORE( uint,  cur, fec_set_count                           ); cur += sizeof(uint);
+  FD_STORE( ulong, cur, parent_slot                             ); cur += sizeof(ulong);
+  memcpy( cur, parent_block_id->uc, sizeof(fd_hash_t) );          cur += sizeof(fd_hash_t);
+  FD_STORE( ulong, cur, proof_sz                                ); cur += sizeof(ulong);
+  memcpy( cur, proof, proof_sz );                                 cur += proof_sz;
+  FD_STORE( uint,  cur, nonce                                   ); cur += sizeof(uint);
+  return sz;
+}
+
+ulong
+ag_repair_fec_set_root_ser( uchar *       buf,
+                            ulong         buf_sz,
+                            uchar const * root,
+                            uchar const * proof,
+                            ulong         proof_len,
+                            uint          nonce ) {
+  ulong proof_sz = proof_len*FD_SHRED_MERKLE_NODE_SZ;
+  ulong sz       = sizeof(uint) + FD_SHRED_MERKLE_NODE_SZ + sizeof(ulong) + proof_sz + sizeof(uint);
+  if( FD_UNLIKELY( sz>buf_sz ) ) return 0UL;
+
+  uchar * cur = buf;
+  FD_STORE( uint,  cur, AG_REPAIR_RESPONSE_FEC_SET_ROOT ); cur += sizeof(uint);
+  memcpy( cur, root, FD_SHRED_MERKLE_NODE_SZ );           cur += FD_SHRED_MERKLE_NODE_SZ;
+  FD_STORE( ulong, cur, proof_sz                        ); cur += sizeof(ulong);
+  memcpy( cur, proof, proof_sz );                         cur += proof_sz;
+  FD_STORE( uint,  cur, nonce                           ); cur += sizeof(uint);
+  return sz;
+}
+
 int
 fd_repair_ping_de( fd_repair_ping_t * ping,
                    uchar      const * buf,

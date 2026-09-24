@@ -66,6 +66,21 @@ disk_shred_map_ljoin( fd_store_t const * store,
                                    store->disk_max_shreds );
 }
 
+static inline fd_shredb_shred_entry_t *
+disk_root_pool_laddr( fd_store_t const * store ) {
+  return fd_wksp_laddr_fast( fd_store_wksp( store ), store->root_pool_gaddr );
+}
+
+static inline fd_shredb_shred_map_t *
+disk_root_map_ljoin( fd_store_t const * store,
+                     fd_shredb_shred_map_t * join ) {
+  fd_wksp_t * wksp = fd_store_wksp( store );
+  return fd_shredb_shred_map_join( join,
+                                   fd_wksp_laddr_fast( wksp, store->root_map_gaddr ),
+                                   disk_root_pool_laddr( store ),
+                                   store->disk_max_shreds );
+}
+
 static inline atomic_ulong *
 disk_slot_hint_laddr( fd_store_t const * store ) {
   return fd_wksp_laddr_fast( fd_store_wksp( store ), store->slot_hint_gaddr );
@@ -378,6 +393,8 @@ fd_store_new( void       * shmem,
 
   void *         shred_map_mem  = NULL;
   void *         shred_pool_mem = NULL;
+  void *         root_map_mem   = NULL;
+  void *         root_pool_mem  = NULL;
   atomic_ulong * shred_tag_mem  = NULL;
   atomic_ulong * slot_hint_mem  = NULL;
   ulong          max_shreds     = 0UL;
@@ -391,6 +408,8 @@ fd_store_new( void       * shmem,
 
     shred_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_shred_map_align(),      fd_shredb_shred_map_footprint( disk_chain_cnt ) );
     shred_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_shred_entry_t), max_shreds * sizeof(fd_shredb_shred_entry_t)    );
+    root_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_shred_map_align(),      fd_shredb_shred_map_footprint( disk_chain_cnt ) );
+    root_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_shred_entry_t), max_shreds * sizeof(fd_shredb_shred_entry_t)    );
     shred_tag_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(atomic_ulong),            max_shreds * sizeof(atomic_ulong)               );
     slot_hint_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(atomic_ulong),            max_slots * sizeof(atomic_ulong)                );
   }
@@ -467,18 +486,24 @@ fd_store_new( void       * shmem,
 
   if( shred_storage_gib ) {
     void * shred_shmap = fd_shredb_shred_map_new( shred_map_mem, disk_chain_cnt, seed );
-    FD_TEST( shred_shmap );
+    void * root_shmap  = fd_shredb_shred_map_new( root_map_mem,  disk_chain_cnt, seed );
+    FD_TEST( shred_shmap && root_shmap );
     store->shred_map_gaddr     = fd_wksp_gaddr_fast( wksp, shred_shmap );
     store->shred_pool_gaddr    = fd_wksp_gaddr_fast( wksp, shred_pool_mem );
+    store->root_map_gaddr      = fd_wksp_gaddr_fast( wksp, root_shmap );
+    store->root_pool_gaddr     = fd_wksp_gaddr_fast( wksp, root_pool_mem );
     store->shred_tag_gaddr     = fd_wksp_gaddr_fast( wksp, shred_tag_mem );
     store->slot_hint_gaddr     = fd_wksp_gaddr_fast( wksp, slot_hint_mem );
     store->disk_max_shreds     = max_shreds;
     store->disk_max_slots      = max_slots;
 
-    fd_shredb_shred_entry_t * cell = (fd_shredb_shred_entry_t *)shred_pool_mem;
+    fd_shredb_shred_entry_t * cell      = (fd_shredb_shred_entry_t *)shred_pool_mem;
+    fd_shredb_shred_entry_t * root_cell = (fd_shredb_shred_entry_t *)root_pool_mem;
     for( ulong i=0UL; i<max_shreds; i++ ) {
-      cell[ i ].key  = 0UL;
-      cell[ i ].next = UINT_MAX;
+      cell[ i ].key       = 0UL;
+      cell[ i ].next      = UINT_MAX;
+      root_cell[ i ].key  = 0UL;
+      root_cell[ i ].next = UINT_MAX;
       atomic_init( shred_tag_mem+i, 0UL );
     }
     for( ulong i=0UL; i<max_slots; i++ ) {
@@ -884,15 +909,22 @@ disk_slot_hint_publish( fd_store_t * store,
   }
 }
 
+/* disk_relink updates one index map for the cell whose entry in that
+   map's pool is ele, in a single map txn.  old_key is unlinked if it
+   points at ele.  If link, new_key is then linked to ele unless another
+   cell holds it.  Returns SUCCESS if linked, NOOP if another READY cell
+   holds new_key or !link, ERR if another cell holding it is WRITING. */
+
 static int
-disk_exact_publish( fd_store_t *              store,
-                    fd_shredb_shred_entry_t * cell,
-                    ulong                     old_key,
-                    ulong                     new_key ) {
+disk_relink( fd_store_t *              store,
+             fd_shredb_shred_map_t *   map,
+             fd_shredb_shred_entry_t * pool,
+             fd_shredb_shred_entry_t * ele,
+             ulong                     old_key,
+             ulong                     new_key,
+             int                       link ) {
   fd_shredb_map_key_t old_map_key = old_key;
   fd_shredb_map_key_t new_map_key = new_key;
-  fd_shredb_shred_map_t map[1];
-  FD_TEST( disk_shred_map_ljoin( store, map ) );
   struct {
     fd_shredb_shred_map_txn_t              txn [1];
     fd_shredb_shred_map_txn_private_info_t info[2];
@@ -910,11 +942,11 @@ disk_exact_publish( fd_store_t *              store,
   FD_TEST( new_err==FD_MAP_SUCCESS || new_err==FD_MAP_ERR_KEY );
   fd_shredb_shred_entry_t * old_ele = old_err ? NULL : fd_shredb_shred_map_query_ele( old_query );
 
-  int result = DISK_PUBLISH_SUCCESS;
-  if( FD_UNLIKELY( !new_err ) ) {
+  int result = link ? DISK_PUBLISH_SUCCESS : DISK_PUBLISH_NOOP;
+  if( FD_UNLIKELY( link && !new_err ) ) {
     fd_shredb_shred_entry_t * new_ele = fd_shredb_shred_map_query_ele( new_query );
-    if( new_ele!=cell ) {
-      ulong new_idx = (ulong)(new_ele-disk_shred_pool_laddr( store ));
+    if( new_ele!=ele ) {
+      ulong new_idx = (ulong)(new_ele-pool);
       ulong state = disk_cell_state( atomic_load_explicit( disk_shred_tag_laddr( store )+new_idx, memory_order_acquire ) );
       if( FD_LIKELY( state==FD_SHREDB_CELL_READY ) ) result = DISK_PUBLISH_NOOP;
       else if( FD_UNLIKELY( state==FD_SHREDB_CELL_WRITING ) ) result = DISK_PUBLISH_ERR;
@@ -922,31 +954,79 @@ disk_exact_publish( fd_store_t *              store,
     }
   }
 
-  if( old_ele==cell ) {
+  if( old_ele==ele ) {
     fd_shredb_shred_map_query_t remove_query[1];
     FD_TEST( !fd_shredb_shred_map_txn_remove( map, &old_map_key, NULL, remove_query, 0 ) );
   }
 
   if( FD_LIKELY( result==DISK_PUBLISH_SUCCESS ) ) {
-    cell->key = new_map_key;
-    FD_TEST( !fd_shredb_shred_map_txn_insert( map, cell ) );
+    ele->key = new_map_key;
+    FD_TEST( !fd_shredb_shred_map_txn_insert( map, ele ) );
   }
   FD_TEST( !fd_shredb_shred_map_txn_test( txn ) );
   fd_shredb_shred_map_txn_fini( txn );
   return result;
 }
 
+/* disk_exact_publish relinks ring cell ring_idx from its old keys to
+   (key,root_key).  The root map decides the result, see disk_relink.
+   On SUCCESS the slot map is linked only if (slot,idx) is free, and
+   *slot_linked says whether it was.  Both old keys are always unlinked. */
+
+static int
+disk_exact_publish( fd_store_t * store,
+                    ulong        ring_idx,
+                    ulong        old_key,
+                    ulong        old_root_key,
+                    ulong        key,
+                    ulong        root_key,
+                    int *        slot_linked ) {
+  fd_shredb_shred_map_t root_map[1];
+  fd_shredb_shred_map_t slot_map[1];
+  FD_TEST( disk_root_map_ljoin( store, root_map ) );
+  FD_TEST( disk_shred_map_ljoin( store, slot_map ) );
+  fd_shredb_shred_entry_t * root_pool = disk_root_pool_laddr( store );
+  fd_shredb_shred_entry_t * slot_pool = disk_shred_pool_laddr( store );
+
+  int result = disk_relink( store, root_map, root_pool, root_pool+ring_idx, old_root_key, root_key, 1 );
+  int slot   = disk_relink( store, slot_map, slot_pool, slot_pool+ring_idx, old_key, key, result==DISK_PUBLISH_SUCCESS );
+  *slot_linked = slot==DISK_PUBLISH_SUCCESS;
+  return result;
+}
+
+/* disk_root_present returns 1 if (root,idx) is already stored in a READY
+   cell.  Lets duplicate inserts skip taking a ring cell. */
+
+static int
+disk_root_present( fd_store_t const * store,
+                   ulong              root_key ) {
+  fd_shredb_map_key_t map_key = root_key;
+  fd_shredb_shred_map_t map[1];
+  FD_TEST( disk_root_map_ljoin( store, map ) );
+  fd_shredb_shred_map_query_t query[1];
+  if( FD_UNLIKELY( fd_shredb_shred_map_query_try( map, &map_key, NULL, query, 0 ) ) ) return 0;
+  ulong ring_idx = (ulong)(fd_shredb_shred_map_query_ele_const( query )-disk_root_pool_laddr( store ));
+  ulong state = disk_cell_state( atomic_load_explicit( disk_shred_tag_laddr( store )+ring_idx, memory_order_acquire ) );
+  return !fd_shredb_shred_map_query_test( query ) && state==FD_SHREDB_CELL_READY;
+}
+
 int
 fd_store_disk_insert( fd_store_t       * store,
                       int                disk_fd,
-                      fd_shred_t const * shred ) {
-  if( FD_UNLIKELY( !store || disk_fd<0 || !shred || !fd_store_has_disk( store ) ) )
+                      fd_shred_t const * shred,
+                      fd_hash_t const  * merkle_root ) {
+  if( FD_UNLIKELY( !store || disk_fd<0 || !shred || !merkle_root || !fd_store_has_disk( store ) ) )
     return FD_STORE_DISK_INSERT_ERR;
 
   ulong slot      = shred->slot;
   uint  shred_idx = shred->idx;
   if( FD_UNLIKELY( slot>=FD_SHREDB_KEY_SLOT_MAX || shred_idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_INSERT_ERR;
-  ulong key = fd_shredb_key_pack( slot, shred_idx );
+  ulong key      = fd_shredb_key_pack( slot, shred_idx );
+  ulong root_key = fd_shredb_root_key( merkle_root->uc, shred_idx );
+
+  /* Skip exact duplicates before taking a cell, which would otherwise
+     evict an older shred.  disk_exact_publish still catches races. */
+  if( FD_UNLIKELY( disk_root_present( store, root_key ) ) ) return FD_STORE_DISK_INSERT_SUCCESS;
 
   ulong ticket = atomic_fetch_add_explicit( &store->disk_reservation_head, 1UL, memory_order_relaxed ) + 1UL;
   if( FD_UNLIKELY( !ticket || ticket>(ULONG_MAX>>2) ) ) return FD_STORE_DISK_INSERT_ERR;
@@ -963,7 +1043,8 @@ fd_store_disk_insert( fd_store_t       * store,
                                                               memory_order_acq_rel, memory_order_acquire ) ) )
     return FD_STORE_DISK_INSERT_ERR;
   old_state = disk_cell_state( old_tag );
-  ulong old_key = cell->key;
+  ulong old_key      = cell->key;
+  ulong old_root_key = disk_root_pool_laddr( store )[ ring_idx ].key;
 
   fd_shredb_entry_t wr_entry[1];
   ulong shred_sz = fd_ulong_min( fd_shred_sz( shred ), FD_SHRED_MAX_SZ );
@@ -971,6 +1052,7 @@ fd_store_disk_insert( fd_store_t       * store,
   wr_entry->tag      = disk_cell_tag( ticket, FD_SHREDB_CELL_READY );
   wr_entry->key      = key;
   wr_entry->shred_sz = (ushort)shred_sz;
+  memcpy( wr_entry->root, merkle_root->uc, FD_SHRED_MERKLE_NODE_SZ );
   fd_memcpy( wr_entry->shred, shred, shred_sz );
 
   off_t off = (off_t)(store->wire_off + ring_idx*sizeof(fd_shredb_entry_t));
@@ -978,9 +1060,11 @@ fd_store_disk_insert( fd_store_t       * store,
     FD_LOG_ERR(( "error writing to disk store: (%d-%s)", errno, fd_io_strerror( errno ) ));
   atomic_fetch_add_explicit( &store->disk_write_bytes, sizeof(wr_entry), memory_order_relaxed );
 
-  int publish_result = disk_exact_publish( store, cell, old_key, key );
+  int slot_linked;
+  int publish_result = disk_exact_publish( store, ring_idx, old_key, old_root_key, key, root_key, &slot_linked );
   if( FD_LIKELY( publish_result==DISK_PUBLISH_SUCCESS ) ) {
-    disk_slot_hint_publish( store, slot, shred_idx );
+    /* The hint serves slot map reads, so only the first version sets it */
+    if( FD_LIKELY( slot_linked ) ) disk_slot_hint_publish( store, slot, shred_idx );
     atomic_store_explicit( cell_tag, wr_entry->tag, memory_order_release );
     if( old_state!=FD_SHREDB_CELL_READY )
       atomic_fetch_add_explicit( &store->disk_cnt, 1UL, memory_order_relaxed );
@@ -997,14 +1081,21 @@ fd_store_disk_insert( fd_store_t       * store,
 
 #define FD_STORE_DISK_READ_RETRY_CNT (8UL)
 
+/* disk_read_key_once reads the cell holding key into rd_entry.  If root
+   is NULL, key is a slot map key.  Otherwise key is the root map key of
+   (root,shred_idx), and a stable entry that doesn't match is a hash
+   collision (MISS). */
+
 static int
 disk_read_key_once( fd_store_t const * store,
                     int                disk_fd,
                     ulong              key,
+                    uchar const *      root,
+                    uint               shred_idx,
                     fd_shredb_entry_t * rd_entry ) {
   fd_shredb_map_key_t map_key = key;
   fd_shredb_shred_map_t map[1];
-  FD_TEST( disk_shred_map_ljoin( store, map ) );
+  FD_TEST( root ? disk_root_map_ljoin( store, map ) : disk_shred_map_ljoin( store, map ) );
   fd_shredb_shred_map_query_t query[1];
   int err = fd_shredb_shred_map_query_try( map, &map_key, NULL, query, 0 );
   if( FD_UNLIKELY( err==FD_MAP_ERR_AGAIN || err==FD_MAP_ERR_CORRUPT ) ) return FD_STORE_DISK_QUERY_BUSY;
@@ -1012,7 +1103,7 @@ disk_read_key_once( fd_store_t const * store,
   FD_TEST( !err );
 
   fd_shredb_shred_entry_t const * cell = fd_shredb_shred_map_query_ele_const( query );
-  ulong ring_idx = (ulong)(cell-disk_shred_pool_laddr( store ));
+  ulong ring_idx = (ulong)(cell-( root ? disk_root_pool_laddr( store ) : disk_shred_pool_laddr( store ) ));
   atomic_ulong * cell_tag = disk_shred_tag_laddr( store ) + ring_idx;
   ulong tag = atomic_load_explicit( cell_tag, memory_order_acquire );
   if( FD_UNLIKELY( disk_cell_state( tag )!=FD_SHREDB_CELL_READY ) ) {
@@ -1027,7 +1118,13 @@ disk_read_key_once( fd_store_t const * store,
   ulong tag_after = atomic_load_explicit( cell_tag, memory_order_acquire );
   int query_err = fd_shredb_shred_map_query_test( query );
   if( FD_UNLIKELY( query_err || tag_after!=tag ) ) return FD_STORE_DISK_QUERY_BUSY;
-  if( FD_UNLIKELY( rd_entry->tag!=tag || rd_entry->key!=key ) ) return FD_STORE_DISK_QUERY_BUSY;
+  if( FD_UNLIKELY( rd_entry->tag!=tag ) ) return FD_STORE_DISK_QUERY_BUSY;
+  if( root ) {
+    if( FD_UNLIKELY( memcmp( rd_entry->root, root, FD_SHRED_MERKLE_NODE_SZ ) ||
+                     fd_shredb_key_shred_idx( rd_entry->key )!=shred_idx ) ) return FD_STORE_DISK_QUERY_MISS;
+  } else {
+    if( FD_UNLIKELY( rd_entry->key!=key ) ) return FD_STORE_DISK_QUERY_BUSY;
+  }
   return (int)fd_ulong_min( rd_entry->shred_sz, FD_SHRED_MAX_SZ );
 }
 
@@ -1042,7 +1139,27 @@ fd_store_disk_query( fd_store_t const * store,
   ulong key = fd_shredb_key_pack( slot, shred_idx );
   for( ulong retry=0UL; retry<FD_STORE_DISK_READ_RETRY_CNT; retry++ ) {
     fd_shredb_entry_t rd_entry[1];
-    int result = disk_read_key_once( store, disk_fd, key, rd_entry );
+    int result = disk_read_key_once( store, disk_fd, key, NULL, 0U, rd_entry );
+    if( FD_UNLIKELY( result==FD_STORE_DISK_QUERY_BUSY ) ) { FD_SPIN_PAUSE(); continue; }
+    if( FD_UNLIKELY( result<0 ) ) return result;
+    fd_memcpy( out, rd_entry->shred, (ulong)result );
+    return result;
+  }
+  return FD_STORE_DISK_QUERY_BUSY;
+}
+
+int
+fd_store_disk_query_root( fd_store_t const * store,
+                          int                disk_fd,
+                          uchar const *      merkle_root,
+                          uint               shred_idx,
+                          uchar              out[ FD_SHRED_MAX_SZ ] ) {
+  if( FD_UNLIKELY( !store || disk_fd<0 || !merkle_root || !out || !fd_store_has_disk( store ) ||
+                   shred_idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_QUERY_MISS;
+  ulong root_key = fd_shredb_root_key( merkle_root, shred_idx );
+  for( ulong retry=0UL; retry<FD_STORE_DISK_READ_RETRY_CNT; retry++ ) {
+    fd_shredb_entry_t rd_entry[1];
+    int result = disk_read_key_once( store, disk_fd, root_key, merkle_root, shred_idx, rd_entry );
     if( FD_UNLIKELY( result==FD_STORE_DISK_QUERY_BUSY ) ) { FD_SPIN_PAUSE(); continue; }
     if( FD_UNLIKELY( result<0 ) ) return result;
     fd_memcpy( out, rd_entry->shred, (ulong)result );
@@ -1068,7 +1185,7 @@ fd_store_disk_query_highest( fd_store_t const * store,
     if( FD_UNLIKELY( idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_QUERY_MISS;
 
     fd_shredb_entry_t rd_entry[1];
-    int result = disk_read_key_once( store, disk_fd, fd_shredb_key_pack( slot, idx ), rd_entry );
+    int result = disk_read_key_once( store, disk_fd, fd_shredb_key_pack( slot, idx ), NULL, 0U, rd_entry );
     ulong hint_after = atomic_load_explicit( hint_ptr, memory_order_acquire );
     if( FD_UNLIKELY( hint_after!=hint || result==FD_STORE_DISK_QUERY_BUSY ) ) {
       FD_SPIN_PAUSE();

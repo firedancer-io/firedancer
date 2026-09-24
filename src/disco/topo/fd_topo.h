@@ -610,6 +610,7 @@ struct fd_topo_tile {
       char   identity_key_path[ PATH_MAX ];
       ulong  ping_cache_entries;
       ulong  max_shreds_per_block;
+      ulong  blockdb_max; /* 0 disables the block metadata db */
     } rserve;
 
     struct {
