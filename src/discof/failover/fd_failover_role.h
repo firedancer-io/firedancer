@@ -27,9 +27,6 @@ typedef struct fd_failover_role_file fd_failover_role_file_t;
 #define FD_FAILOVER_DEMOTED_PATH     "failover-demoted"
 #define FD_FAILOVER_DEMOTED_TMP_PATH "failover-demoted.new"
 
-/* The source belongs to the durable record, not the wire payload.  It
-   must survive passive boot and maintenance changes to the role file.
-   Version 1 records have no source and load as UNKNOWN. */
 #define FD_FAILOVER_DEMOTED_SOURCE_UNKNOWN  (0U)
 #define FD_FAILOVER_DEMOTED_SOURCE_LOCAL    (1U)
 #define FD_FAILOVER_DEMOTED_SOURCE_PEER     (2U)
