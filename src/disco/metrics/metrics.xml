@@ -1468,6 +1468,7 @@ EXAMPLES
     <int value="3" name="Orphan" label="Orphan" />
     <int value="4" name="ParentFecSetCount" label="Parent FEC Set Count" />
     <int value="5" name="FecSetRoot" label="FEC Set Root" />
+    <int value="6" name="ShredForBlockId" label="Shred For Block Id" />
 </enum>
 
 <enum name="RserveRequestTypes">
@@ -1477,6 +1478,7 @@ EXAMPLES
     <int value="3" name="Orphan" label="Orphan" />
     <int value="4" name="ParentFecSetCount" label="Parent FEC Set Count" />
     <int value="5" name="FecSetRoot" label="FEC Set Root" />
+    <int value="6" name="ShredForBlockId" label="Shred For Block Id" />
 </enum>
 
 <enum name="RserveMalformedTypes">

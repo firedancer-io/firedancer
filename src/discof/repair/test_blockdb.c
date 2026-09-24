@@ -144,8 +144,8 @@ test_proofs( fd_blockdb_t * db,
     FD_TEST( !ag_repair_response_de( res, buf, sz, FD_FEC_BLK_MAX ) );
     FD_TEST( res->kind==AG_REPAIR_RESPONSE_FEC_SET_ROOT && res->nonce==k );
     FD_TEST( !memcmp( res->fec_set_root.root, full_roots[ k ].uc, FD_SHRED_MERKLE_NODE_SZ ) );
-    FD_TEST( !ag_repair_fec_set_root_verify( &res->fec_set_root, &bid, k*FD_FEC_SHRED_CNT ) );
-    if( fec_set_cnt>1U ) FD_TEST( ag_repair_fec_set_root_verify( &res->fec_set_root, &bid, ((k+1U)%fec_set_cnt)*FD_FEC_SHRED_CNT ) );
+    FD_TEST( !ag_repair_fec_set_root_verify( &res->fec_set_root, &bid, k*FD_FEC_SHRED_CNT, fec_set_cnt ) );
+    if( fec_set_cnt>1U ) FD_TEST( ag_repair_fec_set_root_verify( &res->fec_set_root, &bid, ((k+1U)%fec_set_cnt)*FD_FEC_SHRED_CNT, fec_set_cnt ) );
   }
 
   /* Past the parent-info leaf */
