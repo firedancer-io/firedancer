@@ -1780,9 +1780,10 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
       FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ),
       ctx->accdb,
       bank->accdb_fork_id );
-  bank->f.total_effective_stake    = root_delegations->effective_stake;
-  bank->f.total_activating_stake   = root_delegations->activating_stake;
-  bank->f.total_deactivating_stake = root_delegations->deactivating_stake;
+  fd_stake_history_entry_t totals = fd_stake_delegations_totals( root_delegations );
+  bank->f.total_effective_stake    = totals.effective;
+  bank->f.total_activating_stake   = totals.activating;
+  bank->f.total_deactivating_stake = totals.deactivating;
 
   /* Emit the stake-delegations boot baseline from the finalized root
      cache (snapshot accepted and refreshed, or genesis loaded), so the
@@ -1806,7 +1807,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx );
+  fd_rewards_recalculate_partitioned_rewards( bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx );
 
   /* Signals fd_startup_gate */
   FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );

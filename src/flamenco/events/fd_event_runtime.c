@@ -418,12 +418,13 @@ fd_event_runtime_rooted_emit( fd_bank_t const *                          bank,
   ev.epoch          = bank->f.epoch;
   ev.prev_root_slot = prev_root_slot;
 
+  fd_stake_history_entry_t totals = fd_stake_delegations_totals( stake_delegations );
   ev.stake_delegations_upserts = stake_delegations_delta_stats->upserts;
   ev.stake_delegations_removes = stake_delegations_delta_stats->removes;
   ev.stake_delegations_cnt     = stake_delegations_delta_stats->root_cnt;
-  ev.effective_stake           = stake_delegations->effective_stake;
-  ev.activating_stake          = stake_delegations->activating_stake;
-  ev.deactivating_stake        = stake_delegations->deactivating_stake;
+  ev.effective_stake           = totals.effective;
+  ev.activating_stake          = totals.activating;
+  ev.deactivating_stake        = totals.deactivating;
 
   fd_memcpy( ev.block_id, bank->f.block_id.uc, 32UL );
 
