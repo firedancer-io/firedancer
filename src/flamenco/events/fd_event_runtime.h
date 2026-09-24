@@ -123,10 +123,17 @@ fd_event_exec_err_kind_from_exec_err_kind( int kind ) {
    it on the calling tile's event link.  No-op when the tile has no
    event link. */
 
+struct fd_event_runtime_txn_lthashes {
+  fd_lthash_value_t hash[ MAX_TX_ACCOUNT_LOCKS ];
+  uchar valid[ MAX_TX_ACCOUNT_LOCKS ];
+};
+typedef struct fd_event_runtime_txn_lthashes fd_event_runtime_txn_lthashes_t;
+
 void
 fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
                            fd_txn_out_t const * txn_out,
-                           fd_bank_t    const * bank );
+                           fd_bank_t    const * bank,
+                           fd_event_runtime_txn_lthashes_t const * lthashes );
 
 /* Build a runtime_stake_delegation event for the cache mutation the
    caller just applied (stake_state is the upserted entry's parsed

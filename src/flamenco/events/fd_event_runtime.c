@@ -8,7 +8,8 @@
 void
 fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
                            fd_txn_out_t const * txn_out,
-                           fd_bank_t    const * bank ) {
+                           fd_bank_t    const * bank,
+                           fd_event_runtime_txn_lthashes_t const * lthashes ) {
   if( FD_LIKELY( !fd_event_tl ) ) return;
   if( FD_UNLIKELY( !txn_in || !txn_in->txn || !bank ) ) return;
 
@@ -104,6 +105,10 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
     d->is_vote_update  = !!txn_out->accounts.vote_update [ i ];
     d->is_new_vote     = !!txn_out->accounts.new_vote    [ i ];
     d->is_rm_vote      = !!txn_out->accounts.rm_vote     [ i ];
+    if( lthashes && txn_out->err.is_committable && lthashes->valid[ i ] ) {
+      fd_memcpy( d->account_lthash, lthashes->hash[ i ].bytes, FD_LTHASH_LEN_BYTES );
+      d->account_lthash_len = FD_LTHASH_LEN_BYTES;
+    }
   }
   ev.account_diffs_cnt = diff_cnt;
 

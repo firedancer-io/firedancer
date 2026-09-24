@@ -218,18 +218,20 @@ typedef struct fd_event_block_equivocated fd_event_block_equivocated_t;
 
 /* Per-account diff entry */
 struct fd_event_runtime_txn_account_diffs {
-  uchar pubkey[ 32UL ];     /* Account pubkey */
-  uchar owner[ 32UL ];      /* Post-state owner pubkey */
-  uchar prev_owner[ 32UL ]; /* Pre-state owner pubkey */
-  ulong lamports;           /* Post-state lamports */
-  ulong prev_lamports;      /* Pre-state lamports */
-  ulong data_sz;            /* Post-state data size in bytes */
-  ulong prev_data_sz;       /* Pre-state data size in bytes */
-  int   is_executable;      /* True if the post-state account is executable */
-  int   is_stake_update;    /* True if this write touched the stake cache */
-  int   is_vote_update;     /* True if this write touched the vote cache */
-  int   is_new_vote;        /* True if this write created a new vote account */
-  int   is_rm_vote;         /* True if this write removed a vote account */
+  uchar pubkey[ 32UL ];           /* Account pubkey */
+  uchar owner[ 32UL ];            /* Post-state owner pubkey */
+  uchar prev_owner[ 32UL ];       /* Pre-state owner pubkey */
+  ulong lamports;                 /* Post-state lamports */
+  ulong prev_lamports;            /* Pre-state lamports */
+  ulong data_sz;                  /* Post-state data size in bytes */
+  ulong prev_data_sz;             /* Pre-state data size in bytes */
+  int   is_executable;            /* True if the post-state account is executable */
+  int   is_stake_update;          /* True if this write touched the stake cache */
+  int   is_vote_update;           /* True if this write touched the vote cache */
+  int   is_new_vote;              /* True if this write created a new vote account */
+  int   is_rm_vote;               /* True if this write removed a vote account */
+  uchar account_lthash[ 2048UL ]; /* Raw 2048-byte account LtHash captured during commit without rehashing. Empty if no committed contribution was captured, including cancelled transactions and bundle non-owners. Deletion is 2048 zero bytes. For bundles, the final writable owner carries the final shared account state. Excludes later non-transaction updates. */
+  ulong account_lthash_len;       /* Byte count */
 };
 typedef struct fd_event_runtime_txn_account_diffs fd_event_runtime_txn_account_diffs_t;
 
@@ -285,7 +287,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 
 /* Worst-case encoded size of a runtime_txn event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23249UL)
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (154961UL)
 
 /* Why the block was ruled invalid; not_dead otherwise. Blocks this validator produced are never dead: they do not go through replay's block checks. A block invalid for several independent reasons records the first one detected locally, which can differ across validators for the same block. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD                    (1) /* Not ruled invalid. */
