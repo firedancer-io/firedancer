@@ -696,7 +696,7 @@ static int
 tile_send_data( fd_snapin_tile_t * ctx,
                 ulong              lane,
                 ulong              sz ) {
-  ulong sig = FD_SNAPSHOT_MSG_DATA;
+  ulong sig = fd_snapdc_data_sig( ctx->expected_frame );
   ulong ctl = fd_frag_meta_ctl( 0UL, 0, 0, 0 );
   test_cur_tile = ctx->tile_idx;
   FD_TEST( !before_frag( ctx, lane, 0UL, sig ) );
@@ -922,9 +922,9 @@ test_pending_control_allows_lagging_data( void ) {
   FD_TEST( ctx->control_seen[0] );
   FD_TEST( !ctx->control_seen[1] );
   FD_TEST( before_frag( ctx, 0UL, 1UL,
-                        FD_SNAPSHOT_MSG_DATA )<0 );
+                        fd_snapdc_data_sig( 1UL ) )<0 );
 
-  ulong sig = FD_SNAPSHOT_MSG_DATA;
+  ulong sig = fd_snapdc_data_sig( 1UL );
   ulong ctl = fd_frag_meta_ctl( 0UL, 0, 1, 0 );
   FD_TEST( !before_frag( ctx, 1UL, 0UL, sig ) );
   FD_TEST( !returnable_frag( ctx, 1UL, 0UL, sig, 0UL, 1UL, ctl, 0UL, 0UL,
@@ -954,8 +954,9 @@ test_pending_control_keeps_frame_order( void ) {
   test_parser_call_cnt = 0UL;
 
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_FINI );
-  ulong sig1 = FD_SNAPSHOT_MSG_DATA;
-  ulong sig2 = FD_SNAPSHOT_MSG_DATA;
+  /* Any lane may carry the next frame; snapin orders by frame index */
+  ulong sig1 = fd_snapdc_data_sig( 1UL );
+  ulong sig2 = fd_snapdc_data_sig( 2UL );
   ulong ctl  = fd_frag_meta_ctl( 0UL, 0, 1, 0 );
   FD_TEST( !before_frag( ctx, 1UL, 0UL, sig1 ) );
   FD_TEST( before_frag( ctx, 2UL, 0UL, sig2 )<0 );
@@ -1191,7 +1192,7 @@ send_data( fd_snapin_tile_t * ctx,
            ulong              lane,
            ulong              sz,
            int                eom ) {
-  ulong sig = FD_SNAPSHOT_MSG_DATA;
+  ulong sig = fd_snapdc_data_sig( ctx->expected_frame );
   ulong ctl = fd_frag_meta_ctl( 0UL, 0, eom, 0 );
   FD_TEST( !before_frag( ctx, lane, 0UL, sig ) );
   FD_TEST( !returnable_frag( ctx, lane, 0UL, sig, 0UL, sz, ctl, 0UL, 0UL,
@@ -1208,10 +1209,8 @@ test_frame_ordering( void ) {
     data_ctx_init( ctx, lane_cnt, lane_data );
 
     for( ulong frame=0UL; frame<2UL*lane_cnt; frame++ ) {
-      if( lane_cnt>1UL && frame+1UL<2UL*lane_cnt ) {
-        ulong future = frame+1UL;
-        FD_TEST( before_frag( ctx, future%lane_cnt, 0UL, FD_SNAPSHOT_MSG_DATA )<0 );
-      }
+      ulong future = frame+1UL;
+      FD_TEST( before_frag( ctx, future%lane_cnt, 0UL, fd_snapdc_data_sig( future ) )<0 );
       send_data( ctx, frame%lane_cnt, 0UL, 1 );
       FD_TEST( ctx->expected_frame==frame+1UL );
     }
@@ -1266,7 +1265,8 @@ test_frame_owner_and_raw_lane( void ) {
 
   data_ctx_init( ctx, 4UL, lane_data );
   test_pub_cnt = 0UL;
-  FD_TEST( before_frag( ctx, 1UL, 0UL, FD_SNAPSHOT_MSG_DATA )<0 );
+  FD_TEST( before_frag( ctx, 1UL, 0UL, fd_snapdc_data_sig( 1UL ) )<0 );
+  FD_TEST( !before_frag( ctx, 1UL, 0UL, fd_snapdc_data_sig( 0UL ) ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
   FD_TEST( !test_pub_cnt );
 
@@ -1381,7 +1381,7 @@ test_nonempty_raw_data( void ) {
   test_parser_script   = 2;
   test_parser_call_cnt = 0UL;
 
-  FD_TEST( before_frag( ctx, 1UL, 0UL, FD_SNAPSHOT_MSG_DATA )<0 );
+  FD_TEST( before_frag( ctx, 1UL, 0UL, fd_snapdc_data_sig( 1UL ) )<0 );
   send_data( ctx, 0UL, 1UL, 0 );
   FD_TEST( test_parser_call_cnt==1UL );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );

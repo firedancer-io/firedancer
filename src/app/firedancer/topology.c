@@ -1255,6 +1255,9 @@ fd_topo_initialize( config_t * config ) {
     fd_topo_obj_t * shmem_obj = fd_topob_obj( topo, "snapin_shmem", "snapin_shmem" );
     FD_TEST( fd_pod_insertf_ulong( topo->props, shmem_obj->id, "snapin_shmem" ) );
 
+    fd_topo_obj_t * dc_ticket_obj = fd_topob_obj_named( topo, "fseq", "snapdc", "frame_ticket" );
+    FOR(snapdc_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapdc", i ) ], dc_ticket_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
     FOR(snapin_tile_cnt) {
       fd_topo_tile_t * snapin_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ];
       fd_topob_tile_uses( topo, snapin_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

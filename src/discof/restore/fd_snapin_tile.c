@@ -1898,9 +1898,11 @@ before_frag( fd_snapin_tile_t * ctx,
     return -1;
   }
 
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) {
-    /* Only accept DATA frags from the expected lane */
-    if( FD_UNLIKELY( in_idx!=ctx->expected_frame%ctx->lane_cnt ) ) return -1;
+  if( FD_LIKELY( fd_snapdc_sig_type( sig )==FD_SNAPSHOT_MSG_DATA ) ) {
+    /* Only accept DATA frags for the expected frame */
+    ulong frame = fd_snapdc_sig_frame( sig );
+    FD_CHECK_ERR( frame>=ctx->expected_frame, "snapdc lane repeated a frame" );
+    if( FD_UNLIKELY( frame!=ctx->expected_frame ) ) return -1;
   }
 
   return 0;
@@ -1980,8 +1982,8 @@ returnable_frag( fd_snapin_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_lane_data_frag( ctx, stem, in_idx, chunk, sz, ctl );
-  else                                           handle_control_barrier( ctx, stem, in_idx, sig, chunk, sz );
+  if( FD_LIKELY( fd_snapdc_sig_type( sig )==FD_SNAPSHOT_MSG_DATA ) ) return handle_lane_data_frag( ctx, stem, in_idx, chunk, sz, ctl );
+  else                                                               handle_control_barrier( ctx, stem, in_idx, sig, chunk, sz );
 
   return 0;
 }

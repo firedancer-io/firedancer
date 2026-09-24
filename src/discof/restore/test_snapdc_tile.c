@@ -86,15 +86,39 @@ test_stem_publish( fd_stem_context_t * stem,
   return test_pub_cnt-1UL;
 }
 
+/* The tile points its ticket counter at next.  A scripted ticket
+   stands in for one tile of rot_step tiles that keep pace. */
+typedef struct {
+  ulong next;     /* real counter, first member; the tile resets it on INIT */
+  ulong rot_next; /* next scripted ticket */
+  ulong rot_step; /* 0: use next; else stride, as if rot_step tiles kept pace */
+} test_ticket_t;
+
+static ulong
+test_fetch_and_add( ulong * p,
+                    ulong   v ) {
+  test_ticket_t * ticket = (test_ticket_t *)p;
+  FD_TEST( v==1UL );
+  if( !ticket->rot_step ) return ticket->next++;
+  ulong res = ticket->rot_next;
+  ticket->rot_next += ticket->rot_step;
+  return res;
+}
+
 #undef  fd_stem_publish
 #define fd_stem_publish test_stem_publish
 #define ZSTD_decompressStream_simpleArgs test_zstd_decompress_stream
+#undef  FD_ATOMIC_FETCH_AND_ADD
+#define FD_ATOMIC_FETCH_AND_ADD(p,v) test_fetch_and_add( (p), (v) )
 #include "fd_snapdc_tile.c"
+#undef  FD_ATOMIC_FETCH_AND_ADD
+#define FD_ATOMIC_FETCH_AND_ADD(p,v) __sync_fetch_and_add( (p), (v) )
 #undef ZSTD_decompressStream_simpleArgs
 #undef fd_stem_publish
 
 typedef struct {
   fd_snapdc_tile_t ctx[1];
+  test_ticket_t    ticket[1];
   fd_ssctrl_init_t init[1];
   fd_ssctrl_meta_t meta[1];
   uchar in [ 2UL*FD_SNAPSHOT_DATA_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
@@ -108,17 +132,24 @@ capture_reset( test_env_t * env ) {
   test_out_mem  = env->out;
 }
 
+/* Scripted tickets: env owns frames tile_idx, tile_idx+tile_count, ... */
 static test_env_t *
 test_env_new( ulong tile_idx,
               ulong tile_count ) {
+  FD_TEST( tile_count && tile_count<=FD_TOPO_MAX_TILE_IN_LINKS );
+  FD_TEST( tile_idx<tile_count );
   test_env_t * env = aligned_alloc( FD_CHUNK_ALIGN, sizeof(test_env_t) );
   FD_TEST( env );
   fd_memset( env, 0, sizeof(test_env_t) );
 
-  env->ctx->state       = FD_SNAPSHOT_STATE_IDLE;
-  env->ctx->tile_idx    = tile_idx;
-  env->ctx->tile_count  = tile_count;
-  env->ctx->zstd        = ZSTD_createDCtx();
+  env->ticket->rot_next = tile_idx;
+  env->ticket->rot_step = tile_count;
+
+  env->ctx->state             = FD_SNAPSHOT_STATE_IDLE;
+  env->ctx->tile_idx          = tile_idx;
+  env->ctx->claimed_frame     = ULONG_MAX;
+  env->ctx->next_frame_ticket = &env->ticket->next;
+  env->ctx->zstd              = ZSTD_createDCtx();
   env->ctx->in.mem      = (fd_wksp_t *)env->in;
   env->ctx->in.chunk0   = 0UL;
   env->ctx->in.wmark    = sizeof(env->in)>>FD_CHUNK_LG_SZ;
@@ -129,8 +160,6 @@ test_env_new( ulong tile_idx,
   env->ctx->out.chunk   = 0UL;
   env->ctx->out.mtu     = FD_SNAPSHOT_DATA_MTU;
   FD_TEST( env->ctx->zstd );
-  FD_TEST( tile_count && tile_count<=FD_TOPO_MAX_TILE_IN_LINKS );
-  FD_TEST( tile_idx<tile_count );
 
   capture_reset( env );
   return env;
@@ -187,8 +216,11 @@ begin_load( test_env_t * env,
   fd_memcpy( env->in, env->init, sizeof(fd_ssctrl_init_t) );
   ulong sig = full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR;
   ulong pub_cnt = test_pub_cnt;
+  env->ticket->rot_next = env->ctx->tile_idx;
   FD_TEST( !returnable_frag( env->ctx, 0UL, 0UL, sig, 0UL, sizeof(fd_ssctrl_init_t),
                              0UL, 0UL, 0UL, (fd_stem_context_t *)1UL ) );
+  FD_TEST( env->ctx->claimed_frame==ULONG_MAX );
+  FD_TEST( !*env->ctx->next_frame_ticket );
   FD_TEST( test_pub_cnt==pub_cnt+1UL );
   FD_TEST( test_pub[ pub_cnt ].sig==sig );
   FD_TEST( test_pub[ pub_cnt ].sz==sizeof(fd_ssctrl_init_t) );
@@ -223,14 +255,16 @@ make_skippable( uchar * out,
 }
 
 static void
-assert_output( ulong        pub_off,
-               void const * expected,
-               ulong        expected_sz,
-               int          eom ) {
+assert_output_frame( ulong        pub_off,
+                     void const * expected,
+                     ulong        expected_sz,
+                     int          eom,
+                     ulong        frame_idx ) {
   ulong out_sz = 0UL;
   ulong data_cnt = 0UL;
   for( ulong i=pub_off; i<test_pub_cnt; i++ ) {
-    FD_TEST( test_pub[i].sig==FD_SNAPSHOT_MSG_DATA );
+    FD_TEST( fd_snapdc_sig_type( test_pub[i].sig )==FD_SNAPSHOT_MSG_DATA );
+    FD_TEST( fd_snapdc_sig_frame( test_pub[i].sig )==frame_idx );
     FD_TEST( out_sz+test_pub[i].sz<=expected_sz );
     if( test_pub[i].sz ) {
       FD_TEST( !memcmp( test_data+test_pub[i].data_off,
@@ -243,6 +277,16 @@ assert_output( ulong        pub_off,
   }
   FD_TEST( data_cnt );
   FD_TEST( out_sz==expected_sz );
+}
+
+/* assert_output: same, for whichever frame the first frag carries */
+static void
+assert_output( ulong        pub_off,
+               void const * expected,
+               ulong        expected_sz,
+               int          eom ) {
+  FD_TEST( pub_off<test_pub_cnt );
+  assert_output_frame( pub_off, expected, expected_sz, eom, fd_snapdc_sig_frame( test_pub[pub_off].sig ) );
 }
 
 static void
@@ -278,7 +322,7 @@ test_owner_counts( void ) {
         send_data( env, frame, frame_sz );
         if( frame_idx%tile_count==tile_idx ) {
           FD_TEST( test_pub_cnt==pub_off+1UL );
-          assert_output( pub_off, payload, sizeof(payload)-1UL, 1 );
+          assert_output_frame( pub_off, payload, sizeof(payload)-1UL, 1, frame_idx );
         } else {
           FD_TEST( test_pub_cnt==pub_off );
         }
@@ -547,6 +591,8 @@ test_retry_resets_frame_state( void ) {
   FD_TEST( env->ctx->dirty );
   FD_TEST( env->ctx->frame_idx==1UL );
 
+  FD_TEST( env->ctx->claimed_frame==2UL );
+
   send_control( env, FD_SNAPSHOT_MSG_CTRL_ERROR );
   send_control( env, FD_SNAPSHOT_MSG_CTRL_FAIL );
   begin_load( env, 1, 1 );
@@ -617,6 +663,97 @@ test_mixed_frame_rotation( void ) {
     FD_TEST( env->ctx->frame_idx==4UL );
     test_env_delete( env );
   }
+}
+
+/* Several tile envs share one real counter.  Whichever tile is free
+   takes the next frame, so ownership follows the tiles' pace rather
+   than a fixed rotation. */
+static void
+test_shared_claims( void ) {
+  static char const * payload[] = { "shared zero", "shared one", "shared two", "shared three", "shared four", "shared five" };
+  ulong const frame_cnt = sizeof(payload)/sizeof(payload[0]);
+  ulong const tile_cnt  = 3UL;
+  uchar frame[ 6 ][ 4096 ];
+  ulong frame_sz[ 6 ];
+  for( ulong i=0UL; i<frame_cnt; i++ ) {
+    frame_sz[ i ] = make_frame( frame[ i ], sizeof(frame[ i ]), payload[ i ], strlen( payload[ i ] ), 1, 0 );
+  }
+
+  test_ticket_t ticket[1] = {{ .next = 99UL }}; /* stale, INIT resets it */
+  test_env_t * env[ 3 ];
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    env[ t ] = test_env_new( t, tile_cnt );
+    env[ t ]->ctx->next_frame_ticket = &ticket->next;
+    begin_load( env[ t ], 1, 1 );
+  }
+
+  /* Equal pace: every tile sees a frame before any tile sees the next
+     one, so frames rotate through the tiles. */
+  for( ulong i=0UL; i<frame_cnt; i++ ) {
+    for( ulong t=0UL; t<tile_cnt; t++ ) {
+      capture_reset( env[ t ] );
+      send_data( env[ t ], frame[ i ], frame_sz[ i ] );
+      if( t==i%tile_cnt ) {
+        FD_TEST( test_pub_cnt==1UL );
+        assert_output_frame( 0UL, payload[ i ], strlen( payload[ i ] ), 1, i );
+      } else {
+        FD_TEST( !test_pub_cnt );
+      }
+      FD_TEST( env[ t ]->ctx->frame_idx==i+1UL );
+    }
+  }
+  /* Six frames were claimed, and the two tiles that skipped the last
+     frame each hold a ticket for work that never arrives. */
+  FD_TEST( ticket->next==frame_cnt+tile_cnt-1UL );
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    FD_TEST( !env[ t ]->ctx->dirty );
+    send_control( env[ t ], FD_SNAPSHOT_MSG_CTRL_FINI );
+    send_control( env[ t ], FD_SNAPSHOT_MSG_CTRL_NEXT );
+  }
+
+  /* Uneven pace: tile 0 runs the whole stream before the others see
+     any of it and takes every frame. */
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    capture_reset( env[ t ] );
+    begin_load( env[ t ], 0, 1 );
+  }
+  for( ulong i=0UL; i<frame_cnt; i++ ) {
+    capture_reset( env[ 0 ] );
+    send_data( env[ 0 ], frame[ i ], frame_sz[ i ] );
+    FD_TEST( test_pub_cnt==1UL );
+    assert_output_frame( 0UL, payload[ i ], strlen( payload[ i ] ), 1, i );
+  }
+  FD_TEST( ticket->next==frame_cnt );
+  for( ulong t=1UL; t<tile_cnt; t++ ) {
+    capture_reset( env[ t ] );
+    for( ulong i=0UL; i<frame_cnt; i++ ) send_data( env[ t ], frame[ i ], frame_sz[ i ] );
+    FD_TEST( !test_pub_cnt );
+    FD_TEST( env[ t ]->ctx->frame_idx==frame_cnt );
+    FD_TEST( env[ t ]->ctx->claimed_frame==frame_cnt+t-1UL );
+  }
+  FD_TEST( ticket->next==frame_cnt+tile_cnt-1UL );
+
+  /* Late tile: tile 0 has done frames 0-4 when tile 1 first sees the
+     stream, so tile 1 claims frame 5, skips five frames and owns it. */
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    send_control( env[ t ], FD_SNAPSHOT_MSG_CTRL_FINI );
+    send_control( env[ t ], FD_SNAPSHOT_MSG_CTRL_NEXT );
+    capture_reset( env[ t ] );
+    begin_load( env[ t ], 1, 1 );
+  }
+  capture_reset( env[ 0 ] );
+  for( ulong i=0UL; i<frame_cnt-1UL; i++ ) send_data( env[ 0 ], frame[ i ], frame_sz[ i ] );
+  FD_TEST( test_pub_cnt==frame_cnt-1UL );
+  capture_reset( env[ 1 ] );
+  for( ulong i=0UL; i<frame_cnt; i++ ) send_data( env[ 1 ], frame[ i ], frame_sz[ i ] );
+  FD_TEST( test_pub_cnt==1UL );
+  assert_output_frame( 0UL, payload[ frame_cnt-1UL ], strlen( payload[ frame_cnt-1UL ] ), 1, frame_cnt-1UL );
+  capture_reset( env[ 0 ] );
+  send_data( env[ 0 ], frame[ frame_cnt-1UL ], frame_sz[ frame_cnt-1UL ] );
+  FD_TEST( !test_pub_cnt );
+  FD_TEST( env[ 0 ]->ctx->claimed_frame==frame_cnt );
+
+  for( ulong t=0UL; t<tile_cnt; t++ ) test_env_delete( env[ t ] );
 }
 
 static void
@@ -690,6 +827,7 @@ main( int     argc,
   test_retry_resets_frame_state();
   test_malformed_unowned_frame();
   test_mixed_frame_rotation();
+  test_shared_claims();
   test_control_publication_counts();
   test_incremental_metrics();
 
