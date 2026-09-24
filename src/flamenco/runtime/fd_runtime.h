@@ -324,8 +324,9 @@ struct fd_txn_out {
     /* blake3 checksum of each account's post-commit lthash, recorded
        at commit for the runtime_txn telemetry event only when runtime
        diff reporting is on.  Zero for accounts this txn did not commit
-       (not acquired by it, or txn cancelled) and for accounts that do
-       not exist after the txn (zero lamports). */
+       (not acquired by it, or txn cancelled). Deleted accounts carry
+       the checksum of the zero lthash. Noncommittable txn events suppress
+       these checksums even if they were computed before rejection. */
     uchar lthash_checksum[ MAX_TX_ACCOUNT_LOCKS ][ 32UL ];
 
     ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */

@@ -159,7 +159,7 @@
                     "is_vote_update":  { "type": "Bool",   "description": "True if this write touched the vote cache" },
                     "is_new_vote":     { "type": "Bool",   "description": "True if this write created a new vote account" },
                     "is_rm_vote":      { "type": "Bool",   "description": "True if this write removed a vote account" },
-                    "lthash":          { "type": "Hash",   "description": "blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Zero if the account does not exist after the txn, or if this txn did not commit it: a bundle txn that is not the account's final writer, or a txn that was not committed" }
+                    "lthash":          { "type": "Hash",   "description": "blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Deleted accounts carry the checksum of the zero lthash. Zero is reserved for an uncaptured contribution: a bundle txn that is not the account's final writer, or a txn that was not committed" }
                 }
             }
         },

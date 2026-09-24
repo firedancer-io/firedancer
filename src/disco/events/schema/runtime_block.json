@@ -79,7 +79,7 @@
                     "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
                     "prev_data_sz":  { "type": "UInt64", "description": "Pre-state data size in bytes" },
                     "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" },
-                    "lthash":        { "type": "Hash",   "description": "blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact sysvar contents written without shipping the data. Zero if the account does not exist after the write" }
+                    "lthash":        { "type": "Hash",   "description": "blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact sysvar contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash" }
                 }
             }
         },
@@ -99,7 +99,7 @@
                     "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
                     "prev_data_sz":  { "type": "UInt64", "description": "Pre-state data size in bytes" },
                     "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" },
-                    "lthash":        { "type": "Hash",   "description": "blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents written without shipping the data. Zero if the account does not exist after the write" }
+                    "lthash":        { "type": "Hash",   "description": "blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash" }
                 }
             }
         },
