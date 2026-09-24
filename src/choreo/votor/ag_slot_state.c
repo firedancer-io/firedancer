@@ -313,14 +313,16 @@ count_notar_stake( ag_slot_state_t *       self,
   int notar_verified          = 0;
   int notar_fallback_verified = 0;
 
-  if( FD_UNLIKELY( ag_epoch_info_is_quorum( epoch_info, nf_stake + notar_stake ) ) ) {
+  if( FD_UNLIKELY( ( ag_epoch_info_is_quorum       ( epoch_info, nf_stake + notar_stake ) && !ag_slot_state_is_notar_fallback( self, block_hash ) ) ||
+                   ( ag_epoch_info_is_quorum       ( epoch_info, notar_stake            ) && self->certs.notar.slot==ULONG_MAX                    ) ||
+                   ( ag_epoch_info_is_strong_quorum( epoch_info, notar_stake            ) && self->certs.fast_finalize.slot==ULONG_MAX            ) ) ) {
     fd_bls_set_t bad_notar[ fd_bls_set_word_cnt ];
     notar_verified = verify_subtract_votes( self, AG_VOTE_KIND_NOTAR, block_hash, &voted_stake_for_hash->agg, bad_notar );
     fd_bls_set_union( bad, bad, bad_notar );
     if( FD_UNLIKELY( fd_bls_set_test( bad_notar, rank ) ) ) return 0;
 
     notar_stake = voted_stake_for_hash->stake;
-    if( FD_LIKELY( voted_stake_for_hash_fallback ) ) {
+    if( FD_LIKELY( voted_stake_for_hash_fallback && !ag_slot_state_is_notar_fallback( self, block_hash ) ) ) {
       fd_bls_set_t bad_nf[ fd_bls_set_word_cnt ];
       notar_fallback_verified = verify_subtract_votes( self, AG_VOTE_KIND_NOTAR_FALLBACK, block_hash, &voted_stake_for_hash_fallback->agg, bad_nf );
       fd_bls_set_union( bad, bad, bad_nf );

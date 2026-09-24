@@ -2,7 +2,6 @@
 #define HEADER_fd_src_discof_votor_fd_votor_tile_h
 
 #include "../../ballet/bls/fd_bls.h"
-#include "../../choreo/votor/ag_vote_serde.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 
@@ -12,7 +11,7 @@
 #define FD_VOTOR_SIG_REWARD (3)
 
 #define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
-#define FD_VOTOR_OUT_BURST (2UL+1UL+AG_SLOTS_PER_WINDOW+1UL+1UL+FD_NET_MTU/AG_VOTE_SER_SZ( 0 )) /* 2 certed + 1 repair + 4 reward + 1 leader + 1 own vote reward + 1 reward per vote in a packet */
+#define FD_VOTOR_OUT_BURST (2UL+1UL+AG_SLOTS_PER_WINDOW+1UL) /* 2 certed + 1 repair + 4 reward + 1 leader */
 
 /* fd_votor_certed notifies that we have a valid cert for the block
    reaching a given state.  A final cert names only its slot, so it is

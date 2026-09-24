@@ -480,12 +480,13 @@ test_reward_late_skip_unverified( void ) {
   FD_TEST( has_notar_cert( pool, slot+1UL ) );
   poisoned = ag_vote_construct_notar( sec_sign_fn, &g_sk[4], slot+1UL, hash, (ushort)8, TEST_SHRED_VERSION );
   FD_TEST( ag_pool_add_vote( pool, &poisoned, bad )==AG_POOL_SUCCESS );
-  FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 8UL ) );
+  FD_TEST( fd_bls_set_is_null( bad ) );
   drain_events( pool );
   state = ag_pool_slot_state( pool, slot+1UL );
-  FD_TEST( state && notar_cnt( &state->votes )==1UL && fd_bls_set_cnt( notar_for( &state->votes, hash )->agg.set )==7UL );
+  FD_TEST( state && notar_cnt( &state->votes )==1UL && fd_bls_set_cnt( notar_for( &state->votes, hash )->agg.set )==8UL );
+  FD_TEST( fd_bls_set_cnt( state->certs.notar.agg.set )==7UL );
   msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot+1UL, hash, TEST_SHRED_VERSION, msg );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &notar_for( &state->votes, hash )->agg.pub, &notar_for( &state->votes, hash )->agg.sig ) );
+  FD_TEST( !fd_bls_agg_verify( msg, msg_sz, &notar_for( &state->votes, hash )->agg.pub, &notar_for( &state->votes, hash )->agg.sig ) );
 
   teardown_pool( pool );
 }
