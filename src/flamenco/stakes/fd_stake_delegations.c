@@ -1219,21 +1219,46 @@ fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations,
   return fork_idx;
 }
 
-/* Snapshot loading tags records with the account version's slot and a
-   newer version already in the fork wins.  Runtime writes carry slot 0. */
-static void
-fork_delta_upsert( fd_stake_delegations_t *      stake_delegations,
-                   ushort                        fork_idx,
-                   fd_stake_delegation_t const * delegation ) {
+struct fork_query {
+  fd_stake_delegation_t * ele;        /* in-memory delta, or NULL */
+  disk_delta_query_t      disk_query; /* spilled delta, record_idx UINT_MAX if absent */
+  disk_delta_t            disk_ele;
+};
+typedef struct fork_query fork_query_t;
+
+/* Finds the fork's delta for stake_account in memory or on disk.
+   Returns it, or NULL if the fork has none. */
+
+static fd_stake_delegation_t const *
+fork_query( fd_stake_delegations_t * stake_delegations,
+            ushort                   fork_idx,
+            fd_pubkey_t const *      stake_account,
+            fork_query_t *           query ) {
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
-  delta_map_t *           map        = get_delta_map( stake_delegations );
   fd_stake_delegation_key_t key = {
-    .stake_account = delegation->stake_account,
+    .stake_account = *stake_account,
     .fork_idx      = fork_idx
   };
-  fd_stake_delegation_t * in_memory = delta_map_ele_query( map, &key, NULL, delta_pool );
-  if( FD_LIKELY( in_memory ) ) {
-    if( FD_UNLIKELY( in_memory->slot>delegation->slot ) ) return;
+  query->ele                   = delta_map_ele_query( get_delta_map( stake_delegations ), &key, NULL, delta_pool );
+  query->disk_query.record_idx = UINT_MAX;
+  query->disk_query.bucket_idx = ULONG_MAX;
+  if( FD_LIKELY( query->ele ) ) return query->ele;
+  if( FD_UNLIKELY( stake_delegations->disk_delta_cnt_ || !delta_pool_free( delta_pool ) ) ) {
+    disk_delta_find( stake_delegations, fork_idx, stake_account, &query->disk_ele, &query->disk_query );
+    if( FD_UNLIKELY( query->disk_query.record_idx!=UINT_MAX ) ) return &query->disk_ele.delegation;
+  }
+  return NULL;
+}
+
+/* Overwrites the queried delta or inserts a new one. */
+
+static void
+fork_upsert( fd_stake_delegations_t *      stake_delegations,
+             ushort                        fork_idx,
+             fork_query_t *                query,
+             fd_stake_delegation_t const * delegation ) {
+  if( FD_LIKELY( query->ele ) ) {
+    fd_stake_delegation_t * in_memory = query->ele;
     uint next      = in_memory->next_;
     uint fork_next = in_memory->fork_next;
     *in_memory = *delegation;
@@ -1243,31 +1268,35 @@ fork_delta_upsert( fd_stake_delegations_t *      stake_delegations,
     return;
   }
 
-  disk_delta_query_t query;
-  if( FD_UNLIKELY( stake_delegations->disk_delta_cnt_ || !delta_pool_free( delta_pool ) ) ) {
-    disk_delta_t disk_delta;
-    disk_delta_find( stake_delegations, fork_idx, &delegation->stake_account, &disk_delta, &query );
-    if( FD_UNLIKELY( query.record_idx!=UINT_MAX ) ) {
-      if( FD_UNLIKELY( disk_delta.delegation.slot>delegation->slot ) ) return;
-      disk_delta.delegation = *delegation;
-      disk_delta_write( stake_delegations, query.record_idx, &disk_delta );
-      return;
-    }
+  if( FD_UNLIKELY( query->disk_query.record_idx!=UINT_MAX ) ) {
+    query->disk_ele.delegation = *delegation;
+    disk_delta_write( stake_delegations, query->disk_query.record_idx, &query->disk_ele );
+    return;
   }
 
+  fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
   if( FD_LIKELY( delta_pool_free( delta_pool ) ) ) {
     fork_pool_ele_t * fork = get_fork_pool( stake_delegations ) + fork_idx;
-    in_memory = delta_pool_ele_acquire( delta_pool );
+    fd_stake_delegation_t * in_memory = delta_pool_ele_acquire( delta_pool );
     *in_memory = *delegation;
     uint idx = (uint)delta_pool_idx( delta_pool, in_memory );
     in_memory->fork_next = fork->delta_head;
     in_memory->fork_idx  = fork_idx;
-    FD_CHECK_CRIT( delta_map_ele_insert( map, in_memory, delta_pool ),
+    FD_CHECK_CRIT( delta_map_ele_insert( get_delta_map( stake_delegations ), in_memory, delta_pool ),
                    "unable to insert stake delegation into delta map" );
     fork->delta_head = idx;
   } else {
-    disk_delta_insert( stake_delegations, fork_idx, delegation, &query );
+    disk_delta_insert( stake_delegations, fork_idx, delegation, &query->disk_query );
   }
+}
+
+static void
+fork_delta_upsert( fd_stake_delegations_t *      stake_delegations,
+                   ushort                        fork_idx,
+                   fd_stake_delegation_t const * delegation ) {
+  fork_query_t query;
+  fork_query( stake_delegations, fork_idx, &delegation->stake_account, &query );
+  fork_upsert( stake_delegations, fork_idx, &query, delegation );
 }
 
 void
@@ -1327,6 +1356,18 @@ snapshot_root_write( fd_stake_delegations_t * stake_delegations,
   root_upsert( stake_delegations, &query, delegation );
 }
 
+/* Fork tier: newest slot wins.  Caller holds the write lock. */
+
+static void
+snapshot_fork_write( fd_stake_delegations_t *      stake_delegations,
+                     ushort                        fork_idx,
+                     fd_stake_delegation_t const * delegation ) {
+  fork_query_t query;
+  fd_stake_delegation_t const * existing = fork_query( stake_delegations, fork_idx, &delegation->stake_account, &query );
+  if( FD_UNLIKELY( existing && existing->slot>delegation->slot ) ) return;
+  fork_upsert( stake_delegations, fork_idx, &query, delegation );
+}
+
 /* Full snapshots write the root; incrementals write a fork.  cross_fork
    writes nothing unless the root holds the account. */
 
@@ -1339,7 +1380,7 @@ snapshot_write( fd_stake_delegations_t * stake_delegations,
   root_query_t query;
   if( FD_LIKELY( !cross_fork || root_query( stake_delegations, &delegation->stake_account, &query ) ) ) {
     if( FD_LIKELY( fork_idx==USHORT_MAX ) ) snapshot_root_write( stake_delegations, delegation );
-    else                                    fork_delta_upsert( stake_delegations, fork_idx, delegation );
+    else                                    snapshot_fork_write( stake_delegations, fork_idx, delegation );
   }
   fd_rwlock_unwrite( &stake_delegations->lock );
 }
