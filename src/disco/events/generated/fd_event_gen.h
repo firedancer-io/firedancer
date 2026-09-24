@@ -457,7 +457,7 @@ fd_event_block_completed_footprint( fd_event_block_completed_t const * msg ) {
 /* Snapshot production result. */
 #define FD_EVENT_SNAPSHOT_CREATED_RESULT_SUCCESS                         (1) /* The snapshot was produced and published to the local snapshot directory. */
 #define FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS   (2) /* The incremental snapshot could not be produced because more accounts changed than snapshots.max_incremental_snapshot_accounts permits. */
-#define FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_APPENDVECS (3) /* The incremental snapshot could not be produced because the changed accounts needed more appendvecs than there are slots between the base slot and the snapshot slot. Every appendvec needs a distinct slot in that range. */
+#define FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_APPENDVECS (3) /* The incremental snapshot could not be produced because the changed accounts needed more appendvecs than there are slots between the base slot and the snapshot slot (one slot per appendvec). */
 
 /* Zstandard compression strategy. */
 #define FD_EVENT_SNAPSHOT_CREATED_ZSTD_STRATEGY_FAST     (1) /* Zstandard fast strategy. */

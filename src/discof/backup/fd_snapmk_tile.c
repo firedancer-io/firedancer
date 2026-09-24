@@ -732,6 +732,21 @@ snapmk_eof_marker( fd_snapmk_t * ctx ) {
   zip_flush( ctx, ZSTD_e_end );
 }
 
+/* snap_fd_unlock releases the write lock snap_pool_acquire took on the
+   snapshot file being written. */
+
+static void
+snap_fd_unlock( fd_snapmk_t * ctx ) {
+  struct flock lock = {
+    .l_type   = F_UNLCK,
+    .l_whence = SEEK_SET
+  };
+  if( FD_UNLIKELY( fcntl( ctx->snap_fd, F_SETLK, &lock ) ) ) {
+    FD_LOG_ERR(( "fcntl(F_UNLCK, %s) failed: %i-%s",
+                 ctx->pool[ ctx->snap_idx ].name, errno, fd_io_strerror( errno ) ));
+  }
+}
+
 /* snapmk_done_rename renames the "partial" snapshot file to a proper
    "snapshot-*.tar.zst" or "incremental-snapshot-*-*.tar.zst" file. */
 
@@ -745,14 +760,7 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
   ctx->pool_sz[ ctx->snap_idx ] = ctx->final_sz;
 
   fd_backup_inode_t * inode = &ctx->pool[ ctx->snap_idx ];
-  struct flock lock = {
-    .l_type   = F_UNLCK,
-    .l_whence = SEEK_SET
-  };
-  if( FD_UNLIKELY( fcntl( ctx->snap_fd, F_SETLK, &lock ) ) ) {
-    FD_LOG_ERR(( "fcntl(F_UNLCK, %s) failed: %i-%s",
-                 inode->name, errno, fd_io_strerror( errno ) ));
-  }
+  snap_fd_unlock( ctx );
   if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->snap_dir_fd, inode->name,
                            ctx->snap_dir_fd, ctx->final_name, 0U ) ) ) {
     FD_LOG_ERR(( "renameat2(%s, %s) failed: %s", inode->name, ctx->final_name, fd_io_strerror( errno ) ));
@@ -782,36 +790,24 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
   ctx->state = SNAPMK_STATE_DONE;
 }
 
-/* snapmk_abort_discard drops the partially written snapshot file and
-   returns its pool slot to the free state.  The slot already carries
-   its placeholder name and ULONG_MAX slots (see snap_pool_acquire), so
-   only the contents and the lock need cleaning up. */
+/* snapmk_abort_discard drops the partially written incremental
+   snapshot file.  Its pool slot already carries the placeholder name
+   and ULONG_MAX slots (see snap_pool_acquire), so only the contents
+   and the lock need cleaning up. */
 
 static void
 snapmk_abort_discard( fd_snapmk_t * ctx ) {
-  fd_backup_inode_t * inode = &ctx->pool[ ctx->snap_idx ];
   if( FD_UNLIKELY( ftruncate( ctx->snap_fd, 0L ) ) ) {
-    FD_LOG_ERR(( "ftruncate(%s) failed: %i-%s", inode->name, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "ftruncate(%s) failed: %i-%s", ctx->pool[ ctx->snap_idx ].name, errno, fd_io_strerror( errno ) ));
   }
   ctx->pool_sz[ ctx->snap_idx ] = 0UL;
-
-  struct flock lock = {
-    .l_type   = F_UNLCK,
-    .l_whence = SEEK_SET
-  };
-  if( FD_UNLIKELY( fcntl( ctx->snap_fd, F_SETLK, &lock ) ) ) {
-    FD_LOG_ERR(( "fcntl(F_UNLCK, %s) failed: %i-%s", inode->name, errno, fd_io_strerror( errno ) ));
-  }
-  inode->full_slot = ULONG_MAX;
-  inode->incr_slot = ULONG_MAX;
-
+  snap_fd_unlock( ctx );
   ctx->snap_fd  = -1;
   ctx->end_time = fd_log_wallclock();
-  FD_LOG_WARNING(( "%s snapshot (slot %lu, base slot %lu) discarded after %.3f seconds: "
-                   "needed more appendvecs than there are slots between the base slot and the snapshot slot",
-                   ctx->incremental ? "incremental" : "full",
+  FD_LOG_WARNING(( "incremental snapshot (slot %lu, base slot %lu) discarded after %.3f seconds: needs more than %lu appendvecs",
                    ctx->bank->f.slot, ctx->base_slot,
-                   (double)( ctx->end_time - ctx->start_time )/1e9 ));
+                   (double)( ctx->end_time - ctx->start_time )/1e9,
+                   ctx->bank->f.slot - ctx->base_slot ));
 }
 
 /* snapshot_sync_advance requests replay to advance the snapshot sync
@@ -1389,7 +1385,7 @@ after_credit( fd_snapmk_t *       ctx,
       fd_backup_start_msg_t * frag = zp_alloc( ctx, i, sizeof(fd_backup_start_msg_t), &chunk );
       memset( frag, 0, sizeof(fd_backup_start_msg_t) );
       frag->slot      = ctx->bank->f.slot;
-      frag->base_slot = ctx->base_slot; /* ULONG_MAX for a full snapshot */
+      frag->base_slot = ctx->base_slot;
       frag->snap_idx  = ctx->snap_idx;
       frag->fork_id   = ctx->bank->accdb_fork_id.val;
       ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_START, 0, 0, 0 );
@@ -1456,7 +1452,8 @@ after_credit( fd_snapmk_t *       ctx,
   }
   case SNAPMK_STATE_ACCDB_DELTA: {
     *charge_busy = 1;
-    if( FD_UNLIKELY( !snapmk_accdb_delta( ctx, stem ) ) ) {
+    int overflow = !!__atomic_load_n( &ctx->stats->appendvec_overflow, __ATOMIC_RELAXED ); /* no point feeding a doomed archive */
+    if( FD_UNLIKELY( overflow || !snapmk_accdb_delta( ctx, stem ) ) ) {
       barrier_install( ctx, stem );
       broadcast_prepare( ctx );
       ctx->state = SNAPMK_STATE_ACCDB_DELTA_FLUSH;
@@ -1474,12 +1471,13 @@ after_credit( fd_snapmk_t *       ctx,
   case SNAPMK_STATE_ACCDB_DELTA_FINISH: {
     /* accounts done, snapzp workers idle */
     if( FD_UNLIKELY( __atomic_load_n( &ctx->stats->appendvec_overflow, __ATOMIC_ACQUIRE ) ) ) {
-      /* a snapzp tile ran out of appendvec slots and dropped frames;
-         the archive is incomplete and must not be published */
+      /* archive incomplete (see zip_flush): discard it, then release
+         the workers and accdb like a finished archive */
       *charge_busy = 1;
       snapmk_abort_discard( ctx );
+      ctx->fail_reason = FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_APPENDVECS;
       broadcast_prepare( ctx );
-      ctx->state = SNAPMK_STATE_ABORT;
+      ctx->state = SNAPMK_STATE_DONE;
       break;
     }
     /* now process status cache */
@@ -1514,6 +1512,10 @@ after_credit( fd_snapmk_t *       ctx,
     ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, 0 );
     if( broadcast( ctx, stem, ctl, charge_busy ) ) {
       snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_RUNNING, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+      if( FD_UNLIKELY( ctx->fail_reason ) ) { /* archive was discarded */
+        ctx->state = SNAPMK_STATE_FAIL;
+        break;
+      }
       fd_snapmk_msg_created_t * msg = &snapmk_msg_alloc( ctx )->created;
       *msg = (fd_snapmk_msg_created_t) {
         .slot      = ctx->bank->f.slot,
@@ -1568,17 +1570,6 @@ after_credit( fd_snapmk_t *       ctx,
 
       ctx->state = SNAPMK_STATE_SLEEP;
       ctx->snap_idx = UINT_MAX;
-    }
-    break;
-  }
-  case SNAPMK_STATE_ABORT: {
-    /* archive discarded; release the snapzp workers and accdb like the
-       DONE state does, then report the failure */
-    ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, 0 );
-    if( broadcast( ctx, stem, ctl, charge_busy ) ) {
-      snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_RUNNING, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
-      ctx->fail_reason = FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_APPENDVECS;
-      ctx->state       = SNAPMK_STATE_FAIL;
     }
     break;
   }
@@ -1853,11 +1844,9 @@ snap_start( fd_snapmk_t *                  ctx,
 
   visited_set_null( ctx->visited_set );
 
-  /* reset the shared appendvec allocator before any snapzp tile sees
-     START (all tiles finished the previous archive at its FLUSH
-     barrier) */
-  __atomic_store_n( &ctx->stats->appendvec_next,     0UL, __ATOMIC_RELAXED );
-  __atomic_store_n( &ctx->stats->appendvec_overflow, 0UL, __ATOMIC_RELEASE );
+  /* every snapzp tile is idle here */
+  fd_backup_appendvec_reset( ctx->stats );
+  ctx->fail_reason = 0;
 
   ctx->state              = SNAPMK_STATE_START;
   ctx->zp_ready           = 0UL;

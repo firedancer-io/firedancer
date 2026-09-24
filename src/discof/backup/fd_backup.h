@@ -152,48 +152,32 @@ FD_PROTOTYPES_BEGIN
 
 /* Utils */
 
-/* fd_backup_appendvec_slot returns the slot in the tar entry name of
-   the idx-th appendvec of a snapshot archive (idx starts at 0).
-
-   Agave requires one appendvec per slot and keys storages by slot
-   alone.  When the same account appears in two appendvecs the higher
-   slot wins.  The Firedancer producer never emits an account twice
-   within an archive, so any distinct slots at or below the snapshot
-   slot are valid for a full snapshot.  For an incremental snapshot
-   every slot must exceed the base slot so its updates and tombstones
-   override the full snapshot's copies.  So we start at the snapshot
-   slot and count down.
-
-   base_slot is ULONG_MAX for a full snapshot.  Returns ULONG_MAX if
-   idx does not fit the archive's slot window, which is
-   [0, snapshot_slot] for a full snapshot and
-   (base_slot, snapshot_slot] for an incremental snapshot. */
+/* fd_backup_appendvec_slot returns the tar slot of the idx-th appendvec
+   of an archive (idx from 0): snapshot_slot-idx.  Agave keys storages
+   by slot and, when an account appears in two appendvecs, keeps the
+   higher slot.  The producer never emits an account twice within an
+   archive, so slots only have to be distinct, and an incremental's
+   slots must lie above base_slot so they override the full snapshot's
+   copies.  base_slot is ULONG_MAX for a full snapshot.  Returns
+   ULONG_MAX once idx leaves the window, which is [0,snapshot_slot] for
+   a full and (base_slot,snapshot_slot] for an incremental. */
 
 FD_FN_CONST static inline ulong
 fd_backup_appendvec_slot( ulong snapshot_slot,
                           ulong base_slot,
                           ulong idx ) {
-  ulong window;
-  if( base_slot==ULONG_MAX ) window = snapshot_slot+1UL; /* full */
-  else                       window = snapshot_slot>base_slot ? snapshot_slot-base_slot : 0UL;
-  if( FD_UNLIKELY( idx>=window ) ) return ULONG_MAX;
-  return snapshot_slot-idx;
+  ulong window = base_slot==ULONG_MAX ? snapshot_slot+1UL : fd_ulong_sat_sub( snapshot_slot, base_slot );
+  return idx<window ? snapshot_slot-idx : ULONG_MAX;
 }
 
-/* fd_backup_appendvec_name writes the tar entry name of an appendvec
-   with the given slot to name ("accounts/<slot>.0").  The id after
-   the dot only has to be unique within a slot, and Agave replaces it
-   at load time anyway, so it is always 0.  Returns name. */
+/* fd_backup_appendvec_name writes "accounts/<slot>.0" to name and
+   returns it.  The id is always 0: there is one appendvec per slot and
+   Agave reassigns ids at load time anyway. */
 
 static inline char *
 fd_backup_appendvec_name( char  name[ static FD_TAR_NAME_SZ ],
                           ulong slot ) {
-  char * p = fd_cstr_init( name );
-  p = fd_cstr_append_cstr( p, "accounts/" );
-  p = fd_cstr_append_ulong_as_text( p, 0, 0, slot, fd_ulong_base10_dig_cnt( slot ) );
-  p = fd_cstr_append_cstr( p, ".0" );
-  fd_cstr_fini( p );
-  return name;
+  return fd_cstr_printf( name, FD_TAR_NAME_SZ, NULL, "accounts/%lu.0", slot );
 }
 
 FD_FN_UNUSED static fd_tar_meta_t *

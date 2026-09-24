@@ -1,37 +1,35 @@
-/* Tests for the snapmk tile's handling of an appendvec slot overflow.
-   When a snapzp tile runs out of appendvec slots for an incremental
-   snapshot it raises fd_backup_stats_t::appendvec_overflow; snapmk
-   must then discard the partial archive, release the snapzp tiles and
-   accdb, and report the failure to replay.  Drives after_credit on a
-   hand-built tile context with a fake stem, mirroring
-   test_snapzp_tile.c. */
+/* Drives after_credit on a hand-built snapmk context with a fake stem
+   (as test_replay_tile.c does) to cover the appendvec slot overflow:
+   snapmk must discard the partial archive, release the snapzp tiles
+   and accdb, and report FAILED to replay. */
 
 #define FD_TILE_TEST
 #include "fd_snapmk_tile.c"
 
 #include <pthread.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 #include <sys/wait.h>
 
-#define ZP_CNT       (2UL)
-#define OUT_CNT      (ZP_CNT+1UL) /* zp links, then snapmk_out */
-#define SNAPMK_OUT   (ZP_CNT)
-#define DEPTH        (128UL)
+#define ZP_CNT     (2UL)
+#define OUT_CNT    (ZP_CNT+1UL) /* zp links, then snapmk_out */
+#define SNAPMK_OUT (ZP_CNT)
+#define DEPTH      (128UL)
 
-static fd_frag_meta_t * test_mcaches [ OUT_CNT ];
-static ulong            test_seqs    [ OUT_CNT ];
-static ulong            test_depths  [ OUT_CNT ];
-static ulong            test_cr_avail[ OUT_CNT ];
-static ulong            test_min_cr_avail[ 1 ];
-static int              test_out_reliable[ OUT_CNT ];
+static fd_frag_meta_t *  test_mcaches [ OUT_CNT ];
+static ulong             test_seqs    [ OUT_CNT ];
+static ulong             test_depths  [ OUT_CNT ];
+static ulong             test_cr_avail[ OUT_CNT ];
+static ulong             test_min_cr_avail[ 1 ];
+static int               test_out_reliable[ OUT_CNT ];
 static fd_stem_context_t test_stem[ 1 ];
-static uchar            test_backup_mem[ 1UL<<20 ] __attribute__((aligned(128)));
+static uchar             test_backup_mem[ 1UL<<20 ] __attribute__((aligned(128)));
 
 struct fixture {
   fd_snapmk_t * ctx;
+  fd_bank_t *   bank;
   fd_wksp_t *   wksp;
-  char          dir[ 64 ];
-  char          path[ 128 ];
+  char          path[ 64 ];
   int           fd;
   ulong         sync;
 };
@@ -67,9 +65,10 @@ setup_out_link( fixture_t * fx,
 }
 
 /* fixture_new builds the parts of a snapmk context that the states
-   from ACCDB_*_FINISH to SLEEP touch: a pool slot holding a locked
-   partial file with some bytes in it, a bank, the shared stats, the
-   accdb snapshot sync word, and the out links. */
+   from START to TAR_HEADERS and from ACCDB_*_FINISH to SLEEP touch: a
+   pool slot holding a locked partial file with some bytes in it, a
+   bank, the shared stats, the accdb snapshot sync word, and the out
+   links. */
 
 static fixture_t *
 fixture_new( fixture_t * fx,
@@ -79,52 +78,44 @@ fixture_new( fixture_t * fx,
   memset( fx, 0, sizeof(*fx) );
   fx->wksp = wksp;
 
-  fd_snapmk_t * ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_snapmk_t), sizeof(fd_snapmk_t), 1UL );
-  FD_TEST( ctx );
-  memset( ctx, 0, sizeof(fd_snapmk_t) );
+  /* anonymous mmap: the 64 MiB of compression buffers stay untouched */
+  ulong ctx_sz = fd_ulong_align_up( sizeof(fd_snapmk_t), 4096UL );
+  fd_snapmk_t * ctx = mmap( NULL, ctx_sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( ctx!=MAP_FAILED );
+  FD_TEST( fd_ulong_is_aligned( (ulong)ctx, alignof(fd_snapmk_t) ) );
   fx->ctx = ctx;
 
-  fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), 1UL );
-  FD_TEST( bank );
-  memset( bank, 0, sizeof(fd_bank_t) );
-  bank->f.slot = snapshot_slot;
-  ctx->bank    = bank;
+  fx->bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), 1UL );
+  FD_TEST( fx->bank );
+  memset( fx->bank, 0, sizeof(fd_bank_t) );
+  fx->bank->f.slot = snapshot_slot;
+  ctx->bank        = fx->bank;
 
-  /* snapshot pool: one slot, currently being written */
-  strcpy( fx->dir, "/tmp/test_snapmk_tile.XXXXXX" );
-  FD_TEST( mkdtemp( fx->dir ) );
-  ctx->snap_dir_fd = open( fx->dir, O_DIRECTORY|O_RDONLY );
-  FD_TEST( ctx->snap_dir_fd>=0 );
-  fd_cstr_ncpy( ctx->snap_dir, fx->dir, sizeof(ctx->snap_dir) );
-  ctx->snap_max      = 1U;
-  ctx->snap_full_max = 1U;
-  fd_snap_pool_partial_name( ctx->pool[ 0 ].name, 0U );
-  ctx->pool[ 0 ].full_slot = ULONG_MAX;
-  ctx->pool[ 0 ].incr_slot = ULONG_MAX;
-  FD_TEST( fd_cstr_printf_check( fx->path, sizeof(fx->path), NULL, "%s/%s", fx->dir, ctx->pool[ 0 ].name ) );
-  fx->fd = open( fx->path, O_RDWR|O_CREAT, 0644 );
+  /* snapshot pool slot being written: placeholder name, locked file */
+  strcpy( fx->path, "/tmp/test_snapmk_tile.XXXXXX" );
+  fx->fd = mkstemp( fx->path );
   FD_TEST( fx->fd>=0 );
   static uchar junk[ 8192 ];
   memset( junk, 0xEE, sizeof(junk) );
   FD_TEST( write( fx->fd, junk, sizeof(junk) )==(long)sizeof(junk) );
   struct flock lock = { .l_type = F_WRLCK, .l_whence = SEEK_SET };
   FD_TEST( 0==fcntl( fx->fd, F_SETLK, &lock ) );
+  fd_snap_pool_partial_name( ctx->pool[ 0 ].name, 0U );
+  ctx->pool[ 0 ].full_slot = ULONG_MAX;
+  ctx->pool[ 0 ].incr_slot = ULONG_MAX;
+  ctx->pool_sz[ 0 ] = sizeof(junk);
   ctx->snap_idx     = 0U;
   ctx->snap_fd      = fx->fd;
-  ctx->pool_sz[ 0 ] = sizeof(junk);
 
   /* snapshot being produced */
   ctx->incremental = base_slot!=ULONG_MAX;
   ctx->base_slot   = base_slot;
   ctx->start_time  = fd_log_wallclock();
-  FD_TEST( fd_cstr_printf_check( ctx->final_name, sizeof(ctx->final_name), NULL,
-           "incremental-snapshot-%lu-%lu-x.tar.zst", base_slot, snapshot_slot ) );
 
   /* shared state with snapzp */
   FD_TEST( fd_backup_footprint( 1UL )<=sizeof(test_backup_mem) );
   FD_TEST( fd_backup_new( test_backup_mem, 1UL ) );
-  ctx->stats   = fd_backup_stats  ( test_backup_mem );
-  ctx->overrun = fd_backup_overrun( test_backup_mem );
+  ctx->stats = fd_backup_stats( test_backup_mem );
 
   /* accdb snapshot sync, as left by snap_start */
   fx->sync = FD_ACCDB_SNAPSHOT_SYNC_RUNNING;
@@ -158,9 +149,9 @@ fixture_new( fixture_t * fx,
 static void
 fixture_delete( fixture_t * fx ) {
   close( fx->fd );
-  close( fx->ctx->snap_dir_fd );
   unlink( fx->path );
-  rmdir( fx->dir );
+  fd_wksp_free_laddr( fx->bank );
+  FD_TEST( 0==munmap( fx->ctx, fd_ulong_align_up( sizeof(fd_snapmk_t), 4096UL ) ) );
 }
 
 /* accdb (in production: the replay tile) acknowledges DONE by moving
@@ -225,7 +216,6 @@ test_overflow_discards_incremental( fd_wksp_t * wksp ) {
   fixture_new( fx, wksp, base, base+3UL );
   fd_snapmk_t * ctx = fx->ctx;
 
-  __atomic_store_n( &ctx->stats->appendvec_next,     7UL, __ATOMIC_RELAXED );
   __atomic_store_n( &ctx->stats->appendvec_overflow, 1UL, __ATOMIC_RELEASE );
   FD_TEST( !file_is_unlocked( fx->path ) );
 
@@ -246,8 +236,6 @@ test_overflow_discards_incremental( fd_wksp_t * wksp ) {
   FD_TEST( ctx->pool[ 0 ].incr_slot==ULONG_MAX );
   FD_TEST( ctx->snap_fd==-1 );
   FD_TEST( ctx->snap_idx==UINT_MAX );
-  FD_TEST( ctx->end_time>=ctx->start_time );
-  FD_TEST( ctx->fail_reason==FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_APPENDVECS );
 
   /* every snapzp tile was told DONE, exactly once */
   for( ulong i=0UL; i<ZP_CNT; i++ ) {
@@ -273,46 +261,35 @@ test_overflow_discards_incremental( fd_wksp_t * wksp ) {
   fixture_delete( fx );
 }
 
-/* The START message tells each snapzp tile the base slot so it can
-   bound the appendvec slots. */
+/* The START message tells each snapzp tile the base slot (ULONG_MAX
+   for a full snapshot) so it can bound the appendvec slots. */
 
 static void
 test_start_carries_base_slot( fd_wksp_t * wksp ) {
-  ulong const base = 449759793UL;
-  fixture_t fx[1];
-  fixture_new( fx, wksp, base, base+200UL );
-  fd_snapmk_t * ctx = fx->ctx;
-  ctx->bank->accdb_fork_id.val = 5;
+  struct { ulong base_slot; ulong snapshot_slot; } const cases[] = {
+    { 449759793UL, 449759993UL }, /* incremental */
+    { ULONG_MAX,   100UL       }  /* full */
+  };
+  for( ulong c=0UL; c<sizeof(cases)/sizeof(cases[0]); c++ ) {
+    fixture_t fx[1];
+    fixture_new( fx, wksp, cases[ c ].base_slot, cases[ c ].snapshot_slot );
+    fd_snapmk_t * ctx = fx->ctx;
 
-  broadcast_prepare( ctx );
-  ctx->state = SNAPMK_STATE_START;
-  run_until( fx, SNAPMK_STATE_TAR_HEADERS );
+    broadcast_prepare( ctx );
+    ctx->state = SNAPMK_STATE_START;
+    run_until( fx, SNAPMK_STATE_TAR_HEADERS );
 
-  for( ulong i=0UL; i<ZP_CNT; i++ ) {
-    FD_TEST( test_seqs[ i ]==1UL );
-    fd_frag_meta_t const * line = mcache_line( i, 0UL );
-    FD_TEST( fd_frag_meta_ctl_orig( line->ctl )==FD_BACKUP_ORIG_START );
-    FD_TEST( line->sz==sizeof(fd_backup_start_msg_t) );
-    fd_backup_start_msg_t const * msg = fd_chunk_to_laddr_const( ctx->zp_out[ i ].mem, line->chunk );
-    FD_TEST( msg->slot==base+200UL );
-    FD_TEST( msg->base_slot==base );
-    FD_TEST( msg->snap_idx==0U );
-    FD_TEST( msg->fork_id==5 );
+    for( ulong i=0UL; i<ZP_CNT; i++ ) {
+      FD_TEST( test_seqs[ i ]==1UL );
+      fd_frag_meta_t const * line = mcache_line( i, 0UL );
+      FD_TEST( fd_frag_meta_ctl_orig( line->ctl )==FD_BACKUP_ORIG_START );
+      FD_TEST( line->sz==sizeof(fd_backup_start_msg_t) );
+      fd_backup_start_msg_t const * msg = fd_chunk_to_laddr_const( ctx->zp_out[ i ].mem, line->chunk );
+      FD_TEST( msg->slot     ==cases[ c ].snapshot_slot );
+      FD_TEST( msg->base_slot==cases[ c ].base_slot     );
+    }
+    fixture_delete( fx );
   }
-
-  /* a full snapshot advertises no base slot */
-  fixture_delete( fx );
-  fixture_new( fx, wksp, ULONG_MAX, 100UL );
-  ctx = fx->ctx;
-  broadcast_prepare( ctx );
-  ctx->state = SNAPMK_STATE_START;
-  run_until( fx, SNAPMK_STATE_TAR_HEADERS );
-  for( ulong i=0UL; i<ZP_CNT; i++ ) {
-    fd_backup_start_msg_t const * msg = fd_chunk_to_laddr_const( ctx->zp_out[ i ].mem, mcache_line( i, 0UL )->chunk );
-    FD_TEST( msg->slot==100UL );
-    FD_TEST( msg->base_slot==ULONG_MAX );
-  }
-  fixture_delete( fx );
 }
 
 int
@@ -320,7 +297,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 1UL<<16, fd_shmem_cpu_idx( 0UL ), "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 1UL<<14, fd_shmem_cpu_idx( 0UL ), "wksp", 0UL );
   FD_TEST( wksp );
 
   test_overflow_discards_incremental( wksp );

@@ -76,8 +76,9 @@ struct fd_backup_overrun {
 
 typedef struct fd_backup_overrun fd_backup_overrun_t;
 
-/* Per-snapzp statistics for the snapshot currently being produced.
-   Each snapzp tile owns one cache-line-sized entry.  snapmk reads all
+/* Per-snapzp statistics for the snapshot currently being produced,
+   plus the appendvec slot allocator shared by all snapzp tiles.  Each
+   snapzp tile owns one cache-line-sized stats entry.  snapmk reads all
    entries after the final flush barrier. */
 
 #define FD_BACKUP_STATS_MAX 64UL
@@ -99,13 +100,10 @@ struct __attribute__((aligned(128))) fd_backup_worker_stats {
 typedef struct fd_backup_worker_stats fd_backup_worker_stats_t;
 
 struct fd_backup_stats {
-  /* Shared appendvec allocator for the snapshot currently being
-     produced.  Agave requires a distinct slot per appendvec, so the
-     snapzp tiles claim consecutive indices from appendvec_next and
-     derive the slot with fd_backup_appendvec_slot.  A tile raises
-     appendvec_overflow when its index does not fit the archive's slot
-     window; snapmk then discards the archive.  snapmk resets both
-     before broadcasting START. */
+  /* Appendvec slot allocator for the archive in progress: snapzp tiles
+     claim indices from appendvec_next (see fd_backup_appendvec_slot)
+     and set appendvec_overflow when none is left.  snapmk resets both
+     before START and discards the archive if overflow is set. */
   ulong appendvec_next     __attribute__((aligned(128)));
   ulong appendvec_overflow;
 
@@ -115,6 +113,12 @@ struct fd_backup_stats {
 typedef struct fd_backup_stats fd_backup_stats_t;
 
 FD_PROTOTYPES_BEGIN
+
+static inline void
+fd_backup_appendvec_reset( fd_backup_stats_t * stats ) {
+  __atomic_store_n( &stats->appendvec_next,     0UL, __ATOMIC_RELAXED );
+  __atomic_store_n( &stats->appendvec_overflow, 0UL, __ATOMIC_RELEASE );
+}
 
 static inline void
 fd_backup_overrun_push( fd_backup_overrun_t * q,
