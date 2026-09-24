@@ -159,7 +159,7 @@
                     "is_vote_update":  { "type": "Bool",   "description": "True if this write touched the vote cache" },
                     "is_new_vote":     { "type": "Bool",   "description": "True if this write created a new vote account" },
                     "is_rm_vote":      { "type": "Bool",   "description": "True if this write removed a vote account" },
-                    "account_lthash":  { "type": "Bytes", "max_len": 2048, "description": "Raw 2048-byte account LtHash captured during commit without rehashing. Empty if no committed contribution was captured, including cancelled transactions and bundle non-owners. Deletion is 2048 zero bytes. For bundles, the final writable owner carries the final shared account state. Excludes later non-transaction updates." }
+                    "lthash":          { "type": "Hash",   "description": "blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Zero if the account does not exist after the txn, or if this txn did not commit it: a bundle txn that is not the account's final writer, or a txn that was not committed" }
                 }
             }
         },

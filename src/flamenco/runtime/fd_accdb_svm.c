@@ -73,7 +73,7 @@ fd_accdb_svm_close_rw( fd_bank_t *             bank,
   fd_bank_lthash_end_locking_modify( bank );
 
   log_account_change( bank, acc, capture_ctx );
-  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) && !update->skip_event_diff ) ) fd_event_runtime_block_account( bank, acc->pubkey, update->owner_before, acc->owner, update->lamports_before, acc->lamports, update->data_len_before, acc->data_len, acc->executable );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) && !update->skip_event_diff ) ) fd_event_runtime_block_account( bank, acc->pubkey, update->owner_before, acc->owner, update->lamports_before, acc->lamports, update->data_len_before, acc->data_len, acc->executable, hash );
   acc->commit = 1;
   fd_accdb_unwrite_one( accdb, acc );
 }
@@ -99,7 +99,7 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
     if( FD_UNLIKELY( is_vote_reward ) ) fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_VOTE, acc.pubkey, acc.owner, lamports_pre, acc.lamports, 0UL, 0UL, 0UL );
-    else                                fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, lamports_pre, acc.lamports, acc.data_len, acc.data_len, acc.executable );
+    else                                fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, lamports_pre, acc.lamports, acc.data_len, acc.data_len, acc.executable, post );
   }
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
@@ -138,7 +138,7 @@ fd_accdb_svm_write( fd_bank_t *         bank,
 
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
-  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) && !skip_event_diff ) ) fd_event_runtime_block_account( bank, acc.pubkey, owner_pre, acc.owner, lamports_pre, acc.lamports, data_len_pre, acc.data_len, acc.executable );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) && !skip_event_diff ) ) fd_event_runtime_block_account( bank, acc.pubkey, owner_pre, acc.owner, lamports_pre, acc.lamports, data_len_pre, acc.data_len, acc.executable, post );
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
 }
@@ -164,7 +164,7 @@ fd_accdb_svm_remove( fd_bank_t *         bank,
 
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
-  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, burned, 0UL, acc.data_len, 0UL, 0 );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, burned, 0UL, acc.data_len, 0UL, 0, post );
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
   return burned;
