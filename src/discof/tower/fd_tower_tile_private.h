@@ -133,6 +133,8 @@ struct fd_tower_tile {
   fd_tower_recover_t recovery;
   int              recovery_pending;
   int              tower_file_loaded;      /* the signed file for the staked identity was verified at boot */
+  fd_tower_file_t  signed_tower;           /* newest checkpoint signed during this process */
+  int              signed_tower_valid;
   int              epoch_refresh_pending;  /* an adoption advanced the root, refresh the epoch voter caches on the next completed slot */
   int              recovery_initialized;
   ulong            recovery_onchain_root;  /* our root in the vote account at the last replayed slot */

@@ -4,12 +4,110 @@
 #include "fd_failover_tile.c"
 #include "../../util/net/fd_ip4.h"
 #include "../../choreo/tower/fd_tower.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 
 static uchar ch_mem[ 8UL<<20 ] __attribute__((aligned(128)));
 static fd_topo_tile_t         tile[1];
 static fd_failover_tile_ctx_t ctx[1];
+
+static void
+write_boot_key( char const * path,
+                uchar const * key ) {
+  FILE * file = fopen( path, "w" );
+  FD_TEST( file );
+  FD_TEST( fputc( '[', file )!=EOF );
+  for( ulong i=0UL; i<64UL; i++ ) FD_TEST( fprintf( file, "%s%u", i ? "," : "", (uint)key[ i ] )>0 );
+  FD_TEST( fputc( ']', file )!=EOF );
+  FD_TEST( !fclose( file ) );
+}
+
+/* Exercise the actual startup path repeatedly.  A received confirmation
+   must never become an outgoing grant when a passive boot rewrites the
+   interrupted PROMOTING role as STANDBY. */
+static void
+test_restart_confirmation( void ) {
+  char base[] = "/tmp/fd_failover_restart.XXXXXX";
+  FD_TEST( mkdtemp( base ) );
+  fd_memset( tile, 0, sizeof(tile) );
+  fd_cstr_ncpy( tile->failov.base_path, base, sizeof(tile->failov.base_path) );
+  FD_TEST( fd_cstr_printf_check( tile->failov.junk_identity_path, sizeof(tile->failov.junk_identity_path), NULL, "%s/junk.json", base ) );
+  FD_TEST( fd_cstr_printf_check( tile->failov.staked_identity_path, sizeof(tile->failov.staked_identity_path), NULL, "%s/staked.json", base ) );
+  fd_cstr_ncpy( tile->failov.identity_key_path, tile->failov.junk_identity_path, sizeof(tile->failov.identity_key_path) );
+  fd_cstr_ncpy( tile->failov.vote_account_path, tile->failov.staked_identity_path, sizeof(tile->failov.vote_account_path) );
+  tile->failov.target_uid = (uint)geteuid();
+  tile->failov.target_gid = (uint)getegid();
+  tile->failov.member_cnt = 2UL;
+  tile->failov.status_interval_millis = 800UL;
+  uchar junk[ 64 ];
+  uchar staked[ 64 ];
+  uchar peer[ 64 ];
+  fd_sha512_t sha[ 1 ];
+  fd_memset( junk,   1, 32UL );
+  fd_memset( staked, 2, 32UL );
+  fd_memset( peer,   3, 32UL );
+  fd_ed25519_public_from_private( junk+32UL,   junk,   sha );
+  fd_ed25519_public_from_private( staked+32UL, staked, sha );
+  fd_ed25519_public_from_private( peer+32UL,   peer,   sha );
+  write_boot_key( tile->failov.junk_identity_path, junk );
+  write_boot_key( tile->failov.staked_identity_path, staked );
+  fd_memcpy( tile->failov.member_junk_pubkey[ 0 ], junk+32UL, 32UL );
+  fd_memcpy( tile->failov.member_junk_pubkey[ 1 ], peer+32UL, 32UL );
+
+  int dir = role_dir_open( base, (uint)geteuid(), (uint)getegid() );
+  int file = fcntl( dir, F_DUPFD_CLOEXEC, 0 );
+  FD_TEST( file>=0 );
+  fd_failover_role_file_t role = { .version=FD_FAILOVER_ROLE_VERSION,
+                                  .role=FD_FAILOVER_STATE_PROMOTING, .term=7UL };
+  fd_memcpy( role.staked_pubkey, staked+32UL, 32UL );
+  FD_TEST( !fd_failover_role_store( dir, file, 0, UINT_MAX, UINT_MAX, &role ) );
+  fd_failover_demoted_record_t record = { .demoted={ .term=7UL, .last_vote_slot=99UL,
+                                                   .watermark=5UL, .mode=FD_FAILOVER_MODE_TOWER,
+                                                   .state_len=5U } };
+  fd_memcpy( record.state, "tower", 5UL );
+  fd_sha256_hash( record.state, 5UL, record.digest );
+  /* Write a literal version 1 image.  Startup must migrate its source
+     before rewriting PROMOTING to STANDBY. */
+  uchar legacy[ FD_FAILOVER_DEMOTED_FILE_MAX ];
+  ulong legacy_sz = fd_failover_demoted_ser( &record, legacy )-1UL;
+  FD_STORE( uint, legacy, 1U );
+  fd_sha256_hash( legacy, legacy_sz-32UL, legacy+legacy_sz-32UL );
+  int legacy_fd = openat( dir, FD_FAILOVER_DEMOTED_PATH, O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0600 );
+  FD_TEST( legacy_fd>=0 );
+  FD_TEST( write( legacy_fd, legacy, legacy_sz )==(long)legacy_sz );
+  FD_TEST( !close( legacy_fd ) );
+  FD_TEST( !close( file ) );
+
+  static fd_topo_t topo;
+  ulong footprint = scratch_footprint( tile );
+  void * mem = aligned_alloc( scratch_align(), footprint+scratch_align() );
+  FD_TEST( mem );
+  topo.objs[ 0 ].offset = scratch_align();
+  topo.workspaces[ 0 ].wksp = mem;
+  for( ulong restart=0UL; restart<3UL; restart++ ) {
+    privileged_init( &topo, tile );
+    fd_failover_tile_ctx_t * boot = fd_topo_obj_laddr( &topo, 0UL );
+    FD_LOG_NOTICE(( "restart %lu: state %lu, term %lu, send_demoted %i", restart+1UL, boot->state, boot->hello.term, boot->send_demoted ));
+    FD_TEST( boot->state==FD_FAILOVER_STATE_STANDBY && boot->hello.term==7UL );
+    FD_TEST( boot->demoted_valid && !boot->send_demoted && !boot->pending_valid );
+    FD_TEST( boot->action==FD_FAILOVER_ACTION_IDLE && boot->demoted_accept_term==7UL );
+    fd_failover_channel_fini( boot->peers[ 0 ].channel );
+    FD_TEST( !close( boot->role_file_fd ) );
+    FD_TEST( !close( boot->role_dir_fd ) );
+  }
+  free( mem );
+  FD_TEST( !unlinkat( dir, FD_FAILOVER_ROLE_PATH, 0 ) );
+  FD_TEST( !unlinkat( dir, FD_FAILOVER_DEMOTED_PATH, 0 ) );
+  FD_TEST( !close( dir ) );
+  char role_dir[ 256 ];
+  FD_TEST( fd_cstr_printf_check( role_dir, sizeof(role_dir), NULL, "%s/failover", base ) );
+  FD_TEST( !rmdir( role_dir ) );
+  FD_TEST( !unlink( tile->failov.junk_identity_path ) );
+  FD_TEST( !unlink( tile->failov.staked_identity_path ) );
+  FD_TEST( !rmdir( base ) );
+  FD_LOG_NOTICE(( "pass: repeated passive restarts preserve confirmation direction" ));
+}
 
 static void
 test_pool_layout( void ) {
@@ -417,6 +515,22 @@ test_consensus_producer( fd_wksp_t * wksp ) {
   done.vote_txn_sz = txnp->payload_sz;
   consume_slot_done( ctx, &done );
   FD_TEST( !ctx->cs_valid );
+
+  /* The first signed vote can arrive before admin's switch answer.
+     Preserve it for replication and for an immediate return handoff. */
+  ctx->state               = FD_FAILOVER_STATE_PROMOTING;
+  ctx->action              = FD_FAILOVER_ACTION_PROMOTE_SWITCH;
+  ctx->hello.term          = 9UL;
+  ctx->peers[ 0 ].cs_sent   = 1;
+  ctx->last_vote_slot      = 30UL;
+  ctx->slot_done_seq       = 8UL;
+  consume_slot_done( ctx, &done );
+  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->cs_valid && !ctx->peers[ 0 ].cs_sent );
+  fd_memcpy( &msg, ctx->cs_buf, sizeof(msg) );
+  FD_TEST( msg.term==9UL && msg.vote_slot==31UL && msg.link_seq==8UL );
+  peer.term = 9UL;
+  FD_TEST( fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, &peer, ctx->cs_buf, ctx->cs_sz ) );
+  FD_TEST( cache.valid && cache.msg.vote_slot==ctx->last_vote_slot );
 
   fd_wksp_free_laddr( tower_mem );
   FD_LOG_NOTICE(( "pass: the active encodes a tower frame the standby decoder accepts" ));
@@ -836,6 +950,10 @@ test_active_handoff_checks( void ) {
   peer->status_valid   = 1;
   peer->status.role    = (uchar)FD_FAILOVER_ROLE_STANDBY;
   peer->status.term    = 4UL;
+  ctx->stuck = 1;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE );
+  ctx->stuck = 0;
   FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
   controller_fini();
@@ -1530,7 +1648,9 @@ test_operator_commands( void ) {
   FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
 
   /* A full confirmation with tower and digest, as the peer would send it. */
+  persist( ctx, FD_FAILOVER_STATE_STANDBY, 4UL );
   ctx->demoted_valid                         = 1;
+  ctx->demoted_record.source                 = FD_FAILOVER_DEMOTED_SOURCE_PEER;
   ctx->demoted_record.demoted.term           = 4UL;
   ctx->demoted_record.demoted.state_len      = 8U;
   ctx->demoted_record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
@@ -1716,10 +1836,102 @@ test_promote_evidence( void ) {
 
   /* The same record coming from the peer is fine. */
   ctx->send_demoted = 0;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+  ctx->demoted_record.source = FD_FAILOVER_DEMOTED_SOURCE_LOCAL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+  ctx->demoted_record.source = FD_FAILOVER_DEMOTED_SOURCE_PEER;
+  ctx->demoted_record.demoted.term = 3UL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+  ctx->demoted_record.demoted.term = 4UL;
   FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING );
   controller_fini();
   FD_LOG_NOTICE(( "pass: promote needs the peer's confirmation" ));
+}
+
+/* The second tenure can start and end before it produces a new vote.
+   Its final tower must be the one adopted from the peer, even if this
+   process still has an older stream cached from its first tenure. */
+static void
+test_repeated_handoff_tower( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 6UL );
+  fd_failover_consensus_state_t old = { .term=5UL, .vote_slot=99UL,
+                                       .mode=FD_FAILOVER_MODE_TOWER, .state_len=5U };
+  fd_memcpy( ctx->cs_buf, &old, sizeof(old) );
+  fd_memcpy( ctx->cs_buf+sizeof(old), "older", 5UL );
+  ctx->cs_valid = 1;
+  ctx->cs_sz = sizeof(old)+5UL;
+
+  uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
+  ulong payload_sz = make_demoted_payload( payload, 7UL, 120UL );
+  fd_failover_demoted_record_t record;
+  FD_TEST( !demoted_payload_decode( payload, payload_sz, &record ) );
+  ctx->replay_slot = 120UL;
+  start_promotion( ctx, &record, 7UL );
+  step_controller( ctx, stem, 1000L );
+  ctx->adopt_result = (fd_tower_adopt_result_t){ .result=FD_TOWER_ADOPT_SUCCESS, .vote_slot=120UL };
+  ctx->adopt_result_id = ctx->adopt_expected_id;
+  ctx->adopt_result_fresh = 1;
+  step_controller( ctx, stem, 1000L );
+  ctx->switch_result.result = FD_FAILOVER_SWITCH_OK;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE );
+  ctx->pending_valid = 0;
+  FD_TEST( ctx->last_vote_slot==120UL );
+
+  start_demotion( ctx, stem, 8UL, 64UL, 1 );
+  ctx->switch_result.result = FD_FAILOVER_SWITCH_OK;
+  ctx->switch_result.tower_watermark = 20UL;
+  ctx->tower_seen_seq = 19UL;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->demoted_valid && ctx->send_demoted );
+  FD_TEST( ctx->demoted_record.demoted.last_vote_slot==120UL );
+  FD_TEST( ctx->demoted_record.demoted.state_len==record.demoted.state_len );
+  FD_TEST( fd_memeq( ctx->demoted_record.state, record.state, record.demoted.state_len ) );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: immediate repeated handoff retains the adopted final tower" ));
+}
+
+static void
+test_record_sources( void ) {
+  uchar sources[] = { FD_FAILOVER_DEMOTED_SOURCE_LOCAL, FD_FAILOVER_DEMOTED_SOURCE_PEER,
+                       FD_FAILOVER_DEMOTED_SOURCE_UNKNOWN };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    controller_init( FD_FAILOVER_STATE_STANDBY, 7UL );
+    fd_failover_demoted_record_t record = { .demoted={ .term=7UL, .last_vote_slot=99UL,
+                                                     .mode=FD_FAILOVER_MODE_TOWER, .state_len=5U },
+                                           .source=sources[ i ] };
+    fd_memcpy( record.state, "tower", 5UL );
+    fd_sha256_hash( record.state, 5UL, record.digest );
+    FD_TEST( !fd_failover_demoted_store( ctx->role_dir_fd, ctx->role_file_fd, 0, UINT_MAX, UINT_MAX, &record ) );
+    fd_failover_channel_fini( ctx->peers[ 0 ].channel );
+    for( ulong restart=0UL; restart<3UL; restart++ ) {
+      /* Keep only the descriptors and local identity, as passive boot
+         does.  The actual privileged_init loop above covers key/TLS setup. */
+      int dir = ctx->role_dir_fd;
+      int file = ctx->role_file_fd;
+      fd_memset( ctx, 0, sizeof(*ctx) );
+      ctx->role_dir_fd = dir;
+      ctx->role_file_fd = file;
+      ctx->switch_pending_key = FD_FAILOVER_SWITCH_KEY_CNT;
+      fd_memset( ctx->hello.staked_pubkey, 0x5A, 32UL );
+      int role_err = role_file_read( ctx );
+      int demoted_err = fd_failover_demoted_load( dir, &ctx->demoted_record );
+      restore_records( ctx, role_err, demoted_err, UINT_MAX, UINT_MAX );
+      FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->demoted_valid );
+      FD_TEST( ctx->send_demoted==(sources[ i ]==FD_FAILOVER_DEMOTED_SOURCE_LOCAL) );
+      FD_TEST( ctx->demoted_historical==(sources[ i ]==FD_FAILOVER_DEMOTED_SOURCE_UNKNOWN) );
+      if( sources[ i ]==FD_FAILOVER_DEMOTED_SOURCE_PEER ) FD_TEST( ctx->demoted_accept_term==7UL );
+      /* Maintenance must not change the durable source. */
+      ctx->paused = !ctx->paused;
+      persist( ctx, ctx->state, ctx->hello.term );
+    }
+    demoted_remove( ctx );
+    FD_TEST( !close( ctx->role_file_fd ) && !close( ctx->role_dir_fd ) );
+  }
+  FD_LOG_NOTICE(( "pass: outgoing, received, and ambiguous records survive repeated boot and maintenance" ));
 }
 
 int
@@ -1727,6 +1939,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   stem_init();
+  test_restart_confirmation();
   test_pool_layout();
   test_listen_fd();
   test_footprint();
@@ -1753,6 +1966,8 @@ main( int     argc,
   test_bus_control_ordering();
   test_handoff_response();
   test_promote_evidence();
+  test_repeated_handoff_tower();
+  test_record_sources();
   test_hello_refresh();
   test_deadline_arms_late();
   test_promotion_refused_term();

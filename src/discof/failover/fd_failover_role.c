@@ -68,7 +68,7 @@ fd_failover_role_de( uchar const *             buf,
 int
 fd_failover_role_load( int                       dir_fd,
                        fd_failover_role_file_t * out ) {
-  int fd = openat( dir_fd, FD_FAILOVER_ROLE_PATH, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  int fd = openat( dir_fd, FD_FAILOVER_ROLE_PATH, O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK );
   if( FD_UNLIKELY( fd<0 ) ) return errno;
 
   struct stat dir_st;
@@ -143,13 +143,15 @@ store_file( int           dir_fd,
   ulong write_sz = 0UL;
   err = fd_io_write( fd, img, img_sz, img_sz, &write_sz );
   if( FD_UNLIKELY( !err && write_sz!=img_sz ) ) err = EIO;
-  if( FD_UNLIKELY( !err && fsync( fd ) ) ) err = errno;
   /* The write at boot runs as root, before the uid switch, and the loader
      refuses a file whose owner differs from the directory's, so the tile
      passes the validator user for that one.  This comes before the rename,
      so no file owned by root is ever in place. */
   if( FD_UNLIKELY( !err && ( owner_uid!=UINT_MAX || owner_gid!=UINT_MAX ) &&
                    fchown( fd, (uid_t)owner_uid, (gid_t)owner_gid ) ) ) err = errno;
+  /* Sync ownership metadata together with the contents before publishing
+     the new name.  A directory sync alone does not sync the file inode. */
+  if( FD_UNLIKELY( !err && fsync( fd ) ) ) err = errno;
   if( FD_UNLIKELY( err ) ) return remove_tmp( dir_fd, tmp_path, err );
 
   if( FD_UNLIKELY( renameat( dir_fd, tmp_path, dir_fd, path ) ) )
@@ -177,7 +179,8 @@ demoted_valid( fd_failover_demoted_record_t const * record ) {
                    record->demoted.last_vote_slot==FD_FAILOVER_SLOT_NULL ||
                    record->demoted.mode!=(uchar)FD_FAILOVER_MODE_TOWER ||
                    !record->demoted.state_len ||
-                   record->demoted.state_len>FD_FAILOVER_TOWER_STATE_MAX ) ) return 0;
+                   record->demoted.state_len>FD_FAILOVER_TOWER_STATE_MAX ||
+                   record->source>FD_FAILOVER_DEMOTED_SOURCE_PEER ) ) return 0;
   uchar digest[ FD_FAILOVER_DEMOTED_DIGEST_SZ ];
   fd_sha256_hash( record->state, record->demoted.state_len, digest );
   return fd_memeq( digest, record->digest, sizeof(digest) );
@@ -197,6 +200,7 @@ fd_failover_demoted_ser( fd_failover_demoted_record_t const * record,
   FD_STORE( ushort, buf+off, record->demoted.state_len       ); off += 2UL;
   fd_memcpy( buf+off, record->state, record->demoted.state_len ); off += record->demoted.state_len;
   fd_memcpy( buf+off, record->digest, sizeof(record->digest) );  off += sizeof(record->digest);
+  buf[ off++ ] = record->source;
   fd_sha256_hash( buf, off, buf+off );
   return off+32UL;
 }
@@ -205,11 +209,11 @@ int
 fd_failover_demoted_de( uchar const *                   buf,
                         ulong                           buf_sz,
                         fd_failover_demoted_record_t * out ) {
-  if( FD_UNLIKELY( buf_sz<FD_FAILOVER_DEMOTED_FILE_BODY_MIN+32UL ||
+  if( FD_UNLIKELY( buf_sz<FD_FAILOVER_DEMOTED_FILE_V1_BODY_MIN+32UL ||
                    buf_sz>FD_FAILOVER_DEMOTED_FILE_MAX ) ) return EPROTO;
 
   uint version = FD_LOAD( uint, buf );
-  if( FD_UNLIKELY( version!=FD_FAILOVER_DEMOTED_VERSION ) ) return EPROTO;
+  if( FD_UNLIKELY( version!=1U && version!=FD_FAILOVER_DEMOTED_VERSION ) ) return EPROTO;
 
   fd_failover_demoted_record_t record;
   fd_memset( &record, 0, sizeof(record) );
@@ -221,10 +225,11 @@ fd_failover_demoted_de( uchar const *                   buf,
   record.demoted.state_len      = FD_LOAD( ushort, buf+off ); off += 2UL;
   if( FD_UNLIKELY( record.demoted.state_len>FD_FAILOVER_TOWER_STATE_MAX ) ) return EPROTO;
 
-  ulong body_sz = FD_FAILOVER_DEMOTED_FILE_BODY_MIN+(ulong)record.demoted.state_len;
+  ulong body_sz = FD_FAILOVER_DEMOTED_FILE_V1_BODY_MIN+(ulong)record.demoted.state_len+(ulong)(version!=1U);
   if( FD_UNLIKELY( buf_sz!=body_sz+32UL ) ) return EPROTO;
   fd_memcpy( record.state,  buf+off, record.demoted.state_len ); off += record.demoted.state_len;
-  fd_memcpy( record.digest, buf+off, sizeof(record.digest) );
+  fd_memcpy( record.digest, buf+off, sizeof(record.digest) ); off += sizeof(record.digest);
+  if( FD_LIKELY( version!=1U ) ) record.source = buf[ off++ ];
 
   uchar file_digest[ 32 ];
   fd_sha256_hash( buf, body_sz, file_digest );
@@ -238,7 +243,7 @@ fd_failover_demoted_de( uchar const *                   buf,
 int
 fd_failover_demoted_load( int                             dir_fd,
                           fd_failover_demoted_record_t * out ) {
-  int fd = openat( dir_fd, FD_FAILOVER_DEMOTED_PATH, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+  int fd = openat( dir_fd, FD_FAILOVER_DEMOTED_PATH, O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK );
   if( FD_UNLIKELY( fd<0 ) ) return errno;
 
   struct stat dir_st;
@@ -254,7 +259,7 @@ fd_failover_demoted_load( int                             dir_fd,
     return EACCES;
   }
   if( FD_UNLIKELY( st.st_size<0L ||
-                   (ulong)st.st_size<FD_FAILOVER_DEMOTED_FILE_BODY_MIN+32UL ||
+                   (ulong)st.st_size<FD_FAILOVER_DEMOTED_FILE_V1_BODY_MIN+32UL ||
                    (ulong)st.st_size>FD_FAILOVER_DEMOTED_FILE_MAX ) ) {
     close( fd );
     return EPROTO;

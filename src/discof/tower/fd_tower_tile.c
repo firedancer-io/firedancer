@@ -664,6 +664,20 @@ prepare_tower_file( fd_tower_tile_t *      ctx,
                                tower_sign_cb, ctx, ctx->tower_file_buf, sizeof(ctx->tower_file_buf) );
   if( FD_UNLIKELY( sz<0L ) ) FD_LOG_ERR(( "tower file serialization failed" ));
   ctx->tower_file_identity = *ctx->identity_key;
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+    /* The boot checkpoint stops being the newest evidence once this
+       process votes.  Keep the signed history separate from the shadow
+       tower that a later standby continues to update. */
+    fd_tower_file_t * saved = &ctx->signed_tower;
+    saved->root           = fd_tower_consensus_root( ctx->tower );
+    saved->votes_cnt      = fd_tower_vote_cnt( ctx->tower->votes );
+    saved->bank_hash      = out->vote_bank_hash;
+    saved->block_id       = out->vote_block_id;
+    saved->timestamp_slot = out->vote_slot;
+    saved->timestamp      = timestamp;
+    for( ulong i=0UL; i<saved->votes_cnt; i++ ) saved->votes[ i ] = *fd_tower_vote_peek_index_const( ctx->tower->votes, i );
+    ctx->signed_tower_valid = 1;
+  }
   return (ulong)sz;
 }
 
@@ -1968,16 +1982,29 @@ failover_adopt_tower( fd_tower_tile_t * ctx,
   result.result = FD_TOWER_ADOPT_ERR_INVALID;
   if( FD_UNLIKELY( fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ) ) return result;
 
-  /* Never adopt a tower older than the signed file verified at boot.  A
-     crash between the key install and the ACTIVE record leaves such a
-     file behind, and taking the peer's older confirmation over it would
-     drop lockouts.  The votes the local tower holds do not count, a spare
-     casts them under the junk identity, so nothing in them was signed as
-     the staked one, and they are usually ahead of the tower handed over. */
+  /* Check all known signed history, including votes from a previous
+     active tenure in this process.  Shadow standby votes are not signed
+     history.  A matching last slot alone cannot prove that a received
+     tower retained every lockout from the signed checkpoint. */
   result.result = FD_TOWER_ADOPT_ERR_STALE;
-  if( FD_UNLIKELY( ctx->tower_file_loaded && ctx->recovery.saved.votes_cnt ) ) {
-    ulong signed_tip = ctx->recovery.saved.votes[ ctx->recovery.saved.votes_cnt-1UL ].slot;
+  fd_tower_file_t const * saved = ctx->signed_tower_valid ? &ctx->signed_tower :
+                                  ctx->tower_file_loaded ? &ctx->recovery.saved : NULL;
+  if( FD_UNLIKELY( saved && saved->votes_cnt ) ) {
+    ulong signed_tip = saved->votes[ saved->votes_cnt-1UL ].slot;
     if( FD_UNLIKELY( !vote_cnt || votes[ vote_cnt-1UL ].slot<signed_tip ) ) return result;
+    ulong tip = votes[ vote_cnt-1UL ].slot;
+    ulong effective_root = root==ULONG_MAX ? ctx->tower->root : fd_ulong_max( root, ctx->tower->root );
+    if( FD_UNLIKELY( saved->root!=ULONG_MAX && effective_root<saved->root ) ) return result;
+    if( FD_UNLIKELY( tip==signed_tip &&
+                     ( !fd_memeq( &saved->bank_hash, &serde.hash, sizeof(fd_hash_t) ) ||
+                       !fd_memeq( &saved->block_id, &serde.block_id, sizeof(fd_hash_t) ) ) ) ) return result;
+    for( ulong i=0UL; i<saved->votes_cnt; i++ ) {
+      fd_tower_vote_t const * vote = &saved->votes[ i ];
+      if( vote->slot<=effective_root || tip>fd_ulong_sat_add( vote->slot, 1UL<<vote->conf ) ) continue;
+      ulong j=0UL;
+      while( j<vote_cnt && votes[ j ].slot<vote->slot ) j++;
+      if( FD_UNLIKELY( j==vote_cnt || votes[ j ].slot!=vote->slot || votes[ j ].conf<vote->conf ) ) return result;
+    }
   }
 
   result.result = FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH;
@@ -2191,6 +2218,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->tower_dir_fd          = -1;
   ctx->tower_file_fd         = -1;
   ctx->tower_file_sz         = 0UL;
+  ctx->signed_tower_valid    = 0;
   ctx->recovery_pending      = 0;
   ctx->recovery_initialized  = 0;
   ctx->recovery_onchain_root = ULONG_MAX;
