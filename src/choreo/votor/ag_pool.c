@@ -478,6 +478,16 @@ ag_pool_set_ranks( ag_pool_t * self,
   }
 }
 
+void
+ag_pool_advance_root( ag_pool_t *           self,
+                      ag_block_id_t const * block_id ) {
+  ulong finalized_slot = ag_pool_finalized_slot( self );
+  if( FD_UNLIKELY( finalized_slot==ULONG_MAX || block_id->slot<=finalized_slot ) ) return;
+  ag_finalization_event_t finalization_event = finalization_event_default( self );
+  ag_finality_tracker_mark_fast_finalized( self->finality_tracker, block_id, &finalization_event );
+  handle_finalization( self, &finalization_event );
+}
+
 int
 ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert,

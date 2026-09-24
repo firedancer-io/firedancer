@@ -1782,6 +1782,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.ip_addr                 = config->net.ip_addr;
     tile->votor.max_live_slots          = config->firedancer.runtime.max_live_slots;
     fd_cstr_ncpy( tile->votor.identity_key_path, identity_key_path, sizeof(tile->votor.identity_key_path) );
+    tile->votor.failover_enabled = config->firedancer.failover.enabled;
+    fd_cstr_ncpy( tile->votor.failover_staked_identity_path, config->firedancer.failover.staked_identity_path, sizeof(tile->votor.failover_staked_identity_path) );
+    fd_cstr_ncpy( tile->votor.failover_first_use, config->failover_first_use, sizeof(tile->votor.failover_first_use) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;

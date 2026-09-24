@@ -31,6 +31,7 @@
 #define IN_KIND_NET    (3)
 #define IN_KIND_REPLAY (4)
 #define IN_KIND_SIGN   (5)
+#define IN_KIND_FAILOV (6)
 
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
@@ -151,6 +152,36 @@ struct fd_votor_tile {
   int              halt_signing;           /* a switch is in flight, nothing goes out until unhalt */
   ulong            last_leader_slot;       /* slot of the last LEADER we published, ULONG_MAX before any */
   ulong            highest_completed_slot; /* highest slot replay completed, 0 before any */
+
+  /* Failover */
+
+  int         failover_enabled;
+  int         failover_standby;         /* the installed identity is not the staked one */
+  fd_pubkey_t failover_staked_identity;
+  int         first_use_authorized;     /* --failover-first-use was given the staked identity */
+  int         failover_hist_adopted;    /* a peer's history was adopted since the last switch */
+  int         vote_authority;           /* our rank may be installed, 0 keeps us unranked */
+  int         doppelganger;             /* another holder of our identity voted, we stopped */
+  int         hist_was_truncated;       /* the last export dropped windows, warned once */
+  ulong       adopted_last_leader_slot; /* from the adopted history, ULONG_MAX when none */
+  ulong       last_vote_slot;           /* highest slot we broadcast a vote for, ULONG_MAX before any */
+  ulong       root_slot;                /* replay's root at the last completed slot, ULONG_MAX before any */
+  ushort      own_rank[ 3 ];            /* prev, curr and next epoch, USHORT_MAX when unranked */
+
+  ulong  hist_out_idx;                  /* votor_hist, ULONG_MAX without failover */
+  void * hist_out_mem;
+  ulong  hist_out_chunk0;
+  ulong  hist_out_wmark;
+  ulong  hist_out_chunk;
+
+  ulong  failov_out_idx;                /* votor_failov, the adoption answers */
+  void * failov_out_mem;
+  ulong  failov_out_chunk0;
+  ulong  failov_out_wmark;
+  ulong  failov_out_chunk;
+
+  uchar  adopt_req[ AG_HIST_SER_MAX ];
+  ulong  adopt_req_sz;
 
   /* Initialization */
 
@@ -284,6 +315,67 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
     if( FD_UNLIKELY( !peer || now<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) continue;
     ban_peer( peer, now );
   }
+}
+
+/* Our rank in one epoch's validator list, USHORT_MAX if we are not in
+   it or the epoch is not known yet. */
+static ushort
+own_rank_in( ag_epoch_info_t const * epoch_info,
+             fd_pubkey_t const *     id_key ) {
+  if( FD_UNLIKELY( !epoch_info ) ) return USHORT_MAX;
+  for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
+    if( FD_UNLIKELY( fd_memeq( epoch_info->validators[ rank ].id_key, id_key->uc, sizeof(ag_id_key_t) ) ) ) return (ushort)rank;
+  }
+  return USHORT_MAX;
+}
+
+/* Our rank in each tracked epoch, from the current identity, or
+   USHORT_MAX everywhere while we may not vote. */
+static void
+install_ranks( fd_votor_tile_t * ctx ) {
+  ushort prev_rank = ctx->vote_authority ? own_rank_in( ctx->prev_epoch_info, &ctx->id_key ) : USHORT_MAX;
+  ushort curr_rank = ctx->vote_authority ? own_rank_in( ctx->curr_epoch_info, &ctx->id_key ) : USHORT_MAX;
+  ushort next_rank = ctx->vote_authority ? own_rank_in( ctx->next_epoch_info, &ctx->id_key ) : USHORT_MAX;
+  ctx->own_rank[ 0 ] = prev_rank;
+  ctx->own_rank[ 1 ] = curr_rank;
+  ctx->own_rank[ 2 ] = next_rank;
+  ag_pool_set_ranks ( ctx->pool,  prev_rank, curr_rank, next_rank );
+  ag_votor_set_ranks( ctx->votor, prev_rank, curr_rank, next_rank );
+}
+
+static ushort
+own_rank_for( fd_votor_tile_t const * ctx,
+              ulong                   slot ) {
+  return fd_ushort_if( slot>=ctx->next_epoch_slot, ctx->own_rank[ 2 ], fd_ushort_if( slot>=ctx->curr_epoch_slot, ctx->own_rank[ 1 ], ctx->own_rank[ 0 ] ) );
+}
+
+static int
+cert_has_signer( ag_cert_t const * cert,
+                 ushort            rank ) {
+  if( FD_UNLIKELY( rank==USHORT_MAX ) ) return 0;
+  switch( cert->kind ) {
+  case AG_CERT_KIND_FINAL:          return fd_bls_set_test( cert->final.agg.set,      rank );
+  case AG_CERT_KIND_FAST_FINAL:     return fd_bls_set_test( cert->fast_final.agg.set, rank );
+  case AG_CERT_KIND_NOTAR:          return fd_bls_set_test( cert->notar.agg.set,      rank );
+  case AG_CERT_KIND_NOTAR_FALLBACK: return fd_bls_set_test( cert->notar_fallback.agg_notar.set, rank ) || fd_bls_set_test( cert->notar_fallback.agg_notar_fallback.set, rank );
+  case AG_CERT_KIND_SKIP:           return fd_bls_set_test( cert->skip.agg_skip.set,  rank ) || fd_bls_set_test( cert->skip.agg_skip_fallback.set,           rank );
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+}
+
+/* A vote or cert from the network with our rank on a slot we never
+   voted means another machine holds our identity, or the history we
+   adopted missed a vote.  Either way we stop voting. */
+static void
+doppelganger_check( fd_votor_tile_t * ctx,
+                    ulong             slot,
+                    int               own_signed ) {
+  if( FD_LIKELY( !own_signed || ctx->doppelganger ) ) return;
+  if( FD_LIKELY( slot<ag_votor_first_unpruned_slot( ctx->votor ) || ag_votor_has_voted( ctx->votor, slot ) ) ) return;
+  FD_LOG_WARNING(( "slot %lu has a vote from our identity that this machine never cast, another holder is voting, refusing to vote until the next identity switch", slot ));
+  ctx->doppelganger   = 1;
+  ctx->vote_authority = 0;
+  install_ranks( ctx );
 }
 
 static void
@@ -555,6 +647,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       int curr_leader = vote_slot+FD_NUM_SLOTS_FOR_REWARD>=ctx->curr_leader_slot && vote_slot+FD_NUM_SLOTS_FOR_REWARD<ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW;
       if( FD_UNLIKELY( reward_kind && curr_leader ) ) publish_reward_certs( ctx, ctx->stem, vote_slot );
     }
+    if( FD_UNLIKELY( ctx->failover_enabled ) ) doppelganger_check( ctx, vote_slot, rank==own_rank_for( ctx, vote_slot ) );
     return;
   }
   case AG_CERT_SERDE_TAG_FINAL:
@@ -581,7 +674,8 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     ushort rank      = fd_ushort_if( cert_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( cert_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_NOT_RANKED_IDX ]++; return; } /* peer is not ranked in this cert slot's epoch */
 
-    switch( ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, ctx->scratch.bad ) ) {
+    int add_err = ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, ctx->scratch.bad );
+    switch( add_err ) {
     case AG_POOL_SUCCESS:                ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX            ]++; break;
     case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_BOUNDS_IDX ]++; break;
     case AG_POOL_ERR_DUPLICATE:          ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX          ]++; break;
@@ -593,6 +687,8 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       FD_LOG_CRIT(( "unhandled kind" ));
     }
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert_slot );
+    /* Only a cert the pool verified says anything about who signed it. */
+    if( FD_UNLIKELY( ctx->failover_enabled && add_err==AG_POOL_SUCCESS ) ) doppelganger_check( ctx, cert_slot, cert_has_signer( &ctx->scratch.cert, own_rank_for( ctx, cert_slot ) ) );
     return;
   }
   default:
@@ -686,16 +782,67 @@ close_conns( fd_votor_tile_t * ctx ) {
   }
 }
 
-/* Our rank in one epoch's validator list, USHORT_MAX if we are not in
-   it or the epoch is not known yet. */
-static ushort
-own_rank_in( ag_epoch_info_t const * epoch_info,
-             fd_pubkey_t const *     id_key ) {
-  if( FD_UNLIKELY( !epoch_info ) ) return USHORT_MAX;
-  for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
-    if( FD_UNLIKELY( fd_memeq( epoch_info->validators[ rank ].id_key, id_key->uc, sizeof(ag_id_key_t) ) ) ) return (ushort)rank;
-  }
-  return USHORT_MAX;
+/* The last window this identity led, whether we led it or the history
+   we adopted says the peer did.  ULONG_MAX when neither. */
+static ulong
+leader_floor( fd_votor_tile_t const * ctx ) {
+  if( ctx->last_leader_slot==ULONG_MAX ) return ctx->adopted_last_leader_slot;
+  if( ctx->adopted_last_leader_slot==ULONG_MAX ) return ctx->last_leader_slot;
+  return fd_ulong_max( ctx->last_leader_slot, ctx->adopted_last_leader_slot );
+}
+
+/* One frame to the failover tile: the slot view its deadlines run on
+   and our own vote history.  See fd_votor_hist_msg. */
+static void
+publish_hist( fd_votor_tile_t *   ctx,
+              fd_stem_context_t * stem,
+              int                 has_vote ) {
+  if( FD_UNLIKELY( ctx->hist_out_idx==ULONG_MAX ) ) return;
+  fd_votor_hist_msg_t * msg = fd_chunk_to_laddr( ctx->hist_out_mem, ctx->hist_out_chunk );
+  msg->replay_slot = ctx->highest_completed_slot ? ctx->highest_completed_slot : ULONG_MAX;
+  msg->root_slot   = ctx->root_slot;
+  msg->has_vote    = has_vote;
+  msg->truncated   = ag_votor_hist_export( ctx->votor, leader_floor( ctx ), &msg->hist );
+  msg->vote_slot   = ag_hist_tip( &msg->hist ); /* the failover tile checks the history ends here */
+  if( FD_UNLIKELY( msg->truncated && !ctx->hist_was_truncated ) ) FD_LOG_WARNING(( "vote history export dropped windows below slot %lu, finality is far behind our votes", ag_hist_first_slot( msg->hist.anchor ) ));
+  ctx->hist_was_truncated = msg->truncated;
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->hist_out_idx, FD_VOTOR_HIST_SIG, ctx->hist_out_chunk, sizeof(fd_votor_hist_msg_t), 0UL, tspub, tspub );
+  ctx->hist_out_chunk = fd_dcache_compact_next( ctx->hist_out_chunk, sizeof(fd_votor_hist_msg_t), ctx->hist_out_chunk0, ctx->hist_out_wmark );
+}
+
+/* Take the peer's vote history before the staked key is installed here. */
+static fd_votor_adopt_result_t
+failover_adopt_hist( fd_votor_tile_t * ctx,
+                     uchar const *     req,
+                     ulong             req_sz ) {
+  fd_votor_adopt_result_t result = { .result = FD_VOTOR_ADOPT_ERR_DECODE, .root = ULONG_MAX, .vote_slot = ULONG_MAX };
+  ag_hist_t hist[1];
+  if( FD_UNLIKELY( req_sz>sizeof(ctx->adopt_req) || ag_hist_de( req, req_sz, hist ) ) ) return result;
+
+  ulong tip = ag_hist_tip( hist );
+  result.result = FD_VOTOR_ADOPT_ERR_INVALID;
+  if( FD_UNLIKELY( tip==ULONG_MAX || !ctx->init ) ) return result;
+
+  /* Never take a history older than the votes this machine sent as the
+     staked identity, a peer that fell behind cannot roll us back. */
+  result.result = FD_VOTOR_ADOPT_ERR_STALE;
+  if( FD_UNLIKELY( ctx->last_vote_slot!=ULONG_MAX && tip<ctx->last_vote_slot ) ) return result;
+
+  /* A finality anchor past the blocks we replayed cannot be real, and
+     advance_root would prune one slot at a time up to it.  Refuse it, the
+     promotion waits for replay to reach the anchor before it asks. */
+  result.result = FD_VOTOR_ADOPT_ERR_UNREPLAYED_ROOT;
+  if( FD_UNLIKELY( ctx->highest_completed_slot && hist->anchor>ctx->highest_completed_slot ) ) return result;
+
+  ulong conflicts = ag_votor_hist_adopt( ctx->votor, hist );
+  if( FD_UNLIKELY( conflicts ) ) FD_LOG_WARNING(( "adopted vote history disagrees with %lu of our own notar hashes, theirs were the ones sent", conflicts ));
+  ctx->failover_hist_adopted    = 1;
+  ctx->adopted_last_leader_slot = hist->last_leader_slot;
+  result.result    = FD_VOTOR_ADOPT_SUCCESS;
+  result.root      = ag_votor_highest_final_cert_slot( ctx->votor );
+  result.vote_slot = tip;
+  return result;
 }
 
 /* Install the identity the admin tile asked for.  The QUIC configs, our
@@ -709,16 +856,39 @@ switch_identity( fd_votor_tile_t * ctx ) {
   FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
   FD_LOG_INFO(( "my identity key: %s (key switched)", id_key_b58 ));
 
-  ushort prev_rank = own_rank_in( ctx->prev_epoch_info, &ctx->id_key );
-  ushort curr_rank = own_rank_in( ctx->curr_epoch_info, &ctx->id_key );
-  ushort next_rank = own_rank_in( ctx->next_epoch_info, &ctx->id_key );
-  ag_pool_set_ranks ( ctx->pool,  prev_rank, curr_rank, next_rank );
-  ag_votor_set_ranks( ctx->votor, prev_rank, curr_rank, next_rank );
+  /* Under failover the junk key never votes, and the staked key votes
+     only after a history was adopted or first use was authorized. */
+  ctx->vote_authority = 1;
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+    ctx->failover_standby = !fd_pubkey_eq( &ctx->id_key, &ctx->failover_staked_identity );
+    FD_LOG_NOTICE(( "failover: this machine is now %s", ctx->failover_standby ? "a hot spare" : "the active voter" ));
+    if( FD_UNLIKELY( ctx->failover_standby ) ) {
+      ctx->vote_authority = 0;
+    } else if( FD_LIKELY( ctx->failover_hist_adopted ) ) {
+      ctx->first_use_authorized = 0;
+    } else if( FD_UNLIKELY( ctx->first_use_authorized ) ) {
+      ctx->first_use_authorized = 0;
+      FD_LOG_NOTICE(( "first use installed, voting starts without an adopted history" ));
+    } else {
+      ctx->vote_authority = 0;
+      FD_LOG_WARNING(( "staked identity installed without an adopted vote history or first-use authorization, refusing to vote" ));
+    }
+    /* The doppelganger trip belonged to the key we are leaving, the guard
+       is live again for the next tenure. */
+    if( FD_UNLIKELY( ctx->doppelganger ) ) FD_LOG_NOTICE(( "failover: the doppelganger stop is lifted by this identity switch" ));
+    ctx->doppelganger          = 0;
+    ctx->failover_hist_adopted = 0;
+  }
+  install_ranks( ctx );
 
   /* The old identity's next slot is gone.  Start past everything we have
-     seen, handle_epoch seeds the slot again if the schedule is not loaded. */
+     seen, handle_epoch seeds the slot again if the schedule is not loaded.
+     A window the peer already produced as this identity is never led
+     again from here. */
   ulong finalized = ag_pool_finalized_slot( ctx->pool );
   ulong start     = fd_ulong_max( fd_ulong_if( finalized==ULONG_MAX, 0UL, finalized ), ctx->highest_completed_slot );
+  ulong floor     = leader_floor( ctx );
+  if( FD_UNLIKELY( floor!=ULONG_MAX ) ) start = fd_ulong_max( start, fd_ulong_sat_add( floor, AG_SLOTS_PER_WINDOW-1UL ) );
   /* A window is atomic, so the search starts at the window after the
      last slot we have seen.  Parent ready is only granted at a window
      start, a slot inside one would never be granted. */
@@ -857,6 +1027,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   ag_pool_advance_epoch ( ctx->pool,  epoch_info, own_rank, msg->start_slot );
   ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot );
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) install_ranks( ctx ); /* stays unranked while we may not vote */
 
   /* update our leader schedule */
 
@@ -940,6 +1111,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     ctx->highest_completed_slot = fd_ulong_max( ctx->highest_completed_slot, block_id.slot );
+    if( FD_LIKELY( slot_completed->root_slot!=ULONG_MAX ) ) ctx->root_slot = slot_completed->root_slot;
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ag_pool_init( ctx->pool, block_id.slot );
       if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
@@ -955,14 +1127,27 @@ handle_replay( fd_votor_tile_t *           ctx,
     footer = &slot_completed->footer;
     break;
   }
-  case REPLAY_SIG_SLOT_DEAD:
+  case REPLAY_SIG_SLOT_DEAD: {
+    ag_event_block_t dead = { .kind = AG_EVENT_BLOCK_INVALID_BLOCK, .slot = replay->slot_dead.slot };
+    ag_votor_handle_block_event( ctx->votor, &dead );
     footer = &replay->slot_dead.footer;
     break;
+  }
+  case REPLAY_SIG_ROOT_ADVANCED: {
+    /* Only a failover member reads this.  A spare is outside the vote
+       mesh and sees no certs, replay still roots from the block footers,
+       so the pool and the votor follow that root here. */
+    fd_replay_root_advanced_t const * root     = &replay->root_advanced;
+    ag_block_id_t                     block_id = ag_block_id( root->slot, root->block_id.uc );
+    ag_pool_advance_root ( ctx->pool,  &block_id );
+    ag_votor_advance_root( ctx->votor, root->slot );
+    break;
+  }
   default:
     FD_LOG_ERR(( "unexpected replay sig %lu", sig ));
   }
 
-  if( FD_UNLIKELY( !ctx->init ) ) return;
+  if( FD_UNLIKELY( !ctx->init || !footer ) ) return;
   ag_cert_t *    cert = &ctx->scratch.cert;
   blst_p2_affine sig_aff[1];
   if( footer->has_fast_final_cert ) {
@@ -1030,10 +1215,14 @@ after_credit( fd_votor_tile_t *   ctx,
 
   if( FD_UNLIKELY( ctx->halt_signing && fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     /* The admin tile waits on this, so it runs even before consensus is
-       up.  Votes queued before the halt are marked voted and dropped. */
+       up.  Votes queued before the halt are dropped and their slots
+       marked as never sent. */
     ag_event_vote_t dropped;
-    while( ag_votor_poll_vote_event( ctx->votor, &dropped ) ) {}
-    ctx->identity_keyswitch->result = 0UL;
+    while( ag_votor_poll_vote_event( ctx->votor, &dropped ) ) ag_votor_mark_unsent( ctx->votor, &dropped.vote );
+    /* The last frame has every slot marked so far, and the sequence
+       after it is the watermark the failover tile drains to. */
+    publish_hist( ctx, stem, 0 );
+    ctx->identity_keyswitch->result = ctx->hist_out_idx!=ULONG_MAX ? stem->seqs[ ctx->hist_out_idx ] : 0UL;
     switch_identity( ctx );
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     *charge_busy = 1;
@@ -1139,6 +1328,12 @@ after_credit( fd_votor_tile_t *   ctx,
 
       *charge_busy = 1;
     }
+    if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+      int sent = epoch_info && rank<epoch_info->validator_cnt;
+      if( FD_LIKELY( sent && ( ctx->last_vote_slot==ULONG_MAX || vote_slot>ctx->last_vote_slot ) ) ) ctx->last_vote_slot = vote_slot;
+      if( FD_UNLIKELY( !sent ) ) ag_votor_mark_unsent( ctx->votor, &ctx->scratch.vote_event.vote );
+      publish_hist( ctx, stem, sent );
+    }
   }
 
   if( FD_UNLIKELY( ag_votor_poll_cert_event( ctx->votor, &ctx->scratch.cert_event ) ) ) { /* a cert the pool accepted, or a standstill re-broadcast */
@@ -1179,6 +1374,7 @@ after_credit( fd_votor_tile_t *   ctx,
   ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 
   ctx->last_leader_slot = ctx->next_leader_slot;
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) publish_hist( ctx, stem, 0 ); /* the peer must know the window we lead before the next vote */
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
   *charge_busy = 1;
 }
@@ -1194,7 +1390,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
        Their slots are marked voted already, so dropping them is the safe
        side. */
     ag_event_vote_t dropped;
-    while( ag_votor_poll_vote_event( ctx->votor, &dropped ) ) {}
+    while( ag_votor_poll_vote_event( ctx->votor, &dropped ) ) ag_votor_mark_unsent( ctx->votor, &dropped.vote );
     ctx->halt_signing = 0;
     connect_peers( ctx );
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -1228,7 +1424,9 @@ before_frag( fd_votor_tile_t * ctx,
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
-    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD;
+    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD && !( ctx->failover_enabled && sig==REPLAY_SIG_ROOT_ADVANCED );
+  case IN_KIND_FAILOV:
+    return 0;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -1268,6 +1466,16 @@ during_frag( fd_votor_tile_t * ctx,
                    chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
     }
     handle_replay( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
+    break;
+  }
+  case IN_KIND_FAILOV: {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
+      FD_LOG_ERR(( "chunk %lu sz %lu from failov out of bounds, chunk0 %lu wmark %lu",
+                   chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    }
+    /* An oversized request fails the decode in after_frag. */
+    ctx->adopt_req_sz = sz;
+    if( FD_LIKELY( sz<=sizeof(ctx->adopt_req) ) ) fd_memcpy( ctx->adopt_req, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
     break;
   }
   default:
@@ -1316,7 +1524,18 @@ after_frag( fd_votor_tile_t *   ctx,
   }
   case IN_KIND_REPLAY:
     /* reliable link, handled in during_frag */
+    if( FD_UNLIKELY( ctx->failover_enabled && sig==REPLAY_SIG_SLOT_COMPLETED ) ) publish_hist( ctx, stem, 0 ); /* keeps the failover deadlines ticking */
     break;
+  case IN_KIND_FAILOV: {
+    /* The answer echoes the request's sequence number, the failover tile
+       waits for it. */
+    fd_votor_adopt_result_t result = failover_adopt_hist( ctx, ctx->adopt_req, ctx->adopt_req_sz );
+    fd_memcpy( fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk ), &result, sizeof(result) );
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, ctx->failov_out_idx, sig, ctx->failov_out_chunk, sizeof(result), 0UL, tspub, tspub );
+    ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(result), ctx->failov_out_chunk0, ctx->failov_out_wmark );
+    break;
+  }
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -1334,6 +1553,25 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->id_key = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 1 ) );
+
+  ctx->failover_enabled     = tile->votor.failover_enabled;
+  ctx->failover_standby     = 0;
+  ctx->first_use_authorized = 0;
+  fd_memset( ctx->failover_staked_identity.uc, 0, sizeof(fd_pubkey_t) );
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+    uchar const * staked = fd_keyload_load( tile->votor.failover_staked_identity_path, /* pubkey only: */ 1 );
+    fd_memcpy( ctx->failover_staked_identity.uc, staked, 32UL );
+    fd_keyload_unload( staked, 1 );
+    ctx->failover_standby = !fd_pubkey_eq( &ctx->id_key, &ctx->failover_staked_identity );
+    if( tile->votor.failover_first_use[ 0 ] ) {
+      fd_pubkey_t authorized;
+      if( FD_UNLIKELY( !fd_base58_decode_32( tile->votor.failover_first_use, authorized.uc ) ||
+                       !fd_pubkey_eq( &authorized, &ctx->failover_staked_identity ) ) )
+        FD_LOG_ERR(( "--failover-first-use must name this pool's staked identity" ));
+      ctx->first_use_authorized = 1;
+      FD_LOG_NOTICE(( "first-use authorization accepted for this launch, waiting for the controller to install the staked identity" ));
+    }
+  }
 
   fd_log_wallclock();
 }
@@ -1415,6 +1653,21 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->last_leader_slot       = ULONG_MAX;
   ctx->highest_completed_slot = 0UL;
 
+  /* A failover member boots under the junk key and votes only once the
+     controller installs the staked key.  Without failover the identity
+     votes as soon as it is ranked, as before. */
+  ctx->vote_authority           = !ctx->failover_enabled || ( !ctx->failover_standby && ctx->first_use_authorized );
+  ctx->failover_hist_adopted    = 0;
+  ctx->doppelganger             = 0;
+  ctx->hist_was_truncated       = 0;
+  ctx->adopted_last_leader_slot = ULONG_MAX;
+  ctx->last_vote_slot           = ULONG_MAX;
+  ctx->root_slot                = ULONG_MAX;
+  ctx->own_rank[ 0 ]            = USHORT_MAX;
+  ctx->own_rank[ 1 ]            = USHORT_MAX;
+  ctx->own_rank[ 2 ]            = USHORT_MAX;
+  ctx->adopt_req_sz             = 0UL;
+
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -1428,6 +1681,7 @@ unprivileged_init( fd_topo_t const *      topo,
     }
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "sign_votor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    else if( FD_LIKELY( !strcmp( link->name, "failov_votor" ) ) ) ctx->in_kind[ i ] = IN_KIND_FAILOV;
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( link->mtu ) ) {
@@ -1453,6 +1707,23 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
+
+  ctx->hist_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_hist", tile->kind_id );
+  if( FD_UNLIKELY( ctx->hist_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->hist_out_idx ] ];
+    ctx->hist_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->hist_out_chunk0 = fd_dcache_compact_chunk0( ctx->hist_out_mem, link->dcache );
+    ctx->hist_out_wmark  = fd_dcache_compact_wmark ( ctx->hist_out_mem, link->dcache, link->mtu );
+    ctx->hist_out_chunk  = ctx->hist_out_chunk0;
+  }
+  ctx->failov_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_failov", tile->kind_id );
+  if( FD_UNLIKELY( ctx->failov_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->failov_out_idx ] ];
+    ctx->failov_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->failov_out_chunk0 = fd_dcache_compact_chunk0( ctx->failov_out_mem, link->dcache );
+    ctx->failov_out_wmark  = fd_dcache_compact_wmark ( ctx->failov_out_mem, link->dcache, link->mtu );
+    ctx->failov_out_chunk  = ctx->failov_out_chunk0;
+  }
 
   ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_votor", tile->kind_id );
   ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_sign", tile->kind_id );

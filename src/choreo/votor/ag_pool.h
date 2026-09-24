@@ -64,6 +64,16 @@ ag_pool_set_ranks( ag_pool_t * self,
                    ulong       curr_epoch_rank,
                    ulong       next_epoch_rank );
 
+/* ag_pool_advance_root treats block_id as finalized without a cert, for
+   a node that learns finality from replay's block footers because it
+   gets no certs of its own.  It is the fast final path of
+   ag_pool_add_cert without the cert.  Nothing happens if the slot is not
+   past the finalized slot. */
+
+void
+ag_pool_advance_root( ag_pool_t *           self,
+                      ag_block_id_t const * block_id );
+
 /* Definition 13. Pool::add_cert */
 
 int

@@ -699,6 +699,9 @@ struct fd_topo_tile {
       ushort quic_server_listen_port;
       uint   ip_addr;
       ulong  max_live_slots;
+      int    failover_enabled;
+      char   failover_staked_identity_path[ PATH_MAX ];
+      char   failover_first_use[ 45 ];
     } votor;
 
     struct {

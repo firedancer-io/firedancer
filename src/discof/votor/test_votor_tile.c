@@ -1,7 +1,8 @@
 #define FD_TILE_TEST 1
-/* test_votor_tile: the identity keyswitch in the votor tile.  The tile
-   is included whole so the static handlers can be driven directly on a
-   ctx built by hand, the way test_tower_tile does it. */
+/* test_votor_tile: the identity keyswitch and the failover links in the
+   votor tile.  The tile is included whole so the static handlers can be
+   driven directly on a ctx built by hand, the way test_tower_tile does
+   it. */
 
 #include "fd_votor_tile.c"
 #include "../../choreo/votor/test_ag_cert_builder.h"
@@ -48,6 +49,24 @@ static uchar contact_infos_mem[ CONTACT_INFOS_MEM_SZ ] __attribute__((aligned(12
 static uchar net_out_mem  [ NET_OUT_MEM_SZ   ] __attribute__((aligned(FD_CHUNK_SZ)));
 static uchar votor_out_mem[ VOTOR_OUT_MEM_SZ ] __attribute__((aligned(FD_CHUNK_SZ)));
 
+/* The failover links.  Frames on the hist and failov outs are read back
+   through the mcache line stem wrote, and the replay and failov in-links
+   hold one frag at chunk 0 that is handed to the frag callbacks by
+   hand. */
+
+#define HIST_OUT_MEM_SZ   (16UL*sizeof(fd_votor_hist_msg_t))
+#define FAILOV_OUT_MEM_SZ (16UL*FD_CHUNK_SZ)
+#define REPLAY_IN_MEM_SZ  ( 2UL*sizeof(fd_replay_message_t))
+#define FAILOV_IN_MEM_SZ  ( 2UL*AG_HIST_SER_MAX)
+
+static uchar hist_out_mem  [ HIST_OUT_MEM_SZ   ] __attribute__((aligned(FD_CHUNK_SZ)));
+static uchar failov_out_mem[ FAILOV_OUT_MEM_SZ ] __attribute__((aligned(FD_CHUNK_SZ)));
+static uchar replay_in_mem [ REPLAY_IN_MEM_SZ  ] __attribute__((aligned(FD_CHUNK_SZ)));
+static uchar failov_in_mem [ FAILOV_IN_MEM_SZ  ] __attribute__((aligned(FD_CHUNK_SZ)));
+
+#define IN_IDX_REPLAY (0UL)
+#define IN_IDX_FAILOV (1UL)
+
 static ulong
 out_wmark( ulong mem_sz,
            ulong mtu ) {
@@ -55,11 +74,13 @@ out_wmark( ulong mem_sz,
   return (mem_sz>>FD_CHUNK_LG_SZ) - chunk_mtu;
 }
 
-/* A fake stem with the tile's two outs.  Publishing writes a real
-   mcache line and nothing consumes it. */
+/* A fake stem with the tile's two outs and the two failover outs.
+   Publishing writes a real mcache line and nothing consumes it. */
 
-#define OUT_CNT   (2UL)
-#define OUT_DEPTH (128UL)
+#define OUT_IDX_HIST   (2UL)
+#define OUT_IDX_FAILOV (3UL)
+#define OUT_CNT        (4UL)
+#define OUT_DEPTH      (128UL)
 
 static fd_frag_meta_t    out_mcache[ OUT_CNT ][ OUT_DEPTH ];
 static fd_frag_meta_t *  out_mcaches[ OUT_CNT ];
@@ -139,6 +160,17 @@ fixture_new( fd_pubkey_t const * id_key ) {
   fd_clock_tile_init( ctx->clock );
   ctx->last_leader_slot       = ULONG_MAX;
   ctx->highest_completed_slot = 0UL;
+  /* No failover links in this fixture, the tile behaves like a plain
+     staked node. */
+  ctx->vote_authority           = 1;
+  ctx->hist_out_idx             = ULONG_MAX;
+  ctx->failov_out_idx           = ULONG_MAX;
+  ctx->adopted_last_leader_slot = ULONG_MAX;
+  ctx->last_vote_slot           = ULONG_MAX;
+  ctx->root_slot                = ULONG_MAX;
+  ctx->own_rank[ 0 ]            = USHORT_MAX;
+  ctx->own_rank[ 1 ]            = USHORT_MAX;
+  ctx->own_rank[ 2 ]            = USHORT_MAX;
 
   ctx->quic_client_listen_port = TEST_CLIENT_PORT;
   ctx->quic_server_listen_port = TEST_SERVER_PORT;
@@ -242,19 +274,29 @@ build_epoch_info( fd_pubkey_t const * a,
   epoch_info_build( &epoch_info_mem, infos, 2UL );
 }
 
-/* Bring consensus up at slot 0 as rank own_rank of the built epoch. */
+/* Bring consensus up at slot 0 as rank own_rank of the built epoch.
+   The votor's clock starts at now, so a case that runs after_credit on
+   the wallclock passes it the wallclock to keep the skip timeouts from
+   coming due underneath it. */
 
 static void
-start_consensus( fd_votor_tile_t * ctx,
-                 ulong             own_rank ) {
+start_consensus_at( fd_votor_tile_t * ctx,
+                    ulong             own_rank,
+                    long              now ) {
   ctx->curr_epoch_info = &epoch_info_mem;
   ctx->curr_epoch_slot = 0UL;
   ag_pool_advance_epoch ( ctx->pool, &epoch_info_mem, own_rank, 0UL );
   ag_votor_advance_epoch( ctx->votor, TEST_NS_PER_SLOT, own_rank, 0UL );
   ag_pool_init ( ctx->pool, 0UL );
-  ag_votor_init( ctx->votor, 0UL, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &sk[ own_rank ] );
+  ag_votor_init( ctx->votor, 0UL, now, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &sk[ own_rank ] );
   ctx->shred_version = TEST_SHRED_VERSION;
   ctx->init          = 1;
+}
+
+static void
+start_consensus( fd_votor_tile_t * ctx,
+                 ulong             own_rank ) {
+  start_consensus_at( ctx, own_rank, 0L );
 }
 
 static peer_t *
@@ -298,6 +340,112 @@ unhalt( fd_votor_tile_t * ctx ) {
   during_housekeeping( ctx );
   FD_TEST( !ctx->halt_signing );
   FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+}
+
+/* Make the fixture a failover member with the given staked identity,
+   with the hist and failov outs and the replay and failov in-links wired
+   the way unprivileged_init does it.  Nothing else changes, so the plain
+   cases never see these links. */
+
+static void
+enable_failover( fd_votor_tile_t *   ctx,
+                 fd_pubkey_t const * staked ) {
+  ctx->failover_enabled         = 1;
+  ctx->failover_staked_identity = *staked;
+  ctx->failover_standby         = !fd_pubkey_eq( &ctx->id_key, staked );
+
+  ctx->hist_out_idx      = OUT_IDX_HIST;
+  ctx->hist_out_mem      = hist_out_mem;
+  ctx->hist_out_chunk0   = 0UL;
+  ctx->hist_out_wmark    = out_wmark( HIST_OUT_MEM_SZ, sizeof(fd_votor_hist_msg_t) );
+  ctx->hist_out_chunk    = 0UL;
+  ctx->failov_out_idx    = OUT_IDX_FAILOV;
+  ctx->failov_out_mem    = failov_out_mem;
+  ctx->failov_out_chunk0 = 0UL;
+  ctx->failov_out_wmark  = out_wmark( FAILOV_OUT_MEM_SZ, sizeof(fd_votor_adopt_result_t) );
+  ctx->failov_out_chunk  = 0UL;
+
+  ctx->in_kind[ IN_IDX_REPLAY ]   = IN_KIND_REPLAY;
+  ctx->in[ IN_IDX_REPLAY ].mem    = (fd_wksp_t *)fd_type_pun( replay_in_mem );
+  ctx->in[ IN_IDX_REPLAY ].chunk0 = 0UL;
+  ctx->in[ IN_IDX_REPLAY ].wmark  = out_wmark( REPLAY_IN_MEM_SZ, sizeof(fd_replay_message_t) );
+  ctx->in[ IN_IDX_REPLAY ].mtu    = sizeof(fd_replay_message_t);
+  ctx->in_kind[ IN_IDX_FAILOV ]   = IN_KIND_FAILOV;
+  ctx->in[ IN_IDX_FAILOV ].mem    = (fd_wksp_t *)fd_type_pun( failov_in_mem );
+  ctx->in[ IN_IDX_FAILOV ].chunk0 = 0UL;
+  ctx->in[ IN_IDX_FAILOV ].wmark  = out_wmark( FAILOV_IN_MEM_SZ, AG_HIST_SER_MAX );
+  ctx->in[ IN_IDX_FAILOV ].mtu    = AG_HIST_SER_MAX;
+}
+
+/* One frag on in-link in_idx the way stem hands it over, the payload
+   sits at chunk 0 of that link's buffer.  Returns before_frag's verdict,
+   nonzero means the tile filtered it and nothing else ran. */
+
+static int
+deliver_frag( fd_votor_tile_t * ctx,
+              ulong             in_idx,
+              ulong             sig,
+              ulong             sz ) {
+  static ulong seq = 0UL;
+  if( FD_UNLIKELY( before_frag( ctx, in_idx, seq, sig ) ) ) return 1;
+  during_frag( ctx, in_idx, seq, sig, 0UL, sz, 0UL );
+  after_frag ( ctx, in_idx, seq, sig, sz, 0UL, 0UL, stem );
+  seq++;
+  return 0;
+}
+
+static fd_replay_message_t *
+replay_in_msg( void ) {
+  fd_memset( replay_in_mem, 0, sizeof(fd_replay_message_t) );
+  return (fd_replay_message_t *)fd_type_pun( replay_in_mem );
+}
+
+/* The frame stem wrote at seq on one of the outs, checked against the
+   sig and size the tile publishes with. */
+
+static void const *
+out_frame( ulong        out_idx,
+           void const * mem,
+           ulong        seq,
+           ulong        sig,
+           ulong        sz ) {
+  fd_frag_meta_t const * meta = &out_mcache[ out_idx ][ seq & (OUT_DEPTH-1UL) ];
+  FD_TEST( meta->seq==seq && meta->sig==sig && (ulong)meta->sz==sz );
+  return fd_chunk_to_laddr_const( mem, meta->chunk );
+}
+
+static fd_votor_hist_msg_t const *
+hist_frame( ulong seq ) {
+  return out_frame( OUT_IDX_HIST, hist_out_mem, seq, FD_VOTOR_HIST_SIG, sizeof(fd_votor_hist_msg_t) );
+}
+
+static fd_votor_adopt_result_t const *
+adopt_reply( ulong seq,
+             ulong sig ) {
+  return out_frame( OUT_IDX_FAILOV, failov_out_mem, seq, sig, sizeof(fd_votor_adopt_result_t) );
+}
+
+static ag_hist_rec_t const *
+hist_rec( ag_hist_t const * hist,
+          ulong             slot ) {
+  for( ulong i=0UL; i<hist->rec_cnt; i++ ) if( FD_UNLIKELY( hist->rec[ i ].slot==slot ) ) return &hist->rec[ i ];
+  return NULL;
+}
+
+/* A history on anchor 0 with one voted slot, a notar vote on notar_hash
+   when one is given. */
+
+static void
+one_slot_hist( ag_hist_t *   hist,
+               ulong         slot,
+               uchar const * notar_hash ) {
+  fd_memset( hist, 0, sizeof(*hist) );
+  hist->anchor           = 0UL;
+  hist->last_leader_slot = ULONG_MAX;
+  hist->rec_cnt          = 1UL;
+  hist->rec[ 0 ].slot    = slot;
+  hist->rec[ 0 ].flags   = (uchar)( AG_HIST_FLAG_VOTED | fd_uint_if( !!notar_hash, AG_HIST_FLAG_VOTED_NOTAR, 0U ) );
+  if( FD_LIKELY( notar_hash ) ) fd_memcpy( hist->rec[ 0 ].notar_hash, notar_hash, sizeof(ag_block_hash_t) );
 }
 
 /* test_switch_completes_uninitialised: a switch before any epoch or
@@ -551,7 +699,7 @@ test_drops_queued_votes( void ) {
 
 /* An ag_epoch_info_t is nearly 300 KiB, too big for the stack. */
 
-static ag_epoch_info_t epoch_info_mem;
+static ag_epoch_info_t rank_epoch_info_mem;
 
 /* Builds cnt voters with distinct identities and valid BLS keys, staked
    base, base+1, ... rank_voters drops any voter whose BLS key fails to
@@ -576,7 +724,7 @@ build_stakes( fd_vote_stake_weight_t * out,
 static void
 test_rank_voters_resets_total_stake( void ) {
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
-  ag_epoch_info_t *      epoch_info = &epoch_info_mem;
+  ag_epoch_info_t *      epoch_info = &rank_epoch_info_mem;
 
   build_stakes( stakes, 3UL, 10UL );
   FD_TEST( rank_voters( epoch_info, stakes, 3UL )==epoch_info );
@@ -589,6 +737,429 @@ test_rank_voters_resets_total_stake( void ) {
   FD_TEST( rank_voters( epoch_info, stakes, 2UL )==epoch_info );
   FD_TEST( epoch_info->validator_cnt==2UL  );
   FD_TEST( epoch_info->total_stake  ==11UL ); /* 5+6, not 33+11 */
+}
+
+/* test_hist_frames: a frame follows our own vote with has_vote set and
+   the voted slot in the history, a completed slot answers with has_vote
+   clear and the replay slot moved, and a LEADER publishes one more that
+   gives the window we lead. */
+
+static void
+test_hist_frames( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &a );
+  build_epoch_info( &a, &b );
+  start_consensus_at( ctx, 0UL, fd_log_wallclock() );
+  ctx->highest_completed_slot = 1UL;
+  ctx->root_slot              = 0UL;
+
+  /* Init voted notar on slot 0 with a zero hash, so block 1 on that
+     parent gets our notar vote. */
+  ag_block_id_t block0 = { .slot = 0UL };
+  ag_block_id_t block1 = { .slot = 1UL };
+  fd_memset( block1.hash, 0xb1, sizeof(ag_block_hash_t) );
+  FD_TEST( ag_pool_add_block( ctx->pool, &block1, &block0, ctx->scratch.bad )==AG_POOL_SUCCESS );
+  ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = 1UL, .block_info = { .parent = block0 } };
+  fd_memcpy( completed.block_info.hash, block1.hash, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx->votor, &completed );
+  FD_TEST( ag_votor_has_voted( ctx->votor, 1UL ) );
+
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==0UL );
+  run_after_credit( ctx );
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==1UL );
+  FD_TEST( ctx->last_vote_slot==1UL );
+  fd_votor_hist_msg_t const * frame = hist_frame( 0UL );
+  FD_TEST( frame->has_vote==1 && !frame->truncated );
+  FD_TEST( frame->vote_slot==1UL && frame->vote_slot==ag_hist_tip( &frame->hist ) );
+  FD_TEST( frame->replay_slot==1UL && frame->root_slot==0UL );
+  FD_TEST( frame->hist.anchor==0UL && frame->hist.last_leader_slot==ULONG_MAX );
+  FD_TEST( frame->hist.rec_cnt>=1UL );
+  ag_hist_rec_t const * rec = hist_rec( &frame->hist, 1UL );
+  FD_TEST( rec && rec->flags==(AG_HIST_FLAG_VOTED|AG_HIST_FLAG_VOTED_NOTAR) );
+  FD_TEST( fd_memeq( rec->notar_hash, block1.hash, sizeof(ag_block_hash_t) ) );
+
+  /* Replay completes slot 2 on block 1.  The frame follows from
+     after_frag with no vote behind it and the replay slot moved. */
+  ag_block_id_t block2 = { .slot = 2UL };
+  fd_memset( block2.hash, 0xb2, sizeof(ag_block_hash_t) );
+  fd_replay_message_t * replay = replay_in_msg();
+  replay->slot_completed.slot        = 2UL;
+  replay->slot_completed.parent_slot = 1UL;
+  replay->slot_completed.root_slot   = 0UL;
+  fd_memcpy( replay->slot_completed.block_id.uc,        block2.hash, sizeof(fd_hash_t) );
+  fd_memcpy( replay->slot_completed.parent_block_id.uc, block1.hash, sizeof(fd_hash_t) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_REPLAY, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_message_t) ) );
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==2UL );
+  FD_TEST( ctx->highest_completed_slot==2UL );
+  frame = hist_frame( 1UL );
+  FD_TEST( frame->has_vote==0 );
+  FD_TEST( frame->replay_slot==2UL && frame->root_slot==0UL );
+  FD_TEST( frame->vote_slot==ag_hist_tip( &frame->hist ) );
+
+  /* Replay roots block 3, which grants parent ready for window 4.  With
+     4 as our next leader slot, after_credit publishes LEADER and one
+     more frame that holds the window.  The notar vote queued for slot 2
+     pops first, so the frame we want is the last one. */
+  ag_block_id_t block3 = { .slot = 3UL };
+  fd_memset( block3.hash, 0xb3, sizeof(ag_block_hash_t) );
+  FD_TEST( ag_pool_add_block( ctx->pool, &block3, &block2, ctx->scratch.bad )==AG_POOL_SUCCESS );
+  replay = replay_in_msg();
+  replay->root_advanced.slot = 3UL;
+  fd_memcpy( replay->root_advanced.block_id.uc, block3.hash, sizeof(fd_hash_t) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_REPLAY, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_message_t) ) );
+  FD_TEST( ag_pool_finalized_slot( ctx->pool )==3UL );
+  FD_TEST( ag_pool_wait_for_parent_ready( ctx->pool, 4UL ).slot==3UL );
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==2UL ); /* a root alone publishes nothing */
+
+  ctx->next_leader_slot = 4UL;
+  ulong votor_seq = out_seqs[ OUT_IDX_VOTOR ];
+  run_after_credit( ctx );
+  FD_TEST( ctx->last_leader_slot==4UL );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX ); /* no schedule loaded */
+  FD_TEST( out_seqs[ OUT_IDX_VOTOR ]>votor_seq );
+  FD_TEST( out_mcache[ OUT_IDX_VOTOR ][ (out_seqs[ OUT_IDX_VOTOR ]-1UL) & (OUT_DEPTH-1UL) ].sig==FD_VOTOR_SIG_LEADER );
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==4UL );
+  FD_TEST( hist_frame( 2UL )->has_vote==1 && ctx->last_vote_slot==2UL );
+  frame = hist_frame( 3UL );
+  FD_TEST( frame->has_vote==0 );
+  FD_TEST( frame->hist.last_leader_slot==4UL && frame->hist.anchor==3UL );
+  FD_TEST( frame->replay_slot==2UL && frame->root_slot==0UL );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: a frame follows every own vote, completed slot and LEADER" ));
+}
+
+/* test_switch_watermark: the completion publishes one last frame and
+   hands the failover tile the sequence after it as the watermark. */
+
+static void
+test_switch_watermark( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+  ctx->failover_hist_adopted = 1;
+
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==0UL );
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==1UL );
+  FD_TEST( ctx->identity_keyswitch->result==out_seqs[ OUT_IDX_HIST ] );
+  fd_votor_hist_msg_t const * frame = hist_frame( 0UL );
+  FD_TEST( frame->has_vote==0 && frame->hist.anchor==0UL );
+
+  /* Nothing more goes out while halted, the watermark stays put. */
+  run_after_credit( ctx );
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==1UL && ctx->identity_keyswitch->result==1UL );
+
+  unhalt( ctx );
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: the switch publishes a last frame and reports the sequence after it" ));
+}
+
+/* test_adopt_reply: an adoption request on failov_votor is answered on
+   votor_failov under the request's sequence number.  A good history is
+   taken, one older than the votes we sent is stale, garbage fails to
+   decode and an empty history is invalid. */
+
+static void
+test_adopt_reply( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+
+  uchar hash[ 32 ];
+  fd_memset( hash, 0xc1, sizeof(hash) );
+  ag_hist_t hist[ 1 ];
+  one_slot_hist( hist, 1UL, hash );
+  ulong sz;
+  FD_TEST( !ag_hist_ser( hist, failov_in_mem, FAILOV_IN_MEM_SZ, &sz ) );
+
+  FD_TEST( !ag_votor_has_voted( ctx->votor, 1UL ) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_FAILOV, 77UL, sz ) );
+  FD_TEST( out_seqs[ OUT_IDX_FAILOV ]==1UL );
+  fd_votor_adopt_result_t const * reply = adopt_reply( 0UL, 77UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_SUCCESS );
+  FD_TEST( reply->vote_slot==1UL );
+  FD_TEST( reply->root==ag_votor_highest_final_cert_slot( ctx->votor ) && reply->root==0UL );
+  FD_TEST( ctx->failover_hist_adopted==1 );
+  FD_TEST( ctx->adopted_last_leader_slot==ULONG_MAX );
+  FD_TEST( ag_votor_has_voted( ctx->votor, 1UL ) );
+
+  /* A tip below the last vote this identity sent from here. */
+  ctx->last_vote_slot = 5UL;
+  FD_TEST( !deliver_frag( ctx, IN_IDX_FAILOV, 78UL, sz ) );
+  reply = adopt_reply( 1UL, 78UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_STALE );
+  FD_TEST( reply->root==ULONG_MAX && reply->vote_slot==ULONG_MAX );
+
+  /* Bytes that are no history. */
+  fd_memset( failov_in_mem, 0xff, 32UL );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_FAILOV, 79UL, 32UL ) );
+  reply = adopt_reply( 2UL, 79UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_DECODE );
+
+  /* A history with nothing in it. */
+  hist->rec_cnt = 0UL;
+  FD_TEST( !ag_hist_ser( hist, failov_in_mem, FAILOV_IN_MEM_SZ, &sz ) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_FAILOV, 80UL, sz ) );
+  reply = adopt_reply( 3UL, 80UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID );
+  FD_TEST( out_seqs[ OUT_IDX_FAILOV ]==4UL );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: adoption answers echo the request and reject stale, garbage and empty histories" ));
+}
+
+/* test_switch_gating: the staked key installed without an adopted
+   history or first use may not vote and goes unranked, with a history
+   adopted it votes at its rank and the adoption is spent, first use is
+   spent the same way, and the junk key never votes. */
+
+static void
+test_switch_gating( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_pubkey_t c = pubkey( 0x43 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+
+  /* A spare boots unranked, and a slot state made then is unranked. */
+  ctx->vote_authority = 0;
+  install_ranks( ctx );
+  ag_block_id_t block0 = { .slot = 0UL };
+  ag_block_id_t block1 = { .slot = 1UL };
+  fd_memset( block1.hash, 0xa1, sizeof(ag_block_hash_t) );
+  FD_TEST( ag_pool_add_block( ctx->pool, &block1, &block0, ctx->scratch.bad )==AG_POOL_SUCCESS );
+  ag_slot_state_t const * state1 = ag_pool_slot_state( ctx->pool, 1UL );
+  FD_TEST( state1 && state1->own_rank==(ulong)USHORT_MAX );
+
+  /* The staked key with nothing adopted and no first use. */
+  FD_TEST( !ctx->failover_hist_adopted && !ctx->first_use_authorized );
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( fd_pubkey_eq( &ctx->id_key, &b ) && !ctx->failover_standby );
+  FD_TEST( ctx->vote_authority==0 );
+  FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX && state1->own_rank==(ulong)USHORT_MAX );
+
+  /* The same key with a history adopted. */
+  unhalt( ctx );
+  ctx->failover_hist_adopted = 1;
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->vote_authority==1 );
+  FD_TEST( ctx->own_rank[ 1 ]==(ushort)1 && state1->own_rank==1UL );
+  FD_TEST( ctx->failover_hist_adopted==0 );
+
+  /* First use unlocks it once. */
+  unhalt( ctx );
+  ctx->first_use_authorized = 1;
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( ctx->vote_authority==1 && ctx->first_use_authorized==0 );
+  FD_TEST( state1->own_rank==1UL );
+
+  /* The junk key. */
+  unhalt( ctx );
+  request_switch( ctx, &c );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( fd_pubkey_eq( &ctx->id_key, &c ) && ctx->failover_standby );
+  FD_TEST( ctx->vote_authority==0 );
+  FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX && state1->own_rank==(ulong)USHORT_MAX );
+
+  unhalt( ctx );
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: the staked key votes only after an adoption or first use, the junk key never" ));
+}
+
+/* test_leader_floor: after a switch the next leader slot starts past the
+   window the peer already led as this identity, without that floor it
+   starts right after what we have seen, and with nothing seen there is
+   none.  The schedule has B leading every slot of epoch 0. */
+
+static void
+test_leader_floor( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+
+  static uchar msg_mem[ FD_EPOCH_INFO_MSG_HEADER_SZ+sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(64)));
+  fd_memset( msg_mem, 0, sizeof(msg_mem) );
+  fd_epoch_info_msg_t * msg = (fd_epoch_info_msg_t *)fd_type_pun( msg_mem );
+  msg->epoch           = 0UL;
+  msg->start_slot      = 0UL;
+  msg->slot_cnt        = 64UL;
+  msg->staked_vote_cnt = 1UL;
+  msg->staked_id_cnt   = 1UL;
+  fd_vote_stake_weight_t * weight = fd_epoch_info_msg_stake_weights( msg );
+  weight->vote_key = b;
+  weight->id_key   = b;
+  weight->stake    = 1000UL;
+  fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
+  fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+  FD_TEST( fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, &b )==1UL );
+  FD_TEST( fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, &a )==ULONG_MAX );
+
+  /* The adopted history says the peer led window 8, so the search
+     starts at 12 even though we have seen nothing past slot 2. */
+  ctx->highest_completed_slot   = 2UL;
+  ctx->adopted_last_leader_slot = 8UL;
+  ctx->failover_hist_adopted    = 1;
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->next_leader_slot==12UL );
+
+  /* Without the floor it starts at the window after the highest completed
+     slot. */
+  unhalt( ctx );
+  ctx->adopted_last_leader_slot = ULONG_MAX;
+  ctx->failover_hist_adopted    = 1;
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( ctx->next_leader_slot==4UL );
+
+  /* Nothing seen leaves no leader slot, handle_epoch seeds it later. */
+  unhalt( ctx );
+  ctx->highest_completed_slot = 0UL;
+  ctx->failover_hist_adopted  = 1;
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+
+  unhalt( ctx );
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: the switch starts the leader search past the window the peer led" ));
+}
+
+/* test_doppelganger: our rank on a slot this machine never voted stops
+   us voting and drops our rank, a slot we did vote changes nothing, and
+   cert_has_signer finds our rank in a cert's signer set. */
+
+static void
+test_doppelganger( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &b );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 1UL );
+  ctx->vote_authority = 1;
+  install_ranks( ctx );
+  FD_TEST( ctx->own_rank[ 1 ]==(ushort)1 && own_rank_for( ctx, 5UL )==(ushort)1 );
+
+  /* Not our signature. */
+  doppelganger_check( ctx, 5UL, 0 );
+  FD_TEST( !ctx->doppelganger && ctx->vote_authority );
+
+  /* Our rank on slot 5, which this machine never voted. */
+  doppelganger_check( ctx, 5UL, 1 );
+  FD_TEST( ctx->doppelganger==1 && ctx->vote_authority==0 );
+  FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX && own_rank_for( ctx, 5UL )==USHORT_MAX );
+
+  /* Slot 5 voted through an adopted history changes nothing. */
+  ctx->doppelganger   = 0;
+  ctx->vote_authority = 1;
+  install_ranks( ctx );
+  ag_hist_t hist[ 1 ];
+  one_slot_hist( hist, 5UL, NULL );
+  FD_TEST( !ag_votor_hist_adopt( ctx->votor, hist ) );
+  FD_TEST( ag_votor_has_voted( ctx->votor, 5UL ) );
+  doppelganger_check( ctx, 5UL, 1 );
+  FD_TEST( !ctx->doppelganger && ctx->vote_authority );
+  FD_TEST( ctx->own_rank[ 1 ]==(ushort)1 );
+
+  /* A notar cert with rank 1 in its signer set. */
+  ag_cert_t cert[ 1 ];
+  fd_memset( cert, 0, sizeof(*cert) );
+  cert->kind       = AG_CERT_KIND_NOTAR;
+  cert->notar.slot = 5UL;
+  fd_bls_set_insert( fd_bls_set_null( cert->notar.agg.set ), 1UL );
+  FD_TEST(  cert_has_signer( cert, (ushort)1 ) );
+  FD_TEST( !cert_has_signer( cert, (ushort)0 ) );
+  FD_TEST( !cert_has_signer( cert, USHORT_MAX ) );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: a vote from our identity we never cast stops us, a voted slot does not" ));
+}
+
+/* test_root_follow: a failover member follows replay's root, the pool
+   finalizes the rooted block and the votor prunes below it, and without
+   failover the sig is filtered before it is read. */
+
+static void
+test_root_follow( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &a );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+
+  /* Chain 1..7 on the init slot, 16 live slots reach no further. */
+  ag_block_id_t blocks[ 9 ];
+  fd_memset( blocks, 0, sizeof(blocks) );
+  for( ulong i=1UL; i<9UL; i++ ) {
+    blocks[ i ].slot = i;
+    fd_memset( blocks[ i ].hash, (int)(0xd0UL+i), sizeof(ag_block_hash_t) );
+  }
+  for( ulong i=1UL; i<8UL; i++ ) FD_TEST( ag_pool_add_block( ctx->pool, &blocks[ i ], &blocks[ i-1UL ], ctx->scratch.bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_block( ctx->pool, &blocks[ 8 ], &blocks[ 7 ], ctx->scratch.bad )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+  FD_TEST( ag_pool_finalized_slot( ctx->pool )==0UL );
+  FD_TEST( ag_votor_first_unpruned_slot( ctx->votor )==0UL );
+
+  fd_replay_message_t * replay = replay_in_msg();
+  replay->root_advanced.slot = 4UL;
+  fd_memcpy( replay->root_advanced.block_id.uc, blocks[ 4 ].hash, sizeof(fd_hash_t) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_REPLAY, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_message_t) ) );
+  FD_TEST( ag_pool_finalized_slot( ctx->pool )==4UL );
+  FD_TEST( fd_memeq( ag_pool_finalized_block_hash( ctx->pool ), blocks[ 4 ].hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( ag_votor_highest_final_cert_slot( ctx->votor )==4UL );
+  FD_TEST( ag_votor_first_unpruned_slot( ctx->votor )==0UL ); /* the window 8 below 4 is still 0 */
+
+  /* Root 12, a block the pool never saw, the way a spare outside the
+     mesh learns finality from replay alone. */
+  replay = replay_in_msg();
+  replay->root_advanced.slot = 12UL;
+  fd_memset( replay->root_advanced.block_id.uc, 0xdc, sizeof(fd_hash_t) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_REPLAY, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_message_t) ) );
+  FD_TEST( ag_pool_finalized_slot( ctx->pool )==12UL );
+  FD_TEST( ag_votor_highest_final_cert_slot( ctx->votor )==12UL );
+  FD_TEST( ag_votor_first_unpruned_slot( ctx->votor )==4UL );
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==0UL ); /* roots publish no frame */
+
+  /* Only a failover member reads the sig. */
+  ctx->failover_enabled = 0;
+  FD_TEST(  before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_ROOT_ADVANCED ) );
+  ctx->failover_enabled = 1;
+  FD_TEST( !before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_ROOT_ADVANCED ) );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: the pool and the votor follow replay's root" ));
 }
 
 int
@@ -619,6 +1190,13 @@ main( int     argc,
   test_switch_ranks_and_leader();
   test_gossip_dial_gated();
   test_drops_queued_votes();
+  test_hist_frames();
+  test_switch_watermark();
+  test_adopt_reply();
+  test_switch_gating();
+  test_leader_floor();
+  test_doppelganger();
+  test_root_follow();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

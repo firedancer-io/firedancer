@@ -553,6 +553,124 @@ ag_votor_set_ranks( ag_votor_t * self,
   self->next_epoch_rank = next_epoch_rank;
 }
 
+ulong
+ag_votor_highest_final_cert_slot( ag_votor_t const * self ) {
+  return self->highest_final_cert_slot;
+}
+
+ulong
+ag_votor_first_unpruned_slot( ag_votor_t const * self ) {
+  return first_unpruned_slot( self );
+}
+
+int
+ag_votor_has_voted( ag_votor_t const * self,
+                    ulong              slot ) {
+  return has_voted( self, slot );
+}
+
+void
+ag_votor_mark_unsent( ag_votor_t *      self,
+                      ag_vote_t const * vote ) {
+  ulong slot = ag_vote_slot( vote );
+  if( FD_UNLIKELY( self->highest_final_cert_slot==ULONG_MAX || slot<first_unpruned_slot( self ) ) ) return;
+  slot_state_ele_t * state = state_mut( self, slot );
+  state->voted      = 1;
+  state->bad_window = 1;
+  /* try_notar builds one notar per slot, so a dropped notar is the one
+     that set voted_notar and nobody saw it.  Clearing the mark keeps the
+     slot from being a parent, it goes out as a plain bad window. */
+  if( FD_UNLIKELY( vote->kind==AG_VOTE_KIND_NOTAR ) ) {
+    state->voted_notar = 0;
+    fd_memset( state->voted_notar_hash, 0, sizeof(ag_block_hash_t) );
+  }
+}
+
+void
+ag_votor_advance_root( ag_votor_t * self,
+                       ulong        slot ) {
+  if( FD_UNLIKELY( self->highest_final_cert_slot==ULONG_MAX || slot<=self->highest_final_cert_slot ) ) return;
+  self->highest_final_cert_slot = slot;
+  prune( self );
+}
+
+int
+ag_votor_hist_export( ag_votor_t * self,
+                      ulong        last_leader_slot,
+                      ag_hist_t *  out ) {
+  out->last_leader_slot = last_leader_slot;
+  out->rec_cnt          = 0UL;
+  if( FD_UNLIKELY( self->highest_final_cert_slot==ULONG_MAX ) ) {
+    out->anchor = 0UL;
+    return 0;
+  }
+
+  slot_state_map_t * map   = self->slot_states->map;
+  slot_state_ele_t * pool  = self->slot_states->pool;
+  ulong *            slots = self->scratch.slots;
+  ulong              first = first_unpruned_slot( self );
+  ulong              cnt   = 0UL;
+  for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
+                                   !slot_state_map_iter_done( iter, map, pool );
+                             iter = slot_state_map_iter_next( iter, map, pool ) ) {
+    slot_state_ele_t const * ele = slot_state_map_iter_ele_const( iter, map, pool );
+    if( FD_LIKELY( ele->voted && ele->slot>=first && cnt<self->slot_max ) ) slots[ cnt++ ] = ele->slot;
+  }
+  slot_sort_inplace( slots, cnt );
+
+  /* Too many voted slots means finality stalled while we kept voting.
+     Whole windows go from the bottom and the anchor moves up to the
+     first kept window, so everything dropped is below what the reader
+     may vote on. */
+  ulong lo = 0UL;
+  while( cnt-lo>AG_HIST_MAX ) {
+    ulong next_window = ag_first_slot_in_window( slots[ lo ] )+AG_SLOTS_PER_WINDOW;
+    while( lo<cnt && slots[ lo ]<next_window ) lo++;
+  }
+  int truncated = lo>0UL;
+  out->anchor = self->highest_final_cert_slot;
+  if( FD_UNLIKELY( truncated ) ) out->anchor = fd_ulong_max( out->anchor, ag_first_slot_in_window( slots[ lo ] )+AG_REWARD_SLOT_DELTA );
+
+  for( ulong i=lo; i<cnt; i++ ) {
+    slot_state_ele_t const * ele = slot_state_map_ele_query_const( map, &slots[ i ], NULL, pool );
+    ag_hist_rec_t *          rec = &out->rec[ out->rec_cnt++ ];
+    rec->slot  = ele->slot;
+    rec->flags = (uchar)( AG_HIST_FLAG_VOTED |
+                          fd_uint_if( ele->voted_notar, AG_HIST_FLAG_VOTED_NOTAR, 0U ) |
+                          fd_uint_if( ele->bad_window,  AG_HIST_FLAG_BAD_WINDOW,  0U ) |
+                          fd_uint_if( ele->retired,     AG_HIST_FLAG_RETIRED,     0U ) );
+    if( ele->voted_notar ) fd_memcpy( rec->notar_hash, ele->voted_notar_hash, sizeof(ag_block_hash_t) );
+    else                   fd_memset( rec->notar_hash, 0,                     sizeof(ag_block_hash_t) );
+  }
+  return truncated;
+}
+
+ulong
+ag_votor_hist_adopt( ag_votor_t *      self,
+                     ag_hist_t const * hist ) {
+  ag_votor_advance_root( self, hist->anchor );
+  ulong first     = first_unpruned_slot( self );
+  ulong conflicts = 0UL;
+  for( ulong i=0UL; i<hist->rec_cnt; i++ ) {
+    ag_hist_rec_t const * rec = &hist->rec[ i ];
+    if( FD_UNLIKELY( rec->slot<first ) ) continue;
+    slot_state_ele_t * state = state_mut( self, rec->slot );
+    if( rec->flags & AG_HIST_FLAG_VOTED_NOTAR ) {
+      if( FD_UNLIKELY( state->voted_notar && !fd_memeq( state->voted_notar_hash, rec->notar_hash, sizeof(ag_block_hash_t) ) ) ) conflicts++;
+      state->voted_notar = 1;
+      fd_memcpy( state->voted_notar_hash, rec->notar_hash, sizeof(ag_block_hash_t) );
+    }
+    if( !state->voted ) {
+      if( FD_UNLIKELY( state->pending_block ) ) pending_dlist_ele_remove( self->pending_dlist, state, self->slot_states->pool );
+      state->pending_block = 0;
+      state->voted         = 1;
+    }
+    state->bad_window |= !!( rec->flags & AG_HIST_FLAG_BAD_WINDOW );
+    state->retired    |= !!( rec->flags & AG_HIST_FLAG_RETIRED    );
+  }
+  return conflicts;
+}
+
 void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,
