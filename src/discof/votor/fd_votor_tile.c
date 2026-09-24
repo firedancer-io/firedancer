@@ -237,6 +237,7 @@ struct fd_votor_tile {
     ulong datagram_rx[ FD_METRICS_ENUM_DATAGRAM_RX_RESULT_CNT ];
     ulong vote_rx    [ FD_METRICS_ENUM_VOTE_RX_RESULT_CNT     ];
     ulong cert_rx    [ FD_METRICS_ENUM_CERT_RX_RESULT_CNT     ];
+    ulong footer_cert[ FD_METRICS_ENUM_FOOTER_CERT_RESULT_CNT ];
   } metrics;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
@@ -876,6 +877,22 @@ handle_replay( fd_votor_tile_t *           ctx,
     if( FD_UNLIKELY( block_id.slot==ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW-1UL ) ) ctx->curr_leader_slot = ULONG_MAX;
     break;
   }
+  case REPLAY_SIG_FINAL_CERT: {
+    /* Certs from a replayed block footer.  This is how votor finalizes
+       when it does not receive certs from peers (e.g. when unstaked). */
+    if( FD_UNLIKELY( !ctx->init ) ) break;
+    fd_replay_final_cert_t const * final_cert = &replay->final_cert;
+    for( ulong i=0UL; i<final_cert->cert_cnt; i++ ) {
+      switch( ag_pool_add_cert( ctx->pool, &final_cert->certs[i], ctx->scratch.bad ) ) {
+      case AG_POOL_SUCCESS:                ctx->metrics.footer_cert[ FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_SUCCESS_IDX           ]++; break;
+      case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.footer_cert[ FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_SLOT_OUT_OF_BOUNDS_IDX ]++; break;
+      case AG_POOL_ERR_DUPLICATE:          ctx->metrics.footer_cert[ FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_DUPLICATE_IDX         ]++; break;
+      case AG_POOL_ERR_CERT_VERIFY:        ctx->metrics.footer_cert[ FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_FAILED_VERIFY_IDX     ]++; break;
+      default:                             FD_LOG_CRIT(( "unhandled kind" ));
+      }
+    }
+    break;
+  }
   default:
     FD_LOG_ERR(( "unexpected replay sig %lu", sig ));
   }
@@ -1082,7 +1099,7 @@ before_frag( fd_votor_tile_t * ctx,
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
-    return sig!=REPLAY_SIG_SLOT_COMPLETED;
+    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_FINAL_CERT;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -1393,6 +1410,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( VOTOR, DATAGRAM_RX, ctx->metrics.datagram_rx );
   FD_MCNT_ENUM_COPY( VOTOR, VOTE_RX,     ctx->metrics.vote_rx     );
   FD_MCNT_ENUM_COPY( VOTOR, CERT_RX,     ctx->metrics.cert_rx     );
+  FD_MCNT_ENUM_COPY( VOTOR, FOOTER_CERT, ctx->metrics.footer_cert );
 }
 
 #define STEM_BURST FD_VOTOR_OUT_BURST /* votor_out only; EXCLUDES VOTOR_NET (has no reliable consumers) */

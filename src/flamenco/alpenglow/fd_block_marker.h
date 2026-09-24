@@ -76,6 +76,11 @@ fd_block_footer_cert_from_agg( fd_block_footer_cert_t * cert,
                                uchar const *            block_hash,
                                fd_bls_agg_t const *     agg );
 
+
+int
+fd_block_footer_cert_to_agg( fd_bls_agg_t *                 agg,
+                             fd_block_footer_cert_t const * cert );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_alpenglow_fd_block_marker_h */

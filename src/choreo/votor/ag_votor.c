@@ -83,6 +83,7 @@ struct __attribute__((aligned(128UL))) ag_votor {
 
   slot_states_t * slot_states;
   ulong           highest_final_cert_slot;
+  int             slot_states_full; /* set while dropping events for slots beyond the slot table */
 
   ulong prev_epoch_rank;
   ulong prev_epoch_slot;
@@ -223,6 +224,7 @@ ag_votor_new( void * mem,
   votor->slot_states->pool       = slot_state_pool_join( slot_state_pool_new( slot_state_pool, slot_max                  ) );
   votor->slot_states->map        = slot_state_map_join ( slot_state_map_new ( slot_state_map,  slot_state_chain_cnt, seed ) );
   votor->highest_final_cert_slot = ULONG_MAX;
+  votor->slot_states_full        = 0;
   votor->prev_epoch_rank         = USHORT_MAX;
   votor->prev_epoch_slot         = ULONG_MAX;
   votor->curr_epoch_rank         = USHORT_MAX;
@@ -345,6 +347,21 @@ received_shred( ag_votor_t const * self,
 FD_FN_PURE static ulong
 first_unpruned_slot( ag_votor_t const * self ) {
   return ag_first_slot_in_window( fd_ulong_sat_sub( self->highest_final_cert_slot, AG_REWARD_SLOT_DELTA ) );
+}
+
+/* slot_out_of_bounds returns 1 if tracking slot (and the rest of its
+   window) could exhaust the slot table, which only drains on
+   finalization.  Callers drop events for such slots. */
+
+static int
+slot_out_of_bounds( ag_votor_t * self,
+                    ulong        slot ) {
+  int oob = slot>=fd_ulong_sat_add( self->root, self->slot_max-AG_SLOTS_PER_WINDOW );
+  if( FD_UNLIKELY( oob && !self->slot_states_full ) ) {
+    FD_LOG_WARNING(( "slot %lu is too far past the last finalized slot %lu, dropping events until finalization catches up", slot, self->highest_final_cert_slot ));
+  }
+  self->slot_states_full = oob;
+  return oob;
 }
 
 static int
@@ -618,6 +635,7 @@ ag_votor_handle_block_event( ag_votor_t *             self,
                              ag_event_block_t const * event ) {
   ulong slot = event->slot;
   if( FD_UNLIKELY( slot<=self->highest_final_cert_slot || is_retired( self, slot ) ) ) return;
+  if( FD_UNLIKELY( slot_out_of_bounds( self, slot ) ) ) return;
 
   switch( event->kind ) {
   case AG_EVENT_BLOCK_FIRST_SHRED:
@@ -639,6 +657,7 @@ ag_votor_handle_replay_event( ag_votor_t *              self,
                               ag_event_replay_t const * event ) {
   ulong slot = event->slot;
   if( FD_UNLIKELY( slot<first_unpruned_slot( self ) || is_retired( self, slot ) ) ) return;
+  if( FD_UNLIKELY( slot_out_of_bounds( self, slot ) ) ) return;
 
   switch( event->kind ) {
   case AG_EVENT_REPLAY_COMPLETED:
@@ -723,4 +742,9 @@ ag_votor_poll_cert_event( ag_votor_t *      self,
   if( FD_LIKELY( cert_events_empty( self->cert_events ) ) ) return 0;
   *event = cert_events_pop( self->cert_events );
   return 1;
+}
+
+FD_FN_PURE ulong
+ag_votor_finalized_slot( ag_votor_t const * self ) {
+  return self->highest_final_cert_slot;
 }

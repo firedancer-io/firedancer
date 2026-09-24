@@ -85,6 +85,9 @@ int
 ag_votor_poll_cert_event( ag_votor_t *      self,
                           ag_event_cert_t * event );
 
+FD_FN_PURE ulong
+ag_votor_finalized_slot( ag_votor_t const * self );
+
 FD_PROTOTYPES_END
 
 #endif

@@ -17,3 +17,14 @@ fd_block_footer_cert_from_agg( fd_block_footer_cert_t * cert,
   blst_p2_affine_compress( cert->sig, a );
   return 1;
 }
+
+int
+fd_block_footer_cert_to_agg( fd_bls_agg_t *                 agg,
+                             fd_block_footer_cert_t const * cert ) {
+  fd_memset( agg, 0, sizeof(fd_bls_agg_t) );
+  blst_p2_affine a[1];
+  if( FD_UNLIKELY( blst_p2_uncompress( a, cert->sig )!=BLST_SUCCESS || !blst_p2_affine_in_g2( a ) ) ) return 0;
+  blst_p2_from_affine( &agg->sig, a );
+  fd_bls_set_copy( agg->set, cert->signer_set );
+  return 1;
+}

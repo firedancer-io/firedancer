@@ -2103,11 +2103,19 @@ EXAMPLES
     <int value="10" name="Banned" label="Sender is banned for a failed signature verification" />
 </enum>
 
+<enum name="FooterCertResult">
+    <int value="0" name="Success" label="Cert was handed to the pool and accepted" />
+    <int value="1" name="SlotOutOfBounds" label="Cert slot was either too old or too far in the future" />
+    <int value="2" name="Duplicate" label="Cert was already in the pool" />
+    <int value="3" name="FailedVerify" label="Cert failed the stake threshold or the aggregate signature check" />
+</enum>
+
 <tile name="votor">
 
     <counter name="DatagramRx" enum="DatagramRxResult" summary="Result of dispatching an inbound datagram (per datagram)" />
     <counter name="VoteRx"     enum="VoteRxResult"     summary="Result of processing an inbound vote (per vote)" />
     <counter name="CertRx"     enum="CertRxResult"     summary="Result of processing an inbound cert (per cert)" />
+    <counter name="FooterCert" enum="FooterCertResult" summary="Result of processing a finalization cert from a replayed block footer (per cert)" />
 
 </tile>
 

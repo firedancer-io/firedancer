@@ -1457,6 +1457,54 @@ test_root_newer_first( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_root_newer_first" ));
 }
 
+/* footer_cert builds a footer cert with a real signature, so that it
+   decompresses. */
+
+static void
+footer_cert( fd_block_footer_cert_t * cert,
+             ulong                    slot,
+             fd_hash_t const *        block_id ) {
+  fd_bls_sec_t sec; fd_bls_sig_t sig;
+  fd_bls_sec_derive( &sec, (uchar const *)"test_root_from_footer ikm padding", 33UL );
+  fd_bls_sec_sign( &sec, (uchar const *)&slot, sizeof(ulong), &sig );
+  fd_bls_agg_t agg[1]; memset( agg, 0, sizeof(fd_bls_agg_t) );
+  fd_bls_set_insert( agg->set, 0UL ); agg->sig = sig;
+  FD_TEST( fd_block_footer_cert_from_agg( cert, slot, block_id ? block_id->uc : NULL, agg ) );
+}
+
+/* expect_final_cert checks that the frag at seq forwards the footer's
+   finalization cert to votor, as the ag_certs votor receives over the
+   network. */
+
+static void
+expect_final_cert( fd_replay_tile_t *        ctx,
+                   fd_wksp_t *               wksp,
+                   ulong                     seq,
+                   ulong                     slot,
+                   fd_block_footer_t const * footer ) {
+  ulong out_idx = ctx->replay_out->idx;
+  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq, test_stem_depths[ out_idx ] );
+  FD_TEST( m->sig==REPLAY_SIG_FINAL_CERT && m->sz==sizeof(fd_replay_final_cert_t) );
+  fd_replay_final_cert_t const * msg = fd_chunk_to_laddr_const( wksp, m->chunk );
+  FD_TEST( msg->slot==slot );
+  if( footer->has_fast_final_cert ) {
+    FD_TEST( msg->cert_cnt==1U );
+    ag_cert_fast_final_t const * ff = &msg->certs[0].fast_final;
+    FD_TEST( msg->certs[0].kind==AG_CERT_KIND_FAST_FINAL && ff->slot==footer->fast_final_cert.slot && ff->shred_version==ctx->shred_version );
+    FD_TEST( !memcmp( ff->block_hash, footer->fast_final_cert.block_id.uc, sizeof(ag_block_hash_t) ) );
+    FD_TEST( fd_bls_set_eq( ff->agg.set, footer->fast_final_cert.signer_set ) );
+  } else {
+    FD_TEST( msg->cert_cnt==2U );
+    ag_cert_notar_t const * n = &msg->certs[0].notar;
+    ag_cert_final_t const * f = &msg->certs[1].final;
+    FD_TEST( msg->certs[0].kind==AG_CERT_KIND_NOTAR && n->slot==footer->notar_cert.slot && n->shred_version==ctx->shred_version );
+    FD_TEST( !memcmp( n->block_hash, footer->notar_cert.block_id.uc, sizeof(ag_block_hash_t) ) );
+    FD_TEST( fd_bls_set_eq( n->agg.set, footer->notar_cert.signer_set ) );
+    FD_TEST( msg->certs[1].kind==AG_CERT_KIND_FINAL && f->slot==footer->final_cert.slot && f->shred_version==ctx->shred_version );
+    FD_TEST( fd_bls_set_eq( f->agg.set, footer->final_cert.signer_set ) );
+  }
+}
+
 static void
 test_root_from_footer( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
@@ -1484,21 +1532,21 @@ test_root_from_footer( fd_wksp_t * wksp ) {
 
   /* A slow final cert names its slot; the notar cert beside it names
      the block.  Completing slot 2 roots slot 1 without a votor frag. */
-  mock_footer->has_final_cert      = 1;
-  mock_footer->final_cert.slot     = 1UL;
-  mock_footer->notar_cert.slot     = 1UL;
-  mock_footer->notar_cert.block_id = id1;
+  mock_footer->has_final_cert = 1;
+  footer_cert( &mock_footer->final_cert, 1UL, NULL );
+  footer_cert( &mock_footer->notar_cert, 1UL, &id1 );
   fd_bank_t * b2 = add_replayable_block( ctx, b1, 2UL, &id2 );
   FD_TEST( !replay_block_finalize( ctx, test_stem, b2 ) );
-  expect_rooted( ctx, wksp, seq0+2UL, b1 );
+  expect_final_cert( ctx, wksp, seq0+2UL, 2UL, mock_footer );
+  expect_rooted( ctx, wksp, seq0+3UL, b1 );
 
   /* A fast final cert names its block, and wins over a slow cert beside it. */
-  mock_footer->has_fast_final_cert      = 1;
-  mock_footer->fast_final_cert.slot     = 2UL;
-  mock_footer->fast_final_cert.block_id = id2;
+  mock_footer->has_fast_final_cert = 1;
+  footer_cert( &mock_footer->fast_final_cert, 2UL, &id2 );
   fd_bank_t * b3 = add_replayable_block( ctx, b2, 3UL, &id3 );
   FD_TEST( !replay_block_finalize( ctx, test_stem, b3 ) );
-  expect_rooted( ctx, wksp, seq0+4UL, b2 );
+  expect_final_cert( ctx, wksp, seq0+5UL, 3UL, mock_footer );
+  expect_rooted( ctx, wksp, seq0+6UL, b2 );
   FD_TEST( ctx->votor_final->slot==ULONG_MAX );
   mock_footer_finalize = 0;
 

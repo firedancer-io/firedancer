@@ -1315,6 +1315,60 @@ construct_footer_certs( fd_replay_tile_t const * ctx,
   }
 }
 
+/* footer_cert_to_ag_cert converts a footer cert to the form votor
+   receives certs in over the network.  Returns 0 if the signature does
+   not decompress (impossible for a footer that passed verification). */
+
+static int
+footer_cert_to_ag_cert( ag_cert_t *                    cert,
+                        uint                           kind,
+                        fd_block_footer_cert_t const * footer_cert,
+                        ushort                         shred_version ) {
+  fd_bls_agg_t * agg;
+  switch( kind ) {
+  case AG_CERT_KIND_FAST_FINAL:
+    *cert = (ag_cert_t){ .kind = kind, .fast_final = { .slot = footer_cert->slot, .shred_version = shred_version } };
+    memcpy( cert->fast_final.block_hash, footer_cert->block_id.uc, sizeof(ag_block_hash_t) );
+    agg = &cert->fast_final.agg;
+    break;
+  case AG_CERT_KIND_NOTAR:
+    *cert = (ag_cert_t){ .kind = kind, .notar = { .slot = footer_cert->slot, .shred_version = shred_version } };
+    memcpy( cert->notar.block_hash, footer_cert->block_id.uc, sizeof(ag_block_hash_t) );
+    agg = &cert->notar.agg;
+    break;
+  case AG_CERT_KIND_FINAL:
+    *cert = (ag_cert_t){ .kind = kind, .final = { .slot = footer_cert->slot, .shred_version = shred_version } };
+    agg = &cert->final.agg;
+    break;
+  default:
+    FD_LOG_CRIT(( "unexpected footer cert kind %u", kind ));
+  }
+  return fd_block_footer_cert_to_agg( agg, footer_cert );
+}
+
+static void
+publish_final_cert( fd_replay_tile_t *        ctx,
+                    fd_stem_context_t *       stem,
+                    ulong                     slot,
+                    fd_block_footer_t const * footer ) {
+  fd_replay_final_cert_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->slot = slot;
+  int ok;
+  if( footer->has_fast_final_cert ) {
+    msg->cert_cnt = 1U;
+    ok = footer_cert_to_ag_cert( &msg->certs[0], AG_CERT_KIND_FAST_FINAL, &footer->fast_final_cert, ctx->shred_version );
+  } else {
+    msg->cert_cnt = 2U; /* notar first so votor publishes the final paired with it */
+    ok = footer_cert_to_ag_cert( &msg->certs[0], AG_CERT_KIND_NOTAR, &footer->notar_cert, ctx->shred_version ) &&
+         footer_cert_to_ag_cert( &msg->certs[1], AG_CERT_KIND_FINAL, &footer->final_cert, ctx->shred_version );
+  }
+  if( FD_UNLIKELY( !ok ) ) return;
+
+  ulong sz = sizeof(fd_replay_final_cert_t);
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_FINAL_CERT, ctx->replay_out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sz, ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
 static void
 publish_leader_footer( fd_replay_tile_t *        ctx,
                        fd_stem_context_t *       stem,
@@ -1559,6 +1613,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
     if( footer->has_fast_final_cert ) { try_advance_root_ag( ctx, ag_block_id( footer->fast_final_cert.slot, footer->fast_final_cert.block_id.uc ) ); }
     else if( footer->has_final_cert ) { try_advance_root_ag( ctx, ag_block_id( footer->final_cert.slot,      footer->notar_cert.block_id.uc      ) ); }
+    if( footer->has_fast_final_cert || footer->has_final_cert ) publish_final_cert( ctx, stem, bank->f.slot, footer );
   }
 
   /* If enabled, dump the block to a file and reset the dumping

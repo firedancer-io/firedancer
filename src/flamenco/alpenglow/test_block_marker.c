@@ -795,6 +795,37 @@ test_ser_signature( void ) {
   FD_TEST( !memcmp( rc.block_id.uc, zero_id.uc, sizeof(fd_hash_t) ) );
 }
 
+/* fd_block_footer_cert_to_agg inverts fd_block_footer_cert_from_agg
+   and rejects a malformed signature. */
+
+static void
+test_cert_to_agg( void ) {
+  fd_bls_sec_t sec;
+  fd_bls_sig_t sig;
+  fd_bls_sec_derive( &sec, (uchar const *)"fd_block_marker cert_to_agg seed", 32UL );
+  fd_bls_sec_sign( &sec, (uchar const *)"footer", 6UL, &sig );
+
+  fd_bls_agg_t agg[1];
+  memset( agg, 0, sizeof(fd_bls_agg_t) );
+  fd_bls_set_insert( agg->set, 3UL ); fd_bls_set_insert( agg->set, 9UL ); agg->sig = sig;
+  fd_hash_t bid = hash_of( 0x42 );
+
+  fd_block_footer_cert_t cert;
+  FD_TEST( fd_block_footer_cert_from_agg( &cert, 7UL, bid.uc, agg ) );
+
+  fd_bls_agg_t rt[1];
+  memset( rt, 0xff, sizeof(fd_bls_agg_t) );
+  FD_TEST( fd_block_footer_cert_to_agg( rt, &cert ) );
+  FD_TEST( fd_bls_set_eq( rt->set, agg->set ) );
+  FD_TEST( blst_p2_is_equal( &rt->sig, &agg->sig ) );
+  fd_bls_pub_t zero_pub; memset( &zero_pub, 0, sizeof(fd_bls_pub_t) );
+  FD_TEST( !memcmp( &rt->pub, &zero_pub, sizeof(fd_bls_pub_t) ) );
+
+  /* a signature that isn't a point on the curve is rejected */
+  memset( cert.sig, 0xff, FD_BLS_SIG_COMPRESSED_SZ );
+  FD_TEST( !fd_block_footer_cert_to_agg( rt, &cert ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -812,6 +843,7 @@ main( int     argc,
   test_ser_certs();
   test_ser_max();
   test_ser_signature();
+  test_cert_to_agg();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

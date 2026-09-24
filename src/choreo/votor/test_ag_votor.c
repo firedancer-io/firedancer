@@ -405,6 +405,43 @@ test_prunes_to_finalized_window( void ) {
   teardown_votor( votor );
 }
 
+/* Without finalization the slot table never drains.  Events for slots
+   far past the last finalized slot must be dropped rather than exhaust
+   it, and finalization must resume tracking. */
+
+static void
+test_no_finalization_bounded( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  ulong far = 4UL*TEST_SLOT_MAX;
+  for( ulong slot=1UL; slot<far; slot++ ) {
+    ag_event_block_t block = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = slot };
+    ag_votor_handle_block_event( votor, &block );
+    ag_event_replay_t replay = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = slot, .block_info = { .parent = random_block_id( slot-1UL ) } };
+    random_hash( replay.block_info.hash );
+    ag_votor_handle_replay_event( votor, &replay );
+    FD_TEST( slot_state_pool_free( votor->slot_states->pool ) );
+  }
+  FD_TEST( votor->slot_states_full );
+  FD_TEST( !contains_slot( votor, far-1UL ) );
+
+  /* finalization prunes, so a slot beyond the old bound is tracked */
+  ulong finalized = TEST_SLOT_MAX;
+  ag_vote_t fv; fv = ag_vote_construct_final( sec_sign_fn, &g_sk[1], finalized, (ushort)1, TEST_SHRED_VERSION );
+  ag_cert_t cert = cert_build_final( &fv.final, 1UL, g_epoch_info );
+  ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  FD_TEST( ag_votor_finalized_slot( votor )==finalized );
+
+  ulong next = finalized+TEST_SLOT_MAX/2UL;
+  ag_event_block_t block = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = next };
+  ag_votor_handle_block_event( votor, &block );
+  FD_TEST( contains_slot( votor, next ) );
+  FD_TEST( !votor->slot_states_full );
+
+  teardown_votor( votor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -418,6 +455,7 @@ main( int     argc,
   test_safe_to_notar();
   test_safe_to_skip();
   test_prunes_to_finalized_window();
+  test_no_finalization_bounded();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

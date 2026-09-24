@@ -284,7 +284,8 @@ struct fd_replay_snap_start {
 typedef struct fd_replay_snap_start fd_replay_snap_start_t;
 
 /* fd_replay_final_cert carries the finalization cert parsed out of an
-   Alpenglow block footer. */
+   Alpenglow block footer: a fast final cert, or a notar cert followed
+   by a final cert. */
 struct fd_replay_final_cert {
   ulong     slot;     /* the block whose footer carried the cert */
   uint      cert_cnt;
@@ -309,6 +310,7 @@ union fd_replay_message {
   fd_replay_fec_evicted_t     reasm_evicted;
   fd_replay_drop_bank_ref_t   drop_bank_ref;
   fd_replay_leader_footer_t   leader_footer;
+  fd_replay_final_cert_t      final_cert;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

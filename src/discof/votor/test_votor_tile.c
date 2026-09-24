@@ -192,6 +192,130 @@ test_certed_final_before_notar( void ) {
   teardown_ctx( ctx );
 }
 
+/* deliver_final_cert hands votor the certs out of a replayed block
+   footer, a fast final cert or a notar cert then a final cert. */
+
+static void
+deliver_final_cert( fd_votor_tile_t * ctx,
+                    ag_cert_t const * cert0,
+                    ag_cert_t const * cert1 ) {
+  fd_replay_message_t msg[1];
+  msg->final_cert.slot     = ag_cert_slot( cert0 )+1UL;
+  msg->final_cert.cert_cnt = cert1 ? 2U : 1U;
+  msg->final_cert.certs[0] = *cert0;
+  if( cert1 ) msg->final_cert.certs[1] = *cert1;
+  FD_TEST( !before_frag( ctx, 0UL, 0UL, REPLAY_SIG_FINAL_CERT ) );
+  handle_replay( ctx, REPLAY_SIG_FINAL_CERT, msg );
+}
+
+static ag_cert_t
+cert_fast_final( ulong slot, ag_block_hash_t const hash, ulong signer_cnt ) {
+  ag_cert_t notar = cert_notar( slot, hash, signer_cnt );
+  ag_cert_t cert  = { .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = { .slot = slot, .agg = notar.notar.agg, .shred_version = TEST_SHRED_VERSION } };
+  memcpy( cert.fast_final.block_hash, hash, sizeof(ag_block_hash_t) );
+  return cert;
+}
+
+static ulong
+footer_cnt( fd_votor_tile_t const * ctx, ulong idx ) {
+  return ctx->metrics.footer_cert[ idx ];
+}
+
+static void
+test_footer_fast_final( void ) {
+  fd_votor_tile_t * ctx = setup_ctx();
+
+  ag_block_hash_t hash; memset( hash, 0x11, sizeof(hash) );
+  ag_cert_t ff = cert_fast_final( 5UL, hash, 4UL );
+  deliver_final_cert( ctx, &ff, NULL );
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_SUCCESS_IDX )==1UL );
+  FD_TEST( ag_pool_finalized_slot( ctx->pool )==5UL );
+
+  /* the same footer cert from a later block is a duplicate */
+  deliver_final_cert( ctx, &ff, NULL );
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_DUPLICATE_IDX )==1UL );
+
+  /* votor prunes once it handles the resulting pool event */
+  drain_pool_events( ctx );
+  FD_TEST( ag_votor_finalized_slot( ctx->votor )==5UL );
+
+  teardown_ctx( ctx );
+}
+
+static void
+test_footer_slow_final( void ) {
+  fd_votor_tile_t * ctx = setup_ctx();
+
+  ag_block_hash_t hash; memset( hash, 0x22, sizeof(hash) );
+  ag_cert_t notar = cert_notar( 6UL, hash, 3UL );
+  ag_cert_t final = cert_final( 6UL, 3UL );
+  deliver_final_cert( ctx, &notar, &final );
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_SUCCESS_IDX )==2UL );
+  FD_TEST( ag_pool_finalized_slot( ctx->pool )==6UL );
+
+  ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, 6UL );
+  FD_TEST( state && state->certs.notar.slot==6UL && state->certs.finalize.slot==6UL );
+
+  teardown_ctx( ctx );
+}
+
+/* The pool already has the final cert (e.g. from the network) when the
+   footer brings its notar.  Only the notar is new. */
+
+static void
+test_footer_final_before_notar( void ) {
+  fd_votor_tile_t * ctx = setup_ctx();
+
+  ag_block_hash_t hash; memset( hash, 0x33, sizeof(hash) );
+  ag_cert_t notar = cert_notar( 7UL, hash, 3UL );
+  ag_cert_t final = cert_final( 7UL, 3UL );
+  FD_TEST( ag_pool_add_cert( ctx->pool, &final, ctx->scratch.bad )==AG_POOL_SUCCESS );
+
+  deliver_final_cert( ctx, &notar, &final );
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_SUCCESS_IDX   )==1UL );
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_DUPLICATE_IDX )==1UL );
+
+  ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, 7UL );
+  FD_TEST( state && state->certs.notar.slot==7UL && state->certs.finalize.slot==7UL );
+
+  teardown_ctx( ctx );
+}
+
+static void
+test_footer_bad_certs( void ) {
+  fd_votor_tile_t * ctx = setup_ctx();
+
+  ag_block_hash_t hash; memset( hash, 0x44, sizeof(hash) );
+  ulong slot = 4UL; /* inside the pool window, slot_max-AG_REWARD_SLOT_DELTA past the root */
+
+  /* a quorum, but below the fast finalization threshold */
+  ag_cert_t weak = cert_fast_final( slot, hash, 3UL );
+  deliver_final_cert( ctx, &weak, NULL );
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_FAILED_VERIFY_IDX )==1UL );
+
+  /* signed for a different block than it claims */
+  ag_cert_t wrong = cert_fast_final( slot, hash, 4UL );
+  memset( wrong.fast_final.block_hash, 0x55, sizeof(ag_block_hash_t) );
+  deliver_final_cert( ctx, &wrong, NULL );
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_FAILED_VERIFY_IDX )==2UL );
+
+  /* far beyond the pool window */
+  ag_cert_t far = cert_fast_final( 8UL*TEST_SLOT_MAX, hash, 4UL );
+  deliver_final_cert( ctx, &far, NULL );
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_SLOT_OUT_OF_BOUNDS_IDX )==1UL );
+
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_SUCCESS_IDX )==0UL );
+  FD_TEST( ag_pool_finalized_slot( ctx->pool )==0UL );
+
+  /* before init, footer certs are ignored */
+  ctx->init = 0;
+  ag_cert_t ok = cert_fast_final( slot, hash, 4UL );
+  deliver_final_cert( ctx, &ok, NULL );
+  FD_TEST( footer_cnt( ctx, FD_METRICS_ENUM_FOOTER_CERT_RESULT_V_SUCCESS_IDX )==0UL );
+
+  teardown_ctx( ctx );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -199,6 +323,10 @@ main( int     argc,
 
   test_rank_voters_resets_total_stake();
   test_certed_final_before_notar();
+  test_footer_fast_final();
+  test_footer_slow_final();
+  test_footer_final_before_notar();
+  test_footer_bad_certs();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
