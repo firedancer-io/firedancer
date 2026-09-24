@@ -96,7 +96,7 @@ struct fd_failover_tile_ctx {
      switch is done. */
   fd_failover_demoted_record_t demoted_record;
   int                          demoted_valid;
-  int                          demoted_historical; /* from a previous term, kept for reference */
+  int                          demoted_historical; /* retained evidence that cannot authorize promotion */
   int                          demoted_sent;
   int                          send_demoted;
   ulong                        demoted_accept_term; /* a confirmation at this term may be replayed */
@@ -333,6 +333,8 @@ role_dir_open( char const * base_path,
     FD_LOG_ERR(( "unlinkat(%s) failed (%i-%s)", FD_FAILOVER_ROLE_TMP_PATH, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fsync( dir_fd ) ) )
     FD_LOG_ERR(( "fsync(failover) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fsync( base_fd ) ) )
+    FD_LOG_ERR(( "fsync(%s) failed (%i-%s)", base_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( base_fd ) ) )
     FD_LOG_ERR(( "close(%s) failed (%i-%s)", base_path, errno, fd_io_strerror( errno ) ));
   return dir_fd;
@@ -543,6 +545,85 @@ pending_flush( fd_failover_tile_ctx_t * ctx,
 }
 
 static void
+restore_records( fd_failover_tile_ctx_t * ctx,
+                 int                      role_err,
+                 int                      demoted_err,
+                 uint                     owner_uid,
+                 uint                     owner_gid ) {
+  ulong saved = (ulong)ctx->role_file.role;
+  ctx->state               = fd_failover_state_boot( saved );
+  ctx->action              = FD_FAILOVER_ACTION_IDLE;
+  ctx->paused              = !!ctx->role_file.paused;
+  ctx->action_term         = ctx->role_file.term;
+  ctx->deadline_slot       = FD_FAILOVER_SLOT_NULL;
+  ctx->demoted_accept_term = ULONG_MAX;
+  ctx->reply_dem_term      = ULONG_MAX;
+  ctx->reply_owed          = 0;
+  ctx->handoff_code        = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
+
+  if( FD_UNLIKELY( saved==FD_FAILOVER_STATE_PROMOTING ||
+                   saved==FD_FAILOVER_STATE_ACTIVE || saved==FD_FAILOVER_STATE_RECLAIMING ) )
+    ctx->demoted_accept_term = ctx->role_file.term;
+
+  /* Version 1 did not record the source.  Only an interrupted transition
+     identifies it unambiguously.  Save that information before rewriting
+     the role, so a second crash cannot turn a received grant into ours.
+     An old STANDBY record is ambiguous and must never grant authority. */
+  if( FD_UNLIKELY( !role_err && !demoted_err &&
+                   ctx->demoted_record.source==FD_FAILOVER_DEMOTED_SOURCE_UNKNOWN &&
+                   ctx->demoted_record.demoted.term==ctx->role_file.term &&
+                   (saved==FD_FAILOVER_STATE_PROMOTING || saved==FD_FAILOVER_STATE_DEMOTING) ) ) {
+    ctx->demoted_record.source = saved==FD_FAILOVER_STATE_PROMOTING
+                                 ? FD_FAILOVER_DEMOTED_SOURCE_PEER : FD_FAILOVER_DEMOTED_SOURCE_LOCAL;
+    int err = fd_failover_demoted_store( ctx->role_dir_fd, ctx->role_file_fd, ctx->role_sandboxed,
+                                        owner_uid, owner_gid, &ctx->demoted_record );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "could not preserve demotion record source (%i-%s)", err, fd_io_strerror( err ) ));
+  }
+
+  ctx->role       = FD_FAILOVER_ROLE_STANDBY;
+  ctx->hello.role = (uchar)ctx->role;
+  ctx->hello.term = ctx->role_file.term;
+  if( FD_UNLIKELY( role_err || ctx->state!=saved ) ) {
+    ctx->role_file.role = (uchar)ctx->state;
+    role_file_write( ctx, owner_uid, owner_gid );
+  }
+
+  if( FD_LIKELY( !demoted_err ) ) {
+    ctx->demoted_valid = 1;
+    if( FD_UNLIKELY( ctx->demoted_record.source==FD_FAILOVER_DEMOTED_SOURCE_UNKNOWN ) ) {
+      ctx->demoted_historical = 1;
+      ctx->stuck = 1;
+      FD_LOG_WARNING(( "%s has no unambiguous source, preserving it without resending or permitting promotion", FD_FAILOVER_DEMOTED_PATH ));
+    } else if( FD_LIKELY( !role_err && ctx->demoted_record.demoted.term==ctx->role_file.term &&
+                         ctx->state==FD_FAILOVER_STATE_STANDBY ) ) {
+      if( ctx->demoted_record.source==FD_FAILOVER_DEMOTED_SOURCE_LOCAL ) {
+        ctx->last_vote_slot = ctx->demoted_record.demoted.last_vote_slot;
+        ctx->send_demoted   = 1;
+        ctx->action        = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
+        ctx->action_term   = ctx->demoted_record.demoted.term;
+        ulong state_len = (ulong)ctx->demoted_record.demoted.state_len;
+        uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
+        fd_memcpy( payload, &ctx->demoted_record.demoted, sizeof(fd_failover_demoted_t) );
+        fd_memcpy( payload+sizeof(fd_failover_demoted_t), ctx->demoted_record.state, state_len );
+        FD_TEST( !queue_control( ctx, (ushort)FD_FAILOVER_MSG_DEMOTED, payload, sizeof(fd_failover_demoted_t)+state_len ) );
+      } else {
+        ctx->demoted_accept_term = ctx->role_file.term;
+      }
+    } else {
+      /* This includes a received record persisted just before the role
+         update.  Keep the evidence, but require a fresh peer exchange
+         before it may authorize another transition. */
+      ctx->demoted_historical = 1;
+    }
+  } else if( FD_UNLIKELY( demoted_err==EPROTO ) ) {
+    ctx->stuck = 1;
+    FD_LOG_WARNING(( "%s is invalid, preserving it and remaining passive", FD_FAILOVER_DEMOTED_PATH ));
+  } else if( FD_UNLIKELY( demoted_err!=ENOENT ) ) {
+    FD_LOG_ERR(( "reading %s failed (%i-%s)", FD_FAILOVER_DEMOTED_PATH, demoted_err, fd_io_strerror( demoted_err ) ));
+  }
+}
+
+static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -613,8 +694,6 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   int role_err   = role_file_read( ctx );
-  int had_role   = !role_err;
-  ulong saved     = (ulong)ctx->role_file.role;
   int demoted_err = fd_failover_demoted_load( ctx->role_dir_fd, &ctx->demoted_record );
   if( FD_UNLIKELY( tile->failov.failover_first_use[ 0 ] ) ) {
     if( FD_UNLIKELY( !first_use_check( ctx, tile->failov.failover_first_use, role_err, demoted_err ) ) )
@@ -622,77 +701,7 @@ privileged_init( fd_topo_t const *      topo,
     ctx->first_use_authorized = 1;
     FD_LOG_NOTICE(( "first use armed, waiting for the paired standby peer to confirm standing down" ));
   }
-  /* Work out the boot state from the record.  If we were in the middle of
-     a transition we come up not voting. */
-  ctx->state               = fd_failover_state_boot( saved );
-  ctx->action              = FD_FAILOVER_ACTION_IDLE;
-  ctx->paused              = !!ctx->role_file.paused;
-  ctx->action_term         = ctx->role_file.term;
-  ctx->deadline_slot       = FD_FAILOVER_SLOT_NULL;
-  ctx->demoted_accept_term = ULONG_MAX;
-  ctx->reply_dem_term      = ULONG_MAX;
-  ctx->reply_owed          = 0;
-  ctx->handoff_code        = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
-
-  /* If we were mid promotion, or we were the active and restarted, the peer
-     may send us the same confirmation again at this term.  Accept it. */
-  if( FD_UNLIKELY( saved==FD_FAILOVER_STATE_PROMOTING ||
-                   saved==FD_FAILOVER_STATE_ACTIVE    ||
-                   saved==FD_FAILOVER_STATE_RECLAIMING ) ) {
-    ctx->demoted_accept_term = ctx->role_file.term;
-  }
-
-  /* The role follows from the state. */
-  ctx->role       = ( ctx->state==FD_FAILOVER_STATE_ACTIVE ) ? FD_FAILOVER_ROLE_ACTIVE : FD_FAILOVER_ROLE_STANDBY;
-  ctx->hello.role = (uchar)ctx->role;
-  ctx->hello.term = ctx->role_file.term;
-
-  /* If there was no record, or we changed the state at boot, write it now
-     so the first transition does not have to create the file under
-     seccomp. */
-  if( FD_UNLIKELY( !had_role || ctx->state!=saved ) ) {
-    ctx->role_file.role = (uchar)ctx->state;
-    role_file_write( ctx, tile->failov.target_uid, tile->failov.target_gid );
-  }
-
-  /* If we have a confirmation on disk at this term we demoted and the peer
-     may not have received it, so send it again. */
-  if( FD_LIKELY( !demoted_err ) ) {
-    /* Only if we were the one demoting though.  If we were interrupted mid
-       promotion the record on disk is the peer's confirmation, and sending
-       that back would confuse it.  Keep it and let the operator sort it out. */
-    int authored = ( saved==FD_FAILOVER_STATE_DEMOTING ||
-                     saved==FD_FAILOVER_STATE_STANDBY );
-    if( FD_LIKELY( ctx->demoted_record.demoted.term==ctx->role_file.term &&
-                   ctx->state==FD_FAILOVER_STATE_STANDBY ) ) {
-      ctx->demoted_valid = 1;
-      if( FD_LIKELY( authored ) ) {
-        ctx->last_vote_slot = ctx->demoted_record.demoted.last_vote_slot;
-        ctx->send_demoted   = 1;
-        ctx->action         = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
-        ctx->action_term    = ctx->demoted_record.demoted.term;
-        /* No replay slot yet, arm the deadline when the first one arrives. */
-        ctx->deadline_slot  = FD_FAILOVER_SLOT_NULL;
-        ulong state_len = (ulong)ctx->demoted_record.demoted.state_len;
-        uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
-        fd_memcpy( payload, &ctx->demoted_record.demoted, sizeof(fd_failover_demoted_t) );
-        fd_memcpy( payload+sizeof(fd_failover_demoted_t), ctx->demoted_record.state, state_len );
-        FD_TEST( !queue_control( ctx, (ushort)FD_FAILOVER_MSG_DEMOTED, payload, sizeof(fd_failover_demoted_t)+state_len ) );
-      }
-    } else if( FD_LIKELY( ctx->state==FD_FAILOVER_STATE_ACTIVE ) ) {
-      /* We took the identity back, so the record is just history now. */
-      ctx->demoted_valid      = 1;
-      ctx->demoted_historical = 1;
-    } else {
-      FD_LOG_WARNING(( "%s does not match the recorded state and will be removed", FD_FAILOVER_DEMOTED_PATH ));
-      demoted_remove( ctx );
-    }
-  } else if( FD_UNLIKELY( demoted_err==EPROTO ) ) {
-    FD_LOG_WARNING(( "%s is invalid and will be removed", FD_FAILOVER_DEMOTED_PATH ));
-    demoted_remove( ctx );
-  } else if( FD_UNLIKELY( demoted_err!=ENOENT ) ) {
-    FD_LOG_ERR(( "reading %s failed (%i-%s)", FD_FAILOVER_DEMOTED_PATH, demoted_err, fd_io_strerror( demoted_err ) ));
-  }
+  restore_records( ctx, role_err, demoted_err, tile->failov.target_uid, tile->failov.target_gid );
   FD_TEST( fd_rng_secure( &ctx->hello.boot_id, 8UL ) );
   ctx->first_use_nonce = ctx->hello.boot_id;
 
@@ -923,7 +932,11 @@ consume_slot_done( fd_failover_tile_ctx_t *     ctx,
   if( FD_LIKELY( done->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->root_slot = done->root_slot;
   if( FD_LIKELY( done->has_vote_txn && done->vote_slot!=FD_FAILOVER_SLOT_NULL ) ) {
     ctx->last_vote_slot = done->vote_slot;
-    if( FD_LIKELY( ctx->role==FD_FAILOVER_ROLE_ACTIVE ) ) prepare_consensus( ctx, done );
+    /* Admin can unhalt the new signer before its switch answer reaches
+       this tile.  Those first votes already belong to the new tenure. */
+    if( FD_LIKELY( ctx->role==FD_FAILOVER_ROLE_ACTIVE ||
+                   (ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH) ) )
+      prepare_consensus( ctx, done );
   }
 }
 
@@ -1960,6 +1973,7 @@ demotion_switched( fd_failover_tile_ctx_t * ctx,
   ctx->demoted_record.demoted.watermark      = ctx->switch_result.tower_watermark;
   ctx->demoted_record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
   ctx->demoted_record.demoted.state_len      = (ushort)state_len;
+  ctx->demoted_record.source                 = FD_FAILOVER_DEMOTED_SOURCE_LOCAL;
   fd_memcpy( ctx->demoted_record.state, ctx->cs_buf+sizeof(fd_failover_consensus_state_t), state_len );
   fd_sha256_hash( ctx->demoted_record.state, state_len, ctx->demoted_record.digest );
 
@@ -2023,6 +2037,7 @@ start_promotion( fd_failover_tile_ctx_t *             ctx,
                  fd_failover_demoted_record_t const * record,
                  ulong                                term ) {
   ctx->demoted_record     = *record;
+  ctx->demoted_record.source = FD_FAILOVER_DEMOTED_SOURCE_PEER;
   ctx->demoted_valid      = 1;
   ctx->demoted_historical = 0;
   demoted_write( ctx );
@@ -2035,6 +2050,19 @@ start_promotion( fd_failover_tile_ctx_t *             ctx,
   term = fd_ulong_max( term, ctx->hello.term );
   persist( ctx, FD_FAILOVER_STATE_PROMOTING, term );
   ctx->action_term   = term;
+  /* Until this tenure produces a vote, its final tower is exactly the
+     one adopted from the peer.  A previous local tenure's cached stream
+     must never be sent or handed back in its place. */
+  fd_failover_consensus_state_t cs = { .term=term, .link_seq=ctx->tower_seen_seq,
+                                      .vote_slot=record->demoted.last_vote_slot,
+                                      .mode=(uchar)FD_FAILOVER_MODE_TOWER,
+                                      .state_len=record->demoted.state_len };
+  fd_memcpy( ctx->cs_buf, &cs, sizeof(cs) );
+  fd_memcpy( ctx->cs_buf+sizeof(cs), ctx->adopt_state, ctx->adopt_state_len );
+  ctx->cs_sz          = sizeof(cs)+ctx->adopt_state_len;
+  ctx->cs_valid       = 1;
+  ctx->tower_gap      = 0;
+  ctx->last_vote_slot = cs.vote_slot;
   /* The peer resends the confirmation until we ack it, so a second copy at
      this term is normal. */
   ctx->demoted_accept_term = term;
@@ -2113,7 +2141,7 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
       if( FD_UNLIKELY( reason==FD_FAILOVER_REJECT_PAUSED ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
       if( FD_UNLIKELY( reason==FD_FAILOVER_REJECT_BUSY   ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
       if( FD_UNLIKELY( reason!=FD_FAILOVER_REJECT_NONE ) ) {
-        FD_LOG_WARNING(( "handoff refused, the spare's status does not allow it (reason %u)", (uint)reason ));
+        FD_LOG_WARNING(( "handoff refused by local or peer status (reason %u)", (uint)reason ));
         return FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
       }
       start_demotion( ctx, stem, ctx->hello.term+1UL, ctx->deadline_slots, 1 );
@@ -2151,8 +2179,9 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
     /* Our own outgoing confirmation does not count.  It says we stopped, it
        says nothing about whether the peer promoted, and using it could put
        the identity on both machines. */
-    if( FD_UNLIKELY( !ctx->demoted_valid || ctx->demoted_historical ||
-                     ctx->send_demoted ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
+    if( FD_UNLIKELY( !ctx->demoted_valid || ctx->demoted_historical || ctx->send_demoted ||
+                     ctx->demoted_record.source!=FD_FAILOVER_DEMOTED_SOURCE_PEER ||
+                     ctx->demoted_record.demoted.term!=ctx->hello.term ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
     if( FD_UNLIKELY( req->force && !fd_memeq( req->staked_pubkey, ctx->hello.staked_pubkey, 32UL ) ) )
       return FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY;
     start_promotion( ctx, &ctx->demoted_record, ctx->demoted_record.demoted.term );

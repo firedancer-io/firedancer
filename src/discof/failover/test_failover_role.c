@@ -158,6 +158,11 @@ test_storage( void ) {
   FD_TEST( !symlinkat( "/dev/null", dir_fd, FD_FAILOVER_ROLE_PATH ) );
   FD_TEST( fd_failover_role_load( dir_fd, &out )==ELOOP );
   FD_TEST( !unlinkat( dir_fd, FD_FAILOVER_ROLE_PATH, 0 ) );
+  FD_TEST( !mkfifoat( dir_fd, FD_FAILOVER_ROLE_PATH, 0600 ) );
+  alarm( 5U );
+  FD_TEST( fd_failover_role_load( dir_fd, &out )==EACCES );
+  alarm( 0U );
+  FD_TEST( !unlinkat( dir_fd, FD_FAILOVER_ROLE_PATH, 0 ) );
   FD_TEST( !close( dir_fd ) );
   FD_TEST( !rmdir( dir_path ) );
 }
@@ -171,6 +176,7 @@ sample_demoted( void ) {
   record.demoted.watermark      = 17UL;
   record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
   record.demoted.state_len      = 5U;
+  record.source                 = FD_FAILOVER_DEMOTED_SOURCE_PEER;
   fd_memcpy( record.state, "tower", 5UL );
   fd_sha256_hash( record.state, record.demoted.state_len, record.digest );
   return record;
@@ -185,6 +191,17 @@ test_demoted_codec( void ) {
   fd_failover_demoted_record_t out;
   FD_TEST( !fd_failover_demoted_de( demoted_buf, sz, &out ) );
   FD_TEST( fd_memeq( &out, &record, sizeof(record) ) );
+
+  /* The new source byte is protected by the file digest.  Version 1
+     images still decode, with an explicitly unknown source. */
+  FD_STORE( uint, demoted_buf, 1U );
+  fd_sha256_hash( demoted_buf, sz-33UL, demoted_buf+sz-33UL );
+  FD_TEST( !fd_failover_demoted_de( demoted_buf, sz-1UL, &out ) );
+  FD_TEST( out.source==FD_FAILOVER_DEMOTED_SOURCE_UNKNOWN && out.demoted.term==record.demoted.term );
+  sz = fd_failover_demoted_ser( &record, demoted_buf );
+  record.source = 3U;
+  FD_TEST( !fd_failover_demoted_ser( &record, demoted_buf ) );
+  record.source = FD_FAILOVER_DEMOTED_SOURCE_PEER;
 
   for( ulong i=0UL; i<sz; i++ ) {
     demoted_buf[ i ] ^= 1U;
@@ -245,6 +262,11 @@ test_demoted_storage( void ) {
   FD_TEST( out.demoted.term==record.demoted.term );
 
   FD_TEST( !close( file_fd ) );
+  FD_TEST( !unlinkat( dir_fd, FD_FAILOVER_DEMOTED_PATH, 0 ) );
+  FD_TEST( !mkfifoat( dir_fd, FD_FAILOVER_DEMOTED_PATH, 0600 ) );
+  alarm( 5U );
+  FD_TEST( fd_failover_demoted_load( dir_fd, &out )==EACCES );
+  alarm( 0U );
   FD_TEST( !unlinkat( dir_fd, FD_FAILOVER_DEMOTED_PATH, 0 ) );
   FD_TEST( !close( dir_fd ) );
   FD_TEST( !rmdir( dir_path ) );

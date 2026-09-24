@@ -1414,12 +1414,76 @@ test_failover_adopt_tower( fd_wksp_t * wksp ) {
   result = failover_adopt_tower( ctx, buf, buf_sz );
   FD_TEST( result.result==FD_TOWER_ADOPT_ERR_STALE && result.vote_slot==2UL );
   ctx->recovery.saved.votes[ 0 ].slot = 2UL;
+  ctx->recovery.saved.root = 1UL;
+  ctx->recovery.saved.bank_hash = serde.hash;
+  ctx->recovery.saved.block_id = serde.block_id;
   result = failover_adopt_tower( ctx, buf, buf_sz );
   FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
   ctx->recovery.saved.votes[ 0 ].slot = 5UL;
   ctx->tower_file_loaded = 0;
   result = failover_adopt_tower( ctx, buf, buf_sz );
   FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+
+  /* Sign a checkpoint during this process, then try to hand back a tower
+     that drops one of its still-live lockouts at the same tip.  The
+     production signing client consumes a genuine precomputed signature. */
+  serde.lockouts_cnt = 2U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=2U };
+  serde.lockouts[ 1 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash = fd_tower_blocks_query( ctx->tower, 3UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  FD_TEST( failover_adopt_tower( ctx, buf, buf_sz ).result==FD_TOWER_ADOPT_SUCCESS );
+  uchar key[ 64 ];
+  fd_memset( key, 0x42, 32UL );
+  fd_sha512_t sha[ 1 ];
+  fd_ed25519_public_from_private( key+32UL, key, sha );
+  fd_memcpy( ctx->identity_key, key+32UL, 32UL );
+  ctx->failover_enabled = 1;
+  ctx->failover_staked_identity = *ctx->identity_key;
+  uchar signed_file[ FD_TOWER_FILE_MAX ];
+  long signed_sz = fd_tower_file_ser( ctx->tower->votes, 1UL, &serde.hash, &serde.block_id,
+                                      123L, ctx->identity_key, file_test_sign, key,
+                                      signed_file, sizeof(signed_file) );
+  FD_TEST( signed_sz>0L );
+  static uchar request[ 128 ] __attribute__((aligned(128)));
+  static uchar response[ 128 ] __attribute__((aligned(128)));
+  static fd_frag_meta_t request_cache[ 128 ];
+  static fd_frag_meta_t response_cache[ 128 ];
+  fd_memcpy( response, signed_file+4UL, 64UL );
+  response_cache[ 0 ].seq = 0UL;
+  response_cache[ 0 ].chunk = 0U;
+  *ctx->keyguard_client = (fd_keyguard_client_t){
+    .request=request_cache, .request_mem=(fd_wksp_t *)request, .request_depth=128UL, .request_mtu=128UL,
+    .response=response_cache, .response_mem=(fd_wksp_t *)response, .response_depth=128UL, .response_mtu=128UL
+  };
+  fd_tower_out_t signed_out = { .vote_slot=3UL, .vote_bank_hash=serde.hash, .vote_block_id=serde.block_id };
+  FD_TEST( prepare_tower_file( ctx, &signed_out, 123L )==(ulong)signed_sz );
+  FD_TEST( fd_memeq( ctx->tower_file_buf, signed_file, (ulong)signed_sz ) );
+  /* An unchanged signed tower is valid.  At the same tip, neither its
+     hashes nor a retained lockout's confirmation count may go backwards. */
+  FD_TEST( failover_adopt_tower( ctx, buf, buf_sz ).result==FD_TOWER_ADOPT_SUCCESS );
+  for( ulong hash_idx=0UL; hash_idx<2UL; hash_idx++ ) {
+    fd_hash_t * hash = hash_idx ? &serde.block_id : &serde.hash;
+    hash->uc[ 0 ] ^= 1U;
+    FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+    FD_TEST( failover_adopt_tower( ctx, buf, buf_sz ).result==FD_TOWER_ADOPT_ERR_STALE );
+    hash->uc[ 0 ] ^= 1U;
+  }
+  ctx->signed_tower.votes[ 0 ].conf = 3UL;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  FD_TEST( failover_adopt_tower( ctx, buf, buf_sz ).result==FD_TOWER_ADOPT_ERR_STALE );
+  ctx->signed_tower.votes[ 0 ].conf = 2UL;
+  serde.lockouts_cnt = 1U;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=2UL, .confirmation_count=1U };
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_STALE && fd_tower_vote_cnt( ctx->tower->votes )==2UL );
+  serde.lockouts[ 0 ].offset = 1UL;
+  serde.hash = fd_tower_blocks_query( ctx->tower, 2UL )->bank_hash;
+  serde.block_id = fd_tower_blocks_query( ctx->tower, 2UL )->replayed_block_id;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  FD_TEST( failover_adopt_tower( ctx, buf, buf_sz ).result==FD_TOWER_ADOPT_ERR_STALE );
 
   /* A promotion whose tower root is ahead of ours advances the fork choice
      root too.  Without it a later replay would walk ghost ancestry the
@@ -1436,6 +1500,22 @@ test_failover_adopt_tower( fd_wksp_t * wksp ) {
   FD_TEST( fd_ghost_root( ctx->ghost )->slot==2UL );    /* the fork choice root advanced with the tower root */
   FD_TEST( !fd_tower_blocks_query( ctx->tower, 1UL ) ); /* tower ancestry below the new root is gone */
   FD_TEST( ctx->epoch_refresh_pending );                /* the epoch voter caches refresh on the next completed slot */
+
+  /* The slot-3 lockout expires only after slot 5.  A later valid tower
+     can omit it without lowering the signed-history floor. */
+  for( ulong slot=5UL; slot<=6UL; slot++ ) {
+    fd_tower_blk_t * blk = fd_tower_blocks_insert( ctx->tower, slot, 3UL );
+    blk->replayed          = 1;
+    blk->replayed_block_id = (fd_hash_t){ .ul={ slot } };
+    blk->bank_hash         = (fd_hash_t){ .ul={ slot+10UL } };
+    serde.lockouts[ 0 ].offset = slot-serde.root;
+    serde.hash = blk->bank_hash;
+    serde.block_id = blk->replayed_block_id;
+    FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+    result = failover_adopt_tower( ctx, buf, buf_sz );
+    FD_TEST( result.result==(slot==5UL ? FD_TOWER_ADOPT_ERR_STALE : FD_TOWER_ADOPT_SUCCESS) );
+  }
+  FD_TEST( result.root==2UL && result.vote_slot==6UL );
 
   fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ctx->ghost ) ) );
   fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( ctx->tower ) ) );

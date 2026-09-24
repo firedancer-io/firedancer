@@ -23,19 +23,28 @@ typedef struct fd_failover_role_file fd_failover_role_file_t;
 #define FD_FAILOVER_ROLE_PATH     "failover-role"
 #define FD_FAILOVER_ROLE_TMP_PATH "failover-role.new"
 
-#define FD_FAILOVER_DEMOTED_VERSION  (1U)
+#define FD_FAILOVER_DEMOTED_VERSION  (2U)
 #define FD_FAILOVER_DEMOTED_PATH     "failover-demoted"
 #define FD_FAILOVER_DEMOTED_TMP_PATH "failover-demoted.new"
+
+/* The source belongs to the durable record, not the wire payload.  It
+   must survive passive boot and maintenance changes to the role file.
+   Version 1 records have no source and load as UNKNOWN. */
+#define FD_FAILOVER_DEMOTED_SOURCE_UNKNOWN  (0U)
+#define FD_FAILOVER_DEMOTED_SOURCE_LOCAL    (1U)
+#define FD_FAILOVER_DEMOTED_SOURCE_PEER     (2U)
 
 struct fd_failover_demoted_record {
   fd_failover_demoted_t demoted;
   uchar                  state[ FD_FAILOVER_TOWER_STATE_MAX ];
   uchar                  digest[ FD_FAILOVER_DEMOTED_DIGEST_SZ ];
+  uchar                  source;
 };
 
 typedef struct fd_failover_demoted_record fd_failover_demoted_record_t;
 
-#define FD_FAILOVER_DEMOTED_FILE_BODY_MIN (4UL+sizeof(fd_failover_demoted_t)+FD_FAILOVER_DEMOTED_DIGEST_SZ)
+#define FD_FAILOVER_DEMOTED_FILE_V1_BODY_MIN (4UL+sizeof(fd_failover_demoted_t)+FD_FAILOVER_DEMOTED_DIGEST_SZ)
+#define FD_FAILOVER_DEMOTED_FILE_BODY_MIN (FD_FAILOVER_DEMOTED_FILE_V1_BODY_MIN+1UL)
 #define FD_FAILOVER_DEMOTED_FILE_MAX      (FD_FAILOVER_DEMOTED_FILE_BODY_MIN+FD_FAILOVER_TOWER_STATE_MAX+32UL)
 
 FD_PROTOTYPES_BEGIN

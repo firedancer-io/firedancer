@@ -140,6 +140,7 @@ fd_failover_handoff_peer_check( fd_failover_status_t const * local,
   if( FD_UNLIKELY( peer->role!=FD_FAILOVER_ROLE_STANDBY || peer->term!=local->term ) ) return FD_FAILOVER_REJECT_STATE_MISMATCH;
   if( FD_UNLIKELY( ( local->status|peer->status )&FD_FAILOVER_STATUS_BUSY ) )         return FD_FAILOVER_REJECT_BUSY;
   if( FD_UNLIKELY( ( local->status|peer->status )&FD_FAILOVER_STATUS_PAUSED ) )       return FD_FAILOVER_REJECT_PAUSED;
+  if( FD_UNLIKELY( local->status&FD_FAILOVER_STATUS_STUCK ) )                       return FD_FAILOVER_REJECT_LOCAL_UNHEALTHY;
   if( FD_UNLIKELY( peer->status & ~FD_FAILOVER_STATUS_REPLAG ) )                      return FD_FAILOVER_REJECT_PEER_UNHEALTHY;
   if( FD_UNLIKELY( ( local->status|peer->status )&FD_FAILOVER_STATUS_REPLAG ) )       return FD_FAILOVER_REJECT_PEER_BEHIND;
   return FD_FAILOVER_REJECT_NONE;
