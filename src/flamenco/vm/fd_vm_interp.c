@@ -26,7 +26,7 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
   uint  const *             region_ld_sz = vm->region_ld_sz;
   uint  const *             region_st_sz = vm->region_st_sz;
 
-  ulong * FD_RESTRICT reg = vm->reg;
+  ulong * reg = vm->reg;
 
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
@@ -58,7 +58,7 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
   uint  const *             region_ld_sz = vm->region_ld_sz;
   uint  const *             region_st_sz = vm->region_st_sz;
 
-  ulong * FD_RESTRICT reg = vm->reg;
+  ulong * reg = vm->reg;
 
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
