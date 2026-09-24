@@ -162,7 +162,6 @@ struct fd_votor_tile {
   ag_epoch_info_t *          next_epoch_info;
   ulong                      next_epoch_slot;
   fd_multi_epoch_leaders_t * mleaders;
-  ulong                      curr_leader_slot;
   ulong                      next_leader_slot;
   ulong                      highest_parent_ready_slot;
   ulong                      highest_unotar_final_slot; /* highest slot for which we have a final cert that we have not paired with a notar  */
@@ -192,7 +191,6 @@ struct fd_votor_tile {
 
   /* Links */
 
-  fd_stem_context_t * stem;
   int                 in_kind[ 32 ];
   struct {
     fd_wksp_t * mem;
@@ -542,11 +540,6 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       FD_LOG_CRIT(( "unhandled kind" ));
     }
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
-    if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) {
-      int reward_kind = vote->kind==AG_VOTE_KIND_NOTAR || vote->kind==AG_VOTE_KIND_SKIP;
-      int curr_leader = vote_slot+FD_NUM_SLOTS_FOR_REWARD>=ctx->curr_leader_slot && vote_slot+FD_NUM_SLOTS_FOR_REWARD<ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW;
-      if( FD_UNLIKELY( reward_kind && curr_leader ) ) publish_reward_certs( ctx, ctx->stem, vote_slot );
-    }
     return;
   }
   case AG_CERT_SERDE_TAG_FINAL:
@@ -876,7 +869,6 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
     memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
     ag_votor_handle_replay_event( ctx->votor, &completed );
-    if( FD_UNLIKELY( block_id.slot==ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW-1UL ) ) ctx->curr_leader_slot = ULONG_MAX;
     break;
   }
   default:
@@ -920,7 +912,6 @@ after_credit( fd_votor_tile_t *   ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
 
-  ctx->stem    = stem;
   long now     = fd_clock_tile_now( ctx->clock );
   *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
   for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
@@ -1008,13 +999,8 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote_event.vote );
     if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
-      int err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote, ctx->scratch.bad );
+      ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
-      if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) {
-        int reward_kind = ctx->scratch.vote_event.vote.kind==AG_VOTE_KIND_NOTAR || ctx->scratch.vote_event.vote.kind==AG_VOTE_KIND_SKIP;
-        int curr_leader = vote_slot+FD_NUM_SLOTS_FOR_REWARD>=ctx->curr_leader_slot && vote_slot+FD_NUM_SLOTS_FOR_REWARD<ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW;
-        if( FD_UNLIKELY( reward_kind && curr_leader ) ) publish_reward_certs( ctx, stem, vote_slot );
-      }
 
       ulong ser_sz = ag_vote_ser( &ctx->scratch.vote_event.vote, ctx->scratch.ser );
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
@@ -1040,13 +1026,11 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
-  if( FD_UNLIKELY( ctx->curr_leader_slot!=ULONG_MAX && finalized_slot>=ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW ) ) ctx->curr_leader_slot = ULONG_MAX;
-
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* never will be leader */
 
   /* Check if it's time to become leader. */
 
+  ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
   while( FD_UNLIKELY( ctx->next_leader_slot<=finalized_slot ) ) {
     ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
     if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* schedule exhausted */
@@ -1057,7 +1041,6 @@ after_credit( fd_votor_tile_t *   ctx,
 
   ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
   for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_certs( ctx, stem, reward_slot+i );
-  ctx->curr_leader_slot = ctx->next_leader_slot;
 
   fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
   chunk->leader = (fd_votor_leader_t){ .slot = ctx->next_leader_slot, .parent_slot = parent.slot, .parent_block_id = FD_LOAD( fd_hash_t, parent.hash ) };
@@ -1167,7 +1150,6 @@ after_frag( fd_votor_tile_t *   ctx,
     ushort               dport = fd_ushort_bswap( udp->net_dport );
     if( FD_UNLIKELY( dport!=ctx->quic_client_listen_port && dport!=ctx->quic_server_listen_port ) ) break;
     fd_quic_t * quic = fd_ptr_if( dport==ctx->quic_client_listen_port, ctx->quic_client, ctx->quic_server );
-    ctx->stem = stem;
     fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_clock_tile_now( ctx->clock ) );
     for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
     ctx->net_tx_cnt = 0UL;
@@ -1262,7 +1244,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->init                      = 0;
   ctx->net_tx_cnt                = 0UL;
-  ctx->curr_leader_slot          = ULONG_MAX;
   ctx->next_leader_slot          = ULONG_MAX;
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
   ctx->highest_parent_ready_slot = 0UL;
