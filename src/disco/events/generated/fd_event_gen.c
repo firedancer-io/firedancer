@@ -308,6 +308,8 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
     if( msg->account_diffs[ k ].is_vote_update ) ok &= !!fd_pb_push_bool  ( encoder, 10U, msg->account_diffs[ k ].is_vote_update );
     if( msg->account_diffs[ k ].is_new_vote ) ok &= !!fd_pb_push_bool  ( encoder, 11U, msg->account_diffs[ k ].is_new_vote );
     if( msg->account_diffs[ k ].is_rm_vote ) ok &= !!fd_pb_push_bool  ( encoder, 12U, msg->account_diffs[ k ].is_rm_vote );
+    FD_TEST( msg->account_diffs[ k ].account_lthash_len<=2048UL );
+    if( msg->account_diffs[ k ].account_lthash_len ) ok &= !!fd_pb_push_bytes ( encoder, 13U, msg->account_diffs[ k ].account_lthash, msg->account_diffs[ k ].account_lthash_len );
     ok &= !!fd_pb_submsg_close( encoder );
   }
   for( ulong k=0UL; k<msg->writable_accounts_cnt; k++ ) {

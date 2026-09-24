@@ -160,6 +160,8 @@ fd_event_runtime_txn_fill_max( fd_event_runtime_txn_t * msg ) {
     msg->account_diffs[ k ].is_vote_update = 1;
     msg->account_diffs[ k ].is_new_vote = 1;
     msg->account_diffs[ k ].is_rm_vote = 1;
+    fd_memset( msg->account_diffs[ k ].account_lthash, 0xFF, 2048UL );
+    msg->account_diffs[ k ].account_lthash_len = 2048UL;
   }
   msg->writable_accounts_cnt = 64UL;
   for( ulong k=0UL; k<64UL; k++ ) {
