@@ -9,8 +9,7 @@ fd_vm_syscall_abort( /**/            void *  _vm,
                      FD_PARAM_UNUSED ulong   r2,
                      FD_PARAM_UNUSED ulong   r3,
                      FD_PARAM_UNUSED ulong   r4,
-                     FD_PARAM_UNUSED ulong   r5,
-                     FD_PARAM_UNUSED ulong * _ret ) {
+                     FD_PARAM_UNUSED ulong   r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L630 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_ABORT );
@@ -39,8 +38,7 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
                          /**/            ulong   file_sz,
                          /**/            ulong   line,
                          /**/            ulong   column,
-                         FD_PARAM_UNUSED ulong   r5,
-                         FD_PARAM_UNUSED ulong * _ret ) {
+                         FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L637
@@ -69,8 +67,7 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
                        /**/            ulong   msg_sz,
                        FD_PARAM_UNUSED ulong   r3,
                        FD_PARAM_UNUSED ulong   r4,
-                       FD_PARAM_UNUSED ulong   r5,
-                       /**/            ulong * _ret ) {
+                       FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L5 */
@@ -82,7 +79,7 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
   const char * buf = FD_TRANSLATE_STRING( vm, msg_vaddr, msg_sz );
   fd_log_collector_program_log( vm->instr_ctx, buf, msg_sz );
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -92,8 +89,7 @@ fd_vm_syscall_sol_log_64( void *  _vm,
                           ulong   r2,
                           ulong   r3,
                           ulong   r4,
-                          ulong   r5,
-                          ulong * _ret ) {
+                          ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L37 */
@@ -104,7 +100,7 @@ fd_vm_syscall_sol_log_64( void *  _vm,
   fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
     "Program log: 0x%lx, 0x%lx, 0x%lx, 0x%lx, 0x%lx", r1, r2, r3, r4, r5 );
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -114,8 +110,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
                                      FD_PARAM_UNUSED ulong   r2,
                                      FD_PARAM_UNUSED ulong   r3,
                                      FD_PARAM_UNUSED ulong   r4,
-                                     FD_PARAM_UNUSED ulong   r5,
-                                     /**/            ulong * _ret ) {
+                                     FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L60 */
@@ -126,7 +121,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
   fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
     "Program consumption: %lu units remaining", vm->cu );
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -136,8 +131,7 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
                               FD_PARAM_UNUSED ulong   r2,
                               FD_PARAM_UNUSED ulong   r3,
                               FD_PARAM_UNUSED ulong   r4,
-                              FD_PARAM_UNUSED ulong   r5,
-                              /**/            ulong * _ret ) {
+                              FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L84 */
@@ -153,7 +147,7 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
 
   fd_log_collector_program_log( vm->instr_ctx, msg, msg_sz );
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -163,8 +157,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
                             /**/            ulong   slice_cnt,
                             FD_PARAM_UNUSED ulong   r3,
                             FD_PARAM_UNUSED ulong   r4,
-                            FD_PARAM_UNUSED ulong   r5,
-                            /**/            ulong * _ret ) {
+                            FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L109
@@ -224,7 +217,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
     fd_log_collector_msg( vm->instr_ctx, msg, msg_sz );
   }
 
-  *_ret = 0;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -234,8 +227,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
                               /**/            ulong   free_vaddr,
                               FD_PARAM_UNUSED ulong   r3,
                               FD_PARAM_UNUSED ulong   r4,
-                              FD_PARAM_UNUSED ulong   r5,
-                              /**/            ulong * _ret ) {
+                              FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L666 */
@@ -314,7 +306,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
   /* Non-zero free address implies that this is a free() call.  Since
      this is a bump allocator, free is a no-op. */
   if( FD_UNLIKELY( free_vaddr ) ) {
-    *_ret = 0UL;
+    vm->reg[0] = 0UL;
     return FD_VM_SUCCESS;
   }
 
@@ -324,13 +316,13 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
   /**/  heap_sz    = fd_ulong_sat_add ( heap_sz,     sz                              );
 
   if( FD_UNLIKELY( heap_sz > vm->heap_max ) ) { /* Not enough free memory */
-    *_ret = 0UL;
+    vm->reg[0] = 0UL;
     return FD_VM_SUCCESS;
   }
 
   vm->heap_sz = heap_sz;
 
-  *_ret = heap_vaddr;
+  vm->reg[0] = heap_vaddr;
   return FD_VM_SUCCESS;
 }
 
@@ -368,13 +360,12 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
                            /**/            ulong   src_vaddr,
                            /**/            ulong   sz,
                            FD_PARAM_UNUSED ulong   r4,
-                           FD_PARAM_UNUSED ulong   r5,
-                           /**/            ulong * _ret ) {
+                           FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
-  *_ret = 0;
+  vm->reg[0] = 0UL;
 
   /* No overlap check for memmove. */
   return fd_vm_memmove( vm, dst_vaddr, src_vaddr, sz );
@@ -387,13 +378,12 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
                           /**/            ulong   src_vaddr,
                           /**/            ulong   sz,
                           FD_PARAM_UNUSED ulong   r4,
-                          FD_PARAM_UNUSED ulong   r5,
-                          /**/            ulong * _ret ) {
+                          FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
-  *_ret = 0;
+  vm->reg[0] = 0UL;
 
   /* Exact same as memmove, except also check overlap.
      https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L45 */
@@ -408,10 +398,9 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
                           /**/            ulong   m1_vaddr,
                           /**/            ulong   sz,
                           /**/            ulong   out_vaddr,
-                          FD_PARAM_UNUSED ulong   r5,
-                          /**/            ulong * _ret ) {
-  *_ret = 0;
+                          FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
+  vm->reg[0] = 0UL;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L84 */
 
@@ -499,10 +488,9 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
                           /**/            ulong   c,
                           /**/            ulong   sz,
                           FD_PARAM_UNUSED ulong   r4,
-                          FD_PARAM_UNUSED ulong   r5,
-                          /**/            ulong * _ret ) {
+                          FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
-  *_ret = 0;
+  vm->reg[0] = 0UL;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L142 */
 
