@@ -141,6 +141,7 @@ dasm_trap_oom( char const * msg ) {
 #include "../fd_vm_private.h"
 #include "../syscall/fd_vm_syscall.h"
 #include "../../../ballet/murmur3/fd_murmur3.h"
+#include "fd_transpile_idiv.h"
 
 |.arch x64
 |.actionlist actions
@@ -693,6 +694,117 @@ emit_const64( fd_transpiler_t * Dst,
     | mov Rq(reg), (int)(uint)value
   } else {
     | mov64 Rq(reg), value
+  }
+}
+
+/* emit_udiv32_imm: reg = (uint)reg / d (or % d if is_mod), zero
+   extended to 64 bits.  d must be non-zero.  Clobbers rdi, r15. */
+
+static void
+emit_udiv32_imm( fd_transpiler_t * Dst,
+                 uchar             reg,
+                 uint              d,
+                 int               is_mod ) {
+  if( fd_uint_is_pow2( d ) ) {
+    int s = fd_uint_find_msb( d );
+    if( is_mod ) {
+      | and Rd(reg), d-1U
+    } else if( s==0 ) {
+      | mov Rd(reg), Rd(reg)
+    } else {
+      | shr Rd(reg), s
+    }
+    return;
+  }
+
+  int   k;
+  ulong m = fd_transpile_udiv32_magic( d, &k );
+  | mov edi, Rd(reg)
+  if( m<=(ulong)UINT_MAX ) {
+    /* q = (n*m)>>k, n*m < 2^64 */
+    | mov r15d, (uint)m
+    | imul rdi, r15
+    | shr rdi, k
+  } else {
+    /* m = 2^32+m', (n*m)>>32 = n + ((n*m')>>32) < 2^33 */
+    | mov r15d, (uint)m
+    | imul r15, rdi
+    | shr r15, 32
+    | add rdi, r15
+    | shr rdi, k-32
+  }
+  if( is_mod ) {
+    | imul edi, edi, d
+    | sub Rd(reg), edi
+  } else {
+    | mov Rd(reg), edi
+  }
+}
+
+/* emit_udiv64_imm: reg = reg / d (or % d if is_mod).  d is the sign
+   extended imm32, and must be non-zero.  Clobbers rdi, r15. */
+
+static void
+emit_udiv64_imm( fd_transpiler_t * Dst,
+                 uchar             reg,
+                 uint              imm,
+                 int               is_mod ) {
+  ulong d = (ulong)(long)(int)imm;
+
+  if( (long)d<0L ) {
+    /* d>=2^63, so q = n>=d */
+    | mov r15, (int)imm
+    if( is_mod ) {
+      | xor edi, edi
+      | cmp Rq(reg), r15
+      | cmovae rdi, r15
+      | sub Rq(reg), rdi
+    } else {
+      | cmp Rq(reg), r15
+      | sbb rdi, rdi
+      | inc rdi
+      | mov Rq(reg), rdi
+    }
+    return;
+  }
+
+  if( fd_ulong_is_pow2( d ) ) {
+    int s = fd_ulong_find_msb( d );
+    if( is_mod ) {
+      | and Rq(reg), (int)(d-1UL)
+    } else if( s ) {
+      | shr Rq(reg), s
+    }
+    return;
+  }
+
+  int     k;
+  uint128 m = fd_transpile_udiv64_magic( d, &k );
+  /* mulx takes n in rdx */
+  if( reg!=2U ) {
+    | mov r15, rdx
+    | mov rdx, Rq(reg)
+  }
+  emit_const64( Dst, 7U, (ulong)m );
+  | mulx rdi, rdi, rdi
+  if( reg!=2U ) {
+    | mov rdx, r15
+  }
+  if( m>>64 ) {
+    /* m = 2^64+m', (n*m)>>64 = n + ((n*m')>>64) < 2^65 */
+    | add rdi, Rq(reg)
+    | rcr rdi, 1
+    if( k>65 ) {
+      | shr rdi, k-65
+    }
+  } else if( k>64 ) {
+    | shr rdi, k-64
+  }
+  if( is_mod ) {
+    | imul rdi, rdi, (int)imm
+    | sub Rq(reg), rdi
+  } else {
+    | mov Rq(reg), rdi
   }
 }
 
@@ -1267,53 +1379,11 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
       | imul Rq(x86_dst), Rq(x86_src)
       break;
     case 0x34: /* DIV32_IMM */
-      if( dst!=0UL ) {
-        | mov [rsp+0], rax
-      }
-      if( dst!=2UL ) {
-        | mov [rsp+8], rdx
-      }
-      | mov eax, Rd(x86_dst)
-      | xor edx, edx
-      | mov edi, imm
-      | div edi
-      if( dst==2UL ) {
-        | mov edx, eax
-      } else if( dst!=0UL ) {
-        | mov Rd(x86_dst), eax
-      }
-      if( dst!=0UL ) {
-        | mov rax, [rsp+0]
-      }
-      if( dst!=2UL ) {
-        | mov rdx, [rsp+8]
-      }
+      emit_udiv32_imm( Dst, x86_dst, imm, 0 );
       break;
-    case 0x37: { /* DIV64_IMM */
-      ulong imm64 = (ulong)(long)(int)imm;
-      if( dst!=0UL ) {
-        | mov [rsp+0], rax
-      }
-      if( dst!=2UL ) {
-        | mov [rsp+8], rdx
-      }
-      | mov rax, Rq(x86_dst)
-      | xor edx, edx
-      emit_const64( Dst, 7U, imm64 );
-      | div rdi
-      if( dst==2UL ) {
-        | mov rdx, rax
-      } else if( dst!=0UL ) {
-        | mov Rq(x86_dst), rax
-      }
-      if( dst!=0UL ) {
-        | mov rax, [rsp+0]
-      }
-      if( dst!=2UL ) {
-        | mov rdx, [rsp+8]
-      }
+    case 0x37: /* DIV64_IMM */
+      emit_udiv64_imm( Dst, x86_dst, imm, 0 );
       break;
-    }
     case 0x3c: /* DIV32_REG */
       | mov edi, Rd(x86_src)
       | test edi, edi
@@ -1424,31 +1494,9 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
     case 0x87: /* NEG64 */
       | neg Rq(x86_dst)
       break;
-    case 0x97: { /* MOD64_IMM */
-      ulong imm64 = (ulong)(long)(int)imm;
-      if( dst!=0UL ) {
-        | mov [rsp+0], rax
-      }
-      if( dst!=2UL ) {
-        | mov [rsp+8], rdx
-      }
-      | mov rax, Rq(x86_dst)
-      | xor edx, edx
-      emit_const64( Dst, 7U, imm64 );
-      | div rdi
-      if( dst==0UL ) {
-        | mov rax, rdx
-      } else if( dst!=2UL ) {
-        | mov Rq(x86_dst), rdx
-      }
-      if( dst!=0UL ) {
-        | mov rax, [rsp+0]
-      }
-      if( dst!=2UL ) {
-        | mov rdx, [rsp+8]
-      }
+    case 0x97: /* MOD64_IMM */
+      emit_udiv64_imm( Dst, x86_dst, imm, 1 );
       break;
-    }
     case 0x9f: /* MOD64_REG */
       | mov rdi, Rq(x86_src)
       | test rdi, rdi
@@ -1478,27 +1526,7 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
       }
       break;
     case 0x94: /* MOD32_IMM */
-      if( dst!=0UL ) {
-        | mov [rsp+0], rax
-      }
-      if( dst!=2UL ) {
-        | mov [rsp+8], rdx
-      }
-      | mov eax, Rd(x86_dst)
-      | xor edx, edx
-      | mov edi, imm
-      | div edi
-      if( dst==0UL ) {
-        | mov eax, edx
-      } else if( dst!=2UL ) {
-        | mov Rd(x86_dst), edx
-      }
-      if( dst!=0UL ) {
-        | mov rax, [rsp+0]
-      }
-      if( dst!=2UL ) {
-        | mov rdx, [rsp+8]
-      }
+      emit_udiv32_imm( Dst, x86_dst, imm, 1 );
       break;
     case 0x9c: /* MOD32_REG */
       | mov edi, Rd(x86_src)
