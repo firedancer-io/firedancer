@@ -745,6 +745,16 @@ ag_votor_poll_cert_event( ag_votor_t *      self,
 }
 
 FD_FN_PURE ulong
+ag_votor_slot_state_used( ag_votor_t const * self ) {
+  return slot_state_pool_used( self->slot_states->pool );
+}
+
+FD_FN_PURE ulong
+ag_votor_slot_state_max( ag_votor_t const * self ) {
+  return self->slot_max;
+}
+
+FD_FN_PURE ulong
 ag_votor_finalized_slot( ag_votor_t const * self ) {
   return self->highest_final_cert_slot;
 }

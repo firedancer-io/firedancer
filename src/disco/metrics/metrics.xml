@@ -2117,6 +2117,12 @@ EXAMPLES
     <counter name="CertRx"     enum="CertRxResult"     summary="Result of processing an inbound cert (per cert)" />
     <counter name="FooterCert" enum="FooterCertResult" summary="Result of processing a finalization cert from a replayed block footer (per cert)" />
 
+    <gauge name="SlotStateUsed"     summary="Number of slots tracked by the voting state machine" />
+    <gauge name="SlotStateMax"      summary="Capacity of the voting state machine's slot table" />
+    <gauge name="PoolSlotStateUsed" summary="Number of slots tracked by the vote and cert pool" />
+    <gauge name="FinalizedSlot"     summary="Highest slot with a finalization cert, or 0 if none" />
+    <gauge name="Ranked"            summary="1 if this validator is ranked (staked) in the current epoch, else 0" />
+    <gauge name="PeersConnected"    summary="Number of peers with an active outbound connection" />
 </tile>
 
 <tile name="gui">

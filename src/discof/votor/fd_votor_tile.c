@@ -165,6 +165,7 @@ struct fd_votor_tile {
   ulong                      next_leader_slot;
   ulong                      highest_parent_ready_slot;
   ulong                      highest_unotar_final_slot; /* highest slot for which we have a final cert that we have not paired with a notar  */
+  int                        curr_ranked;               /* our identity is ranked (staked) in the current epoch */
 
   /* Alpenglow data structures */
 
@@ -694,10 +695,14 @@ handle_epoch( fd_votor_tile_t *           ctx,
   /* unmark all ranked in curr epoch */
 
   ushort own_rank = USHORT_MAX; /* our own rank in the new epoch */
+  ctx->curr_ranked = 0;
   for( ulong rank=0UL; rank<ctx->curr_epoch_info->validator_cnt; rank++ ) {
     fd_pubkey_t id_key;
     memcpy( id_key.uc, ctx->curr_epoch_info->validators[ rank ].id_key, sizeof(ag_id_key_t) );
-    if( FD_UNLIKELY( ctx->curr_epoch_info==epoch_info && fd_pubkey_eq( &id_key, &ctx->id_key ) ) ) own_rank = (ushort)rank;
+    if( FD_UNLIKELY( fd_pubkey_eq( &id_key, &ctx->id_key ) ) ) {
+      ctx->curr_ranked = 1;
+      if( ctx->curr_epoch_info==epoch_info ) own_rank = (ushort)rank;
+    }
 
     peer_t * peer = peers_query( ctx->peers, id_key, NULL );
     if( FD_UNLIKELY( !peer ) ) {
@@ -1279,6 +1284,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_unotar_final_slot = ULONG_MAX;
+  ctx->curr_ranked               = 0;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -1411,6 +1417,21 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( VOTOR, VOTE_RX,     ctx->metrics.vote_rx     );
   FD_MCNT_ENUM_COPY( VOTOR, CERT_RX,     ctx->metrics.cert_rx     );
   FD_MCNT_ENUM_COPY( VOTOR, FOOTER_CERT, ctx->metrics.footer_cert );
+
+  ulong finalized_slot = ag_votor_finalized_slot( ctx->votor );
+  FD_MGAUGE_SET( VOTOR, SLOT_STATE_USED,      ag_votor_slot_state_used( ctx->votor ) );
+  FD_MGAUGE_SET( VOTOR, SLOT_STATE_MAX,       ag_votor_slot_state_max ( ctx->votor ) );
+  FD_MGAUGE_SET( VOTOR, POOL_SLOT_STATE_USED, ag_pool_slot_state_used ( ctx->pool  ) );
+  FD_MGAUGE_SET( VOTOR, FINALIZED_SLOT,       fd_ulong_if( finalized_slot!=ULONG_MAX, finalized_slot, 0UL ) );
+
+  FD_MGAUGE_SET( VOTOR, RANKED, (ulong)ctx->curr_ranked );
+
+  ulong peers_connected = 0UL;
+  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    peer_t const * peer = &ctx->peers[ slot ];
+    peers_connected += !peers_key_inval( peer->id_key ) && peer->tx_conn && peer->tx_conn->state==FD_QUIC_CONN_STATE_ACTIVE;
+  }
+  FD_MGAUGE_SET( VOTOR, PEERS_CONNECTED, peers_connected );
 }
 
 #define STEM_BURST FD_VOTOR_OUT_BURST /* votor_out only; EXCLUDES VOTOR_NET (has no reliable consumers) */

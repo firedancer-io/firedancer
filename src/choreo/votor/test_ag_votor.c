@@ -420,7 +420,7 @@ test_no_finalization_bounded( void ) {
     ag_event_replay_t replay = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = slot, .block_info = { .parent = random_block_id( slot-1UL ) } };
     random_hash( replay.block_info.hash );
     ag_votor_handle_replay_event( votor, &replay );
-    FD_TEST( slot_state_pool_free( votor->slot_states->pool ) );
+    FD_TEST( ag_votor_slot_state_used( votor )<ag_votor_slot_state_max( votor ) );
   }
   FD_TEST( votor->slot_states_full );
   FD_TEST( !contains_slot( votor, far-1UL ) );

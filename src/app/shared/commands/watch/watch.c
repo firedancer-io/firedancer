@@ -1276,6 +1276,10 @@ write_replay( config_t const * config,
   else FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "never" ) );
 
   ulong root_distance = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_DISTANCE ) ];
+  if( fd_topo_find_tile( &config->topo, "votor", 0UL )!=ULONG_MAX ) {
+    ulong root_slot = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_SLOT ) ];
+    root_distance = fd_ulong_sat_sub( reset_slot, root_slot );
+  }
   ulong live_banks    = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, BANK_LIVE     ) ];
 
   ulong sps_sum = 0UL;
@@ -1311,6 +1315,50 @@ write_replay( config_t const * config,
     next_leader_slot_str,
     root_distance,
     live_banks );
+  return 1U;
+}
+
+#define VOTOR_RATE( metric ) (__extension__({                                           \
+    ulong cnt = diff_tile( config, "votor", prev_tile, cur_tile, MIDX( COUNTER, VOTOR, metric ) ); \
+    COUNTF( (double)cnt*1e9/(double)SNAP_DT_NS() );                                     \
+  }))
+
+static uint
+write_votor( config_t const * config,
+             ulong const *    cur_tile,
+             ulong const *    prev_tile ) {
+  ulong votor_tile_idx = fd_topo_find_tile( &config->topo, "votor", 0UL );
+  if( votor_tile_idx==ULONG_MAX ) return 0U;
+  ulong const * t = &cur_tile[ votor_tile_idx*FD_METRICS_TOTAL_SZ ];
+
+  ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
+  ulong reset_slot      = replay_tile_idx!=ULONG_MAX ? cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, RESET_SLOT ) ] : 0UL;
+
+  ulong  finalized_slot = t[ MIDX( GAUGE, VOTOR, FINALIZED_SLOT       ) ];
+  ulong  slots_used     = t[ MIDX( GAUGE, VOTOR, SLOT_STATE_USED      ) ];
+  ulong  slots_max      = t[ MIDX( GAUGE, VOTOR, SLOT_STATE_MAX       ) ];
+  ulong  peers          = t[ MIDX( GAUGE, VOTOR, PEERS_CONNECTED      ) ];
+  int    ranked         = !!t[ MIDX( GAUGE, VOTOR, RANKED             ) ];
+  double slots_pct      = slots_max ? 100.0*(double)slots_used/(double)slots_max : 0.0;
+  long   final_lag      = (long)finalized_slot-(long)reset_slot;
+
+  PRINT( ROWH( "◇", CYAN, "votor       " )
+         K( "final" ) BOLD "%lu" RESET " %s%+03ld" RESET
+         K( "slots" ) "%s%4.1f" U( "%%" ) RESET " " U( "%lu/%lu" )
+         K( "votes" ) "%s" U( "/s" )
+         K( "certs" ) "%s" U( "/s" )
+         K( "footer" ) "%s" U( "/s" )
+         K( "peers" ) "%lu",
+    finalized_slot,
+    final_lag<-32L ? RED : DIM,
+    final_lag,
+    sev_color( slots_pct ), slots_pct, slots_used, slots_max,
+    VOTOR_RATE( VOTE_RX_SUCCESS ),
+    VOTOR_RATE( CERT_RX_SUCCESS ),
+    VOTOR_RATE( FOOTER_CERT_SUCCESS ),
+    peers );
+  if( FD_UNLIKELY( !ranked ) ) PRINT( "  " YELLOW "unstaked" RESET );
+  PRINT( CLEARLN "\n" );
   return 1U;
 }
 
@@ -1726,6 +1774,7 @@ write_summary( config_t const *           config,
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_rserve( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
+  lines_printed += write_votor( config, cur_tile, prev_tile );
   lines_printed += write_gui( config, cur_tile, prev_tile );
   lines_printed += write_event( config, cur_tile );
   lines_printed += write_backup( config, cur_tile );

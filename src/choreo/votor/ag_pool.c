@@ -691,3 +691,8 @@ ag_pool_poll_repair_event( ag_pool_t *         self,
   *event = repair_events_pop( self->repair_events );
   return 1;
 }
+
+FD_FN_PURE ulong
+ag_pool_slot_state_used( ag_pool_t const * self ) {
+  return slot_state_pool_used( self->slot_states->pool );
+}

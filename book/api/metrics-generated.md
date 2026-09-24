@@ -2337,5 +2337,11 @@
 | <span class="metrics-name">votor_&#8203;footer_&#8203;cert</span><br/>{footer_&#8203;cert_&#8203;result="<span class="metrics-enum">slot_&#8203;out_&#8203;of_&#8203;bounds</span>"} | counter | Result of processing a finalization cert from a replayed block footer (per cert) (Cert slot was either too old or too far in the future) |
 | <span class="metrics-name">votor_&#8203;footer_&#8203;cert</span><br/>{footer_&#8203;cert_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Result of processing a finalization cert from a replayed block footer (per cert) (Cert was already in the pool) |
 | <span class="metrics-name">votor_&#8203;footer_&#8203;cert</span><br/>{footer_&#8203;cert_&#8203;result="<span class="metrics-enum">failed_&#8203;verify</span>"} | counter | Result of processing a finalization cert from a replayed block footer (per cert) (Cert failed the stake threshold or the aggregate signature check) |
+| <span class="metrics-name">votor_&#8203;slot_&#8203;state_&#8203;used</span> | gauge | Number of slots tracked by the voting state machine |
+| <span class="metrics-name">votor_&#8203;slot_&#8203;state_&#8203;max</span> | gauge | Capacity of the voting state machine's slot table |
+| <span class="metrics-name">votor_&#8203;pool_&#8203;slot_&#8203;state_&#8203;used</span> | gauge | Number of slots tracked by the vote and cert pool |
+| <span class="metrics-name">votor_&#8203;finalized_&#8203;slot</span> | gauge | Highest slot with a finalization cert, or 0 if none |
+| <span class="metrics-name">votor_&#8203;ranked</span> | gauge | 1 if this validator is ranked (staked) in the current epoch, else 0 |
+| <span class="metrics-name">votor_&#8203;peers_&#8203;connected</span> | gauge | Number of peers with an active outbound connection |
 
 </div>

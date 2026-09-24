@@ -95,6 +95,9 @@ ag_pool_finalized_slot( ag_pool_t const * self );
 FD_FN_PURE uchar const *
 ag_pool_finalized_block_hash( ag_pool_t const * self );
 
+FD_FN_PURE ulong
+ag_pool_slot_state_used( ag_pool_t const * self );
+
 /* Definition 15. Pool::parents_ready */
 
 ag_block_id_t const *
