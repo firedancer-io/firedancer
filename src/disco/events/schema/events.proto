@@ -457,8 +457,8 @@ message RuntimeTxnAccountDiffs {
   bool is_new_vote = 11;
   // True if this write removed a vote account
   bool is_rm_vote = 12;
-  // Raw 2048-byte account LtHash captured during commit without rehashing. Empty if no committed contribution was captured, including cancelled transactions and bundle non-owners. Deletion is 2048 zero bytes. For bundles, the final writable owner carries the final shared account state. Excludes later non-transaction updates.
-  bytes account_lthash = 13;
+  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Zero if the account does not exist after the txn, or if this txn did not commit it: a bundle txn that is not the account's final writer, or a txn that was not committed
+  bytes lthash = 13;
 }
 
 // Timestamps for one transaction. A zero timestamp means the stage did not occur on this path, was never reached, or its stamp was unavailable.
@@ -641,6 +641,8 @@ message RuntimeBlockOtherDiffs {
   uint64 prev_data_sz = 7;
   // True if the post-state account is executable
   bool is_executable = 8;
+  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents written without shipping the data. Zero if the account does not exist after the write
+  bytes lthash = 9;
 }
 
 // Post-state of an updated sysvar account
@@ -661,6 +663,8 @@ message RuntimeBlockSysvarDiffs {
   uint64 prev_data_sz = 7;
   // True if the post-state account is executable
   bool is_executable = 8;
+  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact sysvar contents written without shipping the data. Zero if the account does not exist after the write
+  bytes lthash = 9;
 }
 
 // RecentBlockhashes sysvar entry

@@ -123,17 +123,10 @@ fd_event_exec_err_kind_from_exec_err_kind( int kind ) {
    it on the calling tile's event link.  No-op when the tile has no
    event link. */
 
-struct fd_event_runtime_txn_lthashes {
-  fd_lthash_value_t hash[ MAX_TX_ACCOUNT_LOCKS ];
-  uchar valid[ MAX_TX_ACCOUNT_LOCKS ];
-};
-typedef struct fd_event_runtime_txn_lthashes fd_event_runtime_txn_lthashes_t;
-
 void
 fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
                            fd_txn_out_t const * txn_out,
-                           fd_bank_t    const * bank,
-                           fd_event_runtime_txn_lthashes_t const * lthashes );
+                           fd_bank_t    const * bank );
 
 /* Build a runtime_stake_delegation event for the cache mutation the
    caller just applied (stake_state is the upserted entry's parsed
@@ -272,18 +265,21 @@ fd_event_runtime_stake_delegation_payout_emit( fd_bank_t const * bank,
                                                ulong             deactivation_epoch,
                                                ulong             credits_observed );
 
-/* Record a block-level account diff in the bank. */
+/* Record a block-level account diff in the bank.  lthash_post is the
+   account's lthash after the write (as folded into the bank lthash);
+   its checksum is what the event carries. */
 
 void
-fd_event_runtime_block_account( fd_bank_t *   bank,
-                                uchar const * pubkey,
-                                uchar const * prev_owner,
-                                uchar const * owner,
-                                ulong         prev_lamports,
-                                ulong         lamports,
-                                ulong         prev_data_sz,
-                                ulong         data_sz,
-                                int           executable );
+fd_event_runtime_block_account( fd_bank_t *               bank,
+                                uchar const *             pubkey,
+                                uchar const *             prev_owner,
+                                uchar const *             owner,
+                                ulong                     prev_lamports,
+                                ulong                     lamports,
+                                ulong                     prev_data_sz,
+                                ulong                     data_sz,
+                                int                       executable,
+                                fd_lthash_value_t const * lthash_post );
 
 /* Build a runtime_reward event and publish it on the calling tile's
    event link. No-op when the tile has no event link. */

@@ -280,8 +280,7 @@ def field_is_supported(f: Field) -> bool:
     if f.chtype in (ClickHouseType.String, ClickHouseType.Bytes):
         return f.max_len is not None
     if f.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
-        return all((sf.chtype not in _SUB_UNSUPPORTED or
-                    (sf.chtype == ClickHouseType.Bytes and sf.max_len is not None)) and sf.variants is None
+        return all(sf.chtype not in _SUB_UNSUPPORTED and sf.variants is None
                    for sf in f.fields.values())
     if f.chtype == ClickHouseType.Array:
         if f.max_len is None:
@@ -367,10 +366,6 @@ def gen_tuple_struct( schema_name: str, field_name: str, flds: Dict[str, Field],
     tn = c_tuple_name( schema_name, field_name )
     members = []
     for sn, sf in flds.items():
-        if sf.chtype == ClickHouseType.Bytes:
-            members.append(("uchar", f"{sn}[ {sf.max_len}UL ]", sf.description))
-            members.append(("ulong", f"{sn}_len", "Byte count"))
-            continue
         if sf.variants:
             ctype, decl = "int", sn
         elif sf.chtype in _FIXED_BYTE_SZ:
@@ -646,9 +641,7 @@ def encode_tuple( f: Field, field_id: int, acc: str, ind: str ) -> List[str]:
     accessor for the tuple struct (e.g. 'msg->x' or 'msg->arr[ k ]')."""
     out = [f"{ind}ok &= !!fd_pb_submsg_open( encoder, {field_id}U );"]
     for j, (sn, sf) in enumerate(f.fields.items(), 1):
-        if sf.chtype == ClickHouseType.Bytes:
-            out += [f"{ind}FD_TEST( {acc}.{sn}_len<={sf.max_len}UL );"]
-        out += encode_field( sf, j, sn, f"{acc}.{sn}", ind )
+        out += encode_scalar( sf, j, f"{acc}.{sn}", ind, omit_default=True )
     out += [f"{ind}ok &= !!fd_pb_submsg_close( encoder );"]
     return out
 
@@ -832,7 +825,7 @@ def fill_field( f: Field, acc: str, ind: str ) -> List[str]:
     if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
         out = []
         for sn, sf in f.fields.items():
-            out += fill_field( sf, f"{acc}.{sn}", ind )
+            out += fill_scalar( sf, f"{acc}.{sn}", ind )
         return out
     if f.chtype == ClickHouseType.Array:
         el  = f.element
@@ -840,7 +833,7 @@ def fill_field( f: Field, acc: str, ind: str ) -> List[str]:
                f"{ind}for( ulong k=0UL; k<{f.max_len}UL; k++ ) {{"]
         if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
             for sn, sf in el.fields.items():
-                out += fill_field( sf, f"{acc}[ k ].{sn}", ind + "  " )
+                out += fill_scalar( sf, f"{acc}[ k ].{sn}", ind + "  " )
         else:
             out += fill_scalar( el, f"{acc}[ k ]", ind + "  " )
         out += [f"{ind}}}"]
