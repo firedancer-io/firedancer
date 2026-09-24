@@ -900,6 +900,72 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static void
+publish_certed( fd_votor_tile_t *         ctx,
+                fd_stem_context_t *       stem,
+                fd_votor_certed_t const * certed ) {
+  fd_votor_msg_t * msg = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+  msg->certed = *certed;
+  fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+}
+
+/* handle_pool_event passes the pool event in ctx->scratch.pool_event to
+   votor and notifies other tiles of new certs. */
+
+static void
+handle_pool_event( fd_votor_tile_t *   ctx,
+                   fd_stem_context_t * stem,
+                   long                now ) {
+  ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
+  if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_PARENT_READY ) ) ctx->highest_parent_ready_slot = fd_ulong_max( ctx->highest_parent_ready_slot, ctx->scratch.pool_event.parent_ready.slot );
+
+  /* Notify other tiles that we have a cert indicating this slot has
+     reached a new state.
+
+     TODO also publish contiguous implicitly finalized and ensure no
+     missed final certs? */
+
+  ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
+  if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_CERT_CREATED ) ) {
+    ulong                   slot  = ag_cert_slot( cert );
+    ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, slot );
+    fd_votor_certed_t       certed[1];
+    switch( cert->kind ) {
+    case AG_CERT_KIND_FINAL:
+      if( FD_LIKELY( state && state->certs.notar.slot != ULONG_MAX ) ) {
+        *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, state->certs.notar.block_hash ), .agg = state->certs.finalize.agg, .agg2 = state->certs.notar.agg };
+        publish_certed( ctx, stem, certed );
+      } else {
+        ctx->highest_unotar_final_slot = slot;
+      }
+      break;
+    case AG_CERT_KIND_FAST_FINAL:
+      *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->fast_final.block_hash ), .agg = cert->fast_final.agg };
+      publish_certed( ctx, stem, certed );
+      break;
+    case AG_CERT_KIND_NOTAR:
+      *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->notar.block_hash ), .agg = cert->notar.agg };
+      publish_certed( ctx, stem, certed );
+      if( FD_UNLIKELY( ctx->highest_unotar_final_slot==slot && state && state->certs.finalize.slot != ULONG_MAX ) ) {
+        *certed = (fd_votor_certed_t){ .kind = AG_CERT_KIND_FINAL, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->notar.block_hash ), .agg = state->certs.finalize.agg, .agg2 = cert->notar.agg };
+        publish_certed( ctx, stem, certed );
+      }
+      break;
+    case AG_CERT_KIND_NOTAR_FALLBACK:
+      *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->notar_fallback.block_hash ), .agg = cert->notar_fallback.agg_notar, .agg2 = cert->notar_fallback.agg_notar_fallback };
+      publish_certed( ctx, stem, certed );
+      break;
+    case AG_CERT_KIND_SKIP:
+      *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .agg = cert->skip.agg_skip, .agg2 = cert->skip.agg_skip_fallback };
+      publish_certed( ctx, stem, certed );
+      break;
+    default:
+      FD_LOG_CRIT(( "unreachable" ));
+    }
+  }
+}
+
 static inline void
 after_credit( fd_votor_tile_t *   ctx,
               fd_stem_context_t * stem,
@@ -915,54 +981,7 @@ after_credit( fd_votor_tile_t *   ctx,
   if( FD_UNLIKELY( !ctx->init ) ) return;
 
   if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
-    ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
-    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_PARENT_READY ) ) ctx->highest_parent_ready_slot = fd_ulong_max( ctx->highest_parent_ready_slot, ctx->scratch.pool_event.parent_ready.slot );
-
-    /* Notify other tiles that we have a cert indicating this slot has
-       reached a new state.
-
-       TODO also publish contiguous implicitly finalized and ensure no
-       missed final certs? */
-
-    ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
-    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_CERT_CREATED ) ) {
-      ulong                   slot  = ag_cert_slot( cert );
-      ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, slot );
-      fd_votor_msg_t *        chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
-      fd_votor_certed_t *     certed = &chunk->certed;
-      switch( cert->kind ) {
-      case AG_CERT_KIND_FINAL:
-        if( FD_LIKELY( state && state->certs.notar.slot != ULONG_MAX ) ) {
-          *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, state->certs.notar.block_hash ), .agg = state->certs.finalize.agg, .agg2 = state->certs.notar.agg };
-          fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-        } else {
-          ctx->highest_unotar_final_slot = slot;
-        }
-        break;
-      case AG_CERT_KIND_FAST_FINAL:
-        *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->fast_final.block_hash ), .agg = cert->fast_final.agg };
-        fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-        break;
-      case AG_CERT_KIND_NOTAR:
-        *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->notar.block_hash ), .agg = cert->notar.agg };
-        fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-        if( FD_UNLIKELY( ctx->highest_unotar_final_slot==slot && state && state->certs.finalize.slot != ULONG_MAX ) ) {
-          *certed = (fd_votor_certed_t){ .kind = AG_CERT_KIND_FINAL, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->notar.block_hash ), .agg = cert->notar.agg };
-          fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-        }
-        break;
-      case AG_CERT_KIND_NOTAR_FALLBACK:
-        *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->notar_fallback.block_hash ), .agg = cert->notar_fallback.agg_notar, .agg2 = cert->notar_fallback.agg_notar_fallback };
-        fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-        break;
-      case AG_CERT_KIND_SKIP:
-        *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .agg = cert->skip.agg_skip, .agg2 = cert->skip.agg_skip_fallback };
-        fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-        break;
-      default:
-        FD_LOG_CRIT(( "unreachable" ));
-      }
-    }
+    handle_pool_event( ctx, stem, now );
     *charge_busy = 1;
   }
 
