@@ -21,6 +21,7 @@ block_hash( ag_vote_t const * self ) {
   switch( self->kind ) {
   case AG_VOTE_KIND_NOTAR:          return self->notar.block_hash;
   case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.block_hash;
+  case AG_VOTE_KIND_GENESIS:        return self->genesis.block_hash;
   default:                          return NULL;
   }
 }
@@ -57,6 +58,13 @@ test_basic( void ) {
   FD_TEST( v.kind==AG_VOTE_KIND_FINAL );
   FD_TEST( block_hash( &v )==NULL );
   FD_TEST( ag_vote_slot( &v )==4UL );
+
+  v = ag_vote_construct_genesis( sec_sign_fn, &sk, 5UL, h, 0UL, TEST_SHRED_VERSION );
+  { char cstr[ AG_VOTE_CSTR_MAX ]; FD_TEST( !strncmp( ag_vote_to_cstr( &v, cstr ), "Genesis { slot: 5, hash: 000000...", 34UL ) ); FD_LOG_NOTICE(( "%s", cstr )); }
+  FD_TEST( v.kind==AG_VOTE_KIND_GENESIS );
+  FD_TEST( ag_vote_slot( &v )==5UL );
+  FD_TEST( ag_vote_rank( &v )==0UL );
+  FD_TEST( !memcmp( v.genesis.block_hash, h, sizeof(ag_block_hash_t) ) );
 }
 
 static void
@@ -76,6 +84,10 @@ test_payload_distinct( void ) {
   FD_TEST( a[0]==(uchar)(AG_VOTE_KIND_NOTAR+1U) );
   FD_TEST( b[0]==(uchar)(AG_VOTE_KIND_SKIP+1U)  );
   FD_TEST( FD_LOAD( ushort, a+sn-2UL )==TEST_SHRED_VERSION );
+
+  ulong sg = ag_vote_signing_ser( AG_VOTE_KIND_GENESIS, 7UL, h, TEST_SHRED_VERSION, a );
+  FD_TEST( sg==1UL+8UL+sizeof(ag_block_hash_t)+2UL );
+  FD_TEST( a[0]==(uchar)(AG_VOTE_KIND_GENESIS+1U) );
 
   ulong s0 = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, 7UL, NULL, TEST_SHRED_VERSION, a );
   ulong s1 = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, 8UL, NULL, TEST_SHRED_VERSION, b );
@@ -140,6 +152,7 @@ test_serialize( void ) {
   v = ag_vote_construct_skip( sec_sign_fn, &sk, 42UL, 3UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
   v = ag_vote_construct_notar_fallback( sec_sign_fn, &sk, 99UL, h, 65535UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
   v = ag_vote_construct_skip_fallback( sec_sign_fn, &sk, 42UL, 3UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
+  v = ag_vote_construct_genesis( sec_sign_fn, &sk, 8888UL, h, 4UL, TEST_SHRED_VERSION ); check_wire( &v, &pk );
 
   FD_LOG_NOTICE(( "vote serialize round trip pass" ));
 }

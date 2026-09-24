@@ -488,7 +488,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
        updated in the blockhash queue. */
     runner->bank->f.poh = *poh;
     /* Finalize the block */
-    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx, NULL, (ushort)0 );
+    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx, NULL, NULL, (ushort)0 );
 
     return !has_err;
   } FD_SPAD_FRAME_END;

@@ -17,12 +17,14 @@ FD_STATIC_ASSERT( AG_BLS_DE_ERR_INVAL==AG_CERT_DE_ERR_INVAL, ag_cert_serde );
 #define AG_CERT_SERDE_TAG_NOTAR          ( 9)  /* WireConsensusMessageKind::NotarCert          #[wincode(tag = 9)]  */
 #define AG_CERT_SERDE_TAG_NOTAR_FALLBACK (10)  /* WireConsensusMessageKind::NotarFallbackCert  #[wincode(tag = 10)] */
 #define AG_CERT_SERDE_TAG_SKIP           (11)  /* WireConsensusMessageKind::SkipCert           #[wincode(tag = 11)] */
+#define AG_CERT_SERDE_TAG_GENESIS        (12)  /* WireConsensusMessageKind::GenesisCert        #[wincode(tag = 12)] */
 
 FD_STATIC_ASSERT( AG_CERT_KIND_FINAL         +7==AG_CERT_SERDE_TAG_FINAL,          ag_cert_serde );
 FD_STATIC_ASSERT( AG_CERT_KIND_FAST_FINAL    +7==AG_CERT_SERDE_TAG_FAST_FINAL,     ag_cert_serde );
 FD_STATIC_ASSERT( AG_CERT_KIND_NOTAR         +7==AG_CERT_SERDE_TAG_NOTAR,          ag_cert_serde );
 FD_STATIC_ASSERT( AG_CERT_KIND_NOTAR_FALLBACK+7==AG_CERT_SERDE_TAG_NOTAR_FALLBACK, ag_cert_serde );
 FD_STATIC_ASSERT( AG_CERT_KIND_SKIP          +7==AG_CERT_SERDE_TAG_SKIP,           ag_cert_serde );
+FD_STATIC_ASSERT( AG_CERT_KIND_GENESIS       +7==AG_CERT_SERDE_TAG_GENESIS,        ag_cert_serde );
 
 struct ag_cert_serde {
   uchar         version;       /* VersionedWireConsensusMessage::V1     (u8 tag)       */

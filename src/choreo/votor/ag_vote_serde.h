@@ -12,12 +12,14 @@
 #define AG_VOTE_SERDE_TAG_SKIP           (3)  /* WireConsensusMessageKind::SkipVote           #[wincode(tag = 3)] */
 #define AG_VOTE_SERDE_TAG_NOTAR_FALLBACK (4)  /* WireConsensusMessageKind::NotarFallbackVote  #[wincode(tag = 4)] */
 #define AG_VOTE_SERDE_TAG_SKIP_FALLBACK  (5)  /* WireConsensusMessageKind::SkipFallbackVote   #[wincode(tag = 5)] */
+#define AG_VOTE_SERDE_TAG_GENESIS        (6)  /* WireConsensusMessageKind::GenesisVote        #[wincode(tag = 6)] */
 
 FD_STATIC_ASSERT( AG_VOTE_KIND_NOTAR         +1==AG_VOTE_SERDE_TAG_NOTAR,          ag_vote_serde );
 FD_STATIC_ASSERT( AG_VOTE_KIND_FINAL         +1==AG_VOTE_SERDE_TAG_FINAL,          ag_vote_serde );
 FD_STATIC_ASSERT( AG_VOTE_KIND_SKIP          +1==AG_VOTE_SERDE_TAG_SKIP,           ag_vote_serde );
 FD_STATIC_ASSERT( AG_VOTE_KIND_NOTAR_FALLBACK+1==AG_VOTE_SERDE_TAG_NOTAR_FALLBACK, ag_vote_serde );
 FD_STATIC_ASSERT( AG_VOTE_KIND_SKIP_FALLBACK +1==AG_VOTE_SERDE_TAG_SKIP_FALLBACK,  ag_vote_serde );
+FD_STATIC_ASSERT( AG_VOTE_KIND_GENESIS       +1==AG_VOTE_SERDE_TAG_GENESIS,        ag_vote_serde );
 
 struct ag_vote_serde {
   uchar         version;       /* VersionedWireConsensusMessage::V1     (u8 tag)       */

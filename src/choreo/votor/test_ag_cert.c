@@ -20,6 +20,7 @@
 #define GOLDEN_NOTAR_FALLBACK_BASE2  "6dbfd83b14067e4ec0c6cb257ee8aae9f3b7ffee57160cb44ccf64a3e6c3a627"
 #define GOLDEN_SKIP_BASE3            "92679933efb335bb98f2291204ae095f393dccb5a0be3298c9b476caffe35f17"
 #define GOLDEN_SKIP_BASE2            "45a2ba2c905e70ead67bca511e10277188b1cb8855877beb79488ff637103d3b"
+#define GOLDEN_GENESIS               "ae8d5a8a1a35883d78de36f997366aaa3effe514a63ec2921707a1674c244dd4"
 
 #define MAXV 128UL
 
@@ -86,6 +87,14 @@ mk_sf( ag_vote_skip_fallback_t * o,
        ulong                     n ) {
   for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_skip_fallback( sec_sign_fn, &g_sk[lo+i], slot, (ushort)(lo+i), TEST_SHRED_VERSION ).skip_fallback;
 }
+static void
+mk_genesis( ag_vote_genesis_t *   o,
+            ulong                 slot,
+            ag_block_hash_t const h,
+            ulong                 lo,
+            ulong                 n ) {
+  for( ulong i=0UL; i<n; i++ ) o[i] = ag_vote_construct_genesis( sec_sign_fn, &g_sk[lo+i], slot, h, (ushort)(lo+i), TEST_SHRED_VERSION ).genesis;
+}
 
 static ulong
 cert_stake( ag_cert_t const * c ) {
@@ -94,6 +103,7 @@ cert_stake( ag_cert_t const * c ) {
   case AG_CERT_KIND_FAST_FINAL:     return c->fast_final.stake;
   case AG_CERT_KIND_NOTAR:          return c->notar.stake;
   case AG_CERT_KIND_NOTAR_FALLBACK: return c->notar_fallback.stake;
+  case AG_CERT_KIND_GENESIS:        return c->genesis.stake;
   default:                          return c->skip.stake;
   }
 }
@@ -105,6 +115,7 @@ cert_is_signer( ag_cert_t const * c,
   case AG_CERT_KIND_FINAL:      return fd_bls_set_test( c->final.agg.set,      v );
   case AG_CERT_KIND_FAST_FINAL: return fd_bls_set_test( c->fast_final.agg.set, v );
   case AG_CERT_KIND_NOTAR:      return fd_bls_set_test( c->notar.agg.set,      v );
+  case AG_CERT_KIND_GENESIS:    return fd_bls_set_test( c->genesis.agg.set,    v );
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_cert_notar_fallback_t const * n = &c->notar_fallback;
     return fd_bls_set_test( n->agg_notar.set, v ) || fd_bls_set_test( n->agg_notar_fallback.set, v );
@@ -146,6 +157,7 @@ test_create( void ) {
   ag_vote_notar_fallback_t fv[ 100 ];
   ag_vote_skip_t sv[ 100 ];
   ag_vote_final_t ev[ 100 ];
+  ag_vote_genesis_t gv[ 100 ];
   ag_cert_t c;
 
   mk_notar( nv, 0UL, h, 0UL, n );
@@ -170,6 +182,11 @@ test_create( void ) {
     c = cert_build_final( ev, n, e );
   check_full_cert( &c, n );
   FD_TEST( ag_cert_block_hash( &c )==NULL );
+
+  mk_genesis( gv, 0UL, h, 0UL, n );
+    c = cert_build_genesis( gv, n, e );
+  check_full_cert( &c, n );
+  FD_TEST( ag_cert_block_hash( &c ) && !memcmp( ag_cert_block_hash(&c), h, sizeof(ag_block_hash_t) ) );
 
   free( em );
 }
@@ -265,6 +282,16 @@ test_failure_cases( void ) {
   bad = c; bad.final.slot = slot+1UL; FD_TEST( !cert_verify( &bad, e ) );
   bad = c; bad.final.shred_version++; FD_TEST( !cert_verify( &bad, e ) );
 
+  /* genesis: slot mismatch, shred version mismatch, then block hash mismatch */
+  ag_vote_genesis_t gv [ 11 ];
+  mk_genesis( gv, slot, h, 0UL, 10UL );
+  c = cert_build_genesis( gv, 10UL, e );
+  FD_TEST( cert_verify( &c, e ) );
+  { static char cstr[ AG_CERT_CSTR_MAX ]; FD_TEST( !strncmp( ag_cert_to_cstr( &c, cstr ), "Genesis { slot: ", 16UL ) ); FD_LOG_NOTICE(( "%s", cstr )); }
+  bad = c; bad.genesis.slot = slot+1UL;   FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; bad.genesis.shred_version++;   FD_TEST( !cert_verify( &bad, e ) );
+  bad = c; memcpy( bad.genesis.block_hash, other, sizeof(ag_block_hash_t) ); FD_TEST( !cert_verify( &bad, e ) );
+
   free( em );
 }
 
@@ -319,6 +346,14 @@ test_thresholds( void ) {
   FD_TEST(  cert_verify( &c, e ) );
   mk_notar( nv, 1UL, h, 0UL, 8UL );
   c = cert_build_fast_final( nv, 8UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  ag_vote_genesis_t gv[ 11 ];
+  mk_genesis( gv, 1UL, h, 0UL, 10UL );
+  c = cert_build_genesis( gv, 10UL, e );
+  FD_TEST(  cert_verify( &c, e ) );
+  mk_genesis( gv, 1UL, h, 0UL, 9UL );
+  c = cert_build_genesis( gv, 9UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
   free( em );
@@ -386,6 +421,15 @@ test_sig_validity( void ) {
   FD_TEST( cert_verify( &c, e ) );
   nv[0] = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).notar;
   c = cert_build_fast_final( nv, 9UL, e );
+  FD_TEST( !cert_verify( &c, e ) );
+
+  /* genesis */
+  ag_vote_genesis_t gv[ 11 ];
+  mk_genesis( gv, slot, h, 0UL, 10UL );
+  c = cert_build_genesis( gv, 10UL, e );
+  FD_TEST( cert_verify( &c, e ) );
+  gv[0] = ag_vote_construct_genesis( sec_sign_fn, &g_sk[1], slot, h, 0, TEST_SHRED_VERSION ).genesis;
+  c = cert_build_genesis( gv, 10UL, e );
   FD_TEST( !cert_verify( &c, e ) );
 
   free( em );
@@ -634,6 +678,13 @@ test_wire_golden( void ) {
   check_cert_wire( "skip base2", &c, 11, slot, NULL, &c.skip.agg_skip, &c.skip.agg_skip_fallback,
                    0, 7, bm7, sizeof(bm7), 216UL, GOLDEN_SKIP_BASE2 );
 
+  ag_vote_genesis_t gv[ 11 ];
+  uchar const bm10 [2] = { 0xff, 0x03 };
+  mk_genesis( gv, slot, h, 0UL, 10UL );
+  c = cert_build_genesis( gv, 10UL, e );
+  check_cert_wire( "genesis", &c, 12, slot, h, &c.genesis.agg, NULL,
+                   0, 10, bm10, sizeof(bm10), 249UL, GOLDEN_GENESIS );
+
   free( em );
   FD_LOG_NOTICE(( "cert golden wire vectors pass" ));
 }
@@ -690,6 +741,15 @@ test_wire_verify( void ) {
   c = cert_build_notar( nv, 9UL, e );
   fd_bls_set_insert( c.notar.agg.set, n );
   FD_TEST( !cert_verify( &c, e ) );
+
+  /* genesis */
+  ag_vote_genesis_t gv[ 11 ];
+  mk_genesis( gv, slot, h, 0UL, 10UL );
+  c  = cert_build_genesis( gv, 10UL, e );
+  sz = ag_cert_ser( &c, buf );
+  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( cert_verify( &rt, e ) );
+  rt.genesis.slot = slot+1UL; FD_TEST( !cert_verify( &rt, e ) );
 
   free( em );
 }

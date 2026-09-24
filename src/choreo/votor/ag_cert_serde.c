@@ -35,6 +35,11 @@ ag_cert_ser( ag_cert_t const * self,
     agg  = &self->skip.agg_skip;
     agg2 = &self->skip.agg_skip_fallback;
     break;
+  case AG_CERT_KIND_GENESIS:
+    slot = self->genesis.slot;
+    agg  = &self->genesis.agg;
+    hash = self->genesis.block_hash;
+    break;
   default:
     FD_LOG_ERR(( "unimplemented" ));
   }
@@ -82,7 +87,7 @@ ag_cert_de( ag_cert_t *   self,
   fd_memset( self, 0, sizeof(ag_cert_t) );
   self->kind = (uint)cert.tag - AG_CERT_SERDE_TAG_FINAL;
 
-  int   has_block_id = self->kind==AG_CERT_KIND_FAST_FINAL || self->kind==AG_CERT_KIND_NOTAR || self->kind==AG_CERT_KIND_NOTAR_FALLBACK;
+  int   has_block_id = self->kind==AG_CERT_KIND_FAST_FINAL || self->kind==AG_CERT_KIND_NOTAR || self->kind==AG_CERT_KIND_NOTAR_FALLBACK || self->kind==AG_CERT_KIND_GENESIS;
   ulong hdr_sz       = AG_CERT_SER_HDR_SZ( has_block_id );
   FAIL( buf_sz<hdr_sz, SZ );
 
@@ -149,6 +154,13 @@ ag_cert_de( ag_cert_t *   self,
     agg->sig = *sig;
     break;
   }
+  case AG_CERT_KIND_GENESIS:
+    self->genesis.slot = cert.slot;
+    self->genesis.shred_version = cert.shred_version;
+    memcpy( self->genesis.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
+    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->genesis.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
+    self->genesis.agg.sig = *sig;
+    break;
   default:
     return AG_CERT_DE_ERR_INVAL;
   }

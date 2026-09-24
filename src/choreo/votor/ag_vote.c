@@ -90,10 +90,27 @@ ag_vote_construct_skip_fallback( fd_bls_sign_fn sign_fn,
   return vote;
 }
 
+ag_vote_t
+ag_vote_construct_genesis( fd_bls_sign_fn        sign_fn,
+                           void *                sign_ctx,
+                           ulong                 slot,
+                           ag_block_hash_t const hash,
+                           ushort                rank,
+                           ushort                shred_version ) {
+  ag_vote_t vote;
+  vote.kind                  = AG_VOTE_KIND_GENESIS;
+  vote.genesis.slot          = slot;
+  vote.genesis.rank          = rank;
+  vote.genesis.shred_version = shred_version;
+  memcpy( vote.genesis.block_hash, hash, sizeof(ag_block_hash_t) );
+  sign( &vote, sign_fn, sign_ctx, shred_version, &vote.genesis.sig );
+  return vote;
+}
+
 char *
 ag_vote_to_cstr( ag_vote_t const * self,
                  char              cstr[ static AG_VOTE_CSTR_MAX ] ) {
-  static char const * kind_cstr[] = { "Notar", "Final", "Skip", "NotarFallback", "SkipFallback" };
+  static char const * kind_cstr[] = { "Notar", "Final", "Skip", "NotarFallback", "SkipFallback", "Genesis" };
   uchar         sig[ FD_BLS_SIG_COMPRESSED_SZ ]; blst_p2_compress( sig, ag_vote_sig( self ) );
   uchar const * block_hash = ag_vote_block_hash( self );
   char *        p          = cstr;

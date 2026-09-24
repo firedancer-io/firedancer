@@ -422,6 +422,9 @@ add_valid_cert( ag_pool_t *       self,
     break;
   }
 
+  case AG_CERT_KIND_GENESIS:
+    break;
+
   default:
     FD_LOG_ERR(( "invalid cert kind %u", cert->kind ));
   }
@@ -477,6 +480,7 @@ ag_pool_add_cert( ag_pool_t *       self,
   case AG_CERT_KIND_NOTAR:          duplicate = state->certs.notar.slot!=ULONG_MAX;                                   break;
   case AG_CERT_KIND_NOTAR_FALLBACK: duplicate = ag_slot_state_is_notar_fallback( state, ag_cert_block_hash( cert ) ); break;
   case AG_CERT_KIND_SKIP:           duplicate = state->certs.skip.slot!=ULONG_MAX;                                    break;
+  case AG_CERT_KIND_GENESIS:        duplicate = 0;                                                                    break;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
@@ -489,6 +493,7 @@ ag_pool_add_cert( ag_pool_t *       self,
   case AG_CERT_KIND_NOTAR:
   case AG_CERT_KIND_NOTAR_FALLBACK:                                                                                                                                     break;
   case AG_CERT_KIND_SKIP:           FD_CHECK_CRIT( state->certs.finalize.slot==ULONG_MAX && state->certs.fast_finalize.slot==ULONG_MAX, "consensus safety violation" ); break;
+  case AG_CERT_KIND_GENESIS:                                                                                                                                            break;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 

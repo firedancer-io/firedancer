@@ -511,6 +511,7 @@ handle_cert_created( ag_votor_t *      self,
 
   case AG_CERT_KIND_NOTAR_FALLBACK:
   case AG_CERT_KIND_SKIP:
+  case AG_CERT_KIND_GENESIS:
     break;
 
   default:

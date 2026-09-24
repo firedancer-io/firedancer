@@ -70,6 +70,34 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_capture_ctx_t *        capture_ctx,
                             fd_block_footer_t const * footer );
 
+/* fd_alpenglow_genesis_cert_verify verifies the aggregate BLS signature
+   in the genesis cert, and checks that:
+   - the signer bitmap fits the epoch's ranked validators
+   - the signers hold at least 82% of the epoch's stake (GENESIS_VOTE_THRESHOLD)
+   - the bank is a child of the certified genesis block
+
+   Returns 0 if the cert verifies, -1 otherwise. */
+
+int
+fd_alpenglow_genesis_cert_verify( fd_bank_t const *         bank,
+                                  fd_genesis_cert_t const * cert,
+                                  ushort                    shred_version );
+
+/* fd_alpenglow_genesis_cert_apply applies the genesis cert side effects
+   to the bank's accounts:
+   - writes the serialized WireBlockCertMessage into the "carlgration" PDA account,
+     funded with rent-exempt lamports using FD_RENT_DEFAULT_PARAMS, owned by
+     fd_solana_system_program_id.
+   - sets bank->f.alpenglow_migration_slot = cert->slot.
+
+   Returns 0 on success, -1 on failure. */
+
+int
+fd_alpenglow_genesis_cert_apply( fd_bank_t *               bank,
+                                 fd_accdb_t *              accdb,
+                                 fd_capture_ctx_t *        capture_ctx,
+                                 fd_genesis_cert_t const * cert );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_alpenglow_fd_alpenglow_h */

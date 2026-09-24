@@ -62,6 +62,7 @@ FD_FN_PURE int ag_epoch_info_is_weakest_quorum( ag_epoch_info_t const * self, ul
 FD_FN_PURE int ag_epoch_info_is_weak_quorum   ( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_quorum        ( ag_epoch_info_t const * self, ulong stake );
 FD_FN_PURE int ag_epoch_info_is_strong_quorum ( ag_epoch_info_t const * self, ulong stake );
+FD_FN_PURE int ag_epoch_info_is_genesis_quorum( ag_epoch_info_t const * self, ulong stake );
 
 FD_PROTOTYPES_END
 

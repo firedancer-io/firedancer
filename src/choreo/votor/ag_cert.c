@@ -11,6 +11,7 @@ is_signer( ag_cert_t const * self,
   case AG_CERT_KIND_NOTAR:          return fd_bls_set_test( self->notar.agg.set,               rank );
   case AG_CERT_KIND_NOTAR_FALLBACK: return fd_bls_set_test( self->notar_fallback.agg_notar.set, rank ) || fd_bls_set_test( self->notar_fallback.agg_notar_fallback.set, rank );
   case AG_CERT_KIND_SKIP:           return fd_bls_set_test( self->skip.agg_skip.set,            rank ) || fd_bls_set_test( self->skip.agg_skip_fallback.set,            rank );
+  case AG_CERT_KIND_GENESIS:        return fd_bls_set_test( self->genesis.agg.set,             rank );
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
@@ -23,6 +24,7 @@ check_threshold( ag_cert_t const *       self,
   ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
   ulong                       stake      = 0UL;
   for( ulong i=0UL; i<epoch_info->validator_cnt; i++ ) if( FD_LIKELY( is_signer( self, validators[i].id ) ) ) stake += validators[i].stake;
+  if( FD_UNLIKELY( self->kind==AG_CERT_KIND_GENESIS ) ) return ag_epoch_info_is_genesis_quorum( epoch_info, stake );
   return fd_int_if( self->kind==AG_CERT_KIND_FAST_FINAL,
                     ag_epoch_info_is_strong_quorum( epoch_info, stake ),
                     ag_epoch_info_is_quorum       ( epoch_info, stake ) );
@@ -120,6 +122,7 @@ check_sig( ag_cert_t const *       self,
     ag_cert_skip_t const * skip = &self->skip;
     return check_sig_pair( &skip->agg_skip, AG_VOTE_KIND_SKIP, &skip->agg_skip_fallback, AG_VOTE_KIND_SKIP_FALLBACK, skip->slot, NULL, epoch_info, skip->shred_version );
   }
+  case AG_CERT_KIND_GENESIS:    return check_sig_one( &self->genesis.agg,    AG_VOTE_KIND_GENESIS, self->genesis.slot,    self->genesis.block_hash,    epoch_info, self->genesis.shred_version    );
   default:
     FD_LOG_CRIT(( "unreachable" ));
   }
@@ -134,7 +137,7 @@ ag_cert_verify( ag_cert_t const *       self,
 char *
 ag_cert_to_cstr( ag_cert_t const * self,
                  char              cstr[ static AG_CERT_CSTR_MAX ] ) {
-  static char const * kind_cstr[] = { "Final", "FastFinal", "Notar", "NotarFallback", "Skip" };
+  static char const * kind_cstr[] = { "Final", "FastFinal", "Notar", "NotarFallback", "Skip", "Genesis" };
   fd_bls_agg_t const * aggs[2] = { NULL, NULL };
   ulong                stake;
   switch( self->kind ) {
@@ -143,6 +146,7 @@ ag_cert_to_cstr( ag_cert_t const * self,
   case AG_CERT_KIND_NOTAR:          aggs[0] = &self->notar.agg;                                                                  stake = self->notar.stake;          break;
   case AG_CERT_KIND_NOTAR_FALLBACK: aggs[0] = &self->notar_fallback.agg_notar; aggs[1] = &self->notar_fallback.agg_notar_fallback; stake = self->notar_fallback.stake; break;
   case AG_CERT_KIND_SKIP:           aggs[0] = &self->skip.agg_skip;            aggs[1] = &self->skip.agg_skip_fallback;            stake = self->skip.stake;           break;
+  case AG_CERT_KIND_GENESIS:        aggs[0] = &self->genesis.agg;                                                                stake = self->genesis.stake;        break;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
   uchar const * block_hash = ag_cert_block_hash( self );

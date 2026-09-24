@@ -61,6 +61,8 @@ static inline ag_cert_t
 cert_build_notar_fallback( ag_vote_notar_t const * votes, ulong vote_cnt, ag_vote_notar_fallback_t const * fallback_votes, ulong fallback_vote_cnt, ag_epoch_info_t const * epoch_info );
 static inline ag_cert_t
 cert_build_skip( ag_vote_skip_t const * votes, ulong vote_cnt, ag_vote_skip_fallback_t const * fallback_votes, ulong fallback_vote_cnt, ag_epoch_info_t const * epoch_info );
+static inline ag_cert_t
+cert_build_genesis( ag_vote_genesis_t const * votes, ulong vote_cnt, ag_epoch_info_t const * epoch_info );
 
 static inline ag_cert_t
 cert_build_final( ag_vote_final_t const * votes,
@@ -197,6 +199,29 @@ cert_build_skip( ag_vote_skip_t const *          votes,
   }
   cert.stake = stake + stake_fallback;
   return (ag_cert_t){ .kind = AG_CERT_KIND_SKIP, .skip = cert };
+}
+
+static inline ag_cert_t
+cert_build_genesis( ag_vote_genesis_t const * votes,
+                    ulong                     vote_cnt,
+                    ag_epoch_info_t const *   epoch_info ) {
+  ag_validator_info_t const * validators = ag_epoch_info_validators( epoch_info );
+  FD_TEST( vote_cnt>0UL );
+  ulong           slot  = votes[0].slot;
+  ulong           stake = 0UL;
+  ag_block_hash_t block_hash;
+  memcpy( block_hash, votes[0].block_hash, sizeof(ag_block_hash_t) );
+  for( ulong i=0UL; i<vote_cnt; i++ ) {
+    FD_TEST( votes[i].slot==slot );
+    FD_TEST( !memcmp( votes[i].block_hash, block_hash, sizeof(ag_block_hash_t) ) );
+    stake += validators[ votes[i].rank ].stake;
+  }
+  ag_cert_genesis_t cert;
+  cert.slot = slot; cert.stake = stake; cert.shred_version = votes[0].shred_version;
+  memcpy( cert.block_hash, block_hash, sizeof(ag_block_hash_t) );
+  memset( &cert.agg, 0, sizeof(fd_bls_agg_t) );
+  for( ulong i=0UL; i<vote_cnt; i++ ) agg_add( &cert.agg, votes[i].rank, &votes[i].sig );
+  return (ag_cert_t){ .kind = AG_CERT_KIND_GENESIS, .genesis = cert };
 }
 
 #endif

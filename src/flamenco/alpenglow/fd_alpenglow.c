@@ -1,4 +1,5 @@
 #include "fd_alpenglow.h"
+#include "fd_block_marker_serde.h"
 #include "../rewards/fd_epoch_inflation_account.h"
 
 #include "../runtime/fd_accdb_svm.h"
@@ -6,6 +7,7 @@
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../runtime/sysvar/fd_sysvar_rent.h"
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );
 
@@ -22,9 +24,10 @@ vote_stakes_iter_kind_for_epoch( ulong fork_id,
 /* TBD: this is a copy of the votor's ag_vote_signing_ser so the runtime
    does not link fd_choreo; keep the two in sync. */
 
-#define VOTE_TAG_NOTAR (1U) /* WireConsensusMessageKind::NotarVote    */
-#define VOTE_TAG_FINAL (2U) /* WireConsensusMessageKind::FinalizeVote */
-#define VOTE_TAG_SKIP  (3U) /* WireConsensusMessageKind::SkipVote     */
+#define VOTE_TAG_NOTAR   (1U) /* WireConsensusMessageKind::NotarVote    */
+#define VOTE_TAG_FINAL   (2U) /* WireConsensusMessageKind::FinalizeVote */
+#define VOTE_TAG_SKIP    (3U) /* WireConsensusMessageKind::SkipVote     */
+#define VOTE_TAG_GENESIS (6U) /* WireConsensusMessageKind::GenesisVote  */
 
 #define VOTE_SIGNING_SER_MAX ( sizeof(uchar) + sizeof(ulong) + sizeof(fd_hash_t) + sizeof(ushort) )
 
@@ -107,10 +110,10 @@ validator_set_for_slot( validator_set_t * set,
   return 1;
 }
 
-/* cert_verify checks one footer cert against its epoch's validator set.
+/* cert_verify checks one cert against its epoch's validator set.
    The aggregate signature verifies over the vote with wire tag vote_tag the
    signers would have signed, and if quorum_numer is nonzero the signers
-   hold quorum_numer/5 of the epoch's stake.  i.e., for verifying
+   hold quorum_numer/quorum_denom of the epoch's stake.  i.e., for verifying
    reward certs, quorum_numer should be 0.
 
    Returns 1 if the cert verifies, 0 otherwise. */
@@ -121,6 +124,7 @@ cert_verify( validator_set_t *              set,
              fd_block_footer_cert_t const * cert,
              uint                           vote_tag,
              ulong                          quorum_numer,
+             ulong                          quorum_denom,
              ushort                         shred_version ) {
   ulong bank_slot = bank->f.slot;
   ulong cert_slot = cert->slot;
@@ -129,7 +133,7 @@ cert_verify( validator_set_t *              set,
 
   ulong last_rank = fd_bls_set_last( cert->signer_set ); /* ULONG_MAX when empty */
   if( FD_UNLIKELY( cert->nbits>set->validator_cnt || last_rank>=set->validator_cnt ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu names %u ranks (highest signer %lu) but its epoch has %lu validators",
+    FD_LOG_WARNING(( "slot %lu: cert for slot %lu names %u ranks (highest signer %lu) but its epoch has %lu validators",
                      bank_slot, cert_slot, cert->nbits, last_rank, set->validator_cnt ));
     return 0;
   }
@@ -141,24 +145,25 @@ cert_verify( validator_set_t *              set,
     blst_p1_add_or_double_affine( pub, pub, set->bls_keys+rank );
     stake += set->stakes[ rank ];
   }
-  if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)AG_QUORUM_THRESHOLD_DENOM<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has %lu of %lu stake, below %lu/%lu",
-                     bank_slot, cert_slot, stake, set->total_stake, quorum_numer, AG_QUORUM_THRESHOLD_DENOM ));
+  if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)quorum_denom<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
+    FD_LOG_WARNING(( "slot %lu: cert for slot %lu has %lu of %lu stake, below %lu/%lu",
+                     bank_slot, cert_slot, stake, set->total_stake, quorum_numer, quorum_denom ));
     return 0;
   }
 
   blst_p2_affine sig_affine[1];
   fd_bls_sig_t   sig[1];
   if( FD_UNLIKELY( blst_p2_uncompress( sig_affine, cert->sig )!=BLST_SUCCESS || !blst_p2_affine_in_g2( sig_affine ) ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has a malformed signature", bank_slot, cert_slot ));
+    FD_LOG_WARNING(( "slot %lu: cert for slot %lu has a malformed signature", bank_slot, cert_slot ));
     return 0;
   }
   blst_p2_from_affine( sig, sig_affine );
 
   uchar payload[ VOTE_SIGNING_SER_MAX ];
-  ulong payload_sz = vote_signing_ser( vote_tag, cert_slot, vote_tag==VOTE_TAG_NOTAR ? cert->block_id.uc : NULL, shred_version, payload );
+  int has_block_id = ( vote_tag==VOTE_TAG_NOTAR || vote_tag==VOTE_TAG_GENESIS );
+  ulong payload_sz = vote_signing_ser( vote_tag, cert_slot, has_block_id ? cert->block_id.uc : NULL, shred_version, payload );
   if( FD_UNLIKELY( !fd_bls_agg_verify( payload, payload_sz, pub, sig ) ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer (is_reward %d) cert for slot %lu failed signature verification", bank_slot, !quorum_numer, cert_slot ));
+    FD_LOG_WARNING(( "slot %lu: cert (is_reward %d) for slot %lu failed signature verification", bank_slot, !quorum_numer, cert_slot ));
     return 0;
   }
   return 1;
@@ -180,18 +185,72 @@ fd_alpenglow_footer_verify( fd_bank_t const *         bank,
   static FD_TL validator_set_t set[1];
 
   if( footer->has_fast_final_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->fast_final_cert,   VOTE_TAG_NOTAR, AG_STRONG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->fast_final_cert,   VOTE_TAG_NOTAR, AG_STRONG_QUORUM_THRESHOLD_NUMER, AG_QUORUM_THRESHOLD_DENOM, shred_version ) ) ) return -1;
   }
   if( footer->has_final_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->final_cert,        VOTE_TAG_FINAL, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_cert,        VOTE_TAG_NOTAR, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->final_cert,        VOTE_TAG_FINAL, AG_QUORUM_THRESHOLD_NUMER,        AG_QUORUM_THRESHOLD_DENOM, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_cert,        VOTE_TAG_NOTAR, AG_QUORUM_THRESHOLD_NUMER,        AG_QUORUM_THRESHOLD_DENOM, shred_version ) ) ) return -1;
   }
   if( footer->has_skip_reward_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->skip_reward_cert,  VOTE_TAG_SKIP,  0UL, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->skip_reward_cert,  VOTE_TAG_SKIP,  0UL,                              1UL,                        shred_version ) ) ) return -1;
   }
   if( footer->has_notar_reward_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_reward_cert, VOTE_TAG_NOTAR, 0UL, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_reward_cert, VOTE_TAG_NOTAR, 0UL,                              1UL,                        shred_version ) ) ) return -1;
   }
+  return 0;
+}
+
+int
+fd_alpenglow_genesis_cert_verify( fd_bank_t const *         bank,
+                                  fd_genesis_cert_t const * cert,
+                                  ushort                    shred_version ) {
+  if( FD_UNLIKELY( !shred_version ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis cert present but shred version is 0", bank->f.slot ));
+    return -1;
+  }
+
+  /* Must be a child of the certified genesis block */
+  if( FD_UNLIKELY( bank->f.parent_slot!=cert->slot ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis cert slot %lu does not match parent slot %lu",
+                     bank->f.slot, cert->slot, bank->f.parent_slot ));
+    return -1;
+  }
+
+  static FD_TL validator_set_t set[1];
+  /* Agave uses GENESIS_VOTE_THRESHOLD = 82% */
+  if( FD_UNLIKELY( !cert_verify( set, bank, cert, VOTE_TAG_GENESIS, 82UL, 100UL, shred_version ) ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis cert failed verification", bank->f.slot ));
+    return -1;
+  }
+
+  return 0;
+}
+
+int
+fd_alpenglow_genesis_cert_apply( fd_bank_t *               bank,
+                                 fd_accdb_t *              accdb,
+                                 fd_capture_ctx_t *        capture_ctx,
+                                 fd_genesis_cert_t const * cert ) {
+  fd_pubkey_t genesis_cert_addr;
+  fd_alpenglow_pda( "carlgration", &genesis_cert_addr );
+
+  uchar data[ FD_BLOCK_GENESIS_CERT_SER_MAX ];
+  ulong data_sz = fd_genesis_cert_ser( cert, data );
+  if( FD_UNLIKELY( !data_sz ) ) {
+    FD_LOG_WARNING(( "slot %lu: failed to serialize genesis cert for carlgration account", bank->f.slot ));
+    return -1;
+  }
+
+  fd_accdb_svm_update_t update[1];
+  fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &genesis_cert_addr, 1 );
+  acc.lamports   = fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, data_sz );
+  fd_memcpy( acc.owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) );
+  acc.executable = 0;
+  acc.data_len   = data_sz;
+  fd_memcpy( acc.data, data, data_sz );
+  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+
+  bank->f.alpenglow_migration_slot = cert->slot;
   return 0;
 }
 

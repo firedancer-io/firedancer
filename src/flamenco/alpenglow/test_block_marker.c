@@ -402,10 +402,10 @@ test_errors( void ) {
   emit_u64( 0UL ); emit_u16( 2 ); emit_u8( FD_BLOCK_MARKER_SERDE_TAG_HEADER ); emit_u16( 41 ); emit_rep( 0, 41UL );
   FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_INVAL );
 
-  /* genesis certificate tag is recognized but unsupported */
+  /* genesis certificate tag with too few bytes returns SZ error */
   emit_reset();
   emit_preamble( FD_BLOCK_MARKER_SERDE_TAG_GENESIS_CERT, (ushort)1 ); emit_u8( 0 );
-  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED );
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_SZ );
 
   /* unknown tag */
   emit_reset();
@@ -532,12 +532,22 @@ test_ser( void ) {
   emit_u8 ( 0 ); emit_u8( 0 ); emit_u8( 0 );
   roundtrip( g_sz );
 
+  /* genesis certificate round trips */
+  emit_reset();
+  emit_preamble( FD_BLOCK_MARKER_SERDE_TAG_GENESIS_CERT, (ushort)(8UL+32UL+96UL+8UL+5UL) );
+  emit_u64( 5555UL );
+  emit_rep( 0x55, 32UL );
+  emit_rep( 0x66, 96UL );
+  emit_u64( 5UL ); /* bitmap len */
+  emit_u8( 0 ); /* version */
+  emit_u16( 16 ); /* 16 bits */
+  emit_u8( 0x05 ); emit_u8( 0x01 ); /* 2 bytes of data */
+  roundtrip( g_sz );
+
   /* the kinds we never produce are refused */
   fd_block_marker_t marker[1];
   fd_memset( marker, 0, sizeof(fd_block_marker_t) );
   marker->kind = FD_BLOCK_MARKER_KIND_UPDATE_PARENT;
-  FD_TEST( !fd_block_marker_ser( marker, out ) );
-  marker->kind = FD_BLOCK_MARKER_KIND_GENESIS_CERT;
   FD_TEST( !fd_block_marker_ser( marker, out ) );
 
   /* nor is an over-long user agent */

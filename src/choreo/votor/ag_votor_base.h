@@ -17,7 +17,9 @@
 #define AG_WEAK_QUORUM_THRESHOLD_NUMER    (2UL) /* 40%, safe-to-notar / safe-to-skip */
 #define AG_QUORUM_THRESHOLD_NUMER         (3UL) /* 60%, notarize, finalize and skip */
 #define AG_STRONG_QUORUM_THRESHOLD_NUMER  (4UL) /* 80%, fast-finalize */
+#define AG_GENESIS_QUORUM_THRESHOLD_NUMER (82UL) /* 82%, genesis cert */
 #define AG_QUORUM_THRESHOLD_DENOM         (5UL) /* 100% */
+#define AG_GENESIS_QUORUM_THRESHOLD_DENOM (100UL) /* 100% */
 
 typedef uchar ag_vote_key_t  [ 32 ]; /* vote account address */
 typedef uchar ag_id_key_t    [ 32 ]; /* identity public key */

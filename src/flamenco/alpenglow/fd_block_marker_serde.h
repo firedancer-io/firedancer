@@ -71,6 +71,14 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
                                              FD_BLOCK_REWARD_CERT_SER_CU16_MAX     /* bitmap_sz                 */ + \
                                              FD_BLOCK_BITMAP_SER_SZ( AG_VAT_MAX )  /* bitmap                    */ )
 
+#define FD_BLOCK_GENESIS_CERT_SER_HDR_SZ ( sizeof(ulong)            /* slot      */ + \
+                                           sizeof(fd_hash_t)        /* block_id  */ + \
+                                           FD_BLS_SIG_COMPRESSED_SZ /* signature */ + \
+                                           sizeof(ulong)            /* bitmap_sz */ )
+
+#define FD_BLOCK_GENESIS_CERT_SER_MAX ( FD_BLOCK_GENESIS_CERT_SER_HDR_SZ + \
+                                        FD_BLOCK_BITMAP_SER_SZ( AG_VAT_MAX ) )
+
 #define FD_BLOCK_FOOTER_SER_HDR_SZ ( sizeof(uchar)     /* version                   */ + \
                                      sizeof(fd_hash_t) /* bank_hash                 */ + \
                                      sizeof(ulong)     /* block_producer_time_nanos */ + \
@@ -101,6 +109,8 @@ FD_STATIC_ASSERT( FD_BLOCK_SKIP_REWARD_CERT_SER_HDR_SZ  == 104UL, fd_block_marke
 FD_STATIC_ASSERT( FD_BLOCK_SKIP_REWARD_CERT_SER_MAX     == 360UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_NOTAR_REWARD_CERT_SER_HDR_SZ == 136UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_NOTAR_REWARD_CERT_SER_MAX    == 392UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_GENESIS_CERT_SER_HDR_SZ      == 144UL, fd_block_marker_serde );
+FD_STATIC_ASSERT( FD_BLOCK_GENESIS_CERT_SER_MAX         == 397UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_FOOTER_SER_HDR_SZ            ==  42UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_FOOTER_SER_MAX               ==1808UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_FOOTER_SER_MAX-FD_BLOCK_MARKER_PREAMBLE_SZ<=(ulong)USHORT_MAX, fd_block_marker_serde ); /* LengthPrefixed::len is a u16 */
@@ -115,6 +125,16 @@ int
 fd_block_marker_de( fd_block_marker_t * self,
                     uchar const *       buf,
                     ulong               buf_sz );
+
+ulong
+fd_genesis_cert_ser( fd_genesis_cert_t const * cert,
+                     uchar                     buf[ static FD_BLOCK_GENESIS_CERT_SER_MAX ] );
+
+int
+fd_genesis_cert_de( fd_genesis_cert_t * cert,
+                    uchar const *       buf,
+                    ulong               buf_sz,
+                    ulong *             sz );
 
 FD_PROTOTYPES_END
 

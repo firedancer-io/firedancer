@@ -9,6 +9,7 @@
 #define AG_VOTE_KIND_SKIP            (2U)
 #define AG_VOTE_KIND_NOTAR_FALLBACK  (3U)
 #define AG_VOTE_KIND_SKIP_FALLBACK   (4U)
+#define AG_VOTE_KIND_GENESIS         (5U)
 
 #define AG_VOTE_CSTR_MAX (256UL)
 
@@ -59,6 +60,15 @@ struct ag_vote_skip_fallback {
 };
 typedef struct ag_vote_skip_fallback ag_vote_skip_fallback_t;
 
+struct ag_vote_genesis {
+  ulong           slot;
+  ag_block_hash_t block_hash;
+  fd_bls_sig_t    sig;
+  ushort          rank;
+  ushort          shred_version;
+};
+typedef struct ag_vote_genesis ag_vote_genesis_t;
+
 struct ag_vote {
   uint   kind;
   union {
@@ -67,6 +77,7 @@ struct ag_vote {
     ag_vote_skip_t           skip;
     ag_vote_notar_fallback_t notar_fallback;
     ag_vote_skip_fallback_t  skip_fallback;
+    ag_vote_genesis_t        genesis;
   };
 };
 typedef struct ag_vote ag_vote_t;
@@ -83,6 +94,7 @@ ag_vote_slot( ag_vote_t const * self ) {
   case AG_VOTE_KIND_SKIP:           return self->skip.slot;
   case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.slot;
   case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.slot;
+  case AG_VOTE_KIND_GENESIS:        return self->genesis.slot;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
@@ -97,6 +109,7 @@ ag_vote_block_hash( ag_vote_t const * self ) {
   case AG_VOTE_KIND_SKIP:           return NULL;
   case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.block_hash;
   case AG_VOTE_KIND_SKIP_FALLBACK:  return NULL;
+  case AG_VOTE_KIND_GENESIS:        return self->genesis.block_hash;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
@@ -111,6 +124,7 @@ ag_vote_sig( ag_vote_t const * self ) {
   case AG_VOTE_KIND_SKIP:           return &self->skip.sig;
   case AG_VOTE_KIND_NOTAR_FALLBACK: return &self->notar_fallback.sig;
   case AG_VOTE_KIND_SKIP_FALLBACK:  return &self->skip_fallback.sig;
+  case AG_VOTE_KIND_GENESIS:        return &self->genesis.sig;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
@@ -125,6 +139,7 @@ ag_vote_rank( ag_vote_t const * self ) {
   case AG_VOTE_KIND_SKIP:           return self->skip.rank;
   case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.rank;
   case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.rank;
+  case AG_VOTE_KIND_GENESIS:        return self->genesis.rank;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
@@ -137,6 +152,7 @@ ag_vote_shred_version( ag_vote_t const * self ) {
   case AG_VOTE_KIND_SKIP:           return self->skip.shred_version;
   case AG_VOTE_KIND_NOTAR_FALLBACK: return self->notar_fallback.shred_version;
   case AG_VOTE_KIND_SKIP_FALLBACK:  return self->skip_fallback.shred_version;
+  case AG_VOTE_KIND_GENESIS:        return self->genesis.shred_version;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
@@ -187,6 +203,16 @@ ag_vote_construct_skip_fallback( fd_bls_sign_fn sign_fn,
                                  ulong          slot,
                                  ushort         rank,
                                  ushort         shred_version );
+
+/* Genesis vote */
+
+ag_vote_t
+ag_vote_construct_genesis( fd_bls_sign_fn        sign_fn,
+                           void *                sign_ctx,
+                           ulong                 slot,
+                           ag_block_hash_t const hash,
+                           ushort                rank,
+                           ushort                shred_version );
 
 char *
 ag_vote_to_cstr( ag_vote_t const * self,

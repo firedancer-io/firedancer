@@ -215,6 +215,12 @@ struct fd_sched_block {
      case. */
   fd_block_footer_t footer;
 
+  /* Alpenglow genesis certificate, deserialized out of the marker batch at
+     parse time.  genesis_cert_seen is set if the block carries a genesis
+     certificate marker and it is seen by sched; genesis_cert is only
+     meaningful in that case. */
+  fd_genesis_cert_t genesis_cert;
+
   /* Alpenglow block structure, mirroring agave's BlockComponentStage
      as a set of "seen" flags.  Only maintained when sched->is_alpenglow.
      Together with mblk_cnt they determine what may come next:
@@ -235,7 +241,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75840UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==76256UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -1998,6 +2004,14 @@ fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx ) {
   return block->footer_seen ? &block->footer : NULL;
 }
 
+fd_genesis_cert_t const *
+fd_sched_get_genesis_cert( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return block->genesis_cert_seen ? &block->genesis_cert : NULL;
+}
+
 void
 fd_sched_metrics_write( fd_sched_t * sched ) {
   FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_INDEX, sched->active_bank_idx );
@@ -2220,6 +2234,7 @@ ag_on_marker( fd_sched_t *              sched,
       FD_LOG_INFO(( "bad block: GENESIS_CERT_OUT_OF_ORDER, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
       return FD_SCHED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER;
     }
+    block->genesis_cert      = marker->genesis_cert;
     block->genesis_cert_seen = 1;
     return FD_SCHED_DEAD_REASON_NONE;
 

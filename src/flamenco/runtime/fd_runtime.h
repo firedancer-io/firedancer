@@ -354,16 +354,18 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   int *                is_epoch_boundary );
 
 /* fd_runtime_block_execute_finalize finishes the execution of the block
-   by applying optional Alpenglow footer effects, paying a fee out to
-   the block leader, updating any sysvars, and updating the bank hash.
+   by applying optional Alpenglow genesis cert and footer effects, paying a
+   fee out to the block leader, updating any sysvars, and updating the bank hash.
+   genesis_cert is NULL for blocks without a Genesis Certificate marker.
    footer is NULL for blocks without an Alpenglow footer.  Returns -1 if
-   the footer is invalid and 0 otherwise. */
+   any cert or footer is invalid and 0 otherwise. */
 
 int
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_accdb_t *              accdb,
                                    fd_capture_ctx_t *        capture_ctx,
                                    fd_block_footer_t const * footer,
+                                   fd_genesis_cert_t const * genesis_cert,
                                    ushort                    shred_version );
 
 /* fd_runtime_fee_split computes the burned portion and the leader

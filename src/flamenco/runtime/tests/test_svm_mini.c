@@ -2,6 +2,7 @@
 #include "../../accdb/fd_accdb.h"
 #include "../../runtime/fd_bank.h"
 #include "../../leaders/fd_leaders.h"
+#include "../../alpenglow/fd_alpenglow.h"
 
 static const fd_pubkey_t test_pubkey  = {{ 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,
                                            17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32 }};
@@ -188,6 +189,34 @@ main( int     argc,
   /* Mock validators must fit the vote-account/epoch-credit capacity. */
   params->mock_validator_cnt = limits->max_vote_accounts + 1UL;
   FD_TEST( fd_svm_mini_reset( mini, params )==ULONG_MAX );
+
+  /* Alpenglow genesis cert apply test */
+  params->mock_validator_cnt = 1UL;
+  root_idx = fd_svm_mini_reset( mini, params );
+  bank = fd_svm_mini_bank( mini, root_idx );
+  FD_TEST( bank );
+  FD_TEST( fd_alpenglow_migration_slot( bank, mini->runtime->accdb )==ULONG_MAX );
+
+  fd_genesis_cert_t cert;
+  fd_memset( &cert, 0, sizeof(cert) );
+  cert.slot = bank->f.parent_slot;
+  cert.nbits = 1;
+  fd_bls_set_insert( cert.signer_set, 0UL );
+  fd_memset( cert.sig, 0xc0, sizeof(cert.sig) );
+
+  ulong cap_before = bank->f.capitalization;
+  FD_TEST( !fd_alpenglow_genesis_cert_apply( bank, mini->runtime->accdb, NULL, &cert ) );
+  FD_TEST( bank->f.alpenglow_migration_slot==cert.slot );
+  FD_TEST( fd_alpenglow_migration_slot( bank, mini->runtime->accdb )==ULONG_MAX );
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, alpenglow, 0UL );
+  FD_TEST( fd_alpenglow_migration_slot( bank, mini->runtime->accdb )==cert.slot );
+  FD_TEST( bank->f.capitalization > cap_before );
+
+  fd_pubkey_t carlgration_addr;
+  fd_alpenglow_pda( "carlgration", &carlgration_addr );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, root_idx );
+  FD_TEST( fd_accdb_exists( mini->runtime->accdb, fork_id, carlgration_addr.uc ) );
+  FD_TEST( fd_accdb_lamports( mini->runtime->accdb, fork_id, carlgration_addr.uc )>0UL );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

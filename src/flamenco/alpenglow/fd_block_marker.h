@@ -38,6 +38,7 @@ struct fd_block_footer_cert {
   fd_bls_set_t signer_set[ fd_bls_set_word_cnt ]; /* decoded base2 signer bitmap */
 };
 typedef struct fd_block_footer_cert fd_block_footer_cert_t;
+typedef struct fd_block_footer_cert fd_genesis_cert_t;
 
 struct fd_block_footer {
   fd_hash_t bank_hash;
@@ -64,6 +65,7 @@ struct fd_block_marker {
     fd_block_header_t  header;
     fd_block_footer_t  footer;
     fd_update_parent_t update_parent;
+    fd_genesis_cert_t  genesis_cert;
   };
 };
 typedef struct fd_block_marker fd_block_marker_t;

@@ -533,6 +533,11 @@ fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
 fd_block_footer_t const *
 fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx );
 
+/* fd_sched_get_genesis_cert returns the genesis cert, or NULL if no
+   genesis cert marker has been parsed for the block. */
+fd_genesis_cert_t const *
+fd_sched_get_genesis_cert( fd_sched_t * sched, ulong bank_idx );
+
 void
 fd_sched_metrics_write( fd_sched_t * sched );
 

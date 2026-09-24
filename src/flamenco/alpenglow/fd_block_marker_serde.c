@@ -93,6 +93,17 @@ struct notar_reward_cert_serde {
 };
 typedef struct notar_reward_cert_serde notar_reward_cert_serde_t;
 
+/* GenesisCertBlockMarker: https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L265-L272 */
+
+struct genesis_cert_serde {
+  ulong         slot;      /* GenesisCertBlockMarker::slot          (Slot)                       */
+  uchar const * block_id;  /* GenesisCertBlockMarker::block_id      (Hash)                       */
+  uchar const * signature; /* GenesisCertBlockMarker::bls_signature (BLSSignatureCompressed)     */
+  ulong         bitmap_sz; /* GenesisCertBlockMarker::bitmap len    (u64)                        */
+  uchar const * bitmap;    /* GenesisCertBlockMarker::bitmap        (WincodeVec<u8, BincodeLen>) */
+};
+typedef struct genesis_cert_serde genesis_cert_serde_t;
+
 /* VersionedBlockFooter: https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L357-L360
    BlockFooterV1:        https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L240-L248
    Each Option is a one byte tag immediately followed by its own body
@@ -251,6 +262,28 @@ notar_reward_cert_ser( fd_block_footer_cert_t const * cert,
   return off;
 }
 
+ulong
+fd_genesis_cert_ser( fd_genesis_cert_t const * cert,
+                     uchar                     buf[ static FD_BLOCK_GENESIS_CERT_SER_MAX ] ) {
+  genesis_cert_serde_t genesis;
+
+  genesis.slot      = cert->slot;
+  genesis.block_id  = cert->block_id.uc;
+  genesis.signature = cert->sig; /* already compressed */
+  genesis.bitmap_sz = FD_BLOCK_BITMAP_SER_SZ( cert->nbits );
+  genesis.bitmap    = NULL; /* written straight into buf by bitmap_ser below */
+
+  ulong off = 0UL;
+  ulong sz;
+  FD_STORE( ulong, buf+off, genesis.slot );                                             off += sizeof(ulong);
+  memcpy( buf+off, genesis.block_id, sizeof(fd_hash_t) );                               off += sizeof(fd_hash_t);
+  memcpy( buf+off, genesis.signature, FD_BLS_SIG_COMPRESSED_SZ );                       off += FD_BLS_SIG_COMPRESSED_SZ;
+  FD_STORE( ulong, buf+off, genesis.bitmap_sz );                                        off += sizeof(ulong);
+  if( FD_UNLIKELY( !(sz=bitmap_ser( cert->nbits, cert->signer_set, buf+off )) ) ) return 0UL;
+                                                                                        off += sz;
+  return off;
+}
+
 static ulong
 footer_ser( fd_block_footer_t const * footer,
             uchar *                   buf ) {
@@ -303,9 +336,10 @@ fd_block_marker_ser( fd_block_marker_t const * self,
   uchar * payload = buf+FD_BLOCK_MARKER_PREAMBLE_SZ;
   ulong   payload_sz;
   switch( self->kind ) {
-  case FD_BLOCK_MARKER_KIND_FOOTER: payload_sz = footer_ser( &self->footer, payload ); break;
-  case FD_BLOCK_MARKER_KIND_HEADER: payload_sz = header_ser( &self->header, payload ); break;
-  default:                          return 0UL; /* nothing we produce is an UpdateParent or GenesisCertificate */
+  case FD_BLOCK_MARKER_KIND_FOOTER:       payload_sz = footer_ser      ( &self->footer,       payload ); break;
+  case FD_BLOCK_MARKER_KIND_HEADER:       payload_sz = header_ser      ( &self->header,       payload ); break;
+  case FD_BLOCK_MARKER_KIND_GENESIS_CERT: payload_sz = fd_genesis_cert_ser( &self->genesis_cert, payload ); break;
+  default:                                return 0UL; /* nothing we produce is an UpdateParent */
   }
   if( FD_UNLIKELY( !payload_sz ) ) return 0UL;
 
@@ -515,6 +549,32 @@ notar_reward_cert_de( fd_block_footer_cert_t * cert,
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
 
+int
+fd_genesis_cert_de( fd_genesis_cert_t * cert,
+                    uchar const *       buf,
+                    ulong               buf_sz,
+                    ulong *             sz ) {
+  FAIL( buf_sz<FD_BLOCK_GENESIS_CERT_SER_HDR_SZ, SZ );
+
+  genesis_cert_serde_t genesis; ulong off = 0UL;
+  genesis.slot      = FD_LOAD( ulong, buf+off );             off += sizeof(ulong);
+  genesis.block_id  = buf+off;                               off += sizeof(fd_hash_t);
+  genesis.signature = buf+off;                               off += FD_BLS_SIG_COMPRESSED_SZ;
+  genesis.bitmap_sz = FD_LOAD( ulong, buf+off );             off += sizeof(ulong);
+  FAIL( genesis.bitmap_sz>512UL, SZ ); /* GenesisCertBlockMarker::MAX_BITMAP_SIZE */
+  FAIL( genesis.bitmap_sz>buf_sz-off, SZ );
+  genesis.bitmap    = buf+off;                               off += genesis.bitmap_sz;
+
+  int err = bitmap_de( &cert->nbits, cert->signer_set, genesis.bitmap, genesis.bitmap_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  cert->slot = genesis.slot;
+  memcpy( cert->block_id.uc, genesis.block_id, sizeof(fd_hash_t) );
+  memcpy( cert->sig, genesis.signature, FD_BLS_SIG_COMPRESSED_SZ );
+
+  *sz = off;
+  return FD_BLOCK_MARKER_DE_SUCCESS;
+}
+
 static int
 footer_de( fd_block_footer_t * footer,
            uchar const *       buf,
@@ -600,7 +660,7 @@ fd_block_marker_de( fd_block_marker_t * self,
   case FD_BLOCK_MARKER_KIND_FOOTER:        err = footer_de       ( &self->footer,        marker.payload, marker.length, &payload_sz ); break;
   case FD_BLOCK_MARKER_KIND_HEADER:        err = header_de       ( &self->header,        marker.payload, marker.length, &payload_sz ); break;
   case FD_BLOCK_MARKER_KIND_UPDATE_PARENT: err = update_parent_de( &self->update_parent, marker.payload, marker.length, &payload_sz ); break;
-  case FD_BLOCK_MARKER_KIND_GENESIS_CERT:  return FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED;
+  case FD_BLOCK_MARKER_KIND_GENESIS_CERT:  err = fd_genesis_cert_de( &self->genesis_cert,  marker.payload, marker.length, &payload_sz ); break;
   default:                                 return FD_BLOCK_MARKER_DE_ERR_INVAL;
   }
   if( FD_UNLIKELY( err ) ) return err;

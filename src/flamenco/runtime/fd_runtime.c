@@ -1811,7 +1811,12 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_accdb_t *              accdb,
                                    fd_capture_ctx_t *        capture_ctx,
                                    fd_block_footer_t const * footer,
+                                   fd_genesis_cert_t const * genesis_cert,
                                    ushort                    shred_version ) {
+  if( FD_UNLIKELY( genesis_cert ) ) {
+    if( FD_UNLIKELY( fd_alpenglow_genesis_cert_verify( bank, genesis_cert, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( fd_alpenglow_genesis_cert_apply( bank, accdb, capture_ctx, genesis_cert ) ) ) return -1;
+  }
   if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer, shred_version ) ) ) return -1;
   fd_runtime_freeze( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );

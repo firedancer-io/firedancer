@@ -606,6 +606,8 @@ ag_slot_state_add_cert( ag_slot_state_t * self,
     self->certs.finalize = cert->final;
     break;
   }
+  case AG_CERT_KIND_GENESIS:
+    break;
   default:
     FD_LOG_ERR(( "invalid cert kind %u", cert->kind ));
   }
@@ -654,6 +656,9 @@ ag_slot_state_add_vote( ag_slot_state_t *   self,
   case AG_VOTE_KIND_FINAL:
     self->votes.finalize_sig[ rank ] = *sig;
     err = count_finalize_stake( self, &vote->final, stake, out_cert_events, out_cert_event_cnt, bad );
+    break;
+  case AG_VOTE_KIND_GENESIS:
+    err = 0;
     break;
   default:
     FD_LOG_CRIT(( "unreachable" ));
@@ -762,6 +767,9 @@ ag_slot_state_check_slashable_offence( ag_slot_state_t const * self,
     break;
   }
 
+  case AG_VOTE_KIND_GENESIS:
+    break;
+
   default:
     FD_LOG_ERR(( "invalid vote kind %u", vote->kind ));
   }
@@ -797,6 +805,8 @@ ag_slot_state_should_ignore_vote( ag_slot_state_t const * self,
     return !blst_p2_is_inf( &votes->skip_sig[ voter ] ) || fd_bls_set_test( votes->skip_fallback_agg.set, voter );
   case AG_VOTE_KIND_FINAL:
     return fd_bls_set_test( votes->finalize_agg.set, voter );
+  case AG_VOTE_KIND_GENESIS:
+    return 1;
   default:
     FD_LOG_ERR(( "invalid vote kind %u", vote->kind ));
   }

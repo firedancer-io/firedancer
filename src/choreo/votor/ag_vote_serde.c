@@ -40,7 +40,7 @@ ag_vote_de( ag_vote_t *   self,
 
   uint kind = (uint)vote.tag - AG_VOTE_SERDE_TAG_NOTAR;
 
-  int has_block_id = kind==AG_VOTE_KIND_NOTAR || kind==AG_VOTE_KIND_NOTAR_FALLBACK;
+  int has_block_id = kind==AG_VOTE_KIND_NOTAR || kind==AG_VOTE_KIND_NOTAR_FALLBACK || kind==AG_VOTE_KIND_GENESIS;
   FAIL( buf_sz!=AG_VOTE_SER_SZ( has_block_id ), SZ ); /* too few, or trailing bytes */
 
   vote.slot          = FD_LOAD( ulong, buf+off );  off += sizeof(ulong);
@@ -88,6 +88,12 @@ ag_vote_de( ag_vote_t *   self,
     self->skip_fallback.slot = vote.slot;
     self->skip_fallback.shred_version = vote.shred_version;
     self->skip_fallback.sig = *sig;
+    break;
+  case AG_VOTE_KIND_GENESIS:
+    self->genesis.slot = vote.slot;
+    self->genesis.shred_version = vote.shred_version;
+    memcpy( self->genesis.block_hash, vote.block_id, sizeof(ag_block_hash_t) );
+    self->genesis.sig = *sig;
     break;
   default:
     return AG_VOTE_DE_ERR_INVAL;

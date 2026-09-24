@@ -10,6 +10,7 @@
 #define AG_CERT_KIND_NOTAR          (2)
 #define AG_CERT_KIND_NOTAR_FALLBACK (3)
 #define AG_CERT_KIND_SKIP           (4)
+#define AG_CERT_KIND_GENESIS        (5)
 
 #define AG_CERT_CSTR_MAX (512UL)
 
@@ -58,6 +59,15 @@ struct ag_cert_skip {
 };
 typedef struct ag_cert_skip ag_cert_skip_t;
 
+struct ag_cert_genesis {
+  ulong           slot;
+  ag_block_hash_t block_hash;
+  fd_bls_agg_t    agg;
+  ulong           stake;
+  ushort          shred_version;
+};
+typedef struct ag_cert_genesis ag_cert_genesis_t;
+
 struct ag_cert {
   uint kind;
   union {
@@ -66,6 +76,7 @@ struct ag_cert {
     ag_cert_notar_t          notar;
     ag_cert_notar_fallback_t notar_fallback;
     ag_cert_skip_t           skip;
+    ag_cert_genesis_t        genesis;
   };
 };
 typedef struct ag_cert ag_cert_t;
@@ -82,6 +93,7 @@ ag_cert_slot( ag_cert_t const * self ) {
   case AG_CERT_KIND_NOTAR:          return self->notar.slot;
   case AG_CERT_KIND_NOTAR_FALLBACK: return self->notar_fallback.slot;
   case AG_CERT_KIND_SKIP:           return self->skip.slot;
+  case AG_CERT_KIND_GENESIS:        return self->genesis.slot;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
@@ -96,6 +108,7 @@ ag_cert_block_hash( ag_cert_t const * self ) {
   case AG_CERT_KIND_NOTAR:          return self->notar.block_hash;
   case AG_CERT_KIND_NOTAR_FALLBACK: return self->notar_fallback.block_hash;
   case AG_CERT_KIND_SKIP:           return NULL;
+  case AG_CERT_KIND_GENESIS:        return self->genesis.block_hash;
   default:                          FD_LOG_CRIT(( "unreachable" )); }
 }
 
@@ -107,6 +120,7 @@ ag_cert_shred_version( ag_cert_t const * self ) {
   case AG_CERT_KIND_NOTAR:          return self->notar.shred_version;
   case AG_CERT_KIND_NOTAR_FALLBACK: return self->notar_fallback.shred_version;
   case AG_CERT_KIND_SKIP:           return self->skip.shred_version;
+  case AG_CERT_KIND_GENESIS:        return self->genesis.shred_version;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
