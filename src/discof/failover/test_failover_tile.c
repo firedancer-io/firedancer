@@ -1067,6 +1067,56 @@ test_demotion_drain( void ) {
   FD_LOG_NOTICE(( "pass: the final tower waits for the halt watermark" ));
 }
 
+/* Exercise the actual input callbacks while the accepted switch result
+   remains live across controller steps.  A rejected or abandoned frame
+   must never overwrite the watermark we are still draining toward. */
+static void
+test_switch_response_integrity( void ) {
+  for( ulong fault=0UL; fault<4UL; fault++ ) {
+    controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+    ctx->admin_in_idx = 1UL;
+    ctx->adopt_in_idx = ULONG_MAX;
+    ctx->tower_in_idx = 2UL;
+    ctx->admin_in_mem = (fd_wksp_t *)bus_mem;
+    fd_failover_consensus_state_t hdr = { .vote_slot=99UL, .mode=FD_FAILOVER_MODE_TOWER, .state_len=16U };
+    fd_memcpy( ctx->cs_buf, &hdr, sizeof(hdr) );
+    fd_memset( ctx->cs_buf+sizeof(hdr), 0xC5, 16UL );
+    ctx->cs_valid = 1;
+    ctx->cs_sz = sizeof(hdr)+16UL;
+    ctx->switch_request_id = 8UL;
+    start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1 );
+    ctx->tower_seen_seq = 796UL;
+    fd_failover_bus_msg_t * answer = (fd_failover_bus_msg_t *)bus_mem;
+    fd_failover_switch_resp_t result = { .result=FD_FAILOVER_SWITCH_OK, .tower_watermark=800UL };
+    answer->nonce = ctx->switch_request_id;
+    fd_memcpy( answer->payload, &result, sizeof(result) );
+    during_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_RESP, 0UL, sizeof(*answer), 0UL );
+    after_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_RESP, sizeof(*answer), 0UL, 0UL, stem );
+    step_controller( ctx, stem, 1000L );
+    FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH && ctx->switch_result_fresh );
+
+    /* Old nonce, duplicate answer, unrelated query, or a copy the stem
+       abandons before after_frag.  All carry an incorrect lower watermark. */
+    if( fault==0UL ) answer->nonce--;
+    result.tower_watermark = 100UL;
+    fd_memcpy( answer->payload, &result, sizeof(result) );
+    ulong sig = fault==2UL ? FD_FAILOVER_BUS_SWITCH_STATE : FD_FAILOVER_BUS_SWITCH_RESP;
+    during_frag( ctx, 1UL, 1UL, sig, 0UL, sizeof(*answer), 0UL );
+    if( fault!=3UL ) after_frag( ctx, 1UL, 1UL, sig, sizeof(*answer), 0UL, 0UL, stem );
+    step_controller( ctx, stem, 1001L );
+    FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH && ctx->switch_result_fresh );
+    FD_TEST( ctx->switch_result.tower_watermark==800UL && !ctx->demoted_valid );
+
+    ctx->tower_seen_seq = 799UL;
+    step_controller( ctx, stem, 1002L );
+    FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && ctx->demoted_valid );
+    FD_TEST( ctx->demoted_record.demoted.watermark==800UL );
+    demoted_remove( ctx );
+    controller_fini();
+  }
+  FD_LOG_NOTICE(( "pass: stale, duplicate, unrelated and abandoned input preserves the accepted halt watermark" ));
+}
+
 /* Test that a switch whose answer is overdue is waited for, on both
    sides.  Standing down would tell the peer nobody promoted while the
    staked key may be installed. */
@@ -1711,6 +1761,12 @@ test_operator_commands( void ) {
   FD_TEST( sent.proposed_term==8UL && !sent.drill );
   ctx->pending_valid = 0;
   req.cmd = FD_ADMINCTL_FAILOVER_CMD_DRILL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BUSY );
+  fd_failover_handoff_resp_t response = { .proposed_term=sent.proposed_term,
+                                         .deadline_slots=sent.deadline_slots,
+                                         .code=FD_FAILOVER_HANDOFF_ALREADY_STANDBY };
+  fd_memcpy( ctx->rx, &response, sizeof(response) );
+  handle_control( ctx, &ctx->peers[ 0 ], FD_FAILOVER_MSG_HANDOFF_RESP, sizeof(response), 1000L );
   FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
   fd_memcpy( &sent, ctx->pending, sizeof(sent) );
   FD_TEST( sent.drill );
@@ -1808,6 +1864,68 @@ test_handoff_response( void ) {
   FD_TEST( peer->channel->metrics.wire_fatal_cnt==dropped );
   controller_fini();
   FD_LOG_NOTICE(( "pass: a handoff answer is matched to its request and never dropped as unknown" ));
+}
+
+/* Bound lost requests even when replay has not started.  Every boundary
+   leaves authority unchanged and permits a fresh first-use exchange. */
+static void
+test_handoff_request_lifetime( void ) {
+  for( ulong fault=0UL; fault<6UL; fault++ ) {
+    controller_init( FD_FAILOVER_STATE_STANDBY, 0UL );
+    long now = 1000L;
+    fd_failover_peer_t * peer = first_use_peer( 0UL, now );
+    if( fault==1UL ) ctx->replay_slot = FD_FAILOVER_SLOT_NULL;
+    fd_adminctl_failover_control_t req = { .cmd=FD_ADMINCTL_FAILOVER_CMD_DRILL };
+    FD_TEST( apply_control( ctx, stem, &req, now )==FD_ADMINCTL_RESULT_SUCCESS );
+    FD_TEST( apply_control( ctx, stem, &req, now )==FD_FAILOVER_CONTROL_RESULT_BUSY );
+    fd_adminctl_failover_status_resp_t status;
+    status_snapshot( ctx, 0UL, now, &status );
+    FD_TEST( status.status&FD_FAILOVER_STATUS_BUSY );
+    /* The request reached the peer but the answer was lost.  One case
+       leaves the unsent request in the slot to check it is canceled too. */
+    if( fault!=5UL ) ctx->pending_valid = 0;
+    ctx->first_use_authorized = 1;
+    maybe_first_use( ctx, now );
+    FD_TEST( !ctx->first_use_pending );
+    step_controller( ctx, stem, ctx->handoff_deadline-1L );
+    FD_TEST( ctx->handoff_pending );
+    if( fault==0UL || fault==5UL ) ctx->replay_slot += ctx->deadline_slots+1UL;
+    else if( fault==1UL ) now = ctx->handoff_deadline;
+    else if( fault==2UL ) peer->channel->state = FD_FAILOVER_SESSION_BACKOFF;
+    else if( fault==3UL ) peer->channel->metrics.paired_cnt++;
+    else ctx->paused = 1;
+    step_controller( ctx, stem, now );
+    FD_TEST( !ctx->handoff_pending && !ctx->pending_valid );
+    FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->hello.term==0UL && !ctx->stuck );
+    FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
+    status_snapshot( ctx, 0UL, now, &status );
+    FD_TEST( !(status.status&FD_FAILOVER_STATUS_BUSY) );
+
+    /* A late matching response grants nothing. */
+    fd_failover_handoff_resp_t response = { .proposed_term=ctx->handoff_req.proposed_term,
+                                            .deadline_slots=ctx->handoff_req.deadline_slots,
+                                            .drill=1U, .code=FD_FAILOVER_HANDOFF_PROCEED };
+    fd_memcpy( ctx->rx, &response, sizeof(response) );
+    handle_control( ctx, peer, FD_FAILOVER_MSG_HANDOFF_RESP, sizeof(response), now );
+    FD_TEST( ctx->handoff_code==FD_FAILOVER_HANDOFF_CODE_CNT && !ctx->first_use_pending );
+    ctx->paused = 0;
+    first_use_peer( 0UL, now );
+    peer->channel->metrics.paired_cnt++;
+    maybe_first_use( ctx, now );
+    FD_TEST( ctx->first_use_pending && ctx->action==FD_FAILOVER_ACTION_FIRST_USE_WAIT );
+    controller_fini();
+  }
+
+  controller_init( FD_FAILOVER_STATE_STANDBY, 0UL );
+  fd_failover_peer_t * peer = first_use_peer( 1UL, 1000L );
+  fd_failover_handoff_resp_t response = { .proposed_term=1UL, .deadline_slots=64U, .drill=1U,
+                                          .code=FD_FAILOVER_HANDOFF_ALREADY_STANDBY };
+  FD_TEST( !queue_control( ctx, FD_FAILOVER_MSG_HANDOFF_RESP, &response, sizeof(response) ) );
+  peer->channel->metrics.paired_cnt++;
+  pending_flush( ctx, peer, 1001L );
+  FD_TEST( !ctx->pending_valid );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: lost requests expire without authority and old answers never cross sessions" ));
 }
 
 /* Our own unsent confirmation must not count for promote.  It only
@@ -1961,10 +2079,12 @@ main( int     argc,
   test_promotion_reject();
   test_switch_overdue();
   test_demotion_drain();
+  test_switch_response_integrity();
   test_active_handoff_checks();
   test_operator_commands();
   test_bus_control_ordering();
   test_handoff_response();
+  test_handoff_request_lifetime();
   test_promote_evidence();
   test_repeated_handoff_tower();
   test_record_sources();

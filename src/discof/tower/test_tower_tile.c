@@ -1335,12 +1335,25 @@ test_failover_adopt_tower( fd_wksp_t * wksp ) {
   FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
   fd_tower_adopt_result_t result = failover_adopt_tower( ctx, buf, buf_sz );
   FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==1UL && result.vote_slot==3UL );
+  FD_TEST( ctx->failover_tower_adopted );
+
+  /* Replay may know the tip but have skipped an earlier locked slot.
+     The retained prefix is empty and cannot report the old shadow tip
+     or authorize a switch.  Restoring the missing block permits adoption. */
+  fd_tower_blocks_query( ctx->tower, 2UL )->replayed = 0;
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==ULONG_MAX );
+  FD_TEST( fd_tower_vote_empty( ctx->tower->votes ) && !ctx->failover_tower_adopted );
+  fd_tower_blocks_query( ctx->tower, 2UL )->replayed = 1;
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.vote_slot==3UL && ctx->failover_tower_adopted );
 
   serde.block_id.uc[ 0 ] ^= 1U;
   FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
   result = failover_adopt_tower( ctx, buf, buf_sz );
   FD_TEST( result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH );
   FD_TEST( result.root==1UL && result.vote_slot==3UL );
+  FD_TEST( !ctx->failover_tower_adopted );
 
   serde.block_id.uc[ 0 ] ^= 1U;
   serde.hash.uc[ 0 ] ^= 1U;
@@ -1354,6 +1367,7 @@ test_failover_adopt_tower( fd_wksp_t * wksp ) {
   FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
   result = failover_adopt_tower( ctx, buf, buf_sz );
   FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==2UL );
+  FD_TEST( !ctx->failover_tower_adopted );
 
   fd_tower_blk_t * blk4  = fd_tower_blocks_insert( ctx->tower, 4UL, 1UL );
   blk4->replayed          = 1;

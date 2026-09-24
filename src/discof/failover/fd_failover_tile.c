@@ -96,7 +96,7 @@ struct fd_failover_tile_ctx {
      switch is done. */
   fd_failover_demoted_record_t demoted_record;
   int                          demoted_valid;
-  int                          demoted_historical; /* retained evidence that cannot authorize promotion */
+  int                          demoted_historical;
   int                          demoted_sent;
   int                          send_demoted;
   ulong                        demoted_accept_term; /* a confirmation at this term may be replayed */
@@ -114,6 +114,7 @@ struct fd_failover_tile_ctx {
   ushort                       pending_type;
   ushort                       pending_sz;
   int                          pending_valid;
+  ulong                        pending_session; /* handoff requests and answers belong to one session */
   uchar                        pending[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
 
   /* The tower we will adopt when we get promoted. */
@@ -123,6 +124,9 @@ struct fd_failover_tile_ctx {
   uchar                        reject_reason;
   fd_failover_handoff_req_t    handoff_req;    /* the request awaiting an answer */
   int                          handoff_pending;
+  ulong                        handoff_session;
+  ulong                        handoff_deadline_slot;
+  long                         handoff_deadline;
   uchar                        handoff_code;   /* the peer's answer to it */
   uchar                        handoff_reason;
   ulong                        handoff_term;
@@ -181,12 +185,13 @@ struct fd_failover_tile_ctx {
   ulong                 bus_req_sig;
   int                   bus_req_fresh;
 
-  /* State of the identity switch we asked the admin tile for.  It holds
-     both keys and does the switch, and a success means the old key is
-     gone from every tile. */
+  /* State of the identity switch we asked the admin tile for.  It selects
+     a key preloaded by the signing tile, and success means the old key is
+     gone from every tile's active identity. */
   ulong                     switch_request_id;
   ulong                     switch_pending_key; /* FD_FAILOVER_SWITCH_KEY_*, or CNT when idle */
   fd_failover_switch_resp_t switch_result;
+  fd_failover_switch_resp_t switch_response; /* uncommitted input frame */
   ulong                     switch_answer_nonce; /* nonce of the frame being consumed */
   ulong                     switch_result_id;
   int                       switch_result_fresh;
@@ -510,6 +515,8 @@ queue_control( fd_failover_tile_ctx_t * ctx,
   ctx->pending_sz    = (ushort)payload_sz;
   ctx->pending_valid = 1;
   fd_memcpy( ctx->pending, payload, payload_sz );
+  if( FD_UNLIKELY( type==(ushort)FD_FAILOVER_MSG_HANDOFF_REQ || type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESP ) )
+    ctx->pending_session = fd_failover_channel_metrics( ctx->peers[ 0 ].channel )->paired_cnt;
   return 0;
 }
 
@@ -535,6 +542,15 @@ pending_flush( fd_failover_tile_ctx_t * ctx,
                fd_failover_peer_t *     peer,
                long                     now ) {
   if( FD_LIKELY( !ctx->pending_valid ) ) return;
+  /* These messages describe one request on this session.  Replaying an
+     old answer after reconnect could match a new request at the same term. */
+  if( FD_UNLIKELY( ( ctx->pending_type==(ushort)FD_FAILOVER_MSG_HANDOFF_REQ ||
+                     ctx->pending_type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESP ) &&
+                   ( fd_failover_channel_state( peer->channel )!=FD_FAILOVER_SESSION_PAIRED ||
+                     fd_failover_channel_metrics( peer->channel )->paired_cnt!=ctx->pending_session ) ) ) {
+    ctx->pending_valid = 0;
+    return;
+  }
   if( FD_UNLIKELY( fd_failover_channel_state( peer->channel )!=FD_FAILOVER_SESSION_PAIRED ||
                    fd_failover_channel_tx_pending( peer->channel ) ) ) return;
   if( FD_LIKELY( !fd_failover_channel_send( peer->channel, now, ctx->pending_type, ctx->pending, ctx->pending_sz ) ) ) {
@@ -565,10 +581,6 @@ restore_records( fd_failover_tile_ctx_t * ctx,
                    saved==FD_FAILOVER_STATE_ACTIVE || saved==FD_FAILOVER_STATE_RECLAIMING ) )
     ctx->demoted_accept_term = ctx->role_file.term;
 
-  /* Version 1 did not record the source.  Only an interrupted transition
-     identifies it unambiguously.  Save that information before rewriting
-     the role, so a second crash cannot turn a received grant into ours.
-     An old STANDBY record is ambiguous and must never grant authority. */
   if( FD_UNLIKELY( !role_err && !demoted_err &&
                    ctx->demoted_record.source==FD_FAILOVER_DEMOTED_SOURCE_UNKNOWN &&
                    ctx->demoted_record.demoted.term==ctx->role_file.term &&
@@ -1041,6 +1053,35 @@ claim_expired( fd_failover_tile_ctx_t const * ctx,
   return now>=ctx->claim_deadline || deadline_expired( ctx );
 }
 
+/* A lost readiness answer must not leave an idle standby permanently
+   unavailable for first use.  Ending this wait grants no authority and
+   does not cancel a demotion the peer may already have started. */
+static void
+step_handoff_request( fd_failover_tile_ctx_t * ctx,
+                      long                     now ) {
+  if( FD_LIKELY( !ctx->handoff_pending ) ) return;
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  int same_session = fd_failover_channel_state( peer->channel )==FD_FAILOVER_SESSION_PAIRED &&
+                     fd_failover_channel_metrics( peer->channel )->paired_cnt==ctx->handoff_session;
+  if( FD_UNLIKELY( ctx->handoff_deadline_slot==FD_FAILOVER_SLOT_NULL && ctx->replay_slot!=FD_FAILOVER_SLOT_NULL ) )
+    ctx->handoff_deadline_slot = fd_ulong_sat_add( ctx->replay_slot, ctx->deadline_slots );
+  int expired = now>=ctx->handoff_deadline ||
+                ( ctx->handoff_deadline_slot!=FD_FAILOVER_SLOT_NULL && ctx->replay_slot!=FD_FAILOVER_SLOT_NULL &&
+                  ctx->replay_slot>ctx->handoff_deadline_slot );
+  if( FD_LIKELY( same_session && !expired && !ctx->paused ) ) return;
+  ctx->handoff_pending = 0;
+  ctx->handoff_code    = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT; /* no peer verdict */
+  ctx->handoff_reason  = ctx->paused ? FD_FAILOVER_REJECT_PAUSED :
+                         expired ? FD_FAILOVER_REJECT_DEADLINE : FD_FAILOVER_REJECT_STATUS_STALE;
+  ctx->handoff_term    = ctx->handoff_req.proposed_term;
+  if( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_HANDOFF_REQ ) ctx->pending_valid = 0;
+  /* Requests have no nonce.  A fresh session ensures an old answer cannot
+     complete the next request with the same fields. */
+  if( FD_UNLIKELY( same_session ) ) fd_failover_channel_hangup( peer->channel, now );
+  FD_LOG_WARNING(( "handoff request at term %lu ended without a peer verdict (reason %u), inspect both members before retrying",
+                   ctx->handoff_term, (uint)ctx->handoff_reason ));
+}
+
 static void
 queue_confirm( fd_failover_tile_ctx_t * ctx,
                 fd_failover_reclaim_t const * req,
@@ -1115,6 +1156,7 @@ static void
 step_controller( fd_failover_tile_ctx_t * ctx,
                  fd_stem_context_t *      stem,
                  long                     now ) {
+  step_handoff_request( ctx, now );
   /* An outcome that could not be queued while another control message
      held the slot is still owed to the peer, send it once the slot is
      free. */
@@ -1525,6 +1567,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
        this one.  A mismatch is not a protocol error, dropping the session
        here would kill the exchange. */
     if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_handoff_resp_t) ) ) break;
+    step_handoff_request( ctx, now );
     fd_failover_handoff_resp_t resp;
     fd_memcpy( &resp, ctx->rx, sizeof(resp) );
     if( FD_UNLIKELY( !ctx->handoff_pending ||
@@ -1781,6 +1824,10 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
   resp->term                  = local.term;
   resp->link_state            = (uchar)fd_failover_channel_state( peer->channel );
   resp->status                = local.status;
+  /* The operator sees a pending request as busy.  The wire status only
+     describes transition work, so asking for a handoff does not make the
+     requester fail its own peer readiness check. */
+  if( FD_UNLIKELY( ctx->handoff_pending ) ) resp->status |= FD_FAILOVER_STATUS_BUSY;
   resp->flags                 = local.flags;
   resp->replication_lag_slots = peer->lag_slots;
   resp->rtt_nanos             = (ulong)fd_long_max( peer->rtt_nanos, 0L );
@@ -1871,17 +1918,18 @@ request_switch( fd_failover_tile_ctx_t * ctx,
 /* Records the result of the switch we asked for.  A reply for some other
    request is dropped, otherwise an old reply could be mistaken for a
    finished demotion. */
-static void
+static int
 switch_answer( fd_failover_tile_ctx_t * ctx,
                ulong                    nonce ) {
   if( FD_UNLIKELY( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT ||
                    nonce!=ctx->switch_request_id ) ) {
     FD_LOG_WARNING(( "dropping a stale identity switch answer" ));
-    return;
+    return 0;
   }
   ctx->switch_pending_key  = FD_FAILOVER_SWITCH_KEY_CNT;
   ctx->switch_result_id    = nonce;
   ctx->switch_result_fresh = 1;
+  return 1;
 }
 
 static ulong
@@ -1901,12 +1949,13 @@ switch_query( fd_failover_tile_ctx_t * ctx,
   return ctx->switch_query_id;
 }
 
-static void
+static int
 switch_state_answer( fd_failover_tile_ctx_t * ctx,
                       ulong                    nonce ) {
-  if( FD_UNLIKELY( !ctx->switch_query_pending || nonce!=ctx->switch_query_id ) ) return;
+  if( FD_UNLIKELY( !ctx->switch_query_pending || nonce!=ctx->switch_query_id ) ) return 0;
   ctx->switch_query_pending = 0;
   ctx->switch_state_fresh   = 1;
+  return 1;
 }
 
 /* Give up the staked identity at a new term.  We write the record and
@@ -2124,7 +2173,7 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
   case FD_ADMINCTL_FAILOVER_CMD_DRILL: {
     /* Ask the active to hand over.  A drill goes through all the checks but
        stops short of switching. */
-    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->pending_valid ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->pending_valid || ctx->handoff_pending ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
     if( FD_UNLIKELY( !paired || !peer->status_valid ) ) return FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED;
     if( FD_UNLIKELY( ctx->paused ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
     if( FD_UNLIKELY( ctx->hello.term>=ULONG_MAX-1UL ) ) return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
@@ -2164,6 +2213,11 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
     /* Keep the request around, the answer gets matched against it. */
     ctx->handoff_req     = msg;
     ctx->handoff_pending = 1;
+    ctx->handoff_session = fd_failover_channel_metrics( peer->channel )->paired_cnt;
+    ctx->handoff_deadline_slot = ctx->replay_slot==FD_FAILOVER_SLOT_NULL
+                              ? FD_FAILOVER_SLOT_NULL : fd_ulong_sat_add( ctx->replay_slot, ctx->deadline_slots );
+    ulong seconds = fd_ulong_max( 30UL, fd_ulong_min( ctx->deadline_slots, 300UL ) );
+    ctx->handoff_deadline = fd_long_sat_add( now, (long)(seconds*1000000000UL) );
     ctx->handoff_code    = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
     ctx->handoff_reason  = FD_FAILOVER_REJECT_NONE;
     return FD_ADMINCTL_RESULT_SUCCESS;
@@ -2350,12 +2404,12 @@ during_frag( fd_failover_tile_ctx_t * ctx,
     }
     fd_failover_bus_msg_t const * msg = fd_chunk_to_laddr_const( ctx->admin_in_mem, chunk );
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_STATE ) ) {
-      fd_memcpy( &ctx->switch_state, msg->payload, sizeof(ctx->switch_state) );
+      fd_memcpy( &ctx->switch_response, msg->payload, sizeof(ctx->switch_response) );
       ctx->switch_state_nonce = msg->nonce;
       return;
     }
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_RESP ) ) {
-      fd_memcpy( &ctx->switch_result, msg->payload, sizeof(ctx->switch_result) );
+      fd_memcpy( &ctx->switch_response, msg->payload, sizeof(ctx->switch_response) );
       ctx->switch_answer_nonce = msg->nonce;
       return;
     }
@@ -2386,11 +2440,13 @@ after_frag( fd_failover_tile_ctx_t * ctx,
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_STATE ) ) {
-      switch_state_answer( ctx, ctx->switch_state_nonce );
+      if( FD_LIKELY( switch_state_answer( ctx, ctx->switch_state_nonce ) ) ) ctx->switch_state = ctx->switch_response;
       return;
     }
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_RESP ) ) {
-      switch_answer( ctx, ctx->switch_answer_nonce );
+      /* The accepted result can remain live while the tower drains.
+         Commit the payload only after the stem and nonce checks pass. */
+      if( FD_LIKELY( switch_answer( ctx, ctx->switch_answer_nonce ) ) ) ctx->switch_result = ctx->switch_response;
       return;
     }
     /* Answered from after_credit, where a publish credit is available. */

@@ -1968,6 +1968,7 @@ static fd_tower_adopt_result_t
 failover_adopt_tower( fd_tower_tile_t * ctx,
                       uchar const *     data,
                       ulong             data_sz ) {
+  ctx->failover_tower_adopted = 0;
   fd_tower_adopt_result_t result = { .result=FD_TOWER_ADOPT_ERR_DECODE,
                                      .root=ctx->tower->root,
                                      .vote_slot=fd_tower_vote_empty( ctx->tower->votes )
@@ -2022,7 +2023,6 @@ failover_adopt_tower( fd_tower_tile_t * ctx,
                   err     ? FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT :
                             FD_TOWER_ADOPT_SUCCESS;
   if( FD_LIKELY( !err ) ) {
-    ctx->failover_tower_adopted = 1;
     /* fd_tower_adopt advanced the tower root and dropped tower ancestry
        below it.  The fork choice root is separate, so advance it to match,
        the way the normal root publish does.  Otherwise a later replay walks
@@ -2042,8 +2042,11 @@ failover_adopt_tower( fd_tower_tile_t * ctx,
     }
   }
   result.root = ctx->tower->root;
-  if( FD_LIKELY( !fd_tower_vote_empty( ctx->tower->votes ) ) )
-    result.vote_slot = fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot;
+  result.vote_slot = fd_tower_vote_empty( ctx->tower->votes )
+                  ? ULONG_MAX : fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot;
+  /* An empty prefix must not report the old shadow vote as adopted.
+     Only the complete received tower can authorize the identity switch. */
+  ctx->failover_tower_adopted = !err && vote_cnt && result.vote_slot==votes[ vote_cnt-1UL ].slot;
   return result;
 }
 
