@@ -79,6 +79,8 @@ telemetry = true
     #      +-- incremental-snapshot-368327930-368400391-8ybYYVq7Ecui9TLj13SvzXjTX7JiGP65f4KrtNRCPajW.tar.zst
     #  +-- tower
     #  |   +-- tower-1_9-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin
+    #  +-- votor
+    #  |   +-- vote-history-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin
     #  +-- vote-account.json
     #
     # Two substitutions will be performed on this string.  If "{user}"

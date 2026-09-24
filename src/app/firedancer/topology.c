@@ -1291,6 +1291,10 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( !alpenglow_enabled ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  } else if( failover_enabled ) {
+    /* The first-use check reads the vote account, the votor takes the
+       joiner slot the tower tile does not use here. */
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "votor", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
   if( FD_UNLIKELY( !snapshots_enabled ) ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "genesi", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1785,6 +1789,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.failover_enabled = config->firedancer.failover.enabled;
     fd_cstr_ncpy( tile->votor.failover_staked_identity_path, config->firedancer.failover.staked_identity_path, sizeof(tile->votor.failover_staked_identity_path) );
     fd_cstr_ncpy( tile->votor.failover_first_use, config->failover_first_use, sizeof(tile->votor.failover_first_use) );
+    /* The same knob as the tower file, under Alpenglow it is the vote history. */
+    tile->votor.hist_file           = config->firedancer.failover.tower_file;
+    tile->votor.hist_file_sandboxed = config->development.sandbox;
+    fd_cstr_ncpy( tile->votor.base_path, config->paths.base, sizeof(tile->votor.base_path) );
+    fd_cstr_ncpy( tile->votor.vote_account_path, config->paths.vote_account, sizeof(tile->votor.vote_account_path) );
+    tile->votor.accdb_obj_id = config->firedancer.failover.enabled ? fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX ) : ULONG_MAX;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;

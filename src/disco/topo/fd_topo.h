@@ -702,6 +702,11 @@ struct fd_topo_tile {
       int    failover_enabled;
       char   failover_staked_identity_path[ PATH_MAX ];
       char   failover_first_use[ 45 ];
+      int    hist_file;           /* persist the signed vote history under base_path/votor */
+      int    hist_file_sandboxed; /* the reserved descriptor number is fixed by seccomp */
+      char   base_path[ PATH_MAX ];
+      char   vote_account_path[ PATH_MAX ];
+      ulong  accdb_obj_id;        /* ULONG_MAX without failover, the first-use check reads the vote account */
     } votor;
 
     struct {

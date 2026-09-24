@@ -33,6 +33,35 @@ test_tower_message( void ) {
   FD_TEST( !fd_keyguard_payload_authorize( &authority, msg+FD_KEYGUARD_TOWER_FILE_PREFIX_SZ, 32UL, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 }
 
+static void
+test_votor_hist_message( void ) {
+  fd_keyguard_authority_t authority = {0};
+  uchar msg[ FD_KEYGUARD_VOTOR_HIST_MSG_SZ+1UL ]; /* one spare byte for the oversized case */
+  fd_memcpy( msg, FD_KEYGUARD_VOTOR_HIST_PREFIX, FD_KEYGUARD_VOTOR_HIST_PREFIX_SZ );
+  fd_memset( msg+FD_KEYGUARD_VOTOR_HIST_PREFIX_SZ, 0x5a, 33UL );
+  ulong sz = FD_KEYGUARD_VOTOR_HIST_MSG_SZ;
+
+  FD_TEST( fd_keyguard_payload_match( msg, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_AG_HIST );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, msg, sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz, FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz, FD_KEYGUARD_ROLE_LEADER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  /* Only the exact prefix and size are a votor history message. */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz-1UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz+1UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  msg[ 0 ] ^= 1;
+  FD_TEST( !(fd_keyguard_payload_match( msg, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_AG_HIST) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sz, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  msg[ 0 ] ^= 1;
+
+  /* The tower file message belongs to the tower role alone. */
+  uchar tower[ FD_KEYGUARD_TOWER_FILE_MSG_SZ ];
+  fd_memcpy( tower, FD_KEYGUARD_TOWER_FILE_PREFIX, FD_KEYGUARD_TOWER_FILE_PREFIX_SZ );
+  fd_memset( tower+FD_KEYGUARD_TOWER_FILE_PREFIX_SZ, 0x5a, 32UL );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, tower, sizeof(tower), FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+}
+
 static ulong
 build_txn_v1( uchar * buf,
               ulong   sig_cnt,
@@ -213,6 +242,7 @@ main( int     argc,
   test_txn_v1_match();
   test_ag_vote_authorize();
   test_tower_message();
+  test_votor_hist_message();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

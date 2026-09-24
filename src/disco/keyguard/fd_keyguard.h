@@ -36,6 +36,13 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_TOWER_FILE_PREFIX_SZ (16UL)
 #define FD_KEYGUARD_TOWER_FILE_MSG_SZ    (48UL)
 
+/* The votor tile signs its saved vote history the same way, plain
+   Ed25519 over its own 16 byte prefix and the sha256 of the file body,
+   so the two file signatures live in separate domains. */
+#define FD_KEYGUARD_VOTOR_HIST_PREFIX    "FD_VOTOR_HIST_V1"
+#define FD_KEYGUARD_VOTOR_HIST_PREFIX_SZ (16UL)
+#define FD_KEYGUARD_VOTOR_HIST_MSG_SZ    (48UL)
+
 /* Payload types ******************************************************/
 
 #define FD_KEYGUARD_PAYLOAD_LG_TXN     ( 0)  /* Solana transaction message (e.g. vote) */
@@ -50,6 +57,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_LG_PONG    (10)  /* Gossip/Repair ping/pong protocol */
 #define FD_KEYGUARD_PAYLOAD_LG_AG_VOTE (11) /* Alpenglow BLS vote */
 #define FD_KEYGUARD_PAYLOAD_LG_TOWER   (12) /* Saved tower file message */
+#define FD_KEYGUARD_PAYLOAD_LG_AG_HIST (13) /* Saved votor history file message */
 
 #define FD_KEYGUARD_PAYLOAD_TXN     (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN    )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP  (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP )
@@ -63,6 +71,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_PONG    (1UL<<FD_KEYGUARD_PAYLOAD_LG_PONG   )
 #define FD_KEYGUARD_PAYLOAD_AG_VOTE (1UL<<FD_KEYGUARD_PAYLOAD_LG_AG_VOTE)
 #define FD_KEYGUARD_PAYLOAD_TOWER   (1UL<<FD_KEYGUARD_PAYLOAD_LG_TOWER  )
+#define FD_KEYGUARD_PAYLOAD_AG_HIST (1UL<<FD_KEYGUARD_PAYLOAD_LG_AG_HIST)
 
 /* Sign types *********************************************************/
 

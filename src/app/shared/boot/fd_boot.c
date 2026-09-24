@@ -25,7 +25,7 @@ fd_boot_failover_first_use( int *        argc,
   if( FD_UNLIKELY( !config->is_firedancer || !action ||
                    ( strcmp( action, "run" ) && strcmp( action, "dev" ) ) ||
                    !config->firedancer.failover.enabled || !config->firedancer.failover.tower_file ) )
-    FD_LOG_ERR(( "--failover-first-use requires Firedancer run/dev with failover and tower persistence enabled" ));
+    FD_LOG_ERR(( "--failover-first-use requires Firedancer run/dev with [failover.enabled] and [failover.tower_file]" ));
   uchar decoded[ 32 ];
   if( FD_UNLIKELY( strlen( pubkey )>=sizeof(config->failover_first_use) || !fd_base58_decode_32( pubkey, decoded ) ) )
     FD_LOG_ERR(( "--failover-first-use requires the staked identity's base58 public key" ));

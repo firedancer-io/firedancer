@@ -1,7 +1,9 @@
 #include "fd_votor_tile.h"
 #include "generated/fd_votor_tile_seccomp.h"
+#include "generated/fd_votor_tile_file_seccomp.h"
 
 #include "../../choreo/votor/ag_cert_serde.h"
+#include "../../choreo/votor/ag_hist_file.h"
 #include "../../choreo/votor/ag_pool.h"
 #include "../../choreo/votor/ag_slot_state.h"
 #include "../../choreo/votor/ag_vote_serde.h"
@@ -15,15 +17,23 @@
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_clock_tile.h"
+#include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../flamenco/stakes/fd_stake_weight.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_conn.h"
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 #include "../replay/fd_replay_tile.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #define IN_KIND_EPOCH  (0)
 #define IN_KIND_GOSSIP (1)
@@ -182,6 +192,20 @@ struct fd_votor_tile {
 
   uchar  adopt_req[ AG_HIST_SER_MAX ];
   ulong  adopt_req_sz;
+
+  /* Signed vote history file, the tower file's twin.  Written before
+     each own vote leaves, read back at boot for the identity that votes
+     here, the staked one under failover. */
+  int          hist_file;
+  int          hist_file_sandboxed; /* the reserved descriptor number is fixed by seccomp */
+  int          hist_dir_fd;
+  int          hist_file_fd;
+  ag_hist_t    loaded_hist;         /* the file verified at boot, then every history stored since */
+  int          loaded_hist_valid;
+  int          first_use_pending;   /* the staked key is in, the vote account still has to check out */
+  fd_pubkey_t  vote_account;
+  fd_accdb_t * accdb;               /* NULL without failover */
+  uchar        hist_file_buf[ AG_HIST_FILE_MAX ];
 
   /* Initialization */
 
@@ -782,6 +806,215 @@ close_conns( fd_votor_tile_t * ctx ) {
   }
 }
 
+/* The history file lives under base_path/votor, one per identity, the
+   way the tower file lives under base_path/tower. */
+
+static void
+hist_file_names( fd_pubkey_t const * identity,
+                 char                name[ static 80 ],
+                 char                name_new[ static 80 ] ) {
+  FD_BASE58_ENCODE_32_BYTES( identity->uc, identity_b58 );
+  FD_TEST( fd_cstr_printf_check( name,     80UL, NULL, "vote-history-%s.bin",     identity_b58 ) );
+  FD_TEST( fd_cstr_printf_check( name_new, 80UL, NULL, "vote-history-%s.bin.new", identity_b58 ) );
+}
+
+static int
+hist_file_dir_open( char const * base_path ) {
+  int base_fd = open( base_path, O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW );
+  if( FD_UNLIKELY( -1==base_fd ) ) {
+    FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", base_path, errno, fd_io_strerror( errno ) ));
+  }
+  struct stat base_stat;
+  if( FD_UNLIKELY( -1==fstat( base_fd, &base_stat ) ) ) {
+    FD_LOG_ERR(( "fstat(base directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==mkdirat( base_fd, "votor", 0700 ) && errno!=EEXIST ) ) {
+    FD_LOG_ERR(( "mkdirat(votor) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  int dir_fd = openat( base_fd, "votor", O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW );
+  if( FD_UNLIKELY( -1==dir_fd ) ) {
+    FD_LOG_ERR(( "openat(votor) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  struct stat dir_stat;
+  if( FD_UNLIKELY( -1==fstat( dir_fd, &dir_stat ) ) ) {
+    FD_LOG_ERR(( "fstat(votor directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( ( dir_stat.st_uid!=base_stat.st_uid || dir_stat.st_gid!=base_stat.st_gid ) &&
+                   -1==fchown( dir_fd, base_stat.st_uid, base_stat.st_gid ) ) )
+    FD_LOG_ERR(( "fchown(votor) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( (dir_stat.st_mode & 07777U)!=0700U && -1==fchmod( dir_fd, 0700 ) ) ) {
+    FD_LOG_ERR(( "fchmod(votor) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==fsync( dir_fd ) ) ) {
+    FD_LOG_ERR(( "fsync(votor directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==fsync( base_fd ) ) ) {
+    FD_LOG_ERR(( "fsync(base directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==close( base_fd ) ) ) {
+    FD_LOG_ERR(( "close(base directory) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  return dir_fd;
+}
+
+/* Returns 1 for a verified history, 0 only for ENOENT, and -1 for any
+   existing invalid file or I/O error. */
+static int
+hist_file_load( int                 dir_fd,
+                fd_pubkey_t const * identity,
+                ag_hist_t *         out ) {
+  char name[ 80 ];
+  char name_new[ 80 ];
+  hist_file_names( identity, name, name_new );
+  int fd = openat( dir_fd, name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK );
+  if( FD_UNLIKELY( fd<0 ) ) return errno==ENOENT ? 0 : -1;
+  struct stat st;
+  int valid = !fstat( fd, &st ) && S_ISREG( st.st_mode ) &&
+              st.st_size>0 && st.st_size<=(off_t)AG_HIST_FILE_MAX;
+  uchar buf[ AG_HIST_FILE_MAX+1UL ];
+  if( valid ) {
+    ulong sz;
+    int err = fd_io_read( fd, buf, sizeof(buf), sizeof(buf), &sz );
+    valid = err<0 && sz==(ulong)st.st_size && !ag_hist_file_de( buf, sz, identity, out, NULL );
+  }
+  if( FD_UNLIKELY( close( fd ) ) ) return -1;
+  return valid ? 1 : -1;
+}
+
+static void
+hist_file_store( fd_votor_tile_t *   ctx,
+                 fd_pubkey_t const * identity,
+                 uchar const *       data,
+                 ulong               data_sz ) {
+  char name[ 80 ];
+  char name_new[ 80 ];
+  hist_file_names( identity, name, name_new );
+
+  /* The seccomp policy allows one descriptor number for the file.  A
+     sandboxed tile owns its descriptor table, so it closes the reserved
+     number and openat hands it back.  The threaded dev launcher shares
+     one table between all tiles, so there the number is never left free,
+     the file is opened first and dup2 moves it onto the reserved number. */
+  int hist_file_fd = ctx->hist_file_fd;
+  if( FD_LIKELY( ctx->hist_file_sandboxed ) ) {
+    if( FD_UNLIKELY( -1==close( hist_file_fd ) ) ) {
+      FD_LOG_ERR(( "close(vote history file) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+  if( FD_UNLIKELY( -1==unlinkat( ctx->hist_dir_fd, name_new, 0 ) && errno!=ENOENT ) ) {
+    FD_LOG_ERR(( "unlinkat(%s) failed (%i-%s)", name_new, errno, fd_io_strerror( errno ) ));
+  }
+
+  int fd = openat( ctx->hist_dir_fd, name_new, O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, 0600 );
+  if( FD_UNLIKELY( -1==fd ) ) {
+    FD_LOG_ERR(( "openat(%s) failed (%i-%s)", name_new, errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( fd!=hist_file_fd ) ) {
+    if( FD_LIKELY( ctx->hist_file_sandboxed ) ) {
+      FD_LOG_ERR(( "openat(%s) returned fd %i, expected %i", name_new, fd, hist_file_fd ));
+    }
+    if( FD_UNLIKELY( -1==dup2( fd, hist_file_fd ) || -1==fcntl( hist_file_fd, F_SETFD, FD_CLOEXEC ) ) ) {
+      FD_LOG_ERR(( "dup2(vote history file) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( -1==close( fd ) ) ) {
+      FD_LOG_ERR(( "close(vote history file) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    fd = hist_file_fd;
+  }
+  ctx->hist_file_fd = fd;
+
+  ulong wsz;
+  int   err = fd_io_write( fd, data, data_sz, data_sz, &wsz );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "vote history file write failed (%i-%s)", err, fd_io_strerror( err ) ));
+  }
+  if( FD_UNLIKELY( -1==fsync( fd ) ) ) {
+    FD_LOG_ERR(( "vote history file fsync failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( -1==renameat( ctx->hist_dir_fd, name_new, ctx->hist_dir_fd, name ) ) ) {
+    FD_LOG_ERR(( "renameat(%s) failed (%i-%s)", name, errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==fsync( ctx->hist_dir_fd ) ) ) {
+    FD_LOG_ERR(( "votor directory fsync failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+static void
+hist_sign_cb( void *        _ctx,
+              uchar         sig[ 64 ],
+              uchar const * msg,
+              ulong         msg_sz ) {
+  fd_votor_tile_t * ctx = (fd_votor_tile_t *)_ctx;
+  uchar req[ FD_KEYGUARD_VOTOR_HIST_MSG_SZ ];
+  ag_hist_file_sign_msg( msg, msg_sz, req );
+  fd_keyguard_client_sign( ctx->keyguard_client, sig, req, sizeof(req), FD_KEYGUARD_SIGN_TYPE_ED25519 );
+}
+
+/* The last window this identity led, either here or per an adopted or
+   restored history.  Defined below, used by the file writer. */
+static ulong leader_floor( fd_votor_tile_t const * ctx );
+
+/* Write the history with the vote we are about to send already in it,
+   so a restart cannot vote against it.  The stored copy becomes the
+   floor a peer's confirmation is checked against. */
+static void
+hist_file_persist( fd_votor_tile_t * ctx ) {
+  ag_hist_t * hist = &ctx->loaded_hist;
+  ag_votor_hist_export( ctx->votor, leader_floor( ctx ), hist );
+  long sz = ag_hist_file_ser( hist, &ctx->id_key, fd_log_wallclock()/(long)1e9, hist_sign_cb, ctx, ctx->hist_file_buf, sizeof(ctx->hist_file_buf) );
+  if( FD_UNLIKELY( sz<0L ) ) FD_LOG_ERR(( "vote history file serialization failed" ));
+  hist_file_store( ctx, &ctx->id_key, ctx->hist_file_buf, (ulong)sz );
+  ctx->loaded_hist_valid = 1;
+}
+
+/* Apply the file we booted with once this identity may vote, so no
+   slot it voted before the restart is voted again. */
+static void
+hist_restore( fd_votor_tile_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->loaded_hist_valid ) ) return;
+  ulong conflicts = ag_votor_hist_adopt( ctx->votor, &ctx->loaded_hist );
+  if( FD_UNLIKELY( conflicts ) ) FD_LOG_WARNING(( "restored vote history disagrees with %lu of our own notar hashes, the file's were the ones sent", conflicts ));
+  if( FD_UNLIKELY( ctx->loaded_hist.last_leader_slot!=ULONG_MAX &&
+                   ( ctx->adopted_last_leader_slot==ULONG_MAX || ctx->loaded_hist.last_leader_slot>ctx->adopted_last_leader_slot ) ) )
+    ctx->adopted_last_leader_slot = ctx->loaded_hist.last_leader_slot;
+  FD_LOG_NOTICE(( "restored signed vote history through slot %lu", ag_hist_tip( &ctx->loaded_hist ) ));
+}
+
+/* The tower tile's first-use rule on a vote account: -1 if it is not a
+   valid initialized vote account, 1 if it has any voting history, 0 if
+   it is fresh. */
+static int
+first_use_account_used( uchar const * owner,
+                        uchar const * data,
+                        ulong         data_len ) {
+  if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( owner, data, data_len ) ) ) return -1;
+  fd_vote_block_timestamp_t timestamp;
+  ulong credits_cnt;
+  fd_vote_epoch_credits_t const * credits = fd_vote_account_epoch_credits( data, data_len, &credits_cnt );
+  return fd_vote_account_last_timestamp( data, data_len, &timestamp ) ||
+         timestamp.slot || timestamp.timestamp || !credits || credits_cnt;
+}
+
+/* An identity with any voting history on chain is not started fresh,
+   its signed file has to come back. */
+static void
+first_use_check( fd_votor_tile_t *                  ctx,
+                 fd_replay_slot_completed_t const * slot_completed ) {
+  fd_acc_t acc  = fd_accdb_read_one( ctx->accdb, slot_completed->accdb_fork_id, ctx->vote_account.uc );
+  int      used = acc.lamports ? first_use_account_used( acc.owner, acc.data, acc.data_len ) : -1;
+  fd_accdb_unread_one( ctx->accdb, &acc );
+  if( FD_UNLIKELY( used<0 ) )
+    FD_LOG_ERR(( "--failover-first-use requires a valid initialized vote account" ));
+  if( FD_UNLIKELY( used ) )
+    FD_LOG_ERR(( "--failover-first-use cannot authorize an identity with existing voting history. Restore its latest signed vote history file." ));
+  ctx->first_use_pending = 0;
+  ctx->vote_authority    = 1;
+  install_ranks( ctx );
+  FD_LOG_NOTICE(( "first use checked against the vote account, voting as the staked identity" ));
+}
+
 /* The last window this identity led, whether we led it or the history
    we adopted says the peer did.  ULONG_MAX when neither. */
 static ulong
@@ -811,12 +1044,30 @@ publish_hist( fd_votor_tile_t *   ctx,
   ctx->hist_out_chunk = fd_dcache_compact_next( ctx->hist_out_chunk, sizeof(fd_votor_hist_msg_t), ctx->hist_out_chunk0, ctx->hist_out_wmark );
 }
 
-/* Take the peer's vote history before the staked key is installed here. */
+/* Take the peer's vote history before the staked key is installed here.
+   The empty request is the failover tile asking for this machine's own
+   file instead, the way it asks the tower tile on a reclaim or a forced
+   promotion.  That file holds every vote this identity sent from here
+   before the restart, so none of them is repeated. */
 static fd_votor_adopt_result_t
 failover_adopt_hist( fd_votor_tile_t * ctx,
                      uchar const *     req,
                      ulong             req_sz ) {
   fd_votor_adopt_result_t result = { .result = FD_VOTOR_ADOPT_ERR_DECODE, .root = ULONG_MAX, .vote_slot = ULONG_MAX };
+  if( FD_UNLIKELY( !req_sz ) ) {
+    result.result = FD_VOTOR_ADOPT_ERR_NO_LOCAL_TOWER;
+    if( FD_UNLIKELY( !ctx->loaded_hist_valid || !ctx->init ) ) return result;
+    ulong conflicts = ag_votor_hist_adopt( ctx->votor, &ctx->loaded_hist );
+    if( FD_UNLIKELY( conflicts ) ) FD_LOG_WARNING(( "our own vote history file disagrees with %lu of our notar hashes, the file's were the ones sent", conflicts ));
+    ctx->failover_hist_adopted = 1;
+    if( FD_UNLIKELY( ctx->loaded_hist.last_leader_slot!=ULONG_MAX &&
+                     ( ctx->adopted_last_leader_slot==ULONG_MAX || ctx->loaded_hist.last_leader_slot>ctx->adopted_last_leader_slot ) ) )
+      ctx->adopted_last_leader_slot = ctx->loaded_hist.last_leader_slot;
+    result.result    = FD_VOTOR_ADOPT_SUCCESS;
+    result.root      = ag_votor_highest_final_cert_slot( ctx->votor );
+    result.vote_slot = ag_hist_tip( &ctx->loaded_hist );
+    return result;
+  }
   ag_hist_t hist[1];
   if( FD_UNLIKELY( req_sz>sizeof(ctx->adopt_req) || ag_hist_de( req, req_sz, hist ) ) ) return result;
 
@@ -825,9 +1076,11 @@ failover_adopt_hist( fd_votor_tile_t * ctx,
   if( FD_UNLIKELY( tip==ULONG_MAX || !ctx->init ) ) return result;
 
   /* Never take a history older than the votes this machine sent as the
-     staked identity, a peer that fell behind cannot roll us back. */
+     staked identity, or than the file it booted with.  A peer that fell
+     behind cannot roll us back. */
   result.result = FD_VOTOR_ADOPT_ERR_STALE;
   if( FD_UNLIKELY( ctx->last_vote_slot!=ULONG_MAX && tip<ctx->last_vote_slot ) ) return result;
+  if( FD_UNLIKELY( ctx->loaded_hist_valid && tip<ag_hist_tip( &ctx->loaded_hist ) ) ) return result;
 
   /* A finality anchor past the blocks we replayed cannot be real, and
      advance_root would prune one slot at a time up to it.  Refuse it, the
@@ -862,13 +1115,16 @@ switch_identity( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->failover_enabled ) ) {
     ctx->failover_standby = !fd_pubkey_eq( &ctx->id_key, &ctx->failover_staked_identity );
     FD_LOG_NOTICE(( "failover: this machine is now %s", ctx->failover_standby ? "a hot spare" : "the active voter" ));
+    ctx->first_use_pending = 0; /* a switch away drops a check that never ran */
     if( FD_UNLIKELY( ctx->failover_standby ) ) {
       ctx->vote_authority = 0;
     } else if( FD_LIKELY( ctx->failover_hist_adopted ) ) {
       ctx->first_use_authorized = 0;
     } else if( FD_UNLIKELY( ctx->first_use_authorized ) ) {
       ctx->first_use_authorized = 0;
-      FD_LOG_NOTICE(( "first use installed, voting starts without an adopted history" ));
+      ctx->first_use_pending    = 1;
+      ctx->vote_authority       = 0;
+      FD_LOG_NOTICE(( "first use installed, checking the vote account for history before voting" ));
     } else {
       ctx->vote_authority = 0;
       FD_LOG_WARNING(( "staked identity installed without an adopted vote history or first-use authorization, refusing to vote" ));
@@ -880,6 +1136,7 @@ switch_identity( fd_votor_tile_t * ctx ) {
     ctx->failover_hist_adopted = 0;
   }
   install_ranks( ctx );
+  if( FD_UNLIKELY( ctx->failover_enabled && !ctx->failover_standby ) ) hist_restore( ctx );
 
   /* The old identity's next slot is gone.  Start past everything we have
      seen, handle_epoch seeds the slot again if the schedule is not loaded.
@@ -1114,7 +1371,10 @@ handle_replay( fd_votor_tile_t *           ctx,
     if( FD_LIKELY( slot_completed->root_slot!=ULONG_MAX ) ) ctx->root_slot = slot_completed->root_slot;
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ag_pool_init( ctx->pool, block_id.slot );
-      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
+      if( FD_LIKELY( ctx->shred_version ) ) {
+        ag_votor_init( ctx->votor, block_id.slot, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
+        if( FD_UNLIKELY( ctx->hist_file && !ctx->failover_enabled ) ) hist_restore( ctx );
+      }
       ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
@@ -1125,6 +1385,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_votor_handle_replay_event( ctx->votor, &completed );
     if( FD_UNLIKELY( block_id.slot==ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW-1UL ) ) ctx->curr_leader_slot = ULONG_MAX;
     footer = &slot_completed->footer;
+    if( FD_UNLIKELY( ctx->first_use_pending ) ) first_use_check( ctx, slot_completed );
     break;
   }
   case REPLAY_SIG_SLOT_DEAD: {
@@ -1192,6 +1453,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                 );
   l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
   l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
+  if( FD_UNLIKELY( tile->votor.accdb_obj_id!=ULONG_MAX ) )
+    l = FD_LAYOUT_APPEND( l, fd_accdb_align(),              fd_accdb_footprint( tile->votor.max_live_slots ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -1311,6 +1574,7 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote_event.vote );
     if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
+      if( FD_UNLIKELY( ctx->hist_file ) ) hist_file_persist( ctx );
       int err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
       if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) {
@@ -1353,6 +1617,13 @@ after_credit( fd_votor_tile_t *   ctx,
   if( FD_UNLIKELY( ctx->curr_leader_slot!=ULONG_MAX && finalized_slot>=ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW ) ) ctx->curr_leader_slot = ULONG_MAX;
 
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* never will be leader */
+
+  /* A window this identity already produced, per an adopted or restored
+     history, is never led again. */
+  if( FD_UNLIKELY( ctx->adopted_last_leader_slot!=ULONG_MAX && ctx->next_leader_slot<fd_ulong_sat_add( ctx->adopted_last_leader_slot, AG_SLOTS_PER_WINDOW ) ) ) {
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_sat_add( ctx->adopted_last_leader_slot, AG_SLOTS_PER_WINDOW ), &ctx->id_key );
+    if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return;
+  }
 
   /* Check if it's time to become leader. */
 
@@ -1503,7 +1774,10 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
-    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, ag_pool_finalized_slot( ctx->pool ), fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, (ushort)sig, sign_bls, ctx );
+    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) {
+      ag_votor_init( ctx->votor, ag_pool_finalized_slot( ctx->pool ), fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, (ushort)sig, sign_bls, ctx );
+      if( FD_UNLIKELY( ctx->hist_file && !ctx->failover_enabled ) ) hist_restore( ctx );
+    }
     ctx->shred_version = (ushort)sig;
     ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
     break;
@@ -1573,6 +1847,48 @@ privileged_init( fd_topo_t const *      topo,
     }
   }
 
+  ctx->hist_file         = tile->votor.hist_file;
+  ctx->hist_dir_fd       = -1;
+  ctx->hist_file_fd      = -1;
+  ctx->loaded_hist_valid = 0;
+  ctx->first_use_pending = 0;
+  fd_memset( ctx->vote_account.uc, 0, sizeof(fd_pubkey_t) );
+  if( FD_UNLIKELY( ctx->hist_file ) ) {
+    /* Under failover the file belongs to the staked identity, whoever
+       boots.  Without it the booting identity is the one that votes. */
+    fd_pubkey_t const * file_identity = ctx->failover_enabled ? &ctx->failover_staked_identity : &ctx->id_key;
+    ctx->hist_dir_fd = hist_file_dir_open( tile->votor.base_path );
+    int loaded = hist_file_load( ctx->hist_dir_fd, file_identity, &ctx->loaded_hist );
+    if( FD_UNLIKELY( loaded<0 ) )
+      FD_LOG_ERR(( "cannot read or verify the signed vote history file." ));
+    if( FD_UNLIKELY( loaded && ctx->first_use_authorized ) )
+      FD_LOG_ERR(( "--failover-first-use cannot discard an existing signed vote history file. Use signed-history recovery." ));
+    if( FD_UNLIKELY( !loaded && ctx->failover_enabled && !ctx->failover_standby && !ctx->first_use_authorized ) )
+      FD_LOG_ERR(( "failover active startup requires its latest signed vote history file." ));
+    ctx->loaded_hist_valid = loaded;
+    if( loaded ) FD_LOG_NOTICE(( "loaded signed vote history through slot %lu, it is applied once this identity votes", ag_hist_tip( &ctx->loaded_hist ) ));
+    ctx->hist_file_fd = fcntl( ctx->hist_dir_fd, F_DUPFD_CLOEXEC, 0 );
+    if( FD_UNLIKELY( -1==ctx->hist_file_fd ) ) FD_LOG_ERR(( "fcntl(F_DUPFD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    /* Under seccomp hist_file_store closes this descriptor and expects
+       openat to give the same number back, which only holds if no lower
+       number is free.  The launcher closes stdin before starting tiles, so
+       the reserved descriptor has to be 0. */
+    ctx->hist_file_sandboxed = tile->votor.hist_file_sandboxed;
+    if( FD_UNLIKELY( ctx->hist_file_sandboxed && ctx->hist_file_fd!=0 ) ) {
+      FD_LOG_ERR(( "reserved vote history file descriptor is %i, expected 0: another descriptor was open when the votor tile started", ctx->hist_file_fd ));
+    }
+  }
+  if( FD_UNLIKELY( ctx->first_use_authorized ) ) {
+    /* The first-use check reads the vote account, its address comes from
+       the keypair file or is given as base58 like replay takes it. */
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->votor.vote_account_path, ctx->vote_account.uc ) ) ) {
+      uchar const * vote_account = fd_keyload_load( tile->votor.vote_account_path, /* pubkey only: */ 1 );
+      fd_memcpy( ctx->vote_account.uc, vote_account, sizeof(fd_pubkey_t) );
+      fd_keyload_unload( vote_account, 1 );
+    }
+  }
+
   fd_log_wallclock();
 }
 
@@ -1591,6 +1907,9 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                 );
   void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
   void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
+  void *            accdb         = NULL;
+  if( FD_UNLIKELY( tile->votor.accdb_obj_id!=ULONG_MAX ) )
+    accdb = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),                fd_accdb_footprint( tile->votor.max_live_slots )  );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -1638,6 +1957,15 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
   FD_TEST( ctx->mleaders );
+
+  ctx->accdb = NULL;
+  if( FD_UNLIKELY( tile->votor.accdb_obj_id!=ULONG_MAX ) ) {
+    void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->votor.accdb_obj_id );
+    fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
+    FD_TEST( accdb_shmem );
+    ctx->accdb = fd_accdb_join( fd_accdb_new( accdb, _accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+    FD_TEST( ctx->accdb );
+  }
 
   ctx->init                      = 0;
   ctx->net_tx_cnt                = 0UL;
@@ -1808,9 +2136,29 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo; (void)tile;
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
+
+  /* The file variant also covers the accounts database read the
+     first-use check does, both only exist with the history file. */
+  if( FD_UNLIKELY( ctx->hist_file || tile->votor.accdb_obj_id!=ULONG_MAX ) ) {
+    populate_sock_filter_policy_fd_votor_tile_file( out_cnt, out,
+                                                    (uint)fd_log_private_logfile_fd(), (uint)ctx->hist_dir_fd,
+                                                    (uint)ctx->hist_file_fd, FD_ACCDB_FD_RW );
+    return sock_filter_policy_fd_votor_tile_file_instr_cnt;
+  }
   populate_sock_filter_policy_fd_votor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_fd_votor_tile_instr_cnt;
+}
+
+static int
+populate_allowed_write_path_fd( fd_topo_t const *      topo,
+                                fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
+  return ctx->hist_dir_fd;
 }
 
 static ulong
@@ -1818,14 +2166,33 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo; (void)tile;
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
+
+  ulong need = 1UL + (ulong)(fd_log_private_logfile_fd()!=-1) + 2UL*(ulong)ctx->hist_file + (ulong)(tile->votor.accdb_obj_id!=ULONG_MAX);
+  if( FD_UNLIKELY( out_fds_cnt<need ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
+  if( FD_UNLIKELY( ctx->hist_file ) ) {
+    out_fds[ out_cnt++ ] = ctx->hist_dir_fd;
+    out_fds[ out_cnt++ ] = ctx->hist_file_fd;
+  }
+  if( FD_UNLIKELY( tile->votor.accdb_obj_id!=ULONG_MAX ) )
+    out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts database */
   return out_cnt;
+}
+
+static ulong
+rlimit_file_cnt( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
+  return fd_ulong_if( ctx->hist_file, (ulong)ctx->hist_file_fd+1UL, 0UL );
 }
 
 static void
@@ -1854,9 +2221,11 @@ fd_topo_run_tile_t fd_tile_votor = {
   .name                     = "votor",
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_write_path_fd = populate_allowed_write_path_fd,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
+  .rlimit_file_cnt_fn       = rlimit_file_cnt,
 };

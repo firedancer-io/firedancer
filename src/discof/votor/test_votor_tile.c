@@ -1,12 +1,25 @@
 #define FD_TILE_TEST 1
-/* test_votor_tile: the identity keyswitch and the failover links in the
-   votor tile.  The tile is included whole so the static handlers can be
-   driven directly on a ctx built by hand, the way test_tower_tile does
-   it. */
+/* test_votor_tile: the identity keyswitch, the failover links and the
+   signed vote history file in the votor tile.  The tile is included
+   whole so the static handlers can be driven directly on a ctx built by
+   hand, the way test_tower_tile does it. */
+
+#define _GNU_SOURCE
 
 #include "fd_votor_tile.c"
 #include "../../choreo/votor/test_ag_cert_builder.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../util/sandbox/fd_sandbox_private.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/runtime/program/fd_vote_program.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
+
+#include <pthread.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
 
 #define TEST_SLOT_MAX      (16UL)
 #define TEST_SHRED_VERSION ((ushort)0x5a5a)
@@ -128,6 +141,123 @@ pubkey( int fill ) {
   fd_pubkey_t key;
   fd_memset( key.uc, fill, sizeof(key) );
   return key;
+}
+
+/* The identity test_keypair signs for, the one a history file written
+   here has to name. */
+
+static fd_pubkey_t
+test_identity( void ) {
+  fd_pubkey_t key;
+  fd_memcpy( key.uc, test_keypair+32UL, sizeof(key) );
+  return key;
+}
+
+/* The history file is signed through the keyguard client, which spins
+   on an mcache until the sign tile answers.  This thread stands in for
+   that tile: it answers each request on the request mcache with an
+   Ed25519 signature under test_keypair and notes how far the hist out
+   had got when the request arrived.  Only the file signs this way in
+   the fixture, the QUIC configs and the votor have local signers. */
+
+#define KG_DEPTH (128UL)
+
+static fd_frag_meta_t kg_request_cache [ KG_DEPTH     ] __attribute__((aligned(128)));
+static fd_frag_meta_t kg_response_cache[ KG_DEPTH     ] __attribute__((aligned(128)));
+static uchar          kg_request_mem   [ FD_CHUNK_SZ  ] __attribute__((aligned(FD_CHUNK_SZ)));
+static uchar          kg_response_mem  [ FD_CHUNK_SZ  ] __attribute__((aligned(FD_CHUNK_SZ)));
+static pthread_t      kg_thread;
+static volatile int   kg_stop;
+static volatile ulong kg_signed;           /* requests answered */
+static volatile ulong kg_hist_seq_at_sign; /* out_seqs[ OUT_IDX_HIST ] when the last request arrived */
+
+static void *
+fake_keyguard_main( void * arg ) {
+  (void)arg;
+  ulong seq = 0UL;
+  while( !kg_stop ) {
+    fd_frag_meta_t const * mline = kg_request_cache + fd_mcache_line_idx( seq, KG_DEPTH );
+    if( FD_LIKELY( fd_seq_ne( FD_VOLATILE_CONST( mline->seq ), seq ) ) ) { FD_SPIN_PAUSE(); continue; }
+    FD_COMPILER_MFENCE();
+    FD_TEST( mline->sig==(ulong)FD_KEYGUARD_SIGN_TYPE_ED25519 && mline->sz==FD_KEYGUARD_VOTOR_HIST_MSG_SZ );
+    kg_hist_seq_at_sign = out_seqs[ OUT_IDX_HIST ];
+    fd_sha512_t sha[ 1 ];
+    fd_ed25519_sign( kg_response_mem, fd_chunk_to_laddr_const( kg_request_mem, mline->chunk ), mline->sz, test_keypair+32UL, test_keypair, sha );
+    fd_mcache_publish( kg_response_cache, KG_DEPTH, seq, 0UL, 0UL, 64UL, 0UL, 0UL, 0UL );
+    seq++;
+    kg_signed++;
+  }
+  return NULL;
+}
+
+static void
+fake_keyguard_start( fd_votor_tile_t * ctx ) {
+  /* A fresh mcache has every line one lap behind, a zeroed one would
+     read as already published at seq 0. */
+  for( ulong i=0UL; i<KG_DEPTH; i++ ) {
+    kg_request_cache [ i ].seq = fd_seq_dec( i, KG_DEPTH );
+    kg_response_cache[ i ].seq = fd_seq_dec( i, KG_DEPTH );
+  }
+  kg_stop             = 0;
+  kg_signed           = 0UL;
+  kg_hist_seq_at_sign = ULONG_MAX;
+  *ctx->keyguard_client = (fd_keyguard_client_t){
+    .request  = kg_request_cache,  .request_mem  = (fd_wksp_t *)fd_type_pun( kg_request_mem  ), .request_depth  = KG_DEPTH, .request_mtu  = FD_CHUNK_SZ,
+    .response = kg_response_cache, .response_mem = (fd_wksp_t *)fd_type_pun( kg_response_mem ), .response_depth = KG_DEPTH, .response_mtu = FD_CHUNK_SZ,
+  };
+  FD_TEST( !pthread_create( &kg_thread, NULL, fake_keyguard_main, NULL ) );
+}
+
+static ulong
+fake_keyguard_stop( void ) {
+  kg_stop = 1;
+  FD_TEST( !pthread_join( kg_thread, NULL ) );
+  return kg_signed;
+}
+
+/* A local signer for files the test writes itself, the same keypair
+   the fake keyguard answers with. */
+
+static void
+file_sign( void *        _keypair,
+           uchar         sig[ 64 ],
+           uchar const * msg,
+           ulong         msg_sz ) {
+  uchar const * keypair = (uchar const *)_keypair;
+  uchar         m[ FD_KEYGUARD_VOTOR_HIST_MSG_SZ ];
+  fd_sha512_t   sha[ 1 ];
+  ag_hist_file_sign_msg( msg, msg_sz, m );
+  fd_ed25519_sign( sig, m, sizeof(m), keypair+32UL, keypair, sha );
+}
+
+/* A base directory the way the operator's would be, the tile makes
+   votor/ under it.  hist_dir_delete expects it emptied again. */
+
+static int
+hist_dir_new( char base[ static 32 ] ) {
+  FD_TEST( fd_cstr_printf_check( base, 32UL, NULL, "/tmp/fd_votor_hist.XXXXXX" ) );
+  FD_TEST( mkdtemp( base ) );
+  return hist_file_dir_open( base );
+}
+
+static void
+hist_dir_delete( char const * base,
+                 int          dir_fd ) {
+  char votor_path[ 64 ];
+  FD_TEST( fd_cstr_printf_check( votor_path, sizeof(votor_path), NULL, "%s/votor", base ) );
+  FD_TEST( !close( dir_fd ) );
+  FD_TEST( !rmdir( votor_path ) );
+  FD_TEST( !rmdir( base ) );
+}
+
+static void
+wait_sigsys( pid_t          pid,
+             volatile int * progress,
+             int            expected_progress ) {
+  int status;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFSIGNALED( status ) && WTERMSIG( status )==SIGSYS );
+  FD_TEST( *progress==expected_progress );
 }
 
 /* One ctx per test, formatted the way unprivileged_init does it minus
@@ -299,6 +429,19 @@ start_consensus( fd_votor_tile_t * ctx,
   start_consensus_at( ctx, own_rank, 0L );
 }
 
+/* Rank the epoch but leave the pool and the votor uninitialised, so the
+   first SLOT_COMPLETED runs the tile's own init path. */
+
+static void
+rank_epoch_only( fd_votor_tile_t * ctx,
+                 ulong             own_rank ) {
+  ctx->curr_epoch_info = &epoch_info_mem;
+  ctx->curr_epoch_slot = 0UL;
+  ag_pool_advance_epoch ( ctx->pool, &epoch_info_mem, own_rank, 0UL );
+  ag_votor_advance_epoch( ctx->votor, TEST_NS_PER_SLOT, own_rank, 0UL );
+  ctx->shred_version = TEST_SHRED_VERSION;
+}
+
 static peer_t *
 add_ranked_peer( fd_votor_tile_t *   ctx,
                  fd_pubkey_t const * id_key,
@@ -342,6 +485,18 @@ unhalt( fd_votor_tile_t * ctx ) {
   FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
 }
 
+/* The replay in-link the way unprivileged_init wires it, one frag at
+   chunk 0 of replay_in_mem.  A plain staked node has this link too. */
+
+static void
+wire_replay_in( fd_votor_tile_t * ctx ) {
+  ctx->in_kind[ IN_IDX_REPLAY ]   = IN_KIND_REPLAY;
+  ctx->in[ IN_IDX_REPLAY ].mem    = (fd_wksp_t *)fd_type_pun( replay_in_mem );
+  ctx->in[ IN_IDX_REPLAY ].chunk0 = 0UL;
+  ctx->in[ IN_IDX_REPLAY ].wmark  = out_wmark( REPLAY_IN_MEM_SZ, sizeof(fd_replay_message_t) );
+  ctx->in[ IN_IDX_REPLAY ].mtu    = sizeof(fd_replay_message_t);
+}
+
 /* Make the fixture a failover member with the given staked identity,
    with the hist and failov outs and the replay and failov in-links wired
    the way unprivileged_init does it.  Nothing else changes, so the plain
@@ -365,11 +520,7 @@ enable_failover( fd_votor_tile_t *   ctx,
   ctx->failov_out_wmark  = out_wmark( FAILOV_OUT_MEM_SZ, sizeof(fd_votor_adopt_result_t) );
   ctx->failov_out_chunk  = 0UL;
 
-  ctx->in_kind[ IN_IDX_REPLAY ]   = IN_KIND_REPLAY;
-  ctx->in[ IN_IDX_REPLAY ].mem    = (fd_wksp_t *)fd_type_pun( replay_in_mem );
-  ctx->in[ IN_IDX_REPLAY ].chunk0 = 0UL;
-  ctx->in[ IN_IDX_REPLAY ].wmark  = out_wmark( REPLAY_IN_MEM_SZ, sizeof(fd_replay_message_t) );
-  ctx->in[ IN_IDX_REPLAY ].mtu    = sizeof(fd_replay_message_t);
+  wire_replay_in( ctx );
   ctx->in_kind[ IN_IDX_FAILOV ]   = IN_KIND_FAILOV;
   ctx->in[ IN_IDX_FAILOV ].mem    = (fd_wksp_t *)fd_type_pun( failov_in_mem );
   ctx->in[ IN_IDX_FAILOV ].chunk0 = 0UL;
@@ -446,6 +597,36 @@ one_slot_hist( ag_hist_t *   hist,
   hist->rec[ 0 ].slot    = slot;
   hist->rec[ 0 ].flags   = (uchar)( AG_HIST_FLAG_VOTED | fd_uint_if( !!notar_hash, AG_HIST_FLAG_VOTED_NOTAR, 0U ) );
   if( FD_LIKELY( notar_hash ) ) fd_memcpy( hist->rec[ 0 ].notar_hash, notar_hash, sizeof(ag_block_hash_t) );
+}
+
+/* A history on anchor 0 with a plain vote on every slot of lo..hi. */
+
+static void
+voted_hist( ag_hist_t * hist,
+            ulong       lo,
+            ulong       hi,
+            ulong       last_leader_slot ) {
+  fd_memset( hist, 0, sizeof(*hist) );
+  hist->anchor           = 0UL;
+  hist->last_leader_slot = last_leader_slot;
+  for( ulong slot=lo; slot<=hi; slot++ ) {
+    hist->rec[ hist->rec_cnt ].slot  = slot;
+    hist->rec[ hist->rec_cnt ].flags = AG_HIST_FLAG_VOTED;
+    hist->rec_cnt++;
+  }
+}
+
+/* Same records, the notar hash only counts where a notar vote sets it. */
+
+static int
+hist_eq( ag_hist_t const * a,
+         ag_hist_t const * b ) {
+  if( a->anchor!=b->anchor || a->last_leader_slot!=b->last_leader_slot || a->rec_cnt!=b->rec_cnt ) return 0;
+  for( ulong i=0UL; i<a->rec_cnt; i++ ) {
+    if( a->rec[ i ].slot!=b->rec[ i ].slot || a->rec[ i ].flags!=b->rec[ i ].flags ) return 0;
+    if( ( a->rec[ i ].flags & AG_HIST_FLAG_VOTED_NOTAR ) && !fd_memeq( a->rec[ i ].notar_hash, b->rec[ i ].notar_hash, sizeof(ag_block_hash_t) ) ) return 0;
+  }
+  return 1;
 }
 
 /* test_switch_completes_uninitialised: a switch before any epoch or
@@ -916,14 +1097,36 @@ test_adopt_reply( void ) {
   FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID );
   FD_TEST( out_seqs[ OUT_IDX_FAILOV ]==4UL );
 
+  /* The empty request asks for our own file.  Without one there is
+     nothing to adopt, with one its votes are taken and its tip answered. */
+  ctx->failover_hist_adopted = 0;
+  ctx->loaded_hist_valid     = 0;
+  FD_TEST( !deliver_frag( ctx, IN_IDX_FAILOV, 81UL, 0UL ) );
+  reply = adopt_reply( 4UL, 81UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_NO_LOCAL_TOWER );
+  FD_TEST( reply->root==ULONG_MAX && reply->vote_slot==ULONG_MAX && !ctx->failover_hist_adopted );
+  fd_memset( hash, 0xc2, sizeof(hash) );
+  one_slot_hist( &ctx->loaded_hist, 7UL, hash );
+  ctx->loaded_hist.last_leader_slot = 6UL;
+  ctx->loaded_hist_valid            = 1;
+  FD_TEST( !ag_votor_has_voted( ctx->votor, 7UL ) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_FAILOV, 82UL, 0UL ) );
+  reply = adopt_reply( 5UL, 82UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_SUCCESS && reply->vote_slot==7UL );
+  FD_TEST( reply->root==ag_votor_highest_final_cert_slot( ctx->votor ) );
+  FD_TEST( ctx->failover_hist_adopted==1 && ctx->adopted_last_leader_slot==6UL );
+  FD_TEST( ag_votor_has_voted( ctx->votor, 7UL ) );
+  FD_TEST( out_seqs[ OUT_IDX_FAILOV ]==6UL );
+
   fixture_delete( ctx );
-  FD_LOG_NOTICE(( "pass: adoption answers echo the request and reject stale, garbage and empty histories" ));
+  FD_LOG_NOTICE(( "pass: adoption answers echo the request, reject stale, garbage and empty histories, and take our own file on the empty request" ));
 }
 
 /* test_switch_gating: the staked key installed without an adopted
    history or first use may not vote and goes unranked, with a history
    adopted it votes at its rank and the adoption is spent, first use is
-   spent the same way, and the junk key never votes. */
+   spent too but leaves voting to the vote account check, and the junk
+   key never votes. */
 
 static void
 test_switch_gating( void ) {
@@ -966,14 +1169,15 @@ test_switch_gating( void ) {
   FD_TEST( ctx->own_rank[ 1 ]==(ushort)1 && state1->own_rank==1UL );
   FD_TEST( ctx->failover_hist_adopted==0 );
 
-  /* First use unlocks it once. */
+  /* First use installs the key but the ranks wait on the vote account
+     check, the authorization is spent and the check is marked due. */
   unhalt( ctx );
   ctx->first_use_authorized = 1;
   request_switch( ctx, &b );
   during_housekeeping( ctx );
   run_after_credit( ctx );
-  FD_TEST( ctx->vote_authority==1 && ctx->first_use_authorized==0 );
-  FD_TEST( state1->own_rank==1UL );
+  FD_TEST( ctx->vote_authority==0 && ctx->first_use_authorized==0 && ctx->first_use_pending==1 );
+  FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX && state1->own_rank==(ulong)USHORT_MAX );
 
   /* The junk key. */
   unhalt( ctx );
@@ -987,7 +1191,7 @@ test_switch_gating( void ) {
 
   unhalt( ctx );
   fixture_delete( ctx );
-  FD_LOG_NOTICE(( "pass: the staked key votes only after an adoption or first use, the junk key never" ));
+  FD_LOG_NOTICE(( "pass: the staked key votes only after an adoption, first use waits on the account check, the junk key never" ));
 }
 
 /* test_leader_floor: after a switch the next leader slot starts past the
@@ -1162,6 +1366,1015 @@ test_root_follow( void ) {
   FD_LOG_NOTICE(( "pass: the pool and the votor follow replay's root" ));
 }
 
+static void
+test_passive_replay_certs( void ) {
+  for( int dead=0; dead<2; dead++ ) {
+    for( int fast=0; fast<2; fast++ ) {
+      fd_pubkey_t a    = pubkey( 0x41 );
+      fd_pubkey_t b    = pubkey( 0x42 );
+      fd_pubkey_t junk = pubkey( 0x43 );
+      fd_votor_tile_t * ctx = fixture_new( &junk );
+      enable_failover( ctx, &a );
+      build_epoch_info( &a, &b );
+      start_consensus_at( ctx, 0UL, fd_clock_tile_now( ctx->clock ) );
+      ctx->vote_authority = 0;
+      install_ranks( ctx );
+
+      ag_block_id_t block1 = { .slot = 1UL };
+      fd_memset( block1.hash, 0xd1, sizeof(ag_block_hash_t) );
+      fd_replay_message_t * replay = replay_in_msg();
+      replay->slot_completed.slot        = 1UL;
+      replay->slot_completed.parent_slot = 0UL;
+      fd_memcpy( replay->slot_completed.block_id.uc, block1.hash, sizeof(fd_hash_t) );
+      FD_TEST( !deliver_frag( ctx, IN_IDX_REPLAY, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_message_t) ) );
+
+      ag_vote_notar_t notar_votes[ 2 ];
+      ag_vote_final_t final_votes[ 2 ];
+      for( ushort rank=0; rank<2; rank++ ) {
+        notar_votes[ rank ] = ag_vote_construct_notar( sec_sign_fn, &sk[ rank ], 1UL, block1.hash, rank, TEST_SHRED_VERSION ).notar;
+        final_votes[ rank ] = ag_vote_construct_final( sec_sign_fn, &sk[ rank ], 1UL, rank, TEST_SHRED_VERSION ).final;
+      }
+
+      replay = replay_in_msg();
+      fd_block_footer_t * footer;
+      ulong replay_sig;
+      if( dead ) {
+        replay->slot_dead.slot = 2UL;
+        footer     = &replay->slot_dead.footer;
+        replay_sig = REPLAY_SIG_SLOT_DEAD;
+      } else {
+        replay->slot_completed.slot        = 2UL;
+        replay->slot_completed.parent_slot = 1UL;
+        fd_memset( replay->slot_completed.block_id.uc, 0xd2, sizeof(fd_hash_t) );
+        fd_memcpy( replay->slot_completed.parent_block_id.uc, block1.hash, sizeof(fd_hash_t) );
+        footer     = &replay->slot_completed.footer;
+        replay_sig = REPLAY_SIG_SLOT_COMPLETED;
+      }
+      if( fast ) {
+        ag_cert_t cert = cert_build_fast_final( notar_votes, 2UL, &epoch_info_mem );
+        footer->has_fast_final_cert = 1;
+        FD_TEST( fd_block_footer_cert_from_agg( &footer->fast_final_cert, 1UL, block1.hash, &cert.fast_final.agg ) );
+      } else {
+        ag_cert_t notar = cert_build_notar( notar_votes, 2UL, &epoch_info_mem );
+        ag_cert_t final = cert_build_final( final_votes, 2UL, &epoch_info_mem );
+        footer->has_final_cert = 1;
+        FD_TEST( fd_block_footer_cert_from_agg( &footer->notar_cert, 1UL, block1.hash, &notar.notar.agg ) );
+        FD_TEST( fd_block_footer_cert_from_agg( &footer->final_cert, 1UL, NULL, &final.final.agg ) );
+      }
+
+      FD_TEST( !deliver_frag( ctx, IN_IDX_REPLAY, replay_sig, sizeof(fd_replay_message_t) ) );
+      FD_TEST( ag_pool_finalized_slot( ctx->pool )==1UL );
+      FD_TEST( fd_memeq( ag_pool_finalized_block_hash( ctx->pool ), block1.hash, sizeof(ag_block_hash_t) ) );
+      for( ulong i=0UL; i<16UL; i++ ) run_after_credit( ctx );
+      FD_TEST( ag_votor_highest_final_cert_slot( ctx->votor )==1UL );
+
+      int published = 0;
+      FD_TEST( out_seqs[ OUT_IDX_VOTOR ]<64UL );
+      for( ulong seq=0UL; seq<out_seqs[ OUT_IDX_VOTOR ]; seq++ ) {
+        fd_frag_meta_t const * meta = out_mcache[ OUT_IDX_VOTOR ]+fd_mcache_line_idx( seq, OUT_DEPTH );
+        if( meta->sig!=FD_VOTOR_SIG_CERTED ) continue;
+        fd_votor_msg_t const * msg = fd_chunk_to_laddr_const( votor_out_mem, meta->chunk );
+        if( msg->certed.kind!=(fast ? AG_CERT_KIND_FAST_FINAL : AG_CERT_KIND_FINAL) ) continue;
+        FD_TEST( msg->certed.slot==1UL );
+        FD_TEST( fd_memeq( msg->certed.block_id.uc, block1.hash, sizeof(fd_hash_t) ) );
+        published = 1;
+      }
+      FD_TEST( published );
+      FD_TEST( ctx->failover_standby && !ctx->vote_authority );
+      FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX && ctx->last_vote_slot==ULONG_MAX );
+      FD_TEST( fd_pubkey_eq( &ctx->id_key, &junk ) );
+      FD_TEST( out_seqs[ OUT_IDX_NET ]==0UL );
+      fixture_delete( ctx );
+    }
+  }
+  FD_LOG_NOTICE(( "pass: passive replay processes finality certificates from completed and dead blocks" ));
+}
+
+/* test_hist_file_round_trip: hist_file_dir_open makes votor/ under the
+   base with mode 0700, the names are vote-history-<b58>.bin and its
+   .new twin, a missing file loads as 0, a file stored for K loads back
+   as 1 with the same records, a second store replaces it with no .new
+   left behind, and another identity or a truncated file load as -1. */
+
+static void
+test_hist_file_round_trip( void ) {
+  char base[ 32 ];
+  int  dir_fd = hist_dir_new( base );
+  FD_TEST( dir_fd>=0 );
+  struct stat st;
+  FD_TEST( !fstat( dir_fd, &st ) );
+  FD_TEST( S_ISDIR( st.st_mode ) && (st.st_mode & 07777U)==0700U );
+
+  fd_pubkey_t k     = test_identity();
+  fd_pubkey_t other = pubkey( 0x77 );
+  char  name[ 128 ], name_new[ 128 ], expected[ 128 ];
+  ulong expected_len;
+  hist_file_names( &k, name, name_new );
+  FD_BASE58_ENCODE_32_BYTES( k.uc, k_b58 );
+  FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), &expected_len, "vote-history-%s.bin", k_b58 ) );
+  FD_TEST( fd_memeq( name, expected, expected_len+1UL ) );
+  FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), &expected_len, "vote-history-%s.bin.new", k_b58 ) );
+  FD_TEST( fd_memeq( name_new, expected, expected_len+1UL ) );
+
+  ag_hist_t out[ 1 ];
+  FD_TEST( 0==hist_file_load( dir_fd, &k, out ) );
+
+  /* The store is the tile's own routine with the descriptor plumbing of
+     an unsandboxed tile, the reserved number starts as a dup of the
+     directory. */
+  fd_votor_tile_t * ctx = ctx_mem;
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->hist_dir_fd         = dir_fd;
+  ctx->hist_file_fd        = fcntl( dir_fd, F_DUPFD_CLOEXEC, 0 );
+  ctx->hist_file_sandboxed = 0;
+  FD_TEST( ctx->hist_file_fd>=0 );
+  int const hist_file_fd = ctx->hist_file_fd;
+
+  ag_hist_t hist[ 1 ];
+  voted_hist( hist, 1UL, 3UL, 8UL );
+  hist->rec[ 1 ].flags |= AG_HIST_FLAG_VOTED_NOTAR;
+  fd_memset( hist->rec[ 1 ].notar_hash, 0xa2, sizeof(ag_block_hash_t) );
+  uchar buf[ AG_HIST_FILE_MAX ];
+  long  sz = ag_hist_file_ser( hist, &k, 77L, file_sign, test_keypair, buf, sizeof(buf) );
+  FD_TEST( sz>0L );
+  hist_file_store( ctx, &k, buf, (ulong)sz );
+  FD_TEST( ctx->hist_file_fd==hist_file_fd );
+  FD_TEST( faccessat( dir_fd, name_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+  FD_TEST( 1==hist_file_load( dir_fd, &k, out ) );
+  FD_TEST( hist_eq( out, hist ) );
+
+  /* A second version takes the first one's place. */
+  voted_hist( hist, 1UL, 5UL, 12UL );
+  sz = ag_hist_file_ser( hist, &k, 78L, file_sign, test_keypair, buf, sizeof(buf) );
+  FD_TEST( sz>0L );
+  hist_file_store( ctx, &k, buf, (ulong)sz );
+  FD_TEST( ctx->hist_file_fd==hist_file_fd );
+  FD_TEST( faccessat( dir_fd, name_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+  FD_TEST( 1==hist_file_load( dir_fd, &k, out ) );
+  FD_TEST( hist_eq( out, hist ) && ag_hist_tip( out )==5UL );
+
+  /* Another identity has no file of its own, and K's file placed under
+     that identity's name is rejected by the pubkey in the body.  A byte
+     short, K's own file is nothing. */
+  char other_name[ 128 ], other_name_new[ 128 ];
+  hist_file_names( &other, other_name, other_name_new );
+  FD_TEST( 0==hist_file_load( dir_fd, &other, out ) );
+  FD_TEST( !linkat( dir_fd, name, dir_fd, other_name, 0 ) );
+  FD_TEST( -1==hist_file_load( dir_fd, &other, out ) );
+  FD_TEST( !unlinkat( dir_fd, other_name, 0 ) );
+  int fd = openat( dir_fd, name, O_RDWR|O_CLOEXEC|O_NOFOLLOW );
+  FD_TEST( fd>=0 );
+  FD_TEST( !ftruncate( fd, sz-1L ) );
+  FD_TEST( -1==hist_file_load( dir_fd, &k, out ) );
+  FD_TEST( !close( fd ) );
+
+  FD_TEST( !close( ctx->hist_file_fd ) );
+  FD_TEST( !unlinkat( dir_fd, name, 0 ) );
+  hist_dir_delete( base, dir_fd );
+  FD_LOG_NOTICE(( "pass: the history file is named, loaded, stored in place, and rejected for another identity or when short" ));
+}
+
+/* test_seccomp_variant: under the file variant of the tile's seccomp
+   filter a sandboxed hist_file_store on descriptor 0 goes through and
+   the next syscall outside the policy dies with SIGSYS, and opening the
+   file to read it, which the tile only does before the sandbox, dies
+   the same way.  The parent reads the stored file back. */
+
+static void
+test_seccomp_variant( void ) {
+  char base[ 32 ];
+  int  dir_fd = hist_dir_new( base );
+  FD_TEST( dir_fd>=0 );
+  fd_pubkey_t k = test_identity();
+  char name[ 128 ], name_new[ 128 ];
+  hist_file_names( &k, name, name_new );
+
+  ag_hist_t hist[ 1 ];
+  voted_hist( hist, 1UL, 3UL, ULONG_MAX );
+  static uchar buf[ AG_HIST_FILE_MAX ];
+  long sz = ag_hist_file_ser( hist, &k, 79L, file_sign, test_keypair, buf, sizeof(buf) );
+  FD_TEST( sz>0L );
+
+  /* The tile reserves descriptor 0 for the file.  Here that is stdin,
+     so the child puts the directory there first to have something of
+     its own for the store to close. */
+  fd_votor_tile_t * ctx = ctx_mem;
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  ctx->hist_dir_fd         = dir_fd;
+  ctx->hist_file_fd        = 0;
+  ctx->hist_file_sandboxed = 1;
+
+  volatile int * progress = mmap( NULL, 4096UL, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( progress!=MAP_FAILED );
+
+  *progress = 0;
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    if( -1==dup2( dir_fd, 0 ) ) __builtin_trap();
+    struct sock_filter filter[ 128 ];
+    populate_sock_filter_policy_fd_votor_tile_file( 128UL, filter, (uint)fd_log_private_logfile_fd(), (uint)dir_fd, 0U, FD_ACCDB_FD_RW );
+    if( prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) __builtin_trap();
+    fd_sandbox_private_set_seccomp_filter( (ushort)sock_filter_policy_fd_votor_tile_file_instr_cnt, filter );
+    hist_file_store( ctx, &k, buf, (ulong)sz );
+    if( ctx->hist_file_fd!=0 ) __builtin_trap();
+    *progress = 1;
+    (void)syscall( SYS_getpid );
+    __builtin_trap();
+  }
+  wait_sigsys( pid, progress, 1 );
+
+  ag_hist_t out[ 1 ];
+  FD_TEST( faccessat( dir_fd, name_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+  FD_TEST( 1==hist_file_load( dir_fd, &k, out ) );
+  FD_TEST( hist_eq( out, hist ) );
+
+  *progress = 0;
+  pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    struct sock_filter filter[ 128 ];
+    populate_sock_filter_policy_fd_votor_tile_file( 128UL, filter, (uint)fd_log_private_logfile_fd(), (uint)dir_fd, 0U, FD_ACCDB_FD_RW );
+    if( prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) __builtin_trap();
+    fd_sandbox_private_set_seccomp_filter( (ushort)sock_filter_policy_fd_votor_tile_file_instr_cnt, filter );
+    (void)openat( dir_fd, name, O_RDONLY|O_CLOEXEC|O_NOFOLLOW );
+    *progress = 1;
+    __builtin_trap();
+  }
+  wait_sigsys( pid, progress, 0 );
+
+  FD_TEST( !munmap( (void *)progress, 4096UL ) );
+  FD_TEST( !unlinkat( dir_fd, name, 0 ) );
+  hist_dir_delete( base, dir_fd );
+  FD_LOG_NOTICE(( "pass: the file seccomp policy lets a sandboxed store through and kills anything else" ));
+}
+
+/* test_persist_before_broadcast: with the history file on, our own
+   notar vote is signed into the file before the frame that announces
+   it goes out.  The file loads back for this identity with the voted
+   slot and becomes the loaded history. */
+
+static void
+test_persist_before_broadcast( void ) {
+  fd_pubkey_t a = test_identity();
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &a );
+  build_epoch_info( &a, &b );
+  start_consensus_at( ctx, 0UL, fd_log_wallclock() );
+  ctx->highest_completed_slot = 1UL;
+  ctx->root_slot              = 0UL;
+
+  char base[ 32 ];
+  ctx->hist_file           = 1;
+  ctx->hist_file_sandboxed = 0;
+  ctx->hist_dir_fd         = hist_dir_new( base );
+  ctx->hist_file_fd        = fcntl( ctx->hist_dir_fd, F_DUPFD_CLOEXEC, 0 );
+  FD_TEST( ctx->hist_dir_fd>=0 && ctx->hist_file_fd>=0 );
+  FD_TEST( !ctx->loaded_hist_valid );
+  char name[ 128 ], name_new[ 128 ];
+  hist_file_names( &a, name, name_new );
+  FD_TEST( faccessat( ctx->hist_dir_fd, name, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+
+  /* Block 1 on the init slot gets our notar vote, which waits in the
+     votor until after_credit pops it. */
+  ag_block_id_t block0 = { .slot = 0UL };
+  ag_block_id_t block1 = { .slot = 1UL };
+  fd_memset( block1.hash, 0xb1, sizeof(ag_block_hash_t) );
+  FD_TEST( ag_pool_add_block( ctx->pool, &block1, &block0, ctx->scratch.bad )==AG_POOL_SUCCESS );
+  ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = 1UL, .block_info = { .parent = block0 } };
+  fd_memcpy( completed.block_info.hash, block1.hash, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx->votor, &completed );
+  FD_TEST( ag_votor_has_voted( ctx->votor, 1UL ) );
+
+  fake_keyguard_start( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fake_keyguard_stop()==1UL );
+
+  /* No frame had gone out when the sign request arrived, and the store
+     finishes before after_credit moves on from it. */
+  FD_TEST( kg_hist_seq_at_sign==0UL );
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==1UL && hist_frame( 0UL )->has_vote==1 );
+  FD_TEST( ctx->last_vote_slot==1UL );
+  FD_TEST( ctx->loaded_hist_valid==1 && ag_hist_tip( &ctx->loaded_hist )==1UL );
+
+  FD_TEST( !faccessat( ctx->hist_dir_fd, name, F_OK, AT_SYMLINK_NOFOLLOW ) );
+  FD_TEST( faccessat( ctx->hist_dir_fd, name_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+  ag_hist_t out[ 1 ];
+  FD_TEST( 1==hist_file_load( ctx->hist_dir_fd, &a, out ) );
+  FD_TEST( hist_eq( out, &ctx->loaded_hist ) );
+  FD_TEST( ag_hist_tip( out )==1UL && out->anchor==0UL && out->last_leader_slot==ULONG_MAX );
+  ag_hist_rec_t const * rec = hist_rec( out, 1UL );
+  FD_TEST( rec && rec->flags==(AG_HIST_FLAG_VOTED|AG_HIST_FLAG_VOTED_NOTAR) );
+  FD_TEST( fd_memeq( rec->notar_hash, block1.hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( 0==hist_file_load( ctx->hist_dir_fd, &b, out ) ); /* the file is this identity's alone */
+
+  FD_TEST( !close( ctx->hist_file_fd ) );
+  FD_TEST( !unlinkat( ctx->hist_dir_fd, name, 0 ) );
+  hist_dir_delete( base, ctx->hist_dir_fd );
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: the vote is signed into the file before its frame goes out" ));
+}
+
+/* test_restore_at_init: without failover the file loaded at boot is
+   applied when replay's first completed slot initialises the votor,
+   its slots stay voted and its leader window becomes the floor.  A
+   failover member leaves it alone at init, the file is the staked
+   identity's, and applies it when that key is switched in. */
+
+static void
+test_restore_at_init( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  build_epoch_info( &a, &b );
+  rank_epoch_only( ctx, 0UL );
+  wire_replay_in( ctx );
+  ctx->hist_file = 1;
+  voted_hist( &ctx->loaded_hist, 1UL, 3UL, 8UL );
+  ctx->loaded_hist_valid = 1;
+  FD_TEST( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX );
+
+  fd_replay_message_t * replay = replay_in_msg();
+  replay->slot_completed.slot        = 0UL;
+  replay->slot_completed.parent_slot = 0UL;
+  replay->slot_completed.root_slot   = 0UL;
+  FD_TEST( !deliver_frag( ctx, IN_IDX_REPLAY, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_message_t) ) );
+  FD_TEST( ctx->init && ag_pool_finalized_slot( ctx->pool )==0UL );
+  for( ulong slot=1UL; slot<=3UL; slot++ ) FD_TEST( ag_votor_has_voted( ctx->votor, slot ) );
+  FD_TEST( !ag_votor_has_voted( ctx->votor, 4UL ) );
+  FD_TEST( ctx->adopted_last_leader_slot==8UL );
+  fixture_delete( ctx );
+
+  /* A spare boots with the staked identity's file. */
+  ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  rank_epoch_only( ctx, 0UL );
+  ctx->hist_file = 1;
+  voted_hist( &ctx->loaded_hist, 1UL, 3UL, 8UL );
+  ctx->loaded_hist_valid = 1;
+  replay = replay_in_msg();
+  replay->slot_completed.slot        = 0UL;
+  replay->slot_completed.parent_slot = 0UL;
+  replay->slot_completed.root_slot   = 0UL;
+  FD_TEST( !deliver_frag( ctx, IN_IDX_REPLAY, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_message_t) ) );
+  FD_TEST( ctx->init && ag_pool_finalized_slot( ctx->pool )==0UL );
+  for( ulong slot=1UL; slot<=3UL; slot++ ) FD_TEST( !ag_votor_has_voted( ctx->votor, slot ) );
+  FD_TEST( ctx->adopted_last_leader_slot==ULONG_MAX );
+
+  /* The staked key switched in with a history adopted applies it. */
+  ctx->failover_hist_adopted = 1;
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( fd_pubkey_eq( &ctx->id_key, &b ) && ctx->vote_authority==1 );
+  for( ulong slot=1UL; slot<=3UL; slot++ ) FD_TEST( ag_votor_has_voted( ctx->votor, slot ) );
+  FD_TEST( ctx->adopted_last_leader_slot==8UL );
+
+  unhalt( ctx );
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: the boot file is applied at init without failover, and at the staked switch with it" ));
+}
+
+/* test_stale_against_file: a peer's history that ends below the file
+   this machine booted with is stale, one at or past the file's tip is
+   taken. */
+
+static void
+test_stale_against_file( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+  one_slot_hist( &ctx->loaded_hist, 10UL, NULL );
+  ctx->loaded_hist_valid = 1;
+
+  ag_hist_t hist[ 1 ];
+  ulong     sz;
+  one_slot_hist( hist, 5UL, NULL );
+  FD_TEST( !ag_hist_ser( hist, failov_in_mem, FAILOV_IN_MEM_SZ, &sz ) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_FAILOV, 90UL, sz ) );
+  FD_TEST( adopt_reply( 0UL, 90UL )->result==FD_VOTOR_ADOPT_ERR_STALE );
+  FD_TEST( !ctx->failover_hist_adopted && !ag_votor_has_voted( ctx->votor, 5UL ) );
+
+  one_slot_hist( hist, 10UL, NULL );
+  FD_TEST( !ag_hist_ser( hist, failov_in_mem, FAILOV_IN_MEM_SZ, &sz ) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_FAILOV, 91UL, sz ) );
+  fd_votor_adopt_result_t const * reply = adopt_reply( 1UL, 91UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_SUCCESS && reply->vote_slot==10UL );
+  FD_TEST( ctx->failover_hist_adopted && ag_votor_has_voted( ctx->votor, 10UL ) );
+
+  one_slot_hist( hist, 12UL, NULL );
+  FD_TEST( !ag_hist_ser( hist, failov_in_mem, FAILOV_IN_MEM_SZ, &sz ) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_FAILOV, 92UL, sz ) );
+  reply = adopt_reply( 2UL, 92UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_SUCCESS && reply->vote_slot==12UL );
+  FD_TEST( ag_votor_has_voted( ctx->votor, 12UL ) );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: a peer's history older than the boot file is stale" ));
+}
+
+/* test_first_use_pending: the three ways a switch treats a first-use
+   authorization.  The junk key leaves it for a later staked switch, the
+   staked key alone spends it and installs unranked with the vote
+   account check pending, and the staked key with a history adopted as
+   well spends it with no check due.  The check itself reads the
+   accounts database, which this fixture has none of, so no slot is
+   completed while it is pending. */
+
+static void
+test_first_use_pending( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_pubkey_t c = pubkey( 0x43 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+  ctx->vote_authority = 0;
+  install_ranks( ctx );
+
+  ctx->first_use_authorized = 1;
+  request_switch( ctx, &c );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_pubkey_eq( &ctx->id_key, &c ) && ctx->failover_standby );
+  FD_TEST( ctx->first_use_authorized==1 && ctx->first_use_pending==0 && ctx->vote_authority==0 );
+
+  unhalt( ctx );
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_pubkey_eq( &ctx->id_key, &b ) && !ctx->failover_standby );
+  FD_TEST( ctx->first_use_pending==1 && ctx->vote_authority==0 && ctx->first_use_authorized==0 );
+  FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX );
+  FD_TEST( !ctx->accdb );
+
+  unhalt( ctx );
+  ctx->first_use_pending     = 0;
+  ctx->first_use_authorized  = 1;
+  ctx->failover_hist_adopted = 1;
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( ctx->vote_authority==1 && ctx->first_use_authorized==0 && ctx->first_use_pending==0 );
+  FD_TEST( ctx->own_rank[ 1 ]==(ushort)1 );
+
+  unhalt( ctx );
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: first use installs the staked key with the account check pending, adoption needs none" ));
+}
+
+/* test_doppelganger_network: a cert from a ranked peer with our rank in
+   its signer set reaches the guard only once the pool has verified it.
+   Signed by our rank alone it is half the stake, below quorum, so the
+   pool refuses it and we keep voting.  Signed by both ranks it is
+   taken, and our signature on a slot this machine never voted stops
+   us. */
+
+static void
+test_doppelganger_network( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &b );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 1UL );
+  ctx->vote_authority = 1;
+  install_ranks( ctx );
+  FD_TEST( ctx->own_rank[ 1 ]==(ushort)1 && own_rank_for( ctx, 5UL )==(ushort)1 );
+
+  /* The datagrams come from A over a conn whose context is A's
+     identity, the way conn_new leaves an accepted conn. */
+  peer_t *         peer = add_ranked_peer( ctx, &a, (ushort)0, 0U, (ushort)0 );
+  fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, FD_IP4_ADDR( 10, 0, 0, 1 ), (ushort)8001, ctx->src_ip_addr, ctx->quic_client_listen_port, fd_log_wallclock() );
+  FD_TEST( conn );
+  fd_quic_conn_set_context( conn, &a );
+
+  uchar hash[ 32 ];
+  fd_memset( hash, 0xd5, sizeof(hash) );
+  ag_vote_notar_t votes[ 2 ];
+  votes[ 0 ] = ag_vote_construct_notar( sec_sign_fn, &sk[ 1 ], 5UL, hash, (ushort)1, TEST_SHRED_VERSION ).notar;
+  ag_cert_t cert = cert_build_notar( votes, 1UL, &epoch_info_mem );
+  FD_TEST( cert_has_signer( &cert, (ushort)1 ) );
+  uchar ser[ AG_CERT_SER_MAX ];
+  ulong ser_sz = ag_cert_ser( &cert, ser );
+  FD_TEST( ser_sz && ser[ 1 ]==(uchar)AG_CERT_SERDE_TAG_NOTAR );
+  FD_TEST( !ag_votor_has_voted( ctx->votor, 5UL ) );
+
+  quic_server_datagram_rx( conn, ser, ser_sz, ctx );
+  FD_TEST( ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_FAILED_VERIFY_IDX ]==1UL );
+  FD_TEST( ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX       ]==0UL );
+  FD_TEST( ctx->vote_authority==1 && !ctx->doppelganger );
+  FD_TEST( ctx->own_rank[ 1 ]==(ushort)1 && own_rank_for( ctx, 5UL )==(ushort)1 );
+  FD_TEST( peer->ban_ts ); /* the failed verify banned A */
+
+  /* Lift the ban, then the same slot with both ranks signing. */
+  peer->ban_ts = 0L;
+  votes[ 1 ] = votes[ 0 ];
+  votes[ 0 ] = ag_vote_construct_notar( sec_sign_fn, &sk[ 0 ], 5UL, hash, (ushort)0, TEST_SHRED_VERSION ).notar;
+  cert   = cert_build_notar( votes, 2UL, &epoch_info_mem );
+  ser_sz = ag_cert_ser( &cert, ser );
+  FD_TEST( ser_sz );
+  quic_server_datagram_rx( conn, ser, ser_sz, ctx );
+  FD_TEST( ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX ]==1UL );
+  FD_TEST( ctx->doppelganger==1 && ctx->vote_authority==0 );
+  FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX && own_rank_for( ctx, 5UL )==USHORT_MAX );
+  ag_slot_state_t const * state5 = ag_pool_slot_state( ctx->pool, 5UL );
+  FD_TEST( state5 && state5->own_rank==(ulong)USHORT_MAX );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: a cert with our rank stops us only once the pool verified it" ));
+}
+
+/* test_persist_gated_on_rank: a ranked tile signs the file before the
+   frame that follows its broadcast, and the file's tip is the vote
+   slot by the time after_credit returns.  No conn is active in this
+   fixture, so the frame published after the send loop stands for the
+   broadcast.  Unranked, the next vote pops, is dropped and leaves the
+   file alone, no sign request and the same inode. */
+
+static void
+test_persist_gated_on_rank( void ) {
+  fd_pubkey_t a = test_identity();
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &a );
+  build_epoch_info( &a, &b );
+  start_consensus_at( ctx, 0UL, fd_log_wallclock() );
+  ctx->highest_completed_slot = 1UL;
+  ctx->root_slot              = 0UL;
+
+  char base[ 32 ];
+  ctx->hist_file           = 1;
+  ctx->hist_file_sandboxed = 0;
+  ctx->hist_dir_fd         = hist_dir_new( base );
+  ctx->hist_file_fd        = fcntl( ctx->hist_dir_fd, F_DUPFD_CLOEXEC, 0 );
+  FD_TEST( ctx->hist_dir_fd>=0 && ctx->hist_file_fd>=0 );
+  char name[ 128 ], name_new[ 128 ];
+  hist_file_names( &a, name, name_new );
+
+  /* Block 1 on the init slot gets our notar vote. */
+  ag_block_id_t block0 = { .slot = 0UL };
+  ag_block_id_t block1 = { .slot = 1UL };
+  fd_memset( block1.hash, 0xc1, sizeof(ag_block_hash_t) );
+  FD_TEST( ag_pool_add_block( ctx->pool, &block1, &block0, ctx->scratch.bad )==AG_POOL_SUCCESS );
+  ag_event_replay_t completed = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = 1UL, .block_info = { .parent = block0 } };
+  fd_memcpy( completed.block_info.hash, block1.hash, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx->votor, &completed );
+  FD_TEST( ag_votor_has_voted( ctx->votor, 1UL ) );
+
+  fake_keyguard_start( ctx );
+  run_after_credit( ctx );
+  FD_TEST( kg_hist_seq_at_sign==0UL ); /* the request arrived before any frame */
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==1UL && hist_frame( 0UL )->has_vote==1 );
+  FD_TEST( out_seqs[ OUT_IDX_NET  ]==0UL );
+  FD_TEST( ctx->last_vote_slot==1UL );
+  FD_TEST( ctx->loaded_hist_valid==1 && ag_hist_tip( &ctx->loaded_hist )==1UL );
+  ag_hist_t out[ 1 ];
+  FD_TEST( 1==hist_file_load( ctx->hist_dir_fd, &a, out ) );
+  FD_TEST( ag_hist_tip( out )==1UL );
+  struct stat before;
+  FD_TEST( !fstatat( ctx->hist_dir_fd, name, &before, 0 ) );
+
+  /* Unranked, block 2 on block 1 still draws a notar vote from the
+     votor, built with no rank. */
+  ctx->vote_authority = 0;
+  install_ranks( ctx );
+  FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX );
+  ag_block_id_t block2 = { .slot = 2UL };
+  fd_memset( block2.hash, 0xc2, sizeof(ag_block_hash_t) );
+  FD_TEST( ag_pool_add_block( ctx->pool, &block2, &block1, ctx->scratch.bad )==AG_POOL_SUCCESS );
+  completed = (ag_event_replay_t){ .kind = AG_EVENT_REPLAY_COMPLETED, .slot = 2UL, .block_info = { .parent = block1 } };
+  fd_memcpy( completed.block_info.hash, block2.hash, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx->votor, &completed );
+  FD_TEST( ag_votor_has_voted( ctx->votor, 2UL ) );
+
+  /* The frame with has_vote clear is the pop path's, nothing else
+     publishes one here, so the vote did pop and was dropped. */
+  run_after_credit( ctx );
+  FD_TEST( fake_keyguard_stop()==1UL ); /* only the ranked vote was signed */
+  FD_TEST( out_seqs[ OUT_IDX_HIST ]==2UL && hist_frame( 1UL )->has_vote==0 );
+  FD_TEST( ctx->last_vote_slot==1UL );
+  FD_TEST( ag_hist_tip( &ctx->loaded_hist )==1UL );
+  struct stat after;
+  FD_TEST( !fstatat( ctx->hist_dir_fd, name, &after, 0 ) );
+  FD_TEST( after.st_ino==before.st_ino && after.st_size==before.st_size );
+  FD_TEST( 1==hist_file_load( ctx->hist_dir_fd, &a, out ) );
+  FD_TEST( ag_hist_tip( out )==1UL && !hist_rec( out, 2UL ) );
+  FD_TEST( faccessat( ctx->hist_dir_fd, name_new, F_OK, AT_SYMLINK_NOFOLLOW ) && errno==ENOENT );
+
+  FD_TEST( !close( ctx->hist_file_fd ) );
+  FD_TEST( !unlinkat( ctx->hist_dir_fd, name, 0 ) );
+  hist_dir_delete( base, ctx->hist_dir_fd );
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: the ranked vote is stored before its broadcast, the unranked one leaves the file alone" ));
+}
+
+/* A fresh v3 vote account for node in a buffer of the on-chain size,
+   initialized the way the vote program leaves one before any vote
+   lands.  test_tower_tile builds its mock the same way. */
+
+static void
+fresh_vote_account( fd_vote_state_versioned_t * versioned,
+                    fd_pubkey_t const *         node,
+                    uchar                       data[ static FD_VOTE_STATE_V3_SZ ] ) {
+  FD_TEST( fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 ) );
+  fd_vote_state_v3_t * state   = &versioned->v3;
+  state->node_pubkey           = *node;
+  state->authorized_withdrawer = *node;
+  state->commission            = 100;
+  state->prior_voters.idx      = 31;
+  state->prior_voters.is_empty = 1;
+  fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( state->authorized_voters.pool );
+  fd_memset( voter, 0, sizeof(*voter) );
+  voter->pubkey = *node;
+  voter->prio   = node->uc[ 0 ];
+  fd_vote_authorized_voters_treap_ele_insert( state->authorized_voters.treap, voter, state->authorized_voters.pool );
+  fd_memset( data, 0, FD_VOTE_STATE_V3_SZ );
+  FD_TEST( !fd_vote_state_versioned_serialize( versioned, data, FD_VOTE_STATE_V3_SZ ) );
+}
+
+/* test_first_use_account_used: the first-use rule on raw vote account
+   bytes.  A fresh account is unused, one with an epoch of credits or a
+   block timestamp has history, and another owner or a short account is
+   no vote account at all. */
+
+static void
+test_first_use_account_used( void ) {
+  static fd_vote_state_versioned_t versioned[ 1 ];
+  static uchar                     data[ FD_VOTE_STATE_V3_SZ ];
+  fd_pubkey_t   node  = pubkey( 0x61 );
+  uchar const * owner = fd_solana_vote_program_id.key;
+
+  fresh_vote_account( versioned, &node, data );
+  FD_TEST( fd_vsv_is_correct_size_owner_and_init( owner, data, sizeof(data) ) );
+  FD_TEST( first_use_account_used( owner, data, sizeof(data) )==0 );
+
+  /* One epoch of credits is history. */
+  deq_fd_vote_epoch_credits_t_push_tail( versioned->v3.epoch_credits, (fd_vote_epoch_credits_t){ .epoch = 1UL, .credits = 1UL, .prev_credits = 0UL } );
+  fd_memset( data, 0, sizeof(data) );
+  FD_TEST( !fd_vote_state_versioned_serialize( versioned, data, sizeof(data) ) );
+  FD_TEST( first_use_account_used( owner, data, sizeof(data) )==1 );
+
+  /* So is a block timestamp with no credits, by slot or by time. */
+  fresh_vote_account( versioned, &node, data );
+  versioned->v3.last_timestamp.slot = 1UL;
+  fd_memset( data, 0, sizeof(data) );
+  FD_TEST( !fd_vote_state_versioned_serialize( versioned, data, sizeof(data) ) );
+  FD_TEST( first_use_account_used( owner, data, sizeof(data) )==1 );
+
+  fresh_vote_account( versioned, &node, data );
+  versioned->v3.last_timestamp.timestamp = 1L;
+  fd_memset( data, 0, sizeof(data) );
+  FD_TEST( !fd_vote_state_versioned_serialize( versioned, data, sizeof(data) ) );
+  FD_TEST( first_use_account_used( owner, data, sizeof(data) )==1 );
+
+  /* Another owner or a short account is no vote account. */
+  fresh_vote_account( versioned, &node, data );
+  FD_TEST( first_use_account_used( fd_solana_system_program_id.key, data, sizeof(data)     )==-1 );
+  FD_TEST( first_use_account_used( owner,                           data, sizeof(data)-1UL )==-1 );
+
+  FD_LOG_NOTICE(( "pass: first use takes a fresh vote account and refuses credits, a timestamp, another owner or a short account" ));
+}
+
+/* A keypair file the way solana-keygen writes one, the 64 byte JSON
+   array fd_keyload_load parses, under base. */
+
+static void
+keypair_file_new( char const *  base,
+                  char const *  file,
+                  uchar const * keypair,
+                  char          path[ static 64 ] ) {
+  FD_TEST( fd_cstr_printf_check( path, 64UL, NULL, "%s/%s", base, file ) );
+  char   json[ 320 ];
+  char * p = fd_cstr_init( json );
+  p = fd_cstr_append_char( p, '[' );
+  for( ulong i=0UL; i<64UL; i++ ) p = fd_cstr_append_printf( p, "%s%u", i ? "," : "", (uint)keypair[ i ] );
+  p = fd_cstr_append_char( p, ']' );
+  fd_cstr_fini( p );
+  ulong sz = (ulong)( p-json );
+  int fd = open( path, O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0600 );
+  FD_TEST( fd>=0 );
+  ulong wsz;
+  FD_TEST( !fd_io_write( fd, json, sz, sz, &wsz ) && wsz==sz );
+  FD_TEST( !close( fd ) );
+}
+
+/* The smallest topology privileged_init reads: one workspace whose
+   base is a static buffer and one object for the tile at a nonzero
+   offset into it.  The ctx is found the way populate_allowed_fds finds
+   it. */
+
+static fd_topo_t      priv_topo[ 1 ];
+static fd_topo_tile_t priv_tile[ 1 ];
+static uchar          priv_mem[ 2UL*4096UL+sizeof(fd_votor_tile_t) ] __attribute__((aligned(4096)));
+
+static fd_votor_tile_t *
+run_privileged_init( void ) {
+  privileged_init( priv_topo, priv_tile );
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( priv_topo, 0UL ) );
+  return FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
+}
+
+/* test_privileged_init_file: booting with the file on makes votor/
+   under the base, reserves the descriptor and loads nothing when there
+   is no file, loads and verifies the identity's file when there is
+   one, and refuses --failover-first-use for the staked member while
+   that file exists.  With the file gone the same launch is taken and
+   first use is armed. */
+
+static void
+test_privileged_init_file( void ) {
+  char base[ 32 ];
+  FD_TEST( fd_cstr_printf_check( base, 32UL, NULL, "/tmp/fd_votor_hist.XXXXXX" ) );
+  FD_TEST( mkdtemp( base ) );
+  char id_path[ 64 ];
+  keypair_file_new( base, "identity.json", test_keypair, id_path );
+  fd_pubkey_t k = test_identity();
+
+  fd_memset( priv_topo, 0, sizeof(*priv_topo) );
+  priv_topo->workspaces[ 0 ].wksp = (fd_wksp_t *)fd_type_pun( priv_mem );
+  priv_topo->objs[ 0 ].id         = 0UL;
+  priv_topo->objs[ 0 ].wksp_id    = 0UL;
+  priv_topo->objs[ 0 ].offset     = 4096UL;
+  fd_memset( priv_tile, 0, sizeof(*priv_tile) );
+  priv_tile->tile_obj_id               = 0UL;
+  priv_tile->votor.hist_file           = 1;
+  priv_tile->votor.hist_file_sandboxed = 0;
+  priv_tile->votor.accdb_obj_id        = ULONG_MAX;
+  FD_TEST( fd_cstr_printf_check( priv_tile->votor.identity_key_path, PATH_MAX, NULL, "%s", id_path ) );
+  FD_TEST( fd_cstr_printf_check( priv_tile->votor.base_path,         PATH_MAX, NULL, "%s", base    ) );
+
+  /* No file yet. */
+  fd_votor_tile_t * ctx = run_privileged_init();
+  FD_TEST( fd_pubkey_eq( &ctx->id_key, &k ) );
+  FD_TEST( ctx->hist_file && ctx->hist_dir_fd>=0 && ctx->hist_file_fd>=0 && ctx->hist_file_fd!=ctx->hist_dir_fd );
+  FD_TEST( !ctx->hist_file_sandboxed );
+  struct stat st;
+  FD_TEST( !fstat( ctx->hist_dir_fd, &st ) && S_ISDIR( st.st_mode ) && (st.st_mode & 07777U)==0700U );
+  FD_TEST( !ctx->loaded_hist_valid && !ctx->first_use_authorized && !ctx->first_use_pending );
+  FD_TEST( !ctx->failover_enabled && !ctx->failover_standby );
+
+  /* Store a history through the reserved descriptor and boot again. */
+  ag_hist_t hist[ 1 ];
+  voted_hist( hist, 1UL, 3UL, 8UL );
+  static uchar buf[ AG_HIST_FILE_MAX ];
+  long sz = ag_hist_file_ser( hist, &k, 80L, file_sign, test_keypair, buf, sizeof(buf) );
+  FD_TEST( sz>0L );
+  hist_file_store( ctx, &k, buf, (ulong)sz );
+  FD_TEST( !close( ctx->hist_dir_fd ) && !close( ctx->hist_file_fd ) );
+
+  ctx = run_privileged_init();
+  FD_TEST( ctx->hist_dir_fd>=0 && ctx->hist_file_fd>=0 );
+  FD_TEST( ctx->loaded_hist_valid==1 && hist_eq( &ctx->loaded_hist, hist ) && ag_hist_tip( &ctx->loaded_hist )==3UL );
+  FD_TEST( !close( ctx->hist_dir_fd ) && !close( ctx->hist_file_fd ) );
+
+  /* The staked member given --failover-first-use with that file on
+     disk is refused, the child exits through FD_LOG_ERR. */
+  FD_BASE58_ENCODE_32_BYTES( k.uc, k_b58 );
+  priv_tile->votor.failover_enabled = 1;
+  FD_TEST( fd_cstr_printf_check( priv_tile->votor.failover_staked_identity_path, PATH_MAX, NULL, "%s", id_path ) );
+  FD_TEST( fd_cstr_printf_check( priv_tile->votor.failover_first_use, sizeof(priv_tile->votor.failover_first_use), NULL, "%s", k_b58 ) );
+  FD_TEST( fd_cstr_printf_check( priv_tile->votor.vote_account_path, PATH_MAX, NULL, "%s", k_b58 ) );
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    run_privileged_init();
+    __builtin_trap();
+  }
+  int status;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+
+  /* With the file gone the same launch arms first use. */
+  char path[ 128 ], name[ 128 ], name_new[ 128 ];
+  hist_file_names( &k, name, name_new );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/votor/%s", base, name ) );
+  FD_TEST( !unlink( path ) );
+  ctx = run_privileged_init();
+  FD_TEST( ctx->failover_enabled && !ctx->failover_standby && fd_pubkey_eq( &ctx->failover_staked_identity, &k ) );
+  FD_TEST( ctx->first_use_authorized==1 && !ctx->loaded_hist_valid );
+  FD_TEST( fd_pubkey_eq( &ctx->vote_account, &k ) );
+  FD_TEST( ctx->hist_dir_fd>=0 && ctx->hist_file_fd>=0 );
+  FD_TEST( !close( ctx->hist_dir_fd ) && !close( ctx->hist_file_fd ) );
+
+  FD_TEST( !unlink( id_path ) );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/votor", base ) );
+  FD_TEST( !rmdir( path ) );
+  FD_TEST( !rmdir( base ) );
+  FD_LOG_NOTICE(( "pass: privileged_init opens the votor directory, loads the identity's file and refuses first use over it" ));
+}
+
+/* test_doppelganger_rearms_on_switch: the doppelganger stop belongs to
+   the identity it tripped on, so an identity switch lifts it and the
+   guard is live again for the new tenure.  A foreign cert with our new
+   rank on a slot this machine never voted trips it a second time.  With
+   the clear in switch_identity gone the switch would leave the stop set
+   and the second trip would never run. */
+
+static void
+test_doppelganger_rearms_on_switch( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+
+  /* Trip the guard the way doppelganger_check leaves it. */
+  ctx->doppelganger   = 1;
+  ctx->vote_authority = 0;
+  install_ranks( ctx );
+  FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX );
+
+  /* The staked key switched in with a history adopted lifts the stop
+     and votes at its rank. */
+  ctx->failover_hist_adopted = 1;
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( fd_pubkey_eq( &ctx->id_key, &b ) );
+  FD_TEST( ctx->doppelganger==0 && ctx->vote_authority==1 );
+  FD_TEST( ctx->own_rank[ 1 ]==(ushort)1 );
+  unhalt( ctx );
+
+  /* A cert from A carrying our new rank on a slot this machine never
+     voted, reached the way test_doppelganger_network reaches it. */
+  add_ranked_peer( ctx, &a, (ushort)0, 0U, (ushort)0 );
+  fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, FD_IP4_ADDR( 10, 0, 0, 1 ), (ushort)8001, ctx->src_ip_addr, ctx->quic_client_listen_port, fd_log_wallclock() );
+  FD_TEST( conn );
+  fd_quic_conn_set_context( conn, &a );
+
+  uchar hash[ 32 ];
+  fd_memset( hash, 0xd5, sizeof(hash) );
+  ag_vote_notar_t votes[ 2 ];
+  votes[ 1 ] = ag_vote_construct_notar( sec_sign_fn, &sk[ 1 ], 5UL, hash, (ushort)1, TEST_SHRED_VERSION ).notar;
+  votes[ 0 ] = ag_vote_construct_notar( sec_sign_fn, &sk[ 0 ], 5UL, hash, (ushort)0, TEST_SHRED_VERSION ).notar;
+  ag_cert_t cert   = cert_build_notar( votes, 2UL, &epoch_info_mem );
+  uchar     ser[ AG_CERT_SER_MAX ];
+  ulong     ser_sz = ag_cert_ser( &cert, ser );
+  FD_TEST( ser_sz );
+  FD_TEST( !ag_votor_has_voted( ctx->votor, 5UL ) );
+
+  quic_server_datagram_rx( conn, ser, ser_sz, ctx );
+  FD_TEST( ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX ]==1UL );
+  FD_TEST( ctx->doppelganger==1 && ctx->vote_authority==0 );
+  FD_TEST( ctx->own_rank[ 1 ]==USHORT_MAX && own_rank_for( ctx, 5UL )==USHORT_MAX );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: an identity switch re-arms the doppelganger guard" ));
+}
+
+/* test_adopt_unreplayed_root: an anchor past the blocks replay reached
+   cannot be real, advance_root would prune one slot at a time up to it,
+   so the adopt refuses it before the votor touches its root.  An anchor
+   at or below the highest completed slot is taken. */
+
+static void
+test_adopt_unreplayed_root( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+  ctx->highest_completed_slot = 100UL;
+
+  ulong final_before = ag_votor_highest_final_cert_slot( ctx->votor );
+  ag_hist_t hist[ 1 ];
+  fd_memset( hist, 0, sizeof(*hist) );
+  hist->anchor           = ctx->highest_completed_slot + 10000000UL;
+  hist->last_leader_slot = ULONG_MAX;
+  hist->rec_cnt          = 1UL;
+  hist->rec[ 0 ].slot    = hist->anchor;
+  hist->rec[ 0 ].flags   = AG_HIST_FLAG_VOTED;
+  uchar req[ AG_HIST_SER_MAX ];
+  ulong sz;
+  FD_TEST( !ag_hist_ser( hist, req, sizeof(req), &sz ) );
+  fd_votor_adopt_result_t result = failover_adopt_hist( ctx, req, sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_ERR_UNREPLAYED_ROOT );
+  FD_TEST( !ctx->failover_hist_adopted );
+  FD_TEST( ag_votor_highest_final_cert_slot( ctx->votor )==final_before );
+
+  /* An anchor within the replayed range adopts. */
+  one_slot_hist( hist, 5UL, NULL );
+  FD_TEST( !ag_hist_ser( hist, req, sizeof(req), &sz ) );
+  result = failover_adopt_hist( ctx, req, sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_slot==5UL );
+  FD_TEST( ctx->failover_hist_adopted && ag_votor_has_voted( ctx->votor, 5UL ) );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: an adopt whose anchor outruns replay is refused before the votor prunes" ));
+}
+
+/* test_unhalt_drops_replay_vote: replay is not gated on the halt, so a
+   block completing after the switch and before the unhalt still builds
+   a vote under the new rank.  The unhalt drain drops it, the slot goes
+   out as a plain bad window so no final vote may follow. */
+
+static void
+test_unhalt_drops_replay_vote( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  enable_failover( ctx, &b );
+  build_epoch_info( &a, &b );
+  start_consensus_at( ctx, 0UL, fd_log_wallclock() );
+
+  ctx->failover_hist_adopted = 1;
+  request_switch( ctx, &b );
+  during_housekeeping( ctx );
+  run_after_credit( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->halt_signing==1 ); /* the admin tile unhalts, not the completion */
+  FD_TEST( ctx->vote_authority==1 && ctx->own_rank[ 1 ]==(ushort)1 );
+
+  /* Block 1 on the init slot completes while halted, the votor builds a
+     notar vote for it that only the drain will see. */
+  ag_block_id_t block1 = { .slot = 1UL };
+  fd_memset( block1.hash, 0xe1, sizeof(ag_block_hash_t) );
+  fd_replay_message_t * replay = replay_in_msg();
+  replay->slot_completed.slot        = 1UL;
+  replay->slot_completed.parent_slot = 0UL;
+  replay->slot_completed.root_slot   = 0UL;
+  fd_memcpy( replay->slot_completed.block_id.uc, block1.hash, sizeof(fd_hash_t) );
+  FD_TEST( !deliver_frag( ctx, IN_IDX_REPLAY, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_message_t) ) );
+  FD_TEST( ag_votor_has_voted( ctx->votor, 1UL ) );
+
+  unhalt( ctx );
+  ag_event_vote_t leftover;
+  FD_TEST( !ag_votor_poll_vote_event( ctx->votor, &leftover ) );
+  ag_hist_t exported[ 1 ];
+  ag_votor_hist_export( ctx->votor, ULONG_MAX, exported );
+  ag_hist_rec_t const * rec = hist_rec( exported, 1UL );
+  FD_TEST( rec && ( rec->flags & AG_HIST_FLAG_BAD_WINDOW ) && !( rec->flags & AG_HIST_FLAG_VOTED_NOTAR ) );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: the unhalt drops a vote built while halted and marks its slot a bad window" ));
+}
+
+/* test_epoch_keeps_spare_unranked: a failover member that may not vote
+   yet stays unranked when handle_epoch installs an epoch listing its
+   staked identity, and a slot state made afterward is unranked too.
+   Granting vote authority and reinstalling ranks brings the real rank
+   back. */
+
+static void
+test_epoch_keeps_spare_unranked( void ) {
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &b );
+  enable_failover( ctx, &b );
+  ctx->vote_authority = 0;
+
+  /* One epoch listing b, with a BLS key rank_voters can take. */
+  fd_bls_sec_t bls_sec;
+  fd_memset( &bls_sec, 0x5b, FD_BLS_SEC_SZ );
+  fd_bls_pub_t bls_pub;
+  fd_bls_sec_to_pub( &bls_sec, &bls_pub );
+
+  static uchar msg_mem[ FD_EPOCH_INFO_MSG_HEADER_SZ+sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(64)));
+  fd_memset( msg_mem, 0, sizeof(msg_mem) );
+  fd_epoch_info_msg_t * msg = (fd_epoch_info_msg_t *)fd_type_pun( msg_mem );
+  msg->epoch           = 0UL;
+  msg->start_slot      = 0UL;
+  msg->slot_cnt        = 64UL;
+  msg->staked_vote_cnt = 1UL;
+  msg->staked_id_cnt   = 1UL;
+  fd_vote_stake_weight_t * weight = fd_epoch_info_msg_stake_weights( msg );
+  weight->vote_key = b;
+  weight->id_key   = b;
+  weight->stake    = 1000UL;
+  blst_p1_compress( weight->bls_key, &bls_pub );
+
+  handle_epoch( ctx, msg );
+  FD_TEST( ctx->curr_epoch_info && own_rank_in( ctx->curr_epoch_info, &b )==(ushort)0 );
+  FD_TEST( ctx->own_rank[ 0 ]==USHORT_MAX && ctx->own_rank[ 1 ]==USHORT_MAX && ctx->own_rank[ 2 ]==USHORT_MAX );
+
+  /* A slot state made while unranked is unranked. */
+  ag_pool_init( ctx->pool, 0UL );
+  ag_block_id_t block0 = { .slot = 0UL };
+  ag_block_id_t block1 = { .slot = 1UL };
+  fd_memset( block1.hash, 0xa1, sizeof(ag_block_hash_t) );
+  FD_TEST( ag_pool_add_block( ctx->pool, &block1, &block0, ctx->scratch.bad )==AG_POOL_SUCCESS );
+  ag_slot_state_t const * state1 = ag_pool_slot_state( ctx->pool, 1UL );
+  FD_TEST( state1 && state1->own_rank==(ulong)USHORT_MAX );
+
+  /* Vote authority granted, the real rank comes back everywhere. */
+  ctx->vote_authority = 1;
+  install_ranks( ctx );
+  FD_TEST( ctx->own_rank[ 1 ]==(ushort)0 && state1->own_rank==0UL );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: handle_epoch keeps an unranked failover identity unranked" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1197,6 +2410,21 @@ main( int     argc,
   test_leader_floor();
   test_doppelganger();
   test_root_follow();
+  test_passive_replay_certs();
+  test_hist_file_round_trip();
+  test_seccomp_variant();
+  test_persist_before_broadcast();
+  test_restore_at_init();
+  test_stale_against_file();
+  test_first_use_pending();
+  test_doppelganger_network();
+  test_persist_gated_on_rank();
+  test_first_use_account_used();
+  test_privileged_init_file();
+  test_doppelganger_rearms_on_switch();
+  test_adopt_unreplayed_root();
+  test_unhalt_drops_replay_vote();
+  test_epoch_keeps_spare_unranked();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

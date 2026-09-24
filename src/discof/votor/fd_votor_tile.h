@@ -105,7 +105,13 @@ typedef struct fd_votor_hist_msg fd_votor_hist_msg_t;
 #define FD_VOTOR_ADOPT_ERR_UNREPLAYED_ROOT (3UL) /* the history's finality anchor is past our replayed slots */
 #define FD_VOTOR_ADOPT_ERR_BLOCK_MISMATCH  (4UL) /* not raised here, keeps the numbering */
 #define FD_VOTOR_ADOPT_ERR_STALE           (5UL) /* older than the votes this identity sent from here */
-#define FD_VOTOR_ADOPT_RESULT_CNT          (6UL)
+/* The tower tile's local file codes.  Only the first is raised here, the
+   others keep the numbering the failover tile maps in one place. */
+#define FD_VOTOR_ADOPT_ERR_NO_LOCAL_TOWER  (6UL) /* no verified signed vote history file for the staked identity */
+#define FD_VOTOR_ADOPT_ERR_LOCAL_BUSY      (7UL) /* not raised here */
+#define FD_VOTOR_ADOPT_ERR_LOCAL_FORK      (8UL) /* not raised here */
+#define FD_VOTOR_ADOPT_ERR_LOCAL_ANCHOR    (9UL) /* not raised here */
+#define FD_VOTOR_ADOPT_RESULT_CNT          (10UL)
 
 struct fd_votor_adopt_result {
   ulong result;

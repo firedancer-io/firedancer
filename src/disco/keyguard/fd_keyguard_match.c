@@ -17,6 +17,7 @@
    - TLS CertificateVerify challenges
    - Gossip message signed payloads (CrdsData)
    - Tower file digests
+   - Votor history file digests
 
    ### Fake Signing Attacks
 
@@ -394,6 +395,18 @@ fd_keyguard_payload_matches_tower_file( uchar const * data,
          fd_memeq( data, FD_KEYGUARD_TOWER_FILE_PREFIX, FD_KEYGUARD_TOWER_FILE_PREFIX_SZ );
 }
 
+/* The votor tile does the same for its saved vote history under its
+   own prefix, so neither file signature can stand in for the other. */
+
+static int
+fd_keyguard_payload_matches_votor_hist( uchar const * data,
+                                        ulong         sz,
+                                        int           sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 &&
+         sz==FD_KEYGUARD_VOTOR_HIST_MSG_SZ &&
+         fd_memeq( data, FD_KEYGUARD_VOTOR_HIST_PREFIX, FD_KEYGUARD_VOTOR_HIST_PREFIX_SZ );
+}
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
@@ -411,5 +424,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,   0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE, 0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_tower_file( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,   0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_votor_hist( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_HIST, 0 );
   return res;
 }

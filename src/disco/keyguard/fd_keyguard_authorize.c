@@ -315,6 +315,14 @@ fd_keyguard_authorize_ag_vote( fd_keyguard_authority_t const * authority FD_PARA
   return sign_type==FD_KEYGUARD_SIGN_TYPE_BLS;
 }
 
+static int
+fd_keyguard_authorize_votor_hist( fd_keyguard_authority_t const * authority FD_PARAM_UNUSED,
+                                  uchar const *                   data      FD_PARAM_UNUSED,
+                                  ulong                           sz        FD_PARAM_UNUSED,
+                                  int                             sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519;
+}
+
 int
 fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
                                uchar const *                   data,
@@ -454,7 +462,9 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
                     fd_keyguard_authorize_tls_cv_srv( authority, data, sz, sign_type ) );
     int vote_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_AG_VOTE )) &&
                   fd_keyguard_authorize_ag_vote( authority, data, sz, sign_type );
-    if( FD_UNLIKELY( !tls_ok && !vote_ok ) ) {
+    int hist_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_AG_HIST )) &&
+                  fd_keyguard_authorize_votor_hist( authority, data, sz, sign_type );
+    if( FD_UNLIKELY( !tls_ok && !vote_ok && !hist_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for votor (mask=%#lx)", payload_mask ));
       return 0;
     }
