@@ -22,9 +22,9 @@
    2. As banks/forks execute, they will maintain a delta-based
       representation of the stake delegations.  Each fork will hold its
       own set of deltas.  These are then applied to the root set when
-      the fork is finalized.  This is implemented as each bank having
-      its own map of deltas which are allocated from a pool shared
-      across all stake delegation forks.  The caller is expected to
+      the fork is finalized.  Deltas share one map keyed by stake
+      account and fork index, and one pool across all forks.  Each
+      fork maintains a list of its deltas.  The caller is expected to
       create a new fork index for each bank and add deltas to it.
 
    Root and delta entries that exceed their respective in-memory pools
@@ -69,7 +69,6 @@
 
 #define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
 #define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
-#define FD_STAKE_DELEGATIONS_FORK_MAP_CHAIN_CNT (8192UL)
 #define FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR (2UL)
 
 /* 123458/123459 are store, 123460/123461 are accdb, and 123462+ are
@@ -164,15 +163,21 @@ fd_stake_warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_
 #define FD_STAKE_DELEGATION_STATE_COOLING ((uchar)3) /* deactivating */
 #define FD_STAKE_DELEGATION_STATE_COOLED  ((uchar)4) /* effective=0 */
 
-struct fd_stake_delegation {
+struct fd_stake_delegation_key {
   fd_pubkey_t stake_account;
-  fd_pubkey_t vote_account;
-  ulong       stake;
-  ulong       lamports;
-  ulong       credits_observed;
-  uint        acc_dlen;
-  uint        next_;     /* Internal pool/map usage */
-  uint        delta_idx; /* in-memory/disk delta reference for iteration */
+  ushort      fork_idx;
+};
+typedef struct fd_stake_delegation_key fd_stake_delegation_key_t;
+
+struct fd_stake_delegation {
+  /* The fork map uses key; root lookups use stake_account directly. */
+  union {
+    fd_stake_delegation_key_t key;
+    struct {
+      fd_pubkey_t stake_account;
+      ushort      fork_idx; /* In-memory delta's fork index */
+    };
+  };
   ushort      activation_epoch;
   ushort      deactivation_epoch;
   union {
@@ -182,6 +187,16 @@ struct fd_stake_delegation {
     uchar     dne_in_root;  /* Tracking for stake delegation iteration */
   };
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
+  fd_pubkey_t vote_account;
+  ulong       stake;
+  ulong       lamports;
+  ulong       credits_observed;
+  uint        acc_dlen;
+  uint        next_;     /* Internal pool/map usage */
+  union {
+    uint      delta_idx; /* Root's in-memory/disk delta reference for iteration */
+    uint      fork_next; /* Next in-memory delta in this fork */
+  };
   uchar       in_use; /* For the in-memory root pool only.  Not meaningful in the
                          delta pool.  Set to 1 if this element holds a live delegation
                          present in the root map, 0 if the element has been reclaimed. */
