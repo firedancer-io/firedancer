@@ -53,8 +53,10 @@ struct fd_snapzp {
   ulong idle_cnt;
 
   ulong kind_id;  /* index of this tile kind */
-  ulong frame_id; /* sequence number for tar file names */
+  ulong frame_id; /* count of appendvecs written by this tile */
   ulong snapshot_slot;
+  ulong base_slot;          /* ULONG_MAX for a full snapshot */
+  int   appendvec_overflow; /* ran out of appendvec slots; dropping frames */
   ulong snapshot_account_cnt;
   ulong snapshot_account_sz;
   ulong snapshot_tombstone_cnt;
@@ -279,9 +281,11 @@ static void
 msg_start( fd_snapzp_t *                 ctx,
            fd_backup_start_msg_t const * frag ) {
   FD_CHECK_CRIT( frag->snap_idx < ctx->snap_fd_cnt, "invalid snapshot pool slot" );
-  ctx->snap_fd       = FD_SNAP_DIO_FD( frag->snap_idx );
-  ctx->fork_id       = (fd_accdb_fork_id_t){ .val = frag->fork_id };
-  ctx->snapshot_slot = frag->slot;
+  ctx->snap_fd            = FD_SNAP_DIO_FD( frag->snap_idx );
+  ctx->fork_id            = (fd_accdb_fork_id_t){ .val = frag->fork_id };
+  ctx->snapshot_slot      = frag->slot;
+  ctx->base_slot          = frag->base_slot;
+  ctx->appendvec_overflow = 0;
 
   ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
@@ -337,7 +341,9 @@ zip_work( fd_snapzp_t * ctx ) {
 /* zip_flush ends the current Zstandard compression frame and does a
    blocking direct I/O write.  Both uncompressed and compressed streams
    are padded up to 512 byte alignment to meet TAR and direct I/O
-   requirements respectively. */
+   requirements respectively.  Each frame becomes one appendvec with
+   its own slot; if the archive has no slot left the frame is dropped
+   instead of written (see fd_backup_appendvec_slot). */
 
 static void
 zip_flush( fd_snapzp_t * ctx ) {
@@ -373,24 +379,40 @@ zip_flush( fd_snapzp_t * ctx ) {
   ctx->raw_buf.pos  = 0UL;
   ctx->raw_buf.size = 0UL;
 
+  /* Claim an appendvec slot.  Indices are handed out across all snapzp
+     tiles from a shared counter so the slots of one archive never
+     collide (see fd_backup_appendvec_slot for why the slot values
+     themselves are otherwise arbitrary). */
+  ulong appendvec_idx  = __atomic_fetch_add( &ctx->stats->appendvec_next, 1UL, __ATOMIC_RELAXED );
+  ulong appendvec_slot = fd_backup_appendvec_slot( ctx->snapshot_slot, ctx->base_slot, appendvec_idx );
+  if( FD_UNLIKELY( appendvec_slot==ULONG_MAX ) ) {
+    if( FD_UNLIKELY( ctx->base_slot==ULONG_MAX ) ) {
+      /* A full snapshot has snapshot_slot+1 slots available, so this
+         only happens with a tiny snapshot slot and a huge genesis. */
+      FD_LOG_ERR(( "full snapshot at slot %lu needs more than %lu appendvecs, but Agave requires a distinct slot per appendvec",
+                   ctx->snapshot_slot, ctx->snapshot_slot+1UL ));
+    }
+    /* An incremental snapshot must place every appendvec strictly
+       between the base slot and its own slot.  Drop this frame and all
+       further frames of this archive; snapmk discards the archive once
+       all tiles have flushed. */
+    if( FD_UNLIKELY( !ctx->appendvec_overflow ) ) {
+      FD_LOG_WARNING(( "incremental snapshot (slot %lu, base slot %lu) needs more than %lu appendvecs, dropping it",
+                       ctx->snapshot_slot, ctx->base_slot, ctx->snapshot_slot-ctx->base_slot ));
+    }
+    ctx->appendvec_overflow = 1;
+    __atomic_store_n( &ctx->stats->appendvec_overflow, 1UL, __ATOMIC_RELEASE );
+    ctx->comp_buf.pos = 0UL; /* discard the finished frame */
+    return;
+  }
+  ctx->frame_id++;
+
   /* Prepend compression frame with a TAR header
      (Zstandard frame with a 512 byte uncompressed block) */
   uchar * comp_head = (uchar *)ctx->comp_buf.dst - COMP_HEAD;
   memcpy( comp_head, (uchar[]){0x28,0xB5,0x2F,0xFD,0x60,0x00,0x01,0x01,0x10,0x00}, 10 );
   fd_tar_meta_t meta; fd_backup_tar_file_hdr( &meta, content_usz );
-
-  /* Generate a unique file name */
-  ulong frame_id = ctx->frame_id++;
-  ulong vec_id   = (frame_id * SNAPZP_TILE_MAX) + ctx->kind_id;
-  do {
-    ulong slot = ctx->snapshot_slot;
-    char * p = fd_cstr_init( meta.name );
-    p = fd_cstr_append_cstr( p, "accounts/" );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, slot,   fd_ulong_base10_dig_cnt( slot   ) );
-    p = fd_cstr_append_char( p, '.' );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, vec_id, fd_ulong_base10_dig_cnt( vec_id ) );
-    fd_cstr_fini( p );
-  } while(0);
+  fd_backup_appendvec_name( meta.name, appendvec_slot );
   fd_tar_meta_set_chksum( &meta );
   memcpy( comp_head+10, &meta, sizeof(fd_tar_meta_t) );
 
@@ -529,6 +551,9 @@ msg_acc_delta( fd_snapzp_t *                 ctx,
   FD_CHECK_CRIT( ctx->snap_fd>=0, "invalid snapshot file descriptor" );
   FD_CHECK_CRIT( !ctx->disk.active, "received account delta while already processing a disk account" );
   FD_CHECK_CRIT( batch->cnt<=FD_BACKUP_CACHE_PARA, "invalid delta account batch" );
+
+  /* The archive is being discarded (see zip_flush); skip the reads. */
+  if( FD_UNLIKELY( ctx->appendvec_overflow ) ) return;
 
   ulong const rec_max = sizeof(snap_acc_hdr_t) + FD_RUNTIME_ACC_SZ_MAX;
   FD_STATIC_ASSERT( sizeof(snap_acc_hdr_t)+FD_RUNTIME_ACC_SZ_MAX<=RAW_BUF_SZ, raw_buf_too_small );

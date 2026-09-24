@@ -7,8 +7,9 @@
             "type": "LowCardinality(String)",
             "description": "Snapshot production result.",
             "variants": {
-                "success":                       { "description": "The snapshot was produced and published to the local snapshot directory." },
-                "too_many_incremental_accounts": { "description": "The incremental snapshot could not be produced because more accounts changed than snapshots.max_incremental_snapshot_accounts permits." }
+                "success":                         { "description": "The snapshot was produced and published to the local snapshot directory." },
+                "too_many_incremental_accounts":   { "description": "The incremental snapshot could not be produced because more accounts changed than snapshots.max_incremental_snapshot_accounts permits." },
+                "too_many_incremental_appendvecs": { "description": "The incremental snapshot could not be produced because the changed accounts needed more appendvecs than there are slots between the base slot and the snapshot slot. Every appendvec needs a distinct slot in that range." }
             }
         },
         "slot":                      { "type": "UInt64",        "compression": "DoubleDelta, ZSTD", "description": "The snapshot slot. The snapshot contains the chain state after replaying this slot." },

@@ -29,6 +29,7 @@
 #define SNAPMK_STATE_SLEEP               17 /* sleep until FUTEX_WAKE */
 #define SNAPMK_STATE_STARTUP             18 /* waiting for system startup */
 #define SNAPMK_STATE_STARTUP_BURST       19 /* publish pre-existing snaps */
+#define SNAPMK_STATE_ABORT               20 /* archive discarded, releasing workers */
 
 /* snapmk_out ABI
 
@@ -110,8 +111,11 @@ struct fd_snapmk_msg_started {
 typedef struct fd_snapmk_msg_started fd_snapmk_msg_started_t;
 
 /* fd_snapmk_msg_failed_t signals that snapshot production failed.
-   Currently, there is only one failure reason: too many accounts
-   changed since the full snapshot to fit in the incremental snap. */
+   Only incremental snapshots fail: either too many accounts changed
+   since the full snapshot to fit in the incremental snap, or the
+   changed accounts needed more appendvecs than there are slots between
+   the base slot and the snapshot slot.  The reason is reported in the
+   snapshot_created event. */
 
 struct fd_snapmk_msg_failed {
   ulong slot;

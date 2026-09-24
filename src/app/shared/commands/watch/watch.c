@@ -1604,7 +1604,7 @@ write_backup( config_t const * config,
   ulong snapsv_idx = fd_topo_find_tile( &config->topo, "snapsv", 0UL );
   ulong conns      = snapsv_idx==ULONG_MAX ? 0UL : cur_tile[ snapsv_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPSV, CONN_ACTIVE ) ];
   ulong state      = snapmk_idx==ULONG_MAX ? SNAPMK_STATE_IDLE : cur_tile[ snapmk_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPMK, STATE ) ];
-  int   active     = state>=SNAPMK_STATE_START && state<=SNAPMK_STATE_FAIL;
+  int   active     = ( state>=SNAPMK_STATE_START && state<=SNAPMK_STATE_FAIL ) || state==SNAPMK_STATE_ABORT;
   int   server_on  = conns>0UL;
   if( FD_UNLIKELY( !active && !server_on ) ) return 0U;
 
@@ -1642,7 +1642,7 @@ write_backup( config_t const * config,
     ulong done  = cur_tile[ snapmk_off+MIDX( GAUGE, SNAPMK, INCREMENTAL_ACCOUNT_PROGRESS ) ];
     ulong total = cur_tile[ snapmk_off+MIDX( GAUGE, SNAPMK, INCREMENTAL_ACCOUNT_TOTAL    ) ];
     progress = total ? 100.0*(double)fd_ulong_min( done, total )/(double)total : 100.0;
-  } else if( FD_UNLIKELY( incremental && state>SNAPMK_STATE_ACCDB_DELTA && state<=SNAPMK_STATE_DONE ) ) {
+  } else if( FD_UNLIKELY( incremental && ( ( state>SNAPMK_STATE_ACCDB_DELTA && state<=SNAPMK_STATE_DONE ) || state==SNAPMK_STATE_ABORT ) ) ) {
     progress = 100.0;
   }
 

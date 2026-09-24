@@ -69,6 +69,7 @@ typedef struct fd_backup_inode fd_backup_inode_t;
 
 struct fd_backup_start_msg {
   ulong  slot;      /* slot number */
+  ulong  base_slot; /* full snapshot slot for an incremental, ULONG_MAX otherwise */
   uint   snap_idx;  /* identifies file descriptor */
   ushort fork_id;   /* accdb fork ID */
 };
@@ -150,6 +151,50 @@ typedef union snap_acc_hdr snap_acc_hdr_t;
 FD_PROTOTYPES_BEGIN
 
 /* Utils */
+
+/* fd_backup_appendvec_slot returns the slot in the tar entry name of
+   the idx-th appendvec of a snapshot archive (idx starts at 0).
+
+   Agave requires one appendvec per slot and keys storages by slot
+   alone.  When the same account appears in two appendvecs the higher
+   slot wins.  The Firedancer producer never emits an account twice
+   within an archive, so any distinct slots at or below the snapshot
+   slot are valid for a full snapshot.  For an incremental snapshot
+   every slot must exceed the base slot so its updates and tombstones
+   override the full snapshot's copies.  So we start at the snapshot
+   slot and count down.
+
+   base_slot is ULONG_MAX for a full snapshot.  Returns ULONG_MAX if
+   idx does not fit the archive's slot window, which is
+   [0, snapshot_slot] for a full snapshot and
+   (base_slot, snapshot_slot] for an incremental snapshot. */
+
+FD_FN_CONST static inline ulong
+fd_backup_appendvec_slot( ulong snapshot_slot,
+                          ulong base_slot,
+                          ulong idx ) {
+  ulong window;
+  if( base_slot==ULONG_MAX ) window = snapshot_slot+1UL; /* full */
+  else                       window = snapshot_slot>base_slot ? snapshot_slot-base_slot : 0UL;
+  if( FD_UNLIKELY( idx>=window ) ) return ULONG_MAX;
+  return snapshot_slot-idx;
+}
+
+/* fd_backup_appendvec_name writes the tar entry name of an appendvec
+   with the given slot to name ("accounts/<slot>.0").  The id after
+   the dot only has to be unique within a slot, and Agave replaces it
+   at load time anyway, so it is always 0.  Returns name. */
+
+static inline char *
+fd_backup_appendvec_name( char  name[ static FD_TAR_NAME_SZ ],
+                          ulong slot ) {
+  char * p = fd_cstr_init( name );
+  p = fd_cstr_append_cstr( p, "accounts/" );
+  p = fd_cstr_append_ulong_as_text( p, 0, 0, slot, fd_ulong_base10_dig_cnt( slot ) );
+  p = fd_cstr_append_cstr( p, ".0" );
+  fd_cstr_fini( p );
+  return name;
+}
 
 FD_FN_UNUSED static fd_tar_meta_t *
 fd_backup_tar_file_hdr( fd_tar_meta_t * tar_meta,

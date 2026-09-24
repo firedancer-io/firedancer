@@ -99,6 +99,16 @@ struct __attribute__((aligned(128))) fd_backup_worker_stats {
 typedef struct fd_backup_worker_stats fd_backup_worker_stats_t;
 
 struct fd_backup_stats {
+  /* Shared appendvec allocator for the snapshot currently being
+     produced.  Agave requires a distinct slot per appendvec, so the
+     snapzp tiles claim consecutive indices from appendvec_next and
+     derive the slot with fd_backup_appendvec_slot.  A tile raises
+     appendvec_overflow when its index does not fit the archive's slot
+     window; snapmk then discards the archive.  snapmk resets both
+     before broadcasting START. */
+  ulong appendvec_next     __attribute__((aligned(128)));
+  ulong appendvec_overflow;
+
   fd_backup_worker_stats_t worker[ FD_BACKUP_STATS_MAX ];
 };
 
