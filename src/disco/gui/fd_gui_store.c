@@ -723,6 +723,58 @@ fd_gui_store_kv_iter_next( fd_gui_store_kv_iter_t * iter ) {
   return 1;
 }
 
+void
+fd_gui_store_kv_scan_begin( fd_gui_store_t *         db,
+                            fd_gui_store_kv_scan_t * iter,
+                            ulong                    ring_idx ) {
+  memset( iter, 0, sizeof(*iter) );
+  if( FD_UNLIKELY( !db || ring_idx>=db->ring_cnt || db->super->ring[ ring_idx ].kind!=FD_GUI_STORE_KIND_KV ) ) return;
+  iter->db              = db;
+  iter->ring_idx        = ring_idx;
+  iter->cur             = db->super->ring[ ring_idx ].evict_cur;
+  iter->end             = db->super->ring[ ring_idx ].head_cur;
+  iter->append_capacity = fd_gui_store_ring_head_limit( db, ring_idx, &db->super->ring[ ring_idx ] ) - iter->end;
+}
+
+int
+fd_gui_store_kv_scan_next( fd_gui_store_kv_scan_t * iter ) {
+  iter->rec = NULL;
+  if( FD_UNLIKELY( !iter->db ) ) return 0;
+  fd_gui_store_ring_t const * p = &iter->db->super->ring[ iter->ring_idx ];
+  iter->cur = fd_ulong_max( iter->cur, p->evict_cur );
+  if( iter->cur>=iter->end ) return 0;
+  iter->rec = fd_gui_store_slot( iter->db, iter->ring_idx, p, iter->cur++ );
+  return 1;
+}
+
+ulong
+fd_gui_store_kv_reclaim_prefix( fd_gui_store_t * db,
+                                ulong            ring_idx,
+                                ulong            budget,
+                                int (*eligible)( void const *, void * ),
+                                void *           ctx ) {
+  if( FD_UNLIKELY( !db || ring_idx>=db->ring_cnt || !eligible ) ) return 0UL;
+  fd_gui_store_ring_t * p = &db->super->ring[ ring_idx ];
+  if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_KV ) ) return 0UL;
+  ulong first = p->evict_cur;
+  while( budget && p->evict_cur<p->head_cur ) {
+    uchar const * rec = fd_gui_store_slot( db, ring_idx, p, p->evict_cur );
+    if( !eligible( rec, ctx ) ) break;
+    fd_gui_store_kv_idx_node_t * node = fd_gui_store_kv_find_node( db, p, ring_idx, rec+p->key_off );
+    FD_TEST( node );
+    fd_gui_store_kv_idx_ele_remove_fast( db->kv_idx[ ring_idx ], node, db->kv_pool );
+    fd_gui_store_kv_pool_ele_release( db->kv_pool, node );
+    p->evict_cur++;
+    budget--;
+  }
+  ulong count = p->evict_cur - first;
+  if( count ) db->metrics->evicts[ ring_idx ]++;
+  db->metrics->evict_records[ ring_idx ] += count;
+  p->tail_cur = p->evict_cur;
+  fd_gui_store_region_reclaim( db, ring_idx, p );
+  return count;
+}
+
 int
 fd_gui_store_kv_evict( fd_gui_store_t * db,
                        ulong            ring_idx,
@@ -767,24 +819,25 @@ fd_gui_store_kv_evict( fd_gui_store_t * db,
 }
 
 int
-fd_gui_store_ts_append( fd_gui_store_t * db,
-                        ulong            ring_idx,
-                        void const *     val ) {
-  if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_append: bad ring_idx %lu", ring_idx )); return FD_GUI_STORE_ERR; }
+fd_gui_store_ts_emplace( fd_gui_store_t * db,
+                         ulong            ring_idx,
+                         long             ts,
+                         void **          val_out ) {
+  if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_emplace: bad ring_idx %lu", ring_idx )); return FD_GUI_STORE_ERR; }
   fd_gui_store_ring_t * p = &db->super->ring[ ring_idx ];
-  if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_append: ring_idx %lu is not a TS ring", ring_idx )); return FD_GUI_STORE_ERR; }
+  if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_emplace: ring_idx %lu is not a TS ring", ring_idx )); return FD_GUI_STORE_ERR; }
 
   if( FD_UNLIKELY( p->head_cur >= fd_gui_store_ring_head_limit( db, ring_idx, p ) ) ) {
     if( FD_UNLIKELY( !fd_gui_store_region_grow( db, ring_idx ) ) ) { db->metrics->map_full[ ring_idx ]++; return FD_GUI_STORE_MAP_FULL; }
   }
 
   /* Window is derived from the timestamp embedded in the value; the
-     value is stored verbatim with no store-added header. */
-  ulong   window = fd_gui_store_ts_window( p, val );
+     value is stored verbatim with no store-added header.  Seed the
+     timestamp so the stored record is consistent with its window. */
   ulong   cur    = p->head_cur;
-
   uchar * slot   = fd_gui_store_slot( db, ring_idx, p, cur );
-  fd_memcpy( slot, val, p->val_sz );
+  fd_memcpy( slot + p->ts_off, &ts, sizeof(ts) );
+  ulong   window = fd_gui_store_ts_window( p, slot );
   p->head_cur = cur + 1UL;
   db->metrics->ts_appends[ ring_idx ]++;
 
@@ -796,7 +849,22 @@ fd_gui_store_ts_append( fd_gui_store_t * db,
     e->first_cur = cur;
     e->span      = 0U;
   }
+  *val_out = slot;
   return FD_GUI_STORE_SUCCESS;
+}
+
+int
+fd_gui_store_ts_append( fd_gui_store_t * db,
+                        ulong            ring_idx,
+                        void const *     val ) {
+  if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_append: bad ring_idx %lu", ring_idx )); return FD_GUI_STORE_ERR; }
+  fd_gui_store_ring_t const * p = &db->super->ring[ ring_idx ];
+  long ts;
+  fd_memcpy( &ts, (uchar const *)val + p->ts_off, sizeof(ts) );
+  void * slot = NULL;
+  int rc = fd_gui_store_ts_emplace( db, ring_idx, ts, &slot );
+  if( FD_LIKELY( rc==FD_GUI_STORE_SUCCESS ) ) fd_memcpy( slot, val, p->val_sz );
+  return rc;
 }
 
 int

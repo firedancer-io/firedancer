@@ -2830,8 +2830,137 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical shred and transaction event data recorded by the validator,
-queryable over a UNIX nanosecond timestamp window.
+Historical shred, transaction, slot, and aggregate data recorded by the
+validator, queryable over UNIX nanosecond timestamp windows.
+
+All methods require `start_ns` and `end_ns` as non-negative UNIX
+nanosecond timestamps, encoded as decimal strings without leading zeros
+(except `"0"`). Both must be less than `9223372036854775807`, and `end_ns`
+must be greater than `start_ns`.
+Windows are half-open: `[start_ns, end_ns)`.
+
+Every successful response includes `available_start_ns` and
+`available_end_ns`. These are method-specific half-open lookup bounds,
+`[available_start_ns, available_end_ns)`, reflecting the data available
+in the server's database. Both are `null` when the server is missing
+data needed for a non-empty response.
+
+Historical shred and transaction lookups use insertion-time indices
+with a one-second margin on either side, then filter by event time.
+An event inserted more than one second away from its event timestamp
+can be missed by a narrow query.
+FEC event and completion queries scan their bounded retained records
+and filter by canonical event time; they do not use this lookup margin.
+
+The GUI's database is wiped on boot. When it reaches capacity, data is
+evicted approximately oldest-first.
+
+| query                  | maximum result | outcome if exceeded |
+|------------------------|----------------|---------------------|
+| `query_shreds`         | 524,288 rows   | error message       |
+| `query_txn_timestamps` | 65,536 rows    | error message       |
+| `query_txn_meta`       | 65,536 rows    | error message       |
+| `query_slots`          | 65,536 rows    | error message       |
+| Each `query_agg_*`     | 10,000 buckets | connection closed   |
+
+The server returns the following error message when response limits are
+exceeded. Narrow the window and retry.
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 33,
+    "error": {
+        "code": "result_limit_exceeded"
+    }
+}
+```
+
+#### `timeline.query_shreds`
+| frequency | type             | example |
+|-----------|------------------|---------|
+| *Request* | `TimelineShreds` | below   |
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Either `shred` or `fec`. Required |
+
+At `shred` granularity, returns one row per recorded shred event as it
+arrives, including events in the active, unflushed batch.
+At `fec` granularity, events are available as they arrive, without
+waiting for slot completion. Each FEC set's timestamp is the minimum
+observed so far for that event type and can move earlier as more events
+arrive. Ordinary events arriving after slot closure are rejected at
+both granularities. Repeated slot-complete markers remain distinct rows
+in admission order. Empty results have empty arrays and `null` reference
+fields.
+
+**`TimelineShreds`**
+| field              | type               | description |
+|--------------------|--------------------|-------------|
+| granularity        | `string`           | Echoes `shred` or `fec` |
+| available_start_ns | `string\|null`     | Inclusive backing lookup start for shreds; minimum retained canonical event time for FECs |
+| available_end_ns   | `string\|null`     | Exclusive backing lookup end for shreds; one nanosecond past the maximum retained canonical event time for FECs |
+| reference_slot     | `number\|null`     | Smallest slot in the response |
+| reference_ts       | `string\|null`     | Smallest event timestamp in the response |
+| slot_delta         | `number[]`         | Per row, `slot - reference_slot` |
+| idx                | `(number\|null)[]` | Shred index or FEC set ordinal, not the FEC's first shred index. `null` for a slot-complete marker |
+| event              | `number[]`         | Event kind, using the enum below |
+| event_ts_delta     | `string[]`         | Per row, nanoseconds since `reference_ts` |
+| skipped            | `number[]`         | Sparse slot deltas among returned rows classified as skipped; absence is not proof of known non-skipped coverage |
+
+The per-row arrays correspond by index; `skipped` is a separate sparse
+list. Clients should not assume timestamps are ordered.
+
+| event | meaning |
+|-------|---------|
+| 0     | Repair request |
+| 1     | Shred received from turbine |
+| 2     | Shred received from repair |
+| 3     | Replay execution done |
+| 4     | Slot complete |
+| 5     | Deprecated |
+| 6     | Shred published by this validator |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 32,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000",
+        "granularity": "shred"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 32,
+    "value": {
+        "granularity": "shred",
+        "available_start_ns": "1739657041000000000",
+        "available_end_ns": "1739657042000000000",
+        "reference_slot": 289245044,
+        "reference_ts": "1739657041588242791",
+        "slot_delta": [0, 0],
+        "idx": [1234, null],
+        "event": [0, 4],
+        "event_ts_delta": ["0", "100000"],
+        "skipped": []
+    }
+}
+```
+
+:::
 
 #### `timeline.query_txn_timestamps`
 | frequency | type            | example |
@@ -2840,44 +2969,26 @@ queryable over a UNIX nanosecond timestamp window.
 
 | param       | type     | description |
 |-------------|----------|-------------|
-| start_ns    | `string` | Inclusive lower bound, as a UNIX timestamp in nanoseconds |
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns      | `string` | Exclusive upper bound |
-| granularity | `string` | Required; `txn` |
+| granularity | `string` | Either `txn` or `txn_batch`. Required |
 
 Returns replay and local leader execution timings selected by transaction
-completion time: the later of signature verification and commit/cancel
-completion, or just commit/cancel for locally produced blocks. Rows are
-ordered by `(slot, txn_idx)`. `reference_ts` is the earliest available stage
-timestamp across all returned rows. Deltas are non-negative and stages can
-precede `start_ns`. Empty results have empty arrays and `null` reference
-fields.
-
-Both timestamps must be non-negative decimal strings without leading zeros
-(except `"0"`), less than `9223372036854775807`, with `end_ns > start_ns`.
-The window is half-open: `[start_ns, end_ns)`.
-
-Lookups use an insertion-time index with a one-second margin on either
-side, then filter by completion time. A transaction inserted more than one
-second away from its completion timestamp can be missed by a narrow query.
-`available_start_ns` and `available_end_ns` describe the approximate
-half-open lookup bounds, or are both `null` when no history is available.
-The database is wiped on boot and evicts data approximately oldest-first
-when full.
-
-At most 65,536 rows are returned. If the result exceeds this limit, the
-server returns an error envelope with `error.code = "result_limit_exceeded"`
-instead of partial rows. Narrow the window and retry.
+completion time. Rows are ordered by `(slot, txn_idx)`. `reference_ts` is the
+earliest available stage timestamp across all returned rows. Deltas are
+non-negative and stages can precede `start_ns`. Empty results have
+empty arrays and `null` reference fields.
 
 **`TimelineTxnTs`**
 | field                        | type               | description |
 |------------------------------|--------------------|-------------|
-| granularity                  | `string`           | Echoes `txn` |
-| available_start_ns           | `string\|null`     | Inclusive approximate lookup start |
-| available_end_ns             | `string\|null`     | Exclusive approximate lookup end |
+| granularity                  | `string`           | Echoes `txn` or `txn_batch` |
+| available_start_ns           | `string\|null`     | Inclusive approximate lookup start for the selected history |
+| available_end_ns             | `string\|null`     | Exclusive approximate lookup end for the selected history |
 | reference_slot               | `number\|null`     | Smallest slot in the response |
 | reference_ts                 | `string\|null`     | Earliest stage timestamp in the response |
 | slot_delta                   | `number[]`         | Per row, `slot - reference_slot` |
-| txn_idx                      | `number[]`         | Transaction index within its slot; pack index for locally produced blocks |
+| txn_idx                      | `number[]`         | Transaction index within its slot (pack index for locally produced blocks), or synthetic batch index for `txn_batch` |
 | txn_exec_idx                 | `number[]`         | Execution tile index; execle tile index for locally produced blocks |
 | txn_sigverify_exec_idx       | `(number\|null)[]` | Signature-verification tile index, or `null` if absent |
 | txn_sigverify_start_ts_delta | `(string\|null)[]` | Signature-verification start minus `reference_ts`, in nanoseconds, or `null` if absent |
@@ -2887,12 +2998,24 @@ instead of partial rows. Narrow the window and retry.
 | txn_exec_start_ts_delta      | `(string\|null)[]` | Execution start minus `reference_ts`, or `null` if absent |
 | txn_commit_start_ts_delta    | `(string\|null)[]` | Commit/cancel start minus `reference_ts`, or `null` if absent |
 | txn_commit_end_ts_delta      | `string[]`         | Commit/cancel end minus `reference_ts` |
-| txn_error_code               | `number[]`         | Runtime error code, 0 on success |
+| txn_error_code               | `number[]`         | Runtime error code, 0 on success; for a batch, the most frequent code among its execution-lane members (ties choose the smallest code, so success wins a tie) |
 
 Rows from blocks produced by this validator are recorded from execle
-rather than replay and have null sigverify fields. Their `txn_idx` is pack's
-monotonically increasing transaction index, not the transaction's position
-in the block; transactions that do not land can leave gaps.
+rather than replay and have null sigverify fields (and, in
+`TimelineTxnMeta`, null shred indices).
+Their `txn_idx` is pack's monotonically increasing transaction index, not
+the transaction's position in the block (transactions that do not land can leave gaps).
+Ordering by `(slot, txn_idx)` still applies. These semantics also apply to
+`TimelineTxnMeta`. Leader `txn_batch` rows have no sigverify lane.
+
+`txn_batch` is a compressed, rolled-up version of the fine-grained data
+which attempts to preserve the data's visual footprint. Its `txn_idx`
+is synthetic, not a transaction index or evidence that the two lanes
+processed the same members. Consecutive transactions on the same tile
+are merged into one batch, regardless of their error codes, while the
+next starts within 5 milliseconds of the previous one ending, up to
+128 transactions per batch. A batch's span can therefore include idle
+time between its members.
 
 ::: details Example
 
@@ -2911,31 +3034,50 @@ in the block; transactions that do not land can leave gaps.
 
 :::
 
-#### `timeline.query_shreds`
-| frequency   | type          | example |
-|-------------|---------------|---------|
-| *Request*   | `SlotShreds`  | below   |
+#### `timeline.query_txn_meta`
+| frequency | type              | example |
+|-----------|-------------------|---------|
+| *Request* | `TimelineTxnMeta` | below   |
 
 | param    | type     | description |
 |----------|----------|-------------|
-| start_ns | `string` | Inclusive lower bound of the GUI insertion-time window, as a UNIX timestamp in nanoseconds |
-| end_ns   | `string` | Inclusive upper bound of the GUI insertion-time window, as a UNIX timestamp in nanoseconds |
+| start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns   | `string` | Exclusive upper bound |
 
-WebSocket clients may request historical shred metadata over a UNIX
-nanosecond timestamp window.  The requested window must not exceed 60
-seconds.  The response has the same shape as the live `slot.live_shreds`
-topic and includes retained events which were inserted into the server
-database during that window.  Events are available as they arrive,
-without waiting for replay completion. If no shred events fall in the
-window, the response arrays are empty.
+Returns individual transaction metadata with the same completion-time
+selection, ordering, references, and empty-result behavior as
+`query_txn_timestamps` at `txn` granularity. No `granularity` parameter
+is exposed.
+
+**`TimelineTxnMeta`** shares `available_start_ns`, `available_end_ns`,
+`reference_slot`, `reference_ts`, `slot_delta`, `txn_idx`, `txn_exec_idx`,
+`txn_sigverify_exec_idx`, and `txn_error_code` with `TimelineTxnTs`.
+Its remaining fields are:
+
+| field                       | type               | description |
+|-----------------------------|--------------------|-------------|
+| txn_start_shred_idx         | `(number\|null)[]` | Index of the shred containing the transaction's first byte; `null` for locally produced blocks |
+| txn_end_shred_idx           | `(number\|null)[]` | Index of the shred containing the byte after the transaction's last byte (exclusive; capped at the block's last shred index); `null` for locally produced blocks |
+| txn_signature               | `string[]`         | Base58 transaction signature |
+| txn_compute_units_requested | `(number\|null)[]` | Total pack compute-cost estimate (legacy field name); `null` when unavailable. This is not the block CU limit |
+| txn_compute_units_consumed  | `number[]`         | Actual transaction compute cost, including consensus-relevant costs |
+| txn_transaction_fee         | `string[]`         | Base transaction fee in lamports |
+| txn_priority_fee            | `string[]`         | Priority fee in lamports |
+| txn_tips                    | `string[]`         | Tips in lamports |
+| txn_is_fees_only            | `boolean[]`        | Whether only fees were charged |
+| txn_is_simple_vote          | `boolean[]`        | Whether the transaction is a simple vote |
+| txn_load_start_ts_delta     | `string[]`         | Load start minus `reference_ts`, in nanoseconds |
+| txn_commit_end_ts_delta     | `string[]`         | Commit/cancel end minus `reference_ts`, in nanoseconds |
+
+The other stage-delta arrays from `TimelineTxnTs` are not included.
 
 ::: details Example
 
 ```json
 {
     "topic": "timeline",
-    "key": "query_shreds",
-    "id": 32,
+    "key": "query_txn_meta",
+    "id": 41,
     "params": {
         "start_ns": "1739657041588000000",
         "end_ns": "1739657041589000000"
@@ -2943,18 +3085,225 @@ window, the response arrays are empty.
 }
 ```
 
+:::
+
+#### `timeline.query_slots`
+| frequency | type            | example |
+|-----------|-----------------|---------|
+| *Request* | `TimelineSlots` | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns   | `string` | Exclusive upper bound |
+
+Returns one row per numeric slot whose duration overlaps the request
+window, ordered by slot. For skipped slots, boundaries are interpolated
+from their landed ancestors and descendants.
+
+**Tower:** classification advances along optimistically confirmed (OC)
+replayed ancestry. **Alpenglow:** it advances along the replayed rooted
+ancestry.
+
+`reference_slot` is the first (lowest) slot in the response. `reference_ts`
+is the minimum start time across all returned rows. Timestamp deltas are
+non-negative. Both references are `null` when the arrays are empty.
+
+**`TimelineSlots`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| available_start_ns | `string\|null` | Inclusive beginning of retained cached slot intervals; not a hole-free coverage guarantee |
+| available_end_ns   | `string\|null` | Exclusive end of retained cached slot intervals |
+| reference_slot     | `number\|null` | First slot in the response |
+| reference_ts       | `string\|null` | Minimum start timestamp across returned rows |
+| slot_delta         | `number[]`     | Per row, `slot - reference_slot` |
+| start_ts_delta     | `string[]`     | Per row, interval start minus `reference_ts`, in nanoseconds |
+| end_ts_delta       | `string[]`     | Per row, exclusive interval end minus `reference_ts`, in nanoseconds |
+| skipped            | `number[]`     | Sparse slot deltas for skipped rows |
+| mine               | `number[]`     | Sparse slot deltas for locally produced rows |
+
+::: details Example
+
 ```json
 {
     "topic": "timeline",
-    "key": "query_shreds",
-    "id": 32,
+    "key": "query_slots",
+    "id": 49,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657041000000000"
+    }
+}
+```
+
+:::
+
+#### `timeline.query_agg_*`
+| frequency | type          | example |
+|-----------|---------------|---------|
+| *Request* | `TimelineAgg` | below   |
+
+Five methods share the following parameters and common response fields:
+`timeline.query_agg_slots`, `timeline.query_agg_shreds`,
+`timeline.query_agg_compute`, `timeline.query_agg_revenue`, and
+`timeline.query_agg_txn`.
+
+Compute, revenue, and transaction aggregates include locally produced
+blocks, at both fine and coarse resolutions.
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Required; one of the granularities below, supported by all five methods |
+
+| resolution | granularities |
+|------------|---------------|
+| Fine       | `1ms`, `2ms`, `5ms`, `10ms`, `25ms`, `50ms`, `100ms` |
+| Coarse     | `250ms`, `500ms`, `1s`, `2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d` |
+
+The request window is aligned to the request granularity bucket
+boundaries. At most 10,000 buckets may be requested, and the aligned
+exclusive end must also be less than `9223372036854775807`.
+
+Fine responses compute data aggregates at query time. Coarse responses
+use cached values, so availability and totals may differ from fine
+queries after drops or eviction.
+
+**Common `TimelineAgg` fields**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| granularity        | `string`       | Echoes the requested granularity |
+| reference_ts_ns    | `string`       | Start of the first aligned response bucket |
+| available_start_ns | `string\|null` | Method-specific lookup start bound, as described above |
+| available_end_ns   | `string\|null` | Method-specific lookup end bound, as described above |
+
+Each array has one entry per aligned bucket. Bucket `i` covers
+`[reference_ts_ns + i*duration, reference_ts_ns + (i+1)*duration)`.
+An entry is `null` when the field is unknown, distinct from a known
+zero. `null` values are ignored when computing rolled-up aggregates,
+except that an unknown slot-duration sum or count makes its average unknown.
+
+##### `timeline.query_agg_slots`
+| field        | type               | description |
+|--------------|--------------------|-------------|
+| start_slot   | `(number\|null)[]` | Smallest observed slot per bucket, not an interval boundary |
+| end_slot     | `(number\|null)[]` | Largest observed slot per bucket, inclusive |
+| skipped      | `(number\|null)[]` | Count of classified skipped numeric slots, attributed to interpolated slot midpoints |
+| mine         | `(number\|null)[]` | Count of completed blocks produced by this validator, attributed to replay completion time |
+| mine_skipped | `(number\|null)[]` | Count of completed local blocks whose numeric slot is classified as skipped, attributed to their replay completion time; never exceeds `mine` |
+
+Skip classification uses optimistically confirmed (Tower) or rooted
+(Alpenglow) ancestry, as described for `query_slots`. Skipped slots do
+not extend `start_slot` or `end_slot`. `skipped` and `mine_skipped` are
+`null` when unknown (e.g., historical data was forgotten).
+
+##### `timeline.query_agg_shreds`
+| field         | type               | description |
+|---------------|--------------------|-------------|
+| turbine       | `(number\|null)[]` | Sum of turbine-received shred counts from completed FECs |
+| repair        | `(number\|null)[]` | Sum of repair-received shred counts from completed FECs |
+| reconstructed | `(number\|null)[]` | Sum of reconstructed shred counts from completed FECs |
+| published     | `(number\|null)[]` | 64 shreds, data plus coding, per accepted leader FEC completion; zero for a non-leader completion |
+| slot_duration | `(number\|null)[]` | Average per-slot duration in integer nanoseconds, with bounded nearest-neighbor fill as described below |
+
+Counts are assigned to time buckets based on the FEC-completion
+timestamp, not individual shred arrival times. Accepted FEC completions
+are available immediately, without waiting for their slot to complete.
+Fine queries use the recorded FEC completions; coarse queries use the
+calendar-day aggregates retained independently of the detailed history.
+Exact duplicate completions contribute only once. If a new completion
+cannot be admitted after safe reclamation, both its detail and its coarse
+aggregate contribution are dropped, and the completion drop counter is
+incremented. Each FEC collection is capped at 1,048,576 live records and
+two 36 MiB data regions; these limits do not promise a retention duration.
+Reclamation stops at the first record whose slot is not permanently closed.
+
+`slot_duration` is independent of FEC counts. Every replayed block completion
+contributes a sample, including abandoned forks and exact duplicate replays.
+The sample is `(block_completion_ns - parent_completion_ns) / (slot - parent_slot)`,
+using integer division: skipped slots between parent and block share the gap
+evenly. A sample requires valid completion times, a known parent completion,
+a strictly earlier parent slot, and a positive time gap. Its timestamp is the
+midpoint between parent and block completion (rounded down to integer ns).
+
+A bucket containing samples returns their average per-slot duration, rounded
+to the nearest integer nanosecond (half up). Fine queries average retained raw
+samples; coarse queries merge calendar-day sums and sample counts before
+dividing, not averages of averages. Overflowed totals are unknown.
+An empty or unknown bucket uses the retained raw sample whose midpoint is
+nearest its center, only within **10 seconds**, inclusive; ties choose the
+earlier midpoint. Otherwise it is `null`. Fill requires retained raw history
+even when coarse day aggregates survive. Buckets wider than 20 seconds do not
+attempt fill. Fine `available_start_ns` / `available_end_ns` still describe
+FEC-completion availability, not slot-duration samples.
+
+Raw sample lookups scan the relevant range widened by the 10-second fill cap
+and a further 10-second insert-time margin on either side. The raw index uses
+GUI insertion time, which can trail the midpoint by half the completion gap
+plus GUI lag. Very long gaps (for example after downtime), excessive lag, or
+clock skew beyond this margin can leave otherwise eligible samples out of a
+query. Coarse queries only scan around runs of empty or unknown buckets;
+nearby runs share one scan.
+
+##### `timeline.query_agg_compute`
+| field             | type               | description |
+|-------------------|--------------------|-------------|
+| compute_units     | `(number\|null)[]` | Sum of actual transaction compute costs per bucket |
+| max_compute_units | `number\|null`     | Scalar maximum known block compute-unit limit among contributing records across all response buckets; `null` if unavailable |
+
+`max_compute_units` is a block limit, not the largest requested
+transaction budget.
+
+##### `timeline.query_agg_revenue`
+| field     | type               | description |
+|-----------|--------------------|-------------|
+| txn_fees  | `(string\|null)[]` | Sum of base transaction fees per bucket, in lamports |
+| prio_fees | `(string\|null)[]` | Sum of priority fees per bucket, in lamports |
+| tips      | `(string\|null)[]` | Sum of tips per bucket, in lamports |
+
+##### `timeline.query_agg_txn`
+| field                        | type               | description |
+|------------------------------|--------------------|-------------|
+| success_nonvote_transactions | `(number\|null)[]` | Successful transactions not classified as simple votes |
+| failed_nonvote_transactions  | `(number\|null)[]` | Failed transactions not classified as simple votes |
+| success_vote_transactions    | `(number\|null)[]` | Successful simple-vote transactions |
+| failed_vote_transactions     | `(number\|null)[]` | Failed simple-vote transactions |
+
+Success means runtime error code 0. These four fields, and
+`query_txn_meta.txn_is_simple_vote`, retain their names in both consensus
+modes. Alpenglow consensus votes are not transactions and are not
+counted here.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_txn",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657100000000000",
+        "granularity": "15s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_txn",
+    "id": 50,
     "value": {
-        "reference_slot": 289245044,
-        "reference_ts": "1739657041588242791",
-        "slot_delta": [0, 0],
-        "shred_idx": [1234, null],
-        "event": [0, 1],
-        "event_ts_delta": ["1000000", "2000000"]
+        "granularity": "15s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "success_nonvote_transactions": [1203, 1187, null, 1240],
+        "failed_nonvote_transactions": [12, 9, null, 15],
+        "success_vote_transactions": [640, 655, null, 648],
+        "failed_vote_transactions": [0, 1, null, 0]
     }
 }
 ```

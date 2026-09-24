@@ -117,7 +117,7 @@ struct fd_gui_store_desc {
   ulong        val_align;   /* record alignment (power of two, >=1; pass 1 for none) */
   ulong        ts_off;      /* byte offset, within the value, of the record's `long` timestamp (TS only; pass 0 for KV) */
   ulong        granularity; /* TS window divisor: window = (ulong)(*(long*)(val+ts_off)) / granularity (pass 0 for KV) */
-  ulong        max_records; /* The maximum number of distinct live records this ring can ever hold (pass 0 for TS) */
+  ulong        max_records; /* KV index sizing budget; callers enforce admission limits (pass 0 for TS) */
 };
 
 typedef struct fd_gui_store_desc fd_gui_store_desc_t;
@@ -288,6 +288,39 @@ int
 fd_gui_store_kv_iter_next( fd_gui_store_kv_iter_t * iter );
 
 
+struct fd_gui_store_kv_scan {
+  void const *     rec;
+  fd_gui_store_t * db;
+  ulong            ring_idx;
+  ulong            cur;
+  ulong            end;
+  ulong            append_capacity;
+};
+typedef struct fd_gui_store_kv_scan fd_gui_store_kv_scan_t;
+
+/* fd_gui_store_kv_scan_begin snapshots a KV ring's admission-order end.
+   scan_next skips evicted records and returns 1 with iter->rec set, or 0
+   at the snapshot end.  No iterator cleanup is required. */
+
+void
+fd_gui_store_kv_scan_begin( fd_gui_store_t *         db,
+                            fd_gui_store_kv_scan_t * iter,
+                            ulong                    ring_idx );
+
+int
+fd_gui_store_kv_scan_next( fd_gui_store_kv_scan_t * iter );
+
+/* fd_gui_store_kv_reclaim_prefix removes up to budget records in admission
+   order, stopping at the first record rejected by eligible(rec,ctx).
+   Returns the number removed. */
+
+ulong
+fd_gui_store_kv_reclaim_prefix( fd_gui_store_t * db,
+                                ulong            ring_idx,
+                                ulong            budget,
+                                int (*eligible)( void const *, void * ),
+                                void *           ctx );
+
 /* ---- KV ring: eviction ---------------------------------------------- */
 
 /* fd_gui_store_kv_evict reclaims drained records (up to budget records)
@@ -310,6 +343,18 @@ int
 fd_gui_store_ts_append( fd_gui_store_t * db,
                         ulong            ring_idx,
                         void const *     val );
+
+/* fd_gui_store_ts_emplace appends one record with timestamp ts to ring
+   `ring_idx` in place.  On success, *val_out points to the stored
+   record, whose timestamp field is ts and whose remaining bytes are
+   unspecified; the caller fills them before the next store operation and
+   must not change the timestamp.  Returns like fd_gui_store_ts_append. */
+
+int
+fd_gui_store_ts_emplace( fd_gui_store_t * db,
+                         ulong            ring_idx,
+                         long             ts,
+                         void **          val_out );
 
 /* fd_gui_store_ts_filter_fn is an optional per-record predicate
    evaluated during a scan: it returns non-zero to emit the record or

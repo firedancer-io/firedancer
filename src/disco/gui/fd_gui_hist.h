@@ -52,7 +52,11 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_TXN_WATERFALL    (10) /* (ts, type)            */
 #define FD_GUI_HIST_TIMELINE_DAY     (11)
 #define FD_GUI_HIST_REPLAY_TXN       (12)
-#define FD_GUI_HIST_CNT              (13)
+#define FD_GUI_HIST_REPLAY_TXN_BATCH (13) /* (ts, ...)            */
+#define FD_GUI_HIST_FEC_EVENTS       (14) /* (FEC event key)      */
+#define FD_GUI_HIST_FEC_COMPLETIONS  (15) /* (FEC completion key) */
+#define FD_GUI_HIST_SLOT_DURATION    (16) /* (ts, ...)            */
+#define FD_GUI_HIST_CNT              (17)
 
 struct fd_gui_hist_metrics {
   /* Writes that hit MAP_FULL and were dropped. */
@@ -163,6 +167,17 @@ int
 fd_gui_hist_ts_append( fd_gui_t *   gui,
                        int          dbi,
                        void const * val );
+
+/* fd_gui_hist_ts_emplace is fd_gui_hist_ts_append without the copy: it
+   appends a record whose timestamp field is stored_ts and returns a
+   pointer to it in the store, or NULL on the same failures.  The other
+   bytes are unspecified; the caller must fill them before the next
+   history operation and must not change the timestamp. */
+
+void *
+fd_gui_hist_ts_emplace( fd_gui_t * gui,
+                        int        dbi,
+                        long       stored_ts );
 
 int
 fd_gui_hist_range_begin( fd_gui_t *                   gui,

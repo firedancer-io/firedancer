@@ -420,6 +420,21 @@ test_ts_append_scan( void ) {
   FD_TEST( ((ts_val_t const *)it->rec)->seq==regressed.seq );
   fd_gui_store_ts_scan_end( it );
 
+  /* In-place appends are indexed by the given timestamp and hold the
+     caller's bytes. */
+  ulong emplace_window = high_window+1UL;
+  void * slot = NULL;
+  FD_TEST( fd_gui_store_ts_emplace( db, DB_TS, (long)emplace_window, &slot )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( slot && ((ts_val_t *)slot)->ts==(long)emplace_window );
+  ((ts_val_t *)slot)->seq = seq;
+  fd_gui_store_ts_scan_begin( db, it, DB_TS, emplace_window, emplace_window, NULL, NULL );
+  FD_TEST( !fd_gui_store_ts_scan_done( it ) );
+  FD_TEST( it->rec==slot && ((ts_val_t const *)it->rec)->seq==seq );
+  fd_gui_store_ts_scan_next( it );
+  FD_TEST( fd_gui_store_ts_scan_done( it ) );
+  fd_gui_store_ts_scan_end( it );
+  FD_TEST( fd_gui_store_ts_emplace( db, DB_ENT8, 0L, &slot )==FD_GUI_STORE_ERR );
+
   ulong budget = ULONG_MAX;
   int drained = 0;
   FD_TEST( fd_gui_store_ts_evict( db, DB_TS, ULONG_MAX, &budget, &drained )==FD_GUI_STORE_SUCCESS );
@@ -700,6 +715,53 @@ test_region_grow_reclaim( void ) {
   FD_LOG_NOTICE(( "test_region_grow_reclaim: ok" ));
 }
 
+static int
+prefix_eligible( void const * rec,
+                 void *       ctx ) {
+  return ((ent16_val_t const *)rec)->payload<*(ulong *)ctx;
+}
+
+static void
+test_kv_prefix_scan( void ) {
+  char path[ 128 ];
+  mk_path( path, sizeof(path) );
+  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+  fd_gui_store_kv_scan_t it;
+  fd_gui_store_kv_scan_begin( db, &it, DB_ENT16 );
+  FD_TEST( !it.append_capacity && !fd_gui_store_kv_scan_next( &it ) );
+  ulong cap = FD_GUI_STORE_REGION_SZ / sizeof(ent16_val_t);
+  FD_TEST( ent16_put( db, 9UL, 1UL, 0UL )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( ent16_put( db, 9UL, 2UL, 2UL )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( ent16_put( db, 8UL, 1UL, 0UL )==FD_GUI_STORE_SUCCESS );
+  fd_gui_store_kv_scan_begin( db, &it, DB_ENT16 );
+  FD_TEST( it.end-it.cur==3UL && it.append_capacity==cap-3UL );
+  FD_TEST( ent16_put( db, 7UL, 1UL, 0UL )==FD_GUI_STORE_SUCCESS );
+  ulong eligible = 1UL;
+  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 0UL, prefix_eligible, &eligible ) );
+  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible )==1UL );
+  FD_TEST( fd_gui_store_kv_scan_next( &it ) );
+  FD_TEST( ((ent16_val_t const *)it.rec)->slot==9UL && ((ent16_val_t const *)it.rec)->bank_seq==2UL );
+  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible ) );
+  FD_TEST( fd_gui_store_kv_scan_next( &it ) && ((ent16_val_t const *)it.rec)->slot==8UL );
+  FD_TEST( !fd_gui_store_kv_scan_next( &it ) );
+  ulong key[ 2 ] = { 9UL, 1UL };
+  FD_TEST( !fd_gui_store_kv_get( db, DB_ENT16, key ) );
+  key[ 1 ] = 2UL;
+  FD_TEST( fd_gui_store_kv_get( db, DB_ENT16, key ) );
+  eligible = 3UL;
+  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 1UL, prefix_eligible, &eligible )==1UL );
+  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible )==2UL );
+  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible ) );
+  FD_TEST( ent16_put( db, 9UL, 1UL, 1UL )==FD_GUI_STORE_SUCCESS );
+  fd_gui_store_kv_scan_begin( db, &it, DB_ENT16 );
+  FD_TEST( it.end-it.cur==1UL && it.append_capacity==cap-5UL );
+  FD_TEST( fd_gui_store_kv_scan_next( &it ) && ((ent16_val_t const *)it.rec)->payload==1UL );
+  FD_TEST( !fd_gui_store_kv_scan_next( &it ) );
+  db_close( db );
+  cleanup( path );
+  FD_LOG_NOTICE(( "test_kv_prefix_scan: FIFO prefix, hash collisions, snapshot end, live eviction, empty-ring reuse: ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -710,6 +772,7 @@ main( int     argc,
   test_entity_get_any();
   test_entity_iter();
   test_entity_evict();
+  test_kv_prefix_scan();
   test_kv_index_footprint();
   test_ts_index_footprint();
   test_ts_append_scan();
