@@ -31,7 +31,7 @@
 #define FD_WAKER_OUTER_FD        (123500)
 #define FD_WAKER_INNER_FD( idx ) (123501+(int)(idx))
 
-#define FD_WAKER_CLIENT_MAX (16UL)
+#define FD_WAKER_CLIENT_MAX (64UL)
 
 FD_PROTOTYPES_BEGIN
 
