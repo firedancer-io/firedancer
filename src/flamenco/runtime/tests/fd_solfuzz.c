@@ -159,7 +159,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
   runner->banks = fd_banks_join( fd_banks_new( banks_mem, stake_delegations_fd, bank_max, fork_max, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
-  FD_TEST( fd_banks_stake_delegations_root_query( runner->banks )->disk_fd_==stake_delegations_fd );
+  FD_TEST( fd_stake_delegations_join( fd_banks_stake_delegations_root_query( runner->banks ), stake_delegations_fd ) );
 
   /* Runtime block execution requires every non-genesis bank to have a
      parent.  Keep the root bank as that parent and run harnesses against

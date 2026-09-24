@@ -661,7 +661,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
     fd_stake_rewards_acquire( fd_banks_get_stake_rewards( banks ), child_bank->stake_rewards_fork_id );
   }
   fd_banks_epoch_credits_acquire( banks, child_bank->epoch_credits_fork_id );
-  child_bank->stake_delegations_fork_id   = fd_stake_delegations_new_fork( fd_banks_get_stake_delegations( banks ) );
+  child_bank->stake_delegations_fork_id   = fd_stake_delegations_new_fork( fd_banks_get_stake_delegations( banks ), parent_bank->stake_delegations_fork_id );
   child_bank->f.block_height              = parent_bank->f.block_height + 1UL;
   child_bank->f.tick_height               = parent_bank->f.max_tick_height;
   child_bank->f.parent_slot               = parent_bank->f.slot;
@@ -691,30 +691,6 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   return child_bank;
 }
 
-ulong
-fd_banks_stake_delegations_fork_ids( fd_banks_t *      banks,
-                                     fd_bank_t const * bank,
-                                     ushort *          fork_ids ) {
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-
-  ulong fork_id_cnt = 0UL;
-  fd_bank_t const * curr_bank = fd_banks_pool_ele( bank_pool, bank->idx );
-  while( !!curr_bank ) {
-    if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
-      fork_ids[ fork_id_cnt++ ] = curr_bank->stake_delegations_fork_id;
-    }
-    curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
-  }
-
-  for( ulong i=0UL; i<fork_id_cnt/2UL; i++ ) {
-    ushort tmp                    = fork_ids[ i ];
-    fork_ids[ i ]                 = fork_ids[ fork_id_cnt-1UL-i ];
-    fork_ids[ fork_id_cnt-1UL-i ] = tmp;
-  }
-
-  return fork_id_cnt;
-}
-
 /* fd_bank_stake_delegation_apply_deltas applies all of the stake
    delegations for the entire direct ancestry from the bank to the
    root into a full fd_stake_delegations_t object. */
@@ -730,29 +706,20 @@ fd_bank_apply_deltas( fd_banks_t *                         banks,
      stake totals for the current root need to be updated. */
   fd_bank_t * old_root = fd_banks_root( banks );
   if( old_root->f.epoch!=bank->f.epoch ) {
-    stake_delegations->effective_stake    = bank->f.total_effective_stake;
-    stake_delegations->activating_stake   = bank->f.total_activating_stake;
-    stake_delegations->deactivating_stake = bank->f.total_deactivating_stake;
+    fd_stake_delegations_set_totals( stake_delegations, bank->f.total_effective_stake,
+                                     bank->f.total_activating_stake, bank->f.total_deactivating_stake );
   }
-
-  /* Naively what we want to do is iterate from the old root to the new
-     root and apply the delta to the full state iteratively. */
-
-  /* Gather all fork IDs from the old root to the new root.  The old
-     root has no fork ID because its delta was applied previously. */
-  ushort pool_indices[ banks->max_total_banks ];
-  ulong  pool_indices_len = fd_banks_stake_delegations_fork_ids( banks, bank, pool_indices );
 
   fd_stake_history_t stake_history_[1];
   fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
   /* stake_history may be NULL */
-  for( ulong i=0UL; i<pool_indices_len; i++ ) {
-    ushort idx = pool_indices[ i ];
-    FD_LOG_DEBUG(( "applying stake delegation delta (sd_fork_idx=%u)", idx ));
-  }
-  fd_stake_delegations_apply_fork_deltas( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch,
-                                          FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                          stake_delegations, pool_indices, pool_indices_len, stake_delegations_delta_stats );
+  fd_stake_delegations_advance_root( bank->f.epoch,
+                                     stake_history,
+                                     &bank->f.warmup_cooldown_rate_epoch,
+                                     FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                     stake_delegations,
+                                     bank->stake_delegations_fork_id,
+                                     stake_delegations_delta_stats );
 }
 
 fd_stake_delegations_t *

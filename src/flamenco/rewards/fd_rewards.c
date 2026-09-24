@@ -1878,8 +1878,7 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
 }
 
 static int
-recalculate_partitioned_rewards( fd_banks_t *         banks,
-                                 fd_bank_t *          bank,
+recalculate_partitioned_rewards( fd_bank_t *          bank,
                                  fd_accdb_t *         accdb,
                                  fd_runtime_stack_t * runtime_stack,
                                  fd_capture_ctx_t *   capture_ctx,
@@ -1890,8 +1889,7 @@ recalculate_partitioned_rewards( fd_banks_t *         banks,
 
    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L45-L136 */
 void
-fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
-                                         fd_bank_t *          bank,
+fd_distribute_partitioned_epoch_rewards( fd_bank_t *          bank,
                                          fd_accdb_t *         accdb,
                                          fd_runtime_stack_t * runtime_stack,
                                          fd_capture_ctx_t *   capture_ctx ) {
@@ -1932,13 +1930,7 @@ fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
     if( FD_UNLIKELY( partition_idx<(ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
                      partition_idx>(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id ) ) ) {
       FD_LOG_INFO(( "reward partition is not in the window, recalculating" ));
-      if( FD_UNLIKELY( !recalculate_partitioned_rewards( banks,
-                                                         bank,
-                                                         accdb,
-                                                         runtime_stack,
-                                                         capture_ctx,
-                                                         0,
-                                                         (uint)partition_idx ) ) ) {
+      if( FD_UNLIKELY( !recalculate_partitioned_rewards( bank, accdb, runtime_stack, capture_ctx, 0, (uint)partition_idx ) ) ) {
         FD_LOG_CRIT(( "failed to recalculate partitioned rewards "
                       "(slot=%lu block_height=%lu partition=%lu fork=%u)",
                       bank->f.slot,
@@ -2043,13 +2035,12 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
     https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521
     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1038-L1095 */
 static int
-recalculate_partitioned_rewards( fd_banks_t *              banks,
-                                 fd_bank_t *               bank,
-                                 fd_accdb_t *              accdb,
-                                 fd_runtime_stack_t *      runtime_stack,
-                                 fd_capture_ctx_t *        capture_ctx,
-                                 int                       snapshot_boot,
-                                 uint                      win_lo ) {
+recalculate_partitioned_rewards( fd_bank_t *          bank,
+                                 fd_accdb_t *         accdb,
+                                 fd_runtime_stack_t * runtime_stack,
+                                 fd_capture_ctx_t *   capture_ctx,
+                                 int                  snapshot_boot,
+                                 uint                 win_lo ) {
 
   fd_sysvar_epoch_rewards_t epoch_rewards_sysvar[1];
   if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read(
@@ -2180,19 +2171,16 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
   fd_stake_history_t stake_history[1];
   read_stake_history( accdb, bank->accdb_fork_id, stake_history_data, stake_history );
 
-  ushort stake_delegations_fork_ids[ banks->max_total_banks ];
-  ulong  stake_delegations_fork_id_cnt = fd_banks_stake_delegations_fork_ids( banks, bank, stake_delegations_fork_ids );
   fd_stake_history_t   frontier_stake_history_[1];
   fd_stake_history_t * frontier_stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, frontier_stake_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-  fd_stake_delegations_frontier_query_begin( stake_delegations,
-                                             bank->f.epoch,
-                                             frontier_stake_history,
-                                             &bank->f.warmup_cooldown_rate_epoch,
-                                             FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                             stake_delegations_fork_ids,
-                                             stake_delegations_fork_id_cnt );
+  fd_stake_delegations_view_begin( stake_delegations,
+                                   bank->f.epoch,
+                                   frontier_stake_history,
+                                   &bank->f.warmup_cooldown_rate_epoch,
+                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                   bank->stake_delegations_fork_id );
 
   if( FD_LIKELY( !skip_rewards ) ) {
     calculate_stake_vote_rewards(
@@ -2240,20 +2228,17 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
     fd_stake_rewards_fini( stake_rewards, fork_idx );
   }
 
-  fd_stake_delegations_frontier_query_end( stake_delegations,
-                                           frontier_stake_history,
-                                           &bank->f.warmup_cooldown_rate_epoch,
-                                           FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                           stake_delegations_fork_ids,
-                                           stake_delegations_fork_id_cnt );
+  fd_stake_delegations_view_end( stake_delegations,
+                                 frontier_stake_history,
+                                 &bank->f.warmup_cooldown_rate_epoch,
+                                 FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
   return 1;
 }
 
 void
-fd_rewards_recalculate_partitioned_rewards( fd_banks_t *         banks,
-                                            fd_bank_t *          bank,
+fd_rewards_recalculate_partitioned_rewards( fd_bank_t *          bank,
                                             fd_accdb_t *         accdb,
                                             fd_runtime_stack_t * runtime_stack,
                                             fd_capture_ctx_t *   capture_ctx ) {
-  recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 1, 0U );
+  recalculate_partitioned_rewards( bank, accdb, runtime_stack, capture_ctx, 1, 0U );
 }

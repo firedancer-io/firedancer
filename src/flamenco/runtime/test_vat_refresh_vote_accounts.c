@@ -378,7 +378,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   ulong fork_id = env->bank->vote_stakes_fork_id;
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
-  env->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
+  env->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
 
   for( ulong i=0UL; i<NUM_VOTERS; i++ ) {
     fd_pubkey_t v = vote_key( i );

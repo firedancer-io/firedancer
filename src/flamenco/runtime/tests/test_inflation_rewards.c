@@ -599,22 +599,14 @@ test_alpenglow_reward_uses_vote_credits( fd_svm_mini_t * mini ) {
   FD_FEATURE_SET_ACTIVE( &epoch_bank->f.features, delay_commission_updates, 0UL );
   fd_stake_rewards_clear( fd_bank_stake_rewards_modify( epoch_bank ) );
   epoch_bank->stake_rewards_fork_id = USHORT_MAX;
-  fd_rewards_recalculate_partitioned_rewards( mini->banks,
-                                              epoch_bank,
-                                              mini->runtime->accdb,
-                                              mini->runtime_stack,
-                                              NULL );
+  fd_rewards_recalculate_partitioned_rewards( epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
   FD_TEST( fd_stake_rewards_total_rewards( fd_bank_stake_rewards_modify( epoch_bank ),
                                            epoch_bank->stake_rewards_fork_id )==876UL );
 
   epoch_bank->f.features.delay_commission_updates = FD_FEATURE_DISABLED;
   fd_stake_rewards_clear( fd_bank_stake_rewards_modify( epoch_bank ) );
   epoch_bank->stake_rewards_fork_id = USHORT_MAX;
-  fd_rewards_recalculate_partitioned_rewards( mini->banks,
-                                              epoch_bank,
-                                              mini->runtime->accdb,
-                                              mini->runtime_stack,
-                                              NULL );
+  fd_rewards_recalculate_partitioned_rewards( epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
   FD_TEST( fd_stake_rewards_total_rewards( fd_bank_stake_rewards_modify( epoch_bank ),
                                            epoch_bank->stake_rewards_fork_id )==1000UL );
 
@@ -1004,8 +996,7 @@ test_inert_delegation_not_partitioned( fd_svm_mini_t * mini ) {
   /* Snapshot restart recalculation applies the same filter. */
   fd_stake_rewards_clear( stake_rewards );
   epoch_bank->stake_rewards_fork_id = USHORT_MAX;
-  fd_rewards_recalculate_partitioned_rewards(
-      mini->banks, epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_rewards_recalculate_partitioned_rewards( epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
   partition_cnt = fd_stake_rewards_num_partitions(
       stake_rewards, epoch_bank->stake_rewards_fork_id );
   FD_TEST( find_reward_partition(
@@ -1099,7 +1090,11 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
         FD_STAKE_STATE_SZ );
   }
   FD_TEST( test_stake_delegations_base_cnt( spill_delegations )==2UL );
-  FD_TEST( test_stake_delegations_disk_cnt( spill_delegations )==1UL );
+  fd_stake_delegations_iter_t spill_iter[1];
+  fd_stake_delegations_iter_init( spill_iter, spill_delegations );
+  fd_stake_delegations_iter_next( spill_iter );
+  FD_TEST( !fd_stake_delegations_iter_done( spill_iter ) );
+  FD_TEST( fd_stake_delegations_iter_idx( spill_iter )==1UL );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   fd_stake_history_t stake_history_[1];
@@ -1115,7 +1110,6 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
       mini->runtime->accdb,
       root_fork_id );
   FD_TEST( !test_stake_delegations_base_cnt( spill_delegations ) );
-  FD_TEST( !test_stake_delegations_disk_cnt( spill_delegations ) );
   FD_TEST( !close( stake_delegations_fd ) );
   free( mem );
 
@@ -1449,8 +1443,7 @@ test_zero_points_skips_rewards( fd_svm_mini_t * mini ) {
   /* Snapshot restart recalculation skips the same way. */
   fd_stake_rewards_clear( stake_rewards );
   epoch_bank->stake_rewards_fork_id = USHORT_MAX;
-  fd_rewards_recalculate_partitioned_rewards(
-      mini->banks, epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_rewards_recalculate_partitioned_rewards( epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
 
   FD_TEST( epoch_bank->stake_rewards_fork_id!=USHORT_MAX );
   partition_cnt = fd_stake_rewards_num_partitions(
@@ -2187,7 +2180,7 @@ test_epoch_credit_rewards_and_history_update( fd_svm_mini_t * mini ) {
   ulong stake_lam_before = read_lamports( mini, child_fk, &stake_key );
   ulong cap_before = child_bank->f.capitalization;
 
-  fd_distribute_partitioned_epoch_rewards( mini->banks, child_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
 
   ulong stake_lam_after = read_lamports( mini, child_fk, &stake_key );
   fd_stake_t s_after = read_stake( mini, child_fk, &stake_key );
@@ -2244,7 +2237,7 @@ test_update_reward_history_in_partition( fd_svm_mini_t * mini ) {
   init_epoch_rewards_sysvar( child_bank, mini, starting_block_height, 1U, total_rewards );
 
   ulong cap_before = child_bank->f.capitalization;
-  fd_distribute_partitioned_epoch_rewards( mini->banks, child_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
 
   fd_sysvar_epoch_rewards_t er[1];
   FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, child_fk, er ) );
@@ -2286,7 +2279,7 @@ test_build_updated_stake_reward( fd_svm_mini_t * mini ) {
   ulong stake_lam_before = read_lamports( mini, child_fk, &stake_key );
   fd_stake_t s_before = read_stake( mini, child_fk, &stake_key );
 
-  fd_distribute_partitioned_epoch_rewards( mini->banks, child_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
 
   ulong stake_lam_after = read_lamports( mini, child_fk, &stake_key );
   fd_stake_t s_after = read_stake( mini, child_fk, &stake_key );
@@ -2320,7 +2313,7 @@ test_update_reward_history_in_partition_empty( fd_svm_mini_t * mini ) {
   init_epoch_rewards_sysvar( child_bank, mini, starting_block_height, 1U, 0UL );
 
   ulong cap_before = child_bank->f.capitalization;
-  fd_distribute_partitioned_epoch_rewards( mini->banks, child_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
 
   fd_sysvar_epoch_rewards_t er[1];
   FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, child_fk, er ) );
@@ -2394,7 +2387,7 @@ test_store_stake_accounts_in_partition( fd_svm_mini_t * mini ) {
   ulong lam_before[4];
   for( uint i=0U; i<4U; i++ ) lam_before[i] = read_lamports( mini, fk0, &pubkeys[i] );
 
-  fd_distribute_partitioned_epoch_rewards( mini->banks, bank0, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_distribute_partitioned_epoch_rewards( bank0, mini->runtime->accdb, mini->runtime_stack, NULL );
 
   for( uint i=0U; i<4U; i++ ) {
     uint part = find_reward_partition( stake_rewards, fork_idx, &pubkeys[i], num_partitions );
@@ -2413,7 +2406,7 @@ test_store_stake_accounts_in_partition( fd_svm_mini_t * mini ) {
   fd_bank_t * bank1 = fd_svm_mini_bank( mini, child_idx1 );
   fd_accdb_fork_id_t fk1 = fd_svm_mini_fork_id( mini, child_idx1 );
 
-  fd_distribute_partitioned_epoch_rewards( mini->banks, bank1, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_distribute_partitioned_epoch_rewards( bank1, mini->runtime->accdb, mini->runtime_stack, NULL );
 
   for( uint i=0U; i<4U; i++ ) {
     ulong lam_after = read_lamports( mini, fk1, &pubkeys[i] );
@@ -2473,7 +2466,7 @@ test_store_stake_accounts_in_partition_empty( fd_svm_mini_t * mini ) {
 
   ulong lam_before = read_lamports( mini, fk0, &reward_key );
   ulong cap_before = bank0->f.capitalization;
-  fd_distribute_partitioned_epoch_rewards( mini->banks, bank0, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_distribute_partitioned_epoch_rewards( bank0, mini->runtime->accdb, mini->runtime_stack, NULL );
 
   ulong lam_after = read_lamports( mini, fk0, &reward_key );
   FD_TEST( lam_after == lam_before );
@@ -3232,7 +3225,7 @@ test_simd0232_recalc_ignores_commission( fd_svm_mini_t * mini ) {
   /* Simulate a restart: drop the partitions and recalculate. */
   fd_stake_rewards_clear( stake_rewards );
   epoch_bank->stake_rewards_fork_id = USHORT_MAX;
-  fd_rewards_recalculate_partitioned_rewards( mini->banks, epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+  fd_rewards_recalculate_partitioned_rewards( epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
 
   FD_TEST( epoch_bank->stake_rewards_fork_id!=USHORT_MAX );
   FD_TEST( fd_stake_rewards_total_rewards( fd_bank_stake_rewards_modify( epoch_bank ), epoch_bank->stake_rewards_fork_id )==staker_total );

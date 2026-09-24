@@ -77,8 +77,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
            - calculate_stake_points_and_credits */
 
 void
-fd_rewards_recalculate_partitioned_rewards( fd_banks_t *         banks,
-                                            fd_bank_t *          bank,
+fd_rewards_recalculate_partitioned_rewards( fd_bank_t *          bank,
                                             fd_accdb_t *         accdb,
                                             fd_runtime_stack_t * runtime_stack,
                                             fd_capture_ctx_t *   capture_ctx );
@@ -92,8 +91,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *         banks,
      - for each stake account: distribute_epoch_reward_to_stake_acc */
 
 void
-fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
-                                         fd_bank_t *          bank,
+fd_distribute_partitioned_epoch_rewards( fd_bank_t *          bank,
                                          fd_accdb_t *         accdb,
                                          fd_runtime_stack_t * runtime_stack,
                                          fd_capture_ctx_t *   capture_ctx );

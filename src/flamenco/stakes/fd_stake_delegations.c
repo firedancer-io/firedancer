@@ -1,4 +1,5 @@
 #include "fd_stake_delegations.h"
+#include "../fd_rwlock.h"
 #include "fd_stakes.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../events/fd_event_runtime.h"
@@ -7,6 +8,57 @@
 #include <errno.h>
 #include <unistd.h>
 
+struct fd_stake_delegations {
+  ulong magic;
+  ulong seed_;
+  ulong max_stake_accounts_;
+
+  /* Root map + pool */
+  ulong map_offset_;
+  ulong pool_offset_;
+  ulong pool_idx_wmk_; /* One past the highest root pool index ever acquired.  Every index in
+                          [0, wmk) has been acquired at least once, so its in_use byte is
+                          well defined. */
+
+  /* Delta map + pool and fork pool */
+  ulong delta_pool_offset_;
+  ulong fork_pool_offset_;
+  ulong delta_map_offset_;
+
+  /* Guards every mutating operation on the struct. */
+  fd_rwlock_t lock;
+
+  /* File descriptor number for this instance's backing file.
+     Every process joining this object must map the same file at this
+     descriptor number for the object's lifetime. */
+  int disk_fd_;
+
+  /* Management for stake delegations that spill to disk. */
+  ulong max_disk_records_;        /* disk delta capacity; disk root capacity is derived */
+  ulong disk_root_cnt_;           /* number of disk-backed root records */
+  ulong disk_delta_cnt_;
+  ulong disk_bucket_cnt_;         /* pow2 buckets in each disk hash index */
+  ulong disk_root_tombstone_cnt_;
+  ulong disk_delta_tombstone_cnt_;
+  uint  disk_root_gen_;           /* buckets with an older generation are empty */
+  uint  disk_delta_gen_;
+
+  /* Stake totals for the current root. */
+  ulong effective_stake;
+  ulong activating_stake;
+  ulong deactivating_stake;
+
+  /* Epoch and target fork of the active frontier query. */
+  ulong  frontier_query_epoch;
+  ushort frontier_query_fork;
+
+  /* Only relevant around upgrade_bpf_stake_program_to_v5_1 activation.
+     See comment at consumer of this flag for why it's needed.  Remove
+     after the feature activates on all clusters. */
+  uchar fp_warmed_awarded;
+};
+
+/* map/pool pair to represent in-memory state */
 #define POOL_NAME  root_pool
 #define POOL_T     fd_stake_delegation_t
 #define POOL_NEXT  next_
@@ -24,7 +76,15 @@
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define MAP_NAME               fork_map
+/* pool/map pair to represent in-memory delta state */
+#define POOL_NAME  delta_pool
+#define POOL_T     fd_stake_delegation_t
+#define POOL_NEXT  next_
+#define POOL_IDX_T uint
+#define POOL_LAZY  1
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               delta_map
 #define MAP_KEY_T              fd_stake_delegation_key_t
 #define MAP_ELE_T              fd_stake_delegation_t
 #define MAP_KEY                key
@@ -34,19 +94,19 @@
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define POOL_NAME  delta_pool
-#define POOL_T     fd_stake_delegation_t
-#define POOL_NEXT  next_
-#define POOL_IDX_T uint
-#define POOL_LAZY  1
-#include "../../util/tmpl/fd_pool.c"
-
+/* Pool/map pair for fork ids.  Just holds metadata. */
 struct fork_pool_ele {
   ushort next;
+  ushort parent;
   uint   delta_head;
   uint   disk_delta_head;
 };
 typedef struct fork_pool_ele fork_pool_ele_t;
+
+FD_STATIC_ASSERT( sizeof(fork_pool_ele_t)==12UL, fork_pool_ele_size );
+
+/* A live parent is a fork index or USHORT_MAX for the rooted state. */
+#define FORK_PARENT_FREE ((ushort)FD_STAKE_DELEGATIONS_FORK_MAX)
 
 #define POOL_NAME  fork_pool
 #define POOL_T     fork_pool_ele_t
@@ -77,9 +137,25 @@ get_fork_pool( fd_stake_delegations_t const * stake_delegations ) {
   return fd_type_pun( (uchar *)stake_delegations + stake_delegations->fork_pool_offset_ );
 }
 
-static inline fork_map_t *
-get_fork_map( fd_stake_delegations_t const * stake_delegations ) {
-  return fd_type_pun( (uchar *)stake_delegations + stake_delegations->fork_map_offset_ );
+static inline delta_map_t *
+get_delta_map( fd_stake_delegations_t const * stake_delegations ) {
+  return fd_type_pun( (uchar *)stake_delegations + stake_delegations->delta_map_offset_ );
+}
+
+/* Collect leaf to root; callers process the result in reverse order. */
+static ulong
+fork_ancestry( fd_stake_delegations_t const * stake_delegations,
+               ushort                        fork_idx,
+               ushort *                      fork_ids ) {
+  fork_pool_ele_t const * fork_pool = get_fork_pool( stake_delegations );
+  ulong max_forks = fork_pool_max( fork_pool );
+  ulong cnt       = 0UL;
+  for( ; fork_idx!=USHORT_MAX; fork_idx=fork_pool[ fork_idx ].parent ) {
+    FD_CHECK_CRIT( cnt<max_forks && (ulong)fork_idx<max_forks && fork_pool[ fork_idx ].parent!=FORK_PARENT_FREE,
+                   "invalid stake delegation ancestry" );
+    fork_ids[ cnt++ ] = fork_idx;
+  }
+  return cnt;
 }
 
 /* The spill file contains two compact open-addressed indexes followed
@@ -284,19 +360,22 @@ disk_root_find( fd_stake_delegations_t const * stake_delegations,
   }
 }
 
+struct disk_delta_query {
+  uint  record_idx;   /* UINT_MAX if absent */
+  ulong bucket_idx;   /* Matching entry or first reusable slot */
+  int   is_tombstone; /* Reusable slot holds a deleted entry */
+};
+typedef struct disk_delta_query disk_delta_query_t;
+
 static void
 disk_delta_find( fd_stake_delegations_t const * stake_delegations,
                  ushort                         fork_idx,
                  fd_pubkey_t const *            stake_account,
                  disk_delta_t *                 delta,
-                 uint *                         idx,
-                 ulong *                        found_bucket_idx,
-                 ulong *                        free_bucket_idx,
-                 int *                          free_bucket_is_tombstone ) {
-  *idx              = UINT_MAX;
-  *found_bucket_idx = ULONG_MAX;
-  *free_bucket_idx  = ULONG_MAX;
-  if( free_bucket_is_tombstone ) *free_bucket_is_tombstone = 0;
+                 disk_delta_query_t *           query ) {
+  query->record_idx   = UINT_MAX;
+  query->bucket_idx   = ULONG_MAX;
+  query->is_tombstone = 0;
   ulong bucket_cnt = stake_delegations->disk_bucket_cnt_;
   ulong seed       = stake_delegations->seed_ ^ (ulong)fork_idx;
   ulong bucket_idx = (ulong)fd_hash32( stake_account->uc, seed ) & (bucket_cnt-1UL);
@@ -305,13 +384,13 @@ disk_delta_find( fd_stake_delegations_t const * stake_delegations,
     disk_bucket_t bucket;
     disk_read( stake_delegations, &bucket, disk_bucket_off( base, bucket_idx ), sizeof(disk_bucket_t) );
     if( FD_UNLIKELY( disk_bucket_is_empty( &bucket, stake_delegations->disk_delta_gen_ ) ) ) {
-      if( *free_bucket_idx==ULONG_MAX ) *free_bucket_idx = bucket_idx;
+      if( query->bucket_idx==ULONG_MAX ) query->bucket_idx = bucket_idx;
       return;
     }
     if( FD_UNLIKELY( bucket.idx==DISK_BUCKET_TOMBSTONE ) ) {
-      if( *free_bucket_idx==ULONG_MAX ) {
-        *free_bucket_idx = bucket_idx;
-        if( free_bucket_is_tombstone ) *free_bucket_is_tombstone = 1;
+      if( query->bucket_idx==ULONG_MAX ) {
+        query->bucket_idx   = bucket_idx;
+        query->is_tombstone = 1;
       }
     } else {
       FD_CHECK_CRIT( (ulong)bucket.idx<stake_delegations->disk_delta_cnt_, "corrupt stake delegation disk delta index" );
@@ -320,8 +399,9 @@ disk_delta_find( fd_stake_delegations_t const * stake_delegations,
       if( FD_UNLIKELY( candidate.fork_idx==fork_idx &&
                        fd_pubkey_eq( &candidate.delegation.stake_account, stake_account ) ) ) {
         if( delta ) *delta = candidate;
-        *idx              = bucket.idx;
-        *found_bucket_idx = bucket_idx;
+        query->record_idx   = bucket.idx;
+        query->bucket_idx   = bucket_idx;
+        query->is_tombstone = 0;
         return;
       }
     }
@@ -376,13 +456,10 @@ disk_delta_rebuild( fd_stake_delegations_t * stake_delegations ) {
     disk_delta_t delta;
     disk_delta_read( stake_delegations, idx, &delta );
 
-    uint  found_idx;
-    ulong found_bucket_idx;
-    ulong free_bucket_idx;
-    disk_delta_find( stake_delegations, delta.fork_idx, &delta.delegation.stake_account,
-                     NULL, &found_idx, &found_bucket_idx, &free_bucket_idx, NULL );
-    FD_CHECK_CRIT( found_idx==UINT_MAX && free_bucket_idx!=ULONG_MAX, "unable to rebuild stake delegation disk delta index" );
-    disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), free_bucket_idx,
+    disk_delta_query_t query;
+    disk_delta_find( stake_delegations, delta.fork_idx, &delta.delegation.stake_account, NULL, &query );
+    FD_CHECK_CRIT( query.record_idx==UINT_MAX && query.bucket_idx!=ULONG_MAX, "unable to rebuild stake delegation disk delta index" );
+    disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), query.bucket_idx,
                        stake_delegations->disk_delta_gen_, idx );
   }
 }
@@ -477,11 +554,10 @@ static void
 disk_delta_insert( fd_stake_delegations_t *      stake_delegations,
                    ushort                        fork_idx,
                    fd_stake_delegation_t const * delegation,
-                   ulong                         free_bucket_idx,
-                   int                           free_bucket_is_tombstone ) {
+                   disk_delta_query_t const *    query ) {
   disk_delta_record_reserve( stake_delegations );
 
-  FD_CHECK_CRIT( free_bucket_idx!=ULONG_MAX, "stake delegation disk delta index exhausted" );
+  FD_CHECK_CRIT( query->bucket_idx!=ULONG_MAX, "stake delegation disk delta index exhausted" );
 
   uint idx = (uint)stake_delegations->disk_delta_cnt_;
   fork_pool_ele_t * fork = get_fork_pool( stake_delegations ) + fork_idx;
@@ -497,11 +573,11 @@ disk_delta_insert( fd_stake_delegations_t *      stake_delegations,
                 disk_delta_record_off( stake_delegations ) + (ulong)delta.next*sizeof(disk_delta_t) + offsetof(disk_delta_t, prev),
                 sizeof(uint) );
   }
-  if( FD_UNLIKELY( free_bucket_is_tombstone ) ) {
+  if( FD_UNLIKELY( query->is_tombstone ) ) {
     FD_CHECK_CRIT( stake_delegations->disk_delta_tombstone_cnt_, "corrupt stake delegation disk delta tombstone count" );
     stake_delegations->disk_delta_tombstone_cnt_--;
   }
-  disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), free_bucket_idx,
+  disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), query->bucket_idx,
                      stake_delegations->disk_delta_gen_, idx );
   fork->disk_delta_head = idx;
   stake_delegations->disk_delta_cnt_++;
@@ -527,13 +603,10 @@ disk_delta_remove( fd_stake_delegations_t * stake_delegations,
                 sizeof(uint) );
   }
 
-  uint  found_idx;
-  ulong found_bucket_idx;
-  ulong free_bucket_idx;
-  disk_delta_find( stake_delegations, removed->fork_idx, &removed->delegation.stake_account,
-                   NULL, &found_idx, &found_bucket_idx, &free_bucket_idx, NULL );
-  FD_CHECK_CRIT( found_idx==idx, "missing stake delegation disk delta removal" );
-  disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), found_bucket_idx,
+  disk_delta_query_t query;
+  disk_delta_find( stake_delegations, removed->fork_idx, &removed->delegation.stake_account, NULL, &query );
+  FD_CHECK_CRIT( query.record_idx==idx, "missing stake delegation disk delta removal" );
+  disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), query.bucket_idx,
                      stake_delegations->disk_delta_gen_, DISK_BUCKET_TOMBSTONE );
 
   uint last = (uint)(stake_delegations->disk_delta_cnt_-1UL);
@@ -542,12 +615,9 @@ disk_delta_remove( fd_stake_delegations_t * stake_delegations,
     disk_delta_read( stake_delegations, last, &moved );
     disk_delta_write( stake_delegations, idx, &moved );
 
-    uint  moved_idx;
-    ulong moved_bucket_idx;
-    disk_delta_find( stake_delegations, moved.fork_idx, &moved.delegation.stake_account,
-                     NULL, &moved_idx, &moved_bucket_idx, &free_bucket_idx, NULL );
-    FD_CHECK_CRIT( moved_idx==last, "missing moved stake delegation disk delta" );
-    disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), moved_bucket_idx,
+    disk_delta_find( stake_delegations, moved.fork_idx, &moved.delegation.stake_account, NULL, &query );
+    FD_CHECK_CRIT( query.record_idx==last, "missing moved stake delegation disk delta" );
+    disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), query.bucket_idx,
                        stake_delegations->disk_delta_gen_, idx );
 
     fork_pool_ele_t * moved_fork = get_fork_pool( stake_delegations ) + moved.fork_idx;
@@ -582,9 +652,9 @@ fd_stake_delegations_delta_pool_ele_max( ulong root_ele_max ) {
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
                                 ulong max_live_slots ) {
-  ulong map_chain_cnt      = root_map_chain_cnt_est( max_stake_accounts );
-  ulong delta_ele_max      = fd_stake_delegations_delta_pool_ele_max( max_stake_accounts );
-  ulong fork_map_chain_cnt = fork_map_chain_cnt_est( delta_ele_max );
+  ulong map_chain_cnt       = root_map_chain_cnt_est( max_stake_accounts );
+  ulong delta_ele_max       = fd_stake_delegations_delta_pool_ele_max( max_stake_accounts );
+  ulong delta_map_chain_cnt = delta_map_chain_cnt_est( delta_ele_max );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
@@ -592,7 +662,7 @@ fd_stake_delegations_footprint( ulong max_stake_accounts,
   l = FD_LAYOUT_APPEND( l, root_map_align(),             root_map_footprint( map_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, delta_pool_align(),           delta_pool_footprint( delta_ele_max ) );
   l = FD_LAYOUT_APPEND( l, fork_pool_align(),            fork_pool_footprint( max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fork_map_align(),             fork_map_footprint( fork_map_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, delta_map_align(),            delta_map_footprint( delta_map_chain_cnt ) );
 
   return FD_LAYOUT_FINI( l, fd_stake_delegations_align() );
 }
@@ -646,9 +716,9 @@ fd_stake_delegations_new( void * mem,
     return NULL;
   }
 
-  ulong map_chain_cnt      = root_map_chain_cnt_est( max_stake_accounts );
-  ulong delta_ele_max      = fd_stake_delegations_delta_pool_ele_max( max_stake_accounts );
-  ulong fork_map_chain_cnt = fork_map_chain_cnt_est( delta_ele_max );
+  ulong map_chain_cnt       = root_map_chain_cnt_est( max_stake_accounts );
+  ulong delta_ele_max       = fd_stake_delegations_delta_pool_ele_max( max_stake_accounts );
+  ulong delta_map_chain_cnt = delta_map_chain_cnt_est( delta_ele_max );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_stake_delegations_t * stake_delegations = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
@@ -656,7 +726,7 @@ fd_stake_delegations_new( void * mem,
   void *                   map_mem           = FD_SCRATCH_ALLOC_APPEND( l, root_map_align(),             root_map_footprint( map_chain_cnt ) );
   void *                   delta_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, delta_pool_align(),           delta_pool_footprint( delta_ele_max ) );
   void *                   fork_pool_mem     = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),            fork_pool_footprint( max_live_slots ) );
-  void *                   fork_map_mem      = FD_SCRATCH_ALLOC_APPEND( l, fork_map_align(),             fork_map_footprint( fork_map_chain_cnt ) );
+  void *                   delta_map_mem     = FD_SCRATCH_ALLOC_APPEND( l, delta_map_align(),            delta_map_footprint( delta_map_chain_cnt ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_stake_delegations_align() )!=(ulong)mem+fd_stake_delegations_footprint( max_stake_accounts, max_live_slots ) ) ) {
     FD_LOG_WARNING(( "fd_stake_delegations_new: bad layout" ));
@@ -687,9 +757,11 @@ fd_stake_delegations_new( void * mem,
     return NULL;
   }
 
-  fork_map_t * fork_map = fork_map_join( fork_map_new( fork_map_mem, fork_map_chain_cnt, seed ) );
-  if( FD_UNLIKELY( !fork_map ) ) {
-    FD_LOG_WARNING(( "Failed to create fork map" ));
+  for( ulong i=0UL; i<max_live_slots; i++ ) fork_pool[ i ].parent = FORK_PARENT_FREE;
+
+  delta_map_t * delta_map = delta_map_join( delta_map_new( delta_map_mem, delta_map_chain_cnt, seed ) );
+  if( FD_UNLIKELY( !delta_map ) ) {
+    FD_LOG_WARNING(( "Failed to create delta map" ));
     return NULL;
   }
 
@@ -699,7 +771,7 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->map_offset_               = (ulong)root_map - (ulong)mem;
   stake_delegations->delta_pool_offset_        = (ulong)delta_pool - (ulong)mem;
   stake_delegations->fork_pool_offset_         = (ulong)fork_pool - (ulong)mem;
-  stake_delegations->fork_map_offset_          = (ulong)fork_map - (ulong)mem;
+  stake_delegations->delta_map_offset_         = (ulong)delta_map - (ulong)mem;
   stake_delegations->disk_fd_                  = disk_fd;
   stake_delegations->max_disk_records_         = max_disk_records;
   stake_delegations->disk_root_cnt_            = 0UL;
@@ -715,6 +787,7 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->activating_stake     = 0UL;
   stake_delegations->deactivating_stake   = 0UL;
   stake_delegations->frontier_query_epoch = ULONG_MAX;
+  stake_delegations->frontier_query_fork  = USHORT_MAX;
   stake_delegations->pool_idx_wmk_        = 0UL;
   stake_delegations->fp_warmed_awarded    = 0;
 
@@ -762,10 +835,11 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
   root_pool_reset( get_root_pool( stake_delegations ) );
   root_map_reset( get_root_map( stake_delegations ) );
   delta_pool_reset( get_delta_pool( stake_delegations ) );
-  fork_map_reset( get_fork_map( stake_delegations ) );
+  delta_map_reset( get_delta_map( stake_delegations ) );
   fork_pool_ele_t * fork_pool = get_fork_pool( stake_delegations );
   ulong max_forks = fork_pool_max( fork_pool );
   for( ulong i=0UL; i<max_forks; i++ ) {
+    fork_pool[ i ].parent          = FORK_PARENT_FREE;
     fork_pool[ i ].delta_head      = UINT_MAX;
     fork_pool[ i ].disk_delta_head = UINT_MAX;
   }
@@ -780,6 +854,7 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
   stake_delegations->activating_stake     = 0UL;
   stake_delegations->deactivating_stake   = 0UL;
   stake_delegations->frontier_query_epoch = ULONG_MAX;
+  stake_delegations->frontier_query_fork  = USHORT_MAX;
   stake_delegations->pool_idx_wmk_        = 0UL;
   stake_delegations->fp_warmed_awarded    = 0;
   fd_rwlock_unwrite( &stake_delegations->lock );
@@ -904,6 +979,27 @@ root_upsert( fd_stake_delegations_t * stake_delegations,
 
   delegation->dne_in_root = 0;
   root_insert( stake_delegations, delegation );
+}
+
+fd_stake_history_entry_t
+fd_stake_delegations_totals( fd_stake_delegations_t const * stake_delegations ) {
+  return (fd_stake_history_entry_t) {
+    .effective    = stake_delegations->effective_stake,
+    .activating   = stake_delegations->activating_stake,
+    .deactivating = stake_delegations->deactivating_stake,
+  };
+}
+
+void
+fd_stake_delegations_set_totals( fd_stake_delegations_t * stake_delegations,
+                                 ulong                    effective,
+                                 ulong                    activating,
+                                 ulong                    deactivating ) {
+  fd_rwlock_write( &stake_delegations->lock );
+  stake_delegations->effective_stake    = effective;
+  stake_delegations->activating_stake   = activating;
+  stake_delegations->deactivating_stake = deactivating;
+  fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
 void
@@ -1174,11 +1270,16 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
 /* Fork-aware delta operations */
 
 ushort
-fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations ) {
+fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations,
+                                ushort                   parent_fork_idx ) {
   fd_rwlock_write( &stake_delegations->lock );
   fork_pool_ele_t * fork_pool = get_fork_pool( stake_delegations );
+  FD_CHECK_CRIT( parent_fork_idx==USHORT_MAX ||
+                 ((ulong)parent_fork_idx<fork_pool_max( fork_pool ) && fork_pool[ parent_fork_idx ].parent!=FORK_PARENT_FREE),
+                 "invalid stake delegation parent fork" );
   FD_CHECK_CRIT( fork_pool_free( fork_pool ), "no free forks in pool. The system has forked too wide." );
   ushort fork_idx = (ushort)fork_pool_idx_acquire( fork_pool );
+  fork_pool[ fork_idx ].parent          = parent_fork_idx;
   fork_pool[ fork_idx ].delta_head      = UINT_MAX;
   fork_pool[ fork_idx ].disk_delta_head = UINT_MAX;
   fd_rwlock_unwrite( &stake_delegations->lock );
@@ -1191,12 +1292,12 @@ fork_delta_upsert( fd_stake_delegations_t *      stake_delegations,
                    ushort                        fork_idx,
                    fd_stake_delegation_t const * delegation ) {
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
-  fork_map_t *            map        = get_fork_map( stake_delegations );
+  delta_map_t *           map        = get_delta_map( stake_delegations );
   fd_stake_delegation_key_t key = {
     .stake_account = delegation->stake_account,
     .fork_idx      = fork_idx
   };
-  fd_stake_delegation_t * in_memory = fork_map_ele_query( map, &key, NULL, delta_pool );
+  fd_stake_delegation_t * in_memory = delta_map_ele_query( map, &key, NULL, delta_pool );
   if( FD_LIKELY( in_memory ) ) {
     uint next      = in_memory->next_;
     uint fork_next = in_memory->fork_next;
@@ -1207,17 +1308,13 @@ fork_delta_upsert( fd_stake_delegations_t *      stake_delegations,
     return;
   }
 
-  ulong free_bucket_idx          = ULONG_MAX;
-  int   free_bucket_is_tombstone = 0;
+  disk_delta_query_t query;
   if( FD_UNLIKELY( stake_delegations->disk_delta_cnt_ || !delta_pool_free( delta_pool ) ) ) {
     disk_delta_t disk_delta;
-    uint         disk_idx;
-    ulong        found_bucket_idx;
-    disk_delta_find( stake_delegations, fork_idx, &delegation->stake_account,
-                     &disk_delta, &disk_idx, &found_bucket_idx, &free_bucket_idx, &free_bucket_is_tombstone );
-    if( FD_UNLIKELY( disk_idx!=UINT_MAX ) ) {
+    disk_delta_find( stake_delegations, fork_idx, &delegation->stake_account, &disk_delta, &query );
+    if( FD_UNLIKELY( query.record_idx!=UINT_MAX ) ) {
       disk_delta.delegation = *delegation;
-      disk_delta_write( stake_delegations, disk_idx, &disk_delta );
+      disk_delta_write( stake_delegations, query.record_idx, &disk_delta );
       return;
     }
   }
@@ -1229,11 +1326,11 @@ fork_delta_upsert( fd_stake_delegations_t *      stake_delegations,
     uint idx = (uint)delta_pool_idx( delta_pool, in_memory );
     in_memory->fork_next = fork->delta_head;
     in_memory->fork_idx  = fork_idx;
-    FD_CHECK_CRIT( fork_map_ele_insert( map, in_memory, delta_pool ),
-                   "unable to insert stake delegation into fork map" );
+    FD_CHECK_CRIT( delta_map_ele_insert( map, in_memory, delta_pool ),
+                   "unable to insert stake delegation into delta map" );
     fork->delta_head = idx;
   } else {
-    disk_delta_insert( stake_delegations, fork_idx, delegation, free_bucket_idx, free_bucket_is_tombstone );
+    disk_delta_insert( stake_delegations, fork_idx, delegation, &query );
   }
 }
 
@@ -1289,14 +1386,16 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
   fd_rwlock_write( &stake_delegations->lock );
 
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
-  fork_map_t *            fork_map   = get_fork_map( stake_delegations );
+  delta_map_t *           delta_map  = get_delta_map( stake_delegations );
   fork_pool_ele_t *       fork_pool  = get_fork_pool( stake_delegations );
+  FD_CHECK_CRIT( (ulong)fork_idx<fork_pool_max( fork_pool ) && fork_pool[ fork_idx ].parent!=FORK_PARENT_FREE,
+                 "invalid stake delegation fork" );
 
   uint idx = fork_pool[ fork_idx ].delta_head;
   while( idx!=UINT_MAX ) {
     fd_stake_delegation_t * ele = delta_pool + idx;
-    FD_CHECK_CRIT( fork_map_ele_remove( fork_map, &ele->key, NULL, delta_pool )==ele,
-                   "stake delegation missing from fork map" );
+    FD_CHECK_CRIT( delta_map_ele_remove( delta_map, &ele->key, NULL, delta_pool )==ele,
+                   "stake delegation missing from delta map" );
     idx = ele->fork_next;
     delta_pool_ele_release( delta_pool, ele );
   }
@@ -1309,6 +1408,8 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
     disk_delta_remove( stake_delegations, disk_idx, &disk_delta );
   }
   fork_pool[ fork_idx ].disk_delta_head = UINT_MAX;
+
+  fork_pool[ fork_idx ].parent = FORK_PARENT_FREE;
   fork_pool_idx_release( fork_pool, fork_idx );
 
   fd_rwlock_unwrite( &stake_delegations->lock );
@@ -1397,20 +1498,30 @@ apply_fork_delta( ulong                                epoch,
 }
 
 void
-fd_stake_delegations_apply_fork_deltas( ulong                                epoch,
-                                        fd_stake_history_t const *           stake_history,
-                                        ulong *                              warmup_cooldown_rate_epoch,
-                                        int                                  use_fixed_point_stake_math,
-                                        fd_stake_delegations_t *             stake_delegations,
-                                        ushort const *                       fork_ids,
-                                        ulong                                fork_id_cnt,
-                                        fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats ) {
+fd_stake_delegations_advance_root( ulong                                epoch,
+                                   fd_stake_history_t const *           stake_history,
+                                   ulong *                              warmup_cooldown_rate_epoch,
+                                   int                                  use_fixed_point_stake_math,
+                                   fd_stake_delegations_t *             stake_delegations,
+                                   ushort                               fork_idx,
+                                   fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats ) {
   fd_rwlock_write( &stake_delegations->lock );
 
+  ushort fork_ids[ FD_STAKE_DELEGATIONS_FORK_MAX ];
+  ulong fork_id_cnt       = fork_ancestry( stake_delegations, fork_idx, fork_ids );
   int history_contiguous = fd_sysvar_stake_history_is_contiguous( stake_history );
-  for( ulong i=0UL; i<fork_id_cnt; i++ ) {
+  for( ulong i=fork_id_cnt; i; i-- ) {
     apply_fork_delta( epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math,
-                      history_contiguous, stake_delegations, fork_ids[ i ], stake_delegations_delta_stats );
+                      history_contiguous, stake_delegations, fork_ids[ i-1UL ], stake_delegations_delta_stats );
+  }
+  /* The target is now rooted.  Its children no longer need a parent
+     delta layer, and its descriptor can be freed by the caller. */
+  if( fork_idx!=USHORT_MAX ) {
+    fork_pool_ele_t * fork_pool = get_fork_pool( stake_delegations );
+    for( ulong i=0UL; i<fork_pool_max( fork_pool ); i++ ) {
+      if( fork_pool[ i ].parent==fork_idx ) fork_pool[ i ].parent = USHORT_MAX;
+    }
+    fork_pool[ fork_idx ].parent = USHORT_MAX;
   }
   if( FD_UNLIKELY( stake_delegations_delta_stats ) ) {
     stake_delegations_delta_stats->root_cnt = root_pool_used( get_root_pool( stake_delegations ) ) + stake_delegations->disk_root_cnt_;
@@ -1477,6 +1588,7 @@ fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
   iter->stake_delegations = stake_delegations;
   iter->idx               = 0UL;
   iter->wmk               = stake_delegations->pool_idx_wmk_;
+  iter->root_max          = stake_delegations->max_stake_accounts_;
   iter->disk_idx          = 0UL;
   fd_stake_delegations_iter_advance_private( iter );
 
@@ -1578,102 +1690,83 @@ unmark_delta_one( fd_stake_delegations_t *      stake_delegations,
   stake_delegations->deactivating_stake += entry.deactivating;
 }
 
-static void
-fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
+void
+fd_stake_delegations_view_begin( fd_stake_delegations_t *   stake_delegations,
                                  ulong                      epoch,
                                  fd_stake_history_t const * stake_history,
                                  ulong *                    warmup_cooldown_rate_epoch,
                                  int                        use_fixed_point_stake_math,
                                  ushort                     fork_idx ) {
+  fd_rwlock_write( &stake_delegations->lock );
+
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
   fork_pool_ele_t *       fork_pool  = get_fork_pool( stake_delegations );
 
-  for( uint delta_ref=fork_pool[ fork_idx ].delta_head; delta_ref!=UINT_MAX; delta_ref=delta_pool[ delta_ref ].fork_next ) {
-    fd_stake_delegation_t * delta_delegation = delta_pool + delta_ref;
-    mark_delta_one( stake_delegations, epoch, stake_history, warmup_cooldown_rate_epoch,
-                    use_fixed_point_stake_math, delta_delegation, delta_ref );
-  }
-
-  uint disk_idx = fork_pool[ fork_idx ].disk_delta_head;
-  while( disk_idx!=UINT_MAX ) {
-    disk_delta_t disk_delta;
-    disk_delta_read( stake_delegations, disk_idx, &disk_delta );
-    mark_delta_one( stake_delegations, epoch, stake_history, warmup_cooldown_rate_epoch,
-                    use_fixed_point_stake_math, &disk_delta.delegation,
-                    disk_idx | FD_STAKE_DELEGATIONS_DELTA_DISK_TAG );
-    disk_idx = disk_delta.next;
-  }
-}
-
-static void
-fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
-                                   ulong                      epoch,
-                                   fd_stake_history_t const * stake_history,
-                                   ulong *                    warmup_cooldown_rate_epoch,
-                                   int                        use_fixed_point_stake_math,
-                                   ushort                     fork_idx ) {
-  fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
-  fork_pool_ele_t *       fork_pool  = get_fork_pool( stake_delegations );
-
-  for( uint delta_ref=fork_pool[ fork_idx ].delta_head; delta_ref!=UINT_MAX; delta_ref=delta_pool[ delta_ref ].fork_next ) {
-    fd_stake_delegation_t * delta_delegation = delta_pool + delta_ref;
-    unmark_delta_one( stake_delegations, epoch, stake_history, warmup_cooldown_rate_epoch,
+  ushort fork_ids[ FD_STAKE_DELEGATIONS_FORK_MAX ];
+  ulong fork_id_cnt = fork_ancestry( stake_delegations, fork_idx, fork_ids );
+  stake_delegations->frontier_query_epoch = epoch;
+  stake_delegations->frontier_query_fork  = fork_idx;
+  for( ulong i=fork_id_cnt; i; i-- ) {
+    fork_pool_ele_t const * fork = fork_pool + fork_ids[ i-1UL ];
+    for( uint delta_ref=fork->delta_head; delta_ref!=UINT_MAX; delta_ref=delta_pool[ delta_ref ].fork_next ) {
+      fd_stake_delegation_t * delta_delegation = delta_pool + delta_ref;
+      mark_delta_one( stake_delegations, epoch, stake_history, warmup_cooldown_rate_epoch,
                       use_fixed_point_stake_math, delta_delegation, delta_ref );
-  }
+    }
 
-  uint disk_idx = fork_pool[ fork_idx ].disk_delta_head;
-  while( disk_idx!=UINT_MAX ) {
-    disk_delta_t disk_delta;
-    disk_delta_read( stake_delegations, disk_idx, &disk_delta );
-    unmark_delta_one( stake_delegations, epoch, stake_history, warmup_cooldown_rate_epoch,
+    uint disk_idx = fork->disk_delta_head;
+    while( disk_idx!=UINT_MAX ) {
+      disk_delta_t disk_delta;
+      disk_delta_read( stake_delegations, disk_idx, &disk_delta );
+      mark_delta_one( stake_delegations, epoch, stake_history, warmup_cooldown_rate_epoch,
                       use_fixed_point_stake_math, &disk_delta.delegation,
                       disk_idx | FD_STAKE_DELEGATIONS_DELTA_DISK_TAG );
-    disk_idx = disk_delta.next;
+      disk_idx = disk_delta.next;
+    }
   }
 }
 
 void
-fd_stake_delegations_frontier_query_begin( fd_stake_delegations_t *   stake_delegations,
-                                           ulong                      epoch,
-                                           fd_stake_history_t const * stake_history,
-                                           ulong *                    warmup_cooldown_rate_epoch,
-                                           int                        use_fixed_point_stake_math,
-                                           ushort const *             fork_ids,
-                                           ulong                      fork_id_cnt ) {
-  fd_rwlock_write( &stake_delegations->lock );
-  stake_delegations->frontier_query_epoch = epoch;
-  for( ulong i=0UL; i<fork_id_cnt; i++ ) {
-    fd_stake_delegations_mark_delta( stake_delegations,
-                                     epoch,
-                                     stake_history,
-                                     warmup_cooldown_rate_epoch,
-                                     use_fixed_point_stake_math,
-                                     fork_ids[ i ] );
-  }
-}
+fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
+                               fd_stake_history_t const * stake_history,
+                               ulong *                    warmup_cooldown_rate_epoch,
+                               int                        use_fixed_point_stake_math ) {
+  ulong epoch = stake_delegations->frontier_query_epoch;
 
-void
-fd_stake_delegations_frontier_query_end( fd_stake_delegations_t *   stake_delegations,
-                                         fd_stake_history_t const * stake_history,
-                                         ulong *                    warmup_cooldown_rate_epoch,
-                                         int                        use_fixed_point_stake_math,
-                                         ushort const *             fork_ids,
-                                         ulong                      fork_id_cnt ) {
-  for( ulong i=0UL; i<fork_id_cnt; i++ ) {
-    fd_stake_delegations_unmark_delta( stake_delegations,
-                                       stake_delegations->frontier_query_epoch,
-                                       stake_history,
-                                       warmup_cooldown_rate_epoch,
-                                       use_fixed_point_stake_math,
-                                       fork_ids[ i ] );
+  fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
+  fork_pool_ele_t *       fork_pool  = get_fork_pool( stake_delegations );
+
+  ushort fork_ids[ FD_STAKE_DELEGATIONS_FORK_MAX ];
+  ulong fork_id_cnt = fork_ancestry( stake_delegations, stake_delegations->frontier_query_fork, fork_ids );
+  for( ulong i=fork_id_cnt; i; i-- ) {
+    fork_pool_ele_t const * fork = fork_pool + fork_ids[ i-1UL ];
+    for( uint delta_ref=fork->delta_head; delta_ref!=UINT_MAX; delta_ref=delta_pool[ delta_ref ].fork_next ) {
+      fd_stake_delegation_t * delta_delegation = delta_pool + delta_ref;
+      unmark_delta_one( stake_delegations, epoch, stake_history, warmup_cooldown_rate_epoch,
+                        use_fixed_point_stake_math, delta_delegation, delta_ref );
+    }
+
+    uint disk_idx = fork->disk_delta_head;
+    while( disk_idx!=UINT_MAX ) {
+      disk_delta_t disk_delta;
+      disk_delta_read( stake_delegations, disk_idx, &disk_delta );
+      unmark_delta_one( stake_delegations, epoch, stake_history, warmup_cooldown_rate_epoch,
+                        use_fixed_point_stake_math, &disk_delta.delegation,
+                        disk_idx | FD_STAKE_DELEGATIONS_DELTA_DISK_TAG );
+      disk_idx = disk_delta.next;
+    }
   }
   stake_delegations->frontier_query_epoch = ULONG_MAX;
+  stake_delegations->frontier_query_fork  = USHORT_MAX;
   disk_root_maintain( stake_delegations );
   fd_rwlock_unwrite( &stake_delegations->lock );
 }
 
 void
-fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations ) {
+fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations,
+                                        int                      force ) {
+  if( FD_LIKELY( !force && !stake_delegations->fp_warmed_awarded ) ) return;
+
   fd_stake_delegation_t * root_pool = get_root_pool( stake_delegations );
   for( ulong i=0UL; i<stake_delegations->pool_idx_wmk_; i++ ) {
     fd_stake_delegation_t * delegation = &root_pool[ i ];

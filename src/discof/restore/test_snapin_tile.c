@@ -601,9 +601,10 @@ test_cluster_new( ulong tile_cnt,
   FD_TEST( cl->in_mem );
   fd_memset( cl->in_mem, 0, tile_cnt*lane_cnt*TEST_FRAG_SZ );
 
-  cl->stake_delegations = aligned_alloc( 128UL, fd_ulong_align_up( sizeof(fd_stake_delegations_t), 128UL ) );
+  ulong stake_delegations_footprint = fd_stake_delegations_footprint( 1UL, 1UL );
+  cl->stake_delegations = aligned_alloc( fd_stake_delegations_align(), stake_delegations_footprint );
   FD_TEST( cl->stake_delegations );
-  fd_memset( cl->stake_delegations, 0, sizeof(fd_stake_delegations_t) );
+  fd_memset( cl->stake_delegations, 0, stake_delegations_footprint );
 
   cl->bank = aligned_alloc( 128UL, fd_ulong_align_up( sizeof(fd_bank_t), 128UL ) );
   FD_TEST( cl->bank );

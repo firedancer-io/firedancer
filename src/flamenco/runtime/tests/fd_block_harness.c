@@ -270,7 +270,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   fd_stake_delegations_reset( stake_delegations );
 
-  bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
+  bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
 
   FD_TEST( block_bank->vote_accounts_t_1_count<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
   FD_TEST( block_bank->vote_accounts_t_2_count<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
@@ -440,7 +440,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       fd_solcap_writer_init( capture_ctx->capture, solcap_fd );
     }
 
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb, runner->runtime_stack, capture_ctx );
+    fd_rewards_recalculate_partitioned_rewards( runner->bank, runner->accdb, runner->runtime_stack, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
@@ -598,11 +598,7 @@ static ulong
 fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runner,
                                          fd_exec_test_stake_delegation_t * out,
                                          ulong                             out_max ) {
-  fd_bank_t *  bank  = runner->bank;
-  fd_banks_t * banks = runner->banks;
-
-  ushort fork_ids[ banks->max_total_banks ];
-  ulong  fork_id_cnt = fd_banks_stake_delegations_fork_ids( banks, bank, fork_ids );
+  fd_bank_t * bank = runner->bank;
 
   fd_stake_history_t   stake_history_[1];
   fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
@@ -610,8 +606,12 @@ fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runne
   int     use_fixed_point            = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-  fd_stake_delegations_frontier_query_begin( stake_delegations, bank->f.epoch, stake_history, warmup_cooldown_rate_epoch,
-                                             use_fixed_point, fork_ids, fork_id_cnt );
+  fd_stake_delegations_view_begin( stake_delegations,
+                                   bank->f.epoch,
+                                   stake_history,
+                                   warmup_cooldown_rate_epoch,
+                                   use_fixed_point,
+                                   bank->stake_delegations_fork_id );
 
   ulong cnt = 0UL;
   fd_stake_delegations_iter_t iter_[1];
@@ -631,8 +631,7 @@ fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runne
     o->data_len           = d->acc_dlen;
   }
 
-  fd_stake_delegations_frontier_query_end( stake_delegations, stake_history, warmup_cooldown_rate_epoch,
-                                           use_fixed_point, fork_ids, fork_id_cnt );
+  fd_stake_delegations_view_end( stake_delegations, stake_history, warmup_cooldown_rate_epoch, use_fixed_point );
 
   sort_stake_delegation_inplace( out, cnt );
   return cnt;

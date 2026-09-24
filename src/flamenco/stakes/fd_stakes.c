@@ -807,12 +807,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   /* We can update our stake history sysvar based on the bank stake values.
      Afterward, we can refresh the stake values for the vote accounts. */
 
-  fd_stake_history_entry_t elem = {
-    .epoch        = bank->f.epoch,
-    .effective    = stake_delegations->effective_stake,
-    .activating   = stake_delegations->activating_stake,
-    .deactivating = stake_delegations->deactivating_stake,
-  };
+  fd_stake_history_entry_t elem = fd_stake_delegations_totals( stake_delegations );
+  elem.epoch = bank->f.epoch;
 
   /* Agave recomputes each stake history entry from scratch every epoch
      boundary, whereas Firedancer keeps running totals. Therefore,
@@ -874,7 +870,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   }
 
   if( FD_UNLIKELY( !fd_sysvar_stake_history_is_contiguous( stake_history ) ) ) {
-    fd_stake_delegations_invalidate_warmed( stake_delegations );
+    fd_stake_delegations_invalidate_warmed( stake_delegations, 1 );
   }
 
   /* Now increment the epoch and recompute the stakes for the vote
