@@ -1246,6 +1246,7 @@ fd_gui_printf_health( fd_gui_t * gui ) {
   ulong vote_status    = FD_DIAG_VOTE_STATUS_DISABLED;
   ulong replay_status  = FD_DIAG_REPLAY_STATUS_DISABLED;
   ulong turbine_status = FD_DIAG_TURBINE_STATUS_DISABLED;
+  ulong builder_status = FD_DIAG_BUILDER_STATUS_DISABLED;
 
   if( FD_LIKELY( diag_tile_idx!=ULONG_MAX ) ) {
     volatile ulong const * metrics = fd_metrics_tile( topo->tiles[ diag_tile_idx ].metrics );
@@ -1253,6 +1254,7 @@ fd_gui_printf_health( fd_gui_t * gui ) {
     vote_status    = metrics[ MIDX( GAUGE, DIAG, VOTE_STATUS    ) ];
     replay_status  = metrics[ MIDX( GAUGE, DIAG, REPLAY_STATUS  ) ];
     turbine_status = metrics[ MIDX( GAUGE, DIAG, TURBINE_STATUS ) ];
+    builder_status = metrics[ MIDX( GAUGE, DIAG, BUILDER_STATUS ) ];
   }
 
   if( FD_UNLIKELY( !gui->summary.is_full_client ) ) {
@@ -1303,12 +1305,22 @@ fd_gui_printf_health( fd_gui_t * gui ) {
     default:                                      turbine_str = "disabled";         break;
   }
 
+  char const * builder_str;
+  switch( builder_status ) {
+    case FD_DIAG_BUILDER_STATUS_DISCONNECTED: builder_str = "disconnected"; break;
+    case FD_DIAG_BUILDER_STATUS_CONNECTING:   builder_str = "connecting";   break;
+    case FD_DIAG_BUILDER_STATUS_UNHEALTHY:    builder_str = "unhealthy";    break;
+    case FD_DIAG_BUILDER_STATUS_CONNECTED:    builder_str = "connected";    break;
+    default:                                  builder_str = "disabled";     break;
+  }
+
   jsonp_open_envelope( gui->http, "summary", "health" );
     jsonp_open_object( gui->http, "value" );
       jsonp_string( gui->http, "vote",    vote_str    );
       jsonp_string( gui->http, "bundle",  bundle_str  );
       jsonp_string( gui->http, "replay",  replay_str  );
       jsonp_string( gui->http, "turbine", turbine_str );
+      jsonp_string( gui->http, "builder", builder_str );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }

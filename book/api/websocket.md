@@ -1561,7 +1561,8 @@ are subsystem-specific and described below.
         "vote": "voting",
         "bundle": "connected",
         "replay": "running",
-        "turbine": "running"
+        "turbine": "running",
+        "builder": "disabled"
     }
 }
 ```
@@ -1575,6 +1576,7 @@ are subsystem-specific and described below.
 | bundle  | `string` | Bundle subsystem status |
 | replay  | `string` | Replay subsystem status |
 | turbine | `string` | Turbine subsystem status |
+| builder | `string` | External block builder status |
 
 **`vote`** states:
 | State          | Description |
@@ -1591,7 +1593,7 @@ are subsystem-specific and described below.
 | `disconnected` | All bundle tiles are disconnected from their block engine |
 | `connecting`   | At least one bundle tile is attempting to connect, but none are connected or sleeping |
 | `connected`    | At least one bundle tile has an active connection to its block engine |
-| `sleeping`     | At least one bundle tile is deliberately sleeping (backing off before reconnecting), but none are connected |
+| `sleeping`     | At least one bundle tile is deliberately idle (for example, no upcoming leader slots, or standing by while another block source is active), but none are connected |
 
 **`replay`** states:
 | State          | Description |
@@ -1609,6 +1611,15 @@ are subsystem-specific and described below.
 | `stalled`          | The turbine slot has not advanced in over 12 seconds |
 | `repair_outpacing` | Turbine slot is advancing, but repair byte throughput has exceeded turbine byte throughput over the last 12-second window, indicating degraded turbine connectivity |
 | `running`          | Turbine is receiving shreds and its throughput exceeds repair |
+
+**`builder`** states:
+| State          | Description |
+|----------------|-------------|
+| `disabled`     | No external block builder is configured. Validator clients without block builder support always report this state |
+| `disconnected` | The block builder is disconnected |
+| `connecting`   | The block builder connection is being established |
+| `unhealthy`    | The block builder is connected but is not in a usable state |
+| `connected`    | The block builder is connected and healthy |
 
 #### `summary.live_system_resources`
 | frequency      | type         | example |

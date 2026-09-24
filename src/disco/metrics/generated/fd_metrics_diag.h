@@ -11,6 +11,7 @@ enum {
   FD_METRICS_GAUGE_DIAG_VOTE_STATUS_OFF,
   FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_OFF,
   FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_OFF,
+  FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_OFF,
   FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_OFF,
   FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_OFF,
   FD_METRICS_COUNTER_DIAG_SOFTIRQ_OFF,
@@ -43,6 +44,11 @@ enum {
 #define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_DESC "Precise status of the turbine subsystem: 0=disabled (no shred or replay tiles), 1=not started (tiles not all running or turbine slot is zero), 2=stalled (turbine slot not advancing), 3=repair outpacing (repair byte throughput exceeds turbine), 4=running (turbine receiving normally)"
 #define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
 
+#define FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_NAME "diag_builder_status"
+#define FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_DESC "Precise status of the external block builder subsystem: 0=disabled (no block builder configured), 1=disconnected (block builder disconnected), 2=connecting (block builder connection in progress), 3=unhealthy (connected, but the block builder is not in a usable state), 4=connected (block builder connected and healthy)"
+#define FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+
 #define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_NAME "diag_device_irq"
 #define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_DESC "Number of device IRQs across all CPUs"
@@ -65,7 +71,7 @@ enum {
 #define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_CVT  (FD_METRICS_CONVERTER_NONE)
 #define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_CNT  (3UL)
 
-#define FD_METRICS_DIAG_TOTAL (12UL)
+#define FD_METRICS_DIAG_TOTAL (13UL)
 extern const fd_metrics_meta_t FD_METRICS_DIAG[FD_METRICS_DIAG_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_diag_h */
