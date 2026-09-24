@@ -46,7 +46,8 @@ fd_adns_footprint( ulong max_reqs );
 
 void *
 fd_adns_new( void * shmem,
-             ulong  max_reqs );
+             ulong  max_reqs,
+             int    epoll_fd );
 
 fd_adns_t *
 fd_adns_join( void * shadns );
@@ -78,6 +79,12 @@ int
 fd_adns_advance( fd_adns_t *        adns,
                  long               now,
                  fd_adns_result_t * result );
+
+/* fd_adns_next_deadline returns the earliest wallclock at which a
+   pending request (re)sends, or LONG_MAX if none is pending. */
+
+long
+fd_adns_next_deadline( fd_adns_t const * adns );
 
 FD_PROTOTYPES_END
 

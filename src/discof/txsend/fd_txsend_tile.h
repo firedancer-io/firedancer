@@ -6,6 +6,7 @@
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../disco/stem/fd_stem.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -104,6 +105,8 @@ typedef struct quic_entry quic_entry_t;
 
 struct fd_txsend_tile {
   fd_quic_t * quic;
+
+  fd_clock_tile_t clock[1];
 
   ulong leader_schedules;
   fd_multi_epoch_leaders_t * mleaders;

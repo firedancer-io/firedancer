@@ -12,9 +12,9 @@ FD_STATIC_ASSERT( FD_HASH_FOOTPRINT==32UL, resolved_hash_sz );
 
 #include <unistd.h>
 #include <errno.h>
-#include <poll.h>
 #include <stdlib.h>
 
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/random.h>
 #include <netinet/in.h>
@@ -64,27 +64,6 @@ http_init_tls( fd_sshttp_t * http ) {
   return 0;
 }
 
-/* io_backoff sleeps for up to a millisecond, or until the socket is
-   ready for events, once several iterations in a row have moved no
-   bytes.  Returns -1 if the poll failed fatally. */
-
-static int
-io_backoff( fd_sshttp_t * http,
-            short         events ) {
-  if( FD_LIKELY( ++http->empty_recvs<=8UL || fd_sshttp_fuzz ) ) return 0;
-
-  struct pollfd pfd = {
-    .fd     = http->sockfd,
-    .events = events,
-  };
-  if( FD_UNLIKELY( -1==fd_syscall_poll( &pfd, 1 /*fds*/, 1 /*ms*/ ) && errno!=EINTR ) ) {
-    FD_LOG_WARNING(( "fd_syscall_poll() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
-                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
-    return -1;
-  }
-  return 0;
-}
-
 static int
 http_connect_tls( fd_sshttp_t * http,
                   long          now ) {
@@ -99,10 +78,7 @@ http_connect_tls( fd_sshttp_t * http,
 
   int flush = fd_tlsrec_sock_flush( http->tls_sock, http->sockfd );
   if( flush<0 ) { fd_sshttp_cancel( http ); return FD_SSHTTP_ADVANCE_ERROR; }
-  if( flush>0 ) {
-    if( FD_UNLIKELY( -1==io_backoff( http, POLLOUT ) ) ) { fd_sshttp_cancel( http ); return FD_SSHTTP_ADVANCE_ERROR; }
-    return FD_SSHTTP_ADVANCE_AGAIN;
-  }
+  if( flush>0 ) return FD_SSHTTP_ADVANCE_AGAIN;
 
   /* Drive the TLS handshake */
 
@@ -118,8 +94,6 @@ http_connect_tls( fd_sshttp_t * http,
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
-  if( tcp_rx_sz ) http->empty_recvs = 0UL;
-  else if( FD_UNLIKELY( -1==io_backoff( http, POLLIN ) ) ) { fd_sshttp_cancel( http ); return FD_SSHTTP_ADVANCE_ERROR; }
 
   /* Transition to request state once handshake completes */
 
@@ -144,10 +118,7 @@ http_send_tls( fd_sshttp_t * http,
                ulong         bufsz ) {
   int flush = fd_tlsrec_sock_flush( http->tls_sock, http->sockfd );
   if( flush<0 ) return FD_SSHTTP_ADVANCE_ERROR;
-  if( flush>0 ) {
-    if( FD_UNLIKELY( -1==io_backoff( http, POLLOUT ) ) ) return FD_SSHTTP_ADVANCE_ERROR;
-    return FD_SSHTTP_ADVANCE_AGAIN;
-  }
+  if( flush>0 ) return FD_SSHTTP_ADVANCE_AGAIN;
 
   ulong consumed;
   if( FD_UNLIKELY( fd_tlsrec_sock_tx( http->tls_sock, &http->tls_conn, http->sockfd, buf, bufsz, &consumed ) ) )
@@ -164,7 +135,6 @@ http_recv_tls( fd_sshttp_t * http,
 
   ulong n = fd_tlsrec_sock_rx_pop( http->tls_sock, buf, bufsz );
   if( n ) {
-    http->empty_recvs = 0UL;
     return (long)n;
   }
 
@@ -172,10 +142,7 @@ http_recv_tls( fd_sshttp_t * http,
 
   int flush = fd_tlsrec_sock_flush( http->tls_sock, http->sockfd );
   if( flush<0 ) return FD_SSHTTP_ADVANCE_ERROR;
-  if( flush>0 ) {
-    if( FD_UNLIKELY( -1==io_backoff( http, POLLOUT ) ) ) return FD_SSHTTP_ADVANCE_ERROR;
-    return FD_SSHTTP_ADVANCE_AGAIN;
-  }
+  if( flush>0 ) return FD_SSHTTP_ADVANCE_AGAIN;
 
   /* Read and decrypt */
 
@@ -191,12 +158,7 @@ http_recv_tls( fd_sshttp_t * http,
     }
     return FD_SSHTTP_ADVANCE_ERROR;
   }
-  if( !tcp_rx_sz ) {
-    if( FD_UNLIKELY( -1==io_backoff( http, POLLIN ) ) ) return FD_SSHTTP_ADVANCE_ERROR;
-    return FD_SSHTTP_ADVANCE_AGAIN;
-  }
-
-  http->empty_recvs = 0UL; /* socket made progress */
+  if( !tcp_rx_sz ) return FD_SSHTTP_ADVANCE_AGAIN;
 
   n = fd_tlsrec_sock_rx_pop( http->tls_sock, buf, bufsz );
   if( !n ) return FD_SSHTTP_ADVANCE_AGAIN;
@@ -236,7 +198,8 @@ fd_sshttp_footprint( void ) {
 }
 
 void *
-fd_sshttp_new( void * shmem ) {
+fd_sshttp_new( void * shmem,
+               int    epoll_fd ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -247,11 +210,17 @@ fd_sshttp_new( void * shmem ) {
     return NULL;
   }
 
+  if( FD_UNLIKELY( epoll_fd==-1 ) ) {
+    FD_LOG_WARNING(( "invalid epoll_fd" ));
+    return NULL;
+  }
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_sshttp_t * sshttp = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sshttp_t), sizeof(fd_sshttp_t) );
 
-  sshttp->state = FD_SSHTTP_STATE_INIT;
-  sshttp->sockfd = -1;
+  sshttp->state    = FD_SSHTTP_STATE_INIT;
+  sshttp->sockfd   = -1;
+  sshttp->epoll_fd = epoll_fd;
   sshttp->content_len = 0UL;
   fd_cstr_fini( sshttp->snapshot_name );
   sshttp->resolved_slot = 0UL;
@@ -357,7 +326,6 @@ fd_sshttp_init( fd_sshttp_t * http,
   http->response_len = 0UL;
   http->content_len  = 0UL;
   http->content_read = 0UL;
-  http->empty_recvs  = 0UL;
 
   http->addr   = addr;
   http->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
@@ -384,6 +352,10 @@ fd_sshttp_init( fd_sshttp_t * http,
     }
   }
 
+  http->epoll_events = EPOLLIN|EPOLLOUT;
+  struct epoll_event ev = { .events = http->epoll_events, .data.fd = http->sockfd };
+  if( FD_UNLIKELY( -1==epoll_ctl( http->epoll_fd, EPOLL_CTL_ADD, http->sockfd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(ADD) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+
   if( FD_LIKELY( is_https ) ) {
     http->state    = FD_SSHTTP_STATE_CONNECT;
     http->deadline = now + FD_SSHTTP_DEADLINE_NANOS;
@@ -395,9 +367,26 @@ fd_sshttp_init( fd_sshttp_t * http,
   return 0;
 }
 
+long
+fd_sshttp_deadline( fd_sshttp_t const * http ) {
+  switch( http->state ) {
+    case FD_SSHTTP_STATE_INIT:     return LONG_MAX;
+    case FD_SSHTTP_STATE_REDIRECT:
+    case FD_SSHTTP_STATE_DONE:     return 0L;       /* non-I/O work pending */
+    case FD_SSHTTP_STATE_DL:
+      /* Body bytes already buffered (response residual or decrypted TLS
+         plaintext) don't keep the socket readable: run now.  Otherwise
+         the caller bounds download progress. */
+      if( http->response_len || (http->is_https && fd_tlsrec_sock_rx_avail( http->tls_sock )) ) return 0L;
+      return LONG_MAX;
+    default:                       return http->deadline;
+  }
+}
+
 void
 fd_sshttp_cancel( fd_sshttp_t * http ) {
   if( FD_LIKELY( http->state!=FD_SSHTTP_STATE_INIT && -1!=http->sockfd ) ) {
+    if( FD_UNLIKELY( -1==epoll_ctl( http->epoll_fd, EPOLL_CTL_DEL, http->sockfd, NULL ) ) ) FD_LOG_ERR(( "epoll_ctl(DEL) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
                                                                 FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     http->sockfd = -1;
@@ -417,10 +406,6 @@ http_send( fd_sshttp_t * http,
 
   long sent = sendto( http->sockfd, buf, bufsz, MSG_NOSIGNAL, NULL, 0 );
   if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) {
-    if( FD_UNLIKELY( -1==io_backoff( http, POLLOUT ) ) ) {
-      fd_sshttp_cancel( http );
-      return FD_SSHTTP_ADVANCE_ERROR;
-    }
     return FD_SSHTTP_ADVANCE_AGAIN;
   } else if( FD_UNLIKELY( -1==sent ) ) {
     FD_LOG_WARNING(( "sendto() failed (%d-%s) to " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
@@ -428,7 +413,6 @@ http_send( fd_sshttp_t * http,
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
-  http->empty_recvs = 0UL;
 
   return sent;
 }
@@ -442,10 +426,6 @@ http_recv( fd_sshttp_t * http,
 
   long read = recvfrom( http->sockfd, buf, bufsz, 0, NULL, NULL );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) {
-    if( FD_UNLIKELY( -1==io_backoff( http, POLLIN ) ) ) {
-      fd_sshttp_cancel( http );
-      return FD_SSHTTP_ADVANCE_ERROR;
-    }
     return FD_SSHTTP_ADVANCE_AGAIN;
   } else if( FD_UNLIKELY( -1==read ) ) {
     FD_LOG_WARNING(( "recv() failed (%d-%s) from " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
@@ -458,7 +438,6 @@ http_recv( fd_sshttp_t * http,
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
-  http->empty_recvs = 0UL;
 
   return read;
 }
@@ -783,19 +762,31 @@ fd_sshttp_advance( fd_sshttp_t * http,
                    int *         downloading,
                    long          now ) {
   *downloading = 0;
+  int res;
   switch( http->state ) {
-    case FD_SSHTTP_STATE_INIT:          return FD_SSHTTP_ADVANCE_AGAIN;
-    case FD_SSHTTP_STATE_CONNECT:
-      return http_connect_tls( http, now );
-    case FD_SSHTTP_STATE_REDIRECT:
-      return setup_redirect_tls( http, now );
-    case FD_SSHTTP_STATE_REQ:           return send_request( http, now );
-    case FD_SSHTTP_STATE_RESP:          return read_response( http, data_len, data, now );
-    case FD_SSHTTP_STATE_DL:            *downloading = 1; return read_body( http, data_len, data, now );
+    case FD_SSHTTP_STATE_INIT:     return FD_SSHTTP_ADVANCE_AGAIN;
+    case FD_SSHTTP_STATE_CONNECT:  res = http_connect_tls( http, now ); break;
+    case FD_SSHTTP_STATE_REDIRECT: res = setup_redirect_tls( http, now ); break;
+    case FD_SSHTTP_STATE_REQ:      res = send_request( http, now ); break;
+    case FD_SSHTTP_STATE_RESP:     res = read_response( http, data_len, data, now ); break;
+    case FD_SSHTTP_STATE_DL:       *downloading = 1; res = read_body( http, data_len, data, now ); break;
     case FD_SSHTTP_STATE_DONE:
       fd_sshttp_cancel( http );
       http->state = FD_SSHTTP_STATE_INIT;
       return FD_SSHTTP_ADVANCE_DONE;
-    default:                            return FD_SSHTTP_ADVANCE_ERROR;
+    default:                       return FD_SSHTTP_ADVANCE_ERROR;
   }
+
+  /* Only wait for writability while there is something to send,
+     otherwise a connected socket is always ready and the tile spins. */
+  if( FD_LIKELY( http->sockfd!=-1 ) ) {
+    int out = http->state==FD_SSHTTP_STATE_REQ || (http->is_https && fd_tlsrec_sock_tx_pending( http->tls_sock ));
+    uint events = EPOLLIN | (out ? EPOLLOUT : 0U);
+    if( FD_UNLIKELY( events!=http->epoll_events ) ) {
+      struct epoll_event ev = { .events = events, .data.fd = http->sockfd };
+      if( FD_UNLIKELY( -1==epoll_ctl( http->epoll_fd, EPOLL_CTL_MOD, http->sockfd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(MOD) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      http->epoll_events = events;
+    }
+  }
+  return res;
 }

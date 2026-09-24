@@ -228,6 +228,12 @@ after_frag( fd_bundle_tile_t *  ctx,
   }
 }
 
+static long
+next_deadline( fd_bundle_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->halt_signing || ctx->sleep_mode || ctx->next_step_deadline==LONG_MAX ) ) return LONG_MAX;
+  return fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->next_step_deadline );
+}
+
 static void
 before_credit( fd_bundle_tile_t *  ctx,
                fd_stem_context_t * stem,
@@ -236,14 +242,19 @@ before_credit( fd_bundle_tile_t *  ctx,
     ctx->stem = stem;
   }
 
-  if( FD_UNLIKELY( ctx->halt_signing ) ) return;
-
-  if( FD_UNLIKELY( ctx->sleep_mode ) ) {
-    if( ctx->tcp_sock>=0 ) {
+  if( FD_UNLIKELY( ctx->halt_signing || ctx->sleep_mode ) ) {
+    if( ctx->sleep_mode && ctx->tcp_sock>=0 ) {
       fd_bundle_client_reset( ctx );
       /* Override backoff so we don't treat this as an error */
       ctx->backoff_until = 0;
       ctx->backoff_iter  = 0;
+    }
+    /* The socket is closed so any wake (even one that raced the close)
+       is stale: drain it or the stem never parks, and rearm so the next
+       connection can wake us. */
+    if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+      fd_fseq_update( ctx->waker_fseq, 0UL );
+      fd_waker_client_rearm( ctx->waker_client_idx );
     }
     return;
   }
@@ -684,6 +695,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bundle_tile_t)
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING fd_bundle_tile_housekeeping
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag

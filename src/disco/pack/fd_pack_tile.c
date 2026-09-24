@@ -579,6 +579,22 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
 }
 #endif
 
+static inline int
+prevent_park( fd_pack_ctx_t * ctx ) {
+  /* skip_cnt counts loop iterations, not time, never park through it */
+  return ctx->skip_cnt>0L;
+}
+
+static inline long
+next_deadline( fd_pack_ctx_t * ctx ) {
+  if( FD_LIKELY( ctx->leader_slot==ULONG_MAX ) ) return LONG_MAX;
+  long now      = fd_tickcount();
+  long slot_end = fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->slot_end_ns );
+  ulong enabled = fd_ulong_min( fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now ), ctx->execle_cnt );
+  if( FD_UNLIKELY( enabled>=ctx->execle_cnt ) ) return slot_end;
+  return fd_long_min( slot_end, fd_pack_pacing_next_enable( ctx->pacer, enabled ) );
+}
+
 static inline void
 after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
@@ -1604,6 +1620,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pack_ctx_t)
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_PREVENT_PARK        prevent_park
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_DURING_FRAG         during_frag

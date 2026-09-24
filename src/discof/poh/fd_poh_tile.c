@@ -105,6 +105,14 @@ after_credit( fd_poh_tile_t *     ctx,
   }
 }
 
+static inline long
+next_deadline( fd_poh_tile_t * ctx ) {
+  long next = fd_poh_next_deadline( ctx->poh );
+  if( FD_LIKELY( next==LONG_MAX ) ) return LONG_MAX;
+  if( FD_UNLIKELY( next<=0L ) ) return 0L;
+  return fd_clock_tile_wallclock_to_tickcount( ctx->poh->clock, next );
+}
+
 /* ....
 
     1. replay -> (pack, poh) ... start packing for slot
@@ -366,6 +374,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_tile_t)
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag

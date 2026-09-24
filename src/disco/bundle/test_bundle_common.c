@@ -2,6 +2,7 @@
 #include "fd_bundle_auth.h"
 #include "fd_bundle_tile_private.h"
 #include "../../waltz/grpc/fd_grpc_client_private.h"
+#include "../waker/fd_waker.h"
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -18,6 +19,7 @@ struct test_bundle_env {
   uchar *           out_dcache;
   int               server_sock;
   void *            deque_mem;
+  ulong             waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
 
   fd_bundle_tile_t state[1];
 };
@@ -72,6 +74,13 @@ test_bundle_env_create( test_bundle_env_t * env,
   };
 
   state->tcp_sock        = -1;
+  state->waker_fseq      = fd_fseq_join( fd_fseq_new( env->waker_fseq, 0UL ) );
+  FD_TEST( state->waker_fseq );
+  /* fd_waker_install pins the outer/inner epoll fds process-wide, so
+     install once and let every env share client 0 */
+  static int waker_installed = 0;
+  if( !waker_installed ) { fd_waker_install( 1UL ); waker_installed = 1; }
+  state->waker_client_idx = 0UL;
   state->grpc_buf_max    = 16384UL + sizeof(fd_h2_frame_hdr_t);
   state->grpc_client_mem = fd_wksp_alloc_laddr( wksp, fd_grpc_client_align(), fd_grpc_client_footprint( state->grpc_buf_max ), 1UL );
   FD_TEST( state->grpc_client_mem );

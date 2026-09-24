@@ -24,7 +24,9 @@
 struct fd_sshttp_private {
   int   state;
   long  deadline;
-  ulong empty_recvs;
+
+  int   epoll_fd;
+  uint  epoll_events;
 
   ulong hops;
 

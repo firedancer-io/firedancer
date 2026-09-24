@@ -148,12 +148,12 @@ snapshot_load_topo( config_t * config ) {
 
   /* read() tile */
   fd_topob_wksp( topo, "snapct" );
-  fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
+  fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
   snapct_tile->allow_shutdown = 1;
 
   /* load tile */
   fd_topob_wksp( topo, "snapld" );
-  fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
+  fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
   snapld_tile->allow_shutdown = 1;
 
   /* "snapdc": Zstandard decompress tile */

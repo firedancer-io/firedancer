@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -90,6 +91,8 @@ struct fd_ssping_private {
 
   ulong                    magic; /* ==FD_SSPING_MAGIC */
 
+  int                      epoll_fd;
+
   /* Invariant: The pool elements with an associated file descriptor are
      exactly those that are PINGED or REFRESHING. */
   ulong                    used_fd_cnt;
@@ -129,7 +132,8 @@ fd_ssping_new( void *                 shmem,
                ulong                  max_peers,
                ulong                  seed,
                fd_ssping_on_ping_fn_t on_ping_cb,
-               void *                 cb_arg ) {
+               void *                 cb_arg,
+               int                    epoll_fd ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -142,6 +146,11 @@ fd_ssping_new( void *                 shmem,
 
   if( FD_UNLIKELY( max_peers < 1UL ) ) {
     FD_LOG_WARNING(( "max_peers must be at least 1" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( epoll_fd==-1 ) ) {
+    FD_LOG_WARNING(( "invalid epoll_fd" ));
     return NULL;
   }
 
@@ -194,6 +203,7 @@ fd_ssping_new( void *                 shmem,
   }
 
   ssping->used_fd_cnt = 0UL;
+  ssping->epoll_fd    = epoll_fd;
 
   ssping->on_ping_cb = on_ping_cb;
   ssping->cb_arg     = cb_arg;
@@ -327,6 +337,7 @@ remove_fdesc_idx( fd_ssping_t * ssping,
     .sin_port   = 0
   }};
   if( FD_UNLIKELY( connect( fdesc, fd_type_pun_const( addr ), sizeof(addr) ) ) ) FD_LOG_ERR(( "connect(AF_UNSPEC) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==epoll_ctl( ssping->epoll_fd, EPOLL_CTL_DEL, fdesc, NULL ) ) ) FD_LOG_ERR(( "epoll_ctl(DEL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Mark that the pool element no longer has an associated index. */
   ssping->pool[ pool_idx ].used_fd_idx = ULONG_MAX;
@@ -481,6 +492,8 @@ send_pings( fd_ssping_t *     ssping,
       FD_LOG_WARNING(( "connect(" FD_IP4_ADDR_FMT ":%hu) failed (%d-%s)", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), errno, fd_io_strerror( errno ) ));
       /* Nothing to do.  It will get "reaped" later. */
     }
+    struct epoll_event ev = { .events = EPOLLOUT|EPOLLRDHUP|EPOLLPRI, .data.fd = fdesc };
+    if( FD_UNLIKELY( -1==epoll_ctl( ssping->epoll_fd, EPOLL_CTL_ADD, fdesc, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     ssping->used_fds    [ ssping->used_fd_cnt ].fd = fdesc;
     ssping->ping_to_pool[ ssping->used_fd_cnt ]    = peer_idx;
@@ -493,6 +506,18 @@ send_pings( fd_ssping_t *     ssping,
   return (uint)msg_cnt;
 }
 
+
+long
+fd_ssping_next_deadline( fd_ssping_t const * ssping ) {
+  long next = LONG_MAX;
+  deadline_list_t const * lists[] = { ssping->pinged, ssping->refreshing, ssping->valid, ssping->invalid };
+  for( ulong i=0UL; i<sizeof(lists)/sizeof(lists[0]); i++ ) {
+    if( FD_LIKELY( deadline_list_is_empty( lists[ i ], ssping->pool ) ) ) continue;
+    next = fd_long_min( next, deadline_list_ele_peek_head_const( lists[ i ], ssping->pool )->deadline_nanos );
+  }
+  if( FD_LIKELY( !deadline_list_is_empty( ssping->unpinged, ssping->pool ) && ssping->used_fd_cnt<FD_SSPING_FD_CNT ) ) next = 0L; /* sends now */
+  return next;
+}
 
 void
 fd_ssping_advance( fd_ssping_t *          ssping,

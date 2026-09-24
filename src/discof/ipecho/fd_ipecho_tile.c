@@ -7,6 +7,7 @@
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/waker/fd_waker.h"
+#include "../../disco/fd_clock_tile.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -25,6 +26,8 @@ struct fd_ipecho_tile_ctx {
 
   ulong   waker_client_idx;
   ulong * waker_fseq;
+
+  fd_clock_tile_t clock[1];
 
   uint   bind_address;
   ushort bind_port;
@@ -77,7 +80,7 @@ poll_client( fd_ipecho_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->client ) ) return;
 
   ushort shred_version;
-  int result = fd_ipecho_client_poll( ctx->client, &shred_version, charge_busy );
+  int result = fd_ipecho_client_poll( ctx->client, fd_clock_tile_now( ctx->clock ), &shred_version, charge_busy );
   if( FD_UNLIKELY( !result ) ) {
     if( FD_UNLIKELY( ctx->expected_shred_version && ctx->expected_shred_version!=shred_version ) ) {
       FD_LOG_ERR(( "Expected shred version %hu but entrypoint returned %hu",
@@ -96,6 +99,20 @@ poll_client( fd_ipecho_tile_ctx_t * ctx,
   }
 }
 
+static void
+during_housekeeping( fd_ipecho_tile_ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+}
+
+static inline long
+next_deadline( fd_ipecho_tile_ctx_t * ctx ) {
+  if( FD_LIKELY( !ctx->retrieving || !ctx->client ) ) return LONG_MAX;
+
+  long deadline = fd_ipecho_client_deadline_nanos( ctx->client );
+  if( FD_UNLIKELY( deadline==LONG_MAX ) ) return 0L; /* first poll starts the clock */
+  return fd_clock_tile_wallclock_to_tickcount( ctx->clock, deadline );
+}
+
 static inline void
 after_credit( fd_ipecho_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
@@ -104,7 +121,10 @@ after_credit( fd_ipecho_tile_ctx_t * ctx,
   (void)opt_poll_in;
 
   if( FD_UNLIKELY( ctx->retrieving ) ) {
+    int fired = fd_fseq_query( ctx->waker_fseq )==1UL;
+    if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
     poll_client( ctx, stem, charge_busy );
+    if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
     return;
   }
 
@@ -166,7 +186,7 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_LIKELY( ctx->entrypoints_cnt ) ) {
     ctx->client = fd_ipecho_client_join( fd_ipecho_client_new( _client ) );
     FD_TEST( ctx->client );
-    fd_ipecho_client_init( ctx->client, ctx->entrypoints, ctx->entrypoints_cnt );
+    fd_ipecho_client_init( ctx->client, ctx->entrypoints, ctx->entrypoints_cnt, FD_WAKER_INNER_FD( tile->waker_client_idx ) );
   } else {
     ctx->client = NULL;
   }
@@ -195,6 +215,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
   ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
   FD_TEST( ctx->waker_fseq );
+
+  fd_clock_tile_init( ctx->clock );
 
   /* In some topologies (e.g. firedancer-dev gossip), the ipecho tile
      has no input links. Guard against dereferencing a missing
@@ -274,9 +296,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_ipecho_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_ipecho_tile_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 

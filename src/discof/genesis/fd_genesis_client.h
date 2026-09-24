@@ -25,14 +25,19 @@ fd_genesis_client_join( void * shgen );
 void
 fd_genesis_client_init( fd_genesis_client_t * client,
                         fd_ip4_port_t const * servers,
-                        ulong                 servers_len );
+                        ulong                 servers_len,
+                        int                   epoll_fd );
 
 int
 fd_genesis_client_poll( fd_genesis_client_t * client,
+                        long                  now,
                         fd_ip4_port_t *       peer,
                         uchar **              buffer,
                         ulong *               buffer_sz,
                         int *                 charge_busy );
+
+long
+fd_genesis_client_deadline_nanos( fd_genesis_client_t const * client );
 
 struct pollfd const *
 fd_genesis_client_get_pollfds( fd_genesis_client_t * client );

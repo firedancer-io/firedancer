@@ -185,6 +185,12 @@ metrics_write( fd_event_tile_t * ctx ) {
   FD_MGAUGE_SET( EVENT, CONN_STATE,        fd_event_client_state( ctx->client ) );
 }
 
+static long
+next_deadline( fd_event_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->next_poll_deadline==LONG_MAX ) ) return LONG_MAX;
+  return fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->next_poll_deadline );
+}
+
 static void
 before_credit( fd_event_tile_t *   ctx,
                fd_stem_context_t * stem,
@@ -651,6 +657,7 @@ during_housekeeping( fd_event_tile_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_event_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag

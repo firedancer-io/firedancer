@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <sys/epoll.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -32,7 +33,9 @@ static uchar adns_mem[ 65536 ] __attribute__((aligned(64)));
 static fd_adns_t *
 new_adns( ulong max_reqs ) {
   FD_TEST( fd_adns_footprint( max_reqs )<=sizeof(adns_mem) );
-  fd_adns_t * adns = fd_adns_join( fd_adns_new( adns_mem, max_reqs ) );
+  int epoll_fd = epoll_create1( 0 );
+  FD_TEST( epoll_fd!=-1 );
+  fd_adns_t * adns = fd_adns_join( fd_adns_new( adns_mem, max_reqs, epoll_fd ) );
   FD_TEST( adns );
   return adns;
 }

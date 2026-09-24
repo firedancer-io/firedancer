@@ -3670,6 +3670,14 @@ after_credit( fd_replay_tile_t *  ctx,
   ctx->execrp_idle_cnt++;
 }
 
+/* A ready FEC inside the exec-notification pacing window is work the
+   stem cannot see, spin the window out rather than sleep through it */
+
+static int
+prevent_park( fd_replay_tile_t * ctx ) {
+  return !ctx->alpenglow && ctx->execrp_idle_cnt<2UL*ctx->in_cnt && !!fd_reasm_peek( ctx->reasm );
+}
+
 static int
 before_frag( fd_replay_tile_t * ctx,
              ulong              in_idx,
@@ -5251,6 +5259,7 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_PREVENT_PARK        prevent_park
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping

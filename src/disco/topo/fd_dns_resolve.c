@@ -3,10 +3,13 @@
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../util/fd_util.h"
 
+#include <errno.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define FD_DNS_RESOLVE_TIMEOUT_NANOS (90L*1000L*1000L*1000L)
 
@@ -141,7 +144,9 @@ fd_dns_resolve_peers( char const *    peers,
      fd_topo_run_single_process (and netdb fds are FD_TL already) */
   static FD_TL uchar shadns[ 16384UL ] __attribute__((aligned(32UL)));
   FD_TEST( fd_adns_footprint( FD_DNS_RESOLVE_PEERS_MAX )<=sizeof(shadns) );
-  fd_adns_t * adns = fd_adns_join( fd_adns_new( shadns, peer_cnt ) );
+  int epoll_fd = epoll_create1( 0 );
+  if( FD_UNLIKELY( -1==epoll_fd ) ) FD_LOG_ERR(( "epoll_create1 failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_adns_t * adns = fd_adns_join( fd_adns_new( shadns, peer_cnt, epoll_fd ) );
   FD_TEST( adns );
 
   for( ulong i=0UL; i<peer_cnt; i++ ) FD_TEST( !fd_adns_resolve( adns, hostname[ i ], i ) );
@@ -159,9 +164,13 @@ fd_dns_resolve_peers( char const *    peers,
     }
     if( FD_LIKELY( resolved_cnt==peer_cnt ) ) break;
     if( FD_UNLIKELY( now>deadline ) ) FD_LOG_ERR(( "timed out resolving [%s]", config_str ));
-    FD_SPIN_PAUSE();
+    /* Wait for an answer, or the next (re)send */
+    long wait_nanos = fd_long_max( 0L, fd_long_min( fd_adns_next_deadline( adns ), deadline )-now );
+    struct epoll_event ev;
+    if( FD_UNLIKELY( -1==epoll_wait( epoll_fd, &ev, 1, (int)(wait_nanos/1000000L) ) && errno!=EINTR ) ) FD_LOG_ERR(( "epoll_wait failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   fd_adns_delete( fd_adns_leave( adns ) );
+  if( FD_UNLIKELY( -1==close( epoll_fd ) ) ) FD_LOG_ERR(( "close(epoll_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( netdb_opened ) ) fd_netdb_close_fds();
 }

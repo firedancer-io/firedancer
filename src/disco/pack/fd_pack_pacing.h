@@ -116,4 +116,15 @@ fd_pack_pacing_enabled_bank_cnt( fd_pack_pacing_t const * pacer,
                  (float)(fd_long_max( 1L, pacer->t_end - now )) * pacer->ticks_per_cu );
 }
 
+/* fd_pack_pacing_next_enable returns the time (fd_tickcount space) at
+   which the enabled bank count first exceeds bank_cnt, given the most
+   recent consumed CUs: the inverse of fd_pack_pacing_enabled_bank_cnt.
+   Not before t_end if no more banks would be enabled. */
+
+FD_FN_PURE static inline long
+fd_pack_pacing_next_enable( fd_pack_pacing_t const * pacer,
+                            ulong                    bank_cnt ) {
+  return pacer->t_end - (long)( pacer->remaining_cus*pacer->ticks_per_cu/(float)(bank_cnt+1UL) );
+}
+
 #endif /* HEADER_fd_src_disco_pack_fd_pack_pacing_h */

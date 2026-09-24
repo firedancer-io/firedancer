@@ -147,6 +147,12 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( EXECLE, fd_accdb_metrics( ctx->accdb ) );
 }
 
+static inline int
+prevent_park( fd_execle_tile_t * ctx ) {
+  /* A deferred rebate batch counts loops, not time, never park on it */
+  return ctx->enable_rebates && !!ctx->rebate_microblock_cnt;
+}
+
 static inline void
 after_credit( fd_execle_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -915,6 +921,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_PREVENT_PARK  prevent_park
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag

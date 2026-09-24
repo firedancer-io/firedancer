@@ -20,6 +20,8 @@ struct fd_ipecho_client_private {
   ulong peer_cnt;
   ulong remaining_peer_cnt;
 
+  int epoll_fd;
+
   struct pollfd pollfds[ 16UL ];
   fd_ipecho_client_peer_t peers[ 16UL ];
 

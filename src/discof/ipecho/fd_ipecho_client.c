@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -65,8 +66,12 @@ fd_ipecho_client_join( void * shipe ) {
 void
 fd_ipecho_client_init( fd_ipecho_client_t *  client,
                        fd_ip4_port_t const * servers,
-                       ulong                 servers_len ) {
+                       ulong                 servers_len,
+                       int                   epoll_fd ) {
+  FD_TEST( epoll_fd!=-1 );
   ulong peer_cnt = 0UL;
+
+  client->epoll_fd = epoll_fd;
 
   for( ulong i=0UL; i<servers_len; i++ ) {
     fd_ip4_port_t const * server = &servers[ i ];
@@ -84,6 +89,9 @@ fd_ipecho_client_init( fd_ipecho_client_t *  client,
       if( FD_UNLIKELY( -1==close( sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       continue;
     }
+
+    struct epoll_event ev = { .events = EPOLLIN|EPOLLOUT, .data.fd = sockfd };
+    if( FD_UNLIKELY( -1==epoll_ctl( epoll_fd, EPOLL_CTL_ADD, sockfd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(ADD) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
 
     client->pollfds[ peer_cnt ] = (struct pollfd){
       .fd = sockfd,
@@ -106,6 +114,8 @@ fd_ipecho_client_init( fd_ipecho_client_t *  client,
 static void
 close_one( fd_ipecho_client_t * client,
            ulong                idx ) {
+  if( FD_UNLIKELY( -1==epoll_ctl( client->epoll_fd, EPOLL_CTL_DEL, client->pollfds[ idx ].fd, NULL ) ) ) FD_LOG_ERR(( "epoll_ctl(DEL) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+
   if( FD_UNLIKELY( -1==close( client->pollfds[ idx ].fd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   client->pollfds[ idx ].fd = -1;
   client->remaining_peer_cnt--;
@@ -174,6 +184,11 @@ write_conn( fd_ipecho_client_t * client,
   if( FD_UNLIKELY( peer->request_bytes_sent==sizeof(request) ) ) {
     peer->writing = 0;
     peer->response_bytes_read = 0UL;
+    /* A connected socket is always writable so drop EPOLLOUT or the
+       waker refires on every rearm while we wait for the response */
+    client->pollfds[ conn_idx ].events = POLLIN;
+    struct epoll_event ev = { .events = EPOLLIN, .data.fd = client->pollfds[ conn_idx ].fd };
+    if( FD_UNLIKELY( -1==epoll_ctl( client->epoll_fd, EPOLL_CTL_MOD, client->pollfds[ conn_idx ].fd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(MOD) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -211,12 +226,12 @@ read_conn( fd_ipecho_client_t * client,
 
 int
 fd_ipecho_client_poll( fd_ipecho_client_t * client,
+                       long                 now,
                        ushort *             shred_version,
                        int *                charge_busy ) {
   if( FD_UNLIKELY( !client->remaining_peer_cnt ) ) return -1;
-  long now = fd_log_wallclock();
   if( FD_UNLIKELY( LONG_MAX==client->start_time_nanos ) ) client->start_time_nanos = now;
-  if( FD_UNLIKELY( now-client->start_time_nanos>2L*1000L*1000*1000L ) ) {
+  if( FD_UNLIKELY( now>fd_ipecho_client_deadline_nanos( client ) ) ) {
     close_all( client );
     return -1;
   }
@@ -249,4 +264,10 @@ fd_ipecho_client_poll( fd_ipecho_client_t * client,
 struct pollfd const *
 fd_ipecho_client_get_pollfds( fd_ipecho_client_t * client ) {
   return client->pollfds;
+}
+
+long
+fd_ipecho_client_deadline_nanos( fd_ipecho_client_t const * client ) {
+  if( FD_UNLIKELY( LONG_MAX==client->start_time_nanos ) ) return LONG_MAX;
+  return client->start_time_nanos+2L*1000L*1000L*1000L;
 }

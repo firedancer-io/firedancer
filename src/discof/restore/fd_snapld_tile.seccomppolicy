@@ -1,4 +1,13 @@
-uint logfile_fd, uint in_full_fd, uint in_incr_fd, uint sockfd
+# epoll_inner_fd: Kernel file descriptors are waited by a separate tile
+#                 (the waker) for scheduling reasons, so file
+#                 descriptors from server connections should be added
+#                 to this epoll set.
+#
+# epoll_outer_fd: The waker puts our inner set into another set, so it
+#                 can poll all file descriptors across all tiles at once.
+#                 This tile needs access to the outer file descriptor to
+#                 rearm the inner set after a drain.
+uint logfile_fd, uint in_full_fd, uint in_incr_fd, uint sockfd, uint epoll_inner_fd, uint epoll_outer_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -90,3 +99,14 @@ getrandom
 
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)
+
+# waker: register/deregister connections and manage EPOLLOUT interest
+# in the tile's inner epoll set, and rearm the tile's entry in the
+# waker's outer epoll set after draining
+#
+# arg 0 is the epoll fd being modified.  The tile may modify its own
+# inner set freely, and may only touch its own inner fd's entry in the
+# outer set.
+epoll_ctl: (or (eq (arg 0) epoll_inner_fd)
+               (and (eq (arg 0) epoll_outer_fd)
+                    (eq (arg 2) epoll_inner_fd)))

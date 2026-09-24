@@ -65,6 +65,9 @@ fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
 int
 fd_ssresolve_is_done( fd_ssresolve_t * ssresolve );
 
+int
+fd_ssresolve_wants_pollout( fd_ssresolve_t const * ssresolve );
+
 void
 fd_ssresolve_cancel( fd_ssresolve_t * ssresolve );
 

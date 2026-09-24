@@ -436,6 +436,8 @@ fd_rpc_mleaders_get_leader_for_slot( fd_multi_epoch_leaders_t const * mleaders,
 
 struct fd_rpc_tile {
   int delay_startup;
+  int waker_rearm_pending;
+
   fd_http_server_t * http;
 
   ulong * ws_subscribers_vote;
@@ -717,7 +719,21 @@ before_credit( fd_rpc_tile_t *     ctx,
   ctx->idle_cnt = 0UL;
 
   int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
-  if( FD_UNLIKELY( ctx->delay_startup && !replay_ready ) ) return;
+  if( FD_UNLIKELY( ctx->delay_startup && !replay_ready ) ) {
+    /* Consume readiness so an early connection does not veto every
+       park, but do not rearm: the listen fd stays readable and would
+       refire on every pass. */
+    if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+      fd_fseq_update( ctx->waker_fseq, 0UL );
+      ctx->waker_rearm_pending = 1;
+    }
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->waker_rearm_pending ) ) {
+    ctx->waker_rearm_pending = 0;
+    fd_waker_client_rearm( ctx->waker_client_idx );
+  }
 
   if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
     fd_fseq_update( ctx->waker_fseq, 0UL );
@@ -2061,7 +2077,7 @@ static inline int
 _getHealth( fd_rpc_tile_t * ctx ) {
   FD_MCNT_INC( RPC, REQUEST_SERVED_GET_HEALTH, 1UL );
 
-  /* fd_http_server_listen is not called until after RPC has initialized banks */
+  /* Requests are not served until RPC has initialized banks */
   if( FD_UNLIKELY( ctx->confirmed_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
   if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
 
@@ -3098,7 +3114,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong  zstd_wksp_sz = ZSTD_estimateCCtxSize( FD_RPC_ZSTD_LEVEL );
   void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
 
-  ctx->delay_startup = tile->rpc.delay_startup;
+  ctx->delay_startup       = tile->rpc.delay_startup;
+  ctx->waker_rearm_pending = 0;
   ctx->ws_subscribers_vote = _ws_sub_vote;
   ctx->ws_subscribers_vote_cnt = 0UL;
   ctx->ws_subscribers_slot = _ws_sub_slot;

@@ -114,6 +114,12 @@ before_credit( fd_quic_ctx_t *     ctx,
   *charge_busy = fd_quic_service( ctx->quic, now );
 }
 
+static inline long
+next_deadline( fd_quic_ctx_t * ctx ) {
+  long next = fd_quic_get_next_wakeup( ctx->quic );
+  return next==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
+}
+
 static inline void
 metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET  ( QUIC, TXN_RX_UDP,             ctx->metrics.txns_received_udp );
@@ -663,6 +669,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_quic_ctx_t)
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
