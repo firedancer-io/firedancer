@@ -1227,8 +1227,10 @@ fd_execute_instr( fd_runtime_t *      runtime,
   }
 
   if( FD_LIKELY( native_prog_fn!=NULL ) ) {
-    /* If this branch is taken, we've found an entrypoint to execute. */
-    fd_log_collector_program_invoke( ctx );
+    /* If this branch is taken, we've found an entrypoint to execute.
+       Precompiles run without program log lines.
+       https://github.com/anza-xyz/agave/blob/v4.3.0/program-runtime/src/invoke_context.rs#L618-L631 */
+    if( FD_LIKELY( !is_precompile ) ) fd_log_collector_program_invoke( ctx );
 
     /* Only reset the return data when executing a native builtin program (not a precompile)
        https://github.com/anza-xyz/agave/blob/v2.1.6/program-runtime/src/invoke_context.rs#L536-L537 */
@@ -1249,7 +1251,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
 
   if( FD_LIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS ) ) {
     /* Log success */
-    fd_log_collector_program_success( ctx );
+    if( FD_LIKELY( !is_precompile ) ) fd_log_collector_program_success( ctx );
   } else {
     /* Log failure cases.
        We assume that the correct type of error is stored in ctx.
@@ -1263,9 +1265,9 @@ fd_execute_instr( fd_runtime_t *      runtime,
     if( !txn_out->err.exec_err ) {
       FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
       FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
-      fd_log_collector_program_failure( ctx );
+      if( FD_LIKELY( !is_precompile ) ) fd_log_collector_program_failure( ctx );
     } else {
-      fd_log_collector_program_failure( ctx );
+      if( FD_LIKELY( !is_precompile ) ) fd_log_collector_program_failure( ctx );
       FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
       FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
     }
