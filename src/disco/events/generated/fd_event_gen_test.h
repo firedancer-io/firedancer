@@ -160,8 +160,7 @@ fd_event_runtime_txn_fill_max( fd_event_runtime_txn_t * msg ) {
     msg->account_diffs[ k ].is_vote_update = 1;
     msg->account_diffs[ k ].is_new_vote = 1;
     msg->account_diffs[ k ].is_rm_vote = 1;
-    fd_memset( msg->account_diffs[ k ].account_lthash, 0xFF, 2048UL );
-    msg->account_diffs[ k ].account_lthash_len = 2048UL;
+    fd_memset( msg->account_diffs[ k ].lthash, 0xFF, 32UL );
   }
   msg->writable_accounts_cnt = 64UL;
   for( ulong k=0UL; k<64UL; k++ ) {
@@ -391,6 +390,7 @@ fd_event_runtime_block_fill_max( fd_event_runtime_block_t * msg ) {
     msg->sysvar_diffs[ k ].data_sz = ULONG_MAX;
     msg->sysvar_diffs[ k ].prev_data_sz = ULONG_MAX;
     msg->sysvar_diffs[ k ].is_executable = 1;
+    fd_memset( msg->sysvar_diffs[ k ].lthash, 0xFF, 32UL );
   }
   msg->other_diffs_cnt = 32UL;
   for( ulong k=0UL; k<32UL; k++ ) {
@@ -402,6 +402,7 @@ fd_event_runtime_block_fill_max( fd_event_runtime_block_t * msg ) {
     msg->other_diffs[ k ].data_sz = ULONG_MAX;
     msg->other_diffs[ k ].prev_data_sz = ULONG_MAX;
     msg->other_diffs[ k ].is_executable = 1;
+    fd_memset( msg->other_diffs[ k ].lthash, 0xFF, 32UL );
   }
   msg->fec_count = ULONG_MAX;
   msg->fec_merkle_roots_cnt = 1024UL;

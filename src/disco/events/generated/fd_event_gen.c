@@ -308,8 +308,7 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
     if( msg->account_diffs[ k ].is_vote_update ) ok &= !!fd_pb_push_bool  ( encoder, 10U, msg->account_diffs[ k ].is_vote_update );
     if( msg->account_diffs[ k ].is_new_vote ) ok &= !!fd_pb_push_bool  ( encoder, 11U, msg->account_diffs[ k ].is_new_vote );
     if( msg->account_diffs[ k ].is_rm_vote ) ok &= !!fd_pb_push_bool  ( encoder, 12U, msg->account_diffs[ k ].is_rm_vote );
-    FD_TEST( msg->account_diffs[ k ].account_lthash_len<=2048UL );
-    if( msg->account_diffs[ k ].account_lthash_len ) ok &= !!fd_pb_push_bytes ( encoder, 13U, msg->account_diffs[ k ].account_lthash, msg->account_diffs[ k ].account_lthash_len );
+    ok &= !!fd_pb_push_bytes ( encoder, 13U, msg->account_diffs[ k ].lthash, 32UL );
     ok &= !!fd_pb_submsg_close( encoder );
   }
   for( ulong k=0UL; k<msg->writable_accounts_cnt; k++ ) {
@@ -655,6 +654,7 @@ fd_event_runtime_block_serialize( fd_circq_t *                     circq,
     if( msg->sysvar_diffs[ k ].data_sz ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->sysvar_diffs[ k ].data_sz );
     if( msg->sysvar_diffs[ k ].prev_data_sz ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->sysvar_diffs[ k ].prev_data_sz );
     if( msg->sysvar_diffs[ k ].is_executable ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->sysvar_diffs[ k ].is_executable );
+    ok &= !!fd_pb_push_bytes ( encoder, 9U, msg->sysvar_diffs[ k ].lthash, 32UL );
     ok &= !!fd_pb_submsg_close( encoder );
   }
   for( ulong k=0UL; k<msg->other_diffs_cnt; k++ ) {
@@ -667,6 +667,7 @@ fd_event_runtime_block_serialize( fd_circq_t *                     circq,
     if( msg->other_diffs[ k ].data_sz ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->other_diffs[ k ].data_sz );
     if( msg->other_diffs[ k ].prev_data_sz ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->other_diffs[ k ].prev_data_sz );
     if( msg->other_diffs[ k ].is_executable ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->other_diffs[ k ].is_executable );
+    ok &= !!fd_pb_push_bytes ( encoder, 9U, msg->other_diffs[ k ].lthash, 32UL );
     ok &= !!fd_pb_submsg_close( encoder );
   }
   if( msg->fec_count ) ok &= !!fd_pb_push_uint64( encoder, 36U, (ulong)msg->fec_count );
