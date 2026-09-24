@@ -574,25 +574,36 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
 }
 
 static inline int
-is_ping_active( fd_gossvf_tile_ctx_t *  ctx,
-                fd_ip4_port_t           addr,
-                fd_pubkey_t const *     pubkey ) {
+is_pong_active( fd_gossvf_tile_ctx_t * ctx,
+                fd_ip4_port_t          addr,
+                fd_pubkey_t const *    pubkey ) {
+  ping_t * ping = ping_map_ele_query( ctx->ping_map, pubkey, NULL, ctx->pings );
+  return ping!=NULL && ping->addr.addr==addr.addr && ping->addr.port==addr.port;
+}
+
+static inline int
+is_ping_active( fd_gossvf_tile_ctx_t * ctx,
+                fd_ip4_port_t          addr,
+                fd_pubkey_t const *    pubkey ) {
   /* 1. If the node has more than FD_GOSSIP_STAKED_THRESHOLD lamports
         staked, it is active */
   stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, pubkey, NULL, ctx->stake.pool );
   if( FD_LIKELY( stake && stake->stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) return 1;
 
   /* 2. If the node has actively ponged a ping, it is active */
-  ping_t * ping = ping_map_ele_query( ctx->ping_map, pubkey, NULL, ctx->pings );
-  return ping!=NULL && ping->addr.addr==addr.addr && ping->addr.port==addr.port;
+  return is_pong_active( ctx, addr, pubkey );
 }
 
 static int
 ping_if_unponged( fd_gossvf_tile_ctx_t * ctx,
                   fd_ip4_port_t          addr,
                   uchar const *          origin,
+                  int                    require_pong,
                   fd_stem_context_t *    stem ) {
-  if( FD_UNLIKELY( !is_ping_active( ctx, addr, fd_type_pun_const( origin ) ) ) ) {
+  fd_pubkey_t const * pubkey = fd_type_pun_const( origin );
+  int is_active = require_pong ? is_pong_active( ctx, addr, pubkey )
+                               : is_ping_active( ctx, addr, pubkey );
+  if( FD_UNLIKELY( !is_active ) ) {
     fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t*)fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
     fd_memcpy( pingreq->pubkey.uc, origin, 32UL );
     fd_stem_publish( stem, 0UL, fd_gossvf_sig( addr.addr, addr.port, 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
@@ -635,7 +646,11 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
       if( FD_UNLIKELY( !check_addr( ctx->peer, ctx->allow_private_address ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
       if( FD_UNLIKELY( is_loopback_peer ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
-      if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
+      /* Pull responses are sent to the packet source, so we require proof
+         that this identity is reachable at that exact address.  Stake
+         cannot exempt this check because signed ContactInfo values are
+         public and replayable from a spoofed source address. */
+      if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, 1, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH:
       if( FD_UNLIKELY( is_loopback_peer ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_LOOPBACK_IDX;
@@ -680,7 +695,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
     int is_self_addr = (addr.addr==ctx->gossip_addr.addr && addr.port==ctx->gossip_addr.port) ||
                        (addr.addr==ctx->src_addr.addr && addr.port==ctx->src_addr.port);
     int is_loopback  = fd_ip4_addr_is_loopback( addr.addr ) && addr.port==ctx->gossip_addr.port;
-    int drop         = (is_self_addr | is_loopback) || !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
+    int drop         = (is_self_addr | is_loopback) || !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, 0, stem );
 
     if( FD_UNLIKELY( drop ) ) {
       if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {

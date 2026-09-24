@@ -206,7 +206,8 @@ fd_gossip_rx( fd_gossip_t *       gossip,
    filtered out by the gossvf layer.  If gossvf is filtering out
    messages because it believes the peer is not active, it will still
    ask the gossip layer to attempt to ping them, which it notifies with
-   this function. */
+   this function.  This path always requires a pong, even for a staked
+   peer, because gossvf also uses it to validate response return paths. */
 
 void
 fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
