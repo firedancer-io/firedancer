@@ -11,10 +11,12 @@
 #include <netinet/in.h>
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include <linux/if_xdp.h>
+#include <sys/epoll.h>
 
 #include "../../../discof/repair/fd_repair.h"
 #include "../../metrics/fd_metrics.h"
 #include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
+#include "../../waker/fd_waker.h"
 #include "../../topo/fd_topo.h"
 
 #include "../../../waltz/ip/fd_fib4.h"
@@ -236,6 +238,9 @@ typedef struct {
   ulong netlnk_out_idx;
   uint  solicit_ip;
   uint  solicit_if_idx;
+
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
 
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl;    /* local copy in scratch (hot path) */
@@ -951,6 +956,19 @@ net_comp_event( fd_net_ctx_t * ctx,
   ctx->metrics.tx_complete_cnt++;
 }
 
+static int
+prevent_park( fd_net_ctx_t * ctx ) {
+  for( uint i=0U; i<ctx->xsk_cnt; i++ ) {
+    fd_xsk_t * xsk = &ctx->xsk[ i ];
+    if( FD_UNLIKELY( xsk->prefbusy_poll_enabled ) ) return 1;
+    if( FD_UNLIKELY( !fd_xdp_ring_empty( &xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) ) return 1;
+    if( FD_UNLIKELY( !fd_xdp_ring_empty( &xsk->ring_cr, FD_XDP_RING_ROLE_CONS ) ) ) return 1;
+    if( FD_UNLIKELY( ctx->tx_flusher[ i ].pending_cnt ) ) return 1;
+    if( FD_UNLIKELY( !fd_xdp_ring_empty( &xsk->ring_tx, FD_XDP_RING_ROLE_PROD ) ) ) return 1; /* the flusher paces the kicks */
+  }
+  return 0;
+}
+
 /* net_rx_event is called when a new XDP RX frame is available.  Calls
    fd_net_rx_pkt, then returns the packet back to the kernel via the fill
    ring.  */
@@ -1137,6 +1155,15 @@ before_credit( fd_net_ctx_t *      ctx,
   if( !fd_xdp_ring_empty( &rr_xsk->ring_cr, FD_XDP_RING_ROLE_CONS ) ) {
     *charge_busy = 1;
     net_comp_event( ctx, rr_xsk, rr_xsk->ring_cr.cached_cons );
+  }
+
+  if( FD_UNLIKELY( ctx->waker_fseq && fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+    for( uint i=0U; i<ctx->xsk_cnt; i++ ) {
+      if( FD_UNLIKELY( !fd_xdp_ring_empty( &ctx->xsk[ i ].ring_rx, FD_XDP_RING_ROLE_CONS ) ) ) return;
+      if( FD_UNLIKELY( !fd_xdp_ring_empty( &ctx->xsk[ i ].ring_cr, FD_XDP_RING_ROLE_CONS ) ) ) return;
+    }
+    fd_fseq_update( ctx->waker_fseq, 0UL );
+    fd_waker_client_rearm( ctx->waker_client_idx );
   }
 }
 
@@ -1348,6 +1375,16 @@ privileged_init( fd_topo_t const *      topo,
     }
   }
 
+  ctx->waker_client_idx = tile->waker_client_idx;
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
+    FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+    for( uint i=0U; i<ctx->xsk_cnt; i++ ) {
+      struct epoll_event ev = { .events = EPOLLIN, .data.fd = ctx->xsk[ i ].xsk_fd };
+      if( FD_UNLIKELY( -1==epoll_ctl( FD_WAKER_INNER_FD( ctx->waker_client_idx ), EPOLL_CTL_ADD, ctx->xsk[ i ].xsk_fd, &ev ) ) )
+        FD_LOG_ERR(( "epoll_ctl(ADD,xsk_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   ctx->xdp_stats_interval_ticks = (long)( FD_XDP_STATS_INTERVAL_NS * tick_per_ns );
 
@@ -1410,6 +1447,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->netlnk_out_idx = fd_topo_find_tile_out_link( topo, tile, "net_netlnk", tile->kind_id );
   if( FD_UNLIKELY( ctx->netlnk_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "netlink request link not found" ));
   ctx->solicit_ip = 0U;
+
+  ctx->waker_fseq = NULL;
+  if( FD_UNLIKELY( tile->is_waker_client ) ) {
+    ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+    FD_TEST( ctx->waker_fseq );
+  }
 
   for( uint j=0U; j<2U; j++ ) {
     ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tile->xdp.xdp_tx_queue_size * 0.7 );
@@ -1488,7 +1531,10 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ].xsk_fd : ctx->xsk[ 0 ].xsk_fd;
   FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 );
 
-  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
+  /* not a waker client in performance mode: no fd matches, epoll_ctl denied */
+  uint epoll_inner_fd = tile->is_waker_client ? (uint)FD_WAKER_INNER_FD( tile->waker_client_idx ) : (uint)-1;
+  uint epoll_outer_fd = tile->is_waker_client ? (uint)FD_WAKER_OUTER_FD : (uint)-1;
+  populate_sock_filter_policy_fd_xdp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_xdp_tile_instr_cnt;
 }
 
@@ -1501,7 +1547,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
 
@@ -1513,6 +1559,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
                                       out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 0 ];
   if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->xsk[ 1 ].xsk_fd;
   if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 1 ];
+  if( FD_UNLIKELY( tile->is_waker_client ) ) {
+    out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+    out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
+  }
   return out_cnt;
 }
 
@@ -1524,6 +1574,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_PREVENT_PARK        prevent_park
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
