@@ -794,7 +794,7 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
 
   fork->shmem->child_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
-  if( FD_LIKELY( parent_fork_id.val==USHORT_MAX ) ) {
+  if( FD_UNLIKELY( parent_fork_id.val==USHORT_MAX ) ) {
     fork->shmem->parent_id  = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
     fork->shmem->sibling_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
