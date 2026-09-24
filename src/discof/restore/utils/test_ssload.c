@@ -605,8 +605,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
                                     ULONG_MAX,
                                     123UL,
                                     456UL,
-                                    197U,
-                                    FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+                                    197U );
 
   /* Manifest A: one vote stake (pubkey_X).  With slot=0, epoch=0,
      leader_schedule_epoch=1,

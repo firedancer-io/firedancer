@@ -391,11 +391,10 @@ fd_delegation_is_inactive( fd_delegation_t const *    delegation,
 static fd_delegation_t
 fd_delegation_from_stake_delegation( fd_stake_delegation_t const * delegation ) {
   return (fd_delegation_t) {
-    .voter_pubkey         = delegation->vote_account,
-    .stake                = delegation->stake,
-    .deactivation_epoch   = delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : delegation->deactivation_epoch,
-    .activation_epoch     = delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : delegation->activation_epoch,
-    .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( delegation->warmup_cooldown_rate ),
+    .voter_pubkey       = delegation->vote_account,
+    .stake              = delegation->stake,
+    .deactivation_epoch = delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : delegation->deactivation_epoch,
+    .activation_epoch   = delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : delegation->activation_epoch,
   };
 }
 
@@ -956,7 +955,6 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
                                     stake_state->stake.stake.delegation.deactivation_epoch,
                                     stake_state->stake.stake.credits_observed,
                                     acc->lamports,
-                                    (uint)acc->data_len,
-                                    fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
+                                    (uint)acc->data_len );
   if( FD_UNLIKELY( txn_in && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_stake_delegation_emit( txn_in, bank, pubkey, stake_state );
 }

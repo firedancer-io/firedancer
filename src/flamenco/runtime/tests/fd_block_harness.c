@@ -136,8 +136,7 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_t *             accdb,
       stake_state->stake.stake.delegation.deactivation_epoch,
       stake_state->stake.stake.credits_observed,
       acc.lamports,
-      (uint)acc.data_len,
-      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+      (uint)acc.data_len );
   fd_accdb_unread_one( accdb, &acc );
 }
 
