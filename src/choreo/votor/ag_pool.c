@@ -456,6 +456,28 @@ ag_pool_advance_epoch( ag_pool_t *             self,
   }
 }
 
+void
+ag_pool_set_ranks( ag_pool_t * self,
+                   ulong       prev_epoch_rank,
+                   ulong       curr_epoch_rank,
+                   ulong       next_epoch_rank ) {
+  self->prev_epoch_rank = prev_epoch_rank;
+  self->curr_epoch_rank = curr_epoch_rank;
+  self->next_epoch_rank = next_epoch_rank;
+
+  /* A slot state keeps the rank it was created with, so the live ones
+     get the new rank here. */
+  slot_state_map_t * map  = self->slot_states->map;
+  slot_state_ele_t * pool = self->slot_states->pool;
+  for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
+                                   !slot_state_map_iter_done( iter, map, pool );
+                             iter = slot_state_map_iter_next( iter, map, pool ) ) {
+    ag_slot_state_t * slot_state = &slot_state_map_iter_ele( iter, map, pool )->slot_state;
+    ulong             slot       = slot_state->slot;
+    slot_state->own_rank = fd_ulong_if( slot>=self->next_epoch_slot, next_epoch_rank, fd_ulong_if( slot>=self->curr_epoch_slot, curr_epoch_rank, prev_epoch_rank ) );
+  }
+}
+
 int
 ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert,

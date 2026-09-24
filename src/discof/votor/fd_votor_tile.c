@@ -9,6 +9,7 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/stem/fd_stem.h"
@@ -143,6 +144,13 @@ struct fd_votor_tile {
 
   fd_pubkey_t          id_key;
   fd_keyguard_client_t keyguard_client[1];
+
+  /* Identity switch */
+
+  fd_keyswitch_t * identity_keyswitch;
+  int              halt_signing;           /* a switch is in flight, nothing goes out until unhalt */
+  ulong            last_leader_slot;       /* slot of the last LEADER we published, ULONG_MAX before any */
+  ulong            highest_completed_slot; /* highest slot replay completed, 0 before any */
 
   /* Initialization */
 
@@ -638,6 +646,86 @@ rank_voters( ag_epoch_info_t *              epoch_info,
 }
 
 static void
+connect_peers( fd_votor_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->halt_signing ) ) return; /* handshakes sign through the keyguard, none start mid switch */
+  long now = fd_clock_tile_now( ctx->clock );
+  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    peer_t * peer = &ctx->peers[ slot ];
+    if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
+    if( FD_LIKELY( peers_query( ctx->peers, peer->id_key, NULL ) ) ) {
+      contact_info_t * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
+      if( FD_LIKELY( ci && !peer->tx_conn && now>=peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
+        fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, now );
+        if( FD_LIKELY( conn ) ) {
+          ctx->client_peer_id_keys[ conn->conn_idx ] = peer->id_key;
+          fd_quic_conn_set_context( conn, &ctx->client_peer_id_keys[ conn->conn_idx ] );
+          peer->tx_conn = conn;
+        }
+      }
+    }
+  }
+}
+
+/* Drop every connection so peers stop reading our datagrams as the
+   identity we are leaving.  Unhalt dials again. */
+static void
+close_conns( fd_votor_tile_t * ctx ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    peer_t * peer = &ctx->peers[ slot ];
+    if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
+    if( FD_LIKELY( peer->tx_conn ) ) {
+      fd_quic_conn_set_context( peer->tx_conn, NULL );
+      fd_quic_conn_close( peer->tx_conn, QUIC_CLOSE_CODE_EVICTED );
+      peer->tx_conn = NULL;
+    }
+    if( FD_LIKELY( peer->rx_conn ) ) {
+      fd_quic_conn_set_context( peer->rx_conn, NULL );
+      fd_quic_conn_close( peer->rx_conn, QUIC_CLOSE_CODE_EVICTED );
+      peer->rx_conn = NULL;
+    }
+  }
+}
+
+/* Our rank in one epoch's validator list, USHORT_MAX if we are not in
+   it or the epoch is not known yet. */
+static ushort
+own_rank_in( ag_epoch_info_t const * epoch_info,
+             fd_pubkey_t const *     id_key ) {
+  if( FD_UNLIKELY( !epoch_info ) ) return USHORT_MAX;
+  for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
+    if( FD_UNLIKELY( fd_memeq( epoch_info->validators[ rank ].id_key, id_key->uc, sizeof(ag_id_key_t) ) ) ) return (ushort)rank;
+  }
+  return USHORT_MAX;
+}
+
+/* Install the identity the admin tile asked for.  The QUIC configs, our
+   rank in each tracked epoch and the leader schedule follow it. */
+static void
+switch_identity( fd_votor_tile_t * ctx ) {
+  fd_memcpy( ctx->id_key.uc, ctx->identity_keyswitch->bytes, 32UL );
+  fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
+  fd_quic_set_identity_public_key( ctx->quic_server, ctx->id_key.uc );
+  ctx->curr_leader_slot = ULONG_MAX;
+  FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
+  FD_LOG_INFO(( "my identity key: %s (key switched)", id_key_b58 ));
+
+  ushort prev_rank = own_rank_in( ctx->prev_epoch_info, &ctx->id_key );
+  ushort curr_rank = own_rank_in( ctx->curr_epoch_info, &ctx->id_key );
+  ushort next_rank = own_rank_in( ctx->next_epoch_info, &ctx->id_key );
+  ag_pool_set_ranks ( ctx->pool,  prev_rank, curr_rank, next_rank );
+  ag_votor_set_ranks( ctx->votor, prev_rank, curr_rank, next_rank );
+
+  /* The old identity's next slot is gone.  Start past everything we have
+     seen, handle_epoch seeds the slot again if the schedule is not loaded. */
+  ulong finalized = ag_pool_finalized_slot( ctx->pool );
+  ulong start     = fd_ulong_max( fd_ulong_if( finalized==ULONG_MAX, 0UL, finalized ), ctx->highest_completed_slot );
+  /* A window is atomic, so the search starts at the window after the
+     last slot we have seen.  Parent ready is only granted at a window
+     start, a slot inside one would never be granted. */
+  ctx->next_leader_slot = start ? fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ag_first_slot_in_window( start )+AG_SLOTS_PER_WINDOW, &ctx->id_key ) : ULONG_MAX;
+}
+
+static void
 handle_epoch( fd_votor_tile_t *           ctx,
               fd_epoch_info_msg_t const * msg ) {
 
@@ -735,22 +823,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   /* quic_connect new peers */
 
-  long now = fd_clock_tile_now( ctx->clock );
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
-    peer_t * peer = &ctx->peers[ slot ];
-    if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
-    if( FD_LIKELY( peers_query( ctx->peers, peer->id_key, NULL ) ) ) {
-      contact_info_t * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
-      if( FD_LIKELY( ci && !peer->tx_conn && now>=peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
-        fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, now );
-        if( FD_LIKELY( conn ) ) {
-          ctx->client_peer_id_keys[ conn->conn_idx ] = peer->id_key;
-          fd_quic_conn_set_context( conn, &ctx->client_peer_id_keys[ conn->conn_idx ] );
-          peer->tx_conn = conn;
-        }
-      }
-    }
-  }
+  connect_peers( ctx );
 
   /* quic_conn_close evicted peers */
 
@@ -845,7 +918,7 @@ handle_gossip( fd_votor_tile_t *                  ctx,
   }
 
   long now = fd_clock_tile_now( ctx->clock );
-  if( FD_LIKELY( peer && !peer->tx_conn && now>=peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
+  if( FD_LIKELY( peer && !peer->tx_conn && !ctx->halt_signing && now>=peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
     fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, now );
     if( FD_LIKELY( conn ) ) {
       ctx->client_peer_id_keys[ conn->conn_idx ] = peer->id_key;
@@ -866,6 +939,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     fd_replay_slot_completed_t const * slot_completed  = &replay->slot_completed;
     ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
+    ctx->highest_completed_slot = fd_ulong_max( ctx->highest_completed_slot, block_id.slot );
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ag_pool_init( ctx->pool, block_id.slot );
       if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
@@ -936,11 +1010,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-static void
-during_housekeeping( fd_votor_tile_t * ctx ) {
-  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
-}
-
 static inline long
 next_deadline( fd_votor_tile_t * ctx ) {
   long next = fd_long_min( fd_quic_get_next_wakeup( ctx->quic_client ), fd_quic_get_next_wakeup( ctx->quic_server ) );
@@ -959,7 +1028,19 @@ after_credit( fd_votor_tile_t *   ctx,
   for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
   ctx->net_tx_cnt = 0UL;
 
+  if( FD_UNLIKELY( ctx->halt_signing && fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    /* The admin tile waits on this, so it runs even before consensus is
+       up.  Votes queued before the halt are marked voted and dropped. */
+    ag_event_vote_t dropped;
+    while( ag_votor_poll_vote_event( ctx->votor, &dropped ) ) {}
+    ctx->identity_keyswitch->result = 0UL;
+    switch_identity( ctx );
+    fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+    *charge_busy = 1;
+  }
+
   if( FD_UNLIKELY( !ctx->init ) ) return;
+  if( FD_UNLIKELY( ctx->halt_signing ) ) return;
 
   if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
     ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
@@ -1097,8 +1178,35 @@ after_credit( fd_votor_tile_t *   ctx,
   fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 
+  ctx->last_leader_slot = ctx->next_leader_slot;
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
   *charge_busy = 1;
+}
+
+static void
+during_housekeeping( fd_votor_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting" ));
+    FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
+    /* Votes built while halted may be signed with the other BLS key.
+       Their slots are marked voted already, so dropping them is the safe
+       side. */
+    ag_event_vote_t dropped;
+    while( ag_votor_poll_vote_event( ctx->votor, &dropped ) ) {}
+    ctx->halt_signing = 0;
+    connect_peers( ctx );
+    fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_UNLIKELY( !ctx->halt_signing && fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    /* Stop sending and drop the connections here, after_credit finishes
+       the switch where it can publish. */
+    FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+    ctx->halt_signing = 1;
+    close_conns( ctx );
+  }
 }
 
 static int
@@ -1300,6 +1408,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_unotar_final_slot = ULONG_MAX;
+
+  ctx->identity_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
+  FD_TEST( ctx->identity_keyswitch );
+  ctx->halt_signing           = 0;
+  ctx->last_leader_slot       = ULONG_MAX;
+  ctx->highest_completed_slot = 0UL;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

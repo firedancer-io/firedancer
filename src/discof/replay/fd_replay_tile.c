@@ -1284,6 +1284,12 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
       }
     }
   }
+  /* Under Alpenglow the slot came from votor for the old identity, votor
+     sends a new one once it has switched too. */
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    ctx->next_leader_slot      = ULONG_MAX;
+    ctx->next_leader_tickcount = LONG_MAX;
+  }
 
   ctx->identity_vote_rooted = 0;
   ctx->identity_idx++;
@@ -1647,7 +1653,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
   maybe_switch_identity( ctx );
 
-  if( FD_UNLIKELY( ctx->alpenglow && ctx->next_leader_slot==ULONG_MAX && (curr_slot+1UL)%AG_SLOTS_PER_WINDOW ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow && ctx->next_leader_slot==ULONG_MAX && (curr_slot+1UL)%AG_SLOTS_PER_WINDOW && !ctx->halt_leader ) ) {
     *ctx->votor_leader = (fd_votor_leader_t){
       .slot            = curr_slot+1UL,
       .parent_slot     = curr_slot,
@@ -4609,6 +4615,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_VOTOR: {
       if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
+        /* A slot handed out during an identity switch belongs to the old
+           identity, votor sends one for the new identity later. */
+        if( FD_UNLIKELY( ctx->halt_leader ) ) break;
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         *ctx->votor_leader    = *leader;
         ctx->next_leader_slot = leader->slot;

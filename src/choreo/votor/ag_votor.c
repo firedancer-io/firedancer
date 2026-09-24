@@ -544,6 +544,16 @@ ag_votor_advance_epoch( ag_votor_t * self,
 }
 
 void
+ag_votor_set_ranks( ag_votor_t * self,
+                    ulong        prev_epoch_rank,
+                    ulong        curr_epoch_rank,
+                    ulong        next_epoch_rank ) {
+  self->prev_epoch_rank = prev_epoch_rank;
+  self->curr_epoch_rank = curr_epoch_rank;
+  self->next_epoch_rank = next_epoch_rank;
+}
+
+void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,
                             long                    now ) {

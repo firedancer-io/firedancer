@@ -54,6 +54,16 @@ ag_pool_advance_epoch( ag_pool_t *             self,
                        ulong                   epoch_rank,
                        ulong                   epoch_slot );
 
+/* ag_pool_set_ranks replaces our rank in the three epochs the pool
+   tracks, for an identity switch, including the rank each live slot
+   state was created with.  USHORT_MAX is unranked. */
+
+void
+ag_pool_set_ranks( ag_pool_t * self,
+                   ulong       prev_epoch_rank,
+                   ulong       curr_epoch_rank,
+                   ulong       next_epoch_rank );
+
 /* Definition 13. Pool::add_cert */
 
 int

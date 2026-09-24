@@ -51,6 +51,8 @@ struct fd_admin_tile_ctx {
      Only one can be in flight at a time, same as snapshot creation. */
   int                   failover_enabled;
   int                   tower_file_enabled;
+  char const *          vote_tile;
+  char const *          repair_tile;
   ulong                 failov_out_idx;             /* admin_failov stem out index */
   fd_wksp_t *           failov_out_mem;
   ulong                 failov_out_chunk0;
@@ -192,6 +194,12 @@ unprivileged_init( fd_topo_t const *      topo,
     }
     FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
+
+  /* Under Alpenglow the vote tile is votor and the repair tile is rotor,
+     the switch sequence is otherwise the same. */
+  int alpenglow    = fd_topo_find_tile( topo, "votor", 0UL )!=ULONG_MAX;
+  ctx->vote_tile   = alpenglow ? "votor" : "tower";
+  ctx->repair_tile = alpenglow ? "rotor" : "repair";
 
   ulong tower_idx = fd_topo_find_tile( topo, "tower", 0UL );
   if( FD_LIKELY( tower_idx!=ULONG_MAX ) ) {
@@ -450,9 +458,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "repair" ) &&
+        if( strcmp( tile->name, ctx->repair_tile ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, ctx->vote_tile ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) &&
             strcmp( tile->name, "shred"  ) ) {
@@ -476,9 +484,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "repair" ) &&
+        if( strcmp( tile->name, ctx->repair_tile ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, ctx->vote_tile ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) &&
             strcmp( tile->name, "shred"  ) ) {
@@ -500,9 +508,11 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       break;
     }
     case FD_SET_IDENTITY_STATE_SIGNERS_HALTED: {
-      ulong tower_halted_seq = find_identity_keyswitch( ctx, "tower" )->result;
+      ulong tower_halted_seq = find_identity_keyswitch( ctx, ctx->vote_tile )->result;
       fd_keyswitch_t * txsend = find_identity_keyswitch( ctx, "txsend" );
-      txsend->param = tower_halted_seq;
+      /* txsend has no vote transactions to flush under Alpenglow */
+      int alpenglow = !strcmp( ctx->vote_tile, "votor" );
+      txsend->param = alpenglow ? 0UL : tower_halted_seq;
       memcpy( txsend->bytes, public_key, 32UL );
       FD_COMPILER_MFENCE();
       txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
@@ -548,10 +558,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( tile->name, "sign" ) ||
                        !strcmp( tile->name, "replay" ) ||
-                       !strcmp( tile->name, "repair" ) ||
+                       !strcmp( tile->name, ctx->repair_tile ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
-                       !strcmp( tile->name, "tower" ) ||
+                       !strcmp( tile->name, ctx->vote_tile ) ||
                        !strcmp( tile->name, "bundle" ) ||
                        !strcmp( tile->name, "rserve" ) ||
                        !strcmp( tile->name, "shred"  ) ) ) continue;
@@ -574,10 +584,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( tile->name, "replay" ) ||
-                       !strcmp( tile->name, "repair" ) ||
+                       !strcmp( tile->name, ctx->repair_tile ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
-                       !strcmp( tile->name, "tower"  ) ||
+                       !strcmp( tile->name, ctx->vote_tile ) ||
                        !strcmp( tile->name, "bundle" ) ||
                        !strcmp( tile->name, "rserve" ) ||
                        !strcmp( tile->name, "shred"  ) ) ) continue;
@@ -610,9 +620,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "repair" ) &&
+        if( strcmp( tile->name, ctx->repair_tile ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, ctx->vote_tile ) &&
             strcmp( tile->name, "txsend" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) ) {
@@ -634,9 +644,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "repair" ) &&
+        if( strcmp( tile->name, ctx->repair_tile ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, ctx->vote_tile ) &&
             strcmp( tile->name, "txsend" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) ) {
@@ -816,11 +826,11 @@ step_identity_switch( fd_admin_tile_ctx_t * ctx,
     fd_failover_switch_resp_t answer;
     fd_memset( &answer, 0, sizeof(answer) );
     answer.result          = FD_FAILOVER_SWITCH_OK;
-    /* The watermark a demotion needs is the tower tile's output sequence,
-       the one it records when it halts and the failover tile consumes on
-       tower_out.  switch_halted_seq is the replay tile's field, which
-       nothing writes. */
-    answer.tower_watermark = find_identity_keyswitch( ctx, "tower" )->result;
+    /* The watermark a demotion needs is the vote tile's output sequence,
+       the one it records when it halts and the failover tile drains on the
+       vote stream link, tower_out or votor_hist under Alpenglow.
+       switch_halted_seq is the replay tile's field, which nothing writes. */
+    answer.tower_watermark = find_identity_keyswitch( ctx, ctx->vote_tile )->result;
     fd_memcpy( answer.identity, ctx->identity_pubkey, 32UL );
     publish_switch_answer( ctx, stem, ctx->switch_nonce, &answer );
   } else {

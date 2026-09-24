@@ -1509,6 +1509,180 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_root_from_footer" ));
 }
 
+/* deliver_votor_leader drives a ParentReady LEADER frag through the
+   votor input, as votor would when it hands replay a window. */
+
+static void
+deliver_votor_leader( fd_replay_tile_t *        ctx,
+                      fd_votor_leader_t const * leader ) {
+  ulong chunk = ctx->in[ TEST_VOTOR_IN_IDX ].chunk0;
+  fd_votor_leader_t * msg = fd_chunk_to_laddr( ctx->in[ TEST_VOTOR_IN_IDX ].mem, chunk );
+  *msg = *leader;
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_LEADER, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+}
+
+/* attach_switch_fixtures gives ctx the shared objects maybe_switch_identity
+   writes through, with the keyswitch armed to the given state. */
+
+static void
+attach_switch_fixtures( fd_replay_tile_t * ctx,
+                        fd_wksp_t *        wksp,
+                        ulong              ks_state ) {
+  void * ks_mem = fd_wksp_alloc_laddr( wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
+  FD_TEST( ks_mem );
+  ctx->keyswitch = fd_keyswitch_join( fd_keyswitch_new( ks_mem, ks_state ) );
+  FD_TEST( ctx->keyswitch );
+
+  void * ni_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_node_info_box_t), sizeof(fd_node_info_box_t), 1UL );
+  FD_TEST( ni_mem );
+  ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( ni_mem ) );
+  FD_TEST( ctx->node_info );
+
+  void * vt_mem = fd_wksp_alloc_laddr( wksp, fd_vote_tracker_align(), fd_vote_tracker_footprint(), 1UL );
+  FD_TEST( vt_mem );
+  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vt_mem, 99UL ) );
+  FD_TEST( ctx->vote_tracker );
+}
+
+/* A LEADER frag delivered while the pipeline is halted belongs to the
+   old identity, so it is dropped, and the same frag is honored once the
+   pipeline is unhalted. */
+
+static void
+test_halted_leader_frag_ignored( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  setup_rooting_ctx( ctx, wksp, &root_id );
+
+  ctx->next_leader_slot      = ULONG_MAX;
+  ctx->next_leader_tickcount = LONG_MAX;
+
+  /* A sentinel we watch for an unwanted write. */
+  fd_votor_leader_t sentinel = { .slot = 999UL, .parent_slot = 998UL, .parent_block_id = { .ul = { 777UL } } };
+  *ctx->votor_leader = sentinel;
+
+  fd_hash_t         parent_id = { .ul = { 201UL } };
+  fd_votor_leader_t leader    = { .slot = 5UL, .parent_slot = 4UL, .parent_block_id = parent_id };
+
+  /* Halted, the frag is dropped and nothing is claimed. */
+  ctx->halt_leader = 1;
+  deliver_votor_leader( ctx, &leader );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->votor_leader->slot==sentinel.slot );
+  FD_TEST( ctx->votor_leader->parent_slot==sentinel.parent_slot );
+  FD_TEST( fd_memeq( ctx->votor_leader->parent_block_id.uc, sentinel.parent_block_id.uc, sizeof(fd_hash_t) ) );
+
+  /* Unhalted, the same frag claims the leader window. */
+  ctx->halt_leader = 0;
+  deliver_votor_leader( ctx, &leader );
+  FD_TEST( ctx->next_leader_slot==leader.slot );
+  FD_TEST( ctx->votor_leader->slot==leader.slot );
+  FD_TEST( ctx->votor_leader->parent_slot==leader.parent_slot );
+  FD_TEST( fd_memeq( ctx->votor_leader->parent_block_id.uc, leader.parent_block_id.uc, sizeof(fd_hash_t) ) );
+
+  FD_LOG_NOTICE(( "pass: test_halted_leader_frag_ignored" ));
+}
+
+/* An identity switch drops the Alpenglow leader slot, since it was
+   handed out for the old identity, while the upstream path recomputes it
+   from the leader schedule. */
+
+static void
+test_switch_identity_drops_leader_slot( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+
+  /* Alpenglow drops the slot at a switch. */
+  setup_rooting_ctx( ctx, wksp, &root_id );
+  attach_switch_fixtures( ctx, wksp, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  fd_memset( ctx->keyswitch->bytes, 0xab, 32UL );
+
+  ctx->next_leader_slot      = 7UL;
+  ctx->next_leader_tickcount = 123L;
+  maybe_switch_identity( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->next_leader_tickcount==LONG_MAX );
+
+  /* The upstream path is untouched, so the slot follows the schedule
+     rather than being forced away. */
+  setup_rooting_ctx( ctx, wksp, &root_id );
+  attach_switch_fixtures( ctx, wksp, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  fd_memset( ctx->keyswitch->bytes, 0xcd, 32UL );
+  ctx->alpenglow             = 0;
+  mock_next_leader_slot      = 7UL;
+  ctx->next_leader_slot      = 7UL;
+  ctx->next_leader_tickcount = LONG_MAX;
+  maybe_switch_identity( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->next_leader_slot==7UL );
+  FD_TEST( ctx->next_leader_tickcount==LONG_MAX );
+
+  FD_LOG_NOTICE(( "pass: test_switch_identity_drops_leader_slot" ));
+}
+
+/* Finishing a leader block while halted fabricates no next window, while
+   an unhalted finish continues the window into the next slot. */
+
+static void
+test_halted_no_window_continuation( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id_a    = { .ul = { 201UL } };
+  fd_hash_t id_b    = { .ul = { 202UL } };
+  fd_bank_t * root  = setup_rooting_ctx( ctx, wksp, &root_id );
+
+  /* A keyswitch that is not pending, so the identity check inside
+     try_fini_leader is a no-op. */
+  void * ks_mem = fd_wksp_alloc_laddr( wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
+  FD_TEST( ks_mem );
+  ctx->keyswitch = fd_keyswitch_join( fd_keyswitch_new( ks_mem, FD_KEYSWITCH_STATE_LOCKED ) );
+  FD_TEST( ctx->keyswitch );
+
+  /* The completed block inherits the root's block hash queue. */
+  fd_blockhashes_init( &root->f.block_hash_queue, 42UL );
+  FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
+
+  mock_footer_finalize = 1;
+  fd_memset( mock_footer, 0, sizeof(fd_block_footer_t) );
+
+  /* Halted mid-window, finishing the block claims no next slot. */
+  fd_bank_t * lead_a = add_replayable_block( ctx, root, 1UL, &id_a );
+  ctx->is_leader             = 1;
+  ctx->recv_poh              = 1;
+  ctx->leader_bank           = lead_a;
+  lead_a->refcnt             = 1UL;
+  ctx->halt_leader           = 1;
+  ctx->next_leader_slot      = ULONG_MAX;
+  ctx->next_leader_tickcount = LONG_MAX;
+  ctx->votor_leader->slot    = ULONG_MAX;
+
+  FD_TEST( try_fini_leader( ctx, test_stem ) );
+  FD_TEST( !ctx->is_leader );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->votor_leader->slot==ULONG_MAX );
+
+  /* Unhalted mid-window, the window continues into the next slot. */
+  fd_bank_t * lead_b = add_replayable_block( ctx, root, 2UL, &id_b );
+  ctx->is_leader             = 1;
+  ctx->recv_poh              = 1;
+  ctx->leader_bank           = lead_b;
+  lead_b->refcnt             = 1UL;
+  ctx->halt_leader           = 0;
+  ctx->next_leader_slot      = ULONG_MAX;
+  ctx->next_leader_tickcount = LONG_MAX;
+  ctx->votor_leader->slot    = ULONG_MAX;
+
+  FD_TEST( try_fini_leader( ctx, test_stem ) );
+  FD_TEST( ctx->next_leader_slot==3UL );
+  FD_TEST( ctx->votor_leader->slot==3UL );
+  FD_TEST( ctx->votor_leader->parent_slot==2UL );
+  FD_TEST( fd_memeq( ctx->votor_leader->parent_block_id.uc, id_b.uc, sizeof(fd_hash_t) ) );
+
+  mock_footer_finalize = 0;
+  FD_LOG_NOTICE(( "pass: test_halted_no_window_continuation" ));
+}
+
 static void
 test_eqvoc_last_fec( fd_wksp_t * wksp ) {
 
@@ -3661,6 +3835,9 @@ main( int     argc,
   test_root_lagging_replay( wksp );                 fd_wksp_reset( wksp, 42U );
   test_root_newer_first( wksp );                    fd_wksp_reset( wksp, 42U );
   test_root_from_footer( wksp );                    fd_wksp_reset( wksp, 42U );
+  test_halted_leader_frag_ignored( wksp );          fd_wksp_reset( wksp, 42U );
+  test_switch_identity_drops_leader_slot( wksp );   fd_wksp_reset( wksp, 42U );
+  test_halted_no_window_continuation( wksp );       fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
   test_leader_fec_bypasses_backpressure( wksp, 0 ); fd_wksp_reset( wksp, 42U );

@@ -47,6 +47,15 @@ ag_votor_advance_epoch( ag_votor_t * self,
                         ulong        epoch_rank,
                         ulong        epoch_slot );
 
+/* ag_votor_set_ranks replaces our rank in the three epochs the votor
+   tracks, for an identity switch.  USHORT_MAX is unranked. */
+
+void
+ag_votor_set_ranks( ag_votor_t * self,
+                    ulong        prev_epoch_rank,
+                    ulong        curr_epoch_rank,
+                    ulong        next_epoch_rank );
+
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 
 void
