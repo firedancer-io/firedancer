@@ -112,6 +112,17 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
                                      long         end_ns,
                                      ulong        id );
 
+/* Stage a query_txn_timestamps response for [start_ns,end_ns).  Returns
+   -1 for invalid arguments or scan failure, otherwise 0.  A row limit
+   produces an error envelope instead of partial rows. */
+
+int
+fd_gui_printf_timeline_query_txns( fd_gui_t *   gui,
+                                   char const * key,
+                                   long         start_ns,
+                                   long         end_ns,
+                                   ulong        id );
+
 void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );
 

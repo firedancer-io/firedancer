@@ -121,6 +121,8 @@ fd_gui_new( void *                   shmem,
   void *     txn_ends_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
   void *     txn_joined_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
 
+  gui->timeline_scratch_in_use = 0;
+
   gui->slot_txn_scratch.max    = max_txn_per_slot;
   gui->slot_txn_scratch.starts = txn_starts_mem;
   gui->slot_txn_scratch.ends   = txn_ends_mem;
@@ -2210,6 +2212,39 @@ fd_gui_request_timeline_shreds( fd_gui_t *    gui,
   return 0;
 }
 
+static int
+fd_gui_request_timeline_txns( fd_gui_t *   gui,
+                              ulong        ws_conn_id,
+                              ulong        id,
+                              char const * params,
+                              ulong        params_sz ) {
+  long start_ns = 0L; int has_start = 0;
+  long end_ns   = 0L; int has_end   = 0;
+  fd_jtok_str_t gran = {0};
+  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
+  fd_jtok_str_t member;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &member ) ) {
+    if( fd_jtok_str_eq( &member, "start_ns" ) ) {
+      if( FD_UNLIKELY( fd_gui_jtok_parse_ns( j, &start_ns ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+      has_start = 1;
+    } else if( fd_jtok_str_eq( &member, "end_ns" ) ) {
+      if( FD_UNLIKELY( fd_gui_jtok_parse_ns( j, &end_ns ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+      has_end = 1;
+    } else if( fd_jtok_str_eq( &member, "granularity" ) ) {
+      fd_jtok_str( j, &gran );
+    }
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_start || !has_end || end_ns<=start_ns || !gran.ptr || !fd_jtok_str_eq( &gran, "txn" ) ) ) {
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  }
+  if( FD_UNLIKELY( fd_gui_printf_timeline_query_txns( gui, "query_txn_timestamps", start_ns, end_ns, id ) ) ) {
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  }
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
 int
 fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         ws_conn_id,
@@ -2250,6 +2285,9 @@ fd_gui_ws_message( fd_gui_t *    gui,
   } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "timeline" ) && fd_jtok_str_eq( &key, "query_shreds" ) ) ) {
     if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
     return fd_gui_request_timeline_shreds( gui, ws_conn_id, "timeline", id, params, params_sz );
+  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "timeline" ) && fd_jtok_str_eq( &key, "query_txn_timestamps" ) ) ) {
+    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_gui_request_timeline_txns( gui, ws_conn_id, id, params, params_sz );
   } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "summary" ) && fd_jtok_str_eq( &key, "ping" ) ) ) {
     fd_gui_printf_summary_ping( gui, id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
@@ -3309,6 +3347,40 @@ fd_gui_stage_landed_vote( fd_gui_t * gui,
   gui->landed_vote_cnt++;
 }
 
+static long
+fd_gui_replay_tick_to_nanos( fd_gui_t const * gui,
+                             long             now,
+                             long             tick_now,
+                             long             tick ) {
+  if( tick==LONG_MAX ) return LONG_MAX;
+  return fd_long_sat_add( now, (long)((double)fd_long_sat_sub( tick, tick_now )/gui->tick_per_ns) );
+}
+
+void
+fd_gui_handle_replay_txn( fd_gui_t *                       gui,
+                          fd_replay_txn_executed_t const * txn,
+                          long                             now ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist || txn->tick_sigverify_done==LONG_MAX || txn->tick_commit_end==LONG_MAX ) ) return;
+  long tick_now = fd_tickcount();
+  fd_gui_store_replay_txn_t rec = {
+    .insert_time_ns           = now,
+    .completion_time_ns       = fd_gui_replay_tick_to_nanos( gui, now, tick_now, fd_long_max( txn->tick_sigverify_done, txn->tick_commit_end ) ),
+    .slot                     = txn->slot,
+    .txn_idx                  = txn->index_in_slot,
+    .txn_exec_idx             = txn->exec_tile_idx,
+    .txn_sigverify_exec_idx   = txn->sigverify_exec_tile_idx,
+    .sigverify_start_ns       = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_sigverify_disp ),
+    .sigverify_end_ns         = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_sigverify_done ),
+    .load_start_ns            = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_load_start ),
+    .check_start_ns           = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_check_start ),
+    .exec_start_ns            = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_exec_start ),
+    .commit_start_ns          = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_commit_start ),
+    .commit_end_ns            = fd_gui_replay_tick_to_nanos( gui, now, tick_now, txn->tick_commit_end ),
+    .error_code               = (uint)(-(long)txn->txn_err)
+  };
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &rec );
+}
+
 void
 fd_gui_handle_replay_update( fd_gui_t *                         gui,
                              fd_replay_slot_completed_t const * slot_completed,
@@ -3618,6 +3690,7 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
                                  fd_txn_p_t *   txns,
                                  ulong          pack_txn_idx,
                                  fd_txn_ns_dt_t txn_ns_dt,
+                                 long           exec_end_ticks,
                                  ulong          tips,
                                  ulong          bank_seq,
                                  long           now ) {
@@ -3628,6 +3701,7 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
 
   lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, tspub_ns, lslot->leader_start_time );
 
+  long commit_end_ns = fd_gui_replay_tick_to_nanos( gui, now, fd_tickcount(), exec_end_ticks );
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn_p = &txns[ i ];
     ulong txn_idx = pack_txn_idx + i;
@@ -3655,6 +3729,29 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
         lslot->txn_insert_time_min_ns = fd_long_min( lslot->txn_insert_time_min_ns, now );
         lslot->txn_insert_time_max_ns = fd_long_max( lslot->txn_insert_time_max_ns, now );
       }
+    }
+
+    if( gui->db && gui->hist && (txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) && exec_end_ticks!=LONG_MAX ) {
+      /* Leader FECs bypass replay's scheduler.  Reconstruct its timeline
+         row from execle, anchoring rounded microblock offsets at commit. */
+      long start_ns = fd_long_sat_sub( commit_end_ns, (long)((double)txn_ns_dt.commit_end+0.5) );
+      fd_gui_store_replay_txn_t replay = {
+        .insert_time_ns           = now,
+        .completion_time_ns       = commit_end_ns,
+        .slot                     = _slot,
+        .txn_idx                  = txn_idx, /* pack index, not position in the produced block */
+        .txn_exec_idx             = bank_idx,
+        .txn_sigverify_exec_idx   = ULONG_MAX,
+        .sigverify_start_ns       = LONG_MAX,
+        .sigverify_end_ns         = LONG_MAX,
+        .load_start_ns            = fd_long_sat_add( start_ns, (long)((double)txn_ns_dt.load_start+0.5) ),
+        .check_start_ns           = fd_long_sat_add( start_ns, (long)((double)txn_ns_dt.check_start+0.5) ),
+        .exec_start_ns            = fd_long_sat_add( start_ns, (long)((double)txn_ns_dt.exec_start+0.5) ),
+        .commit_start_ns          = fd_long_sat_add( start_ns, (long)((double)txn_ns_dt.commit_start+0.5) ),
+        .commit_end_ns            = commit_end_ns,
+        .error_code               = (txn_p->flags>>24) & 0xFFU
+      };
+      fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, &replay );
     }
 
     /* Record our own votes that land in our own leader block. */

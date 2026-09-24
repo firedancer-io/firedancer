@@ -68,8 +68,19 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 65536
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
+#define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (32UL<<20)
+/* Per-row bounds including commas: four ulongs, one uint and seven
+   timestamp strings fit within 249 bytes; keys and envelope in 4096. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_MAX*249UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_response_bound );
+FD_STATIC_ASSERT( 2UL*FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8)<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ,
+                  compressed_response_bound );
+
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
+  if( FD_UNLIKELY( tile->gui.send_buffer_size_mb<(FD_GUI_HTTP_MIN_SEND_BUFFER_SZ>>20) ||
+                  tile->gui.send_buffer_size_mb>(ULONG_MAX>>20) ) ) {
+    FD_LOG_ERR(( "[tiles.gui.send_buffer_size_mb] must be at least %lu MiB and fit in ulong bytes", FD_GUI_HTTP_MIN_SEND_BUFFER_SZ>>20 ));
+  }
   return (fd_http_server_params_t) {
     .max_connection_cnt    = tile->gui.max_http_connections,
     .max_ws_connection_cnt = tile->gui.max_websocket_connections,
@@ -332,7 +343,8 @@ during_frag( fd_gui_ctx_t * ctx,
     if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED &&
                    sig!=REPLAY_SIG_BECAME_LEADER  &&
                    sig!=REPLAY_SIG_ROOT_ADVANCED  &&
-                   sig!=REPLAY_SIG_OC_ADVANCED ) ) return;
+                   sig!=REPLAY_SIG_OC_ADVANCED &&
+                   sig!=REPLAY_SIG_TXN_EXECUTED ) ) return;
   }
 
   if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
@@ -463,6 +475,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_OC_ADVANCED ) ) {
         fd_replay_oc_advanced_t const * oc = (fd_replay_oc_advanced_t const *)src;
         fd_gui_handle_oc_advanced( ctx->gui, oc->slot, oc->bank_seq, fd_clock_tile_now( ctx->clock ) );
+      } else if( sig==REPLAY_SIG_TXN_EXECUTED ) {
+        if( FD_UNLIKELY( sz!=sizeof(fd_replay_txn_executed_t) ) ) FD_LOG_ERR(( "invalid replay transaction message size %lu", sz ));
+        fd_gui_handle_replay_txn( ctx->gui, (fd_replay_txn_executed_t const *)src, fd_clock_tile_now( ctx->clock ) );
       } else {
         return;
       }
@@ -602,6 +617,7 @@ after_frag( fd_gui_ctx_t *      ctx,
                                       (fd_txn_p_t *)src,
                                       trailer->pack_txn_idx,
                                       trailer->txn_ns_dt,
+                                      trailer->exec_end_ticks,
                                       trailer->tips,
                                       trailer->bank_seq,
                                       fd_clock_tile_now( ctx->clock ) );

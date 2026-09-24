@@ -803,7 +803,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     long start_ns = sec_ns( 11UL-i );
     fd_gui_microblock_execution_begin( gui, start_ns, slot_num, txn, 1UL, (uint)i, i, bank_seq, sec_ns( 100UL+i ) );
-    fd_gui_microblock_execution_end( gui, start_ns+100L, i, slot_num, 1UL, txn->txnp, i, dt, 0UL, bank_seq, sec_ns( 102UL+i ) );
+    fd_gui_microblock_execution_end( gui, start_ns+100L, i, slot_num, 1UL, txn->txnp, i, dt, LONG_MAX, 0UL, bank_seq, sec_ns( 102UL+i ) );
   }
   lslot = fd_gui_slot_leader_get( gui, slot_num, bank_seq );
   FD_TEST( lslot && lslot->begin_microblocks==2U && lslot->end_microblocks==2U );
@@ -818,7 +818,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   fd_gui_leader_slot_t * other = fd_gui_slot_leader_get_or_create( gui, slot_num, bank_seq-1UL );
   FD_TEST( other );
   fd_gui_microblock_execution_begin( gui, sec_ns( 50UL ), slot_num, txn, 1UL, 0U, 0UL, bank_seq-1UL, sec_ns( 101UL ) );
-  fd_gui_microblock_execution_end( gui, sec_ns( 50UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 0UL, dt, 0UL, bank_seq-1UL, sec_ns( 103UL ) );
+  fd_gui_microblock_execution_end( gui, sec_ns( 50UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 0UL, dt, LONG_MAX, 0UL, bank_seq-1UL, sec_ns( 103UL ) );
 
   fd_gui_slot_t slot = { .slot=slot_num, .bank_seq=bank_seq, .parent_slot=ULONG_MAX,
                          .completed_time=LONG_MAX, .level=FD_GUI_SLOT_LEVEL_COMPLETED,
@@ -885,7 +885,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   ulong start_appends = metrics->ts_appends[ FD_GUI_HIST_TXN_START ];
   ulong end_appends   = metrics->ts_appends[ FD_GUI_HIST_TXN_END ];
   fd_gui_microblock_execution_begin( gui, sec_ns( 20UL ), slot_num, txn, 1UL, 2U, 2UL, bank_seq, sec_ns( 99UL ) );
-  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, 0UL, bank_seq, sec_ns( 99UL ) );
+  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, LONG_MAX, 0UL, bank_seq, sec_ns( 99UL ) );
   FD_TEST( metrics->ts_appends[ FD_GUI_HIST_TXN_START ]==start_appends );
   FD_TEST( metrics->ts_appends[ FD_GUI_HIST_TXN_END   ]==end_appends );
   lslot = fd_gui_slot_leader_get( gui, slot_num, bank_seq );
@@ -893,7 +893,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   FD_TEST( lslot->txn_insert_time_max_ns==sec_ns( 103UL ) );
 
   fd_gui_microblock_execution_begin( gui, sec_ns( 20UL ), slot_num, txn, 1UL, 2U, 2UL, bank_seq+1UL, sec_ns( 99UL ) );
-  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, 0UL, bank_seq+1UL, sec_ns( 99UL ) );
+  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, LONG_MAX, 0UL, bank_seq+1UL, sec_ns( 99UL ) );
   other = fd_gui_slot_leader_get( gui, slot_num, bank_seq+1UL );
   FD_TEST( other && other->txn_insert_time_min_ns==LONG_MAX && other->txn_insert_time_max_ns==LONG_MIN );
 

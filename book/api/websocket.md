@@ -2830,8 +2830,86 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical shred event data recorded by the validator, queryable over a
-UNIX nanosecond timestamp window.
+Historical shred and transaction event data recorded by the validator,
+queryable over a UNIX nanosecond timestamp window.
+
+#### `timeline.query_txn_timestamps`
+| frequency | type            | example |
+|-----------|-----------------|---------|
+| *Request* | `TimelineTxnTs` | below   |
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, as a UNIX timestamp in nanoseconds |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Required; `txn` |
+
+Returns replay and local leader execution timings selected by transaction
+completion time: the later of signature verification and commit/cancel
+completion, or just commit/cancel for locally produced blocks. Rows are
+ordered by `(slot, txn_idx)`. `reference_ts` is the earliest available stage
+timestamp across all returned rows. Deltas are non-negative and stages can
+precede `start_ns`. Empty results have empty arrays and `null` reference
+fields.
+
+Both timestamps must be non-negative decimal strings without leading zeros
+(except `"0"`), less than `9223372036854775807`, with `end_ns > start_ns`.
+The window is half-open: `[start_ns, end_ns)`.
+
+Lookups use an insertion-time index with a one-second margin on either
+side, then filter by completion time. A transaction inserted more than one
+second away from its completion timestamp can be missed by a narrow query.
+`available_start_ns` and `available_end_ns` describe the approximate
+half-open lookup bounds, or are both `null` when no history is available.
+The database is wiped on boot and evicts data approximately oldest-first
+when full.
+
+At most 65,536 rows are returned. If the result exceeds this limit, the
+server returns an error envelope with `error.code = "result_limit_exceeded"`
+instead of partial rows. Narrow the window and retry.
+
+**`TimelineTxnTs`**
+| field                        | type               | description |
+|------------------------------|--------------------|-------------|
+| granularity                  | `string`           | Echoes `txn` |
+| available_start_ns           | `string\|null`     | Inclusive approximate lookup start |
+| available_end_ns             | `string\|null`     | Exclusive approximate lookup end |
+| reference_slot               | `number\|null`     | Smallest slot in the response |
+| reference_ts                 | `string\|null`     | Earliest stage timestamp in the response |
+| slot_delta                   | `number[]`         | Per row, `slot - reference_slot` |
+| txn_idx                      | `number[]`         | Transaction index within its slot; pack index for locally produced blocks |
+| txn_exec_idx                 | `number[]`         | Execution tile index; execle tile index for locally produced blocks |
+| txn_sigverify_exec_idx       | `(number\|null)[]` | Signature-verification tile index, or `null` if absent |
+| txn_sigverify_start_ts_delta | `(string\|null)[]` | Signature-verification start minus `reference_ts`, in nanoseconds, or `null` if absent |
+| txn_sigverify_end_ts_delta   | `(string\|null)[]` | Signature-verification end minus `reference_ts`, or `null` if absent |
+| txn_load_start_ts_delta      | `string[]`         | Account-load start minus `reference_ts` |
+| txn_check_start_ts_delta     | `(string\|null)[]` | Validation-check start minus `reference_ts`, or `null` if absent |
+| txn_exec_start_ts_delta      | `(string\|null)[]` | Execution start minus `reference_ts`, or `null` if absent |
+| txn_commit_start_ts_delta    | `(string\|null)[]` | Commit/cancel start minus `reference_ts`, or `null` if absent |
+| txn_commit_end_ts_delta      | `string[]`         | Commit/cancel end minus `reference_ts` |
+| txn_error_code               | `number[]`         | Runtime error code, 0 on success |
+
+Rows from blocks produced by this validator are recorded from execle
+rather than replay and have null sigverify fields. Their `txn_idx` is pack's
+monotonically increasing transaction index, not the transaction's position
+in the block; transactions that do not land can leave gaps.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_txn_timestamps",
+    "id": 40,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000",
+        "granularity": "txn"
+    }
+}
+```
+
+:::
 
 #### `timeline.query_shreds`
 | frequency   | type          | example |

@@ -176,6 +176,9 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 
 #define FD_GUI_LANDED_VOTE_MAX      (4096UL)
 
+#define FD_GUI_HTTP_MIN_SEND_BUFFER_SZ        (256UL<<20)
+#define FD_GUI_TIMELINE_QUERY_TXN_MAX         (65536UL)
+
 /* Stored timeline-day bucket layout. */
 #define FD_GUI_TIMELINE_DAY_NS                 (86400000000000L)
 
@@ -1057,7 +1060,14 @@ struct fd_gui_summary {
 
 typedef struct fd_gui_summary fd_gui_summary_t;
 
+union fd_gui_timeline_scratch {
+  fd_gui_store_replay_txn_t const * txns[ FD_GUI_TIMELINE_QUERY_TXN_MAX ];
+};
+typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
+
 struct fd_gui {
+  fd_gui_timeline_scratch_t timeline_scratch;
+  int                       timeline_scratch_in_use;
   fd_http_server_t * http;
   fd_topo_t const * topo;
   fd_accdb_shmem_t const * accdb_shmem;
@@ -1161,6 +1171,29 @@ struct fd_gui {
 typedef struct fd_gui fd_gui_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_gui_timeline_scratch_acquire borrows the shared timeline workspace.
+   Release it before another query uses it. */
+
+static inline fd_gui_timeline_scratch_t *
+fd_gui_timeline_scratch_acquire( fd_gui_t * gui ) {
+  FD_TEST( !gui->timeline_scratch_in_use );
+  gui->timeline_scratch_in_use = 1;
+  return &gui->timeline_scratch;
+}
+
+static inline void
+fd_gui_timeline_scratch_release( fd_gui_t * gui ) {
+  FD_TEST( gui->timeline_scratch_in_use );
+  gui->timeline_scratch_in_use = 0;
+}
+
+/* fd_gui_handle_replay_txn records replay transaction timings. */
+
+void
+fd_gui_handle_replay_txn( fd_gui_t *                       gui,
+                          fd_replay_txn_executed_t const * txn,
+                          long                             now );
 
 /* fd_gui_tile_timers_diff computes the compact, display-ready diff of a
    single tile's timers between two raw cumulative samples `prev` and
@@ -1266,6 +1299,7 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
                                  fd_txn_p_t *   txns,
                                  ulong          pack_txn_idx,
                                  fd_txn_ns_dt_t txn_ns_dt,
+                                 long           exec_end_ticks,
                                  ulong          tips,
                                  ulong          bank_seq,
                                  long           now );
