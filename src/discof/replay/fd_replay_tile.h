@@ -183,6 +183,8 @@ struct fd_replay_slot_completed {
   ulong tips;
   ulong shred_cnt;
 
+  fd_pubkey_t voter_identity; /* identity used for the Alpenglow vote eligibility and reward certificate observations */
+  int    is_voting;       /* identity is ranked in this block's epoch; independent of reward participation */
   int    voted;           /* our vote was in the reward cert this block carried */
   ushort voted_rank;      /* our rank in the reward slot's epoch, USHORT_MAX if we are not a voter */
   ushort vote_count;      /* distinct reward cert signers for slot-FD_NUM_SLOTS_FOR_REWARD, USHORT_MAX if unknown */

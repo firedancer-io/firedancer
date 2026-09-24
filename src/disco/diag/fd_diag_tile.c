@@ -35,7 +35,6 @@ struct fd_diag_tile {
   long next_report_nanos;
 
   ulong tile_cnt;
-  int is_voting;
 
   struct {
     ulong bundle_tile_idx[ FD_TILE_MAX ];
@@ -338,33 +337,40 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
     else                      bundle_status = FD_DIAG_BUNDLE_STATUS_DISCONNECTED;
   }
 
+  ulong replay_idx     = ctx->tiles.replay_idx;
+  int   replay_running = replay_idx!=ULONG_MAX && ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]==1UL;
   ulong tower_idx   = ctx->tiles.tower_idx;
   ulong votor_idx   = ctx->tiles.votor_idx;
   ulong vote_status = FD_DIAG_VOTE_STATUS_DISABLED;
 
-  if( FD_UNLIKELY( ctx->is_voting && votor_idx!=ULONG_MAX ) ) {
-    ulong replay_idx_ag = ctx->tiles.replay_idx;
-    if( FD_UNLIKELY( ctx->metrics[ votor_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL || replay_idx_ag==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( votor_idx!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( ctx->metrics[ votor_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL || !replay_running ) ) {
       vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
     } else {
-      volatile ulong * m = ctx->metrics[ replay_idx_ag ];
+      volatile ulong * m = ctx->metrics[ replay_idx ];
       ulong vote_slot    = m[ FD_METRICS_GAUGE_REPLAY_VOTE_SLOT_LAST_REWARDED_OFF ];
       ulong replay_slot  = m[ FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF ];
-      if( FD_UNLIKELY( vote_slot==ULONG_MAX || !replay_slot ) ) {
+      if( FD_UNLIKELY( !m[ FD_METRICS_GAUGE_REPLAY_IS_VOTING_OFF ] ) ) {
+        vote_status = FD_DIAG_VOTE_STATUS_DISABLED;
+      } else if( FD_UNLIKELY( vote_slot==ULONG_MAX || !replay_slot ) ) {
         vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
       } else {
         int current = fd_int_if( replay_slot>=128UL, vote_slot+128UL>replay_slot, vote_slot>0UL );
         vote_status = fd_ulong_if( current, FD_DIAG_VOTE_STATUS_VOTING, FD_DIAG_VOTE_STATUS_DELINQUENT );
       }
     }
-  } else if( FD_LIKELY( ctx->is_voting && tower_idx!=ULONG_MAX ) ) {
-    if( FD_UNLIKELY( ctx->metrics[ tower_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL ) ) {
+  } else if( FD_LIKELY( tower_idx!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( ctx->metrics[ tower_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL || !replay_running ) ) {
       vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
     } else {
       volatile ulong * m = ctx->metrics[ tower_idx ];
       ulong vote_slot    = m[ FD_METRICS_GAUGE_TOWER_VOTE_SLOT_OFF ];
       ulong replay_slot  = m[ FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_OFF ];
-      if( FD_UNLIKELY( vote_slot==ULONG_MAX || replay_slot==0UL ) ) {
+      if( FD_UNLIKELY( !ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_REPLAY_IS_VOTING_OFF ] ) ) {
+        vote_status = FD_DIAG_VOTE_STATUS_DISABLED;
+        ctx->check_engine.prev_vote_slot       = ULONG_MAX;
+        ctx->check_engine.vote_slot_changed_ns = now;
+      } else if( FD_UNLIKELY( vote_slot==ULONG_MAX || replay_slot==0UL ) ) {
         vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
       } else {
         if( FD_UNLIKELY( vote_slot!=ctx->check_engine.prev_vote_slot ) ) {
@@ -380,8 +386,6 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
     }
   }
 
-  ulong replay_idx     = ctx->tiles.replay_idx;
-  int   replay_running = replay_idx!=ULONG_MAX && ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]==1UL;
   ulong replay_status  = FD_DIAG_REPLAY_STATUS_DISABLED;
   if( FD_LIKELY( replay_idx!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( !replay_running ) ) {
@@ -1361,7 +1365,6 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->cpu_to_tile[ cpu_idx ] = (ushort)i;
   }
 
-  ctx->is_voting = tile->diag.is_voting;
   ctx->check_engine.vote_slot_changed_ns    = ctx->next_report_nanos;
   ctx->check_engine.reset_slot_changed_ns   = ctx->next_report_nanos;
   ctx->check_engine.turbine_slot_changed_ns = ctx->next_report_nanos;

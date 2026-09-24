@@ -151,6 +151,7 @@ struct fd_tower_slot_done {
      is_voting=0. */
 
   int   is_voting;
+  fd_pubkey_t voter_identity; /* identity used for the eligibility check */
 
   /* authority_idx is the index of the authorized voter that needs to
      sign the vote transaction, or ULONG_MAX if it is the identity. */

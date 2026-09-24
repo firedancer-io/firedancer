@@ -226,6 +226,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   }
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
   FD_MGAUGE_SET( REPLAY, VOTE_SLOT_LAST_REWARDED, ctx->metrics.voted_slot );
+  FD_MGAUGE_SET( REPLAY, IS_VOTING, ctx->metrics.is_voting );
 
   FD_MGAUGE_SET( REPLAY, BANK_LIVE, fd_banks_pool_used_cnt( ctx->banks ) );
 
@@ -265,6 +266,7 @@ replay_voter_rank( fd_replay_tile_t * ctx,
                    fd_bank_t *        bank,
                    ulong              epoch ) {
   if( FD_LIKELY( !ctx->alpenglow ) ) return USHORT_MAX;
+  if( FD_UNLIKELY( bank->vote_stakes_fork_id==ULONG_MAX ) ) return USHORT_MAX;
 
   ulong fork_id    = bank->vote_stakes_fork_id;
   ulong fork_epoch = fd_vote_stakes_fork_epoch( fork_id );
@@ -284,7 +286,7 @@ replay_voter_rank( fd_replay_tile_t * ctx,
     ushort     rank;
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &vote_key, &identity,
                              NULL, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
-    if( FD_UNLIKELY( fd_pubkey_eq( &identity, ctx->identity_pubkey ) ) ) return rank;
+    if( FD_UNLIKELY( rank!=USHORT_MAX && fd_pubkey_eq( &identity, ctx->identity_pubkey ) ) ) return rank;
   }
   return USHORT_MAX;
 }
@@ -974,6 +976,9 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->tips = bank->f.tips;
   slot_info->shred_cnt = bank->f.shred_cnt;
 
+  slot_info->voter_identity = *ctx->identity_pubkey;
+  slot_info->is_voting = replay_voter_rank( ctx, bank, bank->f.epoch )!=USHORT_MAX;
+  if( FD_UNLIKELY( ctx->alpenglow && bank->f.slot>=ctx->reset_slot ) ) ctx->metrics.is_voting = (ulong)slot_info->is_voting;
   slot_info->voted = replay_reward_cert_voted( ctx, bank, &slot_info->voted_rank, &slot_info->vote_count );
 
   slot_info->vote_balance    = ULONG_MAX;
@@ -1251,6 +1256,7 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   ctx->identity_dirty = 1;
 
   ctx->metrics.voted_slot = ULONG_MAX;
+  ctx->metrics.is_voting  = 0UL;
 
   fd_node_info_write_begin( ctx->node_info );
   ctx->node_info->info.identity = *ctx->identity_pubkey;
@@ -4574,7 +4580,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_TOWER: {
       if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
-        process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
+        fd_tower_slot_done_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        /* Tower and replay switch identity independently.  Ignore queued
+           eligibility observations for the previous identity. */
+        if( FD_LIKELY( fd_pubkey_eq( &msg->voter_identity, ctx->identity_pubkey ) ) ) ctx->metrics.is_voting = (ulong)msg->is_voting;
+        process_tower_slot_done( ctx, stem, msg, seq );
       } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
         fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         if( msg->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC && !msg->fwd ) process_tower_optimistic_confirmed( ctx, stem, msg );
@@ -4794,8 +4804,6 @@ privileged_init( fd_topo_t const *      topo,
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
   ctx->identity_idx         = 0UL;
   ctx->identity_dirty       = 0;
-
-  ctx->metrics.voted_slot = ULONG_MAX;
 
   ctx->has_vote_account = tile->replay.alpenglow && !!tile->replay.vote_account_path[ 0 ];
   if( FD_LIKELY( ctx->has_vote_account ) ) {
@@ -5174,6 +5182,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+  ctx->metrics.voted_slot = ULONG_MAX;
 
   fd_histf_join( fd_histf_new( ctx->metrics.store_query_work,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WORK_SECONDS ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WORK_SECONDS ) ) );

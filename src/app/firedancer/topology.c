@@ -1827,8 +1827,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "diag" ) ) ) {
 
-    tile->diag.is_voting = strcmp( config->paths.vote_account, "" );
-
     fd_cstr_ncpy( tile->diag.shreds_path,    config->tiles.rserve.enabled                         ? config->paths.shredb    : "", sizeof(tile->diag.shreds_path)    );
     fd_cstr_ncpy( tile->diag.snapshots_path, config->firedancer.layout.enable_snapshot_production ? config->paths.snapshots : "", sizeof(tile->diag.snapshots_path) );
     fd_cstr_ncpy( tile->diag.accounts_path,  config->paths.accounts,  sizeof(tile->diag.accounts_path) );
@@ -1843,7 +1841,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
     tile->gui.listen_port = config->tiles.gui.gui_listen_port;
     tile->gui.max_txn_per_slot = config->limits.max_txn_per_slot;
-    tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
     tile->gui.is_alpenglow = config->firedancer.development.alpenglow;
     fd_cstr_ncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
     fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
