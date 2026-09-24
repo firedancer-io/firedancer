@@ -2,7 +2,33 @@
 
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../choreo/votor/ag_hist.h"
 #include "../../tango/fd_tango_base.h"
+
+FD_STATIC_ASSERT( AG_HIST_SER_MAX<=FD_FAILOVER_ALPENGLOW_STATE_MAX, alpenglow_state_max );
+
+int
+fd_failover_state_tip_check( ulong         mode,
+                             uchar const * state,
+                             ulong         state_sz,
+                             ulong         vote_slot ) {
+  if( FD_LIKELY( mode==FD_FAILOVER_MODE_TOWER ) ) {
+    if( FD_UNLIKELY( state_sz>FD_FAILOVER_TOWER_STATE_MAX ) ) return 0;
+    fd_compact_tower_sync_serde_t serde;
+    fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+    ulong vote_cnt;
+    ulong root;
+    return !fd_compact_tower_sync_de_exact( &serde, state, state_sz ) &&
+           !fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) &&
+           vote_cnt && votes[ vote_cnt-1UL ].slot==vote_slot;
+  }
+  if( FD_LIKELY( mode==FD_FAILOVER_MODE_ALPENGLOW ) ) {
+    if( FD_UNLIKELY( state_sz>FD_FAILOVER_ALPENGLOW_STATE_MAX ) ) return 0;
+    ag_hist_t hist[1];
+    return !ag_hist_de( state, state_sz, hist ) && ag_hist_tip( hist )==vote_slot;
+  }
+  return 0;
+}
 
 #include <string.h>
 
@@ -58,6 +84,7 @@ fd_failover_status_decode( fd_failover_status_t *      out,
 int
 fd_failover_consensus_decode( fd_failover_consensus_cache_t * cache,
                               ulong                           self_role,
+                              ulong                           mode,
                               fd_failover_hello_t const *     peer,
                               uchar const *                   payload,
                               ulong                           payload_sz ) {
@@ -76,26 +103,23 @@ fd_failover_consensus_decode( fd_failover_consensus_cache_t * cache,
   if( FD_UNLIKELY( msg.term<peer->term ||
                    !msg.state_len ||
                    (ulong)msg.state_len!=state_sz ||
-                   state_sz>FD_FAILOVER_TOWER_STATE_MAX ||
+                   state_sz>FD_FAILOVER_STATE_MAX ||
                    msg.vote_slot==FD_FAILOVER_SLOT_NULL ||
-                   msg.mode!=(uchar)FD_FAILOVER_MODE_TOWER ) ) return 0;
+                   msg.mode!=(uchar)mode ) ) return 0;
 
   uchar const * state = payload+sizeof(fd_failover_consensus_state_t);
-
-  fd_compact_tower_sync_serde_t serde;
-  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
-  ulong vote_cnt;
-  ulong root;
-  if( FD_UNLIKELY( fd_compact_tower_sync_de_exact( &serde, state, state_sz ) ||
-                   fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ||
-                   !vote_cnt || votes[ vote_cnt-1UL ].slot!=msg.vote_slot ) ) return 0;
+  if( FD_UNLIKELY( !fd_failover_state_tip_check( msg.mode, state, state_sz, msg.vote_slot ) ) ) return 0;
 
   if( FD_UNLIKELY( cache->valid ) ) {
     int same_tower = msg.vote_slot==cache->msg.vote_slot &&
                      state_sz==(ulong)cache->msg.state_len &&
                      fd_memeq( state, cache->state, state_sz );
+    /* A vote history changes without its tip moving, a final vote on the
+       tip slot does that, so alpenglow frames at the same tip order by
+       link_seq below.  A tower with a new vote always has a higher tip. */
+    int same_tip_ok = msg.mode==(uchar)FD_FAILOVER_MODE_ALPENGLOW && msg.vote_slot==cache->msg.vote_slot;
     if( FD_UNLIKELY( msg.term<cache->msg.term ||
-                     (!same_tower && msg.vote_slot<=cache->msg.vote_slot) ) ) return 0;
+                     (!same_tower && !same_tip_ok && msg.vote_slot<=cache->msg.vote_slot) ) ) return 0;
     if( FD_UNLIKELY( cache->peer_boot_id==peer->boot_id ) ) {
       if( FD_UNLIKELY( msg.link_seq==cache->msg.link_seq ) ) {
         if( FD_UNLIKELY( !same_tower ) ) return 0;
@@ -135,7 +159,10 @@ fd_failover_consensus_final_check( fd_failover_consensus_cache_t const * cache,
                                    ulong                                 state_sz ) {
   if( FD_LIKELY( !cache->valid ) ) return 1;
   if( FD_UNLIKELY( term<cache->msg.term || vote_slot<cache->msg.vote_slot ) ) return 0;
-  if( FD_UNLIKELY( vote_slot==cache->msg.vote_slot &&
+  /* Same tip, different bytes: a tower regressed, a vote history only
+     gained a vote, its order comes from link_seq below. */
+  if( FD_UNLIKELY( cache->msg.mode==(uchar)FD_FAILOVER_MODE_TOWER &&
+                   vote_slot==cache->msg.vote_slot &&
                    (state_sz!=(ulong)cache->msg.state_len ||
                     !fd_memeq( state, cache->state, state_sz )) ) ) return 0;
   if( FD_UNLIKELY( peer_boot_id==cache->peer_boot_id &&

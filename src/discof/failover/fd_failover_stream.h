@@ -7,7 +7,7 @@ struct fd_failover_consensus_cache {
   fd_failover_consensus_state_t msg;
   ulong                         peer_boot_id;
   int                           valid;
-  uchar                         state[ FD_FAILOVER_TOWER_STATE_MAX ];
+  uchar                         state[ FD_FAILOVER_STATE_MAX ];
 };
 
 typedef struct fd_failover_consensus_cache fd_failover_consensus_cache_t;
@@ -23,11 +23,20 @@ fd_failover_status_decode( fd_failover_status_t *      out,
                            uchar const *               payload,
                            ulong                       payload_sz );
 
+/* Checks that a consensus state payload of the given mode decodes and
+   ends at vote_slot.  Returns 1 when it does. */
+int
+fd_failover_state_tip_check( ulong         mode,
+                             uchar const * state,
+                             ulong         state_sz,
+                             ulong         vote_slot );
+
 /* Validates and retains the latest tower state from the active peer.
    `cache` must initially be zeroed and is left unchanged on failure. */
 int
 fd_failover_consensus_decode( fd_failover_consensus_cache_t * cache,
                               ulong                           self_role,
+                              ulong                           mode,
                               fd_failover_hello_t const *     peer,
                               uchar const *                   payload,
                               ulong                           payload_sz );

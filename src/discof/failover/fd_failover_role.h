@@ -33,7 +33,7 @@ typedef struct fd_failover_role_file fd_failover_role_file_t;
 
 struct fd_failover_demoted_record {
   fd_failover_demoted_t demoted;
-  uchar                  state[ FD_FAILOVER_TOWER_STATE_MAX ];
+  uchar                  state[ FD_FAILOVER_STATE_MAX ];
   uchar                  digest[ FD_FAILOVER_DEMOTED_DIGEST_SZ ];
   uchar                  source;
 };
@@ -42,7 +42,7 @@ typedef struct fd_failover_demoted_record fd_failover_demoted_record_t;
 
 #define FD_FAILOVER_DEMOTED_FILE_V1_BODY_MIN (4UL+sizeof(fd_failover_demoted_t)+FD_FAILOVER_DEMOTED_DIGEST_SZ)
 #define FD_FAILOVER_DEMOTED_FILE_BODY_MIN (FD_FAILOVER_DEMOTED_FILE_V1_BODY_MIN+1UL)
-#define FD_FAILOVER_DEMOTED_FILE_MAX      (FD_FAILOVER_DEMOTED_FILE_BODY_MIN+FD_FAILOVER_TOWER_STATE_MAX+32UL)
+#define FD_FAILOVER_DEMOTED_FILE_MAX      (FD_FAILOVER_DEMOTED_FILE_BODY_MIN+FD_FAILOVER_STATE_MAX+32UL)
 
 FD_PROTOTYPES_BEGIN
 

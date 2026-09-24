@@ -43,8 +43,9 @@
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
 
 /* Consensus payload formats */
-#define FD_FAILOVER_MODE_TOWER (0U)
-#define FD_FAILOVER_MODE_CNT   (1U)
+#define FD_FAILOVER_MODE_TOWER     (0U)
+#define FD_FAILOVER_MODE_ALPENGLOW (1U)
+#define FD_FAILOVER_MODE_CNT       (2U)
 
 /* Roles for each endpoint */
 #define FD_FAILOVER_ROLE_STANDBY (0UL)
@@ -96,6 +97,13 @@
 /* Upper bound on the consensus state payload in tower mode.  A
    CompactTowerSync with block id and bank hash is under 512 bytes. */
 #define FD_FAILOVER_TOWER_STATE_MAX (512UL)
+
+/* Upper bound in alpenglow mode, a vote history of AG_HIST_MAX records
+   is 5266 bytes.  FD_FAILOVER_STATE_MAX sizes everything that holds a
+   payload of either mode. */
+#define FD_FAILOVER_ALPENGLOW_STATE_MAX (6144UL)
+#define FD_FAILOVER_STATE_MAX           (FD_FAILOVER_ALPENGLOW_STATE_MAX)
+FD_STATIC_ASSERT( FD_FAILOVER_STATE_MAX>=FD_FAILOVER_TOWER_STATE_MAX, state_max );
 
 /* Wire protocol message bodies. Little endian, packed, fixed layout. */
 struct __attribute__((packed)) fd_failover_hello {
@@ -284,7 +292,7 @@ FD_STATIC_ASSERT( sizeof(fd_failover_promote_rejected_t)==9UL, wire_layout );
 FD_STATIC_ASSERT( sizeof(fd_failover_control_t)==8UL, wire_layout );
 
 #define FD_FAILOVER_DEMOTED_DIGEST_SZ   (32UL)
-#define FD_FAILOVER_DEMOTED_PAYLOAD_MAX (sizeof(fd_failover_demoted_t)+FD_FAILOVER_TOWER_STATE_MAX+FD_FAILOVER_DEMOTED_DIGEST_SZ)
+#define FD_FAILOVER_DEMOTED_PAYLOAD_MAX (sizeof(fd_failover_demoted_t)+FD_FAILOVER_STATE_MAX+FD_FAILOVER_DEMOTED_DIGEST_SZ)
 
 FD_PROTOTYPES_BEGIN
 

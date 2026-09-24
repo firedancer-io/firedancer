@@ -11,8 +11,24 @@
 #include "fd_failover_tls.h"
 #include "../tower/fd_tower_tile.h"
 #include "../replay/fd_replay_tile.h"
+#include "../votor/fd_votor_tile.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../ballet/txn/fd_txn.h"
+
+/* The votor tile answers adoptions with the tower tile's codes and
+   layout, so one decoder and one result field serve both modes. */
+FD_STATIC_ASSERT( FD_VOTOR_ADOPT_SUCCESS            ==FD_TOWER_ADOPT_SUCCESS,             adopt_codes );
+FD_STATIC_ASSERT( FD_VOTOR_ADOPT_ERR_DECODE         ==FD_TOWER_ADOPT_ERR_DECODE,          adopt_codes );
+FD_STATIC_ASSERT( FD_VOTOR_ADOPT_ERR_INVALID        ==FD_TOWER_ADOPT_ERR_INVALID,         adopt_codes );
+FD_STATIC_ASSERT( FD_VOTOR_ADOPT_ERR_UNREPLAYED_ROOT==FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT, adopt_codes );
+FD_STATIC_ASSERT( FD_VOTOR_ADOPT_ERR_BLOCK_MISMATCH ==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH,  adopt_codes );
+FD_STATIC_ASSERT( FD_VOTOR_ADOPT_ERR_STALE          ==FD_TOWER_ADOPT_ERR_STALE,           adopt_codes );
+FD_STATIC_ASSERT( FD_VOTOR_ADOPT_ERR_NO_LOCAL_TOWER ==FD_TOWER_ADOPT_ERR_NO_LOCAL_TOWER,  adopt_codes );
+FD_STATIC_ASSERT( FD_VOTOR_ADOPT_RESULT_CNT         ==FD_TOWER_ADOPT_RESULT_CNT,          adopt_codes );
+FD_STATIC_ASSERT( sizeof(fd_votor_adopt_result_t)==sizeof(fd_tower_adopt_result_t), adopt_layout );
+FD_STATIC_ASSERT( offsetof(fd_votor_adopt_result_t,result)   ==offsetof(fd_tower_adopt_result_t,result),    adopt_layout );
+FD_STATIC_ASSERT( offsetof(fd_votor_adopt_result_t,root)     ==offsetof(fd_tower_adopt_result_t,root),      adopt_layout );
+FD_STATIC_ASSERT( offsetof(fd_votor_adopt_result_t,vote_slot)==offsetof(fd_tower_adopt_result_t,vote_slot), adopt_layout );
 
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -80,10 +96,10 @@ struct fd_failover_peer {
   ulong                   peer_sent_at;  /* sent_at of the newest peer STATUS, 0 if none */
   long                    peer_recv_at;  /* our clock when it arrived */
 
-  fd_failover_consensus_cache_t consensus;       /* this peer's streamed tower, dropped on a session edge */
-  fd_failover_consensus_cache_t consensus_floor; /* the highest tower ever streamed, kept across reconnects for the final tower check */
+  fd_failover_consensus_cache_t consensus;       /* this peer's streamed consensus state, dropped on a session edge */
+  fd_failover_consensus_cache_t consensus_floor; /* the highest state ever streamed, kept across reconnects for the final state check */
   ulong                         lag_slots;
-  int                           cs_sent;   /* our latest tower reached this peer */
+  int                           cs_sent;   /* our latest state reached this peer */
 };
 
 typedef struct fd_failover_peer fd_failover_peer_t;
@@ -137,8 +153,8 @@ struct fd_failover_tile_ctx {
   ulong                        pending_session; /* handoff requests and answers belong to one session */
   uchar                        pending[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
 
-  /* The tower we will adopt when we get promoted. */
-  uchar                        adopt_state[ FD_FAILOVER_TOWER_STATE_MAX ];
+  /* The tower or vote history we will adopt when we get promoted. */
+  uchar                        adopt_state[ FD_FAILOVER_STATE_MAX ];
   ulong                        adopt_state_len;
   ulong                        adopt_expected_id;
   uchar                        reject_reason;
@@ -236,7 +252,7 @@ struct fd_failover_tile_ctx {
   ulong                     switch_state_nonce;
   int                       switch_state_fresh;
 
-  /* Adoption request to the tower tile and its answer. */
+  /* Adoption request to the vote tile and its answer. */
   ulong                   adopt_out_idx;
   fd_wksp_t *             adopt_out_mem;
   ulong                   adopt_out_chunk0;
@@ -276,12 +292,21 @@ struct fd_failover_tile_ctx {
   ulong                tower_seen_seq; /* seq of the last tower_out frag taken in, ULONG_MAX before any */
   int                  tower_gap;      /* a tower_out frag was skipped since the cached tower was built */
 
+  /* Under Alpenglow the vote tile is votor, its frames come on
+     votor_hist in place of tower_out and the adopt links are
+     failov_votor and votor_failov.  The frame is the full history. */
+  ulong               mode;               /* FD_FAILOVER_MODE_* */
+  fd_votor_hist_msg_t hist;
+  ulong               cs_last_leader_slot; /* leader slot inside the cached history */
+  ulong               hist_notar_tip;      /* highest notar slot in the last vote frame, SLOT_NULL before any */
+  ulong               demoted_anchor;      /* finality anchor of the record being promoted, SLOT_NULL in tower */
+
   ulong replay_slot;
   ulong root_slot;
   ulong last_vote_slot;
 
-  /* Latest locally produced tower and its delivery state. */
-  uchar cs_buf[ sizeof(fd_failover_consensus_state_t)+FD_FAILOVER_TOWER_STATE_MAX ];
+  /* Latest locally produced consensus state and its delivery state. */
+  uchar cs_buf[ sizeof(fd_failover_consensus_state_t)+FD_FAILOVER_STATE_MAX ];
   ulong cs_sz;
   int   cs_valid;
 };
@@ -631,6 +656,22 @@ pending_flush( fd_failover_tile_ctx_t * ctx,
   }
 }
 
+/* Read the finality anchor and the highest notar slot out of a stored
+   alpenglow history, so a restart reports catch-up truthfully and a
+   promotion can wait for replay to reach the anchor. */
+static void
+alpenglow_record_bounds( uchar const * state,
+                         ulong         state_sz,
+                         ulong *       anchor,
+                         ulong *       notar_tip ) {
+  *anchor    = FD_FAILOVER_SLOT_NULL;
+  *notar_tip = FD_FAILOVER_SLOT_NULL;
+  ag_hist_t h[1];
+  if( FD_UNLIKELY( ag_hist_de( state, state_sz, h ) ) ) return;
+  *anchor = h->anchor;
+  for( ulong i=0UL; i<h->rec_cnt; i++ ) if( h->rec[ i ].flags & AG_HIST_FLAG_VOTED_NOTAR ) *notar_tip = h->rec[ i ].slot;
+}
+
 static void
 restore_records( fd_failover_tile_ctx_t * ctx,
                  int                      role_err,
@@ -840,7 +881,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->admin_in_idx  = ULONG_MAX;
   ctx->adopt_in_idx  = ULONG_MAX;
   ctx->replay_in_idx = ULONG_MAX;
+
+  ctx->mode                = FD_FAILOVER_MODE_TOWER;
+  ctx->cs_last_leader_slot = ULONG_MAX;
+  ctx->hist_notar_tip      = FD_FAILOVER_SLOT_NULL;
+  ctx->demoted_anchor      = FD_FAILOVER_SLOT_NULL;
+
   ctx->adopt_out_idx = fd_topo_find_tile_out_link( topo, tile, "failov_tower", 0UL );
+  if( FD_UNLIKELY( ctx->adopt_out_idx==ULONG_MAX ) ) ctx->adopt_out_idx = fd_topo_find_tile_out_link( topo, tile, "failov_votor", 0UL );
   if( FD_LIKELY( ctx->adopt_out_idx!=ULONG_MAX ) ) {
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->adopt_out_idx ] ];
     ctx->adopt_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -858,7 +906,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
-    if( FD_LIKELY( !strcmp( link->name, "tower_failov" ) ) ) {
+    if( FD_LIKELY( !strcmp( link->name, "tower_failov" ) || !strcmp( link->name, "votor_failov" ) ) ) {
       ctx->adopt_in_idx    = i;
       ctx->adopt_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
       ctx->adopt_in_chunk0 = fd_dcache_compact_chunk0( ctx->adopt_in_mem, link->dcache );
@@ -872,7 +920,8 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->admin_in_wmark  = fd_dcache_compact_wmark ( ctx->admin_in_mem, link->dcache, link->mtu );
       continue;
     }
-    if( FD_LIKELY( !strcmp( link->name, "tower_out" ) ) ) {
+    if( FD_LIKELY( !strcmp( link->name, "tower_out" ) || !strcmp( link->name, "votor_hist" ) ) ) {
+      if( FD_UNLIKELY( !strcmp( link->name, "votor_hist" ) ) ) ctx->mode = FD_FAILOVER_MODE_ALPENGLOW;
       ctx->tower_in_idx    = i;
       ctx->tower_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
       ctx->tower_in_chunk0 = fd_dcache_compact_chunk0( ctx->tower_in_mem, link->dcache );
@@ -888,6 +937,27 @@ unprivileged_init( fd_topo_t const *      topo,
     }
     FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
+
+  /* The mode is known now.  A demotion record written under the other
+     consensus mode would loop forever, the peer refuses it on the mode
+     byte, so keep it as history rather than resending it. */
+  if( FD_UNLIKELY( ctx->demoted_valid && !ctx->demoted_historical &&
+                   ctx->demoted_record.demoted.mode!=(uchar)ctx->mode ) ) {
+    ctx->demoted_historical  = 1;
+    ctx->stuck               = 1;
+    ctx->send_demoted        = 0;
+    ctx->pending_valid       = 0;
+    ctx->demoted_accept_term = ULONG_MAX;
+    ctx->action              = FD_FAILOVER_ACTION_IDLE;
+    ctx->action_term         = ctx->role_file.term;
+    ctx->last_vote_slot      = FD_FAILOVER_SLOT_NULL;
+    FD_LOG_WARNING(( "%s was written under a different consensus mode, preserving it and remaining passive", FD_FAILOVER_DEMOTED_PATH ));
+  }
+  /* A restart that restored a local alpenglow record reports catch-up
+     from its own notar votes, and a promotion waits for replay to reach
+     the record's finality anchor. */
+  if( FD_UNLIKELY( ctx->mode==FD_FAILOVER_MODE_ALPENGLOW && ctx->demoted_valid && !ctx->demoted_historical ) )
+    alpenglow_record_bounds( ctx->demoted_record.state, ctx->demoted_record.demoted.state_len, &ctx->demoted_anchor, &ctx->hist_notar_tip );
 
   ctx->status_interval        = duration_nanos( tile->failov.status_interval_millis, 1000000UL );
   ctx->status_interval_millis = tile->failov.status_interval_millis;
@@ -1075,6 +1145,69 @@ caught_up_locally( fd_failover_tile_ctx_t const * ctx ) {
          ctx->turbine_slot-ctx->replay_slot<=ctx->catchup_gap_limit;
 }
 
+/* The alpenglow twin of prepare_consensus.  The frame already holds the
+   whole history, so it goes out as the state bytes as is. */
+static void
+prepare_consensus_alpenglow( fd_failover_tile_ctx_t *    ctx,
+                             fd_votor_hist_msg_t const * hist ) {
+  uchar state[ FD_FAILOVER_ALPENGLOW_STATE_MAX ];
+  ulong state_sz = 0UL;
+  if( FD_UNLIKELY( ag_hist_tip( &hist->hist )!=hist->vote_slot ||
+                   ag_hist_ser( &hist->hist, state, FD_FAILOVER_ALPENGLOW_STATE_MAX, &state_sz ) ) ) {
+    FD_LOG_WARNING(( "votor produced a vote history that does not match its slot metadata" ));
+    return;
+  }
+  /* An accepted frame clears any gap before it, a complete snapshot
+     supersedes whatever was skipped. */
+  ctx->tower_gap = 0;
+  /* A completed slot with no new vote and no moved leader is the same
+     bytes as the cache, nothing to resend.  A leader frame or the halt
+     frame does change the bytes and is folded in, the latter with the
+     bad-window mark on a vote the votor built but never sent. */
+  uchar * cached = ctx->cs_buf+sizeof(fd_failover_consensus_state_t);
+  if( FD_LIKELY( ctx->cs_valid && ctx->cs_sz==sizeof(fd_failover_consensus_state_t)+state_sz &&
+                 fd_memeq( cached, state, state_sz ) ) ) return;
+
+  fd_failover_consensus_state_t msg = {
+    .term      = ctx->hello.term,
+    .link_seq  = ctx->slot_done_seq,
+    .vote_slot = hist->vote_slot,
+    .mode      = (uchar)FD_FAILOVER_MODE_ALPENGLOW,
+    .state_len = (ushort)state_sz,
+  };
+  fd_memcpy( ctx->cs_buf, &msg, sizeof(msg) );
+  fd_memcpy( cached, state, state_sz );
+  ctx->cs_sz               = sizeof(msg)+state_sz;
+  ctx->cs_valid            = 1;
+  ctx->cs_last_leader_slot = hist->hist.last_leader_slot;
+  for( ulong i=0UL; i<ctx->peer_cnt; i++ ) ctx->peers[ i ].cs_sent = 0;
+}
+
+/* The alpenglow twin of consume_slot_done. */
+static void
+consume_hist( fd_failover_tile_ctx_t *    ctx,
+              fd_votor_hist_msg_t const * hist ) {
+  if( FD_LIKELY( hist->replay_slot!=FD_FAILOVER_SLOT_NULL &&
+                 ( ctx->replay_slot==FD_FAILOVER_SLOT_NULL || hist->replay_slot>ctx->replay_slot ) ) )
+    ctx->replay_slot = hist->replay_slot;
+  if( FD_LIKELY( hist->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->root_slot = hist->root_slot;
+  int producing = ctx->role==FD_FAILOVER_ROLE_ACTIVE ||
+                  (ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH);
+  if( FD_LIKELY( hist->has_vote && hist->vote_slot!=FD_FAILOVER_SLOT_NULL ) ) {
+    ctx->last_vote_slot = hist->vote_slot;
+    /* A notar vote needs its block replayed first, so the highest notar
+       slot tells skips ahead of replay from a restored history. */
+    ctx->hist_notar_tip = FD_FAILOVER_SLOT_NULL;
+    for( ulong i=0UL; i<hist->hist.rec_cnt; i++ ) if( hist->hist.rec[ i ].flags & AG_HIST_FLAG_VOTED_NOTAR ) ctx->hist_notar_tip = hist->hist.rec[ i ].slot;
+    if( FD_LIKELY( producing ) ) prepare_consensus_alpenglow( ctx, hist );
+  } else if( FD_UNLIKELY( producing && ctx->cs_valid && hist->vote_slot==ctx->last_vote_slot ) ) {
+    /* A frame with no new vote can still change the bytes, a leader slot
+       that moved or a built-but-unsent vote marked bad at the halt.
+       prepare folds it and resends only when the bytes actually change. */
+    prepare_consensus_alpenglow( ctx, hist );
+  }
+}
+
 /* Our side of STATUS for one peer. */
 static fd_failover_status_t
 local_status( fd_failover_tile_ctx_t const * ctx,
@@ -1098,8 +1231,16 @@ local_status( fd_failover_tile_ctx_t const * ctx,
   if( FD_UNLIKELY( status.replay_slot!=FD_FAILOVER_SLOT_NULL &&
                    status.last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
                    status.last_vote_slot>status.replay_slot ) ) {
-    status.status        |= FD_FAILOVER_STATUS_CATCHUP;
-    status.last_vote_slot = FD_FAILOVER_SLOT_NULL;
+    /* A votor skips slots ahead of replay whenever a leader is out, a
+       notar vote needs the block first.  Only a history whose notar votes
+       run past replay is a restart still catching up. */
+    if( FD_UNLIKELY( ctx->mode==FD_FAILOVER_MODE_ALPENGLOW &&
+                     ( ctx->hist_notar_tip==FD_FAILOVER_SLOT_NULL || ctx->hist_notar_tip<=status.replay_slot ) ) ) {
+      status.last_vote_slot = status.replay_slot;
+    } else {
+      status.status        |= FD_FAILOVER_STATUS_CATCHUP;
+      status.last_vote_slot = FD_FAILOVER_SLOT_NULL;
+    }
   }
   if( FD_UNLIKELY( status.root_slot!=FD_FAILOVER_SLOT_NULL &&
                    ( ( status.replay_slot!=FD_FAILOVER_SLOT_NULL &&
@@ -1137,7 +1278,8 @@ local_status( fd_failover_tile_ctx_t const * ctx,
    followed by the final tower, so we compute the tower digest here and
    end up with the same record we would store on disk. */
 static int
-demoted_payload_decode( uchar const *                  payload,
+demoted_payload_decode( ulong                          mode,
+                        uchar const *                  payload,
                         ulong                          payload_sz,
                         fd_failover_demoted_record_t * out ) {
   if( FD_UNLIKELY( payload_sz<sizeof(fd_failover_demoted_t) ||
@@ -1149,20 +1291,14 @@ demoted_payload_decode( uchar const *                  payload,
 
   ulong state_len = payload_sz-sizeof(fd_failover_demoted_t);
   if( FD_UNLIKELY( (ulong)record.demoted.state_len!=state_len ||
-                   !state_len || state_len>FD_FAILOVER_TOWER_STATE_MAX ||
-                   record.demoted.mode!=(uchar)FD_FAILOVER_MODE_TOWER ||
+                   !state_len || state_len>FD_FAILOVER_STATE_MAX ||
+                   record.demoted.mode!=(uchar)mode ||
                    record.demoted.last_vote_slot==FD_FAILOVER_SLOT_NULL ||
                    record.demoted.term>=ULONG_MAX-1UL ) ) return -1;
 
-  /* The tower has to end at the slot the record claims, or the metadata
-     and the tower it describes could drift apart unnoticed. */
-  fd_compact_tower_sync_serde_t serde;
-  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
-  ulong vote_cnt;
-  ulong root;
-  if( FD_UNLIKELY( fd_compact_tower_sync_de_exact( &serde, payload+sizeof(fd_failover_demoted_t), state_len ) ||
-                   fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ||
-                   !vote_cnt || votes[ vote_cnt-1UL ].slot!=record.demoted.last_vote_slot ) ) return -1;
+  /* The state has to end at the slot the record claims, or the metadata
+     and the votes it describes could drift apart unnoticed. */
+  if( FD_UNLIKELY( !fd_failover_state_tip_check( record.demoted.mode, payload+sizeof(fd_failover_demoted_t), state_len, record.demoted.last_vote_slot ) ) ) return -1;
 
   fd_memcpy( record.state, payload+sizeof(fd_failover_demoted_t), state_len );
   fd_sha256_hash( record.state, state_len, record.digest );
@@ -1488,9 +1624,18 @@ step_controller( fd_failover_tile_ctx_t * ctx,
       return;
     }
     /* Wait for replay to reach the final vote before adopting, otherwise the
-       tower refers to blocks we have not seen yet. */
-    if( FD_UNLIKELY( ctx->replay_slot==FD_FAILOVER_SLOT_NULL ||
+       tower refers to blocks we have not seen yet.  A vote history is slot
+       state and its tip may be a skip on a slot no block ever fills, so
+       there replay only has to exist. */
+    if( FD_UNLIKELY( ctx->replay_slot==FD_FAILOVER_SLOT_NULL ) ) return;
+    if( FD_UNLIKELY( ctx->mode==FD_FAILOVER_MODE_TOWER &&
                      ctx->replay_slot<ctx->demoted_record.demoted.last_vote_slot ) ) return;
+    /* The anchor is a finalized slot, so it always fills, unlike a tip
+       that may be a skip.  Waiting for replay to reach it keeps adoption
+       from pruning slot by slot up to a far anchor. */
+    if( FD_UNLIKELY( ctx->mode==FD_FAILOVER_MODE_ALPENGLOW &&
+                     ctx->demoted_anchor!=FD_FAILOVER_SLOT_NULL &&
+                     ctx->replay_slot<ctx->demoted_anchor ) ) return;
     ulong id = publish_adopt_state( ctx, stem );
     if( FD_UNLIKELY( id==ULONG_MAX ) ) {
       reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, now );
@@ -1893,7 +2038,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     if( FD_UNLIKELY( payload_sz<sizeof(fd_failover_demoted_t) ) ) break;
 
     fd_failover_demoted_record_t record;
-    if( FD_UNLIKELY( demoted_payload_decode( ctx->rx, payload_sz, &record ) ) ) break;
+    if( FD_UNLIKELY( demoted_payload_decode( ctx->mode, ctx->rx, payload_sz, &record ) ) ) break;
     /* If we already answered a confirmation at this term the peer just did
        not get our reply, so send the same answer again.  This only repeats a
        past outcome, it does not adopt or refuse anew, so it runs ahead of the
@@ -2030,6 +2175,7 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
     } else if( FD_LIKELY( type==(ushort)FD_FAILOVER_MSG_CONSENSUS_STATE ) ) {
       if( FD_UNLIKELY( !fd_failover_consensus_decode( &peer->consensus,
                                                       ctx->role,
+                                                      ctx->mode,
                                                       fd_failover_channel_peer_hello( peer->channel ),
                                                       ctx->rx,
                                                       payload_sz ) ) ) {
@@ -2374,7 +2520,7 @@ demotion_switched( fd_failover_tile_ctx_t * ctx,
   ctx->demoted_record.demoted.term           = ctx->action_term;
   ctx->demoted_record.demoted.last_vote_slot = ctx->last_vote_slot;
   ctx->demoted_record.demoted.watermark      = ctx->switch_result.tower_watermark;
-  ctx->demoted_record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  ctx->demoted_record.demoted.mode           = (uchar)ctx->mode;
   ctx->demoted_record.demoted.state_len      = (ushort)state_len;
   ctx->demoted_record.source                 = FD_FAILOVER_DEMOTED_SOURCE_LOCAL;
   fd_memcpy( ctx->demoted_record.state, ctx->cs_buf+sizeof(fd_failover_consensus_state_t), state_len );
@@ -2449,6 +2595,11 @@ start_promotion( fd_failover_tile_ctx_t *             ctx,
   ctx->adopt_state_len = record->demoted.state_len;
   fd_memcpy( ctx->adopt_state, record->state, record->demoted.state_len );
 
+  ctx->demoted_anchor = FD_FAILOVER_SLOT_NULL;
+  ctx->hist_notar_tip = FD_FAILOVER_SLOT_NULL;
+  if( FD_UNLIKELY( ctx->mode==FD_FAILOVER_MODE_ALPENGLOW ) )
+    alpenglow_record_bounds( record->state, record->demoted.state_len, &ctx->demoted_anchor, &ctx->hist_notar_tip );
+
   /* A refusal already used up a term here, so taking the identity at the
      record's term would go backwards. */
   term = fd_ulong_max( term, ctx->hello.term );
@@ -2459,7 +2610,7 @@ start_promotion( fd_failover_tile_ctx_t *             ctx,
      must never be sent or handed back in its place. */
   fd_failover_consensus_state_t cs = { .term=term, .link_seq=ctx->tower_seen_seq,
                                       .vote_slot=record->demoted.last_vote_slot,
-                                      .mode=(uchar)FD_FAILOVER_MODE_TOWER,
+                                      .mode=(uchar)ctx->mode,
                                       .state_len=record->demoted.state_len };
   fd_memcpy( ctx->cs_buf, &cs, sizeof(cs) );
   fd_memcpy( ctx->cs_buf+sizeof(cs), ctx->adopt_state, ctx->adopt_state_len );
@@ -2862,7 +3013,8 @@ after_credit( fd_failover_tile_ctx_t * ctx,
               int *                    charge_busy ) {
   if( FD_UNLIKELY( ctx->slot_done_fresh ) ) {
     ctx->slot_done_fresh = 0;
-    consume_slot_done( ctx, &ctx->slot_done );
+    if( FD_LIKELY( ctx->mode==FD_FAILOVER_MODE_TOWER ) ) consume_slot_done( ctx, &ctx->slot_done );
+    else                                                consume_hist( ctx, &ctx->hist );
   }
   long now = fd_failover_clock();
   ctx->step_stem = stem;
@@ -2891,7 +3043,7 @@ before_frag( fd_failover_tile_ctx_t * ctx,
        taken from the cache with that vote missing.  Other frags hold no
        vote and count here. */
     if( FD_UNLIKELY( ctx->tower_seen_seq!=ULONG_MAX && seq!=fd_seq_inc( ctx->tower_seen_seq, 1UL ) ) ) ctx->tower_gap = 1;
-    if( FD_UNLIKELY( sig!=FD_TOWER_SIG_SLOT_DONE ) ) {
+    if( FD_UNLIKELY( ctx->mode==FD_FAILOVER_MODE_TOWER && sig!=FD_TOWER_SIG_SLOT_DONE ) ) {
       ctx->tower_seen_seq = seq;
       return 1;
     }
@@ -2956,10 +3108,12 @@ during_frag( fd_failover_tile_ctx_t * ctx,
     return;
   }
   if( FD_UNLIKELY( in_idx!=ctx->tower_in_idx ) ) return;
-  if( FD_UNLIKELY( chunk<ctx->tower_in_chunk0 || chunk>ctx->tower_in_wmark || sz!=sizeof(fd_tower_msg_t) ) ) {
+  ulong frame_sz = ctx->mode==FD_FAILOVER_MODE_TOWER ? sizeof(fd_tower_msg_t) : sizeof(fd_votor_hist_msg_t);
+  if( FD_UNLIKELY( chunk<ctx->tower_in_chunk0 || chunk>ctx->tower_in_wmark || sz!=frame_sz ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->tower_in_chunk0, ctx->tower_in_wmark ));
   }
-  fd_memcpy( &ctx->slot_done, fd_chunk_to_laddr_const( ctx->tower_in_mem, chunk ), sizeof(fd_tower_slot_done_t) );
+  if( FD_LIKELY( ctx->mode==FD_FAILOVER_MODE_TOWER ) ) fd_memcpy( &ctx->slot_done, fd_chunk_to_laddr_const( ctx->tower_in_mem, chunk ), sizeof(fd_tower_slot_done_t) );
+  else                                                fd_memcpy( &ctx->hist,      fd_chunk_to_laddr_const( ctx->tower_in_mem, chunk ), sizeof(fd_votor_hist_msg_t)  );
 }
 
 static void

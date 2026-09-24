@@ -529,12 +529,12 @@ test_consensus_producer( fd_wksp_t * wksp ) {
   /* A standby with this active peer accepts the frame. */
   static fd_failover_consensus_cache_t cache;
   fd_failover_hello_t peer = { .role=(uchar)FD_FAILOVER_ROLE_ACTIVE, .term=0UL, .boot_id=11UL };
-  FD_TEST( fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, &peer, ctx->cs_buf, ctx->cs_sz ) );
+  FD_TEST( fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, FD_FAILOVER_MODE_TOWER, &peer, ctx->cs_buf, ctx->cs_sz ) );
   FD_TEST( cache.valid && cache.msg.vote_slot==31UL );
 
   /* A truncated frame and a wrong local role are both refused. */
-  FD_TEST( !fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, &peer, ctx->cs_buf, ctx->cs_sz-1UL ) );
-  FD_TEST( !fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_ACTIVE,  &peer, ctx->cs_buf, ctx->cs_sz ) );
+  FD_TEST( !fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, FD_FAILOVER_MODE_TOWER, &peer, ctx->cs_buf, ctx->cs_sz-1UL ) );
+  FD_TEST( !fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_ACTIVE, FD_FAILOVER_MODE_TOWER, &peer, ctx->cs_buf, ctx->cs_sz ) );
 
   /* A malformed vote transaction leaves the previous frame in place. */
   ulong good_sz = ctx->cs_sz;
@@ -562,7 +562,7 @@ test_consensus_producer( fd_wksp_t * wksp ) {
   fd_memcpy( &msg, ctx->cs_buf, sizeof(msg) );
   FD_TEST( msg.term==9UL && msg.vote_slot==31UL && msg.link_seq==8UL );
   peer.term = 9UL;
-  FD_TEST( fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, &peer, ctx->cs_buf, ctx->cs_sz ) );
+  FD_TEST( fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, FD_FAILOVER_MODE_TOWER, &peer, ctx->cs_buf, ctx->cs_sz ) );
   FD_TEST( cache.valid && cache.msg.vote_slot==ctx->last_vote_slot );
 
   fd_wksp_free_laddr( tower_mem );
@@ -1739,31 +1739,31 @@ test_demoted_payload( void ) {
   fd_memcpy( payload, &msg, sizeof(msg) );
 
   fd_failover_demoted_record_t out;
-  FD_TEST( !demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  FD_TEST( !demoted_payload_decode( FD_FAILOVER_MODE_TOWER, payload, sizeof(msg)+state_sz, &out ) );
   FD_TEST( out.demoted.term==3UL && out.demoted.state_len==state_sz );
 
   /* Wrong length, empty tower, unknown mode, a sentinel vote, a tower that
      ends at another slot and a tower that does not decode must all be
      rejected. */
-  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz-1UL, &out ) );
+  FD_TEST( demoted_payload_decode( FD_FAILOVER_MODE_TOWER, payload, sizeof(msg)+state_sz-1UL, &out ) );
   msg.state_len = 0U;
   fd_memcpy( payload, &msg, sizeof(msg) );
-  FD_TEST( demoted_payload_decode( payload, sizeof(msg), &out ) );
+  FD_TEST( demoted_payload_decode( FD_FAILOVER_MODE_TOWER, payload, sizeof(msg), &out ) );
   msg.state_len = (ushort)state_sz;
   msg.mode      = 9U;
   fd_memcpy( payload, &msg, sizeof(msg) );
-  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  FD_TEST( demoted_payload_decode( FD_FAILOVER_MODE_TOWER, payload, sizeof(msg)+state_sz, &out ) );
   msg.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
   msg.last_vote_slot = FD_FAILOVER_SLOT_NULL;
   fd_memcpy( payload, &msg, sizeof(msg) );
-  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  FD_TEST( demoted_payload_decode( FD_FAILOVER_MODE_TOWER, payload, sizeof(msg)+state_sz, &out ) );
   msg.last_vote_slot = 43UL;
   fd_memcpy( payload, &msg, sizeof(msg) );
-  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  FD_TEST( demoted_payload_decode( FD_FAILOVER_MODE_TOWER, payload, sizeof(msg)+state_sz, &out ) );
   msg.last_vote_slot = 42UL;
   fd_memcpy( payload, &msg, sizeof(msg) );
   fd_memset( payload+sizeof(msg), 0xAB, state_sz );
-  FD_TEST( demoted_payload_decode( payload, sizeof(msg)+state_sz, &out ) );
+  FD_TEST( demoted_payload_decode( FD_FAILOVER_MODE_TOWER, payload, sizeof(msg)+state_sz, &out ) );
   FD_LOG_NOTICE(( "pass: a demotion confirmation is validated before it is believed" ));
 }
 
@@ -2663,7 +2663,7 @@ test_repeated_handoff_tower( void ) {
   uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
   ulong payload_sz = make_demoted_payload( payload, 7UL, 120UL );
   fd_failover_demoted_record_t record;
-  FD_TEST( !demoted_payload_decode( payload, payload_sz, &record ) );
+  FD_TEST( !demoted_payload_decode( FD_FAILOVER_MODE_TOWER, payload, payload_sz, &record ) );
   ctx->replay_slot = 120UL;
   start_promotion( ctx, &record, 7UL, 1000L );
   step_controller( ctx, stem, 1000L );

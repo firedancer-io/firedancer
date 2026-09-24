@@ -272,6 +272,68 @@ test_demoted_storage( void ) {
   FD_TEST( !rmdir( dir_path ) );
 }
 
+/* The same record in alpenglow mode with a history far past the tower
+   limit.  The codec and the store never read the state, so the bytes
+   only have to be reproducible. */
+static fd_failover_demoted_record_t
+sample_demoted_alpenglow( void ) {
+  fd_failover_demoted_record_t record = sample_demoted();
+  record.demoted.mode      = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
+  record.demoted.state_len = 5000U;
+  for( ulong i=0UL; i<5000UL; i++ ) record.state[ i ] = (uchar)(i*7UL);
+  fd_sha256_hash( record.state, record.demoted.state_len, record.digest );
+  return record;
+}
+
+/* test_demoted_alpenglow: an alpenglow record with a 5000 byte state
+   round-trips through the codec and the store, an unknown mode and a
+   state past FD_FAILOVER_STATE_MAX are refused on both sides. */
+static void
+test_demoted_alpenglow( void ) {
+  fd_failover_demoted_record_t record = sample_demoted_alpenglow();
+  ulong sz = fd_failover_demoted_ser( &record, demoted_buf );
+  FD_TEST( sz==FD_FAILOVER_DEMOTED_FILE_BODY_MIN+5000UL+32UL && sz<=FD_FAILOVER_DEMOTED_FILE_MAX );
+
+  fd_failover_demoted_record_t out;
+  FD_TEST( !fd_failover_demoted_de( demoted_buf, sz, &out ) );
+  FD_TEST( fd_memeq( &out, &record, sizeof(record) ) );
+  FD_TEST( out.demoted.mode==(uchar)FD_FAILOVER_MODE_ALPENGLOW && out.demoted.state_len==5000U );
+
+  record.demoted.mode = (uchar)FD_FAILOVER_MODE_CNT;
+  FD_TEST( !fd_failover_demoted_ser( &record, demoted_buf ) );
+  record = sample_demoted_alpenglow();
+  sz = fd_failover_demoted_ser( &record, demoted_buf );
+  demoted_buf[ 4UL+3UL*sizeof(ulong) ] = (uchar)FD_FAILOVER_MODE_CNT;
+  fd_sha256_hash( demoted_buf, sz-32UL, demoted_buf+sz-32UL );
+  FD_TEST( fd_failover_demoted_de( demoted_buf, sz, &out )==EPROTO );
+
+  /* The length is checked before the body is sized from it. */
+  record = sample_demoted_alpenglow();
+  record.demoted.state_len = (ushort)(FD_FAILOVER_STATE_MAX+1UL);
+  FD_TEST( !fd_failover_demoted_ser( &record, demoted_buf ) );
+  record = sample_demoted_alpenglow();
+  sz = fd_failover_demoted_ser( &record, demoted_buf );
+  FD_STORE( ushort, demoted_buf+4UL+3UL*sizeof(ulong)+1UL, (ushort)(FD_FAILOVER_STATE_MAX+1UL) );
+  fd_sha256_hash( demoted_buf, sz-32UL, demoted_buf+sz-32UL );
+  FD_TEST( fd_failover_demoted_de( demoted_buf, sz, &out )==EPROTO );
+
+  /* The file on disk comes back whole. */
+  char dir_path[] = "/tmp/fd_failover_demoted_ag.XXXXXX";
+  FD_TEST( mkdtemp( dir_path ) );
+  int dir_fd = open( dir_path, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
+  FD_TEST( dir_fd>=0 );
+  int file_fd = fcntl( dir_fd, F_DUPFD_CLOEXEC, 0 );
+  FD_TEST( file_fd>=0 );
+  record = sample_demoted_alpenglow();
+  FD_TEST( !fd_failover_demoted_store( dir_fd, file_fd, 1, UINT_MAX, UINT_MAX, &record ) );
+  FD_TEST( !fd_failover_demoted_load( dir_fd, &out ) );
+  FD_TEST( fd_memeq( &out, &record, sizeof(record) ) );
+  FD_TEST( !close( file_fd ) );
+  FD_TEST( !unlinkat( dir_fd, FD_FAILOVER_DEMOTED_PATH, 0 ) );
+  FD_TEST( !close( dir_fd ) );
+  FD_TEST( !rmdir( dir_path ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -280,6 +342,7 @@ main( int     argc,
   test_storage();
   test_demoted_codec();
   test_demoted_storage();
+  test_demoted_alpenglow();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

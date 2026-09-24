@@ -20,4 +20,6 @@ $(call make-unit-test,test_failover_role,test_failover_role,fd_discof fd_ballet 
 $(call run-unit-test,test_failover_role)
 $(call make-unit-test,test_failover_tile,test_failover_tile,fd_discof fd_choreo fd_disco fd_flamenco fd_waltz fd_tls fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_failover_tile)
+$(call make-unit-test,test_failover_tile_ag,test_failover_tile_ag,fd_discof fd_choreo fd_disco fd_flamenco fd_waltz fd_tls fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_failover_tile_ag)
 endif

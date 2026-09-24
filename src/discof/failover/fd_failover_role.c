@@ -177,9 +177,9 @@ static int
 demoted_valid( fd_failover_demoted_record_t const * record ) {
   if( FD_UNLIKELY( record->demoted.term>=ULONG_MAX-1UL ||
                    record->demoted.last_vote_slot==FD_FAILOVER_SLOT_NULL ||
-                   record->demoted.mode!=(uchar)FD_FAILOVER_MODE_TOWER ||
+                   record->demoted.mode>=(uchar)FD_FAILOVER_MODE_CNT ||
                    !record->demoted.state_len ||
-                   record->demoted.state_len>FD_FAILOVER_TOWER_STATE_MAX ||
+                   record->demoted.state_len>FD_FAILOVER_STATE_MAX ||
                    record->source>FD_FAILOVER_DEMOTED_SOURCE_PEER ) ) return 0;
   uchar digest[ FD_FAILOVER_DEMOTED_DIGEST_SZ ];
   fd_sha256_hash( record->state, record->demoted.state_len, digest );
@@ -223,7 +223,7 @@ fd_failover_demoted_de( uchar const *                   buf,
   record.demoted.watermark      = FD_LOAD( ulong, buf+off ); off += 8UL;
   record.demoted.mode           = FD_LOAD( uchar, buf+off ); off += 1UL;
   record.demoted.state_len      = FD_LOAD( ushort, buf+off ); off += 2UL;
-  if( FD_UNLIKELY( record.demoted.state_len>FD_FAILOVER_TOWER_STATE_MAX ) ) return EPROTO;
+  if( FD_UNLIKELY( record.demoted.state_len>FD_FAILOVER_STATE_MAX ) ) return EPROTO;
 
   ulong body_sz = FD_FAILOVER_DEMOTED_FILE_V1_BODY_MIN+(ulong)record.demoted.state_len+(ulong)(version!=1U);
   if( FD_UNLIKELY( buf_sz!=body_sz+32UL ) ) return EPROTO;

@@ -1936,13 +1936,14 @@ telemetry = true
     # Write a signed tower file under paths.base/tower before each vote is
     # published, and restore it on restart before voting again.  The layout
     # is Agave's but the signature is ours, so Agave cannot read the file.
-    # Required with failover, not supported with Alpenglow.  An invalid
-    # file stops startup.  A missing file is fine without failover or on a
-    # spare, but an active needs its latest file unless it is a brand new
-    # voter started with --failover-first-use.  Never restore an old copy
-    # or roll the disk back after voting, a valid signature does not mean
-    # the file is fresh.  set-identity is refused while this is on, the
-    # failover controller owns the key.
+    # Under Alpenglow the votor keeps its signed vote history under
+    # paths.base/votor instead, in our own layout.  Required with failover.
+    # An invalid file stops startup.  A missing file is fine without
+    # failover or on a spare, but an active needs its latest file unless it
+    # is a brand new voter started with --failover-first-use.  Never restore
+    # an old copy or roll the disk back after voting, a valid signature does
+    # not mean the file is fresh.  set-identity is refused while this is on,
+    # the failover controller owns the key.
     tower_file = false
 
 # These options can be useful for development, but should not be used

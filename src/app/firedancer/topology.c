@@ -272,8 +272,9 @@ fd_topo_initialize( config_t * config ) {
   int leader_enabled    = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled    = config->tiles.rserve.enabled;
   int alpenglow_enabled = config->firedancer.development.alpenglow;
-  /* Failover does not support Alpenglow yet. */
-  int failover_enabled   = config->firedancer.failover.enabled && !alpenglow_enabled;
+  int failover_enabled   = config->firedancer.failover.enabled;
+  /* Under Alpenglow the same knob is the votor's vote history file, see
+     fd_topo_configure_tile. */
   int tower_file_enabled = config->firedancer.failover.tower_file && !alpenglow_enabled;
 
   char const * repair = alpenglow_enabled ? "rotor" : "repair";
@@ -319,6 +320,10 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "admin_failov" );
     fd_topob_wksp( topo, "failov_admin" );
     if( !alpenglow_enabled ) fd_topob_wksp( topo, "failov_tower" );
+    else {
+      fd_topob_wksp( topo, "failov_votor" );
+      fd_topob_wksp( topo, "votor_hist" );
+    }
   }
 
   if( leader_enabled ) {
@@ -512,6 +517,10 @@ fd_topo_initialize( config_t * config ) {
     if( !alpenglow_enabled ) {
     /**/               fd_topob_link( topo, "failov_tower",  "failov_tower",  32UL,                                     FD_FAILOVER_TOWER_STATE_MAX,   1UL );
     /**/               fd_topob_link( topo, "tower_failov",  "failov_tower",  32UL,                                     sizeof(fd_tower_adopt_result_t), 1UL );
+    } else {
+    /**/               fd_topob_link( topo, "failov_votor",  "failov_votor",  32UL,                                     FD_FAILOVER_STATE_MAX,         1UL );
+    /**/               fd_topob_link( topo, "votor_failov",  "failov_votor",  32UL,                                     sizeof(fd_votor_adopt_result_t), 1UL );
+    /**/               fd_topob_link( topo, "votor_hist",    "votor_hist",    1024UL,                                   sizeof(fd_votor_hist_msg_t),   1UL );
     }
   }
   if( leader_enabled ) {
@@ -777,6 +786,16 @@ fd_topo_initialize( config_t * config ) {
        stay the tower tile's first output link. */
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_tower",  0UL                                                );
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "tower_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
+  if( alpenglow_enabled && failover_enabled ) {
+    /* The votor stands in for the tower here, its history frames are
+       read like tower_out and the votor side is wired with the other
+       Alpenglow links below. */
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_hist",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /* The readiness view reads replay's resets in both modes. */
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_votor",  0UL                                                );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
   if( FD_UNLIKELY( failover_enabled ) ) {
     /* Command bus between the admin tile and the failover tile.  The admin
@@ -1188,6 +1207,11 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_sign",    0UL                                                  );
     /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "sign_votor",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/               fd_topob_tile_out(   topo, "sign",   0UL,                       "sign_votor",    0UL                                                  );
+    if( FD_UNLIKELY( failover_enabled ) ) {
+      /**/             fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "failov_votor",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+      /**/             fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_hist",    0UL                                                  );
+      /**/             fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_failov",  0UL                                                  );
+    }
   }
 
   /* Grant the admin tile access to every keyswitch object in the
@@ -1503,7 +1527,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->admin.identity_key_path, identity_key_path, sizeof(tile->admin.identity_key_path) );
     fd_cstr_ncpy( tile->admin.failover_staked_identity_path, config->firedancer.failover.staked_identity_path, sizeof(tile->admin.failover_staked_identity_path) );
     tile->admin.failover_enabled   = config->firedancer.failover.enabled;
-    tile->admin.tower_file_enabled = config->firedancer.failover.tower_file && !config->firedancer.development.alpenglow;
+    tile->admin.tower_file_enabled = config->firedancer.failover.tower_file;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
 
@@ -1537,17 +1561,18 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->failov.retry_backoff_min_millis = config->firedancer.failover.retry_backoff_min_millis;
     tile->failov.retry_backoff_max_millis = config->firedancer.failover.retry_backoff_max_millis;
     /* HELLO rejects a peer whose safety config differs.  The hash covers
-       what every member must agree on: the tower persistence switch,
-       whether a spare may ask for a handoff, and the ordered member list
-       with both keys and addresses, so machines with different lists do
-       not end up both dialing, both listening, or dialing a port nobody
-       binds.  Timing values stay local and out of it.  Only the listed
-       members are hashed, so raising the member cap leaves existing pools
-       paired. */
+       what every member must agree on: the consensus mode, the vote state
+       persistence switch, whether a spare may ask for a handoff, and the
+       ordered member list with both keys and addresses, so machines with
+       different lists do not end up both dialing, both listening, or
+       dialing a port nobody binds.  Timing values stay local and out of
+       it.  Only the listed members are hashed, so raising the member cap
+       leaves existing pools paired. */
     struct __attribute__((packed)) {
       ulong layout;
       uchar tower_file;
       uchar accept_peer_requests;
+      uchar alpenglow;
       ulong member_cnt;
       struct __attribute__((packed)) {
         uchar  junk[ 32 ];
@@ -1558,6 +1583,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       .layout               = 1UL,
       .tower_file           = (uchar)!!config->firedancer.failover.tower_file,
       .accept_peer_requests = (uchar)!!config->firedancer.failover.accept_peer_requests,
+      .alpenglow            = (uchar)!!config->firedancer.development.alpenglow,
       .member_cnt           = tile->failov.member_cnt,
     };
     for( ulong i=0UL; i<tile->failov.member_cnt; i++ ) {

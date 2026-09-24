@@ -251,7 +251,7 @@ main( int     argc,
   FD_TEST(  tower_file_config_is_valid( config, 0, 0 ) );
   FD_TEST(  tower_file_config_is_valid( config, 1, 0 ) );
   FD_TEST(  tower_file_config_is_valid( config, 0, 1 ) );
-  FD_TEST( !tower_file_config_is_valid( config, 1, 1 ) );
+  FD_TEST(  tower_file_config_is_valid( config, 1, 1 ) );
 
   /* Failover requires tower persistence, whatever the pool looks like. */
   config->firedancer.failover.enabled                 = 1;
@@ -273,6 +273,8 @@ main( int     argc,
   config->firedancer.failover.retry_backoff_max_millis = 12800UL;
   FD_TEST( !tower_file_config_is_valid( config, 0, 0 ) );
   FD_TEST(  tower_file_config_is_valid( config, 1, 0 ) );
+  FD_TEST( !tower_file_config_is_valid( config, 0, 1 ) );
+  FD_TEST(  tower_file_config_is_valid( config, 1, 1 ) );
   config->firedancer.failover.enabled = 0;
 
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
