@@ -234,6 +234,8 @@ struct fd_stake_delegations {
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
+#define FD_STAKE_DELEGATIONS_ITER_BATCH_CNT (128UL)
+
 struct fd_stake_delegations_iter {
   fd_stake_delegation_t *        root_pool;
   fd_stake_delegation_t *        delta_pool;
@@ -243,6 +245,7 @@ struct fd_stake_delegations_iter {
   ulong                          wmk;      /* in-memory root watermark */
   ulong                          disk_idx; /* dense disk-root cursor */
   fd_stake_delegation_t          disk_ele;
+  fd_stake_delegation_t          disk_batch[ FD_STAKE_DELEGATIONS_ITER_BATCH_CNT ];
 };
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 
@@ -537,9 +540,11 @@ fd_stake_delegations_frontier_query_end( fd_stake_delegations_t *   stake_delega
 
    Under the hood, the iterator walks in-memory roots followed by dense
    disk roots, redirecting through tagged in-memory/disk delta references
-   for entries a marked fork has changed.  Disk records are returned
+   for entries a marked fork has changed.  Disk roots are read in batches
+   of up to 128 records (14 KiB per iterator).  Disk records are returned
    through iterator-owned storage, so that pointer remains valid only
-   until the next call to fd_stake_delegations_iter_next.
+   until the next call to fd_stake_delegations_iter_next.  Reinitialize
+   the iterator after modifying the store or changing the marked forks.
 
    Example use:
 

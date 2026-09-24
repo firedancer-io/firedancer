@@ -291,10 +291,12 @@ disk_delta_find( fd_stake_delegations_t const * stake_delegations,
                  disk_delta_t *                 delta,
                  uint *                         idx,
                  ulong *                        found_bucket_idx,
-                 ulong *                        free_bucket_idx ) {
+                 ulong *                        free_bucket_idx,
+                 int *                          free_bucket_is_tombstone ) {
   *idx              = UINT_MAX;
   *found_bucket_idx = ULONG_MAX;
   *free_bucket_idx  = ULONG_MAX;
+  if( free_bucket_is_tombstone ) *free_bucket_is_tombstone = 0;
   ulong bucket_cnt = stake_delegations->disk_bucket_cnt_;
   ulong seed       = stake_delegations->seed_ ^ (ulong)fork_idx;
   ulong bucket_idx = (ulong)fd_hash32( stake_account->uc, seed ) & (bucket_cnt-1UL);
@@ -307,7 +309,10 @@ disk_delta_find( fd_stake_delegations_t const * stake_delegations,
       return;
     }
     if( FD_UNLIKELY( bucket.idx==DISK_BUCKET_TOMBSTONE ) ) {
-      if( *free_bucket_idx==ULONG_MAX ) *free_bucket_idx = bucket_idx;
+      if( *free_bucket_idx==ULONG_MAX ) {
+        *free_bucket_idx = bucket_idx;
+        if( free_bucket_is_tombstone ) *free_bucket_is_tombstone = 1;
+      }
     } else {
       FD_CHECK_CRIT( (ulong)bucket.idx<stake_delegations->disk_delta_cnt_, "corrupt stake delegation disk delta index" );
       disk_delta_t candidate;
@@ -375,7 +380,7 @@ disk_delta_rebuild( fd_stake_delegations_t * stake_delegations ) {
     ulong found_bucket_idx;
     ulong free_bucket_idx;
     disk_delta_find( stake_delegations, delta.fork_idx, &delta.delegation.stake_account,
-                     NULL, &found_idx, &found_bucket_idx, &free_bucket_idx );
+                     NULL, &found_idx, &found_bucket_idx, &free_bucket_idx, NULL );
     FD_CHECK_CRIT( found_idx==UINT_MAX && free_bucket_idx!=ULONG_MAX, "unable to rebuild stake delegation disk delta index" );
     disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), free_bucket_idx,
                        stake_delegations->disk_delta_gen_, idx );
@@ -471,17 +476,14 @@ disk_root_remove( fd_stake_delegations_t * stake_delegations,
 static void
 disk_delta_insert( fd_stake_delegations_t *      stake_delegations,
                    ushort                        fork_idx,
-                   fd_stake_delegation_t const * delegation ) {
+                   fd_stake_delegation_t const * delegation,
+                   ulong                         free_bucket_idx,
+                   int                           free_bucket_is_tombstone ) {
   disk_delta_record_reserve( stake_delegations );
 
-  uint  idx;
-  ulong found_bucket_idx;
-  ulong free_bucket_idx;
-  disk_delta_find( stake_delegations, fork_idx, &delegation->stake_account, NULL, &idx, &found_bucket_idx, &free_bucket_idx );
-  FD_CHECK_CRIT( idx==UINT_MAX, "duplicate stake delegation disk delta" );
   FD_CHECK_CRIT( free_bucket_idx!=ULONG_MAX, "stake delegation disk delta index exhausted" );
 
-  idx = (uint)stake_delegations->disk_delta_cnt_;
+  uint idx = (uint)stake_delegations->disk_delta_cnt_;
   fork_pool_ele_t * fork = get_fork_pool( stake_delegations ) + fork_idx;
   disk_delta_t delta = {
     .delegation = *delegation,
@@ -491,14 +493,11 @@ disk_delta_insert( fd_stake_delegations_t *      stake_delegations,
   };
   disk_delta_write( stake_delegations, idx, &delta );
   if( FD_LIKELY( delta.next!=UINT_MAX ) ) {
-    disk_delta_t next;
-    disk_delta_read( stake_delegations, delta.next, &next );
-    next.prev = idx;
-    disk_delta_write( stake_delegations, delta.next, &next );
+    disk_write( stake_delegations, &idx,
+                disk_delta_record_off( stake_delegations ) + (ulong)delta.next*sizeof(disk_delta_t) + offsetof(disk_delta_t, prev),
+                sizeof(uint) );
   }
-  disk_bucket_t free_bucket;
-  disk_read( stake_delegations, &free_bucket, disk_bucket_off( disk_delta_bucket_off( stake_delegations ), free_bucket_idx ), sizeof(disk_bucket_t) );
-  if( FD_UNLIKELY( disk_bucket_is_tombstone( &free_bucket, stake_delegations->disk_delta_gen_ ) ) ) {
+  if( FD_UNLIKELY( free_bucket_is_tombstone ) ) {
     FD_CHECK_CRIT( stake_delegations->disk_delta_tombstone_cnt_, "corrupt stake delegation disk delta tombstone count" );
     stake_delegations->disk_delta_tombstone_cnt_--;
   }
@@ -510,32 +509,29 @@ disk_delta_insert( fd_stake_delegations_t *      stake_delegations,
 
 static void
 disk_delta_remove( fd_stake_delegations_t * stake_delegations,
-                   uint                     idx ) {
+                   uint                     idx,
+                   disk_delta_t const *     removed ) {
   FD_CHECK_CRIT( (ulong)idx<stake_delegations->disk_delta_cnt_, "invalid stake delegation disk delta removal" );
-  disk_delta_t removed;
-  disk_delta_read( stake_delegations, idx, &removed );
 
-  fork_pool_ele_t * fork = get_fork_pool( stake_delegations ) + removed.fork_idx;
-  if( FD_LIKELY( removed.prev!=UINT_MAX ) ) {
-    disk_delta_t prev;
-    disk_delta_read( stake_delegations, removed.prev, &prev );
-    prev.next = removed.next;
-    disk_delta_write( stake_delegations, removed.prev, &prev );
+  fork_pool_ele_t * fork = get_fork_pool( stake_delegations ) + removed->fork_idx;
+  if( FD_LIKELY( removed->prev!=UINT_MAX ) ) {
+    disk_write( stake_delegations, &removed->next,
+                disk_delta_record_off( stake_delegations ) + (ulong)removed->prev*sizeof(disk_delta_t) + offsetof(disk_delta_t, next),
+                sizeof(uint) );
   } else {
-    fork->disk_delta_head = removed.next;
+    fork->disk_delta_head = removed->next;
   }
-  if( FD_LIKELY( removed.next!=UINT_MAX ) ) {
-    disk_delta_t next;
-    disk_delta_read( stake_delegations, removed.next, &next );
-    next.prev = removed.prev;
-    disk_delta_write( stake_delegations, removed.next, &next );
+  if( FD_LIKELY( removed->next!=UINT_MAX ) ) {
+    disk_write( stake_delegations, &removed->prev,
+                disk_delta_record_off( stake_delegations ) + (ulong)removed->next*sizeof(disk_delta_t) + offsetof(disk_delta_t, prev),
+                sizeof(uint) );
   }
 
   uint  found_idx;
   ulong found_bucket_idx;
   ulong free_bucket_idx;
-  disk_delta_find( stake_delegations, removed.fork_idx, &removed.delegation.stake_account,
-                   NULL, &found_idx, &found_bucket_idx, &free_bucket_idx );
+  disk_delta_find( stake_delegations, removed->fork_idx, &removed->delegation.stake_account,
+                   NULL, &found_idx, &found_bucket_idx, &free_bucket_idx, NULL );
   FD_CHECK_CRIT( found_idx==idx, "missing stake delegation disk delta removal" );
   disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), found_bucket_idx,
                      stake_delegations->disk_delta_gen_, DISK_BUCKET_TOMBSTONE );
@@ -549,25 +545,23 @@ disk_delta_remove( fd_stake_delegations_t * stake_delegations,
     uint  moved_idx;
     ulong moved_bucket_idx;
     disk_delta_find( stake_delegations, moved.fork_idx, &moved.delegation.stake_account,
-                     NULL, &moved_idx, &moved_bucket_idx, &free_bucket_idx );
+                     NULL, &moved_idx, &moved_bucket_idx, &free_bucket_idx, NULL );
     FD_CHECK_CRIT( moved_idx==last, "missing moved stake delegation disk delta" );
     disk_bucket_store( stake_delegations, disk_delta_bucket_off( stake_delegations ), moved_bucket_idx,
                        stake_delegations->disk_delta_gen_, idx );
 
     fork_pool_ele_t * moved_fork = get_fork_pool( stake_delegations ) + moved.fork_idx;
     if( FD_LIKELY( moved.prev!=UINT_MAX ) ) {
-      disk_delta_t prev;
-      disk_delta_read( stake_delegations, moved.prev, &prev );
-      prev.next = idx;
-      disk_delta_write( stake_delegations, moved.prev, &prev );
+      disk_write( stake_delegations, &idx,
+                  disk_delta_record_off( stake_delegations ) + (ulong)moved.prev*sizeof(disk_delta_t) + offsetof(disk_delta_t, next),
+                  sizeof(uint) );
     } else {
       moved_fork->disk_delta_head = idx;
     }
     if( FD_LIKELY( moved.next!=UINT_MAX ) ) {
-      disk_delta_t next;
-      disk_delta_read( stake_delegations, moved.next, &next );
-      next.prev = idx;
-      disk_delta_write( stake_delegations, moved.next, &next );
+      disk_write( stake_delegations, &idx,
+                  disk_delta_record_off( stake_delegations ) + (ulong)moved.next*sizeof(disk_delta_t) + offsetof(disk_delta_t, prev),
+                  sizeof(uint) );
     }
   }
   stake_delegations->disk_delta_cnt_--;
@@ -1213,13 +1207,14 @@ fork_delta_upsert( fd_stake_delegations_t *      stake_delegations,
     return;
   }
 
-  if( FD_UNLIKELY( stake_delegations->disk_delta_cnt_ ) ) {
+  ulong free_bucket_idx          = ULONG_MAX;
+  int   free_bucket_is_tombstone = 0;
+  if( FD_UNLIKELY( stake_delegations->disk_delta_cnt_ || !delta_pool_free( delta_pool ) ) ) {
     disk_delta_t disk_delta;
     uint         disk_idx;
     ulong        found_bucket_idx;
-    ulong        free_bucket_idx;
     disk_delta_find( stake_delegations, fork_idx, &delegation->stake_account,
-                     &disk_delta, &disk_idx, &found_bucket_idx, &free_bucket_idx );
+                     &disk_delta, &disk_idx, &found_bucket_idx, &free_bucket_idx, &free_bucket_is_tombstone );
     if( FD_UNLIKELY( disk_idx!=UINT_MAX ) ) {
       disk_delta.delegation = *delegation;
       disk_delta_write( stake_delegations, disk_idx, &disk_delta );
@@ -1238,7 +1233,7 @@ fork_delta_upsert( fd_stake_delegations_t *      stake_delegations,
                    "unable to insert stake delegation into fork map" );
     fork->delta_head = idx;
   } else {
-    disk_delta_insert( stake_delegations, fork_idx, delegation );
+    disk_delta_insert( stake_delegations, fork_idx, delegation, free_bucket_idx, free_bucket_is_tombstone );
   }
 }
 
@@ -1308,7 +1303,10 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
   fork_pool[ fork_idx ].delta_head = UINT_MAX;
 
   while( fork_pool[ fork_idx ].disk_delta_head!=UINT_MAX ) {
-    disk_delta_remove( stake_delegations, fork_pool[ fork_idx ].disk_delta_head );
+    uint disk_idx = fork_pool[ fork_idx ].disk_delta_head;
+    disk_delta_t disk_delta;
+    disk_delta_read( stake_delegations, disk_idx, &disk_delta );
+    disk_delta_remove( stake_delegations, disk_idx, &disk_delta );
   }
   fork_pool[ fork_idx ].disk_delta_head = UINT_MAX;
   fork_pool_idx_release( fork_pool, fork_idx );
@@ -1376,7 +1374,7 @@ apply_fork_delta( ulong                                epoch,
     disk_delta_t disk_delta;
     disk_delta_read( stake_delegations, disk_idx, &disk_delta );
     fd_stake_delegation_t delegation = disk_delta.delegation;
-    disk_delta_remove( stake_delegations, disk_idx );
+    disk_delta_remove( stake_delegations, disk_idx, &disk_delta );
     upserts += (ulong)!delegation.is_tombstone;
     removes += (ulong)!!delegation.is_tombstone;
     apply_delta( epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math,
@@ -1437,12 +1435,19 @@ void
 fd_stake_delegations_iter_advance_disk_root_private( fd_stake_delegations_iter_t * iter ) {
   fd_stake_delegations_t const * stake_delegations = iter->stake_delegations;
   while( iter->disk_idx<stake_delegations->disk_root_cnt_ ) {
-    disk_root_read( stake_delegations, (uint)iter->disk_idx, &iter->disk_ele );
+    ulong batch_idx = iter->disk_idx % FD_STAKE_DELEGATIONS_ITER_BATCH_CNT;
+    if( FD_UNLIKELY( !batch_idx ) ) {
+      ulong cnt = fd_ulong_min( FD_STAKE_DELEGATIONS_ITER_BATCH_CNT, stake_delegations->disk_root_cnt_-iter->disk_idx );
+      disk_read( stake_delegations, iter->disk_batch,
+                 disk_root_record_off( stake_delegations ) + iter->disk_idx*sizeof(fd_stake_delegation_t),
+                 cnt*sizeof(fd_stake_delegation_t) );
+    }
+    fd_stake_delegation_t * root = iter->disk_batch + batch_idx;
     iter->idx = stake_delegations->max_stake_accounts_ + iter->disk_idx;
 
-    uint delta_idx = iter->disk_ele.delta_idx;
+    uint delta_idx = root->delta_idx;
     if( FD_LIKELY( delta_idx==UINT_MAX ) ) {
-      iter->ele = &iter->disk_ele;
+      iter->ele = root;
       return;
     }
     if( FD_UNLIKELY( delta_idx & FD_STAKE_DELEGATIONS_DELTA_DISK_TAG ) ) {
