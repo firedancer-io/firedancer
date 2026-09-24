@@ -108,6 +108,7 @@ void dasm_free(Dst_DECL)
       DASM_M_FREE(Dst, D->sections[i].buf, D->sections[i].bsize);
   if (D->pclabels) DASM_M_FREE(Dst, D->pclabels, D->pcsize);
   if (D->lglabels) DASM_M_FREE(Dst, D->lglabels, D->lgsize);
+  if (D->globals)  DASM_M_FREE(Dst, D->globals, 0);
   DASM_M_FREE(Dst, D, D->psize);
 }
 

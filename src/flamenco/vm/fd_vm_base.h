@@ -30,6 +30,7 @@
 #define FD_VM_ERR_FULL  (-5) /* storage full */
 #define FD_VM_ERR_EMPTY (-6) /* nothing to do */
 #define FD_VM_ERR_IO    (-7) /* input-output error */
+#define FD_VM_ERR_BAIL  (-8) /* drop back to compatibility mode */
 
 /* VM exec error codes:  These are only produced by the VM itself. */
 
