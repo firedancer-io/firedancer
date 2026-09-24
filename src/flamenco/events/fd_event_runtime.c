@@ -104,7 +104,7 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
     d->is_vote_update  = !!txn_out->accounts.vote_update [ i ];
     d->is_new_vote     = !!txn_out->accounts.new_vote    [ i ];
     d->is_rm_vote      = !!txn_out->accounts.rm_vote     [ i ];
-    fd_memcpy( d->lthash, txn_out->accounts.lthash_checksum[ i ], 32UL );
+    if( txn_out->err.is_committable ) fd_memcpy( d->lthash, txn_out->accounts.lthash_checksum[ i ], 32UL );
   }
   ev.account_diffs_cnt = diff_cnt;
 
@@ -549,10 +549,10 @@ fd_event_runtime_block_account( fd_bank_t *               bank,
   fd_event_runtime_slot_diffs_t * diffs = fd_event_runtime_slot_diffs_at( bank->idx );
   if( FD_UNLIKELY( !diffs ) ) return;
 
-  /* Same checksum form as Agave's LtHash::checksum; zero for an account
-     that no longer exists (its lthash is the identity). */
-  uchar lthash[ 32 ] = {0};
-  if( FD_LIKELY( lamports ) ) fd_blake3_hash( lthash_post->bytes, FD_LTHASH_LEN_BYTES, lthash );
+  /* Same checksum form as Agave's LtHash::checksum, including deletion
+     (the checksum of the zero lthash, not a zero checksum). */
+  uchar lthash[ 32 ];
+  fd_blake3_hash( lthash_post->bytes, FD_LTHASH_LEN_BYTES, lthash );
 
   fd_event_runtime_account_diff_t * arr; ulong * cnt; ulong cap;
   if( FD_UNLIKELY( !memcmp( owner, fd_sysvar_owner_id.uc, 32UL ) ) ) {

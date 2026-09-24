@@ -1107,7 +1107,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 /* fd_runtime_lthash_account updates the running lthash of the bank
    given an account that might have been updated.  If checksum_out is
    non-NULL, the blake3 checksum of the account's post-commit lthash is
-   written to it (zero if the account no longer exists). */
+   written to it (including the checksum of the zero lthash for deletion). */
 
 static void
 fd_runtime_lthash_account( fd_bank_t *         bank,
@@ -1131,11 +1131,12 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
   fd_lthash_value_t lthash_post[1];
   if( FD_LIKELY( acc->prior_lamports || acc->lamports ) ) {
     fd_hashes_update_simple( lthash_post, lthash_prev, pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+  } else if( FD_UNLIKELY( checksum_out ) ) {
+    fd_lthash_zero( lthash_post );
   }
 
   if( FD_UNLIKELY( checksum_out ) ) {
-    if( FD_LIKELY( acc->lamports ) ) fd_blake3_hash( lthash_post->bytes, FD_LTHASH_LEN_BYTES, checksum_out );
-    else                             memset( checksum_out, 0, 32UL );
+    fd_blake3_hash( lthash_post->bytes, FD_LTHASH_LEN_BYTES, checksum_out );
   }
 }
 

@@ -528,7 +528,7 @@ message RuntimeTxnAccountDiffs {
   bool is_new_vote = 11;
   // True if this write removed a vote account
   bool is_rm_vote = 12;
-  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Zero if the account does not exist after the txn, or if this txn did not commit it: a bundle txn that is not the account's final writer, or a txn that was not committed
+  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Deleted accounts carry the checksum of the zero lthash. Zero is reserved for an uncaptured contribution: a bundle txn that is not the account's final writer, or a txn that was not committed
   bytes lthash = 13;
 }
 
@@ -712,7 +712,7 @@ message RuntimeBlockOtherDiffs {
   uint64 prev_data_sz = 7;
   // True if the post-state account is executable
   bool is_executable = 8;
-  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents written without shipping the data. Zero if the account does not exist after the write
+  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash
   bytes lthash = 9;
 }
 
@@ -734,7 +734,7 @@ message RuntimeBlockSysvarDiffs {
   uint64 prev_data_sz = 7;
   // True if the post-state account is executable
   bool is_executable = 8;
-  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact sysvar contents written without shipping the data. Zero if the account does not exist after the write
+  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact sysvar contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash
   bytes lthash = 9;
 }
 

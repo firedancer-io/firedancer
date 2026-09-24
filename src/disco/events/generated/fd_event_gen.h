@@ -230,7 +230,7 @@ struct fd_event_runtime_txn_account_diffs {
   int   is_vote_update;     /* True if this write touched the vote cache */
   int   is_new_vote;        /* True if this write created a new vote account */
   int   is_rm_vote;         /* True if this write removed a vote account */
-  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Zero if the account does not exist after the txn, or if this txn did not commit it: a bundle txn that is not the account's final writer, or a txn that was not committed */
+  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Deleted accounts carry the checksum of the zero lthash. Zero is reserved for an uncaptured contribution: a bundle txn that is not the account's final writer, or a txn that was not committed */
 };
 typedef struct fd_event_runtime_txn_account_diffs fd_event_runtime_txn_account_diffs_t;
 
@@ -573,7 +573,7 @@ struct fd_event_runtime_block_sysvar_diffs {
   ulong data_sz;            /* Post-state data size in bytes */
   ulong prev_data_sz;       /* Pre-state data size in bytes */
   int   is_executable;      /* True if the post-state account is executable */
-  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact sysvar contents written without shipping the data. Zero if the account does not exist after the write */
+  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact sysvar contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash */
 };
 typedef struct fd_event_runtime_block_sysvar_diffs fd_event_runtime_block_sysvar_diffs_t;
 
@@ -587,7 +587,7 @@ struct fd_event_runtime_block_other_diffs {
   ulong data_sz;            /* Post-state data size in bytes */
   ulong prev_data_sz;       /* Pre-state data size in bytes */
   int   is_executable;      /* True if the post-state account is executable */
-  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents written without shipping the data. Zero if the account does not exist after the write */
+  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash */
 };
 typedef struct fd_event_runtime_block_other_diffs fd_event_runtime_block_other_diffs_t;
 
