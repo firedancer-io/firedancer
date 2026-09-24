@@ -11,8 +11,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
                                       ulong   input_addr,
                                       ulong   input_sz,
                                       ulong   result_addr,
-                                      FD_PARAM_UNUSED ulong r5,
-                                      ulong * _ret ) {
+                                      FD_PARAM_UNUSED ulong r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1509 */
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
@@ -150,7 +149,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
     break;
   }
 
-  *_ret = ret;
+  vm->reg[0] = ret;
   return FD_VM_SUCCESS; /* Ok(SUCCESS) or Ok(ERROR) */
 }
 
@@ -160,8 +159,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
                                          ulong   input_addr,
                                          ulong   input_sz,
                                          ulong   result_addr,
-                                         FD_PARAM_UNUSED ulong r5,
-                                         ulong * _ret ) {
+                                         FD_PARAM_UNUSED ulong r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1776 */
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
@@ -274,7 +272,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
   }
 
 soft_error:
-  *_ret = ret;
+  vm->reg[0] = ret;
   return FD_VM_SUCCESS; /* Ok(SUCCESS) or Ok(ERROR) */
 }
 
@@ -284,8 +282,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
                             ulong   endianness,
                             ulong   vals_addr,
                             ulong   vals_len,
-                            ulong   result_addr,
-                            ulong * _ret ) {
+                            ulong   result_addr ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1678 */
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
@@ -383,7 +380,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
   ret = !fd_poseidon_fini( pos, hash_result );
 
 soft_error:
-  *_ret = ret;
+  vm->reg[0] = ret;
   return FD_VM_SUCCESS; /* Ok(1) == error */
 }
 
@@ -393,8 +390,7 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
                                      /**/            ulong   recovery_id_val,
                                      /**/            ulong   signature_vaddr,
                                      /**/            ulong   result_vaddr,
-                                     FD_PARAM_UNUSED ulong   r5,
-                                     /**/            ulong * _ret ) {
+                                     FD_PARAM_UNUSED ulong   r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L810 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
@@ -418,7 +414,7 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
      https://github.com/paritytech/libsecp256k1/blob/v0.6.0/src/lib.rs#L657-L665
 
      if( FD_UNLIKELY( 0 ) ) {
-       *_ret = 1UL; // Secp256k1RecoverError::InvalidHash
+       vm->reg[0] = 1UL; // Secp256k1RecoverError::InvalidHash
        return FD_VM_SUCCESS;
      }
    */
@@ -431,7 +427,7 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
   */
 
   if( FD_UNLIKELY( recovery_id_val >= 4UL ) ) {
-    *_ret = 2UL; /* Secp256k1RecoverError::InvalidRecoveryId */
+    vm->reg[0] = 2UL; /* Secp256k1RecoverError::InvalidRecoveryId */
     return FD_VM_SUCCESS;
   }
 
@@ -452,13 +448,13 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
 
   uchar secp256k1_pubkey[64];
   if( FD_UNLIKELY( !fd_secp256k1_recover( secp256k1_pubkey, hash, sig, (int)recovery_id_val ) ) ) {
-    *_ret = 3UL; /* Secp256k1RecoverError::InvalidSignature */
+    vm->reg[0] = 3UL; /* Secp256k1RecoverError::InvalidSignature */
     return FD_VM_SUCCESS;
   }
 
   memcpy( pubkey_result, secp256k1_pubkey, 64UL );
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
