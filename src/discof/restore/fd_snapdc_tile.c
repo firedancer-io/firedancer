@@ -3,6 +3,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../tango/fseq/fd_fseq.h"
 
 #include "generated/fd_snapdc_tile_seccomp.h"
 
@@ -16,7 +17,10 @@
 /* The snapdc tile is a state machine that decompresses the full and
    optionally incremental snapshot byte stream that it receives from the
    snapld tile.  In the event that the snapshot is already uncompressed,
-   this tile simply copies the stream to the next tile in the pipeline. */
+   this tile simply copies the stream to the next tile in the pipeline.
+
+   Snapdc tiles claim which frames to decompress next using a shared
+   counter. */
 
 struct fd_snapdc_tile {
   uint full    : 1;
@@ -24,9 +28,10 @@ struct fd_snapdc_tile {
   uint dirty   : 1;  /* in the middle of a frame? */
   int state;
 
-  ulong tile_idx;
-  ulong tile_count;
-  ulong frame_idx;
+  ulong   tile_idx;
+  ulong   frame_idx;         /* frame at the input cursor */
+  ulong   claimed_frame;     /* frame this tile decompresses next, ULONG_MAX until the first data frag of an attempt */
+  ulong * next_frame_ticket; /* shared counter of the next unclaimed frame */
 
   ZSTD_DCtx *     zstd;
   fd_zstd_frame_t zstd_frame[1];
@@ -91,6 +96,15 @@ metrics_write( fd_snapdc_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPDC, STATE,                                   (ulong)(ctx->state) );
 }
 
+static inline void
+reset_stream( fd_snapdc_tile_t * ctx ) {
+  ctx->dirty         = 0;
+  ctx->frame_idx     = 0UL;
+  ctx->claimed_frame = ULONG_MAX;
+  ctx->in.frag_pos   = 0UL;
+  FD_TEST( fd_zstd_frame_new( ctx->zstd_frame ) );
+}
+
 static void
 transition_malformed( fd_snapdc_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
@@ -143,10 +157,8 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->is_zstd = !!msg->zstd;
-      ctx->dirty       = 0;
-      ctx->frame_idx   = 0UL;
-      ctx->in.frag_pos = 0UL;
-      FD_TEST( fd_zstd_frame_new( ctx->zstd_frame ) );
+      reset_stream( ctx );
+      fd_fseq_update( ctx->next_frame_ticket, 0UL );
       if( ctx->full ) {
         ctx->metrics.full.compressed_bytes_read      = 0UL;
         ctx->metrics.full.decompressed_bytes_written = 0UL;
@@ -229,7 +241,7 @@ skip_unowned_frame( fd_snapdc_tile_t *  ctx,
                     fd_stem_context_t * stem,
                     uchar const *       data,
                     ulong               sz ) {
-  FD_TEST( ctx->frame_idx%ctx->tile_count!=ctx->tile_idx );
+  FD_TEST( ctx->frame_idx<ctx->claimed_frame );
   FD_TEST( ctx->dirty || ctx->in.frag_pos<sz );
   ctx->dirty = 1;
 
@@ -272,7 +284,7 @@ process_owned_frame( fd_snapdc_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      uchar const *       data,
                      ulong               sz ) {
-  FD_TEST( ctx->frame_idx%ctx->tile_count==ctx->tile_idx );
+  FD_TEST( ctx->frame_idx==ctx->claimed_frame );
   FD_TEST( ctx->dirty || ctx->in.frag_pos<sz );
   ctx->dirty = 1;
 
@@ -320,11 +332,14 @@ process_owned_frame( fd_snapdc_tile_t *  ctx,
 
   if( FD_LIKELY( out_produced || !frame_res ) ) {
     ulong out_ctl = fd_frag_meta_ctl( 0UL, 0, !frame_res, 0 );
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, out_produced, out_ctl, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, fd_snapdc_data_sig( ctx->frame_idx ), ctx->out.chunk, out_produced, out_ctl, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, out_produced, ctx->out.chunk0, ctx->out.wmark );
   }
 
-  if( FD_UNLIKELY( !frame_res ) ) finish_frame( ctx );
+  if( FD_UNLIKELY( !frame_res ) ) {
+    finish_frame( ctx );
+    ctx->claimed_frame = ULONG_MAX;
+  }
 
   /* frame_res==0 means the frame ended exactly at the output boundary;
      re-polling then reports "new frame expected" and would mark the
@@ -359,7 +374,7 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     uchar *       out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
     ulong cpy = fd_ulong_min( sz-ctx->in.frag_pos, ctx->out.mtu );
     fd_memcpy( out, in, cpy );
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, cpy, 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, fd_snapdc_data_sig( 0UL ), ctx->out.chunk, cpy, 0UL, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, cpy, ctx->out.chunk0, ctx->out.wmark );
 
     if( FD_LIKELY( ctx->full ) ) {
@@ -377,7 +392,11 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     return 0;
   }
 
-  if( ctx->frame_idx%ctx->tile_count!=ctx->tile_idx ) {
+  if( FD_UNLIKELY( ctx->claimed_frame==ULONG_MAX ) ) {
+    ctx->claimed_frame = FD_ATOMIC_FETCH_AND_ADD( ctx->next_frame_ticket, 1UL );
+  }
+
+  if( ctx->frame_idx!=ctx->claimed_frame ) {
     return skip_unowned_frame( ctx, stem, data, sz );
   }
 
@@ -437,20 +456,19 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_snapdc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t) );
   void * _zstd           = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
 
-  ctx->state      = FD_SNAPSHOT_STATE_IDLE;
-  ctx->tile_idx   = tile->kind_id;
-  ctx->tile_count = fd_topo_tile_name_cnt( topo, NAME );
-  FD_TEST( ctx->tile_count );
-  FD_TEST( ctx->tile_idx<ctx->tile_count );
+  ctx->state    = FD_SNAPSHOT_STATE_IDLE;
+  ctx->tile_idx = tile->kind_id;
+
+  fd_topo_obj_t const * ticket_obj = fd_topo_find_obj( topo, "fseq", "frame_ticket", ULONG_MAX );
+  FD_TEST( ticket_obj );
+  ctx->next_frame_ticket = fd_fseq_join( fd_topo_obj_laddr( topo, ticket_obj->id ) );
+  FD_TEST( ctx->next_frame_ticket );
 
   ctx->zstd = ZSTD_initStaticDStream( _zstd, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
   FD_TEST( ctx->zstd );
   FD_TEST( ctx->zstd==_zstd );
 
-  ctx->dirty       = 0;
-  ctx->frame_idx   = 0UL;
-  ctx->in.frag_pos = 0UL;
-  FD_TEST( fd_zstd_frame_new( ctx->zstd_frame ) );
+  reset_stream( ctx );
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));

@@ -127,6 +127,26 @@
 /* snapld -> snapct (via snapld_dc) */
 #define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (11UL) /* snapld finished reading/downloading all data */
 
+/* Sigs passed from snapdc to snapin contain the frame index of the
+   frag so snapin knows how to order frames as they arrive. */
+
+#define FD_SNAPDC_SIG_TYPE_BITS (8UL)
+
+FD_FN_CONST static inline ulong
+fd_snapdc_data_sig( ulong frame_idx ) {
+  return FD_SNAPSHOT_MSG_DATA | (frame_idx<<FD_SNAPDC_SIG_TYPE_BITS);
+}
+
+FD_FN_CONST static inline ulong
+fd_snapdc_sig_type( ulong sig ) {
+  return sig & ((1UL<<FD_SNAPDC_SIG_TYPE_BITS)-1UL);
+}
+
+FD_FN_CONST static inline ulong
+fd_snapdc_sig_frame( ulong sig ) {
+  return sig>>FD_SNAPDC_SIG_TYPE_BITS;
+}
+
 /* Pipeline initialization, forwarded by snapld through snapdc to
    snapin. */
 typedef struct fd_ssctrl_init {
@@ -203,7 +223,7 @@ fd_ssctrl_state_str( ulong state ) {
 
 static inline const char *
 fd_ssctrl_msg_ctrl_str( ulong sig ) {
-  switch( sig ) {
+  switch( fd_snapdc_sig_type( sig ) ) {
     case FD_SNAPSHOT_MSG_DATA:                  return "data";
     case FD_SNAPSHOT_MSG_META:                  return "meta";
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:        return "init_full";
