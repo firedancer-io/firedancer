@@ -302,6 +302,12 @@ read_sched_file( int              fd,
   return 0;
 }
 
+static ulong
+check_builder_status( fd_diag_tile_t * ctx ) {
+  (void)ctx;
+  return FD_DIAG_BUILDER_STATUS_DISABLED;
+}
+
 static void
 check_engine_metric( fd_diag_tile_t * ctx, long now ) {
   static ulong const vote_distance_threshold    = 150UL;
@@ -448,6 +454,7 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
   FD_MGAUGE_SET( DIAG, VOTE_STATUS,    vote_status    );
   FD_MGAUGE_SET( DIAG, REPLAY_STATUS,  replay_status  );
   FD_MGAUGE_SET( DIAG, TURBINE_STATUS, turbine_status );
+  FD_MGAUGE_SET( DIAG, BUILDER_STATUS, check_builder_status( ctx ) );
 }
 
 static void
