@@ -6,6 +6,8 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/waker/fd_waker.h"
+#include "../../disco/fd_clock_tile.h"
 
 #include <sys/mman.h> /* memfd_create */
 #include <errno.h>
@@ -56,6 +58,11 @@ typedef struct fd_snapld_tile {
   int local_incr_fd;
   int sockfd;
 
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
+
+  fd_clock_tile_t clock[1];
+
   fd_sshttp_t * sshttp;
 
   struct {
@@ -98,7 +105,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
   void * _sshttp         = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
 
-  ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp ) );
+  ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp, FD_WAKER_INNER_FD( tile->waker_client_idx ) ) );
   FD_TEST( ctx->sshttp );
 
   ulong full_slot = ULONG_MAX;
@@ -149,13 +156,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   }
+  out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+  out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
 
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -176,7 +185,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
 
-  populate_sock_filter_policy_fd_snapld_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_full_fd, (uint)ctx->local_incr_fd, (uint)ctx->sockfd );
+  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+  populate_sock_filter_policy_fd_snapld_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_full_fd, (uint)ctx->local_incr_fd, (uint)ctx->sockfd, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_snapld_tile_instr_cnt;
 }
 
@@ -194,6 +205,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->state          = FD_SNAPSHOT_STATE_IDLE;
   ctx->pipeline_ready = 0;
+
+  ctx->waker_client_idx = tile->waker_client_idx;
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+  FD_TEST( ctx->waker_fseq );
+  fd_clock_tile_init( ctx->clock );
 
   ctx->download_speed_mibs = 0.0;
   ctx->bytes_in_batch      = 0UL;
@@ -232,6 +249,18 @@ unprivileged_init( fd_topo_t const *      topo,
 static int
 should_shutdown( fd_snapld_tile_t * ctx ) {
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
+}
+
+static void
+during_housekeeping( fd_snapld_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+}
+
+static long
+next_deadline( fd_snapld_tile_t * ctx ) {
+  if( FD_LIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING || ctx->load_file ) ) return LONG_MAX;
+  long next = fd_long_min( fd_sshttp_deadline( ctx->sshttp ), ctx->window_deadline );
+  return next==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
 }
 
 static void
@@ -325,8 +354,11 @@ after_credit( fd_snapld_tile_t *  ctx,
   } else {
     int   downloading = 0;
     ulong data_len    = ctx->out_dc.mtu;
-    long  now         = fd_log_wallclock();
+    long  now         = fd_clock_tile_now( ctx->clock );
+    int   fired       = fd_fseq_query( ctx->waker_fseq )==1UL;
+    if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
     int   result      = fd_sshttp_advance( ctx->sshttp, &data_len, out, &downloading, now );
+    if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
     switch( result ) {
       case FD_SSHTTP_ADVANCE_AGAIN:
         /* Return value ignored: on failure, check_download_progress
@@ -342,7 +374,7 @@ after_credit( fd_snapld_tile_t *  ctx,
              need to do so before any data frags.  So, we copy any data
              we received with the headers (if any) to the next dcache
              chunk and then publish both in order. */
-          ctx->start_batch = fd_log_wallclock();
+          ctx->start_batch = fd_clock_tile_now( ctx->clock );
           FD_TEST( sizeof(fd_ssctrl_meta_t)<=ctx->out_dc.mtu );
           fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)out;
           ulong next_chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
@@ -410,7 +442,7 @@ after_credit( fd_snapld_tile_t *  ctx,
 
           /* measure download speed every 100 MiB */
           if(ctx->bytes_in_batch>=100<<20UL) {
-            ctx->end_batch = fd_log_wallclock();
+            ctx->end_batch = fd_clock_tile_now( ctx->clock );
             /* as a precaution, make sure elapsed_batch is positive
                and larger than zero (to avoid division by zero). */
             long elapsed_batch = fd_long_if( ctx->end_batch > ctx->start_batch, ctx->end_batch - ctx->start_batch, 1L );
@@ -514,7 +546,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       if( !ctx->load_file ) {
         FD_TEST( sz==sizeof(fd_ssctrl_start_t) );
         fd_ssctrl_start_t const * msg = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
-        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg->addr, msg->hostname, msg->is_https, msg->path, msg->path_len, 4UL, fd_log_wallclock() ) ) ) {
+        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg->addr, msg->hostname, msg->is_https, msg->path, msg->path_len, 4UL, fd_clock_tile_now( ctx->clock ) ) ) ) {
           transition_malformed( ctx, stem );
           forward_msg = 0;
           break;
@@ -582,10 +614,12 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapld_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapld_tile_t)
 
-#define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_SHOULD_SHUTDOWN     should_shutdown
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 

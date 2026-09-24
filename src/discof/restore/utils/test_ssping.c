@@ -2,6 +2,8 @@
 
 #include "../../../util/fd_util.h"
 
+#include <sys/epoll.h>
+
 /* Stub on_ping callback, required by fd_ssping_new but not exercised
    in these unit tests (no actual pings are sent/received). */
 static void
@@ -220,7 +222,9 @@ main( int     argc,
      tests (each test cleans up after itself). */
   ulong max_peers = 8UL;
   void * shmem = fd_wksp_alloc_laddr( wksp, fd_ssping_align(), fd_ssping_footprint( max_peers ), 1UL );
-  fd_ssping_t * ssping = fd_ssping_join( fd_ssping_new( shmem, max_peers, 42UL, on_ping_stub, NULL ) );
+  int epoll_fd = epoll_create1( 0 );
+  FD_TEST( epoll_fd!=-1 );
+  fd_ssping_t * ssping = fd_ssping_join( fd_ssping_new( shmem, max_peers, 42UL, on_ping_stub, NULL, epoll_fd ) );
   FD_TEST( ssping );
 
   test_invalidate_and_remove( ssping );

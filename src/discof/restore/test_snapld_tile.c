@@ -5,6 +5,7 @@
 #include "../../util/io/fd_io.h"
 
 #include <netinet/in.h>
+#include <sys/epoll.h>
 
 static ulong publish_cnt;
 static ulong publish_sig;
@@ -46,6 +47,8 @@ test_sshttp_init( fd_sshttp_t * http,
 #define fd_stem_publish test_stem_publish
 #define fd_sshttp_init  test_sshttp_init
 #include "fd_snapld_tile.c"
+
+static int test_epoll_fd = -1;
 #undef fd_sshttp_init
 #undef fd_stem_publish
 
@@ -54,8 +57,11 @@ test_start( int file,
             int bad_target ) {
   static fd_sshttp_t http[1];
   static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
   fd_snapld_tile_t ctx[1] = {0};
-  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http ) );
+  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
+  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  fd_clock_tile_init( ctx->clock );
   ctx->in_rd.base    = input;
   ctx->out_dc.mem    = (fd_wksp_t *)output;
   ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
@@ -140,6 +146,8 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  test_epoll_fd = epoll_create1( 0 );
+  FD_TEST( test_epoll_fd!=-1 );
   test_start( 0, 0 );
   test_start( 0, 1 );
   test_start( 1, 0 );

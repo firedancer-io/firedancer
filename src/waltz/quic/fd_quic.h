@@ -594,8 +594,8 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
 
 /* Service API ********************************************************/
 
-/* fd_quic_get_next_wakeup returns the next requested service time.
-   This is only intended for unit tests. */
+/* fd_quic_get_next_wakeup returns the next requested service time, or
+   LONG_MAX if nothing is scheduled. */
 
 FD_QUIC_API long
 fd_quic_get_next_wakeup( fd_quic_t * quic );

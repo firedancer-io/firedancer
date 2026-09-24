@@ -5,10 +5,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 extern _Bool fd_sshttp_fuzz;
+
+static int test_epoll_fd = -1;
 
 /* connect_pair wires an fd_sshttp_t up to one end of a socketpair, as
    if the request had just been written out, and returns the other end
@@ -28,9 +31,11 @@ connect_pair( fd_sshttp_t * http ) {
   http->response_len = 0UL;
   http->content_len  = 0UL;
   http->content_read = 0UL;
-  http->empty_recvs  = 0UL;
   http->addr         = (fd_ip4_port_t){ .addr = 0x7F000001U, .port = fd_ushort_bswap( 80 ) };
   http->sockfd       = sv[ 0 ];
+  http->epoll_events = EPOLLIN|EPOLLOUT;
+  struct epoll_event ev = { .events = http->epoll_events, .data.fd = sv[ 0 ] };
+  FD_TEST( !epoll_ctl( http->epoll_fd, EPOLL_CTL_ADD, sv[ 0 ], &ev ) );
   http->state        = FD_SSHTTP_STATE_RESP;
   http->deadline     = LONG_MAX;
 
@@ -60,7 +65,7 @@ advance_until_terminal( fd_sshttp_t * http ) {
 
 static void
 test_eof_during_body( void ) {
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http ) );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
   FD_TEST( http );
 
   int server = connect_pair( http );
@@ -78,7 +83,7 @@ test_eof_during_body( void ) {
 
 static void
 test_eof_during_headers( void ) {
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http ) );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
   FD_TEST( http );
 
   int server = connect_pair( http );
@@ -96,7 +101,7 @@ test_eof_during_headers( void ) {
 
 static void
 test_eof_immediate( void ) {
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http ) );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
   FD_TEST( http );
 
   int server = connect_pair( http );
@@ -113,7 +118,7 @@ test_eof_immediate( void ) {
 
 static void
 test_headers_too_large( void ) {
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http ) );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
   FD_TEST( http );
 
   int server = connect_pair( http );
@@ -149,6 +154,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   fd_sshttp_fuzz = 1;
+  test_epoll_fd = epoll_create1( 0 );
+  FD_TEST( test_epoll_fd!=-1 );
 
   test_eof_during_body();
   test_eof_during_headers();

@@ -438,6 +438,7 @@ int
 main( int     argc,
       char ** argv ) {
   (void)scratch_footprint;
+  (void)next_deadline;
   (void)before_credit;
   (void)after_credit;
   (void)metrics_write;

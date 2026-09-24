@@ -11,6 +11,8 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/waker/fd_waker.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/resolv/fd_adns.h"
@@ -106,6 +108,11 @@ struct fd_snapct_tile {
   int                        download_enabled;
 
   fd_netdb_fds_t netdb_fds[1];
+
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
+
+  fd_clock_tile_t clock[1];
 
   fd_adns_t * adns;
   struct {
@@ -537,7 +544,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
     max_ping_fd = FD_SSPING_FD_MIN + (int)FD_SSPING_FD_CNT - 1;
   }
 
-  populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)min_ping_fd, (uint)max_ping_fd, (uint)ctx->netdb_fds->etc_hosts, (uint)ctx->netdb_fds->etc_resolv_conf );
+  uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
+  uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
+  populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)min_ping_fd, (uint)max_ping_fd, (uint)ctx->netdb_fds->etc_hosts, (uint)ctx->netdb_fds->etc_resolv_conf, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_snapct_tile_instr_cnt;
 }
 
@@ -546,13 +555,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu is too small", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<9UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu is too small", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
+  out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+  out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
 
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
@@ -580,7 +591,7 @@ init_load( fd_snapct_tile_t *  ctx,
            fd_stem_context_t * stem,
            int                 full,
            int                 file ) {
-  ctx->snapshot_start_timestamp_ns = fd_log_wallclock();
+  ctx->snapshot_start_timestamp_ns = fd_clock_tile_now( ctx->clock );
   fd_ssctrl_init_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
   out->file = file;
   out->zstd = !file || (full ? ctx->local_in.full_snapshot_zstd : ctx->local_in.incremental_snapshot_zstd);
@@ -676,7 +687,7 @@ log_download( fd_snapct_tile_t * ctx,
 static void
 log_completion( fd_snapct_tile_t * ctx,
                 int                full ) {
-  double elapsed = (double)(fd_log_wallclock() - ctx->snapshot_start_timestamp_ns) / 1e9;
+  double elapsed = (double)(fd_clock_tile_now( ctx->clock ) - ctx->snapshot_start_timestamp_ns) / 1e9;
   if( full ) FD_LOG_INFO(( "full snapshot load completed in %.3f seconds", elapsed ));
   else       FD_LOG_INFO(( "incremental snapshot load completed in %.3f seconds", elapsed ));
 }
@@ -687,7 +698,7 @@ log_completion( fd_snapct_tile_t * ctx,
    full (the ssping ban still provides temporary protection). */
 static void
 blacklist_peer( fd_snapct_tile_t * ctx ) {
-  fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+  fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_clock_tile_now( ctx->clock ) );
   fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
   if( FD_UNLIKELY( blacklist_map_ele_query( ctx->blacklist_map, &ctx->peer.key, NULL, ctx->blacklist_pool ) ) ) return;
@@ -773,15 +784,44 @@ dns_advance( fd_snapct_tile_t * ctx,
 }
 
 static void
+during_housekeeping( fd_snapct_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+}
+
+static long
+next_deadline( fd_snapct_tile_t * ctx ) {
+  long next = LONG_MAX;
+  if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS             ||
+                   ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL ||
+                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS              ||
+                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL ) ) next = ctx->deadline_nanos;
+  if( FD_LIKELY( ctx->adns ) ) {
+    next = fd_long_min( next, fd_adns_next_deadline( ctx->adns ) );
+    for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ )
+      if( !ctx->dns_servers[ i ].resolved && ctx->dns_servers[ i ].retry_nanos ) next = fd_long_min( next, ctx->dns_servers[ i ].retry_nanos );
+    for( ulong i=0UL; i<ctx->config.entrypoints_cnt; i++ )
+      if( !ctx->dns_entrypoints[ i ].resolved && ctx->dns_entrypoints[ i ].retry_nanos ) next = fd_long_min( next, ctx->dns_entrypoints[ i ].retry_nanos );
+  }
+  if( FD_LIKELY( ctx->ssping     ) ) next = fd_long_min( next, fd_ssping_next_deadline( ctx->ssping ) );
+  if( FD_LIKELY( ctx->ssresolver ) ) next = fd_long_min( next, fd_http_resolver_next_deadline( ctx->ssresolver ) );
+  if( FD_UNLIKELY( next==LONG_MAX ) ) return LONG_MAX;
+  if( FD_UNLIKELY( next<=0L ) ) return 0L;
+  return fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
+}
+
+static void
 after_credit( fd_snapct_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy FD_PARAM_UNUSED ) {
-  long now = fd_log_wallclock();
+  long now = fd_clock_tile_now( ctx->clock );
 
+  int fired = fd_fseq_query( ctx->waker_fseq )==1UL;
+  if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
   if( FD_LIKELY( ctx->adns ) ) dns_advance( ctx, now );
   if( FD_LIKELY( ctx->ssping ) ) fd_ssping_advance( ctx->ssping, now, ctx->selector );
   if( FD_LIKELY( ctx->ssresolver ) ) fd_http_resolver_advance( ctx->ssresolver, now, ctx->selector );
+  if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
 
   /* Advances above may remove peers, making cluster_slot dirty.
      Recompute so best() calls below use up-to-date scores.
@@ -1969,8 +2009,9 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   ctx->ssping = NULL;
-  if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, ctx->ssping_seed, on_ping, ctx ) );
-  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, any_https, on_resolve, ctx ) );
+  int epoll_fd = FD_WAKER_INNER_FD( tile->waker_client_idx );
+  if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, ctx->ssping_seed, on_ping, ctx, epoll_fd ) );
+  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, any_https, on_resolve, ctx, epoll_fd ) );
   else                                                ctx->ssresolver = NULL;
 
   ctx->netdb_fds->etc_hosts       = -1;
@@ -2149,9 +2190,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->gossip_enabled   = gossip_enabled( tile );
   ctx->download_enabled = download_enabled( tile );
 
+  ctx->waker_client_idx = tile->waker_client_idx;
+  FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
+  ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+  FD_TEST( ctx->waker_fseq );
+  fd_clock_tile_init( ctx->clock );
+
   ctx->adns = NULL;
   if( FD_LIKELY( ctx->download_enabled ) ) {
-    ctx->adns = fd_adns_join( fd_adns_new( _adns, ADNS_REQS_MAX ) );
+    ctx->adns = fd_adns_join( fd_adns_new( _adns, ADNS_REQS_MAX, FD_WAKER_INNER_FD( tile->waker_client_idx ) ) );
     FD_TEST( ctx->adns );
     for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
       fd_dns_peer_parse( ctx->config.sources.servers[ i ], "snapshots.sources.servers", ctx->dns_servers[ i ].hostname, &ctx->dns_servers[ i ].port, &ctx->dns_servers[ i ].is_https );
@@ -2179,7 +2226,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->malformed      = 0;
   ctx->load_complete  = 0;
   FD_CHECK_ERR( ctx->config.wait_for_peers_timeout_nanos>0L, "snapct wait_for_peers_timeout_nanos must be positive" );
-  ctx->deadline_nanos = fd_log_wallclock() + ctx->config.wait_for_peers_timeout_nanos;
+  ctx->deadline_nanos = fd_clock_tile_now( ctx->clock ) + ctx->config.wait_for_peers_timeout_nanos;
   ctx->flush_ack      = 0;
   ctx->flush_ack_cnt  = 0;
   ctx->peer.addr.l    = 0UL;
@@ -2237,6 +2284,8 @@ unprivileged_init( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapct_tile_t)
 
 #define STEM_CALLBACK_SHOULD_SHUTDOWN     should_shutdown
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag

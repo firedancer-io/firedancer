@@ -290,6 +290,35 @@ fd_poh_hashing_to_leader_slot( fd_poh_t const * poh ) {
   return hashing && poh->slot<poh->next_leader_slot;
 }
 
+static int
+fd_poh_is_hashing( fd_poh_t const * poh ) {
+  if( FD_UNLIKELY( poh->state==STATE_UNINIT || poh->state==STATE_WAITING_FOR_RESET ) ) return 0;
+  if( FD_UNLIKELY( poh->wfs_paused ) ) return 0;
+  if( FD_UNLIKELY( poh->state==STATE_WAITING_FOR_BANK ) ) return 0;
+
+  /* No need to hash if we are so far from a leader slot that skipping
+     all the required ticks would exceed MAX_SKIPPED_TICKS, or the u16
+     shred parent_offset (not possible to make the block anymore). */
+  if( FD_LIKELY( poh->state==STATE_FOLLOWER ) ) {
+    if( FD_LIKELY( poh->next_leader_slot==ULONG_MAX ||
+                   poh->next_leader_slot-poh->slot>fd_ulong_min( MAX_SKIPPED_TICKS, USHORT_MAX-poh->ticks_per_slot )/poh->ticks_per_slot ) ) return 0;
+  }
+  return 1;
+}
+
+long
+fd_poh_next_deadline( fd_poh_t const * poh ) {
+  if( FD_LIKELY( !fd_poh_is_hashing( poh ) ) ) return LONG_MAX;
+  if( FD_UNLIKELY( fd_poh_must_publish_skipped_tick( poh ) ) ) return 0L; /* one per call, no clock gate */
+
+  ulong next_tick_hashcnt = (poh->hashcnt/poh->hashcnt_per_tick+1UL)*poh->hashcnt_per_tick;
+  if( FD_LIKELY( poh->state==STATE_FOLLOWER || poh->state==STATE_WAITING_FOR_SLOT ) ) {
+    ulong hashcnt_since_reset = (poh->slot-poh->reset_slot)*poh->hashcnt_per_slot+next_tick_hashcnt;
+    return poh->reset_slot_start_ns+(long)((double)hashcnt_since_reset*poh->hashcnt_duration_ns);
+  }
+  return poh->leader_slot_start_ns+(long)((double)next_tick_hashcnt*poh->hashcnt_duration_ns);
+}
+
 int
 fd_poh_must_tick( fd_poh_t const * poh ) {
   return poh->state==STATE_LEADER && (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL);
@@ -406,21 +435,7 @@ fd_poh_advance( fd_poh_t *          poh,
                 fd_stem_context_t * stem,
                 int *               opt_poll_in,
                 int *               charge_busy ) {
-  if( FD_UNLIKELY( poh->state==STATE_UNINIT || poh->state==STATE_WAITING_FOR_RESET ) ) return;
-  if( FD_UNLIKELY( poh->wfs_paused ) ) return;
-  if( FD_UNLIKELY( poh->state==STATE_WAITING_FOR_BANK ) ) {
-    /* If we are the leader, but we didn't yet learn what the leader
-       bank object is from the replay tile, do not do any hashing. */
-    return;
-  }
-
-  /* No need to hash if we are so far from a leader slot that skipping
-     all the required ticks would exceed MAX_SKIPPED_TICKS, or the u16
-     shred parent_offset (not possible to make the block anymore). */
-  if( FD_LIKELY( poh->state==STATE_FOLLOWER ) ) {
-    if( FD_LIKELY( poh->next_leader_slot==ULONG_MAX ||
-                   poh->next_leader_slot-poh->slot>fd_ulong_min( MAX_SKIPPED_TICKS, USHORT_MAX-poh->ticks_per_slot )/poh->ticks_per_slot ) ) return;
-  }
+  if( FD_LIKELY( !fd_poh_is_hashing( poh ) ) ) return;
 
   /* If we have skipped ticks pending because we skipped some slots to
      become leader, register them now one at a time. */

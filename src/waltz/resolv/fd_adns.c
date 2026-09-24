@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <unistd.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -74,7 +75,8 @@ fd_adns_footprint( ulong max_reqs ) {
 
 void *
 fd_adns_new( void * shmem,
-             ulong  max_reqs ) {
+             ulong  max_reqs,
+             int    epoll_fd ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -87,6 +89,11 @@ fd_adns_new( void * shmem,
 
   if( FD_UNLIKELY( !max_reqs ) ) {
     FD_LOG_WARNING(( "max_reqs must be at least 1" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( epoll_fd==-1 ) ) {
+    FD_LOG_WARNING(( "invalid epoll_fd" ));
     return NULL;
   }
 
@@ -116,6 +123,8 @@ fd_adns_new( void * shmem,
 
   adns->fd = socket( AF_INET, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==adns->fd ) ) FD_LOG_ERR(( "socket() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  struct epoll_event ev = { .events = EPOLLIN, .data.fd = adns->fd };
+  if( FD_UNLIKELY( -1==epoll_ctl( epoll_fd, EPOLL_CTL_ADD, adns->fd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( adns->magic ) = FD_ADNS_MAGIC;
@@ -348,6 +357,21 @@ drain_answers( fd_adns_t * adns ) {
     req->state = REQ_STATE_DONE;
     adns->pending_cnt--;
   }
+}
+
+long
+fd_adns_next_deadline( fd_adns_t const * adns ) {
+  long next = LONG_MAX;
+  if( FD_LIKELY( !adns->pending_cnt ) ) return next;
+
+  for( ulong i=0UL; i<adns->max; i++ ) {
+    fd_adns_req_t const * req = &adns->reqs[ i ];
+    if( FD_LIKELY( req->state!=REQ_STATE_PENDING ) ) continue;
+
+    next = fd_long_min( next, req->deadline_nanos );
+  }
+
+  return next;
 }
 
 int

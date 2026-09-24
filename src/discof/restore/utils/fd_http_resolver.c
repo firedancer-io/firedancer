@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/random.h>
 #include <netinet/in.h>
@@ -89,6 +90,7 @@ struct fd_http_resolver_private {
   ulong                            fds_len;
   struct pollfd *                  fds;
   ulong *                          fds_idx;
+  int                              epoll_fd;
 
   int                              incremental_snapshot_fetch;
 
@@ -133,7 +135,8 @@ fd_http_resolver_new( void *                           shmem,
                       int                              incremental_snapshot_fetch,
                       int                              load_ca_store,
                       fd_http_resolver_on_resolve_fn_t on_resolve_cb,
-                      void *                           cb_arg ) {
+                      void *                           cb_arg,
+                      int                              epoll_fd ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -146,6 +149,11 @@ fd_http_resolver_new( void *                           shmem,
 
   if( FD_UNLIKELY( peers_cnt<1UL ) ) {
     FD_LOG_WARNING(( "max_peers must be at least 1" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( epoll_fd==-1 ) ) {
+    FD_LOG_WARNING(( "invalid epoll_fd" ));
     return NULL;
   }
 
@@ -179,6 +187,8 @@ fd_http_resolver_new( void *                           shmem,
   resolver->incremental_snapshot_fetch = incremental_snapshot_fetch;
   resolver->cb_arg                     = cb_arg;
   resolver->on_resolve_cb              = on_resolve_cb;
+
+  resolver->epoll_fd = epoll_fd;
 
   {
     fd_tls_t * tls = &resolver->tls;
@@ -312,6 +322,9 @@ create_socket( fd_http_resolver_t *  resolver,
     return -1;
   }
 
+  struct epoll_event ev = { .events = EPOLLIN|EPOLLOUT, .data.fd = sockfd };
+  if( FD_UNLIKELY( -1==epoll_ctl( resolver->epoll_fd, EPOLL_CTL_ADD, sockfd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   resolver->fds[ resolver->fds_len ] = (struct pollfd){
     .fd      = sockfd,
     .events  = POLLIN|POLLOUT,
@@ -343,6 +356,7 @@ peer_connect( fd_http_resolver_t *  resolver,
     if( FD_UNLIKELY( err ) ) {
       /* Undo the full socket setup to avoid leaking the fd and
          corrupting the fds array (entries must always come in pairs). */
+      if( FD_UNLIKELY( -1==epoll_ctl( resolver->epoll_fd, EPOLL_CTL_DEL, resolver->fds[ resolver->fds_len-1UL ].fd, NULL ) ) ) FD_LOG_ERR(( "epoll_ctl(DEL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fd_ssresolve_cancel( peer->full_ssresolve );
       resolver->fds_len--;
       peer->fd.idx = ULONG_MAX;
@@ -375,6 +389,11 @@ remove_peer( fd_http_resolver_t * resolver,
   FD_TEST( idx<resolver->fds_len );
 
   fd_ssresolve_peer_t * cur_peer = peer_pool_ele( resolver->pool, resolver->fds_idx[ idx ] );
+  for( ulong k=0UL; k<2UL; k++ ) {
+    int fd = resolver->fds[ idx+k ].fd;
+    if( FD_UNLIKELY( fd==-1 || !resolver->fds[ idx+k ].events ) ) continue; /* never added or already deregistered */
+    if( FD_UNLIKELY( -1==epoll_ctl( resolver->epoll_fd, EPOLL_CTL_DEL, fd, NULL ) ) ) FD_LOG_ERR(( "epoll_ctl(DEL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
   fd_ssresolve_cancel( cur_peer->full_ssresolve );
   fd_ssresolve_cancel( cur_peer->inc_ssresolve );
 
@@ -407,6 +426,27 @@ unresolve_peer( fd_http_resolver_t *  resolver,
   deadline_list_ele_push_tail( resolver->invalid, peer, resolver->pool );
 }
 
+/* Only wait for writability while there is something to send,
+   otherwise a connected socket is always ready and the tile spins.  A
+   finished resolve leaves the set entirely (events==0) since the server
+   close would otherwise report HUP until the sibling finishes too. */
+
+static inline void
+update_events( fd_http_resolver_t * resolver,
+               struct pollfd *      pfd,
+               fd_ssresolve_t *     ssresolve ) {
+  short events = 0;
+  if( FD_LIKELY( !fd_ssresolve_is_done( ssresolve ) ) ) events = (short)(POLLIN | (fd_ssresolve_wants_pollout( ssresolve ) ? POLLOUT : 0));
+  if( FD_LIKELY( events==pfd->events ) ) return;
+  if( FD_UNLIKELY( !events ) ) {
+    if( FD_UNLIKELY( -1==epoll_ctl( resolver->epoll_fd, EPOLL_CTL_DEL, pfd->fd, NULL ) ) ) FD_LOG_ERR(( "epoll_ctl(DEL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  } else {
+    struct epoll_event ev = { .events = EPOLLIN | ((events&POLLOUT) ? EPOLLOUT : 0U), .data.fd = pfd->fd };
+    if( FD_UNLIKELY( -1==epoll_ctl( resolver->epoll_fd, EPOLL_CTL_MOD, pfd->fd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(MOD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  pfd->events = events;
+}
+
 static inline int
 poll_resolve( fd_http_resolver_t *  resolver,
               struct pollfd *       pfd,
@@ -432,6 +472,7 @@ poll_resolve( fd_http_resolver_t *  resolver,
       unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ idx ] ), now );
       return -1;
     } else if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_AGAIN ) ) {
+      update_events( resolver, pfd, ssresolve );
       return -1;
     } else if( FD_LIKELY( res==FD_SSRESOLVE_ADVANCE_RESULT ) ) {
       FD_TEST( peer->deadline_nanos>now );
@@ -447,6 +488,7 @@ poll_resolve( fd_http_resolver_t *  resolver,
     }
   }
 
+  update_events( resolver, pfd, ssresolve );
   return 0;
 }
 
@@ -501,6 +543,18 @@ poll_advance( fd_http_resolver_t * resolver,
                                peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN ? peer->incr_hash : NULL );
     }
   }
+}
+
+long
+fd_http_resolver_next_deadline( fd_http_resolver_t const * resolver ) {
+  long next = LONG_MAX;
+  deadline_list_t const * lists[] = { resolver->resolving, resolver->valid, resolver->invalid };
+  for( ulong i=0UL; i<sizeof(lists)/sizeof(lists[0]); i++ ) {
+    if( FD_LIKELY( deadline_list_is_empty( lists[ i ], resolver->pool ) ) ) continue;
+    next = fd_long_min( next, deadline_list_ele_peek_head_const( lists[ i ], resolver->pool )->deadline_nanos );
+  }
+  if( !deadline_list_is_empty( resolver->unresolved, resolver->pool ) ) next = 0L; /* connects now */
+  return next;
 }
 
 void

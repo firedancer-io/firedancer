@@ -15,7 +15,8 @@ FD_FN_CONST ulong
 fd_sshttp_footprint( void );
 
 void *
-fd_sshttp_new( void * shmem );
+fd_sshttp_new( void * shmem,
+               int    epoll_fd );
 
 fd_sshttp_t *
 fd_sshttp_join( void * sshttp );
@@ -61,6 +62,12 @@ fd_sshttp_init( fd_sshttp_t * http,
 
 void
 fd_sshttp_cancel( fd_sshttp_t * http );
+
+/* fd_sshttp_deadline returns the wallclock at which the current step
+   times out, or LONG_MAX when idle. */
+
+long
+fd_sshttp_deadline( fd_sshttp_t const * http );
 
 #define FD_SSHTTP_ADVANCE_ERROR (-1)
 #define FD_SSHTTP_ADVANCE_AGAIN ( 0)

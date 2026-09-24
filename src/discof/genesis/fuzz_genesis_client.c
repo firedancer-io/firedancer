@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <sys/epoll.h>
 #include <poll.h>
 #include <errno.h>
 #include <string.h>
@@ -51,9 +52,15 @@ LLVMFuzzerTestOneInput( uchar const * data,
   flags = fcntl( fuzzer_fd, F_GETFL, 0 );
   fcntl( fuzzer_fd, F_SETFL, flags | O_NONBLOCK );
 
+  static int epoll_fd = -1;
+  if( FD_UNLIKELY( epoll_fd==-1 ) ) epoll_fd = epoll_create1( 0 );
+  struct epoll_event ev = { .events = EPOLLIN|EPOLLOUT, .data.fd = client_fd };
+  FD_TEST( -1!=epoll_ctl( epoll_fd, EPOLL_CTL_ADD, client_fd, &ev ) );
+
   client->start_time_nanos = fd_log_wallclock();
   client->peer_cnt = 1UL;
   client->remaining_peer_cnt = 1UL;
+  client->epoll_fd = epoll_fd;
   client->pollfds[0] = (struct pollfd){
     .fd = client_fd,
     .events = POLLIN|POLLOUT,
@@ -101,7 +108,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
       int charge_busy = 0;
 
       ulong prev_sent_sz = client->peers[0].request_bytes_sent;
-      int result = fd_genesis_client_poll( client, &peer, &buffer, &buffer_sz, &charge_busy );
+      int result = fd_genesis_client_poll( client, fd_log_wallclock(), &peer, &buffer, &buffer_sz, &charge_busy );
       if( prev_sent_sz != client->peers[0].request_bytes_sent && fuzzer_fd != -1 ) {
         uchar discard_buf[1024];
         long n;

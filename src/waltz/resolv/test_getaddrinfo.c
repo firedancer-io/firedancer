@@ -4,6 +4,7 @@
 #include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -47,7 +48,9 @@ test_adns( char const * const * names,
            ulong                name_cnt ) {
   static uchar shmem[ 1<<20 ] __attribute__((aligned(64)));
   FD_TEST( fd_adns_footprint( name_cnt )<=sizeof(shmem) );
-  fd_adns_t * adns = fd_adns_join( fd_adns_new( shmem, name_cnt ) );
+  int epoll_fd = epoll_create1( 0 );
+  FD_TEST( epoll_fd!=-1 );
+  fd_adns_t * adns = fd_adns_join( fd_adns_new( shmem, name_cnt, epoll_fd ) );
   FD_TEST( adns );
 
   for( ulong i=0UL; i<name_cnt; i++ ) FD_TEST( !fd_adns_resolve( adns, names[ i ], i ) );

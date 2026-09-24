@@ -52,7 +52,8 @@ fd_ssping_new( void *                 shmem,
                ulong                  max_peers,
                ulong                  seed,
                fd_ssping_on_ping_fn_t on_ping_cb,
-               void *                 cb_arg );
+               void *                 cb_arg,
+               int                    epoll_fd );
 
 fd_ssping_t *
 fd_ssping_join( void * shping );
@@ -112,6 +113,13 @@ void
 fd_ssping_advance( fd_ssping_t *          ssping,
                    long                   now,
                    fd_sspeer_selector_t * selector);
+
+/* fd_ssping_next_deadline returns the earliest wallclock at which
+   advance has timer work: a ping times out, a valid peer is due a
+   refresh, or an invalid one a retry.  LONG_MAX if none. */
+
+long
+fd_ssping_next_deadline( fd_ssping_t const * ssping );
 
 FD_PROTOTYPES_END
 

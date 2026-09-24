@@ -78,6 +78,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static void
 during_housekeeping( fd_txsend_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting" ));
     ctx->halt_net_frags = 0;
@@ -207,7 +209,7 @@ quic_tx_aio_send( void *                    _ctx,
                   int                       flush FD_PARAM_UNUSED ) {
   fd_txsend_tile_t * ctx = _ctx;
 
-  long now = fd_log_wallclock();
+  long now = fd_clock_tile_now( ctx->clock );
 
   for( ulong i=0; i<batch_cnt; i++ ) {
     if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
@@ -272,7 +274,7 @@ quic_conn_close( fd_txsend_tile_t * tile,
   fd_quic_conn_close( conn, reason );
   quic_conn_deregister( tile, conn );
   /* Send out a packet and invoke quic_conn_final */
-  fd_quic_service( tile->quic, fd_log_wallclock() );
+  fd_quic_service( tile->quic, fd_clock_tile_now( tile->clock ) );
 }
 
 /* This QUIC servicing is very precarious. Recall a few facts,
@@ -298,6 +300,12 @@ quic_conn_close( fd_txsend_tile_t * tile,
    isn't realistic in practice, as verify polls round robin and there's
    only one vote per slot. */
 
+static inline long
+next_deadline( fd_txsend_tile_t * ctx ) {
+  long next = fd_quic_get_next_wakeup( ctx->quic );
+  return next==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
+}
+
 static inline void
 after_credit( fd_txsend_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -307,7 +315,7 @@ after_credit( fd_txsend_tile_t *  ctx,
 
   if( FD_UNLIKELY( !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
 
-  *charge_busy = fd_quic_service( ctx->quic, fd_log_wallclock() );
+  *charge_busy = fd_quic_service( ctx->quic, fd_clock_tile_now( ctx->clock ) );
   *opt_poll_in = !*charge_busy; /* refetch credits to prevent above documented situation */
 
   if( FD_UNLIKELY( ctx->leader_schedules<2UL ) ) return;
@@ -363,7 +371,7 @@ after_credit( fd_txsend_tile_t *  ctx,
          future leader slots (e.g. we might still want to burn an
          attempt if a leader slot is imminent, even if we recently tried
          to connect).  For now the dumb logic seems to work well enough. */
-      long now = fd_log_wallclock();
+      long now = fd_clock_tile_now( ctx->clock );
       if( FD_UNLIKELY( conn->quic_last_connected+2e9L>now ) ) continue;
 
       fd_quic_conn_t * quic_conn =
@@ -408,7 +416,7 @@ send_vote_to_leader( fd_txsend_tile_t *  ctx,
 
     udp_hdr->net_dport = fd_ushort_bswap( peer->udp_ports[ i ] );
     udp_hdr->net_len   = fd_ushort_bswap( (ushort)( vote_payload_sz+sizeof(fd_udp_hdr_t) ) );
-    send_to_net( ctx, ip4_hdr, udp_hdr, vote_payload, vote_payload_sz, fd_log_wallclock() );
+    send_to_net( ctx, ip4_hdr, udp_hdr, vote_payload, vote_payload_sz, fd_clock_tile_now( ctx->clock ) );
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -690,7 +698,7 @@ after_frag( fd_txsend_tile_t *  ctx,
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     uchar * ip_packet = ctx->quic_buf+sizeof(fd_eth_hdr_t);
     ulong ip_packet_sz = sz-sizeof(fd_eth_hdr_t);
-    fd_quic_process_packet( ctx->quic, ip_packet, ip_packet_sz, fd_log_wallclock() );
+    fd_quic_process_packet( ctx->quic, ip_packet, ip_packet_sz, fd_clock_tile_now( ctx->clock ) );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ) handle_contact_info_update( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk ) );
     else                                                      handle_contact_info_remove( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk ) );
@@ -755,6 +763,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->quic = fd_quic_join( fd_quic_new( _quic, &quic_limits ) );
   FD_TEST( ctx->quic );
+  fd_clock_tile_init( ctx->clock );
 
   ctx->leader_schedules = 0UL;
 
@@ -896,6 +905,7 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_ALIGN       alignof(fd_txsend_tile_t)
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag

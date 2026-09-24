@@ -13,6 +13,7 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
@@ -181,6 +182,7 @@ struct fd_votor_tile {
   uchar              net_buf[ FD_NET_MTU ];
   fd_quic_t *        quic_client;
   fd_quic_t *        quic_server;
+  fd_clock_tile_t    clock[1];
   fd_aio_t           quic_tx_aio[ 1 ];
   ushort             quic_client_listen_port;
   ushort             quic_server_listen_port;
@@ -242,7 +244,8 @@ struct fd_votor_tile {
 typedef struct fd_votor_tile fd_votor_tile_t;
 
 static void
-ban_peer( peer_t * peer ) {
+ban_peer( peer_t * peer,
+          long     now ) {
   FD_BASE58_ENCODE_32_BYTES( peer->id_key.uc, id_key_b58 );
   FD_LOG_WARNING(( "banning peer %s", id_key_b58 ));
   if( FD_LIKELY( peer->rx_conn ) ) {
@@ -255,7 +258,7 @@ ban_peer( peer_t * peer ) {
     fd_quic_conn_close( peer->tx_conn, QUIC_CLOSE_CODE_BANNED );
     peer->tx_conn = NULL;
   }
-  peer->ban_ts = fd_log_wallclock();
+  peer->ban_ts = now;
 }
 
 static void
@@ -264,14 +267,14 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
                ulong                slot_as_of ) {
   ag_epoch_info_t const * epoch_info = fd_ptr_if( slot_as_of>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( slot_as_of>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
   if( FD_UNLIKELY( !epoch_info ) ) return;
-  long                    now        = fd_log_wallclock();
+  long now = fd_clock_tile_now( ctx->clock );
   for( ulong rank = fd_bls_set_const_iter_init( bad );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( bad, rank ) ) {
     fd_pubkey_t id_key; memcpy( id_key.uc, epoch_info->validators[ rank ].id_key, sizeof(ag_id_key_t) );
     peer_t * peer = peers_query( ctx->peers, id_key, NULL );
     if( FD_UNLIKELY( !peer || now<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) continue;
-    ban_peer( peer );
+    ban_peer( peer, now );
   }
 }
 
@@ -451,7 +454,7 @@ quic_server_conn_new( fd_quic_conn_t * conn,
     fd_quic_conn_close( conn, 0U );
     return;
   }
-  if( FD_UNLIKELY( peer && fd_log_wallclock()<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
+  if( FD_UNLIKELY( peer && fd_clock_tile_now( ctx->clock )<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
     fd_quic_conn_close( conn, QUIC_CLOSE_CODE_BANNED );
     return;
   }
@@ -507,12 +510,12 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     if( FD_UNLIKELY( !id_key ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_UNKNOWN_SIGNER_IDX ]++; return; }
     peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
     if( FD_UNLIKELY( !peer ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_NOT_A_PEER_IDX ]++; return; }
-    if( FD_UNLIKELY( fd_log_wallclock()<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
+    if( FD_UNLIKELY( fd_clock_tile_now( ctx->clock )<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
       ctx->metrics.vote_rx[FD_METRICS_ENUM_VOTE_RX_RESULT_V_BANNED_IDX]++;
       fd_quic_conn_close( conn, QUIC_CLOSE_CODE_BANNED );
       return;
     }
-    if( FD_UNLIKELY( blst_p2_is_inf( ag_vote_sig( vote ) ) ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_SIG_IDX ]++; ban_peer( peer ); return; } /* identity is never a valid vote signature */
+    if( FD_UNLIKELY( blst_p2_is_inf( ag_vote_sig( vote ) ) ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_SIG_IDX ]++; ban_peer( peer, fd_clock_tile_now( ctx->clock ) ); return; } /* identity is never a valid vote signature */
     uchar const * block_hash = ag_vote_block_hash( vote );
     if( FD_UNLIKELY( block_hash && !memcmp( block_hash, ag_block_hash_null, sizeof(ag_block_hash_t) ) ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_BLOCK_HASH_IDX ]++; return; } /* null is never a valid block hash */
 
@@ -564,7 +567,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     if( FD_UNLIKELY( !id_key ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_UNKNOWN_SIGNER_IDX ]++; return; }
     peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
     if( FD_UNLIKELY( !peer ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_NOT_A_PEER_IDX ]++; return; }
-    if( FD_UNLIKELY( fd_log_wallclock()<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BANNED_IDX ]++; fd_quic_conn_close( conn, QUIC_CLOSE_CODE_BANNED ); return; }
+    if( FD_UNLIKELY( fd_clock_tile_now( ctx->clock )<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BANNED_IDX ]++; fd_quic_conn_close( conn, QUIC_CLOSE_CODE_BANNED ); return; }
 
     ulong  cert_slot = ag_cert_slot( &ctx->scratch.cert );
     ushort rank      = fd_ushort_if( cert_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( cert_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
@@ -576,7 +579,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     case AG_POOL_ERR_DUPLICATE:          ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX          ]++; break;
     case AG_POOL_ERR_CERT_VERIFY:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_FAILED_VERIFY_IDX ]++;
-      ban_peer( peer );
+      ban_peer( peer, fd_clock_tile_now( ctx->clock ) );
       break;
     default:
       FD_LOG_CRIT(( "unhandled kind" ));
@@ -732,7 +735,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   /* quic_connect new peers */
 
-  long now = fd_log_wallclock();
+  long now = fd_clock_tile_now( ctx->clock );
   for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
     peer_t * peer = &ctx->peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
@@ -841,7 +844,7 @@ handle_gossip( fd_votor_tile_t *                  ctx,
     }
   }
 
-  long now = fd_log_wallclock();
+  long now = fd_clock_tile_now( ctx->clock );
   if( FD_LIKELY( peer && !peer->tx_conn && now>=peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) {
     fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, now );
     if( FD_LIKELY( conn ) ) {
@@ -864,7 +867,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ag_pool_init( ctx->pool, block_id.slot );
-      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_log_wallclock(), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
+      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
       ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
@@ -900,6 +903,17 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static void
+during_housekeeping( fd_votor_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+}
+
+static inline long
+next_deadline( fd_votor_tile_t * ctx ) {
+  long next = fd_long_min( fd_quic_get_next_wakeup( ctx->quic_client ), fd_quic_get_next_wakeup( ctx->quic_server ) );
+  return next==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
+}
+
 static inline void
 after_credit( fd_votor_tile_t *   ctx,
               fd_stem_context_t * stem,
@@ -907,7 +921,7 @@ after_credit( fd_votor_tile_t *   ctx,
               int *               charge_busy ) {
 
   ctx->stem    = stem;
-  long now     = fd_log_wallclock();
+  long now     = fd_clock_tile_now( ctx->clock );
   *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
   for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
   ctx->net_tx_cnt = 0UL;
@@ -1140,7 +1154,7 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
-    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, ag_pool_finalized_slot( ctx->pool ), fd_log_wallclock(), ctx->ns_per_slot, (ushort)sig, sign_bls, ctx );
+    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, ag_pool_finalized_slot( ctx->pool ), fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, (ushort)sig, sign_bls, ctx );
     ctx->shred_version = (ushort)sig;
     ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
     break;
@@ -1154,7 +1168,7 @@ after_frag( fd_votor_tile_t *   ctx,
     if( FD_UNLIKELY( dport!=ctx->quic_client_listen_port && dport!=ctx->quic_server_listen_port ) ) break;
     fd_quic_t * quic = fd_ptr_if( dport==ctx->quic_client_listen_port, ctx->quic_client, ctx->quic_server );
     ctx->stem = stem;
-    fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_log_wallclock() );
+    fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_clock_tile_now( ctx->clock ) );
     for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
     ctx->net_tx_cnt = 0UL;
     break;
@@ -1347,6 +1361,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->quic_server = fd_quic_join( fd_quic_new( quic_server, &quic_server_limits ) );
   FD_TEST( ctx->quic_server );
+  fd_clock_tile_init( ctx->clock );
   fd_quic_set_aio_net_tx( ctx->quic_server, quic_tx_aio );
 
   ctx->quic_server->config.role                       = FD_QUIC_ROLE_SERVER;
@@ -1407,11 +1422,13 @@ metrics_write( fd_votor_tile_t * ctx ) {
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_votor_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_votor_tile_t)
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT  after_credit
-#define STEM_CALLBACK_BEFORE_FRAG   before_frag
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
 

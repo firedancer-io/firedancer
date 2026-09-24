@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -69,8 +70,13 @@ fd_genesis_client_join( void * shgen ) {
 void
 fd_genesis_client_init( fd_genesis_client_t * client,
                         fd_ip4_port_t const * servers,
-                        ulong                 servers_len ) {
+                        ulong                 servers_len,
+                        int                   epoll_fd ) {
   FD_TEST( servers_len<=FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
+  FD_TEST( epoll_fd!=-1 );
+
+  client->epoll_fd = epoll_fd;
+
   ulong peer_cnt = 0UL;
 
   for( ulong i=0UL; i<servers_len; i++ ) {
@@ -90,6 +96,9 @@ fd_genesis_client_init( fd_genesis_client_t * client,
       if( FD_UNLIKELY( -1==close( sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       continue;
     }
+
+    struct epoll_event ev = { .events = EPOLLIN|EPOLLOUT, .data.fd = sockfd };
+    if( FD_UNLIKELY( -1==epoll_ctl( epoll_fd, EPOLL_CTL_ADD, sockfd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(ADD) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
 
     client->pollfds[ peer_cnt ] = (struct pollfd){
       .fd = sockfd,
@@ -113,6 +122,8 @@ fd_genesis_client_init( fd_genesis_client_t * client,
 static void
 close_one( fd_genesis_client_t * client,
            ulong                 idx ) {
+  if( FD_UNLIKELY( -1==epoll_ctl( client->epoll_fd, EPOLL_CTL_DEL, client->pollfds[ idx ].fd, NULL ) ) ) FD_LOG_ERR(( "epoll_ctl(DEL) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+
   if( FD_UNLIKELY( -1==close( client->pollfds[ idx ].fd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   client->pollfds[ idx ].fd = -1;
   client->remaining_peer_cnt--;
@@ -160,6 +171,11 @@ write_conn( fd_genesis_client_t * client,
   if( FD_UNLIKELY( peer->request_bytes_sent==request_sz ) ) {
     peer->writing = 0;
     peer->response_bytes_read = 0UL;
+    /* A connected socket is always writable so drop EPOLLOUT or the
+       waker refires on every rearm while we wait for the response */
+    client->pollfds[ conn_idx ].events = POLLIN;
+    struct epoll_event ev = { .events = EPOLLIN, .data.fd = client->pollfds[ conn_idx ].fd };
+    if( FD_UNLIKELY( -1==epoll_ctl( client->epoll_fd, EPOLL_CTL_MOD, client->pollfds[ conn_idx ].fd, &ev ) ) ) FD_LOG_ERR(( "epoll_ctl(MOD) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -248,14 +264,14 @@ read_conn( fd_genesis_client_t * client,
 
 int
 fd_genesis_client_poll( fd_genesis_client_t * client,
+                        long                  now,
                         fd_ip4_port_t *       peer,
                         uchar **              buffer,
                         ulong *               buffer_sz,
                         int *                 charge_busy ) {
   if( FD_UNLIKELY( !client->remaining_peer_cnt ) ) return -1;
-  long now = fd_log_wallclock();
   if( FD_UNLIKELY( LONG_MAX==client->start_time_nanos ) ) client->start_time_nanos = now;
-  if( FD_UNLIKELY( now-client->start_time_nanos>20L*1000L*1000*1000L ) ) {
+  if( FD_UNLIKELY( now>fd_genesis_client_deadline_nanos( client ) ) ) {
     close_all( client );
     return -1;
   }
@@ -289,4 +305,10 @@ fd_genesis_client_poll( fd_genesis_client_t * client,
 struct pollfd const *
 fd_genesis_client_get_pollfds( fd_genesis_client_t * client ) {
   return client->pollfds;
+}
+
+long
+fd_genesis_client_deadline_nanos( fd_genesis_client_t const * client ) {
+  if( FD_UNLIKELY( LONG_MAX==client->start_time_nanos ) ) return LONG_MAX;
+  return client->start_time_nanos+20L*1000L*1000L*1000L;
 }

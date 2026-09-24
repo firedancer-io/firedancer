@@ -21,6 +21,8 @@ struct fd_genesis_client_private {
   ulong peer_cnt;
   ulong remaining_peer_cnt;
 
+  int  epoll_fd;
+
   struct pollfd pollfds[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
   fd_genesis_client_peer_t peers[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 

@@ -30,6 +30,7 @@ struct fd_ssresolve_private {
   int           sockfd;
   int           full;
   int           is_https;
+  int           tcp_connected;
   char const *  hostname;
 
   char  request[ 4096UL ];
@@ -143,8 +144,9 @@ fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
   ssresolve->sockfd = sockfd;
   ssresolve->full   = full;
 
-  ssresolve->state        = FD_SSRESOLVE_CONNECT;
-  ssresolve->request_sent = 0UL;
+  ssresolve->state         = FD_SSRESOLVE_CONNECT;
+  ssresolve->tcp_connected = 0;
+  ssresolve->request_sent  = 0UL;
   ssresolve->request_len  = 0UL;
   ssresolve->response_len = 0UL;
   ssresolve->is_https     = 1;
@@ -461,6 +463,7 @@ fd_ssresolve_advance_poll_out( fd_ssresolve_t * ssresolve ) {
   int res;
   switch( ssresolve->state ) {
     case FD_SSRESOLVE_CONNECT:
+      ssresolve->tcp_connected = 1;
       res = ssresolve_connect_tls( ssresolve );
       break;
     case FD_SSRESOLVE_STATE_REQ:
@@ -507,6 +510,13 @@ fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
 int
 fd_ssresolve_is_done( fd_ssresolve_t * ssresolve ) {
   return ssresolve->state==FD_SSRESOLVE_STATE_DONE;
+}
+
+int
+fd_ssresolve_wants_pollout( fd_ssresolve_t const * ssresolve ) {
+  return (ssresolve->state==FD_SSRESOLVE_CONNECT && !ssresolve->tcp_connected) ||
+         ssresolve->state==FD_SSRESOLVE_STATE_REQ ||
+         (ssresolve->is_https && fd_tlsrec_sock_tx_pending( ssresolve->tls_sock ));
 }
 
 void

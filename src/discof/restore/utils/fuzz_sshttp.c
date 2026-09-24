@@ -10,6 +10,8 @@
 
 #include "../../../util/fd_util.h"
 #include "../../../util/sanitize/fd_fuzz.h"
+
+#include <sys/epoll.h>
 #include "fd_sshttp_private.h"
 
 static fd_sshttp_t * http_mem;
@@ -38,7 +40,9 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         data_sz ) {
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( http_mem ) );
+  static int epoll_fd = -1;
+  if( FD_UNLIKELY( epoll_fd==-1 ) ) epoll_fd = epoll_create1( 0 );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( http_mem, epoll_fd ) );
   FD_TEST( http );
 
   int sockfds[2];
@@ -75,10 +79,12 @@ LLVMFuzzerTestOneInput( uchar const * data,
   http->response_len = 0UL;
   http->content_len  = 0UL;
   http->content_read = 0UL;
-  http->empty_recvs  = 0UL;
 
   http->addr   = addr;
   http->sockfd = client_fd;
+  http->epoll_events = EPOLLIN|EPOLLOUT;
+  struct epoll_event ev = { .events = http->epoll_events, .data.fd = client_fd };
+  if( FD_UNLIKELY( -1==epoll_ctl( http->epoll_fd, EPOLL_CTL_ADD, client_fd, &ev ) ) ) return 0;
 
   http->state        = FD_SSHTTP_STATE_REQ;
   http->deadline     = 0UL;

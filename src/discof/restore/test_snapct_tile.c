@@ -34,6 +34,17 @@ test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
 #include "fd_snapct_tile.c"
 #undef fd_stem_publish
 #include <stdlib.h>
+#include <sys/epoll.h>
+
+/* after_credit reads the tile clock and the waker readiness word */
+static ulong test_waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+
+static void
+test_ctx_wake_init( fd_snapct_tile_t * ctx ) {
+  fd_clock_tile_init( ctx->clock );
+  ctx->waker_fseq = fd_fseq_join( fd_fseq_new( test_waker_fseq, 0UL ) );
+  FD_TEST( ctx->waker_fseq );
+}
 
 #define TEST_SSPING_SEED    (0x0123456789abcdefUL)
 #define TEST_GOSSIP_CI_SEED (0x123456789abcdef0UL)
@@ -87,6 +98,7 @@ setup_gossip_only_snapct( void *                       scratch,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapct_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t)       );
   memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  test_ctx_wake_init( ctx );
   gossip_ci_entry_t * ci_table = FD_SCRATCH_ALLOC_APPEND( l, alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX );
   void *              ci_map   = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
 
@@ -144,6 +156,7 @@ setup_blacklist_snapct( void *              scratch,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapct_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t), sizeof(fd_snapct_tile_t) );
   memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  test_ctx_wake_init( ctx );
 
   void * _selector = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX )                  );
   void * _bl_pool  = FD_SCRATCH_ALLOC_APPEND( l, blacklist_pool_align(),     blacklist_pool_footprint( bl_max )                               );
@@ -172,6 +185,7 @@ setup_full_snapct( void *                       scratch,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapct_tile_t *  ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t)                                                   );
   memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  test_ctx_wake_init( ctx );
   gossip_ci_entry_t * ci_table = FD_SCRATCH_ALLOC_APPEND( l, alignof(gossip_ci_entry_t), sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX                                 );
   void *              ci_map   = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
   void *              sel      = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX )                            );
@@ -309,6 +323,7 @@ static void
 test_load_complete_signal( void ) {
   fd_snapct_tile_t ctx[1];
   memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  test_ctx_wake_init( ctx );
 
   /* snapld_frag never dereferences stem in the paths below. */
 
@@ -724,6 +739,7 @@ test_start_after_init_acks( void ) {
   for( int file=0; file<2; file++ ) {
     for( int full=0; full<2; full++ ) {
       fd_memset( ctx, 0, sizeof(*ctx) );
+      test_ctx_wake_init( ctx );
       ctx->selector      = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
       fd_memset( ci_table, 0, sizeof(gossip_ci_entry_t)*GOSSIP_PEERS_MAX );
       ctx->gossip.ci_table = ci_table;
@@ -801,7 +817,9 @@ main( int     argc,
   ulong ssping_max = 16UL;
   void * _ssping_mem = aligned_alloc( fd_ssping_align(), fd_ssping_footprint( ssping_max ) );
   FD_TEST( _ssping_mem );
-  fd_ssping_t * ssping = fd_ssping_join( fd_ssping_new( _ssping_mem, ssping_max, TEST_SSPING_SEED, on_ping_stub, NULL ) );
+  int epoll_fd = epoll_create1( 0 );
+  FD_TEST( epoll_fd!=-1 );
+  fd_ssping_t * ssping = fd_ssping_join( fd_ssping_new( _ssping_mem, ssping_max, TEST_SSPING_SEED, on_ping_stub, NULL, epoll_fd ) );
   FD_TEST( ssping );
 
   test_contact_info_public_rpc_address( ssping );

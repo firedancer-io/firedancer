@@ -5,7 +5,9 @@
 #include "../../../disco/topo/fd_dns_resolve.h"
 #include "../../../discof/ipecho/fd_ipecho_client.h"
 
+#include <errno.h>
 #include <stdlib.h>
+#include <sys/epoll.h>
 #include <unistd.h>
 
 void
@@ -25,17 +27,21 @@ shred_version_cmd_fn( args_t *   args,
 
   fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
   fd_dns_resolve_peers( tile->gossip.entrypoints[ 0 ], sizeof(tile->gossip.entrypoints[ 0 ]), tile->gossip.entrypoints_cnt, "gossip.entrypoints", entrypoints );
-  fd_ipecho_client_init( client, entrypoints, tile->gossip.entrypoints_cnt );
+  int epoll_fd = epoll_create1( 0 );
+  if( FD_UNLIKELY( -1==epoll_fd ) ) FD_LOG_ERR(( "epoll_create1 failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_ipecho_client_init( client, entrypoints, tile->gossip.entrypoints_cnt, epoll_fd );
 
   for(;;) {
     ushort shred_version = 0;
     int _charge_busy;
-    int err = fd_ipecho_client_poll( client, &shred_version, &_charge_busy );
+    int err = fd_ipecho_client_poll( client, fd_log_wallclock(), &shred_version, &_charge_busy );
     if( FD_UNLIKELY( -1==err ) ) FD_LOG_ERR(( "couldn't get shred version" ));
     if( FD_UNLIKELY( !err) ) {
       FD_LOG_STDOUT(( "%hu\n", shred_version ));
       break;
     }
+    struct epoll_event ev;
+    if( FD_UNLIKELY( -1==epoll_wait( epoll_fd, &ev, 1, 100 ) && errno!=EINTR ) ) FD_LOG_ERR(( "epoll_wait failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
 

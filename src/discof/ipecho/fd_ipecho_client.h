@@ -25,14 +25,19 @@ fd_ipecho_client_join( void * shipe );
 void
 fd_ipecho_client_init( fd_ipecho_client_t *  client,
                        fd_ip4_port_t const * servers,
-                       ulong                 servers_len );
+                       ulong                 servers_len,
+                       int                   epoll_fd );
 
 int
 fd_ipecho_client_poll( fd_ipecho_client_t * client,
+                       long                 now,
                        ushort *             shred_version,
                        int *                charge_busy );
 
 struct pollfd const *
 fd_ipecho_client_get_pollfds( fd_ipecho_client_t * client );
+
+long
+fd_ipecho_client_deadline_nanos( fd_ipecho_client_t const * client );
 
 #endif

@@ -160,8 +160,8 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapdc" );
     fd_topob_wksp( topo, "snapin" );
 
-    fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct",  "snapct",  "metric_in",  NEXT_CPU, 0, 0, 0, 0 );
-    fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld",  "snapld",  "metric_in",  NEXT_CPU, 0, 0, 0, 0 );
+    fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct",  "snapct",  "metric_in",  NEXT_CPU, 0, 0, 0, 1 );
+    fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld",  "snapld",  "metric_in",  NEXT_CPU, 0, 0, 0, 1 );
     FOR(snapdc_tile_cnt)           fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  NEXT_CPU, 0, 0, 0, 0 )->allow_shutdown = 1;
     FOR(snapin_tile_cnt)           fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  NEXT_CPU, 0, 0, 0, 0 )->allow_shutdown = 1;
 
@@ -170,7 +170,7 @@ backtest_topo( config_t * config ) {
   }
 
   fd_topob_wksp( topo, "genesi" );
-  fd_topo_tile_t * genesi_tile = fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  NEXT_CPU, 0, 0, 0, 0 );
+  fd_topo_tile_t * genesi_tile = fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  NEXT_CPU, 0, 0, 0, 1 );
   genesi_tile->allow_shutdown = 1;
 
   fd_topob_wksp( topo, "genesi_out" );

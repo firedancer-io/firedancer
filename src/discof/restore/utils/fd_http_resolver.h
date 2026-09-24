@@ -35,7 +35,8 @@ fd_http_resolver_new( void *                           shmem,
                       int                              incremental_snapshot_fetch,
                       int                              load_ca_store,
                       fd_http_resolver_on_resolve_fn_t on_resolve_cb,
-                      void *                           cb_arg );
+                      void *                           cb_arg,
+                      int                              epoll_fd );
 
 /* Add a peer to the resolver.  Peers are not de-duplicated and must
    be unique.  The peer is inserted into the selector with unknown
@@ -60,6 +61,13 @@ void
 fd_http_resolver_advance( fd_http_resolver_t *   resolver,
                           long                   now,
                           fd_sspeer_selector_t * selector );
+
+/* fd_http_resolver_next_deadline returns the earliest wallclock at
+   which advance has timer work: a resolve times out, a valid peer is
+   due a refresh, or an invalid one a retry.  LONG_MAX if none. */
+
+long
+fd_http_resolver_next_deadline( fd_http_resolver_t const * resolver );
 
 FD_PROTOTYPES_END
 

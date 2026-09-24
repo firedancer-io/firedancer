@@ -217,14 +217,14 @@ forktest_topo( config_t * config ) {
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0,                 1 );
 
   if( FD_LIKELY( snapshots_enabled ) ) {
-    /**/               fd_topob_tile( topo, "snapct", "snapct", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 0 )->allow_shutdown = 1;
-    /**/               fd_topob_tile( topo, "snapld", "snapld", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 0 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "snapct", "snapct", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 1 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "snapld", "snapld", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 1 )->allow_shutdown = 1;
     /**/               fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 0 )->allow_shutdown = 1;
     FOR(snapin_tile_cnt) fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0,                 0 )->allow_shutdown = 1;
   }
 
   if( FD_UNLIKELY( !snapshots_enabled ) ) {
-    /**/               fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0,                 0 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0,                 1 )->allow_shutdown = 1;
   }
 
   FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0,                 0 );
