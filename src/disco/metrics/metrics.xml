@@ -1853,12 +1853,24 @@ EXAMPLES
     <int value="1" name="Error" label="Closed abnormally" />
 </enum>
 
+<enum name="PortCheckTcpResult">
+    <int value="0" name="Connected" label="Port check connections connected to the joiner's port" />
+    <int value="1" name="Failed" label="Port check connections refused or errored" />
+    <int value="2" name="Timeout" label="Port check connections timed out" />
+    <int value="3" name="Dropped" label="Port check connections not attempted because the socket could not be created" />
+    <int value="4" name="RejectedPerIp" label="Port check connections rejected because too many were in flight for a particular IP" />
+    <int value="5" name="Evicted" label="Port check connections evicted because there were too many in flight connections" />
+</enum>
+
 <tile name="ipecho">
     <gauge name="CurrentShredVersion" summary="Current shred version used by the validator" />
     <gauge name="ConnActive" summary="Active connections to the ipecho service" />
     <counter name="ConnClosed" enum="ConnCloseResult" summary="Connections to the ipecho service made and closed, by outcome" />
     <counter name="BytesRead" summary="Bytes read from all connections to the ipecho service" />
     <counter name="BytesWritten" summary="Bytes written to all connections to the ipecho service" />
+    <counter name="PortCheckUdpSent" summary="Port check UDP packets sent by the ipecho service to the joiner's UDP ports" />
+    <counter name="PortCheckTcp" enum="PortCheckTcpResult" summary="Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome" />
+    <gauge name="PortCheckTcpActive" summary="Port check TCP connections opened by the ipecho service to the joiner's TCP ports currently in flight" />
 </tile>
 
 <tile name="backt" telemetry="false">
