@@ -4,3 +4,4 @@ src/disco/gui/dist_*/**/* -diff linguist-generated=true
 corpus/** -diff binary
 book/api/metrics-generated.md -diff linguist-generated=true
 src/disco/metrics/generated/** -diff linguist-generated=true
+src/flamenco/vm/transpile/fd_transpile_x86.c -diff linguist-generated=true
