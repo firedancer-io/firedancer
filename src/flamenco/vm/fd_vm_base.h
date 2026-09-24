@@ -112,6 +112,7 @@
 #define FD_VM_ERR_EBPF_LIBC_INVOCATION_FAILED                     (-17)
 #define FD_VM_ERR_EBPF_VERIFIER_ERROR                             (-18)
 #define FD_VM_ERR_EBPF_SYSCALL_ERROR                              (-19)
+#define FD_VM_ERR_EBPF_BAIL                                       (-37) /* not an error, switch to interpreter */
 
 
 FD_PROTOTYPES_BEGIN
