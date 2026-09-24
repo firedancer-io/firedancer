@@ -457,6 +457,8 @@ message RuntimeTxnAccountDiffs {
   bool is_new_vote = 11;
   // True if this write removed a vote account
   bool is_rm_vote = 12;
+  // Raw 2048-byte account LtHash captured during commit without rehashing. Empty if no committed contribution was captured, including cancelled transactions and bundle non-owners. Deletion is 2048 zero bytes. For bundles, the final writable owner carries the final shared account state. Excludes later non-transaction updates.
+  bytes account_lthash = 13;
 }
 
 // Timestamps for one transaction. A zero timestamp means the stage did not occur on this path, was never reached, or its stamp was unavailable.
