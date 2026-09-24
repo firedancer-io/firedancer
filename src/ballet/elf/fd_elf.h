@@ -50,9 +50,10 @@
 
 /* FD_ELF_EM: Machine type */
 
-#define FD_ELF_EM_NONE   0
-#define FD_ELF_EM_BPF  247
-#define FD_ELF_EM_SBPF 263
+#define FD_ELF_EM_NONE     0
+#define FD_ELF_EM_X86_64  62
+#define FD_ELF_EM_BPF    247
+#define FD_ELF_EM_SBPF   263
 
 /* FD_ELF_EF: ELF flags */
 
@@ -82,6 +83,11 @@
 #define FD_ELF_SHF_WRITE     0x1
 #define FD_ELF_SHF_ALLOC     0x2
 #define FD_ELF_SHF_EXECINSTR 0x4
+#define FD_ELF_SHF_INFO_LINK 0x40
+
+/* FD_ELF_SHN: Special section numbers */
+
+#define FD_ELF_SHN_UNDEF     0
 
 /* FD_ELF_DT: Dynamic entry type */
 
@@ -92,20 +98,39 @@
 #define FD_ELF_DT_RELENT  19
 #define FD_ELF_DT_NUM     35
 
-/* FD_ELF64_ST_TYPE extracts the symbol type from symbol st_info */
+/* FD_ELF_STB: Symbol binding */
 
-#define FD_ELF64_ST_TYPE(i) ((i)&0xF)
+#define FD_ELF_STB_LOCAL   0
+#define FD_ELF_STB_GLOBAL  1
+#define FD_ELF_STB_WEAK    2
+
+/* FD_ELF64_ST_BIND extracts symbol binding from symbol st_info.
+   FD_ELF64_ST_TYPE extracts the symbol type from symbol st_info.
+   FD_ELF64_ST_INFO constructs st_info from binding and type. */
+
+#define FD_ELF64_ST_BIND(i)         ((uchar)((i)>>4))
+#define FD_ELF64_ST_TYPE(i)         ((i)&0xF)
+#define FD_ELF64_ST_INFO(bind,typ)  ((uchar)(((bind)<<4)+((typ)&0xf)))
 
 /* FD_ELF_STT: Symbol type */
 
 #define FD_ELF_STT_NOTYPE  0
+#define FD_ELF_STT_OBJECT  1
 #define FD_ELF_STT_FUNC    2
+#define FD_ELF_STT_SECTION 3
+#define FD_ELF_STT_FILE    4
 
 /* FD_ELF64_R_SYM extracts the symbol index from reloc r_info.
    FD_ELF64_R_TYPE extracts the relocation type from reloc r_info. */
 
 #define FD_ELF64_R_SYM(i)  ((uint)((ulong)(i) >> 32))
 #define FD_ELF64_R_TYPE(i) ((uint)((ulong)(i) & 0xFFFFFFFF))
+#define FD_ELF64_R_INFO(sym,typ) (((ulong)(sym)<<32) | ((typ) & 0xFFFFFFFF))
+
+/* FD_ELF_R_X86_64: x86_64 relocation types */
+
+#define FD_ELF_R_X86_64_PC32  2
+#define FD_ELF_R_X86_64_PLT32 4
 
 /* FD_ELF_R_BPF: BPF relocation types */
 
