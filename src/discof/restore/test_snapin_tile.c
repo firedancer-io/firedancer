@@ -539,7 +539,7 @@ sync_ctx_init( fd_snapin_tile_t * ctx,
   ctx->shmem = (fd_snapin_shmem_t *)shmem_mem;
   fd_memset( ctx->shmem, 0, sizeof(fd_snapin_shmem_t) );
   ctx->shmem->fork_id    = (ulong)USHORT_MAX;
-  ctx->shmem->stake_fork = (ulong)USHORT_MAX;
+  ctx->shmem->stake_fork = USHORT_MAX;
 
   ctx->state        = state;
   ctx->full         = 1;
@@ -644,7 +644,7 @@ test_cluster_new( ulong tile_cnt,
   cl->shmem = (fd_snapin_shmem_t *)cl->shmem_mem;
   fd_memset( cl->shmem, 0, sizeof(fd_snapin_shmem_t) );
   cl->shmem->fork_id    = ULONG_MAX;
-  cl->shmem->stake_fork = ULONG_MAX;
+  cl->shmem->stake_fork = USHORT_MAX;
 
   cl->sd_mem = aligned_alloc( fd_slot_delta_parser_align(), fd_ulong_align_up( fd_slot_delta_parser_footprint(), fd_slot_delta_parser_align() ) );
   FD_TEST( cl->sd_mem );
@@ -1691,11 +1691,11 @@ test_snoop_incremental_fork( fd_wksp_t * wksp ) {
   write_one( ctx, &acc_a, &fd_solana_stake_program_id, 5000UL, state, stake_sz, 10UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
 
   ctx->full = 0;
-  ctx->shmem->stake_fork = (ulong)fd_stake_delegations_new_fork( stake_delegations );
+  ctx->shmem->stake_fork = fd_stake_delegations_new_fork( stake_delegations );
   write_one( ctx, &acc_a, &fd_solana_stake_program_id, 9000UL, state, stake_sz, 100UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==5000UL ); /* root untouched */
 
-  fd_stake_delegations_snapshot_publish_fork( stake_delegations, (ushort)ctx->shmem->stake_fork );
+  fd_stake_delegations_snapshot_publish_fork( stake_delegations, ctx->shmem->stake_fork );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==9000UL && d->slot==100U );
 }
 
@@ -2859,7 +2859,7 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( test_accdb_attach_cnt==1UL );          /* child fork for the incremental writes */
   FD_TEST( test_stake_new_fork_cnt==1UL );        /* stake delegations fork likewise */
   FD_TEST( cl->shmem->fork_id==7UL );
-  FD_TEST( cl->shmem->stake_fork==3UL );
+  FD_TEST( cl->shmem->stake_fork==3 );
   FD_TEST( cl->ctx[ 0 ].incr_fork==ULONG_MAX );
   FD_TEST( !cl->shmem->next_appendvec_ticket );
 

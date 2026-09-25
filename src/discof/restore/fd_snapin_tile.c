@@ -234,7 +234,7 @@ struct fd_snapin_shmem {
   ulong fork_id;
 
   /* Stake delegations fork for incremental writes, USHORT_MAX for full. */
-  ulong stake_fork;
+  ushort stake_fork;
 
   /* Per-tile attempt values. */
   struct __attribute__((aligned(128))) {
@@ -1309,7 +1309,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
 
   fd_accdb_fork_id_t          fork_id    = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
-  ushort                      stake_fork = (ushort)FD_VOLATILE_CONST( ctx->shmem->stake_fork );
+  ushort                      stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
   fd_snapin_account_batch_t * batch      = &ctx->writer.batch;
   ulong                       tile_idx   = ctx->tile_idx;
 
@@ -1803,7 +1803,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         if( !ctx->lead.rollback.full && FD_LIKELY( !ctx->full ) ) {
           fd_accdb_purge( ctx->accdb, ctx->lead.rollback.fork );
           fd_accdb_snapshot_revert_whead( ctx->accdb, &ctx->lead.recovery.accdb_metadata );
-          fd_stake_delegations_evict_fork( ctx->stake_delegations, (ushort)FD_VOLATILE_CONST( ctx->shmem->stake_fork ) );
+          fd_stake_delegations_evict_fork( ctx->stake_delegations, FD_VOLATILE_CONST( ctx->shmem->stake_fork ) );
         }
       }
 
@@ -1854,7 +1854,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       /* Publish before acknowledging INIT. */
       FD_VOLATILE( ctx->shmem->fork_id    ) = ctx->full ? (ulong)USHORT_MAX : (ulong)ctx->lead.accdb_incr_fork_id.val;
-      FD_VOLATILE( ctx->shmem->stake_fork ) = (ulong)stake_fork;
+      FD_VOLATILE( ctx->shmem->stake_fork ) = stake_fork;
       FD_COMPILER_MFENCE();
       break;
     }
@@ -1965,7 +1965,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
         ctx->lead.accdb_root_fork_id = ctx->lead.accdb_incr_fork_id;
         ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-        fd_stake_delegations_snapshot_publish_fork( ctx->stake_delegations, (ushort)FD_VOLATILE_CONST( ctx->shmem->stake_fork ) );
+        fd_stake_delegations_snapshot_publish_fork( ctx->stake_delegations, FD_VOLATILE_CONST( ctx->shmem->stake_fork ) );
       }
 
       fd_accdb_snapshot_load_end( ctx->accdb );
