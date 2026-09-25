@@ -204,6 +204,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
            for in_idx. */
 
         STEM_(in_update)( &in[ in_idx ] );
+        if( FD_UNLIKELY( sleep->shmem ) ) STEM_(credit_ring)( sleep, in[ in_idx ].idx );
 
       } else { /* event_idx==cons_cnt, housekeeping event */
 
@@ -323,6 +324,8 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
       .sleep               = sleep->shmem,
       .wake                = sleep->wake,
       .wake_off            = sleep->wake_off,
+      .in_fseq             = in_fseq,
+      .in_producer         = sleep->in_producer,
     };
 #endif
 
@@ -357,7 +360,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
         sleep_idle_streak = 0UL;
         STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_seq, cons_cnt, cons_fseq, cons_seq, cons_out,
                              event_cnt, event_map, &event_seq, async_min,
-                             sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now,
+                             sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now, &then,
                              FD_METRICS_ENUM_TILE_REGIME_V_BACKPRESSURE_SLEEPING_IDX, 1, then );
       }
 #endif
@@ -400,7 +403,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
           sleep_idle_streak = 0UL;
           STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_seq, cons_cnt, cons_fseq, cons_seq, cons_out,
                                event_cnt, event_map, &event_seq, async_min,
-                               sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now,
+                               sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now, &then,
                                FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX, 0, LONG_MAX );
         }
       }
@@ -503,7 +506,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
           sleep_idle_streak = 0UL;
           STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_seq, cons_cnt, cons_fseq, cons_seq, cons_out,
                                event_cnt, event_map, &event_seq, async_min,
-                               sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now,
+                               sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now, &then,
                                FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX, 0, LONG_MAX );
         }
       }
