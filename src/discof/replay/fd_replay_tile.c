@@ -364,6 +364,8 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+
+  ctx->next_leader_query_start = ULONG_MAX;
 }
 
 /**********************************************************************/
@@ -1267,6 +1269,7 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   /* The next leader slot will be incorrect now that the identity has
      switched.  The next leader slot normally gets updated based on the
      reset slot returned by tower. */
+  ctx->next_leader_query_start = ULONG_MAX;
   if( FD_LIKELY( !ctx->alpenglow ) ) {
     ulong min_leader_slot = fd_ulong_max( ctx->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
     ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
@@ -3872,7 +3875,11 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) FD_TEST( msg->root_slot<=msg->reset_slot );
 
   ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  if( FD_UNLIKELY( ctx->next_leader_query_start==ULONG_MAX || min_leader_slot<ctx->next_leader_query_start || min_leader_slot>ctx->next_leader_query_slot ) ) {
+    ctx->next_leader_query_start = min_leader_slot;
+    ctx->next_leader_query_slot  = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  }
+  ctx->next_leader_slot = ctx->next_leader_query_slot;
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
     double slot_duration_ticks = (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
     ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
@@ -5052,6 +5059,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );
+  ctx->next_leader_query_start = ULONG_MAX;
 
   ctx->is_leader             = 0;
   ctx->drain_rotor_fecs      = 0;
