@@ -204,7 +204,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL )                   );
   l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    )                   );
   l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( MAP_LG_SLOT_CNT )                   );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->resolv.max_live_slots )  );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->resolv.max_live_slots, 0 )  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -663,7 +663,7 @@ unprivileged_init( fd_topo_t const *      topo,
      in this tile (see topology); the only writable external mapping
      is our private epoch fseq.  FD_ACCDB_FD_RO is the O_RDONLY dup
      of the accdb data file. */
-  void * _accdb_join = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(), fd_accdb_footprint( tile->resolv.max_live_slots ) );
+  void * _accdb_join = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(), fd_accdb_footprint( tile->resolv.max_live_slots, 0 ) );
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->resolv.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem_ro = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem_ro );

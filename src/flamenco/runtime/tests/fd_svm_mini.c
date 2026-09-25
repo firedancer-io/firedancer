@@ -122,7 +122,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
                                                     TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, joiner_cnt, 0UL );
-  ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
+  ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots, 1 );
 
 # define WKSP_ALLOC(a,s) fd_ulong_align_up( fd_ulong_max((s),1UL), fd_ulong_max((a),FD_WKSP_ALIGN_DEFAULT) )
   ulong sz = 0UL;
@@ -162,7 +162,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
                                                     TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, joiner_cnt, 0UL );
-  ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
+  ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots, 1 );
 
   /* Allocate objects */
 
@@ -195,7 +195,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
                           TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
                           TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
 
   /* Save accdb init params for reset */
@@ -462,7 +462,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   FD_TEST( 0==ftruncate( accdb_fd, 0 ) );
 
   /* Re-initialize accdb join in place */
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mini->accdb_join_mem, shmem, accdb_fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mini->accdb_join_mem, shmem, accdb_fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   mini->runtime->accdb = accdb;
 

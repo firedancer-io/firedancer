@@ -1389,7 +1389,7 @@
 | <span class="metrics-name">accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
 | <span class="metrics-name">accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
 | <span class="metrics-name">accdb_&#8203;write_&#8203;operation</span> | counter | Number of write operations performed on the account database |
-| <span class="metrics-name">accdb_&#8203;copy_&#8203;operation</span> | counter | Number of in-place copy_file_range operations performed on the account database during compaction |
+| <span class="metrics-name">accdb_&#8203;copy_&#8203;operation</span> | counter | Number of pwritev2 calls that relocated a batch of records during account database compaction |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;deleted</span> | counter | Number of accounts deleted from the account database |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (0-128 B) |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (129-512 B) |

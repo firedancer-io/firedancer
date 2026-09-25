@@ -60,11 +60,11 @@ test_setup_ex( int * out_fd,
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
 
-  ulong accdb_fp = fd_accdb_footprint( max_live_slots );
+  ulong accdb_fp = fd_accdb_footprint( max_live_slots, 1 );
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -82,10 +82,10 @@ test_setup( int * out_fd,
 
 static fd_accdb_t *
 test_join_writer( int fd ) {
-  ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots );
+  ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots, 1 );
   void * mem = aligned_alloc( fd_accdb_align(), fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -977,7 +977,7 @@ test_mainnet_footprint( void ) {
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL, 0UL );
   FD_TEST( shmem_fp );
 
-  ulong accdb_fp = fd_accdb_footprint( max_live_slots );
+  ulong accdb_fp = fd_accdb_footprint( max_live_slots, 1 );
   FD_TEST( accdb_fp );
 
   /* Derived values for component breakdown */

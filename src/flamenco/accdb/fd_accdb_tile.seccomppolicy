@@ -41,15 +41,6 @@ pwritev2: (eq (arg 0) accounts_fd)
 fallocate: (and (eq (arg 0) accounts_fd)
                 (eq (arg 1) 0))
 
-# accounts database: move accounts around during compaction
-#
-# The accounts database compacts parts of the underlying file once they
-# are fragmented (sparse).  It quickly moves these file parts in kernel
-# space without any user space copies using copy_file_range(2).
-copy_file_range: (and (eq (arg 0) accounts_fd)
-                      (eq (arg 2) accounts_fd)
-                      (eq (arg 5) 0))
-
 # startup: sleep until snapshot loaded
 clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)
 

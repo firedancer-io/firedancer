@@ -1209,7 +1209,7 @@ EXAMPLES
     <counter name="BytesRead" summary="Number of bytes read from the account database" />
     <counter name="BytesWritten" summary="Number of bytes written to the account database" />
     <counter name="WriteOperation" summary="Number of write operations performed on the account database" />
-    <counter name="CopyOperation" summary="Number of in-place copy_file_range operations performed on the account database during compaction" />
+    <counter name="CopyOperation" summary="Number of pwritev2 calls that relocated a batch of records during account database compaction" />
     <counter name="AccountDeleted" summary="Number of accounts deleted from the account database" />
 
     <gauge name="CacheClassUsed" enum="AccdbCacheClass" summary="Number of slots currently occupied in the account database cache, broken down by size class" />
