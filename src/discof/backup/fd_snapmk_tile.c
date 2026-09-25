@@ -229,6 +229,9 @@ struct fd_snapmk {
   fd_accdb_fork_id_t const *    accdb_root_fork;
   ulong *                       accdb_snapshot_sync;
 
+  fd_sleep_t * accdb_sleep;
+  ulong        accdb_tile_id;
+
   /* output buffer */
   ZSTD_CCtx *    zst;
   ZSTD_inBuffer  raw_buf;
@@ -391,6 +394,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( accdb_shmem_ro );
   ctx->accdb_shmem = accdb_shmem_ro;
   ctx->accdb_snapshot_sync = &accdb_shmem_ro->snapshot_sync;
+  ctx->accdb_sleep   = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
+  ctx->accdb_tile_id = fd_topo_find_tile( topo, "accdb", 0UL );
   ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.accdb_epoch_obj_id ) );
   FD_TEST( epoch_fseq );
   fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq );
@@ -786,6 +791,7 @@ snapshot_sync_transition( fd_snapmk_t * ctx,
                           ulong         state_to ) {
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_from ) ) FD_YIELD();
   fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync, state_req );
+  if( FD_UNLIKELY( ctx->accdb_sleep ) ) fd_sleep_ring( ctx->accdb_sleep, ctx->accdb_tile_id );
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_to ) ) FD_YIELD();
 }
 
@@ -795,6 +801,7 @@ snapshot_sync_request( fd_snapmk_t * ctx,
                        ulong         state_req ) {
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_from ) ) FD_YIELD();
   fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync, state_req );
+  if( FD_UNLIKELY( ctx->accdb_sleep ) ) fd_sleep_ring( ctx->accdb_sleep, ctx->accdb_tile_id );
   for(;;) {
     ulong state = fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync );
     if( FD_LIKELY( state!=state_req ) ) return state;

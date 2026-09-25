@@ -1464,7 +1464,8 @@ init_choreo( void                 * scratch,
   ctx->tower              = fd_tower_join              ( fd_tower_new              ( tower, slot_max, VTR_MAX, ctx->seed )                       );
   ctx->scratch_tower      = fd_tower_vote_join         ( fd_tower_vote_new         ( scratch_tower )                                             );
   ctx->publishes          = publishes_join             ( publishes_new             ( publishes, pub_max )                                        );
-  ctx->accdb              = fd_accdb_join              ( fd_accdb_new              ( accdb, _accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL )            );
+  fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
+  ctx->accdb              = fd_accdb_join              ( fd_accdb_new              ( accdb, _accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ) ) );
   ctx->mleaders           = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem )                                         );
   ctx->root_epoch_vtr_pool = epoch_vtr_pool_join( epoch_vtr_pool_new( root_epoch_vtr_pool, VTR_MAX ) );
   ctx->root_epoch_vtr_map  = epoch_vtr_map_join ( epoch_vtr_map_new ( root_epoch_vtr_map,  epoch_vtr_chain_cnt, ctx->seed ) );

@@ -80,8 +80,8 @@ bench_setup( ulong writes_per_slot ) {
   void * t2_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( t1_mem );
   FD_TEST( t2_mem );
-  fd_accdb_t * t1 = fd_accdb_join( fd_accdb_new( t1_mem, shmem, fd, 0UL, NULL ) );
-  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, shmem, fd, 0UL, NULL ) );
+  fd_accdb_t * t1 = fd_accdb_join( fd_accdb_new( t1_mem, shmem, fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, shmem, fd, 0UL, NULL, NULL, 0UL ) );
   FD_TEST( t1 );
   FD_TEST( t2 );
 

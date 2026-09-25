@@ -4958,7 +4958,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->replay.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem );
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+  fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ) ) );
   FD_TEST( ctx->accdb );
 
   ctx->capture_ctx = NULL;

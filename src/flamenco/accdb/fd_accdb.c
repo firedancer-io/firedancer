@@ -11,6 +11,7 @@
 #include "../../util/racesan/fd_racesan_target.h"
 
 #include "../../disco/events/generated/fd_event_gen.h"
+#include "../../disco/sleep/fd_sleep.h"
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_meta_sz );
 
@@ -48,6 +49,10 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int acquire_state;
 
   fd_accdb_shmem_t * shmem;
+
+  /* Doorbell for the parked accdb tile, NULL when nobody parks */
+  fd_sleep_t * sleep;
+  ulong        sleep_tile_id;
 
   fd_accdb_fork_t * fork_pool;
   fork_pool_t fork_shmem_pool[1];
@@ -237,7 +242,9 @@ fd_accdb_new( void *              ljoin,
               fd_accdb_shmem_t *  shmem,
               int                 fd,
               ulong               external_epoch_cnt,
-              ulong const **      external_epoch_slots ) {
+              ulong const **      external_epoch_slots,
+              fd_sleep_t *        sleep,
+              ulong               sleep_tile_id ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -281,6 +288,8 @@ fd_accdb_new( void *              ljoin,
 
   accdb->fd = fd;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->sleep         = sleep;
+  accdb->sleep_tile_id = sleep_tile_id;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -767,6 +776,7 @@ submit_cmd( fd_accdb_t * accdb,
   FD_VOLATILE( shmem->cmd_fork_id ) = fork_id;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shmem->cmd_op ) = op;
+  if( FD_UNLIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
 }
 
 fd_accdb_fork_id_t
@@ -928,7 +938,13 @@ cache_free_pop( fd_accdb_t * accdb,
     uint next = FD_VOLATILE_CONST( top->next );
     ulong new_vt = ((ulong)(uint)( old_ver+1U ) << 32) | (ulong)next;
     if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->shmem->cache_free[ size_class ].ver_top, old_vt, new_vt )==old_vt ) ) {
-      FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_free_cnt[ size_class ].val, 1UL );
+      ulong freec = FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_free_cnt[ size_class ].val, 1UL )-1UL;
+      if( FD_UNLIKELY( accdb->sleep ) ) {
+        ulong max_c = accdb->shmem->cache_class_max[ size_class ];
+        ulong init  = fd_ulong_min( FD_VOLATILE_CONST( accdb->shmem->cache_class_init[ size_class ].val ), max_c );
+        ulong avail = max_c-(init>freec ? init-freec : 0UL);
+        if( FD_UNLIKELY( avail+1UL==accdb->shmem->cache_free_low_water[ size_class ] ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
+      }
       return top;
     }
     FD_SPIN_PAUSE();
