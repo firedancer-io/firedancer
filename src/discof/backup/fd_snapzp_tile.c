@@ -260,14 +260,14 @@ static void
 before_credit( fd_snapzp_t *       ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem; (void)charge_busy;
+  (void)charge_busy;
   if( FD_LIKELY( ctx->snap_fd>=0 ) ) {
     /* Don't sleep while snapshot production is active
        FIXME this is quite wasteful */
     ctx->idle_cnt = 0UL;
     return;
   }
-  if( FD_UNLIKELY( ctx->idle_cnt++ > 16384UL ) ) {
+  if( FD_UNLIKELY( ctx->idle_cnt++ > 16384UL && !stem->sleep ) ) {
     fd_log_sleep( (long)1e6 );
   }
 }

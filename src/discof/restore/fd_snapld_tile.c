@@ -312,7 +312,7 @@ after_credit( fd_snapld_tile_t *  ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
-    fd_log_sleep( (long)1e6 );
+    if( FD_LIKELY( !stem->sleep ) ) fd_log_sleep( (long)1e6 );
     return;
   }
 
