@@ -296,13 +296,18 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 #endif
   if( FD_UNLIKELY( deadline-now<min_ticks ) ) return 0; /* already close enough to deadline, don't waste a syscall */
 
-  /* We are now going to park ... flush all state before. */
+  /* We are now going to park ... flush all state before.  Skip the
+     ins and outs with nothing to flush. */
   for( ulong i=0UL; i<in_cnt; i++ ) {
-    STEM_(in_update)( &in[ i ] );
+    uint const * accum = in[ i ].accum;
+    int dirty = ( __atomic_load_n( in[ i ].fseq, __ATOMIC_RELAXED )!=in[ i ].seq )
+              | (int)(accum[0]|accum[1]|accum[2]|accum[3]|accum[4]|accum[5]);
+    if( FD_UNLIKELY( dirty ) ) STEM_(in_update)( &in[ i ] );
     if( FD_LIKELY( sleep->shmem ) ) STEM_(credit_ring)( sleep, in[ i ].idx );
   }
   for( ulong o=0UL; o<out_cnt; o++ ) {
-    fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ o ] ), out_seq[ o ] );
+    ulong * sync = fd_mcache_seq_laddr( out_mcache[ o ] );
+    if( FD_UNLIKELY( FD_VOLATILE_CONST( sync[0] )!=out_seq[ o ] ) ) fd_mcache_seq_update( sync, out_seq[ o ] );
     if( FD_LIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ o ] ], out_seq[ o ] );
   }
 
