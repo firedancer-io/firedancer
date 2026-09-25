@@ -860,6 +860,7 @@ handle_replay( fd_votor_tile_t *           ctx,
                ulong                       sig,
                fd_replay_message_t const * replay ) {
 
+  fd_block_footer_t const * footer = NULL;
   switch( sig ) {
   case REPLAY_SIG_SLOT_COMPLETED: {
     fd_replay_slot_completed_t const * slot_completed  = &replay->slot_completed;
@@ -877,10 +878,42 @@ handle_replay( fd_votor_tile_t *           ctx,
     memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
     ag_votor_handle_replay_event( ctx->votor, &completed );
     if( FD_UNLIKELY( block_id.slot==ctx->curr_leader_slot+AG_SLOTS_PER_WINDOW-1UL ) ) ctx->curr_leader_slot = ULONG_MAX;
+    footer = &slot_completed->footer;
     break;
   }
+  case REPLAY_SIG_SLOT_DEAD:
+    footer = &replay->slot_dead.footer;
+    break;
   default:
     FD_LOG_ERR(( "unexpected replay sig %lu", sig ));
+  }
+
+  if( FD_UNLIKELY( !ctx->init ) ) return;
+  ag_cert_t *    cert = &ctx->scratch.cert;
+  blst_p2_affine sig_aff[1];
+  if( footer->has_fast_final_cert ) {
+    *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = { .slot = footer->fast_final_cert.slot, .shred_version = ctx->shred_version } };
+    memcpy( cert->fast_final.block_hash, footer->fast_final_cert.block_id.uc, sizeof(ag_block_hash_t) );
+    fd_bls_set_copy( cert->fast_final.agg.set, footer->fast_final_cert.signer_set );
+    blst_p2_uncompress( sig_aff, footer->fast_final_cert.sig );
+    blst_p2_from_affine( &cert->fast_final.agg.sig, sig_aff );
+    ag_pool_add_cert( ctx->pool, cert, ctx->scratch.bad );
+    if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->fast_final.slot );
+  } else if( footer->has_final_cert ) {
+    *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = { .slot = footer->final_cert.slot, .shred_version = ctx->shred_version } };
+    fd_bls_set_copy( cert->final.agg.set, footer->final_cert.signer_set );
+    blst_p2_uncompress( sig_aff, footer->final_cert.sig );
+    blst_p2_from_affine( &cert->final.agg.sig, sig_aff );
+    ag_pool_add_cert( ctx->pool, cert, ctx->scratch.bad );
+    if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->final.slot );
+
+    *cert = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR, .notar = { .slot = footer->notar_cert.slot, .shred_version = ctx->shred_version } };
+    memcpy( cert->notar.block_hash, footer->notar_cert.block_id.uc, sizeof(ag_block_hash_t) );
+    fd_bls_set_copy( cert->notar.agg.set, footer->notar_cert.signer_set );
+    blst_p2_uncompress( sig_aff, footer->notar_cert.sig );
+    blst_p2_from_affine( &cert->notar.agg.sig, sig_aff );
+    ag_pool_add_cert( ctx->pool, cert, ctx->scratch.bad );
+    if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->notar.slot );
   }
 }
 
@@ -1087,7 +1120,7 @@ before_frag( fd_votor_tile_t * ctx,
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
-    return sig!=REPLAY_SIG_SLOT_COMPLETED;
+    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
