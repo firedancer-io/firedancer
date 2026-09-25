@@ -74,6 +74,8 @@
 #define FD_FAILOVER_HELLO_ERR_ROLE       (7)
 #define FD_FAILOVER_HELLO_ERR_NONCE      (8)
 #define FD_FAILOVER_HELLO_ERR_CFG        (9)
+#define FD_FAILOVER_HELLO_ERR_PIN        (10) /* raised by the channel: the HELLO junk key differs from the TLS pin */
+#define FD_FAILOVER_HELLO_ERR_CNT        (11)
 
 /* Upper bound on the consensus state payload in tower mode.  A
    CompactTowerSync with block id and bank hash is under 512 bytes. */

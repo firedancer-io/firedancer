@@ -563,6 +563,7 @@ main( int argc, char ** argv ) {
     poll_channel( a ); poll_channel( b ); now += 1000000L;
   }
   FD_TEST( a->metrics.hello_reject_cnt>rejects && a->state==FD_FAILOVER_SESSION_LISTENING );
+  FD_TEST( a->metrics.hello_reject_reason==(ulong)FD_FAILOVER_HELLO_ERR_CFG ); /* and it says which field */
   b->self_hello.cfg_hash = 0UL;
   fd_failover_channel_hangup( b, now );
   now += 2000000001L;

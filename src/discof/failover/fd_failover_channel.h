@@ -35,6 +35,7 @@ struct fd_failover_channel_metrics {
   ulong handshake_timeout_cnt;  /* candidates expired before pairing */
   ulong wire_fatal_cnt;         /* sessions dropped by the codec */
   ulong hello_reject_cnt;       /* fatal HELLO handshake rejects */
+  ulong hello_reject_reason;    /* FD_FAILOVER_HELLO_ERR_* of the last one, OK when none */
 };
 
 typedef struct fd_failover_channel_metrics fd_failover_channel_metrics_t;

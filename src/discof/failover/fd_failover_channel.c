@@ -418,9 +418,23 @@ service_candidate( fd_failover_channel_t * ch, ulong idx, long now, int * busy, 
       ch->metrics.wire_fatal_cnt++; drop( ch, idx, now, FD_FAILOVER_EV_HELLO_FATAL ); return;
     }
     fd_memcpy( &c->hello, payload, sizeof(c->hello) );
-    if( !fd_memeq( c->hello.junk_pubkey, ch->tls_ctx.peer_pubkey, 32UL ) ||
-        fd_failover_hello_check( &ch->self_hello, &c->hello )!=FD_FAILOVER_HELLO_OK ) {
-      ch->metrics.hello_reject_cnt++; drop( ch, idx, now, FD_FAILOVER_EV_HELLO_FATAL ); return;
+    int err = !fd_memeq( c->hello.junk_pubkey, ch->tls_ctx.peer_pubkey, 32UL )
+            ? FD_FAILOVER_HELLO_ERR_PIN
+            : fd_failover_hello_check( &ch->self_hello, &c->hello );
+    if( err!=FD_FAILOVER_HELLO_OK ) {
+      /* An operator diagnosing a pool that will not pair needs the field,
+         not the count.  The peer retries on its backoff, so this is at
+         most one line per attempt. */
+      static char const * const why[ FD_FAILOVER_HELLO_ERR_CNT ] = {
+        "ok", "protocol version", "staked identity", "vote account", "junk identities are equal",
+        "junk identity equals the staked identity", "both machines claim active at one term",
+        "role", "nonce", "safety configuration hash", "junk identity differs from the TLS pin"
+      };
+      FD_LOG_WARNING(( "HELLO from the peer rejected, the %s does not match", why[ err<FD_FAILOVER_HELLO_ERR_CNT ? err : 0 ] ));
+      ch->metrics.hello_reject_cnt++;
+      ch->metrics.hello_reject_reason = (ulong)err;
+      drop( ch, idx, now, FD_FAILOVER_EV_HELLO_FATAL );
+      return;
     }
     c->phase = PHASE_READY;
   }
