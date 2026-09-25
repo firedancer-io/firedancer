@@ -41,13 +41,12 @@ struct fd_accdb_entry {
   ushort  _fork_id;
   uint    _generation;
   ulong   _acc_map_idx;
+  uint    _acc_idx;
 
   ulong   _original_size_class;
   ulong   _original_cache_idx;
 
-  struct {
-    ulong destination_cache_idx[ 8UL ];
-  } _write;
+  ulong   _staging_cache_idx;
 };
 
 typedef struct fd_accdb_entry fd_acc_t;
@@ -345,6 +344,22 @@ fd_accdb_acquire( fd_accdb_t *          accdb,
                   int *                 writable,
                   fd_acc_t *            out_accs );
 
+/* fd_accdb_acquire_a and fd_accdb_acquire_b are the two halves of an
+   acquire whose second set of accounts depends on the first: the
+   transaction's accounts, then the programdata of the programs found
+   among them, possibly on another fork.  Each takes the arguments of
+   fd_accdb_acquire; both sets are released together with
+   fd_accdb_release_ab.
+
+   If a cache class has nothing left for the second half it does not
+   wait holding the first, which could deadlock against another join
+   doing the same: fd_accdb_acquire_b releases the first set, waits,
+   and acquires both sets in one go.  So between the two calls the
+   caller must not modify the first set's accounts (nor set commit on
+   them), and their arrays (pubkeys, writable, out_accs) must still be
+   live and unchanged; afterwards they hold the same content as
+   before, in the same slots. */
+
 void
 fd_accdb_acquire_a( fd_accdb_t *          accdb,
                     fd_accdb_fork_id_t    fork_id,
@@ -356,7 +371,6 @@ fd_accdb_acquire_a( fd_accdb_t *          accdb,
 void
 fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     fd_accdb_fork_id_t    fork_id,
-                    ulong                 reserved_cnt,
                     ulong                 pubkeys_cnt,
                     uchar const * const * pubkeys,
                     int *                 writable,
@@ -375,7 +389,11 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
    advance_root on a sibling — the caller must ensure advance_root
    is not called until all releases on affected forks have completed.
    Releasing accounts for a fork that has been purged or recycled is
-   undefined behavior. */
+   undefined behavior.  At most FD_ACCDB_MAX_ACQUIRE_CNT accs per call.
+
+   fd_accdb_release_ab releases both halves of a two phase acquire,
+   the second (execs, never committed) first so that the first half's
+   commit does not wait for cache space while holding its pins. */
 
 void
 fd_accdb_release( fd_accdb_t * accdb,
@@ -633,8 +651,7 @@ fd_accdb_flush_metrics( fd_accdb_t * accdb );
 void
 fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
                                 ulong *      used,
-                                ulong *      max,
-                                ulong *      reserved );
+                                ulong *      max );
 
 /* fd_accdb_cache_class_thresholds returns the per-size-class preeviction
    thresholds, expressed as used-slot counts (so they're directly

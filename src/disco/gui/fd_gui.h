@@ -415,7 +415,6 @@ struct fd_gui_accounts_stats {
   /* Cache occupancy (gauges from accdb tile, per class). */
   ulong cache_class_used           [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_class_max            [ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong cache_class_reserved       [ FD_ACCDB_CACHE_CLASS_CNT ];
   /* Preeviction thresholds, expressed as used-slot counts directly
      comparable to cache_class_used / cache_class_max. */
   ulong cache_class_target_used    [ FD_ACCDB_CACHE_CLASS_CNT ];

@@ -392,16 +392,27 @@ struct fd_accdb_shmem_private {
      its own cacheline to avoid false sharing between classes. */
   struct __attribute__((aligned(64))) { ulong val; } clock_hand[ FD_ACCDB_CACHE_CLASS_CNT ];
 
-  /* Per-class CAS free list (Treiber stack) for fully-freed cache
-     lines.  ver_top packs a 32-bit ABA version counter in bits
-     63..32 and a uint pool index in bits 31..0.  UINT_MAX in the
-     low 32 bits means empty. */
-  struct __attribute__((aligned(64))) { ulong ver_top; } cache_free[ FD_ACCDB_CACHE_CLASS_CNT ];
+  /* Per-joiner, per-class CAS free lists (Treiber stacks) for
+     fully-freed cache lines.  A join pushes to and pops from its own
+     lists, one cache line holding its eight class tops that nobody
+     else writes unless they have run dry and come to steal.  ver_top
+     packs a 32-bit ABA version counter in bits 63..32 and a uint pool
+     index in bits 31..0.  UINT_MAX in the low 32 bits means empty. */
+  struct __attribute__((aligned(64))) { ulong ver_top[ FD_ACCDB_CACHE_CLASS_CNT ]; } cache_free[ FD_ACCDB_MAX_JOINERS ];
 
-  /* Per-class approximate depth of the CAS free list.  Atomically
-     incremented on push, decremented on pop.  Used by the
-     background pre-eviction loop to decide when to refill. */
-  struct __attribute__((aligned(64))) { ulong val; } cache_free_cnt[ FD_ACCDB_CACHE_CLASS_CNT ];
+  /* Per-joiner, per-class approximate depth of the free lists.
+     Summed over joiners by the background pre-eviction loop to decide
+     when to refill. */
+  struct __attribute__((aligned(64))) { ulong val[ FD_ACCDB_CACHE_CLASS_CNT ]; } cache_free_cnt[ FD_ACCDB_MAX_JOINERS ];
+
+  /* Per-class hint of which joiners' lists may be non-empty, so a
+     steal does not walk every joiner.  Set by a push into an empty
+     list whose bit is clear; cleared by a steal that finds the list
+     empty, which then looks again and sets it back if a push landed
+     meanwhile.  So a set bit may be stale (the list drained without a
+     steal noticing; costs the stealer a look) but a list with a line
+     on it always has its bit set. */
+  struct __attribute__((aligned(64))) { ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ]; } cache_free_have[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   fd_accdb_fork_id_t root_fork_id;
 
@@ -451,16 +462,6 @@ struct fd_accdb_shmem_private {
   ulong cache_free_target   [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_free_low_water[ FD_ACCDB_CACHE_CLASS_CNT ];
 
-  /* cache_class_used[i].val holds the number of reserved cache
-     slots in size class i.  Acquire atomically increments; if the
-     result exceeds cache_class_max[i] the reservation overflowed
-     and the thread subtracts back and retries.  Release atomically
-     decrements.  Each element is on its own cacheline to avoid
-     false sharing between classes.  Invariant:
-       used[i].val + available[i] == cache_class_max[i]
-     at all times. */
-  struct __attribute__((aligned(64))) { ulong val; } cache_class_used[ FD_ACCDB_CACHE_CLASS_CNT ];
-
   /* Per-layer write heads.  whead[0] is the hot (execution) write
      head, updated with atomic fetch-and-add by acquire/release
      threads.  whead[1..N-1] are compaction write heads, each
@@ -477,15 +478,13 @@ struct fd_accdb_shmem_private {
   ulong max_accounts;
   ulong max_account_writes_per_slot;
 
-  /* Hard upper bound on concurrent joiners, set at construction.
-     Used to determine whether cache_class_used tracking can be
-     skipped for a given class (when max[c] >= MIN_RESERVED *
-     joiner_cnt, every reservation succeeds trivially). */
+  /* Hard upper bound on concurrent joiners, set at construction. */
   ulong joiner_cnt_max;
 
-  /* Per-joiner worst-case cache reservation, set at construction.
-     Used by fd_accdb_reset to replicate the cache_class_used sentinel
-     logic from fd_accdb_shmem_new. */
+  /* Per-joiner worst-case cache need, set at construction.  The
+     cache is sized so every class holds at least this many lines, so
+     a transaction waiting for a full class to drain always gets its
+     lines once the others have committed. */
   ulong cache_min_reserved;
 
   ulong partition_pool_off;
@@ -523,6 +522,11 @@ struct fd_accdb_shmem_private {
      false sharing between joiners writing to adjacent slots. */
   struct __attribute__((aligned(64))) { ulong val; } joiner_epochs[ FD_ACCDB_MAX_JOINERS ];
   ulong joiner_cnt __attribute__((aligned(64)));
+
+  /* Number of joins (of either kind) that own free lists in
+     cache_free, claimed the same way. */
+  ulong free_owner_cnt __attribute__((aligned(64)));
+
   ulong deferred_free_dlist_off;
 
   fd_accdb_shmem_metrics_t shmetrics[1];
