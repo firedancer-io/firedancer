@@ -13,24 +13,6 @@ static uchar const hello_retry_magic[ 32 ] =
     0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E,
     0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C };
 
-#define FD_TLS_ENCODE_EXT_BEGIN( type )                         \
-  do {                                                          \
-    int valid = 1;                                              \
-    FD_TLS_SERDE_LOCATE( ext_type, _, ushort, 1 );              \
-    FD_TLS_SERDE_LOCATE( ext_sz,   _, ushort, 1 );              \
-    FD_TLS_SERDE_CHECK                                          \
-    ushort *    ext_type_ptr = (ushort *)_field_ext_type_laddr; \
-    ushort *    ext_sz_ptr   = (ushort *)_field_ext_sz_laddr;   \
-    ulong const ext_start    = wire_laddr;                      \
-    *ext_type_ptr = fd_ushort_bswap( type );
-
-#define FD_TLS_ENCODE_EXT_END                    \
-    ulong ext_sz = wire_laddr - ext_start;       \
-    if( FD_UNLIKELY( ext_sz > USHORT_MAX ) )     \
-      return -(long)FD_TLS_ALERT_INTERNAL_ERROR; \
-    *ext_sz_ptr = fd_ushort_bswap( ext_sz );     \
-  } while(0)
-
 /* Decode ClientHello (RFC 8446 Section 4.1.2) */
 long
 fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
@@ -507,7 +489,7 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
-  *extension_tot_sz = fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) );
+  FD_STORE( ushort, extension_tot_sz, fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) ) );
   return (long)( wire_laddr - (ulong)wire );
 }
 
@@ -556,7 +538,7 @@ fd_tls_encode_hello_retry_request( fd_tls_server_hello_t const * in,
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
-  *extension_tot_sz = fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) );
+  FD_STORE( ushort, extension_tot_sz, fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) ) );
   return (long)( wire_laddr - (ulong)wire );
 }
 
