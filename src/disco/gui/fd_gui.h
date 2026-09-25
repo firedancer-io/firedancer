@@ -1292,7 +1292,6 @@ struct fd_gui {
   struct {
     /* The epoch we are currently in, advanced at epoch_info ingest. */
     ulong current_epoch;
-     ulong stored_epoch_cnt;
 
     int                 has_epoch_schedule;
     fd_epoch_schedule_t epoch_schedule;
@@ -1698,7 +1697,6 @@ fd_gui_epoch_get_or_create( fd_gui_t * gui,
   fd_gui_hist_epoch_key_t key[ 1 ]; key->epoch = epoch;
   rec = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_EPOCH, key );
   if( FD_UNLIKELY( !rec ) ) return NULL;
-  gui->epoch.stored_epoch_cnt++; /* account the new epoch on successful creation only */
   if( created_out ) *created_out = 1;
   return rec;
 }

@@ -428,7 +428,6 @@ fd_gui_new( void *                   shmem,
 
   gui->epoch.current_epoch      = ULONG_MAX;
   gui->epoch.has_epoch_schedule = 0;
-  gui->epoch.stored_epoch_cnt   = 0UL;
 
   gui->shreds.leader_shred_cnt        = 0UL;
   gui->shreds.leader_shred_slot       = ULONG_MAX;

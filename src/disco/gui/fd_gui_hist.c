@@ -230,13 +230,6 @@ fd_gui_hist_kv_stride( int dbi ) {
   return fd_ulong_align_up( fd_gui_hist_rec_sz( dbi ), 8UL );
 }
 
-static inline ulong
-fd_gui_hist_bytes_per_epoch( void ) {
-  return fd_gui_hist_kv_stride( FD_GUI_HIST_EPOCH )
-       + MAX_SLOTS_PER_EPOCH                    * fd_gui_hist_kv_stride( FD_GUI_HIST_SLOT )
-       + FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH * fd_gui_hist_kv_stride( FD_GUI_HIST_LEADER_SLOT );
-}
-
 fd_gui_store_desc_t const *
 fd_gui_hist_db_descs( ulong store_bytes ) {
   static char const * const names[ FD_GUI_HIST_CNT ] = {
@@ -251,9 +244,7 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
     FD_LOG_ERR(( "fd_gui_hist_db_descs: called with %lu after %lu", store_bytes, built_for ));
 
   if( FD_UNLIKELY( !built_for ) ) {
-    ulong per_epoch_bytes = fd_gui_hist_bytes_per_epoch();
-    ulong epoch_n = fd_ulong_min( fd_ulong_max( FD_GUI_HIST_MIN_EPOCHS, store_bytes / fd_ulong_max( per_epoch_bytes, 1UL ) ), FD_GUI_HIST_MAX_EPOCHS );
-    FD_TEST( FD_GUI_HIST_MAX_EPOCHS>=FD_GUI_HIST_MIN_EPOCHS );
+    ulong shared = fd_ulong_sat_sub( store_bytes, fd_gui_store_min_size( FD_GUI_HIST_CNT ) ) / FD_GUI_STORE_REGION_SZ;
 
     for( int i=0; i<FD_GUI_HIST_CNT; i++ ) {
       int   ts     = fd_gui_hist_is_timeseries( i );
@@ -264,9 +255,13 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
       if( !ts ) {
         int shape = fd_gui_hist_keyshape( i );
         if(      shape==FD_GUI_HIST_KEYSHAPE_FEC   ) max_records = FD_GUI_FEC_RECORD_MAX;
-        else if( shape==FD_GUI_HIST_KEYSHAPE_EPOCH ) max_records = epoch_n;
-        else if( i==FD_GUI_HIST_LEADER_SLOT        ) max_records = epoch_n * FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH;
-        else                                         max_records = epoch_n * MAX_SLOTS_PER_EPOCH;
+        else {
+          ulong cap   = FD_GUI_STORE_REGION_SZ / fd_gui_hist_kv_stride( i );
+          ulong base  = FD_GUI_STORE_BASE_REGIONS*cap;
+          ulong limit = shape==FD_GUI_HIST_KEYSHAPE_EPOCH ? FD_GUI_HIST_MAX_EPOCHS
+                      : FD_GUI_HIST_MAX_EPOCHS*(i==FD_GUI_HIST_LEADER_SLOT ? FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH : MAX_SLOTS_PER_EPOCH);
+          max_records = fd_ulong_max( base, fd_ulong_min( (FD_GUI_STORE_BASE_REGIONS+shared)*cap, limit ) );
+        }
       }
 
       descs[ i ].name        = names[ i ];
@@ -287,49 +282,13 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
   return descs;
 }
 
-/* ---- space-pressure eviction -----------------------------------------
-
-   Eviction is a small resumable state machine, advanced in small batches
-   at an infrequent cadence.  It evicts the oldest epoch as a whole, in
-   phases:
-
-     IDLE       -> nothing in progress (the common case)
-     SLOT       -> deleting the epoch's (slot,bank_seq) KV rows
-     TIMESERIES -> deleting the epoch's TS rows (by wallclock window)
-     EPOCH      -> deleting the EPOCH record itself, then -> IDLE
-
-   The trigger is space, not age: eviction happens eagely as utilization
-   crosses hysteresis thresholds. */
-
-#define FD_GUI_HIST_EVICT_IDLE       (0)
-#define FD_GUI_HIST_EVICT_SLOT       (1)
-#define FD_GUI_HIST_EVICT_TIMESERIES (2)
-#define FD_GUI_HIST_EVICT_EPOCH      (3)
-#define FD_GUI_HIST_EVICT_FEC        (4)
-
-/* High/low water marks as a fraction (in 1/100ths) of the configured map
-   size. */
-#define FD_GUI_HIST_EVICT_HIGH_PCT (99UL)
-#define FD_GUI_HIST_EVICT_LOW_PCT  (95UL)
-
-/* Maximum number of records deleted per evition iteration. */
+/* Maximum number of records deleted per eviction iteration. */
 #define FD_GUI_HIST_EVICT_BATCH (512UL)
 
 struct fd_gui_hist_private {
   ulong magic;          /* ==FD_GUI_HIST_MAGIC after fd_gui_hist_new */
   long  last_ts[ FD_GUI_HIST_CNT ];
   int   has_last_ts[ FD_GUI_HIST_CNT ];
-
-  struct {
-    int   armed;        /* 1 once over the high-water mark, until under low  */
-    int   phase;        /* FD_GUI_HIST_EVICT_*                               */
-    ulong epoch;        /* epoch being evicted                              */
-    ulong start_slot;   /* first slot of the epoch (inclusive)              */
-    ulong end_slot;     /* last slot of the epoch (inclusive)               */
-    ulong window_hi;    /* last TS window of the epoch (inclusive)         */
-    int   have_ts;      /* 1 if the epoch has any TS to evict              */
-    int   cur_dbi;      /* DB the current phase is mid-scan on              */
-  } evict;
 
   fd_gui_hist_metrics_t metrics;
 };
@@ -354,7 +313,7 @@ fd_gui_hist_new( void *                 mem,
   if( FD_UNLIKELY( !db ) ) { FD_LOG_WARNING(( "fd_gui_hist_new: null db" )); return NULL; }
 
   ulong store_bytes = fd_gui_store_size( db );
-  ulong min_bytes   = FD_GUI_HIST_MIN_EPOCHS * fd_gui_hist_bytes_per_epoch() + fd_gui_store_min_overhead_bytes();
+  ulong min_bytes   = fd_gui_store_min_size( FD_GUI_HIST_CNT );
   if( FD_UNLIKELY( store_bytes<min_bytes ) ) {
     FD_LOG_WARNING(( "fd_gui_hist_new: store size %lu bytes too small; must be >= %lu bytes", store_bytes, min_bytes ));
     return NULL;
@@ -363,7 +322,6 @@ fd_gui_hist_new( void *                 mem,
   fd_memset( mem, 0, sizeof(fd_gui_hist_t) );
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_gui_hist_t * hist = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_hist_align(), sizeof(fd_gui_hist_t) );
-  hist->evict.phase = FD_GUI_HIST_EVICT_IDLE;
   FD_SCRATCH_ALLOC_FINI( l, fd_gui_hist_align() );
 
   FD_COMPILER_MFENCE();
@@ -402,119 +360,30 @@ fd_gui_hist_db( fd_gui_t * gui ) {
   return (fd_gui_store_t *)gui->db;
 }
 
-static int
-fd_gui_hist_reserve_evict_step( fd_gui_t * gui ) {
-  if( FD_LIKELY( fd_gui_hist_evict_oldest( gui ) ) ) return 1;
-  return fd_gui_hist_evict_ts_oldest( gui );
-}
-
-static int
-fd_gui_hist_reserve( fd_gui_t * gui, int dbi ) {
-  fd_gui_store_t * db = fd_gui_hist_db( gui );
-  (void)dbi;
-  if( FD_LIKELY( fd_gui_store_free_region_cnt( db )>0UL ) ) return 0; /* fast path: room already */
-
-  int evicted = 0;
-  while( fd_gui_store_free_region_cnt( db )==0UL ) {
-    if( FD_UNLIKELY( !fd_gui_hist_reserve_evict_step( gui ) ) ) break; /* genuinely full */
-    evicted = 1;
-  }
-  return evicted;
-}
-
-static int
-fd_gui_hist_map_full_evict_step( fd_gui_t * gui ) {
-  return fd_gui_hist_reserve_evict_step( gui );
-}
-
 fd_gui_hist_metrics_t const *
 fd_gui_hist_metrics( fd_gui_t const * gui ) {
   if( FD_UNLIKELY( !gui->hist ) ) return NULL;
   return &((fd_gui_hist_t const *)gui->hist)->metrics;
 }
 
-struct fd_gui_hist_fec_reclaim {
-  fd_gui_t * gui;
-  int        dbi;
-  ulong      slot_hi;
-  long       time_hi;
-};
-
 static int
-fd_gui_hist_fec_eligible( void const * rec,
-                          void *       _ctx ) {
-  struct fd_gui_hist_fec_reclaim const * ctx = _ctx;
-  ulong slot;
-  long  ts;
-  if( ctx->dbi==FD_GUI_HIST_FEC_EVENTS ) {
-    fd_gui_fec_event_t const * r = rec;
-    slot = r->key.slot;
-    ts   = r->insert_time_ns;
-  } else {
-    fd_gui_fec_completion_record_t const * r = rec;
-    slot = r->key.slot;
-    ts   = r->insert_time_ns;
-  }
-  return slot<=ctx->slot_hi && ts<=ctx->time_hi && fd_gui_event_slot_permanently_closed( ctx->gui, slot );
-}
-
-static ulong
-fd_gui_hist_fec_reclaim( fd_gui_t * gui,
-                         int        dbi,
-                         ulong      budget,
-                         ulong      slot_hi,
-                         long       time_hi ) {
-  struct fd_gui_hist_fec_reclaim ctx = { gui, dbi, slot_hi, time_hi };
-  return fd_gui_store_kv_reclaim_prefix( gui->db, (ulong)dbi, budget, fd_gui_hist_fec_eligible, &ctx );
+fd_gui_hist_reclaim_eligible( ulong        dbi,
+                              void const * rec,
+                              void *       ctx ) {
+  if( dbi==FD_GUI_HIST_FEC_EVENTS )
+    return fd_gui_event_slot_permanently_closed( ctx, ((fd_gui_fec_event_t const *)rec)->key.slot );
+  if( dbi==FD_GUI_HIST_FEC_COMPLETIONS )
+    return fd_gui_event_slot_permanently_closed( ctx, ((fd_gui_fec_completion_record_t const *)rec)->key.slot );
+  return 1;
 }
 
 static int
-fd_gui_hist_fec_room( fd_gui_t * gui,
-                      int        dbi ) {
-  fd_gui_store_kv_scan_t it;
-  fd_gui_store_kv_scan_begin( gui->db, &it, (ulong)dbi );
-  if( it.end-it.cur>=FD_GUI_FEC_RECORD_MAX ) return -1;
-  if( it.append_capacity ) return 1;
-  ulong used;
-  ulong cap;
-  ulong free_bytes;
-  ulong used_slots;
-  ulong cap_slots;
-  ulong free_slots;
-  fd_gui_store_ring_stats( gui->db, (ulong)dbi, &used, &cap, &free_bytes, &used_slots, &cap_slots, &free_slots );
-  if( cap/FD_GUI_STORE_REGION_SZ>=FD_GUI_FEC_REGION_MAX ) return -1;
-  ulong headroom = 1UL;
-  for( int i=0; i<FD_GUI_HIST_CNT; i++ ) {
-    if( i==FD_GUI_HIST_FEC_EVENTS || i==FD_GUI_HIST_FEC_COMPLETIONS ) continue;
-    fd_gui_store_ring_stats( gui->db, (ulong)i, &used, &cap, &free_bytes, &used_slots, &cap_slots, &free_slots );
-    headroom += !cap;
-  }
-  return fd_gui_store_free_region_cnt( gui->db )>headroom;
-}
-
-static void *
-fd_gui_hist_fec_get_or_create( fd_gui_t *  gui,
-                              int          dbi,
-                              void const * key ) {
-  void * val = fd_gui_store_kv_get( gui->db, (ulong)dbi, key );
-  if( val ) return val;
-  int evicted = 0;
-  for(;;) {
-    int room = fd_gui_hist_fec_room( gui, dbi );
-    if( room>0 && fd_gui_store_kv_get_or_create( gui->db, (ulong)dbi, key, &val )==FD_GUI_STORE_SUCCESS ) {
-      if( evicted ) fd_gui_hist( gui )->metrics.reserves[ dbi ]++;
-      return val;
-    }
-    ulong count = fd_gui_hist_fec_reclaim( gui, dbi, FD_GUI_HIST_EVICT_BATCH, ULONG_MAX, LONG_MAX );
-    if( !count && room>=0 ) {
-      int other = dbi==FD_GUI_HIST_FEC_EVENTS ? FD_GUI_HIST_FEC_COMPLETIONS : FD_GUI_HIST_FEC_EVENTS;
-      count = fd_gui_hist_fec_reclaim( gui, other, FD_GUI_HIST_EVICT_BATCH, ULONG_MAX, LONG_MAX );
-    }
-    if( !count ) break;
-    evicted = 1;
-  }
-  fd_gui_hist( gui )->metrics.map_full[ dbi ]++;
-  return NULL;
+fd_gui_hist_make_room( fd_gui_t * gui,
+                       int        dbi,
+                       int        rc ) {
+  if( rc!=FD_GUI_STORE_MAP_FULL && rc!=FD_GUI_STORE_RING_FULL ) return 0;
+  if( rc==FD_GUI_STORE_MAP_FULL && fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible, gui ) ) return 1;
+  return !!fd_gui_store_reclaim( gui->db, (ulong)dbi, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible, gui );
 }
 
 void *
@@ -523,8 +392,7 @@ fd_gui_hist_kv_get_or_create( fd_gui_t *   gui,
                               void const * key ) {
   if( FD_UNLIKELY( fd_gui_hist_is_timeseries( dbi ) ) ) { FD_LOG_WARNING(( "fd_gui_hist_kv_get_or_create: dbi %d is time-series", dbi )); return NULL; }
 
-  if( fd_gui_hist_keyshape( dbi )==FD_GUI_HIST_KEYSHAPE_FEC ) return fd_gui_hist_fec_get_or_create( gui, dbi, key );
-  int forced_eviction = fd_gui_hist_reserve( gui, dbi );
+  int forced_eviction = 0;
   void * val = NULL;
   int rc;
   for(;;) {
@@ -533,13 +401,11 @@ fd_gui_hist_kv_get_or_create( fd_gui_t *   gui,
       if( FD_UNLIKELY( forced_eviction ) ) fd_gui_hist( gui )->metrics.reserves[ dbi ]++;
       return val;
     }
-    if( FD_LIKELY( rc!=FD_GUI_STORE_MAP_FULL ) ) break;
-    if( FD_UNLIKELY( !fd_gui_hist_map_full_evict_step( gui ) ) ) break;
+    if( FD_UNLIKELY( !fd_gui_hist_make_room( gui, dbi, rc ) ) ) break;
     forced_eviction = 1;
   }
-  if( FD_UNLIKELY( rc==FD_GUI_STORE_MAP_FULL ) ) {
+  if( FD_UNLIKELY( rc==FD_GUI_STORE_MAP_FULL || rc==FD_GUI_STORE_RING_FULL ) ) {
     fd_gui_hist( gui )->metrics.map_full[ dbi ]++;
-    FD_LOG_WARNING(( "fd_gui_hist_kv_get_or_create: dropping a record for dbi %d; store full and nothing left to evict", dbi ));
   }
   return NULL;
 }
@@ -561,8 +427,7 @@ fd_gui_hist_ts_emplace( fd_gui_t * gui,
     return NULL;
   }
 
-  /* Reserve space ahead of the append. */
-  int forced_eviction = fd_gui_hist_reserve( gui, dbi );
+  int forced_eviction = 0;
   void * val = NULL;
   int rc;
   for(;;) {
@@ -573,8 +438,7 @@ fd_gui_hist_ts_emplace( fd_gui_t * gui,
       if( FD_UNLIKELY( forced_eviction ) ) hist->metrics.reserves[ dbi ]++;
       return val;
     }
-    if( FD_LIKELY( rc!=FD_GUI_STORE_MAP_FULL ) ) break;
-    if( FD_UNLIKELY( !fd_gui_hist_map_full_evict_step( gui ) ) ) break;
+    if( FD_UNLIKELY( !fd_gui_hist_make_room( gui, dbi, rc ) ) ) break;
     forced_eviction = 1;
   }
   if( FD_UNLIKELY( rc==FD_GUI_STORE_MAP_FULL ) ) {
@@ -730,244 +594,9 @@ fd_gui_hist_kv_iter_next( fd_gui_hist_kv_slot_iter_t * iter ) {
   return iter->rec!=NULL;
 }
 
-/* fd_gui_hist_evict_used_pct returns the store's high-water-mark fill level
-   as a percentage (0..100) of its configured map size. */
-
-static ulong
-fd_gui_hist_evict_used_pct( fd_gui_t * gui ) {
-  fd_gui_store_t * db = fd_gui_hist_db( gui );
-  ulong size = fd_gui_store_size( db );
-  if( FD_UNLIKELY( !size ) ) return 0UL;
-  return ( fd_gui_store_used_bytes( db ) * 100UL ) / size;
-}
-
-/* fd_gui_hist_evict_slot_completed_window returns, in *out_window, the
-   wallclock window (floored completion time) of the lowest-bank_seq
-   SLOT record for `slot`, or 0 if there is no such record (or it
-   has no completion time).  Used to bound the TS eviction window.
-   Returns 1 on success. */
-
-static int
-fd_gui_hist_evict_slot_completed_window( fd_gui_t * gui,
-                                         ulong      slot,
-                                         ulong *    out_window ) {
-  fd_gui_slot_t const * rmeta = fd_gui_hist_kv_get_slot_any( gui, FD_GUI_HIST_SLOT, slot );
-  if( FD_UNLIKELY( !rmeta ) ) return 0;
-  if( FD_UNLIKELY( rmeta->completed_time==LONG_MAX ) ) return 0;
-  *out_window = fd_gui_hist_window( rmeta->completed_time, FD_GUI_HIST_RES_1S_NS );
-  return 1;
-}
-
-/* fd_gui_hist_evict_begin sets up an eviction cascade for the oldest epoch.
-   Returns 1 if a cascade was armed (state populated, phase advanced past
-   IDLE), 0 if there is nothing to evict. */
-
-static int
-fd_gui_hist_evict_begin( fd_gui_t * gui ) {
-  fd_gui_hist_t * hist = fd_gui_hist( gui );
-
-  /* Make sure we always keep the current/next epoch. */
-  if( FD_UNLIKELY( gui->epoch.stored_epoch_cnt<FD_GUI_HIST_MIN_EPOCHS ) ) return 0;
-
-  fd_gui_epoch_t const * meta = fd_gui_store_kv_get_any( fd_gui_hist_db( gui ), (ulong)FD_GUI_HIST_EPOCH, NULL );
-  if( FD_UNLIKELY( !meta ) ) return 0;
-  ulong epoch      = meta->epoch;
-  ulong meta_start = meta->start_slot;
-  ulong meta_cnt   = meta->slot_cnt;
-  ulong start_slot = meta_start;
-  ulong end_slot   = meta_start + meta_cnt - 1UL;
-  ulong next_start = meta_start + meta_cnt; /* next epoch's first slot; always valid (>= FD_GUI_HIST_MIN_EPOCHS resident) */
-
-  ulong window_hi = 0UL;
-  int   have_ts   = 0;
-  ulong next_window;
-  if( FD_LIKELY( fd_gui_hist_evict_slot_completed_window( gui, next_start, &next_window ) ) ) {
-    window_hi = ( next_window>0UL ) ? ( next_window-1UL ) : 0UL;
-    have_ts   = next_window>0UL;
-  }
-
-  hist->evict.epoch      = epoch;
-  hist->evict.start_slot = start_slot;
-  hist->evict.end_slot   = end_slot;
-  hist->evict.window_hi  = window_hi;
-  hist->evict.have_ts    = have_ts;
-  hist->evict.phase      = FD_GUI_HIST_EVICT_SLOT;
-  hist->evict.cur_dbi    = FD_GUI_HIST_SLOT;
-  return 1;
-}
-
-/* fd_gui_hist_evict_slot_batch advances KV DB `dbi`'s watermark to
-   evict the (slot,bank_seq) rows with slot <= end_slot, decrementing
-   *budget per reclaimed row.  Returns 1 if the DB's range is fully
-   drained, 0 if it stopped because the budget ran out. */
-
-static int
-fd_gui_hist_evict_slot_batch( fd_gui_t * gui,
-                              int        dbi,
-                              ulong      end_slot,
-                              ulong *    budget ) {
-  fd_gui_hist_slot_key_t hi = { .slot=end_slot+1UL, .bank_seq=0UL };
-  int drained = 1;
-  fd_gui_store_kv_evict( fd_gui_hist_db( gui ), (ulong)dbi, &hi, budget, &drained );
-  return drained;
-}
-
-/* fd_gui_hist_evict_ts_batch advances TS DB `dbi`'s watermark to evict
-   rows with window <= window_hi, decrementing *budget per reclaimed row.
-   Returns 1 if drained, 0 if it stopped on the budget. */
-
-static int
-fd_gui_hist_evict_ts_batch( fd_gui_t * gui,
-                            int        dbi,
-                            ulong      window_hi,
-                            ulong *    budget ) {
-  int drained = 1;
-  fd_gui_store_ts_evict( fd_gui_hist_db( gui ), (ulong)dbi, window_hi+1UL, budget, &drained );
-  return drained;
-}
-
-/* fd_gui_hist_evict_one advances an in-progress cascade by one bounded batch.
-   Returns 1 (it always does work, or
-   resolves the cascade, when not IDLE). */
-
-static int
-fd_gui_hist_evict_one( fd_gui_t * gui ) {
-  fd_gui_hist_t * hist   = fd_gui_hist( gui );
-  ulong           budget = FD_GUI_HIST_EVICT_BATCH;
-
-  switch( hist->evict.phase ) {
-
-  case FD_GUI_HIST_EVICT_SLOT: {
-    int drained = fd_gui_hist_evict_slot_batch( gui, hist->evict.cur_dbi, hist->evict.end_slot, &budget );
-    if( !drained ) return 1; /* budget spent on this DB; resume next step */
-    /* advance to the next slot-keyed KV DB, or to the TS phase */
-    if( hist->evict.cur_dbi==FD_GUI_HIST_SLOT ) {
-      hist->evict.cur_dbi = FD_GUI_HIST_LEADER_SLOT;
-    } else {
-      hist->evict.phase   = FD_GUI_HIST_EVICT_TIMESERIES;
-      hist->evict.cur_dbi = 0; /* fd_gui_hist_evict_one finds the first TS DB below */
-    }
-    return 1;
-  }
-
-  case FD_GUI_HIST_EVICT_TIMESERIES: {
-    /* skip non-TS DBs (the KV DBs interleave by index) */
-    while( hist->evict.cur_dbi<FD_GUI_HIST_CNT && !fd_gui_hist_is_timeseries( hist->evict.cur_dbi ) ) hist->evict.cur_dbi++;
-    if( hist->evict.cur_dbi>=FD_GUI_HIST_CNT || !hist->evict.have_ts ) {
-      hist->evict.phase   = FD_GUI_HIST_EVICT_FEC;
-      hist->evict.cur_dbi = FD_GUI_HIST_FEC_EVENTS;
-      return 1;
-    }
-    int drained = fd_gui_hist_evict_ts_batch( gui, hist->evict.cur_dbi, hist->evict.window_hi, &budget );
-    if( !drained ) return 1;
-    hist->evict.cur_dbi++; /* next step picks up the next TS DB (or the EPOCH phase) */
-    return 1;
-  }
-
-  case FD_GUI_HIST_EVICT_FEC: {
-    ulong count = fd_gui_hist_fec_reclaim( gui, hist->evict.cur_dbi, budget, hist->evict.end_slot, LONG_MAX );
-    if( count==budget ) return 1;
-    if( hist->evict.cur_dbi==FD_GUI_HIST_FEC_EVENTS ) hist->evict.cur_dbi = FD_GUI_HIST_FEC_COMPLETIONS;
-    else hist->evict.phase = FD_GUI_HIST_EVICT_EPOCH;
-    return 1;
-  }
-
-  case FD_GUI_HIST_EVICT_EPOCH: {
-    fd_gui_hist_epoch_key_t hi = { .epoch=hist->evict.epoch+1UL };
-
-    fd_gui_store_t * db      = fd_gui_hist_db( gui );
-    int           drained = 1;
-    fd_gui_store_kv_evict( db, (ulong)FD_GUI_HIST_EPOCH, &hi, &budget, &drained );
-    if( !drained ) return 1; /* budget spent; resume this phase next step */
-    if( FD_LIKELY( gui->epoch.stored_epoch_cnt ) ) gui->epoch.stored_epoch_cnt--;
-
-    hist->evict.phase = FD_GUI_HIST_EVICT_IDLE; /* cascade complete */
-    return 1;
-  }
-
-  default:
-    hist->evict.phase = FD_GUI_HIST_EVICT_IDLE;
-    return 0;
-  }
-}
-
 int
 fd_gui_hist_evict_step( fd_gui_t * gui ) {
   if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return 0;
-  fd_gui_hist_t * hist = fd_gui_hist( gui );
-
-  if( hist->evict.phase==FD_GUI_HIST_EVICT_IDLE ) {
-    ulong used_pct = fd_gui_hist_evict_used_pct( gui );
-    if( used_pct>=FD_GUI_HIST_EVICT_HIGH_PCT ) hist->evict.armed = 1;
-    else if( used_pct<FD_GUI_HIST_EVICT_LOW_PCT ) hist->evict.armed = 0;
-    if( !hist->evict.armed ) return 0;
-    if( FD_UNLIKELY( !fd_gui_hist_evict_begin( gui ) ) ) { hist->evict.armed = 0; return 0; } /* nothing to evict */
-    return 1;
-  }
-
-  return fd_gui_hist_evict_one( gui );
-}
-
-int
-fd_gui_hist_evict_oldest( fd_gui_t * gui ) {
-  fd_gui_hist_t * hist = fd_gui_hist( gui );
-  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return 0;
-  if( hist->evict.phase==FD_GUI_HIST_EVICT_IDLE && FD_UNLIKELY( !fd_gui_hist_evict_begin( gui ) ) ) return 0;
-  while( hist->evict.phase!=FD_GUI_HIST_EVICT_IDLE ) fd_gui_hist_evict_one( gui );
-  return 1;
-}
-
-/* fd_gui_hist_ts_oldest_window finds the oldest live TS window or
-   eligible FEC prefix admission window.  Stores it in *out_window and
-   returns 1 if any exists, 0 otherwise.  Only the FEC head is inspected. */
-
-static int
-fd_gui_hist_ts_oldest_window( fd_gui_t * gui,
-                              ulong *    out_window ) {
-  fd_gui_store_t * db     = fd_gui_hist_db( gui );
-  ulong            oldest = ULONG_MAX;
-  int              found  = 0;
-  for( int dbi=0; dbi<FD_GUI_HIST_CNT; dbi++ ) {
-    if( !fd_gui_hist_is_timeseries( dbi ) ) continue;
-    long first_ts;
-    long last_ts;
-    if( fd_gui_store_ts_live_timestamp_bounds( db, (ulong)dbi, &first_ts, &last_ts ) ) {
-      ulong window = fd_gui_hist_window( fd_long_max( first_ts, 0L ), fd_gui_hist_dbi_res_ns( dbi ) );
-      found  = 1;
-      oldest = fd_ulong_min( oldest, window );
-    }
-  }
-  for( int dbi=FD_GUI_HIST_FEC_EVENTS; dbi<=FD_GUI_HIST_FEC_COMPLETIONS; dbi++ ) {
-    fd_gui_store_kv_scan_t it;
-    fd_gui_store_kv_scan_begin( gui->db, &it, (ulong)dbi );
-    struct fd_gui_hist_fec_reclaim ctx = { gui, dbi, ULONG_MAX, LONG_MAX };
-    if( !fd_gui_store_kv_scan_next( &it ) || !fd_gui_hist_fec_eligible( it.rec, &ctx ) ) continue;
-    long ts = dbi==FD_GUI_HIST_FEC_EVENTS ? ((fd_gui_fec_event_t const *)it.rec)->insert_time_ns
-                                        : ((fd_gui_fec_completion_record_t const *)it.rec)->insert_time_ns;
-    oldest = fd_ulong_min( oldest, (ulong)ts/(ulong)FD_GUI_HIST_RES_1S_NS );
-    found  = 1;
-  }
-  if( FD_UNLIKELY( !found ) ) return 0;
-  *out_window = oldest;
-  return 1;
-}
-
-int
-fd_gui_hist_evict_ts_oldest( fd_gui_t * gui ) {
-  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return 0;
-
-  ulong oldest;
-  if( FD_UNLIKELY( !fd_gui_hist_ts_oldest_window( gui, &oldest ) ) ) return 0; /* no TS data left */
-
-  for( int dbi=0; dbi<FD_GUI_HIST_CNT; dbi++ ) {
-    if( !fd_gui_hist_is_timeseries( dbi ) ) continue;
-    ulong budget  = ULONG_MAX;
-    fd_gui_hist_evict_ts_batch( gui, dbi, oldest, &budget );
-  }
-  long hi = oldest>=(ulong)LONG_MAX/(ulong)FD_GUI_HIST_RES_1S_NS
-    ? LONG_MAX : (long)((oldest+1UL)*(ulong)FD_GUI_HIST_RES_1S_NS)-1L;
-  for( int dbi=FD_GUI_HIST_FEC_EVENTS; dbi<=FD_GUI_HIST_FEC_COMPLETIONS; dbi++ ) {
-    while( fd_gui_hist_fec_reclaim( gui, dbi, FD_GUI_HIST_EVICT_BATCH, ULONG_MAX, hi )==FD_GUI_HIST_EVICT_BATCH ) {}
-  }
-  return 1;
+  if( fd_gui_store_shared_free_region_cnt( gui->db ) ) return 0;
+  return !!fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible, gui );
 }

@@ -81,9 +81,10 @@
 struct fd_gui_store_private;
 typedef struct fd_gui_store_private fd_gui_store_t;
 
-#define FD_GUI_STORE_SUCCESS  ( 0)
-#define FD_GUI_STORE_ERR      (-1)
-#define FD_GUI_STORE_MAP_FULL ( 1)
+#define FD_GUI_STORE_SUCCESS   ( 0)
+#define FD_GUI_STORE_ERR       (-1)
+#define FD_GUI_STORE_MAP_FULL  ( 1)
+#define FD_GUI_STORE_RING_FULL ( 2) /* this KV ring's index budget is full */
 
 #define FD_GUI_STORE_KIND_KV (0)
 #define FD_GUI_STORE_KIND_TS (1)
@@ -97,6 +98,12 @@ typedef struct fd_gui_store_private fd_gui_store_t;
    FD_GUI_STORE_MAX_REC_SZ. */
 #define FD_GUI_STORE_REGION_SZ  (36UL<<20)
 #define FD_GUI_STORE_MAX_REC_SZ (FD_GUI_STORE_REGION_SZ)
+
+/* Each ring has a protected rolling base.  Unclaimed base regions are
+   reserved lazily; other rings can neither allocate them nor pressure-
+   evict records in the newest BASE_REGIONS regions.  A writer may recycle
+   its own oldest eligible records when shared capacity is exhausted. */
+#define FD_GUI_STORE_BASE_REGIONS (3UL)
 
 /* FD_GUI_STORE_MAX_RINGS is the maximum number of named rings a store
    can host.  It bounds the per-ring metrics arrays below. */
@@ -117,7 +124,7 @@ struct fd_gui_store_desc {
   ulong        val_align;   /* record alignment (power of two, >=1; pass 1 for none) */
   ulong        ts_off;      /* byte offset, within the value, of the record's `long` timestamp (TS only; pass 0 for KV) */
   ulong        granularity; /* TS window divisor: window = (ulong)(*(long*)(val+ts_off)) / granularity (pass 0 for KV) */
-  ulong        max_records; /* KV index sizing budget; callers enforce admission limits (pass 0 for TS) */
+  ulong        max_records; /* enforced KV index budget (0 means 1; ignored for TS) */
 };
 
 typedef struct fd_gui_store_desc fd_gui_store_desc_t;
@@ -185,17 +192,34 @@ fd_gui_store_file_sz( fd_gui_store_t const * db );
 ulong
 fd_gui_store_free_region_cnt( fd_gui_store_t const * db );
 
+/* Unclaimed regions available beyond all rings' outstanding base
+   entitlements.  Unlike free_region_cnt, these can be used by any ring. */
+ulong
+fd_gui_store_shared_free_region_cnt( fd_gui_store_t const * db );
+
+/* Minimum file ceiling for ring_cnt protected bases; zero for an invalid
+   ring count.  new/footprint reject smaller stores before opening a file. */
+FD_FN_CONST ulong
+fd_gui_store_min_size( ulong ring_cnt );
+
+/* Pressure reclamation removes at most budget records from one oldest
+   region.  ring_idx==ULONG_MAX selects the oldest eligible excess region
+   across all rings and protects their newest BASE_REGIONS regions.
+   Otherwise only the named writer's own oldest region is considered,
+   including its base.  eligible may be NULL (all records eligible).
+   A rejected head is never skipped within a ring.  Returns records
+   removed (not regions freed); zero means no eligible candidate.
+   Explicit kv_evict/ts_evict below are logical deletion operations and
+   intentionally do not implement the cross-ring pressure policy. */
+ulong
+fd_gui_store_reclaim( fd_gui_store_t * db,
+                      ulong            ring_idx,
+                      ulong            budget,
+                      int (*eligible)( ulong, void const *, void * ),
+                      void *           ctx );
+
 int
 fd_gui_store_fd( fd_gui_store_t const * db );
-
-/* fd_gui_store_min_overhead_bytes returns the fixed byte overhead a
-   store adds on top of usable record space: the superblock page plus
-   one region.  A store whose size_bytes ceiling is at least this large
-   plus the caller's desired usable capacity is guaranteed to lay out
-   with at least one region. */
-
-FD_FN_CONST ulong
-fd_gui_store_min_overhead_bytes( void );
 
 struct fd_gui_store_metrics {
   ulong kv_lookups   [ FD_GUI_STORE_MAX_RINGS ]; /* KV lookup calls (per call)         */
@@ -230,7 +254,10 @@ fd_gui_store_ring_stats( fd_gui_store_t * db,
 
 /* fd_gui_store_kv_get_or_create reserves (creating if absent) the
    record for `key` and, on success, hands back a mutable pointer to the
-   record's value region. */
+   record's value region.  Returns RING_FULL if this ring's max_records
+   budget is exhausted, MAP_FULL if no region is available under the
+   base reservation policy, or ERR on invalid input / file growth error.
+   An existing record can be updated even when either resource is full. */
 
 int
 fd_gui_store_kv_get_or_create( fd_gui_store_t * db,

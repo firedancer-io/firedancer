@@ -1867,7 +1867,8 @@ telemetry = true
         # upper bound on the disk space used.  The GUI tile will start
         # with an empty database and grow the storage file on disk up to
         # the limit as needed.  When the database is full, the oldest
-        # values are evicted to make space for new data.
+        # values are evicted to make space for new data. Must be at
+        # least 2 GiB.
         db_size_gib = 100
 
     [tiles.rpc]

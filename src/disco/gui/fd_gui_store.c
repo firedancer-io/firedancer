@@ -81,8 +81,9 @@ FD_STATIC_ASSERT( sizeof(fd_gui_store_kv_idx_node_t)==32UL, fd_gui_store_kv_idx_
 #include "../../util/tmpl/fd_stack.c"
 
 struct fd_gui_store_ring_rt {
-  ulong reg_base;  /* logical ordinal of oldest owned region */
-  ulong reg_cnt;   /* number of regions owned */
+  ulong reg_base;    /* logical ordinal of oldest owned region */
+  ulong reg_cnt;     /* number of regions owned */
+  ulong max_records; /* private KV index allowance */
 };
 typedef struct fd_gui_store_ring_rt fd_gui_store_ring_rt_t;
 
@@ -103,6 +104,9 @@ struct fd_gui_store_private {
   ulong *                      freelist;     /* region free list (RAM) */
   fd_gui_store_ring_rt_t *     ring_rt;      /* per-ring region ownership (RAM): ring_cnt rows */
   ulong *                      region_ids;   /* per-ring region-id rings (RAM): ring_cnt rows of region_cnt ulongs */
+  ulong *                      region_age;   /* allocation order per physical region */
+  ulong                        next_age;
+  ulong                        reserved;     /* sum(max(BASE_REGIONS-reg_cnt,0)) */
   ulong                        region_cnt;   /* total regions in the pool (== super->region_cnt; ring divisor) */
   fd_gui_store_metrics_t       metrics[ 1 ]; /* cumulative per-ring metrics */
 };
@@ -136,9 +140,10 @@ fd_gui_store_ring_stride( int   kind,
 }
 
 FD_FN_CONST ulong
-fd_gui_store_min_overhead_bytes( void ) {
-  /* Superblock page plus one region. */
-  return fd_ulong_align_up( sizeof(fd_gui_store_super_t), FD_GUI_STORE_PAGE_SZ ) + FD_GUI_STORE_REGION_SZ;
+fd_gui_store_min_size( ulong ring_cnt ) {
+  if( !ring_cnt || ring_cnt>FD_GUI_STORE_MAX_RINGS ) return 0UL;
+  return fd_ulong_align_up( sizeof(fd_gui_store_super_t), FD_GUI_STORE_PAGE_SZ )
+       + ring_cnt*FD_GUI_STORE_BASE_REGIONS*FD_GUI_STORE_REGION_SZ;
 }
 
 static ulong
@@ -151,7 +156,7 @@ fd_gui_store_file_footprint( ulong                       size_bytes,
 
   ulong data_off  = fd_ulong_align_up( sizeof(fd_gui_store_super_t), FD_GUI_STORE_PAGE_SZ );
   ulong region_sz = FD_GUI_STORE_REGION_SZ;
-  if( FD_UNLIKELY( size_bytes<data_off+region_sz ) ) return 0UL; /* ceiling too small for one region */
+  if( FD_UNLIKELY( size_bytes<fd_gui_store_min_size( ring_cnt ) ) ) return 0UL;
   ulong avail = size_bytes - data_off;
 
   /* Every ring must fit at least one slot in a region. */
@@ -201,6 +206,7 @@ fd_gui_store_footprint( ulong                       size_bytes,
   l = FD_LAYOUT_APPEND( l, fd_gui_store_freelist_align(),      fd_gui_store_freelist_footprint( region_cnt ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_ring_rt_t),    fd_ulong_max( ring_cnt, 1UL )*sizeof(fd_gui_store_ring_rt_t) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                     fd_ulong_max( ring_cnt, 1UL )*region_cnt*sizeof(ulong) );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                     region_cnt*sizeof(ulong) );
   return FD_LAYOUT_FINI( l, fd_gui_store_align() );
 }
 
@@ -267,6 +273,7 @@ fd_gui_store_new( void *                      mem,
   void *        freelist_mem= FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_freelist_align(), fd_gui_store_freelist_footprint( region_cnt ) );
   fd_gui_store_ring_rt_t * ring_rt_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_ring_rt_t), ring_cnt*sizeof(fd_gui_store_ring_rt_t) );
   ulong *       region_ids_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), ring_cnt*region_cnt*sizeof(ulong) );
+  ulong *       region_age_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), region_cnt*sizeof(ulong) );
   FD_SCRATCH_ALLOC_FINI( l, fd_gui_store_align() );
 
   db->fd         = -1;
@@ -275,6 +282,8 @@ fd_gui_store_new( void *                      mem,
   db->size       = size_bytes;
   db->ring_rt    = ring_rt_mem;
   db->region_ids = region_ids_mem;
+  db->region_age = region_age_mem;
+  db->reserved   = ring_cnt*FD_GUI_STORE_BASE_REGIONS;
   db->region_cnt = region_cnt;
   ulong ts_idx_row = 0UL;
   for( ulong i=0UL; i<ring_cnt; i++ ) {
@@ -282,7 +291,11 @@ fd_gui_store_new( void *                      mem,
   }
   FD_TEST( ts_idx_row==ts_idx_cnt );
   for( ulong i=0UL; i<ts_idx_cnt*FD_GUI_STORE_TS_IDX_DEPTH; i++ ) ts_idx_mem[ i ].first_cur = ULONG_MAX;
-  for( ulong i=0UL; i<ring_cnt; i++ ) { ring_rt_mem[ i ].reg_base = 0UL; ring_rt_mem[ i ].reg_cnt = 0UL; }
+  for( ulong i=0UL; i<ring_cnt; i++ ) {
+    ring_rt_mem[ i ].reg_base    = 0UL;
+    ring_rt_mem[ i ].reg_cnt     = 0UL;
+    ring_rt_mem[ i ].max_records = fd_gui_store_kv_idx_max( &descs[ i ] );
+  }
 
   /* Shared node pool + one ulong-keyed index per KV ring. */
   if( FD_UNLIKELY( !fd_gui_store_kv_pool_new( kv_pool_mem, pool_max ) ) ) { FD_LOG_WARNING(( "fd_gui_store_new: ent_pool_new failed" )); return NULL; }
@@ -458,6 +471,12 @@ fd_gui_store_free_region_cnt( fd_gui_store_t const * db ) {
   return fd_gui_store_freelist_cnt( db->freelist );
 }
 
+ulong
+fd_gui_store_shared_free_region_cnt( fd_gui_store_t const * db ) {
+  if( FD_UNLIKELY( !db->super ) ) return 0UL;
+  return fd_gui_store_freelist_cnt( db->freelist ) - db->reserved;
+}
+
 int
 fd_gui_store_fd( fd_gui_store_t const * db ) {
   if( FD_UNLIKELY( !db ) ) return -1;
@@ -476,7 +495,8 @@ static int
 fd_gui_store_region_grow( fd_gui_store_t * db, ulong ring_idx ) {
   fd_gui_store_ring_rt_t * rt          = &db->ring_rt[ ring_idx ];
   ulong *               region_ring = fd_gui_store_region_ring( db, ring_idx );
-  if( FD_UNLIKELY( fd_gui_store_freelist_empty( db->freelist ) ) )        return 0;
+  ulong free_cnt = fd_gui_store_freelist_cnt( db->freelist );
+  if( FD_UNLIKELY( !free_cnt || (rt->reg_cnt>=FD_GUI_STORE_BASE_REGIONS && free_cnt<=db->reserved) ) ) return 0;
 
   ulong region_id = fd_gui_store_freelist_pop( db->freelist );
   ulong ordinal   = rt->reg_base + rt->reg_cnt;
@@ -491,10 +511,13 @@ fd_gui_store_region_grow( fd_gui_store_t * db, ulong ring_idx ) {
       rt->reg_cnt--;
       fd_gui_store_freelist_push( db->freelist, region_id );
       FD_LOG_WARNING(( "fd_gui_store: fallocate grow to %lu failed (%d-%s)", region_end, errno, fd_io_strerror( errno ) ));
-      return 0;
+      return -1;
     }
     db->file_sz = region_end;
   }
+  /* Claiming a base region consumes one outstanding entitlement. */
+  db->reserved -= rt->reg_cnt<=FD_GUI_STORE_BASE_REGIONS;
+  db->region_age[ region_id ] = db->next_age++;
   db->metrics->region_grows[ ring_idx ]++;
   return 1;
 }
@@ -510,6 +533,8 @@ fd_gui_store_region_reclaim( fd_gui_store_t * db, ulong ring_idx,
     fd_gui_store_freelist_push( db->freelist, region_id );
     rt->reg_base++;
     rt->reg_cnt--;
+    /* The owner's base entitlement survives returning a region. */
+    db->reserved += rt->reg_cnt<FD_GUI_STORE_BASE_REGIONS;
     db->metrics->region_reclaims[ ring_idx ]++;
   }
 }
@@ -581,10 +606,15 @@ fd_gui_store_kv_get_or_create( fd_gui_store_t * db,
     return FD_GUI_STORE_SUCCESS;
   }
 
+  if( FD_UNLIKELY( p->head_cur-p->evict_cur>=db->ring_rt[ ring_idx ].max_records ) ) return FD_GUI_STORE_RING_FULL;
+  /* Per-ring limits sum to the pool capacity: one ring cannot consume
+     another ring's index allowance. */
+  FD_TEST( fd_gui_store_kv_pool_free( db->kv_pool ) );
   if( FD_UNLIKELY( p->head_cur >= fd_gui_store_ring_head_limit( db, ring_idx, p ) ) ) {
-    if( FD_UNLIKELY( !fd_gui_store_region_grow( db, ring_idx ) ) ) { db->metrics->map_full[ ring_idx ]++; return FD_GUI_STORE_MAP_FULL; }
+    int grown = fd_gui_store_region_grow( db, ring_idx );
+    if( FD_UNLIKELY( grown<0 ) ) return FD_GUI_STORE_ERR;
+    if( FD_UNLIKELY( !grown ) ) { db->metrics->map_full[ ring_idx ]++; return FD_GUI_STORE_MAP_FULL; }
   }
-  if( FD_UNLIKELY( !fd_gui_store_kv_pool_free( db->kv_pool ) ) )  { db->metrics->map_full[ ring_idx ]++; return FD_GUI_STORE_MAP_FULL; }
 
   ulong   cur  = p->head_cur;
   uchar * slot = fd_gui_store_slot( db, ring_idx, p, cur );
@@ -648,7 +678,7 @@ fd_gui_store_kv_lowest_gt( fd_gui_store_t *         db,
       node = next;
     }
   } else {
-    /* Slow path: no query key.  Only epoch-based eviction uses this. */
+    /* Slow path: no query key, find the lowest key across the ring. */
     for( ulong cur=p->evict_cur; cur<p->head_cur; cur++ ) {
       uchar const * val = (uchar const *)fd_gui_store_slot( db, ring_idx, p, cur );
       uchar const * k   = val + p->key_off;
@@ -828,7 +858,9 @@ fd_gui_store_ts_emplace( fd_gui_store_t * db,
   if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_emplace: ring_idx %lu is not a TS ring", ring_idx )); return FD_GUI_STORE_ERR; }
 
   if( FD_UNLIKELY( p->head_cur >= fd_gui_store_ring_head_limit( db, ring_idx, p ) ) ) {
-    if( FD_UNLIKELY( !fd_gui_store_region_grow( db, ring_idx ) ) ) { db->metrics->map_full[ ring_idx ]++; return FD_GUI_STORE_MAP_FULL; }
+    int grown = fd_gui_store_region_grow( db, ring_idx );
+    if( FD_UNLIKELY( grown<0 ) ) return FD_GUI_STORE_ERR;
+    if( FD_UNLIKELY( !grown ) ) { db->metrics->map_full[ ring_idx ]++; return FD_GUI_STORE_MAP_FULL; }
   }
 
   /* Window is derived from the timestamp embedded in the value; the
@@ -1024,4 +1056,50 @@ fd_gui_store_ts_evict( fd_gui_store_t * db,
   p->tail_cur = p->evict_cur;
   fd_gui_store_region_reclaim( db, ring_idx, p );
   return FD_GUI_STORE_SUCCESS;
+}
+
+ulong
+fd_gui_store_reclaim( fd_gui_store_t * db,
+                      ulong            ring_idx,
+                      ulong            budget,
+                      int (*eligible)( ulong, void const *, void * ),
+                      void *           ctx ) {
+  if( FD_UNLIKELY( !db || !budget || (ring_idx!=ULONG_MAX && ring_idx>=db->ring_cnt) ) ) return 0UL;
+  ulong best = ULONG_MAX;
+  ulong age  = ULONG_MAX;
+  for( ulong i=0UL; i<db->ring_cnt; i++ ) {
+    fd_gui_store_ring_rt_t const * rt = &db->ring_rt[ i ];
+    fd_gui_store_ring_t const * p = &db->super->ring[ i ];
+    if( ring_idx==ULONG_MAX ? rt->reg_cnt<=FD_GUI_STORE_BASE_REGIONS : i!=ring_idx ) continue;
+    if( p->evict_cur==p->head_cur ) continue;
+    void const * rec = fd_gui_store_slot( db, i, p, p->evict_cur );
+    if( eligible && !eligible( i, rec, ctx ) ) continue;
+    ulong id = fd_gui_store_region_ring( db, i )[ rt->reg_base % db->region_cnt ];
+    if( db->region_age[ id ]<age ) { best = i; age = db->region_age[ id ]; }
+  }
+  if( best==ULONG_MAX ) return 0UL;
+
+  fd_gui_store_ring_t * p = &db->super->ring[ best ];
+  /* Do not cross into the next region: after releasing an excess region
+     that next region can become part of the protected base. */
+  ulong stop = fd_ulong_min( p->head_cur, (db->ring_rt[ best ].reg_base+1UL)*p->region_capacity );
+  ulong first = p->evict_cur;
+  while( budget && p->evict_cur<stop ) {
+    uchar const * rec = fd_gui_store_slot( db, best, p, p->evict_cur );
+    if( eligible && !eligible( best, rec, ctx ) ) break;
+    if( p->kind==FD_GUI_STORE_KIND_KV ) {
+      fd_gui_store_kv_idx_node_t * node = fd_gui_store_kv_find_node( db, p, best, rec+p->key_off );
+      FD_TEST( node );
+      fd_gui_store_kv_idx_ele_remove_fast( db->kv_idx[ best ], node, db->kv_pool );
+      fd_gui_store_kv_pool_ele_release( db->kv_pool, node );
+    }
+    p->evict_cur++;
+    budget--;
+  }
+  ulong count = p->evict_cur-first;
+  db->metrics->evicts[ best ] += !!count;
+  db->metrics->evict_records[ best ] += count;
+  p->tail_cur = p->evict_cur;
+  fd_gui_store_region_reclaim( db, best, p );
+  return count;
 }

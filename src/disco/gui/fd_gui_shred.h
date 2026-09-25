@@ -11,7 +11,6 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_SHRED_EVENT_TS_MAX   (0xFFFFFFUL)
 #define FD_GUI_CLOSED_SLOT_MAX      ((ulong)USHORT_MAX)
 #define FD_GUI_FEC_RECORD_MAX          (1UL<<20)
-#define FD_GUI_FEC_REGION_MAX          (2UL)
 #define FD_GUI_FEC_PUBLISHED_SHRED_CNT (2UL*FD_FEC_SHRED_CNT)
 
 #define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (0UL)
