@@ -438,6 +438,77 @@ test_shred_skip_memo( fd_wksp_t * wksp ) {
   FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL );
 }
 
+/* Every NULL from fd_policy_next reports when another call could
+   produce a request: now when the turn was only skipped, the timer
+   when a walk exhausted the forest with a pending window or orphan,
+   LONG_MAX when only a frag can help. */
+static void
+test_next_due( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+  int charge_busy;
+  long now = 1000000000L;
+
+  /* No root: nothing to do until a frag. */
+  FD_TEST( !fd_policy_next( policy, dedup, forest, repair, now, 1UL, &charge_busy ) );
+  FD_TEST( policy->next_due==LONG_MAX );
+
+  fd_forest_init( forest, 0UL );
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  /* Empty forest: a fruitless walk with no timers pending. */
+  ulong turns = 0UL;
+  while( turns<8UL && !fd_policy_next( policy, dedup, forest, repair, now+(long)turns, 1UL, &charge_busy ) && policy->next_due<=now+(long)turns ) turns++;
+  FD_TEST( policy->next_due==LONG_MAX );
+
+  /* Head slot with a deduped candidate: the declined turn says try
+     again now (the iterator moved on), and once the walk is exhausted
+     the window expiry is the timer. */
+  fd_forest_blk_t * blk = fd_forest_blk_insert( forest, 1UL, 0UL, NULL );
+  FD_TEST( blk );
+  blk->buffered_idx = 4U;
+  fd_repair_msg_t const * msg = next_msg( policy, dedup, forest, repair, now, 1UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.shred_idx==5UL );
+  long t1 = now+10L;
+  FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 1UL, 5U ), t1 ) );
+  long until = t1+FD_REQLIM_DEDUP_TIMEOUT;
+  int saw_now = 0, saw_timer = 0;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    long t = t1+1L+(long)i;
+    FD_TEST( !fd_policy_next( policy, dedup, forest, repair, t, 1UL, &charge_busy ) );
+    if( policy->next_due==t )     saw_now   = 1; /* fresh decline: the iterator may have more */
+    if( policy->next_due==until ) { saw_timer = 1; break; } /* back at the declined candidate: idle */
+    FD_TEST( policy->next_due==t );
+  }
+  FD_TEST( saw_now && saw_timer );
+
+  /* A pending orphan is a timer too: once requested it is re-queued
+     at its dedup expiry, and an exhausted walk reports the earlier of
+     that and the skip window. */
+  FD_TEST( fd_forest_blk_insert( forest, 9UL, 7UL, NULL ) ); /* parent 7 unknown: orphan */
+  fd_forest_orphan_ent_t const * orphanq = fd_forest_orphanq_const( forest );
+  FD_TEST( fd_forest_orphanq_cnt( orphanq ) );
+  long t2 = t1+100L;
+  msg = fd_policy_next( policy, dedup, forest, repair, t2, 1UL, &charge_busy );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_ORPHAN && msg->orphan.slot==9UL );
+  long orphan_due = orphanq[ 0 ].due;
+  FD_TEST( orphan_due>t2 );
+  FD_TEST( !fd_policy_next( policy, dedup, forest, repair, t2+1L, 1UL, &charge_busy ) );
+  FD_TEST( policy->next_due==fd_long_min( until, orphan_due ) );
+}
+
 /* A pop whose reqlim key is still in its dedup window reschedules the
    head without sending. */
 static void
@@ -919,6 +990,7 @@ main( int argc, char ** argv ) {
   test_remove_sole_peer( wksp );
   test_orphan_due_prq( wksp );
   test_shred_skip_memo( wksp );
+  test_next_due( wksp );
   test_orphan_dedup_reschedule( wksp );
   test_orphan_reclaim_and_rehead( wksp );
   test_orphan_rehead_revival( wksp );

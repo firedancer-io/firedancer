@@ -107,6 +107,8 @@ struct fd_policy {
     long  until;
   } skip;
 
+  long next_due;
+
   fd_rnonce_ss_t    rnonce_ss[1];
 
   ulong turbine_slot0;
@@ -180,7 +182,8 @@ fd_policy_delete( void * policy );
    making orphan requests and highest shred requests.  For non-normal
    repair requests, policy uses the dedup cache to deduplicate requests.
    For all normal requests, the caller must check the dedup cache before
-   making a request. */
+   making a request.  Returns NULL when no request can be made this
+   turn and sets policy->next_due to when one might be. */
 
 fd_repair_msg_t const *
 fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy );

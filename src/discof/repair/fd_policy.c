@@ -189,6 +189,7 @@ fd_repair_msg_t const *
 fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy ) {
   fd_forest_blk_t * pool = fd_forest_pool( forest );
   *charge_busy = 0;
+  policy->next_due = LONG_MAX;
 
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return NULL;
   if( FD_UNLIKELY( fd_policy_peer_pool_used( policy->peers.pool ) == 0 ) ) return NULL;
@@ -232,6 +233,8 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
   fd_forest_iter_next( iter, forest );
   if( FD_UNLIKELY( fd_forest_iter_done( iter, forest ) ) ) {
     // This happens when we have already requested all the shreds we know about.
+    if( FD_UNLIKELY( policy->skip.until>now ) )           policy->next_due = policy->skip.until;
+    if( FD_UNLIKELY( fd_forest_orphanq_cnt( orphanq ) ) ) policy->next_due = fd_long_min( policy->next_due, orphanq[ 0 ].due );
     return NULL;
   }
 
@@ -246,6 +249,9 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
                    policy->skip.idx==cand_idx &&
                    now<policy->skip.until ) ) {
     iter->shred_idx = UINT_MAX;
+    /* The walk is back at a candidate it already declined and nothing
+       else came up in between: idle until the window opens. */
+    policy->next_due = policy->skip.until;
     return NULL;
   }
 
@@ -278,6 +284,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
     /* Cap at 1ms: the deadline is derived from tick estimates that can
        move as more shreds land without changing the candidate. */
     policy->skip.until     = now + fd_long_min( throttle_ns, (long)1e6 );
+    policy->next_due       = now; /* another slot may be actionable */
     return NULL;
   }
 
@@ -296,6 +303,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
         policy->skip.idx       = cand_idx;
         policy->skip.throttled = 0;
         policy->skip.until     = fd_reqlim_next_due( dedup, key, now );
+        policy->next_due       = now; /* another slot may be actionable */
         *charge_busy = 0;
         return NULL;
       }
@@ -313,6 +321,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
     ele->req_window_cnt++;
     if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
   }
+  if( FD_UNLIKELY( !out ) ) policy->next_due = now;
   return out;
 }
 
