@@ -472,6 +472,13 @@ handle_replay( ctx_t *       ctx,
   if( FD_LIKELY( sig==REPLAY_SIG_ROOT_ADVANCED ) ) {
     fd_replay_root_advanced_t const * root = (fd_replay_root_advanced_t const *)fd_type_pun_const( chunk );
     if( FD_LIKELY( root->slot > ctx->chainer->root ) ) {
+      if( !out_queue_empty( ctx->redeliver ) || !out_queue_empty( ctx->chainer->out_queue ) ) {
+        /* hold the root advanced until the redeliver queue is empty */
+        ctx->replay_root_slot = root->slot;
+        fd_memcpy( ctx->replay_root_hash.uc, root->block_id.uc, 32UL );
+        return;
+      }
+
       fd_chainer_publish  ( ctx->chainer,   root->slot, &root->block_id, ctx->store );
       fd_schedulor_publish( ctx->schedulor, root->slot );
     }
@@ -739,37 +746,6 @@ publish_fec( ctx_t *              ctx,
   ctx->metrics->fecs_delivered++;
 }
 
-/* full_fec_path_queue queues every FEC from the chainer root down to
-   (target_block, target_fec), inclusive, onto ctx->redeliver in
-   root-to-target order. */
-
-static void
-full_fec_path_queue( ctx_t *              ctx,
-                     fd_chainer_slotv_t * target_block,
-                     fd_chainer_fec_t *   target_fec ) {
-  fd_chainer_t * chainer = ctx->chainer;
-
-  for( fd_chainer_slotv_t * block = target_block;
-                            block && block->slot > chainer->root;
-                            block = fd_chainer_slot_version_query( chainer, block->parent_slot, &block->parent_block_id ) ) {
-    uint slotv_idx = (uint)fd_slotv_pool_idx( chainer->slotv_pool, block );
-
-    uint kmax;
-    if( FD_LIKELY( block==target_block ) ) {
-      kmax = target_fec->fec_set_idx / (uint)FD_FEC_SHRED_CNT;
-    } else {
-      if( FD_UNLIKELY( block->buffered_fec_idx==UINT_MAX ) ) continue;
-      kmax = block->buffered_fec_idx / (uint)FD_FEC_SHRED_CNT;
-    }
-
-    uint const * fecs = fd_chainer_slotv_fecs( chainer, block );
-    for( int k=(int)kmax; k>=0; k-- ) {
-      if( FD_UNLIKELY( out_queue_full( ctx->redeliver ) ) ) FD_LOG_ERR(( "deliver_from_root queue full" ));
-      out_queue_push_head( ctx->redeliver, (out_ele_t){ .slotv_idx = slotv_idx, .fec_idx = fecs[ k ] } );
-    }
-  }
-}
-
 /* publish_fec_replay pops one delivered FEC off the chainer's out_queue
    and publishes it, or, when deliver_from_root is set, queues its whole
    ancestry path onto redeliver instead.  Returns 1 if a delivered
@@ -788,7 +764,27 @@ publish_fec_replay( ctx_t *             ctx,
   fd_chainer_slotv_t * block = fd_slotv_pool_ele( ctx->chainer->slotv_pool, out_ele.slotv_idx );
 
   if( FD_UNLIKELY( ctx->deliver_from_root ) ) {
-    full_fec_path_queue( ctx, block, fec );
+    /* queues every FEC from the chainer root down to (block, fec),
+       inclusive, onto ctx->redeliver in root-to-target order. */
+    for( fd_chainer_slotv_t * blk = block;
+                              blk && blk->slot > ctx->replay_root_slot;
+                              blk = fd_chainer_slot_version_query( ctx->chainer, blk->parent_slot, &blk->parent_block_id ) ) {
+      uint slotv_idx = (uint)fd_slotv_pool_idx( ctx->chainer->slotv_pool, blk );
+
+      uint kmax;
+      if( FD_LIKELY( blk==block ) ) {
+        kmax = fec->fec_set_idx / (uint)FD_FEC_SHRED_CNT;
+      } else {
+        if( FD_UNLIKELY( blk->buffered_fec_idx==UINT_MAX ) ) continue;
+        kmax = blk->buffered_fec_idx / (uint)FD_FEC_SHRED_CNT;
+      }
+
+      uint const * fecs = fd_chainer_slotv_fecs( ctx->chainer, blk );
+      for( int k=(int)kmax; k>=0; k-- ) {
+        if( FD_UNLIKELY( out_queue_full( ctx->redeliver ) ) ) FD_LOG_ERR(( "deliver_from_root queue full" ));
+         out_queue_push_head( ctx->redeliver, (out_ele_t){ .slotv_idx = slotv_idx, .fec_idx = fecs[ k ] } );
+      }
+    }
     ctx->deliver_from_root = 0;
   }
   else publish_fec( ctx, stem, block, fec, 0 /* from_root */ );
@@ -827,11 +823,29 @@ requestor_next( ctx_t *             ctx,
   }
 }
 
+/* check_credit overrides stem's default backpressure check so the run
+   loop never spins waiting on replay credits: after_credit and frag
+   handling always run.  publishing to replay gates itself on
+   REPLAY_MIN_CREDITS below, fine as long as replay is the only
+   reliable consumer of rotor */
+
+static void
+check_credit( ctx_t *             ctx FD_PARAM_UNUSED,
+              fd_stem_context_t * stem FD_PARAM_UNUSED,
+              int *               charge_busy FD_PARAM_UNUSED,
+              int *               is_backpressured ) {
+  *is_backpressured = 0;
+}
+
+#define REPLAY_MIN_CREDITS (2UL)
+
 static void
 after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in,
+              int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( stem->cr_avail[ ctx->replay_out_ctx->idx ]<REPLAY_MIN_CREDITS ) ) return;
+
   long now = fd_clock_tile_now( ctx->clock );
 
   /* 1. Deliveries to replay. */
@@ -842,14 +856,21 @@ after_credit( ctx_t *             ctx,
     fd_chainer_fec_t   * fec   = fd_fec_pool_ele  ( ctx->chainer->fec_pool,   e.fec_idx   );
     publish_fec( ctx, stem, block, fec, 1 /* from_root */ );
     *charge_busy = 1;
-    *opt_poll_in = 0;
+    //*opt_poll_in = 0;
     return;
   }
 
   if( publish_fec_replay( ctx, stem ) ) {
     *charge_busy = 1;
-    *opt_poll_in = 0;
+    //*opt_poll_in = 0;
     return;
+  }
+
+  if( FD_UNLIKELY( out_queue_empty( ctx->redeliver ) && out_queue_empty( ctx->chainer->out_queue )
+                   && ctx->replay_root_slot > ctx->chainer->root ) ) {
+    /* advance any lagging root */
+    fd_chainer_publish( ctx->chainer, ctx->replay_root_slot, &ctx->replay_root_hash, ctx->store );
+    *charge_busy = 1;
   }
 
   if( FD_UNLIKELY( ctx->halt_signing ) ) { *charge_busy = 1; return; }
@@ -1173,7 +1194,9 @@ metrics_write( ctx_t * ctx ) {
 
 /* after_credit publishes at most one frag (a FEC to replay, or one
    sign request).  after_frag publishes at most one packet (a signed
-   request or pong on its way out).  returnable_frag publishes nothing. */
+   request or pong on its way out).  returnable_frag publishes nothing.
+   check_credit disables stem's backpressure spin; the replay link is
+   gated by REPLAY_MIN_CREDITS in after_credit instead. */
 #define STEM_BURST (3UL)
 
 /* Keeps housekeeping time low.  The tile's only reliable consumer is
@@ -1183,6 +1206,7 @@ metrics_write( ctx_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
 
+#define STEM_CALLBACK_CHECK_CREDIT        check_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag

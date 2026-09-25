@@ -2,20 +2,7 @@
 
    `rotor forest` (default) prints the alpenglow chainer's state as a
    forest tree; `rotor metrics` prints per-second repair request /
-   response counters and network drop counters.
-
-   forest:
-
-   The chainer is a flat slot-version map, which is easy to reason
-   about but hard to read during catchup: it is not obvious from the
-   list which slots are connected to the root and which are dangling.
-   The forest, on the other hand, has a tree printer that shows exactly
-   that (the ancestry tree, the repair frontier and the orphaned
-   subtrees).  So once a second this command snapshots every chainer
-   slotv, mirrors it into a private forest (block + shred bookkeeping
-   only) and calls fd_forest_print.  Nothing is written back to the
-   tile: the forest lives in an anonymous workspace owned by this
-   process and is rebuilt from scratch on every tick. */
+   response counters and network drop counters. */
 
 #include "../../../disco/topo/fd_topob.h"
 #include "../../shared/fd_config.h" /* config_t */

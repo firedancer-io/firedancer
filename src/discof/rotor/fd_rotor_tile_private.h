@@ -134,6 +134,8 @@ struct ctx {
      replay can reconstruct a fork it evicted.  See fd_rotor_tile.h. */
   int         deliver_from_root;
   out_ele_t * redeliver;
+  ulong       replay_root_slot;
+  fd_hash_t   replay_root_hash;
 
   /* Pending sign requests */
 
