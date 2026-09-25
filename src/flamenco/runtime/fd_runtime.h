@@ -328,6 +328,10 @@ struct fd_txn_out {
        the checksum of the zero lthash. Noncommittable txn events suppress
        these checksums even if they were computed before rejection. */
     uchar lthash_checksum[ MAX_TX_ACCOUNT_LOCKS ][ 32UL ];
+    /* Set at account commit when diff reporting is enabled.  Execution
+       buffers can contain rolled-back changes, so neither writability nor
+       transaction committability alone identifies a committed account. */
+    uchar committed[ MAX_TX_ACCOUNT_LOCKS ];
 
     ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */
     ulong nonce_rollback_data_len;

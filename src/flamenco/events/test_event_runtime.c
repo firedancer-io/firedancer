@@ -26,6 +26,7 @@ main( int argc, char ** argv ) {
     accounts[i].lamports = 9UL;
     out.accounts.account[i] = &accounts[i];
     out.accounts.is_writable[i] = 1;
+    out.accounts.committed[i] = 1;
     out.accounts.keys[i].uc[0] = (uchar)(i+1UL);
   }
   /* Skipping an unchanged account must not shift the checksum mapping. */
@@ -48,14 +49,47 @@ main( int argc, char ** argv ) {
   fd_event_runtime_txn_emit( &in, &out, &bank );
   FD_TEST( !memcmp( captured.account_diffs[0].lthash, deleted, 32UL ) );
 
-  /* Rejection after checksum computation must suppress the checksum. */
+  /* Rejection after checksum computation must suppress all state diffs. */
   out.err.is_committable = 0;
   fd_event_runtime_txn_emit( &in, &out, &bank );
-  FD_TEST( !memcmp( captured.account_diffs[0].lthash, zero, 32UL ) );
+  FD_TEST( captured.account_diffs_cnt==0UL );
+  FD_TEST( captured.writable_accounts_cnt==2UL );
   out.err.is_committable = 1;
+
+  /* Missing capture on a committed write must remain visible. */
   memset( out.accounts.lthash_checksum[1], 0, 32UL );
   fd_event_runtime_txn_emit( &in, &out, &bank );
   FD_TEST( !memcmp( captured.account_diffs[0].lthash, zero, 32UL ) );
+  FD_TEST( captured.account_diffs_cnt==1UL );
+
+  /* Failed execution leaves an attempted deletion in account 1, but only
+     the fee payer's rollback balance commits.  Never emit that deletion. */
+  out.err.txn_err = FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+  accounts[0].lamports = 9UL;
+  out.accounts.committed[1] = 0;
+  memcpy( out.accounts.lthash_checksum[0], deleted, 32UL );
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.is_committable );
+  FD_TEST( captured.account_diffs_cnt==1UL );
+  FD_TEST( !memcmp( captured.account_diffs[0].pubkey, out.accounts.keys[0].uc, 32UL ) );
+  FD_TEST( captured.account_diffs[0].lamports==9UL );
+
+  /* A separate nonce rollback is also a committed write on failure. */
+  out.accounts.committed[1] = 1;
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.account_diffs_cnt==2UL );
+
+  /* A successful bundle's non-owning writer has no committed diff, even
+     if its shared account buffer changed. */
+  out.err.txn_err = 0;
+  in.bundle.is_bundle = 1;
+  out.accounts.committed[0] = 0;
+  out.accounts.committed[1] = 0;
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.account_diffs_cnt==0UL );
+  out.accounts.committed[1] = 1;
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.account_diffs_cnt==1UL );
 
   /* Block diffs must also checksum deletions and keep the latest hash. */
   static uchar diff_mem[ FD_EVENT_RUNTIME_SLOT_DIFFS_FOOTPRINT ] __attribute__((aligned(8)));

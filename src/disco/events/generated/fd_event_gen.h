@@ -230,7 +230,7 @@ struct fd_event_runtime_txn_account_diffs {
   int   is_vote_update;     /* True if this write touched the vote cache */
   int   is_new_vote;        /* True if this write created a new vote account */
   int   is_rm_vote;         /* True if this write removed a vote account */
-  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Deleted accounts carry the checksum of the zero lthash. Zero is reserved for an uncaptured contribution: a bundle txn that is not the account's final writer, or a txn that was not committed */
+  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Deleted accounts carry the checksum of the zero lthash. Zero indicates missing capture and must not be treated as a matching state. Only committed account changes are emitted */
 };
 typedef struct fd_event_runtime_txn_account_diffs fd_event_runtime_txn_account_diffs_t;
 
@@ -273,7 +273,7 @@ struct fd_event_runtime_txn {
   uint                                 cost_programs_execution;           /* Cost-tracker programs-execution cost */
   uint                                 cost_loaded_accounts_data_size;    /* Cost-tracker loaded-accounts-data-size cost */
   ulong                                cost_allocated_accounts_data_size; /* Allocated accounts data size from the cost tracker */
-  fd_event_runtime_txn_account_diffs_t account_diffs[ 64UL ];             /* Per-account diffs for writable accounts that were modified */
+  fd_event_runtime_txn_account_diffs_t account_diffs[ 64UL ];             /* Per-account committed state changes; excludes rolled-back writes, rejected transactions, and non-owning bundle writers */
   ulong                                account_diffs_cnt;                 /* Number of account_diffs entries (<= 64) */
   uchar                                writable_accounts[ 64UL ][ 32UL ]; /* Every account the transaction locked as writable */
   ulong                                writable_accounts_cnt;             /* Number of writable_accounts entries (<= 64) */

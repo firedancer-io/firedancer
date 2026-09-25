@@ -1141,7 +1141,9 @@ static inline uchar *
 lthash_checksum_slot( fd_bank_t const * bank,
                       fd_txn_out_t *    txn_out,
                       ulong             idx ) {
-  return fd_bank_report_runtime_diffs( bank ) ? txn_out->accounts.lthash_checksum[ idx ] : NULL;
+  if( FD_LIKELY( !fd_bank_report_runtime_diffs( bank ) ) ) return NULL;
+  txn_out->accounts.committed[ idx ] = 1;
+  return txn_out->accounts.lthash_checksum[ idx ];
 }
 
 /* fd_runtime_commit_txn is a helper used by the transaction executor to
@@ -1362,6 +1364,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   memset( txn_out->accounts.is_writable,  0, sizeof(txn_out->accounts.is_writable) );
   memset( txn_out->accounts.stake_update, 0, 4UL*MAX_TX_ACCOUNT_LOCKS );
   memset( txn_out->accounts.lthash_checksum, 0, sizeof(txn_out->accounts.lthash_checksum) );
+  memset( txn_out->accounts.committed, 0, sizeof(txn_out->accounts.committed) );
   txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
 
   /* For bundle transactions the resolved key list is bound once up
