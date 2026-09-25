@@ -433,18 +433,18 @@ enum AlpenglowVoteKind {
   ALPENGLOW_VOTE_KIND_SKIP_FALLBACK = 5;  // Cast on SafeToSkip. Names only the slot.
 }
 
-// Why we cast the vote, based on the Alpenglow voting algorithm (not_broadcasted if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17.
-enum AlpenglowVoteBroadcastReason {
-  ALPENGLOW_VOTE_BROADCAST_REASON_UNSPECIFIED = 0;
-  ALPENGLOW_VOTE_BROADCAST_REASON_NOT_BROADCASTED = 1;  // Not our vote, so we did not broadcast it; see our_vote.
-  ALPENGLOW_VOTE_BROADCAST_REASON_BLOCK_REPLAYED = 2;  // Replay completed the block normally, so we vote notar for it.
-  ALPENGLOW_VOTE_BROADCAST_REASON_BLOCK_DEAD = 3;  // Replay ruled the block dead, so we vote skip on the entire rest of the window containing this slot.
-  ALPENGLOW_VOTE_BROADCAST_REASON_PARENT_READY = 4;  // We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending.
-  ALPENGLOW_VOTE_BROADCAST_REASON_BLOCK_NOTARIZED = 5;  // We hold a notar cert for the block we voted notar for and cast no skip or fallback vote in the slot, so we vote final for it.
-  ALPENGLOW_VOTE_BROADCAST_REASON_TIMEOUT = 6;  // The slot's timeout fired with no vote cast in it, so we vote skip on the entire rest of the window containing this slot.
-  ALPENGLOW_VOTE_BROADCAST_REASON_TIMEOUT_CRASHED_LEADER = 7;  // The window's crashed-leader timeout fired with no shred and no vote for its first slot, so we vote skip on every slot of the window.
-  ALPENGLOW_VOTE_BROADCAST_REASON_SAFE_TO_NOTAR = 8;  // No block but this one can be fast-finalized in the slot: notar votes for it reach 40% of stake, or 20% with skip votes bringing the total to 60%, and its parent is notar-fallback certified (Definition 16). Having voted skip or notar for another block in the slot, we vote notar-fallback for it and skip every unvoted slot of the window.
-  ALPENGLOW_VOTE_BROADCAST_REASON_SAFE_TO_SKIP = 9;  // No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window.
+// Why we cast the vote, based on the Alpenglow voting algorithm (not_our_vote if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17.
+enum AlpenglowVoteReason {
+  ALPENGLOW_VOTE_REASON_UNSPECIFIED = 0;
+  ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE = 1;  // Not our vote; see our_vote.
+  ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED = 2;  // Replay completed the block normally, so we vote notar for it.
+  ALPENGLOW_VOTE_REASON_BLOCK_DEAD = 3;  // Replay ruled the block dead, so we vote skip on the entire rest of the window containing this slot.
+  ALPENGLOW_VOTE_REASON_PARENT_READY = 4;  // We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending.
+  ALPENGLOW_VOTE_REASON_BLOCK_NOTARIZED = 5;  // We hold a notar cert for the block we voted notar for and cast no skip or fallback vote in the slot, so we vote final for it.
+  ALPENGLOW_VOTE_REASON_TIMEOUT = 6;  // The slot's timeout fired with no vote cast in it, so we vote skip on the entire rest of the window containing this slot.
+  ALPENGLOW_VOTE_REASON_TIMEOUT_CRASHED_LEADER = 7;  // The window's crashed-leader timeout fired with no shred and no vote for its first slot, so we vote skip on every slot of the window.
+  ALPENGLOW_VOTE_REASON_SAFE_TO_NOTAR = 8;  // No block but this one can be fast-finalized in the slot: notar votes for it reach 40% of stake, or 20% with skip votes bringing the total to 60%, and its parent is notar-fallback certified (Definition 16). Having voted skip or notar for another block in the slot, we vote notar-fallback for it and skip every unvoted slot of the window.
+  ALPENGLOW_VOTE_REASON_SAFE_TO_SKIP = 9;  // No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window.
 }
 
 // What we did with the vote. unknown_peer and banned_peer are decided on the connection before the vote is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific validation.
@@ -470,13 +470,6 @@ enum AlpenglowCertKind {
   ALPENGLOW_CERT_KIND_NOTAR = 3;  // NotarVote aggregate that sums >= 60% of stake, for block_id (BlockNotarized; Definition 15).
   ALPENGLOW_CERT_KIND_NOTAR_FALLBACK = 4;  // NotarVote or NotarFallbackVote aggregate that sums >= 60% of stake, for block_id. At most four blocks per slot (Lemma 48).
   ALPENGLOW_CERT_KIND_SKIP = 5;  // SkipVote or SkipFallbackVote aggregate that sums >= 60% of stake, for slot.
-}
-
-// Why we broadcast the cert (based on the Alpenglow certificate rules, see Table 6 and Definition 13) (not_broadcasted if we did not).
-enum AlpenglowCertBroadcastReason {
-  ALPENGLOW_CERT_BROADCAST_REASON_UNSPECIFIED = 0;
-  ALPENGLOW_CERT_BROADCAST_REASON_NOT_BROADCASTED = 1;  // We did not broadcast the cert for various reasons, see processing_result.
-  ALPENGLOW_CERT_BROADCAST_REASON_FIRST_VALID = 2;  // The first valid cert of its kind for the slot that we received or constructed; every node broadcasts these (Definition 13).
 }
 
 // What we did with the cert. unknown_peer and banned_peer are decided on the connection before the cert is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific.
@@ -1702,26 +1695,26 @@ message AlpenglowVote {
   bytes received_from_identity = 7;
   // Whether this is our own vote, which we store like any other; received_from_identity is then our identity.
   bool our_vote = 8;
-  // Why we cast the vote, based on the Alpenglow voting algorithm (not_broadcasted if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17.
-  AlpenglowVoteBroadcastReason broadcast_reason = 9;
+  // Why we cast the vote, based on the Alpenglow voting algorithm (not_our_vote if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17.
+  AlpenglowVoteReason reason = 9;
   // Who we sent the vote to, by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_vote, empty otherwise).
   repeated AlpenglowVoteBroadcastTo broadcast_to = 10;
   // What we did with the vote. unknown_peer and banned_peer are decided on the connection before the vote is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific validation.
   AlpenglowVoteProcessingResult processing_result = 11;
-  // Notar votes for block_id reached 40% of stake, or 20% with skip votes bringing the total to 60% (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time).
-  bool quorum_reached_safe_to_notar = 12;
-  // Skip votes plus notar votes for every block but the most-voted one reached 40% of stake (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time).
-  bool quorum_reached_safe_to_skip = 13;
   // Final votes for the slot reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time).
-  bool quorum_reached_final_cert = 14;
+  bool quorum_reached_final_cert = 12;
   // Notar votes for block_id reached 80% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time).
-  bool quorum_reached_fast_final_cert = 15;
+  bool quorum_reached_fast_final_cert = 13;
   // Notar votes for block_id reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time).
-  bool quorum_reached_notar_cert = 16;
+  bool quorum_reached_notar_cert = 14;
   // Notar and notar-fallback votes for block_id reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time).
-  bool quorum_reached_notar_fallback_cert = 17;
+  bool quorum_reached_notar_fallback_cert = 15;
   // Skip and skip-fallback votes for the slot reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time).
-  bool quorum_reached_skip_cert = 18;
+  bool quorum_reached_skip_cert = 16;
+  // Notar votes for block_id reached 40% of stake, or 20% with skip votes bringing the total to 60% (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time).
+  bool quorum_reached_safe_to_notar = 17;
+  // Skip votes plus notar votes for every block but the most-voted one reached 40% of stake (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time).
+  bool quorum_reached_safe_to_skip = 18;
   // When we started aggregating the vote into the running BLS aggregate for its slot, kind and block (only if processing_result is accepted, 0 otherwise).
   uint64 aggregation_start_time = 19;
   // When we started BLS verifying the aggregate this vote completed (only if this vote brought a tally to a quorum of Table 6 or Definition 16, which is when we verify signatures, 0 otherwise).
@@ -1750,18 +1743,16 @@ message AlpenglowCert {
   bytes relayer_identity = 7;
   // Whether we constructed the cert ourselves from the votes we had received, rather than a peer delivering it first. Not every cert is self-made; when it is, we reached the threshold before any peer's copy arrived, i.e. we are running fast.
   bool our_cert = 8;
-  // Why we broadcast the cert (based on the Alpenglow certificate rules, see Table 6 and Definition 13) (not_broadcasted if we did not).
-  AlpenglowCertBroadcastReason broadcast_reason = 9;
-  // Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if broadcast_reason is first_valid, empty otherwise).
-  repeated AlpenglowCertBroadcastTo broadcast_to = 10;
+  // Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_cert, empty otherwise).
+  repeated AlpenglowCertBroadcastTo broadcast_to = 9;
   // What we did with the cert. unknown_peer and banned_peer are decided on the connection before the cert is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific.
-  AlpenglowCertProcessingResult processing_result = 11;
+  AlpenglowCertProcessingResult processing_result = 10;
   // When we started BLS verifying the cert (unset if our_cert).
-  uint64 verify_start_time = 12;
-  // When we started broadcasting the cert to our peers, BLS verification having finished (only if broadcast_reason is first_valid, 0 otherwise).
-  uint64 broadcast_start_time = 13;
+  uint64 verify_start_time = 11;
+  // When we started broadcasting the cert to our peers, BLS verification having finished (only if our_cert, 0 otherwise).
+  uint64 broadcast_start_time = 12;
   // When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages.
-  uint64 done_time = 14;
+  uint64 done_time = 13;
 }
 
 // Combined event type

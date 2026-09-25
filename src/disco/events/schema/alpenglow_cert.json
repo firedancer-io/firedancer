@@ -21,17 +21,9 @@
         "relayer_ip":           { "type": "IPv6",                                              "description": "IPv4 address of the peer that relayed the cert to us; ourselves if our_cert, stored as an IPv4-mapped IPv6 address (all zeros if unknown)." },
         "relayer_identity":     { "type": "Pubkey",                                            "description": "Validator identity of the peer that relayed the cert to us (determined from the QUIC client-side TLS certificate); ourselves if our_cert (all zeros if unknown_peer). Not necessarily the creator of the cert: a node re-broadcasts the first valid cert it obtains (whether from self or others)." },
         "our_cert":             { "type": "Bool",                                              "description": "Whether we constructed the cert ourselves from the votes we had received, rather than a peer delivering it first. Not every cert is self-made; when it is, we reached the threshold before any peer's copy arrived, i.e. we are running fast." },
-        "broadcast_reason": {
-            "type": "LowCardinality(String)",
-            "description": "Why we broadcast the cert (based on the Alpenglow certificate rules, see Table 6 and Definition 13) (not_broadcasted if we did not).",
-            "variants": {
-                "not_broadcasted": { "description": "We did not broadcast the cert for various reasons, see processing_result." },
-                "first_valid":     { "description": "The first valid cert of its kind for the slot that we received or constructed; every node broadcasts these (Definition 13)." }
-            }
-        },
         "broadcast_to": {
             "type": "Array",
-            "description": "Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if broadcast_reason is first_valid, empty otherwise).",
+            "description": "Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_cert, empty otherwise).",
             "max_len": 2000,
             "dynamic": true,
             "element": {
@@ -61,7 +53,7 @@
             }
         },
         "verify_start_time":    { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started BLS verifying the cert (unset if our_cert)." },
-        "broadcast_start_time": { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started broadcasting the cert to our peers, BLS verification having finished (only if broadcast_reason is first_valid, 0 otherwise)." },
+        "broadcast_start_time": { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started broadcasting the cert to our peers, BLS verification having finished (only if our_cert, 0 otherwise)." },
         "done_time":            { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages." }
     }
 }

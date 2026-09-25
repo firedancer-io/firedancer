@@ -21,11 +21,11 @@
         "received_from_ip":                   { "type": "IPv6",                                              "description": "IPv4 address of the peer we received the vote from; ourselves if our_vote, stored as an IPv4-mapped IPv6 address (all zeros if unknown)." },
         "received_from_identity":             { "type": "Pubkey",                                            "description": "Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). Not necessarily the voter; see voter_identity." },
         "our_vote":                           { "type": "Bool",                                              "description": "Whether this is our own vote, which we store like any other; received_from_identity is then our identity." },
-        "broadcast_reason": {
+        "reason": {
             "type": "LowCardinality(String)",
-            "description": "Why we cast the vote, based on the Alpenglow voting algorithm (not_broadcasted if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17.",
+            "description": "Why we cast the vote, based on the Alpenglow voting algorithm (not_our_vote if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17.",
             "variants": {
-                "not_broadcasted":        { "description": "Not our vote, so we did not broadcast it; see our_vote." },
+                "not_our_vote":           { "description": "Not our vote; see our_vote." },
                 "block_replayed":         { "description": "Replay completed the block normally, so we vote notar for it." },
                 "block_dead":             { "description": "Replay ruled the block dead, so we vote skip on the entire rest of the window containing this slot." },
                 "parent_ready":           { "description": "We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending." },
