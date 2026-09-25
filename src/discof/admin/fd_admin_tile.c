@@ -21,6 +21,27 @@ struct fd_admin_tile_ctx {
   ulong             sign_av_keyswitch_cnt;
   fd_sha512_t       sha512[ 1 ];
 
+  /* An identity switch in flight.  The sequence used to run to its end
+     inside one call, blocking this tile for the whole switch, so a
+     status answer that arrived from the failover tile during a switch
+     was read only after its deadline and a completed handoff was
+     reported as unresponsive.  It is stepped from after_credit now, one
+     state per pass, and this tile takes no new command while it runs.
+     A failover switch selects a key the sign tile already holds, so only
+     the public key is recorded here.  A set-identity switch hands its
+     private key over from the parked adminctl slot, where the sequence
+     wipes it once the signers hold it. */
+  int                      switch_active;
+  int                      switch_for_failover; /* answer on the bus, else complete the adminctl slot */
+  ulong                    switch_state;
+  ulong                    switch_halted_seq;
+  ulong                    switch_outset;
+  uchar                    switch_pubkey[ 32 ];
+  uchar *                  switch_private_key;  /* into the parked slot, or NULL for a failover key */
+  ulong                    switch_slot_idx;     /* the adminctl slot, when not for failover */
+  ulong                    switch_nonce;        /* the bus nonce, when for failover */
+  fd_event_admin_command_t switch_event;        /* the set-identity event, reported at the end */
+
   ulong replay_out_idx;           /* admin_replay stem out index */
   ulong snap_create_slot_idx;     /* adminctl slot of snapshot-create command */
   ulong snap_create_target_slot;  /* requested slot retained until Replay responds */
@@ -663,10 +684,13 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
   return *state==FD_SET_IDENTITY_STATE_UNLOCKED;
 }
 
-static void FD_FN_SENSITIVE run_identity_switch( fd_admin_tile_ctx_t * ctx,
-                                                 uchar const *         public_key,
-                                                 uchar *               opt_private_key,
-                                                 ulong *               opt_tower_watermark );
+static void FD_FN_SENSITIVE begin_identity_switch( fd_admin_tile_ctx_t *            ctx,
+                                                   uchar const *                    public_key,
+                                                   uchar *                          opt_private_key,
+                                                   int                              for_failover,
+                                                   ulong                            slot_idx,
+                                                   ulong                            nonce,
+                                                   fd_event_admin_command_t const * event );
 
 static void FD_FN_SENSITIVE
 set_identity( fd_admin_tile_ctx_t * ctx,
@@ -721,35 +745,88 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
-  run_identity_switch( ctx, req->keypair+32UL, req->keypair, NULL );
-
-  report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
-  fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
+  /* The slot stays parked until the sequence has reached its end, so
+     the private half stays where it is until the signers take it, and
+     the completion goes out from after_credit. */
+  begin_identity_switch( ctx, req->keypair+32UL, req->keypair, 0, slot_idx, 0UL, &event );
 }
 
-/* Switches the whole validator to the given identity.  A NULL private
-   key selects a failover key loaded by the sign tile at boot.  A supplied
-   private key is zeroed as part of the switch, so pass a copy.  This blocks
-   until every tile has picked up the key.  If opt_tower_watermark is set, it
-   receives the tower tile's sequence number at the point it stopped. */
+/* begin_identity_switch starts switching the whole validator to the
+   given identity.  A NULL private key selects a failover key loaded by
+   the sign tile at boot.  A supplied private key points into the parked
+   adminctl slot and is zeroed there as part of the switch.  The sequence
+   is stepped from after_credit and reaches its terminal state there, at
+   which point the previous identity is installed nowhere in this
+   validator and the caller's answer goes out: the bus answer with the
+   tower watermark for the failover tile, or the adminctl completion for
+   set-identity. */
 static void FD_FN_SENSITIVE
-run_identity_switch( fd_admin_tile_ctx_t * ctx,
-                     uchar const *         public_key,
-                     uchar *               opt_private_key,
-                     ulong *               opt_tower_watermark ) {
-  ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
-  ulong halted_seq      = 0UL;
-  ulong identity_outset = (ulong)fd_log_wallclock();
-  for(;;) {
-    if( FD_UNLIKELY( poll_set_identity( ctx, &state, &halted_seq, identity_outset, public_key, opt_private_key ) ) ) break;
-  }
+begin_identity_switch( fd_admin_tile_ctx_t *            ctx,
+                       uchar const *                    public_key,
+                       uchar *                          opt_private_key,
+                       int                              for_failover,
+                       ulong                            slot_idx,
+                       ulong                            nonce,
+                       fd_event_admin_command_t const * event ) {
+  FD_TEST( !ctx->switch_active );
+  fd_memcpy( ctx->switch_pubkey, public_key, 32UL );
+  ctx->switch_active       = 1;
+  ctx->switch_for_failover = for_failover;
+  ctx->switch_state        = FD_SET_IDENTITY_STATE_UNLOCKED;
+  ctx->switch_halted_seq   = 0UL;
+  ctx->switch_outset       = (ulong)fd_log_wallclock();
+  ctx->switch_private_key  = opt_private_key;
+  ctx->switch_slot_idx     = slot_idx;
+  ctx->switch_nonce        = nonce;
+  if( FD_LIKELY( event ) ) ctx->switch_event = *event;
+}
 
-  fd_memcpy( ctx->identity_pubkey, public_key, 32UL );
-  /* The watermark a demotion needs is the tower tile's output sequence,
-     the one it records when it halts and the failover tile consumes on
-     tower_out.  halted_seq above is the replay tile's field, which nothing
-     writes. */
-  if( FD_UNLIKELY( opt_tower_watermark ) ) *opt_tower_watermark = find_identity_keyswitch( ctx, "tower" )->result;
+static void
+publish_switch_answer( fd_admin_tile_ctx_t *             ctx,
+                       fd_stem_context_t *               stem,
+                       ulong                             nonce,
+                       fd_failover_switch_resp_t const * answer ) {
+  if( FD_UNLIKELY( ctx->failov_out_idx==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "an identity switch was requested with no failover bus link" ));
+    return;
+  }
+  fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk );
+  fd_memset( out, 0, sizeof(*out) );
+  out->nonce  = nonce;
+  out->result = answer->result;
+  fd_memcpy( out->payload, answer, sizeof(*answer) );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->failov_out_idx, FD_FAILOVER_BUS_SWITCH_RESP, ctx->failov_out_chunk, sizeof(*out), 0UL, tspub, tspub );
+  ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*out), ctx->failov_out_chunk0, ctx->failov_out_wmark );
+}
+
+/* step_identity_switch advances the switch in flight by one state and,
+   when it has reached its end, records the new identity and answers
+   whoever asked for it. */
+static void FD_FN_SENSITIVE
+step_identity_switch( fd_admin_tile_ctx_t * ctx,
+                      fd_stem_context_t *   stem ) {
+  if( FD_LIKELY( !poll_set_identity( ctx, &ctx->switch_state, &ctx->switch_halted_seq, ctx->switch_outset, ctx->switch_pubkey, ctx->switch_private_key ) ) ) return;
+
+  fd_memcpy( ctx->identity_pubkey, ctx->switch_pubkey, 32UL );
+  ctx->switch_private_key = NULL;
+  ctx->switch_active      = 0;
+
+  if( FD_LIKELY( ctx->switch_for_failover ) ) {
+    fd_failover_switch_resp_t answer;
+    fd_memset( &answer, 0, sizeof(answer) );
+    answer.result          = FD_FAILOVER_SWITCH_OK;
+    /* The watermark a demotion needs is the tower tile's output sequence,
+       the one it records when it halts and the failover tile consumes on
+       tower_out.  switch_halted_seq is the replay tile's field, which
+       nothing writes. */
+    answer.tower_watermark = find_identity_keyswitch( ctx, "tower" )->result;
+    fd_memcpy( answer.identity, ctx->identity_pubkey, 32UL );
+    publish_switch_answer( ctx, stem, ctx->switch_nonce, &answer );
+  } else {
+    report_admin_command( &ctx->switch_event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
+    fd_adminctl_complete( ctx->adminctl, ctx->switch_slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
+  }
 }
 
 static void
@@ -1486,8 +1563,8 @@ failover_status( fd_admin_tile_ctx_t * ctx,
   ctx->failover_status_deadline   = fd_failover_clock()+FD_FAILOVER_BUS_DEADLINE_NANOS;
 }
 
-/* The failover tile asked us to switch identity.  Do the switch and
-   send back the result. */
+/* The failover tile asked us to switch identity.  Start the switch, the
+   result goes back once the sequence has reached its end. */
 static void FD_FN_SENSITIVE
 failover_switch_request( fd_admin_tile_ctx_t * ctx,
                          fd_stem_context_t *   stem ) {
@@ -1505,31 +1582,28 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   else if( FD_LIKELY( sw.key==FD_FAILOVER_SWITCH_KEY_STAKED ) ) want_pub = ctx->failover_staked_pubkey;
   else                                                         answer.result = FD_FAILOVER_SWITCH_ERR_KEY;
 
-  if( FD_LIKELY( want_pub ) ) {
-    ulong watermark = 0UL;
-    run_identity_switch( ctx, want_pub, NULL, &watermark );
-    answer.result          = FD_FAILOVER_SWITCH_OK;
-    answer.tower_watermark = watermark;
-    fd_memcpy( answer.identity, ctx->identity_pubkey, 32UL );
-  }
-
-  if( FD_UNLIKELY( ctx->failov_out_idx==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "an identity switch was requested with no failover bus link" ));
+  if( FD_LIKELY( want_pub && !ctx->switch_active ) ) {
+    /* The sign tile already holds both keys, so only the public half is
+       recorded.  The answer goes out when the sequence has reached its
+       end. */
+    begin_identity_switch( ctx, want_pub, NULL, 1, ULONG_MAX, req->nonce, NULL );
     return;
   }
-  fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk );
-  fd_memset( out, 0, sizeof(*out) );
-  out->nonce  = req->nonce;
-  out->result = answer.result;
-  fd_memcpy( out->payload, &answer, sizeof(answer) );
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->failov_out_idx, FD_FAILOVER_BUS_SWITCH_RESP, ctx->failov_out_chunk, sizeof(*out), 0UL, tspub, tspub );
-  ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*out), ctx->failov_out_chunk0, ctx->failov_out_wmark );
+  if( FD_UNLIKELY( want_pub ) ) {
+    /* The failover tile has one switch outstanding at a time, so this is
+       a second request while the first still runs, which it did not
+       send.  Refusing it is the answer it can act on. */
+    FD_LOG_WARNING(( "an identity switch was requested while one is in flight" ));
+    answer.result = FD_FAILOVER_SWITCH_ERR_KEY;
+  }
+  publish_switch_answer( ctx, stem, req->nonce, &answer );
 }
 
 /* This tile is the sole writer of identities.  A query reports its
    installed key without initiating a switch or exposing private keys.
-   Switches run synchronously here, so a query cannot interleave one. */
+   The recorded identity changes only when a switch has reached its end,
+   and the failover tile keeps one switch or query outstanding at a time,
+   so a query does not land mid-switch. */
 static void
 failover_switch_query( fd_admin_tile_ctx_t * ctx,
                        fd_stem_context_t *   stem ) {
@@ -1666,6 +1740,16 @@ after_credit( fd_admin_tile_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->failover_status_slot_idx!=ULONG_MAX && fd_failover_clock()>ctx->failover_status_deadline ) ) {
     FD_LOG_WARNING(( "the failover tile did not answer a status request in time" ));
     failover_status_complete( ctx, FD_FAILOVER_STATUS_RESULT_UNRESPONSIVE, NULL, 0UL );
+  }
+
+  /* An identity switch in flight is stepped here, one state per pass, and
+     no new command is taken while the identity is moving.  Frames keep
+     flowing meanwhile, so an answer from the failover tile is read when
+     it arrives rather than after the switch. */
+  if( FD_UNLIKELY( ctx->switch_active ) ) {
+    step_identity_switch( ctx, stem );
+    *charge_busy = 1;
+    return;
   }
 
   ulong cmd_id = fd_adminctl_poll( adminctl, &slot_idx, &payload, &payload_sz );

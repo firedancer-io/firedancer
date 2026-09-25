@@ -1,5 +1,6 @@
 #include "fd_admin_tile.c"
 
+#include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -223,30 +224,43 @@ test_identity_guard( void ) {
   FD_LOG_NOTICE(( "pass: failover and tower-file identity guards" ));
 }
 
+/* A topology of keyswitches standing in for every tile the switch
+   sequence talks to.  The tests play those tiles by completing them. */
+enum { REPLAY, TOWER, TXSEND, REPAIR, GOSSIP, BUNDLE, RSERVE, SHRED,
+       SIGN0, SIGN1, GOSSVF, GUI, EVENT, TILE_CNT };
+static char const * switch_tile_names[ TILE_CNT ] = {
+  "replay", "tower", "txsend", "repair", "gossip", "bundle", "rserve",
+  "shred", "sign", "sign", "gossvf", "gui", "event"
+};
+static fd_topo_t      switch_topo;
+static fd_keyswitch_t switch_ks[ TILE_CNT+1 ];
+
+static fd_keyswitch_t *
+switch_topo_init( void ) {
+  fd_memset( &switch_topo, 0, sizeof(switch_topo) );
+  switch_topo.tile_cnt = TILE_CNT;
+  switch_topo.workspaces[ 0 ].wksp = fd_type_pun( switch_ks );
+  for( ulong i=0UL; i<TILE_CNT; i++ ) {
+    fd_cstr_ncpy( switch_topo.tiles[ i ].name, switch_tile_names[ i ], sizeof(switch_topo.tiles[ i ].name) );
+    switch_topo.tiles[ i ].kind_id = (ulong)( i==SIGN1 );
+    switch_topo.tiles[ i ].id_keyswitch_obj_id = i;
+    switch_topo.objs[ i ].id     = i;
+    switch_topo.objs[ i ].offset = (i+1UL)*sizeof(fd_keyswitch_t);
+  }
+  ctx.topo = &switch_topo;
+  fd_keyswitch_t * k = switch_ks+1;
+  for( ulong i=0UL; i<TILE_CNT; i++ ) {
+    FD_TEST( fd_keyswitch_new( &k[ i ], FD_KEYSWITCH_STATE_UNLOCKED ) );
+    fd_memset( k[ i ].bytes, 0xA5, 64UL );
+  }
+  return k;
+}
+
 /* Exercise both request formats through the halt/drain/switch sequence.
    Two sign tiles must both complete before any producer is unhalted. */
 static void
 test_identity_switch_ordering( void ) {
-  enum { REPLAY, TOWER, TXSEND, REPAIR, GOSSIP, BUNDLE, RSERVE, SHRED,
-         SIGN0, SIGN1, GOSSVF, GUI, EVENT, TILE_CNT };
-  static char const * names[ TILE_CNT ] = {
-    "replay", "tower", "txsend", "repair", "gossip", "bundle", "rserve",
-    "shred", "sign", "sign", "gossvf", "gui", "event"
-  };
-  static fd_topo_t topo;
-  static fd_keyswitch_t ks[ TILE_CNT+1 ];
-  fd_memset( &topo, 0, sizeof(topo) );
-  topo.tile_cnt = TILE_CNT;
-  topo.workspaces[ 0 ].wksp = fd_type_pun( ks );
-  for( ulong i=0UL; i<TILE_CNT; i++ ) {
-    fd_cstr_ncpy( topo.tiles[ i ].name, names[ i ], sizeof(topo.tiles[ i ].name) );
-    topo.tiles[ i ].kind_id = (ulong)( i==SIGN1 );
-    topo.tiles[ i ].id_keyswitch_obj_id = i;
-    topo.objs[ i ].id     = i;
-    topo.objs[ i ].offset = (i+1UL)*sizeof(fd_keyswitch_t);
-  }
-  ctx.topo = &topo;
-  fd_keyswitch_t * k = ks+1;
+  fd_keyswitch_t * k = switch_topo_init();
   for( int resident=0; resident<2; resident++ ) {
     for( ulong i=0UL; i<TILE_CNT; i++ ) {
       FD_TEST( fd_keyswitch_new( &k[ i ], FD_KEYSWITCH_STATE_UNLOCKED ) );
@@ -343,6 +357,212 @@ test_identity_switch_ordering( void ) {
   FD_LOG_NOTICE(( "pass: public-key selection and manual keypair switches preserve drain and completion ordering" ));
 }
 
+/* A switch that ran to its end inside one call would spin forever
+   waiting on tiles that never answer.  The log's own alarm handler only
+   prints a backtrace and returns, so this one ends the test instead. */
+static void
+switch_blocked( int sig ) {
+  (void)sig;
+  FD_LOG_ERR(( "the identity switch blocked the admin tile" ));
+}
+
+/* The switch is stepped from after_credit, one state per pass, so the
+   tile keeps reading frames while the identity moves and takes no new
+   command until the sequence has reached its end. */
+static void
+test_identity_switch_stepping( void ) {
+  fd_keyswitch_t * k = switch_topo_init();
+  stem_init();
+  ctx.failover_enabled   = 1;
+  ctx.tower_file_enabled = 0;
+  ctx.failov_out_idx     = 0UL;
+  ctx.failov_out_mem     = (fd_wksp_t *)bus_mem;
+  ctx.failov_out_chunk   = ctx.failov_out_chunk0 = ctx.failov_out_wmark = 0UL;
+  fd_memset( ctx.failover_junk_pubkey,   0x11, 32UL );
+  fd_memset( ctx.failover_staked_pubkey, 0x22, 32UL );
+  fd_memcpy( ctx.identity_pubkey, ctx.failover_junk_pubkey, 32UL );
+  fd_failover_bus_msg_t const * bus = (fd_failover_bus_msg_t const *)bus_mem;
+  int poll_in;
+  int busy;
+#define STEP() do { poll_in = 1; busy = 0; after_credit( &ctx, stem, &poll_in, &busy ); FD_TEST( busy && poll_in ); } while( 0 )
+  FD_TEST( signal( SIGALRM, switch_blocked )!=SIG_ERR );
+  alarm( 10U );
+
+  /* A status request is parked on the bus before the switch begins. */
+  fd_adminctl_failover_status_req_t status_req = { .version=FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION };
+  void * payload;
+  ulong status_idx = request( FD_ADMINCTL_CMD_FAILOVER_STATUS, &status_req, sizeof(status_req), &payload );
+  failover_status( &ctx, stem, status_idx, payload, sizeof(status_req) );
+  FD_TEST( ctx.failover_status_slot_idx==status_idx && stem->seqs[ 0 ]==1UL );
+  ulong status_nonce = ctx.failover_status_nonce;
+
+  /* The switch request returns at once with nothing published and no
+     keyswitch touched, the sequence starts on the next pass. */
+  fd_memset( &ctx.failov_resp, 0, sizeof(ctx.failov_resp) );
+  ctx.failov_resp.nonce = 5UL;
+  fd_failover_switch_req_t sw = { .key=FD_FAILOVER_SWITCH_KEY_STAKED };
+  fd_memcpy( ctx.failov_resp.payload, &sw, sizeof(sw) );
+  failover_switch_request( &ctx, stem );
+  FD_TEST( stem->seqs[ 0 ]==1UL );
+  FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+
+  /* A second request while the first is in flight is refused at once. */
+  ctx.failov_resp.nonce = 6UL;
+  sw.key = FD_FAILOVER_SWITCH_KEY_JUNK;
+  fd_memcpy( ctx.failov_resp.payload, &sw, sizeof(sw) );
+  failover_switch_request( &ctx, stem );
+  FD_TEST( stem->seqs[ 0 ]==2UL && pub_mcache[ 1 ].sig==FD_FAILOVER_BUS_SWITCH_RESP );
+  FD_TEST( bus->nonce==6UL && bus->result==FD_FAILOVER_SWITCH_ERR_KEY );
+
+  /* A command published while the identity moves waits for the end. */
+  fd_adminctl_get_identity_req_t get_req = { .version=FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION };
+  void * get_payload;
+  ulong  get_max;
+  ulong  get_idx = fd_adminctl_reserve( ctx.adminctl, &get_payload, &get_max );
+  FD_TEST( get_idx!=ULONG_MAX );
+  fd_memcpy( get_payload, &get_req, sizeof(get_req) );
+  fd_adminctl_publish( ctx.adminctl, get_idx, FD_ADMINCTL_CMD_GET_IDENTITY, sizeof(get_req) );
+
+  /* Each pass advances one state, then the leader halt waits on replay. */
+  STEP();
+  FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_LOCKED );
+  STEP();
+  FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  FD_TEST( fd_memeq( k[ REPLAY ].bytes, ctx.failover_staked_pubkey, 32UL ) );
+  STEP();
+  FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+
+  /* The status answer lands mid-switch and is read at once, well before
+     its deadline, so the operator gets the answer and not unresponsive. */
+  fd_adminctl_failover_status_resp_t status_answer;
+  fd_memset( &status_answer, 0, sizeof(status_answer) );
+  status_answer.version = FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION;
+  status_answer.enabled = 1U;
+  fd_memset( &ctx.failov_resp, 0, sizeof(ctx.failov_resp) );
+  ctx.failov_resp.nonce  = status_nonce;
+  ctx.failov_resp.result = FD_ADMINCTL_RESULT_SUCCESS;
+  fd_memcpy( ctx.failov_resp.payload, &status_answer, sizeof(status_answer) );
+  failover_status_response( &ctx, FD_FAILOVER_BUS_STATUS_RESP );
+  fd_adminctl_failover_status_resp_t status_got;
+  ulong status_got_sz;
+  FD_TEST( !fd_adminctl_wait_response( ctx.adminctl, status_idx, &status_got, sizeof(status_got), &status_got_sz ) );
+  FD_TEST( status_got_sz==sizeof(status_got) && status_got.enabled );
+  FD_TEST( ctx.failover_status_slot_idx==ULONG_MAX );
+  FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING && stem->seqs[ 0 ]==2UL );
+
+  /* The tiles complete and the sequence runs on, one state per pass. */
+  k[ REPLAY ].result = 17UL;
+  k[ REPLAY ].state  = FD_KEYSWITCH_STATE_COMPLETED;
+  STEP();
+  STEP();
+  for( ulong i=TOWER; i<=SHRED; i++ ) {
+    if( i==TXSEND ) continue;
+    FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  }
+  k[ TOWER ].result = 37UL;
+  STEP();
+  STEP();
+  FD_TEST( k[ TXSEND ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING && k[ TXSEND ].param==37UL );
+  k[ TXSEND ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  STEP();
+  STEP();
+  for( ulong i=SIGN0; i<TILE_CNT; i++ ) {
+    FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    if( i<=SIGN1 ) FD_TEST( k[ i ].param==FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY );
+    k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  }
+  STEP();
+  STEP();
+  for( ulong i=TOWER; i<SHRED; i++ ) {
+    FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+    k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  }
+  STEP();
+  STEP();
+  FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+
+  /* Nothing is answered and the recorded identity does not move until
+     the sequence reaches its end, then the answer goes out with the
+     tower watermark and the new identity. */
+  FD_TEST( stem->seqs[ 0 ]==2UL );
+  FD_TEST( fd_memeq( ctx.identity_pubkey, ctx.failover_junk_pubkey, 32UL ) );
+  k[ REPLAY ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  STEP();
+  FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+  FD_TEST( stem->seqs[ 0 ]==3UL && pub_mcache[ 2 ].sig==FD_FAILOVER_BUS_SWITCH_RESP );
+  fd_failover_switch_resp_t answer;
+  fd_memcpy( &answer, bus->payload, sizeof(answer) );
+  FD_TEST( bus->nonce==5UL && bus->result==FD_FAILOVER_SWITCH_OK && answer.result==FD_FAILOVER_SWITCH_OK );
+  FD_TEST( answer.tower_watermark==37UL );
+  FD_TEST( fd_memeq( answer.identity, ctx.failover_staked_pubkey, 32UL ) );
+  FD_TEST( fd_memeq( ctx.identity_pubkey, ctx.failover_staked_pubkey, 32UL ) );
+
+  /* Only now is the parked command taken, and it sees the new identity. */
+  for( ulong i=0UL; i<FD_ADMINCTL_SLOT_CNT; i++ ) { poll_in = 1; busy = 0; after_credit( &ctx, stem, &poll_in, &busy ); }
+  fd_adminctl_get_identity_resp_t get_got;
+  ulong get_got_sz;
+  FD_TEST( !fd_adminctl_wait_response( ctx.adminctl, get_idx, &get_got, sizeof(get_got), &get_got_sz ) );
+  FD_TEST( get_got_sz==sizeof(get_got) && fd_memeq( get_got.identity_pubkey, ctx.failover_staked_pubkey, 32UL ) );
+  FD_TEST( stem->seqs[ 0 ]==3UL );
+
+  /* set-identity parks its slot the same way.  The private key is handed
+     over from the slot, where the sequence wipes it once the signers
+     hold it, and the command completes when the sequence has reached
+     its end. */
+  ctx.failover_enabled = 0;
+  for( ulong i=0UL; i<TILE_CNT; i++ ) {
+    FD_TEST( fd_keyswitch_new( &k[ i ], FD_KEYSWITCH_STATE_UNLOCKED ) );
+    fd_memset( k[ i ].bytes, 0xA5, 64UL );
+  }
+  fd_adminctl_set_identity_t set_req = { .version=FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION, .keypair={3} };
+  fd_ed25519_public_from_private( set_req.keypair+32UL, set_req.keypair, ctx.sha512 );
+  void * set_payload;
+  ulong set_idx = request( FD_ADMINCTL_CMD_SET_IDENTITY, &set_req, sizeof(set_req), &set_payload );
+  set_identity( &ctx, set_idx, set_payload, sizeof(set_req) );
+  uchar const * slot_keypair = ((fd_adminctl_set_identity_t const *)set_payload)->keypair;
+  FD_TEST( fd_memeq( slot_keypair, set_req.keypair, 64UL ) );
+  FD_TEST( fd_memeq( ctx.identity_pubkey, ctx.failover_staked_pubkey, 32UL ) );
+  STEP();
+  STEP();
+  k[ REPLAY ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  STEP();
+  STEP();
+  for( ulong i=TOWER; i<=SHRED; i++ ) if( i!=TXSEND ) k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  STEP();
+  STEP();
+  k[ TXSEND ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  STEP();
+  FD_TEST( fd_memeq( slot_keypair, set_req.keypair, 64UL ) );
+  STEP();
+  for( ulong i=SIGN0; i<=SIGN1; i++ ) {
+    FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    FD_TEST( k[ i ].param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR );
+    FD_TEST( fd_memeq( k[ i ].bytes, set_req.keypair, 64UL ) );
+  }
+  for( ulong i=0UL; i<32UL; i++ ) FD_TEST( !slot_keypair[ i ] );
+  FD_TEST( fd_memeq( slot_keypair+32UL, set_req.keypair+32UL, 32UL ) );
+  for( ulong i=SIGN0; i<TILE_CNT; i++ ) k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  STEP();
+  STEP();
+  for( ulong i=TOWER; i<SHRED; i++ ) k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  STEP();
+  STEP();
+  FD_TEST( k[ REPLAY ].state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  FD_TEST( fd_memeq( ctx.identity_pubkey, ctx.failover_staked_pubkey, 32UL ) );
+  k[ REPLAY ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  STEP();
+  FD_TEST( fd_adminctl_wait( ctx.adminctl, set_idx )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( fd_memeq( ctx.identity_pubkey, set_req.keypair+32UL, 32UL ) );
+  FD_TEST( stem->seqs[ 0 ]==3UL );
+
+  alarm( 0U );
+#undef STEP
+  ctx.topo = NULL;
+  stem_init();
+  FD_LOG_NOTICE(( "pass: the identity switch is stepped across passes, frames are read meanwhile and no command is taken until it ends" ));
+}
+
 static void
 test_authorized_voter_refusal( void ) {
   fd_keyswitch_t tower;
@@ -400,6 +620,7 @@ main( int argc, char ** argv ) {
   test_bus_forwarding();
   test_bus_unresponsive();
   test_identity_switch_ordering();
+  test_identity_switch_stepping();
   test_authorized_voter_refusal();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
