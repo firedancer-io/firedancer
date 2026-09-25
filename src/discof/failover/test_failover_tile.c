@@ -636,6 +636,7 @@ controller_init( ulong saved_state,
   ctx->next_leader_slot      = FD_FAILOVER_SLOT_NULL;
   ctx->demoted_accept_term   = ULONG_MAX;
   ctx->deadline_slot         = FD_FAILOVER_SLOT_NULL;
+  ctx->deadline_nanos        = LONG_MAX;
   ctx->handoff_code          = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
   ctx->admin_out_idx         = 0UL;
   ctx->admin_out_mem         = (fd_wksp_t *)bus_mem;
@@ -899,7 +900,7 @@ test_demotion_order( void ) {
   ctx->cs_sz    = sizeof(fd_failover_consensus_state_t)+16UL;
   fd_memset( ctx->cs_buf+sizeof(fd_failover_consensus_state_t), 0xC5, 16UL );
 
-  start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1 );
+  start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1, 1000L );
   FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING && ctx->role_file.role==(uchar)FD_FAILOVER_STATE_DEMOTING );
   FD_TEST( ctx->role_file.term==5UL && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
   /* Nothing has been sent to the peer yet. */
@@ -915,7 +916,7 @@ test_demotion_order( void ) {
 
   /* When the switch succeeds we write the record and send the
      confirmation, with the watermark the switch gave us. */
-  start_demotion( ctx, stem, 6UL, ctx->deadline_slots, 1 );
+  start_demotion( ctx, stem, 6UL, ctx->deadline_slots, 1, 1000L );
   ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
   ctx->switch_result.tower_watermark = 777UL;
   ctx->tower_seen_seq                = 776UL; /* the stream reached the halt */
@@ -937,7 +938,7 @@ test_demotion_order( void ) {
   ctx->pending_valid = 0;
   hdr.vote_slot = 98UL;
   fd_memcpy( ctx->cs_buf, &hdr, sizeof(hdr) );
-  start_demotion( ctx, stem, 7UL, ctx->deadline_slots, 1 );
+  start_demotion( ctx, stem, 7UL, ctx->deadline_slots, 1, 1000L );
   ctx->switch_result.result = FD_FAILOVER_SWITCH_OK;
   switch_answer( ctx, ctx->switch_request_id );
   step_controller( ctx, stem, 1000L );
@@ -1089,7 +1090,7 @@ test_demotion_drain( void ) {
   fd_memset( ctx->cs_buf+sizeof(fd_failover_consensus_state_t), 0xC5, 16UL );
 
   /* The junk key is in, the stream is three frags short of the halt. */
-  start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1 );
+  start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1, 1000L );
   ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
   ctx->switch_result.tower_watermark = 800UL;
   ctx->tower_seen_seq                = 796UL;
@@ -1109,7 +1110,7 @@ test_demotion_drain( void ) {
   fd_memcpy( ctx->cs_buf, &hdr, sizeof(hdr) );
   ctx->cs_valid = 1;
   ctx->cs_sz    = sizeof(fd_failover_consensus_state_t)+16UL;
-  start_demotion( ctx, stem, 7UL, ctx->deadline_slots, 1 );
+  start_demotion( ctx, stem, 7UL, ctx->deadline_slots, 1, 1000L );
   ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
   ctx->switch_result.tower_watermark = 800UL;
   ctx->tower_seen_seq                = 700UL;
@@ -1127,7 +1128,7 @@ test_demotion_drain( void ) {
   ctx->cs_valid  = 1;
   ctx->cs_sz     = sizeof(fd_failover_consensus_state_t)+16UL;
   ctx->tower_gap = 1;
-  start_demotion( ctx, stem, 9UL, ctx->deadline_slots, 1 );
+  start_demotion( ctx, stem, 9UL, ctx->deadline_slots, 1, 1000L );
   ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
   ctx->switch_result.tower_watermark = 800UL;
   ctx->tower_seen_seq                = 799UL;
@@ -1170,7 +1171,7 @@ test_switch_response_integrity( void ) {
     ctx->cs_valid = 1;
     ctx->cs_sz = sizeof(hdr)+16UL;
     ctx->switch_request_id = 8UL;
-    start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1 );
+    start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1, 1000L );
     ctx->tower_seen_seq = 796UL;
     fd_failover_bus_msg_t * answer = (fd_failover_bus_msg_t *)bus_mem;
     fd_failover_switch_resp_t result = { .result=FD_FAILOVER_SWITCH_OK, .tower_watermark=800UL };
@@ -1221,7 +1222,7 @@ test_switch_overdue( void ) {
   fd_sha256_hash( record.state, 16UL, record.digest );
 
   /* Adopt the tower, then ask for the staked key. */
-  start_promotion( ctx, &record, 7UL );
+  start_promotion( ctx, &record, 7UL, 1000L );
   step_controller( ctx, stem, 1000L );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
   ctx->adopt_result.result    = FD_TOWER_ADOPT_SUCCESS;
@@ -1256,7 +1257,7 @@ test_switch_overdue( void ) {
   ctx->cs_valid      = 1;
   ctx->cs_sz         = sizeof(fd_failover_consensus_state_t)+16UL;
   fd_memset( ctx->cs_buf+sizeof(fd_failover_consensus_state_t), 0xC5, 16UL );
-  start_demotion( ctx, stem, 8UL, ctx->deadline_slots, 1 );
+  start_demotion( ctx, stem, 8UL, ctx->deadline_slots, 1, 1000L );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
   ctx->replay_slot = 2000UL;
   step_controller( ctx, stem, 1000L );
@@ -1366,7 +1367,7 @@ test_promotion_reject( void ) {
   fd_memset( record.state, 0xD7, 16UL );
   fd_sha256_hash( record.state, 16UL, record.digest );
 
-  start_promotion( ctx, &record, 7UL );
+  start_promotion( ctx, &record, 7UL, 1000L );
   FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   FD_TEST( ctx->adopt_state_len==16UL && ctx->demoted_valid );
 
@@ -1490,7 +1491,7 @@ test_promotion_outcome_resent( void ) {
   fd_memset( record.state, 0xD7, 16UL );
   fd_sha256_hash( record.state, 16UL, record.digest );
 
-  start_promotion( ctx, &record, 7UL );
+  start_promotion( ctx, &record, 7UL, 1000L );
   step_controller( ctx, stem, 1000L );
   ctx->adopt_result.result    = FD_TOWER_ADOPT_SUCCESS;
   ctx->adopt_result.vote_slot = 99UL;
@@ -1569,7 +1570,7 @@ test_promotion_outcome_owed( void ) {
   fd_memset( record.state, 0xD7, 16UL );
   fd_sha256_hash( record.state, 16UL, record.digest );
 
-  start_promotion( ctx, &record, 5UL );
+  start_promotion( ctx, &record, 5UL, 1000L );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   ctx->replay_slot = 2000UL; /* replay is ready, so only the pause stops it */
   /* The operator's pause, the flag here and the frame for the peer still
@@ -1606,7 +1607,7 @@ test_promotion_outcome_owed( void ) {
   peer = &ctx->peers[ 0 ];
   peer->channel->state = FD_FAILOVER_SESSION_PAIRED;
   record.demoted.term = 7UL;
-  start_promotion( ctx, &record, 7UL );
+  start_promotion( ctx, &record, 7UL, 1000L );
   step_controller( ctx, stem, 1000L );
   ctx->adopt_result.result    = FD_TOWER_ADOPT_SUCCESS;
   ctx->adopt_result.vote_slot = 99UL;
@@ -1810,10 +1811,11 @@ test_hello_refresh( void ) {
 static void
 test_deadline_arms_late( void ) {
   controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
-  ctx->replay_slot   = FD_FAILOVER_SLOT_NULL;
-  ctx->deadline_slot = FD_FAILOVER_SLOT_NULL;
-  ctx->action        = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
-  ctx->action_term   = 4UL;
+  ctx->replay_slot    = FD_FAILOVER_SLOT_NULL;
+  ctx->deadline_slot  = FD_FAILOVER_SLOT_NULL;
+  ctx->deadline_nanos = LONG_MAX;
+  ctx->action         = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
+  ctx->action_term    = 4UL;
 
   step_controller( ctx, stem, 1000L );
   FD_TEST( ctx->deadline_slot==FD_FAILOVER_SLOT_NULL && ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
@@ -1830,6 +1832,61 @@ test_deadline_arms_late( void ) {
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && ctx->stuck );
   controller_fini();
   FD_LOG_NOTICE(( "pass: a wait started before replay reported still reaches its deadline" ));
+}
+
+/* Test that the clock bound runs beside the slot bound, so a stalled
+   replay cannot hold a wait open forever, and that it is derived from
+   the slot count so one knob still says how long an attempt may take. */
+static void
+test_deadline_wall_clock( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  long limit = deadline_limit_nanos( ctx );
+  FD_TEST( limit==64L*1000000000L );
+
+  /* Replay never reports.  The slot bound never arms, the clock bound
+     arms on the first step and ends the wait on its own.  The
+     confirmation is still owed, so we stay in the wait and flag stuck. */
+  ctx->replay_slot    = FD_FAILOVER_SLOT_NULL;
+  ctx->deadline_slot  = FD_FAILOVER_SLOT_NULL;
+  ctx->deadline_nanos = LONG_MAX;
+  ctx->action         = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
+  ctx->action_term    = 4UL;
+  step_controller( ctx, stem, 1000L );
+  FD_TEST( ctx->deadline_nanos==1000L+limit && ctx->deadline_slot==FD_FAILOVER_SLOT_NULL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !ctx->stuck );
+  step_controller( ctx, stem, 1000L+limit-1L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !ctx->stuck );
+  step_controller( ctx, stem, 1000L+limit );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && ctx->stuck );
+
+  /* With replay reporting, both bounds arm together and the slot bound
+     still ends the wait on its own, long before the clock would. */
+  ctx->stuck          = 0;
+  ctx->replay_slot    = 100UL;
+  ctx->deadline_slot  = FD_FAILOVER_SLOT_NULL;
+  ctx->deadline_nanos = LONG_MAX;
+  ctx->action         = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
+  step_controller( ctx, stem, 5000L );
+  FD_TEST( ctx->deadline_slot==100UL+ctx->deadline_slots && ctx->deadline_nanos==5000L+limit );
+  FD_TEST( !ctx->stuck );
+  ctx->replay_slot = 100UL+ctx->deadline_slots+1UL;
+  step_controller( ctx, stem, 5001L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && ctx->stuck );
+
+  /* A transition has both bounds from the moment it starts. */
+  ctx->replay_slot = 200UL;
+  ctx->cs_valid    = 1;
+  ctx->cs_sz       = sizeof(fd_failover_consensus_state_t)+16UL;
+  start_demotion( ctx, stem, 5UL, ctx->deadline_slots, 1, 9000L );
+  FD_TEST( ctx->deadline_slot==200UL+ctx->deadline_slots && ctx->deadline_nanos==9000L+limit );
+
+  /* The bound is clamped, so neither a tiny nor a huge slot count
+     escapes it. */
+  ctx->deadline_slots = 1UL;       FD_TEST( deadline_limit_nanos( ctx )==30L*1000000000L );
+  ctx->deadline_slots = 1UL<<40;   FD_TEST( deadline_limit_nanos( ctx )==300L*1000000000L );
+  ctx->deadline_slots = ULONG_MAX; FD_TEST( deadline_limit_nanos( ctx )==300L*1000000000L );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: the clock bound ends a wait replay cannot, and the slot bound still ends its own" ));
 }
 
 /* Test that a refusal bumps the term on both sides and drops the
@@ -2200,7 +2257,7 @@ test_repeated_handoff_tower( void ) {
   fd_failover_demoted_record_t record;
   FD_TEST( !demoted_payload_decode( payload, payload_sz, &record ) );
   ctx->replay_slot = 120UL;
-  start_promotion( ctx, &record, 7UL );
+  start_promotion( ctx, &record, 7UL, 1000L );
   step_controller( ctx, stem, 1000L );
   ctx->adopt_result = (fd_tower_adopt_result_t){ .result=FD_TOWER_ADOPT_SUCCESS, .vote_slot=120UL };
   ctx->adopt_result_id = ctx->adopt_expected_id;
@@ -2213,7 +2270,7 @@ test_repeated_handoff_tower( void ) {
   ctx->pending_valid = 0;
   FD_TEST( ctx->last_vote_slot==120UL );
 
-  start_demotion( ctx, stem, 8UL, 64UL, 1 );
+  start_demotion( ctx, stem, 8UL, 64UL, 1, 1000L );
   ctx->switch_result.result = FD_FAILOVER_SWITCH_OK;
   ctx->switch_result.tower_watermark = 20UL;
   ctx->tower_seen_seq = 19UL;
@@ -2308,6 +2365,7 @@ main( int     argc,
   test_record_sources();
   test_hello_refresh();
   test_deadline_arms_late();
+  test_deadline_wall_clock();
   test_promotion_refused_term();
   test_late_promote_ack();
   test_promotion_outcome_resent();

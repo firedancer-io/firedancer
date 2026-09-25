@@ -33,6 +33,16 @@
 #define FD_FAILOVER_TILE_RTT_MAX_NANOS   (60000000000UL)
 #define FD_FAILOVER_TILE_PEER_MILLIS_MAX (60000UL)
 
+/* A controller wait also ends on the monotonic clock, so a stalled
+   replay cannot leave a transition in flight forever with every command
+   answering busy.  The bound is derived from the slot deadline at one
+   second per slot and clamped, so failover.deadline_slots stays the one
+   knob that says how long an attempt may take, and a slow but live
+   cluster is not aborted early. */
+#define FD_FAILOVER_TILE_DEADLINE_SLOT_NANOS (1000000000UL)   /*   1s per slot */
+#define FD_FAILOVER_TILE_DEADLINE_NANOS_MIN  (30000000000UL)  /*  30s floor    */
+#define FD_FAILOVER_TILE_DEADLINE_NANOS_MAX  (300000000000UL) /* 300s ceiling  */
+
 #define FD_FAILOVER_TILE_PEER_MAX (FD_TOPO_FAILOVER_MEMBER_MAX-1UL)
 
 /* What we are currently doing within a state.  The state itself is saved
@@ -89,6 +99,7 @@ struct fd_failover_tile_ctx {
   ulong                        switch_overdue_cnt; /* overdue switches, counted for the metric */
   ulong                        tower_rollback_cnt; /* confirmations whose final tower rolled back the streamed one */
   ulong                        deadline_slot; /* replay slot at which this attempt aborts */
+  long                         deadline_nanos; /* monotonic time at which it aborts, LONG_MAX when unarmed */
   int                          accept_peer_requests;
   ulong                        min_slots_to_leader;
   ulong                        deadline_slots;
@@ -483,31 +494,52 @@ set_role( fd_failover_tile_ctx_t * ctx,
 }
 
 /* Give up on the attempt once replay passes this slot, so a transition
-   cannot hang forever. */
+   cannot hang forever.  A clock bound runs beside it, derived from the
+   same slot count, so a stalled replay cannot hold a transition open
+   forever either.  Either bound ending the wait is enough, since a wait
+   only ever ends toward not voting. */
+static long
+deadline_limit_nanos( fd_failover_tile_ctx_t const * ctx ) {
+  ulong nanos = fd_ulong_sat_mul( ctx->deadline_slots, FD_FAILOVER_TILE_DEADLINE_SLOT_NANOS );
+  nanos = fd_ulong_max( nanos, FD_FAILOVER_TILE_DEADLINE_NANOS_MIN );
+  nanos = fd_ulong_min( nanos, FD_FAILOVER_TILE_DEADLINE_NANOS_MAX );
+  return (long)nanos;
+}
+
 static void
 deadline_start( fd_failover_tile_ctx_t * ctx,
-                ulong                    slots ) {
+                ulong                    slots,
+                long                     now ) {
   ctx->deadline_slot = ( ctx->replay_slot==FD_FAILOVER_SLOT_NULL )
                      ? FD_FAILOVER_SLOT_NULL
                      : fd_ulong_sat_add( ctx->replay_slot, slots );
+  ctx->deadline_nanos = fd_long_sat_add( now, deadline_limit_nanos( ctx ) );
 }
 
 /* If we have not seen a replay slot yet, for example right after
-   restarting in the middle of a handoff, arm the deadline when the first
-   one arrives. */
+   restarting in the middle of a handoff, arm the slot bound when the
+   first one arrives.  The clock bound needs no slot, so it is armed at
+   once if it is not already. */
 static void
 deadline_arm( fd_failover_tile_ctx_t * ctx,
-              ulong                    slots ) {
+              ulong                    slots,
+              long                     now ) {
+  if( FD_UNLIKELY( ctx->deadline_nanos==LONG_MAX ) ) {
+    ctx->deadline_nanos = fd_long_sat_add( now, deadline_limit_nanos( ctx ) );
+  }
   if( FD_LIKELY( ctx->deadline_slot!=FD_FAILOVER_SLOT_NULL ) ) return;
   if( FD_UNLIKELY( ctx->replay_slot==FD_FAILOVER_SLOT_NULL ) ) return;
   ctx->deadline_slot = fd_ulong_sat_add( ctx->replay_slot, slots );
 }
 
 static int
-deadline_expired( fd_failover_tile_ctx_t const * ctx ) {
-  return ctx->deadline_slot!=FD_FAILOVER_SLOT_NULL &&
-         ctx->replay_slot  !=FD_FAILOVER_SLOT_NULL &&
-         ctx->replay_slot>ctx->deadline_slot;
+deadline_expired( fd_failover_tile_ctx_t const * ctx,
+                  long                           now ) {
+  int slot_expired = ctx->deadline_slot!=FD_FAILOVER_SLOT_NULL &&
+                     ctx->replay_slot  !=FD_FAILOVER_SLOT_NULL &&
+                     ctx->replay_slot>ctx->deadline_slot;
+  int wall_expired = ctx->deadline_nanos!=LONG_MAX && now>=ctx->deadline_nanos;
+  return slot_expired || wall_expired;
 }
 
 /* A switch in flight is never abandoned, its outcome is unknown until the
@@ -590,6 +622,7 @@ restore_records( fd_failover_tile_ctx_t * ctx,
   ctx->paused              = !!ctx->role_file.paused;
   ctx->action_term         = ctx->role_file.term;
   ctx->deadline_slot       = FD_FAILOVER_SLOT_NULL;
+  ctx->deadline_nanos      = LONG_MAX;
   ctx->demoted_accept_term = ULONG_MAX;
   ctx->reply_dem_term      = ULONG_MAX;
   ctx->reply_owed          = 0;
@@ -1109,10 +1142,10 @@ demoted_payload_decode( uchar const *                  payload,
 
 /* Forward declarations, step_controller below drives these. */
 static ulong request_switch( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong key );
-static void  start_demotion( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong term, ulong deadline_slots, int send_demoted );
+static void  start_demotion( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong term, ulong deadline_slots, int send_demoted, long now );
 static void  demotion_switched( fd_failover_tile_ctx_t * ctx, long now );
 static void  reject_promotion( fd_failover_tile_ctx_t * ctx, uchar reason, long now );
-static void  start_promotion( fd_failover_tile_ctx_t * ctx, fd_failover_demoted_record_t const * record, ulong term );
+static void  start_promotion( fd_failover_tile_ctx_t * ctx, fd_failover_demoted_record_t const * record, ulong term, long now );
 static ulong switch_query( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem );
 
 /* These new waits have a monotonic bound even before replay starts. */
@@ -1121,13 +1154,13 @@ claim_deadline_start( fd_failover_tile_ctx_t * ctx,
                       long                     now ) {
   ulong seconds = fd_ulong_max( 30UL, fd_ulong_min( ctx->deadline_slots, 300UL ) );
   ctx->claim_deadline = fd_long_sat_add( now, (long)(seconds*1000000000UL) );
-  deadline_start( ctx, ctx->deadline_slots );
+  deadline_start( ctx, ctx->deadline_slots, now );
 }
 
 static int
 claim_expired( fd_failover_tile_ctx_t const * ctx,
                long                          now ) {
-  return now>=ctx->claim_deadline || deadline_expired( ctx );
+  return now>=ctx->claim_deadline || deadline_expired( ctx, now );
 }
 
 /* A lost readiness answer must not leave an idle standby permanently
@@ -1245,12 +1278,12 @@ step_controller( fd_failover_tile_ctx_t * ctx,
   switch( ctx->action ) {
 
   case FD_FAILOVER_ACTION_DEMOTE_SWITCH: {
-    deadline_arm( ctx, ctx->deadline_slots );
+    deadline_arm( ctx, ctx->deadline_slots, now );
     if( FD_LIKELY( !ctx->switch_result_fresh ) ) {
       /* No answer yet.  We do not know whether the junk key got installed,
          so we claim nothing and keep waiting, the late answer still counts.
          Past the deadline we raise stuck for the operator. */
-      if( FD_UNLIKELY( deadline_expired( ctx ) ) ) switch_overdue( ctx );
+      if( FD_UNLIKELY( deadline_expired( ctx, now ) ) ) switch_overdue( ctx );
       return;
     }
     if( FD_UNLIKELY( ctx->switch_result.result!=FD_FAILOVER_SWITCH_OK ) ) {
@@ -1270,7 +1303,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
        be missing from the confirmation.  Same link, same counter, so the
        wait is exact. */
     if( FD_UNLIKELY( !fd_seq_ge( fd_seq_inc( ctx->tower_seen_seq, 1UL ), ctx->switch_result.tower_watermark ) ) ) {
-      if( FD_UNLIKELY( deadline_expired( ctx ) ) ) {
+      if( FD_UNLIKELY( deadline_expired( ctx, now ) ) ) {
         /* The identity is gone from here, so standing down without a
            confirmation is the safe direction, nobody can promote on it. */
         FD_LOG_WARNING(( "the tower stream never reached the watermark %lu, demotion at term %lu confirms nothing", ctx->switch_result.tower_watermark, ctx->action_term ));
@@ -1293,7 +1326,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     /* If the peer goes quiet we do not undo the demotion, we only raise the
        alarm.  The identity is already gone from this machine, so waiting is
        safe. */
-    deadline_arm( ctx, ctx->deadline_slots );
+    deadline_arm( ctx, ctx->deadline_slots, now );
     /* We keep sending the confirmation until the peer answers.  It may not be
        in flight because the control slot was busy when the demotion
        finished, or because the session died before the peer acted on it. */
@@ -1306,7 +1339,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
       (void)queue_control( ctx, (ushort)FD_FAILOVER_MSG_DEMOTED, payload,
                            sizeof(fd_failover_demoted_t)+state_len );
     }
-    if( FD_UNLIKELY( deadline_expired( ctx ) ) ) {
+    if( FD_UNLIKELY( deadline_expired( ctx, now ) ) ) {
       /* The identity is already gone, so we keep retrying the confirmation
          after the deadline rather than give up, since a reconnect must
          still deliver it.  We only raise the alarm once. */
@@ -1318,14 +1351,14 @@ step_controller( fd_failover_tile_ctx_t * ctx,
   }
 
   case FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY: {
-    deadline_arm( ctx, ctx->deadline_slots );
+    deadline_arm( ctx, ctx->deadline_slots, now );
     /* A pause accepted while the promotion is still waiting, before the key
        switch is requested, stands it down so the pause is honored. */
     if( FD_UNLIKELY( ctx->paused ) ) {
       reject_promotion( ctx, FD_FAILOVER_REJECT_PAUSED, now );
       return;
     }
-    if( FD_UNLIKELY( deadline_expired( ctx ) ) ) {
+    if( FD_UNLIKELY( deadline_expired( ctx, now ) ) ) {
       reject_promotion( ctx, FD_FAILOVER_REJECT_REPLAY_BEHIND, now );
       return;
     }
@@ -1344,12 +1377,12 @@ step_controller( fd_failover_tile_ctx_t * ctx,
   }
 
   case FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT: {
-    deadline_arm( ctx, ctx->deadline_slots );
+    deadline_arm( ctx, ctx->deadline_slots, now );
     if( FD_UNLIKELY( ctx->paused ) ) {
       reject_promotion( ctx, FD_FAILOVER_REJECT_PAUSED, now );
       return;
     }
-    if( FD_UNLIKELY( deadline_expired( ctx ) ) ) {
+    if( FD_UNLIKELY( deadline_expired( ctx, now ) ) ) {
       reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, now );
       return;
     }
@@ -1381,14 +1414,14 @@ step_controller( fd_failover_tile_ctx_t * ctx,
   }
 
   case FD_FAILOVER_ACTION_PROMOTE_SWITCH: {
-    deadline_arm( ctx, ctx->deadline_slots );
+    deadline_arm( ctx, ctx->deadline_slots, now );
     if( FD_LIKELY( !ctx->switch_result_fresh ) ) {
       /* No answer yet.  Standing down here would tell the peer nobody
          promoted while the staked key may well be installed, the one way a
          STANDBY record and a staked identity could come to coexist.  So we
          keep waiting and raise stuck past the deadline, the late answer
          still counts. */
-      if( FD_UNLIKELY( deadline_expired( ctx ) ) ) switch_overdue( ctx );
+      if( FD_UNLIKELY( deadline_expired( ctx, now ) ) ) switch_overdue( ctx );
       return;
     }
     ctx->switch_result_fresh = 0;
@@ -1422,12 +1455,12 @@ step_controller( fd_failover_tile_ctx_t * ctx,
   case FD_FAILOVER_ACTION_REJECT: {
     /* The refusal is queued, wait for it to go out or for the operator to
        step in. */
-    if( FD_LIKELY( !ctx->pending_valid || deadline_expired( ctx ) ) ) ctx->action = FD_FAILOVER_ACTION_IDLE;
+    if( FD_LIKELY( !ctx->pending_valid || deadline_expired( ctx, now ) ) ) ctx->action = FD_FAILOVER_ACTION_IDLE;
     return;
   }
 
   case FD_FAILOVER_ACTION_FIRST_USE_WAIT: {
-    deadline_arm( ctx, ctx->deadline_slots );
+    deadline_arm( ctx, ctx->deadline_slots, now );
     if( FD_UNLIKELY( ctx->paused || claim_expired( ctx, now ) ) ) {
       first_use_failed( ctx, ctx->paused ? FD_FAILOVER_REJECT_PAUSED : FD_FAILOVER_REJECT_DEADLINE );
       return;
@@ -1444,7 +1477,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
   }
 
   case FD_FAILOVER_ACTION_CONFIRM_WAIT_QUERY: {
-    deadline_arm( ctx, ctx->deadline_slots );
+    deadline_arm( ctx, ctx->deadline_slots, now );
     fd_failover_peer_t * peer = &ctx->peers[ 0 ];
     int paired = fd_failover_channel_state( peer->channel )==FD_FAILOVER_SESSION_PAIRED;
     int same_boot = paired && fd_failover_channel_peer_hello( peer->channel )->boot_id==ctx->confirm_peer_boot;
@@ -1580,7 +1613,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     ctx->first_use_promoting = 1;
     ctx->action_term = confirm.term;
     ctx->stuck       = 0;
-    deadline_start( ctx, ctx->deadline_slots );
+    deadline_start( ctx, ctx->deadline_slots, now );
     if( FD_UNLIKELY( request_switch( ctx, ctx->step_stem, FD_FAILOVER_SWITCH_KEY_STAKED )==ULONG_MAX ) ) {
       reject_promotion( ctx, FD_FAILOVER_REJECT_SWITCH_PENDING, now );
       return;
@@ -1631,7 +1664,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     FD_TEST( !queue_control( ctx, (ushort)FD_FAILOVER_MSG_HANDOFF_RESP, &resp, sizeof(resp) ) );
     /* A drill runs all the checks but does not switch. */
     if( FD_UNLIKELY( code==FD_FAILOVER_HANDOFF_PROCEED && !req.drill ) ) {
-      start_demotion( ctx, ctx->step_stem, req.proposed_term, req.deadline_slots, 1 );
+      start_demotion( ctx, ctx->step_stem, req.proposed_term, req.deadline_slots, 1, now );
     }
     return;
   }
@@ -1704,7 +1737,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
       reject_promotion( ctx, FD_FAILOVER_REJECT_PAUSED, now );
       return;
     }
-    start_promotion( ctx, &record, record.demoted.term );
+    start_promotion( ctx, &record, record.demoted.term, now );
     return;
   }
 
@@ -2045,14 +2078,15 @@ start_demotion( fd_failover_tile_ctx_t * ctx,
                 fd_stem_context_t *      stem,
                 ulong                    term,
                 ulong                    deadline_slots,
-                int                      send_demoted ) {
+                int                      send_demoted,
+                long                     now ) {
   if( FD_UNLIKELY( ctx->demoted_valid ) ) demoted_remove( ctx );
   persist( ctx, FD_FAILOVER_STATE_DEMOTING, term );
   ctx->action_term   = term;
   ctx->send_demoted  = !!send_demoted;
   ctx->demoted_sent  = 0;
   ctx->stuck         = 0;
-  deadline_start( ctx, deadline_slots );
+  deadline_start( ctx, deadline_slots, now );
   ctx->action = FD_FAILOVER_ACTION_DEMOTE_SWITCH;
   if( FD_UNLIKELY( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_JUNK )==ULONG_MAX ) ) {
     /* The request never went out and we still have the identity, so the
@@ -2116,7 +2150,7 @@ demotion_switched( fd_failover_tile_ctx_t * ctx,
      fails we retry from the wait rather than die. */
   (void)queue_control( ctx, (ushort)FD_FAILOVER_MSG_DEMOTED, payload, sizeof(fd_failover_demoted_t)+state_len );
   ctx->action = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
-  deadline_start( ctx, ctx->deadline_slots );
+  deadline_start( ctx, ctx->deadline_slots, now );
 }
 
 /* Stand back down.  The refusal gives the peer something to act on, so it
@@ -2163,7 +2197,8 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
 static void
 start_promotion( fd_failover_tile_ctx_t *             ctx,
                  fd_failover_demoted_record_t const * record,
-                 ulong                                term ) {
+                 ulong                                term,
+                 long                                 now ) {
   ctx->demoted_record     = *record;
   ctx->demoted_record.source = FD_FAILOVER_DEMOTED_SOURCE_PEER;
   ctx->demoted_valid      = 1;
@@ -2196,7 +2231,7 @@ start_promotion( fd_failover_tile_ctx_t *             ctx,
   ctx->demoted_accept_term = term;
   ctx->reject_reason       = FD_FAILOVER_REJECT_NONE;
   ctx->stuck               = 0;
-  deadline_start( ctx, ctx->deadline_slots );
+  deadline_start( ctx, ctx->deadline_slots, now );
   ctx->action = FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY;
 }
 
@@ -2244,7 +2279,7 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
     if( FD_UNLIKELY( ctx->paused ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
     if( FD_UNLIKELY( ctx->hello.term>=ULONG_MAX-1UL ) ) return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
     /* No confirmation, nobody is supposed to promote. */
-    start_demotion( ctx, stem, ctx->hello.term+1UL, ctx->deadline_slots, 0 );
+    start_demotion( ctx, stem, ctx->hello.term+1UL, ctx->deadline_slots, 0, now );
     return FD_ADMINCTL_RESULT_SUCCESS;
   }
 
@@ -2296,7 +2331,7 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
         }
       }
       if( FD_UNLIKELY( drill ) ) return FD_ADMINCTL_RESULT_SUCCESS;
-      start_demotion( ctx, stem, msg.proposed_term, ctx->deadline_slots, 1 );
+      start_demotion( ctx, stem, msg.proposed_term, ctx->deadline_slots, 1, now );
       return FD_ADMINCTL_RESULT_SUCCESS;
     }
 
@@ -2356,7 +2391,7 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
       ctx->tower_rollback_cnt++;
       return FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK;
     }
-    start_promotion( ctx, &ctx->demoted_record, ctx->demoted_record.demoted.term );
+    start_promotion( ctx, &ctx->demoted_record, ctx->demoted_record.demoted.term, now );
     return FD_ADMINCTL_RESULT_SUCCESS;
   }
 
