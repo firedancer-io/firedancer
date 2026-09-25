@@ -1,6 +1,7 @@
 #include "fd_topob.h"
 #include "../net/fd_net_tile.h"
 #include "../waker/fd_waker.h"
+#include "../sleep/fd_sleep.h"
 
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/tile/fd_tile_private.h" /* fd_tile_private_sibling_idx */
@@ -235,6 +236,76 @@ fd_topob_waker( fd_topo_t * topo ) {
     client->waker_fseq_obj_id = fseq_obj->id;
   }
   FD_TEST( waker_client_cnt<=FD_WAKER_CLIENT_MAX );
+}
+
+void
+fd_topob_sleep( fd_topo_t *  topo,
+                char const * metrics_wksp,
+                ulong        mwaitx_cpu_idx ) {
+  fd_topob_wksp( topo, "mwaitx" );
+  fd_topob_wksp( topo, "sleep"  );
+  topo->sleep_obj_id = fd_topob_obj( topo, "sleep", "sleep" )->id;
+  fd_topob_tile( topo, "mwaitx", "mwaitx", metrics_wksp, mwaitx_cpu_idx, 0, 0, 0, 0 );
+}
+
+/* Tiles that must not share a physical core.  The layout leaves their
+   hyperthread sibling empty. */
+
+static char const * CRITICAL_TILES[] = {
+  "pack",
+  "poh",
+  "motor",
+  "pohh",
+  NULL
+};
+
+/* Tiles that can saturate a core, in efficient mode the layout keeps
+   their hyperthread siblings free. */
+
+static char const * THROUGHPUT_TILES[] = {
+  "verify",
+  "execle",
+  "execrp",
+  "snapdc",
+  "snapin",
+  "replay",
+  "accdb",
+  "benchg",
+  "benchs",
+  NULL
+};
+
+void
+fd_topob_sleep_finish( fd_topo_t * topo ) {
+  if( FD_LIKELY( topo->sleep_obj_id==ULONG_MAX ) ) return;
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    int pinned = !strcmp( tile->name, "mwaitx" ) || !strcmp( tile->name, "sock" ) || !strcmp( tile->name, "solcap" )
+              || !strcmp( tile->name, "mlx5" ) || !strcmp( tile->name, "snapsv" );
+    for( char const ** p = CRITICAL_TILES; *p; p++ ) pinned |= !strcmp( tile->name, *p );
+    for( char const ** p = THROUGHPUT_TILES; *p; p++ ) pinned |= !strcmp( tile->name, *p );
+    tile->floats = tile->cpu_idx!=ULONG_MAX && !pinned;
+  }
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    if( FD_LIKELY( !tile->floats ) ) continue;
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      if( FD_UNLIKELY( topo->tiles[ j ].cpu_idx==tile->cpu_idx && !topo->tiles[ j ].floats ) ) {
+        tile->floats = 0;
+        break;
+      }
+    }
+  }
+
+  FD_TEST( topo->tile_cnt<=FD_SLEEP_TILE_MAX );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    ulong j;
+    for( j=0UL; j<tile->uses_obj_cnt; j++ ) if( FD_UNLIKELY( tile->uses_obj_id[ j ]==topo->sleep_obj_id ) ) break;
+    if( FD_LIKELY( j==tile->uses_obj_cnt ) ) fd_topob_tile_uses( topo, tile, &topo->objs[ topo->sleep_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
 }
 
 void
@@ -499,13 +570,6 @@ static char const * ALWAYS[] = {
 };
 
 /* Tiles that should not have a SMT neighbor */
-static char const * CRITICAL_TILES[] = {
-  "pack",
-  "poh",
-  "motor",
-  "pohh",
-  NULL
-};
 
 static int
 tile_name_in( char const *         name,

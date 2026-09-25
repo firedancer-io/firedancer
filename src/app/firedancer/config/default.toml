@@ -799,6 +799,33 @@ telemetry = true
 # CPU cores and connects them together with queues so that data can flow
 # in and out of the system with maximum throughput and minimal drops.
 [layout]
+    # Kernel scheduling mode which determines what tile do when they
+    # have no work.  Firedancer supports two scheduling modes described
+    # below.
+    #
+    #  "performance" (default)
+    #   Tiles spin using 100% of a CPU core, even when they have no work
+    #   to do.  This mode is the highest throughput and lowest latency,
+    #   since there is no kernel context switching, and no delay when
+    #   waking a tile or CPU core to perform work.
+    #
+    #   This mode runs cores hot and uses the most energy. Currently,
+    #   the performance mode is the only supported mode for production
+    #   validators and block producers.
+    #
+    #  "efficient" (experimental)
+    #   Tiles are allowed to sleep when they have no work, letting the
+    #   CPU cores sleep and reducing power draw, temperature, and host
+    #   load.  Tiles keep their pinned layout as in performance mode, so
+    #   stay maximally spread across the host CPU.
+    #
+    #   Sleeping and waking tiles has small overheads that can reduce
+    #   throughput and increase latency when running under high load.
+    #
+    #   Efficient mode is currently experimental and should not be used
+    #   on a production voting or block packing validator.
+    mode = "performance"
+
     # Logical CPU cores to run Firedancer tiles on.  Can be specified as
     # a single core like "0", a range like "0-10", or a range with
     # stride like "0-10/2".  Stride is useful when CPU cores should be

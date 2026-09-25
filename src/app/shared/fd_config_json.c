@@ -142,6 +142,7 @@ static char const * const jw_redacted_keys[] = {
 
 static char const * const jw_reported_keys[] = {
   "name",
+  "layout.mode",
   "log.colorize",
   "log.level_logfile",
   "log.level_stderr",
@@ -355,6 +356,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "quic_tile_count",   config->layout.quic_tile_count );
     jw_ulong( &w, "verify_tile_count", config->layout.verify_tile_count );
     jw_ulong( &w, "shred_tile_count",  config->layout.shred_tile_count );
+    jw_str  ( &w, "mode",                       f->layout.mode );
     jw_bool ( &w, "enable_block_production",    f->layout.enable_block_production );
     jw_bool ( &w, "enable_snapshot_production", f->layout.enable_snapshot_production );
     jw_ulong( &w, "sign_tile_count",            f->layout.sign_tile_count );

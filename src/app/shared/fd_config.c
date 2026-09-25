@@ -114,6 +114,9 @@ fd_config_load_buf( fd_config_t * out,
 
 static void
 fd_config_fillf( fd_config_t * config ) {
+  if( FD_UNLIKELY( strcmp( config->firedancer.layout.mode, "performance" ) && strcmp( config->firedancer.layout.mode, "efficient" ) ) )
+    FD_LOG_ERR(( "[layout.mode] %s not recognized", config->firedancer.layout.mode ));
+
   if( FD_UNLIKELY( strcmp( config->paths.accounts, "" ) ) ) {
     replace( config->paths.accounts, "{user}", config->user );
     replace( config->paths.accounts, "{name}", config->name );
@@ -480,6 +483,7 @@ fd_config_fill( fd_config_t * config,
 
 static void
 fd_config_validatef( fd_configf_t const * config ) {
+  CFG_HAS_NON_EMPTY( layout.mode );
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
   CFG_HAS_NON_ZERO( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO( layout.execle_tile_count );
