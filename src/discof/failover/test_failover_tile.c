@@ -1568,6 +1568,85 @@ test_local_promotion( void ) {
   FD_LOG_NOTICE(( "pass: a promotion without a confirmation adopts its own file and answers nobody" ));
 }
 
+/* A forced promotion is refused while the peer is reachable, or was until
+   a moment ago, or was seen active a moment ago.  Past that it is the
+   operator's attestation, and it promotes on this machine's own file. */
+static void
+test_force_promote( void ) {
+  fd_adminctl_failover_control_t req;
+  controller_init( FD_FAILOVER_STATE_STANDBY, 3UL );
+  ctx->peer_silence_intervals = 10UL; /* fence = 4 x 10 x 800ms = 32s */
+  long fence = 4L*10L*800L*1000000L;
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  fd_memset( &req, 0, sizeof(req) );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_PROMOTE;
+  long now = 100L*1000000000L;
+
+  /* No confirmation and no attestation: no evidence. */
+  FD_TEST( apply_control( ctx, stem, &req, now )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+  req.force = 1U;
+  fd_memcpy( req.staked_pubkey, ctx->hello.staked_pubkey, 32UL );
+
+  /* Paired: not fenced. */
+  paired_standby_peer( peer, 3UL, now );
+  FD_TEST( apply_control( ctx, stem, &req, now )==FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE );
+
+  /* Unpaired a second ago: not fenced.  The edge is what stamps the time. */
+  peer->channel->state = FD_FAILOVER_SESSION_BACKOFF;
+  peer->status_valid   = 0;
+  peer->last_term_seen = 3UL;
+  peer_sync_channel_state( peer, now-1000000000L );
+  FD_TEST( peer->unpaired_at==now-1000000000L );
+  FD_TEST( apply_control( ctx, stem, &req, now )==FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE );
+
+  /* Unpaired long enough, but seen active inside the window: not fenced. */
+  peer->unpaired_at      = now-fence-1L;
+  peer->last_active_seen = now-fence+1L;
+  FD_TEST( apply_control( ctx, stem, &req, now )==FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE );
+
+  /* Both old: the attestation stands, the promotion runs on the local
+     file at one past the last term seen, and answers nobody. */
+  peer->last_active_seen = now-fence-1L;
+  FD_TEST( apply_control( ctx, stem, &req, now )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->role_file.term==4UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT && !ctx->promote_from_record );
+  FD_TEST( stem->seqs[ 0 ]==1UL && pub_mcache[ 0 ].sz==0UL && pub_mcache[ 0 ].sig==ctx->adopt_expected_id ); /* the local file was asked for */
+  controller_fini();
+
+  /* A machine that never paired counts from boot. */
+  controller_init( FD_FAILOVER_STATE_STANDBY, 3UL );
+  ctx->peer_silence_intervals = 10UL;
+  peer = &ctx->peers[ 0 ];
+  peer->unpaired_at = now-fence+1L;
+  FD_TEST( apply_control( ctx, stem, &req, now )==FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE );
+  peer->unpaired_at = now-fence-1L;
+  FD_TEST( apply_control( ctx, stem, &req, now )==FD_ADMINCTL_RESULT_SUCCESS && ctx->role_file.term==4UL );
+  controller_fini();
+
+  /* A confirmation this machine still owes is refused, forced or not, and
+     force with a usable confirmation in hand takes the ordinary path. */
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  ctx->peer_silence_intervals = 10UL;
+  ctx->peers[ 0 ].unpaired_at                = now-fence-1L;
+  ctx->demoted_valid                         = 1;
+  ctx->send_demoted                          = 1;
+  ctx->demoted_record.source                 = FD_FAILOVER_DEMOTED_SOURCE_LOCAL;
+  ctx->demoted_record.demoted.term           = 4UL;
+  ctx->demoted_record.demoted.state_len      = 8U;
+  ctx->demoted_record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  ctx->demoted_record.demoted.last_vote_slot = 99UL;
+  fd_memset( ctx->demoted_record.state, 0xE1, 8UL );
+  fd_sha256_hash( ctx->demoted_record.state, 8UL, ctx->demoted_record.digest );
+  FD_TEST( apply_control( ctx, stem, &req, now )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+  ctx->send_demoted          = 0;
+  ctx->demoted_record.source = FD_FAILOVER_DEMOTED_SOURCE_PEER;
+  FD_TEST( apply_control( ctx, stem, &req, now )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->promote_from_record && ctx->demoted_valid );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->role_file.term==4UL );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a forced promotion is refused while the peer is or was reachable, then promotes on the local file" ));
+}
+
 /* Test that a promotion whose tower cannot be adopted stands down at a
    new term and tells the peer. */
 static void
@@ -2521,8 +2600,10 @@ test_promote_evidence( void ) {
   fd_memcpy( req.staked_pubkey, ctx->hello.staked_pubkey, 32UL );
   FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
 
-  /* The same record coming from the peer is fine. */
+  /* The same record coming from the peer is fine.  Without force it has
+     to be the peer's, at this term. */
   ctx->send_demoted = 0;
+  req.force         = 0U;
   FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
   ctx->demoted_record.source = FD_FAILOVER_DEMOTED_SOURCE_LOCAL;
   FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
@@ -2649,6 +2730,7 @@ main( int     argc,
   test_demotion_order();
   test_readiness_inputs();
   test_local_promotion();
+  test_force_promote();
   test_promotion_reject();
   test_switch_overdue();
   test_demotion_drain();

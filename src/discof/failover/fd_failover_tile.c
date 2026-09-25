@@ -45,6 +45,13 @@
 
 #define FD_FAILOVER_TILE_PEER_MAX (FD_TOPO_FAILOVER_MEMBER_MAX-1UL)
 
+/* A forced promotion is the operator's attestation that the peer is
+   fenced.  No check here can make that sound, a partitioned but live
+   peer passes every one, so the checks only narrow the window: the
+   session must have been down, and the peer not seen active, for this
+   many silence windows. */
+#define FD_FAILOVER_TILE_FENCE_SILENCE_MULT (4UL)
+
 /* What we are currently doing within a state.  The state itself is saved
    in the role file and survives a restart, the action does not. */
 #define FD_FAILOVER_ACTION_IDLE                (0UL)
@@ -74,6 +81,9 @@ struct fd_failover_peer {
   int                     status_valid;
   long                    status_time;
   ulong                   channel_state;      /* last seen session state, for edge detection */
+  long                    unpaired_at;        /* when the session last left paired, boot time before any */
+  long                    last_active_seen;   /* our clock at the last STATUS that said active, 0 if none */
+  ulong                   last_term_seen;     /* the term of the last STATUS, kept past the session */
   int                     session_setup;      /* silence window sized for this session */
   long                    effective_interval; /* slower of the two cadences, nanos */
   long                    last_status;
@@ -781,6 +791,9 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "reserved role file descriptor is %i, expected 0: another descriptor was open when the failover tile started", ctx->role_file_fd ));
   }
 
+  /* A peer that never pairs counts its silence from boot. */
+  for( ulong i=0UL; i<ctx->peer_cnt; i++ ) ctx->peers[ i ].unpaired_at = fd_failover_clock();
+
   int role_err   = role_file_read( ctx );
   int demoted_err = fd_failover_demoted_load( ctx->role_dir_fd, &ctx->demoted_record );
   if( FD_UNLIKELY( tile->failov.failover_first_use[ 0 ] ) ) {
@@ -949,10 +962,12 @@ peer_status_fresh( fd_failover_tile_ctx_t const * ctx,
 
 /* A session edge invalidates everything the old session told us. */
 static void
-peer_sync_channel_state( fd_failover_peer_t * peer ) {
+peer_sync_channel_state( fd_failover_peer_t * peer,
+                         long                 now ) {
   ulong state = fd_failover_channel_state( peer->channel );
   if( FD_LIKELY( state==peer->channel_state ) ) return;
 
+  if( FD_UNLIKELY( peer->channel_state==FD_FAILOVER_SESSION_PAIRED ) ) peer->unpaired_at = now;
   peer->channel_state      = state;
   peer->status_valid       = 0;
   peer->status_time        = 0L;
@@ -1913,7 +1928,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
       FD_LOG_WARNING(( "the peer's final tower at term %lu is older than the one it streamed, refusing", record.demoted.term ));
       ctx->tower_rollback_cnt++;
       fd_failover_channel_protocol_error( peer->channel, now );
-      peer_sync_channel_state( peer );
+      peer_sync_channel_state( peer, now );
       return;
     }
     if( FD_UNLIKELY( ctx->state!=FD_FAILOVER_STATE_STANDBY || ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) {
@@ -1988,7 +2003,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
   }
 
   fd_failover_channel_protocol_error( peer->channel, now );
-  peer_sync_channel_state( peer );
+  peer_sync_channel_state( peer, now );
 }
 
 /* Drive one peer's session from the run loop.  Channel time is the
@@ -1999,7 +2014,7 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
            long                     now,
            int *                    charge_busy ) {
   ulong was = peer->channel_state;
-  peer_sync_channel_state( peer );
+  peer_sync_channel_state( peer, now );
 
   ushort type;
   ulong  payload_sz;
@@ -2012,12 +2027,14 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
                                                    ctx->rx,
                                                    payload_sz ) ) ) {
         fd_failover_channel_protocol_error( peer->channel, now );
-        peer_sync_channel_state( peer );
+        peer_sync_channel_state( peer, now );
         return;
       }
       peer->status       = status;
       peer->status_valid = 1;
       peer->status_time  = now;
+      peer->last_term_seen = peer->status.term;
+      if( FD_UNLIKELY( peer->status.role==FD_FAILOVER_ROLE_ACTIVE ) ) peer->last_active_seen = now;
       peer_update_lag( peer );
       peer_rtt_sample( peer, now, &status );
       peer->peer_sent_at = status.sent_at;
@@ -2029,7 +2046,7 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
                                                       ctx->rx,
                                                       payload_sz ) ) ) {
         fd_failover_channel_protocol_error( peer->channel, now );
-        peer_sync_channel_state( peer );
+        peer_sync_channel_state( peer, now );
         return;
       }
       peer_update_lag( peer );
@@ -2046,7 +2063,7 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
     }
   }
 
-  peer_sync_channel_state( peer );
+  peer_sync_channel_state( peer, now );
 
   /* The pairing can complete inside the poll above, so check the session
      transition here, after it, not before.  If we sent a confirmation on a
@@ -2100,7 +2117,7 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
     *charge_busy = 1;
   }
 
-  peer_sync_channel_state( peer );
+  peer_sync_channel_state( peer, now );
 }
 
 /* One peer's view of the pool for the status payload and the metrics.
@@ -2606,35 +2623,56 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
 
   case FD_ADMINCTL_FAILOVER_CMD_PROMOTE: {
     /* Take the identity.  This needs the peer's demotion confirmation on
-       disk.  --force does not skip that, it only requires the operator to
-       spell out the pubkey. */
+       disk, or with --force the operator's word that the peer is fenced,
+       in which case this machine's own signed tower file stands in for
+       the confirmation. */
     if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
     if( FD_UNLIKELY( ctx->state!=FD_FAILOVER_STATE_STANDBY ) ) return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
     if( FD_UNLIKELY( ctx->paused ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
-    /* Our own outgoing confirmation does not count.  It says we stopped, it
-       says nothing about whether the peer promoted, and using it could put
-       the identity on both machines. */
-    if( FD_UNLIKELY( !ctx->demoted_valid || ctx->demoted_historical || ctx->send_demoted ||
-                     ctx->demoted_record.source!=FD_FAILOVER_DEMOTED_SOURCE_PEER ||
-                     ctx->demoted_record.demoted.term!=ctx->hello.term ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
+    /* Our own outgoing confirmation does not count, forced or not.  It
+       says we stopped, it says nothing about whether the peer promoted,
+       and using it could put the identity on both machines. */
+    if( FD_UNLIKELY( ctx->send_demoted ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
     if( FD_UNLIKELY( req->force && !fd_memeq( req->staked_pubkey, ctx->hello.staked_pubkey, 32UL ) ) )
       return FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY;
-    /* The confirmation on disk may not be older than the tower this peer
-       streamed while it was active, the same check the wire path runs.
-       The floor outlives the session that carried the stream, so a
-       reconnect in between does not lose the history it is checked
-       against. */
-    if( FD_UNLIKELY( !fd_failover_consensus_final_check( &peer->consensus_floor,
-                                                         fd_failover_channel_peer_hello( peer->channel )->boot_id,
-                                                         ctx->demoted_record.demoted.term,
-                                                         ctx->demoted_record.demoted.watermark,
-                                                         ctx->demoted_record.demoted.last_vote_slot,
-                                                         ctx->demoted_record.state,
-                                                         (ulong)ctx->demoted_record.demoted.state_len ) ) ) {
-      ctx->tower_rollback_cnt++;
-      return FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK;
+
+    if( FD_LIKELY( ctx->demoted_valid && !ctx->demoted_historical &&
+                   ctx->demoted_record.source==FD_FAILOVER_DEMOTED_SOURCE_PEER &&
+                   ctx->demoted_record.demoted.term==ctx->hello.term ) ) {
+      /* The confirmation on disk may not be older than the tower this peer
+         streamed while it was active, the same check the wire path runs.
+         The floor outlives the session that carried the stream, so a
+         reconnect in between does not lose the history it is checked
+         against. */
+      if( FD_UNLIKELY( !fd_failover_consensus_final_check( &peer->consensus_floor,
+                                                           fd_failover_channel_peer_hello( peer->channel )->boot_id,
+                                                           ctx->demoted_record.demoted.term,
+                                                           ctx->demoted_record.demoted.watermark,
+                                                           ctx->demoted_record.demoted.last_vote_slot,
+                                                           ctx->demoted_record.state,
+                                                           (ulong)ctx->demoted_record.demoted.state_len ) ) ) {
+        ctx->tower_rollback_cnt++;
+        return FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK;
+      }
+      start_promotion( ctx, &ctx->demoted_record, ctx->demoted_record.demoted.term, now );
+      return FD_ADMINCTL_RESULT_SUCCESS;
     }
-    start_promotion( ctx, &ctx->demoted_record, ctx->demoted_record.demoted.term, now );
+    if( FD_LIKELY( !req->force ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
+
+    /* No confirmation, and the operator attests the peer is fenced.  If
+       this machine can talk to the peer, or could until a moment ago, or
+       saw it active a moment ago, the attestation is refused: a peer that
+       is reachable is asked with handoff or reclaim, and forcing against
+       a live peer is the one way to get two holders.  A peer that is
+       merely partitioned passes these checks, which is why the help text
+       says force is only for a machine that has been powered off. */
+    long interval = peer->effective_interval ? peer->effective_interval : ctx->status_interval;
+    long fence    = fd_long_sat_mul( interval, (long)fd_ulong_sat_mul( ctx->peer_silence_intervals, FD_FAILOVER_TILE_FENCE_SILENCE_MULT ) );
+    if( FD_UNLIKELY( paired || fd_long_sat_sub( now, peer->unpaired_at )<fence ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE;
+    if( FD_UNLIKELY( peer->last_active_seen && fd_long_sat_sub( now, peer->last_active_seen )<fence ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE;
+    ulong term = fd_failover_reclaim_term( ctx->hello.term, peer->last_term_seen );
+    if( FD_UNLIKELY( term==ULONG_MAX ) ) return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
+    start_local_promotion( ctx, stem, term, 1, now );
     return FD_ADMINCTL_RESULT_SUCCESS;
   }
 

@@ -1483,6 +1483,9 @@ failover_status_complete( fd_admin_tile_ctx_t * ctx,
     case FD_FAILOVER_CONTROL_RESULT_IDENTITY_MISMATCH:
       report_admin_command_custom_result( &event, "identity_mismatch" );
       break;
+    case FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE:
+      report_admin_command_custom_result( &event, "peer_reachable" );
+      break;
     default:
       FD_LOG_WARNING(( "unexpected failover-status result %lu", result ));
       report_admin_command_custom_result( &event, "unexpected" );

@@ -187,8 +187,8 @@ typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_r
 struct fd_adminctl_failover_control_v1 {
   ulong version; /* ==FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION */
   ulong cmd;     /* FD_ADMINCTL_FAILOVER_CMD_* */
-  uchar force;   /* promote even if the peer is unreachable, still needs its
-                    demotion confirmation */
+  uchar force;   /* with no demotion confirmation, attest that the peer is
+                    fenced and promote on this machine's own tower file */
   uchar reserved[ 7 ];
   uchar staked_pubkey[ 32 ]; /* required with force, as a safety check */
 };
@@ -219,6 +219,7 @@ typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control
 #define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY  (0x5009UL) /* the spare's last status says it cannot take the identity */
 #define FD_FAILOVER_CONTROL_RESULT_IDENTITY_MISMATCH (0x500AUL) /* the installed identity disagrees with the recorded role */
 #define FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK (0x500BUL) /* the confirmation's final tower is older than the one the peer streamed */
+#define FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE (0x500CUL) /* a forced promotion while the peer is, or was recently, reachable */
 #define FD_FAILOVER_CONTROL_RESULT_PRECONDITION  (0x500DUL) /* a handoff pre-check failed, the status names the reason */
 
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_t     )<=FD_ADMINCTL_PAYLOAD_MAX, failover_control_req_fits  );

@@ -66,8 +66,8 @@ failover_cmd_args( int *    pargc,
   if( FD_UNLIKELY( args->failover.force && args->failover.cmd!=(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) ) {
     FD_LOG_ERR(( "--force is only meaningful for `failover promote`" ));
   }
-  if( FD_UNLIKELY( args->failover.yes && args->failover.cmd!=(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) ) {
-    FD_LOG_ERR(( "--yes is only meaningful for `failover handoff`" ));
+  if( FD_UNLIKELY( args->failover.yes && args->failover.cmd!=(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF && !args->failover.force ) ) {
+    FD_LOG_ERR(( "--yes is only meaningful for `failover handoff` and `failover promote --force`" ));
   }
   if( FD_UNLIKELY( args->failover.force && !args->failover.staked_pubkey[ 0 ] ) ) {
     FD_LOG_ERR(( "--force requires --staked-pubkey <base58> naming the identity being taken over" ));
@@ -104,6 +104,7 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_IDENTITY_MISMATCH:
       return "the installed identity does not match the recorded role, stuck stays set: do not promote anything, investigate";
     case FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK: return "the confirmation's final tower is older than the tower the peer streamed, so promotion is refused";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE: return "the peer is reachable, or was until a moment ago, so it is not fenced: use `handoff` or `reclaim` instead";
     case FD_FAILOVER_CONTROL_RESULT_PRECONDITION: return "a handoff pre-check failed, `failover status` names the reason";
     default:                                      return NULL;
   }
@@ -119,6 +120,16 @@ failover_control_fn( args_t *        args,
     char line[ 16 ] = {0};
     if( FD_UNLIKELY( !fgets( line, sizeof(line), stdin ) ) ) FD_LOG_ERR(( "no confirmation given" ));
     if( FD_UNLIKELY( strcmp( line, "yes\n" ) ) ) FD_LOG_ERR(( "not confirmed, nothing was done" ));
+  }
+  /* A forced promotion is an attestation about a machine this validator
+     cannot see, so it asks for the word rather than a yes. */
+  if( FD_UNLIKELY( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE && args->failover.force && !args->failover.yes ) ) {
+    FD_LOG_STDOUT(( "This installs the staked identity here on your word that the peer cannot sign.  A peer that is\n"
+                    "merely unreachable over the network is not fenced and will keep voting.  Only continue if the\n"
+                    "peer has been powered off or otherwise proved unable to sign.  Type fenced to continue: " ));
+    char line[ 16 ] = {0};
+    if( FD_UNLIKELY( !fgets( line, sizeof(line), stdin ) ) ) FD_LOG_ERR(( "no confirmation given" ));
+    if( FD_UNLIKELY( strcmp( line, "fenced\n" ) ) ) FD_LOG_ERR(( "not confirmed, nothing was done" ));
   }
 
   void * payload     = NULL;
@@ -270,11 +281,15 @@ failover_args_help( fd_action_help_t * help ) {
                                                 "running on this host" );
   fd_action_help_arg( help, "--peer", "<idx>",  "Which pool peer to report, in member list order without this\n"
                                                 "machine.  Defaults to 0" );
-  fd_action_help_arg( help, "--yes", NULL,      "Skip the confirmation prompt for `handoff`" );
-  fd_action_help_arg( help, "--force", NULL,    "For `promote`, spell out the identity being taken over with\n"
-                                                "--staked-pubkey, as a check that the command reached the right pool.\n"
-                                                "Promotion still needs the peer's demotion confirmation and still runs\n"
-                                                "the tower checks" );
+  fd_action_help_arg( help, "--yes", NULL,      "Skip the confirmation prompt for `handoff` and `promote --force`" );
+  fd_action_help_arg( help, "--force", NULL,    "For `promote` with no demotion confirmation, attest that the peer has\n"
+                                                "been fenced out of band and name the identity with --staked-pubkey.\n"
+                                                "This machine adopts its own signed tower file and takes the key.  It\n"
+                                                "is refused while the peer is reachable, or was until a moment ago,\n"
+                                                "but a peer that is merely partitioned passes that check and keeps\n"
+                                                "voting, so use it only for a machine that has been powered off or\n"
+                                                "otherwise proved unable to sign.  It never overrides tower\n"
+                                                "recovery or freshness checks" );
   fd_action_help_arg( help, "--staked-pubkey", "<base58>",
                                                 "The identity being taken over, required with --force" );
 }
