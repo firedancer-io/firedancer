@@ -1490,6 +1490,10 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer->notar_cert.block_id = id1;
   fd_bank_t * b2 = add_replayable_block( ctx, b1, 2UL, &id2 );
   FD_TEST( !replay_block_finalize( ctx, test_stem, b2 ) );
+  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+1UL, test_stem_depths[ out_idx ] );
+  FD_TEST( m->sig==REPLAY_SIG_SLOT_COMPLETED );
+  fd_replay_slot_completed_t const * completed = fd_chunk_to_laddr_const( wksp, m->chunk );
+  FD_TEST( completed->footer.has_final_cert && completed->footer.final_cert.slot==1UL && fd_hash_eq( &completed->footer.notar_cert.block_id, &id1 ) );
   expect_rooted( ctx, wksp, seq0+2UL, b1 );
 
   /* A fast final cert names its block, and wins over a slow cert beside it. */
@@ -3503,7 +3507,7 @@ test_dead_block_children_drop( fd_wksp_t * wksp ) {
 
   /* Rule it dead, as replay_block_finalize does on a bad footer. */
   ulong seq_dead = test_stem_seqs[ out_idx ];
-  mark_bank_dead( ctx, test_stem, idx5, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+  mark_bank_dead( ctx, test_stem, idx5, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
   FD_TEST( bank5->state==FD_BANK_STATE_DEAD );
   FD_TEST( test_stem_seqs[ out_idx ]==seq_dead+1UL );
   FD_TEST( replay_out_sig( ctx, seq_dead )==REPLAY_SIG_SLOT_DEAD );
@@ -3591,7 +3595,7 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
     ulong               idx = fd_block_id_ele_get_idx( ctx->block_id_arr, ele );
     fd_bank_t *         b   = fd_banks_bank_query( ctx->banks, idx );
     b->state = FD_BANK_STATE_REPLAYABLE;
-    mark_bank_dead( ctx, test_stem, idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+    mark_bank_dead( ctx, test_stem, idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
     b->refcnt = 0UL;
     fd_banks_prune_cancel_info_t cancel[ 1 ];
     FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
