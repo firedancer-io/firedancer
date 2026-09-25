@@ -96,6 +96,19 @@ exit: (eq (arg 0) 0)
 # snapshot producer: power saving
 #
 # The snapmk tile usually sleeps on a futex to save power, and wakes
-# other power saving tiles (snapsv).
+# other power saving tiles (snapsv).  In the efficient scheduler mode
+# it also parks on its sleep word with FUTEX_WAIT_BITSET when idle.
+#
+# arg 2 of the park is the expected value of the word, always 0
+# (parked).
 futex: (or (eq (arg 1) FUTEX_WAIT)
-           (eq (arg 1) FUTEX_WAKE))
+           (eq (arg 1) FUTEX_WAKE)
+           (and (eq (arg 1) FUTEX_WAIT_BITSET)
+                (eq (arg 2) 0)))
+
+# power saving: resume an interrupted sleep
+#
+# A signal delivered to a parked tile interrupts its futex_wait, and the
+# kernel resumes the wait with the remaining timeout via restart_syscall
+# when the tile next runs.
+restart_syscall

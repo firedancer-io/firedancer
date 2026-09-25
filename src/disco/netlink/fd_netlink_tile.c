@@ -21,6 +21,7 @@
 #include <linux/rtnetlink.h> /* RTM_{...} */
 
 #define FD_SOCKADDR_IN_SZ sizeof(struct sockaddr_in)
+#include <linux/futex.h>
 #include "generated/netlink_seccomp.h"
 
 void

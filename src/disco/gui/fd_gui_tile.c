@@ -14,6 +14,7 @@
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
 
+#include <linux/futex.h>
 #include "generated/fd_gui_tile_seccomp.h"
 
 #include "../../disco/tiles.h"

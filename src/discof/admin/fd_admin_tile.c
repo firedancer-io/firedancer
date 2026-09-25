@@ -4,6 +4,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 
 #include "fd_adminctl.h"
+#include <linux/futex.h>
 #include "generated/fd_admin_tile_seccomp.h"
 
 struct fd_admin_tile_ctx {

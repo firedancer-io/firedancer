@@ -18,6 +18,7 @@
 #include "../../flamenco/events/fd_event_runtime.h"
 
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_execrp_tile_seccomp.h"
 
 /* The exec tile is responsible for executing single transactions.  The

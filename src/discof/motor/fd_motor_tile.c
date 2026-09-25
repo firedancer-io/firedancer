@@ -5,6 +5,7 @@
 #include "../../discof/fd_startup.h"
 #include "../../util/pod/fd_pod.h"
 #include <time.h> /* CLOCK_REALTIME for the startup gate seccomp policy */
+#include <linux/futex.h>
 #include "generated/fd_motor_tile_seccomp.h"
 
 /* The motor tile replaces the poh tile under Alpenglow.

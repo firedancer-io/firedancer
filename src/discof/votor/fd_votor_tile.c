@@ -1,4 +1,5 @@
 #include "fd_votor_tile.h"
+#include <linux/futex.h>
 #include "generated/fd_votor_tile_seccomp.h"
 
 #include "../../choreo/votor/ag_cert_serde.h"
