@@ -2483,7 +2483,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
 
       fd_replay_out_link_t *   exec_out = ctx->exec_out;
       fd_execrp_txn_exec_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      memcpy( exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
+      fd_txn_p_copy( exec_msg->txn, txn_p );
       exec_msg->bank_idx = task->txn_exec->bank_idx;
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
       memcpy( exec_msg->fec_merkle_root, ctx->block_id_arr[ task->txn_exec->bank_idx ].latest_mr.uc, 32UL );
@@ -2504,7 +2504,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
 
       fd_replay_out_link_t *        exec_out = ctx->exec_out;
       fd_execrp_txn_sigverify_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      memcpy( exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
+      fd_txn_p_copy( exec_msg->txn, txn_p );
       exec_msg->bank_idx = task->txn_sigverify->bank_idx;
       exec_msg->txn_idx  = task->txn_sigverify->txn_idx;
       fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
